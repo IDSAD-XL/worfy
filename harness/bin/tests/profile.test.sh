@@ -51,7 +51,7 @@ fi
 T="$(mktemp -d)"
 T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T" /tmp/profile-test-err.$$' EXIT
-mkdir -p "$T/repo" "$T/profiles/demo" "$T/plain" "$T/repo2"
+mkdir -p "$T/repo/sub" "$T/profiles/demo" "$T/plain" "$T/repo2"
 git -C "$T/repo" init -q -b main
 git -C "$T/repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
 git -C "$T/repo" worktree add -q --detach "$T/elsewhere-wt" 2>/dev/null
@@ -70,6 +70,16 @@ check "worktree outside match prefix" 0 "demo" "$PROFILE" -C "$T/elsewhere-wt" -
 check "worktree flagged" 0 "true" "$PROFILE" -C "$T/elsewhere-wt" --field _resolved.in_worktree
 check "root not flagged" 0 "false" "$PROFILE" -C "$T/repo" --field _resolved.in_worktree
 check "unregistered dir -> 3" 3 "" "$PROFILE" -C "$T/plain"
+# -C <каталог> разрешает так, будто profile запущен из <каталога>, независимо от cwd
+check "-C from unregistered cwd" 0 "demo" bash -c "cd '$T/plain' && '$PROFILE' -C '$T/repo' --name"
+check "-C relative to cwd" 0 "demo" bash -c "cd '$T' && '$PROFILE' -C repo/sub --name"
+check "-C overrides registered cwd -> 3" 3 "" bash -c "cd '$T/repo' && '$PROFILE' -C '$T/plain' --name"
+check "-C subdir == cd subdir (--json)" 0 "" bash -c "a=\$(cd '$T/repo/sub' && '$PROFILE' --json) && b=\$(cd / && '$PROFILE' -C '$T/repo/sub' --json) && [ \"\$a\" = \"\$b\" ]"
+check "-C worktree from other cwd" 0 "true" bash -c "cd '$T/plain' && '$PROFILE' -C '$T/elsewhere-wt' --field _resolved.in_worktree"
+check "-C after mode flag" 0 "make test" "$PROFILE" --field commands.test -C "$T/repo"
+check "-C empty -> 2" 2 "" "$PROFILE" -C ""
+check "-C without value -> 2" 2 "" "$PROFILE" -C
+check "-C file, not dir -> 2" 2 "" "$PROFILE" -C "$T/config.json"
 check "registered without profile -> 3" 3 "" "$PROFILE" -C "$T/repo2"
 check "no such dir -> 2" 2 "" "$PROFILE" -C "$T/nope"
 check "unknown flag -> 2" 2 "" "$PROFILE" --bogus
