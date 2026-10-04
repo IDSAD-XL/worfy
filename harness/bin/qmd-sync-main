@@ -1,0 +1,33 @@
+#!/bin/zsh
+# qmd-sync-main — подтягивает git-копию main, которую индексирует qmd (коллекции auction и tickets).
+#
+# Вызывается командой `update` коллекций в ~/.config/qmd/index.yml. Раньше там стоял голый
+# `git fetch … || true`: git брал токен у АКТИВНОГО аккаунта gh, и когда активен рабочий
+# аккаунт, приватный IDSAD-XL/Auction отвечал «Repository not found», а `|| true` превращал
+# это в rc=0. Индекс молча оставался на старом main (39 обновлений из 212 до 2026-09-29).
+#
+# Здесь токен берётся явно у IDSAD-XL, как в ~/.claude/cloud-routines/git-personal.sh, не
+# переключая активный аккаунт gh. Неудача пишется громко и оставляет маркер
+# ~/.cache/qmd/sync-failed (время и причина); удачный проход маркер снимает.
+# Код выхода — 0 в обоих случаях: иначе qmd не обновит остальные коллекции (память, уроки),
+# а сигнал о сбое — маркер и строка в логе, их показывает `qmd-refresh` без --quiet.
+set -u
+
+COPY="${QMD_SYNC_COPY:-$HOME/.cache/qmd/auction-main}"   # переопределение — только для проверки
+MARK="${QMD_SYNC_MARK:-$HOME/.cache/qmd/sync-failed}"
+
+git_personal() {
+  git -c credential.helper= \
+    -c "credential.helper=!f() { echo username=x-access-token; echo password=\$(gh auth token --user IDSAD-XL); }; f" "$@"
+}
+
+if out="$(git_personal -C "$COPY" fetch -q --depth 1 origin main 2>&1)" \
+   && out2="$(git -C "$COPY" checkout -q --detach origin/main 2>&1)"; then
+  rm -f "$MARK"
+  echo "qmd-sync-main: копия на $(git -C "$COPY" rev-parse --short HEAD)"
+else
+  msg="$(date '+%F %T') ${out:-}${out2:-}"
+  print -r -- "$msg" > "$MARK"
+  echo "qmd-sync-main: SYNC FAILED — индекс остаётся на $(git -C "$COPY" rev-parse --short HEAD 2>/dev/null || echo '?'): ${out:-}${out2:-}" >&2
+fi
+exit 0

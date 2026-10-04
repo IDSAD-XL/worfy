@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+# epic-status [эпик] — одна готовая строка «Этап» для блока состояния:
+#   <стадия workflow> · <эпик> <сделано>/<всего> · <ветка> · тикет <NN> [· ждёт NN]
+# Без аргумента — по строке на каждый эпик репозитория.
+#
+# epic-status --json [--ref <ref>] — тот же разбор машиночитаемо, по объекту на тикет.
+#   Без --ref читается рабочее дерево; с --ref — дерево ветки. Обход веток и слияние
+#   их правды — забота epic-board: здесь живёт читатель ОДНОГО дерева и ничего больше.
+#
+# Источник правды: <repo>/.scratch/<эпик>/issues/NN-slug.md.
+# Поля пишут и в шапке, и в подвале тикета, в двух написаниях — «**Status:** done»
+# и «Status: done», — поэтому берётся ПОСЛЕДНЕЕ вхождение по всему файлу.
+#
+# Разбор целиком лежит в одной программе awk ниже — не из любви к awk, а потому что
+# читателей формата должно быть ровно столько же, сколько форматов. Человеческая
+# строка и --json питаются одними и теми же строками TSV.
+set -u
+
+export LC_CTYPE=${LC_CTYPE:-${LANG:-en_US.UTF-8}}
+
+JSON=0; JSON_REF=''
+while [ $# -gt 0 ]; do
+  case $1 in
+    --json) JSON=1; shift ;;
+    --ref)  [ $# -ge 2 ] || { echo 'epic-status: --ref без значения' >&2; exit 2; }
+            JSON_REF=$2; shift 2 ;;
+    --)     shift; break ;;
+    *)      break ;;
+  esac
+done
+[ "$JSON" = 1 ] || [ -z "$JSON_REF" ] || { echo 'epic-status: --ref только вместе с --json' >&2; exit 2; }
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$PWD
+scratch=$root/.scratch
+
+# Состояние тикетов лежит в ветке (.scratch отслеживается гитом), а деревьев у
+# репозитория несколько — без имени ветки строка «Этап» неоднозначна.
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+[ "$branch" = HEAD ] && branch=$(git rev-parse --short HEAD 2>/dev/null)
+where=''  # ветка идёт в строку только для одного эпика; в общем списке — заголовком
+
+# ── разбор ────────────────────────────────────────────────────────────────────
+# Один проход awk по всем тикетам дерева. На выходе TSV, по строке на тикет:
+#   epic  num  slug  title  statusRaw  state  blockedRaw  blockedNums  blockedParsed
+# Разделитель — \037, а не таб: таб для bash пробельный, и пустое поле в read схлопнулось бы.
+# Строковые поля приходят уже экранированными для JSON.
+read -r -d '' AWK_ROWS <<'AWK' || true
+function isdone(w) { return w ~ /^(done|Done|DONE|resolved|Resolved|closed|Closed|выкачено|Выкачено|выкачена|Выкачена|выкачен|Выкачен)$/ }
+function iswork(w) { return w ~ /^(claimed|Claimed|in-progress|In-progress|ready-for-agent)$/ }
+function isblok(w) { return w ~ /^(blocked|Blocked|заблокирован|Заблокирован)$/ }
+# Слова, которыми пишут «блокировок нет». Пустой список номеров и «не понял» —
+# разные вещи, и различает их blockedParsed, а не длина списка.
+function isnone(x) { return x ~ /^([Nn]one|NONE|нет|Нет|нету|Нету|ничего|Ничего|нечего|Нечего|n\/a|N\/A|-|—|–)$/ }
+# Управляющие символы вычищаются ВСЕГДА: сырыми они рвут и TSV, и JSON.
+function clean(x)  { gsub(/[\001-\037\177]/," ",x); return x }
+# JSON-экранирование только в json-режиме. Раньше оно шло и в TSV, а TSV читает
+# человеческая строка — и заголовок с кавычкой печатался как Тест \"кавычка\".
+function esc(x)    { x=clean(x); gsub(/\\/,"\\\\",x); gsub(/"/,"\\\"",x); return x }
+function jstr(x)   { return "\"" esc(x) "\"" }
+
+function emit(  w,st,v,hd,cnt,arr,i,tok,n,okall,bn,bp) {
+  if (file == "" || !ok) { file=""; return }
+  w = status; gsub(/\*/,"",w); sub(/^[ \t]+/,"",w); sub(/[ \t].*$/,"",w); gsub(/[.,;:()]/,"",w)
+  if      (status == "") st="none"
+  else if (isdone(w))    st="done"
+  else if (iswork(w))    st="work"
+  else if (isblok(w))    st="blocked"
+  else                   st="open"
+
+  bn=""; bp=0
+  if (blocked != "") {
+    v = blocked; gsub(/\*/,"",v); sub(/^[ \t]+/,"",v); sub(/[ \t.]+$/,"",v)
+    # «None — can start immediately» — всё ещё «нет блокировок»: отрицание в голове
+    # значения, дальше пояснение. Голова — до первого тире, скобки, точки или запятой.
+    hd = v; sub(/[ \t]*(—|–|\(|\.|,|-).*$/,"",hd); sub(/[ \t]+$/,"",hd)
+    if (isnone(v) || isnone(hd)) { bp=1 }
+    else {
+      # Разделители: запятая, точка с запятой и союз «и». Только по запятой
+      # «Blocked by: 01 и 02» был ОДНИМ элементом с ведущей цифрой — разбор
+      # объявлялся удачным, второй блокер терялся молча, и тикет выходил
+      # разблокированным. Тихо неверный ответ хуже отказа разобрать.
+      gsub(/[;]|[ \t]+и[ \t]+/,",",v)
+      okall=1; cnt=split(v,arr,",")
+      for (i=1;i<=cnt;i++) {
+        tok=arr[i]; sub(/^[ \t]+/,"",tok)
+        if (tok == "") continue
+        # Блокер — ведущие цифры элемента списка: «08 — все перекладки» считается,
+        # «Пакет юристу» — нет и рвёт разбор всего значения.
+        if (tok ~ /^[0-9]+/) { n=tok; sub(/[^0-9].*$/,"",n); bn = bn (bn==""?"":",") (n+0) }
+        else okall=0
+      }
+      bp = (okall && bn != "") ? 1 : 0
+    }
+  }
+  if (mode == "json") {
+    printf "%s{\"epic\":%s,\"num\":%d,\"slug\":%s,\"title\":%s,\"statusRaw\":%s,\"state\":\"%s\",\"blockedRaw\":%s,\"blockedNums\":[%s],\"blockedParsed\":%s,\"ref\":%s}",
+      (nemit++ ? "," : ""), jstr(epic), num+0, jstr(slug), jstr(title),
+      (status == "" ? "null" : jstr(status)), st,
+      (blocked == "" ? "null" : jstr(blocked)), (bp ? bn : ""), (bp ? "true" : "false"), jstr(ref)
+  } else {
+    printf "%s\037%d\037%s\037%s\037%s\037%s\037%s\037%s\037%d\n", clean(epic), num+0, clean(slug), clean(title), clean(status), st, clean(blocked), bn, bp
+  }
+  file=""
+}
+
+FNR==1 {
+  emit()
+  file=FILENAME; title=""; status=""; blocked=""; fence=0
+  base=file; sub(/.*\//,"",base)
+  epic=file; sub(/\/issues\/[^\/]*$/,"",epic); sub(/.*\//,"",epic)
+  num=base;  sub(/-.*/,"",num)
+  slug=base; sub(/\.md$/,"",slug); sub(/^[^-]*-/,"",slug)
+  ok = (num ~ /^[0-9]+$/)   # файл без ведущего номера тикетом не считается
+  if (slug == base) slug=num
+  l=$0; sub(/\r$/,"",l)
+  if (l ~ /^#[ \t]*/) { t=l; sub(/^#[ \t]*/,"",t); title=t }
+}
+{
+  l=$0; sub(/\r$/,"",l)
+  if (l ~ /^[ \t]*(```|~~~)/) { fence = !fence; next }
+  if (fence) next   # «Status: done» в примере кода — не поле тикета
+  low=tolower(l)
+  if      (low ~ /^\*?\*?status[ \t]*\*?\*?[ \t]*:/)     { v=l; sub(/^\*?\*?[^:]*:\*?\*?[ \t]*/,"",v); status=v }
+  else if (low ~ /^\*?\*?blocked by[ \t]*\*?\*?[ \t]*:/) { v=l; sub(/^\*?\*?[^:]*:\*?\*?[ \t]*/,"",v); blocked=v }
+}
+END { emit() }
+AWK
+
+rows() {  # <каталог .scratch> [эпик] [mode] [ref] → TSV или JSON-объекты
+  local sc=$1 only=${2:-} mode=${3:-tsv} ref=${4:-} f n=0 rc
+  [ -d "$sc" ] || return 0
+  # Кавычки вокруг $sc обязательны: без них пробел в пути репозитория рвал glob
+  # на слова, и все тикеты исчезали молча — «тикетов нет» при живом каталоге.
+  if [ -n "$only" ]; then set -- "$sc/$only/issues"/*.md; else set -- "$sc"/*/issues/*.md; fi
+  for f; do [ -f "$f" ] && n=$((n + 1)); done
+  [ "$n" -gt 0 ] || return 0
+  # NUL-разделённый список: имя файла с переводом строки не рвёт разбор, а xargs
+  # спасает от ARG_MAX на объединении веток.
+  { for f; do [ -f "$f" ] && printf '%s\0' "$f"; done; } \
+    | xargs -0 awk -v mode="$mode" -v ref="$ref" "$AWK_ROWS"
+  rc=$?
+  [ "$rc" = 0 ] || { echo "epic-status: разбор упал (код $rc)" >&2; return "$rc"; }
+}
+
+[ "$JSON" = 1 ] || [ -d "$scratch" ] || { echo "вне тикетов (нет $scratch)"; exit 0; }
+
+# ── человеческая строка ───────────────────────────────────────────────────────
+line_for() {
+  local dir=$1 epic=${1##*/}
+  local total=0 ndone=0 working=0 nostatus=0 curnum='' curtitle='' curstate='' curbn=''
+  local n num slug title sraw st braw bn bp
+  local states='' line
+
+  while IFS=$'\037' read -r n num slug title sraw st braw bn bp; do
+    [ -n "$n" ] || continue
+    total=$((total + 1))
+    states="$states $num:$st"
+    case $st in
+      done) ndone=$((ndone + 1)); continue ;;
+      work|blocked) working=1 ;;
+      none) nostatus=$((nostatus + 1)) ;;
+    esac
+    [ -z "$curnum" ] && { curnum=$num; curtitle=$title; curstate=$st; curbn=$bn; }
+  done < <(rows "${dir%/*}" "$epic")
+
+  local stage
+  if [ "$total" -eq 0 ]; then
+    if   [ -f "$dir/spec.md" ]; then stage='/to-spec'
+    elif [ -f "$dir/map.md" ];  then stage='/wayfinder'
+    else stage='—'; fi
+    printf '%s · %s%s — тикетов нет\n' "$stage" "$epic" "$where"
+    return
+  fi
+
+  if   [ "$ndone" -eq "$total" ];                  then stage='закрыт'
+  elif [ "$working" -eq 1 ] || [ "$ndone" -gt 0 ]; then stage='/implement'
+  else                                                  stage='/to-tickets'; fi
+
+  printf '%s · %s %d/%d%s' "$stage" "$epic" "$ndone" "$total" "$where"
+
+  if [ -n "$curnum" ]; then
+    local cur pad waiting='' tok bst
+    cur=$curtitle
+    pad=$(printf '%02d' "$curnum")
+    case $cur in "$pad"*|"$curnum"*) ;; *) cur="$pad — $cur" ;; esac
+    printf ' · тикет %s' "$cur"
+
+    local IFS=','
+    for tok in $curbn; do
+      unset IFS
+      bst=''
+      case " $states " in *" $tok:"*) bst=${states##* $tok:}; bst=${bst%% *} ;; esac
+      [ -n "$bst" ] && [ "$bst" != done ] && waiting="$waiting $(printf '%02d' "$tok")"
+      local IFS=','
+    done
+    unset IFS
+    [ -n "$waiting" ] && printf ' · ждёт%s' "$waiting"
+    [ "$curstate" = blocked ] && printf ' · заблокирован'
+  fi
+
+  [ "$nostatus" -gt 0 ] && printf ' · %d без Status' "$nostatus"
+  printf '\n'
+}
+
+# ── машиночитаемый срез ───────────────────────────────────────────────────────
+jstr() {  # только для метки ref; поля тикетов экранирует awk
+  printf '"%s"' "$(printf '%s' "${1:-}" | tr -d '\r\n' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
+}
+
+json_dump() {  # <каталог .scratch> <метка ref>
+  local sc=$1 ref=$2 first d epic
+  printf '{"ref":%s,"epics":[' "$(jstr "$ref")"
+  first=1
+  for d in "$sc"/*/; do
+    [ -d "$d" ] || continue
+    epic=${d%/}; epic=${epic##*/}
+    [ "$first" = 1 ] || printf ','; first=0
+    printf '{"epic":%s,"hasSpec":%s,"hasMap":%s}' "$(jstr "$epic")" \
+      "$([ -f "${d}spec.md" ] && printf true || printf false)" \
+      "$([ -f "${d}map.md" ]  && printf true || printf false)"
+  done
+  printf '],"tickets":['
+  rows "$sc" '' json "$ref" || return 1
+  printf ']}\n'
+}
+
+if [ "$JSON" = 1 ]; then
+  src=$scratch
+  if [ -n "$JSON_REF" ]; then
+    # Одна распаковка на ветку вместо git show на каждый файл.
+    tmp=$(mktemp -d) || exit 1
+    trap 'rm -rf "$tmp"' EXIT INT TERM   # без INT/TERM каталог переживал прерывание
+    # Молчащий провал здесь неотличим от «в ветке нет тикетов», а это разные ответы:
+    # первый — сломанный инструмент, второй — факт о ветке.
+    # Через конвейер код возврата git archive теряется: tar на пустом входе успешен,
+    # и сломанный ref выглядел бы как «ветка без тикетов».
+    if ! git archive "$JSON_REF" .scratch > "$tmp/tree.tar" 2>/dev/null; then
+      if ! git rev-parse --verify --quiet "$JSON_REF^{commit}" >/dev/null 2>&1; then
+        echo "epic-status: нет такого ref: $JSON_REF" >&2; exit 3
+      fi
+      : # ref есть, .scratch в нём нет — законный пустой ответ
+    else
+      tar -x -C "$tmp" -f "$tmp/tree.tar" 2>/dev/null || {
+        echo "epic-status: не удалось распаковать дерево $JSON_REF" >&2; exit 3; }
+    fi
+    rm -f "$tmp/tree.tar"
+    src=$tmp/.scratch
+  fi
+  json_dump "$src" "${JSON_REF:-${branch:-.}}" || exit 1
+  exit 0
+fi
+
+if [ $# -gt 0 ]; then
+  where=${branch:+ · $branch}
+  epic=$1; epic=${epic%%/}; epic=${epic##*/}
+  [ -d "$scratch/$epic" ] || { echo "нет эпика «${epic}» в ${scratch}"; exit 1; }
+  line_for "$scratch/$epic"
+else
+  [ -n "$branch" ] && echo "${branch}:"
+  for d in "$scratch"/*/; do [ -d "$d" ] && line_for "${d%/}"; done
+fi
