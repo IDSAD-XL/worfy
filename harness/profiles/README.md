@@ -1,0 +1,119 @@
+# Профили проектов
+
+Профиль — всё, что отличает один проект от другого для общих агентов и скиллов: команды,
+пути, режим параллельной работы, деплой, линзы ревью и аудита. Агенты `scout`, `implementer`,
+`reviewer` (`~/.claude/agents/`) одинаковы для всех проектов; первым делом они запускают
+`~/.claude/bin/profile` и дальше следуют тому, что он напечатал.
+
+Этот файл — контракт. Скилл, хук или агент, которому нужен проектный факт, читает его из
+профиля по полю, описанному здесь, а не держит у себя.
+
+## Где лежит
+
+```
+~/.claude/profiles/<имя>/
+  profile.json   машиночитаемые факты (схема ниже)
+  rules.md       проза для агентов: факты, которые не умещаются в поле
+  lessons/       необязательно: уроки, если проект держит их вне репозитория (lessons: "profile")
+```
+
+Не `~/.claude/projects/` — там транскрипты Claude Code.
+
+## Как профиль находится
+
+Реестр один — `~/.claude/gate/config.json`. У записи проекта есть поле `"profile": "<имя>"`.
+Второго реестра путей нет.
+
+`~/.claude/bin/profile` делает то же, что `hooks/gate.sh`:
+1. каталог → `git rev-parse --git-common-dir` → канонический корень основного репозитория
+   (так worktree в любом месте диска опознаётся по своему репозиторию);
+2. `hooks/gate-resolve.mjs --which <корень>` — самый длинный префикс `match` в реестре;
+3. поле `profile` найденной записи → `~/.claude/profiles/<имя>/profile.json`.
+
+Несколько записей реестра (например, три репозитория одного продукта) могут называть один профиль.
+
+```
+profile                    сводка: имя, пути, profile.json и rules.md — это читают агенты
+profile --json             profile.json + блок _resolved
+profile --field a.b.c      одно поле; строка печатается как есть, остальное — JSON
+profile --rules            только rules.md
+profile --dir | --name     каталог или имя профиля
+profile -C <каталог> ...   разрешать не текущий каталог
+```
+
+`_resolved` (вычисляется, в файле не хранится): `name`, `dir`, `gate_key`, `repo_root`,
+`checkout` (корень текущего рабочего дерева), `in_worktree` (true, если checkout — не основной).
+
+Коды выхода: `0` найден; `2` ошибка вызова; `3` каталог вне зарегистрированных проектов, у записи
+нет поля `profile` или нет файла профиля (сообщение одной строкой в stderr); `4` поля нет
+(`--field`); `1` сломан реестр, резолвер или `profile.json`.
+
+Переменные для тестов: `CLAUDE_GATE_CONFIG`, `CLAUDE_GATE_RESOLVE`, `CLAUDE_PROFILES_DIR`.
+Тесты: `bash ~/.claude/bin/tests/profile.test.sh`.
+
+## profile.json
+
+Поле, которого в проекте нет, — `null` или отсутствует; агент тогда пропускает шаг, а не
+угадывает. Команды записываются так, как проект их действительно запускает.
+
+| Поле | Тип | Что значит | Кто читает |
+|---|---|---|---|
+| `schema` | число | версия формата, сейчас `1` | все |
+| `name` | строка | имя профиля = имя каталога | все |
+| `title` | строка | человеческое имя проекта | отчёты |
+| `language` | `"ru"` \| `"en"` | язык отчётов агентов, тикетов, комментариев к PR | агенты |
+| `layout.summary` | строка | раскладка кода одной фразой (пакеты, репозитории) | scout |
+| `layout.packages` | строки | каталоги пакетов или репозиториев | scout, аудит |
+| `stack` | строки | стек — факты, а не пожелания | все агенты |
+| `commands.install` | строка | установка зависимостей в свежем дереве | implementer, reviewer |
+| `commands.lint` / `typecheck` / `test` / `build` | строка | как проект их запускает из корня | все |
+| `commands.test_one` | строка | прицельный запуск одного теста, с плейсхолдером `<файл>` | implementer, reviewer |
+| `commands.contract` / `e2e` | строка \| null | наборы, которые не входят в `test` | implementer, reviewer |
+| `commands.verify` | строка | полная локальная проверка одной строкой; агенты дописывают `; echo "КОД=$?"` | implementer, reviewer |
+| `commands.prepare_tree` | строка | что сделать в только что созданном worktree, прежде чем гонять проверки | оркестратор, reviewer |
+| `commands.requires` | строки | что должно быть поднято (Docker, база, стек) | implementer, reviewer |
+| `parallel` | `"worktrees"` \| `"single"` | `worktrees` — несколько исполнителей, каждый в своём worktree; `single` — один исполнитель, работа в основном checkout, без worktree | все агенты, epic-wave |
+| `worktree.root` | путь \| null | где создаются рабочие деревья | implementer, reviewer, оркестратор |
+| `worktree.base` | строка | от чего ветвиться (`origin/main`, `origin/master`) | implementer |
+| `worktree.implementer` / `reviewer` | строка | готовая команда `git worktree add` с плейсхолдерами | implementer, reviewer |
+| `tickets.path` | шаблон пути | где лежит тикет | implementer, epic-wave |
+| `tickets.trail_section` | строка | раздел тикета со списком файлов, которые можно править | implementer |
+| `tickets.status_tool` | путь | чем двигать статус тикета | оркестратор |
+| `workflow.ticket_skill` | строка \| null | скилл, по которому идёт тикет | implementer |
+| `workflow.implementer_steps` | строка | какие шаги скилла делает исполнитель | implementer |
+| `workflow.finish` | `"pr-green-ci"` \| `"local-green"` | докуда доводит исполнитель: PR с зелёным CI или локально зелёные проверки | implementer |
+| `workflow.merge` | `"orchestrator"` | кто мержит | implementer, epic-wave |
+| `numbering.reserve_with` | строка \| null | чем занимать номера до содержания | оркестратор |
+| `numbering.adr` | `{dir, check}` \| null | каталог ADR и проверка уникальности номеров | оркестратор, reviewer |
+| `numbering.migrations` | `{generate, journal, order_key, check}` \| null | как создаются миграции и что задаёт их порядок | implementer, reviewer |
+| `deploy` | объект \| null | `how` — как деплоится; `ci_run_check` — команда проверки CI run по коммиту; `production_check` + `production_expect` — запрос к живому адресу и ожидаемый ответ; `smoke`, `auth` — пояснения. `null` — проект не деплоится | оркестратор, ship-ticket, epic-wave |
+| `serial_merge.paths` | строки | PR, трогающие эти пути, мержатся по одному | epic-wave |
+| `serial_merge.rule` | строка | когда можно мержить следующий | epic-wave |
+| `docs.context` | `{path, vocabulary_section, decided_in}` \| null | словарь терминов проекта | все агенты |
+| `docs.handoff` | `{path, kind, check}` \| null | файл состояния проекта и проверка его формы | оркестратор; implementer его не правит |
+| `docs.adr_dir` | путь \| null | каталог ADR; implementer его не правит | implementer, reviewer |
+| `lessons` | `"repo:<путь>"` \| `"profile"` | куда пишутся уроки: в репозиторий или в `lessons/` профиля | retro, ship-ticket |
+| `qmd.collections` | строки | коллекции `qmd`, покрывающие проект; пусто — `qmd` не спрашивать | все агенты |
+| `qmd.covers` | строка | что в них лежит | все агенты |
+| `qmd.fallback_grep` | строки | где искать `grep`ом, если `qmd` молчит | scout |
+| `review.lenses` | строки | линзы ревью проекта; оркестратор даёт каждому reviewer одну | оркестратор |
+| `dev_stack` | `{check, web_port}` \| null | как убедиться, что локальный стек поднят | continuous-audit `--live` |
+| `audit_lenses` | `[{id, title, where[], finding}]` | линзы continuous-audit: где смотреть и что считается находкой | continuous-audit |
+
+Секреты в профиль не пишутся: ни значения переменных окружения, ни пароли, ни адреса закрытых баз.
+Профиль называет переменную (`$API_URL`), а не её значение.
+
+## rules.md
+
+Проза, которую агент читает целиком (`profile` без флагов печатает её после JSON). Сюда идут факты,
+которые нельзя выразить полем: ловушки инструментов («`pnpm test -- <файл>` не фильтрует»),
+обязательные шаги («после правки `packages/shared` — сборка»), запреты проекта. Общих правил работы
+здесь нет — они в агентах. В конце — раздел `## Источники`: откуда взят каждый факт (файл и строка),
+чтобы при расхождении было видно, что проверять.
+
+## Новый проект
+
+1. Запись в `gate/config.json` (`key`, `match`, `pm`, скрипты gate) и поле `"profile": "<имя>"`.
+2. `profiles/<имя>/profile.json` по таблице выше; поля, которых нет, — `null`.
+3. `profiles/<имя>/rules.md` с разделом `## Источники`.
+4. Проверка: `~/.claude/bin/profile -C <корень проекта>` печатает профиль, код выхода 0.
