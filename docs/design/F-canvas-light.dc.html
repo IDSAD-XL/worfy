@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>F · Light — Canvas</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#F7F7F9}
+a{color:#0062CC;text-decoration:none}a:hover{color:#004FA3}
+</style>
+</helmet>
+<div style="width:100%;min-height:900px;box-sizing:border-box;display:flex;flex-wrap:wrap;background:#F7F7F9;color:#1D1D1F;border:1px solid #CFCFD4;border-radius:10px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;line-height:17px;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;">
+
+  <!-- ============ SIDEBAR ============ -->
+  <nav aria-label="Sidebar" style="flex:1 1 240px;max-width:260px;min-height:898px;box-sizing:border-box;background:#E9E9EC;border-right:1px solid #DCDCE0;display:flex;flex-direction:column;padding:0 8px 8px;">
+    <div style="height:52px;display:flex;align-items:center;gap:8px;padding-left:10px;">
+      <span aria-hidden="true" style="width:12px;height:12px;border-radius:6px;background:#FF5F57;display:inline-block;"></span>
+      <span aria-hidden="true" style="width:12px;height:12px;border-radius:6px;background:#FEBC2E;display:inline-block;"></span>
+      <span aria-hidden="true" style="width:12px;height:12px;border-radius:6px;background:#28C840;display:inline-block;"></span>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;height:24px;padding:0 4px 0 8px;">
+      <span style="font-size:11px;line-height:14px;font-weight:600;color:#636366;">Projects</span>
+      <button type="button" aria-label="Add project" style="width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:#636366;padding:0;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"></path></svg></button>
+    </div>
+
+    <a href="#" style="display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:6px;color:#1D1D1F;">
+      <span style="color:#636366;display:inline-flex;"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"></path></svg></span>
+      <span style="color:#0062CC;display:inline-flex;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 1.5h4.5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z"></path></svg></span>
+      <span style="flex:1;font-weight:600;">auction</span>
+      <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;color:#636366;">main</span>
+    </a>
+
+    <div style="margin:2px 0 4px 15px;padding-left:9px;border-left:1px solid #CFCFD4;">
+      <div style="display:flex;align-items:center;justify-content:space-between;height:24px;padding:0 6px;">
+        <span style="font-size:11px;line-height:14px;font-weight:600;color:#636366;">Epics</span>
+        <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;color:#636366;">3</span>
+      </div>
+
+      <a href="#" aria-current="page" style="display:block;padding:5px 6px 6px;border-radius:6px;background:#E1ECFB;color:#1D1D1F;">
+        <span style="display:block;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;line-height:16px;font-weight:600;">audit-2026-09-19</span>
+        <span style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+          <span role="img" aria-label="6 of 12 done, 1 working, 1 blocked" style="display:inline-flex;gap:2px;">
+            <span style="width:5px;height:6px;border-radius:1px;background:#636366;display:block;"></span><span style="width:5px;height:6px;border-radius:1px;background:#636366;display:block;"></span><span style="width:5px;height:6px;border-radius:1px;background:#636366;display:block;"></span><span style="width:5px;height:6px;border-radius:1px;background:#636366;display:block;"></span><span style="width:5px;height:6px;border-radius:1px;background:#636366;display:block;"></span><span style="width:5px;height:6px;border-radius:1px;background:#636366;display:block;"></span><span style="width:5px;height:6px;border-radius:1px;background:#0071E3;display:block;"></span><span style="width:5px;height:6px;border-radius:1px;background:#FF9F0A;display:block;"></span><span style="width:5px;height:6px;border-radius:1px;box-sizing:border-box;border:1px solid #CFCFD4;background:#FFFFFF;display:block;"></span><span style="width:5px;height:6px;border-radius:1px;box-sizing:border-box;border:1px solid #CFCFD4;background:#FFFFFF;display:block;"></span><span style="width:5px;height:6px;border-radius:1px;box-sizing:border-box;border:1px solid #CFCFD4;background:#FFFFFF;display:block;"></span><span style="width:5px;height:6px;border-radius:1px;box-sizing:border-box;border:1px solid #CFCFD4;background:#FFFFFF;display:block;"></span>
+          </span>
+          <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;color:#48484A;">6/12</span>
+          <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:500;color:#0062CC;"><span style="width:6px;height:6px;border-radius:3px;background:#0071E3;display:inline-block;"></span>1 working</span>
+        </span>
+      </a>
+
+      <a href="#" style="display:flex;align-items:center;gap:6px;height:28px;padding:0 6px;border-radius:6px;color:#1D1D1F;">
+        <span style="flex:1;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;">lot-withdrawal</span>
+        <span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;color:#636366;"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>done</span>
+      </a>
+
+      <a href="#" style="display:flex;align-items:center;gap:6px;height:28px;padding:0 6px;border-radius:6px;color:#1D1D1F;">
+        <span style="flex:1;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;">payments-v2</span>
+        <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;color:#636366;">3/9</span>
+      </a>
+
+      <div style="height:4px;"></div>
+
+      <a href="#" style="display:flex;align-items:center;gap:8px;height:28px;padding:0 6px;border-radius:6px;color:#1D1D1F;">
+        <span style="color:#636366;display:inline-flex;"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4a1.5 1.5 0 0 1 1.5-1.5h8A1.5 1.5 0 0 1 13.5 4v5.5A1.5 1.5 0 0 1 12 11H7l-3 2.5V11a1.5 1.5 0 0 1-1.5-1.5z"></path></svg></span>
+        <span style="flex:1;">Sessions</span>
+        <span style="display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;border-radius:4px;background:#E4F4EC;color:#146B4B;font-size:12px;font-weight:500;"><span style="width:6px;height:6px;border-radius:3px;background:#30B07E;display:inline-block;"></span><span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;">3</span> live</span>
+      </a>
+
+      <a href="#" style="display:flex;align-items:center;gap:8px;height:28px;padding:0 6px;border-radius:6px;color:#1D1D1F;">
+        <span style="color:#636366;display:inline-flex;"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3h4A1.5 1.5 0 0 1 8 4.5v9A1.5 1.5 0 0 0 6.5 12h-4zM13.5 3h-4A1.5 1.5 0 0 0 8 4.5v9a1.5 1.5 0 0 1 1.5-1.5h4z"></path></svg></span>
+        <span style="flex:1;">ADR</span>
+        <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;color:#636366;">120</span>
+      </a>
+    </div>
+
+    <a href="#" style="display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:6px;color:#1D1D1F;">
+      <span style="color:#636366;display:inline-flex;"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"></path></svg></span>
+      <span style="color:#636366;display:inline-flex;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 1.5h4.5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z"></path></svg></span>
+      <span style="flex:1;">worfy</span>
+    </a>
+    <a href="#" style="display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:6px;color:#1D1D1F;">
+      <span style="color:#636366;display:inline-flex;"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"></path></svg></span>
+      <span style="color:#636366;display:inline-flex;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 1.5h4.5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z"></path></svg></span>
+      <span style="flex:1;">atakama</span>
+    </a>
+
+    <div style="flex:1;"></div>
+
+    <div style="border-top:1px solid #DCDCE0;padding-top:8px;">
+      <a href="#" style="display:flex;align-items:center;gap:8px;height:28px;padding:0 8px;border-radius:6px;color:#1D1D1F;">
+        <span style="color:#636366;display:inline-flex;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="2.2"></circle><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1"></path></svg></span>
+        <span style="flex:1;">Settings</span>
+        <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;color:#636366;">⌘,</span>
+      </a>
+    </div>
+  </nav>
+
+  <!-- ============ MAIN ============ -->
+  <main style="flex:999 1 560px;min-width:0;display:flex;flex-direction:column;">
+
+    <!-- Unified toolbar -->
+    <header style="height:52px;box-sizing:border-box;display:flex;align-items:center;gap:12px;padding:0 12px 0 8px;background:#F2F2F5;border-bottom:1px solid #DCDCE0;">
+      <button type="button" aria-label="Toggle sidebar" style="width:28px;height:28px;flex:none;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:#48484A;padding:0;"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"></rect><path d="M6 2.75v10.5"></path></svg></button>
+
+      <div style="display:flex;flex-direction:column;min-width:0;flex:none;">
+        <span style="font-size:13px;line-height:16px;font-weight:600;white-space:nowrap;">worfy — auction</span>
+        <span style="font-size:11px;line-height:14px;color:#636366;display:flex;align-items:center;gap:4px;white-space:nowrap;"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="3.5" r="1.5"></circle><circle cx="5" cy="12.5" r="1.5"></circle><circle cx="11" cy="5" r="1.5"></circle><path d="M5 5v6M11 6.5c0 2.5-6 2-6 4.5"></path></svg>auction · <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;">main</span></span>
+      </div>
+
+      <div role="group" aria-label="View" style="display:inline-flex;flex:none;padding:2px;gap:2px;background:#E2E2E6;border-radius:8px;">
+        <button type="button" aria-pressed="true" style="display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 12px 0 10px;border:0;border-radius:6px;background:#FFFFFF;color:#1D1D1F;font:inherit;font-size:12px;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.12),0 0 0 1px rgba(0,0,0,.04);"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1"></rect><rect x="9" y="2" width="5" height="5" rx="1"></rect><rect x="2" y="9" width="5" height="5" rx="1"></rect><rect x="9" y="9" width="5" height="5" rx="1"></rect></svg>Canvas</button>
+        <button type="button" aria-pressed="false" style="display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 12px 0 10px;border:0;border-radius:6px;background:transparent;color:#48484A;font:inherit;font-size:12px;font-weight:500;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4a1.5 1.5 0 0 1 1.5-1.5h8A1.5 1.5 0 0 1 13.5 4v5.5A1.5 1.5 0 0 1 12 11H7l-3 2.5V11a1.5 1.5 0 0 1-1.5-1.5z"></path></svg>Session</button>
+      </div>
+
+      <div style="flex:1;min-width:8px;"></div>
+
+      <div role="group" aria-label="Limits" style="display:flex;align-items:center;gap:12px;flex:none;">
+        <span style="font-size:11px;font-weight:600;color:#636366;">Limits</span>
+        <div style="display:flex;flex-direction:column;gap:3px;width:104px;">
+          <div style="display:flex;justify-content:space-between;font-size:11px;line-height:13px;"><span style="color:#48484A;">5-hour</span><span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-weight:600;">62%</span></div>
+          <div role="meter" aria-label="5-hour limit" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100" style="height:4px;border-radius:2px;background:#E2E2E6;overflow:hidden;"><div style="width:62%;height:4px;background:#48484A;"></div></div>
+          <div style="font-size:11px;line-height:13px;color:#636366;">resets <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;">14:20</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px;width:104px;">
+          <div style="display:flex;justify-content:space-between;font-size:11px;line-height:13px;"><span style="color:#48484A;">7-day</span><span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-weight:600;">38%</span></div>
+          <div role="meter" aria-label="7-day limit" aria-valuenow="38" aria-valuemin="0" aria-valuemax="100" style="height:4px;border-radius:2px;background:#E2E2E6;overflow:hidden;"><div style="width:38%;height:4px;background:#48484A;"></div></div>
+          <div style="font-size:11px;line-height:13px;color:#636366;">resets <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;">Thu 09:00</span></div>
+        </div>
+      </div>
+
+      <span aria-hidden="true" style="width:1px;height:24px;flex:none;background:#DCDCE0;"></span>
+
+      <div style="display:flex;align-items:center;gap:6px;flex:none;">
+        <span style="font-size:11px;font-weight:600;color:#636366;">Gate</span>
+        <span style="display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 6px;border-radius:4px;background:#E4F4EC;color:#146B4B;font-size:12px;font-weight:500;"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>green</span>
+      </div>
+
+      <button type="button" aria-label="Appearance: Light. Switch to Dark" style="width:28px;height:28px;flex:none;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:#48484A;padding:0;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="3"></circle><path d="M8 1.5V3M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"></path></svg></button>
+
+      <button type="button" aria-label="Open command palette" style="display:inline-flex;flex:none;align-items:center;gap:6px;width:152px;height:28px;box-sizing:border-box;padding:0 4px 0 8px;border:1px solid #E2E2E6;border-radius:6px;background:#FFFFFF;color:#636366;font:inherit;font-size:12px;">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="4.25"></circle><path d="M10.2 10.2l3.3 3.3"></path></svg>
+        <span style="flex:1;text-align:left;">Search or run…</span>
+        <kbd style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;line-height:16px;padding:0 4px;border-radius:4px;background:#F2F2F5;border:1px solid #E2E2E6;color:#48484A;">⌘K</kbd>
+      </button>
+
+      <button type="button" style="display:inline-flex;flex:none;align-items:center;gap:6px;height:28px;padding:0 12px 0 10px;border:0;border-radius:6px;background:#0071E3;color:#FFFFFF;font:inherit;font-size:13px;font-weight:600;white-space:nowrap;box-shadow:0 1px 2px rgba(0,60,140,.25);"><svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4.5 2.8v10.4L13 8z"></path></svg>Run wave</button>
+    </header>
+
+    <!-- Canvas viewport -->
+    <div role="region" aria-label="Canvas, zoom 85%" style="position:relative;height:846px;overflow:hidden;background-color:#F7F7F9;background-image:radial-gradient(circle,#D0D0D6 1px,transparent 1.4px);background-size:16px 16px;background-position:8px 8px;">
+
+      <!-- subagent tree lines -->
+      <svg width="1180" height="420" viewBox="0 0 1180 420" fill="none" aria-hidden="true" style="position:absolute;left:0;top:0;">
+        <path d="M820 232 V390" stroke="#AEAEB2" stroke-width="1"></path>
+        <path d="M820 276 H836" stroke="#0071E3" stroke-width="1"></path>
+        <path d="M820 340 H836" stroke="#AEAEB2" stroke-width="1"></path>
+        <path d="M820 390 H836" stroke="#AEAEB2" stroke-width="1"></path>
+        <circle cx="820" cy="232" r="2.5" fill="#AEAEB2"></circle>
+      </svg>
+
+      <!-- ===== EPIC FRAME ===== -->
+      <section aria-label="Epic audit-2026-09-19" style="position:absolute;left:20px;top:20px;width:764px;height:456px;box-sizing:border-box;border-radius:10px;background:rgba(255,255,255,.55);border:1px solid #CFCFD4;">
+
+        <!-- frame header -->
+        <div style="position:absolute;left:16px;right:12px;top:0;height:56px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #E2E2E6;">
+          <span style="display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;box-sizing:border-box;border-radius:4px;background:#F2F2F5;border:1px solid #E2E2E6;color:#48484A;font-size:12px;font-weight:500;"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2l6 3-6 3-6-3z"></path><path d="M2 8l6 3 6-3M2 11l6 3 6-3"></path></svg>Epic</span>
+          <h2 style="margin:0;font-size:20px;line-height:24px;font-weight:600;white-space:nowrap;"><span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:18px;">audit-2026-09-19</span> <span style="font-weight:400;color:#48484A;">— Auction audit fixes</span></h2>
+          <div style="flex:1;"></div>
+          <span role="img" aria-label="Progress: 6 of 12 done, 1 working, 1 blocked, 4 open" style="display:inline-flex;gap:2px;">
+            <span style="width:8px;height:10px;border-radius:1px;background:#636366;display:block;"></span><span style="width:8px;height:10px;border-radius:1px;background:#636366;display:block;"></span><span style="width:8px;height:10px;border-radius:1px;background:#636366;display:block;"></span><span style="width:8px;height:10px;border-radius:1px;background:#636366;display:block;"></span><span style="width:8px;height:10px;border-radius:1px;background:#636366;display:block;"></span><span style="width:8px;height:10px;border-radius:1px;background:#636366;display:block;"></span><span style="width:8px;height:10px;border-radius:1px;background:#0071E3;display:block;"></span><span style="width:8px;height:10px;border-radius:1px;background:#FF9F0A;display:block;"></span><span style="width:8px;height:10px;border-radius:1px;box-sizing:border-box;border:1px solid #CFCFD4;background:#FFFFFF;display:block;"></span><span style="width:8px;height:10px;border-radius:1px;box-sizing:border-box;border:1px solid #CFCFD4;background:#FFFFFF;display:block;"></span><span style="width:8px;height:10px;border-radius:1px;box-sizing:border-box;border:1px solid #CFCFD4;background:#FFFFFF;display:block;"></span><span style="width:8px;height:10px;border-radius:1px;box-sizing:border-box;border:1px solid #CFCFD4;background:#FFFFFF;display:block;"></span>
+          </span>
+          <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:13px;font-weight:600;">6/12</span>
+          <button type="button" aria-label="Epic options" style="width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:#48484A;padding:0;"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.2"></circle><circle cx="8" cy="8" r="1.2"></circle><circle cx="12.5" cy="8" r="1.2"></circle></svg></button>
+        </div>
+
+        <!-- ready wave region -->
+        <div aria-hidden="true" style="position:absolute;left:140px;top:60px;width:220px;height:388px;box-sizing:border-box;border-radius:8px;background:rgba(48,176,126,.06);border:1px dashed #30B07E;"></div>
+
+        <!-- column headers -->
+        <div style="position:absolute;left:16px;top:68px;display:flex;align-items:center;gap:6px;font-size:11px;line-height:14px;font-weight:600;color:#636366;">Done <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-weight:400;">5</span></div>
+        <div style="position:absolute;left:148px;top:66px;width:204px;display:flex;align-items:center;justify-content:space-between;">
+          <span style="font-size:11px;line-height:14px;font-weight:600;color:#146B4B;">Wave 2</span>
+          <span style="display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;border-radius:4px;background:#E4F4EC;color:#146B4B;font-size:12px;font-weight:500;"><span style="width:6px;height:6px;border-radius:3px;background:#30B07E;display:inline-block;"></span>Ready wave · <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;">3</span></span>
+        </div>
+        <div style="position:absolute;left:376px;top:68px;display:flex;align-items:center;gap:6px;font-size:11px;line-height:14px;font-weight:600;color:#636366;">In progress <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-weight:400;">2</span></div>
+        <div style="position:absolute;left:576px;top:68px;display:flex;align-items:center;gap:6px;font-size:11px;line-height:14px;font-weight:600;color:#636366;">Blocked · waiting <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-weight:400;">2</span></div>
+
+        <!-- dependency edges -->
+        <svg width="764" height="456" viewBox="0 0 764 456" fill="none" aria-hidden="true" style="position:absolute;left:0;top:0;">
+          <defs>
+            <marker id="f-arr-block" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M1 1.5L8.5 5L1 8.5" fill="none" stroke="#C26100" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></marker>
+            <marker id="f-arr-wait" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M1 1.5L8.5 5L1 8.5" fill="none" stroke="#8E8E93" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></marker>
+          </defs>
+          <path d="M560 150 H574" stroke="#C26100" stroke-width="1.5" marker-end="url(#f-arr-block)"></path>
+          <circle cx="560" cy="150" r="2.5" fill="#C26100"></circle>
+          <path d="M352 152 H366 V240 H566 V314 H574" stroke="#8E8E93" stroke-width="1.25" stroke-dasharray="4 3" marker-end="url(#f-arr-wait)"></path>
+          <circle cx="352" cy="152" r="2.5" fill="#8E8E93"></circle>
+        </svg>
+
+        <!-- Done stack (collapsed) -->
+        <div aria-hidden="true" style="position:absolute;left:24px;top:100px;width:100px;height:150px;box-sizing:border-box;border-radius:8px;background:#F2F2F5;border:1px solid #E2E2E6;"></div>
+        <div aria-hidden="true" style="position:absolute;left:20px;top:96px;width:108px;height:150px;box-sizing:border-box;border-radius:8px;background:#F2F2F5;border:1px solid #E2E2E6;"></div>
+        <div style="position:absolute;left:16px;top:92px;width:116px;height:150px;box-sizing:border-box;padding:8px 10px;border-radius:8px;background:#F2F2F5;border:1px solid #E2E2E6;box-shadow:0 1px 2px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.06);">
+          <div style="display:flex;align-items:center;gap:6px;height:18px;color:#636366;">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>
+            <span style="font-size:13px;font-weight:600;color:#1D1D1F;"><span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;">5</span> done</span>
+          </div>
+          <ul style="list-style:none;margin:6px 0 0;padding:0;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;line-height:18px;color:#48484A;">
+            <li>01 <span style="color:#636366;">· closed</span></li>
+            <li>02 <span style="color:#636366;">· closed</span></li>
+            <li>03 <span style="color:#636366;">· closed</span></li>
+            <li>04 <span style="color:#636366;">· closed</span></li>
+            <li>05 <span style="color:#636366;">· closed</span></li>
+          </ul>
+          <button type="button" aria-label="Expand done tickets" style="position:absolute;right:6px;top:6px;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:#636366;padding:0;"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"></path></svg></button>
+        </div>
+
+        <!-- 07 -->
+        <article aria-label="Ticket 07, open" style="position:absolute;left:148px;top:92px;width:204px;height:120px;box-sizing:border-box;padding:8px 10px;border-radius:8px;background:#FFFFFF;border:1px solid #E2E2E6;box-shadow:0 1px 2px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.06);">
+          <div style="display:flex;align-items:center;justify-content:space-between;height:18px;">
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;font-weight:600;">07</span>
+            <span style="display:inline-flex;align-items:center;height:18px;padding:0 6px;box-sizing:border-box;border-radius:4px;background:#F2F2F5;border:1px solid #E2E2E6;color:#48484A;font-size:12px;font-weight:500;">open</span>
+          </div>
+          <div style="margin-top:4px;font-size:13px;line-height:17px;font-weight:600;">Rate-limit the bid endpoint</div>
+          <div style="margin-top:4px;font-size:11px;line-height:15px;color:#636366;">unblocks <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;color:#48484A;">10</span></div>
+          <button type="button" style="position:absolute;left:10px;bottom:8px;display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 10px 0 8px;border:0;border-radius:6px;background:#0071E3;color:#FFFFFF;font:inherit;font-size:12px;font-weight:600;box-shadow:0 1px 2px rgba(0,60,140,.25);"><svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4.5 2.8v10.4L13 8z"></path></svg>Ship ticket</button>
+        </article>
+
+        <!-- 08 -->
+        <article aria-label="Ticket 08, open, review verified" style="position:absolute;left:148px;top:220px;width:204px;height:120px;box-sizing:border-box;padding:8px 10px;border-radius:8px;background:#FFFFFF;border:1px solid #E2E2E6;box-shadow:0 1px 2px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.06);">
+          <div style="display:flex;align-items:center;justify-content:space-between;height:18px;">
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;font-weight:600;">08</span>
+            <span style="display:inline-flex;align-items:center;height:18px;padding:0 6px;box-sizing:border-box;border-radius:4px;background:#F2F2F5;border:1px solid #E2E2E6;color:#48484A;font-size:12px;font-weight:500;">open</span>
+          </div>
+          <div style="margin-top:4px;font-size:13px;line-height:17px;font-weight:600;">Audit log for admin actions</div>
+          <div style="margin-top:6px;display:flex;align-items:center;gap:5px;font-size:12px;line-height:16px;">
+            <span style="color:#636366;display:inline-flex;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4.5" cy="3.5" r="1.5"></circle><circle cx="4.5" cy="12.5" r="1.5"></circle><circle cx="11.5" cy="12.5" r="1.5"></circle><path d="M4.5 5v6M11.5 11V6.5a2 2 0 0 0-2-2H7.5"></path></svg></span>
+            <a href="#" style="font-family:ui-monospace,'SF Mono',Menlo,monospace;color:#0062CC;">PR #409</a>
+          </div>
+          <div style="margin-top:6px;display:flex;align-items:center;gap:4px;">
+            <span style="display:inline-flex;align-items:center;gap:3px;height:18px;padding:0 5px;border-radius:4px;background:#E4F4EC;color:#146B4B;font-size:12px;font-weight:500;"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>review VERIFIED</span>
+            <span style="display:inline-flex;align-items:center;gap:3px;height:18px;padding:0 5px;border-radius:4px;background:#E4F4EC;color:#146B4B;font-size:12px;font-weight:500;"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>CI green</span>
+          </div>
+        </article>
+
+        <!-- 11 -->
+        <article aria-label="Ticket 11, open" style="position:absolute;left:148px;top:348px;width:204px;height:92px;box-sizing:border-box;padding:8px 10px;border-radius:8px;background:#FFFFFF;border:1px solid #E2E2E6;box-shadow:0 1px 2px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.06);">
+          <div style="display:flex;align-items:center;justify-content:space-between;height:18px;">
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;font-weight:600;">11</span>
+            <span style="display:inline-flex;align-items:center;height:18px;padding:0 6px;box-sizing:border-box;border-radius:4px;background:#F2F2F5;border:1px solid #E2E2E6;color:#48484A;font-size:12px;font-weight:500;">open</span>
+          </div>
+          <div style="margin-top:4px;font-size:13px;line-height:17px;font-weight:600;">Stale lot cache after auction close</div>
+          <div style="margin-top:4px;font-size:11px;line-height:15px;color:#636366;">no blockers</div>
+        </article>
+
+        <!-- 09 claimed -->
+        <article aria-label="Ticket 09, claimed by impl-09" style="position:absolute;left:376px;top:92px;width:184px;height:140px;box-sizing:border-box;padding:8px 10px;border-radius:8px;background:#FFFFFF;border:1px solid #0071E3;box-shadow:0 0 0 3px rgba(0,113,227,.14),0 4px 12px rgba(0,0,0,.06);">
+          <div style="display:flex;align-items:center;justify-content:space-between;height:18px;">
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;font-weight:600;">09</span>
+            <span style="display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;border-radius:4px;background:#E6F0FC;color:#0062CC;font-size:12px;font-weight:500;"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke-opacity="0.3"></circle><path d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5"></path></svg>claimed</span>
+          </div>
+          <div style="margin-top:4px;font-size:13px;line-height:17px;font-weight:600;">Race in bid placement: unhandled rejection</div>
+          <div style="margin-top:6px;display:flex;align-items:center;gap:5px;font-size:12px;line-height:16px;color:#48484A;">
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 9.5l3-3M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11.5l-1 1A2.5 2.5 0 0 1 4.5 9l1-1"></path></svg>
+            bound to <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;color:#0062CC;font-weight:600;">impl-09</span>
+          </div>
+          <div style="margin-top:4px;font-size:12px;line-height:16px;"><a href="#" style="font-family:ui-monospace,'SF Mono',Menlo,monospace;color:#0062CC;">PR #412</a></div>
+          <div style="margin-top:6px;display:flex;align-items:center;gap:8px;">
+            <span style="display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;border-radius:4px;background:#E6F0FC;color:#0062CC;font-size:12px;font-weight:500;"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke-opacity="0.3"></circle><path d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5"></path></svg>CI running</span>
+            <span style="font-size:12px;color:#636366;">gate <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;">—</span></span>
+          </div>
+        </article>
+
+        <!-- 06 done -->
+        <article aria-label="Ticket 06, done" style="position:absolute;left:376px;top:248px;width:184px;height:72px;box-sizing:border-box;padding:8px 10px;border-radius:8px;background:#F2F2F5;border:1px solid #E2E2E6;">
+          <div style="display:flex;align-items:center;justify-content:space-between;height:18px;">
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;font-weight:600;color:#636366;">06</span>
+            <span style="display:inline-flex;align-items:center;gap:3px;font-size:12px;color:#636366;"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>done</span>
+          </div>
+          <div style="margin-top:4px;font-size:13px;line-height:17px;font-weight:500;color:#636366;">Withdraw-lot button for moderators</div>
+        </article>
+
+        <!-- 12 blocked -->
+        <article aria-label="Ticket 12, blocked" style="position:absolute;left:576px;top:92px;width:172px;height:148px;box-sizing:border-box;padding:8px 10px;border-radius:8px;background:#FFFFFF;border:1px solid #FF9F0A;box-shadow:0 0 0 3px rgba(255,159,10,.16),0 4px 12px rgba(0,0,0,.06);">
+          <div style="display:flex;align-items:center;justify-content:space-between;height:18px;">
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;font-weight:600;">12</span>
+            <span style="display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;border-radius:4px;background:#FFF0DE;color:#A84B00;font-size:12px;font-weight:500;"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2l6 10.6H2z"></path><path d="M8 6.5v3M8 11.2v.1"></path></svg>blocked</span>
+          </div>
+          <div style="margin-top:4px;font-size:13px;line-height:17px;font-weight:600;">Idempotent payment webhook</div>
+          <div style="margin-top:6px;padding:4px 6px;border-radius:4px;background:#FFF0DE;color:#A84B00;font-size:12px;line-height:15px;">needs Stripe test keys from owner</div>
+          <div style="margin-top:6px;font-size:11px;line-height:15px;color:#636366;">blocked by <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;color:#1D1D1F;">09</span></div>
+        </article>
+
+        <!-- 10 waiting -->
+        <article aria-label="Ticket 10, open, waiting on 07" style="position:absolute;left:576px;top:272px;width:172px;height:92px;box-sizing:border-box;padding:8px 10px;border-radius:8px;background:#FFFFFF;border:1px solid #E2E2E6;box-shadow:0 1px 2px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.06);">
+          <div style="display:flex;align-items:center;justify-content:space-between;height:18px;">
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;font-weight:600;">10</span>
+            <span style="display:inline-flex;align-items:center;height:18px;padding:0 6px;box-sizing:border-box;border-radius:4px;background:#F2F2F5;border:1px solid #E2E2E6;color:#48484A;font-size:12px;font-weight:500;">open</span>
+          </div>
+          <div style="margin-top:4px;font-size:13px;line-height:17px;font-weight:600;">Bid throttling metrics</div>
+          <div style="margin-top:4px;font-size:11px;line-height:15px;color:#636366;">waiting on <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;color:#1D1D1F;">07</span></div>
+        </article>
+
+        <!-- edge legend -->
+        <div style="position:absolute;left:576px;top:384px;display:flex;flex-direction:column;gap:4px;font-size:11px;line-height:14px;color:#636366;">
+          <span style="display:inline-flex;align-items:center;gap:6px;"><svg width="20" height="8" viewBox="0 0 20 8" fill="none" aria-hidden="true"><path d="M1 4H17M14 1.5L17.5 4L14 6.5" stroke="#C26100" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>blocks</span>
+          <span style="display:inline-flex;align-items:center;gap:6px;"><svg width="20" height="8" viewBox="0 0 20 8" fill="none" aria-hidden="true"><path d="M1 4H17" stroke="#8E8E93" stroke-width="1.25" stroke-dasharray="3 2"></path><path d="M14 1.5L17.5 4L14 6.5" stroke="#8E8E93" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>waits on</span>
+        </div>
+      </section>
+
+      <!-- ===== ORCHESTRATOR NODE ===== -->
+      <article aria-label="Orchestrator session, pinned, live, busy" style="position:absolute;left:808px;top:20px;width:352px;height:212px;box-sizing:border-box;border-radius:8px;background:#FFFFFF;border:1px solid #CFCFD4;box-shadow:0 1px 2px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.06);overflow:hidden;">
+        <div style="height:36px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 10px 0 12px;background:#F2F2F5;border-bottom:1px solid #E2E2E6;">
+          <span style="color:#48484A;display:inline-flex;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="3.5" r="1.75"></circle><circle cx="3.5" cy="12.5" r="1.75"></circle><circle cx="12.5" cy="12.5" r="1.75"></circle><path d="M8 5.25V8M3.5 10.75V8h9v2.75"></path></svg></span>
+          <span style="font-size:15px;line-height:18px;font-weight:600;">Orchestrator</span>
+          <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;color:#636366;">auction</span>
+          <span style="flex:1;"></span>
+          <span role="img" aria-label="Pinned" style="color:#636366;display:inline-flex;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2h4l-.5 4 2 2H4.5l2-2zM8 8v6"></path></svg></span>
+          <span style="display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;border-radius:4px;background:#E4F4EC;color:#146B4B;font-size:12px;font-weight:500;"><span style="width:6px;height:6px;border-radius:3px;background:#30B07E;display:inline-block;"></span>live</span>
+          <span style="display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;border-radius:4px;background:#E6F0FC;color:#0062CC;font-size:12px;font-weight:500;"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke-opacity="0.3"></circle><path d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5"></path></svg>busy</span>
+        </div>
+        <div style="padding:10px 12px 0;">
+          <div style="font-size:11px;line-height:14px;font-weight:600;color:#636366;margin-bottom:6px;">Last status block</div>
+          <div style="font-size:12px;line-height:18px;color:#1D1D1F;">
+            <div><span style="color:#636366;">— Этап:</span> audit-2026-09-19 · /implement · волна 2</div>
+            <div><span style="color:#636366;">— Сейчас:</span> impl-09 чинит гонку в ставках, PR #412 ждёт CI</div>
+            <div><span style="color:#636366;">— Дальше:</span> verify-09, затем волна 3</div>
+            <div><span style="color:#636366;">— Жду:</span> ничего</div>
+          </div>
+        </div>
+        <div style="position:absolute;left:0;right:0;bottom:0;height:34px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 10px 0 12px;border-top:1px solid #E2E2E6;">
+          <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;color:#636366;">Opus 5.5 · high · $4.12</span>
+          <span style="flex:1;"></span>
+          <button type="button" style="height:24px;padding:0 10px;border:1px solid #CFCFD4;border-radius:6px;background:#FFFFFF;color:#1D1D1F;font:inherit;font-size:12px;font-weight:500;">Open session</button>
+        </div>
+      </article>
+
+      <!-- impl-09 -->
+      <article aria-label="Subagent impl-09, running" style="position:absolute;left:836px;top:248px;width:324px;height:56px;box-sizing:border-box;padding:7px 10px;border-radius:8px;background:#FFFFFF;border:1px solid #0071E3;box-shadow:0 1px 2px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.06);">
+        <div style="display:flex;align-items:center;gap:6px;height:20px;">
+          <span style="color:#0062CC;display:inline-flex;"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="10" height="8" rx="2"></rect><path d="M8 2.5V5M6 9h.01M10 9h.01"></path></svg></span>
+          <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;font-weight:600;">impl-09</span>
+          <span style="flex:1;"></span>
+          <span style="display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;border-radius:4px;background:#E6F0FC;color:#0062CC;font-size:12px;font-weight:500;"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke-opacity="0.3"></circle><path d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5"></path></svg>running <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;">6m</span></span>
+        </div>
+        <div style="margin-top:4px;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;line-height:15px;color:#48484A;">auction-implementer · sonnet · bound to <span style="color:#1D1D1F;font-weight:600;">09</span></div>
+      </article>
+
+      <!-- verify-08 -->
+      <article aria-label="Subagent verify-08, verified" style="position:absolute;left:836px;top:312px;width:324px;height:56px;box-sizing:border-box;padding:7px 10px;border-radius:8px;background:#FFFFFF;border:1px solid #E2E2E6;box-shadow:0 1px 2px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.06);">
+        <div style="display:flex;align-items:center;gap:6px;height:20px;">
+          <span style="color:#146B4B;display:inline-flex;"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="10" height="8" rx="2"></rect><path d="M8 2.5V5M6 9h.01M10 9h.01"></path></svg></span>
+          <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;font-weight:600;">verify-08</span>
+          <span style="flex:1;"></span>
+          <span style="display:inline-flex;align-items:center;gap:3px;height:18px;padding:0 6px;border-radius:4px;background:#E4F4EC;color:#146B4B;font-size:12px;font-weight:500;"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>VERIFIED</span>
+        </div>
+        <div style="margin-top:4px;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;line-height:15px;color:#48484A;">auction-reviewer · done · PR #409</div>
+      </article>
+
+      <!-- scout (collapsed) -->
+      <button type="button" aria-label="Subagent scout, done, collapsed" style="position:absolute;left:836px;top:376px;width:324px;height:28px;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding:0 10px;border:1px solid #E2E2E6;border-radius:8px;background:#F2F2F5;color:#1D1D1F;font:inherit;text-align:left;">
+        <span style="color:#636366;display:inline-flex;"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"></path></svg></span>
+        <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;font-weight:600;color:#48484A;">scout</span>
+        <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;color:#636366;">auction-scout</span>
+        <span style="flex:1;"></span>
+        <span style="display:inline-flex;align-items:center;gap:3px;font-size:12px;color:#636366;"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>done</span>
+      </button>
+
+      <!-- ===== EXTERNAL SESSION NODE ===== -->
+      <article aria-label="External session, read-only, idle" style="position:absolute;left:808px;top:420px;width:352px;height:92px;box-sizing:border-box;border-radius:8px;background:#FFFFFF;border:1px solid #E2E2E6;box-shadow:0 1px 2px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.06);overflow:hidden;">
+        <div style="height:32px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 10px 0 12px;background:#F2F2F5;border-bottom:1px solid #E2E2E6;">
+          <span style="color:#48484A;display:inline-flex;"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"></rect><path d="M4.5 6l2 2-2 2M8.5 10.5h3"></path></svg></span>
+          <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;font-weight:600;white-space:nowrap;">terminal · ~/Stuff/auction</span>
+          <span style="flex:1;"></span>
+          <span style="display:inline-flex;align-items:center;gap:5px;height:18px;padding:0 6px;box-sizing:border-box;border-radius:4px;background:#F2F2F5;border:1px solid #E2E2E6;color:#48484A;font-size:12px;font-weight:500;"><span style="width:7px;height:7px;border-radius:4px;box-sizing:border-box;border:1.5px solid #636366;display:inline-block;"></span>idle</span>
+        </div>
+        <div style="padding:8px 12px;display:flex;align-items:center;gap:8px;font-size:12px;line-height:16px;color:#48484A;">
+          <span style="display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;box-sizing:border-box;border-radius:4px;background:#F2F2F5;border:1px solid #E2E2E6;color:#48484A;font-size:12px;font-weight:500;"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.5"></rect><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"></path></svg>read-only</span>
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 9.5l3-3M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11.5l-1 1A2.5 2.5 0 0 1 4.5 9l1-1"></path></svg>
+          <span>Binding · epic <a href="#" style="font-family:ui-monospace,'SF Mono',Menlo,monospace;color:#0062CC;">payments-v2</a></span>
+        </div>
+        <div style="padding:0 12px;font-size:11px;line-height:14px;color:#636366;">External session · not started by worfy</div>
+      </article>
+
+      <!-- ===== HANDOFF NODE ===== -->
+      <article aria-label="HANDOFF.md" style="position:absolute;left:20px;top:496px;width:356px;height:312px;box-sizing:border-box;border-radius:8px;background:#FFFFFF;border:1px solid #E2E2E6;box-shadow:0 1px 2px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.06);overflow:hidden;">
+        <div style="height:36px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 10px 0 12px;background:#F2F2F5;border-bottom:1px solid #E2E2E6;">
+          <span style="color:#48484A;display:inline-flex;"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 1.75h5l3 3v9.5H4z"></path><path d="M9 1.75v3h3M6 8h4M6 10.5h4"></path></svg></span>
+          <span style="font-size:15px;line-height:18px;font-weight:600;">HANDOFF</span>
+          <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;color:#636366;">HANDOFF.md</span>
+          <span style="flex:1;"></span>
+          <span style="display:inline-flex;align-items:center;height:18px;padding:0 6px;box-sizing:border-box;border-radius:4px;background:#FFFFFF;border:1px solid #E2E2E6;color:#48484A;font-size:12px;font-weight:500;">markdown</span>
+        </div>
+        <div style="padding:10px 14px 12px;font-size:12px;line-height:17px;color:#48484A;">
+          <h3 style="margin:0 0 2px;font-size:12px;line-height:16px;font-weight:600;color:#1D1D1F;">Сейчас в работе</h3>
+          <ul style="margin:0 0 9px;padding-left:16px;">
+            <li>Волна 2: <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;">07, 08, 11</span> готовы к запуску</li>
+            <li><span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;">09</span> у impl-09 — PR #412 ждёт CI</li>
+          </ul>
+          <h3 style="margin:0 0 2px;font-size:12px;line-height:16px;font-weight:600;color:#1D1D1F;">Дальше</h3>
+          <ul style="margin:0 0 9px;padding-left:16px;">
+            <li>verify-09, затем волна 3 (<span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;">10, 12</span>)</li>
+          </ul>
+          <h3 style="margin:0 0 4px;font-size:12px;line-height:16px;font-weight:600;color:#1D1D1F;display:flex;align-items:center;gap:6px;">Ждёт владельца <span style="display:inline-flex;align-items:center;height:16px;padding:0 5px;border-radius:4px;background:#FFF0DE;color:#A84B00;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;font-weight:600;">1</span></h3>
+          <div style="display:flex;align-items:flex-start;gap:6px;margin:0 0 9px;padding:5px 8px;border-radius:6px;background:#FFF0DE;color:#A84B00;">
+            <span style="display:inline-flex;margin-top:2px;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2l6 10.6H2z"></path><path d="M8 6.5v3M8 11.2v.1"></path></svg></span>
+            <span>Stripe test keys — без них не закрыть <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;">12</span></span>
+          </div>
+          <h3 style="margin:0 0 2px;font-size:12px;line-height:16px;font-weight:600;color:#1D1D1F;">Риски и долги</h3>
+          <ul style="margin:0;padding-left:16px;">
+            <li>Кэш лотов после закрытия аукциона (<span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;">11</span>) отдаёт старую цену</li>
+            <li>Метрики троттлинга (<span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;">10</span>) пока без алертов</li>
+          </ul>
+        </div>
+      </article>
+
+      <!-- ===== CARD: EPIC BURNDOWN ===== -->
+      <article aria-label="Card: Epic burndown" style="position:absolute;left:396px;top:496px;width:336px;height:256px;box-sizing:border-box;border-radius:8px;background:#FFFFFF;border:1px solid #E2E2E6;box-shadow:0 1px 2px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.06);overflow:hidden;">
+        <div style="height:36px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 10px 0 12px;background:#F2F2F5;border-bottom:1px solid #E2E2E6;">
+          <span style="color:#48484A;display:inline-flex;"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 13.5h11M4.5 11V8M8 11V5M11.5 11V3"></path></svg></span>
+          <span style="font-size:15px;line-height:18px;font-weight:600;">Epic burndown</span>
+          <span style="display:inline-flex;align-items:center;height:18px;padding:0 6px;box-sizing:border-box;border-radius:4px;background:#FFFFFF;border:1px solid #E2E2E6;color:#48484A;font-size:12px;font-weight:500;">Card</span>
+          <span style="flex:1;"></span>
+          <span style="font-size:11px;color:#636366;">by Orchestrator</span>
+        </div>
+        <div style="padding:8px 12px 0;display:flex;align-items:baseline;gap:8px;">
+          <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:20px;line-height:26px;font-weight:600;">6</span>
+          <span style="font-size:12px;color:#48484A;">remaining of <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;">12</span> · <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;">6</span> days</span>
+        </div>
+        <svg width="312" height="148" viewBox="0 0 312 148" role="img" aria-label="Remaining tickets per day: 12, 11, 10, 9, 7, 6" style="display:block;margin:4px 12px 0;overflow:visible;">
+          <g stroke="#E2E2E6" stroke-width="1">
+            <path d="M28 10.5 H304"></path><path d="M28 48.5 H304"></path><path d="M28 86.5 H304"></path>
+          </g>
+          <path d="M28 124.5 H304" stroke="#CFCFD4" stroke-width="1"></path>
+          <g font-family="ui-monospace, SF Mono, Menlo, monospace" font-size="11" fill="#636366" text-anchor="end">
+            <text x="22" y="14">12</text><text x="22" y="52">8</text><text x="22" y="90">4</text><text x="22" y="128">0</text>
+          </g>
+          <g fill="#8E8E93">
+            <rect x="38" y="10" width="26" height="114" rx="2"></rect>
+            <rect x="83" y="19.5" width="26" height="104.5" rx="2"></rect>
+            <rect x="128" y="29" width="26" height="95" rx="2"></rect>
+            <rect x="173" y="38.5" width="26" height="85.5" rx="2"></rect>
+            <rect x="218" y="57.5" width="26" height="66.5" rx="2"></rect>
+          </g>
+          <rect x="263" y="67" width="26" height="57" rx="2" fill="#0071E3"></rect>
+          <g font-family="ui-monospace, SF Mono, Menlo, monospace" font-size="11" fill="#48484A" text-anchor="middle">
+            <text x="51" y="6.5">12</text><text x="96" y="16">11</text><text x="141" y="25.5">10</text><text x="186" y="35">9</text><text x="231" y="54">7</text>
+            <text x="276" y="63.5" fill="#0062CC" font-weight="600">6</text>
+          </g>
+          <g font-family="ui-monospace, SF Mono, Menlo, monospace" font-size="11" fill="#636366" text-anchor="middle">
+            <text x="51" y="142">D1</text><text x="96" y="142">D2</text><text x="141" y="142">D3</text><text x="186" y="142">D4</text><text x="231" y="142">D5</text><text x="276" y="142" fill="#1D1D1F" font-weight="600">D6</text>
+          </g>
+        </svg>
+        <div style="position:absolute;left:12px;bottom:10px;display:flex;align-items:center;gap:14px;font-size:11px;line-height:14px;color:#636366;">
+          <span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;border-radius:2px;background:#8E8E93;display:block;"></span>remaining tickets</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;border-radius:2px;background:#0071E3;display:block;"></span>today</span>
+        </div>
+      </article>
+
+      <!-- ===== TERMINAL NODE ===== -->
+      <article aria-label="Terminal, exit 0" style="position:absolute;left:752px;top:528px;width:288px;height:172px;box-sizing:border-box;border-radius:8px;background:#1D1D1F;border:1px solid #1D1D1F;box-shadow:0 1px 2px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.06);overflow:hidden;">
+        <div style="height:30px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 8px 0 10px;border-bottom:1px solid #3A3A3C;color:#E5E5EA;">
+          <span style="display:inline-flex;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"></rect><path d="M4.5 6l2 2-2 2M8.5 10.5h3"></path></svg></span>
+          <span style="font-size:13px;font-weight:600;">Terminal</span>
+          <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;color:#98989D;">zsh</span>
+          <span style="flex:1;"></span>
+          <span style="display:inline-flex;align-items:center;gap:3px;height:18px;padding:0 6px;border-radius:4px;background:#E4F4EC;color:#146B4B;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;font-weight:600;"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>exit 0</span>
+        </div>
+<pre style="margin:0;padding:8px 10px;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;line-height:16px;color:#E5E5EA;white-space:pre;overflow:hidden;"><span style="color:#98989D;">$</span> pnpm test --filter bids
+ <span style="color:#30B07E;">✓</span> src/bids/place.test.ts <span style="color:#98989D;">(8)</span>
+ <span style="color:#30B07E;">✓</span> src/bids/throttle.test.ts <span style="color:#98989D;">(4)</span>
+
+ Test Files  <span style="color:#30B07E;">2 passed</span> <span style="color:#98989D;">(2)</span>
+      Tests  <span style="color:#30B07E;">12 passed</span> <span style="color:#98989D;">(12)</span>
+<span style="color:#98989D;">$</span> <span style="display:inline-block;width:6px;height:12px;vertical-align:-2px;background:#98989D;"></span></pre>
+      </article>
+
+      <!-- ===== CANVAS TOOLS ===== -->
+      <div role="toolbar" aria-label="Canvas tools" aria-orientation="vertical" style="position:absolute;right:16px;top:532px;width:40px;box-sizing:border-box;padding:4px;display:flex;flex-direction:column;gap:2px;border-radius:10px;background:#FFFFFF;border:1px solid #E2E2E6;box-shadow:0 1px 2px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.06);">
+        <button type="button" aria-label="Select" aria-pressed="true" style="width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:#E1ECFB;color:#0062CC;padding:0;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 2.5l9 4.5-4 1-1.5 4z"></path></svg></button>
+        <button type="button" aria-label="Pan" aria-pressed="false" style="width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:#48484A;padding:0;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 8V3.5a1 1 0 0 1 2 0V7M7.5 7V2.5a1 1 0 0 1 2 0V7M9.5 7V3.5a1 1 0 0 1 2 0v5.5a4.5 4.5 0 0 1-8.2 2.5L2 9.3a1 1 0 0 1 1.6-1.2L5.5 10"></path></svg></button>
+        <button type="button" aria-label="New frame" style="width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:#48484A;padding:0;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 1.5v13M11.5 1.5v13M1.5 4.5h13M1.5 11.5h13"></path></svg></button>
+        <button type="button" aria-label="New Card" style="width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:#48484A;padding:0;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="2"></rect><path d="M2 5.5h12"></path></svg></button>
+        <button type="button" aria-label="New Terminal" style="width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:#48484A;padding:0;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"></rect><path d="M4.5 6l2 2-2 2M8.5 10.5h3"></path></svg></button>
+      </div>
+
+      <!-- ===== ZOOM ===== -->
+      <div role="group" aria-label="Zoom" style="position:absolute;right:204px;bottom:16px;height:28px;box-sizing:border-box;display:flex;align-items:center;border-radius:6px;background:#FFFFFF;border:1px solid #E2E2E6;box-shadow:0 1px 2px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.06);overflow:hidden;">
+        <button type="button" aria-label="Zoom out" style="width:28px;height:26px;display:inline-flex;align-items:center;justify-content:center;border:0;border-right:1px solid #E2E2E6;background:transparent;color:#48484A;padding:0;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3 8h10"></path></svg></button>
+        <button type="button" aria-label="Zoom 85%, reset to 100%" style="width:52px;height:26px;border:0;background:transparent;color:#1D1D1F;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;padding:0;">85%</button>
+        <button type="button" aria-label="Zoom in" style="width:28px;height:26px;display:inline-flex;align-items:center;justify-content:center;border:0;border-left:1px solid #E2E2E6;background:transparent;color:#48484A;padding:0;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"></path></svg></button>
+        <button type="button" aria-label="Fit to screen" style="width:28px;height:26px;display:inline-flex;align-items:center;justify-content:center;border:0;border-left:1px solid #E2E2E6;background:transparent;color:#48484A;padding:0;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"></path></svg></button>
+      </div>
+
+      <!-- ===== MINIMAP ===== -->
+      <div role="img" aria-label="Minimap" style="position:absolute;right:16px;bottom:16px;width:176px;height:120px;box-sizing:border-box;border-radius:8px;background:#FFFFFF;border:1px solid #E2E2E6;box-shadow:0 1px 2px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.06);overflow:hidden;">
+        <svg width="174" height="118" viewBox="0 0 174 118" aria-hidden="true">
+          <rect x="10" y="10" width="84" height="50" rx="2" fill="#F2F2F5" stroke="#CFCFD4" stroke-width="0.75"></rect>
+          <rect x="26" y="17" width="24" height="42" rx="1" fill="#E4F4EC"></rect>
+          <rect x="52" y="20" width="20" height="15" rx="1" fill="#E6F0FC" stroke="#0071E3" stroke-width="0.75"></rect>
+          <rect x="74" y="20" width="19" height="16" rx="1" fill="#FFF0DE" stroke="#FF9F0A" stroke-width="0.75"></rect>
+          <rect x="97" y="10" width="39" height="23" rx="1.5" fill="#E2E2E6"></rect>
+          <rect x="100" y="35" width="36" height="6" rx="1" fill="#E6F0FC"></rect>
+          <rect x="100" y="42" width="36" height="6" rx="1" fill="#E2E2E6"></rect>
+          <rect x="100" y="49" width="36" height="3" rx="1" fill="#E2E2E6"></rect>
+          <rect x="97" y="54" width="39" height="10" rx="1.5" fill="#E2E2E6"></rect>
+          <rect x="10" y="63" width="39" height="34" rx="1.5" fill="#E2E2E6"></rect>
+          <rect x="52" y="63" width="37" height="28" rx="1.5" fill="#E2E2E6"></rect>
+          <rect x="91" y="66" width="32" height="19" rx="1.5" fill="#1D1D1F"></rect>
+          <rect x="146" y="18" width="22" height="44" rx="2" fill="none" stroke="#AEAEB2" stroke-width="0.75" stroke-dasharray="2 2"></rect>
+          <rect x="8" y="8" width="130" height="93" rx="2" fill="rgba(0,113,227,.04)" stroke="#0071E3" stroke-width="1.5"></rect>
+        </svg>
+      </div>
+
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
