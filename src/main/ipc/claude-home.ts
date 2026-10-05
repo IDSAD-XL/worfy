@@ -4,9 +4,18 @@
 // window.
 import { resolve } from 'node:path'
 import { ClaudeHomeRegistry, type ClaudeHomeWatch } from '../claude-home/registry'
+import { SubagentReader, subagentTranscriptPath } from '../claude-home/subagents'
 import { readNewLines } from '../claude-home/tail'
 import { claudeHome } from '../storage/paths'
-import { claudeHomeChanged, claudeHomeClose, claudeHomeLive, claudeHomeSessions, claudeHomeTranscript } from '../../shared/ipc/claude-home'
+import {
+  claudeHomeChanged,
+  claudeHomeClose,
+  claudeHomeLive,
+  claudeHomeSessions,
+  claudeHomeSubagents,
+  claudeHomeSubagentTranscript,
+  claudeHomeTranscript,
+} from '../../shared/ipc/claude-home'
 import { mainThreadEvents, parseTranscriptLines } from '../../shared/transcript/parse'
 import { defineHandler, emit, type HandlerModule } from './index'
 
@@ -91,7 +100,12 @@ export class ClaudeHomeSubscriptions {
 }
 
 /** Builds the handler list over a registry; the default export uses the real Claude home. */
-export function claudeHomeHandlers(registry: ClaudeHomeRegistry, subscriptions = new ClaudeHomeSubscriptions(registry)): HandlerModule {
+export function claudeHomeHandlers(
+  registry: ClaudeHomeRegistry,
+  subscriptions = new ClaudeHomeSubscriptions(registry),
+  subagents = new SubagentReader(),
+): HandlerModule {
+  const notFound = { found: false, events: [], cursor: { offset: 0, fileId: null }, reset: false, more: false }
   return [
     defineHandler(claudeHomeSessions, async ({ projectRoot }, { event }) => {
       const root = resolve(projectRoot)
@@ -107,9 +121,21 @@ export function claudeHomeHandlers(registry: ClaudeHomeRegistry, subscriptions =
     }),
     defineHandler(claudeHomeTranscript, async ({ projectRoot, sessionId, cursor, maxBytes }) => {
       const path = await registry.transcriptPath(resolve(projectRoot), sessionId)
-      if (path === null) return { found: false, events: [], cursor: { offset: 0, fileId: null }, reset: false, more: false }
+      if (path === null) return notFound
       const chunk = await readNewLines(path, cursor, maxBytes === undefined ? {} : { maxBytes })
       return { found: true, events: mainThreadEvents(parseTranscriptLines(chunk.lines)), cursor: chunk.cursor, reset: chunk.reset, more: chunk.more }
+    }),
+    defineHandler(claudeHomeSubagents, async ({ projectRoot, sessionId }) => {
+      const path = await registry.transcriptPath(resolve(projectRoot), sessionId)
+      if (path === null) return { found: false, signals: [], files: [] }
+      return { found: true, ...(await subagents.session(path)) }
+    }),
+    defineHandler(claudeHomeSubagentTranscript, async ({ projectRoot, sessionId, agentId, cursor, maxBytes }) => {
+      const session = await registry.transcriptPath(resolve(projectRoot), sessionId)
+      const path = session === null ? null : await subagentTranscriptPath(session, agentId)
+      if (path === null) return notFound
+      const chunk = await readNewLines(path, cursor, maxBytes === undefined ? {} : { maxBytes })
+      return { found: true, events: parseTranscriptLines(chunk.lines).map((entry) => entry.event), cursor: chunk.cursor, reset: chunk.reset, more: chunk.more }
     }),
   ]
 }

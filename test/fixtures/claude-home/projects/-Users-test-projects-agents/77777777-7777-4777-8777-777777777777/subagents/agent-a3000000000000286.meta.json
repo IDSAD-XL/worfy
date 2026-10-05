@@ -1,0 +1,9 @@
+{
+  "agentType": "implementer",
+  "description": "Implement demo-epic 08",
+  "name": "impl-08",
+  "toolUseId": "toolu_01S7AGENT1XXXXXXXXXXXXXX",
+  "spawnDepth": 1,
+  "requestShape": "background",
+  "requestNonInteractive": true
+}

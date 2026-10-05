@@ -8,8 +8,11 @@ import type { ShellView } from '../shell/Toolbar'
 export interface OpenedSession {
   nodeId: string
   projectId: string
-  /** A Session started outside worfy, shown read-only from its transcript file (ExternalSessionPanel.tsx). */
-  external?: { sessionId: string } | undefined
+  /**
+   * A transcript shown read-only from its file (ExternalSessionPanel.tsx): a Session started outside
+   * worfy, or with `agentId` one Subagent of any Session (ticket 15).
+   */
+  external?: { sessionId: string; agentId?: string | undefined } | undefined
 }
 
 interface NavigationStore {

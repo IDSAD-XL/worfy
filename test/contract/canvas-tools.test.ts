@@ -426,6 +426,41 @@ describe('canvas tools: Epic frames and Tickets', () => {
   })
 })
 
+describe('canvas tools: Subagent Nodes', () => {
+  // The renderer keeps, per Session, a Layout Node of kind subagent-tree with the user's offsets of
+  // its Subagent Nodes (ticket 15); the Subagent Nodes themselves are not in the Layout.
+  const SESSION = '77777777-7777-4777-8777-777777777777'
+  const treeState = (): LayoutOpInput => ({
+    op: 'create',
+    node: { id: `subagents:${SESSION}`, kind: 'subagent-tree', x: 0, y: 0, w: 1, h: 1, locked: true, data: { 'offset:toolu_1': { dx: 5, dy: 6 } } },
+  })
+
+  it('list_nodes lists neither the saved offsets of a Subagent tree nor a stray subagent Node', async () => {
+    store.apply(PROJECT, treeState())
+    store.apply(PROJECT, { op: 'create', node: { id: 'stray', kind: 'subagent', x: 0, y: 0, w: 260, h: 96, data: {} } })
+    store.apply(PROJECT, note('n1'))
+    const rpc = await connect()
+    expect(json<ListedNode[]>(await rpc.call('list_nodes')).map((node) => node.id)).toEqual(['n1'])
+  })
+
+  it('every tool that names a Node refuses a Subagent, says it is one, and changes nothing', async () => {
+    store.apply(PROJECT, treeState())
+    store.apply(PROJECT, { op: 'create', node: { id: 'stray', kind: 'subagent', x: 0, y: 0, w: 260, h: 96, data: {} } })
+    const rpc = await connect()
+    const reason = /is a Subagent of a Session: .*only the user moves it\. A Card cannot be linked to it\./
+    const tree = `subagents:${SESSION}`
+    await refused(rpc, 'move_node', { id: tree, x: 500, y: 300 }, reason)
+    await refused(rpc, 'resize_node', { id: tree, w: 400, h: 300 }, reason)
+    await refused(rpc, 'hide_node', { id: tree, hidden: true }, reason)
+    await refused(rpc, 'update_node', { id: tree, title: 't' }, reason)
+    await refused(rpc, 'link_card', { id: tree, target: 'worfy-mvp' }, reason)
+    // A Subagent Node has no Layout Node; a Layout Node of kind subagent is refused by its kind.
+    await refused(rpc, 'move_node', { id: `subagent:${SESSION}/toolu_1`, x: 10, y: 10 }, reason)
+    await refused(rpc, 'move_node', { id: 'stray', x: 10, y: 10 }, reason)
+    expect(nodeOf(tree)).toMatchObject({ x: 0, y: 0, w: 1, h: 1, hidden: false })
+  })
+})
+
 describe('canvas tools: arguments at the boundary', () => {
   it('keys a tool does not declare never reach the Layout, through the server and through a direct call', async () => {
     store.apply(PROJECT, note('n1'))

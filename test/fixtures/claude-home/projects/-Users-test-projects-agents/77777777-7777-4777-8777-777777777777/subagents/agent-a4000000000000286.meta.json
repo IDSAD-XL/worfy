@@ -1,0 +1,9 @@
+{
+  "agentType": "scout",
+  "description": "Scout demo-epic 08 files",
+  "toolUseId": "toolu_01S7AGENT2XXXXXXXXXXXXXX",
+  "parentAgentId": "a3000000000000286",
+  "spawnDepth": 2,
+  "requestShape": "foreground",
+  "requestNonInteractive": true
+}

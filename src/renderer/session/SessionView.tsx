@@ -206,7 +206,8 @@ export function SessionView({ projectId, projectName }: SessionViewProps) {
     )
   }
   if (opened?.external && opened.projectId === projectId) {
-    return <ExternalSessionPanel key={opened.nodeId} projectId={projectId} nodeId={opened.nodeId} sessionId={opened.external.sessionId} />
+    const { sessionId, agentId } = opened.external
+    return <ExternalSessionPanel key={`${opened.nodeId}/${agentId ?? ''}`} projectId={projectId} nodeId={opened.nodeId} sessionId={sessionId} agentId={agentId} blocks={railBlocks} />
   }
   if (nodeId === null) {
     return (

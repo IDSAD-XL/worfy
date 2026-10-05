@@ -23,9 +23,13 @@ Fixtures только читаются. Test, которому нужно что
 | `projects/-Users-test-projects-demo/5555…5555.jsonl` | 2.1.286 | `/epic-wave`, фоновый Agent (`async_launched`), task-notification о завершении, `bridge-session` |
 | `projects/-Users-test-projects-demo/5555…5555/subagents/agent-a1000000000000286.*` | 2.1.286 | Subagent глубины 1 (`requestShape: background`); сам вызывает Agent и `ticket claim` |
 | `projects/-Users-test-projects-demo/5555…5555/subagents/agent-a2000000000000286.*` | 2.1.286 | вложенный Subagent: `parentAgentId`, `spawnDepth: 2`, `toolUseId` = id вызова в транскрипте родителя |
+| `projects/-Users-test-projects-agents/7777…7777.jsonl` | 2.1.286 | тикет 15: три Subagent-а — фоновый implementer `impl-08` (`run_in_background`, `async_launched`, task-notification с `<result>`), синхронный reviewer `verify-07` с итогом `**REJECTED**`, `name` и `model` во входе вызова Agent |
+| `projects/-Users-test-projects-agents/7777…7777/subagents/agent-a3…286.*` | 2.1.286 | фоновый implementer глубины 1; сам вызывает Agent (scout) синхронно, итог — последняя assistant-запись с `end_turn` |
+| `projects/-Users-test-projects-agents/7777…7777/subagents/agent-a4…286.*` | 2.1.286 | вложенный scout: `parentAgentId`, `spawnDepth: 2`, вызов и результат — в транскрипте родителя (без `toolUseResult`) |
+| `projects/-Users-test-projects-agents/7777…7777/subagents/agent-a5…286.*` | 2.1.286 | reviewer глубины 1, `requestShape: foreground` |
 | `projects/-Users-test-------/6666…6666.jsonl` | 2.1.286 | cwd `/Users/test/проект`: каждая кириллическая буква даёт `-` |
 
-Сессии 1111, 2222, 3333 и 6666 завершены: записи в `sessions/` у них нет. Процессов 41004 и 41005
+Сессии 1111, 2222, 3333, 6666 и 7777 завершены: записи в `sessions/` у них нет. Процессов 41004 и 41005
 на машине нет, поэтому живость в test-ах подменяется, а не проверяется `kill(pid, 0)`.
 
 Agent SDK (`listSessions`, `getSessionMessages`, `listSubagents`, `getSubagentMessages` с

@@ -51,7 +51,9 @@ const useClaudeHomeStore = create<ClaudeHomeStore>(() => ({ byRoot: {}, transcri
 
 const EMPTY: ClaudeHomeEntry = { live: undefined, history: [], error: undefined }
 const EMPTY_TRANSCRIPT: TranscriptState = { events: [], first: 0, loaded: false, found: false, error: undefined }
-const transcriptKey = (root: string, sessionId: string): string => `${root}\0${sessionId}`
+const transcriptKey = (root: string, sessionId: string, agentId?: string): string => (agentId === undefined ? `${root}\0${sessionId}` : `${root}\0${sessionId}\0${agentId}`)
+/** How often a Subagent's transcript is read again while it is shown: its file is not watched. */
+export const SUBAGENT_POLL_MS = 2000
 
 function setEntry(root: string, change: Partial<ClaudeHomeEntry>): void {
   useClaudeHomeStore.setState(({ byRoot }) => ({ byRoot: { ...byRoot, [root]: { ...(byRoot[root] ?? EMPTY), ...change } } }))
@@ -196,19 +198,20 @@ function capped(events: readonly AgentEvent[], first: number): Pick<TranscriptSt
  * Reads a transcript from where the last read stopped, until the end of the file. A change that
  * arrives during a read starts one more read after it, so none is lost and reads never overlap.
  */
-function transcriptReader(root: string, sessionId: string): () => void {
-  const key = transcriptKey(root, sessionId)
+function transcriptReader(root: string, sessionId: string, agentId?: string): () => void {
+  const key = transcriptKey(root, sessionId, agentId)
   let cursor: { offset: number; fileId: string | null } | undefined
   let running = false
   let again = false
 
   const read = async (): Promise<void> => {
     for (let round = 0; round < 1000; round += 1) {
-      const result = await invoke('claudeHome.transcript', { projectRoot: root, sessionId, maxBytes: CHUNK_BYTES, ...(cursor ? { cursor } : {}) })
+      const request = { projectRoot: root, sessionId, maxBytes: CHUNK_BYTES, ...(cursor ? { cursor } : {}) }
+      const result = agentId === undefined ? await invoke('claudeHome.transcript', request) : await invoke('claudeHome.subagentTranscript', { ...request, agentId })
       if (readers.get(key) !== start) return // closed while reading
       const current = useClaudeHomeStore.getState().transcripts[key] ?? EMPTY_TRANSCRIPT
       if (!result.ok) {
-        console.error(`claudeHome.transcript ${sessionId} failed:`, result.error)
+        console.error(`claudeHome.transcript ${sessionId}${agentId === undefined ? '' : `/${agentId}`} failed:`, result.error)
         setTranscript(key, { ...current, loaded: true, error: result.error })
         return
       }
@@ -241,17 +244,21 @@ function transcriptReader(root: string, sessionId: string): () => void {
 /**
  * The events of a Session's transcript file (the Session's own thread, src/shared/transcript/parse.ts),
  * followed while the calling component is mounted: new records show up as Claude Code writes them.
+ * With `agentId`, the transcript of that Subagent of the Session instead (ticket 15).
  */
-export function useSessionTranscript(root: string | undefined, sessionId: string | undefined): TranscriptState {
+export function useSessionTranscript(root: string | undefined, sessionId: string | undefined, agentId?: string): TranscriptState {
   useEffect(() => {
     if (root === undefined || sessionId === undefined) return
     acquire(root)
-    const key = transcriptKey(root, sessionId)
-    const start = transcriptReader(root, sessionId)
+    const key = transcriptKey(root, sessionId, agentId)
+    const start = transcriptReader(root, sessionId, agentId)
     readers.set(key, start)
     setTranscript(key, EMPTY_TRANSCRIPT)
     start()
+    // A Subagent's file is not watched: read on while it is shown.
+    const timer = agentId === undefined ? undefined : setInterval(start, SUBAGENT_POLL_MS)
     return () => {
+      if (timer !== undefined) clearInterval(timer)
       if (readers.get(key) === start) readers.delete(key)
       useClaudeHomeStore.setState(({ transcripts }) => {
         const rest = { ...transcripts }
@@ -260,6 +267,8 @@ export function useSessionTranscript(root: string | undefined, sessionId: string
       })
       release(root)
     }
-  }, [root, sessionId])
-  return useClaudeHomeStore((store) => (root === undefined || sessionId === undefined ? EMPTY_TRANSCRIPT : (store.transcripts[transcriptKey(root, sessionId)] ?? EMPTY_TRANSCRIPT)))
+  }, [root, sessionId, agentId])
+  return useClaudeHomeStore((store) =>
+    root === undefined || sessionId === undefined ? EMPTY_TRANSCRIPT : (store.transcripts[transcriptKey(root, sessionId, agentId)] ?? EMPTY_TRANSCRIPT),
+  )
 }
