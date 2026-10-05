@@ -10,7 +10,8 @@ Source: [spec.md](../spec.md), разделы «Как устроено» и «�
 Репозиторий пуст: `README.md`, `.gitignore`, `CONTEXT.md`, `docs/`, `HANDOFF.md` (его завёл
 оркестратор вместе с эпиком). Нужен каркас, на котором остальные тикеты эпика пишут код и сразу
 проверяются тем же Gate (`~/.claude/hooks/gate.sh`, проверка готовности изменений), что и в
-других проектах. CI на GitHub, сборка `.app` и нативный `node-pty` — тикет 32.
+других проектах, и минимальный CI на GitHub, чтобы с тикета 02 условие «PR с зелёным CI»
+можно было проверить. Сборка `.app`, нативный `node-pty` под Electron и e2e в CI — тикет 32.
 
 - pnpm, один пакет (без workspaces). `electron-vite` для сборки main, preload и renderer. TypeScript
   `strict` во всех трёх. React в renderer. ESLint (flat config) с правилами для TS и React hooks.
@@ -22,6 +23,8 @@ Source: [spec.md](../spec.md), разделы «Как устроено» и «�
 - `pnpm.onlyBuiltDependencies` в `package.json`: `electron` (скачивает бинарник), `esbuild`,
   `node-pty` и другие пакеты, которым нужен install-скрипт. Без списка pnpm 10 молча пропускает
   их скрипты, и Electron не запускается.
+- Поле `packageManager` в `package.json` с точной версией pnpm — по нему pnpm ставится и локально
+  (corepack), и в CI.
 - Скрипты `package.json`: `dev`, `build`, `lint`, `typecheck` (`tsc --noEmit` по всем tsconfig),
   `test`, `test:e2e`.
   - `test` — vitest (`test/unit` + `test/contract`, без e2e) под Node из Electron:
@@ -39,6 +42,13 @@ Source: [spec.md](../spec.md), разделы «Как устроено» и «�
   собой. Все следующие e2e-tests пользуются им.
 - `.gitignore`: добавить `.claude/worktrees/`. vitest, ESLint и tsconfig исключают
   `.claude/worktrees/**`, иначе прогон в основном checkout подхватит test-ы чужих worktree.
+- CI: `.github/workflows/ci.yml`, один workflow и один job на `macos-latest`, запуск на
+  `pull_request` и на `push` в `main`. Шаги: checkout, `pnpm/action-setup` (версия из
+  `packageManager`), `actions/setup-node`, `pnpm install --frozen-lockfile`, `pnpm lint`,
+  `pnpm typecheck`, `pnpm test`. Install-скрипты пакетов разрешены тем же
+  `pnpm.onlyBuiltDependencies`, поэтому `electron` скачивается и `pnpm test` идёт под Node из
+  Electron так же, как локально. Больше ничего: кэш, `concurrency`, e2e и сборку `.app` добавляет
+  тикет 32 в этот же файл.
 - Gate: запись `worfy` в `~/.claude/gate/config.json` — `match` `/Users/alexey/Stuff/CanvasForAI`,
   `pm` `pnpm`, `root.fast` = `lint typecheck test`, `root.full` = то же + `test:e2e`, `workspace`
   пустой, `root_if` — исходники TS/JS/CSS/HTML, `package.json`, `tsconfig*`, `eslint*`. Файл
@@ -55,6 +65,8 @@ Source: [spec.md](../spec.md), разделы «Как устроено» и «�
 - [ ] `GATE_SCOPE=all bash ~/.claude/hooks/gate.sh fast </dev/null; echo $?` печатает `[gate] зелено (fast): worfy/.:lint worfy/.:typecheck worfy/.:test` и код 0.
 - [ ] Намеренно сломанный unit test даёт `[gate] красно` и код 2; после отката снова зелено.
 - [ ] Test-файл, положенный в `.claude/worktrees/x/test/unit/`, не попадает в `pnpm test`.
+- [ ] PR тикета 01 (ветка `worfy-mvp/01`) показывает check CI зелёным: `gh pr checks <N>; echo $?` → код 0; в логе шага install нет «Ignored build scripts».
+- [ ] Намеренно сломанный unit test, запушенный в ту же ветку, делает check CI красным; после отката он снова зелёный. Ссылки на оба прогона — в «Итог».
 
 ## Тесты
 
@@ -62,6 +74,7 @@ Source: [spec.md](../spec.md), разделы «Как устроено» и «�
 - `test/unit/paths.test.ts` — `paths.ts` уважает `WORFY_DATA_DIR` и `WORFY_CLAUDE_HOME` (новый).
 - `test/unit/runtime.test.ts` — test-ы идут под Node из Electron (новый).
 - `test/unit/dom-smoke.test.tsx` — рендер компонента в jsdom через `@testing-library/react` (новый).
+- CI проверяется прогоном самого workflow на PR тикета 01 — зелёный, затем красный на сломанном unit test, затем снова зелёный; отдельного test-файла нет.
 - Сначала падающий test: `launch.spec.ts` пишется до `src/main/index.ts` и падает на «приложение не собрано».
 
 ## Где в коде
@@ -70,4 +83,5 @@ Source: [spec.md](../spec.md), разделы «Как устроено» и «�
 - `src/main/index.ts`, `src/main/window.ts`, `src/main/storage/paths.ts`, `src/preload/index.ts`, `src/renderer/main.tsx`
 - `test/setup-dom.ts`, `test/e2e/helpers.ts`, `test/e2e/launch.spec.ts`
 - `.gitignore`
+- `.github/workflows/ci.yml` — минимальный CI (новый; тикет 32 его расширяет)
 - `~/.claude/gate/config.json` — новая запись с ключом worfy (вне репозитория)

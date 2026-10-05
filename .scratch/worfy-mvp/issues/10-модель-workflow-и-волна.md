@@ -45,9 +45,10 @@ worfy не разбирает формат Тикетов сам. Единств
     попадает в Волну с пометкой «файлы не указаны»;
   - номер Волны для всех Тикетов — тот же расчёт, повторённый до конца, как таблица «Волны» в
     `spec.md`.
-- `src/shared/workflow/ticket-ref.ts`: разбор ветки `<эпик>/<NN>-<slug>` или `<эпик>/<NN>` (так
-  названы ветки Auction, например `ui-triage-4/01`) и папки worktree
-  `.claude/worktrees/<NN>-<slug>` в ссылку на Тикет. Им пользуются тикеты 16 и 17.
+- `src/shared/workflow/ticket-ref.ts`: разбор ветки и папки worktree в ссылку на Тикет. Понимает
+  оба вида: `<эпик>/<NN>` — так называет ветки сам worfy (`worfy-mvp/01`) и так названы ветки
+  Auction (`ui-triage-4/01`), — и `<эпик>/<NN>-<slug>`; папку — `.claude/worktrees/<NN>` и
+  `.claude/worktrees/<NN>-<slug>`. Им пользуются тикеты 16 и 17.
 - worfy ничего не пишет в `.scratch`.
 
 ## Готово, когда
@@ -63,7 +64,7 @@ worfy не разбирает формат Тикетов сам. Единств
 ## Тесты
 
 - `test/unit/waves.test.ts` — уровни, Волна с пересечением файлов, занятые файлы Тикетов в работе, цикл, неразобранный блокер, сверка с таблицей `spec.md` на `test/fixtures/worfy-mvp-epic/` (новый).
-- `test/unit/ticket-ref.test.ts` — ветки и папки worktree, в том числе `ui-triage-4/01` и чужого формата (новый).
+- `test/unit/ticket-ref.test.ts` — ветки и папки worktree обоих видов: `worfy-mvp/07` и `.claude/worktrees/07`, `worfy-mvp/07-движок-сессий` и `.claude/worktrees/07-движок-сессий`, `ui-triage-4/01`, а также чужого формата (новый).
 - `test/contract/workflow-reader.test.ts` — reader на временном репозитории с worktree и stub-скриптом `bin/epic-status` в `WORFY_CLAUDE_HOME`, который отвечает на `--json` и `--json --ref <ветка>` (новый); генератор большого Проекта — `test/fixtures/scratch-gen.ts`.
 - Сначала падающий test: сверка Волн с таблицей `spec.md` на копии эпика.
 

@@ -189,8 +189,10 @@ Renderer и MCP-tools холста шлют операции (создать, с
 - **ADR.** Новые решения — `docs/adr/0006-…` и дальше (0006 — тикет 02), по одному решению на
   файл. Принятые ADR
   не правятся.
-- **Worktree и ветки** — как в остальном workflow: `.claude/worktrees/<NN>-<slug>`, ветка
-  `worfy-mvp/<NN>-<slug>`.
+- **Worktree и ветки** — только по номеру Тикета, без slug: worktree `.claude/worktrees/<NN>`,
+  ветка `worfy-mvp/<NN>` (например `worfy-mvp/01`). Файлы Тикетов сохраняют русские slug-и в
+  именах. Разбор ветки (тикет 10) понимает и старый вид `<эпик>/<NN>-<slug>`, но свои ветки worfy
+  называет только `<эпик>/<NN>`.
 - Названия действий в UI — по-английски, как в [BRIEF.md](../../docs/design/BRIEF.md): «Ship
   ticket», «Run wave», «Open PR», «Resume», «Allow», «Always allow», «Deny».
 
@@ -203,7 +205,7 @@ Renderer и MCP-tools холста шлют операции (создать, с
 
 | Тикет | Файлы из «Где в коде» | Волна |
 | --- | --- | --- |
-| 01 | `package.json`, `electron.vite.config.ts`, `tsconfig*.json`, `eslint.config.js`, `vitest.config.ts`, `playwright.config.ts`, `src/main/index.ts`, `src/main/window.ts`, `src/main/storage/paths.ts`, `src/preload/index.ts`, `src/renderer/main.tsx`, `test/setup-dom.ts`, `test/e2e/helpers.ts`, `test/e2e/launch.spec.ts`, `.gitignore`, `~/.claude/gate/config.json` | 1 |
+| 01 | `package.json`, `electron.vite.config.ts`, `tsconfig*.json`, `eslint.config.js`, `vitest.config.ts`, `playwright.config.ts`, `src/main/index.ts`, `src/main/window.ts`, `src/main/storage/paths.ts`, `src/preload/index.ts`, `src/renderer/main.tsx`, `test/setup-dom.ts`, `test/e2e/helpers.ts`, `test/e2e/launch.spec.ts`, `.gitignore`, `.github/workflows/ci.yml`, `~/.claude/gate/config.json` | 1 |
 | 02 | `src/shared/ipc/channels.ts`, `src/shared/ipc/app.ts`, `src/preload/index.ts`, `src/main/ipc/index.ts`, `src/main/ipc/app.ts`, `src/main/index.ts`, `src/renderer/ipc.ts`, `docs/adr/0006-ipc-contract-by-declaration-merging.md` | 2 |
 | 03 | `src/main/window.ts`, `src/renderer/theme/tokens.css`, `src/renderer/theme/primitives.tsx`, `src/renderer/shell/AppShell.tsx`, `src/renderer/shell/Sidebar.tsx`, `src/renderer/shell/Toolbar.tsx`, `test/e2e/theme.spec.ts` | 2 |
 | 06 | `scripts/spikes/sdk-probe.ts`, `scripts/spikes/path-probe/`, `test/fixtures/sdk-messages/` | 2 |
@@ -237,7 +239,7 @@ Renderer и MCP-tools холста шлют операции (создать, с
 | 30 | `src/renderer/canvas/history.ts`, `src/main/layout/trash.ts`, `src/renderer/canvas/overlays/SelectionToolbar.tsx` | 10 |
 | 31 | `src/renderer/palette/CommandPalette.tsx`, `src/renderer/palette/commands.ts`, `src/renderer/find/CanvasFind.tsx`, `src/renderer/find/search-index.ts` | 11 |
 
-Общие файлы есть только у Тикетов разных Волн: `package.json` (01 → 32), `src/main/index.ts` и
+Общие файлы есть только у Тикетов разных Волн: `package.json` и `.github/workflows/ci.yml` (01 → 32), `src/main/index.ts` и
 `src/preload/index.ts` (01 → 02), `src/main/window.ts` (01 → 03), `electron-builder.yml` (32 → 07),
 `src/main/agent/session.ts` (07 → 19), `src/main/agent/options.ts` (07 → 24 → 21),
 `src/main/agent/fake-query.ts` (07 → 19 → 20 → 21), `src/renderer/canvas/nodes/OrchestratorNode.tsx`
