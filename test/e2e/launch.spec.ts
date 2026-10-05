@@ -21,3 +21,32 @@ test("Electron's own files go to WORFY_DATA_DIR, not the real Application Suppor
     await launched.close()
   }
 })
+
+test('the window shows the app version that main returns over app.version', async () => {
+  const launched = await launchApp()
+  try {
+    const version = await launched.app.evaluate(({ app }) => app.getVersion())
+    expect(version).not.toBe('')
+    await expect(launched.window.getByTestId('app-version')).toHaveText(`v${version}`)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('the renderer reaches main only through window.worfy, and a bad input comes back as {ok:false}', async () => {
+  const launched = await launchApp()
+  try {
+    const result = await launched.window.evaluate(() =>
+      (globalThis as unknown as { worfy: { invoke(c: string, i: unknown): Promise<unknown> } }).worfy.invoke('app.version', 42),
+    )
+    expect(result).toEqual({ ok: false, error: expect.stringMatching(/app\.version: invalid input/) })
+    // main is still serving after the bad call
+    await expect(launched.window.getByTestId('app-version')).toBeVisible()
+    const again = await launched.window.evaluate(() =>
+      (globalThis as unknown as { worfy: { invoke(c: string, i?: unknown): Promise<unknown> } }).worfy.invoke('app.version'),
+    )
+    expect(again).toMatchObject({ ok: true })
+  } finally {
+    await launched.close()
+  }
+})
