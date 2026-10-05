@@ -135,9 +135,8 @@ PR: https://github.com/IDSAD-XL/worfy/pull/3 (ветка `worfy-mvp/02`). CI (li
   сборка, `electron .`: в stderr `[worfy] could not start Error: IPC handler module ./broken.ts
   must default-export …`, процесс ждёт закрытия модального окна ошибки. С временно убранным
   `showErrorBox` процесс выходит сразу с кодом 1.
-- не проверено: вид окна ошибки запуска — `screencapture` ответил «could not create image from
-  display», `osascript` — «not allowed assistive access»; что процесс стоит на модальном окне,
-  видно только по тому, что он жив после строки в stderr.
+- вид окна ошибки запуска и код выхода 1 после нажатия OK — см. «Ручная проверка 2026-10-05» в
+  конце «Итог».
 
 **Проверки (локально, код возврата).**
 - `pnpm lint && pnpm typecheck && pnpm test` → 0 (7 файлов, 50 test-ов; после доработки по ревью).
@@ -165,3 +164,36 @@ PR: https://github.com/IDSAD-XL/worfy/pull/3 (ветка `worfy-mvp/02`). CI (li
   состоянии `mergeStateStatus: DIRTY` (конфликт с `main` только в этом файле тикета — `main`
   обновил статусы волны 2), а GitHub не запускает `pull_request`-run для PR с конфликтом. Rebase
   на `main` по брифу делает шаг мержа; CI после него — не проверено.
+
+### Ручная проверка 2026-10-05
+
+Сборка `main` @ 479ec62. Что: при сбое запуска срабатывает `.catch` в `src/main/index.ts:36-42` —
+`console.error`, окно `dialog.showErrorBox('worfy could not start', …)` и `app.exit(1)`.
+
+- Как вызвать сбой без правки кода: невалидный `ELECTRON_RENDERER_URL`. Его читает
+  `rendererEntry()` (`src/main/window.ts:88`), и `new URL()` в `appUrlMatcher`
+  (`src/main/ipc/index.ts:73`) бросает исключение в том же `.then`, строкой раньше `registerIpc`.
+  Сбой самой регистрации IPC без правки кода не вызвать: модули обработчиков лежат в `app.asar` и
+  при загрузке данных с диска не читают. Повод другой, но `.catch`, окно и код выхода общие.
+- Запуск: `worfy.app/Contents/MacOS/worfy` с временными `WORFY_DATA_DIR` и `WORFY_CLAUDE_HOME`,
+  `WORFY_AGENT=fake`, `ELECTRON_RENDERER_URL='not a url'`. В stderr `[worfy] could not start
+  TypeError: Invalid URL … code: 'ERR_INVALID_URL'`; процесс жив и ждёт закрытия окна.
+- Окно: System Events видит у процесса одно окно subrole `AXDialog`, 260×202, с текстами «worfy
+  could not start», «Invalid URL» и кнопкой OK. Снимок только этого окна (`screencapture -l` по
+  CGWindowID): системный alert macOS с иконкой Electron, заголовок «worfy could not start», под ним
+  «Invalid URL», кнопка OK.
+- Перед нажатием проверено, что фронтальный процесс — worfy. OK нажат через System Events →
+  процесс вышел с кодом 1. Первый запуск закрыл не агент: alert встал фронтальным, перехватил
+  клавиатуру и был закрыт, скорее всего клавишей владельца; код выхода там тоже 1.
+- Все экземпляры worfy закрыты, временные каталоги удалены.
+- Вердикт: проверено. Снимок: `02-startup-error-dialog.png` (в scratchpad сессии оркестратора, в
+  репозиторий не положен).
+- Дефекты (не исправлены):
+  - Собранный `.app` слушается `ELECTRON_RENDERER_URL`: `rendererEntry()` (`src/main/window.ts:88`)
+    читает переменную без проверки, что это dev-сборка. С невалидным значением приложение не
+    стартует (проверено). С валидным, по коду, загрузило бы в окно страницу с этого адреса и
+    доверяло бы IPC-вызовам с её origin (`appUrlMatcher`, `src/main/ipc/index.ts:72-74`); это не
+    запускалось. Серьёзность низкая: нужен контроль над окружением запуска. В шаблоне
+    electron-vite переменную читают только при `is.dev`.
+  - UX: окно ошибки показывает только текст исключения («Invalid URL»), без имени переменной и
+    значения; stack trace есть только в stderr.

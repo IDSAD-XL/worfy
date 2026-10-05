@@ -30,7 +30,7 @@ Source: [spec.md](../spec.md), «Соглашения для тикетов эт
 - [x] Второй push в ту же ветку отменяет прошлый прогон (в Actions он `cancelled`).
 - [x] На чистом клоне `pnpm install` пересобирает `node-pty` под Electron; `pnpm test` с contract test-ом `node-pty` → код 0.
 - [x] `pnpm package` даёт `worfy.app`: `codesign -dv` показывает `Signature=adhoc`, `pty.node` лежит в `app.asar.unpacked`.
-- [x] `worfy.app` открывается двойным щелчком из Finder; снимок в «Итог». (Доказательство — текстом, не снимком: процесс и окно по `CGWindowListCopyWindowInfo`, см. «Запуск из Finder» в «Итог»; снимка экрана нет.)
+- [x] `worfy.app` открывается двойным щелчком из Finder; снимок в «Итог». (Запуск через Finder — «Запуск из Finder» в «Итог»; снимок окна — «Ручная проверка 2026-10-05» там же.)
 - [x] `pnpm test:package` → код 0: собранный `.app` запускается и показывает окно «worfy».
 
 ## Тесты
@@ -142,9 +142,8 @@ electron-rebuild --only node-pty` тот же test зелёный. Цена: `po
   заголовок окна с экрана не прочитан. Прежний снимок `assets/32-launch-services-window.png`
   удалён (круг 3): это был снимок страницы через DevTools после `open -n … --remote-debugging-port`,
   а не окно, открытое из Finder, — он не показывал то, что заявлял пункт.
-- не проверено: снимок экрана и заголовок окна, открытого из Finder (нет Screen Recording).
-  Заголовок `worfy` у окна собранного `.app` проверяет `pnpm test:package` (запуск через
-  Playwright, не через Finder).
+- снимок экрана и заголовок окна «worfy» при запуске через LaunchServices — см. «Ручная проверка
+  2026-10-05» в конце «Итог».
 
 **Круг 3 (узкий, по подтверждённой находке ревью).** Находка: пункт «открывается двойным щелчком
 из Finder; снимок в «Итог»» не подтверждён, а приложенный снимок показывает не окно из Finder.
@@ -166,3 +165,24 @@ electron-rebuild --only node-pty` тот же test зелёный. Цена: `po
   (full): … lint typecheck test test:e2e`, код 0; `pnpm test:e2e` → код 0 (2 passed);
   `pnpm test:package` → код 0 (3 passed). Код и CI-конфиг в круге 3 не менялись; последний
   прогон CI на коде ветки (коммит 1e32880) — `success`, run 37256464207.
+
+### Ручная проверка 2026-10-05
+
+Сборка `main` @ 479ec62. Пункт «`worfy.app` открывается двойным щелчком из Finder; снимок в «Итог»».
+
+- Как: `open dist/mac-arm64/worfy.app` → код 0. `open` запускает приложение через LaunchServices,
+  как и двойной щелчок. Окружение у `open` из терминала другое (полный `PATH` оболочки, см.
+  «Запуск из Finder» выше); запуск с голым `PATH` через сам Finder проверен там же. До запуска
+  процессов worfy не было (`pgrep` → код 1).
+- Процесс `worfy.app/Contents/MacOS/worfy`, PID 1618, PPID 1 (запущен launchd, а не shell),
+  bundle id `dev.worfy.app`. Через 2 с у него одно окно «worfy» 1280×800, процесс фронтальный.
+- Снимок только этого окна (`screencapture -x -R` по координатам окна): тёмная тема; sidebar
+  «Projects» с кнопкой «+» и «No projects yet»; toolbar «worfy / No project», вкладки Canvas
+  (активна) и Session, «Limits no data yet», `v0.0.0`, поле «Search or run… ⌘K»; на Холсте
+  «Add a project to see its canvas.». Белого экрана и ошибок нет.
+- Закрыто Apple Event `tell application id "dev.worfy.app" to quit` (код 0), клавиши не
+  отправлялись. Процесс завершился за 2 с, `pgrep worfy` → код 1.
+- Приложение работало с настоящим `~/Library/Application Support/worfy`. Каталог был и раньше
+  (с 05:24); проверка в нём ничего не создавала, Chromium обновил служебные DIPS и Session Storage.
+- Вердикт: проверено. Снимок: `32-finder-open-window.png` (в scratchpad сессии оркестратора, в
+  репозиторий не положен).
