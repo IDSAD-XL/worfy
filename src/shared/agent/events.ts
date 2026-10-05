@@ -24,6 +24,16 @@ export const queueSnapshotSchema = z.object({ items: z.array(queuedMessageSchema
 export type QueueSnapshot = z.output<typeof queueSnapshotSchema>
 
 export const agentEvent = z.discriminatedUnion('type', [
+  // Events of worfy itself, not of an SDK message (ticket 19).
+  /**
+   * worfy gave Claude Code a message of the user: sent at once, or taken from the queue when the
+   * turn before it ended. Not sent for a message that only went into the queue.
+   */
+  z.object({ type: z.literal('prompt'), text: z.string() }),
+  /** The Session's message queue (src/main/agent/queue.ts) changed; the whole queue, oldest first. */
+  z.object({ type: z.literal('queue'), items: z.array(queuedMessageSchema), paused: z.boolean() }),
+  /** The model, effort and permission mode the Session now runs with, as worfy set them. */
+  z.object({ type: z.literal('settings'), settings: sessionSettingsSchema }),
   /** system/init: arrives at the start of every turn with the current model and mode. */
   z.object({
     type: z.literal('init'),
@@ -117,15 +127,6 @@ export const agentEvent = z.discriminatedUnion('type', [
     interrupted: z.boolean(),
   }),
   z.object({ type: z.literal('state'), state: sessionState, error: nullableString }),
-  /**
-   * worfy gave Claude Code a message of the user: sent at once, or taken from the queue when the
-   * turn before it ended. Not sent for a message that only went into the queue.
-   */
-  z.object({ type: z.literal('prompt'), text: z.string() }),
-  /** The Session's message queue (src/main/agent/queue.ts) changed; the whole queue, oldest first. */
-  z.object({ type: z.literal('queue'), items: z.array(queuedMessageSchema), paused: z.boolean() }),
-  /** The model, effort and permission mode the Session now runs with, as worfy set them. */
-  z.object({ type: z.literal('settings'), settings: sessionSettingsSchema }),
   /**
    * An SDK message or a transcript record worfy does not know (or whose shape changed): visible
    * for debugging only. For a transcript record `sdkType` names the record (src/shared/transcript/parse.ts).

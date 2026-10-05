@@ -58,6 +58,11 @@ export default function Pickers({ sessionId }: ComposerItemProps) {
   const efforts = picked === undefined && models.length === 0 ? EFFORT_LEVELS : (picked?.efforts ?? [])
   const effort = settings?.effort ?? null
   const effortRows = effort !== null && !efforts.includes(effort) ? [...efforts, effort] : efforts
+  /** A model change; an effort level the new model does not list goes back to the model's default with it. */
+  const modelChange = (next: string | null): SettingsChange => {
+    const target = models.find((row) => row.value === next)
+    return target !== undefined && effort !== null && !target.efforts.includes(effort) ? { model: next, effort: null } : { model: next }
+  }
 
   return (
     <span className="w-pickers" data-testid="pickers">
@@ -68,7 +73,7 @@ export default function Pickers({ sessionId }: ComposerItemProps) {
         disabled={disabled}
         value={model ?? DEFAULT_VALUE}
         onFocus={refresh}
-        onChange={(event) => configure({ model: event.target.value === DEFAULT_VALUE ? null : event.target.value })}
+        onChange={(event) => configure(modelChange(event.target.value === DEFAULT_VALUE ? null : event.target.value))}
       >
         {rows.some((row) => row.value === null) ? null : <option value={DEFAULT_VALUE}>Default model</option>}
         {rows.map((row) => (

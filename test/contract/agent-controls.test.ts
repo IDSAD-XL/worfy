@@ -127,6 +127,40 @@ describe('agent.configure', () => {
     expect(h.ofType('init').at(-1)).toMatchObject({ model: 'haiku', permissionMode: 'default' })
   })
 
+  it('settings changed while Claude Code is still starting reach it once it is up', async () => {
+    const calls: FakeCall[] = []
+    const fake = fakeQueryFactory({ scriptsDir: fixtures, script: 'turn', record: (call) => calls.push(call) })
+    let release: () => void = () => undefined
+    const started = new Promise<void>((settle) => {
+      release = settle
+    })
+    const registry = new SessionRegistry(async (request) => {
+      await started
+      return fake(request)
+    })
+    registries.push(registry)
+    const events: AgentEvent[] = []
+    const session = registry.start(cwd, undefined, (_id, event) => events.push(event))
+    // No live query yet: the change is only remembered.
+    expect(await session.configure({ model: 'sonnet', effort: 'high', permissionMode: 'plan' })).toEqual({ model: 'sonnet', effort: 'high', permissionMode: 'plan' })
+    expect(calls).toEqual([])
+
+    release()
+    await vi.waitFor(() =>
+      expect(controlCalls(calls)).toEqual([
+        { kind: 'setModel', model: 'sonnet' },
+        { kind: 'setPermissionMode', mode: 'plan' },
+        { kind: 'applyFlagSettings', settings: { effortLevel: 'high' } },
+      ]),
+    )
+    // The query was asked for with the settings of the moment it was started.
+    expect(calls.find((call) => call.kind === 'start')).toMatchObject({ settings: DEFAULT_SETTINGS })
+    await vi.waitFor(() => expect(session.state).toBe('idle'))
+    session.send('hello')
+    await vi.waitFor(() => expect(events.some((event) => event.type === 'result')).toBe(true))
+    expect(events.findLast((event) => event.type === 'init')).toMatchObject({ model: 'sonnet', permissionMode: 'plan' })
+  })
+
   it('a control call that fails answers the error and leaves the settings as they were', async () => {
     const h = await harness('turn')
     const id = await h.start()

@@ -385,6 +385,20 @@ describe('composer: pickers and queue (ticket 19)', () => {
     expect(options('picker-effort')).toEqual(['effort —'])
   })
 
+  it('switching to a model that does not list the picked effort sends the effort back to default with the model', async () => {
+    await mountInput()
+    emit('s', { type: 'settings', settings: { ...DEFAULTS, effort: 'xhigh' } })
+    fireEvent.change(select('picker-model'), { target: { value: 'sonnet' } })
+    expect(asked).toContainEqual({ channel: 'agent.configure', input: { sessionId: 's', change: { model: 'sonnet', effort: null } } })
+    fireEvent.change(select('picker-model'), { target: { value: 'haiku' } })
+    expect(asked).toContainEqual({ channel: 'agent.configure', input: { sessionId: 's', change: { model: 'haiku', effort: null } } })
+    // A level the new model lists stays.
+    emit('s', { type: 'settings', settings: { ...DEFAULTS, effort: 'high' } })
+    asked.length = 0
+    fireEvent.change(select('picker-model'), { target: { value: 'sonnet' } })
+    expect(asked).toContainEqual({ channel: 'agent.configure', input: { sessionId: 's', change: { model: 'sonnet' } } })
+  })
+
   it('offers the four permission modes with plain labels, bypass first', async () => {
     await mountInput()
     expect(options('picker-permissions')).toEqual(['Bypass permissions', 'Accept edits', 'Ask before tools', 'Plan only'])
