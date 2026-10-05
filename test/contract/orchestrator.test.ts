@@ -1,8 +1,9 @@
 // The Orchestrator of a Project (src/main/agent/orchestrator.ts) over the real Layout store and
-// Session registry, on the fake agent: its locked Node, what main writes into the Node's data as
-// the Session runs, resume after a restart, the `orchestrator.open` channel and main's own wiring
-// (src/main/ipc/orchestrator.ts).
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+// Session registry, on the fake agent: its locked Node, the view main keeps of it while the
+// Session runs, what main writes into the Node's data (the session id and the cost, nothing else),
+// resume after a restart and when the saved session is gone, the `orchestrator.*` channels and
+// main's own wiring (src/main/agent/app-orchestrators.ts).
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -10,12 +11,13 @@ import { fileURLToPath } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeQueryFactory } from '../../src/main/agent/fake-query'
-import { CostCounter, ORCHESTRATOR_HEIGHT, ORCHESTRATOR_WIDTH, Orchestrators, orchestratorPlace } from '../../src/main/agent/orchestrator'
-import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
+import { CostCounter, Orchestrators, orchestratorPlace } from '../../src/main/agent/orchestrator'
+import type { TranscriptFacts } from '../../src/main/agent/orchestrator-transcript'
+import { SessionRegistry, type QueryFactory, type QueryRequest } from '../../src/main/agent/session'
 import { LayoutStore } from '../../src/main/layout/store'
 import type { AgentEventEnvelope } from '../../src/shared/agent/events'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import type { OrchestratorData, OrchestratorInfo } from '../../src/shared/ipc/orchestrator'
+import { ORCHESTRATOR_HEIGHT, ORCHESTRATOR_WIDTH, type OrchestratorView } from '../../src/shared/ipc/orchestrator'
 import type { LayoutNode } from '../../src/shared/layout/types'
 
 const electron = vi.hoisted(() => ({
@@ -47,6 +49,7 @@ const BLOCK_1 = [
   '— Жду: ничего',
 ].join('\n')
 const BLOCK_3 = ['- Этап: worfy-mvp · /implement · волна 6', '- Сейчас: PR #21 ждёт ревью', '- Дальше: мерж волны 5', '- Жду: решение владельца по ADR'].join('\n')
+const BLOCK_TERMINAL = ['— Этап: worfy-mvp · из терминала', '— Сейчас: продолжено через claude --resume', '— Дальше: вернуться в worfy', '— Жду: ничего'].join('\n')
 
 let scratch: string
 let repo: string
@@ -66,17 +69,31 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
+interface HarnessOptions {
+  script?: string | ((request: QueryRequest) => string)
+  scripts?: string
+  /** Wraps the fake agent, e.g. to refuse a resume the way Claude Code does. */
+  factory?: (fake: QueryFactory) => QueryFactory
+  /** The transcript of a saved session: found with these facts (default), missing (null), unreadable (an Error) or still being read (a Promise). */
+  transcript?: (sdkSessionId: string) => TranscriptFacts | null | Error | Promise<TranscriptFacts | null>
+}
+
+const NO_FACTS: TranscriptFacts = { model: null, statusBlock: null }
+
 /** One run of the app: a Layout store over the data folder, a registry on the fake agent, the Orchestrators. */
-function harness(script = 'orchestrator') {
+function harness(options: HarnessOptions = {}) {
   const layout = new LayoutStore((projectId) => join(scratch, 'data', projectId), { delayMs: 0 })
   const requests: QueryRequest[] = []
-  const factory = fakeQueryFactory({ scriptsDir, script })
+  const fake = fakeQueryFactory({ scriptsDir: options.scripts ?? scriptsDir, script: options.script ?? 'orchestrator' })
+  const factory = options.factory?.(fake) ?? fake
   const registry = new SessionRegistry((request) => {
     requests.push(request)
     return factory(request)
   })
   registries.push(registry)
   const broadcast: AgentEventEnvelope[] = []
+  const published: OrchestratorView[] = []
+  const transcriptCalls: { projectRoot: string; sdkSessionId: string }[] = []
   const known = new Set([PROJECT])
   const orchestrators = new Orchestrators({
     layout,
@@ -85,39 +102,59 @@ function harness(script = 'orchestrator') {
       return repo
     },
     registry,
+    transcript: (projectRoot, sdkSessionId) => {
+      transcriptCalls.push({ projectRoot, sdkSessionId })
+      const answer = options.transcript ? options.transcript(sdkSessionId) : NO_FACTS
+      return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer)
+    },
     broadcast: (sessionId, event) => broadcast.push({ sessionId, event }),
+    publish: (view) => published.push(view),
   })
   const node = (): LayoutNode => {
     const found = layout.get(PROJECT).layout.nodes.filter((each) => each.kind === 'orchestrator')
     expect(found).toHaveLength(1)
     return found[0] as LayoutNode
   }
-  const data = () => node().data as OrchestratorData
-  /** Every state the Node's data went through, in order. */
-  const states: string[] = []
-  layout.onChange(({ op }) => {
-    if (op.op === 'patchData' && typeof op.data.state === 'string') states.push(op.data.state)
-  })
-  return { layout, registry, requests, broadcast, orchestrators, node, data, states, known }
+  const data = () => node().data
+  const view = (): OrchestratorView => {
+    const current = orchestrators.view(node().id)
+    if (current === null) throw new Error('no view yet')
+    return current
+  }
+  /** The live Session's id, for registry.get(). */
+  const sessionId = (): string => view().sessionId ?? ''
+  /** Every state the view went through, in order, without repeats. */
+  const states = () => published.map((each) => each.state).filter((state, index, all) => index === 0 || all[index - 1] !== state)
+  return { layout, registry, requests, broadcast, published, transcriptCalls, orchestrators, node, data, view, sessionId, states, known }
+}
+
+/** A layout.json with an Orchestrator Node whose data is `data`. */
+function savedNode(data: Record<string, unknown>): void {
+  writeFileSync(
+    join(scratch, 'data', PROJECT, 'layout.json'),
+    JSON.stringify({ nodes: [{ id: 'orch', kind: 'orchestrator', x: 10, y: 20, w: 300, h: 180, locked: true, data }] }),
+  )
 }
 
 describe('Orchestrator Node', () => {
-  it('is created locked on the first open, once: a second open keeps the Node and the Session', () => {
+  it('is created locked on the first open, once: concurrent and later opens keep the Node and the Session', async () => {
     const h = harness()
-    const first = h.orchestrators.open(PROJECT)
+    const [first, second] = await Promise.all([h.orchestrators.open(PROJECT), h.orchestrators.open(PROJECT)])
     const node = h.node()
     expect(node).toMatchObject({ id: first.nodeId, kind: 'orchestrator', locked: true, x: 40, y: 40, w: ORCHESTRATOR_WIDTH, h: ORCHESTRATOR_HEIGHT })
     expect(first).toMatchObject({ projectId: PROJECT, sessionId: expect.stringMatching(/^pending-/) as unknown })
-
-    expect(h.orchestrators.open(PROJECT)).toEqual(h.orchestrators.open(PROJECT))
-    expect(h.orchestrators.open(PROJECT).sessionId).toBe(first.sessionId)
+    expect(second.sessionId).toBe(first.sessionId)
+    expect((await h.orchestrators.open(PROJECT)).sessionId).toBe(first.sessionId)
     expect(h.requests).toHaveLength(1)
     expect(h.layout.get(PROJECT).layout.nodes).toHaveLength(1)
+    // No session reported yet: nothing to keep, and a new Session reads no transcript.
+    expect(h.data()).toStrictEqual({})
+    expect(h.transcriptCalls).toEqual([])
   })
 
-  it('cannot be removed, but can be moved and resized', () => {
+  it('cannot be removed, but can be moved and resized', async () => {
     const h = harness()
-    const { nodeId } = h.orchestrators.open(PROJECT)
+    const { nodeId } = await h.orchestrators.open(PROJECT)
     expect(() => h.layout.apply(PROJECT, { op: 'remove', id: nodeId })).toThrow(/locked/)
     h.layout.apply(PROJECT, { op: 'move', id: nodeId, x: 400, y: 300 })
     h.layout.apply(PROJECT, { op: 'resize', id: nodeId, w: 500, h: 260 })
@@ -131,115 +168,249 @@ describe('Orchestrator Node', () => {
     expect(orchestratorPlace([note(120, 80), note(500, 300, 100, 50)])).toEqual({ x: 120, y: 390 })
   })
 
-  it('is found again by its kind, and the Session resumes the SDK session saved in its data', () => {
-    writeFileSync(
-      join(scratch, 'data', PROJECT, 'layout.json'),
-      JSON.stringify({
-        nodes: [{ id: 'orch', kind: 'orchestrator', x: 10, y: 20, w: 300, h: 180, locked: true, data: { sessionId: 'sdk-saved', costUsd: 'damaged', statusBlock: BLOCK_1 } }],
-      }),
-    )
-    const h = harness()
-    expect(h.orchestrators.open(PROJECT).nodeId).toBe('orch')
-    // A damaged field is dropped; the rest of the data still counts.
+  it('is found again by its kind; the Session resumes the saved session and shows the model and block of its transcript', async () => {
+    // A damaged field is dropped and the rest still counts; keys of an older build are not read.
+    savedNode({ sessionId: 'sdk-saved', costUsd: 'damaged', statusBlock: 'stale block from layout.json', model: 'stale-model' })
+    const h = harness({ transcript: () => ({ model: 'claude-sonnet-5', statusBlock: BLOCK_TERMINAL }) })
+    const opened = await h.orchestrators.open(PROJECT)
+    expect(opened.nodeId).toBe('orch')
+    expect(h.transcriptCalls).toEqual([{ projectRoot: repo, sdkSessionId: 'sdk-saved' }])
     expect(h.requests.map((request) => request.resume)).toEqual(['sdk-saved'])
-    expect(h.node()).toMatchObject({ x: 10, y: 20, data: { statusBlock: BLOCK_1 } })
+    expect(opened).toMatchObject({ state: 'starting', model: 'claude-sonnet-5', statusBlock: BLOCK_TERMINAL, costUsd: 0 })
+    await vi.waitFor(() => expect(h.view().state).toBe('idle'))
   })
 
-  it('a Project that is not in the list has no Orchestrator', () => {
+  it('a Project that is not in the list has no Orchestrator', async () => {
     const h = harness()
-    expect(() => h.orchestrators.open('nope-00000000')).toThrow(/No Project/)
+    await expect(h.orchestrators.open('nope-00000000')).rejects.toThrow(/No Project/)
     expect(h.requests).toEqual([])
+  })
+
+  it('has no view for a Node main does not run', () => {
+    expect(harness().orchestrators.view('no-such-node')).toBeNull()
   })
 })
 
 describe('Orchestrator Session', () => {
-  it('shows state, model, cost and the last status block in the Node data; an answer without a block leaves it', async () => {
+  it('shows state, model, cost and the last status block; keeps only the session id and the cost in the Node data', async () => {
     const h = harness()
-    const { sessionId: tempId } = h.orchestrators.open(PROJECT)
-    await vi.waitFor(() => expect(h.data().state).toBe('idle'))
-    expect(h.data()).toStrictEqual({ state: 'idle', error: null })
+    const tempId = (await h.orchestrators.open(PROJECT)).sessionId ?? ''
+    await vi.waitFor(() => expect(h.view().state).toBe('idle'))
+    expect(h.view()).toMatchObject({ model: null, statusBlock: null, costUsd: 0, error: null })
 
     // Turn 1 of the script holds the turn open after its answer until the next message.
     h.registry.get(tempId).send('прогони волну 5')
-    await vi.waitFor(() => expect(h.data().statusBlock).toBe(BLOCK_1))
-    expect(h.data().state).toBe('busy')
-    const sdkId = h.data().sessionId
+    await vi.waitFor(() => expect(h.view().statusBlock).toBe(BLOCK_1))
+    expect(h.view().state).toBe('busy')
+    const sdkId = h.view().sessionId
     expect(sdkId).toMatch(/^[0-9a-f-]{36}$/)
-    expect(h.data()).toMatchObject({ model: 'claude-opus-5-5' })
+    expect(h.view().model).toBe('claude-opus-5-5')
+    expect(h.data()).toStrictEqual({ sessionId: sdkId })
     h.registry.get(tempId).send('дальше')
-    await vi.waitFor(() => expect(h.data().costUsd).toBe(0.0125))
-    expect(h.data().state).toBe('idle')
+    await vi.waitFor(() => expect(h.view().costUsd).toBe(0.0125))
+    expect(h.view().state).toBe('idle')
 
-    // Turn 2: a subagent's block and an answer without one change nothing.
+    // Turn 2: a subagent's block, a block in text Claude Code wrote itself, and an answer without
+    // one change nothing.
     h.registry.get(tempId).send('статус')
-    await vi.waitFor(() => expect(h.data().costUsd).toBe(0.02))
-    expect(h.data().statusBlock).toBe(BLOCK_1)
+    await vi.waitFor(() => expect(h.view().costUsd).toBe(0.02))
+    expect(h.view().statusBlock).toBe(BLOCK_1)
 
     // Turn 3: of two blocks, the last one.
     h.registry.get(tempId).send('статус')
-    await vi.waitFor(() => expect(h.data().costUsd).toBe(0.03))
-    expect(h.data()).toStrictEqual({ state: 'idle', error: null, sessionId: sdkId, model: 'claude-opus-5-5', costUsd: 0.03, statusBlock: BLOCK_3 })
-    expect(h.states).toEqual(['starting', 'idle', 'busy', 'idle', 'busy', 'idle', 'busy', 'idle'])
+    await vi.waitFor(() => expect(h.view().costUsd).toBe(0.03))
+    expect(h.view()).toMatchObject({ state: 'idle', error: null, sessionId: sdkId, model: 'claude-opus-5-5', costUsd: 0.03, statusBlock: BLOCK_3 })
+    expect(h.states()).toEqual(['starting', 'idle', 'busy', 'idle', 'busy', 'idle', 'busy', 'idle'])
+    // The Layout keeps nothing that the transcript or the live Session already has.
+    expect(h.data()).toStrictEqual({ sessionId: sdkId, costUsd: 0.03 })
 
-    // Every event also went out under the Session's id, the final one from `renamed` on.
+    // Views only grow in version; every event also went out under the Session's id.
+    const versions = h.published.map((each) => each.version)
+    expect(versions).toEqual([...versions].sort((a, b) => a - b))
+    expect(new Set(versions).size).toBe(versions.length)
     expect(h.broadcast.filter((e) => e.event.type === 'result')).toHaveLength(3)
     expect(h.broadcast.find((e) => e.event.type === 'renamed')).toEqual({ sessionId: sdkId, event: { type: 'renamed', from: tempId } })
   })
 
-  it('after a restart resumes the saved session and keeps counting its cost', async () => {
+  it('after a restart resumes the saved session, shows its transcript rather than anything kept, and keeps counting its cost', async () => {
     const first = harness()
-    const { sessionId } = first.orchestrators.open(PROJECT)
-    first.registry.get(sessionId).send('one')
-    await vi.waitFor(() => expect(first.data().statusBlock).toBe(BLOCK_1))
-    first.registry.get(sessionId).send('release')
-    await vi.waitFor(() => expect(first.data().costUsd).toBe(0.0125))
-    const sdkId = first.data().sessionId
+    const { sessionId } = await first.orchestrators.open(PROJECT)
+    first.registry.get(sessionId ?? '').send('one')
+    await vi.waitFor(() => expect(first.view().statusBlock).toBe(BLOCK_1))
+    first.registry.get(sessionId ?? '').send('release')
+    await vi.waitFor(() => expect(first.view().costUsd).toBe(0.0125))
+    const sdkId = first.view().sessionId
     first.registry.closeAll()
     first.layout.flushAll()
     const onDisk = JSON.parse(readFileSync(join(scratch, 'data', PROJECT, 'layout.json'), 'utf8')) as { nodes: LayoutNode[] }
-    expect(onDisk.nodes[0]?.data).toMatchObject({ sessionId: sdkId, costUsd: 0.0125, statusBlock: BLOCK_1 })
+    expect(onDisk.nodes[0]?.data).toStrictEqual({ sessionId: sdkId, costUsd: 0.0125 })
 
-    const second = harness()
-    const reopened = second.orchestrators.open(PROJECT)
+    // Meanwhile the session went on in a terminal: its transcript has a newer block.
+    const second = harness({ transcript: () => ({ model: 'claude-sonnet-5', statusBlock: BLOCK_TERMINAL }) })
+    const reopened = await second.orchestrators.open(PROJECT)
     expect(second.requests.map((request) => request.resume)).toEqual([sdkId])
-    // What the Node showed before the restart is there at once; the state starts over.
-    expect(second.data()).toMatchObject({ state: 'starting', statusBlock: BLOCK_1, costUsd: 0.0125 })
-    second.registry.get(reopened.sessionId).send('one')
-    await vi.waitFor(() => expect(second.data().state).toBe('busy'))
-    second.registry.get(reopened.sessionId).send('release')
+    expect(reopened).toMatchObject({ state: 'starting', statusBlock: BLOCK_TERMINAL, model: 'claude-sonnet-5', costUsd: 0.0125 })
+    second.registry.get(second.sessionId()).send('one')
+    await vi.waitFor(() => expect(second.view().state).toBe('busy'))
+    second.registry.get(second.sessionId()).send('release')
     // A new Claude Code process counts from zero: 0.0125 before the restart + 0.0125 now.
-    await vi.waitFor(() => expect(second.data().costUsd).toBe(0.025))
-    expect(second.data().sessionId).toBe(sdkId)
+    await vi.waitFor(() => expect(second.view().costUsd).toBe(0.025))
+    expect(second.data()).toStrictEqual({ sessionId: sdkId, costUsd: 0.025 })
   })
 
-  it('a crashed Session shows error with its reason in the Node data', async () => {
-    const h = harness('crash')
-    const { sessionId } = h.orchestrators.open(PROJECT)
-    h.registry.get(sessionId).send('go')
-    await vi.waitFor(() => expect(h.data().state).toBe('error'))
-    expect(h.data().error).toEqual(expect.any(String))
+  it('a crashed Session shows error with its reason; the process it is resumed in counts its cost on top', async () => {
+    const scripts = join(scratch, 'scripts')
+    mkdirSync(scripts)
+    const init = (model: string) =>
+      JSON.stringify({ type: 'system', subtype: 'init', cwd: '{{cwd}}', session_id: '{{session}}', tools: [], mcp_servers: [], model, permissionMode: 'default', slash_commands: [], apiKeySource: 'none', claude_code_version: '2.1.289', uuid: '00000000-0000-4000-8000-0000000000c1' })
+    const result = (cost: number) =>
+      JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: cost, duration_ms: 1, duration_api_ms: 1, num_turns: 1, usage: { input_tokens: 1, output_tokens: 1 }, session_id: '{{session}}', uuid: '00000000-0000-4000-8000-0000000000c2' })
+    const wait = JSON.stringify({ fake: 'wait_message' })
+    writeFileSync(join(scripts, 'crash-after-turn.jsonl'), [wait, init('m'), result(0.5), wait, JSON.stringify({ fake: 'crash', error: 'Claude Code process exited with code 1' })].join('\n'))
+    writeFileSync(join(scripts, 'after-crash.jsonl'), [wait, init('m'), result(0.6)].join('\n'))
+    const h = harness({ scripts, script: (request) => (request.resume === undefined ? 'crash-after-turn' : 'after-crash') })
+
+    await h.orchestrators.open(PROJECT)
+    h.registry.get(h.sessionId()).send('one')
+    await vi.waitFor(() => expect(h.view().costUsd).toBe(0.5))
+    h.registry.get(h.sessionId()).send('two')
+    await vi.waitFor(() => expect(h.view().state).toBe('error'))
+    expect(h.view().error).toMatch(/exited with code 1/)
+
+    // The next message starts a new Claude Code process, which reports 0.6 for itself.
+    h.registry.get(h.sessionId()).send('three')
+    await vi.waitFor(() => expect(h.view().state).toBe('idle'))
+    expect(h.requests.map((request) => request.resume)).toEqual([undefined, h.view().sessionId])
+    expect(h.view().costUsd).toBeCloseTo(1.1, 10)
+    expect(h.data().costUsd).toBeCloseTo(1.1, 10)
   })
 
   it('a closed Orchestrator is started again by the next open, resuming its session', async () => {
     const h = harness()
-    const first = h.orchestrators.open(PROJECT)
-    h.registry.get(first.sessionId).send('one')
+    const first = await h.orchestrators.open(PROJECT)
+    h.registry.get(h.sessionId()).send('one')
     await vi.waitFor(() => expect(h.data().sessionId).toBeDefined())
-    h.registry.get(first.sessionId).close()
-    expect(h.data().state).toBe('closed')
-    const again = h.orchestrators.open(PROJECT)
+    h.registry.get(h.sessionId()).close()
+    expect(h.view().state).toBe('closed')
+    const again = await h.orchestrators.open(PROJECT)
     expect(again.sessionId).not.toBe(first.sessionId)
     expect(h.requests.map((request) => request.resume)).toEqual([undefined, h.data().sessionId])
   })
 
-  it('retain stops the Orchestrators of Projects removed from the list', () => {
+  it('retain stops the Orchestrators of Projects removed from the list', async () => {
     const h = harness()
-    const { sessionId } = h.orchestrators.open(PROJECT)
+    const opened = await h.orchestrators.open(PROJECT)
+    const { nodeId } = opened
+    const sessionId = opened.sessionId ?? ''
     h.orchestrators.retain(new Set([PROJECT]))
     expect(h.registry.get(sessionId).state).not.toBe('closed')
     h.known.delete(PROJECT)
     h.orchestrators.retain(new Set())
     expect(() => h.registry.get(sessionId)).toThrow(/No live Session/)
+    expect(h.orchestrators.view(nodeId)).toBeNull()
+  })
+
+  it('a Project removed while its transcript is read never starts its Session', async () => {
+    savedNode({ sessionId: 'sdk-saved' })
+    let release: (facts: TranscriptFacts) => void = () => undefined
+    const h = harness({ transcript: () => new Promise<TranscriptFacts>((done) => (release = done)) })
+    const opening = h.orchestrators.open(PROJECT)
+    await vi.waitFor(() => expect(h.transcriptCalls).toHaveLength(1))
+    h.known.delete(PROJECT)
+    h.orchestrators.retain(new Set())
+    release(NO_FACTS)
+    await expect(opening).rejects.toThrow(/was stopped/)
+    expect(h.requests).toEqual([])
+    expect(h.published).toEqual([])
+  })
+})
+
+describe('a saved session that cannot be resumed', () => {
+  it('whose transcript is gone: the Orchestrator starts a new session instead and forgets the old one', async () => {
+    savedNode({ sessionId: 'sdk-gone', costUsd: 4.2 })
+    const h = harness({ transcript: () => null })
+    const opened = await h.orchestrators.open(PROJECT)
+    expect(h.requests.map((request) => request.resume)).toEqual([undefined])
+    expect(opened).toMatchObject({ costUsd: 0, statusBlock: null })
+    expect(h.data()).toStrictEqual({ sessionId: null, costUsd: 0 })
+    h.registry.get(h.sessionId()).send('one')
+    await vi.waitFor(() => expect(h.data().sessionId).toMatch(/^[0-9a-f-]{36}$/))
+  })
+
+  it('whose transcript cannot be read: the session is kept and resumed', async () => {
+    savedNode({ sessionId: 'sdk-saved', costUsd: 1 })
+    const h = harness({ transcript: () => new Error('EACCES: permission denied') })
+    const opened = await h.orchestrators.open(PROJECT)
+    expect(h.requests.map((request) => request.resume)).toEqual(['sdk-saved'])
+    expect(opened).toMatchObject({ costUsd: 1, statusBlock: null, model: null })
+    expect(h.data()).toStrictEqual({ sessionId: 'sdk-saved', costUsd: 1 })
+  })
+
+  it('that Claude Code refuses: a new Session starts a new session, and messages go through again', async () => {
+    savedNode({ sessionId: 'sdk-expired', costUsd: 2 })
+    const refuseResume = (fake: QueryFactory): QueryFactory => (request) =>
+      request.resume === undefined ? fake(request) : Promise.reject(new Error(`No conversation found with session ID: ${request.resume}`))
+    const h = harness({ factory: refuseResume })
+    await h.orchestrators.open(PROJECT)
+    await vi.waitFor(() => expect(h.requests.map((request) => request.resume)).toEqual(['sdk-expired', undefined]))
+    // The refused Session is closed, not left in error for every message to fail again.
+    const refused = h.published.find((each) => each.sessionId !== null)?.sessionId ?? ''
+    expect(refused).toMatch(/^pending-/)
+    expect(() => h.registry.get(refused)).toThrow(/No live Session/)
+    expect(h.sessionId()).not.toBe(refused)
+    await vi.waitFor(() => expect(h.view().state).toBe('idle'))
+    expect(h.view()).toMatchObject({ costUsd: 0, error: null })
+    expect(h.data()).toStrictEqual({ sessionId: null, costUsd: 0 })
+    expect(h.states()).not.toContain('error')
+
+    h.registry.get(h.sessionId()).send('one')
+    await vi.waitFor(() => expect(h.view().statusBlock).toBe(BLOCK_1))
+    expect(h.data().sessionId).toBe(h.view().sessionId)
+    expect(h.requests).toHaveLength(2)
+  })
+
+  it('a start that fails for another reason keeps the session: the Node shows the error', async () => {
+    savedNode({ sessionId: 'sdk-saved', costUsd: 2 })
+    const noSpace = (fake: QueryFactory): QueryFactory => (request) =>
+      request.resume === undefined ? fake(request) : Promise.reject(new Error('ENOSPC: no space left on device'))
+    const h = harness({ factory: noSpace })
+    await h.orchestrators.open(PROJECT)
+    await vi.waitFor(() => expect(h.view().state).toBe('error'))
+    expect(h.view().error).toMatch(/ENOSPC/)
+    expect(h.requests.map((request) => request.resume)).toEqual(['sdk-saved'])
+    expect(h.data()).toStrictEqual({ sessionId: 'sdk-saved', costUsd: 2 })
+  })
+
+  it.each([
+    ['after Claude Code reported the session', 'resumed', 'No conversation found with session ID: x'],
+    ['of a new session, with nothing to resume', 'new', 'No conversation found with session ID: x'],
+  ])('the same refusal %s is an error like any other: nothing starts over', async (_label, start, message) => {
+    const scripts = join(scratch, 'scripts')
+    mkdirSync(scripts)
+    const init = JSON.stringify({ type: 'system', subtype: 'init', cwd: '{{cwd}}', session_id: '{{session}}', tools: [], mcp_servers: [], model: 'm', permissionMode: 'default', slash_commands: [], apiKeySource: 'none', claude_code_version: '2.1.289', uuid: '00000000-0000-4000-8000-0000000000d1' })
+    const wait = JSON.stringify({ fake: 'wait_message' })
+    // Resumed: the refusal comes after init. New: it comes before any init, but there was no resume.
+    const lines = start === 'resumed' ? [wait, init, JSON.stringify({ fake: 'crash', error: message })] : [JSON.stringify({ fake: 'crash', error: message })]
+    writeFileSync(join(scripts, 'refuse.jsonl'), lines.join('\n'))
+    if (start === 'resumed') savedNode({ sessionId: 'sdk-saved', costUsd: 2 })
+    const h = harness({ scripts, script: 'refuse' })
+    await h.orchestrators.open(PROJECT)
+    if (start === 'resumed') h.registry.get(h.sessionId()).send('one')
+    await vi.waitFor(() => expect(h.view().state).toBe('error'))
+    expect(h.requests).toHaveLength(1)
+    expect(h.data().sessionId ?? null).toBe(start === 'resumed' ? 'sdk-saved' : null)
+  })
+
+  it('a session already live in another Session: the view says so, and the next open tries again', async () => {
+    savedNode({ sessionId: 'sdk-saved' })
+    const h = harness()
+    const other = h.registry.start(repo, 'sdk-saved', () => undefined)
+    const refused = await h.orchestrators.open(PROJECT)
+    expect(refused).toMatchObject({ state: 'error', error: expect.stringMatching(/already live/) as unknown, sessionId: null })
+    other.close()
+    const again = await h.orchestrators.open(PROJECT)
+    expect(again.state).toBe('starting')
+    expect(h.requests.map((request) => request.resume)).toEqual(['sdk-saved', 'sdk-saved'])
   })
 })
 
@@ -255,90 +426,150 @@ describe('CostCounter', () => {
   })
 })
 
-describe('orchestrator.open channel', () => {
-  async function channel(open: (projectId: string) => unknown) {
+describe('orchestrator.* channels', () => {
+  const view: OrchestratorView = {
+    projectId: PROJECT,
+    nodeId: 'orch',
+    sessionId: 'pending-1',
+    state: 'idle',
+    error: null,
+    model: 'claude-opus-5-5',
+    costUsd: 0.5,
+    statusBlock: BLOCK_1,
+    version: 3,
+  }
+
+  async function channels(fake: { open: (projectId: string) => unknown; view: (nodeId: string) => unknown }) {
     const { orchestratorHandlers } = await import('../../src/main/ipc/orchestrator')
     const { registerIpc } = await import('../../src/main/ipc/index')
     const handlers = new Map<string, (event: IpcMainInvokeEvent, input: unknown) => unknown>()
-    const fake = { open: vi.fn(open) }
+    const spies = { open: vi.fn(fake.open), view: vi.fn(fake.view) }
     await registerIpc(
       { handle: (name, listener) => handlers.set(name, listener) },
-      { modules: { './orchestrator.ts': () => Promise.resolve(orchestratorHandlers(() => fake as unknown as Orchestrators)) }, isTrustedSender: (url) => url === APP_URL },
+      { modules: { './orchestrator.ts': () => Promise.resolve(orchestratorHandlers(() => spies as unknown as Orchestrators)) }, isTrustedSender: (url) => url === APP_URL },
     )
-    const call = async (input: unknown) => {
-      const listener = handlers.get(`${IPC_CHANNEL_PREFIX}orchestrator.open`)
-      if (!listener) throw new Error('orchestrator.open is not registered')
-      return (await listener({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, input)) as IpcResult<OrchestratorInfo>
+    const call = async <T,>(channel: string, input: unknown) => {
+      const listener = handlers.get(`${IPC_CHANNEL_PREFIX}${channel}`)
+      if (!listener) throw new Error(`${channel} is not registered`)
+      return (await listener({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, input)) as IpcResult<T>
     }
-    return { call, fake }
+    return { call, spies }
   }
-
-  const info: OrchestratorInfo = { projectId: PROJECT, nodeId: 'orch', sessionId: 'pending-1', state: 'idle' }
 
   it.each([
     ['no projectId', {}],
     ['a projectId of the wrong type', { projectId: 7 }],
     ['an empty projectId', { projectId: '' }],
-  ])('rejects %s before the handler runs', async (_label, input) => {
-    const { call, fake } = await channel(() => info)
-    const result = await call(input)
+  ])('orchestrator.open rejects %s before the handler runs', async (_label, input) => {
+    const { call, spies } = await channels({ open: () => view, view: () => view })
+    const result = await call('orchestrator.open', input)
     expect(result.ok).toBe(false)
     expect(!result.ok && result.error).toMatch(/orchestrator\.open: invalid input/)
-    expect(fake.open).not.toHaveBeenCalled()
+    expect(spies.open).not.toHaveBeenCalled()
   })
 
-  it('passes only the projectId and answers only the declared keys', async () => {
-    const { call, fake } = await channel(() => ({ ...info, internal: 'leak' }))
-    expect(await call({ projectId: PROJECT, admin: true })).toStrictEqual({ ok: true, value: info })
-    expect(fake.open).toHaveBeenCalledWith(PROJECT)
+  it('orchestrator.open passes only the projectId and answers only the declared keys', async () => {
+    const { call, spies } = await channels({ open: () => Promise.resolve({ ...view, internal: 'leak' }), view: () => view })
+    expect(await call('orchestrator.open', { projectId: PROJECT, admin: true })).toStrictEqual({ ok: true, value: view })
+    expect(spies.open).toHaveBeenCalledWith(PROJECT)
   })
 
-  it('refuses an answer outside the contract', async () => {
-    const { call } = await channel(() => ({ ...info, state: 'sleeping' }))
-    const result = await call({ projectId: PROJECT })
-    expect(result.ok).toBe(false)
+  it('orchestrator.open refuses an answer outside the contract', async () => {
+    const { call } = await channels({ open: () => ({ ...view, state: 'sleeping' }), view: () => view })
+    expect((await call('orchestrator.open', { projectId: PROJECT })).ok).toBe(false)
+  })
+
+  it.each([
+    ['no nodeId', {}],
+    ['a nodeId of the wrong type', { nodeId: 7 }],
+    ['an empty nodeId', { nodeId: '' }],
+  ])('orchestrator.view rejects %s before the handler runs', async (_label, input) => {
+    const { call, spies } = await channels({ open: () => view, view: () => view })
+    const result = await call('orchestrator.view', input)
+    expect(!result.ok && result.error).toMatch(/orchestrator\.view: invalid input/)
+    expect(spies.view).not.toHaveBeenCalled()
+  })
+
+  it('orchestrator.view answers the view without extra keys, or null', async () => {
+    const { call, spies } = await channels({ open: () => view, view: (nodeId) => (nodeId === 'orch' ? { ...view, internal: 'leak' } : null) })
+    expect(await call('orchestrator.view', { nodeId: 'orch', extra: 1 })).toStrictEqual({ ok: true, value: { view } })
+    expect(spies.view).toHaveBeenCalledWith('orch')
+    expect(await call('orchestrator.view', { nodeId: 'other' })).toStrictEqual({ ok: true, value: { view: null } })
+  })
+
+  it('orchestrator.view refuses a view outside the contract', async () => {
+    const { call } = await channels({ open: () => view, view: () => ({ ...view, costUsd: -1 }) })
+    expect((await call('orchestrator.view', { nodeId: 'orch' })).ok).toBe(false)
   })
 })
 
+/** Every file under `dir`, relative, with its size: what a test compares before and after. */
+function listing(dir: string): string[] {
+  return readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => {
+      const path = join(entry.parentPath, entry.name)
+      return `${path.slice(dir.length)}:${readFileSync(path).length}`
+    })
+    .sort()
+}
+
 describe("main's own wiring", () => {
-  it('opens the active Project on the first window, a Project that becomes active, and stops a removed one', async () => {
+  it('opens the active Project on the first window, a Project that becomes active, and stops a removed one; writes nothing into the Projects or the Claude home', async () => {
     const other = join(scratch, 'other')
     mkdirSync(other)
     mkdirSync(join(scratch, 'data', 'other-0000000e'))
+    const home = join(scratch, 'claude-home')
+    mkdirSync(join(home, 'projects'), { recursive: true })
     writeFileSync(
       join(scratch, 'data', 'projects.json'),
       JSON.stringify({ projects: [{ id: PROJECT, name: 'repo', path: repo }, { id: 'other-0000000e', name: 'other', path: other }], activeId: PROJECT }),
     )
     vi.stubEnv('WORFY_DATA_DIR', join(scratch, 'data'))
+    vi.stubEnv('WORFY_CLAUDE_HOME', home)
     vi.stubEnv('WORFY_AGENT', 'fake')
     vi.stubEnv('WORFY_AGENT_SCRIPTS', scriptsDir)
     vi.stubEnv('WORFY_AGENT_SCRIPT', 'orchestrator')
     // Only this module instance may answer the window event: an earlier import of the module
     // (the channel tests) runs over the real data folder.
     electron.listeners.clear()
+    electron.sent.length = 0
     vi.resetModules()
     try {
-      await import('../../src/main/ipc/orchestrator')
+      const { startOrchestrators, sharedOrchestrators } = await import('../../src/main/agent/app-orchestrators')
       const { layoutStore } = await import('../../src/main/layout/store')
       const { projectStore } = await import('../../src/main/projects/store')
-      const { sharedRegistry } = await import('../../src/main/ipc/agent')
+      const { sharedRegistry } = await import('../../src/main/agent/app-registry')
+      // Loading the IPC handlers subscribes nothing.
+      await import('../../src/main/ipc/orchestrator')
+      expect(electron.listeners.size).toBe(0)
       const orchestratorOf = (projectId: string) => layoutStore().get(projectId).layout.nodes.filter((node) => node.kind === 'orchestrator')
 
-      // Nothing is opened while the module loads.
+      startOrchestrators()
+      startOrchestrators()
+      expect(electron.listeners.get('browser-window-created')).toHaveLength(1)
+      // Nothing is opened before there is a window.
       expect(sharedRegistry().list()).toEqual([])
       for (const listener of electron.listeners.get('browser-window-created') ?? []) listener()
+      await vi.waitFor(() => expect(sharedRegistry().list()).toMatchObject([{ cwd: repo }]))
       expect(orchestratorOf(PROJECT)).toHaveLength(1)
-      expect(sharedRegistry().list()).toMatchObject([{ cwd: repo }])
       await vi.waitFor(() => expect(electron.sent.some(({ channel }) => channel === `${IPC_CHANNEL_PREFIX}agent.event`)).toBe(true))
+      const views = electron.sent.filter(({ channel }) => channel === `${IPC_CHANNEL_PREFIX}orchestrator.changed`)
+      expect(views.at(-1)?.payload).toMatchObject({ projectId: PROJECT, nodeId: orchestratorOf(PROJECT)[0]?.id })
 
       projectStore().select('other-0000000e')
+      await vi.waitFor(() => expect(sharedRegistry().list().map((session) => session.cwd)).toEqual([repo, other]))
       expect(orchestratorOf('other-0000000e')).toHaveLength(1)
-      expect(sharedRegistry().list().map((session) => session.cwd)).toEqual([repo, other])
+      expect(sharedOrchestrators().view(orchestratorOf('other-0000000e')[0]?.id ?? '')).toMatchObject({ projectId: 'other-0000000e' })
 
       projectStore().remove(PROJECT)
       expect(sharedRegistry().list().map((session) => session.cwd)).toEqual([other])
       sharedRegistry().closeAll()
       layoutStore().flushAll()
+      // ADR 0005: the Projects' repositories and the Claude home stay as they were.
+      expect(readdirSync(repo)).toEqual([])
+      expect(readdirSync(other)).toEqual([])
+      expect(listing(home)).toEqual([])
     } finally {
       vi.unstubAllEnvs()
     }

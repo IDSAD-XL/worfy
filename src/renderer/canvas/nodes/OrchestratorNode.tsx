@@ -1,18 +1,24 @@
 import type { CSSProperties } from 'react'
 import { NodeResizer } from '@xyflow/react'
 import type { SessionState } from '../../../shared/agent/events'
-import { readOrchestratorData } from '../../../shared/ipc/orchestrator'
+import type { ORCHESTRATOR_HEIGHT, ORCHESTRATOR_KIND, ORCHESTRATOR_WIDTH } from '../../../shared/ipc/orchestrator'
 import { StatusChip, type Status } from '../../theme/primitives'
 import { useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
+import { useOrchestratorView } from './orchestrator-view'
 
 // The Orchestrator: the Project's main Session (CONTEXT.md, «Оркестратор»), collapsed to a Node.
-// main creates it locked (it can be moved and resized, not removed) and keeps its data current:
-// state, model, cost and the last status block of the Session's answers, shown verbatim
-// (src/main/agent/orchestrator.ts). The Session view with the transcript is ticket 33.
-export const kind = 'orchestrator'
-export const defaultWidth = 360
-export const defaultHeight = 200
+// main creates it locked (it can be moved and resized, not removed). What it shows — state, model,
+// cost and the last status block of the Session's answers, verbatim — is main's view of the
+// Orchestrator (src/main/agent/orchestrator.ts), asked for once and then followed on
+// `orchestrator.changed` (orchestrator-view.ts). The Session view with the transcript is ticket 33.
+//
+// main creates the Node with the kind and size of src/shared/ipc/orchestrator.ts. The registry
+// (index.ts) needs them here as literals (fast refresh accepts no other constant exports);
+// `satisfies` fails the typecheck the moment they differ from the shared ones.
+export const kind = 'orchestrator' satisfies typeof ORCHESTRATOR_KIND
+export const defaultWidth = 360 satisfies typeof ORCHESTRATOR_WIDTH
+export const defaultHeight = 200 satisfies typeof ORCHESTRATOR_HEIGHT
 
 const CHIPS: Record<SessionState, { status: Status; label: string }> = {
   starting: { status: 'working', label: 'starting' },
@@ -69,10 +75,10 @@ const styles = {
   empty: { padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--text-12)', color: 'var(--text-muted)' },
 } satisfies Record<string, CSSProperties>
 
-export default function OrchestratorNode({ id, data, selected }: CanvasNodeProps) {
+export default function OrchestratorNode({ id, selected }: CanvasNodeProps) {
   const ops = useLayoutOps()
-  const orchestrator = readOrchestratorData(data.node.data)
-  const chip = CHIPS[orchestrator.state ?? 'starting']
+  const view = useOrchestratorView(id)
+  const chip = CHIPS[view?.state ?? 'starting']
 
   return (
     <div className="w-node-surface" style={styles.root} data-testid="orchestrator-node" data-node-id={id}>
@@ -84,21 +90,21 @@ export default function OrchestratorNode({ id, data, selected }: CanvasNodeProps
       />
       <div className="w-orchestrator__header" style={styles.header}>
         <span style={styles.title}>Orchestrator</span>
-        <span data-testid="orchestrator-state" title={orchestrator.error ?? undefined}>
+        <span data-testid="orchestrator-state" title={view?.error ?? undefined}>
           <StatusChip status={chip.status} label={chip.label} />
         </span>
       </div>
       <div style={styles.meta}>
         <span className="w-mono" data-testid="orchestrator-model">
-          {orchestrator.model ?? '—'}
+          {view?.model ?? '—'}
         </span>
         <span className="w-mono" data-testid="orchestrator-cost" title="Cost of this Session">
-          {formatCost(orchestrator.costUsd ?? 0)}
+          {view ? formatCost(view.costUsd) : '—'}
         </span>
       </div>
-      {orchestrator.statusBlock ? (
+      {view?.statusBlock ? (
         <pre className="w-mono nodrag nowheel" style={styles.block} data-testid="orchestrator-status-block">
-          {orchestrator.statusBlock}
+          {view.statusBlock}
         </pre>
       ) : (
         <div style={styles.empty} data-testid="orchestrator-status-block-empty">

@@ -1,4 +1,4 @@
-// How a Session's Claude Code is started (src/main/ipc/agent.ts): the real SDK unless
+// How a Session's Claude Code is started (src/main/agent/app-registry.ts): the real SDK unless
 // WORFY_AGENT=fake, with the login shell environment from env.ts rather than worfy's own, and the
 // unpacked native binary in the packaged app. The SDK's query() and agentEnv() are mocked.
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -17,7 +17,7 @@ vi.mock('electron', () => ({ app: mocks.app }))
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: mocks.query }))
 vi.mock('../../src/main/agent/env', () => ({ agentEnv: mocks.agentEnv }))
 
-const { queryFactoryFromEnv, sdkQueryFactory } = await import('../../src/main/ipc/agent')
+const { queryFactoryFromEnv, sdkQueryFactory } = await import('../../src/main/agent/app-registry')
 
 /** The environment env.ts hands over: the login shell's, already without API keys. */
 const LOGIN_ENV = { HOME: '/Users/tester', PATH: '/opt/homebrew/bin:/usr/bin:/bin', SHELL: '/bin/zsh' }

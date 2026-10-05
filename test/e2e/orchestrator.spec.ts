@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,6 +11,10 @@ import { launchApp } from './helpers'
 // enough to be seen; turn 2 answers without a block; turn 3 has two blocks. Its costs grow per
 // process as Claude Code reports them: 0.0125, 0.02, 0.03. Messages are sent over `agent.send`
 // directly: the input field is ticket 33.
+//
+// Between the two runs the test writes the session's transcript into the Claude home, as Claude
+// Code would after the session went on in a terminal: the second run shows the transcript's model
+// and newest block, not anything worfy kept (ADR 0002, ADR 0005).
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -23,6 +27,8 @@ const BLOCK_1 = [
   '— Жду: ничего',
 ].join('\n')
 const BLOCK_3 = ['- Этап: worfy-mvp · /implement · волна 6', '- Сейчас: PR #21 ждёт ревью', '- Дальше: мерж волны 5', '- Жду: решение владельца по ADR'].join('\n')
+const BLOCK_TERMINAL = ['— Этап: worfy-mvp · из терминала', '— Сейчас: продолжено через claude --resume', '— Дальше: вернуться в worfy', '— Жду: ничего'].join('\n')
+const BLOCK_NOT_OURS = ['— Этап: не оркестратор', '— Сейчас: subagent', '— Дальше: ничего', '— Жду: ничего'].join('\n')
 
 interface LayoutNode {
   id: string
@@ -39,11 +45,16 @@ interface Envelope {
 
 let scratch: string
 let dataDir: string
+let claudeHome: string
+let projectPath: string
 
 test.beforeEach(() => {
   scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-orchestrator-')))
   dataDir = join(scratch, 'data')
+  claudeHome = join(scratch, 'claude-home')
+  mkdirSync(claudeHome)
   const path = join(scratch, 'alpha')
+  projectPath = path
   mkdirSync(path)
   mkdirSync(join(dataDir, PROJECT), { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'alpha', path }], activeId: PROJECT }))
@@ -83,6 +94,34 @@ async function send(window: Page, sessionId: string, text: string): Promise<void
   expect(result.error).toBeUndefined()
 }
 
+/** Every file under `dir` with its size and modification time: what must not change. */
+function listing(dir: string): string[] {
+  return readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => {
+      const path = join(entry.parentPath, entry.name)
+      const info = statSync(path)
+      return `${path.slice(dir.length)}:${info.size}:${info.mtimeMs}`
+    })
+    .sort()
+}
+
+/** The transcript of `sessionId` as Claude Code keeps it for Sessions started in the Project's root. */
+function writeTranscript(sessionId: string): void {
+  const dir = join(claudeHome, 'projects', projectPath.replace(/[^a-zA-Z0-9]/g, '-'))
+  mkdirSync(dir, { recursive: true })
+  const base = { sessionId, cwd: projectPath, timestamp: '2026-10-05T12:00:00.000Z' }
+  const assistant = (uuid: string, model: string, text: string, extra: Record<string, unknown> = {}) =>
+    JSON.stringify({ ...base, type: 'assistant', uuid, isSidechain: false, message: { id: `msg_${uuid}`, type: 'message', role: 'assistant', model, content: [{ type: 'text', text }] }, ...extra })
+  const lines = [
+    JSON.stringify({ ...base, type: 'user', uuid: 'u1', isSidechain: false, message: { role: 'user', content: 'продолжаем из терминала' } }),
+    assistant('a1', 'claude-sonnet-5', `Продолжил.\n\n${BLOCK_TERMINAL}`),
+    assistant('a2', 'claude-sonnet-5', `Отчёт.\n${BLOCK_NOT_OURS}`, { isSidechain: true, agentId: 'a0000000000000001' }),
+    assistant('a3', '<synthetic>', `API Error.\n${BLOCK_NOT_OURS}`),
+  ]
+  writeFileSync(join(dir, `${sessionId}.jsonl`), `${lines.join('\n')}\n`)
+}
+
 async function center(locator: Locator): Promise<{ x: number; y: number }> {
   const box = await locator.boundingBox()
   if (!box) throw new Error('the element has no box')
@@ -91,7 +130,8 @@ async function center(locator: Locator): Promise<{ x: number; y: number }> {
 
 test('the Orchestrator Node: locked, live on the fake agent with its state, cost and status block, and the same Session after a restart', async () => {
   let savedSessionId: unknown
-  const first = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_AGENT_SCRIPT: 'orchestrator' } })
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'orchestrator' }
+  const first = await launchApp({ env })
   try {
     const { window } = first
     await record(window)
@@ -152,17 +192,25 @@ test('the Orchestrator Node: locked, live on the fake agent with its state, cost
     }
     savedSessionId = (await orchestratorNodes(window))[0]?.data.sessionId
     expect(savedSessionId).toMatch(/^[0-9a-f-]{36}$/)
+    // The Layout keeps only what nothing else records: the session to resume and the summed cost.
+    expect((await orchestratorNodes(window))[0]?.data).toStrictEqual({ sessionId: savedSessionId, costUsd: 0.03 })
   } finally {
     await first.close()
   }
+  // ADR 0005: opening the Project and running its Orchestrator wrote nothing into the Project or the Claude home.
+  expect(readdirSync(projectPath)).toEqual([])
+  expect(listing(claudeHome)).toEqual([])
 
-  const second = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_AGENT_SCRIPT: 'orchestrator' } })
+  writeTranscript(String(savedSessionId))
+  const claudeHomeBefore = listing(claudeHome)
+  const second = await launchApp({ env })
   try {
     const { window } = second
     await record(window)
     const node = window.getByTestId('orchestrator-node')
-    // The last block and the cost are on the Node at once, before any turn.
-    await expect(node.getByTestId('orchestrator-status-block')).toHaveText(BLOCK_3, { useInnerText: true })
+    // Before any turn: the model and the newest block of the transcript, and the kept cost.
+    await expect(node.getByTestId('orchestrator-status-block')).toHaveText(BLOCK_TERMINAL, { useInnerText: true })
+    await expect(node.getByTestId('orchestrator-model')).toHaveText('claude-sonnet-5')
     await expect(node.getByTestId('orchestrator-cost')).toHaveText('$0.0300')
     await expect(node.getByTestId('orchestrator-state')).toHaveText('idle')
     expect(await orchestratorNodes(window)).toHaveLength(1)
@@ -177,7 +225,11 @@ test('the Orchestrator Node: locked, live on the fake agent with its state, cost
     // A new Claude Code process counts from zero; the Node keeps the sum.
     await expect(node.getByTestId('orchestrator-cost')).toHaveText('$0.0425')
     expect((await orchestratorNodes(window))[0]?.data.sessionId).toBe(savedSessionId)
+    // The live Session's answer replaces the transcript's block.
+    await expect(node.getByTestId('orchestrator-status-block')).toHaveText(BLOCK_1, { useInnerText: true })
   } finally {
     await second.close()
   }
+  expect(readdirSync(projectPath)).toEqual([])
+  expect(listing(claudeHome)).toEqual(claudeHomeBefore)
 })
