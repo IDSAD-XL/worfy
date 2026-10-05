@@ -1,7 +1,7 @@
 # 18 — Сессии из worfy: новая Сессия — новый Узел, история Проекта, Resume завершённой
 
 Type: task
-Status: claimed — 2026-10-05
+Status: done — 2026-10-05, [PR #25](https://github.com/IDSAD-XL/worfy/pull/25)
 Blocked by: 14
 Source: [CONTEXT.md](../../../CONTEXT.md), термин «Сессия»; [spec.md](../spec.md), этап 3
 

@@ -1,7 +1,7 @@
 # 17 — Бейджи Gate, PR, CI и вердикта ревьюера на Тикетах и Сессиях
 
 Type: task
-Status: claimed — 2026-10-05
+Status: done — 2026-10-05, [PR #24](https://github.com/IDSAD-XL/worfy/pull/24)
 Blocked by: 11, 14
 Source: [CONTEXT.md](../../../CONTEXT.md), термин «Gate»; [BRIEF.md](../../../docs/design/BRIEF.md), Screen 1 пункт 1 (Тикеты 08, 09)
 
