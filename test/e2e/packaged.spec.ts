@@ -1,9 +1,9 @@
+import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { _electron, expect, test, type ElectronApplication } from '@playwright/test'
+import { expect, test } from '@playwright/test'
+import { launchApp } from './helpers'
 
 // These tests drive the packaged worfy.app that `pnpm test:package` builds into dist/.
 // They carry the @packaged tag: `pnpm test:e2e` leaves them out, `pnpm test:package` runs only them.
@@ -12,7 +12,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const distDir = join(repoRoot, 'dist')
 
 /** electron-builder writes the .app to dist/mac-arm64/ or dist/mac/, depending on the arch. */
-function packagedExecutable(): string {
+function packagedApp(): string {
   const apps = existsSync(distDir)
     ? readdirSync(distDir)
         .filter((name) => name.startsWith('mac'))
@@ -23,50 +23,34 @@ function packagedExecutable(): string {
   if (app === undefined || others.length > 0) {
     throw new Error(`Expected exactly one dist/mac*/worfy.app, found ${apps.length}. Run \`pnpm test:package\`.`)
   }
-  return join(app, 'Contents', 'MacOS', 'worfy')
+  return app
 }
 
-interface LaunchedPackagedApp {
-  app: ElectronApplication
-  close: () => Promise<void>
+/** Launches the packaged app through the shared e2e helper, with the same isolated directories. */
+function launchPackagedApp(): ReturnType<typeof launchApp> {
+  return launchApp({ executablePath: join(packagedApp(), 'Contents', 'MacOS', 'worfy') })
 }
 
-async function launchPackagedApp(): Promise<LaunchedPackagedApp> {
-  const dataDir = await mkdtemp(join(tmpdir(), 'worfy-data-'))
-  const claudeHome = await mkdtemp(join(tmpdir(), 'worfy-claude-'))
-  const cleanDirs = async (): Promise<void> => {
-    await rm(dataDir, { recursive: true, force: true })
-    await rm(claudeHome, { recursive: true, force: true })
-  }
-
-  const env: Record<string, string> = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE') env[key] = value
-  }
-  Object.assign(env, { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT: 'fake' })
-
-  try {
-    const app = await _electron.launch({ executablePath: packagedExecutable(), env })
-    return {
-      app,
-      close: async () => {
-        await app.close()
-        await cleanDirs()
-      },
-    }
-  } catch (error) {
-    await cleanDirs()
-    throw error
-  }
-}
+test('the packaged worfy.app is ad-hoc signed by electron-builder with the worfy bundle id', { tag: '@packaged' }, () => {
+  const app = packagedApp()
+  // codesign prints the signature details to stderr.
+  const details = spawnSync('codesign', ['-dv', app], { encoding: 'utf8' })
+  expect(details.status).toBe(0)
+  // The stock Electron binary carries its own linker signature with Identifier=Electron, so the
+  // bundle id is what shows that electron-builder signed the app.
+  expect(details.stderr).toMatch(/^Identifier=dev\.worfy\.app$/m)
+  expect(details.stderr).toMatch(/^Signature=adhoc$/m)
+  const verify = spawnSync('codesign', ['--verify', '--deep', '--strict', app], { encoding: 'utf8' })
+  expect(verify.stderr).toBe('')
+  expect(verify.status).toBe(0)
+})
 
 test('the packaged worfy.app starts and shows a window titled worfy', { tag: '@packaged' }, async () => {
   const launched = await launchPackagedApp()
   try {
     expect(await launched.app.evaluate(({ app }) => app.isPackaged)).toBe(true)
-    const window = await launched.app.firstWindow()
-    await expect(window).toHaveTitle('worfy')
-    await expect(window.getByText('worfy', { exact: true })).toBeVisible()
+    await expect(launched.window).toHaveTitle('worfy')
+    await expect(launched.window.getByText('worfy', { exact: true })).toBeVisible()
   } finally {
     await launched.close()
   }

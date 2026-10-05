@@ -6,9 +6,11 @@ on:
     branches: [main]
 
 # A new push to the same pull request cancels the run still going for the previous one.
-# Runs on main are never cancelled: each merge keeps its own result.
+# A push to main gets a group of its own (the run id): a concurrency group keeps at most one
+# pending run and cancels an older pending one, so a shared group would drop runs of earlier
+# merges. This way every merge keeps its own result.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
