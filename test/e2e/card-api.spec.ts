@@ -108,15 +108,19 @@ test('a Card keeps its own data through window.worfy.data across a restart, in t
   expect(git('status', '--porcelain')).toBe('')
 })
 
-test('a message to the bridge from anything but a Card frame is ignored', async () => {
+test('a Card request that the worfy window posts to itself is ignored', async () => {
   launched = await launch()
   const { window } = launched
-  await cardFrame(window, 'c1')
-  // The window itself posts a Card request: right shape, but not from a Card frame.
+  const frame = await cardFrame(window, 'c1')
+  // Right shape, but not from a Card frame: neither its source nor its origin is one. Which of the
+  // two checks drops it is pinned by the contract tests (test/contract/card-bridge.test.ts).
   await window.evaluate(
     "window.postMessage({ type: 'worfy.request', requestId: 'x1', op: 'data.set', args: { value: { forged: true } } }, '*')",
   )
-  await window.waitForTimeout(300)
+  // The forged message is queued in the window before this request of the Card, and main handles
+  // the Card API calls in order with synchronous file I/O: had the forged write been taken, this
+  // read would already see it.
+  expect(await frame.evaluate('window.worfy.data.get()')).toEqual({ starts: 1 })
   expect(JSON.parse(readFileSync(dataFile('c1'), 'utf8'))).toEqual({ starts: 1 })
   expect(existsSync(dataFile('c2'))).toBe(false)
 })
@@ -140,20 +144,32 @@ test('session.ask: "Cancel" sends nothing and answers canceled; "Send" reaches t
     }, button)
   const shownDialogs = () => app.evaluate(() => (globalThis as { shownDialogs?: unknown[] }).shownDialogs ?? [])
 
+  // Every message given to a Session shows up as a `prompt` agent event: record them from here on.
+  await window.evaluate(() => {
+    const store = globalThis as unknown as { worfy: { on(channel: string, handler: (payload: unknown) => void): number }; prompts: string[] }
+    store.prompts = []
+    store.worfy.on('agent.event', (payload) => {
+      const { event } = payload as { event: { type: string; text?: string } }
+      if (event.type === 'prompt' && event.text !== undefined) store.prompts.push(event.text)
+    })
+  })
+
   await answerWith(1)
-  expect(await frame.evaluate("window.worfy.ask('Is ticket 07 done?')")).toEqual({ sent: false, canceled: true })
+  expect(await frame.evaluate("window.worfy.ask('Do not send this one')")).toEqual({ sent: false, canceled: true })
   const [canceled] = (await shownDialogs()) as { message: string; detail: string; buttons: string[] }[]
   expect(canceled?.buttons).toEqual(['Send', 'Cancel'])
   expect(canceled?.message).toBe('Card "Board" wants to send a message to the Orchestrator.')
-  expect(canceled?.detail).toBe('Message from Card "Board" (c2):\n\nIs ticket 07 done?')
-  await window.waitForTimeout(300)
-  await expect(node.getByTestId('orchestrator-state')).toHaveText('idle')
-  await expect(node.getByTestId('orchestrator-status-block-empty')).toHaveCount(1)
+  expect(canceled?.detail).toBe('Message from Card "Board" (c2):\n\nDo not send this one')
 
   await answerWith(0)
   expect(await frame.evaluate("window.worfy.ask('Is ticket 07 done?')")).toEqual({ sent: true })
   // The Orchestrator's turn on the fake agent: the message reached it.
   await expect(node.getByTestId('orchestrator-status-block')).toHaveCount(1)
+  // The turn runs, so every message sent before it has been given to the Session: only the one the
+  // user sent. Had "Cancel" sent its text, that would be the first prompt and this one queued.
+  expect(await window.evaluate(() => (globalThis as unknown as { prompts: string[] }).prompts)).toEqual([
+    'Message from Card "Board" (c2):\n\nIs ticket 07 done?',
+  ])
 
   const snapshot = (await frame.evaluate('window.worfy.workflow.get()')) as {
     epics: { epic: string }[]
