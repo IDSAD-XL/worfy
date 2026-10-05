@@ -14,6 +14,7 @@ const electron = vi.hoisted(() => {
     handlers,
     ipcMain: { handle: (channel: string, listener: (event: unknown, input: unknown) => unknown) => handlers.set(channel, listener) },
     createMainWindow: vi.fn(),
+    protocol: { registerSchemesAsPrivileged: vi.fn(), handle: vi.fn() },
   }
 })
 
@@ -28,6 +29,8 @@ vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: () => [] },
   dialog: { showErrorBox: vi.fn() },
   ipcMain: electron.ipcMain,
+  protocol: electron.protocol,
+  session: { defaultSession: { setPermissionRequestHandler: vi.fn() } },
 }))
 
 vi.mock('../../src/main/window', () => ({
@@ -42,10 +45,17 @@ async function call(frameUrl: string): Promise<IpcResult<unknown>> {
   return (await listener(event, undefined)) as IpcResult<unknown>
 }
 
+const startup: { schemes: unknown[]; served: unknown[]; servedBeforeWindow: boolean } = { schemes: [], served: [], servedBeforeWindow: false }
+
 beforeAll(async () => {
   await import('../../src/main/index')
   // registerIpc runs inside whenReady().then(...); the window is created right after it.
   await vi.waitFor(() => expect(electron.createMainWindow).toHaveBeenCalled())
+  // Taken now: mock call records do not outlive this hook.
+  startup.schemes = electron.protocol.registerSchemesAsPrivileged.mock.calls.map((args) => args[0])
+  startup.served = electron.protocol.handle.mock.calls.map((args) => args[0])
+  startup.servedBeforeWindow =
+    (electron.protocol.handle.mock.invocationCallOrder[0] ?? Infinity) < (electron.createMainWindow.mock.invocationCallOrder[0] ?? -Infinity)
 })
 
 describe('IPC wiring in src/main/index.ts', () => {
@@ -59,5 +69,13 @@ describe('IPC wiring in src/main/index.ts', () => {
       expect(result.ok).toBe(false)
       expect(!result.ok && result.error).toMatch(/untrusted/)
     }
+  })
+})
+
+describe('Card protocol wiring in src/main/index.ts', () => {
+  it('registers worfy-card:// as a standard, secure scheme and serves it before the first window', () => {
+    expect(startup.schemes).toEqual([[{ scheme: 'worfy-card', privileges: { standard: true, secure: true } }]])
+    expect(startup.served).toEqual(['worfy-card'])
+    expect(startup.servedBeforeWindow).toBe(true)
   })
 })
