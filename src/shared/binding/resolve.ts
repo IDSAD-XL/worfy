@@ -4,13 +4,15 @@
 // A Binding comes from the strongest signal that names a target, in this order:
 //
 //   1. manual    — the user dropped the agent's Node on a Ticket or an Epic frame (bindings.json);
-//   2. claim     — the last Bash command `ticket claim <epic> <NN>` (or `<epic>/<NN>`) the agent ran;
-//   3. skill     — `/epic-wave <epic>` as the last skill call: to its Epic;
-//   4. branch    — its git branch `<epic>/<NN>[-<slug>]`, else its cwd inside
+//   2. launch    — worfy started the agent for it: "Ship ticket" binds the new Session to its
+//                 Ticket, "Run wave" the Orchestrator to its Epic (ticket 23; bindings.json too);
+//   3. claim     — the last Bash command `ticket claim <epic> <NN>` (or `<epic>/<NN>`) the agent ran;
+//   4. skill     — `/epic-wave <epic>` as the last skill call: to its Epic;
+//   5. branch    — its git branch `<epic>/<NN>[-<slug>]`, else its cwd inside
 //      worktree      `.claude/worktrees/<NN>[-<slug>]` (ticket-ref.ts, ticket 10); a folder does not
 //                 carry the Epic, so it binds only when the workflow model says which Epic it is;
-//   5. skill     — `/ship-ticket` as the last skill call: to its Ticket;
-//   6. task      — for a Subagent only: the path `.scratch/<epic>/issues/<NN>-…` in its task.
+//   6. skill     — `/ship-ticket` as the last skill call: to its Ticket;
+//   7. task      — for a Subagent only: the path `.scratch/<epic>/issues/<NN>-…` in its task.
 //
 // So the Orchestrator that runs a Wave (`/epic-wave`) is bound to the Epic, while its implementers
 // and reviewers, who claim or get a Ticket's path, are bound to their Tickets. `/epic-wave` comes
@@ -66,7 +68,7 @@ export type AgentSignals = z.infer<typeof agentSignalsSchema>
 
 export const EMPTY_AGENT_SIGNALS: AgentSignals = { claim: null, cwd: null, gitBranch: null, skill: null, task: null }
 
-export type BindingSource = 'manual' | 'claim' | 'branch' | 'worktree' | 'skill' | 'task'
+export type BindingSource = 'manual' | 'launch' | 'claim' | 'branch' | 'worktree' | 'skill' | 'task'
 
 /** A resolved Binding and why: the signal it came from and what that signal said. */
 export interface Binding {
@@ -84,6 +86,8 @@ export interface BindingWorkflow {
 
 export interface BindingInput {
   manual?: BindingTarget | null | undefined
+  /** What worfy started the agent for ("Ship ticket", "Run wave"); weaker only than the manual Binding. */
+  launch?: BindingTarget | null | undefined
   signals?: AgentSignals | null | undefined
   /** A Subagent: only it is bound by the Ticket path in its task. */
   subagent?: boolean | undefined
@@ -155,6 +159,11 @@ const manualRule: BindingRule = {
   resolve: ({ manual }) => (manual ? { target: manual, source: 'manual', detail: null } : null),
 }
 
+const launchRule: BindingRule = {
+  name: 'launch',
+  resolve: ({ launch }) => (launch ? { target: launch, source: 'launch', detail: null } : null),
+}
+
 const claimRule: BindingRule = {
   name: 'claim',
   resolve({ signals }, workflow) {
@@ -206,7 +215,7 @@ const taskRule: BindingRule = {
 }
 
 /** The signals, strongest first. */
-export const BINDING_RULES: readonly BindingRule[] = [manualRule, claimRule, skillRule('epic-wave'), branchRule, skillRule('ship-ticket'), taskRule]
+export const BINDING_RULES: readonly BindingRule[] = [manualRule, launchRule, claimRule, skillRule('epic-wave'), branchRule, skillRule('ship-ticket'), taskRule]
 
 /** The Binding from the strongest rule that gives one; null when the agent is not bound. */
 export function resolveBinding(input: BindingInput, workflow: BindingWorkflow | undefined, rules: readonly BindingRule[] = BINDING_RULES): Binding | null {
@@ -227,6 +236,8 @@ export function bindingReason(binding: Binding): string {
   switch (binding.source) {
     case 'manual':
       return 'manual'
+    case 'launch':
+      return 'launched'
     case 'claim':
       return 'ticket claim'
     case 'branch':

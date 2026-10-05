@@ -1,7 +1,7 @@
 # 23 — Действия «Ship ticket», «Run wave» и «Open PR» на Холсте
 
 Type: task
-Status: open
+Status: claimed — 2026-10-05
 Blocked by: 04, 16, 17, 18, 19
 Source: [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md), «меняет состояние только теми же инструментами»; [BRIEF.md](../../../docs/design/BRIEF.md), действия; [CONTEXT.md](../../../CONTEXT.md), «Волна», «Привязка»; [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md), Привязки и настройки worfy; [spec.md](../spec.md), риск 12 (шаблоны действий на проект)
 
@@ -36,13 +36,13 @@ worfy запускает работу теми же skills, что и терми
 
 ## Готово, когда
 
-- [ ] «Ship ticket» на открытом Тикете с закрытыми блокерами создаёт Сессию с отрендеренным шаблоном Проекта (с шаблоном по умолчанию — `/ship-ticket worfy-mvp 07`; fake-агент записывает промпт); Сессия привязана к Тикету с источником `launch`, Привязка переживает перезапуск.
-- [ ] Шаблон, изменённый в «Project settings», уходит в следующем запуске как есть, с подставленными значениями; другой Проект со своим шаблоном шлёт свой текст.
-- [ ] На Тикете с открытым блокером кнопка неактивна и называет блокер.
-- [ ] С пустым шаблоном «Ship ticket» и «Run wave» неактивны и подсказывают задать шаблон в «Project settings»; Сессия не создаётся.
-- [ ] «Run wave» отправляет отрендеренный шаблон (по умолчанию `/epic-wave волна 3 эпика worfy-mvp`) Оркестратору; при занятом Оркестраторе встаёт в очередь.
-- [ ] «Open PR» открывает URL из данных `gh`; не-GitHub URL отклоняется.
-- [ ] После любого действия файлы `.scratch` не изменены worfy (test сверяет mtime на fake-агенте).
+- [x] «Ship ticket» на открытом Тикете с закрытыми блокерами создаёт Сессию с отрендеренным шаблоном Проекта (с шаблоном по умолчанию — `/ship-ticket worfy-mvp 07`; fake-агент записывает промпт); Сессия привязана к Тикету с источником `launch`, Привязка переживает перезапуск.
+- [x] Шаблон, изменённый в «Project settings», уходит в следующем запуске как есть, с подставленными значениями; другой Проект со своим шаблоном шлёт свой текст.
+- [x] На Тикете с открытым блокером кнопка неактивна и называет блокер.
+- [x] С пустым шаблоном «Ship ticket» и «Run wave» неактивны и подсказывают задать шаблон в «Project settings»; Сессия не создаётся.
+- [x] «Run wave» отправляет отрендеренный шаблон (по умолчанию `/epic-wave волна 3 эпика worfy-mvp`) Оркестратору; при занятом Оркестраторе встаёт в очередь.
+- [x] «Open PR» открывает URL из данных `gh`; не-GitHub URL отклоняется.
+- [x] После любого действия файлы `.scratch` не изменены worfy (test сверяет mtime на fake-агенте).
 - [ ] Ручной прогон на репозитории worfy: «Ship ticket» запускает настоящую Сессию, та делает `ticket claim`, chip Тикета меняется на working; снимок в «Итог».
 
 ## Тесты
@@ -60,3 +60,52 @@ worfy запускает работу теми же skills, что и терми
 - `src/renderer/canvas/actions/TicketActions.tsx`, `src/renderer/canvas/actions/EpicActions.tsx`, `src/renderer/canvas/actions/OpenPr.tsx`
 - `src/shared/binding/resolve.ts` — сигнал launch
 - `src/main/layout/bindings.ts` — запись в bindings.json
+
+## Итог
+
+Сделано в ветке `worfy-mvp/23`. Тесты: `test/unit/render-template.test.ts`, `test/unit/launch.test.ts`,
+`test/unit/canvas-actions.test.tsx` (кнопки), дополнены `test/unit/binding.test.ts`,
+`test/unit/binding-canvas.test.tsx`, `test/contract/bindings.test.ts`; новый контракт
+`test/contract/actions.test.ts`; e2e — `test/e2e/ship-ticket.spec.ts` (fake-агент, сценарий
+`orchestrator`, запись промптов через `WORFY_AGENT_LOG`; снимки `ship-ticket-buttons.png`,
+`ship-ticket-after.png` в выводе Playwright).
+
+Решения исполнителя (владелец был недоступен):
+
+- **`{wave}` — номер Волны по плану Эпика.** «Номер готовой Волны» из тикета 10 (`waveNumbers`)
+  для текущего состояния всегда 1: готовая Волна — первая из оставшихся. Чтобы `/epic-wave волна 3`
+  называл ту же Волну, что таблица «Волны» в `spec.md` (и макет BRIEF: «Wave 2 … Ready wave · 3»),
+  номер считается по плану, где все Тикеты Эпика открыты (`readyWaveNumber` в
+  `src/shared/actions/render-template.ts`); если готовые Тикеты лежат в разных Волнах плана — меньший
+  номер. Если план не даёт номера ни одному готовому Тикету, у `{wave}` нет значения и рендер падает.
+- **`{branch}` — ветка корня Проекта**, как в тексте тикета. Подпись подстановки в «Project settings»
+  (тикет 04, `PLACEHOLDER_DESCRIPTIONS.branch`) говорит «ticket branch» — расхождение не правил,
+  файл вне следа.
+- **Привязка `launch` хранится в том же `bindings.json`**, отдельной записью с полем
+  `source: "launch"`; запись без поля — ручная, как у тикета 16, так что старые файлы читаются без
+  изменений. У агента может быть одна ручная и одна `launch`-Привязка; «Remove binding» снимает
+  только ручную; `bindings.set` из renderer-а не может записать `launch` (поля нет во входе канала).
+  Пишет её main (`src/main/actions/launch.ts`), когда Claude Code сообщит id сессии, который
+  называет транскрипт: опрос `session.sdkId` раз в 250 мс до 10 минут, или до закрытия Сессии.
+  По силе — сразу после ручной (`BINDING_RULES`: manual → launch → claim → …), подпись «launched».
+- **Проверка перед запуском — в main по свежему чтению workflow** (`readWorkflow`): кнопка
+  показывает тот же вердикт (`shipTicketState`, `runWaveState`), но Тикет, взятый в терминале
+  секунду назад, второй раз не запустится. Отказ main показывается в tooltip кнопки.
+- **Кнопки не показываются**, где действовать нечего: «Ship ticket» — на Тикете в работе или
+  `done`; «Run wave» — на Эпике, где все Тикеты `done`; «Open PR» — без PR. Неактивная кнопка —
+  `aria-disabled` с причиной в tooltip (у `disabled` tooltip-а нет).
+- **«Open PR» проверяет адрес в renderer-е** (`https://github.com/…`, без порта и логина); канал
+  `shell.openExternal` тикета 11 по-прежнему открывает любой `https://` — для ссылок из Markdown.
+- **Тикет с бейджами и кнопкой** (PR + «Open PR») ставит их в одну строку, бейджи обрезаются слева
+  от кнопки: в Узел высотой 104 px две строки не помещаются, иначе вылезал заголовок
+  (`src/renderer/canvas/actions/actions.css`).
+
+Выход за след (нужен, чтобы действия работали; соседям по волне 10 не пересекается):
+`src/shared/ipc/actions.ts`, `src/main/ipc/actions.ts` (новый домен IPC `actions.*`);
+`src/shared/ipc/bindings.ts` (поле `source`), `src/renderer/binding/store.ts`,
+`src/renderer/session/rail/BindingRail.tsx` (учёт `launch`); `src/shared/ipc/projects.ts`,
+`src/main/ipc/projects.ts` (событие `projects.settings.changed`, чтобы кнопки сразу видели новый
+шаблон); вспомогательные `src/renderer/canvas/actions/templates.ts`, `action-button.ts`, `actions.css`.
+
+не проверено: ручной прогон на репозитории worfy с настоящей Сессией (`ticket claim` и смена chip на
+working) — бриф запрещает настоящие запуски агента в этой работе; пункт оставлен `[ ]`.

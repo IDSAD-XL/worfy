@@ -21,11 +21,18 @@ const absolutePath = z
 export const bindingAgentSchema = z.object({ sessionId: sessionIdSchema, agentId: agentIdSchema.nullable() })
 export type BindingAgent = z.infer<typeof bindingAgentSchema>
 
-/** One manual Binding: the agent and what the user dropped it on. */
-export const manualBindingSchema = bindingAgentSchema.extend({ target: bindingTargetSchema })
+/**
+ * One stored Binding: the agent and what the user dropped it on — or, with `source: 'launch'`, what
+ * worfy started it for ("Ship ticket", "Run wave"; ticket 23). Without `source` it is manual, as
+ * every Binding of ticket 16 was stored. An agent has at most one of each; the manual one wins.
+ */
+export const manualBindingSchema = bindingAgentSchema.extend({ target: bindingTargetSchema, source: z.literal('launch').optional() })
 export type ManualBinding = z.infer<typeof manualBindingSchema>
 
-/** A Project's manual Bindings, one per agent. */
+/** A stored Binding that worfy wrote when it launched the agent, not the user. */
+export const isLaunchBinding = (binding: Pick<ManualBinding, 'source'>): boolean => binding.source === 'launch'
+
+/** A Project's stored Bindings: one manual and one launch Binding per agent at most. */
 export const manualBindingsSchema = z.object({ projectId, bindings: z.array(manualBindingSchema) })
 export type ManualBindings = z.infer<typeof manualBindingsSchema>
 

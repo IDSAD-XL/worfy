@@ -136,6 +136,21 @@ describe('BindingStore', () => {
     expect(() => bindings.get('other-00000000')).toThrow('no Project other-00000000')
   })
 
+  it('keeps a launch Binding (ticket 23) next to the manual one: replaced by the next launch, untouched by set and remove', () => {
+    const bindings = store()
+    const agent = { sessionId: 's1', agentId: null }
+    bindings.setLaunch(PROJECT, agent, { kind: 'ticket', epic: 'e', num: 7 })
+    bindings.set(PROJECT, agent, { kind: 'ticket', epic: 'e', num: 12 })
+    bindings.setLaunch(PROJECT, agent, { kind: 'epic', epic: 'e' })
+    const launch = { sessionId: 's1', agentId: null, target: { kind: 'epic', epic: 'e' }, source: 'launch' }
+    const manual = { sessionId: 's1', agentId: null, target: { kind: 'ticket', epic: 'e', num: 12 } }
+    expect(JSON.parse(readFileSync(join(dataDir, PROJECT, 'bindings.json'), 'utf8'))).toEqual({ bindings: [manual, launch] })
+    // "Remove binding" takes the manual one only; a restart reads the launch one back.
+    expect(bindings.remove(PROJECT, agent).bindings).toEqual([launch])
+    expect(bindings.remove(PROJECT, agent).bindings).toEqual([launch])
+    expect(store().get(PROJECT).bindings).toEqual([launch])
+  })
+
   it('sets an unreadable file aside and starts empty', () => {
     mkdirSync(join(dataDir, PROJECT), { recursive: true })
     writeFileSync(join(dataDir, PROJECT, 'bindings.json'), '{"bindings": [{"sessionId": 5}]}')
@@ -207,6 +222,24 @@ describe('the bindings channels', () => {
       expect(refused.ok, JSON.stringify(input)).toBe(false)
     }
     expect(JSON.parse(readFileSync(join(dataDir, PROJECT, 'bindings.json'), 'utf8'))).toEqual({ bindings: [stored] })
+  })
+
+  it('set cannot write a launch Binding: `source` is not part of its input (ticket 23)', async () => {
+    const invoke = await register(store(), noTranscripts)
+    const set = await invoke('bindings.set', { projectId: PROJECT, sessionId: 's1', agentId: null, target: { kind: 'epic', epic: 'e' }, source: 'launch' })
+    expect(set).toEqual({ ok: true, value: { projectId: PROJECT, bindings: [{ sessionId: 's1', agentId: null, target: { kind: 'epic', epic: 'e' } }] } })
+  })
+
+  it('get answers launch Bindings with their source, and refuses a stored one with another source', async () => {
+    const bindings = store()
+    bindings.setLaunch(PROJECT, { sessionId: 's1', agentId: null }, { kind: 'epic', epic: 'e' })
+    const invoke = await register(bindings, noTranscripts)
+    expect(await invoke('bindings.get', { projectId: PROJECT })).toEqual({
+      ok: true,
+      value: { projectId: PROJECT, bindings: [{ sessionId: 's1', agentId: null, target: { kind: 'epic', epic: 'e' }, source: 'launch' }] },
+    })
+    writeFileSync(join(dataDir, PROJECT, 'bindings.json'), JSON.stringify({ bindings: [{ sessionId: 's2', agentId: null, target: { kind: 'epic', epic: 'e' }, source: 'skill' }] }))
+    expect(store().get(PROJECT).bindings).toEqual([])
   })
 
   it('get subscribes the window: a later set or remove reaches it as bindings.changed until it is destroyed', async () => {

@@ -6,6 +6,7 @@ import {
   projectsPickFolder,
   projectsRemove,
   projectsSelect,
+  projectsSettingsChanged,
   projectsSettingsGet,
   projectsSettingsSet,
 } from '../../shared/ipc/projects'
@@ -65,5 +66,11 @@ export default [
 
   defineHandler(projectsSettingsGet, ({ id }) => readProjectSettings(store.dataDir(store.get(id).id))),
 
-  defineHandler(projectsSettingsSet, ({ id, settings }) => writeProjectSettings(store.dataDir(store.get(id).id), settings)),
+  defineHandler(projectsSettingsSet, ({ id, settings }) => {
+    const saved = writeProjectSettings(store.dataDir(store.get(id).id), settings)
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) emit(window.webContents, projectsSettingsChanged, { id, settings: saved })
+    }
+    return saved
+  }),
 ] satisfies HandlerModule

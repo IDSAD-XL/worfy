@@ -46,6 +46,16 @@ describe('resolveBinding: signals in order of strength', () => {
     expect(resolveBinding(input, workflow)).toEqual({ target: { kind: 'epic', epic: 'auction' }, source: 'manual', detail: null })
   })
 
+  it('a launch Binding (ticket 23) is weaker than the manual one and stronger than `ticket claim`', () => {
+    const launch = { kind: 'ticket' as const, epic: 'worfy-mvp', num: 16 }
+    const strong = signals({ claim: claim('worfy-mvp', 12), skill: { name: 'epic-wave', args: 'auction' }, gitBranch: 'worfy-mvp/07' })
+    expect(resolveBinding({ launch, signals: strong }, workflow)).toEqual({ target: launch, source: 'launch', detail: null })
+    expect(resolveBinding({ manual: { kind: 'epic', epic: 'auction' }, launch, signals: strong }, workflow)).toEqual({ target: { kind: 'epic', epic: 'auction' }, source: 'manual', detail: null })
+    expect(resolveBinding({ launch: null, signals: strong }, workflow)?.source).toBe('claim')
+    expect(BINDING_RULES.map((rule) => rule.name).slice(0, 3)).toEqual(['manual', 'launch', 'claim'])
+    expect(bindingReason({ target: launch, source: 'launch', detail: null })).toBe('launched')
+  })
+
   it('without a claim, the branch <epic>/<NN> binds, in its slug form too', () => {
     expect(resolveBinding({ signals: signals({ gitBranch: 'worfy-mvp/07' }) }, workflow)).toEqual({
       target: { kind: 'ticket', epic: 'worfy-mvp', num: 7 },
@@ -140,7 +150,7 @@ describe('resolveBinding: signals in order of strength', () => {
   it('takes the rules as a list, so a later ticket adds one', () => {
     const always: BindingRule = { name: 'always', resolve: () => ({ target: { kind: 'epic', epic: 'auction' }, source: 'skill', detail: 'x' }) }
     expect(resolveBinding({}, workflow, [...BINDING_RULES, always])?.target).toEqual({ kind: 'epic', epic: 'auction' })
-    expect(BINDING_RULES.map((rule) => rule.name)).toEqual(['manual', 'claim', 'epic-wave', 'branch-or-worktree', 'ship-ticket', 'task'])
+    expect(BINDING_RULES.map((rule) => rule.name)).toEqual(['manual', 'launch', 'claim', 'epic-wave', 'branch-or-worktree', 'ship-ticket', 'task'])
   })
 })
 

@@ -1,0 +1,135 @@
+// "Ship ticket" and "Run wave" (ticket 23; contract in src/shared/ipc/actions.ts).
+//
+// worfy starts the work with the same skills as the terminal and does not know what they do
+// (ADR 0002): the text comes from the Project's action template (`<Project data folder>/settings.json`,
+// ticket 04), filled in by src/shared/actions/render-template.ts. Before anything starts, the same
+// verdict the button shows is taken again over a fresh read of the workflow model, so a Ticket
+// claimed meanwhile in a terminal is not shipped twice.
+//
+// - Ship ticket: a new Session Node in the Project's root (as "New session", ticket 18), with the
+//   permission mode a new Session has (bypassPermissions); the text is its first message.
+// - Run wave: the text goes to the Project's Orchestrator; while a turn runs it waits in the
+//   Orchestrator's queue (ticket 19).
+//
+// The agent is then bound to what it was launched for, with source `launch` (resolve.ts): once
+// Claude Code has reported the session id that names its transcript, the Binding goes into
+// `<Project data folder>/bindings.json` (src/main/layout/bindings.ts), so it outlives a restart.
+// The Ticket's status is changed by the agent and the `ticket` script inside the skill, never here;
+// worfy sees the change through its watch on `.scratch` (ticket 10).
+import { runWaveState, shipTicketState } from '../../shared/actions/render-template'
+import type { BindingTarget } from '../../shared/binding/resolve'
+import type { BindingAgent } from '../../shared/ipc/bindings'
+import type { OrchestratorView } from '../../shared/ipc/orchestrator'
+import type { SessionNodeView } from '../../shared/ipc/sessions'
+import type { ProjectSettings } from '../../shared/projects/action-templates'
+import type { WorkflowModel } from '../../shared/workflow/types'
+import type { Session } from '../agent/session'
+
+/** The live Session an action talks to, as far as it needs it. */
+export type LaunchedSession = Pick<Session, 'send' | 'sdkId' | 'state'>
+
+export interface LaunchDeps {
+  /** The Project's repository root; throws for a Project that is not in the list. */
+  projectRoot(projectId: string): string
+  /** The Project's settings: its action templates. */
+  settings(projectId: string): ProjectSettings
+  /** The branch checked out in the root; null when git cannot say. */
+  branch(root: string): Promise<string | null>
+  /** A fresh read of the Project's workflow model. */
+  workflow(root: string): Promise<WorkflowModel>
+  /** "New session": a new Session Node with a new Session in the Project's root. */
+  sessions: { create(projectId: string): SessionNodeView }
+  /** The Project's Orchestrator, opened (and started) when it is not yet. */
+  orchestrators: { open(projectId: string): Promise<OrchestratorView> }
+  /** The app's live Sessions, by any of their ids. */
+  registry: { get(sessionId: string): LaunchedSession }
+  bindings: { setLaunch(projectId: string, agent: BindingAgent, target: BindingTarget): unknown }
+  /** How often to look whether Claude Code has reported the session id, and for how long. */
+  pollMs?: number
+  waitMs?: number
+}
+
+export interface ShipTicketResult {
+  nodeId: string
+  sessionId: string
+  text: string
+}
+
+export interface RunWaveResult {
+  sessionId: string
+  text: string
+  delivery: 'sent' | 'queued'
+}
+
+const POLL_MS = 250
+/** A Session that has not started its turn in this time is not bound by its launch. */
+const WAIT_MS = 10 * 60_000
+
+const delay = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms))
+
+export class ActionLauncher {
+  private readonly pending = new Set<Promise<void>>()
+
+  constructor(private readonly deps: LaunchDeps) {}
+
+  async shipTicket(projectId: string, epic: string, num: number): Promise<ShipTicketResult> {
+    const root = this.deps.projectRoot(projectId)
+    const [model, branch] = await Promise.all([this.model(root), this.deps.branch(root)])
+    const ticket = model.tickets.find((each) => each.epic === epic && each.num === num)
+    if (ticket === undefined) throw new Error(`${epic} has no Ticket ${num}`)
+    const state = shipTicketState({ ticket, tickets: model.tickets, template: this.deps.settings(projectId).actionTemplates.shipTicket, branch })
+    if (!state.enabled) throw new Error(state.reason)
+    const view = this.deps.sessions.create(projectId)
+    const session = this.deps.registry.get(view.sessionId)
+    session.send(state.text)
+    this.bindWhenKnown(projectId, session, { kind: 'ticket', epic, num })
+    return { nodeId: view.nodeId, sessionId: view.sessionId, text: state.text }
+  }
+
+  async runWave(projectId: string, epic: string): Promise<RunWaveResult> {
+    const root = this.deps.projectRoot(projectId)
+    const [model, branch] = await Promise.all([this.model(root), this.deps.branch(root)])
+    if (!model.epics.some((each) => each.epic === epic) && !model.tickets.some((each) => each.epic === epic)) throw new Error(`The Project has no Epic ${epic}`)
+    const state = runWaveState({ epic, tickets: model.tickets, template: this.deps.settings(projectId).actionTemplates.runWave, branch })
+    if (!state.enabled) throw new Error(state.reason)
+    const view = await this.deps.orchestrators.open(projectId)
+    if (view.sessionId === null) throw new Error('The Orchestrator has no Session')
+    const session = this.deps.registry.get(view.sessionId)
+    const delivery = session.send(state.text)
+    this.bindWhenKnown(projectId, session, { kind: 'epic', epic })
+    return { sessionId: view.sessionId, text: state.text, delivery }
+  }
+
+  /** Settles when every Binding started so far is written or given up; for tests. */
+  async idle(): Promise<void> {
+    while (this.pending.size > 0) await Promise.all([...this.pending])
+  }
+
+  private async model(root: string): Promise<WorkflowModel> {
+    const model = await this.deps.workflow(root)
+    if (model.error !== null) throw new Error(`Cannot read the workflow: ${model.error.message}`)
+    return model
+  }
+
+  /**
+   * Writes the launch Binding under the session id that names the transcript. A new Session has
+   * none until Claude Code reports it (system/init of its first turn); a resumed one has it at once.
+   */
+  private bindWhenKnown(projectId: string, session: LaunchedSession, target: BindingTarget): void {
+    const pollMs = this.deps.pollMs ?? POLL_MS
+    const waitMs = this.deps.waitMs ?? WAIT_MS
+    const task = (async () => {
+      const until = Date.now() + waitMs
+      while (session.sdkId === null && session.state !== 'closed' && Date.now() < until) await delay(pollMs)
+      const sdkId = session.sdkId
+      if (sdkId === null) {
+        console.warn(`[actions] no session id came for the launch Binding to ${JSON.stringify(target)}`)
+        return
+      }
+      this.deps.bindings.setLaunch(projectId, { sessionId: sdkId, agentId: null }, target)
+    })()
+      .catch((error: unknown) => console.error('[actions] could not write the launch Binding', error))
+      .finally(() => this.pending.delete(task))
+    this.pending.add(task)
+  }
+}
