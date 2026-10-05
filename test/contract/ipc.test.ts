@@ -2,6 +2,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { describe, expect, it, vi } from 'vitest'
 import { appUrlMatcher, emit, handlerModules, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import { echoCalls } from './ipc-sample/main/sample'
 import { sampleTicked } from './ipc-sample/shared/sample'
 
 const APP_URL = 'file:///Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
@@ -32,6 +33,7 @@ function fakeIpcMain() {
 const sampleModules = import.meta.glob<unknown>('./ipc-sample/main/*.ts', { import: 'default' })
 
 async function withSample() {
+  echoCalls.length = 0
   const fake = fakeIpcMain()
   const names = await registerIpc(fake.ipc, { modules: sampleModules, isTrustedSender: appUrlMatcher({ indexHtml: '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html' }) })
   return { ...fake, names }
@@ -44,7 +46,9 @@ describe('IPC handler registration', () => {
     expect(result.ok).toBe(false)
     expect(!result.ok && result.error).toMatch(/sample\.echo/)
     expect(!result.ok && result.error).toMatch(/expected string, received number/)
+    expect(echoCalls).toEqual([])
     expect(await call('sample.echo', { text: 'still alive' })).toEqual({ ok: true, value: { echoed: 'still alive' } })
+    expect(echoCalls).toEqual(['still alive'])
   })
 
   it('answers a valid input with the parsed output', async () => {
@@ -80,11 +84,14 @@ describe('IPC handler registration', () => {
   it('rejects a call from a frame that is not the app window, without running the handler', async () => {
     const { call } = await withSample()
     for (const frameUrl of ['https://example.com/', 'file:///tmp/other/index.html', null]) {
-      const result = await call('sample.echo', { text: 'hi' }, frameUrl)
+      const result = await call('sample.echo', { text: `from ${String(frameUrl)}` }, frameUrl)
       expect(result.ok).toBe(false)
       expect(!result.ok && result.error).toMatch(/untrusted/)
     }
+    // The handler never ran for a foreign frame: not before the check, not hidden behind the rejection.
+    expect(echoCalls).toEqual([])
     expect(await call('sample.echo', { text: 'hi' }, `${APP_URL}#/canvas`)).toEqual({ ok: true, value: { echoed: 'hi' } })
+    expect(echoCalls).toEqual(['hi'])
   })
 
   it('registers a new domain from its two files without touching the central ones', async () => {

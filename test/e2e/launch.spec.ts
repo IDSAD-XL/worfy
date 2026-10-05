@@ -1,6 +1,7 @@
-import { realpath } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
+import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { launchApp } from './helpers'
+import { launchApp, repoRoot } from './helpers'
 
 test('the app opens a window titled worfy that shows the text worfy', async () => {
   const launched = await launchApp()
@@ -22,11 +23,12 @@ test("Electron's own files go to WORFY_DATA_DIR, not the real Application Suppor
   }
 })
 
-test('the window shows the app version that main returns over app.version', async () => {
+test('the window shows the version from package.json, which main returns over app.version', async () => {
+  // The expected value comes from package.json, not from the same app.getVersion() call the
+  // handler makes: a handler that reports another version (Electron's, say) must fail here.
+  const { version } = JSON.parse(await readFile(join(repoRoot, 'package.json'), 'utf8')) as { version: string }
   const launched = await launchApp()
   try {
-    const version = await launched.app.evaluate(({ app }) => app.getVersion())
-    expect(version).not.toBe('')
     await expect(launched.window.getByTestId('app-version')).toHaveText(`v${version}`)
   } finally {
     await launched.close()

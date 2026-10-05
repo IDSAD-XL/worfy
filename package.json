@@ -11,7 +11,7 @@
     "build": "electron-vite build",
     "package": "electron-vite build && electron-builder --mac dir",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.test.node.json && tsc --noEmit -p tsconfig.test.web.json",
     "test": "ELECTRON_RUN_AS_NODE=1 electron ./node_modules/vitest/vitest.mjs run",
     "test:e2e": "electron-vite build && playwright test --grep-invert @packaged",
     "test:package": "pnpm package && playwright test --grep @packaged",

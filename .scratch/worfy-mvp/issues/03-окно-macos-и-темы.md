@@ -27,6 +27,11 @@ Source: [F-SPEC.md](../../../docs/design/F-SPEC.md), разделы «Typography
 - Компоненты-примитивы, которые нужны всем следующим тикетам: строка списка 28 px, chip статуса
   (прямоугольник, радиус 4 px, цвет всегда с текстом или иконкой), кнопка основного действия,
   сегментный переключатель. Цвета статусов — ready, working, blocked, done — из таблицы токенов.
+- Версия приложения: тикет 02 смонтировал `AppVersion` (`src/renderer/AppVersion.tsx`,
+  `data-testid="app-version"`) в `src/renderer/main.tsx` рядом с `<App />`, вне `App()`. AppShell
+  ставит её на своё место (например, в toolbar) и убирает строку из `main.tsx`; e2e
+  `test/e2e/launch.spec.ts` («the window shows the version from package.json…») должен остаться
+  зелёным.
 
 ## Готово, когда
 

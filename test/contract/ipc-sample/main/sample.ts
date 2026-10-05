@@ -3,8 +3,17 @@
 import { defineHandler, type HandlerModule } from '../../../../src/main/ipc/index'
 import { sampleEcho, sampleFail, sampleLeak } from '../shared/sample'
 
+/**
+ * Every text sample.echo ran with. It stands in for a handler's side effect (a file written, an
+ * agent started), so a test can tell whether the handler ran, not only what the caller got back.
+ */
+export const echoCalls: string[] = []
+
 export default [
-  defineHandler(sampleEcho, ({ text }) => ({ echoed: text })),
+  defineHandler(sampleEcho, ({ text }) => {
+    echoCalls.push(text)
+    return { echoed: text }
+  }),
   // Deliberately returns data outside the output schema when the test asks it to.
   defineHandler(sampleLeak, ({ reply }) => reply as { count: number }),
   defineHandler(sampleFail, () => {

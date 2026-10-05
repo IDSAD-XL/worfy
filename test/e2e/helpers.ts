@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { _electron, type ElectronApplication, type Page } from '@playwright/test'
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
+export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const mainEntry = join(repoRoot, 'out', 'main', 'index.js')
 
 export interface LaunchedApp {
@@ -60,8 +60,11 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
 
   let app: ElectronApplication
   try {
+    // Unpackaged, the app is started by its directory, as `electron .` and the packaged .app start
+    // it: Electron then reads package.json (`main` points at out/main/index.js), and the app's name
+    // and version are worfy's own, not Electron's.
     app = await _electron.launch(
-      executablePath === undefined ? { args: [mainEntry], cwd: repoRoot, env } : { executablePath, env },
+      executablePath === undefined ? { args: [repoRoot], cwd: repoRoot, env } : { executablePath, env },
     )
   } catch (error) {
     await cleanDirs()

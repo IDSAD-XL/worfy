@@ -9,8 +9,7 @@
 // Every handler is wrapped: the call is accepted only from the app's own window, the input is
 // parsed with the channel's zod schema, an exception becomes {ok:false}, and the output is parsed
 // too, so main never sends anything the contract does not describe.
-import { join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { pathToFileURL } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
 import { z } from 'zod'
 import {
@@ -84,18 +83,14 @@ export function appUrlMatcher({ indexHtml, devServerUrl }: AppUrlOptions): (url:
   }
 }
 
-/** The renderer the window loads; must match src/main/window.ts. */
-function defaultAppUrlMatcher(): (url: string) => boolean {
-  // After the build this code runs from out/main/, next to out/renderer/.
-  const mainDir = import.meta.dirname ?? fileURLToPath(new URL('.', import.meta.url))
-  return appUrlMatcher({ indexHtml: join(mainDir, '../renderer/index.html'), devServerUrl: process.env.ELECTRON_RENDERER_URL })
-}
-
 export interface RegisterOptions {
   /** Handler modules to register; defaults to every src/main/ipc/<domain>.ts. */
   modules?: Record<string, ModuleLoader>
-  /** Decides whether a frame URL belongs to the app window; defaults to the app's renderer URL. */
-  isTrustedSender?: (url: string) => boolean
+  /**
+   * Decides whether a frame URL belongs to the app window. There is no default: the caller builds
+   * it from the same renderer location the window loads (src/main/index.ts, rendererEntry()).
+   */
+  isTrustedSender: (url: string) => boolean
 }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
@@ -154,9 +149,9 @@ function wrap(handler: InvokeHandler, isTrustedSender: (url: string) => boolean)
  * Returns the registered channel names. Throws on a malformed module or a channel handled twice:
  * both are programming errors that must stop the app at start, not surface later.
  */
-export async function registerIpc(ipc: IpcMainLike, options: RegisterOptions = {}): Promise<string[]> {
+export async function registerIpc(ipc: IpcMainLike, options: RegisterOptions): Promise<string[]> {
   const modules = options.modules ?? handlerModules
-  const isTrustedSender = options.isTrustedSender ?? defaultAppUrlMatcher()
+  const { isTrustedSender } = options
 
   const handlers: InvokeHandler[] = []
   for (const [path, load] of Object.entries(modules).sort(([a], [b]) => a.localeCompare(b))) {
@@ -187,9 +182,11 @@ export interface EventTarget {
  * is a bug in main and throws here instead of reaching the renderer.
  */
 export function emit<C extends IpcContract[EventName]>(target: EventTarget, channel: C, payload: z.input<C['payload']>): void {
-  const parsed = (channel as EventChannel).payload.safeParse(payload)
+  // Widened on purpose: while no domain declares an event, IpcContract[EventName] is `never`.
+  const definition = channel as EventChannel
+  const parsed = definition.payload.safeParse(payload)
   if (!parsed.success) {
-    throw new Error(`${channel.name}: invalid event payload\n${z.prettifyError(parsed.error)}`)
+    throw new Error(`${definition.name}: invalid event payload\n${z.prettifyError(parsed.error)}`)
   }
-  target.send(IPC_CHANNEL_PREFIX + channel.name, parsed.data)
+  target.send(IPC_CHANNEL_PREFIX + definition.name, parsed.data)
 }

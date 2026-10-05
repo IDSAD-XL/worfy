@@ -1,6 +1,7 @@
 // The renderer side of the IPC contract: src/renderer/ipc.ts over a fake window.worfy bridge.
-// This file is .tsx so it is typechecked with the renderer (tsconfig.web.json), where
-// src/renderer/ipc.ts belongs; main's side is in ipc.test.ts.
+// This file is .tsx so it is typechecked with the renderer's test project (tsconfig.test.web.json),
+// which sees src/renderer/ipc.ts; main's side is in ipc.test.ts. The channels it declares below
+// exist only in the test projects: tsconfig.web.json typechecks src/ without them.
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { eventChannel, invokeChannel, type IpcResult, type WorfyBridge } from '../../src/shared/ipc/channels'
