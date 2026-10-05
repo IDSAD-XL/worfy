@@ -59,6 +59,9 @@ async function layoutOf(window: Page, projectId: string): Promise<State['layout'
   return result.value.layout
 }
 
+/** The notes of a Layout: every Project's Canvas also has its Orchestrator Node (ticket 08). */
+const notesOf = (layout: Pick<State['layout'], 'nodes'>): StateNode[] => layout.nodes.filter((node) => node.kind === 'note')
+
 const rounded = ({ x, y, w, h }: StateNode) => ({ x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) })
 
 async function box(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
@@ -92,18 +95,19 @@ test('a note is created, moved, resized and edited, survives a restart, and each
     const canvas = window.getByTestId('canvas')
     await expect(canvas).toHaveAttribute('data-project-id', ALPHA)
 
-    // A double click on the empty plane creates a note where the pointer is.
-    await window.locator('.react-flow__pane').dblclick({ position: { x: 300, y: 200 } })
+    // A double click on the empty plane creates a note where the pointer is (below the
+    // Orchestrator Node, which takes the top-left corner of a new Canvas).
+    await window.locator('.react-flow__pane').dblclick({ position: { x: 300, y: 320 } })
     const note = window.getByTestId('note-node')
     await expect(note).toHaveCount(1)
-    await expect.poll(async () => (await layoutOf(window, ALPHA)).nodes.length).toBe(1)
-    const [initial] = (await layoutOf(window, ALPHA)).nodes
+    await expect.poll(async () => notesOf(await layoutOf(window, ALPHA)).length).toBe(1)
+    const [initial] = notesOf(await layoutOf(window, ALPHA))
     if (!initial) throw new Error('no node')
     expect(initial).toMatchObject({ kind: 'note', w: 220, h: 120 })
 
     await note.getByRole('textbox', { name: 'Note text' }).fill('remember the milk')
     await window.locator('.react-flow__pane').click({ position: { x: 40, y: 40 } }) // top left: the minimap sits bottom right
-    await expect.poll(async () => (await layoutOf(window, ALPHA)).nodes[0]?.data).toEqual({ text: 'remember the milk' })
+    await expect.poll(async () => notesOf(await layoutOf(window, ALPHA))[0]?.data).toEqual({ text: 'remember the milk' })
 
     // Moved by its header. The zoom is 1, so screen pixels are canvas units: main must save the
     // position the window shows. (React Flow starts a drag past a threshold, so the Node travels a
@@ -114,7 +118,7 @@ test('a note is created, moved, resized and edited, survives a restart, and each
     expect(moved.x - unmoved.x).toBeGreaterThan(100)
     expect(moved.y - unmoved.y).toBeGreaterThan(50)
     const at = { x: Math.round(initial.x + moved.x - unmoved.x), y: Math.round(initial.y + moved.y - unmoved.y) }
-    await expect.poll(async () => rounded((await layoutOf(window, ALPHA)).nodes[0] as StateNode)).toEqual({ ...at, w: 220, h: 120 })
+    await expect.poll(async () => rounded(notesOf(await layoutOf(window, ALPHA))[0] as StateNode)).toEqual({ ...at, w: 220, h: 120 })
 
     // Resized by the bottom-right handle of the selected Node.
     await note.locator('.w-note__header').click()
@@ -122,12 +126,12 @@ test('a note is created, moved, resized and edited, survives a restart, and each
     const resized = await box(note)
     expect(resized.width - moved.width).toBeGreaterThan(40)
     expect(resized.height - moved.height).toBeGreaterThan(20)
-    await expect.poll(async () => rounded((await layoutOf(window, ALPHA)).nodes[0] as StateNode)).toEqual({
+    await expect.poll(async () => rounded(notesOf(await layoutOf(window, ALPHA))[0] as StateNode)).toEqual({
       ...at,
       w: Math.round(resized.width),
       h: Math.round(resized.height),
     })
-    created = (await layoutOf(window, ALPHA)).nodes[0] as StateNode
+    created = notesOf(await layoutOf(window, ALPHA))[0] as StateNode
     shown = resized
 
     // The Canvas view is hidden while the Session view shows; back on it, the note is drawn as before.
@@ -143,7 +147,7 @@ test('a note is created, moved, resized and edited, survives a restart, and each
     await expect(window.getByTestId('note-node')).toHaveCount(0)
     await window.locator('.react-flow__pane').dblclick({ position: { x: 500, y: 400 } })
     await expect(window.getByTestId('note-node')).toHaveCount(1)
-    await expect.poll(async () => (await layoutOf(window, BETA)).nodes.length).toBe(1)
+    await expect.poll(async () => notesOf(await layoutOf(window, BETA)).length).toBe(1)
 
     await projectButton(window, 'alpha').click()
     await expect(canvas).toHaveAttribute('data-project-id', ALPHA)
@@ -160,8 +164,8 @@ test('a note is created, moved, resized and edited, survives a restart, and each
     // the save delay must happen on quit.
     const note2 = window.getByTestId('note-node')
     await drag(window, note2.locator('.w-note__header'), -40, 60)
-    await expect.poll(async () => rounded((await layoutOf(window, ALPHA)).nodes[0] as StateNode)).not.toEqual(rounded(created))
-    created = (await layoutOf(window, ALPHA)).nodes[0] as StateNode
+    await expect.poll(async () => rounded(notesOf(await layoutOf(window, ALPHA))[0] as StateNode)).not.toEqual(rounded(created))
+    created = notesOf(await layoutOf(window, ALPHA))[0] as StateNode
     shown = await box(note2)
   } finally {
     await first.close()
@@ -169,7 +173,7 @@ test('a note is created, moved, resized and edited, survives a restart, and each
 
   // Saved in the Project's data folder, read back by the next start.
   const onDisk = JSON.parse(readFileSync(join(dataDir, ALPHA, 'layout.json'), 'utf8')) as State['layout']
-  expect(onDisk.nodes.map(rounded)).toEqual([rounded(created)])
+  expect(notesOf(onDisk).map(rounded)).toEqual([rounded(created)])
   const second = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
   try {
     const { window } = second
@@ -177,7 +181,7 @@ test('a note is created, moved, resized and edited, survives a restart, and each
     const note = window.getByTestId('note-node')
     await expect(note).toHaveCount(1)
     await expect(note.getByRole('textbox', { name: 'Note text' })).toHaveValue('remember the milk')
-    expect((await layoutOf(window, ALPHA)).nodes.map(rounded)).toEqual([rounded(created)])
+    expect(notesOf(await layoutOf(window, ALPHA)).map(rounded)).toEqual([rounded(created)])
     expect(await box(note)).toEqual(shown)
   } finally {
     await second.close()
@@ -216,11 +220,11 @@ test('a note keeps its focus and caret while what is typed reaches main, and a c
     await textbox.click()
     await window.keyboard.type('first')
     // Sent while the note still has the focus.
-    await expect.poll(async () => (await layoutOf(window, ALPHA)).nodes[0]?.data).toEqual({ text: 'first' })
+    await expect.poll(async () => notesOf(await layoutOf(window, ALPHA))[0]?.data).toEqual({ text: 'first' })
     await expect(textbox).toBeFocused()
     await window.keyboard.type(' second')
     await expect(textbox).toHaveValue('first second')
-    await expect.poll(async () => (await layoutOf(window, ALPHA)).nodes[0]?.data).toEqual({ text: 'first second' })
+    await expect.poll(async () => notesOf(await layoutOf(window, ALPHA))[0]?.data).toEqual({ text: 'first second' })
 
     // Another writer (later: the MCP tools) changes the text while the note is not being edited.
     await window.locator('.react-flow__pane').click({ position: { x: 40, y: 40 } }) // top left: the minimap sits bottom right

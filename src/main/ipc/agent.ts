@@ -116,8 +116,11 @@ export function agentHandlers(registry: () => SessionRegistry): HandlerModule {
 
 let appRegistry: SessionRegistry | null = null
 
-/** The app's registry, made on first use; its Sessions close when the app quits. */
-function sharedRegistry(): SessionRegistry {
+/**
+ * The app's registry, made on first use; its Sessions close when the app quits. The Orchestrators
+ * (src/main/ipc/orchestrator.ts) run in it too, so `agent.*` reaches them like any Session.
+ */
+export function sharedRegistry(): SessionRegistry {
   if (appRegistry === null) {
     const registry = new SessionRegistry(queryFactoryFromEnv())
     app.on('will-quit', () => registry.closeAll())
