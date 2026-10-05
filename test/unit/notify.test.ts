@@ -246,7 +246,7 @@ describe('live Sessions from the registry watchers', () => {
 })
 
 /** A BrowserWindow as openNote uses it. */
-function fakeWindow(id: number, { loading = false, minimized = false } = {}) {
+function fakeWindow(id: number, { loading = false, minimized = false, onSend = (): void => undefined } = {}) {
   const sent: { channel: string; payload: unknown }[] = []
   const destroyed: (() => void)[] = []
   const calls: string[] = []
@@ -259,7 +259,10 @@ function fakeWindow(id: number, { loading = false, minimized = false } = {}) {
     webContents: {
       id,
       isLoading: () => loading,
-      send: (channel: string, payload: unknown) => sent.push({ channel, payload }),
+      send: (channel: string, payload: unknown) => {
+        sent.push({ channel, payload })
+        onSend()
+      },
       once: (event: string, listener: () => void) => {
         if (event === 'destroyed') destroyed.push(listener)
       },
@@ -270,8 +273,9 @@ function fakeWindow(id: number, { loading = false, minimized = false } = {}) {
 
 describe('a click on a notification', () => {
   const note: Note = { title: 'alpha', body: 'Needs permission: Bash ls', sessionId: 's1', projectRoot: null }
+  const SIGNAL = { channel: 'worfy:notify.open', payload: {} }
 
-  it('raises the open window and sends it the Session to open', () => {
+  it('raises the open window, keeps the note for it and signals its overlay to take it', () => {
     const pending = new PendingOpens()
     const open = fakeWindow(1, { minimized: true })
     electron.windows = [open.window]
@@ -279,8 +283,49 @@ describe('a click on a notification', () => {
     openNote(note, pending, create)
     expect(create).not.toHaveBeenCalled()
     expect(open.calls).toEqual(['restore', 'show', 'focus'])
-    expect(open.sent).toEqual([{ channel: 'worfy:notify.open', payload: { sessionId: 's1', projectRoot: null } }])
-    expect(pending.take(1)).toBeNull()
+    // The signal carries no Session: the overlay takes the note from main.
+    expect(open.sent).toEqual([SIGNAL])
+    expect(pending.take(1)).toEqual({ sessionId: 's1', projectRoot: null })
+    electron.windows = []
+  })
+
+  it('while a Card iframe loads (isLoading is true), a mounted overlay still gets the signal and the note', () => {
+    const pending = new PendingOpens()
+    const taken: unknown[] = []
+    // The overlay is mounted: it takes the note as soon as the signal arrives.
+    const open = fakeWindow(2, { loading: true, onSend: () => taken.push(pending.take(2)) })
+    electron.windows = [open.window]
+    openNote(note, pending, vi.fn() as never)
+    expect(open.sent).toEqual([SIGNAL])
+    expect(taken).toEqual([{ sessionId: 's1', projectRoot: null }])
+    // Nothing is left for a later remount of the overlay to open unexpectedly.
+    expect(pending.take(2)).toBeNull()
+    electron.windows = []
+  })
+
+  it('when the page has loaded but the overlay is not mounted yet, the note waits for its mount', () => {
+    const pending = new PendingOpens()
+    // Nobody listens: the signal goes nowhere.
+    const open = fakeWindow(5, { loading: false })
+    electron.windows = [open.window]
+    openNote(note, pending, vi.fn() as never)
+    expect(open.sent).toEqual([SIGNAL])
+    // The overlay mounts and asks for the note.
+    expect(pending.take(5)).toEqual({ sessionId: 's1', projectRoot: null })
+    electron.windows = []
+  })
+
+  it('a note nobody took within PENDING_OPEN_MS opens nothing on a later mount', () => {
+    let now = 1_000
+    const pending = new PendingOpens(() => now)
+    const open = fakeWindow(6)
+    electron.windows = [open.window]
+    openNote(note, pending, vi.fn() as never)
+    now += PENDING_OPEN_MS - 1
+    expect(pending.take(6)).toEqual({ sessionId: 's1', projectRoot: null })
+    openNote({ ...note, sessionId: 's2' }, pending, vi.fn() as never)
+    now += PENDING_OPEN_MS
+    expect(pending.take(6)).toBeNull()
     electron.windows = []
   })
 
@@ -298,19 +343,32 @@ describe('a click on a notification', () => {
     expect(pending.take(7)).toBeNull()
   })
 
-  it('keeps the note for a window still loading, and forgets it when the window goes away', () => {
+  it('keeps the latest note of a window, and forgets it when the window goes away', () => {
     const pending = new PendingOpens()
     const loading = fakeWindow(3, { loading: true })
     electron.windows = [loading.window]
     openNote(note, pending, vi.fn() as never)
-    expect(loading.sent).toEqual([])
     openNote({ ...note, sessionId: 's2' }, pending, vi.fn() as never)
     loading.destroy()
     expect(pending.take(3)).toBeNull()
 
     openNote({ ...note, sessionId: 's3' }, pending, vi.fn() as never)
-    expect(pending.take(3)).toEqual({ sessionId: 's3', projectRoot: null })
+    openNote({ ...note, sessionId: 's4' }, pending, vi.fn() as never)
+    expect(pending.take(3)).toEqual({ sessionId: 's4', projectRoot: null })
     electron.windows = []
+  })
+})
+
+describe('notify.open at the IPC boundary', () => {
+  it('is a signal with no Session in it: extra keys are cut, a payload of another type is refused', async () => {
+    const { emit } = await import('../../src/main/ipc/index')
+    const { notifyOpen } = await import('../../src/shared/ipc/notify')
+    const sent: unknown[] = []
+    const target = { send: (_channel: string, payload: unknown) => sent.push(payload) }
+    emit(target as never, notifyOpen, { sessionId: 's1', projectRoot: null } as never)
+    expect(sent).toEqual([{}])
+    expect(() => emit(target as never, notifyOpen, 's1' as never)).toThrow(/notify\.open: invalid event payload/)
+    expect(sent).toHaveLength(1)
   })
 })
 

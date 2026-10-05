@@ -221,14 +221,37 @@ describe('the notification overlay', () => {
     expect(h.target.usePendingNote.getState().pending).toBeNull()
   })
 
-  it('in an open window, opens the Session of `notify.open`; a note main does not have changes nothing', async () => {
+  it('in an open window, `notify.open` makes the overlay take the note from main and open its Session', async () => {
+    answers['projects.list'] = () => PROJECTS
+    let held: { sessionId: string; projectRoot: string | null } | null = null
+    answers['notify.pending'] = () => {
+      const note = held
+      held = null
+      return { note }
+    }
+    const h = await mountOverlay()
+    await vi.waitFor(() => expect(asked.map((each) => each.channel)).toContain('projects.list'))
+    expect(asked.filter((each) => each.channel === 'notify.pending')).toHaveLength(1)
+    expect(h.opened().opened).toBeNull()
+    // Main keeps the note, then signals; the signal itself names no Session.
+    held = { sessionId: 'ext-1', projectRoot: '/Users/test/alpha' }
+    act(() => handlers.get('notify.open')?.({}))
+    await vi.waitFor(() => expect(h.opened().opened).toEqual({ nodeId: 'session:ext-1', projectId: 'alpha', external: { sessionId: 'ext-1' } }))
+    expect(asked.filter((each) => each.channel === 'notify.pending')).toHaveLength(2)
+  })
+
+  it('a signal for a note main no longer has (taken or expired) opens nothing', async () => {
     answers['projects.list'] = () => PROJECTS
     answers['notify.pending'] = () => ({ note: null })
     const h = await mountOverlay()
     await vi.waitFor(() => expect(asked.map((each) => each.channel)).toContain('projects.list'))
+    act(() => handlers.get('notify.open')?.({}))
+    await vi.waitFor(() => expect(asked.filter((each) => each.channel === 'notify.pending')).toHaveLength(2))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(h.target.usePendingNote.getState().pending).toBeNull()
     expect(h.opened().opened).toBeNull()
-    act(() => handlers.get('notify.open')?.({ sessionId: 'ext-1', projectRoot: '/Users/test/alpha' }))
-    await vi.waitFor(() => expect(h.opened().opened).toEqual({ nodeId: 'session:ext-1', projectId: 'alpha', external: { sessionId: 'ext-1' } }))
   })
 
   it('drops a note whose Session does not show up in time, so a later view opens nothing', async () => {

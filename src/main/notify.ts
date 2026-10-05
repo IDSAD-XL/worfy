@@ -9,10 +9,10 @@
 //   transition.
 //
 // One Session sends at most one notification in NOTIFY_INTERVAL_MS. A click on a notification
-// raises the window and asks the renderer to open that Session (`notify.open`). On macOS worfy
-// lives on after its last window closed, and so do its Sessions: then the click opens a new window
-// and leaves the note for its renderer to take (notify-pending.ts), as it does for a window still
-// loading.
+// raises the window, leaves the note for its renderer to take (notify-pending.ts) and signals the
+// renderer to take it now (`notify.open`). On macOS worfy lives on after its last window closed,
+// and so do its Sessions: then the click opens a new window, whose renderer takes the note once
+// its overlay mounts.
 //
 // Notifier holds the rules and takes its Electron parts as NotifyDeps, so tests pass their own
 // (test/unit/notify.test.ts). An unsigned build from `pnpm dev` may show "Electron" or nothing
@@ -183,9 +183,12 @@ export function openNote(note: Note, pending: PendingOpens = pendingOpens, creat
     window.focus()
   }
   app.focus({ steal: true })
-  // A renderer that is not loaded yet would miss the event: it asks for the note instead.
-  if (existing === undefined || window.webContents.isLoading()) holdFor(window, note, pending)
-  else emit(window.webContents, notifyOpen, { sessionId: note.sessionId, projectRoot: note.projectRoot })
+  // The note always waits in PendingOpens, and `notify.open` only tells a mounted overlay to take
+  // it now. An overlay that is not mounted yet (a page still loading, or loaded but before the
+  // Canvas) misses the signal and takes the note when it mounts. So the outcome does not depend on
+  // webContents.isLoading(), which is also true while a Card iframe loads.
+  holdFor(window, note, pending)
+  if (existing !== undefined) emit(window.webContents, notifyOpen, {})
 }
 
 /** Electron's notifications and windows. */
