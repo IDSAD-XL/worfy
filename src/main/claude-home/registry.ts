@@ -483,7 +483,8 @@ export class ClaudeHomeRegistry {
       timer = setTimeout(flush, debounceMs)
     }
     // Verdicts for transcripts in `subfolder` folders: does the cwd they start in lie inside the
-    // Project? Kept once known, so a removed file is still reported.
+    // Project? Kept once known, so a removed file is still reported. Filled for the files that exist
+    // when watching starts (`prefilled`), because the watcher skips them until they change.
     const verdicts = new Map<string, boolean>()
     const startsInProject = async (path: string): Promise<boolean> => {
       const known = verdicts.get(path)
@@ -494,7 +495,7 @@ export class ClaudeHomeRegistry {
       verdicts.set(path, verdict)
       return verdict
     }
-    const note = (path: string) => {
+    const note = (path: string, removed = false) => {
       if (/^\d+\.json$/.test(relative(sessionsDir, path))) {
         sessions = true
         schedule()
@@ -508,17 +509,34 @@ export class ClaudeHomeRegistry {
         schedule()
         return
       }
-      void startsInProject(path).then((inside) => {
+      const report = (inside: boolean) => {
         if (!inside) return
         transcripts.add(sessionId)
         schedule()
-      })
+      }
+      // A removed file can no longer be read: its verdict comes from the cache, and a file whose cwd
+      // was never known is reported, since an extra reread is cheaper than a stale history.
+      if (removed) void prefilled.then(() => report(verdicts.get(path) ?? true))
+      else void startsInProject(path).then(report)
     }
 
     const watcher: FSWatcher = watch(this.home, { ignoreInitial: true, depth: 2, ignored, persistent: true })
-    watcher.on('add', note).on('change', note).on('unlink', note)
+    watcher
+      .on('add', (path) => note(path))
+      .on('change', (path) => note(path))
+      .on('unlink', (path) => note(path, true))
     watcher.on('error', (error) => console.error('[claude-home] watch error', error))
-    const ready = new Promise<void>((done) => watcher.once('ready', () => setTimeout(done, settleMs)))
+    // Started after the watcher, so a file is either seen here or reported by the watcher.
+    const prefilled: Promise<void> = this.transcriptDirs(roots)
+      .then(async (dirs) => {
+        const checked = dirs.filter((dir) => dir.checkCwd)
+        const files = await Promise.all(
+          checked.map(async ({ path: dir }) => (await listDir(dir)).filter((entry) => entry.isFile && TRANSCRIPT.test(entry.name)).map((entry) => join(dir, entry.name))),
+        )
+        await Promise.all(files.flat().map((path) => startsInProject(path)))
+      })
+      .catch((error: unknown) => console.error('[claude-home] reading transcript folders failed', error))
+    const ready = Promise.all([new Promise<void>((done) => watcher.once('ready', () => setTimeout(done, settleMs))), prefilled]).then(() => undefined)
     return {
       ready,
       close: async () => {

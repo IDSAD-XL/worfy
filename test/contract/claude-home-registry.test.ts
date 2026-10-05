@@ -475,6 +475,35 @@ describe('watching the Claude home', () => {
     await new Promise((done) => setTimeout(done, 300))
     expect(log.changes.some((entry) => entry.change.transcripts.includes('foreign'))).toBe(false)
   })
+
+  it('reports the removal of a subfolder transcript that existed before watching, not of a look-alike Project', async () => {
+    const home = await copyOfFixture()
+    const dir = join(home, 'projects', projectDirName(`${DEMO}/web`))
+    await mkdir(dir)
+    await writeFile(join(dir, 'foreign.jsonl'), `${userLine('foreign', '/Users/test/projects/demo-web', 'f-1')}\n`)
+    await writeFile(join(dir, 'ours.jsonl'), `${userLine('ours', `${DEMO}/web`, 'o-1')}\n`)
+    // Claude Code has created the file but not written its first record yet: the cwd is unknown.
+    await writeFile(join(dir, 'unknown.jsonl'), '')
+    // FSEvents replays writes from just before a watch starts; older files are not replayed.
+    await new Promise((done) => setTimeout(done, 1000))
+    const registry = new ClaudeHomeRegistry({ home, listWorktrees: noWorktrees, isAlive: alive() })
+    const log = changeLog()
+    const watch = await registry.watch(DEMO, log.onChange, { debounceMs: 50 })
+    closers.push(() => watch.close())
+    await watch.ready
+    // FSEvents may replay the writes above; let them pass, then forget them.
+    await new Promise((done) => setTimeout(done, 300))
+    log.changes.length = 0
+
+    await rm(join(dir, 'foreign.jsonl'))
+    await rm(join(dir, 'ours.jsonl'))
+    await rm(join(dir, 'unknown.jsonl'))
+    // A removal whose cwd was never known is reported: an extra reread costs less than a stale list.
+    await log.waitFor((change) => change.transcripts.includes('ours'))
+    await log.waitFor((change) => change.transcripts.includes('unknown'))
+    await new Promise((done) => setTimeout(done, 300))
+    expect(log.changes.some((entry) => entry.change.transcripts.includes('foreign'))).toBe(false)
+  })
 })
 
 describe('read-only access to the Claude home', () => {
