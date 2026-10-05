@@ -10,7 +10,7 @@ import { MessageInput } from './MessageInput'
 import { useNavigation } from './navigation'
 import { useSessionNodeView } from './node-sessions'
 import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
-import { ensureAgentEvents, recordPrompt, retractPrompt, useSessionLog } from './store'
+import { ensureAgentEvents, useSessionControls, useSessionLog } from './store'
 import { Transcript } from './Transcript'
 import './session.css'
 
@@ -107,15 +107,14 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const busy = state === 'busy'
   const model = facts.model ?? view?.model ?? null
   const heading = orchestrator !== undefined || nodeSession === undefined ? 'Orchestrator' : 'Session'
+  const { settings } = useSessionControls(sessionId)
 
+  // The transcript shows the message when main gives it to Claude Code (a `prompt` event): at
+  // once, or after the running turn when it waits in the queue.
   const send = async (text: string): Promise<string | null> => {
     if (sessionId === null) return 'The Session is not running'
-    // Shown at once, before Claude Code answers; taken back if it never reached the Session.
-    recordPrompt(sessionId, text)
     const result = await invoke('agent.send', { sessionId, text })
-    if (result.ok) return null
-    retractPrompt(sessionId, text)
-    return result.error
+    return result.ok ? null : result.error
   }
 
   const interrupt = () => {
@@ -155,10 +154,10 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
             {model ?? '—'}
           </span>
         </span>
-        <span className="w-session__fact" title="Effort is not reported by Claude Code yet">
+        <span className="w-session__fact" title="The level worfy asked for: Claude Code does not report the level it applies">
           <span className="w-session__fact-label">Effort</span>
           <span className="w-mono w-session__fact-value" data-testid="session-effort">
-            —
+            {settings?.effort ?? '—'}
           </span>
         </span>
         <span className="w-session__fact">

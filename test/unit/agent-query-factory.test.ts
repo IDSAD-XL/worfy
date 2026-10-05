@@ -1,11 +1,12 @@
 // How a Session's Claude Code is started (src/main/agent/app-registry.ts): the real SDK unless
 // WORFY_AGENT=fake, with the login shell environment from env.ts rather than worfy's own, and the
 // unpacked native binary in the packaged app. The SDK's query() and agentEnv() are mocked.
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QueryRequest } from '../../src/main/agent/session'
+import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 
 const mocks = vi.hoisted(() => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -29,6 +30,7 @@ const request = (): QueryRequest => ({
   cwd: '/Users/tester/project',
   resume: 'sdk-123',
   stderr: () => undefined,
+  settings: DEFAULT_SETTINGS,
 })
 
 /** The options the factory passed to the SDK's query(). */
@@ -74,6 +76,27 @@ describe('sdkQueryFactory', () => {
     expect(options).toMatchObject({ cwd: req.cwd, resume: 'sdk-123', permissionMode: 'bypassPermissions' })
     expect(options.stderr).toBe(req.stderr)
     expect(mocks.query.mock.calls[0]?.[0]).toMatchObject({ prompt: req.prompt })
+    // The default settings leave the model and effort to Claude Code.
+    expect(options).not.toHaveProperty('model')
+    expect(options).not.toHaveProperty('effort')
+  })
+
+  it("starts Claude Code with the Session's picked model, effort and permission mode (a resume continues with them)", async () => {
+    await sdkQueryFactory()({ ...request(), settings: { model: 'sonnet', effort: 'low', permissionMode: 'plan' } })
+    expect(sdkOptions()).toMatchObject({ model: 'sonnet', effort: 'low', permissionMode: 'plan', resume: 'sdk-123', allowDangerouslySkipPermissions: true })
+  })
+
+  it('writes what the fake agent was asked to do to WORFY_AGENT_LOG, one JSON line each', async () => {
+    const scriptsDir = join(import.meta.dirname, '..', 'fixtures', 'agent-scripts')
+    const log = join(dataDir, 'agent.log')
+    const query = await queryFactoryFromEnv({ WORFY_AGENT: 'fake', WORFY_AGENT_SCRIPTS: scriptsDir, WORFY_AGENT_LOG: log })(request())
+    await query.setModel('opus')
+    query.close()
+    const lines = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as unknown)
+    expect(lines).toEqual([
+      { kind: 'start', resume: 'sdk-123', settings: DEFAULT_SETTINGS },
+      { kind: 'setModel', model: 'opus' },
+    ])
   })
 
   it('lets the SDK find Claude Code itself when worfy is not packaged', async () => {

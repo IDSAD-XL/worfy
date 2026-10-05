@@ -4,12 +4,14 @@
 // open() finds the Project's Orchestrator Node in the Layout or creates it, then starts the
 // Session in the Project's root: a new one, or the SDK session saved in the Node's `data`, resumed.
 //
-// The Node's data keeps only the SDK session id and the summed cost: nothing else records them in
-// a form worfy can read back. Everything else the Node shows lives in memory, in the Orchestrator's
+// The Node's data keeps only the SDK session id, the summed cost and the model, effort and
+// permission mode the user picked (ticket 19): nothing else records them in a form worfy can read
+// back. The Session starts (and resumes) with the saved picks. Everything else the Node shows lives in memory, in the Orchestrator's
 // view: the model and the last status block come from the saved session's transcript when the
 // Orchestrator opens (orchestrator-transcript.ts) and then from the live Session's events; the
 // state is the live Session's. Views go to the windows on `orchestrator.changed`.
 import type { AgentEvent } from '../../shared/agent/events'
+import { DEFAULT_SETTINGS, sameSettings, type SessionSettings } from '../../shared/agent/settings'
 import { findStatusBlock } from '../../shared/agent/status-block'
 import {
   ORCHESTRATOR_HEIGHT,
@@ -110,6 +112,8 @@ interface Entry {
   cost: CostCounter
   /** The session id last written to the Node's data. */
   savedSessionId: string | null
+  /** The settings last written to the Node's data (or the defaults); every Session of the Orchestrator starts with them. */
+  settings: SessionSettings
 }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
@@ -194,6 +198,7 @@ export class Orchestrators {
       run: null,
       cost: new CostCounter(saved.costUsd ?? 0),
       savedSessionId: saved.sessionId ?? null,
+      settings: saved.settings ?? DEFAULT_SETTINGS,
     }
     entry.ready = this.start(entry)
     return entry
@@ -237,7 +242,7 @@ export class Orchestrators {
       statusBlock: facts.statusBlock,
     })
     try {
-      run.session = this.deps.registry.start(entry.path, resume, (sessionId, event) => this.onEvent(entry, run, sessionId, event))
+      run.session = this.deps.registry.start(entry.path, resume, (sessionId, event) => this.onEvent(entry, run, sessionId, event), entry.settings)
     } catch (error) {
       // E.g. the session is already live in another Session; the next open tries again.
       run.current = false
@@ -255,7 +260,7 @@ export class Orchestrators {
     }
   }
 
-  /** What one event of the current Session changes: the view, and the Node's data for the session id and cost. */
+  /** What one event of the current Session changes: the view, and the Node's data for the session id, cost and settings. */
   private apply(entry: Entry, run: Run, sessionId: string, event: AgentEvent): void {
     const next = { ...this.current(entry), sessionId }
     switch (event.type) {
@@ -278,6 +283,12 @@ export class Orchestrators {
           }
         }
         if (event.state === 'closed' && this.entries.get(entry.projectId) === entry) this.entries.delete(entry.projectId)
+        break
+      case 'settings':
+        if (!sameSettings(entry.settings, event.settings)) {
+          entry.settings = event.settings
+          this.patch(entry, { settings: event.settings })
+        }
         break
       case 'result':
         next.costUsd = entry.cost.result(event.costUsd)

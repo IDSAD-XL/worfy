@@ -198,7 +198,8 @@ describe('Orchestrator Session', () => {
     await vi.waitFor(() => expect(h.view().state).toBe('idle'))
     expect(h.view()).toMatchObject({ model: null, statusBlock: null, costUsd: 0, error: null })
 
-    // Turn 1 of the script holds the turn open after its answer until the next message.
+    // Turn 1 of the script holds the turn open after its answer until it is interrupted (a message
+    // sent during a turn waits in the queue, ticket 19).
     h.registry.get(tempId).send('прогони волну 5')
     await vi.waitFor(() => expect(h.view().statusBlock).toBe(BLOCK_1))
     expect(h.view().state).toBe('busy')
@@ -206,7 +207,7 @@ describe('Orchestrator Session', () => {
     expect(sdkId).toMatch(/^[0-9a-f-]{36}$/)
     expect(h.view().model).toBe('claude-opus-5-5')
     expect(h.data()).toStrictEqual({ sessionId: sdkId })
-    h.registry.get(tempId).send('дальше')
+    void h.registry.get(tempId).interrupt()
     await vi.waitFor(() => expect(h.view().costUsd).toBe(0.0125))
     expect(h.view().state).toBe('idle')
 
@@ -237,7 +238,7 @@ describe('Orchestrator Session', () => {
     const { sessionId } = await first.orchestrators.open(PROJECT)
     first.registry.get(sessionId ?? '').send('one')
     await vi.waitFor(() => expect(first.view().statusBlock).toBe(BLOCK_1))
-    first.registry.get(sessionId ?? '').send('release')
+    void first.registry.get(sessionId ?? '').interrupt()
     await vi.waitFor(() => expect(first.view().costUsd).toBe(0.0125))
     const sdkId = first.view().sessionId
     first.registry.closeAll()
@@ -252,10 +253,43 @@ describe('Orchestrator Session', () => {
     expect(reopened).toMatchObject({ state: 'starting', statusBlock: BLOCK_TERMINAL, model: 'claude-sonnet-5', costUsd: 0.0125 })
     second.registry.get(second.sessionId()).send('one')
     await vi.waitFor(() => expect(second.view().state).toBe('busy'))
-    second.registry.get(second.sessionId()).send('release')
+    void second.registry.get(second.sessionId()).interrupt()
     // A new Claude Code process counts from zero: 0.0125 before the restart + 0.0125 now.
     await vi.waitFor(() => expect(second.view().costUsd).toBe(0.025))
     expect(second.data()).toStrictEqual({ sessionId: sdkId, costUsd: 0.025 })
+  })
+
+  it('keeps the picked model, effort and permission mode in the Node data and resumes with them after a restart', async () => {
+    const first = harness()
+    const { sessionId } = await first.orchestrators.open(PROJECT)
+    await vi.waitFor(() => expect(first.view().state).toBe('idle'))
+    // The defaults change nothing in the Node data.
+    expect(first.data()).toStrictEqual({})
+    await first.registry.get(sessionId ?? '').configure({ model: 'sonnet', effort: 'low', permissionMode: 'plan' })
+    expect(first.data()).toStrictEqual({ settings: { model: 'sonnet', effort: 'low', permissionMode: 'plan' } })
+    first.registry.get(sessionId ?? '').send('one')
+    await vi.waitFor(() => expect(first.view().statusBlock).toBe(BLOCK_1))
+    // Claude Code's next turn runs with the picked model.
+    expect(first.view().model).toBe('sonnet')
+    void first.registry.get(sessionId ?? '').interrupt()
+    await vi.waitFor(() => expect(first.view().state).toBe('idle'))
+    const sdkId = first.view().sessionId
+    first.registry.closeAll()
+    first.layout.flushAll()
+    const onDisk = JSON.parse(readFileSync(join(scratch, 'data', PROJECT, 'layout.json'), 'utf8')) as { nodes: LayoutNode[] }
+    expect(onDisk.nodes[0]?.data).toMatchObject({ sessionId: sdkId, settings: { model: 'sonnet', effort: 'low', permissionMode: 'plan' } })
+
+    const second = harness()
+    await second.orchestrators.open(PROJECT)
+    expect(second.requests).toMatchObject([{ resume: sdkId, settings: { model: 'sonnet', effort: 'low', permissionMode: 'plan' } }])
+    expect(second.registry.get(second.sessionId()).settings).toEqual({ model: 'sonnet', effort: 'low', permissionMode: 'plan' })
+  })
+
+  it('reads damaged settings in the Node data field by field, falling back to the defaults', async () => {
+    savedNode({ sessionId: null, settings: { model: 42, effort: 'ultra', permissionMode: 'acceptEdits', extra: true } })
+    const h = harness()
+    await h.orchestrators.open(PROJECT)
+    expect(h.requests.map((request) => request.settings)).toStrictEqual([{ model: null, effort: null, permissionMode: 'acceptEdits' }])
   })
 
   it('a crashed Session shows error with its reason; the process it is resumed in counts its cost on top', async () => {

@@ -1,6 +1,7 @@
 // The Session view (src/renderer/session/): folding a Session's events into transcript rows, the
-// renderer's event store, the input field's keys and prompt history, the rail made of files in
-// rail/, and opening the view by a double click on the Orchestrator's Node.
+// renderer's event store, the input field's keys and prompt history, its pickers and queue chip
+// (composer/, ticket 19), the rail made of files in rail/, and opening the view by a double click
+// on the Orchestrator's Node.
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -176,6 +177,13 @@ const view = (overrides: Partial<OrchestratorView> = {}): OrchestratorView => ({
   ...overrides,
 })
 
+const DEFAULTS = { model: null, effort: null, permissionMode: 'bypassPermissions' } as const
+const MODELS = [
+  { value: null, displayName: 'Default (recommended)', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+  { value: 'sonnet', displayName: 'Sonnet', efforts: ['low', 'high'] },
+  { value: 'haiku', displayName: 'Haiku', efforts: [] },
+]
+
 const asked: { channel: string; input: unknown }[] = []
 const handlers = new Map<string, (payload: unknown) => void>()
 let answers: Record<string, (input: unknown) => unknown>
@@ -189,6 +197,8 @@ beforeEach(() => {
     'orchestrator.open': () => view(),
     'agent.send': () => undefined,
     'agent.interrupt': () => ({ interrupted: true }),
+    'agent.controls': () => ({ settings: DEFAULTS, queue: { items: [], paused: false } }),
+    'agent.models': () => ({ models: MODELS }),
   }
   const bridge = {
     invoke: (channel: string, input: unknown) => {
@@ -214,7 +224,7 @@ const emit = (sessionId: string, event: AgentEvent) => act(() => handlers.get('a
 describe('the event store', () => {
   it('joins deltas, moves events to the new id on `renamed`, and drops an echo of the sent prompt', async () => {
     const store = await import('../../src/renderer/session/store')
-    store.recordPrompt('pending-1', 'hello')
+    store.acceptAgentEvent({ sessionId: 'pending-1', event: { type: 'prompt', text: 'hello' } })
     store.acceptAgentEvent({ sessionId: 'pending-1', event: delta('a') })
     store.acceptAgentEvent({ sessionId: 'sdk-1', event: { type: 'renamed', from: 'pending-1' } })
     store.acceptAgentEvent({ sessionId: 'sdk-1', event: prompt('hello') })
@@ -227,14 +237,14 @@ describe('the event store', () => {
 
   it('keeps a prompt the user sends again after the turn ended', async () => {
     const store = await import('../../src/renderer/session/store')
-    store.recordPrompt('s', 'again')
+    store.acceptAgentEvent({ sessionId: 's', event: { type: 'prompt', text: 'again' } })
     store.acceptAgentEvent({ sessionId: 's', event: result() })
     store.acceptAgentEvent({ sessionId: 's', event: prompt('again') })
     expect(store.useSessionLogs.getState().logs.s?.events.map((event) => event.type)).toEqual(['notice', 'result', 'notice'])
   })
 })
 
-describe('the event store: limits and take-backs', () => {
+describe('the event store: limits, queue and settings', () => {
   it('keeps the newest KEEP_EVENTS events of a Session and counts the dropped ones', async () => {
     const store = await import('../../src/renderer/session/store')
     for (let index = 0; index <= store.KEEP_EVENTS; index += 1) store.acceptAgentEvent({ sessionId: 's', event: prompt(`p${index}`) })
@@ -245,16 +255,27 @@ describe('the event store: limits and take-backs', () => {
     expect(log?.first).toBe(1)
   })
 
-  it('takes back the latest prompt with the text and stops waiting for its echo', async () => {
+  it('keeps only the latest queue and settings, outside the transcript, and moves them on `renamed`', async () => {
     const store = await import('../../src/renderer/session/store')
-    store.recordPrompt('s', 'same')
-    store.acceptAgentEvent({ sessionId: 's', event: result() })
-    store.recordPrompt('s', 'same')
-    store.acceptAgentEvent({ sessionId: 's', event: { type: 'status', status: null, permissionMode: null } })
-    store.retractPrompt('s', 'same')
+    store.acceptAgentEvent({ sessionId: 'pending-1', event: { type: 'settings', settings: DEFAULTS } })
+    store.acceptAgentEvent({ sessionId: 'pending-1', event: { type: 'queue', items: [{ id: 'q1', text: 'one' }], paused: false } })
+    store.acceptAgentEvent({ sessionId: 'pending-1', event: { type: 'queue', items: [{ id: 'q1', text: 'one' }, { id: 'q2', text: 'two' }], paused: true } })
+    store.acceptAgentEvent({ sessionId: 'sdk-1', event: { type: 'renamed', from: 'pending-1' } })
+    store.acceptAgentEvent({ sessionId: 'sdk-1', event: { type: 'settings', settings: { ...DEFAULTS, effort: 'low' } } })
+    const log = store.useSessionLogs.getState().logs['sdk-1']
+    expect(log?.events).toEqual([])
+    expect(log?.queue).toEqual({ items: [{ id: 'q1', text: 'one' }, { id: 'q2', text: 'two' }], paused: true })
+    expect(log?.settings).toEqual({ ...DEFAULTS, effort: 'low' })
+  })
+
+  it('loadControls fills in what no event brought, and never overwrites what one did', async () => {
+    answers['agent.controls'] = () => ({ settings: { ...DEFAULTS, model: 'old' }, queue: { items: [{ id: 'q', text: 'from main' }], paused: false } })
+    const store = await import('../../src/renderer/session/store')
+    store.acceptAgentEvent({ sessionId: 's', event: { type: 'settings', settings: { ...DEFAULTS, model: 'new' } } })
+    await store.loadControls('s')
     const log = store.useSessionLogs.getState().logs.s
-    expect(log?.events.map((event) => event.type)).toEqual(['notice', 'result', 'status'])
-    expect(log?.echo).toBeNull()
+    expect(log?.settings?.model).toBe('new')
+    expect(log?.queue?.items).toEqual([{ id: 'q', text: 'from main' }])
   })
 })
 
@@ -311,15 +332,95 @@ describe('MessageInput', () => {
     expect(field.value).toBe('typed')
   })
 
-  it('while the Session is busy, shows Interrupt instead of send; Escape interrupts too', async () => {
+  it('while the Session is busy, shows Interrupt (Escape too) and Return queues the message', async () => {
     const { field, onSend, onInterrupt } = await mountInput({ busy: true })
-    expect(screen.queryByTestId('input-send')).toBeNull()
     fireEvent.click(screen.getByTestId('input-interrupt'))
     fireEvent.keyDown(field, { key: 'Escape' })
     expect(onInterrupt).toHaveBeenCalledTimes(2)
+    expect(screen.getByText('Return to queue')).toBeTruthy()
+    expect(screen.getByTestId('input-send').getAttribute('aria-label')).toBe('Queue message')
     fireEvent.change(field, { target: { value: 'later' } })
-    fireEvent.keyDown(field, { key: 'Enter' })
-    expect(onSend).not.toHaveBeenCalled()
+    await act(async () => {
+      fireEvent.keyDown(field, { key: 'Enter' })
+    })
+    expect(onSend).toHaveBeenCalledWith('later')
+    expect(field.value).toBe('')
+  })
+})
+
+describe('composer: pickers and queue (ticket 19)', () => {
+  async function mountInput(sessionId = 's') {
+    const { MessageInput } = await import('../../src/renderer/session/MessageInput')
+    render(<MessageInput sessionId={sessionId} busy={false} history={[]} recipient="Orchestrator" onSend={() => Promise.resolve(null)} onInterrupt={() => undefined} />)
+    // The pickers show nothing before main answered the settings and the models.
+    await vi.waitFor(() => expect((screen.getByTestId('picker-model') as HTMLSelectElement).disabled).toBe(false))
+    await screen.findByRole('option', { name: 'Sonnet' })
+  }
+  const select = (testId: string) => screen.getByTestId(testId) as HTMLSelectElement
+  const options = (testId: string) => [...select(testId).options].map((option) => option.textContent)
+
+  it('lists the models main answers and sends a picked one to agent.configure; shows what main reports back', async () => {
+    answers['agent.configure'] = (input) => ({ ...DEFAULTS, ...(input as { change: object }).change })
+    await mountInput()
+    expect(options('picker-model')).toEqual(['Default (recommended)', 'Sonnet', 'Haiku'])
+    expect(select('picker-model').value).toBe('')
+    fireEvent.change(select('picker-model'), { target: { value: 'sonnet' } })
+    expect(asked).toContainEqual({ channel: 'agent.configure', input: { sessionId: 's', change: { model: 'sonnet' } } })
+    // The picker follows main's `settings` event, not its own click.
+    emit('s', { type: 'settings', settings: { ...DEFAULTS, model: 'sonnet' } })
+    expect(select('picker-model').value).toBe('sonnet')
+    fireEvent.change(select('picker-model'), { target: { value: '' } })
+    expect(asked).toContainEqual({ channel: 'agent.configure', input: { sessionId: 's', change: { model: null } } })
+  })
+
+  it("offers the picked model's effort levels; a model without effort disables the picker", async () => {
+    await mountInput()
+    expect(options('picker-effort')).toEqual(['effort default', 'effort low', 'effort medium', 'effort high', 'effort xhigh', 'effort max'])
+    fireEvent.change(select('picker-effort'), { target: { value: 'high' } })
+    expect(asked).toContainEqual({ channel: 'agent.configure', input: { sessionId: 's', change: { effort: 'high' } } })
+    emit('s', { type: 'settings', settings: { ...DEFAULTS, model: 'sonnet' } })
+    expect(options('picker-effort')).toEqual(['effort default', 'effort low', 'effort high'])
+    emit('s', { type: 'settings', settings: { ...DEFAULTS, model: 'haiku' } })
+    expect(select('picker-effort').disabled).toBe(true)
+    expect(options('picker-effort')).toEqual(['effort —'])
+  })
+
+  it('offers the four permission modes with plain labels, bypass first', async () => {
+    await mountInput()
+    expect(options('picker-permissions')).toEqual(['Bypass permissions', 'Accept edits', 'Ask before tools', 'Plan only'])
+    expect(select('picker-permissions').value).toBe('bypassPermissions')
+    fireEvent.change(select('picker-permissions'), { target: { value: 'plan' } })
+    expect(asked).toContainEqual({ channel: 'agent.configure', input: { sessionId: 's', change: { permissionMode: 'plan' } } })
+  })
+
+  it('says a change was not applied when main refuses it', async () => {
+    await mountInput()
+    fireEvent.change(select('picker-permissions'), { target: { value: 'acceptEdits' } })
+    expect((await screen.findByTestId('pickers-error')).getAttribute('title')).toBe('no agent.configure')
+  })
+
+  it('shows "N queued" only with queued messages; each can be removed by its id', async () => {
+    answers['agent.queueRemove'] = () => ({ removed: true })
+    await mountInput()
+    expect(screen.queryByTestId('queue-chip')).toBeNull()
+    emit('s', { type: 'queue', items: [{ id: 'q1', text: 'first' }, { id: 'q2', text: 'second' }], paused: false })
+    expect(screen.getByTestId('queue-chip').textContent).toBe('2 queued')
+    expect(screen.queryByTestId('queue-send')).toBeNull()
+    fireEvent.click(screen.getByTestId('queue-chip'))
+    expect(screen.getAllByTestId('queue-item').map((item) => item.textContent)).toEqual(['first×', 'second×'])
+    fireEvent.click(screen.getByRole('button', { name: 'Remove queued message 2' }))
+    expect(asked).toContainEqual({ channel: 'agent.queueRemove', input: { sessionId: 's', id: 'q2' } })
+    emit('s', { type: 'queue', items: [], paused: false })
+    expect(screen.queryByTestId('queue-chip')).toBeNull()
+  })
+
+  it('a queue held after Interrupt offers Send queued', async () => {
+    answers['agent.queueSend'] = () => undefined
+    await mountInput()
+    emit('s', { type: 'queue', items: [{ id: 'q1', text: 'first' }], paused: true })
+    expect(screen.getByTestId('queue-chip').textContent).toBe('1 queued')
+    fireEvent.click(screen.getByTestId('queue-send'))
+    expect(asked).toContainEqual({ channel: 'agent.queueSend', input: { sessionId: 's' } })
   })
 })
 
@@ -341,6 +442,9 @@ describe('SessionPanel', () => {
       fireEvent.keyDown(field, { key: 'Enter' })
     })
     expect(asked).toContainEqual({ channel: 'agent.send', input: { sessionId: 'pending-1', text: 'ответь блоком состояния' } })
+    // The prompt row comes with main's `prompt` event: a queued message has none yet.
+    expect(screen.queryByTestId('transcript-prompt')).toBeNull()
+    emit('pending-1', { type: 'prompt', text: 'ответь блоком состояния' })
     expect(within(screen.getByTestId('transcript-prompt')).getByText('ответь блоком состояния')).toBeTruthy()
 
     emit('pending-1', { type: 'init', sdkSessionId: 'sdk-1', model: 'claude-opus-5-5', permissionMode: 'bypassPermissions', apiKeySource: 'none', cwd: '/p', claudeCodeVersion: null, slashCommands: [] })
@@ -362,7 +466,7 @@ describe('SessionPanel', () => {
     expect(screen.getByTestId('session-permissions').textContent).toBe('plan')
   })
 
-  it('takes a message back out of the transcript and the history when sending it fails', async () => {
+  it('a message that was not sent never enters the transcript or the history', async () => {
     delete answers['agent.send']
     await mountPanel()
     const field = screen.getByRole('textbox', { name: 'Message Orchestrator' }) as HTMLTextAreaElement
@@ -377,6 +481,42 @@ describe('SessionPanel', () => {
     fireEvent.change(field, { target: { value: '' } })
     fireEvent.keyDown(field, { key: 'ArrowUp' })
     expect(field.value).toBe('')
+  })
+
+  // The race left from ticket 33: the view recorded the prompt under the temporary id, `renamed`
+  // moved it to the final id, and the take-back after a failed send looked under the old id, so the
+  // undelivered prompt stayed in the transcript. Prompts now come only from main, after delivery.
+  it('a send that fails while `renamed` arrives leaves no prompt under either id', async () => {
+    let fail: (value: unknown) => void = () => undefined
+    const bridge = (globalThis as unknown as { worfy: { invoke: (channel: string, input: unknown) => Promise<unknown> } }).worfy
+    const invoke = bridge.invoke
+    bridge.invoke = (channel, input) =>
+      channel === 'agent.send'
+        ? new Promise((resolve) => {
+            fail = resolve
+          })
+        : invoke(channel, input)
+    await mountPanel()
+    const field = screen.getByRole('textbox', { name: 'Message Orchestrator' })
+    fireEvent.change(field, { target: { value: 'lost' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+    emit('sdk-1', { type: 'renamed', from: 'pending-1' })
+    await act(async () => {
+      fail({ ok: false, error: 'Session pending-1 is closed' })
+      await Promise.resolve()
+    })
+    const store = await import('../../src/renderer/session/store')
+    const prompts = Object.values(store.useSessionLogs.getState().logs).flatMap((log) => log.events.filter((event) => event.type === 'notice' && event.kind === 'user'))
+    expect(prompts).toEqual([])
+    expect(screen.getByRole('alert').textContent).toBe('Session pending-1 is closed')
+  })
+
+  it('shows the effort worfy asked for in the header, and — while it is the model default', async () => {
+    await mountPanel()
+    await vi.waitFor(() => expect(asked.some((each) => each.channel === 'agent.controls')).toBe(true))
+    expect(screen.getByTestId('session-effort').textContent).toBe('—')
+    emit('pending-1', { type: 'settings', settings: { ...DEFAULTS, effort: 'high' } })
+    expect(screen.getByTestId('session-effort').textContent).toBe('high')
   })
 
   it('keeps the rows (and an opened Thinking) when the store drops the oldest events', async () => {

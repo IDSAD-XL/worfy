@@ -14,6 +14,7 @@ import { layoutSchema, type Layout, type LayoutNode, type LayoutOpInput, type La
 import type { LayoutStore } from '../../src/main/layout/store'
 import type { CanvasContext, CanvasDeps, CanvasWorkflow, ToolResult } from '../../src/main/mcp/canvas-server'
 import type { QueryRequest } from '../../src/main/agent/session'
+import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PROJECT = 'demo-0a1b2c3d'
@@ -541,7 +542,7 @@ describe('canvas in a Session', () => {
     layout: store,
     workflow: () => Promise.resolve(WORKFLOW),
   })
-  const request = (cwd: string): QueryRequest => ({ prompt: (async function* () {})(), cwd, resume: undefined, stderr: () => undefined })
+  const request = (cwd: string): QueryRequest => ({ prompt: (async function* () {})(), cwd, resume: undefined, stderr: () => undefined, settings: DEFAULT_SETTINGS })
   /** The options the factory passed to the SDK's query(). */
   const sdkOptions = (): Record<string, unknown> => {
     expect(mocks.query).toHaveBeenCalledOnce()

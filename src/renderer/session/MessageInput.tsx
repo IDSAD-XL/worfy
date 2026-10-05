@@ -4,9 +4,10 @@ import { stepHistory } from './history'
 
 // The input field of a Session: Return sends, Shift+Return starts a new line, ↑ and ↓ in an empty
 // field step through the prompts sent before, and the field grows with its text. While the
-// Session runs a turn, the send button becomes "Interrupt" (Escape does the same). The queue, the
-// model picker and the slash menu are tickets 19 and 20: items of the bottom bar come from
-// composer/ (composer/index.ts).
+// Session runs a turn, Return still sends: main puts the message in the Session's queue and sends
+// it after the turn (ticket 19); "Interrupt" (or Escape) stops the turn. Items of the bottom bar
+// come from composer/ (composer/index.ts): the model, effort and permission pickers and the queue
+// chip (ticket 19), the slash menu and attachments (ticket 20).
 
 export interface MessageInputProps {
   /** The live Session's id; null while none runs, and the field is disabled. */
@@ -65,7 +66,7 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
 
   const send = async () => {
     const message = text
-    if (disabled || busy || sending || message.trim() === '') return
+    if (disabled || sending || message.trim() === '') return
     setSending(true)
     setError(null)
     setText('')
@@ -131,21 +132,18 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
               Interrupt
               <kbd className="w-session__kbd w-mono">esc</kbd>
             </button>
-          ) : (
-            <>
-              <span className="w-composer__hint">Return to send</span>
-              <button
-                type="button"
-                className="w-composer__send"
-                aria-label="Send message"
-                data-testid="input-send"
-                disabled={disabled || sending || text.trim() === ''}
-                onClick={() => void send()}
-              >
-                <SendIcon />
-              </button>
-            </>
-          )}
+          ) : null}
+          <span className="w-composer__hint">{busy ? 'Return to queue' : 'Return to send'}</span>
+          <button
+            type="button"
+            className="w-composer__send"
+            aria-label={busy ? 'Queue message' : 'Send message'}
+            data-testid="input-send"
+            disabled={disabled || sending || text.trim() === ''}
+            onClick={() => void send()}
+          >
+            <SendIcon />
+          </button>
         </div>
       </div>
       {error !== null ? (

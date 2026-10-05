@@ -561,3 +561,131 @@
   color: var(--blocked-text);
   font-size: var(--text-12);
 }
+
+/* Input field: model, effort and permission pickers (composer/Pickers.tsx) */
+.w-pickers {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.w-pickers__select {
+  height: 24px;
+  max-width: 150px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  background: var(--surface);
+  color: var(--text-secondary, var(--text));
+  font-size: var(--text-12);
+  text-overflow: ellipsis;
+}
+
+.w-pickers__select:disabled {
+  color: var(--text-muted);
+}
+
+.w-pickers__select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.w-pickers__error {
+  color: var(--blocked-text);
+  font-size: var(--text-11);
+  white-space: nowrap;
+}
+
+/* Input field: the queue chip and its list (composer/Queue.tsx) */
+.w-queue {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.w-queue__chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-chip);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: var(--text-11);
+  cursor: pointer;
+}
+
+.w-queue[data-paused] .w-queue__chip {
+  border-color: var(--blocked-ring);
+}
+
+.w-queue__chip:focus-visible,
+.w-queue__remove:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.w-queue__popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 10;
+  width: 320px;
+  box-sizing: border-box;
+  padding: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-popover);
+  background: var(--surface);
+  box-shadow: var(--shadow-node);
+}
+
+.w-queue__title {
+  padding: 2px 6px 6px;
+  color: var(--text-muted);
+  font-size: var(--text-11);
+}
+
+.w-queue__items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.w-queue__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 6px;
+  border-top: 1px solid var(--border);
+}
+
+.w-queue__text {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-12);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.w-queue__remove {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.w-queue__remove:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}

@@ -4,8 +4,13 @@
 // own session id (system/init), events carry that id and a `renamed` event names the old one.
 // Both ids are accepted by the other channels. Every event of every Session arrives on
 // `agent.event`, tagged with its Session's id.
+//
+// Ticket 19: `agent.send` during a turn puts the message in the Session's queue; the queue, the
+// settings (model, effort, permission mode) and their changes arrive as `queue` and `settings`
+// events, and `agent.controls` answers both for a view that opens later.
 import { z } from 'zod'
-import { agentEventEnvelope, sessionState } from '../agent/events'
+import { agentEventEnvelope, queueSnapshotSchema, sessionState } from '../agent/events'
+import { modelOptionSchema, sessionSettingsSchema, settingsChangeSchema } from '../agent/settings'
 import { eventChannel, invokeChannel } from './channels'
 
 const sessionId = z.string().min(1)
@@ -29,6 +34,21 @@ export const agentClose = invokeChannel('agent.close', z.object({ sessionId }), 
 
 export const agentList = invokeChannel('agent.list', z.void(), z.array(z.object({ sessionId, cwd: z.string(), state: sessionState })))
 
+/** The Session's settings and queue as they are now. */
+export const agentControls = invokeChannel('agent.controls', z.object({ sessionId }), z.object({ settings: sessionSettingsSchema, queue: queueSnapshotSchema }))
+
+/** Changes some of the model, effort and permission mode; answers the settings now in force. */
+export const agentConfigure = invokeChannel('agent.configure', z.object({ sessionId, change: settingsChangeSchema }), sessionSettingsSchema)
+
+/** The model picker's rows: supportedModels() of the live Session, or the model of its last system/init. */
+export const agentModels = invokeChannel('agent.models', z.object({ sessionId }), z.object({ models: z.array(modelOptionSchema) }))
+
+/** Takes a queued message out before it is sent; `removed` is false when it was no longer queued. */
+export const agentQueueRemove = invokeChannel('agent.queueRemove', z.object({ sessionId, id: z.string().min(1) }), z.object({ removed: z.boolean() }))
+
+/** "Send queued": a queue held by Interrupt goes again, starting now when no turn runs. */
+export const agentQueueSend = invokeChannel('agent.queueSend', z.object({ sessionId }), z.void())
+
 export const agentEvent = eventChannel('agent.event', agentEventEnvelope)
 
 declare module './channels' {
@@ -38,6 +58,11 @@ declare module './channels' {
     'agent.interrupt': typeof agentInterrupt
     'agent.close': typeof agentClose
     'agent.list': typeof agentList
+    'agent.controls': typeof agentControls
+    'agent.configure': typeof agentConfigure
+    'agent.models': typeof agentModels
+    'agent.queueRemove': typeof agentQueueRemove
+    'agent.queueSend': typeof agentQueueSend
     'agent.event': typeof agentEvent
   }
 }

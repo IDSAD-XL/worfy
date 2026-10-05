@@ -7,8 +7,8 @@ import { launchApp } from './helpers'
 
 // The Orchestrator Node against the built app, on the fake agent: the script
 // test/fixtures/agent-scripts/orchestrator.jsonl plays three turns. Turn 1 answers with a status
-// block and then holds the turn open until the next message, so `busy` stays on the Node long
-// enough to be seen; turn 2 answers without a block; turn 3 has two blocks. Its costs grow per
+// block and then holds the turn open until it is interrupted, so `busy` stays on the Node long
+// enough to be seen (a message sent during a turn would wait in the queue, ticket 19); turn 2 answers without a block; turn 3 has two blocks. Its costs grow per
 // process as Claude Code reports them: 0.0125, 0.02, 0.03. Messages are sent over `agent.send`
 // directly: the input field is ticket 33.
 //
@@ -89,6 +89,12 @@ async function record(window: Page): Promise<void> {
 }
 const recorded = (window: Page): Promise<Envelope[]> => window.evaluate(() => (globalThis as unknown as { recorded: Envelope[] }).recorded)
 
+/** Ends turn 1 of the script, which holds until it is interrupted. */
+async function release(window: Page, sessionId: string): Promise<void> {
+  const result = await invoke<{ interrupted: boolean }>(window, 'agent.interrupt', { sessionId })
+  expect(result.value).toEqual({ interrupted: true })
+}
+
 async function send(window: Page, sessionId: string, text: string): Promise<void> {
   const result = await invoke(window, 'agent.send', { sessionId, text })
   expect(result.error).toBeUndefined()
@@ -166,7 +172,7 @@ test('the Orchestrator Node: locked, live on the fake agent with its state, cost
     await send(window, sessionId, 'прогони волну 5')
     await expect(node.getByTestId('orchestrator-state')).toHaveText('busy')
     await expect(node.getByTestId('orchestrator-status-block')).toHaveText(BLOCK_1, { useInnerText: true })
-    await send(window, sessionId, 'дальше')
+    await release(window, sessionId)
     await expect(node.getByTestId('orchestrator-state')).toHaveText('idle')
     await expect(node.getByTestId('orchestrator-cost')).toHaveText('$0.0125')
     await expect(node.getByTestId('orchestrator-model')).toHaveText('claude-opus-5-5')
@@ -219,7 +225,7 @@ test('the Orchestrator Node: locked, live on the fake agent with its state, cost
     const sessionId = opened.value?.sessionId ?? ''
     await send(window, sessionId, 'продолжаем')
     await expect(node.getByTestId('orchestrator-state')).toHaveText('busy')
-    await send(window, sessionId, 'дальше')
+    await release(window, sessionId)
     // The fake agent answers under the session it was asked to resume: the same one as before.
     await expect.poll(async () => (await recorded(window)).find((e) => e.event.type === 'renamed')?.sessionId).toBe(savedSessionId)
     // A new Claude Code process counts from zero; the Node keeps the sum.
