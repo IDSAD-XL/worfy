@@ -1,8 +1,8 @@
 /// <reference types="vite/client" />
 // Two slots on the Canvas's workflow Nodes, filled by later tickets one file at a time:
 //
-// - badges, src/renderer/canvas/badges/<Name>.tsx — small status marks on a Ticket (gate, PR, CI:
-//   ticket 17; a pending permission: ticket 21);
+// - badges, src/renderer/canvas/badges/<Name>.tsx — small status marks on a Ticket or a Session
+//   (gate, PR, CI: ticket 17; a pending permission: ticket 21);
 // - actions, src/renderer/canvas/actions/<Name>.tsx — buttons on a Ticket or an Epic frame
 //   ("Ship ticket", "Run wave", "Open PR": ticket 23).
 //
@@ -14,9 +14,10 @@ import type { ComponentType } from 'react'
 import type { Epic, Ticket } from '../../../shared/workflow/types'
 import { collectExtensions } from '../../shell/registry'
 
-/** What a badge or an action is drawn on. */
+/** What a badge or an action is drawn on. A Session Node (nodes/SessionNode.tsx) draws badges only. */
 export type SlotSubject =
   | { kind: 'ticket'; projectId: string; root: string; ticket: Ticket }
+  | { kind: 'session'; projectId: string; root: string; sessionId: string }
   | { kind: 'epic'; projectId: string; root: string; epic: Epic; tickets: readonly Ticket[] }
 
 export interface SlotProps {

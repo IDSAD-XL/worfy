@@ -6,8 +6,8 @@ import { resolve } from 'node:path'
 import { ClaudeHomeRegistry, type ClaudeHomeWatch } from '../claude-home/registry'
 import { readNewLines } from '../claude-home/tail'
 import { claudeHome } from '../storage/paths'
-import { claudeHomeChanged, claudeHomeClose, claudeHomeSessions, claudeHomeTranscript } from '../../shared/ipc/claude-home'
-import { parseTranscriptLines } from '../../shared/transcript/parse'
+import { claudeHomeChanged, claudeHomeClose, claudeHomeLive, claudeHomeSessions, claudeHomeTranscript } from '../../shared/ipc/claude-home'
+import { mainThreadEvents, parseTranscriptLines } from '../../shared/transcript/parse'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 /** The part of a window's webContents the subscriptions use; tests pass a fake. */
@@ -100,6 +100,7 @@ export function claudeHomeHandlers(registry: ClaudeHomeRegistry, subscriptions =
       if (sender) await subscriptions.subscribe(sender, root)
       return registry.sessions(root)
     }),
+    defineHandler(claudeHomeLive, async ({ projectRoot }) => ({ live: await registry.live(resolve(projectRoot)) })),
     defineHandler(claudeHomeClose, async ({ projectRoot }, { event }) => {
       const sender = event.sender as Subscriber | undefined
       return { closed: sender ? await subscriptions.unsubscribe(sender.id, resolve(projectRoot)) : false }
@@ -108,7 +109,7 @@ export function claudeHomeHandlers(registry: ClaudeHomeRegistry, subscriptions =
       const path = await registry.transcriptPath(resolve(projectRoot), sessionId)
       if (path === null) return { found: false, events: [], cursor: { offset: 0, fileId: null }, reset: false, more: false }
       const chunk = await readNewLines(path, cursor, maxBytes === undefined ? {} : { maxBytes })
-      return { found: true, events: parseTranscriptLines(chunk.lines), cursor: chunk.cursor, reset: chunk.reset, more: chunk.more }
+      return { found: true, events: mainThreadEvents(parseTranscriptLines(chunk.lines)), cursor: chunk.cursor, reset: chunk.reset, more: chunk.more }
     }),
   ]
 }

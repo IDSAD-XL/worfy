@@ -278,9 +278,9 @@ const firstString = (list: readonly Record<string, unknown>[], field: string): s
 function firstPrompt(head: readonly Record<string, unknown>[]): string | undefined {
   for (const record of head) {
     if (record.type !== 'user' || record.isSidechain === true) continue
-    for (const event of parseTranscriptRecord(record)) {
-      if (event.kind === 'command') return event.name
-      if (event.kind === 'text' && !event.isMeta && !event.text.trimStart().startsWith('<')) return event.text
+    for (const { event } of parseTranscriptRecord(record)) {
+      if (event.type === 'command') return event.name
+      if (event.type === 'notice' && event.kind === 'user' && !event.text.trimStart().startsWith('<')) return event.text
     }
   }
   return undefined
@@ -424,6 +424,11 @@ export class ClaudeHomeRegistry {
       .filter((entry): entry is HistorySession => entry !== undefined)
       .sort((a, b) => b.modifiedAt - a.modifiedAt || a.sessionId.localeCompare(b.sessionId))
     return { live, history }
+  }
+
+  /** Only the live Sessions of the Project at `projectRoot`; the history is not read. */
+  async live(projectRoot: string): Promise<LiveSession[]> {
+    return liveSessions(this.home, await this.roots(projectRoot), this.isAlive)
   }
 
   /** Path of a Session's transcript among the Project's folders, or null. */

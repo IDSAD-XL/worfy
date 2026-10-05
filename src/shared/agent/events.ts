@@ -66,7 +66,13 @@ export const agentEvent = z.discriminatedUnion('type', [
     subagentType: nullableString,
     status: nullableString,
     summary: nullableString,
+    /** The Subagent's final answer, as a transcript file's task-notification records it. */
+    result: nullableString.optional(),
   }),
+  /** A slash command the user typed (`/name args`); only a transcript file records it as such. */
+  z.object({ type: z.literal('command'), name: z.string(), args: z.string() }),
+  /** The Session got a title (`custom-title`, `ai-title`, `agent-name` records of a transcript file). */
+  z.object({ type: z.literal('title'), source: z.enum(['custom', 'ai', 'agent']), title: z.string() }),
   z.object({
     type: z.literal('rate_limit'),
     status: z.string(),
@@ -102,7 +108,10 @@ export const agentEvent = z.discriminatedUnion('type', [
     interrupted: z.boolean(),
   }),
   z.object({ type: z.literal('state'), state: sessionState, error: nullableString }),
-  /** An SDK message worfy does not know (or whose shape changed): visible for debugging only. */
+  /**
+   * An SDK message or a transcript record worfy does not know (or whose shape changed): visible
+   * for debugging only. For a transcript record `sdkType` names the record (src/shared/transcript/parse.ts).
+   */
   z.object({ type: z.literal('unknown'), sdkType: z.string() }),
 ])
 export type AgentEvent = z.infer<typeof agentEvent>
@@ -211,14 +220,25 @@ function read<T>(schema: z.ZodType<T>, message: unknown): T {
 
 const orNull = <T>(value: T | null | undefined): T | null => value ?? null
 
-/** Concatenated text of a tool_result's content, whatever form the SDK sent it in. */
-function flattenContent(content: string | readonly { type: string }[] | null | undefined): string {
-  if (content === null || content === undefined) return ''
+
+/**
+ * A hook is shown only when it said something: a non-zero exit, an outcome other than success, or
+ * output. The same rule holds for hooks read from a transcript file (src/shared/transcript/parse.ts).
+ */
+export function hookSaidSomething(hook: { exitCode: number | null; outcome: string; stdout: string; stderr: string }): boolean {
+  return (hook.exitCode !== null && hook.exitCode !== 0) || hook.outcome !== 'success' || hook.stdout.trim() !== '' || hook.stderr.trim() !== ''
+}
+
+/** Concatenated text of a tool_result's content; a block that is not text shows as `[type]`. */
+export function toolResultText(content: unknown): string {
   if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
   return content
-    .map((block) => {
+    .map((block: unknown) => {
       const text = textBlock.safeParse(block)
-      return text.success ? text.data.text : `[${block.type}]`
+      if (text.success) return text.data.text
+      const type = typeof block === 'object' && block !== null && typeof (block as { type?: unknown }).type === 'string' ? (block as { type: string }).type : 'unknown'
+      return `[${type}]`
     })
     .join('\n')
 }
@@ -247,8 +267,7 @@ function mapSystem(subtype: string, message: unknown): AgentEvent[] {
     case 'hook_response': {
       const m = read(sdkHookResponse, message)
       const exitCode = orNull(m.exit_code)
-      const said = (exitCode !== null && exitCode !== 0) || m.outcome !== 'success' || m.stdout.trim() !== '' || m.stderr.trim() !== ''
-      if (!said) return []
+      if (!hookSaidSomething({ exitCode, outcome: m.outcome, stdout: m.stdout, stderr: m.stderr })) return []
       return [{ type: 'hook', hookEvent: m.hook_event, hookName: m.hook_name, exitCode, outcome: m.outcome, stdout: m.stdout, stderr: m.stderr }]
     }
     case 'status': {
@@ -323,7 +342,8 @@ function mapAssistant(message: unknown): AgentEvent[] {
   })
 }
 
-const LOCAL_COMMAND = /^<local-command-(stdout|stderr)>([\s\S]*)<\/local-command-\1>$/
+/** Output of a local command (`!ls`, `/cost`) as Claude Code records it in a user message. */
+export const LOCAL_COMMAND = /^<local-command-(stdout|stderr)>([\s\S]*)<\/local-command-\1>$/
 
 function mapUser(message: unknown): AgentEvent[] {
   const m = read(sdkUser, message)
@@ -338,7 +358,7 @@ function mapUser(message: unknown): AgentEvent[] {
     switch (block.type) {
       case 'tool_result': {
         const result = read(toolResultBlock, block)
-        return { type: 'tool_result', toolUseId: result.tool_use_id, content: flattenContent(result.content), isError: result.is_error === true, parentToolUseId }
+        return { type: 'tool_result', toolUseId: result.tool_use_id, content: toolResultText(result.content), isError: result.is_error === true, parentToolUseId }
       }
       case 'text':
         return { type: 'notice', kind, text: read(textBlock, block).text }

@@ -69,6 +69,16 @@ describe('readTranscriptFacts', () => {
     })
   })
 
+  it("ignores a status block in the user's prompt: only the Orchestrator's answers count", async () => {
+    const block = ['— Этап: из промпта', '— Сейчас: промпт', '— Дальше: ничего', '— Жду: ничего'].join('\n')
+    const lines = [
+      ...LINES,
+      user(`Вот блок:\n${block}`),
+      JSON.stringify({ type: 'user', isSidechain: false, message: { role: 'user', content: [{ type: 'text', text: `Блок в тексте:\n${block}` }] } }),
+    ]
+    expect(await readTranscriptFacts(transcript(lines))).toStrictEqual({ model: 'claude-sonnet-5', statusBlock: BLOCK_OWN })
+  })
+
   it('answers nulls for a transcript without answers, and for an empty file', async () => {
     expect(await readTranscriptFacts(transcript([user('привет')]), { chunkBytes: 16 })).toStrictEqual({ model: null, statusBlock: null })
     const empty = join(dir, 'empty.jsonl')

@@ -43,7 +43,7 @@ function takeLine(line: string, facts: Partial<TranscriptFacts>): void {
   if (model === SYNTHETIC_MODEL) return
   if (facts.model === undefined && typeof model === 'string' && model !== '') facts.model = model
   if (facts.statusBlock !== undefined) return
-  const texts = parseTranscriptRecord(record).flatMap((event) => (event.kind === 'text' && event.role === 'assistant' ? [event.text] : []))
+  const texts = parseTranscriptRecord(record).flatMap(({ event }) => (event.type === 'text' ? [event.text] : []))
   for (const text of texts.reverse()) {
     const block = findStatusBlock(text)
     if (block !== null) {
