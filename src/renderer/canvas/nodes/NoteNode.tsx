@@ -8,6 +8,7 @@ import { useLayoutOps } from '../useLayout'
 export const kind = 'note'
 export const defaultWidth = 220
 export const defaultHeight = 120
+export const minimapColor = 'var(--border-strong)'
 
 /** How long typing must pause before the text is sent to main. */
 export const NOTE_SEND_DELAY_MS = 200

@@ -1,0 +1,67 @@
+/* The toolbar above the selected Nodes (SelectionToolbar.tsx). Values come from tokens.css. */
+.w-selection-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-popover);
+  background: var(--surface);
+  box-shadow: var(--shadow-control);
+  font-family: var(--font-ui);
+  font-size: var(--text-12);
+  color: var(--text);
+}
+.w-selection-toolbar__button {
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.w-selection-toolbar__button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--selected);
+  color: var(--accent);
+}
+.w-selection-toolbar__tags {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.w-selection-toolbar__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 2px 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.w-selection-toolbar__tag-count {
+  color: var(--text-muted);
+  font-size: var(--text-11);
+}
+.w-selection-toolbar__tag-remove {
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.w-selection-toolbar__tag-input {
+  width: 120px;
+  height: 22px;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}

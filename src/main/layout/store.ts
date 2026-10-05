@@ -58,6 +58,12 @@ function applyOp(layout: Layout, op: LayoutOp): Layout {
     return { ...layout, nodes: layout.nodes.filter((node) => node.id !== op.id) }
   }
 
+  // A pinned Node's x, y, w and h are screen pixels (types.ts): a `move` or `resize` in canvas
+  // units would put it somewhere else on the screen. They change only with `pin`.
+  if ((op.op === 'move' || op.op === 'resize') && current.pinned) {
+    throw new Error(`Node ${op.id} is pinned to the screen; unpin it before a ${op.op}`)
+  }
+
   let next: LayoutNode
   switch (op.op) {
     case 'move':
@@ -72,6 +78,15 @@ function applyOp(layout: Layout, op: LayoutOp): Layout {
     case 'patchData':
       next = { ...current, data: { ...current.data, ...op.data } }
       break
+    case 'pin':
+      next = { ...current, pinned: op.pinned, x: op.x, y: op.y, w: op.w, h: op.h }
+      break
+    case 'tag': {
+      const removed = new Set(op.remove)
+      const tags = [...new Set([...current.tags, ...op.add])].filter((tag) => !removed.has(tag))
+      next = { ...current, tags }
+      break
+    }
   }
   const nodes = [...layout.nodes]
   nodes[index] = next

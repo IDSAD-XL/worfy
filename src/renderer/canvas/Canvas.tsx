@@ -28,10 +28,14 @@ import { edgeSources, edgesOf, overlays } from './extensions'
 import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
 import { UnknownNode } from './UnknownNode'
 import { applyLayoutOp, LayoutOpsContext, useLayout, type LayoutOps } from './useLayout'
+// Every Node type is drawn inside the chrome (tags, the pinned frame); pinned Nodes are placed
+// anew for every viewport (ticket 29).
+import { withNodeChrome } from './withNodeChrome'
+import { usePinnedPlacement } from './pinning'
 
 const flowNodeTypes: NodeTypes = {
-  ...Object.fromEntries([...registeredNodeTypes].map(([kind, type]) => [kind, type.Component])),
-  [UNKNOWN_NODE_TYPE]: UnknownNode,
+  ...Object.fromEntries([...registeredNodeTypes].map(([kind, type]) => [kind, withNodeChrome(type.Component)])),
+  [UNKNOWN_NODE_TYPE]: withNodeChrome(UnknownNode),
 }
 
 /** The kind a double click creates. */
@@ -146,11 +150,14 @@ function Flow({ projectId, state }: FlowProps) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [flow])
 
+  // Nodes pinned to the screen are placed anew for every viewport (pinning.ts).
+  const shownNodes = usePinnedPlacement(nodes)
+
   return (
     <LayoutOpsContext.Provider value={ops}>
       <div ref={wrapper} className="w-canvas" data-testid="canvas" data-project-id={projectId} onDoubleClick={onDoubleClick}>
         <ReactFlow<CanvasFlowNode>
-          nodes={nodes}
+          nodes={shownNodes}
           edges={edges}
           nodeTypes={flowNodeTypes}
           onNodesChange={onNodesChange}

@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { installCardRuntime, registerCardScheme } from './cards/protocol'
 import { cardStore } from './cards/store'
 import { appUrlMatcher, registerIpc } from './ipc/index'
+import { installAppMenu } from './menu'
 import { dataRoot } from './storage/paths'
 import { createMainWindow, installWebPolicy, rendererEntry } from './window'
 
@@ -15,6 +16,7 @@ registerCardScheme()
 void app
   .whenReady()
   .then(async () => {
+    installAppMenu()
     // Handlers go in before the first window, so its first call never finds a channel missing.
     // Calls are accepted only from the renderer location the window itself loads.
     const isAppUrl = appUrlMatcher(rendererEntry())

@@ -5,6 +5,7 @@
 //   export const kind = 'note'            // the `kind` of its Nodes in the Layout
 //   export const defaultWidth = 220       // optional: size of a new Node of this kind
 //   export const defaultHeight = 120
+//   export const minimapColor = 'var(--border-strong)'  // optional: its colour on the minimap
 //   export default function NoteNode(props: CanvasNodeProps) { … }
 //
 // This file finds them itself (import.meta.glob), so adding a Node type never edits it or
@@ -23,6 +24,8 @@ export interface NodeType {
   Component: ComponentType<CanvasNodeProps>
   defaultWidth: number
   defaultHeight: number
+  /** A CSS colour (a theme token) for its Nodes on the minimap; undefined: the minimap's default. */
+  minimapColor?: string | undefined
 }
 
 /** Lower-case words joined by dashes; this keeps a kind from clashing with the placeholder's type name. */
@@ -44,6 +47,12 @@ function positiveOr(value: unknown, fallback: number, path: string, name: string
   return value
 }
 
+function colorOrUndefined(value: unknown, path: string): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || value.trim() === '') throw new Error(`${path}: \`minimapColor\` must be a CSS colour, e.g. 'var(--border-strong)'`)
+  return value
+}
+
 /**
  * Turns the result of an eager import.meta.glob into Node types by kind. A module without a
  * component or a valid `kind`, or two modules with the same kind, is a programming error and
@@ -54,7 +63,7 @@ export function collectNodeTypes(modules: Record<string, unknown>): Map<string, 
   const types = new Map<string, NodeType>()
   const declaredIn = new Map<string, string>()
   for (const [path, module] of Object.entries(modules).sort(([a], [b]) => a.localeCompare(b))) {
-    const { default: Component, kind, defaultWidth, defaultHeight } = (module ?? {}) as Record<string, unknown>
+    const { default: Component, kind, defaultWidth, defaultHeight, minimapColor } = (module ?? {}) as Record<string, unknown>
     if (!isComponentType(Component)) throw new Error(`${path} must default-export the Node's React component`)
     if (typeof kind !== 'string' || !KIND_PATTERN.test(kind)) {
       throw new Error(`${path} must export a \`kind\` of lower-case words joined by dashes, e.g. export const kind = 'note'`)
@@ -67,6 +76,7 @@ export function collectNodeTypes(modules: Record<string, unknown>): Map<string, 
       Component,
       defaultWidth: positiveOr(defaultWidth, FALLBACK_WIDTH, path, 'defaultWidth'),
       defaultHeight: positiveOr(defaultHeight, FALLBACK_HEIGHT, path, 'defaultHeight'),
+      minimapColor: colorOrUndefined(minimapColor, path),
     })
   }
   return types

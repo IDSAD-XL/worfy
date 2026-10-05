@@ -8,7 +8,11 @@ import { z } from 'zod'
 export const ZOOM_MIN = 0.2
 export const ZOOM_MAX = 2.5
 
-/** Coordinates and sizes are canvas units; the bound only keeps garbage out of the file. */
+/**
+ * Coordinates and sizes are canvas units, except for a pinned Node: while `pinned` is true, its x, y,
+ * w and h are pixels of the Canvas on the screen (see the `pin` operation). The bound only keeps
+ * garbage out of the file.
+ */
 const COORDINATE_LIMIT = 10_000_000
 const coordinate = z.number().min(-COORDINATE_LIMIT).max(COORDINATE_LIMIT)
 const size = z.number().positive().max(COORDINATE_LIMIT)
@@ -23,6 +27,12 @@ export const nodeKindSchema = z.string().min(1).max(100)
 /** Whatever the Node's kind keeps about itself, as a JSON object. */
 export const nodeDataSchema = z.record(z.string(), z.unknown())
 
+/** The longest tag a `tag` operation accepts, and how many tags one operation may name. */
+export const TAG_LENGTH_MAX = 40
+const TAGS_PER_OP_MAX = 50
+/** A free-form tag of a Node: trimmed, not empty. */
+export const tagSchema = z.string().trim().min(1).max(TAG_LENGTH_MAX)
+
 export const layoutNodeSchema = z.object({
   id: nodeIdSchema,
   kind: nodeKindSchema,
@@ -33,7 +43,12 @@ export const layoutNodeSchema = z.object({
   hidden: z.boolean().default(false),
   /** The Node cannot be removed; it can still be moved and resized. */
   locked: z.boolean().default(false),
-  /** The Node stays at its place on the screen while the Canvas pans and zooms (UI: ticket 29). */
+  /**
+   * The Node stays at its place on the screen while the Canvas pans and zooms (UI: ticket 29).
+   * While it is true, x and y are screen coordinates of the Canvas and w and h its size on the
+   * screen, not canvas units; they change only with the `pin` operation (main refuses `move` and
+   * `resize`). A reader that wants the Node's place on the plane converts through the viewport.
+   */
   pinned: z.boolean().default(false),
   tags: z.array(z.string().min(1)).default([]),
   data: nodeDataSchema.default({}),
@@ -70,8 +85,12 @@ export const EMPTY_LAYOUT: Layout = { nodes: [], viewport: DEFAULT_VIEWPORT }
 export const layoutOpSchema = z.discriminatedUnion('op', [
   /** Adds a Node; main makes up the id when there is none. A taken id is refused. */
   z.object({ op: z.literal('create'), node: layoutNodeSchema.extend({ id: nodeIdSchema.optional() }) }),
+  /** Refused for a pinned Node: its x and y are screen pixels and change only with `pin`. */
   z.object({ op: z.literal('move'), id: nodeIdSchema, x: coordinate, y: coordinate }),
-  /** Resizing from a left or top edge moves the Node too, so the position may come along. */
+  /**
+   * Resizing from a left or top edge moves the Node too, so the position may come along. Refused
+   * for a pinned Node, like `move`.
+   */
   z.object({ op: z.literal('resize'), id: nodeIdSchema, w: size, h: size, x: coordinate.optional(), y: coordinate.optional() }),
   z.object({ op: z.literal('hide'), id: nodeIdSchema, hidden: z.boolean() }),
   /** Refused for a locked Node. */
@@ -79,6 +98,15 @@ export const layoutOpSchema = z.discriminatedUnion('op', [
   /** Merges the given keys into the Node's data, one level deep. */
   z.object({ op: z.literal('patchData'), id: nodeIdSchema, data: nodeDataSchema }),
   z.object({ op: z.literal('setViewport'), viewport: viewportSchema }),
+  /**
+   * Pins the Node to the screen or puts it back on the plane. The position and size come along:
+   * while a Node is pinned, its x and y are screen coordinates of the Canvas (pixels from the
+   * Canvas's top-left corner) and w and h its size on the screen, not canvas units; the caller
+   * converts through the viewport (src/renderer/canvas/pinning.ts).
+   */
+  z.object({ op: z.literal('pin'), id: nodeIdSchema, pinned: z.boolean(), x: coordinate, y: coordinate, w: size, h: size }),
+  /** Adds and removes tags of one Node; a tag both added and removed ends up removed. */
+  z.object({ op: z.literal('tag'), id: nodeIdSchema, add: z.array(tagSchema).max(TAGS_PER_OP_MAX).default([]), remove: z.array(tagSchema).max(TAGS_PER_OP_MAX).default([]) }),
 ])
 /** An operation as a caller writes it (defaults may be left out). */
 export type LayoutOpInput = z.input<typeof layoutOpSchema>
