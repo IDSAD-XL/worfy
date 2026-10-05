@@ -114,7 +114,8 @@ gh pr list --state open --json number,headRefName,mergeStateStatus,files   # т�
 Цель: <одна фраза из тикета>
 Репозиторий: <repo>                          # агент запускает profile -C с этим путём
 Тикет: <F tickets.path для NN>; спецификация: <F tickets.spec>
-Дерево: <F worktree.implementer>, <ветка> = <F tickets.branch>, <имя-тикета> = <NN>-<slug>
+Дерево: <F worktree.implementer>, <ветка> = <F tickets.branch>, <имя-тикета> = <NN>-<slug>;
+        # <эпик>, <NN>, <slug> в шаблонах — из тикета (worfy: ветка <эпик>/<NN>, дерево <NN>)
         # при single: «основной checkout <repo>, worktree не заводить, ветка <F tickets.branch>
         #   от базы» (при local-green — от ветки предыдущего тикета волны)
 База: <строка базы из предполёта>
@@ -138,7 +139,7 @@ CI или локальная проверка, красные после дву�
 первым и добывает доказательства сам:
 
 ```bash
-cd <дерево исполнителя>                                       # <F worktree.root>/<NN>-<slug> или <repo>
+cd <дерево исполнителя>                                       # дерево из <F worktree.implementer> или <repo>
 git diff --name-only <база>...HEAD                            # сверить с files_changed
 bash ~/.claude/hooks/gate.sh fast </dev/null; echo "КОД=$?"   # зелёный: см. ниже
 gh pr checks <N>                                              # только pr-green-ci; отдельной командой, без пайпа
@@ -245,8 +246,8 @@ got=$(<F deploy.production_check>); echo "КОД=$? commit=$got sha=$sha"
 
 `ticket claim` выполняется в дереве исполнителя, и статус живёт в его ветке: `epic-status`
 по локальной основной ветке его не видит. Состояние волны читается из веток, PR и деревьев
-(ветки — шаблон `F tickets.branch`, где `<NN>-<slug>` заменён на `*`; ниже — для
-`<эпик>/<NN>-<slug>`):
+(ветки — шаблон `F tickets.branch`, где всё после `<эпик>/` заменено на `*`; ниже — для
+`<эпик>/<NN>-<slug>` и `<эпик>/<NN>`):
 
 ```bash
 <F workflow.preflight>; echo "КОД=$?"           # или минимальный предполёт из раздела 1

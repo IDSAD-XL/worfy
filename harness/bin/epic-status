@@ -7,7 +7,12 @@
 #   Без --ref читается рабочее дерево; с --ref — дерево ветки. Обход веток и слияние
 #   их правды — забота epic-board: здесь живёт читатель ОДНОГО дерева и ничего больше.
 #
-# Источник правды: <repo>/.scratch/<эпик>/issues/NN-slug.md.
+# epic-status --root <каталог> ... — корень тикетов явно (каталог эпиков). Без него корень
+#   даёт `ticket root`: поле tickets.root профиля, иначе <git top-level>/.scratch, как раньше.
+#   --ref читает корень из git; корень вне git-репозитория (Atakama: общий каталог над
+#   тремя репозиториями) — отказ с кодом 3, а не пустой ответ.
+#
+# Источник правды: <корень тикетов>/<эпик>/issues/NN-slug.md.
 # Поля пишут и в шапке, и в подвале тикета, в двух написаниях — «**Status:** done»
 # и «Status: done», — поэтому берётся ПОСЛЕДНЕЕ вхождение по всему файлу.
 #
@@ -18,25 +23,58 @@ set -u
 
 export LC_CTYPE=${LC_CTYPE:-${LANG:-en_US.UTF-8}}
 
-JSON=0; JSON_REF=''
+JSON=0; JSON_REF=''; ROOT_ARG=''
 while [ $# -gt 0 ]; do
   case $1 in
     --json) JSON=1; shift ;;
     --ref)  [ $# -ge 2 ] || { echo 'epic-status: --ref без значения' >&2; exit 2; }
             JSON_REF=$2; shift 2 ;;
+    --root) [ $# -ge 2 ] && [ -n "$2" ] || { echo 'epic-status: --root без значения' >&2; exit 2; }
+            ROOT_ARG=$2; shift 2 ;;
     --)     shift; break ;;
     *)      break ;;
   esac
 done
+# --root принимается и после имени эпика (`epic-status <эпик> --root X`), как у ticket;
+# --json и --ref — только до него: `epic-status <эпик> --json` печатает строку, как раньше.
+rest=()
+while [ $# -gt 0 ]; do
+  case $1 in
+    --root) [ $# -ge 2 ] && [ -n "$2" ] || { echo 'epic-status: --root без значения' >&2; exit 2; }
+            ROOT_ARG=$2; shift 2 ;;
+    *)      rest+=("$1"); shift ;;
+  esac
+done
+set -- ${rest[@]+"${rest[@]}"}
 [ "$JSON" = 1 ] || [ -z "$JSON_REF" ] || { echo 'epic-status: --ref только вместе с --json' >&2; exit 2; }
 
-root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$PWD
-scratch=$root/.scratch
+# Корень тикетов — один читатель на всех: `ticket root` (профиль, --root, git top-level).
+# Без node — прежнее поведение: <git top-level или cwd>/.scratch.
+TICKET="${CLAUDE_TICKET_BIN:-$HOME/.claude/bin/ticket}"
+if command -v node >/dev/null 2>&1; then
+  scratch=$("$TICKET" root ${ROOT_ARG:+--root "$ROOT_ARG"}) || exit $?
+elif [ -n "$ROOT_ARG" ]; then
+  case $ROOT_ARG in /*) scratch=$ROOT_ARG ;; *) scratch=$(pwd -P)/$ROOT_ARG ;; esac
+else
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$PWD
+  scratch=$root/.scratch
+fi
+scratch=${scratch%/}; [ -n "$scratch" ] || scratch=/
+
+# Git-репозиторий, в котором лежит корень тикетов (самый близкий существующий
+# предок: каталога может не быть в рабочем дереве, но быть в ветке). Пусто — вне git.
+anc=$scratch
+while [ ! -d "$anc" ] && [ "$anc" != / ] && [ -n "$anc" ]; do anc=${anc%/*}; [ -n "$anc" ] || anc=/; done
+scratch_git=$(git -C "$anc" rev-parse --show-toplevel 2>/dev/null) || scratch_git=''
 
 # Состояние тикетов лежит в ветке (.scratch отслеживается гитом), а деревьев у
-# репозитория несколько — без имени ветки строка «Этап» неоднозначна.
-branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
-[ "$branch" = HEAD ] && branch=$(git rev-parse --short HEAD 2>/dev/null)
+# репозитория несколько — без имени ветки строка «Этап» неоднозначна. Ветка — того
+# дерева, где лежат тикеты, а не того, где запущена команда; вне git ветки нет.
+branch=''
+if [ -n "$scratch_git" ]; then
+  branch=$(git -C "$scratch_git" rev-parse --abbrev-ref HEAD 2>/dev/null)
+  [ "$branch" = HEAD ] && branch=$(git -C "$scratch_git" rev-parse --short HEAD 2>/dev/null)
+fi
 where=''  # ветка идёт в строку только для одного эпика; в общем списке — заголовком
 
 # ── разбор ────────────────────────────────────────────────────────────────────
@@ -227,6 +265,19 @@ json_dump() {  # <каталог .scratch> <метка ref>
 if [ "$JSON" = 1 ]; then
   src=$scratch
   if [ -n "$JSON_REF" ]; then
+    # Корень вне git: ветке нечего показать, а пустой ответ читался бы как «в ветке
+    # тикетов нет». Это разные вещи — отказ.
+    if [ -z "$scratch_git" ]; then
+      echo "epic-status: --ref читает тикеты из git, а корень тикетов $scratch не в git-репозитории; без --ref читается сам каталог" >&2
+      exit 3
+    fi
+    # Путь корня внутри репозитория. git отдаёт путь без симлинков — сверяем так же.
+    anc_real=$(cd "$anc" && pwd -P)
+    rel=${anc_real#"$scratch_git"}; rel=${rel#/}
+    [ "$anc" = "$scratch" ] || rel=${rel:+$rel/}${scratch#"$anc"/}
+    case $anc_real in "$scratch_git"|"$scratch_git"/*) ;; *)
+      echo "epic-status: корень тикетов $scratch не разобран относительно $scratch_git" >&2; exit 3 ;; esac
+    [ -n "$rel" ] || { echo "epic-status: корень тикетов совпадает с корнем репозитория $scratch_git — --ref не поддержан" >&2; exit 3; }
     # Одна распаковка на ветку вместо git show на каждый файл.
     tmp=$(mktemp -d) || exit 1
     trap 'rm -rf "$tmp"' EXIT INT TERM   # без INT/TERM каталог переживал прерывание
@@ -234,8 +285,8 @@ if [ "$JSON" = 1 ]; then
     # первый — сломанный инструмент, второй — факт о ветке.
     # Через конвейер код возврата git archive теряется: tar на пустом входе успешен,
     # и сломанный ref выглядел бы как «ветка без тикетов».
-    if ! git archive "$JSON_REF" .scratch > "$tmp/tree.tar" 2>/dev/null; then
-      if ! git rev-parse --verify --quiet "$JSON_REF^{commit}" >/dev/null 2>&1; then
+    if ! git -C "$scratch_git" archive "$JSON_REF" "$rel" > "$tmp/tree.tar" 2>/dev/null; then
+      if ! git -C "$scratch_git" rev-parse --verify --quiet "$JSON_REF^{commit}" >/dev/null 2>&1; then
         echo "epic-status: нет такого ref: $JSON_REF" >&2; exit 3
       fi
       : # ref есть, .scratch в нём нет — законный пустой ответ
@@ -244,7 +295,7 @@ if [ "$JSON" = 1 ]; then
         echo "epic-status: не удалось распаковать дерево $JSON_REF" >&2; exit 3; }
     fi
     rm -f "$tmp/tree.tar"
-    src=$tmp/.scratch
+    src=$tmp/$rel
   fi
   json_dump "$src" "${JSON_REF:-${branch:-.}}" || exit 1
   exit 0

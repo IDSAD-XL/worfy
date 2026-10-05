@@ -7,6 +7,12 @@
 //   ticket open  <эпик> <NN>            Status: open
 //   ticket block <эпик> <NN> <причина>  Status: blocked — <причина>
 //   ticket show  <эпик> <NN>            показать текущую строку, файл не трогать
+//   ticket root                         напечатать корень тикетов (каталог эпиков) и выйти
+//
+// Корень тикетов (каталог, где лежат <эпик>/issues/): --root <каталог>, иначе
+// поле tickets.root профиля проекта (~/.claude/bin/profile), иначе, как раньше,
+// <git top-level или текущий каталог>/.scratch. Правила пути — в profiles/README.md
+// (поле tickets.root); epic-status и epic-board берут корень отсюда же.
 //
 // Эпик и номер можно писать через слэш: ticket done disputes/03
 // Флаг -n печатает будущую строку и не записывает. Флаги распознаются в любой
@@ -17,6 +23,7 @@
 // инструмент не воюет с шаблонами /to-tickets и /wayfinder.
 
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
 
@@ -25,7 +32,8 @@ const die = (msg) => {
     process.exit(1)
 }
 
-const USAGE = `usage: ticket <done|claim|open|block|show> <эпик> <NN> [--pr N] [-n]
+const USAGE = `usage: ticket <done|claim|open|block|show> <эпик> <NN> [--pr N] [-n] [--root <каталог>]
+       ticket root [--root <каталог>]
        ticket done disputes/03 --pr 42
        ticket block disputes 04 «ждёт ADR-0045»`
 
@@ -41,6 +49,7 @@ const git = (args) => {
 const argv = process.argv.slice(2)
 let dryRun = false
 let pr = null
+let rootArg = null
 const positional = []
 for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
@@ -49,12 +58,74 @@ for (let i = 0; i < argv.length; i++) {
         pr = argv[++i]
         if (pr === undefined) die("--pr ждёт номер")
     } else if (a.startsWith("--pr=")) pr = a.slice(5)
+    else if (a === "--root") {
+        rootArg = argv[++i]
+        if (!rootArg) die("--root ждёт каталог")
+    } else if (a.startsWith("--root=")) {
+        rootArg = a.slice(7)
+        if (!rootArg) die("--root ждёт каталог")
+    }
     else if (a.startsWith("-")) die(`неизвестный флаг: ${a}\n${USAGE}`)
     else positional.push(a)
 }
 
 const [cmd, ...where] = positional
-if (!cmd || !["done", "claim", "open", "block", "show"].includes(cmd)) die(USAGE)
+if (!cmd || !["done", "claim", "open", "block", "show", "root"].includes(cmd)) die(USAGE)
+
+// --- корень тикетов ---------------------------------------------------------
+// Профиль спрашиваем всегда, а не только вне git: у Atakama тикеты лежат в общем
+// каталоге над тремя репозиториями, и из любого из них git top-level указал бы
+// не туда. Код 3 (каталог не зарегистрирован) и пустое поле — прежнее поведение.
+// Сломанный реестр или профиль (код 1) — отказ: тихий откат на git top-level
+// записал бы статус не в тот файл.
+const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(os.homedir(), ".claude", "bin", "profile")
+// Логический каталог запуска, как у $PWD в shell: process.cwd() раскрывает симлинки
+// (/tmp → /private/tmp), и сообщения вне git расходились бы с прежними.
+function launchDir() {
+    const cwd = process.cwd()
+    const pwd = process.env.PWD
+    try {
+        if (pwd && path.isAbsolute(pwd) && fs.realpathSync(pwd) === fs.realpathSync(cwd)) return pwd
+    } catch {
+        /* $PWD устарел — берём cwd */
+    }
+    return cwd
+}
+function ticketsRoot() {
+    const top = git(["rev-parse", "--show-toplevel"])
+    // Для `ticket root` (его зовёт epic-status) — логический каталог, как раньше у
+    // epic-status; для правки тикета — process.cwd(), как раньше у ticket.
+    const here = cmd === "root" ? launchDir() : process.cwd()
+    // Явный --root — от process.cwd() у всех команд: `ticket root --root ../x` (его
+    // зовёт epic-status) и `ticket claim --root ../x` должны указывать в один каталог.
+    if (rootArg !== null) return path.resolve(process.cwd(), rootArg)
+    let prof = null
+    try {
+        prof = JSON.parse(
+            execFileSync(PROFILE, ["-C", here, "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }),
+        )
+    } catch (e) {
+        if (e.code === "ENOENT" || e.status === 3) prof = null
+        else {
+            const why = String(e.stderr || e.message || "").split("\n")[0].trim()
+            die(`профиль проекта не прочитан (${PROFILE}, код ${e.status ?? e.code}): ${why}\nукажи корень тикетов явно: --root <каталог>`)
+        }
+    }
+    const field = prof?.tickets?.root
+    if (typeof field !== "string" || !field.trim()) return path.join(top || here, ".scratch")
+    let r = field.trim()
+    if (r === "~" || r.startsWith("~/")) r = path.join(os.homedir(), r.slice(1))
+    if (path.isAbsolute(r)) return path.resolve(r)
+    // Относительный — от корня текущего рабочего дерева: тикеты едут в ветке, и
+    // у worktree они свои. Вне git — от общего каталога профиля, иначе от cwd.
+    return path.resolve(top || prof?._resolved?.workspace || here, r)
+}
+const scratch = ticketsRoot()
+if (cmd === "root") {
+    if (where.length) die(`лишние аргументы: ${where.join(" ")}\n${USAGE}`)
+    console.log(scratch)
+    process.exit(0)
+}
 
 // эпик и номер: «disputes 03» или «disputes/03»; остаток — причина для block
 let epic, num, reason
@@ -72,8 +143,9 @@ if (!/^\d+$/.test(String(num).trim())) die(`номер тикета ждёт ц�
 const n = Number(num)
 
 // --- файл тикета ------------------------------------------------------------
-const root = git(["rev-parse", "--show-toplevel"]) || process.cwd()
-const issuesDir = path.join(root, ".scratch", epic, "issues")
+// Пути в выводе — от каталога над корнем тикетов: «.scratch/<эпик>/issues/…».
+const root = path.dirname(scratch)
+const issuesDir = path.join(scratch, epic, "issues")
 if (!fs.existsSync(issuesDir)) die(`нет эпика «${epic}»: ${issuesDir}`)
 
 const matches = fs.readdirSync(issuesDir).filter((f) => f.endsWith(".md") && new RegExp(`^0*${n}-`).test(f))

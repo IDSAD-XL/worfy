@@ -87,7 +87,8 @@ ADR и миграций занимаются заранее и по одному
 в брифы как базу.
 
 **`parallel: worktrees`.** Работать из собственного worktree с первой минуты (`F worktree.implementer`,
-где `<ветка>` = `F tickets.branch`, `<имя-тикета>` = `<NN>-<slug>`; корень `F worktree.root`, база
+где `<ветка>` = `F tickets.branch`, `<имя-тикета>` = `<NN>-<slug>`, а `<эпик>`, `<NN>`, `<slug>` в
+шаблонах — из тикета; корень `F worktree.root`, база
 `F worktree.base`): дерево общее с другими сессиями, побеждает последняя запись.
 **`parallel: single`.** Worktree не заводить: работа в основном checkout, один тикет за раз, в
 ветке `F tickets.branch`, созданной от `F worktree.base` (при `local-green` внутри волны — от ветки

@@ -54,10 +54,20 @@ function pickRefs() {
 }
 
 const EPIC_STATUS = path.join(os.homedir(), '.claude', 'bin', 'epic-status');
+// Корень тикетов один на все ветки — спрашиваем его раз (профиль проекта, иначе
+// <git top-level>/.scratch) и передаём каждому epic-status, а не резолвим профиль
+// заново на каждую из сотни веток.
+let TICKETS_ROOT;
+try {
+  TICKETS_ROOT = execFileSync(path.join(os.homedir(), '.claude', 'bin', 'ticket'), ['root'],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+} catch (e) {
+  die(`корень тикетов не определён: ${String(e.stderr || e.message).split('\n')[0]}`);
+}
 
 function readRef(ref) {
   return new Promise(resolve => {
-    execFile(EPIC_STATUS, ['--json', '--ref', ref], { maxBuffer: 1 << 28 }, (err, stdout) => {
+    execFile(EPIC_STATUS, ['--json', '--ref', ref, '--root', TICKETS_ROOT], { maxBuffer: 1 << 28 }, (err, stdout) => {
       if (err) return resolve({ ref, epics: [], tickets: [], error: String(err.message || err) });
       try { resolve(JSON.parse(stdout)); }
       catch (e) { resolve({ ref, epics: [], tickets: [], error: 'нечитаемый JSON: ' + e.message }); }

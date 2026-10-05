@@ -109,14 +109,14 @@ profile -C <каталог> ...   разрешать так, будто запу
 | `parallel` | `"worktrees"` \| `"single"` | `worktrees` — несколько исполнителей, каждый в своём worktree; `single` — один исполнитель, работа в основном checkout, без worktree | все агенты, epic-wave |
 | `worktree.root` | путь \| null | где создаются рабочие деревья | implementer, reviewer, оркестратор |
 | `worktree.base` | строка | от чего ветвиться (`origin/main`, `origin/master`) | implementer |
-| `worktree.implementer` / `reviewer` | строка | готовая команда `git worktree add` с плейсхолдерами | implementer, reviewer, ship-ticket, epic-wave |
-| `tickets.root` | путь \| null | корень каталога эпиков (`.scratch/`), со слешем в конце; там создаётся эпик аудита | continuous-audit |
+| `worktree.implementer` / `reviewer` | строка | готовая команда `git worktree add` с плейсхолдерами: `<ветка>` (= `tickets.branch`), `<имя-тикета>` (= `<NN>-<slug>`), `<эпик>`, `<NN>`, `<slug>`, `<что-ревьюишь>`. worfy называет дерево только номером — `…/worktrees/<NN>` | implementer, reviewer, ship-ticket, epic-wave |
+| `tickets.root` | путь \| null | корень каталога эпиков (`.scratch/`), со слешем в конце; там создаётся эпик аудита. Отсюда же корень берут `bin/ticket`, `bin/epic-status` и `bin/epic-board` (правила пути — ниже таблицы) | continuous-audit, ticket, epic-status, epic-board |
 | `tickets.path` | шаблон пути | где лежит тикет | implementer, epic-wave |
 | `tickets.trail_section` | строка | раздел тикета со списком файлов, которые можно править | implementer |
 | `tickets.status_tool` | путь | чем двигать статус тикета (`claim`, `block`, `done`) | оркестратор, ship-ticket, epic-wave |
-| `tickets.epic_status` | путь \| null | сводка по эпику: `<путь> <эпик>` — строка, `--json [--ref <ветка>]` — все эпики в JSON | ship-ticket, epic-wave |
+| `tickets.epic_status` | путь \| null | сводка по эпику: `<путь> <эпик>` — строка, `--json [--ref <ветка>]` — все эпики в JSON; `--ref` при корне тикетов вне git — код 3 с причиной | ship-ticket, epic-wave |
 | `tickets.spec` | шаблон пути \| null | спецификация эпика, которую читают вместе с тикетом | ship-ticket, epic-wave |
-| `tickets.branch` | шаблон \| null | имя ветки тикета (`<эпик>/<NN>-<slug>`); по нему epic-wave находит ветки волны при возобновлении | epic-wave |
+| `tickets.branch` | шаблон \| null | имя ветки тикета: `<эпик>/<NN>-<slug>` (auction) или `<эпик>/<NN>` (worfy — только номер); по нему epic-wave находит ветки волны при возобновлении (всё после `<эпик>/` → `*`) | ship-ticket, epic-wave |
 | `workflow.preflight` | строка \| null | проверка перед тикетом или волной, с плейсхолдером `<эпик>`. Контракт: последняя строка вывода — `GO` или `BLOCKED: <причины>`, код выхода 1 при `BLOCKED`; строка `<база>: <sha> …` — база для брифов. `null` — скилл делает минимальный предполёт сам (`git fetch`, состояние дерева, открытые PR) | ship-ticket, epic-wave |
 | `workflow.ticket_skill` | строка \| null | скилл, по которому идёт тикет | implementer |
 | `workflow.implementer_steps` | строка | какие шаги скилла делает исполнитель | implementer |
@@ -149,6 +149,24 @@ profile -C <каталог> ...   разрешать так, будто запу
 
 Секреты в профиль не пишутся: ни значения переменных окружения, ни пароли, ни адреса закрытых баз.
 Профиль называет переменную (`$API_URL`), а не её значение.
+
+`tickets.root` — как его читают `bin/ticket`, `bin/epic-status` и `bin/epic-board`:
+- абсолютный путь (`/Users/alexey/Work/Atakama/.scratch/`) или `~/…` — берётся как есть. Так пишет
+  корень проект из нескольких репозиториев, у которого тикеты лежат в общем каталоге (workspace) вне
+  git: из любого его репозитория и из самого общего каталога тикеты одни и те же;
+- относительный (`.scratch/`) — от корня текущего рабочего дерева (`git rev-parse --show-toplevel`):
+  тикеты едут в ветке, у каждого worktree они свои. Вне git — от `_resolved.workspace`, иначе от
+  текущего каталога;
+- `null`, поля нет или каталог не зарегистрирован (код 3 у `profile`) — как до профилей:
+  `<git top-level или текущий каталог>/.scratch`;
+- сломанный реестр или профиль (код 1) — отказ с кодом 1, а не тихий откат: статус ушёл бы не в тот
+  файл;
+- флаг `--root <каталог>` у `ticket` и `epic-status` перекрывает всё это; `ticket root` печатает
+  итоговый корень.
+
+`epic-status --json --ref <ветка>` читает корень из git того репозитория, где он лежит. Корень вне
+git (Atakama) — код 3 и причина в stderr, а не пустой ответ. Тесты: `bash ~/.claude/bin/tests/tickets-root.test.sh`;
+переменные для тестов — `CLAUDE_PROFILE_BIN` (чем `ticket` читает профиль), `CLAUDE_TICKET_BIN` (чем `epic-status` берёт корень).
 
 `deploy.production_check` — одна строка, которую скиллы запускают как `got=$(<команда>); echo "КОД=$?"`.
 Требования: пароль не попадает в аргументы процесса (их видно в `ps`) — пара передаётся через stdin,

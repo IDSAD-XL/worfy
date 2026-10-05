@@ -53,5 +53,17 @@ date -u +%Y-%m-%dT%H:%M:%SZ >"$T/state/red-t-$(tag "$T/reg")"
 out="$(cd "$T/reg" && printf '%s' "$payload" | bash "$STOP" 2>&1)"; rc=$?
 [ "$rc" -eq 2 ] && [[ "$out" == *"Гейт качества красный"* ]] && ok "stop registered + red -> exit 2 (unchanged)" || bad "stop registered red: exit $rc, out: ${out:0:200}"
 
+# 6. Маркер «не зарегистрирован» записан, потом репозиторий внесли в реестр: stop.sh
+#    не проговаривает устаревшее «не проверено» и молча снимает маркер.
+mkdir -p "$T/later"
+git -C "$T/later" init -q && git -C "$T/later" commit -q --allow-empty -m init
+out="$(cd "$T/later" && printf '%s' "$payload" | bash "$GATE" fast 2>&1)"; rc=$?
+lm="$T/state/nokey-unregistered-$(tag "$T/later")-test-session"
+[ "$rc" -eq 3 ] && [ -s "$lm" ] && ok "later: gate while unregistered -> marker" || bad "later: gate exit $rc, marker missing"
+printf '{"repos":[{"key":"t","match":"%s","pm":"npm","root":{},"workspace":{}},{"key":"later","match":"%s","pm":"npm","root":{},"workspace":{}}]}\n' "$T/reg" "$T/later" >"$CLAUDE_GATE_CONFIG"
+out="$(cd "$T/later" && printf '%s' "$payload" | bash "$STOP" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ -z "$out" ] && ok "registered afterwards -> stop silent" || bad "registered afterwards: exit $rc, out: ${out:0:300}"
+[ ! -e "$lm" ] && ok "registered afterwards -> stale marker dropped" || bad "registered afterwards: marker left"
+
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]
