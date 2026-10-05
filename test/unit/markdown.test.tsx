@@ -1,0 +1,143 @@
+// The shared markdown renderer (src/renderer/markdown/Markdown.tsx): GitHub-flavoured tables and
+// task lists, raw HTML shown as text and never executed, and the two kinds of links: https://
+// addresses go to the browser (`shell.openExternal`), relative paths to the Project's file in the
+// default editor (`shell.openInEditor`). Anything else is not a link at all.
+import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { Markdown } from '../../src/renderer/markdown/Markdown'
+import { classifyLink } from '../../src/renderer/markdown/links'
+import type { WorfyBridge } from '../../src/shared/ipc/channels'
+
+const asked: { channel: string; input: unknown }[] = []
+
+beforeEach(() => {
+  asked.length = 0
+  const bridge = {
+    invoke: (channel: string, input: unknown) => {
+      asked.push({ channel, input })
+      return Promise.resolve({ ok: true, value: {} })
+    },
+    on: () => 1,
+    off: () => undefined,
+  } as unknown as WorfyBridge
+  ;(globalThis as { worfy?: WorfyBridge }).worfy = bridge
+})
+
+afterEach(() => {
+  delete (globalThis as { worfy?: WorfyBridge }).worfy
+  delete (globalThis as { pwned?: unknown }).pwned
+})
+
+describe('Markdown: raw HTML', () => {
+  it('does not create an <img> from raw HTML, so its onerror never runs', () => {
+    const { container } = render(<Markdown text={'before <img src="x" onerror="globalThis.pwned = 1"> after'} />)
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('[onerror]')).toBeNull()
+    expect((globalThis as { pwned?: unknown }).pwned).toBeUndefined()
+    // The tag is shown as text, so the reader sees what the agent wrote.
+    expect(container.textContent).toContain('<img src="x" onerror="globalThis.pwned = 1">')
+  })
+
+  it('does not create a <script> from raw HTML, inline or as a block', () => {
+    const text = ['Inline <script>globalThis.pwned = 1</script> text.', '', '<script>', 'globalThis.pwned = 2', '</script>'].join('\n')
+    const { container } = render(<Markdown text={text} />)
+    expect(container.querySelector('script')).toBeNull()
+    expect((globalThis as { pwned?: unknown }).pwned).toBeUndefined()
+    expect(container.textContent).toContain('<script>')
+  })
+
+  it('does not load markdown images: an image becomes its alt text', () => {
+    const { container } = render(<Markdown text={'![diagram](https://example.com/x.png)'} />)
+    expect(container.querySelector('img')).toBeNull()
+    expect(screen.getByText('diagram')).toBeTruthy()
+  })
+})
+
+describe('Markdown: GitHub-flavoured syntax', () => {
+  it('renders a table with its header and cells', () => {
+    const { container } = render(<Markdown text={['| Ticket | State |', '| --- | --- |', '| 07 | done |', '| 08 | busy |'].join('\n')} />)
+    const table = container.querySelector('table')
+    expect(table).not.toBeNull()
+    expect([...(table?.querySelectorAll('th') ?? [])].map((cell) => cell.textContent)).toEqual(['Ticket', 'State'])
+    expect([...(table?.querySelectorAll('td') ?? [])].map((cell) => cell.textContent)).toEqual(['07', 'done', '08', 'busy'])
+  })
+
+  it('renders a task list as disabled checkboxes with their state', () => {
+    const { container } = render(<Markdown text={['- [x] tests', '- [ ] review'].join('\n')} />)
+    const boxes = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[]
+    expect(boxes.map((box) => [box.checked, box.disabled])).toEqual([
+      [true, true],
+      [false, true],
+    ])
+  })
+})
+
+describe('Markdown: line breaks', () => {
+  const block = ['— Этап: волна 6', '— Сейчас: тикет 33', '— Дальше: PR', '— Жду: ничего'].join('\n')
+
+  it('with `breaks`, keeps each line of a paragraph on its own line, and leaves code alone', () => {
+    const { container } = render(<Markdown text={`${block}\n\n\`\`\`\na\nb\n\`\`\``} breaks />)
+    expect(container.querySelectorAll('p br')).toHaveLength(3)
+    expect(container.querySelector('pre')?.textContent).toBe('a\nb\n')
+    expect(container.querySelector('pre br')).toBeNull()
+  })
+
+  it('without it, joins the lines of a paragraph as GitHub does', () => {
+    const { container } = render(<Markdown text={block} />)
+    expect(container.querySelectorAll('br')).toHaveLength(0)
+  })
+})
+
+describe('Markdown: links', () => {
+  it('opens an https:// link in the browser through shell.openExternal', () => {
+    render(<Markdown text={'See [the PR](https://github.com/IDSAD-XL/worfy/pull/12).'} projectId="alpha" />)
+    // false: the click's default action, navigating the window itself, was prevented.
+    expect(fireEvent.click(screen.getByRole('link', { name: 'the PR' }))).toBe(false)
+    expect(asked).toEqual([{ channel: 'shell.openExternal', input: { url: 'https://github.com/IDSAD-XL/worfy/pull/12' } }])
+  })
+
+  it('opens a relative link as a file of the Project through shell.openInEditor', () => {
+    render(<Markdown text={'Decided in [ADR 0002](../adr/0002-view.md#considered-options).'} projectId="alpha" baseDir="docs/design" />)
+    expect(fireEvent.click(screen.getByRole('link', { name: 'ADR 0002' }))).toBe(false)
+    expect(asked).toEqual([{ channel: 'shell.openInEditor', input: { projectId: 'alpha', path: 'docs/adr/0002-view.md' } }])
+  })
+
+  it('without a Project, a relative link opens nothing', () => {
+    render(<Markdown text={'[spec](spec.md)'} />)
+    fireEvent.click(screen.getByText('spec'))
+    expect(asked).toEqual([])
+  })
+
+  it('a javascript: or http:// link is not a link and opens nothing', () => {
+    const { container } = render(<Markdown text={'[run](javascript:alert(1)) and [plain](http://example.com)'} projectId="alpha" />)
+    expect(container.querySelector('a')).toBeNull()
+    fireEvent.click(screen.getByText('run'))
+    fireEvent.click(screen.getByText('plain'))
+    expect(asked).toEqual([])
+  })
+})
+
+describe('classifyLink', () => {
+  it.each([
+    ['https://example.com/a?b=1#c', { kind: 'external', url: 'https://example.com/a?b=1#c' }],
+    ['HTTPS://example.com', { kind: 'external', url: 'https://example.com/' }],
+    ['docs/adr/0001.md', { kind: 'file', path: 'docs/adr/0001.md' }],
+    ['./a/../b/c.md?x=1#top', { kind: 'file', path: 'b/c.md' }],
+    ['/Users/test/projects/demo/README.md', { kind: 'file', path: '/Users/test/projects/demo/README.md' }],
+    ['docs/F%20SPEC.md', { kind: 'file', path: 'docs/F SPEC.md' }],
+    ['http://example.com', { kind: 'none' }],
+    ['javascript:alert(1)', { kind: 'none' }],
+    ['mailto:a@b.c', { kind: 'none' }],
+    ['//example.com/x', { kind: 'none' }],
+    ['#heading', { kind: 'none' }],
+    ['', { kind: 'none' }],
+    [undefined, { kind: 'none' }],
+  ])('%s', (href, expected) => {
+    expect(classifyLink(href)).toEqual(expected)
+  })
+
+  it('resolves a relative path against the directory of the document', () => {
+    expect(classifyLink('../../src/main/index.ts', '.scratch/worfy-mvp')).toEqual({ kind: 'file', path: 'src/main/index.ts' })
+    expect(classifyLink('0002.md', 'docs/adr/')).toEqual({ kind: 'file', path: 'docs/adr/0002.md' })
+  })
+})

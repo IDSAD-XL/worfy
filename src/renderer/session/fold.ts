@@ -1,0 +1,189 @@
+// Turns a Session's events (src/shared/agent/events.ts) into the rows of its transcript. The
+// events may come from the live Session (store.ts) or, later, from a transcript file (ticket 14):
+// this file does not know which.
+//
+// Only the main thread of the Session is folded: text, thinking and tool calls of a subagent
+// (parentToolUseId set) belong to the subagent tree (ticket 15). Bookkeeping events (init,
+// status, commands, account, rate limits, unknown SDK messages) draw nothing.
+import type { AgentEvent } from '../../shared/agent/events'
+import { INTERRUPT_NOTICE } from './history'
+
+type EventOf<T extends AgentEvent['type']> = Extract<AgentEvent, { type: T }>
+
+/** A subagent the Session started, and how it ended once it did. */
+export interface SubagentRun {
+  taskId: string
+  description: string | null
+  subagentType: string | null
+  /** null while it runs. */
+  status: string | null
+  summary: string | null
+}
+
+export interface ToolCall {
+  id: string
+  name: string
+  input: unknown
+  /** null until the result arrives. */
+  result: { content: string; isError: boolean } | null
+  /** The subagent this call started (the Agent tool). */
+  subagent: SubagentRun | null
+}
+
+export type TranscriptItem =
+  | { kind: 'prompt'; key: string; text: string }
+  /** `streaming`: still being written (deltas), replaced by the whole block when it arrives. */
+  | { kind: 'text'; key: string; text: string; synthetic: boolean; streaming: boolean }
+  | { kind: 'thinking'; key: string; text: string; streaming: boolean }
+  /** Consecutive tool calls, drawn as one group. */
+  | { kind: 'tools'; key: string; calls: ToolCall[] }
+  | { kind: 'subagent'; key: string; run: SubagentRun }
+  | { kind: 'hook'; key: string; event: EventOf<'hook'> }
+  | { kind: 'notice'; key: string; noticeKind: 'synthetic' | 'local_command' | 'notification'; text: string }
+  | { kind: 'result'; key: string; event: EventOf<'result'> }
+  | { kind: 'error'; key: string; text: string }
+  /** An event drawn by a row of src/renderer/session/rows/ (rows/index.ts). */
+  | { kind: 'extension'; key: string; event: AgentEvent }
+
+/**
+ * Folds events into transcript rows. `extensionTypes` are the event types a row file draws; they
+ * become `extension` items whatever else this file would do with them. `firstIndex` is the
+ * position of `events[0]` in the whole Session (store.ts drops the oldest events): a row's key is
+ * the position of the event that opened it, so it stays the same when older events are dropped.
+ */
+export function foldTranscript(events: readonly AgentEvent[], extensionTypes: ReadonlySet<string> = new Set(), firstIndex = 0): TranscriptItem[] {
+  const items: TranscriptItem[] = []
+  const calls = new Map<string, ToolCall>()
+  const subagents = new Map<string, SubagentRun>()
+  let streamingText: number | null = null
+  let streamingThinking: number | null = null
+  // The open group of tool calls: the next tool_use joins it until another row comes between.
+  let group: Extract<TranscriptItem, { kind: 'tools' }> | null = null
+
+  const push = (item: TranscriptItem): void => {
+    items.push(item)
+    group = null
+  }
+  const replace = (index: number, item: TranscriptItem): void => {
+    items[index] = item
+  }
+  const endStreaming = (): void => {
+    for (const index of [streamingText, streamingThinking]) {
+      const item = index === null ? undefined : items[index]
+      if (item && (item.kind === 'text' || item.kind === 'thinking')) replace(index as number, { ...item, streaming: false })
+    }
+    streamingText = null
+    streamingThinking = null
+  }
+
+  events.forEach((event, index) => {
+    const key = `e${firstIndex + index}`
+    if (extensionTypes.has(event.type)) {
+      push({ kind: 'extension', key, event })
+      return
+    }
+    switch (event.type) {
+      case 'notice':
+        if (event.kind === 'user') {
+          // The interruption is shown once, by the turn's result.
+          if (!INTERRUPT_NOTICE.test(event.text)) push({ kind: 'prompt', key, text: event.text })
+        } else {
+          push({ kind: 'notice', key, noticeKind: event.kind, text: event.text })
+        }
+        return
+      case 'delta': {
+        if (event.parentToolUseId !== null) return
+        const at = event.kind === 'text' ? streamingText : streamingThinking
+        const current = at === null ? undefined : items[at]
+        if (current && (current.kind === 'text' || current.kind === 'thinking')) {
+          replace(at as number, { ...current, text: current.text + event.text })
+          return
+        }
+        push(event.kind === 'text' ? { kind: 'text', key, text: event.text, synthetic: false, streaming: true } : { kind: 'thinking', key, text: event.text, streaming: true })
+        if (event.kind === 'text') streamingText = items.length - 1
+        else streamingThinking = items.length - 1
+        return
+      }
+      case 'text': {
+        if (event.parentToolUseId !== null) return
+        const at = event.synthetic ? null : streamingText
+        const current = at === null ? undefined : items[at]
+        if (current?.kind === 'text') {
+          replace(at as number, { ...current, text: event.text, streaming: false })
+          streamingText = null
+        } else {
+          push({ kind: 'text', key, text: event.text, synthetic: event.synthetic, streaming: false })
+        }
+        return
+      }
+      case 'thinking': {
+        if (event.parentToolUseId !== null) return
+        const current = streamingThinking === null ? undefined : items[streamingThinking]
+        if (current?.kind === 'thinking') {
+          replace(streamingThinking as number, { ...current, text: event.text, streaming: false })
+          streamingThinking = null
+        } else {
+          push({ kind: 'thinking', key, text: event.text, streaming: false })
+        }
+        return
+      }
+      case 'tool_use': {
+        if (event.parentToolUseId !== null) return
+        const call: ToolCall = { id: event.id, name: event.name, input: event.input, result: null, subagent: null }
+        calls.set(event.id, call)
+        if (group === null) {
+          const opened: Extract<TranscriptItem, { kind: 'tools' }> = { kind: 'tools', key, calls: [call] }
+          push(opened)
+          group = opened
+        } else {
+          group.calls.push(call)
+        }
+        return
+      }
+      case 'tool_result': {
+        const call = calls.get(event.toolUseId)
+        if (call) call.result = { content: event.content, isError: event.isError }
+        return
+      }
+      case 'subagent': {
+        const known = subagents.get(event.taskId)
+        if (known) {
+          if (event.phase === 'finished') {
+            known.status = event.status
+            known.summary = event.summary
+          }
+          return
+        }
+        const run: SubagentRun = {
+          taskId: event.taskId,
+          description: event.description,
+          subagentType: event.subagentType,
+          status: event.phase === 'finished' ? event.status : null,
+          summary: event.summary,
+        }
+        subagents.set(event.taskId, run)
+        // A subagent started by an Agent tool call of this thread is shown on that call's row.
+        const call = event.toolUseId === null ? undefined : calls.get(event.toolUseId)
+        if (call) call.subagent = run
+        else push({ kind: 'subagent', key, run })
+        return
+      }
+      case 'hook':
+        push({ kind: 'hook', key, event })
+        return
+      case 'result':
+        endStreaming()
+        push({ kind: 'result', key, event })
+        return
+      case 'state':
+        if (event.state === 'error') {
+          endStreaming()
+          push({ kind: 'error', key, text: event.error ?? 'The Session stopped with an error' })
+        }
+        return
+      default:
+        return
+    }
+  })
+  return items
+}
