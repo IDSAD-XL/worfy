@@ -95,24 +95,54 @@ async function terminalNodes(window: Page): Promise<StateNode[]> {
   return result.value.layout.nodes.filter((node) => node.kind === 'terminal')
 }
 
+/** Where the Orchestrator Node is moved to keep the top left of the Canvas empty: off the screen. */
+const ORCHESTRATOR_AWAY = { x: 2400, y: 1600 }
+
+/**
+ * Moves the Orchestrator Node off the screen through layout.apply, as a tool would. main creates
+ * it in the top left of every Project's Canvas (it can be moved, not removed), where the terminals
+ * of these tests go: a right click on a Node opens no Canvas menu, and a terminal on top of it
+ * could not be grown with its resize handle on a small CI screen.
+ */
+async function moveOrchestratorAway(window: Page): Promise<boolean> {
+  const result = await window.evaluate(
+    (id) =>
+      (globalThis as unknown as { worfy: { invoke(c: string, i: unknown): Promise<{ ok: boolean; value: { layout: { nodes: { id: string; kind: string; x: number; y: number }[] } } }> } }).worfy.invoke(
+        'layout.get',
+        { projectId: id },
+      ),
+    PROJECT,
+  )
+  expect(result.ok).toBe(true)
+  const orchestrators = result.value.layout.nodes.filter((n) => n.kind === 'orchestrator')
+  for (const node of orchestrators) {
+    if (node.x === ORCHESTRATOR_AWAY.x && node.y === ORCHESTRATOR_AWAY.y) continue
+    expect(await invokeIn(window, 'layout.apply', { projectId: PROJECT, op: { op: 'move', id: node.id, ...ORCHESTRATOR_AWAY } })).toMatchObject({ ok: true })
+  }
+  return orchestrators.length > 0
+}
+
 /**
  * Right click on the Canvas at `at` (relative to the pane), then "New terminal". The spot must be
- * the empty plane: the Canvas starts with other Nodes on it (the Orchestrator Node at its top
- * left), and a right click on a Node opens no Canvas menu. Nodes sit inside the pane element, so
- * the click alone cannot tell which one it hit; the check below fails with a clear message instead.
+ * the empty plane. Nodes sit inside the pane element, so the click alone cannot tell whether it
+ * hit one; the check below fails with a clear message instead of a missing menu.
  */
 async function newTerminalAt(window: Page, at: { x: number; y: number }): Promise<void> {
   const pane = window.locator('.react-flow__pane')
+  // Waits for main to create the Orchestrator Node (it may come after the window has loaded), so it
+  // cannot appear under the new terminal later, and moves it on every try.
   await expect
     .poll(
-      () =>
-        pane.evaluate((element, point) => {
+      async () => {
+        if (!(await moveOrchestratorAway(window))) return false
+        return pane.evaluate((element, point) => {
           const box = element.getBoundingClientRect()
           // The e2e tsconfig has no DOM lib: the page's document is reached through the element.
           const { ownerDocument } = element as unknown as { ownerDocument: { elementFromPoint(x: number, y: number): unknown } }
           return ownerDocument.elementFromPoint(box.x + point.x, box.y + point.y) === element
-        }, at),
-      { message: `the Canvas is not empty at ${at.x},${at.y}` },
+        }, at)
+      },
+      { message: `no Orchestrator Node moved away, or the Canvas is not empty at ${at.x},${at.y}` },
     )
     .toBe(true)
   await pane.click({ button: 'right', position: at })
@@ -121,9 +151,9 @@ async function newTerminalAt(window: Page, at: { x: number; y: number }): Promis
   await expect(menu).toBeHidden()
 }
 
-/** The first Terminal Node, below the Orchestrator Node, with room under it to grow. */
+/** Right click on an empty spot of the Canvas, then "New terminal". */
 async function newTerminal(window: Page): Promise<Locator> {
-  await newTerminalAt(window, { x: 40, y: 260 })
+  await newTerminalAt(window, { x: 80, y: 60 })
   const node = window.getByTestId('terminal-node')
   await expect(node).toHaveCount(1)
   await expect(node).toHaveAttribute('data-state', 'running')
