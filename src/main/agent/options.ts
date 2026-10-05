@@ -8,11 +8,14 @@
 // to the preset. Claude Code runs as the native binary of the SDK's platform package
 // (ADR-0008): in `pnpm dev` the SDK finds it itself; in the packaged app its own lookup points
 // inside app.asar, where nothing can be spawned, so the path into app.asar.unpacked is explicit.
+// Outside bypassPermissions Claude Code asks the Session's permission gate before a tool
+// (canUseTool, ticket 21, src/main/agent/permissions.ts).
 import { join } from 'node:path'
 import type { McpServerConfig, Options } from '@anthropic-ai/claude-agent-sdk'
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
 import type { Env } from './env'
+import type { CanUseToolHandler } from './permissions'
 
 export interface RuntimeInfo {
   /** app.isPackaged */
@@ -57,6 +60,8 @@ export interface SessionOptionsInput {
   canvas?: CanvasAttachment | null | undefined
   /** The model, effort and permission mode to start with; DEFAULT_SETTINGS when absent. */
   settings?: SessionSettings | undefined
+  /** Answers permission requests outside bypassPermissions; without it Claude Code's own default applies. */
+  canUseTool?: CanUseToolHandler | undefined
 }
 
 export function sessionOptions(input: SessionOptionsInput): Options {
@@ -81,6 +86,7 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   if (settings.effort !== null) options.effort = settings.effort
   if (input.resume !== undefined) options.resume = input.resume
   if (input.stderr !== undefined) options.stderr = input.stderr
+  if (input.canUseTool !== undefined) options.canUseTool = input.canUseTool
   if (input.canvas) {
     // Added to the user's own MCP servers from settingSources, not instead of them.
     options.mcpServers = { [CANVAS_SERVER_NAME]: input.canvas.server }

@@ -1,9 +1,12 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { startOrchestrators } from './agent/app-orchestrators'
+import { sharedRegistry } from './agent/app-registry'
 import { installCardRuntime, registerCardScheme } from './cards/protocol'
 import { cardStore } from './cards/store'
+import { liveSessionListeners } from './ipc/claude-home'
 import { appUrlMatcher, registerIpc } from './ipc/index'
 import { installAppMenu } from './menu'
+import { installNotifications } from './notify'
 import { dataRoot } from './storage/paths'
 import { createMainWindow, installWebPolicy, rendererEntry } from './window'
 
@@ -27,6 +30,8 @@ void app
     installCardRuntime((host) => cardStore().locate(host))
     // Before the first window: its creation is what opens the active Project's Orchestrator.
     startOrchestrators()
+    // macOS notifications when a Session ends its turn or asks for permission (ticket 21).
+    installNotifications(sharedRegistry(), liveSessionListeners)
     createMainWindow()
 
     app.on('activate', () => {

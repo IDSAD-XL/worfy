@@ -1,0 +1,14 @@
+/* The "Needs permission" badge (NeedsPermission.tsx): a status chip that is also a button. */
+.w-badge-button {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.w-badge-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: var(--radius-button);
+}

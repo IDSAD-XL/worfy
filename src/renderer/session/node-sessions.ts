@@ -33,8 +33,11 @@ function ensureSubscribed(): void {
   }
 }
 
-/** Subscribes, then asks main once per Project for the views it already has (a reloaded window). */
-function ensureProject(projectId: string): void {
+/**
+ * Subscribes, then asks main once per Project for the views it already has (a reloaded window, or
+ * one a notification opened: notification-target.ts).
+ */
+export function ensureProject(projectId: string): void {
   ensureSubscribed()
   if (asked.has(projectId)) return
   asked.add(projectId)
@@ -56,3 +59,27 @@ export function useSessionNodeView(projectId: string | undefined, nodeId: string
 
 /** Whether a view is of a Session that runs now. */
 export const isRunning = (view: SessionNodeView | undefined): view is SessionNodeView => view !== undefined && view.state !== 'closed'
+
+/** Whether a view runs `sessionId`: by the id `agent.*` takes, or by its SDK session. */
+const runs = (view: SessionNodeView, sessionId: string): boolean => view.sessionId === sessionId || view.sdkSessionId === sessionId
+
+/**
+ * main's view of the Session Node of the Project that runs `sessionId`, by either id; undefined
+ * when none does (ticket 21: the "Needs permission" badge, opening a Session from a notification).
+ */
+export function useSessionNodeViewOf(projectId: string | undefined, sessionId: string): SessionNodeView | undefined {
+  useEffect(() => {
+    if (projectId !== undefined) ensureProject(projectId)
+  }, [projectId])
+  return useViewsStore((store) => Object.values(store.byNode).find((view) => view.projectId === projectId && runs(view, sessionId)))
+}
+
+/** Every view this window has, by Node; a new object on each change (notification-target.ts waits on it). */
+export function useSessionNodeViews(): Readonly<Record<string, SessionNodeView>> {
+  return useViewsStore((store) => store.byNode)
+}
+
+/** The same lookup outside React, over the views this window has now; any Project. */
+export function sessionNodeViewOf(sessionId: string): SessionNodeView | undefined {
+  return Object.values(useViewsStore.getState().byNode).find((view) => view.state !== 'closed' && runs(view, sessionId))
+}

@@ -31,6 +31,7 @@ const request = (): QueryRequest => ({
   resume: 'sdk-123',
   stderr: () => undefined,
   settings: DEFAULT_SETTINGS,
+  canUseTool: () => Promise.resolve({ behavior: 'deny', message: 'not in this test' }),
 })
 
 /** The options the factory passed to the SDK's query(). */
@@ -75,6 +76,8 @@ describe('sdkQueryFactory', () => {
     // The rest of the request reaches the SDK too: stderr is what explains a crash.
     expect(options).toMatchObject({ cwd: req.cwd, resume: 'sdk-123', permissionMode: 'bypassPermissions' })
     expect(options.stderr).toBe(req.stderr)
+    // Permission requests outside bypassPermissions go to the Session's own gate (ticket 21).
+    expect(options.canUseTool).toBe(req.canUseTool)
     expect(mocks.query.mock.calls[0]?.[0]).toMatchObject({ prompt: req.prompt })
     // The default settings leave the model and effort to Claude Code.
     expect(options).not.toHaveProperty('model')

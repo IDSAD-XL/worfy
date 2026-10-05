@@ -2,6 +2,10 @@
 // from the Claude home. Asking for a Project's Sessions also subscribes the asking window to
 // `claudeHome.changed` for that Project; the subscription ends with `claudeHome.close` or with the
 // window.
+//
+// The live Sessions a watcher sees also go to liveSessionListeners (ticket 21: a notification when
+// a Session from the registry finishes its turn, src/main/notify.ts): once when the watcher starts,
+// and again after each change of the registry.
 import { resolve } from 'node:path'
 import { ClaudeHomeRegistry, type ClaudeHomeWatch } from '../claude-home/registry'
 import { SubagentReader, subagentTranscriptPath } from '../claude-home/subagents'
@@ -15,6 +19,7 @@ import {
   claudeHomeSubagents,
   claudeHomeSubagentTranscript,
   claudeHomeTranscript,
+  type LiveSession,
 } from '../../shared/ipc/claude-home'
 import { mainThreadEvents, parseTranscriptLines } from '../../shared/transcript/parse'
 import { defineHandler, emit, type HandlerModule } from './index'
@@ -27,12 +32,38 @@ export interface Subscriber {
   once(event: 'destroyed', listener: () => void): unknown
 }
 
+/** Who gets the live Sessions of a Project each time a watcher reads them. */
+export type LiveSessionsListener = (projectRoot: string, live: readonly LiveSession[]) => void
+
+/** The app's listeners of live Sessions (src/main/notify.ts adds one). */
+export const liveSessionListeners = new Set<LiveSessionsListener>()
+
 /** Keeps one watcher per (window, Project) and forwards its changes to that window. */
 export class ClaudeHomeSubscriptions {
   private readonly watches = new Map<string, Promise<ClaudeHomeWatch | undefined>>()
   private readonly subscribers = new Set<number>()
 
-  constructor(private readonly registry: ClaudeHomeRegistry) {}
+  constructor(
+    private readonly registry: ClaudeHomeRegistry,
+    private readonly listeners: ReadonlySet<LiveSessionsListener> = liveSessionListeners,
+  ) {}
+
+  /** Reads the Project's live Sessions for the listeners; nothing when there are none. */
+  private reportLive(projectRoot: string): void {
+    if (this.listeners.size === 0) return
+    this.registry.live(projectRoot).then(
+      (live) => {
+        for (const listener of this.listeners) {
+          try {
+            listener(projectRoot, live)
+          } catch (error) {
+            console.warn('[claude-home] a live Sessions listener failed', error)
+          }
+        }
+      },
+      (error: unknown) => console.warn(`[claude-home] could not read the live Sessions of ${projectRoot}`, error),
+    )
+  }
 
   /** Starts watching `projectRoot` for `subscriber` unless it already does or the window is gone. */
   async subscribe(subscriber: Subscriber, projectRoot: string): Promise<void> {
@@ -46,6 +77,7 @@ export class ClaudeHomeSubscriptions {
       }
       const started = this.registry
         .watch(projectRoot, (change) => {
+          if (change.sessions) this.reportLive(projectRoot)
           if (subscriber.isDestroyed()) return
           try {
             emit(subscriber, claudeHomeChanged, { projectRoot, ...change })
@@ -55,6 +87,7 @@ export class ClaudeHomeSubscriptions {
         })
         .then(async (watch) => {
           await watch.ready
+          this.reportLive(projectRoot)
           return watch
         })
         .catch((error: unknown) => {

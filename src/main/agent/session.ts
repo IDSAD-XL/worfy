@@ -15,11 +15,15 @@
 // A message may carry attachments (ticket 20, attachments.ts): images go as image blocks, other
 // files as paths at the end of the text. The slash menu's commands come from the live query and
 // the last system/init (commands.ts).
+//
+// Outside bypassPermissions Claude Code asks before tools (ticket 21): the Session's own
+// PermissionGate (permissions.ts) answers canUseTool from the user's choice, and the Session is
+// `needs_permission` while a request is open. Interrupt, close and a crash refuse open requests.
 import { randomUUID } from 'node:crypto'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { messageLabel, type Attachment } from '../../shared/agent/attachments'
 import type { SlashCommand } from '../../shared/agent/commands'
-import { sdkMessageToEvents, type AgentEvent, type QueueSnapshot, type SessionState } from '../../shared/agent/events'
+import { sdkMessageToEvents, type AgentEvent, type PermissionDecision, type QueueSnapshot, type SessionState } from '../../shared/agent/events'
 import {
   DEFAULT_SETTINGS,
   EFFORT_LEVELS,
@@ -32,6 +36,7 @@ import {
 } from '../../shared/agent/settings'
 import { userContent } from './attachments'
 import { CommandCatalog, type CommandInfoLike } from './commands'
+import { PermissionGate, type CanUseToolHandler } from './permissions'
 import { MessageQueue } from './queue'
 
 /** What accountInfo() returns, as far as worfy reads it (ADR-0009). */
@@ -74,6 +79,8 @@ export interface QueryRequest {
   stderr: (data: string) => void
   /** The model, effort and permission mode the query starts with. */
   settings: SessionSettings
+  /** Answers Claude Code's permission requests (permissions.ts); one gate per Session, across its queries. */
+  canUseTool: CanUseToolHandler
 }
 
 /** Starts Claude Code for a Session: the real SDK, or the fake agent in tests. */
@@ -201,6 +208,10 @@ export class Session {
   private initModel: string | null = null
   private readonly queue = new MessageQueue((snapshot) => this.emit({ type: 'queue', ...snapshot }))
   private readonly catalog = new CommandCatalog()
+  private readonly permissions = new PermissionGate(
+    (event) => this.emit(event),
+    (pending) => this.permissionsChanged(pending),
+  )
 
   constructor(
     readonly cwd: string,
@@ -280,14 +291,24 @@ export class Session {
     if (this.stateValue === 'idle' || this.stateValue === 'error') this.next()
   }
 
-  /** Stops the current turn and holds the queue; the turn ends with a `result` marked as interrupted. */
+  /**
+   * Stops the current turn and holds the queue; the turn ends with a `result` marked as
+   * interrupted. A permission request still open is refused first.
+   */
   async interrupt(): Promise<boolean> {
     const query = this.run?.query
-    if (this.stateValue !== 'busy' || !query) return false
+    if ((this.stateValue !== 'busy' && this.stateValue !== 'needs_permission') || !query) return false
     this.interrupted = true
     this.queue.pause()
+    this.permissions.cancelAll()
     await query.interrupt()
     return true
+  }
+
+  /** The user's answer to an open permission request; false when it is no longer open. */
+  answerPermission(requestId: string, decision: PermissionDecision): boolean {
+    this.assertOpen()
+    return this.permissions.answer(requestId, decision)
   }
 
   /**
@@ -334,6 +355,7 @@ export class Session {
   close(): void {
     if (this.closing) return
     this.closing = true
+    this.permissions.cancelAll()
     const run = this.run
     this.run = null
     run?.input.end()
@@ -383,6 +405,7 @@ export class Session {
         if (run.stderr.length > STDERR_KEEP) run.stderr.shift()
       },
       settings,
+      canUseTool: this.permissions.canUseTool,
     }
     void this.consume(run, request)
   }
@@ -453,6 +476,15 @@ export class Session {
     // What waits in the queue goes when the user asks ("Send queued"), not into a new process by itself.
     this.queue.pause()
     this.setState('error', error)
+    // Claude Code is gone: nobody waits for these answers any more.
+    this.permissions.cancelAll()
+  }
+
+  /** `needs_permission` while a request is open during a turn, `busy` again once none is. */
+  private permissionsChanged(pending: number): void {
+    if (this.closing) return
+    if (pending > 0 && this.stateValue === 'busy') this.setState('needs_permission')
+    else if (pending === 0 && this.stateValue === 'needs_permission') this.setState('busy')
   }
 
   private handle(message: unknown): void {
@@ -477,6 +509,8 @@ export class Session {
         // no abort reason; a turn that finished normally despite the request does not.
         this.emit({ ...event, interrupted: event.interrupted || (this.interrupted && event.isError) })
         this.interrupted = false
+        // A turn that ended leaves no request to answer.
+        this.permissions.cancelAll()
         this.setState('idle')
         this.next()
         continue
@@ -499,8 +533,15 @@ export class Session {
 /** Every live Session of the app, by id; a Session is also found by its temporary id. */
 export class SessionRegistry {
   private readonly sessions = new Map<string, Session>()
+  private readonly observers = new Set<EventSink>()
 
   constructor(private readonly factory: QueryFactory) {}
+
+  /** Gets every event of every Session, besides the Session's own sink (notifications, src/main/notify.ts); answers the unsubscribe. */
+  observe(listener: EventSink): () => void {
+    this.observers.add(listener)
+    return () => this.observers.delete(listener)
+  }
 
   /**
    * Starts a Session whose events go to `sink` (the window that asked for it). Resuming an SDK
@@ -515,6 +556,13 @@ export class SessionRegistry {
       cwd,
       this.factory,
       (sessionId, event) => {
+        for (const observer of this.observers) {
+          try {
+            observer(sessionId, event)
+          } catch (error) {
+            console.warn('[agent] an event observer failed', error)
+          }
+        }
         try {
           sink(sessionId, event)
         } finally {

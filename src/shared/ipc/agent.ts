@@ -12,10 +12,13 @@
 // Ticket 20: `agent.send` takes the message's attachments, checked beforehand by `agent.attach`
 // (what the renderer has: a pasted image, a dropped file) or `agent.attachPick` (main's own file
 // dialog, behind "+"); `agent.commands` lists the slash commands and skills of the Session.
+//
+// Ticket 21: outside bypassPermissions Claude Code asks before tools; the request arrives as a
+// `permission_request` event and `agent.permission` answers it.
 import { z } from 'zod'
 import { attachmentSchema, attachmentSourceSchema, attachResultSchema, MAX_ATTACHMENTS } from '../agent/attachments'
 import { slashCommandSchema } from '../agent/commands'
-import { agentEventEnvelope, queueSnapshotSchema, sessionState } from '../agent/events'
+import { agentEventEnvelope, permissionDecisionSchema, queueSnapshotSchema, sessionState } from '../agent/events'
 import { modelOptionSchema, sessionSettingsSchema, settingsChangeSchema } from '../agent/settings'
 import { eventChannel, invokeChannel } from './channels'
 
@@ -73,6 +76,17 @@ export const agentQueueRemove = invokeChannel('agent.queueRemove', z.object({ se
 /** "Send queued": a queue held by Interrupt goes again, starting now when no turn runs. */
 export const agentQueueSend = invokeChannel('agent.queueSend', z.object({ sessionId }), z.void())
 
+/**
+ * Answers an open permission request: "Allow", "Always allow" (this tool, for the rest of this
+ * Session) or "Deny". `answered` is false when the request is no longer open (already answered, or
+ * refused by Interrupt or by closing the Session).
+ */
+export const agentPermission = invokeChannel(
+  'agent.permission',
+  z.object({ sessionId, requestId: z.string().min(1), decision: permissionDecisionSchema }),
+  z.object({ answered: z.boolean() }),
+)
+
 export const agentEvent = eventChannel('agent.event', agentEventEnvelope)
 
 declare module './channels' {
@@ -90,6 +104,7 @@ declare module './channels' {
     'agent.models': typeof agentModels
     'agent.queueRemove': typeof agentQueueRemove
     'agent.queueSend': typeof agentQueueSend
+    'agent.permission': typeof agentPermission
     'agent.event': typeof agentEvent
   }
 }

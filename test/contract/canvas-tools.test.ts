@@ -542,7 +542,7 @@ describe('canvas in a Session', () => {
     layout: store,
     workflow: () => Promise.resolve(WORKFLOW),
   })
-  const request = (cwd: string): QueryRequest => ({ prompt: (async function* () {})(), cwd, resume: undefined, stderr: () => undefined, settings: DEFAULT_SETTINGS })
+  const request = (cwd: string): QueryRequest => ({ prompt: (async function* () {})(), cwd, resume: undefined, stderr: () => undefined, settings: DEFAULT_SETTINGS, canUseTool: () => Promise.resolve({ behavior: 'deny', message: 'not in this test' }) })
   /** The options the factory passed to the SDK's query(). */
   const sdkOptions = (): Record<string, unknown> => {
     expect(mocks.query).toHaveBeenCalledOnce()
