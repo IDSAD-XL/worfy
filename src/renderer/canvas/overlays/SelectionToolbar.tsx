@@ -1,10 +1,17 @@
 // The toolbar above the selected Nodes (ticket 29). It is a row of sections; each section gets
 // the selected Nodes' Layout entries and sends its own operations to main. Ticket 29 brings Pin
-// and Tags; a later section (ticket 30: delete to the trash, undo) is one more component in
-// SELECTION_SECTIONS.
-import { useState, type ComponentType, type KeyboardEvent } from 'react'
+// and Tags, ticket 30 Delete: the selection goes to the Project's trash (src/shared/ipc/trash.ts),
+// from where the Trash popover (TrashPopover.tsx) or ⌘Z brings it back.
+//
+// The Canvas's keys of ticket 30 live here too, active while the Canvas is on screen and the focus
+// is on it (or nowhere), never in a text field: Delete and Backspace delete the selection to the
+// trash, ⌘Z undoes and ⇧⌘Z redoes the user's last change to the Layout (history.ts).
+import { useEffect, useState, type ComponentType, type KeyboardEvent } from 'react'
 import { NodeToolbar, Position, useNodes, useReactFlow, useStoreApi } from '@xyflow/react'
+import { create } from 'zustand'
 import type { LayoutNode } from '../../../shared/layout/types'
+import { activeProject, useProjects } from '../../projects/useProjects'
+import { deletableNodes, deleteToTrash, grouped, historyOf } from '../history'
 import type { CanvasFlowNode } from '../nodes'
 import { pinOp, unpinOp } from '../pinning'
 import { addTagOps, normalizeTag, removeTagOps, selectionTags } from '../tags'
@@ -18,9 +25,48 @@ export interface SelectionSectionProps {
   nodes: readonly LayoutNode[]
 }
 
-/** Sends operations one after another, so main applies them in the order they were made. */
+/** Sends operations one after another, so main applies them in the order they were made; one step of the history. */
 async function applyAll(ops: LayoutOps, list: readonly Parameters<LayoutOps['apply']>[0][]): Promise<void> {
-  for (const op of list) await ops.apply(op)
+  await grouped(async (group) => {
+    for (const op of list) await ops.apply(op, group)
+  })
+}
+
+/** True while the element is a place to type: there ⌘Z, Delete and Backspace belong to the text. */
+function isTextTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  return target.isContentEditable || target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]') !== null
+}
+
+/** Delete / Backspace, ⌘Z and ⇧⌘Z on the Canvas of `projectId`. */
+function useCanvasKeys(projectId: string | undefined): void {
+  const flow = useReactFlow<CanvasFlowNode>()
+  const store = useStoreApi<CanvasFlowNode>()
+  useEffect(() => {
+    if (projectId === undefined) return
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || isTextTarget(event.target)) return
+      // Only while this Canvas is the view on screen (the Session view hides it).
+      const canvas = store.getState().domNode
+      if (!(canvas instanceof HTMLElement) || canvas.offsetParent === null) return
+      // Keys typed elsewhere (the sidebar, the focus mode layer over the Canvas) are not the Canvas's.
+      if (event.target !== document.body && !(event.target instanceof Node && canvas.contains(event.target))) return
+      if (event.metaKey && (event.key === 'z' || event.key === 'Z')) {
+        event.preventDefault()
+        void (event.shiftKey ? historyOf(projectId).redo() : historyOf(projectId).undo())
+      } else if (!event.metaKey && !event.shiftKey && (event.key === 'Delete' || event.key === 'Backspace')) {
+        const selected = flow.getNodes().filter((node) => node.selected && !node.hidden)
+        if (selected.length === 0) return
+        event.preventDefault()
+        deleteSelection(
+          projectId,
+          selected.map((node) => node.data.node),
+        )
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [flow, store, projectId])
 }
 
 /** Pin: keeps the selection at its place on the screen; Unpin puts it back on the plane. */
@@ -110,11 +156,65 @@ export function TagsSection({ nodes }: SelectionSectionProps) {
   )
 }
 
+interface DeleteState {
+  /** What main refused at the last delete, for the selection it was made on. */
+  refusals: readonly string[]
+  /** The selection those refusals belong to; another selection hides them. */
+  key: string
+}
+
+/** The refusals of the last delete, shared by the Delete button and the Delete key. */
+const useDeleteRefusals = create<DeleteState>(() => ({ refusals: [], key: '' }))
+
+const selectionKey = (nodes: readonly LayoutNode[]): string => nodes.map((node) => node.id).join('\n')
+
+/** Deletes and keeps main's refusals for the Delete section of this selection. */
+function deleteSelection(projectId: string, nodes: readonly LayoutNode[]): void {
+  const key = selectionKey(nodes)
+  void deleteToTrash(projectId, nodes).then((refusals) => useDeleteRefusals.setState({ refusals, key }))
+}
+
+/**
+ * Delete: sends what may be deleted of the selection to the trash. Unavailable when nothing of it
+ * may be (the Orchestrator, HANDOFF, Tickets, Epic frames); a Session that runs is refused by main
+ * and the reason is shown.
+ */
+export function DeleteSection({ nodes }: SelectionSectionProps) {
+  const projectId = activeProject(useProjects())?.id
+  const state = useDeleteRefusals()
+  const deletable = deletableNodes(nodes)
+  const key = selectionKey(nodes)
+  const refusals = state.key === key ? state.refusals : []
+  const unavailable = projectId === undefined || deletable.length === 0
+  return (
+    <>
+      <button
+        type="button"
+        className="w-selection-toolbar__button w-selection-toolbar__delete"
+        disabled={unavailable}
+        title={unavailable ? 'This cannot be deleted' : 'Move to the trash (Delete)'}
+        onClick={() => {
+          if (projectId !== undefined) deleteSelection(projectId, nodes)
+        }}
+      >
+        Delete
+      </button>
+      {refusals.length > 0 ? (
+        <span className="w-selection-toolbar__refusal" role="alert">
+          {refusals.join('; ')}
+        </span>
+      ) : null}
+    </>
+  )
+}
+
 /** The sections of the toolbar, left to right. */
-const SELECTION_SECTIONS: readonly ComponentType<SelectionSectionProps>[] = [PinSection, TagsSection]
+const SELECTION_SECTIONS: readonly ComponentType<SelectionSectionProps>[] = [PinSection, TagsSection, DeleteSection]
 
 export default function SelectionToolbar() {
+  const projectId = activeProject(useProjects())?.id
   const selected = useNodes<CanvasFlowNode>().filter((node) => node.selected && !node.hidden)
+  useCanvasKeys(projectId)
   if (selected.length === 0) return null
   const nodes = selected.map((node) => node.data.node)
   return (

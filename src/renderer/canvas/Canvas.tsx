@@ -12,6 +12,9 @@
 // Navigation: the wheel pans, ⌘ + wheel (and a pinch) zooms around the pointer, ⌘= / ⌘− zoom
 // in and out, dragging with Space held or with the middle button pans, dragging on an empty spot
 // selects. A double click on an empty spot creates a `note` Node.
+//
+// Every operation sent from here is recorded for ⌘Z / ⇧⌘Z (history.ts); the keys themselves, and
+// Delete to the trash, are handled by overlays/SelectionToolbar.tsx.
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   applyNodeChanges,
@@ -31,7 +34,8 @@ import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput, t
 import { edgeSources, edgesOf, nodeSources, overlays, type NodeSource } from './extensions'
 import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
 import { UnknownNode } from './UnknownNode'
-import { applyLayoutOp, LayoutOpsContext, useLayout, type LayoutOps } from './useLayout'
+import { applyRecorded, grouped, type Group, type LayoutChannel } from './history'
+import { applyLayoutOp, currentLayout, LayoutOpsContext, useLayout, type LayoutOps } from './useLayout'
 // Every Node type is drawn inside the chrome (tags, the pinned frame); pinned Nodes are placed
 // anew for every viewport (ticket 29).
 import { withNodeChrome } from './withNodeChrome'
@@ -159,34 +163,47 @@ function Flow({ projectId, state }: FlowProps) {
     [state.layout.nodes, derived.nodes],
   )
 
-  const ops: LayoutOps = useMemo(
-    () => ({
-      apply(op: LayoutOpInput) {
-        return applyLayoutOp(projectId, op).then((error) => {
+  const ops: LayoutOps = useMemo(() => {
+    const channel: LayoutChannel = {
+      send: (op) =>
+        applyLayoutOp(projectId, op).then((error) => {
           // Refused: put the Nodes back where main has them.
           if (error !== undefined) {
             const { layout, derived } = latest.current
             setNodes((current) => toFlowNodes(layout.nodes, derived.nodes, current.map((node) => ({ ...node, dragging: false, resizing: false }))))
           }
-        })
+          return error
+        }),
+      // main's latest answer, which applyLayoutOp() stores before it resolves: the next operation of
+      // a gesture, and an undo, see what the previous one did.
+      layout: () => currentLayout(projectId) ?? latest.current.layout,
+    }
+    return {
+      // Every operation sent here is a user's gesture and is recorded for ⌘Z (history.ts, ticket 30).
+      async apply(op: LayoutOpInput, group?: Group) {
+        await applyRecorded(projectId, op, channel, group)
       },
-    }),
-    [projectId],
-  )
+    }
+  }, [projectId])
 
   const onNodesChange = useCallback((changes: NodeChange<CanvasFlowNode>[]) => {
-    // Removing goes through main only (and the trash of ticket 30); keyboard delete is off anyway.
+    // Removing goes through main only: Delete sends the selection to the trash (overlays/SelectionToolbar.tsx).
     setNodes((current) => applyNodeChanges(changes.filter((change) => change.type !== 'remove'), current))
   }, [])
 
   const onNodeDragStop: OnNodeDrag<CanvasFlowNode> = useCallback(
     (_event, _node, dragged) => {
       const { layout, derived } = latest.current
-      for (const node of dragged) {
-        const source = derived.sourceOf.get(node.id)
-        if (source) source.moved({ projectId, layout }, node)
-        else ops.apply({ op: 'move', id: node.id, x: node.position.x, y: node.position.y })
-      }
+      // One drag is one step of the history, however many Nodes it moved.
+      void grouped(async (group) => {
+        const moves: Promise<void>[] = []
+        for (const node of dragged) {
+          const source = derived.sourceOf.get(node.id)
+          if (source) source.moved({ projectId, layout }, node)
+          else moves.push(ops.apply({ op: 'move', id: node.id, x: node.position.x, y: node.position.y }, group))
+        }
+        await Promise.all(moves)
+      })
     },
     [ops, projectId],
   )

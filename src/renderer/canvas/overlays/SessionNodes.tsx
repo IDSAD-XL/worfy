@@ -11,7 +11,7 @@ import { planSessionNodes, worfySessionIds } from '../../claude-home/session-nod
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
 import { invoke } from '../../ipc'
 import { activeProject, useProjects } from '../../projects/useProjects'
-import { useLayout, useLayoutOps } from '../useLayout'
+import { applyLayoutOp, useLayout } from '../useLayout'
 
 export const order = 50
 
@@ -80,7 +80,6 @@ function useFocusRequests(projectId: string): void {
 function SessionNodesSync({ projectId, root }: { projectId: string; root: string }) {
   const { live } = useClaudeHome(root)
   const { state } = useLayout(projectId)
-  const ops = useLayoutOps()
   const busy = useRef(false)
   const again = useRef(false)
   const latest = useRef({ live, state, projectId })
@@ -110,10 +109,13 @@ function SessionNodesSync({ projectId, root }: { projectId: string; root: string
           if (first.create.length === 0 && first.remove.length === 0) continue
           // Only now ask main which Sessions it runs: a Session of worfy's whose Node does not name it yet.
           const plan = planSessionNodes({ live: current, nodes, worfyIds: worfySessionIds(nodes, await runningIds()), seen })
-          for (const id of plan.remove) await ops.apply({ op: 'remove', id })
+          // Not the user's gestures: sent without a step of the undo history (history.ts), as the other
+          // automatic writers of the Layout do. The Canvas's LayoutOps would record them.
+          const target = latest.current.projectId
+          for (const id of plan.remove) await applyLayoutOp(target, { op: 'remove', id })
           for (const op of plan.create) {
             seen.add(String(op.node.data?.sessionId))
-            await ops.apply(op)
+            await applyLayoutOp(target, op)
           }
         } while (again.current)
       } finally {
@@ -121,7 +123,7 @@ function SessionNodesSync({ projectId, root }: { projectId: string; root: string
       }
     }
     void sync()
-  }, [live, state, ops])
+  }, [live, state])
 
   return null
 }

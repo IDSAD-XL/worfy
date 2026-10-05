@@ -3,8 +3,9 @@
 // serves every Canvas.
 import { createContext, useContext, useEffect, useState } from 'react'
 import { create } from 'zustand'
-import type { LayoutOpInput, LayoutState } from '../../shared/layout/types'
+import type { Layout, LayoutOpInput, LayoutState } from '../../shared/layout/types'
 import { invoke, subscribe } from '../ipc'
+import type { Group } from './history'
 
 interface LayoutsStore {
   byProject: Readonly<Record<string, LayoutState>>
@@ -75,10 +76,22 @@ export async function applyLayoutOp(projectId: string, op: LayoutOpInput): Promi
   return result.error
 }
 
-/** What a Node component uses to change its own entry in the Layout. */
+/** The Layout of a Project as main last sent it, or undefined before main has answered. */
+export function currentLayout(projectId: string): Layout | undefined {
+  return useLayoutsStore.getState().byProject[projectId]?.layout
+}
+
+/**
+ * What the user's gestures on the Canvas use to change the Layout. Every operation sent here is a
+ * step of the user's undo history (history.ts); code that changes the Layout on its own (a sync, a
+ * source of Nodes) calls applyLayoutOp() instead.
+ */
 export interface LayoutOps {
-  /** Resolves once main has answered, whether it applied the operation or refused it. */
-  apply(op: LayoutOpInput): Promise<void>
+  /**
+   * Resolves once main has answered, whether it applied the operation or refused it. `group` makes
+   * the operation part of one gesture's step (history.ts grouped()).
+   */
+  apply(op: LayoutOpInput, group?: Group): Promise<void>
 }
 
 export const LayoutOpsContext = createContext<LayoutOps>({

@@ -6,6 +6,7 @@ import { act, render } from '@testing-library/react'
 import { useEffect } from 'react'
 import { applyNodeChanges, ReactFlowProvider, useStoreApi, type Node, type NodeChange } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { LayoutOps } from '../../src/renderer/canvas/useLayout'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { LiveSession } from '../../src/shared/ipc/claude-home'
 import { layoutNodeSchema, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../src/shared/layout/types'
@@ -22,27 +23,42 @@ const external = (sessionId: string) =>
   node({ id: `session:${sessionId}`, kind: 'session', data: { sessionId, origin: 'external', source: 'terminal', cwd: ROOT } })
 
 let layoutNodes: LayoutNode[]
+let revision: number
 let liveSessions: LiveSession[]
 let running: string[]
 let agentListAnswer: { ok: boolean; value?: unknown; error?: string }
 const asked: string[] = []
 const applied: LayoutOpInput[] = []
 
+/** main's Layout as the fake main has it now. */
+const mainState = (): LayoutState => ({ projectId: PROJECT, revision, layout: { nodes: layoutNodes, viewport: { x: 0, y: 0, zoom: 1 } } })
+
 beforeEach(() => {
   vi.resetModules()
   asked.length = 0
   applied.length = 0
+  revision = 1
   running = []
   agentListAnswer = { ok: true }
   const bridge = {
-    invoke: (channel: string) => {
+    invoke: (channel: string, input: unknown) => {
       asked.push(channel)
       const ok = (value: unknown) => Promise.resolve({ ok: true, value })
       switch (channel) {
         case 'projects.list':
           return ok({ projects: [{ id: PROJECT, name: 'demo', path: ROOT, branch: 'main' }], activeId: PROJECT, revision: 1 })
         case 'layout.get':
-          return ok({ projectId: PROJECT, revision: 1, layout: { nodes: layoutNodes, viewport: { x: 0, y: 0, zoom: 1 } } } satisfies LayoutState)
+          return ok(mainState())
+        // main applies the operation to its Layout and answers with the new one.
+        case 'layout.apply': {
+          const { op } = input as { op: LayoutOpInput }
+          applied.push(op)
+          if (op.op === 'remove') layoutNodes = layoutNodes.filter((each) => each.id !== op.id)
+          else if (op.op === 'create') layoutNodes = [...layoutNodes, node({ ...op.node, id: op.node.id ?? `n${applied.length}` })]
+          else if (op.op === 'move') layoutNodes = layoutNodes.map((each) => (each.id === op.id ? { ...each, x: op.x, y: op.y } : each))
+          revision += 1
+          return ok(mainState())
+        }
         case 'claudeHome.sessions':
           return ok({ live: liveSessions, history: [] })
         case 'claudeHome.live':
@@ -74,15 +90,22 @@ function GrabStore() {
   return null
 }
 
+/** The Canvas's LayoutOps as Canvas.tsx makes them: every operation sent through them is a step of the user's history. */
+async function canvasOps(): Promise<LayoutOps> {
+  const { applyLayoutOp, currentLayout } = await import('../../src/renderer/canvas/useLayout')
+  const { applyRecorded } = await import('../../src/renderer/canvas/history')
+  const channel = { send: (op: LayoutOpInput) => applyLayoutOp(PROJECT, op), layout: () => currentLayout(PROJECT) ?? mainState().layout }
+  return {
+    async apply(op, group) {
+      await applyRecorded(PROJECT, op, channel, group)
+    },
+  }
+}
+
 async function mount(): Promise<void> {
   const overlay = await import('../../src/renderer/canvas/overlays/SessionNodes')
   const { LayoutOpsContext } = await import('../../src/renderer/canvas/useLayout')
-  const ops = {
-    apply: (op: LayoutOpInput) => {
-      applied.push(op)
-      return Promise.resolve()
-    },
-  }
+  const ops = await canvasOps()
   render(
     <ReactFlowProvider>
       <GrabStore />
@@ -142,6 +165,26 @@ describe('SessionNodes overlay', () => {
     await settle()
     expect(asked).not.toContain('agent.list')
     expect(applied).toEqual([])
+  })
+
+  it("sends its creates and removes past the user's undo history: ⌘Z after them still undoes the user's move", async () => {
+    // The user moved the Orchestrator through the Canvas's LayoutOps; then an external Session
+    // started and a Node made before worfy named its own Session is found.
+    layoutNodes = [orchestrator(WORFY), external(WORFY)]
+    liveSessions = [live(WORFY), live(OTHER)]
+    const { historyOf } = await import('../../src/renderer/canvas/history')
+    await (await canvasOps()).apply({ op: 'move', id: 'orch', x: 500, y: 400 })
+    expect(historyOf(PROJECT).size).toBe(1)
+
+    await mount()
+    await vi.waitFor(() => expect({ created: created(), removed: removed() }).toEqual({ created: [OTHER], removed: [`session:${WORFY}`] }))
+    await settle()
+    expect(historyOf(PROJECT).size).toBe(1)
+
+    applied.length = 0
+    expect(await historyOf(PROJECT).undo()).toBe(true)
+    expect(applied).toEqual([{ op: 'move', id: 'orch', x: 0, y: 0 }])
+    expect(historyOf(PROJECT).canUndo).toBe(false)
   })
 
   describe('a focus request from the sidebar', () => {
