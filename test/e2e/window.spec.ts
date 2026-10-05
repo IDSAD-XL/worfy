@@ -1,8 +1,12 @@
+import { once } from 'node:events'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { launchApp } from './helpers'
+
+// Electron helper processes may still hold files in a directory for a moment after the app exits.
+const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
 test('the window has no system title bar: traffic lights sit inset in the toolbar', async () => {
   const launched = await launchApp()
@@ -51,7 +55,7 @@ test('the window position and size survive a restart', async () => {
       await second.close()
     }
   } finally {
-    await rm(dataDir, { recursive: true, force: true })
+    await removeDir(dataDir)
   }
 })
 
@@ -66,6 +70,7 @@ test('a moved or resized window is saved at once, without waiting for the window
       return undefined
     }
   }
+  const appProcess = launched.app.process()
   try {
     await expect(launched.window.getByTestId('app-shell')).toBeVisible()
     // animate: true makes macOS report the change as a finished move/resize ('moved', 'resized'),
@@ -75,13 +80,17 @@ test('a moved or resized window is saved at once, without waiting for the window
     }, wanted)
     await expect.poll(readSaved, { timeout: 5_000 }).toEqual({ bounds: wanted })
     // A crash or a kill skips the 'close' event: what is on disk is all that survives.
-    launched.app.process().kill('SIGKILL')
+    // Listen before the kill: an 'exit' that has already fired would never resolve once().
+    const exited = once(appProcess, 'exit')
+    appProcess.kill('SIGKILL')
+    await exited
     expect(await readSaved()).toEqual({ bounds: wanted })
   } finally {
-    if (launched.app.process().exitCode === null && !launched.app.process().killed) {
+    // Still running only when the test failed before the kill.
+    if (appProcess.exitCode === null && appProcess.signalCode === null) {
       await launched.app.close()
     }
-    await rm(launched.dataDir, { recursive: true, force: true })
-    await rm(launched.claudeHome, { recursive: true, force: true })
+    await removeDir(launched.dataDir)
+    await removeDir(launched.claudeHome)
   }
 })

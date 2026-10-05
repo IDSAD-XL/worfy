@@ -140,3 +140,17 @@ Source: [F-SPEC.md](../../../docs/design/F-SPEC.md), разделы «Typography
 не проверено: переключение темы в «Системных настройках» macOS — менять системные настройки
 автоматически нельзя; проверен тот же путь через `nativeTheme.themeSource`, который Electron
 передаёт в `prefers-color-scheme` так же, как системную настройку.
+
+Круг исправления по ревью (тесты, `test/e2e/window.spec.ts`):
+
+- Третий тест убивал процесс `SIGKILL` и не ждал его выхода: в `finally` проверка
+  `process().killed` уже была истинной, `app.close()` пропускался, и `rm(dataDir)` мог идти, пока
+  вспомогательные процессы Electron ещё пишут в каталог (ENOTEMPTY/EBUSY на медленной машине).
+  Теперь тест подписывается на `exit` до `kill` и ждёт его (`once(appProcess, 'exit')`), а
+  `app.close()` в `finally` вызывается, только если процесс ещё жив (`exitCode` и `signalCode`
+  равны `null` — тест упал до `kill`).
+- Временные каталоги в `window.spec.ts` удаляются с повторами:
+  `rm(..., { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })`.
+- Проверка: `playwright test test/e2e/window.spec.ts --repeat-each 10` — 30 из 30 зелёные.
+  Первый полный `pnpm test:e2e` в этом круге упал на `launch.spec.ts` (первый запуск приложения
+  не уложился в 60 с, тест не из этого тикета); повторный полный прогон — 12 из 12 зелёные.
