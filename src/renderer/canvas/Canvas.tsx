@@ -87,7 +87,7 @@ function Flow({ projectId, state }: FlowProps) {
   const ops: LayoutOps = useMemo(
     () => ({
       apply(op: LayoutOpInput) {
-        void applyLayoutOp(projectId, op).then((error) => {
+        return applyLayoutOp(projectId, op).then((error) => {
           // Refused: put the Nodes back where main has them.
           if (error !== undefined) setNodes((current) => toFlowNodes(latest.current.nodes, current.map((node) => ({ ...node, dragging: false, resizing: false }))))
         })

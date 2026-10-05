@@ -77,11 +77,15 @@ export async function applyLayoutOp(projectId: string, op: LayoutOpInput): Promi
 
 /** What a Node component uses to change its own entry in the Layout. */
 export interface LayoutOps {
-  apply(op: LayoutOpInput): void
+  /** Resolves once main has answered, whether it applied the operation or refused it. */
+  apply(op: LayoutOpInput): Promise<void>
 }
 
 export const LayoutOpsContext = createContext<LayoutOps>({
-  apply: (op) => console.error(`layout operation ${op.op} sent outside a Canvas`),
+  apply: (op) => {
+    console.error(`layout operation ${op.op} sent outside a Canvas`)
+    return Promise.resolve()
+  },
 })
 
 export function useLayoutOps(): LayoutOps {

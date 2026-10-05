@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { NodeResizer } from '@xyflow/react'
 import type { CanvasNodeProps } from './index'
 import { useLayoutOps } from '../useLayout'
@@ -19,22 +19,33 @@ export default function NoteNode({ id, data, selected }: CanvasNodeProps) {
   // What was typed and not yet sent to main; undefined when main has everything.
   const unsent = useRef<string | undefined>(undefined)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  // Sends main has not answered yet. An answer to an earlier send can arrive after newer typing
+  // went out, and its text is older than what the textarea shows.
+  const inFlight = useRef(0)
+  // Bumped when the last send in flight is answered, so text from main that was held back while
+  // sends were on their way is taken then.
+  const [settled, setSettled] = useState(0)
 
   const send = useCallback(() => {
     clearTimeout(timer.current)
     timer.current = undefined
     const value = unsent.current
     unsent.current = undefined
-    if (value !== undefined) ops.apply({ op: 'patchData', id, data: { text: value } })
+    if (value === undefined) return
+    inFlight.current += 1
+    void ops.apply({ op: 'patchData', id, data: { text: value } }).finally(() => {
+      inFlight.current -= 1
+      if (inFlight.current === 0) setSettled((count) => count + 1)
+    })
   }, [ops, id])
 
   // A change that arrives from main replaces the text, unless the user has typed something that
-  // is not sent yet. The textarea is not remounted, so an echo of what was typed keeps the focus
-  // and the caret.
+  // is not sent yet or a send is still unanswered; then it waits until the last send is answered.
+  // The textarea is not remounted, so an echo of what was typed keeps the focus and the caret.
   useEffect(() => {
     const element = textarea.current
-    if (element && unsent.current === undefined && element.value !== text) element.value = text
-  }, [text])
+    if (element && unsent.current === undefined && inFlight.current === 0 && element.value !== text) element.value = text
+  }, [text, settled])
 
   // Typing is sent after a short pause, on blur, and when the window goes away: quitting the app
   // with the focus still in the note fires no blur, and main saves only what it has received.
