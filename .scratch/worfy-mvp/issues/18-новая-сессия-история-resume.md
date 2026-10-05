@@ -1,7 +1,7 @@
 # 18 — Сессии из worfy: новая Сессия — новый Узел, история Проекта, Resume завершённой
 
 Type: task
-Status: blocked — blocked by 14
+Status: open
 Blocked by: 14
 Source: [CONTEXT.md](../../../CONTEXT.md), термин «Сессия»; [spec.md](../spec.md), этап 3
 

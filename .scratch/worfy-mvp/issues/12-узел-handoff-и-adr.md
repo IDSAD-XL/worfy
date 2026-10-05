@@ -1,7 +1,7 @@
 # 12 — Узел HANDOFF и список ADR: живой markdown из репозитория, только для чтения
 
 Type: task
-Status: blocked — blocked by 05, 33
+Status: open
 Blocked by: 05, 33
 Source: [CONTEXT.md](../../../CONTEXT.md), термин «HANDOFF»; [BRIEF.md](../../../docs/design/BRIEF.md), Screen 1 пункт 4 и sidebar «ADR»
 
