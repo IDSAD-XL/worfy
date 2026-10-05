@@ -1,0 +1,324 @@
+// The Terminal through the `terminal.*` IPC channels, on a real pseudo-terminal (node-pty under
+// Electron's Node, ELECTRON_RUN_AS_NODE=1): open, input, output, resize, close, and that no shell
+// process outlives its Node, its window or the app.
+import { EventEmitter } from 'node:events'
+import { mkdtemp, realpath, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { IpcMainInvokeEvent } from 'electron'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { SYSTEM_PATH } from '../../src/main/agent/env'
+import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
+import { terminalHandlers, terminalKey } from '../../src/main/ipc/terminal'
+import { clampSize, ReplayBuffer, REPLAY_LIMIT, terminalEnv, TerminalRegistry } from '../../src/main/terminal/pty'
+import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+
+vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
+
+const APP_URL = 'file:///Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
+const PROJECT = 'demo-00000001'
+const NODE = 'node-1'
+
+type Listener = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
+interface OpenResult {
+  pid: number
+  shell: string
+  replay: string
+  end: number
+  started: boolean
+}
+interface Output {
+  projectId: string
+  nodeId: string
+  data: string
+  end: number
+}
+interface Exit {
+  projectId: string
+  nodeId: string
+  exitCode: number
+  signal: number | null
+}
+
+let root: string
+let home: string
+const registries: TerminalRegistry[] = []
+
+beforeEach(async () => {
+  root = await realpath(await mkdtemp(join(tmpdir(), 'worfy-terminal-project-')))
+  home = await realpath(await mkdtemp(join(tmpdir(), 'worfy-terminal-home-')))
+})
+
+afterEach(async () => {
+  // A failed test must not leave shells behind either.
+  await Promise.all(registries.splice(0).map((registry) => registry.closeAll()))
+  await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+})
+
+/** True while a process with this pid exists (a reaped child is gone). */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+async function harness(options: { killGraceMs?: number; nodes?: string[] } = {}) {
+  const registry = new TerminalRegistry({
+    // /bin/sh with an empty HOME: no rc file of the machine running the tests takes part.
+    env: () => Promise.resolve({ SHELL: '/bin/sh', PATH: SYSTEM_PATH, HOME: home, PS1: '$ ', PWD: '/somewhere/else', SHLVL: '3' }),
+    killGraceMs: options.killGraceMs ?? 1000,
+  })
+  registries.push(registry)
+  const nodes = new Set(options.nodes ?? [NODE])
+  const handlers = new Map<string, Listener>()
+  const ipc: IpcMainLike = { handle: (channel, listener) => handlers.set(channel, listener) }
+  const projectRoot = vi.fn((projectId: string) => {
+    if (projectId !== PROJECT) throw new Error(`No Project with id ${projectId}`)
+    return root
+  })
+  await registerIpc(ipc, {
+    modules: {
+      './terminal.ts': () =>
+        Promise.resolve(terminalHandlers({ registry: () => registry, projectRoot, isTerminalNode: (projectId, nodeId) => projectId === PROJECT && nodes.has(nodeId) })),
+    },
+    isTrustedSender: (url) => url === APP_URL,
+  })
+
+  const outputs: Output[] = []
+  const exits: Exit[] = []
+  const makeWindow = () => {
+    const window = Object.assign(new EventEmitter(), {
+      destroyed: false,
+      isDestroyed: () => window.destroyed,
+      send: (channel: string, payload: unknown) => {
+        if (channel === `${IPC_CHANNEL_PREFIX}terminal.output`) outputs.push(payload as Output)
+        else if (channel === `${IPC_CHANNEL_PREFIX}terminal.exit`) exits.push(payload as Exit)
+        else throw new Error(`unexpected event ${channel}`)
+      },
+      destroy: () => {
+        window.destroyed = true
+        window.emit('destroyed')
+      },
+    })
+    return window
+  }
+  const sender = makeWindow()
+  const call = async (channel: string, input?: unknown, from: ReturnType<typeof makeWindow> = sender): Promise<IpcResult<unknown>> => {
+    const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
+    if (!listener) throw new Error(`no handler for ${channel}`)
+    const event = { senderFrame: { url: APP_URL }, sender: from } as unknown as IpcMainInvokeEvent
+    return (await listener(event, input)) as IpcResult<unknown>
+  }
+  const ok = async <T>(channel: string, input?: unknown, from?: ReturnType<typeof makeWindow>): Promise<T> => {
+    const result = await call(channel, input, from)
+    if (!result.ok) throw new Error(result.error)
+    return result.value as T
+  }
+  const text = (nodeId = NODE) =>
+    outputs
+      .filter((o) => o.nodeId === nodeId)
+      .map((o) => o.data)
+      .join('')
+  const open = (nodeId = NODE, size = { cols: 80, rows: 24 }, from?: ReturnType<typeof makeWindow>) =>
+    ok<OpenResult>('terminal.open', { projectId: PROJECT, nodeId, ...size }, from)
+  const type = (data: string, nodeId = NODE) => ok('terminal.input', { projectId: PROJECT, nodeId, data })
+  /** Runs a command and waits for the line its output starts with. */
+  const run = async (command: string, expected: RegExp, nodeId = NODE) => {
+    await type(`${command}\r`, nodeId)
+    await vi.waitFor(() => expect(text(nodeId)).toMatch(expected), { timeout: 5000 })
+  }
+  return { registry, call, ok, open, type, run, text, outputs, exits, sender, makeWindow, nodes, projectRoot }
+}
+
+describe('terminal channels on a real pty', () => {
+  it('terminal.close ends the shell: its pid is gone and an exit event follows', async () => {
+    const h = await harness()
+    const { pid } = await h.open()
+    expect(alive(pid)).toBe(true)
+
+    await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+
+    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5000 })
+    await vi.waitFor(() => expect(h.exits).toHaveLength(1))
+    expect(h.exits[0]).toMatchObject({ projectId: PROJECT, nodeId: NODE })
+    expect(h.registry.has(terminalKey(PROJECT, NODE))).toBe(false)
+    // Closing again is not an error.
+    await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+  })
+
+  it('open starts $SHELL -l in the Project root with TERM_PROGRAM=worfy; input reaches it, output comes back', async () => {
+    const h = await harness()
+    const opened = await h.open()
+    expect(opened).toStrictEqual({ pid: opened.pid, shell: 'sh', replay: '', end: 0, started: true })
+
+    await h.run('echo "cwd=$(pwd)"', new RegExp(`cwd=${root}\\r?\\n`))
+    await h.run('echo "tp=$TERM_PROGRAM term=$TERM"', /tp=worfy term=xterm-256color\r?\n/)
+    // An interactive login shell: started as `$SHELL -l` on a terminal.
+    await h.run('echo "args=$(ps -o args= -p $$)"', /args=\/bin\/sh -l\r?\n/)
+    await h.run('case $- in *i*) echo interactive=yes;; esac', /interactive=yes\r?\n/)
+    await h.run('echo "pwdvar=$PWD shlvl=$SHLVL"', new RegExp(`pwdvar=${root} shlvl=1\\r?\\n`))
+    // Every chunk carries the running length of all output.
+    let total = 0
+    for (const output of h.outputs) {
+      total += output.data.length
+      expect(output.end).toBe(total)
+    }
+  })
+
+  it('resize changes the size of the pty, clamped to 20–500 columns and 5–300 rows', async () => {
+    const h = await harness()
+    await h.open(NODE, { cols: 90, rows: 30 })
+    await h.run('echo "size=$(tput cols)x$(tput lines)"', /size=90x30\r?\n/)
+
+    await h.ok('terminal.resize', { projectId: PROJECT, nodeId: NODE, cols: 132, rows: 40 })
+    await h.run('echo "after=$(tput cols)x$(tput lines)"', /after=132x40\r?\n/)
+
+    await h.ok('terminal.resize', { projectId: PROJECT, nodeId: NODE, cols: 3, rows: 1 })
+    await h.run('echo "small=$(tput cols)x$(tput lines)"', /small=20x5\r?\n/)
+  })
+
+  it('a second open attaches to the running shell and replays its output', async () => {
+    const h = await harness()
+    const first = await h.open()
+    await h.run('echo mark""er-one', /marker-one\r?\n/)
+
+    const other = h.makeWindow()
+    const second = await h.open(NODE, { cols: 80, rows: 24 }, other)
+    expect(second.started).toBe(false)
+    expect(second.pid).toBe(first.pid)
+    expect(second.replay).toContain('marker-one')
+    expect(second.end).toBe(h.outputs.at(-1)?.end)
+    expect(second.replay).toBe(h.text())
+  })
+
+  it('the window that opened a terminal going away ends its shell', async () => {
+    const h = await harness({ nodes: [NODE, 'node-2'] })
+    const window = h.makeWindow()
+    const { pid } = await h.open(NODE, { cols: 80, rows: 24 }, window)
+    const { pid: otherPid } = await h.open('node-2')
+
+    window.destroy()
+
+    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5000 })
+    expect(alive(otherPid)).toBe(true)
+  })
+
+  it('closeAll (the app quitting) ends every shell and resolves once they are gone', async () => {
+    const h = await harness({ nodes: ['a', 'b', 'c'] })
+    const pids = await Promise.all(['a', 'b', 'c'].map(async (id) => (await h.open(id)).pid))
+    expect(pids.every(alive)).toBe(true)
+
+    await h.registry.closeAll()
+
+    expect(pids.map(alive)).toEqual([false, false, false])
+    expect(h.registry.size).toBe(0)
+  })
+
+  it('a shell that ignores SIGHUP is killed after the grace period', async () => {
+    const h = await harness({ killGraceMs: 300 })
+    const { pid } = await h.open()
+    await h.run(`trap '' HUP; echo trap""ped`, /trapped\r?\n/)
+
+    await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+
+    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5000 })
+  })
+
+  it('the shell exiting on its own reports its exit code and frees the Node for a new shell', async () => {
+    const h = await harness()
+    const { pid } = await h.open()
+    await h.type('exit 3\r')
+    await vi.waitFor(() => expect(h.exits).toEqual([{ projectId: PROJECT, nodeId: NODE, exitCode: 3, signal: null }]), { timeout: 5000 })
+    expect(alive(pid)).toBe(false)
+
+    const again = await h.open()
+    expect(again.started).toBe(true)
+    expect(again.pid).not.toBe(pid)
+  })
+})
+
+describe('terminal channels at the IPC boundary', () => {
+  it('refuses input of the wrong type and starts nothing', async () => {
+    const h = await harness()
+    for (const input of [
+      { projectId: PROJECT, nodeId: NODE, cols: '80', rows: 24 },
+      { projectId: PROJECT, nodeId: NODE, cols: 80.5, rows: 24 },
+      { projectId: PROJECT, nodeId: 7, cols: 80, rows: 24 },
+      { projectId: PROJECT, cols: 80, rows: 24 },
+    ]) {
+      const result = await h.call('terminal.open', input)
+      expect(result.ok).toBe(false)
+      expect(!result.ok && result.error).toMatch(/invalid input/)
+    }
+    expect(h.registry.size).toBe(0)
+    expect(h.projectRoot).not.toHaveBeenCalled()
+
+    const input = await h.call('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 42 })
+    expect(input.ok).toBe(false)
+    const resize = await h.call('terminal.resize', { projectId: PROJECT, nodeId: NODE, cols: -1, rows: 10 })
+    expect(resize.ok).toBe(false)
+  })
+
+  it('drops keys the contract does not declare: a `cwd` from the renderer does not move the shell', async () => {
+    const h = await harness()
+    const elsewhere = await realpath(tmpdir())
+    const opened = await h.ok<OpenResult>('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24, cwd: elsewhere, shell: '/bin/bash' })
+    expect(Object.keys(opened).sort()).toEqual(['end', 'pid', 'replay', 'shell', 'started'])
+    expect(opened.shell).toBe('sh')
+    await h.run('echo "cwd=$(pwd)"', new RegExp(`cwd=${root}\\r?\\n`))
+    for (const output of h.outputs) expect(Object.keys(output).sort()).toEqual(['data', 'end', 'nodeId', 'projectId'])
+  })
+
+  it('refuses a Node that is not a Terminal Node of the Project, and an unknown Project', async () => {
+    const h = await harness()
+    const notTerminal = await h.call('terminal.open', { projectId: PROJECT, nodeId: 'note-1', cols: 80, rows: 24 })
+    expect(!notTerminal.ok && notTerminal.error).toMatch(/not a Terminal Node/)
+    const unknown = await h.call('terminal.open', { projectId: 'other-00000002', nodeId: NODE, cols: 80, rows: 24 })
+    expect(!unknown.ok && unknown.error).toMatch(/No Project/)
+    expect(h.registry.size).toBe(0)
+  })
+
+  it('input to a terminal that is not running is refused', async () => {
+    const h = await harness()
+    const result = await h.call('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'ls\r' })
+    expect(!result.ok && result.error).toMatch(/not running/)
+  })
+})
+
+describe('pty helpers', () => {
+  it('clampSize keeps the size within 20–500 × 5–300', () => {
+    expect(clampSize(1, 1)).toEqual({ cols: 20, rows: 5 })
+    expect(clampSize(80, 24)).toEqual({ cols: 80, rows: 24 })
+    expect(clampSize(9000, 9000)).toEqual({ cols: 500, rows: 300 })
+  })
+
+  it('ReplayBuffer keeps the last 256 KB and the running length', () => {
+    const buffer = new ReplayBuffer()
+    buffer.push('a'.repeat(REPLAY_LIMIT - 10))
+    buffer.push('b'.repeat(20))
+    expect(buffer.end).toBe(REPLAY_LIMIT + 10)
+    const kept = buffer.text()
+    expect(kept).toHaveLength(REPLAY_LIMIT)
+    expect(kept.endsWith('b'.repeat(20))).toBe(true)
+    expect(kept.startsWith('a')).toBe(true)
+  })
+
+  it('terminalEnv keeps the login shell environment, sets the terminal variables and the Project root', () => {
+    const env = terminalEnv({ PATH: '/opt/bin:/usr/bin', HOME: '/Users/u', PWD: '/old', OLDPWD: '/older', SHLVL: '2', _: '/usr/bin/env', MY_VAR: 'x' }, '/repo')
+    expect(env).toStrictEqual({
+      PATH: '/opt/bin:/usr/bin',
+      HOME: '/Users/u',
+      MY_VAR: 'x',
+      PWD: '/repo',
+      TERM: 'xterm-256color',
+      COLORTERM: 'truecolor',
+      TERM_PROGRAM: 'worfy',
+      LANG: 'en_US.UTF-8',
+    })
+    expect(terminalEnv({ LANG: 'ru_RU.UTF-8' }, '/repo').LANG).toBe('ru_RU.UTF-8')
+  })
+})
