@@ -20,7 +20,7 @@ import { Orchestrators } from './orchestrator'
 import { readTranscriptFacts } from './orchestrator-transcript'
 
 /** Sends one event to every live window; a window that fails does not stop the others. */
-function toEveryWindow(send: (target: WebContents) => void): void {
+export function toEveryWindow(send: (target: WebContents) => void): void {
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isDestroyed() || window.webContents.isDestroyed()) continue
     try {

@@ -1,20 +1,41 @@
-import type { CSSProperties } from 'react'
+import { useState, type CSSProperties } from 'react'
 import type { ProjectView } from '../../../shared/ipc/projects'
 import { applyLayoutOp, useLayout } from '../../canvas/useLayout'
 import { focusSessionNode } from '../../claude-home/focus'
 import { sessionNodeId, sessionStatus } from '../../claude-home/session-nodes'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
+import { invoke } from '../../ipc'
 import { activeProject, useProjects } from '../../projects/useProjects'
+import { HistoryPopover } from '../../session/HistoryPopover'
 import { setView } from '../../session/navigation'
 import { StatusChip } from '../../theme/primitives'
 
-/** The live Sessions of the active Project, wherever they were started (design F, sidebar «Sessions»). */
+/**
+ * The live Sessions of the active Project, wherever they were started (design F, sidebar «Sessions»),
+ * "New session" (a new live Session Node in the Project's root, ticket 18) and the Project's history
+ * (session/HistoryPopover.tsx).
+ */
 export const order = 30
 
 const styles = {
-  header: { display: 'flex', alignItems: 'center', gap: 6, height: 24, padding: '0 8px' },
+  header: { display: 'flex', alignItems: 'center', gap: 4, height: 24, padding: '0 8px', minWidth: 0, overflow: 'hidden' },
   heading: { margin: 0, fontSize: 'var(--text-11)', lineHeight: '14px', fontWeight: 600, color: 'var(--text-muted)' },
-  count: { fontSize: 'var(--text-11)', color: 'var(--text-secondary)' },
+  count: { fontSize: 'var(--text-11)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' },
+  spacer: { flex: 1 },
+  action: {
+    flex: 'none',
+    padding: '0 2px',
+    border: 0,
+    borderRadius: 'var(--radius-button)',
+    background: 'transparent',
+    color: 'var(--text-secondary)',
+    font: 'inherit',
+    fontSize: 'var(--text-11)',
+    lineHeight: '16px',
+    whiteSpace: 'nowrap',
+    cursor: 'pointer',
+  },
+  anchor: { position: 'relative' },
   list: { margin: 0, padding: 0, listStyle: 'none' },
   message: { margin: '2px 8px 4px', fontSize: 'var(--text-12)', lineHeight: '16px', color: 'var(--text-muted)', overflowWrap: 'anywhere' },
   row: {
@@ -41,6 +62,19 @@ const styles = {
 function Sessions({ project }: { project: ProjectView }) {
   const { live, history, error } = useClaudeHome(project.path)
   const layout = useLayout(project.id).state
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+
+  const newSession = async () => {
+    setProblem(null)
+    const result = await invoke('sessions.new', { projectId: project.id })
+    if (!result.ok) {
+      setProblem(result.error)
+      return
+    }
+    setView('canvas')
+    focusSessionNode(project.id, result.value.nodeId)
+  }
 
   // The Node of a Session: the one that names it (worfy's own, e.g. the Orchestrator), else its Session Node.
   const nodeOf = (sessionId: string) => layout?.layout.nodes.find((node) => node.data.sessionId === sessionId) ?? layout?.layout.nodes.find((node) => node.id === sessionNodeId(sessionId))
@@ -83,13 +117,26 @@ function Sessions({ project }: { project: ProjectView }) {
     )
 
   return (
-    <section aria-label="Sessions">
+    <section aria-label="Sessions" style={styles.anchor}>
       <div style={styles.header}>
         <h2 style={styles.heading}>Sessions</h2>
         <span style={styles.count} data-testid="sidebar-sessions-live">
           {live?.length ?? 0} live
         </span>
+        <span style={styles.spacer} />
+        <button type="button" style={styles.action} data-testid="sidebar-new-session" title="A new Session in the Project's root" onClick={() => void newSession()}>
+          New session
+        </button>
+        <button type="button" style={styles.action} data-testid="sidebar-history" aria-expanded={historyOpen} onClick={() => setHistoryOpen((open) => !open)}>
+          History
+        </button>
       </div>
+      {problem !== null ? (
+        <p style={styles.message} role="alert">
+          {problem}
+        </p>
+      ) : null}
+      {historyOpen ? <HistoryPopover project={project} onClose={() => setHistoryOpen(false)} /> : null}
       {body}
     </section>
   )

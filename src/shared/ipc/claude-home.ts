@@ -47,6 +47,8 @@ export const historySessionSchema = z.object({
   cwd: z.string().optional(),
   /** Branch of the last record that names one. */
   gitBranch: z.string().optional(),
+  /** Where it was started, as the first record that names it says: `cli`, `claude-desktop`, `sdk-ts`, … */
+  entrypoint: z.string().optional(),
   /** File size in bytes and modification time in ms, for sorting and change detection. */
   size: z.number(),
   modifiedAt: z.number(),

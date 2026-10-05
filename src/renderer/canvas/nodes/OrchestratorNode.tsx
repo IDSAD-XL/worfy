@@ -1,6 +1,7 @@
-import type { CSSProperties } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { NodeResizer } from '@xyflow/react'
 import type { ORCHESTRATOR_HEIGHT, ORCHESTRATOR_KIND, ORCHESTRATOR_WIDTH } from '../../../shared/ipc/orchestrator'
+import { invoke } from '../../ipc'
 import { openSession } from '../../session/navigation'
 import { formatCost, STATE_CHIPS } from '../../session/format'
 import { StatusChip } from '../../theme/primitives'
@@ -13,7 +14,8 @@ import { useOrchestratorView } from './orchestrator-view'
 // cost and the last status block of the Session's answers, verbatim — is main's view of the
 // Orchestrator (src/main/agent/orchestrator.ts), asked for once and then followed on
 // `orchestrator.changed` (orchestrator-view.ts). A double click opens the Session view on its
-// Session (src/renderer/session/SessionView.tsx).
+// Session (src/renderer/session/SessionView.tsx). "New conversation" (ticket 18) sends the current
+// Session to the history and makes a new one the Orchestrator; it waits for the turn to end.
 //
 // main creates the Node with the kind and size of src/shared/ipc/orchestrator.ts. The registry
 // (index.ts) needs them here as literals (fast refresh accepts no other constant exports);
@@ -60,12 +62,33 @@ const styles = {
     cursor: 'text',
   },
   empty: { padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--text-12)', color: 'var(--text-muted)' },
+  tool: {
+    padding: '0 4px',
+    border: 0,
+    borderRadius: 'var(--radius-button)',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    font: 'inherit',
+    fontSize: 'var(--text-11)',
+    cursor: 'pointer',
+  },
+  problem: { padding: '0 var(--space-3)', fontSize: 'var(--text-11)', color: 'var(--text-secondary)', overflowWrap: 'anywhere' },
 } satisfies Record<string, CSSProperties>
 
 export default function OrchestratorNode({ id, selected }: CanvasNodeProps) {
   const ops = useLayoutOps()
   const view = useOrchestratorView(id)
   const chip = STATE_CHIPS[view?.state ?? 'starting']
+  const busy = view?.state === 'busy'
+  const [problem, setProblem] = useState<string | null>(null)
+
+  const newConversation = () => {
+    if (!view) return
+    setProblem(null)
+    void invoke('orchestrator.newConversation', { projectId: view.projectId }).then((result) => {
+      if (!result.ok) setProblem(result.error)
+    })
+  }
 
   return (
     <div
@@ -88,7 +111,23 @@ export default function OrchestratorNode({ id, selected }: CanvasNodeProps) {
         <span data-testid="orchestrator-state" title={view?.error ?? undefined}>
           <StatusChip status={chip.status} label={chip.label} />
         </span>
+        <button
+          type="button"
+          className="nodrag"
+          style={styles.tool}
+          data-testid="orchestrator-new-conversation"
+          disabled={!view || busy}
+          title={busy ? 'Interrupt the turn first' : 'Send this Session to the history and start a new one'}
+          onClick={newConversation}
+        >
+          New conversation
+        </button>
       </div>
+      {problem !== null ? (
+        <div style={styles.problem} role="alert">
+          {problem}
+        </div>
+      ) : null}
       <div style={styles.meta}>
         <span className="w-mono" data-testid="orchestrator-model">
           {view?.model ?? '—'}

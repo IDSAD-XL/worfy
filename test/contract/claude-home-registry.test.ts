@@ -316,6 +316,8 @@ describe('Session history', () => {
     expect(byId.get(S2)).toMatchObject({ title: 'Synthetic custom title two' })
     expect(byId.get(S4)).toMatchObject({ title: 'Ship demo-epic 07', cwd: WORKTREE_07, gitBranch: 'demo-epic/07' })
     expect(byId.get(S5)).toMatchObject({ title: 'Synthetic wave run' })
+    // Where each was started, for the history (ticket 18): the first record that names it.
+    expect([S1, S2, S4, S5].map((id) => byId.get(id)?.entrypoint)).toEqual(['claude-desktop', 'cli', 'cli', 'claude-desktop'])
     for (const entry of byId.values()) {
       expect(entry.size).toBeGreaterThan(0)
       expect(entry.modifiedAt).toBeGreaterThan(0)

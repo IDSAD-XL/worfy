@@ -1,0 +1,258 @@
+// Sessions worfy runs on Session Nodes (ticket 18; contract in src/shared/ipc/sessions.ts).
+//
+// "New session" places a new live Node and starts a new Session in the Project's root. Resume
+// continues a finished Session on the Session Node that names it — a read-only Node of ticket 14
+// becomes live — or on a new Node, in the cwd the rule of Resume (resume.ts) gives. The Node's data
+// keeps `origin: 'worfy'` and the SDK session id once Claude Code reports it (ADR-0010); the rest
+// lives in memory as the Node's view and goes to the windows on `sessions.changed`.
+//
+// Like the Orchestrator, these Sessions belong to the app, not to a window: their events go to
+// every window, and they stop when the app quits (app-registry.ts).
+import type { AgentEvent } from '../../shared/agent/events'
+import type { LiveSession } from '../../shared/ipc/claude-home'
+import { LIVE_SESSION_HEIGHT, LIVE_SESSION_WIDTH, SESSION_NODE_KIND, type ResumeVerdict, type SessionNodeView } from '../../shared/ipc/sessions'
+import type { LayoutNode, LayoutOpInput, LayoutState } from '../../shared/layout/types'
+import { placeNewNode } from '../layout/place'
+import { closeRefusal, resumeVerdict } from './resume'
+import type { EventSink, Session, SessionRegistry } from './session'
+
+export interface NodeSessionsDeps {
+  layout: {
+    get(projectId: string): LayoutState
+    apply(projectId: string, op: LayoutOpInput): LayoutState
+  }
+  /** The Project's repository root; throws for a Project that is not in the list. */
+  projectPath(projectId: string): string
+  registry: Pick<SessionRegistry, 'start' | 'list'>
+  /** What the Claude home knows of the Project's Sessions: live processes and each transcript's cwd. */
+  claude(projectRoot: string): Promise<{ live: readonly LiveSession[]; history: readonly { sessionId: string; cwd?: string | undefined }[] }>
+  isDirectory(path: string): Promise<boolean>
+  /** Gets every event of every Session here, e.g. to send it to the windows. */
+  broadcast: EventSink
+  /** Gets every new view, e.g. to send it to the windows. */
+  publish(view: SessionNodeView): void
+}
+
+/** One Session started for a Node. */
+interface Run {
+  projectId: string
+  nodeId: string
+  session: Session | null
+  /** The SDK session: resumed, or reported by Claude Code. */
+  sdkSessionId: string | null
+}
+
+/** Data of a Session Node that worfy runs. */
+const isWorfyNode = (node: LayoutNode): boolean => node.kind === SESSION_NODE_KIND && node.data.origin === 'worfy'
+
+export class NodeSessions {
+  /** The current run of each Node, while its Session is not closed. */
+  private readonly runs = new Map<string, Run>()
+  /** The last view of each Node that ran a Session in this run of the app. */
+  private readonly views = new Map<string, SessionNodeView>()
+  private version = 0
+
+  constructor(private readonly deps: NodeSessionsDeps) {}
+
+  /** A new Node, placed where it covers no other, with a new Session in the Project's root. */
+  create(projectId: string): SessionNodeView {
+    const root = this.deps.projectPath(projectId)
+    const { layout } = this.deps.layout.get(projectId)
+    const { x, y } = placeNewNode(layout.nodes, { w: LIVE_SESSION_WIDTH, h: LIVE_SESSION_HEIGHT })
+    const before = new Set(layout.nodes.map((node) => node.id))
+    const after = this.deps.layout.apply(projectId, {
+      op: 'create',
+      node: { kind: SESSION_NODE_KIND, x, y, w: LIVE_SESSION_WIDTH, h: LIVE_SESSION_HEIGHT, data: { origin: 'worfy' } },
+    })
+    const created = after.layout.nodes.find((node) => !before.has(node.id))
+    if (!created) throw new Error(`the Session Node of ${projectId} was not created`)
+    return this.launch(projectId, created.id, root, undefined)
+  }
+
+  /** Starts the Session behind a worfy Node that runs none: its saved session resumed, or a new one. */
+  async start(projectId: string, nodeId: string): Promise<SessionNodeView> {
+    const running = this.running(nodeId)
+    if (running) return running
+    const root = this.deps.projectPath(projectId)
+    const node = this.deps.layout.get(projectId).layout.nodes.find((each) => each.id === nodeId)
+    if (!node || !isWorfyNode(node)) throw new Error(`${nodeId} is not a Session Node of worfy`)
+    const saved = node.data.sessionId
+    if (typeof saved !== 'string' || saved === '') return this.launch(projectId, nodeId, root, undefined)
+    return this.resumeOn(projectId, root, node, saved)
+  }
+
+  /** Continues a finished Session on the Session Node that names it, or on a new one. */
+  async resume(projectId: string, sessionId: string): Promise<SessionNodeView> {
+    const root = this.deps.projectPath(projectId)
+    const node = this.deps.layout.get(projectId).layout.nodes.find((each) => each.kind === SESSION_NODE_KIND && each.data.sessionId === sessionId)
+    if (node) {
+      const running = this.running(node.id)
+      if (running) return running
+    }
+    return this.resumeOn(projectId, root, node, sessionId)
+  }
+
+  /** The verdict of Resume for each Session: one read of the Claude home for all of them. */
+  async resumable(projectId: string, sessionIds: readonly string[]): Promise<Record<string, ResumeVerdict>> {
+    const root = this.deps.projectPath(projectId)
+    const claude = await this.deps.claude(root)
+    const running = this.runningIds()
+    const verdicts: Record<string, ResumeVerdict> = {}
+    for (const sessionId of new Set(sessionIds)) {
+      verdicts[sessionId] = await resumeVerdict({
+        sessionId,
+        projectRoot: root,
+        live: claude.live,
+        running,
+        recorded: claude.history.find((each) => each.sessionId === sessionId),
+        isDirectory: this.deps.isDirectory,
+      })
+    }
+    return verdicts
+  }
+
+  /** The views of the Project's Nodes whose Session runs, or ran in this run of the app. */
+  list(projectId: string): SessionNodeView[] {
+    return [...this.views.values()].filter((view) => view.projectId === projectId)
+  }
+
+  /** Closes the Session behind a Node; refused during a turn. */
+  close(nodeId: string): void {
+    const run = this.runs.get(nodeId)
+    const view = this.views.get(nodeId)
+    if (!run || !view) throw new Error(`No live Session on ${nodeId}`)
+    const refusal = closeRefusal(view.state)
+    if (refusal !== null) throw new Error(refusal)
+    run.session?.close()
+  }
+
+  private running(nodeId: string): SessionNodeView | null {
+    const view = this.views.get(nodeId)
+    return this.runs.has(nodeId) && view !== undefined ? view : null
+  }
+
+  /** Every id of every Session worfy runs: the registry's, and the SDK ids of runs not reported yet. */
+  private runningIds(): Set<string> {
+    const ids = new Set(this.deps.registry.list().map((info) => info.sessionId))
+    for (const run of this.runs.values()) if (run.sdkSessionId !== null) ids.add(run.sdkSessionId)
+    return ids
+  }
+
+  private async resumeOn(projectId: string, root: string, node: LayoutNode | undefined, sessionId: string): Promise<SessionNodeView> {
+    const claude = await this.deps.claude(root)
+    const verdict = await resumeVerdict({
+      sessionId,
+      projectRoot: root,
+      live: claude.live,
+      running: this.runningIds(),
+      recorded: claude.history.find((each) => each.sessionId === sessionId),
+      isDirectory: this.deps.isDirectory,
+    })
+    if (!verdict.resumable) throw new Error(verdict.label)
+    return this.launch(projectId, this.liveNode(projectId, node, sessionId), verdict.cwd, sessionId)
+  }
+
+  /**
+   * The id of a worfy Node for the Session: the Node itself when worfy runs it already; a read-only
+   * Node turns into one in place (same id, same place, live size); else a new Node.
+   */
+  private liveNode(projectId: string, node: LayoutNode | undefined, sessionId: string): string {
+    const data = { origin: 'worfy', sessionId }
+    if (node && isWorfyNode(node)) return node.id
+    if (node) {
+      this.deps.layout.apply(projectId, { op: 'remove', id: node.id })
+      this.deps.layout.apply(projectId, {
+        op: 'create',
+        node: {
+          id: node.id,
+          kind: SESSION_NODE_KIND,
+          x: node.x,
+          y: node.y,
+          w: Math.max(node.w, LIVE_SESSION_WIDTH),
+          h: Math.max(node.h, LIVE_SESSION_HEIGHT),
+          hidden: node.hidden,
+          pinned: node.pinned,
+          tags: node.tags,
+          data,
+        },
+      })
+      return node.id
+    }
+    const { layout } = this.deps.layout.get(projectId)
+    const { x, y } = placeNewNode(layout.nodes, { w: LIVE_SESSION_WIDTH, h: LIVE_SESSION_HEIGHT })
+    const before = new Set(layout.nodes.map((each) => each.id))
+    const after = this.deps.layout.apply(projectId, { op: 'create', node: { kind: SESSION_NODE_KIND, x, y, w: LIVE_SESSION_WIDTH, h: LIVE_SESSION_HEIGHT, data } })
+    const created = after.layout.nodes.find((each) => !before.has(each.id))
+    if (!created) throw new Error(`the Session Node of ${sessionId} was not created`)
+    return created.id
+  }
+
+  private launch(projectId: string, nodeId: string, cwd: string, resume: string | undefined): SessionNodeView {
+    const run: Run = { projectId, nodeId, session: null, sdkSessionId: resume ?? null }
+    this.runs.set(nodeId, run)
+    // The registry reports `starting` before start() returns: the view must exist by then.
+    this.setView({ projectId, nodeId, sessionId: `starting-${nodeId}`, sdkSessionId: resume ?? null, state: 'starting', error: null, cwd, model: null })
+    try {
+      run.session = this.deps.registry.start(cwd, resume, (sessionId, event) => this.onEvent(run, sessionId, event))
+    } catch (error) {
+      this.runs.delete(nodeId)
+      this.setView({ ...this.view(nodeId), state: 'error', error: error instanceof Error ? error.message : String(error) })
+      throw error
+    }
+    this.setView({ ...this.view(nodeId), sessionId: run.session.id })
+    return this.view(nodeId)
+  }
+
+  private onEvent(run: Run, sessionId: string, event: AgentEvent): void {
+    if (this.runs.get(run.nodeId) === run) this.apply(run, sessionId, event)
+    try {
+      this.deps.broadcast(sessionId, event)
+    } catch (error) {
+      console.warn('[sessions] could not send an event to the windows', error)
+    }
+  }
+
+  private apply(run: Run, sessionId: string, event: AgentEvent): void {
+    const next = { ...this.view(run.nodeId), sessionId }
+    if (event.type === 'init') {
+      next.sdkSessionId = event.sdkSessionId
+      next.cwd = event.cwd
+      next.model = event.model
+      if (run.sdkSessionId !== event.sdkSessionId) {
+        run.sdkSessionId = event.sdkSessionId
+        this.patch(run, { sessionId: event.sdkSessionId })
+      }
+    } else if (event.type === 'state') {
+      next.state = event.state
+      next.error = event.error
+      if (event.state === 'closed') this.runs.delete(run.nodeId)
+    }
+    this.setView(next)
+  }
+
+  private patch(run: Run, data: Record<string, unknown>): void {
+    try {
+      this.deps.layout.apply(run.projectId, { op: 'patchData', id: run.nodeId, data })
+    } catch (error) {
+      // The Node was removed, or its Project left the list, while the Session still reported.
+      console.warn(`[sessions] could not update the Node ${run.nodeId}`, error)
+    }
+  }
+
+  private view(nodeId: string): SessionNodeView {
+    const view = this.views.get(nodeId)
+    if (view === undefined) throw new Error(`${nodeId} has no view`)
+    return view
+  }
+
+  private setView(view: Omit<SessionNodeView, 'version'>): void {
+    this.version += 1
+    const next: SessionNodeView = { ...view, version: this.version }
+    this.views.set(view.nodeId, next)
+    try {
+      this.deps.publish(next)
+    } catch (error) {
+      console.warn('[sessions] could not send a view to the windows', error)
+    }
+  }
+}

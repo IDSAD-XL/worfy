@@ -5,6 +5,7 @@
 import { stat } from 'node:fs/promises'
 import type { WebContents } from 'electron'
 import { sharedRegistry } from '../agent/app-registry'
+import { closeRefusal } from '../agent/resume'
 import type { EventSink, Session, SessionRegistry } from '../agent/session'
 import { agentClose, agentEvent, agentInterrupt, agentList, agentSend, agentStart } from '../../shared/ipc/agent'
 import { defineHandler, emit, type EventTarget, type HandlerModule } from './index'
@@ -69,7 +70,11 @@ export function agentHandlers(registry: () => SessionRegistry): HandlerModule {
     }),
     defineHandler(agentInterrupt, async ({ sessionId }) => ({ interrupted: await registry().get(sessionId).interrupt() })),
     defineHandler(agentClose, ({ sessionId }) => {
-      registry().get(sessionId).close()
+      const session = registry().get(sessionId)
+      // A turn is interrupted first (ticket 18); closing with the window or the app is not refused.
+      const refusal = closeRefusal(session.state)
+      if (refusal !== null) throw new Error(refusal)
+      session.close()
     }),
     defineHandler(agentList, () => registry().list()),
   ]

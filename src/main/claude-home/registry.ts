@@ -308,6 +308,7 @@ async function historyEntry(path: string, sessionId: string, liveIds: ReadonlySe
     lastAt: lastString(tail, undefined, 'timestamp') ?? lastString(head, undefined, 'timestamp'),
     cwd: firstString(head, 'cwd'),
     gitBranch: lastString(both, undefined, 'gitBranch'),
+    entrypoint: firstString(head, 'entrypoint'),
     size,
     modifiedAt,
     live: liveIds.has(sessionId),

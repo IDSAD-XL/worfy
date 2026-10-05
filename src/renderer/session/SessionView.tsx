@@ -8,6 +8,7 @@ import { promptHistory } from './history'
 import { ExternalSessionPanel } from './ExternalSessionPanel'
 import { MessageInput } from './MessageInput'
 import { useNavigation } from './navigation'
+import { useSessionNodeView } from './node-sessions'
 import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
 import { ensureAgentEvents, recordPrompt, retractPrompt, useSessionLog } from './store'
 import { Transcript } from './Transcript'
@@ -92,7 +93,10 @@ function Interrupt({ onClick, disabled, testId }: { onClick: () => void; disable
 
 /** One Session in full; exported for tests, which pass their own rail blocks. */
 export function SessionPanel({ projectId, projectName, nodeId, blocks }: SessionPanelProps) {
-  const view = useOrchestratorView(nodeId)
+  // The Orchestrator's view, or that of a Session worfy runs on a Session Node (ticket 18).
+  const orchestrator = useOrchestratorView(nodeId)
+  const nodeSession = useSessionNodeView(projectId, nodeId)
+  const view = orchestrator ?? nodeSession
   const sessionId = view?.sessionId ?? null
   const log = useSessionLog(sessionId)
   const events = log.events
@@ -102,6 +106,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const chip = STATE_CHIPS[state]
   const busy = state === 'busy'
   const model = facts.model ?? view?.model ?? null
+  const heading = orchestrator !== undefined || nodeSession === undefined ? 'Orchestrator' : 'Session'
 
   const send = async (text: string): Promise<string | null> => {
     if (sessionId === null) return 'The Session is not running'
@@ -132,7 +137,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
           </svg>
         </span>
         <h1 className="w-session__title">
-          Orchestrator
+          {heading}
           {projectName ? (
             <>
               <span className="w-session__dot"> · </span>
@@ -174,7 +179,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
         <span className="w-session__fact">
           <span className="w-session__fact-label">Cost</span>
           <span className="w-mono w-session__cost" data-testid="session-cost">
-            {view ? formatCost(view.costUsd) : '—'}
+            {orchestrator ? formatCost(orchestrator.costUsd) : '—'}
           </span>
           <span className="w-session__fact-label">this session</span>
         </span>
@@ -184,7 +189,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
       <div className="w-session__body">
         <section className="w-session__main" aria-label="Session">
           <Transcript events={events} firstIndex={log.first} sessionId={sessionId} projectId={projectId} assistantLabel="orch" />
-          <MessageInput key={nodeId} sessionId={sessionId} busy={busy} history={history} recipient="Orchestrator" onSend={send} onInterrupt={interrupt} />
+          <MessageInput key={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} onSend={send} onInterrupt={interrupt} />
         </section>
         <SessionRail blocks={blocks} projectId={projectId} nodeId={nodeId} sessionId={sessionId} />
       </div>
