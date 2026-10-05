@@ -182,10 +182,17 @@ test('New session, New conversation, the history and Resume', async () => {
     // The Canvas is centered on the last new Session; wheel up (the Canvas pans on scroll) to the Orchestrator.
     const pane = await window.locator('.react-flow__pane').boundingBox()
     if (!pane) throw new Error('no Canvas pane')
-    // Over empty Canvas at the left edge: a Node's own scrolling text would take the wheel.
+    // Over empty Canvas at the left edge: a Node's own scrolling text would take the wheel. Pan in
+    // small steps until the button is inside the pane, whatever the size of the screen.
     await window.mouse.move(pane.x + 20, pane.y + pane.height / 2)
-    for (let step = 0; step < 4; step += 1) await window.mouse.wheel(0, -400)
-    await expect(window.getByTestId('orchestrator-node')).toBeInViewport({ ratio: 0.9 })
+    const button = window.getByTestId('orchestrator-new-conversation')
+    for (let step = 0; step < 40; step += 1) {
+      const box = (await button.count()) > 0 ? await button.boundingBox() : null
+      if (box && box.y >= pane.y + 8 && box.y + box.height <= pane.y + pane.height - 8) break
+      await window.mouse.wheel(0, box && box.y > pane.y ? 120 : -120)
+      await window.waitForTimeout(30)
+    }
+    await expect(button).toBeInViewport()
     await messageOrchestrator(window, 'hello')
     await expect.poll(() => orchestratorSessionId(window), { timeout: 10_000 }).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/))
     await expect(window.getByTestId('orchestrator-state')).toHaveText('idle')
