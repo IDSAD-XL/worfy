@@ -6,6 +6,6 @@
     "types": [],
     "tsBuildInfoFile": "./node_modules/.cache/tsconfig.web.tsbuildinfo"
   },
-  "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx", "src/shared/**/*.ts"],
+  "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx", "src/shared/**/*.ts", "src/card-runtime/**/*.ts"],
   "exclude": ["node_modules", "out", ".claude/worktrees/**"]
 }

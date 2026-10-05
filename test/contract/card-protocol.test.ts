@@ -296,6 +296,23 @@ describe('Card store', () => {
     let watching: CardStore
 
     const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms))
+    /**
+     * Waits until the store has reported no change for `quietMs`. FSEvents on macOS may deliver the
+     * events of writes made before the watch started a few hundred ms late (a slow CI runner shows
+     * it); such a late report, read after the test's own write, looked like the test's change.
+     */
+    const settle = async (store: CardStore, quietMs = 700, maxMs = 5000) => {
+      const started = Date.now()
+      let last = started
+      const stop = store.onChange(() => {
+        last = Date.now()
+      })
+      try {
+        while (Date.now() - last < quietMs && Date.now() - started < maxMs) await sleep(50)
+      } finally {
+        stop()
+      }
+    }
     const removeFromList = (id: string) => {
       projects = projects.filter((other) => other !== id)
       for (const listener of projectListeners) listener()
@@ -320,7 +337,7 @@ describe('Card store', () => {
       })
       await watching.info(PROJECT, 'c1')
       await watching.info(OTHER, 'o1')
-      await sleep(300)
+      await settle(watching)
     })
 
     afterEach(async () => {

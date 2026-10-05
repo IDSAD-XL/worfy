@@ -15,9 +15,14 @@
 // 404 with the same headers. Which navigations a Card frame may make is decided here
 // (allowFrameNavigation); the handlers that enforce it, refuse new windows and refuse web
 // permissions belong to the app as a whole (installWebPolicy, src/main/window.ts).
+//
+// Every HTML file a Card serves gets the Card API runtime (src/card-runtime/worfy-card.ts) as an
+// inline script at the start of its <head>, before the Card's own scripts: that is how a Card gets
+// window.worfy (ticket 26). The file on disk is not changed.
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { extname, join, resolve, sep } from 'node:path'
 import { protocol } from 'electron'
+import { installWorfyCard } from '../../card-runtime/worfy-card'
 import { CARD_ID_PATTERN } from '../../shared/ipc/cards'
 import { isProjectIdHash, projectIdHash } from '../projects/store'
 
@@ -75,6 +80,34 @@ export const CARD_CONTENT_TYPES: Readonly<Record<string, string>> = {
   '.mp4': 'video/mp4',
   '.webm': 'video/webm',
 }
+
+/**
+ * The Card API runtime as a script: installWorfyCard's own source, called on the Card's window.
+ * The function is self-contained (src/card-runtime/worfy-card.ts), so its text runs as it is.
+ */
+export const CARD_RUNTIME_SCRIPT = `(${installWorfyCard.toString()})(window);`
+
+if (/<\/script/i.test(CARD_RUNTIME_SCRIPT)) throw new Error('the Card runtime must not contain a closing script tag')
+
+const RUNTIME_TAG = `<script data-worfy-runtime>${CARD_RUNTIME_SCRIPT}</script>`
+
+/**
+ * An HTML document with the runtime at the start of its <head>: right after the <head> tag, else
+ * after <html>, else after the doctype, else at the very start. The browser puts a script found
+ * before <head> into the head it makes, so the runtime runs first whichever way the Card is written.
+ */
+export function injectCardRuntime(html: string): string {
+  for (const pattern of [/<head(?:\s[^>]*)?>/i, /<html(?:\s[^>]*)?>/i, /<!doctype[^>]*>/i]) {
+    const match = pattern.exec(html)
+    if (match) {
+      const end = match.index + match[0].length
+      return html.slice(0, end) + RUNTIME_TAG + html.slice(end)
+    }
+  }
+  return RUNTIME_TAG + html
+}
+
+const isHtml = (file: string): boolean => ['.html', '.htm'].includes(extname(file).toLowerCase())
 
 /** The host part that names a Project: the hash that ends its id (src/main/projects/store.ts), or null when the id has none. */
 export function projectLabel(projectId: string): string | null {
@@ -179,7 +212,9 @@ export function createCardHandler(locate: CardsDirLocator): (request: CardReques
       return notFound()
     }
     const headers = { ...CARD_HEADERS, 'Content-Type': CARD_CONTENT_TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream' }
-    return new Response(request.method === 'HEAD' ? null : new Uint8Array(body), { status: 200, headers })
+    if (request.method === 'HEAD') return new Response(null, { status: 200, headers })
+    const content = isHtml(file) ? new TextEncoder().encode(injectCardRuntime(body.toString('utf8'))) : new Uint8Array(body)
+    return new Response(content, { status: 200, headers })
   }
 }
 

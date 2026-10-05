@@ -7,8 +7,10 @@
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
     "src/shared/**/*.ts",
+    "src/card-runtime/**/*.ts",
     "src/renderer/canvas/epic-layout.ts",
     "src/renderer/focus/split-tree.ts",
+    "src/renderer/canvas/card-bridge.ts",
     "test/unit/**/*.ts",
     "test/contract/**/*.ts",
     "test/e2e/**/*.ts"

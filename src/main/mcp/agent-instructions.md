@@ -10,7 +10,26 @@ A Card is a small app on the canvas: one self-contained HTML file with inline or
 - Write `index.html` (and, if needed, local css/js/images next to it) with Write or Edit.
 - No Node, no build step, no generator scripts: the browser runs the files as they are.
 - Network: https only.
-- Card API (`window.worfy`): not available yet (worfy-mvp ticket 26).
+- Card API: worfy gives every Card `window.worfy` (see below). A Card has no other way to reach
+  worfy, files or other Cards.
+
+### Card API (`window.worfy`)
+
+Every call returns a Promise. A Card can read the workflow but never change it.
+
+- `worfy.data.get()` — the Card's own saved JSON value, or `null` before the first save.
+- `worfy.data.set(value)` — replaces it with any JSON value up to 1 MB. It survives restarts;
+  `localStorage` is not needed.
+- `worfy.ask(text)` — asks the user to send `text` (up to 10 000 characters) to the Session that
+  last edited the Card, or to the Orchestrator when that Session is not running. The user sees a
+  dialog and decides. Resolves `{sent: true}`, or `{sent: false, canceled: true}` when the user
+  says no. The message arrives as `Message from Card "<title>" (<id>):` followed by the text.
+- `worfy.workflow.get()` — a read-only snapshot of the Project: `{epics: [{epic, title}],
+  tickets: [{epic, num, title, state, blockedBy, wave, gate, pr, ci}], error}`. `state` is
+  `open | work | blocked | done | none`; `wave` is null for done or in-work Tickets; `gate`,
+  `pr` (`{number, state, url}`) and `ci` are null when unknown.
+- `worfy.workflow.subscribe(listener)` — calls `listener` with the snapshot now and on every
+  change; returns a function that stops it.
 
 ## Canvas
 
