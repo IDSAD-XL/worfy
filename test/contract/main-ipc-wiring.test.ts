@@ -31,6 +31,7 @@ vi.mock('electron', () => ({
   dialog: { showErrorBox: vi.fn() },
   ipcMain: electron.ipcMain,
   protocol: electron.protocol,
+  Menu: { buildFromTemplate: vi.fn(), setApplicationMenu: vi.fn() },
 }))
 
 vi.mock('../../src/main/window', () => ({

@@ -72,6 +72,15 @@ function applyOp(layout: Layout, op: LayoutOp): Layout {
     case 'patchData':
       next = { ...current, data: { ...current.data, ...op.data } }
       break
+    case 'pin':
+      next = { ...current, pinned: op.pinned, x: op.x, y: op.y }
+      break
+    case 'tag': {
+      const removed = new Set(op.remove)
+      const tags = [...new Set([...current.tags, ...op.add])].filter((tag) => !removed.has(tag))
+      next = { ...current, tags }
+      break
+    }
   }
   const nodes = [...layout.nodes]
   nodes[index] = next

@@ -1,0 +1,11 @@
+/* The minimap overlay (MiniMapOverlay.tsx). Values come from tokens.css. */
+.w-canvas .react-flow__minimap.w-minimap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-node);
+  box-shadow: var(--shadow-control);
+  overflow: hidden;
+  cursor: pointer;
+}
+.w-canvas .react-flow__minimap-node.w-minimap-node--pinned {
+  display: none;
+}

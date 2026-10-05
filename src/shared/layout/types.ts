@@ -23,6 +23,12 @@ export const nodeKindSchema = z.string().min(1).max(100)
 /** Whatever the Node's kind keeps about itself, as a JSON object. */
 export const nodeDataSchema = z.record(z.string(), z.unknown())
 
+/** The longest tag a `tag` operation accepts, and how many tags one operation may name. */
+export const TAG_LENGTH_MAX = 40
+const TAGS_PER_OP_MAX = 50
+/** A free-form tag of a Node: trimmed, not empty. */
+export const tagSchema = z.string().trim().min(1).max(TAG_LENGTH_MAX)
+
 export const layoutNodeSchema = z.object({
   id: nodeIdSchema,
   kind: nodeKindSchema,
@@ -33,7 +39,11 @@ export const layoutNodeSchema = z.object({
   hidden: z.boolean().default(false),
   /** The Node cannot be removed; it can still be moved and resized. */
   locked: z.boolean().default(false),
-  /** The Node stays at its place on the screen while the Canvas pans and zooms (UI: ticket 29). */
+  /**
+   * The Node stays at its place on the screen while the Canvas pans and zooms (UI: ticket 29).
+   * While it is true, x and y are screen coordinates of the Canvas, not canvas units; see the
+   * `pin` operation.
+   */
   pinned: z.boolean().default(false),
   tags: z.array(z.string().min(1)).default([]),
   data: nodeDataSchema.default({}),
@@ -79,6 +89,15 @@ export const layoutOpSchema = z.discriminatedUnion('op', [
   /** Merges the given keys into the Node's data, one level deep. */
   z.object({ op: z.literal('patchData'), id: nodeIdSchema, data: nodeDataSchema }),
   z.object({ op: z.literal('setViewport'), viewport: viewportSchema }),
+  /**
+   * Pins the Node to the screen or puts it back on the plane. The position comes along: while a
+   * Node is pinned, its x and y are screen coordinates of the Canvas (pixels from the Canvas's
+   * top-left corner), not canvas units; the caller converts through the viewport
+   * (src/renderer/canvas/pinning.ts).
+   */
+  z.object({ op: z.literal('pin'), id: nodeIdSchema, pinned: z.boolean(), x: coordinate, y: coordinate }),
+  /** Adds and removes tags of one Node; a tag both added and removed ends up removed. */
+  z.object({ op: z.literal('tag'), id: nodeIdSchema, add: z.array(tagSchema).max(TAGS_PER_OP_MAX).default([]), remove: z.array(tagSchema).max(TAGS_PER_OP_MAX).default([]) }),
 ])
 /** An operation as a caller writes it (defaults may be left out). */
 export type LayoutOpInput = z.input<typeof layoutOpSchema>

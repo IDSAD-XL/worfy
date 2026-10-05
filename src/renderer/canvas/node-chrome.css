@@ -1,0 +1,45 @@
+/* The chrome around every Node (NodeChrome.tsx): tags in the header, the frame of a pinned Node. */
+
+.w-node-tags {
+  position: absolute;
+  top: 0;
+  right: var(--space-2);
+  max-width: 60%;
+  height: var(--row-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+  pointer-events: none;
+}
+.w-node-tag {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: var(--text-11);
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+/* A pinned Node: its content keeps the screen size, React Flow's own resize handles are off. */
+.w-pinned-frame {
+  position: relative;
+  transform-origin: 0 0;
+}
+.w-canvas .react-flow__node.selected > .w-pinned-frame > .w-node-surface {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-node), 0 0 0 1px var(--accent);
+}
+.w-canvas .react-flow__node.w-pinned .react-flow__resize-control {
+  display: none;
+}
+.w-canvas .react-flow__node.w-pinned > .w-pinned-frame > .w-node-surface {
+  border-style: dashed;
+  border-color: var(--accent);
+}
