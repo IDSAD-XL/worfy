@@ -1,0 +1,26 @@
+/* The checks badges (ChecksBadges.tsx). A Ticket Node has one row for badges, so the chips are
+   compact and the PR is plain text, like the PR link of the F mockups; whatever does not fit is
+   cut at the right edge and listed in the row's tooltip. Colours stay the status tokens. */
+.w-checks {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+.w-checks .w-chip {
+  flex: none;
+  height: 16px;
+  padding: 0 3px;
+  gap: 3px;
+  font-size: var(--text-11);
+}
+.w-checks__pr {
+  flex: none;
+  padding: 0 2px;
+  font-size: var(--text-11);
+  font-weight: 500;
+  color: var(--accent);
+  white-space: nowrap;
+}

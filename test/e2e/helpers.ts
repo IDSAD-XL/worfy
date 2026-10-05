@@ -55,6 +55,8 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
     WORFY_DATA_DIR: dataDir,
     WORFY_CLAUDE_HOME: claudeHome,
     WORFY_AGENT: 'fake',
+    // A gh that never reaches GitHub (test/fixtures/gh/gh-stub.mjs): no PRs unless GH_STUB_DIR says otherwise.
+    WORFY_GH: join(repoRoot, 'test', 'fixtures', 'gh', 'gh'),
     ...options.env,
   })
 
