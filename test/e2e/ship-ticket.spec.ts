@@ -203,8 +203,9 @@ test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what
     expect(messages(log).filter((text) => text === `/ship-ticket ${EPIC} 07`)).toHaveLength(1)
     // Once that Session closes, the button is active again without a click. Its turn holds until
     // it is interrupted, and a running turn cannot be closed (ticket 18).
-    expect(await bridgeCall(window, 'agent.interrupt', { sessionId: sessionsOf07[0]! })).toMatchObject({ ok: true })
-    await expect.poll(async () => (await bridgeCall(window, 'agent.close', { sessionId: sessionsOf07[0]! })).ok).toBe(true)
+    const session07 = sessionsOf07[0]!
+    expect(await bridgeCall(window, 'agent.interrupt', { sessionId: session07 })).toMatchObject({ ok: true })
+    await expect.poll(async () => (await bridgeCall(window, 'agent.close', { sessionId: session07 })).ok).toBe(true)
     await expect(ship(7)).toHaveAttribute('aria-disabled', 'false')
     await expect(ship(7)).toHaveAttribute('title', `/ship-ticket ${EPIC} 07`)
 
