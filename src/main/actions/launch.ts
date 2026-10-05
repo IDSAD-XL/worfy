@@ -7,7 +7,10 @@
 // claimed meanwhile in a terminal is not shipped twice.
 //
 // - Ship ticket: a new Session Node in the Project's root (as "New session", ticket 18), with the
-//   permission mode a new Session has (bypassPermissions); the text is its first message.
+//   permission mode a new Session has (bypassPermissions); the text is its first message. The
+//   Ticket stays open until the launched agent runs `ticket claim`, so the launcher remembers the
+//   launch while its Session lives and refuses a second one for the same Ticket meanwhile
+//   (`launchedHint`); the button learns of it through `actions.launches.changed`.
 // - Run wave: the text goes to the Project's Orchestrator; while a turn runs it waits in the
 //   Orchestrator's queue (ticket 19).
 //
@@ -16,8 +19,9 @@
 // `<Project data folder>/bindings.json` (src/main/layout/bindings.ts), so it outlives a restart.
 // The Ticket's status is changed by the agent and the `ticket` script inside the skill, never here;
 // worfy sees the change through its watch on `.scratch` (ticket 10).
-import { runWaveState, shipTicketState } from '../../shared/actions/render-template'
+import { runWaveState, shipTicketState, ticketNumber } from '../../shared/actions/render-template'
 import type { BindingTarget } from '../../shared/binding/resolve'
+import type { LaunchesSnapshot } from '../../shared/ipc/actions'
 import type { BindingAgent } from '../../shared/ipc/bindings'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
 import type { SessionNodeView } from '../../shared/ipc/sessions'
@@ -44,7 +48,12 @@ export interface LaunchDeps {
   /** The app's live Sessions, by any of their ids. */
   registry: { get(sessionId: string): LaunchedSession }
   bindings: { setLaunch(projectId: string, agent: BindingAgent, target: BindingTarget): unknown }
-  /** How often to look whether Claude Code has reported the session id, and for how long. */
+  /** Told whenever a Project's launched Tickets change (a launch, its Session closing). */
+  onLaunchesChange?(snapshot: LaunchesSnapshot): void
+  /**
+   * How often to look whether Claude Code has reported the session id, and for how long; also how
+   * often a launched Session is looked at to see whether it has closed (default CLOSE_POLL_MS).
+   */
   pollMs?: number
   waitMs?: number
 }
@@ -62,28 +71,64 @@ export interface RunWaveResult {
 }
 
 const POLL_MS = 250
+/** How often the Sessions "Ship ticket" launched are looked at to see whether they have closed. */
+const CLOSE_POLL_MS = 1000
 /** A Session that has not started its turn in this time is not bound by its launch. */
 const WAIT_MS = 10 * 60_000
 
 const delay = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms))
 
+/** A Ticket "Ship ticket" launched a Session for, kept while that Session lives. */
+interface TicketLaunch {
+  projectId: string
+  epic: string
+  num: number
+  session: LaunchedSession
+}
+
+const launchKey = (projectId: string, epic: string, num: number): string => JSON.stringify([projectId, epic, num])
+
 export class ActionLauncher {
   private readonly pending = new Set<Promise<void>>()
+  /** By launchKey. */
+  private readonly launches = new Map<string, TicketLaunch>()
+  /** Launches between the click and the new Session: their fresh read of the workflow is in flight. */
+  private readonly starting = new Set<string>()
+  private revision = 0
+  private watching = false
 
   constructor(private readonly deps: LaunchDeps) {}
 
   async shipTicket(projectId: string, epic: string, num: number): Promise<ShipTicketResult> {
-    const root = this.deps.projectRoot(projectId)
-    const [model, branch] = await Promise.all([this.model(root), this.deps.branch(root)])
-    const ticket = model.tickets.find((each) => each.epic === epic && each.num === num)
-    if (ticket === undefined) throw new Error(`${epic} has no Ticket ${num}`)
-    const state = shipTicketState({ ticket, tickets: model.tickets, template: this.deps.settings(projectId).actionTemplates.shipTicket, branch })
-    if (!state.enabled) throw new Error(state.reason)
-    const view = this.deps.sessions.create(projectId)
-    const session = this.deps.registry.get(view.sessionId)
-    session.send(state.text)
-    this.bindWhenKnown(projectId, session, { kind: 'ticket', epic, num })
-    return { nodeId: view.nodeId, sessionId: view.sessionId, text: state.text }
+    const key = launchKey(projectId, epic, num)
+    // Taken before the first await: two clicks that arrive together do not both pass the check.
+    if (this.starting.has(key)) throw new Error(`Ship ticket is already starting a Session for ${ticketNumber(num)}`)
+    this.starting.add(key)
+    try {
+      const root = this.deps.projectRoot(projectId)
+      const [model, branch] = await Promise.all([this.model(root), this.deps.branch(root)])
+      const ticket = model.tickets.find((each) => each.epic === epic && each.num === num)
+      if (ticket === undefined) throw new Error(`${epic} has no Ticket ${num}`)
+      const launched = this.liveLaunch(key) !== undefined
+      const state = shipTicketState({ ticket, tickets: model.tickets, template: this.deps.settings(projectId).actionTemplates.shipTicket, branch, launched })
+      if (!state.enabled) throw new Error(state.reason)
+      const view = this.deps.sessions.create(projectId)
+      const session = this.deps.registry.get(view.sessionId)
+      session.send(state.text)
+      this.launches.set(key, { projectId, epic, num, session })
+      this.changed(projectId)
+      this.watchCloses()
+      this.bindWhenKnown(projectId, session, { kind: 'ticket', epic, num })
+      return { nodeId: view.nodeId, sessionId: view.sessionId, text: state.text }
+    } finally {
+      this.starting.delete(key)
+    }
+  }
+
+  /** The Project's Tickets that have a live Session launched by "Ship ticket". */
+  launched(projectId: string): LaunchesSnapshot {
+    this.prune()
+    return this.snapshot(projectId)
   }
 
   async runWave(projectId: string, epic: string): Promise<RunWaveResult> {
@@ -103,6 +148,55 @@ export class ActionLauncher {
   /** Settles when every Binding started so far is written or given up; for tests. */
   async idle(): Promise<void> {
     while (this.pending.size > 0) await Promise.all([...this.pending])
+  }
+
+  /** The launch of `key` while its Session lives; a closed one is forgotten here. */
+  private liveLaunch(key: string): TicketLaunch | undefined {
+    const launch = this.launches.get(key)
+    if (launch === undefined || launch.session.state !== 'closed') return launch
+    this.launches.delete(key)
+    this.changed(launch.projectId)
+    return undefined
+  }
+
+  /** Forgets every launch whose Session has closed. */
+  private prune(): void {
+    for (const key of [...this.launches.keys()]) this.liveLaunch(key)
+  }
+
+  private snapshot(projectId: string): LaunchesSnapshot {
+    const tickets = [...this.launches.values()].filter((launch) => launch.projectId === projectId).map(({ epic, num }) => ({ epic, num }))
+    return { projectId, revision: this.revision, tickets }
+  }
+
+  private changed(projectId: string): void {
+    this.revision += 1
+    if (this.deps.onLaunchesChange === undefined) return
+    try {
+      this.deps.onLaunchesChange(this.snapshot(projectId))
+    } catch (error) {
+      console.error('[actions] could not report the launched Tickets', error)
+    }
+  }
+
+  /**
+   * Looks at the launched Sessions until none is left, so a closed one frees its Ticket's button
+   * without waiting for the next click. One loop for all of them; it ends with the last launch.
+   */
+  private watchCloses(): void {
+    if (this.watching) return
+    this.watching = true
+    const pollMs = this.deps.pollMs ?? CLOSE_POLL_MS
+    void (async () => {
+      try {
+        while (this.launches.size > 0) {
+          await delay(pollMs)
+          this.prune()
+        }
+      } finally {
+        this.watching = false
+      }
+    })()
   }
 
   private async model(root: string): Promise<WorkflowModel> {

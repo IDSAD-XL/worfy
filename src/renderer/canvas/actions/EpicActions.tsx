@@ -1,4 +1,5 @@
 import { runWaveState } from '../../../shared/actions/render-template'
+import { failureReason } from '../../../shared/ipc/channels'
 import { useProjects } from '../../projects/useProjects'
 import { invoke } from '../../ipc'
 import type { SlotProps } from '../badges'
@@ -30,8 +31,7 @@ function RunWave({ projectId, epic, tickets }: Extract<SlotProps['subject'], { k
       title={state.enabled ? state.text : state.reason}
       run={async () => {
         const result = await invoke('actions.runWave', { projectId, epic: epic.epic })
-        // main's reason without the channel name the IPC wrapper puts in front of it
-        return result.ok ? undefined : result.error.replace(/^actions\.runWave failed: /u, '')
+        return result.ok ? undefined : failureReason('actions.runWave', result.error)
       }}
     />
   )

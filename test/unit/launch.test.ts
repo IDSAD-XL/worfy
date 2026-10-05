@@ -1,9 +1,10 @@
 // "Ship ticket" and "Run wave" (ticket 23): when each is active (src/shared/actions/render-template.ts)
 // and what main does on a click (src/main/actions/launch.ts) — over fakes of the Sessions, the
 // Orchestrator, the registry and the Bindings store. Nothing here starts an agent or writes a file.
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ActionLauncher, type LaunchDeps, type LaunchedSession } from '../../src/main/actions/launch'
-import { runWaveState, shipTicketState } from '../../src/shared/actions/render-template'
+import { launchedHint, runWaveState, shipTicketState } from '../../src/shared/actions/render-template'
+import type { LaunchesSnapshot } from '../../src/shared/ipc/actions'
 import { DEFAULT_ACTION_TEMPLATES, type ActionTemplates } from '../../src/shared/projects/action-templates'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 
@@ -58,6 +59,13 @@ describe('shipTicketState', () => {
     expect(state(7, '  \n')).toEqual({ enabled: false, reason: 'Set the Ship ticket template in Project settings' })
   })
 
+  it('is inactive while a Session it launched for the Ticket is live; a Ticket that is not open says that first', () => {
+    expect(shipTicketState({ ticket: ticketOf(7), tickets: TICKETS, template: 'x', branch: null, launched: true })).toEqual({ enabled: false, reason: launchedHint(7) })
+    expect(launchedHint(7)).toBe('Ship ticket already started a Session for 07; close that Session to start another')
+    expect(shipTicketState({ ticket: ticketOf(12), tickets: TICKETS, template: 'x', branch: null, launched: true })).toEqual({ enabled: false, reason: 'Ticket is claimed' })
+    expect(shipTicketState({ ticket: ticketOf(7), tickets: TICKETS, template: 'x', branch: null, launched: false })).toEqual({ enabled: true, text: 'x' })
+  })
+
   it('a template that fails to render is inactive with the render error', () => {
     expect(state(7, '/ship-ticket {epic} {wave}')).toEqual({ enabled: false, reason: '{wave} has no value in Ship ticket' })
     expect(state(7, '/ship-ticket {branch}', null)).toEqual({ enabled: false, reason: '{branch} has no value in Ship ticket' })
@@ -89,7 +97,19 @@ class FakeSession implements LaunchedSession {
   }
 }
 
-function launcher(change: { templates?: Partial<ActionTemplates>; other?: Partial<ActionTemplates>; tickets?: Ticket[]; model?: Partial<WorkflowModel>; orchestrator?: FakeSession } = {}) {
+/** Every launcher a test made, with its Sessions: afterEach closes them so no poll outlives its test. */
+const made: { launch: ActionLauncher; sessions: Map<string, FakeSession> }[] = []
+
+afterEach(async () => {
+  for (const { launch, sessions } of made.splice(0)) {
+    for (const session of sessions.values()) session.state = 'closed'
+    await launch.idle()
+  }
+})
+
+function launcher(
+  change: { templates?: Partial<ActionTemplates>; other?: Partial<ActionTemplates>; tickets?: Ticket[]; model?: Partial<WorkflowModel>; orchestrator?: FakeSession; waitMs?: number; workflow?: LaunchDeps['workflow'] } = {},
+) {
   const templates = { ...DEFAULT_ACTION_TEMPLATES, ...change.templates }
   const otherTemplates = { ...DEFAULT_ACTION_TEMPLATES, ...change.other }
   const sessions = new Map<string, FakeSession>()
@@ -97,6 +117,7 @@ function launcher(change: { templates?: Partial<ActionTemplates>; other?: Partia
   sessions.set('orch-1', orchestrator)
   const created: string[] = []
   const bindings: unknown[] = []
+  const changes: LaunchesSnapshot[] = []
   let count = 0
   const deps: LaunchDeps = {
     projectRoot: (projectId) => {
@@ -105,7 +126,7 @@ function launcher(change: { templates?: Partial<ActionTemplates>; other?: Partia
     },
     settings: (projectId) => ({ actionTemplates: projectId === 'q' ? otherTemplates : templates }),
     branch: async () => 'main',
-    workflow: async (root) => ({ root, epics: [{ epic: 'worfy-mvp', hasSpec: true, hasMap: false, title: null }], tickets: change.tickets ?? TICKETS, error: null, branchErrors: [], ...change.model }),
+    workflow: change.workflow ?? (async (root) => ({ root, epics: [{ epic: 'worfy-mvp', hasSpec: true, hasMap: false, title: null }], tickets: change.tickets ?? TICKETS, error: null, branchErrors: [], ...change.model })),
     sessions: {
       create: (projectId) => {
         count += 1
@@ -126,10 +147,13 @@ function launcher(change: { templates?: Partial<ActionTemplates>; other?: Partia
       },
     },
     bindings: { setLaunch: (projectId, agent, target) => bindings.push({ projectId, agent, target }) },
+    onLaunchesChange: (snapshot) => changes.push(snapshot),
     pollMs: 1,
-    waitMs: 1000,
+    waitMs: change.waitMs ?? 1000,
   }
-  return { launch: new ActionLauncher(deps), sessions, created, bindings, orchestrator }
+  const launch = new ActionLauncher(deps)
+  made.push({ launch, sessions })
+  return { launch, sessions, created, bindings, orchestrator, changes }
 }
 
 describe('ActionLauncher.shipTicket', () => {
@@ -174,15 +198,71 @@ describe('ActionLauncher.shipTicket', () => {
     }
   })
 
-  it('gives up the Binding of a Session that closes before it is named', async () => {
-    const { launch, sessions, bindings } = launcher()
+  it('gives up the Binding of a Session that closes before it is named, without waiting out the wait', async () => {
+    const { launch, sessions, bindings } = launcher({ waitMs: 60_000 })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     await launch.shipTicket('p', 'worfy-mvp', 7)
     sessions.get('pending-1')!.state = 'closed'
+    const started = Date.now()
     await launch.idle()
+    // Seconds below the 60 s wait: it stopped because the Session closed, not because time ran out.
+    expect(Date.now() - started).toBeLessThan(5_000)
     expect(bindings).toEqual([])
     expect(warn).toHaveBeenCalledOnce()
     warn.mockRestore()
+  })
+
+  it('refuses a second launch for the Ticket while the Session it launched lives, and allows one after it closes', async () => {
+    const { launch, sessions, created } = launcher()
+    await launch.shipTicket('p', 'worfy-mvp', 7)
+    await expect(launch.shipTicket('p', 'worfy-mvp', 7)).rejects.toThrow(launchedHint(7))
+    expect(created).toEqual(['p'])
+    // Another Ticket, and the same Ticket in another Project, are not held by it.
+    await launch.shipTicket('p', 'worfy-mvp', 9)
+    await launch.shipTicket('q', 'worfy-mvp', 7)
+    expect(created).toEqual(['p', 'p', 'q'])
+    sessions.get('pending-1')!.state = 'closed'
+    expect((await launch.shipTicket('p', 'worfy-mvp', 7)).sessionId).toBe('pending-4')
+    expect(sessions.get('pending-4')!.sent).toEqual(['/ship-ticket worfy-mvp 07'])
+  })
+
+  it('two clicks that arrive together start one Session', async () => {
+    const { launch, created } = launcher()
+    const [first, second] = await Promise.allSettled([launch.shipTicket('p', 'worfy-mvp', 7), launch.shipTicket('p', 'worfy-mvp', 7)])
+    expect(first.status).toBe('fulfilled')
+    expect(second).toMatchObject({ status: 'rejected', reason: { message: 'Ship ticket is already starting a Session for 07' } })
+    expect(created).toEqual(['p'])
+  })
+
+  it('a refused launch holds nothing: the next click is checked afresh', async () => {
+    let fail = true
+    const base = launcher()
+    const { launch, created } = launcher({
+      workflow: async (root) => {
+        if (fail) return { root, epics: [], tickets: [], error: { code: 'not-found', message: 'gone' }, branchErrors: [] }
+        return { root, epics: [{ epic: 'worfy-mvp', hasSpec: true, hasMap: false, title: null }], tickets: TICKETS, error: null, branchErrors: [] }
+      },
+    })
+    await expect(launch.shipTicket('p', 'worfy-mvp', 7)).rejects.toThrow('Cannot read the workflow: gone')
+    await expect(base.launch.shipTicket('p', 'worfy-mvp', 8)).rejects.toThrow('blocked by 09')
+    await expect(base.launch.shipTicket('p', 'worfy-mvp', 8)).rejects.toThrow('blocked by 09')
+    expect(base.launch.launched('p').tickets).toEqual([])
+    fail = false
+    await launch.shipTicket('p', 'worfy-mvp', 7)
+    expect(created).toEqual(['p'])
+  })
+
+  it('reports the launched Tickets on a launch and again when the Session closes, without another click', async () => {
+    const { launch, sessions, changes } = launcher()
+    expect(launch.launched('p')).toEqual({ projectId: 'p', revision: 0, tickets: [] })
+    await launch.shipTicket('p', 'worfy-mvp', 7)
+    expect(changes).toEqual([{ projectId: 'p', revision: 1, tickets: [{ epic: 'worfy-mvp', num: 7 }] }])
+    expect(launch.launched('p')).toEqual({ projectId: 'p', revision: 1, tickets: [{ epic: 'worfy-mvp', num: 7 }] })
+    expect(launch.launched('q').tickets).toEqual([])
+    sessions.get('pending-1')!.state = 'closed'
+    await vi.waitFor(() => expect(changes).toHaveLength(2))
+    expect(changes[1]).toEqual({ projectId: 'p', revision: 2, tickets: [] })
+    expect(launch.launched('p')).toEqual({ projectId: 'p', revision: 2, tickets: [] })
   })
 })
 

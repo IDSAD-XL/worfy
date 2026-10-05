@@ -4,7 +4,9 @@
 // active, and says why not; a click goes to main (`actions.*`, `shell.openExternal`).
 import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { WorfyBridge } from '../../src/shared/ipc/channels'
+import { launchedHint } from '../../src/shared/actions/render-template'
+import type { LaunchesSnapshot } from '../../src/shared/ipc/actions'
+import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { ChecksSnapshot } from '../../src/shared/ipc/checks'
 import { DEFAULT_ACTION_TEMPLATES, type ActionTemplates } from '../../src/shared/projects/action-templates'
 import type { Epic, Ticket, WorkflowModel } from '../../src/shared/workflow/types'
@@ -33,6 +35,8 @@ let templates: ActionTemplates
 let snapshot: ChecksSnapshot
 let calls: { channel: string; input: unknown }[]
 let listeners: Map<string, (payload: unknown) => void>
+let launches: LaunchesSnapshot
+let shipAnswer: IpcResult<unknown>
 
 beforeEach(() => {
   vi.resetModules()
@@ -42,6 +46,8 @@ beforeEach(() => {
   tickets = [ticket(7, 'done'), ticket(8, 'open', [7]), ticket(9, 'open'), ticket(10, 'open', [9]), ticket(11, 'work')]
   templates = { ...DEFAULT_ACTION_TEMPLATES }
   snapshot = { root: ROOT, worktrees: [], pulls: [], gh: { available: true, error: null, intervalMs: 60_000 } }
+  launches = { projectId: PROJECT, revision: 0, tickets: [] }
+  shipAnswer = { ok: true, value: { nodeId: 'n1', sessionId: 'pending-1', text: '/ship-ticket demo 08' } }
   const bridge = {
     invoke: (channel: string, input: unknown) => {
       calls.push({ channel, input })
@@ -56,7 +62,9 @@ beforeEach(() => {
         case 'checks.get':
           return Promise.resolve({ ok: true, value: snapshot })
         case 'actions.shipTicket':
-          return Promise.resolve({ ok: true, value: { nodeId: 'n1', sessionId: 'pending-1', text: '/ship-ticket demo 08' } })
+          return Promise.resolve(shipAnswer)
+        case 'actions.launches':
+          return Promise.resolve({ ok: true, value: launches })
         case 'actions.runWave':
           return Promise.resolve({ ok: true, value: { sessionId: 'o1', text: '/epic-wave волна 1 эпика demo', delivery: 'sent' } })
         case 'shell.openExternal':
@@ -119,6 +127,46 @@ describe('Ship ticket', () => {
     expect(button.getAttribute('aria-disabled')).toBe('false')
   })
 
+  it('shows main\'s refusal by its reason alone', async () => {
+    shipAnswer = { ok: false, error: 'actions.shipTicket failed: blocked by 09' }
+    const button = await shipButton(8)
+    await vi.waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
+    fireEvent.click(button)
+    await vi.waitFor(() => expect(button.getAttribute('title')).toBe('blocked by 09'))
+    expect(button.getAttribute('data-error')).toBe('blocked by 09')
+  })
+
+  it('is inactive while a Session it launched for the Ticket is live, and active again once main says it closed', async () => {
+    launches = { projectId: PROJECT, revision: 4, tickets: [{ epic: 'demo', num: 8 }] }
+    const button = await shipButton(8)
+    await vi.waitFor(() => expect(button.getAttribute('title')).toBe(launchedHint(8)))
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(button)
+    expect(calls.some((call) => call.channel === 'actions.shipTicket')).toBe(false)
+    const changed = listeners.get('actions.launches.changed')
+    expect(changed).toBeDefined()
+    // An older snapshot (one that crossed the answer) does not roll the list back.
+    changed!({ projectId: PROJECT, revision: 3, tickets: [] })
+    await new Promise((done) => setTimeout(done, 20))
+    expect(button.getAttribute('title')).toBe(launchedHint(8))
+    // Another Project's snapshot is not this one's.
+    changed!({ projectId: 'other-1', revision: 9, tickets: [] })
+    await new Promise((done) => setTimeout(done, 20))
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    changed!({ projectId: PROJECT, revision: 5, tickets: [] })
+    await vi.waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
+    expect(button.getAttribute('title')).toBe('/ship-ticket demo 08')
+  })
+
+  it('turns inactive when main reports the Session it just launched', async () => {
+    const button = await shipButton(8)
+    await vi.waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
+    fireEvent.click(button)
+    listeners.get('actions.launches.changed')!({ projectId: PROJECT, revision: 1, tickets: [{ epic: 'demo', num: 8 }] })
+    await vi.waitFor(() => expect(button.getAttribute('title')).toBe(launchedHint(8)))
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+  })
+
   it('is not shown on a claimed or a done Ticket', async () => {
     const { default: TicketActions } = await import('../../src/renderer/canvas/actions/TicketActions')
     const { container } = render(
@@ -172,13 +220,21 @@ describe('Open PR', () => {
     await vi.waitFor(() => expect(calls.filter((call) => call.channel === 'shell.openExternal')).toEqual([{ channel: 'shell.openExternal', input: { url: 'https://github.com/o/r/pull/31' } }]))
   })
 
-  it('refuses an address that is not https://github.com/', async () => {
-    snapshot = { ...snapshot, pulls: [{ number: 31, url: 'https://evil.example/o/r/pull/31', state: 'OPEN', branch: 'demo/08', ci: null, verdict: null }] }
+  it.each([
+    'https://evil.example/o/r/pull/31',
+    'http://github.com/o/r/pull/31',
+    'https://github.com:8443/o/r/pull/31',
+    'https://u@github.com/o/r/pull/31',
+    'https://u:p@github.com/o/r/pull/31',
+    'https://github.com.evil.example/o/r/pull/31',
+    'not a url',
+  ])('refuses an address that is not https://github.com/: %s', async (url) => {
+    snapshot = { ...snapshot, pulls: [{ number: 31, url, state: 'OPEN', branch: 'demo/08', ci: null, verdict: null }] }
     const { default: OpenPr } = await import('../../src/renderer/canvas/actions/OpenPr')
     render(<OpenPr subject={ticketSubject(8)} />)
     const button = await screen.findByRole('button', { name: 'Open PR' })
     expect(button.getAttribute('aria-disabled')).toBe('true')
-    expect(button.getAttribute('title')).toBe('Not a GitHub address: https://evil.example/o/r/pull/31')
+    expect(button.getAttribute('title')).toBe(`Not a GitHub address: ${url}`)
     fireEvent.click(button)
     expect(calls.some((call) => call.channel === 'shell.openExternal')).toBe(false)
   })

@@ -82,13 +82,19 @@ const STATE_REASONS: Readonly<Record<Exclude<Ticket['state'], 'open'>, string>> 
 
 type ShipTicket = Pick<Ticket, 'epic' | 'num' | 'slug' | 'state' | 'blockedNums' | 'blockedParsed' | 'blockedRaw'>
 
+/** The reason on "Ship ticket" while a Session it launched for the Ticket is still live. */
+export const launchedHint = (num: number): string => `Ship ticket already started a Session for ${ticketNumber(num)}; close that Session to start another`
+
 /**
- * "Ship ticket": the Ticket is open, every Ticket that blocks it is done, and the Project's
- * template is set and renders. `tickets` are the Project's Tickets (other Epics are ignored).
+ * "Ship ticket": the Ticket is open, no Session launched for it is still live (`launched`, kept by
+ * main: the Ticket stays open until the launched agent runs `ticket claim`), every Ticket that
+ * blocks it is done, and the Project's template is set and renders. `tickets` are the Project's
+ * Tickets (other Epics are ignored).
  */
-export function shipTicketState(input: { ticket: ShipTicket; tickets: readonly Pick<Ticket, 'epic' | 'num' | 'state'>[]; template: string; branch: string | null }): ActionState {
-  const { ticket, tickets, template, branch } = input
+export function shipTicketState(input: { ticket: ShipTicket; tickets: readonly Pick<Ticket, 'epic' | 'num' | 'state'>[]; template: string; branch: string | null; launched?: boolean }): ActionState {
+  const { ticket, tickets, template, branch, launched = false } = input
   if (ticket.state !== 'open') return { enabled: false, reason: STATE_REASONS[ticket.state] }
+  if (launched) return { enabled: false, reason: launchedHint(ticket.num) }
   if (!ticket.blockedParsed) return { enabled: false, reason: `“Blocked by: ${ticket.blockedRaw ?? ''}” is not a list of tickets` }
   const open = ticket.blockedNums.filter((num) => tickets.find((each) => each.epic === ticket.epic && each.num === num)?.state !== 'done')
   if (open.length > 0) return { enabled: false, reason: `blocked by ${open.map(ticketNumber).join(', ')}` }

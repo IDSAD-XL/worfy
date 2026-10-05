@@ -6,14 +6,15 @@
 // no channel of its own: it is `shell.openExternal`.
 import { z } from 'zod'
 import { epicNameSchema, ticketNumSchema } from '../binding/resolve'
-import { invokeChannel } from './channels'
+import { eventChannel, invokeChannel } from './channels'
 
 const projectId = z.string().min(1)
 
 /**
  * Starts a new Session in the Project's root (as "New session" does) and sends it the rendered
  * "Ship ticket" template; the Session is bound to the Ticket. Refused, with the reason the button
- * shows, when the Ticket is not open, a blocker is not done, or the template is empty or fails.
+ * shows, when the Ticket is not open, a Session launched for it is still live, a blocker is not
+ * done, or the template is empty or fails.
  */
 export const actionsShipTicket = invokeChannel(
   'actions.shipTicket',
@@ -44,9 +45,29 @@ export const actionsRunWave = invokeChannel(
   }),
 )
 
+/**
+ * The Tickets of a Project that "Ship ticket" has a live Session for. Main keeps them from the
+ * launch until that Session closes: the Ticket stays open until the launched agent runs
+ * `ticket claim`, and a second launch meanwhile would put two agents on one Ticket. `revision`
+ * grows with every change of any Project; a client keeps the snapshot with the highest one.
+ */
+const launchesSchema = z.object({
+  projectId,
+  revision: z.number().int().nonnegative(),
+  tickets: z.array(z.object({ epic: epicNameSchema, num: ticketNumSchema })),
+})
+export type LaunchesSnapshot = z.infer<typeof launchesSchema>
+
+export const actionsLaunches = invokeChannel('actions.launches', z.object({ projectId }), launchesSchema)
+
+/** Sent to every window whenever a Project's launched Tickets change. */
+export const actionsLaunchesChanged = eventChannel('actions.launches.changed', launchesSchema)
+
 declare module './channels' {
   interface IpcContract {
     'actions.shipTicket': typeof actionsShipTicket
     'actions.runWave': typeof actionsRunWave
+    'actions.launches': typeof actionsLaunches
+    'actions.launches.changed': typeof actionsLaunchesChanged
   }
 }

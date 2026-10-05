@@ -5,8 +5,9 @@
 import type { IpcMainInvokeEvent } from 'electron'
 import { describe, expect, it } from 'vitest'
 import { actionsHandlers } from '../../src/main/ipc/actions'
-import { appUrlMatcher, registerIpc } from '../../src/main/ipc/index'
-import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import { appUrlMatcher, emit, registerIpc } from '../../src/main/ipc/index'
+import { actionsLaunchesChanged } from '../../src/shared/ipc/actions'
+import { failureReason, handlerFailure, IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 
@@ -23,6 +24,10 @@ async function register() {
     runWave: async (...args: [string, string]) => {
       calls.push(['runWave', ...args])
       return { sessionId: 'o1', text: '/epic-wave волна 1 эпика e', delivery: 'queued' as const, extra: 1 }
+    },
+    launched: (projectId: string) => {
+      calls.push(['launched', projectId])
+      return { projectId, revision: 3, tickets: [{ epic: 'e', num: 7, sessionId: 'secret' }], extra: true }
     },
   }
   const handlers = new Map<string, Listener>()
@@ -62,9 +67,18 @@ describe('actions.shipTicket', () => {
     expect(calls).toEqual([])
   })
 
-  it('answers the launcher\'s refusal as {ok:false} with its reason', async () => {
+  it('answers the launcher\'s refusal as {ok:false}, from which the renderer takes the reason alone', async () => {
     const { invoke } = await register()
-    expect(await invoke('actions.shipTicket', { projectId: 'p', epic: 'e', num: 9 })).toEqual({ ok: false, error: 'actions.shipTicket failed: blocked by 08' })
+    const result = await invoke('actions.shipTicket', { projectId: 'p', epic: 'e', num: 9 })
+    expect(result).toEqual({ ok: false, error: handlerFailure('actions.shipTicket', 'blocked by 08') })
+    // The button shows only the reason, however the wrapper words the failure.
+    expect(failureReason('actions.shipTicket', (result as { error: string }).error)).toBe('blocked by 08')
+    // Any other failure stays whole: an invalid input says so rather than losing its start.
+    const invalid = await invoke('actions.shipTicket', { projectId: 'p', epic: 'e', num: 'x' })
+    expect(invalid.ok).toBe(false)
+    const error = (invalid as { error: string }).error
+    expect(failureReason('actions.shipTicket', error)).toBe(error)
+    expect(failureReason('actions.runWave', handlerFailure('actions.shipTicket', 'blocked by 08'))).toBe('actions.shipTicket failed: blocked by 08')
   })
 })
 
@@ -82,5 +96,35 @@ describe('actions.runWave', () => {
       expect((await invoke('actions.runWave', input)).ok, JSON.stringify(input)).toBe(false)
     }
     expect(calls).toEqual([])
+  })
+})
+
+describe('actions.launches', () => {
+  it('passes only the Project, and answers only the contract keys', async () => {
+    const { invoke, calls } = await register()
+    const result = await invoke('actions.launches', { projectId: 'p', epic: 'e' })
+    expect(result).toStrictEqual({ ok: true, value: { projectId: 'p', revision: 3, tickets: [{ epic: 'e', num: 7 }] } })
+    expect(calls).toStrictEqual([['launched', 'p']])
+  })
+
+  it('refuses a wrong type before the launcher runs', async () => {
+    const { invoke, calls } = await register()
+    for (const input of [{ projectId: '' }, { projectId: 7 }, {}, undefined]) {
+      expect((await invoke('actions.launches', input)).ok, JSON.stringify(input)).toBe(false)
+    }
+    expect(calls).toEqual([])
+  })
+})
+
+describe('actions.launches.changed', () => {
+  it('sends only the contract keys, and refuses a payload of the wrong type', () => {
+    const sent: unknown[][] = []
+    const target = { send: (...args: unknown[]) => sent.push(args) }
+    const extra = { projectId: 'p', revision: 2, tickets: [{ epic: 'e', num: 7, sessionId: 'secret' }], extra: true }
+    emit(target, actionsLaunchesChanged, extra as unknown as Parameters<typeof emit<typeof actionsLaunchesChanged>>[2])
+    expect(sent).toStrictEqual([[`${IPC_CHANNEL_PREFIX}actions.launches.changed`, { projectId: 'p', revision: 2, tickets: [{ epic: 'e', num: 7 }] }]])
+    expect(() => emit(target, actionsLaunchesChanged, { projectId: 'p', revision: -1, tickets: [] })).toThrow('invalid event payload')
+    expect(() => emit(target, actionsLaunchesChanged, { projectId: 'p', revision: 1, tickets: [{ epic: '../e', num: 7 }] })).toThrow('invalid event payload')
+    expect(sent).toHaveLength(1)
   })
 })
