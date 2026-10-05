@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
@@ -11,9 +11,15 @@ import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 // does — one that ran `ticket claim worfy-mvp 07`, two that work in the worktree folders
 // `.claude/worktrees/12` and `.claude/worktrees/07-движок-сессий`, and one that runs
 // `/epic-wave` with two Subagents (the synthetic Session 7777 of test/fixtures/claude-home, its
-// briefs naming Ticket files). The workflow model comes from a stub `bin/epic-status`. Then a
-// Session's Node is dropped on a Ticket (manual Binding), the app restarts, and "Remove binding"
-// brings the automatic Binding back. worfy must write nothing under the Claude home or the Project.
+// briefs naming Ticket files). That Session's checkout is on the branch of Ticket 07, as an
+// Orchestrator's often is, and its Subagents' files carry the same branch, as Claude Code writes
+// them: the wave still binds it to the Epic and its Subagents to the Tickets of their briefs. It
+// is live (a registry entry with the test's own pid), so its Subagents' files are read again on a
+// timer. While the app runs, claims are appended to a finished Session's transcript and to a
+// Subagent's file, and the lines follow. Then a Session's Node and a Subagent's Node are dropped
+// on a Ticket (manual Bindings), the app restarts, and "Remove binding" — from the Session rail and
+// from the Node's menu — brings the automatic Bindings back. worfy must write nothing under the
+// Claude home or the Project.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -23,6 +29,10 @@ const CLAIM = 'aaaaaaaa-1111-4111-8111-111111111111'
 const FOLDER = 'bbbbbbbb-2222-4222-8222-222222222222'
 const SLUG = 'cccccccc-3333-4333-8333-333333333333'
 const WAVE = '77777777-7777-4777-8777-777777777777'
+/** The branch of the wave Session's checkout: a Ticket's, which must not beat `/epic-wave` or the briefs. */
+const WAVE_BRANCH = `${EPIC}/07`
+const IMPLEMENTER = 'a3000000000000286'
+const REVIEWER = 'a5000000000000286'
 const FIXTURE = join(repoRoot, 'test', 'fixtures', 'claude-home', 'projects', '-Users-test-projects-agents')
 
 let scratch: string
@@ -123,7 +133,8 @@ function writeWaveSession(): void {
   const dir = transcriptDir(repo)
   const subagents = join(dir, WAVE, 'subagents')
   mkdirSync(subagents, { recursive: true })
-  const lines = readFileSync(join(FIXTURE, `${WAVE}.jsonl`), 'utf8').replaceAll('/Users/test/projects/agents', repo).split('\n').filter((line) => line !== '')
+  const onBranch = (text: string): string => text.replaceAll('/Users/test/projects/agents', repo).replaceAll('"gitBranch":"main"', `"gitBranch":${JSON.stringify(WAVE_BRANCH)}`)
+  const lines = onBranch(readFileSync(join(FIXTURE, `${WAVE}.jsonl`), 'utf8')).split('\n').filter((line) => line !== '')
   const first = JSON.parse(lines[0]!) as Record<string, unknown>
   first.message = { role: 'user', content: `<command-name>/epic-wave</command-name>\n<command-args>волна 1 эпика ${EPIC}</command-args>` }
   writeFileSync(join(dir, `${WAVE}.jsonl`), [JSON.stringify(first), ...lines.slice(1)].join('\n') + '\n')
@@ -132,11 +143,15 @@ function writeWaveSession(): void {
     'Synthetic reviewer brief.': `Ревью тикета .scratch/${EPIC}/issues/12-рамка.md, линза: тесты.`,
   }
   for (const name of readdirSync(join(FIXTURE, WAVE, 'subagents'))) {
-    let text = readFileSync(join(FIXTURE, WAVE, 'subagents', name), 'utf8').replaceAll('/Users/test/projects/agents', repo)
+    let text = onBranch(readFileSync(join(FIXTURE, WAVE, 'subagents', name), 'utf8'))
     for (const [from, to] of Object.entries(briefs)) text = text.replaceAll(from, to)
     writeFileSync(join(subagents, name), text)
   }
+  // Live: the registry entry of a process that runs (this test's), so its signals are polled.
+  writeFileSync(join(claudeHome, 'sessions', `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: WAVE, cwd: repo, status: 'busy', kind: 'interactive' }))
 }
+
+const subagentFile = (agentId: string): string => join(transcriptDir(repo), WAVE, 'subagents', `agent-${agentId}.jsonl`)
 
 const sessionNode = (id: string, x: number, y: number, cwd: string) => ({
   id: `session:${id}`,
@@ -152,7 +167,29 @@ const launch = (): Promise<LaunchedApp> => launchApp({ env: { WORFY_DATA_DIR: da
 
 const edge = (window: Page, label: string): Locator => window.locator(`.react-flow__edge[aria-label="${label}"]`)
 const sessionEdge = (window: Page, sessionId: string): Locator => window.getByTestId(`rf__edge-binding:session:${sessionId}`)
+const subagentNode = (window: Page, agentId: string): Locator => window.locator(`[data-testid="subagent-node"][data-subagent-id="${agentId}"]`)
+
+async function subagentEdge(window: Page, agentId: string): Promise<Locator> {
+  const nodeId = await subagentNode(window, agentId).getAttribute('data-node-id')
+  if (nodeId === null) throw new Error(`Subagent ${agentId} has no Node id`)
+  return window.getByTestId(`rf__edge-binding:${nodeId}`)
+}
+
+/** Drags a Node by `handle` onto Ticket `num` and drops it there once the Ticket is outlined. */
+async function dropOnTicket(window: Page, handle: Locator, num: number): Promise<void> {
+  const from = await box(handle)
+  const to = await box(window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`))
+  await window.mouse.move(from.x + 10, from.y + from.height / 2)
+  await window.mouse.down()
+  await window.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 20 })
+  await expect(window.getByTestId('binding-drop-target')).toHaveAttribute('data-target', `${EPIC}/${String(num).padStart(2, '0')}`)
+  await window.mouse.up()
+  await expect(window.getByTestId('binding-drop-target')).toHaveCount(0)
+}
 const sessionTitle = (window: Page, sessionId: string): Locator => window.locator(`[data-testid="session-node"][data-session-id="${sessionId}"] [data-testid="session-node-title"]`)
+
+/** Two boxes in the same place, to a pixel. */
+const near = (a: { x: number; y: number }, b: { x: number; y: number }): boolean => Math.abs(a.x - b.x) <= 1 && Math.abs(a.y - b.y) <= 1
 
 async function box(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
   const found = await locator.boundingBox()
@@ -222,6 +259,12 @@ test.afterEach(async () => {
 
 test('agents are bound by claim, worktree folder, /epic-wave and their task; a manual Binding by drag survives a restart and "Remove binding" undoes it', async () => {
   const claudeBefore = snapshot(claudeHome)
+  /** Appends to a transcript as Claude Code would; the snapshot then expects the file as appended. */
+  const append = (path: string, text: string): void => {
+    appendFileSync(path, text)
+    const stats = statSync(path)
+    claudeBefore[relative(claudeHome, path)] = `${stats.size}:${stats.mtimeMs}`
+  }
   const repoBefore = snapshot(repo, (path) => path === '.git' || path.startsWith('.git/'))
   const gitStatus = git(repo, 'status', '--porcelain', '--ignored')
 
@@ -237,11 +280,13 @@ test('agents are bound by claim, worktree folder, /epic-wave and their task; a m
     // The worktree folder, with and without a slug.
     await expect(sessionEdge(window, FOLDER)).toHaveAttribute('aria-label', `bound to ${EPIC}/12 · worktree .claude/worktrees/12`)
     await expect(sessionEdge(window, SLUG)).toHaveAttribute('aria-label', `bound to ${EPIC}/07 · worktree .claude/worktrees/07-движок-сессий`)
-    // The Session running the wave → the Epic; its Subagents → the Tickets of their briefs.
+    // The Session running the wave → the Epic, though its checkout is on Ticket 07's branch; its
+    // Subagents → the Tickets of their briefs, not the branch their files inherit; the scout, whose
+    // brief names no Ticket, → nothing (six lines in all).
     await expect(sessionEdge(window, WAVE)).toHaveAttribute('aria-label', `bound to ${EPIC} · /epic-wave`)
     await window.getByTestId('subagent-fold').first().click()
-    await expect(edge(window, `bound to ${EPIC}/16 · task`)).toHaveCount(1)
-    await expect(edge(window, `bound to ${EPIC}/12 · task`)).toHaveCount(1)
+    await expect(await subagentEdge(window, IMPLEMENTER)).toHaveAttribute('aria-label', `bound to ${EPIC}/16 · task`)
+    await expect(await subagentEdge(window, REVIEWER)).toHaveAttribute('aria-label', `bound to ${EPIC}/12 · task`)
     await expect(window.locator('.react-flow__edge.w-edge-binding')).toHaveCount(6)
     await window.screenshot({ path: test.info().outputPath('binding-automatic.png') })
 
@@ -255,19 +300,33 @@ test('agents are bound by claim, worktree folder, /epic-wave and their task; a m
     await expect(rail.getByTestId('binding-reason')).toHaveText('worktree .claude/worktrees/12')
     await backToCanvas(window)
 
+    // While the app runs, a claim appended to a finished Session's transcript (claudeHome.changed)
+    // and to a live Session's Subagent file (not watched: read again on a timer) moves their lines.
+    const folderCwd = join(repo, '.claude', 'worktrees', '12')
+    append(join(transcriptDir(folderCwd), `${FOLDER}.jsonl`), record(FOLDER, folderCwd, 'HEAD', bash('toolu_live', `~/.claude/bin/ticket claim ${EPIC} 16`), 3))
+    await expect(sessionEdge(window, FOLDER)).toHaveAttribute('aria-label', `bound to ${EPIC}/16 · ticket claim`)
+    append(subagentFile(REVIEWER), record(WAVE, repo, WAVE_BRANCH, { ...bash('toolu_rclaim', `~/.claude/bin/ticket claim ${EPIC} 07`), isSidechain: true, agentId: REVIEWER }, 9))
+    await expect(await subagentEdge(window, REVIEWER)).toHaveAttribute('aria-label', `bound to ${EPIC}/07 · ticket claim`)
+
     // Drag the claiming Session's Node onto Ticket 12: bound by hand, and the Node goes back.
     const before = await layoutNode(window, `session:${CLAIM}`)
-    const from = await box(sessionTitle(window, CLAIM))
-    const to = await box(window.locator('[data-testid="ticket-node"][data-ticket="12"]'))
-    await window.mouse.move(from.x + 10, from.y + from.height / 2)
-    await window.mouse.down()
-    await window.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 20 })
-    await expect(window.getByTestId('binding-drop-target')).toHaveAttribute('data-target', `${EPIC}/12`)
-    await window.mouse.up()
-    await expect(window.getByTestId('binding-drop-target')).toHaveCount(0)
+    await dropOnTicket(window, sessionTitle(window, CLAIM), 12)
     await expect(sessionEdge(window, CLAIM)).toHaveAttribute('aria-label', `bound to ${EPIC}/12 · manual`)
     await expect.poll(savedBindings).toEqual([{ sessionId: CLAIM, agentId: null, target: { kind: 'ticket', epic: EPIC, num: 12 } }])
     await expect.poll(() => layoutNode(window, `session:${CLAIM}`)).toEqual(before)
+
+    // The same for a Subagent's Node: bound by hand under its own agentId, and back in its place.
+    const implementer = subagentNode(window, IMPLEMENTER)
+    const placed = await box(implementer)
+    await dropOnTicket(window, implementer.getByTestId('subagent-name'), 12)
+    await expect(await subagentEdge(window, IMPLEMENTER)).toHaveAttribute('aria-label', `bound to ${EPIC}/12 · manual`)
+    await expect
+      .poll(savedBindings)
+      .toEqual([
+        { sessionId: CLAIM, agentId: null, target: { kind: 'ticket', epic: EPIC, num: 12 } },
+        { sessionId: WAVE, agentId: IMPLEMENTER, target: { kind: 'ticket', epic: EPIC, num: 12 } },
+      ])
+    await expect.poll(async () => near(await box(implementer), placed)).toBe(true)
     rail = await openRail(window, CLAIM)
     await expect(rail.getByTestId('binding-reason')).toHaveText('manual')
     await expect(rail.getByTestId('binding-target')).toHaveText(`${EPIC}/12`)
@@ -280,11 +339,22 @@ test('agents are bound by claim, worktree folder, /epic-wave and their task; a m
     window = launched.window
     await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 900))
     await expect(sessionEdge(window, CLAIM)).toHaveAttribute('aria-label', `bound to ${EPIC}/12 · manual`)
+    await window.getByTestId('subagent-fold').first().click()
+    await expect(await subagentEdge(window, IMPLEMENTER)).toHaveAttribute('aria-label', `bound to ${EPIC}/12 · manual`)
 
-    // "Remove binding" from the Node's menu: the claim binds again.
-    await sessionTitle(window, CLAIM).click({ button: 'right' })
-    await window.getByTestId('binding-menu').getByRole('menuitem', { name: 'Remove binding' }).click()
+    // "Remove binding" in the Session rail: the claim binds again.
+    rail = await openRail(window, CLAIM)
+    await rail.getByTestId('binding-remove').click()
+    await expect(rail.getByTestId('binding-reason')).toHaveText('ticket claim')
+    await expect(rail.getByTestId('binding-target')).toHaveText(`${EPIC}/07`)
+    await backToCanvas(window)
     await expect(sessionEdge(window, CLAIM)).toHaveAttribute('aria-label', `bound to ${EPIC}/07 · ticket claim`)
+    await expect.poll(savedBindings).toEqual([{ sessionId: WAVE, agentId: IMPLEMENTER, target: { kind: 'ticket', epic: EPIC, num: 12 } }])
+
+    // "Remove binding" from the Subagent Node's menu: the brief binds it again.
+    await subagentNode(window, IMPLEMENTER).getByTestId('subagent-name').click({ button: 'right' })
+    await window.getByTestId('binding-menu').getByRole('menuitem', { name: 'Remove binding' }).click()
+    await expect(await subagentEdge(window, IMPLEMENTER)).toHaveAttribute('aria-label', `bound to ${EPIC}/16 · task`)
     await expect.poll(savedBindings).toEqual([])
     // A Node without a manual Binding has no such menu.
     await sessionTitle(window, FOLDER).click({ button: 'right' })

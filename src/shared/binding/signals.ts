@@ -1,5 +1,5 @@
 // The signals of a Binding (resolve.ts) in a Claude Code transcript: the last `ticket claim` the
-// agent ran, its cwd and git branch, its last `/ship-ticket` or `/epic-wave` call, and for a
+// agent ran, its cwd and git branch (a Session's only), its last `/ship-ticket` or `/epic-wave` call, and for a
 // Subagent the Ticket path in its task. Pure and incremental: main folds the lines of a transcript
 // into a state as they are appended (src/main/claude-home/binding-signals.ts), so a long
 // transcript is read once.
@@ -73,8 +73,13 @@ function extendOne(state: SignalState, record: Json, options: SignalOptions): Si
   const set = (change: Partial<AgentSignals>) => {
     signals = { ...signals, ...change }
   }
-  if (typeof record.cwd === 'string' && record.cwd !== '') set({ cwd: cap(record.cwd, PATH_MAX) })
-  if (typeof record.gitBranch === 'string' && record.gitBranch !== '') set({ gitBranch: cap(record.gitBranch, BRANCH_MAX) })
+  // In a Subagent's file every record carries the parent Session's cwd and git branch (the process
+  // runs in the Session's checkout, wherever the Subagent works): they say nothing about the
+  // Subagent, and the Session's checkout branch would beat the Ticket path in its task.
+  if (!options.subagent) {
+    if (typeof record.cwd === 'string' && record.cwd !== '') set({ cwd: cap(record.cwd, PATH_MAX) })
+    if (typeof record.gitBranch === 'string' && record.gitBranch !== '') set({ gitBranch: cap(record.gitBranch, BRANCH_MAX) })
+  }
 
   if (options.subagent && !promptSeen && record.type === 'user') {
     const text = promptText(record)

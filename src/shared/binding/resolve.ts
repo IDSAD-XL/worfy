@@ -5,14 +5,19 @@
 //
 //   1. manual    — the user dropped the agent's Node on a Ticket or an Epic frame (bindings.json);
 //   2. claim     — the last Bash command `ticket claim <epic> <NN>` (or `<epic>/<NN>`) the agent ran;
-//   3. branch    — its git branch `<epic>/<NN>[-<slug>]`, else its cwd inside
+//   3. skill     — `/epic-wave <epic>` as the last skill call: to its Epic;
+//   4. branch    — its git branch `<epic>/<NN>[-<slug>]`, else its cwd inside
 //      worktree      `.claude/worktrees/<NN>[-<slug>]` (ticket-ref.ts, ticket 10); a folder does not
 //                 carry the Epic, so it binds only when the workflow model says which Epic it is;
-//   4. skill     — the last `/ship-ticket` (to its Ticket) or `/epic-wave` (to its Epic) call;
-//   5. task      — for a Subagent only: the path `.scratch/<epic>/issues/<NN>-…` in its task.
+//   5. skill     — `/ship-ticket` as the last skill call: to its Ticket;
+//   6. task      — for a Subagent only: the path `.scratch/<epic>/issues/<NN>-…` in its task.
 //
 // So the Orchestrator that runs a Wave (`/epic-wave`) is bound to the Epic, while its implementers
-// and reviewers, who claim, work in a worktree or get a Ticket's path, are bound to their Tickets.
+// and reviewers, who claim or get a Ticket's path, are bound to their Tickets. `/epic-wave` comes
+// before the branch because the Orchestrator's checkout often holds the branch of a Ticket it
+// merges or checks rather than works on; `/ship-ticket` names the same Ticket as the branch of the
+// worktree it creates, so it stays after it. A Subagent has no cwd or branch of its own (its
+// file carries the Session's, signals.ts drops them), so its task decides unless it claims.
 //
 // The rules are a list (BINDING_RULES), so a later ticket adds a signal by adding a rule. The
 // signals themselves are extracted from transcripts by signals.ts.
@@ -176,15 +181,18 @@ const branchRule: BindingRule = {
   },
 }
 
-const skillRule: BindingRule = {
-  name: 'skill',
-  resolve({ signals }, workflow) {
-    const skill = signals?.skill
-    if (!skill) return null
-    const target = skill.name === 'ship-ticket' ? ticketInArgs(skill.args, workflow) : epicInArgs(skill.args, workflow)
-    if (target === null || !exists(target, workflow)) return null
-    return { target, source: 'skill', detail: `/${skill.name}${skill.args === '' ? '' : ` ${skill.args}`}` }
-  },
+/** The rule for one skill: the target its last call names, when that call is this skill's. */
+function skillRule(name: (typeof SKILL_NAMES)[number]): BindingRule {
+  return {
+    name,
+    resolve({ signals }, workflow) {
+      const skill = signals?.skill
+      if (!skill || skill.name !== name) return null
+      const target = name === 'ship-ticket' ? ticketInArgs(skill.args, workflow) : epicInArgs(skill.args, workflow)
+      if (target === null || !exists(target, workflow)) return null
+      return { target, source: 'skill', detail: `/${skill.name}${skill.args === '' ? '' : ` ${skill.args}`}` }
+    },
+  }
 }
 
 const taskRule: BindingRule = {
@@ -198,7 +206,7 @@ const taskRule: BindingRule = {
 }
 
 /** The signals, strongest first. */
-export const BINDING_RULES: readonly BindingRule[] = [manualRule, claimRule, branchRule, skillRule, taskRule]
+export const BINDING_RULES: readonly BindingRule[] = [manualRule, claimRule, skillRule('epic-wave'), branchRule, skillRule('ship-ticket'), taskRule]
 
 /** The Binding from the strongest rule that gives one; null when the agent is not bound. */
 export function resolveBinding(input: BindingInput, workflow: BindingWorkflow | undefined, rules: readonly BindingRule[] = BINDING_RULES): Binding | null {

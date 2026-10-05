@@ -100,12 +100,20 @@ describe('resolveBinding: signals in order of strength', () => {
     expect(resolveBinding({ signals: signals({ skill: { name: 'epic-wave', args: 'волна 2' } }) }, workflow)).toBeNull()
   })
 
-  it('a branch beats /epic-wave: the Orchestrator in its own worktree is still bound by the wave', () => {
-    expect(resolveBinding({ signals: signals({ skill: { name: 'epic-wave', args: 'worfy-mvp' }, gitBranch: 'worfy-mvp/16' }) }, workflow)?.source).toBe('branch')
-    expect(resolveBinding({ signals: signals({ skill: { name: 'epic-wave', args: 'worfy-mvp' }, gitBranch: 'claude/worfy-mvp-epic-53fc44' }) }, workflow)?.target).toEqual({
-      kind: 'epic',
-      epic: 'worfy-mvp',
-    })
+  it('/epic-wave beats the branch and the worktree folder: the Orchestrator is bound to the Epic whatever its checkout holds', () => {
+    // The Orchestrator's checkout often holds a Ticket's branch it does not work on (merges, checks).
+    const wave = { skill: { name: 'epic-wave' as const, args: 'worfy-mvp' } }
+    expect(resolveBinding({ signals: signals({ ...wave, gitBranch: 'worfy-mvp/16' }) }, workflow)).toEqual({ target: { kind: 'epic', epic: 'worfy-mvp' }, source: 'skill', detail: '/epic-wave worfy-mvp' })
+    expect(resolveBinding({ signals: signals({ ...wave, cwd: '/repo/.claude/worktrees/16' }) }, workflow)?.target).toEqual({ kind: 'epic', epic: 'worfy-mvp' })
+    expect(resolveBinding({ signals: signals({ ...wave, gitBranch: 'claude/worfy-mvp-epic-53fc44' }) }, workflow)?.target).toEqual({ kind: 'epic', epic: 'worfy-mvp' })
+    // An /epic-wave that names no Epic of the Project leaves the branch to decide.
+    expect(resolveBinding({ signals: signals({ skill: { name: 'epic-wave', args: 'волна 2' }, gitBranch: 'worfy-mvp/16' }) }, workflow)?.source).toBe('branch')
+    // A claim is still stronger.
+    expect(resolveBinding({ signals: signals({ ...wave, claim: claim('worfy-mvp', 7) }) }, workflow)?.source).toBe('claim')
+  })
+
+  it('a branch beats /ship-ticket: the call names the Ticket only when nothing stronger does', () => {
+    expect(resolveBinding({ signals: signals({ skill: { name: 'ship-ticket', args: 'worfy-mvp 12' }, gitBranch: 'worfy-mvp/16' }) }, workflow)?.target).toEqual({ kind: 'ticket', epic: 'worfy-mvp', num: 16 })
   })
 
   it('a Subagent with no signals of its own is bound by the Ticket path in its task; a Session is not', () => {
@@ -132,7 +140,7 @@ describe('resolveBinding: signals in order of strength', () => {
   it('takes the rules as a list, so a later ticket adds one', () => {
     const always: BindingRule = { name: 'always', resolve: () => ({ target: { kind: 'epic', epic: 'auction' }, source: 'skill', detail: 'x' }) }
     expect(resolveBinding({}, workflow, [...BINDING_RULES, always])?.target).toEqual({ kind: 'epic', epic: 'auction' })
-    expect(BINDING_RULES.map((rule) => rule.name)).toEqual(['manual', 'claim', 'branch-or-worktree', 'skill', 'task'])
+    expect(BINDING_RULES.map((rule) => rule.name)).toEqual(['manual', 'claim', 'epic-wave', 'branch-or-worktree', 'ship-ticket', 'task'])
   })
 })
 
@@ -205,6 +213,23 @@ describe('extendSignals', () => {
     expect(state.signals.task).toEqual({ epic: 'worfy-mvp', num: 12 })
     const blocks = extendSignals(emptySignalState(), [line({ type: 'user', message: { content: [{ type: 'text', text: 'see .scratch/auction/issues/30-x.md' }] } })], { subagent: true })
     expect(blocks.signals.task).toEqual({ epic: 'auction', num: 30 })
+  })
+
+  it('in a Subagent file, drops cwd and gitBranch: they are the parent Session\'s, so the Ticket path in its task decides', () => {
+    // Claude Code writes the Session's cwd and branch into every record of a Subagent's file.
+    const inherited = { isSidechain: true, cwd: '/repo/.claude/worktrees/26', gitBranch: 'worfy-mvp/26' }
+    const state = extendSignals(
+      emptySignalState(),
+      [userText('Ревью тикета .scratch/worfy-mvp/issues/16-привязка.md', inherited), line({ type: 'system', subtype: 'x', ...inherited })],
+      { subagent: true },
+    )
+    expect(state.signals).toEqual({ ...EMPTY_AGENT_SIGNALS, task: { epic: 'worfy-mvp', num: 16 } })
+    expect(resolveBinding({ signals: state.signals, subagent: true }, workflow)).toMatchObject({ target: { kind: 'ticket', epic: 'worfy-mvp', num: 16 }, source: 'task' })
+    // A Subagent with no task and only the inherited branch is not bound.
+    const scout = extendSignals(emptySignalState(), [userText('map the canvas code', inherited)], { subagent: true })
+    expect(resolveBinding({ signals: scout.signals, subagent: true }, workflow)).toBeNull()
+    // The Session's own file keeps them.
+    expect(extendSignals(emptySignalState(), [userText('hi', { ...inherited, isSidechain: false })], { subagent: false }).signals).toMatchObject({ cwd: inherited.cwd, gitBranch: inherited.gitBranch })
   })
 
   it('survives lines that are not JSON or not records', () => {
