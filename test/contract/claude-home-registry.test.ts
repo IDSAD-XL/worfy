@@ -429,7 +429,14 @@ describe('watching the Claude home', () => {
     const events = parseTranscriptLines(chunk.lines)
     expect(Date.now() - rest).toBeLessThanOrEqual(1000)
     expect(second.at - rest).toBeLessThanOrEqual(1000)
-    expect(events).toStrictEqual([{ kind: 'text', role: 'assistant', text: 'Appended while watching', isMeta: false, uuid: 'appended-1', timestamp: '2026-05-05T10:07:00.000Z', sidechain: false }])
+    expect(events).toStrictEqual([
+      {
+        uuid: 'appended-1',
+        timestamp: '2026-05-05T10:07:00.000Z',
+        sidechain: false,
+        event: { type: 'text', text: 'Appended while watching', messageId: 'appended-1', parentToolUseId: null, synthetic: false },
+      },
+    ])
     expect((await readNewLines(file, chunk.cursor)).lines).toEqual([])
   })
 
@@ -571,15 +578,17 @@ async function ipcOver(registry: ClaudeHomeRegistry) {
 }
 
 describe('claudeHome IPC channels', () => {
-  it('registers the three request channels of the domain', async () => {
+  it('registers the four request channels of the domain', async () => {
     const { handlers } = await ipcOver(new ClaudeHomeRegistry({ home: FIXTURE, listWorktrees: noWorktrees, isAlive: alive() }))
-    expect([...handlers.keys()].sort()).toEqual(['worfy:claudeHome.close', 'worfy:claudeHome.sessions', 'worfy:claudeHome.transcript'])
+    expect([...handlers.keys()].sort()).toEqual(['worfy:claudeHome.close', 'worfy:claudeHome.live', 'worfy:claudeHome.sessions', 'worfy:claudeHome.transcript'])
   })
 
   it.each([
     ['claudeHome.sessions', { projectRoot: 'relative/path' }],
     ['claudeHome.sessions', { projectRoot: 42 }],
     ['claudeHome.sessions', undefined],
+    ['claudeHome.live', { projectRoot: 'relative/path' }],
+    ['claudeHome.live', { projectRoot: ['/Users/test/projects/demo'] }],
     ['claudeHome.close', { projectRoot: 'relative/path' }],
     ['claudeHome.close', {}],
     ['claudeHome.transcript', { projectRoot: DEMO, sessionId: '../../etc/passwd' }],
@@ -591,6 +600,37 @@ describe('claudeHome IPC channels', () => {
     const result = await call(channel, input)
     expect(result.ok).toBe(false)
     expect(!result.ok && result.error).toMatch(/invalid input/)
+  })
+
+  it('answers live with the live Sessions only, in the contract fields only', async () => {
+    const registry = new ClaudeHomeRegistry({ home: FIXTURE, listWorktrees: noWorktrees, isAlive: alive(41005) })
+    const { call } = await ipcOver(registry)
+    const plain = await call('claudeHome.live', { projectRoot: DEMO })
+    expect(plain).toStrictEqual({ ok: true, value: { live: (await registry.sessions(DEMO)).live } })
+    expect(plain.ok && (plain.value as { live: { pid: number }[] }).live.map((session) => session.pid)).toEqual([41005])
+    // A registry that leaks fields of the raw files: the channel must not pass them on.
+    vi.spyOn(registry, 'live').mockImplementation(async () => {
+      const real = await ClaudeHomeRegistry.prototype.live.call(registry, DEMO)
+      return real.map((session) => ({ ...session, messagingSocketPath: '/Users/test/tmp/cc-socks/41005.sock' }))
+    })
+    const result = await call('claudeHome.live', { projectRoot: DEMO, extra: true })
+    expect(JSON.stringify(result)).not.toMatch(/messagingSocketPath/)
+    expect(result).toStrictEqual(plain)
+  })
+
+  it('sends the events of the Session thread, as a live Session sends them', async () => {
+    const home = await copyOfFixture()
+    const registry = new ClaudeHomeRegistry({ home, listWorktrees: noWorktrees, isAlive: alive() })
+    const file = (await registry.transcriptPath(DEMO, S5)) ?? ''
+    // An older Claude Code wrote a Subagent's records into the Session's own file.
+    await appendFile(file, `${JSON.stringify({ type: 'assistant', isSidechain: true, agentId: 'a9', uuid: 'side-1', message: { id: 'm9', content: [{ type: 'text', text: 'from a subagent' }] } })}\n`)
+    await appendFile(file, `${assistantLine('after the subagent', 'own-1')}\n`)
+    const { call } = await ipcOver(registry)
+    const result = await call('claudeHome.transcript', { projectRoot: DEMO, sessionId: S5 })
+    if (!result.ok) throw new Error(result.error)
+    const { events } = result.value as { events: { type: string; text?: string }[] }
+    expect(events.map((event) => event.text)).not.toContain('from a subagent')
+    expect(events.at(-1)).toStrictEqual({ type: 'text', text: 'after the subagent', messageId: 'own-1', parentToolUseId: null, synthetic: false })
   })
 
   it('answers sessions with the contract fields only', async () => {
@@ -617,13 +657,14 @@ describe('claudeHome IPC channels', () => {
     for (let round = 0; round < 50; round += 1) {
       const result = await call('claudeHome.transcript', { projectRoot: DEMO, sessionId: S5, maxBytes: 1024, ...(cursor ? { cursor } : {}) })
       if (!result.ok) throw new Error(result.error)
-      const value = result.value as { found: boolean; events: { kind: string }[]; cursor: unknown; more: boolean }
+      const value = result.value as { found: boolean; events: { type: string }[]; cursor: unknown; more: boolean }
       expect(value.found).toBe(true)
-      kinds.push(...value.events.map((event) => event.kind))
+      kinds.push(...value.events.map((event) => event.type))
       cursor = value.cursor
       if (!value.more) break
     }
-    expect(kinds).toEqual(['unknown', 'unknown', 'command', 'unknown', 'thinking', 'tool_use', 'tool_result', 'subagent', 'text', 'hook', 'subagent', 'text', 'title', 'title', 'unknown', 'unknown'])
+    // The events of a live Session (src/shared/agent/events.ts); the Stop hook that said nothing is not one.
+    expect(kinds).toEqual(['unknown', 'unknown', 'command', 'unknown', 'thinking', 'tool_use', 'tool_result', 'subagent', 'text', 'subagent', 'text', 'title', 'title', 'unknown', 'unknown'])
     expect(await call('claudeHome.transcript', { projectRoot: DEMO, sessionId: S6 })).toStrictEqual({
       ok: true,
       value: { found: false, events: [], cursor: { offset: 0, fileId: null }, reset: false, more: false },

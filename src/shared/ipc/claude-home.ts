@@ -2,7 +2,7 @@
 // (WORFY_CLAUDE_HOME), wherever they were started. worfy only reads these files (ADR 0002,
 // ADR 0005); the main process side is src/main/claude-home/ and src/main/ipc/claude-home.ts.
 import { z } from 'zod'
-import { transcriptEventSchema } from '../transcript/parse'
+import { agentEvent } from '../agent/events'
 import { eventChannel, invokeChannel } from './channels'
 
 /** An absolute POSIX path; the main process resolves it again before use. */
@@ -70,12 +70,21 @@ export const claudeHomeSessions = invokeChannel(
   z.object({ live: z.array(liveSessionSchema), history: z.array(historySessionSchema) }),
 )
 
+/**
+ * Only the live Sessions of a Project, without reading the history: what the Canvas asks again
+ * when the registry changed, and every few seconds while a Session is live, because a process
+ * that died without removing its registry file changes no file. No subscription.
+ */
+export const claudeHomeLive = invokeChannel('claudeHome.live', z.object({ projectRoot: absolutePath }), z.object({ live: z.array(liveSessionSchema) }))
+
 /** Stops `claudeHome.changed` for this Project in the calling window. `closed` is false if it was not subscribed. */
 export const claudeHomeClose = invokeChannel('claudeHome.close', z.object({ projectRoot: absolutePath }), z.object({ closed: z.boolean() }))
 
 /**
- * Events of a Session's transcript after `cursor` (from the start without one). `reset` means
- * the file was truncated or replaced and the events start over; `more` means call again.
+ * Events of a Session's transcript after `cursor` (from the start without one). They are the
+ * events of a live Session (src/shared/agent/events.ts), of the Session's own thread only
+ * (src/shared/transcript/parse.ts), so one transcript view draws both. `reset` means the file was
+ * truncated or replaced and the events start over; `more` means call again.
  */
 export const claudeHomeTranscript = invokeChannel(
   'claudeHome.transcript',
@@ -92,7 +101,7 @@ export const claudeHomeTranscript = invokeChannel(
   }),
   z.object({
     found: z.boolean(),
-    events: z.array(transcriptEventSchema),
+    events: z.array(agentEvent),
     cursor: tailCursorSchema,
     reset: z.boolean(),
     more: z.boolean(),
@@ -111,6 +120,7 @@ export const claudeHomeChanged = eventChannel(
 declare module './channels' {
   interface IpcContract {
     'claudeHome.sessions': typeof claudeHomeSessions
+    'claudeHome.live': typeof claudeHomeLive
     'claudeHome.close': typeof claudeHomeClose
     'claudeHome.transcript': typeof claudeHomeTranscript
     'claudeHome.changed': typeof claudeHomeChanged

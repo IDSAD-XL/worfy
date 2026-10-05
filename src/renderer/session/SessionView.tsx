@@ -5,6 +5,7 @@ import { invoke } from '../ipc'
 import { StatusChip } from '../theme/primitives'
 import { formatCost, permissionLabel, STATE_CHIPS } from './format'
 import { promptHistory } from './history'
+import { ExternalSessionPanel } from './ExternalSessionPanel'
 import { MessageInput } from './MessageInput'
 import { useNavigation } from './navigation'
 import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
@@ -203,6 +204,9 @@ export function SessionView({ projectId, projectName }: SessionViewProps) {
         No project
       </div>
     )
+  }
+  if (opened?.external && opened.projectId === projectId) {
+    return <ExternalSessionPanel key={opened.nodeId} projectId={projectId} nodeId={opened.nodeId} sessionId={opened.external.sessionId} />
   }
   if (nodeId === null) {
     return (
