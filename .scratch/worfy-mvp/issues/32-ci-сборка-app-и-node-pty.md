@@ -1,7 +1,7 @@
 # 32 — e2e и сборка `.app` в CI, `.app` с ad-hoc подписью и node-pty под ABI Electron
 
 Type: task
-Status: blocked — ревью дважды не чистое: не выполнен пункт «worfy.app открывается двойным щелчком из Finder; снимок в Итог» — у агента нет права Screen Recording, нужен владелец; PR #2
+Status: done — 2026-10-05, [PR #2](https://github.com/IDSAD-XL/worfy/pull/2)
 Blocked by: 01
 Source: [spec.md](../spec.md), «Соглашения для тикетов этого эпика», риски 7 и 9; [ADR-0004](../../../docs/adr/0004-stack-electron-ts-react-flow-agent-sdk.md)
 

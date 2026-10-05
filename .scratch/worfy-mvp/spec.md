@@ -138,9 +138,11 @@ Renderer и MCP-tools холста шлют операции (создать, с
 2. **Окружение при запуске из Finder.** У приложения из Finder голый `PATH`: hooks зовут `node`,
    `pnpm`, `gh`. Нужен `PATH` из login shell (`$SHELL -lc env`). Отвечает тикет 06 отдельным spike-ом
    `scripts/spikes/path-probe/`, делает 07.
+   Решено: [ADR-0007](../../docs/adr/0007-claude-code-launch-environment.md).
 3. **Вход через подписку.** SDK запускает Claude Code. Из окружения нужно убрать
    `ANTHROPIC_API_KEY` и `ANTHROPIC_AUTH_TOKEN`, иначе вход пойдёт по ключу. Проверка — поле
    `apiKeySource` в сообщении `system/init`. Отвечает 06.
+   Решено: [ADR-0009](../../docs/adr/0009-claude-code-login-check-account-info.md).
 4. **Стабильность формата транскриптов.** `~/.claude/sessions/*.json` и
    `~/.claude/projects/<cwd>/<session>.jsonl` — внутренний формат Claude Code, он меняется от
    версии к версии. Разбор обязан терпеть неизвестные записи и поля, а fixtures — снимать
@@ -167,6 +169,7 @@ Renderer и MCP-tools холста шлют операции (создать, с
 11. **Agent SDK в собранном `.app`.** SDK запускает Claude Code дочерним процессом, а файл внутри
     `app.asar` запустить нельзя. Нужны `asarUnpack` для SDK, явные `pathToClaudeCodeExecutable` и
     `executable`. Делает 07, проверка — `init` в `.app`, запущенном из Finder.
+    Решено: [ADR-0008](../../docs/adr/0008-claude-code-native-binary-path.md).
 12. **Как запускать «Ship ticket» и «Run wave».** Решено: шаблоны действий на проект. Каждый
     Проект хранит текст, который шлют действия (раздел «Шаблоны действий» выше); worfy только
     подставляет значения. Хранение и настройки — тикет 04, подстановка и действия — тикет 23.
