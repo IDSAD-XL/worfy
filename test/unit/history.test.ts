@@ -2,10 +2,10 @@
 // store: every operation and every inverse goes through LayoutStore.apply, the code that applies
 // them in the app, so an inverse that main would read differently fails here.
 import { beforeEach, describe, expect, it } from 'vitest'
-import { applyRecorded, grouped, History, historyOf, HISTORY_DEPTH, inverseOf, resetHistories, trashRecorded, type Send, type TrashClient } from '../../src/renderer/canvas/history'
+import { applyRecorded, deleteToTrash, grouped, History, historyOf, HISTORY_DEPTH, inverseOf, resetHistories, trashRecorded, type Group, type LayoutChannel, type Send, type TrashClient } from '../../src/renderer/canvas/history'
 import { LayoutStore } from '../../src/main/layout/store'
 import type { TrashEntry } from '../../src/shared/ipc/trash'
-import type { LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
+import { layoutNodeSchema, type LayoutNode, type LayoutOpInput } from '../../src/shared/layout/types'
 
 const PROJECT = 'demo-0a1b2c3d'
 
@@ -25,11 +25,14 @@ const send: Send = (op) => {
 
 const layout = () => store.get(PROJECT).layout
 const nodeOf = (id: string): LayoutNode | undefined => layout().nodes.find((node) => node.id === id)
+/** What the Canvas sends through: main, and the Layout as main has it now. */
+const channel: LayoutChannel = { send: (op) => send(op), layout: () => layout() }
 /** An operation the user makes on the Canvas: recorded against the Layout as it was just before. */
-const user = (op: LayoutOpInput) => applyRecorded(PROJECT, layout(), op, send)
+const user = (op: LayoutOpInput, group?: Group) => applyRecorded(PROJECT, op, channel, group)
 /** An operation an agent makes through the canvas MCP tools: main applies it directly. */
 const agent = (op: LayoutOpInput) => store.apply(PROJECT, op)
 const history = () => historyOf(PROJECT)
+const layoutNodeOf = (fields: Partial<LayoutNode> & { id: string; kind: string }): LayoutNode => layoutNodeSchema.parse({ x: 0, y: 0, w: 220, h: 120, ...fields })
 const note = (id: string, extra: Partial<LayoutNode> = {}) => store.apply(PROJECT, { op: 'create', node: { id, kind: 'note', x: 0, y: 0, w: 220, h: 120, data: { text: id }, ...extra } })
 
 beforeEach(() => {
@@ -151,6 +154,32 @@ describe('history: inverse operations', () => {
     expect(inverseOf(layout(), { op: 'move', id: 'missing', x: 1, y: 1 })).toBeUndefined()
   })
 
+  it('a created note keeps the text typed into it through undo and redo', async () => {
+    // Double click creates the note, the user types (patchData, not a step), clicks away, ⌘Z, ⇧⌘Z.
+    await user({ op: 'create', node: { kind: 'note', x: 10, y: 10, w: 220, h: 120, data: { text: '' } } })
+    const id = layout().nodes[0]!.id
+    await user({ op: 'patchData', id, data: { text: 'important' } })
+    expect(history().size).toBe(1)
+    const typed = nodeOf(id)
+
+    expect(await history().undo()).toBe(true)
+    expect(nodeOf(id)).toBeUndefined()
+    expect(await history().redo()).toBe(true)
+    expect(nodeOf(id)).toEqual(typed)
+    expect(nodeOf(id)?.data).toEqual({ text: 'important' })
+  })
+
+  it('a removed Node brought back and changed comes back changed after redo and undo', async () => {
+    note('a', { data: { text: 'first' } })
+    await user({ op: 'remove', id: 'a' })
+    await history().undo()
+    await user({ op: 'patchData', id: 'a', data: { text: 'second' } })
+    expect(await history().redo()).toBe(true)
+    expect(nodeOf('a')).toBeUndefined()
+    expect(await history().undo()).toBe(true)
+    expect(nodeOf('a')?.data).toEqual({ text: 'second' })
+  })
+
   it('a create gets its id before it is sent, so its undo can name it', async () => {
     await user({ op: 'create', node: { kind: 'note', x: 0, y: 0, w: 220, h: 120 } })
     const first = sent[0]
@@ -180,7 +209,7 @@ describe('history: one gesture, one step', () => {
   it('operations made inside grouped() are undone and redone together', async () => {
     note('a')
     note('b')
-    await grouped(() => Promise.all([user({ op: 'move', id: 'a', x: 10, y: 0 }), user({ op: 'move', id: 'b', x: 20, y: 0 })]))
+    await grouped((group) => Promise.all([user({ op: 'move', id: 'a', x: 10, y: 0 }, group), user({ op: 'move', id: 'b', x: 20, y: 0 }, group)]))
     expect(history().size).toBe(1)
     await history().undo()
     expect([nodeOf('a')?.x, nodeOf('b')?.x]).toEqual([0, 0])
@@ -191,12 +220,48 @@ describe('history: one gesture, one step', () => {
   it('a grouped undo runs every part even when one part is refused', async () => {
     note('a')
     note('b')
-    await grouped(async () => {
-      await user({ op: 'move', id: 'a', x: 10, y: 0 })
-      await user({ op: 'move', id: 'b', x: 20, y: 0 })
+    await grouped(async (group) => {
+      await user({ op: 'move', id: 'a', x: 10, y: 0 }, group)
+      await user({ op: 'move', id: 'b', x: 20, y: 0 }, group)
     })
     agent({ op: 'remove', id: 'b' })
     expect(await history().undo()).toBe(false)
+    expect(nodeOf('a')).toMatchObject({ x: 0 })
+  })
+
+  it('an operation of another gesture that finishes while a group waits on main is a step of its own', async () => {
+    note('a')
+    note('b')
+    let release: () => void = () => undefined
+    const waiting = new Promise<void>((resolve) => (release = resolve))
+    // The drag of `a` waits for main's answer; meanwhile the user resizes `b`.
+    const slow: LayoutChannel = { send: async (op) => (await waiting, send(op)), layout: () => layout() }
+    const drag = grouped((group) => applyRecorded(PROJECT, { op: 'move', id: 'a', x: 10, y: 0 }, slow, group))
+    await user({ op: 'resize', id: 'b', w: 400, h: 300, x: 0, y: 0 })
+    release()
+    await drag
+    expect(history().size).toBe(2)
+
+    await history().undo()
+    expect(nodeOf('a')).toMatchObject({ x: 0 })
+    expect(nodeOf('b')).toMatchObject({ w: 400 })
+  })
+
+  it('a step recorded after its gesture closed is still a step', async () => {
+    note('a')
+    let release: () => void = () => undefined
+    const waiting = new Promise<void>((resolve) => (release = resolve))
+    const slow: LayoutChannel = { send: async (op) => (await waiting, send(op)), layout: () => layout() }
+    let late: Promise<unknown> = Promise.resolve()
+    // The gesture does not wait for its operation: the group closes first.
+    await grouped((group) => {
+      late = applyRecorded(PROJECT, { op: 'move', id: 'a', x: 10, y: 0 }, slow, group)
+      return Promise.resolve()
+    })
+    release()
+    await late
+    expect(history().size).toBe(1)
+    await history().undo()
     expect(nodeOf('a')).toMatchObject({ x: 0 })
   })
 
@@ -233,6 +298,26 @@ describe('history: deleting to the trash', () => {
     await history().redo()
     await history().undo()
     expect(calls).toEqual(['put c1 → 1-00000001', 'restore 1-00000001', 'put c1 → 2-00000002', 'restore 2-00000002'])
+  })
+
+  it('deleting a selection of two Nodes is one step: one undo restores both', async () => {
+    const calls: string[] = []
+    const node = (id: string) => layoutNodeOf({ id, kind: 'note' })
+    const trash: TrashClient = {
+      put: (_projectId, nodeId) => {
+        calls.push(`put ${nodeId}`)
+        return Promise.resolve({ ok: true, value: { label: `1-${nodeId.padStart(8, '0')}`, trashedAt: 1, nodeId, kind: 'note', title: null, hasFiles: false } })
+      },
+      restore: (_projectId, label) => {
+        calls.push(`restore ${label}`)
+        return Promise.resolve({ ok: true, value: { label, trashedAt: 1, nodeId: label, kind: 'note', title: null, hasFiles: false } })
+      },
+    }
+    expect(await deleteToTrash(PROJECT, [node('n1'), node('n2')], trash)).toEqual([])
+    expect(history().size).toBe(1)
+    expect(await history().undo()).toBe(true)
+    expect(calls).toEqual(['put n1', 'put n2', 'restore 1-000000n2', 'restore 1-000000n1'])
+    expect(history().canUndo).toBe(false)
   })
 
   it('a refused delete is not a step', async () => {

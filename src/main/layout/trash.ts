@@ -18,8 +18,7 @@ import { z } from 'zod'
 import { CARD_ID_PATTERN } from '../../shared/ipc/cards'
 import { TRASH_KEEP_MS, TRASH_LABEL_PATTERN, trashRefusal, type TrashEntry } from '../../shared/ipc/trash'
 import { layoutNodeSchema, type LayoutNode, type LayoutState } from '../../shared/layout/types'
-import { CARD_DATA_DIR } from '../cards/data'
-import { CARDS_DIR, titleOf } from '../cards/store'
+import { titleOf } from '../cards/store'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 
 /** The folder of a Project's trash, inside its data folder. */
@@ -54,6 +53,11 @@ export interface TrashLayout {
 export interface TrashDeps {
   /** A Project's data folder; throws for a Project that is not in the list. */
   dataDirOf: (projectId: string) => string
+  /**
+   * Where a Card's folder and its data file are, as src/main/cards lays them out (CardStore.cardDir,
+   * CardDataStore.file); throws for an invalid Card id or a Project that is not in the list.
+   */
+  cardPaths: (projectId: string, cardId: string) => { folder: string; data: string }
   layout: TrashLayout
   /** Why this Node may not be deleted now, beyond trashRefusal(): a Session running on it. */
   busy?: (projectId: string, node: LayoutNode) => string | null
@@ -113,11 +117,6 @@ export class TrashStore {
     return join(this.trashDir(projectId), label)
   }
 
-  private cardPaths(projectId: string, cardId: string): { folder: string; data: string } {
-    const dataDir = this.deps.dataDirOf(projectId)
-    return { folder: join(dataDir, CARDS_DIR, cardId), data: join(dataDir, CARD_DATA_DIR, `${cardId}.json`) }
-  }
-
   /**
    * Moves a Node to the trash: for a Card that no other Node shows, its folder and its data too;
    * then removes the Node from the Layout. Throws, having moved nothing, for a Node the user may
@@ -141,7 +140,7 @@ export class TrashStore {
     let card: StoredEntry['card'] = null
     try {
       if (cardId !== null) {
-        const paths = this.cardPaths(projectId, cardId)
+        const paths = this.deps.cardPaths(projectId, cardId)
         const title = existsSync(paths.folder) ? readCardTitle(paths.folder) : null
         const move = (from: string, to: string): boolean => {
           if (shared || !existsSync(from)) return false
@@ -181,7 +180,7 @@ export class TrashStore {
 
     const back: { from: string; to: string }[] = []
     if (card !== null) {
-      const paths = this.cardPaths(projectId, card.cardId)
+      const paths = this.deps.cardPaths(projectId, card.cardId)
       if (card.files) back.push({ from: join(dir, CARD_FOLDER), to: paths.folder })
       if (card.data) back.push({ from: join(dir, CARD_DATA_FILE), to: paths.data })
       for (const { to } of back) if (existsSync(to)) throw new Error(`A Card with id ${card.cardId} exists again; delete it before restoring`)

@@ -4,6 +4,8 @@
 import { BrowserWindow } from 'electron'
 import { trashChanged, trashList, trashPut, trashRestore } from '../../shared/ipc/trash'
 import { sharedNodeSessions } from '../agent/app-node-sessions'
+import { cardDataStore } from '../cards/data'
+import { cardStore } from '../cards/store'
 import { layoutStore } from '../layout/store'
 import { TrashStore } from '../layout/trash'
 import { projectStore } from '../projects/store'
@@ -16,6 +18,8 @@ const store = new TrashStore({
     const projects = projectStore()
     return projects.dataDir(projects.get(projectId).id)
   },
+  // The Card's files where the Card stores keep them: the trash does not lay them out itself.
+  cardPaths: (projectId, cardId) => ({ folder: cardStore().cardDir(projectId, cardId), data: cardDataStore().file(projectId, cardId) }),
   layout: layoutStore(),
   // A Session worfy runs on the Node: it is closed first, as the Node's own Remove button asks.
   busy: (projectId, node) => {

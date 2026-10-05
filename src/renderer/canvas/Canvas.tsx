@@ -34,8 +34,8 @@ import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput, t
 import { edgeSources, edgesOf, nodeSources, overlays, type NodeSource } from './extensions'
 import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
 import { UnknownNode } from './UnknownNode'
-import { applyRecorded, grouped } from './history'
-import { applyLayoutOp, LayoutOpsContext, useLayout, type LayoutOps } from './useLayout'
+import { applyRecorded, grouped, type Group, type LayoutChannel } from './history'
+import { applyLayoutOp, currentLayout, LayoutOpsContext, useLayout, type LayoutOps } from './useLayout'
 // Every Node type is drawn inside the chrome (tags, the pinned frame); pinned Nodes are placed
 // anew for every viewport (ticket 29).
 import { withNodeChrome } from './withNodeChrome'
@@ -164,19 +164,24 @@ function Flow({ projectId, state }: FlowProps) {
   )
 
   const ops: LayoutOps = useMemo(() => {
-    const send = (op: LayoutOpInput) =>
-      applyLayoutOp(projectId, op).then((error) => {
-        // Refused: put the Nodes back where main has them.
-        if (error !== undefined) {
-          const { layout, derived } = latest.current
-          setNodes((current) => toFlowNodes(layout.nodes, derived.nodes, current.map((node) => ({ ...node, dragging: false, resizing: false }))))
-        }
-        return error
-      })
+    const channel: LayoutChannel = {
+      send: (op) =>
+        applyLayoutOp(projectId, op).then((error) => {
+          // Refused: put the Nodes back where main has them.
+          if (error !== undefined) {
+            const { layout, derived } = latest.current
+            setNodes((current) => toFlowNodes(layout.nodes, derived.nodes, current.map((node) => ({ ...node, dragging: false, resizing: false }))))
+          }
+          return error
+        }),
+      // main's latest answer, which applyLayoutOp() stores before it resolves: the next operation of
+      // a gesture, and an undo, see what the previous one did.
+      layout: () => currentLayout(projectId) ?? latest.current.layout,
+    }
     return {
-      // Every operation the user makes here is recorded for ⌘Z (history.ts, ticket 30).
-      async apply(op: LayoutOpInput) {
-        await applyRecorded(projectId, latest.current.layout, op, send)
+      // Every operation sent here is a user's gesture and is recorded for ⌘Z (history.ts, ticket 30).
+      async apply(op: LayoutOpInput, group?: Group) {
+        await applyRecorded(projectId, op, channel, group)
       },
     }
   }, [projectId])
@@ -189,13 +194,13 @@ function Flow({ projectId, state }: FlowProps) {
   const onNodeDragStop: OnNodeDrag<CanvasFlowNode> = useCallback(
     (_event, _node, dragged) => {
       const { layout, derived } = latest.current
-      const moves: Promise<void>[] = []
       // One drag is one step of the history, however many Nodes it moved.
-      void grouped(async () => {
+      void grouped(async (group) => {
+        const moves: Promise<void>[] = []
         for (const node of dragged) {
           const source = derived.sourceOf.get(node.id)
           if (source) source.moved({ projectId, layout }, node)
-          else moves.push(ops.apply({ op: 'move', id: node.id, x: node.position.x, y: node.position.y }))
+          else moves.push(ops.apply({ op: 'move', id: node.id, x: node.position.x, y: node.position.y }, group))
         }
         await Promise.all(moves)
       })

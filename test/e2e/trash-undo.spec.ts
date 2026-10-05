@@ -178,3 +178,65 @@ test('the Orchestrator Node cannot be deleted: Delete is unavailable and the Del
     await launched.close()
   }
 })
+
+test('in a text field Backspace and ⌘Z edit the text: the selection is not deleted and the Layout is not undone', async () => {
+  const launched = await launch()
+  try {
+    const { window } = launched
+    const note = window.locator('[data-testid="note-node"][data-node-id="n1"]')
+    const header = note.locator('.w-note__header')
+    const card = window.locator('[data-testid="card-node"][data-node-id="c1"]')
+    await expect(card.getByTestId('card-title')).toHaveText('Counter card')
+
+    // A step in the history that a ⌘Z reaching the Canvas would undo.
+    const start = await box(header)
+    await window.mouse.move(start.x + 20, start.y + 8)
+    await window.mouse.down()
+    await window.mouse.move(start.x + 120, start.y + 60, { steps: 8 })
+    await window.mouse.move(start.x + 220, start.y + 108, { steps: 8 })
+    await window.mouse.up()
+    await expect.poll(async () => (await nodeIn(window, 'n1'))?.x ?? 0).toBeGreaterThan(250)
+    const moved = await nodeIn(window, 'n1')
+
+    // The tag field of the selection toolbar, with the Card selected. main answers in the order it
+    // was asked, so a delete or an undo sent by the key is visible to the layout.get that follows.
+    await card.getByTestId('card-title').click()
+    const toolbar = window.getByTestId('selection-toolbar')
+    await toolbar.getByRole('button', { name: 'Add tag' }).click()
+    const tag = toolbar.getByRole('textbox', { name: 'New tag' })
+    await expect(tag).toBeFocused()
+    await window.keyboard.type('ab')
+    await window.keyboard.press('Backspace')
+    await expect(tag).toHaveValue('a')
+    await window.keyboard.press('Meta+z')
+    expect(await nodeIn(window, 'c1')).toBeDefined()
+    expect(await nodeIn(window, 'n1')).toMatchObject({ x: moved?.x, y: moved?.y })
+    expect(trashEntries()).toEqual([])
+    await window.keyboard.press('Escape')
+
+    // The text of the note, with the note selected.
+    await header.click()
+    const text = note.getByRole('textbox', { name: 'Note text' })
+    await text.click()
+    await expect(text).toBeFocused()
+    await window.keyboard.press('End')
+    await window.keyboard.type('!')
+    await window.keyboard.press('Backspace')
+    await expect(text).toHaveValue('move me')
+    // Checked after each key: a ⌘Z that reached the Canvas would bring a deleted note back.
+    expect(await nodeIn(window, 'n1')).toBeDefined()
+    expect(trashEntries()).toEqual([])
+    await window.keyboard.press('Home')
+    await window.keyboard.press('Delete')
+    await expect(text).toHaveValue('ove me')
+    expect(await nodeIn(window, 'n1')).toBeDefined()
+    expect(trashEntries()).toEqual([])
+    await window.keyboard.press('Meta+z')
+    expect(await nodeIn(window, 'n1')).toMatchObject({ x: moved?.x, y: moved?.y })
+    expect(await nodeIn(window, 'c1')).toBeDefined()
+    await expect(note).toBeVisible()
+    expect(trashEntries()).toEqual([])
+  } finally {
+    await launched.close()
+  }
+})

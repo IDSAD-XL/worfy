@@ -313,11 +313,16 @@ describe('trash: three days', () => {
 
   it('a stray file or folder in the trash that is not an entry is left alone', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
+    // A real old entry next to the strays: its going away shows that the cleanup has run.
+    create({ id: 'old', kind: 'note', x: 0, y: 0, w: 220, h: 120 })
+    const old = await put('old')
     mkdirSync(join(trashDir(), 'not-an-entry'), { recursive: true })
     writeFileSync(join(trashDir(), 'notes.txt'), 'x')
+    expect(readdirSync(trashDir()).sort()).toEqual([old.label, 'not-an-entry', 'notes.txt'].sort())
     vi.setSystemTime(Date.now() + 10 * DAY)
     await start()
-    await vi.waitFor(async () => expect(await list()).toEqual([]))
+    await vi.waitFor(() => expect(existsSync(join(trashDir(), old.label))).toBe(false))
+    expect(await list()).toEqual([])
     expect(readdirSync(trashDir()).sort()).toEqual(['not-an-entry', 'notes.txt'])
   })
 })

@@ -3,16 +3,17 @@
 // main stays the only writer of the Layout (ADR-0003). Undoing a step sends its inverse operation to
 // main through the same channel as every other operation, and redoing sends the operation again;
 // deleting to the trash is undone by restoring the entry (src/shared/ipc/trash.ts). The inverse is
-// computed from the Layout as the user saw it just before the operation.
+// computed from the renderer's copy of the Layout just before the operation is sent.
 //
-// Only what the user does on the Canvas is recorded: the Canvas sends its operations through
-// applyRecorded(). Operations made by main itself or by an agent through the canvas MCP tools never
-// pass through here, so they are not in the user's history; an undo after them only reverts the
-// user's own step.
+// Only what the user does on the Canvas is recorded: the Canvas's LayoutOps (Canvas.tsx, the
+// LayoutOpsContext of useLayout.ts) send the user's gestures through applyRecorded(). Everything
+// else writes the Layout without a step: main itself, an agent through the canvas MCP tools, and the
+// renderer's automatic writers (the Session Nodes sync, the Epic and Subagent sources), which call
+// applyLayoutOp() directly. An undo after them only reverts the user's own step.
 //
 // One history per Project, HISTORY_DEPTH steps deep: a 41st step pushes out the oldest. A new step
 // clears what could be redone. Several operations made by one gesture (a drag of three Nodes, a tag
-// given to the selection) are one step when they are made inside grouped().
+// given to the selection) are one step when they are recorded into the Group that grouped() gives.
 import type { Layout, LayoutNode, LayoutOpInput } from '../../shared/layout/types'
 import { trashRefusal, type TrashEntry } from '../../shared/ipc/trash'
 import { invoke } from '../ipc'
@@ -142,12 +143,32 @@ export function inverseOf(layout: Layout, op: LayoutOpInput): LayoutOpInput | un
   }
 }
 
-interface Group {
-  projectId: string | undefined
-  steps: HistoryStep[]
-}
+/**
+ * The steps of one gesture, gathered while it runs and pushed as one step when grouped() closes it.
+ * It is handed to every operation of the gesture explicitly, so an operation of another gesture that
+ * finishes meanwhile never joins it.
+ */
+export class Group {
+  private readonly steps: HistoryStep[] = []
+  private projectId: string | undefined
+  private open = true
 
-let openGroup: Group | undefined
+  /** Takes the step unless the gesture is over or the step is of another Project. */
+  add(projectId: string, step: HistoryStep): boolean {
+    if (!this.open) return false
+    this.projectId ??= projectId
+    if (this.projectId !== projectId) return false
+    this.steps.push(step)
+    return true
+  }
+
+  close(): void {
+    this.open = false
+    if (this.projectId !== undefined && this.steps.length > 0) {
+      historyOf(this.projectId).push(this.steps.length === 1 ? this.steps[0]! : combine(this.steps))
+    }
+  }
+}
 
 /** Several steps that are undone and redone as one: undone newest first, redone in order. */
 function combine(steps: readonly HistoryStep[]): HistoryStep {
@@ -166,45 +187,73 @@ function combine(steps: readonly HistoryStep[]): HistoryStep {
   }
 }
 
-/** Adds a step to the Project's history, or to the group being made. */
-export function record(projectId: string, step: HistoryStep): void {
-  if (openGroup !== undefined) {
-    openGroup.projectId ??= projectId
-    if (openGroup.projectId === projectId) {
-      openGroup.steps.push(step)
-      return
-    }
-  }
+/** Adds a step to the gesture's group, or to the Project's history when there is none or the group does not take it. */
+export function record(projectId: string, step: HistoryStep, group?: Group): void {
+  if (group?.add(projectId, step) === true) return
   historyOf(projectId).push(step)
 }
 
-/** Runs `make`; the steps it records become one step of the history. Nested calls join the outer one. */
-export async function grouped<T>(make: () => Promise<T>): Promise<T> {
-  if (openGroup !== undefined) return make()
-  const group: Group = { projectId: undefined, steps: [] }
-  openGroup = group
+/** Runs `make` with a new Group; the steps recorded into that group become one step of the history. */
+export async function grouped<T>(make: (group: Group) => Promise<T>): Promise<T> {
+  const group = new Group()
   try {
-    return await make()
+    return await make(group)
   } finally {
-    openGroup = undefined
-    if (group.projectId !== undefined && group.steps.length > 0) {
-      historyOf(group.projectId).push(group.steps.length === 1 ? group.steps[0]! : combine(group.steps))
-    }
+    group.close()
   }
 }
 
 const newNodeId = (): string => crypto.randomUUID()
 
+/** What a recorded operation goes through. */
+export interface LayoutChannel {
+  /** Sends one operation to main. */
+  send: Send
+  /** The Project's Layout as the renderer has it now (main's latest answer). */
+  layout(): Layout
+}
+
+type NodeInput = Extract<LayoutOpInput, { op: 'create' }>['node']
+
 /**
- * Sends an operation the user made on the Canvas and records it. `layout` is the Layout the user
- * saw before it. A `create` without an id gets one here, so that its undo can name the Node.
+ * Taking a Node away and bringing it back. What comes back is the Node as it was when it was last
+ * taken away, read from the Layout at that moment: the text typed into a note after it was created
+ * (patchData, not a step of its own) comes back with it.
  */
-export async function applyRecorded(projectId: string, layout: Layout, op: LayoutOpInput, send: Send): Promise<string | undefined> {
+function takeAndBring(id: string, first: NodeInput, channel: LayoutChannel): { take(): Promise<string | undefined>; bring(): Promise<string | undefined> } {
+  let kept: NodeInput = first
+  return {
+    take() {
+      const now = nodeOf(channel.layout(), id)
+      if (now !== undefined) kept = now
+      return channel.send({ op: 'remove', id })
+    },
+    bring: () => channel.send({ op: 'create', node: kept }),
+  }
+}
+
+/**
+ * Sends an operation the user made on the Canvas and records it, into `group` when it is part of a
+ * gesture. The inverse is computed from channel.layout() just before sending. A `create` without an
+ * id gets one here, so that its undo can name the Node.
+ */
+export async function applyRecorded(projectId: string, op: LayoutOpInput, channel: LayoutChannel, group?: Group): Promise<string | undefined> {
   const sent: LayoutOpInput = op.op === 'create' && op.node.id === undefined ? { ...op, node: { ...op.node, id: newNodeId() } } : op
-  const inverse = inverseOf(layout, sent)
-  const error = await send(sent)
-  if (error === undefined && inverse !== undefined) record(projectId, { undo: () => send(inverse), redo: () => send(sent) })
-  return error
+  const inverse = inverseOf(channel.layout(), sent)
+  const error = await channel.send(sent)
+  if (error !== undefined || inverse === undefined) return error
+  let step: HistoryStep
+  if (sent.op === 'create' && inverse.op === 'remove') {
+    const node = takeAndBring(inverse.id, sent.node, channel)
+    step = { undo: node.take, redo: node.bring }
+  } else if (sent.op === 'remove' && inverse.op === 'create') {
+    const node = takeAndBring(sent.id, inverse.node, channel)
+    step = { undo: node.bring, redo: node.take }
+  } else {
+    step = { undo: () => channel.send(inverse), redo: () => channel.send(sent) }
+  }
+  record(projectId, step, group)
+  return undefined
 }
 
 /** What deleting to the trash and restoring from it go through; tests pass a fake. */
@@ -222,7 +271,7 @@ export const ipcTrash: TrashClient = {
  * Deletes a Node to the trash and records the step: undo restores the entry, redo deletes the Node
  * again (into a new entry). Resolves to the reason main refused, or undefined.
  */
-export async function trashRecorded(projectId: string, nodeId: string, trash: TrashClient = ipcTrash): Promise<string | undefined> {
+export async function trashRecorded(projectId: string, nodeId: string, trash: TrashClient = ipcTrash, group?: Group): Promise<string | undefined> {
   const first = await trash.put(projectId, nodeId)
   if (!first.ok) return first.error
   let label = first.value.label
@@ -237,7 +286,7 @@ export async function trashRecorded(projectId: string, nodeId: string, trash: Tr
       label = result.value.label
       return undefined
     },
-  })
+  }, group)
   return undefined
 }
 
@@ -251,9 +300,9 @@ export const deletableNodes = (nodes: readonly LayoutNode[]): LayoutNode[] => no
  */
 export async function deleteToTrash(projectId: string, nodes: readonly LayoutNode[], trash: TrashClient = ipcTrash): Promise<string[]> {
   const refusals: string[] = []
-  await grouped(async () => {
+  await grouped(async (group) => {
     for (const node of deletableNodes(nodes)) {
-      const refusal = await trashRecorded(projectId, node.id, trash)
+      const refusal = await trashRecorded(projectId, node.id, trash, group)
       if (refusal !== undefined) refusals.push(refusal)
     }
   })

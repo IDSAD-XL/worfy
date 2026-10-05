@@ -27,8 +27,8 @@ export interface SelectionSectionProps {
 
 /** Sends operations one after another, so main applies them in the order they were made; one step of the history. */
 async function applyAll(ops: LayoutOps, list: readonly Parameters<LayoutOps['apply']>[0][]): Promise<void> {
-  await grouped(async () => {
-    for (const op of list) await ops.apply(op)
+  await grouped(async (group) => {
+    for (const op of list) await ops.apply(op, group)
   })
 }
 
