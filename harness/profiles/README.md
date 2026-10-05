@@ -23,7 +23,11 @@
 ~/.claude/profiles/<имя>/
   profile.json   машиночитаемые факты (схема ниже)
   rules.md       проза для агентов: факты, которые не умещаются в поле
-  lessons/       необязательно: уроки, если проект держит их вне репозитория (lessons: "profile")
+  lessons/       необязательно: уроки, если проект держит их вне репозитория (lessons: "profile");
+                 lessons.md — полный журнал, lessons-index.md — по строке на урок
+  bin/           необязательно: инструменты проекта, которые называют поля профиля (tasks.tool)
+  epics/         необязательно: карты эпиков (<эпик>/map.md, task-map.json)
+  state/         рабочее состояние хуков (pending-retro.log, active-epic); не в git
 ```
 
 Не `~/.claude/projects/` — там транскрипты Claude Code.
@@ -38,6 +42,13 @@
    (так worktree в любом месте диска опознаётся по своему репозиторию);
 2. `hooks/gate-resolve.mjs --which <корень>` — самый длинный префикс `match` в реестре;
 3. поле `profile` найденной записи → `~/.claude/profiles/<имя>/profile.json`.
+4. Ни один `match` не подошёл — общий каталог (workspace): если каталог лежит внутри общего
+   родителя всех репозиториев ОДНОГО профиля (у профиля не меньше двух записей), профиль — этот.
+   Так `/Users/alexey/Work/Atakama` (над тремя репозиториями Atakama, сам не git) и соседние
+   каталоги в нём получают профиль `atakama`. Родитель вычисляется из реестра, а не хранится.
+   Не считается: корень диска, `$HOME` и каталог, в котором лежит репозиторий другого профиля
+   или записи без профиля. `hooks/gate.sh` этого шага не делает: гейт проверяет только
+   зарегистрированные репозитории.
 
 Несколько записей реестра (например, три репозитория одного продукта) могут называть один профиль.
 
@@ -51,7 +62,8 @@ profile -C <каталог> ...   разрешать так, будто запу
 ```
 
 `_resolved` (вычисляется, в файле не хранится): `name`, `dir`, `gate_key`, `repo_root`,
-`checkout` (корень текущего рабочего дерева), `in_worktree` (true, если checkout — не основной).
+`checkout` (корень текущего рабочего дерева), `in_worktree` (true, если checkout — не основной),
+`workspace` (общий каталог из шага 4, иначе `null`; при нём `gate_key` и `repo_root` — `null`).
 
 Коды выхода: `0` найден; `2` ошибка вызова; `3` каталог вне зарегистрированных проектов, у записи
 нет поля `profile` или нет файла профиля (сообщение одной строкой в stderr); `4` поля нет
@@ -74,6 +86,7 @@ profile -C <каталог> ...   разрешать так, будто запу
 | `language` | `"ru"` \| `"en"` | язык отчётов агентов, тикетов, комментариев к PR | агенты |
 | `layout.summary` | строка | раскладка кода одной фразой (пакеты, репозитории) | scout |
 | `layout.packages` | строки | каталоги пакетов или репозиториев | scout, аудит |
+| `layout.repos` | `{"<репозиторий>": {kind, default_branch, what}}` \| null | проект из нескольких репозиториев: `kind` — `single` (один пакет) или `workspaces`; основная ветка; что в нём | scout, implementer |
 | `stack` | строки | стек — факты, а не пожелания | все агенты |
 | `commands.install` | строка | установка зависимостей в свежем дереве | implementer, reviewer |
 | `commands.lint` / `typecheck` / `test` / `build` | строка | как проект их запускает из корня | все |
@@ -112,7 +125,13 @@ profile -C <каталог> ...   разрешать так, будто запу
 | `docs.context` | `{path, vocabulary_section, decided_in}` \| null | словарь терминов проекта | все агенты |
 | `docs.handoff` | `{path, kind, check}` \| null | файл состояния проекта и проверка его формы | оркестратор, ship-ticket, epic-wave; implementer его не правит |
 | `docs.adr_dir` | путь \| null | каталог ADR; implementer его не правит | implementer, reviewer |
-| `lessons` | `"repo:<путь>"` \| `"profile"` | куда пишутся уроки: в репозиторий или в `lessons/` профиля | retro, ship-ticket, epic-wave |
+| `lessons` | `"repo:<путь>"` \| `"profile"` | куда пишутся уроки: в репозиторий или в `lessons/` профиля | retro, ship-ticket, epic-wave, hooks/session-start.sh |
+| `session.inject_rules` | bool | `true` — `hooks/session-start.sh` подмешивает в каждую сессию проекта `rules.md` (без раздела источников), индекс уроков при `lessons: "profile"` и карту активного эпика (`state/active-epic` → `epics/<эпик>/map.md`). Нет поля или `false` — старт сессии пустой | hooks/session-start.sh |
+| `session.rules_heading` | строка | заголовок, под которым подмешивается `rules.md` | hooks/session-start.sh |
+| `session.retro_reminder_after` | число \| нет | есть — `hooks/session-end.sh` пишет каждую сессию в `state/pending-retro.log`, а session-start напоминает о `/retro`, когда строк не меньше этого числа | hooks/session-start.sh, session-end.sh, retro |
+| `tasks.tool` | путь | чем сканировать тикеты и хранить связь тикет → задача (`scan`, `link`, `map`) | tickets-to-tasks |
+| `tasks.list_id` | шаблон | `CLAUDE_CODE_TASK_LIST_ID` эпика, `<slug>` — имя эпика | tickets-to-tasks |
+| `tasks.scan_root` | путь | где искать `.scratch/<эпик>/issues/` без явного каталога | tickets-to-tasks (через `tasks.tool`) |
 | `qmd.collections` | строки | коллекции `qmd`, где ждать ответа по проекту. Подсказка, а не фильтр: агенты ищут по всему индексу и не передают этот список в параметр `collections` | все агенты |
 | `qmd.covers` | строка | что в них лежит | все агенты |
 | `qmd.fallback_grep` | строки | где искать `grep`ом, если `qmd` молчит | scout |

@@ -11,11 +11,29 @@ second so nobody has to police the sequence by hand.
 
 ## Before you start
 
+The tool, the task-list ID and where tickets are looked for are project facts.
+They come from the project profile (`~/.claude/bin/profile`, contract in
+`~/.claude/profiles/README.md`), field `tasks`. Run from the repo or workspace
+the tickets belong to — pass it with `-C` if the session sits elsewhere:
+
+```bash
+T="$(~/.claude/bin/profile -C <repo> --field tasks.tool)"; echo "КОД=$?"
+T="${T/#\~/$HOME}"; echo "tool: $T"
+~/.claude/bin/profile -C <repo> --field tasks.list_id
+```
+
+- Exit `3`: the directory is not a registered project (or has no profile).
+  Exit `4`: the project does not import tickets into native Tasks (Auction
+  does not). Either way, stop and tell the user — do not guess a tool.
+- `$T` below is that tool; `tasks.list_id` is the list-ID template, e.g.
+  `atakama-<slug>`.
+
 Tasks are session-scoped unless a task list ID is set. For an epic spanning
-several sessions, every session must start with the same ID:
+several sessions, every session must start with the same ID — the template with
+`<slug>` filled in:
 
 ```
-CLAUDE_CODE_TASK_LIST_ID=atakama-<slug> claude
+CLAUDE_CODE_TASK_LIST_ID=<tasks.list_id with the slug> claude
 ```
 
 If the current session was not started that way, say so before importing —
@@ -26,12 +44,13 @@ directory named after the slug to confirm which list is live.
 
 ### 1. Scan
 
-```
-node ~/.claude/atakama/bin/tickets.mjs scan
+```bash
+node "$T" scan
 ```
 
 Optionally pass a repo path or an `issues` directory; with no argument it picks
-the most recently modified `.scratch/<slug>/issues/` across the three repos.
+the most recently modified `.scratch/<slug>/issues/` under the profile's
+`tasks.scan_root` (for a multi-repo project, its `.scratch` or the repos below it).
 
 The JSON gives you `slug`, one entry per ticket (`number`, `title`,
 `whatToBuild`, `blockedBy`, `acceptance`, `taskId`), and `warnings`.
@@ -78,20 +97,22 @@ one call per ticket, and it reads the same direction as the ticket file.
 
 ### 5. Persist the mapping
 
-```
-node ~/.claude/atakama/bin/tickets.mjs link <slug> 01=<id> 02=<id> …
+```bash
+node "$T" link <slug> 01=<id> 02=<id> …
 ```
 
-This writes `~/.claude/atakama/epics/<slug>/task-map.json`, outside the repo, so
-a later session can tell which tickets are already imported.
+This writes `<profile dir>/epics/<slug>/task-map.json` (`profile --dir`),
+outside the repo, so a later session can tell which tickets are already imported.
 
 Then record the epic as active:
 
-```
-echo <slug> > ~/.claude/atakama/state/active-epic
+```bash
+D="$(~/.claude/bin/profile -C <repo> --dir)" && mkdir -p "$D/state" && echo <slug> > "$D/state/active-epic"
 ```
 
-`SessionStart` reads that file and loads the epic map into every new session.
+`hooks/session-start.sh` reads that file and, for a profile with
+`session.inject_rules: true`, loads `<profile dir>/epics/<slug>/map.md` into every
+new session.
 
 ### 6. Report the frontier
 
@@ -104,8 +125,8 @@ set. Say so instead of picking one arbitrarily.
 
 - **Never edit the ticket files.** `/to-tickets` owns them; this skill is a
   one-way import. Corrections belong in the tickets, then re-run the scan.
-- **Never write into the team repositories.** The map lives under
-  `~/.claude/atakama/`. `.scratch/` is excluded per-clone via
-  `.git/info/exclude`, not via `.gitignore`.
+- **Never write into the team repositories.** The map lives in the profile
+  folder (`~/.claude/profiles/<name>/`). If `.scratch/` sits inside a clone, it
+  is excluded per-clone via `.git/info/exclude`, not via `.gitignore`.
 - **Do not start implementing during the import.** Finish the import, report the
   frontier, and let the user decide what gets picked up.

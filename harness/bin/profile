@@ -20,6 +20,8 @@
 // опознаётся по основному репозиторию. Логику сопоставления не дублируем —
 // вызываем резолвер. Профиль — поле "profile" записи в gate/config.json;
 // сам профиль лежит в ~/.claude/profiles/<имя>/ (формат: profiles/README.md).
+// Каталог вне всех `match`, но внутри общего родителя репозиториев одного профиля
+// (workspace, см. workspaceOf ниже), получает этот профиль; _resolved.workspace — этот родитель.
 "use strict"
 
 const fs = require("node:fs")
@@ -122,22 +124,58 @@ try {
 } catch (e) {
     die(1, `resolver ${RESOLVE} failed (exit ${e.status}) — project not determined`)
 }
-if (!which) die(3, `${abs} is not in a registered project (no "match" in ${CFG} covers ${canon})`)
-const [key, repoRoot] = which.split("\t")
-
 let cfg
 try {
     cfg = JSON.parse(fs.readFileSync(CFG, "utf8"))
 } catch (e) {
     die(1, `cannot read ${CFG}: ${e.message}`)
 }
-const entry = (cfg.repos || []).find((r) => r.key === key)
-if (!entry || !entry.profile) die(3, `project "${key}" is registered in ${CFG} but has no "profile" field`)
+
+// Общий каталог проекта из нескольких репозиториев (workspace). Каталог, который сам не лежит
+// ни в одном `match`, но лежит в общем родителе всех репозиториев ОДНОГО профиля, относится к
+// этому профилю: так сессия в /Users/alexey/Work/Atakama (над тремя репозиториями, сам не git)
+// получает профиль atakama. Общий родитель вычисляется из реестра, а не хранится: второго
+// реестра путей нет. Не считается workspace: профиль с одним репозиторием (его каталог и есть
+// match), корень диска, $HOME и его родители, каталог внутри записи реестра и каталог, где лежит репозиторий другого профиля или без профиля.
+const under = (p, dir) => p === dir || p.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep)
+function workspaceOf(target) {
+    const repos = (cfg.repos || []).filter((r) => r && typeof r.match === "string" && r.match)
+    const groups = new Map()
+    for (const r of repos) if (r.profile) groups.set(r.profile, [...(groups.get(r.profile) || []), r])
+    const home = process.env.HOME ? path.resolve(process.env.HOME) : null
+    // Каталог внутри записи реестра (например, `match` с хвостовым слешем, который резолвер
+    // сравнивает как строку) — не workspace: пусть остаётся громким кодом 3, как раньше.
+    if (repos.some((r) => under(target, path.resolve(r.match)))) return null
+    const hits = []
+    for (const [name, rs] of groups) {
+        if (rs.length < 2) continue
+        let ws = path.resolve(rs[0].match)
+        for (const r of rs.slice(1)) while (!under(path.resolve(r.match), ws) && ws !== path.dirname(ws)) ws = path.dirname(ws)
+        if (ws === path.dirname(ws) || (home && under(home, ws))) continue
+        if (repos.some((r) => r.profile !== name && under(path.resolve(r.match), ws))) continue
+        if (under(target, ws)) hits.push({ name, ws, n: rs.length })
+    }
+    return hits.length === 1 ? hits[0] : null
+}
+
+let key = null
+let repoRoot = null
+let workspace = null
+let entry
+if (which) {
+    ;[key, repoRoot] = which.split("\t")
+    entry = (cfg.repos || []).find((r) => r.key === key)
+    if (!entry || !entry.profile) die(3, `project "${key}" is registered in ${CFG} but has no "profile" field`)
+} else {
+    workspace = workspaceOf(canon)
+    if (!workspace) die(3, `${abs} is not in a registered project (no "match" in ${CFG} covers ${canon})`)
+    entry = { profile: workspace.name }
+}
 
 const name = entry.profile
 const dir = path.join(PROFILES, name)
 const pjPath = path.join(dir, "profile.json")
-if (!fs.existsSync(pjPath)) die(3, `project "${key}" names profile "${name}", but ${pjPath} does not exist`)
+if (!fs.existsSync(pjPath)) die(3, `${key ? `project "${key}"` : `workspace ${workspace.ws}`} names profile "${name}", but ${pjPath} does not exist`)
 let profile
 try {
     profile = JSON.parse(fs.readFileSync(pjPath, "utf8"))
@@ -159,7 +197,8 @@ const resolved = {
     gate_key: key,
     repo_root: repoRoot,
     checkout: checkoutReal,
-    in_worktree: Boolean(checkoutReal && checkoutReal !== canon),
+    in_worktree: Boolean(!workspace && checkoutReal && checkoutReal !== canon),
+    workspace: workspace ? workspace.ws : null,
 }
 const full = { ...profile, _resolved: resolved }
 const rulesPath = path.join(dir, "rules.md")
@@ -191,7 +230,12 @@ switch (mode) {
     }
     default:
         out(`profile: ${name} (${dir})`)
-        out(
+        if (workspace)
+            out(
+                `workspace: ${workspace.ws} (общий каталог ${workspace.n} репозиториев профиля, сам не репозиторий проекта)` +
+                    (checkoutReal ? `   checkout: ${checkoutReal}` : "")
+            )
+        else out(
             `repo: ${repoRoot}` +
                 (checkoutReal ? `   checkout: ${checkoutReal}${resolved.in_worktree ? " (worktree)" : ""}` : "")
         )

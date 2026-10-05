@@ -57,6 +57,25 @@ else
     echo "skip live Auction checks: $AUCTION missing"
 fi
 
+ATAKAMA=/Users/alexey/Work/Atakama
+if [ -d "$ATAKAMA/Atakama-Browser-Server" ]; then
+    for r in Atakama-Browser-Extension Atakama-Browser-Server Atakama-Browser-Shared; do
+        check "atakama $r --name" 0 "atakama" "$PROFILE" -C "$ATAKAMA/$r" --name
+    done
+    check "atakama --field parallel" 0 "single" "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Server" --field parallel
+    check "atakama --field workflow.finish" 0 "local-green" "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Server" --field workflow.finish
+    check "atakama --field lessons" 0 "profile" "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Shared" --field lessons
+    check "atakama --field layout.repos (3 repos)" 0 '"Atakama-Browser-Shared"' "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Extension" --field layout.repos
+    check "atakama workspace root (not git) -> atakama" 0 "atakama" "$PROFILE" -C "$ATAKAMA" --name
+    check "atakama workspace root _resolved.workspace" 0 "$ATAKAMA" "$PROFILE" -C "$ATAKAMA" --field _resolved.workspace
+    check "atakama repo _resolved.workspace null" 0 "null" "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Server" --field _resolved.workspace
+    check "atakama workspace briefing names workspace" 0 "workspace: $ATAKAMA" "$PROFILE" -C "$ATAKAMA"
+    check "atakama --rules" 0 "## Обязательное чтение исполнителя" "$PROFILE" -C "$ATAKAMA" --rules
+    check "parent of two profiles (/Users/alexey/Work) -> 3" 3 "" "$PROFILE" -C /Users/alexey/Work
+else
+    echo "skip live Atakama checks: $ATAKAMA missing"
+fi
+
 # --- синтетика ---------------------------------------------------------------------
 T="$(mktemp -d)"
 T="$(cd "$T" && pwd -P)"
@@ -103,6 +122,27 @@ rm "$T/profiles/demo/profile.json"
 check "profile dir missing file -> 3" 3 "" "$PROFILE" -C "$T/repo"
 echo '{broken' >"$T/profiles/demo/profile.json"
 check "broken profile.json -> 1" 1 "" "$PROFILE" -C "$T/repo"
+
+# общий каталог (workspace): родитель всех репозиториев одного профиля, сам не repo
+mkdir -p "$T/ws/a" "$T/ws/b" "$T/ws/notes" "$T/ws/c" "$T/profiles/multi" "$T/profiles/multi2" "$T/mixed/x" "$T/mixed/y" "$T/mixed/z"
+for d in ws/a ws/b ws/c mixed/x mixed/y mixed/z; do git -C "$T/$d" init -q -b main; done
+printf '{"schema":1,"name":"multi","commands":{"test":"yarn test"}}\n' >"$T/profiles/multi/profile.json"
+printf '{"schema":1,"name":"multi2"}\n' >"$T/profiles/multi2/profile.json"
+printf '{"schema":1,"name":"demo"}\n' >"$T/profiles/demo/profile.json"
+printf '{"repos":[{"key":"a","match":"%s","profile":"multi"},{"key":"b","match":"%s","profile":"multi"},{"key":"x","match":"%s","profile":"multi2"},{"key":"y","match":"%s","profile":"multi2"},{"key":"z","match":"%s","profile":"demo"}]}\n' \
+    "$T/ws/a" "$T/ws/b" "$T/mixed/x" "$T/mixed/y" "$T/mixed/z" >"$T/ws.json"
+export CLAUDE_GATE_CONFIG="$T/ws.json"
+check "workspace root -> profile" 0 "multi" "$PROFILE" -C "$T/ws" --name
+check "workspace non-git subdir -> profile" 0 "multi" "$PROFILE" -C "$T/ws/notes" --name
+check "workspace sibling git repo -> profile" 0 "multi" "$PROFILE" -C "$T/ws/c" --name
+check "workspace: gate_key null" 0 "null" "$PROFILE" -C "$T/ws" --field _resolved.gate_key
+check "workspace: in_worktree false for sibling repo" 0 "false" "$PROFILE" -C "$T/ws/c" --field _resolved.in_worktree
+check "registered repo inside workspace: own key" 0 "a" "$PROFILE" -C "$T/ws/a" --field _resolved.gate_key
+check "parent holding another profile's repo -> 3" 3 "" "$PROFILE" -C "$T/mixed"
+check "parent of the workspace -> 3" 3 "" "$PROFILE" -C "$T"
+# match с хвостовым слешем резолвер не находит; workspace это не маскирует — код 3, как раньше
+printf '{"repos":[{"key":"a","match":"%s/","profile":"multi"},{"key":"b","match":"%s","profile":"multi"}]}\n' "$T/ws/a" "$T/ws/b" >"$T/ws-slash.json"
+check "match with trailing slash stays 3" 3 "" env CLAUDE_GATE_CONFIG="$T/ws-slash.json" "$PROFILE" -C "$T/ws/a" --name
 unset CLAUDE_GATE_CONFIG CLAUDE_PROFILES_DIR
 check "live registry: unregistered dir -> 3" 3 "" "$PROFILE" -C "$T/plain"
 
