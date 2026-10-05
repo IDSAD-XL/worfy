@@ -1,5 +1,6 @@
-// The `view` domain (src/main/ipc/view.ts) over a mocked `electron`: the app menu gets
-// View ▸ Show Minimap, switching it tells every window, and `view.get` answers with the state.
+// The app menu (src/main/menu.ts) and the `view` domain (src/main/ipc/view.ts) over a mocked
+// `electron`: the menu gets View ▸ Show Minimap, switching it tells every window, and `view.get`
+// answers with the state.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX } from '../../src/shared/ipc/channels'
 import { viewChanged, viewGet } from '../../src/shared/ipc/view'
@@ -22,7 +23,6 @@ const electron = vi.hoisted(() => {
 })
 
 vi.mock('electron', () => ({
-  app: { whenReady: () => Promise.resolve() },
   BrowserWindow: { getAllWindows: () => [electron.window] },
   Menu: {
     buildFromTemplate: (template: unknown) => ({ template }),
@@ -35,10 +35,14 @@ async function load() {
   electron.sent.length = 0
   electron.menus.length = 0
   const module = await import('../../src/main/ipc/view')
-  await vi.waitFor(() => expect(electron.menus).toHaveLength(1))
+  const menu = await import('../../src/main/menu')
+  // Loading the modules sets no menu; src/main/index.ts installs it once the app is ready.
+  expect(electron.menus).toHaveLength(0)
+  menu.installAppMenu()
+  expect(electron.menus).toHaveLength(1)
   const { template } = electron.menus[0] as { template: TemplateItem[] }
   const view = template.find((item) => item.label === 'View')
-  const minimap = view?.submenu?.find((item) => item.id === module.MINIMAP_MENU_ITEM_ID)
+  const minimap = view?.submenu?.find((item) => item.id === menu.MINIMAP_MENU_ITEM_ID)
   if (!minimap) throw new Error('View ▸ Show Minimap is missing')
   return { module, template, view, minimap }
 }

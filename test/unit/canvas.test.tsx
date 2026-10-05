@@ -52,12 +52,24 @@ describe('collectNodeTypes', () => {
     expect(types.get('epic-frame')).toEqual({ kind: 'epic-frame', Component: Dummy, defaultWidth: 240, defaultHeight: 140 })
   })
 
+  it('takes a type\'s minimap colour from its file, and leaves it undefined when the file declares none (ticket 29)', async () => {
+    const { collectNodeTypes } = await import('../../src/renderer/canvas/nodes/index')
+    const types = collectNodeTypes({
+      './NoteNode.tsx': { kind: 'note', default: Dummy, minimapColor: 'var(--border-strong)' },
+      './EpicFrameNode.tsx': { kind: 'epic-frame', default: Dummy },
+    })
+    expect(types.get('note')?.minimapColor).toBe('var(--border-strong)')
+    expect(types.get('epic-frame')?.minimapColor).toBeUndefined()
+  })
+
   it.each([
     ['no component', { './ANode.tsx': { kind: 'a' } }, /ANode.tsx must default-export/],
     ['no kind', { './ANode.tsx': { default: Dummy } }, /ANode.tsx must export a `kind`/],
     ['a kind with capitals', { './ANode.tsx': { kind: 'Note', default: Dummy } }, /must export a `kind`/],
     ['the placeholder type name as kind', { './ANode.tsx': { kind: 'worfy:unknown', default: Dummy } }, /must export a `kind`/],
     ['a zero width', { './ANode.tsx': { kind: 'a', default: Dummy, defaultWidth: 0 } }, /`defaultWidth` must be a positive number/],
+    ['a minimap colour that is a number', { './ANode.tsx': { kind: 'a', default: Dummy, minimapColor: 42 } }, /ANode.tsx: `minimapColor` must be a CSS colour/],
+    ['a blank minimap colour', { './ANode.tsx': { kind: 'a', default: Dummy, minimapColor: '  ' } }, /ANode.tsx: `minimapColor` must be a CSS colour/],
     ['two files with one kind', { './ANode.tsx': { kind: 'a', default: Dummy }, './BNode.tsx': { kind: 'a', default: Dummy } }, /ANode.tsx and .\/BNode.tsx both declare kind 'a'/],
   ])('throws on %s', async (_name, modules, message) => {
     const { collectNodeTypes } = await import('../../src/renderer/canvas/nodes/index')

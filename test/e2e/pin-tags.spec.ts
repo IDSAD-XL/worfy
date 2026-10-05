@@ -17,6 +17,8 @@ interface StateNode {
   id: string
   x: number
   y: number
+  w: number
+  h: number
   pinned: boolean
   tags: string[]
 }
@@ -28,7 +30,7 @@ interface Layout {
 let scratch: string
 let dataDir: string
 
-function writeLayout(nodes: { id: string; x: number; y: number }[]): void {
+function writeLayout(nodes: { id: string; x: number; y: number; pinned?: boolean }[]): void {
   const layout = { nodes: nodes.map((node) => ({ ...node, kind: 'note', w: 220, h: 120, data: { text: node.id } })), viewport: { x: 0, y: 0, zoom: 1 } }
   writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify(layout))
 }
@@ -98,6 +100,9 @@ test('a click on the minimap moves the viewport there; View ▸ Show Minimap hid
     const minimap = window.getByRole('img', { name: 'Minimap' })
     await expect(minimap).toBeVisible()
     await expect(window.locator('.react-flow__minimap-node')).toHaveCount(2)
+    // Drawn in the colour the note's type file declares (NoteNode.tsx, `minimapColor`).
+    const fills = await window.locator('.react-flow__minimap-node').evaluateAll((rects) => rects.map((rect) => (rect as unknown as { style: { fill: string } }).style.fill))
+    expect(fills).toEqual(['var(--border-strong)', 'var(--border-strong)'])
 
     // The far note is off screen; a click on its rectangle in the minimap centres the viewport on it.
     const far = noteById(window, 'far')
@@ -126,47 +131,79 @@ test('a click on the minimap moves the viewport there; View ▸ Show Minimap hid
   }
 })
 
-test('a pinned Node stays at its place on the screen while the Canvas pans and zooms, after a restart too; Unpin puts it on the Canvas under it', async () => {
+/** Expects two boxes to be the same rectangle on the screen, to the pixel. */
+function expectSameBox(actual: Awaited<ReturnType<typeof box>>, expected: Awaited<ReturnType<typeof box>>): void {
+  expect(actual.x).toBeCloseTo(expected.x, 0)
+  expect(actual.y).toBeCloseTo(expected.y, 0)
+  expect(actual.width).toBeCloseTo(expected.width, 0)
+  expect(actual.height).toBeCloseTo(expected.height, 0)
+}
+
+/** Pans the Canvas with the wheel and waits until `witness` has moved on the screen. */
+async function panBy(window: Page, witness: Locator, dx: number, dy: number): Promise<void> {
+  const before = await box(witness)
+  const pane = await box(window.locator('.react-flow__pane'))
+  await window.mouse.move(pane.x + 40, pane.y + pane.height - 40)
+  await window.mouse.wheel(dx, dy)
+  await expect.poll(async () => (await box(witness)).x).not.toBeCloseTo(before.x, 0)
+}
+
+/** Zooms out once with ⌘− and waits for the new zoom. */
+async function zoomOut(window: Page): Promise<number> {
+  const before = (await viewportOf(window)).zoom
+  await window.keyboard.press('Meta+Minus')
+  await expect.poll(async () => (await viewportOf(window)).zoom).toBeLessThan(before)
+  return (await viewportOf(window)).zoom
+}
+
+const visibleMinimapNodes = (window: Page) => window.locator('.react-flow__minimap-node:visible')
+
+test('a pinned Node stays at its place on the screen while the Canvas pans and zooms, after a restart too; Pin and Unpin do not move it on the screen', async () => {
   writeLayout([
     { id: 'pinme', x: 120, y: 100 },
     { id: 'other', x: 520, y: 100 },
   ])
   let pinnedBox: Awaited<ReturnType<typeof box>>
-  let otherBefore: Awaited<ReturnType<typeof box>>
   const first = await launch()
   try {
     const { window } = first
     const pinme = noteById(window, 'pinme')
     const other = noteById(window, 'other')
+
+    // The Canvas is panned and zoomed out before the pin, so screen pixels are not canvas units.
+    await panBy(window, other, -60, -30)
+    const zoomAtPin = await zoomOut(window)
+    expect(zoomAtPin).toBeLessThan(1)
     await pinme.locator('.w-note__header').click()
+    const beforePin = await box(pinme)
+    await expect(visibleMinimapNodes(window)).toHaveCount(2)
+
     const toolbar = window.getByTestId('selection-toolbar')
     await expect(toolbar).toBeVisible()
     await toolbar.getByRole('button', { name: 'Pin', exact: true }).click()
     await expect.poll(async () => (await layoutOf(window)).nodes.find((node) => node.id === 'pinme')?.pinned).toBe(true)
     await expect(toolbar.getByRole('button', { name: 'Unpin' })).toBeVisible()
+    // Pinning neither moves nor resizes it on the screen; it keeps its screen size in the Layout.
     pinnedBox = await box(pinme)
-    otherBefore = await box(other)
+    expectSameBox(pinnedBox, beforePin)
+    const saved = (await layoutOf(window)).nodes.find((node) => node.id === 'pinme')
+    expect(saved?.w).toBeCloseTo(220 * zoomAtPin, 3)
+    expect(saved?.h).toBeCloseTo(120 * zoomAtPin, 3)
+    // It is not on the plane any more, so the minimap leaves it out.
+    await expect(visibleMinimapNodes(window)).toHaveCount(1)
 
     // Pan with the wheel, then zoom out twice with ⌘−.
-    const pane = await box(window.locator('.react-flow__pane'))
-    await window.mouse.move(pane.x + 40, pane.y + pane.height - 40)
-    await window.mouse.wheel(180, 140)
-    await expect.poll(async () => (await box(other)).x).not.toBe(otherBefore.x)
-    await window.keyboard.press('Meta+Minus')
-    await window.keyboard.press('Meta+Minus')
-    await expect.poll(async () => (await viewportOf(window)).zoom).toBeLessThan(1)
+    const otherBefore = await box(other)
+    await panBy(window, other, 180, 140)
+    await zoomOut(window)
+    await zoomOut(window)
     await expect.poll(async () => (await box(other)).width).toBeLessThan(otherBefore.width)
-
-    const after = await box(pinme)
-    expect(after.x).toBeCloseTo(pinnedBox.x, 0)
-    expect(after.y).toBeCloseTo(pinnedBox.y, 0)
-    expect(after.width).toBeCloseTo(pinnedBox.width, 0)
-    expect(after.height).toBeCloseTo(pinnedBox.height, 0)
+    expectSameBox(await box(pinme), pinnedBox)
 
     await pinme.locator('.w-note__header').click()
     await window.screenshot({ path: test.info().outputPath('pinned-zoomed-out.png') })
     // Main has the zoomed-out viewport before the app quits.
-    await expect.poll(async () => (await layoutOf(window)).viewport.zoom).toBeLessThan(1)
+    await expect.poll(async () => (await layoutOf(window)).viewport.zoom).toBeLessThan(zoomAtPin)
   } finally {
     await first.close()
   }
@@ -177,11 +214,9 @@ test('a pinned Node stays at its place on the screen while the Canvas pans and z
     const pinme = noteById(window, 'pinme')
     await expect(pinme).toBeVisible()
     const restored = await box(pinme)
-    expect(restored.x).toBeCloseTo(pinnedBox.x, 0)
-    expect(restored.y).toBeCloseTo(pinnedBox.y, 0)
-    expect(restored.width).toBeCloseTo(pinnedBox.width, 0)
+    expectSameBox(restored, pinnedBox)
 
-    // Unpin: the Node is put on the Canvas at the point under its place on the screen.
+    // Unpin: the Node is put on the Canvas at the rectangle under its place on the screen.
     await pinme.locator('.w-note__header').click()
     const toolbar = window.getByTestId('selection-toolbar')
     await toolbar.getByRole('button', { name: 'Unpin' }).click()
@@ -190,20 +225,54 @@ test('a pinned Node stays at its place on the screen while the Canvas pans and z
     const node = nodes.find((entry) => entry.id === 'pinme')
     if (!node) throw new Error('no node')
     const canvas = await box(window.locator('.react-flow'))
-    const unpinned = await box(pinme)
-    // The canvas point saved for it is drawn where it stood on the screen; it now has the canvas zoom.
+    // The canvas rectangle saved for it is drawn where it stood on the screen, at the same size.
     expect(canvas.x + node.x * viewport.zoom + viewport.x).toBeCloseTo(restored.x, 0)
     expect(canvas.y + node.y * viewport.zoom + viewport.y).toBeCloseTo(restored.y, 0)
-    expect(unpinned.x).toBeCloseTo(restored.x, 0)
-    expect(unpinned.y).toBeCloseTo(restored.y, 0)
+    expect(node.w * viewport.zoom).toBeCloseTo(restored.width, 0)
+    const unpinned = await box(pinme)
+    expectSameBox(unpinned, restored)
+    await expect(visibleMinimapNodes(window)).toHaveCount(2)
 
     // On the Canvas again, it moves with a pan.
-    const pane = await box(window.locator('.react-flow__pane'))
-    await window.mouse.move(pane.x + 40, pane.y + pane.height - 40)
-    await window.mouse.wheel(150, 0)
-    await expect.poll(async () => (await box(pinme)).x).not.toBeCloseTo(unpinned.x, 0)
+    await panBy(window, pinme, 150, 0)
   } finally {
     await second.close()
+  }
+})
+
+test('a pinned Node saved outside a smaller Canvas is shown inside it, and Unpin puts it where it is shown', async () => {
+  // Pinned near the right edge of a larger screen: its screen place is outside this window. (Kept
+  // near the top, clear of the minimap at the bottom right; pinning.test.tsx covers every side.)
+  writeLayout([
+    { id: 'away', x: 5000, y: 100, pinned: true },
+    { id: 'other', x: 120, y: 100 },
+  ])
+  const launched = await launch()
+  try {
+    const { window } = launched
+    const away = noteById(window, 'away')
+    const canvas = await box(window.locator('.react-flow'))
+    await expect.poll(async () => (await box(away)).x).toBeLessThan(canvas.x + canvas.width)
+    const shown = await box(away)
+    // Moved in as far as it fits: its right edge at the Canvas's, at its saved height and size.
+    expect(shown.x + shown.width).toBeCloseTo(canvas.x + canvas.width, 0)
+    expect(shown.y).toBeCloseTo(canvas.y + 100, 0)
+    expect(shown.width).toBeCloseTo(220, 0)
+    // React Flow's own Node is placed there too, so its selection and toolbar are where it is shown.
+    expectSameBox(await box(window.locator('.react-flow__node[data-id="away"]')), shown)
+
+    // Reachable: it can be selected and unpinned, and lands on the Canvas where it was shown.
+    await away.locator('.w-note__header').click()
+    await window.getByTestId('selection-toolbar').getByRole('button', { name: 'Unpin' }).click()
+    await expect.poll(async () => (await layoutOf(window)).nodes.find((node) => node.id === 'away')?.pinned).toBe(false)
+    const { viewport, nodes } = await layoutOf(window)
+    const node = nodes.find((entry) => entry.id === 'away')
+    if (!node) throw new Error('no node')
+    expect(canvas.x + node.x * viewport.zoom + viewport.x).toBeCloseTo(shown.x, 0)
+    expect(canvas.y + node.y * viewport.zoom + viewport.y).toBeCloseTo(shown.y, 0)
+    expectSameBox(await box(away), shown)
+  } finally {
+    await launched.close()
   }
 })
 

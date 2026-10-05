@@ -3,7 +3,7 @@
 // Node type files (nodes/<Type>Node.tsx) know nothing of either.
 import type { ComponentType } from 'react'
 import type { CanvasNodeProps } from './nodes'
-import { screenToCanvas, usePinnedViewport } from './pinning'
+import { pinnedScreenPoint, screenToCanvas, usePinnedView } from './pinning'
 import './node-chrome.css'
 
 function TagStrip({ tags }: { tags: readonly string[] }) {
@@ -27,9 +27,9 @@ function TagStrip({ tags }: { tags: readonly string[] }) {
  */
 function PinnedFrame({ props, Component }: { props: CanvasNodeProps; Component: ComponentType<CanvasNodeProps> }) {
   const { node } = props.data
-  const viewport = usePinnedViewport(true)
-  const zoom = viewport?.zoom ?? 1
-  const target = viewport ? screenToCanvas(node, viewport) : { x: props.positionAbsoluteX, y: props.positionAbsoluteY }
+  const view = usePinnedView(true)
+  const zoom = view?.viewport.zoom ?? 1
+  const target = view ? screenToCanvas(pinnedScreenPoint(node, view.size), view.viewport) : { x: props.positionAbsoluteX, y: props.positionAbsoluteY }
   const dx = target.x - props.positionAbsoluteX
   const dy = target.y - props.positionAbsoluteY
   return (
@@ -49,7 +49,7 @@ export interface NodeChromeProps extends CanvasNodeProps {
   Component: ComponentType<CanvasNodeProps>
 }
 
-/** A Node type's own component with the Canvas's chrome around it (Canvas.tsx wraps every type in it). */
+/** A Node type's own component with the Canvas's chrome around it (withNodeChrome.ts wraps every type in it). */
 export function NodeChrome({ Component, ...props }: NodeChromeProps) {
   const { node } = props.data
   if (node.pinned) return <PinnedFrame props={props} Component={Component} />

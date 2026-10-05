@@ -1,34 +1,23 @@
 // The minimap at the bottom right of the Canvas (ticket 29; docs/design/BRIEF.md, Screen 1).
-// Nodes are drawn in their type's colour from the theme tokens; a click moves the viewport so
-// that the clicked point is in the middle, dragging pans. View ▸ Show Minimap (src/main/ipc/view.ts)
-// hides and shows it.
+// Nodes are drawn in the colour their Node type declares (a theme token, `minimapColor` in
+// nodes/index.ts); a click moves the viewport so that the clicked point is in the middle, dragging
+// pans. View ▸ Show Minimap (src/main/menu.ts) hides and shows it.
 import { useEffect } from 'react'
 import { MiniMap, useReactFlow, type Node } from '@xyflow/react'
 import { create } from 'zustand'
 import { invoke, subscribe } from '../../ipc'
-import type { CanvasFlowNode } from '../nodes'
+import { nodeTypes, type CanvasFlowNode } from '../nodes'
 import './minimap.css'
 
 export const order = 10
 
-/** Theme token of each Node kind's colour on the minimap; other kinds get NODE_COLOR_DEFAULT. */
-const NODE_COLORS: Readonly<Record<string, string>> = {
-  note: 'var(--border-strong)',
-  orchestrator: 'var(--working-dot)',
-  session: 'var(--primary)',
-  subagent: 'var(--working-text)',
-  'epic-frame': 'var(--accent)',
-  ticket: 'var(--ready-dot)',
-  handoff: 'var(--blocked-ring)',
-  card: 'var(--blocked-text)',
-  terminal: 'var(--terminal-bg)',
-}
+/** The colour of a Node whose type declares none (nodes/index.ts, `minimapColor`), or whose kind has no type. */
 const NODE_COLOR_DEFAULT = 'var(--text-muted)'
 
-/** The minimap colour of a Node: by its kind in the Layout (React Flow's type is the placeholder's for unknown kinds). */
+/** The minimap colour of a Node: its Node type's, by its kind in the Layout (React Flow's type is the placeholder's for unknown kinds). */
 function minimapColor(node: Node): string {
   const kind = (node as CanvasFlowNode).data.node.kind
-  return NODE_COLORS[kind] ?? NODE_COLOR_DEFAULT
+  return nodeTypes.get(kind)?.minimapColor ?? NODE_COLOR_DEFAULT
 }
 
 /** A pinned Node is not on the plane; it is left off the minimap. */

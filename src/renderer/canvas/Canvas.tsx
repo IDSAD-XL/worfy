@@ -8,7 +8,7 @@
 // Navigation: the wheel pans, ⌘ + wheel (and a pinch) zooms around the pointer, ⌘= / ⌘− zoom
 // in and out, dragging with Space held or with the middle button pans, dragging on an empty spot
 // selects. A double click on an empty spot creates a `note` Node.
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type MouseEvent as ReactMouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   applyNodeChanges,
   Background,
@@ -25,17 +25,13 @@ import '@xyflow/react/dist/style.css'
 import './canvas.css'
 import { ZOOM_MAX, ZOOM_MIN, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
 import { edgeSources, edgesOf, overlays } from './extensions'
-import { NodeChrome } from './NodeChrome'
-import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode, type CanvasNodeProps } from './nodes'
-import { usePinnedPlacement } from './pinning'
+import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
 import { UnknownNode } from './UnknownNode'
 import { applyLayoutOp, LayoutOpsContext, useLayout, type LayoutOps } from './useLayout'
-
-/** A Node type's component inside the chrome every Node gets: tags, the pinned frame (NodeChrome.tsx). */
-const withNodeChrome = (Component: ComponentType<CanvasNodeProps>) =>
-  function Chromed(props: CanvasNodeProps) {
-    return <NodeChrome {...props} Component={Component} />
-  }
+// Every Node type is drawn inside the chrome (tags, the pinned frame); pinned Nodes are placed
+// anew for every viewport (ticket 29).
+import { withNodeChrome } from './withNodeChrome'
+import { usePinnedPlacement } from './pinning'
 
 const flowNodeTypes: NodeTypes = {
   ...Object.fromEntries([...registeredNodeTypes].map(([kind, type]) => [kind, withNodeChrome(type.Component)])),
@@ -91,8 +87,6 @@ function Flow({ projectId, state }: FlowProps) {
   }
 
   const edges = useMemo(() => edgesOf(edgeSources, state.layout.nodes), [state.layout.nodes])
-  // Nodes pinned to the screen are placed anew for every viewport (pinning.ts).
-  const shownNodes = usePinnedPlacement(nodes)
 
   const ops: LayoutOps = useMemo(
     () => ({
@@ -155,6 +149,9 @@ function Flow({ projectId, state }: FlowProps) {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [flow])
+
+  // Nodes pinned to the screen are placed anew for every viewport (pinning.ts).
+  const shownNodes = usePinnedPlacement(nodes)
 
   return (
     <LayoutOpsContext.Provider value={ops}>

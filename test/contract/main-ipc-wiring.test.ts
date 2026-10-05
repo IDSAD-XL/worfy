@@ -19,6 +19,9 @@ const electron = vi.hoisted(() => {
   }
 })
 
+/** The menus set as the app menu (a plain list: mock call records are cleared between tests). */
+const appMenus = vi.hoisted((): unknown[] => [])
+
 vi.mock('electron', () => ({
   app: {
     setPath: vi.fn(),
@@ -27,11 +30,11 @@ vi.mock('electron', () => ({
     exit: vi.fn(),
     getVersion: () => '1.2.3',
   },
+  Menu: { buildFromTemplate: (template: unknown) => ({ template }), setApplicationMenu: (menu: unknown) => appMenus.push(menu) },
   BrowserWindow: { getAllWindows: () => [] },
   dialog: { showErrorBox: vi.fn() },
   ipcMain: electron.ipcMain,
   protocol: electron.protocol,
-  Menu: { buildFromTemplate: vi.fn(), setApplicationMenu: vi.fn() },
 }))
 
 vi.mock('../../src/main/window', () => ({
@@ -80,6 +83,12 @@ describe('IPC wiring in src/main/index.ts', () => {
       expect(result.ok).toBe(false)
       expect(!result.ok && result.error).toMatch(/untrusted/)
     }
+  })
+
+  it('sets the app menu (src/main/menu.ts) once the app is ready, View ▸ Show Minimap included', () => {
+    expect(appMenus).toHaveLength(1)
+    const { template } = appMenus[0] as { template: { label?: string; submenu?: { id?: string }[] }[] }
+    expect(template.find((item) => item.label === 'View')?.submenu?.some((item) => item.id === 'view.minimap')).toBe(true)
   })
 })
 

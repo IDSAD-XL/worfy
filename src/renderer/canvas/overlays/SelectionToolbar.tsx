@@ -3,7 +3,7 @@
 // and Tags; a later section (ticket 30: delete to the trash, undo) is one more component in
 // SELECTION_SECTIONS.
 import { useState, type ComponentType, type KeyboardEvent } from 'react'
-import { NodeToolbar, Position, useNodes, useReactFlow } from '@xyflow/react'
+import { NodeToolbar, Position, useNodes, useReactFlow, useStoreApi } from '@xyflow/react'
 import type { LayoutNode } from '../../../shared/layout/types'
 import type { CanvasFlowNode } from '../nodes'
 import { pinOp, unpinOp } from '../pinning'
@@ -27,6 +27,7 @@ async function applyAll(ops: LayoutOps, list: readonly Parameters<LayoutOps['app
 export function PinSection({ nodes }: SelectionSectionProps) {
   const ops = useLayoutOps()
   const flow = useReactFlow()
+  const store = useStoreApi()
   const allPinned = nodes.every((node) => node.pinned)
   return (
     <button
@@ -35,8 +36,13 @@ export function PinSection({ nodes }: SelectionSectionProps) {
       aria-pressed={allPinned}
       title={allPinned ? 'Put the selection back on the canvas' : 'Keep the selection at its place on the screen'}
       onClick={() => {
+        // Converted through the viewport and the Canvas size of this moment (pinning.ts).
         const viewport = flow.getViewport()
-        const list = allPinned ? nodes.map((node) => unpinOp(node, viewport)) : nodes.filter((node) => !node.pinned).map((node) => pinOp(node, viewport))
+        const { width, height } = store.getState()
+        const size = { width, height }
+        const list = allPinned
+          ? nodes.map((node) => unpinOp(node, viewport, size))
+          : nodes.filter((node) => !node.pinned).map((node) => pinOp(node, viewport, size))
         void applyAll(ops, list)
       }}
     >

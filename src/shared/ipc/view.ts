@@ -1,5 +1,6 @@
 // The `view` domain: what the app's View menu shows or hides in the window. The menu lives in
-// main (src/main/ipc/view.ts); the renderer asks for the state once and follows its changes.
+// main (src/main/menu.ts, state in src/main/ipc/view.ts); the renderer asks for the state once and
+// follows its changes.
 import { z } from 'zod'
 import { eventChannel, invokeChannel } from './channels'
 
