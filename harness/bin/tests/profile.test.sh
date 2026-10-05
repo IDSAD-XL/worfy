@@ -83,6 +83,17 @@ else
     echo "skip live Atakama checks: $ATAKAMA missing"
 fi
 
+WORFY=/Users/alexey/Stuff/CanvasForAI
+if [ -d "$WORFY/.git" ]; then
+    check "worfy --name" 0 "worfy" "$PROFILE" -C "$WORFY" --name
+    check "worfy workflow.finish" 0 "pr-green-ci" "$PROFILE" -C "$WORFY" --field workflow.finish
+    check "worfy deploy null" 0 "null" "$PROFILE" -C "$WORFY" --field deploy
+    check "worfy language.team en" 0 "en" "$PROFILE" -C "$WORFY" --field language.team
+    check "worfy --rules names ticket 01" 0 "только после тикета 01" "$PROFILE" -C "$WORFY" --rules
+else
+    echo "skip live worfy checks: $WORFY missing"
+fi
+
 # --- регистр букв в пути: на нечувствительной к регистру ФС (APFS по умолчанию) ---------------
 # /users/alexey/work/... — тот же каталог, что /Users/alexey/Work/...; резолвер и profile должны
 # узнавать его, а не отвечать «не зарегистрирован».
