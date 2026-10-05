@@ -1,0 +1,9 @@
+# Single package, not a workspace: there is no `packages` field.
+# pnpm 11 no longer reads the "pnpm" field of package.json, so its settings live here.
+# allowBuilds lists the packages whose install scripts must run; anything not listed
+# makes `pnpm install` fail with ERR_PNPM_IGNORED_BUILDS instead of skipping silently.
+allowBuilds:
+  electron: true
+  esbuild: true
+  node-pty: true
+  electron-winstaller: false
