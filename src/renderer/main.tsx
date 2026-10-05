@@ -1,8 +1,11 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+// Tokens first: every other stylesheet reads its variables.
+import './theme/tokens.css'
+import { AppShell } from './shell/AppShell'
 
 export function App() {
-  return <main>worfy</main>
+  return <AppShell />
 }
 
 const container = document.getElementById('root')

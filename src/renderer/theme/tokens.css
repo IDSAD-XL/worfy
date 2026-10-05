@@ -1,0 +1,163 @@
+/*
+ * Design tokens of direction F (docs/design/F-SPEC.md). Light values come from palette E, dark
+ * values from palette Graphite. The system appearance picks the set: Electron passes the macOS
+ * setting to prefers-color-scheme, so there is no theme switch of our own.
+ * test/e2e/theme.spec.ts compares every colour here against the F-SPEC table and
+ * test/unit/contrast.test.ts checks text contrast; change the spec, this file and the tests together.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* Typography */
+  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --text-11: 11px; /* captions */
+  --text-12: 12px; /* chips, meta */
+  --text-13: 13px; /* body, rows */
+  --text-15: 15px; /* node titles */
+  --text-20: 20px; /* section and epic titles */
+
+  /* Shape: radii and the 4/8 px spacing grid */
+  --radius-window: 10px;
+  --radius-popover: 10px;
+  --radius-node: 8px;
+  --radius-button: 6px;
+  --radius-chip: 4px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --row-height: 28px;
+  --toolbar-height: 52px;
+  --sidebar-width: 240px;
+
+  /* Colour: light (palette E) */
+  --bg: #f7f7f9;
+  --canvas: #f7f7f9;
+  --canvas-dot: #d0d0d6;
+  --sidebar: #e9e9ec;
+  --toolbar: #f2f2f5;
+  --toolbar-border: #dcdce0;
+  --surface: #ffffff;
+  --surface-raised: #f2f2f5;
+  --selected: #e1ecfb;
+  --border: #e2e2e6;
+  --border-strong: #cfcfd4;
+  --text: #1d1d1f;
+  --text-secondary: #48484a;
+  --text-muted: #636366;
+  --primary: #0071e3;
+  --primary-text: #ffffff;
+  --accent: #0062cc;
+  --ready-text: #146b4b;
+  --ready-bg: #e4f4ec;
+  --ready-dot: #30b07e;
+  --working-text: #0062cc;
+  --working-bg: #e6f0fc;
+  --working-dot: #0071e3;
+  --blocked-text: #a84b00;
+  --blocked-bg: #fff0de;
+  --blocked-ring: #ff9f0a;
+  --done-text: #636366;
+  --done-bg: #f2f2f5;
+  --terminal-bg: #1d1d1f;
+  --terminal-text: #e5e5ea;
+
+  /* Segmented control, as drawn in the F mockups */
+  --segment-track: #e2e2e6;
+  --segment-thumb: #ffffff;
+
+  /* Light has soft layered shadows; dark has none, only 1 px borders */
+  --shadow-node: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.06);
+  --shadow-control: 0 1px 2px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --shadow-primary: 0 1px 2px rgba(0, 60, 140, 0.25);
+
+  /* The sidebar lets the native vibrancy of the window show through */
+  --sidebar-translucent: rgba(233, 233, 236, 0.8);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Colour: dark (palette Graphite) */
+    --bg: #121110;
+    --canvas: #0f0e0d;
+    --canvas-dot: #2c2926;
+    --sidebar: #161513;
+    --toolbar: #181715;
+    --toolbar-border: #2e2b28;
+    --surface: #1b1a18;
+    --surface-raised: #22201e;
+    --selected: #2a2825;
+    --border: #2e2b28;
+    --border-strong: #3b3834;
+    --text: #ece8e1;
+    --text-secondary: #c2bcb2;
+    --text-muted: #9c968d;
+    --primary: #c8f25a;
+    --primary-text: #121110;
+    --accent: #c8f25a;
+    --ready-text: #c8f25a;
+    --ready-bg: #23281a;
+    --ready-dot: #c8f25a;
+    --working-text: #5e9bff;
+    --working-bg: #1a2233;
+    --working-dot: #5e9bff;
+    --blocked-text: #ffae5c;
+    --blocked-bg: #2e2216;
+    --blocked-ring: #ffae5c;
+    --done-text: #9c968d;
+    --done-bg: #1b1a18;
+    --terminal-bg: #0b0a09;
+    --terminal-text: #ece8e1;
+
+    --segment-track: #22201e;
+    --segment-thumb: #3b3834;
+
+    --shadow-node: none;
+    --shadow-control: none;
+    --shadow-primary: none;
+
+    --sidebar-translucent: rgba(22, 21, 19, 0.82);
+  }
+}
+
+/* Base */
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  /* Transparent so the window's vibrancy reaches the sidebar; the shell paints everything else. */
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--text-13);
+  line-height: 17px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* Every id, path, number, branch, model and cost is set in monospace with tabular figures. */
+.w-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The surface of a canvas Node: canvas node components use this class. */
+.w-node-surface {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-node);
+  box-shadow: var(--shadow-node);
+}
