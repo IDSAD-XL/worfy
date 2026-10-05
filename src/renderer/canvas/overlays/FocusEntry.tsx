@@ -1,4 +1,4 @@
-// The way into focus mode (../../focus/FocusMode.tsx): a "Focus" button above the selected Nodes,
+// The way into focus mode (../../focus/FocusMode.tsx): a "Focus" button below the selected Nodes,
 // and ⌘↩ while the Canvas is on screen. Focus mode starts with the Even preset over the selected
 // Nodes in their Layout order. Its tiling lives here, in memory only: leaving focus mode drops it.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -55,7 +55,8 @@ export default function FocusEntry() {
   if (tree !== null) return <FocusMode tree={tree} onChange={setTree} onExit={() => setTree(null)} />
   if (selected.length === 0) return null
   return (
-    <NodeToolbar nodeId={selected} isVisible position={Position.Top}>
+    // Below the selection: the selection toolbar (SelectionToolbar.tsx, Pin and Tags) holds the top.
+    <NodeToolbar nodeId={selected} isVisible position={Position.Bottom} offset={12}>
       <button type="button" className="w-focus-entry nodrag" onClick={enter} aria-keyshortcuts="Meta+Enter">
         Focus <kbd>⌘↩</kbd>
       </button>

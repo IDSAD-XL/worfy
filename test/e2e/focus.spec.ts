@@ -98,6 +98,9 @@ test('three selected Nodes fill the window as tiles; presets, dividers and drags
     await select(window, ['n1', 'n2', 'n3'])
     const entry = window.getByRole('button', { name: /^Focus/ })
     await expect(entry).toBeVisible()
+    // The button does not cover the selection toolbar (Pin, Tags) that sits above the selection.
+    const [button, toolbar] = [await box(entry), await box(window.getByTestId('selection-toolbar'))]
+    expect(button.y >= toolbar.y + toolbar.height || button.y + button.height <= toolbar.y || button.x >= toolbar.x + toolbar.width || button.x + button.width <= toolbar.x).toBe(true)
     await window.screenshot({ path: test.info().outputPath('focus-entry.png') })
     await entry.click()
 

@@ -193,8 +193,9 @@ describe('dragging a title bar', () => {
     vi.restoreAllMocks()
   })
 
-  const pointer = (type: string, x: number, y: number): Event => {
-    const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y })
+  /** A pointer event of the primary button; `pressed` says whether the button is down while it fires. */
+  const pointer = (type: string, x: number, y: number, pressed = type !== 'pointerup'): Event => {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: pressed ? 1 : 0, clientX: x, clientY: y })
     Object.defineProperty(event, 'pointerId', { value: 1 })
     return event
   }
@@ -227,5 +228,150 @@ describe('dragging a title bar', () => {
     })
     expect(harness.tree()).toBeUndefined()
     expect(screen.getAllByTestId('focus-tile').map((tile) => tile.dataset.nodeId)).toEqual(['a', 'b'])
+  })
+
+  const titleOf = (index: number): HTMLElement => {
+    const title = screen.getAllByTestId('focus-tile-title')[index]
+    if (title === undefined) throw new Error('no title bar')
+    return title
+  }
+  const tileOf = (id: string): HTMLElement => {
+    const tile = screen.getAllByTestId('focus-tile').find((element) => element.dataset.nodeId === id)
+    if (tile === undefined) throw new Error(`no tile ${id}`)
+    return tile
+  }
+  const dragging = (): string | undefined => screen.getByTestId('focus-mode').querySelector<HTMLElement>('.w-focus__area')?.dataset.dragging
+
+  // Chromium can drop the pointer capture mid-drag without a pointercancel: the events that follow
+  // reach whatever is under the pointer, not the title bar.
+  it('swaps the tiles when the title bar loses the pointer capture and the rest of the drag lands on another tile', () => {
+    const harness = open(['a', 'b'])
+    act(() => {
+      titleOf(0).dispatchEvent(pointer('pointerdown', 100, 10))
+    })
+    act(() => {
+      titleOf(0).dispatchEvent(pointer('pointermove', 300, 100))
+      titleOf(0).dispatchEvent(new MouseEvent('lostpointercapture', { bubbles: true }))
+    })
+    act(() => {
+      tileOf('b').dispatchEvent(pointer('pointermove', 750, 250))
+      tileOf('b').dispatchEvent(pointer('pointerup', 750, 250))
+    })
+    expect(leafIds(harness.tree() ?? columns(['none']))).toEqual(['b', 'a'])
+    expect(dragging()).toBeUndefined()
+  })
+
+  // A pointermove with no button pressed, from the real cursor while another window appears under
+  // it, came in the middle of an e2e drag: it is not a release.
+  it('keeps the drag going through a pointermove with the button up', () => {
+    const harness = open(['a', 'b'])
+    act(() => {
+      titleOf(0).dispatchEvent(pointer('pointerdown', 100, 10))
+    })
+    act(() => {
+      tileOf('b').dispatchEvent(pointer('pointermove', 750, 250))
+    })
+    act(() => {
+      tileOf('a').dispatchEvent(pointer('pointermove', 100, 250, false))
+    })
+    expect(dragging()).toBe('true')
+    expect(tileOf('b').dataset.dropZone).toBe('center')
+    act(() => {
+      tileOf('b').dispatchEvent(pointer('pointermove', 760, 250))
+      tileOf('b').dispatchEvent(pointer('pointerup', 760, 250))
+    })
+    expect(leafIds(harness.tree() ?? columns(['none']))).toEqual(['b', 'a'])
+  })
+
+  it('drops nothing when a new press shows that the release was missed', () => {
+    const harness = open(['a', 'b'])
+    act(() => {
+      titleOf(0).dispatchEvent(pointer('pointerdown', 100, 10))
+    })
+    act(() => {
+      tileOf('b').dispatchEvent(pointer('pointermove', 750, 250))
+    })
+    act(() => {
+      tileOf('b').dispatchEvent(pointer('pointerdown', 750, 250))
+    })
+    expect(dragging()).toBeUndefined()
+    act(() => {
+      tileOf('b').dispatchEvent(pointer('pointerup', 750, 250))
+    })
+    expect(harness.tree()).toBeUndefined()
+  })
+
+  it('drops nothing after a pointercancel', () => {
+    const harness = open(['a', 'b'])
+    act(() => {
+      titleOf(0).dispatchEvent(pointer('pointerdown', 100, 10))
+    })
+    act(() => {
+      tileOf('b').dispatchEvent(pointer('pointermove', 750, 250))
+      tileOf('b').dispatchEvent(pointer('pointercancel', 750, 250))
+      tileOf('b').dispatchEvent(pointer('pointerup', 750, 250))
+    })
+    expect(harness.tree()).toBeUndefined()
+    expect(dragging()).toBeUndefined()
+  })
+})
+
+describe('dragging a divider', () => {
+  const AREA = new DOMRect(0, 0, 1000, 500)
+
+  beforeEach(() => {
+    const own = Element.prototype.getBoundingClientRect
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      return this.classList.contains('w-focus__area') ? AREA : own.call(this)
+    })
+    if (!('setPointerCapture' in Element.prototype)) {
+      Object.defineProperty(Element.prototype, 'setPointerCapture', { configurable: true, value: () => {} })
+    }
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  const pointer = (type: string, x: number, pressed = type !== 'pointerup'): Event => {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: pressed ? 1 : 0, clientX: x, clientY: 250 })
+    Object.defineProperty(event, 'pointerId', { value: 1 })
+    return event
+  }
+
+  it('follows the pointer after it has left the divider, and stops at the pointerup', () => {
+    const harness = open(['a', 'b'])
+    const divider = screen.getByTestId('focus-divider')
+    act(() => {
+      divider.dispatchEvent(pointer('pointerdown', 500))
+    })
+    // Off the 8 px divider, over tile b: the events no longer reach the divider itself.
+    const over = screen.getAllByTestId('focus-tile')[1]
+    if (over === undefined) throw new Error('no tile')
+    act(() => {
+      over.dispatchEvent(pointer('pointermove', 600))
+      over.dispatchEvent(pointer('pointerup', 600))
+    })
+    const moved = harness.tree()
+    expect(moved?.kind === 'split' ? moved.sizes.map((size) => Math.round(size * 10) / 10) : moved).toEqual([0.6, 0.4])
+    act(() => {
+      over.dispatchEvent(pointer('pointermove', 800))
+    })
+    expect(harness.tree()).toBe(moved)
+  })
+
+  it('stops following the pointer when focus mode closes mid-drag', () => {
+    const harness = open(['a', 'b'])
+    act(() => {
+      screen.getByTestId('focus-divider').dispatchEvent(pointer('pointerdown', 500))
+    })
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }))
+    })
+    expect(harness.exits()).toBe(1)
+    act(() => {
+      document.body.dispatchEvent(pointer('pointermove', 600))
+    })
+    expect(harness.tree()).toBeUndefined()
   })
 })

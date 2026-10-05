@@ -97,9 +97,59 @@ function TileNode({ node }: { node: CanvasFlowNode }) {
   return <Component {...tileProps(node)} />
 }
 
+interface PointerHandlers {
+  move: (event: PointerEvent) => void
+  up: (event: PointerEvent) => void
+  /** The gesture ends without a drop: the pointer was cancelled, or its release was missed. */
+  cancel: () => void
+}
+
+/**
+ * Follows one pointer on window, from a pointerdown until it is released or cancelled, and returns
+ * the function that stops following it.
+ *
+ * Pointer capture alone does not carry the gesture. Chromium takes the capture away in the middle
+ * of a drag, with no pointercancel, when a pointermove with no button pressed arrives: one the
+ * window gets from the real cursor while another window appears under it (seen in the e2e test
+ * with parallel workers: a move at a fixed point off the drag path, then lostpointercapture). The
+ * rest of the drag then reaches whatever is under the pointer, never the title bar or the divider;
+ * on window it still arrives. So a lost capture does not end the gesture, and a pointermove with
+ * the primary button up is skipped rather than taken for a release. A release that focus mode
+ * did miss (the button let go over another app) shows at the next press: that press cancels the
+ * gesture, so the drop never lands where the user did not drop.
+ */
+function followPointer(pointerId: number, handlers: PointerHandlers): () => void {
+  const stop = () => {
+    window.removeEventListener('pointermove', onMove, true)
+    window.removeEventListener('pointerup', onUp, true)
+    window.removeEventListener('pointercancel', onEnd, true)
+    window.removeEventListener('pointerdown', onEnd, true)
+  }
+  function onMove(event: PointerEvent) {
+    if (event.pointerId !== pointerId || (event.buttons & 1) === 0) return
+    handlers.move(event)
+  }
+  function onUp(event: PointerEvent) {
+    if (event.pointerId !== pointerId) return
+    stop()
+    handlers.up(event)
+  }
+  function onEnd(event: PointerEvent) {
+    if (event.pointerId !== pointerId) return
+    stop()
+    handlers.cancel()
+  }
+  // Capture phase: a Node inside a tile that stops a pointer event must not stall the gesture.
+  // Added during the pointerdown that starts the gesture, the pointerdown listener does not see it.
+  window.addEventListener('pointermove', onMove, true)
+  window.addEventListener('pointerup', onUp, true)
+  window.addEventListener('pointercancel', onEnd, true)
+  window.addEventListener('pointerdown', onEnd, true)
+  return stop
+}
+
 interface TileDrag {
   id: string
-  pointerId: number
   startX: number
   startY: number
   moving: boolean
@@ -118,7 +168,24 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
   // The state copy only draws the drag.
   const titleDrag = useRef<TileDrag>(undefined)
   const [drag, setDrag] = useState<TileDrag>()
-  const dividerDrag = useRef<{ pointerId: number; base: TileTree; divider: DividerRect; start: number; extentPx: number }>(undefined)
+  const dividerDrag = useRef<{ base: TileTree; divider: DividerRect; start: number; extentPx: number }>(undefined)
+  /** Stops following the pointer of the gesture in progress, title bar or divider. */
+  const stopGesture = useRef<() => void>(undefined)
+  /** Ends the gesture in progress, if any, without a drop. */
+  const endGesture = () => {
+    stopGesture.current?.()
+    stopGesture.current = undefined
+    dividerDrag.current = undefined
+    if (titleDrag.current !== undefined) {
+      titleDrag.current = undefined
+      setDrag(undefined)
+    }
+  }
+  // A gesture still in progress when the layer closes stops there: no drop after the layer is gone.
+  useEffect(() => {
+    const gesture = stopGesture
+    return () => gesture.current?.()
+  }, [])
 
   // The callbacks below outlive the render they were made in.
   const latest = useRef({ tree, onChange, onExit })
@@ -179,30 +246,34 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
 
   const areaRect = (): DOMRect | undefined => area.current?.getBoundingClientRect()
 
+  // Dividers and title bars: a press starts a gesture that follows the pointer on window
+  // (followPointer); the pointer capture only keeps hover effects off the rest of the layer.
+  const startGesture = (event: ReactPointerEvent<HTMLDivElement>, handlers: PointerHandlers) => {
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    stopGesture.current = followPointer(event.pointerId, handlers)
+  }
+
   // Dividers
   const onDividerDown = (divider: DividerRect) => (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
     const rect = areaRect()
     if (rect === undefined) return
-    event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
+    endGesture()
     const row = divider.direction === 'row'
     dividerDrag.current = {
-      pointerId: event.pointerId,
       base: latest.current.tree,
       divider,
       start: row ? event.clientX : event.clientY,
       extentPx: divider.extent * (row ? rect.width : rect.height),
     }
+    startGesture(event, { move: onDividerMove, up: endGesture, cancel: endGesture })
   }
-  const onDividerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const onDividerMove = (event: PointerEvent) => {
     const current = dividerDrag.current
-    if (current === undefined || current.pointerId !== event.pointerId || current.extentPx <= 0) return
+    if (current === undefined || current.extentPx <= 0) return
     const position = current.divider.direction === 'row' ? event.clientX : event.clientY
     latest.current.onChange(moveDivider(current.base, current.divider.path, current.divider.index, (position - current.start) / current.extentPx))
-  }
-  const onDividerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (dividerDrag.current?.pointerId === event.pointerId) dividerDrag.current = undefined
   }
 
   // Title bars
@@ -216,14 +287,14 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
   }
   const onTitleDown = (id: string) => (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
-    event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    titleDrag.current = { id, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, moving: false }
+    endGesture()
+    titleDrag.current = { id, startX: event.clientX, startY: event.clientY, moving: false }
     setDrag(titleDrag.current)
+    startGesture(event, { move: onTitleMove, up: onTitleUp, cancel: endGesture })
   }
-  const onTitleMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const onTitleMove = (event: PointerEvent) => {
     const drag = titleDrag.current
-    if (drag === undefined || drag.pointerId !== event.pointerId) return
+    if (drag === undefined) return
     const moving = drag.moving || Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= DRAG_THRESHOLD_PX
     if (!moving) return
     const target = dropTarget(drag.id, event.clientX, event.clientY)
@@ -231,12 +302,10 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
     titleDrag.current = { ...drag, moving, target }
     setDrag(titleDrag.current)
   }
-  const onTitleUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const onTitleUp = (event: PointerEvent) => {
     const drag = titleDrag.current
-    if (drag === undefined || drag.pointerId !== event.pointerId) return
-    titleDrag.current = undefined
-    setDrag(undefined)
-    if (!drag.moving) return
+    endGesture()
+    if (drag === undefined || !drag.moving) return
     const target = dropTarget(drag.id, event.clientX, event.clientY)
     if (target === undefined) return
     const current = latest.current.tree
@@ -283,12 +352,6 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
                   className="w-focus__tile-title"
                   data-testid="focus-tile-title"
                   onPointerDown={onTitleDown(tile.id)}
-                  onPointerMove={onTitleMove}
-                  onPointerUp={onTitleUp}
-                  onPointerCancel={() => {
-                    titleDrag.current = undefined
-                    setDrag(undefined)
-                  }}
                 >
                   <span aria-hidden="true">⠿</span>
                   {node ? titleOf(node) : tile.id}
@@ -312,9 +375,6 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
                 : { left: percent(divider.x), top: percent(divider.y), width: percent(divider.length) }
             }
             onPointerDown={onDividerDown(divider)}
-            onPointerMove={onDividerMove}
-            onPointerUp={onDividerUp}
-            onPointerCancel={onDividerUp}
             onDoubleClick={() => latest.current.onChange(equalize(latest.current.tree, divider.path))}
           />
         ))}
