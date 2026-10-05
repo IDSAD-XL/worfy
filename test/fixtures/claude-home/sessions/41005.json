@@ -1,0 +1,26 @@
+{
+  "pid": 41005,
+  "sessionId": "55555555-5555-4555-8555-555555555555",
+  "cwd": "/Users/test/projects/demo",
+  "startedAt": 1777975200000,
+  "procStart": "Tue May  5 10:00:00 2026",
+  "version": "2.1.286",
+  "peerProtocol": 1,
+  "peerFeatures": [
+    "notify_idle",
+    "reply_across_default_dirs",
+    "artifact_yield"
+  ],
+  "kind": "interactive",
+  "entrypoint": "claude-desktop",
+  "hostSessionId": "local_00000000-0000-4000-8000-000000000005",
+  "pidDomain": "darwin",
+  "messagingSocketPath": "/Users/test/tmp/cc-socks/41005.sock",
+  "name": "Synthetic wave run",
+  "nameSource": "user",
+  "nameSince": 1777975200000,
+  "bridgeSessionId": "session_01SYNTHETIC0000000000000",
+  "status": "idle",
+  "updatedAt": 1777975260000,
+  "statusUpdatedAt": 1777975260000
+}

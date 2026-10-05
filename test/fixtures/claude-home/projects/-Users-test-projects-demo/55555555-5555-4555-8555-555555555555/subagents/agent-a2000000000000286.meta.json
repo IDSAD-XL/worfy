@@ -1,0 +1,9 @@
+{
+  "agentType": "scout",
+  "description": "Scout demo files",
+  "toolUseId": "toolu_01S5AGENT2XXXXXXXXXXXXXX",
+  "parentAgentId": "a1000000000000286",
+  "spawnDepth": 2,
+  "requestShape": "foreground",
+  "requestNonInteractive": true
+}

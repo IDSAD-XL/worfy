@@ -1,0 +1,24 @@
+{
+  "pid": 41004,
+  "sessionId": "44444444-4444-4444-8444-444444444444",
+  "cwd": "/Users/test/projects/demo/.claude/worktrees/07",
+  "startedAt": 1776722400000,
+  "procStart": "Mon Apr 20 22:00:00 2026",
+  "version": "2.1.284",
+  "peerProtocol": 1,
+  "peerFeatures": [
+    "notify_idle",
+    "reply_across_default_dirs",
+    "artifact_yield"
+  ],
+  "kind": "interactive",
+  "entrypoint": "cli",
+  "pidDomain": "darwin",
+  "messagingSocketPath": "/Users/test/tmp/cc-socks/41004.sock",
+  "name": "ship-demo-epic-07",
+  "nameSource": "derived",
+  "nameSince": 1776722400000,
+  "status": "busy",
+  "updatedAt": 1776722460000,
+  "statusUpdatedAt": 1776722460000
+}
