@@ -1,0 +1,159 @@
+/* Layout of the window shell: sidebar on the left, toolbar and main area on the right. */
+
+.w-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Sidebar: translucent so the window's native vibrancy shows through. */
+.w-sidebar {
+  flex: none;
+  width: var(--sidebar-width);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 0 var(--space-2) var(--space-2);
+  background: var(--sidebar-translucent);
+  border-right: 1px solid var(--toolbar-border);
+}
+.w-sidebar__titlebar {
+  flex: none;
+  height: var(--toolbar-height);
+  -webkit-app-region: drag;
+}
+.w-sidebar__sections {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.w-shell__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+/* Unified toolbar: the window is dragged by it, its controls stay clickable. */
+.w-toolbar {
+  flex: none;
+  height: var(--toolbar-height);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-3) 0 var(--space-2);
+  background: var(--toolbar);
+  border-bottom: 1px solid var(--toolbar-border);
+  -webkit-app-region: drag;
+}
+/* Without the sidebar the traffic lights sit over the toolbar: keep clear of them. */
+.w-toolbar[data-sidebar='hidden'] {
+  padding-left: 80px;
+}
+.w-toolbar button,
+.w-toolbar [role='group'],
+.w-toolbar__item {
+  -webkit-app-region: no-drag;
+}
+.w-toolbar__icon-button {
+  width: var(--row-height);
+  height: var(--row-height);
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 0;
+}
+.w-toolbar__icon-button:hover {
+  background: var(--surface-raised);
+}
+.w-toolbar__title {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-width: 0;
+}
+.w-toolbar__name {
+  font-size: var(--text-13);
+  line-height: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.w-toolbar__subtitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-11);
+  line-height: 14px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.w-toolbar__spacer {
+  flex: 1;
+  min-width: var(--space-2);
+}
+.w-toolbar__item {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+.w-toolbar__palette-hint {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  width: 152px;
+  height: var(--row-height);
+  box-sizing: border-box;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.w-toolbar__palette-text {
+  flex: 1;
+}
+.w-toolbar__palette-hint kbd {
+  font-size: var(--text-11);
+  line-height: 16px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-chip);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.w-shell__content {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+.w-shell__content--canvas {
+  background-color: var(--canvas);
+  background-image: radial-gradient(circle, var(--canvas-dot) 1px, transparent 1.4px);
+  background-size: 16px 16px;
+  background-position: 8px 8px;
+}
+.w-shell__content--session {
+  background: var(--bg);
+}
+.w-shell__view {
+  position: absolute;
+  inset: 0;
+}
+.w-shell__view[hidden] {
+  display: none;
+}
