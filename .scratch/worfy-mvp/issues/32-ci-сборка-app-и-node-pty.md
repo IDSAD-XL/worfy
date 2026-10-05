@@ -159,3 +159,10 @@ electron-rebuild --only node-pty` тот же test зелёный. Цена: `po
   Recording и Accessibility) → одно окно владельца `worfy` с тем же pid, слой 0,
   `kCGWindowIsOnscreen=true`, 1280×800. `tell application "worfy" to quit` → код 0, процесс
   завершился.
+- CI на коммит круга 3 не запустился: PR #2 в состоянии `mergeStateStatus: DIRTY` (конфликт с
+  `main` только в этом файле тикета, `git merge-tree`), и GitHub не создаёт прогон
+  `pull_request`; `gh pr checks 2` → «no checks reported», код 1. Rebase на `main` — шаг мержа.
+  Вместо CI локально: `GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full` → `[gate] зелено
+  (full): … lint typecheck test test:e2e`, код 0; `pnpm test:e2e` → код 0 (2 passed);
+  `pnpm test:package` → код 0 (3 passed). Код и CI-конфиг в круге 3 не менялись; последний
+  прогон CI на коде ветки (коммит 1e32880) — `success`, run 37256464207.
