@@ -3,11 +3,11 @@
 // A shell is started only for a Node of kind `terminal` that is in its Project's Layout, and
 // always in the Project's root: the renderer names the Node, never a folder or a program. A shell
 // ends when its Node is closed (terminal.close), when its Node leaves the Layout by any route,
-// when the window that opened it is destroyed, and when the app quits; the quit waits until every
-// shell has exited.
+// when its Project leaves the list, when the window that opened it is destroyed, and when the app
+// quits; the quit waits until every shell has exited.
 import { app, type WebContents } from 'electron'
 import { agentEnv } from '../agent/env'
-import { layoutStore } from '../layout/store'
+import { layoutStore, type LayoutChange } from '../layout/store'
 import { projectStore } from '../projects/store'
 import { TerminalRegistry, type TerminalSink } from '../terminal/pty'
 import { TERMINAL_NODE_KIND, terminalClose, terminalExit, terminalInput, terminalOpen, terminalOutput, terminalResize } from '../../shared/ipc/terminal'
@@ -83,6 +83,19 @@ export function terminalHandlers(deps: TerminalDeps): HandlerModule {
   ]
 }
 
+/** Ends the shell of a Terminal Node that left the Layout, whoever removed it. */
+export function closeRemovedNode(registry: TerminalRegistry, change: Pick<LayoutChange, 'projectId' | 'op'>): Promise<void> {
+  return change.op.op === 'remove' ? registry.close(terminalKey(change.projectId, change.op.id)) : Promise.resolve()
+}
+
+/** Ends the shells of Projects no longer in the list. */
+export function closeRemovedProjects(registry: TerminalRegistry, projectIds: ReadonlySet<string>): Promise<void> {
+  return registry.closeWhere((key) => {
+    const [projectId] = JSON.parse(key) as [string, string]
+    return !projectIds.has(projectId)
+  })
+}
+
 /** How long quitting waits for the shells beyond their own SIGKILL grace period. */
 const QUIT_WAIT_MS = 3000
 
@@ -95,9 +108,10 @@ function sharedRegistry(): TerminalRegistry {
 
   // A Terminal Node removed from the Layout, by the Node's close button or any other route,
   // takes its shell with it.
-  layoutStore().onChange(({ projectId, op }) => {
-    if (op.op === 'remove') void registry.close(terminalKey(projectId, op.id))
-  })
+  layoutStore().onChange((change) => void closeRemovedNode(registry, change))
+  // A Project removed from the list takes its shells with it.
+  const projects = projectStore()
+  projects.onChange(() => void closeRemovedProjects(registry, new Set(projects.list().map((project) => project.id))))
 
   // Quitting waits for the shells to exit, then quits again with nothing left to wait for.
   app.on('will-quit', (event) => {

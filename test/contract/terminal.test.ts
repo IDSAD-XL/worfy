@@ -9,7 +9,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SYSTEM_PATH } from '../../src/main/agent/env'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
-import { terminalHandlers, terminalKey } from '../../src/main/ipc/terminal'
+import { closeRemovedNode, closeRemovedProjects, terminalHandlers, terminalKey } from '../../src/main/ipc/terminal'
 import { clampSize, ReplayBuffer, REPLAY_LIMIT, terminalEnv, TerminalRegistry } from '../../src/main/terminal/pty'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 
@@ -205,6 +205,25 @@ describe('terminal channels on a real pty', () => {
 
     await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5000 })
     expect(alive(otherPid)).toBe(true)
+  })
+
+  it('a Terminal Node removed from the Layout, or its Project removed from the list, ends its shell', async () => {
+    const h = await harness({ nodes: [NODE, 'node-2'] })
+    const { pid } = await h.open()
+    const { pid: otherPid } = await h.open('node-2')
+
+    await closeRemovedNode(h.registry, { projectId: PROJECT, op: { op: 'move', id: NODE, x: 1, y: 1 } })
+    await closeRemovedNode(h.registry, { projectId: 'other-00000002', op: { op: 'remove', id: NODE } })
+    expect([alive(pid), alive(otherPid)]).toEqual([true, true])
+
+    await closeRemovedNode(h.registry, { projectId: PROJECT, op: { op: 'remove', id: NODE } })
+    expect([alive(pid), alive(otherPid)]).toEqual([false, true])
+
+    await closeRemovedProjects(h.registry, new Set([PROJECT]))
+    expect(alive(otherPid)).toBe(true)
+    await closeRemovedProjects(h.registry, new Set(['other-00000002']))
+    expect(alive(otherPid)).toBe(false)
+    expect(h.registry.size).toBe(0)
   })
 
   it('closeAll (the app quitting) ends every shell and resolves once they are gone', async () => {
