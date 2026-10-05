@@ -1,10 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
-
-// window.ts imports Electron's main-process API, which does not exist under the plain Node that
-// runs unit tests; only its pure helpers are tested here, so the module is replaced by an empty one.
-vi.mock('electron', () => ({ BrowserWindow: class {}, screen: {} }))
-
-const { DEFAULT_SIZE, MIN_SIZE, initialBounds, parseWindowState, windowStatePath } = await import('../../src/main/window')
+import { describe, expect, it } from 'vitest'
+import { DEFAULT_SIZE, MIN_SIZE, initialBounds, parseWindowState, serializeWindowState } from '../../src/shared/window/bounds'
 
 const display = { x: 0, y: 25, width: 1440, height: 875 }
 
@@ -52,8 +47,10 @@ describe('initialBounds', () => {
   })
 })
 
-describe('windowStatePath', () => {
-  it("keeps the file in worfy's data directory", () => {
-    expect(windowStatePath('/tmp/worfy-data')).toBe('/tmp/worfy-data/window-state.json')
+describe('serializeWindowState', () => {
+  it('writes what parseWindowState reads back', () => {
+    const bounds = { x: -200, y: 40, width: 900, height: 600 }
+    expect(JSON.parse(serializeWindowState(bounds))).toEqual({ bounds })
+    expect(parseWindowState(serializeWindowState(bounds))).toEqual(bounds)
   })
 })

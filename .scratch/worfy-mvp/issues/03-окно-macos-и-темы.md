@@ -63,15 +63,33 @@ Source: [F-SPEC.md](../../../docs/design/F-SPEC.md), разделы «Typography
 - **Контракт точки расширения.** Файл `src/renderer/shell/sidebar/<Имя>Section.tsx` или
   `src/renderer/shell/toolbar/<Имя>.tsx` экспортирует компонент по умолчанию и
   `export const order = <число>`; меньший `order` — выше (левее), при равенстве — по имени файла.
-  Модуль без компонента или без числового `order` бросает ошибку при первом рендере
-  (`src/renderer/shell/registry.ts`), чтобы забытый экспорт не пропадал молча. Элементы toolbar
+  Компонентом считается функция или класс, а также обёртки `memo`, `forwardRef`, `lazy` (объекты с
+  `$$typeof`). Модуль без компонента или без числового `order` бросает ошибку
+  (`src/renderer/shell/registry.ts`) уже при загрузке `Sidebar.tsx` / `Toolbar.tsx`: renderer не
+  монтируется, краснеют все e2e-tests, а забытый экспорт не пропадает молча. Элементы toolbar
   стоят между переключателем Canvas / Session и подсказкой ⌘K.
+- **Оба вида остаются смонтированными.** Неактивный вид (Canvas или Session) скрыт атрибутом
+  `hidden`, а не размонтирован: иначе каждое переключение уничтожало бы экземпляр React Flow
+  (тикет 05) и терминалы xterm.js (тикет 27) со всем их состоянием в памяти.
+- **Кто заполняет слоты `AppShell`** (`project`, `canvas`, `session`): `src/renderer/main.tsx`,
+  единственное место, где `AppShell` монтируется. В следах тикетов 04 (Проект в toolbar),
+  05 (`Canvas.tsx`) и 33 (`SessionView.tsx`) этого файла нет — оркестратору: добавить
+  `src/renderer/main.tsx` в «Где в коде» этих тикетов. Каждый меняет одну строку — свой prop;
+  тикеты в волнах 3, 4 и 6, так что правки идут по очереди, а не параллельно. Отдельную точку
+  расширения для видов не завожу: видов ровно два, оба названы в эпике, и механизм поиска файлов
+  ради двух постоянных мест сложнее одной строки в `main.tsx`.
 - **Состояние окна** — `<WORFY_DATA_DIR>/window-state.json` (`{"bounds": {x, y, width, height}}`),
   пишется через временный файл и rename на `resized`, `moved` и `close`; сохраняются
   `getNormalBounds()`, то есть размер без развёртывания. Сохранённое положение берётся, только
   если на каком-то из текущих дисплеев видно не меньше 120×40 px окна (монитор могли отключить);
   иначе окно открывается 1280×800 по центру. Минимальный размер окна — 800×520. Это собственное
-  состояние приложения в смысле ADR 0005, отдельного ADR не требует.
+  состояние приложения в смысле ADR 0005, отдельного ADR не требует. Чистая часть — разбор,
+  запись в JSON и геометрия (`parseWindowState`, `serializeWindowState`, `initialBounds`) — лежит
+  в `src/shared/window/bounds.ts` и тестируется без Electron; `src/main/window.ts` только читает и
+  пишет файл и создаёт окно. Чтение и атомарная запись пока свои: общего
+  `src/main/storage/json-file.ts` ещё нет (тикет 04). Оркестратору: добавить в тикет 04 пункт —
+  перевести `window-state.json` на `json-file.ts`, чтобы испорченный файл откладывался как у
+  остальных хранилищ, а не молча перезаписывался.
 - **Полупрозрачность sidebar.** Токен `--sidebar` хранит значение из F-SPEC без изменений, а
   сам sidebar закрашен `--sidebar-translucent` (тот же цвет, непрозрачность 0.8 / 0.82), фон
   `body` и окна прозрачный — так сквозь sidebar виден нативный vibrancy.
@@ -87,9 +105,9 @@ Source: [F-SPEC.md](../../../docs/design/F-SPEC.md), разделы «Typography
   тикет 04) — «worfy — <имя>» и «<имя> · <ветка>» моноширинным.
 - **Файлы вне следа тикета**: `src/renderer/main.tsx` (монтирует `AppShell` и `tokens.css` —
   без этого оболочки не видно), `src/renderer/theme/primitives.css`,
-  `src/renderer/shell/registry.ts`, `src/renderer/shell/shell.css`; тесты
-  `test/unit/contrast.test.ts` (назван в разделе «Тесты»), `test/unit/window-state.test.ts`,
-  `test/unit/shell.test.tsx`, `test/e2e/window.spec.ts`.
+  `src/renderer/shell/registry.ts`, `src/renderer/shell/shell.css`, `src/shared/window/bounds.ts`;
+  тесты `test/unit/contrast.test.ts` (назван в разделе «Тесты»), `test/unit/window-bounds.test.ts`,
+  `test/unit/shell.test.tsx`, `test/unit/shell-discovery.test.tsx`, `test/e2e/window.spec.ts`.
 
 Проверка:
 
@@ -97,10 +115,16 @@ Source: [F-SPEC.md](../../../docs/design/F-SPEC.md), разделы «Typography
   (6 из 7 тестов файла красные), после токенов — зелёный.
 - `test/e2e/window.spec.ts`: контент окна занимает всё окно (системной полосы заголовка нет),
   позиция кнопок светофора 20/19, toolbar 52 px; позиция и размер переживают перезапуск. Если
-  убрать сохранение (`window.on(... remember)`), второй тест краснеет — проверено.
-- Новый раздел без правки `Sidebar.tsx`: разово добавлены `sidebar/ProbeSection.tsx` и
-  `toolbar/ProbeItem.tsx` и временный e2e — оба видны в собранном приложении; файлы удалены.
-  Постоянно это покрывает `test/unit/shell.test.tsx` (`collectExtensions` и `SidebarView`).
+  убрать сохранение (`window.on(... remember)`), второй тест краснеет — проверено. Третий тест
+  двигает и меняет размер окна (`setBounds` с анимацией, как при перетаскивании), ждёт файл и
+  убивает процесс `SIGKILL` без закрытия окна: положение уже на диске. Без обработчиков
+  `resized` и `moved` он краснеет — проверено.
+- Новый раздел без правки `Sidebar.tsx`: `test/unit/shell-discovery.test.tsx` на время теста
+  кладёт `sidebar/ZzVitestProbeSection.tsx` и `toolbar/ZzVitestProbe.tsx`, заново импортирует
+  настоящие `Sidebar.tsx` и `Toolbar.tsx` (query string заставляет Vite заново развернуть
+  `import.meta.glob`) и находит оба элемента в DOM; файлы удаляются после теста. Если заменить
+  glob в `Sidebar.tsx` на пустой список или исказить шаблон в `Toolbar.tsx`, test краснеет —
+  проверено. Порядок и проверки экспорта — `test/unit/shell.test.tsx` (`collectExtensions`).
 - Контраст: `test/unit/contrast.test.ts` читает `tokens.css` и проверяет ≥ 4.5:1 для text,
   secondary и muted на bg, canvas, sidebar, toolbar, surface, surface raised, а также accent,
   текста основного действия, chip-ов статусов и терминала — в обеих темах всё проходит.

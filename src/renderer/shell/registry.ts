@@ -14,6 +14,15 @@ export interface ShellExtension {
   Component: ComponentType
 }
 
+/**
+ * True for what React accepts as a custom component: a function or class, or one of React's
+ * wrapper objects (memo, forwardRef, lazy), which carry a `$$typeof` tag. Host tag names such as
+ * 'div' are element types too, but never a sensible shell extension.
+ */
+function isComponentType(value: unknown): value is ComponentType {
+  return typeof value === 'function' || (typeof value === 'object' && value !== null && '$$typeof' in value)
+}
+
 function fileId(path: string): string {
   const name = path.slice(path.lastIndexOf('/') + 1)
   const dot = name.lastIndexOf('.')
@@ -22,20 +31,21 @@ function fileId(path: string): string {
 
 /**
  * Turns the result of an eager import.meta.glob into extensions sorted by `order`, then by file
- * name. A module without a component or a finite `order` is a programming error and throws, so
- * a forgotten export fails the first render (and every e2e test) instead of silently vanishing.
+ * name. A module without a component or a finite `order` is a programming error and throws.
+ * Sidebar.tsx and Toolbar.tsx call this when they are first imported, so a forgotten export stops
+ * the renderer from mounting at all (and fails every e2e test) instead of silently vanishing.
  */
 export function collectExtensions(modules: Record<string, unknown>): ShellExtension[] {
   return Object.entries(modules)
     .map(([path, module]) => {
       const { default: Component, order } = (module ?? {}) as { default?: unknown; order?: unknown }
-      if (typeof Component !== 'function') {
-        throw new Error(`${path} must default-export a React component`)
+      if (!isComponentType(Component)) {
+        throw new Error(`${path} must default-export a React component (a function or class, memo, forwardRef or lazy)`)
       }
       if (typeof order !== 'number' || !Number.isFinite(order)) {
         throw new Error(`${path} must export a numeric \`order\``)
       }
-      return { id: fileId(path), order, Component: Component as ComponentType }
+      return { id: fileId(path), order, Component }
     })
     .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
 }

@@ -54,3 +54,34 @@ test('the window position and size survive a restart', async () => {
     await rm(dataDir, { recursive: true, force: true })
   }
 })
+
+test('a moved or resized window is saved at once, without waiting for the window to close', async () => {
+  const launched = await launchApp()
+  const stateFile = join(launched.dataDir, 'window-state.json')
+  const wanted = { x: 180, y: 120, width: 960, height: 640 }
+  const readSaved = async (): Promise<unknown> => {
+    try {
+      return JSON.parse(await readFile(stateFile, 'utf8')) as unknown
+    } catch {
+      return undefined
+    }
+  }
+  try {
+    await expect(launched.window.getByTestId('app-shell')).toBeVisible()
+    // animate: true makes macOS report the change as a finished move/resize ('moved', 'resized'),
+    // as a drag by the user does; the window is never closed in this test.
+    await launched.app.evaluate(({ BrowserWindow }, bounds) => {
+      BrowserWindow.getAllWindows()[0]?.setBounds(bounds, true)
+    }, wanted)
+    await expect.poll(readSaved, { timeout: 5_000 }).toEqual({ bounds: wanted })
+    // A crash or a kill skips the 'close' event: what is on disk is all that survives.
+    launched.app.process().kill('SIGKILL')
+    expect(await readSaved()).toEqual({ bounds: wanted })
+  } finally {
+    if (launched.app.process().exitCode === null && !launched.app.process().killed) {
+      await launched.app.close()
+    }
+    await rm(launched.dataDir, { recursive: true, force: true })
+    await rm(launched.claudeHome, { recursive: true, force: true })
+  }
+})

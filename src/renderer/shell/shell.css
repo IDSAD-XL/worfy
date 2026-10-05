@@ -150,3 +150,10 @@
 .w-shell__content--session {
   background: var(--bg);
 }
+.w-shell__view {
+  position: absolute;
+  inset: 0;
+}
+.w-shell__view[hidden] {
+  display: none;
+}

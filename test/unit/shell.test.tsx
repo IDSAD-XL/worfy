@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
+import { forwardRef, lazy, memo, useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { collectExtensions } from '../../src/renderer/shell/registry'
 import { SidebarView } from '../../src/renderer/shell/Sidebar'
@@ -23,6 +24,24 @@ describe('collectExtensions', () => {
       ['AdrSection', 30],
       ['SessionsSection', 30],
     ])
+  })
+
+  it('accepts components wrapped in memo, forwardRef or lazy', () => {
+    const Plain = section('Plain')
+    const extensions = collectExtensions({
+      './sidebar/MemoSection.tsx': { default: memo(Plain), order: 1 },
+      './sidebar/RefSection.tsx': { default: forwardRef<HTMLParagraphElement>((_props, ref) => <p ref={ref}>Ref</p>), order: 2 },
+      './sidebar/LazySection.tsx': { default: lazy(() => Promise.resolve({ default: Plain })), order: 3 },
+    })
+    expect(extensions.map(({ id }) => id)).toEqual(['MemoSection', 'RefSection', 'LazySection'])
+    render(<SidebarView sections={extensions.slice(0, 2)} />)
+    expect(screen.getByText('Plain')).toBeTruthy()
+    expect(screen.getByText('Ref')).toBeTruthy()
+  })
+
+  it('rejects a module whose default export is not a component', () => {
+    expect(() => collectExtensions({ './sidebar/TextSection.tsx': { default: 'div', order: 1 } })).toThrow(/TextSection.tsx must default-export/)
+    expect(() => collectExtensions({ './sidebar/NullSection.tsx': { default: null, order: 1 } })).toThrow(/NullSection.tsx must default-export/)
   })
 
   it('rejects a module without a component', () => {
@@ -68,11 +87,28 @@ describe('ToolbarView', () => {
 describe('AppShell', () => {
   it('switches between the Canvas and Session views', () => {
     render(<AppShell canvas={<p>canvas body</p>} session={<p>session body</p>} />)
-    expect(screen.getByText('canvas body')).toBeTruthy()
+    expect(screen.getByText('canvas body').closest('[hidden]')).toBeNull()
+    expect(screen.getByText('session body').closest('[hidden]')).not.toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Session' }))
     expect(screen.getByRole('main', { name: 'Session' })).toBeTruthy()
-    expect(screen.getByText('session body')).toBeTruthy()
-    expect(screen.queryByText('canvas body')).toBeNull()
+    expect(screen.getByText('session body').closest('[hidden]')).toBeNull()
+    expect(screen.getByText('canvas body').closest('[hidden]')).not.toBeNull()
+  })
+
+  it('keeps the inactive view mounted, so its in-memory state survives a switch', () => {
+    function Counter() {
+      const [count, setCount] = useState(0)
+      return (
+        <button type="button" onClick={() => setCount((n) => n + 1)}>
+          clicks {count}
+        </button>
+      )
+    }
+    render(<AppShell canvas={<Counter />} session={<p>session body</p>} />)
+    fireEvent.click(screen.getByRole('button', { name: 'clicks 0' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Session' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Canvas' }))
+    expect(screen.getByRole('button', { name: 'clicks 1' })).toBeTruthy()
   })
 
   it('hides and shows the sidebar', () => {

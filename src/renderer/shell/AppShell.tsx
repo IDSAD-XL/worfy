@@ -28,7 +28,14 @@ export function AppShell({ project, canvas, session }: AppShellProps) {
           onToggleSidebar={() => setSidebarVisible((visible) => !visible)}
         />
         <main className={`w-shell__content w-shell__content--${view}`} aria-label={view === 'canvas' ? 'Canvas' : 'Session'}>
-          {view === 'canvas' ? canvas : session}
+          {/* Both views stay mounted and the inactive one is only hidden: switching must not
+              destroy what a view keeps in memory (the React Flow instance, xterm terminals). */}
+          <div className="w-shell__view" data-view="canvas" hidden={view !== 'canvas'}>
+            {canvas}
+          </div>
+          <div className="w-shell__view" data-view="session" hidden={view !== 'session'}>
+            {session}
+          </div>
         </main>
       </div>
     </div>
