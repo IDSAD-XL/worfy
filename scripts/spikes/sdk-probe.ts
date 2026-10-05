@@ -5,6 +5,7 @@
 //
 //   pnpm exec electron scripts/spikes/sdk-probe.ts [scenario ...] [--out <dir>] [--fixtures <dir>] [--switch-model <model>]
 //     [--env KEY=VALUE ...]
+//   pnpm exec electron scripts/spikes/sdk-probe.ts --rescrub <dir>
 //
 // Scenarios (all by default): init, controls, stop-hook, no-login, permissions, bypass.
 // --switch-model is the model `controls` switches to with setModel() mid-session (default: sonnet).
@@ -15,7 +16,10 @@
 // Output: one sanitized `<scenario>.jsonl` per scenario plus `summary.json` in --out
 // (default: $TMPDIR/worfy-sdk-probe/<timestamp>). With --fixtures, the sanitized SDK messages
 // alone (no timing, at most 12 partial events per file) are also written there
-// (test/fixtures/sdk-messages/, for the contract tests of ticket 07).
+// (test/fixtures/sdk-messages/, for the contract tests of ticket 07), plus the scenario's own
+// files (`permissions`: can-use-tool.json, every canUseTool request and the probe's answer).
+// --rescrub <dir> makes no model calls: it re-applies the MCP server, MCP tool and plugin name
+// replacement to the fixtures already in <dir> (for files written before that rule existed).
 //
 // The probe never writes to ~/.claude itself. Claude Code does, as it always does for a session
 // (transcript, session registry, the user's hooks); the probe only reads those files afterwards.
@@ -37,7 +41,8 @@ const MODEL = 'haiku'
 
 type Recorded = { t: number; turn: number; msg: unknown }
 type Facts = Record<string, unknown>
-type ScenarioResult = { scenario: Scenario; facts: Facts; messages: Recorded[] }
+// `extra`: further fixture files of a scenario (name -> JSON value), written next to its stream.
+type ScenarioResult = { scenario: Scenario; facts: Facts; messages: Recorded[]; extra?: Record<string, unknown> }
 
 const args = process.argv.slice(process.argv.findIndex((a) => a.endsWith('sdk-probe.ts')) + 1)
 const flag = (name: string): string | undefined => {
@@ -45,13 +50,14 @@ const flag = (name: string): string | undefined => {
   return i >= 0 ? args[i + 1] : undefined
 }
 const envFlags = args.flatMap((a, i) => (args[i - 1] === '--env' ? [a] : []))
-const flagValues = new Set([flag('--out'), flag('--fixtures'), flag('--switch-model'), ...envFlags])
+const flagValues = new Set([flag('--out'), flag('--fixtures'), flag('--switch-model'), flag('--rescrub'), ...envFlags])
 const picked = args.filter((a) => !a.startsWith('--') && !flagValues.has(a)) as Scenario[]
 const scenarios = picked.length > 0 ? picked : ALL
 const outDir = resolve(flag('--out') ?? join(tmpdir(), 'worfy-sdk-probe', new Date().toISOString().replace(/[:.]/g, '-')))
 const switchModel = flag('--switch-model') ?? 'sonnet'
 const fixturesFlag = flag('--fixtures')
 const fixturesDir = fixturesFlag ? resolve(fixturesFlag) : undefined
+const rescrubFlag = flag('--rescrub')
 const cwd = process.cwd()
 const home = homedir()
 const scratch = mkdtempSync(join(tmpdir(), 'worfy-sdk-probe-'))
@@ -96,7 +102,57 @@ function scrubString(s: string): string {
     if (!uuidMap.has(key)) uuidMap.set(key, `00000000-0000-4000-8000-${String(uuidMap.size + 1).padStart(12, '0')}`)
     return uuidMap.get(key) as string
   })
+  out = scrubInventory(out)
   return out.length > 600 ? `${out.slice(0, 600)}…<truncated ${out.length - 600} chars>` : out
+}
+
+// The user's MCP servers, their tools and the user's plugins: the names say which connectors and
+// plugins the user has, so they become server-N, tool-N and plugin-N wherever they show up (the
+// `name` fields, MCP tool names, plugin cache paths, `<plugin>@<marketplace>` references).
+type Aliases = { prefix: string; map: Map<string, string>; next: number }
+const servers: Aliases = { prefix: 'server', map: new Map(), next: 1 }
+const mcpTools: Aliases = { prefix: 'tool', map: new Map(), next: 1 }
+const plugins: Aliases = { prefix: 'plugin', map: new Map(), next: 1 }
+
+function alias(a: Aliases, name: string): string {
+  const already = new RegExp(`^${a.prefix}-(\\d+)$`).exec(name)
+  if (already) {
+    // A file sanitized earlier (--rescrub): keep its alias, never give its number to another name.
+    a.next = Math.max(a.next, Number(already[1]) + 1)
+    return name
+  }
+  if (!a.map.has(name)) a.map.set(name, `${a.prefix}-${a.next++}`)
+  return a.map.get(name) as string
+}
+
+function scrubInventory(s: string): string {
+  return s
+    .replace(/mcp__([A-Za-z0-9_.-]+?)__([A-Za-z0-9_-]+)/g, (_m, server: string, tool: string) => `mcp__${alias(servers, server)}__${alias(mcpTools, tool)}`)
+    .replace(/(plugins\/cache\/[^/"\s]+\/)([^/"\s]+)/g, (_m, dir: string, plugin: string) => `${dir}${alias(plugins, plugin)}`)
+    .replace(
+      /(^|[\s"'([])([A-Za-z0-9][\w.-]*)@([A-Za-z0-9][\w-]*)(?![\w.@-])/g,
+      (_m, lead: string, plugin: string, market: string) => `${lead}${pluginAlias(`${plugin}@${market}`)}@${market}`,
+    )
+}
+
+// Plugins of the `builtin` marketplace ship with Claude Code itself and say nothing about the user.
+function pluginAlias(source: string): string {
+  const [name = '', market] = source.split('@')
+  return market === 'builtin' ? name : alias(plugins, name)
+}
+
+/** The `name` of a `plugins` entry, from its `source` (`<plugin>@<marketplace>`) when it has one. */
+function pluginName(p: { name?: unknown; source?: unknown }): string {
+  return typeof p.source === 'string' ? pluginAlias(p.source) : alias(plugins, String(p.name))
+}
+
+/** Hands out aliases in the order system/init lists servers and plugins, before any string of the message is scrubbed. */
+function registerInventory(msg: unknown): void {
+  if (!msg || typeof msg !== 'object') return
+  const m = msg as { mcp_servers?: unknown; plugins?: unknown }
+  if (Array.isArray(m.mcp_servers)) for (const s of m.mcp_servers as { name?: unknown }[]) if (typeof s?.name === 'string') alias(servers, s.name)
+  if (Array.isArray(m.plugins))
+    for (const p of m.plugins as { name?: unknown; source?: unknown }[]) if (p && typeof p === 'object') pluginName(p)
 }
 
 // Keys whose values identify the user or carry a credential; the key itself stays.
@@ -128,8 +184,10 @@ function sanitize(value: unknown, key = ''): unknown {
   if (Array.isArray(value)) {
     // The user's own MCP connectors and plugins: keep the shape, not the inventory.
     const objects = value.every((v) => v !== null && typeof v === 'object')
-    if (objects && key === 'mcp_servers') return value.slice(0, 3).map((v, i) => ({ ...(sanitize(v) as object), name: `server-${i + 1}` }))
-    if (objects && key === 'plugins') return value.slice(0, 2).map((v, i) => ({ ...(sanitize(v) as object), name: `plugin-${i + 1}` }))
+    if (objects && key === 'mcp_servers')
+      return (value as { name?: unknown }[]).slice(0, 3).map((v) => ({ ...(sanitize(v) as object), name: alias(servers, String(v.name)) }))
+    if (objects && key === 'plugins')
+      return (value as { name?: unknown; source?: unknown }[]).slice(0, 2).map((v) => ({ ...(sanitize(v) as object), name: pluginName(v) }))
     // The user's skills, commands and agents: a few entries show the shape.
     if (LISTS.has(key) && value.length > 6) return [...value.slice(0, 5).map((v) => sanitize(v)), `<${value.length - 5} more>`]
     return value.map((v) => sanitize(v))
@@ -542,6 +600,8 @@ async function runPermissions(): Promise<ScenarioResult> {
   const target = join(scratch, 'perm')
   const before = fingerprints()
   const requests: unknown[] = []
+  // can-use-tool.json: each canUseTool call as the SDK made it and what the probe answered.
+  const exchanges: unknown[] = []
   const canUseTool: CanUseTool = async (toolName, input, options) => {
     const suggestions = options.suggestions ?? []
     requests.push(
@@ -565,7 +625,12 @@ async function runPermissions(): Promise<ScenarioResult> {
       { type: 'addRules', rules: [{ toolName }], behavior: 'allow', destination: 'session' },
       ...suggestions.filter((u) => u.type === 'addDirectories').map((u) => ({ ...u, destination: 'session' as const })),
     ]
-    return { behavior: 'allow', updatedInput: input, updatedPermissions: sessionOnly }
+    const answer = { behavior: 'allow' as const, updatedInput: input, updatedPermissions: sessionOnly }
+    const { signal, ...plainOptions } = options
+    exchanges.push(
+      sanitize({ request: { toolName, input, options: { ...plainOptions, signal: `<AbortSignal aborted=${signal.aborted}>` } }, response: answer }),
+    )
+    return answer
   }
   const s = start(baseOptions({ permissionMode: 'default', canUseTool, tools: ['Bash'], ...withoutUserMcp }))
   const r = await s.turn(
@@ -592,6 +657,7 @@ async function runPermissions(): Promise<ScenarioResult> {
       ),
     },
     messages: s.messages,
+    extra: { 'can-use-tool.json': { scenario: 'permissions', calls: exchanges } },
   }
 }
 
@@ -645,6 +711,7 @@ function writeStream(dir: string, r: ScenarioResult, forFixtures: boolean): void
   mkdirSync(dir, { recursive: true })
   let partials = 0
   const lines: string[] = []
+  for (const rec of r.messages) registerInventory(rec.msg)
   for (const rec of r.messages) {
     if (forFixtures && typeOf(rec.msg).startsWith('stream_event')) {
       partials += 1
@@ -653,11 +720,38 @@ function writeStream(dir: string, r: ScenarioResult, forFixtures: boolean): void
     lines.push(JSON.stringify(sanitize(forFixtures ? rec.msg : rec)))
   }
   writeFileSync(join(dir, `${r.scenario}.jsonl`), `${lines.join('\n')}\n`)
+  if (forFixtures) for (const [file, value] of Object.entries(r.extra ?? {})) writeFileSync(join(dir, file), `${JSON.stringify(value, null, 2)}\n`)
+}
+
+/** Applies the current inventory rule to fixtures written earlier, without calling the model. */
+function rescrub(dir: string): void {
+  const files = readdirSync(dir).filter((f) => f.endsWith('.jsonl') || f.endsWith('.json'))
+  const parsed = files.map((f) => {
+    const text = readFileSync(join(dir, f), 'utf8')
+    return { f, values: f.endsWith('.jsonl') ? text.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l) as unknown) : [JSON.parse(text) as unknown] }
+  })
+  for (const { values } of parsed) for (const v of values) registerInventory(v)
+  const deep = (v: unknown, key = ''): unknown => {
+    if (typeof v === 'string') return scrubInventory(v)
+    if (Array.isArray(v)) {
+      // Earlier files numbered plugin names by position; take the name from `source` instead.
+      if (key === 'plugins') return v.map((p) => (p && typeof p === 'object' ? { ...(deep(p) as object), name: pluginName(p as { source?: unknown }) } : deep(p)))
+      return v.map((x) => deep(x))
+    }
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deep(x, k)]))
+    return v
+  }
+  for (const { f, values } of parsed) {
+    const out = values.map((v) => deep(v))
+    writeFileSync(join(dir, f), f.endsWith('.jsonl') ? `${out.map((v) => JSON.stringify(v)).join('\n')}\n` : `${JSON.stringify(out[0], null, 2)}\n`)
+    process.stdout.write(`[sdk-probe] rescrubbed ${f}\n`)
+  }
 }
 
 async function main(): Promise<void> {
   await app.whenReady()
   app.dock?.hide()
+  if (rescrubFlag) return rescrub(resolve(rescrubFlag))
   mkdirSync(outDir, { recursive: true })
   const sdkPkg = JSON.parse(readFileSync(join(cwd, 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'package.json'), 'utf8')) as {
     version: string

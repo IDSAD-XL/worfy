@@ -15,7 +15,7 @@ files:
 asar: true
 # The SDK's native Claude Code binary cannot be spawned from inside app.asar. electron-builder
 # already unpacks executables on its own (first run of this spike, without this line); the
-# explicit pattern is what ADR-0007 asks of worfy's own build.
+# explicit pattern is what ADR-0008 asks of worfy's own build.
 asarUnpack:
   - node_modules/@anthropic-ai/claude-agent-sdk-*/**
 mac:

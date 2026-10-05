@@ -82,6 +82,11 @@ arm64, вход по подписке Claude Max. Spike-и идут из Electro
   смена модели была внутри `init`) и `… init --env ENABLE_TOOL_SEARCH=true`.
 - `bash scripts/spikes/path-probe/run.sh` — три раза: открытие через `open` (отброшено, см. вопрос 4),
   через Finder без `asarUnpack` и через Finder с `asarUnpack`.
+- После ревью: `bash scripts/spikes/path-probe/run.sh` в четвёртый раз (shell из минимального
+  окружения, `env -0`, в SDK — всё окружение `-ilc`); `… sdk-probe.ts permissions --out <scratch>
+  --fixtures test/fixtures/sdk-messages` (записал `can-use-tool.json` и новый `permissions.jsonl`);
+  `… sdk-probe.ts --rescrub test/fixtures/sdk-messages` (имена MCP-серверов, их tools и плагинов в
+  остальных fixtures, без вызовов модели; повторный запуск файлов не меняет).
 
 ### 1. `settingSources: ['user', 'project', 'local']`
 
@@ -139,7 +144,7 @@ subscriptionType` (`subscriptionType: "Claude Max"`). Без входа (пус�
 бросает `Error: Claude Code returned an error result: Not logged in · Please run /login`. Сам
 spike запущен из окна Claude Code: в окружении было 29 переменных родительской сессии
 (`ANTHROPIC_BASE_URL`, `CLAUDE_CODE_OAUTH_SCOPES`, `CLAUDE_CODE_SESSION_ID` …), spike их
-убирает. Противоречит спецификации (риск 3) — ADR-0007.
+убирает. Противоречит спецификации (риск 3) — ADR-0009.
 
 ### 4. `PATH` из Finder
 
@@ -152,6 +157,13 @@ spike запущен из окна Claude Code: в окружении было 2
   `pnpm` не найдены (nvm подключается в `~/.zshrc`);
 - `$SHELL -ilc env` (393 мс): `node=/Users/<user>/.nvm/versions/node/v24.19.0/bin/node`, `pnpm` там же,
   `gh=/opt/homebrew/bin/gh`;
+- после ревью shell запускается из минимального окружения (`env -i HOME USER LOGNAME SHELL TMPDIR
+  LANG SSH_AUTH_SOCK __CF_USER_TEXT_ENCODING PATH=/usr/bin:/bin:/usr/sbin:/sbin`) и печатает
+  `env -0`: из Finder `-ilc` — 324 мс, 17 переменных, `node`, `pnpm`, `gh` найдены,
+  `parent_session_vars: []`; `-lc` — 9 мс, только `gh`. Та же команда из окна Claude Code (у
+  вызывающего shell 29 переменных `CLAUDE_*`/`ANTHROPIC_*`) дала 15 переменных, среди них ни одной
+  `CLAUDE_*`/`ANTHROPIC_*`, `node`, `pnpm`, `gh` найдены. SDK со всем окружением `-ilc` (не только
+  его `PATH`): `result: ok`, hook видит `node`, `pnpm`, `gh`;
 - command hook Claude Code (SessionStart, переданный через `settings` SDK) видит тот `PATH`,
   который задан в `env` SDK: с `PATH` приложения — `node=`, `pnpm=`, `gh=` пусто; с `-ilc` — все
   найдены. Hooks пользователя (`stop.sh`) сами добавляют nvm и Homebrew, но команды модели в Bash —
@@ -165,7 +177,7 @@ spike запущен из окна Claude Code: в окружении было 2
   `asarUnpack: node_modules/@anthropic-ai/claude-agent-sdk-*/**` (текущий конфиг spike-а).
 
 Противоречит спецификации (риски 2 и 11) и тикету 07 (`$SHELL -lc env`, `cli.js`, `executable`,
-`asarUnpack` для `claude-agent-sdk/**`) — ADR-0007.
+`asarUnpack` для `claude-agent-sdk/**`) — ADR-0007 (окружение) и ADR-0008 (бинарник).
 
 ### 5. Поток событий
 
@@ -191,8 +203,11 @@ spike запущен из окна Claude Code: в окружении было 2
 ход: `system/init` с `permissionMode: "default"`, `model: "claude-sonnet-5-5"`, ответ
 `assistant` с `model: "claude-sonnet-5-5"`; в поток приходит `user` с
 `` <local-command-stdout>Set model to `sonnet (claude-sonnet-5-5)`</local-command-stdout> ``. Effort:
-опция `effort` у `query()` и `applyFlagSettings({ effortLevel })` в ходе; поле `effort` в `init`
-осталось пустым (`null`, `per_turn_effort_active: true`) — не проверено, что `low` применился.
+опция `effort` у `query()` и `applyFlagSettings({ effortLevel })` в ходе. Поля `effort` в
+`system/init` нет вовсе — ни в одном из шести fixtures (`grep -c '"effort"'` — 0 в каждом), есть
+только `per_turn_effort_active` (`true` после `applyFlagSettings`). По `sdk.d.ts` SDK 0.3.289
+`effort` в `init` бывает только у кадров Remote Control bridge, у остальных хостов его нет. Значит,
+по `init` нельзя узнать уровень effort и нельзя проверить, что `low` применился; это не проверено.
 `interrupt()` на первом `text_delta`: возвращает `{"still_queued": []}`, ход кончается
 `assistant` с куском текста (`"1 2 3 4 "`), `user` `[Request interrupted by user]` и `result`
 `error_during_execution`, `is_error: true`, `errors: ["[ede_diagnostic] result_type=user …"]`;
@@ -235,6 +250,10 @@ suppressAlwaysAllowRule, title, toolUseID`. `suggestions`:
   destination: "session"}` плюс `addDirectories` → `session`, две разные команды — 1 запрос,
   обе выполнены (`permissions.jsonl`).
 
+Запрос и ответ последнего прогона записаны в `test/fixtures/sdk-messages/can-use-tool.json`
+(повтор после ревью: 1 запрос, обе команды выполнены, файлы настроек не изменились). Ключи
+`options` со значением `undefined` в JSON не попадают, поэтому там их меньше, чем в списке выше.
+
 Во всех трёх `~/.claude/settings.json` и `<repo>/.claude/settings*.json` не изменились
 (отпечаток mtime + sha256 до и после совпал). Ответ для 21: «Always allow» = `updatedPermissions`
 с `destination: 'session'` — правило на весь инструмент (без `ruleContent`) и `addDirectories`
@@ -258,8 +277,12 @@ SDK 0.3.289, Claude Code 2.1.289. Все сообщения: `type`, `subtype` (
 
 - `system/init`: `session_id`, `model`, `permissionMode`, `cwd`, `claude_code_version`,
   `slash_commands`, `skills`, `agents`, `tools`, `mcp_servers[{name, status, source}]`, `plugins`,
-  `apiKeySource` (только для показа, не признак входа), `effort` (бывает `null`). Приходит на
-  каждом ходу.
+  `apiKeySource` (только для показа, не признак входа), `per_turn_effort_active`. Приходит на
+  каждом ходу. Поля `effort` в `system/init` у SDK-хоста нет (вопрос 6): текущий уровень effort
+  07 берёт из того, что сам передал (`effort` в `query()`, `applyFlagSettings({ effortLevel })`).
+  По `sdk.d.ts` уровень хода есть ещё в поле `effort.level` входа hooks внутри хода (`PreToolUse`,
+  `PostToolUse`, `Stop`…) и в переменной `CLAUDE_EFFORT` у hooks и команд Bash; в spike-е это не
+  проверялось.
 - `system/status`: `status` (`requesting | compacting | null`), `permissionMode?`,
   `compact_result?`, `compact_error?`.
 - `system/hook_started` / `system/hook_response`: `hook_id`, `hook_name`, `hook_event`,
@@ -279,23 +302,35 @@ Fixtures — `test/fixtures/sdk-messages/` (описание в README рядо�
 
 ### ADR и затронутые тикеты
 
-ADR-0007 (`docs/adr/0007-claude-code-launch-env-binary-login.md`) — окружение из `$SHELL -ilc`,
-нативный бинарник через `pathToClaudeCodeExecutable` в `app.asar.unpacked` без `executable`, вход
-по `accountInfo()`. Затронуты:
+Три решения, по одному на файл (после ревью первая редакция ADR-0007, где они были вместе,
+разделена):
 
-- 07 — `env.ts` (`-ilc`, маркеры, чистка `ANTHROPIC_*`/`CLAUDE_*`), `options.ts`
-  (`pathToClaudeCodeExecutable`, без `executable`, `allowDangerouslySkipPermissions: true`,
-  `includePartialMessages: true`, `includeHookEvents: true`), `test/unit/agent-executable.test.ts`
-  (путь к бинарнику платформенного пакета, не к `cli.js`), события `hook` без
-  `stop_hook_summary`, три продолжения после Stop hook, «Готово, когда» про вход по подписке —
-  через `accountInfo()`; риск размера контекста от MCP пользователя;
-- 32 (или 07) — `electron-builder.yml`: `asarUnpack` для `node_modules/@anthropic-ai/claude-agent-sdk-*/**`;
+- ADR-0007 (`docs/adr/0007-claude-code-launch-environment.md`) — окружение Claude Code из
+  `$SHELL -ilc`, запущенного из минимального окружения, `env -0` между маркерами, из результата
+  убираются только `ANTHROPIC_API_KEY` и `ANTHROPIC_AUTH_TOKEN`;
+- ADR-0008 (`docs/adr/0008-claude-code-native-binary-path.md`) — нативный бинарник платформенного
+  пакета SDK, `pathToClaudeCodeExecutable` в `app.asar.unpacked` без `executable`, `asarUnpack`
+  добавляет тикет 07;
+- ADR-0009 (`docs/adr/0009-claude-code-login-check-account-info.md`) — вход проверяется через
+  `accountInfo()`, не через `apiKeySource`.
+
+Затронуты:
+
+- 07 — `env.ts` (`-ilc` из минимального окружения, маркеры, `env -0`, удаление ровно двух ключей
+  API), `options.ts` (`pathToClaudeCodeExecutable`, без `executable`,
+  `allowDangerouslySkipPermissions: true`, `includePartialMessages: true`,
+  `includeHookEvents: true`), `test/unit/agent-executable.test.ts` (путь к бинарнику
+  платформенного пакета, не к `cli.js`), `electron-builder.yml` (`asarUnpack` для
+  `node_modules/@anthropic-ai/claude-agent-sdk-*/**`: тикет 32 оставляет эту строку тикету 07),
+  события `hook` без `stop_hook_summary`, три продолжения после Stop hook, «Готово, когда» про
+  вход по подписке — через `accountInfo()`, effort не из `init` (вопрос 6); риск размера контекста
+  от MCP пользователя;
 - 21 — «Always allow» через слой `session` (вопрос 8), `setMode` из `suggestions` не применять;
 - 13, 14 — Сессии worfy в реестре с `kind: "interactive"`, `entrypoint: "sdk-ts"`;
 - 22 — `rate_limit_event` приходит один раз за Сессию, перед первым запросом;
 - спецификация эпика — риски 2, 3 и 11 устарели (правку spec.md делает оркестратор).
 
 Не проверено: вес контекста и tool search на модели по умолчанию (`opus[1m]`); применился ли
-`effortLevel: low`; переживает ли слой разрешений `session` `resume`; запись в
+`effortLevel: low` и видно ли его в `effort` входа hooks и в `CLAUDE_EFFORT`; переживает ли слой разрешений `session` `resume`; запись в
 `~/.claude/sessions` при `persistSession: false`; уведомления и вид окна в этом тикете не
 затрагиваются.
