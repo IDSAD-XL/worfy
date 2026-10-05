@@ -1,5 +1,5 @@
-// Reading and writing worfy's own JSON state files (ADR 0005). Every store in src/main goes
-// through this module, so they all share the same three rules:
+// Reading and writing worfy's own JSON state files (ADR 0005). The stores added from ticket 04
+// onward go through this module, so they share the same three rules:
 //
 // - what is read is parsed with a zod schema, and the caller gets the parsed value, never the raw
 //   JSON (keys the schema does not declare are dropped);
@@ -9,8 +9,11 @@
 //   `<name>.unreadable-<time>` and the caller starts from an empty state. The user keeps the data
 //   to inspect or restore by hand, and the app still starts.
 //
+// One older store has not moved here yet: src/main/window.ts (ticket 03) reads and writes
+// window-state.json itself, with no set-aside of an unreadable file.
+//
 // The calls are synchronous on purpose: the files are small, the main process reads them on
-// startup and on user actions, and the window position must be saved inside a 'close' handler.
+// startup and on user actions, and a window position has to be saved inside a 'close' handler.
 // A synchronous read-modify-write also cannot interleave with another one in the same process.
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'

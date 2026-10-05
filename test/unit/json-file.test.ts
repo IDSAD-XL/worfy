@@ -1,9 +1,15 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { readJsonFile, writeJsonFile } from '../../src/main/storage/json-file'
+
+// node:fs as it is, except that writeFileSync is a spy: one test makes a write stop halfway.
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return { ...actual, writeFileSync: vi.fn(actual.writeFileSync) }
+})
 
 const schema = z.object({ name: z.string(), count: z.number().int() })
 
@@ -53,6 +59,26 @@ describe('readJsonFile', () => {
     expect(readdirSync(dir)).toEqual([])
   })
 
+  it('throws on a read error other than a missing file, and neither sets the path aside nor touches it', () => {
+    // A directory where the file should be: readFileSync fails with EISDIR.
+    mkdirSync(join(file, 'child'), { recursive: true })
+    expect(() => readJsonFile(file, schema, { now })).toThrow(/EISDIR/)
+    expect(readdirSync(dir)).toEqual(['state.json'])
+    expect(readdirSync(file)).toEqual(['child'])
+  })
+
+  it.skipIf(process.getuid?.() === 0)('throws when the file cannot be read for lack of permission, and keeps it', () => {
+    writeFileSync(file, JSON.stringify({ name: 'saved', count: 1 }))
+    chmodSync(file, 0o000)
+    try {
+      expect(() => readJsonFile(file, schema, { now })).toThrow(/EACCES/)
+    } finally {
+      chmodSync(file, 0o644)
+    }
+    expect(readdirSync(dir)).toEqual(['state.json'])
+    expect(readJsonFile(file, schema)).toStrictEqual({ name: 'saved', count: 1 })
+  })
+
   it('returns the parsed value, without keys the schema does not declare', () => {
     writeFileSync(file, JSON.stringify({ name: 'x', count: 2, secret: 'kept-out' }))
     expect(readJsonFile(file, schema)).toStrictEqual({ name: 'x', count: 2 })
@@ -84,6 +110,23 @@ describe('writeJsonFile', () => {
     writeJsonFile(file, schema, { name: 'y', count: 2 })
     expect(readdirSync(dir)).toEqual(['state.json'])
     expect(readJsonFile(file, schema)).toStrictEqual({ name: 'y', count: 2 })
+  })
+
+  it('leaves the old file whole when a write stops halfway', async () => {
+    const fs = await import('node:fs')
+    const actual = await vi.importActual<typeof import('node:fs')>('node:fs')
+    writeJsonFile(file, schema, { name: 'old', count: 1 })
+    const before = readFileSync(file, 'utf8')
+    // The next write puts half of its text wherever it was asked to, then fails (a full disk).
+    vi.mocked(fs.writeFileSync).mockImplementationOnce((path, data) => {
+      const text = String(data)
+      actual.writeFileSync(path, text.slice(0, text.length >> 1))
+      throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' })
+    })
+    expect(() => writeJsonFile(file, schema, { name: 'a much longer new value', count: 2 })).toThrow(/ENOSPC/)
+    expect(vi.mocked(fs.writeFileSync).mock.calls.at(-1)?.[0]).not.toBe(file)
+    expect(readFileSync(file, 'utf8')).toBe(before)
+    expect(readdirSync(dir)).toEqual(['state.json'])
   })
 
   it('removes the temporary file when the final rename fails', () => {

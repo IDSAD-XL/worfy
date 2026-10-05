@@ -175,6 +175,23 @@ describe('projects.add', () => {
     expect(again.state.projects).toHaveLength(1)
   })
 
+  it('keeps the settings of a repository that is added again', async () => {
+    const repo = makeRepo('auction')
+    const { project } = await addOk(repo)
+    const changed = { actionTemplates: { shipTicket: '/ship {epic}/{NN}', runWave: '' } }
+    await value('projects.settings.set', { id: project.id, settings: changed })
+    await addOk(repo)
+    expect(await value('projects.settings.get', { id: project.id })).toStrictEqual(changed)
+  })
+
+  it('shows the branch of a repository that has no commits yet', async () => {
+    const empty = join(scratch, 'fresh')
+    mkdirSync(empty)
+    git(empty, 'init', '-q', '-b', 'start')
+    const result = await addOk(realpathSync(empty))
+    expect(result.project.branch).toBe('start')
+  })
+
   it('refuses an input of the wrong type before the handler runs', async () => {
     const result = await call('projects.add', { path: 42 })
     expect(result.ok).toBe(false)

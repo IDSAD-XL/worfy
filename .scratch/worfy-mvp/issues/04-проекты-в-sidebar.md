@@ -128,3 +128,30 @@ sidebar и окна настроек — по снимкам `page.screenshot()`
   стало бы откладываться в `.unreadable-*`, хотя потерять его не жалко. Перевод — отдельной правкой,
   когда кто-то будет трогать `window.ts`.
 - **Цвет ошибки** — токен `--blocked-text`: отдельного токена ошибки в F-SPEC нет.
+
+### Доработка по ревью (круг 1)
+
+- **Красный test на испорченный файл.** В первой правке порядок «сначала красный» не записан, а
+  PR из одного коммита его не восстанавливает — честно: красного запуска до реализации в записи
+  нет. Вместо него проверено, что test умеет краснеть: на мутанте `json-file.ts` без откладывания
+  (`const movedTo = file` вместо `setAside(...)`) `vitest run test/unit/json-file.test.ts` дал
+  exit code 1, упали три test-а — первый «sets an unparsable file aside as
+  <name>.unreadable-<time>…» с `AssertionError: expected true to be false` (файл остался на месте).
+- **Добавлены test-ы, каждый проверен своим мутантом (exit code 1 на мутанте, 0 без него):**
+  - атомарная запись — `json-file.test.ts`, «leaves the old file whole when a write stops
+    halfway»: `node:fs` подменён через `vi.mock`, `writeFileSync` пишет половину и бросает
+    `ENOSPC`; мутант «писать прямо в целевой файл» краснеет;
+  - ошибки чтения, кроме ENOENT, бросаются — два test-а (каталог на месте файла → `EISDIR`;
+    `chmod 000` → `EACCES`, пропускается под root); мутант «`return undefined` на любую ошибку»
+    краснеет;
+  - событие `ProjectStore.onChange` — новый `test/unit/project-store.test.ts` с подставным
+    `GitRunner`: значения `activeId`/`previousActiveId`/`revision` после add, select, remove;
+    мутант `previousActiveId = next.activeId` краснеет;
+  - выбор состояния с наибольшей `revision` в renderer — новый `test/unit/use-projects.test.tsx`
+    (подставной `window.worfy`, ответ `projects.list` приходит после более новой рассылки);
+    мутант «принимать любое состояние» краснеет;
+  - повторное добавление сохраняет шаблоны и ветка в репозитории без коммитов — два новых
+    contract-test-а в `test/contract/projects.test.ts`; мутанты «всегда писать значения по
+    умолчанию» и «без `symbolic-ref`» краснеют.
+- Комментарий в начале `json-file.ts` больше не утверждает, что через модуль идут все хранилища:
+  `window.ts` (тикет 03) названо исключением.
