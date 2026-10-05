@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
+import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { launchApp } from './helpers'
 
 // The agent channels in the running app, over the real preload and webContents, on the fake
@@ -17,7 +18,7 @@ test('a Session started from the renderer streams its events back: busy, result,
   const launched = await launchApp({ env: { WORFY_AGENT_SCRIPT: 'turn' } })
   try {
     const envelopes = await launched.window.evaluate(async (cwd) => {
-      const bridge = (window as unknown as { worfy: import('../../src/shared/ipc/channels').WorfyBridge }).worfy
+      const bridge = (globalThis as unknown as { worfy: WorfyBridge }).worfy
       const received: Envelope[] = []
       const done = new Promise<void>((resolve) => {
         bridge.on('agent.event', (payload) => {

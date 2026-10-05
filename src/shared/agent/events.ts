@@ -202,12 +202,10 @@ const streamDelta = z.object({
   parent_tool_use_id: optStr,
 })
 
-/** Thrown inside the mapper when a known message no longer has the shape worfy reads. */
-class ShapeChanged extends Error {}
-
+/** Reads a known message; throws when its shape changed, and the caller turns that into `unknown`. */
 function read<T>(schema: z.ZodType<T>, message: unknown): T {
   const parsed = schema.safeParse(message)
-  if (!parsed.success) throw new ShapeChanged()
+  if (!parsed.success) throw new Error(`unexpected shape of ${describe(message)}`)
   return parsed.data
 }
 
@@ -436,8 +434,8 @@ export function sdkMessageToEvents(message: unknown): AgentEvent[] {
       default:
         return [{ type: 'unknown', sdkType: describe(message) }]
     }
-  } catch (error) {
-    if (error instanceof ShapeChanged) return [{ type: 'unknown', sdkType: describe(message) }]
+  } catch {
+    // A known message whose shape changed: shown like an unknown one, never thrown.
     return [{ type: 'unknown', sdkType: describe(message) }]
   }
 }
