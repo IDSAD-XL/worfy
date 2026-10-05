@@ -4,6 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { launchedHint } from '../../src/shared/actions/render-template'
 import { launchApp } from './helpers'
 
 // "Ship ticket", "Run wave" and "Open PR" (ticket 23) in the built app on the fake agent, which
@@ -15,7 +16,8 @@ import { launchApp } from './helpers'
 //
 // The Epic's plan (every Ticket open): wave 1 — 01, 10, 11; wave 2 — 02; wave 3 — 07, 09; wave 4 — 08.
 // Now 01 and 02 are done, 10 and 11 claimed: the ready Wave is 07 and 09, Wave 3 of the plan.
-// worfy must not touch the repository: no file of `.scratch` changes, nor anything else in it.
+// worfy must not touch the repository: no file of `.scratch` changes, nor anything else in it; nor
+// anything under the Claude home it reads (`bin/epic-status`, transcripts).
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -144,6 +146,7 @@ test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what
   const scratchBefore = listing(join(repo, '.scratch'))
   const repoBefore = listing(repo, (path) => path.endsWith('/.git'))
   const statusBefore = git(repo, 'status', '--porcelain')
+  const claudeBefore = listing(claudeHome)
 
   const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'orchestrator', WORFY_AGENT_LOG: log, GH_STUB_DIR: ghDir }
   const launched = await launchApp({ env })
@@ -187,6 +190,23 @@ test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what
       .toEqual([{ sessionId: expect.any(String) as unknown as string, agentId: null, target: { kind: 'ticket', epic: EPIC, num: 7 }, source: 'launch' }])
     sessionsOf07 = (JSON.parse(readFileSync(bindingsFile, 'utf8')) as { bindings: Stored[] }).bindings.map((binding) => binding.sessionId)
     await expect(window.locator(`[data-testid="session-node"][data-session-id="${sessionsOf07[0]!}"]`)).toBeVisible()
+
+    // 07 stays open until the launched agent runs `ticket claim` (the fake agent never does): while
+    // its Session lives, a second Ship ticket is refused, on the button and in main.
+    await expect(ship(7)).toHaveAttribute('aria-disabled', 'true')
+    await expect(ship(7)).toHaveAttribute('title', launchedHint(7))
+    await ship(7).click({ force: true })
+    const twice = await bridgeCall(window, 'actions.shipTicket', { projectId: PROJECT, epic: EPIC, num: 7 })
+    expect(twice).toMatchObject({ ok: false, error: expect.stringContaining(launchedHint(7)) as unknown as string })
+    await window.waitForTimeout(300)
+    await expect(sessionNodes).toHaveCount(1)
+    expect(messages(log).filter((text) => text === `/ship-ticket ${EPIC} 07`)).toHaveLength(1)
+    // Once that Session closes, the button is active again without a click. Its turn holds until
+    // it is interrupted, and a running turn cannot be closed (ticket 18).
+    expect(await bridgeCall(window, 'agent.interrupt', { sessionId: sessionsOf07[0]! })).toMatchObject({ ok: true })
+    await expect.poll(async () => (await bridgeCall(window, 'agent.close', { sessionId: sessionsOf07[0]! })).ok).toBe(true)
+    await expect(ship(7)).toHaveAttribute('aria-disabled', 'false')
+    await expect(ship(7)).toHaveAttribute('title', `/ship-ticket ${EPIC} 07`)
 
     // A template changed in Project settings goes out as it is, with its values.
     const saved = await bridgeCall(window, 'projects.settings.set', {
@@ -250,6 +270,8 @@ test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what
   expect(listing(join(repo, '.scratch'))).toEqual(scratchBefore)
   expect(listing(repo, (path) => path.endsWith('/.git'))).toEqual(repoBefore)
   expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
+  // Nor anything under the Claude home.
+  expect(listing(claudeHome)).toEqual(claudeBefore)
 
   // The Bindings outlive a restart.
   const again = await launchApp({ env })
@@ -261,4 +283,5 @@ test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what
   } finally {
     await again.close()
   }
+  expect(listing(claudeHome)).toEqual(claudeBefore)
 })

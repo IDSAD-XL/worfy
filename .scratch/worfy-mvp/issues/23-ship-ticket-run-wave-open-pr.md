@@ -70,6 +70,15 @@ worfy запускает работу теми же skills, что и терми
 `orchestrator`, запись промптов через `WORFY_AGENT_LOG`; снимки `ship-ticket-buttons.png`,
 `ship-ticket-after.png` в выводе Playwright).
 
+Первый падающий test — `test/unit/canvas-actions.test.tsx`, «Ship ticket › is inactive on a Ticket
+with an open blocker, and names the blocker». Ветка — один коммит, поэтому порядок по истории не
+восстановить; на круге доработки после ревью падение воспроизведено двумя способами:
+- поверх `origin/main` без реализации test не запускается: `Failed to resolve import
+  "../../src/renderer/canvas/actions/TicketActions"` (у `test/unit/launch.test.ts` — `Cannot find
+  module '../../src/main/actions/launch'`);
+- поверх реализации без проверки блокеров в `shipTicketState` test падает по существу:
+  `AssertionError: expected '/ship-ticket demo 10' to be 'blocked by 09'`.
+
 Решения исполнителя (владелец был недоступен):
 
 - **`{wave}` — номер Волны по плану Эпика.** «Номер готовой Волны» из тикета 10 (`waveNumbers`)
@@ -91,6 +100,23 @@ worfy запускает работу теми же skills, что и терми
 - **Проверка перед запуском — в main по свежему чтению workflow** (`readWorkflow`): кнопка
   показывает тот же вердикт (`shipTicketState`, `runWaveState`), но Тикет, взятый в терминале
   секунду назад, второй раз не запустится. Отказ main показывается в tooltip кнопки.
+- **Второй «Ship ticket» на тот же Тикет отклоняется, пока жива запущенная Сессия** (круг
+  доработки после ревью). Тикет остаётся `open`, пока запущенный агент не выполнит `ticket claim`,
+  а `ticket claim` не отказывает уже взятому Тикету — без этого два агента работали бы над одним
+  Тикетом. `ActionLauncher` помнит запуск (проект, Эпик, номер, Сессия) от отправки текста до
+  закрытия этой Сессии: закрытие видно по `session.state === 'closed'` при следующем запросе и в
+  цикле, который смотрит на запущенные Сессии раз в секунду, пока они есть. Две одновременные
+  команды на один Тикет до создания Сессии тоже не проходят обе (резерв до первого `await`).
+  Причина — `launchedHint` в `render-template.ts`, общая для main и кнопки; кнопка узнаёт о
+  запусках через новый канал `actions.launches` и событие `actions.launches.changed` (снимок с
+  `revision`, renderer держит самый новый — `src/renderer/canvas/actions/launches.ts`).
+  Запись **не** снимается, когда Тикет уходит из `open`, вопреки предложению ревью: Тикет не
+  в `open` и так отклоняется по своему состоянию, а Тикет, вернувшийся в `open` при живой
+  запущенной Сессии, — это снова два агента на одном Тикете; причина говорит закрыть ту Сессию.
+  Запуски хранятся в памяти main: после перезапуска worfy они забыты (Привязка `launch` остаётся).
+- **Причина отказа main** берётся из ошибки IPC через `failureReason` (`src/shared/ipc/channels.ts`),
+  а обёртка обработчиков в `src/main/ipc/index.ts` пишет ошибку через `handlerFailure` оттуда же:
+  формат ошибки — часть контракта, а не регулярное выражение в renderer.
 - **Кнопки не показываются**, где действовать нечего: «Ship ticket» — на Тикете в работе или
   `done`; «Run wave» — на Эпике, где все Тикеты `done`; «Open PR» — без PR. Неактивная кнопка —
   `aria-disabled` с причиной в tooltip (у `disabled` tooltip-а нет).
@@ -105,7 +131,10 @@ worfy запускает работу теми же skills, что и терми
 `src/shared/ipc/bindings.ts` (поле `source`), `src/renderer/binding/store.ts`,
 `src/renderer/session/rail/BindingRail.tsx` (учёт `launch`); `src/shared/ipc/projects.ts`,
 `src/main/ipc/projects.ts` (событие `projects.settings.changed`, чтобы кнопки сразу видели новый
-шаблон); вспомогательные `src/renderer/canvas/actions/templates.ts`, `action-button.ts`, `actions.css`.
+шаблон); вспомогательные `src/renderer/canvas/actions/templates.ts`, `launches.ts`, `action-button.ts`,
+`actions.css`; `src/shared/ipc/channels.ts` и `src/main/ipc/index.ts` (`handlerFailure`,
+`failureReason`). e2e сверяет и список файлов временного `WORFY_CLAUDE_HOME` до запуска и после
+обоих закрытий приложения (ADR 0005).
 
 не проверено: ручной прогон на репозитории worfy с настоящей Сессией (`ticket claim` и смена chip на
 working) — бриф запрещает настоящие запуски агента в этой работе; пункт оставлен `[ ]`.
