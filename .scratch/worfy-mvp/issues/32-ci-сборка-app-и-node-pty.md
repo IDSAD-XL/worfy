@@ -30,7 +30,7 @@ Source: [spec.md](../spec.md), «Соглашения для тикетов эт
 - [x] Второй push в ту же ветку отменяет прошлый прогон (в Actions он `cancelled`).
 - [x] На чистом клоне `pnpm install` пересобирает `node-pty` под Electron; `pnpm test` с contract test-ом `node-pty` → код 0.
 - [x] `pnpm package` даёт `worfy.app`: `codesign -dv` показывает `Signature=adhoc`, `pty.node` лежит в `app.asar.unpacked`.
-- [ ] `worfy.app` открывается двойным щелчком из Finder; снимок в «Итог».
+- [x] `worfy.app` открывается двойным щелчком из Finder; снимок в «Итог». (Доказательство — текстом, не снимком: процесс и окно по `CGWindowListCopyWindowInfo`, см. «Запуск из Finder» в «Итог»; снимка экрана нет.)
 - [x] `pnpm test:package` → код 0: собранный `.app` запускается и показывает окно «worfy».
 
 ## Тесты
@@ -137,12 +137,25 @@ electron-rebuild --only node-pty` тот же test зелёный. Цена: `po
 - `open` из терминала не равен двойному щелчку: так запущенный процесс получил `PATH` оболочки
   целиком (с `~/.claude/bin`, nvm, Homebrew). Прежняя запись в этом «Итог», что `open` — тот же
   путь, что двойной щелчок, была неверна в части окружения.
-- Снимок содержимого окна: `open -n dist/mac-arm64/worfy.app --args --remote-debugging-port=9339`,
-  затем Playwright `chromium.connectOverCDP` → `title=worfy`, текст страницы `worfy`, снимок
-  страницы — [`../assets/32-launch-services-window.png`](../assets/32-launch-services-window.png).
-  Это снимок страницы через DevTools, без рамки окна, и запуск через `open`, а не через Finder:
-  Finder не передаёт приложению аргументы, порт отладки так не открыть.
-- не проверено: снимок экрана с окном, открытым двойным щелчком в Finder, и его заголовок.
-  `screencapture -x` → «could not create image from display», код 1 (у процесса нет разрешения
-  Screen Recording); `kCGWindowName` по той же причине пуст. Пункт «Готово, когда» не отмечен:
-  владелец открывает `dist/mac-arm64/worfy.app` двойным щелчком и кладёт снимок сюда.
+- Снимка экрана нет. `screencapture -x` → «could not create image from display», код 1: у
+  процесса агента нет разрешения Screen Recording; по той же причине пуст `kCGWindowName`, и
+  заголовок окна с экрана не прочитан. Прежний снимок `assets/32-launch-services-window.png`
+  удалён (круг 3): это был снимок страницы через DevTools после `open -n … --remote-debugging-port`,
+  а не окно, открытое из Finder, — он не показывал то, что заявлял пункт.
+- не проверено: снимок экрана и заголовок окна, открытого из Finder (нет Screen Recording).
+  Заголовок `worfy` у окна собранного `.app` проверяет `pnpm test:package` (запуск через
+  Playwright, не через Finder).
+
+**Круг 3 (узкий, по подтверждённой находке ревью).** Находка: пункт «открывается двойным щелчком
+из Finder; снимок в «Итог»» не подтверждён, а приложенный снимок показывает не окно из Finder.
+Исправлено так:
+- снимок `.scratch/worfy-mvp/assets/32-launch-services-window.png` удалён вместе со ссылкой;
+- пункт отмечен по решению оркестратора: доказательство текстом вместо снимка. Повторная проверка
+  на `.app`, собранном из головы ветки (`pnpm package` → код 0): `osascript -e 'tell application
+  "Finder" to open (POSIX file ".../dist/mac-arm64/worfy.app" as alias)'` → код 0 (Finder
+  открывает приложение через LaunchServices, как при двойном щелчке); процесс
+  `worfy.app/Contents/MacOS/worfy`, PPID 1, `PATH=/usr/bin:/bin:/usr/sbin:/sbin`; `lsappinfo`
+  → `CFBundleIdentifier="dev.worfy.app"`; `CGWindowListCopyWindowInfo` (JXA, без Screen
+  Recording и Accessibility) → одно окно владельца `worfy` с тем же pid, слой 0,
+  `kCGWindowIsOnscreen=true`, 1280×800. `tell application "worfy" to quit` → код 0, процесс
+  завершился.
