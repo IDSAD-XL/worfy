@@ -1,7 +1,7 @@
 # 28 — Focus mode: выбранные Узлы на весь экран плиткой, остальной Холст скрыт
 
 Type: task
-Status: claimed — 2026-10-05
+Status: done — 2026-10-05, [PR #13](https://github.com/IDSAD-XL/worfy/pull/13)
 Blocked by: 05
 Source: [spec.md](../spec.md), этап 5; поведение Morphy описано в `INVENTORY-ui-domain.md`, раздел 3.2 (описание поведения, код не переносится — [ADR-0001](../../../docs/adr/0001-clean-room-reimplementation.md))
 
