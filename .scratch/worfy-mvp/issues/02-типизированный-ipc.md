@@ -53,7 +53,7 @@ Source: [spec.md](../spec.md), раздел «Как устроено», «То�
 
 ## Итог
 
-PR: https://github.com/IDSAD-XL/worfy/pull/3 (ветка `worfy-mvp/02`). CI (lint, typecheck, test на `macos-latest`) — зелёный: https://github.com/IDSAD-XL/worfy/actions/runs/37255566145 ; e2e в CI не входит, прогнан локально.
+PR: https://github.com/IDSAD-XL/worfy/pull/3 (ветка `worfy-mvp/02`). CI (lint, typecheck, test на `macos-latest`) — зелёный: https://github.com/IDSAD-XL/worfy/actions/runs/37255566145 , после доработки по ревью (коммит 232169a) — https://github.com/IDSAD-XL/worfy/actions/runs/37256297490 ; e2e в CI не входит, прогнан локально.
 
 **Сначала падающий test.** `test/contract/ipc.test.ts` и канал-образец `test/contract/ipc-sample/`
 написаны до `src/`. `pnpm test` упал с `Failed to resolve import "../../src/main/ipc/index"`
