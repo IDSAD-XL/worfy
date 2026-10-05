@@ -8,22 +8,35 @@ import { app, type WebContents } from 'electron'
 import { agentEnv } from '../agent/env'
 import { fakeQueryFactory } from '../agent/fake-query'
 import { sessionOptions } from '../agent/options'
-import { SessionRegistry, type EventSink, type QueryFactory, type QueryHandle, type Session } from '../agent/session'
+import { SessionRegistry, type EventSink, type QueryFactory, type QueryHandle, type QueryRequest, type Session } from '../agent/session'
+import { canvasForSession, type CanvasResolver, type CanvasSession } from '../mcp/canvas-server'
 import { agentClose, agentEvent, agentInterrupt, agentList, agentSend, agentStart } from '../../shared/ipc/agent'
 import { defineHandler, emit, type EventTarget, type HandlerModule } from './index'
 
-/** Claude Code through the Agent SDK, with the user's login shell environment. */
-export function sdkQueryFactory(): QueryFactory {
+/** The canvas of a Session (ticket 24); a failure leaves the Session without canvas tools rather than without a Session. */
+async function canvasOrNull(canvas: CanvasResolver, request: QueryRequest): Promise<CanvasSession | null> {
+  try {
+    return await canvas({ cwd: request.cwd, resume: request.resume })
+  } catch (error) {
+    console.warn(`[agent] no canvas tools for ${request.cwd}`, error)
+    return null
+  }
+}
+
+/** Claude Code through the Agent SDK, with the user's login shell environment and the Project's canvas. */
+export function sdkQueryFactory(canvas: CanvasResolver = canvasForSession): QueryFactory {
   return async (request) => {
-    const [{ query }, environment] = await Promise.all([import('@anthropic-ai/claude-agent-sdk'), agentEnv()])
+    const [{ query }, environment, attached] = await Promise.all([import('@anthropic-ai/claude-agent-sdk'), agentEnv(), canvasOrNull(canvas, request)])
     const options = sessionOptions({
       cwd: request.cwd,
       env: environment.env,
       runtime: { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch },
       resume: request.resume,
       stderr: request.stderr,
+      canvas: attached?.attachment,
     })
-    return query({ prompt: request.prompt, options }) as QueryHandle
+    const handle = query({ prompt: request.prompt, options }) as QueryHandle
+    return attached ? attached.observe(handle) : handle
   }
 }
 
