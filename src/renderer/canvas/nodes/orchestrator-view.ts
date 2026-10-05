@@ -48,3 +48,8 @@ export function useOrchestratorView(nodeId: string): OrchestratorView | undefine
   }, [nodeId])
   return view
 }
+
+/** The Orchestrator whose live Session is `sessionId`, among the views this window has now (ticket 21). */
+export function orchestratorViewOf(sessionId: string): OrchestratorView | undefined {
+  return Object.values(useViewsStore.getState().byNode).find((view) => view.sessionId === sessionId)
+}

@@ -104,7 +104,8 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const facts = useMemo(() => sessionFacts(events), [events])
   const state = view?.state ?? 'starting'
   const chip = STATE_CHIPS[state]
-  const busy = state === 'busy'
+  // A turn waiting for a permission answer still runs: Interrupt refuses the request (ticket 21).
+  const busy = state === 'busy' || state === 'needs_permission'
   const model = facts.model ?? view?.model ?? null
   const heading = orchestrator !== undefined || nodeSession === undefined ? 'Orchestrator' : 'Session'
   const { settings } = useSessionControls(sessionId)

@@ -13,6 +13,12 @@
 //   {"fake":"stderr","text":"..."}   Claude Code writes this to its stderr
 //   {"fake":"crash","error":"..."}   Claude Code dies: the message iterator throws
 //   {"fake":"exit"}                  Claude Code exits quietly: the message iterator ends
+//   {"fake":"permission","toolName":"Bash","toolUseId":"toolu_…","input":{...},"suggestions":[...]}
+//                                    the model calls a tool (ticket 21): an assistant tool_use, then —
+//                                    unless the mode is bypassPermissions — canUseTool of the request
+//                                    with these suggestions, waiting for the answer; then the tool's
+//                                    result: what it "ran", or the refusal as an error. Interrupt and
+//                                    close abort the request's signal, as Claude Code does
 // In SDK messages, "{{session}}" becomes the SDK session id (a new uuid, or the id passed as
 // `resume`) and "{{cwd}}" the Session's cwd. After the last line the script starts over, so one
 // script serves any number of turns; it ends when the Session closes its input.
@@ -27,12 +33,13 @@
 // (setModel, setPermissionMode, applyFlagSettings for effort) and the settings it started with.
 // After setModel or setPermissionMode, its system/init messages carry the new model and mode, as
 // Claude Code's next turn does (ticket 06, question 6). Effort is not in system/init, here as in
-// Claude Code.
+// Claude Code. Each answer canUseTool gave is recorded with the tool and its input.
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SessionSettings } from '../../shared/agent/settings'
 import type { CommandInfoLike } from './commands'
+import type { PermissionAnswer } from './permissions'
 import type { AccountInfoLike, ModelInfoLike, QueryFactory, QueryHandle, QueryRequest } from './session'
 
 /** What the fake agent was asked to do, in the order it happened. */
@@ -43,6 +50,8 @@ export type FakeCall =
   | { kind: 'setModel'; model: string | null }
   | { kind: 'setPermissionMode'; mode: string }
   | { kind: 'applyFlagSettings'; settings: Record<string, unknown> }
+  /** What canUseTool answered for a tool call of a `permission` line. */
+  | { kind: 'permission'; toolName: string; input: Record<string, unknown>; result: PermissionAnswer }
 
 /** supportedModels() of the fake agent: the shape of SDK 0.3.289, extra keys included. */
 export const FAKE_MODELS: ModelInfoLike[] = [
@@ -71,6 +80,7 @@ type Step =
   | { kind: 'stderr'; text: string }
   | { kind: 'crash'; error: string }
   | { kind: 'exit' }
+  | { kind: 'permission'; toolName: string; toolUseId: string; input: Record<string, unknown>; suggestions: unknown[] }
 
 type Line = Step | { kind: 'config'; config: FakeConfig }
 
@@ -81,6 +91,13 @@ const DIRECTIVES: Record<string, (value: Record<string, unknown>) => Line> = {
   stderr: (value) => ({ kind: 'stderr', text: String(value.text ?? '') }),
   crash: (value) => ({ kind: 'crash', error: String(value.error ?? 'Claude Code crashed') }),
   exit: () => ({ kind: 'exit' }),
+  permission: (value) => ({
+    kind: 'permission',
+    toolName: String(value.toolName ?? 'Bash'),
+    toolUseId: String(value.toolUseId ?? 'toolu_fake'),
+    input: typeof value.input === 'object' && value.input !== null ? (value.input as Record<string, unknown>) : {},
+    suggestions: Array.isArray(value.suggestions) ? (value.suggestions as unknown[]) : [],
+  }),
   account: (value) => ({ kind: 'config', config: { account: typeof value.error === 'string' ? { error: value.error } : { info: value.info as AccountInfoLike } } }),
   models: (value) => ({ kind: 'config', config: { models: value.models as ModelInfoLike[] } }),
   commands: (value) => ({ kind: 'config', config: { commands: value.commands as CommandInfoLike[] } }),
@@ -147,13 +164,18 @@ class FakeQuery implements QueryHandle {
   private reading = false
   private model: string | null
   private permissionMode: string
+  /** The SDK session id the messages carry. */
+  private readonly session: string
+  /** Signals of the permission requests now open; Interrupt and close abort them. */
+  private readonly requests = new Set<AbortController>()
 
   constructor(
     path: string,
     private readonly request: QueryRequest,
     private readonly record: (call: FakeCall) => void,
   ) {
-    const lines = parseScript(path, request.resume ?? randomUUID(), request.cwd)
+    this.session = request.resume ?? randomUUID()
+    const lines = parseScript(path, this.session, request.cwd)
     this.steps = lines.filter((line): line is Step => line.kind !== 'config')
     const config = configOf(lines)
     this.account = config.account ?? { info: SUBSCRIPTION }
@@ -236,14 +258,64 @@ class FakeQuery implements QueryHandle {
     return { ...message, ...(this.model !== null ? { model: this.model } : {}), permissionMode: this.permissionMode }
   }
 
+  /** A tool call of a `permission` line: what canUseTool answered, or null in bypassPermissions, where nothing is asked. */
+  private async ask(line: Extract<Step, { kind: 'permission' }>): Promise<PermissionAnswer | null> {
+    if (this.permissionMode === 'bypassPermissions') return null
+    const controller = new AbortController()
+    this.requests.add(controller)
+    try {
+      const description = typeof line.input.description === 'string' ? line.input.description : undefined
+      const result = await this.request.canUseTool(line.toolName, { ...line.input }, {
+        signal: controller.signal,
+        suggestions: line.suggestions,
+        toolUseID: line.toolUseId,
+        description,
+      })
+      this.record({ kind: 'permission', toolName: line.toolName, input: { ...line.input }, result: { ...result } })
+      return result
+    } finally {
+      this.requests.delete(controller)
+    }
+  }
+
+  private abortRequests(): void {
+    for (const controller of this.requests) controller.abort()
+  }
+
+  /** The assistant message that calls the tool of a `permission` line. */
+  private toolUse(line: Extract<Step, { kind: 'permission' }>): unknown {
+    return {
+      type: 'assistant',
+      message: { id: `msg_${line.toolUseId}`, type: 'message', role: 'assistant', content: [{ type: 'tool_use', id: line.toolUseId, name: line.toolName, input: line.input }], stop_reason: null },
+      parent_tool_use_id: null,
+      session_id: this.session,
+      uuid: randomUUID(),
+    }
+  }
+
+  /** The tool's result as Claude Code reports it to the model: what ran, or the refusal. */
+  private toolResult(line: Extract<Step, { kind: 'permission' }>, answer: PermissionAnswer | null): unknown {
+    const command = typeof line.input.command === 'string' ? line.input.command : JSON.stringify(line.input)
+    const refused = answer?.behavior === 'deny'
+    return {
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: line.toolUseId, content: refused ? answer.message : `(fake) ${line.toolName} ran: ${command}`, is_error: refused }] },
+      parent_tool_use_id: null,
+      session_id: this.session,
+      uuid: randomUUID(),
+    }
+  }
+
   interrupt(): Promise<unknown> {
     this.interruptRequested = true
+    this.abortRequests()
     this.wakeInterrupt?.()
     return Promise.resolve({ still_queued: [] })
   }
 
   close(): void {
     this.closed = true
+    this.abortRequests()
     this.wakeInterrupt?.()
     this.wake()
   }
@@ -280,6 +352,14 @@ class FakeQuery implements QueryHandle {
             throw new Error(line.error)
           case 'exit':
             return
+          case 'permission': {
+            await Promise.resolve()
+            yield this.toolUse(line)
+            const answer = await this.ask(line)
+            if (this.closed) return
+            yield this.toolResult(line, answer)
+            break
+          }
         }
       }
     }

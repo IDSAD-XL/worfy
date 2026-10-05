@@ -23,6 +23,10 @@ export type QueuedMessage = z.output<typeof queuedMessageSchema>
 export const queueSnapshotSchema = z.object({ items: z.array(queuedMessageSchema), paused: z.boolean() })
 export type QueueSnapshot = z.output<typeof queueSnapshotSchema>
 
+/** The user's answer to a permission request (ticket 21): this call, this tool for the rest of the Session, or no. */
+export const permissionDecisionSchema = z.enum(['allow', 'always_allow', 'deny'])
+export type PermissionDecision = z.infer<typeof permissionDecisionSchema>
+
 export const agentEvent = z.discriminatedUnion('type', [
   // Events of worfy itself, not of an SDK message (ticket 19).
   /**
@@ -34,6 +38,26 @@ export const agentEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('queue'), items: z.array(queuedMessageSchema), paused: z.boolean() }),
   /** The model, effort and permission mode the Session now runs with, as worfy set them. */
   z.object({ type: z.literal('settings'), settings: sessionSettingsSchema }),
+  /**
+   * Claude Code asks before running a tool (canUseTool, src/main/agent/permissions.ts); the
+   * Session is `needs_permission` until every open request is resolved. `alwaysAllow`: whether
+   * "Always allow" may be offered. `suggestions`: what Claude Code proposed and where it would
+   * write; worfy applies none of them.
+   */
+  z.object({
+    type: z.literal('permission_request'),
+    requestId: z.string().min(1),
+    toolName: z.string(),
+    toolUseId: nullableString,
+    input: z.unknown(),
+    title: nullableString,
+    description: nullableString,
+    blockedPath: nullableString,
+    alwaysAllow: z.boolean(),
+    suggestions: z.array(z.object({ type: z.string(), destination: nullableString })),
+  }),
+  /** A permission request was answered, or `cancelled` by Interrupt, by closing the Session or by Claude Code. */
+  z.object({ type: z.literal('permission_resolved'), requestId: z.string().min(1), decision: z.union([permissionDecisionSchema, z.literal('cancelled')]) }),
   /** system/init: arrives at the start of every turn with the current model and mode. */
   z.object({
     type: z.literal('init'),

@@ -27,6 +27,7 @@ import {
   agentInterrupt,
   agentList,
   agentModels,
+  agentPermission,
   agentQueueRemove,
   agentQueueSend,
   agentSend,
@@ -169,6 +170,7 @@ export function agentHandlers(registry: () => SessionRegistry, attachments: Atta
     defineHandler(agentQueueSend, ({ sessionId }) => {
       registry().get(sessionId).sendQueued()
     }),
+    defineHandler(agentPermission, ({ sessionId, requestId, decision }) => ({ answered: registry().get(sessionId).answerPermission(requestId, decision) })),
   ]
 }
 
