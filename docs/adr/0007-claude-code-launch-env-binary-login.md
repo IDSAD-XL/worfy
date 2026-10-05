@@ -1,9 +1,21 @@
-# Запуск Claude Code из worfy: окружение, бинарник и признак входа
+# Запуск Claude Code из worfy: окружение интерактивного login shell, нативный бинарник SDK, вход по accountInfo
 
 Дата: 2026-10-05. Статус: принят.
 
-Заглушка: номер занят тикетом worfy-mvp/06, текст решения придёт в этом же PR.
+Спецификация эпика `worfy-mvp` (риски 2, 3 и 11) и тикет 07 (движок Сессий) описывали запуск Claude Code через Agent SDK так: `PATH` берётся из `$SHELL -lc env`; SDK запускает `cli.js` под `node` (опция `executable`), а в сборке нужен `asarUnpack` для `node_modules/@anthropic-ai/claude-agent-sdk/**`; вход по подписке виден по полю `apiKeySource` в `system/init`. Spike тикета 06 (`scripts/spikes/sdk-probe.ts`, `scripts/spikes/path-probe/`; SDK 0.3.289, Claude Code 2.1.289, Electron 44.5.1, macOS arm64) показал, что все три посылки неверны для текущего SDK. Решение одно — как worfy запускает процесс Claude Code; три его части связаны тем, что проверяются одним запуском `.app` из Finder.
+
+**Окружение.** Окружение процесса Claude Code — переменные интерактивного login shell пользователя: `$SHELL -ilc` печатает `env` между двумя строками-маркерами, worfy берёт то, что между ними (rc-файлы могут печатать своё), один раз при старте, с таймаутом. Из этого окружения убираются переменные родительской сессии Claude Code: `ANTHROPIC_*`, `CLAUDE_CODE_*`, `CLAUDE_AGENT_SDK_*`, `CLAUDE_PREVIEW_*`, `CLAUDECODE`, `CLAUDE_PID`, `CLAUDE_EFFORT`. Причины. У приложения из Finder `PATH` равен `/usr/bin:/bin:/usr/sbin:/sbin`: нет `node`, `pnpm`, `gh`. `$SHELL -lc` добавляет Homebrew (`gh` находится), но не nvm: nvm подключается в `~/.zshrc`, который читает только интерактивный shell, поэтому `node` и `pnpm` не находятся. `$SHELL -ilc` находит все три (369 мс). Переменные родителя приходят, когда worfy запущен из терминала или из окна Claude Code: `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_OAUTH_*`, `CLAUDE_CODE_SESSION_ID` и ещё 26 штук; с ними дочерний Claude Code ходит через чужой прокси и чужую сессию.
+
+**Бинарник.** SDK 0.3.x не содержит `cli.js`: он запускает нативный бинарник Claude Code из платформенного пакета `@anthropic-ai/claude-agent-sdk-darwin-arm64/claude` (зависимость `optionalDependencies` SDK). `node` для запуска не нужен, опция `executable` не задаётся. В `pnpm dev` SDK находит бинарник сам. В собранном приложении SDK находит путь внутри `app.asar`, и запуск падает с `spawn ENOTDIR`; поэтому `pathToClaudeCodeExecutable` задаётся явно: тот же путь, где `app.asar` заменён на `app.asar.unpacked`. electron-builder сам распаковывает исполняемые файлы (smart unpack), и копия там есть; `asarUnpack` в `electron-builder.yml` называет пакет `node_modules/@anthropic-ai/claude-agent-sdk-*/**` явно, чтобы не зависеть от эвристики.
+
+**Признак входа.** `apiKeySource` в `system/init` равен `none` и при входе по подписке (Claude Max), и без входа, поэтому признаком не служит. Вход проверяется через `query.accountInfo()`: при входе в ответе есть `subscriptionType` (и `email`, `organization`), без входа — только `apiProvider` и `tokenSource: "none"`. Ход без входа заканчивается синтетическим ответом `Not logged in · Please run /login` (модель `<synthetic>`, `result` с `is_error: true`), worfy показывает его как ошибку Сессии с подсказкой войти в Claude Code. Ключей API worfy по-прежнему не принимает и не хранит.
+
+Затронуты: тикет 07 (`src/main/agent/env.ts`, `src/main/agent/options.ts`, `test/unit/agent-executable.test.ts`, пункты «Готово, когда» про вход), тикет 32 или 07 (`electron-builder.yml`, `asarUnpack`), спецификация эпика (риски 2, 3 и 11 устарели).
 
 ## Considered Options
 
-- (заполняется)
+- `$SHELL -lc env`, как в спецификации: не находит `node` и `pnpm`, установленные через nvm, — у владельца это так.
+- Зашитый список каталогов (`/opt/homebrew/bin`, `~/.nvm/versions/node/*/bin`, `~/.local/bin`): ломается на другой машине и другом менеджере версий; так сейчас подстраховывается `~/.claude/hooks/stop.sh`, но команды модели в Bash этой подстраховки не имеют.
+- `executable: 'node'` и `cli.js` из `app.asar.unpacked`: в SDK 0.3.289 `cli.js` нет; закрепить старую версию SDK ради `cli.js` значило бы отстать от Claude Code, которым пользуется владелец.
+- `apiKeySource` как признак входа: не различает вход по подписке и его отсутствие.
+- Чтение учётных данных Claude Code (Keychain, `~/.claude`) самим worfy: worfy не трогает чужие секреты; `accountInfo()` отвечает на тот же вопрос через SDK.
