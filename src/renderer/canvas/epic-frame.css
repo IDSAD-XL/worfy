@@ -1,0 +1,311 @@
+/* Epic frames, Tickets and blocking arrows (design F, docs/design/F-SPEC.md). Every colour is a
+   token of tokens.css, so both appearances follow; a state colour always comes with a label or
+   an icon. */
+
+/* ── frame ─────────────────────────────────────────────────────────────── */
+.w-epic {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border-radius: var(--radius-window);
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  font-family: var(--font-ui);
+  color: var(--text);
+}
+
+.w-epic__header {
+  position: absolute;
+  left: 16px;
+  right: 12px;
+  top: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.w-epic[data-collapsed='true'] .w-epic__header {
+  border-bottom: 0;
+}
+.w-epic__drag {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: grab;
+}
+.w-epic__tag {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  font-weight: 500;
+}
+.w-epic__title {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--text-20);
+  line-height: 24px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.w-epic__title .w-mono {
+  font-size: 18px;
+}
+.w-epic__subtitle {
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+.w-epic__count {
+  font-size: var(--text-13);
+  font-weight: 600;
+}
+.w-epic__button {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--text-secondary);
+}
+.w-epic__button:hover {
+  background: var(--surface-raised);
+}
+
+/* 12-segment progress bar: done, working, blocked, open */
+.w-progress {
+  flex: none;
+  display: inline-flex;
+  gap: 2px;
+}
+.w-progress__segment {
+  display: block;
+  width: 8px;
+  height: 10px;
+  border-radius: 1px;
+  background: var(--border);
+}
+.w-progress__segment--done {
+  background: var(--done-text);
+}
+.w-progress__segment--working {
+  background: var(--working-dot);
+}
+.w-progress__segment--blocked {
+  background: var(--blocked-ring);
+}
+.w-progress__segment--open {
+  background: var(--border-strong);
+}
+
+/* columns */
+.w-epic__column {
+  position: absolute;
+  top: 64px;
+  width: 204px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-11);
+  line-height: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.w-epic__column-count {
+  font-weight: 400;
+}
+.w-epic__column--attention {
+  color: var(--blocked-text);
+}
+.w-epic__ready-chip {
+  margin-left: auto;
+}
+.w-epic__link {
+  margin-left: auto;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 500;
+}
+
+.w-epic__ready {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: var(--radius-node);
+  border: 1px dashed var(--ready-dot);
+  background: color-mix(in srgb, var(--ready-dot) 6%, transparent);
+  pointer-events: none;
+}
+
+.w-epic__stack {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-node);
+  border: 1px solid var(--border);
+  background: var(--done-bg);
+  box-shadow:
+    4px 4px 0 -1px var(--done-bg),
+    4px 4px 0 0 var(--border),
+    var(--shadow-node);
+  color: var(--done-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.w-epic__stack-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-13);
+  font-weight: 600;
+  color: var(--text);
+}
+.w-epic__stack-list {
+  font-size: var(--text-12);
+  line-height: 18px;
+  color: var(--text-secondary);
+  overflow: hidden;
+}
+.w-epic__empty {
+  position: absolute;
+  left: 16px;
+  top: 64px;
+  margin: 0;
+  font-size: var(--text-12);
+  color: var(--text-muted);
+}
+
+/* ── Ticket ────────────────────────────────────────────────────────────── */
+.w-ticket {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  overflow: hidden;
+  border-radius: var(--radius-node);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-node);
+  font-family: var(--font-ui);
+  color: var(--text);
+}
+.w-ticket--work {
+  border-color: var(--working-dot);
+}
+.w-ticket--blocked {
+  border-color: var(--blocked-ring);
+}
+.w-ticket--done {
+  background: var(--done-bg);
+  box-shadow: none;
+}
+.w-ticket--done .w-ticket__num,
+.w-ticket--done .w-ticket__title {
+  color: var(--done-text);
+}
+.react-flow__node.selected > .w-ticket {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-node), 0 0 0 1px var(--accent);
+}
+.w-ticket__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 18px;
+}
+.w-ticket__num {
+  font-size: var(--text-12);
+  font-weight: 600;
+}
+.w-ticket__title {
+  font-size: var(--text-13);
+  line-height: 17px;
+  font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.w-ticket__meta {
+  font-size: var(--text-11);
+  line-height: 15px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.w-ticket__meta--attention {
+  color: var(--blocked-text);
+}
+.w-ticket__nums {
+  color: var(--text);
+}
+.w-ticket__reason {
+  padding: 2px 6px;
+  border-radius: var(--radius-chip);
+  background: var(--blocked-bg);
+  color: var(--blocked-text);
+  font-size: var(--text-12);
+  line-height: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.w-ticket__badges,
+.w-ticket__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.w-ticket__handle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The state chip of an open Ticket: neutral, like the F mockups. */
+.w-chip--open {
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+}
+
+/* ── blocking arrows ───────────────────────────────────────────────────── */
+.react-flow__edge.w-edge-blocking--waits .react-flow__edge-path {
+  stroke: var(--text-muted);
+  stroke-width: 1.25;
+  stroke-dasharray: 4 3;
+}
+.react-flow__edge.w-edge-blocking--done .react-flow__edge-path {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
