@@ -5,6 +5,12 @@ on:
   push:
     branches: [main]
 
+# A new push to the same pull request cancels the run still going for the previous one.
+# Runs on main are never cancelled: each merge keeps its own result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     runs-on: macos-latest
@@ -15,9 +21,15 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
+          cache: pnpm
       # Install scripts (electron, esbuild, node-pty) are allowed by allowBuilds in
       # pnpm-workspace.yaml; any other package with a build script fails the install.
+      # The root postinstall rebuilds node-pty for Electron's ABI.
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      # Builds the app into out/ and drives it with Playwright.
+      - run: pnpm test:e2e
+      # Packages dist/mac-*/worfy.app (ad-hoc signed) and drives the packaged app.
+      - run: pnpm test:package

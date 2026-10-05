@@ -1,0 +1,28 @@
+# Local macOS build of worfy: an unpacked .app (`--mac dir`), ad-hoc signed, not notarized.
+# `pnpm package` runs `electron-vite build` first, so out/ is always fresh.
+appId: dev.worfy.app # macOS notifications need a bundle id
+productName: worfy
+
+directories:
+  output: dist
+
+files:
+  - out/**
+  - package.json
+
+# Package the Electron that is already installed instead of downloading another copy.
+electronDist: node_modules/electron/dist
+
+# node-pty is rebuilt for Electron's ABI by the postinstall script; packaging must not rebuild
+# it again. Its pty.node and spawn-helper cannot be loaded or executed from inside app.asar.
+npmRebuild: false
+asarUnpack:
+  - node_modules/node-pty/**
+
+mac:
+  target: dir
+  identity: '-' # ad-hoc signature: no certificate, no notarization
+  hardenedRuntime: false
+  notarize: false
+
+publish: null

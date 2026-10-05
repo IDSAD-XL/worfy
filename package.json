@@ -9,10 +9,13 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "package": "electron-vite build && electron-builder --mac dir",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "ELECTRON_RUN_AS_NODE=1 electron ./node_modules/vitest/vitest.mjs run",
-    "test:e2e": "electron-vite build && playwright test"
+    "test:e2e": "electron-vite build && playwright test --grep-invert @packaged",
+    "test:package": "pnpm package && playwright test --grep @packaged",
+    "postinstall": "electron-rebuild --only node-pty"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.289",
