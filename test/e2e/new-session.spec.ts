@@ -172,12 +172,20 @@ test('New session, New conversation, the history and Resume', async () => {
     )
     await window.screenshot({ path: test.info().outputPath('new-sessions.png') })
 
-    // Close: the Session ends, the Node stays and offers Resume.
-    await first.getByTestId('session-node-close').click()
+    // Close: the Session ends, the Node stays and offers Resume. The Canvas is centered on the
+    // second Node: on a smaller screen (CI) the first one's header is under the toolbar.
+    await first.getByTestId('session-node-close').dispatchEvent('click')
     await expect(first.getByTestId('session-node-status')).toHaveText('finished')
     await expect(first.getByTestId('session-node-resume')).toBeVisible()
 
     // ── New conversation of the Orchestrator: its Session goes to the history, a new one takes its place.
+    // The Canvas is centered on the last new Session; wheel up (the Canvas pans on scroll) to the Orchestrator.
+    const pane = await window.locator('.react-flow__pane').boundingBox()
+    if (!pane) throw new Error('no Canvas pane')
+    // Over empty Canvas at the left edge: a Node's own scrolling text would take the wheel.
+    await window.mouse.move(pane.x + 20, pane.y + pane.height / 2)
+    for (let step = 0; step < 4; step += 1) await window.mouse.wheel(0, -400)
+    await expect(window.getByTestId('orchestrator-node')).toBeInViewport({ ratio: 0.9 })
     await messageOrchestrator(window, 'hello')
     await expect.poll(() => orchestratorSessionId(window), { timeout: 10_000 }).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/))
     await expect(window.getByTestId('orchestrator-state')).toHaveText('idle')
@@ -187,8 +195,7 @@ test('New session, New conversation, the history and Resume', async () => {
     transcript(oldOrchestrator, projectPath, 'hello', 'sdk-ts')
     const written = join(transcriptDir(projectPath), `${oldOrchestrator}.jsonl`)
     expected[relative(claudeHome, written)] = `${statSync(written).size}:${statSync(written).mtimeMs}`
-    // The Canvas is centered on the last new Session: the Orchestrator's Node is at its top edge.
-    await window.getByTestId('orchestrator-new-conversation').dispatchEvent('click')
+    await window.getByTestId('orchestrator-new-conversation').click()
     await expect.poll(() => orchestratorSessionId(window)).toBeNull()
     await expect(window.getByTestId('orchestrator-state')).toHaveText('idle')
     await messageOrchestrator(window, 'again')
