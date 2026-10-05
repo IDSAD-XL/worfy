@@ -3,7 +3,7 @@
 //
 // A Card is a folder <Project data folder>/cards/<id>/ (ADR-0003, ADR-0005) with an index.html and
 // whatever files it needs. Its address is worfy-card://<card id>.<project label>/<path>, where the
-// project label is the 8 hex characters that end the Project's id (src/main/projects/store.ts):
+// project label is the hash that ends the Project's id (projectIdHash, src/main/projects/store.ts):
 // the folder-name part of a Project id may hold capitals, spaces or non-ASCII letters, which a host
 // name cannot carry unchanged. The scheme is registered as standard and secure, so every Card has
 // an origin of its own: one Card cannot reach another, nor the worfy window, which is on file://
@@ -12,12 +12,14 @@
 //
 // What is served: only regular files inside the Card's folder (after resolving symlinks), with an
 // extension from CARD_CONTENT_TYPES, with the CSP below, nosniff and no-store. Everything else is a
-// 404 with the same headers. main also stops a Card frame from navigating anywhere but its own
-// origin, from opening windows and from being granted web permissions (installCardRuntime).
+// 404 with the same headers. Which navigations a Card frame may make is decided here
+// (allowFrameNavigation); the handlers that enforce it, refuse new windows and refuse web
+// permissions belong to the app as a whole (installWebPolicy, src/main/window.ts).
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { extname, join, resolve, sep } from 'node:path'
-import { app, protocol, session } from 'electron'
+import { protocol } from 'electron'
 import { CARD_ID_PATTERN } from '../../shared/ipc/cards'
+import { isProjectIdHash, projectIdHash } from '../projects/store'
 
 export const CARD_SCHEME = 'worfy-card'
 
@@ -74,12 +76,9 @@ export const CARD_CONTENT_TYPES: Readonly<Record<string, string>> = {
   '.webm': 'video/webm',
 }
 
-const PROJECT_LABEL_PATTERN = /^[0-9a-f]{8}$/
-
-/** The host part that names a Project: the 8 hex characters that end its id, or null when the id has none. */
+/** The host part that names a Project: the hash that ends its id (src/main/projects/store.ts), or null when the id has none. */
 export function projectLabel(projectId: string): string | null {
-  const match = /-([0-9a-f]{8})$/.exec(projectId)
-  return match?.[1] ?? null
+  return projectIdHash(projectId)
 }
 
 /** The address of a file of a Card; `path` is relative to the Card's folder. */
@@ -109,7 +108,7 @@ export function parseCardUrl(url: string): CardAddress | null {
   const parts = parsed.hostname.split('.')
   if (parts.length !== 2) return null
   const [cardId = '', label = ''] = parts
-  if (!CARD_ID_PATTERN.test(cardId) || !PROJECT_LABEL_PATTERN.test(label)) return null
+  if (!CARD_ID_PATTERN.test(cardId) || !isProjectIdHash(label)) return null
   return { cardId, projectLabel: label, pathname: parsed.pathname }
 }
 
@@ -210,23 +209,7 @@ export function registerCardScheme(): void {
   protocol.registerSchemesAsPrivileged([{ scheme: CARD_SCHEME, privileges: { standard: true, secure: true } }])
 }
 
-/** Serves the protocol and puts up main's side of the walls. Runs once, after the app is ready, before the first window. */
+/** Serves the protocol. Runs once, after the app is ready, before the first window. */
 export function installCardRuntime(locate: CardsDirLocator): void {
   protocol.handle(CARD_SCHEME, createCardHandler(locate))
-
-  app.on('web-contents-created', (_event, contents) => {
-    contents.on('will-frame-navigate', (details) => {
-      const allowed = allowFrameNavigation({ isMainFrame: details.isMainFrame, frameUrl: details.frame?.url ?? '', targetUrl: details.url })
-      if (!allowed) details.preventDefault()
-    })
-    // The iframe's sandbox has no allow-popups already; this is the second wall. Other windows
-    // keep Electron's default.
-    contents.setWindowOpenHandler(({ url, referrer }) => (isCardUrl(url) || isCardUrl(referrer.url) ? { action: 'deny' } : { action: 'allow' }))
-  })
-
-  // A Card gets no camera, microphone, notifications, geolocation… Everything else keeps
-  // Electron's default, which grants.
-  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback, details) => {
-    callback(!isCardUrl(details.requestingUrl))
-  })
 }

@@ -46,10 +46,29 @@ export const runGit: GitRunner = (args) => {
   })
 }
 
+/** Hex characters of the path hash that ends every Project id. */
+const ID_HASH_LENGTH = 8
+const ID_HASH_PATTERN = new RegExp(`^[0-9a-f]{${ID_HASH_LENGTH}}$`)
+const ID_HASH_SUFFIX = new RegExp(`-([0-9a-f]{${ID_HASH_LENGTH}})$`)
+
 /** `<folder name>-<sha256(path)[0:8]>`: the Project's id and the name of its data folder. */
 export function projectId(repositoryRoot: string): string {
-  const hash = createHash('sha256').update(repositoryRoot).digest('hex').slice(0, 8)
+  const hash = createHash('sha256').update(repositoryRoot).digest('hex').slice(0, ID_HASH_LENGTH)
   return `${basename(repositoryRoot) || 'root'}-${hash}`
+}
+
+/**
+ * The path hash that ends a Project id, or null when the id does not end with one. Unlike the
+ * folder-name part, it is always lowercase ASCII, so other parts of main may use it where only
+ * such text fits (the host of a Card's address, src/main/cards/protocol.ts).
+ */
+export function projectIdHash(id: string): string | null {
+  return ID_HASH_SUFFIX.exec(id)?.[1] ?? null
+}
+
+/** Whether a text has the form of the hash that ends a Project id. */
+export function isProjectIdHash(text: string): boolean {
+  return ID_HASH_PATTERN.test(text)
 }
 
 export type AddResult =

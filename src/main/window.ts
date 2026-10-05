@@ -1,7 +1,8 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { BrowserWindow, screen } from 'electron'
+import { app, BrowserWindow, screen, session, type HandlerDetails, type WindowOpenHandlerResponse } from 'electron'
 import { MIN_SIZE, initialBounds, parseWindowState, serializeWindowState, type Rect } from '../shared/window/bounds'
+import { allowFrameNavigation } from './cards/protocol'
 import { dataRoot } from './storage/paths'
 
 /** Path of the file that remembers the window's position and size (ADR 0005: worfy's own state). */
@@ -85,4 +86,44 @@ export function createMainWindow(): BrowserWindow {
 export function rendererEntry(): { indexHtml: string; devServerUrl: string | undefined } {
   // After the build this code runs from out/main/, next to out/renderer/.
   return { indexHtml: join(import.meta.dirname, '../renderer/index.html'), devServerUrl: process.env.ELECTRON_RENDERER_URL }
+}
+
+// What a page inside worfy may do beyond showing itself. Electron keeps one window-open handler per
+// web contents and one permission handler per session, so this is the single place that sets
+// them: a ticket that needs another rule (an external link opened in the browser, say) changes
+// these functions instead of installing a handler of its own over them.
+
+/**
+ * main's answer to every window.open, target="_blank" link or similar from any page: no. worfy
+ * shows one window and opens nothing on a page's request. The answer does not depend on who asks:
+ * the opener of a Card's popup is not knowable here (its referrer is empty under the Card
+ * iframe's no-referrer policy), so a rule keyed on the opener would let a Card's popup through.
+ */
+export const windowOpenResponse: (details: HandlerDetails) => WindowOpenHandlerResponse = () => ({ action: 'deny' })
+
+/**
+ * Whether a frame is granted a web permission (camera, microphone, notifications, geolocation,
+ * clipboard…): only the app's own renderer is. Cards and any other page are refused.
+ */
+export function grantsPermission(requestingUrl: string, isAppUrl: (url: string) => boolean): boolean {
+  return isAppUrl(requestingUrl)
+}
+
+/**
+ * Puts up main's side of the walls for every web contents: frame navigation (a Card stays on its
+ * own origin, the window never shows a Card), no new windows, permissions for the app's renderer
+ * only. `isAppUrl` is the same renderer matcher the IPC sender check uses (src/main/index.ts).
+ * Runs once, after the app is ready, before the first window.
+ */
+export function installWebPolicy(isAppUrl: (url: string) => boolean): void {
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('will-frame-navigate', (details) => {
+      const allowed = allowFrameNavigation({ isMainFrame: details.isMainFrame, frameUrl: details.frame?.url ?? '', targetUrl: details.url })
+      if (!allowed) details.preventDefault()
+    })
+    contents.setWindowOpenHandler(windowOpenResponse)
+  })
+  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback, details) => {
+    callback(grantsPermission(details.requestingUrl, isAppUrl))
+  })
 }

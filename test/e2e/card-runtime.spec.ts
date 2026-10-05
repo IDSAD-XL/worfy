@@ -184,6 +184,32 @@ test('a Card reaches neither the window, another Card, file:// nor another worfy
   await expect(window.locator('[data-testid="canvas"]')).toBeVisible()
 })
 
+test('main refuses every new window on its own, and a Card can neither open one nor navigate the window', async () => {
+  writeLayout(1)
+  launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+  const { app, window } = launched
+  const frame = await cardFrame(window, 'c1')
+  const rendererUrl = window.url()
+  const before = app.windows().length
+
+  // The window itself has no iframe sandbox around it, so only main's window-open handler is
+  // left to refuse here. A Card frame asks the same handler once its sandbox lets a popup through.
+  expect(await window.evaluate("window.open('https://127.0.0.1:9/', '_blank') === null")).toBe(true)
+  expect(await window.evaluate("window.open('about:blank', '_blank', 'noreferrer') === null")).toBe(true)
+  await window.waitForTimeout(300)
+  expect(app.windows().length).toBe(before)
+
+  // The sandbox of a Card's iframe is exactly scripts and its own origin: no popups, no top
+  // navigation, no forms.
+  await expect(window.locator('[data-card-id="c1"] iframe')).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin')
+  const topNavigation = await frame.evaluate(`(() => { try { top.location.href = 'https://127.0.0.1:9/'; return 'asked' } catch (error) { return error.name } })()`)
+  expect(topNavigation).toBe('SecurityError')
+  await window.waitForTimeout(300)
+  expect(window.url()).toBe(rendererUrl)
+  await expect(window.locator('[data-testid="canvas"]')).toBeVisible()
+  expect(app.windows().length).toBe(before)
+})
+
 test('the protocol in the running app sends the CSP and answers 404 outside the Card folder', async () => {
   writeLayout(1)
   launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })

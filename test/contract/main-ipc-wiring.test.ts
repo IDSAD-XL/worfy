@@ -14,6 +14,7 @@ const electron = vi.hoisted(() => {
     handlers,
     ipcMain: { handle: (channel: string, listener: (event: unknown, input: unknown) => unknown) => handlers.set(channel, listener) },
     createMainWindow: vi.fn(),
+    installWebPolicy: vi.fn(),
     protocol: { registerSchemesAsPrivileged: vi.fn(), handle: vi.fn() },
   }
 })
@@ -30,11 +31,11 @@ vi.mock('electron', () => ({
   dialog: { showErrorBox: vi.fn() },
   ipcMain: electron.ipcMain,
   protocol: electron.protocol,
-  session: { defaultSession: { setPermissionRequestHandler: vi.fn() } },
 }))
 
 vi.mock('../../src/main/window', () => ({
   createMainWindow: electron.createMainWindow,
+  installWebPolicy: electron.installWebPolicy,
   rendererEntry: () => ({ indexHtml: INDEX_HTML, devServerUrl: undefined }),
 }))
 
@@ -45,7 +46,13 @@ async function call(frameUrl: string): Promise<IpcResult<unknown>> {
   return (await listener(event, undefined)) as IpcResult<unknown>
 }
 
-const startup: { schemes: unknown[]; served: unknown[]; servedBeforeWindow: boolean } = { schemes: [], served: [], servedBeforeWindow: false }
+const startup: {
+  schemes: unknown[]
+  served: unknown[]
+  servedBeforeWindow: boolean
+  policies: ((url: string) => boolean)[]
+  policyBeforeWindow: boolean
+} = { schemes: [], served: [], servedBeforeWindow: false, policies: [], policyBeforeWindow: false }
 
 beforeAll(async () => {
   await import('../../src/main/index')
@@ -56,6 +63,9 @@ beforeAll(async () => {
   startup.served = electron.protocol.handle.mock.calls.map((args) => args[0])
   startup.servedBeforeWindow =
     (electron.protocol.handle.mock.invocationCallOrder[0] ?? Infinity) < (electron.createMainWindow.mock.invocationCallOrder[0] ?? -Infinity)
+  startup.policies = electron.installWebPolicy.mock.calls.map((args) => args[0] as (url: string) => boolean)
+  startup.policyBeforeWindow =
+    (electron.installWebPolicy.mock.invocationCallOrder[0] ?? Infinity) < (electron.createMainWindow.mock.invocationCallOrder[0] ?? -Infinity)
 })
 
 describe('IPC wiring in src/main/index.ts', () => {
@@ -77,5 +87,16 @@ describe('Card protocol wiring in src/main/index.ts', () => {
     expect(startup.schemes).toEqual([[{ scheme: 'worfy-card', privileges: { standard: true, secure: true } }]])
     expect(startup.served).toEqual(['worfy-card'])
     expect(startup.servedBeforeWindow).toBe(true)
+  })
+})
+
+describe('web policy wiring in src/main/index.ts', () => {
+  it('installs the policy once, before the first window, with the same renderer matcher as IPC', () => {
+    expect(startup.policies).toHaveLength(1)
+    expect(startup.policyBeforeWindow).toBe(true)
+    const isAppUrl = startup.policies[0]
+    expect(isAppUrl?.(`file://${INDEX_HTML}`)).toBe(true)
+    expect(isAppUrl?.('worfy-card://c1.0a1b2c3d/index.html')).toBe(false)
+    expect(isAppUrl?.('https://example.com/')).toBe(false)
   })
 })

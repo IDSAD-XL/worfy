@@ -3,9 +3,9 @@
 // write a Card's files; this store only reads them: it lists the Cards, reads a Card's <title>,
 // and watches the folders so a Node reloads its Card within a second of a file change.
 //
-// Watching starts for a Project the first time one of its Cards is asked for, and lasts until
-// close(). Changes are reported per Card after a short quiet period (CARD_CHANGE_DELAY_MS), so a
-// burst of writes reloads the Card once.
+// Watching starts for a Project the first time one of its Cards is asked for, and lasts until the
+// Project leaves the list or close(). Changes are reported per Card after a short quiet period
+// (CARD_CHANGE_DELAY_MS), so a burst of writes reloads the Card once.
 import { mkdirSync } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
@@ -74,6 +74,11 @@ export interface CardStoreOptions {
   projectIds: () => readonly string[]
   /** Watch the Cards' folders (default true); tests of the protocol alone switch it off. */
   watch?: boolean
+  /**
+   * Subscribes to changes of the Project list; returns the function that unsubscribes. The store
+   * stops watching the Cards of a Project that is no longer listed.
+   */
+  subscribeProjects?: (listener: () => void) => () => void
   delayMs?: number
 }
 
@@ -85,11 +90,13 @@ export class CardStore {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly listeners = new Set<(info: CardInfo) => void>()
   private readonly delayMs: number
+  private readonly unsubscribeProjects: () => void
   private closed = false
 
   /** Does no I/O. */
   constructor(private readonly options: CardStoreOptions) {
     this.delayMs = options.delayMs ?? CARD_CHANGE_DELAY_MS
+    this.unsubscribeProjects = options.subscribeProjects?.(() => this.forgetRemovedProjects()) ?? (() => undefined)
   }
 
   /** The folder of all Cards of a Project. Throws for a Project that is not in the list. */
@@ -170,7 +177,8 @@ export class CardStore {
       key,
       setTimeout(() => {
         this.timers.delete(key)
-        if (this.closed) return
+        // The Project left the list while this change waited: its Cards are no longer read.
+        if (this.closed || !this.watchers.has(projectId)) return
         this.revisions.set(key, (this.revisions.get(key) ?? 0) + 1)
         void this.info(projectId, cardId).then(
           (info) => {
@@ -189,8 +197,25 @@ export class CardStore {
     )
   }
 
+  /** The Projects whose Cards are being watched now. */
+  watchedProjects(): string[] {
+    return [...this.watchers.keys()].sort()
+  }
+
+  /** Stops watching the Cards of every Project that is no longer in the list. */
+  private forgetRemovedProjects(): void {
+    if (this.closed) return
+    const listed = new Set(this.options.projectIds())
+    for (const [projectId, watcher] of [...this.watchers]) {
+      if (listed.has(projectId)) continue
+      this.watchers.delete(projectId)
+      watcher.close().catch((error: unknown) => console.error(`[cards] could not stop watching the Cards of ${projectId}`, error))
+    }
+  }
+
   async close(): Promise<void> {
     this.closed = true
+    this.unsubscribeProjects()
     for (const timer of this.timers.values()) clearTimeout(timer)
     this.timers.clear()
     const watchers = [...this.watchers.values()]
@@ -209,6 +234,7 @@ export function cardStore(): CardStore {
       return projects.dataDir(projects.get(projectId).id)
     },
     projectIds: () => projectStore().list().map((project) => project.id),
+    subscribeProjects: (listener) => projectStore().onChange(listener),
   })
   return shared
 }

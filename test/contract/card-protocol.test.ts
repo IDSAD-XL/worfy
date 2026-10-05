@@ -19,6 +19,7 @@ import {
   CARD_SCHEME,
 } from '../../src/main/cards/protocol'
 import { CardStore, titleOf } from '../../src/main/cards/store'
+import { projectId, projectIdHash } from '../../src/main/projects/store'
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 
@@ -206,6 +207,16 @@ describe('Card addresses', () => {
     expect(() => cardUrl(PROJECT, 'Bad_Id')).toThrow()
     expect(() => cardUrl('no-label', 'c1')).toThrow()
   })
+
+  it('takes the label from the Project id format of the Project store, for any folder name', () => {
+    for (const root of ['/Users/me/My Projects', '/Users/me/Мой проект', '/']) {
+      const id = projectId(root)
+      const hash = projectIdHash(id)
+      expect(hash).toMatch(/^[0-9a-f]+$/)
+      expect(projectLabel(id)).toBe(hash)
+      expect(parseCardUrl(cardUrl(id, 'c1'))).toEqual({ cardId: 'c1', projectLabel: hash, pathname: '/index.html' })
+    }
+  })
 })
 
 describe('main lets a Card frame navigate only within its own origin', () => {
@@ -276,6 +287,80 @@ describe('Card store', () => {
     } finally {
       await watching.close()
     }
+  })
+
+  describe('when a Project leaves the list', () => {
+    const OTHER = 'other-0f0f0f0f'
+    let projects: string[]
+    let projectListeners: Set<() => void>
+    let watching: CardStore
+
+    const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms))
+    const removeFromList = (id: string) => {
+      projects = projects.filter((other) => other !== id)
+      for (const listener of projectListeners) listener()
+    }
+
+    beforeEach(async () => {
+      mkdirSync(cardDir('o1', OTHER), { recursive: true })
+      writeFileSync(join(cardDir('o1', OTHER), 'index.html'), '<title>Other</title>')
+      projects = [PROJECT, OTHER]
+      projectListeners = new Set()
+      watching = new CardStore({
+        dataDirOf: (id) => {
+          if (!projects.includes(id)) throw new Error(`No Project ${id}`)
+          return join(dataDir, id)
+        },
+        projectIds: () => projects,
+        subscribeProjects: (listener) => {
+          projectListeners.add(listener)
+          return () => projectListeners.delete(listener)
+        },
+        delayMs: 300,
+      })
+      await watching.info(PROJECT, 'c1')
+      await watching.info(OTHER, 'o1')
+      await sleep(300)
+    })
+
+    afterEach(async () => {
+      await watching.close()
+    })
+
+    it('stops watching its Cards and keeps watching the other Projects', async () => {
+      expect(watching.watchedProjects()).toEqual([PROJECT, OTHER].sort())
+      removeFromList(PROJECT)
+      expect(watching.watchedProjects()).toEqual([OTHER])
+
+      const seen: CardInfo[] = []
+      watching.onChange((info) => seen.push(info))
+      writeFileSync(join(cardDir('o1', OTHER), 'index.html'), '<title>Other v2</title>')
+      await vi.waitFor(() => expect(seen.some((info) => info.cardId === 'o1' && info.title === 'Other v2')).toBe(true), { timeout: 1500, interval: 20 })
+    })
+
+    it('drops a change of its Cards that was waiting out the quiet period', async () => {
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      try {
+        const seen: CardInfo[] = []
+        watching.onChange((info) => seen.push(info))
+        writeFileSync(join(cardDir('c1'), 'index.html'), '<title>Clock v2</title>')
+        // The file event arrives well inside the 300 ms quiet period; the Project leaves before it ends.
+        await sleep(150)
+        removeFromList(PROJECT)
+        await sleep(500)
+        expect(seen.filter((info) => info.projectId === PROJECT)).toEqual([])
+        // Reading a Card of a Project that is not listed fails and is logged; nothing may try.
+        expect(errors).not.toHaveBeenCalled()
+      } finally {
+        errors.mockRestore()
+      }
+    })
+
+    it('unsubscribes from the Project list on close', async () => {
+      expect(projectListeners.size).toBe(1)
+      await watching.close()
+      expect(projectListeners.size).toBe(0)
+    })
   })
 })
 
