@@ -1,0 +1,24 @@
+# Spike for ticket worfy-mvp/06, question 4: a throwaway app, separate from the worfy build
+# (ticket 32). Built by ./run.sh into scripts/spikes/path-probe/dist (ignored by git).
+appId: dev.worfy.path-probe
+productName: worfy-path-probe
+directories:
+  output: scripts/spikes/path-probe/dist
+# node-pty and the other native modules of worfy are not used here; no rebuild.
+npmRebuild: false
+extraMetadata:
+  name: worfy-path-probe
+  main: scripts/spikes/path-probe/main.ts
+files:
+  - package.json
+  - scripts/spikes/path-probe/main.ts
+asar: true
+# The SDK's native Claude Code binary cannot be spawned from inside app.asar. electron-builder
+# already unpacks executables on its own (first run of this spike, without this line); the
+# explicit pattern is what ADR-0008 asks of worfy's own build.
+asarUnpack:
+  - node_modules/@anthropic-ai/claude-agent-sdk-*/**
+mac:
+  target: dir
+  # Ad-hoc signature: enough for an arm64 Mac to start the app locally.
+  identity: '-'

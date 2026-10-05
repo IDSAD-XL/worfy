@@ -1,0 +1,73 @@
+{
+  "scenario": "permissions",
+  "calls": [
+    {
+      "request": {
+        "toolName": "Bash",
+        "input": {
+          "command": "mkdir -p <tmp>/perm/one",
+          "description": "Create nested directories in temp folder (one)"
+        },
+        "options": {
+          "suggestions": [
+            {
+              "type": "addRules",
+              "rules": [
+                {
+                  "toolName": "Bash",
+                  "ruleContent": "mkdir -p <tmp>/perm/one"
+                }
+              ],
+              "behavior": "allow",
+              "destination": "localSettings"
+            },
+            {
+              "type": "addDirectories",
+              "directories": [
+                "<tmp>/perm"
+              ],
+              "destination": "session"
+            },
+            {
+              "type": "setMode",
+              "mode": "acceptEdits",
+              "destination": "session"
+            }
+          ],
+          "blockedPath": "<tmp>/perm/one",
+          "displayName": "Bash",
+          "description": "Create nested directories in temp folder (one)",
+          "toolUseID": "toolu_01FezrbWUXCZS89y6rSrP6ZS",
+          "requestId": "00000000-0000-4000-8000-000000000001",
+          "signal": "<AbortSignal aborted=false>"
+        }
+      },
+      "response": {
+        "behavior": "allow",
+        "updatedInput": {
+          "command": "mkdir -p <tmp>/perm/one",
+          "description": "Create nested directories in temp folder (one)"
+        },
+        "updatedPermissions": [
+          {
+            "type": "addRules",
+            "rules": [
+              {
+                "toolName": "Bash"
+              }
+            ],
+            "behavior": "allow",
+            "destination": "session"
+          },
+          {
+            "type": "addDirectories",
+            "directories": [
+              "<tmp>/perm"
+            ],
+            "destination": "session"
+          }
+        ]
+      }
+    }
+  ]
+}
