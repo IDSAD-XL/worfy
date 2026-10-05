@@ -1,4 +1,4 @@
-// The Trash button at the bottom left of the Canvas and its popover (ticket 30): what was deleted
+// The Trash button at the bottom centre of the Canvas and its popover (ticket 30): what was deleted
 // from this Project's Canvas in the last three days, newest first, each with Restore. The entries
 // live in main (src/main/layout/trash.ts); this asks for them when it mounts and again whenever
 // main reports a change of the Project's trash.
@@ -83,8 +83,8 @@ export default function TrashPopover() {
   }
 
   return (
-    <Panel position="bottom-left" className="w-trash nodrag nopan nowheel">
-      <div ref={root}>
+    <Panel position="bottom-center" className="w-trash nodrag nopan nowheel">
+      <div ref={root} className="w-trash__root">
         {open ? (
           <div className="w-trash__popover" role="dialog" aria-label="Trash" data-testid="trash-popover">
             <div className="w-trash__heading">Trash</div>

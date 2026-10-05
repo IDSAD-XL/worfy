@@ -63,7 +63,7 @@ with its files, its data and its Node as they were» — до реализаци
   `trash.restore`, `trash.list`, событие `trash.changed`) и очистка при запуске.
 - `src/renderer/canvas/history.ts` — история шагов на Проект, обратные операции, группировка.
 - `src/renderer/canvas/overlays/SelectionToolbar.tsx` — раздел Delete и клавиши Холста.
-- `src/renderer/canvas/overlays/TrashPopover.tsx` — кнопка «Trash» внизу слева и popover.
+- `src/renderer/canvas/overlays/TrashPopover.tsx` — кнопка «Trash» внизу по центру и popover (внизу слева она перекрывала место, где e2e тикета 29 крутит колесо над пустым Холстом).
 
 Файлы вне следа тикета (нужны механически): `src/shared/ipc/trash.ts` и `src/main/ipc/trash.ts`
 (новый домен IPC заводится файлом, ADR-0006), `TrashPopover.tsx` и `trash.css` (overlay

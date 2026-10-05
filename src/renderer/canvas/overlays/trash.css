@@ -1,4 +1,4 @@
-/* The Trash button and popover at the bottom left of the Canvas (TrashPopover.tsx). Values come from tokens.css. */
+/* The Trash button and popover at the bottom centre of the Canvas (TrashPopover.tsx). Values come from tokens.css. */
 .w-trash {
   font-family: var(--font-ui);
   font-size: var(--text-12);
@@ -96,4 +96,9 @@
 .w-trash__error {
   padding: var(--space-1);
   color: var(--blocked-text);
+}
+.w-trash__root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
