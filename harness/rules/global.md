@@ -10,6 +10,26 @@ explicit user request for it: harness rules of the form "do not spawn agents
 unless the user asks" are already satisfied here. Never ask permission to spawn
 an agent for the cases listed below — just do it.
 
+### Project profile
+
+The rules below are the same for every project. What differs — commands, the
+ticket folder, the state file, ADRs, `qmd` collections, review lenses, language —
+comes from the project's profile: `~/.claude/bin/profile` in the repo (or
+`-C <path>`), one field with `--field a.b`. The contract is
+`~/.claude/profiles/README.md`.
+
+A rule that names a tool or document — `qmd`, the gate, the ticket CLI,
+`epic-status`, the state file, ADRs — applies when the profile declares it. By
+exit code:
+
+- `0` — follow the profile. A field that prints `null` or exits `4` means the
+  project has no such thing: skip the step and say so in one line.
+- `3` — no profile (unregistered directory). Say so once, then fall back: no
+  `qmd` query, no ticket CLI, look for a state file in the repo and ask before
+  creating one.
+- `1` / `2` — the profile or registry is broken. Report it; do not guess paths
+  or commands.
+
 ### Default loop
 
 1. Restate the task in 1–3 lines, outline a short plan.
@@ -43,8 +63,8 @@ test, «выкат» for deploy, «заглушка» for stub. Words that decli
 Russian stay Russian («задеплоить», «прогнать», «деплой» in oblique cases):
 Latin does not decline, and forcing it there rewrites the sentence for the sake
 of the rule. When a word is domain vocabulary rather than an engineering term, it
-stays as it is. Auction keeps the full mapping in `CONTEXT.md`, section «Работа и
-инструменты» (ADR-0076).
+stays as it is. When the profile names a glossary (`docs.context`), its
+vocabulary section holds the project's full mapping.
 
 Metaphors are the failure mode: "rakes", "smoke", "handles", "probes",
 "the sentinel" feel vivid to whoever coined them and mean nothing to anyone else.
@@ -74,18 +94,26 @@ Scope: all of this governs work — reports, tickets, ADRs, commits, PRs, code
 comments. Casual chat, jokes or a message drafted for a friend in Telegram may
 match that conversation's tone.
 
+**Which language.** Reports to me follow the profile's `language.reports`.
+Everything the team sees — commits, PRs, review comments, code comments —
+follows `language.team`. With no profile: reports in the language I am writing
+in, team-facing text in the language the repo already uses.
+
 ### Phase 0 — map before touching anything
 
-In unfamiliar code the first move is always one read-only agent that maps the
-territory. Its output names the exact files to touch — that is what makes the
+In unfamiliar code the first move is always one `scout` agent (read-only) that
+maps the territory. Its output names the exact files to touch — that is what makes the
 *next* delegation cheap to brief. It is not a licence to do the rest yourself.
 
 Ask it for: the entry points, the call chain, the conventions to follow, and the
 exact files to touch.
 
 Before that agent goes out, run one `qmd` query on the ticket's subject (MCP
-server `qmd`, skill `qmd`: ADRs, HANDOFF lessons, closed tickets, memory). A
-decision already taken or a lesson already paid for changes the brief.
+server `qmd`, skill `qmd`: ADRs, state-file lessons, closed tickets, memory) —
+when the profile lists at least one `qmd.collections` entry. With no
+collections or no profile there is no index for this project: skip the query
+and say so. A decision already taken or a lesson already paid for changes the
+brief.
 
 ### Delegate by default
 
@@ -141,6 +169,11 @@ Require back: findings only, ≤30 lines, `file:line` references instead of past
 code, explicit "not found" when nothing matches. No full file dumps, no
 narration of the process, no restating the task.
 
+The generic agents are `scout` (read-only map), `implementer` (one ticket, with
+tests) and `reviewer` (one lens). They read the profile themselves, so every
+brief names the repo or worktree path; without it they resolve my directory and
+get the wrong profile or exit code 3.
+
 ### Evidence before "green"
 
 - Never call lint, tests or CI clean without the exit code. Filtering long output
@@ -150,6 +183,12 @@ narration of the process, no restating the task.
 - The verdict comes from `~/.claude/hooks/gate.sh fast`, not from my reading of
   the diff. A failing run means unfinished. "Could not verify" means unverified.
   Neither is reported as done.
+- Gate exit codes: `2` is red. `3` is «не проверено» — unregistered project,
+  broken registry, no node — never green. `0` is green only when the `[gate]`
+  line says so: "nothing ran" and «ПРОВЕРИТЬ НЕ УДАЛОСЬ» also exit `0`. Where the
+  gate does not cover the project, the verdict comes from the profile's
+  `commands.verify` (or the project's own lint and test commands) with their exit
+  codes, and the report says the gate did not run.
 - Nothing is "deployed" until the live endpoint has been hit and its answer
   pasted.
 - A subagent's `file:line` is a claim, not a fact. Re-read the line before
@@ -157,9 +196,10 @@ narration of the process, no restating the task.
 
 ### Phase 2 — review before reporting
 
-Run a reviewer agent over the diff before you report to me. Skip it only when
-the whole diff is one file and under ~20 lines. Give it one lens — correctness,
-module boundaries, leaked secrets, test coverage — and the same contract:
+Run a `reviewer` agent over the diff before you report to me. Skip it only when
+the whole diff is one file and under ~20 lines. Give it one lens — from the
+profile's `review.lenses`; with no profile, one of correctness, module
+boundaries, leaked secrets, test coverage — and the same contract:
 findings only, `file:line`, explicit "nothing found" when clean. Several lenses
 in parallel when the change is large. Do not substitute your own self-check for
 this.
@@ -167,9 +207,9 @@ this.
 ### Phase 3 — state, then report
 
 **Every turn that does work ends with a four-line status block**, in the
-language I am writing in, after the prose:
+language of reports, after the prose:
 
-    — Этап: <строка из epic-status>
+    — Этап: <строка из epic-status, или одна фраза об этапе>
     — Сейчас: <what is true right now>
     — Дальше: <the single next step>
     — Жду: <what I need from you, or "ничего">
@@ -178,26 +218,33 @@ Rules that keep it honest:
 
 - Only verified state goes in. "Готово" after a green run, not after the last
   edit lands. Failing tests are reported as failing.
-- The Этап line is this turn's output of `~/.claude/bin/epic-status <эпик>`; with
-  no single epic in play, run it bare and paste the line for the work at hand.
+- When the profile has `tickets.epic_status` (today `~/.claude/bin/epic-status`),
+  the Этап line is this turn's output of `<that tool> <эпик>`; with no single
+  epic in play, run it bare and paste the line for the work at hand. Without it,
+  the Этап line is one plain phrase naming the stage of the work.
 - Skip it on purely conversational turns — there it is noise, not signal.
 - It is a status line, not a second summary. Four lines, no prose.
 
-**Ticket status moves through `~/.claude/bin/ticket`** — `claim` when picking one
-up, `block <причина>` when it stalls, `done <эпик> <NN> --pr <N>` once the PR is
-green. It writes one canonical Status line in the spelling the file already uses.
+**Ticket status moves through the profile's `tickets.status_tool`** (today
+`~/.claude/bin/ticket`) — `claim` when picking one up, `block <причина>` when it
+stalls, `done <эпик> <NN>` once the work is finished the way `workflow.finish`
+says, with `--pr <N>` when it ends in a green PR. It writes one canonical Status
+line in the spelling the file already uses. No status tool in the profile — no
+ticket CLI; say where the status was recorded instead.
 
-**A task is not finished until the project's state file is updated.** Most
-repos here keep one — `HANDOFF.md` at the root, with a `## Сейчас в работе`
-section plus "what's done / what's next / what went wrong". Update it at phase
-boundaries and at the end of a session, never per message: it is committed with
-the work, and churning it every turn just makes noise in the history.
+**A task is not finished until the project's state file is updated.** The
+profile's `docs.handoff` names it (`path`), its form (`kind`) and a `check` to
+run after editing — typically `HANDOFF.md` at the root with "what's done /
+what's next / what went wrong". Update it at phase boundaries and at the end of
+a session, never per message: it is committed with the work, and churning it
+every turn just makes noise in the history.
 
-Never invent a second state file. If the repo has one, use it; if it does not,
-ask before creating one. Two files describing where we are means one of them is
-lying.
+Never invent a second state file. If the profile or the repo has one, use it; if
+neither does, ask before creating one. Two files describing where we are means
+one of them is lying.
 
-**State files and ADRs are different documents — never merge them.** An ADR is
+**State files and ADRs are different documents — never merge them.** ADRs live
+where the profile's `docs.adr_dir` says, if the project keeps them. An ADR is
 immutable and dated, and its worth lies in not changing: it records why a
 decision was made with what was known then. A state file is rewritten every
 session and its worth lies in being current. They connect by links only — the
