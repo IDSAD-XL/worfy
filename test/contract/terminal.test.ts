@@ -148,7 +148,14 @@ describe('terminal channels on a real pty', () => {
     await vi.waitFor(() => expect(h.exits).toHaveLength(1))
     expect(h.exits[0]).toMatchObject({ projectId: PROJECT, nodeId: NODE, signal: 1 })
     expect(h.registry.has(terminalKey(PROJECT, NODE))).toBe(false)
-    // Closing again is not an error.
+    // A shell ended by close is not kept as exited: the next open starts a new one. Checked before
+    // the second close below, which would forget a kept exit anyway.
+    expect(h.registry.hasExited(terminalKey(PROJECT, NODE))).toBe(false)
+    const reopened = await h.open()
+    expect(reopened).toMatchObject({ started: true, exited: null, replay: '' })
+    expect(reopened.pid).not.toBe(pid)
+    // Closing again, and once more after that, is not an error.
+    await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
     await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
   })
 
@@ -208,6 +215,13 @@ describe('terminal channels on a real pty', () => {
 
     await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5000 })
     expect(alive(otherPid)).toBe(true)
+    // The registry forgets the shell when its exit is reported, which can come after the pid is gone.
+    await vi.waitFor(() => expect(h.registry.has(terminalKey(PROJECT, NODE))).toBe(false))
+    // Ended because its window went away, not on its own: not kept as exited, the next open starts a new shell.
+    expect(h.registry.hasExited(terminalKey(PROJECT, NODE))).toBe(false)
+    const reopened = await h.open()
+    expect(reopened).toMatchObject({ started: true, exited: null, replay: '' })
+    expect(reopened.pid).not.toBe(pid)
   })
 
   it('a Terminal Node removed from the Layout, or its Project removed from the list, ends its shell', async () => {
