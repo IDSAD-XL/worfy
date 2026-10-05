@@ -176,3 +176,27 @@ PR: https://github.com/IDSAD-XL/worfy/pull/1 (ветка `worfy-mvp/01`).
 или списка `allowBuilds` должна прогонять проверки.
 
 В CI `pnpm test:e2e` не гоняется — так задумано тикетом: e2e и сборку `.app` добавляет тикет 32.
+
+**Доработка по ревью (круг 1).**
+- **Граница процессов держится lint-правилом.** В `eslint.config.js` — локальное правило
+  `worfy/process-boundary` для `src/renderer/**`, `src/card-runtime/**` и `src/shared/**`. Оно
+  запрещает импорт `electron` (и `electron/*`), `node:*` и встроенных модулей Node без префикса
+  (`fs/promises`, `path`, `os`…), а также относительные импорты, которые ведут в `src/main` и
+  `src/preload` (для `src/shared` — ещё и в `src/renderer`). Ловит обычный и type-only импорт,
+  `export … from`, `import()`, `typeof import(…)`, `require(…)`. Type-only импорт запрещён
+  намеренно: один `import type … from 'electron'` подтягивает типы Node в `tsconfig.web.json`, и
+  после этого `node:*` в renderer и shared проходят typecheck. Для `src/shared` запрещены все
+  встроенные модули Node, а не только `node:fs`: `src/shared` входит в `tsconfig.web.json` с
+  `types: []`, где модули Node и так не проходят typecheck, так что правило лишь говорит то же
+  самое раньше и для любого импорта. Встроенное `no-restricted-imports` не выбрано: оно не
+  разрешает относительный путь, и `../main` из подкаталога renderer (это `src/renderer/main.tsx`)
+  нельзя отличить от `../../main` (это `src/main`).
+- Правило проверено test-ом `test/unit/process-boundary.test.ts` (ESLint API над конфигом
+  репозитория: 13 запрещённых импортов, 6 разрешённых). Файла нет в «Где в коде»: без него
+  выключение правила ничем не ловится. Правило в `'off'` — 13 test-ов красные; сценарий ревью
+  (`import { ipcRenderer } from 'electron'` в начале `src/renderer/main.tsx`) — `pnpm lint` код 1.
+- `test/e2e/launch.spec.ts`: второй test сверяет `app.getPath('userData')` с `WORFY_DATA_DIR`
+  (оба через `realpath`). С удалённой строкой `app.setPath('userData', …)` в `src/main/index.ts`
+  `pnpm test:e2e` код 1 (`Received: …/Library/Application Support/Electron`), после отката — 0.
+- `test/unit/paths.test.ts`: для `WORFY_CLAUDE_HOME` добавлены пустое и относительное значения.
+  Мутант `override !== undefined` в `claudeHome` теперь даёт красный `pnpm test`.

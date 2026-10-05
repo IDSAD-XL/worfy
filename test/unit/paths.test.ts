@@ -27,4 +27,12 @@ describe('storage paths', () => {
   it('resolves a relative override to an absolute path', () => {
     expect(dataRoot({ WORFY_DATA_DIR: 'rel/data' })).toBe(join(process.cwd(), 'rel', 'data'))
   })
+
+  it('ignores an empty WORFY_CLAUDE_HOME', () => {
+    expect(claudeHome({ WORFY_CLAUDE_HOME: '' })).toBe(join(homedir(), '.claude'))
+  })
+
+  it('resolves a relative WORFY_CLAUDE_HOME to an absolute path', () => {
+    expect(claudeHome({ WORFY_CLAUDE_HOME: 'rel/claude' })).toBe(join(process.cwd(), 'rel', 'claude'))
+  })
 })
