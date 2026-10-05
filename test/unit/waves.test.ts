@@ -247,6 +247,12 @@ describe('wave numbers', () => {
     expect(Object.fromEntries(waves)).toEqual({ 3: 1, 2: 2 })
   })
 
+  it('does not spend a number on a round where only Tickets in work move', () => {
+    // 2 shares src/t1.ts with 1, which is in work: nothing is ready now, so 2 is the first wave.
+    const waves = waveNumbers([ticket(1, { state: 'work', statusRaw: 'claimed' }), ticket(2, { files: ['src/t1.ts'] })])
+    expect(Object.fromEntries(waves)).toEqual({ 2: 1 })
+  })
+
   it('gives no number to Tickets behind a cycle or an unparsed blocker', () => {
     const waves = waveNumbers([ticket(1, blocked(2)), ticket(2, blocked(1)), ticket(3, blocked(1)), ticket(4)])
     expect(Object.fromEntries(waves)).toEqual({ 4: 1 })

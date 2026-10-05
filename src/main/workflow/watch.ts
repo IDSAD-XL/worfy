@@ -44,39 +44,47 @@ function gitCommonDir(root: string): Promise<string | null> {
 
 /** Watches one Project. Create with `WorkflowWatcher.start`, stop with `close`. */
 export class WorkflowWatcher {
-  private model: WorkflowModel
-  private checkout: CheckoutModel
-  private branches: BranchCache
+  private model: WorkflowModel | null = null
+  private checkout: CheckoutModel | null = null
+  private branches: BranchCache = new Map()
   private readonly watchers: FSWatcher[] = []
   private timer: ReturnType<typeof setTimeout> | null = null
   private dirtyCheckout = false
   private dirtyBranches = false
   private running: Promise<void> | null = null
   private pending = false
+  private starting = true
   private closed = false
 
-  private constructor(
-    private readonly options: WatchOptions & { root: string; run: EpicStatusRunner },
-    first: { model: WorkflowModel; checkout: CheckoutModel; branches: BranchCache },
-  ) {
-    this.model = first.model
-    this.checkout = first.checkout
-    this.branches = first.branches
-  }
+  private constructor(private readonly options: WatchOptions & { root: string; run: EpicStatusRunner }) {}
 
-  /** Reads the Project once, then starts watching. Resolves when the watchers are ready. */
+  /**
+   * Starts watching, then reads the Project. The watchers are ready before the first read begins,
+   * so a change made while it runs is seen and read again; `start` resolves once no read is left
+   * running, and `current` then already holds such a change. No `onChange` is sent before that.
+   */
   static async start(options: WatchOptions): Promise<WorkflowWatcher> {
     const root = resolve(options.root)
     const run = options.run ?? epicStatusRunner(options.claudeHome)
-    const checkout = await readCheckout(root, run)
-    const branches = checkout.error ? new Map() : await readBranches(root, checkout, await ticketWorktrees(root), new Map(), run)
-    const watcher = new WorkflowWatcher({ ...options, root, run }, { model: applyBranches(checkout, branches), checkout, branches })
-    await watcher.watch()
+    const watcher = new WorkflowWatcher({ ...options, root, run })
+    try {
+      await watcher.watch()
+      watcher.dirtyCheckout = true
+      watcher.dirtyBranches = true
+      watcher.request()
+      while (watcher.running) await watcher.running
+      if (!watcher.model) throw new Error(`workflow: the first read of ${root} failed`)
+    } catch (error) {
+      await watcher.close()
+      throw error
+    }
+    watcher.starting = false
     return watcher
   }
 
   /** The latest model. */
   get current(): WorkflowModel {
+    if (!this.model) throw new Error('workflow: the watcher has not read the Project yet')
     return this.model
   }
 
@@ -153,21 +161,23 @@ export class WorkflowWatcher {
 
   private async readOnce(): Promise<void> {
     const { root, run } = this.options
-    const checkoutChanged = this.dirtyCheckout
+    const checkoutChanged = this.dirtyCheckout || !this.checkout
     const branchesChanged = this.dirtyBranches
     this.dirtyCheckout = false
     this.dirtyBranches = false
 
     try {
-      if (checkoutChanged) this.checkout = await readCheckout(root, run)
-      if (this.checkout.error) this.branches = new Map()
+      let checkout = this.checkout
+      if (checkoutChanged || !checkout) checkout = this.checkout = await readCheckout(root, run)
+      if (checkout.error) this.branches = new Map()
       else if (checkoutChanged || branchesChanged) {
-        this.branches = await readBranches(root, this.checkout, await ticketWorktrees(root), this.branches, run)
+        this.branches = await readBranches(root, checkout, await ticketWorktrees(root), this.branches, run)
       }
-      const next = applyBranches(this.checkout, this.branches)
-      const delta = diffModels(this.model, next)
+      const previous = this.model
+      const next = applyBranches(checkout, this.branches)
       this.model = next
-      if (delta && !this.closed) this.options.onChange(delta)
+      const delta = previous ? diffModels(previous, next) : null
+      if (delta && !this.starting && !this.closed) this.options.onChange(delta)
     } catch (error) {
       // The reader never throws; a throw here is a bug in onChange. Keep watching.
       console.error('[workflow] read failed', error)

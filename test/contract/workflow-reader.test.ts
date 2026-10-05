@@ -11,7 +11,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { readCheckout, readWorkflow, epicStatusRunner, type EpicStatusRunner } from '../../src/main/workflow/reader'
-import { WorkflowWatcher } from '../../src/main/workflow/watch'
+import { WorkflowHub, WorkflowWatcher } from '../../src/main/workflow/watch'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { diffModels, type WorkflowDelta, type WorkflowModel } from '../../src/shared/workflow/types'
 import { generateScratch } from './scratch-gen'
@@ -290,12 +290,13 @@ describe('workflow reader', () => {
     expect(wrongShape.error?.code).toBe('invalid-output')
   })
 
-  it('writes nothing into the Project: the tree, .git included, is byte-for-byte the same after reads and watching', async () => {
+  it('writes nothing into the Project or the Claude home: both trees, .git included, are byte-for-byte the same after reads and watching', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
     claimInWorktree(repo, 'demo/02', '02', '02-second.md')
     const statusBefore = git(repo, 'status', '--porcelain', '--untracked-files=all')
     const before = treeState(repo)
+    const homeBefore = treeState(home)
 
     await readWorkflow({ root: repo, claudeHome: home })
     const deltas: WorkflowDelta[] = []
@@ -305,6 +306,8 @@ describe('workflow reader', () => {
 
     expect(treeState(repo)).toEqual(before)
     expect(git(repo, 'status', '--porcelain', '--untracked-files=all')).toBe(statusBefore)
+    // The Claude home that bin/epic-status runs from is read-only for worfy too (ADR 0005).
+    expect(treeState(home)).toEqual(homeBefore)
   })
 })
 
@@ -356,6 +359,59 @@ describe('workflow watcher', () => {
     expect(delta.removedTickets).toEqual([{ epic: 'demo', num: 4 }])
   })
 
+  it('does not lose a Ticket saved while the first read runs', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const real = epicStatusRunner(home)
+    const file = join(repo, '.scratch/demo/issues/03-third.md')
+    let savedAt = 0
+    // The first checkout read answers with the state from before the save, as a slow read would.
+    const racing: EpicStatusRunner = async (cwd, ref) => {
+      const out = await real(cwd, ref)
+      if (ref === null && !savedAt) {
+        writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: claimed — 2026-10-05'))
+        savedAt = performance.now()
+        await new Promise((done) => setTimeout(done, 100))
+      }
+      return out
+    }
+    const deltas: WorkflowDelta[] = []
+    const watcher = await startWatcher(repo, home, deltas, racing)
+    expect(savedAt).toBeGreaterThan(0)
+
+    // Either `start` already gives the saved state, or a delta brings it within 1.5 s of the save.
+    if (ticketOf(watcher.current, 3)?.state !== 'work') {
+      const { delta, at } = await nextDelta(deltas, (d) => d.tickets.some((t) => t.num === 3))
+      expect(delta.tickets.map((t) => [t.num, t.state])).toEqual([[3, 'work']])
+      expect(at - savedAt).toBeLessThanOrEqual(1500)
+    }
+    await watcher.idle()
+    expect(ticketOf(watcher.current, 3)?.state).toBe('work')
+  })
+
+  it('waits for 300 ms of quiet: saves closer together than that give exactly one read', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const real = epicStatusRunner(home)
+    let checkoutReads = 0
+    const counting: EpicStatusRunner = async (cwd, ref) => {
+      if (ref === null) checkoutReads += 1
+      return real(cwd, ref)
+    }
+    const deltas: WorkflowDelta[] = []
+    const watcher = await startWatcher(repo, home, deltas, counting)
+    expect(checkoutReads).toBe(1)
+
+    const file = join(repo, '.scratch/demo/issues/03-third.md')
+    for (const word of ['one', 'two', 'three']) {
+      writeFileSync(file, readFileSync(file, 'utf8') + `\n${word}\n`)
+      await new Promise((done) => setTimeout(done, 60))
+    }
+    await new Promise((done) => setTimeout(done, 500))
+    await watcher.idle()
+    expect(checkoutReads).toBe(2)
+  })
+
   it('never overlaps reads: saves during a read give exactly one more read', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
@@ -400,6 +456,38 @@ describe('workflow watcher', () => {
 
     expect(peak).toBe(1)
     expect(checkoutReads).toBe(3)
+  })
+})
+
+// ── hub ──────────────────────────────────────────────────────────────────────
+
+describe('workflow hub', () => {
+  it('shares one watcher per Project: the other window keeps getting changes after one leaves', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const hub = new WorkflowHub({ claudeHome: home })
+    cleanups.push(() => hub.closeAll())
+    const first: WorkflowDelta[] = []
+    const second: WorkflowDelta[] = []
+
+    const [a, b] = await Promise.all([
+      hub.open(repo, { id: 1, send: (delta) => void first.push(delta) }),
+      hub.open(repo, { id: 2, send: (delta) => void second.push(delta) }),
+    ])
+    expect(a).toBe(b)
+    expect(hub.roots).toEqual([repo])
+
+    expect(await hub.close(repo, 1)).toBe(true)
+    expect(hub.roots).toEqual([repo])
+
+    const file = join(repo, '.scratch/demo/issues/02-second.md')
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked'))
+    const { delta } = await nextDelta(second, (d) => d.tickets.length > 0)
+    expect(delta.tickets.map((t) => [t.num, t.state])).toEqual([[2, 'blocked']])
+    expect(first).toEqual([])
+
+    expect(await hub.close(repo, 2)).toBe(true)
+    expect(hub.roots).toEqual([])
   })
 })
 
@@ -465,12 +553,21 @@ describe('workflow IPC channels', () => {
     await registerIpc(ipc, { modules: { './workflow.ts': async () => module.default }, isTrustedSender: () => true })
 
     const sent: { channel: string; payload: unknown }[] = []
-    const sender = { id: 7, isDestroyed: () => false, once: () => sender, send: (channel: string, payload: unknown) => void sent.push({ channel, payload }) }
+    const destroyed: (() => void)[] = []
+    const sender = {
+      id: 7,
+      isDestroyed: () => false,
+      once: (name: string, listener: () => void) => {
+        if (name === 'destroyed') destroyed.push(listener)
+        return sender
+      },
+      send: (channel: string, payload: unknown) => void sent.push({ channel, payload }),
+    }
     const call = async (name: string, input: unknown) => {
       const event = { senderFrame: { url: 'app://' }, sender } as unknown as IpcMainInvokeEvent
       return (await handlers.get(IPC_CHANNEL_PREFIX + name)!(event, input)) as IpcResult<unknown>
     }
-    return { repo, call, sent, hub: module.workflowHub }
+    return { repo, call, sent, destroyed, hub: module.workflowHub }
   }
 
   it('rejects a root of the wrong type or a relative path without watching anything', async () => {
@@ -504,6 +601,20 @@ describe('workflow IPC channels', () => {
 
     expect(await call('workflow.close', { root: repo })).toEqual({ ok: true, value: { closed: true } })
     expect(await call('workflow.close', { root: repo })).toEqual({ ok: true, value: { closed: false } })
+    expect(hub.roots).toEqual([])
+  })
+
+  it('takes a destroyed window off every Project it opened', async () => {
+    const { repo, call, destroyed, hub } = await setup()
+    expect((await call('workflow.open', { root: repo })).ok).toBe(true)
+    expect((await call('workflow.open', { root: repo })).ok).toBe(true)
+    expect(hub.roots).toEqual([repo])
+    // One listener per window, however many times it opens a Project.
+    expect(destroyed).toHaveLength(1)
+
+    destroyed[0]!()
+    const deadline = Date.now() + 5000
+    while (hub.roots.length && Date.now() < deadline) await new Promise((done) => setTimeout(done, 20))
     expect(hub.roots).toEqual([])
   })
 })
