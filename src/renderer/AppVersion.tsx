@@ -3,7 +3,7 @@ import { invoke } from './ipc'
 
 /**
  * The app version from main (`app.version`); empty until it arrives or if the call fails.
- * Mounted next to <App /> in main.tsx until the app shell (ticket 03) gives it a place of its own.
+ * main.tsx puts it in the Canvas slot of AppShell (ticket 03) while the Canvas view is empty (ticket 05).
  */
 export function AppVersion() {
   const [version, setVersion] = useState<string>()

@@ -85,12 +85,13 @@ PR: https://github.com/IDSAD-XL/worfy/pull/3 (ветка `worfy-mvp/02`). CI (li
 **Решения.**
 - **Вне следа: `src/renderer/main.tsx` и `src/renderer/AppVersion.tsx`.** Пункт «версия видна в
   окне» без правки окна не выполнить, а в «Где в коде» его нет. `AppVersion`
-  (`<small data-testid="app-version">`) — отдельный файл; `main.tsx` получает импорт и одну
-  строку `<AppVersion />` рядом с `<App />` в `render`, а `App()` не меняется. Ветка тикета 03
-  переписывает `App()` на `<AppShell />`: тело `App()` при мерже не конфликтует, и версия не
-  пропадёт молча; конфликт возможен только в строках импорта (оба добавляют импорт после
-  `react-dom/client`). В тикет 03 («Что делаем») записано, что AppShell ставит `AppVersion` к себе
-  и убирает строку из `main.tsx`.
+  (`<small data-testid="app-version">`) — отдельный файл. Тикет 03 влит раньше и монтирует
+  `<AppShell />` в `main.tsx`; при rebase на main версия встала в слот `canvas` AppShell:
+  `<AppShell canvas={<AppVersion />} />`. Рядом с `<App />` в `render` её оставлять нельзя:
+  `.w-shell` занимает 100vh, и версия ушла бы под окно. Слот `canvas` пуст до тикета 05 (Canvas
+  на React Flow) — тикет 05, заполняя слот, переносит `AppVersion` (например, в toolbar); e2e
+  `test/e2e/launch.spec.ts` («the window shows the version from package.json…») должен остаться
+  зелёным. Строку-указание для тикета 03 из PR убрал: 03 уже влит.
 - **Тест renderer-клиента — отдельный файл `test/contract/ipc-renderer.test.tsx`.** Проекты
   tsconfig — `composite`, и node-проект не может включить `src/renderer/ipc.ts` (TS6307). Файл
   `.tsx` объявляет свои test-каналы `client.echo` и `client.ticked`; канал-образец для main —
