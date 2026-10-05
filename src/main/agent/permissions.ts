@@ -5,7 +5,8 @@
 //
 // - "Allow" (`allow`): this one call runs, with its input unchanged;
 // - "Always allow" (`always_allow`): this call runs, and so does every later call of the same tool
-//   in this Session, without asking. The list lives here, in main's memory, on the Session's own
+//   in this Session, without asking; requests for the same tool already open are allowed with it.
+//   The list lives here, in main's memory, on the Session's own
 //   gate: it is never written to a settings file, never given to another Session, and a Session
 //   started again (a restart of worfy, Resume) starts with an empty one;
 // - "Deny" (`deny`): the call does not run, and the model is told the user refused.
@@ -129,9 +130,16 @@ export class PermissionGate {
     const pending = this.open.get(requestId)
     if (pending === undefined) return false
     if (decision === 'always_allow' && !pending.alwaysAllow) throw new Error('This request does not offer "Always allow"')
-    if (decision === 'always_allow') this.allowed.add(pending.toolName)
     const answer: PermissionAnswer = decision === 'deny' ? { behavior: 'deny', message: DENIED_MESSAGE } : { behavior: 'allow', updatedInput: pending.input }
     this.settle(requestId, answer, decision)
+    if (decision === 'always_allow') {
+      this.allowed.add(pending.toolName)
+      // Other requests for the same tool already open (parallel Subagents) are covered too: a new
+      // call of the tool would go through without asking, so these do not wait for an answer either.
+      for (const [otherId, other] of [...this.open]) {
+        if (other.toolName === pending.toolName) this.settle(otherId, { behavior: 'allow', updatedInput: other.input }, 'always_allow')
+      }
+    }
     return true
   }
 

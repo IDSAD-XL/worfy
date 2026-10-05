@@ -194,3 +194,64 @@ describe('the Session a notification opens', () => {
     expect(notificationTarget({ sessionId: 'nobody', projectRoot: null }, project)).toBeNull()
   })
 })
+
+describe('the notification overlay', () => {
+  const PROJECTS = { projects: [{ id: 'alpha', name: 'alpha', path: '/Users/test/alpha', branch: 'main' }], activeId: 'alpha', revision: 1 }
+
+  async function mountOverlay() {
+    const { default: NotificationTarget } = await import('../../src/renderer/canvas/overlays/NotificationTarget')
+    const { useNavigation } = await import('../../src/renderer/session/navigation')
+    const target = await import('../../src/renderer/session/notification-target')
+    render(<NotificationTarget />)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    return { opened: () => useNavigation.getState(), target }
+  }
+
+  it('in a window a click opened, takes the note from main and opens the Session once its view arrives', async () => {
+    answers['projects.list'] = () => PROJECTS
+    answers['notify.pending'] = () => ({ note: { sessionId: 'sdk-7', projectRoot: null } })
+    // The Session Node's view comes only when the overlay asks for the Project's views.
+    answers['sessions.views'] = () => ({ views: [nodeView({ state: 'busy' })] })
+    const h = await mountOverlay()
+    await vi.waitFor(() => expect(h.opened()).toMatchObject({ view: 'session', opened: { nodeId: 'node-7', projectId: 'alpha' } }))
+    expect(asked.filter((each) => each.channel === 'notify.pending')).not.toHaveLength(0)
+    expect(asked).toContainEqual({ channel: 'sessions.views', input: { projectId: 'alpha' } })
+    expect(h.target.usePendingNote.getState().pending).toBeNull()
+  })
+
+  it('in an open window, opens the Session of `notify.open`; a note main does not have changes nothing', async () => {
+    answers['projects.list'] = () => PROJECTS
+    answers['notify.pending'] = () => ({ note: null })
+    const h = await mountOverlay()
+    await vi.waitFor(() => expect(asked.map((each) => each.channel)).toContain('projects.list'))
+    expect(h.opened().opened).toBeNull()
+    act(() => handlers.get('notify.open')?.({ sessionId: 'ext-1', projectRoot: '/Users/test/alpha' }))
+    await vi.waitFor(() => expect(h.opened().opened).toEqual({ nodeId: 'session:ext-1', projectId: 'alpha', external: { sessionId: 'ext-1' } }))
+  })
+
+  it('drops a note whose Session does not show up in time, so a later view opens nothing', async () => {
+    answers['projects.list'] = () => PROJECTS
+    answers['notify.pending'] = () => ({ note: null })
+    const h = await mountOverlay()
+    act(() => h.target.holdNote({ sessionId: 'sdk-late', projectRoot: null }, Date.now() - h.target.NOTE_WAIT_MS + 30))
+    expect(h.target.usePendingNote.getState().pending?.note.sessionId).toBe('sdk-late')
+    await vi.waitFor(() => expect(h.target.usePendingNote.getState().pending).toBeNull())
+    expect(handlers.has('sessions.changed')).toBe(true)
+    act(() => handlers.get('sessions.changed')?.(nodeView({ nodeId: 'node-late', sessionId: 'sdk-late', sdkSessionId: 'sdk-late', state: 'busy', version: 2 })))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(h.opened().opened).toBeNull()
+  })
+
+  it('a newer note replaces one still waiting; letting go of the old one keeps the new', async () => {
+    const { dropNote, holdNote, usePendingNote } = await import('../../src/renderer/session/notification-target')
+    holdNote({ sessionId: 'a', projectRoot: null })
+    const first = usePendingNote.getState().pending
+    holdNote({ sessionId: 'b', projectRoot: null })
+    if (first !== null) dropNote(first)
+    expect(usePendingNote.getState().pending?.note.sessionId).toBe('b')
+  })
+})

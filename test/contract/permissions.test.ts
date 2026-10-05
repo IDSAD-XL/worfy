@@ -1,9 +1,10 @@
 // Permission requests of a Session through the `agent.*` IPC channels, on the fake agent (ticket 21):
 // canUseTool asks the renderer (`permission_request`), `agent.permission` answers it. "Allow" lets
 // one call through, "Always allow" the tool until the end of this Session only, "Deny" tells the
-// model the user refused; Interrupt and closing the Session refuse a request nobody answered.
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
-import { homedir, tmpdir } from 'node:os'
+// model the user refused; Interrupt, closing the Session and a crash of Claude Code refuse a request
+// nobody answered.
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -37,9 +38,9 @@ afterEach(async () => {
   await rm(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
-async function harness(script: string | ((request: QueryRequest) => string)) {
+async function harness(script: string | ((request: QueryRequest) => string), settingsHome?: string) {
   const calls: FakeCall[] = []
-  const registry = new SessionRegistry(fakeQueryFactory({ scriptsDir: fixtures, script, record: (call) => calls.push(call) }))
+  const registry = new SessionRegistry(fakeQueryFactory({ scriptsDir: fixtures, script, record: (call) => calls.push(call), settingsHome }))
   registries.push(registry)
   const handlers = new Map<string, Listener>()
   const ipc: IpcMainLike = { handle: (channel, listener) => handlers.set(channel, listener) }
@@ -166,14 +167,17 @@ describe('a permission request', () => {
   })
 
   it('"Always allow" changes no settings file of the Project or of ~/.claude (mtime)', async () => {
+    // The fake agent writes these files the way Claude Code would if an answer carried
+    // `updatedPermissions` (fake-query.ts); its ~/.claude is a temporary directory.
+    const home = join(cwd, 'claude-home')
     await mkdir(join(cwd, '.claude'))
-    const projectFiles = [join(cwd, '.claude', 'settings.json'), join(cwd, '.claude', 'settings.local.json')]
-    for (const file of projectFiles) await writeFile(file, '{}\n')
-    const userFiles = [join(homedir(), '.claude', 'settings.json'), join(homedir(), '.claude', 'settings.local.json')]
-    const mtimes = async () => Promise.all([...projectFiles, ...userFiles].map(async (file) => (await stat(file).catch(() => null))?.mtimeMs ?? null))
+    await mkdir(home)
+    const files = [join(cwd, '.claude', 'settings.json'), join(cwd, '.claude', 'settings.local.json'), join(home, 'settings.json'), join(home, 'settings.local.json')]
+    for (const file of files) await writeFile(file, '{}\n')
+    const mtimes = async () => Promise.all(files.map(async (file) => [(await stat(file)).mtimeMs, await readFile(file, 'utf8')]))
     const before = await mtimes()
 
-    const h = await harness('permission')
+    const h = await harness('permission', home)
     const id = await h.start()
     await h.ok('agent.send', { sessionId: id, text: 'build it' })
     await vi.waitFor(() => expect(h.ofType('permission_request')).toHaveLength(1))
@@ -195,6 +199,28 @@ describe('a permission request', () => {
     expect(h.ofType('state').at(-1)?.state).toBe('closed')
   })
 
+  it('"Always allow" covers only the tool it was given: Write in the same Session still asks', async () => {
+    const h = await harness('permission-two-tools')
+    const id = await h.start()
+    await h.ok('agent.send', { sessionId: id, text: 'build and write notes' })
+    await vi.waitFor(() => expect(h.ofType('permission_request')).toHaveLength(1))
+    await h.ok('agent.permission', { sessionId: id, requestId: h.ofType('permission_request')[0]?.requestId, decision: 'always_allow' })
+
+    // The second Bash call goes through; the Write call after it asks.
+    await vi.waitFor(() => expect(h.ofType('permission_request')).toHaveLength(2))
+    const write = h.ofType('permission_request')[1]
+    expect(write).toMatchObject({ toolName: 'Write', input: { content: 'done' } })
+    expect(h.registry.get(id).state).toBe('needs_permission')
+    expect(h.permissions().map((each) => [each.toolName, each.result.behavior])).toEqual([
+      ['Bash', 'allow'],
+      ['Bash', 'allow'],
+    ])
+
+    await h.ok('agent.permission', { sessionId: id, requestId: write?.requestId, decision: 'allow' })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('idle'))
+    expect(h.permissions().map((each) => each.toolName)).toEqual(['Bash', 'Bash', 'Write'])
+  })
+
   it('in bypassPermissions Claude Code asks nothing', async () => {
     const h = await harness('permission')
     const { sessionId } = await h.ok<{ sessionId: string }>('agent.start', { cwd })
@@ -203,6 +229,51 @@ describe('a permission request', () => {
     await vi.waitFor(() => expect(h.ofType('result')).toHaveLength(1))
     expect(h.ofType('permission_request')).toEqual([])
     expect(h.permissions()).toEqual([])
+  })
+})
+
+// The real SDK is not known to abort canUseTool's signal on interrupt, close or a crash (ticket 06
+// did not check it). Here the fake agent leaves the signal alone, so only the Session's own refusal
+// (PermissionGate.cancelAll in session.ts) can end the request.
+describe('the Session refuses an open request itself, whatever Claude Code does with the signal', () => {
+  const cancelled = { behavior: 'deny', message: CANCELLED_MESSAGE, interrupt: true }
+
+  it('on Interrupt: the request is cancelled and the Session goes idle', async () => {
+    const h = await harness('permission-kept-signal')
+    const id = await h.start()
+    await h.ok('agent.send', { sessionId: id, text: 'clean up' })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('needs_permission'))
+    const requestId = h.ofType('permission_request')[0]?.requestId
+
+    expect(await h.ok('agent.interrupt', { sessionId: id })).toEqual({ interrupted: true })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('idle'))
+    expect(h.ofType('permission_resolved')).toEqual([{ type: 'permission_resolved', requestId, decision: 'cancelled' }])
+    expect(h.permissions().map((each) => each.result)).toEqual([cancelled])
+  })
+
+  it('on close: the request is cancelled before the Session closes', async () => {
+    const h = await harness('permission-kept-signal')
+    const id = await h.start()
+    await h.ok('agent.send', { sessionId: id, text: 'clean up' })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('needs_permission'))
+
+    await h.ok('agent.close', { sessionId: id })
+    await vi.waitFor(() => expect(h.permissions()).toHaveLength(1))
+    expect(h.permissions()[0]?.result).toEqual(cancelled)
+    expect(h.ofType('permission_resolved').map((each) => each.decision)).toEqual(['cancelled'])
+    expect(h.ofType('state').at(-1)?.state).toBe('closed')
+  })
+
+  it('when Claude Code dies: the request is cancelled and the Session shows the error', async () => {
+    const h = await harness('permission-crash')
+    const id = await h.start()
+    await h.ok('agent.send', { sessionId: id, text: 'release' })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('error'))
+    expect(h.ofType('permission_request')).toHaveLength(1)
+    expect(h.ofType('permission_resolved').map((each) => each.decision)).toEqual(['cancelled'])
+    await vi.waitFor(() => expect(h.permissions().map((each) => each.result)).toEqual([cancelled]))
+    const states = h.ofType('state').map((each) => each.state)
+    expect(states.slice(states.indexOf('busy'))).toEqual(['busy', 'needs_permission', 'error'])
   })
 })
 
@@ -272,6 +343,31 @@ describe('PermissionGate', () => {
     expect(await answer).toEqual({ behavior: 'deny', message: CANCELLED_MESSAGE, interrupt: true })
     expect(gate.pending).toBe(0)
     expect(events.map((event) => event.type)).toEqual(['permission_request', 'permission_resolved'])
+  })
+
+  it('"Always allow" also allows the requests for the same tool already open, and no other tool\'s', async () => {
+    const events: AgentEvent[] = []
+    const counts: number[] = []
+    const gate = new PermissionGate((event) => events.push(event), (pending) => counts.push(pending))
+    const first = gate.canUseTool('Bash', { command: 'ls' }, options())
+    const second = gate.canUseTool('Bash', { command: 'pwd' }, options())
+    const write = gate.canUseTool('Write', { file_path: '/tmp/x' }, options())
+    const ids = events.flatMap((event) => (event.type === 'permission_request' ? [event.requestId] : []))
+    expect(gate.pending).toBe(3)
+
+    expect(gate.answer(ids[0] ?? '', 'always_allow')).toBe(true)
+    expect(await first).toEqual({ behavior: 'allow', updatedInput: { command: 'ls' } })
+    expect(await second).toEqual({ behavior: 'allow', updatedInput: { command: 'pwd' } })
+    expect(gate.pending).toBe(1)
+    expect(events.filter((event) => event.type === 'permission_resolved')).toEqual([
+      { type: 'permission_resolved', requestId: ids[0], decision: 'always_allow' },
+      { type: 'permission_resolved', requestId: ids[1], decision: 'always_allow' },
+    ])
+    expect(counts.at(-1)).toBe(1)
+    // The Write request still waits for its own answer.
+    expect(gate.answer(ids[1] ?? '', 'allow')).toBe(false)
+    expect(gate.answer(ids[2] ?? '', 'deny')).toBe(true)
+    expect(await write).toEqual({ behavior: 'deny', message: DENIED_MESSAGE })
   })
 
   it('does not offer "Always allow" when Claude Code says it must not, and refuses that answer', async () => {

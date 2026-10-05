@@ -9,6 +9,7 @@ import type { LiveSession } from '../../src/shared/ipc/claude-home'
 const electron = vi.hoisted(() => ({
   shown: [] as { title: string; body: string }[],
   focused: null as unknown,
+  windows: [] as unknown[],
 }))
 
 vi.mock('electron', () => {
@@ -22,10 +23,13 @@ vi.mock('electron', () => {
       electron.shown.push(this.options)
     }
   }
-  return { app: { focus: vi.fn() }, BrowserWindow: { getFocusedWindow: () => electron.focused, getAllWindows: () => [] }, Notification }
+  return { app: { focus: vi.fn() }, BrowserWindow: { getFocusedWindow: () => electron.focused, getAllWindows: () => electron.windows }, Notification }
 })
+// The real window module loads the app's page; openNote gets its own window factory.
+vi.mock('../../src/main/window', () => ({ createMainWindow: () => undefined }))
 
-const { NOTIFY_INTERVAL_MS, Notifier, electronNotifyDeps, installNotifications } = await import('../../src/main/notify')
+const { NOTIFY_INTERVAL_MS, Notifier, electronNotifyDeps, installNotifications, openNote } = await import('../../src/main/notify')
+const { PENDING_OPEN_MS, PendingOpens } = await import('../../src/main/notify-pending')
 type Note = Parameters<ConstructorParameters<typeof Notifier>[0]['show']>[0]
 
 type Result = Extract<AgentEvent, { type: 'result' }>
@@ -238,5 +242,120 @@ describe('live Sessions from the registry watchers', () => {
     onChange({ sessions: false, transcripts: ['t'] })
     onChange({ sessions: true, transcripts: [] })
     await vi.waitFor(() => expect(seen).toEqual(['/r busy', '/r idle']))
+  })
+})
+
+/** A BrowserWindow as openNote uses it. */
+function fakeWindow(id: number, { loading = false, minimized = false } = {}) {
+  const sent: { channel: string; payload: unknown }[] = []
+  const destroyed: (() => void)[] = []
+  const calls: string[] = []
+  const window = {
+    isDestroyed: () => false,
+    isMinimized: () => minimized,
+    restore: () => calls.push('restore'),
+    show: () => calls.push('show'),
+    focus: () => calls.push('focus'),
+    webContents: {
+      id,
+      isLoading: () => loading,
+      send: (channel: string, payload: unknown) => sent.push({ channel, payload }),
+      once: (event: string, listener: () => void) => {
+        if (event === 'destroyed') destroyed.push(listener)
+      },
+    },
+  }
+  return { window, sent, calls, destroy: () => destroyed.forEach((each) => each()) }
+}
+
+describe('a click on a notification', () => {
+  const note: Note = { title: 'alpha', body: 'Needs permission: Bash ls', sessionId: 's1', projectRoot: null }
+
+  it('raises the open window and sends it the Session to open', () => {
+    const pending = new PendingOpens()
+    const open = fakeWindow(1, { minimized: true })
+    electron.windows = [open.window]
+    const create = vi.fn()
+    openNote(note, pending, create)
+    expect(create).not.toHaveBeenCalled()
+    expect(open.calls).toEqual(['restore', 'show', 'focus'])
+    expect(open.sent).toEqual([{ channel: 'worfy:notify.open', payload: { sessionId: 's1', projectRoot: null } }])
+    expect(pending.take(1)).toBeNull()
+    electron.windows = []
+  })
+
+  it('with no window open (macOS keeps the app running), opens one and keeps the note for its renderer', () => {
+    const pending = new PendingOpens()
+    const created = fakeWindow(7)
+    electron.windows = []
+    const create = vi.fn(() => created.window)
+    openNote({ ...note, projectRoot: '/Users/test/alpha' }, pending, create as never)
+    expect(create).toHaveBeenCalledTimes(1)
+    // Nothing is sent to a page that is not there yet.
+    expect(created.sent).toEqual([])
+    expect(pending.take(7)).toEqual({ sessionId: 's1', projectRoot: '/Users/test/alpha' })
+    // Taken once.
+    expect(pending.take(7)).toBeNull()
+  })
+
+  it('keeps the note for a window still loading, and forgets it when the window goes away', () => {
+    const pending = new PendingOpens()
+    const loading = fakeWindow(3, { loading: true })
+    electron.windows = [loading.window]
+    openNote(note, pending, vi.fn() as never)
+    expect(loading.sent).toEqual([])
+    openNote({ ...note, sessionId: 's2' }, pending, vi.fn() as never)
+    loading.destroy()
+    expect(pending.take(3)).toBeNull()
+
+    openNote({ ...note, sessionId: 's3' }, pending, vi.fn() as never)
+    expect(pending.take(3)).toEqual({ sessionId: 's3', projectRoot: null })
+    electron.windows = []
+  })
+})
+
+describe('PendingOpens', () => {
+  it('hands a note out once, the latest of a window, only within PENDING_OPEN_MS, without other keys', () => {
+    let now = 0
+    const pending = new PendingOpens(() => now)
+    pending.hold(1, { sessionId: 'a', projectRoot: null, title: 'extra' } as never)
+    pending.hold(1, { sessionId: 'b', projectRoot: null, body: 'extra' } as never)
+    pending.hold(2, { sessionId: 'c', projectRoot: '/r' })
+    expect(pending.take(1)).toEqual({ sessionId: 'b', projectRoot: null })
+    expect(pending.take(1)).toBeNull()
+    now = PENDING_OPEN_MS - 1
+    expect(pending.take(2)).toEqual({ sessionId: 'c', projectRoot: '/r' })
+    pending.hold(2, { sessionId: 'd', projectRoot: null })
+    now += PENDING_OPEN_MS
+    expect(pending.take(2)).toBeNull()
+  })
+})
+
+describe('notify.pending at the IPC boundary', () => {
+  const APP_URL = 'file:///Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
+
+  async function harness() {
+    const { notifyHandlers } = await import('../../src/main/ipc/notify')
+    const { registerIpc } = await import('../../src/main/ipc/index')
+    const pending = new PendingOpens()
+    const handlers = new Map<string, (event: unknown, input?: unknown) => unknown>()
+    await registerIpc({ handle: (channel, listener) => handlers.set(channel, listener as never) }, { modules: { './notify.ts': () => Promise.resolve(notifyHandlers(pending)) }, isTrustedSender: (url) => url === APP_URL })
+    const call = (senderId: number, input?: unknown) => handlers.get('worfy:notify.pending')?.({ senderFrame: { url: APP_URL }, sender: { id: senderId } }, input)
+    return { pending, call }
+  }
+
+  it('answers the note of the asking window only, once', async () => {
+    const h = await harness()
+    h.pending.hold(4, { sessionId: 's1', projectRoot: null })
+    expect(await h.call(5)).toEqual({ ok: true, value: { note: null } })
+    expect(await h.call(4)).toEqual({ ok: true, value: { note: { sessionId: 's1', projectRoot: null } } })
+    expect(await h.call(4)).toEqual({ ok: true, value: { note: null } })
+  })
+
+  it('refuses an input it does not take, and leaves the note in place', async () => {
+    const h = await harness()
+    h.pending.hold(4, { sessionId: 's1', projectRoot: null })
+    expect(await h.call(4, { sessionId: 'other' })).toMatchObject({ ok: false })
+    expect(h.pending.take(4)).toEqual({ sessionId: 's1', projectRoot: null })
   })
 })

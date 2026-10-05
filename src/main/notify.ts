@@ -9,7 +9,10 @@
 //   transition.
 //
 // One Session sends at most one notification in NOTIFY_INTERVAL_MS. A click on a notification
-// raises the window and asks the renderer to open that Session (`notify.open`).
+// raises the window and asks the renderer to open that Session (`notify.open`). On macOS worfy
+// lives on after its last window closed, and so do its Sessions: then the click opens a new window
+// and leaves the note for its renderer to take (notify-pending.ts), as it does for a window still
+// loading.
 //
 // Notifier holds the rules and takes its Electron parts as NotifyDeps, so tests pass their own
 // (test/unit/notify.test.ts). An unsigned build from `pnpm dev` may show "Electron" or nothing
@@ -21,6 +24,8 @@ import type { LiveSession } from '../shared/ipc/claude-home'
 import { notifyOpen } from '../shared/ipc/notify'
 import type { SessionRegistry } from './agent/session'
 import { emit } from './ipc/index'
+import { pendingOpens, type PendingOpens } from './notify-pending'
+import { createMainWindow } from './window'
 
 export const NOTIFY_INTERVAL_MS = 10_000
 
@@ -148,6 +153,41 @@ export class Notifier {
 /** Notifications shown and not yet closed: a notification nobody holds may lose its click handler. */
 const shown = new Set<Notification>()
 
+/** Webcontents whose notes are dropped when they go away. */
+const watched = new Set<number>()
+
+/** Keeps the note for a window whose renderer is not there yet; forgotten with the window. */
+function holdFor(window: BrowserWindow, note: Note, pending: PendingOpens): void {
+  const contents = window.webContents
+  const id = contents.id
+  pending.hold(id, { sessionId: note.sessionId, projectRoot: note.projectRoot })
+  if (watched.has(id)) return
+  watched.add(id)
+  contents.once('destroyed', () => {
+    watched.delete(id)
+    pending.drop(id)
+  })
+}
+
+/**
+ * Raises worfy and opens the Session of a clicked notification: in the open window, or in a new
+ * one when none is open (macOS keeps the app running without windows).
+ */
+export function openNote(note: Note, pending: PendingOpens = pendingOpens, createWindow: () => BrowserWindow = createMainWindow): void {
+  const existing = BrowserWindow.getAllWindows().find((each) => !each.isDestroyed())
+  // A new window shows itself once its page is ready (window.ts).
+  const window = existing ?? createWindow()
+  if (existing !== undefined) {
+    if (window.isMinimized()) window.restore()
+    window.show()
+    window.focus()
+  }
+  app.focus({ steal: true })
+  // A renderer that is not loaded yet would miss the event: it asks for the note instead.
+  if (existing === undefined || window.webContents.isLoading()) holdFor(window, note, pending)
+  else emit(window.webContents, notifyOpen, { sessionId: note.sessionId, projectRoot: note.projectRoot })
+}
+
 /** Electron's notifications and windows. */
 export const electronNotifyDeps: NotifyDeps = {
   focused: () => BrowserWindow.getFocusedWindow() !== null,
@@ -162,15 +202,7 @@ export const electronNotifyDeps: NotifyDeps = {
     notification.on('close', () => shown.delete(notification))
     notification.show()
   },
-  open: (note) => {
-    const window = BrowserWindow.getAllWindows().find((each) => !each.isDestroyed())
-    if (window === undefined) return
-    if (window.isMinimized()) window.restore()
-    window.show()
-    window.focus()
-    app.focus({ steal: true })
-    emit(window.webContents, notifyOpen, { sessionId: note.sessionId, projectRoot: note.projectRoot })
-  },
+  open: (note) => openNote(note),
   now: () => Date.now(),
 }
 

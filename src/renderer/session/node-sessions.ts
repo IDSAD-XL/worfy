@@ -33,8 +33,11 @@ function ensureSubscribed(): void {
   }
 }
 
-/** Subscribes, then asks main once per Project for the views it already has (a reloaded window). */
-function ensureProject(projectId: string): void {
+/**
+ * Subscribes, then asks main once per Project for the views it already has (a reloaded window, or
+ * one a notification opened: notification-target.ts).
+ */
+export function ensureProject(projectId: string): void {
   ensureSubscribed()
   if (asked.has(projectId)) return
   asked.add(projectId)
@@ -69,6 +72,11 @@ export function useSessionNodeViewOf(projectId: string | undefined, sessionId: s
     if (projectId !== undefined) ensureProject(projectId)
   }, [projectId])
   return useViewsStore((store) => Object.values(store.byNode).find((view) => view.projectId === projectId && runs(view, sessionId)))
+}
+
+/** Every view this window has, by Node; a new object on each change (notification-target.ts waits on it). */
+export function useSessionNodeViews(): Readonly<Record<string, SessionNodeView>> {
+  return useViewsStore((store) => store.byNode)
 }
 
 /** The same lookup outside React, over the views this window has now; any Project. */

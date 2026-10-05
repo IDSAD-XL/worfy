@@ -49,6 +49,11 @@ export function useOrchestratorView(nodeId: string): OrchestratorView | undefine
   return view
 }
 
+/** Every Orchestrator view this window has, by Node; a new object on each change (ticket 21). */
+export function useOrchestratorViews(): Readonly<Record<string, OrchestratorView>> {
+  return useViewsStore((store) => store.byNode)
+}
+
 /** The Orchestrator whose live Session is `sessionId`, among the views this window has now (ticket 21). */
 export function orchestratorViewOf(sessionId: string): OrchestratorView | undefined {
   return Object.values(useViewsStore.getState().byNode).find((view) => view.sessionId === sessionId)

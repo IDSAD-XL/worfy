@@ -18,7 +18,14 @@
 //                                    unless the mode is bypassPermissions — canUseTool of the request
 //                                    with these suggestions, waiting for the answer; then the tool's
 //                                    result: what it "ran", or the refusal as an error. Interrupt and
-//                                    close abort the request's signal, as Claude Code does
+//                                    close abort the request's signal, as Claude Code does — unless
+//                                    "keepSignal":true: then only worfy's own refusal ends the request.
+//                                    With "crash":"..." Claude Code dies while the request is open
+//                                    (the message iterator throws; the signal is never aborted).
+//                                    An answer's `updatedPermissions` are applied as Claude Code would:
+//                                    localSettings / projectSettings write <cwd>/.claude/settings.local.json
+//                                    / settings.json, userSettings writes <settingsHome>/settings.json
+//                                    (FakeQueryOptions; not applied without it)
 // In SDK messages, "{{session}}" becomes the SDK session id (a new uuid, or the id passed as
 // `resume`) and "{{cwd}}" the Session's cwd. After the last line the script starts over, so one
 // script serves any number of turns; it ends when the Session closes its input.
@@ -35,7 +42,7 @@
 // Claude Code's next turn does (ticket 06, question 6). Effort is not in system/init, here as in
 // Claude Code. Each answer canUseTool gave is recorded with the tool and its input.
 import { randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SessionSettings } from '../../shared/agent/settings'
 import type { CommandInfoLike } from './commands'
@@ -80,7 +87,17 @@ type Step =
   | { kind: 'stderr'; text: string }
   | { kind: 'crash'; error: string }
   | { kind: 'exit' }
-  | { kind: 'permission'; toolName: string; toolUseId: string; input: Record<string, unknown>; suggestions: unknown[] }
+  | {
+      kind: 'permission'
+      toolName: string
+      toolUseId: string
+      input: Record<string, unknown>
+      suggestions: unknown[]
+      /** Interrupt and close leave the request's signal alone. */
+      keepSignal: boolean
+      /** Claude Code dies with this error while the request is open. */
+      crash: string | null
+    }
 
 type Line = Step | { kind: 'config'; config: FakeConfig }
 
@@ -97,6 +114,8 @@ const DIRECTIVES: Record<string, (value: Record<string, unknown>) => Line> = {
     toolUseId: String(value.toolUseId ?? 'toolu_fake'),
     input: typeof value.input === 'object' && value.input !== null ? (value.input as Record<string, unknown>) : {},
     suggestions: Array.isArray(value.suggestions) ? (value.suggestions as unknown[]) : [],
+    keepSignal: value.keepSignal === true,
+    crash: typeof value.crash === 'string' ? value.crash : null,
   }),
   account: (value) => ({ kind: 'config', config: { account: typeof value.error === 'string' ? { error: value.error } : { info: value.info as AccountInfoLike } } }),
   models: (value) => ({ kind: 'config', config: { models: value.models as ModelInfoLike[] } }),
@@ -173,6 +192,7 @@ class FakeQuery implements QueryHandle {
     path: string,
     private readonly request: QueryRequest,
     private readonly record: (call: FakeCall) => void,
+    private readonly settingsHome: string | null,
   ) {
     this.session = request.resume ?? randomUUID()
     const lines = parseScript(path, this.session, request.cwd)
@@ -262,19 +282,41 @@ class FakeQuery implements QueryHandle {
   private async ask(line: Extract<Step, { kind: 'permission' }>): Promise<PermissionAnswer | null> {
     if (this.permissionMode === 'bypassPermissions') return null
     const controller = new AbortController()
-    this.requests.add(controller)
-    try {
-      const description = typeof line.input.description === 'string' ? line.input.description : undefined
-      const result = await this.request.canUseTool(line.toolName, { ...line.input }, {
-        signal: controller.signal,
-        suggestions: line.suggestions,
-        toolUseID: line.toolUseId,
-        description,
+    if (!line.keepSignal && line.crash === null) this.requests.add(controller)
+    const description = typeof line.input.description === 'string' ? line.input.description : undefined
+    const answer = this.request
+      .canUseTool(line.toolName, { ...line.input }, { signal: controller.signal, suggestions: line.suggestions, toolUseID: line.toolUseId, description })
+      .then((result) => {
+        this.record({ kind: 'permission', toolName: line.toolName, input: { ...line.input }, result: { ...result } })
+        this.applyUpdates(result)
+        return result
       })
-      this.record({ kind: 'permission', toolName: line.toolName, input: { ...line.input }, result: { ...result } })
-      return result
-    } finally {
-      this.requests.delete(controller)
+      .finally(() => this.requests.delete(controller))
+    if (line.crash !== null) {
+      // The answer still comes (from worfy's own refusal) and is recorded; nobody reads it.
+      void answer.catch(() => undefined)
+      throw new Error(line.crash)
+    }
+    return answer
+  }
+
+  /** Writes an answer's `updatedPermissions` to the settings files they name, as Claude Code does. */
+  private applyUpdates(result: PermissionAnswer): void {
+    const updates = (result as { updatedPermissions?: unknown }).updatedPermissions
+    if (!Array.isArray(updates)) return
+    for (const update of updates as unknown[]) {
+      const destination = typeof update === 'object' && update !== null ? (update as { destination?: unknown }).destination : undefined
+      const file =
+        destination === 'localSettings'
+          ? join(this.request.cwd, '.claude', 'settings.local.json')
+          : destination === 'projectSettings'
+            ? join(this.request.cwd, '.claude', 'settings.json')
+            : destination === 'userSettings' && this.settingsHome !== null
+              ? join(this.settingsHome, 'settings.json')
+              : null
+      if (file === null) continue
+      mkdirSync(join(file, '..'), { recursive: true })
+      writeFileSync(file, `${JSON.stringify({ fakeUpdatedPermissions: [update] }, null, 2)}\n`)
     }
   }
 
@@ -372,12 +414,17 @@ export interface FakeQueryOptions {
   script: string | ((request: QueryRequest) => string)
   /** Gets what every fake query was asked to do (FakeCall). */
   record?: ((call: FakeCall) => void) | undefined
+  /**
+   * Stands for ~/.claude when an answer's `updatedPermissions` write `userSettings`; without it
+   * such an update is not applied, so a fake run never writes the real ~/.claude.
+   */
+  settingsHome?: string | undefined
 }
 
 export function fakeQueryFactory(options: FakeQueryOptions): QueryFactory {
   const record = options.record ?? (() => {})
   return (request) => {
     const name = typeof options.script === 'string' ? options.script : options.script(request)
-    return Promise.resolve(new FakeQuery(join(options.scriptsDir, `${name}.jsonl`), request, record))
+    return Promise.resolve(new FakeQuery(join(options.scriptsDir, `${name}.jsonl`), request, record, options.settingsHome ?? null))
   }
 }
