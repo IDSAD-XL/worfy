@@ -2,4 +2,5 @@
 {"type": "system", "subtype": "init", "cwd": "{{cwd}}", "session_id": "{{session}}", "tools": ["Bash"], "mcp_servers": [], "model": "claude-haiku-4-5-20251001", "permissionMode": "bypassPermissions", "slash_commands": ["ship-ticket", "epic-wave", "compact"], "apiKeySource": "none", "claude_code_version": "2.1.289", "uuid": "00000000-0000-4000-8000-000000000001"}
 {"type": "system", "subtype": "status", "status": "requesting", "session_id": "{{session}}", "uuid": "00000000-0000-4000-8000-000000000002"}
 {"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Working on "}}, "parent_tool_use_id": null, "session_id": "{{session}}", "uuid": "00000000-0000-4000-8000-000000000003"}
+{"fake": "stderr", "text": "Error: ENOSPC: no space left on device\n"}
 {"fake": "crash", "error": "Claude Code process exited with code 1"}

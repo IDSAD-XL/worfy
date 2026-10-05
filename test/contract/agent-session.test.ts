@@ -1,11 +1,12 @@
 // The Session lifecycle through the `agent.*` IPC channels, on the fake agent
 // (test/fixtures/agent-scripts/): what the renderer sends and the events it gets back.
+import { EventEmitter } from 'node:events'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { fakeQueryFactory } from '../../src/main/agent/fake-query'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { agentHandlers, windowSink } from '../../src/main/ipc/agent'
@@ -37,29 +38,44 @@ afterEach(async () => {
 async function harness(script: string | ((request: QueryRequest) => string)) {
   const requests: QueryRequest[] = []
   const factory = fakeQueryFactory({ scriptsDir, script })
-  const registry = new SessionRegistry((request) => {
+  /** close() of each query the registry started, in start order. */
+  const closes: MockInstance<() => void>[] = []
+  const registry = new SessionRegistry(async (request) => {
     requests.push(request)
-    return factory(request)
+    const query = await factory(request)
+    closes.push(vi.spyOn(query, 'close'))
+    return query
   })
   const handlers = new Map<string, Listener>()
   const ipc: IpcMainLike = { handle: (channel, listener) => handlers.set(channel, listener) }
   await registerIpc(ipc, { modules: { './agent.ts': () => Promise.resolve(agentHandlers(() => registry)) }, isTrustedSender: (url) => url === APP_URL })
 
   const received: AgentEventEnvelope[] = []
-  const sender = {
-    send: (channel: string, payload: unknown) => {
-      expect(channel).toBe(`${IPC_CHANNEL_PREFIX}agent.event`)
-      received.push(payload as AgentEventEnvelope)
-    },
+  /** A window's webContents: it gets events and can be destroyed. */
+  const makeWindow = () => {
+    const window = Object.assign(new EventEmitter(), {
+      destroyed: false,
+      isDestroyed: () => window.destroyed,
+      send: (channel: string, payload: unknown) => {
+        expect(channel).toBe(`${IPC_CHANNEL_PREFIX}agent.event`)
+        received.push(payload as AgentEventEnvelope)
+      },
+      destroy: () => {
+        window.destroyed = true
+        window.emit('destroyed')
+      },
+    })
+    return window
   }
-  const call = async (channel: string, input?: unknown): Promise<IpcResult<unknown>> => {
+  const sender = makeWindow()
+  const call = async (channel: string, input?: unknown, from: ReturnType<typeof makeWindow> = sender): Promise<IpcResult<unknown>> => {
     const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
     if (!listener) throw new Error(`no handler for ${channel}`)
-    const event = { senderFrame: { url: APP_URL }, sender } as unknown as IpcMainInvokeEvent
+    const event = { senderFrame: { url: APP_URL }, sender: from } as unknown as IpcMainInvokeEvent
     return (await listener(event, input)) as IpcResult<unknown>
   }
-  const ok = async <T>(channel: string, input?: unknown): Promise<T> => {
-    const result = await call(channel, input)
+  const ok = async <T>(channel: string, input?: unknown, from?: ReturnType<typeof makeWindow>): Promise<T> => {
+    const result = await call(channel, input, from)
     if (!result.ok) throw new Error(result.error)
     return result.value as T
   }
@@ -71,7 +87,7 @@ async function harness(script: string | ((request: QueryRequest) => string)) {
   }
   const states = (ids: string[]) => eventsOf(ids).flatMap((e) => (e.type === 'state' ? [e.state] : []))
   const start = async () => (await ok<{ sessionId: string }>('agent.start', { cwd })).sessionId
-  return { call, ok, received, eventsOf, states, start, requests, registry }
+  return { call, ok, received, eventsOf, states, start, requests, closes, registry, sender, makeWindow }
 }
 
 const ofType = <T extends AgentEvent['type']>(events: AgentEvent[], type: T) => events.filter((e): e is Extract<AgentEvent, { type: T }> => e.type === type)
@@ -209,7 +225,8 @@ describe('agent channels on the fake agent', () => {
     await h.ok('agent.send', { sessionId: id, text: 'work' })
     await vi.waitFor(() => expect(h.states([id]).at(-1)).toBe('error'))
     const crashed = h.eventsOf([id]).at(-1)
-    expect(crashed).toEqual({ type: 'state', state: 'error', error: 'Claude Code process exited with code 1' })
+    // The text ends with what Claude Code wrote to stderr before it died.
+    expect(crashed).toEqual({ type: 'state', state: 'error', error: 'Claude Code process exited with code 1\nError: ENOSPC: no space left on device' })
     const [init] = ofType(h.eventsOf([id]), 'init')
 
     await h.ok('agent.send', { sessionId: id, text: 'try again' })
@@ -218,6 +235,82 @@ describe('agent channels on the fake agent', () => {
     expect(h.states([id]).slice(-3)).toEqual(['error', 'busy', 'idle'])
     // The resumed query reports the same SDK session: no second rename.
     expect(ofType(h.eventsOf([id]), 'renamed')).toHaveLength(1)
+  })
+
+  it('Claude Code exiting without agent.close puts the Session in error', async () => {
+    const h = await harness((request) => (request.resume === undefined ? 'exit' : 'turn'))
+    const id = await h.start()
+    await h.ok('agent.send', { sessionId: id, text: 'work' })
+    await vi.waitFor(() => expect(h.states([id]).at(-1)).toBe('error'))
+    expect(h.eventsOf([id]).at(-1)).toEqual({ type: 'state', state: 'error', error: 'Claude Code exited' })
+    // Not a dead end: the next send resumes the same SDK session.
+    await h.ok('agent.send', { sessionId: id, text: 'again' })
+    await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'result')).toHaveLength(1))
+    expect(h.requests).toHaveLength(2)
+  })
+
+  it('a start whose account request fails puts the Session in error, not starting forever', async () => {
+    const h = await harness('account-error')
+    const id = await h.start()
+    await vi.waitFor(() => expect(h.states([id])).toEqual(['starting', 'error']))
+    expect(h.eventsOf([id]).at(-1)).toEqual({ type: 'state', state: 'error', error: 'Claude Code did not answer the account request' })
+    expect(ofType(h.eventsOf([id]), 'account')).toEqual([])
+  })
+
+  it('refuses to start a second live Session on the SDK session another one already runs', async () => {
+    const h = await harness('turn')
+    const resumed = await h.ok<{ sessionId: string }>('agent.start', { cwd, resume: 'sdk-x' })
+    // Still under its temporary id: the SDK id is known from `resume` alone.
+    const twice = await h.call('agent.start', { cwd, resume: 'sdk-x' })
+    expect(!twice.ok && twice.error).toMatch(/sdk-x is already live/)
+
+    const fresh = await h.start()
+    await h.ok('agent.send', { sessionId: fresh, text: 'hello' })
+    await vi.waitFor(() => expect(ofType(h.eventsOf([fresh]), 'init')).toHaveLength(1))
+    const finalId = ofType(h.eventsOf([fresh]), 'init')[0]?.sdkSessionId ?? ''
+    const onLive = await h.call('agent.start', { cwd, resume: finalId })
+    expect(!onLive.ok && onLive.error).toMatch(/is already live/)
+    expect(h.requests).toHaveLength(2)
+    expect((await h.ok<{ sessionId: string }[]>('agent.list')).map((s) => s.sessionId).sort()).toEqual([finalId, resumed.sessionId].sort())
+    // Once the first one is closed, its SDK session can be resumed again.
+    await h.ok('agent.close', { sessionId: resumed.sessionId })
+    expect((await h.call('agent.start', { cwd, resume: 'sdk-x' })).ok).toBe(true)
+  })
+
+  it('closing a window closes the Sessions it started and stops their Claude Code; other windows keep theirs', async () => {
+    const h = await harness('turn')
+    const other = h.makeWindow()
+    const mine = await h.start()
+    const theirs = (await h.ok<{ sessionId: string }>('agent.start', { cwd }, other)).sessionId
+    await vi.waitFor(() => expect([h.states([mine]).at(-1), h.states([theirs]).at(-1)]).toEqual(['idle', 'idle']))
+    expect(h.closes).toHaveLength(2)
+
+    other.destroy()
+    expect(await h.ok('agent.list')).toStrictEqual([{ sessionId: mine, cwd, state: 'idle' }])
+    expect((await h.call('agent.send', { sessionId: theirs, text: 'anyone?' })).ok).toBe(false)
+    // Its Claude Code is stopped; the other window's is not.
+    expect(h.closes[1]).toHaveBeenCalledOnce()
+    expect(h.closes[0]).not.toHaveBeenCalled()
+    await h.ok('agent.send', { sessionId: mine, text: 'hello' })
+    await vi.waitFor(() => expect(ofType(h.eventsOf([mine]), 'result')).toHaveLength(1))
+  })
+
+  it('a window that throws on send while it is destroyed still gets all its Sessions closed', async () => {
+    const h = await harness('turn')
+    const window = h.makeWindow()
+    // Electron may not report isDestroyed() yet inside 'destroyed'; send then throws.
+    window.isDestroyed = () => false
+    const send = window.send
+    window.send = (channel, payload) => {
+      if (window.destroyed) throw new Error('Object has been destroyed')
+      send(channel, payload)
+    }
+    await h.ok('agent.start', { cwd }, window)
+    await h.ok('agent.start', { cwd }, window)
+    await vi.waitFor(() => expect(h.closes).toHaveLength(2))
+    window.destroy()
+    expect(await h.ok('agent.list')).toEqual([])
+    for (const close of h.closes) expect(close).toHaveBeenCalledOnce()
   })
 
   it('an unknown SDK message becomes an unknown event and the turn goes on', async () => {

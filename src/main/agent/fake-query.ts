@@ -3,9 +3,12 @@
 //
 // Each line of a script is either an SDK message, yielded as is, or a directive:
 //   {"fake":"account","info":{...}}  what accountInfo() answers (first line only; default: a subscription login)
+//   {"fake":"account","error":"..."} accountInfo() rejects with this message (first line only)
 //   {"fake":"wait_message"}          wait for the next user message (the turn starts)
 //   {"fake":"wait_interrupt"}        wait until interrupt() is called
+//   {"fake":"stderr","text":"..."}   Claude Code writes this to its stderr
 //   {"fake":"crash","error":"..."}   Claude Code dies: the message iterator throws
+//   {"fake":"exit"}                  Claude Code exits quietly: the message iterator ends
 // In SDK messages, "{{session}}" becomes the SDK session id (a new uuid, or the id passed as
 // `resume`) and "{{cwd}}" the Session's cwd. After the last line the script starts over, so one
 // script serves any number of turns; it ends when the Session closes its input.
@@ -16,7 +19,16 @@ import type { AccountInfoLike, QueryFactory, QueryHandle, QueryRequest } from '.
 
 const SUBSCRIPTION: AccountInfoLike = { apiProvider: 'firstParty', subscriptionType: 'Claude Max', tokenSource: 'claude.ai' }
 
-type Line = { kind: 'message'; message: unknown } | { kind: 'wait_message' } | { kind: 'wait_interrupt' } | { kind: 'crash'; error: string } | { kind: 'account'; info: AccountInfoLike }
+type Account = { info: AccountInfoLike } | { error: string }
+
+type Line =
+  | { kind: 'message'; message: unknown }
+  | { kind: 'wait_message' }
+  | { kind: 'wait_interrupt' }
+  | { kind: 'stderr'; text: string }
+  | { kind: 'crash'; error: string }
+  | { kind: 'exit' }
+  | { kind: 'account'; account: Account }
 
 function parseScript(path: string, session: string, cwd: string): Line[] {
   return readFileSync(path, 'utf8')
@@ -31,10 +43,14 @@ function parseScript(path: string, session: string, cwd: string): Line[] {
           return { kind: 'wait_message' }
         case 'wait_interrupt':
           return { kind: 'wait_interrupt' }
+        case 'stderr':
+          return { kind: 'stderr', text: String(value.text ?? '') }
         case 'crash':
           return { kind: 'crash', error: String(value.error ?? 'Claude Code crashed') }
+        case 'exit':
+          return { kind: 'exit' }
         case 'account':
-          return { kind: 'account', info: value.info as AccountInfoLike }
+          return { kind: 'account', account: typeof value.error === 'string' ? { error: value.error } : { info: value.info as AccountInfoLike } }
         default:
           throw new Error(`${path}:${index + 1}: unknown directive ${JSON.stringify(value.fake)}`)
       }
@@ -46,7 +62,7 @@ class FakeQuery implements QueryHandle {
   private interruptRequested = false
   private wakeInterrupt: (() => void) | null = null
   private readonly lines: Line[]
-  private readonly account: AccountInfoLike
+  private readonly account: Account
 
   constructor(
     path: string,
@@ -54,11 +70,11 @@ class FakeQuery implements QueryHandle {
   ) {
     this.lines = parseScript(path, request.resume ?? randomUUID(), request.cwd)
     const first = this.lines[0]
-    this.account = first?.kind === 'account' ? first.info : SUBSCRIPTION
+    this.account = first?.kind === 'account' ? first.account : { info: SUBSCRIPTION }
   }
 
   accountInfo(): Promise<AccountInfoLike> {
-    return Promise.resolve(this.account)
+    return 'error' in this.account ? Promise.reject(new Error(this.account.error)) : Promise.resolve(this.account.info)
   }
 
   interrupt(): Promise<unknown> {
@@ -99,8 +115,13 @@ class FakeQuery implements QueryHandle {
             }
             this.interruptRequested = false
             break
+          case 'stderr':
+            this.request.stderr(line.text)
+            break
           case 'crash':
             throw new Error(line.error)
+          case 'exit':
+            return
         }
       }
     }

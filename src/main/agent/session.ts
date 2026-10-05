@@ -124,6 +124,11 @@ export class Session {
     return this.stateValue
   }
 
+  /** The SDK session this one runs or will resume, once known. */
+  get sdkId(): string | null {
+    return this.sdkSessionId
+  }
+
   info(): SessionInfo {
     return { sessionId: this.current, cwd: this.cwd, state: this.stateValue }
   }
@@ -281,14 +286,25 @@ export class SessionRegistry {
 
   constructor(private readonly factory: QueryFactory) {}
 
-  /** Starts a Session whose events go to `sink` (the window that asked for it). */
+  /**
+   * Starts a Session whose events go to `sink` (the window that asked for it). Resuming an SDK
+   * session that a live Session already runs is refused: two Claude Code processes would write
+   * one transcript, and both Sessions would send events under one id.
+   */
   start(cwd: string, resume: string | undefined, sink: EventSink): Session {
+    if (resume !== undefined && this.live().some((live) => live.id === resume || live.sdkId === resume)) {
+      throw new Error(`Session ${resume} is already live`)
+    }
     const session = new Session(
       cwd,
       this.factory,
       (sessionId, event) => {
-        sink(sessionId, event)
-        if (event.type === 'state' && event.state === 'closed') this.forget(session)
+        try {
+          sink(sessionId, event)
+        } finally {
+          // A sink that throws (a window already gone) must not keep a closed Session listed.
+          if (event.type === 'state' && event.state === 'closed') this.forget(session)
+        }
       },
       (_from, to) => this.sessions.set(to, session),
       resume,
@@ -305,11 +321,15 @@ export class SessionRegistry {
   }
 
   list(): SessionInfo[] {
-    return [...new Set(this.sessions.values())].map((session) => session.info())
+    return this.live().map((session) => session.info())
   }
 
   closeAll(): void {
-    for (const session of new Set(this.sessions.values())) session.close()
+    for (const session of this.live()) session.close()
+  }
+
+  private live(): Session[] {
+    return [...new Set(this.sessions.values())]
   }
 
   private forget(session: Session): void {
