@@ -62,12 +62,12 @@ export function terminalHandlers(deps: TerminalDeps): HandlerModule {
   }
 
   return [
-    defineHandler(terminalOpen, async ({ projectId, nodeId, cols, rows }, { event }) => {
+    defineHandler(terminalOpen, async ({ projectId, nodeId, cols, rows, restart }, { event }) => {
       const cwd = deps.projectRoot(projectId)
       if (!deps.isTerminalNode(projectId, nodeId)) throw new Error(`${nodeId} is not a Terminal Node of ${projectId}`)
       const key = terminalKey(projectId, nodeId)
       const window = event.sender as unknown as Window
-      const result = await deps.registry().open(key, { cwd, cols, rows }, windowSink(window, projectId, nodeId))
+      const result = await deps.registry().open(key, { cwd, cols, rows, restart }, windowSink(window, projectId, nodeId))
       own(window, key)
       return result
     }),
@@ -97,30 +97,45 @@ export function closeRemovedProjects(registry: TerminalRegistry, projectIds: Rea
 }
 
 /** How long quitting waits for the shells beyond their own SIGKILL grace period. */
-const QUIT_WAIT_MS = 3000
+export const QUIT_WAIT_MS = 3000
+
+/** What the registry is wired to: the Layout, the list of Projects and the app quitting. */
+export interface RegistryWiring {
+  layout: { onChange(listener: (change: Pick<LayoutChange, 'projectId' | 'op'>) => void): unknown }
+  projects: { onChange(listener: () => void): unknown; list(): readonly { id: string }[] }
+  app: { on(event: 'will-quit', listener: (event: { preventDefault(): void }) => void): unknown; quit(): void }
+  quitWaitMs?: number
+}
+
+/**
+ * Ends the shells when what owns them goes: their Node leaving the Layout, their Project leaving
+ * the list, the app quitting. Quitting waits for the shells to exit (at most `quitWaitMs`), then
+ * quits again with nothing left to wait for.
+ */
+export function wireRegistry(registry: TerminalRegistry, wiring: RegistryWiring): void {
+  const warn = (what: string) => (error: unknown) => console.warn(`[terminal] ${what} failed`, error)
+  // A Terminal Node removed from the Layout, by the Node's close button or any other route,
+  // takes its shell with it.
+  wiring.layout.onChange((change) => void closeRemovedNode(registry, change).catch(warn('closing the shell of a removed Node')))
+  // A Project removed from the list takes its shells with it.
+  wiring.projects.onChange(
+    () => void closeRemovedProjects(registry, new Set(wiring.projects.list().map((project) => project.id))).catch(warn('closing the shells of a removed Project')),
+  )
+  wiring.app.on('will-quit', (event) => {
+    if (registry.size === 0) return
+    event.preventDefault()
+    const timeout = new Promise<void>((resolve) => setTimeout(resolve, wiring.quitWaitMs ?? QUIT_WAIT_MS))
+    void Promise.race([registry.closeAll(), timeout]).finally(() => wiring.app.quit())
+  })
+}
 
 let appRegistry: TerminalRegistry | null = null
 
-/** The app's registry, made on first use, wired to the Layout and to quitting. */
+/** The app's registry, made on first use, wired to the Layout, the Projects and quitting. */
 function sharedRegistry(): TerminalRegistry {
   if (appRegistry !== null) return appRegistry
   const registry = new TerminalRegistry({ env: async () => (await agentEnv()).env })
-
-  // A Terminal Node removed from the Layout, by the Node's close button or any other route,
-  // takes its shell with it.
-  layoutStore().onChange((change) => void closeRemovedNode(registry, change))
-  // A Project removed from the list takes its shells with it.
-  const projects = projectStore()
-  projects.onChange(() => void closeRemovedProjects(registry, new Set(projects.list().map((project) => project.id))))
-
-  // Quitting waits for the shells to exit, then quits again with nothing left to wait for.
-  app.on('will-quit', (event) => {
-    if (registry.size === 0) return
-    event.preventDefault()
-    const timeout = new Promise<void>((resolve) => setTimeout(resolve, QUIT_WAIT_MS))
-    void Promise.race([registry.closeAll(), timeout]).finally(() => app.quit())
-  })
-
+  wireRegistry(registry, { layout: layoutStore(), projects: projectStore(), app })
   appRegistry = registry
   return registry
 }

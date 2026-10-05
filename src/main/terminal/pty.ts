@@ -6,6 +6,10 @@
 // keeps the last 256 KB of each terminal's output, so a renderer that comes back (the Canvas
 // remounted, the window reloaded) redraws the terminal with what it already showed.
 //
+// A shell that exited on its own stays exited: its exit code and last output are kept until the
+// Node is closed or the user asks for a new shell (open with `restart`), so a renderer that comes
+// back shows the exit instead of silently starting another shell.
+//
 // No shell outlives what owns it: close() sends SIGHUP, as a terminal emulator does when its
 // window closes, and SIGKILL after a grace period when the shell ignores it; closeAll() does that
 // for every terminal and resolves once all of them have exited.
@@ -99,6 +103,13 @@ export interface OpenRequest {
   cwd: string
   cols: number
   rows: number
+  /** Start a new shell even when the last one exited on its own. */
+  restart?: boolean
+}
+
+export interface ShellExit {
+  exitCode: number
+  signal: number | null
 }
 
 export interface OpenResult {
@@ -107,6 +118,16 @@ export interface OpenResult {
   replay: string
   end: number
   started: boolean
+  /** Set when the shell exited on its own and no new one was asked for: nothing runs. */
+  exited: ShellExit | null
+}
+
+/** A shell that exited on its own, kept until its Node is closed or restarted. */
+interface Ended {
+  pid: number
+  shell: string
+  buffer: ReplayBuffer
+  exit: ShellExit
 }
 
 interface Terminal {
@@ -137,6 +158,7 @@ export class TerminalRegistry {
   private readonly terminals = new Map<string, Terminal>()
   /** Shells being started: a second open of the same key waits for the first instead of starting another. */
   private readonly starting = new Map<string, Promise<Terminal>>()
+  private readonly ended = new Map<string, Ended>()
   private readonly spawnPty: SpawnPty
   private readonly killGraceMs: number
 
@@ -145,7 +167,7 @@ export class TerminalRegistry {
     this.killGraceMs = options.killGraceMs ?? KILL_GRACE_MS
   }
 
-  /** Running terminals, including those still exiting. */
+  /** Running terminals, including those still exiting (not those kept as exited). */
   get size(): number {
     return this.terminals.size + this.starting.size
   }
@@ -158,9 +180,15 @@ export class TerminalRegistry {
     return [...new Set([...this.terminals.keys(), ...this.starting.keys()])]
   }
 
+  /** True when the shell of `key` exited on its own and is kept as exited. */
+  hasExited(key: string): boolean {
+    return this.ended.has(key)
+  }
+
   /**
    * Starts the shell of `key`, or attaches `sink` to the one running: its output goes to `sink`
-   * from now on, and the answer carries what it printed so far.
+   * from now on, and the answer carries what it printed so far. When the last shell exited on its
+   * own, answers with that exit and its output instead, unless `request.restart` asks for a new one.
    */
   async open(key: string, request: OpenRequest, sink: TerminalSink): Promise<OpenResult> {
     const running = this.terminals.get(key) ?? (await this.starting.get(key))
@@ -168,7 +196,7 @@ export class TerminalRegistry {
       running.sink = sink
       const { cols, rows } = clampSize(request.cols, request.rows)
       running.pty.resize(cols, rows)
-      return { pid: running.pty.pid, shell: running.shell, replay: running.buffer.text(), end: running.buffer.end, started: false }
+      return { pid: running.pty.pid, shell: running.shell, replay: running.buffer.text(), end: running.buffer.end, started: false, exited: null }
     }
     // A shell still exiting after close: wait for it, then open again (another call may have
     // started the new shell meanwhile).
@@ -177,12 +205,18 @@ export class TerminalRegistry {
       return this.open(key, request, sink)
     }
 
+    const ended = this.ended.get(key)
+    if (ended !== undefined && request.restart !== true) {
+      return { pid: ended.pid, shell: ended.shell, replay: ended.buffer.text(), end: ended.buffer.end, started: false, exited: ended.exit }
+    }
+    this.ended.delete(key)
+
     const pending = this.start(key, request, sink)
     this.starting.set(key, pending)
     try {
       const terminal = await pending
       this.terminals.set(key, terminal)
-      return { pid: terminal.pty.pid, shell: terminal.shell, replay: '', end: 0, started: true }
+      return { pid: terminal.pty.pid, shell: terminal.shell, replay: '', end: 0, started: true, exited: null }
     } finally {
       this.starting.delete(key)
     }
@@ -207,10 +241,15 @@ export class TerminalRegistry {
       terminal.sink.output(data, terminal.buffer.end)
     })
     pty.onExit(({ exitCode, signal }) => {
-      if (this.terminals.get(key) === terminal) this.terminals.delete(key)
+      const exit: ShellExit = { exitCode, signal: signal === undefined || signal === 0 ? null : signal }
+      if (this.terminals.get(key) === terminal) {
+        this.terminals.delete(key)
+        // Ended by close: nothing to keep. Exited on its own: kept for the next open.
+        if (!terminal.closing) this.ended.set(key, { pid: terminal.pty.pid, shell: terminal.shell, buffer: terminal.buffer, exit })
+      }
       exitedResolve()
       try {
-        terminal.sink.exit(exitCode, signal === undefined || signal === 0 ? null : signal)
+        terminal.sink.exit(exit.exitCode, exit.signal)
       } catch (error) {
         console.warn(`[terminal] reporting the exit of ${key} failed`, error)
       }
@@ -233,8 +272,9 @@ export class TerminalRegistry {
     this.running(key).pty.resize(size.cols, size.rows)
   }
 
-  /** Ends the shell of `key`; resolves once it has exited. Not running is not an error. */
+  /** Ends the shell of `key`, or forgets its exit; resolves once it has exited. Not running is not an error. */
   async close(key: string): Promise<void> {
+    this.ended.delete(key)
     const terminal = this.terminals.get(key) ?? (await this.starting.get(key)?.catch(() => undefined))
     if (terminal === undefined) return
     if (!terminal.closing) {
@@ -253,9 +293,10 @@ export class TerminalRegistry {
     await terminal.exited
   }
 
-  /** Closes every terminal whose key passes `test`. */
+  /** Closes every terminal whose key passes `test`, running or kept as exited. */
   async closeWhere(test: (key: string) => boolean): Promise<void> {
-    await Promise.all(this.keys().filter(test).map((key) => this.close(key)))
+    const keys = new Set([...this.keys(), ...this.ended.keys()])
+    await Promise.all([...keys].filter(test).map((key) => this.close(key)))
   }
 
   async closeAll(): Promise<void> {

@@ -9,7 +9,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SYSTEM_PATH } from '../../src/main/agent/env'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
-import { closeRemovedNode, closeRemovedProjects, terminalHandlers, terminalKey } from '../../src/main/ipc/terminal'
+import { closeRemovedNode, closeRemovedProjects, terminalHandlers, terminalKey, wireRegistry } from '../../src/main/ipc/terminal'
 import { clampSize, ReplayBuffer, REPLAY_LIMIT, terminalEnv, TerminalRegistry } from '../../src/main/terminal/pty'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 
@@ -26,6 +26,7 @@ interface OpenResult {
   replay: string
   end: number
   started: boolean
+  exited: { exitCode: number; signal: number | null } | null
 }
 interface Output {
   projectId: string
@@ -123,7 +124,7 @@ async function harness(options: { killGraceMs?: number; nodes?: string[] } = {})
       .filter((o) => o.nodeId === nodeId)
       .map((o) => o.data)
       .join('')
-  const open = (nodeId = NODE, size = { cols: 80, rows: 24 }, from?: ReturnType<typeof makeWindow>) =>
+  const open = (nodeId = NODE, size: { cols: number; rows: number; restart?: boolean } = { cols: 80, rows: 24 }, from?: ReturnType<typeof makeWindow>) =>
     ok<OpenResult>('terminal.open', { projectId: PROJECT, nodeId, ...size }, from)
   const type = (data: string, nodeId = NODE) => ok('terminal.input', { projectId: PROJECT, nodeId, data })
   /** Runs a command and waits for the line its output starts with. */
@@ -135,16 +136,17 @@ async function harness(options: { killGraceMs?: number; nodes?: string[] } = {})
 }
 
 describe('terminal channels on a real pty', () => {
-  it('terminal.close ends the shell: its pid is gone and an exit event follows', async () => {
-    const h = await harness()
+  it('terminal.close ends the shell with SIGHUP: its pid is gone and an exit event follows', async () => {
+    // A SIGKILL grace far longer than the wait below: only SIGHUP can end the shell in time.
+    const h = await harness({ killGraceMs: 60_000 })
     const { pid } = await h.open()
     expect(alive(pid)).toBe(true)
 
     await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
 
-    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5000 })
+    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 3000 })
     await vi.waitFor(() => expect(h.exits).toHaveLength(1))
-    expect(h.exits[0]).toMatchObject({ projectId: PROJECT, nodeId: NODE })
+    expect(h.exits[0]).toMatchObject({ projectId: PROJECT, nodeId: NODE, signal: 1 })
     expect(h.registry.has(terminalKey(PROJECT, NODE))).toBe(false)
     // Closing again is not an error.
     await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
@@ -153,7 +155,7 @@ describe('terminal channels on a real pty', () => {
   it('open starts $SHELL -l in the Project root with TERM_PROGRAM=worfy; input reaches it, output comes back', async () => {
     const h = await harness()
     const opened = await h.open()
-    expect(opened).toStrictEqual({ pid: opened.pid, shell: 'sh', replay: '', end: 0, started: true })
+    expect(opened).toStrictEqual({ pid: opened.pid, shell: 'sh', replay: '', end: 0, started: true, exited: null })
 
     await h.run('echo "cwd=$(pwd)"', new RegExp(`cwd=${root}\\r?\\n`))
     await h.run('echo "tp=$TERM_PROGRAM term=$TERM"', /tp=worfy term=xterm-256color\r?\n/)
@@ -193,6 +195,7 @@ describe('terminal channels on a real pty', () => {
     expect(second.replay).toContain('marker-one')
     expect(second.end).toBe(h.outputs.at(-1)?.end)
     expect(second.replay).toBe(h.text())
+    expect(second.exited).toBeNull()
   })
 
   it('the window that opened a terminal going away ends its shell', async () => {
@@ -247,16 +250,140 @@ describe('terminal channels on a real pty', () => {
     await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5000 })
   })
 
-  it('the shell exiting on its own reports its exit code and frees the Node for a new shell', async () => {
+  it('the shell exiting on its own reports its exit code and stays exited until open asks for a restart', async () => {
     const h = await harness()
     const { pid } = await h.open()
+    await h.run('echo be""fore-exit', /before-exit\r?\n/)
     await h.type('exit 3\r')
     await vi.waitFor(() => expect(h.exits).toEqual([{ projectId: PROJECT, nodeId: NODE, exitCode: 3, signal: null }]), { timeout: 5000 })
     expect(alive(pid)).toBe(false)
+    expect(h.registry.size).toBe(0)
 
-    const again = await h.open()
-    expect(again.started).toBe(true)
+    // A view coming back (remount, reload) sees the exit and the last output; nothing is started.
+    const back = await h.open()
+    expect(back).toStrictEqual({ pid, shell: 'sh', replay: h.text(), end: h.outputs.at(-1)?.end, started: false, exited: { exitCode: 3, signal: null } })
+    expect(back.replay).toContain('before-exit')
+    expect(h.registry.size).toBe(0)
+    // A plain open with restart: false is the same.
+    expect((await h.open(NODE, { cols: 80, rows: 24, restart: false })).exited).toEqual({ exitCode: 3, signal: null })
+    expect(h.registry.size).toBe(0)
+
+    // Restart starts a new shell.
+    const again = await h.open(NODE, { cols: 80, rows: 24, restart: true })
+    expect(again).toMatchObject({ started: true, exited: null, replay: '', end: 0 })
     expect(again.pid).not.toBe(pid)
+    expect(alive(again.pid)).toBe(true)
+  })
+
+  it('closing a Node whose shell exited forgets the exit: the next open starts a new shell', async () => {
+    const h = await harness({ nodes: [NODE, 'node-2'] })
+    const { pid } = await h.open()
+    const { pid: otherPid } = await h.open('node-2')
+    await h.type('exit 4\r')
+    await h.type('exit 5\r', 'node-2')
+    await vi.waitFor(() => expect(h.exits).toHaveLength(2), { timeout: 5000 })
+    expect([alive(pid), alive(otherPid)]).toEqual([false, false])
+
+    await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+    expect(h.registry.hasExited(terminalKey(PROJECT, NODE))).toBe(false)
+    const fresh = await h.open()
+    expect(fresh).toMatchObject({ started: true, exited: null })
+
+    // A removed Project forgets the exits of its Nodes too.
+    expect(h.registry.hasExited(terminalKey(PROJECT, 'node-2'))).toBe(true)
+    await closeRemovedProjects(h.registry, new Set())
+    expect(h.registry.hasExited(terminalKey(PROJECT, 'node-2'))).toBe(false)
+    expect(alive(fresh.pid)).toBe(false)
+  })
+})
+
+/** The Layout, the Projects and the app as wireRegistry sees them, driven by the test. */
+function wiring(projectIds: string[]) {
+  const layoutListeners: ((change: { projectId: string; op: { op: 'remove'; id: string } | { op: 'move'; id: string; x: number; y: number } }) => void)[] = []
+  const projectListeners: (() => void)[] = []
+  const quitListeners: ((event: { preventDefault(): void }) => void)[] = []
+  let projects = projectIds.map((id) => ({ id }))
+  const quit = vi.fn()
+  return {
+    layout: { onChange: (listener: (typeof layoutListeners)[number]) => layoutListeners.push(listener) },
+    projects: { onChange: (listener: () => void) => projectListeners.push(listener), list: () => projects },
+    app: { on: (_event: 'will-quit', listener: (typeof quitListeners)[number]) => quitListeners.push(listener), quit },
+    quit,
+    removeNode: (projectId: string, id: string) => layoutListeners.forEach((listener) => listener({ projectId, op: { op: 'remove', id } })),
+    moveNode: (projectId: string, id: string) => layoutListeners.forEach((listener) => listener({ projectId, op: { op: 'move', id, x: 5, y: 5 } })),
+    setProjects: (ids: string[]) => {
+      projects = ids.map((id) => ({ id }))
+      projectListeners.forEach((listener) => listener())
+    },
+    /** Fires will-quit; returns whether it was deferred. */
+    willQuit: () => {
+      const event = { preventDefault: vi.fn() }
+      quitListeners.forEach((listener) => listener(event))
+      return event.preventDefault
+    },
+  }
+}
+
+describe('wireRegistry: the shells follow the Layout, the Projects and quitting', () => {
+  it('a Terminal Node removed from the Layout by any route ends its shell; other ops and other Nodes do not', async () => {
+    const h = await harness({ nodes: [NODE, 'node-2'] })
+    const w = wiring([PROJECT])
+    wireRegistry(h.registry, w)
+    const { pid } = await h.open()
+    const { pid: otherPid } = await h.open('node-2')
+
+    w.moveNode(PROJECT, NODE)
+    w.removeNode('other-00000002', NODE)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect([alive(pid), alive(otherPid)]).toEqual([true, true])
+
+    w.removeNode(PROJECT, NODE)
+    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 3000 })
+    expect(alive(otherPid)).toBe(true)
+  })
+
+  it('a Project removed from the list ends its shells; a change that keeps it does not', async () => {
+    const h = await harness({ nodes: [NODE, 'node-2'] })
+    const w = wiring([PROJECT, 'other-00000002'])
+    wireRegistry(h.registry, w)
+    const pids = [(await h.open()).pid, (await h.open('node-2')).pid]
+
+    w.setProjects([PROJECT, 'other-00000002', 'third-00000003'])
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(pids.map(alive)).toEqual([true, true])
+
+    w.setProjects(['other-00000002'])
+    await vi.waitFor(() => expect(pids.map(alive)).toEqual([false, false]), { timeout: 3000 })
+    expect(h.registry.size).toBe(0)
+  })
+
+  it('will-quit waits for every shell, even one that ignores SIGHUP, then quits again', async () => {
+    const h = await harness({ nodes: [NODE, 'node-2'], killGraceMs: 300 })
+    const w = wiring([PROJECT])
+    wireRegistry(h.registry, { ...w, quitWaitMs: 10_000 })
+    const { pid } = await h.open()
+    const { pid: otherPid } = await h.open('node-2')
+    await h.run(`trap '' HUP; echo trap""ped`, /trapped\r?\n/, 'node-2')
+
+    const preventDefault = w.willQuit()
+
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(w.quit).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(w.quit).toHaveBeenCalledOnce(), { timeout: 5000 })
+    expect([alive(pid), alive(otherPid)]).toEqual([false, false])
+    expect(h.registry.size).toBe(0)
+
+    // The second will-quit, with no shell left, lets the app quit.
+    expect(w.willQuit()).not.toHaveBeenCalled()
+    expect(w.quit).toHaveBeenCalledOnce()
+  })
+
+  it('will-quit gives up waiting after quitWaitMs and quits anyway', async () => {
+    const w = wiring([])
+    const stuck = { size: 1, closeAll: () => new Promise<void>(() => undefined) } as unknown as TerminalRegistry
+    wireRegistry(stuck, { ...w, quitWaitMs: 50 })
+    expect(w.willQuit()).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(w.quit).toHaveBeenCalledOnce(), { timeout: 2000 })
   })
 })
 
@@ -268,6 +395,7 @@ describe('terminal channels at the IPC boundary', () => {
       { projectId: PROJECT, nodeId: NODE, cols: 80.5, rows: 24 },
       { projectId: PROJECT, nodeId: 7, cols: 80, rows: 24 },
       { projectId: PROJECT, cols: 80, rows: 24 },
+      { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24, restart: 'yes' },
     ]) {
       const result = await h.call('terminal.open', input)
       expect(result.ok).toBe(false)
@@ -286,7 +414,7 @@ describe('terminal channels at the IPC boundary', () => {
     const h = await harness()
     const elsewhere = await realpath(tmpdir())
     const opened = await h.ok<OpenResult>('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24, cwd: elsewhere, shell: '/bin/bash' })
-    expect(Object.keys(opened).sort()).toEqual(['end', 'pid', 'replay', 'shell', 'started'])
+    expect(Object.keys(opened).sort()).toEqual(['end', 'exited', 'pid', 'replay', 'shell', 'started'])
     expect(opened.shell).toBe('sh')
     await h.run('echo "cwd=$(pwd)"', new RegExp(`cwd=${root}\\r?\\n`))
     for (const output of h.outputs) expect(Object.keys(output).sort()).toEqual(['data', 'end', 'nodeId', 'projectId'])

@@ -5,7 +5,8 @@
 // starts the shell, or attaches to the one already running, and answers with the output kept so
 // far; later output arrives on `terminal.output`. Each chunk carries `end`, the length of all
 // output so far, and the answer to open carries the `end` of its replay, so a client drops what
-// it already has. The shell runs until `terminal.close`, the removal of its Node from the
+// it already has. A shell that exited on its own stays exited: open answers with its exit and
+// output, and starts a new shell only when asked to (`restart`). The shell runs until `terminal.close`, the removal of its Node from the
 // Layout, the window going away or the app quitting.
 import { z } from 'zod'
 import { eventChannel, invokeChannel } from './channels'
@@ -23,7 +24,13 @@ const terminalRef = {
 
 export const terminalOpen = invokeChannel(
   'terminal.open',
-  z.object({ ...terminalRef, cols: cells, rows: cells }),
+  z.object({
+    ...terminalRef,
+    cols: cells,
+    rows: cells,
+    /** Start a new shell even when the last one exited on its own (the Restart button). */
+    restart: z.boolean().optional(),
+  }),
   z.object({
     pid: z.number().int().positive(),
     /** The shell's file name, e.g. `zsh`. */
@@ -34,6 +41,8 @@ export const terminalOpen = invokeChannel(
     end: z.number().int().nonnegative(),
     /** True when this call started the shell, false when it attached to a running one. */
     started: z.boolean(),
+    /** The exit of a shell that ended on its own and was not restarted; nothing runs then. */
+    exited: z.object({ exitCode: z.number().int(), signal: z.number().int().nullable() }).nullable(),
   }),
 )
 

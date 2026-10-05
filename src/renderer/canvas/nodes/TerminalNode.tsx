@@ -13,7 +13,9 @@ import { useLayoutOps } from '../useLayout'
 // The agent does not use it. main runs the shell (src/main/terminal/pty.ts); this Node draws it
 // with xterm.js. The shell outlives the Node's component: the Canvas hidden behind the Session
 // view, the Node scrolled out of sight or the window reloaded only detach the view, and the next
-// mount attaches again and redraws the output main kept. Closing the Node ends the shell. After a
+// mount attaches again and redraws the output main kept. A shell that exited stays exited across
+// remounts (main keeps its exit and output); only Restart starts a new one. Closing the Node ends
+// the shell. After a
 // restart of worfy the Node starts a new shell in the same folder; the old output is gone.
 // The same value as TERMINAL_NODE_KIND, by which main recognises a Terminal Node; written out
 // here because the Node registry needs a literal export.
@@ -121,15 +123,21 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     scheme.addEventListener('change', onScheme)
 
     const size = fittedSize(element, fit) ?? SIZE_BEFORE_LAYOUT
-    void invoke('terminal.open', { ...ref, ...size }).then((result) => {
+    // The first run of the effect attaches, or shows a shell that already exited; a run started by
+    // Restart asks main for a new shell.
+    void invoke('terminal.open', { ...ref, ...size, restart: run > 0 }).then((result) => {
       if (!active) return
       if (!result.ok) {
         setStatus({ state: 'failed', message: result.error })
         return
       }
-      const { replay, end, shell, pid } = result.value
+      const { replay, end, shell, pid, exited } = result.value
       if (replay !== '') terminal.write(replay)
       written = end
+      if (exited !== null) {
+        setStatus({ state: 'exited', shell, exitCode: exited.exitCode })
+        return
+      }
       attached = true
       for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
       setStatus({ state: 'running', shell, pid })

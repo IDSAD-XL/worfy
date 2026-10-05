@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -8,8 +9,9 @@ import { launchApp, repoRoot, type LaunchOptions } from './helpers'
 // The Terminal Node against the built app: "New terminal" in the Canvas context menu starts the
 // user's shell in the Project root on a real pty; the Node's size is the pty's size; the output
 // survives the Session view, a reload of the window and the Node scrolling away; closing the Node
-// and quitting worfy leave no shell process behind. The shell is /bin/sh (SHELL below), so no rc
-// file of the machine running the tests decides what the terminal prints.
+// and quitting worfy leave no shell process behind. The shell is /bin/sh (SHELL below) with HOME
+// in a temporary folder, so no rc file of the machine running the tests decides what the terminal
+// prints, and no shell history of the machine is written.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -18,12 +20,15 @@ const PROJECT = 'alpha-0000000a'
 let scratch: string
 let dataDir: string
 let root: string
+let home: string
 
 test.beforeEach(() => {
   scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-term-')))
   dataDir = join(scratch, 'data')
   root = join(scratch, 'alpha')
+  home = join(scratch, 'home')
   mkdirSync(root)
+  mkdirSync(home)
   mkdirSync(join(dataDir, PROJECT), { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'alpha', path: root }], activeId: PROJECT }))
 })
@@ -32,7 +37,7 @@ test.afterEach(async () => {
   await removeDir(scratch)
 })
 
-const launch = (options: LaunchOptions = {}) => launchApp({ ...options, env: { WORFY_DATA_DIR: dataDir, SHELL: '/bin/sh', ...options.env } })
+const launch = (options: LaunchOptions = {}) => launchApp({ ...options, env: { WORFY_DATA_DIR: dataDir, SHELL: '/bin/sh', HOME: home, ...options.env } })
 
 /** True while a process with this pid exists. */
 function alive(pid: number): boolean {
@@ -42,6 +47,32 @@ function alive(pid: number): boolean {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === 'EPERM'
   }
+}
+
+/** The pids of the processes whose parent is `pid`. */
+function childrenOf(pid: number): number[] {
+  try {
+    return execFileSync('pgrep', ['-P', String(pid)], { encoding: 'utf8' }).split('\n').filter(Boolean).map(Number)
+  } catch {
+    return []
+  }
+}
+
+/** The pids of the `sh` processes whose parent is `pid`: the shells worfy's main process runs. */
+function shellsOf(pid: number): number[] {
+  try {
+    return execFileSync('pgrep', ['-x', '-P', String(pid), 'sh'], { encoding: 'utf8' }).split('\n').filter(Boolean).map(Number)
+  } catch {
+    return []
+  }
+}
+
+function invokeIn(window: Page, channel: string, input: unknown): Promise<{ ok: boolean; error?: string }> {
+  return window.evaluate(
+    ({ channel, input }) =>
+      (globalThis as unknown as { worfy: { invoke(c: string, i: unknown): Promise<{ ok: boolean; error?: string }> } }).worfy.invoke(channel, input),
+    { channel, input },
+  )
 }
 
 interface StateNode {
@@ -208,7 +239,10 @@ test('New terminal starts the shell in the Project root; resize, Session view an
 
 test('quitting worfy ends every shell; after a restart the Node starts a new shell in the same folder', async () => {
   const first = await launch()
-  let pids: number[]
+  const mainPid = first.app.process().pid ?? 0
+  let pids: number[] = []
+  const jobs: number[] = []
+  let closing: Promise<void> | undefined
   try {
     const { window } = first
     const node = await newTerminal(window)
@@ -219,13 +253,24 @@ test('quitting worfy ends every shell; after a restart the Node starts a new she
     const nodes = window.getByTestId('terminal-node')
     await expect(nodes).toHaveCount(2)
     await expect(nodes.nth(1)).toHaveAttribute('data-state', 'running')
-    await run(window, nodes.nth(1), 'sleep 600', /sleep 600/)
     pids = [await pidOf(nodes.nth(0)), await pidOf(nodes.nth(1))]
+    // The second shell ignores SIGHUP and waits for a job that ignores it too: the pty closing
+    // with the app's process does not end it, only worfy's SIGKILL before it quits does.
+    await run(window, nodes.nth(1), `trap '' HUP; sleep 30`, /sleep 30/)
+    await expect.poll(() => childrenOf(pids[1] ?? 0).length).toBe(1)
+    jobs.push(...childrenOf(pids[1] ?? 0))
     expect(pids.every(alive)).toBe(true)
+
+    closing = first.close()
+    // worfy quits only after its shells have exited: once its main process is gone, so are they.
+    // (Waiting for close() instead would not tell: it resolves only when the app's output pipes
+    // close, and a surviving shell keeps them open until its job ends.)
+    await expect.poll(() => alive(mainPid), { timeout: 15_000 }).toBe(false)
+    expect(pids.filter(alive)).toEqual([])
   } finally {
-    await first.close()
+    for (const pid of [...pids, ...jobs]) if (alive(pid)) process.kill(pid, 'SIGKILL')
+    await (closing ?? first.close())
   }
-  await expect.poll(() => pids.filter(alive), { timeout: 10_000 }).toEqual([])
 
   const second = await launch()
   try {
@@ -239,6 +284,66 @@ test('quitting worfy ends every shell; after a restart the Node starts a new she
     expect(await screenText(nodes.nth(0))).not.toContain('old-output')
   } finally {
     await second.close()
+  }
+})
+
+test('a Terminal Node removed from the Layout by another route, or its Project removed, ends its shell', async () => {
+  const launched = await launch()
+  try {
+    const { window } = launched
+    // Removed through layout.apply, as a tool would: no terminal.close is sent.
+    const node = await newTerminal(window)
+    const pid = await pidOf(node)
+    const [stored] = await terminalNodes(window)
+    if (!stored) throw new Error('no terminal node')
+    expect(await invokeIn(window, 'layout.apply', { projectId: PROJECT, op: { op: 'remove', id: stored.id } })).toMatchObject({ ok: true })
+    await expect(node).toHaveCount(0)
+    await expect.poll(() => alive(pid), { timeout: 10_000 }).toBe(false)
+
+    // The Project removed from the list takes its shell with it.
+    const second = await newTerminal(window)
+    const secondPid = await pidOf(second)
+    expect(await invokeIn(window, 'projects.remove', { id: PROJECT })).toMatchObject({ ok: true })
+    await expect.poll(() => alive(secondPid), { timeout: 10_000 }).toBe(false)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('a shell that exited stays exited across a reload of the window; Restart starts a new one', async () => {
+  const launched = await launch()
+  try {
+    const { window } = launched
+    const node = await newTerminal(window)
+    const pid = await pidOf(node)
+    const mainPid = launched.app.process().pid ?? 0
+    // The shells run as children of main, so a shell started behind the user's back would show here.
+    expect(shellsOf(mainPid)).toEqual([pid])
+    await run(window, node, 'echo be""fore-exit', /^before-exit$/m)
+    await node.getByTestId('terminal-screen').click()
+    await window.keyboard.type('exit 3')
+    await window.keyboard.press('Enter')
+    await expect(node).toHaveAttribute('data-state', 'exited')
+    await expect(node.getByText('exit 3', { exact: true })).toBeVisible()
+    await expect.poll(() => alive(pid), { timeout: 10_000 }).toBe(false)
+
+    // The Node mounts again: it shows the exit and the last output, and starts nothing.
+    await window.reload()
+    const reloaded = window.getByTestId('terminal-node')
+    await expect(reloaded).toHaveAttribute('data-state', 'exited')
+    await expect(reloaded.getByText('exit 3', { exact: true })).toBeVisible()
+    await expect.poll(() => screenText(reloaded)).toMatch(/^before-exit$/m)
+    expect(shellsOf(mainPid)).toEqual([])
+
+    // Restart starts a new shell in the Project root.
+    await reloaded.getByRole('button', { name: 'Restart' }).click()
+    await expect(reloaded).toHaveAttribute('data-state', 'running')
+    const restarted = await pidOf(reloaded)
+    expect(restarted).not.toBe(pid)
+    expect(alive(restarted)).toBe(true)
+    await expectPwdIsRoot(window, reloaded)
+  } finally {
+    await launched.close()
   }
 })
 
