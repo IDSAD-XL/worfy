@@ -12,10 +12,10 @@
 // Card Node's data (`lastEditor`), so it survives a restart (ticket 26 reads it).
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, realpathSync, rmSync } from 'node:fs'
-import { join, resolve, sep } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
-import { sdkMessageToEvents } from '../../shared/agent/events'
+import { sdkMessageToEvents, type AgentEvent } from '../../shared/agent/events'
 import {
   CANVAS_SERVER_NAME,
   CANVAS_TOOL_NAMES,
@@ -39,7 +39,7 @@ import type { LayoutNode, LayoutOpInput, LayoutState } from '../../shared/layout
 import type { WorkflowModel } from '../../shared/workflow/types'
 import type { CanvasAttachment } from '../agent/options'
 import { layoutStore } from '../layout/store'
-import { projectStore, type StoredProject } from '../projects/store'
+import { projectStore, runGit, type StoredProject } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { epicStatusRunner, readCheckout } from '../workflow/reader'
 import instructionsTemplate from './agent-instructions.md?raw'
@@ -240,15 +240,20 @@ export function agentInstructions(cardsDir: string): string {
   return instructionsTemplate.replaceAll('{{cardsDir}}', cardsDir)
 }
 
-/**
- * Records the Session that wrote into a Card's folder in the Card Node's data. Called with every
- * SDK message of the Session; the Session's id is read from the messages themselves.
- */
-export function cardEditRecorder(options: { projectId: string; cardsDir: string; cwd: string; layout: CanvasLayout; sessionId: () => string | null }): (message: unknown) => void {
-  return (message) => {
+interface RecorderOptions {
+  projectId: string
+  cardsDir: string
+  cwd: string
+  layout: CanvasLayout
+  sessionId: () => string | null
+}
+
+/** Records, from a Session's events, the Session that wrote into a Card's folder. */
+function editRecorder(options: RecorderOptions): (events: readonly AgentEvent[]) => void {
+  return (events) => {
     const sessionId = options.sessionId()
     if (sessionId === null) return
-    for (const event of sdkMessageToEvents(message)) {
+    for (const event of events) {
       if (event.type !== 'tool_use') continue
       const cardId = cardEditedBy({ cwd: options.cwd, name: event.name, input: event.input }, options.cardsDir)
       if (cardId === null) continue
@@ -260,6 +265,15 @@ export function cardEditRecorder(options: { projectId: string; cardsDir: string;
       }
     }
   }
+}
+
+/**
+ * Records the Session that wrote into a Card's folder in the Card Node's data. Called with every
+ * SDK message of the Session.
+ */
+export function cardEditRecorder(options: RecorderOptions): (message: unknown) => void {
+  const record = editRecorder(options)
+  return (message) => record(sdkMessageToEvents(message))
 }
 
 /** `query` with `onMessage` called for every message it yields; everything else is untouched. */
@@ -301,13 +315,35 @@ const realpathOrSelf = (path: string): string => {
   }
 }
 
-/** The Project whose repository holds `cwd` (its root, or a worktree inside it). */
+/**
+ * The Project whose root is `cwd` or holds it (a worktree inside the repository); of nested
+ * Projects, the deepest one.
+ */
 export function projectForCwd(projects: readonly StoredProject[], cwd: string): StoredProject | undefined {
   const folder = realpathOrSelf(cwd)
-  return projects.find((project) => {
+  let best: { project: StoredProject; depth: number } | undefined
+  for (const project of projects) {
     const root = realpathOrSelf(project.path)
-    return folder === root || folder.startsWith(root + sep)
-  })
+    if (folder !== root && !folder.startsWith(root.endsWith(sep) ? root : root + sep)) continue
+    if (best === undefined || root.length > best.depth) best = { project, depth: root.length }
+  }
+  return best?.project
+}
+
+/**
+ * The main repository root of the git working tree holding `folder`, the way the Project list
+ * resolves a folder the user adds (src/main/projects/store.ts): a linked worktree's common git
+ * folder is `<root>/.git`. null when `folder` is not in a git working tree.
+ */
+export async function repositoryRoot(folder: string): Promise<string | null> {
+  try {
+    const commonDir = await runGit(['-C', folder, 'rev-parse', '--path-format=absolute', '--git-common-dir'])
+    if (basename(commonDir) === '.git') return dirname(commonDir)
+    const toplevel = await runGit(['-C', folder, 'rev-parse', '--show-toplevel'])
+    return toplevel || null
+  } catch {
+    return null
+  }
 }
 
 /** The canvas of one Session: what its options get, and the watcher of its messages. */
@@ -322,6 +358,8 @@ export interface CanvasDeps {
   dataDir: (projectId: string) => string
   layout: CanvasLayout
   workflow: (root: string) => Promise<CanvasWorkflow>
+  /** The repository root of a folder outside every Project root (a linked worktree elsewhere). */
+  repositoryRoot?: (folder: string) => Promise<string | null>
 }
 
 const appDeps = (): CanvasDeps => ({
@@ -333,12 +371,21 @@ const appDeps = (): CanvasDeps => ({
 
 export type CanvasResolver = (request: { cwd: string; resume: string | undefined }) => Promise<CanvasSession | null>
 
+/** The Project of a Session's cwd: by path, else through git for a linked worktree outside the root. */
+async function projectOfSession(deps: CanvasDeps, cwd: string): Promise<StoredProject | undefined> {
+  const byPath = projectForCwd(deps.projects(), cwd)
+  if (byPath) return byPath
+  const root = await (deps.repositoryRoot ?? repositoryRoot)(cwd)
+  // Read the list again after the await: a Project removed meanwhile is not attached.
+  return root === null ? undefined : projectForCwd(deps.projects(), root)
+}
+
 /**
  * The canvas for a Session starting in `cwd`; null when `cwd` is in no Project, and the Session
  * then runs without canvas tools. Makes the Project's Cards folder, which the Session may write.
  */
 export const canvasForSession = async (request: { cwd: string; resume: string | undefined }, deps: CanvasDeps = appDeps()): Promise<CanvasSession | null> => {
-  const project = projectForCwd(deps.projects(), request.cwd)
+  const project = await projectOfSession(deps, request.cwd)
   if (!project) return null
   const cardsDir = join(deps.dataDir(project.id), 'cards')
   mkdirSync(cardsDir, { recursive: true })
@@ -350,16 +397,16 @@ export const canvasForSession = async (request: { cwd: string; resume: string | 
     workflow: () => deps.workflow(project.path),
     sessionId: () => sessionId,
   })
-  const record = cardEditRecorder({ projectId: project.id, cardsDir, cwd: request.cwd, layout: deps.layout, sessionId: () => sessionId })
+  const record = editRecorder({ projectId: project.id, cardsDir, cwd: request.cwd, layout: deps.layout, sessionId: () => sessionId })
   return {
     attachment: { server, cardsDir, instructions: agentInstructions(cardsDir) },
     observe: (query) =>
       observeMessages(query, (message) => {
-        // Every SDK message carries the session id; a resumed Session may get a new one.
-        if (typeof message === 'object' && message !== null && typeof (message as { session_id?: unknown }).session_id === 'string') {
-          sessionId = (message as { session_id: string }).session_id
-        }
-        record(message)
+        const events = sdkMessageToEvents(message)
+        // The same rule as the Session's own id (src/main/agent/session.ts): each turn's init
+        // carries it, and a resumed Session may get a new one there.
+        for (const event of events) if (event.type === 'init') sessionId = event.sdkSessionId
+        record(events)
       }),
   }
 }

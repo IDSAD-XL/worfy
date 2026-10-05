@@ -68,6 +68,12 @@ Source: [ADR-0003](../../../docs/adr/0003-cards-as-files-canvas-via-tools.md); [
 tools — `src/shared/canvas/tools.ts`, последняя правившая Сессия — `src/shared/cards/last-editor.ts`,
 инструкция агенту — `src/main/mcp/agent-instructions.md`, подключение — `src/main/agent/options.ts`.
 
+Первый test (`move_node` для несуществующего Узла, `test/contract/canvas-tools.test.ts`) на базе
+без реализации падает на импорте: `Error: Cannot find module '/src/shared/canvas/tools'`,
+`Test Files 1 failed`, exit code 1. В первом круге это не было записано, а коммит в ветке один,
+так что падение воспроизведено в круге доработки: test-файл ветки скопирован в чистый
+`origin/main` (b2248b6) и запущен `vitest run … -t "move_node for a Node that is not there"`.
+
 ### Решения, которых нет в тексте тикета
 
 - **Подключение идёт через `src/main/ipc/agent.ts`, файл вне следа.** `sessionOptions()` — чистая
@@ -81,8 +87,15 @@ tools — `src/shared/canvas/tools.ts`, последняя правившая С
   `sdkQueryFactory` с настоящим `createSdkMcpServer` и подменой только `query()`, которая
   записывает опции.
 - **Проект Сессии — по cwd.** Проект, чей корень равен cwd или содержит его (worktree
-  `.claude/worktrees/NN` внутри репозитория — тот же Проект), сравнение по realpath. cwd вне
-  Проектов — Сессия без сервера, без `additionalDirectories` и с голым preset.
+  `.claude/worktrees/NN` внутри репозитория — тот же Проект), сравнение по realpath и по границе
+  папки (`/x/worfy-old` не внутри `/x/worfy`). Из вложенных Проектов берётся самый глубокий. Если
+  ни один корень cwd не содержит, cwd разрешается через git так же, как при добавлении Проекта
+  (`src/main/projects/store.ts`): у linked worktree общий `.git` — `<корень>/.git`, поэтому
+  worktree вне папки репозитория (`../repo-feature`) — тот же Проект. Список Проектов после
+  вызова git читается заново. cwd вне Проектов — Сессия без сервера, без
+  `additionalDirectories` и с голым preset. Ограничение: отдельный git-репозиторий внутри папки
+  Проекта, который сам не добавлен Проектом, получает холст объемлющего Проекта — по пути его
+  не отличить, а git вызывается только когда путь ничего не дал.
 - **Сервер добавляется к MCP-серверам пользователя**, а не заменяет их: `strictMcpConfig` не
   ставится, `settingSources` прежние. `alwaysLoad` не ставится: tools холста откладываются за
   ToolSearch, как остальные MCP-tools (риск размера контекста из 06). Инструкция в системном
@@ -105,8 +118,10 @@ tools — `src/shared/canvas/tools.ts`, последняя правившая С
   ошибка tool-а с текстом. `remove=true` снимает связь без проверки цели.
 - **Куда ставится новый Узел без x/y.** Справа от Узла, у которого `data.sessionId` равен SDK id
   вызвавшей Сессии, и ниже, пока не перестанет пересекаться с видимыми Узлами; если такого Узла
-  нет — справа от всех видимых. SDK id сервер узнаёт из `session_id` сообщений Сессии (обёртка
-  над query), до первого сообщения — из `resume`. Ключ `data.sessionId` — тот, что тикет 08
+  нет — справа от всех видимых. SDK id сервер узнаёт из `system/init` Сессии (обёртка над query,
+  тот же разбор `sdkMessageToEvents` и то же правило, что у `Session` в
+  `src/main/agent/session.ts`), до первого init — из `resume`. `session_id` других сообщений id
+  не меняет. Ключ `data.sessionId` — тот, что тикет 08
   описывает для Узла Оркестратора; если 08 назовёт его иначе, правится одна строка в `place()`.
 - **Последняя правившая Сессия** считается по `tool_use` Write, Edit, MultiEdit, NotebookEdit
   (`notebook_path`). Read не считается. Запись через Bash (`cat > …`) не видна — это не
@@ -116,30 +131,48 @@ tools — `src/shared/canvas/tools.ts`, последняя правившая С
   Узла через `patchData` того же LayoutStore и переживает перезапуск вместе с `layout.json`;
   запись в папку Карточки без Узла ничего не меняет.
 
+- **Запись последнего редактора остаётся на обёртке query, а не на `EventSink` Сессии.** Ревью
+  предложило подавать в запись события `tool_use` через `EventSink` в `ipc/agent.ts` и брать SDK
+  id у `Session`. Это перенесло бы создание холста из фабрики query в `agentStart` и потребовало
+  бы передать id `Session` в фабрику (`QueryRequest`, `src/main/agent/session.ts` — вне следа);
+  в последнем круге доработки цена — новая гонка между перезапуском query после ошибки и
+  сменой id. Сделано меньшее: один разбор сообщения на событие и одно правило смены id (init).
+  Следствие, которое остаётся: с `WORFY_AGENT=fake` холста нет, и запись последнего редактора
+  через fake-агента в e2e не проверить; её проверяют contract test-ы с fake-агентом,
+  обёрнутым так же, как настоящий (`test/contract/card-last-editor.test.ts`).
+
 ### Ручной прогон с настоящим SDK
 
-SDK 0.3.289, Claude Code 2.1.289, macOS arm64, вход по подписке. Скрипт — вне репозитория
-(scratchpad): собирает те же `SessionRegistry`, `canvasForSession()` и `sessionOptions()`, cwd —
-worktree `.claude/worktrees/24`, временный `WORFY_DATA_DIR`. Отличия от приложения — ради цены,
-как во втором прогоне 07: `model: 'haiku'`, `strictMcpConfig: true` (без MCP-серверов
-пользователя), `maxTurns: 12`. Сообщение: «Сделай карточку с часами».
+SDK 0.3.289, Claude Code 2.1.289, macOS arm64, вход по подписке. Прогон повторён в круге
+доработки, чтобы Проект был заведён так, как его заводит приложение. Скрипт — вне репозитория
+(scratchpad): временный `WORFY_DATA_DIR`; Проект добавлен настоящим `projectStore().add()` с
+папкой отдельного worktree `.claude/worktrees/24-manual` (detached, `origin/worfy-mvp/24`), и
+`add()` завёл корень репозитория — `/Users/alexey/Stuff/CanvasForAI`, id `CanvasForAI-a2cd477b`.
+Сессия — `SessionRegistry` с теми же `canvasForSession()`, `agentEnv()` и `sessionOptions()`,
+cwd — тот worktree, так что Проект найден по правилу «worktree внутри репозитория». Отличия от
+приложения — ради цены, как во втором прогоне 07: `model: 'haiku'`, `strictMcpConfig: true` (без
+MCP-серверов пользователя), `maxTurns: 12`. Сообщение: «Сделай карточку с часами». Ход — из
+транскрипта Сессии `579c36de-6bb7-4784-9e9c-09ddf1559648`:
 
 ```
-options {"mcpServers":["worfy-canvas"],"additionalDirectories":[".../data/24-3e1d987c/cards"],"appendChars":1005}
-init {"model":"claude-haiku-4-5-20251001"}
+projects.json {"projects":[{"id":"CanvasForAI-a2cd477b","name":"CanvasForAI","path":"/Users/alexey/Stuff/CanvasForAI"}],…}
+model claude-haiku-4-5-20251001
 tool_use ToolSearch {"query":"select:mcp__worfy-canvas__create_card","max_results":1}
-tool_use mcp__worfy-canvas__create_card {"title":"Clock","w":300,"h":300}
-tool_result ok {"id":"card-d0ddead9","kind":"card","title":"Clock","x":0,"y":0,"w":300,"h":300,…,"folder":".../cards/card-d0ddead9","index":".../index.html"}
-tool_use Write {"file_path":".../cards/card-d0ddead9/index.html", …}
-result success
-layout.json {"nodes":[{"id":"card-d0ddead9","kind":"card","x":0,"y":0,"w":300,"h":300,…,"data":{"title":"Clock","lastEditor":"9619eeaa-af4f-41dd-bcbc-7927025262e2"}}],…}
-card folder card-d0ddead9 [ 'index.html' ]
+tool_use mcp__worfy-canvas__create_card {"title":"Часы","w":300,"h":300}
+tool_result ok {"id":"card-5c34574f","kind":"card","title":"Часы","x":0,"y":0,"w":300,"h":300,…,"folder":".../data/CanvasForAI-a2cd477b/cards/card-5c34574f",…}
+tool_use Write {"file_path":".../data/CanvasForAI-a2cd477b/cards/card-5c34574f/index.html", …}
+tool_result ok "File created successfully at: …/cards/card-5c34574f/index.html"
+layout.json {"nodes":[{"id":"card-5c34574f","kind":"card","x":0,"y":0,"w":300,"h":300,…,"data":{"title":"Часы","lastEditor":"579c36de-6bb7-4784-9e9c-09ddf1559648"}}],…}
+card folder card-5c34574f [ 'index.html' ] (4045 байт)
 ```
 
-Снимок: собранное приложение (`pnpm build`, Playwright `_electron`, тот же `WORFY_DATA_DIR`) —
-на Холсте Проекта worfy один Узел 300×300 в (0, 0) с заглушкой «Unknown node: card»: Узел
-появился, его содержимое покажет 25. Файл снимка в репозиторий не добавлен (бинарный, приложение
-ещё не умеет показывать Карточку).
+После прогона `git status --porcelain --ignored` worktree-а пуст, `git status` основного checkout
+тот же, что до прогона: в репозиторий ничего не записано.
+
+Снимок — [`.scratch/worfy-mvp/evidence/24-canvas-card.png`](../evidence/24-canvas-card.png):
+собранное приложение (`pnpm build`, Playwright `_electron`, `page.screenshot()`, копия того же
+`WORFY_DATA_DIR`). На Холсте Проекта CanvasForAI один Узел `card-5c34574f` 300×300 в (0, 0) с
+заглушкой «Unknown node: card»: Узел появился в окне, его содержимое покажет 25.
 
 Не проверено: прогон на модели пользователя и с его MCP-серверами (ход на opus с 634 tools стоит
 долларов, как в 07); Сессия, запущенная из окна приложения, — поля ввода ещё нет (33).

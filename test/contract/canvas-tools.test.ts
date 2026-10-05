@@ -2,7 +2,8 @@
 // Claude Code talks to it: JSON-RPC over a transport, so the server's own schema check runs too.
 // The tools write through the app's shared LayoutStore, next to src/main/ipc/layout.ts registered
 // over a mocked `electron`, so a tool call and a renderer call take the same path (ADR-0003).
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -171,6 +172,17 @@ const nodeOf = (id: string, projectId: string = PROJECT): LayoutNode | undefined
 const broadcasts = (): LayoutState[] => mocks.sent.filter((message) => message.channel === `${IPC_CHANNEL_PREFIX}layout.changed`).map((message) => message.payload as LayoutState)
 const lastBroadcast = (): LayoutState | undefined => broadcasts().at(-1)
 
+/** The SDK's system/init message, which starts every turn and carries the Session's id. */
+const initMessage = (sessionId: string, cwd: string): Record<string, unknown> => ({
+  type: 'system',
+  subtype: 'init',
+  session_id: sessionId,
+  model: 'claude-test',
+  permissionMode: 'bypassPermissions',
+  apiKeySource: 'none',
+  cwd,
+  slash_commands: [],
+})
 const note = (id: string, extra: Partial<LayoutNode> = {}): LayoutOpInput => ({ op: 'create', node: { id, kind: 'note', x: 0, y: 0, w: 220, h: 120, data: { text: id }, ...extra } })
 const orchestrator = (): LayoutOpInput => ({ op: 'create', node: { id: 'orch', kind: 'orchestrator', x: 0, y: 0, w: 300, h: 200, locked: true, data: { sessionId: 'session-a' } } })
 
@@ -317,6 +329,27 @@ describe('canvas tools: refused calls are tool errors with a reason', () => {
     await refused(rpc, 'create_note', { text: 'x', w: 10 ** 9 }, /w/)
     await refused(rpc, 'hide_node', { id: 'n1', hidden: 'yes' }, /hidden/)
     await refused(rpc, 'move_node', { x: 1, y: 1 }, /id/)
+  })
+
+  it('coordinates beyond ±100000 are refused, and the limit itself is accepted', async () => {
+    store.apply(PROJECT, note('n1'))
+    const rpc = await connect()
+    await refused(rpc, 'move_node', { id: 'n1', x: 100_001, y: 0 }, /x/)
+    await refused(rpc, 'move_node', { id: 'n1', x: 0, y: -100_001 }, /y/)
+    await refused(rpc, 'create_card', { title: 'far', x: -100_001, y: 0 }, /x/)
+    await refused(rpc, 'create_note', { text: 'far', x: 0, y: 1e9 }, /y/)
+    await rpc.call('move_node', { id: 'n1', x: 100_000, y: -100_000 })
+    expect(nodeOf('n1')).toMatchObject({ x: 100_000, y: -100_000 })
+  })
+
+  it('create_card whose Layout change fails is a tool error and leaves no Card folder behind', async () => {
+    const cardsDir = join(dataDir, PROJECT, 'cards')
+    const failing = { get: (projectId: string) => store.get(projectId), apply: () => { throw new Error('layout.json is not writable') } }
+    const rpc = await connect(context({ layout: failing }))
+    const result = await rpc.call('create_card', { title: 'Lost' })
+    expect(result.isError).toBe(true)
+    expect(textOf(result)).toMatch(/layout.json is not writable/)
+    expect(existsSync(cardsDir) ? readdirSync(cardsDir) : []).toEqual([])
   })
 
   it('update_node refuses a Node that is neither a Card nor a note, and a field the kind does not have', async () => {
@@ -504,7 +537,7 @@ describe('canvas in a Session', () => {
     const loose = json<ListedNode>(await rpc.call('create_card', { title: 'loose' }))
     expect(nodeOf(loose.id)).toMatchObject({ x: 2240, y: 0 })
 
-    const messages = [{ type: 'system', subtype: 'init', session_id: 'session-b' }]
+    const messages = [initMessage('session-b', repo)]
     const query = canvas.observe({
       extra: () => 'kept',
       [Symbol.asyncIterator]: () => {
@@ -522,6 +555,28 @@ describe('canvas in a Session', () => {
     expect(nodeOf(near.id)).toMatchObject({ x: 2240, y: 2000 })
   })
 
+  it("a resumed Session that gets a new id in its init is anchored by the new id; other messages' ids do not move it", async () => {
+    store.apply(PROJECT, orchestrator())
+    store.apply(PROJECT, { op: 'create', node: { id: 'b-node', kind: 'session', x: 2000, y: 2000, w: 200, h: 100, data: { sessionId: 'session-b' } } })
+    const canvas = await server.canvasForSession({ cwd: repo, resume: 'session-a' }, deps())
+    if (canvas === null) throw new Error('no canvas for the Project root')
+    const rpc = await connectTo(canvas.attachment.server as ServerConfig)
+    const messages: unknown[] = [
+      initMessage('session-b', repo),
+      // Not an init: the Session does not take its id from it, and neither does the canvas.
+      { type: 'assistant', message: { id: 'm1', content: [{ type: 'text', text: 'hi' }] }, parent_tool_use_id: null, session_id: 'session-z' },
+    ]
+    const query = canvas.observe({
+      [Symbol.asyncIterator]: () => {
+        let index = 0
+        return { next: () => Promise.resolve(index < messages.length ? { done: false, value: messages[index++] } : { done: true, value: undefined }) }
+      },
+    })
+    for await (const message of query as AsyncIterable<unknown>) void message
+    const card = json<ListedNode>(await rpc.call('create_card', { title: 'next to B' }))
+    expect(nodeOf(card.id)).toMatchObject({ x: 2240, y: 2000 })
+  })
+
   it('a resumed Session is anchored by its resume id from the start', async () => {
     store.apply(PROJECT, orchestrator())
     const canvas = await server.canvasForSession({ cwd: repo, resume: 'session-a' }, deps())
@@ -529,5 +584,113 @@ describe('canvas in a Session', () => {
     const rpc = await connectTo(canvas.attachment.server as ServerConfig)
     const card = json<ListedNode>(await rpc.call('create_card', { title: 'next to the Orchestrator' }))
     expect(nodeOf(card.id)).toMatchObject({ x: 340, y: 0 })
+  })
+
+  /** The Project id a Session in `cwd` gets its canvas for, or null for none. */
+  const projectOf = async (cwd: string, overrides: Partial<CanvasDeps> = {}): Promise<string | null> => {
+    const canvas = await server.canvasForSession({ cwd, resume: undefined }, { ...deps(), ...overrides })
+    // `<data folder>/<Project id>/cards`
+    return canvas === null ? null : (canvas.attachment.cardsDir.split('/').at(-2) ?? null)
+  }
+
+  it('a folder whose name only starts with the Project root is not in the Project', async () => {
+    const sibling = `${repo}-old`
+    mkdirSync(sibling)
+    expect(await projectOf(sibling)).toBeNull()
+    expect(existsSync(join(dataDir, PROJECT, 'cards'))).toBe(false)
+  })
+
+  it('a cwd reached through a symlink is in the Project the link points into', async () => {
+    const link = join(scratch, 'link-to-repo')
+    symlinkSync(repo, link)
+    mkdirSync(join(repo, 'src'))
+    expect(await projectOf(link)).toBe(PROJECT)
+    expect(await projectOf(join(link, 'src'))).toBe(PROJECT)
+  })
+
+  it('of nested Projects, the deepest one holding the cwd is the Session\'s, whatever the list order', async () => {
+    const inner = join(repo, 'vendor', 'lib')
+    mkdirSync(join(inner, 'src'), { recursive: true })
+    const projects = [
+      { id: PROJECT, name: 'demo', path: repo },
+      { id: OTHER, name: 'lib', path: inner },
+    ]
+    expect(await projectOf(join(inner, 'src'), { projects: () => projects })).toBe(OTHER)
+    expect(await projectOf(join(inner, 'src'), { projects: () => [...projects].reverse() })).toBe(OTHER)
+    expect(await projectOf(join(repo, 'vendor'), { projects: () => projects })).toBe(PROJECT)
+  })
+
+  it('a linked git worktree outside the Project root is the same Project, as the Project list resolves it', async () => {
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync('git', ['-c', 'user.email=test@example.com', '-c', 'user.name=test', '-c', 'init.defaultBranch=main', ...args], { cwd, stdio: 'pipe', env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: scratch } })
+    git(repo, 'init', '-q')
+    git(repo, 'commit', '-q', '--allow-empty', '-m', 'first')
+    const feature = join(scratch, 'repo-feature')
+    git(repo, 'worktree', 'add', '-q', '-b', 'feature', feature)
+    expect(await projectOf(feature)).toBe(PROJECT)
+    expect(await projectOf(join(scratch, 'elsewhere-not-git'))).toBeNull()
+  })
+
+  it('a Project removed while git resolved the worktree gets no canvas', async () => {
+    let calls = 0
+    const projects = () => (calls++ === 0 ? [{ id: PROJECT, name: 'demo', path: repo }] : [])
+    const outside = join(scratch, 'outside')
+    mkdirSync(outside)
+    expect(await projectOf(outside, { projects, repositoryRoot: () => Promise.resolve(repo) })).toBeNull()
+    calls = 0
+    const kept = () => [{ id: PROJECT, name: 'demo', path: repo }]
+    expect(await projectOf(outside, { projects: kept, repositoryRoot: () => Promise.resolve(repo) })).toBe(PROJECT)
+  })
+
+  it("nothing is written into the Project's repository: not by the Session's start, the tools, nor the watcher of its messages (ADR-0005)", async () => {
+    const worktree = join(repo, '.claude', 'worktrees', '24')
+    mkdirSync(worktree, { recursive: true })
+    writeFileSync(join(repo, 'README.md'), 'readme\n')
+    writeFileSync(join(worktree, 'notes.txt'), 'notes\n')
+    /** Every path under `root` with its kind, size and modification time. */
+    const tree = (root: string): string[] =>
+      readdirSync(root, { recursive: true, encoding: 'utf8' })
+        .sort()
+        .map((path) => {
+          const info = statSync(join(root, path))
+          return `${path} ${info.isDirectory() ? 'dir' : 'file'} ${info.size} ${info.mtimeMs}`
+        })
+    const before = tree(repo)
+
+    const { sdkQueryFactory } = await import('../../src/main/ipc/agent')
+    for (const cwd of [repo, worktree]) await sdkQueryFactory((input) => server.canvasForSession(input, deps()))(request(cwd))
+    store.apply(PROJECT, orchestrator())
+    const canvas = await server.canvasForSession({ cwd: worktree, resume: undefined }, deps())
+    if (canvas === null) throw new Error('no canvas for the worktree')
+    const rpc = await connectTo(canvas.attachment.server as ServerConfig)
+    const card = json<ListedNode>(await rpc.call('create_card', { title: 'Clock' }))
+    const noteId = json<ListedNode>(await rpc.call('create_note', { text: 'n' })).id
+    for (const [name, args] of [
+      ['list_nodes', {}],
+      ['update_node', { id: card.id, title: 'Clock 2' }],
+      ['update_node', { id: noteId, text: 'n2' }],
+      ['move_node', { id: card.id, x: 10, y: 10 }],
+      ['resize_node', { id: card.id, w: 400, h: 300 }],
+      ['hide_node', { id: noteId }],
+      ['hide_node', { id: noteId, hidden: false }],
+      ['link_card', { id: card.id, target: 'worfy-mvp/07' }],
+      ['link_card', { id: card.id, target: 'worfy-mvp/07', remove: true }],
+      ['move_node', { id: 'missing', x: 0, y: 0 }],
+    ] as const) await rpc.call(name, args)
+    const messages: unknown[] = [
+      initMessage('session-a', worktree),
+      { type: 'assistant', message: { id: 'm1', content: [{ type: 'tool_use', id: 't1', name: 'Write', input: { file_path: join(canvas.attachment.cardsDir, card.id, 'index.html') } }] }, parent_tool_use_id: null, session_id: 'session-a' },
+    ]
+    const query = canvas.observe({
+      [Symbol.asyncIterator]: () => {
+        let index = 0
+        return { next: () => Promise.resolve(index < messages.length ? { done: false, value: messages[index++] } : { done: true, value: undefined }) }
+      },
+    })
+    for await (const message of query as AsyncIterable<unknown>) void message
+    expect(nodeOf(card.id)?.data.lastEditor).toBe('session-a')
+    store.flushAll()
+
+    expect(tree(repo)).toEqual(before)
   })
 })
