@@ -16,8 +16,13 @@ electronDist: node_modules/electron/dist
 # node-pty is rebuilt for Electron's ABI by the postinstall script; packaging must not rebuild
 # it again. Its pty.node and spawn-helper cannot be loaded or executed from inside app.asar.
 npmRebuild: false
+# The Agent SDK spawns Claude Code, the native binary of its platform package
+# (@anthropic-ai/claude-agent-sdk-<platform>-<arch>/claude); a file inside app.asar cannot be
+# spawned (ADR-0008). electron-builder's smart unpack copies executables out on its own; the
+# explicit pattern keeps the build from depending on that heuristic.
 asarUnpack:
   - node_modules/node-pty/**
+  - node_modules/@anthropic-ai/claude-agent-sdk-*/**
 
 mac:
   target: dir
