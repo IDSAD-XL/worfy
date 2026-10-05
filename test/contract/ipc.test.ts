@@ -70,6 +70,15 @@ describe('IPC handler registration', () => {
     }
   })
 
+  it('strips keys the contract does not declare from the handler output', async () => {
+    const { call } = await withSample()
+    // The handler returns a valid count plus a key that is not in the output schema: the caller
+    // gets the parsed value, never the raw object the handler built (ADR-0006).
+    const result = await call('sample.leak', { reply: { count: 3, secret: 'token-from-main' } })
+    expect(result).toStrictEqual({ ok: true, value: { count: 3 } })
+    expect(JSON.stringify(result)).not.toContain('token-from-main')
+  })
+
   it('turns an exception in the handler into {ok:false}', async () => {
     const { call } = await withSample()
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)

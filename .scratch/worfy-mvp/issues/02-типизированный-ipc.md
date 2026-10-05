@@ -145,3 +145,16 @@ PR: https://github.com/IDSAD-XL/worfy/pull/3 (ветка `worfy-mvp/02`). CI (li
 - `pnpm test:e2e` → 0, 4 test-а: версия видна в окне; `window.worfy.invoke('app.version', 42)`
   возвращает `{ok:false, error: 'app.version: invalid input …'}`, и следующий вызов — `{ok:true}`.
 
+
+**Доработка, круг 2 (по подтверждённой находке ревью, линза «тесты»).**
+- Находка: выход обработчика проверялся только на неверный тип, не на лишний ключ. Мутант
+  `return { ok: true, value: output }` в `src/main/ipc/index.ts` (сырое значение обработчика вместо
+  разобранного) оставлял `pnpm test` зелёным. Добавлен test `strips keys the contract does not
+  declare from the handler output` в `test/contract/ipc.test.ts`: обработчик `sample.leak`
+  возвращает `{count: 3, secret: …}`, вызывающий получает ровно `{ok: true, value: {count: 3}}`
+  (`toStrictEqual`), и строки `secret` в ответе нет. Мутант теперь красный: 1 failed | 52 passed, код 1.
+- Сверх находки (подсказка оркестратора): test `test/contract/main-ipc-wiring.test.ts` грузит
+  настоящий `src/main/index.ts` с моком `electron` и `src/main/window` и вызывает
+  зарегистрированный `app.version` от имени frame-а. Вызов из адреса `rendererEntry()` отвечает
+  `{ok: true}`, из чужого адреса — отказ «untrusted». Мутант `isTrustedSender: () => true` в
+  `src/main/index.ts` теперь красный: 1 failed | 52 passed, код 1. Код `src/` в этом круге не менялся.
