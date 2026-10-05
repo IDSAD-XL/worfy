@@ -97,7 +97,7 @@ test('a note is created, moved, resized and edited, survives a restart, and each
 
     // A double click on the empty plane creates a note where the pointer is (below the
     // Orchestrator Node, which takes the top-left corner of a new Canvas).
-    await window.locator('.react-flow__pane').dblclick({ position: { x: 300, y: 320 } })
+    await window.locator('.react-flow__pane').dblclick({ position: { x: 300, y: 340 } })
     const note = window.getByTestId('note-node')
     await expect(note).toHaveCount(1)
     await expect.poll(async () => notesOf(await layoutOf(window, ALPHA)).length).toBe(1)
@@ -106,17 +106,19 @@ test('a note is created, moved, resized and edited, survives a restart, and each
     expect(initial).toMatchObject({ kind: 'note', w: 220, h: 120 })
 
     await note.getByRole('textbox', { name: 'Note text' }).fill('remember the milk')
-    await window.locator('.react-flow__pane').click({ position: { x: 40, y: 40 } }) // top left: the minimap sits bottom right
+    // On the empty plane: right of the Orchestrator Node, far from the minimap at the bottom right.
+    await window.locator('.react-flow__pane').click({ position: { x: 500, y: 40 } })
     await expect.poll(async () => notesOf(await layoutOf(window, ALPHA))[0]?.data).toEqual({ text: 'remember the milk' })
 
     // Moved by its header. The zoom is 1, so screen pixels are canvas units: main must save the
     // position the window shows. (React Flow starts a drag past a threshold, so the Node travels a
-    // few pixels less than the pointer.)
+    // few pixels less than the pointer.) Up and to the right, past the Orchestrator Node: lower
+    // down, the resize handle of the next step would sit under the minimap on a small screen.
     const unmoved = await box(note)
-    await drag(window, note.locator('.w-note__header'), 150, 80)
+    await drag(window, note.locator('.w-note__header'), 150, -80)
     const moved = await box(note)
     expect(moved.x - unmoved.x).toBeGreaterThan(100)
-    expect(moved.y - unmoved.y).toBeGreaterThan(50)
+    expect(moved.y - unmoved.y).toBeLessThan(-50)
     const at = { x: Math.round(initial.x + moved.x - unmoved.x), y: Math.round(initial.y + moved.y - unmoved.y) }
     await expect.poll(async () => rounded(notesOf(await layoutOf(window, ALPHA))[0] as StateNode)).toEqual({ ...at, w: 220, h: 120 })
 
