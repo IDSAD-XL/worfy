@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { layoutApply } from '../../src/shared/ipc/layout'
 import type { Layout, LayoutOpInput } from '../../src/shared/layout/types'
 import { LayoutStore } from '../../src/main/layout/store'
+import { canvasToolCaller } from '../../src/main/mcp/canvas-server'
 
 const PROJECT = 'demo-0a1b2c3d'
 
@@ -82,6 +83,25 @@ describe('a pinned Node in main', () => {
     const before = store.get(PROJECT)
     expect(() => store.apply(PROJECT, op as LayoutOpInput)).toThrow(/pinned to the screen/)
     expect(store.get(PROJECT)).toEqual(before)
+  })
+
+  it('the MCP tools (ticket 24) get the refusal as a tool error, and the Node stays where it is on the screen', async () => {
+    const call = canvasToolCaller({
+      projectId: PROJECT,
+      cardsDir: join(dir, 'cards'),
+      layout: store,
+      workflow: () => Promise.reject(new Error('not used')),
+      sessionId: () => null,
+    })
+    for (const [name, args] of [
+      ['move_node', { id: 'n1', x: 900, y: 900 }],
+      ['resize_node', { id: 'n1', w: 500, h: 400 }],
+    ] as const) {
+      const result = await call(name, args)
+      expect(result.isError).toBe(true)
+      expect(result.content[0]?.text).toMatch(/pinned to the screen/)
+    }
+    expect(nodeOf()).toMatchObject({ pinned: true, x: 300, y: 150, w: 110, h: 60 })
   })
 
   it('takes the other operations, and a move again once it is unpinned', () => {
