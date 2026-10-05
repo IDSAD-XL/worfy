@@ -1,8 +1,9 @@
 import type { CSSProperties } from 'react'
 import { NodeResizer } from '@xyflow/react'
-import type { SessionState } from '../../../shared/agent/events'
 import type { ORCHESTRATOR_HEIGHT, ORCHESTRATOR_KIND, ORCHESTRATOR_WIDTH } from '../../../shared/ipc/orchestrator'
-import { StatusChip, type Status } from '../../theme/primitives'
+import { openSession } from '../../session/navigation'
+import { formatCost, STATE_CHIPS } from '../../session/format'
+import { StatusChip } from '../../theme/primitives'
 import { useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
 import { useOrchestratorView } from './orchestrator-view'
@@ -11,7 +12,8 @@ import { useOrchestratorView } from './orchestrator-view'
 // main creates it locked (it can be moved and resized, not removed). What it shows — state, model,
 // cost and the last status block of the Session's answers, verbatim — is main's view of the
 // Orchestrator (src/main/agent/orchestrator.ts), asked for once and then followed on
-// `orchestrator.changed` (orchestrator-view.ts). The Session view with the transcript is ticket 33.
+// `orchestrator.changed` (orchestrator-view.ts). A double click opens the Session view on its
+// Session (src/renderer/session/SessionView.tsx).
 //
 // main creates the Node with the kind and size of src/shared/ipc/orchestrator.ts. The registry
 // (index.ts) needs them here as literals (fast refresh accepts no other constant exports);
@@ -19,21 +21,6 @@ import { useOrchestratorView } from './orchestrator-view'
 export const kind = 'orchestrator' satisfies typeof ORCHESTRATOR_KIND
 export const defaultWidth = 360 satisfies typeof ORCHESTRATOR_WIDTH
 export const defaultHeight = 200 satisfies typeof ORCHESTRATOR_HEIGHT
-
-const CHIPS: Record<SessionState, { status: Status; label: string }> = {
-  starting: { status: 'working', label: 'starting' },
-  busy: { status: 'working', label: 'busy' },
-  idle: { status: 'ready', label: 'idle' },
-  needs_permission: { status: 'blocked', label: 'needs permission' },
-  error: { status: 'blocked', label: 'error' },
-  closed: { status: 'done', label: 'closed' },
-}
-
-/** Dollars with cents, or with four decimals below a dollar, where a turn costs fractions of a cent. */
-function formatCost(usd: number): string {
-  if (usd === 0) return '$0.00'
-  return `$${usd.toFixed(usd < 1 ? 4 : 2)}`
-}
 
 const styles = {
   root: { width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
@@ -78,17 +65,25 @@ const styles = {
 export default function OrchestratorNode({ id, selected }: CanvasNodeProps) {
   const ops = useLayoutOps()
   const view = useOrchestratorView(id)
-  const chip = CHIPS[view?.state ?? 'starting']
+  const chip = STATE_CHIPS[view?.state ?? 'starting']
 
   return (
-    <div className="w-node-surface" style={styles.root} data-testid="orchestrator-node" data-node-id={id}>
+    <div
+      className="w-node-surface"
+      style={styles.root}
+      data-testid="orchestrator-node"
+      data-node-id={id}
+      onDoubleClick={() => {
+        if (view) openSession({ nodeId: id, projectId: view.projectId })
+      }}
+    >
       <NodeResizer
         isVisible={selected}
         minWidth={240}
         minHeight={120}
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
-      <div className="w-orchestrator__header" style={styles.header}>
+      <div className="w-orchestrator__header" style={styles.header} title="Double-click to open the Session">
         <span style={styles.title}>Orchestrator</span>
         <span data-testid="orchestrator-state" title={view?.error ?? undefined}>
           <StatusChip status={chip.status} label={chip.label} />

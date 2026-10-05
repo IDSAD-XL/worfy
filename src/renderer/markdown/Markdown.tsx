@@ -1,0 +1,86 @@
+import { useMemo, type MouseEvent, type ReactNode } from 'react'
+import ReactMarkdown, { type Components } from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { invoke } from '../ipc'
+import { classifyLink } from './links'
+import { remarkSoftBreaks } from './soft-breaks'
+import './markdown.css'
+
+// The one markdown renderer of the app: the Session transcript (ticket 33), HANDOFF and ADRs
+// (ticket 12). react-markdown with remark-gfm (tables, task lists, strikethrough, autolinks).
+//
+// Raw HTML is never executed: without rehype-raw, react-markdown turns every HTML node into
+// plain text, so `<script>` or `<img onerror>` written by an agent is shown, not run. Markdown
+// images are not loaded either: they would fetch from wherever the text points; the alt text is
+// shown instead. Links open outside the window (links.ts): https:// in the browser, a relative
+// path as a file of the Project in the default editor. Fonts and colours come from the theme
+// tokens (markdown.css).
+
+export interface MarkdownProps {
+  text: string
+  /** The Project whose files relative links point at; without one they open nothing. */
+  projectId?: string | undefined
+  /** Directory of the document relative to the Project root; relative links resolve against it. */
+  baseDir?: string | undefined
+  /** Keep single newlines as line breaks, as chat text means them (soft-breaks.ts). */
+  breaks?: boolean
+}
+
+function open(href: string | undefined, projectId: string | undefined, baseDir: string | undefined): void {
+  const target = classifyLink(href, baseDir)
+  if (target.kind === 'external') {
+    void invoke('shell.openExternal', { url: target.url }).then((result) => {
+      if (!result.ok) console.error('shell.openExternal failed:', result.error)
+    })
+  } else if (target.kind === 'file' && projectId !== undefined) {
+    void invoke('shell.openInEditor', { projectId, path: target.path }).then((result) => {
+      if (!result.ok) console.error('shell.openInEditor failed:', result.error)
+    })
+  }
+}
+
+function Link({ href, children, projectId, baseDir }: { href: string | undefined; children: ReactNode; projectId: string | undefined; baseDir: string | undefined }) {
+  const target = classifyLink(href, baseDir)
+  if (target.kind === 'none') {
+    return (
+      <span className="w-md__inert-link" title={href}>
+        {children}
+      </span>
+    )
+  }
+  const onClick = (event: MouseEvent) => {
+    // The window itself never navigates: the link always leaves through main.
+    event.preventDefault()
+    open(href, projectId, baseDir)
+  }
+  return (
+    <a href={href} title={target.kind === 'external' ? target.url : target.path} onClick={onClick}>
+      {children}
+    </a>
+  )
+}
+
+export function Markdown({ text, projectId, baseDir, breaks = false }: MarkdownProps) {
+  const components = useMemo<Components>(
+    () => ({
+      a: ({ href, children }) => (
+        <Link href={href} projectId={projectId} baseDir={baseDir}>
+          {children}
+        </Link>
+      ),
+      img: ({ alt, src }) => (
+        <span className="w-md__image" title={typeof src === 'string' ? src : undefined}>
+          {alt || 'image'}
+        </span>
+      ),
+    }),
+    [projectId, baseDir],
+  )
+  return (
+    <div className="w-md">
+      <ReactMarkdown remarkPlugins={breaks ? [remarkGfm, remarkSoftBreaks] : [remarkGfm]} components={components}>
+        {text}
+      </ReactMarkdown>
+    </div>
+  )
+}
