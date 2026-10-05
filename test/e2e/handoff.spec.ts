@@ -4,6 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
+import { SETTLE_READS_MS } from '../../src/main/docs/watch'
 import { launchApp } from './helpers'
 
 // The HANDOFF Node and the sidebar's ADR section against the built app, over a Project in a
@@ -82,7 +83,10 @@ test('the HANDOFF Node renders HANDOFF.md, follows an edit within a second, and 
     expect(handoffNodes).toHaveLength(1)
     expect(handoffNodes[0]!.locked).toBe(true)
 
-    // An edit, as an agent would make it, is on the Node within a second.
+    // An edit, as an agent would make it, is on the Node within a second. It is made after the
+    // reads main makes when its watcher starts (SETTLE_READS_MS, counted from before the window
+    // showed the Node), so only the file events can bring it.
+    await window.waitForTimeout(Math.max(...SETTLE_READS_MS) + 200)
     writeFileSync(join(repo, 'HANDOFF.md'), HANDOFF.replace('- волна 8', '- волна 8\n- новая строка от агента'))
     const shownAfter = await msUntil(window, async () => (await node.textContent())?.includes('новая строка от агента') ?? false)
     expect(shownAfter).toBeLessThanOrEqual(1000)

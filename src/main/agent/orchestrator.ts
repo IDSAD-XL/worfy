@@ -20,10 +20,9 @@ import {
   type OrchestratorView,
 } from '../../shared/ipc/orchestrator'
 import type { LayoutNode, LayoutOpInput, LayoutState } from '../../shared/layout/types'
+import { placeNewNode } from '../layout/place'
 import type { TranscriptFacts } from './orchestrator-transcript'
 import type { EventSink, Session, SessionRegistry } from './session'
-
-const MARGIN = 40
 
 /**
  * What Claude Code answers when asked to resume a session it has no transcript for (it removes
@@ -32,15 +31,11 @@ const MARGIN = 40
 const NO_CONVERSATION = /No conversation found with session ID/i
 
 /**
- * Where a new Orchestrator Node goes: the top-left corner of the Canvas when no Node is there,
- * otherwise under every Node, so it never covers one.
+ * Where a new Orchestrator Node goes: the top-left corner of the Canvas when no Node there takes
+ * it, otherwise under every Node, so it never covers one (src/main/layout/place.ts).
  */
 export function orchestratorPlace(nodes: readonly LayoutNode[]): { x: number; y: number } {
-  const spot = { x: MARGIN, y: MARGIN }
-  const covers = (node: LayoutNode) =>
-    node.x < spot.x + ORCHESTRATOR_WIDTH && spot.x < node.x + node.w && node.y < spot.y + ORCHESTRATOR_HEIGHT && spot.y < node.y + node.h
-  if (!nodes.some(covers)) return spot
-  return { x: Math.min(...nodes.map((node) => node.x)), y: Math.max(...nodes.map((node) => node.y + node.h)) + MARGIN }
+  return placeNewNode(nodes, { w: ORCHESTRATOR_WIDTH, h: ORCHESTRATOR_HEIGHT })
 }
 
 /**

@@ -1,8 +1,8 @@
 import { app, type WebContents } from 'electron'
 import { docsChanged, docsClose, docsOpen, docsRead, HANDOFF_HEIGHT, HANDOFF_KIND, HANDOFF_WIDTH } from '../../shared/ipc/docs'
-import { SOURCE_NODE_KINDS } from '../../shared/layout/derived'
 import type { LayoutNode } from '../../shared/layout/types'
 import { DocsHub, readDoc, type DocsSubscriber } from '../docs/watch'
+import { placeNewNode } from '../layout/place'
 import { layoutStore } from '../layout/store'
 import { projectStore } from '../projects/store'
 import { defineHandler, emit, type HandlerModule } from './index'
@@ -14,21 +14,9 @@ import { defineHandler, emit, type HandlerModule } from './index'
 // gone the Node is hidden, and shown again when the file comes back; a Node the user hid stays
 // hidden. Its text is never copied into the Layout: the Node reads it through `docs.read`.
 
-const GAP = 40
-
-/**
- * Where a new HANDOFF Node goes: the top-left spot when it is free, otherwise under every Node on
- * the plane, so it covers none of them and is in view with the default viewport (the Orchestrator
- * Node is placed the same way).
- */
+/** Where a new HANDOFF Node goes: the same rule as the Orchestrator Node (src/main/layout/place.ts). */
 export function handoffPlace(nodes: readonly LayoutNode[]): { x: number; y: number } {
-  // Epic frame Nodes keep offsets, not places (shared/layout/derived.ts); pinned ones keep screen pixels.
-  const placed = nodes.filter((node) => !node.pinned && !node.hidden && !SOURCE_NODE_KINDS.includes(node.kind))
-  const spot = { x: GAP, y: GAP }
-  const covers = (node: LayoutNode) =>
-    node.x < spot.x + HANDOFF_WIDTH && spot.x < node.x + node.w && node.y < spot.y + HANDOFF_HEIGHT && spot.y < node.y + node.h
-  if (!placed.some(covers)) return spot
-  return { x: Math.min(...placed.map((node) => node.x)), y: Math.max(...placed.map((node) => node.y + node.h)) + GAP }
+  return placeNewNode(nodes, { w: HANDOFF_WIDTH, h: HANDOFF_HEIGHT })
 }
 
 /** Brings the Project's HANDOFF Node in line with whether HANDOFF.md exists. */
@@ -40,8 +28,11 @@ export function syncHandoffNode(projectId: string, exists: boolean): void {
     if (!node) {
       const { x, y } = handoffPlace(layout.nodes)
       store.apply(projectId, { op: 'create', node: { kind: HANDOFF_KIND, x, y, w: HANDOFF_WIDTH, h: HANDOFF_HEIGHT, locked: true, data: {} } })
-    } else if (node.hidden && node.data.missing === true) {
-      store.apply(projectId, { op: 'hide', id: node.id, hidden: false })
+    } else if (node.data.missing === true) {
+      // The file is back: undo main's own hide. The mark goes even when someone (the user, or an
+      // agent through the canvas tools) showed the Node while the file was gone; otherwise a later
+      // hide of theirs would be taken for main's and undone.
+      if (node.hidden) store.apply(projectId, { op: 'hide', id: node.id, hidden: false })
       store.apply(projectId, { op: 'patchData', id: node.id, data: { missing: false } })
     }
   } else if (node && !node.hidden) {

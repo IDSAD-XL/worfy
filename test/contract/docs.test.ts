@@ -89,6 +89,16 @@ async function refused(input: unknown, reason: RegExp): Promise<void> {
 
 const handoffNodes = () => layoutModule.layoutStore().get(PROJECT_ID).layout.nodes.filter((node) => node.kind === 'handoff')
 
+/**
+ * Waits until the reads the watcher makes after its start (SETTLE_READS_MS) are over. An edit made
+ * after this reaches the app through the file events only, so a test that edits after it checks
+ * the watch itself, and how long its events take.
+ */
+async function pastStartReads(): Promise<void> {
+  const { SETTLE_READS_MS } = await import('../../src/main/docs/watch')
+  await new Promise((resolve) => setTimeout(resolve, Math.max(...SETTLE_READS_MS) + 200))
+}
+
 /** Every file and folder under `dir` with its size and modification time, `.git` included. */
 function snapshot(dir: string): Record<string, string> {
   const out: Record<string, string> = {}
@@ -199,6 +209,19 @@ describe('docs.read', () => {
     await refused({ projectId: PROJECT_ID, path: 'docs/adr/0009-missing.md' }, /does not exist/)
   })
 
+  it('refuses a folder with an ADR name and a file larger than DOC_SIZE_MAX, and reads one of exactly that size', async () => {
+    const { DOC_SIZE_MAX } = await import('../../src/main/docs/watch')
+    mkdirSync(join(repo, 'docs', 'adr', '0005-folder.md'))
+    await refused({ projectId: PROJECT_ID, path: 'docs/adr/0005-folder.md' }, /is not a file/)
+    writeFileSync(join(repo, 'docs', 'adr', '0006-big.md'), 'x'.repeat(DOC_SIZE_MAX + 1))
+    await refused({ projectId: PROJECT_ID, path: 'docs/adr/0006-big.md' }, /larger than/)
+    writeFileSync(join(repo, 'docs', 'adr', '0007-max.md'), 'x'.repeat(DOC_SIZE_MAX))
+    expect(await value<{ text: string }>('docs.read', { projectId: PROJECT_ID, path: 'docs/adr/0007-max.md' })).toMatchObject({ path: 'docs/adr/0007-max.md' })
+    // The ADR list leaves out what docs.read refuses.
+    const state = await value<DocsState>('docs.open', { projectId: PROJECT_ID })
+    expect(state.adrs.map((adr) => adr.number)).toStrictEqual(['0001', '0002', '0007'])
+  })
+
   it('refuses an input of the wrong type and an unknown Project', async () => {
     await refused({ projectId: PROJECT_ID, path: 42 }, /invalid input/)
     await refused({ projectId: PROJECT_ID }, /invalid input/)
@@ -229,6 +252,8 @@ describe('docs.open', () => {
 
   it('sends docs.changed within a second of an edit of HANDOFF.md and of a new ADR', async () => {
     const first = await value<DocsState>('docs.open', { projectId: PROJECT_ID })
+    await pastStartReads()
+    expect(sender.sent).toStrictEqual([])
     writeFileSync(join(repo, 'HANDOFF.md'), `${HANDOFF}\n- ещё строка\n`)
     await vi.waitFor(() => expect(sender.sent.at(-1)?.handoff?.version).not.toBe(first.handoff?.version), { timeout: 1000, interval: 20 })
     expect(await value('docs.read', { projectId: PROJECT_ID, path: 'HANDOFF.md' })).toStrictEqual({ path: 'HANDOFF.md', text: `${HANDOFF}\n- ещё строка\n` })
@@ -255,6 +280,7 @@ describe('the HANDOFF Node', () => {
     expect(handoffNodes()).toHaveLength(1)
     expect(node).toMatchObject({ kind: 'handoff', locked: true, hidden: false })
 
+    await pastStartReads()
     unlinkSync(join(repo, 'HANDOFF.md'))
     await vi.waitFor(() => expect(handoffNodes()[0]?.hidden).toBe(true), { timeout: 1000, interval: 20 })
     writeFileSync(join(repo, 'HANDOFF.md'), HANDOFF)
@@ -268,12 +294,35 @@ describe('the HANDOFF Node', () => {
     await value('docs.open', { projectId: PROJECT_ID })
     expect(handoffNodes()).toStrictEqual([])
 
+    await pastStartReads()
     writeFileSync(join(repo, 'HANDOFF.md'), HANDOFF)
     await vi.waitFor(() => expect(handoffNodes()).toHaveLength(1), { timeout: 1000, interval: 20 })
     const id = handoffNodes()[0]!.id
     layoutModule.layoutStore().apply(PROJECT_ID, { op: 'hide', id, hidden: true })
     writeFileSync(join(repo, 'HANDOFF.md'), `${HANDOFF}x\n`)
     await vi.waitFor(() => expect(sender.sent.length).toBeGreaterThan(1), { timeout: 1000, interval: 20 })
+    expect(handoffNodes()[0]?.hidden).toBe(true)
+  })
+
+  it('takes a hide for the user\'s once someone showed the Node while HANDOFF.md was gone', async () => {
+    await value('docs.open', { projectId: PROJECT_ID })
+    const id = handoffNodes()[0]!.id
+    const store = layoutModule.layoutStore()
+    await pastStartReads()
+
+    unlinkSync(join(repo, 'HANDOFF.md'))
+    await vi.waitFor(() => expect(handoffNodes()[0]).toMatchObject({ hidden: true, data: { missing: true } }), { timeout: 1000, interval: 20 })
+    // An agent shows it again through the canvas tools while the file is still gone.
+    store.apply(PROJECT_ID, { op: 'hide', id, hidden: false })
+    writeFileSync(join(repo, 'HANDOFF.md'), HANDOFF)
+    await vi.waitFor(() => expect(handoffNodes()[0]?.data.missing).toBe(false), { timeout: 1000, interval: 20 })
+    expect(handoffNodes()[0]?.hidden).toBe(false)
+
+    // Now the user hides it; the next edit of HANDOFF.md leaves it hidden.
+    store.apply(PROJECT_ID, { op: 'hide', id, hidden: true })
+    const sent = sender.sent.length
+    writeFileSync(join(repo, 'HANDOFF.md'), `${HANDOFF}y\n`)
+    await vi.waitFor(() => expect(sender.sent.length).toBeGreaterThan(sent), { timeout: 1000, interval: 20 })
     expect(handoffNodes()[0]?.hidden).toBe(true)
   })
 

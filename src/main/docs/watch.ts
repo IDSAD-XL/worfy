@@ -115,7 +115,7 @@ function isWatchedPath(filename: string): boolean {
 }
 
 /** When the reads after the start run, in ms (see DocsWatcher.watch). */
-const SETTLE_READS_MS = [100, 400, 1000]
+export const SETTLE_READS_MS: readonly number[] = [100, 400, 1000]
 
 const sameDocs = (a: Docs, b: Docs): boolean => JSON.stringify(a) === JSON.stringify(b)
 
