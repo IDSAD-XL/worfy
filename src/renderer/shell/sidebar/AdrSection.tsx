@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { ADR_DIR, type AdrEntry } from '../../../shared/ipc/docs'
 import { useDocs, useDocText } from '../../docs/useDocs'
+import { useCanvasRequests } from '../../find/canvas-requests'
 import { invoke } from '../../ipc'
 import { Markdown } from '../../markdown/Markdown'
 import { activeProject, useProjects } from '../../projects/useProjects'
@@ -144,6 +145,17 @@ export default function AdrSection() {
   const project = activeProject(useProjects())
   const { state, error } = useDocs(project?.id)
   const [open, setOpen] = useState<{ projectId: string; path: string } | null>(null)
+  // "Go to" an ADR in the command palette (ticket 31) opens it here, as a click on its row does.
+  const request = useCanvasRequests((state) => state.adr)
+  const [handled, setHandled] = useState(0)
+  if (request !== null && request.seq !== handled && project !== undefined) {
+    setHandled(request.seq)
+    if (request.projectId === project.id) setOpen({ projectId: project.id, path: request.path })
+  }
+  useEffect(() => {
+    // Carried out: a sidebar shown again later must not open it a second time.
+    if (request !== null && request.seq === handled) useCanvasRequests.setState({ adr: null })
+  }, [request, handled])
   if (!project) return null
 
   const adrs = state?.adrs ?? []
