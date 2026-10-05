@@ -1,15 +1,18 @@
 import { execFile } from 'node:child_process'
 import { realpath } from 'node:fs/promises'
-import { isAbsolute, relative, resolve } from 'node:path'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { shell } from 'electron'
 import { shellOpenExternal, shellOpenInEditor } from '../../shared/ipc/shell'
 import { projectStore } from '../projects/store'
 import { defineHandler, type HandlerModule } from './index'
 
-/** True when `path` is `base` itself or lies under it. Both are real paths. */
+/**
+ * True when `path` is `base` itself or lies under it. Both are real paths. Only a first segment
+ * that is exactly `..` leaves `base`: a folder named `..drafts` inside it is still inside.
+ */
 function isInside(base: string, path: string): boolean {
   const rel = relative(base, path)
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
 }
 
 /** The folders of the Project's git worktrees (the main one included); empty when git cannot say. */

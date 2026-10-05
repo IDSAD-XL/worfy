@@ -364,5 +364,8 @@ function moved({ projectId, layout }: NodeSourceContext, node: CanvasFlowNode): 
   }
 }
 
-const source: NodeSource = { owns: [EPIC_FRAME_KIND], useNodes: useEpicNodes, moved }
+// `ticket` is owned too though the Layout never holds one: a stray Layout Node of that kind (a
+// hand edit, a future `create`) has no Ticket in its data, so it is not drawn rather than crash
+// the Canvas in TicketNode.
+const source: NodeSource = { owns: [EPIC_FRAME_KIND, TICKET_KIND], useNodes: useEpicNodes, moved }
 export default source

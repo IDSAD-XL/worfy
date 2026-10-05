@@ -114,6 +114,14 @@ describe('shell.openInEditor', () => {
     expect(electron.openPath.mock.calls).toStrictEqual([[join(repo, '.scratch', 'e', 'issues', '01-a.md')], [join(repo, 'README.md')]])
   })
 
+  it('opens a file in a folder whose name starts with two dots', async () => {
+    mkdirSync(join(repo, '..drafts'))
+    const file = join(repo, '..drafts', 'x.md')
+    writeFileSync(file, 'x')
+    expect(await call('shell.openInEditor', { projectId: PROJECT_ID, path: file })).toStrictEqual({ ok: true, value: { path: file } })
+    expect(await call('shell.openInEditor', { projectId: PROJECT_ID, path: '..drafts/x.md' })).toStrictEqual({ ok: true, value: { path: file } })
+  })
+
   it('opens a file of a linked worktree that lies outside the repository folder', async () => {
     const file = join(worktree, 'README.md')
     expect(await call('shell.openInEditor', { projectId: PROJECT_ID, path: file })).toStrictEqual({ ok: true, value: { path: file } })
@@ -122,6 +130,8 @@ describe('shell.openInEditor', () => {
   it('refuses ../ out of the Project, a symlink that points out, and a missing file', async () => {
     await refused('shell.openInEditor', { projectId: PROJECT_ID, path: join(repo, '..', 'outside', 'secret.txt') }, /outside the Project/)
     await refused('shell.openInEditor', { projectId: PROJECT_ID, path: '../outside/secret.txt' }, /outside the Project/)
+    // The parent folder itself is outside too.
+    await refused('shell.openInEditor', { projectId: PROJECT_ID, path: '..' }, /outside the Project/)
     await refused('shell.openInEditor', { projectId: PROJECT_ID, path: join(repo, 'link-out.md') }, /outside the Project/)
     // The folder next to the root whose name starts the same is not inside it.
     mkdirSync(join(scratch, 'repo-evil'))

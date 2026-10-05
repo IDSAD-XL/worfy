@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { codeSection } from '../../src/main/workflow/reader'
-import { layoutEpic } from '../../src/renderer/canvas/epic-layout'
+import { layoutEpic, stackFrames } from '../../src/renderer/canvas/epic-layout'
 import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
 import { readyWave, ticketLevels } from '../../src/shared/workflow/waves'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
@@ -243,10 +243,29 @@ test('the worfy-mvp Epic: columns by level, the ready Wave framed, blocking arro
 
     // `ticket claim` rewrites the Status line; the chip follows without a restart.
     const first = join(repo, '.scratch', 'worfy-mvp', 'issues', readdirSync(join(repo, '.scratch', 'worfy-mvp', 'issues')).find((f) => f.startsWith('01-'))!)
+    // The moment the chip changes is taken inside the page by a MutationObserver, so the polling
+    // interval of Playwright's assertions is not counted. Both clocks are this machine's.
+    await window.evaluate(() => {
+      const page = globalThis as unknown as {
+        document: { querySelector(selector: string): object | null; body: object }
+        MutationObserver: new (callback: () => void) => { observe(target: object, options: object): void; disconnect(): void }
+        claimedAt?: number
+      }
+      const shown = () => page.document.querySelector('[data-testid="ticket-node"][data-ticket="1"][data-state="work"]') !== null
+      const observer = new page.MutationObserver(() => {
+        if (page.claimedAt === undefined && shown()) {
+          page.claimedAt = Date.now()
+          observer.disconnect()
+        }
+      })
+      observer.observe(page.document.body, { attributes: true, childList: true, subtree: true })
+    })
     const started = Date.now()
     setStatus(first, 'claimed — 2026-10-05')
     await expect(ticketNode(window, 1)).toHaveAttribute('data-state', 'work', { timeout: 5_000 })
-    const elapsed = Date.now() - started
+    const shownAt = await window.evaluate(() => (globalThis as unknown as { claimedAt?: number }).claimedAt)
+    expect(shownAt).toBeDefined()
+    const elapsed = shownAt! - started
     console.log(`status change shown after ${elapsed} ms`)
     expect(elapsed).toBeLessThanOrEqual(1_000)
     await expect(ticketNode(window, 1).getByText('claimed')).toBeVisible()
@@ -285,15 +304,35 @@ function writeDemo(dir: string): void {
   for (const t of demoTickets({})) writeFileSync(join(issues, `${String(t.num).padStart(2, '0')}-t${t.num}.md`), ticketText(t.num, 'open', t.blockedRaw!))
 }
 
-test('a Ticket moved by hand keeps its offset after a restart and after a neighbour changes', async () => {
+/** A second, smaller Epic below `demo`: its frame's automatic place depends on demo's height. */
+function writeZeta(dir: string): void {
+  const issues = join(dir, 'zeta', 'issues')
+  mkdirSync(issues, { recursive: true })
+  writeFileSync(join(dir, 'zeta', 'spec.md'), '# zeta: the Epic below\n')
+  writeFileSync(join(issues, '01-z1.md'), ticketText(1, 'open', '—'))
+}
+
+test('a Ticket and a frame moved by hand keep their offsets after a restart and after a neighbour changes', async () => {
   makeClaudeHome()
-  const repo = makeProject(writeDemo)
+  const repo = makeProject((dir) => {
+    writeDemo(dir)
+    writeZeta(dir)
+  })
   const issues = join(repo, '.scratch', 'demo', 'issues')
 
   const autoOf = (states: Record<number, Ticket['state']>, num: number) => {
     const placed = layoutEpic({ tickets: demoTickets(states), collapsed: false, doneExpanded: false }).tickets.find((t) => t.num === num)!
     return placed.auto
   }
+  /** The automatic place of zeta's frame: under demo's frame. */
+  const zetaAuto = (states: Record<number, Ticket['state']>, demoCollapsed = false) => {
+    const demoHeight = layoutEpic({ tickets: demoTickets(states), collapsed: demoCollapsed, doneExpanded: false }).height
+    return stackFrames([
+      { epic: 'demo', height: demoHeight },
+      { epic: 'zeta', height: 0 },
+    ]).get('zeta')!.auto
+  }
+  let frameOffset: { dx: number; dy: number }
 
   let offset: { dx: number; dy: number }
   const first = await launch()
@@ -318,6 +357,26 @@ test('a Ticket moved by hand keeps its offset after a restart and after a neighb
     expect(offset.dy).toBeGreaterThan(100)
     const auto = autoOf({}, 3)
     await expect.poll(() => inFrame(window, 'demo', 3)).toEqual({ x: auto.x + offset.dx, y: auto.y + offset.dy })
+
+    // The second frame, dragged by its header: the Layout keeps the shift from its automatic
+    // place (below demo), not the place itself.
+    expect(await flowPosition(window, 'epic:zeta')).toEqual(zetaAuto({}))
+    const handle = await box(window.locator('[data-testid="epic-frame"][data-epic="zeta"] .w-epic__drag .w-epic__tag'))
+    await window.mouse.move(handle.x + 5, handle.y + 5)
+    await window.mouse.down()
+    await window.mouse.move(handle.x + 5 + 120, handle.y + 5 + 80, { steps: 12 })
+    await window.mouse.up()
+    await expect.poll(async () => (await layoutNodes(window)).find((node) => node.id === 'epic:zeta')).toBeTruthy()
+    const zeta = (await layoutNodes(window)).find((node) => node.id === 'epic:zeta')!
+    expect(zeta.kind).toBe('epic-frame')
+    frameOffset = { dx: zeta.x, dy: zeta.y }
+    // React Flow starts the drag on the first mouse step, so the frame travels a bit less than
+    // the mouse; what matters is that the saved offset is where the frame was dropped.
+    expect(frameOffset.dx).toBeGreaterThan(60)
+    expect(frameOffset.dy).toBeGreaterThan(40)
+    const zetaPlace = zetaAuto({})
+    const dropped = await flowPosition(window, 'epic:zeta')
+    expect({ dx: Math.round(dropped.x - zetaPlace.x), dy: Math.round(dropped.y - zetaPlace.y) }).toEqual(frameOffset)
   } finally {
     await first.close()
   }
@@ -328,6 +387,8 @@ test('a Ticket moved by hand keeps its offset after a restart and after a neighb
     await expect(ticketNode(window, 3)).toBeVisible()
     const before = autoOf({}, 3)
     expect(await inFrame(window, 'demo', 3)).toEqual({ x: before.x + offset.dx, y: before.y + offset.dy })
+    const zetaBefore = zetaAuto({})
+    expect(await flowPosition(window, 'epic:zeta')).toEqual({ x: zetaBefore.x + frameOffset.dx, y: zetaBefore.y + frameOffset.dy })
 
     // Ticket 02 is done: it folds into a Done column, 04 loses its blocker and the levels move;
     // 03 keeps its shift from its new automatic place.
@@ -338,9 +399,19 @@ test('a Ticket moved by hand keeps its offset after a restart and after a neighb
     await expect(ticketNode(window, 2)).toHaveCount(0)
     // A Ticket nobody moved sits at its automatic place.
     expect(await inFrame(window, 'demo', 4)).toEqual(autoOf({ 2: 'done' }, 4))
+    await expect.poll(() => flowPosition(window, 'epic:zeta')).toEqual({ x: zetaBefore.x + frameOffset.dx, y: zetaBefore.y + frameOffset.dy })
+    // demo's frame is collapsed to its header, so zeta's automatic place moves up; zeta keeps its
+    // shift from it.
+    await window.getByRole('button', { name: 'Collapse epic demo' }).click()
+    const zetaAfter = zetaAuto({ 2: 'done' }, true)
+    expect(zetaAfter.y).toBeLessThan(zetaBefore.y)
+    await expect.poll(() => flowPosition(window, 'epic:zeta')).toEqual({ x: zetaAfter.x + frameOffset.dx, y: zetaAfter.y + frameOffset.dy })
   } finally {
     await second.close()
   }
+  // Moving a Ticket and a frame is saved in worfy's own data, never in the repository (ADR-0005);
+  // the status edit above is the test's own change to a tracked file.
+  expect(git(repo, 'status', '--porcelain', '--ignored', '--untracked-files=all')).toBe('M .scratch/demo/issues/02-t2.md')
 })
 
 // ── states, themes, sidebar ─────────────────────────────────────────────────

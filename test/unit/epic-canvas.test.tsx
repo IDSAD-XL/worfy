@@ -1,11 +1,21 @@
 // The pieces between the workflow model and the Canvas: the delta applied in the renderer, the
 // Epic node source (what it builds and what it keeps from the Layout), and the blocking arrows.
-import { describe, expect, it } from 'vitest'
-import type { Layout, LayoutNode } from '../../src/shared/layout/types'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Layout, LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 import type { Epic, Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import blockingEdges from '../../src/renderer/canvas/edges/blocking'
-import { buildEpicNodes, epicNodeId, ticketNodeId, type EpicFrameData, type TicketNodeData } from '../../src/renderer/canvas/sources/epics'
+import epicSource, { buildEpicNodes, epicNodeId, ticketNodeId, type EpicFrameData, type TicketNodeData } from '../../src/renderer/canvas/sources/epics'
 import { applyWorkflowDelta } from '../../src/renderer/workflow/useWorkflow'
+
+// The Layout operations the source sends to main, recorded instead of sent; each one succeeds.
+const applied = vi.hoisted(() => [] as { projectId: string; op: unknown }[])
+vi.mock('../../src/renderer/canvas/useLayout', async (original) => ({
+  ...(await original<typeof import('../../src/renderer/canvas/useLayout')>()),
+  applyLayoutOp: (projectId: string, op: unknown) => {
+    applied.push({ projectId, op })
+    return Promise.resolve(undefined)
+  },
+}))
 
 function ticket(epic: string, num: number, over: Partial<Ticket> = {}): Ticket {
   return {
@@ -56,6 +66,26 @@ describe('applyWorkflowDelta', () => {
     expect(after.tickets[0]).toBe(before.tickets[0])
     expect(after.epics.map((e) => e.epic)).toEqual(['a', 'b', 'c'])
     expect(after.epics[0]).toBe(before.epics[0])
+  })
+})
+
+describe('applyWorkflowDelta, an Epic removed', () => {
+  it('drops the Epic the delta removes and keeps the others', () => {
+    const before = model([ticket('a', 1), ticket('b', 1)])
+    const after = applyWorkflowDelta(before, {
+      root: '/repo',
+      epics: [],
+      tickets: [],
+      removedEpics: ['b'],
+      removedTickets: [{ epic: 'b', num: 1 }],
+      error: null,
+      branchErrors: [],
+    })
+    expect(after.epics.map((e) => e.epic)).toEqual(['a'])
+    expect(after.epics[0]).toBe(before.epics[0])
+    expect(after.tickets).toEqual([before.tickets[0]])
+    // Its frame is gone from the Canvas too.
+    expect(buildEpicNodes(freshProject(), '/repo', after, layoutWith(), {}).map((n) => n.id)).toEqual([epicNodeId('a'), ticketNodeId('a', 1)])
   })
 })
 
@@ -123,6 +153,50 @@ describe('the Epic node source', () => {
     expect(buildEpicNodes(id, '/repo', undefined, layoutWith(), {})).toEqual([])
     const failed = { ...model([]), error: { code: 'not-found' as const, message: 'epic-status not found' } }
     expect(buildEpicNodes(id, '/repo', failed, layoutWith(), {})).toEqual([])
+  })
+})
+
+describe('dropping an Epic frame', () => {
+  beforeEach(() => {
+    applied.length = 0
+  })
+
+  it('saves the frame’s offset from its automatic place, and the offset puts it back there', async () => {
+    const id = freshProject()
+    const tickets = [ticket('a', 1), ticket('a', 2, { blockedNums: [1] }), ticket('b', 1)]
+    const nodes = buildEpicNodes(id, '/repo', model(tickets), layoutWith(), {})
+    // The second frame: its automatic place is below the first one, not at the origin.
+    const frameB = nodes.find((n) => n.id === epicNodeId('b'))!
+    const auto = (frameB.data.node.data as EpicFrameData).auto
+    expect(auto.y).toBeGreaterThan(0)
+
+    // First drop: the Layout has no Node for the Epic yet, so it is created with the offset.
+    epicSource.moved({ projectId: id, layout: layoutWith() }, { ...frameB, position: { x: auto.x + 40.4, y: auto.y + 24.6 } })
+    await vi.waitFor(() => expect(applied).toHaveLength(1))
+    expect(applied[0]).toEqual({
+      projectId: id,
+      op: { op: 'create', node: { id: epicNodeId('b'), kind: 'epic-frame', x: 40, y: 25, w: 1, h: 1, locked: true, data: {} } } satisfies LayoutOpInput,
+    })
+
+    // A later drop moves the Node that is already there.
+    const saved = layoutWith([{ id: epicNodeId('b'), x: 40, y: 25 }])
+    const placed = buildEpicNodes(id, '/repo', model(tickets), saved, {}).find((n) => n.id === epicNodeId('b'))!
+    expect(placed.position).toEqual({ x: auto.x + 40, y: auto.y + 25 })
+    epicSource.moved({ projectId: id, layout: saved }, { ...placed, position: { x: placed.position.x - 10, y: placed.position.y + 5 } })
+    await vi.waitFor(() => expect(applied).toHaveLength(2))
+    expect(applied[1]).toEqual({ projectId: id, op: { op: 'move', id: epicNodeId('b'), x: 30, y: 30 } })
+  })
+
+  it('saves a dropped Ticket’s offset from its automatic place in the Epic’s Node', async () => {
+    const id = freshProject()
+    const saved = layoutWith([{ id: epicNodeId('a') }])
+    const nodes = buildEpicNodes(id, '/repo', model([ticket('a', 1), ticket('a', 2, { blockedNums: [1] })], ['a']), saved, {})
+    const two = nodes.find((n) => n.id === ticketNodeId('a', 2))!
+    const auto = (two.data.node.data as TicketNodeData).placed.auto
+    expect(auto.x).toBeGreaterThan(0)
+    epicSource.moved({ projectId: id, layout: saved }, { ...two, position: { x: auto.x + 7, y: auto.y - 3 } })
+    await vi.waitFor(() => expect(applied).toHaveLength(1))
+    expect(applied[0]).toEqual({ projectId: id, op: { op: 'patchData', id: epicNodeId('a'), data: { 'offset:2': { dx: 7, dy: -3 } } } })
   })
 })
 

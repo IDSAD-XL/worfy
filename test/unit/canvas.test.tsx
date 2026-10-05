@@ -77,6 +77,19 @@ describe('collectNodeTypes', () => {
   })
 })
 
+describe('node sources', () => {
+  it('needs owns, useNodes and moved in the default export', async () => {
+    const { collectNodeSources } = await import('../../src/renderer/canvas/extensions')
+    const useNodes = () => []
+    const moved = () => undefined
+    expect(() => collectNodeSources({ './x.ts': { default: { owns: [], useNodes } } })).toThrow(/x.ts must default-export a NodeSource/)
+    expect(() => collectNodeSources({ './x.ts': { default: { owns: 'a', useNodes, moved } } })).toThrow(/x.ts must default-export a NodeSource/)
+    expect(() => collectNodeSources({ './x.ts': {} })).toThrow(/x.ts must default-export a NodeSource/)
+    const good = { owns: ['k'], useNodes, moved }
+    expect(collectNodeSources({ './b.ts': { default: good }, './a.ts': { default: good } }).map((entry) => entry.id)).toEqual(['a', 'b'])
+  })
+})
+
 describe('edge sources', () => {
   it('needs a default function, and a source that throws is skipped', async () => {
     const { collectEdgeSources, edgesOf } = await import('../../src/renderer/canvas/extensions')
@@ -175,6 +188,9 @@ describe('Canvas', () => {
                   node('p', 'zz-vitest-probe', 0),
                   node('u', 'from-the-future', 300),
                   node('n', 'note', 600, { text: 'a note' }),
+                  // A Ticket is drawn by the Epic source only; a stray Layout Node of that kind
+                  // carries no Ticket and must not take the Canvas down.
+                  node('t', 'ticket', 900),
                 ], 'canvas-00000000'),
               }
             : { ok: false, error: 'not in this test' },
@@ -189,6 +205,7 @@ describe('Canvas', () => {
       expect(await screen.findByText('Node type probe from a file')).toBeTruthy()
       expect(screen.getByTestId('unknown-node').textContent).toBe('Unknown node: from-the-future')
       expect((screen.getByRole('textbox', { name: 'Note text' }) as HTMLTextAreaElement).value).toBe('a note')
+      expect(screen.queryByTestId('ticket-node')).toBeNull()
     } finally {
       for (const undo of restore) undo()
       if (!hadObserver) delete globals.ResizeObserver
