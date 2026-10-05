@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { startOrchestrators } from './agent/app-orchestrators'
 import { installCardRuntime, registerCardScheme } from './cards/protocol'
 import { cardStore } from './cards/store'
 import { appUrlMatcher, registerIpc } from './ipc/index'
@@ -24,6 +25,8 @@ void app
     // Navigation, new windows and permissions for every page, the window and its Cards alike.
     installWebPolicy(isAppUrl)
     installCardRuntime((host) => cardStore().locate(host))
+    // Before the first window: its creation is what opens the active Project's Orchestrator.
+    startOrchestrators()
     createMainWindow()
 
     app.on('activate', () => {
