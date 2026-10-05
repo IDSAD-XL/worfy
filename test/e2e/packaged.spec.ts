@@ -87,3 +87,21 @@ test('node-pty loads from the packaged app and runs a command', { tag: '@package
     await launched.close()
   }
 })
+
+test('the Claude Code binary of the Agent SDK sits unpacked where the packaged app runs it', { tag: '@packaged' }, async () => {
+  const launched = await launchPackagedApp()
+  try {
+    // The path src/main/agent/options.ts builds in the packaged app (ADR-0008); the unit test
+    // test/unit/agent-executable.test.ts pins options.ts to this same layout.
+    const binary = await launched.app.evaluate(
+      () => `${process.resourcesPath}/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/claude`,
+    )
+    // Running it with --version starts no session and calls no model.
+    const version = spawnSync(binary, ['--version'], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' } })
+    expect(version.error).toBeUndefined()
+    expect(version.status).toBe(0)
+    expect(version.stdout).toMatch(/\d+\.\d+\.\d+/)
+  } finally {
+    await launched.close()
+  }
+})
