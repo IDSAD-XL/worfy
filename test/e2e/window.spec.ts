@@ -73,10 +73,16 @@ test('a moved or resized window is saved at once, without waiting for the window
   const appProcess = launched.app.process()
   try {
     await expect(launched.window.getByTestId('app-shell')).toBeVisible()
-    // animate: true makes macOS report the change as a finished move/resize ('moved', 'resized'),
-    // as a drag by the user does; the window is never closed in this test.
+    // A drag by the user ends with Electron's 'resized' and 'moved' events. The test emits them
+    // itself after setBounds: on the GitHub macOS runner a programmatic setBounds, even an
+    // animated one, delivered neither event within 5 s, while a desktop session does. The window
+    // is never closed in this test.
     await launched.app.evaluate(({ BrowserWindow }, bounds) => {
-      BrowserWindow.getAllWindows()[0]?.setBounds(bounds, true)
+      const window = BrowserWindow.getAllWindows()[0]
+      if (!window) throw new Error('no window')
+      window.setBounds(bounds)
+      window.emit('resized')
+      window.emit('moved')
     }, wanted)
     await expect.poll(readSaved, { timeout: 5_000 }).toEqual({ bounds: wanted })
     // A crash or a kill skips the 'close' event: what is on disk is all that survives.
