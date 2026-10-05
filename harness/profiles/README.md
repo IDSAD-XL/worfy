@@ -63,7 +63,8 @@ profile -C <каталог> ...   разрешать так, будто запу
 ## profile.json
 
 Поле, которого в проекте нет, — `null` или отсутствует; агент тогда пропускает шаг, а не
-угадывает. Команды записываются так, как проект их действительно запускает.
+угадывает. Скиллы (`ship-ticket`, `epic-wave`) читают поле через `--field`: код 4 или напечатанное
+`null` — шаг пропускается, и скилл говорит об этом словами, а не молча. Команды записываются так, как проект их действительно запускает.
 
 | Поле | Тип | Что значит | Кто читает |
 |---|---|---|---|
@@ -84,28 +85,33 @@ profile -C <каталог> ...   разрешать так, будто запу
 | `parallel` | `"worktrees"` \| `"single"` | `worktrees` — несколько исполнителей, каждый в своём worktree; `single` — один исполнитель, работа в основном checkout, без worktree | все агенты, epic-wave |
 | `worktree.root` | путь \| null | где создаются рабочие деревья | implementer, reviewer, оркестратор |
 | `worktree.base` | строка | от чего ветвиться (`origin/main`, `origin/master`) | implementer |
-| `worktree.implementer` / `reviewer` | строка | готовая команда `git worktree add` с плейсхолдерами | implementer, reviewer |
+| `worktree.implementer` / `reviewer` | строка | готовая команда `git worktree add` с плейсхолдерами | implementer, reviewer, ship-ticket, epic-wave |
 | `tickets.path` | шаблон пути | где лежит тикет | implementer, epic-wave |
 | `tickets.trail_section` | строка | раздел тикета со списком файлов, которые можно править | implementer |
-| `tickets.status_tool` | путь | чем двигать статус тикета | оркестратор |
+| `tickets.status_tool` | путь | чем двигать статус тикета (`claim`, `block`, `done`) | оркестратор, ship-ticket, epic-wave |
+| `tickets.epic_status` | путь \| null | сводка по эпику: `<путь> <эпик>` — строка, `--json [--ref <ветка>]` — все эпики в JSON | ship-ticket, epic-wave |
+| `tickets.spec` | шаблон пути \| null | спецификация эпика, которую читают вместе с тикетом | ship-ticket, epic-wave |
+| `tickets.branch` | шаблон \| null | имя ветки тикета (`<эпик>/<NN>-<slug>`); по нему epic-wave находит ветки волны при возобновлении | epic-wave |
+| `workflow.preflight` | строка \| null | проверка перед тикетом или волной, с плейсхолдером `<эпик>`. Контракт: последняя строка вывода — `GO` или `BLOCKED: <причины>`, код выхода 1 при `BLOCKED`; строка `<база>: <sha> …` — база для брифов. `null` — скилл делает минимальный предполёт сам (`git fetch`, состояние дерева, открытые PR) | ship-ticket, epic-wave |
 | `workflow.ticket_skill` | строка \| null | скилл, по которому идёт тикет | implementer |
 | `workflow.implementer_steps` | строка | какие шаги скилла делает исполнитель | implementer |
-| `workflow.finish` | `"pr-green-ci"` \| `"local-green"` | докуда доводит исполнитель: PR с зелёным CI или локально зелёные проверки | implementer |
+| `workflow.finish` | `"pr-green-ci"` \| `"local-green"` | докуда доводит исполнитель: PR с зелёным CI или локально зелёные проверки. При `local-green` ship-ticket и epic-wave не открывают PR и не мержат | implementer, ship-ticket, epic-wave |
 | `workflow.merge` | `"orchestrator"` | кто мержит | implementer, epic-wave |
-| `numbering.reserve_with` | строка \| null | чем занимать номера до содержания | оркестратор |
-| `numbering.adr` | `{dir, check}` \| null | каталог ADR и проверка уникальности номеров | оркестратор, reviewer |
-| `numbering.migrations` | `{generate, journal, order_key, check}` \| null | как создаются миграции и что задаёт их порядок | implementer, reviewer |
-| `deploy` | объект \| null | `how` — как деплоится; `ci_run_check` — команда проверки CI run по коммиту; `production_check` + `production_expect` — запрос к живому адресу и ожидаемый ответ; `smoke`, `auth` — пояснения. `null` — проект не деплоится | оркестратор, ship-ticket, epic-wave |
+| `numbering.reserve_with` | строка \| null | чем занимать номера до содержания | оркестратор, ship-ticket, epic-wave |
+| `numbering.adr` | `{dir, check}` \| null | каталог ADR и проверка уникальности номеров | оркестратор, reviewer, ship-ticket, epic-wave |
+| `numbering.migrations` | `{generate, journal, order_key, check}` \| null | как создаются миграции и что задаёт их порядок | implementer, reviewer, ship-ticket, epic-wave |
+| `deploy` | объект \| null | `how` — как деплоится; `ci_run_check` — команда проверки CI run по коммиту (`$sha` — SHA merge-коммита); `production_check` + `production_expect` — запрос к живому адресу и ожидаемый ответ; `smoke`, `auth` — пояснения; `env` — имена переменных окружения, без которых проверки прода не запустить (имена, не значения). `null` — проект не деплоится | оркестратор, ship-ticket, epic-wave |
 | `serial_merge.paths` | строки | PR, трогающие эти пути, мержатся по одному | epic-wave |
 | `serial_merge.rule` | строка | когда можно мержить следующий | epic-wave |
 | `docs.context` | `{path, vocabulary_section, decided_in}` \| null | словарь терминов проекта | все агенты |
-| `docs.handoff` | `{path, kind, check}` \| null | файл состояния проекта и проверка его формы | оркестратор; implementer его не правит |
+| `docs.handoff` | `{path, kind, check}` \| null | файл состояния проекта и проверка его формы | оркестратор, ship-ticket, epic-wave; implementer его не правит |
 | `docs.adr_dir` | путь \| null | каталог ADR; implementer его не правит | implementer, reviewer |
-| `lessons` | `"repo:<путь>"` \| `"profile"` | куда пишутся уроки: в репозиторий или в `lessons/` профиля | retro, ship-ticket |
+| `lessons` | `"repo:<путь>"` \| `"profile"` | куда пишутся уроки: в репозиторий или в `lessons/` профиля | retro, ship-ticket, epic-wave |
 | `qmd.collections` | строки | коллекции `qmd`, где ждать ответа по проекту. Подсказка, а не фильтр: агенты ищут по всему индексу и не передают этот список в параметр `collections` | все агенты |
 | `qmd.covers` | строка | что в них лежит | все агенты |
 | `qmd.fallback_grep` | строки | где искать `grep`ом, если `qmd` молчит | scout |
 | `review.lenses` | строки | линзы ревью проекта; оркестратор даёт каждому reviewer одну | оркестратор |
+| `review.ticket_lenses` | строки | два-три из `review.lenses`, которые ship-ticket запускает на каждом тикете по умолчанию | ship-ticket |
 | `dev_stack` | `{check, web_port}` \| null | как убедиться, что локальный стек поднят | continuous-audit `--live` |
 | `audit_lenses` | `[{id, title, where[], finding}]` | линзы continuous-audit: где смотреть и что считается находкой | continuous-audit |
 
