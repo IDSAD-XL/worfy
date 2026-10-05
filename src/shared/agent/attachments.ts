@@ -15,20 +15,27 @@ export type ImageMediaType = z.infer<typeof imageMediaTypeSchema>
 
 const MB = 1024 * 1024
 
-/** The largest image the Messages API takes in an image block. */
-export const IMAGE_LIMIT_BYTES = 5 * MB
+/** The length of `bytes` bytes in base64. */
+export const base64Length = (bytes: number): number => Math.ceil(bytes / 3) * 4
+
+/** The Messages API limits an image block by its base64 data: 5 MB of base64 text. */
+export const IMAGE_BASE64_LIMIT = 5 * MB
+/**
+ * The largest image, in bytes, whose base64 data stays within IMAGE_BASE64_LIMIT: 3.75 MB. Claude
+ * Code itself aims raw images at the same size (its `targetRawSize`).
+ */
+export const IMAGE_LIMIT_BYTES = (IMAGE_BASE64_LIMIT / 4) * 3
 /** The largest file worfy carries or copies into its data folder; a file inside the Project goes by its path at any size. */
 export const FILE_COPY_LIMIT_BYTES = 20 * MB
 /** The most attachments one message takes. */
 export const MAX_ATTACHMENTS = 20
 
-/** The length of `bytes` bytes in base64. */
-export const base64Length = (bytes: number): number => Math.ceil(bytes / 3) * 4
-
-const megabytes = (bytes: number): string => `${Math.round((bytes / MB) * 10) / 10} MB`
+// Rounded down, so that the size named is never above the limit.
+const megabytes = (bytes: number): string => `${Math.floor((bytes / MB) * 100) / 100} MB`
 
 export const imageTooLarge = (name: string): string => `${name} is too large: images go up to ${megabytes(IMAGE_LIMIT_BYTES)}`
 export const fileTooLarge = (name: string): string => `${name} is too large: files from outside the Project go up to ${megabytes(FILE_COPY_LIMIT_BYTES)}`
+export const tooManyAttachments = (names: readonly string[]): string => `A message takes up to ${MAX_ATTACHMENTS} attachments: ${names.join(', ')} left out`
 export const unsupportedImage = (name: string): string => `${name} is not a supported image: paste a PNG, JPEG, GIF or WebP`
 
 const name = z.string().min(1).max(255)
@@ -86,6 +93,19 @@ const joinParts = (parts: readonly (string | null)[]): string => parts.filter((p
 /** The text block of the message: the user's text, then the paths of the attached files. */
 export function messageText(text: string, attachments: readonly Attachment[]): string {
   return joinParts([text.trim() === '' ? null : text, fileLine(attachments)])
+}
+
+const ATTACHMENT_LINE = /^Attached (files|images): /
+
+/**
+ * The user's own text of a message as the transcript shows it (messageLabel): without the
+ * `Attached files: …` and `Attached images: …` lines at its end. ↑ in the input field brings back
+ * this text; the attachments themselves are not brought back.
+ */
+export function typedText(label: string): string {
+  const parts = label.split('\n\n')
+  while (parts.length > 0 && ATTACHMENT_LINE.test(parts.at(-1) ?? '')) parts.pop()
+  return parts.join('\n\n')
 }
 
 /**

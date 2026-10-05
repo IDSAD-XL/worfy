@@ -1,14 +1,20 @@
 // The prompt history of the input field: ↑ and ↓ step through what the user sent to this Session.
+import { typedText } from '../../shared/agent/attachments'
 import type { AgentEvent } from '../../shared/agent/events'
 
 /** What Claude Code writes as a user message when a turn is interrupted; not a prompt. */
 export const INTERRUPT_NOTICE = /^\[Request interrupted by user/
 
-/** The user's messages of a Session, oldest first. */
+/**
+ * The user's messages of a Session, oldest first, as the user typed them: without the lines naming
+ * their attachments (ticket 20), which are not brought back with the text.
+ */
 export function promptHistory(events: readonly AgentEvent[]): string[] {
   const prompts: string[] = []
   for (const event of events) {
-    if (event.type === 'notice' && event.kind === 'user' && !INTERRUPT_NOTICE.test(event.text)) prompts.push(event.text)
+    if (event.type !== 'notice' || event.kind !== 'user' || INTERRUPT_NOTICE.test(event.text)) continue
+    const typed = typedText(event.text)
+    if (typed.trim() !== '') prompts.push(typed)
   }
   return prompts
 }

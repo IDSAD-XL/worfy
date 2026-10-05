@@ -41,22 +41,31 @@ afterEach(() => {
   delete (globalThis as { worfy?: WorfyBridge }).worfy
 })
 
-async function mount(onSend: (message: OutgoingMessage) => Promise<string | null> = () => Promise.resolve(null)) {
+interface MountOptions {
+  busy?: boolean
+  history?: readonly string[]
+}
+
+async function mount(onSend: (message: OutgoingMessage) => Promise<string | null> = () => Promise.resolve(null), { busy = false, history = [] }: MountOptions = {}) {
   const { MessageInput } = await import('../../src/renderer/session/MessageInput')
   const send = vi.fn(onSend)
-  render(<MessageInput sessionId="s" busy={false} history={[]} recipient="Orchestrator" onSend={send} onInterrupt={() => undefined} />)
+  const interrupt = vi.fn()
+  render(<MessageInput sessionId="s" busy={busy} history={history} recipient="Orchestrator" onSend={send} onInterrupt={interrupt} />)
   const field = screen.getByRole('textbox', { name: 'Message Orchestrator' }) as HTMLTextAreaElement
   const type = async (value: string) => {
     await act(async () => {
       fireEvent.change(field, { target: { value } })
     })
   }
+  /** Presses a key in the field; true when nothing took it (its default was not prevented). */
   const key = async (name: string, init: Record<string, unknown> = {}) => {
+    let free = true
     await act(async () => {
-      fireEvent.keyDown(field, { key: name, ...init })
+      free = fireEvent.keyDown(field, { key: name, ...init })
     })
+    return free
   }
-  return { field, send, type, key }
+  return { field, send, interrupt, type, key }
 }
 
 const items = () => screen.queryAllByTestId('slash-item').map((item) => item.getAttribute('data-name'))
@@ -132,6 +141,51 @@ describe('the slash menu', () => {
     await vi.waitFor(() => expect(items()).toEqual(['ship-ticket', 'reship']))
   })
 
+  it('Escape on the open menu during a turn closes the menu and does not interrupt; the next Escape does', async () => {
+    const { type, key, interrupt } = await mount(undefined, { busy: true })
+    await type('/s')
+    await vi.waitFor(() => expect(items()).not.toEqual([]))
+    expect(await key('Escape')).toBe(false)
+    expect(screen.queryByTestId('slash-menu')).toBeNull()
+    expect(interrupt).not.toHaveBeenCalled()
+    await key('Escape')
+    expect(interrupt).toHaveBeenCalledTimes(1)
+  })
+
+  it('↑ and ↓ on the open menu move the selection only: the field keeps its text and the caret stays', async () => {
+    const { field, type, key } = await mount(undefined, { history: ['first prompt', 'second prompt'] })
+    await type('/')
+    await vi.waitFor(() => expect(items()).toHaveLength(4))
+    expect(await key('ArrowDown')).toBe(false)
+    expect(selected()).toBe('ship-ticket')
+    expect(await key('ArrowUp')).toBe(false)
+    expect(await key('ArrowUp')).toBe(false)
+    expect(selected()).toBe('reship')
+    expect(field.value).toBe('/')
+  })
+
+  it('a slash command brought back from the history opens no menu: ↑/↓ keep stepping and Return sends it', async () => {
+    const { field, key, send } = await mount(undefined, { history: ['first prompt', '/compact'] })
+    await key('ArrowUp')
+    expect(field.value).toBe('/compact')
+    // The commands would match: only the history keeps the menu closed.
+    await new Promise((settle) => setTimeout(settle, 20))
+    expect(screen.queryByTestId('slash-menu')).toBeNull()
+    await key('ArrowUp')
+    expect(field.value).toBe('first prompt')
+    await key('ArrowDown')
+    expect(field.value).toBe('/compact')
+    await key('Enter')
+    expect(send).toHaveBeenCalledWith({ text: '/compact', attachments: [] })
+  })
+
+  it('a slash command from the history, once edited, opens the menu again', async () => {
+    const { type, key } = await mount(undefined, { history: ['/comp'] })
+    await key('ArrowUp')
+    await type('/compa')
+    await vi.waitFor(() => expect(items()).toEqual(['compact']))
+  })
+
   it('stays closed without a match, and when the slash is not at the start', async () => {
     const { type } = await mount()
     await type('/zzz')
@@ -147,7 +201,7 @@ describe('attachments', () => {
   it('"+" shows each taken file as a chip and names a refused one; Return sends them with the text', async () => {
     const results: AttachResult[] = [
       { ok: true, attachment: image },
-      { ok: false, name: 'big.png', error: 'big.png is too large: images go up to 5 MB' },
+      { ok: false, name: 'big.png', error: 'big.png is too large: images go up to 3.75 MB' },
       { ok: true, attachment: file },
     ]
     answers['agent.attachPick'] = () => ({ results })
@@ -157,7 +211,7 @@ describe('attachments', () => {
     })
     await vi.waitFor(() => expect(screen.getAllByTestId('attachment-chip')).toHaveLength(2))
     expect(screen.getAllByTestId('attachment-chip').map((chip) => chip.textContent)).toEqual(['shot.png2 KB×', 'notes.txt5 B×'])
-    expect(screen.getByRole('alert').textContent).toBe('big.png is too large: images go up to 5 MB')
+    expect(screen.getByRole('alert').textContent).toBe('big.png is too large: images go up to 3.75 MB')
     await type('look')
     await key('Enter')
     expect(send).toHaveBeenCalledWith({ text: 'look', attachments: [image, file] })
@@ -209,6 +263,30 @@ describe('attachments', () => {
       fireEvent.paste(field, { clipboardData: { files: [], types: ['text/plain'] } })
     })
     expect(asked.length).toBe(before)
+  })
+
+  it('takes 20 attachments at most: what comes past that is left out and named', async () => {
+    const many = Array.from({ length: 21 }, (_, index): AttachResult => ({ ok: true, attachment: { ...file, name: `f${index}.txt`, path: `/data/alpha/attachments/${index}/f${index}.txt` } }))
+    answers['agent.attachPick'] = () => ({ results: many })
+    const { key, type, send } = await mount()
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('input-attach'))
+    })
+    await vi.waitFor(() => expect(screen.getAllByTestId('attachment-chip')).toHaveLength(20))
+    expect(screen.getByRole('alert').textContent).toBe('A message takes up to 20 attachments: f20.txt left out')
+
+    // A full message reads no more dropped files and asks main nothing.
+    const before = asked.length
+    await act(async () => {
+      fireEvent.drop(screen.getByTestId('message-input-box'), { dataTransfer: { files: [new File(['x'], 'more.txt')], types: ['Files'] } })
+    })
+    expect(asked.length).toBe(before)
+    expect(screen.getByRole('alert').textContent).toBe('A message takes up to 20 attachments: more.txt left out')
+    expect(screen.getAllByTestId('attachment-chip')).toHaveLength(20)
+
+    await type('all')
+    await key('Enter')
+    expect(send.mock.calls[0]?.[0].attachments).toHaveLength(20)
   })
 
   it('a dropped file goes to main as bytes; one too big is refused without being read', async () => {

@@ -7,7 +7,9 @@ import { invoke } from '../ipc'
 // supportedCommands() and the last system/init — the user's skills under ~/.claude among them).
 // What follows the slash filters the list: names that start with it first, then names that hold
 // it. ↑/↓ move the selection, Tab or Return puts `/<name> ` into the field, Escape closes the menu
-// until the field no longer starts with a command name.
+// until the field no longer starts with a command name. While the field shows a prompt brought back
+// from the history (↑), the menu stays closed: ↑/↓ keep stepping through the history and Return
+// sends it.
 
 /** The command name being typed: the text after a leading `/`, while it holds no space. */
 export function slashQuery(text: string): string | null {
@@ -48,9 +50,12 @@ export interface SlashMenuState {
   keyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => boolean
 }
 
-/** The slash menu over the field whose text is `text`; picking a command calls `setText`. */
-export function useSlashMenu(sessionId: string | null, text: string, setText: (text: string) => void): SlashMenuState {
-  const query = slashQuery(text)
+/**
+ * The slash menu over the field whose text is `text`; picking a command calls `setText`. `browsing`
+ * is true while the field shows a prompt from the history: the menu stays closed then.
+ */
+export function useSlashMenu(sessionId: string | null, text: string, setText: (text: string) => void, browsing = false): SlashMenuState {
+  const query = browsing ? null : slashQuery(text)
   // The selection belongs to one filter: a new filter starts at the top. Escape holds until the
   // field leaves the command name. Adjusted while rendering, as React advises for state derived
   // from a prop.

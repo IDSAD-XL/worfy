@@ -132,6 +132,11 @@ describe('prompt history', () => {
     expect(promptHistory([prompt('one'), text('a'), prompt('[Request interrupted by user]'), prompt('two')])).toEqual(['one', 'two'])
   })
 
+  it('brings back the typed text of a message with attachments, not the lines naming them', () => {
+    const sent = prompt('look\n\nAttached files: /data/1/notes.txt\n\nAttached images: shot.png')
+    expect(promptHistory([prompt('one'), sent, prompt('Attached images: only.png')])).toEqual(['one', 'look'])
+  })
+
   it('steps to older prompts, stops at the oldest, and past the newest returns to an empty field', () => {
     const history = ['one', 'two', 'three']
     expect(stepHistory(history, null, 'older')).toEqual({ index: 2, text: 'three' })

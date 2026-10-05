@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
-import { FILE_COPY_LIMIT_BYTES, fileTooLarge, imageTooLarge, type Attachment, type AttachmentSource, type AttachResult } from '../../shared/agent/attachments'
+import { FILE_COPY_LIMIT_BYTES, MAX_ATTACHMENTS, fileTooLarge, imageTooLarge, tooManyAttachments, type Attachment, type AttachmentSource, type AttachResult } from '../../shared/agent/attachments'
 import { invoke } from '../ipc'
 import { composerItems } from './composer/index'
 import { stepHistory } from './history'
@@ -16,7 +16,8 @@ import { useSlashMenu } from './SlashMenu'
 // "+" (main's file dialog), by dropping them on the field, and by pasting an image; main checks each
 // one (`agent.attach`, src/main/agent/attachments.ts) and the field shows it as a chip until the
 // message is sent, or the chip is removed. A refused file is named under the field; the message
-// itself can still be sent.
+// itself can still be sent. A message takes MAX_ATTACHMENTS at most: what comes past that is left
+// out, and named under the field.
 
 /** A message as the field sends it. */
 export interface OutgoingMessage {
@@ -115,6 +116,11 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
   const [chips, setChips] = useState<Chip[]>([])
   const [dragging, setDragging] = useState(false)
   const nextKey = useRef(1)
+  // The chips as they are now, ahead of the next render: attaching is async, and its answer counts
+  // against the chips there are by then. Every change of the chips goes through changeChips.
+  const chipsNow = useRef<Chip[]>([])
+  // The attachments of a message being sent: they come back as chips if it is not sent.
+  const sendingCount = useRef(0)
   const field = useRef<HTMLTextAreaElement>(null)
   const disabled = sessionId === null
 
@@ -131,16 +137,35 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
     setAt(null)
   }
 
-  const slash = useSlashMenu(sessionId, text, (value) => {
-    edit(value)
-    field.current?.focus()
-  })
+  // The field still shows a prompt brought back by ↑/↓ from the history.
+  const browsing = at !== null && text === history[at]
+
+  const slash = useSlashMenu(
+    sessionId,
+    text,
+    (value) => {
+      edit(value)
+      field.current?.focus()
+    },
+    browsing,
+  )
+
+  const changeChips = (change: (current: Chip[]) => Chip[]) => {
+    chipsNow.current = change(chipsNow.current)
+    setChips(chipsNow.current)
+  }
+
+  /** How many more attachments the message takes. */
+  const room = () => Math.max(0, MAX_ATTACHMENTS - chipsNow.current.length - sendingCount.current)
 
   /** Shows what main made of the attached things: chips for the taken ones, the reasons for the others. */
   const took = (results: readonly AttachResult[], refused: readonly string[] = []) => {
-    const taken = results.flatMap((result) => (result.ok ? [{ key: nextKey.current++, attachment: result.attachment }] : []))
-    const reasons = [...refused, ...results.flatMap((result) => (result.ok ? [] : [result.error]))]
-    if (taken.length > 0) setChips((current) => [...current, ...taken])
+    const ok = results.flatMap((result) => (result.ok ? [result.attachment] : []))
+    const fits = room()
+    const taken = ok.slice(0, fits).map((attachment) => ({ key: nextKey.current++, attachment }))
+    const left = ok.slice(fits).map((attachment) => attachment.name)
+    const reasons = [...refused, ...results.flatMap((result) => (result.ok ? [] : [result.error])), ...(left.length > 0 ? [tooManyAttachments(left)] : [])]
+    if (taken.length > 0) changeChips((current) => [...current, ...taken])
     setError(reasons.length > 0 ? reasons.join('\n') : null)
   }
 
@@ -156,9 +181,12 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
   }
 
   /** Pasted or dropped files: read here, checked in main. A file too big to carry is refused before it is read. */
-  const attachFiles = async (files: readonly File[], kind: 'pasted' | 'dropped') => {
+  const attachFiles = async (all: readonly File[], kind: 'pasted' | 'dropped') => {
     const sources: AttachmentSource[] = []
     const refused: string[] = []
+    // What does not fit in the message is neither read nor sent to main.
+    const files = all.slice(0, room())
+    const left = all.slice(files.length).map((file) => (file.name === '' ? 'image.png' : file.name))
     for (const file of files) {
       const name = file.name === '' ? 'image.png' : file.name
       if (file.size > FILE_COPY_LIMIT_BYTES) {
@@ -171,6 +199,7 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
         refused.push(reason instanceof Error ? reason.message : String(reason))
       }
     }
+    if (left.length > 0) refused.push(tooManyAttachments(left))
     await attachSources(sources, refused)
   }
 
@@ -184,19 +213,21 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
 
   const send = async () => {
     const message = text
-    const attached = chips
+    const attached = chipsNow.current
     if (disabled || sending || (message.trim() === '' && attached.length === 0)) return
     setSending(true)
     setError(null)
     setText('')
-    setChips([])
+    changeChips(() => [])
     setAt(null)
+    sendingCount.current = attached.length
     const failure = await onSend({ text: message, attachments: attached.map((chip) => chip.attachment) })
+    sendingCount.current = 0
     setSending(false)
     if (failure !== null) {
       // Not sent: the text and the attachments come back so nothing is lost.
       setText((current) => (current === '' ? message : current))
-      setChips((current) => [...attached, ...current])
+      changeChips((current) => [...attached, ...current])
       setError(failure)
     }
   }
@@ -216,7 +247,6 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
     }
     if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
       // Only an empty field, or one that still shows a prompt from the history, steps through it.
-      const browsing = at !== null && text === history[at]
       if (text !== '' && !browsing) return
       const next = stepHistory(history, browsing ? at : null, event.key === 'ArrowUp' ? 'older' : 'newer')
       if (next === null) return
@@ -280,7 +310,7 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
                     className="w-attachment__remove"
                     aria-label={`Remove ${attachment.name}`}
                     data-testid="attachment-remove"
-                    onClick={() => setChips((current) => current.filter((chip) => chip.key !== key))}
+                    onClick={() => changeChips((current) => current.filter((chip) => chip.key !== key))}
                   >
                     ×
                   </button>

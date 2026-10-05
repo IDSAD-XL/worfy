@@ -3,13 +3,14 @@
 // its windows, and a Session nobody can see would keep Claude Code running. The app's registry and
 // how it starts Claude Code (or the fake agent) live in src/main/agent/app-registry.ts.
 //
-// Attachments (ticket 20) are checked here, before the message is sent: copies of files from
-// outside the Project go into the Project's data folder (attachments.ts, ADR-0005).
+// Attachments (ticket 20) are checked here: agent.attach and agent.attachPick make them (copies of
+// files from outside the Project go into the Project's data folder, attachments.ts, ADR-0005), and
+// agent.send checks again what the renderer hands back before the Session gets it (recheck).
 import { stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import type { WebContents } from 'electron'
 import { sharedRegistry } from '../agent/app-registry'
-import { attach, type AttachTarget } from '../agent/attachments'
+import { attach, recheck, type AttachTarget } from '../agent/attachments'
 import { closeRefusal } from '../agent/resume'
 import type { EventSink, Session, SessionRegistry } from '../agent/session'
 import { projectForCwd } from '../mcp/canvas-server'
@@ -31,6 +32,7 @@ import {
   agentSend,
   agentStart,
 } from '../../shared/ipc/agent'
+import { MAX_ATTACHMENTS, tooManyAttachments, type Attachment } from '../../shared/agent/attachments'
 import { defineHandler, emit, type EventTarget, type HandlerModule } from './index'
 
 /** Sends a Session's events to a window, as long as the window is alive. */
@@ -106,6 +108,9 @@ export const appAttachDeps: AttachDeps = {
 /** The handlers over a registry; tests pass their own registry with the fake agent. */
 export function agentHandlers(registry: () => SessionRegistry, attachments: AttachDeps = appAttachDeps): HandlerModule {
   const own = ownership()
+  // The messages of one Session reach it in the order they were sent, though checking the
+  // attachments of one takes longer than checking another's.
+  const lastSend = new WeakMap<Session, Promise<unknown>>()
   const attachAll = async (sessionId: string, sources: Parameters<typeof attach>[0][]) => {
     const target = attachments.target(registry().get(sessionId).cwd)
     // One at a time: a refused file must not hide what the others became.
@@ -121,16 +126,31 @@ export function agentHandlers(registry: () => SessionRegistry, attachments: Atta
       return { sessionId: session.id }
     }),
     defineHandler(agentSend, ({ sessionId, text, attachments: attached }) => {
-      registry().get(sessionId).send(text, attached)
+      const session = registry().get(sessionId)
+      const target = attachments.target(session.cwd)
+      const checked = Promise.all(attached.map((each: Attachment) => recheck(each, target)))
+      // Its refusal is answered below, once the messages before it are sent; not an unhandled rejection meanwhile.
+      void checked.catch(() => undefined)
+      const sent = (lastSend.get(session) ?? Promise.resolve())
+        .catch(() => undefined)
+        .then(() => checked)
+        .then((list) => {
+          session.send(text, list)
+        })
+      lastSend.set(session, sent)
+      return sent
     }),
     defineHandler(agentAttach, ({ sessionId, sources }) => attachAll(sessionId, sources)),
     defineHandler(agentAttachPick, async ({ sessionId }, { event }) => {
       registry().get(sessionId)
       const paths = await attachments.pickFiles(event.sender)
-      return attachAll(
+      // One message takes MAX_ATTACHMENTS at most: the files past that are neither read nor copied.
+      const { results } = await attachAll(
         sessionId,
-        paths.map((path) => ({ kind: 'path', path })),
+        paths.slice(0, MAX_ATTACHMENTS).map((path) => ({ kind: 'path', path })),
       )
+      const left = paths.slice(MAX_ATTACHMENTS).map((path) => basename(path))
+      return { results: left.length === 0 ? results : [...results, { ok: false as const, name: left.join(', '), error: tooManyAttachments(left) }] }
     }),
     defineHandler(agentCommands, async ({ sessionId }) => ({ commands: await registry().get(sessionId).commands() })),
     defineHandler(agentInterrupt, async ({ sessionId }) => ({ interrupted: await registry().get(sessionId).interrupt() })),

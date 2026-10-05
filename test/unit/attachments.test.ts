@@ -7,8 +7,8 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { attach, userContent, type AttachTarget } from '../../src/main/agent/attachments'
-import { FILE_COPY_LIMIT_BYTES, IMAGE_LIMIT_BYTES, messageLabel, messageText, type Attachment } from '../../src/shared/agent/attachments'
+import { attach, recheck, userContent, type AttachTarget } from '../../src/main/agent/attachments'
+import { FILE_COPY_LIMIT_BYTES, IMAGE_LIMIT_BYTES, base64Length, messageLabel, messageText, typedText, type Attachment } from '../../src/shared/agent/attachments'
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0])
@@ -41,25 +41,39 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
+const MB = 1024 * 1024
+
 describe('attach: limits', () => {
-  it('refuses an image larger than 5 MB, with a message, and copies nothing', async () => {
+  it('limits an image so that its base64 data stays within the 5 MB the Messages API takes', () => {
+    expect(IMAGE_LIMIT_BYTES).toBe(3.75 * MB)
+    expect(base64Length(IMAGE_LIMIT_BYTES)).toBe(5 * MB)
+    expect(base64Length(IMAGE_LIMIT_BYTES + 1)).toBeGreaterThan(5 * MB)
+  })
+
+  it('refuses an image larger than 3.75 MB, with a message, and copies nothing', async () => {
     const path = join(outside, 'big.png')
     await writeFile(path, sized(PNG, IMAGE_LIMIT_BYTES + 1))
     const result = await attach({ kind: 'path', path }, target)
-    expect(result).toEqual({ ok: false, name: 'big.png', error: 'big.png is too large: images go up to 5 MB' })
+    expect(result).toEqual({ ok: false, name: 'big.png', error: 'big.png is too large: images go up to 3.75 MB' })
     expect(existsSync(target.attachmentsDir)).toBe(false)
   })
 
-  it('takes an image of exactly 5 MB', async () => {
+  it('refuses a 4 MB image: its base64 data is over 5 MB', async () => {
+    const path = join(outside, 'four.png')
+    await writeFile(path, sized(PNG, 4 * MB))
+    expect(await attach({ kind: 'path', path }, target)).toMatchObject({ ok: false, name: 'four.png' })
+  })
+
+  it('takes an image of exactly 3.75 MB', async () => {
     const path = join(outside, 'edge.png')
     await writeFile(path, sized(PNG, IMAGE_LIMIT_BYTES))
     const result = await attach({ kind: 'path', path }, target)
     expect(result.ok && result.attachment.kind).toBe('image')
   })
 
-  it('refuses a pasted image larger than 5 MB', async () => {
+  it('refuses a pasted image larger than 3.75 MB', async () => {
     const data = sized(PNG, IMAGE_LIMIT_BYTES + 1).toString('base64')
-    expect(await attach({ kind: 'pasted', name: 'image.png', data }, target)).toEqual({ ok: false, name: 'image.png', error: 'image.png is too large: images go up to 5 MB' })
+    expect(await attach({ kind: 'pasted', name: 'image.png', data }, target)).toEqual({ ok: false, name: 'image.png', error: 'image.png is too large: images go up to 3.75 MB' })
   })
 
   it('refuses a file from outside the Project larger than the copy limit, and copies nothing', async () => {
@@ -203,6 +217,54 @@ describe('attach: files', () => {
   })
 })
 
+describe('recheck: what the renderer hands back with a message', () => {
+  const imageOf = (bytes: Buffer): Attachment => ({ kind: 'image', name: 'shot.png', mediaType: 'image/png', size: 1, data: bytes.toString('base64') })
+
+  it('takes an image whose bytes are of its type, with the size and name main sees', async () => {
+    const bytes = sized(PNG, 40)
+    expect(await recheck({ ...imageOf(bytes), name: '../../shot.png' }, target)).toStrictEqual({ kind: 'image', name: 'shot.png', mediaType: 'image/png', size: 40, data: bytes.toString('base64') })
+  })
+
+  it.each([
+    ['bytes that are no image', imageOf(Buffer.from('hello world'))],
+    ['bytes of another image type', { ...imageOf(sized(JPEG, 40)), mediaType: 'image/png' as const }],
+    ['data that is not the base64 main writes', { ...imageOf(sized(PNG, 40)), data: `${sized(PNG, 40).toString('base64')}A` }],
+    ['an image over the limit', imageOf(sized(PNG, IMAGE_LIMIT_BYTES + 1))],
+  ])('refuses an image with %s', async (_label, attachment) => {
+    await expect(recheck(attachment, target)).rejects.toThrow(/shot\.png/)
+  })
+
+  it('takes a copy attach() made, and a file inside the Project, with the size on disk', async () => {
+    const copied = await attach({ kind: 'dropped', name: 'notes.txt', data: Buffer.from('notes').toString('base64') }, target)
+    if (!copied.ok) throw new Error(copied.error)
+    expect(await recheck({ ...copied.attachment, size: 999 }, target)).toStrictEqual({ ...copied.attachment, size: 5 })
+    await writeFile(join(project, 'a.ts'), 'abc')
+    const inside: Attachment = { kind: 'file', name: 'a.ts', path: join(project, 'a.ts'), size: 1, copied: false }
+    expect(await recheck(inside, target)).toStrictEqual({ ...inside, size: 3 })
+  })
+
+  it.each([
+    ['a file outside the Project said to be inside it', false],
+    ['a file outside the attachments folder said to be a copy', true],
+  ])('refuses %s', async (_label, copied) => {
+    await writeFile(join(outside, 'secret.txt'), 'secret')
+    await mkdir(target.attachmentsDir, { recursive: true })
+    await expect(recheck({ kind: 'file', name: 'secret.txt', path: join(outside, 'secret.txt'), size: 6, copied }, target)).rejects.toThrow(/secret\.txt cannot be sent/)
+  })
+
+  it('refuses a file that is gone, and a folder', async () => {
+    await expect(recheck({ kind: 'file', name: 'gone.txt', path: join(project, 'gone.txt'), size: 1, copied: false }, target)).rejects.toThrow(/was not found/)
+    await mkdir(join(project, 'dir'))
+    await expect(recheck({ kind: 'file', name: 'dir', path: join(project, 'dir'), size: 1, copied: false }, target)).rejects.toThrow(/is not a file/)
+  })
+
+  it('a link inside the Project to a file outside it is not inside the Project', async () => {
+    await writeFile(join(outside, 'secret.txt'), 'secret')
+    await symlink(join(outside, 'secret.txt'), join(project, 'link.txt'))
+    await expect(recheck({ kind: 'file', name: 'link.txt', path: join(project, 'link.txt'), size: 6, copied: false }, target)).rejects.toThrow(/outside the Project/)
+  })
+})
+
 describe('the user message', () => {
   const image: Attachment = { kind: 'image', name: 'shot.png', mediaType: 'image/png', size: 3, data: 'AAAA' }
   const file = (path: string): Attachment => ({ kind: 'file', name: path.split('/').at(-1) ?? path, path, size: 1, copied: false })
@@ -230,5 +292,12 @@ describe('the user message', () => {
   it('shows the names of the images in the transcript, not their bytes', () => {
     expect(messageLabel('what is this?', [image, file('/p/a.ts')])).toBe('what is this?\n\nAttached files: /p/a.ts\n\nAttached images: shot.png')
     expect(messageText('what is this?', [image])).toBe('what is this?')
+  })
+
+  it('the typed text of a transcript line leaves out the lines naming the attachments', () => {
+    expect(typedText(messageLabel('what is this?', [image, file('/p/a.ts')]))).toBe('what is this?')
+    expect(typedText(messageLabel('', [image]))).toBe('')
+    expect(typedText('one\n\ntwo')).toBe('one\n\ntwo')
+    expect(typedText('Attached files: mine\n\nand more')).toBe('Attached files: mine\n\nand more')
   })
 })

@@ -1,13 +1,16 @@
 // Attachments of a user message (ticket 20; the shapes and limits are in src/shared/agent/attachments.ts).
 //
 // attach() checks one thing the user attached and makes it ready to send:
-// - an image (png, jpeg, gif, webp — told by its bytes, not its name) up to 5 MB becomes an image
-//   block; a bigger one is refused;
+// - an image (png, jpeg, gif, webp — told by its bytes, not its name) up to IMAGE_LIMIT_BYTES
+//   (3.75 MB: its base64 data stays within the Messages API's 5 MB) becomes an image block; a
+//   bigger one is refused;
 // - any other file goes by its path. A file inside the Project (its root or the Session's cwd) keeps
 //   its own path, whatever its size: nothing is read or written. A file from outside the Project,
 //   and a dropped one whose path the renderer does not know, is copied into
 //   `<Project data folder>/attachments/<id>/<name>` (ADR-0005: worfy writes only into its own data
 //   folder, never into the Project's repository), up to FILE_COPY_LIMIT_BYTES.
+// recheck() checks again, before a message is sent, an attachment the renderer hands back: main
+// does not take the renderer's word for what attach() made (ADR-0006).
 // userContent() builds the content of the SDK user message from the text and the attachments.
 import { randomUUID } from 'node:crypto'
 import { copyFile, mkdir, open, readFile, realpath, stat, writeFile } from 'node:fs/promises'
@@ -131,6 +134,37 @@ export async function attach(source: AttachmentSource, target: AttachTarget): Pr
     const name = safeName(source.kind === 'path' ? source.path : source.name)
     return refuse(name, `${name} could not be attached: ${error instanceof Error ? error.message : String(error)}`)
   }
+}
+
+/** Why an attachment handed back for sending was refused. */
+const notAttached = (name: string, why: string): Error => new Error(`${name} cannot be sent: ${why}`)
+
+/**
+ * Checks once more an attachment the renderer hands back with a message, and rebuilds it from what
+ * main sees itself: an image's type and size from its bytes, a file's size from the disk. A file
+ * must be one attach() could have given: a copy in the attachments folder, or a file inside the
+ * Project. Throws when it is not.
+ */
+export async function recheck(attachment: Attachment, target: AttachTarget): Promise<Attachment> {
+  const name = safeName(attachment.name)
+  if (attachment.kind === 'image') {
+    const bytes = Buffer.from(attachment.data, 'base64')
+    // Only the base64 main itself writes: Buffer.from skips what it cannot read.
+    if (bytes.toString('base64') !== attachment.data) throw notAttached(name, 'its data is not base64')
+    const mediaType = imageTypeOf(bytes.subarray(0, HEAD_BYTES))
+    if (mediaType === null || mediaType !== attachment.mediaType) throw notAttached(name, `it is not ${attachment.mediaType}`)
+    if (bytes.length > IMAGE_LIMIT_BYTES) throw new Error(imageTooLarge(name))
+    return { kind: 'image', name, mediaType, size: bytes.length, data: attachment.data }
+  }
+  const real = await realOrNull(attachment.path)
+  const info = real === null ? null : await stat(real).catch(() => null)
+  if (real === null || info === null) throw notAttached(name, `${attachment.path} was not found`)
+  if (!info.isFile()) throw notAttached(name, `${attachment.path} is not a file`)
+  if (attachment.copied) {
+    const copies = await realOrNull(target.attachmentsDir)
+    if (copies === null || !isUnder(real, copies)) throw notAttached(name, `${attachment.path} is not a copy worfy made`)
+  } else if (!(await insideProject(real, target))) throw notAttached(name, `${attachment.path} is outside the Project`)
+  return { kind: 'file', name, path: attachment.path, size: info.size, copied: attachment.copied }
 }
 
 /** The content of the SDK user message: the text alone, or the images first and then the text. */

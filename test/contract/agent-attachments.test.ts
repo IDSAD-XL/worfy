@@ -140,6 +140,7 @@ describe('agent.send with attachments', () => {
   it('gives Claude Code the image as an image block and the files as paths; the transcript names them', async () => {
     const h = await harness()
     const id = await h.start()
+    await writeFile(join(project, 'a.ts'), 'a')
     await h.ok('agent.send', {
       sessionId: id,
       text: 'what is this?',
@@ -190,7 +191,13 @@ describe('agent.send with attachments', () => {
   it.each([
     ['an empty message', { text: '  ', attachments: [] }],
     ['an image of a type the API refuses', { text: 'x', attachments: [{ ...image, mediaType: 'image/bmp' }] }],
-    ['an image larger than 5 MB', { text: 'x', attachments: [{ ...image, size: 5 * 1024 * 1024 + 1 }] }],
+    ['an image said to be larger than 3.75 MB', { text: 'x', attachments: [{ ...image, size: 3.75 * 1024 * 1024 + 1 }] }],
+    ['image bytes that are no image', { text: 'x', attachments: [{ ...image, data: Buffer.from('hello world').toString('base64') }] }],
+    ['image bytes of another type than the one named', { text: 'x', attachments: [{ ...image, mediaType: 'image/jpeg' }] }],
+    ['an image over 3.75 MB, whatever size it names', { text: 'x', attachments: [{ ...image, data: Buffer.concat([PNG, Buffer.alloc(3.75 * 1024 * 1024)]).toString('base64') }] }],
+    ['a file attach() did not give: outside the Project, said to be inside', { text: 'x', attachments: [{ kind: 'file', name: 'passwd', path: '/etc/passwd', size: 1, copied: false }] }],
+    ['a file attach() did not give: outside the attachments folder, said to be a copy', { text: 'x', attachments: [{ kind: 'file', name: 'passwd', path: '/etc/passwd', size: 1, copied: true }] }],
+    ['a file that does not exist', { text: 'x', attachments: [{ kind: 'file', name: 'gone.ts', path: '/nowhere/gone.ts', size: 1, copied: false }] }],
     ['image data that is not base64', { text: 'x', attachments: [{ ...image, data: 'not base64!' }] }],
     ['a file with a relative path', { text: 'x', attachments: [{ kind: 'file', name: 'a', path: 'a', size: 1, copied: false }] }],
     ['an attachment of an unknown kind', { text: 'x', attachments: [{ kind: 'video', name: 'a' }] }],
@@ -210,6 +217,37 @@ describe('agent.send with attachments', () => {
     await h.ok('agent.send', { sessionId: id, text: 'x', extra: true, attachments: [{ ...image, path: '/etc/passwd', evil: 1 }] })
     expect(send).toHaveBeenCalledTimes(1)
     expect(send.mock.calls[0]?.[1]).toStrictEqual([image])
+  })
+
+  it('the Session gets what main sees, not what the renderer says: the size and name of an image and of a file', async () => {
+    const h = await harness()
+    const id = await h.start()
+    await writeFile(join(project, 'a.ts'), 'abc')
+    const send = vi.spyOn(Session.prototype, 'send')
+    await h.ok('agent.send', {
+      sessionId: id,
+      text: 'x',
+      attachments: [
+        { ...image, name: '../shot.png', size: 1 },
+        { kind: 'file', name: 'a.ts', path: join(project, 'a.ts'), size: 999, copied: false },
+      ],
+    })
+    expect(send.mock.calls[0]?.[1]).toStrictEqual([image, { kind: 'file', name: 'a.ts', path: join(project, 'a.ts'), size: 3, copied: false }])
+  })
+
+  it('messages reach Claude Code in the order they were sent, though one waits for its attachments to be checked', async () => {
+    const h = await harness()
+    const id = await h.start()
+    await writeFile(join(project, 'a.ts'), 'a')
+    const file = { kind: 'file', name: 'a.ts', path: join(project, 'a.ts'), size: 1, copied: false }
+    const sent = await Promise.all([
+      h.call('agent.send', { sessionId: id, text: 'first', attachments: [file] }),
+      h.call('agent.send', { sessionId: id, text: 'second' }),
+      h.call('agent.send', { sessionId: id, text: 'refused', attachments: [{ ...file, path: '/nowhere/gone.ts' }] }),
+      h.call('agent.send', { sessionId: id, text: 'third' }),
+    ])
+    expect(sent.map((each) => each.ok)).toEqual([true, true, false, true])
+    await vi.waitFor(() => expect(h.messages().map((each) => each.text.split('\n')[0])).toEqual(['first', 'second', 'third']))
   })
 })
 
@@ -273,15 +311,27 @@ describe('agent.attach and agent.attachPick', () => {
   })
 
   it('"+" checks the files the dialog gives; a cancelled dialog gives none', async () => {
-    await writeFile(join(outside, 'big.png'), Buffer.concat([PNG, Buffer.alloc(5 * 1024 * 1024, 1)]))
+    await writeFile(join(outside, 'big.png'), Buffer.concat([PNG, Buffer.alloc(4 * 1024 * 1024, 1)]))
     const h = await harness('message-input', [join(outside, 'big.png')])
     const id = await h.start()
-    expect(await h.ok('agent.attachPick', { sessionId: id })).toEqual({ results: [{ ok: false, name: 'big.png', error: 'big.png is too large: images go up to 5 MB' }] })
+    expect(await h.ok('agent.attachPick', { sessionId: id })).toEqual({ results: [{ ok: false, name: 'big.png', error: 'big.png is too large: images go up to 3.75 MB' }] })
     expect(h.deps.pickFiles).toHaveBeenCalledTimes(1)
 
     const cancelled = await harness('message-input', [])
     const other = await cancelled.start()
     expect(await cancelled.ok('agent.attachPick', { sessionId: other })).toEqual({ results: [] })
+  })
+
+  it('"+" takes 20 files at most: the ones past that are refused by name and not copied', async () => {
+    const paths = Array.from({ length: 22 }, (_, index) => join(outside, `f${index}.txt`))
+    for (const path of paths) await writeFile(path, 'x')
+    const h = await harness('message-input', paths)
+    const id = await h.start()
+    const { results } = await h.ok<{ results: { ok: boolean; name?: string; error?: string }[] }>('agent.attachPick', { sessionId: id })
+    expect(results).toHaveLength(21)
+    expect(results.slice(0, 20).every((each) => each.ok)).toBe(true)
+    expect(results[20]).toEqual({ ok: false, name: 'f20.txt, f21.txt', error: 'A message takes up to 20 attachments: f20.txt, f21.txt left out' })
+    expect(readdirSync(attachmentsDir)).toHaveLength(20)
   })
 
   it('refuses attachPick for a Session that does not exist, without opening the dialog', async () => {
