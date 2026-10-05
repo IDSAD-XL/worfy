@@ -1,6 +1,8 @@
 // How a Session's Claude Code is started (src/main/ipc/agent.ts): the real SDK unless
 // WORFY_AGENT=fake, with the login shell environment from env.ts rather than worfy's own, and the
 // unpacked native binary in the packaged app. The SDK's query() and agentEnv() are mocked.
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QueryRequest } from '../../src/main/agent/session'
@@ -37,8 +39,12 @@ function sdkOptions(): Record<string, unknown> {
 }
 
 let resourcesPath: PropertyDescriptor | undefined
+/** An empty worfy data folder: the canvas (ticket 24) finds no Project and stays out of these tests. */
+let dataDir: string
 
 beforeEach(() => {
+  dataDir = mkdtempSync(join(tmpdir(), 'worfy-query-factory-'))
+  vi.stubEnv('WORFY_DATA_DIR', dataDir)
   mocks.app.isPackaged = false
   mocks.query.mockReset().mockReturnValue(SDK_QUERY)
   mocks.agentEnv.mockReset().mockResolvedValue({ env: LOGIN_ENV, from: 'login-shell' })
@@ -50,6 +56,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs()
+  rmSync(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   if (resourcesPath) Object.defineProperty(process, 'resourcesPath', resourcesPath)
   else Reflect.deleteProperty(process, 'resourcesPath')
 })
