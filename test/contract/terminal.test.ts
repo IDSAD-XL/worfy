@@ -354,7 +354,8 @@ describe('wireRegistry: the shells follow the Layout, the Projects and quitting'
 
     w.setProjects(['other-00000002'])
     await vi.waitFor(() => expect(pids.map(alive)).toEqual([false, false]), { timeout: 3000 })
-    expect(h.registry.size).toBe(0)
+    // node-pty reaps a shell before it reports the exit: the registry forgets it a moment later.
+    await vi.waitFor(() => expect(h.registry.size).toBe(0), { timeout: 3000 })
   })
 
   it('will-quit waits for every shell, even one that ignores SIGHUP, then quits again', async () => {
