@@ -59,11 +59,45 @@ if [ -d "$ATAKAMA/Atakama-Browser-Server" ]; then
     echo ep1 >"$T/profiles/atakama/state/active-epic"
     c="$(run "$START" "$R" "$R" | ctx)"
     [[ "$c" == *"## Active epic: ep1"$'\n'"MAP-OF-EP1"* ]] && ok "active epic map injected" || bad "active epic map missing"
-    rm -rf "$T/profiles/atakama/state/active-epic" "$T/profiles/atakama/epics/ep1"
+    # большая карта эпика режется до предела раздела и называет полный файл
+    mkdir -p "$T/profiles/atakama/epics/big"
+    { echo "BIG-MAP-HEAD"; for i in $(seq 1 3000); do echo "line $i of a very large epic map, padding padding"; done; echo "BIG-MAP-TAIL"; } \
+        >"$T/profiles/atakama/epics/big/map.md"
+    echo big >"$T/profiles/atakama/state/active-epic"
+    c="$(run "$START" "$R" "$R" | ctx)"
+    sec="${c#*## Active epic: big}"
+    [[ "$c" == *"## Active epic: big"$'\n'"BIG-MAP-HEAD"* && "$c" != *"BIG-MAP-TAIL"* \
+        && "$sec" == *"обрезано, полностью: $T/profiles/atakama/epics/big/map.md"* ]] && [ "$(printf '%s' "$sec" | wc -c)" -le 20300 ] \
+        && ok "large epic map capped with a pointer to the full file ($(printf '%s' "$sec" | wc -c | tr -d ' ') bytes)" \
+        || bad "large map not capped: section $(printf '%s' "$sec" | wc -c) bytes"
+    rm -rf "$T/profiles/atakama/state/active-epic" "$T/profiles/atakama/epics/ep1" "$T/profiles/atakama/epics/big"
+    c="$(run "$START" "$R" "$R" | ctx)"
+    [[ "$c" != *"обрезано"* ]] && ok "normal sections are not capped" || bad "small sections got a cut marker"
+    # граница ровно на конце строки: строка целиком остаётся; нечисловой предел — 20000 по умолчанию
+    mkdir -p "$T/profiles/atakama/epics/edge"; printf 'abc\ndefg\nhij\n' >"$T/profiles/atakama/epics/edge/map.md"
+    echo edge >"$T/profiles/atakama/state/active-epic"
+    c="$(CLAUDE_SESSION_SECTION_CAP=8 run "$START" "$R" "$R" | ctx)"
+    [[ "$c" == *"## Active epic: edge"$'\n'"abc"$'\n'"defg"$'\n'"… обрезано"* ]] && ok "cut on a line boundary keeps the whole line" \
+        || bad "boundary cut lost a line: $(printf '%s' "${c#*Active epic: edge}" | head -c 80)"
+    c="$(CLAUDE_SESSION_SECTION_CAP=20k run "$START" "$R" "$R" 2>&1 | ctx)"
+    [[ "$c" == *"abc"$'\n'"defg"$'\n'"hij"* && "$c" != *"обрезано"* ]] && ok "non-numeric cap falls back to the default" || bad "non-numeric cap broke the hook"
+    rm -rf "$T/profiles/atakama/state/active-epic" "$T/profiles/atakama/epics/edge"
 
     # общий каталог над тремя репозиториями (сам не git) — тот же профиль
     a="$(run "$START" "$ATAKAMA" "$ATAKAMA")"; b="$(run "$START" "$R" "$R")"
     [ -n "$a" ] && [ "$a" = "$b" ] && ok "atakama workspace root: same context as a repo" || bad "atakama workspace root differs"
+
+    # чужой git-репозиторий в общем каталоге, которого нет в реестре (flux-config-platform), —
+    # «не зарегистрирован»: session-start молчит, session-end ничего не пишет
+    F="$ATAKAMA/flux-config-platform"
+    if [ -d "$F/.git" ]; then
+        : >"$LOG"
+        out="$(run "$START" "$F" "$F")"; rc=$?
+        [ "$rc" -eq 0 ] && [ -z "$out" ] && ok "flux-config-platform: session-start silent" || bad "flux start: rc=$rc out=${out:0:120}"
+        out="$(run "$END" "$F" "$F")"; rc=$?
+        [ "$rc" -eq 0 ] && [ -z "$out" ] && [ ! -s "$LOG" ] && ok "flux-config-platform: session-end writes nothing" \
+            || bad "flux end: rc=$rc log=$(wc -l <"$LOG")"
+    fi
 
     # cwd из JSON важнее $PWD
     c="$(run "$START" "$T/plain" "$R" | ctx)"

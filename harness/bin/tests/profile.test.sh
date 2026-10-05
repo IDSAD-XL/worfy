@@ -39,6 +39,8 @@ if [ -d "$AUCTION" ]; then
     check "auction --field tests.new_file" 0 "apps/api/test/<имя>.hardening.spec.ts" "$PROFILE" -C "$AUCTION" --field tests.new_file
     check "auction --field github.account" 0 "IDSAD-XL" "$PROFILE" -C "$AUCTION" --field github.account
     check "auction --field tickets.root" 0 ".scratch/" "$PROFILE" -C "$AUCTION" --field tickets.root
+    check "auction language.reports ru" 0 "ru" "$PROFILE" -C "$AUCTION" --field language.reports
+    check "auction language.team ru" 0 "ru" "$PROFILE" -C "$AUCTION" --field language.team
     # пароль стенда не должен попадать в аргументы curl: пара идёт через stdin (curl -K -)
     check "auction production_check: no -u in args" 1 "" bash -c "'$PROFILE' -C '$AUCTION' --field deploy.production_check | grep -q -- ' -u '"
     check "auction production_check: curl -K - and pipefail" 0 "" bash -c "c=\$('$PROFILE' -C '$AUCTION' --field deploy.production_check) && [[ \$c == 'set -o pipefail;'* && \$c == *'curl -K -'* ]]"
@@ -64,6 +66,8 @@ if [ -d "$ATAKAMA/Atakama-Browser-Server" ]; then
     done
     check "atakama --field parallel" 0 "single" "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Server" --field parallel
     check "atakama --field workflow.finish" 0 "local-green" "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Server" --field workflow.finish
+    check "atakama language.reports ru" 0 "ru" "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Server" --field language.reports
+    check "atakama language.team en" 0 "en" "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Server" --field language.team
     check "atakama --field lessons" 0 "profile" "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Shared" --field lessons
     check "atakama --field layout.repos (3 repos)" 0 '"Atakama-Browser-Shared"' "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Extension" --field layout.repos
     check "atakama workspace root (not git) -> atakama" 0 "atakama" "$PROFILE" -C "$ATAKAMA" --name
@@ -71,9 +75,27 @@ if [ -d "$ATAKAMA/Atakama-Browser-Server" ]; then
     check "atakama repo _resolved.workspace null" 0 "null" "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Server" --field _resolved.workspace
     check "atakama workspace briefing names workspace" 0 "workspace: $ATAKAMA" "$PROFILE" -C "$ATAKAMA"
     check "atakama --rules" 0 "## Обязательное чтение исполнителя" "$PROFILE" -C "$ATAKAMA" --rules
+    if [ -d "$ATAKAMA/flux-config-platform" ]; then
+        check "atakama: unregistered flux-config-platform -> 3" 3 "" "$PROFILE" -C "$ATAKAMA/flux-config-platform" --name
+    fi
     check "parent of two profiles (/Users/alexey/Work) -> 3" 3 "" "$PROFILE" -C /Users/alexey/Work
 else
     echo "skip live Atakama checks: $ATAKAMA missing"
+fi
+
+# --- регистр букв в пути: на нечувствительной к регистру ФС (APFS по умолчанию) ---------------
+# /users/alexey/work/... — тот же каталог, что /Users/alexey/Work/...; резолвер и profile должны
+# узнавать его, а не отвечать «не зарегистрирован».
+RES="$HOME/.claude/hooks/gate-resolve.mjs"
+if [ -d "$AUCTION" ] && [ -d "$(printf '%s' "$AUCTION" | tr '[:upper:]' '[:lower:]')" ]; then
+    lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+    check "case-insensitive FS: resolver --which lowercased Auction" 0 "auction"$'\t'"$AUCTION" node "$RES" --which "$(lc "$AUCTION")/apps"
+    check "case-insensitive FS: profile -C lowercased Auction" 0 "auction" "$PROFILE" -C "$(lc "$AUCTION")/apps" --name
+    if [ -d "$ATAKAMA" ]; then
+        check "case-insensitive FS: profile -C lowercased Atakama workspace" 0 "atakama" "$PROFILE" -C "$(lc "$ATAKAMA")" --name
+    fi
+else
+    echo "skip case-insensitive checks: case-sensitive filesystem or no Auction"
 fi
 
 # --- синтетика ---------------------------------------------------------------------
@@ -85,7 +107,7 @@ git -C "$T/repo" init -q -b main
 git -C "$T/repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
 git -C "$T/repo" worktree add -q --detach "$T/elsewhere-wt" 2>/dev/null
 git -C "$T/repo2" init -q -b main
-printf '{"schema":1,"name":"demo","commands":{"test":"make test"},"parallel":"single","modules":{"heavy":{"pkg/a":2}},"tests":{"globs":["*_test.go"]}}\n' >"$T/profiles/demo/profile.json"
+printf '{"schema":1,"name":"demo","language":"en","commands":{"test":"make test"},"parallel":"single","modules":{"heavy":{"pkg/a":2}},"tests":{"globs":["*_test.go"]}}\n' >"$T/profiles/demo/profile.json"
 printf '# demo rules\n' >"$T/profiles/demo/rules.md"
 cat >"$T/config.json" <<EOF
 {"repos":[
@@ -95,6 +117,9 @@ cat >"$T/config.json" <<EOF
 EOF
 export CLAUDE_GATE_CONFIG="$T/config.json" CLAUDE_PROFILES_DIR="$T/profiles"
 check "synthetic root --field" 0 "make test" "$PROFILE" -C "$T/repo" --field commands.test
+# старая форма language — строка: читается как {reports, team} с одним языком
+check "legacy string language -> language.team" 0 "en" "$PROFILE" -C "$T/repo" --field language.team
+check "legacy string language -> language.reports" 0 "en" "$PROFILE" -C "$T/repo" --field language.reports
 check "synthetic modules.heavy" 0 '"pkg/a": 2' "$PROFILE" -C "$T/repo" --field modules.heavy
 check "synthetic tests.globs" 0 '"*_test.go"' "$PROFILE" -C "$T/repo" --field tests.globs
 check "synthetic absent github.account -> 4" 4 "" "$PROFILE" -C "$T/repo" --field github.account
@@ -134,12 +159,22 @@ printf '{"repos":[{"key":"a","match":"%s","profile":"multi"},{"key":"b","match":
 export CLAUDE_GATE_CONFIG="$T/ws.json"
 check "workspace root -> profile" 0 "multi" "$PROFILE" -C "$T/ws" --name
 check "workspace non-git subdir -> profile" 0 "multi" "$PROFILE" -C "$T/ws/notes" --name
-check "workspace sibling git repo -> profile" 0 "multi" "$PROFILE" -C "$T/ws/c" --name
+# чужой git-репозиторий в общем каталоге, которого нет в реестре, — не проект профиля (код 3);
+# профиль общего каталога получают только каталоги вне git
+check "workspace: unregistered git repo inside -> 3" 3 "" "$PROFILE" -C "$T/ws/c" --name
+mkdir -p "$T/ws/c/deep"
+check "workspace: subdir of unregistered git repo -> 3" 3 "" "$PROFILE" -C "$T/ws/c/deep" --name
 check "workspace: gate_key null" 0 "null" "$PROFILE" -C "$T/ws" --field _resolved.gate_key
-check "workspace: in_worktree false for sibling repo" 0 "false" "$PROFILE" -C "$T/ws/c" --field _resolved.in_worktree
+check "workspace: in_worktree false at workspace root" 0 "false" "$PROFILE" -C "$T/ws" --field _resolved.in_worktree
 check "registered repo inside workspace: own key" 0 "a" "$PROFILE" -C "$T/ws/a" --field _resolved.gate_key
 check "parent holding another profile's repo -> 3" 3 "" "$PROFILE" -C "$T/mixed"
 check "parent of the workspace -> 3" 3 "" "$PROFILE" -C "$T"
+# общий каталог сам стал git-репозиторием (git init в нём): он и его каталоги вне вложенных
+# репозиториев — по-прежнему workspace; незарегистрированный вложенный репозиторий — код 3
+git -C "$T/ws" init -q -b main
+check "workspace root that is itself git -> profile" 0 "multi" "$PROFILE" -C "$T/ws/notes" --name
+check "workspace root that is git: nested foreign repo -> 3" 3 "" "$PROFILE" -C "$T/ws/c" --name
+rm -rf "$T/ws/.git"
 # match с хвостовым слешем резолвер не находит; workspace это не маскирует — код 3, как раньше
 printf '{"repos":[{"key":"a","match":"%s/","profile":"multi"},{"key":"b","match":"%s","profile":"multi"}]}\n' "$T/ws/a" "$T/ws/b" >"$T/ws-slash.json"
 check "match with trailing slash stays 3" 3 "" env CLAUDE_GATE_CONFIG="$T/ws-slash.json" "$PROFILE" -C "$T/ws/a" --name

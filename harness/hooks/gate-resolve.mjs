@@ -51,14 +51,29 @@ const readPkg = (p) => {
 }
 
 // --- выбор репозитория: побеждает самое длинное совпадение префикса ------------
+// Регистр букв: на нечувствительной к регистру ФС (APFS по умолчанию) /users/alexey/work/auction —
+// тот же каталог, что /Users/alexey/Work/Auction. fs.realpathSync.native (realpath(3)) возвращает
+// написание с диска, обычный fs.realpathSync — нет. Поэтому цель приводится через native, а
+// `match` — тоже через native, но только если результат отличается от записи одним регистром:
+// так не меняется ничего, кроме регистра (хвостовой слеш, симлинки и несуществующие пути
+// остаются как записаны). На чувствительной к регистру ФС native ничего не меняет.
+const onDisk = (p) => {
+    try {
+        const n = fs.realpathSync.native(p)
+        return n.toLowerCase() === p.toLowerCase() ? n : p
+    } catch {
+        return p
+    }
+}
 if (process.argv[2] === "--which") {
     let target = process.argv[3] || process.cwd()
     try {
-        target = fs.realpathSync(target)
+        target = fs.realpathSync.native(target)
     } catch {}
     const hit = repos
-        .filter((r) => target === r.match || target.startsWith(r.match + path.sep))
-        .sort((a, b) => b.match.length - a.match.length)[0]
+        .map((r) => ({ ...r, m: onDisk(r.match) }))
+        .filter((r) => target === r.m || target.startsWith(r.m + path.sep))
+        .sort((a, b) => b.m.length - a.m.length)[0]
     if (hit) console.log([hit.key, hit.match, hit.pm || "npm"].join("\t"))
     process.exit(0)
 }

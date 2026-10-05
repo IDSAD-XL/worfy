@@ -87,7 +87,9 @@ for (let i = 0; i < argv.length; i++) {
 let abs = path.resolve(target)
 try {
     if (!fs.statSync(abs).isDirectory()) usage(`not a directory: ${target}`)
-    abs = fs.realpathSync(abs)
+    // native: написание с диска (на нечувствительной к регистру ФС /users/... -> /Users/...),
+    // иначе workspaceOf и резолвер сравнивали бы строки в чужом регистре
+    abs = fs.realpathSync.native(abs)
 } catch {
     usage(`no such directory: ${target}`)
 }
@@ -109,7 +111,7 @@ if (checkout) {
     const common = git("rev-parse", "--path-format=absolute", "--git-common-dir")
     if (common) canon = path.dirname(common)
     try {
-        canon = fs.realpathSync(canon)
+        canon = fs.realpathSync.native(canon)
     } catch {}
 }
 
@@ -137,7 +139,19 @@ try {
 // получает профиль atakama. Общий родитель вычисляется из реестра, а не хранится: второго
 // реестра путей нет. Не считается workspace: профиль с одним репозиторием (его каталог и есть
 // match), корень диска, $HOME и его родители, каталог внутри записи реестра и каталог, где лежит репозиторий другого профиля или без профиля.
+// Профиль общего каталога получают только каталоги ВНЕ git. Git-репозиторий, которого нет в
+// реестре, но который лежит в общем каталоге (flux-config-platform в /Users/alexey/Work/Atakama),
+// — чужой проект: код 3, как у любого незарегистрированного репозитория. Иначе гейт, хуки сессии
+// и preflight принимали бы его за репозиторий профиля.
 const under = (p, dir) => p === dir || p.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep)
+let checkoutCanon = null
+if (checkout) {
+    try {
+        checkoutCanon = fs.realpathSync.native(checkout)
+    } catch {
+        checkoutCanon = checkout
+    }
+}
 function workspaceOf(target) {
     const repos = (cfg.repos || []).filter((r) => r && typeof r.match === "string" && r.match)
     const groups = new Map()
@@ -153,6 +167,10 @@ function workspaceOf(target) {
         for (const r of rs.slice(1)) while (!under(path.resolve(r.match), ws) && ws !== path.dirname(ws)) ws = path.dirname(ws)
         if (ws === path.dirname(ws) || (home && under(home, ws))) continue
         if (repos.some((r) => r.profile !== name && under(path.resolve(r.match), ws))) continue
+        // Каталог внутри незарегистрированного git-репозитория, который лежит в общем каталоге, —
+        // чужой проект. Если git-репозиторий — сам общий каталог или лежит выше него (git init
+        // в /Users/alexey/Work/Atakama, dotfiles в $HOME), это не мешает: каталог остаётся workspace.
+        if (checkoutCanon && checkoutCanon !== ws && under(checkoutCanon, ws)) continue
         if (under(target, ws)) hits.push({ name, ws, n: rs.length })
     }
     return hits.length === 1 ? hits[0] : null
@@ -200,6 +218,9 @@ const resolved = {
     in_worktree: Boolean(!workspace && checkoutReal && checkoutReal !== canon),
     workspace: workspace ? workspace.ws : null,
 }
+// Старая форма `"language": "ru"` — один язык на всё. Читатели спрашивают `language.reports` и
+// `language.team` (profiles/README.md), поэтому строка разворачивается в объект с обоими полями.
+if (typeof profile.language === "string") profile.language = { reports: profile.language, team: profile.language }
 const full = { ...profile, _resolved: resolved }
 const rulesPath = path.join(dir, "rules.md")
 const rules = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, "utf8") : null

@@ -31,6 +31,16 @@ err="$(cd "$T/unreg" && bash "$PF" --no-fetch 2>&1 >/dev/null)"; rc=$?
 [ "$rc" -eq 2 ] && [[ "$err" == *"проект не зарегистрирован"* ]] && ok "unregistered repo -> exit 2 + message" \
     || bad "unregistered repo: exit $rc, err: ${err:0:300}"
 
+# 1a. Незарегистрированный git-репозиторий внутри общего каталога профиля (рядом два
+# репозитория профиля, сам в реестре не записан): тоже «не зарегистрирован», а не профиль соседей.
+mkdir -p "$T/ws/a" "$T/ws/b" "$T/ws/foreign" "$T/profiles/w"
+for d in a b foreign; do git -C "$T/ws/$d" init -q -b main && git -C "$T/ws/$d" commit -q --allow-empty -m init; done
+printf '{"schema":1,"name":"w"}\n' >"$T/profiles/w/profile.json"
+printf '{"repos":[{"key":"a","match":"%s","profile":"w"},{"key":"b","match":"%s","profile":"w"}]}\n' "$T/ws/a" "$T/ws/b" >"$T/ws.json"
+err="$(cd "$T/ws/foreign" && CLAUDE_GATE_CONFIG="$T/ws.json" bash "$PF" --no-fetch 2>&1 >/dev/null)"; rc=$?
+[ "$rc" -eq 2 ] && [[ "$err" == *"проект не зарегистрирован"* ]] && ok "unregistered repo inside a workspace -> exit 2" \
+    || bad "foreign repo in workspace: exit $rc, err: ${err:0:300}"
+
 # 2. Не git-каталог — тоже код 2.
 err="$(cd "$T/nogit" && bash "$PF" --no-fetch 2>&1 >/dev/null)"; rc=$?
 [ "$rc" -eq 2 ] && [[ "$err" == *"не git-репозиторий"* ]] && ok "non-git dir -> exit 2" || bad "non-git dir: exit $rc, err: ${err:0:200}"
