@@ -141,7 +141,7 @@ test('the slash menu lists the skills, Tab puts one in; a pasted image, a droppe
     await view.getByTestId('input-attach').click()
     await expect(view.getByTestId('attachment-chip')).toHaveText([/notes\.txt/])
     // The file over the limit is refused with a message; the message can still be sent.
-    await expect(view.getByTestId('input-error')).toHaveText('huge.png is too large: images go up to 5 MB')
+    await expect(view.getByTestId('input-error')).toHaveText('huge.png is too large: images go up to 3.75 MB')
 
     // A dropped file joins it.
     // Page code as a string: the e2e tsconfig has no DOM types.
