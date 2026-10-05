@@ -22,10 +22,10 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «HANDOFF»; [BRIEF.md](
 
 ## Готово, когда
 
-- [ ] На репозитории worfy виден Узел HANDOFF; правка `HANDOFF.md` видна за ≤ 1 с.
-- [ ] Список ADR в sidebar совпадает с `docs/adr/`; щелчок открывает текст ADR.
-- [ ] `docs.read` с путём `../../etc/passwd` или симлинком наружу отклоняется.
-- [ ] После открытия Проекта `git status --porcelain` пуст.
+- [x] На репозитории worfy виден Узел HANDOFF; правка `HANDOFF.md` видна за ≤ 1 с.
+- [x] Список ADR в sidebar совпадает с `docs/adr/`; щелчок открывает текст ADR.
+- [x] `docs.read` с путём `../../etc/passwd` или симлинком наружу отклоняется.
+- [x] После открытия Проекта `git status --porcelain` пуст.
 
 ## Тесты
 
@@ -39,3 +39,41 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «HANDOFF»; [BRIEF.md](
 - `src/renderer/shell/sidebar/AdrSection.tsx`
 - `src/main/docs/watch.ts`
 - `src/main/ipc/docs.ts`, `src/shared/ipc/docs.ts`
+
+## Итог
+
+- **Как падал первый test.** `test/contract/docs.test.ts` («refuses ../ out of the Project…») до
+  правки падал на импорте: модуля `src/main/ipc/docs.ts` не было (16 из 16 test-ов красные).
+- **Что сделано.** Канал `docs.open` / `docs.close` / `docs.read` и событие `docs.changed`
+  (`src/shared/ipc/docs.ts`, ADR-0006). `src/main/docs/watch.ts`: `resolveDocPath` — путь после
+  `realpath` обязан быть `HANDOFF.md` в корне или `docs/adr/NNNN-*.md` того же корня (иначе
+  «outside the Project» или «only HANDOFF.md and docs/adr/NNNN-*.md…»); список ADR — номер, первый
+  H1, строка `Статус:`/`Status:` без точки; версия файла — первые 16 hex sha256 текста. Узел
+  HANDOFF — Layout Node вида `handoff`, `locked`, его создаёт main (`src/main/ipc/docs.ts`), как
+  Оркестратор: место — свободный левый верхний угол (40, 40) или под всеми Узлами. Sidebar —
+  раздел «ADR» (`order = 40`), щелчок открывает панель поверх Холста, Esc или Close закрывает.
+- **Неочевидные решения.**
+  - «Если файла нет, Узла нет» сделано через `hide`, а не удаление: Узел `locked`, а `remove`
+    для него main отклоняет; скрытие сохраняет место и размер, которые выбрал пользователь.
+    В `data.missing = true` main помечает своё скрытие и снимает только его — Узел, скрытый
+    пользователем, при возврате файла остаётся скрытым.
+  - Документы активного Проекта main открывает сам (`browser-window-created` и смена активного
+    Проекта), как Оркестратор: Узел появляется, даже если sidebar скрыт.
+  - Слежение — один `fs.watch(root, { recursive: true })` (FSEvents), а не chokidar, как в
+    `src/main/workflow/watch.ts`: события по чужим путям отбрасываются по имени до чтения. Поток
+    событий стартует чуть позже возврата `watch()`, и правка в этот миг терялась (test под
+    параллельной нагрузкой краснел 1 раз из 6); поэтому после старта идут три чтения через 100,
+    400 и 1000 мс — они ничего не шлют, если ничего не поменялось.
+  - Текст HANDOFF в Layout не копируется: Узел читает его через `docs.read` при каждой новой
+    версии. Проект Узел берёт из активного (Холст показывает только его, `src/renderer/main.tsx`).
+- **Вне следа.** Новый файл `src/renderer/docs/useDocs.ts` — общий для Узла и раздела ADR
+  renderer-store (как `src/renderer/workflow/useWorkflow.ts` у тикета 10); в «Где в коде» его нет.
+- **Долг из 33** (ссылка markdown с номером строки не открывается) не нужен этому тикету: в
+  `HANDOFF.md` и `docs/adr/*.md` таких ссылок нет, `Markdown.tsx` по тикету не меняется.
+- **Проверено.** `test/contract/docs.test.ts` (17 test-ов: выход за корень, симлинки наружу,
+  неверный тип и лишние ключи, `docs.changed` ≤ 1 с, Узел HANDOFF, неизменность репозитория и
+  `git status --porcelain`), `test/e2e/handoff.spec.ts` (правка видна за ≤ 1 с, список ADR равен
+  `docs/adr/`, панель и Esc, `git status --porcelain` пуст). Отдельный разовый прогон собранного
+  приложения на самом репозитории worfy (worktree тикета): Узел HANDOFF виден, ADR 13 из 13,
+  `git status --porcelain` до и после одинаков.
+
