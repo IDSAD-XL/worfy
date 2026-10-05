@@ -5,7 +5,7 @@ description: Запускать по словам «аудит», «проска
 
 # Аудит кодовой базы: от чтения до тикетов
 
-Результат — эпик `<корень тикетов>/audit-<дата>/`: находки с адресом `file:line` и доказательством,
+Результат — эпик `<корень тикетов>/audit-<дата>/` (корень — `F tickets.root`): находки с адресом `file:line` и доказательством,
 тикеты размером в один PR, разбивка на волны. Правило скилла — **находка остаётся заявлением, пока её
 не воспроизвёл второй агент**: тикет, написанный по одной прочитанной строке, врёт примерно в трети
 утверждений (так показала ревизия 67 тикетов Auction, разбор `.scratch/ui-triage/triage-27-41.md`
@@ -43,15 +43,18 @@ description: Запускать по словам «аудит», «проска
 
 ```bash
 F() { ~/.claude/bin/profile --field "$1"; }
-BASE=$(F worktree.base)                  # код 4 → основная ветка: git symbolic-ref -q --short refs/remotes/origin/HEAD
-T=$(F tickets.path); T=${T%%<эпик>*}     # корень эпиков, например .scratch/
+BASE=$(F worktree.base) && [ "$BASE" != null ] || BASE=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
+T=$(F tickets.root)                      # корень эпиков, например .scratch/
 A=audit-$(date +%F); { git show-ref -q "refs/heads/$A" || [ -d "$T$A" ]; } && A=$A-2   # эпик = ветка = worktree; повтор в тот же день — суффикс -2, -3, …
 git fetch origin --prune && git log --oneline -1 "$BASE"   # коммит аудита — в шапку spec.md
 git worktree add "../$A" -b "$A" "$BASE" && cd "../$A"
 ~/.claude/bin/epic-status; ls -d "$T"audit-*/ | sort | tail -1   # все эпики; прошлый аудит
 ```
 
-Путь `../$A` — это worktree аудита; он идёт в каждый бриф ниже как «Дерево».
+Путь `../$A` — это worktree аудита; он идёт в каждый бриф ниже как «Дерево». Имя `$A` — это и
+эпик, и ветка worktree: в следующих блоках оно выводится заново, `git branch --show-current` в
+worktree аудита (состояние shell между вызовами не сохраняется). Ниже `$T$A` — `<tickets.root><эпик
+аудита>`, например `.scratch/audit-2026-10-05/`.
 
 Один вызов `qmd` (скилл `qmd`), `intent` «уроки прошлых аудитов»: `vec` «прошлые аудиты кода и ложные
 находки», `lex` `аудит находк ложн`. Ищется весь индекс: `F qmd.collections` (что в них — `F qmd.covers`)
@@ -148,7 +151,7 @@ MCP-форму (`searches`, `intent`, `minScore`). В брифе — дерев�
   непроверенного из прохода по стенду.
 - `map.md`: у каждой находки адрес — **очередь исправлений** (тикет здесь), **решение** (моё —
   тикет `Type: grilling`; заказчика — вопрос в пакет), **правка доков** (тикет `Type: task`),
-  **будущая фаза** (указатель в `${T}roadmap`). Карта закрыта, когда без адреса не осталось
+  **будущая фаза** (указатель в `<tickets.root>roadmap`). Карта закрыта, когда без адреса не осталось
   ни одной находки.
 - `issues/NN-<slug>.md`, нумерация с `01` в порядке волн, шаблон дословно (`<adr_dir>` — `F docs.adr_dir`;
   нет каталога ADR — ссылка на ADR из `Source:` убирается):
@@ -176,7 +179,7 @@ Source: [spec.md](../spec.md), раздел «<тема>», находка <ли
 
 `Type` — из словаря репозитория: `task | research | grilling`; тикет-решение — `Type: grilling` с
 `## Question` и `## Решение владельца` вместо «Что делаем» (образец — любой такой тикет проекта:
-`grep -l '^Type: grilling' "$T"*/issues/*.md | head -1`). `Blocked by` — `—` либо номера этого эпика
+`grep -l '^Type: grilling' "$(~/.claude/bin/profile --field tickets.root)"*/issues/*.md | head -1`). `Blocked by` — `—` либо номера этого эпика
 через запятую (`01, 03`); иное `epic-status` считает неразобранным.
 
 Размер — один PR: один модуль, один тест-файл, до пяти путей в «Где в коде». Находка на два модуля
@@ -187,6 +190,9 @@ Source: [spec.md](../spec.md), раздел «<тема>», находка <ли
 возвращает расхождения; расхождения правятся. Затем:
 
 ```bash
+cd <путь worktree аудита>
+F() { ~/.claude/bin/profile --field "$1"; }
+T=$(F tickets.root); A=$(git branch --show-current)          # ветка worktree = имя эпика аудита
 ~/.claude/bin/epic-status --json | jq --arg a "$A" '.tickets[]|select(.epic==$a and .blockedParsed==false)'  # пусто
 ~/.claude/bin/epic-status "$A"                    # «/to-tickets · audit-… 0/N · тикет 01 — …»
 git add "$T$A" && git commit -m "docs: аудит $A — N тикетов" && gh pr create --fill   # мерж — руками

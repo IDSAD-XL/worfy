@@ -185,11 +185,18 @@ gh pr merge <N> --squash
    «проверка прода пропущена: проект не деплоится». Как деплоится — `F deploy.how`; чего
    локально не запускать и какие переменные нужны — `F deploy.smoke`, `F deploy.env`:
 
+Блок запускается целиком, вместе со строкой `sha=`: состояние shell между вызовами не сохраняется.
+Повторять его, пока CI run не станет `completed`:
+
 ```bash
 sha=$(gh pr view <N> --json mergeCommit --jq .mergeCommit.oid)
-<F deploy.ci_run_check>         # использует $sha; ждать completed, success
-<F deploy.production_check>     # ожидание — F deploy.production_expect; без этой строки в отчёте прод «не проверен»
+<F deploy.ci_run_check>                                          # использует $sha; ждать completed, success
+got=$(<F deploy.production_check>); echo "КОД=$? commit=$got sha=$sha"
 ```
+
+Ожидание — `F deploy.production_expect`: ненулевой `КОД`, пустой `commit` или `commit` не равен
+`$sha` — прод «не проверен», и так и пишется в отчёте. Пароль стенда не идёт в аргументы команды —
+только так, как это делает `F deploy.production_check`.
 
 4. Документный PR — последним, после проверенного прода (при `local-green` — документный коммит
    после последнего `VERIFIED`). `F tickets.status_tool` правит файлы тикетов в дереве, где

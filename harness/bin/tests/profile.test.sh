@@ -32,6 +32,16 @@ if [ -d "$AUCTION" ]; then
     check "auction --field parallel" 0 "worktrees" "$PROFILE" -C "$AUCTION" --field parallel
     check "auction --field nested array" 0 "auction" "$PROFILE" -C "$AUCTION" --field qmd.collections
     check "auction --field absent -> 4" 4 "" "$PROFILE" -C "$AUCTION" --field no.such.field
+    check "auction --field modules.heavy (key with /)" 0 '"apps/api": 3' "$PROFILE" -C "$AUCTION" --field modules.heavy
+    check "auction --field commands.package.names" 0 '"apps/api": "@auction/api"' "$PROFILE" -C "$AUCTION" --field commands.package.names
+    check "auction --field commands.package.test_one" 0 "pnpm --filter <пакет> exec vitest run <файл>" "$PROFILE" -C "$AUCTION" --field commands.package.test_one
+    check "auction --field tests.globs" 0 '"*.test.ts*"' "$PROFILE" -C "$AUCTION" --field tests.globs
+    check "auction --field tests.new_file" 0 "apps/api/test/<имя>.hardening.spec.ts" "$PROFILE" -C "$AUCTION" --field tests.new_file
+    check "auction --field github.account" 0 "IDSAD-XL" "$PROFILE" -C "$AUCTION" --field github.account
+    check "auction --field tickets.root" 0 ".scratch/" "$PROFILE" -C "$AUCTION" --field tickets.root
+    # пароль стенда не должен попадать в аргументы curl: пара идёт через stdin (curl -K -)
+    check "auction production_check: no -u in args" 1 "" bash -c "'$PROFILE' -C '$AUCTION' --field deploy.production_check | grep -q -- ' -u '"
+    check "auction production_check: curl -K - and pipefail" 0 "" bash -c "c=\$('$PROFILE' -C '$AUCTION' --field deploy.production_check) && [[ \$c == 'set -o pipefail;'* && \$c == *'curl -K -'* ]]"
     check "auction --dir" 0 "/.claude/profiles/auction" "$PROFILE" -C "$AUCTION" --dir
     check "auction --rules" 0 "## Источники" "$PROFILE" -C "$AUCTION" --rules
     check "auction default briefing" 0 "--- rules.md" "$PROFILE" -C "$AUCTION"
@@ -56,7 +66,7 @@ git -C "$T/repo" init -q -b main
 git -C "$T/repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
 git -C "$T/repo" worktree add -q --detach "$T/elsewhere-wt" 2>/dev/null
 git -C "$T/repo2" init -q -b main
-printf '{"schema":1,"name":"demo","commands":{"test":"make test"},"parallel":"single"}\n' >"$T/profiles/demo/profile.json"
+printf '{"schema":1,"name":"demo","commands":{"test":"make test"},"parallel":"single","modules":{"heavy":{"pkg/a":2}},"tests":{"globs":["*_test.go"]}}\n' >"$T/profiles/demo/profile.json"
 printf '# demo rules\n' >"$T/profiles/demo/rules.md"
 cat >"$T/config.json" <<EOF
 {"repos":[
@@ -66,6 +76,10 @@ cat >"$T/config.json" <<EOF
 EOF
 export CLAUDE_GATE_CONFIG="$T/config.json" CLAUDE_PROFILES_DIR="$T/profiles"
 check "synthetic root --field" 0 "make test" "$PROFILE" -C "$T/repo" --field commands.test
+check "synthetic modules.heavy" 0 '"pkg/a": 2' "$PROFILE" -C "$T/repo" --field modules.heavy
+check "synthetic tests.globs" 0 '"*_test.go"' "$PROFILE" -C "$T/repo" --field tests.globs
+check "synthetic absent github.account -> 4" 4 "" "$PROFILE" -C "$T/repo" --field github.account
+check "synthetic absent modules.deep -> 4" 4 "" "$PROFILE" -C "$T/repo" --field modules.deep
 check "worktree outside match prefix" 0 "demo" "$PROFILE" -C "$T/elsewhere-wt" --name
 check "worktree flagged" 0 "true" "$PROFILE" -C "$T/elsewhere-wt" --field _resolved.in_worktree
 check "root not flagged" 0 "false" "$PROFILE" -C "$T/repo" --field _resolved.in_worktree

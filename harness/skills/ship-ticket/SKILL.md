@@ -193,10 +193,21 @@ gh pr merge <N> --squash
 Только при `pr-green-ci` и если есть `F deploy`; нет или `null` — «шаг 10 пропущен: проект не
 деплоится».
 
-Как деплоится — `F deploy.how`. Дождаться, пока `F deploy.production_check` отдаст ожидаемое
-(`F deploy.production_expect`, обычно свежий commit), и повторить дымовые проверки
-(`F deploy.smoke` — где они и что запускать нельзя). Доступ к стенду — `F deploy.auth`, нужные
-переменные окружения — `F deploy.env`. Без ответа живого адреса деплой не считается проверенным.
+Как деплоится — `F deploy.how`. Доступ к стенду — `F deploy.auth`, нужные переменные окружения —
+`F deploy.env`. Блок ниже запускается целиком, вместе со строкой `sha=`: состояние shell между
+вызовами не сохраняется. Повторять его, пока CI run не станет `completed`:
+
+```bash
+sha=$(gh pr view <N> --json mergeCommit --jq .mergeCommit.oid)
+<F deploy.ci_run_check>                                          # использует $sha; ждать completed, success
+got=$(<F deploy.production_check>); echo "КОД=$? commit=$got sha=$sha"
+```
+
+Ожидание — `F deploy.production_expect`: ненулевой `КОД`, пустой `commit` или `commit` не равен
+`$sha` — прод «не проверен». Затем повторить дымовые проверки: где они и как их повторять, не
+запуская запрещённое локально, — `F deploy.smoke`. Пароль стенда не идёт в аргументы команды (его
+видно в списке процессов) — только так, как это делает `F deploy.production_check`. Без ответа
+живого адреса деплой не считается проверенным.
 
 ## 11. Закрыть
 

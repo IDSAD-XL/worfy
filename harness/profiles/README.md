@@ -82,10 +82,15 @@ profile -C <каталог> ...   разрешать так, будто запу
 | `commands.verify` | строка | полная локальная проверка одной строкой; агенты дописывают `; echo "КОД=$?"` | implementer, reviewer |
 | `commands.prepare_tree` | строка | что сделать в только что созданном worktree, прежде чем гонять проверки | оркестратор, reviewer |
 | `commands.requires` | строки | что должно быть поднято (Docker, база, стек) | implementer, reviewer |
+| `commands.package` | `{typecheck, test, test_one, names}` \| null | команды одного пакета монорепозитория: шаблоны с плейсхолдерами `<пакет>` (имя пакета) и `<файл>` (путь от корня пакета, только `test_one`); `names` — каталог пакета → имя для `<пакет>` (`{"apps/api": "@auction/api"}`). Нет поля — команды корня | overnight-fix-loop |
+| `modules` | `{deep, flat, skip, heavy}` \| null | что считается модулем: по умолчанию каталог прямо под `<пакет>/src`; `deep` — корни, где модуль на уровень глубже; `flat` — пакеты, которые целиком один модуль; `skip` — имена каталогов, которые модулей не образуют; `heavy` — `{"<пакет>": N}`, не больше N модулей пакета разом (тесты поднимают свою базу или стек) | overnight-fix-loop |
+| `tests.new_file` | `{"<пакет>": шаблон}` \| null | куда класть новый файл тестов модуля; плейсхолдеры `<имя>` (имя модуля) и `<каталог модуля>` | overnight-fix-loop |
+| `tests.globs` | строки \| null | маски имён тест-файлов (`*.spec.ts`), для `grep --include` | overnight-fix-loop |
 | `parallel` | `"worktrees"` \| `"single"` | `worktrees` — несколько исполнителей, каждый в своём worktree; `single` — один исполнитель, работа в основном checkout, без worktree | все агенты, epic-wave |
 | `worktree.root` | путь \| null | где создаются рабочие деревья | implementer, reviewer, оркестратор |
 | `worktree.base` | строка | от чего ветвиться (`origin/main`, `origin/master`) | implementer |
 | `worktree.implementer` / `reviewer` | строка | готовая команда `git worktree add` с плейсхолдерами | implementer, reviewer, ship-ticket, epic-wave |
+| `tickets.root` | путь \| null | корень каталога эпиков (`.scratch/`), со слешем в конце; там создаётся эпик аудита | continuous-audit |
 | `tickets.path` | шаблон пути | где лежит тикет | implementer, epic-wave |
 | `tickets.trail_section` | строка | раздел тикета со списком файлов, которые можно править | implementer |
 | `tickets.status_tool` | путь | чем двигать статус тикета (`claim`, `block`, `done`) | оркестратор, ship-ticket, epic-wave |
@@ -100,7 +105,8 @@ profile -C <каталог> ...   разрешать так, будто запу
 | `numbering.reserve_with` | строка \| null | чем занимать номера до содержания | оркестратор, ship-ticket, epic-wave |
 | `numbering.adr` | `{dir, check}` \| null | каталог ADR и проверка уникальности номеров | оркестратор, reviewer, ship-ticket, epic-wave |
 | `numbering.migrations` | `{generate, journal, order_key, check}` \| null | как создаются миграции и что задаёт их порядок | implementer, reviewer, ship-ticket, epic-wave |
-| `deploy` | объект \| null | `how` — как деплоится; `ci_run_check` — команда проверки CI run по коммиту (`$sha` — SHA merge-коммита); `production_check` + `production_expect` — запрос к живому адресу и ожидаемый ответ; `smoke`, `auth` — пояснения; `env` — имена переменных окружения, без которых проверки прода не запустить (имена, не значения). `null` — проект не деплоится | оркестратор, ship-ticket, epic-wave |
+| `deploy` | объект \| null | `how` — как деплоится; `ci_run_check` — команда проверки CI run по коммиту (`$sha` — SHA merge-коммита); `production_check` + `production_expect` — запрос к живому адресу и ожидаемый ответ (требования к команде — ниже таблицы); `smoke`, `auth` — пояснения; `env` — имена переменных окружения, без которых проверки прода не запустить (имена, не значения). `null` — проект не деплоится | оркестратор, ship-ticket, epic-wave |
+| `github.account` | строка \| null | аккаунт `gh`, от которого открываются PR (`gh auth switch -u <аккаунт>`); нет — `gh auth status` только печатается | overnight-fix-loop |
 | `serial_merge.paths` | строки | PR, трогающие эти пути, мержатся по одному | epic-wave |
 | `serial_merge.rule` | строка | когда можно мержить следующий | epic-wave |
 | `docs.context` | `{path, vocabulary_section, decided_in}` \| null | словарь терминов проекта | все агенты |
@@ -117,6 +123,13 @@ profile -C <каталог> ...   разрешать так, будто запу
 
 Секреты в профиль не пишутся: ни значения переменных окружения, ни пароли, ни адреса закрытых баз.
 Профиль называет переменную (`$API_URL`), а не её значение.
+
+`deploy.production_check` — одна строка, которую скиллы запускают как `got=$(<команда>); echo "КОД=$?"`.
+Требования: пароль не попадает в аргументы процесса (их видно в `ps`) — пара передаётся через stdin,
+например `printf 'user = "%s:%s"\n' "$USER_VAR" "$PASS_VAR" | curl -K - …` (`printf` — встроенная
+команда shell, отдельного процесса нет; символы `"` и `\` в паре в таком конфиге нужно
+экранировать); код возврата не теряется — `set -o pipefail` в начале строки, `curl -f` и `jq -e`,
+так что 401, пустой ответ или незаданная переменная дают ненулевой код и читаются как «не проверено».
 
 ## rules.md
 
