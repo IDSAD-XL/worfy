@@ -228,7 +228,7 @@ Renderer и MCP-tools холста шлют операции (создать, с
 | 29 | `src/renderer/canvas/overlays/MiniMapOverlay.tsx`, `src/renderer/canvas/overlays/SelectionToolbar.tsx`, `src/renderer/canvas/pinning.ts`, `src/renderer/canvas/tags.ts` | 5 |
 | 33 | `src/renderer/session/SessionView.tsx`, `src/renderer/session/Transcript.tsx`, `src/renderer/session/MessageInput.tsx`, `src/renderer/session/rail/index.ts`, `src/renderer/markdown/Markdown.tsx`, `src/renderer/canvas/nodes/OrchestratorNode.tsx` | 6 |
 | 12 | `src/renderer/canvas/nodes/HandoffNode.tsx`, `src/renderer/shell/sidebar/AdrSection.tsx`, `src/main/docs/watch.ts`, `src/main/ipc/docs.ts`, `src/shared/ipc/docs.ts` | 7 |
-| 14 | `src/renderer/canvas/nodes/SessionNode.tsx`, `src/renderer/session/Transcript.tsx`, `src/renderer/shell/sidebar/SessionsSection.tsx` | 7 |
+| 14 | `src/renderer/canvas/nodes/SessionNode.tsx`, `src/renderer/session/Transcript.tsx`, `src/renderer/shell/sidebar/SessionsSection.tsx`, `src/shared/transcript/parse.ts`, `src/shared/agent/events.ts`, `src/shared/ipc/claude-home.ts` | 7 |
 | 19 | `src/renderer/session/MessageInput.tsx`, `src/renderer/session/Pickers.tsx`, `src/main/agent/session.ts`, `src/main/agent/queue.ts`, `src/main/agent/fake-query.ts` | 7 |
 | 22 | `src/main/agent/limits.ts`, `src/shared/agent/limits.ts`, `src/renderer/shell/toolbar/LimitsMeter.tsx`, `src/renderer/session/rail/LimitsRail.tsx`, `scripts/statusline-bridge.sh` | 7 |
 | 15 | `src/shared/transcript/subagents.ts`, `src/renderer/canvas/nodes/SubagentNode.tsx`, `src/renderer/canvas/edges/subagents.ts`, `src/renderer/session/rail/SubagentsRail.tsx` | 8 |
@@ -248,7 +248,8 @@ Renderer и MCP-tools холста шлют операции (создать, с
 `src/main/agent/fake-query.ts` (07 → 19 → 20 → 21), `src/renderer/canvas/nodes/OrchestratorNode.tsx`
 (08 → 33), `src/renderer/session/MessageInput.tsx` (33 → 19 → 20),
 `src/renderer/session/Transcript.tsx` (33 → 14 → 21), `src/renderer/canvas/nodes/SessionNode.tsx` и
-`src/renderer/shell/sidebar/SessionsSection.tsx` (14 → 18), `src/shared/binding/resolve.ts` и
+`src/renderer/shell/sidebar/SessionsSection.tsx` (14 → 18), `src/shared/transcript/parse.ts` и
+`src/shared/ipc/claude-home.ts` (13 → 14), `src/shared/agent/events.ts` (07 → 14), `src/shared/binding/resolve.ts` и
 `src/main/layout/bindings.ts` (16 → 23), `src/main/mcp/agent-instructions.md` и
 `src/main/cards/protocol.ts` (24/25 → 26), `src/renderer/canvas/overlays/SelectionToolbar.tsx`
 (29 → 30). Внутри одной Волны общих файлов нет. Всего Волн — 11.
