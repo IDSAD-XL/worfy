@@ -120,6 +120,13 @@ test/unit/split-tree.test.ts`, код 1). После реализации — з
   перехватывала кнопка. `FocusEntry.tsx` ставит её снизу (`Position.Bottom`, отступ 12 px), а
   первый test `test/e2e/focus.spec.ts` проверяет, что кнопка не пересекает панель выделения
   (краснеет, если вернуть кнопку наверх).
+- **`test/unit/focus-mode.test.tsx` подменяет реестр типов Узлов** (`vi.mock` на
+  `canvas/nodes/index`). CI после rebase падал на `test/unit/canvas.test.tsx` (test «draws a Node
+  type added as one file»): реестр находит типы через `import.meta.glob` в момент первой
+  трансформации модуля, трансформация общая для файлов test-ов одного запуска, и если первым её
+  делал `focus-mode.test.tsx`, файл-образец, который `canvas.test.tsx` пишет в `beforeAll`, в
+  реестр не попадал. Воспроизведено локально: `--sequence.shuffle.files --sequence.seed=3` — красно,
+  с подменой — зелено на сидах 1–8. Хрупкость самого `canvas.test.tsx` — вне тикета.
 - Вне следа: `src/renderer/focus/focus.css` (стили слоя, новый файл в каталоге тикета) и одна
   строка в `tsconfig.test.node.json` — `src/renderer/focus/split-tree.ts` в `include`, иначе
   node-test `test/unit/split-tree.test.ts` (имя из раздела «Тесты») не проходит typecheck: проект
