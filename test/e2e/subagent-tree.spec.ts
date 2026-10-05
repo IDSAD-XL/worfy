@@ -97,6 +97,9 @@ test.beforeEach(() => {
   mkdirSync(join(claudeHome, 'sessions'), { recursive: true })
   mkdirSync(projectPath)
   mkdirSync(join(dataDir, PROJECT), { recursive: true })
+  // Zoomed out: the tree reaches far to the right, and a CI display may be narrower than the window
+  // asked for. A Node off the screen is not rendered (onlyRenderVisibleElements) and cannot be clicked.
+  writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 20, y: 40, zoom: 0.45 } }))
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'alpha', path: projectPath }], activeId: PROJECT }))
 })
 
@@ -213,7 +216,7 @@ test('a terminal Session with three Subagents: the tree from its files, REJECTED
     const before = (await reviewer.boundingBox())!
     await window.mouse.move(before.x + 40, before.y + 12)
     await window.mouse.down()
-    await window.mouse.move(before.x + 400, before.y + 32, { steps: 8 })
+    await window.mouse.move(before.x + 40, before.y + 212, { steps: 8 })
     await window.mouse.up()
     const offset = () =>
       window.evaluate(
@@ -227,11 +230,11 @@ test('a terminal Session with three Subagents: the tree from its files, REJECTED
         { projectId: PROJECT, id: `subagents:${S7}` },
       )
     // React Flow's drag threshold and the zoom make the exact numbers vary; the direction does not.
-    await expect.poll(async () => ((await offset())?.offset as { dx?: number } | null)?.dx ?? 0).toBeGreaterThan(200)
+    await expect.poll(async () => ((await offset())?.offset as { dy?: number } | null)?.dy ?? 0).toBeGreaterThan(200)
     expect((await offset())?.kind).toBe('subagent-tree')
     // After the Layout came back from main the Node stays where it was dropped.
     await window.waitForTimeout(300)
-    expect((await reviewer.boundingBox())!.x).toBeGreaterThan(before.x + 200)
+    expect((await reviewer.boundingBox())!.y).toBeGreaterThan(before.y + 100)
 
     // A click opens the reviewer's own transcript, read-only.
     await reviewer.getByTestId('subagent-open').click()
