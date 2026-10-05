@@ -38,7 +38,7 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «Gate»; [BRIEF.md](../
 - [x] Stub `gh` с PR на ветку `worfy-mvp/08`: бейдж «PR #N», CI `running`, комментарий `VERIFIED` → «VERIFIED».
 - [x] `gh` отсутствует → «gh unavailable», приложение работает, интервал растёт.
 - [x] Stub `gh` со 150 PR: PR ветки, которой нет среди первых 100, находится через `--search head:<ветка>` (stub записывает аргументы вызовов).
-- [ ] Ручная проверка на Auction: бейджи у Тикетов с открытыми PR; снимок в «Итог». (не проверено — см. «Итог»)
+- [ ] Ручная проверка на Auction: бейджи у Тикетов с открытыми PR; снимок в «Итог». (не проверено: открытых PR у Тикетов Auction нет ни 2026-10-05, ни 2026-10-06 — см. «Итог», подраздел «Ручная проверка 2026-10-06»)
 
 ## Тесты
 
@@ -165,5 +165,39 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «Gate»; [BRIEF.md](../
 (единственный открытый — `claude/handoff-batch-3-prod`), worktree Auction названы не по Тикетам
 (`claude/ui5-NN`, `.claude/worktrees/auction-…`), а сделанные Тикеты свёрнуты в рамке Эпика.
 не проверено: бейджи у Тикетов с открытыми PR на Auction — таких Тикетов на 2026-10-05 нет;
-снимок не приложен, потому что он не показывает заявленного.
+снимок не приложен, потому что он не показывает заявленного. 2026-10-06 — то же: единственный
+открытый PR Auction — #571 из `claude/handoff-batch-3-prod`, не из ветки Тикета; на слитых PR
+бейджи видны — подраздел [«Ручная проверка 2026-10-06»](#ручная-проверка-2026-10-06).
 
+### Ручная проверка 2026-10-06
+
+Сборка `main` @ 9437d42, проверял агент. Режим А: собранный `worfy.app`, `WORFY_AGENT=fake`,
+временные `WORFY_DATA_DIR` и `WORFY_CLAUDE_HOME` (в последнем только symlink на `bin/epic-status`).
+Снимки лежат в scratchpad сессии оркестратора, в репозиторий не положены.
+
+**Бейджи PR и CI на Тикетах Auction с открытыми PR — не проверено.** Нет условия проверки: в
+`IDSAD-XL/Auction` единственный открытый PR — #571 из `claude/handoff-batch-3-prod`, это не ветка
+Тикета. Открытых PR из веток `<эпик>/<NN>` нет, так что бейдж «PR #N» с chip CI на открытом PR
+увидеть нельзя. Пункт «Готово, когда» остаётся `[ ]`.
+
+- `gh` переключён на аккаунт IDSAD-XL, Проект Auction добавлен через `projects.add`, worfy держали на
+  переднем плане 70 с.
+- `checks.get`: `gh.available = true`, `error = null`, 100 PR. На `roadmap/09` (единственный взятый
+  Тикет, без PR) нет ни бейджа, ни chip «gh unavailable».
+- Частичный положительный результат на слитых PR: `research-triage/13, 15, 16, 17, 18` показывают
+  «PR #499/#500/#502/#501/#482 merged» и кнопку «Open PR». Подсказка на PR #502 —
+  `https://github.com/IDSAD-XL/Auction/pull/502`.
+- Наблюдение, нужно решение владельца: chip «CI passing» есть в DOM, но виден только его цветной
+  кружок. Метка PR, chip CI и кнопка «Open PR» делят одну строку, а колонка бейджей в ней — 109 px с
+  `overflow: hidden` (`src/renderer/canvas/actions/actions.css:40-57`; комментарий
+  `src/renderer/canvas/badges/ChecksBadges.tsx:63` говорит, что строка может обрезаться). На
+  `research-triage/16` «PR #502 merged» — 94 px, chip CI — 71 px. Для открытого PR оценка: «PR #571»
+  (~48 px) + 2 px + 71 px = ~121 px, тоже больше 109; бейдж gate в той же строке скрыл бы chip CI
+  целиком. Полное состояние есть только в подсказке строки («PR #502 merged · CI passing»), а гайд
+  ждёт видимый chip.
+- После проверки `gh` вернут на Oleksii-O-Atakama; в Auction `status` — только `?? .wrangler/`,
+  `diff --stat` пуст. Первый ⌘K через System Events `keystroke "k"` до worfy не дошёл (выделил текст в
+  Узле HANDOFF, ничего не записал); `key code 40` сработал.
+- Снимки: `12-00-start.png`, `12-01-palette.png`, `12-02-roadmap-09.png`,
+  `12-03-roadmap-09-after-70s.png`, `12-04-research-triage-done-expanded.png`,
+  `12-05-palette-rt16.png`, `12-06-research-triage-16.png`, `12-07-hover-pr-tooltip.png`.

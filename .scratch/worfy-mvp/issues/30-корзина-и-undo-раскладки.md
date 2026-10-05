@@ -161,9 +161,54 @@ Node включает `history.ts` и `src/renderer/ipc.ts`, как уже вк�
     сдвиг не отменяется, `trash/` пуст. Мутанты `isTextTarget` (всегда false; без `textarea`; guard
     только для Delete, не для ⌘Z) — каждый красный.
 
-Не проверено: удаление Тикета и запущенной Сессии через UI — только contract test отказа main и
-общая функция `trashRefusal` (в e2e нет fixture workflow и живой Сессии в этом spec).
+Проверено 2026-10-06 в собранном приложении: удаление Тикета и запущенной Сессии через UI
+недоступно (при сдаче тикета было только contract test отказа main и общая функция `trashRefusal`:
+в e2e нет fixture workflow и живой Сессии в этом spec) — подраздел
+[«Ручная проверка 2026-10-06»](#ручная-проверка-2026-10-06).
 
 ### ADR
 
 Решение записано как [ADR-0016](../../../docs/adr/0016-trash-folder-per-entry-undo-in-renderer.md) — «Корзина Узлов — папка на запись в данных Проекта, история undo — в renderer».
+
+### Ручная проверка 2026-10-06
+
+Сборка `main` @ 9437d42, проверял агент. Режим А: собранный `worfy.app`, `WORFY_AGENT=fake`,
+временные `WORFY_DATA_DIR` и `WORFY_CLAUDE_HOME` (в последнем только обёртка `bin/epic-status`).
+Проект CanvasForAI записан в `projects.json` заранее. Клики и клавиши — CGEvent и System Events с
+проверкой, что worfy на переднем плане; DOM читался через DevTools port только для чтения. Снимки
+лежат в scratchpad сессии оркестратора, в репозиторий не положены.
+
+**Тикет и Узел живой Сессии не удаляются — проверено.**
+
+- Trash до начала: «Nothing deleted in the last 3 days».
+- Тикет 21 выделен: кнопка «Delete» disabled, подсказка «This cannot be deleted». Delete и
+  Backspace: Узел на месте, сообщения нет, вызова `trash.put` в main нет.
+- «New session» → Узел fake-Сессии (idle). Кнопка «Delete» и клавиша Delete оставили Узел на месте; в
+  toolbar строка «trash.put failed: A Session runs on Node 04c85028-…; close the Session before
+  deleting its Node».
+- Щелчок по пустому Холсту и ⌘Z: Тикет и Узел на месте, `layout.json` не изменился. Trash пуст,
+  папки `trash/` нет.
+- Контроль: Close → chip «new», «Not running»; Delete → запись `trash/<id>/entry.json`, бейдж
+  «Trash 1»; Restore → Узел снова в (40,640), корзина пуста. Ошибок в Console renderer нет.
+- Попутные наблюдения, на вердикт не влияют:
+  - строка отказа идёт с префиксом «trash.put failed: » и оранжевая, а не красная:
+    `color: var(--blocked-text)` (`src/renderer/canvas/overlays/selection-toolbar.css:74`);
+  - отказ устаревает: после Close Сессии и нового выделения Узла строка «A Session runs on Node …»
+    видна, пока не будет следующей попытки удаления. Отказ хранится по ключу выделения, а не по
+    состоянию Сессии (`src/renderer/canvas/overlays/SelectionToolbar.tsx:167` и `:187`; снимок
+    `6-13-s6-closed.png`);
+  - «New session» ставит Узел в (40,640), внутрь развёрнутой рамки `worfy-mvp`: `placeNewNode` не
+    знает о рамках Эпиков (`src/main/layout/place.ts:14-15`, `:23-29`). Пока Узел не выделен, его
+    кнопки Close / Hide / Remove / Send перекрыты рамкой (`SECTION.w-epic`) и не нажимаются; для
+    контроля эпик пришлось свернуть;
+  - main пишет каждый ожидаемый отказ в лог как «[ipc] trash.put threw Error: …» с полным stack
+    trace — шум в логе.
+- Снимки: `6-00-start.png`, `6-01-trash-empty.png`, `6-02-epic-expanded.png`,
+  `6-03-tickets-expanded.png`, `6-04-ticket21.png`, `6-05-s2-hover-delete.png`,
+  `6-06-s2-after-keys.png`, `6-07-s3-new-session.png`, `6-08-s3-after-delete-button.png`,
+  `6-09-s3-after-delete-key.png`, `6-10-s4-after-cmdz.png`, `6-11-s5-trash.png`,
+  `6-12-s6-epic-collapsed.png`, `6-13-s6-closed.png`, `6-14-s6-deleted.png`,
+  `6-15-s6-trash-with-entry.png`, `6-16-s6-restored.png`.
+
+Пункт «Готово, когда» «Удаление Оркестратора, Тикета и занятой Сессии недоступно» уже был `[x]`;
+теперь он подтверждён и в собранном приложении.
