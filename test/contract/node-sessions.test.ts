@@ -15,6 +15,7 @@ import { fakeQueryFactory } from '../../src/main/agent/fake-query'
 import { NodeSessions } from '../../src/main/agent/node-sessions'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
+import { SessionSettingsStore } from '../../src/main/agent/session-settings'
 import { LayoutStore } from '../../src/main/layout/store'
 import type { AgentEventEnvelope } from '../../src/shared/agent/events'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
@@ -347,6 +348,7 @@ describe('New conversation of the Orchestrator', () => {
       layout,
       projectPath: () => repo,
       registry,
+      settings: new SessionSettingsStore((projectId) => join(scratch, 'data', projectId)),
       transcript: () => Promise.resolve({ model: null, statusBlock: null }),
       broadcast: () => undefined,
       publish: () => undefined,
@@ -381,6 +383,7 @@ describe('New conversation of the Orchestrator', () => {
       layout,
       projectPath: () => repo,
       registry: busyRegistry,
+      settings: new SessionSettingsStore((projectId) => join(scratch, 'data', projectId)),
       transcript: () => Promise.resolve({ model: null, statusBlock: null }),
       broadcast: () => undefined,
       publish: () => undefined,
