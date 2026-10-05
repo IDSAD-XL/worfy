@@ -1,7 +1,7 @@
 # 06 — Как Agent SDK ведёт себя в Electron main с настройками пользователя
 
 Type: research
-Status: open
+Status: claimed — 2026-10-05
 Blocked by: 01
 Source: [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md), абзац про `settingSources: user + project + local`; [spec.md](../spec.md), «Риски и открытые технические вопросы», пункты 1–3 и 5
 
