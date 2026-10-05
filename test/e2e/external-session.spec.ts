@@ -47,13 +47,6 @@ async function stop(child: ChildProcess): Promise<void> {
   await exited
 }
 
-function register(child: ChildProcess, sessionId: string, extra: Record<string, unknown> = {}): void {
-  writeFileSync(
-    join(claudeHome, 'sessions', `${child.pid}.json`),
-    JSON.stringify({ pid: child.pid, sessionId, cwd: projectPath, kind: 'interactive', entrypoint: 'cli', status: 'busy', version: '2.1.289', ...extra }),
-  )
-}
-
 /** Every file under the Claude home with its size and modification time. */
 function snapshot(): Record<string, string> {
   const out: Record<string, string> = {}
@@ -71,6 +64,33 @@ function snapshot(): Record<string, string> {
   return out
 }
 
+/**
+ * The Claude home as the test itself left it: taken when the app starts, then each file the test
+ * writes is recorded right after the write. Anything else that differs was written by worfy.
+ */
+let expected: Record<string, string> = {}
+
+/** worfy changed nothing under the Claude home since the test last wrote there. */
+function expectUntouched(): void {
+  expect(snapshot(), 'files under WORFY_CLAUDE_HOME that the test did not write').toEqual(expected)
+}
+
+/** Writes (or appends to) a file under the Claude home as Claude Code would, after checking that worfy wrote nothing so far. */
+function write(path: string, text: string, mode: 'create' | 'append' = 'create'): void {
+  expectUntouched()
+  if (mode === 'append') appendFileSync(path, text)
+  else writeFileSync(path, text)
+  const stats = statSync(path)
+  expected[relative(claudeHome, path)] = `${stats.size}:${stats.mtimeMs}`
+}
+
+function register(child: ChildProcess, sessionId: string, extra: Record<string, unknown> = {}): void {
+  write(
+    join(claudeHome, 'sessions', `${child.pid}.json`),
+    JSON.stringify({ pid: child.pid, sessionId, cwd: projectPath, kind: 'interactive', entrypoint: 'cli', status: 'busy', version: '2.1.289', ...extra }),
+  )
+}
+
 async function orchestratorSessionId(window: Page): Promise<string | null> {
   return window.evaluate(async (projectId) => {
     const bridge = (globalThis as unknown as { worfy: Bridge }).worfy
@@ -78,6 +98,18 @@ async function orchestratorSessionId(window: Page): Promise<string | null> {
     const nodes = (result.value as { layout: { nodes: { kind: string; data: { sessionId?: string | null } }[] } } | undefined)?.layout.nodes ?? []
     return nodes.find((node) => node.kind === 'orchestrator')?.data.sessionId ?? null
   }, PROJECT)
+}
+
+async function nodeHidden(window: Page, nodeId: string): Promise<boolean | null> {
+  return window.evaluate(
+    async ({ projectId, id }) => {
+      const bridge = (globalThis as unknown as { worfy: Bridge }).worfy
+      const result = await bridge.invoke('layout.get', { projectId })
+      const nodes = (result.value as { layout: { nodes: { id: string; hidden: boolean }[] } } | undefined)?.layout.nodes ?? []
+      return nodes.find((node) => node.id === id)?.hidden ?? null
+    },
+    { projectId: PROJECT, id: nodeId },
+  )
 }
 
 test.beforeEach(() => {
@@ -97,6 +129,7 @@ test.afterEach(async () => {
 })
 
 test('a Session started in a terminal: its Node, its read-only transcript, its end, and one Node for a Session of worfy', async () => {
+  expected = snapshot()
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'turn' } })
   try {
     const { window } = launched
@@ -109,7 +142,7 @@ test('a Session started in a terminal: its Node, its read-only transcript, its e
     // A `claude` started in a terminal in the Project: its transcript, then its registry entry.
     mkdirSync(transcriptDir(projectPath), { recursive: true })
     const transcript = join(transcriptDir(projectPath), `${EXTERNAL}.jsonl`)
-    writeFileSync(transcript, prompt(EXTERNAL, 'u1', 'Fix the flaky test') + answer(EXTERNAL, 'a1', 'Looking at **the test** now.'))
+    write(transcript, prompt(EXTERNAL, 'u1', 'Fix the flaky test') + answer(EXTERNAL, 'a1', 'Looking at **the test** now.'))
     const claude = claudeProcess()
     const written = Date.now()
     register(claude, EXTERNAL, { name: 'fix-flaky-test' })
@@ -141,7 +174,8 @@ test('a Session started in a terminal: its Node, its read-only transcript, its e
     await expect(view.getByTestId('session-state')).toHaveText('busy')
 
     // New records appear in the open view as Claude Code writes them.
-    appendFileSync(transcript, prompt(EXTERNAL, 'u2', 'And the other one') + answer(EXTERNAL, 'a2', 'Both fixed.'))
+    // Up to here the transcript was read and tailed in the open view: worfy wrote nothing (write() checks).
+    write(transcript, prompt(EXTERNAL, 'u2', 'And the other one') + answer(EXTERNAL, 'a2', 'Both fixed.'), 'append')
     await expect(view.getByTestId('transcript-text')).toHaveCount(2)
     await expect(view.getByTestId('transcript-text').last().locator('.w-tr__body')).toHaveText('Both fixed.')
     await expect(view.getByTestId('transcript-prompt').last().locator('.w-tr__prompt')).toHaveText('And the other one')
@@ -165,13 +199,12 @@ test('a Session started in a terminal: its Node, its read-only transcript, its e
     })
     await expect.poll(() => orchestratorSessionId(window), { timeout: 10_000 }).not.toBeNull()
     const own = (await orchestratorSessionId(window)) ?? ''
-    writeFileSync(join(transcriptDir(projectPath), `${own}.jsonl`), prompt(own, 'o1', 'hello') + answer(own, 'o2', 'hi'))
+    write(join(transcriptDir(projectPath), `${own}.jsonl`), prompt(own, 'o1', 'hello') + answer(own, 'o2', 'hi'))
     register(claudeProcess(), own, { entrypoint: 'sdk-ts' })
     // And one more external Session at the same moment: once its Node is there, the registry change was seen.
-    writeFileSync(join(transcriptDir(projectPath), `${OTHER}.jsonl`), prompt(OTHER, 'x1', 'other'))
+    write(join(transcriptDir(projectPath), `${OTHER}.jsonl`), prompt(OTHER, 'x1', 'other'))
     register(claudeProcess(), OTHER, { entrypoint: 'claude-desktop', status: 'idle', name: 'desktop-session' })
     // From here on the test writes nothing under the Claude home.
-    const before = snapshot()
     const other = window.locator(`[data-testid="session-node"][data-session-id="${OTHER}"]`)
     await expect(other).toBeVisible()
     await expect(other.getByTestId('session-node-source')).toHaveText('Claude desktop')
@@ -191,6 +224,17 @@ test('a Session started in a terminal: its Node, its read-only transcript, its e
     await window.locator(`[data-testid="sidebar-session"][data-session-id="${own}"]`).click()
     await expect(window.locator('.react-flow__node.selected [data-testid="orchestrator-node"]')).toHaveCount(1)
 
+    // Hiding a Session Node leaves the Session live; its sidebar row shows the Node again, selected.
+    const otherRow = window.locator(`[data-testid="sidebar-session"][data-session-id="${OTHER}"]`)
+    await other.getByRole('button', { name: 'Hide' }).click()
+    await expect(other).toBeHidden()
+    await expect.poll(() => nodeHidden(window, `session:${OTHER}`)).toBe(true)
+    await expect(window.getByTestId('sidebar-sessions-live')).toHaveText('2 live')
+    await otherRow.click()
+    await expect(other).toBeVisible()
+    await expect.poll(() => nodeHidden(window, `session:${OTHER}`)).toBe(false)
+    await expect(window.locator(`.react-flow__node.selected [data-testid="session-node"][data-session-id="${OTHER}"]`)).toHaveCount(1)
+
     // Removing a Session Node leaves the Session alone, and the Node does not come back.
     await other.getByRole('button', { name: 'Remove' }).click()
     await expect(other).toHaveCount(0)
@@ -198,8 +242,9 @@ test('a Session started in a terminal: its Node, its read-only transcript, its e
     await expect(other).toHaveCount(0)
     await expect(window.getByTestId('sidebar-sessions-live')).toHaveText('2 live')
 
-    // worfy wrote nothing under the Claude home: the same files, the same sizes and times.
-    expect(snapshot()).toEqual(before)
+    // worfy wrote nothing under the Claude home during the whole run: only the files the test
+    // wrote, with the sizes and times the test left them at.
+    expectUntouched()
     expect(readFileSync(transcript, 'utf8').split('\n').filter(Boolean)).toHaveLength(4)
   } finally {
     await launched.close()

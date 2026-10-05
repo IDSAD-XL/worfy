@@ -7,7 +7,10 @@
 //
 // The live list is asked again (`claudeHome.live`) when the registry changes and every
 // LIVE_POLL_MS while a Session is live: a process that dies without removing its registry file
-// changes no file, and only asking again shows that it is gone. worfy never writes under ~/.claude.
+// changes no file, and only asking again shows that it is gone. The history (titles) is read again
+// once for a Session that is new to the renderer, and then on the next poll after its transcript
+// changed while it still has no title: the registry file can appear before the first prompt
+// creates the transcript. worfy never writes under ~/.claude.
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { AgentEvent } from '../../shared/agent/events'
@@ -60,6 +63,8 @@ const users = new Map<string, number>()
 const polls = new Map<string, ReturnType<typeof setInterval>>()
 /** Live Sessions the history was read again for, by root: one more read each, not one per poll. */
 const reread = new Map<string, Set<string>>()
+/** Live Sessions without a title whose transcript changed since the history was read, by root. */
+const untitled = new Map<string, Set<string>>()
 /** Readers of each transcript, by transcriptKey. */
 const readers = new Map<string, () => void>()
 let subscribed = false
@@ -89,6 +94,13 @@ async function refreshAll(root: string): Promise<void> {
   schedulePoll(root)
 }
 
+/** A live Session that has neither a name in the registry nor a title in the history. */
+function wantsTitle(root: string, sessionId: string): boolean {
+  const entry = useClaudeHomeStore.getState().byRoot[root]
+  if (entry?.live?.some((session) => session.sessionId === sessionId && session.name === undefined) !== true) return false
+  return entry.history.find((session) => session.sessionId === sessionId)?.title === undefined
+}
+
 async function refreshLive(root: string): Promise<void> {
   const result = await invoke('claudeHome.live', { projectRoot: root })
   if (!users.has(root)) return
@@ -104,7 +116,10 @@ async function refreshLive(root: string): Promise<void> {
   // A Session that started since the history was read: read it again once, for its title.
   const fresh = result.value.live.filter((session) => !known.has(session.sessionId) && !asked.has(session.sessionId))
   for (const session of fresh) asked.add(session.sessionId)
-  if (fresh.length > 0) void refreshAll(root)
+  // A Session whose transcript changed while it had no title: its first prompt may be there now.
+  const changed = [...(untitled.get(root) ?? [])].filter((sessionId) => wantsTitle(root, sessionId))
+  untitled.delete(root)
+  if (fresh.length > 0 || changed.length > 0) void refreshAll(root)
   else schedulePoll(root)
 }
 
@@ -112,7 +127,10 @@ function onChanged(change: { projectRoot: string; sessions: boolean; transcripts
   const root = change.projectRoot
   if (!users.has(root)) return
   if (change.sessions) void refreshLive(root)
-  for (const sessionId of change.transcripts) readers.get(transcriptKey(root, sessionId))?.()
+  for (const sessionId of change.transcripts) {
+    if (wantsTitle(root, sessionId)) untitled.set(root, (untitled.get(root) ?? new Set()).add(sessionId))
+    readers.get(transcriptKey(root, sessionId))?.()
+  }
 }
 
 function ensureSubscribed(): void {
@@ -141,6 +159,7 @@ function release(root: string): void {
   }
   users.delete(root)
   reread.delete(root)
+  untitled.delete(root)
   const timer = polls.get(root)
   if (timer !== undefined) clearInterval(timer)
   polls.delete(root)

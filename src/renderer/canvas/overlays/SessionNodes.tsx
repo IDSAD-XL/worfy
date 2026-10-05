@@ -15,6 +15,9 @@ import { useLayout, useLayoutOps } from '../useLayout'
 
 export const order = 50
 
+/** Frames a focus request waits for its Node to reach React Flow, shown: about a second. */
+const FOCUS_TRIES = 60
+
 /** Session ids that had a Node in this run of the app, by Project: a Node the user removed stays removed. */
 const seenByProject = new Map<string, Set<string>>()
 
@@ -41,16 +44,34 @@ function useFocusRequests(projectId: string): void {
   const request = useSessionFocus((state) => state.request)
   useEffect(() => {
     if (!request || request.projectId !== projectId) return
-    const node = flow.getNode(request.nodeId)
-    const { width, height } = store.getState()
-    if (!node || !width || !height) return
-    const w = node.width ?? node.measured?.width ?? 0
-    const h = node.height ?? node.measured?.height ?? 0
-    const zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, flow.getZoom()))
-    void flow.setCenter(node.position.x + w / 2, node.position.y + h / 2, { zoom, duration: 250 })
-    const { resetSelectedElements, addSelectedNodes } = store.getState()
-    resetSelectedElements()
-    addSelectedNodes([node.id])
+    // The sidebar shows a hidden Node and switches to the Canvas just before it asks: the Node may
+    // reach React Flow, and the Canvas get its size, a few frames later. Wait for both, up to a second.
+    let frame = 0
+    let tries = 0
+    const attempt = (): void => {
+      const node = flow.getNode(request.nodeId)
+      const { width, height } = store.getState()
+      if (!node || node.hidden === true || !width || !height) {
+        tries += 1
+        if (tries < FOCUS_TRIES) frame = requestAnimationFrame(attempt)
+        return
+      }
+      const w = node.width ?? node.measured?.width ?? 0
+      const h = node.height ?? node.measured?.height ?? 0
+      const zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, flow.getZoom()))
+      void flow.setCenter(node.position.x + w / 2, node.position.y + h / 2, { zoom, duration: 250 })
+      // Select only this Node, from the Nodes the Canvas holds. Not resetSelectedElements() and
+      // addSelectedNodes(): the second compares with React Flow's own copy, which still says
+      // "selected" for a Node that was selected before (e.g. by the click on its Hide button), so
+      // the Node would be deselected and never selected again.
+      const { nodes, edges, triggerNodeChanges, triggerEdgeChanges } = store.getState()
+      triggerNodeChanges(
+        nodes.filter((each) => (each.selected ?? false) !== (each.id === node.id)).map((each) => ({ type: 'select' as const, id: each.id, selected: each.id === node.id })),
+      )
+      triggerEdgeChanges(edges.filter((edge) => edge.selected === true).map((edge) => ({ type: 'select' as const, id: edge.id, selected: false })))
+    }
+    attempt()
+    return () => cancelAnimationFrame(frame)
     // Only a new request moves the Canvas.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request, projectId])

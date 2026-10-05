@@ -340,6 +340,19 @@ describe('Session history', () => {
     expect((await registry.sessions(DEMO)).history.find((entry) => entry.sessionId === S2)?.title).toBe('/demo-skill')
   })
 
+  it('skips text the harness injected (isMeta) and takes the first prompt the user typed as the title', async () => {
+    const home = await copyOfFixture()
+    const file = join(home, 'projects', '-Users-test-projects-demo', 'meta-1.jsonl')
+    const lines = [
+      JSON.stringify({ type: 'user', uuid: 'meta', isMeta: true, timestamp: '2026-06-01T00:00:00.000Z', cwd: DEMO, message: { content: 'Base directory for this skill: injected text' } }),
+      JSON.stringify({ type: 'user', uuid: 'meta-block', isMeta: true, timestamp: '2026-06-01T00:00:01.000Z', cwd: DEMO, message: { content: [{ type: 'text', text: 'Injected block text' }] } }),
+      JSON.stringify({ type: 'user', uuid: 'real', timestamp: '2026-06-01T00:00:02.000Z', cwd: DEMO, message: { content: 'The prompt the user typed' } }),
+    ]
+    await writeFile(file, `${lines.join('\n')}\n`)
+    const registry = new ClaudeHomeRegistry({ home, listWorktrees: noWorktrees, isAlive: alive() })
+    expect((await registry.sessions(DEMO)).history.find((entry) => entry.sessionId === 'meta-1')?.title).toBe('The prompt the user typed')
+  })
+
   it('reads only the head and the tail of a large transcript', async () => {
     const home = await copyOfFixture()
     const file = join(home, 'projects', '-Users-test-projects-demo', 'big-1.jsonl')
