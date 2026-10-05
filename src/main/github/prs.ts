@@ -2,8 +2,10 @@
 //
 // One `gh pr list --state all --limit 100` per interval (60 s) in the Project's root: without
 // `--limit`, gh returns only the 30 latest PRs, which is too few for a busy repository. A Ticket
-// branch missing from that list is looked up on its own with `--search head:<branch> --limit 1`,
-// at most once per 5 minutes per branch. When gh fails (not installed, not logged in, no network)
+// branch missing from that list is looked up on its own with `--head <branch> --limit 1`, at most
+// once per 5 minutes per branch. `--head` matches the branch name exactly; a `--search head:<branch>`
+// query would match by prefix (`demo/1` finds `demo/18`), and with `--limit 1` that other branch's PR
+// would hide the one sought. When gh fails (not installed, not logged in, no network)
 // the answer is "gh unavailable" and the interval doubles, up to MAX_INTERVAL_MS; the first
 // success brings it back to the base interval. Failures are not logged one by one.
 //
@@ -151,7 +153,7 @@ interface ProjectState {
   intervalMs: number
   error: string | null
   listed: PullRequest[]
-  /** Results of `--search head:<branch>` by branch. */
+  /** Results of `--head <branch>` by branch. */
   searched: Map<string, { at: number; pulls: PullRequest[] }>
   running: Promise<PrRead> | null
 }
@@ -215,7 +217,7 @@ export class PrTracker {
         if (started >= SEARCHES_PER_READ) break
         started += 1
         try {
-          const pulls = parsePrList(await this.options.run(['pr', 'list', '--state', 'all', '--search', `head:${branch}`, '--limit', '1', '--json', FIELDS], root))
+          const pulls = parsePrList(await this.options.run(['pr', 'list', '--state', 'all', '--head', branch, '--limit', '1', '--json', FIELDS], root))
           state.searched.set(branch, { at: now, pulls: pulls.filter((pull) => pull.branch === branch) })
         } catch (error) {
           this.fail(state, error)

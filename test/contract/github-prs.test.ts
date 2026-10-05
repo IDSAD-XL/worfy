@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, describe, expect, it } from 'vitest'
-import { GateReader } from '../../src/main/gate/state'
+import { GateReader, type Worktree } from '../../src/main/gate/state'
 import { ciOf, ghRunner, parsePrList, PrTracker, verdictOf, type GhRunner } from '../../src/main/github/prs'
 import { checksHandlers } from '../../src/main/ipc/checks'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
@@ -110,6 +110,17 @@ describe('parsePrList', () => {
   })
 })
 
+describe('pullOfTicket', () => {
+  const pr = (number: number, branch: string, state: 'OPEN' | 'CLOSED' | 'MERGED') => ({ number, url: `u/${number}`, state, branch, ci: null, verdict: null })
+
+  it('takes an open PR of the Ticket’s branches first, then a merged one, newer before older', () => {
+    const pulls = [pr(20, 'demo/07', 'MERGED'), pr(30, 'demo/07', 'CLOSED'), pr(22, 'demo/07-retry', 'MERGED'), pr(25, 'demo/07', 'OPEN'), pr(40, 'demo/08', 'OPEN')]
+    expect(pullOfTicket(snapshotOf(pulls), { epic: 'demo', num: 7 })?.number).toBe(25)
+    expect(pullOfTicket(snapshotOf(pulls.filter((each) => each.number !== 25)), { epic: 'demo', num: 7 })?.number).toBe(22)
+    expect(pullOfTicket(snapshotOf([pr(30, 'demo/07', 'CLOSED'), pr(31, 'other/07', 'OPEN')]), { epic: 'demo', num: 7 })?.number).toBe(30)
+  })
+})
+
 describe('PrTracker over the gh stub', () => {
   it('a PR on worfy-mvp/08 with CI running and a VERIFIED comment gives «PR #N», `running` and VERIFIED on Ticket 08', async () => {
     const gh = await stubGh([
@@ -138,8 +149,11 @@ describe('PrTracker over the gh stub', () => {
     expect(await gh.calls()).toEqual([['pr', 'list', '--state', 'all', '--limit', '100', '--json', 'number,headRefName,state,url,statusCheckRollup,comments']])
   })
 
-  it('with 150 PRs, finds the PR of a branch outside the first 100 with --search head:<branch>, once per 5 minutes', async () => {
+  it('with 150 PRs, finds the PR of a branch outside the first 100 with --head <branch>, once per 5 minutes', async () => {
     const pulls = Array.from({ length: 150 }, (_, index) => pull(150 - index, `other/${150 - index}`))
+    // A newer PR on a branch that only starts like worfy-mvp/08: GitHub's `head:` search matches
+    // it by prefix, and with `--limit 1` it would hide the PR of worfy-mvp/08 itself.
+    pulls[110] = pull(40, 'worfy-mvp/08-fix')
     pulls[120] = pull(30, 'worfy-mvp/08', { comments: [{ body: 'VERIFIED' }] })
     const gh = await stubGh(pulls)
     let now = 0
@@ -148,7 +162,7 @@ describe('PrTracker over the gh stub', () => {
     const first = await tracker.read(gh.dir, ['worfy-mvp/08', 'worfy-mvp/09'])
     expect(first.pulls).toHaveLength(101)
     expect(pullOfTicket(snapshotOf(first.pulls), { epic: 'worfy-mvp', num: 8 })).toMatchObject({ number: 30, verdict: 'VERIFIED' })
-    const search = (branch: string) => ['pr', 'list', '--state', 'all', '--search', `head:${branch}`, '--limit', '1', '--json', 'number,headRefName,state,url,statusCheckRollup,comments']
+    const search = (branch: string) => ['pr', 'list', '--state', 'all', '--head', branch, '--limit', '1', '--json', 'number,headRefName,state,url,statusCheckRollup,comments']
     expect((await gh.calls()).slice(1)).toEqual([search('worfy-mvp/08'), search('worfy-mvp/09')])
 
     now = 60_000
@@ -163,6 +177,35 @@ describe('PrTracker over the gh stub', () => {
     // A branch the renderer no longer asks about is not shown from an old search.
     const dropped = await tracker.read(gh.dir, [])
     expect(pullOfTicket(snapshotOf(dropped.pulls), { epic: 'worfy-mvp', num: 8 })).toBeNull()
+  })
+
+  it('starts at most 10 branch lookups in one read; the rest wait for the next read', async () => {
+    const gh = await stubGh([pull(1, 'demo/01')])
+    const tracker = new PrTracker({ run: gh.run, now: () => 0 })
+    const branches = Array.from({ length: 12 }, (_, index) => `demo/${String(index + 10)}`)
+    await tracker.read(gh.dir, branches)
+    const lookups = async () => (await gh.calls()).filter((args) => args.includes('--head')).map((args) => args[args.indexOf('--head') + 1])
+    expect(await lookups()).toEqual(branches.slice(0, 10))
+    await tracker.read(gh.dir, branches)
+    expect(await lookups()).toEqual(branches)
+  })
+
+  it('a failing branch lookup after a good list is «gh unavailable» and doubles the interval', async () => {
+    const gh = await stubGh([pull(1, 'demo/01')])
+    let now = 0
+    let count = 0
+    const run: GhRunner = (args, cwd) => {
+      count += 1
+      return args.includes('--head') ? Promise.reject(new Error('API rate limit exceeded')) : gh.run(args, cwd)
+    }
+    const tracker = new PrTracker({ run, now: () => now })
+    const first = await tracker.read(gh.dir, ['demo/02', 'demo/03'])
+    expect(first).toEqual({ pulls: [], gh: { available: false, error: 'API rate limit exceeded', intervalMs: 120_000 } })
+    expect(count).toBe(2) // the list, then one lookup; the second is not tried after a failure
+
+    now = 119_999
+    expect((await tracker.read(gh.dir, ['demo/02', 'demo/03'])).gh.available).toBe(false)
+    expect(count).toBe(2)
   })
 
   it('runs gh at most once per interval, however often it is asked, and one read at a time', async () => {
@@ -246,10 +289,10 @@ describe('PrTracker over the gh stub', () => {
 
 // ── the IPC boundary ─────────────────────────────────────────────────────────
 
-async function ipcOver(run: GhRunner, home: string) {
+async function ipcOver(run: GhRunner, home: string, worktrees: (root: string) => Worktree[] = (root) => [{ path: root, branch: 'main' }]) {
   const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>()
   const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
-  const module = checksHandlers({ gate: new GateReader({ home }), prs: new PrTracker({ run }), worktrees: async (root) => [{ path: root, branch: 'main' }] })
+  const module = checksHandlers({ gate: new GateReader({ home }), prs: new PrTracker({ run }), worktrees: async (root) => worktrees(root) })
   await registerIpc(ipc, { modules: { './checks.ts': async () => module }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
   return async (input: unknown): Promise<IpcResult<unknown>> => {
     const listener = handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!
@@ -298,6 +341,29 @@ describe('checks.get', () => {
       },
     })
     expect(seen).toHaveLength(1)
+  })
+
+  it('looks up the PR of a worktree’s Ticket branch itself, though the renderer did not ask for it', async () => {
+    const home = await tempDir()
+    const root = await tempDir()
+    const worktree07 = join(root, '.claude', 'worktrees', '07')
+    const seen: string[][] = []
+    const call = await ipcOver(
+      (args) => {
+        seen.push([...args])
+        // demo/07 is not among the listed PRs; only a lookup of that branch finds it.
+        return Promise.resolve(JSON.stringify(args.includes('--head') && args[args.indexOf('--head') + 1] === 'demo/07' ? [pull(7, 'demo/07')] : [pull(1, 'other/01')]))
+      },
+      home,
+      (each) => [
+        { path: each, branch: 'main' },
+        { path: worktree07, branch: 'demo/07' },
+        { path: join(each, '.claude', 'worktrees', 'scratch'), branch: 'feature-x' },
+      ],
+    )
+    const result = (await call({ root, branches: [] })) as IpcResult<ChecksSnapshot>
+    expect(seen.map((args) => (args.includes('--head') ? args[args.indexOf('--head') + 1] : 'list'))).toEqual(['list', 'demo/07'])
+    expect(result.ok && pullOfTicket(result.value, { epic: 'demo', num: 7 })?.number).toBe(7)
   })
 
   it('drops keys a handler adds beyond the contract', async () => {

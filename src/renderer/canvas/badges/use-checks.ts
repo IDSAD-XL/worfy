@@ -5,7 +5,7 @@
 // minute whatever the rate (src/main/github/prs.ts) and reads the gate's files every time.
 import { useEffect } from 'react'
 import { create } from 'zustand'
-import type { ChecksSnapshot } from '../../../shared/ipc/checks'
+import { ticketBranchSchema, type ChecksSnapshot } from '../../../shared/ipc/checks'
 import type { Ticket } from '../../../shared/workflow/types'
 import { invoke } from '../../ipc'
 import { useWorkflow } from '../../workflow/useWorkflow'
@@ -93,9 +93,14 @@ export function ticketBranch(ticket: Pick<Ticket, 'epic' | 'num' | 'fromBranch'>
   return ticket.fromBranch ?? `${ticket.epic}/${pad(ticket.num)}`
 }
 
-/** The branches whose PRs are worth a lookup: those of Tickets in work or claimed in a branch. */
+/**
+ * The branches whose PRs are worth a lookup: those of Tickets in work or claimed in a branch.
+ * Only branches `checks.get` takes are sent: one it refuses (`аудит/03`, `Q4 work/05` from an
+ * Epic named so) would make it refuse the whole call, and every badge of the Project would go.
+ */
 export function branchesInWork(tickets: readonly Ticket[]): string[] {
-  return [...new Set(tickets.filter((ticket) => ticket.state === 'work' || ticket.fromBranch !== null).map(ticketBranch))].sort()
+  const branches = tickets.filter((ticket) => ticket.state === 'work' || ticket.fromBranch !== null).map(ticketBranch)
+  return [...new Set(branches.filter((branch) => ticketBranchSchema.safeParse(branch).success))].sort()
 }
 
 /** The Project's checks, kept current while the calling component is mounted. */

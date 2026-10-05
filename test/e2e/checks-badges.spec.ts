@@ -124,8 +124,15 @@ test('gate on Ticket 07 and its Session: red by the marker, green by the transcr
   writeFileSync(marker, '')
   const transcripts = join(claudeHome, 'projects', dirName(worktree07))
   mkdirSync(transcripts, { recursive: true })
-  const record = (timestamp: string, content: string) =>
-    `${JSON.stringify({ type: 'user', sessionId: S7, cwd: worktree07, timestamp, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content }] } })}\n`
+  // A Bash call that ran gate.sh, then its result: only such results count as the gate's verdict.
+  const record = (timestamp: string, content: string) => {
+    const id = `toolu_${timestamp}`
+    const command = 'bash ~/.claude/hooks/gate.sh fast </dev/null; echo "КОД=$?"'
+    return (
+      `${JSON.stringify({ type: 'assistant', sessionId: S7, cwd: worktree07, timestamp, message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command } }] } })}\n` +
+      `${JSON.stringify({ type: 'user', sessionId: S7, cwd: worktree07, timestamp, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content }] } })}\n`
+    )
+  }
   writeFileSync(
     join(transcripts, `${S7}.jsonl`),
     record('2026-10-05T10:00:00.000Z', '[gate] красно (fast): worfy/.:test') + record('2026-10-05T10:05:00.000Z', '[gate] набор (fast): все пакеты\n[gate] зелено (fast): worfy/.:lint worfy/.:typecheck worfy/.:test'),

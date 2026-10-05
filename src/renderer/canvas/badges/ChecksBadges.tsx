@@ -1,6 +1,7 @@
 import { pullOfTicket, worktreeOfCwd, worktreeOfTicket, type GateOutcome, type PullRequest } from '../../../shared/ipc/checks'
 import type { Ticket } from '../../../shared/workflow/types'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
+import { useWorkflow } from '../../workflow/useWorkflow'
 import { StatusChip, type Status } from '../../theme/primitives'
 import type { SlotProps } from './index'
 import { useChecks } from './use-checks'
@@ -70,8 +71,9 @@ function summary(worktree: { gate: { outcome: GateOutcome } } | null, pull: Pull
 
 function TicketChecks({ root, ticket }: { root: string; ticket: Ticket }) {
   const snapshot = useChecks(root)
+  const { model } = useWorkflow(root)
   if (!snapshot) return null
-  const worktree = worktreeOfTicket(snapshot, ticket)
+  const worktree = worktreeOfTicket(snapshot, ticket, model?.tickets ?? [ticket])
   const pull = snapshot.gh.available ? pullOfTicket(snapshot, ticket) : null
   const candidate = worktree !== null || ticket.state === 'work' || ticket.fromBranch !== null
   const unavailable = !snapshot.gh.available && candidate

@@ -114,11 +114,14 @@ const sameTicket = (ticket: TicketLike, branch: string | null): boolean => {
 
 /**
  * The worktree of a Ticket: the one whose branch names it, else the one whose folder
- * (`.claude/worktrees/<NN>`) carries its number while its branch names no Ticket at all.
+ * (`.claude/worktrees/<NN>`) carries its number while its branch names no Ticket at all. The
+ * folder names no Epic, so it is taken only when no other Epic of the Project (`tickets`, all of
+ * its Tickets) has a Ticket with that number.
  */
-export function worktreeOfTicket(snapshot: ChecksSnapshot, ticket: TicketLike): WorktreeChecks | null {
+export function worktreeOfTicket(snapshot: ChecksSnapshot, ticket: TicketLike, tickets: readonly TicketLike[]): WorktreeChecks | null {
   const byBranch = snapshot.worktrees.find((worktree) => sameTicket(ticket, worktree.branch))
   if (byBranch) return byBranch
+  if (tickets.some((other) => other.num === ticket.num && other.epic !== ticket.epic)) return null
   return (
     snapshot.worktrees.find((worktree) => {
       if (worktree.branch !== null && parseTicketBranch(worktree.branch) !== null) return false

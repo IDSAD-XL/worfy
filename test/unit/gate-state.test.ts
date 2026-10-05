@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process'
 import { appendFile, mkdir, mkdtemp, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { projectDirName } from '../../src/main/claude-home/registry'
-import { GateReader, gateKey, gateTag, lastGateOutcome, listWorktrees, markerOutcome, outputTexts, TranscriptGateScanner, type Worktree } from '../../src/main/gate/state'
+import { GateReader, gateKey, gateOutputs, gateRunDir, gateTag, lastGateOutcome, listWorktrees, markerOutcome, TranscriptGateScanner, type Worktree } from '../../src/main/gate/state'
 import { worktreeOfCwd, worktreeOfTicket, type ChecksSnapshot } from '../../src/shared/ipc/checks'
 
 // The gate's verdict per worktree (ticket 17): gate.sh's tag, the key from gate/config.json, the
@@ -84,26 +84,94 @@ describe('lastGateOutcome', () => {
   })
 })
 
-describe('outputTexts', () => {
-  it('takes tool results and hook output', () => {
-    expect(outputTexts({ type: 'user', message: { content: [{ type: 'tool_result', content: '[gate] зелено (fast): x' }] } })).toEqual(['[gate] зелено (fast): x'])
-    expect(outputTexts({ type: 'user', message: { content: [{ type: 'tool_result', content: [{ type: 'text', text: 'a' }, { type: 'image' }] }] } })).toEqual(['a'])
-    expect(outputTexts({ type: 'attachment', attachment: { type: 'hook_success', content: 'c', stdout: 'o', stderr: 'e' } })).toEqual(['c', 'o', 'e'])
-    expect(outputTexts({ type: 'system', subtype: 'stop_hook_summary', hookErrors: ['[gate] красно (fast): x'] })).toEqual(['[gate] красно (fast): x'])
+describe('gateRunDir', () => {
+  const cwd = '/Users/test/projects/demo'
+  it.each([
+    ['bash ~/.claude/hooks/gate.sh fast </dev/null; echo "КОД=$?"', cwd],
+    ['~/.claude/hooks/gate.sh fast > /tmp/g.out 2>&1; tail -1 /tmp/g.out', cwd],
+    ['cd .claude/worktrees/07 && bash ~/.claude/hooks/gate.sh fast', `${cwd}/.claude/worktrees/07`],
+    ['cd /Users/test/Work/Auction && ~/.claude/hooks/gate.sh fast', '/Users/test/Work/Auction'],
+    ['cd ~/.claude && ls; cd /Users/test/projects/demo && ~/.claude/hooks/gate.sh fast', cwd],
+    ["cd '/Users/test/My Projects/x' && gate.sh", '/Users/test/My Projects/x'],
+    ['cd && ~/.claude/hooks/gate.sh fast', homedir()],
+    ['cd ~/x && ~/.claude/hooks/gate.sh fast', join(homedir(), 'x')],
+    ['GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full; cd /elsewhere', cwd],
+  ])('%s → %s', (command, dir) => {
+    expect(gateRunDir(command, cwd)).toBe(dir)
+  })
+
+  it('is undefined for a command that does not run gate.sh', () => {
+    expect(gateRunDir('cd ~/.claude && for t in hooks/tests/*.test.sh; do bash $t; done', cwd)).toBeUndefined()
+    expect(gateRunDir('bash ~/.claude/hooks/tests/gate-unregistered.test.sh', cwd)).toBeUndefined()
+    expect(gateRunDir('tail -20 /tmp/scratch/gate-fast.txt', cwd)).toBeUndefined()
+  })
+
+  it('is null when the folder cannot be told without a shell', () => {
+    expect(gateRunDir('W=/x; cd $W && gate.sh fast', cwd)).toBeNull()
+    expect(gateRunDir('cd "$(git rev-parse --show-toplevel)" && gate.sh fast', cwd)).toBeNull()
+    expect(gateRunDir('pushd /x; popd; gate.sh fast', cwd)).toBeNull()
+    expect(gateRunDir('cd sub && gate.sh fast', null)).toBeNull()
+  })
+
+  it('is the Session’s own folder (\'\') when the record names none and there is no cd', () => {
+    expect(gateRunDir('bash ~/.claude/hooks/gate.sh fast', null)).toBe('')
+  })
+})
+
+describe('gateOutputs', () => {
+  const gateCall = (id: string, command: string, cwd?: string) => ({ type: 'assistant', cwd, message: { content: [{ type: 'tool_use', id, name: 'Bash', input: { command } }] } })
+  const result = (id: string, content: unknown) => ({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content }] } })
+
+  it('takes the result of a tool call that ran gate.sh, with the folder it ran in, once', () => {
+    const calls = new Map<string, string | null>()
+    expect(gateOutputs(gateCall('a', 'bash ~/.claude/hooks/gate.sh fast', '/r'), calls)).toEqual([])
+    expect(gateOutputs(gateCall('b', 'cd /other && ~/.claude/hooks/gate.sh fast', '/r'), calls)).toEqual([])
+    expect(gateOutputs(result('a', '[gate] зелено (fast): x'), calls)).toEqual([{ text: '[gate] зелено (fast): x', dir: '/r' }])
+    expect(gateOutputs(result('b', [{ type: 'text', text: 'b' }, { type: 'image' }]), calls)).toEqual([{ text: 'b', dir: '/other' }])
+    expect(gateOutputs(result('a', '[gate] зелено (fast): x'), calls)).toEqual([])
+    expect(calls.size).toBe(0)
+  })
+
+  it('leaves out the result of any other tool call, though it prints gate lines', () => {
+    const calls = new Map<string, string | null>()
+    gateOutputs(gateCall('t', 'cd ~/.claude && for t in hooks/tests/*.test.sh; do bash $t; done', '/r'), calls)
+    expect(gateOutputs(result('t', '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: fixture'), calls)).toEqual([])
+    expect(gateOutputs(result('unknown', '[gate] красно (fast): x'), calls)).toEqual([])
+  })
+
+  it('takes hook output, about the folder of the record', () => {
+    const calls = new Map<string, string | null>()
+    expect(gateOutputs({ type: 'attachment', cwd: '/r', attachment: { type: 'hook_success', content: 'c', stdout: 'o', stderr: 'e' } }, calls)).toEqual([
+      { text: 'c', dir: '/r' },
+      { text: 'o', dir: '/r' },
+      { text: 'e', dir: '/r' },
+    ])
+    expect(gateOutputs({ type: 'system', subtype: 'stop_hook_summary', hookErrors: ['[gate] красно (fast): x'] }, calls)).toEqual([{ text: '[gate] красно (fast): x', dir: '' }])
   })
 
   it('leaves out prompts, briefs, task notifications and the model’s own text', () => {
-    expect(outputTexts({ type: 'user', message: { content: '[gate] зелено (…)' } })).toEqual([])
-    expect(outputTexts({ type: 'user', message: { content: [{ type: 'text', text: '[gate] зелено (…)' }] } })).toEqual([])
-    expect(outputTexts({ type: 'assistant', message: { content: [{ type: 'text', text: '[gate] зелено (…)' }] } })).toEqual([])
-    expect(outputTexts({ type: 'attachment', attachment: { type: 'queued_command', prompt: '[gate] зелено (…)' } })).toEqual([])
-    expect(outputTexts({ type: 'queue-operation', content: '[gate] зелено (…)' })).toEqual([])
+    const calls = new Map<string, string | null>()
+    expect(gateOutputs({ type: 'user', message: { content: '[gate] зелено (…)' } }, calls)).toEqual([])
+    expect(gateOutputs({ type: 'user', message: { content: [{ type: 'text', text: '[gate] зелено (…)' }] } }, calls)).toEqual([])
+    expect(gateOutputs({ type: 'assistant', message: { content: [{ type: 'text', text: '[gate] зелено (…)' }] } }, calls)).toEqual([])
+    expect(gateOutputs({ type: 'attachment', attachment: { type: 'queued_command', prompt: '[gate] зелено (…)' } }, calls)).toEqual([])
+    expect(gateOutputs({ type: 'queue-operation', content: '[gate] зелено (…)' }, calls)).toEqual([])
   })
 })
 
 // ── a Project with a worktree of Ticket 07 ──────────────────────────────────
 
-const toolResult = (text: string, timestamp: string) => JSON.stringify({ type: 'user', timestamp, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: text }] } })
+let callIds = 0
+/** A Bash call running `command` in `cwd` and its result `text`: two transcript lines. */
+const bashRun = (text: string, timestamp: string, options: { command?: string; cwd?: string } = {}) => {
+  callIds += 1
+  const id = `toolu_${callIds}`
+  return [
+    JSON.stringify({ type: 'assistant', timestamp, ...(options.cwd ? { cwd: options.cwd } : {}), message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command: options.command ?? 'bash ~/.claude/hooks/gate.sh fast </dev/null; echo "КОД=$?"' } }] } }),
+    JSON.stringify({ type: 'user', timestamp, ...(options.cwd ? { cwd: options.cwd } : {}), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: text }] } }),
+  ].join('\n')
+}
+const toolResult = (text: string, timestamp: string) => bashRun(text, timestamp)
 const prompt = (text: string, timestamp: string) => JSON.stringify({ type: 'user', timestamp, message: { role: 'user', content: text } })
 
 interface World {
@@ -141,6 +209,33 @@ async function world(): Promise<World> {
 }
 
 const snapshotOf = (root: string, worktrees: ChecksSnapshot['worktrees']): ChecksSnapshot => ({ root, worktrees, pulls: [], gh: { available: true, error: null, intervalMs: 60_000 } })
+const DEMO_TICKETS = [
+  { epic: 'demo', num: 7 },
+  { epic: 'demo', num: 8 },
+]
+
+describe('worktreeOfTicket', () => {
+  const gate = { outcome: 'red' as const, source: 'marker' as const, at: null }
+  const at07 = (branch: string | null) => snapshotOf('/r', [{ path: '/r', branch: 'main', gate }, { path: '/r/.claude/worktrees/07', branch, gate }])
+
+  it('takes the worktree in .claude/worktrees/<NN> when its branch names no Ticket', () => {
+    expect(worktreeOfTicket(at07('feature-x'), { epic: 'demo', num: 7 }, DEMO_TICKETS)?.path).toBe('/r/.claude/worktrees/07')
+    expect(worktreeOfTicket(at07(null), { epic: 'demo', num: 7 }, DEMO_TICKETS)?.path).toBe('/r/.claude/worktrees/07')
+    expect(worktreeOfTicket(at07('feature-x'), { epic: 'demo', num: 8 }, DEMO_TICKETS)).toBeNull()
+  })
+
+  it('does not take it by folder when its branch names another Ticket', () => {
+    expect(worktreeOfTicket(at07('demo/09'), { epic: 'demo', num: 7 }, DEMO_TICKETS)).toBeNull()
+  })
+
+  it('does not take it by folder when another Epic of the Project has a Ticket with that number', () => {
+    const tickets = [...DEMO_TICKETS, { epic: 'other', num: 7 }]
+    expect(worktreeOfTicket(at07('feature-x'), { epic: 'demo', num: 7 }, tickets)).toBeNull()
+    expect(worktreeOfTicket(at07('feature-x'), { epic: 'other', num: 7 }, tickets)).toBeNull()
+    // A branch that names the Ticket still says whose it is.
+    expect(worktreeOfTicket(at07('other/07'), { epic: 'other', num: 7 }, tickets)?.path).toBe('/r/.claude/worktrees/07')
+  })
+})
 
 describe('GateReader', () => {
   it('a red marker of the worktree of Ticket 07 makes Ticket 07 and a Session in that worktree red; without it, the transcript’s last gate line says green', async () => {
@@ -148,15 +243,15 @@ describe('GateReader', () => {
     const reader = new GateReader({ home })
 
     const red = snapshotOf(root, await reader.read(root, worktrees))
-    expect(worktreeOfTicket(red, { epic: 'demo', num: 7 })?.gate).toEqual({ outcome: 'red', source: 'marker', at: null })
+    expect(worktreeOfTicket(red, { epic: 'demo', num: 7 }, DEMO_TICKETS)?.gate).toEqual({ outcome: 'red', source: 'marker', at: null })
     expect(worktreeOfCwd(red, join(worktree07, 'src'))?.gate.outcome).toBe('red')
     expect(worktreeOfCwd(red, root)?.gate).toEqual({ outcome: 'none', source: 'none', at: null })
 
     await rm(marker)
     const green = snapshotOf(root, await reader.read(root, worktrees))
-    expect(worktreeOfTicket(green, { epic: 'demo', num: 7 })?.gate).toEqual({ outcome: 'green', source: 'transcript', at: '2026-10-05T10:05:00.000Z' })
+    expect(worktreeOfTicket(green, { epic: 'demo', num: 7 }, DEMO_TICKETS)?.gate).toEqual({ outcome: 'green', source: 'transcript', at: '2026-10-05T10:05:00.000Z' })
     expect(worktreeOfCwd(green, worktree07)?.gate.outcome).toBe('green')
-    expect(worktreeOfTicket(green, { epic: 'demo', num: 8 })).toBeNull()
+    expect(worktreeOfTicket(green, { epic: 'demo', num: 8 }, DEMO_TICKETS)).toBeNull()
   })
 
   it('reads an unverified marker, and nothing for a marker of another key', async () => {
@@ -193,6 +288,53 @@ describe('GateReader', () => {
     expect((await new GateReader({ home }).read(root, worktrees))[1]!.gate).toEqual({ outcome: 'red', source: 'transcript', at: '2026-10-05T12:00:00.000Z' })
   })
 
+  it('counts only gate.sh runs about this worktree: not other commands, not gate.sh after cd to another worktree or repository', async () => {
+    const { home, root, worktree07, worktrees, marker } = await world()
+    await rm(marker)
+    // A Session started in the checkout: the gate's own tests print gate lines, gate.sh runs in
+    // the worktree of Ticket 07 and in another repository. None of it is about the checkout.
+    const rootFolder = join(home, 'projects', projectDirName(root))
+    await mkdir(rootFolder, { recursive: true })
+    await writeFile(
+      join(rootFolder, '77777777-7777-4777-8777-777777777777.jsonl'),
+      [
+        bashRun('[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: fixture of the gate’s tests', '2026-10-05T13:00:00.000Z', { command: 'cd ~/.claude && for t in hooks/tests/*.test.sh; do bash $t; done', cwd: root }),
+        bashRun('[gate] красно (fast): demo/.:test', '2026-10-05T13:01:00.000Z', { command: 'tail -1 /tmp/scratch/gate-fast.txt', cwd: root }),
+        bashRun('[gate] красно (fast): demo/.:test', '2026-10-05T13:02:00.000Z', { command: `cd ${worktree07} && bash ~/.claude/hooks/gate.sh fast`, cwd: root }),
+        bashRun('[gate] красно (fast): auction/.:test', '2026-10-05T13:03:00.000Z', { command: 'cd /Users/test/Work/Auction && ~/.claude/hooks/gate.sh fast', cwd: root }),
+        bashRun('[gate] красно (fast): demo/.:lint', '2026-10-05T13:04:00.000Z', { cwd: worktree07 }),
+        '',
+      ].join('\n'),
+    )
+    // In the worktree's own Session, a later red run after `cd` elsewhere is not about it either.
+    await appendFile(
+      join(home, 'projects', projectDirName(worktree07), '44444444-4444-4444-8444-444444444444.jsonl'),
+      `${bashRun('[gate] красно (fast): other', '2026-10-05T14:00:00.000Z', { command: `cd ${root} && bash ~/.claude/hooks/gate.sh fast`, cwd: worktree07 })}\n`,
+    )
+    const [checkout, wt07] = await new GateReader({ home }).read(root, worktrees)
+    expect(checkout!.gate).toEqual({ outcome: 'none', source: 'none', at: null })
+    expect(wt07!.gate).toEqual({ outcome: 'green', source: 'transcript', at: '2026-10-05T10:05:00.000Z' })
+
+    // gate.sh run in the checkout itself (a subfolder of it) is the checkout's verdict.
+    await appendFile(
+      join(rootFolder, '77777777-7777-4777-8777-777777777777.jsonl'),
+      `${bashRun('[gate] зелено (fast): demo/.:lint', '2026-10-05T15:00:00.000Z', { command: 'cd src && bash ~/.claude/hooks/gate.sh fast', cwd: root })}\n`,
+    )
+    expect((await new GateReader({ home }).read(root, worktrees))[0]!.gate).toEqual({ outcome: 'green', source: 'transcript', at: '2026-10-05T15:00:00.000Z' })
+  })
+
+  it('takes a gate.sh run whose result arrives in a later read', async () => {
+    const { home, root, worktree07, worktrees, marker } = await world()
+    await rm(marker)
+    const transcript = join(home, 'projects', projectDirName(worktree07), '44444444-4444-4444-8444-444444444444.jsonl')
+    const [call, result] = bashRun('[gate] красно (fast): later', '2026-10-05T16:00:00.000Z', { cwd: worktree07 }).split('\n')
+    const reader = new GateReader({ home })
+    await appendFile(transcript, `${call}\n`)
+    expect((await reader.read(root, worktrees))[1]!.gate.outcome).toBe('green')
+    await appendFile(transcript, `${result}\n`)
+    expect((await reader.read(root, worktrees))[1]!.gate.outcome).toBe('red')
+  })
+
   it('writes nothing under the Claude home or in the Project', async () => {
     const { home, root, worktrees, marker } = await world()
     const listing = async (dir: string): Promise<string[]> => {
@@ -221,18 +363,18 @@ describe('TranscriptGateScanner', () => {
     const file = join(dir, 's.jsonl')
     await writeFile(file, `${toolResult('[gate] зелено (fast): a', '2026-10-05T10:00:00.000Z')}\n`)
     const scanner = new TranscriptGateScanner()
-    expect((await scanner.lastIn(dir))?.outcome).toBe('green')
+    expect((await scanner.lastIn(dir, { here: dir, worktrees: [dir] }))?.outcome).toBe('green')
     await appendFile(file, `${prompt('no gate here', '2026-10-05T10:01:00.000Z')}\n`)
-    expect((await scanner.lastIn(dir))?.outcome).toBe('green')
+    expect((await scanner.lastIn(dir, { here: dir, worktrees: [dir] }))?.outcome).toBe('green')
     await appendFile(file, `${toolResult('[gate] красно (fast): b', '2026-10-05T10:02:00.000Z')}\n`)
-    expect((await scanner.lastIn(dir))?.outcome).toBe('red')
+    expect((await scanner.lastIn(dir, { here: dir, worktrees: [dir] }))?.outcome).toBe('red')
     await rm(file)
     await writeFile(file, `${prompt('fresh', '2026-10-05T10:03:00.000Z')}\n`)
-    expect(await scanner.lastIn(dir)).toBeNull()
+    expect(await scanner.lastIn(dir, { here: dir, worktrees: [dir] })).toBeNull()
   })
 
   it('is null for a folder that does not exist', async () => {
-    expect(await new TranscriptGateScanner().lastIn('/nonexistent/worfy-gate')).toBeNull()
+    expect(await new TranscriptGateScanner().lastIn('/nonexistent/worfy-gate', { here: '/nonexistent', worktrees: ['/nonexistent'] })).toBeNull()
   })
 })
 

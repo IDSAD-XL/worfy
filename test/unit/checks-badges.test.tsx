@@ -28,13 +28,15 @@ const ticket = (num: number, state: Ticket['state'], fromBranch: string | null =
 })
 
 const tickets = [ticket(7, 'work', 'demo/07'), ticket(8, 'work'), ticket(9, 'open'), ticket(10, 'done')]
-const model: WorkflowModel = { root: ROOT, epics: [{ epic: 'demo', hasSpec: true, hasMap: false, title: 'Demo' }], tickets, error: null, branchErrors: [] }
+const MODEL: WorkflowModel = { root: ROOT, epics: [{ epic: 'demo', hasSpec: true, hasMap: false, title: 'Demo' }], tickets, error: null, branchErrors: [] }
+let model: WorkflowModel = MODEL
 
 let snapshot: ChecksSnapshot
 let checksCalls: unknown[]
 let focused: boolean
 
 beforeEach(() => {
+  model = MODEL
   vi.resetModules()
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   checksCalls = []
@@ -134,6 +136,34 @@ describe('ChecksBadges on a Ticket', () => {
   })
 })
 
+describe('ChecksBadges by worktree folder', () => {
+  const byFolder = () => {
+    snapshot = { ...snapshot, worktrees: [snapshot.worktrees[0]!, { path: WT07, branch: 'feature-x', gate: { outcome: 'red', source: 'marker', at: null } }] }
+  }
+
+  it('shows the gate of .claude/worktrees/07 on branch feature-x on Ticket 07', async () => {
+    byFolder()
+    const { default: ChecksBadges } = await load()
+    render(<ChecksBadges subject={ticketSubject(7)} />)
+    expect((await screen.findByTestId('checks-gate')).dataset.value).toBe('red')
+  })
+
+  it('does not, when another Epic of the Project also has a Ticket 07', async () => {
+    byFolder()
+    model = { ...MODEL, epics: [...MODEL.epics, { epic: 'other', hasSpec: true, hasMap: false, title: 'Other' }], tickets: [...tickets, { ...ticket(7, 'open'), epic: 'other' }] }
+    const { default: ChecksBadges } = await load()
+    render(
+      <>
+        <ChecksBadges subject={ticketSubject(7)} />
+        <ChecksBadges subject={ticketSubject(8)} />
+      </>,
+    )
+    // Ticket 08's PR shows that the snapshot has arrived.
+    await screen.findByTestId('checks-pr')
+    expect(screen.queryByTestId('checks-gate')).toBeNull()
+  })
+})
+
 describe('ChecksBadges on a Session', () => {
   it('shows the gate of the worktree the Session runs in', async () => {
     const { default: ChecksBadges } = await load()
@@ -183,5 +213,23 @@ describe('when the renderer asks', () => {
     const after = checksCalls.length
     await act(async () => await vi.advanceTimersByTimeAsync(POLL_MS * 2))
     expect(checksCalls.length).toBe(after)
+  })
+})
+
+describe('branchesInWork', () => {
+  const inEpic = (epic: string, num: number, state: Ticket['state'], fromBranch: string | null = null): Ticket => ({ ...ticket(num, state, fromBranch), epic })
+
+  it('takes Tickets in work and Tickets claimed in a branch, whatever their state', async () => {
+    const { branchesInWork } = await import('../../src/renderer/canvas/badges/use-checks')
+    const branches = branchesInWork([ticket(7, 'work', 'demo/07'), ticket(8, 'work'), ticket(9, 'open'), ticket(10, 'done'), ticket(11, 'done', 'demo/11-fix'), ticket(12, 'open', 'demo/12')])
+    expect(branches).toEqual(['demo/07', 'demo/08', 'demo/11-fix', 'demo/12'])
+  })
+
+  it('leaves out branches checks.get would refuse, so one odd Epic name does not cost the Project its badges', async () => {
+    const { branchesInWork } = await import('../../src/renderer/canvas/badges/use-checks')
+    const { checksGet } = await import('../../src/shared/ipc/checks')
+    const branches = branchesInWork([inEpic('аудит', 3, 'work'), inEpic('Q4 work', 5, 'work'), ticket(8, 'work')])
+    expect(branches).toEqual(['demo/08'])
+    expect(checksGet.input.safeParse({ root: ROOT, branches }).success).toBe(true)
   })
 })

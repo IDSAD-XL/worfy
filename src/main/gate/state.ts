@@ -6,8 +6,10 @@
 //   `printf '%s' "$repo" | shasum | cut -c1-8`) and `key` is the entry of <home>/gate/config.json
 //   whose `match` is the longest prefix of the repository root (gate-resolve.mjs --which);
 // - without a marker, the last `[gate] зелено | красно | ничего не прогналось | ПРОВЕРИТЬ НЕ УДАЛОСЬ`
-//   line in the transcripts of the Sessions started in that worktree: Bash output (tool results)
-//   and hook output. A line the user or the model wrote (a prompt, a brief, a reply) does not count.
+//   line in the transcripts of the Sessions started in that worktree: the output of a Bash call
+//   that ran gate.sh in that worktree, and hook output. The output of other commands (the gate's
+//   own tests, `tail` of an old log, gate.sh after `cd` to another repository) and a line the user
+//   or the model wrote (a prompt, a brief, a reply) do not count.
 //
 // «Ничего не прогналось» is «нет данных», never green. Nothing here writes: the state folder and
 // the transcripts are only listed and read, git only lists worktrees.
@@ -15,7 +17,8 @@ import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { realpath } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { z } from 'zod'
 import type { GateOutcome, GateState } from '../../shared/ipc/checks'
@@ -116,23 +119,93 @@ function toolResultText(content: unknown): string[] {
   return content.filter(isRecord).flatMap((block) => (block.type === 'text' && typeof block.text === 'string' ? [block.text] : []))
 }
 
-/**
- * The texts of one transcript record that are program output: tool results (Bash and the like)
- * and hook output. Prompts, briefs, task notifications and the model's own text are left out:
- * they quote gate lines without having run the gate.
- */
-export function outputTexts(record: unknown): string[] {
-  if (!isRecord(record)) return []
-  if (record.type === 'user' && isRecord(record.message) && Array.isArray(record.message.content)) {
-    return record.message.content.filter(isRecord).flatMap((block) => (block.type === 'tool_result' ? toolResultText(block.content) : []))
+/** `gate.sh` as a word of a command: `~/.claude/hooks/gate.sh fast`, not `gate-unregistered.test.sh`. */
+const GATE_SH = /(?:^|[\s;&|(/'"`])gate\.sh(?=$|[\s;&|)<>'"`])/gu
+/** A `cd` or `pushd` at the start of a shell command, with its argument if it has one. */
+const CD = /(?:^|[;&|({\n'"]|\b(?:then|do|else))\s*(?:cd|pushd)(?:[ \t]+("[^"]*"|'[^']*'|[^\s;&|)]+))?(?=$|[\s;&|)])/gu
+
+/** Where `cd <arg>` from `from` leads; null when the shell would have to expand something to tell. */
+function cdTarget(from: string, arg: string | undefined): string | null {
+  if (arg === undefined) return homedir()
+  let path: string
+  if (arg.startsWith("'") && arg.endsWith("'") && arg.length >= 2) path = arg.slice(1, -1)
+  else {
+    const quoted = arg.startsWith('"') && arg.endsWith('"') && arg.length >= 2
+    path = quoted ? arg.slice(1, -1) : arg
+    path = path.replace(quoted ? /^(?:\$HOME|\$\{HOME\})(?=\/|$)/u : /^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/u, homedir())
+    if (/[$`*?~]/u.test(path)) return null
   }
+  if (path === '-' || path === '') return null
+  if (path.startsWith('/')) return resolve(path)
+  return from === '' ? null : resolve(from, path)
+}
+
+/**
+ * Where a Bash command ran gate.sh: undefined when it does not run gate.sh at all; else the folder
+ * of the last `cd` before the last gate.sh (relative to `cwd`, the Session's folder at that
+ * moment), `cwd` when there is no `cd`, '' when the record names no folder and the command has no
+ * `cd` (then it is the Session's own), and null when the folder cannot be told without running a
+ * shell (`cd "$W"`, `popd`, a relative `cd` with no `cwd`).
+ */
+export function gateRunDir(command: string, cwd: string | null): string | null | undefined {
+  let end = -1
+  for (const match of command.matchAll(GATE_SH)) end = match.index + match[0].length
+  if (end < 0) return undefined
+  const before = command.slice(0, end)
+  if (/(?:^|[\s;&|(])popd\b/u.test(before)) return null
+  let dir: string | null = cwd ?? ''
+  for (const match of before.matchAll(CD)) {
+    dir = cdTarget(dir, match[1])
+    if (dir === null) return null
+  }
+  return dir
+}
+
+/** Program output of a transcript record that may carry gate lines, with the folder it is about. */
+export interface GateOutput {
+  text: string
+  /** As gateRunDir: a folder, '' for the Session's own folder, null for a folder that cannot be told. */
+  dir: string | null
+}
+
+const recordCwd = (record: Record<string, unknown>): string | null => (typeof record.cwd === 'string' && record.cwd.startsWith('/') ? record.cwd : null)
+
+/**
+ * The gate output in one transcript record: the result of a Bash call that ran gate.sh, and hook
+ * output. `gateCalls` maps the ids of tool calls that ran gate.sh to their folder; this record's
+ * tool calls are added to it and its results taken out. The result of any other tool call does not
+ * count, though it may print gate lines (the gate's own tests, `tail` of an old log), and neither
+ * do prompts, briefs, task notifications and the model's own text: they quote gate lines without
+ * having run the gate.
+ */
+export function gateOutputs(record: unknown, gateCalls: Map<string, string | null>): GateOutput[] {
+  if (!isRecord(record)) return []
+  if (record.type === 'assistant' && isRecord(record.message) && Array.isArray(record.message.content)) {
+    for (const block of record.message.content.filter(isRecord)) {
+      if (block.type !== 'tool_use' || typeof block.id !== 'string' || !isRecord(block.input) || typeof block.input.command !== 'string') continue
+      const dir = gateRunDir(block.input.command, recordCwd(record))
+      if (dir !== undefined) gateCalls.set(block.id, dir)
+    }
+    return []
+  }
+  if (record.type === 'user' && isRecord(record.message) && Array.isArray(record.message.content)) {
+    const outputs: GateOutput[] = []
+    for (const block of record.message.content.filter(isRecord)) {
+      if (block.type !== 'tool_result' || typeof block.tool_use_id !== 'string' || !gateCalls.has(block.tool_use_id)) continue
+      const dir = gateCalls.get(block.tool_use_id) ?? null
+      gateCalls.delete(block.tool_use_id)
+      for (const text of toolResultText(block.content)) outputs.push({ text, dir })
+    }
+    return outputs
+  }
+  const dir = recordCwd(record) ?? ''
   if (record.type === 'attachment' && isRecord(record.attachment) && typeof record.attachment.type === 'string' && record.attachment.type.startsWith('hook_')) {
     const { content, stdout, stderr } = record.attachment
-    return [content, stdout, stderr].filter((value): value is string => typeof value === 'string')
+    return [content, stdout, stderr].filter((value): value is string => typeof value === 'string').map((text) => ({ text, dir }))
   }
   if (record.type === 'system' && typeof record.subtype === 'string' && record.subtype.includes('hook')) {
     const errors = Array.isArray(record.hookErrors) ? record.hookErrors : []
-    return [...errors.filter((value): value is string => typeof value === 'string'), ...(typeof record.content === 'string' ? [record.content] : [])]
+    return [...errors.filter((value): value is string => typeof value === 'string'), ...(typeof record.content === 'string' ? [record.content] : [])].map((text) => ({ text, dir }))
   }
   return []
 }
@@ -145,18 +218,41 @@ interface GateSighting {
 
 interface FileScan {
   cursor: TailCursor | undefined
-  last: GateSighting | null
+  /** Tool calls that ran gate.sh and have no result yet, by id, with their folder. */
+  gateCalls: Map<string, string | null>
+  /** The last gate verdict per folder it is about ('' — the Session's own); `seq` orders them within the file. */
+  last: Map<string, GateSighting & { seq: number }>
+  seq: number
+}
+
+/** Where a transcript folder belongs: its worktree and every worktree of the Project, as on disk. */
+export interface GatePlace {
+  here: string
+  worktrees: readonly string[]
+}
+
+const inside = (path: string, folder: string): boolean => path === folder || path.startsWith(folder.endsWith('/') ? folder : `${folder}/`)
+
+/** Whether a gate run in `dir` was about the worktree `place.here`: it is the deepest worktree holding `dir`. */
+async function isAbout(dir: string, place: GatePlace): Promise<boolean> {
+  if (dir === '') return true
+  const real = await onDisk(dir)
+  let owner: string | null = null
+  for (const worktree of place.worktrees) {
+    if (inside(real, worktree) && (owner === null || worktree.length > owner.length)) owner = worktree
+  }
+  return owner === place.here
 }
 
 /**
- * Finds the last gate line in the transcripts of a folder under <home>/projects/, reading each file
- * only past what it read before: transcripts are append-only and can be large. A truncated or
- * replaced file is read again from the start.
+ * Finds the last gate verdict about a worktree in the transcripts of a folder under
+ * <home>/projects/, reading each file only past what it read before: transcripts are append-only
+ * and can be large. A truncated or replaced file is read again from the start.
  */
 export class TranscriptGateScanner {
   private readonly files = new Map<string, FileScan>()
 
-  async lastIn(folder: string): Promise<GateSighting | null> {
+  async lastIn(folder: string, place: GatePlace): Promise<GateSighting | null> {
     let names: string[]
     try {
       names = (await readdir(folder)).filter((name) => name.endsWith('.jsonl'))
@@ -165,14 +261,17 @@ export class TranscriptGateScanner {
     }
     let best: GateSighting | null = null
     for (const name of names) {
-      const sighting = await this.scanFile(join(folder, name))
-      if (sighting !== null && (best === null || sighting.at >= best.at)) best = sighting
+      let latest: (GateSighting & { seq: number }) | null = null
+      for (const [dir, sighting] of await this.scanFile(join(folder, name))) {
+        if ((latest === null || sighting.seq > latest.seq) && (await isAbout(dir, place))) latest = sighting
+      }
+      if (latest !== null && (best === null || latest.at >= best.at)) best = { outcome: latest.outcome, at: latest.at }
     }
     return best
   }
 
-  private async scanFile(file: string): Promise<GateSighting | null> {
-    const scan = this.files.get(file) ?? { cursor: undefined, last: null }
+  private async scanFile(file: string): Promise<Map<string, GateSighting & { seq: number }>> {
+    const scan = this.files.get(file) ?? { cursor: undefined, gateCalls: new Map(), last: new Map(), seq: 0 }
     for (;;) {
       let chunk
       try {
@@ -180,20 +279,24 @@ export class TranscriptGateScanner {
       } catch {
         return scan.last
       }
-      if (chunk.reset) scan.last = null
+      if (chunk.reset) {
+        scan.gateCalls.clear()
+        scan.last.clear()
+      }
       for (const line of chunk.lines) {
-        if (!line.includes('[gate]')) continue
+        if (!line.includes('[gate]') && !line.includes('gate.sh')) continue
         let record: unknown
         try {
           record = JSON.parse(line)
         } catch {
           continue
         }
-        for (const text of outputTexts(record)) {
+        for (const { text, dir } of gateOutputs(record, scan.gateCalls)) {
           const outcome = lastGateOutcome(text)
-          if (outcome === null) continue
+          if (outcome === null || dir === null) continue
           const at = isRecord(record) && typeof record.timestamp === 'string' ? record.timestamp : ''
-          scan.last = { outcome, at }
+          scan.seq += 1
+          scan.last.set(dir, { outcome, at, seq: scan.seq })
         }
       }
       scan.cursor = chunk.cursor
@@ -251,14 +354,15 @@ export class GateReader {
     const { home } = this.options
     const key = await gateKey(await readGateConfig(home), root)
     const names = await listState(home)
+    const real = await Promise.all(worktrees.map((worktree) => onDisk(worktree.path)))
     const result: (Worktree & { gate: GateState })[] = []
-    for (const worktree of worktrees) {
-      const marker = key === null ? null : markerOutcome(names, key, gateTag(await onDisk(worktree.path)))
+    for (const [index, worktree] of worktrees.entries()) {
+      const marker = key === null ? null : markerOutcome(names, key, gateTag(real[index]!))
       if (marker !== null) {
         result.push({ ...worktree, gate: { outcome: marker, source: 'marker', at: null } })
         continue
       }
-      const sighting = await this.scanner.lastIn(join(home, 'projects', projectDirName(worktree.path)))
+      const sighting = await this.scanner.lastIn(join(home, 'projects', projectDirName(worktree.path)), { here: real[index]!, worktrees: real })
       result.push({
         ...worktree,
         gate: sighting === null ? { outcome: 'none', source: 'none', at: null } : { outcome: sighting.outcome, source: 'transcript', at: sighting.at || null },
