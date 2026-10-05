@@ -158,3 +158,9 @@ PR: https://github.com/IDSAD-XL/worfy/pull/3 (ветка `worfy-mvp/02`). CI (li
   зарегистрированный `app.version` от имени frame-а. Вызов из адреса `rendererEntry()` отвечает
   `{ok: true}`, из чужого адреса — отказ «untrusted». Мутант `isTrustedSender: () => true` в
   `src/main/index.ts` теперь красный: 1 failed | 52 passed, код 1. Код `src/` в этом круге не менялся.
+- Проверки круга 2: `pnpm lint && pnpm typecheck && pnpm test` → 0 (8 файлов, 53 test-а);
+  `gate.sh fast` → зелено, код 0; `GATE_SCOPE=all gate.sh full` → зелено (lint, typecheck, test,
+  test:e2e), код 0; `pnpm test:e2e` → 0, 4 test-а. CI на коммит 52f698c не стартовал: PR #3 в
+  состоянии `mergeStateStatus: DIRTY` (конфликт с `main` только в этом файле тикета — `main`
+  обновил статусы волны 2), а GitHub не запускает `pull_request`-run для PR с конфликтом. Rebase
+  на `main` по брифу делает шаг мержа; CI после него — не проверено.
