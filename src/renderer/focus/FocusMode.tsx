@@ -1,0 +1,280 @@
+// Focus mode: the chosen Nodes fill the whole window as tiles, the rest of the Canvas is covered.
+//
+// The tiling is a split tree (split-tree.ts) kept only in memory by whoever opened focus mode
+// (canvas/overlays/FocusEntry.tsx): it is never sent to main and never saved, and focus mode
+// sends no Layout operation of its own. The Canvas under the layer is untouched, so leaving
+// focus mode shows it exactly as it was, viewport included.
+//
+// Each tile draws the Node's own component, so the Node keeps working there: its data comes from
+// the same React Flow store the Canvas uses, and what it changes goes to main as on the Canvas.
+// The Canvas keeps its own copy of the Node mounted under the layer.
+//
+// Gestures: dragging a divider moves it, a double click on a divider evens out its split;
+// dragging a tile's title bar onto another tile swaps the two, or, near an edge of that tile,
+// divides it. Esc leaves.
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { createPortal } from 'react-dom'
+import { useNodes } from '@xyflow/react'
+import { nodeTypes, type CanvasFlowNode, type CanvasNodeProps } from '../canvas/nodes'
+import { UnknownNode } from '../canvas/UnknownNode'
+import {
+  buildPreset,
+  computeGeometry,
+  dropZoneAt,
+  equalize,
+  leafIds,
+  moveDivider,
+  PRESETS,
+  removeTile,
+  splitTile,
+  swapTiles,
+  tileAt,
+  type DividerRect,
+  type DropZone,
+  type TileTree,
+} from './split-tree'
+import './focus.css'
+
+export interface FocusModeProps {
+  tree: TileTree
+  onChange: (tree: TileTree) => void
+  onExit: () => void
+}
+
+/** How far the pointer must travel before a press on a title bar becomes a drag. */
+const DRAG_THRESHOLD_PX = 4
+
+/** Canvas zoom keys (Canvas.tsx), swallowed while the Canvas is covered: they would zoom it unseen. */
+const ZOOM_KEYS = new Set(['=', '+', '-', '_', '0'])
+
+const percent = (share: number): string => `${share * 100}%`
+
+function titleOf(node: CanvasFlowNode): string {
+  const title = node.data.node.data.title
+  if (typeof title === 'string' && title.trim() !== '') return title
+  const kind = node.data.node.kind
+  return kind.charAt(0).toUpperCase() + kind.slice(1)
+}
+
+/** The props a Node component gets from React Flow, for a Node drawn in a tile. */
+function tileProps(node: CanvasFlowNode): CanvasNodeProps {
+  return {
+    id: node.id,
+    data: node.data,
+    type: node.type ?? node.data.node.kind,
+    selected: false,
+    dragging: false,
+    draggable: false,
+    selectable: false,
+    deletable: false,
+    isConnectable: false,
+    zIndex: 0,
+    positionAbsoluteX: 0,
+    positionAbsoluteY: 0,
+  }
+}
+
+function TileNode({ node }: { node: CanvasFlowNode }) {
+  const Component = nodeTypes.get(node.data.node.kind)?.Component ?? UnknownNode
+  return <Component {...tileProps(node)} />
+}
+
+interface TileDrag {
+  id: string
+  pointerId: number
+  startX: number
+  startY: number
+  moving: boolean
+  /** The tile under the pointer and where on it the drop would go. */
+  target?: { id: string; zone: DropZone }
+}
+
+export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
+  const nodes = useNodes<CanvasFlowNode>()
+  const byId = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes])
+  const area = useRef<HTMLDivElement>(null)
+  const geometry = useMemo(() => computeGeometry(tree), [tree])
+  const [drag, setDrag] = useState<TileDrag>()
+  const dividerDrag = useRef<{ pointerId: number; base: TileTree; divider: DividerRect; start: number; extentPx: number }>(undefined)
+
+  // The callbacks below outlive the render they were made in.
+  const latest = useRef({ tree, onChange, onExit })
+  useEffect(() => {
+    latest.current = { tree, onChange, onExit }
+  })
+
+  // A Node that left the Canvas (removed or hidden) leaves its tile; with none left, focus mode ends.
+  const ids = useMemo(() => leafIds(tree), [tree])
+  useEffect(() => {
+    const gone = ids.filter((id) => {
+      const node = byId.get(id)
+      return node === undefined || node.hidden === true
+    })
+    if (gone.length === 0) return
+    let next: TileTree | null = tree
+    for (const id of gone) next = next === null ? null : removeTile(next, id)
+    if (next === null) onExit()
+    else onChange(next)
+  }, [ids, byId, tree, onChange, onExit])
+
+  useEffect(() => {
+    // Capture phase: the Canvas listens on window too, and must not zoom while it is covered.
+    const swallowZoom = (event: KeyboardEvent) => {
+      if (event.metaKey && ZOOM_KEYS.has(event.key)) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+      }
+    }
+    // Bubble phase: a Node that handles Esc itself (closing a popup) calls preventDefault first.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        event.preventDefault()
+        latest.current.onExit()
+      }
+    }
+    window.addEventListener('keydown', swallowZoom, true)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', swallowZoom, true)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [])
+
+  const areaRect = (): DOMRect | undefined => area.current?.getBoundingClientRect()
+
+  // Dividers
+  const onDividerDown = (divider: DividerRect) => (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    const rect = areaRect()
+    if (rect === undefined) return
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    const row = divider.direction === 'row'
+    dividerDrag.current = {
+      pointerId: event.pointerId,
+      base: latest.current.tree,
+      divider,
+      start: row ? event.clientX : event.clientY,
+      extentPx: divider.extent * (row ? rect.width : rect.height),
+    }
+  }
+  const onDividerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const current = dividerDrag.current
+    if (current === undefined || current.pointerId !== event.pointerId || current.extentPx <= 0) return
+    const position = current.divider.direction === 'row' ? event.clientX : event.clientY
+    latest.current.onChange(moveDivider(current.base, current.divider.path, current.divider.index, (position - current.start) / current.extentPx))
+  }
+  const onDividerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (dividerDrag.current?.pointerId === event.pointerId) dividerDrag.current = undefined
+  }
+
+  // Title bars
+  const dropTarget = (draggedId: string, clientX: number, clientY: number): TileDrag['target'] => {
+    const rect = areaRect()
+    if (rect === undefined || rect.width <= 0 || rect.height <= 0) return undefined
+    const tile = tileAt(geometry, (clientX - rect.left) / rect.width, (clientY - rect.top) / rect.height)
+    if (tile === undefined || tile.id === draggedId) return undefined
+    const zone = dropZoneAt(tile.w * rect.width, tile.h * rect.height, clientX - rect.left - tile.x * rect.width, clientY - rect.top - tile.y * rect.height)
+    return { id: tile.id, zone }
+  }
+  const onTitleDown = (id: string) => (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setDrag({ id, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, moving: false })
+  }
+  const onTitleMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag === undefined || drag.pointerId !== event.pointerId) return
+    const moving = drag.moving || Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= DRAG_THRESHOLD_PX
+    if (!moving) return
+    const target = dropTarget(drag.id, event.clientX, event.clientY)
+    if (drag.moving && drag.target?.id === target?.id && drag.target?.zone === target?.zone) return
+    setDrag({ ...drag, moving, target })
+  }
+  const onTitleUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag === undefined || drag.pointerId !== event.pointerId) return
+    setDrag(undefined)
+    if (!drag.moving) return
+    const target = dropTarget(drag.id, event.clientX, event.clientY)
+    if (target === undefined) return
+    const current = latest.current.tree
+    latest.current.onChange(target.zone === 'center' ? swapTiles(current, drag.id, target.id) : splitTile(current, target.id, drag.id, target.zone))
+  }
+
+  const applyPreset = (preset: (typeof PRESETS)[number]['value']) => {
+    const next = buildPreset(preset, leafIds(latest.current.tree))
+    if (next !== null) latest.current.onChange(next)
+  }
+
+  return createPortal(
+    <div className="w-focus" role="dialog" aria-modal="true" aria-label="Focus mode" data-testid="focus-mode">
+      <div className="w-focus__bar">
+        <span className="w-focus__title">Focus · {ids.length === 1 ? '1 node' : `${ids.length} nodes`}</span>
+        <div role="group" aria-label="Layout presets" className="w-focus__presets">
+          {PRESETS.map(({ value, label }) => (
+            <button key={value} type="button" className="w-focus__button" onClick={() => applyPreset(value)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <button type="button" className="w-focus__button w-focus__exit" onClick={() => latest.current.onExit()}>
+          Exit focus <kbd>Esc</kbd>
+        </button>
+      </div>
+      <div ref={area} className="w-focus__area" data-dragging={drag?.moving === true ? 'true' : undefined}>
+        {/* Tiles are keyed by Node id and only positioned: swapping or dividing never remounts a Node. */}
+        {geometry.tiles.map((tile) => {
+          const node = byId.get(tile.id)
+          const zone = drag?.moving === true && drag.target?.id === tile.id ? drag.target.zone : undefined
+          return (
+            <section
+              key={tile.id}
+              className="w-focus__tile"
+              data-testid="focus-tile"
+              data-node-id={tile.id}
+              data-drop-zone={zone}
+              aria-label={node ? titleOf(node) : tile.id}
+              style={{ left: percent(tile.x), top: percent(tile.y), width: percent(tile.w), height: percent(tile.h) }}
+            >
+              <div className="w-focus__frame" data-dragged={drag?.moving === true && drag.id === tile.id ? 'true' : undefined}>
+                <div
+                  className="w-focus__tile-title"
+                  data-testid="focus-tile-title"
+                  onPointerDown={onTitleDown(tile.id)}
+                  onPointerMove={onTitleMove}
+                  onPointerUp={onTitleUp}
+                  onPointerCancel={() => setDrag(undefined)}
+                >
+                  <span aria-hidden="true">⠿</span>
+                  {node ? titleOf(node) : tile.id}
+                </div>
+                <div className="w-focus__node">{node ? <TileNode node={node} /> : null}</div>
+              </div>
+            </section>
+          )
+        })}
+        {geometry.dividers.map((divider) => (
+          <div
+            key={`${divider.path.join('.')}:${divider.index}`}
+            className="w-focus__divider"
+            role="separator"
+            aria-orientation={divider.direction === 'row' ? 'vertical' : 'horizontal'}
+            data-testid="focus-divider"
+            data-direction={divider.direction}
+            style={
+              divider.direction === 'row'
+                ? { left: percent(divider.x), top: percent(divider.y), height: percent(divider.length) }
+                : { left: percent(divider.x), top: percent(divider.y), width: percent(divider.length) }
+            }
+            onPointerDown={onDividerDown(divider)}
+            onPointerMove={onDividerMove}
+            onPointerUp={onDividerUp}
+            onPointerCancel={onDividerUp}
+            onDoubleClick={() => latest.current.onChange(equalize(latest.current.tree, divider.path))}
+          />
+        ))}
+      </div>
+    </div>,
+    document.body,
+  )
+}
