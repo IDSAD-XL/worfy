@@ -1,0 +1,93 @@
+// The renderer's copy of each Project's Layout. main owns it (src/main/layout/store.ts): the
+// renderer only asks for it, listens to `layout.changed` and sends operations. One subscription
+// serves every Canvas.
+import { createContext, useContext, useEffect, useState } from 'react'
+import { create } from 'zustand'
+import type { LayoutOpInput, LayoutState } from '../../shared/layout/types'
+import { invoke, subscribe } from '../ipc'
+
+interface LayoutsStore {
+  byProject: Readonly<Record<string, LayoutState>>
+}
+
+const useLayoutsStore = create<LayoutsStore>(() => ({ byProject: {} }))
+
+/**
+ * Takes a Layout from main unless a newer one of the same Project is already here: an answer to
+ * an operation and the broadcast of a later one can arrive in either order.
+ */
+export function acceptLayoutState(state: LayoutState): void {
+  const current = useLayoutsStore.getState().byProject[state.projectId]
+  if (current && state.revision < current.revision) return
+  useLayoutsStore.setState(({ byProject }) => ({ byProject: { ...byProject, [state.projectId]: state } }))
+}
+
+let subscribed = false
+
+function ensureSubscribed(): void {
+  if (subscribed) return
+  subscribed = true
+  try {
+    subscribe('layout.changed', acceptLayoutState)
+  } catch (error) {
+    console.error('layout.changed: cannot subscribe', error)
+  }
+}
+
+export interface UseLayout {
+  state: LayoutState | undefined
+  /** Why the Layout could not be loaded. */
+  error: string | undefined
+}
+
+/** The Project's Layout; `state` is undefined until main has answered once. */
+export function useLayout(projectId: string): UseLayout {
+  const state = useLayoutsStore((store) => store.byProject[projectId])
+  const [error, setError] = useState<{ projectId: string; message: string }>()
+
+  useEffect(() => {
+    ensureSubscribed()
+    let active = true
+    void invoke('layout.get', { projectId }).then((result) => {
+      if (!active) return
+      if (result.ok) acceptLayoutState(result.value)
+      else {
+        console.error('layout.get failed:', result.error)
+        setError({ projectId, message: result.error })
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [projectId])
+
+  return { state, error: error?.projectId === projectId ? error.message : undefined }
+}
+
+/** Sends one operation; resolves to the error text when main refused it. */
+export async function applyLayoutOp(projectId: string, op: LayoutOpInput): Promise<string | undefined> {
+  const result = await invoke('layout.apply', { projectId, op })
+  if (result.ok) {
+    acceptLayoutState(result.value)
+    return undefined
+  }
+  console.error(`layout.apply ${op.op} failed:`, result.error)
+  return result.error
+}
+
+/** What a Node component uses to change its own entry in the Layout. */
+export interface LayoutOps {
+  /** Resolves once main has answered, whether it applied the operation or refused it. */
+  apply(op: LayoutOpInput): Promise<void>
+}
+
+export const LayoutOpsContext = createContext<LayoutOps>({
+  apply: (op) => {
+    console.error(`layout operation ${op.op} sent outside a Canvas`)
+    return Promise.resolve()
+  },
+})
+
+export function useLayoutOps(): LayoutOps {
+  return useContext(LayoutOpsContext)
+}

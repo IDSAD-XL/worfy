@@ -1,0 +1,92 @@
+/* The Canvas and its built-in Nodes (design F, docs/design/F-SPEC.md). Values come from tokens.css. */
+
+.w-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+/* React Flow's own theme variables, pointed at the F tokens in both appearances. */
+.w-canvas .react-flow {
+  --xy-background-color: var(--canvas);
+  --xy-selection-background-color: color-mix(in srgb, var(--accent) 8%, transparent);
+  --xy-selection-border: 1px dotted var(--accent);
+  --xy-resize-background-color: var(--accent);
+  --xy-node-boxshadow-selected: none;
+  font-family: var(--font-ui);
+  color: var(--text);
+}
+
+/* A selected Node gets the accent ring; the surface keeps its own border and shadow. */
+.w-canvas .react-flow__node.selected > .w-node-surface {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-node), 0 0 0 1px var(--accent);
+}
+
+.w-canvas-message {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  font-size: var(--text-13);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* note: the debug Node type */
+.w-note {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.w-note__header {
+  flex: none;
+  height: var(--row-height);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-12);
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: grab;
+}
+.w-note__text {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--text-13);
+  line-height: 1.4;
+}
+.w-note__text::placeholder {
+  color: var(--text-muted);
+}
+
+/* The placeholder for a Node of an unknown kind */
+.w-unknown-node {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-style: dashed;
+  border-color: var(--border-strong);
+  font-size: var(--text-12);
+  color: var(--text-muted);
+  text-align: center;
+  overflow: hidden;
+}

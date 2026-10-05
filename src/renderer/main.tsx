@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 // Tokens first: every other stylesheet reads its variables.
 import './theme/tokens.css'
 import { AppShell } from './shell/AppShell'
-import { AppVersion } from './AppVersion'
+import { Canvas } from './canvas/Canvas'
 import { activeProject, useProjects } from './projects/useProjects'
 
 export function App() {
@@ -11,8 +11,8 @@ export function App() {
   // Projects section (shell/sidebar/ProjectsSection.tsx).
   const active = activeProject(useProjects())
   const project = active ? { name: active.name, branch: active.branch ?? '—' } : undefined
-  // The Canvas view stays empty until ticket 05 fills it; until then it shows the app version.
-  return <AppShell project={project} canvas={<AppVersion />} />
+  // The app version is a toolbar item (shell/toolbar/AppVersion.tsx).
+  return <AppShell project={project} canvas={<Canvas projectId={active?.id} />} />
 }
 
 const container = document.getElementById('root')
