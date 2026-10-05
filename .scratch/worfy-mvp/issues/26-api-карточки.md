@@ -77,9 +77,10 @@ Source: [ADR-0003](../../../docs/adr/0003-cards-as-files-canvas-via-tools.md); [
 origin, even from the Card frame itself» — файл test-ов не загрузился на импорте
 `../../src/renderer/canvas/card-bridge` (0 test-ов, код 1): модуля моста ещё не было.
 
-Проверки (после rebase на origin/main с тикетами 19 и 27): `pnpm lint && pnpm typecheck && pnpm test`
-— код 0 (1116 test-ов, из них 49 в `test/contract/card-bridge.test.ts`); `gate.sh fast` — код 0,
-`[gate] зелено (fast)`; `pnpm test:e2e` — код 0 (55 test-ов, из них 3 в `test/e2e/card-api.spec.ts`). Мутанты, каждый краснит contract test: окно не сверяет origin;
+Проверки (после rebase на origin/main с тикетами 19, 27 и 28): `pnpm lint && pnpm typecheck &&
+pnpm test` — код 0 (1153 test-а, из них 49 в `test/contract/card-bridge.test.ts`); `gate.sh fast` —
+код 0, `[gate] зелено (fast)`; `pnpm test:e2e` — код 0 (58 test-ов, из них 3 в
+`test/e2e/card-api.spec.ts`). Мутанты, каждый краснит contract test: окно не сверяет origin;
 окно ищет фрейм по origin, а не по `event.source`; `parseCardRequest` возвращает сырое сообщение
 вместо разобранного; `session.ask` отправляет текст при «Cancel».
 
@@ -113,6 +114,13 @@ origin, even from the Card frame itself» — файл test-ов не загру
   IPC по ADR-0006), `src/main/cards/ask.ts`, `src/renderer/canvas/overlays/CardBridge.tsx` (точка
   расширения оверлеев), `tsconfig.node.json` и `tsconfig.test.node.json` (`src/card-runtime/**` и
   `card-bridge.ts` в списке файлов — иначе `tsc` их не проверяет), тесты.
+- **Нестабильный test тикета 25 починен здесь**, потому что краснил CI и этого PR, и `main` после
+  мержа тикета 27: `test/contract/card-protocol.test.ts` → «drops a change of its Cards that was
+  waiting out the quiet period» получал изменение `Clock v2`, хотя Проект уже ушёл из списка. На
+  медленном runner-е FSEvents доносит события записей, сделанных до старта слежения, с опозданием;
+  такое позднее событие срабатывало после записи test-а и читало уже новый файл. `beforeEach` этого
+  блока теперь ждёт 700 мс тишины от store (не дольше 5 с) вместо фиксированных 300 мс. Код store не
+  менялся.
 
 Не проверено:
 
