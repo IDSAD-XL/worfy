@@ -182,9 +182,12 @@ async function openRail(window: Page, sessionId: string): Promise<Locator> {
   return rail
 }
 
+/** Back to the Canvas, with nothing selected: the selection toolbar of the Node just opened would cover its neighbours. */
 async function backToCanvas(window: Page): Promise<void> {
   await window.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Canvas' }).click()
   await expect(window.getByTestId('canvas')).toBeVisible()
+  const pane = await box(window.locator('.react-flow__pane'))
+  await window.mouse.click(pane.x + 10, pane.y + pane.height - 10)
 }
 
 test.beforeEach(() => {
@@ -201,12 +204,14 @@ test.beforeEach(() => {
     join(dataDir, PROJECT_ID, 'layout.json'),
     JSON.stringify({
       nodes: [
-        sessionNode(CLAIM, 1400, 0, repo),
-        sessionNode(FOLDER, 1400, 200, join(repo, '.claude', 'worktrees', '12')),
-        sessionNode(SLUG, 1400, 400, join(repo, '.claude', 'worktrees', '07-движок-сессий')),
-        sessionNode(WAVE, 1400, 650, repo),
+        sessionNode(CLAIM, 760, 0, repo),
+        sessionNode(FOLDER, 760, 160, join(repo, '.claude', 'worktrees', '12')),
+        sessionNode(SLUG, 760, 320, join(repo, '.claude', 'worktrees', '07-движок-сессий')),
+        sessionNode(WAVE, 760, 480, repo),
       ],
-      viewport: { x: 20, y: 60, zoom: 0.45 },
+      // Zoomed out and close together: a CI display may be smaller than the window asked for, and a
+      // Node off the screen is not rendered (onlyRenderVisibleElements), so it cannot be clicked.
+      viewport: { x: 20, y: 40, zoom: 0.38 },
     }),
   )
 })
