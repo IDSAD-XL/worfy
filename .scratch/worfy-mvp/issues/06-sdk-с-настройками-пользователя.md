@@ -65,6 +65,8 @@ Source: [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md),
 
 ## Итог
 
+PR: https://github.com/IDSAD-XL/worfy/pull/6 (ветка `worfy-mvp/06`).
+
 Версии: `@anthropic-ai/claude-agent-sdk` 0.3.289, Claude Code 2.1.289 (нативный бинарник из
 пакета SDK, поле `claudeCodeVersion` его `package.json`), Electron 44.5.1 (Node 24.21.0), macOS
 arm64, вход по подписке Claude Max. Spike-и идут из Electron main: `sdk-probe.ts` — не собранный
