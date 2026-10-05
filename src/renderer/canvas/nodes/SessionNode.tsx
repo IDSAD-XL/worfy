@@ -1,21 +1,42 @@
-import { memo, type CSSProperties } from 'react'
+import { memo, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
 import { NodeResizer } from '@xyflow/react'
-import { readSessionNodeData, sessionSourceLabel, sessionStatus, type SESSION_HEIGHT, type SESSION_KIND, type SESSION_WIDTH } from '../../claude-home/session-nodes'
+import type { AgentEvent } from '../../../shared/agent/events'
+import type { ProjectView } from '../../../shared/ipc/projects'
+import type { WorfySessionNodeData } from '../../../shared/ipc/sessions'
+import {
+  readSessionNodeData,
+  readWorfySessionNodeData,
+  sessionSourceLabel,
+  sessionStatus,
+  type SESSION_HEIGHT,
+  type SESSION_KIND,
+  type SESSION_WIDTH,
+} from '../../claude-home/session-nodes'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
+import { invoke } from '../../ipc'
 import { activeProject, useProjects } from '../../projects/useProjects'
+import { STATE_CHIPS } from '../../session/format'
 import { openSession } from '../../session/navigation'
-import { StatusChip } from '../../theme/primitives'
+import { isRunning, useSessionNodeView } from '../../session/node-sessions'
+import { recordPrompt, retractPrompt, useSessionLog } from '../../session/store'
+import { StatusChip, type Status } from '../../theme/primitives'
 import { badges, type SlotSubject } from '../badges'
 import { useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
 
 // A Session of Claude Code on the Canvas (CONTEXT.md, «Сессия»: one Session — one Node, wherever it
-// was started). For now these are Sessions started outside worfy — `claude` in a terminal, the
-// Claude desktop app — shown read-only: where they run, their title and their status, followed
-// from the registry under ~/.claude (claude-home/useClaudeHome.ts). The overlay
-// overlays/SessionNodes.tsx makes the Node when the Session starts; the Node stays, «finished»,
-// after the process is gone. Hiding or removing the Node changes nothing about the Session. A
-// double click opens its transcript in the Session view (session/ExternalSessionPanel.tsx).
+// was started). Two modes:
+//
+// - Read-only (ticket 14): a Session started outside worfy — `claude` in a terminal, the Claude
+//   desktop app: where it runs, its title and its status, followed from the registry under
+//   ~/.claude (claude-home/useClaudeHome.ts). The overlay overlays/SessionNodes.tsx makes the Node
+//   when the Session starts; the Node stays, «finished», after the process is gone. Hiding or
+//   removing the Node changes nothing about the Session. A double click opens its transcript in the
+//   Session view (session/ExternalSessionPanel.tsx).
+// - Live (ticket 18): a Session worfy runs (`data.origin: 'worfy'`, src/shared/ipc/sessions.ts),
+//   made by "New session" or by Resume. It shows main's view of the Session (session/node-sessions.ts),
+//   its last answer and an input field. A Node whose Session is not running offers Resume, under
+//   the rule of src/main/agent/resume.ts; a message sent to it resumes it first.
 //
 // The registry (index.ts) needs the kind and size here as literals; `satisfies` fails the
 // typecheck the moment they differ from those of claude-home/session-nodes.ts.
@@ -62,13 +83,213 @@ const styles = {
     cursor: 'pointer',
   },
   broken: { padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--text-12)', color: 'var(--text-muted)' },
+  answer: {
+    flex: 1,
+    minHeight: 0,
+    margin: 0,
+    overflow: 'auto',
+    fontSize: 'var(--text-12)',
+    lineHeight: '17px',
+    color: 'var(--text)',
+    whiteSpace: 'pre-wrap',
+    overflowWrap: 'anywhere',
+    userSelect: 'text',
+    cursor: 'text',
+  },
+  quiet: { flex: 1, minHeight: 0, fontSize: 'var(--text-12)', color: 'var(--text-muted)' },
+  error: { flex: 'none', fontSize: 'var(--text-11)', color: 'var(--text-secondary)', overflowWrap: 'anywhere' },
+  form: { flex: 'none', display: 'flex', gap: 'var(--space-1)', padding: '0 var(--space-3) var(--space-2)' },
+  input: {
+    flex: 1,
+    minWidth: 0,
+    height: 24,
+    padding: '0 6px',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-button)',
+    background: 'var(--bg)',
+    color: 'var(--text)',
+    font: 'inherit',
+    fontSize: 'var(--text-12)',
+  },
 } satisfies Record<string, CSSProperties>
+
+/** The last answer of the Session itself (not a Subagent's, not text Claude Code wrote), or null. */
+function lastAnswer(events: readonly AgentEvent[]): string | null {
+  for (let at = events.length - 1; at >= 0; at -= 1) {
+    const event = events[at]
+    if (event?.type === 'text' && event.parentToolUseId === null && !event.synthetic) return event.text
+  }
+  return null
+}
+
+/** A Session worfy runs, or ran: main's view while it runs, its saved session id otherwise. */
+function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 'id' | 'selected'> & { info: WorfySessionNodeData; project: ProjectView }) {
+  const ops = useLayoutOps()
+  const { history } = useClaudeHome(project.path)
+  const view = useSessionNodeView(project.id, id)
+  const running = isRunning(view)
+  const log = useSessionLog(running ? view.sessionId : null)
+  const answer = useMemo(() => lastAnswer(log.events), [log.events])
+  const [draft, setDraft] = useState('')
+  const [problem, setProblem] = useState<string | null>(null)
+
+  const saved = info.sessionId
+  const recorded = saved === undefined ? undefined : history.find((each) => each.sessionId === saved)
+  const title = recorded?.title ?? (saved === undefined ? 'New session' : `Session ${saved.slice(0, 8)}`)
+  const chip: { status: Status; label: string } = running ? STATE_CHIPS[view.state] : saved === undefined ? { status: 'ready', label: 'new' } : { status: 'done', label: 'finished' }
+  const cwd = (running ? view.cwd : undefined) ?? recorded?.cwd ?? project.path
+  const busy = running && view.state === 'busy'
+  const subject: SlotSubject | null = saved === undefined ? null : { kind: 'session', projectId: project.id, root: project.path, sessionId: saved }
+
+  /** Starts (or resumes) the Session behind this Node; answers its id for `agent.*`, or null. */
+  const ensure = async (): Promise<string | null> => {
+    if (running) return view.sessionId
+    const result = await invoke('sessions.start', { projectId: project.id, nodeId: id })
+    if (result.ok) return result.value.sessionId
+    setProblem(result.error)
+    return null
+  }
+
+  const send = async (event: FormEvent): Promise<void> => {
+    event.preventDefault()
+    const text = draft.trim()
+    if (text === '') return
+    setProblem(null)
+    const sessionId = await ensure()
+    if (sessionId === null) return
+    setDraft('')
+    recordPrompt(sessionId, text)
+    const result = await invoke('agent.send', { sessionId, text })
+    if (!result.ok) {
+      retractPrompt(sessionId, text)
+      setDraft(text)
+      setProblem(result.error)
+    }
+  }
+
+  const act = (run: () => Promise<{ ok: true } | { ok: false; error: string }>) => {
+    setProblem(null)
+    void run().then((result) => {
+      if (!result.ok) setProblem(result.error)
+    })
+  }
+
+  return (
+    <div
+      className="w-node-surface"
+      style={styles.root}
+      data-testid="session-node"
+      data-live="true"
+      data-node-id={id}
+      data-session-id={(running ? view.sdkSessionId : null) ?? saved}
+      data-cwd={cwd}
+      data-status={chip.label}
+      onDoubleClick={() => {
+        if (running) openSession({ nodeId: id, projectId: project.id })
+        else if (saved !== undefined) openSession({ nodeId: id, projectId: project.id, external: { sessionId: saved } })
+      }}
+    >
+      <NodeResizer
+        isVisible={selected}
+        minWidth={240}
+        minHeight={140}
+        onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
+      />
+      <div style={styles.header} title="Double-click to open the Session">
+        <span style={styles.title} data-testid="session-node-title" title={title}>
+          {title}
+        </span>
+        <span data-testid="session-node-status" title={running ? (view.error ?? undefined) : undefined}>
+          <StatusChip status={chip.status} label={chip.label} />
+        </span>
+        <span className="nodrag" style={styles.tools}>
+          {busy ? (
+            <button type="button" style={styles.tool} data-testid="session-node-interrupt" onClick={() => act(() => invoke('agent.interrupt', { sessionId: view.sessionId }))}>
+              Interrupt
+            </button>
+          ) : null}
+          {running ? (
+            <button
+              type="button"
+              style={styles.tool}
+              data-testid="session-node-close"
+              disabled={busy}
+              title={busy ? 'Interrupt the turn before closing the Session' : 'Close the Session; the Node stays'}
+              onClick={() => act(() => invoke('sessions.close', { nodeId: id }))}
+            >
+              Close
+            </button>
+          ) : saved !== undefined ? (
+            <button type="button" style={styles.tool} data-testid="session-node-resume" title="Continue this Session in worfy" onClick={() => act(() => invoke('sessions.start', { projectId: project.id, nodeId: id }))}>
+              Resume
+            </button>
+          ) : null}
+          <button type="button" style={styles.tool} title="Hide the Node; the Session goes on" onClick={() => void ops.apply({ op: 'hide', id, hidden: true })}>
+            Hide
+          </button>
+          <button
+            type="button"
+            style={styles.tool}
+            data-testid="session-node-remove"
+            disabled={running}
+            title={running ? 'Close the Session before removing its Node' : 'Remove the Node; the transcript stays'}
+            onClick={() => void ops.apply({ op: 'remove', id })}
+          >
+            Remove
+          </button>
+        </span>
+      </div>
+      <div style={styles.body}>
+        <div style={styles.line}>
+          <span className="w-mono" style={styles.source} data-testid="session-node-source" title={cwd}>
+            worfy · {cwd}
+          </span>
+        </div>
+        {answer !== null ? (
+          <pre className="w-mono nodrag nowheel" style={styles.answer} data-testid="session-node-answer">
+            {answer}
+          </pre>
+        ) : (
+          <div style={styles.quiet}>{running ? (busy ? 'Working…' : 'No answer yet') : 'Not running'}</div>
+        )}
+        {problem !== null ? (
+          <div style={styles.error} role="alert" data-testid="session-node-error">
+            {problem}
+          </div>
+        ) : null}
+        {subject !== null && badges.length ? (
+          <div style={styles.badges}>
+            {badges.map(({ id: badgeId, Component }) => (
+              <Component key={badgeId} subject={subject} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+      <form className="nodrag" style={styles.form} onSubmit={(event) => void send(event)}>
+        <input
+          style={styles.input}
+          data-testid="session-node-input"
+          aria-label="Message to the Session"
+          placeholder={running ? 'Message the Session' : saved === undefined ? 'Start the Session' : 'Resume with a message'}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <button type="submit" style={styles.tool} data-testid="session-node-send" disabled={draft.trim() === ''}>
+          Send
+        </button>
+      </form>
+    </div>
+  )
+}
 
 function SessionNode({ id, data, selected }: CanvasNodeProps) {
   const ops = useLayoutOps()
+  const worfy = readWorfySessionNodeData(data.node.data)
   const info = readSessionNodeData(data.node.data)
   const project = activeProject(useProjects())
   const { live, history } = useClaudeHome(project?.path)
+
+  if (worfy !== null && project !== undefined) return <LiveSessionNode id={id} selected={selected} info={worfy} project={project} />
 
   if (info === null || project === undefined) {
     return (

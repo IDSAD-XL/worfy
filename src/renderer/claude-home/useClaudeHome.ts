@@ -173,6 +173,14 @@ function release(root: string): void {
   void invoke('claudeHome.close', { projectRoot: root })
 }
 
+/**
+ * Reads the live Sessions and the history of `root` again, for a view that needs Sessions that
+ * ended or started since (the history popover, ticket 18). Does nothing while nothing uses `root`.
+ */
+export function refreshClaudeHome(root: string): void {
+  if (users.has(root)) void refreshAll(root)
+}
+
 /** The Sessions of the Project at `root`, kept current while the calling component is mounted. */
 export function useClaudeHome(root: string | undefined): ClaudeHomeEntry {
   useEffect(() => {

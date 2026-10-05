@@ -22,6 +22,7 @@ import {
 import type { LayoutNode, LayoutOpInput, LayoutState } from '../../shared/layout/types'
 import { placeNewNode } from '../layout/place'
 import type { TranscriptFacts } from './orchestrator-transcript'
+import { closeRefusal } from './resume'
 import type { EventSink, Session, SessionRegistry } from './session'
 
 /**
@@ -137,6 +138,29 @@ export class Orchestrators {
     await entry.ready
     const view = this.views.get(entry.nodeId)
     if (entry.cancelled || view === undefined) throw new Error(`the Orchestrator of ${projectId} was stopped`)
+    return view
+  }
+
+  /**
+   * "New conversation" (ticket 18): the current Session closes and stays in the history as its
+   * transcript; a new Session becomes the Project's Orchestrator, with its cost from zero. Refused
+   * during a turn, like closing any Session (resume.ts).
+   */
+  async newConversation(projectId: string): Promise<OrchestratorView> {
+    await this.open(projectId)
+    const entry = this.entries.get(projectId)
+    if (entry === undefined) throw new Error(`the Orchestrator of ${projectId} was stopped`)
+    const refusal = closeRefusal(this.current(entry).state)
+    if (refusal !== null) throw new Error(refusal)
+    const old = entry.run
+    if (old) {
+      old.current = false
+      old.session?.close()
+    }
+    this.forgetSession(entry)
+    this.launch(entry, undefined, { model: null, statusBlock: null })
+    const view = this.views.get(entry.nodeId)
+    if (view === undefined) throw new Error(`the Orchestrator of ${projectId} has no view`)
     return view
   }
 

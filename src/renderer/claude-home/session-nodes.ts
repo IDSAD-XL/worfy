@@ -11,10 +11,12 @@
 // external Node, and an external Node made before worfy named it is removed.
 import { z } from 'zod'
 import type { LiveSession } from '../../shared/ipc/claude-home'
+import { SESSION_NODE_KIND, worfySessionNodeDataSchema, type WorfySessionNodeData } from '../../shared/ipc/sessions'
 import type { LayoutNode, LayoutOpInput } from '../../shared/layout/types'
 import type { Status } from '../theme/primitives'
 
-export const SESSION_KIND = 'session'
+/** One kind for every Session Node: the live ones main makes and the read-only ones made here. */
+export const SESSION_KIND = SESSION_NODE_KIND
 export const SESSION_WIDTH = 300
 export const SESSION_HEIGHT = 120
 
@@ -24,11 +26,11 @@ const STACK_GAP = 16
 
 export const sessionNodeId = (sessionId: string): string => `session:${sessionId}`
 
-/** What a Session Node keeps in `data`. */
+/** What a read-only Session Node keeps in `data`. */
 export const sessionNodeDataSchema = z.object({
   sessionId: z.string().min(1),
   /** `external`: started outside worfy and shown read-only. */
-  origin: z.enum(['external', 'worfy']),
+  origin: z.literal('external'),
   /** Where it was started: a terminal (`claude` in a shell) or the Claude desktop app. */
   source: z.enum(['terminal', 'desktop']),
   /** The cwd the Session runs in. */
@@ -38,9 +40,15 @@ export const sessionNodeDataSchema = z.object({
 })
 export type SessionNodeData = z.infer<typeof sessionNodeDataSchema>
 
-/** The Session Node's data, or null when the Node does not carry it (a damaged file). */
+/** A read-only Session Node's data, or null when the Node does not carry it (a damaged file, or a Node worfy runs). */
 export function readSessionNodeData(data: Record<string, unknown>): SessionNodeData | null {
   const parsed = sessionNodeDataSchema.safeParse(data)
+  return parsed.success ? parsed.data : null
+}
+
+/** The data of a Session Node worfy runs, or null for any other. */
+export function readWorfySessionNodeData(data: Record<string, unknown>): WorfySessionNodeData | null {
+  const parsed = worfySessionNodeDataSchema.safeParse(data)
   return parsed.success ? parsed.data : null
 }
 
@@ -96,6 +104,23 @@ function nextPlace(nodes: readonly LayoutNode[]): { x: number; y: number } {
   const placed = nodes.filter((node) => !node.pinned && !node.hidden && node.w > 1 && node.h > 1)
   if (placed.length === 0) return { x: 0, y: 0 }
   return { x: Math.max(...placed.map((node) => node.x + node.w)) + GAP, y: Math.min(...placed.map((node) => node.y)) }
+}
+
+/** A read-only Node for a Session of the history ("Show" in the history, ticket 18), placed like a new live one. */
+export function showSessionNodeOp(
+  session: { sessionId: string; cwd?: string | undefined; title?: string | undefined; entrypoint?: string | undefined },
+  nodes: readonly LayoutNode[],
+  projectRoot: string,
+): Extract<LayoutOpInput, { op: 'create' }> {
+  const { x, y } = nextPlace(nodes)
+  const data: SessionNodeData = {
+    sessionId: session.sessionId,
+    origin: 'external',
+    source: session.entrypoint === 'claude-desktop' ? 'desktop' : 'terminal',
+    cwd: session.cwd ?? projectRoot,
+    ...(session.title === undefined ? {} : { name: session.title }),
+  }
+  return { op: 'create', node: { id: sessionNodeId(session.sessionId), kind: SESSION_KIND, x, y, w: SESSION_WIDTH, h: SESSION_HEIGHT, data } }
 }
 
 export function planSessionNodes({ live, nodes, worfyIds, seen }: SessionNodesInput): SessionNodesPlan {

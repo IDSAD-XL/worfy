@@ -7,9 +7,10 @@
 // and `agent.close` reach them too. Unlike the Sessions of `agent.start`, an Orchestrator belongs
 // to the app rather than to a window: its events and views go to every window, and closing a
 // window does not stop it. It stops when the app quits, with every other Session.
-import { app, BrowserWindow, type WebContents } from 'electron'
+import { app } from 'electron'
 import { agentEvent } from '../../shared/ipc/agent'
 import { orchestratorChanged } from '../../shared/ipc/orchestrator'
+import { toEveryWindow } from '../broadcast'
 import { ClaudeHomeRegistry } from '../claude-home/registry'
 import { emit } from '../ipc/index'
 import { layoutStore } from '../layout/store'
@@ -18,18 +19,6 @@ import { claudeHome } from '../storage/paths'
 import { sharedRegistry } from './app-registry'
 import { Orchestrators } from './orchestrator'
 import { readTranscriptFacts } from './orchestrator-transcript'
-
-/** Sends one event to every live window; a window that fails does not stop the others. */
-function toEveryWindow(send: (target: WebContents) => void): void {
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-    try {
-      send(window.webContents)
-    } catch (error) {
-      console.warn('[orchestrator] could not send to a window', error)
-    }
-  }
-}
 
 let shared: Orchestrators | null = null
 

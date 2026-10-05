@@ -82,6 +82,12 @@ export const orchestratorOpen = invokeChannel('orchestrator.open', z.object({ pr
 /** The view of the Orchestrator behind a Node; null when main has none for it (yet). Starts nothing. */
 export const orchestratorView = invokeChannel('orchestrator.view', z.object({ nodeId }), z.object({ view: orchestratorViewSchema.nullable() }))
 
+/**
+ * "New conversation": the Orchestrator's current Session goes to the history and a new one becomes
+ * the Project's Orchestrator. Refused while a turn runs. Answers the new view.
+ */
+export const orchestratorNewConversation = invokeChannel('orchestrator.newConversation', z.object({ projectId }), orchestratorViewSchema)
+
 /** A view changed; sent to every window. */
 export const orchestratorChanged = eventChannel('orchestrator.changed', orchestratorViewSchema)
 
@@ -89,6 +95,7 @@ declare module './channels' {
   interface IpcContract {
     'orchestrator.open': typeof orchestratorOpen
     'orchestrator.view': typeof orchestratorView
+    'orchestrator.newConversation': typeof orchestratorNewConversation
     'orchestrator.changed': typeof orchestratorChanged
   }
 }
