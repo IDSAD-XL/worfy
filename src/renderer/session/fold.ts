@@ -47,9 +47,11 @@ export type TranscriptItem =
 
 /**
  * Folds events into transcript rows. `extensionTypes` are the event types a row file draws; they
- * become `extension` items whatever else this file would do with them.
+ * become `extension` items whatever else this file would do with them. `firstIndex` is the
+ * position of `events[0]` in the whole Session (store.ts drops the oldest events): a row's key is
+ * the position of the event that opened it, so it stays the same when older events are dropped.
  */
-export function foldTranscript(events: readonly AgentEvent[], extensionTypes: ReadonlySet<string> = new Set()): TranscriptItem[] {
+export function foldTranscript(events: readonly AgentEvent[], extensionTypes: ReadonlySet<string> = new Set(), firstIndex = 0): TranscriptItem[] {
   const items: TranscriptItem[] = []
   const calls = new Map<string, ToolCall>()
   const subagents = new Map<string, SubagentRun>()
@@ -75,7 +77,7 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
   }
 
   events.forEach((event, index) => {
-    const key = `e${index}`
+    const key = `e${firstIndex + index}`
     if (extensionTypes.has(event.type)) {
       push({ kind: 'extension', key, event })
       return

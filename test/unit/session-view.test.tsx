@@ -112,6 +112,13 @@ describe('foldTranscript', () => {
     expect(items[2]).toMatchObject({ text: 'Claude Code exited' })
   })
 
+  it('keys a row by the position of its event in the whole Session, so dropping older events keeps the keys', () => {
+    const events = [prompt('a'), text('one'), prompt('b'), text('two')]
+    const all = foldTranscript(events)
+    const later = foldTranscript(events.slice(2), new Set(), 2)
+    expect(later.map((item) => item.key)).toEqual(all.slice(2).map((item) => item.key))
+  })
+
   it('hands event types that a rows/ file draws to that file', () => {
     const items = foldTranscript([prompt('a'), { type: 'hook', hookEvent: 'Stop', hookName: 'g', exitCode: 0, outcome: 'success', stdout: 'ok', stderr: '' }], new Set(['hook']))
     expect(items.map((item) => item.kind)).toEqual(['prompt', 'extension'])
@@ -227,6 +234,30 @@ describe('the event store', () => {
   })
 })
 
+describe('the event store: limits and take-backs', () => {
+  it('keeps the newest KEEP_EVENTS events of a Session and counts the dropped ones', async () => {
+    const store = await import('../../src/renderer/session/store')
+    for (let index = 0; index <= store.KEEP_EVENTS; index += 1) store.acceptAgentEvent({ sessionId: 's', event: prompt(`p${index}`) })
+    const log = store.useSessionLogs.getState().logs.s
+    expect(log?.events).toHaveLength(store.KEEP_EVENTS)
+    expect(log?.events[0]).toEqual(prompt('p1'))
+    expect(log?.events[store.KEEP_EVENTS - 1]).toEqual(prompt(`p${store.KEEP_EVENTS}`))
+    expect(log?.first).toBe(1)
+  })
+
+  it('takes back the latest prompt with the text and stops waiting for its echo', async () => {
+    const store = await import('../../src/renderer/session/store')
+    store.recordPrompt('s', 'same')
+    store.acceptAgentEvent({ sessionId: 's', event: result() })
+    store.recordPrompt('s', 'same')
+    store.acceptAgentEvent({ sessionId: 's', event: { type: 'status', status: null, permissionMode: null } })
+    store.retractPrompt('s', 'same')
+    const log = store.useSessionLogs.getState().logs.s
+    expect(log?.events.map((event) => event.type)).toEqual(['notice', 'result', 'status'])
+    expect(log?.echo).toBeNull()
+  })
+})
+
 describe('MessageInput', () => {
   async function mountInput(props: { busy?: boolean; history?: string[]; onSend?: (text: string) => Promise<string | null> } = {}) {
     const { MessageInput } = await import('../../src/renderer/session/MessageInput')
@@ -320,6 +351,50 @@ describe('SessionPanel', () => {
     expect(screen.getByTestId('transcript-turn-done')).toBeTruthy()
   })
 
+  it('takes the permission mode from a later system/status', async () => {
+    await mountPanel()
+    emit('pending-1', { type: 'init', sdkSessionId: 'sdk-1', model: 'claude-opus-5-5', permissionMode: 'bypassPermissions', apiKeySource: 'none', cwd: '/p', claudeCodeVersion: null, slashCommands: [] })
+    expect(screen.getByTestId('session-permissions').textContent).toBe('bypass')
+    emit('pending-1', { type: 'status', status: null, permissionMode: 'plan' })
+    expect(screen.getByTestId('session-permissions').textContent).toBe('plan')
+    // A status without a mode keeps the last one.
+    emit('pending-1', { type: 'status', status: 'requesting', permissionMode: null })
+    expect(screen.getByTestId('session-permissions').textContent).toBe('plan')
+  })
+
+  it('takes a message back out of the transcript and the history when sending it fails', async () => {
+    delete answers['agent.send']
+    await mountPanel()
+    const field = screen.getByRole('textbox', { name: 'Message Orchestrator' }) as HTMLTextAreaElement
+    fireEvent.change(field, { target: { value: 'not delivered' } })
+    await act(async () => {
+      fireEvent.keyDown(field, { key: 'Enter' })
+    })
+    expect(asked).toContainEqual({ channel: 'agent.send', input: { sessionId: 'pending-1', text: 'not delivered' } })
+    expect(screen.getByRole('alert').textContent).toBe('no agent.send')
+    expect(field.value).toBe('not delivered')
+    expect(screen.queryByTestId('transcript-prompt')).toBeNull()
+    fireEvent.change(field, { target: { value: '' } })
+    fireEvent.keyDown(field, { key: 'ArrowUp' })
+    expect(field.value).toBe('')
+  })
+
+  it('keeps the rows (and an opened Thinking) when the store drops the oldest events', async () => {
+    const store = await import('../../src/renderer/session/store')
+    const status: AgentEvent = { type: 'status', status: null, permissionMode: null }
+    store.acceptAgentEvent({ sessionId: 'pending-1', event: status })
+    store.acceptAgentEvent({ sessionId: 'pending-1', event: { type: 'thinking', text: 'a plan', messageId: 'm1', parentToolUseId: null } })
+    for (let index = 2; index < store.KEEP_EVENTS; index += 1) store.acceptAgentEvent({ sessionId: 'pending-1', event: status })
+    await mountPanel()
+    const toggle = within(screen.getByTestId('thinking')).getByRole('button')
+    fireEvent.click(toggle)
+    expect(screen.getByText('a plan')).toBeTruthy()
+    emit('pending-1', status)
+    expect(store.useSessionLogs.getState().logs['pending-1']?.first).toBe(1)
+    expect(within(screen.getByTestId('thinking')).getByRole('button').getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText('a plan')).toBeTruthy()
+  })
+
   it('interrupts the running turn from the header', async () => {
     answers['orchestrator.view'] = () => ({ view: view({ state: 'busy' }) })
     await mountPanel()
@@ -357,5 +432,71 @@ describe('opening the Session view', () => {
     expect((container.querySelector('[data-view="canvas"]') as HTMLElement).hidden).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: /Canvas/ }))
     expect(onViewChange).toHaveBeenCalledWith('canvas')
+  })
+})
+
+describe('Transcript: following the bottom', () => {
+  type Observed = { callback: () => void; element: Element | null }
+  let observers: Observed[] = []
+  const globals = globalThis as { ResizeObserver?: unknown }
+  let had: unknown
+
+  beforeEach(() => {
+    observers = []
+    had = globals.ResizeObserver
+    globals.ResizeObserver = class {
+      private readonly entry: Observed
+      constructor(callback: () => void) {
+        this.entry = { callback, element: null }
+        observers.push(this.entry)
+      }
+      observe(element: Element) {
+        this.entry.element = element
+      }
+      disconnect() {
+        this.entry.element = null
+      }
+    }
+  })
+
+  afterEach(() => {
+    globals.ResizeObserver = had
+  })
+
+  /** Gives the log a fixed geometry jsdom does not compute, and a scrollTop that keeps what is set. */
+  function geometry(element: HTMLElement, sizes: { scrollHeight: number; clientHeight: number }) {
+    let top = 0
+    Object.defineProperty(element, 'scrollHeight', { configurable: true, get: () => sizes.scrollHeight })
+    Object.defineProperty(element, 'clientHeight', { configurable: true, get: () => sizes.clientHeight })
+    Object.defineProperty(element, 'scrollTop', { configurable: true, get: () => top, set: (value: number) => (top = value) })
+  }
+
+  const resize = () => act(() => observers.filter((entry) => entry.element !== null).forEach((entry) => entry.callback()))
+
+  it('scrolls to the newest row when the log is shown again or resized, if the reader was at the bottom', async () => {
+    const { Transcript } = await import('../../src/renderer/session/Transcript')
+    const { rerender } = render(<Transcript events={[prompt('a')]} />)
+    const log = screen.getByTestId('transcript')
+    // Hidden (the Canvas is on screen): no height, so the new row cannot be followed yet.
+    const sizes = { scrollHeight: 0, clientHeight: 0 }
+    geometry(log, sizes)
+    rerender(<Transcript events={[prompt('a'), text('a long answer')]} />)
+    expect(log.scrollTop).toBe(0)
+    // Shown again: the log gets its height, and the observer brings the newest row into view.
+    sizes.scrollHeight = 900
+    sizes.clientHeight = 300
+    resize()
+    expect(log.scrollTop).toBe(900)
+  })
+
+  it('leaves the scroll alone on a resize once the reader scrolled up', async () => {
+    const { Transcript } = await import('../../src/renderer/session/Transcript')
+    render(<Transcript events={[prompt('a'), text('answer')]} />)
+    const log = screen.getByTestId('transcript')
+    geometry(log, { scrollHeight: 900, clientHeight: 300 })
+    log.scrollTop = 100
+    fireEvent.scroll(log)
+    resize()
+    expect(log.scrollTop).toBe(100)
   })
 })

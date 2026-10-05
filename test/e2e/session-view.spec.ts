@@ -54,6 +54,11 @@ async function states(window: Page): Promise<string[]> {
   return recorded.flatMap((envelope) => (envelope.event.type === 'state' && envelope.event.state ? [envelope.event.state] : []))
 }
 
+async function results(window: Page): Promise<number> {
+  const recorded = await window.evaluate(() => (globalThis as unknown as { recorded: Envelope[] }).recorded)
+  return recorded.filter((envelope) => envelope.event.type === 'result').length
+}
+
 test('the Session view: opened from the Orchestrator Node, a turn, an interrupted turn, and the prompt history', async () => {
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view' } })
   try {
@@ -93,7 +98,8 @@ test('the Session view: opened from the Orchestrator Node, a turn, an interrupte
     await expect(view.getByTestId('session-cost')).toHaveText('$0.0021')
     await expect(view.getByTestId('session-model')).toHaveText('claude-haiku-4-5-20251001')
     await expect(view.getByTestId('session-permissions')).toHaveText('bypass')
-    expect((await states(window)).slice(-2)).toEqual(['busy', 'idle'])
+    // main sends `orchestrator.changed` (the header) before the `agent.event` of the same change.
+    await expect.poll(async () => (await states(window)).slice(-2)).toEqual(['busy', 'idle'])
 
     // Turn 2 holds while running: the send button is Interrupt; Interrupt stops the turn.
     await field.fill('second prompt')
@@ -140,10 +146,30 @@ test('the Session view: opened from the Orchestrator Node, a turn, an interrupte
     }
     await window.emulateMedia({ colorScheme: null })
 
+    // A window low enough that the transcript scrolls; the reader is at its bottom.
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(800, 520))
+    const transcript = view.getByTestId('transcript')
+    await expect.poll(() => transcript.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0)
+    await transcript.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+    })
+
     // The toolbar switch goes back to the Canvas.
     await window.getByRole('button', { name: /Canvas/ }).click()
     await expect(canvasView).toBeVisible()
     await expect(sessionView).toBeHidden()
+
+    // A whole turn arrives while the Canvas is on screen (sent through the bridge, as the Session
+    // view would); back on the Session view, the transcript shows its end.
+    const sessionId = await view.getAttribute('data-session-id')
+    expect(sessionId).not.toBeNull()
+    await window.evaluate((id) => (globalThis as unknown as { worfy: { invoke(channel: string, input: unknown): Promise<unknown> } }).worfy.invoke('agent.send', { sessionId: id, text: 'third prompt' }), sessionId)
+    await expect.poll(() => results(window)).toBe(3)
+    await window.getByRole('button', { name: 'Session', exact: true }).click()
+    await expect(sessionView).toBeVisible()
+    await expect(view.getByTestId('transcript-turn-done')).toHaveCount(2)
+    await expect(view.getByTestId('transcript-turn-done').last()).toBeInViewport()
+    await expect.poll(() => transcript.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThan(24)
   } finally {
     await launched.close()
   }

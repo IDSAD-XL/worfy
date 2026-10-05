@@ -8,7 +8,7 @@ import { promptHistory } from './history'
 import { MessageInput } from './MessageInput'
 import { useNavigation } from './navigation'
 import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
-import { ensureAgentEvents, recordPrompt, useSessionEvents } from './store'
+import { ensureAgentEvents, recordPrompt, retractPrompt, useSessionLog } from './store'
 import { Transcript } from './Transcript'
 import './session.css'
 
@@ -93,7 +93,8 @@ function Interrupt({ onClick, disabled, testId }: { onClick: () => void; disable
 export function SessionPanel({ projectId, projectName, nodeId, blocks }: SessionPanelProps) {
   const view = useOrchestratorView(nodeId)
   const sessionId = view?.sessionId ?? null
-  const events = useSessionEvents(sessionId)
+  const log = useSessionLog(sessionId)
+  const events = log.events
   const history = useMemo(() => promptHistory(events), [events])
   const facts = useMemo(() => sessionFacts(events), [events])
   const state = view?.state ?? 'starting'
@@ -103,9 +104,12 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
 
   const send = async (text: string): Promise<string | null> => {
     if (sessionId === null) return 'The Session is not running'
+    // Shown at once, before Claude Code answers; taken back if it never reached the Session.
     recordPrompt(sessionId, text)
     const result = await invoke('agent.send', { sessionId, text })
-    return result.ok ? null : result.error
+    if (result.ok) return null
+    retractPrompt(sessionId, text)
+    return result.error
   }
 
   const interrupt = () => {
@@ -178,7 +182,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
       </header>
       <div className="w-session__body">
         <section className="w-session__main" aria-label="Session">
-          <Transcript events={events} sessionId={sessionId} projectId={projectId} assistantLabel="orch" />
+          <Transcript events={events} firstIndex={log.first} sessionId={sessionId} projectId={projectId} assistantLabel="orch" />
           <MessageInput key={nodeId} sessionId={sessionId} busy={busy} history={history} recipient="Orchestrator" onSend={send} onInterrupt={interrupt} />
         </section>
         <SessionRail blocks={blocks} projectId={projectId} nodeId={nodeId} sessionId={sessionId} />

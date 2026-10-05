@@ -1,4 +1,4 @@
-import { createElement, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { AgentEvent } from '../../shared/agent/events'
 import { Markdown } from '../markdown/Markdown'
 import { foldTranscript, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
@@ -12,6 +12,8 @@ import { rowTypes } from './rows/index'
 
 export interface TranscriptProps {
   events: readonly AgentEvent[]
+  /** Position of `events[0]` in the whole Session, when older events were dropped (store.ts); 0 by default. */
+  firstIndex?: number
   /** The live Session the events belong to; null for a transcript read from a file. */
   sessionId?: string | null
   /** The Project whose files relative links in the text open. */
@@ -304,8 +306,8 @@ function Item({ item, props }: { item: TranscriptItem; props: TranscriptProps })
 }
 
 export function Transcript(props: TranscriptProps) {
-  const { events } = props
-  const items = useMemo(() => foldTranscript(events, extensionTypes), [events])
+  const { events, firstIndex = 0 } = props
+  const items = useMemo(() => foldTranscript(events, extensionTypes, firstIndex), [events, firstIndex])
   const log = useRef<HTMLDivElement>(null)
   // Follows new rows while the reader is at the bottom; leaves the scroll alone once they scrolled up.
   const atBottom = useRef(true)
@@ -314,6 +316,18 @@ export function Transcript(props: TranscriptProps) {
     const element = log.current
     if (element && atBottom.current) element.scrollTop = element.scrollHeight
   }, [items])
+
+  // Rows that arrive while the log is hidden (the Canvas is on screen) cannot be followed: a hidden
+  // element has no height. The log follows them once it is shown again, and when it is resized.
+  useEffect(() => {
+    const element = log.current
+    if (!element || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      if (atBottom.current) element.scrollTop = element.scrollHeight
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
 
   return (
     <div

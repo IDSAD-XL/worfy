@@ -91,13 +91,14 @@ describe('Markdown: line breaks', () => {
 describe('Markdown: links', () => {
   it('opens an https:// link in the browser through shell.openExternal', () => {
     render(<Markdown text={'See [the PR](https://github.com/IDSAD-XL/worfy/pull/12).'} projectId="alpha" />)
-    fireEvent.click(screen.getByRole('link', { name: 'the PR' }))
+    // false: the click's default action, navigating the window itself, was prevented.
+    expect(fireEvent.click(screen.getByRole('link', { name: 'the PR' }))).toBe(false)
     expect(asked).toEqual([{ channel: 'shell.openExternal', input: { url: 'https://github.com/IDSAD-XL/worfy/pull/12' } }])
   })
 
   it('opens a relative link as a file of the Project through shell.openInEditor', () => {
     render(<Markdown text={'Decided in [ADR 0002](../adr/0002-view.md#considered-options).'} projectId="alpha" baseDir="docs/design" />)
-    fireEvent.click(screen.getByRole('link', { name: 'ADR 0002' }))
+    expect(fireEvent.click(screen.getByRole('link', { name: 'ADR 0002' }))).toBe(false)
     expect(asked).toEqual([{ channel: 'shell.openInEditor', input: { projectId: 'alpha', path: 'docs/adr/0002-view.md' } }])
   })
 
