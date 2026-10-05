@@ -68,11 +68,21 @@ export function createMainWindow(): BrowserWindow {
     window.show()
   })
 
-  const devServerUrl = process.env.ELECTRON_RENDERER_URL
+  const { indexHtml, devServerUrl } = rendererEntry()
   if (devServerUrl) {
     void window.loadURL(devServerUrl)
   } else {
-    void window.loadFile(join(import.meta.dirname, '../renderer/index.html'))
+    void window.loadFile(indexHtml)
   }
   return window
+}
+
+/**
+ * Where the window loads the renderer from: the dev server in `electron-vite dev`, the bundled
+ * index.html otherwise. The IPC frame check trusts exactly this location (src/main/index.ts), so
+ * the two cannot drift apart.
+ */
+export function rendererEntry(): { indexHtml: string; devServerUrl: string | undefined } {
+  // After the build this code runs from out/main/, next to out/renderer/.
+  return { indexHtml: join(import.meta.dirname, '../renderer/index.html'), devServerUrl: process.env.ELECTRON_RENDERER_URL }
 }

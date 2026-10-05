@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.cache/tsconfig.test.node.tsbuildinfo"
+  },
+  "include": [
+    "src/main/**/*.ts",
+    "src/preload/**/*.ts",
+    "src/shared/**/*.ts",
+    "test/unit/**/*.ts",
+    "test/contract/**/*.ts",
+    "test/e2e/**/*.ts"
+  ],
+  "exclude": ["node_modules", "out", ".claude/worktrees/**", "**/*.tsx"]
+}
