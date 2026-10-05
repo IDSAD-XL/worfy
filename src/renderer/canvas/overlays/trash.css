@@ -1,0 +1,99 @@
+/* The Trash button and popover at the bottom left of the Canvas (TrashPopover.tsx). Values come from tokens.css. */
+.w-trash {
+  font-family: var(--font-ui);
+  font-size: var(--text-12);
+  color: var(--text);
+}
+.w-trash__button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 26px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  box-shadow: var(--shadow-control);
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.w-trash__button[aria-expanded='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.w-trash__count {
+  padding: 0 5px;
+  border-radius: var(--radius-chip);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-size: var(--text-11);
+}
+.w-trash__popover {
+  width: 320px;
+  max-height: 360px;
+  overflow: auto;
+  margin-bottom: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-popover);
+  background: var(--surface);
+  box-shadow: var(--shadow-control);
+}
+.w-trash__heading {
+  padding: 0 var(--space-1) var(--space-1);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.w-trash__empty {
+  padding: var(--space-2) var(--space-1);
+  color: var(--text-muted);
+}
+.w-trash__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.w-trash__entry {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--row-height);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-button);
+}
+.w-trash__entry:hover {
+  background: var(--surface-raised);
+}
+.w-trash__kind {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--text-11);
+}
+.w-trash__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.w-trash__time {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--text-11);
+}
+.w-trash__restore {
+  flex: none;
+  height: 22px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.w-trash__error {
+  padding: var(--space-1);
+  color: var(--blocked-text);
+}
