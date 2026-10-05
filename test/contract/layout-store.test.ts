@@ -213,6 +213,19 @@ describe('layout store: operations', () => {
     expect(await apply(note('n1'), 'nope-00000000')).toMatchObject({ ok: false })
     expect(existsSync(join(dataDir, 'nope-00000000'))).toBe(false)
   })
+
+  it('a Project removed from the list is refused even though its Layout is already in memory', async () => {
+    await applied(note('n1'))
+    store.flushAll()
+    const written = readFileSync(layoutFile(), 'utf8')
+
+    // The same projects store the layout store asks: vi.resetModules() in start() cleared the cache once.
+    ;(await import('../../src/main/projects/store')).projectStore().remove(PROJECT)
+    expect(await call('layout.get', { projectId: PROJECT })).toEqual({ ok: false, error: expect.stringMatching(new RegExp(`No Project with id ${PROJECT}`)) })
+    expect(await apply({ op: 'move', id: 'n1', x: 5, y: 5 })).toEqual({ ok: false, error: expect.stringMatching(new RegExp(`No Project with id ${PROJECT}`)) })
+    store.flushAll()
+    expect(readFileSync(layoutFile(), 'utf8')).toBe(written)
+  })
 })
 
 describe('layout store: schema at the boundary', () => {
@@ -311,6 +324,42 @@ describe('layout store: saving', () => {
     expect(electron.quitListeners).toHaveLength(1)
     for (const listener of electron.quitListeners) listener()
     expect(nodeOf(onDisk(), 'n1')).toMatchObject({ x: 77, y: 88 })
+  })
+
+  it('a failed write keeps the Layout unsaved: the next flush writes it again, and the quit handler writes it too', async () => {
+    vi.useFakeTimers()
+    const { LayoutStore, LAYOUT_SAVE_DELAY_MS } = await import('../../src/main/layout/store')
+    const writes: Layout[] = []
+    let failures = 1
+    const local = new LayoutStore(() => join(dataDir, PROJECT), {
+      write: (_file, layout) => {
+        if (failures > 0) {
+          failures -= 1
+          throw new Error('ENOSPC: no space left on device')
+        }
+        writes.push(layout)
+      },
+    })
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      local.apply(PROJECT, note('n1'))
+      local.apply(PROJECT, { op: 'move', id: 'n1', x: 7, y: 9 })
+      // The debounced write fails: it is logged and nothing is written.
+      vi.advanceTimersByTime(LAYOUT_SAVE_DELAY_MS)
+      expect(writes).toHaveLength(0)
+      expect(logged).toHaveBeenCalledWith(expect.stringMatching(/could not save the Layout of/), expect.any(Error))
+
+      // No further operation: quitting still writes the current Layout.
+      local.flushAll()
+      expect(writes).toHaveLength(1)
+      expect(nodeOf(writes[0] as Layout, 'n1')).toMatchObject({ x: 7, y: 9 })
+
+      // Saved now: nothing more to write.
+      local.flushAll()
+      expect(writes).toHaveLength(1)
+    } finally {
+      logged.mockRestore()
+    }
   })
 
   it('a restarted main reads the Layout back, and it is written only into the data folder', async () => {

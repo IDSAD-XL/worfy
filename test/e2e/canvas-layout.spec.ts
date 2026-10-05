@@ -184,6 +184,58 @@ test('a note is created, moved, resized and edited, survives a restart, and each
   }
 })
 
+test('text typed into a note is saved when the app quits while the note still has the focus', async () => {
+  writeFileSync(
+    join(dataDir, ALPHA, 'layout.json'),
+    JSON.stringify({ nodes: [{ id: 'n1', kind: 'note', x: 120, y: 80, w: 220, h: 120, data: { text: '' } }], viewport: { x: 0, y: 0, zoom: 1 } }),
+  )
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+  try {
+    const textbox = launched.window.getByTestId('note-node').getByRole('textbox', { name: 'Note text' })
+    await textbox.click()
+    await launched.window.keyboard.type('typed before quit')
+    await expect(textbox).toBeFocused()
+    await expect(textbox).toHaveValue('typed before quit')
+  } finally {
+    // No blur and no wait for the save delay: the app quits right after the last key.
+    await launched.close()
+  }
+  const onDisk = JSON.parse(readFileSync(join(dataDir, ALPHA, 'layout.json'), 'utf8')) as State['layout']
+  expect(onDisk.nodes.find((node) => node.id === 'n1')?.data).toEqual({ text: 'typed before quit' })
+})
+
+test('a note keeps its focus and caret while what is typed reaches main, and a change from main replaces its text', async () => {
+  writeFileSync(
+    join(dataDir, ALPHA, 'layout.json'),
+    JSON.stringify({ nodes: [{ id: 'n1', kind: 'note', x: 120, y: 80, w: 220, h: 120, data: { text: '' } }], viewport: { x: 0, y: 0, zoom: 1 } }),
+  )
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+  try {
+    const { window } = launched
+    const textbox = window.getByTestId('note-node').getByRole('textbox', { name: 'Note text' })
+    await textbox.click()
+    await window.keyboard.type('first')
+    // Sent while the note still has the focus.
+    await expect.poll(async () => (await layoutOf(window, ALPHA)).nodes[0]?.data).toEqual({ text: 'first' })
+    await expect(textbox).toBeFocused()
+    await window.keyboard.type(' second')
+    await expect(textbox).toHaveValue('first second')
+    await expect.poll(async () => (await layoutOf(window, ALPHA)).nodes[0]?.data).toEqual({ text: 'first second' })
+
+    // Another writer (later: the MCP tools) changes the text while the note is not being edited.
+    await window.locator('.react-flow__pane').click({ position: { x: 700, y: 500 } })
+    await window.evaluate(() =>
+      (globalThis as unknown as { worfy: { invoke(c: string, i: unknown): Promise<unknown> } }).worfy.invoke('layout.apply', {
+        projectId: 'alpha-0000000a',
+        op: { op: 'patchData', id: 'n1', data: { text: 'from main' } },
+      }),
+    )
+    await expect(textbox).toHaveValue('from main')
+  } finally {
+    await launched.close()
+  }
+})
+
 test('a Node of an unknown kind is drawn as a placeholder and the rest of the Canvas works', async () => {
   writeFileSync(
     join(dataDir, ALPHA, 'layout.json'),
