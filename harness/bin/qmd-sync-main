@@ -1,28 +1,88 @@
 #!/bin/zsh
-# qmd-sync-main — подтягивает git-копию main, которую индексирует qmd (коллекции auction и tickets).
+# qmd-sync-main <профиль> — подтягивает git-копию основной ветки проекта, которую индексирует qmd.
 #
-# Вызывается командой `update` коллекций в ~/.config/qmd/index.yml. Раньше там стоял голый
-# `git fetch … || true`: git брал токен у АКТИВНОГО аккаунта gh, и когда активен рабочий
-# аккаунт, приватный IDSAD-XL/Auction отвечал «Repository not found», а `|| true` превращал
-# это в rc=0. Индекс молча оставался на старом main (39 обновлений из 212 до 2026-09-29).
+#   qmd-sync-main <профиль>              — fetch + checkout копии (так её зовёт `update:` в index.yml)
+#   qmd-sync-main --describe <профиль>   — напечатать «копия<TAB>ветка<TAB>аккаунт gh» и выйти
+#                                          (этим пользуется qmd-refresh)
 #
-# Здесь токен берётся явно у IDSAD-XL, как в ~/.claude/cloud-routines/git-personal.sh, не
-# переключая активный аккаунт gh. Неудача пишется громко и оставляет маркер
-# ~/.cache/qmd/sync-failed (время и причина); удачный проход маркер снимает.
-# Код выхода — 0 в обоих случаях: иначе qmd не обновит остальные коллекции (память, уроки),
-# а сигнал о сбое — маркер и строка в логе, их показывает `qmd-refresh` без --quiet.
+# Проектные факты — из профиля (~/.claude/bin/profile), а не из этого файла:
+#   копия    — ~/.cache/qmd/<профиль>-<ветка>; поле qmd.mirror.path переопределяет;
+#   ветка    — worktree.base без «origin/» (нет поля — main); qmd.mirror.branch переопределяет;
+#   аккаунт  — github.account; нет поля — git берёт учётные данные как обычно.
+# Профиль находится по имени: запись реестра ~/.claude/gate/config.json с этим `profile`, её `match`.
+#
+# Вызывается командой `update` коллекций в ~/.config/qmd/index.yml, например
+#   update: /Users/alexey/.claude/bin/qmd-sync-main auction
+# Раньше там стоял голый `git fetch … || true`: git брал токен у АКТИВНОГО аккаунта gh, и когда
+# активен рабочий аккаунт, приватный репозиторий отвечал «Repository not found», а `|| true`
+# превращал это в rc=0. Индекс молча оставался на старом main (39 обновлений из 212 до 2026-09-29).
+#
+# Здесь токен берётся явно у аккаунта из профиля, как в ~/.claude/cloud-routines/git-personal.sh,
+# не переключая активный аккаунт gh. Неудача пишется громко и оставляет маркер
+# ~/.cache/qmd/sync-failed-<профиль> (время и причина); удачный проход маркер снимает.
+# Код выхода синхронизации — 0 в обоих случаях: иначе qmd не обновит остальные коллекции
+# (память, уроки), а сигнал о сбое — маркер и строка в логе, их показывает `qmd-refresh` без --quiet.
+# Ошибка вызова (нет имени профиля) — 2; профиль не находится — маркер и 0, как сбой подтяжки.
 set -u
 
-COPY="${QMD_SYNC_COPY:-$HOME/.cache/qmd/auction-main}"   # переопределение — только для проверки
-MARK="${QMD_SYNC_MARK:-$HOME/.cache/qmd/sync-failed}"
+USAGE='usage: qmd-sync-main [--describe] <профиль>'
+PROFILE_BIN="${QMD_SYNC_PROFILE_BIN:-$HOME/.claude/bin/profile}"   # переопределение — для тестов
 
-git_personal() {
-  git -c credential.helper= \
-    -c "credential.helper=!f() { echo username=x-access-token; echo password=\$(gh auth token --user IDSAD-XL); }; f" "$@"
+DESCRIBE=0
+[[ "${1:-}" == --describe ]] && { DESCRIBE=1; shift }
+NAME="${1:-}"
+[[ -n "$NAME" && "$NAME" != -* ]] || { print -u2 -r -- "qmd-sync-main: не назван профиль · $USAGE"; exit 2 }
+# Маркер свой у каждого профиля: удачная подтяжка одного проекта не стирает сбой другого.
+MARK="${QMD_SYNC_MARK:-$HOME/.cache/qmd/sync-failed-$NAME}"
+
+# Факты профиля одной строкой TSV: копия, ветка, аккаунт. Ошибка — текст в stdout, код 1.
+describe() {
+  local cfg="${CLAUDE_GATE_CONFIG:-$HOME/.claude/gate/config.json}" match json
+  match="$(node -e '
+    const [cfg, name] = process.argv.slice(1)
+    let repos = []
+    try { repos = JSON.parse(require("fs").readFileSync(cfg, "utf8")).repos || [] } catch (e) { process.exit(1) }
+    const hit = repos.find((r) => r.profile === name && r.match)
+    if (hit) process.stdout.write(hit.match)' "$cfg" "$NAME" 2>/dev/null)" \
+    || { print -r -- "реестр $cfg не читается"; return 1 }
+  [[ -n "$match" ]] || { print -r -- "профиля $NAME нет в реестре $cfg"; return 1 }
+  json="$("$PROFILE_BIN" -C "$match" --json 2>&1)" || { print -r -- "profile -C $match: ${json%%$'\n'*}"; return 1 }
+  print -r -- "$json" | node -e '
+    let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+      const p = JSON.parse(s), home = process.env.HOME
+      const m = (p.qmd && p.qmd.mirror) || {}
+      const base = (p.worktree && p.worktree.base) || "origin/main"
+      const branch = m.branch || base.replace(/^origin\//, "")
+      const copy = (m.path || `${home}/.cache/qmd/${p.name}-${branch}`).replace(/^~(?=\/)/, home)
+      const account = (p.github && p.github.account) || ""
+      process.stdout.write([copy, branch, account].join("\t") + "\n")
+    })'
 }
 
-if out="$(git_personal -C "$COPY" fetch -q --depth 1 origin main 2>&1)" \
-   && out2="$(git -C "$COPY" checkout -q --detach origin/main 2>&1)"; then
+desc="$(describe)"; rc=$?
+if [[ "$DESCRIBE" == 1 ]]; then
+  [[ $rc == 0 ]] || { print -u2 -r -- "qmd-sync-main: $desc"; exit 1 }
+  print -r -- "$desc"; exit 0
+fi
+if [[ $rc != 0 ]]; then
+  print -r -- "$(date '+%F %T') [$NAME] $desc" > "$MARK"
+  print -u2 -r -- "qmd-sync-main: SYNC FAILED — профиль $NAME не разобран: $desc"
+  exit 0
+fi
+COPY="${desc%%$'\t'*}"; rest="${desc#*$'\t'}"; BRANCH="${rest%%$'\t'*}"; ACCOUNT="${rest#*$'\t'}"
+COPY="${QMD_SYNC_COPY:-$COPY}"   # переопределение — только для проверки
+
+git_personal() {
+  if [[ -n "$ACCOUNT" ]]; then
+    git -c credential.helper= \
+      -c "credential.helper=!f() { echo username=x-access-token; echo password=\$(gh auth token --user $ACCOUNT); }; f" "$@"
+  else
+    git "$@"
+  fi
+}
+
+if out="$(git_personal -C "$COPY" fetch -q --depth 1 origin "$BRANCH" 2>&1)" \
+   && out2="$(git -C "$COPY" checkout -q --detach "origin/$BRANCH" 2>&1)"; then
   rm -f "$MARK"
   echo "qmd-sync-main: копия на $(git -C "$COPY" rev-parse --short HEAD)"
 else

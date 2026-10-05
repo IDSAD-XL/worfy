@@ -10,8 +10,8 @@
 
 set -uo pipefail
 
-STATE="$HOME/.claude/gate/state"
-RESOLVE="$HOME/.claude/hooks/gate-resolve.mjs"
+STATE="${CLAUDE_GATE_STATE:-$HOME/.claude/gate/state}"   # переопределение — для тестов
+RESOLVE="${CLAUDE_GATE_RESOLVE:-$HOME/.claude/hooks/gate-resolve.mjs}"
 MAX_BLOCKS=2
 
 payload="$(cat 2>/dev/null || true)"
@@ -34,11 +34,26 @@ case "$common" in
 esac
 canon="$(cd "$(dirname "$common")" 2>/dev/null && pwd)" || canon="$repo"
 
-KEY="$(node "$RESOLVE" --which "$canon" 2>/dev/null | cut -f1)"
-[ -n "$KEY" ] || exit 0 # каталог вне настроенных репозиториев
+say() { # печатает контекст для модели, не блокируя ход
+    node -e 'process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:"Stop",additionalContext:process.argv[1]}}))' "$1" 2>/dev/null
+}
 
 # Тот же ключ дерева, что и у гейта: красное в соседнем worktree — не наше дело.
 tag="$(printf '%s' "$repo" | shasum | awk '{print $1}' | cut -c1-8)"
+
+KEY="$(node "$RESOLVE" --which "$canon" 2>/dev/null | cut -f1)"
+if [ -z "$KEY" ]; then
+    # Каталог вне реестра. Если гейт здесь запускался, он вышел с кодом 3 и оставил
+    # маркер: ход не держим (чинить моделью нечего — проект надо зарегистрировать),
+    # но и за «зелено» это не выдаём — один раз говорим вслух и снимаем маркер.
+    unreg="$STATE/unregistered-$tag"
+    if [ -s "$unreg" ]; then
+        msg="$(tr '\n' ' ' <"$unreg")"
+        rm -f "$unreg"
+        say "Гейт качества вышел с кодом 3: ${msg}Это не зелёный результат — говори «не проверено», а не «готово»."
+    fi
+    exit 0
+fi
 RED_MARKER="$STATE/red-$KEY-$tag"
 UNVERIFIED_MARKER="$STATE/unverified-$KEY-$tag"
 
@@ -47,10 +62,6 @@ session="$(printf '%s' "$payload" | node -e 'let s="";process.stdin.on("data",d=
 counter_dir="$STATE/stop-blocks"
 mkdir -p "$counter_dir"
 safe="${session//[^A-Za-z0-9_-]/_}"
-
-say() { # печатает контекст для модели, не блокируя ход
-    node -e 'process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:"Stop",additionalContext:process.argv[1]}}))' "$1" 2>/dev/null
-}
 
 if [ -s "$RED_MARKER" ]; then
     counter="$counter_dir/${safe}__${KEY}-${tag}"
