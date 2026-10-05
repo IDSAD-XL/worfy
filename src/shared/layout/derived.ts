@@ -9,12 +9,22 @@
 
 export const EPIC_FRAME_KIND = 'epic-frame'
 export const TICKET_KIND = 'ticket'
+/**
+ * The Subagent tree of a Session (ticket 15) is drawn the same way: its Nodes (`subagent`) are
+ * computed from the Session's transcript (src/renderer/canvas/sources/subagents.ts), and one Layout
+ * Node per Session, of kind `subagent-tree`, keeps the user's offsets.
+ */
+export const SUBAGENT_KIND = 'subagent'
+export const SUBAGENT_TREE_KIND = 'subagent-tree'
 
 export const epicNodeId = (epic: string): string => `epic:${epic}`
 export const ticketNodeId = (epic: string, num: number): string => `ticket:${epic}/${num}`
 
-/** Kinds that only a node source draws; a Layout Node of such a kind is not a Node on the Canvas. */
-export const SOURCE_NODE_KINDS: readonly string[] = [EPIC_FRAME_KIND, TICKET_KIND]
+export const subagentTreeNodeId = (sessionId: string): string => `subagents:${sessionId}`
+export const subagentNodeId = (sessionId: string, key: string): string => `subagent:${sessionId}/${key}`
 
-/** True for the id of an Epic frame or a Ticket on the Canvas, whether or not the Layout has a Node for it. */
-export const isSourceNodeId = (id: string): boolean => id.startsWith('epic:') || id.startsWith('ticket:')
+/** Kinds that only a node source draws; a Layout Node of such a kind is not a Node on the Canvas. */
+export const SOURCE_NODE_KINDS: readonly string[] = [EPIC_FRAME_KIND, TICKET_KIND, SUBAGENT_KIND, SUBAGENT_TREE_KIND]
+
+/** True for the id of an Epic frame, a Ticket or a Subagent on the Canvas, whether or not the Layout has a Node for it. */
+export const isSourceNodeId = (id: string): boolean => id.startsWith('epic:') || id.startsWith('ticket:') || id.startsWith('subagent:') || id.startsWith('subagents:')

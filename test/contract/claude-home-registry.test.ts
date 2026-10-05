@@ -591,9 +591,16 @@ async function ipcOver(registry: ClaudeHomeRegistry) {
 }
 
 describe('claudeHome IPC channels', () => {
-  it('registers the four request channels of the domain', async () => {
+  it('registers the request channels of the domain', async () => {
     const { handlers } = await ipcOver(new ClaudeHomeRegistry({ home: FIXTURE, listWorktrees: noWorktrees, isAlive: alive() }))
-    expect([...handlers.keys()].sort()).toEqual(['worfy:claudeHome.close', 'worfy:claudeHome.live', 'worfy:claudeHome.sessions', 'worfy:claudeHome.transcript'])
+    expect([...handlers.keys()].sort()).toEqual([
+      'worfy:claudeHome.close',
+      'worfy:claudeHome.live',
+      'worfy:claudeHome.sessions',
+      'worfy:claudeHome.subagentTranscript',
+      'worfy:claudeHome.subagents',
+      'worfy:claudeHome.transcript',
+    ])
   })
 
   it.each([

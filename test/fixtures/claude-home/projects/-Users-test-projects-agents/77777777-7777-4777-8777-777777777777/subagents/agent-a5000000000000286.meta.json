@@ -1,0 +1,9 @@
+{
+  "agentType": "reviewer",
+  "description": "Review demo-epic 07",
+  "name": "verify-07",
+  "toolUseId": "toolu_01S7AGENT3XXXXXXXXXXXXXX",
+  "spawnDepth": 1,
+  "requestShape": "foreground",
+  "requestNonInteractive": true
+}

@@ -8,7 +8,8 @@ import { promptHistory } from './history'
 import { ExternalSessionPanel } from './ExternalSessionPanel'
 import { MessageInput } from './MessageInput'
 import { useNavigation } from './navigation'
-import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
+import { railBlocks, type RailBlock } from './rail/index'
+import { SessionRail } from './SessionRail'
 import { ensureAgentEvents, recordPrompt, retractPrompt, useSessionLog } from './store'
 import { Transcript } from './Transcript'
 import './session.css'
@@ -56,19 +57,6 @@ function sessionFacts(events: readonly AgentEvent[]): { model: string | null; pe
     }
   }
   return { model, permissionMode }
-}
-
-function SessionRail({ blocks, ...props }: RailBlockProps & { blocks: readonly RailBlock[] }) {
-  if (blocks.length === 0) return null
-  return (
-    <aside className="w-session__rail" aria-label="Session details" data-testid="session-rail">
-      {blocks.map(({ id, Component }) => (
-        <section key={id} className="w-session__rail-block" data-block={id}>
-          <Component {...props} />
-        </section>
-      ))}
-    </aside>
-  )
 }
 
 interface SessionPanelProps {
@@ -186,7 +174,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
           <Transcript events={events} firstIndex={log.first} sessionId={sessionId} projectId={projectId} assistantLabel="orch" />
           <MessageInput key={nodeId} sessionId={sessionId} busy={busy} history={history} recipient="Orchestrator" onSend={send} onInterrupt={interrupt} />
         </section>
-        <SessionRail blocks={blocks} projectId={projectId} nodeId={nodeId} sessionId={sessionId} />
+        <SessionRail blocks={blocks} projectId={projectId} nodeId={nodeId} sessionId={sessionId} claudeSessionId={sessionId} />
       </div>
     </div>
   )
@@ -206,7 +194,8 @@ export function SessionView({ projectId, projectName }: SessionViewProps) {
     )
   }
   if (opened?.external && opened.projectId === projectId) {
-    return <ExternalSessionPanel key={opened.nodeId} projectId={projectId} nodeId={opened.nodeId} sessionId={opened.external.sessionId} />
+    const { sessionId, agentId } = opened.external
+    return <ExternalSessionPanel key={`${opened.nodeId}/${agentId ?? ''}`} projectId={projectId} nodeId={opened.nodeId} sessionId={sessionId} agentId={agentId} blocks={railBlocks} />
   }
   if (nodeId === null) {
     return (

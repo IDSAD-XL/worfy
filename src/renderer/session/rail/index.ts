@@ -16,8 +16,14 @@ export interface RailBlockProps {
   projectId: string
   /** The Session's Node on the Canvas. */
   nodeId: string
-  /** The live Session's id for the `agent.*` channels; null while none runs. */
+  /** The live Session's id for the `agent.*` channels; null while none runs, and for a Session started outside worfy. */
   sessionId: string | null
+  /**
+   * The id Claude Code gave the Session, which names its files under ~/.claude (transcript,
+   * Subagents): the live Session's id once Claude Code has named it, or the id of a Session
+   * started outside worfy. Null while unknown.
+   */
+  claudeSessionId?: string | null | undefined
 }
 
 export interface RailBlock {

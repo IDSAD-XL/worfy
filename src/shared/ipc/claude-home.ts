@@ -3,6 +3,7 @@
 // ADR 0005); the main process side is src/main/claude-home/ and src/main/ipc/claude-home.ts.
 import { z } from 'zod'
 import { agentEvent } from '../agent/events'
+import { subagentFileSchema, subagentSignalSchema } from '../transcript/subagents'
 import { eventChannel, invokeChannel } from './channels'
 
 /** An absolute POSIX path; the main process resolves it again before use. */
@@ -13,6 +14,9 @@ const absolutePath = z
 
 /** A Session id names a file: letters, digits and dashes only, so it can never leave its folder. */
 export const sessionIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/, 'not a session id')
+
+/** A Subagent id names a file too (`agent-<id>.jsonl`): letters, digits, `-` and `_`. */
+export const agentIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/, 'not an agent id')
 
 /** A Session whose Claude Code process runs now (~/.claude/sessions/<pid>.json, process alive). */
 export const liveSessionSchema = z.object({
@@ -109,6 +113,29 @@ export const claudeHomeTranscript = invokeChannel(
 )
 
 /**
+ * What the Session's transcript and its `subagents/` folder say about its Subagents (ticket 15):
+ * the signals of the Session's own thread and a summary of each Subagent's files. The renderer
+ * builds the tree from them (src/shared/transcript/subagents.ts), together with the events of a
+ * live Session. `found` is false when the Session has no transcript yet. No subscription: the
+ * Session's transcript changes come on `claudeHome.changed`.
+ */
+export const claudeHomeSubagents = invokeChannel(
+  'claudeHome.subagents',
+  z.object({ projectRoot: absolutePath, sessionId: sessionIdSchema }),
+  z.object({ found: z.boolean(), signals: z.array(subagentSignalSchema), files: z.array(subagentFileSchema) }),
+)
+
+/**
+ * Events of one Subagent's transcript (`<sessionId>/subagents/agent-<agentId>.jsonl`) after
+ * `cursor`, like `claudeHome.transcript`: every record of the file is the Subagent's own.
+ */
+export const claudeHomeSubagentTranscript = invokeChannel(
+  'claudeHome.subagentTranscript',
+  claudeHomeTranscript.input.extend({ agentId: agentIdSchema }),
+  claudeHomeTranscript.output,
+)
+
+/**
  * Something changed under ~/.claude for a Project: the registry of live Sessions (`sessions`)
  * and/or the transcripts named in `transcripts` (Session ids). Debounced in main.
  */
@@ -123,6 +150,8 @@ declare module './channels' {
     'claudeHome.live': typeof claudeHomeLive
     'claudeHome.close': typeof claudeHomeClose
     'claudeHome.transcript': typeof claudeHomeTranscript
+    'claudeHome.subagents': typeof claudeHomeSubagents
+    'claudeHome.subagentTranscript': typeof claudeHomeSubagentTranscript
     'claudeHome.changed': typeof claudeHomeChanged
   }
 }
