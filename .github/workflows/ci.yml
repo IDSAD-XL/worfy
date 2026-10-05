@@ -34,4 +34,9 @@ jobs:
       # Builds the app into out/ and drives it with Playwright.
       - run: pnpm test:e2e
       # Packages dist/mac-*/worfy.app (ad-hoc signed) and drives the packaged app.
+      # electron-builder skips code signing on pull request builds unless CSC_FOR_PULL_REQUEST is
+      # set. Its warning is about leaking a signing certificate to fork PRs; the ad-hoc identity
+      # ('-' in electron-builder.yml) uses no certificate or secret, so nothing can leak.
       - run: pnpm test:package
+        env:
+          CSC_FOR_PULL_REQUEST: 'true'

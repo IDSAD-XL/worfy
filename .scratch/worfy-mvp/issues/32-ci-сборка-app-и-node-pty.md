@@ -95,6 +95,13 @@ electron-rebuild --only node-pty` тот же test зелёный. Цена: `po
   linker-подпись (`Identifier=Electron`), и она тоже `adhoc`. Проверено мутацией: с
   `identity: null` в `electron-builder.yml` electron-builder пишет «skipped macOS code signing»,
   и этот test красный (`Expected pattern: /^Identifier=dev\.worfy\.app$/m`), остальные два зелёные.
+- Этот test сразу нашёл дефект в CI: на прогонах PR electron-builder пропускает подпись
+  («Current build is a part of pull request, code signing will be skipped», run
+  https://github.com/IDSAD-XL/worfy/actions/runs/37256290735), и `.app` в CI нёс только
+  linker-подпись Electron (`Identifier=Electron`). Прежняя галочка «`Signature=adhoc`» держалась в
+  CI только на ней. Шагу `pnpm test:package` в `ci.yml` задана `CSC_FOR_PULL_REQUEST: 'true'`:
+  предупреждение electron-builder касается утечки сертификата в PR из форков, а ad-hoc подпись
+  (`identity: '-'`) не использует ни сертификата, ни секретов.
 
 **Проверки локально (код возврата).**
 - `pnpm lint && pnpm typecheck && pnpm test` → 0 (5 файлов, 30 test-ов).
