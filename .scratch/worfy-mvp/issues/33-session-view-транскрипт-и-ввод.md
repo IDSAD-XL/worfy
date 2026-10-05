@@ -1,7 +1,7 @@
 # 33 — Session view: полный транскрипт Сессии, markdown и поле ввода
 
 Type: task
-Status: open
+Status: blocked — blocked by 08, 11
 Blocked by: 08, 11
 Source: [BRIEF.md](../../../docs/design/BRIEF.md), Screen 2; макеты `docs/design/F-session-*.dc.html`; [spec.md](../spec.md), «Точки расширения вместо центральных файлов»
 

@@ -1,7 +1,7 @@
 # 24 — MCP-сервер холста: агент меняет Раскладку только через tools, Карточку пишет файлом
 
 Type: task
-Status: open
+Status: blocked — blocked by 05
 Blocked by: 05, 07, 10
 Source: [ADR-0003](../../../docs/adr/0003-cards-as-files-canvas-via-tools.md); [CONTEXT.md](../../../CONTEXT.md), «Карточка», «Раскладка»
 
