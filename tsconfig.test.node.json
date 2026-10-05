@@ -8,6 +8,7 @@
     "src/preload/**/*.ts",
     "src/shared/**/*.ts",
     "src/renderer/canvas/epic-layout.ts",
+    "src/renderer/focus/split-tree.ts",
     "test/unit/**/*.ts",
     "test/contract/**/*.ts",
     "test/e2e/**/*.ts"
