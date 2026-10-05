@@ -1,7 +1,7 @@
 # 33 — Session view: полный транскрипт Сессии, markdown и поле ввода
 
 Type: task
-Status: claimed — 2026-10-05
+Status: done — 2026-10-05, [PR #19](https://github.com/IDSAD-XL/worfy/pull/19)
 Blocked by: 08, 11
 Source: [BRIEF.md](../../../docs/design/BRIEF.md), Screen 2; макеты `docs/design/F-session-*.dc.html`; [spec.md](../spec.md), «Точки расширения вместо центральных файлов»
 
