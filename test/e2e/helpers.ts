@@ -22,14 +22,22 @@ export interface LaunchedApp {
 export interface LaunchOptions {
   /** Extra environment for the app process. */
   env?: Record<string, string>
+  /**
+   * Executable of a packaged app (worfy.app/Contents/MacOS/worfy) to launch instead of the
+   * built out/ bundle. The isolation below applies to it the same way.
+   */
+  executablePath?: string
 }
 
 /**
- * Starts the built app (out/) with isolated data and Claude directories and the fake agent.
- * Every e2e test launches the app through this helper.
+ * Starts the app with isolated data and Claude directories and the fake agent: the built out/
+ * bundle by default, or the packaged app when `executablePath` is given.
+ * Every e2e test launches the app through this helper, so a new isolation variable added here
+ * covers the packaged-app tests too.
  */
 export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedApp> {
-  if (!existsSync(mainEntry)) {
+  const { executablePath } = options
+  if (executablePath === undefined && !existsSync(mainEntry)) {
     throw new Error(`The app is not built: ${mainEntry} is missing. Run \`pnpm test:e2e\`, which builds first.`)
   }
   const dataDir = await mkdtemp(join(tmpdir(), 'worfy-data-'))
@@ -52,7 +60,9 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
 
   let app: ElectronApplication
   try {
-    app = await _electron.launch({ args: [mainEntry], cwd: repoRoot, env })
+    app = await _electron.launch(
+      executablePath === undefined ? { args: [mainEntry], cwd: repoRoot, env } : { executablePath, env },
+    )
   } catch (error) {
     await cleanDirs()
     throw error
