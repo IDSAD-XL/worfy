@@ -1,0 +1,241 @@
+// Keeps the workflow model of a Project current and reports only what changed.
+//
+// Two kinds of change are watched (chokidar), both read-only:
+// - `.scratch/**` of the checkout: Tickets, specs. After a 300 ms quiet period one full
+//   `epic-status --json` runs; the result is compared with the previous snapshot.
+// - the git refs of Ticket branches (`refs/heads/**`, `packed-refs`) and the worktree list
+//   (`worktrees/<name>/HEAD`): only branches whose head moved are read again.
+// Reads never overlap: a change during a read leads to exactly one more read after it.
+import { execFile } from 'node:child_process'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { watch, type FSWatcher } from 'chokidar'
+import { diffModels, type WorkflowDelta, type WorkflowModel } from '../../shared/workflow/types'
+import {
+  applyBranches,
+  epicStatusRunner,
+  readBranches,
+  readCheckout,
+  ticketWorktrees,
+  type BranchCache,
+  type CheckoutModel,
+  type EpicStatusRunner,
+} from './reader'
+
+export interface WatchOptions {
+  root: string
+  claudeHome: string
+  /** Quiet period after the last file event before a read (default 300 ms). */
+  debounceMs?: number
+  /** Called with what changed after every read that changed something. */
+  onChange: (delta: WorkflowDelta) => void
+  /** Replaces the real script, for tests. */
+  run?: EpicStatusRunner
+}
+
+function gitCommonDir(root: string): Promise<string | null> {
+  return new Promise((done) => {
+    execFile('git', ['rev-parse', '--git-common-dir'], { cwd: root, encoding: 'utf8' }, (error, stdout) => {
+      if (error) return done(null)
+      const dir = stdout.trim()
+      done(isAbsolute(dir) ? dir : resolve(root, dir))
+    })
+  })
+}
+
+/** Watches one Project. Create with `WorkflowWatcher.start`, stop with `close`. */
+export class WorkflowWatcher {
+  private model: WorkflowModel
+  private checkout: CheckoutModel
+  private branches: BranchCache
+  private readonly watchers: FSWatcher[] = []
+  private timer: ReturnType<typeof setTimeout> | null = null
+  private dirtyCheckout = false
+  private dirtyBranches = false
+  private running: Promise<void> | null = null
+  private pending = false
+  private closed = false
+
+  private constructor(
+    private readonly options: WatchOptions & { root: string; run: EpicStatusRunner },
+    first: { model: WorkflowModel; checkout: CheckoutModel; branches: BranchCache },
+  ) {
+    this.model = first.model
+    this.checkout = first.checkout
+    this.branches = first.branches
+  }
+
+  /** Reads the Project once, then starts watching. Resolves when the watchers are ready. */
+  static async start(options: WatchOptions): Promise<WorkflowWatcher> {
+    const root = resolve(options.root)
+    const run = options.run ?? epicStatusRunner(options.claudeHome)
+    const checkout = await readCheckout(root, run)
+    const branches = checkout.error ? new Map() : await readBranches(root, checkout, await ticketWorktrees(root), new Map(), run)
+    const watcher = new WorkflowWatcher({ ...options, root, run }, { model: applyBranches(checkout, branches), checkout, branches })
+    await watcher.watch()
+    return watcher
+  }
+
+  /** The latest model. */
+  get current(): WorkflowModel {
+    return this.model
+  }
+
+  /** Resolves once no read is running or scheduled; for tests and shutdown. */
+  async idle(): Promise<void> {
+    while (this.running || this.timer) {
+      if (this.running) await this.running
+      else await new Promise((done) => setTimeout(done, 10))
+    }
+  }
+
+  async close(): Promise<void> {
+    this.closed = true
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = null
+    await Promise.all(this.watchers.map((w) => w.close()))
+    if (this.running) await this.running
+  }
+
+  private async watch(): Promise<void> {
+    const { root } = this.options
+    // `ready` is awaited through a promise made right away: it may fire while git answers below.
+    const ready: Promise<void>[] = []
+    const add = (watcher: FSWatcher, what: 'checkout' | 'branches') => {
+      ready.push(new Promise<void>((done) => watcher.once('ready', () => done())))
+      watcher.on('all', () => this.schedule(what))
+      this.watchers.push(watcher)
+    }
+    add(watch(join(root, '.scratch'), { ignoreInitial: true }), 'checkout')
+
+    const common = await gitCommonDir(root)
+    if (common) {
+      const worktrees = join(common, 'worktrees')
+      // Only the HEAD file of each linked worktree matters; index and logs change on every git call.
+      const ignored = (path: string) => {
+        const rel = relative(worktrees, path)
+        if (rel.startsWith('..') || isAbsolute(rel) || rel === '') return false
+        const parts = rel.split(sep)
+        return parts.length > 2 || (parts.length === 2 && parts[1] !== 'HEAD')
+      }
+      add(watch([join(common, 'refs', 'heads'), join(common, 'packed-refs'), worktrees], { ignoreInitial: true, ignored }), 'branches')
+    }
+    await Promise.all(ready)
+  }
+
+  private schedule(what: 'checkout' | 'branches'): void {
+    if (this.closed) return
+    if (what === 'checkout') this.dirtyCheckout = true
+    else this.dirtyBranches = true
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = setTimeout(() => {
+      this.timer = null
+      this.request()
+    }, this.options.debounceMs ?? 300)
+  }
+
+  /** Starts a read, or asks for one more after the read in progress. */
+  private request(): void {
+    if (this.running) {
+      this.pending = true
+      return
+    }
+    this.running = this.loop().finally(() => {
+      this.running = null
+    })
+  }
+
+  private async loop(): Promise<void> {
+    do {
+      this.pending = false
+      await this.readOnce()
+    } while (this.pending && !this.closed)
+  }
+
+  private async readOnce(): Promise<void> {
+    const { root, run } = this.options
+    const checkoutChanged = this.dirtyCheckout
+    const branchesChanged = this.dirtyBranches
+    this.dirtyCheckout = false
+    this.dirtyBranches = false
+
+    try {
+      if (checkoutChanged) this.checkout = await readCheckout(root, run)
+      if (this.checkout.error) this.branches = new Map()
+      else if (checkoutChanged || branchesChanged) {
+        this.branches = await readBranches(root, this.checkout, await ticketWorktrees(root), this.branches, run)
+      }
+      const next = applyBranches(this.checkout, this.branches)
+      const delta = diffModels(this.model, next)
+      this.model = next
+      if (delta && !this.closed) this.options.onChange(delta)
+    } catch (error) {
+      // The reader never throws; a throw here is a bug in onChange. Keep watching.
+      console.error('[workflow] read failed', error)
+    }
+  }
+}
+
+/** Something that receives `workflow.changed` events: a window's webContents in the app. */
+export interface WorkflowSubscriber {
+  readonly id: number
+  send(delta: WorkflowDelta): void
+}
+
+/**
+ * One watcher per Project root, shared by every subscriber of that root. The watcher stops when
+ * its last subscriber leaves.
+ */
+export class WorkflowHub {
+  private readonly projects = new Map<string, { watcher: Promise<WorkflowWatcher>; subscribers: Map<number, WorkflowSubscriber> }>()
+
+  constructor(private readonly options: Omit<WatchOptions, 'root' | 'onChange'>) {}
+
+  /** Starts watching `root` for `subscriber` (once per subscriber) and returns the current model. */
+  async open(root: string, subscriber: WorkflowSubscriber): Promise<WorkflowModel> {
+    const key = resolve(root)
+    let project = this.projects.get(key)
+    if (!project) {
+      const subscribers = new Map<number, WorkflowSubscriber>()
+      const watcher = WorkflowWatcher.start({
+        ...this.options,
+        root: key,
+        onChange: (delta) => {
+          for (const target of subscribers.values()) target.send(delta)
+        },
+      })
+      project = { watcher, subscribers }
+      this.projects.set(key, project)
+      watcher.catch(() => this.projects.delete(key))
+    }
+    project.subscribers.set(subscriber.id, subscriber)
+    return (await project.watcher).current
+  }
+
+  /** Stops `subscriber`'s interest in `root`; returns false when it was not subscribed. */
+  async close(root: string, subscriberId: number): Promise<boolean> {
+    const key = resolve(root)
+    const project = this.projects.get(key)
+    if (!project || !project.subscribers.delete(subscriberId)) return false
+    if (project.subscribers.size === 0) {
+      this.projects.delete(key)
+      await (await project.watcher).close()
+    }
+    return true
+  }
+
+  /** Drops a subscriber from every Project, e.g. when its window is gone. */
+  async drop(subscriberId: number): Promise<void> {
+    await Promise.all([...this.projects.keys()].map((root) => this.close(root, subscriberId)))
+  }
+
+  /** The roots being watched; for tests. */
+  get roots(): string[] {
+    return [...this.projects.keys()]
+  }
+
+  async closeAll(): Promise<void> {
+    const projects = [...this.projects.values()]
+    this.projects.clear()
+    await Promise.all(projects.map(async (project) => (await project.watcher).close()))
+  }
+}
