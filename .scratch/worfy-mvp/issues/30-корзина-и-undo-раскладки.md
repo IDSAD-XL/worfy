@@ -1,7 +1,7 @@
 # 30 — Корзина и undo / redo Раскладки
 
 Type: task
-Status: open
+Status: blocked — blocked by 14, 26
 Blocked by: 14, 25, 26, 29
 Source: [CONTEXT.md](../../../CONTEXT.md), «Раскладка»; [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md), корзина; [spec.md](../spec.md), этап 5
 

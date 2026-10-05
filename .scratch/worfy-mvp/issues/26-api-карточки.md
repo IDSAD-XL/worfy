@@ -1,7 +1,7 @@
 # 26 — API Карточки через postMessage: свои данные, вопрос Сессии с подтверждением, workflow только для чтения
 
 Type: task
-Status: open
+Status: blocked — blocked by 10, 17, 24
 Blocked by: 10, 17, 24, 25
 Source: [ADR-0003](../../../docs/adr/0003-cards-as-files-canvas-via-tools.md); [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md); [CONTEXT.md](../../../CONTEXT.md), «Карточка»; [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md), данные Карточек
 

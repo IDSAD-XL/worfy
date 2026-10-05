@@ -1,7 +1,7 @@
 # 17 — Бейджи Gate, PR, CI и вердикта ревьюера на Тикетах и Сессиях
 
 Type: task
-Status: open
+Status: blocked — blocked by 11, 14
 Blocked by: 11, 14
 Source: [CONTEXT.md](../../../CONTEXT.md), термин «Gate»; [BRIEF.md](../../../docs/design/BRIEF.md), Screen 1 пункт 1 (Тикеты 08, 09)
 
