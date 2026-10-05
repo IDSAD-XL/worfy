@@ -7,7 +7,19 @@ import type { WebContents } from 'electron'
 import { sharedRegistry } from '../agent/app-registry'
 import { closeRefusal } from '../agent/resume'
 import type { EventSink, Session, SessionRegistry } from '../agent/session'
-import { agentClose, agentEvent, agentInterrupt, agentList, agentSend, agentStart } from '../../shared/ipc/agent'
+import {
+  agentClose,
+  agentConfigure,
+  agentControls,
+  agentEvent,
+  agentInterrupt,
+  agentList,
+  agentModels,
+  agentQueueRemove,
+  agentQueueSend,
+  agentSend,
+  agentStart,
+} from '../../shared/ipc/agent'
 import { defineHandler, emit, type EventTarget, type HandlerModule } from './index'
 
 /** Sends a Session's events to a window, as long as the window is alive. */
@@ -77,6 +89,13 @@ export function agentHandlers(registry: () => SessionRegistry): HandlerModule {
       session.close()
     }),
     defineHandler(agentList, () => registry().list()),
+    defineHandler(agentControls, ({ sessionId }) => registry().get(sessionId).controls()),
+    defineHandler(agentConfigure, ({ sessionId, change }) => registry().get(sessionId).configure(change)),
+    defineHandler(agentModels, async ({ sessionId }) => ({ models: await registry().get(sessionId).models() })),
+    defineHandler(agentQueueRemove, ({ sessionId, id }) => ({ removed: registry().get(sessionId).removeQueued(id) })),
+    defineHandler(agentQueueSend, ({ sessionId }) => {
+      registry().get(sessionId).sendQueued()
+    }),
   ]
 }
 

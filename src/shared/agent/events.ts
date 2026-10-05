@@ -7,6 +7,7 @@
 // instead of an exception. Field names of the SDK messages are those recorded in ticket 06
 // (SDK 0.3.289, test/fixtures/sdk-messages/).
 import { z } from 'zod'
+import { sessionSettingsSchema } from './settings'
 
 /** Lifecycle of a Session as the renderer shows it. */
 export const sessionState = z.enum(['starting', 'busy', 'idle', 'needs_permission', 'error', 'closed'])
@@ -14,7 +15,25 @@ export type SessionState = z.infer<typeof sessionState>
 
 const nullableString = z.string().nullable()
 
+/** A message waiting in a Session's queue; `id` tells two messages with the same text apart. */
+export const queuedMessageSchema = z.object({ id: z.string().min(1), text: z.string() })
+export type QueuedMessage = z.output<typeof queuedMessageSchema>
+
+/** A Session's queue: its messages, oldest first, and whether it is held (after Interrupt). */
+export const queueSnapshotSchema = z.object({ items: z.array(queuedMessageSchema), paused: z.boolean() })
+export type QueueSnapshot = z.output<typeof queueSnapshotSchema>
+
 export const agentEvent = z.discriminatedUnion('type', [
+  // Events of worfy itself, not of an SDK message (ticket 19).
+  /**
+   * worfy gave Claude Code a message of the user: sent at once, or taken from the queue when the
+   * turn before it ended. Not sent for a message that only went into the queue.
+   */
+  z.object({ type: z.literal('prompt'), text: z.string() }),
+  /** The Session's message queue (src/main/agent/queue.ts) changed; the whole queue, oldest first. */
+  z.object({ type: z.literal('queue'), items: z.array(queuedMessageSchema), paused: z.boolean() }),
+  /** The model, effort and permission mode the Session now runs with, as worfy set them. */
+  z.object({ type: z.literal('settings'), settings: sessionSettingsSchema }),
   /** system/init: arrives at the start of every turn with the current model and mode. */
   z.object({
     type: z.literal('init'),

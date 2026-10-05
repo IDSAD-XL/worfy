@@ -2,8 +2,10 @@
 // and its Node on the Canvas. Run by src/main/agent/orchestrator.ts, handled in
 // src/main/ipc/orchestrator.ts (ADR-0006).
 //
-// The Node's `data` in the Layout keeps only what nothing else records: the SDK session id the
-// Session resumes after a restart, and the cost summed over the Claude Code processes that ran it.
+// The Node's `data` in the Layout keeps only what nothing else records (ADR-0010): the SDK session
+// id the Session resumes after a restart and the cost summed over the Claude Code processes that
+// ran it. The model, effort and permission mode the user picked (ticket 19) are kept outside the
+// Layout, in src/main/agent/session-settings.ts.
 // The rest of what the Node shows is not stored by worfy (ADR 0002, ADR 0005): the model and the
 // last status block are read from the Session's transcript when the Orchestrator opens and then
 // follow the live Session; the state is the live Session's. main keeps that view in memory and

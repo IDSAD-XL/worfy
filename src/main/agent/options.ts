@@ -1,7 +1,8 @@
 // Options of the SDK query() behind one Session.
 //
 // The Session runs with the user's own settings (ADR-0002): settingSources user + project + local,
-// the claude_code system prompt preset, and bypassPermissions. A Session in a Project also gets
+// the claude_code system prompt preset, and the model, effort and permission mode picked for the
+// Session (ticket 19; bypassPermissions unless the user picked another mode). A Session in a Project also gets
 // the canvas (ticket 24, src/main/mcp/canvas-server.ts): the in-process MCP server `worfy-canvas`,
 // the Project's Cards folder as an extra writable directory, and the agent instructions appended
 // to the preset. Claude Code runs as the native binary of the SDK's platform package
@@ -9,6 +10,7 @@
 // inside app.asar, where nothing can be spawned, so the path into app.asar.unpacked is explicit.
 import { join } from 'node:path'
 import type { McpServerConfig, Options } from '@anthropic-ai/claude-agent-sdk'
+import { DEFAULT_SETTINGS, type SessionSettings } from '../../shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
 import type { Env } from './env'
 
@@ -53,17 +55,21 @@ export interface SessionOptionsInput {
   stderr?: ((data: string) => void) | undefined
   /** Absent when the Session's cwd is in no Project: it then runs without canvas tools. */
   canvas?: CanvasAttachment | null | undefined
+  /** The model, effort and permission mode to start with; DEFAULT_SETTINGS when absent. */
+  settings?: SessionSettings | undefined
 }
 
 export function sessionOptions(input: SessionOptionsInput): Options {
+  const settings = input.settings ?? DEFAULT_SETTINGS
   const options: Options = {
     cwd: input.cwd,
     env: input.env,
     settingSources: ['user', 'project', 'local'],
     systemPrompt: { type: 'preset', preset: 'claude_code' },
-    permissionMode: 'bypassPermissions',
+    permissionMode: settings.permissionMode,
     // Not required by SDK 0.3.289 (ticket 06, question 9), but documented as required with
     // bypassPermissions: passing it keeps a stricter SDK from silently falling back to prompts.
+    // Passed in every mode, so the user can switch a Session to bypassPermissions mid-session.
     allowDangerouslySkipPermissions: true,
     // Live text (stream_event deltas) and every hook run, including Stop hooks that block a turn.
     includePartialMessages: true,
@@ -71,6 +77,8 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   }
   const executable = claudeExecutablePath(input.runtime)
   if (executable !== undefined) options.pathToClaudeCodeExecutable = executable
+  if (settings.model !== null) options.model = settings.model
+  if (settings.effort !== null) options.effort = settings.effort
   if (input.resume !== undefined) options.resume = input.resume
   if (input.stderr !== undefined) options.stderr = input.stderr
   if (input.canvas) {

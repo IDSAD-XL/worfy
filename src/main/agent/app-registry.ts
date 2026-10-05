@@ -1,6 +1,9 @@
 // The app's Session registry and how its Sessions start Claude Code. WORFY_AGENT=fake swaps
 // Claude Code for the fake agent (fake-query.ts), which plays
-// test/fixtures/agent-scripts/<WORFY_AGENT_SCRIPT or "turn">.jsonl.
+// test/fixtures/agent-scripts/<WORFY_AGENT_SCRIPT or "turn">.jsonl. With WORFY_AGENT_LOG set, the
+// fake agent also appends what it was asked to do (FakeCall, one JSON line each) to that file, so
+// e2e runs can see the control calls.
+import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import { agentEnv } from './env'
@@ -31,6 +34,7 @@ export function sdkQueryFactory(canvas: CanvasResolver = canvasForSession): Quer
       resume: request.resume,
       stderr: request.stderr,
       canvas: attached?.attachment,
+      settings: request.settings,
     })
     const handle = query({ prompt: request.prompt, options }) as QueryHandle
     return attached ? attached.observe(handle) : handle
@@ -39,9 +43,11 @@ export function sdkQueryFactory(canvas: CanvasResolver = canvasForSession): Quer
 
 export function queryFactoryFromEnv(env: NodeJS.ProcessEnv = process.env): QueryFactory {
   if (env.WORFY_AGENT !== 'fake') return sdkQueryFactory()
+  const log = env.WORFY_AGENT_LOG
   return fakeQueryFactory({
     scriptsDir: env.WORFY_AGENT_SCRIPTS ?? join(app.getAppPath(), 'test', 'fixtures', 'agent-scripts'),
     script: env.WORFY_AGENT_SCRIPT ?? 'turn',
+    record: log ? (call) => appendFileSync(log, `${JSON.stringify(call)}\n`) : undefined,
   })
 }
 

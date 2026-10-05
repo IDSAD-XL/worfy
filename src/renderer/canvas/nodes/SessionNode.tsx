@@ -18,7 +18,7 @@ import { activeProject, useProjects } from '../../projects/useProjects'
 import { STATE_CHIPS } from '../../session/format'
 import { openSession } from '../../session/navigation'
 import { isRunning, useSessionNodeView } from '../../session/node-sessions'
-import { recordPrompt, retractPrompt, useSessionLog } from '../../session/store'
+import { useSessionLog } from '../../session/store'
 import { StatusChip, type Status } from '../../theme/primitives'
 import { badges, type SlotSubject } from '../badges'
 import { useLayoutOps } from '../useLayout'
@@ -158,10 +158,9 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
     const sessionId = await ensure()
     if (sessionId === null) return
     setDraft('')
-    recordPrompt(sessionId, text)
+    // The transcript shows the message when main gives it to Claude Code (a `prompt` event).
     const result = await invoke('agent.send', { sessionId, text })
     if (!result.ok) {
-      retractPrompt(sessionId, text)
       setDraft(text)
       setProblem(result.error)
     }

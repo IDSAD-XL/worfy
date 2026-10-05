@@ -101,11 +101,11 @@ test('the Session view: opened from the Orchestrator Node, a turn, an interrupte
     // main sends `orchestrator.changed` (the header) before the `agent.event` of the same change.
     await expect.poll(async () => (await states(window)).slice(-2)).toEqual(['busy', 'idle'])
 
-    // Turn 2 holds while running: the send button is Interrupt; Interrupt stops the turn.
+    // Turn 2 holds while running: Interrupt appears and the send button queues; Interrupt stops the turn.
     await field.fill('second prompt')
     await field.press('Enter')
     await expect(view.getByTestId('session-state')).toHaveText('busy')
-    await expect(view.getByTestId('input-send')).toHaveCount(0)
+    await expect(view.getByTestId('input-send')).toHaveAttribute('aria-label', 'Queue message')
     await expect(view.getByTestId('transcript-text').last()).toContainText('1 2')
     for (const scheme of ['light', 'dark'] as const) {
       await window.emulateMedia({ colorScheme: scheme })
@@ -115,7 +115,7 @@ test('the Session view: opened from the Orchestrator Node, a turn, an interrupte
     await view.getByTestId('input-interrupt').click()
     await expect(view.getByTestId('transcript-interrupted')).toHaveCount(1)
     await expect(view.getByTestId('session-state')).toHaveText('idle')
-    await expect(view.getByTestId('input-send')).toHaveCount(1)
+    await expect(view.getByTestId('input-send')).toHaveAttribute('aria-label', 'Send message')
     await expect(view.getByTestId('session-cost')).toHaveText('$0.0026')
     // The interruption is a marker, not a message from the user.
     await expect(view.getByTestId('transcript-prompt')).toHaveCount(2)
