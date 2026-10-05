@@ -145,14 +145,14 @@ describe('New session', () => {
 
 describe('Resume', () => {
   it('turns the read-only Node of a finished terminal Session live, in the worktree its transcript records', async () => {
-    savedLayout([externalNode(FINISHED, worktree)])
+    savedLayout([{ ...externalNode(FINISHED, worktree), pinned: true, tags: ['ops', 'night'] }])
     const h = harness({ claude: { live: [], history: [{ sessionId: FINISHED, cwd: worktree }] } })
     const resumed = await h.sessions.resume(PROJECT, FINISHED)
     expect(resumed.nodeId).toBe(`session:${FINISHED}`)
     expect(h.requests).toMatchObject([{ resume: FINISHED, cwd: worktree }])
-    // Same Node, same place, live size, identifiers only.
+    // Same Node, same place, live size, its pin and tags kept, identifiers only.
     expect(h.nodes()).toHaveLength(1)
-    expect(h.node(resumed.nodeId)).toMatchObject({ x: 700, y: 80, w: LIVE_SESSION_WIDTH, h: LIVE_SESSION_HEIGHT })
+    expect(h.node(resumed.nodeId)).toMatchObject({ x: 700, y: 80, w: LIVE_SESSION_WIDTH, h: LIVE_SESSION_HEIGHT, pinned: true, tags: ['ops', 'night'] })
     expect(h.node(resumed.nodeId).data).toStrictEqual({ origin: 'worfy', sessionId: FINISHED })
     await h.until(resumed.nodeId, 'idle')
     h.registry.get(h.view(resumed.nodeId).sessionId).send('go on')
@@ -221,6 +221,78 @@ describe('Resume', () => {
       'running-1': { resumable: false, reason: 'desktop', label: 'Still running in Claude desktop' },
       nowhere: { resumable: false, reason: 'unknown', label: 'No transcript of this Session' },
     })
+  })
+})
+
+describe('Starts that overlap, and a start that fails', () => {
+  const liveNode = { id: 'live-1', kind: 'session', x: 0, y: 0, w: 340, h: 220, data: { origin: 'worfy', sessionId: FINISHED } }
+
+  it('two Starts of one Node at once (a double click on Resume) start one Session and both get its view', async () => {
+    savedLayout([liveNode])
+    const h = harness({ claude: { live: [], history: [{ sessionId: FINISHED, cwd: repo }] } })
+    const [a, b] = await Promise.all([h.sessions.start(PROJECT, 'live-1'), h.sessions.start(PROJECT, 'live-1')])
+    expect(h.requests).toHaveLength(1)
+    expect(h.registry.list()).toHaveLength(1)
+    expect(b).toStrictEqual(a)
+    await h.until('live-1', 'idle')
+    // The Node still owns its Session: Close reaches it.
+    h.sessions.close('live-1')
+    expect(h.view('live-1').state).toBe('closed')
+    expect(h.registry.list()).toEqual([])
+    // Once the first Start is over, a later one starts again.
+    await h.sessions.start(PROJECT, 'live-1')
+    expect(h.requests).toHaveLength(2)
+  })
+
+  it('a Start and a Resume of the same Session at once start it once', async () => {
+    savedLayout([liveNode])
+    const h = harness({ claude: { live: [], history: [{ sessionId: FINISHED, cwd: repo }] } })
+    const [a, b] = await Promise.all([h.sessions.start(PROJECT, 'live-1'), h.sessions.resume(PROJECT, FINISHED)])
+    expect(h.requests).toHaveLength(1)
+    expect(b.nodeId).toBe(a.nodeId)
+  })
+
+  it('two Resumes of a Session with no Node at once make one Node', async () => {
+    const h = harness({ claude: { live: [], history: [{ sessionId: FINISHED, cwd: repo }] } })
+    const [a, b] = await Promise.all([h.sessions.resume(PROJECT, FINISHED), h.sessions.resume(PROJECT, FINISHED)])
+    expect(b.nodeId).toBe(a.nodeId)
+    expect(h.nodes()).toHaveLength(1)
+    expect(h.requests).toHaveLength(1)
+  })
+
+  it('a Session resumed elsewhere in worfy that has not reported its id yet is already open', async () => {
+    const h = harness({ claude: { live: [], history: [{ sessionId: FINISHED, cwd: repo }] } })
+    // The Orchestrator after a restart: resumed, waiting for its first turn, listed under a temporary id.
+    const other = h.registry.start(repo, FINISHED, () => undefined)
+    expect(other.id).not.toBe(FINISHED)
+    expect(await h.sessions.resumable(PROJECT, [FINISHED])).toStrictEqual({ [FINISHED]: { resumable: false, reason: 'open', label: 'Already open in worfy' } })
+    await expect(h.sessions.resume(PROJECT, FINISHED)).rejects.toThrow('Already open in worfy')
+    expect(h.nodes()).toEqual([])
+    expect(h.requests).toHaveLength(1)
+  })
+
+  it('a Session that fails to start leaves its Node closed, so it can be removed, with the reason', async () => {
+    const layout = new LayoutStore((projectId) => join(scratch, 'data', projectId), { delayMs: 0 })
+    const published: SessionNodeView[] = []
+    const sessions = new NodeSessions({
+      layout,
+      projectPath: () => repo,
+      registry: {
+        start: () => {
+          throw new Error('Claude Code is not installed')
+        },
+        list: () => [],
+      },
+      claude: () => Promise.resolve({ live: [], history: [] }),
+      isDirectory: () => Promise.resolve(true),
+      broadcast: () => undefined,
+      publish: (view) => published.push(view),
+    })
+    expect(() => sessions.create(PROJECT)).toThrow('Claude Code is not installed')
+    const [view] = sessions.list(PROJECT)
+    expect(view).toMatchObject({ state: 'closed', error: 'Claude Code is not installed' })
+    expect(published.at(-1)).toStrictEqual(view)
+    expect(() => sessions.close(view?.nodeId ?? '')).toThrow(/No live Session/)
   })
 })
 

@@ -11,10 +11,12 @@
 // external Node, and an external Node made before worfy named it is removed.
 import { z } from 'zod'
 import type { LiveSession } from '../../shared/ipc/claude-home'
+import { SESSION_NODE_KIND, worfySessionNodeDataSchema, type WorfySessionNodeData } from '../../shared/ipc/sessions'
 import type { LayoutNode, LayoutOpInput } from '../../shared/layout/types'
 import type { Status } from '../theme/primitives'
 
-export const SESSION_KIND = 'session'
+/** One kind for every Session Node: the live ones main makes and the read-only ones made here. */
+export const SESSION_KIND = SESSION_NODE_KIND
 export const SESSION_WIDTH = 300
 export const SESSION_HEIGHT = 120
 
@@ -37,16 +39,6 @@ export const sessionNodeDataSchema = z.object({
   name: z.string().optional(),
 })
 export type SessionNodeData = z.infer<typeof sessionNodeDataSchema>
-
-/**
- * What a Session Node worfy runs keeps in `data` (ticket 18, src/shared/ipc/sessions.ts): only
- * identifiers (ADR-0010) — the SDK session id, once Claude Code has reported it.
- */
-export const worfySessionNodeDataSchema = z.object({
-  origin: z.literal('worfy'),
-  sessionId: z.string().min(1).optional(),
-})
-export type WorfySessionNodeData = z.infer<typeof worfySessionNodeDataSchema>
 
 /** A read-only Session Node's data, or null when the Node does not carry it (a damaged file, or a Node worfy runs). */
 export function readSessionNodeData(data: Record<string, unknown>): SessionNodeData | null {

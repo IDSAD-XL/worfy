@@ -2,6 +2,7 @@ import { memo, useMemo, useState, type CSSProperties, type FormEvent } from 'rea
 import { NodeResizer } from '@xyflow/react'
 import type { AgentEvent } from '../../../shared/agent/events'
 import type { ProjectView } from '../../../shared/ipc/projects'
+import type { WorfySessionNodeData } from '../../../shared/ipc/sessions'
 import {
   readSessionNodeData,
   readWorfySessionNodeData,
@@ -10,7 +11,6 @@ import {
   type SESSION_HEIGHT,
   type SESSION_KIND,
   type SESSION_WIDTH,
-  type WorfySessionNodeData,
 } from '../../claude-home/session-nodes'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
 import { invoke } from '../../ipc'
@@ -230,6 +230,7 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
           <button
             type="button"
             style={styles.tool}
+            data-testid="session-node-remove"
             disabled={running}
             title={running ? 'Close the Session before removing its Node' : 'Remove the Node; the transcript stays'}
             onClick={() => void ops.apply({ op: 'remove', id })}

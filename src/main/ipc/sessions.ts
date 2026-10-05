@@ -1,17 +1,10 @@
 // Handlers of the `sessions` domain (src/shared/ipc/sessions.ts): Sessions worfy runs on Session
-// Nodes. The Sessions themselves live in src/main/agent/node-sessions.ts; they run in the app's
-// registry (app-registry.ts), so `agent.send`, `agent.interrupt` and `agent.close` reach them too.
-import { stat } from 'node:fs/promises'
-import { agentEvent } from '../../shared/ipc/agent'
-import { sessionsChanged, sessionsClose, sessionsNew, sessionsResumable, sessionsResume, sessionsStart, sessionsViews } from '../../shared/ipc/sessions'
-import { toEveryWindow } from '../agent/app-orchestrators'
-import { sharedRegistry } from '../agent/app-registry'
-import { NodeSessions } from '../agent/node-sessions'
-import { ClaudeHomeRegistry } from '../claude-home/registry'
-import { layoutStore } from '../layout/store'
-import { projectStore } from '../projects/store'
-import { claudeHome } from '../storage/paths'
-import { defineHandler, emit, type HandlerModule } from './index'
+// Nodes. The Sessions themselves live in src/main/agent/node-sessions.ts, the app's instance in
+// src/main/agent/app-node-sessions.ts.
+import { sessionsClose, sessionsNew, sessionsResumable, sessionsResume, sessionsStart, sessionsViews } from '../../shared/ipc/sessions'
+import { sharedNodeSessions } from '../agent/app-node-sessions'
+import type { NodeSessions } from '../agent/node-sessions'
+import { defineHandler, type HandlerModule } from './index'
 
 /** The handlers over a set of Node Sessions; tests pass their own. */
 export function sessionsHandlers(sessions: () => Pick<NodeSessions, 'create' | 'start' | 'resume' | 'resumable' | 'list' | 'close'>): HandlerModule {
@@ -25,25 +18,6 @@ export function sessionsHandlers(sessions: () => Pick<NodeSessions, 'create' | '
       sessions().close(nodeId)
     }),
   ]
-}
-
-let shared: NodeSessions | null = null
-
-/** The app's Node Sessions, made on first use. */
-export function sharedNodeSessions(): NodeSessions {
-  if (shared === null) {
-    const claude = new ClaudeHomeRegistry({ home: claudeHome() })
-    shared = new NodeSessions({
-      layout: layoutStore(),
-      projectPath: (projectId) => projectStore().get(projectId).path,
-      registry: sharedRegistry(),
-      claude: (projectRoot) => claude.sessions(projectRoot),
-      isDirectory: async (path) => (await stat(path).catch(() => null))?.isDirectory() === true,
-      broadcast: (sessionId, event) => toEveryWindow((target) => emit(target, agentEvent, { sessionId, event })),
-      publish: (view) => toEveryWindow((target) => emit(target, sessionsChanged, view)),
-    })
-  }
-  return shared
 }
 
 export default sessionsHandlers(sharedNodeSessions) satisfies HandlerModule

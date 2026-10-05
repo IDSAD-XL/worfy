@@ -10,7 +10,14 @@
 // every window, and they stop when the app quits (app-registry.ts).
 import type { AgentEvent } from '../../shared/agent/events'
 import type { LiveSession } from '../../shared/ipc/claude-home'
-import { LIVE_SESSION_HEIGHT, LIVE_SESSION_WIDTH, SESSION_NODE_KIND, type ResumeVerdict, type SessionNodeView } from '../../shared/ipc/sessions'
+import {
+  LIVE_SESSION_HEIGHT,
+  LIVE_SESSION_WIDTH,
+  SESSION_NODE_KIND,
+  type ResumeVerdict,
+  type SessionNodeView,
+  type WorfySessionNodeData,
+} from '../../shared/ipc/sessions'
 import type { LayoutNode, LayoutOpInput, LayoutState } from '../../shared/layout/types'
 import { placeNewNode } from '../layout/place'
 import { closeRefusal, resumeVerdict } from './resume'
@@ -50,6 +57,12 @@ export class NodeSessions {
   private readonly runs = new Map<string, Run>()
   /** The last view of each Node that ran a Session in this run of the app. */
   private readonly views = new Map<string, SessionNodeView>()
+  /**
+   * Starts and Resumes still reading the Claude home, by `node:<id>` and `session:<SDK id>`. A second
+   * one for the same Node or Session (a double click) gets the first one's answer instead of
+   * starting a second Session that the registry would refuse.
+   */
+  private readonly inFlight = new Map<string, Promise<SessionNodeView>>()
   private version = 0
 
   constructor(private readonly deps: NodeSessionsDeps) {}
@@ -62,7 +75,7 @@ export class NodeSessions {
     const before = new Set(layout.nodes.map((node) => node.id))
     const after = this.deps.layout.apply(projectId, {
       op: 'create',
-      node: { kind: SESSION_NODE_KIND, x, y, w: LIVE_SESSION_WIDTH, h: LIVE_SESSION_HEIGHT, data: { origin: 'worfy' } },
+      node: { kind: SESSION_NODE_KIND, x, y, w: LIVE_SESSION_WIDTH, h: LIVE_SESSION_HEIGHT, data: { origin: 'worfy' } satisfies WorfySessionNodeData },
     })
     const created = after.layout.nodes.find((node) => !before.has(node.id))
     if (!created) throw new Error(`the Session Node of ${projectId} was not created`)
@@ -78,7 +91,7 @@ export class NodeSessions {
     if (!node || !isWorfyNode(node)) throw new Error(`${nodeId} is not a Session Node of worfy`)
     const saved = node.data.sessionId
     if (typeof saved !== 'string' || saved === '') return this.launch(projectId, nodeId, root, undefined)
-    return this.resumeOn(projectId, root, node, saved)
+    return this.once([`node:${nodeId}`, `session:${saved}`], () => this.resumeOn(projectId, root, node, saved))
   }
 
   /** Continues a finished Session on the Session Node that names it, or on a new one. */
@@ -89,7 +102,7 @@ export class NodeSessions {
       const running = this.running(node.id)
       if (running) return running
     }
-    return this.resumeOn(projectId, root, node, sessionId)
+    return this.once([`session:${sessionId}`, ...(node ? [`node:${node.id}`] : [])], () => this.resumeOn(projectId, root, node, sessionId))
   }
 
   /** The verdict of Resume for each Session: one read of the Claude home for all of them. */
@@ -131,11 +144,31 @@ export class NodeSessions {
     return this.runs.has(nodeId) && view !== undefined ? view : null
   }
 
-  /** Every id of every Session worfy runs: the registry's, and the SDK ids of runs not reported yet. */
+  /**
+   * Every id of every Session worfy runs: the registry's, and the SDK session each one runs or
+   * resumes — a resumed Session (the Orchestrator after a restart) is listed under a temporary id
+   * until its first turn.
+   */
   private runningIds(): Set<string> {
-    const ids = new Set(this.deps.registry.list().map((info) => info.sessionId))
-    for (const run of this.runs.values()) if (run.sdkSessionId !== null) ids.add(run.sdkSessionId)
+    const ids = new Set<string>()
+    for (const info of this.deps.registry.list()) {
+      ids.add(info.sessionId)
+      if (info.sdkSessionId !== null) ids.add(info.sdkSessionId)
+    }
     return ids
+  }
+
+  /** Runs `start` unless a start under one of `keys` is in flight; then answers that one. */
+  private once(keys: readonly string[], start: () => Promise<SessionNodeView>): Promise<SessionNodeView> {
+    for (const key of keys) {
+      const current = this.inFlight.get(key)
+      if (current) return current
+    }
+    const promise = start().finally(() => {
+      for (const key of keys) if (this.inFlight.get(key) === promise) this.inFlight.delete(key)
+    })
+    for (const key of keys) this.inFlight.set(key, promise)
+    return promise
   }
 
   private async resumeOn(projectId: string, root: string, node: LayoutNode | undefined, sessionId: string): Promise<SessionNodeView> {
@@ -157,7 +190,7 @@ export class NodeSessions {
    * Node turns into one in place (same id, same place, live size); else a new Node.
    */
   private liveNode(projectId: string, node: LayoutNode | undefined, sessionId: string): string {
-    const data = { origin: 'worfy', sessionId }
+    const data: WorfySessionNodeData = { origin: 'worfy', sessionId }
     if (node && isWorfyNode(node)) return node.id
     if (node) {
       this.deps.layout.apply(projectId, { op: 'remove', id: node.id })
@@ -196,7 +229,8 @@ export class NodeSessions {
       run.session = this.deps.registry.start(cwd, resume, (sessionId, event) => this.onEvent(run, sessionId, event))
     } catch (error) {
       this.runs.delete(nodeId)
-      this.setView({ ...this.view(nodeId), state: 'error', error: error instanceof Error ? error.message : String(error) })
+      // Closed, not `error`: no Session runs, so the Node can be removed or started again.
+      this.setView({ ...this.view(nodeId), state: 'closed', error: error instanceof Error ? error.message : String(error) })
       throw error
     }
     this.setView({ ...this.view(nodeId), sessionId: run.session.id })
@@ -230,7 +264,7 @@ export class NodeSessions {
     this.setView(next)
   }
 
-  private patch(run: Run, data: Record<string, unknown>): void {
+  private patch(run: Run, data: Partial<WorfySessionNodeData>): void {
     try {
       this.deps.layout.apply(run.projectId, { op: 'patchData', id: run.nodeId, data })
     } catch (error) {

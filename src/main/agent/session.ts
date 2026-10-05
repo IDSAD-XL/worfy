@@ -42,6 +42,8 @@ export type EventSink = (sessionId: string, event: AgentEvent) => void
 
 export interface SessionInfo {
   sessionId: string
+  /** The SDK session it runs or will resume, once known: a resumed Session has it before its id is reported. */
+  sdkSessionId: string | null
   cwd: string
   state: SessionState
 }
@@ -130,7 +132,7 @@ export class Session {
   }
 
   info(): SessionInfo {
-    return { sessionId: this.current, cwd: this.cwd, state: this.stateValue }
+    return { sessionId: this.current, sdkSessionId: this.sdkSessionId, cwd: this.cwd, state: this.stateValue }
   }
 
   /** Starts Claude Code; the Session is `starting` until accountInfo() answers. */

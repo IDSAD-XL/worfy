@@ -22,8 +22,15 @@ const RUNNING = 'f0000000-0000-4000-8000-0000000000f2'
 const IN_WORKTREE = 'f0000000-0000-4000-8000-0000000000f3'
 const GONE = 'f0000000-0000-4000-8000-0000000000f4'
 
+/** The DOM the page has; the e2e tests are typed without the DOM library. */
+type PageDom = {
+  getComputedStyle(element: unknown): { transform: string }
+  DOMMatrixReadOnly: new (transform: string) => { a: number; e: number; f: number }
+  document: { elementFromPoint(x: number, y: number): { classList: { contains(name: string): boolean } } | null }
+}
+
 type Bridge = { invoke(channel: string, input?: unknown): Promise<{ ok: boolean; value?: unknown; error?: string }> }
-type SavedNode = { id: string; kind: string; data: { sessionId?: string | null; origin?: string } }
+type SavedNode = { id: string; kind: string; x: number; y: number; w: number; h: number; data: { sessionId?: string | null; origin?: string } }
 
 let scratch: string
 let dataDir: string
@@ -61,20 +68,22 @@ async function stop(child: ChildProcess): Promise<void> {
   await exited
 }
 
-/** Every file under the Claude home with its size and modification time. */
-function snapshot(): Record<string, string> {
+/** Every folder and file under `root` (the Claude home by default), each file with its size and modification time. */
+function snapshot(root: string = claudeHome): Record<string, string> {
   const out: Record<string, string> = {}
   const walk = (dir: string): void => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = join(dir, entry.name)
-      if (entry.isDirectory()) walk(path)
-      else {
+      if (entry.isDirectory()) {
+        out[relative(root, path)] = 'dir'
+        walk(path)
+      } else {
         const stats = statSync(path)
-        out[relative(claudeHome, path)] = `${stats.size}:${stats.mtimeMs}`
+        out[relative(root, path)] = `${stats.size}:${stats.mtimeMs}`
       }
     }
   }
-  walk(claudeHome)
+  walk(root)
   return out
 }
 
@@ -84,6 +93,63 @@ async function nodes(window: Page): Promise<SavedNode[]> {
     const result = await bridge.invoke('layout.get', { projectId })
     return (result.value as { layout: { nodes: SavedNode[] } } | undefined)?.layout.nodes ?? []
   }, PROJECT)
+}
+
+/** The Canvas viewport as React Flow draws it: the translation in pixels and the zoom. */
+async function viewport(window: Page): Promise<{ x: number; y: number; zoom: number }> {
+  return window.locator('.react-flow__viewport').evaluate((element) => {
+    const dom = globalThis as unknown as PageDom
+    const matrix = new dom.DOMMatrixReadOnly(dom.getComputedStyle(element).transform)
+    return { x: matrix.e, y: matrix.f, zoom: matrix.a }
+  })
+}
+
+/**
+ * Pans the Canvas with the mouse wheel until the Node is in the middle of the pane, on both axes,
+ * whatever the size of the screen. The Canvas draws only the Nodes on screen, so the steering comes
+ * from the Node's saved place and the viewport, not from the Node's element. It starts once the
+ * viewport has stopped moving, so a centering that "New session" asked for cannot undo it.
+ */
+async function panTo(window: Page, nodeId: string): Promise<void> {
+  const pane = await window.locator('.react-flow__pane').boundingBox()
+  if (!pane) throw new Error('no Canvas pane')
+  let last = ''
+  await expect
+    .poll(
+      async () => {
+        const now = JSON.stringify(await viewport(window))
+        const still = now === last
+        last = now
+        return still
+      },
+      { intervals: [300], timeout: 10_000 },
+    )
+    .toBe(true)
+  const node = (await nodes(window)).find((each) => each.id === nodeId)
+  if (!node) throw new Error(`no Node ${nodeId}`)
+  const clamp = (value: number): number => Math.max(-600, Math.min(600, value))
+  for (let step = 0; step < 60; step += 1) {
+    const { x, y, zoom } = await viewport(window)
+    const dx = pane.x + x + (node.x + node.w / 2) * zoom - (pane.x + pane.width / 2)
+    const dy = pane.y + y + (node.y + node.h / 2) * zoom - (pane.y + pane.height / 2)
+    if (Math.abs(dx) < 16 && Math.abs(dy) < 16) return
+    // Over empty Canvas only: a Node's own scrolling text would take the wheel.
+    const free = await window.evaluate((box) => {
+      const { document } = globalThis as unknown as PageDom
+      for (let fy = box.y + 12; fy < box.y + box.height - 12; fy += 24) {
+        for (let fx = box.x + 12; fx < box.x + box.width - 12; fx += 24) {
+          if (document.elementFromPoint(fx, fy)?.classList.contains('react-flow__pane') === true) return { x: fx, y: fy }
+        }
+      }
+      return null
+    }, pane)
+    if (!free) throw new Error('no empty Canvas under the mouse')
+    await window.mouse.move(free.x, free.y)
+    await window.mouse.wheel(clamp(dx), clamp(dy))
+    const before = JSON.stringify({ x, y, zoom })
+    await expect.poll(async () => JSON.stringify(await viewport(window)), { timeout: 2000 }).not.toBe(before)
+  }
+  throw new Error(`the Canvas did not reach ${nodeId}`)
 }
 
 const orchestratorSessionId = async (window: Page): Promise<string | null | undefined> => (await nodes(window)).find((node) => node.kind === 'orchestrator')?.data.sessionId
@@ -132,6 +198,7 @@ test('New session, New conversation, the history and Resume', async () => {
     JSON.stringify({ pid: running.pid, sessionId: RUNNING, cwd: projectPath, kind: 'interactive', entrypoint: 'cli', status: 'busy', version: '2.1.289' }),
   )
   const expected = snapshot()
+  const expectedProject = snapshot(projectPath)
 
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'turn' } })
   try {
@@ -179,20 +246,11 @@ test('New session, New conversation, the history and Resume', async () => {
     await expect(first.getByTestId('session-node-resume')).toBeVisible()
 
     // ── New conversation of the Orchestrator: its Session goes to the history, a new one takes its place.
-    // The Canvas is centered on the last new Session; wheel up (the Canvas pans on scroll) to the Orchestrator.
-    const pane = await window.locator('.react-flow__pane').boundingBox()
-    if (!pane) throw new Error('no Canvas pane')
-    // Over empty Canvas at the left edge: a Node's own scrolling text would take the wheel. Pan in
-    // small steps until the button is inside the pane, whatever the size of the screen.
-    await window.mouse.move(pane.x + 20, pane.y + pane.height / 2)
-    const button = window.getByTestId('orchestrator-new-conversation')
-    for (let step = 0; step < 40; step += 1) {
-      const box = (await button.count()) > 0 ? await button.boundingBox() : null
-      if (box && box.y >= pane.y + 8 && box.y + box.height <= pane.y + pane.height - 8) break
-      await window.mouse.wheel(0, box && box.y > pane.y ? 120 : -120)
-      await window.waitForTimeout(30)
-    }
-    await expect(button).toBeInViewport()
+    // The Canvas may be centered on the last new Session, the Orchestrator off screen on either axis.
+    const orchestrator = (await nodes(window)).find((node) => node.kind === 'orchestrator')
+    if (!orchestrator) throw new Error('no Orchestrator Node')
+    await panTo(window, orchestrator.id)
+    await expect(window.getByTestId('orchestrator-new-conversation')).toBeInViewport()
     await messageOrchestrator(window, 'hello')
     await expect.poll(() => orchestratorSessionId(window), { timeout: 10_000 }).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/))
     await expect(window.getByTestId('orchestrator-state')).toHaveText('idle')
@@ -279,8 +337,45 @@ test('New session, New conversation, the history and Resume', async () => {
     )
     expect(refused).toMatchObject({ ok: false, error: expect.stringContaining('Still running in terminal') as unknown })
 
-    // worfy wrote nothing under the Claude home.
+    // worfy wrote nothing under the Claude home, nor in the Project's repository (ADR 0005).
     expect(snapshot()).toEqual(expected)
+    expect(snapshot(projectPath)).toEqual(expectedProject)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('during a turn a live Node can be neither closed nor removed', async () => {
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'interrupt' } })
+  try {
+    const { window } = launched
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
+    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+    await window.getByTestId('sidebar-new-session').click()
+    const node = window.locator('[data-testid="session-node"][data-live="true"]')
+    await expect(node).toHaveCount(1)
+    await panTo(window, (await node.getAttribute('data-node-id')) ?? '')
+    const [status, close, remove] = [node.getByTestId('session-node-status'), node.getByTestId('session-node-close'), node.getByTestId('session-node-remove')]
+    await expect(status).toHaveText('idle')
+    // Idle: Close is offered; Remove waits until the Session is closed.
+    await expect(close).toBeEnabled()
+    await expect(remove).toBeDisabled()
+
+    await node.getByTestId('session-node-input').fill('count')
+    await node.getByTestId('session-node-input').press('Enter')
+    await expect(status).toHaveText('busy')
+    await expect(close).toBeDisabled()
+    await expect(close).toHaveAttribute('title', 'Interrupt the turn before closing the Session')
+    await expect(remove).toBeDisabled()
+
+    await node.getByTestId('session-node-interrupt').click()
+    await expect(status).toHaveText('idle')
+    await expect(close).toBeEnabled()
+    await close.click()
+    await expect(status).toHaveText('finished')
+    await expect(remove).toBeEnabled()
+    await remove.click()
+    await expect(node).toHaveCount(0)
   } finally {
     await launched.close()
   }

@@ -14,6 +14,17 @@ import { eventChannel, invokeChannel } from './channels'
 
 /** The `kind` of a Session Node in the Layout (the read-only ones of ticket 14 too). */
 export const SESSION_NODE_KIND = 'session'
+/**
+ * What a Session Node worfy runs keeps in `data`, as main writes it (src/main/agent/node-sessions.ts):
+ * identifiers only (ADR-0010) — the SDK session id, once Claude Code has reported it. The renderer
+ * reads the Node with this schema; a read-only Node of ticket 14 has `origin: 'external'`.
+ */
+export const worfySessionNodeDataSchema = z.object({
+  origin: z.literal('worfy'),
+  sessionId: z.string().min(1).optional(),
+})
+export type WorfySessionNodeData = z.output<typeof worfySessionNodeDataSchema>
+
 /** Size of a new live Session Node: room for the last answer and the input field. */
 export const LIVE_SESSION_WIDTH = 340
 export const LIVE_SESSION_HEIGHT = 220

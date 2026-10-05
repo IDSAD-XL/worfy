@@ -103,13 +103,31 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «Сессия»; [spec.
 - Сессии Узлов, как Оркестратор, принадлежат приложению, а не окну, — чтобы вид Узла пережил
   перезагрузку окна. Сессии `agent.start` (окна) не тронуты.
 - Remove у живого Узла неактивна: иначе Сессия шла бы без Узла.
+- Доработка по ревью (круг 1). Два одновременных `sessions.start`/`sessions.resume` одного Узла или
+  одной Сессии (двойной щелчок по Resume, двойной Enter) больше не запускают второй процесс: пока
+  первый запуск читает Claude home, второй получает его ответ (карта запусков в полёте по
+  `node:<id>` и `session:<SDK id>` в `node-sessions.ts`). Если `registry.start` всё же отказал, вид
+  Узла — `closed` с причиной в `error`, а не `error`: Сессии нет, и Узел можно удалить или
+  запустить снова.
+- Правило Resume видит Сессии worfy, которые продолжены, но ещё не прислали `system/init` (например,
+  Оркестратор после перезапуска приложения): в `SessionInfo` реестра добавлено поле
+  `sdkSessionId` (`src/main/agent/session.ts`, одна строка в `info()`), и `runningIds()` берёт его.
+  Канал `agent.list` это поле не отдаёт: его выходная схема вырезает лишние ключи. `session.ts`
+  параллельно меняет тикет 19 — возможен мелкий конфликт при мерже.
+- Схема `data` живого Узла (`worfySessionNodeDataSchema`) перенесена в `src/shared/ipc/sessions.ts`:
+  main пишет `data` через её тип, renderer читает ею же; `SESSION_KIND` в renderer теперь равен
+  `SESSION_NODE_KIND` из shared, а не отдельной строке. Экземпляр `NodeSessions` приложения — в
+  `src/main/agent/app-node-sessions.ts`, рассылка во все окна (`toEveryWindow`) — в
+  `src/main/broadcast.ts`; `app-orchestrators.ts` больше ничего не экспортирует для `sessions`.
 
 **Правки вне следа тикета** (без них «Готово, когда» не выполнить): новые `src/shared/ipc/sessions.ts`,
 `src/main/ipc/sessions.ts`, `src/main/agent/node-sessions.ts`, `src/renderer/session/node-sessions.ts`;
 `src/main/agent/orchestrator.ts`, `src/shared/ipc/orchestrator.ts`, `src/main/ipc/orchestrator.ts`,
 `src/renderer/canvas/nodes/OrchestratorNode.tsx` («New conversation»); `src/main/ipc/agent.ts`
-(отказ `agent.close` во время хода); `src/main/agent/app-orchestrators.ts` (экспорт `toEveryWindow`);
-`src/renderer/claude-home/session-nodes.ts` (схема `data` живого Узла, операция «Show»);
+(отказ `agent.close` во время хода); `src/main/agent/app-orchestrators.ts` (`toEveryWindow` вынесен
+в новый `src/main/broadcast.ts`); новый `src/main/agent/app-node-sessions.ts`; `src/main/agent/session.ts`
+(поле `sdkSessionId` в `SessionInfo`);
+`src/renderer/claude-home/session-nodes.ts` (операция «Show»; схема `data` живого Узла теперь из shared);
 `src/renderer/claude-home/useClaudeHome.ts` (`refreshClaudeHome`); `src/renderer/session/SessionView.tsx`;
 `src/shared/ipc/claude-home.ts` и `src/main/claude-home/registry.ts` (поле `entrypoint`).
 
@@ -123,6 +141,16 @@ New session, две Сессии параллельно, Resume Узла тол�
 `session_id` и `cwd`, с которыми его запустили (`{{session}}` — это `resume`), поэтому совпадение
 id и `cwd` Узла после хода подтверждает, что в опции ушли `resume` и записанный `cwd`. Два мутанта
 (`cwd` корня вместо записанного; пропуск проверки живого процесса) — красные.
+Круг доработки 1 добавил: в `node-sessions.test.ts` — два одновременных Start одного Узла, Start и
+Resume одной Сессии, два Resume Сессии без Узла (один процесс, один Узел), Сессия, продолженная
+вне Узлов и ещё без своего id («Already open in worfy», Узел не создаётся), отказ `registry.start`
+(вид `closed` с причиной, Close отвечает «No live Session»), сохранение `pinned` и `tags` при Resume
+Узла только для чтения; в `new-session.spec.ts` — отдельный test на скрипте `interrupt`: во время
+хода Close и Remove неактивны, после Interrupt Close активна, после Close активна Remove; и снимок
+папки Проекта (папки и файлы) до запуска и в конце (ADR 0005). Мутанты, все красные: без карты
+запусков в `start` и в `resume`; без SDK id в `runningIds`; `error` вместо `closed`; без очистки
+карты; без строк `hidden`/`pinned`/`tags` (M8); `disabled={false}` у Close; `disabled={false}` у
+Close и Remove; запись файла в корень Проекта при New session.
 
 **Проверки.** `pnpm lint && pnpm typecheck && pnpm test` — код 0 (839 test-ов);
 `gate.sh fast` — код 0, «[gate] зелено (fast)» (первый прогон — код 2: test
@@ -133,6 +161,17 @@ id и `cwd` Узла после хода подтверждает, что в о�
 Узлы). Test теперь двигает Холст колесом, пока кнопка «New conversation» не окажется внутри
 Холста, и шлёт щелчок Close самому элементу; локально зелёный при окне 800 × 600, 1024 × 640,
 1280 × 720 и 1400 × 900.
+Ревью нашло, что и этот цикл иногда не доходит до кнопки (1 из 13 прогонов): он двигал Холст только
+по вертикали и искал кнопку по её элементу, которого нет, пока Узел за краем. Теперь helper
+`panTo` ждёт, пока viewport перестанет двигаться (центрирование после «New session» закончилось),
+и ведёт Холст колесом по обеим осям по сохранённому месту Узла и transform viewport, пока центр
+Узла не окажется в центре Холста; колесо крутится только над пустым Холстом. После правок:
+`new-session.spec.ts` — 16 из 16 при 1400 × 900, по 10 из 10 при 1024 × 640 и 800 × 600.
+Круг 1: `pnpm lint && pnpm typecheck && pnpm test` — код 0 (844 test-а; первый прогон — код 1 на
+том же `limits.test.ts › is followed while watched`, тикет его не трогает); `gate.sh fast` — код 0,
+«[gate] зелено (fast)»; `pnpm test:e2e` — код 0, 42 passed (два предыдущих прогона — код 1 на
+`epic-frame.spec.ts` и `canvas-layout.spec.ts`, которые тикет не трогает; отдельно оба зелёные
+по 3 раза из 3).
 
 **Не сделано / не проверено.**
 
