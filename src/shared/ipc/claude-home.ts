@@ -60,13 +60,18 @@ export type HistorySession = z.infer<typeof historySessionSchema>
 
 /**
  * Live Sessions and the history of a Project. The call also subscribes the calling window to
- * `claudeHome.changed` for this Project.
+ * `claudeHome.changed` for this Project, until `claudeHome.close` (or until the window is gone),
+ * the way `workflow.open` does. The subscription starts before the files are read, so no change
+ * falls between the answer and the first event.
  */
 export const claudeHomeSessions = invokeChannel(
   'claudeHome.sessions',
   z.object({ projectRoot: absolutePath }),
   z.object({ live: z.array(liveSessionSchema), history: z.array(historySessionSchema) }),
 )
+
+/** Stops `claudeHome.changed` for this Project in the calling window. `closed` is false if it was not subscribed. */
+export const claudeHomeClose = invokeChannel('claudeHome.close', z.object({ projectRoot: absolutePath }), z.object({ closed: z.boolean() }))
 
 /**
  * Events of a Session's transcript after `cursor` (from the start without one). `reset` means
@@ -106,6 +111,7 @@ export const claudeHomeChanged = eventChannel(
 declare module './channels' {
   interface IpcContract {
     'claudeHome.sessions': typeof claudeHomeSessions
+    'claudeHome.close': typeof claudeHomeClose
     'claudeHome.transcript': typeof claudeHomeTranscript
     'claudeHome.changed': typeof claudeHomeChanged
   }

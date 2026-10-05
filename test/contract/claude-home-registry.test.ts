@@ -1,11 +1,12 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { appendFile, cp, lstat, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { appendFile, cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ClaudeHomeRegistry, processAlive, projectDirName, type ClaudeHomeChange } from '../../src/main/claude-home/registry'
+import { ClaudeHomeRegistry, gitWorktrees, processAlive, projectDirName, type ClaudeHomeChange } from '../../src/main/claude-home/registry'
 import { readNewLines } from '../../src/main/claude-home/tail'
 import { ClaudeHomeSubscriptions, claudeHomeHandlers, type Subscriber } from '../../src/main/ipc/claude-home'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
@@ -49,6 +50,28 @@ const alive =
     pids.includes(pid)
 
 const noWorktrees = async (): Promise<string[]> => []
+
+/** `ps -o lstart=` of a process, the way Claude Code records it as procStart. */
+const lstart = async (pid: number): Promise<string> =>
+  new Promise((done, fail) => {
+    const ps = spawn('ps', ['-p', String(pid), '-o', 'lstart='], { env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' } })
+    let out = ''
+    ps.stdout.on('data', (data: Buffer) => (out += data.toString()))
+    ps.on('error', fail)
+    ps.on('close', () => done(out.trim()))
+  })
+
+const execFileAsync = promisify(execFile)
+
+/** Runs git for test setup, never against the repository the tests run in. */
+const git = async (cwd: string, ...args: string[]): Promise<string> => {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')))
+  const { stdout } = await execFileAsync('git', ['-C', cwd, '-c', 'user.name=worfy-test', '-c', 'user.email=test@worfy.invalid', '-c', 'commit.gpgsign=false', ...args], { env })
+  return stdout
+}
+
+const userLine = (text: string, cwd: string, uuid: string): string =>
+  JSON.stringify({ type: 'user', uuid, timestamp: '2026-06-01T00:00:00.000Z', cwd, gitBranch: 'main', isSidechain: false, message: { role: 'user', content: text } })
 
 /** mtime, size and content hash of every file and folder under `root`. */
 async function snapshot(root: string): Promise<Record<string, string>> {
@@ -177,6 +200,68 @@ describe('live Sessions from the registry', () => {
     expect(history.find((entry) => entry.sessionId === 'abc-6')).toMatchObject({ title: 'Elsewhere prompt', live: true })
   })
 
+  it('lists a Session started in a subfolder of the root with its history and transcript, and not a look-alike Project', async () => {
+    const home = await copyOfFixture()
+    const web = `${DEMO}/packages/web`
+    // `/Users/test/projects/demo/web` and the other Project `/Users/test/projects/demo-web` share one folder name.
+    const demoWeb = '/Users/test/projects/demo-web'
+    const write = async (cwd: string, sessionId: string) => {
+      await mkdir(join(home, 'projects', projectDirName(cwd)), { recursive: true })
+      await writeFile(join(home, 'projects', projectDirName(cwd), `${sessionId}.jsonl`), `${userLine(`Prompt in ${cwd}`, cwd, `${sessionId}-u`)}\n`)
+    }
+    await writeFile(join(home, 'sessions', '41011.json'), JSON.stringify({ pid: 41011, sessionId: 'sub-live', cwd: web, status: 'busy' }))
+    await write(web, 'sub-live')
+    await write(web, 'sub-done')
+    await write(`${DEMO}/web`, 'sub-web')
+    await write(demoWeb, 'demo-web-1')
+    expect(projectDirName(`${DEMO}/web`)).toBe(projectDirName(demoWeb))
+
+    const registry = new ClaudeHomeRegistry({ home, listWorktrees: noWorktrees, isAlive: alive(41011) })
+    const { live, history } = await registry.sessions(DEMO)
+    expect(live).toStrictEqual([{ pid: 41011, sessionId: 'sub-live', cwd: web, status: 'busy' }])
+    const byId = new Map(history.map((entry) => [entry.sessionId, entry]))
+    expect(byId.get('sub-live')).toMatchObject({ cwd: web, live: true, title: `Prompt in ${web}` })
+    expect(byId.get('sub-done')).toMatchObject({ cwd: web, live: false })
+    expect(byId.get('sub-web')).toMatchObject({ cwd: `${DEMO}/web` })
+    expect(byId.has('demo-web-1')).toBe(false)
+    expect(await registry.transcriptPath(DEMO, 'sub-live')).toBe(join(home, 'projects', projectDirName(web), 'sub-live.jsonl'))
+    expect(await registry.transcriptPath(DEMO, 'sub-web')).toBe(join(home, 'projects', projectDirName(demoWeb), 'sub-web.jsonl'))
+    expect(await registry.transcriptPath(DEMO, 'demo-web-1')).toBeNull()
+    // The look-alike Project still finds its own Session.
+    expect(await registry.transcriptPath(demoWeb, 'demo-web-1')).toBe(join(home, 'projects', projectDirName(demoWeb), 'demo-web-1.jsonl'))
+  })
+
+  it('finds worktrees with the real `git worktree list` and leaves the repository unchanged', async () => {
+    const base = await realpath(await tempDir())
+    const repo = join(base, 'repo')
+    const outside = join(base, 'outside-wt')
+    await mkdir(repo)
+    await git(repo, 'init', '-q', '-b', 'main')
+    await writeFile(join(repo, 'README.md'), 'demo\n')
+    await git(repo, 'add', 'README.md')
+    await git(repo, 'commit', '-q', '-m', 'init')
+    await git(repo, 'worktree', 'add', '-q', '-b', 'feature', outside)
+    expect(await gitWorktrees(repo)).toStrictEqual([outside])
+    // git fails outside a repository: no worktrees, no error.
+    expect(await gitWorktrees(join(base, 'missing'))).toStrictEqual([])
+
+    const home = join(base, 'claude')
+    const cwd = join(outside, 'src')
+    await mkdir(join(home, 'sessions'), { recursive: true })
+    await writeFile(join(home, 'sessions', '41012.json'), JSON.stringify({ pid: 41012, sessionId: 'wt-live', cwd, status: 'idle' }))
+    await mkdir(join(home, 'projects', projectDirName(outside)), { recursive: true })
+    await writeFile(join(home, 'projects', projectDirName(outside), 'wt-done.jsonl'), `${userLine('In the outside worktree', outside, 'wt-u')}\n`)
+
+    const before = { repo: await snapshot(repo), outside: await snapshot(outside) }
+    // Default listWorktrees: the real `git worktree list --porcelain` in the repository.
+    const registry = new ClaudeHomeRegistry({ home, isAlive: alive(41012) })
+    const { live, history } = await registry.sessions(repo)
+    expect(live.map((session) => session.sessionId)).toEqual(['wt-live'])
+    expect(history.map((entry) => entry.sessionId)).toEqual(['wt-done'])
+    expect(await registry.transcriptPath(repo, 'wt-done')).toBe(join(home, 'projects', projectDirName(outside), 'wt-done.jsonl'))
+    expect({ repo: await snapshot(repo), outside: await snapshot(outside) }).toStrictEqual(before)
+  })
+
   it('skips registry files it cannot read and never opens the .key files', async () => {
     const home = await copyOfFixture()
     await writeFile(join(home, 'sessions', '41007.json'), '{"pid": 41007, "sessionId": ')
@@ -194,15 +279,6 @@ describe('live Sessions from the registry', () => {
 })
 
 describe('process liveness', () => {
-  const lstart = async (pid: number): Promise<string> =>
-    new Promise((done, fail) => {
-      const ps = spawn('ps', ['-p', String(pid), '-o', 'lstart='], { env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' } })
-      let out = ''
-      ps.stdout.on('data', (data: Buffer) => (out += data.toString()))
-      ps.on('error', fail)
-      ps.on('close', () => done(out.trim()))
-    })
-
   it('is alive for a running process started at procStart', async () => {
     expect(await processAlive(process.pid, await lstart(process.pid))).toBe(true)
     expect(await processAlive(process.pid, undefined)).toBe(true)
@@ -330,7 +406,8 @@ describe('watching the Claude home', () => {
     const file = (await registry.transcriptPath(DEMO, S5)) ?? ''
     let cursor = (await readNewLines(file)).cursor
     const log = changeLog()
-    const watch = await registry.watch(DEMO, log.onChange, { debounceMs: 100 })
+    // The default debounce: the app's own delay is what is measured.
+    const watch = await registry.watch(DEMO, log.onChange)
     closers.push(() => watch.close())
     await watch.ready
 
@@ -363,6 +440,10 @@ describe('watching the Claude home', () => {
     const watch = await registry.watch(DEMO, log.onChange, { debounceMs: 50 })
     closers.push(() => watch.close())
     await watch.ready
+    // FSEvents may replay the fixture copy as a `sessions` change; let it pass, then forget it, so
+    // the wait below sees the new registry file and nothing else.
+    await new Promise((done) => setTimeout(done, 300))
+    log.changes.length = 0
 
     await writeFile(join(home, 'sessions', '41010.json'), JSON.stringify({ pid: 41010, sessionId: 'n', cwd: DEMO }))
     await log.waitFor((change) => change.sessions)
@@ -374,14 +455,38 @@ describe('watching the Claude home', () => {
     await log.waitFor((change) => change.transcripts.includes('new-session'))
     expect(log.changes.some((entry) => entry.change.transcripts.includes(S6))).toBe(false)
   })
+
+  it('reports transcripts in a subfolder of the root, not those of a look-alike Project', async () => {
+    const home = await copyOfFixture()
+    const registry = new ClaudeHomeRegistry({ home, listWorktrees: noWorktrees, isAlive: alive() })
+    const log = changeLog()
+    const watch = await registry.watch(DEMO, log.onChange, { debounceMs: 50 })
+    closers.push(() => watch.close())
+    await watch.ready
+
+    // One folder name for `<demo>/web` and the other Project `/Users/test/projects/demo-web`.
+    const dir = join(home, 'projects', projectDirName(`${DEMO}/web`))
+    await mkdir(dir)
+    await writeFile(join(dir, 'foreign.jsonl'), `${userLine('foreign', '/Users/test/projects/demo-web', 'f-1')}\n`)
+    await writeFile(join(dir, 'ours.jsonl'), `${userLine('ours', `${DEMO}/web`, 'o-1')}\n`)
+    await log.waitFor((change) => change.transcripts.includes('ours'))
+    await appendFile(join(dir, 'foreign.jsonl'), `${assistantLine('still foreign', 'f-2')}\n`)
+    await appendFile(join(dir, 'ours.jsonl'), `${assistantLine('still ours', 'o-2')}\n`)
+    await new Promise((done) => setTimeout(done, 300))
+    expect(log.changes.some((entry) => entry.change.transcripts.includes('foreign'))).toBe(false)
+  })
 })
 
 describe('read-only access to the Claude home', () => {
   it('leaves every file and folder under the Claude home unchanged', async () => {
     const home = await copyOfFixture()
+    // A registry entry of a running process (this one), so the default liveness check gets past
+    // `kill(pid, 0)` and really runs `ps`.
+    await writeFile(join(home, 'sessions', `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: 'this-process', cwd: DEMO, procStart: await lstart(process.pid), status: 'idle' }))
     const before = await snapshot(home)
     // Default liveness and worktree checks: they run `ps` and `git`, which must not write either.
     const registry = new ClaudeHomeRegistry({ home })
+    expect((await registry.sessions(DEMO)).live.map((session) => session.sessionId)).toEqual(['this-process'])
     const log = changeLog()
     const watch = await registry.watch(DEMO, log.onChange)
     await watch.ready
@@ -433,19 +538,21 @@ async function ipcOver(registry: ClaudeHomeRegistry) {
     const event = { senderFrame: { url: `file://${INDEX_HTML}` }, sender } as unknown as IpcMainInvokeEvent
     return (await listener(event, input)) as IpcResult<unknown>
   }
-  return { handlers, call }
+  return { handlers, call, subscriptions }
 }
 
 describe('claudeHome IPC channels', () => {
-  it('registers the two request channels of the domain', async () => {
+  it('registers the three request channels of the domain', async () => {
     const { handlers } = await ipcOver(new ClaudeHomeRegistry({ home: FIXTURE, listWorktrees: noWorktrees, isAlive: alive() }))
-    expect([...handlers.keys()].sort()).toEqual(['worfy:claudeHome.sessions', 'worfy:claudeHome.transcript'])
+    expect([...handlers.keys()].sort()).toEqual(['worfy:claudeHome.close', 'worfy:claudeHome.sessions', 'worfy:claudeHome.transcript'])
   })
 
   it.each([
     ['claudeHome.sessions', { projectRoot: 'relative/path' }],
     ['claudeHome.sessions', { projectRoot: 42 }],
     ['claudeHome.sessions', undefined],
+    ['claudeHome.close', { projectRoot: 'relative/path' }],
+    ['claudeHome.close', {}],
     ['claudeHome.transcript', { projectRoot: DEMO, sessionId: '../../etc/passwd' }],
     ['claudeHome.transcript', { projectRoot: DEMO, sessionId: `${S1}/x` }],
     ['claudeHome.transcript', { projectRoot: DEMO, sessionId: S1, cursor: { offset: -1, fileId: null } }],
@@ -504,13 +611,69 @@ describe('claudeHome IPC channels', () => {
 
     const file = join(home, 'projects', '-Users-test-projects-demo', `${S1}.jsonl`)
     await appendFile(file, `${assistantLine('seen by the window', 'ipc-1')}\n`)
-    await vi.waitFor(() => expect(window.sent).toHaveLength(1), { timeout: 3000, interval: 20 })
-    expect(window.sent[0]).toStrictEqual({ channel: 'worfy:claudeHome.changed', payload: { projectRoot: DEMO, sessions: false, transcripts: [S1] } })
+    // FSEvents may also replay the fixture copy made just before the watch (a `sessions: true`
+    // change); the test looks for the append, not for an exact list.
+    const mentionsS1 = (entry: { payload: unknown }) => (entry.payload as { transcripts: string[] }).transcripts.includes(S1)
+    await vi.waitFor(() => expect(window.sent.filter(mentionsS1)).toHaveLength(1), { timeout: 3000, interval: 20 })
+    expect(window.sent.find(mentionsS1)).toMatchObject({ channel: 'worfy:claudeHome.changed', payload: { projectRoot: DEMO, transcripts: [S1] } })
 
     window.destroy()
     await new Promise((done) => setTimeout(done, 50))
+    const sentBefore = window.sent.length
     await appendFile(file, `${assistantLine('not seen', 'ipc-2')}\n`)
     await new Promise((done) => setTimeout(done, 600))
-    expect(window.sent).toHaveLength(1)
+    expect(window.sent).toHaveLength(sentBefore)
+  })
+
+  it('stops claudeHome.changed for a Project on claudeHome.close and closes its watcher', async () => {
+    const home = await copyOfFixture()
+    const { call, subscriptions } = await ipcOver(new ClaudeHomeRegistry({ home, listWorktrees: noWorktrees, isAlive: alive() }))
+    const window = fakeSender(8)
+    expect((await call('claudeHome.sessions', { projectRoot: DEMO }, window.sender)).ok).toBe(true)
+    expect((await call('claudeHome.sessions', { projectRoot: '/Users/test/проект' }, window.sender)).ok).toBe(true)
+    expect(subscriptions.size).toBe(2)
+
+    expect(await call('claudeHome.close', { projectRoot: DEMO, extra: true }, window.sender)).toStrictEqual({ ok: true, value: { closed: true } })
+    expect(subscriptions.size).toBe(1)
+    // What the watchers sent before the close (FSEvents may replay the fixture copy) is not checked.
+    window.sent.length = 0
+    // Closing again, or closing for another window, closes nothing.
+    expect(await call('claudeHome.close', { projectRoot: DEMO }, window.sender)).toStrictEqual({ ok: true, value: { closed: false } })
+    expect(await call('claudeHome.close', { projectRoot: '/Users/test/проект' }, fakeSender(9).sender)).toStrictEqual({ ok: true, value: { closed: false } })
+    expect(subscriptions.size).toBe(1)
+
+    await appendFile(join(home, 'projects', '-Users-test-projects-demo', `${S1}.jsonl`), `${assistantLine('after close', 'c-1')}\n`)
+    await appendFile(join(home, 'projects', '-Users-test-------', `${S6}.jsonl`), `${assistantLine('still watched', 'c-2')}\n`)
+    const payloads = () => window.sent.map((entry) => entry.payload as { projectRoot: string; transcripts: string[] })
+    await vi.waitFor(() => expect(payloads().some((payload) => payload.transcripts.includes(S6))).toBe(true), { timeout: 3000, interval: 20 })
+    await new Promise((done) => setTimeout(done, 400))
+    expect(payloads().every((payload) => payload.projectRoot === '/Users/test/проект')).toBe(true)
+  })
+
+  it('starts no watcher for a window that is already gone', async () => {
+    const { call, subscriptions } = await ipcOver(new ClaudeHomeRegistry({ home: await copyOfFixture(), listWorktrees: noWorktrees, isAlive: alive() }))
+    const window = fakeSender(10)
+    window.destroy()
+    expect((await call('claudeHome.sessions', { projectRoot: DEMO }, window.sender)).ok).toBe(true)
+    expect(subscriptions.size).toBe(0)
+  })
+
+  it('watches before it reads, so a change made during the read is still sent', async () => {
+    const home = await copyOfFixture()
+    const registry = new ClaudeHomeRegistry({ home, listWorktrees: noWorktrees, isAlive: alive() })
+    const file = join(home, 'projects', '-Users-test-projects-demo', `${S1}.jsonl`)
+    const read = registry.sessions.bind(registry)
+    vi.spyOn(registry, 'sessions').mockImplementation(async (root) => {
+      await appendFile(file, `${assistantLine('written during the read', 'r-1')}\n`)
+      return read(root)
+    })
+    const { call } = await ipcOver(registry)
+    const window = fakeSender(11)
+    expect((await call('claudeHome.sessions', { projectRoot: DEMO }, window.sender)).ok).toBe(true)
+    // `sessions` may be true as well when FSEvents replays the fixture copy; the append is what counts.
+    await vi.waitFor(() => expect(window.sent).toContainEqual({ channel: 'worfy:claudeHome.changed', payload: expect.objectContaining({ projectRoot: DEMO, transcripts: [S1] }) }), {
+      timeout: 3000,
+      interval: 20,
+    })
   })
 })

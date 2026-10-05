@@ -7,6 +7,10 @@
 // - history: projects/<dir>/<sessionId>.jsonl, where <dir> is the cwd the Session was started in,
 //   NFC-normalised, every character outside [A-Za-z0-9] replaced by `-` (long names shortened
 //   the way Claude Code does). A list reads only the head and the tail of each file.
+// - one rule for both: a Session belongs to the Project when its cwd is the root, a worktree, or
+//   a folder inside either. Folder names lose the difference between `/` and `-`, so a transcript
+//   in a folder that only starts like a subfolder of the Project is kept only when the cwd its
+//   first records name lies inside the Project.
 //
 // Nothing here writes: no cache, no marker files, no lock under the Claude home. The watcher only
 // reads directory listings.
@@ -45,16 +49,42 @@ export function projectDirName(cwd: string): string {
 /** Prefix of the folders of worktrees under <root>/.claude/worktrees/, including removed ones. */
 const worktreeDirPrefix = (root: string): string => `${projectDirName(root)}--claude-worktrees-`
 
+/**
+ * How a folder under projects/ relates to the Project with these roots: `project` — the folder
+ * of the root, of a worktree, or of a (possibly removed) worktree under <root>/.claude/worktrees/;
+ * `subfolder` — named like a folder inside a root or worktree, which another Project's folder can
+ * be too (`/proj/a` and `/proj-a` share one name), so each transcript's cwd decides; `none`.
+ */
+type DirMatch = 'project' | 'subfolder' | 'none'
+
+function dirMatch(dirName: string, roots: readonly string[]): DirMatch {
+  const [root] = roots
+  if (root !== undefined && dirName.startsWith(worktreeDirPrefix(root))) return 'project'
+  if (roots.some((path) => projectDirName(path) === dirName)) return 'project'
+  if (roots.some((path) => dirName.startsWith(`${projectDirName(path)}-`))) return 'subfolder'
+  return 'none'
+}
+
 const isInside = (path: string, root: string): boolean => path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`)
+
+/** Is `cwd` the root, a worktree or a folder inside one of them? */
+const inProject = (cwd: string, roots: readonly string[]): boolean => {
+  const path = resolve(cwd)
+  return roots.some((root) => isInside(path, root))
+}
 
 // ---------------------------------------------------------------------------------------------
 // Dependencies that touch the system, replaceable in tests
 
+/** Variables that would point git at another repository than the one `-C` names. */
+const GIT_LOCATION_VARS = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE']
+
 /** Paths of the Project's git worktrees other than the root itself; empty when git fails. */
 export async function gitWorktrees(root: string): Promise<string[]> {
   try {
+    const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !GIT_LOCATION_VARS.includes(name)))
     // `worktree list` only reads the repository; it prunes nothing.
-    const { stdout } = await run('git', ['-C', root, 'worktree', 'list', '--porcelain'], { timeout: 5000 })
+    const { stdout } = await run('git', ['-C', root, 'worktree', 'list', '--porcelain'], { env, timeout: 5000 })
     return stdout
       .split('\n')
       .filter((line) => line.startsWith('worktree '))
@@ -145,8 +175,7 @@ async function liveSessions(home: string, roots: readonly string[], isAlive: Non
       const parsed = registryEntrySchema.safeParse(raw)
       if (!parsed.success) return undefined
       const entry = parsed.data
-      const cwd = resolve(entry.cwd)
-      if (!roots.some((root) => isInside(cwd, root))) return undefined
+      if (!inProject(entry.cwd, roots)) return undefined
       if (!(await isAlive(entry.pid, entry.procStart))) return undefined
       return dropUndefined<LiveSession>({
         pid: entry.pid,
@@ -285,6 +314,15 @@ async function historyEntry(path: string, sessionId: string, liveIds: ReadonlySe
   })
 }
 
+/** The cwd a transcript was started in (first record that names one), or undefined. */
+async function startCwd(path: string): Promise<string | undefined> {
+  try {
+    return firstString((await headAndTail(path)).head, 'cwd')
+  } catch {
+    return undefined
+  }
+}
+
 // ---------------------------------------------------------------------------------------------
 // The registry
 
@@ -302,6 +340,12 @@ export interface ClaudeHomeChange {
 export interface WatchOptions {
   /** Quiet time before a batch of file events is reported. */
   debounceMs?: number
+  /**
+   * Wait after the watcher's initial scan before `ready` resolves. On macOS fs.watch runs on
+   * FSEvents, whose stream starts asynchronously: a file written in the first milliseconds after
+   * chokidar's 'ready' was missed in 4 of 150 runs, and in none of 150 with a 50 ms wait.
+   */
+  settleMs?: number
 }
 
 export interface ClaudeHomeWatch {
@@ -338,20 +382,19 @@ export class ClaudeHomeRegistry {
     return [root, ...worktrees.map((path) => resolve(path)).filter((path) => path !== root)]
   }
 
-  /** Does a folder under projects/ belong to the Project with these roots? */
-  private belongs(dirName: string, roots: readonly string[]): boolean {
-    const [root] = roots
-    if (root !== undefined && dirName.startsWith(worktreeDirPrefix(root))) return true
-    return roots.some((path) => projectDirName(path) === dirName)
-  }
-
-  /** Transcript folders of the Project: its root, its worktrees and removed worktrees of the root. */
-  async transcriptDirs(roots: readonly string[]): Promise<string[]> {
+  /**
+   * Transcript folders of the Project: its root, its worktrees, removed worktrees of the root and
+   * folders inside any of them. `checkCwd` marks folders whose transcripts may belong to another
+   * Project; their transcripts are kept only when their cwd lies inside the Project.
+   */
+  async transcriptDirs(roots: readonly string[]): Promise<{ path: string; checkCwd: boolean }[]> {
     const entries = await listDir(this.projectsDir)
     return entries
-      .filter((entry) => entry.isDirectory && this.belongs(entry.name, roots))
-      .map((entry) => join(this.projectsDir, entry.name))
-      .sort()
+      .flatMap((entry) => {
+        const match = entry.isDirectory ? dirMatch(entry.name, roots) : 'none'
+        return match === 'none' ? [] : [{ path: join(this.projectsDir, entry.name), checkCwd: match === 'subfolder' }]
+      })
+      .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
   }
 
   /** Live Sessions and the history of the Project at `projectRoot`. */
@@ -361,15 +404,23 @@ export class ClaudeHomeRegistry {
     const liveIds = new Set(live.map((session) => session.sessionId))
     const files = (
       await Promise.all(
-        dirs.map(async (dir) =>
+        dirs.map(async ({ path: dir, checkCwd }) =>
           (await listDir(dir)).flatMap((entry) => {
             const match = entry.isFile ? TRANSCRIPT.exec(entry.name) : null
-            return match?.[1] ? [{ path: join(dir, entry.name), sessionId: match[1] }] : []
+            return match?.[1] ? [{ path: join(dir, entry.name), sessionId: match[1], checkCwd }] : []
           }),
         ),
       )
     ).flat()
-    const history = (await Promise.all(files.map(({ path, sessionId }) => historyEntry(path, sessionId, liveIds))))
+    const history = (
+      await Promise.all(
+        files.map(async ({ path, sessionId, checkCwd }) => {
+          const entry = await historyEntry(path, sessionId, liveIds)
+          if (entry === undefined || !checkCwd) return entry
+          return entry.cwd !== undefined && inProject(entry.cwd, roots) ? entry : undefined
+        }),
+      )
+    )
       .filter((entry): entry is HistorySession => entry !== undefined)
       .sort((a, b) => b.modifiedAt - a.modifiedAt || a.sessionId.localeCompare(b.sessionId))
     return { live, history }
@@ -378,10 +429,14 @@ export class ClaudeHomeRegistry {
   /** Path of a Session's transcript among the Project's folders, or null. */
   async transcriptPath(projectRoot: string, sessionId: string): Promise<string | null> {
     if (!TRANSCRIPT.test(`${sessionId}.jsonl`)) return null
-    const dirs = await this.transcriptDirs(await this.roots(projectRoot))
-    for (const dir of dirs) {
+    const roots = await this.roots(projectRoot)
+    for (const { path: dir, checkCwd } of await this.transcriptDirs(roots)) {
       const entries = await listDir(dir)
-      if (entries.some((entry) => entry.isFile && entry.name === `${sessionId}.jsonl`)) return join(dir, `${sessionId}.jsonl`)
+      if (!entries.some((entry) => entry.isFile && entry.name === `${sessionId}.jsonl`)) continue
+      const path = join(dir, `${sessionId}.jsonl`)
+      if (!checkCwd) return path
+      const cwd = await startCwd(path)
+      if (cwd !== undefined && inProject(cwd, roots)) return path
     }
     return null
   }
@@ -393,6 +448,7 @@ export class ClaudeHomeRegistry {
   async watch(projectRoot: string, onChange: (change: ClaudeHomeChange) => void, options: WatchOptions = {}): Promise<ClaudeHomeWatch> {
     const roots = await this.roots(projectRoot)
     const debounceMs = options.debounceMs ?? 150
+    const settleMs = options.settleMs ?? 100
     const projectsDir = this.projectsDir
     const sessionsDir = this.sessionsDir
 
@@ -406,13 +462,14 @@ export class ClaudeHomeRegistry {
       if (inProjects === '') return false
       if (inProjects.startsWith('..')) return true
       const parts = inProjects.split(sep)
-      if (parts.length > 2 || !this.belongs(parts[0] ?? '', roots)) return true
+      if (parts.length > 2 || dirMatch(parts[0] ?? '', roots) === 'none') return true
       return parts.length === 2 && !TRANSCRIPT.test(parts[1] ?? '')
     }
 
     let sessions = false
     const transcripts = new Set<string>()
     let timer: NodeJS.Timeout | undefined
+    let closed = false
     const flush = () => {
       timer = undefined
       const change = { sessions, transcripts: [...transcripts].sort() }
@@ -420,24 +477,52 @@ export class ClaudeHomeRegistry {
       transcripts.clear()
       onChange(change)
     }
-    const note = (path: string) => {
-      if (relative(sessionsDir, path).match(/^\d+\.json$/)) sessions = true
-      else {
-        const match = TRANSCRIPT.exec(relative(projectsDir, path).split(sep)[1] ?? '')
-        if (match?.[1]) transcripts.add(match[1])
-        else return
-      }
+    const schedule = () => {
+      if (closed) return
       if (timer) clearTimeout(timer)
       timer = setTimeout(flush, debounceMs)
+    }
+    // Verdicts for transcripts in `subfolder` folders: does the cwd they start in lie inside the
+    // Project? Kept once known, so a removed file is still reported.
+    const verdicts = new Map<string, boolean>()
+    const startsInProject = async (path: string): Promise<boolean> => {
+      const known = verdicts.get(path)
+      if (known !== undefined) return known
+      const cwd = await startCwd(path)
+      if (cwd === undefined) return false
+      const verdict = inProject(cwd, roots)
+      verdicts.set(path, verdict)
+      return verdict
+    }
+    const note = (path: string) => {
+      if (/^\d+\.json$/.test(relative(sessionsDir, path))) {
+        sessions = true
+        schedule()
+        return
+      }
+      const [dirName = '', fileName = ''] = relative(projectsDir, path).split(sep)
+      const sessionId = TRANSCRIPT.exec(fileName)?.[1]
+      if (!sessionId) return
+      if (dirMatch(dirName, roots) === 'project') {
+        transcripts.add(sessionId)
+        schedule()
+        return
+      }
+      void startsInProject(path).then((inside) => {
+        if (!inside) return
+        transcripts.add(sessionId)
+        schedule()
+      })
     }
 
     const watcher: FSWatcher = watch(this.home, { ignoreInitial: true, depth: 2, ignored, persistent: true })
     watcher.on('add', note).on('change', note).on('unlink', note)
     watcher.on('error', (error) => console.error('[claude-home] watch error', error))
-    const ready = new Promise<void>((done) => watcher.once('ready', () => done()))
+    const ready = new Promise<void>((done) => watcher.once('ready', () => setTimeout(done, settleMs)))
     return {
       ready,
       close: async () => {
+        closed = true
         if (timer) clearTimeout(timer)
         timer = undefined
         await watcher.close()
