@@ -1,7 +1,7 @@
 # 24 — MCP-сервер холста: агент меняет Раскладку только через tools, Карточку пишет файлом
 
 Type: task
-Status: claimed — 2026-10-05
+Status: done — 2026-10-05, [PR #16](https://github.com/IDSAD-XL/worfy/pull/16)
 Blocked by: 05, 07, 10
 Source: [ADR-0003](../../../docs/adr/0003-cards-as-files-canvas-via-tools.md); [CONTEXT.md](../../../CONTEXT.md), «Карточка», «Раскладка»
 

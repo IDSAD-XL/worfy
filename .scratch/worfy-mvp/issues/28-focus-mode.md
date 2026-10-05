@@ -1,7 +1,7 @@
 # 28 — Focus mode: выбранные Узлы на весь экран плиткой, остальной Холст скрыт
 
 Type: task
-Status: open
+Status: blocked — второе ревью с находками (корректность и тесты, med): перетаскивание плитки за заголовок в focus mode по-прежнему иногда теряется (test/e2e/focus.spec.ts:163, FocusMode.tsx:282-291); PR #13 открыт, ждёт решения владельца
 Blocked by: 05
 Source: [spec.md](../spec.md), этап 5; поведение Morphy описано в `INVENTORY-ui-domain.md`, раздел 3.2 (описание поведения, код не переносится — [ADR-0001](../../../docs/adr/0001-clean-room-reimplementation.md))
 
