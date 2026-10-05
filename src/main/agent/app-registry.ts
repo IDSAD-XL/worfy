@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import { agentEnv } from './env'
 import { fakeQueryFactory } from './fake-query'
+import { appLimits } from './limits'
 import { sessionOptions } from './options'
 import { canvasForSession, type CanvasResolver, type CanvasSession } from '../mcp/canvas-server'
 import { SessionRegistry, type QueryFactory, type QueryHandle, type QueryRequest } from './session'
@@ -53,7 +54,8 @@ let appRegistry: SessionRegistry | null = null
  */
 export function sharedRegistry(): SessionRegistry {
   if (appRegistry === null) {
-    const registry = new SessionRegistry(queryFactoryFromEnv())
+    // Every Session's rate_limit_event feeds the Limits (ticket 22), the fake agent's too.
+    const registry = new SessionRegistry(appLimits().observe(queryFactoryFromEnv()))
     app.on('will-quit', () => registry.closeAll())
     appRegistry = registry
   }
