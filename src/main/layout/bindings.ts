@@ -6,12 +6,14 @@
 // A manual Binding overrides every automatic one (src/shared/binding/resolve.ts); removing it lets
 // the automatic Binding apply again. One Binding per agent: binding it again replaces the old one.
 //
-// The rest of a Binding — the signals of the agent's work — is not stored: it is read from the
-// transcripts each time (ADR 0002). A later ticket (23) adds what its actions need here.
+// The actions of ticket 23 store here too: "Ship ticket" and "Run wave" bind the agent they started
+// with `source: 'launch'` (setLaunch). Such a Binding is weaker than the manual one only, and
+// "Remove binding" does not touch it. The rest of a Binding — the signals of the agent's work — is
+// not stored: it is read from the transcripts each time (ADR 0002).
 import { join } from 'node:path'
 import { z } from 'zod'
 import { sameTarget, type BindingTarget } from '../../shared/binding/resolve'
-import { manualBindingSchema, type BindingAgent, type ManualBinding, type ManualBindings } from '../../shared/ipc/bindings'
+import { isLaunchBinding, manualBindingSchema, type BindingAgent, type ManualBinding, type ManualBindings } from '../../shared/ipc/bindings'
 import { projectStore } from '../projects/store'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 
@@ -50,21 +52,32 @@ export class BindingStore {
 
   /** Binds `agent` to `target` by hand, replacing its manual Binding; writes the file at once. */
   set(projectId: string, agent: BindingAgent, target: BindingTarget): ManualBindings {
-    const current = this.bindings(projectId)
-    const before = current.find((binding) => sameAgent(binding, agent))
-    if (before && sameTarget(before.target, target)) return this.get(projectId)
-    const next = [...current.filter((binding) => !sameAgent(binding, agent)), { sessionId: agent.sessionId, agentId: agent.agentId ?? null, target }]
-    return this.commit(projectId, next)
+    return this.put(projectId, agent, target, false)
   }
 
-  /** Removes `agent`'s manual Binding; nothing is written when it had none. */
+  /** Binds `agent` to what worfy launched it for, replacing its launch Binding; its manual one stays. */
+  setLaunch(projectId: string, agent: BindingAgent, target: BindingTarget): ManualBindings {
+    return this.put(projectId, agent, target, true)
+  }
+
+  /** Removes `agent`'s manual Binding; nothing is written when it had none. Its launch Binding stays. */
   remove(projectId: string, agent: BindingAgent): ManualBindings {
     const current = this.bindings(projectId)
-    if (!current.some((binding) => sameAgent(binding, agent))) return this.get(projectId)
+    const mine = (binding: ManualBinding) => sameAgent(binding, agent) && !isLaunchBinding(binding)
+    if (!current.some(mine)) return this.get(projectId)
     return this.commit(
       projectId,
-      current.filter((binding) => !sameAgent(binding, agent)),
+      current.filter((binding) => !mine(binding)),
     )
+  }
+
+  private put(projectId: string, agent: BindingAgent, target: BindingTarget, launch: boolean): ManualBindings {
+    const current = this.bindings(projectId)
+    const mine = (binding: ManualBinding) => sameAgent(binding, agent) && isLaunchBinding(binding) === launch
+    const before = current.find(mine)
+    if (before && sameTarget(before.target, target)) return this.get(projectId)
+    const binding: ManualBinding = { sessionId: agent.sessionId, agentId: agent.agentId ?? null, target, ...(launch ? { source: 'launch' as const } : {}) }
+    return this.commit(projectId, [...current.filter((each) => !mine(each)), binding])
   }
 
   /** Called after every change, whoever made it. Returns the function that unsubscribes. */

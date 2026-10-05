@@ -2,7 +2,8 @@
 // lines, sources/workflow-bindings.ts and edges/bindings.ts) and the Session rail
 // (session/rail/BindingRail.tsx):
 //
-// - the manual Bindings of each Project (`bindings.get`, then `bindings.changed`);
+// - the stored Bindings of each Project (`bindings.get`, then `bindings.changed`): the manual ones
+//   and those of the agents worfy launched (ticket 23, `source: 'launch'`);
 // - the signals of each Session's transcript and of its Subagents' (`bindings.signals`), asked
 //   again when the Session's transcript changes (`claudeHome.changed`) and every POLL_MS while the
 //   Session is live: a Subagent's file is not watched.
@@ -12,7 +13,7 @@
 import { useEffect, useMemo } from 'react'
 import { create } from 'zustand'
 import { resolveBinding, type Binding, type BindingTarget, type BindingWorkflow } from '../../shared/binding/resolve'
-import { agentKey, type BindingAgent, type ManualBinding, type SessionBindingSignals } from '../../shared/ipc/bindings'
+import { agentKey, isLaunchBinding, type BindingAgent, type ManualBinding, type SessionBindingSignals } from '../../shared/ipc/bindings'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import { invoke, subscribe } from '../ipc'
 
@@ -190,29 +191,38 @@ export interface AgentBindingsInput {
  * has a transcript, and each Subagent the user bound by hand. Agents without a Binding are left out.
  */
 export function resolveAgentBindings({ sessionIds, signals, manual, workflow }: AgentBindingsInput): Map<string, Binding> {
-  const manualByKey = new Map(manual.map((binding) => [agentKey(binding.sessionId, binding.agentId), binding.target]))
+  const byKey = (launch: boolean) =>
+    new Map(manual.filter((binding) => isLaunchBinding(binding) === launch).map((binding) => [agentKey(binding.sessionId, binding.agentId), binding.target]))
+  const manualByKey = byKey(false)
+  const launchByKey = byKey(true)
   const result = new Map<string, Binding>()
   const add = (key: string, binding: Binding | null) => {
     if (binding) result.set(key, binding)
   }
   for (const sessionId of sessionIds) {
     const found = signals.get(sessionId)
-    add(sessionId, resolveBinding({ manual: manualByKey.get(sessionId), signals: found?.session }, workflow))
+    add(sessionId, resolveBinding({ manual: manualByKey.get(sessionId), launch: launchByKey.get(sessionId), signals: found?.session }, workflow))
     for (const { agentId, signals: own } of found?.subagents ?? []) {
       const key = agentKey(sessionId, agentId)
-      add(key, resolveBinding({ manual: manualByKey.get(key), signals: own, subagent: true }, workflow))
+      add(key, resolveBinding({ manual: manualByKey.get(key), launch: launchByKey.get(key), signals: own, subagent: true }, workflow))
     }
     for (const binding of manual) {
       const key = agentKey(binding.sessionId, binding.agentId)
-      if (binding.sessionId === sessionId && binding.agentId !== null && !result.has(key)) add(key, resolveBinding({ manual: binding.target, subagent: true }, workflow))
+      if (binding.sessionId === sessionId && binding.agentId !== null && !result.has(key))
+        add(key, resolveBinding({ manual: manualByKey.get(key), launch: launchByKey.get(key), subagent: true }, workflow))
     }
   }
   return result
 }
 
-/** The manual Binding of one agent, if it has one. */
+/** The manual Binding of one agent, if it has one; a launch Binding (ticket 23) is not one. */
 export function manualOf(manual: readonly ManualBinding[], agent: BindingAgent): ManualBinding | undefined {
-  return manual.find((binding) => binding.sessionId === agent.sessionId && (binding.agentId ?? null) === (agent.agentId ?? null))
+  return manual.find((binding) => !isLaunchBinding(binding) && binding.sessionId === agent.sessionId && (binding.agentId ?? null) === (agent.agentId ?? null))
+}
+
+/** The launch Binding of one agent ("Ship ticket", "Run wave"), if it has one. */
+export function launchOf(manual: readonly ManualBinding[], agent: BindingAgent): ManualBinding | undefined {
+  return manual.find((binding) => isLaunchBinding(binding) && binding.sessionId === agent.sessionId && (binding.agentId ?? null) === (agent.agentId ?? null))
 }
 
 /** The title of what a Binding points at, from the workflow model. */

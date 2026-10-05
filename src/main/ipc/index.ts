@@ -13,6 +13,7 @@ import { pathToFileURL } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
 import { z } from 'zod'
 import {
+  handlerFailure,
   IPC_CHANNEL_PREFIX,
   type EventChannel,
   type EventName,
@@ -131,7 +132,7 @@ function wrap(handler: InvokeHandler, isTrustedSender: (url: string) => boolean)
       output = await handle(parsedInput.data, { event })
     } catch (error) {
       console.error(`[ipc] ${channel.name} threw`, error)
-      return { ok: false, error: `${channel.name} failed: ${messageOf(error)}` }
+      return { ok: false, error: handlerFailure(channel.name, messageOf(error)) }
     }
 
     const parsedOutput = await channel.output.safeParseAsync(output)

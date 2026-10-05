@@ -61,6 +61,9 @@ export const projectsSettingsSet = invokeChannel(
   projectSettingsSchema,
 )
 
+/** Sent to every window after a Project's settings were saved, so the action buttons (ticket 23) follow at once. */
+export const projectsSettingsChanged = eventChannel('projects.settings.changed', z.object({ id: z.string().min(1), settings: projectSettingsSchema }))
+
 /** Sent to every window after any change of the list or of the active Project. */
 export const projectsChanged = eventChannel('projects.changed', projectsStateSchema)
 
@@ -74,5 +77,6 @@ declare module './channels' {
     'projects.settings.get': typeof projectsSettingsGet
     'projects.settings.set': typeof projectsSettingsSet
     'projects.changed': typeof projectsChanged
+    'projects.settings.changed': typeof projectsSettingsChanged
   }
 }

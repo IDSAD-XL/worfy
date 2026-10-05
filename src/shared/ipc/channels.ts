@@ -75,6 +75,18 @@ export const contractNamesMatch: [MisnamedChannel] extends [never] ? true : Misn
 /** Every `invoke` resolves to this: main never throws across the boundary. */
 export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: string }
 
+/** The `error` of a handler that threw: the channel's name, then the handler's own message. */
+export const handlerFailure = (channel: string, message: string): string => `${channel} failed: ${message}`
+
+/**
+ * The handler's own message out of a `handlerFailure` of `channel` (a refusal's reason, for a
+ * button); any other error (invalid input, an untrusted frame, a broken bridge) stays whole.
+ */
+export function failureReason(channel: string, error: string): string {
+  const prefix = handlerFailure(channel, '')
+  return error.startsWith(prefix) ? error.slice(prefix.length) : error
+}
+
 /**
  * What the preload exposes as `window.worfy`. It is untyped by channel on purpose: the preload
  * does not know the channel list. Typed wrappers live in src/renderer/ipc.ts.

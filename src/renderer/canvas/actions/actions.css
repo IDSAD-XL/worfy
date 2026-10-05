@@ -1,0 +1,58 @@
+/* The action buttons of ticket 23 on Tickets and Epic frames (action-button.ts). */
+.w-action {
+  flex: none;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-12);
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: default;
+}
+.w-action:hover {
+  border-color: var(--text-secondary);
+}
+.w-action--primary {
+  border-color: transparent;
+  background: var(--primary);
+  color: var(--primary-text);
+  font-weight: 600;
+}
+.w-action--primary:hover {
+  border-color: transparent;
+  filter: brightness(1.08);
+}
+.w-action[aria-disabled='true'] {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  filter: none;
+  font-weight: 400;
+}
+.w-action[data-error] {
+  border-color: var(--blocked-text);
+}
+
+/*
+ * A Ticket Node (nodes/TicketNode.tsx) is 104px high: room for one row below its blockers line,
+ * not two. A Ticket with checks badges (ticket 17) and an action ("Open PR") puts both in that one
+ * row — the badges on the left, cut at their edge if they must, the actions on the right — instead
+ * of pushing its title out of the Node.
+ */
+.w-ticket:has(> .w-ticket__badges + .w-ticket__actions) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-content: start;
+  column-gap: 6px;
+}
+.w-ticket:has(> .w-ticket__badges + .w-ticket__actions) > :not(.w-ticket__badges):not(.w-ticket__actions) {
+  grid-column: 1 / -1;
+}
+.w-ticket:has(> .w-ticket__badges + .w-ticket__actions) > .w-ticket__badges {
+  min-width: 0;
+  overflow: hidden;
+}

@@ -5,7 +5,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { agentOfNode, dropTargetAt, type DropCandidate } from '../../src/renderer/binding/drop'
-import { bindingTargetTitle, resolveAgentBindings } from '../../src/renderer/binding/store'
+import { bindingTargetTitle, launchOf, manualOf, resolveAgentBindings } from '../../src/renderer/binding/store'
 import bindingEdges from '../../src/renderer/canvas/edges/bindings'
 import { TICKET_WIDTH } from '../../src/renderer/canvas/epic-layout'
 import type { CanvasFlowNode } from '../../src/renderer/canvas/nodes/index'
@@ -124,6 +124,17 @@ describe('resolveAgentBindings', () => {
       's1/a9': { target: { kind: 'ticket', epic: 'e', num: 7 }, source: 'manual', detail: null },
     })
     expect(Object.fromEntries(resolveAgentBindings({ sessionIds: ['s1'], signals, manual: [], workflow }))['s1/a1']).toMatchObject({ source: 'task' })
+  })
+
+  it('a launch Binding (ticket 23) binds its Session over the signals, under the manual one; it is not a manual Binding', () => {
+    const launch: ManualBinding = { sessionId: 's1', agentId: null, target: { kind: 'ticket', epic: 'e', num: 7 }, source: 'launch' }
+    expect(resolveAgentBindings({ sessionIds: ['s1', 's2'], signals, manual: [launch, { ...launch, sessionId: 's2' }], workflow }).get('s1')).toEqual({ target: launch.target, source: 'launch', detail: null })
+    expect(resolveAgentBindings({ sessionIds: ['s2'], signals, manual: [{ ...launch, sessionId: 's2' }], workflow }).get('s2')).toMatchObject({ source: 'launch' })
+    const byHand: ManualBinding = { sessionId: 's1', agentId: null, target: { kind: 'ticket', epic: 'e', num: 12 } }
+    expect(resolveAgentBindings({ sessionIds: ['s1'], signals, manual: [launch, byHand], workflow }).get('s1')).toEqual({ target: byHand.target, source: 'manual', detail: null })
+    expect(manualOf([launch], { sessionId: 's1', agentId: null })).toBeUndefined()
+    expect(manualOf([launch, byHand], { sessionId: 's1', agentId: null })).toBe(byHand)
+    expect(launchOf([launch, byHand], { sessionId: 's1', agentId: null })).toBe(launch)
   })
 })
 

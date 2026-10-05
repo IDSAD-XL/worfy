@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
 import { bindingReason, bindingTargetLabel, bindingWorkflowOf, resolveBinding, type Binding } from '../../../shared/binding/resolve'
-import { bindingTargetTitle, manualOf, removeManualBinding, useManualBindings, useSessionSignals } from '../../binding/store'
+import { bindingTargetTitle, launchOf, manualOf, removeManualBinding, useManualBindings, useSessionSignals } from '../../binding/store'
 import { useLayout } from '../../canvas/useLayout'
 import { focusEpic } from '../../canvas/sources/epics'
 import { useProjects } from '../../projects/useProjects'
@@ -100,7 +100,10 @@ export default function BindingRail({ projectId, nodeId, sessionId, claudeSessio
   const { model } = useWorkflow(root)
   const agent = session === null ? null : { sessionId: session, agentId: null }
   const binding =
-    agent === null ? null : resolveBinding({ manual: manualOf(manual, agent)?.target, signals: signals.get(agent.sessionId)?.session }, bindingWorkflowOf(model))
+    agent === null ? null : resolveBinding(
+          { manual: manualOf(manual, agent)?.target, launch: launchOf(manual, agent)?.target, signals: signals.get(agent.sessionId)?.session },
+          bindingWorkflowOf(model),
+        )
   return (
     <BindingCard
       binding={binding}
