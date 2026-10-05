@@ -2,9 +2,9 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { installCardRuntime, registerCardScheme } from './cards/protocol'
 import { cardStore } from './cards/store'
 import { appUrlMatcher, registerIpc } from './ipc/index'
+import { installAppMenu } from './menu'
 import { dataRoot } from './storage/paths'
 import { createMainWindow, installWebPolicy, rendererEntry } from './window'
-import { installAppMenu } from './menu'
 
 // Electron's own files (caches, local storage) go under worfy's data root too, so a test run
 // with a temporary WORFY_DATA_DIR leaves nothing in the real Application Support folder.
