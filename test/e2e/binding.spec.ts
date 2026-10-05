@@ -165,7 +165,6 @@ const sessionNode = (id: string, x: number, y: number, cwd: string) => ({
 
 const launch = (): Promise<LaunchedApp> => launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome } })
 
-const edge = (window: Page, label: string): Locator => window.locator(`.react-flow__edge[aria-label="${label}"]`)
 const sessionEdge = (window: Page, sessionId: string): Locator => window.getByTestId(`rf__edge-binding:session:${sessionId}`)
 const subagentNode = (window: Page, agentId: string): Locator => window.locator(`[data-testid="subagent-node"][data-subagent-id="${agentId}"]`)
 
@@ -175,9 +174,22 @@ async function subagentEdge(window: Page, agentId: string): Promise<Locator> {
   return window.getByTestId(`rf__edge-binding:${nodeId}`)
 }
 
+/** Two boxes in the same place, to a pixel. */
+const near = (a: { x: number; y: number }, b: { x: number; y: number }): boolean => Math.abs(a.x - b.x) <= 1 && Math.abs(a.y - b.y) <= 1
+
 /** Drags a Node by `handle` onto Ticket `num` and drops it there once the Ticket is outlined. */
 async function dropOnTicket(window: Page, handle: Locator, num: number): Promise<void> {
-  const from = await box(handle)
+  // Start only once the Node has stopped moving (a fold just opened, a Node just sent back).
+  let last = await box(handle)
+  await expect
+    .poll(async () => {
+      const now = await box(handle)
+      const still = near(now, last)
+      last = now
+      return still
+    })
+    .toBe(true)
+  const from = last
   const to = await box(window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`))
   await window.mouse.move(from.x + 10, from.y + from.height / 2)
   await window.mouse.down()
@@ -187,9 +199,6 @@ async function dropOnTicket(window: Page, handle: Locator, num: number): Promise
   await expect(window.getByTestId('binding-drop-target')).toHaveCount(0)
 }
 const sessionTitle = (window: Page, sessionId: string): Locator => window.locator(`[data-testid="session-node"][data-session-id="${sessionId}"] [data-testid="session-node-title"]`)
-
-/** Two boxes in the same place, to a pixel. */
-const near = (a: { x: number; y: number }, b: { x: number; y: number }): boolean => Math.abs(a.x - b.x) <= 1 && Math.abs(a.y - b.y) <= 1
 
 async function box(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
   const found = await locator.boundingBox()
