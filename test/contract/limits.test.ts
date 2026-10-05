@@ -48,6 +48,10 @@ function fakeQuery(messages: unknown[]): QueryHandle & { interrupted: number } {
     },
     close() {},
     accountInfo: async () => ({}),
+    setModel: async () => undefined,
+    setPermissionMode: async () => undefined,
+    applyFlagSettings: async () => undefined,
+    supportedModels: async () => [],
     async *[Symbol.asyncIterator]() {
       yield* messages
     },

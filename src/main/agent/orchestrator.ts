@@ -4,10 +4,10 @@
 // open() finds the Project's Orchestrator Node in the Layout or creates it, then starts the
 // Session in the Project's root: a new one, or the SDK session saved in the Node's `data`, resumed.
 //
-// The Node's data keeps only the SDK session id, the summed cost and the model, effort and
-// permission mode the user picked (ticket 19): nothing else records them in a form worfy can read
-// back. The Session starts (and resumes) with the saved picks. Everything else the Node shows lives in memory, in the Orchestrator's
-// view: the model and the last status block come from the saved session's transcript when the
+// The Node's data keeps only the SDK session id and the summed cost (ADR-0010). The model, effort
+// and permission mode the user picked (ticket 19) are kept under the Node id in worfy's data folder
+// (session-settings.ts); the Session starts (and resumes) with them. Everything else the Node
+// shows lives in memory, in the Orchestrator's view: the model and the last status block come from the saved session's transcript when the
 // Orchestrator opens (orchestrator-transcript.ts) and then from the live Session's events; the
 // state is the live Session's. Views go to the windows on `orchestrator.changed`.
 import type { AgentEvent } from '../../shared/agent/events'
@@ -79,6 +79,11 @@ export interface OrchestratorDeps {
   /** The Project's repository root; throws for a Project that is not in the list. */
   projectPath(projectId: string): string
   registry: Pick<SessionRegistry, 'start'>
+  /** Where the picked model, effort and permission mode of a Node are kept (session-settings.ts). */
+  settings: {
+    read(projectId: string, nodeId: string): SessionSettings | undefined
+    write(projectId: string, nodeId: string, settings: SessionSettings): void
+  }
   /**
    * The model and the last status block of a saved SDK session, read from its transcript under
    * the Claude home; null when the Project has no transcript of that session.
@@ -112,7 +117,7 @@ interface Entry {
   cost: CostCounter
   /** The session id last written to the Node's data. */
   savedSessionId: string | null
-  /** The settings last written to the Node's data (or the defaults); every Session of the Orchestrator starts with them. */
+  /** The settings last saved for the Node (or the defaults); every Session of the Orchestrator starts with them. */
   settings: SessionSettings
 }
 
@@ -198,10 +203,20 @@ export class Orchestrators {
       run: null,
       cost: new CostCounter(saved.costUsd ?? 0),
       savedSessionId: saved.sessionId ?? null,
-      settings: saved.settings ?? DEFAULT_SETTINGS,
+      settings: this.savedSettings(projectId, node.id),
     }
     entry.ready = this.start(entry)
     return entry
+  }
+
+  /** The Node's saved picks; the defaults when there are none or they cannot be read, so the start goes on. */
+  private savedSettings(projectId: string, nodeId: string): SessionSettings {
+    try {
+      return this.deps.settings.read(projectId, nodeId) ?? DEFAULT_SETTINGS
+    } catch (error) {
+      console.warn(`[orchestrator] could not read the saved settings of ${projectId}; starting with the defaults`, error)
+      return DEFAULT_SETTINGS
+    }
   }
 
   /** Reads the saved session's transcript, then starts the Session: resumed, or new when it is gone. */
@@ -260,7 +275,7 @@ export class Orchestrators {
     }
   }
 
-  /** What one event of the current Session changes: the view, and the Node's data for the session id, cost and settings. */
+  /** What one event of the current Session changes: the view, the Node's data for the session id and cost, and the saved settings. */
   private apply(entry: Entry, run: Run, sessionId: string, event: AgentEvent): void {
     const next = { ...this.current(entry), sessionId }
     switch (event.type) {
@@ -287,7 +302,7 @@ export class Orchestrators {
       case 'settings':
         if (!sameSettings(entry.settings, event.settings)) {
           entry.settings = event.settings
-          this.patch(entry, { settings: event.settings })
+          this.saveSettings(entry, event.settings)
         }
         break
       case 'result':
@@ -360,6 +375,15 @@ export class Orchestrators {
     const created = after.layout.nodes.find((node) => node.kind === ORCHESTRATOR_KIND)
     if (!created) throw new Error(`the Orchestrator Node of ${projectId} was not created`)
     return created
+  }
+
+  private saveSettings(entry: Entry, settings: SessionSettings): void {
+    try {
+      this.deps.settings.write(entry.projectId, entry.nodeId, settings)
+    } catch (error) {
+      // The live Session keeps the picks; only the next start of the app loses them.
+      console.warn(`[orchestrator] could not save the settings of ${entry.projectId}`, error)
+    }
   }
 
   private patch(entry: Entry, data: Partial<OrchestratorData>): void {

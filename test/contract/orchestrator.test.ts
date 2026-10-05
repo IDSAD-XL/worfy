@@ -1,9 +1,10 @@
 // The Orchestrator of a Project (src/main/agent/orchestrator.ts) over the real Layout store and
 // Session registry, on the fake agent: its locked Node, the view main keeps of it while the
 // Session runs, what main writes into the Node's data (the session id and the cost, nothing else),
+// where the picked model, effort and permission mode are kept instead (session-settings.ts),
 // resume after a restart and when the saved session is gone, the `orchestrator.*` channels and
 // main's own wiring (src/main/agent/app-orchestrators.ts).
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -14,10 +15,18 @@ import { fakeQueryFactory } from '../../src/main/agent/fake-query'
 import { CostCounter, Orchestrators, orchestratorPlace } from '../../src/main/agent/orchestrator'
 import type { TranscriptFacts } from '../../src/main/agent/orchestrator-transcript'
 import { SessionRegistry, type QueryFactory, type QueryRequest } from '../../src/main/agent/session'
+import { SESSION_SETTINGS_FILE, SessionSettingsStore } from '../../src/main/agent/session-settings'
 import { LayoutStore } from '../../src/main/layout/store'
 import type { AgentEventEnvelope } from '../../src/shared/agent/events'
+import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { ORCHESTRATOR_HEIGHT, ORCHESTRATOR_WIDTH, type OrchestratorView } from '../../src/shared/ipc/orchestrator'
+import {
+  ORCHESTRATOR_HEIGHT,
+  ORCHESTRATOR_WIDTH,
+  orchestratorDataSchema,
+  readOrchestratorData,
+  type OrchestratorView,
+} from '../../src/shared/ipc/orchestrator'
 import type { LayoutNode } from '../../src/shared/layout/types'
 
 const electron = vi.hoisted(() => ({
@@ -102,6 +111,7 @@ function harness(options: HarnessOptions = {}) {
       return repo
     },
     registry,
+    settings: new SessionSettingsStore((projectId) => join(scratch, 'data', projectId)),
     transcript: (projectRoot, sdkSessionId) => {
       transcriptCalls.push({ projectRoot, sdkSessionId })
       const answer = options.transcript ? options.transcript(sdkSessionId) : NO_FACTS
@@ -134,6 +144,13 @@ function savedNode(data: Record<string, unknown>): void {
     join(scratch, 'data', PROJECT, 'layout.json'),
     JSON.stringify({ nodes: [{ id: 'orch', kind: 'orchestrator', x: 10, y: 20, w: 300, h: 180, locked: true, data }] }),
   )
+}
+
+/** The Project's settings file (src/main/agent/session-settings.ts). */
+const settingsFile = (): string => join(scratch, 'data', PROJECT, SESSION_SETTINGS_FILE)
+
+function writeSettings(value: unknown): void {
+  writeFileSync(settingsFile(), JSON.stringify(value))
 }
 
 describe('Orchestrator Node', () => {
@@ -259,37 +276,100 @@ describe('Orchestrator Session', () => {
     expect(second.data()).toStrictEqual({ sessionId: sdkId, costUsd: 0.025 })
   })
 
-  it('keeps the picked model, effort and permission mode in the Node data and resumes with them after a restart', async () => {
+  it('the Node data declares only the session id and the cost (ADR-0010); other keys are not read back', () => {
+    expect(Object.keys(orchestratorDataSchema.shape).sort()).toEqual(['costUsd', 'sessionId'])
+    expect(readOrchestratorData({ sessionId: 'sdk-1', costUsd: 1, settings: { model: 'sonnet', effort: 'low', permissionMode: 'plan' }, extra: true })).toStrictEqual({
+      sessionId: 'sdk-1',
+      costUsd: 1,
+    })
+  })
+
+  it('keeps the picked model, effort and permission mode in its own file, not in the Node data, and resumes with them after a restart', async () => {
+    const picked = { model: 'sonnet', effort: 'low', permissionMode: 'plan' } as const
     const first = harness()
     const { sessionId } = await first.orchestrators.open(PROJECT)
     await vi.waitFor(() => expect(first.view().state).toBe('idle'))
-    // The defaults change nothing in the Node data.
+    // The defaults change nothing: no Node data, no settings file.
     expect(first.data()).toStrictEqual({})
-    await first.registry.get(sessionId ?? '').configure({ model: 'sonnet', effort: 'low', permissionMode: 'plan' })
-    expect(first.data()).toStrictEqual({ settings: { model: 'sonnet', effort: 'low', permissionMode: 'plan' } })
+    expect(existsSync(settingsFile())).toBe(false)
+    await first.registry.get(sessionId ?? '').configure(picked)
+    // ADR-0010: the Node data stays the session id and the cost; the picks go to the settings file, under the Node id.
+    expect(first.data()).toStrictEqual({})
+    expect(JSON.parse(readFileSync(settingsFile(), 'utf8'))).toStrictEqual({ nodes: { [first.node().id]: picked } })
     first.registry.get(sessionId ?? '').send('one')
     await vi.waitFor(() => expect(first.view().statusBlock).toBe(BLOCK_1))
     // Claude Code's next turn runs with the picked model.
     expect(first.view().model).toBe('sonnet')
     void first.registry.get(sessionId ?? '').interrupt()
-    await vi.waitFor(() => expect(first.view().state).toBe('idle'))
+    await vi.waitFor(() => expect(first.view().costUsd).toBe(0.0125))
     const sdkId = first.view().sessionId
     first.registry.closeAll()
     first.layout.flushAll()
     const onDisk = JSON.parse(readFileSync(join(scratch, 'data', PROJECT, 'layout.json'), 'utf8')) as { nodes: LayoutNode[] }
-    expect(onDisk.nodes[0]?.data).toMatchObject({ sessionId: sdkId, settings: { model: 'sonnet', effort: 'low', permissionMode: 'plan' } })
+    expect(onDisk.nodes[0]?.data).toStrictEqual({ sessionId: sdkId, costUsd: 0.0125 })
 
+    // A new run of the app: new stores over the same data folder.
     const second = harness()
     await second.orchestrators.open(PROJECT)
-    expect(second.requests).toMatchObject([{ resume: sdkId, settings: { model: 'sonnet', effort: 'low', permissionMode: 'plan' } }])
-    expect(second.registry.get(second.sessionId()).settings).toEqual({ model: 'sonnet', effort: 'low', permissionMode: 'plan' })
+    expect(second.requests).toMatchObject([{ resume: sdkId, settings: picked }])
+    expect(second.registry.get(second.sessionId()).settings).toEqual(picked)
   })
 
-  it('reads damaged settings in the Node data field by field, falling back to the defaults', async () => {
-    savedNode({ sessionId: null, settings: { model: 42, effort: 'ultra', permissionMode: 'acceptEdits', extra: true } })
+  it('keeps the picks when the saved session cannot be resumed and a new one starts', async () => {
+    savedNode({ sessionId: 'sdk-gone' })
+    writeSettings({ nodes: { orch: { model: 'opus', effort: 'max', permissionMode: 'acceptEdits' } } })
+    const h = harness({ transcript: () => null })
+    await h.orchestrators.open(PROJECT)
+    expect(h.requests).toMatchObject([{ resume: undefined, settings: { model: 'opus', effort: 'max', permissionMode: 'acceptEdits' } }])
+  })
+
+  it('reads damaged settings field by field, falling back to the defaults; another Node\'s picks are not its own', async () => {
+    savedNode({ sessionId: null })
+    writeSettings({ nodes: { orch: { model: 42, effort: 'ultra', permissionMode: 'acceptEdits', extra: true }, other: { model: 'haiku', effort: null, permissionMode: 'plan' } } })
     const h = harness()
     await h.orchestrators.open(PROJECT)
     expect(h.requests.map((request) => request.settings)).toStrictEqual([{ model: null, effort: null, permissionMode: 'acceptEdits' }])
+  })
+
+  it('ignores settings left in the Node data by an older build', async () => {
+    savedNode({ sessionId: null, settings: { model: 'sonnet', effort: 'low', permissionMode: 'plan' } })
+    const h = harness()
+    await h.orchestrators.open(PROJECT)
+    expect(h.requests.map((request) => request.settings)).toStrictEqual([DEFAULT_SETTINGS])
+  })
+
+  it.each([
+    ['is not JSON', () => writeFileSync(settingsFile(), '{"nodes": {')],
+    ['does not match its schema', () => writeSettings({ nodes: ['orch'] })],
+  ])('a settings file that %s does not stop the start: the defaults are used and the file is set aside', async (_name, damage) => {
+    savedNode({ sessionId: null })
+    damage()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const h = harness()
+    await h.orchestrators.open(PROJECT)
+    expect(h.requests.map((request) => request.settings)).toStrictEqual([DEFAULT_SETTINGS])
+    expect(readdirSync(join(scratch, 'data', PROJECT)).filter((name) => name.startsWith('session-settings.json.unreadable-'))).toHaveLength(1)
+    // The next pick writes a new file.
+    await h.registry.get(h.sessionId()).configure({ permissionMode: 'plan' })
+    expect(JSON.parse(readFileSync(settingsFile(), 'utf8'))).toStrictEqual({ nodes: { orch: { ...DEFAULT_SETTINGS, permissionMode: 'plan' } } })
+    warn.mockRestore()
+  })
+
+  it('a settings file that cannot be read or written at all does not stop the Session', async () => {
+    savedNode({ sessionId: null })
+    // A folder where the file should be: reading and writing both fail with EISDIR.
+    mkdirSync(settingsFile())
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const h = harness()
+    await h.orchestrators.open(PROJECT)
+    expect(h.requests.map((request) => request.settings)).toStrictEqual([DEFAULT_SETTINGS])
+    await expect(h.registry.get(h.sessionId()).configure({ model: 'sonnet' })).resolves.toMatchObject({ model: 'sonnet' })
+    expect(warn.mock.calls.map((call) => String(call[0]))).toEqual(
+      expect.arrayContaining([expect.stringContaining('could not read the saved settings'), expect.stringContaining('could not save the settings')]),
+    )
+    h.registry.get(h.sessionId()).send('one')
+    await vi.waitFor(() => expect(h.view().statusBlock).toBe(BLOCK_1))
+    warn.mockRestore()
   })
 
   it('a crashed Session shows error with its reason; the process it is resumed in counts its cost on top', async () => {
@@ -448,6 +528,27 @@ describe('a saved session that cannot be resumed', () => {
   })
 })
 
+describe('SessionSettingsStore', () => {
+  it("saves one Node's picks and keeps the other Nodes'; a Project that is not in the list is refused", () => {
+    const store = new SessionSettingsStore((projectId) => {
+      if (projectId !== PROJECT) throw new Error(`No Project with id ${projectId}`)
+      return join(scratch, 'data', projectId)
+    })
+    const a = { model: 'sonnet', effort: 'low', permissionMode: 'plan' } as const
+    const b = { model: null, effort: 'max', permissionMode: 'acceptEdits' } as const
+    expect(store.read(PROJECT, 'a')).toBeUndefined()
+    store.write(PROJECT, 'a', a)
+    store.write(PROJECT, 'b', b)
+    expect(store.read(PROJECT, 'a')).toStrictEqual(a)
+    expect(store.read(PROJECT, 'b')).toStrictEqual(b)
+    expect(store.read(PROJECT, 'c')).toBeUndefined()
+    expect(() => store.write(PROJECT, 'a', { ...a, effort: 'ultra' } as never)).toThrow(/does not match its schema/)
+    expect(store.read(PROJECT, 'a')).toStrictEqual(a)
+    expect(() => store.write('gone-0000000f', 'a', a)).toThrow(/No Project/)
+    expect(existsSync(join(scratch, 'data', 'gone-0000000f'))).toBe(false)
+  })
+})
+
 describe('CostCounter', () => {
   it('adds the processes of a Session: a crash or a smaller figure starts a new process', () => {
     const cost = new CostCounter(1)
@@ -595,6 +696,13 @@ describe("main's own wiring", () => {
       await vi.waitFor(() => expect(sharedRegistry().list().map((session) => session.cwd)).toEqual([repo, other]))
       expect(orchestratorOf('other-0000000e')).toHaveLength(1)
       expect(sharedOrchestrators().view(orchestratorOf('other-0000000e')[0]?.id ?? '')).toMatchObject({ projectId: 'other-0000000e' })
+      // A pick goes to the Project's own data folder, under the Node id.
+      const otherSession = sharedRegistry().list().find((session) => session.cwd === other)
+      await sharedRegistry().get(otherSession?.sessionId ?? '').configure({ permissionMode: 'plan' })
+      expect(JSON.parse(readFileSync(join(scratch, 'data', 'other-0000000e', SESSION_SETTINGS_FILE), 'utf8'))).toStrictEqual({
+        nodes: { [orchestratorOf('other-0000000e')[0]?.id ?? '']: { ...DEFAULT_SETTINGS, permissionMode: 'plan' } },
+      })
+      expect(orchestratorOf('other-0000000e')[0]?.data).not.toHaveProperty('settings')
 
       projectStore().remove(PROJECT)
       expect(sharedRegistry().list().map((session) => session.cwd)).toEqual([other])

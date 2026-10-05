@@ -1,7 +1,7 @@
 // What the user picks for a Session under its input field (ticket 19): the model, the effort and
 // the permission mode. main applies them to the live Session (src/main/agent/session.ts) and to
-// every Claude Code process started for it later; the Orchestrator keeps them in its Node's data
-// so a restart resumes with the same picks.
+// every Claude Code process started for it later; the Orchestrator keeps them in worfy's data folder
+// (src/main/agent/session-settings.ts) so a restart resumes with the same picks.
 import { z } from 'zod'
 
 /** The permission modes worfy offers, in the order the picker lists them; bypassPermissions is the default. */
@@ -43,7 +43,7 @@ export const modelOptionSchema = z.object({
 export type ModelOption = z.output<typeof modelOptionSchema>
 
 /**
- * The settings fields of stored data (a Node's `data`) that pass the schema, over the defaults: a
+ * The settings fields of stored data (src/main/agent/session-settings.ts) that pass the schema, over the defaults: a
  * damaged field falls back to its default rather than losing the others.
  */
 export function readSettings(value: unknown): SessionSettings {

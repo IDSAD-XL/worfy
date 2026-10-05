@@ -508,13 +508,18 @@
 }
 
 .w-composer__bar {
-  height: 40px;
+  min-height: 40px;
   flex: none;
   box-sizing: border-box;
   display: flex;
+  /* A narrow transcript column (sidebar and rail open) moves the controls to a second line rather
+     than pushing Interrupt and Send under the rail; the moved controls keep to the right, so the
+     queue list that opens above its chip stays inside the column. */
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
-  gap: var(--space-2);
-  padding: 0 6px 0 10px;
+  gap: 6px var(--space-2);
+  padding: 6px 6px 6px 10px;
   border-top: 1px solid var(--border);
 }
 

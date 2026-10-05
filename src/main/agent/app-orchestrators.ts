@@ -19,6 +19,7 @@ import { claudeHome } from '../storage/paths'
 import { sharedRegistry } from './app-registry'
 import { Orchestrators } from './orchestrator'
 import { readTranscriptFacts } from './orchestrator-transcript'
+import { SessionSettingsStore } from './session-settings'
 
 let shared: Orchestrators | null = null
 
@@ -30,6 +31,9 @@ export function sharedOrchestrators(): Orchestrators {
       layout: layoutStore(),
       projectPath: (projectId) => projectStore().get(projectId).path,
       registry: sharedRegistry(),
+      // Asked through get(), like the Layout: a Project removed from the list is refused, so a
+      // late write does not create its data folder again.
+      settings: new SessionSettingsStore((projectId) => projectStore().dataDir(projectStore().get(projectId).id)),
       transcript: async (projectRoot, sdkSessionId) => {
         const path = await claude.transcriptPath(projectRoot, sdkSessionId)
         return path === null ? null : readTranscriptFacts(path)

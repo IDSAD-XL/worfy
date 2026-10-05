@@ -2,10 +2,10 @@
 // and its Node on the Canvas. Run by src/main/agent/orchestrator.ts, handled in
 // src/main/ipc/orchestrator.ts (ADR-0006).
 //
-// The Node's `data` in the Layout keeps only what nothing else records: the SDK session id the
-// Session resumes after a restart, the cost summed over the Claude Code processes that ran it,
-// and the model, effort and permission mode the user picked for it (ticket 19), which a resume
-// starts with.
+// The Node's `data` in the Layout keeps only what nothing else records (ADR-0010): the SDK session
+// id the Session resumes after a restart and the cost summed over the Claude Code processes that
+// ran it. The model, effort and permission mode the user picked (ticket 19) are kept outside the
+// Layout, in src/main/agent/session-settings.ts.
 // The rest of what the Node shows is not stored by worfy (ADR 0002, ADR 0005): the model and the
 // last status block are read from the Session's transcript when the Orchestrator opens and then
 // follow the live Session; the state is the live Session's. main keeps that view in memory and
@@ -13,7 +13,6 @@
 // `agent.event`, and the `agent.*` channels take its Session id like any other.
 import { z } from 'zod'
 import { sessionState } from '../agent/events'
-import { readSettings } from '../agent/settings'
 import { eventChannel, invokeChannel } from './channels'
 
 /** The `kind` of the Orchestrator's Node in the Layout. */
@@ -31,11 +30,6 @@ export const orchestratorDataSchema = z.object({
   sessionId: z.string().min(1).nullable().optional(),
   /** What the Session has cost so far, over every Claude Code process that ran it, in USD. */
   costUsd: z.number().nonnegative().optional(),
-  /**
-   * The model, effort and permission mode picked under the input field (src/shared/agent/settings.ts).
-   * A damaged field falls back to its default; the others are kept.
-   */
-  settings: z.unknown().transform(readSettings).optional(),
 })
 export type OrchestratorData = z.output<typeof orchestratorDataSchema>
 
