@@ -48,7 +48,7 @@ T=$(F tickets.root)                      # корень эпиков, напри
 A=audit-$(date +%F); { git show-ref -q "refs/heads/$A" || [ -d "$T$A" ]; } && A=$A-2   # эпик = ветка = worktree; повтор в тот же день — суффикс -2, -3, …
 git fetch origin --prune && git log --oneline -1 "$BASE"   # коммит аудита — в шапку spec.md
 git worktree add "../$A" -b "$A" "$BASE" && cd "../$A"
-~/.claude/bin/epic-status; ls -d "$T"audit-*/ | sort | tail -1   # все эпики; прошлый аудит
+~/.claude/bin/epic-status; find "${T%/}" -maxdepth 1 -type d -name 'audit-*' | sort | tail -1   # все эпики; прошлый аудит (не `ls audit-*/`: в zsh пустая маска — ошибка)
 ```
 
 Путь `../$A` — это worktree аудита; он идёт в каждый бриф ниже как «Дерево». Имя `$A` — это и

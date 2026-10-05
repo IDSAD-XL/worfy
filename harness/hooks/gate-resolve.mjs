@@ -23,13 +23,24 @@ import path from "node:path"
 const CFG =
     process.env.CLAUDE_GATE_CONFIG || path.join(process.env.HOME, ".claude/gate/config.json")
 
+// Нечитаемый или битый реестр — это не «проект не зарегистрирован». Раньше здесь был
+// `exit 0` с пустым выводом, и gate.sh/stop.sh принимали зарегистрированный проект за
+// чужой: гейт отвечал «не зарегистрирован», а stop.sh не замечал красного маркера.
+// Теперь — код 4 и причина в stderr; вызывающие считают это «проверить не удалось».
 let cfg
 try {
     cfg = JSON.parse(fs.readFileSync(CFG, "utf8"))
-} catch {
-    process.exit(0)
+} catch (e) {
+    process.stderr.write(`gate-resolve: реестр ${CFG} не читается: ${e.message}\n`)
+    process.exit(4)
 }
-const repos = cfg.repos || []
+// Нет поля `repos` (`{}`, опечатка `"Repos"`) — тоже битый реестр, а не пустой: иначе все
+// проекты молча стали бы «не зарегистрированы», а красный маркер перестал бы держать ход.
+if (!cfg || typeof cfg !== "object" || !Array.isArray(cfg.repos)) {
+    process.stderr.write(`gate-resolve: реестр ${CFG} битый: поле "repos" должно быть массивом\n`)
+    process.exit(4)
+}
+const repos = cfg.repos
 
 const readPkg = (p) => {
     try {

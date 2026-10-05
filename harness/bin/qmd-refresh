@@ -32,7 +32,7 @@ set -u
 
 CACHE="$HOME/.cache/qmd"
 INDEX_YML="${QMD_INDEX_YML:-$HOME/.config/qmd/index.yml}"
-SYNC="$HOME/.claude/bin/qmd-sync-main"
+SYNC="${QMD_REFRESH_SYNC:-$HOME/.claude/bin/qmd-sync-main}"   # переопределение — для тестов
 LOG="$CACHE/refresh.log"
 LOCK="$CACHE/refresh.lock"
 STAMP="$CACHE/last-check"
@@ -49,15 +49,46 @@ for a in "$@"; do
 done
 say() { [[ "$QUIET" == 1 ]] || print -r -- "$*" }
 
+# Частичный сбой (один профиль не разобран, одной копии нет) не останавливает прогон:
+# память и уроки должны обновиться и тогда. Код выхода: без --quiet — 1 при частичном
+# сбое; с --quiet (так зовёт Stop-хук в settings.json) — 0, потому что ненулевой код
+# хука показывался бы ошибкой на каждом ходе. Сигнал в этом случае — строка в $LOG; пишется
+# она только проходом, который миновал ограничение частоты, иначе лог рос бы на строку
+# за каждый ход.
+PARTIAL=0
+WARNINGS=()
+warn() {
+  PARTIAL=1
+  WARNINGS+=("$*")
+  say "qmd-refresh: $*"
+}
+log_warnings() {
+  (( ${#WARNINGS} )) || return 0
+  mkdir -p "$CACHE" 2>/dev/null || return 0
+  for w in "${WARNINGS[@]}"; do print -r -- "$(date '+%F %T') qmd-refresh: $w"; done >>"$LOG" 2>/dev/null
+  WARNINGS=()
+}
+finish() {
+  [[ "$PARTIAL" == 1 && "$QUIET" != 1 ]] && exit 1
+  exit 0
+}
+# Сбой целиком (нет qmd, нет index.yml): с --quiet тоже 0 — по той же причине.
+die() { # $1 = код без --quiet, остальное — сообщение
+  local code="$1"; shift
+  say "qmd-refresh: $*"
+  [[ "$QUIET" == 1 ]] && exit 0
+  exit "$code"
+}
+
 if ! command -v qmd >/dev/null 2>&1 && [[ -s "$HOME/.nvm/nvm.sh" ]]; then
   source "$HOME/.nvm/nvm.sh" >/dev/null 2>&1
   nvm use default --silent >/dev/null 2>&1 || true
 fi
-QMD_BIN="$(command -v qmd)" || { say "qmd-refresh: qmd не найден"; exit 127; }
+QMD_BIN="$(command -v qmd)" || die 127 "qmd не найден"
 
 # Разбор index.yml: коллекции — ключи с отступом 2 под `collections:`, их поля — с отступом 4.
 # Печатает «m<TAB>профиль» на каждую git-копию и «l<TAB>путь» на каждую локальную коллекцию.
-[[ -r "$INDEX_YML" ]] || { say "qmd-refresh: нет $INDEX_YML"; exit 1 }
+[[ -r "$INDEX_YML" ]] || die 1 "нет $INDEX_YML"
 SOURCES="$(awk '
   function flush() { if (name == "") return
     if (upd ~ /qmd-sync-main[ \t]+[^ \t]/) { n = upd; sub(/.*qmd-sync-main[ \t]+/, "", n); sub(/[ \t].*/, "", n); if (!(n in seen)) { seen[n] = 1; print "m\t" n } }
@@ -75,10 +106,10 @@ LOCAL_DIRS=(${(f)"$(print -r -- "$SOURCES" | awk -F'\t' '$1 == "l" { print $2 }'
 # Копия, ветка, аккаунт каждой git-копии — из профиля через qmd-sync-main --describe.
 COPIES=(); BRANCHES=(); ACCOUNTS=()
 for p in "${MIRRORS[@]}"; do
-  d="$("$SYNC" --describe "$p" 2>&1)" || { say "qmd-refresh: профиль $p не разобран — ${d}"; exit 1 }
+  d="$("$SYNC" --describe "$p" 2>&1)" || { warn "профиль $p не разобран, его копия пропущена — ${d}"; continue }
   c="${d%%$'\t'*}"; r="${d#*$'\t'}"
+  [[ -d "$c/.git" ]] || { warn "копии $c (профиль $p) нет, пропущена — сперва запусти сессию с qmd-mcp"; continue }
   COPIES+=("$c"); BRANCHES+=("${r%%$'\t'*}"); ACCOUNTS+=("${r#*$'\t'}")
-  [[ -d "$c/.git" ]] || { say "qmd-refresh: копии $c нет — сперва запусти сессию с qmd-mcp"; exit 1; }
 done
 
 # Сбой подтяжки (маркеры пишет qmd-sync-main, свой на профиль): индекс отвечает старым снимком.
@@ -101,13 +132,15 @@ fi
 # Частота: сетевой вызов не чаще раза в THROTTLE секунд.
 if [[ "$FORCE" != 1 && "$LOCAL_NEWER" != 1 && -f "$STAMP" ]]; then
   age=$(( $(date +%s) - $(stat -f%m "$STAMP" 2>/dev/null || echo 0) ))
-  (( age < THROTTLE )) && { say "qmd-refresh: проверяли $age с назад, пропуск"; exit 0 }
+  (( age < THROTTLE )) && { say "qmd-refresh: проверяли $age с назад, пропуск"; finish }
 fi
+
+log_warnings   # ограничение частоты пройдено (или обновление вне очереди) — пишем предупреждения
 
 # Сдвинулась ли основная ветка хоть одной копии. Пустой ответ (нет сети) — не повод
 # считать, что сдвинулась.
 if [[ "$FORCE" != 1 && "$LOCAL_NEWER" != 1 ]]; then
-  (( ${#COPIES} )) || { say "qmd-refresh: git-копий в $INDEX_YML нет, локальное не менялось — пропуск"; exit 0 }
+  (( ${#COPIES} )) || { say "qmd-refresh: живых git-копий в $INDEX_YML нет, локальное не менялось — пропуск"; finish }
   moved=0
   for i in {1..${#COPIES}}; do
     COPY="${COPIES[$i]}" BRANCH="${BRANCHES[$i]}" ACCOUNT="${ACCOUNTS[$i]}"
@@ -128,11 +161,11 @@ if [[ "$FORCE" != 1 && "$LOCAL_NEWER" != 1 ]]; then
     if [[ "$remote" == "$local_ref" ]]; then say "qmd-refresh: индекс уже на $remote"; else moved=1; fi
   done
   : > "$STAMP"
-  [[ "$moved" == 1 ]] || exit 0
+  [[ "$moved" == 1 ]] || finish
 fi
 
 # Замок общий с qmd-mcp: занят — там идёт та же работа.
-mkdir "$LOCK" 2>/dev/null || { say "qmd-refresh: обновление уже идёт"; exit 0 }
+mkdir "$LOCK" 2>/dev/null || { say "qmd-refresh: обновление уже идёт"; finish }
 
 run_update() {
   trap 'rm -rf "$LOCK" 2>/dev/null' EXIT TERM INT HUP
@@ -160,3 +193,4 @@ else
   disown 2>/dev/null
   say "qmd-refresh: обновление пошло в фоне, лог $LOG"
 fi
+finish

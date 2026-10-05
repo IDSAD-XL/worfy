@@ -81,6 +81,18 @@ git_personal() {
   fi
 }
 
+# Копия должна быть корнем СВОЕГО репозитория. Иначе `git -C` уходит вверх по дереву
+# и делает fetch + checkout --detach в чужом репозитории, внутри которого лежит путь
+# (неверный qmd.mirror.path, удалённая копия внутри рабочего проекта). Отказ — как
+# сбой подтяжки: маркер, громкая строка, код 0.
+top="$(git -C "$COPY" rev-parse --show-toplevel 2>/dev/null)"
+if [[ -z "$top" || "${top:A}" != "${COPY:A}" ]]; then
+  why="копия $COPY не корень git-репозитория (git видит корень: ${top:-нет репозитория}) — fetch/checkout не делаю"
+  print -r -- "$(date '+%F %T') [$NAME] $why" > "$MARK"
+  print -u2 -r -- "qmd-sync-main: SYNC FAILED — $why"
+  exit 0
+fi
+
 if out="$(git_personal -C "$COPY" fetch -q --depth 1 origin "$BRANCH" 2>&1)" \
    && out2="$(git -C "$COPY" checkout -q --detach "origin/$BRANCH" 2>&1)"; then
   rm -f "$MARK"
