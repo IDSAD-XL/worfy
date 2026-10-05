@@ -26,7 +26,13 @@ let target: AttachTarget
 
 /** Every path under `dir`, relative, sorted. */
 const tree = (dir: string): string[] => (existsSync(dir) ? (readdirSync(dir, { recursive: true }) as string[]).sort() : [])
-const git = (...args: string[]) => execFileSync('git', ['-C', project, ...args], { encoding: 'utf8' })
+/**
+ * git in the Project, with auto maintenance off. `git commit` otherwise starts
+ * `git maintenance run --auto --detach`; with the git of the CI runner (2.55) the detached child
+ * keeps .git/objects/maintenance.lock after commit returns, so a listing of the Project taken right
+ * after the commit could hold the lock and the next one not.
+ */
+const git = (...args: string[]) => execFileSync('git', ['-C', project, '-c', 'maintenance.auto=false', ...args], { encoding: 'utf8' })
 
 beforeEach(async () => {
   scratch = await realpath(await mkdtemp(join(tmpdir(), 'worfy-attachments-')))

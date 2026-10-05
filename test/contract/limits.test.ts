@@ -1,7 +1,8 @@
 // The Limits in main end to end: src/main/agent/limits.ts over a temporary WORFY_DATA_DIR, fed by
 // the recorded SDK messages (test/fixtures/sdk-messages/) and by statusline-limits.json, and the
 // `limits` channels registered through registerIpc, the same wrapper the app uses.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { EventEmitter } from 'node:events'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, utimesSync, watch, writeFileSync, type FSWatcher } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -12,6 +13,13 @@ import { appUrlMatcher, registerIpc } from '../../src/main/ipc/index'
 import { limitsHandlers } from '../../src/main/ipc/limits'
 import type { LimitsState } from '../../src/shared/agent/limits'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+
+// node:fs as it is, except that watch is a spy: one test puts in a folder watch that reports nothing,
+// to check the poll alone.
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return { ...actual, watch: vi.fn(actual.watch) }
+})
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const FIXTURES = join(__dirname, '..', 'fixtures', 'sdk-messages')
@@ -208,6 +216,29 @@ describe('statusline-limits.json', () => {
     try {
       writeStatusline(STATUSLINE, Date.now())
       const state = await Promise.race([changed, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('no change within 10 s')), 10_000))])
+      expect(state.windows.five_hour).toMatchObject({ utilization: 0.29, source: 'statusline' })
+    } finally {
+      limits.stop()
+    }
+  })
+
+  it('is polled too: a write made while the folder watch starts is read although the watch never reports it', { timeout: 10_000 }, async () => {
+    // FSEvents starts its stream on another thread and may miss a write made before the stream is up.
+    // This folder watch misses the write made while it starts, and reports nothing afterwards either.
+    let starts = 0
+    vi.mocked(watch).mockImplementationOnce(() => {
+      starts++
+      writeStatusline(STATUSLINE, Date.now())
+      return Object.assign(new EventEmitter(), { close: () => undefined }) as unknown as FSWatcher
+    })
+    const limits = tracker()
+    const changed = new Promise<LimitsState>((resolve) => limits.subscribe(resolve))
+    limits.watchStatusline()
+    try {
+      // The write came after the first read and before the poll started. A poll whose baseline is a
+      // first look of its own already has the new file in that baseline and never reports it.
+      expect(starts).toBe(1)
+      const state = await Promise.race([changed, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('no change within 3 s')), 3_000))])
       expect(state.windows.five_hour).toMatchObject({ utilization: 0.29, source: 'statusline' })
     } finally {
       limits.stop()

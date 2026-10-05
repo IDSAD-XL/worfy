@@ -360,12 +360,18 @@ describe('Card store', () => {
       try {
         const seen: CardInfo[] = []
         watching.onChange((info) => seen.push(info))
-        writeFileSync(join(cardDir('c1'), 'index.html'), '<title>Clock v2</title>')
+        // A new Card, which no setup step wrote. A late event of a setup write to c1 (settle() sees
+        // reports only, not a change still in its quiet period) may still be reported while the
+        // Project is listed; it says nothing about this change, so the check is on c2 alone.
+        mkdirSync(cardDir('c2'))
+        writeFileSync(join(cardDir('c2'), 'index.html'), '<title>Timer</title>')
         // The file event arrives well inside the 300 ms quiet period; the Project leaves before it ends.
+        // The quiet period starts after this sleep does and is longer, so it cannot end first however
+        // late the timers fire; an event later than the sleep only finds the watch already stopped.
         await sleep(150)
         removeFromList(PROJECT)
         await sleep(500)
-        expect(seen.filter((info) => info.projectId === PROJECT)).toEqual([])
+        expect(seen.filter((info) => info.projectId === PROJECT && info.cardId === 'c2')).toEqual([])
         // Reading a Card of a Project that is not listed fails and is logged; nothing may try.
         expect(errors).not.toHaveBeenCalled()
       } finally {

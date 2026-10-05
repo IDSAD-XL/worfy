@@ -9,7 +9,7 @@
 //
 // A change is written to limits.json and sent to the subscribers (src/main/ipc/limits.ts sends it
 // to the windows). worfy writes nowhere else: not to ~/.claude, not to a Project's repository.
-import { existsSync, mkdirSync, readFileSync, statSync, unwatchFile, watch, watchFile, type FSWatcher, type Stats } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, watch, type FSWatcher } from 'node:fs'
 import { join } from 'node:path'
 import { emptyLimits, limitUpdatesFromSdk, limitUpdatesFromStatusline, limitsStateSchema, mergeLimits, type LimitUpdate, type LimitsState } from '../../shared/agent/limits'
 import { observeMessages } from '../mcp/canvas-server'
@@ -46,7 +46,9 @@ export class LimitsTracker {
   private readonly now: () => number
   private watcher: FSWatcher | null = null
   private timer: ReturnType<typeof setTimeout> | null = null
-  private poller: ((current: Stats, previous: Stats) => void) | null = null
+  private poller: ReturnType<typeof setInterval> | null = null
+  /** The status line file's modification time when it was last read; the poll compares with it. */
+  private statuslineModified: number | null = null
 
   constructor(private readonly options: LimitsTrackerOptions) {
     this.file = join(options.dataDir, LIMITS_FILE)
@@ -120,6 +122,7 @@ export class LimitsTracker {
     } catch {
       return
     }
+    this.statuslineModified = modified
     let value: unknown
     try {
       value = JSON.parse(text)
@@ -146,19 +149,30 @@ export class LimitsTracker {
     } catch (error) {
       console.warn('[limits] cannot watch the status line file', error)
     }
-    this.poller = (current, previous) => {
-      if (current.mtimeMs !== previous.mtimeMs) this.scheduleRead()
-    }
-    watchFile(this.statuslineFile, { interval: STATUSLINE_POLL_MS, persistent: false }, this.poller)
+    // The poll compares with the file as last read above, not with a first look of its own:
+    // fs.watchFile takes that look on the thread pool after this method returns, so a file written
+    // in between was never reported by it, and FSEvents may miss such a write too.
+    this.poller = setInterval(() => this.pollStatusline(), STATUSLINE_POLL_MS)
+    this.poller.unref()
   }
 
   stop(): void {
     this.watcher?.close()
     this.watcher = null
-    if (this.poller !== null) unwatchFile(this.statuslineFile, this.poller)
+    if (this.poller !== null) clearInterval(this.poller)
     this.poller = null
     if (this.timer !== null) clearTimeout(this.timer)
     this.timer = null
+  }
+
+  private pollStatusline(): void {
+    let modified: number
+    try {
+      modified = statSync(this.statuslineFile).mtimeMs
+    } catch {
+      return
+    }
+    if (modified !== this.statuslineModified) this.scheduleRead()
   }
 
   private scheduleRead(): void {
