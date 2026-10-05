@@ -102,7 +102,7 @@ test('a note is created, moved, resized and edited, survives a restart, and each
     expect(initial).toMatchObject({ kind: 'note', w: 220, h: 120 })
 
     await note.getByRole('textbox', { name: 'Note text' }).fill('remember the milk')
-    await window.locator('.react-flow__pane').click({ position: { x: 700, y: 500 } })
+    await window.locator('.react-flow__pane').click({ position: { x: 40, y: 40 } }) // top left: the minimap sits bottom right
     await expect.poll(async () => (await layoutOf(window, ALPHA)).nodes[0]?.data).toEqual({ text: 'remember the milk' })
 
     // Moved by its header. The zoom is 1, so screen pixels are canvas units: main must save the
@@ -223,7 +223,7 @@ test('a note keeps its focus and caret while what is typed reaches main, and a c
     await expect.poll(async () => (await layoutOf(window, ALPHA)).nodes[0]?.data).toEqual({ text: 'first second' })
 
     // Another writer (later: the MCP tools) changes the text while the note is not being edited.
-    await window.locator('.react-flow__pane').click({ position: { x: 700, y: 500 } })
+    await window.locator('.react-flow__pane').click({ position: { x: 40, y: 40 } }) // top left: the minimap sits bottom right
     await window.evaluate(() =>
       (globalThis as unknown as { worfy: { invoke(c: string, i: unknown): Promise<unknown> } }).worfy.invoke('layout.apply', {
         projectId: 'alpha-0000000a',
