@@ -13,6 +13,7 @@
 import { useEffect, useMemo } from 'react'
 import { useReactFlow, useStoreApi } from '@xyflow/react'
 import { create } from 'zustand'
+import { EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, ticketNodeId } from '../../../shared/layout/derived'
 import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput } from '../../../shared/layout/types'
 import type { Epic, Ticket, WorkflowModel } from '../../../shared/workflow/types'
 import { useProjects } from '../../projects/useProjects'
@@ -33,11 +34,8 @@ import type { NodeSource, NodeSourceContext } from '../extensions'
 import type { CanvasFlowNode } from '../nodes'
 import { applyLayoutOp } from '../useLayout'
 
-export const EPIC_FRAME_KIND = 'epic-frame'
-export const TICKET_KIND = 'ticket'
-
-export const epicNodeId = (epic: string): string => `epic:${epic}`
-export const ticketNodeId = (epic: string, num: number): string => `ticket:${epic}/${num}`
+// The kinds and ids are shared with main: the canvas tools must not list or move these Nodes.
+export { EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, ticketNodeId }
 const offsetKey = (num: number): string => `offset:${num}`
 
 /** What an Epic frame Node carries in `data.node.data`. */

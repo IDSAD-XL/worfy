@@ -35,6 +35,7 @@ import {
   type ListedNode,
 } from '../../shared/canvas/tools'
 import { cardEditedBy } from '../../shared/cards/last-editor'
+import { SOURCE_NODE_KINDS, isSourceNodeId } from '../../shared/layout/derived'
 import type { LayoutNode, LayoutOpInput, LayoutState } from '../../shared/layout/types'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import type { CanvasAttachment } from '../agent/options'
@@ -103,11 +104,17 @@ type Handlers = { [Name in CanvasToolName]: (args: CanvasToolArgs[Name]) => unkn
 
 function handlers(context: CanvasContext): Handlers {
   const { projectId, layout } = context
-  const nodes = (): LayoutNode[] => layout.get(projectId).layout.nodes
+  // Epic frames and Tickets are laid out from the workflow (shared/layout/derived.ts): the Layout
+  // Node of an Epic frame is the renderer's saved offsets, not a Node on the canvas, so the tools
+  // neither list nor change it.
+  const nodes = (): LayoutNode[] => layout.get(projectId).layout.nodes.filter((node) => !SOURCE_NODE_KINDS.includes(node.kind))
   const nodeOf = (id: string): LayoutNode => {
     const node = nodes().find((each) => each.id === id)
-    if (!node) throw new ToolError(`This Project's canvas has no Node with id ${id}. Call list_nodes for the ids.`)
-    return node
+    if (node) return node
+    if (isSourceNodeId(id) || layout.get(projectId).layout.nodes.some((each) => each.id === id)) {
+      throw new ToolError(`${id} is an Epic frame or a Ticket: they are laid out from the workflow and only the user moves them. Link a Card to them with link_card.`)
+    }
+    throw new ToolError(`This Project's canvas has no Node with id ${id}. Call list_nodes for the ids.`)
   }
   const apply = (op: LayoutOpInput, id: string): ListedNode => {
     layout.apply(projectId, op)

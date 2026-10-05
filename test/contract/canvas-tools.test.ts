@@ -394,6 +394,38 @@ describe('canvas tools: the agent cannot remove Nodes or hide locked ones', () =
   })
 })
 
+describe('canvas tools: Epic frames and Tickets', () => {
+  // The renderer keeps, per Epic, a Layout Node of kind epic-frame with offsets from the frame's
+  // automatic place (ticket 11); it is not a Node on the canvas.
+  const frameState = (): LayoutOpInput => ({
+    op: 'create',
+    node: { id: 'epic:worfy-mvp', kind: 'epic-frame', x: 30, y: -20, w: 1, h: 1, locked: true, data: { collapsed: true, 'offset:3': { dx: 5, dy: 6 } } },
+  })
+
+  it('list_nodes does not list the saved state of an Epic frame, nor a stray ticket Node', async () => {
+    store.apply(PROJECT, frameState())
+    store.apply(PROJECT, { op: 'create', node: { id: 'stray', kind: 'ticket', x: 0, y: 0, w: 220, h: 120, data: {} } })
+    store.apply(PROJECT, note('n1'))
+    const rpc = await connect()
+    expect(json<ListedNode[]>(await rpc.call('list_nodes')).map((node) => node.id)).toEqual(['n1'])
+  })
+
+  it('every tool that names a Node refuses an Epic frame or a Ticket and changes nothing', async () => {
+    store.apply(PROJECT, frameState())
+    const rpc = await connect()
+    const reason = /is an Epic frame or a Ticket: .*only the user moves them/
+    await refused(rpc, 'move_node', { id: 'epic:worfy-mvp', x: 500, y: 300 }, reason)
+    await refused(rpc, 'resize_node', { id: 'epic:worfy-mvp', w: 400, h: 300 }, reason)
+    await refused(rpc, 'hide_node', { id: 'epic:worfy-mvp', hidden: true }, reason)
+    await refused(rpc, 'update_node', { id: 'epic:worfy-mvp', title: 't' }, reason)
+    await refused(rpc, 'link_card', { id: 'epic:worfy-mvp', target: 'worfy-mvp' }, reason)
+    // A Ticket has no Layout Node at all; the answer still says what it is.
+    await refused(rpc, 'move_node', { id: 'ticket:worfy-mvp/3', x: 10, y: 10 }, reason)
+    await refused(rpc, 'move_node', { id: 'epic:other', x: 10, y: 10 }, reason)
+    expect(nodeOf('epic:worfy-mvp')).toMatchObject({ x: 30, y: -20, w: 1, h: 1, hidden: false })
+  })
+})
+
 describe('canvas tools: arguments at the boundary', () => {
   it('keys a tool does not declare never reach the Layout, through the server and through a direct call', async () => {
     store.apply(PROJECT, note('n1'))
