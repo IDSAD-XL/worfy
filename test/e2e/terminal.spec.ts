@@ -95,12 +95,35 @@ async function terminalNodes(window: Page): Promise<StateNode[]> {
   return result.value.layout.nodes.filter((node) => node.kind === 'terminal')
 }
 
-/** Right click on an empty spot of the Canvas, then "New terminal". */
-async function newTerminal(window: Page): Promise<Locator> {
-  await window.locator('.react-flow__pane').click({ button: 'right', position: { x: 80, y: 60 } })
+/**
+ * Right click on the Canvas at `at` (relative to the pane), then "New terminal". The spot must be
+ * the empty plane: the Canvas starts with other Nodes on it (the Orchestrator Node at its top
+ * left), and a right click on a Node opens no Canvas menu. Nodes sit inside the pane element, so
+ * the click alone cannot tell which one it hit; the check below fails with a clear message instead.
+ */
+async function newTerminalAt(window: Page, at: { x: number; y: number }): Promise<void> {
+  const pane = window.locator('.react-flow__pane')
+  await expect
+    .poll(
+      () =>
+        pane.evaluate((element, point) => {
+          const box = element.getBoundingClientRect()
+          // The e2e tsconfig has no DOM lib: the page's document is reached through the element.
+          const { ownerDocument } = element as unknown as { ownerDocument: { elementFromPoint(x: number, y: number): unknown } }
+          return ownerDocument.elementFromPoint(box.x + point.x, box.y + point.y) === element
+        }, at),
+      { message: `the Canvas is not empty at ${at.x},${at.y}` },
+    )
+    .toBe(true)
+  await pane.click({ button: 'right', position: at })
   const menu = window.getByRole('menu', { name: 'Canvas' })
   await menu.getByRole('menuitem', { name: 'New terminal' }).click()
   await expect(menu).toBeHidden()
+}
+
+/** The first Terminal Node, below the Orchestrator Node, with room under it to grow. */
+async function newTerminal(window: Page): Promise<Locator> {
+  await newTerminalAt(window, { x: 40, y: 260 })
   const node = window.getByTestId('terminal-node')
   await expect(node).toHaveCount(1)
   await expect(node).toHaveAttribute('data-state', 'running')
@@ -248,8 +271,7 @@ test('quitting worfy ends every shell; after a restart the Node starts a new she
     const node = await newTerminal(window)
     await run(window, node, 'echo old""-output', /^old-output$/m)
     // A second terminal, with a job running in it.
-    await window.locator('.react-flow__pane').click({ button: 'right', position: { x: 700, y: 60 } })
-    await window.getByRole('menu', { name: 'Canvas' }).getByRole('menuitem', { name: 'New terminal' }).click()
+    await newTerminalAt(window, { x: 700, y: 60 })
     const nodes = window.getByTestId('terminal-node')
     await expect(nodes).toHaveCount(2)
     await expect(nodes.nth(1)).toHaveAttribute('data-state', 'running')
