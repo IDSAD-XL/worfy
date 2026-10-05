@@ -237,11 +237,67 @@ describe('buildSubagentTree on live events', () => {
     expect(flattenSubagents(tree).filter((info) => info.toolUseId === 'toolu_01S7AGENT3XXXXXXXXXXXXXX')).toHaveLength(1)
     expect(flattenSubagents(tree).map((info) => info.agentId).sort()).toEqual(['a3000000000000286', 'a4000000000000286', 'a5000000000000286'])
   })
+
+  it('merges the record found by the call id with the one found by the Subagent id when a file names both', () => {
+    // The call comes first (toolUseId X), then a task-notification with the Subagent's id and no
+    // tool_use_id, and only then the Subagent's meta.json names call X: three sources, one node.
+    const signals = live([
+      [1000, call('toolu_X', { subagent_type: 'scout', run_in_background: true })],
+      [1100, { type: 'tool_result', toolUseId: 'toolu_X', content: 'Async agent launched successfully.', isError: false, parentToolUseId: null }],
+      [5000, finished('a-x', null, 'completed', 'Scout done.')],
+    ])
+    const file = subagentFile('a-x', { toolUseId: 'toolu_X', agentType: 'scout' }, [])
+    const tree = buildSubagentTree({ signals, files: [file] })
+    expect(flattenSubagents(tree).map(({ id, agentId, toolUseId, status, summary, durationMs }) => ({ id, agentId, toolUseId, status, summary, durationMs }))).toEqual([
+      { id: 'toolu_X', agentId: 'a-x', toolUseId: 'toolu_X', status: 'done', summary: 'Scout done.', durationMs: 4000 },
+    ])
+  })
+
+  it("names a Subagent by its files' id when the live task id differs, and nests by that id", () => {
+    // The SDK's task_id has matched the file's agentId on real transcripts, but nothing promises it:
+    // the transcript to open and the parent named by meta.parentAgentId use the file's id.
+    const signals = live([
+      [1000, call('toolu_T1', { subagent_type: 'implementer' })],
+      [1010, started('task-K1', 'toolu_T1', 'implementer')],
+    ])
+    const parent = subagentFile('R1', { toolUseId: 'toolu_T1', agentType: 'implementer' }, [])
+    const child = subagentFile('R2', { toolUseId: 'toolu_T2', agentType: 'scout', parentAgentId: 'R1' }, [])
+    const tree = buildSubagentTree({ signals, files: [parent, child] })
+    expect(flattenSubagents(tree).map(({ id, agentId, parentAgentId, depth, transcript }) => ({ id, agentId, parentAgentId, depth, transcript }))).toEqual([
+      { id: 'toolu_T1', agentId: 'R1', parentAgentId: null, depth: 1, transcript: true },
+      { id: 'toolu_T2', agentId: 'R2', parentAgentId: 'R1', depth: 2, transcript: true },
+    ])
+    // The live task id still finds the Subagent: its notification ends it.
+    const done = buildSubagentTree({ signals: [...signals, ...live([[3000, finished('task-K1', null, 'completed')]])], files: [parent, child] })
+    expect(done[0]).toMatchObject({ agentId: 'R1', status: 'done', durationMs: 2000 })
+    expect(flattenSubagents(done)).toHaveLength(2)
+  })
+
+  it('keeps every id of merged records: the live task id still finds the Subagent after the files merge it', () => {
+    // started(task-K1, T1) and a notification by the files' id R1 without a call id make two
+    // records; R1's meta names T1 and merges them. A child named by task-K1 must find the merged one.
+    const signals = live([
+      [1000, call('toolu_T1', { subagent_type: 'implementer' })],
+      [1010, started('task-K1', 'toolu_T1', 'implementer')],
+      [4000, finished('R1', null, 'completed')],
+    ])
+    const parent = subagentFile('R1', { toolUseId: 'toolu_T1', agentType: 'implementer' }, [])
+    const child = subagentFile('R2', { toolUseId: 'toolu_T2', agentType: 'scout', parentAgentId: 'task-K1' }, [])
+    const tree = buildSubagentTree({ signals, files: [parent, child] })
+    expect(flattenSubagents(tree).map(({ agentId, parentAgentId, depth, status }) => ({ agentId, parentAgentId, depth, status }))).toEqual([
+      { agentId: 'R1', parentAgentId: null, depth: 1, status: 'done' },
+      { agentId: 'R2', parentAgentId: 'R1', depth: 2, status: 'running' },
+    ])
+  })
 })
 
 describe('summaryLine and the meta file', () => {
   it('takes the first line without markdown marks', () => {
-    expect(summaryLine('\n\n## **REJECTED** — two findings\nmore')).toBe('REJECTED** — two findings')
+    expect(summaryLine('\n\n## **REJECTED** — two findings\nmore')).toBe('REJECTED — two findings')
+    expect(summaryLine('**REJECTED** — reason')).toBe('REJECTED — reason')
+    expect(summaryLine('*VERIFIED*: the __fix__ holds')).toBe('VERIFIED: the fix holds')
+    // Underscores inside a word and a lone asterisk are not emphasis.
+    expect(summaryLine('Checked subagent_type and 2 * 3')).toBe('Checked subagent_type and 2 * 3')
     expect(summaryLine('**VERIFIED**')).toBe('VERIFIED')
     expect(summaryLine('   ')).toBeNull()
     expect(summaryLine(null)).toBeNull()

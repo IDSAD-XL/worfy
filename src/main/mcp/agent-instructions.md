@@ -18,4 +18,5 @@ Change the canvas only with the `worfy-canvas` tools, never by editing files:
 `list_nodes`, `create_card`, `create_note`, `update_node`, `move_node`, `resize_node`,
 `hide_node`, `link_card`. Nodes cannot be deleted; locked Nodes cannot be hidden. Epic frames and
 Tickets are laid out from the workflow: the tools do not list or move them; `link_card` links a
-Card to them.
+Card to them. Subagent Nodes are laid out from their Session's transcript: the tools do not list,
+move or link them.

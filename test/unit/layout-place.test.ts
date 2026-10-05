@@ -32,9 +32,9 @@ describe('placeNewNode', () => {
     expect(placeNewNode([node(120, 80, 220, 120), node(500, 300, 100, 50)], SIZE)).toStrictEqual({ x: 120, y: 390 })
   })
 
-  it('does not count pinned, hidden, Epic frame and Ticket Nodes, neither for the spot nor for the place under them', () => {
+  it('does not count pinned, hidden, Epic frame, Ticket and Subagent Nodes, neither for the spot nor for the place under them', () => {
     const corner = { x: 40, y: 40, w: 100, h: 100 }
-    const skipped: Partial<LayoutNode>[] = [{ pinned: true }, { hidden: true }, { kind: 'epic-frame' }, { kind: 'ticket' }]
+    const skipped: Partial<LayoutNode>[] = [{ pinned: true }, { hidden: true }, { kind: 'epic-frame' }, { kind: 'ticket' }, { kind: 'subagent' }, { kind: 'subagent-tree' }]
     for (const extra of skipped) {
       expect(placeNewNode([node(corner.x, corner.y, corner.w, corner.h, extra)], SIZE), JSON.stringify(extra)).toStrictEqual({ x: 40, y: 40 })
       // Under the Node that takes the spot, not under a skipped one lower down.

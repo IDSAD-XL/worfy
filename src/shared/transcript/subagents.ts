@@ -246,11 +246,16 @@ export function subagentFile(agentId: string, meta: unknown, lines: readonly str
 
 // ── the tree ────────────────────────────────────────────────────────────────
 
-/** The first line of a final answer, without markdown emphasis or heading marks; null when there is none. */
+/**
+ * The first line of a final answer without markdown marks: heading and quote marks at the start,
+ * and emphasis (`**x**`, `__x__`, `*x*`) anywhere in the line. Null when there is no line.
+ */
 export function summaryLine(text: string | null | undefined): string | null {
   if (!text) return null
   for (const raw of text.split('\n')) {
     const line = raw
+      .replace(/(\*\*|__)(?=\S)(.+?)(?<=\S)\1/g, '$2')
+      .replace(/(?<![\w*])\*(?=\S)([^*]+?)(?<=\S)\*(?![\w*])/g, '$1')
       .replace(/^[\s#>*_`-]+/, '')
       .replace(/[\s*_`]+$/, '')
       .trim()
@@ -269,6 +274,8 @@ type Signal<K extends SubagentSignal['kind']> = Extract<SubagentSignal, { kind: 
 /** Everything known about one Subagent, gathered from every source. */
 interface Gathered {
   agentId: string | null
+  /** Every Subagent id this record was found by: a live task id and the id of its files may differ. */
+  agentIds: Set<string>
   toolUseId: string | null
   call?: Signal<'call'>
   /** The agentId of the transcript the call is in; null for the Session's own. */
@@ -294,19 +301,32 @@ class Index {
       a.toolUseId ??= t.toolUseId
       a.agentId ??= t.agentId
       if (t.toolUseId) this.byTool.set(t.toolUseId, a)
-      if (t.agentId) this.byAgent.set(t.agentId, a)
+      for (const id of t.agentIds) {
+        a.agentIds.add(id)
+        this.byAgent.set(id, a)
+      }
       this.all.splice(this.all.indexOf(t), 1)
       record = a
     }
     if (!record) {
-      record = { agentId: null, toolUseId: null }
+      record = { agentId: null, agentIds: new Set(), toolUseId: null }
       this.all.push(record)
     }
-    if (agentId) record.agentId ??= agentId
+    if (agentId) {
+      record.agentId ??= agentId
+      record.agentIds.add(agentId)
+      this.byAgent.set(agentId, record)
+    }
     if (toolUseId) record.toolUseId ??= toolUseId
-    if (record.agentId) this.byAgent.set(record.agentId, record)
     if (record.toolUseId) this.byTool.set(record.toolUseId, record)
     return record
+  }
+
+  /** Binds a Subagent's files to its record. The files' id names the Subagent: its transcript is `agent-<id>.jsonl`. */
+  bindFile(file: SubagentFile): void {
+    const record = this.get(file.agentId, file.meta?.toolUseId)
+    record.file = file
+    record.agentId = file.agentId
   }
 
   byToolUse(toolUseId: string): Gathered | undefined {
@@ -404,7 +424,7 @@ export function buildSubagentTree({ signals, files }: { signals: readonly Subage
   const index = new Index()
   gather(index, signals, null)
   for (const file of files) gather(index, file.signals, file.agentId)
-  for (const file of files) index.get(file.agentId, file.meta?.toolUseId).file = file
+  for (const file of files) index.bindFile(file)
 
   // Background tasks that are not Subagents (a Bash run in the background) also send
   // task-notifications: only what has an Agent call, files or a Subagent type is kept.

@@ -207,7 +207,12 @@ export function useSubagentTrees(root: string | undefined, sessionIds: readonly 
     const list = ids.split('\n')
     for (const sessionId of list) acquire(root, sessionId)
     return () => {
-      for (const sessionId of list) release(root, sessionId)
+      // Released after the next run of this effect has taken its own list: React runs the cleanup
+      // and the next effect in one go, so a Session in both lists keeps its reader, its files and
+      // its tree instead of dropping them and being read again.
+      queueMicrotask(() => {
+        for (const sessionId of list) release(root, sessionId)
+      })
     }
   }, [root, ids])
   const bySession = useSubagentsStore((store) => store.bySession)

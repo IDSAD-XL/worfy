@@ -26,5 +26,8 @@ export const subagentNodeId = (sessionId: string, key: string): string => `subag
 /** Kinds that only a node source draws; a Layout Node of such a kind is not a Node on the Canvas. */
 export const SOURCE_NODE_KINDS: readonly string[] = [EPIC_FRAME_KIND, TICKET_KIND, SUBAGENT_KIND, SUBAGENT_TREE_KIND]
 
+/** True for the id of a Subagent Node, or of the Layout Node that keeps a Session's Subagent offsets. */
+export const isSubagentNodeId = (id: string): boolean => id.startsWith('subagent:') || id.startsWith('subagents:')
+
 /** True for the id of an Epic frame, a Ticket or a Subagent on the Canvas, whether or not the Layout has a Node for it. */
-export const isSourceNodeId = (id: string): boolean => id.startsWith('epic:') || id.startsWith('ticket:') || id.startsWith('subagent:') || id.startsWith('subagents:')
+export const isSourceNodeId = (id: string): boolean => id.startsWith('epic:') || id.startsWith('ticket:') || isSubagentNodeId(id)

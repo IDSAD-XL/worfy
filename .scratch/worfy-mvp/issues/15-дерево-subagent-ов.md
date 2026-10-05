@@ -54,6 +54,8 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «Subagent»; [BRIEF.md]
   (`running`, `done`, `error`), фоновый ли, время старта и длительность, первая строка итога и вердикт
   `VERIFIED`/`REJECTED`, глубина, дети. Один и тот же Subagent, названный разными источниками
   (`toolUseId` вызова, `agentId` результата, `meta.toolUseId`, task-notification), сливается в один узел.
+  Узел помнит все id, по которым его нашли; если id живого `task_started` и id файлов разные, узел
+  называется id файлов: по нему открывается транскрипт и ищется родитель по `meta.parentAgentId`.
 - main: `src/main/claude-home/subagents.ts` читает транскрипт Сессии и папку `subagents/` с курсором
   по каждому файлу (повторный запрос дочитывает только новое); каналы `claudeHome.subagents` и
   `claudeHome.subagentTranscript` (`src/shared/ipc/claude-home.ts`, `src/main/ipc/claude-home.ts`).
@@ -85,7 +87,9 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «Subagent»; [BRIEF.md]
   вычисляется из транскрипта, а ручной сдвиг хранится в одном Узле Раскладки вида `subagent-tree` на
   Сессию (`subagents:<sessionId>`, `data["offset:<ключ>"] = {dx, dy}`). Виды `subagent` и
   `subagent-tree` добавлены в `SOURCE_NODE_KINDS` и `isSourceNodeId` (`src/shared/layout/derived.ts`):
-  MCP-инструменты холста их не видят, авто-раскладка их не учитывает.
+  MCP-инструменты холста их не видят, авто-раскладка их не учитывает. Отказ MCP-сервера холста на id
+  Subagent-а говорит, что это Subagent Сессии (а не Epic frame или Тикет), и `agent-instructions.md`
+  называет Узлы Subagent-ов.
 - Узлы Subagent-ов — дети Узла Сессии в React Flow (`parentId`): двигаются вместе с ним. У Узла
   Сессии и Оркестратора нет handle, поэтому линии дерева начинаются у невидимого «якоря» на правом
   краю Узла Сессии (Узел того же вида с `variant: 'anchor'`); `SessionNode.tsx` и
@@ -98,14 +102,20 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «Subagent»; [BRIEF.md]
   done (ошибка вызова — error); фоновый ждёт task-notification; без них — done, если файл Subagent-а
   кончается ответом с `end_turn`; `meta.stoppedByUser` — error; иначе running. Итог — `<result>`
   notification, текст результата синхронного вызова, последний ответ из файла; первая строка без
-  markdown-разметки.
+  markdown-разметки (`#`, `>` в начале; `**x**`, `__x__`, `*x*` в любом месте строки).
+- Когда меняется набор Сессий на Холсте, `useSubagentTrees` отпускает Сессии старого списка
+  микрозадачей после того, как effect взял новый список: Сессия, оставшаяся в списке, сохраняет
+  дерево и курсор чтения и не перечитывается.
 - Время живых событий (у SDK-событий его нет) — момент, когда renderer впервые увидел событие.
 - Связь вложенного в живой Сессии — `parentToolUseId` вызова Agent; в файлах — `meta.parentAgentId`,
   иначе транскрипт родителя, где лежит вызов.
-- Правая панель показывается и у Сессии, начатой вне worfy (`ExternalSessionPanel.tsx`); для этого
-  `SessionRail` вынесен в `src/renderer/session/SessionRail.tsx`, а `RailBlockProps` получил
-  `claudeSessionId` (id файлов Сессии под `~/.claude`). `sessionId` у внешней Сессии остаётся null —
-  он для каналов `agent.*`.
+- Правая панель показывается и у Сессии, начатой вне worfy (`ExternalSessionPanel.tsx`): она рисует
+  её через `src/renderer/session/SessionRail.tsx`, а `RailBlockProps` получил `claudeSessionId` (id
+  файлов Сессии под `~/.claude`; без него берётся `sessionId`). `sessionId` у внешней Сессии
+  остаётся null — он для каналов `agent.*`. `SessionView.tsx` правится одной строкой (передать
+  `agentId` и блоки панели в `ExternalSessionPanel`) и пока держит свою копию `SessionRail`: тикеты
+  18 и 19 той же волны правят импорты и соседние строки этого файла, и перенос давал конфликт
+  слияния. Копию заменить импортом из `SessionRail.tsx` после их мержа.
 - Fixture «три Subagent-а» — новая синтетическая Сессия 7777 в отдельной папке
   `projects/-Users-test-projects-agents/` (не в папке demo: test-ы 13 и 14 считают её Сессии).
   fake-сценарий — `test/fixtures/agent-scripts/subagents.jsonl`.
@@ -114,8 +124,10 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «Subagent»; [BRIEF.md]
   `src/renderer/claude-home/subagents.ts` (новый), `src/renderer/claude-home/useClaudeHome.ts`
   (транскрипт Subagent-а, опрос раз в 2 с), `src/renderer/canvas/sources/subagents.ts` (новый),
   `src/shared/layout/derived.ts`, `src/renderer/session/{navigation.ts,ExternalSessionPanel.tsx,
-  SessionView.tsx,SessionRail.tsx,rail/index.ts}`, список каналов в
-  `test/contract/claude-home-registry.test.ts`.
+  SessionView.tsx,SessionRail.tsx,rail/index.ts}`, `src/main/mcp/canvas-server.ts` и
+  `src/main/mcp/agent-instructions.md` (текст отказа и инструкция про Узлы Subagent-ов), список
+  каналов в `test/contract/claude-home-registry.test.ts`, test-ы Узлов Subagent-ов в
+  `test/contract/canvas-tools.test.ts` и `test/unit/layout-place.test.ts`.
 
 **Не сделано и почему.**
 
