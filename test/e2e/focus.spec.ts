@@ -71,6 +71,10 @@ async function dragTo(window: Page, from: Locator, to: { x: number; y: number })
   await window.mouse.up()
 }
 
+/** Resolves after the renderer has drawn a frame, so a render the last key caused is on screen. */
+const nextFrame = (window: Page): Promise<void> =>
+  window.evaluate(() => new Promise<void>((resolve) => (globalThis as unknown as { requestAnimationFrame(cb: () => void): void }).requestAnimationFrame(() => resolve())))
+
 const canvasHeader = (window: Page, id: string) => window.locator(`.react-flow__node[data-id="${id}"] .w-note__header`)
 const viewportTransform = (window: Page) => window.locator('.react-flow__viewport').evaluate((element) => (element as unknown as { style: { transform: string } }).style.transform)
 
@@ -199,8 +203,16 @@ test('a Node inside a tile works as on the Canvas: typing in a note reaches main
     const { window } = launched
     await expect(window.getByTestId('note-node')).toHaveCount(4)
     await select(window, ['n4'])
-    await window.keyboard.press('Meta+Enter')
     const focus = window.getByTestId('focus-mode')
+
+    // ⌘↩ typed in a text field stays with the field: focus mode does not open.
+    await window.locator('.react-flow__node[data-id="n4"]').getByRole('textbox', { name: 'Note text' }).focus()
+    await window.keyboard.press('Meta+Enter')
+    await nextFrame(window)
+    await expect(focus).toHaveCount(0)
+
+    await select(window, ['n4'])
+    await window.keyboard.press('Meta+Enter')
     const textbox = focus.getByTestId('focus-tile').getByRole('textbox', { name: 'Note text' })
     await expect(textbox).toHaveValue('four')
     await textbox.fill('four, edited in focus')
@@ -210,6 +222,47 @@ test('a Node inside a tile works as on the Canvas: typing in a note reaches main
     await window.keyboard.press('Escape')
     await expect(focus).toHaveCount(0)
     await expect(window.locator('.react-flow__node[data-id="n4"]').getByRole('textbox', { name: 'Note text' })).toHaveValue('four, edited in focus')
+  } finally {
+    await launched.close()
+  }
+})
+
+test('keys pressed in focus mode stay in the layer: the selected Nodes on the Canvas do not move, and the focus comes back on Esc', async () => {
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+  try {
+    const { window } = launched
+    await expect(window.getByTestId('note-node')).toHaveCount(4)
+    const before = await stateOf(window)
+    const nodeTransform = (id: string) =>
+      window.locator(`.react-flow__node[data-id="${id}"]`).evaluate((element) => (element as unknown as { style: { transform: string } }).style.transform)
+    const transformBefore = await nodeTransform('n1')
+    // The last ⌘-click leaves the keyboard focus on n2's Canvas Node, where React Flow moves the
+    // selected Nodes on arrow keys and unselects on Esc.
+    await select(window, ['n1', 'n2'])
+    const activeNodeId = () => window.evaluate(() => (globalThis as unknown as { document: { activeElement: { closest(s: string): { getAttribute(a: string): string | null } | null } | null } }).document.activeElement?.closest('.react-flow__node')?.getAttribute('data-id') ?? null)
+    expect(await activeNodeId()).toBe('n2')
+
+    await window.keyboard.press('Meta+Enter')
+    const focus = window.getByTestId('focus-mode')
+    await expect(focus.getByTestId('focus-tile')).toHaveCount(2)
+    await expect(focus).toBeFocused()
+    await window.keyboard.press('ArrowRight')
+    await window.keyboard.press('ArrowRight')
+    // Tab walks the layer's own controls and never reaches the Canvas underneath.
+    const insideLayer = () => focus.evaluate((layer) => layer.contains((layer.ownerDocument as unknown as { activeElement: unknown }).activeElement as never))
+    for (let step = 0; step < 8; step += 1) {
+      await window.keyboard.press('Tab')
+      expect(await insideLayer()).toBe(true)
+    }
+    await window.keyboard.press('Escape')
+    await expect(focus).toHaveCount(0)
+
+    expect(await nodeTransform('n1')).toBe(transformBefore)
+    await expect(window.locator('.react-flow__node.selected')).toHaveCount(2)
+    expect(await activeNodeId()).toBe('n2')
+    const after = await stateOf(window)
+    expect(after.revision).toBe(before.revision)
+    expect(after.layout).toEqual(before.layout)
   } finally {
     await launched.close()
   }

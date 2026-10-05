@@ -12,7 +12,11 @@
 // Gestures: dragging a divider moves it, a double click on a divider evens out its split;
 // dragging a tile's title bar onto another tile swaps the two, or, near an edge of that tile,
 // divides it. Esc leaves.
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+//
+// While the layer is open it holds the keyboard focus and the rest of the window is inert, so no
+// key reaches a Canvas Node underneath (React Flow moves the selected Nodes on arrow keys and
+// unselects on Esc). On leaving, the focus goes back to where it was.
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useNodes } from '@xyflow/react'
 import { nodeTypes, type CanvasFlowNode, type CanvasNodeProps } from '../canvas/nodes'
@@ -74,6 +78,20 @@ function tileProps(node: CanvasFlowNode): CanvasNodeProps {
   }
 }
 
+/**
+ * Whether the focus may go back to this element when focus mode closes. A Canvas Node out of view
+ * may not: React Flow pans the Canvas to a Node that gets the keyboard focus, and the Canvas must
+ * come back exactly as it was.
+ */
+function canRefocus(element: Element | null): element is HTMLElement {
+  if (!(element instanceof HTMLElement) || !element.isConnected || element === document.body) return false
+  const pane = element.closest('.react-flow')
+  if (pane === null) return true
+  const own = element.getBoundingClientRect()
+  const view = pane.getBoundingClientRect()
+  return own.right > view.left && own.left < view.right && own.bottom > view.top && own.top < view.bottom
+}
+
 function TileNode({ node }: { node: CanvasFlowNode }) {
   const Component = nodeTypes.get(node.data.node.kind)?.Component ?? UnknownNode
   return <Component {...tileProps(node)} />
@@ -92,8 +110,13 @@ interface TileDrag {
 export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
   const nodes = useNodes<CanvasFlowNode>()
   const byId = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes])
+  const layer = useRef<HTMLDivElement>(null)
   const area = useRef<HTMLDivElement>(null)
   const geometry = useMemo(() => computeGeometry(tree), [tree])
+  // The title-bar drag lives in a ref: a pointerup can arrive before React has rendered the
+  // pointermove before it, and a handler reading state would then see a drag that never moved.
+  // The state copy only draws the drag.
+  const titleDrag = useRef<TileDrag>(undefined)
   const [drag, setDrag] = useState<TileDrag>()
   const dividerDrag = useRef<{ pointerId: number; base: TileTree; divider: DividerRect; start: number; extentPx: number }>(undefined)
 
@@ -102,6 +125,20 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
   useEffect(() => {
     latest.current = { tree, onChange, onExit }
   })
+
+  // Keyboard focus: into the layer, the rest of the window inert, and back when the layer closes.
+  useLayoutEffect(() => {
+    const root = layer.current
+    if (root === null) return undefined
+    const previous = document.activeElement
+    const inerted = Array.from(document.body.children).filter((element) => element !== root && !element.hasAttribute('inert'))
+    for (const element of inerted) element.setAttribute('inert', '')
+    root.focus({ preventScroll: true })
+    return () => {
+      for (const element of inerted) element.removeAttribute('inert')
+      if (canRefocus(previous)) previous.focus({ preventScroll: true })
+    }
+  }, [])
 
   // A Node that left the Canvas (removed or hidden) leaves its tile; with none left, focus mode ends.
   const ids = useMemo(() => leafIds(tree), [tree])
@@ -172,7 +209,7 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
   const dropTarget = (draggedId: string, clientX: number, clientY: number): TileDrag['target'] => {
     const rect = areaRect()
     if (rect === undefined || rect.width <= 0 || rect.height <= 0) return undefined
-    const tile = tileAt(geometry, (clientX - rect.left) / rect.width, (clientY - rect.top) / rect.height)
+    const tile = tileAt(computeGeometry(latest.current.tree), (clientX - rect.left) / rect.width, (clientY - rect.top) / rect.height)
     if (tile === undefined || tile.id === draggedId) return undefined
     const zone = dropZoneAt(tile.w * rect.width, tile.h * rect.height, clientX - rect.left - tile.x * rect.width, clientY - rect.top - tile.y * rect.height)
     return { id: tile.id, zone }
@@ -181,18 +218,23 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
     if (event.button !== 0) return
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
-    setDrag({ id, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, moving: false })
+    titleDrag.current = { id, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, moving: false }
+    setDrag(titleDrag.current)
   }
   const onTitleMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = titleDrag.current
     if (drag === undefined || drag.pointerId !== event.pointerId) return
     const moving = drag.moving || Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= DRAG_THRESHOLD_PX
     if (!moving) return
     const target = dropTarget(drag.id, event.clientX, event.clientY)
     if (drag.moving && drag.target?.id === target?.id && drag.target?.zone === target?.zone) return
-    setDrag({ ...drag, moving, target })
+    titleDrag.current = { ...drag, moving, target }
+    setDrag(titleDrag.current)
   }
   const onTitleUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = titleDrag.current
     if (drag === undefined || drag.pointerId !== event.pointerId) return
+    titleDrag.current = undefined
     setDrag(undefined)
     if (!drag.moving) return
     const target = dropTarget(drag.id, event.clientX, event.clientY)
@@ -207,7 +249,7 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
   }
 
   return createPortal(
-    <div className="w-focus" role="dialog" aria-modal="true" aria-label="Focus mode" data-testid="focus-mode">
+    <div ref={layer} tabIndex={-1} className="w-focus" role="dialog" aria-modal="true" aria-label="Focus mode" data-testid="focus-mode">
       <div className="w-focus__bar">
         <span className="w-focus__title">Focus · {ids.length === 1 ? '1 node' : `${ids.length} nodes`}</span>
         <div role="group" aria-label="Layout presets" className="w-focus__presets">
@@ -243,7 +285,10 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
                   onPointerDown={onTitleDown(tile.id)}
                   onPointerMove={onTitleMove}
                   onPointerUp={onTitleUp}
-                  onPointerCancel={() => setDrag(undefined)}
+                  onPointerCancel={() => {
+                    titleDrag.current = undefined
+                    setDrag(undefined)
+                  }}
                 >
                   <span aria-hidden="true">⠿</span>
                   {node ? titleOf(node) : tile.id}

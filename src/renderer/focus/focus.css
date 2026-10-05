@@ -12,6 +12,11 @@
   font-family: var(--font-ui);
 }
 
+/* The layer takes the keyboard focus when it opens; that is not a control to outline. */
+.w-focus:focus {
+  outline: none;
+}
+
 /* The bar sits where the toolbar is and keeps clear of the traffic lights. */
 .w-focus__bar {
   flex: none;
