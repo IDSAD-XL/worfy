@@ -1,12 +1,9 @@
-import { shipTicketState } from '../../../shared/actions/render-template'
 import { failureReason } from '../../../shared/ipc/channels'
-import { useProjects } from '../../projects/useProjects'
 import { useWorkflow } from '../../workflow/useWorkflow'
 import { invoke } from '../../ipc'
 import type { SlotProps } from '../badges'
 import { ActionButton } from './action-button'
-import { useLaunched } from './launches'
-import { useActionTemplates } from './templates'
+import { hasShipTicket, useShipTicketState } from './gates'
 
 // "Ship ticket" on a Ticket (ticket 23). Active when the Ticket is open, every blocker is done and
 // the Project's template is set and renders; otherwise inactive, and its tooltip says why
@@ -20,14 +17,8 @@ export const order = 10
 
 function ShipTicket({ projectId, root, ticket }: Extract<SlotProps['subject'], { kind: 'ticket' }>) {
   const { model } = useWorkflow(root)
-  const branch = useProjects()?.projects.find((project) => project.id === projectId)?.branch ?? null
-  const templates = useActionTemplates(projectId)
-  const launched = useLaunched(projectId, ticket.epic, ticket.num)
-  if (ticket.state === 'work' || ticket.state === 'done') return null
-  const state =
-    templates === undefined
-      ? ({ enabled: false, reason: 'Reading the Project settings…' } as const)
-      : shipTicketState({ ticket, tickets: model?.tickets ?? [ticket], template: templates.shipTicket, branch, launched })
+  const state = useShipTicketState(projectId, ticket, model?.tickets ?? [ticket])
+  if (!hasShipTicket(ticket)) return null
   return (
     <ActionButton
       label="Ship ticket"

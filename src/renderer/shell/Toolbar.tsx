@@ -1,9 +1,10 @@
 import { collectExtensions, type ShellExtension } from './registry'
 import { SegmentedControl, type SegmentOption } from '../theme/primitives'
+import { CommandPalette } from '../palette/CommandPalette'
 
 // Each toolbar item is its own file, src/renderer/shell/toolbar/<Name>.tsx, with a
 // default-exported component and `export const order = <number>`. Items sit between the view
-// switch and the command palette hint; this file never changes when an item is added.
+// switch and the command palette field; this file never changes when an item is added.
 const items = collectExtensions(import.meta.glob('./toolbar/*.tsx', { eager: true }))
 
 export type ShellView = 'canvas' | 'session'
@@ -92,15 +93,8 @@ export function ToolbarView({ items, project, view, onViewChange, sidebarVisible
         </div>
       ))}
 
-      {/* Hint only: the command palette itself arrives with ticket 31. */}
-      <div className="w-toolbar__palette-hint" title="Command palette">
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <circle cx="7" cy="7" r="4.25" />
-          <path d="M10.2 10.2l3.3 3.3" />
-        </svg>
-        <span className="w-toolbar__palette-text">Search or run…</span>
-        <kbd className="w-mono">⌘K</kbd>
-      </div>
+      {/* The "Search or run… ⌘K" field: it opens the command palette (ticket 31). */}
+      <CommandPalette />
     </header>
   )
 }
