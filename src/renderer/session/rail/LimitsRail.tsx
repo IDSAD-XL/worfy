@@ -1,6 +1,6 @@
 import { limitBars, type LimitsState } from '../../../shared/agent/limits'
+import { LimitBarView } from '../../limits/LimitBar'
 import { useLimits, useNow } from '../../limits/useLimits'
-import { LimitBarView } from '../../shell/toolbar/LimitsMeter'
 
 // The Limits in the Session rail: the toolbar's two bars, in a card under a heading. The Limits are
 // the same for every Session, so the block ignores which Session the view shows.

@@ -23,7 +23,10 @@ describe('a rate_limit_event without utilization and resetsAt', () => {
   })
 })
 
-/** The rate_limit_event of test/fixtures/sdk-messages/init.jsonl (Claude Code 2.1.289). */
+/**
+ * A hand-made rate_limit_event in the shape recorded in test/fixtures/sdk-messages/init.jsonl
+ * (Claude Code 2.1.289); its numbers are not the recorded ones, so the two windows differ clearly.
+ */
 const recorded = {
   type: 'rate_limit_event',
   rate_limit_info: {

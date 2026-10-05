@@ -91,9 +91,19 @@ export class LimitsTracker {
     this.record(limitUpdatesFromSdk(message, this.now()))
   }
 
-  /** The same factory, whose queries report every message they yield to this tracker. */
+  /**
+   * The same factory, whose queries report every message they yield to this tracker. A failure to
+   * record is logged here, under the Limits' own label, and never reaches the Session.
+   */
   observe(factory: QueryFactory): QueryFactory {
-    return async (request) => observeMessages(await factory(request), (message) => this.recordSdkMessage(message))
+    return async (request) =>
+      observeMessages(await factory(request), (message) => {
+        try {
+          this.recordSdkMessage(message)
+        } catch (error) {
+          console.warn('[limits] could not record an SDK message', error)
+        }
+      })
   }
 
   /**

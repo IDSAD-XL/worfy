@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LimitsTracker } from '../../src/main/agent/limits'
 import type { QueryHandle, QueryRequest } from '../../src/main/agent/session'
 import { appUrlMatcher, registerIpc } from '../../src/main/ipc/index'
@@ -76,6 +76,28 @@ describe('LimitsTracker', () => {
         seven_day: { utilization: 0.62, resetsAt: 1791172800, status: null, receivedAt: NOW, source: 'sdk' },
       },
     })
+  })
+
+  it('logs a failure to record under its own label and still passes every message on', async () => {
+    const limits = new LimitsTracker({
+      dataDir,
+      now: () => {
+        throw new Error('clock failed')
+      },
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const messages = recorded('init.jsonl')
+      const handle = await limits.observe(async () => fakeQuery(messages))(request)
+      const seen: unknown[] = []
+      for await (const message of handle) seen.push(message)
+      expect(seen).toEqual(messages)
+      expect(warn.mock.calls.length).toBe(messages.length)
+      for (const [label] of warn.mock.calls) expect(label).toBe('[limits] could not record an SDK message')
+      expect(limits.snapshot()).toEqual({ windows: {} })
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('keeps the Limits across a restart, in limits.json and nowhere else', async () => {
@@ -149,6 +171,30 @@ describe('statusline-limits.json', () => {
     expect(limits.snapshot()).toBe(before)
     // The bridge's file is the user's, not worfy's state: a broken one is left where it is.
     expect(existsSync(join(dataDir, 'statusline-limits.json'))).toBe(true)
+  })
+
+  it('is read when the watch starts: a file written while worfy was closed replaces older saved Limits', () => {
+    // The saved state comes from an SDK event at NOW; the bridge wrote its file later, before this start.
+    tracker().recordSdkMessage(recorded('init.jsonl').find((message) => (message as { type?: string }).type === 'rate_limit_event'))
+    writeStatusline(STATUSLINE, NOW + 5000)
+
+    const limits = tracker(NOW + 10_000)
+    expect(limits.snapshot().windows.five_hour?.source).toBe('sdk')
+    const states: LimitsState[] = []
+    limits.subscribe((state) => states.push(state))
+    limits.watchStatusline()
+    try {
+      // Checked right away, with no later change to the file: watch and poll report changes only.
+      const fromFile = { status: null, receivedAt: NOW + 5000, source: 'statusline' }
+      expect(limits.snapshot().windows).toEqual({
+        five_hour: { utilization: 0.29, resetsAt: 1791202800, ...fromFile },
+        seven_day: { utilization: 0.09, resetsAt: 1791777600, ...fromFile },
+      })
+      expect(states).toEqual([limits.snapshot()])
+      expect(JSON.parse(readFileSync(join(dataDir, 'limits.json'), 'utf8'))).toEqual(limits.snapshot())
+    } finally {
+      limits.stop()
+    }
   })
 
   it('is followed while watched: a new file updates the Limits', { timeout: 15_000 }, async () => {
