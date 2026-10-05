@@ -3,3 +3,6 @@ dist/
 out/
 .DS_Store
 .env
+.claude/worktrees/
+test-results/
+playwright-report/
