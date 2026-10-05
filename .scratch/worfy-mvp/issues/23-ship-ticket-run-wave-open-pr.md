@@ -1,7 +1,7 @@
 # 23 — Действия «Ship ticket», «Run wave» и «Open PR» на Холсте
 
 Type: task
-Status: blocked — blocked by 16, 17, 18, 19
+Status: open
 Blocked by: 04, 16, 17, 18, 19
 Source: [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md), «меняет состояние только теми же инструментами»; [BRIEF.md](../../../docs/design/BRIEF.md), действия; [CONTEXT.md](../../../CONTEXT.md), «Волна», «Привязка»; [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md), Привязки и настройки worfy; [spec.md](../spec.md), риск 12 (шаблоны действий на проект)
 
