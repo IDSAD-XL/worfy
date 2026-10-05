@@ -191,11 +191,21 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     await input.press('Enter')
     await expect(sessionNodes).toHaveCount(1)
     const sessionNode = sessionNodes.first()
+    // The Canvas moves to the new Node (and has stopped moving before the next step).
+    await expect.poll(() => offCenter(window, sessionNode)).toBeLessThan(3)
     await sessionNode.getByTestId('session-node-input').fill('first')
     await sessionNode.getByTestId('session-node-input').press('Enter')
     await expect(sessionNode.getByTestId('session-node-answer')).toHaveText('Hello from the fake agent')
     const sessionNodeId = await sessionNode.getAttribute('data-node-id')
     expect(sessionNodeId).toBeTruthy()
+
+    // "New terminal" comes from the Canvas menu's items (createLabel, ADR-0014): a Terminal Node in the middle of the Canvas.
+    await window.keyboard.press('Meta+k')
+    await input.fill('new terminal')
+    await expect(options.first()).toHaveAttribute('data-command', 'new:terminal')
+    await input.press('Enter')
+    await expect(window.getByTestId('terminal-node')).toHaveCount(1)
+    await expect.poll(() => offCenter(window, window.getByTestId('terminal-node'))).toBeLessThan(3)
 
     // Show only the Nodes tagged `plan`, then all again.
     await window.keyboard.press('Meta+k')

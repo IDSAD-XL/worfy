@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 // Search over the Canvas (⌘F, ticket 31), and the Canvas side of the command palette's requests
 // (canvas-requests.ts). It is a Canvas overlay (canvas/overlays/CanvasFind.tsx draws it inside
 // React Flow), so it can move the viewport.
@@ -16,6 +17,7 @@ import { Panel, useReactFlow, useStore, useStoreApi, type ReactFlowInstance } fr
 import { ZOOM_MAX, ZOOM_MIN, type LayoutNode } from '../../shared/layout/types'
 import { requestCardText } from '../canvas/card-bridge'
 import { nodeTypes, type CanvasFlowNode } from '../canvas/nodes'
+import { createItems } from '../canvas/overlays/create-items'
 import { useLayout, useLayoutOps } from '../canvas/useLayout'
 import { useDocs, useDocText } from '../docs/useDocs'
 import { activeProject, useProjects } from '../projects/useProjects'
@@ -25,6 +27,9 @@ import { closeFind, openFind, useCanvasRequests } from './canvas-requests'
 import { FIND_LIMIT, findDocs, FindIndex, MIN_FIND_QUERY, orderMatches, selectionScope, snippet, stepMatch, type FindField, type FindMatch } from './search-index'
 
 export const order = 60
+
+/** The Canvas menu's "New …" items (the same glob as CanvasMenu.tsx), for the palette's commands. */
+const menuItems = createItems(import.meta.glob('../canvas/nodes/*Node.tsx', { eager: true }), nodeTypes).map(({ label, type }) => ({ label, kind: type.kind }))
 
 /** Frames a request waits for its Node to reach React Flow, shown: about a second. */
 const FOCUS_TRIES = 60
@@ -413,6 +418,9 @@ function FindBar({ projectId, root }: FindBarProps) {
 
 function ProjectFind({ projectId, root }: FindBarProps) {
   const store = useStoreApi<CanvasFlowNode>()
+  useEffect(() => {
+    useCanvasRequests.setState({ createItems: menuItems })
+  }, [])
   const open = useCanvasRequests((state) => state.findOpen)
   useFocusRequests(projectId)
   useCreateRequests(projectId)

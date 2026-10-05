@@ -1,4 +1,3 @@
-/// <reference types="vite/client" />
 // The command palette (⌘K, ticket 31): the "Search or run…" field of the toolbar (design F) opens
 // one field over the window; typing ranks the commands (commands.ts, find/search-index.ts), ↑/↓
 // pick one, Enter runs it, Esc closes. A command that cannot run now ("Ship ticket" for a Ticket
@@ -10,8 +9,6 @@ import { runWaveState, shipTicketState, type ActionState } from '../../shared/ac
 import type { ProjectView } from '../../shared/ipc/projects'
 import { useLaunched } from '../canvas/actions/launches'
 import { useActionTemplates } from '../canvas/actions/templates'
-import { nodeTypes } from '../canvas/nodes'
-import { createItems } from '../canvas/overlays/create-items'
 import { useLayout } from '../canvas/useLayout'
 import { useClaudeHome } from '../claude-home/useClaudeHome'
 import { useDocs } from '../docs/useDocs'
@@ -20,12 +17,7 @@ import { rankItems } from '../find/search-index'
 import { activeProject, useProjects } from '../projects/useProjects'
 import { useNavigation } from '../session/navigation'
 import { useWorkflow } from '../workflow/useWorkflow'
-import { buildCommands, type CommandGate, type PaletteCommand, type PaletteCreateItem } from './commands'
-
-/** The "New …" items of the Canvas menu, from the Node type files (ADR-0014). */
-const paletteCreateItems: readonly PaletteCreateItem[] = createItems(import.meta.glob('../canvas/nodes/*Node.tsx', { eager: true }), nodeTypes).map(
-  ({ label, type }) => ({ label, kind: type.kind }),
-)
+import { buildCommands, type CommandGate, type PaletteCommand } from './commands'
 
 /** Rows shown at most; the rest are reached by typing more. */
 const SHOWN = 50
@@ -172,6 +164,7 @@ interface PanelProps {
 function ProjectPalette({ project, projects, onClose }: PanelProps) {
   const view = useNavigation((state) => state.view)
   const tagFilter = useCanvasRequests((state) => state.tagFilter)
+  const createItems = useCanvasRequests((state) => state.createItems)
   const { model } = useWorkflow(project.path)
   const { history } = useClaudeHome(project.path)
   const { state: docs } = useDocs(project.id)
@@ -187,9 +180,9 @@ function ProjectPalette({ project, projects, onClose }: PanelProps) {
         history,
         adrs: docs?.adrs ?? [],
         tagFilter,
-        createItems: paletteCreateItems,
+        createItems,
       }),
-    [project, projects, view, model, layout, history, docs, tagFilter],
+    [project, projects, view, model, layout, history, docs, tagFilter, createItems],
   )
   return <PaletteBody commands={commands} projects={projects} empty="Nothing matches" onClose={onClose} />
 }

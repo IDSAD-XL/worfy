@@ -28,6 +28,12 @@ export interface TagFilter {
   tag: string
 }
 
+/** A "New …" item of the Canvas menu: a Node type that exports `createLabel` (ADR-0014). */
+export interface CreateItemInfo {
+  label: string
+  kind: string
+}
+
 export interface AdrRequest {
   projectId: string
   path: string
@@ -42,9 +48,15 @@ interface CanvasRequests {
   findOpen: boolean
   findSeq: number
   adr: AdrRequest | null
+  /**
+   * The Canvas menu's "New …" items, published by the Canvas (CanvasFind.tsx) for the palette. The
+   * palette does not import the Node type registry itself: the toolbar stays free of the Canvas's
+   * modules, whose glob of Node type files is expanded once, when the Canvas is first imported.
+   */
+  createItems: readonly CreateItemInfo[]
 }
 
-export const useCanvasRequests = create<CanvasRequests>(() => ({ focus: null, create: null, tagFilter: null, findOpen: false, findSeq: 0, adr: null }))
+export const useCanvasRequests = create<CanvasRequests>(() => ({ focus: null, create: null, tagFilter: null, findOpen: false, findSeq: 0, adr: null, createItems: [] }))
 
 /** Shows the Canvas centered on a Node; the selection stays as it is. */
 export function focusCanvasNode(projectId: string, nodeId: string, fallbackId?: string): void {
