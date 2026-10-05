@@ -49,6 +49,11 @@ interface CanvasRequests {
   findSeq: number
   adr: AdrRequest | null
   /**
+   * The `seq` of the last ADR request carried out. It lives here, not in the sidebar, so a sidebar
+   * shown again does not carry the same request out twice, and `adr` keeps its `seq` growing.
+   */
+  adrHandled: number
+  /**
    * The Canvas menu's "New …" items, published by the Canvas (CanvasFind.tsx) for the palette. The
    * palette does not import the Node type registry itself: the toolbar stays free of the Canvas's
    * modules, whose glob of Node type files is expanded once, when the Canvas is first imported.
@@ -56,7 +61,7 @@ interface CanvasRequests {
   createItems: readonly CreateItemInfo[]
 }
 
-export const useCanvasRequests = create<CanvasRequests>(() => ({ focus: null, create: null, tagFilter: null, findOpen: false, findSeq: 0, adr: null, createItems: [] }))
+export const useCanvasRequests = create<CanvasRequests>(() => ({ focus: null, create: null, tagFilter: null, findOpen: false, findSeq: 0, adr: null, adrHandled: 0, createItems: [] }))
 
 /** Shows the Canvas centered on a Node; the selection stays as it is. */
 export function focusCanvasNode(projectId: string, nodeId: string, fallbackId?: string): void {
@@ -84,4 +89,9 @@ export function closeFind(): void {
 /** Opens an ADR read-only, as a click on it in the sidebar's ADR section does. */
 export function openAdr(projectId: string, path: string): void {
   useCanvasRequests.setState(({ adr }) => ({ adr: { projectId, path, seq: (adr?.seq ?? 0) + 1 } }))
+}
+
+/** Marks the ADR requests up to `seq` as carried out: none of them is answered again. */
+export function markAdrHandled(seq: number): void {
+  useCanvasRequests.setState({ adrHandled: seq })
 }

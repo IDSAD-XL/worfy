@@ -7,8 +7,8 @@
 // A command only asks: moving the Canvas and creating a Node go through requests the Canvas
 // carries out (find/canvas-requests.ts), the rest through the same IPC calls as the buttons they
 // stand for. "Ship ticket" and "Run wave" are the actions of ticket 23 (`actions.shipTicket`,
-// `actions.runWave`); whether they are active is decided by the palette row with the same
-// functions the buttons use (shared/actions/render-template.ts), and main checks again.
+// `actions.runWave`); when they exist and whether they are active is decided by the same code the
+// buttons use (canvas/actions/gates.ts), and main checks again.
 // Nothing here writes a Ticket's status or anything in the Project (ADR-0002, ADR-0005).
 import type { AdrEntry } from '../../shared/ipc/docs'
 import type { ProjectView } from '../../shared/ipc/projects'
@@ -17,6 +17,7 @@ import { failureReason } from '../../shared/ipc/channels'
 import { epicNodeId, SOURCE_NODE_KINDS, ticketNodeId } from '../../shared/layout/derived'
 import type { LayoutNode } from '../../shared/layout/types'
 import type { Ticket, WorkflowModel } from '../../shared/workflow/types'
+import { hasRunWave, hasShipTicket } from '../canvas/actions/gates'
 import { applyLayoutOp } from '../canvas/useLayout'
 import { createCanvasNode, focusCanvasNode, openAdr, setTagFilter, type TagFilter } from '../find/canvas-requests'
 import { kindLabel, nodeTitle, type Rankable } from '../find/search-index'
@@ -120,9 +121,8 @@ function workflowActionCommands({ project, model }: CommandContext): PaletteComm
   const projectId = project.id
   const commands: PaletteCommand[] = []
   for (const epic of model.epics) {
-    const mine = model.tickets.filter((ticket) => ticket.epic === epic.epic)
-    // An Epic whose Tickets are all done has no "Run wave" button either (EpicActions.tsx).
-    if (mine.length > 0 && mine.every((ticket) => ticket.state === 'done')) continue
+    // Only where the Epic frame has the button (canvas/actions/gates.ts).
+    if (!hasRunWave(epic.epic, model.tickets)) continue
     commands.push({
       id: `run-wave:${epic.epic}`,
       group: 'Action',
@@ -137,8 +137,8 @@ function workflowActionCommands({ project, model }: CommandContext): PaletteComm
     })
   }
   for (const ticket of model.tickets) {
-    // A Ticket in work or done has no "Ship ticket" button: there is nothing to ship (TicketActions.tsx).
-    if (ticket.state === 'work' || ticket.state === 'done') continue
+    // Only where the Ticket has the button (canvas/actions/gates.ts).
+    if (!hasShipTicket(ticket)) continue
     const ref = `${ticket.epic}/${nn(ticket.num)}`
     commands.push({
       id: `ship-ticket:${ref}`,

@@ -1,10 +1,8 @@
-import { runWaveState } from '../../../shared/actions/render-template'
 import { failureReason } from '../../../shared/ipc/channels'
-import { useProjects } from '../../projects/useProjects'
 import { invoke } from '../../ipc'
 import type { SlotProps } from '../badges'
 import { ActionButton } from './action-button'
-import { useActionTemplates } from './templates'
+import { hasRunWave, useRunWaveState } from './gates'
 
 // "Run wave" on an Epic frame (ticket 23). Active when the Epic's ready Wave is not empty and the
 // Project's template is set and renders; otherwise inactive, and its tooltip says why. A click asks
@@ -14,14 +12,8 @@ import { useActionTemplates } from './templates'
 export const order = 20
 
 function RunWave({ projectId, epic, tickets }: Extract<SlotProps['subject'], { kind: 'epic' }>) {
-  const branch = useProjects()?.projects.find((project) => project.id === projectId)?.branch ?? null
-  const templates = useActionTemplates(projectId)
-  const mine = tickets.filter((ticket) => ticket.epic === epic.epic)
-  if (mine.length > 0 && mine.every((ticket) => ticket.state === 'done')) return null
-  const state =
-    templates === undefined
-      ? ({ enabled: false, reason: 'Reading the Project settings…' } as const)
-      : runWaveState({ epic: epic.epic, tickets, template: templates.runWave, branch })
+  const state = useRunWaveState(projectId, epic.epic, tickets)
+  if (!hasRunWave(epic.epic, tickets)) return null
   return (
     <ActionButton
       label="Run wave"

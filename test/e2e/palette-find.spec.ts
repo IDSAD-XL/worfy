@@ -176,6 +176,8 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     await expect(palette).toBeVisible()
     await window.waitForTimeout(300)
     await expect(sessionNodes).toHaveCount(0)
+    // The row did not run the action at all: main was not asked, so it had nothing to refuse.
+    await expect(window.getByTestId('palette-problem')).toHaveCount(0)
     // An open Ticket whose blockers are done is active, with the text the button would send.
     await input.fill(`ship ${EPIC}/07`)
     await expect(options.first()).toHaveAttribute('data-command', `ship-ticket:${EPIC}/07`)
@@ -259,11 +261,21 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     // ⇧Enter goes back to the first.
     await window.getByTestId('find-input').press('Shift+Enter')
     await expect(find).toHaveAttribute('data-current-node', first.node ?? '')
+    // ⌘F again with the same (empty) selection keeps the place among the matches.
+    await window.keyboard.press('Meta+f')
+    await expect(window.getByTestId('find-count')).toHaveText('1 of 2')
 
-    // With the Card selected when the search opens, only the Card is searched.
+    // ⌘F with the bar still open takes the selection anew: with the Card selected, only the Card
+    // is searched, and the step through the matches starts again.
+    await flowNode(window, 'c1').locator('[data-testid="card-title"]').click()
+    await window.keyboard.press('Meta+f')
+    await expect(window.getByTestId('find-scope')).toBeVisible()
+    await expect(window.getByTestId('find-input')).toHaveValue('fake agent')
+    await expect(window.getByTestId('find-count')).toHaveText('1 match')
     await window.getByTestId('find-input').press('Escape')
     await expect(find).toHaveCount(0)
-    await flowNode(window, 'c1').locator('[data-testid="card-title"]').click()
+
+    // Opened again with the Card selected: the same scope.
     await window.keyboard.press('Meta+f')
     await window.getByTestId('find-input').fill('fake agent')
     await expect(window.getByTestId('find-scope')).toBeVisible()

@@ -94,6 +94,14 @@ describe('find index', () => {
     expect(index.search('ab', { limit: 3 }).matches).toHaveLength(3)
   })
 
+  it('after a search that hit the limit, a longer query looks at every document again', () => {
+    const index = new FindIndex()
+    // The limit is reached inside the first document; the second one is never looked at.
+    index.sync([doc('a', 'n1', 'ab'.repeat(FIND_LIMIT + 5)), doc('b', 'n2', 'abc')])
+    expect(index.search('ab').capped).toBe(true)
+    expect(index.search('abc').matches.map((match) => match.key)).toEqual(['b'])
+  })
+
   it('sees a changed, added or removed document on the next search, even when the query only grew', () => {
     const index = new FindIndex()
     index.sync([doc('a', 'n1', 'transcript one'), doc('b', 'n2', 'nothing')])

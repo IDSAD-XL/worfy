@@ -2,7 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { ADR_DIR, type AdrEntry } from '../../../shared/ipc/docs'
 import { useDocs, useDocText } from '../../docs/useDocs'
-import { useCanvasRequests } from '../../find/canvas-requests'
+import { markAdrHandled, useCanvasRequests } from '../../find/canvas-requests'
 import { invoke } from '../../ipc'
 import { Markdown } from '../../markdown/Markdown'
 import { activeProject, useProjects } from '../../projects/useProjects'
@@ -146,16 +146,19 @@ export default function AdrSection() {
   const { state, error } = useDocs(project?.id)
   const [open, setOpen] = useState<{ projectId: string; path: string } | null>(null)
   // "Go to" an ADR in the command palette (ticket 31) opens it here, as a click on its row does.
-  const request = useCanvasRequests((state) => state.adr)
-  const [handled, setHandled] = useState(0)
-  if (request !== null && request.seq !== handled && project !== undefined) {
-    setHandled(request.seq)
-    if (request.projectId === project.id) setOpen({ projectId: project.id, path: request.path })
+  // A request not carried out yet; one made before the Projects are read waits for them, and one
+  // for another Project is dropped.
+  const request = useCanvasRequests((state) => (state.adr !== null && state.adr.seq > state.adrHandled ? state.adr : null))
+  const pending = project !== undefined ? request : null
+  const [taken, setTaken] = useState(0)
+  if (pending !== null && pending.seq !== taken) {
+    setTaken(pending.seq)
+    if (pending.projectId === project?.id) setOpen({ projectId: pending.projectId, path: pending.path })
   }
   useEffect(() => {
     // Carried out: a sidebar shown again later must not open it a second time.
-    if (request !== null && request.seq === handled) useCanvasRequests.setState({ adr: null })
-  }, [request, handled])
+    if (pending !== null) markAdrHandled(pending.seq)
+  }, [pending])
   if (!project) return null
 
   const adrs = state?.adrs ?? []

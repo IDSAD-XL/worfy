@@ -258,6 +258,18 @@ function useCardTexts(cards: readonly { nodeId: string; cardId: string }[]): Rea
 const cardIdOf = (node: LayoutNode): string => (typeof node.data.cardId === 'string' ? node.data.cardId : node.id)
 const EMPTY_NODES: readonly LayoutNode[] = []
 
+/** The Nodes the selection covers now, with what is inside them; undefined when nothing is selected. */
+function currentScope(store: ReturnType<typeof useStoreApi<CanvasFlowNode>>): ReturnType<typeof selectionScope> {
+  const { nodes } = store.getState()
+  return selectionScope(
+    nodes.filter((node) => node.selected === true).map((node) => node.id),
+    nodes.map((node) => ({ id: node.id, parentId: node.parentId })),
+  )
+}
+
+const sameScope = (a: ReadonlySet<string> | undefined, b: ReadonlySet<string> | undefined): boolean =>
+  a === b || (a !== undefined && b !== undefined && a.size === b.size && [...a].every((id) => b.has(id)))
+
 interface FindBarProps {
   projectId: string
   root: string
@@ -270,14 +282,19 @@ function FindBar({ projectId, root }: FindBarProps) {
   const findSeq = useCanvasRequests((state) => state.findSeq)
   const [query, setQuery] = useState('')
   const [current, setCurrent] = useState(-1)
-  // The selection when the bar opened is what it searches; moving to a match does not change it.
-  const [scope] = useState(() => {
-    const { nodes } = store.getState()
-    return selectionScope(
-      nodes.filter((node) => node.selected === true).map((node) => node.id),
-      nodes.map((node) => ({ id: node.id, parentId: node.parentId })),
-    )
-  })
+  // The selection at the last ⌘F is what it searches: ⌘F again with the bar open takes the
+  // selection anew. Moving to a match does not change it.
+  const [scoped, setScoped] = useState(() => ({ seq: findSeq, scope: currentScope(store) }))
+  if (scoped.seq !== findSeq) {
+    const next = currentScope(store)
+    if (sameScope(next, scoped.scope)) setScoped({ seq: findSeq, scope: scoped.scope })
+    else {
+      setScoped({ seq: findSeq, scope: next })
+      // Other matches: the step through them starts again.
+      setCurrent(-1)
+    }
+  }
+  const { scope } = scoped
 
   const layoutNodes = useLayout(projectId).state?.layout.nodes ?? EMPTY_NODES
   const { model } = useWorkflow(root)
@@ -390,7 +407,7 @@ function FindBar({ projectId, root }: FindBarProps) {
           onKeyDown={onKeyDown}
         />
         {scope !== undefined ? (
-          <span style={barStyles.scope} title="Only the Nodes selected when the search opened" data-testid="find-scope">
+          <span style={barStyles.scope} title="Only the Nodes selected at the last ⌘F" data-testid="find-scope">
             in selection
           </span>
         ) : null}

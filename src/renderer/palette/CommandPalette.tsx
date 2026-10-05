@@ -5,10 +5,9 @@
 // reason the button on the Canvas shows.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { runWaveState, shipTicketState, type ActionState } from '../../shared/actions/render-template'
+import type { ActionState } from '../../shared/actions/render-template'
 import type { ProjectView } from '../../shared/ipc/projects'
-import { useLaunched } from '../canvas/actions/launches'
-import { useActionTemplates } from '../canvas/actions/templates'
+import { useRunWaveState, useShipTicketState } from '../canvas/actions/gates'
 import { useLayout } from '../canvas/useLayout'
 import { useClaudeHome } from '../claude-home/useClaudeHome'
 import { useDocs } from '../docs/useDocs'
@@ -81,28 +80,15 @@ function SearchIcon() {
   )
 }
 
-/** Whether a gated action can run now, worked out as its button on the Canvas does. */
-function useGateState(gate: CommandGate, projects: readonly ProjectView[]): ActionState {
-  const templates = useActionTemplates(gate.projectId)
-  const ship = gate.kind === 'ship-ticket' ? gate.ticket : undefined
-  // Every gated row calls this hook; a "Run wave" row asks about no Ticket.
-  const launched = useLaunched(gate.projectId, ship?.epic ?? '', ship?.num ?? -1)
-  const branch = projects.find((project) => project.id === gate.projectId)?.branch ?? null
-  if (templates === undefined) return { enabled: false, reason: 'Reading the Project settings…' }
-  if (gate.kind === 'ship-ticket') return shipTicketState({ ticket: gate.ticket, tickets: gate.tickets, template: templates.shipTicket, branch, launched })
-  return runWaveState({ epic: gate.epic, tickets: gate.tickets, template: templates.runWave, branch })
-}
-
 interface RowProps {
   command: PaletteCommand
   id: string
   active: boolean
-  projects: readonly ProjectView[]
   onPick: (command: PaletteCommand) => void
   onHover: () => void
 }
 
-function RowButton({ command, id, active, onPick, onHover, state }: Omit<RowProps, 'projects'> & { state: ActionState | null }) {
+function RowButton({ command, id, active, onPick, onHover, state }: RowProps & { state: ActionState | null }) {
   const enabled = state === null || state.enabled
   const tooltip = state === null ? undefined : state.enabled ? state.text : state.reason
   return (
@@ -137,19 +123,23 @@ function RowButton({ command, id, active, onPick, onHover, state }: Omit<RowProp
   )
 }
 
-function GatedRow({ projects, ...props }: RowProps & { gate: CommandGate }) {
-  const state = useGateState(props.gate, projects)
-  return <RowButton {...props} state={state} />
+// A gated row is active as its button on the Canvas is: the same hooks work it out.
+function ShipTicketRow({ gate, ...props }: RowProps & { gate: Extract<CommandGate, { kind: 'ship-ticket' }> }) {
+  return <RowButton {...props} state={useShipTicketState(gate.projectId, gate.ticket, gate.tickets)} />
+}
+
+function RunWaveRow({ gate, ...props }: RowProps & { gate: Extract<CommandGate, { kind: 'run-wave' }> }) {
+  return <RowButton {...props} state={useRunWaveState(gate.projectId, gate.epic, gate.tickets)} />
 }
 
 function CommandRow(props: RowProps) {
   const { gate } = props.command
-  return gate === undefined ? <RowButton {...props} state={null} /> : <GatedRow {...props} gate={gate} />
+  if (gate === undefined) return <RowButton {...props} state={null} />
+  return gate.kind === 'ship-ticket' ? <ShipTicketRow {...props} gate={gate} /> : <RunWaveRow {...props} gate={gate} />
 }
 
 interface BodyProps {
   commands: readonly PaletteCommand[]
-  projects: readonly ProjectView[]
   empty: string
   onClose: () => void
 }
@@ -184,7 +174,7 @@ function ProjectPalette({ project, projects, onClose }: PanelProps) {
       }),
     [project, projects, view, model, layout, history, docs, tagFilter, createItems],
   )
-  return <PaletteBody commands={commands} projects={projects} empty="Nothing matches" onClose={onClose} />
+  return <PaletteBody commands={commands} empty="Nothing matches" onClose={onClose} />
 }
 
 /** Without a Project only the view commands are left. */
@@ -194,10 +184,10 @@ function EmptyPalette({ projects, onClose }: Omit<PanelProps, 'project'>) {
     () => buildCommands({ project: undefined, projects, view, model: undefined, layoutNodes: [], history: [], adrs: [], tagFilter: null, createItems: [] }),
     [projects, view],
   )
-  return <PaletteBody commands={commands} projects={projects} empty="Add a project to get its commands" onClose={onClose} />
+  return <PaletteBody commands={commands} empty="Add a project to get its commands" onClose={onClose} />
 }
 
-function PaletteBody({ commands, projects, empty, onClose }: BodyProps) {
+function PaletteBody({ commands, empty, onClose }: BodyProps) {
   const listId = useId()
   const input = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLUListElement>(null)
@@ -293,7 +283,6 @@ function PaletteBody({ commands, projects, empty, onClose }: BodyProps) {
                 id={optionId(index)}
                 command={command}
                 active={index === current}
-                projects={projects}
                 onPick={pick}
                 onHover={() => {
                   if (index !== current) setPicked(index)
