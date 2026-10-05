@@ -15,6 +15,7 @@ const PROJECT = 'alpha-0000000a'
 
 interface StateNode {
   id: string
+  kind: string
   x: number
   y: number
   w: number
@@ -56,6 +57,9 @@ async function layoutOf(window: Page): Promise<Layout> {
   expect(result.ok).toBe(true)
   return result.value.layout
 }
+
+/** The notes of a Layout: every Project's Canvas also has its Orchestrator Node (ticket 08). */
+const notesOf = (layout: Layout): StateNode[] => layout.nodes.filter((node) => node.kind === 'note')
 
 async function box(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
   const found = await locator.boundingBox()
@@ -99,10 +103,12 @@ test('a click on the minimap moves the viewport there; View ▸ Show Minimap hid
     const { window, app } = launched
     const minimap = window.getByRole('img', { name: 'Minimap' })
     await expect(minimap).toBeVisible()
-    await expect(window.locator('.react-flow__minimap-node')).toHaveCount(2)
-    // Drawn in the colour the note's type file declares (NoteNode.tsx, `minimapColor`).
+    // The two notes and, last, the Orchestrator Node every Canvas has (ticket 08).
+    await expect(window.locator('.react-flow__minimap-node')).toHaveCount(3)
+    // Drawn in the colour the note's type file declares (NoteNode.tsx, `minimapColor`); the
+    // Orchestrator's type declares none and gets the default.
     const fills = await window.locator('.react-flow__minimap-node').evaluateAll((rects) => rects.map((rect) => (rect as unknown as { style: { fill: string } }).style.fill))
-    expect(fills).toEqual(['var(--border-strong)', 'var(--border-strong)'])
+    expect(fills).toEqual(['var(--border-strong)', 'var(--border-strong)', 'var(--text-muted)'])
 
     // The far note is off screen; a click on its rectangle in the minimap centres the viewport on it.
     const far = noteById(window, 'far')
@@ -176,7 +182,8 @@ test('a pinned Node stays at its place on the screen while the Canvas pans and z
     expect(zoomAtPin).toBeLessThan(1)
     await pinme.locator('.w-note__header').click()
     const beforePin = await box(pinme)
-    await expect(visibleMinimapNodes(window)).toHaveCount(2)
+    // The two notes and the Orchestrator Node every Canvas has (ticket 08).
+    await expect(visibleMinimapNodes(window)).toHaveCount(3)
 
     const toolbar = window.getByTestId('selection-toolbar')
     await expect(toolbar).toBeVisible()
@@ -190,7 +197,7 @@ test('a pinned Node stays at its place on the screen while the Canvas pans and z
     expect(saved?.w).toBeCloseTo(220 * zoomAtPin, 3)
     expect(saved?.h).toBeCloseTo(120 * zoomAtPin, 3)
     // It is not on the plane any more, so the minimap leaves it out.
-    await expect(visibleMinimapNodes(window)).toHaveCount(1)
+    await expect(visibleMinimapNodes(window)).toHaveCount(2)
 
     // Pan with the wheel, then zoom out twice with ⌘−.
     const otherBefore = await box(other)
@@ -231,7 +238,7 @@ test('a pinned Node stays at its place on the screen while the Canvas pans and z
     expect(node.w * viewport.zoom).toBeCloseTo(restored.width, 0)
     const unpinned = await box(pinme)
     expectSameBox(unpinned, restored)
-    await expect(visibleMinimapNodes(window)).toHaveCount(2)
+    await expect(visibleMinimapNodes(window)).toHaveCount(3)
 
     // On the Canvas again, it moves with a pan.
     await panBy(window, pinme, 150, 0)
@@ -298,7 +305,7 @@ test('a tag added to three Nodes at once shows on each and survives a restart; i
     await input.press('Enter')
 
     for (const id of ids) await expect(noteById(window, id).locator('..').getByTestId('node-tags')).toHaveText('needs review')
-    await expect.poll(async () => (await layoutOf(window)).nodes.map((node) => node.tags)).toEqual([['needs review'], ['needs review'], ['needs review']])
+    await expect.poll(async () => notesOf(await layoutOf(window)).map((node) => node.tags)).toEqual([['needs review'], ['needs review'], ['needs review']])
     await expect(toolbar.getByText('needs review')).toBeVisible()
     await window.screenshot({ path: test.info().outputPath('tags-three-nodes.png') })
   } finally {
@@ -314,7 +321,7 @@ test('a tag added to three Nodes at once shows on each and survives a restart; i
     await noteById(window, 'a').locator('.w-note__header').click()
     await noteById(window, 'b').locator('.w-note__header').click({ modifiers: ['Meta'] })
     await window.getByTestId('selection-toolbar').getByRole('button', { name: 'Remove tag needs review' }).click()
-    await expect.poll(async () => (await layoutOf(window)).nodes.map((node) => node.tags)).toEqual([[], [], ['needs review']])
+    await expect.poll(async () => notesOf(await layoutOf(window)).map((node) => node.tags)).toEqual([[], [], ['needs review']])
     await expect(noteById(window, 'a').locator('..').getByTestId('node-tags')).toHaveCount(0)
     await expect(noteById(window, 'c').locator('..').getByTestId('node-tags')).toHaveText('needs review')
   } finally {
