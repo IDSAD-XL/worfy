@@ -14,6 +14,7 @@ import { promptHistory, stepHistory } from '../../src/renderer/session/history'
 import { collectRowTypes } from '../../src/renderer/session/rows/index'
 import { collectRailBlocks, type RailBlockProps } from '../../src/renderer/session/rail/index'
 import { collectComposerItems } from '../../src/renderer/session/composer/index'
+import type { OutgoingMessage } from '../../src/renderer/session/MessageInput'
 
 type Result = Extract<AgentEvent, { type: 'result' }>
 
@@ -129,6 +130,11 @@ describe('foldTranscript', () => {
 describe('prompt history', () => {
   it('lists what the user sent, oldest first, without the interruption message', () => {
     expect(promptHistory([prompt('one'), text('a'), prompt('[Request interrupted by user]'), prompt('two')])).toEqual(['one', 'two'])
+  })
+
+  it('brings back the typed text of a message with attachments, not the lines naming them', () => {
+    const sent = prompt('look\n\nAttached files: /data/1/notes.txt\n\nAttached images: shot.png')
+    expect(promptHistory([prompt('one'), sent, prompt('Attached images: only.png')])).toEqual(['one', 'look'])
   })
 
   it('steps to older prompts, stops at the oldest, and past the newest returns to an empty field', () => {
@@ -280,7 +286,7 @@ describe('the event store: limits, queue and settings', () => {
 })
 
 describe('MessageInput', () => {
-  async function mountInput(props: { busy?: boolean; history?: string[]; onSend?: (text: string) => Promise<string | null> } = {}) {
+  async function mountInput(props: { busy?: boolean; history?: string[]; onSend?: (message: OutgoingMessage) => Promise<string | null> } = {}) {
     const { MessageInput } = await import('../../src/renderer/session/MessageInput')
     const onSend = vi.fn(props.onSend ?? (() => Promise.resolve(null)))
     const onInterrupt = vi.fn()
@@ -296,7 +302,7 @@ describe('MessageInput', () => {
     await act(async () => {
       fireEvent.keyDown(field, { key: 'Enter' })
     })
-    expect(onSend).toHaveBeenCalledWith('line 1')
+    expect(onSend).toHaveBeenCalledWith({ text: 'line 1', attachments: [] })
     expect(field.value).toBe('')
   })
 
@@ -343,7 +349,7 @@ describe('MessageInput', () => {
     await act(async () => {
       fireEvent.keyDown(field, { key: 'Enter' })
     })
-    expect(onSend).toHaveBeenCalledWith('later')
+    expect(onSend).toHaveBeenCalledWith({ text: 'later', attachments: [] })
     expect(field.value).toBe('')
   })
 })

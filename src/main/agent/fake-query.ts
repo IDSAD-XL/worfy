@@ -5,6 +5,9 @@
 //   {"fake":"account","info":{...}}  what accountInfo() answers (first line only; default: a subscription login)
 //   {"fake":"account","error":"..."} accountInfo() rejects with this message (first line only)
 //   {"fake":"models","models":[...]} what supportedModels() answers (a head line; default: FAKE_MODELS)
+//   {"fake":"commands","commands":[...]} what supportedCommands() answers: rows of {name, description,
+//                                    argumentHint} (a head line; default: the slash_commands of the
+//                                    script's first system/init, without descriptions)
 //   {"fake":"wait_message"}          wait for the next user message (the turn starts)
 //   {"fake":"wait_interrupt"}        wait until interrupt() is called
 //   {"fake":"stderr","text":"..."}   Claude Code writes this to its stderr
@@ -14,8 +17,13 @@
 // `resume`) and "{{cwd}}" the Session's cwd. After the last line the script starts over, so one
 // script serves any number of turns; it ends when the Session closes its input.
 //
+// Head lines (account, models, commands) configure the fake agent and are not played; they may
+// stand anywhere, the first of each kind counts. A new directive is one entry in DIRECTIVES and,
+// for a head line, one field of FakeConfig.
+//
 // The fake agent reads the Session's input as soon as a message arrives, as Claude Code does, and
-// reports what it gets to `record` (FakeQueryOptions): each user message, each control call
+// reports what it gets to `record` (FakeQueryOptions): each user message whole — its text, and its
+// content as Claude Code got it, image blocks included (ticket 20) —, each control call
 // (setModel, setPermissionMode, applyFlagSettings for effort) and the settings it started with.
 // After setModel or setPermissionMode, its system/init messages carry the new model and mode, as
 // Claude Code's next turn does (ticket 06, question 6). Effort is not in system/init, here as in
@@ -24,12 +32,14 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SessionSettings } from '../../shared/agent/settings'
+import type { CommandInfoLike } from './commands'
 import type { AccountInfoLike, ModelInfoLike, QueryFactory, QueryHandle, QueryRequest } from './session'
 
 /** What the fake agent was asked to do, in the order it happened. */
 export type FakeCall =
   | { kind: 'start'; resume: string | null; settings: SessionSettings }
-  | { kind: 'message'; text: string }
+  /** `text`: the message's text blocks; `content`: the message content as sent, image blocks included. */
+  | { kind: 'message'; text: string; content: unknown }
   | { kind: 'setModel'; model: string | null }
   | { kind: 'setPermissionMode'; mode: string }
   | { kind: 'applyFlagSettings'; settings: Record<string, unknown> }
@@ -46,15 +56,35 @@ const SUBSCRIPTION: AccountInfoLike = { apiProvider: 'firstParty', subscriptionT
 
 type Account = { info: AccountInfoLike } | { error: string }
 
-type Line =
+/** What the head lines of a script set; absent fields keep the defaults. */
+interface FakeConfig {
+  account?: Account
+  models?: ModelInfoLike[]
+  commands?: CommandInfoLike[]
+}
+
+/** A line the fake agent plays, in order. */
+type Step =
   | { kind: 'message'; message: unknown }
   | { kind: 'wait_message' }
   | { kind: 'wait_interrupt' }
   | { kind: 'stderr'; text: string }
   | { kind: 'crash'; error: string }
   | { kind: 'exit' }
-  | { kind: 'account'; account: Account }
-  | { kind: 'models'; models: ModelInfoLike[] }
+
+type Line = Step | { kind: 'config'; config: FakeConfig }
+
+/** Each directive of a script (`{"fake": <name>, ...}`) and the line it makes. */
+const DIRECTIVES: Record<string, (value: Record<string, unknown>) => Line> = {
+  wait_message: () => ({ kind: 'wait_message' }),
+  wait_interrupt: () => ({ kind: 'wait_interrupt' }),
+  stderr: (value) => ({ kind: 'stderr', text: String(value.text ?? '') }),
+  crash: (value) => ({ kind: 'crash', error: String(value.error ?? 'Claude Code crashed') }),
+  exit: () => ({ kind: 'exit' }),
+  account: (value) => ({ kind: 'config', config: { account: typeof value.error === 'string' ? { error: value.error } : { info: value.info as AccountInfoLike } } }),
+  models: (value) => ({ kind: 'config', config: { models: value.models as ModelInfoLike[] } }),
+  commands: (value) => ({ kind: 'config', config: { commands: value.commands as CommandInfoLike[] } }),
+}
 
 function parseScript(path: string, session: string, cwd: string): Line[] {
   return readFileSync(path, 'utf8')
@@ -62,44 +92,54 @@ function parseScript(path: string, session: string, cwd: string): Line[] {
     .filter((line) => line.trim() !== '')
     .map((text, index): Line => {
       const value = JSON.parse(text.replaceAll('{{session}}', session).replaceAll('{{cwd}}', JSON.stringify(cwd).slice(1, -1))) as Record<string, unknown>
-      switch (value.fake) {
-        case undefined:
-          return { kind: 'message', message: value }
-        case 'wait_message':
-          return { kind: 'wait_message' }
-        case 'wait_interrupt':
-          return { kind: 'wait_interrupt' }
-        case 'stderr':
-          return { kind: 'stderr', text: String(value.text ?? '') }
-        case 'crash':
-          return { kind: 'crash', error: String(value.error ?? 'Claude Code crashed') }
-        case 'exit':
-          return { kind: 'exit' }
-        case 'account':
-          return { kind: 'account', account: typeof value.error === 'string' ? { error: value.error } : { info: value.info as AccountInfoLike } }
-        case 'models':
-          return { kind: 'models', models: value.models as ModelInfoLike[] }
-        default:
-          throw new Error(`${path}:${index + 1}: unknown directive ${JSON.stringify(value.fake)}`)
-      }
+      if (value.fake === undefined) return { kind: 'message', message: value }
+      const directive = typeof value.fake === 'string' && Object.hasOwn(DIRECTIVES, value.fake) ? DIRECTIVES[value.fake] : undefined
+      if (directive === undefined) throw new Error(`${path}:${index + 1}: unknown directive ${JSON.stringify(value.fake)}`)
+      return directive(value)
     })
 }
 
-const textOf = (message: unknown): string => {
-  const content = (message as { message?: { content?: unknown } }).message?.content
-  return typeof content === 'string' ? content : JSON.stringify(content)
+/** The head lines of a script, the first of each kind winning. */
+function configOf(lines: readonly Line[]): FakeConfig {
+  const config: FakeConfig = {}
+  for (const line of lines) {
+    if (line.kind !== 'config') continue
+    for (const [key, value] of Object.entries(line.config) as [keyof FakeConfig, FakeConfig[keyof FakeConfig]][]) {
+      if (config[key] === undefined) Object.assign(config, { [key]: value })
+    }
+  }
+  return config
+}
+
+const contentOf = (message: unknown): unknown => (message as { message?: { content?: unknown } }).message?.content
+
+/** The text of a user message: the content when it is a string, else its text blocks. */
+const textOf = (content: unknown): string => {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return JSON.stringify(content)
+  return content
+    .flatMap((block) => (typeof block === 'object' && block !== null && (block as { type?: unknown }).type === 'text' ? [String((block as { text?: unknown }).text ?? '')] : []))
+    .join('\n\n')
 }
 
 const isInit = (message: unknown): message is Record<string, unknown> =>
   typeof message === 'object' && message !== null && (message as Record<string, unknown>).type === 'system' && (message as Record<string, unknown>).subtype === 'init'
 
+/** The commands of the script's first system/init, as Claude Code knows them before the first turn. */
+function initCommands(steps: readonly Step[]): CommandInfoLike[] {
+  const init = steps.find((step) => step.kind === 'message' && isInit(step.message))
+  const names = init?.kind === 'message' && isInit(init.message) ? init.message.slash_commands : undefined
+  return Array.isArray(names) ? names.filter((name): name is string => typeof name === 'string').map((name) => ({ name, description: '', argumentHint: '' })) : []
+}
+
 class FakeQuery implements QueryHandle {
   private closed = false
   private interruptRequested = false
   private wakeInterrupt: (() => void) | null = null
-  private readonly lines: Line[]
+  private readonly steps: Step[]
   private readonly account: Account
   private readonly models: ModelInfoLike[]
+  private readonly commands: CommandInfoLike[]
   /** User messages read from the input and not yet taken by a wait_message line. */
   private readonly inbox: unknown[] = []
   private inputEnded = false
@@ -113,12 +153,12 @@ class FakeQuery implements QueryHandle {
     private readonly request: QueryRequest,
     private readonly record: (call: FakeCall) => void,
   ) {
-    this.lines = parseScript(path, request.resume ?? randomUUID(), request.cwd)
-    const head = this.lines.slice(0, 2)
-    const account = head.find((line) => line.kind === 'account')
-    this.account = account ? account.account : { info: SUBSCRIPTION }
-    const models = head.find((line) => line.kind === 'models')
-    this.models = models ? models.models : FAKE_MODELS
+    const lines = parseScript(path, request.resume ?? randomUUID(), request.cwd)
+    this.steps = lines.filter((line): line is Step => line.kind !== 'config')
+    const config = configOf(lines)
+    this.account = config.account ?? { info: SUBSCRIPTION }
+    this.models = config.models ?? FAKE_MODELS
+    this.commands = config.commands ?? initCommands(this.steps)
     this.model = request.settings.model
     this.permissionMode = request.settings.permissionMode
     record({ kind: 'start', resume: request.resume ?? null, settings: { ...request.settings } })
@@ -149,6 +189,10 @@ class FakeQuery implements QueryHandle {
     return Promise.resolve(this.models.map((model) => ({ ...model })))
   }
 
+  supportedCommands(): Promise<CommandInfoLike[]> {
+    return Promise.resolve(this.commands.map((command) => ({ ...command })))
+  }
+
   /** Reads the Session's input as messages arrive, like Claude Code reading its stdin. */
   private readInput(): void {
     if (this.reading) return
@@ -156,7 +200,8 @@ class FakeQuery implements QueryHandle {
     void (async () => {
       try {
         for await (const message of this.request.prompt) {
-          this.record({ kind: 'message', text: textOf(message) })
+          const content = contentOf(message)
+          this.record({ kind: 'message', text: textOf(content), content })
           this.inbox.push(message)
           this.wake()
         }
@@ -205,7 +250,7 @@ class FakeQuery implements QueryHandle {
 
   async *[Symbol.asyncIterator](): AsyncIterator<unknown> {
     this.readInput()
-    const body = this.lines.filter((line) => line.kind !== 'account' && line.kind !== 'models')
+    const body = this.steps
     if (body.length === 0) return
     for (;;) {
       for (const line of body) {
