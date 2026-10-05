@@ -5,7 +5,7 @@ import { claudeHome, dataRoot } from '../../src/main/storage/paths'
 
 describe('storage paths', () => {
   it('uses WORFY_DATA_DIR as the data root when it is set', () => {
-    expect(dataRoot({ WORFY_DATA_DIR: '/tmp/worfy-data' })).toBe('/tmp/broken-on-purpose')
+    expect(dataRoot({ WORFY_DATA_DIR: '/tmp/worfy-data' })).toBe('/tmp/worfy-data')
   })
 
   it('defaults the data root to ~/Library/Application Support/worfy', () => {
