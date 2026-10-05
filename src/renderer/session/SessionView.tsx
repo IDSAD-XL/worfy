@@ -6,7 +6,7 @@ import { StatusChip } from '../theme/primitives'
 import { formatCost, permissionLabel, STATE_CHIPS } from './format'
 import { promptHistory } from './history'
 import { ExternalSessionPanel } from './ExternalSessionPanel'
-import { MessageInput } from './MessageInput'
+import { MessageInput, type OutgoingMessage } from './MessageInput'
 import { useNavigation } from './navigation'
 import { useSessionNodeView } from './node-sessions'
 import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
@@ -111,9 +111,9 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
 
   // The transcript shows the message when main gives it to Claude Code (a `prompt` event): at
   // once, or after the running turn when it waits in the queue.
-  const send = async (text: string): Promise<string | null> => {
+  const send = async ({ text, attachments }: OutgoingMessage): Promise<string | null> => {
     if (sessionId === null) return 'The Session is not running'
-    const result = await invoke('agent.send', { sessionId, text })
+    const result = await invoke('agent.send', { sessionId, text, ...(attachments.length > 0 ? { attachments } : {}) })
     return result.ok ? null : result.error
   }
 

@@ -5,13 +5,24 @@
 // what the user queues after the held messages are sent or removed goes on its own again. The
 // queue lives in main, so switching the window between the Canvas and the
 // Session view never loses it; it does not outlive the Session.
+//
+// A queued message keeps its attachments (ticket 20); the snapshot the windows get shows the
+// message as the transcript will (messageLabel), without the bytes of its images.
 import { randomUUID } from 'node:crypto'
+import { messageLabel, type Attachment } from '../../shared/agent/attachments'
 import type { QueuedMessage, QueueSnapshot } from '../../shared/agent/events'
 
 export type { QueuedMessage, QueueSnapshot }
 
+/** A message in the queue, as it will be sent. */
+export interface QueueEntry {
+  id: string
+  text: string
+  attachments: readonly Attachment[]
+}
+
 export class MessageQueue {
-  private items: QueuedMessage[] = []
+  private items: QueueEntry[] = []
   private held = false
 
   /** `onChange` gets every new state of the queue, as a copy. */
@@ -26,15 +37,15 @@ export class MessageQueue {
   }
 
   snapshot(): QueueSnapshot {
-    return { items: this.items.map((item) => ({ ...item })), paused: this.held }
+    return { items: this.items.map((item) => ({ id: item.id, text: messageLabel(item.text, item.attachments) })), paused: this.held }
   }
 
   /** Puts a message at the end of the queue. */
-  add(text: string): QueuedMessage {
-    const item: QueuedMessage = { id: randomUUID(), text }
+  add(text: string, attachments: readonly Attachment[] = []): QueuedMessage {
+    const item: QueueEntry = { id: randomUUID(), text, attachments: [...attachments] }
     this.items = [...this.items, item]
     this.changed()
-    return { ...item }
+    return { id: item.id, text: messageLabel(text, attachments) }
   }
 
   /** Takes a message out before it is sent; false when it is not (or no longer) in the queue. */
@@ -48,7 +59,7 @@ export class MessageQueue {
   }
 
   /** The oldest message, taken out of the queue; nothing while the queue is held or empty. */
-  take(): QueuedMessage | undefined {
+  take(): QueueEntry | undefined {
     if (this.held) return undefined
     const [first, ...rest] = this.items
     if (first === undefined) return undefined

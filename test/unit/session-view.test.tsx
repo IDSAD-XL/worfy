@@ -14,6 +14,7 @@ import { promptHistory, stepHistory } from '../../src/renderer/session/history'
 import { collectRowTypes } from '../../src/renderer/session/rows/index'
 import { collectRailBlocks, type RailBlockProps } from '../../src/renderer/session/rail/index'
 import { collectComposerItems } from '../../src/renderer/session/composer/index'
+import type { OutgoingMessage } from '../../src/renderer/session/MessageInput'
 
 type Result = Extract<AgentEvent, { type: 'result' }>
 
@@ -280,7 +281,7 @@ describe('the event store: limits, queue and settings', () => {
 })
 
 describe('MessageInput', () => {
-  async function mountInput(props: { busy?: boolean; history?: string[]; onSend?: (text: string) => Promise<string | null> } = {}) {
+  async function mountInput(props: { busy?: boolean; history?: string[]; onSend?: (message: OutgoingMessage) => Promise<string | null> } = {}) {
     const { MessageInput } = await import('../../src/renderer/session/MessageInput')
     const onSend = vi.fn(props.onSend ?? (() => Promise.resolve(null)))
     const onInterrupt = vi.fn()
@@ -296,7 +297,7 @@ describe('MessageInput', () => {
     await act(async () => {
       fireEvent.keyDown(field, { key: 'Enter' })
     })
-    expect(onSend).toHaveBeenCalledWith('line 1')
+    expect(onSend).toHaveBeenCalledWith({ text: 'line 1', attachments: [] })
     expect(field.value).toBe('')
   })
 
@@ -343,7 +344,7 @@ describe('MessageInput', () => {
     await act(async () => {
       fireEvent.keyDown(field, { key: 'Enter' })
     })
-    expect(onSend).toHaveBeenCalledWith('later')
+    expect(onSend).toHaveBeenCalledWith({ text: 'later', attachments: [] })
     expect(field.value).toBe('')
   })
 })

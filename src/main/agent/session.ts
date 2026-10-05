@@ -11,8 +11,14 @@
 // turn's `result`, one per turn (ticket 19); Interrupt and a crash hold the queue until "Send
 // queued". The model, effort and permission mode (src/shared/agent/settings.ts) are applied to
 // the live query through its control calls and passed to every query started later.
+//
+// A message may carry attachments (ticket 20, attachments.ts): images go as image blocks, other
+// files as paths at the end of the text. The slash menu's commands come from the live query and
+// the last system/init (commands.ts).
 import { randomUUID } from 'node:crypto'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { messageLabel, type Attachment } from '../../shared/agent/attachments'
+import type { SlashCommand } from '../../shared/agent/commands'
 import { sdkMessageToEvents, type AgentEvent, type QueueSnapshot, type SessionState } from '../../shared/agent/events'
 import {
   DEFAULT_SETTINGS,
@@ -24,6 +30,8 @@ import {
   type SessionSettings,
   type SettingsChange,
 } from '../../shared/agent/settings'
+import { userContent } from './attachments'
+import { CommandCatalog, type CommandInfoLike } from './commands'
 import { MessageQueue } from './queue'
 
 /** What accountInfo() returns, as far as worfy reads it (ADR-0009). */
@@ -53,6 +61,8 @@ export interface QueryHandle extends AsyncIterable<unknown> {
   /** How the SDK changes effort mid-session (ticket 06); null goes back to the model's default. */
   applyFlagSettings(settings: { effortLevel?: EffortChoice | null }): Promise<void>
   supportedModels(): Promise<ModelInfoLike[]>
+  /** The slash commands and skills (ticket 20); optional, as a query that lacks it lists those of system/init. */
+  supportedCommands?(): Promise<CommandInfoLike[]>
 }
 
 export interface QueryRequest {
@@ -190,6 +200,7 @@ export class Session {
   /** The model of the last system/init: the model list's fallback. */
   private initModel: string | null = null
   private readonly queue = new MessageQueue((snapshot) => this.emit({ type: 'queue', ...snapshot }))
+  private readonly catalog = new CommandCatalog()
 
   constructor(
     readonly cwd: string,
@@ -240,13 +251,14 @@ export class Session {
    * Sends one user message: at once, or into the queue while a turn runs. A Session in `error` is
    * started again with `resume` first.
    */
-  send(text: string): 'sent' | 'queued' {
+  send(text: string, attachments: readonly Attachment[] = []): 'sent' | 'queued' {
     this.assertOpen()
+    if (text.trim() === '' && attachments.length === 0) throw new Error('The message is empty')
     if (this.stateValue === 'busy' || this.stateValue === 'needs_permission') {
-      this.queue.add(text)
+      this.queue.add(text, attachments)
       return 'queued'
     }
-    this.deliver(text)
+    this.deliver(text, attachments)
     return 'sent'
   }
 
@@ -314,6 +326,11 @@ export class Session {
     return model === null ? [] : [{ value: model, displayName: model, efforts: [] }]
   }
 
+  /** The slash menu's rows: supportedCommands() of the live query, with the names of the last system/init. */
+  commands(): Promise<SlashCommand[]> {
+    return this.catalog.list(this.run?.query ?? null)
+  }
+
   close(): void {
     if (this.closing) return
     this.closing = true
@@ -333,15 +350,15 @@ export class Session {
   }
 
   /** Gives Claude Code one user message and starts its turn. */
-  private deliver(text: string): void {
+  private deliver(text: string, attachments: readonly Attachment[]): void {
     if (this.stateValue === 'error' || this.run === null) this.begin()
     const message: SDKUserMessage = {
       type: 'user',
-      message: { role: 'user', content: text },
+      message: { role: 'user', content: userContent(text, attachments) },
       parent_tool_use_id: null,
       origin: { kind: 'human' },
     }
-    this.emit({ type: 'prompt', text })
+    this.emit({ type: 'prompt', text: messageLabel(text, attachments) })
     this.run?.input.push(message)
     this.setState('busy')
   }
@@ -349,7 +366,7 @@ export class Session {
   /** Sends the next queued message, unless the queue is held or empty. */
   private next(): void {
     const item = this.queue.take()
-    if (item !== undefined) this.deliver(item.text)
+    if (item !== undefined) this.deliver(item.text, item.attachments)
   }
 
   private begin(): void {
@@ -439,6 +456,7 @@ export class Session {
   }
 
   private handle(message: unknown): void {
+    this.catalog.observe(message)
     for (const event of sdkMessageToEvents(message)) {
       if (event.type === 'init') {
         this.sdkSessionId = event.sdkSessionId

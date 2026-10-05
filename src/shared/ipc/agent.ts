@@ -8,7 +8,13 @@
 // Ticket 19: `agent.send` during a turn puts the message in the Session's queue; the queue, the
 // settings (model, effort, permission mode) and their changes arrive as `queue` and `settings`
 // events, and `agent.controls` answers both for a view that opens later.
+//
+// Ticket 20: `agent.send` takes the message's attachments, checked beforehand by `agent.attach`
+// (what the renderer has: a pasted image, a dropped file) or `agent.attachPick` (main's own file
+// dialog, behind "+"); `agent.commands` lists the slash commands and skills of the Session.
 import { z } from 'zod'
+import { attachmentSchema, attachmentSourceSchema, attachResultSchema, MAX_ATTACHMENTS } from '../agent/attachments'
+import { slashCommandSchema } from '../agent/commands'
 import { agentEventEnvelope, queueSnapshotSchema, sessionState } from '../agent/events'
 import { modelOptionSchema, sessionSettingsSchema, settingsChangeSchema } from '../agent/settings'
 import { eventChannel, invokeChannel } from './channels'
@@ -26,7 +32,25 @@ export const agentStart = invokeChannel(
   z.object({ sessionId }),
 )
 
-export const agentSend = invokeChannel('agent.send', z.object({ sessionId, text: z.string().min(1) }), z.void())
+export const agentSend = invokeChannel(
+  'agent.send',
+  z
+    .object({ sessionId, text: z.string(), attachments: z.array(attachmentSchema).max(MAX_ATTACHMENTS).default([]) })
+    .refine((message) => message.text.trim() !== '' || message.attachments.length > 0, 'the message is empty'),
+  z.void(),
+)
+
+/** What main makes of each thing attached, in the order given: an attachment, or why it was refused. */
+const attachResults = z.object({ results: z.array(attachResultSchema) })
+
+/** Checks pasted and dropped things, and copies what needs copying (src/main/agent/attachments.ts). */
+export const agentAttach = invokeChannel('agent.attach', z.object({ sessionId, sources: z.array(attachmentSourceSchema).min(1).max(MAX_ATTACHMENTS) }), attachResults)
+
+/** "+": main's file dialog; no results when the user cancels it. */
+export const agentAttachPick = invokeChannel('agent.attachPick', z.object({ sessionId }), attachResults)
+
+/** The slash menu's rows: the slash commands and skills Claude Code reports for the Session. */
+export const agentCommands = invokeChannel('agent.commands', z.object({ sessionId }), z.object({ commands: z.array(slashCommandSchema) }))
 
 export const agentInterrupt = invokeChannel('agent.interrupt', z.object({ sessionId }), z.object({ interrupted: z.boolean() }))
 
@@ -55,6 +79,9 @@ declare module './channels' {
   interface IpcContract {
     'agent.start': typeof agentStart
     'agent.send': typeof agentSend
+    'agent.attach': typeof agentAttach
+    'agent.attachPick': typeof agentAttachPick
+    'agent.commands': typeof agentCommands
     'agent.interrupt': typeof agentInterrupt
     'agent.close': typeof agentClose
     'agent.list': typeof agentList
