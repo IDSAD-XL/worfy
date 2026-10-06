@@ -70,11 +70,16 @@ beforeEach(() => {
   repo = join(scratch, 'repo')
   mkdirSync(repo)
   mkdirSync(join(scratch, 'data', PROJECT), { recursive: true })
+  // The user's model and effort come from <Claude home>/settings.json: an empty home of the test's
+  // own, never the real ~/.claude.
+  mkdirSync(join(scratch, 'claude-home'))
+  vi.stubEnv('WORFY_CLAUDE_HOME', join(scratch, 'claude-home'))
 })
 
 afterEach(async () => {
   for (const registry of registries) registry.closeAll()
   registries = []
+  vi.unstubAllEnvs()
   await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 

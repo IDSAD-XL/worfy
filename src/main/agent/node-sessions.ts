@@ -6,9 +6,15 @@
 // keeps `origin: 'worfy'` and the SDK session id once Claude Code reports it (ADR-0010); the rest
 // lives in memory as the Node's view and goes to the windows on `sessions.changed`.
 //
+// The model, effort and permission mode picked on a Node are kept like the Orchestrator's
+// (session-settings.ts, worfy-daily ticket 23): each `settings` event of the Node's Session saves
+// them under the Node id, and every start of the Node — New session, Start, Resume, after a restart
+// of worfy — passes them to the registry.
+//
 // Like the Orchestrator, these Sessions belong to the app, not to a window: their events go to
 // every window, and they stop when the app quits (app-registry.ts).
 import type { AgentEvent } from '../../shared/agent/events'
+import { DEFAULT_SETTINGS, sameSettings, type SessionSettings } from '../../shared/agent/settings'
 import type { LiveSession } from '../../shared/ipc/claude-home'
 import {
   LIVE_SESSION_HEIGHT,
@@ -31,6 +37,11 @@ export interface NodeSessionsDeps {
   /** The Project's repository root; throws for a Project that is not in the list. */
   projectPath(projectId: string): string
   registry: Pick<SessionRegistry, 'start' | 'list'>
+  /** Where the picked model, effort and permission mode of a Node are kept (session-settings.ts). */
+  settings: {
+    read(projectId: string, nodeId: string): SessionSettings | undefined
+    write(projectId: string, nodeId: string, settings: SessionSettings): void
+  }
   /** What the Claude home knows of the Project's Sessions: live processes and each transcript's cwd. */
   claude(projectRoot: string): Promise<{ live: readonly LiveSession[]; history: readonly { sessionId: string; cwd?: string | undefined }[] }>
   isDirectory(path: string): Promise<boolean>
@@ -47,6 +58,8 @@ interface Run {
   session: Session | null
   /** The SDK session: resumed, or reported by Claude Code. */
   sdkSessionId: string | null
+  /** The picks last saved for the Node, or read when it started. */
+  settings: SessionSettings
 }
 
 /** Data of a Session Node that worfy runs. */
@@ -221,12 +234,12 @@ export class NodeSessions {
   }
 
   private launch(projectId: string, nodeId: string, cwd: string, resume: string | undefined): SessionNodeView {
-    const run: Run = { projectId, nodeId, session: null, sdkSessionId: resume ?? null }
+    const run: Run = { projectId, nodeId, session: null, sdkSessionId: resume ?? null, settings: this.savedSettings(projectId, nodeId) }
     this.runs.set(nodeId, run)
     // The registry reports `starting` before start() returns: the view must exist by then.
     this.setView({ projectId, nodeId, sessionId: `starting-${nodeId}`, sdkSessionId: resume ?? null, state: 'starting', error: null, cwd, model: null })
     try {
-      run.session = this.deps.registry.start(cwd, resume, (sessionId, event) => this.onEvent(run, sessionId, event))
+      run.session = this.deps.registry.start(cwd, resume, (sessionId, event) => this.onEvent(run, sessionId, event), run.settings)
     } catch (error) {
       this.runs.delete(nodeId)
       // Closed, not `error`: no Session runs, so the Node can be removed or started again.
@@ -260,8 +273,33 @@ export class NodeSessions {
       next.state = event.state
       next.error = event.error
       if (event.state === 'closed') this.runs.delete(run.nodeId)
+    } else if (event.type === 'settings') {
+      // The start's own event saves only picks the Session corrected (a haiku saved before ticket 07).
+      if (!sameSettings(run.settings, event.settings)) {
+        run.settings = event.settings
+        this.saveSettings(run, event.settings)
+      }
     }
     this.setView(next)
+  }
+
+  /** The Node's saved picks; the defaults when there are none or they cannot be read, so the start goes on. */
+  private savedSettings(projectId: string, nodeId: string): SessionSettings {
+    try {
+      return this.deps.settings.read(projectId, nodeId) ?? DEFAULT_SETTINGS
+    } catch (error) {
+      console.warn(`[sessions] could not read the saved settings of ${nodeId}; starting with the defaults`, error)
+      return DEFAULT_SETTINGS
+    }
+  }
+
+  private saveSettings(run: Run, settings: SessionSettings): void {
+    try {
+      this.deps.settings.write(run.projectId, run.nodeId, settings)
+    } catch (error) {
+      // The live Session keeps the picks; only its next start loses them.
+      console.warn(`[sessions] could not save the settings of ${run.nodeId}`, error)
+    }
   }
 
   private patch(run: Run, data: Partial<WorfySessionNodeData>): void {

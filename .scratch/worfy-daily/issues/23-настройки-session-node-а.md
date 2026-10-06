@@ -1,7 +1,7 @@
 # 23 — Настройки Session Node-а сохраняются; Default — модель и effort пользователя
 
 Type: task
-Status: open
+Status: claimed — 2026-10-06
 Blocked by: 06, 07, 08, 09, 10, 30
 Source: [spec.md](../spec.md), тема C; ручная проверка 2026-10-06, ночь — Ticket 19 worfy-mvp (`.scratch/worfy-mvp/issues/19-поле-ввода-модель-и-очередь.md:169`); Ticket 07 этого Epic-а, «Что известно»; HANDOFF, «Риски и долги»
 
@@ -54,12 +54,13 @@ Session Node-а стартует без сохранённого выбора: `
 
 ## Готово, когда
 
-- [ ] Выбор модели, effort и режима у Node-а «New session» пишется в `session-settings.json` под id Node-а: contract-test читает файл во временном `WORFY_DATA_DIR` после смены.
-- [ ] После Resume того же Node-а и после перезапуска worfy Session стартует с сохранённым выбором: contract-test читает настройки запроса к fake-query.
-- [ ] «Default» на живой Session после другой модели зовёт `setModel` с моделью из `settings.json` временного `WORFY_CLAUDE_HOME`; без поля `model` — `setModel(undefined)`. Contract-test читает вызовы fake-query.
-- [ ] При `effortLevel: high` в `settings.json` временного `WORFY_CLAUDE_HOME` Session без выбора effort и после «effort default» передаёт SDK `high`: contract-test. Причина нынешнего `medium` — в «Итог».
-- [ ] `settings.json` пользователя не меняется: test сравнивает дерево временного `WORFY_CLAUDE_HOME` до и после.
+- [x] Выбор модели, effort и режима у Node-а «New session» пишется в `session-settings.json` под id Node-а: contract-test читает файл во временном `WORFY_DATA_DIR` после смены.
+- [x] После Resume того же Node-а и после перезапуска worfy Session стартует с сохранённым выбором: contract-test читает настройки запроса к fake-query.
+- [x] «Default» на живой Session после другой модели зовёт `setModel` с моделью из `settings.json` временного `WORFY_CLAUDE_HOME`; без поля `model` — `setModel(undefined)`. Contract-test читает вызовы fake-query.
+- [x] При `effortLevel: high` в `settings.json` временного `WORFY_CLAUDE_HOME` Session без выбора effort и после «effort default» передаёт SDK `high`: contract-test. Причина нынешнего `medium` — в «Итог».
+- [x] `settings.json` пользователя не меняется: test сравнивает дерево временного `WORFY_CLAUDE_HOME` до и после.
 - [ ] (вручную) Собранное приложение, настоящий Claude Code: Node «New session» → Sonnet → перезапуск worfy → Resume, Session на Sonnet. Затем «Default» → модель из `settings.json`, с `[1m]`. Без выбора effort `echo $CLAUDE_EFFORT` в Bash Session даёт `effortLevel` из `settings.json`. Проверка — транскрипт и вывод команды. Итог — в «Итог».
+  не проверено: GUI-проверка и запуск настоящего Claude Code исполнителю запрещены брифом волны 7 (запись в `~/.claude`); пункт за владельцем.
 
 ## Тесты
 
@@ -75,3 +76,41 @@ Session Node-а стартует без сохранённого выбора: `
 - `src/main/claude-home/user-model.ts`
 - `test/contract/node-sessions.test.ts`
 - `test/contract/agent-controls.test.ts`
+- `test/contract/orchestrator.test.ts` — расширение следа (разрешено оркестратором): test-ы ставят `WORFY_CLAUDE_HOME` на временный каталог, иначе локально читают настоящий `~/.claude/settings.json` и получают его `effortLevel`.
+
+## Итог
+
+**Почему Session через SDK шла на `medium`, хотя в `settings.json` `effortLevel: high`.** SDK тут ни
+при чём: он передаёт `--effort`, только когда `options.effort` задан (`sdk.mjs`,
+`if(this.options.effort)B.push("--effort",…)`), а `settingSources` у worfy включает `user`. Дело в
+самом Claude Code из `@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.289`. Он читает верхнее поле
+`effortLevel` пользовательского `settings.json` как «legacy user effort» (`legacyUserEffort`) и
+применяет его только к моделям из своего списка старых: `claude-3-5-*`, `claude-sonnet-4-*`,
+`claude-sonnet-5`, `claude-opus-4-*`, `claude-opus-5`, `claude-fable-5*`, `claude-mythos-5*`.
+`claude-opus-5-5` в списке нет, поэтому на ней действует effort модели по умолчанию — `medium`.
+Без устаревания поле действует только из `modelSettings.<модель>.effortLevel` или из настроек
+проекта. Вывод сделан по строкам бинарника (`strings`), а не запуском настоящего Claude Code;
+запуск — в ручном пункте.
+
+**Что сделано.**
+
+- `NodeSessions` получил хранилище выбора (`settings`, то же `SessionSettingsStore`, что у
+  Orchestrator-а; подключено в `app-node-sessions.ts`). Событие `settings` Session Node-а
+  сохраняет выбор под id Node-а, если он отличается от сохранённого. Каждый старт Node-а — New
+  session, Start, Resume, после перезапуска worfy — передаёт сохранённый выбор в
+  `registry.start`. Выбор, который не читается, даёт старт с настройками по умолчанию.
+- `user-model.ts` читает и `effortLevel` (`readUserEffort`; неизвестный worfy уровень — `null`).
+- `session.ts`: `model: null` на живой Session — `setModel` с моделью пользователя (haiku —
+  `sonnet`, правило Ticket-а 07); нет модели — `setModel(undefined)`, как раньше. `effort: null` —
+  при старте и при «effort default» передаётся `effortLevel` пользователя; нет его — как раньше.
+  Старт без выбора модели по-прежнему не называет модель: Claude Code берёт её из `settings.json`
+  сам. Настройки Session остаются `null`, шапка показывает «—»; `options.ts` не менялся.
+- `settings.json` пользователя worfy не меняет: test сравнивает дерево временного
+  `WORFY_CLAUDE_HOME` до и после.
+
+**Решено без владельца, подтвердить.** Берётся только верхнее поле `effortLevel`.
+`modelSettings.<модель>.effortLevel` worfy не читает. Если у пользователя есть оба поля, worfy
+передаёт верхнее, а Claude Code сам выбрал бы поле модели.
+
+**Ручная проверка** (собранное приложение, настоящий Claude Code) не проведена: исполнителю волны 7
+запрещены GUI-проверки и запуск Claude Code. Пункт за владельцем.

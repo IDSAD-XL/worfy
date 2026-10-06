@@ -28,6 +28,11 @@
 // isSelectableModel): the model list leaves haiku out, a saved haiku goes back to the default model,
 // and when the default model would be a haiku from the user's settings.json (user-model.ts) the
 // query is started on sonnet instead. The Session's own settings keep `model: null` then.
+//
+// `null` — "Default" in the pickers — is the user's own model and effort from settings.json
+// (worfy-daily ticket 23): going back to it on a live query calls setModel with that model and
+// applyFlagSettings with that effort, and a new query that names no effort is asked for the user's.
+// Only the calls change: the Session's settings keep `null`, so its header shows "no pick".
 import { randomUUID } from 'node:crypto'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { messageLabel, type Attachment } from '../../shared/agent/attachments'
@@ -46,7 +51,7 @@ import {
   type SessionSettings,
   type SettingsChange,
 } from '../../shared/agent/settings'
-import { readUserModel, type UserModelReader } from '../claude-home/user-model'
+import { readUserEffort, readUserModel, type UserEffortReader, type UserModelReader } from '../claude-home/user-model'
 import { userContent } from './attachments'
 import { CommandCatalog, type CommandInfoLike } from './commands'
 import { PermissionGate, unattendedCanUseTool, type CanUseToolHandler } from './permissions'
@@ -201,10 +206,16 @@ interface Run {
   applied: SessionSettings
 }
 
-/** Brings a live query to `to`, one control call per changed setting. */
-async function pushSettings(run: Run, query: QueryHandle, to: SessionSettings): Promise<void> {
+/**
+ * Brings a live query to `to`, one control call per changed setting. `run.applied` keeps the
+ * Session's own settings; `request` turns them into what the calls ask for (Session.controlSettings):
+ * a `null` model or effort becomes the user's own.
+ */
+async function pushSettings(run: Run, query: QueryHandle, to: SessionSettings, request: (settings: SessionSettings) => SessionSettings): Promise<void> {
+  const changed = run.applied.model !== to.model || run.applied.effort !== to.effort
+  const asked = changed ? request(to) : to
   if (run.applied.model !== to.model) {
-    await query.setModel(to.model ?? undefined)
+    await query.setModel(asked.model ?? undefined)
     run.applied = { ...run.applied, model: to.model }
   }
   if (run.applied.permissionMode !== to.permissionMode) {
@@ -212,7 +223,7 @@ async function pushSettings(run: Run, query: QueryHandle, to: SessionSettings): 
     run.applied = { ...run.applied, permissionMode: to.permissionMode }
   }
   if (run.applied.effort !== to.effort) {
-    await query.applyFlagSettings({ effortLevel: to.effort })
+    await query.applyFlagSettings({ effortLevel: asked.effort })
     run.applied = { ...run.applied, effort: to.effort }
   }
 }
@@ -249,8 +260,10 @@ export class Session {
     resume: string | undefined,
     settings: SessionSettings = DEFAULT_SETTINGS,
     private readonly launch: SessionLaunch = ATTENDED,
-    /** The user's own model, read again for every Claude Code process the Session starts. */
+    /** The user's own model, read again for every Claude Code process the Session starts and every "Default". */
     private readonly userModel: UserModelReader = () => readUserModel(),
+    /** The user's own effort, read like the model. */
+    private readonly userEffort: UserEffortReader = () => readUserEffort(),
   ) {
     this.current = `pending-${randomUUID()}`
     this.sdkSessionId = resume ?? null
@@ -406,7 +419,7 @@ export class Session {
       const wanted = mergeSettings(before, change)
       const run = this.run
       // Without a live query the settings go to the next one (begin() or the query being started).
-      if (run?.query) await pushSettings(run, run.query, wanted)
+      if (run?.query) await pushSettings(run, run.query, wanted, (settings) => this.controlSettings(settings))
       this.settingsValue = wanted
       if (!sameSettings(before, wanted)) this.emit({ type: 'settings', settings: this.settings })
       return this.settings
@@ -502,19 +515,43 @@ export class Session {
   /**
    * The settings a new Claude Code process is asked for. With no model named the SDK runs the
    * user's model from settings.json; when that is a haiku the process is asked for sonnet instead.
-   * Only the request changes: the Session's settings (and the Node's saved picks) keep `null`, and
-   * the user's settings.json is left as it is (ADR 0005).
+   * With no effort named the process is asked for the user's effortLevel, which Claude Code would
+   * not apply to a newer model (user-model.ts). Only the request changes: the Session's settings
+   * (and the Node's saved picks) keep `null`, and the user's settings.json is left as it is
+   * (ADR 0005).
    */
   private querySettings(settings: SessionSettings): SessionSettings {
-    if (settings.model !== null) return settings
-    let userModel: string | null
+    const asked = this.userEffortFor(settings)
+    if (asked.model !== null) return asked
+    const userModel = this.readUser('model', this.userModel)
+    return userModel !== null && !isSelectableModel(userModel) ? { ...asked, model: USER_MODEL_FALLBACK } : asked
+  }
+
+  /**
+   * What the control calls of a live query ask for. setModel with no model would put Claude Code
+   * on its own default model, not on the user's: "Default" names the user's model (sonnet for a
+   * haiku), and only with none in settings.json goes to Claude Code's default.
+   */
+  private controlSettings(settings: SessionSettings): SessionSettings {
+    const asked = this.userEffortFor(settings)
+    if (asked.model !== null) return asked
+    const userModel = this.readUser('model', this.userModel)
+    return userModel === null ? asked : { ...asked, model: isSelectableModel(userModel) ? userModel : USER_MODEL_FALLBACK }
+  }
+
+  /** `settings` with no effort named asking for the user's effortLevel; still null when there is none. */
+  private userEffortFor(settings: SessionSettings): SessionSettings {
+    return settings.effort !== null ? settings : { ...settings, effort: this.readUser('effort', this.userEffort) }
+  }
+
+  /** One of the user's own settings; null when it cannot be read, so the start or the change goes on. */
+  private readUser<T>(what: string, read: () => T | null): T | null {
     try {
-      userModel = this.userModel()
+      return read()
     } catch (error) {
-      console.warn(`[agent] could not read the user's model for ${this.current}`, error)
-      userModel = null
+      console.warn(`[agent] could not read the user's ${what} for ${this.current}`, error)
+      return null
     }
-    return userModel !== null && !isSelectableModel(userModel) ? { ...settings, model: USER_MODEL_FALLBACK } : settings
   }
 
   /** Settings changed while the query was being started: the query gets them now. */
@@ -522,7 +559,7 @@ export class Session {
     this.configuring = this.configuring.then(async () => {
       if (this.run !== run || sameSettings(run.applied, this.settingsValue)) return
       try {
-        await pushSettings(run, query, this.settingsValue)
+        await pushSettings(run, query, this.settingsValue, (settings) => this.controlSettings(settings))
       } catch (error) {
         console.warn(`[agent] could not apply the settings of ${this.current}`, error)
       }
@@ -659,10 +696,11 @@ export class SessionRegistry {
   private readonly observers = new Set<EventSink>()
   private readonly inputObservers = new Set<InputListener>()
 
-  /** `userModel` reads the user's own model (user-model.ts); tests give it a fixed answer. */
+  /** `userModel` and `userEffort` read the user's own model and effort (user-model.ts); tests give them fixed answers. */
   constructor(
     private readonly factory: QueryFactory,
     private readonly userModel: UserModelReader = () => readUserModel(),
+    private readonly userEffort: UserEffortReader = () => readUserEffort(),
   ) {}
 
   /**
@@ -732,6 +770,7 @@ export class SessionRegistry {
       settings,
       launch,
       this.userModel,
+      this.userEffort,
     )
     this.sessions.set(session.id, session)
     session.start()
