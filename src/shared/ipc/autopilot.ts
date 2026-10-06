@@ -9,16 +9,19 @@ import { eventChannel, invokeChannel } from './channels'
 const projectId = z.string().min(1)
 
 /**
- * The Project's run: `running`, or `stopped` with the reason of the last run (null before any).
- * `wave` counts the Waves the run has sent, from 1. `message` is what went wrong, in words, when a
- * Session failed or a Wave could not be sent. `revision` grows with every change of any Project; a
- * client keeps the state with the highest one.
+ * The Project's run: `running`; `waiting` for the Limits to reset (worfy-daily ticket 05), until
+ * `resumesAt`; or `stopped` with the reason of the last run (null before any). `wave` counts the
+ * Waves the run has sent, from 1. `message` is what went wrong, in words, when a Session failed, a
+ * Wave could not be sent or the wait for the Limits was given up. `revision` grows with every change
+ * of any Project; a client keeps the state with the highest one.
  */
 export const autopilotStateSchema = z.object({
   projectId,
   epic: epicNameSchema.nullable(),
-  status: z.enum(['running', 'stopped']),
+  status: z.enum(['running', 'waiting', 'stopped']),
   wave: z.number().int().nonnegative(),
+  /** While `waiting`: when the run sends the Orchestrator on, in milliseconds since the epoch; else null. */
+  resumesAt: z.number().int().nonnegative().nullable(),
   reason: z.enum(AUTOPILOT_STOP_REASONS).nullable(),
   message: z.string().nullable(),
   revision: z.number().int().nonnegative(),
@@ -41,9 +44,25 @@ export const autopilotState = invokeChannel('autopilot.state', z.object({ projec
 /** Sent to every window whenever a Project's run changes. */
 export const autopilotChanged = eventChannel('autopilot.changed', autopilotStateSchema)
 
-/** The status line of the Epic's Autopilot action: `Wave 3 · running`, `stopped: no ready wave`. */
-export function autopilotStatusLine(state: Pick<AutopilotState, 'status' | 'wave' | 'reason'>): string | null {
+export interface StatusLineOptions {
+  /** IANA time zone of the times shown; the system's when omitted. Tests pass a fixed one. */
+  timeZone?: string
+}
+
+/**
+ * The status line of the Epic's Autopilot action: `Wave 3 · running`, `waiting for limits · resumes
+ * 14:20`, `stopped: no ready wave`.
+ */
+export function autopilotStatusLine(
+  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt'>>,
+  options: StatusLineOptions = {},
+): string | null {
   if (state.status === 'running') return state.wave === 0 ? 'starting' : `Wave ${state.wave} · running`
+  if (state.status === 'waiting') {
+    if (state.resumesAt === null || state.resumesAt === undefined) return 'waiting for limits'
+    const at = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: options.timeZone }).format(state.resumesAt)
+    return `waiting for limits · resumes ${at}`
+  }
   if (state.reason === null) return null
   return `stopped: ${state.reason.replaceAll('-', ' ')}`
 }

@@ -68,6 +68,9 @@ async function playTurns(window: Page, cwd: string, turns: number): Promise<void
 
 const meter = (window: Page) => window.getByTestId('limits-meter')
 
+/** The 7-day reset time of test/fixtures/agent-scripts/limits.jsonl, turn 1 (Unix seconds 1791795600). */
+const SCRIPT_SEVEN_DAY_RESET_MS = 1791795600 * 1000
+
 test('rate_limit_event fills the toolbar bars, they survive a restart marked with their age, and the status line file updates them', async () => {
   const first = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_AGENT_SCRIPT: 'limits' } })
   try {
@@ -86,11 +89,16 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
     await first.window.getByRole('banner').screenshot({ path: test.info().outputPath('toolbar-limits.png') })
 
     // Turn 2: an event without utilization and resetsAt; the 7-day bar shows its status in words.
+    // It keeps the reset time known from turn 1 while that time is still ahead (worfy-daily ticket
+    // 05: Autopilot waits by it); the script's time is fixed (2026-10-12T09:00Z), so once it has
+    // passed the bar has no reset time left.
     await playTurns(first.window, project, 2)
     await expect(sevenDay.getByTestId('limit-seven_day-value')).toHaveText('limit reached')
     await expect(sevenDay).toHaveAttribute('data-level', 'blocked')
     await expect(sevenDay.getByRole('meter')).toHaveCount(0)
-    await expect(sevenDay.getByTestId('limit-seven_day-note')).toHaveCount(0)
+    const note = sevenDay.getByTestId('limit-seven_day-note')
+    if (Date.now() < SCRIPT_SEVEN_DAY_RESET_MS) await expect(note).toHaveText(/^resets [A-Z][a-z]{2} \d\d:\d\d$/)
+    else await expect(note).toHaveCount(0)
     await expect(fiveHour.getByTestId('limit-five_hour-value')).toHaveText('62%')
   } finally {
     await first.close()

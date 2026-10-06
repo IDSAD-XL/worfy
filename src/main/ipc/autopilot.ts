@@ -1,12 +1,14 @@
 // Handlers of the `autopilot` domain (src/shared/ipc/autopilot.ts), and the app's Autopilot
 // (src/main/autopilot/run.ts) wired to its Projects, Orchestrators, Sessions, workflow watch, run
-// journal and keep-awake. A run's changes go to every window. When the app quits during a run, the
-// quit waits (a few seconds at most) until the run has written `run-stopped` with `app-quit`.
+// journal, keep-awake and the Limits (the wait after a refusal, worfy-daily ticket 05). A run's
+// changes go to every window. When the app quits during a run, the quit waits (a few seconds at
+// most) until the run has written `run-stopped` with `app-quit`; that also cancels a Limits wait.
 import { execFile } from 'node:child_process'
 import { app } from 'electron'
 import { autopilotChanged, autopilotStart, autopilotState, autopilotStop, type AutopilotState } from '../../shared/ipc/autopilot'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
+import { appLimits, observeSessionLimits } from '../agent/limits'
 import { openRun } from '../autopilot/journal'
 import { KeepAwake } from '../autopilot/power'
 import { Autopilot, selfProjectRefusal } from '../autopilot/run'
@@ -67,6 +69,13 @@ export function sharedAutopilot(): Autopilot {
     journal: (start) => openRun(start),
     keepAwake: () => new KeepAwake(),
     onChange: (state: AutopilotState) => toEveryWindow((target) => emit(target, autopilotChanged, state)),
+    limits: {
+      state: () => appLimits().snapshot(),
+      observeSession: (isSession, listener) => observeSessionLimits((sink) => sharedRegistry().observe(sink), isSession, listener),
+      send: (sessionId, text) => {
+        sharedRegistry().get(sessionId).send(text)
+      },
+    },
   })
   sharedLauncher().attachAutopilot(autopilot)
   let quitting = false

@@ -15,7 +15,8 @@ import { emptyLimits, limitUpdatesFromSdk, limitUpdatesFromStatusline, limitsSta
 import { observeMessages } from '../mcp/canvas-server'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 import { dataRoot } from '../storage/paths'
-import type { QueryFactory } from './session'
+import type { AgentEvent } from '../../shared/agent/events'
+import type { EventSink, QueryFactory } from './session'
 
 export const LIMITS_FILE = 'limits.json'
 /** Written by scripts/statusline-bridge.sh: the status line's `rate_limits` object as is. */
@@ -88,9 +89,19 @@ export class LimitsTracker {
     }
   }
 
-  /** Records the windows of one SDK message (nothing for messages other than rate_limit_event). */
+  /**
+   * Records the windows of one SDK message (nothing for messages other than rate_limit_event). A
+   * window reported without a reset time keeps the one already known while it is still ahead: a
+   * refusal (`rejected`) may come without `resetsAt`, and Autopilot then waits by the time kept here.
+   */
   recordSdkMessage(message: unknown): void {
-    this.record(limitUpdatesFromSdk(message, this.now()))
+    const now = this.now()
+    const updates = limitUpdatesFromSdk(message, now).map((update): LimitUpdate => {
+      const known = this.state.windows[update.window]?.resetsAt ?? null
+      if (update.state.resetsAt !== null || known === null || known * 1000 <= now) return update
+      return { window: update.window, state: { ...update.state, resetsAt: known } }
+    })
+    this.record(updates)
   }
 
   /**
@@ -182,6 +193,37 @@ export class LimitsTracker {
       this.readStatusline()
     }, STATUSLINE_DEBOUNCE_MS)
   }
+}
+
+/** The Limits status one Session was last told (its `rate_limit` events). */
+export interface SessionLimitsStatus {
+  /** `allowed`, `allowed_warning` or `rejected`. */
+  status: string
+  /** The window the status is about (`five_hour`, `seven_day`, …); null when not reported. */
+  window: string | null
+  /** The window's reset time as reported (Unix seconds); null when not reported. */
+  resetsAt: number | null
+}
+
+/**
+ * Calls `listener` whenever the Limits status of one Session changes: its `rate_limit` events, as
+ * the registry sends them (`observe`, SessionRegistry.observe), for the Session that `isSession`
+ * accepts (a Session's id changes once Claude Code names it, so the test is the caller's). An event
+ * that repeats the last status, window and reset time is not reported again. Answers the unsubscribe.
+ */
+export function observeSessionLimits(
+  observe: (sink: EventSink) => () => void,
+  isSession: (sessionId: string) => boolean,
+  listener: (status: SessionLimitsStatus) => void,
+): () => void {
+  let last: SessionLimitsStatus | null = null
+  return observe((sessionId: string, event: AgentEvent) => {
+    if (event.type !== 'rate_limit' || !isSession(sessionId)) return
+    const next: SessionLimitsStatus = { status: event.status, window: event.rateLimitType, resetsAt: event.resetsAt }
+    if (last !== null && last.status === next.status && last.window === next.window && last.resetsAt === next.resetsAt) return
+    last = next
+    listener(next)
+  })
 }
 
 let appTracker: LimitsTracker | null = null
