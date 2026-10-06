@@ -23,7 +23,7 @@ Epic готов, когда выполнены четыре условия:
 2. Каждое вмешательство человека стало Ticket-ом этого Epic-а. Вмешательство записано в журнал
    прогона событием `human-input`: его пишет worfy (действие пользователя в Session прогона) или
    агент-наблюдатель (касание вне worfy, например системный диалог). Номера таких Ticket-ов идут с
-   21, в `Source` — ссылка на эту запись журнала.
+   22, в `Source` — ссылка на эту запись журнала. Номер 21 занят нестабильными e2e.
 3. Хотя бы один настоящий упор в Limits в Autopilot на стабильной копии прошёл без человека: прогон
    продолжился сам после сброса. Доказательство — выдержка из журнала (`limits-hit`,
    `waiting-until`, `resumed`) и запись HANDOFF о паузе. Ticket 05 этого проверить не может: Wave-ы
@@ -75,7 +75,7 @@ Session-ов, которые запускает worfy. По умолчанию �
 
 **Кто ведёт Wave-ы:**
 
-- Wave-ы 1–3 (тема A) ведёт Orchestrator из CLI.
+- Wave-ы 1–3 (тема A и Ticket 21) ведёт Orchestrator из CLI.
 - После Wave 3 стабильная копия обновляется.
 - С Wave 4 Wave-ы ведёт Orchestrator worfy в Autopilot.
 - Внешний агент наблюдает за Autopilot через computer use: снимки экрана, счёт касаний человека.
@@ -87,7 +87,7 @@ Session-ов, которые запускает worfy. По умолчанию �
 ## Этапы
 
 Темы идут по порядку A → B → C → D → E → F. Номера Ticket-ов идут в том же порядке. Порядок держат
-рёбра `Blocked by` (раздел «Волны»).
+рёбра `Blocked by` (раздел «Волны»). Исключение — Ticket 21 (тема E): он идёт в Wave 1, см. пункт 5.
 
 1. **A — Autopilot** — 01–05.
    - 01: журнал прогона.
@@ -112,10 +112,13 @@ Session-ов, которые запускает worfy. По умолчанию �
    - 16: `ELECTRON_RENDERER_URL` только в dev-сборке.
 4. **D — наблюдаемость** — 17. Subagent-ы workflow-скриптов в дереве. Бейджи PR и CI сверяются на
    живых PR этого Epic-а.
-5. **E и F — качество и процесс** — 18–20.
-   - 18: нестабильные e2e и helper снимков в двух темах (тема F).
+5. **E и F — качество и процесс** — 18–21.
+   - 18: helper снимков в двух темах (тема F).
    - 19: test-ы, зависящие от порядка файлов, и временные файлы test-ов в `src/`.
    - 20: непокрытые мутанты worfy-mvp.
+   - 21: нестабильные e2e (тема E). Решением владельца 2026-10-06 вынесен из 18 и идёт в Wave 1 без
+     блокеров. CI на main красный примерно в 9 из последних 39 прогонов из-за нестабильных e2e, и в
+     это упирался бы каждый PR тем A–D.
 
 Правило ревью UI для темы F вносит сам workflow проектирования, отдельным изменением skill. Ticket-а
 под него нет. Ревьюер UI-Ticket-а снимает тестовую сборку `page.screenshot()` в обеих темах и
@@ -172,13 +175,20 @@ Session-ов, которые запускает worfy. По умолчанию �
 9. **Ложный `done` у живого Subagent-а** хуже зависшего `running` (Ticket 08).
 10. **Кто знает размер рамок Epic.** Сейчас его знает только renderer, а размещение делает main
     (Ticket 10). Перенос кода из `src/renderer` в main нарушил бы границу пакетов.
-11. **Нестабильные e2e до Ticket-а 18** будут давать красный CI в Wave-ах Autopilot, то есть
-    вмешательства. Каждое такое вмешательство записывается в журнал событием `human-input`.
+11. **Нестабильные e2e до Ticket-а 21** дают красный CI в PR Wave 1. Поэтому Ticket 21 стоит в
+    Wave 1: к Wave-ам Autopilot (с Wave 4) e2e должны быть стабильны. Если красный CI из-за e2e
+    вернётся в Autopilot, это вмешательство: оно записывается в журнал событием `human-input`.
     Повторное — сразу Ticket.
 12. **Объём Subagent-ов workflow-скриптов**: 1303 транскрипта, 2,52 GB. Нужны дочитывание хвоста и
     предел глубины обхода (Ticket 17).
 13. **Profile у других пользователей.** Скрипта `profile` может не быть. Нужен мягкий отказ со
     списком по умолчанию (Ticket 06). Насовсем вопрос закроет E3.
+14. **Общий на деле файл в Wave 1.** `test/e2e/helpers.ts` и `playwright.config.ts` есть только в
+    «Где в коде» Ticket-а 21. Но `test/e2e/packaged.spec.ts` Ticket-а 03 запускает приложение через
+    `launchApp` из `helpers.ts`. Ticket 03 передаёт путь к `.app` через env, а `launchApp` уже
+    принимает `executablePath`, так что править `helpers.ts` ему не нужно. Если всё же понадобится,
+    Ticket 03 правит его только после merge Ticket-а 21, не параллельно. PR Ticket-а 21 лучше слить
+    в Wave 1 первым: остальные PR Wave 1 после rebase проходят CI уже на стабильных e2e.
 
 ## Соглашения для Ticket-ов этого Epic-а
 
@@ -228,12 +238,15 @@ Wave — Ticket-ы, которые можно брать параллельно:
 - Ticket-ы 10, 12–15 блокированы 06–09: тема C идёт после B.
 - Ticket 17 блокирован 11, 12, 13, 14 и 16 (15 — через 16): тема D идёт после всей темы C.
 - Ticket-ы 18–20 блокированы 17: темы E и F идут после D.
+- У Ticket-а 21 (нестабильные e2e, тема E) блокеров нет: решением владельца 2026-10-06 он идёт в
+  Wave 1 вместе с темой A.
 
 | Тикет | Файлы из «Где в коде» | Волна |
 | --- | --- | --- |
 | 01 | `src/shared/autopilot/journal.ts`, `src/main/autopilot/journal.ts`, `test/unit/autopilot-journal.test.ts`, `test/contract/autopilot-journal.test.ts` | 1 |
 | 02 | `src/main/agent/options.ts`, `src/main/agent/permissions.ts`, `src/main/agent/session-settings.ts`, `src/main/ipc/card-api.ts`, `test/unit/agent-options.test.ts`, `test/contract/permissions.test.ts`, `test/contract/card-api.test.ts` | 1 |
 | 03 | `scripts/install-stable.sh`, `package.json`, `src/main/storage/paths.ts`, `src/main/index.ts`, `README.md`, `test/unit/paths.test.ts`, `test/e2e/packaged.spec.ts` | 1 |
+| 21 | `test/e2e/helpers.ts`, `playwright.config.ts`, `test/e2e/palette-find.spec.ts`, `test/e2e/subagent-tree.spec.ts`, `test/e2e/canvas-layout.spec.ts`, `test/e2e/binding.spec.ts`, `test/e2e/new-session.spec.ts`, `test/e2e/epic-frame.spec.ts` | 1 |
 | 04 | `src/shared/autopilot/cycle.ts`, `src/main/autopilot/run.ts`, `src/main/autopilot/power.ts`, `src/shared/ipc/autopilot.ts`, `src/main/ipc/autopilot.ts`, `src/renderer/canvas/actions/AutopilotAction.tsx`, `src/main/actions/launch.ts`, `test/fixtures/agent-scripts/autopilot-waves.jsonl`, `test/unit/autopilot-cycle.test.ts`, `test/unit/autopilot-power.test.ts`, `test/contract/autopilot.test.ts`, `test/e2e/autopilot.spec.ts` | 2 |
 | 05 | `src/shared/autopilot/resume-at.ts`, `src/main/autopilot/limits-wait.ts`, `src/main/autopilot/run.ts`, `src/main/agent/limits.ts`, `src/renderer/canvas/actions/AutopilotAction.tsx`, `test/fixtures/agent-scripts/autopilot-limits.jsonl`, `test/unit/autopilot-resume-at.test.ts`, `test/contract/autopilot-limits.test.ts` | 3 |
 | 06 | `src/main/workflow/profile.ts`, `src/main/agent/options.ts`, `src/main/agent/app-registry.ts`, `test/contract/workflow-profile.test.ts`, `test/unit/agent-options.test.ts` | 4 |
@@ -248,7 +261,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 11 | `src/renderer/canvas/epic-layout.ts`, `src/renderer/canvas/epic-frame.css`, `src/renderer/canvas/nodes/EpicFrameNode.tsx`, `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/badges/ChecksBadges.tsx`, `src/renderer/canvas/badges/checks-badges.css`, `src/renderer/shell/sidebar/EpicsSection.tsx`, `test/unit/epic-layout.test.ts`, `test/e2e/epic-frame.spec.ts`, `test/e2e/checks-badges.spec.ts` | 6 |
 | 16 | `src/main/window.ts`, `src/main/ipc/index.ts`, `src/main/index.ts`, `test/unit/renderer-entry.test.ts`, `test/contract/actions.test.ts`, `test/e2e/packaged.spec.ts` | 6 |
 | 17 | `src/main/claude-home/subagents.ts`, `src/shared/transcript/subagents.ts`, `src/main/claude-home/tail.ts`, `test/contract/claude-home-subagents.test.ts`, `test/unit/subagents.test.ts`, `test/e2e/subagent-tree.spec.ts`, `test/fixtures/claude-home/` | 7 |
-| 18 | `test/e2e/helpers.ts`, `test/e2e/snapshots.ts`, `test/e2e/snapshots.spec.ts`, `test/e2e/palette-find.spec.ts`, `test/e2e/canvas-layout.spec.ts`, `test/e2e/binding.spec.ts`, `test/e2e/new-session.spec.ts`, `test/e2e/epic-frame.spec.ts`, `playwright.config.ts` | 8 |
+| 18 | `test/e2e/snapshots.ts`, `test/e2e/snapshots.spec.ts` | 8 |
 | 19 | `test/unit/canvas.test.tsx`, `test/unit/shell-discovery.test.tsx`, `test/unit/session-rail-discovery.test.tsx`, `test/unit/focus-mode.test.tsx`, `vitest.config.ts`, `.gitignore`, `eslint.config.js`, `.github/workflows/ci.yml` | 8 |
 | 20 | `test/unit/canvas-actions.test.tsx`, `test/unit/gate-state.test.ts`, `test/contract/github-prs.test.ts`, `test/unit/claude-home-titles.test.tsx`, `test/unit/session-nodes-overlay.test.tsx`, `test/unit/message-input-slash.test.tsx`, `test/unit/history.test.ts`, `test/unit/session-view.test.tsx`, `test/e2e/pin-tags.spec.ts`, `test/contract/canvas-tools.test.ts`, `test/contract/card-protocol.test.ts`, `test/contract/workflow-reader.test.ts` | 8 |
 
@@ -262,8 +275,9 @@ Wave — Ticket-ы, которые можно брать параллельно:
   `test/unit/subagents.test.ts`, `test/contract/claude-home-subagents.test.ts`,
   `test/fixtures/claude-home/`: 08 → 17.
 - `src/renderer/canvas/epic-layout.ts` и `test/unit/epic-layout.test.ts`: 10 → 11.
-- `test/e2e/epic-frame.spec.ts`: 10 → 11 → 18.
-- `test/e2e/new-session.spec.ts`: 10 → 18.
+- `test/e2e/epic-frame.spec.ts`: 21 → 10 → 11.
+- `test/e2e/new-session.spec.ts`: 21 → 10.
+- `test/e2e/subagent-tree.spec.ts`: 21 → 17.
 - `src/main/window.ts`: 15 → 16.
 - `test/contract/workflow-reader.test.ts` и `test/unit/claude-home-titles.test.tsx`: 09 → 20.
 - `test/contract/canvas-tools.test.ts`: 10 → 20.
@@ -272,7 +286,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 
 Ticket 16 стоит после 15 по блокеру: окно ошибки запуска из 15 нужно для невалидного URL. Ticket 20
 стоит после 09, 10, 12 и 14: они меняют код, на который указывают места мутантов. Внутри одной
-Wave общих файлов нет. Всего Wave-ов в плане — 8. Wave-ы 1–3 содержат только тему A.
+Wave общих файлов нет. Всего Wave-ов в плане — 8. Wave-ы 1–3 содержат только тему A и, в Wave 1, Ticket 21.
 
 Строка Ticket-а 10 перечисляет файлы всех вариантов его ADR. После ADR строка сокращается до
 выбранного варианта. Пересечений с другими Ticket-ами Wave 5 нет ни при одном варианте.
