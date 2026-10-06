@@ -76,7 +76,7 @@ Session Node-а стартует без сохранённого выбора: `
 - `src/main/claude-home/user-model.ts`
 - `test/contract/node-sessions.test.ts`
 - `test/contract/agent-controls.test.ts`
-- `test/contract/orchestrator.test.ts` — расширение следа (разрешено оркестратором): test-ы ставят `WORFY_CLAUDE_HOME` на временный каталог, иначе локально читают настоящий `~/.claude/settings.json` и получают его `effortLevel`.
+- `test/contract/orchestrator.test.ts` — расширение следа (разрешено Orchestrator-ом): test-ы ставят `WORFY_CLAUDE_HOME` на временный каталог, иначе локально читают настоящий `~/.claude/settings.json` и получают его `effortLevel`.
 
 ## Итог
 

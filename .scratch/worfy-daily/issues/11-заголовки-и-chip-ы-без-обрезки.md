@@ -77,7 +77,7 @@ Source: [spec.md](../spec.md), тема C; [F-SPEC.md](../../../docs/design/F-SP
 - `test/unit/epic-layout.test.ts`
 - `test/e2e/epic-frame.spec.ts`
 - `test/e2e/checks-badges.spec.ts`
-- Расширение следа (разрешил оркестратор): `test/unit/epic-canvas.test.tsx` — число фикстуры
+- Расширение следа (разрешил Orchestrator): `test/unit/epic-canvas.test.tsx` — число фикстуры
   после новой высоты Ticket-а и test на ширину рамки Epic без Tickets;
   `src/renderer/canvas/sources/epics.ts` — имя Epic передаётся в `layoutEpic`.
 

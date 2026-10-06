@@ -28,6 +28,11 @@ Orchestrator-а, не может править файлы в `.claude/worktrees
 Запуск настоящего Claude Code или Agent SDK пишет транскрипты в `~/.claude/projects`. Это запись
 в `~/.claude`, даже если код Ticket-а сам туда не пишет. Бриф исполнителя явно говорит, разрешена ли
 такая запись; без этого агент либо нарушает запрет, либо молча пропускает проверку.
+
+Собранный worfy, запущенный напрямую (`_electron.launch` или `open`), тоже пишет в `~/.claude`: он
+поднимает Orchestrator на настоящем Claude Code. Снимки и любые прогоны приложения в Ticket-е —
+только через `launchApp` (`test/e2e/helpers.ts:111`): fake-агент, временные `WORFY_DATA_DIR` и
+`WORFY_CLAUDE_HOME`, фикстуры вместо настоящих Project-ов (worfy-daily/11, PR #64).
 Источник: ночной прогон worfy-mvp 2026-10-05/06.
 
 ## Таймаут `firstWindow` при параллельных e2e — это нагрузка, а не красный test
@@ -39,19 +44,11 @@ Orchestrator-а, не может править файлы в `.claude/worktrees
 Правило и путь общего замка для e2e и `gate full` — `rules.md` Profile-а worfy.
 Источник: worfy-daily Wave 6.
 
-## При заблокированном экране macOS e2e падают как «window was not shown» — это не красный test
+## Заблокированный экран macOS — одна из причин таймаута первого окна в e2e
 
 Пока экран Mac заблокирован, Electron не показывает окно, и `launchApp` падает с «the window was not
-shown within 30 s» (`test/e2e/helpers.ts:167`). Ошибка выглядит как красный test или нагрузка, хотя
-код ни при чём. Перед e2e и `gate full` проверить `ioreg -n Root -d1 | grep -o '"IOConsoleLocked" = [A-Za-z]*'`:
+shown within 30 s» (`test/e2e/helpers.ts:167`) — даже на чистом main. Ошибка выглядит как красный
+test, хотя код ни при чём. Вторая известная причина того же таймаута — параллельные e2e (урок
+выше). Перед e2e и `gate full` проверить `ioreg -n Root -d1 | grep -o '"IOConsoleLocked" = [A-Za-z]*'`:
 при `Yes` прогон не запускать, а уже упавший — не считать красным и повторить после разблокировки.
-Источник: worfy-daily/31, PR #62 (первый `gate full` — 5 таких падений, повтор зелёный).
-
-## Снимки приложения — только через `launchApp`: прямой запуск worfy пишет в `~/.claude`
-
-Собранный worfy, запущенный напрямую (`_electron.launch` или `open`), поднимает Orchestrator на
-настоящем Claude Code с настоящим `~/.claude`, и тот пишет туда свои файлы — worfy сам при этом в
-`~/.claude` не пишет. Снимки и любые прогоны приложения в Ticket-е — только через `launchApp`
-(`test/e2e/helpers.ts:111`): fake-агент (`WORFY_AGENT=fake`), временные `WORFY_DATA_DIR` и
-`WORFY_CLAUDE_HOME`, фикстуры вместо настоящих Project-ов.
-Источник: worfy-daily/11, PR #64.
+Источник: worfy-daily/11, PR #64 (при доработке экран был заблокирован, `launch.spec.ts` падал на main).
