@@ -236,7 +236,7 @@ PR ещё нет: ревью идёт до него, по локальной в�
 ответить оркестратору (ревью видело другой код).
 
 ```bash
-gh auth status                      # активен не F github.account → gh auth switch -u <F github.account>
+export GH_TOKEN=$(gh auth token -u <F github.account>)   # глобальный аккаунт gh не переключать
 git push -u origin overnight/<дата>-<имя>
 gh pr create --base overnight/<дата> --title "overnight(<имя>): <что укреплено>" \
   --body-file <scratchpad>/overnight/<имя>/PR.md

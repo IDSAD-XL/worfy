@@ -126,7 +126,7 @@ profile -C <каталог> ...   разрешать так, будто запу
 | `numbering.adr` | `{dir, check}` \| null | каталог ADR и проверка уникальности номеров | оркестратор, reviewer, ship-ticket, epic-wave |
 | `numbering.migrations` | `{generate, journal, order_key, check}` \| null | как создаются миграции и что задаёт их порядок | implementer, reviewer, ship-ticket, epic-wave |
 | `deploy` | объект \| null | `how` — как деплоится; `ci_run_check` — команда проверки CI run по коммиту (`$sha` — SHA merge-коммита); `production_check` + `production_expect` — запрос к живому адресу и ожидаемый ответ (требования к команде — ниже таблицы); `smoke`, `auth` — пояснения; `env` — имена переменных окружения, без которых проверки прода не запустить (имена, не значения). `null` — проект не деплоится | оркестратор, ship-ticket, epic-wave |
-| `github.account` | строка \| null | аккаунт `gh`, от которого открываются PR (`gh auth switch -u <аккаунт>`); нет — `gh auth status` только печатается | overnight-fix-loop |
+| `github.account` | строка \| null | аккаунт `gh`, от которого открываются PR и идут git-команды по origin: если активный аккаунт `gh` другой, каждая такая команда начинается с `export GH_TOKEN=$(gh auth token -u <аккаунт>);` — глобальный аккаунт не переключается; нет — `gh auth status` только печатается | overnight-fix-loop, ship-ticket, epic-wave |
 | `serial_merge.paths` | строки | PR, трогающие эти пути, мержатся по одному | epic-wave |
 | `serial_merge.rule` | строка | когда можно мержить следующий | epic-wave |
 | `docs.context` | `{path, vocabulary_section, decided_in}` \| null | словарь терминов проекта | все агенты |
