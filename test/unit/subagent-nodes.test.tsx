@@ -136,6 +136,72 @@ describe('buildSubagentNodes', () => {
   })
 })
 
+describe('the tree keeps clear of the Nodes of the Layout (worfy-daily ticket 28)', () => {
+  const AGENT1 = `subagent:${S7}/toolu_01S7AGENT1XXXXXXXXXXXXXX`
+  /** A Card right next to the Session Node, where the tree's automatic place is. */
+  const card = (x: number, y: number): LayoutNode => node({ id: 'card-question', kind: 'card', x, y, w: 320, h: 200 })
+  const near = card(session.x + session.w + 40, session.y)
+  const overlaps = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }): boolean =>
+    a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+  const absolute = (nodes: ReturnType<typeof buildSubagentNodes>, id: string) => {
+    const found = nodes.find((each) => each.id === id)!
+    return { x: session.x + found.position.x, y: session.y + found.position.y }
+  }
+
+  it('puts the Subagent Nodes and the done row where they cover neither the Card nor another Node', () => {
+    const other = node({ id: 'note', kind: 'note', x: 1100, y: 180, w: 200, h: 140 })
+    const layout = layoutWith(session, near, other)
+    const nodes = buildSubagentNodes('p-clear', layout, trees(tree7(RUNNING_AT)), {})
+    const rects = subagentPlaneRects(layout, nodes)
+    expect(rects).toHaveLength(3)
+    for (const rect of rects) {
+      for (const each of [session, near, other]) expect(overlaps(rect, each), `${JSON.stringify(rect)} on ${each.id}`).toBe(false)
+    }
+    // Still to the right of its Session, and the tree keeps its shape.
+    expect(Math.min(...rects.map((rect) => rect.x))).toBeGreaterThan(session.x + session.w)
+    expect(rects[1]!.x - rects[0]!.x).toBe(SUBAGENT_WIDTH + 56)
+  })
+
+  it('ignores the Epic frames, Tickets, hidden and pinned Nodes: the frames\' column keeps clear of the tree, not the other way round (ADR-0032)', () => {
+    const lone = buildSubagentNodes('p-skip-a', layoutWith(session), trees(tree7(RUNNING_AT)), {})
+    for (const extra of [{ kind: 'epic-frame' }, { kind: 'ticket' }, { hidden: true }, { pinned: true }] as Partial<LayoutNode>[]) {
+      const nodes = buildSubagentNodes(`p-skip-${JSON.stringify(extra)}`, layoutWith(session, { ...near, ...extra }), trees(tree7(RUNNING_AT)), {})
+      expect(nodes.map((each) => each.position), JSON.stringify(extra)).toEqual(lone.map((each) => each.position))
+    }
+  })
+
+  it('a Subagent Node the user moved stays where it was put when a Card next to it moves', () => {
+    const tree = tree7(RUNNING_AT)
+    const before = buildSubagentNodes('p-drag', layoutWith(session, near), trees(tree), {})
+    const shown = before.find((each) => each.id === AGENT1)!
+    // The user drags it 30 px right and 20 px down; the source keeps its offset from the automatic place (moved()).
+    const auto = (shown.data.node.data as SubagentNodeData).auto
+    const dropped = { x: shown.position.x + 30, y: shown.position.y + 20 }
+    const saved = node({ id: `subagents:${S7}`, kind: 'subagent-tree', w: 1, h: 1, data: { 'offset:toolu_01S7AGENT1XXXXXXXXXXXXXX': { dx: dropped.x - auto.x, dy: dropped.y - auto.y } } })
+
+    const after = buildSubagentNodes('p-drag', layoutWith(session, near, saved), trees(tree), {})
+    expect(after.find((each) => each.id === AGENT1)!.position).toEqual(dropped)
+    const at = absolute(after, AGENT1)
+
+    // The Card moves away, then onto another spot by the tree: the moved Node does not follow it.
+    for (const moved of [card(2000, 2000), card(session.x + session.w + 20, session.y - 60)]) {
+      const nodes = buildSubagentNodes('p-drag', layoutWith(session, moved, saved), trees(tree), {})
+      expect(absolute(nodes, AGENT1), JSON.stringify(moved)).toEqual(at)
+    }
+    // The rows nobody moved do follow the free room.
+    const far = buildSubagentNodes('p-drag', layoutWith(session, card(2000, 2000), saved), trees(tree), {})
+    expect(absolute(far, `subagent:${S7}/done:session`)).not.toEqual(absolute(after, `subagent:${S7}/done:session`))
+  })
+
+  it('only the Session moves a moved Subagent Node', () => {
+    const tree = tree7(RUNNING_AT)
+    const saved = node({ id: `subagents:${S7}`, kind: 'subagent-tree', w: 1, h: 1, data: { 'offset:toolu_01S7AGENT1XXXXXXXXXXXXXX': { dx: 400, dy: 300 } } })
+    const here = buildSubagentNodes('p-follow', layoutWith(session, near, saved), trees(tree), {})
+    const there = buildSubagentNodes('p-follow', layoutWith({ ...session, x: session.x + 500, y: session.y + 70 }, card(near.x + 500, near.y + 70), saved), trees(tree), {})
+    expect(there.find((each) => each.id === AGENT1)!.position).toEqual(here.find((each) => each.id === AGENT1)!.position)
+  })
+})
+
 describe('subagent edges', () => {
   it('draws a line from each parent to its Subagents and to its done row, only between Nodes on the Canvas', () => {
     const nodes = buildSubagentNodes('p5', layoutWith(session), trees(tree7(RUNNING_AT)), {}).map((each) => each.data.node)

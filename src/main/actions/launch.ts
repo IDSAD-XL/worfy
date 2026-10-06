@@ -46,8 +46,11 @@ export interface LaunchDeps {
   branch(root: string): Promise<string | null>
   /** A fresh read of the Project's workflow model. */
   workflow(root: string): Promise<WorkflowModel>
-  /** "New session": a new Session Node with a new Session in the Project's root. */
-  sessions: { create(projectId: string): SessionNodeView }
+  /**
+   * "New session": a new Session Node with a new Session in the Project's root; with `near`, on the
+   * first clear spot at `near.x`, from `near.y` down (src/main/layout/place.ts, `placeDownFrom`).
+   */
+  sessions: { create(projectId: string, near?: CanvasSpot): SessionNodeView }
   /** The Project's Orchestrator, opened (and started) when it is not yet. */
   orchestrators: { open(projectId: string): Promise<OrchestratorView> }
   /** The app's live Sessions, by any of their ids. */
@@ -61,6 +64,12 @@ export interface LaunchDeps {
    */
   pollMs?: number
   waitMs?: number
+}
+
+/** A spot on the Canvas, in canvas units. */
+export interface CanvasSpot {
+  x: number
+  y: number
 }
 
 export interface ShipTicketResult {
@@ -123,7 +132,11 @@ export class ActionLauncher {
     this.autopilot = autopilot
   }
 
-  async shipTicket(projectId: string, epic: string, num: number): Promise<ShipTicketResult> {
+  /**
+   * `near`: where the renderer wants the Session, right of the Epic frames' column at the Ticket's
+   * height (worfy-daily ticket 28); without it the Session goes where every new Node goes.
+   */
+  async shipTicket(projectId: string, epic: string, num: number, near?: CanvasSpot): Promise<ShipTicketResult> {
     const key = launchKey(projectId, epic, num)
     // Taken before the first await: two clicks that arrive together do not both pass the check.
     if (this.starting.has(key)) throw new Error(`Ship ticket is already starting a Session for ${ticketNumber(num)}`)
@@ -136,7 +149,7 @@ export class ActionLauncher {
       const launched = this.liveLaunch(key) !== undefined
       const state = shipTicketState({ ticket, tickets: model.tickets, template: this.deps.settings(projectId).actionTemplates.shipTicket, branch, launched })
       if (!state.enabled) throw new Error(state.reason)
-      const view = this.deps.sessions.create(projectId)
+      const view = this.deps.sessions.create(projectId, near)
       const session = this.deps.registry.get(view.sessionId)
       session.send(state.text)
       this.launches.set(key, { projectId, epic, num, session })

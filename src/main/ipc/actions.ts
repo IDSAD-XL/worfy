@@ -18,7 +18,9 @@ import { defineHandler, emit, type HandlerModule } from './index'
 /** The handlers over a launcher; tests pass their own. */
 export function actionsHandlers(launcher: () => Pick<ActionLauncher, 'shipTicket' | 'runWave' | 'launched'>): HandlerModule {
   return [
-    defineHandler(actionsShipTicket, ({ projectId, epic, num }) => launcher().shipTicket(projectId, epic, num)),
+    defineHandler(actionsShipTicket, ({ projectId, epic, num, near }) =>
+      near ? launcher().shipTicket(projectId, epic, num, near) : launcher().shipTicket(projectId, epic, num),
+    ),
     defineHandler(actionsRunWave, ({ projectId, epic }) => launcher().runWave(projectId, epic)),
     defineHandler(actionsLaunches, ({ projectId }) => launcher().launched(projectId)),
   ]
@@ -39,7 +41,7 @@ export function sharedLauncher(): ActionLauncher {
     settings: (projectId) => readProjectSettings(projectStore().dataDir(projectStore().get(projectId).id)),
     branch: (root) => projectStore().branch(root),
     workflow: async (root) => (await readWorkflow({ root, claudeHome: claudeHome() })).model,
-    sessions: { create: (projectId) => sharedNodeSessions().create(projectId) },
+    sessions: { create: (projectId, near) => sharedNodeSessions().create(projectId, near) },
     orchestrators: { open: (projectId) => sharedOrchestrators().open(projectId) },
     registry: { get: (sessionId) => sharedRegistry().get(sessionId) },
     bindings: { setLaunch: (projectId, agent, target) => bindingStore().setLaunch(projectId, agent, target) },

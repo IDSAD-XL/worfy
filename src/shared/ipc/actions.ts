@@ -10,15 +10,23 @@ import { eventChannel, invokeChannel } from './channels'
 
 const projectId = z.string().min(1)
 
+const canvasSpot = z.object({ x: z.number().finite(), y: z.number().finite() })
+
 /**
  * Starts a new Session in the Project's root (as "New session" does) and sends it the rendered
  * "Ship ticket" template; the Session is bound to the Ticket. Refused, with the reason the button
  * shows, when the Ticket is not open, a Session launched for it is still live, a blocker is not
  * done, or the template is empty or fails.
+ *
+ * `near` (worfy-daily ticket 28): the top-left corner the Session Node may not go left of or above,
+ * in canvas units. Only the renderer knows where the Epic frames and the Ticket are drawn
+ * (ADR-0032), so it sends the spot right of the frames' column, one FRAME_GAP off its right edge, at
+ * the Ticket's height; main puts the Node on the first clear spot there, from that height down.
+ * Without it the Node goes where every new Node goes.
  */
 export const actionsShipTicket = invokeChannel(
   'actions.shipTicket',
-  z.object({ projectId, epic: epicNameSchema, num: ticketNumSchema }),
+  z.object({ projectId, epic: epicNameSchema, num: ticketNumSchema, near: canvasSpot.optional() }),
   z.object({
     /** The new Session Node. */
     nodeId: z.string().min(1),

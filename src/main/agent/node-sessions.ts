@@ -25,7 +25,7 @@ import {
   type WorfySessionNodeData,
 } from '../../shared/ipc/sessions'
 import type { LayoutNode, LayoutOpInput, LayoutState } from '../../shared/layout/types'
-import { placeNewNode } from '../layout/place'
+import { placeDownFrom, placeNewNode } from '../layout/place'
 import { closeRefusal, resumeVerdict } from './resume'
 import type { EventSink, Session, SessionRegistry } from './session'
 
@@ -80,11 +80,16 @@ export class NodeSessions {
 
   constructor(private readonly deps: NodeSessionsDeps) {}
 
-  /** A new Node, placed where it covers no other, with a new Session in the Project's root. */
-  create(projectId: string): SessionNodeView {
+  /**
+   * A new Node, placed where it covers no other, with a new Session in the Project's root. With
+   * `near` ("Ship ticket", worfy-daily ticket 28) the Node goes on the first clear spot at `near.x`,
+   * from `near.y` down; without it, where every Node main makes goes (`placeNewNode`).
+   */
+  create(projectId: string, near?: { x: number; y: number }): SessionNodeView {
     const root = this.deps.projectPath(projectId)
     const { layout } = this.deps.layout.get(projectId)
-    const { x, y } = placeNewNode(layout.nodes, { w: LIVE_SESSION_WIDTH, h: LIVE_SESSION_HEIGHT })
+    const size = { w: LIVE_SESSION_WIDTH, h: LIVE_SESSION_HEIGHT }
+    const { x, y } = near ? placeDownFrom(layout.nodes, size, near) : placeNewNode(layout.nodes, size)
     const before = new Set(layout.nodes.map((node) => node.id))
     const after = this.deps.layout.apply(projectId, {
       op: 'create',

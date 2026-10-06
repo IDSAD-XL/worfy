@@ -4,7 +4,10 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { FRAME_GAP } from '../../src/renderer/canvas/epic-layout'
 import { launchedHint } from '../../src/shared/actions/render-template'
+import { LIVE_SESSION_WIDTH } from '../../src/shared/ipc/sessions'
+import { onThePlane } from '../../src/shared/layout/derived'
 import { launchApp } from './helpers'
 
 // "Ship ticket", "Run wave" and "Open PR" (ticket 23) in the built app on the fake agent, which
@@ -91,7 +94,11 @@ test.afterEach(async () => {
   await removeDir(scratch)
 })
 
-test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what they launch, and leave the repository alone', async () => {
+/**
+ * The Project for these tests under `scratch`: a git repository with the Epic, `epic-status` under
+ * the Claude home, `gh` over a prs.json, and the Project's Layout with `nodes` at `viewport`.
+ */
+function makeProject(nodes: unknown[] = [], viewport = { x: 20, y: 20, zoom: 0.7 }) {
   const dataDir = join(scratch, 'data')
   const claudeHome = join(scratch, 'claude-home')
   const ghDir = join(scratch, 'gh')
@@ -141,7 +148,12 @@ test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what
 
   mkdirSync(join(dataDir, PROJECT), { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'worfy', path: repo }], activeId: PROJECT }))
-  writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 20, y: 20, zoom: 0.7 } }))
+  writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes, viewport }))
+  return { dataDir, claudeHome, ghDir, log, repo }
+}
+
+test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what they launch, and leave the repository alone', async () => {
+  const { dataDir, claudeHome, ghDir, log, repo } = makeProject()
 
   const scratchBefore = listing(join(repo, '.scratch'))
   const repoBefore = listing(repo, (path) => path.endsWith('/.git'))
@@ -285,4 +297,81 @@ test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what
     await again.close()
   }
   expect(listing(claudeHome)).toEqual(claudeBefore)
+})
+
+// ── where the Session goes (worfy-daily ticket 28) ──────────────────────────
+
+type Rect = { x: number; y: number; w: number; h: number }
+type StateNode = Rect & { id: string; kind: string; hidden: boolean; pinned: boolean }
+
+/** A Node's place on the Canvas, from React Flow's transform (absolute canvas units), and its size. */
+async function flowRect(window: Page, id: string): Promise<Rect> {
+  const { transform, w, h } = await window.getByTestId(`rf__node-${id}`).evaluate((element) => {
+    const html = element as unknown as { style: { transform: string }; offsetWidth: number; offsetHeight: number }
+    return { transform: html.style.transform, w: html.offsetWidth, h: html.offsetHeight }
+  })
+  const match = /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(transform)
+  if (!match) throw new Error(`no translate in ${transform}`)
+  return { x: Number(match[1]), y: Number(match[2]), w, h }
+}
+
+async function layoutNodes(window: Page): Promise<StateNode[]> {
+  const result = await bridgeCall(window, 'layout.get', { projectId: PROJECT })
+  expect(result.ok).toBe(true)
+  return (result.value as { layout: { nodes: StateNode[] } }).layout.nodes
+}
+
+const overlaps = (a: Rect, b: Rect): boolean => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+
+test('Ship ticket puts the Session right of the Epic frames\' column, by its Ticket, and the column stays where it was', async () => {
+  // A tall Note takes the top-left spot and reaches far down: the first clear spot of the Canvas,
+  // where a new Node used to go, is under it, ~2500 px below the Tickets.
+  const tall = { id: 'tall-note', kind: 'note', x: 40, y: 40, w: 400, h: 2400, data: { text: 'A long note' } }
+  const { dataDir, claudeHome, log } = makeProject([tall], { x: 20, y: 20, zoom: 0.45 })
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'orchestrator', WORFY_AGENT_LOG: log }
+  const launched = await launchApp({ env })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 1000))
+    const ticket7 = window.locator(`[data-testid="ticket-node"][data-ticket="7"]`)
+    await expect(ticket7).toBeVisible()
+    // The Orchestrator goes under the tall Note, off the screen: wait for it in the Layout.
+    await expect.poll(async () => (await layoutNodes(window)).filter(onThePlane).length).toBe(2)
+    const frameId = `epic:${EPIC}`
+    // The column settles right of the tall Note once the Orchestrator is placed under it.
+    await expect.poll(async () => (await flowRect(window, frameId)).x).toBe(tall.x + tall.w + FRAME_GAP)
+    const frame = await flowRect(window, frameId)
+    const ticket = await flowRect(window, `ticket:${EPIC}/7`)
+    const before = await layoutNodes(window)
+
+    await ticket7.getByTestId('action-ship-ticket').click()
+    await expect.poll(async () => (await layoutNodes(window)).filter((node) => node.kind === 'session').length).toBe(1)
+    await expect.poll(() => messages(log)).toContain(`/ship-ticket ${EPIC} 07`)
+    const after = await layoutNodes(window)
+    const session = after.find((node) => node.kind === 'session' && !before.some((each) => each.id === node.id))
+    expect(session, 'the new Session Node in the Layout').toBeDefined()
+    const columnRight = frame.x + frame.w
+
+    // Right of the column, the column's gap off its right edge and no further than a Session's width.
+    expect(session!.x).toBeGreaterThanOrEqual(columnRight + FRAME_GAP)
+    expect(session!.x - columnRight).toBeLessThanOrEqual(LIVE_SESSION_WIDTH)
+    // At the Ticket's height or below, not under everything.
+    expect(session!.y).toBeGreaterThanOrEqual(Math.round(ticket.y))
+    expect(session!.y).toBeLessThan(tall.y + tall.h)
+    // On no other Node and on no frame.
+    for (const other of before.filter(onThePlane)) expect(overlaps(session!, other), other.id).toBe(false)
+    expect(overlaps(session!, frame), 'on the Epic frame').toBe(false)
+
+    // The column did not move (ADR-0032): the Session is outside its band.
+    await window.waitForTimeout(500)
+    expect(await flowRect(window, frameId)).toEqual(frame)
+    await expect(window.locator(`[data-testid="session-node"]`)).toBeVisible()
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      await window.waitForTimeout(200)
+      await window.screenshot({ path: test.info().outputPath(`ship-ticket-session-${scheme}.png`) })
+    }
+  } finally {
+    await launched.close()
+  }
 })
