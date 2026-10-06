@@ -9,10 +9,6 @@ import type { CanvasFlowNode } from '../../src/renderer/canvas/nodes/index'
 import { FocusMode } from '../../src/renderer/focus/FocusMode'
 import { buildPreset, leafIds, type TileTree } from '../../src/renderer/focus/split-tree'
 
-// The real registry finds Node types with import.meta.glob when it is first transformed, and the
-// transform is shared by the test files of one run: transformed here first, it would miss the Node
-// type file test/unit/canvas.test.tsx adds for its own test. The tiles here draw the placeholder.
-vi.mock('../../src/renderer/canvas/nodes/index', () => ({ nodeTypes: new Map() }))
 
 const flowNode = (id: string): CanvasFlowNode => ({
   id,

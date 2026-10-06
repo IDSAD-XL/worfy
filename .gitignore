@@ -6,3 +6,5 @@ out/
 .claude/worktrees/
 test-results/
 playwright-report/
+# Probe files the discovery tests of older versions wrote into src/ (ADR-0036).
+ZzVitestProbe*
