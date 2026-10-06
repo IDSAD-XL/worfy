@@ -16,6 +16,7 @@ import {
   placeSubagents,
   SUBAGENT_HEIGHT,
   SUBAGENT_WIDTH,
+  subagentPlaneRects,
   type SubagentNodeData,
 } from '../../src/renderer/canvas/sources/subagents'
 import { formatElapsed, statusLabel } from '../../src/renderer/claude-home/subagents'
@@ -113,6 +114,19 @@ describe('buildSubagentNodes', () => {
     expect(buildSubagentNodes('p1', layoutWith(session), trees(tree7(RUNNING_AT)), {})).toBe(nodes)
     expect(buildSubagentNodes('p2', layoutWith({ ...session, hidden: true }), trees(tree), {})).toEqual([])
     expect(buildSubagentNodes('p3', layoutWith({ ...session, pinned: true }), trees(tree), {})).toEqual([])
+  })
+
+  it('reports where its Nodes are on the plane, for the Epic frames (ADR-0032): absolute, without the anchor', () => {
+    const nodes = buildSubagentNodes('p5', layoutWith(session), trees(tree7(RUNNING_AT)), {})
+    const rects = subagentPlaneRects(layoutWith(session), nodes)
+    const drawn = nodes.filter((each) => (each.data.node.data as SubagentNodeData).variant !== 'anchor')
+    expect(drawn).toHaveLength(3)
+    expect(rects).toEqual(drawn.map((each) => ({ x: session.x + each.position.x, y: session.y + each.position.y, w: each.width, h: each.height })))
+    expect(rects[0]).toMatchObject({ w: SUBAGENT_WIDTH, h: SUBAGENT_HEIGHT })
+    // Right of the Session Node, in plane units rather than relative to it.
+    expect(rects[0]!.x).toBeGreaterThan(session.x + session.w)
+    // A Session Node that is not in the Layout any more: nothing to measure from.
+    expect(subagentPlaneRects(layoutWith(), nodes)).toEqual([])
   })
 
   it('reads the offsets the subagent-tree Node keeps', () => {

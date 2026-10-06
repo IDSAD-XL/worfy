@@ -279,7 +279,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 07 | `src/main/agent/session.ts`, `src/main/claude-home/user-model.ts`, `src/shared/agent/settings.ts`, `src/renderer/session/composer/Pickers.tsx`, `src/main/agent/fake-query.ts`, `test/contract/agent-controls.test.ts`, `test/e2e/session-controls.spec.ts` | 5 |
 | 08 | `src/shared/transcript/subagents.ts`, `src/main/claude-home/subagents.ts`, `src/renderer/canvas/sources/subagents.ts`, `test/unit/subagents.test.ts`, `test/contract/claude-home-subagents.test.ts`, `test/fixtures/claude-home/` | 5 |
 | 09 | `src/main/workflow/watch.ts`, `src/renderer/claude-home/useClaudeHome.ts`, `test/contract/workflow-reader.test.ts`, `test/unit/claude-home-titles.test.tsx` | 5 |
-| 10 | `src/main/layout/place.ts`, `src/shared/canvas/tools.ts`, `src/main/mcp/canvas-server.ts`, `src/renderer/canvas/epic-layout.ts`, `src/renderer/canvas/sources/epics.ts`, `src/shared/layout/derived.ts`, `src/shared/layout/epic-layout.ts`, `src/main/agent/node-sessions.ts`, `src/main/agent/orchestrator.ts`, `src/main/ipc/docs.ts`, `test/unit/layout-place.test.ts`, `test/unit/epic-layout.test.ts`, `test/contract/canvas-tools.test.ts`, `test/e2e/new-session.spec.ts`, `test/e2e/epic-frame.spec.ts` | 6 |
+| 10 | `src/shared/layout/derived.ts`, `src/main/layout/place.ts`, `src/renderer/canvas/epic-layout.ts`, `src/renderer/canvas/sources/epics.ts`, `src/renderer/canvas/sources/subagents.ts`, `test/unit/epic-layout.test.ts`, `test/unit/epic-canvas.test.tsx`, `test/unit/subagent-nodes.test.tsx`, `test/e2e/new-session.spec.ts`, `test/e2e/epic-frame.spec.ts`, `test/e2e/subagent-tree.spec.ts`, `docs/adr/0032-epic-frames-avoid-nodes.md` | 6 |
 | 12 | `src/renderer/canvas/pinning.ts`, `src/renderer/canvas/overlays/SelectionToolbar.tsx`, `src/renderer/canvas/overlays/FocusEntry.tsx`, `src/renderer/canvas/overlays/MiniMapOverlay.tsx`, `src/renderer/canvas/node-chrome.css`, `test/unit/pinning.test.tsx`, `test/e2e/pin-tags.spec.ts` | 6 |
 | 13 | `src/renderer/canvas/nodes/TerminalNode.tsx`, `src/renderer/focus/FocusMode.tsx`, `test/e2e/terminal.spec.ts`, `test/e2e/focus.spec.ts` | 6 |
 | 14 | `src/renderer/session/fold.ts`, `src/renderer/session/Transcript.tsx`, `src/renderer/session/session.css`, `src/shared/agent/events.ts`, `test/unit/session-view.test.tsx`, `test/e2e/session-view.spec.ts` | 6 |
@@ -313,21 +313,20 @@ Wave — Ticket-ы, которые можно брать параллельно:
 - `src/renderer/canvas/epic-layout.ts` и `test/unit/epic-layout.test.ts`: 10 → 11.
 - `test/e2e/epic-frame.spec.ts`: 21 → 10 → 11.
 - `test/e2e/new-session.spec.ts`: 21 → 10.
-- `test/e2e/subagent-tree.spec.ts`: 21 → 17.
+- `test/e2e/subagent-tree.spec.ts`: 21 → 10 → 17.
 - `src/main/window.ts`: 15 → 16.
 - `test/contract/workflow-reader.test.ts` и `test/unit/claude-home-titles.test.tsx`: 09 → 20.
-- `test/contract/canvas-tools.test.ts`: 10 → 20.
 - `test/e2e/pin-tags.spec.ts`: 12 → 20.
 - `test/unit/session-view.test.tsx`: 14 → 20.
 - `src/main/actions/launch.ts`: 04 → 28.
 - `src/main/agent/session.ts`: 29 → 07 → 23 → 24.
 - `src/main/claude-home/user-model.ts` и `test/contract/agent-controls.test.ts`: 07 → 23.
 - `src/main/agent/fake-query.ts`: 29 → 07 → 24.
-- `src/renderer/canvas/sources/subagents.ts`: 08 → 28.
-- `src/main/agent/node-sessions.ts`: 10 → 23 → 28.
-- `src/main/agent/orchestrator.ts`: 29 → 10 → 27.
+- `src/renderer/canvas/sources/subagents.ts` и `test/unit/subagent-nodes.test.tsx`: 08 → 10 → 28.
+- `src/main/agent/node-sessions.ts`: 23 → 28.
+- `src/main/agent/orchestrator.ts`: 29 → 27.
 - `src/shared/agent/events.ts`: 29 → 14.
-- `src/main/layout/place.ts` и `test/unit/layout-place.test.ts`: 10 → 28.
+- `src/main/layout/place.ts`: 10 → 28.
 - `src/renderer/session/Transcript.tsx`: 14 → 25.
 - `src/renderer/session/SessionView.tsx`: 22 → 24.
 - `test/contract/node-sessions.test.ts`: 23 → 28.

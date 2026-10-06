@@ -26,6 +26,15 @@ export const subagentNodeId = (sessionId: string, key: string): string => `subag
 /** Kinds that only a node source draws; a Layout Node of such a kind is not a Node on the Canvas. */
 export const SOURCE_NODE_KINDS: readonly string[] = [EPIC_FRAME_KIND, TICKET_KIND, SUBAGENT_KIND, SUBAGENT_TREE_KIND]
 
+/**
+ * A Layout Node that takes room on the plane: one rule for main, which places new Nodes
+ * (src/main/layout/place.ts), and the renderer, which keeps the Epic frames clear of them
+ * (ADR-0032). A source kind keeps an offset, not a place; a pinned Node keeps screen pixels, not
+ * plane coordinates; a hidden Node is not drawn.
+ */
+export const onThePlane = (node: { kind: string; pinned: boolean; hidden: boolean }): boolean =>
+  !node.pinned && !node.hidden && !SOURCE_NODE_KINDS.includes(node.kind)
+
 /** True for the id of a Subagent Node, or of the Layout Node that keeps a Session's Subagent offsets. */
 export const isSubagentNodeId = (id: string): boolean => id.startsWith('subagent:') || id.startsWith('subagents:')
 

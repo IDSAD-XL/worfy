@@ -13,16 +13,18 @@
 // the way the Epic frames keep their Tickets' offsets (sources/epics.ts). Each tree also has an
 // invisible anchor Node at the Session Node's right edge: the Session's own Node has no handle,
 // and the tree's edges (edges/subagents.ts) start there.
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { create } from 'zustand'
 import { SOURCE_NODE_KINDS, SUBAGENT_KIND, SUBAGENT_TREE_KIND, subagentNodeId, subagentTreeNodeId } from '../../../shared/layout/derived'
 import type { Layout, LayoutNode, LayoutOpInput } from '../../../shared/layout/types'
 import type { SubagentInfo } from '../../../shared/transcript/subagents'
 import { useSubagentTrees } from '../../claude-home/subagents'
 import { useProjects } from '../../projects/useProjects'
+import type { Rect } from '../epic-layout'
 import type { NodeSource, NodeSourceContext } from '../extensions'
 import type { CanvasFlowNode } from '../nodes'
 import { applyLayoutOp } from '../useLayout'
+import { publishPlaneRects } from './epics'
 
 export { SUBAGENT_KIND, SUBAGENT_TREE_KIND }
 
@@ -252,12 +254,28 @@ export function buildSubagentNodes(
   return nodes
 }
 
+/**
+ * Where the Subagent Nodes are on the plane, in absolute canvas units: a Subagent Node's position is
+ * relative to its Session's Node. The anchor (1×1, not drawn) takes no room.
+ */
+export function subagentPlaneRects(layout: Layout, nodes: readonly CanvasFlowNode[]): Rect[] {
+  const sessions = new Map(layout.nodes.map((node) => [node.id, node]))
+  return nodes.flatMap((node) => {
+    const session = node.parentId === undefined ? undefined : sessions.get(node.parentId)
+    if (!session || (node.data.node.data as SubagentNodeData).variant === 'anchor') return []
+    return [{ x: session.x + node.position.x, y: session.y + node.position.y, w: node.width ?? 0, h: node.height ?? 0 }]
+  })
+}
+
 function useSubagentNodes({ projectId, layout }: NodeSourceContext): readonly CanvasFlowNode[] {
   const root = useProjects()?.projects.find((project) => project.id === projectId)?.path
   const sessionIds = useMemo(() => sessionParents(layout).map((node) => node.data.sessionId as string), [layout])
   const trees = useSubagentTrees(root, sessionIds)
   const expanded = useSubagentsUi((state) => state.expanded)
-  return useMemo(() => buildSubagentNodes(projectId, layout, trees, expanded), [projectId, layout, trees, expanded])
+  const nodes = useMemo(() => buildSubagentNodes(projectId, layout, trees, expanded), [projectId, layout, trees, expanded])
+  // The Epic frames' column keeps clear of the Subagent Nodes too (ADR-0032).
+  useEffect(() => publishPlaneRects(projectId, 'subagents', subagentPlaneRects(layout, nodes)), [projectId, layout, nodes])
+  return nodes
 }
 
 /**

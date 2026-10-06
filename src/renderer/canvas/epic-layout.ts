@@ -239,15 +239,53 @@ export interface PlacedFrame {
   auto: { x: number; y: number }
 }
 
+/** A Node on the plane, in canvas units. */
+export interface Rect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
 /**
- * Frames one under another, in the given order, starting at (0, 0). A manual offset moves its own
- * frame only: the frames below keep their automatic place.
+ * The left edge of the frames' column (ADR-0032): the first x from 0 rightwards where a strip as
+ * wide as the widest frame, from y = 0 down to `bottom`, keeps FRAME_GAP from every Node on the
+ * plane on every side. Candidates are 0 and the right edge of each Node plus the gap; the rightmost
+ * one is always free.
  */
-export function stackFrames(frames: readonly { epic: string; height: number; offset?: Offset }[]): Map<string, PlacedFrame> {
+export function frameColumnX(width: number, bottom: number, plane: readonly Rect[]): number {
+  const blocks = (x: number) => (node: Rect) =>
+    node.y < bottom + FRAME_GAP && -FRAME_GAP < node.y + node.h && node.x < x + width + FRAME_GAP && x - FRAME_GAP < node.x + node.w
+  const candidates = [0, ...plane.map((node) => node.x + node.w + FRAME_GAP).filter((x) => x > 0)].sort((a, b) => a - b)
+  return candidates.find((x) => !plane.some(blocks(x))) ?? 0
+}
+
+export interface StackedFrame {
+  epic: string
+  width: number
+  height: number
+  /**
+   * The height the column keeps free for the frame: its height with the done stack open. Opening
+   * or folding the done stack then neither moves the column nor brings the frame onto a Node.
+   * Defaults to `height`.
+   */
+  reserve?: number
+  offset?: Offset
+}
+
+/**
+ * Frames one under another, in the given order, from y = 0, in a column that no Node on the plane
+ * is in (`frameColumnX`), as tall as the frames' reserved heights. A Node lower than that does not
+ * move the column. A manual offset moves its own frame only: the frames below keep their automatic
+ * place, and the column is found without the offsets.
+ */
+export function stackFrames(frames: readonly StackedFrame[], plane: readonly Rect[] = []): Map<string, PlacedFrame> {
   const result = new Map<string, PlacedFrame>()
+  const bottom = frames.reduce((sum, frame, index) => sum + (index ? FRAME_GAP : 0) + Math.max(frame.height, frame.reserve ?? frame.height), 0)
+  const x = frameColumnX(Math.max(0, ...frames.map((frame) => frame.width)), bottom, plane)
   let y = 0
   for (const frame of frames) {
-    const auto = { x: 0, y }
+    const auto = { x, y }
     result.set(frame.epic, { x: auto.x + (frame.offset?.dx ?? 0), y: auto.y + (frame.offset?.dy ?? 0), auto })
     y += frame.height + FRAME_GAP
   }

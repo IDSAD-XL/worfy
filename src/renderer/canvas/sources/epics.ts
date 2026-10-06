@@ -13,7 +13,7 @@
 import { useEffect, useMemo } from 'react'
 import { useReactFlow, useStoreApi } from '@xyflow/react'
 import { create } from 'zustand'
-import { EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, ticketNodeId } from '../../../shared/layout/derived'
+import { EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, onThePlane, ticketNodeId } from '../../../shared/layout/derived'
 import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput } from '../../../shared/layout/types'
 import type { Epic, Ticket, WorkflowModel } from '../../../shared/workflow/types'
 import { useProjects } from '../../projects/useProjects'
@@ -29,6 +29,7 @@ import {
   type Offset,
   type PlacedTicket,
   type Progress,
+  type Rect,
 } from '../epic-layout'
 import type { NodeSource, NodeSourceContext } from '../extensions'
 import type { CanvasFlowNode } from '../nodes'
@@ -88,6 +89,32 @@ export function toggleDoneStack(projectId: string, epic: string): void {
 /** Centers the Canvas of the Project on the Epic's frame (the sidebar's Epics section). */
 export function focusEpic(projectId: string, epic: string): void {
   useEpicsUi.setState(({ focus }) => ({ focus: { projectId, epic, seq: (focus?.seq ?? 0) + 1 } }))
+}
+
+// ── Nodes of other sources on the plane ─────────────────────────────────────
+
+/**
+ * Per Project and node source, where that source's Nodes are on the plane, in absolute canvas
+ * units. A source whose Nodes are not in the Layout (the Subagent tree, sources/subagents.ts)
+ * publishes them here, so the frames' column keeps clear of them too (ADR-0032).
+ */
+const usePlaneRects = create<Readonly<Record<string, Readonly<Record<string, readonly Rect[]>>>>>(() => ({}))
+const NO_RECTS: readonly Rect[] = []
+
+const sameRects = (a: readonly Rect[], b: readonly Rect[]): boolean =>
+  a.length === b.length && a.every((rect, index) => rect.x === b[index]!.x && rect.y === b[index]!.y && rect.w === b[index]!.w && rect.h === b[index]!.h)
+
+/** Replaces what node source `sourceId` has on the plane of a Project; nothing changes when the rectangles are the same. */
+export function publishPlaneRects(projectId: string, sourceId: string, rects: readonly Rect[]): void {
+  const current = usePlaneRects.getState()[projectId]?.[sourceId] ?? NO_RECTS
+  if (sameRects(current, rects)) return
+  usePlaneRects.setState((state) => ({ ...state, [projectId]: { ...state[projectId], [sourceId]: rects } }))
+}
+
+/** Every rectangle the other node sources published for the Project; the same array while none changed. */
+function useDerivedRects(projectId: string): readonly Rect[] {
+  const bySource = usePlaneRects((state) => state[projectId])
+  return useMemo(() => (bySource ? Object.values(bySource).flat() : NO_RECTS), [bySource])
 }
 
 // ── what the Layout keeps ───────────────────────────────────────────────────
@@ -166,6 +193,8 @@ const syntheticNode = (id: string, kind: string, x: number, y: number, w: number
 interface EpicEntry {
   inputs: { root: string; epic: Epic; tickets: readonly Ticket[]; saved: string; collapsed: boolean; doneExpanded: boolean }
   layout: EpicLayout
+  /** The frame's height with the done stack open: what the frames' column keeps free for it (ADR-0032). */
+  reserve: number
   progress: Progress
   tickets: CanvasFlowNode[]
   frame: CanvasFlowNode | undefined
@@ -214,6 +243,8 @@ export function buildEpicNodes(
   model: WorkflowModel | undefined,
   layout: Layout,
   doneExpanded: Readonly<Record<string, boolean>>,
+  /** Nodes of other node sources on the plane, in absolute canvas units (`publishPlaneRects`). */
+  derived: readonly Rect[] = [],
 ): readonly CanvasFlowNode[] {
   if (root === undefined || model === undefined || model.error !== null) {
     lastNodes.delete(projectId)
@@ -256,9 +287,12 @@ export function buildEpicNodes(
       entry.inputs.doneExpanded === inputs.doneExpanded
     if (!same) {
       const epicLayout = layoutEpic({ tickets, collapsed: inputs.collapsed, doneExpanded: inputs.doneExpanded, offsets: saved.offsets })
+      const reserve =
+        inputs.collapsed || inputs.doneExpanded ? epicLayout.height : layoutEpic({ tickets, collapsed: false, doneExpanded: true, offsets: saved.offsets }).height
       entry = {
         inputs,
         layout: epicLayout,
+        reserve,
         progress: progressOf(tickets),
         tickets: ticketNodes(projectId, root, epic.epic, tickets, epicLayout, saved.exists),
         frame: undefined,
@@ -269,7 +303,20 @@ export function buildEpicNodes(
     return { epic, saved, entry: entry! }
   })
 
-  const places = stackFrames(entries.map(({ epic, saved, entry }) => ({ epic: epic.epic, height: entry.layout.height, offset: saved.offset })))
+  // The frames' column keeps clear of the Nodes on the plane, the Layout's and other sources' (ADR-0032);
+  // it is found again on every change of the Layout, the workflow model or those Nodes, so Tickets
+  // that arrive after main placed a Node still keep off it.
+  const plane = [...layout.nodes.filter(onThePlane), ...derived]
+  const places = stackFrames(
+    entries.map(({ epic, saved, entry }) => ({
+      epic: epic.epic,
+      width: entry.layout.width,
+      height: entry.layout.height,
+      reserve: entry.reserve,
+      offset: saved.offset,
+    })),
+    plane,
+  )
   const nodes: CanvasFlowNode[] = []
   for (const { epic, saved, entry } of entries) {
     const place = places.get(epic.epic)!
@@ -343,7 +390,8 @@ function useEpicNodes({ projectId, layout }: NodeSourceContext): readonly Canvas
   const root = projects?.projects.find((project) => project.id === projectId)?.path
   const { model } = useWorkflow(root)
   const doneExpanded = useEpicsUi((state) => state.doneExpanded)
-  const nodes = useMemo(() => buildEpicNodes(projectId, root, model, layout, doneExpanded), [projectId, root, model, layout, doneExpanded])
+  const derived = useDerivedRects(projectId)
+  const nodes = useMemo(() => buildEpicNodes(projectId, root, model, layout, doneExpanded, derived), [projectId, root, model, layout, doneExpanded, derived])
   useFocusRequests(projectId, nodes)
   return nodes
 }
