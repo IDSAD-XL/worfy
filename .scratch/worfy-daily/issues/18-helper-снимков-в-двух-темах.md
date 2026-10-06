@@ -1,7 +1,7 @@
 # 18 — Helper снимков в двух темах
 
 Type: task
-Status: open
+Status: done — 2026-10-06, [PR #75](https://github.com/IDSAD-XL/worfy/pull/75)
 Blocked by: 17
 Source: [spec.md](../spec.md), тема F; [F-SPEC.md](../../../docs/design/F-SPEC.md)
 
@@ -15,7 +15,7 @@ Ticket 21, который идёт в Wave 1. Здесь остался толь
 - Один вызов снимает окно `page.screenshot()` в светлой и тёмной теме через
   `window.emulateMedia({ colorScheme })` — так уже делают `canvas-layout.spec.ts:161` и
   `session-controls.spec.ts:115`.
-- Снимки кладутся в `test-results/snapshots/<имя>/`.
+- Снимки кладутся в папку `snapshots/<имя>/` внутри папки вывода Playwright.
 - Ревьюер UI-Ticket-а сверяет их с F-SPEC. Само правило ревью вносит в skill workflow
   проектирования, не этот Ticket.
 
@@ -36,8 +36,8 @@ Ticket 21, который идёт в Wave 1. Здесь остался толь
 ## Итог
 
 - Helper — `snapshotThemes(window, name)` в `test/e2e/snapshots.ts`. Один вызов пишет
-  `test-results/snapshots/<name>/light.png` и `dark.png` (папка вывода проекта Playwright; она
-  очищается в начале каждого прогона) и возвращает оба пути. Тема переключается
+  `light.png` и `dark.png` в `snapshots/<name>/` внутри папки вывода Playwright
+  (`test.info().project.outputDir`; она очищается в начале каждого прогона) и возвращает оба пути. Тема переключается
   `window.emulateMedia({ colorScheme })`; после вызова эмуляция снимается (`colorScheme: null`), и
   страница снова следует теме приложения. CSS transitions на время снимка выключены
   (`animations: 'disabled'`). Имя с путём (`''`, `.`, `..`, `a/b`) helper отклоняет.
@@ -55,3 +55,8 @@ Ticket 21, который идёт в Wave 1. Здесь остался толь
   темы, снятие эмуляции, проверка имени) по отдельности ломал мутант, и test краснел.
 - Снимки helper-а на пустом приложении: [светлая](../evidence/18-snapshot-helper-light.png),
   [тёмная](../evidence/18-snapshot-helper-dark.png).
+- Ревью ([PR #75](https://github.com/IDSAD-XL/worfy/pull/75), VERIFIED, без доработки): цвет
+  `--sidebar` на снимке совпадает с F-SPEC:23 (`sidebar` — #E9E9EC в светлой теме, #161513 в тёмной);
+  мутанты всех четырёх частей helper-а пойманы; пороги яркости в test-е не зависят от дисплея.
+  Долг [low]: `test/e2e/snapshots.ts:47` — нет test-а, что подложка уходит со страницы после снимка
+  (мутант, который оставляет её через `addStyleTag`, выживает).
