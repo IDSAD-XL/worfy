@@ -35,6 +35,8 @@ interface LayoutNode {
   kind: string
   x: number
   y: number
+  w: number
+  h: number
   locked: boolean
   data: Record<string, unknown>
 }
@@ -238,4 +240,95 @@ test('the Orchestrator Node: locked, live on the fake agent with its state, cost
   }
   expect(readdirSync(projectPath)).toEqual([])
   expect(listing(claudeHome)).toEqual(claudeHomeBefore)
+})
+
+// Ticket 27: a status block of four 90-character lines on the Node of the default size, 360×200.
+// Each line is cut to one line with an ellipsis; the whole line stays in its tooltip and in the
+// Session view. The fake agent answers with such a block from a script the test writes itself.
+const LONG_FILLER = ' тикет 11 ждёт ревью по линзе границ модулей, затем мерж волны 8 и новый HANDOFF у владельца'
+const longLine = (head: string): string => `${head}${LONG_FILLER}`.slice(0, 89).trimEnd().padEnd(89, '.') + '.'
+const LONG_BLOCK = [longLine('— Этап: worfy-daily · /epic-wave · волна 8'), longLine('— Сейчас:'), longLine('— Дальше:'), longLine('— Жду:')].join('\n')
+
+function longBlockScript(): string {
+  const init = { type: 'system', subtype: 'init', cwd: '{{cwd}}', session_id: '{{session}}', tools: ['Bash'], mcp_servers: [], model: 'claude-opus-5-5', permissionMode: 'bypassPermissions', slash_commands: [], apiKeySource: 'none', claude_code_version: '2.1.289', uuid: '00000000-0000-4000-8000-000000000101' }
+  const text = `Волна 8 идёт.\n\n${LONG_BLOCK}\n`
+  const assistant = { type: 'assistant', message: { id: 'msg_long_1', model: 'claude-opus-5-5', type: 'message', role: 'assistant', content: [{ type: 'text', text }], stop_reason: null }, parent_tool_use_id: null, session_id: '{{session}}', uuid: '00000000-0000-4000-8000-000000000102' }
+  const result = { type: 'result', subtype: 'success', is_error: false, result: text, total_cost_usd: 0.01, duration_ms: 1500, duration_api_ms: 1100, num_turns: 1, usage: { input_tokens: 20, output_tokens: 40, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }, modelUsage: {}, permission_denials: [], terminal_reason: 'completed', stop_reason: 'end_turn', session_id: '{{session}}', uuid: '00000000-0000-4000-8000-000000000103' }
+  return `${[{ fake: 'wait_message' }, init, assistant, result].map((line) => JSON.stringify(line)).join('\n')}\n`
+}
+
+test('a status block of four 90-character lines fits the Orchestrator Node: «— Жду:» is seen without scrolling', async () => {
+  for (const line of LONG_BLOCK.split('\n')) expect(line).toHaveLength(90)
+  const scripts = join(scratch, 'scripts')
+  mkdirSync(scripts)
+  writeFileSync(join(scripts, 'long-block.jsonl'), longBlockScript())
+  const app = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPTS: scripts, WORFY_AGENT_SCRIPT: 'long-block' } })
+  try {
+    const { window } = app
+    const node = window.getByTestId('orchestrator-node')
+    await expect(node.getByTestId('orchestrator-state')).toHaveText('idle')
+    const [created] = await orchestratorNodes(window)
+    expect(created).toMatchObject({ w: 360, h: 200 })
+    const opened = await invoke<{ sessionId: string }>(window, 'orchestrator.open', { projectId: PROJECT })
+    await send(window, opened.value?.sessionId ?? '', 'статус')
+    const block = node.getByTestId('orchestrator-status-block')
+    await expect(block).toHaveText(LONG_BLOCK, { useInnerText: true })
+    await expect(node.getByTestId('orchestrator-state')).toHaveText('idle')
+
+    const fit = await block.evaluate((found) => {
+      // Where the text «— Жду:» is drawn, against the block's box and the Node's. The e2e
+      // tsconfig has no DOM types: the few members used are typed here.
+      type Box = { top: number; bottom: number; left: number; right: number }
+      type Text = { textContent: string | null }
+      type Element = {
+        scrollHeight: number
+        clientHeight: number
+        getBoundingClientRect(): Box
+        closest(selector: string): Element | null
+        ownerDocument: {
+          createTreeWalker(root: Element, whatToShow: number): { nextNode(): Text | null }
+          createRange(): { setStart(node: Text, offset: number): void; setEnd(node: Text, offset: number): void; getBoundingClientRect(): Box }
+        }
+      }
+      const SHOW_TEXT = 4
+      const element = found as unknown as Element
+      const walker = element.ownerDocument.createTreeWalker(element, SHOW_TEXT)
+      let waiting: Box | null = null
+      for (let text = walker.nextNode(); text !== null; text = walker.nextNode()) {
+        const at = text.textContent?.indexOf('— Жду:') ?? -1
+        if (at < 0) continue
+        const range = element.ownerDocument.createRange()
+        range.setStart(text, at)
+        range.setEnd(text, at + '— Жду:'.length)
+        waiting = range.getBoundingClientRect()
+      }
+      const box = element.getBoundingClientRect()
+      const nodeBox = element.closest('[data-testid="orchestrator-node"]')?.getBoundingClientRect()
+      return {
+        scrollHeight: element.scrollHeight,
+        clientHeight: element.clientHeight,
+        waiting: waiting && { top: waiting.top, bottom: waiting.bottom, left: waiting.left, right: waiting.right },
+        box: { top: box.top, bottom: box.bottom, left: box.left, right: box.right },
+        nodeBottom: nodeBox?.bottom ?? 0,
+      }
+    })
+    expect(fit.scrollHeight).toBeLessThanOrEqual(fit.clientHeight)
+    expect(fit.waiting).not.toBeNull()
+    expect(fit.waiting?.top ?? -1).toBeGreaterThanOrEqual(fit.box.top)
+    expect(fit.waiting?.bottom ?? Infinity).toBeLessThanOrEqual(fit.box.bottom)
+    expect(fit.waiting?.right ?? Infinity).toBeLessThanOrEqual(fit.box.right)
+    expect(fit.box.bottom).toBeLessThanOrEqual(fit.nodeBottom)
+
+    // The whole line is in the tooltip of its row.
+    const lines = LONG_BLOCK.split('\n')
+    await expect(block.getByTestId('orchestrator-status-line')).toHaveCount(4)
+    for (const [index, line] of lines.entries()) await expect(block.getByTestId('orchestrator-status-line').nth(index)).toHaveAttribute('title', line)
+
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      await node.screenshot({ path: test.info().outputPath(`orchestrator-long-block-${scheme}.png`) })
+    }
+  } finally {
+    await app.close()
+  }
 })
