@@ -96,21 +96,21 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
         run={() => start(projectId, epic.epic)}
       />
     )
+  if (line === null) return button
+  // The status line goes under the button rather than beside it: the Epic's title keeps its room
+  // in the header (56px high: room for the 20px button and one 14px line).
   return (
-    <>
-      {line === null ? null : (
-        <span
-          className="w-mono nodrag"
-          data-testid="autopilot-status"
-          data-status={state?.status}
-          title={state?.message ?? line}
-          style={{ flex: 'none', fontSize: 'var(--text-12)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}
-        >
-          {line}
-        </span>
-      )}
+    <div className="nodrag" style={{ flex: 'none', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
       {button}
-    </>
+      <span
+        data-testid="autopilot-status"
+        data-status={state?.status}
+        title={state?.message ?? line}
+        style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 'var(--text-11)', lineHeight: '14px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}
+      >
+        {line}
+      </span>
+    </div>
   )
 }
 
