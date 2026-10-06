@@ -6,7 +6,7 @@
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
-import { agentEnv } from './env'
+import { agentEnv, type Env } from './env'
 import { fakeQueryFactory } from './fake-query'
 import { appLimits } from './limits'
 import { sessionOptions } from './options'
@@ -25,11 +25,17 @@ async function canvasOrNull(canvas: CanvasResolver, request: QueryRequest): Prom
   }
 }
 
-/** The MCP servers a Session in the Project at `cwd` may use (ADR-0021); never rejects. */
-export type McpAllowlistResolver = (cwd: string) => Promise<readonly string[]>
+/**
+ * The MCP servers a Session in the Project at `cwd` may use (ADR-0021); never rejects. `env` is
+ * the login shell environment the Session itself gets.
+ */
+export type McpAllowlistResolver = (cwd: string, env: Env) => Promise<readonly string[]>
 
-/** The list from the Profile of the Project the Session runs in, or the default list (profile.ts). */
-const profileAllowlist: McpAllowlistResolver = async (cwd) => (await readMcpAllowlist({ root: cwd, claudeHome: claudeHome() })).servers
+/**
+ * The list from the Profile of the Project the Session runs in, or the default list (profile.ts).
+ * `bin/profile` runs with the login shell environment: from Finder worfy's own PATH has no node.
+ */
+const profileAllowlist: McpAllowlistResolver = async (cwd, env) => (await readMcpAllowlist({ root: cwd, claudeHome: claudeHome(), env })).servers
 
 /**
  * Claude Code through the Agent SDK, with the user's login shell environment and the Project's
@@ -39,7 +45,7 @@ const profileAllowlist: McpAllowlistResolver = async (cwd) => (await readMcpAllo
 export function sdkQueryFactory(canvas: CanvasResolver = canvasForSession, mcpAllowlist: McpAllowlistResolver = profileAllowlist): QueryFactory {
   return async (request) => {
     const [{ query }, environment, attached] = await Promise.all([import('@anthropic-ai/claude-agent-sdk'), agentEnv(), canvasOrNull(canvas, request)])
-    const allowlist = attached ? await mcpAllowlist(request.cwd) : null
+    const allowlist = attached ? await mcpAllowlist(request.cwd, environment.env) : null
     const options = sessionOptions({
       cwd: request.cwd,
       env: environment.env,

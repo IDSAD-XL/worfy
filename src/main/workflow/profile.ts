@@ -14,6 +14,9 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
 
+/** The script's environment, for example the login shell's from src/main/agent/env.ts. */
+export type ProfileEnv = Readonly<Record<string, string | undefined>>
+
 /** The Profile field with the list of MCP server names. */
 export const MCP_ALLOWED_FIELD = 'mcp.allowed'
 
@@ -39,12 +42,16 @@ export const profilePath = (claudeHome: string): string => join(claudeHome, 'bin
 const MAX_OUTPUT = 1024 * 1024
 const TIMEOUT_MS = 15_000
 
-/** The default runner: the real script as a child process, with a timeout and a size cap. */
-export function profileRunner(claudeHome: string): ProfileRunner {
+/**
+ * The default runner: the real script as a child process, with a timeout and a size cap. `env` is
+ * the user's login shell environment (src/main/agent/env.ts): the script is `#!/usr/bin/env node`,
+ * and an app started from Finder has only the system PATH, where there is no node.
+ */
+export function profileRunner(claudeHome: string, env: ProfileEnv): ProfileRunner {
   const script = profilePath(claudeHome)
   return (cwd, args) =>
     new Promise((resolvePromise, reject) => {
-      execFile(script, [...args], { cwd, maxBuffer: MAX_OUTPUT, timeout: TIMEOUT_MS, encoding: 'utf8' }, (error, stdout, stderr) => {
+      execFile(script, [...args], { cwd, env, maxBuffer: MAX_OUTPUT, timeout: TIMEOUT_MS, encoding: 'utf8' }, (error, stdout, stderr) => {
         if (!error) return resolvePromise({ code: 0, stdout, stderr })
         const code = (error as NodeJS.ErrnoException).code
         // A number is the script's exit code; a string is a failure to start it (ENOENT, EACCES…).
@@ -71,6 +78,8 @@ export interface ReadMcpAllowlistOptions {
   root: string
   /** Claude Code's home; the script is `<claudeHome>/bin/profile`. */
   claudeHome: string
+  /** The environment the script runs with: the login shell's, so PATH finds node. */
+  env: ProfileEnv
   /** Replaces the real script in tests. */
   run?: ProfileRunner | undefined
   /** Where the reason for a fallback goes; console.warn by default. */
@@ -79,7 +88,7 @@ export interface ReadMcpAllowlistOptions {
 
 /** The Profile's list of MCP servers for the Project at `root`, or the default list with the reason. */
 export async function readMcpAllowlist(options: ReadMcpAllowlistOptions): Promise<McpAllowlist> {
-  const run = options.run ?? profileRunner(options.claudeHome)
+  const run = options.run ?? profileRunner(options.claudeHome, options.env)
   const log = options.log ?? ((message: string) => console.warn(message))
   const fallback = (reason: string): McpAllowlist => {
     log(`[profile] MCP servers for ${options.root}: the default list (${DEFAULT_MCP_SERVERS.join(', ')}), because ${reason}`)

@@ -97,7 +97,9 @@ haiku от этого падает «Prompt too long». Profile worfy не чи�
   Пустой массив `[]` — ни одного сервера. Поле в свой Profile и в `~/.claude/profiles/README.md`
   владелец вносит вручную: worfy в `~/.claude` не пишет.
 - **`src/main/workflow/profile.ts`** — `readMcpAllowlist` запускает
-  `<claudeHome>/bin/profile -C <cwd> --field mcp.allowed` с cwd Session. Список по умолчанию
+  `<claudeHome>/bin/profile -C <cwd> --field mcp.allowed` с cwd Session и с окружением login
+  shell (`agentEnv()`, то же, что получает Session): скрипт начинается с `#!/usr/bin/env node`, а у
+  `.app`, запущенного из Finder, в PATH только системные каталоги, и node там нет. Список по умолчанию
   `qmd`, `worfy-canvas` с причиной в логе (`[profile] MCP servers for <cwd>: the default list …,
   because …`) — при коде 3, коде 4, отсутствии скрипта, другом коде, таймауте, ответе не-JSON,
   `null` и не списке имён.

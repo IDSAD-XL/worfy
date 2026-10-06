@@ -4,7 +4,7 @@
 // `bin/profile` in a temporary Claude home, which must stay as it was, like the Project's folder.
 // Last, how the Session factory (src/main/agent/app-registry.ts) hands the list to Claude Code.
 import { createHash } from 'node:crypto'
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -53,7 +53,7 @@ const enoent = (): Error => Object.assign(new Error('spawn profile ENOENT'), { c
 describe('readMcpAllowlist with a stand-in runner', () => {
   it('exit code 0 with a list: the Profile list, asked of the Project root', async () => {
     const run = stubRun({ code: 0, stdout: '[\n  "qmd",\n  "github",\n  "qmd"\n]\n', stderr: '' })
-    const list = await readMcpAllowlist({ root: '/repo', claudeHome: '/home/.claude', run, log })
+    const list = await readMcpAllowlist({ root: '/repo', claudeHome: '/home/.claude', env: {}, run, log })
     expect(list).toEqual({ servers: ['qmd', 'github'], source: 'profile', reason: null })
     expect(run.calls).toEqual([['/repo', ['-C', '/repo', '--field', MCP_ALLOWED_FIELD]]])
     expect(MCP_ALLOWED_FIELD).toBe('mcp.allowed')
@@ -61,7 +61,7 @@ describe('readMcpAllowlist with a stand-in runner', () => {
   })
 
   it('exit code 0 with an empty list: no servers, not the default', async () => {
-    const list = await readMcpAllowlist({ root: '/repo', claudeHome: '/h', run: stubRun({ code: 0, stdout: '[]\n', stderr: '' }), log })
+    const list = await readMcpAllowlist({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun({ code: 0, stdout: '[]\n', stderr: '' }), log })
     expect(list).toEqual({ servers: [], source: 'profile', reason: null })
   })
 
@@ -78,7 +78,7 @@ describe('readMcpAllowlist with a stand-in runner', () => {
     ['a timeout', { code: null, stdout: '', stderr: '' }, /timed out/],
     ['a script that cannot be started', Object.assign(new Error('spawn EACCES'), { code: 'EACCES' }), /could not be run: spawn EACCES/],
   ])('%s: the default list qmd and worfy-canvas, the reason in the log', async (_case, answer, reason) => {
-    const list = await readMcpAllowlist({ root: '/repo', claudeHome: '/h', run: stubRun(answer), log })
+    const list = await readMcpAllowlist({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun(answer), log })
     expect(list.servers).toEqual(['qmd', CANVAS_SERVER_NAME])
     expect(list.source).toBe('default')
     expect(list.reason).toMatch(reason)
@@ -107,7 +107,25 @@ function snapshot(dir: string): Record<string, string> {
   return out
 }
 
-/** A Claude home whose `bin/profile` prints `stdout`, `stderr` and exits with `code`; it logs its cwd and args to a file outside the home. */
+/** The interpreter of the stub script, found only through the login shell's PATH, like node in nvm. */
+const INTERPRETER = 'worfy-profile-node'
+
+/**
+ * The login shell environment (src/main/agent/env.ts): its PATH has the folder with the stub
+ * script's interpreter, which neither the system PATH nor this test process's PATH has.
+ */
+function loginEnv(): Record<string, string> {
+  const shellBin = join(scratch, 'login-shell-bin')
+  mkdirSync(shellBin, { recursive: true })
+  if (!existsSync(join(shellBin, INTERPRETER))) symlinkSync('/bin/sh', join(shellBin, INTERPRETER))
+  return { PATH: `${shellBin}:/usr/bin:/bin:/usr/sbin:/sbin`, HOME: scratch }
+}
+
+/**
+ * A Claude home whose `bin/profile` prints `stdout`, `stderr` and exits with `code`; it logs its
+ * cwd and args to a file outside the home. Like the real `#!/usr/bin/env node` script, it starts
+ * only when PATH has its interpreter (loginEnv); with worfy's own PATH it exits with 127.
+ */
 function stubHome(code: number, stdout: string, stderr = ''): { home: string; calls: string } {
   const home = join(scratch, 'claude-home')
   mkdirSync(join(home, 'bin'), { recursive: true })
@@ -116,7 +134,7 @@ function stubHome(code: number, stdout: string, stderr = ''): { home: string; ca
   const out = join(scratch, 'stdout.txt')
   const calls = join(scratch, 'calls.txt')
   writeFileSync(out, stdout)
-  writeFileSync(join(home, 'bin', 'profile'), `#!/bin/sh\necho "$(pwd -P) $*" >> '${calls}'\ncat '${out}'\nprintf '%s' '${stderr}' >&2\nexit ${code}\n`)
+  writeFileSync(join(home, 'bin', 'profile'), `#!/usr/bin/env ${INTERPRETER}\necho "$(pwd -P) $*" >> '${calls}'\ncat '${out}'\nprintf '%s' '${stderr}' >&2\nexit ${code}\n`)
   chmodSync(join(home, 'bin', 'profile'), 0o755)
   return { home, calls }
 }
@@ -141,7 +159,7 @@ describe('readMcpAllowlist with the real runner', () => {
     const { home, calls } = stubHome(code, stdout, stderr)
     const root = projectRoot()
     const before = { home: snapshot(home), root: snapshot(root) }
-    const list = await readMcpAllowlist({ root, claudeHome: home, log })
+    const list = await readMcpAllowlist({ root, claudeHome: home, env: loginEnv(), log })
     expect(list.servers).toEqual(servers)
     expect(readFileSync(calls, 'utf8').trim()).toBe(`${realpathSync(root)} -C ${root} --field mcp.allowed`)
     expect(snapshot(home)).toEqual(before.home)
@@ -153,7 +171,7 @@ describe('readMcpAllowlist with the real runner', () => {
     mkdirSync(home)
     const root = projectRoot()
     const before = { home: snapshot(home), root: snapshot(root) }
-    const list = await readMcpAllowlist({ root, claudeHome: home, log })
+    const list = await readMcpAllowlist({ root, claudeHome: home, env: loginEnv(), log })
     expect(list).toMatchObject({ servers: ['qmd', 'worfy-canvas'], source: 'default' })
     expect(list.reason).toBe(`there is no profile script at ${join(home, 'bin', 'profile')}`)
     expect(snapshot(home)).toEqual(before.home)
@@ -163,8 +181,20 @@ describe('readMcpAllowlist with the real runner', () => {
   it('the runner resolves any exit code and rejects only a script that cannot be started', async () => {
     const { home } = stubHome(4, '', 'absent')
     const root = projectRoot()
-    await expect(profileRunner(home)(root, ['--field', 'x'])).resolves.toMatchObject({ code: 4, stderr: 'absent' })
-    await expect(profileRunner(join(scratch, 'nowhere'))(root, [])).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(profileRunner(home, loginEnv())(root, ['--field', 'x'])).resolves.toMatchObject({ code: 4, stderr: 'absent' })
+    await expect(profileRunner(join(scratch, 'nowhere'), loginEnv())(root, [])).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it("runs the script with the environment it is given, not worfy's own: from Finder the system PATH has no node", async () => {
+    const { home } = stubHome(0, '["github"]\n')
+    const root = projectRoot()
+    expect(process.env.PATH ?? '').not.toContain('login-shell-bin')
+    const withShell = await readMcpAllowlist({ root, claudeHome: home, env: loginEnv(), log })
+    expect(withShell).toEqual({ servers: ['github'], source: 'profile', reason: null })
+    // The same script with the bare PATH of an app started from Finder: env cannot find the interpreter.
+    const bare = await readMcpAllowlist({ root, claudeHome: home, env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' }, log })
+    expect(bare).toMatchObject({ servers: ['qmd', 'worfy-canvas'], source: 'default' })
+    expect(bare.reason).toMatch(/failed with exit code 127/)
   })
 })
 
@@ -192,16 +222,18 @@ describe('sdkQueryFactory and the Profile list', () => {
 
   beforeEach(() => {
     mocks.query.mockReset().mockReturnValue(SDK_QUERY)
-    mocks.agentEnv.mockReset().mockResolvedValue({ env: { PATH: '/usr/bin' }, from: 'login-shell' })
+    mocks.agentEnv.mockReset().mockResolvedValue({ env: loginEnv(), from: 'login-shell' })
   })
 
   it("a Session in a Project gets the Profile's list as the MCP policy, read for its cwd", async () => {
     const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
-    const asked: string[] = []
-    const allowlist = (cwd: string): Promise<readonly string[]> => (asked.push(cwd), Promise.resolve(['qmd']))
+    const asked: [string, Record<string, string>][] = []
+    const allowlist = (cwd: string, env: Record<string, string>): Promise<readonly string[]> => (asked.push([cwd, env]), Promise.resolve(['qmd']))
     await sdkQueryFactory(() => Promise.resolve(attached), allowlist)(request('/repo/.claude/worktrees/06'))
     const options = sdkOptions()
-    expect(asked).toEqual(['/repo/.claude/worktrees/06'])
+    // Asked with the login shell environment the Session itself gets (env.ts), not worfy's own.
+    expect(asked).toEqual([['/repo/.claude/worktrees/06', loginEnv()]])
+    expect(asked[0]?.[1]).toBe(options.env)
     expect(options.managedSettings).toEqual({ allowManagedMcpServersOnly: true, allowedMcpServers: [{ serverName: 'qmd' }] })
     expect(options).not.toHaveProperty('mcpServers')
     expect(options.settingSources).toEqual(['user', 'project', 'local'])
@@ -220,7 +252,7 @@ describe('sdkQueryFactory and the Profile list', () => {
     expect(allowlist).not.toHaveBeenCalled()
   })
 
-  it('by default reads the list with <WORFY_CLAUDE_HOME>/bin/profile', async () => {
+  it('by default reads the list with <WORFY_CLAUDE_HOME>/bin/profile, run with the login shell environment', async () => {
     const { home } = stubHome(0, '["qmd", "worfy-canvas", "github"]\n')
     const root = projectRoot()
     vi.stubEnv('WORFY_CLAUDE_HOME', home)
