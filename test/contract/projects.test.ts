@@ -137,7 +137,7 @@ describe('projects.add', () => {
     const { project } = await addOk(repo)
     expect(project.id).toBe(`auction-${createHash('sha256').update(repo).digest('hex').slice(0, 8)}`)
     const settings = JSON.parse(readFileSync(join(dataDir, project.id, 'settings.json'), 'utf8')) as unknown
-    expect(settings).toStrictEqual({ actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave волна {wave} эпика {epic}' } })
+    expect(settings).toStrictEqual({ actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}' } })
     expect(existsSync(join(dataDir, 'projects.json'))).toBe(true)
   })
 
@@ -289,13 +289,31 @@ describe('projects.settings', () => {
   it('gives a new Project the default templates and keeps a change across a restart', async () => {
     const { project } = await addOk(makeRepo('auction'))
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual({
-      actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave волна {wave} эпика {epic}' },
+      actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}' },
     })
     const changed = { actionTemplates: { shipTicket: '/ship {epic}/{NN} on {branch}', runWave: '' } }
     expect(await value('projects.settings.set', { id: project.id, settings: changed })).toStrictEqual(changed)
 
     await start()
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual(changed)
+  })
+
+  it('reads a saved old default of Run wave as the new default without writing the file; an own template stays (ticket 30)', async () => {
+    const { project } = await addOk(makeRepo('auction'))
+    const file = join(dataDir, project.id, 'settings.json')
+    // What the stable copy has saved: the defaults of before ticket 30.
+    const old = `${JSON.stringify({ actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave волна {wave} эпика {epic}' } }, null, 2)}\n`
+    writeFileSync(file, old)
+    await start()
+    expect(await value('projects.settings.get', { id: project.id })).toStrictEqual({
+      actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}' },
+    })
+    // Reading does not write: the file stays as the stable copy left it.
+    expect(readFileSync(file, 'utf8')).toBe(old)
+
+    const own = { actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave wave {wave} of {epic}' } }
+    writeFileSync(file, JSON.stringify(own))
+    expect(await value('projects.settings.get', { id: project.id })).toStrictEqual(own)
   })
 
   it('does not save a template with an unknown placeholder', async () => {

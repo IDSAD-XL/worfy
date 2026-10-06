@@ -8,7 +8,7 @@ import { launchedHint } from '../../src/shared/actions/render-template'
 import type { LaunchesSnapshot } from '../../src/shared/ipc/actions'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { ChecksSnapshot } from '../../src/shared/ipc/checks'
-import { DEFAULT_ACTION_TEMPLATES, type ActionTemplates } from '../../src/shared/projects/action-templates'
+import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE, type ActionTemplates } from '../../src/shared/projects/action-templates'
 import type { Epic, Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 
 const ROOT = '/Users/test/projects/demo'
@@ -66,7 +66,9 @@ beforeEach(() => {
         case 'actions.launches':
           return Promise.resolve({ ok: true, value: launches })
         case 'actions.runWave':
-          return Promise.resolve({ ok: true, value: { sessionId: 'o1', text: '/epic-wave волна 1 эпика demo', delivery: 'sent' } })
+          return Promise.resolve({ ok: true, value: { sessionId: 'o1', text: '/epic-wave Ticket-ы 08, 09 эпика demo', delivery: 'sent' } })
+        case 'autopilot.state':
+          return Promise.resolve({ ok: true, value: { projectId: PROJECT, epic: null, status: 'stopped', wave: 0, backgroundTasks: 0, resumesAt: null, reason: null, message: null, revision: 1 } })
         case 'shell.openExternal':
           return Promise.resolve({ ok: true, value: { url: (input as { url: string }).url } })
         default:
@@ -207,6 +209,34 @@ describe('Run wave', () => {
     const button = await screen.findByRole('button', { name: 'Run wave' })
     await vi.waitFor(() => expect(button.getAttribute('title')).toBe('No ready wave'))
     expect(button.getAttribute('aria-disabled')).toBe('true')
+  })
+})
+
+describe('Autopilot (ticket 30, ADR-0033)', () => {
+  it("is inactive with a Run wave template that does not name the Wave's tickets and says why; Run wave stays active", async () => {
+    templates = { ...templates, runWave: LEGACY_RUN_WAVE_TEMPLATE }
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    const { default: EpicActions } = await import('../../src/renderer/canvas/actions/EpicActions')
+    render(
+      <>
+        <AutopilotAction subject={epicSubject()} />
+        <EpicActions subject={epicSubject()} />
+      </>,
+    )
+    const autopilot = await screen.findByRole('button', { name: 'Autopilot' })
+    await vi.waitFor(() => expect(autopilot.getAttribute('title')).toBe(AUTOPILOT_TEMPLATE_HINT))
+    expect(autopilot.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(autopilot)
+    expect(calls.some((call) => call.channel === 'autopilot.start')).toBe(false)
+    const wave = await screen.findByRole('button', { name: 'Run wave' })
+    await vi.waitFor(() => expect(wave.getAttribute('aria-disabled')).toBe('false'))
+  })
+
+  it('is active with the default template', async () => {
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    render(<AutopilotAction subject={epicSubject()} />)
+    const autopilot = await screen.findByRole('button', { name: 'Autopilot' })
+    await vi.waitFor(() => expect(autopilot.getAttribute('aria-disabled')).toBe('false'))
   })
 })
 

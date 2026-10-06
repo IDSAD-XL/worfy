@@ -2,7 +2,7 @@
 // the five placeholders, a template without any, one placeholder twice, and a placeholder the
 // action has no value for — a failed render, never an empty string.
 import { describe, expect, it } from 'vitest'
-import { readyWaveNumber, renderTemplate, ticketNumber, ticketValues, waveValues } from '../../src/shared/actions/render-template'
+import { readyWaveNumber, renderTemplate, ticketNumber, ticketValues, waveTickets, waveValues } from '../../src/shared/actions/render-template'
 import type { Ticket } from '../../src/shared/workflow/types'
 
 const ticket = { epic: 'worfy-mvp', num: 7, slug: 'движок-сессий' }
@@ -16,6 +16,18 @@ describe('renderTemplate', () => {
   it('renders the default templates', () => {
     expect(renderTemplate('/ship-ticket {epic} {NN}', ticketValues(ticket, 'main'))).toEqual({ ok: true, text: '/ship-ticket worfy-mvp 07' })
     expect(renderTemplate('/epic-wave волна {wave} эпика {epic}', waveValues('worfy-mvp', 3, 'main'))).toEqual({ ok: true, text: '/epic-wave волна 3 эпика worfy-mvp' })
+    expect(renderTemplate('/epic-wave Ticket-ы {tickets} эпика {epic}', waveValues('worfy-daily', 6, 'main', [27, 11, 23, 25]))).toEqual({
+      ok: true,
+      text: '/epic-wave Ticket-ы 11, 23, 25, 27 эпика worfy-daily',
+    })
+  })
+
+  it('{tickets} lists the Wave\'s Tickets in number order, two digits at least; {wave} keeps the plan\'s number beside it (ticket 30)', () => {
+    expect(waveTickets([7, 123, 3])).toBe('03, 07, 123')
+    expect(renderTemplate('{tickets} | {wave}', waveValues('e', 4, null, [9]))).toEqual({ ok: true, text: '09 | 4' })
+    // Without a list (or with an empty one) {tickets} has no value rather than an empty one.
+    expect(renderTemplate('{tickets}', waveValues('e', 4, null))).toEqual({ ok: false, error: '{tickets} has no value' })
+    expect(renderTemplate('{tickets}', waveValues('e', 4, null, []))).toEqual({ ok: false, error: '{tickets} has no value' })
   })
 
   it('leaves a template without placeholders as it is', () => {

@@ -3,6 +3,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   JOURNAL_EVENT_KINDS,
+  LAST_TEXT_MAX,
+  clipLastText,
   formatJournalLine,
   isRunId,
   parseJournal,
@@ -97,6 +99,31 @@ describe('parseJournal', () => {
     )
     expect(parsed).toEqual({ events: [good], skipped: 3 })
     expect(JSON.stringify(parsed.events)).not.toContain('the whole prompt')
+  })
+
+  it('reads the text, skipped Tickets, stop Tickets and last answer of ticket 30 only in their declared shape, and old lines without them', () => {
+    const wave = { ...waveStarted, text: '/epic-wave Ticket-ы 01, 02 эпика worfy-daily', skipped: [{ num: '15', state: 'blocked' as const }] }
+    const stop = { ...stopped, reason: 'blocked-tickets', tickets: ['15'], lastText: 'Волна уже закрыта.' }
+    const parsed = parseJournal(
+      line({ ...wave, skipped: [{ num: '15', state: 'blocked', why: 'x' }] }) +
+        line(stop) +
+        line(waveStarted) +
+        line({ ...wave, skipped: [{ num: '15', state: 'work' }] }) +
+        line({ ...wave, skipped: [{ num: 15, state: 'blocked' }] }) +
+        line({ ...wave, text: 7 }) +
+        line({ ...stop, tickets: [15] }) +
+        line({ ...stop, lastText: 'x'.repeat(LAST_TEXT_MAX + 1) }),
+    )
+    expect(parsed).toEqual({ events: [wave, stop, waveStarted], skipped: 5 })
+    expect(JSON.stringify(parsed.events)).not.toContain('why')
+  })
+
+  it('clips the last answer to LAST_TEXT_MAX units without cutting a surrogate pair', () => {
+    expect(clipLastText('short')).toBe('short')
+    expect(clipLastText('a'.repeat(LAST_TEXT_MAX + 5))).toBe('a'.repeat(LAST_TEXT_MAX))
+    const pair = `${'a'.repeat(LAST_TEXT_MAX - 1)}😀tail`
+    expect(clipLastText(pair)).toBe('a'.repeat(LAST_TEXT_MAX - 1))
+    expect(() => formatJournalLine({ ...stopped, lastText: clipLastText('я'.repeat(5000)) })).not.toThrow()
   })
 
   it('ignores blank lines without counting them, including CRLF endings', () => {

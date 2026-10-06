@@ -65,7 +65,7 @@ export function sharedAutopilot(): Autopilot {
       observe: (sink) => sharedRegistry().observe(sink),
       observeInput: (listener) => sharedRegistry().observeInput(listener),
     },
-    waves: { autopilotWave: (projectId, epic) => sharedLauncher().autopilotWave(projectId, epic) },
+    waves: { autopilotWave: (projectId, epic) => sharedLauncher().autopilotWave(projectId, epic), autopilotRefusal: (projectId) => sharedLauncher().autopilotRefusal(projectId) },
     journal: (start) => openRun(start),
     keepAwake: () => new KeepAwake(),
     onChange: (state: AutopilotState) => toEveryWindow((target) => emit(target, autopilotChanged, state)),

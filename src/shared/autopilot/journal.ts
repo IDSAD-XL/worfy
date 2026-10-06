@@ -20,8 +20,13 @@
 // Kinds and their fields:
 //
 //   run-started                      the run began; worfy writes it as the first line
-//   wave-started   wave, tickets     wave: number from 1; tickets: Ticket numbers, ["01", "02"]
-//   wave-finished  wave, tickets     the same fields as wave-started
+//   wave-started   wave, tickets,    wave: number from 1; tickets: Ticket numbers, ["01", "02"];
+//                  text?, skipped?   text: the text the Orchestrator got; skipped: Tickets left
+//                                    out because they are not open though their blockers are all
+//                                    done, [{"num": "15", "state": "blocked"}], state `blocked` or
+//                                    `none` (ticket 30, ADR-0033; lines written before it have
+//                                    neither field)
+//   wave-finished  wave, tickets     wave and tickets as in wave-started
 //   limits-hit     window, resetsAt  a Session was refused by the Limits; window: `five_hour`,
 //                                    `seven_day`, … or null; resetsAt: ISO time or null
 //   waiting-until  until             the run sleeps until this ISO time
@@ -34,8 +39,13 @@
 //                                    changed (ADR-0029); tasks: every one now, possibly none; also
 //                                    written after run-stopped while the run waits to give the
 //                                    Orchestrator back
-//   run-stopped    reason, tasks?    the run ended; reason: why, in a few words; tasks: the
-//                                    background tasks alive then, when any were
+//   run-stopped    reason, tasks?,   the run ended; reason: why, in a few words; tasks: the
+//                  tickets?,         background tasks alive then, when any were; tickets: with
+//                  lastText?         `blocked-tickets`, the Tickets it stopped on (as skipped of
+//                                    wave-started, numbers only); lastText: with `no-progress`,
+//                                    `no-ready-wave` and `blocked-tickets`, the first 1000
+//                                    characters of the Orchestrator's last answer in the turns of
+//                                    the Wave, none when no Wave was sent (ADR-0033)
 //   orchestrator-returned            after a run-stopped with live tasks: they have ended and the
 //                                    Orchestrator runs as a person's Session again
 //   tasks-killed   reason, tasks     the background tasks a stopped run still waited for were
@@ -111,6 +121,9 @@ export const journalFileName = (run: string): string => `${run}.jsonl`
 const isoTime = z.iso.datetime({ offset: true })
 const text = z.string().min(1)
 const wave = { wave: z.number().int().positive(), tickets: z.array(text) }
+/** How much of the Orchestrator's last answer `run-stopped` keeps. */
+export const LAST_TEXT_MAX = 1000
+const skipped = z.array(z.object({ num: text, state: z.enum(['blocked', 'none']) }))
 const session = z.string().min(1).nullable()
 const tasks = z.array(z.object({ id: text, type: z.string().nullable(), description: z.string().nullable() }))
 
@@ -126,7 +139,7 @@ const event = <K extends JournalEventKind, F extends z.ZodRawShape>(kind: K, fie
 
 export const journalEventSchema = z.discriminatedUnion('kind', [
   event('run-started', {}),
-  event('wave-started', wave),
+  event('wave-started', { ...wave, text: z.string().optional(), skipped: skipped.optional() }),
   event('wave-finished', wave),
   event('limits-hit', { window: z.string().min(1).nullable(), resetsAt: isoTime.nullable() }),
   event('waiting-until', { until: isoTime }),
@@ -135,11 +148,22 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
   event('refused-dialog', { session, what: text }),
   event('human-input', { source: z.enum(HUMAN_INPUT_SOURCES), what: text }),
   event('background-tasks', { tasks }),
-  event('run-stopped', { reason: text, tasks: tasks.optional() }),
+  event('run-stopped', { reason: text, tasks: tasks.optional(), tickets: z.array(text).optional(), lastText: z.string().max(LAST_TEXT_MAX).optional() }),
   event('orchestrator-returned', {}),
   event('tasks-killed', { reason: text, tasks }),
 ])
 export type JournalEvent = z.output<typeof journalEventSchema>
+
+/**
+ * The start of an answer as `run-stopped` keeps it: at most LAST_TEXT_MAX UTF-16 units (as the
+ * format checks it), without half of a surrogate pair at the cut.
+ */
+export function clipLastText(answer: string): string {
+  if (answer.length <= LAST_TEXT_MAX) return answer
+  const cut = answer.slice(0, LAST_TEXT_MAX)
+  const last = cut.charCodeAt(cut.length - 1)
+  return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut
+}
 
 /** The fields every line shares; the writer fills them in. */
 export type JournalCommon = Pick<JournalEvent, 'at' | 'run' | 'project' | 'epic'>

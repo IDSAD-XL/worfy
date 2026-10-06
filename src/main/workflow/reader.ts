@@ -3,7 +3,8 @@
 // The only reader of the Ticket format is `<claude home>/bin/epic-status --json`. worfy adds the
 // two things that script does not carry: the files listed under each Ticket's "Где в коде"
 // section and the Epic's title (the H1 of spec.md). A Ticket claimed in a worktree branch is
-// shown with the branch's status: `epic-status --json --ref <branch>` reads that branch.
+// shown with the branch's status: `epic-status --json --ref <branch>` reads that branch. A branch
+// never undoes blocked or done of the checkout, and its open is its base's (ADR-0033).
 //
 // Nothing here writes: processes are run with the Project as cwd, files are only read.
 import { execFile } from 'node:child_process'
@@ -281,9 +282,20 @@ export async function readBranches(
 }
 
 /**
+ * Whether a branch's status of its Ticket goes over the checkout's (ADR-0033). A branch never
+ * undoes a decision merged into the checkout — blocked or done there stays — and never says `open`
+ * or `none`: that is the status of the branch's base, which a branch that did not touch the
+ * Ticket file still carries. So a Ticket claimed in its worktree shows `work`, and a Ticket blocked
+ * in the checkout is not shown open because its old worktree branch is still there.
+ */
+function branchOverrides(checkout: Ticket['state'], branch: Ticket['state']): boolean {
+  return checkout !== 'blocked' && checkout !== 'done' && branch !== 'open' && branch !== 'none'
+}
+
+/**
  * Lays the branch statuses over the checkout. A branch's Ticket takes the branch's `state` and
- * `statusRaw` and gets `fromBranch`, unless the checkout already says the same (the claim was
- * merged) or the checkout says done (the branch is left over after the merge).
+ * `statusRaw` and gets `fromBranch` when branchOverrides says so and the checkout does not already
+ * say the same (the claim was merged).
  */
 export function applyBranches(checkout: CheckoutModel, branches: BranchCache): WorkflowModel {
   const overrides = new Map<string, { branch: string; snapshot: BranchSnapshot }>()
@@ -295,7 +307,7 @@ export function applyBranches(checkout: CheckoutModel, branches: BranchCache): W
   const tickets = checkout.tickets.map((ticket) => {
     const override = overrides.get(ticketKey(ticket))
     const fromBranch = override?.snapshot.ticket
-    if (!override || !fromBranch || ticket.state === 'done' || fromBranch.statusRaw === ticket.statusRaw) return ticket
+    if (!override || !fromBranch || !branchOverrides(ticket.state, fromBranch.state) || fromBranch.statusRaw === ticket.statusRaw) return ticket
     return { ...ticket, state: fromBranch.state, statusRaw: fromBranch.statusRaw, fromBranch: override.branch }
   })
   return { ...checkout, tickets, branchErrors }

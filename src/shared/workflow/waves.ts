@@ -26,11 +26,23 @@ export type WaitReason =
   | { kind: 'missing-blocker'; missing: number[] }
   | { kind: 'cycle'; cycle: number[] }
 
+/** A Ticket that would be ready but is not open: blocked, or without a status (ticket 30, ADR-0033). */
+export interface SkippedTicket {
+  num: number
+  state: Extract<Ticket['state'], 'blocked' | 'none'>
+}
+
 export interface ReadyWave {
   /** In Ticket number order. `filesNotListed` — the Ticket has no "Где в коде" section. */
   ready: { num: number; filesNotListed: boolean }[]
   /** Open Tickets left for a later Wave, in number order. */
   waiting: { num: number; reason: WaitReason }[]
+  /**
+   * Tickets in `blocked` or `none` whose blockers are all done, in number order: they would be
+   * ready if they were open. Autopilot names them in its journal and stops on them when nothing
+   * open is ready (`blocked-tickets`).
+   */
+  skipped: SkippedTicket[]
 }
 
 type WaveTicket = Pick<Ticket, 'epic' | 'num' | 'state' | 'blockedRaw' | 'blockedNums' | 'blockedParsed' | 'files' | 'filesListed'>
@@ -140,7 +152,8 @@ export function filesOverlap(a: string, b: string): boolean {
  * The ready Wave of one Epic: open Tickets whose blockers are all done, in number order. The
  * files of Tickets in work (claimed in the checkout or in a worktree branch) are held from the
  * start; a Ticket whose file overlaps a held file, or a file of a Ticket already taken into this
- * Wave, waits for the next one.
+ * Wave, waits for the next one. Blocked and status-less Tickets never go into the Wave; those
+ * whose blockers are all done are listed as `skipped`.
  */
 export function readyWave(tickets: readonly WaveTicket[], epic?: string): ReadyWave {
   const all = epicTickets(tickets, epic)
@@ -152,11 +165,17 @@ export function readyWave(tickets: readonly WaveTicket[], epic?: string): ReadyW
 
   const ready: ReadyWave['ready'] = []
   const waiting: ReadyWave['waiting'] = []
+  const skipped: ReadyWave['skipped'] = []
   for (const ticket of [...all.values()].sort(byNum)) {
-    if (ticket.state !== 'open') continue
+    if (ticket.state !== 'open' && ticket.state !== 'blocked' && ticket.state !== 'none') continue
 
     const problem = ownProblem(ticket, all, cycleOf)
     const notDone = ticket.blockedNums.filter((blocker) => all.get(blocker)?.state !== 'done')
+    if (ticket.state !== 'open') {
+      // A cycle whose other members are all done no longer blocks anything, as for an open Ticket.
+      if ((!problem || problem.kind === 'cycle') && notDone.length === 0) skipped.push({ num: ticket.num, state: ticket.state })
+      continue
+    }
     if (problem && problem.kind !== 'cycle') {
       waiting.push({ num: ticket.num, reason: problem })
       continue
@@ -178,7 +197,7 @@ export function readyWave(tickets: readonly WaveTicket[], epic?: string): ReadyW
     ready.push({ num: ticket.num, filesNotListed: !ticket.filesListed })
     for (const file of ticket.files) held.push({ file, num: ticket.num })
   }
-  return { ready, waiting }
+  return { ready, waiting, skipped }
 }
 
 /**
