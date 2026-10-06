@@ -8,7 +8,7 @@ import { BrowserWindow, dialog, type Dialog } from 'electron'
 import { cardApiAsk, cardApiDataGet, cardApiDataSet } from '../../shared/ipc/card-api'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
-import type { Session } from '../agent/session'
+import type { Session, SessionRegistry } from '../agent/session'
 import { CardAsk, type AskQuestion } from '../cards/ask'
 import { cardDataStore } from '../cards/data'
 import { cardStore } from '../cards/store'
@@ -60,6 +60,17 @@ export async function confirmAsk(owner: BrowserWindow | null, question: AskQuest
   return response === 0
 }
 
+/**
+ * Sends the message of a Card the user confirmed with "Send". The user acted on the recipient
+ * Session, so its input observers hear of it first (Autopilot journals it as `human-input`,
+ * worfy-daily ticket 04): the dialog may have been answered after the run took the Orchestrator.
+ */
+export function sendFromCard(registry: Pick<SessionRegistry, 'get' | 'noteInput'>, sessionId: string, text: string): void {
+  const session = registry.get(sessionId)
+  registry.noteInput(sessionId, 'sent a message from a Card')
+  session.send(text)
+}
+
 let ask: CardAsk | null = null
 
 function cardAsk(): CardAsk {
@@ -73,7 +84,7 @@ function cardAsk(): CardAsk {
     },
     cardTitle: async (projectId, cardId) => (await cardStore().info(projectId, cardId)).title,
     confirm: (question, owner) => confirmAsk((owner as BrowserWindow | null | undefined) ?? null, question),
-    send: (sessionId, text) => sharedRegistry().get(sessionId).send(text),
+    send: (sessionId, text) => sendFromCard(sharedRegistry(), sessionId, text),
   })
   return ask
 }

@@ -7,6 +7,10 @@
 // - Waves go out as "Run wave" does (src/main/actions/launch.ts, the Project's template); when one
 //   is finished and what comes next is the cycle's call (src/shared/autopilot/cycle.ts), over the
 //   events of the Orchestrator's Session and fresh reads of the workflow model.
+// - A Wave may wait in the Session's queue behind a person's message. Only a turn that started with
+//   the Wave's prompt, or a later one, can end the Wave: the `result` of an earlier turn is not the
+//   Wave's (an Interrupt of it still stops the run, as it holds the queue). A Wave still in the
+//   queue when the run stops is taken out of it, so no one's turn runs it untracked.
 // - keep-awake (power.ts) is held from the start to the end of the run.
 // - Every step goes to the run journal (src/main/autopilot/journal.ts): Waves, errors, refused
 //   dialogs of the unattended Session, the reason the run stopped, and every action a person takes
@@ -19,7 +23,8 @@ import { realpath } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { AutopilotWaveResult } from '../actions/launch'
 import { ticketNumber } from '../../shared/actions/render-template'
-import type { AgentEvent, SessionState } from '../../shared/agent/events'
+import { messageLabel } from '../../shared/agent/attachments'
+import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
 import type { JournalEventFields } from '../../shared/autopilot/journal'
 import { initialCycle, SETTLE_MS, step, type AutopilotStopReason, type CycleEvent, type CycleState } from '../../shared/autopilot/cycle'
 import type { AutopilotState } from '../../shared/ipc/autopilot'
@@ -30,6 +35,8 @@ import type { WorkflowModel } from '../../shared/workflow/types'
 export interface RunSession {
   readonly id: string
   readonly state: SessionState
+  queued(): QueueSnapshot
+  removeQueued(id: string): boolean
 }
 
 /** One open journal (journal.ts, RunJournal). */
@@ -112,6 +119,16 @@ class Run {
   private chain: Promise<void> = Promise.resolve()
   readonly cleanups: (() => Promise<void> | void)[] = []
   settleTimer: ReturnType<typeof setTimeout> | null = null
+  /** Turns of the Orchestrator's Session the run has seen start: one per `prompt` event. */
+  turns = 0
+  /** True while "Run wave" is on its way to the Session (autopilotWave has not answered yet). */
+  sending = false
+  /** The prompts of the turns that started while "Run wave" was on its way, by turn number. */
+  readonly promptsWhileSending = new Map<number, string>()
+  /** The current Wave's prompt as the Session reports it; null before the first Wave. */
+  wavePrompt: string | null = null
+  /** The turn the current Wave's prompt started; null while the Wave waits in the Session's queue. */
+  waveTurn: number | null = null
   /** Settles once the run has stopped and cleaned up. */
   readonly ended: Promise<void>
   finish!: () => void
@@ -136,6 +153,11 @@ class Run {
    */
   get running(): boolean {
     return !this.done
+  }
+
+  /** Whether the turn `turn` can end the current Wave: the Wave's own turn, or a later one. */
+  endsWave(turn: number): boolean {
+    return this.waveTurn !== null && turn >= this.waveTurn
   }
 
   /** Runs tasks one after another, in the order they were queued; a failing task does not stop the next. */
@@ -196,7 +218,15 @@ export class Autopilot {
         run.awake = this.deps.keepAwake()
         run.awake.start()
         this.subscribe(run)
-        run.cleanups.push(await this.deps.watchWorkflow(root, () => void run.enqueue(() => this.readAndFeed(run, 'ignore', (tickets) => ({ type: 'workflow', tickets })))))
+        const unwatch = await this.deps.watchWorkflow(root, () => void run.enqueue(() => this.readAndFeed(run, 'ignore', (tickets) => ({ type: 'workflow', tickets }))))
+        if (run.cycle.phase === 'stopped') {
+          // The Session failed or closed while the watch opened: the run has ended (or is ending)
+          // and released what it held without this watch, so it is closed here.
+          await this.unwatch(run, unwatch)
+          await run.ended
+          return this.snapshot(run)
+        }
+        run.cleanups.push(unwatch)
       } catch (error) {
         await this.release(run, true)
         throw error
@@ -230,6 +260,14 @@ export class Autopilot {
     )
   }
 
+  private async unwatch(run: Run, unwatch: () => Promise<void> | void): Promise<void> {
+    try {
+      await unwatch()
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: a cleanup failed`, error)
+    }
+  }
+
   /** Whether any run goes on. */
   anyRunning(): boolean {
     return this.starting.size > 0 || [...this.runs.values()].some((run) => run.running)
@@ -250,11 +288,20 @@ export class Autopilot {
 
   private onEvent(run: Run, event: AgentEvent): void {
     switch (event.type) {
+      case 'prompt':
+        run.turns += 1
+        if (run.sending) run.promptsWhileSending.set(run.turns, event.text)
+        else if (run.waveTurn === null && run.wavePrompt !== null && event.text === run.wavePrompt) run.waveTurn = run.turns
+        return
       case 'result': {
+        // Which turn ended is known now, in the order of the Session's events; whether it is the
+        // Wave's is decided in the run's order, once the Wave's own sending has been handled.
+        const turn = run.turns
         const message = event.error ?? (event.isError ? event.text : null)
-        void run.enqueue(() =>
-          this.readAndFeed(run, 'stop', (tickets) => ({ type: 'turn-ended', isError: event.isError, interrupted: event.interrupted, message: message === '' ? null : message, tickets })),
-        )
+        void run.enqueue(() => {
+          if (!run.endsWave(turn) && !event.interrupted) return
+          return this.readAndFeed(run, 'stop', (tickets) => ({ type: 'turn-ended', isError: event.isError, interrupted: event.interrupted, message: message === '' ? null : message, tickets }))
+        })
         return
       }
       case 'state':
@@ -322,15 +369,40 @@ export class Autopilot {
   }
 
   private async sendWave(run: Run): Promise<void> {
-    let tickets: number[]
+    let sent: AutopilotWaveResult
+    run.sending = true
+    run.promptsWhileSending.clear()
     try {
-      tickets = (await this.deps.waves.autopilotWave(run.projectId, run.epic)).tickets
+      sent = await this.deps.waves.autopilotWave(run.projectId, run.epic)
     } catch (error) {
       run.message = messageOf(error)
       await this.feed(run, { type: 'send-failed', message: run.message })
       return
+    } finally {
+      run.sending = false
     }
-    await this.feed(run, { type: 'wave-sent', tickets })
+    // Sent at once, its turn has started by now; queued, it starts with a later `prompt`.
+    run.wavePrompt = messageLabel(sent.text, [])
+    run.waveTurn = null
+    for (const [turn, text] of run.promptsWhileSending) {
+      if (text !== run.wavePrompt) continue
+      run.waveTurn = turn
+      break
+    }
+    run.promptsWhileSending.clear()
+    await this.feed(run, { type: 'wave-sent', tickets: sent.tickets })
+  }
+
+  /** A Wave still in the Session's queue when the run stops is taken out: no one would follow its turn. */
+  private dropQueuedWave(run: Run): void {
+    const prompt = run.wavePrompt
+    if (prompt === null || run.waveTurn !== null || run.session === null) return
+    try {
+      const queued = run.session.queued().items.find((item) => item.text === prompt)
+      if (queued !== undefined) run.session.removeQueued(queued.id)
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: could not take the Wave out of the queue`, error)
+    }
   }
 
   /** Starts the settle time-out when the run begins settling, clears it when it stops. */
@@ -350,6 +422,7 @@ export class Autopilot {
   /** The run is over: its reason in the journal, keep-awake released, the Orchestrator given back. */
   private async end(run: Run, reason: AutopilotStopReason): Promise<void> {
     await this.write(run, { kind: 'run-stopped', reason })
+    this.dropQueuedWave(run)
     // On quit the Orchestrator closes with every Session: starting it again would start Claude Code.
     await this.release(run, reason !== 'app-quit')
     run.done = true

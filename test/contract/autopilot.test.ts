@@ -13,13 +13,14 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ActionLauncher, AUTOPILOT_RUNNING_HINT } from '../../src/main/actions/launch'
 import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { AUTOPILOT_OWNS_ORCHESTRATOR, Orchestrators } from '../../src/main/agent/orchestrator'
+import { AUTOPILOT_OWNS_ORCHESTRATOR, ORCHESTRATOR_HAS_QUEUE, ORCHESTRATOR_IN_TURN, Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { SessionSettingsStore, UNATTENDED_MODE_MESSAGE } from '../../src/main/agent/session-settings'
 import { openRun, readRun } from '../../src/main/autopilot/journal'
 import { Autopilot, alreadyRunning, selfProjectRefusal, SELF_PROJECT_MESSAGE, type AutopilotDeps } from '../../src/main/autopilot/run'
 import { agentHandlers } from '../../src/main/ipc/agent'
 import { autopilotHandlers } from '../../src/main/ipc/autopilot'
+import { sendFromCard } from '../../src/main/ipc/card-api'
 import { appUrlMatcher, emit, registerIpc } from '../../src/main/ipc/index'
 import { LayoutStore } from '../../src/main/layout/store'
 import { readWorkflow, type EpicStatusRunner } from '../../src/main/workflow/reader'
@@ -31,7 +32,8 @@ import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templ
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
-  BrowserWindow: { getAllWindows: () => [] },
+  BrowserWindow: { getAllWindows: () => [], fromWebContents: () => null },
+  dialog: { showMessageBox: () => Promise.reject(new Error('no dialog in this test')) },
   powerSaveBlocker: { start: () => 0, stop: () => undefined, isStarted: () => false },
 }))
 
@@ -56,9 +58,14 @@ const TICKETS = [
 const nn = (num: number): string => String(num).padStart(2, '0')
 const ticketPath = (num: number): string => join(repo, '.scratch', EPIC, 'issues', `${nn(num)}-ticket-${num}.md`)
 
+/** Every file the test itself wrote into the repository, as the agent would, with its last content. */
+const written = new Map<string, string>()
+
 function writeTicket(num: number, status: string): void {
   const { blocked } = TICKETS.find((each) => each.num === num)!
-  writeFileSync(ticketPath(num), [`# ${nn(num)} — Ticket ${num}`, '', 'Type: task', `Status: ${status}`, `Blocked by: ${blocked}`, '', '## Где в коде', '', `- \`src/f${num}.ts\``, ''].join('\n'))
+  const content = [`# ${nn(num)} — Ticket ${num}`, '', 'Type: task', `Status: ${status}`, `Blocked by: ${blocked}`, '', '## Где в коде', '', `- \`src/f${num}.ts\``, ''].join('\n')
+  written.set(relative(repo, ticketPath(num)), content)
+  writeFileSync(ticketPath(num), content)
 }
 
 /** `epic-status --json` over the Epic's files, as the real script reads these simple Tickets. */
@@ -231,6 +238,7 @@ describe('an Autopilot run on the fake agent', () => {
   it('runs Wave 1, then Wave 2, then stops with no-ready-wave; the journal keeps that order', async () => {
     const h = harness()
     const before = tree()
+    written.clear()
     const first = await h.autopilot.start(PROJECT, EPIC)
     expect(first).toMatchObject({ projectId: PROJECT, epic: EPIC, status: 'running' })
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
@@ -255,10 +263,10 @@ describe('an Autopilot run on the fake agent', () => {
     expect(lines).toContain('Wave 1 · running')
     expect(lines).toContain('Wave 2 · running')
     expect(lines.at(-1)).toBe('stopped: no ready wave')
-    // worfy wrote nothing into the repository: only the agent's status changes are there.
-    const after = tree()
-    expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort())
-    for (const path of Object.keys(before)) if (!path.includes('issues')) expect(after[path]).toBe(before[path])
+    // worfy wrote nothing into the repository: every file is as before, or byte for byte what the
+    // agent wrote (here the test, as the agent); worfy never writes a Ticket status (ADR-0002).
+    expect(written.size).toBeGreaterThan(0)
+    expect(tree()).toEqual({ ...before, ...Object.fromEntries(written) })
   })
 
   it('reports a run stopped only once its end is journaled and keep-awake released', async () => {
@@ -384,6 +392,116 @@ describe('an Autopilot run on the fake agent', () => {
     const h = harness({ script: 'orchestrator' })
     await h.autopilot.start(PROJECT, EPIC)
     await expect(h.orchestrators.newConversation(PROJECT)).rejects.toThrow(AUTOPILOT_OWNS_ORCHESTRATOR)
+  })
+
+  it('journals Interrupt, closing the Session, removing a queued message and answering a permission request as human-input', async () => {
+    const h = harness({ script: 'orchestrator' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => messages(h.calls).length === 1, 'Wave 1')
+    const ipc = await agentIpc(h.registry)
+    const id = (await h.session()).id
+    expect((await ipc('agent.send', { sessionId: id, text: 'a question', attachments: [] })).ok).toBe(true)
+    const queued = (await h.session()).queued().items[0]!
+    expect(await ipc('agent.queueRemove', { sessionId: id, id: queued.id })).toEqual({ ok: true, value: { removed: true } })
+    expect(await ipc('agent.permission', { sessionId: id, requestId: 'no-such-request', decision: 'allow' })).toEqual({ ok: true, value: { answered: false } })
+    // Closing during a turn is refused, and journaled all the same: a person stepped in.
+    expect((await ipc('agent.close', { sessionId: id })).ok).toBe(false)
+    expect((await ipc('agent.interrupt', { sessionId: id })).ok).toBe(true)
+    await until(async () => (await h.kinds()).filter(([kind]) => kind === 'human-input').length === 5, 'five human-input lines')
+    expect((await h.journal()).filter((event) => event.kind === 'human-input').map((event) => (event as { what: string }).what)).toEqual([
+      'sent a message',
+      'removed a queued message',
+      'answered a permission request',
+      'closed the Session',
+      'interrupted the turn',
+    ])
+  })
+
+  it('journals a Card message the user sent to the run\'s Orchestrator as human-input', async () => {
+    const h = harness({ script: 'orchestrator' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => messages(h.calls).length === 1, 'Wave 1')
+    const session = await h.session()
+    sendFromCard(h.registry, session.id, 'Card "Notes" asks: is the Wave done?')
+    expect(session.queued().items.map((item) => item.text)).toEqual(['Card "Notes" asks: is the Wave done?'])
+    await until(async () => (await h.kinds()).some(([kind]) => kind === 'human-input'), 'the human-input line')
+    expect((await h.journal()).filter((event) => event.kind === 'human-input')).toEqual([expect.objectContaining({ source: 'worfy', what: 'sent a message from a Card' })])
+  })
+
+  it('refuses to start while the attended Orchestrator is in a turn, and starts no Session', async () => {
+    const h = harness({ attended: 'orchestrator' })
+    const opened = await h.orchestrators.open(PROJECT)
+    const session = h.registry.get(opened.sessionId ?? '')
+    await until(() => session.state === 'idle', 'the idle Orchestrator')
+    session.send('a long task')
+    expect(session.state).toBe('busy')
+    await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow(ORCHESTRATOR_IN_TURN)
+    expect(h.requests.map((request) => request.unattended)).toEqual([false])
+    expect(session.state).toBe('busy')
+    expect(h.power).toEqual([])
+    expect(h.autopilot.running(PROJECT)).toBe(false)
+  })
+
+  it('refuses a new start while the turn of a stopped run still runs, and allows it once the Orchestrator is attended again', async () => {
+    const h = harness({ script: 'orchestrator' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => messages(h.calls).length === 1, 'Wave 1')
+    await h.autopilot.stop(PROJECT)
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
+    await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow(ORCHESTRATOR_IN_TURN)
+    // The refused start sent nothing into the busy Session and kept the return to attended.
+    expect(messages(h.calls)).toHaveLength(1)
+    expect((await h.session()).queued().items).toEqual([])
+    await (await h.session()).interrupt()
+    await until(() => !h.orchestrators.isUnattended(PROJECT), 'the attended Orchestrator')
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
+  })
+
+  it('refuses to start while messages wait in the Orchestrator\'s queue', async () => {
+    const h = harness({ attended: 'orchestrator' })
+    const session = await h.session()
+    await until(() => session.state === 'idle', 'the idle Orchestrator')
+    session.send('a long task')
+    session.send('then this')
+    // Interrupt holds the queue; the turn ends and the Orchestrator is idle with a held message.
+    await session.interrupt()
+    await until(() => session.state === 'idle', 'the end of the turn')
+    expect(session.queued()).toMatchObject({ items: [{ text: 'then this' }], paused: true })
+    await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow(ORCHESTRATOR_HAS_QUEUE)
+    expect(h.requests.map((request) => request.unattended)).toEqual([false])
+    expect(session.queued().items.map((item) => item.text)).toEqual(['then this'])
+  })
+
+  it('carries the queue of the run\'s Orchestrator over to the attended Session after the run, held as it was', async () => {
+    const h = harness({ script: 'orchestrator' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => messages(h.calls).length === 1, 'Wave 1')
+    const unattended = await h.session()
+    unattended.send('look at ticket 02 when you can')
+    await h.autopilot.stop(PROJECT)
+    // Interrupt ends the turn and holds the queue; then the Orchestrator turns attended.
+    await unattended.interrupt()
+    await until(() => !h.orchestrators.isUnattended(PROJECT), 'the attended Orchestrator')
+    const attended = await h.session()
+    expect(attended).not.toBe(unattended)
+    expect(attended.queued()).toMatchObject({ items: [{ text: 'look at ticket 02 when you can' }], paused: true })
+    // Held, it goes only on "Send queued", into the attended Session.
+    attended.sendQueued()
+    await until(() => messages(h.calls).includes('look at ticket 02 when you can'), 'the carried message')
+    expect(h.calls.find((call) => call.kind === 'message' && call.text === 'look at ticket 02 when you can')?.unattended).toBe(false)
+  })
+
+  it('on app-quit leaves the Orchestrator as it is: no attended Session is started, also once the turn ends', async () => {
+    const h = harness({ script: 'orchestrator' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => messages(h.calls).length === 1, 'Wave 1')
+    await h.autopilot.stopAll()
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'app-quit' })
+    const session = await h.session()
+    await session.interrupt()
+    await until(() => session.state === 'idle', 'the end of the turn')
+    await new Promise((done) => setTimeout(done, 50))
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
   })
 
   it('refuses a second start on the same Project while a run goes on, also when both come at once', async () => {

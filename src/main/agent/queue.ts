@@ -4,7 +4,8 @@
 // ("Send queued"). Only messages already in the queue are held: an empty queue is never held, so
 // what the user queues after the held messages are sent or removed goes on its own again. The
 // queue lives in main, so switching the window between the Canvas and the
-// Session view never loses it; it does not outlive the Session.
+// Session view never loses it; it does not outlive the Session, except that the Orchestrator's
+// Session hands it to the Session that replaces it when Autopilot gives the Orchestrator back.
 //
 // A queued message keeps its attachments (ticket 20); the snapshot the windows get shows the
 // message as the transcript will (messageLabel), without the bytes of its images.
@@ -73,6 +74,27 @@ export class MessageQueue {
   pause(): void {
     if (this.held || this.items.length === 0) return
     this.held = true
+    this.changed()
+  }
+
+  /**
+   * Takes every message out, with whether they were held: for a Session that replaces this one
+   * (Autopilot hands the Orchestrator back, worfy-daily ticket 04). The queue is left empty.
+   */
+  takeAll(): { items: QueueEntry[]; paused: boolean } {
+    const taken = { items: this.items, paused: this.held }
+    if (this.items.length === 0) return taken
+    this.items = []
+    this.held = false
+    this.changed()
+    return taken
+  }
+
+  /** Puts messages taken from another queue (takeAll) before this one's, held as they were there. */
+  adopt(taken: { items: readonly QueueEntry[]; paused: boolean }): void {
+    if (taken.items.length === 0) return
+    this.items = [...taken.items, ...this.items]
+    this.held = this.held || taken.paused
     this.changed()
   }
 

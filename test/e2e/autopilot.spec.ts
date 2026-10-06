@@ -20,6 +20,17 @@ import { launchApp, repoRoot } from './helpers'
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
+/** Every file under `dir` with its bytes (base64), by path; for "nothing was written there". */
+function files(dir: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue
+    const path = join(entry.parentPath, entry.name)
+    out[path.slice(dir.length + 1)] = readFileSync(path).toString('base64')
+  }
+  return out
+}
+
 const PROJECT = 'demo-000000a4'
 const SELF = 'worfy-5e1f0000'
 const EPIC = 'demo'
@@ -141,6 +152,7 @@ test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave mea
   )
   writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 20, y: 20, zoom: 0.8 } }))
   const statusBefore = git(repo, 'status', '--porcelain')
+  const claudeHomeBefore = files(claudeHome)
 
   const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'orchestrator', WORFY_AGENT_LOG: log }
   const launched = await launchApp({ env })
@@ -211,8 +223,9 @@ test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave mea
     expect(journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'run-stopped user-stop'])
     await snapshots(window, header, 'autopilot-stopped')
 
-    // worfy wrote nothing into the repository.
+    // worfy wrote nothing into the repository, and nothing into the Claude home the run read.
     expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
+    expect(files(claudeHome)).toEqual(claudeHomeBefore)
   } finally {
     await launched.close()
   }

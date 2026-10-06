@@ -155,9 +155,11 @@ Autopilot над самим worfy запускается только на ст�
 - **Файлы вне «Где в коде».** Без них обязательный исход недостижим:
   `src/main/agent/orchestrator.ts` (Orchestrator без человека и обратно),
   `src/main/agent/session.ts` и `src/main/ipc/agent.ts` (`human-input` от действий в UI),
-  `src/main/ipc/actions.ts` (экспорт общего launcher-а: Autopilot шлёт Wave-ы через него).
+  `src/main/ipc/actions.ts` (экспорт общего launcher-а: Autopilot шлёт Wave-ы через него);
+  после ревью ещё `src/main/agent/queue.ts` (перенос очереди), `src/main/ipc/card-api.ts`
+  (`human-input` от сообщения Card) и `test/unit/autopilot-run.test.ts`.
 - **Первый test и как он падал.** Первым написан `test/unit/autopilot-cycle.test.ts`. Без
-  `cycle.ts` он падал на импорте. Test из тикета «после `result` Wave 1 и done её Ticket-ов следующая
+  `cycle.ts` он падал на импорте. Test из Ticket-а «после `result` Wave 1 и done её Ticket-ов следующая
   Wave не запускается» проверен мутантом: `evaluate` возвращает ожидание вместо `send-wave` — красные
   4 test-а, среди них «after the result of Wave 1 with its Tickets done, sends the next Wave».
 - **Мутанты** (каждый краснит хотя бы один test): настройки Session без человека сохраняются;
@@ -165,10 +167,45 @@ Autopilot над самим worfy запускается только на ст�
   `human-input` любой Session; keep-awake не снимается; нет защиты от двух одновременных `start`;
   «Run wave» руками разрешён; Orchestrator не возвращается обычной Session; возврат во время хода;
   `refused-dialog` пишется другим видом события.
+- **Доработка по ревью PR #39.**
+  - **Старт при ходе Orchestrator-а** отклоняется (`ORCHESTRATOR_IN_TURN`), и когда Orchestrator
+    обычный, и когда он ещё без человека после Stop: ход остановленного прогона не кончился. Раньше
+    второй случай проходил, сбрасывал отложенный возврат и слал «Run wave» в занятую Session.
+  - **Старт при непустой очереди Orchestrator-а** отклоняется (`ORCHESTRATOR_HAS_QUEUE`). Сообщения
+    в очереди писал человек для обычной Session. Перенесённые в Session без человека, они ушли бы
+    в `bypassPermissions` по «Send queued», а «Run wave» мог встать в удержанную очередь и не уйти.
+  - **Возврат Orchestrator-а переносит очередь.** Перезапуск обычной Session после прогона забирает
+    сообщения из очереди старой Session и кладёт их в новую, удержанными, как были
+    (`Session.handOverQueue` / `adoptQueue`, `MessageQueue.takeAll` / `adopt`). Ошибка старой
+    Session не переносится: новая Session запускает новый процесс Claude Code, и Node Orchestrator-а
+    показывает `starting`, затем `idle`. Текст ошибки остаётся в журнале (`session-error`) и в строке
+    состояния Autopilot. Это принятое решение.
+  - **Какой `result` заканчивает Wave.** «Run wave» может встать в очередь за сообщением человека
+    (`delivery: 'queued'`). Прогон считает ходы Session по событиям `prompt` в их порядке и
+    запоминает ход, который начал prompt Wave. Конец Wave — `result` этого хода или более позднего
+    (поздние — ходы человека в ожидании, как в ADR-0024). `result` более раннего хода Wave не
+    заканчивает. Interrupt такого хода всё же останавливает прогон с `interrupted`: очередь удержана,
+    и Wave сама не пойдёт. Wave, которая при остановке прогона ещё ждёт в очереди, вынимается из неё:
+    иначе она прошла бы потом без прогона, и её ход никто бы не отслеживал.
+  - **Сообщение Card**, которое человек подтвердил кнопкой «Send», пишется `human-input`
+    («sent a message from a Card», `sendFromCard` в `src/main/ipc/card-api.ts`). Для Orchestrator-а
+    без человека диалог не показывается вовсе (`confirmAsk` отказывает сразу, это `refused-dialog`).
+    Запись нужна для диалога, открытого до старта прогона и подтверждённого после.
+  - **Session упала, пока прогон открывал watch workflow**: watch закрывается сразу, прогон не
+    остаётся в списке, `start` отвечает остановленным состоянием.
+  - **Tests.** `test/unit/autopilot-run.test.ts` — порядок событий Session без Claude Code: ход
+    человека перед Wave в очереди, `result` во время отправки, Interrupt, Stop с Wave в очереди,
+    падение во время watch. В `test/contract/autopilot.test.ts`: отказ старта в ходе и после Stop,
+    отказ при очереди, перенос очереди, `app-quit` без перезапуска, `human-input` для Interrupt,
+    закрытия, удаления из очереди, ответа на запрос разрешения и сообщения Card. Файлы `issues/`
+    сверяются побайтно с тем, что писал сам test от имени агента. e2e сверяет дерево
+    `WORFY_CLAUDE_HOME` до и после прогона. Каждое новое поведение проверено мутантом: 16 мутантов,
+    каждый краснит хотя бы один test (в том числе мутант, который на `wave-finished` переписывает
+    `Status:` Ticket-ов).
 
 не проверено: пункт «(вручную) На стабильной копии Autopilot проводит одну Wave тестового Project»
 с агентом-наблюдателем. По брифу настоящий Autopilot на настоящем Claude Code запускает
-оркестратор из стабильной копии после Wave 3; экран в эту ночь занят ручными проверками.
+Orchestrator из стабильной копии после Wave 3; экран в эту ночь занят ручными проверками.
 
 не проверено: выход из приложения во время прогона (`before-quit`, ожидание до 3 секунд) — test-а нет;
 keep-awake на `will-quit` проверен только unit-test-ом `KeepAwake` над подменённым Electron.

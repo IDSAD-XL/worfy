@@ -41,7 +41,7 @@ import {
 import { userContent } from './attachments'
 import { CommandCatalog, type CommandInfoLike } from './commands'
 import { PermissionGate, unattendedCanUseTool, type CanUseToolHandler } from './permissions'
-import { MessageQueue } from './queue'
+import { MessageQueue, type QueueEntry } from './queue'
 import { ATTENDED, launchSettings, settingsChangeRefusal, type SessionLaunch } from './session-settings'
 
 /** What accountInfo() returns, as far as worfy reads it (ADR-0009). */
@@ -313,6 +313,25 @@ export class Session {
   removeQueued(id: string): boolean {
     this.assertOpen()
     return this.queue.remove(id)
+  }
+
+  /**
+   * Takes the queue out for the Session that replaces this one (Orchestrators.relaunch): its
+   * messages, and whether they were held. Answers nothing once the Session is closed.
+   */
+  handOverQueue(): { items: QueueEntry[]; paused: boolean } {
+    if (this.closing) return { items: [], paused: false }
+    return this.queue.takeAll()
+  }
+
+  /**
+   * Takes over the queue of the Session this one replaces, held as it was there. Messages that were
+   * not held go once this Session is idle; held ones wait for "Send queued", as before.
+   */
+  adoptQueue(taken: { items: readonly QueueEntry[]; paused: boolean }): void {
+    this.assertOpen()
+    this.queue.adopt(taken)
+    if (!this.queue.paused && (this.stateValue === 'idle' || this.stateValue === 'error')) this.next()
   }
 
   /** "Send queued": lets a held queue go again; a Session with no turn running sends the next message now. */
