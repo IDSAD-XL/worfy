@@ -35,10 +35,10 @@ Source: [spec.md](../spec.md), тема C; Ticket-ы 01 и 02 worfy-mvp (окн�
 
 ## Готово, когда
 
-- [ ] Упакованный `.app` с `ELECTRON_RENDERER_URL=http://127.0.0.1:1` в окружении грузит `out/renderer/index.html` (e2e `@packaged`).
-- [ ] `appUrlMatcher` упакованного приложения не доверяет origin из переменной.
-- [ ] dev-запуск по-прежнему грузит dev-сервер: unit `rendererEntry` с `isPackaged === false`.
-- [ ] Невалидная строка в переменной при dev-запуске показывает окно ошибки запуска с названием шага.
+- [x] Упакованный `.app` с `ELECTRON_RENDERER_URL=http://127.0.0.1:1` в окружении грузит `out/renderer/index.html` (e2e `@packaged`).
+- [x] `appUrlMatcher` упакованного приложения не доверяет origin из переменной.
+- [x] dev-запуск по-прежнему грузит dev-сервер: unit `rendererEntry` с `isPackaged === false`.
+- [x] Невалидная строка в переменной при dev-запуске показывает окно ошибки запуска с названием шага.
 
 ## Тесты
 
@@ -55,3 +55,22 @@ Source: [spec.md](../spec.md), тема C; Ticket-ы 01 и 02 worfy-mvp (окн�
 - `test/unit/renderer-entry.test.ts` (новый)
 - `test/contract/actions.test.ts`
 - `test/e2e/packaged.spec.ts`
+
+## Итог
+
+**Условие — `app.isPackaged`**, а не режим сборки electron-vite (`import.meta.env.DEV`); ADR поэтому не нужен.
+`rendererEntry()` (`src/main/window.ts`) читает `ELECTRON_RENDERER_URL` только при `app.isPackaged === false`.
+Путь e2e не ломается: `pnpm test:e2e` запускает собранное, но не упакованное приложение (`electron <repo>`), у него `isPackaged` — `false`, как и раньше. Переменная там по-прежнему учитывается, как в `pnpm dev`.
+Режим сборки отвергнут: он отключил бы переменную и в `out/` под e2e, а тикет просит именно упакованное приложение.
+
+**Невалидная строка.** В dev-запуске значение, которое не является http(s) URL, бросает ошибку с именем переменной. `src/main/index.ts` строит проверку отправителя IPC внутри `inStep('loadURL', …)`, до `registerIpc`. Поэтому старт кончается окном ошибки запуска с шагом `loadURL` и кодом выхода 1, а не необработанным `TypeError`. Отдельного шага для чтения переменной нет: шаги перечислены в `src/main/startup-failure.ts`, файл вне следа тикета. Совет шага `loadURL` («запусти dev-сервер») дополнен текстом самой ошибки: «Unset it, or start worfy with `pnpm dev`».
+`appUrlMatcher` (`src/main/ipc/index.ts`) сам отказывается строить проверку по адресу не-http(s). Иначе `localhost:5173` или `about:blank` дают origin `"null"`, а он совпадает с origin любой `data:`-страницы.
+
+**Тесты.**
+- `test/unit/renderer-entry.test.ts` (новый) — переменная задана или нет × `isPackaged`; невалидные значения; проверка отправителя, построенная из `rendererEntry()`, в упакованном приложении не доверяет origin из переменной.
+- `test/contract/actions.test.ts` — проверка отправителя с dev-сервером: свой origin, чужие порт, хост и схема, `file://`, Card, `data:`, неразбираемый URL кадра, неразбираемый адрес dev-сервера.
+- `test/contract/startup-failure.test.ts` — вне следа, но иначе ломался: test-ы загрузки с dev-сервера шли с `isPackaged: true`. Mock `app.isPackaged` стал переключаемым. Добавлены два случая старта: dev-запуск с `not a url` — шаг `loadURL` до регистрации обработчиков; упакованное приложение с тем же значением стартует.
+- `test/e2e/packaged.spec.ts` — `@packaged`: копия `.app` с `ELECTRON_RENDERER_URL=http://127.0.0.1:1` грузит `…/app.asar/out/renderer/index.html`, и вызов `app.version` из страницы проходит. Без тега: dev-запуск с `not a url` выходит с кодом 1 и шагом `loadURL` в stderr.
+
+Не проверено: e2e `@packaged` не прогонялся на сборке `.app` без правки (красный на старом коде — по рассуждению; unit и contract test-ы краснеют на мутантах правки).
+

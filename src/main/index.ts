@@ -74,8 +74,9 @@ function start(): void {
       // Not a step that can fail the start: it turns its own failures into a warning (dock-icon.ts).
       installDevDockIcon()
       // Handlers go in before the first window, so its first call never finds a channel missing.
-      // Calls are accepted only from the renderer location the window itself loads.
-      const isAppUrl = appUrlMatcher(rendererEntry())
+      // Calls are accepted only from the renderer location the window itself loads. A dev run whose
+      // ELECTRON_RENDERER_URL is not an http(s) URL fails here, named as the dev server load it is.
+      const isAppUrl = inStep('loadURL', () => appUrlMatcher(rendererEntry()))
       await inStep('registerIpc', () => registerIpc(ipcMain, { isTrustedSender: isAppUrl }))
       // Navigation, new windows and permissions for every page, the window and its Cards alike.
       inStep('installWebPolicy', () => installWebPolicy(isAppUrl))

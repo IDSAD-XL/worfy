@@ -13,7 +13,8 @@ const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/
 
 type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
 
-async function register() {
+/** Which renderer the registered handlers trust: the bundled index.html unless a dev server is given. */
+async function register(options: { devServerUrl?: string } = {}) {
   const calls: unknown[][] = []
   const launcher = {
     shipTicket: async (...args: [string, string, number]) => {
@@ -33,14 +34,15 @@ async function register() {
   const handlers = new Map<string, Listener>()
   await registerIpc(
     { handle: (channel, listener) => handlers.set(channel, listener as Listener) },
-    { modules: { './actions.ts': async () => actionsHandlers(() => launcher) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) },
+    { modules: { './actions.ts': async () => actionsHandlers(() => launcher) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML, devServerUrl: options.devServerUrl }) },
   )
-  const invoke = async (channel: string, input: unknown): Promise<IpcResult<unknown>> => {
+  const invokeFrom = async (frameUrl: string, channel: string, input: unknown): Promise<IpcResult<unknown>> => {
     const listener = handlers.get(`${IPC_CHANNEL_PREFIX}${channel}`)
     if (!listener) throw new Error(`${channel} is not registered`)
-    return (await listener({ senderFrame: { url: `file://${INDEX_HTML}` }, sender: {} } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
+    return (await listener({ senderFrame: { url: frameUrl }, sender: {} } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
   }
-  return { invoke, calls }
+  const invoke = (channel: string, input: unknown): Promise<IpcResult<unknown>> => invokeFrom(`file://${INDEX_HTML}`, channel, input)
+  return { invoke, invokeFrom, calls }
 }
 
 describe('actions.shipTicket', () => {
@@ -127,4 +129,41 @@ describe('actions.launches.changed', () => {
     expect(() => emit(target, actionsLaunchesChanged, { projectId: 'p', revision: 1, tickets: [{ epic: '../e', num: 7 }] })).toThrow('invalid event payload')
     expect(sent).toHaveLength(1)
   })
+})
+
+// In a dev run (ELECTRON_RENDERER_URL, ticket worfy-daily/16) the window loads from the dev server,
+// and the sender check trusts that origin: any page of it, and nothing else. A packaged app never
+// gets here with the variable (test/unit/renderer-entry.test.ts).
+describe('the sender check with a dev server', () => {
+  const DEV_SERVER = 'http://localhost:5173'
+
+  it('accepts a call from any page of the dev server origin', async () => {
+    const { invokeFrom, calls } = await register({ devServerUrl: DEV_SERVER })
+    expect(await invokeFrom(`${DEV_SERVER}/`, 'actions.launches', { projectId: 'p' })).toMatchObject({ ok: true })
+    expect(await invokeFrom(`${DEV_SERVER}/nested/page.html?x=1#y`, 'actions.launches', { projectId: 'p' })).toMatchObject({ ok: true })
+    expect(calls).toStrictEqual([['launched', 'p'], ['launched', 'p']])
+  })
+
+  it.each([
+    ['another port', 'http://localhost:5174/'],
+    ['another host', 'http://127.0.0.1:5173/'],
+    ['another scheme', 'https://localhost:5173/'],
+    ['the bundled index.html', `file://${INDEX_HTML}`],
+    ['a Card', 'worfy-card://abc/index.html'],
+    ['an opaque origin', 'data:text/html,hi'],
+    ['a frame URL that does not parse', 'not a url'],
+  ])('refuses a call from %s before the launcher runs', async (_what, frameUrl) => {
+    const { invokeFrom, calls } = await register({ devServerUrl: DEV_SERVER })
+    const result = await invokeFrom(frameUrl, 'actions.launches', { projectId: 'p' })
+    expect(result).toMatchObject({ ok: false })
+    expect(result.ok === false && result.error).toContain('untrusted frame')
+    expect(calls).toEqual([])
+  })
+
+  it.each(['not a url', 'localhost:5173', 'about:blank', 'file:///tmp/index.html'])(
+    'refuses to build a check from the dev server address %j instead of trusting what it parses to',
+    (devServerUrl) => {
+      expect(() => appUrlMatcher({ indexHtml: INDEX_HTML, devServerUrl })).toThrow('not an http(s) URL')
+    },
+  )
 })
