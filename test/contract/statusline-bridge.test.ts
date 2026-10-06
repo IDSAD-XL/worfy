@@ -1,11 +1,12 @@
 // scripts/statusline-bridge.sh against the JSON Claude Code passes to the status line command
 // (shape recorded from Claude Code 2.1.284, ticket 22): it copies `rate_limits` and nothing else
-// into <WORFY_DATA_DIR>/statusline-limits.json and passes stdin to the user's own command.
+// into statusline-limits.json in worfy's data folder and passes stdin to the user's own command.
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { join, relative } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { type BuildKind, dataRoot } from '../../src/main/storage/paths'
 
 const SCRIPT = join(__dirname, '..', '..', 'scripts', 'statusline-bridge.sh')
 
@@ -41,7 +42,10 @@ function run(stdin: string, args: string[] = [], env: Record<string, string> = {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
 }
 
-const written = (): unknown => JSON.parse(readFileSync(join(dataDir, 'statusline-limits.json'), 'utf8'))
+const written = (dir = dataDir): unknown => JSON.parse(readFileSync(join(dir, 'statusline-limits.json'), 'utf8'))
+
+/** The default data folder of a build kind under the test's HOME, as src/main/storage/paths.ts names it. */
+const defaultDataDir = (kind: BuildKind): string => join(home, relative(homedir(), dataRoot({}, kind)))
 
 describe('statusline-bridge.sh', () => {
   it('writes rate_limits and nothing else of the status line JSON', () => {
@@ -72,5 +76,37 @@ describe('statusline-bridge.sh', () => {
     // Without WORFY_DATA_DIR the default is under $HOME/Library, which this HOME does not have.
     expect(run(JSON.stringify(STATUS), [], {})).toMatchObject({ status: 0 })
     expect(readdirSync(home)).toEqual([])
+  })
+
+  it('without WORFY_DATA_DIR writes to the packaged and the dev data folders that paths.ts names', () => {
+    const packaged = defaultDataDir('packaged')
+    const dev = defaultDataDir('dev')
+    expect(packaged).not.toBe(dev)
+    mkdirSync(packaged, { recursive: true })
+    mkdirSync(dev, { recursive: true })
+    expect(run(JSON.stringify(STATUS), [], {})).toEqual({ status: 0, stdout: '', stderr: '' })
+    expect(written(packaged)).toEqual(RATE_LIMITS)
+    expect(written(dev)).toEqual(RATE_LIMITS)
+    expect(readdirSync(packaged)).toEqual(['statusline-limits.json'])
+    expect(readdirSync(dev)).toEqual(['statusline-limits.json'])
+  })
+
+  it('without WORFY_DATA_DIR writes only to the data folders that exist', () => {
+    const dev = defaultDataDir('dev')
+    mkdirSync(dev, { recursive: true })
+    expect(run(JSON.stringify(STATUS), [], { WORFY_DATA_DIR: '' })).toMatchObject({ status: 0 })
+    expect(written(dev)).toEqual(RATE_LIMITS)
+    expect(existsSync(defaultDataDir('packaged'))).toBe(false)
+  })
+
+  it('with WORFY_DATA_DIR writes there and leaves the default data folders alone', () => {
+    const packaged = defaultDataDir('packaged')
+    const dev = defaultDataDir('dev')
+    mkdirSync(packaged, { recursive: true })
+    mkdirSync(dev, { recursive: true })
+    expect(run(JSON.stringify(STATUS))).toMatchObject({ status: 0 })
+    expect(written()).toEqual(RATE_LIMITS)
+    expect(readdirSync(packaged)).toEqual([])
+    expect(readdirSync(dev)).toEqual([])
   })
 })

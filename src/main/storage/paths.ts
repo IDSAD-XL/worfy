@@ -22,7 +22,10 @@ export function setBuildKind(kind: BuildKind): void {
  * Root of worfy's own state (ADR 0005). The packaged app uses Application Support/worfy, a dev
  * run Application Support/worfy-dev, so both can run at once without sharing limits.json or
  * bindings.json. WORFY_DATA_DIR overrides either, so tests run against a temporary directory.
- * This module is the only place that knows where worfy's data lives.
+ * This module is the only place in the app that knows where worfy's data lives. The one copy
+ * outside it is scripts/statusline-bridge.sh, a shell script that cannot import this module; it
+ * writes to both default folders, and test/contract/statusline-bridge.test.ts derives them from
+ * dataRoot(), so renaming a folder here fails that test until the script follows.
  */
 export function dataRoot(env: Env = process.env, kind: BuildKind = currentBuildKind): string {
   const override = env.WORFY_DATA_DIR

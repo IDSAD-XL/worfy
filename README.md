@@ -15,7 +15,7 @@ pnpm install:stable /path/to/worfy.app   # any other path ending in .app
 
 The command builds the `.app` (`pnpm package`), replaces the previous copy and writes the commit and the build time next to it, in `~/Applications/worfy-stable.json` (nothing is written inside the `.app`: that would break its ad-hoc signature). It refuses with a non-zero exit code while the copy is running.
 
-The copy and a dev run keep separate data: the packaged app uses `~/Library/Application Support/worfy`, `pnpm dev` and other unpacked runs use `~/Library/Application Support/worfy-dev`. Two processes over the same folder are not allowed: the second start quits and brings the running window to the front.
+The copy and a dev run keep separate data: the packaged app uses `~/Library/Application Support/worfy`, `pnpm dev` and other unpacked runs use `~/Library/Application Support/worfy-dev`. Two processes over the same folder are not allowed: the second start quits and brings the running window to the front. The status line bridge (`scripts/statusline-bridge.sh`) writes Limits to both folders, whichever of them exist, so a dev run next to the copy sees the same Limits; with `WORFY_DATA_DIR` set it writes only there.
 
 Update the copy in this order:
 

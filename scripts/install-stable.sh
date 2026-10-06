@@ -24,11 +24,12 @@ fail() {
 
 target="${1:-$HOME/Applications/worfy-stable.app}"
 [ "$#" -le 1 ] || fail "expected at most one argument, the target .app path; got $#"
+# Shell completion ends a folder path with a slash; drop it before the .app check.
+target="${target%/}"
 case "$target" in
   *.app) ;;
   *) fail "the target must be a path ending in .app, got: $target" ;;
 esac
-target="${target%/}"
 parent="$(dirname "$target")"
 mkdir -p "$parent"
 # Both spellings of the target: a process started through a symlinked folder (/var -> /private/var
@@ -65,7 +66,8 @@ else
 fi
 
 commit="$(git -C "$repo" rev-parse HEAD)"
-if [ -n "$(git -C "$repo" status --porcelain --untracked-files=no)" ]; then dirty=true; else dirty=false; fi
+# Untracked files count: the build bundles a new source file whether git tracks it or not.
+if [ -n "$(git -C "$repo" status --porcelain)" ]; then dirty=true; else dirty=false; fi
 built_at="$(date -u -r "$(stat -f %m "$source_app/Contents/Info.plist")" +%Y-%m-%dT%H:%M:%SZ)"
 installed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 

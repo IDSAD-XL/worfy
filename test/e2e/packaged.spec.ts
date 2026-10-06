@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -74,6 +74,52 @@ async function secondStart(first: LaunchedApp, command: string, args: string[]):
 }
 
 const userData = (launched: LaunchedApp): Promise<string> => launched.app.evaluate(({ app }) => app.getPath('userData'))
+
+/** Every window of the app, as the second-instance handler in src/main/index.ts leaves them. */
+const windowStates = (launched: LaunchedApp): Promise<{ minimized: boolean; visible: boolean }[]> =>
+  launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((window) => ({ minimized: window.isMinimized(), visible: window.isVisible() })))
+
+/**
+ * A second start while the first process has its window minimized: the second quits, and the
+ * first restores its window instead of staying hidden in the Dock.
+ */
+async function expectSecondStartRestoresWindow(first: LaunchedApp, command: string, args: string[]): Promise<void> {
+  // The window is created hidden and shown once its page is ready; a hidden window does not minimize.
+  await expect.poll(() => windowStates(first), { timeout: 10_000 }).toEqual([{ minimized: false, visible: true }])
+  await first.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.minimize())
+  await expect.poll(() => windowStates(first), { timeout: 10_000 }).toEqual([expect.objectContaining({ minimized: true })])
+  expect(await secondStart(first, command, args)).toEqual({ exited: true, code: 0 })
+  await expect.poll(() => windowStates(first), { timeout: 10_000 }).toEqual([{ minimized: false, visible: true }])
+}
+
+/**
+ * A second start while the first process runs with every window closed (on macOS the app stays
+ * up after its last window closes): the second quits, and the first opens a window.
+ */
+async function expectSecondStartOpensWindow(first: LaunchedApp, command: string, args: string[]): Promise<void> {
+  await first.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close())
+  await expect.poll(() => windowStates(first), { timeout: 10_000 }).toEqual([])
+  expect(await secondStart(first, command, args)).toEqual({ exited: true, code: 0 })
+  await expect.poll(() => windowStates(first), { timeout: 10_000 }).toEqual([{ minimized: false, visible: true }])
+}
+
+/**
+ * A folder shaped like worfy.app, enough for scripts/install-stable.sh: it copies the folder and
+ * reads the modification time of Contents/Info.plist. The tests below need no packaged build.
+ */
+function standInApp(dir: string): string {
+  const app = join(dir, 'stand-in', 'worfy.app')
+  mkdirSync(join(app, 'Contents', 'MacOS'), { recursive: true })
+  writeFileSync(join(app, 'Contents', 'Info.plist'), '<plist version="1.0"><dict/></plist>\n')
+  writeFileSync(join(app, 'Contents', 'MacOS', 'worfy'), '')
+  return app
+}
+
+function runScript(script: string, args: string[], env: Record<string, string>): ReturnType<typeof spawnSync> & { stdout: string; stderr: string } {
+  return spawnSync('bash', [script, ...args], { encoding: 'utf8', env: { ...process.env, ...env } })
+}
+
+const readJson = (path: string): Record<string, unknown> => JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
 
 test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () => {
   let installDir: string
@@ -186,12 +232,11 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
     }
   })
 
-  test('a second start of the copy over the same data folder quits and leaves the first one running', async () => {
+  test('a second start of the copy over the same data folder quits and brings the first one\'s window back', async () => {
     const first = await launchApp({ executablePath: executableOf(stableApp) })
     try {
-      const second = await secondStart(first, executableOf(stableApp), [])
-      expect(second).toEqual({ exited: true, code: 0 })
-      expect(await first.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
+      await expectSecondStartRestoresWindow(first, executableOf(stableApp), [])
+      await expectSecondStartOpensWindow(first, executableOf(stableApp), [])
     } finally {
       await first.close()
     }
@@ -279,13 +324,21 @@ test.describe('dev run of the unpacked build', () => {
     }
   })
 
-  test('a second dev run over the same data folder quits and leaves the first one running', async () => {
+  test('a second dev run over the same data folder quits and restores the first one\'s minimized window', async () => {
     const electron = createRequire(import.meta.url)('electron') as string
     const first = await launchApp()
     try {
-      const second = await secondStart(first, electron, [repoRoot])
-      expect(second).toEqual({ exited: true, code: 0 })
-      expect(await first.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
+      await expectSecondStartRestoresWindow(first, electron, [repoRoot])
+    } finally {
+      await first.close()
+    }
+  })
+
+  test('a second dev run over the same data folder opens a window in the first one when it has none', async () => {
+    const electron = createRequire(import.meta.url)('electron') as string
+    const first = await launchApp()
+    try {
+      await expectSecondStartOpensWindow(first, electron, [repoRoot])
     } finally {
       await first.close()
     }
@@ -295,5 +348,66 @@ test.describe('dev run of the unpacked build', () => {
     const result = spawnSync('bash', [installScript, join(tmpdir(), 'not-an-app')], { encoding: 'utf8' })
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain('must be a path ending in .app')
+  })
+})
+
+// The install script against a stand-in app: no packaged build needed, so these run in `pnpm test:e2e`.
+test.describe('scripts/install-stable.sh with a stand-in app', () => {
+  let dir: string
+
+  test.beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'worfy-install-'))
+  })
+
+  test.afterEach(async () => {
+    await removeDir(dir)
+  })
+
+  test('without an argument installs into ~/Applications/worfy-stable.app, with worfy-stable.json next to it', () => {
+    const home = join(dir, 'home')
+    mkdirSync(home)
+    const result = runScript(installScript, [], { HOME: home, WORFY_STABLE_PREBUILT: standInApp(dir) })
+    expect(result.stderr).toBe('')
+    expect(result.status).toBe(0)
+    const applications = join(home, 'Applications')
+    expect(readdirSync(applications).sort()).toEqual(['worfy-stable.app', 'worfy-stable.json'])
+    expect(existsSync(join(applications, 'worfy-stable.app', 'Contents', 'Info.plist'))).toBe(true)
+    const head = spawnSync('git', ['-C', repoRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim()
+    expect(readJson(join(applications, 'worfy-stable.json')).commit).toBe(head)
+  })
+
+  test('accepts a target path with a trailing slash, as shell completion writes it', () => {
+    const result = runScript(installScript, [`${join(dir, 'worfy-stable.app')}/`], { WORFY_STABLE_PREBUILT: standInApp(dir) })
+    expect(result.stderr).toBe('')
+    expect(result.status).toBe(0)
+    expect(existsSync(join(dir, 'worfy-stable.app', 'Contents', 'Info.plist'))).toBe(true)
+    expect(existsSync(join(dir, 'worfy-stable.json'))).toBe(true)
+  })
+
+  test('marks the copy dirty when the tree it was built from has an untracked file', () => {
+    // A repository of its own, so the test controls what is committed; the script finds the
+    // repository from its own location.
+    const repo = join(dir, 'repo')
+    mkdirSync(join(repo, 'scripts'), { recursive: true })
+    cpSync(installScript, join(repo, 'scripts', 'install-stable.sh'))
+    const git = (...args: string[]): string => {
+      const result = spawnSync('git', ['-C', repo, '-c', 'user.name=worfy-test', '-c', 'user.email=test@worfy.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { encoding: 'utf8' })
+      expect(result.status).toBe(0)
+      return result.stdout.trim()
+    }
+    git('init', '-q', '--initial-branch=main')
+    git('add', '.')
+    git('commit', '-q', '-m', 'install script')
+    const script = join(repo, 'scripts', 'install-stable.sh')
+    const target = join(dir, 'Apps', 'worfy-stable.app')
+    const env = { WORFY_STABLE_PREBUILT: standInApp(dir) }
+
+    expect(runScript(script, [target], env).status).toBe(0)
+    const clean = readJson(join(dir, 'Apps', 'worfy-stable.json'))
+    expect(clean).toMatchObject({ commit: git('rev-parse', 'HEAD'), dirty: false })
+
+    writeFileSync(join(repo, 'new-source.ts'), 'export const added = true\n')
+    expect(runScript(script, [target], env).status).toBe(0)
+    expect(readJson(join(dir, 'Apps', 'worfy-stable.json'))).toMatchObject({ commit: clean.commit, dirty: true })
   })
 })
