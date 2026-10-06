@@ -1,7 +1,7 @@
 # 11 — Заголовки и chip-ы без обрезки
 
 Type: task
-Status: open
+Status: done — 2026-10-06, [PR #64](https://github.com/IDSAD-XL/worfy/pull/64)
 Blocked by: 10, 30
 Source: [spec.md](../spec.md), тема C; [F-SPEC.md](../../../docs/design/F-SPEC.md), макеты `docs/design/F-canvas-*.dc.html`; Ticket-ы 11 и 17 worfy-mvp
 
@@ -54,9 +54,9 @@ Source: [spec.md](../spec.md), тема C; [F-SPEC.md](../../../docs/design/F-SP
 - [x] В «Итог» — список обрезаний до правки, со снимками.
 - [x] На фикстуре с длинными названиями (заголовок Ticket-а — 120 символов) у заголовка Ticket-а, заголовка рамки, стопки done и имени Epic в sidebar нет скрытого переполнения, или полный текст есть в `title`. e2e проверяет `scrollWidth ≤ clientWidth` и `scrollHeight ≤ clientHeight`.
 - [x] Chip CI виден на Ticket-е при PR, Gate и CI сразу: e2e проверяет, что boundingBox chip-а CI внутри boundingBox Ticket-а.
-- [ ] Снимки в светлой и тёмной теме сверены с F-SPEC. Не проверено: снимки сняты (Playwright, обе
-  темы, ссылки в «Итог»), но сверку глазами с F-SPEC и макетами делает владелец — GUI-проверки в
-  этой волне не у исполнителя.
+- [ ] Снимки в светлой и тёмной теме сверены с F-SPEC.
+  не проверено: снимки сняты (Playwright, обе темы, ссылки в «Итог»), но сверку глазами с F-SPEC и
+  макетами делает владелец — GUI-проверки не у исполнителя.
 
 ## Тесты
 
@@ -77,7 +77,7 @@ Source: [spec.md](../spec.md), тема C; [F-SPEC.md](../../../docs/design/F-SP
 - `test/unit/epic-layout.test.ts`
 - `test/e2e/epic-frame.spec.ts`
 - `test/e2e/checks-badges.spec.ts`
-- Расширение следа (разрешил оркестратор): `test/unit/epic-canvas.test.tsx` — число фикстуры
+- Расширение следа (разрешил Orchestrator): `test/unit/epic-canvas.test.tsx` — число фикстуры
   после новой высоты Ticket-а и test на ширину рамки Epic без Tickets;
   `src/renderer/canvas/sources/epics.ts` — имя Epic передаётся в `layoutEpic`.
 
@@ -118,8 +118,8 @@ Auction и worfy: длинные имена Epic, Epic без Tickets, заго�
 - Badges и actions — в одной обёртке `.w-ticket__slots` с переносом: в одну строку, когда помещаются,
   иначе actions уходят на вторую. Правило «badges и actions в одной строке» из
   `src/renderer/canvas/actions/actions.css` больше не срабатывает (оно ждёт их прямыми детьми Ticket-а).
-- Chip CI не сжимается (`flex: none`); остальные элементы строки checks сжимаются и режутся по своему
-  краю, полный список — в tooltip строки, как раньше.
+- В строке checks ссылка PR и chip CI всегда целиком (`flex: none`). Gate и вердикт сжимаются: у
+  chip-а многоточие (`text-overflow: ellipsis`), полный текст — в его `title` (подробнее — ниже).
 - Строка blockers, причина blocked и «Needs attention» — полный текст в tooltip.
 - Заголовок рамки — до двух строк в 56 px заголовка, полный текст в tooltip. Рамка не уже, чем нужно
   для имени Epic целиком: `headerWidth` = 470 px на остальные части заголовка + 11 px на символ имени
@@ -166,7 +166,7 @@ Auction и worfy: длинные имена Epic, Epic без Tickets, заго�
 
 **Нарушение запрета писать в `~/.claude`** (2026-10-06, при съёмке снимков «до» и «после»):
 
-- Что было. Скрипт съёмки исполнителя (`/tmp/worfy-wave7/impl-11/snap/real.spec.ts`, вне
+- Что было. Скрипт съёмки исполнителя (временный Playwright-файл вне
   репозитория) запускал собранный worfy через `_electron.launch` напрямую, а не через `launchApp`.
   Не было ни `WORFY_AGENT=fake`, ни временного `WORFY_CLAUDE_HOME`. Project-ы — настоящие Auction
   и worfy. worfy поднял Orchestrator на настоящем Claude Code с настоящим `~/.claude`.
@@ -174,7 +174,7 @@ Auction и worfy: длинные имена Epic, Epic без Tickets, заго�
 - Что появилось в `~/.claude` в эти окна: `session-env/` — каталоги c0422bc3…, 328599b9…,
   dff51fcf…, 540246c9…, 99715ca2…, caf63d82…; `backups/.claude.json.backup.1791305249216`,
   `…1791307233878`, `…1791307624425`; `worktree-sessions/Users-alexey-Work-Auction-7de8b409.json`.
-  В эти же минуты в `~/.claude` писали и другие сессии, поэтому авторство каждого файла не
+  В эти же минуты в `~/.claude` писали и другие Session-ы Claude Code, поэтому авторство каждого файла не
   доказано. Транскриптов Auction в `~/.claude/projects` за эти окна нет.
 - Почему. Исполнитель проверил, что worfy по ADR-0005 сам не пишет в `~/.claude`. Но он не учёл,
   что Orchestrator запускает настоящий Claude Code, а тот пишет. Брифом это было запрещено.

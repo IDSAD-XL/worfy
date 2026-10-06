@@ -1,7 +1,7 @@
 # 23 — Настройки Session Node-а сохраняются; Default — модель и effort пользователя
 
 Type: task
-Status: claimed — 2026-10-06
+Status: done — 2026-10-06, [PR #61](https://github.com/IDSAD-XL/worfy/pull/61)
 Blocked by: 06, 07, 08, 09, 10, 30
 Source: [spec.md](../spec.md), тема C; ручная проверка 2026-10-06, ночь — Ticket 19 worfy-mvp (`.scratch/worfy-mvp/issues/19-поле-ввода-модель-и-очередь.md:169`); Ticket 07 этого Epic-а, «Что известно»; HANDOFF, «Риски и долги»
 
@@ -60,7 +60,7 @@ Session Node-а стартует без сохранённого выбора: `
 - [x] При `effortLevel: high` в `settings.json` временного `WORFY_CLAUDE_HOME` Session без выбора effort и после «effort default» передаёт SDK `high`: contract-test. Причина нынешнего `medium` — в «Итог».
 - [x] `settings.json` пользователя не меняется: test сравнивает дерево временного `WORFY_CLAUDE_HOME` до и после.
 - [ ] (вручную) Собранное приложение, настоящий Claude Code: Node «New session» → Sonnet → перезапуск worfy → Resume, Session на Sonnet. Затем «Default» → модель из `settings.json`, с `[1m]`. Без выбора effort `echo $CLAUDE_EFFORT` в Bash Session даёт `effortLevel` из `settings.json`. Проверка — транскрипт и вывод команды. Итог — в «Итог».
-  не проверено: GUI-проверка и запуск настоящего Claude Code исполнителю запрещены брифом волны 7 (запись в `~/.claude`); пункт за владельцем.
+  не проверено: GUI-проверка и запуск настоящего Claude Code исполнителю запрещены брифом (запись в `~/.claude`); пункт за владельцем.
 
 ## Тесты
 
@@ -76,7 +76,7 @@ Session Node-а стартует без сохранённого выбора: `
 - `src/main/claude-home/user-model.ts`
 - `test/contract/node-sessions.test.ts`
 - `test/contract/agent-controls.test.ts`
-- `test/contract/orchestrator.test.ts` — расширение следа (разрешено оркестратором): test-ы ставят `WORFY_CLAUDE_HOME` на временный каталог, иначе локально читают настоящий `~/.claude/settings.json` и получают его `effortLevel`.
+- `test/contract/orchestrator.test.ts` — расширение следа (разрешено Orchestrator-ом): test-ы ставят `WORFY_CLAUDE_HOME` на временный каталог, иначе локально читают настоящий `~/.claude/settings.json` и получают его `effortLevel`.
 
 ## Итог
 
@@ -112,5 +112,5 @@ Session Node-а стартует без сохранённого выбора: `
 `modelSettings.<модель>.effortLevel` worfy не читает. Если у пользователя есть оба поля, worfy
 передаёт верхнее, а Claude Code сам выбрал бы поле модели.
 
-**Ручная проверка** (собранное приложение, настоящий Claude Code) не проведена: исполнителю волны 7
+**Ручная проверка** (собранное приложение, настоящий Claude Code) не проведена: исполнителю брифом
 запрещены GUI-проверки и запуск Claude Code. Пункт за владельцем.
