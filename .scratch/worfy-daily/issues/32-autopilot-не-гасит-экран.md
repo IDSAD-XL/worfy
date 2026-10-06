@@ -1,7 +1,7 @@
 # 32 — Autopilot не даёт экрану погаснуть на время прогона
 
 Type: task
-Status: open
+Status: done — 2026-10-06, [PR #70](https://github.com/IDSAD-XL/worfy/pull/70)
 Blocked by: —
 Source: решение владельца 2026-10-06 ~23:40 (вариант (а)); вечер 2026-10-06, Wave 9 плана (Ticket-ы 24 и 28) и круг доработки Ticket-а 11: транскрипт Orchestrator-а `~/.claude/projects/-Users-alexey-Stuff-CanvasForAI/f6ab7045-416c-471a-a78d-433567aefa5a.jsonl`, записи 18:00Z–20:19Z; [spec.md](../spec.md), тема A; [ADR-0024](../../../docs/adr/0024-autopilot-wave-end-and-keep-awake.md), пункт 7; Ticket 04; урок «Заблокированный экран macOS» в [docs/lessons/agents.md](../../../docs/lessons/agents.md)
 
@@ -123,10 +123,10 @@ HANDOFF.
 
 ## Готово, когда
 
-- [ ] ADR-0034 принят до кода и заменяет тип keep-awake в пункте 7 ADR-0024. ADR-0024 не правится.
-- [ ] Прогон держит один blocker `prevent-display-sleep` со старта до остановки, включая ожидание сброса Limits и задержку после Stop с живыми background task-ами. Отпускает его на остановке, на `will-quit` и после конца задач, как сейчас. Второго blocker-а нет.
-- [ ] Подсказка активной кнопки «Autopilot» и подсказка строки состояния в `running` и `waiting` говорят «The display stays on until the run ends». Видимая строка состояния не меняется.
-- [ ] README, раздел «Stable copy»: на ночной прогон крышка открыта, Mac не блокируют вручную.
+- [x] ADR-0034 принят до кода и заменяет тип keep-awake в пункте 7 ADR-0024. ADR-0024 не правится.
+- [x] Прогон держит один blocker `prevent-display-sleep` со старта до остановки, включая ожидание сброса Limits и задержку после Stop с живыми background task-ами. Отпускает его на остановке, на `will-quit` и после конца задач, как сейчас. Второго blocker-а нет.
+- [x] Подсказка активной кнопки «Autopilot» и подсказка строки состояния в `running` и `waiting` говорят «The display stays on until the run ends». Видимая строка состояния не меняется.
+- [x] README, раздел «Stable copy»: на ночной прогон крышка открыта, Mac не блокируют вручную.
 - [ ] (вручную) Стабильная копия, обновлённая после влития. Во время прогона у процесса worfy есть assertion запрета гашения экрана; экран не гаснет и не блокируется дольше времени «Turn display off» из настроек; после остановки assertion нет. Как проверить: `pmset -g assertions` до, во время и после прогона (`NoDisplaySleepAssertion` у процесса worfy, `PreventUserIdleDisplaySleep 1` в системной сводке).
 
 Ручной пункт агент не проверяет: нужен настоящий прогон на стабильной копии и время. Не сделанный
@@ -171,3 +171,43 @@ HANDOFF.
 Общих файлов с Ticket-ами Wave 8 плана (11, 16, 23, 25, 27) нет. Общий файл с не сделанным
 Ticket-ом из другой Wave — `test/unit/canvas-actions.test.tsx`: 32 → 20. Ребро `Blocked by` не
 ставится.
+
+## Итог
+
+[PR #70](https://github.com/IDSAD-XL/worfy/pull/70), merge e31c0c0. Ревью — VERIFIED, без доработки.
+
+- **ADR-0034** (`docs/adr/0034-autopilot-keeps-display-awake.md`) принят отдельным коммитом до кода
+  (6792d0a, код — 73432be). Он заменяет тип keep-awake в пункте 7 ADR-0024; ADR-0024 не правился.
+- `src/main/autopilot/power.ts`: `KEEP_AWAKE_TYPE` — `'prevent-display-sleep'`. Один blocker на
+  прогон, второго нет. Когда он берётся и отпускается, не изменилось: старт прогона; остановка,
+  `will-quit`, конец background task-ов после Stop. `src/main/autopilot/run.ts` не менялся.
+- `prevent-display-sleep` один держит и системный сон: по IOPMLib, пока гасить экран запрещено,
+  система не уходит в idle sleep (ссылка — в комментарии VERIFIED к PR #70).
+- Одноразовый скрипт Electron, который запускали исполнитель и ревью, показал только
+  `NoDisplaySleepAssertion` у своего процесса, пока blocker взят.
+- `src/renderer/canvas/actions/AutopilotAction.tsx`: подсказка активной кнопки «Autopilot» и
+  подсказка строки состояния в `running` и `waiting` кончаются фразой «The display stays on until
+  the run ends» (одна константа `DISPLAY_STAYS_ON`). Если у состояния есть `message`, подсказка —
+  `message`, как раньше. Видимая строка состояния не менялась, снимки `autopilot-*` те же.
+- `README.md`, раздел «Stable copy»: на ночной прогон крышка открыта, Mac не блокируют вручную.
+
+**Тесты.**
+- `test/unit/autopilot-power.test.ts` — тип blocker-а `prevent-display-sleep`, `start` ровно один
+  раз; на main до правки красный.
+- `test/unit/canvas-actions.test.tsx` — mock `autopilot.state` отдаёт любое состояние; фраза в
+  подсказке кнопки и строки состояния в `running` (с background task-ами и без) и `waiting` (с
+  временем сброса и без), текст строки прежний; подсказки `message` и `stopped` не изменились.
+- `test/e2e/autopilot.spec.ts` — запись подменённого `powerSaveBlocker` ждёт
+  `start prevent-display-sleep`; подсказки проверены в собранном приложении.
+
+Проверки перед мержем: `pnpm lint && pnpm typecheck && pnpm test` — exit 0;
+`GATE_SCOPE=all gate.sh full` — exit 0.
+
+Не проверено: ручной пункт «Готово, когда» — настоящий прогон Autopilot на стабильной копии,
+обновлённой после влития: `pmset -g assertions` до, во время и после прогона
+(`NoDisplaySleepAssertion` у процесса worfy, `PreventUserIdleDisplaySleep 1`), экран не гаснет
+дольше «Turn display off». Нужен настоящий прогон и время; пункт — в HANDOFF, «Ждёт владельца».
+
+Долг ревью [low]: после Stop с живыми background task-ами экран горит, а подсказка строки
+«stopped» об этом молчит (`test/e2e/autopilot.spec.ts:268`), хотя ADR-0034, раздел «Последствия»,
+обещает, что о горящем экране говорят подсказки.
