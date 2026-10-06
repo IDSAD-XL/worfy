@@ -2,9 +2,10 @@
 // and ⌘↩ while the Canvas is on screen. Focus mode starts with the Even preset over the selected
 // Nodes in their Layout order. Its tiling lives here, in memory only: leaving focus mode drops it.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { NodeToolbar, Position, useStore, type ReactFlowState } from '@xyflow/react'
+import { useStore, ViewportPortal, type ReactFlowState } from '@xyflow/react'
 import { FocusMode } from '../../focus/FocusMode'
 import { buildPreset, type TileTree } from '../../focus/split-tree'
+import { usePlaneToolbar } from '../pinning'
 import '../../focus/focus.css'
 
 export const order = 50
@@ -52,14 +53,19 @@ export default function FocusEntry() {
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [domNode, tree, enter])
 
+  // Below the selection: the selection toolbar (SelectionToolbar.tsx, Pin and Tags) holds the top.
+  // Among the Nodes, not over all of them: a pinned Node stays above it (pinning.ts).
+  const style = usePlaneToolbar(selected, 'bottom', 12)
+
   if (tree !== null) return <FocusMode tree={tree} onChange={setTree} onExit={() => setTree(null)} />
-  if (selected.length === 0) return null
+  if (selected.length === 0 || style === null) return null
   return (
-    // Below the selection: the selection toolbar (SelectionToolbar.tsx, Pin and Tags) holds the top.
-    <NodeToolbar nodeId={selected} isVisible position={Position.Bottom} offset={12}>
-      <button type="button" className="w-focus-entry nodrag" onClick={enter} aria-keyshortcuts="Meta+Enter">
-        Focus <kbd>⌘↩</kbd>
-      </button>
-    </NodeToolbar>
+    <ViewportPortal>
+      <div style={style} className="react-flow__node-toolbar">
+        <button type="button" className="w-focus-entry nodrag" onClick={enter} aria-keyshortcuts="Meta+Enter">
+          Focus <kbd>⌘↩</kbd>
+        </button>
+      </div>
+    </ViewportPortal>
   )
 }

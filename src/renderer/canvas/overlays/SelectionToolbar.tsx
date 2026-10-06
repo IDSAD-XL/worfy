@@ -7,13 +7,13 @@
 // is on it (or nowhere), never in a text field: Delete and Backspace delete the selection to the
 // trash, ⌘Z undoes and ⇧⌘Z redoes the user's last change to the Layout (history.ts).
 import { useEffect, useState, type ComponentType, type KeyboardEvent } from 'react'
-import { NodeToolbar, Position, useNodes, useReactFlow, useStoreApi } from '@xyflow/react'
+import { useNodes, useReactFlow, useStoreApi, ViewportPortal } from '@xyflow/react'
 import { create } from 'zustand'
 import type { LayoutNode } from '../../../shared/layout/types'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import { deletableNodes, deleteToTrash, grouped, historyOf } from '../history'
 import type { CanvasFlowNode } from '../nodes'
-import { pinOp, unpinOp } from '../pinning'
+import { canvasSizeOf, pinOp, unpinOp, usePlaneToolbar } from '../pinning'
 import { addTagOps, normalizeTag, removeTagOps, selectionTags } from '../tags'
 import { useLayoutOps, type LayoutOps } from '../useLayout'
 import './selection-toolbar.css'
@@ -84,8 +84,7 @@ export function PinSection({ nodes }: SelectionSectionProps) {
       onClick={() => {
         // Converted through the viewport and the Canvas size of this moment (pinning.ts).
         const viewport = flow.getViewport()
-        const { width, height } = store.getState()
-        const size = { width, height }
+        const size = canvasSizeOf(store.getState())
         const list = allPinned
           ? nodes.map((node) => unpinOp(node, viewport, size))
           : nodes.filter((node) => !node.pinned).map((node) => pinOp(node, viewport, size))
@@ -215,15 +214,23 @@ export default function SelectionToolbar() {
   const projectId = activeProject(useProjects())?.id
   const selected = useNodes<CanvasFlowNode>().filter((node) => node.selected && !node.hidden)
   useCanvasKeys(projectId)
-  if (selected.length === 0) return null
+  // Among the Nodes, not over all of them: a pinned Node stays above another Node's toolbar (pinning.ts).
+  const style = usePlaneToolbar(
+    selected.map((node) => node.id),
+    'top',
+    12,
+  )
+  if (selected.length === 0 || style === null) return null
   const nodes = selected.map((node) => node.data.node)
   return (
-    <NodeToolbar nodeId={selected.map((node) => node.id)} isVisible position={Position.Top} offset={12}>
-      <div className="w-selection-toolbar nodrag nopan nowheel" role="toolbar" aria-label="Selection" data-testid="selection-toolbar">
-        {SELECTION_SECTIONS.map((Section, index) => (
-          <Section key={Section.displayName ?? Section.name ?? index} nodes={nodes} />
-        ))}
+    <ViewportPortal>
+      <div style={style} className="react-flow__node-toolbar">
+        <div className="w-selection-toolbar nodrag nopan nowheel" role="toolbar" aria-label="Selection" data-testid="selection-toolbar">
+          {SELECTION_SECTIONS.map((Section, index) => (
+            <Section key={Section.displayName ?? Section.name ?? index} nodes={nodes} />
+          ))}
+        </div>
       </div>
-    </NodeToolbar>
+    </ViewportPortal>
   )
 }
