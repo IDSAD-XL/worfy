@@ -15,7 +15,7 @@ Subagent-ы (ADR-0029, контекст: закрытая Session Autopilot ун
 1. **Закрытая Session кончает всех, кто не кончился.** main (`SubagentReader`) перед чтением
    файлов Session спрашивает `sessions/<pid>.json` той же домашней папки Claude, как реестр
    Session-ов (`src/main/claude-home/registry.ts`, Ticket 13 worfy-mvp). Session жива, если есть
-   запись с её `sessionId` и процесс `pid` с этим `procStart` идёт. Если такой записи нет — к
+   запись с её `sessionId` и процесс `pid` с этим `procStart` идёт. Если такой записи нет или её процесс `gone` (пункт 3) — к
    сигналам Session добавляется `session-closed`, и каждый её Subagent без конца получает статус
    `error`, как остановленный пользователем. Время его работы кончается его последней записью.
 2. **Пока Session жива, Subagent без конца — `running`**, сколько бы его файл ни стоял. Ложный
