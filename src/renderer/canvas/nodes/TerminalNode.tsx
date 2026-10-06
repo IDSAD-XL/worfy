@@ -8,6 +8,8 @@ import { invoke, subscribe } from '../../ipc'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import type { CanvasNodeProps } from './index'
 import { useLayoutOps } from '../useLayout'
+import { unscaleMouse } from './terminal-mouse'
+import { addView, isLastView, type ShellView } from './terminal-views'
 
 // A Terminal: the user's interactive shell in the root of the Project (CONTEXT.md, «Терминал»).
 // The agent does not use it. main runs the shell (src/main/terminal/pty.ts); this Node draws it
@@ -21,13 +23,12 @@ import { useLayoutOps } from '../useLayout'
 // One shell can have two views at once: focus mode draws the Node in a tile while the Canvas keeps
 // its own copy mounted under the layer (src/renderer/focus/FocusMode.tsx). Both show the output and
 // send input, but the pty has one size: the view mounted last sets it, and when that view goes, the
-// view mounted before it fits itself and sets the size again (`views` below). So leaving focus mode
-// gives the shell back the size of the Canvas Node, whose box did not change meanwhile.
+// view mounted before it fits itself and sets the size again (terminal-views.ts). So leaving focus
+// mode gives the shell back the size of the Canvas Node, whose box did not change meanwhile.
 //
-// The Canvas draws its Nodes inside a CSS transform: scale(zoom). xterm.js takes the mouse position
-// against the scaled box of its screen but divides by the unscaled cell size, so at a zoom other
-// than 100% a click or a drag lands on other cells than the ones under the pointer.
-// `unscaleMouse` rewrites the position of the mouse events xterm.js reads before it reads them.
+// The Canvas draws its Nodes inside a CSS transform: scale(zoom), which xterm.js does not account
+// for when it maps the mouse to cells; terminal-mouse.ts corrects the mouse events it reads.
+
 // The same value as TERMINAL_NODE_KIND, by which main recognises a Terminal Node; written out
 // here because the Node registry needs a literal export.
 export const kind = 'terminal'
@@ -59,72 +60,6 @@ function fittedSize(element: HTMLElement, fit: FitAddon): { cols: number; rows: 
   const size = fit.proposeDimensions()
   if (size === undefined || !Number.isFinite(size.cols) || !Number.isFinite(size.rows) || size.cols <= 0 || size.rows <= 0) return undefined
   return size
-}
-
-/** A mounted view of a shell, as the other views of the same shell see it. */
-interface View {
-  /** Fits the view to its Node and sends its size to the pty. */
-  takeSize(): void
-}
-
-/**
- * The mounted views of each shell, by `projectId nodeId`, in the order they were mounted. The last
- * one sets the size of the pty.
- */
-const views = new Map<string, View[]>()
-
-function addView(key: string, view: View): () => void {
-  views.set(key, [...(views.get(key) ?? []), view])
-  return () => {
-    const list = views.get(key) ?? []
-    const wasLast = list.at(-1) === view
-    const rest = list.filter((other) => other !== view)
-    if (rest.length === 0) views.delete(key)
-    else views.set(key, rest)
-    if (wasLast) rest.at(-1)?.takeSize()
-  }
-}
-
-const isLastView = (key: string, view: View): boolean => views.get(key)?.at(-1) === view
-
-/** The mouse events whose position xterm.js reads: selection, mouse reporting, links, the wheel. */
-const MOUSE_EVENTS = ['mousedown', 'mousemove', 'mouseup', 'click', 'dblclick', 'contextmenu', 'auxclick', 'wheel'] as const
-
-/** Events already rewritten, so a second terminal on the page cannot rewrite one again. */
-const unscaled = new WeakSet<Event>()
-
-/**
- * Makes xterm.js see the mouse as if its screen were not scaled: each mouse event for this
- * terminal gets its clientX/clientY moved so that the distance from the screen's top left corner
- * is in unscaled CSS pixels. Listens on window in the capture phase, ahead of every listener of
- * xterm.js (on its element, and on the document while a selection is dragged). Events over the
- * terminal are rewritten, and so are the moves and the release of a press that began over it,
- * wherever the pointer goes. Answers the function that stops it.
- */
-function unscaleMouse(element: HTMLElement, screen: HTMLElement): () => void {
-  // A press began over the terminal and is not released yet.
-  let pressed = false
-  const onMouse = (event: MouseEvent) => {
-    const over = event.target instanceof Node && element.contains(event.target)
-    if (event.type === 'mousedown') pressed = over
-    else if (event.type === 'mousemove' && (event.buttons & 1) === 0) pressed = false
-    const ours = over || pressed
-    if (event.type === 'mouseup') pressed = false
-    if (!ours || unscaled.has(event)) return
-    const box = screen.getBoundingClientRect()
-    const scaleX = screen.offsetWidth > 0 ? box.width / screen.offsetWidth : 1
-    const scaleY = screen.offsetHeight > 0 ? box.height / screen.offsetHeight : 1
-    if (Math.abs(scaleX - 1) < 0.001 && Math.abs(scaleY - 1) < 0.001) return
-    unscaled.add(event)
-    // clientX and clientY are getters on MouseEvent.prototype; an own property shadows them for
-    // every listener after this one.
-    Object.defineProperty(event, 'clientX', { value: box.left + (event.clientX - box.left) / scaleX, configurable: true })
-    Object.defineProperty(event, 'clientY', { value: box.top + (event.clientY - box.top) / scaleY, configurable: true })
-  }
-  for (const type of MOUSE_EVENTS) window.addEventListener(type, onMouse, { capture: true, passive: true })
-  return () => {
-    for (const type of MOUSE_EVENTS) window.removeEventListener(type, onMouse, { capture: true })
-  }
 }
 
 export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
@@ -185,7 +120,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       const size = fittedSize(element, fit)
       if (size !== undefined && (size.cols !== terminal.cols || size.rows !== terminal.rows)) terminal.resize(size.cols, size.rows)
     }
-    const view: View = {
+    const view: ShellView = {
       takeSize: () => {
         refit()
         if (attached) void invoke('terminal.resize', { ...ref, cols: terminal.cols, rows: terminal.rows })

@@ -342,6 +342,33 @@ test('a Terminal in focus mode gets the size of its tile, and after leaving focu
     await window.keyboard.type('echo mark""er-after')
     await window.keyboard.press('Enter')
     await expect.poll(() => screenText(onCanvas), { timeout: 10_000 }).toMatch(/^marker-after$/m)
+
+    // The Canvas Node resized while focus mode is open (by main, as a tool would): the Canvas copy
+    // under the layer fits itself, but the pty keeps the size of the tile until focus mode ends.
+    await window.locator('.react-flow__node[data-id="term"] .w-terminal__header').click()
+    await window.keyboard.press('Meta+Enter')
+    await expect(inTile).toHaveAttribute('data-state', 'running')
+    const canvasWidth = async () => (await onCanvas.boundingBox())?.width ?? 0
+    const widthBefore = await canvasWidth()
+    const resized = await window.evaluate(
+      (projectId) =>
+        (globalThis as unknown as { worfy: { invoke(c: string, i: unknown): Promise<{ ok: boolean }> } }).worfy.invoke('layout.apply', {
+          projectId,
+          op: { op: 'resize', id: 'term', w: 480, h: 260 },
+        }),
+      ALPHA,
+    )
+    expect(resized.ok).toBe(true)
+    await expect.poll(canvasWidth).toBeLessThan(widthBefore - 40)
+    // The Canvas copy's ResizeObserver runs before the next frame.
+    await nextFrame(window)
+    await nextFrame(window)
+    expect(await sttySize(window, inTile, 'tile-again')).toEqual(tileSize)
+    await focus.getByRole('button', { name: /Exit focus/ }).click()
+    await expect(focus).toHaveCount(0)
+    const smaller = await sttySize(window, onCanvas, 'smaller')
+    expect(smaller.cols).toBeLessThan(canvasSize.cols)
+    expect(smaller.rows).toBeLessThan(canvasSize.rows)
   } finally {
     await launched.close()
   }

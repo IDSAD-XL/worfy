@@ -348,6 +348,47 @@ for (const zoom of [0.5, 1.5]) {
   })
 }
 
+test('at Canvas zoom 50% a drag that began in one terminal and goes over another selects in the first', async () => {
+  // B comes first in the Layout, so it mounts first; it stands to the right of A and 60 px lower on
+  // the screen, so the moves over B are corrected for the wrong row if B takes them.
+  writeFileSync(
+    join(dataDir, PROJECT, 'layout.json'),
+    JSON.stringify({
+      nodes: [
+        { id: 'b', kind: 'terminal', x: 620, y: 140, w: 560, h: 340, data: {} },
+        { id: 'a', kind: 'terminal', x: 20, y: 20, w: 560, h: 340, data: {} },
+      ],
+      viewport: { x: 0, y: 0, zoom: 0.5 },
+    }),
+  )
+  const launched = await launch()
+  try {
+    const { window } = launched
+    const a = window.locator('.react-flow__node[data-id="a"]').getByTestId('terminal-node')
+    const b = window.locator('.react-flow__node[data-id="b"]').getByTestId('terminal-node')
+    await expect(a).toHaveAttribute('data-state', 'running')
+    await expect(b).toHaveAttribute('data-state', 'running')
+
+    const { cols } = await printSize(window, a, 'z')
+    await run(window, a, 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do echo "L$i-row"; done', /^L15-row$/m)
+    const screen = await a.locator('.xterm-screen').boundingBox()
+    const row = await a.locator('.xterm-rows > div').filter({ hasText: /^L12-row/ }).boundingBox()
+    const overB = await b.getByTestId('terminal-screen').boundingBox()
+    if (!screen || !row || !overB) throw new Error('no terminal screen or output row')
+    const y = row.y + row.height / 2
+    // The end point is over B's screen, level with A's row.
+    expect(y).toBeGreaterThan(overB.y)
+    expect(y).toBeLessThan(overB.y + overB.height)
+    await window.mouse.move(screen.x + 0.25 * (screen.width / cols), y)
+    await window.mouse.down()
+    await window.mouse.move(overB.x + 40, y, { steps: 8 })
+    await window.mouse.up()
+    expect(await selectionOf(a)).toBe('L12-row')
+  } finally {
+    await launched.close()
+  }
+})
+
 test('quitting worfy ends every shell; after a restart the Node starts a new shell in the same folder', async () => {
   const first = await launch()
   const mainPid = first.app.process().pid ?? 0
