@@ -11,9 +11,9 @@ export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '
 const mainEntry = join(repoRoot, 'out', 'main', 'index.js')
 
 /**
- * How long the app may take to open its first window. A start takes about a second; a start that
- * has not shown a window by then has hung, and waiting out the whole test timeout would only hide
- * where it hung.
+ * How long the app may take to open its first window and show it, both steps together. A start
+ * takes about a second; a start that has not shown a window by then has hung, and waiting out the
+ * whole test timeout would only hide where it hung.
  */
 const FIRST_WINDOW_TIMEOUT_MS = 30_000
 /** How long the app may take to quit. A quit takes well under a second; this bounds a quit that hangs. */
@@ -148,8 +148,10 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
   // Taken now: once Playwright has closed its connection to the app, app.process() throws.
   const child = app.process()
   const tracing = currentTest() !== undefined && (await app.context().tracing.start({ snapshots: true, screenshots: false }).then(() => true, () => false))
+  const windowDeadline = Date.now() + FIRST_WINDOW_TIMEOUT_MS
+  const windowLeft = (): number => Math.max(1, windowDeadline - Date.now())
   try {
-    const window = await app.firstWindow({ timeout: FIRST_WINDOW_TIMEOUT_MS })
+    const window = await app.firstWindow({ timeout: windowLeft() })
     // Returned only once the window is on screen. The app creates it hidden and shows it when the
     // page has painted; macOS then fits it into the display. A size or position a test sets before
     // that is undone on a display smaller than the window (a CI runner's is 1024 × 768).
@@ -161,7 +163,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
           first.once('show', () => done())
         }),
     )
-    if ((await Promise.race([shown.then(() => 'shown' as const), timeout(FIRST_WINDOW_TIMEOUT_MS)])) === 'timeout') {
+    if ((await Promise.race([shown.then(() => 'shown' as const), timeout(windowLeft())])) === 'timeout') {
       throw new Error(`the window was not shown within ${FIRST_WINDOW_TIMEOUT_MS / 1000} s`)
     }
     return {
@@ -222,11 +224,12 @@ export interface CanvasReadyOptions {
 
 /**
  * Waits until the Canvas is at rest: the window is on screen (when `app` is given; at `size` when
- * given), the
- * `visible` elements are there, and then for `frames` animation frames in a row the viewport
- * transform, the set of Node elements and every Node's box stay the same. A Node element that is
- * replaced by a new one counts as a change too. This replaces fixed pauses: it waits as long as
- * the app needs, and no longer.
+ * given), the `visible` elements are there, and then for `frames` animation frames in a row the
+ * viewport transform, the set of Node elements and every Node's box stay the same. A Node element
+ * that is replaced by a new one counts as a change too, and a page without a React Flow viewport
+ * never counts as at rest. This replaces fixed pauses: it waits as long as the app needs, and no
+ * longer. The test "canvasReady waits for the viewport and the Nodes to stop moving" in
+ * canvas-layout.spec.ts checks that it does notice movement.
  */
 export async function canvasReady(launched: { window: Page; app?: ElectronApplication }, options: CanvasReadyOptions = {}): Promise<void> {
   const { app, window } = launched
@@ -262,9 +265,13 @@ export async function canvasReady(launched: { window: Page; app?: ElectronApplic
         const dom = globalThis as unknown as PageDom
         const ids = new WeakMap<PageElement, number>()
         let next = 0
-        const signature = (): string => {
+        // Null while there is no viewport: a Canvas that is not there is not at rest, so the wait
+        // fails at its timeout instead of passing as a plain pause. The same happens if React Flow
+        // ever renames the class.
+        const signature = (): string | null => {
           const viewport = dom.document.querySelector('.react-flow__viewport')
-          const parts = [viewport ? dom.getComputedStyle(viewport).transform : 'no viewport']
+          if (!viewport) return null
+          const parts = [dom.getComputedStyle(viewport).transform]
           const nodes = Array.from(dom.document.querySelectorAll('.react-flow__node'))
           for (const node of nodes) {
             if (!ids.has(node)) ids.set(node, (next += 1))
@@ -278,10 +285,10 @@ export async function canvasReady(launched: { window: Page; app?: ElectronApplic
         let still = 0
         const tick = (now: number): void => {
           const current = signature()
-          still = current === last ? still + 1 : 0
+          still = current !== null && current === last ? still + 1 : 0
           last = current
-          if (still >= wanted) return done({ ok: true, last })
-          if (now > until) return done({ ok: false, last })
+          if (still >= wanted) return done({ ok: true, last: last ?? '' })
+          if (now > until) return done({ ok: false, last: last ?? 'no .react-flow__viewport in the page' })
           dom.requestAnimationFrame(tick)
         }
         dom.requestAnimationFrame(tick)

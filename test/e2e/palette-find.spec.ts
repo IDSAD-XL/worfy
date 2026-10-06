@@ -173,8 +173,8 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     await expect(options.first()).toHaveAttribute('title', 'blocked by 09')
     await input.press('Enter')
     await expect(palette).toBeVisible()
-    // Nothing moves on the Canvas and no Session Node appears. A Session started late would still
-    // show up as a second Node at "New session" below, where exactly one is expected.
+    // Nothing moves on the Canvas and no Session Node appears. A Session started late is caught
+    // after "New session" below, by main's record of launches and by the count of Session Nodes.
     await canvasReady(launched)
     await expect(sessionNodes).toHaveCount(0)
     // The row did not run the action at all: main was not asked, so it had nothing to refuse.
@@ -201,6 +201,20 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     await expect(sessionNode.getByTestId('session-node-answer')).toHaveText('Hello from the fake agent')
     const sessionNodeId = await sessionNode.getAttribute('data-node-id')
     expect(sessionNodeId).toBeTruthy()
+    // Seconds after the Enter on the inactive "Ship ticket" row: main has launched no Session for a
+    // Ticket (its own record of "Ship ticket" launches), and the Canvas still shows one Session
+    // Node, the one "New session" made. (agent.list is no help here: it also holds the Project's
+    // Orchestrator Session, which starts on its own.)
+    const launches = await window.evaluate(
+      (projectId) =>
+        (globalThis as unknown as { worfy: { invoke(channel: string, input: unknown): Promise<{ ok: boolean; value: { tickets: unknown[] } }> } }).worfy.invoke(
+          'actions.launches',
+          { projectId },
+        ),
+      PROJECT,
+    )
+    expect(launches).toMatchObject({ ok: true, value: { tickets: [] } })
+    await expect(sessionNodes).toHaveCount(1)
 
     // "New terminal" comes from the Canvas menu's items (createLabel, ADR-0014): a Terminal Node in the middle of the Canvas.
     await window.keyboard.press('Meta+k')

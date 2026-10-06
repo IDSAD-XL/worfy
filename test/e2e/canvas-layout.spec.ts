@@ -309,3 +309,118 @@ test('zoom: ⌘= and ⌘− step within 0.2–2.5, ⌘ + wheel zooms, the wheel 
     await launched.close()
   }
 })
+
+// ── canvasReady itself ──────────────────────────────────────────────────────
+
+/** The page, typed for the movement below: the e2e typecheck has no DOM library. */
+interface MoverPage {
+  document: {
+    querySelector(selector: string): MoverElement | null
+    querySelectorAll(selector: string): ArrayLike<MoverElement>
+  }
+  performance: { now(): number }
+  requestAnimationFrame(callback: (now: number) => void): number
+  __movementEnd?: number
+}
+interface MoverElement {
+  style: { transform: string }
+  classList: { add(name: string): void; remove(name: string): void }
+}
+
+/**
+ * Takes the `from` class off every element that has it and puts `to` on instead, so that
+ * canvasReady finds no Node (or no viewport) while a case runs; called again the other way round
+ * to put the classes back.
+ */
+async function swapClass(window: Page, from: string, to: string): Promise<void> {
+  await window.evaluate(
+    ({ from: off, to: on }) => {
+      for (const element of Array.from((globalThis as unknown as MoverPage).document.querySelectorAll(`.${off}`))) {
+        element.classList.add(on)
+        element.classList.remove(off)
+      }
+    },
+    { from, to },
+  )
+}
+
+/**
+ * Moves the element `selector` names by one more pixel every animation frame for `ms`, then puts
+ * its transform back and records, in page time, when the movement ended. Resolves at once.
+ */
+async function startMoving(window: Page, selector: string, ms: number): Promise<void> {
+  await window.evaluate(
+    ({ selector: wanted, ms: length }) => {
+      const page = globalThis as unknown as MoverPage
+      const element = page.document.querySelector(wanted)
+      if (!element) throw new Error(`no ${wanted} in the page`)
+      const original = element.style.transform
+      const start = page.performance.now()
+      let step = 0
+      delete page.__movementEnd
+      const tick = (now: number): void => {
+        if (now - start >= length) {
+          element.style.transform = original
+          page.__movementEnd = page.performance.now()
+          return
+        }
+        step += 1
+        element.style.transform = `${original} translate(${step}px, 0px)`
+        page.requestAnimationFrame(tick)
+      }
+      page.requestAnimationFrame(tick)
+    },
+    { selector, ms },
+  )
+}
+
+const pageNow = (window: Page): Promise<number> => window.evaluate(() => (globalThis as unknown as MoverPage).performance.now())
+const movementEnd = (window: Page): Promise<number | undefined> => window.evaluate(() => (globalThis as unknown as MoverPage).__movementEnd)
+
+test('canvasReady waits for the viewport and the Nodes to stop moving, and fails without a viewport', async () => {
+  writeFileSync(
+    join(dataDir, ALPHA, 'layout.json'),
+    JSON.stringify({ nodes: [{ id: 'n1', kind: 'note', x: 120, y: 80, w: 220, h: 120, data: { text: '' } }], viewport: { x: 0, y: 0, zoom: 1 } }),
+  )
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+  try {
+    const { window } = launched
+    await canvasReady(launched, { visible: [window.getByTestId('note-node')] })
+
+    // The movement lasts far longer than the 10 still frames canvasReady counts (about 170 ms), so a
+    // canvasReady that does not see it returns while it is still going.
+    const cases = [
+      // A pan over a part of the Canvas with no Node on screen: only the viewport transform changes,
+      // so the Node elements are hidden from canvasReady for this case.
+      { moving: '.react-flow__viewport', hideNodes: true },
+      { moving: '.react-flow__node[data-id="n1"]', hideNodes: false },
+    ]
+    for (const { moving, hideNodes } of cases) {
+      await startMoving(window, moving, 1_500)
+      if (hideNodes) await swapClass(window, 'react-flow__node', 'canvas-ready-test-node')
+      try {
+        const called = await pageNow(window)
+        await canvasReady({ window })
+        const ended = await movementEnd(window)
+        expect(ended, `${moving}: canvasReady returned while it was still moving`).toBeDefined()
+        // Otherwise the movement was over before canvasReady looked, and this case proved nothing.
+        expect(ended!, `${moving}: the movement was still going when canvasReady was called`).toBeGreaterThan(called)
+      } finally {
+        if (hideNodes) await swapClass(window, 'canvas-ready-test-node', 'react-flow__node')
+      }
+    }
+
+    // A page without a React Flow viewport is never at rest: canvasReady fails instead of turning
+    // into a plain pause (as it would if React Flow renamed the class).
+    await swapClass(window, 'react-flow__viewport', 'canvas-ready-test-viewport')
+    try {
+      await expect(canvasReady({ window }, { timeout: 1_000 })).rejects.toThrow(/did not come to rest within 1000 ms; last state: no \.react-flow__viewport/)
+    } finally {
+      await swapClass(window, 'canvas-ready-test-viewport', 'react-flow__viewport')
+    }
+    await canvasReady({ window })
+    await expect(window.getByTestId('note-node')).toBeVisible()
+  } finally {
+    await launched.close()
+  }
+})
