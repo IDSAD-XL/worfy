@@ -15,6 +15,7 @@
     "test": "ELECTRON_RUN_AS_NODE=1 electron ./node_modules/vitest/vitest.mjs run",
     "test:e2e": "electron-vite build && playwright test --grep-invert @packaged",
     "test:package": "pnpm package && playwright test --grep @packaged",
+    "install:stable": "scripts/install-stable.sh",
     "postinstall": "electron-rebuild --only node-pty"
   },
   "dependencies": {

@@ -1,7 +1,7 @@
 # 03 — Стабильная копия worfy.app вне репозитория
 
 Type: task
-Status: blocked — второй круг ревью не чистый (находка high): ADR о раздельных папках данных packaged-сборки и dev-запуска не принят, пункт «Готово, когда» открыт; PR #37 открыт, ждёт решения владельца
+Status: claimed — 2026-10-06
 Blocked by: —
 Source: [spec.md](../spec.md), тема A, риски 5 и 6; [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md) — папка данных worfy; Ticket 32 worfy-mvp (сборка `.app`)
 
@@ -56,11 +56,11 @@ e2e это не затрагивает: у них `WORFY_DATA_DIR` во врем
 
 ## Готово, когда
 
-- [ ] `pnpm install:stable` кладёт копию в `~/Applications/worfy-stable.app` или в путь из аргумента. Повторный запуск заменяет копию. Если копия запущена — отказ с понятным текстом и кодом ≠ 0.
-- [ ] Рядом с копией записаны commit и время сборки.
-- [ ] ADR о папке данных копии и dev-запуска принят. Одновременный запуск копии и `pnpm dev` не пишет в одни и те же `limits.json` и `bindings.json` — это проверяет test на `paths.ts` или на single-instance lock, по выбранному варианту.
-- [ ] В `README.md` есть раздел «Стабильная копия» с порядком обновления.
-- [ ] e2e `@packaged` запускает копию, которую скрипт положил во временную папку. Путь передаётся через env.
+- [x] `pnpm install:stable` кладёт копию в `~/Applications/worfy-stable.app` или в путь из аргумента. Повторный запуск заменяет копию. Если копия запущена — отказ с понятным текстом и кодом ≠ 0.
+- [x] Рядом с копией записаны commit и время сборки.
+- [x] ADR о папке данных копии и dev-запуска принят. Одновременный запуск копии и `pnpm dev` не пишет в одни и те же `limits.json` и `bindings.json` — это проверяет test на `paths.ts` или на single-instance lock, по выбранному варианту.
+- [x] В `README.md` есть раздел «Стабильная копия» с порядком обновления.
+- [x] e2e `@packaged` в `test/e2e/packaged.spec.ts` запускает копию, которую скрипт положил во временную папку. Путь передаётся через env (`WORFY_PACKAGED_APP`). Terminal test `@packaged` в `test/e2e/terminal.spec.ts` по-прежнему запускает `dist/mac*/worfy.app`: файл вне следа этого Ticket-а.
 - [ ] (вручную) Копия запущена из Finder, открыт Project worfy. Через computer use снят экран после старта: системных диалогов нет, или они перечислены в «Итог».
 
 ## Тесты
@@ -78,3 +78,102 @@ e2e это не затрагивает: у них `WORFY_DATA_DIR` во врем
 - `README.md`
 - `test/unit/paths.test.ts`
 - `test/e2e/packaged.spec.ts`
+- `scripts/statusline-bridge.sh`, `test/contract/statusline-bridge.test.ts` — добавлены по ревью (круг 1): мост status line знает обе папки данных
+- `docs/adr/0023-separate-data-roots-packaged-and-dev.md` (новый) — добавлен по ревью (круг 2): номер выдал Orchestrator
+
+## Итог
+
+**Что сделано.**
+
+- `scripts/install-stable.sh` и `pnpm install:stable [<путь>.app]`. Скрипт собирает `.app`
+  (`pnpm package`), копирует `dist/mac*/worfy.app` через `ditto` сначала во временную папку рядом с
+  целью, потом меняет её на место старой копии. Commit, признак незакоммиченных правок, время сборки
+  (mtime `Info.plist` собранного `.app`) и время установки пишутся рядом: `<цель без .app>.json`,
+  по умолчанию `~/Applications/worfy-stable.json`. Внутрь `.app` ничего не пишется.
+- Отказ, если копия запущена: в списке процессов (`ps`) есть путь `<цель>/Contents/`. Путь
+  сравнивается в двух написаниях — как дан и через `pwd -P`: на macOS `/var` — ссылка на
+  `/private/var`. Проверка идёт до сборки и ещё раз перед копированием.
+- Цель обязана кончаться на `.app`: скрипт удаляет старую копию, и опечатка в аргументе не должна
+  удалить чужую папку.
+- `WORFY_STABLE_PREBUILT=<путь к .app>` пропускает сборку. Им пользуются e2e: они ставят уже
+  собранный `dist/` во временную папку. В JSON тогда поле `source` показывает, откуда копия.
+- Папка данных и lock — по [ADR-0023](../../../docs/adr/0023-separate-data-roots-packaged-and-dev.md). `src/main/storage/paths.ts`: `dataRoot(env, kind)`,
+  `setBuildKind()`. `src/main/index.ts` ставит вид сборки из `app.isPackaged` до первого
+  `dataRoot()` и берёт `app.requestSingleInstanceLock()` после `setPath('userData')`.
+- e2e `@packaged` (`test/e2e/packaged.spec.ts`) запускает копию, которую скрипт поставил во
+  временную папку; `WORFY_PACKAGED_APP` подменяет её любой другой, например настоящей
+  `~/Applications/worfy-stable.app`. Отдельные test-ы скрипта: установка в путь из аргумента и
+  JSON рядом, замена прежней копии, отказ при запущенной копии. Без тега (идут в `pnpm test:e2e`):
+  dev-запуск берёт `worfy-dev`, второй dev-запуск над той же папкой выходит, цель не `.app` —
+  отказ.
+
+**Как падал первый test.** `test/unit/paths.test.ts` на нынешнем коде: 2 из 11 красные —
+`dataRoot({}, 'dev')` вернул `…/Application Support/worfy` вместо `…/worfy-dev` (копия и dev-запуск
+получают одну папку), и `setBuildKind is not a function`.
+
+**Mutation testing.** Каждый мутант краснит свой test:
+
+- `setBuildKind('packaged')` вместо `app.isPackaged` в `index.ts` — e2e «dev run keeps its state in
+  worfy-dev»;
+- lock всегда «взят» (`requestSingleInstanceLock() || true`) — e2e «a second dev run … quits»;
+- в скрипте нет отказа при запущенной копии — «refuses … while the copy is running»;
+- JSON пишется внутрь `.app` — подпись (`codesign --verify --strict`) и `diff -rq` с `dist/`;
+- копия кладётся поверх старой без удаления — «a second run replaces the previous copy».
+
+**Вне следа.** `test/contract/main-ipc-wiring.test.ts`: в mock `electron.app` добавлены
+`isPackaged` и `requestSingleInstanceLock`. Без них contract test `src/main/index.ts` падает
+`app.requestSingleInstanceLock is not a function`. Правка механическая, две строки; файл не
+входит в след соседей по Wave 1 (01, 02, 21).
+
+**README.** Раздел назван «Stable copy»: `README.md` написан по-английски, как всё, что видит
+команда. Содержание — то, что Ticket требует от раздела «Стабильная копия».
+
+**Ручные проверки.**
+
+- не проверено: запуск копии из Finder, открытый Project worfy и системные диалоги macOS после
+  старта. Бриф этой ночи запрещает трогать экран (`open` настоящего `.app`, `screencapture`,
+  computer use) и ставить настоящую копию. Её ставит Orchestrator после Wave 3; список диалогов
+  записывается тогда.
+- Установка в путь по умолчанию проверена e2e без настоящей папки владельца: скрипт без
+  аргумента с `HOME=<временная папка>` кладёт `<HOME>/Applications/worfy-stable.app` и
+  `worfy-stable.json` рядом. Настоящую `~/Applications/worfy-stable.app` этой ночью не ставили.
+  Полный путь со сборкой (`pnpm install:stable <временная папка>/worfy-stable.app`) прогнан:
+  копия встала, `codesign --verify --deep --strict` прошёл, JSON записан.
+- Отказ при запущенной копии проверен e2e на копии, запущенной через Playwright.
+
+**Доработка после ревью (круг 1).**
+
+- ADR: файл `docs/adr/NNNN-*.md` в PR не заведён. По правилам этой ночи номер ADR и файл заводит
+  Orchestrator; черновик был готов к переносу как есть. Пункт «Готово, когда» про ADR оставался
+  `[ ]`, пока файл не принят (принят в круге 2 — ADR-0023, ниже).
+- `scripts/statusline-bridge.sh` (вне следа, назван в ревью): без `WORFY_DATA_DIR` пишет
+  `statusline-limits.json` в каждую существующую из папок `…/worfy` и `…/worfy-dev`, с
+  `WORFY_DATA_DIR` — только туда. Раньше писал только в `…/worfy`, и dev-запуск рядом с копией
+  терял Limits из status line. `test/contract/statusline-bridge.test.ts` берёт имена обеих папок
+  из `dataRoot()` в `paths.ts`: переименование папки в `paths.ts` краснит test, пока скрипт не
+  догонит. Комментарий в `paths.ts` называет скрипт единственной копией этого знания.
+- Обработчик `second-instance` в `src/main/index.ts` покрыт e2e: свёрнутое окно первого процесса
+  разворачивается, а без окон первый процесс открывает новое (dev-запуск без тега и копия с
+  тегом `@packaged`).
+- `install-stable.sh`: слеш на конце цели убирается до проверки `.app` (раньше путь
+  `…/worfy-stable.app/` получал отказ); признак `dirty` учитывает неотслеживаемые файлы — сборка
+  их включает. Оба поведения, а также путь по умолчанию, проверяют e2e без тега на подставном
+  `.app` (`WORFY_STABLE_PREBUILT`), без сборки.
+- README: абзац о том, что мост status line пишет в обе папки.
+- Мутанты этого круга, каждый краснит свой test: событие переименовано в `second-instance-MUTANT`
+  (оба test-а обработчика); нет `restore()` (test свёрнутого окна); `if (started)` никогда не
+  истинно (test без окон); мост пишет только в `…/worfy` (два test-а моста); мост пишет в папки
+  по умолчанию и при `WORFY_DATA_DIR` (test моста с `WORFY_DATA_DIR`); путь по умолчанию
+  `~/Apps/…` (test без аргумента); слеш убирается после проверки `.app` (test со слешем);
+  `--untracked-files=no` (test признака `dirty`).
+
+**ADR.** Решение о папках данных принято как
+[ADR-0023](../../../docs/adr/0023-separate-data-roots-packaged-and-dev.md): dev-запуск берёт
+`Application Support/worfy-dev`, packaged-сборка — `…/worfy`, над каждой папкой один процесс
+(single-instance lock). Черновик, который стоял здесь, перенесён в этот файл.
+
+**Доработка после ревью (круг 2).** Единственная находка — файл ADR не заведён. Orchestrator выдал
+номер 0023; черновик из «Итог» перенесён в `docs/adr/0023-separate-data-roots-packaged-and-dev.md`
+по формату принятых ADR, с разделом о том, что меняется по сравнению с ADR-0005 (сам ADR-0005 не
+тронут). Пункт «Готово, когда» про ADR отмечен. Код не менялся. Ветка перенесена на `origin/main`
+(там влит Ticket 21, он менял `test/e2e/helpers.ts`), e2e прогнаны заново.
