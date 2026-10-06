@@ -1,0 +1,67 @@
+{
+  "sources": {
+    "icon.svg": "107789371e3fa6122abddb738f7ce04a56f471c4cdf201aff8d496b410acd7e7",
+    "mark.svg": "ba2c1a49d0de01ae57609cd793a06d281cb3a0bbe2e266469e3d9ca8e1799374"
+  },
+  "outputs": {
+    "icon.icns": "6c5d2843b1f791eeb5bfa5ddd7adaf9ef2c0ff248404a61598b254c7faef9f4d",
+    "icon.png": "d59385df0efb83f5f4916258f2bd38b764e26a2addc3c8a1d106a7559d8cf135"
+  },
+  "iconset": [
+    {
+      "file": "icon_16x16.png",
+      "px": 16,
+      "source": "mark.svg"
+    },
+    {
+      "file": "icon_16x16@2x.png",
+      "px": 32,
+      "source": "mark.svg"
+    },
+    {
+      "file": "icon_32x32.png",
+      "px": 32,
+      "source": "mark.svg"
+    },
+    {
+      "file": "icon_32x32@2x.png",
+      "px": 64,
+      "source": "icon.svg"
+    },
+    {
+      "file": "icon_128x128.png",
+      "px": 128,
+      "source": "icon.svg"
+    },
+    {
+      "file": "icon_128x128@2x.png",
+      "px": 256,
+      "source": "icon.svg"
+    },
+    {
+      "file": "icon_256x256.png",
+      "px": 256,
+      "source": "icon.svg"
+    },
+    {
+      "file": "icon_256x256@2x.png",
+      "px": 512,
+      "source": "icon.svg"
+    },
+    {
+      "file": "icon_512x512.png",
+      "px": 512,
+      "source": "icon.svg"
+    },
+    {
+      "file": "icon_512x512@2x.png",
+      "px": 1024,
+      "source": "icon.svg"
+    }
+  ],
+  "png": {
+    "file": "icon.png",
+    "px": 1024,
+    "source": "icon.svg"
+  }
+}

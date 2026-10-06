@@ -26,6 +26,9 @@ asarUnpack:
 
 mac:
   target: dir
+  # Drawn from build/brand/*.svg by `pnpm icons` (scripts/make-icons.mjs) and committed. Without it
+  # electron-builder would use the Electron icon, or rasterize a build/icon.svg it found by itself.
+  icon: build/icon.icns
   identity: '-' # ad-hoc signature: no certificate, no notarization
   hardenedRuntime: false
   notarize: false
