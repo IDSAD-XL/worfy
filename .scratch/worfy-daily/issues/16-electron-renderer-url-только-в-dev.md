@@ -76,7 +76,7 @@ Source: [spec.md](../spec.md), тема C; Ticket-ы 01 и 02 worfy-mvp (окн�
 
 Не проверено: живой `pnpm dev` с окном — что dev-сервер по-прежнему грузится в окно и IPC со страницы проходит. Ревью проверило это кодом и test-ами (адрес `http://localhost` проходит проверку отправителя), окно глазами не смотрели. Пункт — в HANDOFF, «Ждёт владельца».
 
-**Ревью и мерж.** [PR #71](https://github.com/IDSAD-XL/worfy/pull/71), merge 8a9c978. Ревью — VERIFIED, без доработки: упакованный `.app` не смотрит на переменную и доверяет только своему `file://`; правка `test/contract/startup-failure.test.ts` (Ticket 15) сохранила все прежние проверки. Перед мержем — rebase на e31c0c0 и `GATE_SCOPE=all gate.sh full` с exit 0.
+**Ревью и мерж.** [PR #71](https://github.com/IDSAD-XL/worfy/pull/71), merge 8a9c978. Ревью — VERIFIED, без доработки: упакованный `.app` не смотрит на переменную и доверяет только своему `file://`; правка `test/contract/startup-failure.test.ts` (Ticket 15) сохранила все прежние проверки. Перед мержем — rebase на e31c0c0 и `GATE_SCOPE=all gate.sh full` с exit 0 ([комментарий в PR #71](https://github.com/IDSAD-XL/worfy/pull/71#issuecomment-6026434721), CI run 37538172616).
 
 Долги [low]:
 - `test/e2e/helpers.ts:123-126` — `launchApp` передаёт `ELECTRON_RENDERER_URL` из shell разработчика в e2e неупакованной сборки. Убирать её, если `options.env` её не задаёт.

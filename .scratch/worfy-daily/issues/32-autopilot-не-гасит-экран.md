@@ -181,9 +181,10 @@ Ticket-ом из другой Wave — `test/unit/canvas-actions.test.tsx`: 32 �
 - `src/main/autopilot/power.ts`: `KEEP_AWAKE_TYPE` — `'prevent-display-sleep'`. Один blocker на
   прогон, второго нет. Когда он берётся и отпускается, не изменилось: старт прогона; остановка,
   `will-quit`, конец background task-ов после Stop. `src/main/autopilot/run.ts` не менялся.
-- Ревью подтвердило: `prevent-display-sleep` один держит и системный сон — по IOPMLib, пока
-  гасить экран запрещено, система не уходит в idle sleep. Пробный скрипт Electron показал
-  `NoDisplaySleepAssertion` у своего процесса только пока blocker взят, после `stop` — нет.
+- `prevent-display-sleep` один держит и системный сон: по IOPMLib, пока гасить экран запрещено,
+  система не уходит в idle sleep (ссылка — в комментарии VERIFIED к PR #70).
+- Одноразовый скрипт Electron, который запускали исполнитель и ревью, показал только
+  `NoDisplaySleepAssertion` у своего процесса, пока blocker взят.
 - `src/renderer/canvas/actions/AutopilotAction.tsx`: подсказка активной кнопки «Autopilot» и
   подсказка строки состояния в `running` и `waiting` кончаются фразой «The display stays on until
   the run ends» (одна константа `DISPLAY_STAYS_ON`). Если у состояния есть `message`, подсказка —
