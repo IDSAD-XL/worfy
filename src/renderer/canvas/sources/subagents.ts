@@ -13,9 +13,16 @@
 // the way the Epic frames keep their Tickets' offsets (sources/epics.ts). Each tree also has an
 // invisible anchor Node at the Session Node's right edge: the Session's own Node has no handle,
 // and the tree's edges (edges/subagents.ts) start there.
+//
+// The automatic places keep clear of the Nodes of the Layout on the plane (worfy-daily ticket 28):
+// the Nodes nobody moved shift together, right and down, to the nearest room where they cover
+// none. A saved offset counts from the place before that shift, so a Node the user moved, and the
+// Subagents under it, follow their Session only, not a Card that moves next to them. The Epic
+// frames are not counted: their column keeps clear of the tree (ADR-0032), and if the tree kept
+// clear of the frames too, each would push the other.
 import { useEffect, useMemo } from 'react'
 import { create } from 'zustand'
-import { SOURCE_NODE_KINDS, SUBAGENT_KIND, SUBAGENT_TREE_KIND, subagentNodeId, subagentTreeNodeId } from '../../../shared/layout/derived'
+import { onThePlane, SOURCE_NODE_KINDS, SUBAGENT_KIND, SUBAGENT_TREE_KIND, subagentNodeId, subagentTreeNodeId } from '../../../shared/layout/derived'
 import type { Layout, LayoutNode, LayoutOpInput } from '../../../shared/layout/types'
 import type { SubagentInfo } from '../../../shared/transcript/subagents'
 import { useSubagentTrees } from '../../claude-home/subagents'
@@ -34,6 +41,8 @@ export const FOLD_HEIGHT = 28
 /** Room between a parent and its Subagents, and between two Subagents of one parent. */
 const GAP_X = 56
 const GAP_Y = 12
+/** Room the automatic places keep from a Node of the Layout. */
+const CLEARANCE = 24
 /** Where on the Session Node's right edge the tree's lines start (its header row). */
 const ANCHOR_Y = 18
 
@@ -57,7 +66,7 @@ export interface SubagentNodeData {
   parentNodeId: string | null
   /** Key of the offset in the `subagent-tree` Node. */
   key: string
-  /** The automatic place, relative to the Session's Node. */
+  /** The automatic place, relative to the Session's Node, before the tree keeps clear of other Nodes: what the offset counts from. */
   auto: { x: number; y: number }
   agent: SubagentSummary | null
   fold: { parentKey: string; count: number; expanded: boolean } | null
@@ -105,7 +114,10 @@ export interface PlacedSubagent {
   /** Relative to the Session's Node. */
   x: number
   y: number
+  /** The automatic place before the tree keeps clear of other Nodes: what a saved offset counts from. */
   auto: { x: number; y: number }
+  /** The Node, or a Subagent it hangs from, was moved by hand: it follows its Session only. */
+  manual: boolean
   w: number
   h: number
   agent: SubagentInfo | null
@@ -120,6 +132,11 @@ export interface PlaceInput {
   /** Whether the done Subagents of a parent (`session` or a Subagent's id) are shown. */
   expanded: (parentKey: string) => boolean
   offsets: ReadonlyMap<string, Offset>
+  /**
+   * Nodes the automatic places keep clear of, relative to the Session's Node: the Layout's Nodes on
+   * the plane (`clearOf`). None by default.
+   */
+  around?: readonly Rect[]
 }
 
 /** `session`: the key of the Session itself as a parent. */
@@ -129,20 +146,22 @@ export const anchorNodeId = (sessionId: string): string => subagentNodeId(sessio
 /**
  * Where each Subagent of a tree goes, relative to its Session's Node: a parent's running and
  * failed Subagents in a column to its right, in start order, each with its own Subagents to its
- * right, and under them one row for the done ones (all of them when the row is open). The first
- * entry is the anchor.
+ * right, and under them one row for the done ones (all of them when the row is open). The Nodes
+ * nobody moved then shift together off the Nodes `around` (`clearShift`); a moved Node, and the
+ * Subagents under it, stay at their offset from the place before the shift. The first entry is
+ * the anchor.
  */
-export function placeSubagents({ sessionId, sessionWidth, tree, expanded, offsets }: PlaceInput): PlacedSubagent[] {
+export function placeSubagents({ sessionId, sessionWidth, tree, expanded, offsets, around = [] }: PlaceInput): PlacedSubagent[] {
   const anchor = anchorNodeId(sessionId)
   const placed: PlacedSubagent[] = [
-    { id: anchor, key: 'anchor', parentId: null, x: sessionWidth, y: ANCHOR_Y, auto: { x: sessionWidth, y: ANCHOR_Y }, w: 1, h: 1, agent: null, fold: null },
+    { id: anchor, key: 'anchor', parentId: null, x: sessionWidth, y: ANCHOR_Y, auto: { x: sessionWidth, y: ANCHOR_Y }, manual: false, w: 1, h: 1, agent: null, fold: null },
   ]
-  const at = (key: string, auto: { x: number; y: number }) => {
-    const offset = offsets.get(key) ?? { dx: 0, dy: 0 }
-    return { x: auto.x + offset.dx, y: auto.y + offset.dy }
+  const at = (key: string, auto: { x: number; y: number }, under: boolean) => {
+    const offset = offsets.get(key)
+    return { x: auto.x + (offset?.dx ?? 0), y: auto.y + (offset?.dy ?? 0), manual: under || offset !== undefined }
   }
   /** Places `children` to the right of a parent whose right edge is at `right`; returns the lowest y used. */
-  const column = (parentId: string, parentKey: string, right: number, top: number, children: readonly SubagentInfo[]): number => {
+  const column = (parentId: string, parentKey: string, right: number, top: number, under: boolean, children: readonly SubagentInfo[]): number => {
     const x = right + GAP_X
     let y = top
     const open = expanded(parentKey)
@@ -150,22 +169,54 @@ export function placeSubagents({ sessionId, sessionWidth, tree, expanded, offset
     for (const child of open ? children : children.filter((each) => each.status !== 'done')) {
       const id = subagentNodeId(sessionId, child.id)
       const auto = { x, y }
-      const where = at(child.id, auto)
+      const where = at(child.id, auto, under)
       placed.push({ id, key: child.id, parentId, ...where, auto, w: SUBAGENT_WIDTH, h: SUBAGENT_HEIGHT, agent: child, fold: null })
-      const bottom = child.children.length > 0 ? column(id, child.id, where.x + SUBAGENT_WIDTH, where.y, child.children) : where.y
+      const bottom = child.children.length > 0 ? column(id, child.id, where.x + SUBAGENT_WIDTH, where.y, where.manual, child.children) : where.y
       // The next sibling goes under this one's subtree, measured from where the subtree is drawn.
       y = auto.y + Math.max(SUBAGENT_HEIGHT + GAP_Y, bottom - where.y)
     }
     if (done.length > 0) {
       const key = `done:${parentKey}`
       const auto = { x, y }
-      placed.push({ id: subagentNodeId(sessionId, key), key, parentId, ...at(key, auto), auto, w: SUBAGENT_WIDTH, h: FOLD_HEIGHT, agent: null, fold: { parentKey, count: done.length, expanded: open } })
+      placed.push({ id: subagentNodeId(sessionId, key), key, parentId, ...at(key, auto, under), auto, w: SUBAGENT_WIDTH, h: FOLD_HEIGHT, agent: null, fold: { parentKey, count: done.length, expanded: open } })
       y += FOLD_HEIGHT + GAP_Y
     }
     return y
   }
-  column(anchor, SESSION_PARENT, sessionWidth, 0, tree)
-  return placed
+  column(anchor, SESSION_PARENT, sessionWidth, 0, false, tree)
+  // The anchor stays on the Session Node's edge: the tree's lines start there.
+  const shifts = (place: PlacedSubagent) => !place.manual && place.id !== anchor
+  const shift = clearShift(placed.filter(shifts), around)
+  if (shift.dx === 0 && shift.dy === 0) return placed
+  return placed.map((place) => (shifts(place) ? { ...place, x: place.x + shift.dx, y: place.y + shift.dy } : place))
+}
+
+/**
+ * The smallest shift, right and down only, that keeps every rect of `moving` CLEARANCE away from
+ * every rect of `around`; the nearest one by distance, then the one less to the right. Candidates
+ * are no shift and the shifts that put the moving rects right of or under a rect of `around`; the
+ * one right of all of them is always clear.
+ */
+export function clearShift(moving: readonly Rect[], around: readonly Rect[]): Offset {
+  const none = { dx: 0, dy: 0 }
+  if (moving.length === 0 || around.length === 0) return none
+  const covers = ({ dx, dy }: Offset) =>
+    moving.some((rect) =>
+      around.some(
+        (other) =>
+          rect.x + dx < other.x + other.w + CLEARANCE &&
+          other.x < rect.x + dx + rect.w + CLEARANCE &&
+          rect.y + dy < other.y + other.h + CLEARANCE &&
+          other.y < rect.y + dy + rect.h + CLEARANCE,
+      ),
+    )
+  if (!covers(none)) return none
+  const left = Math.min(...moving.map((rect) => rect.x))
+  const top = Math.min(...moving.map((rect) => rect.y))
+  const xs = [0, ...around.map((other) => other.x + other.w + CLEARANCE - left).filter((dx) => dx > 0)]
+  const ys = [0, ...around.map((other) => other.y + other.h + CLEARANCE - top).filter((dy) => dy > 0)]
+  const shifts = xs.flatMap((dx) => ys.map((dy) => ({ dx, dy }))).sort((a, b) => Math.hypot(a.dx, a.dy) - Math.hypot(b.dx, b.dy) || a.dx - b.dx)
+  return shifts.find((shift) => !covers(shift)) ?? { dx: Math.max(...xs), dy: 0 }
 }
 
 // ── Nodes ───────────────────────────────────────────────────────────────────
@@ -227,12 +278,15 @@ export function buildSubagentNodes(
   expanded: Readonly<Record<string, boolean>>,
 ): readonly CanvasFlowNode[] {
   const nodes: CanvasFlowNode[] = []
+  // The Layout's Nodes on the plane; the frames and Tickets are not among them (ADR-0032).
+  const plane = layout.nodes.filter(onThePlane)
   for (const session of sessionParents(layout)) {
     const sessionId = session.data.sessionId as string
     const tree = trees.get(sessionId)
     if (!tree || tree.length === 0) continue
     const offsets = readOffsets(layout.nodes.find((node) => node.id === subagentTreeNodeId(sessionId)))
-    const places = placeSubagents({ sessionId, sessionWidth: session.w, tree, offsets, expanded: (parentKey) => expanded[uiKey(projectId, sessionId, parentKey)] === true })
+    const around = plane.map((node) => ({ x: node.x - session.x, y: node.y - session.y, w: node.w, h: node.h }))
+    const places = placeSubagents({ sessionId, sessionWidth: session.w, tree, offsets, around, expanded: (parentKey) => expanded[uiKey(projectId, sessionId, parentKey)] === true })
     for (const place of places) {
       const node = flowNode(projectId, session, sessionId, place)
       const signature = JSON.stringify([node.parentId, node.position, node.width, node.height, node.data.node.data])

@@ -150,6 +150,26 @@ describe('New session', () => {
     expect(h.view(a.nodeId).sdkSessionId).not.toBe(h.view(b.nodeId).sdkSessionId)
     expect(h.registry.list()).toHaveLength(2)
   })
+
+  it('with a spot ("Ship ticket", worfy-daily ticket 28) goes there, or down from it, rather than to the first clear spot of the Canvas', async () => {
+    // The top-left spot is taken and the Nodes go far down; by the spot there is room under one Note.
+    savedLayout([
+      { id: 'tall', kind: 'note', x: 40, y: 40, w: 400, h: 2400, data: {} },
+      { id: 'by-the-spot', kind: 'note', x: 1000, y: 500, w: 200, h: 200, data: {} },
+    ])
+    const h = harness()
+    const near = { x: 1000, y: 600 }
+    const created = h.sessions.create(PROJECT, near)
+    const placed = h.node(created.nodeId)
+    expect(placed).toMatchObject({ kind: 'session', x: 1000, y: 740, w: LIVE_SESSION_WIDTH, h: LIVE_SESSION_HEIGHT })
+    for (const other of [h.node('tall'), h.node('by-the-spot')]) {
+      expect(placed.x < other.x + other.w && other.x < placed.x + placed.w && placed.y < other.y + other.h && other.y < placed.y + placed.h, other.id).toBe(false)
+    }
+    // Without a spot the Node goes under everything, as before.
+    const plain = h.node(h.sessions.create(PROJECT).nodeId)
+    expect(plain.y).toBeGreaterThan(2440)
+    await Promise.all([h.until(created.nodeId, 'idle'), h.until(plain.id, 'idle')])
+  })
 })
 
 describe('Resume', () => {
