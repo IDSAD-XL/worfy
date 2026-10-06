@@ -80,6 +80,36 @@ describe('joinPastAndLive', () => {
     expect(joinPastAndLive(past, liveTurn)).toEqual([...past, ...liveTurn])
   })
 
+  it('shows once a prompt with an image, which the live events name and the transcript sends as a block of its own', () => {
+    const live: AgentEvent[] = [user('look\n\nAttached images: a.png'), init, text('msg_5', 'A cat')]
+    expect(joinPastAndLive([...before, user('look')], live)).toEqual([...before, ...live])
+    expect(joinPastAndLive([...before, user('look'), text('msg_5', 'A cat')], live)).toEqual([...before, ...live])
+  })
+
+  it('shows once a prompt with files, whose line both the live events and the transcript have', () => {
+    const prompt = 'read these\n\nAttached files: /p/a.md'
+    const live: AgentEvent[] = [user(prompt), init, text('msg_6', 'Read')]
+    expect(joinPastAndLive([...before, user(prompt)], live)).toEqual([...before, ...live])
+  })
+
+  it('keeps a prompt from before Resume that an interruption closed, when the live turn has the same text', () => {
+    const past = [...before, user('hi'), user('[Request interrupted by user]')]
+    const live: AgentEvent[] = [user('hi'), init, text('msg_7', 'Hello')]
+    expect(joinPastAndLive(past, live)).toEqual([...past, ...live])
+    expect(joinPastAndLive([...past, user('hi'), text('msg_7', 'Hello')], live)).toEqual([...past, ...live])
+  })
+
+  it('takes from the transcript only as many prompts as the live events open with', () => {
+    const live: AgentEvent[] = [user('hi'), init, text('msg_8', 'Hello')]
+    expect(joinPastAndLive([...before, user('hi'), user('hi'), text('msg_8', 'Hello')], live)).toEqual([...before, user('hi'), ...live])
+  })
+
+  it('cannot tell a prompt from before Resume without answer or interruption from the same live one, and shows it once', () => {
+    // A known gap: nothing in the file tells the two apart.
+    const live: AgentEvent[] = [user('hi'), init, text('msg_9', 'Hello')]
+    expect(joinPastAndLive([...before, user('hi')], live)).toEqual([...before, ...live])
+  })
+
   it('keeps every turn before Resume when no live event has come yet', () => {
     expect(joinPastAndLive(before, [])).toEqual(before)
   })

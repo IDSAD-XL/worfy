@@ -19,6 +19,7 @@
 // shows the transcript's events first and these after them (joinPastAndLive, worfy-daily ticket 22).
 import { useEffect } from 'react'
 import { create } from 'zustand'
+import { typedText } from '../../shared/agent/attachments'
 import type { AgentEvent, AgentEventEnvelope, QueueSnapshot } from '../../shared/agent/events'
 import type { SessionSettings } from '../../shared/agent/settings'
 import { invoke, subscribe } from '../ipc'
@@ -168,10 +169,13 @@ function identity(event: AgentEvent): string | null {
 /**
  * The text the user typed, for an event that opens a turn: a prompt (`notice` of kind `user`), or a
  * slash command, which a transcript file records as a `command` event and the live Session as the
- * prompt the user typed. Without the leading slash, so the two compare equal.
+ * prompt the user typed. Without the leading slash, and without the `Attached images: …` line the
+ * live prompt carries and the file does not (the images go as blocks of their own; typedText), so
+ * the two compare equal. Claude Code's own `[Request interrupted by user]` is a prompt here too: it
+ * closes a turn in the file.
  */
 function typed(event: AgentEvent): string | null {
-  if (event.type === 'notice' && event.kind === 'user') return event.text.trim().replace(/^\//, '')
+  if (event.type === 'notice' && event.kind === 'user') return typedText(event.text).trim().replace(/^\//, '')
   if (event.type === 'command') return `${event.name.replace(/^\//, '')} ${event.args}`.trim()
   return null
 }
@@ -183,9 +187,11 @@ function typed(event: AgentEvent): string | null {
  *
  * The live part starts in the file at the first event that carries an id one of the live events
  * carries too (`identity`), or else at its end. The file records a prompt before its answer, so
- * the live part starts earlier, at a prompt the live events open with, when one lies between that
- * point and the last event with an id before it. A prompt in the file that already has an answer
- * is a turn from before Resume and stays, even when the user typed the same text again.
+ * the live part starts earlier, at the prompts the live events open with that lie right before
+ * that point, after the last event with an id. A prompt in the file that already has an answer,
+ * or that an interruption closed, is a turn from before Resume and stays, even when the user typed
+ * the same text again. A prompt from before Resume that got neither and reads like the first live
+ * one cannot be told from it and is shown once.
  */
 export function joinPastAndLive(past: readonly AgentEvent[], live: readonly AgentEvent[]): readonly AgentEvent[] {
   if (live.length === 0) return past
@@ -198,24 +204,30 @@ export function joinPastAndLive(past: readonly AgentEvent[], live: readonly Agen
     ids.add(id)
     if (firstWithId < 0) firstWithId = at
   })
-  const opening = new Set<string>()
+  // The prompts the live events open with, each as often as it comes.
+  const opening = new Map<string, number>()
   for (const event of firstWithId < 0 ? live : live.slice(0, firstWithId)) {
     const text = typed(event)
-    if (text !== null) opening.add(text)
+    if (text !== null) opening.set(text, (opening.get(text) ?? 0) + 1)
   }
   let cut = past.findIndex((event) => {
     const id = identity(event)
     return id !== null && ids.has(id)
   })
   if (cut < 0) cut = past.length
-  // Back to the last event with an id: what lies between belongs to one turn, the live one when
-  // it opens with a prompt the live events open with.
+  // Back to the last event with an id: the prompts in between are live ones as long as each is one
+  // the live events open with. Any other — a prompt from before Resume, the interruption that
+  // closed one — ends the live part there.
   let start = cut
   for (let at = cut - 1; at >= 0; at -= 1) {
     const event = past[at] as AgentEvent
     if (identity(event) !== null) break
     const text = typed(event)
-    if (text !== null && opening.has(text)) start = at
+    if (text === null) continue
+    const left = opening.get(text) ?? 0
+    if (left === 0) break
+    opening.set(text, left - 1)
+    start = at
   }
   return [...past.slice(0, start), ...live]
 }
