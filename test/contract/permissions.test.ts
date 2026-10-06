@@ -10,11 +10,13 @@ import { fileURLToPath } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { CANCELLED_MESSAGE, DENIED_MESSAGE, PermissionGate } from '../../src/main/agent/permissions'
+import { CANCELLED_MESSAGE, DENIED_MESSAGE, PermissionGate, UNATTENDED_DENIED_MESSAGE } from '../../src/main/agent/permissions'
+import { UNATTENDED_MODE_MESSAGE } from '../../src/main/agent/session-settings'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { agentHandlers } from '../../src/main/ipc/agent'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import type { AgentEvent, AgentEventEnvelope } from '../../src/shared/agent/events'
+import { DEFAULT_SETTINGS, type SessionSettings } from '../../src/shared/agent/settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 
 vi.mock('electron', () => ({ app: { isPackaged: false, getAppPath: () => '/nowhere', on: vi.fn() } }))
@@ -70,12 +72,21 @@ async function harness(script: string | ((request: QueryRequest) => string), set
     await ok('agent.configure', { sessionId, change: { permissionMode: 'default' } })
     return sessionId
   }
+  /**
+   * Starts a Session the way Autopilot does (worfy-daily ticket 02): unattended, over the picks
+   * saved for its Node (`default` mode unless given); answers its first id.
+   */
+  const startUnattended = async (settings: SessionSettings = { ...DEFAULT_SETTINGS, permissionMode: 'default' }) => {
+    const session = registry.start(cwd, undefined, (sessionId, event) => received.push({ sessionId, event }), settings, { unattended: true })
+    await vi.waitFor(() => expect(session.state).toBe('idle'))
+    return session.id
+  }
   /** The ids a Session's events came under: its temporary id and, after its first turn, its SDK id. */
   const idsOf = (sessionId: string): string[] => {
     const session = registry.get(sessionId)
     return [...new Set([sessionId, session.id])]
   }
-  return { call, ok, calls, permissions, registry, events, ofType, start, idsOf, received }
+  return { call, ok, calls, permissions, registry, events, ofType, start, startUnattended, idsOf, received }
 }
 
 describe('a permission request', () => {
@@ -384,5 +395,88 @@ describe('PermissionGate', () => {
     void gate.canUseTool('Bash', { command: 'pwd' }, options())
     expect(gate.pending).toBe(1)
     gate.cancelAll()
+  })
+})
+
+describe('an unattended Session (Autopilot, worfy-daily ticket 02)', () => {
+  it('refuses a change of its permission mode with a reason over IPC; the mode stays bypassPermissions', async () => {
+    const h = await harness('permission')
+    const id = await h.startUnattended()
+
+    const refused = await h.call('agent.configure', { sessionId: id, change: { permissionMode: 'default' } })
+    expect(refused).toEqual({ ok: false, error: `agent.configure failed: ${UNATTENDED_MODE_MESSAGE}` })
+    expect(h.registry.get(id).settings.permissionMode).toBe('bypassPermissions')
+    // A change that carries a mode is refused whole: its model is not applied either.
+    expect(await h.call('agent.configure', { sessionId: id, change: { model: 'opus', permissionMode: 'plan' } })).toEqual({ ok: false, error: `agent.configure failed: ${UNATTENDED_MODE_MESSAGE}` })
+    expect(h.registry.get(id).settings).toEqual({ model: null, effort: null, permissionMode: 'bypassPermissions' })
+    expect(h.calls.filter((each) => each.kind === 'setPermissionMode' || each.kind === 'setModel')).toEqual([])
+  })
+
+  it('starts in bypassPermissions even when its Node saved another mode, and asks nothing in a turn', async () => {
+    const h = await harness('permission')
+    const id = await h.startUnattended({ model: 'sonnet', effort: 'high', permissionMode: 'plan' })
+    expect(h.registry.get(id).unattended).toBe(true)
+    expect(h.registry.get(id).settings).toEqual({ model: 'sonnet', effort: 'high', permissionMode: 'bypassPermissions' })
+    expect(h.calls.filter((each) => each.kind === 'start')).toEqual([{ kind: 'start', resume: null, settings: { model: 'sonnet', effort: 'high', permissionMode: 'bypassPermissions' } }])
+    expect(h.ofType('settings')[0]?.settings.permissionMode).toBe('bypassPermissions')
+
+    await h.ok('agent.send', { sessionId: id, text: 'build it' })
+    await vi.waitFor(() => expect(h.ofType('result')).toHaveLength(1))
+    expect(h.ofType('permission_request')).toEqual([])
+    expect(h.permissions()).toEqual([])
+    expect(h.ofType('refused_dialog')).toEqual([])
+  })
+
+  it('still takes a change of model or effort, and a change to bypassPermissions itself', async () => {
+    const h = await harness('turn')
+    const id = await h.startUnattended()
+    expect(await h.ok('agent.configure', { sessionId: id, change: { model: 'opus', effort: 'low' } })).toEqual({ model: 'opus', effort: 'low', permissionMode: 'bypassPermissions' })
+    expect(await h.ok('agent.configure', { sessionId: id, change: { permissionMode: 'bypassPermissions' } })).toEqual({ model: 'opus', effort: 'low', permissionMode: 'bypassPermissions' })
+  })
+
+  it('leaves an ordinary Session free to change its mode, as before', async () => {
+    const h = await harness('turn')
+    const id = await h.start()
+    expect(h.registry.get(id).unattended).toBe(false)
+    expect(h.registry.get(id).settings.permissionMode).toBe('default')
+    expect(h.calls).toContainEqual({ kind: 'setPermissionMode', mode: 'default' })
+  })
+
+  it('answers canUseTool with a refusal at once: the gate opens no request, subscribers get refused_dialog', async () => {
+    const requests: QueryRequest[] = []
+    const h = await harness((request) => {
+      requests.push(request)
+      return 'turn'
+    })
+    const observed: AgentEvent[] = []
+    h.registry.observe((_sessionId, event) => observed.push(event))
+    const id = await h.startUnattended()
+    const [request] = requests
+    expect(request?.unattended).toBe(true)
+
+    const answer = await request?.canUseTool('Bash', { command: 'rm -rf build' }, { signal: new AbortController().signal })
+    expect(answer).toEqual({ behavior: 'deny', message: UNATTENDED_DENIED_MESSAGE })
+    const refused = { type: 'refused_dialog', dialog: 'permission_request', subject: 'Bash', message: UNATTENDED_DENIED_MESSAGE }
+    expect(h.ofType('refused_dialog')).toEqual([refused])
+    expect(observed.filter((each) => each.type === 'refused_dialog')).toEqual([refused])
+    expect(h.ofType('permission_request')).toEqual([])
+    expect(h.ofType('state').map((each) => each.state)).not.toContain('needs_permission')
+    expect(h.registry.get(id).state).toBe('idle')
+  })
+
+  it('gives an ordinary Session the gate: its canUseTool waits for the user', async () => {
+    const requests: QueryRequest[] = []
+    const h = await harness((request) => {
+      requests.push(request)
+      return 'turn'
+    })
+    const id = await h.start()
+    const [request] = requests
+    expect(request?.unattended).toBe(false)
+    void request?.canUseTool('Bash', { command: 'ls' }, { signal: new AbortController().signal })
+    await vi.waitFor(() => expect(h.ofType('permission_request')).toMatchObject([{ toolName: 'Bash', input: { command: 'ls' } }]))
+    expect(h.ofType('refused_dialog')).toEqual([])
+    // Closing the Session refuses the open request, so nothing is left waiting.
+    await h.ok('agent.close', { sessionId: id })
   })
 })

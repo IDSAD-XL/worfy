@@ -89,6 +89,11 @@ describe('sdkQueryFactory', () => {
     expect(sdkOptions()).toMatchObject({ model: 'sonnet', effort: 'low', permissionMode: 'plan', resume: 'sdk-123', allowDangerouslySkipPermissions: true })
   })
 
+  it('starts an unattended Session (Autopilot, worfy-daily ticket 02) in bypassPermissions whatever mode it carries', async () => {
+    await sdkQueryFactory()({ ...request(), settings: { model: 'sonnet', effort: 'low', permissionMode: 'plan' }, unattended: true })
+    expect(sdkOptions()).toMatchObject({ model: 'sonnet', effort: 'low', permissionMode: 'bypassPermissions', allowDangerouslySkipPermissions: true })
+  })
+
   it('writes what the fake agent was asked to do to WORFY_AGENT_LOG, one JSON line each', async () => {
     const scriptsDir = join(import.meta.dirname, '..', 'fixtures', 'agent-scripts')
     const log = join(dataDir, 'agent.log')

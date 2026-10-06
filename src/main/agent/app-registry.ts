@@ -36,6 +36,7 @@ export function sdkQueryFactory(canvas: CanvasResolver = canvasForSession): Quer
       canvas: attached?.attachment,
       settings: request.settings,
       canUseTool: request.canUseTool,
+      unattended: request.unattended,
     })
     const handle = query({ prompt: request.prompt, options }) as QueryHandle
     return attached ? attached.observe(handle) : handle

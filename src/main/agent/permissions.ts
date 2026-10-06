@@ -18,6 +18,10 @@
 //
 // A request nobody answered is refused when the turn is interrupted, when the Session closes or
 // its Claude Code dies (cancelAll), and when Claude Code aborts it itself (the call's signal).
+//
+// An unattended Session (worfy-daily ticket 02, session-settings.ts) runs in bypassPermissions and
+// is not expected to be asked at all. If Claude Code asks anyway, unattendedCanUseTool refuses at
+// once instead of the gate: no `permission_request`, no `needs_permission`, nothing waits for the UI.
 import { randomUUID } from 'node:crypto'
 import type { AgentEvent, PermissionDecision } from '../../shared/agent/events'
 
@@ -25,6 +29,10 @@ import type { AgentEvent, PermissionDecision } from '../../shared/agent/events'
 export const DENIED_MESSAGE = 'The user denied this tool call in worfy.'
 /** What the model reads when the request was dropped: the turn was interrupted or the Session closed. */
 export const CANCELLED_MESSAGE = 'The permission request was cancelled: the user interrupted the turn or closed the Session.'
+
+/** What the model reads when an unattended Session was asked for a permission. */
+export const UNATTENDED_DENIED_MESSAGE =
+  'This Session runs unattended (worfy Autopilot): no one is there to answer a permission request, so the tool call is refused.'
 
 /** The options of canUseTool that worfy reads (SDK 0.3.289, test/fixtures/sdk-messages/can-use-tool.json). */
 export interface PermissionRequestOptions {
@@ -43,6 +51,17 @@ export type PermissionAnswer = { behavior: 'allow'; updatedInput: Record<string,
 
 /** canUseTool as a Session hands it to the query (options.ts passes it to the SDK). */
 export type CanUseToolHandler = (toolName: string, input: Record<string, unknown>, options: PermissionRequestOptions) => Promise<PermissionAnswer>
+
+/**
+ * canUseTool of an unattended Session: refuses every call at once and tells `refused` the tool's
+ * name, so the Session can report the refusal to its subscribers.
+ */
+export function unattendedCanUseTool(refused: (toolName: string, message: string) => void): CanUseToolHandler {
+  return (toolName) => {
+    refused(toolName, UNATTENDED_DENIED_MESSAGE)
+    return Promise.resolve({ behavior: 'deny', message: UNATTENDED_DENIED_MESSAGE })
+  }
+}
 
 interface Pending {
   toolName: string

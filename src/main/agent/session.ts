@@ -19,6 +19,10 @@
 // Outside bypassPermissions Claude Code asks before tools (ticket 21): the Session's own
 // PermissionGate (permissions.ts) answers canUseTool from the user's choice, and the Session is
 // `needs_permission` while a request is open. Interrupt, close and a crash refuse open requests.
+//
+// A Session launched unattended (Autopilot, worfy-daily ticket 02, session-settings.ts) never waits
+// for a person: it runs in bypassPermissions, refuses a change of mode, refuses canUseTool at once,
+// and each refusal reaches its subscribers as a `refused_dialog` event.
 import { randomUUID } from 'node:crypto'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { messageLabel, type Attachment } from '../../shared/agent/attachments'
@@ -36,8 +40,9 @@ import {
 } from '../../shared/agent/settings'
 import { userContent } from './attachments'
 import { CommandCatalog, type CommandInfoLike } from './commands'
-import { PermissionGate, type CanUseToolHandler } from './permissions'
+import { PermissionGate, unattendedCanUseTool, type CanUseToolHandler } from './permissions'
 import { MessageQueue } from './queue'
+import { ATTENDED, launchSettings, settingsChangeRefusal, type SessionLaunch } from './session-settings'
 
 /** What accountInfo() returns, as far as worfy reads it (ADR-0009). */
 export interface AccountInfoLike {
@@ -81,6 +86,8 @@ export interface QueryRequest {
   settings: SessionSettings
   /** Answers Claude Code's permission requests (permissions.ts); one gate per Session, across its queries. */
   canUseTool: CanUseToolHandler
+  /** No person is at the Session (session-settings.ts): Claude Code must run in bypassPermissions. A Session always sets it. */
+  unattended?: boolean | undefined
 }
 
 /** Starts Claude Code for a Session: the real SDK, or the fake agent in tests. */
@@ -212,6 +219,8 @@ export class Session {
     (event) => this.emit(event),
     (pending) => this.permissionsChanged(pending),
   )
+  /** The gate's canUseTool, or for an unattended Session a refusal that waits for no one. */
+  private readonly canUseTool: CanUseToolHandler
 
   constructor(
     readonly cwd: string,
@@ -220,10 +229,29 @@ export class Session {
     private readonly onRenamed: (from: string, to: string) => void,
     resume: string | undefined,
     settings: SessionSettings = DEFAULT_SETTINGS,
+    private readonly launch: SessionLaunch = ATTENDED,
   ) {
     this.current = `pending-${randomUUID()}`
     this.sdkSessionId = resume ?? null
-    this.settingsValue = { ...settings }
+    this.settingsValue = launchSettings(settings, launch)
+    this.canUseTool = launch.unattended
+      ? unattendedCanUseTool((toolName, message) => this.refuseDialog('permission_request', toolName, message))
+      : this.permissions.canUseTool
+  }
+
+  /** No person is at this Session (Autopilot): nothing it does may wait for the UI. */
+  get unattended(): boolean {
+    return this.launch.unattended
+  }
+
+  /**
+   * Tells the subscribers that this Session refused something that would have waited for a person
+   * (a permission request, a Card's `session.ask`), and logs it: the record a check of an
+   * unattended run reads.
+   */
+  refuseDialog(dialog: 'permission_request' | 'card_ask', subject: string, message: string): void {
+    console.warn(`[agent] unattended Session ${this.current} refused a ${dialog} (${subject})`)
+    this.emit({ type: 'refused_dialog', dialog, subject, message })
   }
 
   get id(): string {
@@ -318,6 +346,8 @@ export class Session {
    */
   configure(change: SettingsChange): Promise<SessionSettings> {
     this.assertOpen()
+    const refusal = settingsChangeRefusal(this.launch, change)
+    if (refusal !== null) return Promise.reject(new Error(refusal))
     const task = this.configuring.then(async () => {
       const before = this.settingsValue
       const wanted = mergeSettings(before, change)
@@ -405,7 +435,8 @@ export class Session {
         if (run.stderr.length > STDERR_KEEP) run.stderr.shift()
       },
       settings,
-      canUseTool: this.permissions.canUseTool,
+      canUseTool: this.canUseTool,
+      unattended: this.launch.unattended,
     }
     void this.consume(run, request)
   }
@@ -546,9 +577,10 @@ export class SessionRegistry {
   /**
    * Starts a Session whose events go to `sink` (the window that asked for it). Resuming an SDK
    * session that a live Session already runs is refused: two Claude Code processes would write
-   * one transcript, and both Sessions would send events under one id.
+   * one transcript, and both Sessions would send events under one id. `launch` is attended unless
+   * Autopilot starts the Session unattended (session-settings.ts).
    */
-  start(cwd: string, resume: string | undefined, sink: EventSink, settings?: SessionSettings): Session {
+  start(cwd: string, resume: string | undefined, sink: EventSink, settings?: SessionSettings, launch?: SessionLaunch): Session {
     if (resume !== undefined && this.live().some((live) => live.id === resume || live.sdkId === resume)) {
       throw new Error(`Session ${resume} is already live`)
     }
@@ -573,6 +605,7 @@ export class SessionRegistry {
       (_from, to) => this.sessions.set(to, session),
       resume,
       settings,
+      launch,
     )
     this.sessions.set(session.id, session)
     session.start()

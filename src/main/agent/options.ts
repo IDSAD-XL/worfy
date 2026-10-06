@@ -9,7 +9,9 @@
 // (ADR-0008): in `pnpm dev` the SDK finds it itself; in the packaged app its own lookup points
 // inside app.asar, where nothing can be spawned, so the path into app.asar.unpacked is explicit.
 // Outside bypassPermissions Claude Code asks the Session's permission gate before a tool
-// (canUseTool, ticket 21, src/main/agent/permissions.ts).
+// (canUseTool, ticket 21, src/main/agent/permissions.ts). An unattended Session (Autopilot,
+// worfy-daily ticket 02, src/main/agent/session-settings.ts) starts in bypassPermissions whatever
+// mode its settings carry; its Subagents, those of workflow scripts included, inherit the mode.
 import { join } from 'node:path'
 import type { McpServerConfig, Options } from '@anthropic-ai/claude-agent-sdk'
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../shared/agent/settings'
@@ -62,6 +64,8 @@ export interface SessionOptionsInput {
   settings?: SessionSettings | undefined
   /** Answers permission requests outside bypassPermissions; without it Claude Code's own default applies. */
   canUseTool?: CanUseToolHandler | undefined
+  /** No person is at the Session: it runs in bypassPermissions whatever `settings` say. */
+  unattended?: boolean | undefined
 }
 
 export function sessionOptions(input: SessionOptionsInput): Options {
@@ -71,7 +75,7 @@ export function sessionOptions(input: SessionOptionsInput): Options {
     env: input.env,
     settingSources: ['user', 'project', 'local'],
     systemPrompt: { type: 'preset', preset: 'claude_code' },
-    permissionMode: settings.permissionMode,
+    permissionMode: input.unattended === true ? 'bypassPermissions' : settings.permissionMode,
     // Not required by SDK 0.3.289 (ticket 06, question 9), but documented as required with
     // bypassPermissions: passing it keeps a stricter SDK from silently falling back to prompts.
     // Passed in every mode, so the user can switch a Session to bypassPermissions mid-session.

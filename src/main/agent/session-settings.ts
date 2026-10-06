@@ -10,12 +10,43 @@
 // Reads and writes go through src/main/storage/json-file.ts: the write is atomic, and a file that
 // cannot be parsed is set aside and read as empty. A damaged field of one Node's picks falls back
 // to its default and keeps the others (readSettings).
+//
+// Besides the picks, a Session has its launch (SessionLaunch, worfy-daily ticket 02): whether a
+// person is at it. Autopilot (worfy-daily ticket 04) is the only caller that launches a Session
+// unattended. Such a Session runs in bypassPermissions whatever mode its Node saved, and refuses a
+// change of mode instead of applying it: in any other mode Claude Code would ask before a tool, and
+// no one would answer. The launch is not written to session-settings.json: it belongs to one run,
+// so a restart or the end of the run gives the Node back the user's own picks.
 import { join } from 'node:path'
 import { z } from 'zod'
-import { readSettings, sessionSettingsSchema, type SessionSettings } from '../../shared/agent/settings'
+import { readSettings, sessionSettingsSchema, type SessionSettings, type SettingsChange } from '../../shared/agent/settings'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 
 export const SESSION_SETTINGS_FILE = 'session-settings.json'
+
+/** How a Session is launched, besides the user's picks. */
+export interface SessionLaunch {
+  /** No person is at the Session: nothing it does may wait for an answer in the UI. */
+  unattended: boolean
+}
+
+/** A Session the user started, or one they can answer: the default. */
+export const ATTENDED: SessionLaunch = { unattended: false }
+
+/** What a change of the permission mode of an unattended Session answers, over IPC. */
+export const UNATTENDED_MODE_MESSAGE =
+  'This Session runs unattended (Autopilot), so its permission mode stays bypassPermissions: in any other mode Claude Code would ask before a tool, and no one is there to answer.'
+
+/** The settings a Session runs with: an unattended one always in bypassPermissions. */
+export function launchSettings(settings: SessionSettings, launch: SessionLaunch): SessionSettings {
+  return launch.unattended ? { ...settings, permissionMode: 'bypassPermissions' } : { ...settings }
+}
+
+/** Why a settings change is refused for this launch, or null when it may be applied. A refused change is refused whole. */
+export function settingsChangeRefusal(launch: SessionLaunch, change: SettingsChange): string | null {
+  if (!launch.unattended || change.permissionMode === undefined || change.permissionMode === 'bypassPermissions') return null
+  return UNATTENDED_MODE_MESSAGE
+}
 
 const nodeId = z.string().min(1)
 
