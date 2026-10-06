@@ -11,7 +11,8 @@
 //   `subagent` finished.
 // - Ambient tasks (housekeeping, live-update watchers) are not work and never count.
 // - Nothing is sent when a process starts, and a new process has none of the old one's tasks: the
-//   Session starts a new fold (emptyTaskFold) for every process, and when one dies.
+//   Session empties its fold (emptyTaskFold) when a process dies or is closed, so every process
+//   starts with an empty one.
 import type { AgentEvent } from './events'
 
 /** One live background task, as Autopilot shows and journals it. */

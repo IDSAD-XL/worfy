@@ -15,8 +15,9 @@
 // - The run waits for the background tasks of its Orchestrator Session (worfy-daily ticket 29,
 //   ADR-0029): a turn that ends while they live does not end the Wave; their task-notifications
 //   start turns of the Wave. Every change of the set goes to the journal. Without any task event
-//   for the limit the run stops with `background-stalled`. A run stopped while tasks live leaves
-//   the Orchestrator unattended, and keeps keep-awake, until they have ended (orchestrator.ts);
+//   for the limit the run stops with `background-stalled`. A run stopped while tasks live, or
+//   while a turn runs (it may start some), leaves the Orchestrator unattended, and keeps
+//   keep-awake, until the turn and the tasks have ended (orchestrator.ts);
 //   then the journal says `orchestrator-returned`, or, if the app quits first, `tasks-killed`.
 // - keep-awake (power.ts) is held from the start to the end of the run.
 // - A turn of the Wave refused by the Limits does not end it (worfy-daily ticket 05): the run goes
@@ -119,6 +120,9 @@ export interface AutopilotDeps {
 const journalTasks = (tasks: readonly BackgroundTask[]) => tasks.map((task) => ({ id: task.taskId, type: task.taskType, description: task.description }))
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+
+/** Whether a Session state is a running turn: the Orchestrator is not given back during one (orchestrator.ts). */
+const inTurn = (state: SessionState): boolean => state === 'busy' || state === 'needs_permission'
 
 /** What the start of a run is refused with while another run of the Project goes on. */
 export const alreadyRunning = (epic: string): string => `Autopilot is already running in this Project (Epic ${epic}): stop it first`
@@ -602,7 +606,10 @@ export class Autopilot {
     await this.write(run, { kind: 'run-stopped', reason, ...(live.length > 0 ? { tasks: journalTasks(live) } : {}) })
     this.dropQueuedWave(run)
     // Live tasks keep the Orchestrator unattended, and the Mac awake, until they end (ADR-0029).
-    const linger = live.length > 0 && reason !== 'app-quit' && run.session !== null
+    // So does a turn still running: /epic-wave starts the implementers inside the Wave's turn, so
+    // a Stop during it may come before any task has started. The Session is read again here, after
+    // the journal write: its turn may have ended meanwhile.
+    const linger = reason !== 'app-quit' && run.session !== null && (this.liveTasks(run).length > 0 || inTurn(run.session.state))
     if (linger) this.linger(run)
     // On quit the Orchestrator closes with every Session: starting it again would start Claude Code.
     await this.release(run, reason !== 'app-quit', !linger)
@@ -614,10 +621,11 @@ export class Autopilot {
   }
 
   /**
-   * After a stop with live background tasks: the run's Session stays unattended until they end
-   * (orchestrator.ts gives it back then). Meanwhile every change of the set goes to the journal;
-   * once the Session is closed — given back — `orchestrator-returned` is written and keep-awake
-   * released. If the app quits first, the tasks are journaled as killed.
+   * After a stop with live background tasks, or during a turn: the run's Session stays unattended
+   * until the turn and the tasks have ended (orchestrator.ts gives it back then). Meanwhile every
+   * change of the set goes to the journal; once the Session is closed — given back —
+   * `orchestrator-returned` is written and keep-awake released. If the app quits first, the tasks
+   * alive then are journaled as killed (none, when only the turn was running).
    */
   private linger(run: Run): void {
     const session = run.session

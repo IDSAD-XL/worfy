@@ -254,14 +254,20 @@ test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave mea
     await expect(runWave).toHaveAttribute('data-error', AUTOPILOT_RUNNING_HINT)
     expect(messages(log)).toHaveLength(1)
 
-    // Stop: the run ends with user-stop; keep-awake is released.
+    // Stop: the run ends with user-stop. The Wave's turn still runs (it may start background
+    // tasks, ADR-0029): keep-awake is held until the Orchestrator is given back after it.
     await stop.click()
     await expect(status).toHaveText('stopped: user stop')
     await expect(autopilot).toHaveText('Autopilot')
-    expect(await power()).toEqual(['start prevent-app-suspension', 'stop'])
     expect(journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'run-stopped user-stop'])
+    expect(await power()).toEqual(['start prevent-app-suspension'])
     await expectStatusClear(window, header, status)
     await snapshots(window, header, 'autopilot-stopped')
+    // The turn ends (Interrupt): the Orchestrator comes back, and keep-awake is released.
+    const orchestrator = (await bridgeCall(window, 'orchestrator.open', { projectId: PROJECT })) as { ok: boolean; value: { sessionId: string } }
+    expect(await bridgeCall(window, 'agent.interrupt', { sessionId: orchestrator.value.sessionId })).toEqual({ ok: true, value: { interrupted: true } })
+    await expect.poll(() => journalKinds(dataDir).at(-1)).toBe('orchestrator-returned')
+    await expect.poll(() => power()).toEqual(['start prevent-app-suspension', 'stop'])
 
     // worfy wrote nothing into the repository, and nothing into the Claude home the run read.
     expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)

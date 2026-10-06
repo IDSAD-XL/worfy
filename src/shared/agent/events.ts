@@ -142,6 +142,7 @@ export const agentEvent = z.discriminatedUnion('type', [
   /**
    * system/task_progress or system/task_updated: a task of the Session is still at work. Shown
    * nowhere; Autopilot counts it as a sign of life. `backgrounded`: the task moved to the background.
+   * Main-process only (isMainOnlyEvent): it never goes to a window.
    */
   z.object({ type: z.literal('task_activity'), taskId: z.string(), backgrounded: z.boolean() }),
   /**
@@ -199,6 +200,16 @@ export const agentEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('unknown'), sdkType: z.string() }),
 ])
 export type AgentEvent = z.infer<typeof agentEvent>
+
+/**
+ * Whether an event stays in the main process: the Session's observers get it (Autopilot), its
+ * sink — the windows — does not. `task_activity` comes with every tool use of every background
+ * task and is shown nowhere; in a window it would only push the Session's earlier events out of
+ * the renderer's bounded event list.
+ */
+export function isMainOnlyEvent(event: AgentEvent): boolean {
+  return event.type === 'task_activity'
+}
 
 /** What travels on `agent.event`: one event of one Session. */
 export const agentEventEnvelope = z.object({ sessionId: z.string(), event: agentEvent })

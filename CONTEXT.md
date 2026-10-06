@@ -82,6 +82,10 @@ _Avoid_: оркестратор, composer, главный чат, Morphy
 Агент, которого Session запустила для части работы (например, scout, implementer, reviewer); у него свой транскрипт и итог, и он принадлежит запустившей его Session.
 _Avoid_: субагент, воркер, teammate
 
+**Background task**:
+Работа, которую Session запустила и не ждёт в своём ходе: Subagent или Bash с `run_in_background`, workflow-скрипт (ADR-0029). Живёт, пока жив процесс Claude Code этой Session; о своём конце сообщает task-notification, которая начинает новый ход Session. Это не Ticket: в строке Autopilot «2 background tasks» и в журнале прогона считаются только такие задачи.
+_Avoid_: job; «task» и «задача» без «background»
+
 **Binding**:
 Связь Session или Subagent с Ticket либо Epic, над которым он работает. Определяется по сигналам из работы агента или задаётся пользователем вручную.
 _Avoid_: привязка, assignment, линк

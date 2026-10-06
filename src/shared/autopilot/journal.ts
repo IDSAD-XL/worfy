@@ -39,7 +39,8 @@
 //   orchestrator-returned            after a run-stopped with live tasks: they have ended and the
 //                                    Orchestrator runs as a person's Session again
 //   tasks-killed   reason, tasks     the background tasks a stopped run still waited for were
-//                                    killed; reason: `app-quit`
+//                                    killed; reason: `app-quit`; tasks: none when the run waited
+//                                    only for a turn of the Orchestrator still running
 //
 // A task of `tasks` is {id, type, description}: the task id of Claude Code, its type
 // (`local_agent`, `local_bash`, …) and what it does, both null when Claude Code did not say.

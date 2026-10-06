@@ -372,20 +372,23 @@ describe('an Autopilot run on the fake agent', () => {
     expect(error).toMatchObject({ message: expect.stringContaining('Claude Code process exited with code 1') })
   })
 
-  it('Stop ends the run with user-stop and releases keep-awake; the Orchestrator turns attended once its turn ends', async () => {
+  it('Stop ends the run with user-stop; the Orchestrator turns attended once its turn ends, and keep-awake is released then', async () => {
     const h = harness({ script: 'orchestrator' })
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => messages(h.calls).length === 1, 'Wave 1')
     expect(h.power).toEqual(['start'])
     const stopped = await h.autopilot.stop(PROJECT)
     expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-stop', wave: 1 })
-    expect(h.power).toEqual(['start', 'stop'])
     expect((await h.kinds()).at(-1)).toEqual(['run-stopped', 'user-stop'])
-    // The turn still runs: the Orchestrator stays unattended until it ends.
+    // The turn still runs: the Orchestrator stays unattended until it ends, and the Mac awake
+    // (ADR-0029, point 5: the turn may start background tasks).
     expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
+    expect(h.power).toEqual(['start'])
     await (await h.session()).interrupt()
     await until(() => !h.orchestrators.isUnattended(PROJECT), 'the attended Orchestrator')
     expect(h.requests.at(-1)?.unattended).toBe(false)
+    await until(async () => (await h.kinds()).at(-1)?.[0] === 'orchestrator-returned', 'the orchestrator-returned line')
+    expect(h.power).toEqual(['start', 'stop'])
   })
 
   it('refuses "New conversation" of the Orchestrator while the run has it', async () => {

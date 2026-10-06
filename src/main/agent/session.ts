@@ -28,7 +28,7 @@ import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { messageLabel, type Attachment } from '../../shared/agent/attachments'
 import { emptyTaskFold, foldTaskEvent, isTaskEvent, liveTasks, sameTasks, type BackgroundTask, type TaskFold } from '../../shared/agent/background-tasks'
 import type { SlashCommand } from '../../shared/agent/commands'
-import { sdkMessageToEvents, type AgentEvent, type PermissionDecision, type QueueSnapshot, type SessionState } from '../../shared/agent/events'
+import { isMainOnlyEvent, sdkMessageToEvents, type AgentEvent, type PermissionDecision, type QueueSnapshot, type SessionState } from '../../shared/agent/events'
 import {
   DEFAULT_SETTINGS,
   EFFORT_LEVELS,
@@ -458,9 +458,9 @@ export class Session {
   }
 
   private begin(): void {
-    // A new Claude Code process: the tasks of any earlier one are gone, and the new one reports
-    // its own only when they change.
-    this.resetTasks()
+    // A new Claude Code process starts with an empty set of background tasks: a new Session has
+    // none yet, and fail() emptied it when the process before this one died. The new process
+    // reports its own only when they change.
     const settings = this.settings
     const run: Run = { query: null, input: new InputQueue<SDKUserMessage>(), stderr: [], applied: settings }
     this.run = run
@@ -657,7 +657,8 @@ export class SessionRegistry {
   }
 
   /**
-   * Starts a Session whose events go to `sink` (the window that asked for it). Resuming an SDK
+   * Starts a Session whose events go to `sink` (the window that asked for it), main-only ones
+   * (isMainOnlyEvent) left out: those go to the observers alone. Resuming an SDK
    * session that a live Session already runs is refused: two Claude Code processes would write
    * one transcript, and both Sessions would send events under one id. `launch` is attended unless
    * Autopilot starts the Session unattended (session-settings.ts).
@@ -678,7 +679,8 @@ export class SessionRegistry {
           }
         }
         try {
-          sink(sessionId, event)
+          // Events for the main process only (task_activity) reach the observers, not the windows.
+          if (!isMainOnlyEvent(event)) sink(sessionId, event)
         } finally {
           // A sink that throws (a window already gone) must not keep a closed Session listed.
           if (event.type === 'state' && event.state === 'closed') this.forget(session)

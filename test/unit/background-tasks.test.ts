@@ -77,7 +77,7 @@ describe('the live background tasks of a Session', () => {
     expect(ids([started('a'), level()])).toEqual([])
   })
 
-  it('a new fold (a new Claude Code process) has none of the tasks of the old one', () => {
+  it('an empty fold, as a Session takes when its Claude Code process ends, has none of the tasks of the old one', () => {
     const old = fold([level(['a']), started('b')])
     expect(liveTasks(old).length).toBe(1)
     expect(liveTasks(emptyTaskFold())).toEqual([])
