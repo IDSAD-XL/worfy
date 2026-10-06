@@ -388,6 +388,109 @@ describe('claudeHome.subagentTranscript', () => {
   })
 })
 
+// Ticket worfy-daily/17, ADR-0035: the agents of a workflow script, in `subagents/workflows/wf_*/`.
+describe('claudeHome.subagents: Subagents of workflow scripts', () => {
+  const WORKFLOW = '/Users/test/projects/workflow'
+  const S12 = '12121212-1212-4121-8121-121212121212'
+  const S12_DIR = join('projects', '-Users-test-projects-workflow')
+  const RUN_DIR = join(S12_DIR, S12, 'subagents', 'workflows', 'wf_0a1b2c3d-4e5')
+  const IMPL = 'a8100000000000260'
+  const askWorkflow = async (call: Awaited<ReturnType<typeof ipcOver>>) => value<SubagentsAnswer>(await call('claudeHome.subagents', { projectRoot: WORKFLOW, sessionId: S12 }))
+
+  it('puts the agents of a workflow run under its Workflow call', async () => {
+    const call = await ipcOver(registryOver(FIXTURE))
+    const answer = await askWorkflow(call)
+    expect(answer.files.map((file) => [file.agentId, file.workflow?.runId, file.workflow?.label ?? null])).toEqual([
+      [IMPL, 'wf_0a1b2c3d-4e5', 'impl:03'],
+      ['a8200000000000260', 'wf_0a1b2c3d-4e5', null],
+      ['a8300000000000260', 'wf_0a1b2c3d-4e5', 'scout:03'],
+    ])
+    expect(flattenSubagents(buildSubagentTree(answer)).map(({ name, subagentType, status, depth }) => ({ name, subagentType, status, depth }))).toEqual([
+      { name: 'wave-03', subagentType: 'workflow', status: 'done', depth: 1 },
+      { name: 'impl:03', subagentType: 'workflow-subagent', status: 'done', depth: 2 },
+      { name: null, subagentType: 'workflow-subagent', status: 'error', depth: 2 },
+      { name: 'scout:03', subagentType: 'Explore', status: 'done', depth: 2 },
+    ])
+  })
+
+  it('opens the transcript of a workflow agent, and of no file outside the run folders', async () => {
+    const call = await ipcOver(registryOver(FIXTURE))
+    const answer = value<TranscriptAnswer>(await call('claudeHome.subagentTranscript', { projectRoot: WORKFLOW, sessionId: S12, agentId: IMPL }))
+    expect(answer.found).toBe(true)
+    expect(answer.events.map((event) => event.type)).toEqual(['notice', 'tool_use', 'tool_result'])
+    expect(value<TranscriptAnswer>(await call('claudeHome.subagentTranscript', { projectRoot: WORKFLOW, sessionId: S12, agentId: 'journal' })).found).toBe(false)
+  })
+
+  it('reads again only what was appended to a workflow agent transcript', async () => {
+    const home = await copyOfFixture()
+    const implementer = join(home, RUN_DIR, `agent-${IMPL}.jsonl`)
+    const [first, ...rest] = (await readFile(implementer, 'utf8')).split('\n').filter((line) => line !== '')
+    // A long-running agent: 400 KB of answers before its last records.
+    const filler = JSON.stringify({ type: 'assistant', isSidechain: true, agentId: IMPL, timestamp: '2026-09-12T10:01:00.000Z', message: { model: 'claude-sonnet-5', content: [{ type: 'text', text: 'x'.repeat(4000) }], stop_reason: 'tool_use' } })
+    await writeFile(implementer, `${[first!, ...Array.from({ length: 100 }, () => filler), ...rest.slice(0, -1)].join('\n')}\n`)
+    const reader = readerWith()
+    const transcript = join(home, S12_DIR, `${S12}.jsonl`)
+    await reader.session(transcript)
+    const firstRead = reader.bytesRead
+    expect(firstRead).toBeGreaterThan(400_000)
+    const last = `${rest.at(-1)!}\n`
+    await appendFile(implementer, last)
+    const { files } = await reader.session(transcript)
+    const again = reader.bytesRead - firstRead
+    // The appended line, and one byte per other file to check it was not rewritten in place.
+    expect(again).toBeGreaterThanOrEqual(Buffer.byteLength(last))
+    expect(again).toBeLessThan(Buffer.byteLength(last) + 16)
+    expect(files.find((file) => file.agentId === IMPL)?.lastAt).toBe(Date.parse('2026-09-12T10:04:00.000Z'))
+  })
+
+  it('keeps an agent running while its run and its Session run, and ends it by its journal record', async () => {
+    const home = await copyOfFixture()
+    const transcript = join(home, S12_DIR, `${S12}.jsonl`)
+    const lines = (await readFile(transcript, 'utf8')).split('\n').filter((line) => line !== '')
+    await writeFile(transcript, `${lines.filter((line) => !line.includes('task-notification') && !line.includes('Wave 3 is merged')).join('\n')}\n`)
+    const journal = join(home, RUN_DIR, 'journal.jsonl')
+    const records = (await readFile(journal, 'utf8')).split('\n').filter((line) => line !== '')
+    await writeFile(journal, `${records.slice(0, 5).join('\n')}\n`)
+    await register(home, 41212, S12, WORKFLOW)
+    const call = await ipcOver(registryOver(home), readerWith(async (pid) => pid === 41212))
+    const running = flattenSubagents(buildSubagentTree(await askWorkflow(call))).map(({ name, status }) => [name, status])
+    expect(running).toEqual([
+      ['wave-03', 'running'],
+      ['impl:03', 'done'],
+      [null, 'running'],
+      ['scout:03', 'running'],
+    ])
+    await appendFile(journal, `${records.slice(5).join('\n')}\n`)
+    const after = flattenSubagents(buildSubagentTree(await askWorkflow(call))).map(({ name, status }) => [name, status])
+    expect(after).toEqual([
+      ['wave-03', 'running'],
+      ['impl:03', 'done'],
+      [null, 'error'],
+      ['scout:03', 'done'],
+    ])
+  })
+
+  it('reads workflow runs without writing anything under the Claude home', async () => {
+    const home = await copyOfFixture()
+    const before = await snapshot(home)
+    const call = await ipcOver(registryOver(home))
+    expect((await askWorkflow(call)).files).toHaveLength(3)
+    expect(value<TranscriptAnswer>(await call('claudeHome.subagentTranscript', { projectRoot: WORKFLOW, sessionId: S12, agentId: IMPL })).found).toBe(true)
+    expect(await snapshot(home)).toStrictEqual(before)
+  })
+
+  it('goes no deeper than subagents/workflows/wf_*/: a folder inside a run, or a folder not named wf_*, is not read', async () => {
+    const home = await copyOfFixture()
+    const run = join(home, RUN_DIR)
+    await mkdir(join(run, 'deeper'), { recursive: true })
+    await cp(join(run, `agent-${IMPL}.jsonl`), join(run, 'deeper', 'agent-a8900000000000260.jsonl'))
+    await mkdir(join(home, S12_DIR, S12, 'subagents', 'workflows', 'other'), { recursive: true })
+    await cp(join(run, `agent-${IMPL}.jsonl`), join(home, S12_DIR, S12, 'subagents', 'workflows', 'other', 'agent-a8800000000000260.jsonl'))
+    const call = await ipcOver(registryOver(home))
+    expect((await askWorkflow(call)).files.map((file) => file.agentId)).toEqual([IMPL, 'a8200000000000260', 'a8300000000000260'])
+  })
+})
+
 describe('reading a large Session', () => {
   it('reads 24 Subagents of 400 KB each within a second', async () => {
     const home = await tempDir()

@@ -25,6 +25,8 @@ export interface TailChunk {
   reset: boolean
   /** True when the read stopped at `maxBytes` and more complete lines are already there. */
   more: boolean
+  /** Bytes this call read from the file, the check of the byte before the cursor included. */
+  bytesRead: number
 }
 
 export interface TailOptions {
@@ -73,7 +75,7 @@ export async function readNewLines(file: string, cursor?: TailCursor, options: T
   try {
     handle = await open(file, 'r')
   } catch (error) {
-    if (isMissing(error)) return { lines: [], cursor: { offset: 0, fileId: null }, reset: cursor !== undefined && cursor.offset > 0, more: false }
+    if (isMissing(error)) return { lines: [], cursor: { offset: 0, fileId: null }, reset: cursor !== undefined && cursor.offset > 0, more: false, bytesRead: 0 }
     throw error
   }
   try {
@@ -83,10 +85,16 @@ export async function readNewLines(file: string, cursor?: TailCursor, options: T
 
     let start = cursor?.offset ?? 0
     let reset = false
+    let bytesRead = 0
     if (cursor && start > 0) {
       const replaced = cursor.fileId !== null && cursor.fileId !== fileId
       const truncated = size < start
-      const rewritten = !replaced && !truncated && (await readAt(handle, start - 1, 1))[0] !== NEWLINE
+      let rewritten = false
+      if (!replaced && !truncated) {
+        const before = await readAt(handle, start - 1, 1)
+        bytesRead += before.length
+        rewritten = before[0] !== NEWLINE
+      }
       if (replaced || truncated || rewritten) {
         start = 0
         reset = true
@@ -97,9 +105,11 @@ export async function readNewLines(file: string, cursor?: TailCursor, options: T
     // the file ends, so a line longer than the window is still returned whole.
     let length = Math.min(size - start, maxBytes)
     let bytes = await readAt(handle, start, length)
+    bytesRead += bytes.length
     while (bytes.lastIndexOf(NEWLINE) === -1 && start + length < size) {
       length = Math.min(size - start, length * 2)
       bytes = await readAt(handle, start, length)
+      bytesRead += bytes.length
     }
 
     const lastNewline = bytes.lastIndexOf(NEWLINE)
@@ -110,6 +120,7 @@ export async function readNewLines(file: string, cursor?: TailCursor, options: T
       cursor: { offset, fileId },
       reset,
       more: start + length < size,
+      bytesRead,
     }
   } finally {
     await handle.close()
