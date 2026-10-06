@@ -6,6 +6,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { launchedHint } from '../../src/shared/actions/render-template'
 import type { LaunchesSnapshot } from '../../src/shared/ipc/actions'
+import { autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { ChecksSnapshot } from '../../src/shared/ipc/checks'
 import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE, type ActionTemplates } from '../../src/shared/projects/action-templates'
@@ -37,10 +38,12 @@ let calls: { channel: string; input: unknown }[]
 let listeners: Map<string, (payload: unknown) => void>
 let launches: LaunchesSnapshot
 let shipAnswer: IpcResult<unknown>
+let autopilot: AutopilotState
 
 beforeEach(() => {
   vi.resetModules()
   calls = []
+  autopilot = { projectId: PROJECT, epic: null, status: 'stopped', wave: 0, backgroundTasks: 0, resumesAt: null, reason: null, message: null, revision: 1 }
   listeners = new Map()
   // 07 done; 08 open, blocked by 07 (done) → ready; 09 open; 10 open, blocked by 09 (open); 11 claimed.
   tickets = [ticket(7, 'done'), ticket(8, 'open', [7]), ticket(9, 'open'), ticket(10, 'open', [9]), ticket(11, 'work')]
@@ -68,7 +71,7 @@ beforeEach(() => {
         case 'actions.runWave':
           return Promise.resolve({ ok: true, value: { sessionId: 'o1', text: '/epic-wave Ticket-ы 08, 09 эпика demo', delivery: 'sent' } })
         case 'autopilot.state':
-          return Promise.resolve({ ok: true, value: { projectId: PROJECT, epic: null, status: 'stopped', wave: 0, backgroundTasks: 0, resumesAt: null, reason: null, message: null, revision: 1 } })
+          return Promise.resolve({ ok: true, value: autopilot })
         case 'shell.openExternal':
           return Promise.resolve({ ok: true, value: { url: (input as { url: string }).url } })
         default:
@@ -232,11 +235,54 @@ describe('Autopilot (ticket 30, ADR-0033)', () => {
     await vi.waitFor(() => expect(wave.getAttribute('aria-disabled')).toBe('false'))
   })
 
-  it('is active with the default template', async () => {
+  it('is active with the default template, and its hint says the display stays on (ticket 32, ADR-0034)', async () => {
     const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
     render(<AutopilotAction subject={epicSubject()} />)
     const autopilot = await screen.findByRole('button', { name: 'Autopilot' })
     await vi.waitFor(() => expect(autopilot.getAttribute('aria-disabled')).toBe('false'))
+    expect(autopilot.getAttribute('title')).toBe('Run the Waves of demo one after another, without a person. The display stays on until the run ends')
+  })
+})
+
+describe('Autopilot status line hint (ticket 32, ADR-0034)', () => {
+  const DISPLAY = 'The display stays on until the run ends'
+
+  async function statusLine(state: Partial<AutopilotState>): Promise<HTMLElement> {
+    autopilot = { ...autopilot, epic: 'demo', ...state }
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    render(<AutopilotAction subject={epicSubject()} />)
+    return screen.findByTestId('autopilot-status')
+  }
+
+  it.each<[string, Partial<AutopilotState>, string]>([
+    ['running', { status: 'running', wave: 3 }, 'Wave 3 · running'],
+    ['running with background tasks', { status: 'running', wave: 1, backgroundTasks: 2 }, 'Wave 1 · 2 background tasks'],
+    ['waiting with no reset time', { status: 'waiting', wave: 2 }, 'waiting for limits'],
+  ])('%s: the line is unchanged, its hint adds that the display stays on', async (_name, state, text) => {
+    const status = await statusLine(state)
+    expect(status.textContent).toBe(text)
+    expect(status.getAttribute('title')).toBe(`${text}. ${DISPLAY}`)
+  })
+
+  it('waiting for a reset time: the line is the shared status line, its hint adds the display', async () => {
+    const state = { status: 'waiting' as const, wave: 2, reason: null, resumesAt: Date.UTC(2026, 9, 7, 14, 20) }
+    const status = await statusLine(state)
+    const text = autopilotStatusLine(state)
+    expect(text).toMatch(/^waiting for limits · resumes \d\d:\d\d$/)
+    expect(status.textContent).toBe(text)
+    expect(status.getAttribute('title')).toBe(`${text}. ${DISPLAY}`)
+  })
+
+  it("a run's message stays its hint, as before", async () => {
+    const status = await statusLine({ status: 'waiting', wave: 2, message: 'The Limits did not say when they reset' })
+    expect(status.textContent).toBe('waiting for limits')
+    expect(status.getAttribute('title')).toBe('The Limits did not say when they reset')
+  })
+
+  it('a stopped run does not claim the display stays on', async () => {
+    const status = await statusLine({ status: 'stopped', reason: 'no-ready-wave' })
+    expect(status.textContent).toBe('stopped: no ready wave')
+    expect(status.getAttribute('title')).toBe('stopped: no ready wave')
   })
 })
 

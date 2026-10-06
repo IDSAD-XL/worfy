@@ -1,14 +1,18 @@
-// keep-awake for an Autopilot run (worfy-daily ticket 04, ADR-0024): Electron's powerSaveBlocker of
-// type 'prevent-app-suspension' from the run's start to its end. That type keeps the system from
-// sleeping when idle and lets the display sleep; with the lid closed the Mac sleeps anyway, and
-// worfy does not change the system setting that would prevent it.
+// keep-awake for an Autopilot run (worfy-daily tickets 04 and 32, ADR-0024 item 7, ADR-0034):
+// Electron's powerSaveBlocker of type 'prevent-display-sleep' from the run's start to its end,
+// including the wait for a Limits reset and the wait for background tasks after Stop. That type
+// keeps both the system and the display awake, so the display does not go dark and macOS does not
+// lock it: the Wave's agents run e2e and `gate full`, and Electron shows no window on a locked
+// screen. It takes precedence over 'prevent-app-suspension', so one blocker per run is enough.
+// With the lid closed the Mac sleeps anyway, and a screen locked by hand stays locked: worfy does
+// not change the system settings that would prevent either.
 //
 // The blocker is released when the run ends and also when the app quits: the `will-quit`
 // subscription lives here, as the registry's does (src/main/agent/app-registry.ts), so a run that
 // never got to stop does not leak its blocker. Each run holds its own blocker.
 import { app, powerSaveBlocker } from 'electron'
 
-export const KEEP_AWAKE_TYPE = 'prevent-app-suspension'
+export const KEEP_AWAKE_TYPE = 'prevent-display-sleep'
 
 /** The parts of Electron keep-awake uses; tests pass their own. */
 export interface PowerDeps {

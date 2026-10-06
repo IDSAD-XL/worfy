@@ -25,4 +25,6 @@ Update the copy in this order:
 4. Start the copy.
 5. Answer the macOS dialogs of the new copy (notifications and other permissions) before Autopilot starts. The ad-hoc signature changes with every build, so macOS may ask again.
 
+For a run without a person (overnight): while Autopilot runs, worfy keeps the display on, from the start of the run to its end, including the wait for the Limits to reset (ADR-0034). Leave the lid open: with the lid closed the Mac sleeps and the run stands still. Do not lock the Mac by hand (Lock Screen, Ctrl-Cmd-Q, a hot corner): on a locked screen Electron shows no window, so the Wave's agents cannot run e2e or Gate full and wait for a person to unlock it.
+
 `WORFY_PACKAGED_APP=~/Applications/worfy-stable.app pnpm exec playwright test --grep 'stable copy of the packaged app'` runs the packaged e2e tests against the installed copy, with temporary data folders; by default `pnpm test:package` installs the `dist/` build into a temporary folder with the same script and tests that copy.
