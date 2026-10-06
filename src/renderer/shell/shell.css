@@ -77,10 +77,12 @@
 .w-toolbar__icon-button:hover {
   background: var(--surface-raised);
 }
+/* The title shrinks (and only the title): a long Project name is cut with an ellipsis, the full
+   name is in the title attribute, and the controls to the right always stay whole. */
 .w-toolbar__title {
   display: flex;
   flex-direction: column;
-  flex: none;
+  flex: 0 1 auto;
   min-width: 0;
 }
 .w-toolbar__name {
@@ -88,15 +90,26 @@
   line-height: 16px;
   font-weight: 600;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .w-toolbar__subtitle {
   display: flex;
   align-items: center;
   gap: var(--space-1);
+  min-width: 0;
   font-size: var(--text-11);
   line-height: 14px;
   color: var(--text-muted);
   white-space: nowrap;
+}
+.w-toolbar__subtitle svg {
+  flex: none;
+}
+.w-toolbar__subtitle-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .w-toolbar__spacer {
   flex: 1;

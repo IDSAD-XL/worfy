@@ -11,7 +11,8 @@
 //
 // Both are read leniently into per-window updates; a newer update replaces the older one of the
 // same window, except that an update without a reset time keeps the one already known while it is
-// still ahead (mergeLimits, the only place one update of a window replaces another). limitBars()
+// still ahead, and one without a status keeps the known status while the window is the same
+// (mergeLimits, the only place one update of a window replaces another). limitBars()
 // turns the merged state into what the toolbar and the Session rail draw. Everything here is pure:
 // main keeps the state, the renderer draws it.
 import { z } from 'zod'
@@ -125,7 +126,9 @@ function clean(state: LimitWindowState): LimitWindowState {
  * known is newer (a status line file read late must not undo a fresher SDK event). An update
  * without a reset time keeps the known one while it is still ahead of the update's `receivedAt`:
  * a refusal (`rejected`) may come without `resetsAt`, and Autopilot then waits by the time kept
- * here (worfy-daily ticket 05). Returns `state` itself when nothing changed.
+ * here (worfy-daily ticket 05). An update without a status keeps the known one in the same window
+ * (keepKnownStatus): the status line bridge has no status, and an SDK `allowed_warning` must not
+ * vanish when the bridge writes (worfy-daily ticket 26). Returns `state` itself when nothing changed.
  */
 export function mergeLimits(state: LimitsState, updates: readonly LimitUpdate[]): LimitsState {
   let windows = state.windows
@@ -133,7 +136,7 @@ export function mergeLimits(state: LimitsState, updates: readonly LimitUpdate[])
     const { window } = update
     const known = windows[window]
     if (known !== undefined && known.receivedAt > update.state.receivedAt) continue
-    const next = keepKnownReset(known, update.state)
+    const next = keepKnownStatus(known, keepKnownReset(known, update.state))
     if (known !== undefined && sameWindow(known, next)) continue
     windows = { ...windows, [window]: next }
   }
@@ -144,6 +147,26 @@ export function mergeLimits(state: LimitsState, updates: readonly LimitUpdate[])
 function keepKnownReset(known: LimitWindowState | undefined, next: LimitWindowState): LimitWindowState {
   if (next.resetsAt !== null || known === undefined || known.resetsAt === null) return next
   return known.resetsAt * 1000 > next.receivedAt ? { ...next, resetsAt: known.resetsAt } : next
+}
+
+/**
+ * How far apart two reset times of one window may be. Both sources give the reset time in Unix
+ * seconds on the hour (7-day 1791777600 from the SDK and from the status line, 2026-10-06), so one
+ * window's time from the two may differ by an hour of rounding at most; the next window resets at
+ * least five hours later (the shortest window), so a larger gap is always a new window.
+ */
+export const SAME_WINDOW_RESET_GAP_S = 60 * 60
+
+/**
+ * `next`, with the known status when `next` has none (the status line bridge never has one, the
+ * SDK reports it for one window per event) and it is still the same window: the known reset time
+ * is ahead of `next` and `next`'s reset time is within SAME_WINDOW_RESET_GAP_S of it. Without a
+ * known reset time there is nothing to tell a new window by, and the status is dropped.
+ */
+function keepKnownStatus(known: LimitWindowState | undefined, next: LimitWindowState): LimitWindowState {
+  if (next.status !== null || known === undefined || known.status === null) return next
+  if (known.resetsAt === null || next.resetsAt === null || known.resetsAt * 1000 <= next.receivedAt) return next
+  return Math.abs(next.resetsAt - known.resetsAt) <= SAME_WINDOW_RESET_GAP_S ? { ...next, status: known.status } : next
 }
 
 function sameWindow(a: LimitWindowState, b: LimitWindowState): boolean {
