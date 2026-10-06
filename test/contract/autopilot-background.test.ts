@@ -120,8 +120,11 @@ async function until(condition: () => boolean | Promise<boolean>, what: string, 
 /** A clock the test moves by hand: it keeps the timers the run sets and fires them when told. */
 class ManualClock {
   private next = 1
+  /** How many timers were set so far. */
+  sets = 0
   readonly timers = new Map<number, { fn: () => void; ms: number }>()
   setTimeout = (fn: () => void, ms: number): number => {
+    this.sets += 1
     const id = this.next++
     this.timers.set(id, { fn, ms })
     return id
@@ -328,6 +331,7 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     h.releases.release('tasks')
     await until(() => !h.orchestrators.isUnattended(PROJECT), 'the attended Orchestrator')
     expect(h.calls.filter((call) => call.kind === 'close')).toEqual([])
+    await until(() => !h.autopilot.anyRunning(), 'the stopped run to let go')
     expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
     // worfy sent the unattended Session one message, the Wave; the other turns came from task-notifications.
     expect(h.calls.filter((call) => call.kind === 'message' && call.unattended)).toHaveLength(1)
@@ -348,14 +352,31 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
   })
 
+  it('a task event while the run waits sets the limit anew, without a turn', async () => {
+    // Only task_progress of the first task, then the script stands: no turn, no change of the set.
+    const script = variant('progress-only', (line) => line)
+    const lines = readFileSync(join(scriptsDir, `${script}.jsonl`), 'utf8').trim().split('\n')
+    const progress = lines.findIndex((line) => line.includes('"task_progress"'))
+    writeFileSync(join(scriptsDir, `${script}.jsonl`), `${[...lines.slice(0, progress + 1), '{"fake":"wait_release","name":"never"}'].join('\n')}\n`)
+    const h = harness({ script })
+    await waveWaitsForTasks(h)
+    const before = h.clock.sets
+    h.releases.release('tasks')
+    await until(() => h.clock.sets > before, 'the limit set anew')
+    expect(h.clock.pending()).toEqual([BACKGROUND_STALL_MS])
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'running', backgroundTasks: 2 })
+  })
+
   it('stops with background-stalled after the limit without task events, and lists the live tasks', async () => {
     const h = harness()
     await waveWaitsForTasks(h)
     expect(h.clock.pending()).toEqual([BACKGROUND_STALL_MS])
-    // An event of a task starts the limit over.
+    const before = h.clock.sets
+    // An event of a task starts the limit over: the first task's end (and the turn after it) sets it anew.
     h.releases.release('tasks')
     await until(async () => (await taskIds(h)).length === 1 && (await h.session()).state === 'idle', 'the first task-notification turn')
     await until(() => h.clock.pending().length === 1, 'the limit set again')
+    expect(h.clock.sets).toBeGreaterThan(before)
     expect(h.clock.pending()).toEqual([BACKGROUND_STALL_MS])
     h.clock.fire(BACKGROUND_STALL_MS)
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
@@ -393,7 +414,10 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     const h = harness()
     await waveWaitsForTasks(h)
     await h.autopilot.stop(PROJECT)
+    // The app's quit waits for stopAll() only while this is true.
+    expect(h.autopilot.anyRunning()).toBe(true)
     await h.autopilot.stopAll()
+    expect(h.autopilot.anyRunning()).toBe(false)
     expect((await h.journal()).at(-1)).toMatchObject({ kind: 'tasks-killed', reason: 'app-quit', tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }] })
     expect(h.power).toEqual(['start', 'stop'])
   })

@@ -175,15 +175,15 @@ Orchestrator-а после остановки (пункт 6). ADR-0024 не пр
 
 ## Готово, когда
 
-- [ ] В «Итог» — ответы первого шага с версией Claude Code. Снятая фикстура лежит в `test/fixtures/sdk-messages/`.
-- [ ] ADR-0029 принят до кода. Он дополняет ADR-0024 в вопросе «когда Wave закончена» и выбирает (а) или (б) для Stop с объяснением.
-- [ ] Fake-сценарий: Orchestrator запускает две background task-и и кончает ход, пока Ticket-ы Wave ещё `open`, как в настоящем прогоне. Прогон остаётся в Wave: нет `wave-finished` и `run-stopped`, статус `running`. Wave кончается только после `result` последнего хода от task-notification, дальше — по ADR-0024.
-- [ ] Правило `no-progress` из пункта 3 проверено по журналу: пока набор задач не пуст или Session `busy`, нет ни `wave-finished`, ни `run-stopped`.
-- [ ] Задача с `ambient: true` Wave не держит. Без `background_tasks_changed`, только на парах `task_started` / `task_notification`, Wave держится так же.
-- [ ] Stop при живых задачах (`user-stop`, и остановка по причине цикла) не вызывает `close()` fake-агента, пока набор не пуст. Дальше — по выбору ADR. Новый старт Autopilot в это время отклоняется.
-- [ ] Предел ожидания задач на фиксированных часах останавливает прогон с причиной из ADR, со списком задач в журнале.
-- [ ] `app-quit` при живых задачах пишет их в журнал.
-- [ ] Снимки строки состояния ожидания задач в двух темах сверены с F-SPEC.
+- [x] В «Итог» — ответы первого шага с версией Claude Code. Снятая фикстура лежит в `test/fixtures/sdk-messages/`.
+- [x] ADR-0029 принят до кода. Он дополняет ADR-0024 в вопросе «когда Wave закончена» и выбирает (а) или (б) для Stop с объяснением.
+- [x] Fake-сценарий: Orchestrator запускает две background task-и и кончает ход, пока Ticket-ы Wave ещё `open`, как в настоящем прогоне. Прогон остаётся в Wave: нет `wave-finished` и `run-stopped`, статус `running`. Wave кончается только после `result` последнего хода от task-notification, дальше — по ADR-0024.
+- [x] Правило `no-progress` из пункта 3 проверено по журналу: пока набор задач не пуст или Session `busy`, нет ни `wave-finished`, ни `run-stopped`.
+- [x] Задача с `ambient: true` Wave не держит. Без `background_tasks_changed`, только на парах `task_started` / `task_notification`, Wave держится так же.
+- [x] Stop при живых задачах (`user-stop`, и остановка по причине цикла) не вызывает `close()` fake-агента, пока набор не пуст. Дальше — по выбору ADR. Новый старт Autopilot в это время отклоняется.
+- [x] Предел ожидания задач на фиксированных часах останавливает прогон с причиной из ADR, со списком задач в журнале.
+- [x] `app-quit` при живых задачах пишет их в журнал.
+- [x] Снимки строки состояния ожидания задач в двух темах сверены с F-SPEC.
 - [ ] (вручную) Повторный прогон Autopilot со стабильной копии на настоящей Wave — Ticket-ы 06–09 после влития этого Ticket-а и обновления копии по README. Прогон не останавливается, пока implementer-ы работают. `wave-finished` приходит после их task-notification и хода Orchestrator-а за ними. Как проверить: журнал прогона и транскрипт Orchestrator-а — в нём нет «didn't finish before the previous session ended».
 
 Ручной пункт агент не проверяет: настоящий Autopilot требует стабильной копии и настоящего
@@ -270,3 +270,70 @@ Claude Code. Если он не сделан, в «Итог» пишется «�
    ADR-0029 его не берёт.
 4. Workflow-скрипт не снимался (запрет брифа). Bash с `run_in_background` даёт
    `background_tasks_changed` — пункт 1.
+
+### Что сделано
+
+- ADR-0029 (`docs/adr/0029-autopilot-waits-for-background-tasks.md`) принят до кода: набор живых
+  задач из `background_tasks_changed` с запасным путём на парах, фаза ожидания `tasks`, предел
+  60 минут без событий задач (`background-stalled`), 2 минуты на ход от task-notification после
+  конца последней задачи, Stop — вариант (а), keep-awake держится до возврата Orchestrator-а,
+  явного «убить задачи» нет.
+- `src/shared/agent/events.ts`: события `background_tasks_changed`, `task_activity`
+  (`task_progress`, `task_updated`), `background_tasks` (счёт Session); у `subagent` — поля
+  `isBackgrounded`, `taskType`, `ambient`, `reason` (необязательные: транскрипт их не даёт).
+  `session_state_changed` стал тихим, как `hook_started`: без env-флага его нет, а с флагом
+  его `idle` не годится.
+- `src/shared/agent/background-tasks.ts` — свёртка; `Session` (`src/main/agent/session.ts`)
+  сбрасывает набор на каждом новом процессе, при его смерти и при `close()`, отдаёт его
+  `backgroundTasks()` и событием `background_tasks`.
+- `src/shared/autopilot/cycle.ts`: фаза `tasks`, событие `tasks-timeout`, `turn-ended` несёт
+  число живых задач и `idle`; причина `background-stalled`.
+- `src/main/autopilot/run.ts`: число задач берётся в момент `result` (а не после чтения модели
+  workflow: иначе следующая задача успевала кончиться до хода от её task-notification, и Wave
+  кончалась раньше этого хода — test это ловил); `idle` — в момент решения. Таймер ожидания —
+  на часах `tasksClock`, которые test подменяет. После Stop с живыми задачами прогон
+  остаётся «держащим» (`anyRunning()` — да, чтобы выход из приложения дождался `stopAll()` и
+  записал `tasks-killed`), пишет `background-tasks` и `orchestrator-returned`.
+- `src/main/agent/orchestrator.ts`: возврат обычной Session ждёт конца хода и пустого набора;
+  после опустевшего набора ждёт ход от task-notification 30 секунд (`RETURN_GRACE_MS`).
+  `setUnattended(true)` отклоняется (`ORCHESTRATOR_HAS_TASKS`), пока живы задачи или ждёт возврат.
+- Журнал (`src/shared/autopilot/journal.ts`): `background-tasks`, `orchestrator-returned`,
+  `tasks-killed`, у `run-stopped` — необязательный `tasks`.
+- Строка состояния: «Wave 1 · 2 background tasks» (`autopilotStatusLine`), поле
+  `backgroundTasks` в `AutopilotState`.
+- Fake-агент: директива `{"fake":"wait_release","name":…}` (`FakeReleases`, в e2e —
+  `globalThis.worfyFakeRelease` в main) и запись `close` при живых задачах.
+
+### Тесты
+
+- `test/contract/autopilot-background.test.ts` — 10 случаев на fake-агенте по «Готово, когда».
+  Первый случай сначала падал на нынешнем main (у Session не было набора задач). Мутанты
+  проверены: без перехода в фазу `tasks` краснеют 12 test-ов (contract и unit), без ожидания
+  задач в `setUnattended(false)` — 4 случая Stop/предела/выхода, без перезапуска предела на
+  событии задачи — случай «a task event … sets the limit anew».
+- `test/unit/background-tasks.test.ts`, `test/unit/autopilot-cycle.test.ts` (переходы фазы),
+  `test/contract/agent-events.test.ts` (новые события, снятая фикстура, отказ на неверной форме
+  и вырезание лишних ключей), `test/e2e/autopilot.spec.ts` (строка, Stop при живых задачах,
+  снимки в двух темах).
+- Вне следа тикета пришлось поправить test-ы, которые перечисляют поля и виды событий:
+  `test/unit/autopilot-journal.test.ts`, `test/contract/autopilot-journal.test.ts` (новые виды
+  журнала), `test/contract/autopilot.test.ts`, `test/contract/autopilot-limits.test.ts`
+  (поле `backgroundTasks` состояния), `test/unit/autopilot-run.test.ts` (`backgroundTasks()` у
+  `RunSession`). README фикстур `test/fixtures/sdk-messages/README.md` — новая строка.
+
+### Не проверено
+
+- не проверено: снимки строки в двух темах сняты e2e (`autopilot-background-tasks-light.png`,
+  `-dark.png` в выводе Playwright) и показывают строку над «Stop autopilot», но сверить их с
+  F-SPEC не с чем: в `docs/design/F-SPEC.md` нет раздела про Autopilot. Стиль — тот же, что у
+  строк Ticket-ов 04 и 05.
+- не проверено: ручной повторный прогон на стабильной копии — его делает оркестратор после
+  влития (настоящий Autopilot на настоящем Claude Code в этом тикете запускать запрещено).
+- не проверено на настоящем Claude Code: Agent с `run_in_background`, две задачи сразу,
+  workflow-скрипт, и приходит ли `task_progress` у фонового Subagent-а во время долгой
+  Bash-команды внутри него. Если не приходит, предел 60 минут — единственная защита от
+  ложного `background-stalled` у implementer-а, который ждёт CI дольше часа одной цепочкой
+  команд.
+- Session, закрытая не возвратом, а удалением Project-а из списка, тоже даёт строку
+  `orchestrator-returned` в журнале остановленного прогона.
+

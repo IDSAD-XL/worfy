@@ -326,9 +326,12 @@ export class Autopilot {
     }
   }
 
-  /** Whether any run goes on. */
+  /**
+   * Whether any run goes on, or a stopped one still waits for its Orchestrator's background tasks:
+   * the app's quit waits for stopAll() then, so those tasks are journaled as killed.
+   */
   anyRunning(): boolean {
-    return this.starting.size > 0 || [...this.runs.values()].some((run) => run.running)
+    return this.starting.size > 0 || this.lingering.size > 0 || [...this.runs.values()].some((run) => run.running)
   }
 
   private subscribe(run: Run): void {

@@ -94,7 +94,8 @@ describe('the live background tasks of a Session', () => {
   })
 
   it('tells task events from the rest, and two lists apart', () => {
-    expect([started('a'), finished('a'), level(), { type: 'task_activity', taskId: 'a', backgrounded: false }].every(isTaskEvent)).toBe(true)
+    const taskEvents: AgentEvent[] = [started('a'), finished('a'), level(), { type: 'task_activity', taskId: 'a', backgrounded: false }]
+    expect(taskEvents.every((event) => isTaskEvent(event))).toBe(true)
     expect(isTaskEvent({ type: 'background_tasks', tasks: [] })).toBe(false)
     expect(isTaskEvent({ type: 'state', state: 'idle', error: null })).toBe(false)
     const a = { taskId: 'a', taskType: null, description: null }

@@ -8,8 +8,10 @@ import { ActionButton } from './action-button'
 import { hasRunWave, useRunWaveState } from './gates'
 
 // "Autopilot" and "Stop autopilot" on an Epic frame (worfy-daily ticket 04, ADR-0024), with the
-// run's status line: "Wave 3 · running", "waiting for limits · resumes 14:20" (ticket 05), "stopped:
-// no ready wave". A run that waits for the Limits is still a run: Stop is offered and stops it.
+// run's status line: "Wave 3 · running", "Wave 3 · 4 background tasks" (ticket 29, ADR-0029: the
+// Orchestrator's background tasks still run), "waiting for limits · resumes 14:20" (ticket 05),
+// "stopped: no ready wave". A run that waits for the Limits or for background tasks is still a run:
+// Stop is offered and stops it (the tasks live on; main gives the Orchestrator back after them).
 // Autopilot can start when "Run wave" could (the same verdict, gates.ts) and the Project has no
 // run; main checks again and may still refuse (the Orchestrator is in a turn, worfy's own
 // repository in a development build): the button then shows main's reason. The Project's run state
@@ -103,8 +105,8 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
   // Epic's title, and runs left over the actions beside the button through the header's top margin
   // (56px header: the 20px button centred, 18px free above it). It stays inside the header: below
   // it, a Node placed over the Epic's frame (the Orchestrator lands at 40,40 of the Canvas) would
-  // be under the line. 220px holds the longest line whole, "waiting for limits · resumes 14:20":
-  // its time is what the line is for.
+  // be under the line. 220px holds the longest lines whole, "waiting for limits · resumes 14:20"
+  // and "Wave 1 · 2 background tasks" (test/e2e/autopilot.spec.ts checks both).
   return (
     <div className="nodrag" style={{ flex: 'none', position: 'relative' }}>
       {button}
