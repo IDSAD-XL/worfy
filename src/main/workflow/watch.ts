@@ -2,7 +2,9 @@
 //
 // Two kinds of change are watched (chokidar), both read-only:
 // - `.scratch/**` of the checkout: Tickets, specs. After a 300 ms quiet period one full
-//   `epic-status --json` runs; the result is compared with the previous snapshot.
+//   `epic-status --json` runs; the result is compared with the previous snapshot. A steady stream
+//   of events (an agent rewriting Tickets) does not postpone the read for good: it starts at the
+//   latest 1 s after the first event of the series (max-wait).
 // - the git refs of Ticket branches (`refs/heads/**`, `packed-refs`) and the worktree list
 //   (`worktrees/<name>/HEAD`): only branches whose head moved are read again.
 // Reads never overlap: a change during a read leads to exactly one more read after it.
@@ -26,6 +28,13 @@ export interface WatchOptions {
   claudeHome: string
   /** Quiet period after the last file event before a read (default 300 ms). */
   debounceMs?: number
+  /**
+   * Longest wait after the first file event of a series before a read, however often events keep
+   * coming (default 1000 ms). Measured on Auction (682 Tickets): one checkout `epic-status --json`
+   * takes about 0.8 s, so a stream of saves shows its first change within about 1.8 s. While the
+   * stream lasts, a read starts about once a second; reads never overlap.
+   */
+  maxWaitMs?: number
   /** Called with what changed after every read that changed something. */
   onChange: (delta: WorkflowDelta) => void
   /** Replaces the real script, for tests. */
@@ -42,13 +51,54 @@ function gitCommonDir(root: string): Promise<string | null> {
   })
 }
 
+/**
+ * Calls `fire` once `quietMs` pass without a new `trigger`, but no later than `maxWaitMs` after the
+ * first `trigger` of a series. Without the cap, events closer together than `quietMs` would put
+ * the call off for as long as they keep coming. Timers are the global ones, so fake timers in
+ * tests drive it.
+ */
+export class Debounce {
+  private quiet: ReturnType<typeof setTimeout> | null = null
+  private deadline: ReturnType<typeof setTimeout> | null = null
+
+  constructor(
+    private readonly quietMs: number,
+    private readonly maxWaitMs: number,
+    private readonly fire: () => void,
+  ) {}
+
+  /** Whether a call is scheduled. */
+  get scheduled(): boolean {
+    return this.quiet !== null
+  }
+
+  trigger(): void {
+    if (this.quiet) clearTimeout(this.quiet)
+    this.quiet = setTimeout(() => this.flush(), this.quietMs)
+    this.deadline ??= setTimeout(() => this.flush(), this.maxWaitMs)
+  }
+
+  /** Drops the scheduled call, if any. */
+  cancel(): void {
+    if (this.quiet) clearTimeout(this.quiet)
+    if (this.deadline) clearTimeout(this.deadline)
+    this.quiet = null
+    this.deadline = null
+  }
+
+  private flush(): void {
+    this.cancel()
+    this.fire()
+  }
+}
+
 /** Watches one Project. Create with `WorkflowWatcher.start`, stop with `close`. */
 export class WorkflowWatcher {
   private model: WorkflowModel | null = null
   private checkout: CheckoutModel | null = null
   private branches: BranchCache = new Map()
   private readonly watchers: FSWatcher[] = []
-  private timer: ReturnType<typeof setTimeout> | null = null
+  private readonly debounce: Debounce
   private dirtyCheckout = false
   private dirtyBranches = false
   private running: Promise<void> | null = null
@@ -56,7 +106,9 @@ export class WorkflowWatcher {
   private starting = true
   private closed = false
 
-  private constructor(private readonly options: WatchOptions & { root: string; run: EpicStatusRunner }) {}
+  private constructor(private readonly options: WatchOptions & { root: string; run: EpicStatusRunner }) {
+    this.debounce = new Debounce(options.debounceMs ?? 300, options.maxWaitMs ?? 1000, () => this.request())
+  }
 
   /**
    * Starts watching, then reads the Project. The watchers are ready before the first read begins,
@@ -90,7 +142,7 @@ export class WorkflowWatcher {
 
   /** Resolves once no read is running or scheduled; for tests and shutdown. */
   async idle(): Promise<void> {
-    while (this.running || this.timer) {
+    while (this.running || this.debounce.scheduled) {
       if (this.running) await this.running
       else await new Promise((done) => setTimeout(done, 10))
     }
@@ -98,8 +150,7 @@ export class WorkflowWatcher {
 
   async close(): Promise<void> {
     this.closed = true
-    if (this.timer) clearTimeout(this.timer)
-    this.timer = null
+    this.debounce.cancel()
     await Promise.all(this.watchers.map((w) => w.close()))
     if (this.running) await this.running
   }
@@ -134,11 +185,7 @@ export class WorkflowWatcher {
     if (this.closed) return
     if (what === 'checkout') this.dirtyCheckout = true
     else this.dirtyBranches = true
-    if (this.timer) clearTimeout(this.timer)
-    this.timer = setTimeout(() => {
-      this.timer = null
-      this.request()
-    }, this.options.debounceMs ?? 300)
+    this.debounce.trigger()
   }
 
   /** Starts a read, or asks for one more after the read in progress. */
