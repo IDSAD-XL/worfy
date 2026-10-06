@@ -7,8 +7,12 @@ import {
   defaultCollapsed,
   FRAME_GAP,
   FRAME_PADDING,
+  HEADER_CHROME_WIDTH,
   HEADER_HEIGHT,
+  headerWidth,
   layoutEpic,
+  MIN_FRAME_WIDTH,
+  NAME_CHAR_WIDTH,
   progressOf,
   type Rect,
   stackFrames,
@@ -168,6 +172,24 @@ describe('layoutEpic', () => {
     }
     // A manual offset does not grow the frame.
     expect(layout.width).toBe(layoutEpic({ tickets, collapsed: false, doneExpanded: false }).width)
+  })
+
+  // worfy-daily ticket 11: the header shows the Epic's whole name.
+  it('widens a frame, open or collapsed, so the header holds the Epic name beside its other parts', () => {
+    const name = 'a-very-long-epic-name-for-the-sidebar-2026-10-06'
+    const tickets = [ticket(1, { epic: name }), ticket(2, { epic: name, ...blocked(1) })]
+    const wide = HEADER_CHROME_WIDTH + Math.ceil(name.length * NAME_CHAR_WIDTH)
+    expect(headerWidth(name)).toBe(wide)
+    expect(wide).toBeGreaterThan(MIN_FRAME_WIDTH)
+    expect(layoutEpic({ tickets, collapsed: false, doneExpanded: false }).width).toBe(wide)
+    expect(layoutEpic({ tickets, collapsed: true, doneExpanded: false }).width).toBe(wide)
+    // A frame without Tickets fits the name it is given; a short name keeps the minimal width.
+    expect(layoutEpic({ tickets: [], collapsed: false, doneExpanded: false, name }).width).toBe(wide)
+    expect(layoutEpic({ tickets: [], collapsed: false, doneExpanded: false }).width).toBe(MIN_FRAME_WIDTH)
+    expect(layoutEpic({ tickets: [ticket(1, { epic: 'demo' })], collapsed: true, doneExpanded: false }).width).toBe(MIN_FRAME_WIDTH)
+    // Columns wider than the header still decide.
+    const many = Array.from({ length: 6 }, (_, i) => ticket(i + 1, { epic: name, ...(i ? blocked(i) : {}) }))
+    expect(layoutEpic({ tickets: many, collapsed: false, doneExpanded: false }).width).toBe(FRAME_PADDING + 6 * TICKET_WIDTH + 5 * COLUMN_GAP + FRAME_PADDING)
   })
 
   it('shows only the header of a collapsed Epic', () => {

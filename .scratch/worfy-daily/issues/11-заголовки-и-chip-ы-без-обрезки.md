@@ -51,10 +51,12 @@ Source: [spec.md](../spec.md), тема C; [F-SPEC.md](../../../docs/design/F-SP
 
 ## Готово, когда
 
-- [ ] В «Итог» — список обрезаний до правки, со снимками.
-- [ ] На фикстуре с длинными названиями (заголовок Ticket-а — 120 символов) у заголовка Ticket-а, заголовка рамки, стопки done и имени Epic в sidebar нет скрытого переполнения, или полный текст есть в `title`. e2e проверяет `scrollWidth ≤ clientWidth` и `scrollHeight ≤ clientHeight`.
-- [ ] Chip CI виден на Ticket-е при PR, Gate и CI сразу: e2e проверяет, что boundingBox chip-а CI внутри boundingBox Ticket-а.
-- [ ] Снимки в светлой и тёмной теме сверены с F-SPEC.
+- [x] В «Итог» — список обрезаний до правки, со снимками.
+- [x] На фикстуре с длинными названиями (заголовок Ticket-а — 120 символов) у заголовка Ticket-а, заголовка рамки, стопки done и имени Epic в sidebar нет скрытого переполнения, или полный текст есть в `title`. e2e проверяет `scrollWidth ≤ clientWidth` и `scrollHeight ≤ clientHeight`.
+- [x] Chip CI виден на Ticket-е при PR, Gate и CI сразу: e2e проверяет, что boundingBox chip-а CI внутри boundingBox Ticket-а.
+- [ ] Снимки в светлой и тёмной теме сверены с F-SPEC. Не проверено: снимки сняты (Playwright, обе
+  темы, ссылки в «Итог»), но сверку глазами с F-SPEC и макетами делает владелец — GUI-проверки в
+  этой волне не у исполнителя.
 
 ## Тесты
 
@@ -75,3 +77,79 @@ Source: [spec.md](../spec.md), тема C; [F-SPEC.md](../../../docs/design/F-SP
 - `test/unit/epic-layout.test.ts`
 - `test/e2e/epic-frame.spec.ts`
 - `test/e2e/checks-badges.spec.ts`
+- Расширение следа (разрешил оркестратор): `test/unit/epic-canvas.test.tsx` — число фикстуры
+  после новой высоты Ticket-а и test на ширину рамки Epic без Tickets;
+  `src/renderer/canvas/sources/epics.ts` — имя Epic передаётся в `layoutEpic`.
+
+## Итог
+
+Ветка `worfy-daily/11`.
+
+**Обрезания до правки** (built app, Project-ы Auction и worfy, временный `WORFY_DATA_DIR`, обе
+темы; снимки [до, Auction, светлая](../evidence/11-before-auction-light.png),
+[до, Auction, тёмная](../evidence/11-before-auction-dark.png),
+[до, worfy, светлая](../evidence/11-before-worfy-light.png),
+[до, worfy, тёмная](../evidence/11-before-worfy-dark.png)):
+
+- заголовок Ticket-а сжат до 21 px — одна строка без многоточия и без tooltip: 27 Ticket-ов на
+  Auction, 13 на worfy. Причина: у Ticket-а 104 px, а строки top, title, blockers и badges с actions
+  вместе выше; grid из `actions.css` ужимает title (у блока с `overflow: hidden` минимум 0);
+- заголовок рамки — одна строка с многоточием, без tooltip: 38 рамок на Auction, 1 на worfy. У рамки
+  520 px с «Run wave» и «Autopilot» на заголовок оставалось 67–85 px («audit-20…»);
+- имя Epic в sidebar обрезано многоточием: 22 из 42 на Auction;
+- список стопки done обрезан посреди строки, без tooltip (стопка «90 done» на Auction); сама подпись
+  «N done» не резалась;
+- строка blockers («blocked by 06, 07, 08, 09, 10, 30 · done») и причина blocked — многоточие;
+  полного текста blockers не было нигде;
+- chip-ы checks: при gate, PR и CI в одной строке с «Ship ticket» / «Open PR» CI уходил за край
+  (`checks-badges.spec.ts`: CI заканчивался на 4 px правее Ticket-а).
+
+**Что сделано:**
+
+- Ticket — 160 px вместо 104 (`TICKET_HEIGHT`, `src/renderer/canvas/epic-layout.ts`). Из чего число:
+  рамка 2 + отступы 16 + номер и state 18 + заголовок 3 × 17 + строка blockers или причина 19 +
+  badges 16 и actions 20 на двух строках (между ними 4) + 3 зазора по 4 = 158, округлено до 160.
+  Заголовок — до 3 строк (`TICKET_TITLE_LINES`), дальше многоточие, полный текст — в tooltip
+  заголовка. Ни одна строка Ticket-а не сжимается (`flex: none`).
+- Badges и actions — в одной обёртке `.w-ticket__slots` с переносом: в одну строку, когда помещаются,
+  иначе actions уходят на вторую. Правило «badges и actions в одной строке» из
+  `src/renderer/canvas/actions/actions.css` больше не срабатывает (оно ждёт их прямыми детьми Ticket-а).
+- Chip CI не сжимается (`flex: none`); остальные элементы строки checks сжимаются и режутся по своему
+  краю, полный список — в tooltip строки, как раньше.
+- Строка blockers, причина blocked и «Needs attention» — полный текст в tooltip.
+- Заголовок рамки — до двух строк в 56 px заголовка, полный текст в tooltip. Рамка не уже, чем нужно
+  для имени Epic целиком: `headerWidth` = 470 px на остальные части заголовка + 11 px на символ имени
+  (моноширинный 18 px). Имя Epic `layoutEpic` получает из `sources/epics.ts` и для Epic без Tickets.
+  По ADR-0032 ширина рамки входит в поиск колонки: широкая рамка может сдвинуть колонку правее.
+- Стопка done: подпись «N done» не сжимается, список — до 4 строк с многоточием, полный — в tooltip.
+- Sidebar: строка Epic в две строки, как в макетах F (`F-canvas-*.dc.html`): имя целиком (перенос
+  в любом месте), под ним progress, счёт и «N in work».
+
+**Решено без владельца, подтвердить:** предел заголовка Ticket-а — 3 строки, Ticket 160 px. F-SPEC
+предела не задаёт, в макетах Ticket-ы 92–148 px. Альтернатива — 4 строки и 176 px: на Auction из 27
+длинных заголовков целиком читались бы 14 вместо 6, но рамки стали бы ещё выше. Цена выбранного:
+рамки и готовая Wave выше в 1,5 раза, у Ticket-а с коротким заголовком внизу пустое место.
+
+**После правки** ([после, Auction, светлая](../evidence/11-after-auction-light.png),
+[после, Auction, тёмная](../evidence/11-after-auction-dark.png),
+[после, worfy, светлая](../evidence/11-after-worfy-light.png),
+[после, worfy, тёмная](../evidence/11-after-worfy-dark.png); фикстура с длинными названиями:
+[светлая](../evidence/11-long-names-light.png), [тёмная](../evidence/11-long-names-dark.png)):
+ни один заголовок Ticket-а не сжат; всё, что обрезано (заголовки длиннее 3 строк, длинные заголовки
+рамок, длинные строки blockers), имеет полный текст в tooltip; имена Epic в sidebar — целиком.
+
+**Тесты:**
+
+- `test/e2e/epic-frame.spec.ts`, «long names…» — заголовок Ticket-а в 120 символов, заголовок
+  рамки, стопка из 33 done, имя Epic в sidebar, строка blockers и причина blocked, в обеих темах:
+  `scrollWidth ≤ clientWidth` и `scrollHeight ≤ clientHeight` или полный текст в `title`; строки
+  Ticket-а внутри его box. Красный до правки, красный на мутанте `TICKET_HEIGHT = 104`.
+- `test/e2e/checks-badges.spec.ts` — у Ticket-ов 08 (claimed) и 10 (blocked, «Ship ticket» и
+  «Open PR») gate, PR и CI сразу; box chip-а CI внутри Ticket-а и каждого обрезающего его блока, и
+  сам chip не сужен. Красный до правки и на мутанте без `flex: none` у CI.
+- `test/unit/epic-layout.test.ts` — ширина рамки под имя Epic (красный на мутанте без `headerWidth`);
+  `test/unit/epic-canvas.test.tsx` — то же для Epic без Tickets (красный без передачи имени),
+  число фикстуры запаса под открытую стопку done обновлено (красный на мутанте без `reserve`).
+
+**Не проверено:** сверка снимков с F-SPEC глазами (пункт выше).
+

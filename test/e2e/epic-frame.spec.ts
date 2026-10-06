@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { codeSection } from '../../src/main/workflow/reader'
-import { FRAME_GAP, layoutEpic, MIN_FRAME_WIDTH, stackFrames, type Rect } from '../../src/renderer/canvas/epic-layout'
+import { FRAME_GAP, layoutEpic, MIN_FRAME_WIDTH, stackFrames, TICKET_TITLE_LINES, type Rect } from '../../src/renderer/canvas/epic-layout'
 import { ORCHESTRATOR_WIDTH } from '../../src/shared/ipc/orchestrator'
 import { onThePlane } from '../../src/shared/layout/derived'
 import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
@@ -615,6 +615,136 @@ test('state chips use the F tokens in both themes and always carry a label; the 
   }
   // Moving, folding and collapsing are saved in worfy's own data, never in the repository (ADR-0005).
   expect(git(repo, 'status', '--porcelain', '--ignored', '--untracked-files=all')).toBe('')
+})
+
+// ── long names (worfy-daily ticket 11) ──────────────────────────────────────
+
+interface Fit {
+  scrollWidth: number
+  clientWidth: number
+  scrollHeight: number
+  clientHeight: number
+  lineHeight: number
+  title: string | null
+}
+
+async function fit(locator: Locator): Promise<Fit> {
+  return locator.evaluate((node) => {
+    const element = node as unknown as Omit<Fit, 'lineHeight' | 'title'> & { getAttribute: (name: string) => string | null }
+    const { getComputedStyle } = globalThis as unknown as { getComputedStyle: (element: object) => { lineHeight: string } }
+    return {
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+      lineHeight: parseFloat(getComputedStyle(node).lineHeight),
+      title: element.getAttribute('title'),
+    }
+  })
+}
+
+const overflows = (f: Fit) => f.scrollWidth > f.clientWidth || f.scrollHeight > f.clientHeight
+
+/** Shows its whole text, or cuts it and carries the whole text in its tooltip. */
+async function expectWholeOrTitled(locator: Locator, whole: string, what: string): Promise<Fit> {
+  const f = await fit(locator)
+  if (overflows(f)) expect(f.title, `${what} is cut (${JSON.stringify(f)}), so its tooltip holds the whole text`).toBe(whole)
+  return f
+}
+
+async function expectWhole(locator: Locator, what: string): Promise<void> {
+  const f = await fit(locator)
+  expect(overflows(f), `${what} has no hidden overflow: ${JSON.stringify(f)}`).toBe(false)
+}
+
+/** Every row of the Ticket Node ends inside it: nothing is cut by its bottom or right edge. */
+async function expectRowsInside(ticket: Locator, what: string): Promise<void> {
+  const card = await box(ticket)
+  for (const row of await ticket.locator(':scope > :not(.react-flow__handle)').all()) {
+    const b = await row.boundingBox()
+    if (!b || b.height === 0) continue
+    expect(b.y + b.height, `${what}: a row ends inside the Ticket Node`).toBeLessThanOrEqual(card.y + card.height + 0.5)
+    expect(b.x + b.width, `${what}: a row ends inside the Ticket Node`).toBeLessThanOrEqual(card.x + card.width + 0.5)
+  }
+}
+
+const LONG_EPIC = 'a-very-long-epic-name-for-the-sidebar-2026-10-06'
+const LONG_SPEC_TITLE = 'An Epic whose spec title is far longer than the frame header has room for, on purpose'
+/** 120 characters: the ticket's fixture for a long Ticket title. */
+const LONG_TICKET_TITLE = 'Withdraw-lot button for moderators, with a reason the seller sees and an audit record kept for the support team to check'
+
+test('long names: Ticket title, frame title, done stack and the sidebar name show whole or carry the whole text in a tooltip, in both themes', async () => {
+  expect(LONG_TICKET_TITLE).toHaveLength(120)
+  makeClaudeHome()
+  makeProject((dir) => {
+    const issues = join(dir, LONG_EPIC, 'issues')
+    mkdirSync(issues, { recursive: true })
+    writeFileSync(join(dir, LONG_EPIC, 'spec.md'), `# ${LONG_SPEC_TITLE}\n`)
+    for (let num = 1; num <= 33; num += 1) writeFileSync(join(issues, `${String(num).padStart(2, '0')}-done-${num}.md`), ticketText(num, 'done', '—'))
+    const done = Array.from({ length: 33 }, (_, i) => String(i + 1).padStart(2, '0')).join(', ')
+    writeFileSync(join(issues, '40-long.md'), ticketText(40, 'open', '—').replace('# 40 — Ticket 40', `# 40 — ${LONG_TICKET_TITLE}`))
+    writeFileSync(join(issues, '41-blocked.md'), ticketText(41, 'blocked — waits for the owner to answer which payment provider the platform uses in production', '—'))
+    writeFileSync(join(issues, '42-many.md'), ticketText(42, 'open', done))
+  })
+  const launched = await launch()
+  try {
+    const { window } = launched
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 1000))
+    const frame = window.locator(`[data-testid="epic-frame"][data-epic="${LONG_EPIC}"]`)
+    await expect(frame).toBeVisible()
+    const long = ticketNode(window, 40)
+    await expect(long).toBeVisible()
+
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+
+      // The Ticket title: never squeezed below its line limit, and the whole title in its tooltip
+      // when it is cut there.
+      const title = long.locator('.w-ticket__title')
+      const titleFit = await expectWholeOrTitled(title, LONG_TICKET_TITLE, 'the Ticket title')
+      expect(titleFit.clientHeight, `the Ticket title shows ${TICKET_TITLE_LINES} lines`).toBeGreaterThanOrEqual(Math.min(titleFit.scrollHeight, TICKET_TITLE_LINES * titleFit.lineHeight) - 0.5)
+      await expectRowsInside(long, 'Ticket 40')
+      await expectRowsInside(ticketNode(window, 41), 'Ticket 41')
+      await expectRowsInside(ticketNode(window, 42), 'Ticket 42')
+      await expectWholeOrTitled(ticketNode(window, 41).locator('.w-ticket__reason'), 'waits for the owner to answer which payment provider the platform uses in production', 'the blocked reason')
+      await expectWholeOrTitled(
+        ticketNode(window, 42).locator('.w-ticket__meta'),
+        `blocked by ${Array.from({ length: 33 }, (_, i) => String(i + 1).padStart(2, '0')).join(', ')} · done`,
+        'the blockers line',
+      )
+
+      // The frame title: the Epic's whole name, the spec title whole or in the tooltip.
+      const heading = frame.locator('.w-epic__title')
+      await expectWholeOrTitled(heading, `${LONG_EPIC} — ${LONG_SPEC_TITLE}`, 'the frame title')
+      const headingBox = await box(heading)
+      const nameBox = await box(heading.locator('.w-mono'))
+      expect(nameBox.x + nameBox.width, 'the Epic name ends inside the frame title').toBeLessThanOrEqual(headingBox.x + headingBox.width + 0.5)
+      expect(nameBox.y + nameBox.height, 'the Epic name is on the first line').toBeLessThanOrEqual(headingBox.y + headingBox.height + 0.5)
+
+      // The done stack: its count and label whole, the list whole or in the tooltip.
+      const stack = window.getByTestId('done-stack')
+      await expectWhole(stack.locator('.w-epic__stack-title'), 'the done stack label')
+      await expect(stack.locator('.w-epic__stack-title')).toHaveText('33 done')
+      const stackBox = await box(stack)
+      const listBox = await box(stack.locator('.w-epic__stack-list'))
+      expect(listBox.y + listBox.height, 'the done list ends inside the stack').toBeLessThanOrEqual(stackBox.y + stackBox.height + 0.5)
+      await expectWholeOrTitled(
+        stack.locator('.w-epic__stack-list'),
+        Array.from({ length: 33 }, (_, i) => String(i + 1).padStart(2, '0')).join(' '),
+        'the done list',
+      )
+
+      // The sidebar shows the Epic's whole name.
+      const row = window.locator(`[data-testid="sidebar-epic"][data-epic="${LONG_EPIC}"]`)
+      await expect(row).toContainText(LONG_EPIC)
+      await expectWhole(row.locator(':scope > .w-mono').first(), 'the Epic name in the sidebar')
+      await expectWhole(row, 'the sidebar row')
+
+      await window.screenshot({ path: test.info().outputPath(`long-names-${scheme}.png`) })
+    }
+  } finally {
+    await launched.close()
+  }
 })
 
 // ── an Auction-sized Project ────────────────────────────────────────────────

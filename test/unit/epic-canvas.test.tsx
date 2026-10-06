@@ -6,6 +6,7 @@ import type { Epic, Ticket, WorkflowModel } from '../../src/shared/workflow/type
 import blockingEdges from '../../src/renderer/canvas/edges/blocking'
 import epicSource, { buildEpicNodes, epicNodeId, ticketNodeId, type EpicFrameData, type TicketNodeData } from '../../src/renderer/canvas/sources/epics'
 import { applyWorkflowDelta } from '../../src/renderer/workflow/useWorkflow'
+import { headerWidth, MIN_FRAME_WIDTH } from '../../src/renderer/canvas/epic-layout'
 
 // The Layout operations the source sends to main, recorded instead of sent; each one succeeds.
 const applied = vi.hoisted(() => [] as { projectId: string; op: unknown }[])
@@ -154,6 +155,14 @@ describe('the Epic node source', () => {
     const failed = { ...model([]), error: { code: 'not-found' as const, message: 'epic-status not found' } }
     expect(buildEpicNodes(id, '/repo', failed, layoutWith(), {})).toEqual([])
   })
+  // worfy-daily ticket 11: the header shows the Epic's whole name, also when it has no Tickets.
+  it('makes a frame wide enough for its Epic name, also for an Epic without Tickets', () => {
+    const name = 'audit-2026-09-25-with-a-long-epic-name'
+    const nodes = buildEpicNodes(freshProject(), '/repo', model([ticket('a', 1)], ['a', name]), layoutWith(), {})
+    const frame = nodes.find((n) => n.id === epicNodeId(name))!
+    expect(frame.width).toBe(headerWidth(name))
+    expect(frame.width).toBeGreaterThan(MIN_FRAME_WIDTH)
+  })
 })
 
 describe('dropping an Epic frame', () => {
@@ -244,8 +253,8 @@ describe('the Epic node source and the Nodes on the plane (ADR-0032)', () => {
   it('keeps room for the open done stack, so opening it does not move the frame', () => {
     const done = { state: 'done' as const, statusRaw: 'done' }
     const tickets = model([ticket('a', 1, done), ticket('a', 2, done), ticket('a', 3, done), ticket('a', 4)], ['a'])
-    // Below the folded frame (228 tall) and its gap, above the bottom of the open one (444 tall).
-    const between = { id: 'n', kind: 'note', x: 100, y: 300, w: 50, h: 50 }
+    // Below the folded frame (268 tall) and its gap, above the bottom of the open one (612 tall).
+    const between = { id: 'n', kind: 'note', x: 100, y: 400, w: 50, h: 50 }
     const id = freshProject()
     const folded = buildEpicNodes(id, '/repo', tickets, layoutWith([between]), {})[0]!
     const open = buildEpicNodes(id, '/repo', tickets, layoutWith([between]), { [`${id}|a`]: true })[0]!

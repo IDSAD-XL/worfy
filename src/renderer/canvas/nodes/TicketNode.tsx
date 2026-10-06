@@ -11,10 +11,13 @@ import '../epic-frame.css'
 
 // One Ticket inside its Epic frame: number, title, a state chip, what blocks it, and the two
 // slots for badges (ticket 17) and actions (ticket 23). A double click opens the Ticket file in
-// the default editor through `shell.openInEditor`. The Node comes from sources/epics.ts.
+// the default editor through `shell.openInEditor`. The Node comes from sources/epics.ts. A row that
+// may be cut — the title past its line limit, the blockers line, the blocked reason — carries its
+// whole text in its tooltip.
 export const kind = 'ticket'
+// TICKET_WIDTH and TICKET_HEIGHT of epic-layout.ts; a literal, so Fast Refresh keeps working.
 export const defaultWidth = 204
-export const defaultHeight = 104
+export const defaultHeight = 160
 
 const pad = (num: number) => String(num).padStart(2, '0')
 const list = (nums: readonly number[]) => nums.map(pad).join(', ')
@@ -53,16 +56,23 @@ function attentionText(reason: AttentionReason): string {
 
 function BlockersLine({ data }: { data: TicketNodeData }) {
   const { ticket, placed, waitingOn } = data
-  if (placed.attention) return <div className="w-ticket__meta w-ticket__meta--attention">{attentionText(placed.attention)}</div>
+  if (placed.attention) {
+    const text = attentionText(placed.attention)
+    return (
+      <div className="w-ticket__meta w-ticket__meta--attention" title={text}>
+        {text}
+      </div>
+    )
+  }
   if (!ticket.blockedNums.length) return <div className="w-ticket__meta">no blockers</div>
   if (ticket.state !== 'done' && waitingOn.length)
     return (
-      <div className="w-ticket__meta">
+      <div className="w-ticket__meta" title={`waiting on ${list(waitingOn)}`}>
         waiting on <span className="w-mono w-ticket__nums">{list(waitingOn)}</span>
       </div>
     )
   return (
-    <div className="w-ticket__meta">
+    <div className="w-ticket__meta" title={`blocked by ${list(ticket.blockedNums)} · done`}>
       blocked by <span className="w-mono w-ticket__nums">{list(ticket.blockedNums)}</span> · done
     </div>
   )
@@ -74,6 +84,7 @@ function TicketNode({ data }: CanvasNodeProps) {
   const subject: SlotSubject = { kind: 'ticket', projectId, root, ticket }
   const reason = ticket.state === 'blocked' ? blockedReason(ticket.statusRaw) : null
   const stateLabel = ticket.state === 'work' ? 'claimed' : ticket.state === 'none' ? 'no status' : ticket.state
+  const title = ticketTitle(ticket)
 
   const open = () => {
     void invoke('shell.openInEditor', { projectId, path: ticketFile(root, ticket) }).then((result) => {
@@ -98,20 +109,32 @@ function TicketNode({ data }: CanvasNodeProps) {
         <span className="w-mono w-ticket__num">{pad(ticket.num)}</span>
         <StateChip ticket={ticket} />
       </div>
-      <div className="w-ticket__title">{ticketTitle(ticket)}</div>
-      {reason ? <div className="w-ticket__reason">{reason}</div> : <BlockersLine data={node} />}
-      {badges.length ? (
-        <div className="w-ticket__badges">
-          {badges.map(({ id, Component }) => (
-            <Component key={id} subject={subject} />
-          ))}
+      <div className="w-ticket__title" title={title}>
+        {title}
+      </div>
+      {reason ? (
+        <div className="w-ticket__reason" title={reason}>
+          {reason}
         </div>
-      ) : null}
-      {actions.length ? (
-        <div className="w-ticket__actions nodrag">
-          {actions.map(({ id, Component }) => (
-            <Component key={id} subject={subject} />
-          ))}
+      ) : (
+        <BlockersLine data={node} />
+      )}
+      {badges.length || actions.length ? (
+        <div className="w-ticket__slots">
+          {badges.length ? (
+            <div className="w-ticket__badges">
+              {badges.map(({ id, Component }) => (
+                <Component key={id} subject={subject} />
+              ))}
+            </div>
+          ) : null}
+          {actions.length ? (
+            <div className="w-ticket__actions nodrag">
+              {actions.map(({ id, Component }) => (
+                <Component key={id} subject={subject} />
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
       <Handle type="source" position={Position.Right} isConnectable={false} className="w-ticket__handle" />

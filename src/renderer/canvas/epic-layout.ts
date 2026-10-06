@@ -10,7 +10,18 @@ import type { Ticket } from '../../shared/workflow/types'
 import { readyWave, ticketLevels } from '../../shared/workflow/waves'
 
 export const TICKET_WIDTH = 204
-export const TICKET_HEIGHT = 104
+/**
+ * Lines of a Ticket's title before it is cut with "…"; the whole title is the title row's tooltip.
+ * epic-frame.css clamps `.w-ticket__title` to the same number.
+ */
+export const TICKET_TITLE_LINES = 3
+/**
+ * Room for every row of a Ticket Node (epic-frame.css), so none is squeezed or cut: 1 px borders
+ * (2) + padding (16) + number and state (18) + the title (TICKET_TITLE_LINES × 17) + the blockers
+ * line or blocked reason (19) + badges (16) and actions (20) on two rows when one does not hold
+ * both (4 between them) + the gaps between the four rows (3 × 4) = 158, rounded up.
+ */
+export const TICKET_HEIGHT = 160
 export const COLUMN_GAP = 24
 export const ROW_GAP = 12
 export const FRAME_PADDING = 16
@@ -25,6 +36,14 @@ export const FRAME_GAP = 48
 export const READY_MARGIN = 6
 /** A frame with no Tickets or a collapsed one is still this wide, so the header fits. */
 export const MIN_FRAME_WIDTH = 520
+/**
+ * The frame header's parts beside its title at their widest: padding, the Epic tag, the progress
+ * bar and count, "Run wave", "Autopilot", the collapse button and the gaps (453 px in the built
+ * app on 2026-10-06), with some slack.
+ */
+export const HEADER_CHROME_WIDTH = 470
+/** One character of the Epic's name in the header: 18 px monospace, 0.6 em. */
+export const NAME_CHAR_WIDTH = 11
 export const PROGRESS_SEGMENTS = 12
 
 const TICKETS_TOP = HEADER_HEIGHT + COLUMN_HEADER_HEIGHT
@@ -94,6 +113,8 @@ export interface EpicLayoutInput {
   doneExpanded: boolean
   /** Manual offsets by Ticket number. */
   offsets?: ReadonlyMap<number, Offset>
+  /** The Epic's name, which the header shows whole (`headerWidth`); defaults to its Tickets' Epic. */
+  name?: string
 }
 
 const byNum = (a: { num: number }, b: { num: number }) => a.num - b.num
@@ -148,9 +169,11 @@ function placeOpenTickets(tickets: readonly LayoutTicket[]): Map<number, { level
 }
 
 const columnX = (index: number) => FRAME_PADDING + index * (TICKET_WIDTH + COLUMN_GAP)
+/** A frame at least this wide shows the Epic's whole name in its header, beside the header's other parts. */
+export const headerWidth = (name: string) => (name ? HEADER_CHROME_WIDTH + Math.ceil(name.length * NAME_CHAR_WIDTH) : 0)
 const rowY = (index: number) => TICKETS_TOP + index * (TICKET_HEIGHT + ROW_GAP)
 
-export function layoutEpic({ tickets, collapsed, doneExpanded, offsets }: EpicLayoutInput): EpicLayout {
+export function layoutEpic({ tickets, collapsed, doneExpanded, offsets, name }: EpicLayoutInput): EpicLayout {
   const sorted = [...tickets].sort(byNum)
   const doneTickets = sorted.filter((t) => t.state === 'done')
   const places = placeOpenTickets(sorted)
@@ -177,7 +200,7 @@ export function layoutEpic({ tickets, collapsed, doneExpanded, offsets }: EpicLa
 
   const placedColumns = columns.map((c, index) => ({ column: c.column, label: c.label, count: c.tickets.length, x: columnX(index) }))
   const contentWidth = columns.length ? columnX(columns.length - 1) + TICKET_WIDTH + FRAME_PADDING : 0
-  const width = Math.max(MIN_FRAME_WIDTH, contentWidth)
+  const width = Math.max(MIN_FRAME_WIDTH, contentWidth, headerWidth(name ?? sorted[0]?.epic ?? ''))
 
   if (collapsed) return { width, height: HEADER_HEIGHT, collapsed, columns: placedColumns, tickets: [], doneStack: null, readyWave: null }
 

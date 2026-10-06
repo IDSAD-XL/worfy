@@ -50,7 +50,7 @@ function EpicFrameNode({ data }: CanvasNodeProps) {
       <header className="w-epic__header">
         <div className="w-epic__drag">
           <span className="w-epic__tag">Epic</span>
-          <h2 className="w-epic__title">
+          <h2 className="w-epic__title" title={epic.title ? `${epic.epic} — ${epic.title}` : epic.epic}>
             <span className="w-mono">{epic.epic}</span>
             {epic.title ? <span className="w-epic__subtitle"> — {epic.title}</span> : null}
           </h2>
@@ -115,7 +115,9 @@ function EpicFrameNode({ data }: CanvasNodeProps) {
                 </svg>
                 <span className="w-mono">{layout.doneStack.nums.length}</span> done
               </span>
-              <span className="w-epic__stack-list w-mono">{layout.doneStack.nums.map(pad).join(' ')}</span>
+              <span className="w-epic__stack-list w-mono" title={layout.doneStack.nums.map(pad).join(' ')}>
+                {layout.doneStack.nums.map(pad).join(' ')}
+              </span>
             </button>
           ) : null}
           {layout.columns.length === 0 ? <p className="w-epic__empty">No tickets in this epic.</p> : null}
