@@ -1,7 +1,7 @@
 # 10 — Рамки Epic не ложатся на Node-ы
 
 Type: task
-Status: claimed — 2026-10-06
+Status: done — 2026-10-06, [PR #53](https://github.com/IDSAD-XL/worfy/pull/53)
 Blocked by: 06, 07, 08, 09
 Source: [spec.md](../spec.md), тема C, риск 10; [ADR-0011](../../../docs/adr/0011-epic-frames-derived-nodes.md) — рамки Epic как производные Node-ы; [ADR-0003](../../../docs/adr/0003-cards-as-files-canvas-via-tools.md)
 
@@ -134,6 +134,7 @@ PR #53, ветка `worfy-daily/10`. Решение — [ADR-0032](../../../docs
   `test/e2e/subagent-tree.spec.ts`. Каждое новое поведение краснеет на своём мутанте.
 - Снимки Canvas в светлой и тёмной теме (рамка `demo` правее Orchestrator-а и HANDOFF, стопка done
   открыта) сделаны на e2e-фикстуре и сверены с F-SPEC глазами: токены цветов и вид рамки не
-  менялись, менялось только положение. Файлы снимков остались вне репозитория
-  (`/tmp/worfy-wave6/impl-10/snap-light.png`, `snap-dark.png`).
+  менялись, менялось только положение. Снимки проверяющего после круга доработки:
+  [10-canvas-subagents-frame-light.png](../evidence/10-canvas-subagents-frame-light.png), [10-canvas-subagents-frame-dark.png](../evidence/10-canvas-subagents-frame-dark.png) — рамка Epic
+  правее дерева Subagent-ов, колонка его не накрывает.
 - Не проверено: Auction на стабильной копии (пункт выше).

@@ -1,7 +1,7 @@
 # 13 — Terminal: выделение мышью при масштабе и размер pty после focus mode
 
 Type: task
-Status: claimed — 2026-10-06
+Status: done — 2026-10-06, [PR #49](https://github.com/IDSAD-XL/worfy/pull/49)
 Blocked by: 06, 07, 08, 09
 Source: [spec.md](../spec.md), тема C; Ticket-ы 27 и 28 worfy-mvp (Terminal, focus mode)
 
@@ -63,3 +63,4 @@ xterm.js. В `src/renderer/canvas/nodes/TerminalNode.tsx` её никто не �
 - **Тесты.** `test/e2e/terminal.spec.ts` — два теста «at Canvas zoom 50% / 150% a mouse drag … selects exactly those characters»: выделение читается из события `copy` с собственным `DataTransfer` (системный буфер обмена не трогается). `test/e2e/focus.spec.ts` — «a Terminal in focus mode gets the size of its tile, and after leaving focus mode the pty has the size of the Canvas Node again»: `stty size` на Canvas, в плитке и снова на Canvas, затем ввод и вывод на Canvas-копии.
 - **Круг доработки (REJECTED по PR #49).** (а) С двумя Terminal Node-ами у каждого был свой слушатель на `window`, и событие пересчитывал первый терминал под курсором, а не тот, где началось нажатие: протяжка из A над B выделяла чужие строки. Теперь один слушатель на все терминалы (`src/renderer/canvas/nodes/terminal-mouse.ts`): пока длится нажатие, начавшееся над терминалом, его события пересчитываются только для этого терминала. Нажатие кончается на `mouseup`, на движении без нажатых кнопок (отпустили вне окна) и на следующем `mousedown`. Список view-ов вынесен в `terminal-views.ts`. Тесты — jsdom `test/unit/terminal-mouse.test.tsx` (два терминала с разными rect-ами, масштаб 0.5) и `test/unit/terminal-views.test.tsx`; e2e — «a drag that began in one terminal and goes over another selects in the first» и продолжение focus-test: Canvas Node меняет размер при открытом focus mode, pty сохраняет размер плитки, после выхода — новый размер Canvas Node. Каждое поведение проверено мутантом (8 мутантов на unit-тесты, 2 на e2e — все красные).
 - **Снимки.** Тот же focus-test снимает окно в светлой и тёмной теме (`emulateMedia`) на Canvas и в focus mode и проверяет вычисленные цвета терминала по таблице F-SPEC: фон `#1D1D1F` / `#0B0A09`, текст `#E5E5EA` / `#ECE8E1`. Четыре снимка просмотрены глазами: структура одинакова, меняются только цвета.
+- **Снимки проверяющего** (после круга доработки, две Terminal Node-ы при масштабе 50%, протяжка из одной над другой): [13-two-terminals-50-drag-light.png](../evidence/13-two-terminals-50-drag-light.png), [13-two-terminals-50-drag-dark.png](../evidence/13-two-terminals-50-drag-dark.png).
