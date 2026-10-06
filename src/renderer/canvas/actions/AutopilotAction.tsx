@@ -99,10 +99,12 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
       />
     )
   if (line === null) return button
-  // The status line goes under the button, out of the header's row: it takes no width from the
-  // Epic's title, and runs left under the actions beside the button (56px header: the 20px button
-  // centred, the 14px line below it). 220px holds the longest line whole, "waiting for limits ·
-  // resumes 14:20": its time is what the line is for.
+  // The status line goes above the button, out of the header's row: it takes no width from the
+  // Epic's title, and runs left over the actions beside the button through the header's top margin
+  // (56px header: the 20px button centred, 18px free above it). It stays inside the header: below
+  // it, a Node placed over the Epic's frame (the Orchestrator lands at 40,40 of the Canvas) would
+  // be under the line. 220px holds the longest line whole, "waiting for limits · resumes 14:20":
+  // its time is what the line is for.
   return (
     <div className="nodrag" style={{ flex: 'none', position: 'relative' }}>
       {button}
@@ -113,7 +115,7 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
         style={{
           position: 'absolute',
           right: 0,
-          top: 'calc(100% + 2px)',
+          bottom: 'calc(100% + 2px)',
           maxWidth: 220,
           overflow: 'hidden',
           textOverflow: 'ellipsis',

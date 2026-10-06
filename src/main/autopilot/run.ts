@@ -302,6 +302,7 @@ export class Autopilot {
     switch (event.type) {
       case 'prompt':
         run.turns += 1
+        run.limits?.turnStarted()
         if (run.sending) run.promptsWhileSending.set(run.turns, event.text)
         else if (run.waveTurn === null && run.wavePrompt !== null && event.text === run.wavePrompt) run.waveTurn = run.turns
         return
@@ -310,7 +311,7 @@ export class Autopilot {
         // Wave's is decided in the run's order, once the Wave's own sending has been handled.
         const turn = run.turns
         const message = event.error ?? (event.isError ? event.text : null)
-        // Whether the Limits refused the turn is known now, from the Session's last Limits status.
+        // Whether the Limits refused the turn is known now, from the Limits status of this turn.
         const hit = run.limits?.hitOf({ isError: event.isError, interrupted: event.interrupted, message }) ?? null
         void run.enqueue(() => {
           // A turn ahead of the Wave that finished normally after an Interrupt still leaves the
@@ -428,14 +429,17 @@ export class Autopilot {
       return
     }
     await this.write(run, { kind: 'waiting-until', until: new Date(plan.at).toISOString() })
-    wait.wait(plan.at, () => void run.enqueue(() => this.resume(run)))
+    const id = wait.wait(plan.at, () => void run.enqueue(() => this.resume(run, id)))
     this.publish(run.projectId)
   }
 
-  /** The wait is over: the Orchestrator gets the continuation, once; a Session that is gone stops the run. */
-  private async resume(run: Run): Promise<void> {
+  /**
+   * The wait `id` is over: the Orchestrator gets the continuation, once; a Session that is gone stops
+   * the run. A wait cancelled or replaced since its timer fired resumes nothing.
+   */
+  private async resume(run: Run, id: number): Promise<void> {
     const wait = run.limits
-    if (wait === null || wait.until === null || run.cycle.phase === 'stopped' || run.session === null) return
+    if (wait === null || !wait.isCurrent(id) || run.cycle.phase === 'stopped' || run.session === null) return
     const text = wait.resume()
     await this.write(run, { kind: 'resumed' })
     this.publish(run.projectId)

@@ -9,8 +9,11 @@
 //    Orchestrator writes the pause into HANDOFF itself: worfy writes nothing into the Project's
 //    repository (ADR-0005).
 //
-// A refusal is told by the Session's Limits status (`rate_limit` events, observeSessionLimits) and,
-// when that event did not parse, by the error text of the turn's `result`. The timer goes by the
+// A refusal is told by the Session's Limits status (`rate_limit` events, observeSessionLimits) when
+// it came during the turn that ended, and otherwise by the error text of the turn's `result`.
+// Claude Code reports the status only when it changes, so a `rejected` left from an earlier turn
+// (a window that does not block, such as one with a model fallback or overage) does not turn a later
+// error of another kind into a refusal. The timer goes by the
 // wall clock, not by a single setTimeout: a Mac that slept anyway would otherwise continue late by
 // the time it slept.
 import type { LimitsState } from '../../shared/agent/limits'
@@ -74,6 +77,10 @@ export interface TurnEnd {
 /** The Limits wait of one run. */
 export class LimitsWait {
   private status: SessionLimitsStatus | null = null
+  /** Whether `status` came during the current turn (since the last turnStarted). */
+  private fresh = false
+  /** The id of the last wait (wait()); a timer of an earlier one resumes nothing. */
+  private id = 0
   /** When the current wait began: the first refusal not followed by a turn that went through. */
   private since: number | null = null
   private cancelTimer: (() => void) | null = null
@@ -95,17 +102,25 @@ export class LimitsWait {
   watch(isSession: (sessionId: string) => boolean): () => void {
     return this.deps.observeSession(isSession, (status) => {
       this.status = status
+      this.fresh = true
     })
   }
 
+  /** A turn of the Session began (its `prompt` event): a Limits status from before it is no longer news. */
+  turnStarted(): void {
+    this.fresh = false
+  }
+
   /**
-   * The refusal a turn's end means, or null: a turn that ended with an error (not interrupted)
-   * while the Session's last Limits status is `rejected`, or whose error text is about the Limits.
+   * The refusal a turn's end means, or null. A turn that ended with an error (not interrupted) is
+   * refused when the Session was told `rejected` during the turn, or when its error text is about
+   * the Limits; in the second case a `rejected` known from before still gives the window and time.
    */
   hitOf(end: TurnEnd): LimitsHit | null {
     if (!end.isError || end.interrupted) return null
-    if (this.status?.status === 'rejected') return { window: this.status.window, resetsAt: this.status.resetsAt }
-    if (isLimitsMessage(end.message)) return { window: null, resetsAt: null }
+    const rejected = this.status?.status === 'rejected' ? { window: this.status.window, resetsAt: this.status.resetsAt } : null
+    if (rejected !== null && this.fresh) return rejected
+    if (isLimitsMessage(end.message)) return rejected ?? { window: null, resetsAt: null }
     return null
   }
 
@@ -116,11 +131,22 @@ export class LimitsWait {
     return resumeAt({ hit, limits: this.deps.state(), now, since: this.since })
   }
 
-  /** Waits until `at`, then calls `fire` once. */
-  wait(at: number, fire: () => void): void {
+  /** Waits until `at`, then calls `fire` once; answers the wait's id (isCurrent). */
+  wait(at: number, fire: () => void): number {
     this.cancel()
+    this.id += 1
     this.untilValue = at
     this.cancelTimer = this.schedule(at, fire)
+    return this.id
+  }
+
+  /**
+   * Whether the wait `id` still goes on: not cancelled, resumed or replaced by a later one. A timer
+   * that fired before its wait was cancelled has its step queued in the run's order; the step asks
+   * this, so it never resumes a wait that is not its own.
+   */
+  isCurrent(id: number): boolean {
+    return this.untilValue !== null && this.id === id
   }
 
   /** The wait is over: answers the message for the Orchestrator, with the pause from its first refusal until now. */

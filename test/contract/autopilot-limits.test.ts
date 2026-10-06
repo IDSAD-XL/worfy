@@ -17,7 +17,7 @@ import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry } from '../../src/main/agent/session'
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
 import { openRun, readRun } from '../../src/main/autopilot/journal'
-import { CONTINUE_TEXT, continueText, LimitsWait, wallTimer } from '../../src/main/autopilot/limits-wait'
+import { CONTINUE_TEXT, continueText, LimitsWait, WALL_TICK_MS, wallTimer } from '../../src/main/autopilot/limits-wait'
 import { Autopilot } from '../../src/main/autopilot/run'
 import { emit } from '../../src/main/ipc/index'
 import { LayoutStore } from '../../src/main/layout/store'
@@ -148,6 +148,19 @@ function withoutResetsAt(line: Record<string, unknown>): Record<string, unknown>
   delete info.resetsAt
   return { ...line, rate_limit_info: info }
 }
+
+/** The fixture's two turns: the one refused by the Limits, then the one that goes through. */
+function fixtureTurns(): { refused: Record<string, unknown>[]; passing: Record<string, unknown>[] } {
+  const all = fixtureLines()
+  const second = all.findIndex((line, i) => i > 0 && line.fake === 'wait_message')
+  return { refused: all.slice(0, second), passing: all.slice(second) }
+}
+
+/** The Session's only live Session id (the Orchestrator's). */
+const orchestratorSession = (registry: SessionRegistry): string => registry.list()[0]!.sessionId
+
+/** The statuses a run went through, each run of the same status once. */
+const statusesOf = (states: AutopilotState[]): string[] => states.map((state) => state.status).filter((status, i, all) => i === 0 || all[i - 1] !== status)
 
 interface Timer {
   at: number
@@ -397,6 +410,75 @@ describe('Autopilot and the Limits on the fake agent', () => {
     expect((await h.journal()).at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'limits-timeout' })
     expect(h.power).toEqual(['start', 'stop'])
   })
+
+  it('a turn that goes through ends the wait: a refusal more than MAX_WAIT_MS after the first one starts a new wait, not a stop', async () => {
+    const h = harness()
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'waiting', 'the first wait')
+    // The continuation goes out a day and more after the first refusal; its turn goes through and
+    // Wave 2 is refused in its turn. That refusal is the first of a new wait.
+    clock = START_MS + MAX_WAIT_MS + 60_000
+    h.live()[0]!.fire()
+    await until(() => h.messages().length === 3 && h.state().status === 'waiting' && h.state().wave === 2, 'the second wait')
+    expect(h.state()).toMatchObject({ status: 'waiting', reason: null, resumesAt: clock + RECHECK_MS })
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'resumed', 'wave-finished', 'wave-started', 'limits-hit', 'waiting-until'])
+  })
+
+  it("a person's turn that goes through during the wait cancels it: the timer sends no continuation", async () => {
+    const h = harness()
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'waiting', 'the wait for the Limits')
+    const timer = h.live()[0]!
+    // The Wave is not finished yet (its Tickets are still in work): the run settles, nothing else starts a wait.
+    for (const num of [1, 2]) writeTicket(num, 'claimed — 2026-10-06')
+    h.registry.get(orchestratorSession(h.registry)).send('how is it going?')
+    await until(() => h.state().status === 'running', 'the wait to end')
+    expect(timer.cancelled).toBe(true)
+    expect(h.state().resumesAt).toBeNull()
+    // A timer that fired all the same resumes nothing.
+    clock = timer.at
+    timer.fire()
+    await tick()
+    expect(h.messages()).toEqual([WAVE_1, 'how is it going?'])
+    expect(h.messages().some((text) => text.startsWith(CONTINUE_TEXT))).toBe(false)
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until'])
+  })
+
+  it("the timer of a wait that a person's turn ended does not resume the next wait", async () => {
+    const h = harness()
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'waiting', 'the first wait')
+    const first = h.live()[0]!
+    // A person's turn goes through: Wave 1 is finished, Wave 2 is refused, and a new wait begins.
+    h.registry.get(orchestratorSession(h.registry)).send('how is it going?')
+    await until(() => h.messages().length === 3 && h.state().status === 'waiting' && h.state().wave === 2, 'the second wait')
+    expect(statusesOf(h.states)).toEqual(['running', 'waiting', 'running', 'waiting'])
+    const second = h.live()
+    expect(second).toHaveLength(1)
+    expect(second[0]).not.toBe(first)
+    // The first wait's timer fires late, its step already queued: the second wait goes on.
+    first.fire()
+    await tick()
+    expect(h.messages()).toEqual([WAVE_1, 'how is it going?', WAVE_2])
+    expect(h.state()).toMatchObject({ status: 'waiting', resumesAt: second[0]!.at })
+    expect(await h.kinds()).not.toContain('resumed')
+  })
+
+  it('a refusal of an earlier turn does not make a later error of another kind a refusal', async () => {
+    // Turn 1 (Wave 1) is told `rejected` for a window that does not block it and goes through;
+    // turn 2 (Wave 2) ends with a server error. Claude Code sends no new Limits event for turn 2.
+    const { passing } = fixtureTurns()
+    const [wait, init, , assistant, result] = passing as [Record<string, unknown>, Record<string, unknown>, Record<string, unknown>, Record<string, unknown>, Record<string, unknown>]
+    const opus = { type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: RESET_S, rateLimitType: 'seven_day_opus', isUsingOverage: false }, uuid: '00000000-0000-4000-8000-000000000590', session_id: '{{session}}' }
+    const failed = { ...result, is_error: true, result: 'API Error: 500 {"type":"error","error":{"type":"api_error","message":"Internal server error"}}', terminal_reason: 'api_error' }
+    const h = harness({ lines: [wait, init, opus, assistant, result, wait, init, failed] })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    expect(h.messages()).toEqual([WAVE_1, WAVE_2])
+    expect(h.state()).toMatchObject({ reason: 'turn-error', resumesAt: null })
+    expect(await h.kinds()).not.toContain('limits-hit')
+    expect(h.timers).toEqual([])
+  })
 })
 
 describe('observeSessionLimits', () => {
@@ -430,6 +512,25 @@ describe('observeSessionLimits', () => {
 })
 
 describe('wallTimer', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('goes by the wall clock: after a sleep that moved the clock past the time it fires within WALL_TICK_MS', () => {
+    vi.useFakeTimers()
+    let now = 0
+    const fired: number[] = []
+    wallTimer(() => now)(3 * 3_600_000, () => fired.push(now))
+    vi.advanceTimersByTime(2 * WALL_TICK_MS)
+    expect(fired).toEqual([])
+    // The Mac slept: the wall clock is past the time, the process's timers are not.
+    now = 3 * 3_600_000 + 5_000
+    vi.advanceTimersByTime(WALL_TICK_MS)
+    expect(fired).toEqual([now])
+    vi.advanceTimersByTime(10 * WALL_TICK_MS)
+    expect(fired).toHaveLength(1)
+  })
+
   it('fires once when the wall clock reaches the time, and not at all once cancelled', async () => {
     let now = 0
     const schedule = wallTimer(() => now)
@@ -497,6 +598,46 @@ describe('LimitsWait', () => {
     w.subject.passed()
     expect(w.cancelled).toEqual([START_MS + 1000])
     expect(w.subject.until).toBeNull()
+  })
+
+  it('takes a `rejected` for a refusal only when it came during the turn; from before, only with an error text about the Limits', () => {
+    let listener: ((status: SessionLimitsStatus) => void) | null = null
+    const subject = new LimitsWait({
+      state: () => ({ windows: {} }),
+      observeSession: (_isSession, each) => {
+        listener = each
+        return () => undefined
+      },
+      send: () => undefined,
+    })
+    subject.watch(() => true)
+    const rejected: SessionLimitsStatus = { status: 'rejected', window: 'seven_day_opus', resetsAt: RESET_S }
+    const serverError = { isError: true, interrupted: false, message: 'API Error: 500' }
+    const limitsError = { isError: true, interrupted: false, message: "You've hit your limit · resets 3pm" }
+
+    subject.turnStarted()
+    listener!(rejected)
+    expect(subject.hitOf(serverError)).toEqual({ window: 'seven_day_opus', resetsAt: RESET_S })
+    subject.turnStarted()
+    expect(subject.hitOf(serverError)).toBeNull()
+    expect(subject.hitOf(limitsError)).toEqual({ window: 'seven_day_opus', resetsAt: RESET_S })
+    listener!({ status: 'allowed', window: 'five_hour', resetsAt: RESET_S })
+    expect(subject.hitOf(serverError)).toBeNull()
+    expect(subject.hitOf(limitsError)).toEqual({ window: null, resetsAt: null })
+  })
+
+  it('knows only its last wait as current, and none once it is cancelled or resumed', () => {
+    const w = wait()
+    const first = w.subject.wait(START_MS + 1000, () => undefined)
+    expect(w.subject.isCurrent(first)).toBe(true)
+    const second = w.subject.wait(START_MS + 2000, () => undefined)
+    expect(w.subject.isCurrent(first)).toBe(false)
+    expect(w.subject.isCurrent(second)).toBe(true)
+    w.subject.resume()
+    expect(w.subject.isCurrent(second)).toBe(false)
+    const third = w.subject.wait(START_MS + 3000, () => undefined)
+    w.subject.cancel()
+    expect(w.subject.isCurrent(third)).toBe(false)
   })
 
   it('takes a turn for refused only when it ended with an error, not interrupted', () => {

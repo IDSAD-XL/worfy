@@ -89,19 +89,9 @@ export class LimitsTracker {
     }
   }
 
-  /**
-   * Records the windows of one SDK message (nothing for messages other than rate_limit_event). A
-   * window reported without a reset time keeps the one already known while it is still ahead: a
-   * refusal (`rejected`) may come without `resetsAt`, and Autopilot then waits by the time kept here.
-   */
+  /** Records the windows of one SDK message (nothing for messages other than rate_limit_event). */
   recordSdkMessage(message: unknown): void {
-    const now = this.now()
-    const updates = limitUpdatesFromSdk(message, now).map((update): LimitUpdate => {
-      const known = this.state.windows[update.window]?.resetsAt ?? null
-      if (update.state.resetsAt !== null || known === null || known * 1000 <= now) return update
-      return { window: update.window, state: { ...update.state, resetsAt: known } }
-    })
-    this.record(updates)
+    this.record(limitUpdatesFromSdk(message, this.now()))
   }
 
   /**
