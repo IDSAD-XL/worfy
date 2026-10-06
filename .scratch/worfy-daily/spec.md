@@ -96,11 +96,11 @@ Session-ов, которые запускает worfy. По умолчанию �
 
 ## Этапы
 
-Темы идут по порядку A → B → C → D → E → F. Номера Ticket-ов идут в том же порядке, кроме 22–31:
-22–28 и 31 — тема C, 29 и 30 — тема A, но их завели позже. Порядок держат рёбра `Blocked by` (раздел «Волны»). Исключение —
+Темы идут по порядку A → B → C → D → E → F. Номера Ticket-ов идут в том же порядке, кроме 22–32:
+22–28 и 31 — тема C, 29, 30 и 32 — тема A, но их завели позже. Порядок держат рёбра `Blocked by` (раздел «Волны»). Исключение —
 Ticket 21 (тема E): он идёт в Wave 1, см. пункт 5.
 
-1. **A — Autopilot** — 01–05, 29 и 30.
+1. **A — Autopilot** — 01–05, 29, 30 и 32.
    - 01: журнал прогона.
    - 02: Session без человека.
    - 03: стабильная копия.
@@ -114,6 +114,10 @@ Ticket 21 (тема E): он идёт в Wave 1, см. пункт 5.
      Дефект второго настоящего прогона Autopilot 2026-10-06: в Wave попал Ticket 15 со Status
      `blocked`, Orchestrator получил «волна 6» — номер закрытой Wave плана, ничего не запустил, и
      прогон остановился с `no-progress`. Ticket-ы 11, 23, 25, 27 блокированы 30.
+   - 32: Autopilot не даёт экрану погаснуть на время прогона (`prevent-display-sleep`, ADR-0034).
+     Вечером 2026-10-06 экран гас и блокировался, и e2e и `gate full` Wave 9 ждали, пока человек
+     разблокирует Mac. Решение владельца 2026-10-06 — вариант (а); правило «Mac на ночь не
+     блокируют вручную» — в README.
    - Итог этапа: Autopilot проводит Wave-ы на стабильной копии, ни одного диалога.
 2. **B — устойчивость и цена** — 06–09.
    - 06: MCP-серверы по списку Profile. Сейчас Session получает 634 tools, и на haiku падает
@@ -284,6 +288,8 @@ Wave — Ticket-ы, которые можно брать параллельно:
   с Ticket-ом 16 файлы `src/main/index.ts` и `test/e2e/packaged.spec.ts`. Ребро `Blocked by` не
   нужно: worfy не берёт в Wave Ticket, чей файл занят Ticket-ом в работе или Ticket-ом с меньшим
   номером в той же Wave. Раньше 16 Ticket 31 уйдёт, только пока 15 в `blocked`.
+- У Ticket-а 32 (Autopilot не даёт экрану погаснуть, тема A) блокеров нет: в плане он в Wave 8
+  вместе с Ticket-ом 16. Общих файлов с Ticket-ами Wave 8 у него нет.
 
 | Тикет | Файлы из «Где в коде» | Волна |
 | --- | --- | --- |
@@ -311,6 +317,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 23 | `src/main/agent/node-sessions.ts`, `src/main/agent/app-node-sessions.ts`, `src/main/agent/session.ts`, `src/main/claude-home/user-model.ts`, `test/contract/node-sessions.test.ts`, `test/contract/agent-controls.test.ts` | 8 |
 | 25 | `src/main/agent/commands.ts`, `src/shared/transcript/parse.ts`, `src/renderer/session/Transcript.tsx`, `test/unit/slash-commands.test.ts`, `test/contract/transcript-parse.test.ts`, `test/unit/transcript-hooks.test.tsx` | 8 |
 | 27 | `src/renderer/canvas/nodes/OrchestratorNode.tsx`, `src/shared/ipc/orchestrator.ts`, `src/main/agent/orchestrator.ts`, `test/unit/orchestrator-node.test.tsx`, `test/e2e/orchestrator.spec.ts` | 8 |
+| 32 | `docs/adr/0034-autopilot-keeps-display-awake.md`, `src/main/autopilot/power.ts`, `src/renderer/canvas/actions/AutopilotAction.tsx`, `README.md`, `test/unit/autopilot-power.test.ts`, `test/unit/canvas-actions.test.tsx`, `test/e2e/autopilot.spec.ts` | 8 |
 | 17 | `src/main/claude-home/subagents.ts`, `src/shared/transcript/subagents.ts`, `src/main/claude-home/tail.ts`, `test/contract/claude-home-subagents.test.ts`, `test/unit/subagents.test.ts`, `test/e2e/subagent-tree.spec.ts`, `test/fixtures/claude-home/` | 9 |
 | 24 | `src/main/agent/session.ts`, `src/main/agent/fake-query.ts`, `src/main/agent/options.ts`, `src/main/claude-home/registry.ts`, `src/renderer/claude-home/session-nodes.ts`, `src/renderer/shell/sidebar/SessionsSection.tsx`, `src/renderer/session/SessionView.tsx`, `test/unit/session-nodes.test.tsx`, `test/unit/agent-options.test.ts`, `test/contract/agent-session.test.ts`, `test/e2e/own-sessions.spec.ts` | 9 |
 | 28 | `src/renderer/canvas/sources/subagents.ts`, `src/renderer/canvas/actions/TicketActions.tsx`, `src/shared/ipc/actions.ts`, `src/main/ipc/actions.ts`, `src/main/actions/launch.ts`, `src/main/agent/node-sessions.ts`, `src/main/layout/place.ts`, `test/unit/subagent-nodes.test.tsx`, `test/unit/layout-place.test.ts`, `test/contract/node-sessions.test.ts`, `test/e2e/ship-ticket.spec.ts` | 9 |
@@ -325,10 +332,14 @@ Wave — Ticket-ы, которые можно брать параллельно:
 - `src/main/index.ts`: 03 → 15 → 16 → 31.
 - `test/e2e/packaged.spec.ts`: 03 → 16 → 31.
 - `package.json`: 03 → 31.
+- `README.md`: 03 → 32.
 - `src/main/autopilot/run.ts`: 04 → 05 → 29 → 30.
-- `src/renderer/canvas/actions/AutopilotAction.tsx`: 04 → 05 → 29.
+- `src/renderer/canvas/actions/AutopilotAction.tsx`: 04 → 05 → 29 → 32.
+- `src/main/autopilot/power.ts` и `test/unit/autopilot-power.test.ts`: 04 → 32.
 - `src/shared/autopilot/cycle.ts` и `test/unit/autopilot-cycle.test.ts`: 04 → 29 → 30.
-- `src/shared/ipc/autopilot.ts` и `test/e2e/autopilot.spec.ts`: 04 → 29.
+- `src/shared/ipc/autopilot.ts`: 04 → 29.
+- `test/e2e/autopilot.spec.ts`: 04 → 29 → 32.
+- `test/unit/canvas-actions.test.tsx`: 32 → 20.
 - `test/contract/autopilot.test.ts`: 04 → 30.
 - `src/shared/autopilot/journal.ts`: 01 → 29 → 30.
 - Дерево Subagent-ов — `src/shared/transcript/subagents.ts`, `src/main/claude-home/subagents.ts`,
