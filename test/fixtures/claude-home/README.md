@@ -28,8 +28,11 @@ Fixtures только читаются. Test, которому нужно что
 | `projects/-Users-test-projects-agents/7777…7777/subagents/agent-a4…286.*` | 2.1.286 | вложенный scout: `parentAgentId`, `spawnDepth: 2`, вызов и результат — в транскрипте родителя (без `toolUseResult`) |
 | `projects/-Users-test-projects-agents/7777…7777/subagents/agent-a5…286.*` | 2.1.286 | reviewer глубины 1, `requestShape: foreground` |
 | `projects/-Users-test-------/6666…6666.jsonl` | 2.1.286 | cwd `/Users/test/проект`: каждая кириллическая буква даёт `-` |
+| `projects/-Users-test-projects-stale/9999…9999.jsonl` | 2.1.260 | тикет 08 worfy-daily (ADR-0030): два фоновых Subagent-а; task-notification о первом только в очереди — `queue-operation` (`enqueue`, `remove`) и `attachment` типа `queued_command`, записи `user` нет; о втором уведомления нет; последний ответ Session с `stop_reason: null` |
+| `projects/-Users-test-projects-stale/9999…9999/subagents/agent-a6…260.*` | 2.1.260 | Subagent, кончившийся уведомлением из очереди; его последний ответ с `stop_reason: null`, а не `end_turn` |
+| `projects/-Users-test-projects-stale/9999…9999/subagents/agent-a7…260.*` | 2.1.260 | Subagent без уведомления: последняя запись — вызов WebFetch (`stop_reason: tool_use`); Session закрыта |
 
-Сессии 1111, 2222, 3333, 6666 и 7777 завершены: записи в `sessions/` у них нет. Процессов 41004 и 41005
+Сессии 1111, 2222, 3333, 6666, 7777 и 9999 завершены: записи в `sessions/` у них нет. Процессов 41004 и 41005
 на машине нет, поэтому живость в test-ах подменяется, а не проверяется `kill(pid, 0)`.
 
 Agent SDK (`listSessions`, `getSessionMessages`, `listSubagents`, `getSubagentMessages` с

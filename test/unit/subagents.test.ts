@@ -4,7 +4,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { parseTranscriptLines } from '../../src/shared/transcript/parse'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import {
   buildSubagentTree,
@@ -12,6 +11,7 @@ import {
   readSubagentMeta,
   subagentFile,
   subagentSignals,
+  subagentSignalsOfLines,
   summaryLine,
   type SubagentFile,
   type SubagentInfo,
@@ -47,7 +47,7 @@ function load(dir: string, sessionId: string, until?: string) {
       if (transcript.length > 0) files.push(subagentFile(agentId, meta, transcript))
     }
   }
-  return { signals: subagentSignals(parseTranscriptLines(kept)), files }
+  return { signals: subagentSignalsOfLines(kept), files }
 }
 
 /** The fields the ticket asks for, without the children. */
@@ -344,5 +344,80 @@ describe('summaryLine and the meta file', () => {
   it('skips lines of a Subagent transcript that are not JSON', () => {
     const file = subagentFile('a1', null, ['not json', '{"type":"assistant","timestamp":"2026-01-01T00:00:00.000Z","message":{"model":"m","content":[{"type":"text","text":"Done."}],"stop_reason":"end_turn"}}'])
     expect(file).toMatchObject({ agentId: 'a1', meta: null, transcript: true, model: 'm', finalText: 'Done.', ended: true, firstAt: at('2026-01-01T00:00:00.000Z') })
+  })
+})
+
+// Ticket worfy-daily/08, ADR-0030: Subagents that stayed `running` long after they stopped.
+describe('a Subagent whose end is not a task-notification user message', () => {
+  const STALE = join(HOME, '-Users-test-projects-stale')
+  const SESSION_9 = '99999999-9999-4999-8999-999999999999'
+  const A = 'a6000000000000260'
+  const B = 'a7000000000000260'
+  const statuses = (tree: readonly SubagentInfo[]) => flattenSubagents(tree).map(({ agentId, status }) => [agentId, status])
+  const notification = (taskId: string, toolUseId: string) =>
+    `<task-notification>\n<task-id>${taskId}</task-id>\n<tool-use-id>${toolUseId}</tool-use-id>\n<status>completed</status>\n<summary>Agent finished</summary>\n<result>Report.</result>\n</task-notification>`
+  const launched = (toolUseId: string, agentId: string): string[] => [
+    JSON.stringify({ type: 'assistant', timestamp: '2026-09-10T00:00:00.000Z', message: { model: 'm', content: [{ type: 'tool_use', id: toolUseId, name: 'Agent', input: { subagent_type: 'scout', run_in_background: true } }], stop_reason: 'tool_use' } }),
+    JSON.stringify({ type: 'user', timestamp: '2026-09-10T00:00:01.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'Async agent launched successfully.' }] }, toolUseResult: { status: 'async_launched', agentId } }),
+  ]
+
+  it('reads a task-notification that Claude Code queued: a queue-operation and a queued_command attachment', () => {
+    const tree = buildSubagentTree(load(STALE, SESSION_9))
+    expect(flattenSubagents(tree).find((info) => info.agentId === A)).toMatchObject({ status: 'done', summary: 'Synthetic report for option A.', durationMs: at('2026-09-10T02:33:00.000Z') - at('2026-09-10T02:30:05.000Z') })
+  })
+
+  it('ends a Subagent by a queue-operation alone, and by a queued_command attachment alone', () => {
+    const enqueue = JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: '2026-09-10T00:01:00.000Z', content: notification('a-q', 'toolu_q') })
+    const attachment = JSON.stringify({ type: 'attachment', timestamp: '2026-09-10T00:01:00.000Z', attachment: { type: 'queued_command', commandMode: 'task-notification', prompt: notification('a-q', 'toolu_q') } })
+    for (const line of [enqueue, attachment]) {
+      expect(statuses(buildSubagentTree({ signals: subagentSignalsOfLines([...launched('toolu_q', 'a-q'), line]), files: [] }))).toEqual([['a-q', 'done']])
+    }
+  })
+
+  it('does not end a Subagent by a queue removal or by a queued command that is not a task-notification', () => {
+    const remove = JSON.stringify({ type: 'queue-operation', operation: 'remove', timestamp: '2026-09-10T00:01:00.000Z', content: notification('a-q', 'toolu_q') })
+    const typed = JSON.stringify({ type: 'attachment', timestamp: '2026-09-10T00:01:00.000Z', attachment: { type: 'queued_command', prompt: `please also check ${notification('a-q', 'toolu_q')}` } })
+    expect(statuses(buildSubagentTree({ signals: subagentSignalsOfLines([...launched('toolu_q', 'a-q'), remove, typed]), files: [] }))).toEqual([['a-q', 'running']])
+  })
+
+  it('reads a queued task-notification of a nested Subagent in its parent transcript', () => {
+    const parent = subagentFile('a-p', null, [
+      ...launched('toolu_n', 'a-n'),
+      JSON.stringify({ type: 'attachment', isSidechain: true, timestamp: '2026-09-10T00:01:00.000Z', attachment: { type: 'queued_command', prompt: notification('a-n', 'toolu_n') } }),
+    ])
+    const child = subagentFile('a-n', { toolUseId: 'toolu_n', parentAgentId: 'a-p' }, [])
+    expect(statuses(buildSubagentTree({ signals: [], files: [parent, child] }))).toEqual([['a-p', 'running'], ['a-n', 'done']])
+  })
+
+  it('shows a background Subagent without a task-notification as an error once its Session is closed', () => {
+    const { signals, files } = load(STALE, SESSION_9)
+    expect(statuses(buildSubagentTree({ signals, files }))).toEqual([[A, 'done'], [B, 'running']])
+    const closed = buildSubagentTree({ signals: [...signals, { kind: 'session-closed' }], files })
+    expect(statuses(closed)).toEqual([[A, 'done'], [B, 'error']])
+    // Its time ends with the last record of its file, its summary is its last text.
+    expect(closed[1]).toMatchObject({ durationMs: at('2026-09-10T02:31:00.000Z') - at('2026-09-10T02:30:07.000Z'), summary: 'Fetching the vendor page.' })
+  })
+
+  it('shows a synchronous Subagent cut off by the closed Session as an error, and keeps what had ended', () => {
+    const signals = live([
+      [1000, call('toolu_cut', { subagent_type: 'scout' })],
+      [1000, call('toolu_ok', { subagent_type: 'scout' })],
+      [3000, { type: 'tool_result', toolUseId: 'toolu_ok', content: 'Found it.', isError: false, parentToolUseId: null }],
+      [1000, call('toolu_bg', { subagent_type: 'scout', run_in_background: true })],
+      [1100, { type: 'tool_result', toolUseId: 'toolu_bg', content: 'Async agent launched successfully.', isError: false, parentToolUseId: null }],
+      [5000, { type: 'subagent', phase: 'finished', taskId: 'a-bg', toolUseId: 'toolu_bg', description: null, subagentType: null, status: 'completed', summary: 'Done', result: null }],
+    ])
+    const tree = buildSubagentTree({ signals: [...signals, { kind: 'session-closed' }], files: [] })
+    expect(tree.map(({ id, status }) => [id, status])).toEqual([
+      ['toolu_bg', 'done'],
+      ['toolu_cut', 'error'],
+      ['toolu_ok', 'done'],
+    ])
+  })
+
+  it('takes the closed Session only from the Session thread, not from a Subagent file', () => {
+    const { signals, files } = load(STALE, SESSION_9)
+    const withStray = files.map((file) => ({ ...file, signals: [...file.signals, { kind: 'session-closed' as const }] }))
+    expect(statuses(buildSubagentTree({ signals, files: withStray }))).toEqual([[A, 'done'], [B, 'running']])
   })
 })

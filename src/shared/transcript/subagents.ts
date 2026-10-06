@@ -16,7 +16,7 @@
 // it, and in a live Session the call's `parentToolUseId` does.
 import { z } from 'zod'
 import type { AgentEvent } from '../agent/events'
-import { parseTranscriptRecord } from './parse'
+import { parseTranscriptRecord, type TranscriptEntry } from './parse'
 
 /** Names of the tool that starts a Subagent: `Agent` since 2.1.222; `Task` in older versions. */
 const AGENT_TOOLS = new Set(['Agent', 'Task'])
@@ -48,6 +48,12 @@ export const subagentSignalSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('started'), agentId: z.string(), toolUseId: z.string().nullable(), at: time, subagentType: short, description: short }),
   /** A task-notification (or a synchronous call's result) says the Subagent ended. */
   z.object({ kind: z.literal('finished'), agentId: z.string(), toolUseId: z.string().nullable(), at: time, status: short, summary: short, result: long }),
+  /**
+   * The Session's Claude Code process is not running (main reads `sessions/<pid>.json`): its
+   * Subagents live in that process, so one that has not ended by now never will (ADR-0030).
+   * Counts only among the Session's own signals.
+   */
+  z.object({ kind: z.literal('session-closed') }),
 ])
 export type SubagentSignal = z.infer<typeof subagentSignalSchema>
 
@@ -189,6 +195,49 @@ export function subagentSignals(events: readonly TimedEvent[], calls: Set<string
   return signals
 }
 
+/**
+ * A task-notification that waited in Claude Code's queue, as the user message it stands for; the
+ * record itself otherwise. A notification that comes while the Session is busy is written as a
+ * `queue-operation` (`enqueue`) and, once delivered, as an `attachment` of type `queued_command` —
+ * often with no user message at all (ticket worfy-daily/08, «Итог»: 310 of 311 Subagents stuck in
+ * `running` on Auction ended this way). Read as a user message, it gives the same `subagent` event.
+ */
+function asNotification(record: Json): Json {
+  const attachment = isObject(record.attachment) ? record.attachment : undefined
+  const text =
+    record.type === 'queue-operation' && record.operation === 'enqueue'
+      ? record.content
+      : record.type === 'attachment' && attachment?.type === 'queued_command'
+        ? attachment.prompt
+        : undefined
+  if (typeof text !== 'string' || !text.trimStart().startsWith('<task-notification>')) return record
+  return { type: 'user', timestamp: record.timestamp, isSidechain: record.isSidechain, message: { role: 'user', content: text } }
+}
+
+/** The events of one transcript record (parsed JSON), a queued task-notification included. */
+function recordEvents(record: Json): TranscriptEntry[] {
+  return parseTranscriptRecord(asNotification(record))
+}
+
+/**
+ * The Subagent signals of the Session's own transcript lines (JSONL): lines that are not JSON and
+ * records an older Claude Code wrote for a Subagent into the Session's file (`isSidechain`) are
+ * skipped. `calls` as in subagentSignals().
+ */
+export function subagentSignalsOfLines(lines: readonly string[], calls: Set<string> = new Set()): SubagentSignal[] {
+  const entries: TranscriptEntry[] = []
+  for (const line of lines) {
+    let record: unknown
+    try {
+      record = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (isObject(record)) entries.push(...recordEvents(record).filter((entry) => !entry.sidechain))
+  }
+  return subagentSignals(entries, calls)
+}
+
 // ── one Subagent's files ────────────────────────────────────────────────────
 
 /** `agent-<id>.meta.json` as parsed JSON → its known fields; null for anything but an object. */
@@ -234,7 +283,7 @@ export function extendSubagentFile(file: SubagentFile, lines: readonly string[])
       // A tool's result, or a message sent to the Subagent: it is working again.
       next.ended = false
     }
-    next.signals.push(...subagentSignals(parseTranscriptRecord(record), calls))
+    next.signals.push(...subagentSignals(recordEvents(record), calls))
   }
   return next
 }
@@ -358,6 +407,8 @@ function gather(index: Index, signals: readonly SubagentSignal[], thread: string
       case 'finished':
         index.get(signal.agentId, signal.toolUseId).finished = signal
         break
+      case 'session-closed':
+        break
     }
   }
 }
@@ -368,20 +419,25 @@ function firstOf<T>(...values: Array<T | null | undefined>): T | null {
   return null
 }
 
-function statusOf(record: Gathered, background: boolean): SubagentStatus {
+/**
+ * `closed`: the Session's process is not running. A Subagent that has not ended by then was cut off
+ * with it — an error, like one the user stopped (ADR-0030). While the Session runs, a Subagent
+ * without an end stays `running`, however long its file has not changed.
+ */
+function statusOf(record: Gathered, background: boolean, closed: boolean): SubagentStatus {
   const { finished, result, file } = record
   if (finished) return finished.status === null || finished.status === 'completed' ? 'done' : 'error'
   if (result?.isError || file?.meta?.stoppedByUser === true) return 'error'
   if (result && !background) return 'done'
   if (file?.ended) return 'done'
-  return 'running'
+  return closed ? 'error' : 'running'
 }
 
-function describe(record: Gathered): Omit<SubagentInfo, 'parentAgentId' | 'depth' | 'children'> {
+function describe(record: Gathered, closed: boolean): Omit<SubagentInfo, 'parentAgentId' | 'depth' | 'children'> {
   const { call, result, started, finished, file } = record
   const meta = file?.meta ?? null
   const background = meta?.requestShape === 'background' || call?.background === true || result?.launched === true
-  const status = statusOf(record, background)
+  const status = statusOf(record, background, closed)
   // The final answer: the notification's, a synchronous call's result, the last answer in its
   // file, a failed call's error, and the notification's one-line summary last.
   const answer = firstOf(
@@ -418,9 +474,11 @@ const byStart = (a: SubagentInfo, b: SubagentInfo): number =>
 /**
  * The Session's Subagent tree: its own Subagents, each with the Subagents it started, ordered by
  * start time. `signals` come from the Session's own events (a live Session or its transcript),
- * `files` from its `subagents/` folder; either may be missing something the other has.
+ * `files` from its `subagents/` folder; either may be missing something the other has. A
+ * `session-closed` signal among `signals` ends every Subagent that has not ended (ADR-0030).
  */
 export function buildSubagentTree({ signals, files }: { signals: readonly SubagentSignal[]; files: readonly SubagentFile[] }): SubagentInfo[] {
+  const closed = signals.some((signal) => signal.kind === 'session-closed')
   const index = new Index()
   gather(index, signals, null)
   for (const file of files) gather(index, file.signals, file.agentId)
@@ -440,7 +498,7 @@ export function buildSubagentTree({ signals, files }: { signals: readonly Subage
   }
 
   const infos = new Map<Gathered, SubagentInfo>()
-  for (const record of kept) infos.set(record, { ...describe(record), parentAgentId: null, depth: 1, children: [] })
+  for (const record of kept) infos.set(record, { ...describe(record, closed), parentAgentId: null, depth: 1, children: [] })
 
   const roots: SubagentInfo[] = []
   for (const record of kept) {
