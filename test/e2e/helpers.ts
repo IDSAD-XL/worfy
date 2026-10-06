@@ -103,7 +103,8 @@ async function saveArtifacts(app: ElectronApplication, window: Page, tracing: bo
 
 /**
  * Starts the app with isolated data and Claude directories and the fake agent: the built out/
- * bundle by default, or the packaged app when `executablePath` is given.
+ * bundle by default, or the packaged app when `executablePath` is given. Resolves once the window
+ * is on screen.
  * Every e2e test launches the app through this helper, so a new isolation variable added here
  * covers the packaged-app tests too.
  */
@@ -149,6 +150,20 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
   const tracing = currentTest() !== undefined && (await app.context().tracing.start({ snapshots: true, screenshots: false }).then(() => true, () => false))
   try {
     const window = await app.firstWindow({ timeout: FIRST_WINDOW_TIMEOUT_MS })
+    // Returned only once the window is on screen. The app creates it hidden and shows it when the
+    // page has painted; macOS then fits it into the display. A size or position a test sets before
+    // that is undone on a display smaller than the window (a CI runner's is 1024 × 768).
+    const shown = app.evaluate(
+      ({ BrowserWindow }) =>
+        new Promise<void>((done) => {
+          const first = BrowserWindow.getAllWindows()[0]
+          if (!first || first.isVisible()) return done()
+          first.once('show', () => done())
+        }),
+    )
+    if ((await Promise.race([shown.then(() => 'shown' as const), timeout(FIRST_WINDOW_TIMEOUT_MS)])) === 'timeout') {
+      throw new Error(`the window was not shown within ${FIRST_WINDOW_TIMEOUT_MS / 1000} s`)
+    }
     return {
       app,
       window,
@@ -206,23 +221,27 @@ export interface CanvasReadyOptions {
 }
 
 /**
- * Waits until the Canvas is at rest: the window is on screen (at `size` when given), the
+ * Waits until the Canvas is at rest: the window is on screen (when `app` is given; at `size` when
+ * given), the
  * `visible` elements are there, and then for `frames` animation frames in a row the viewport
  * transform, the set of Node elements and every Node's box stay the same. A Node element that is
  * replaced by a new one counts as a change too. This replaces fixed pauses: it waits as long as
  * the app needs, and no longer.
  */
-export async function canvasReady(launched: Pick<LaunchedApp, 'app' | 'window'>, options: CanvasReadyOptions = {}): Promise<void> {
+export async function canvasReady(launched: { window: Page; app?: ElectronApplication }, options: CanvasReadyOptions = {}): Promise<void> {
   const { app, window } = launched
   const limit = options.timeout ?? 10_000
   const deadline = Date.now() + limit
   const left = (): number => Math.max(1, deadline - Date.now())
 
-  await expect
-    .poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible() ?? false), { timeout: left(), message: 'the window is on screen' })
-    .toBe(true)
+  if (app) {
+    await expect
+      .poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible() ?? false), { timeout: left(), message: 'the window is on screen' })
+      .toBe(true)
+  }
   const size = options.size
   if (size) {
+    if (!app) throw new Error('canvasReady: setting the window size needs the app')
     await expect
       .poll(
         async () => {

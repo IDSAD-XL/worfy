@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp } from './helpers'
+import { canvasReady, launchApp } from './helpers'
 
 // The Canvas of a Project against the built app: Nodes are created, moved and resized in the
 // window, main saves layout.json in the Project's data folder, and a restarted app shows the same
@@ -77,6 +77,9 @@ async function center(locator: Locator): Promise<{ x: number; y: number }> {
 }
 
 async function drag(window: Page, from: Locator, dx: number, dy: number): Promise<void> {
+  // The press lands only once nothing on the Canvas moves or is redrawn: a drag that starts while
+  // React Flow still lays the Node out follows the pointer only part of the way.
+  await canvasReady({ window }, { visible: [from] })
   const start = await center(from)
   await window.mouse.move(start.x, start.y)
   await window.mouse.down()

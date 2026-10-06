@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { launchApp, repoRoot } from './helpers'
+import { canvasReady, launchApp, marksOf, repoRoot, startTimeline } from './helpers'
 
 // The Subagent tree of a Session (ticket 15), against the built app:
 // - the Orchestrator on the fake agent (test/fixtures/agent-scripts/subagents.jsonl) starts a
@@ -84,6 +84,8 @@ async function sendToOrchestrator(window: Page, text: string): Promise<void> {
     const listed = await bridge.invoke('agent.list')
     const [session] = (listed.value as { sessionId: string }[] | undefined) ?? []
     if (!session) throw new Error('no Session runs')
+    // The moment the message leaves the renderer, for the timings measured inside the app.
+    ;(globalThis as unknown as { __worfyTimeline?: { mark(name: string): void } }).__worfyTimeline?.mark('sent')
     const sent = await bridge.invoke('agent.send', { sessionId: session.sessionId, text: message })
     if (!sent.ok) throw new Error(sent.error)
   }, text)
@@ -113,16 +115,19 @@ test('the Orchestrator starts Subagents: their Nodes appear, run with a ticking 
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'subagents' } })
   try {
     const { window } = launched
-    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 900))
-    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+    await canvasReady(launched, { size: { width: 1600, height: 900 }, visible: [window.getByTestId('orchestrator-node')] })
     await expect.poll(() => window.evaluate(async () => ((await (globalThis as unknown as { worfy: Bridge }).worfy.invoke('agent.list')).value as unknown[]).length)).toBe(1)
 
-    // The turn's `task_started` follows the message at once: the Node must be there within 500 ms.
+    // The turn's `task_started` follows the message at once: the Node must be there within 500 ms,
+    // timed inside the renderer from the message leaving it to the Node's element in the page.
     const impl = window.locator('[data-testid="subagent-node"][data-subagent-id="afake00000000impl"]')
-    const sent = Date.now()
+    await startTimeline(window, { impl: { selector: '[data-testid="subagent-node"][data-subagent-id="afake00000000impl"]' } })
     await sendToOrchestrator(window, 'run wave 3')
     await impl.waitFor({ state: 'visible', timeout: 5000 })
-    const appeared = Date.now() - sent
+    const marks = await marksOf(window, ['sent', 'impl'])
+    const appeared = Math.round(marks.impl! - marks.sent!)
+    // Only a Node that came after the message counts.
+    expect(appeared).toBeGreaterThanOrEqual(0)
     console.info(`[subagent-tree] the Subagent Node appeared ${appeared} ms after the message that starts it`)
     expect(appeared, `the Subagent Node appeared ${appeared} ms after the event`).toBeLessThanOrEqual(500)
 
@@ -187,8 +192,7 @@ test('a terminal Session with three Subagents: the tree from its files, REJECTED
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'turn' } })
   try {
     const { window } = launched
-    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 900))
-    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+    await canvasReady(launched, { size: { width: 1600, height: 900 }, visible: [window.getByTestId('orchestrator-node')] })
     const claude = claudeProcess()
     write(
       join(claudeHome, 'sessions', `${claude.pid}.json`),
@@ -233,7 +237,7 @@ test('a terminal Session with three Subagents: the tree from its files, REJECTED
     await expect.poll(async () => ((await offset())?.offset as { dy?: number } | null)?.dy ?? 0).toBeGreaterThan(200)
     expect((await offset())?.kind).toBe('subagent-tree')
     // After the Layout came back from main the Node stays where it was dropped.
-    await window.waitForTimeout(300)
+    await canvasReady(launched)
     expect((await reviewer.boundingBox())!.y).toBeGreaterThan(before.y + 100)
 
     // A click opens the reviewer's own transcript, read-only.
@@ -280,22 +284,34 @@ test('a Session with 24 Subagents: the tree is shown within a second of opening 
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'turn' } })
   try {
     const { window } = launched
-    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 900))
+    await canvasReady(launched, { size: { width: 1600, height: 900 } })
+    // Timed inside the renderer: from the Session Node's element to the first Subagent Node's, and
+    // from the double click reaching the page to the 24th row of the rail.
+    const rowSelector = '.w-shell__view[data-view="session"] [data-testid="subagents-rail-row"]'
+    await startTimeline(window, {
+      sessionNode: { selector: `[data-testid="session-node"][data-session-id="${sessionId}"]` },
+      tree: { selector: '[data-testid="subagent-node"]' },
+      opened: { event: 'dblclick' },
+      rows: { selector: rowSelector, count: 24 },
+    })
     const claude = claudeProcess()
     writeFileSync(join(claudeHome, 'sessions', `${claude.pid}.json`), JSON.stringify({ pid: claude.pid, sessionId, cwd: projectPath, kind: 'interactive', entrypoint: 'cli', status: 'busy', version: '2.1.289', name: 'audit' }))
     const node = window.locator(`[data-testid="session-node"][data-session-id="${sessionId}"]`)
     await node.waitFor({ state: 'visible', timeout: 5000 })
     // The Canvas reads the tree as soon as the Session has a Node.
-    const nodeShown = Date.now()
     await window.locator('[data-testid="subagent-node"]').first().waitFor({ state: 'visible', timeout: 5000 })
-    const treeShown = Date.now() - nodeShown
+    const onCanvas = await marksOf(window, ['sessionNode', 'tree'])
+    const treeShown = Math.round(onCanvas.tree! - onCanvas.sessionNode!)
+    expect(treeShown).toBeGreaterThanOrEqual(0)
     console.info(`[subagent-tree] the tree of 24 Subagents was on the Canvas ${treeShown} ms after the Session Node`)
     expect(treeShown).toBeLessThanOrEqual(1000)
-    const opened = Date.now()
     await node.getByTestId('session-node-title').dblclick()
-    const rows = window.locator('.w-shell__view[data-view="session"]').getByTestId('subagents-rail-row')
+    const rows = window.locator(rowSelector)
     await expect(rows).toHaveCount(24, { timeout: 5000 })
-    const shown = Date.now() - opened
+    const inRail = await marksOf(window, ['opened', 'rows'])
+    const shown = Math.round(inRail.rows! - inRail.opened!)
+    // The rows come with the opened Session, not before it.
+    expect(shown).toBeGreaterThanOrEqual(0)
     console.info(`[subagent-tree] 24 Subagents (24 files of ${Math.round((200 * filler.length) / 1024)} KB) shown ${shown} ms after opening the Session`)
     expect(shown).toBeLessThanOrEqual(1000)
   } finally {

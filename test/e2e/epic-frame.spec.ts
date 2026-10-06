@@ -8,7 +8,7 @@ import { codeSection } from '../../src/main/workflow/reader'
 import { layoutEpic, stackFrames } from '../../src/renderer/canvas/epic-layout'
 import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
 import { readyWave, ticketLevels } from '../../src/shared/workflow/waves'
-import { launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
 
 // Epic frames on the Canvas of the built app, over Projects in temporary git repositories and a
 // stub `bin/epic-status` in a temporary WORFY_CLAUDE_HOME that reads the Ticket files the way the
@@ -490,6 +490,8 @@ test('state chips use the F tokens in both themes and always carry a label; the 
     // Node is not drawn at all).
     await window.mouse.wheel(400, 0)
     await expect.poll(async () => (await box(frame)).x).toBeLessThan(pane.x)
+    // The pan has ended (React Flow ends a wheel pan after a pause) before the centering starts.
+    await canvasReady({ window })
     await row.click()
     await expect
       .poll(async () => {
@@ -564,7 +566,8 @@ test('an Auction-sized Project is interactive within 3 s and pans and zooms smoo
 
     // Center on the biggest Epic through the sidebar, then pan and zoom for 5 s while counting frames.
     await window.locator(`[data-testid="sidebar-epic"][data-epic="${generated!.biggest}"]`).click()
-    await window.waitForTimeout(400)
+    // The 250 ms centering is over before the frames are counted.
+    await canvasReady({ window })
     const pane = await box(window.locator('.react-flow'))
     await window.mouse.move(pane.x + pane.width / 2, pane.y + pane.height / 2)
     await window.evaluate(() => {

@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
 
 // Bindings of Sessions and Subagents to Tickets and Epics (ticket 16), against the built app:
 // Sessions whose transcripts the test writes into a temporary WORFY_CLAUDE_HOME the way Claude Code
@@ -179,17 +179,9 @@ const near = (a: { x: number; y: number }, b: { x: number; y: number }): boolean
 
 /** Drags a Node by `handle` onto Ticket `num` and drops it there once the Ticket is outlined. */
 async function dropOnTicket(window: Page, handle: Locator, num: number): Promise<void> {
-  // Start only once the Node has stopped moving (a fold just opened, a Node just sent back).
-  let last = await box(handle)
-  await expect
-    .poll(async () => {
-      const now = await box(handle)
-      const still = near(now, last)
-      last = now
-      return still
-    })
-    .toBe(true)
-  const from = last
+  // Start only once nothing on the Canvas moves (a fold just opened, a Node just sent back).
+  await canvasReady({ window }, { visible: [handle] })
+  const from = await box(handle)
   const to = await box(window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`))
   await window.mouse.move(from.x + 10, from.y + from.height / 2)
   await window.mouse.down()
@@ -280,7 +272,7 @@ test('agents are bound by claim, worktree folder, /epic-wave and their task; a m
   let launched = await launch()
   try {
     let { window } = launched
-    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 900))
+    await canvasReady(launched, { size: { width: 1600, height: 900 } })
     await expect(window.locator('[data-testid="ticket-node"][data-ticket="12"]')).toBeVisible()
     await expect(sessionTitle(window, CLAIM)).toBeVisible()
 
@@ -346,7 +338,7 @@ test('agents are bound by claim, worktree folder, /epic-wave and their task; a m
     await launched.close()
     launched = await launch()
     window = launched.window
-    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 900))
+    await canvasReady(launched, { size: { width: 1600, height: 900 } })
     await expect(sessionEdge(window, CLAIM)).toHaveAttribute('aria-label', `bound to ${EPIC}/12 · manual`)
     await window.getByTestId('subagent-fold').first().click()
     await expect(await subagentEdge(window, IMPLEMENTER)).toHaveAttribute('aria-label', `bound to ${EPIC}/12 · manual`)
