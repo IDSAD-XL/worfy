@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>worfy</title>
+  <g transform="translate(100,100) scale(6.866667)">
+    <rect width="120" height="120" rx="27" fill="#1B1A18"/>
+    <rect x="0.4" y="0.4" width="119.2" height="119.2" rx="26.6" fill="none" stroke="#3B3834" stroke-width="0.8"/>
+    <circle cx="60" cy="60" r="46" fill="none" stroke="#3B3834" stroke-width="3"/>
+    <path d="M30 46 C34 64 39 80 44 80 C51 80 55 56 60 56 C65 56 69 80 76 80 C81 80 86 64 90 46" fill="none" stroke="#ECE8E1" stroke-width="5.5" stroke-linecap="round"/>
+    <circle cx="30" cy="46" r="5" fill="#ECE8E1"/>
+    <circle cx="44" cy="80" r="5" fill="#ECE8E1"/>
+    <circle cx="76" cy="80" r="5" fill="#ECE8E1"/>
+    <circle cx="90" cy="46" r="5" fill="#ECE8E1"/>
+    <circle cx="60" cy="56" r="9.5" fill="#C8F25A"/>
+    <circle cx="89.6" cy="24.8" r="5.5" fill="#C8F25A"/>
+  </g>
+</svg>
