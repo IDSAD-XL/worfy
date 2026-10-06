@@ -132,9 +132,9 @@ Node-ы Layout-а: ни рамки Epic-ов (ADR-0032 — колонка обх
 - Session после «Ship ticket» справа от рамки, на высоте Ticket-а 07:
   [светлая](../evidence/28-ship-ticket-session-light.png), [тёмная](../evidence/28-ship-ticket-session-dark.png).
 
-### Гейт и что не проверено
+### Ревью и что не проверено
 
-Проверочный гейт — комментарий VERIFIED в [PR #66](https://github.com/IDSAD-XL/worfy/pull/66): код,
+Ревью — комментарий VERIFIED в [PR #66](https://github.com/IDSAD-XL/worfy/pull/66): код,
 unit- и contract-test-ы, мутанты; петли «колонка рамок — дерево Subagent-ов» нет. e2e и снимки
 проверяющий не запускал: экран Mac был заблокирован. Пункт e2e закрыт `GATE_SCOPE=all gate full`
 перед мержем (после rebase на `main`, код 0); результат взят из кэша gate на том же дереве.

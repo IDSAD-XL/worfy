@@ -161,6 +161,6 @@ sidebar, снятие проверки флага, `sessionId` при `resume`, 
 что он пишет переданный id в реестр до `system/init`, сделан вывод по строкам бинарника и тексту
 тикета; ручной запуск собранного приложения — за владельцем.
 
-Проверочный гейт — комментарий VERIFIED в [PR #67](https://github.com/IDSAD-XL/worfy/pull/67):
+Ревью — комментарий VERIFIED в [PR #67](https://github.com/IDSAD-XL/worfy/pull/67):
 `sessionId` не уходит вместе с `resume` ни на одном пути старта, процесс, умерший до первого хода,
 получает новый uuid. Перед мержем — rebase на `main` и `GATE_SCOPE=all gate full`, код 0.
