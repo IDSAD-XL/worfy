@@ -9,10 +9,12 @@ import {
   buildSubagentTree,
   flattenSubagents,
   readSubagentMeta,
+  readWorkflowJournal,
   subagentFile,
   subagentSignals,
   subagentSignalsOfLines,
   summaryLine,
+  workflowAgentFile,
   type SubagentFile,
   type SubagentInfo,
 } from '../../src/shared/transcript/subagents'
@@ -419,5 +421,134 @@ describe('a Subagent whose end is not a task-notification user message', () => {
     const { signals, files } = load(STALE, SESSION_9)
     const withStray = files.map((file) => ({ ...file, signals: [...file.signals, { kind: 'session-closed' as const }] }))
     expect(statuses(buildSubagentTree({ signals, files: withStray }))).toEqual([[A, 'done'], [B, 'running']])
+  })
+})
+
+// Ticket worfy-daily/17, ADR-0035: the agents of a workflow script live in
+// `<sessionId>/subagents/workflows/wf_*/` with a journal.jsonl; they hang under the Workflow call.
+describe('Subagents of a workflow script', () => {
+  const WORKFLOW = join(HOME, '-Users-test-projects-workflow')
+  const SESSION_12 = '12121212-1212-4121-8121-121212121212'
+  const RUN = 'wf_0a1b2c3d-4e5'
+  const CALL = 'toolu_01S12WORKFLOW1XXXXXXXXX'
+
+  /** What main reads for Session 1212: its transcript, and every agent of its workflow run with the run's journal. */
+  function loadWorkflow(until?: string, journalUntil = Number.POSITIVE_INFINITY) {
+    const folder = join(WORKFLOW, SESSION_12, 'subagents', 'workflows', RUN)
+    const journal = readWorkflowJournal(lines(join(folder, 'journal.jsonl')).slice(0, journalUntil))
+    const files: SubagentFile[] = []
+    for (const name of readdirSync(folder).sort()) {
+      const match = /^agent-(.+)\.jsonl$/.exec(name)
+      if (!match) continue
+      const agentId = match[1]!
+      const meta: unknown = JSON.parse(readFileSync(join(folder, `agent-${agentId}.meta.json`), 'utf8'))
+      files.push(workflowAgentFile(subagentFile(agentId, meta, upTo(lines(join(folder, name)), until)), RUN, journal.get(agentId)))
+    }
+    return { signals: subagentSignalsOfLines(upTo(lines(join(WORKFLOW, `${SESSION_12}.jsonl`)), until)), files }
+  }
+  const rows = (tree: SubagentInfo[]) => flattenSubagents(tree).map(({ id, name, subagentType, status, depth }) => ({ id, name, subagentType, status, depth }))
+
+  it('reads the journal: a label and phase from started, the end from result or failed', () => {
+    const journal = readWorkflowJournal(lines(join(WORKFLOW, SESSION_12, 'subagents', 'workflows', RUN, 'journal.jsonl')))
+    expect(Object.fromEntries(journal)).toEqual({
+      a8100000000000260: { label: 'impl:03', phase: 'Implement', end: 'completed', result: 'Synthetic implementer report for 03.' },
+      a8200000000000260: { label: null, phase: null, end: 'failed', result: null },
+      a8300000000000260: { label: 'scout:03', phase: 'Review', end: 'completed', result: 'Synthetic scout notes for 03.' },
+    })
+    // Lines that are not JSON, records without an agent and unknown types are skipped.
+    expect(readWorkflowJournal(['not json', '{"type":"launched"}', '{"type":"paused","agentId":"a1"}']).size).toBe(0)
+  })
+
+  it('links the agents of a workflow run to the Workflow call that started it, by the run id in its result', () => {
+    const tree = buildSubagentTree(loadWorkflow())
+    expect(rows(tree)).toEqual([
+      { id: CALL, name: 'wave-03', subagentType: 'workflow', status: 'done', depth: 1 },
+      { id: 'agent:a8100000000000260', name: 'impl:03', subagentType: 'workflow-subagent', status: 'done', depth: 2 },
+      { id: 'agent:a8200000000000260', name: null, subagentType: 'workflow-subagent', status: 'error', depth: 2 },
+      { id: 'agent:a8300000000000260', name: 'scout:03', subagentType: 'Explore', status: 'done', depth: 2 },
+    ])
+    expect(tree[0]).toMatchObject({
+      agentId: null,
+      toolUseId: CALL,
+      description: 'Synthetic wave 3: implement, review, scout',
+      background: true,
+      transcript: false,
+      startedAt: at('2026-09-12T10:00:05.000Z'),
+      durationMs: at('2026-09-12T10:09:00.000Z') - at('2026-09-12T10:00:05.000Z'),
+    })
+    expect(tree[0]!.children[0]).toMatchObject({ summary: 'Synthetic implementer report for 03.', model: 'claude-sonnet-5', transcript: true, parentAgentId: null })
+  })
+
+  it('keeps the run and its agents running until the journal and the task-notification end them', () => {
+    // 10:05: the implementer has answered, the reviewer and the scout still work, no notification yet.
+    const tree = buildSubagentTree(loadWorkflow('2026-09-12T10:05:30.000Z', 5))
+    expect(rows(tree).map(({ name, status }) => [name, status])).toEqual([
+      ['wave-03', 'running'],
+      ['impl:03', 'done'],
+      [null, 'running'],
+      ['scout:03', 'running'],
+    ])
+    // The Session is gone: whatever has not ended was cut off with it (ADR-0031).
+    const closed = buildSubagentTree({ ...loadWorkflow('2026-09-12T10:05:30.000Z', 5), signals: [...loadWorkflow('2026-09-12T10:05:30.000Z', 5).signals, { kind: 'session-closed' }] })
+    expect(rows(closed).map(({ status }) => status)).toEqual(['error', 'done', 'error', 'error'])
+  })
+
+  it('cuts off an agent the journal never ended once its run has ended', () => {
+    const { signals, files } = loadWorkflow(undefined, 5)
+    expect(rows(buildSubagentTree({ signals, files })).map(({ status }) => status)).toEqual(['done', 'done', 'error', 'error'])
+  })
+
+  it('names the run from the inline script, from the script file, or by its run id', () => {
+    const result = (id: string, runId: string): AgentEvent => ({ type: 'tool_result', toolUseId: id, content: `Workflow launched in background. Task ID: t-${id}\nSummary: Run ${id}\nRun ID: ${runId}`, isError: false, parentToolUseId: null })
+    const workflow = (id: string, input: Record<string, unknown>): AgentEvent => ({ type: 'tool_use', id, name: 'Workflow', input, parentToolUseId: null })
+    const signals = live([
+      [1000, workflow('toolu_inline', { script: "export const meta = {\n  name: 'review-wave',\n  description: 'x',\n}" })],
+      [1001, result('toolu_inline', 'wf_inline-001')],
+      [2000, workflow('toolu_file', { scriptPath: '/Users/test/.claude/projects/p/s/workflows/scripts/fix-pass-wf_file-002.js', args: {} })],
+      [2001, result('toolu_file', 'wf_file-002')],
+      [3000, workflow('toolu_bare', {})],
+      [3001, result('toolu_bare', 'wf_bare-003')],
+    ])
+    const tree = buildSubagentTree({ signals, files: [] })
+    expect(tree.map(({ id, name, description, status }) => [id, name, description, status])).toEqual([
+      ['toolu_inline', 'review-wave', 'Run toolu_inline', 'running'],
+      ['toolu_file', 'fix-pass', 'Run toolu_file', 'running'],
+      ['toolu_bare', 'wf_bare-003', 'Run toolu_bare', 'running'],
+    ])
+  })
+
+  it('groups the agents of a run whose Workflow call is not known under the run id', () => {
+    const { files } = loadWorkflow()
+    const tree = buildSubagentTree({ signals: [], files })
+    expect(rows(tree)).toEqual([
+      { id: `workflow:${RUN}`, name: RUN, subagentType: 'workflow', status: 'done', depth: 1 },
+      { id: 'agent:a8100000000000260', name: 'impl:03', subagentType: 'workflow-subagent', status: 'done', depth: 2 },
+      { id: 'agent:a8200000000000260', name: null, subagentType: 'workflow-subagent', status: 'error', depth: 2 },
+      { id: 'agent:a8300000000000260', name: 'scout:03', subagentType: 'Explore', status: 'done', depth: 2 },
+    ])
+  })
+
+  it('shows a resumed run once, under the call that resumed it', () => {
+    const { files } = loadWorkflow()
+    const workflow = (id: string, input: Record<string, unknown>): AgentEvent => ({ type: 'tool_use', id, name: 'Workflow', input, parentToolUseId: null })
+    const launched = (id: string): AgentEvent => ({ type: 'tool_result', toolUseId: id, content: `Workflow launched in background. Task ID: t-${id}\nRun ID: ${RUN}`, isError: false, parentToolUseId: null })
+    const signals = live([
+      [1000, workflow('toolu_first', { script: "export const meta = { name: 'wave-03' }" })],
+      [1001, launched('toolu_first')],
+      [2000, { type: 'subagent', phase: 'finished', taskId: 't-toolu_first', toolUseId: 'toolu_first', description: null, subagentType: null, status: 'failed', summary: 'Dynamic workflow failed', result: null }],
+      [3000, workflow('toolu_again', { scriptPath: `/x/wave-03-${RUN}.js`, resumeFromRunId: RUN })],
+      [3001, launched('toolu_again')],
+    ])
+    const tree = buildSubagentTree({ signals, files })
+    expect(tree.map(({ id, status, children }) => [id, status, children.length])).toEqual([['toolu_again', 'running', 3]])
+  })
+
+  it('does not take a Workflow result for an Agent result, nor a Bash call that mentions a run for a run', () => {
+    const signals = live([
+      [1000, { type: 'tool_use', id: 'toolu_bash', name: 'Bash', input: { command: `ls subagents/workflows/${RUN}` }, parentToolUseId: null }],
+      [1001, { type: 'tool_result', toolUseId: 'toolu_bash', content: `Run ID: ${RUN}`, isError: false, parentToolUseId: null }],
+    ])
+    expect(signals).toEqual([])
+    expect(buildSubagentTree({ signals, files: [] })).toEqual([])
   })
 })

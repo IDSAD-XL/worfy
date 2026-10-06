@@ -31,8 +31,10 @@ Fixtures только читаются. Test, которому нужно что
 | `projects/-Users-test-projects-stale/9999…9999.jsonl` | 2.1.260 | тикет 08 worfy-daily (ADR-0030, ADR-0031): два фоновых Subagent-а; task-notification о первом только в очереди — `queue-operation` (`enqueue`, `remove`) и `attachment` типа `queued_command`, записи `user` нет; о втором уведомления нет; последний ответ Session с `stop_reason: null` |
 | `projects/-Users-test-projects-stale/9999…9999/subagents/agent-a6…260.*` | 2.1.260 | Subagent, кончившийся уведомлением из очереди; его последний ответ с `stop_reason: null`, а не `end_turn` |
 | `projects/-Users-test-projects-stale/9999…9999/subagents/agent-a7…260.*` | 2.1.260 | Subagent без уведомления: последняя запись — вызов WebFetch (`stop_reason: tool_use`); Session закрыта |
+| `projects/-Users-test-projects-workflow/1212…1212.jsonl` | 2.1.260 | тикет 17 worfy-daily (ADR-0035): вызов `Workflow` со `scriptPath` и `args`, результат «Workflow launched in background… Run ID: wf_0a1b2c3d-4e5» с `toolUseResult` (`async_launched`, `local_workflow`), task-notification о конце запуска — `queue-operation` и `user` |
+| `projects/-Users-test-projects-workflow/1212…1212/subagents/workflows/wf_0a1b2c3d-4e5/` | 2.1.260 | три агента запуска и `journal.jsonl` (`launched`, `started`, `result`, `failed`): `a81…` — `meta` нового вида (`description`, `workflowPhase`), `started` с `label`, `result` объектом; `a82…` — `meta` старого вида, `started` без `label`, `failed`; `a83…` — `agentType: Explore`, `result` текстом. Каждый кончает вызовом `StructuredOutput`, без `end_turn` |
 
-Сессии 1111, 2222, 3333, 6666, 7777 и 9999 завершены: записи в `sessions/` у них нет. Процессов 41004 и 41005
+Сессии 1111, 2222, 3333, 6666, 7777, 9999 и 1212 завершены: записи в `sessions/` у них нет. Процессов 41004 и 41005
 на машине нет, поэтому живость в test-ах подменяется, а не проверяется `kill(pid, 0)`.
 
 Agent SDK (`listSessions`, `getSessionMessages`, `listSubagents`, `getSubagentMessages` с

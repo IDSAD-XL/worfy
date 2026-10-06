@@ -5,23 +5,41 @@
 // them.
 //
 // Every file is read incrementally (tail.ts): a transcript already read is only read past its
-// cursor on the next call, so asking again while a Session runs costs the new lines only. Only
-// `subagents/` itself is listed: Subagents of workflow scripts (`subagents/workflows/wf_*/`) are
-// not part of the tree. Nothing here writes anywhere (ADR 0005).
+// cursor on the next call, so asking again while a Session runs costs the new lines only. Besides
+// `subagents/` itself, only `subagents/workflows/wf_*/` is listed — the agents of workflow scripts
+// and their run's `journal.jsonl` (ticket worfy-daily/17, ADR-0035) — and nothing deeper.
+// Nothing here writes anywhere (ADR 0005).
 //
 // Whether the Session still runs is read from the Claude home's `sessions/<pid>.json` (as
 // registry.ts reads it): a Session whose process is gone gets a `session-closed` signal, which
 // ends every Subagent that never reported its end (ADR-0031).
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
-import { emptySubagentFile, extendSubagentFile, subagentSignalsOfLines, type SubagentFile, type SubagentSignal } from '../../shared/transcript/subagents'
+import {
+  emptySubagentFile,
+  extendSubagentFile,
+  readWorkflowJournal,
+  subagentSignalsOfLines,
+  workflowAgentFile,
+  WORKFLOW_RUN_ID,
+  type SubagentFile,
+  type SubagentSignal,
+  type WorkflowAgent,
+} from '../../shared/transcript/subagents'
 import { processState } from './registry'
 import { readNewLines, type TailCursor } from './tail'
 
+/** A Subagent id: letters, digits, `-` and `_` only. */
+const AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 /** `agent-<id>.jsonl` or `agent-<id>.meta.json`; the id is letters, digits, `-` and `_` only. */
-const AGENT_FILE = /^agent-([A-Za-z0-9][A-Za-z0-9_-]{0,127})\.(jsonl|meta\.json)$/
+const AGENT_FILE =/^agent-([A-Za-z0-9][A-Za-z0-9_-]{0,127})\.(jsonl|meta\.json)$/
 /** A meta file bigger than this is not read (real ones are a few hundred bytes). */
 const META_MAX_BYTES = 64 * 1024
+/** The folder of a Session's workflow runs, inside its `subagents/`; each run is a `wf_*` folder. */
+const WORKFLOWS = 'workflows'
+const JOURNAL = 'journal.jsonl'
+/** At most this many runs of one Session are read (the busiest Session on this machine had 31 on 2026-10-07). */
+const MAX_WORKFLOW_RUNS = 200
 
 export interface SessionSubagents {
   /** Signals of the Session's own thread (src/shared/transcript/subagents.ts). */
@@ -41,24 +59,47 @@ interface AgentTranscript {
   file: SubagentFile
 }
 
+interface Journal {
+  cursor: TailCursor | undefined
+  agents: Map<string, WorkflowAgent>
+}
+
 const isMissing = (error: unknown): boolean =>
   typeof error === 'object' && error !== null && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')
 
 /** Reads every complete line after `cursor`, however many chunks that takes. */
-async function readAll(path: string, cursor: TailCursor | undefined): Promise<{ lines: string[]; cursor: TailCursor; reset: boolean }> {
+async function readAll(path: string, cursor: TailCursor | undefined): Promise<{ lines: string[]; cursor: TailCursor; reset: boolean; bytesRead: number }> {
   const lines: string[] = []
   let reset = false
+  let bytesRead = 0
   let at = cursor
   for (;;) {
     const chunk = await readNewLines(path, at)
+    bytesRead += chunk.bytesRead
     if (chunk.reset) {
       lines.length = 0
       reset = true
     }
     lines.push(...chunk.lines)
     at = chunk.cursor
-    if (!chunk.more) return { lines, cursor: at, reset }
+    if (!chunk.more) return { lines, cursor: at, reset, bytesRead }
   }
+}
+
+/** The names of the entries of `dir` that `keep` accepts; empty when there is no such folder. */
+async function entriesOf(dir: string, keep: (entry: { isFile(): boolean; isDirectory(): boolean; name: string }) => boolean): Promise<string[]> {
+  try {
+    return (await readdir(dir, { withFileTypes: true })).filter(keep).map((entry) => entry.name)
+  } catch (error) {
+    if (isMissing(error)) return []
+    throw error
+  }
+}
+
+/** The run folders of a Session's workflow scripts (`subagents/workflows/wf_*`), by name, at most MAX_WORKFLOW_RUNS. */
+async function workflowRuns(folder: string): Promise<string[]> {
+  const names = await entriesOf(join(folder, WORKFLOWS), (entry) => entry.isDirectory() && WORKFLOW_RUN_ID.test(entry.name))
+  return names.sort().slice(0, MAX_WORKFLOW_RUNS)
 }
 
 async function readMeta(path: string): Promise<unknown> {
@@ -123,10 +164,24 @@ async function sessionRuns(transcript: string, sessionId: string, processOf: Non
 export class SubagentReader {
   private readonly threads = new Map<string, Thread>()
   private readonly agents = new Map<string, AgentTranscript>()
+  private readonly journals = new Map<string, Journal>()
   private readonly processState: NonNullable<SubagentReaderOptions['processState']>
+  private read = 0
 
   constructor(options: SubagentReaderOptions = {}) {
     this.processState = options.processState ?? processState
+  }
+
+  /** Bytes read so far from transcripts and journals (meta files aside): asking again costs what was appended. */
+  get bytesRead(): number {
+    return this.read
+  }
+
+  /** readAll(), counted. */
+  private async readAll(path: string, cursor: TailCursor | undefined): ReturnType<typeof readAll> {
+    const result = await readAll(path, cursor)
+    this.read += result.bytesRead
+    return result
   }
 
   /** The Subagent signals of a Session's own transcript at `path`. */
@@ -136,7 +191,7 @@ export class SubagentReader {
       thread = { cursor: undefined, calls: new Set(), signals: [] }
       this.threads.set(path, thread)
     }
-    const read = await readAll(path, thread.cursor)
+    const read = await this.readAll(path, thread.cursor)
     if (read.reset) {
       thread.calls = new Set()
       thread.signals = []
@@ -149,15 +204,38 @@ export class SubagentReader {
     return thread.signals
   }
 
-  /** What the files in a Session's `subagents/` folder say, by agentId; empty when there is no folder. */
+  /**
+   * What the files in a Session's `subagents/` folder say, by agentId; empty when there is no
+   * folder. Then the agents of each workflow run in `subagents/workflows/wf_<id>/`, run by run.
+   */
   async files(folder: string): Promise<SubagentFile[]> {
-    let names: string[]
-    try {
-      names = (await readdir(folder, { withFileTypes: true })).filter((entry) => entry.isFile()).map((entry) => entry.name)
-    } catch (error) {
-      if (isMissing(error)) return []
-      throw error
-    }
+    const own = await this.agentFiles(folder, await entriesOf(folder, (entry) => entry.isFile()))
+    const runs = await Promise.all((await workflowRuns(folder)).map((runId) => this.runFiles(join(folder, WORKFLOWS, runId), runId)))
+    return [...own, ...runs.flat()]
+  }
+
+  /** The agents of one workflow run: their files, and the run's journal (an agent it names may have no file yet). */
+  private async runFiles(dir: string, runId: string): Promise<SubagentFile[]> {
+    const [names, journal] = await Promise.all([entriesOf(dir, (entry) => entry.isFile()), this.journal(join(dir, JOURNAL))])
+    const files = await this.agentFiles(dir, names)
+    const seen = new Set(files.map((file) => file.agentId))
+    for (const agentId of journal.keys()) if (!seen.has(agentId) && AGENT_ID.test(agentId)) files.push(emptySubagentFile(agentId, null))
+    return files.map((file) => workflowAgentFile(file, runId, journal.get(file.agentId)))
+  }
+
+  /** What a run's journal says so far, read past its cursor. */
+  private async journal(path: string): Promise<Map<string, WorkflowAgent>> {
+    let known = this.journals.get(path)
+    const read = await this.readAll(path, known?.cursor)
+    if (known === undefined || read.reset) known = { cursor: undefined, agents: new Map() }
+    known.cursor = read.cursor
+    readWorkflowJournal(read.lines, known.agents)
+    this.journals.set(path, known)
+    return known.agents
+  }
+
+  /** The Subagent files among `names` in `folder`, by agentId. */
+  private async agentFiles(folder: string, names: readonly string[]): Promise<SubagentFile[]> {
     const kinds = new Map<string, { transcript: boolean; meta: boolean }>()
     for (const name of names) {
       const match = AGENT_FILE.exec(name)
@@ -192,7 +270,7 @@ export class SubagentReader {
     let known = this.agents.get(path)
     let read: Awaited<ReturnType<typeof readAll>>
     try {
-      read = await readAll(path, known?.cursor)
+      read = await this.readAll(path, known?.cursor)
     } catch (error) {
       if (isMissing(error)) return emptySubagentFile(agentId, meta)
       throw error
@@ -206,14 +284,27 @@ export class SubagentReader {
   }
 }
 
-/** Where one Subagent's transcript is, next to its Session's transcript; null for a bad id or no file. */
-export async function subagentTranscriptPath(sessionTranscript: string, agentId: string): Promise<string | null> {
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(agentId)) return null
-  const sessionId = sessionTranscript.slice(sessionTranscript.lastIndexOf('/') + 1).replace(/\.jsonl$/, '')
-  const path = join(dirname(sessionTranscript), sessionId, 'subagents', `agent-${agentId}.jsonl`)
+const isFileAt = async (path: string): Promise<boolean> => {
   try {
-    return (await stat(path)).isFile() ? path : null
+    return (await stat(path)).isFile()
   } catch {
-    return null
+    return false
   }
+}
+
+/**
+ * Where one Subagent's transcript is, next to its Session's transcript: in `subagents/`, or in one
+ * of its workflow runs (`subagents/workflows/wf_<id>/`). Null for a bad id or no file.
+ */
+export async function subagentTranscriptPath(sessionTranscript: string, agentId: string): Promise<string | null> {
+  if (!AGENT_ID.test(agentId)) return null
+  const sessionId = sessionTranscript.slice(sessionTranscript.lastIndexOf('/') + 1).replace(/\.jsonl$/, '')
+  const folder = join(dirname(sessionTranscript), sessionId, 'subagents')
+  const name = `agent-${agentId}.jsonl`
+  if (await isFileAt(join(folder, name))) return join(folder, name)
+  for (const runId of await workflowRuns(folder)) {
+    const path = join(folder, WORKFLOWS, runId, name)
+    if (await isFileAt(path)) return path
+  }
+  return null
 }

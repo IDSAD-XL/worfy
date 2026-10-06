@@ -354,3 +354,75 @@ test('a Session with 24 Subagents: the tree is shown within a second of opening 
     await launched.close()
   }
 })
+
+test('a Session that runs a workflow script: its agents hang under the run and end by its journal (ADR-0035)', async () => {
+  // Session 1212 (test/fixtures/claude-home/README.md) at 10:05: the run's implementer has answered,
+  // its reviewer and scout still work, and the run's task-notification has not come yet.
+  const S12 = '12121212-1212-4121-8121-121212121212'
+  const RUN = 'wf_0a1b2c3d-4e5'
+  const CALL = 'toolu_01S12WORKFLOW1XXXXXXXXX'
+  const source = join(repoRoot, 'test', 'fixtures', 'claude-home', 'projects', '-Users-test-projects-workflow')
+  const linesOf = (path: string): string[] =>
+    readFileSync(join(source, path), 'utf8')
+      .replaceAll('/Users/test/projects/workflow', projectPath)
+      .split('\n')
+      .filter((line) => line !== '')
+  const dir = transcriptDir(projectPath)
+  const main = linesOf(`${S12}.jsonl`)
+  const notification = main.findIndex((line) => line.includes('<task-notification>'))
+  const runFixture = join(S12, 'subagents', 'workflows', RUN)
+  const journal = linesOf(join(runFixture, 'journal.jsonl'))
+  mkdirSync(join(claudeHome, 'projects'), { recursive: true })
+  expected = snapshot()
+  write(join(dir, `${S12}.jsonl`), `${main.slice(0, notification).join('\n')}\n`)
+  const run = join(dir, runFixture)
+  for (const name of readdirSync(join(source, runFixture))) {
+    write(join(run, name), `${(name === 'journal.jsonl' ? journal.slice(0, 5) : linesOf(join(runFixture, name))).join('\n')}\n`)
+  }
+
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'turn' } })
+  try {
+    const { window } = launched
+    await canvasReady(launched, { size: { width: 1600, height: 900 }, visible: [window.getByTestId('orchestrator-node')] })
+    const claude = claudeProcess()
+    write(
+      join(claudeHome, 'sessions', `${claude.pid}.json`),
+      JSON.stringify({ pid: claude.pid, sessionId: S12, cwd: projectPath, kind: 'interactive', entrypoint: 'cli', status: 'busy', version: '2.1.289', name: 'wave-03' }),
+    )
+    await expect(window.locator(`[data-testid="session-node"][data-session-id="${S12}"]`)).toBeVisible()
+
+    // The run is one Node of type workflow; its agents are Nodes to the right of it.
+    const runNode = window.locator(`[data-testid="subagent-node"][data-node-id$="${CALL}"]`)
+    await expect(runNode).toHaveAttribute('data-status', 'running')
+    await expect(runNode.getByTestId('subagent-name')).toHaveText('wave-03')
+    await expect(runNode.getByTestId('subagent-kind')).toHaveText('workflow')
+    const review = window.locator('[data-testid="subagent-node"][data-subagent-id="a8200000000000260"]')
+    const scout = window.locator('[data-testid="subagent-node"][data-subagent-id="a8300000000000260"]')
+    await expect(review).toHaveAttribute('data-status', 'running')
+    await expect(review.getByTestId('subagent-kind')).toHaveText('workflow-subagent · claude-sonnet-5')
+    await expect(scout).toHaveAttribute('data-status', 'running')
+    await expect(scout.getByTestId('subagent-name')).toHaveText('scout:03')
+    // The implementer is done: folded under the run.
+    const runFold = window.locator(`[data-testid="subagent-fold"][data-node-id$="/done:${CALL}"]`)
+    await expect(runFold).toHaveText('1 done')
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      await window.screenshot({ path: test.info().outputPath(`workflow-tree-${scheme}.png`) })
+    }
+    await window.emulateMedia({ colorScheme: null })
+
+    // The journal ends the reviewer (failed) and the scout (result); the run still runs.
+    write(join(run, 'journal.jsonl'), `${journal.slice(5).join('\n')}\n`, 'append')
+    await expect(review).toHaveAttribute('data-status', 'error', { timeout: 5000 })
+    await expect(runFold).toHaveText('2 done')
+    await expect(runNode).toHaveAttribute('data-status', 'running')
+    // The run's task-notification ends it: done, folded under the Session.
+    write(join(dir, `${S12}.jsonl`), `${main.slice(notification).join('\n')}\n`, 'append')
+    const sessionFold = window.locator('[data-testid="subagent-fold"][data-node-id$="/done:session"]')
+    await expect(sessionFold).toHaveText('1 done', { timeout: 5000 })
+    await expect(runNode).toHaveCount(0)
+    expectUntouched()
+  } finally {
+    await launched.close()
+  }
+})

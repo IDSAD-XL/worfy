@@ -109,8 +109,17 @@ describe('readNewLines', () => {
     expect(chunk.lines[0]).toBe(long)
   })
 
+  it('counts the bytes it read: the whole file first, then the appended lines and the byte before the cursor', async () => {
+    const file = join(dir, 'counted.jsonl')
+    await writeFile(file, '{"n":1}\n{"n":2}\n')
+    const first = await readNewLines(file)
+    expect(first.bytesRead).toBe(16)
+    await appendFile(file, '{"n":3}\n')
+    expect((await readNewLines(file, first.cursor)).bytesRead).toBe(1 + 8)
+  })
+
   it('treats a missing file as empty', async () => {
     const chunk = await readNewLines(join(dir, 'absent.jsonl'))
-    expect(chunk).toEqual({ lines: [], cursor: { offset: 0, fileId: null }, reset: false, more: false })
+    expect(chunk).toEqual({ lines: [], cursor: { offset: 0, fileId: null }, reset: false, more: false, bytesRead: 0 })
   })
 })

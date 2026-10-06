@@ -14,12 +14,21 @@
 // names the call; a task-notification names both. A nested Subagent's call is in its parent's
 // transcript, where the result has no `agentId`: `meta.parentAgentId` and `meta.toolUseId` link
 // it, and in a live Session the call's `parentToolUseId` does.
+//
+// Agents of a workflow script (ticket worfy-daily/17, ADR-0035) have no `meta.toolUseId` and no
+// `meta.parentAgentId`: they live in `<sessionId>/subagents/workflows/<runId>/`, and the Workflow
+// call's result names the run (`Run ID: wf_…`). The run is one entry of the tree, of type
+// `workflow`, with its agents under it; the run's `journal.jsonl` says how each agent ended.
 import { z } from 'zod'
 import type { AgentEvent } from '../agent/events'
 import { parseTranscriptRecord, type TranscriptEntry } from './parse'
 
 /** Names of the tool that starts a Subagent: `Agent` since 2.1.222; `Task` in older versions. */
 const AGENT_TOOLS = new Set(['Agent', 'Task'])
+/** The tool that runs a workflow script; its agents are in `subagents/workflows/<runId>/`. */
+const WORKFLOW_TOOL = 'Workflow'
+/** The type of the tree entry that stands for one run of a workflow script. */
+export const WORKFLOW_TYPE = 'workflow'
 /** Longest text kept from a result or an answer; the tree shows only its first line. */
 const TEXT_MAX = 4000
 const SHORT_MAX = 500
@@ -43,7 +52,9 @@ export const subagentSignalSchema = z.discriminatedUnion('kind', [
     model: short,
     background: z.boolean(),
   }),
-  /** The Agent tool's result: the Subagent's answer, or "launched" for one that runs in the background. */
+  /** The Workflow tool was called: a workflow script runs in the background; `name` is the script's. */
+  z.object({ kind: z.literal('workflow'), toolUseId: z.string(), at: time, name: short }),
+  /** The Agent tool's result: the Subagent's answer, or "launched" for one that runs in the background. Also the Workflow tool's. */
   z.object({ kind: z.literal('result'), toolUseId: z.string(), at: time, text: z.string().max(TEXT_MAX), isError: z.boolean(), launched: z.boolean() }),
   z.object({ kind: z.literal('started'), agentId: z.string(), toolUseId: z.string().nullable(), at: time, subagentType: short, description: short }),
   /** A task-notification (or a synchronous call's result) says the Subagent ended. */
@@ -92,8 +103,22 @@ export const subagentFileSchema = z.object({
   ended: z.boolean(),
   /** Its own calls of the Agent tool and what came of them. */
   signals: z.array(subagentSignalSchema),
+  /** Set for an agent of a workflow script: its run, and what the run's journal says about it. */
+  workflow: z
+    .object({
+      runId: z.string().max(SHORT_MAX),
+      /** `label` of its `started` record (`impl:03`); older journals have none. */
+      label: short,
+      phase: short,
+      /** `completed` after a `result` record, `failed` after a `failed` one. */
+      end: z.enum(['completed', 'failed']).nullable(),
+      /** Its result when it is text, or the `summary` of a structured one. */
+      result: long,
+    })
+    .nullable(),
 })
 export type SubagentFile = z.infer<typeof subagentFileSchema>
+export type WorkflowAgent = Omit<NonNullable<SubagentFile['workflow']>, 'runId'>
 
 export type SubagentStatus = 'running' | 'done' | 'error'
 
@@ -139,6 +164,31 @@ const msOf = (iso: string | undefined): number | null => {
   return Number.isFinite(value) ? value : null
 }
 
+/** A run id as Claude Code names a run's folder: `wf_` and letters, digits, `-` and `_`. */
+export const WORKFLOW_RUN_ID = /^wf_[A-Za-z0-9_-]{1,128}$/
+
+/**
+ * The name of a workflow script from the Workflow call's input: `meta.name` of an inline script,
+ * or the script file's name without the `-<runId>.js` Claude Code adds to it.
+ */
+function workflowName(input: Json): string | null {
+  if (typeof input.script === 'string') {
+    const named = /\bname\s*:\s*(['"`])([^'"`\n]{1,200})\1/.exec(input.script)
+    if (named) return shortOf(named[2])
+  }
+  if (typeof input.scriptPath === 'string') {
+    const file = input.scriptPath.slice(input.scriptPath.lastIndexOf('/') + 1)
+    return shortOf(file.replace(/\.[cm]?[jt]s$/, '').replace(/-wf_[A-Za-z0-9_-]+$/, ''))
+  }
+  return null
+}
+
+/** The run a Workflow call started, by its result: `Run ID: wf_…`, or the run's folder in `Transcript dir:`. */
+function workflowRunOf(text: string): string | null {
+  const id = /^Run ID: (\S+)\s*$/m.exec(text)?.[1] ?? /\/subagents\/workflows\/([^/\s]+)\s*$/m.exec(text)?.[1]
+  return id !== undefined && WORKFLOW_RUN_ID.test(id) ? id : null
+}
+
 /** An event and when it happened: the record's ISO `timestamp` (a file) or `at` in ms (a live event). */
 export interface TimedEvent {
   event: AgentEvent
@@ -155,7 +205,10 @@ export function subagentSignals(events: readonly TimedEvent[], calls: Set<string
   const signals: SubagentSignal[] = []
   for (const { event, timestamp, at: given } of events) {
     const at = given ?? msOf(timestamp)
-    if (event.type === 'tool_use' && AGENT_TOOLS.has(event.name)) {
+    if (event.type === 'tool_use' && event.name === WORKFLOW_TOOL) {
+      calls.add(event.id)
+      signals.push({ kind: 'workflow', toolUseId: event.id, at, name: workflowName(isObject(event.input) ? event.input : {}) })
+    } else if (event.type === 'tool_use' && AGENT_TOOLS.has(event.name)) {
       calls.add(event.id)
       const input = isObject(event.input) ? event.input : {}
       signals.push({
@@ -252,7 +305,49 @@ export function readSubagentMeta(value: unknown): SubagentMeta | null {
 
 /** A Subagent's file summary before any line of its transcript was read. */
 export function emptySubagentFile(agentId: string, meta: unknown, transcript = false): SubagentFile {
-  return { agentId, meta: readSubagentMeta(meta), transcript, firstAt: null, lastAt: null, model: null, finalText: null, ended: false, signals: [] }
+  return { agentId, meta: readSubagentMeta(meta), transcript, firstAt: null, lastAt: null, model: null, finalText: null, ended: false, signals: [], workflow: null }
+}
+
+/** A journal result as text: itself when it is text, the `summary` of a structured one; null otherwise. */
+function journalResult(value: unknown): string | null {
+  if (typeof value === 'string') return longOf(value)
+  return isObject(value) && typeof value.summary === 'string' ? longOf(value.summary) : null
+}
+
+/**
+ * What a workflow run's `journal.jsonl` says about each of its agents, by agentId, in the order
+ * they started: `started` (newer journals add `label` and `phase`), `result`, `failed`.
+ * `agents` is updated: a reader that goes through the journal in chunks passes the same map. Lines
+ * that are not JSON, records without an agentId and other types (`launched`) are skipped.
+ */
+export function readWorkflowJournal(lines: readonly string[], agents: Map<string, WorkflowAgent> = new Map()): Map<string, WorkflowAgent> {
+  for (const line of lines) {
+    let record: unknown
+    try {
+      record = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (!isObject(record) || typeof record.agentId !== 'string' || record.agentId === '') continue
+    if (record.type !== 'started' && record.type !== 'result' && record.type !== 'failed') continue
+    const agent = agents.get(record.agentId) ?? { label: null, phase: null, end: null, result: null }
+    if (record.type === 'started') {
+      agent.label = shortOf(record.label) ?? agent.label
+      agent.phase = shortOf(record.phase) ?? agent.phase
+    } else if (record.type === 'result') {
+      agent.end = 'completed'
+      agent.result = journalResult(record.result)
+    } else {
+      agent.end = 'failed'
+    }
+    agents.set(record.agentId, agent)
+  }
+  return agents
+}
+
+/** A workflow agent's file summary with its run and its journal entry (none yet: it has not started by the journal). */
+export function workflowAgentFile(file: SubagentFile, runId: string, journal: WorkflowAgent | undefined): SubagentFile {
+  return { ...file, workflow: { runId, label: journal?.label ?? null, phase: journal?.phase ?? null, end: journal?.end ?? null, result: journal?.result ?? null } }
 }
 
 /** The summary after more lines of the Subagent's transcript (JSONL); lines that are not JSON are skipped. */
@@ -333,6 +428,10 @@ interface Gathered {
   started?: Signal<'started'>
   finished?: Signal<'finished'>
   file?: SubagentFile
+  /** Set for a run of a workflow script: the Workflow call (absent when only the run's folder is known). */
+  workflow?: Signal<'workflow'>
+  /** The run this record stands for, once known; set on the run's record, not on its agents. */
+  runId?: string
 }
 
 class Index {
@@ -346,7 +445,7 @@ class Index {
     const t = toolUseId ? this.byTool.get(toolUseId) : undefined
     let record = a ?? t
     if (a && t && a !== t) {
-      for (const key of ['call', 'callThread', 'result', 'started', 'finished', 'file'] as const) if (a[key] === undefined && t[key] !== undefined) Object.assign(a, { [key]: t[key] })
+      for (const key of ['call', 'callThread', 'result', 'started', 'finished', 'file', 'workflow'] as const) if (a[key] === undefined && t[key] !== undefined) Object.assign(a, { [key]: t[key] })
       a.toolUseId ??= t.toolUseId
       a.agentId ??= t.agentId
       if (t.toolUseId) this.byTool.set(t.toolUseId, a)
@@ -385,6 +484,13 @@ class Index {
   byAgentId(agentId: string): Gathered | undefined {
     return this.byAgent.get(agentId)
   }
+
+  /** A record for a workflow run known only by its folder: no Workflow call names it. */
+  runWithoutCall(runId: string): Gathered {
+    const record: Gathered = { agentId: null, agentIds: new Set(), toolUseId: null, runId }
+    this.all.push(record)
+    return record
+  }
 }
 
 function gather(index: Index, signals: readonly SubagentSignal[], thread: string | null): void {
@@ -393,6 +499,12 @@ function gather(index: Index, signals: readonly SubagentSignal[], thread: string
       case 'call': {
         const record = index.get(null, signal.toolUseId)
         record.call = signal
+        record.callThread = thread
+        break
+      }
+      case 'workflow': {
+        const record = index.get(null, signal.toolUseId)
+        record.workflow = signal
         record.callThread = thread
         break
       }
@@ -427,6 +539,8 @@ function firstOf<T>(...values: Array<T | null | undefined>): T | null {
 function statusOf(record: Gathered, background: boolean, closed: boolean): SubagentStatus {
   const { finished, result, file } = record
   if (finished) return finished.status === null || finished.status === 'completed' ? 'done' : 'error'
+  // An agent of a workflow script: its run's journal says how it ended (ADR-0035).
+  if (file?.workflow?.end) return file.workflow.end === 'completed' ? 'done' : 'error'
   if (result?.isError || file?.meta?.stoppedByUser === true) return 'error'
   if (result && !background) return 'done'
   if (file?.ended) return 'done'
@@ -442,6 +556,7 @@ function describe(record: Gathered, closed: boolean): Omit<SubagentInfo, 'parent
   // file, a failed call's error, and the notification's one-line summary last.
   const answer = firstOf(
     finished?.result,
+    file?.workflow?.result,
     result && !background && !result.isError ? result.text : null,
     status !== 'running' ? file?.finalText : null,
     result?.isError ? result.text : null,
@@ -454,7 +569,7 @@ function describe(record: Gathered, closed: boolean): Omit<SubagentInfo, 'parent
     id: record.toolUseId ?? `agent:${record.agentId ?? ''}`,
     agentId: record.agentId,
     toolUseId: record.toolUseId,
-    name: meta?.name ?? call?.name ?? null,
+    name: meta?.name ?? call?.name ?? file?.workflow?.label ?? null,
     subagentType: meta?.agentType ?? call?.subagentType ?? started?.subagentType ?? null,
     model: file?.model ?? meta?.model ?? call?.model ?? null,
     description: meta?.description ?? call?.description ?? started?.description ?? null,
@@ -468,7 +583,41 @@ function describe(record: Gathered, closed: boolean): Omit<SubagentInfo, 'parent
   }
 }
 
-const byStart = (a: SubagentInfo, b: SubagentInfo): number =>
+/** A run of a workflow script has ended: its task-notification came, or the Workflow call failed. */
+const runEnded = (run: Gathered | undefined): boolean => run !== undefined && (run.finished !== undefined || run.result?.isError === true)
+
+/**
+ * One run of a workflow script as a tree entry of type `workflow` (ADR-0035): named by the script,
+ * described by the Workflow call's `Summary:` line, ended by its task-notification. It has no
+ * transcript of its own and no agentId (the notification's task id is not a Subagent's).
+ */
+function describeRun(record: Gathered, closed: boolean): Omit<SubagentInfo, 'parentAgentId' | 'depth' | 'children'> {
+  const { workflow, result, finished } = record
+  const failed = result?.isError === true
+  const status: SubagentStatus = finished ? (finished.status === null || finished.status === 'completed' ? 'done' : 'error') : failed || closed ? 'error' : 'running'
+  const startedAt = firstOf(workflow?.at, result?.at)
+  const endedAt = status === 'running' ? null : firstOf(finished?.at, failed ? result?.at : null)
+  const summary = summaryLine(firstOf(finished?.summary, failed ? result?.text : null))
+  const description = result && !failed ? (/^Summary: (.+)$/m.exec(result.text)?.[1]?.trim() ?? null) : null
+  return {
+    id: record.toolUseId ?? `workflow:${record.runId ?? ''}`,
+    agentId: null,
+    toolUseId: record.toolUseId,
+    name: workflow?.name ?? record.runId ?? null,
+    subagentType: WORKFLOW_TYPE,
+    model: null,
+    description: description === null ? null : cap(description, SHORT_MAX),
+    status,
+    background: true,
+    startedAt,
+    durationMs: startedAt !== null && endedAt !== null ? Math.max(0, endedAt - startedAt) : null,
+    summary,
+    verdict: null,
+    transcript: false,
+  }
+}
+
+const byStart =(a: SubagentInfo, b: SubagentInfo): number =>
   (a.startedAt ?? Number.POSITIVE_INFINITY) - (b.startedAt ?? Number.POSITIVE_INFINITY) || a.id.localeCompare(b.id)
 
 /**
@@ -484,12 +633,42 @@ export function buildSubagentTree({ signals, files }: { signals: readonly Subage
   for (const file of files) gather(index, file.signals, file.agentId)
   for (const file of files) index.bindFile(file)
 
+  // Runs of workflow scripts, by run id. A resumed run reuses its run id: the latest Workflow call
+  // that names it stands for it, the earlier ones are left out. A run known only by its folder
+  // gets a record of its own, so its agents still hang together.
+  const runs = new Map<string, Gathered>()
+  const replaced = new Set<Gathered>()
+  for (const record of index.all) {
+    const runId = record.workflow !== undefined && record.result !== undefined ? workflowRunOf(record.result.text) : null
+    if (runId === null) continue
+    const earlier = runs.get(runId)
+    if (earlier) replaced.add(earlier)
+    record.runId = runId
+    runs.set(runId, record)
+  }
+  const withoutCall = new Set<Gathered>()
+  for (const file of files) {
+    const runId = file.workflow?.runId
+    if (runId === undefined || runs.has(runId)) continue
+    const record = index.runWithoutCall(runId)
+    runs.set(runId, record)
+    withoutCall.add(record)
+  }
+  const runOf = (record: Gathered): Gathered | undefined => (record.file?.workflow ? runs.get(record.file.workflow.runId) : undefined)
+
   // Background tasks that are not Subagents (a Bash run in the background) also send
-  // task-notifications: only what has an Agent call, files or a Subagent type is kept.
-  const kept = index.all.filter((record) => record.call !== undefined || record.file !== undefined || (record.started?.subagentType ?? null) !== null)
+  // task-notifications: only what has an Agent call, files or a Subagent type is kept, and the
+  // runs of workflow scripts.
+  const kept = index.all.filter(
+    (record) =>
+      !replaced.has(record) &&
+      (record.call !== undefined || record.file !== undefined || (record.started?.subagentType ?? null) !== null || record.workflow !== undefined || withoutCall.has(record)),
+  )
   const keptSet = new Set(kept)
 
   const parentOf = (record: Gathered): Gathered | undefined => {
+    const run = runOf(record)
+    if (run) return run
     const byMeta = record.file?.meta?.parentAgentId
     if (byMeta) return index.byAgentId(byMeta)
     if (record.callThread) return index.byAgentId(record.callThread)
@@ -498,7 +677,11 @@ export function buildSubagentTree({ signals, files }: { signals: readonly Subage
   }
 
   const infos = new Map<Gathered, SubagentInfo>()
-  for (const record of kept) infos.set(record, { ...describe(record, closed), parentAgentId: null, depth: 1, children: [] })
+  for (const record of kept) {
+    // An agent of a run that has ended was cut off with it, as one of a closed Session is.
+    const described = record.workflow !== undefined || withoutCall.has(record) ? describeRun(record, closed) : describe(record, closed || runEnded(runOf(record)))
+    infos.set(record, { ...described, parentAgentId: null, depth: 1, children: [] })
+  }
 
   const roots: SubagentInfo[] = []
   for (const record of kept) {
@@ -513,11 +696,25 @@ export function buildSubagentTree({ signals, files }: { signals: readonly Subage
       seen.add(step)
     }
     if (parent && keptSet.has(parent)) {
-      info.parentAgentId = parent.agentId
-      infos.get(parent)!.children.push(info)
+      const parentInfo = infos.get(parent)!
+      info.parentAgentId = parentInfo.agentId
+      parentInfo.children.push(info)
     } else {
       roots.push(info)
     }
+  }
+  // A run without a known call has no end of its own: it runs while an agent of it runs, and one
+  // cut off by the closed Session ends it with an error.
+  for (const record of withoutCall) {
+    const info = infos.get(record)!
+    const agents = kept.filter((each) => runOf(each) === record)
+    const starts = agents.flatMap((agent) => {
+      const at = infos.get(agent)!.startedAt
+      return at === null ? [] : [at]
+    })
+    info.startedAt = starts.length > 0 ? Math.min(...starts) : null
+    const cutOff = agents.some((agent) => infos.get(agent)!.status === 'error' && agent.file?.workflow?.end === null)
+    info.status = agents.some((agent) => infos.get(agent)!.status === 'running') ? 'running' : cutOff ? 'error' : 'done'
   }
   const settle = (list: SubagentInfo[], depth: number): void => {
     list.sort(byStart)
