@@ -1,7 +1,7 @@
 # 07 — Модель: без haiku, минимум sonnet; Orchestrator на модели пользователя
 
 Type: task
-Status: open
+Status: done — 2026-10-06, [PR #44](https://github.com/IDSAD-XL/worfy/pull/44)
 Blocked by: 05, 29
 Source: [spec.md](../spec.md), тема B; [ADR-0021](../../../docs/adr/0021-mcp-servers-allowlist-in-profile.md), раздел «Решение» (абзац про модель); Ticket 19 worfy-mvp (выбор модели)
 
@@ -56,12 +56,12 @@ Claude Code `claude-opus-5-5`, а не на `opus[1m]` из `settings.json`: wor
 
 ## Готово, когда
 
-- [ ] В выборе модели нет haiku, даже если SDK её вернул. sonnet и старше — как раньше.
-- [ ] Node с сохранённой моделью haiku стартует на модели по умолчанию, effort сброшен.
-- [ ] Новый Orchestrator и новая Session без выбора пользователя стартуют с `model: null`, если в `settings.json` пользователя не haiku.
-- [ ] Если в `settings.json` пользователя стоит haiku, Session без выбора пользователя стартует с явной моделью `sonnet`. Файл не меняется: test сравнивает дерево временного `WORFY_CLAUDE_HOME` до и после.
-- [ ] (вручную) Живая Session: модель Subagent-а в его транскрипте совпадает с моделью Session. Итог — в «Итог».
-- [ ] Снимки Pickers в светлой и тёмной теме сверены с F-SPEC.
+- [x] В выборе модели нет haiku, даже если SDK её вернул. sonnet и старше — как раньше.
+- [x] Node с сохранённой моделью haiku стартует на модели по умолчанию, effort сброшен.
+- [x] Новый Orchestrator и новая Session без выбора пользователя стартуют с `model: null`, если в `settings.json` пользователя не haiku.
+- [x] Если в `settings.json` пользователя стоит haiku, Session без выбора пользователя стартует с явной моделью `sonnet`. Файл не меняется: test сравнивает дерево временного `WORFY_CLAUDE_HOME` до и после.
+- [ ] (вручную) Живая Session: модель Subagent-а в его транскрипте совпадает с моделью Session. Итог — в «Итог». Не проверено: нужен ход настоящего Claude Code, а он пишет транскрипт в `~/.claude/projects`; исполнителю запись в `~/.claude` запрещена. Проверка — за владельцем.
+- [x] Снимки Pickers в светлой и тёмной теме сверены с F-SPEC. Сверил проверяющий PR #44 по снимкам e2e в обеих темах (`session-view-light.png`, `session-view-dark.png`, `pickers-*.png`; во временной папке проверки, в репозиторий не входят): расхождений с F-SPEC нет.
 
 ## Тесты
 
@@ -78,3 +78,15 @@ Claude Code `claude-opus-5-5`, а не на `opus[1m]` из `settings.json`: wor
 - `src/main/agent/fake-query.ts`
 - `test/contract/agent-controls.test.ts`
 - `test/e2e/session-controls.spec.ts`
+
+## Итог
+
+Влит [PR #44](https://github.com/IDSAD-XL/worfy/pull/44), merge d8be553, без круга доработки. Gate: `GATE_SCOPE=all gate.sh full` — exit 0, `[gate] зелено (full): lint typecheck test test:e2e test:package`.
+
+- **Правило выбора.** `isSelectableModel` / `withSelectableModel` в `src/shared/agent/settings.ts`: всё семейства haiku (по значению, alias или имени) не выбирается. `modelOptions()` убирает строки haiku из `supportedModels()`; запасной список `Session.models()` из модели `system/init` — тоже.
+- **Сохранённая haiku.** Node, сохранённый на haiku, стартует на модели по умолчанию со сброшенным effort. Событие `settings` при старте несёт исправленный выбор, и Orchestrator его сохраняет. `agent.configure` с haiku отклоняется: «…: a Session runs on sonnet or a larger model».
+- **Модель пользователя.** Новый `src/main/claude-home/user-model.ts` читает `model` из `<claudeHome>/settings.json`, только чтение; нет файла, сломанный JSON или нет поля — `null`. Session с `model: null`, у пользователя которой стоит haiku, просит у Claude Code `sonnet`. Меняется только запрос: настройки Session и сохранённый выбор Node-а остаются `null`, `settings.json` пользователя не пишется (ADR-0005). Модель пользователя читается заново для каждого процесса Claude Code.
+- **Не менялись.** `options.ts` (его в той же Wave правит Ticket 06), `Pickers.tsx` и `fake-query.ts`: список фильтрует main, а в `FAKE_MODELS` строка haiku без effort уже была.
+- **Test-ы.** `test/contract/agent-controls.test.ts` — список без haiku, правило `modelOptions`, запасной список, сохранённая haiku, `null` по умолчанию при разных `settings.json`, haiku во временном `WORFY_CLAUDE_HOME` даёт `sonnet` в запросе к fake-query при неизменном дереве (байты и mtime), повторное чтение на каждый процесс, нечитаемая модель пользователя, отказ `configure`. `test/e2e/session-controls.spec.ts` — picker без haiku, новый Orchestrator с `model: null`, Orchestrator на haiku стартует на модели по умолчанию, снимки Pickers в двух темах. Мутанты каждого правила в `session.ts` роняют contract test-ы; без правил краснеют оба e2e.
+- **Не проверено.** Живая проверка модели Subagent-а — пункт «Готово, когда» выше.
+- **Долги** — в `HANDOFF.md`: `readUserModel()` по умолчанию читает настоящий `~/.claude/settings.json` (с haiku там падают 10 contract test-ов); подстановка `sonnet` сохраняет effort, которого у sonnet может не быть.
