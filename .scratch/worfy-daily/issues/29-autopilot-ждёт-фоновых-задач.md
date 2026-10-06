@@ -237,3 +237,36 @@ Claude Code. Если он не сделан, в «Итог» пишется «�
 - `src/main/agent/fake-query.ts`: 29 → 07 → 24.
 - `src/main/agent/orchestrator.ts`: 29 → 10 → 27.
 - `src/shared/agent/events.ts`: 29 → 14.
+
+## Итог
+
+### Первый шаг: проверка на настоящем Claude Code
+
+Снято 2026-10-06: `@anthropic-ai/claude-agent-sdk` 0.3.289, Claude Code 2.1.289 (нативный бинарник
+из пакета SDK), Node 24.19.0, macOS arm64, вход по подписке, модель sonnet, streaming input,
+`settingSources: []`, без MCP, `bypassPermissions`, во временной папке. Сценарий — один Bash
+`sleep 5` с `run_in_background: true`, затем ожидание хода от task-notification;
+`CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1`. Поток — `test/fixtures/sdk-messages/background-tasks.jsonl`.
+Порядок (мс от старта):
+
+```
+2478 session_state_changed running · 2499 init · 3872 assistant (tool_use Bash)
+4174 background_tasks_changed [bo1g8a214 local_bash] · 4175 task_started (is_backgrounded: true)
+4178 user (tool_result) · 4953 assistant · 4969 result/success · 4971 session_state_changed idle
+9196 background_tasks_changed [] · 9196 task_updated (status completed) · 9196 task_notification completed
+9230 session_state_changed running · 9242 init · 10247 assistant · 10267 result/success · 10268 idle
+```
+
+1. `background_tasks_changed` приходит в поток SDK без env-флага. Он идёт **перед** `task_started`
+   задачи и **перед** `task_updated` / `task_notification` её конца; `result` хода — после
+   первого. Проверено на Bash (`task_type: local_bash`). Agent с `run_in_background` не снимался:
+   бриф разрешил один короткий вызов с фоновым Bash. Что `local_agent` тоже входит в набор,
+   говорит `sdk.d.ts:3704-3724` («a foreground agent being backgrounded»), не проверка.
+2. Да: после `result` и конца задачи Claude Code сам начинает новый ход — `system/init` →
+   `assistant` → `result`, без сообщения от worfy. Две задачи не снимались (тот же запрет брифа);
+   по коду worfy каждая task-notification даёт свой ход или попадает в уже идущий.
+3. `session_state_changed: idle` приходит сразу после **первого** `result`, пока фоновая задача
+   ещё идёт (4971 мс против 9196 мс конца задачи). Признаком конца работы Session оно не годится;
+   ADR-0029 его не берёт.
+4. Workflow-скрипт не снимался (запрет брифа). Bash с `run_in_background` даёт
+   `background_tasks_changed` — пункт 1.
