@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { launchApp } from './helpers'
+import { canvasReady, launchApp } from './helpers'
 
 // Sessions started from worfy (ticket 18), against the built app on the fake agent: "New session"
 // makes a new live Node and two of them answer side by side; "New conversation" sends the
@@ -113,18 +113,7 @@ async function viewport(window: Page): Promise<{ x: number; y: number; zoom: num
 async function panTo(window: Page, nodeId: string): Promise<void> {
   const pane = await window.locator('.react-flow__pane').boundingBox()
   if (!pane) throw new Error('no Canvas pane')
-  let last = ''
-  await expect
-    .poll(
-      async () => {
-        const now = JSON.stringify(await viewport(window))
-        const still = now === last
-        last = now
-        return still
-      },
-      { intervals: [300], timeout: 10_000 },
-    )
-    .toBe(true)
+  await canvasReady({ window })
   const node = (await nodes(window)).find((each) => each.id === nodeId)
   if (!node) throw new Error(`no Node ${nodeId}`)
   const clamp = (value: number): number => Math.max(-600, Math.min(600, value))
@@ -147,7 +136,9 @@ async function panTo(window: Page, nodeId: string): Promise<void> {
     await window.mouse.move(free.x, free.y)
     await window.mouse.wheel(clamp(dx), clamp(dy))
     const before = JSON.stringify({ x, y, zoom })
-    await expect.poll(async () => JSON.stringify(await viewport(window)), { timeout: 2000 }).not.toBe(before)
+    // This checks that the wheel moved the viewport, not how fast, so the default expect timeout
+    // applies, as to every other wait here; a fixed 2 s was a speed limit nobody asked for.
+    await expect.poll(async () => JSON.stringify(await viewport(window))).not.toBe(before)
   }
   throw new Error(`the Canvas did not reach ${nodeId}`)
 }
@@ -203,7 +194,7 @@ test('New session, New conversation, the history and Resume', async () => {
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'turn' } })
   try {
     const { window } = launched
-    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
+    await canvasReady(launched, { size: { width: 1400, height: 900 } })
     await expect(window.getByTestId('orchestrator-node')).toBeVisible()
     const live = window.locator('[data-testid="session-node"][data-live="true"]')
 
@@ -349,7 +340,7 @@ test('during a turn a live Node can be neither closed nor removed', async () => 
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'interrupt' } })
   try {
     const { window } = launched
-    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
+    await canvasReady(launched, { size: { width: 1400, height: 900 } })
     await expect(window.getByTestId('orchestrator-node')).toBeVisible()
     await window.getByTestId('sidebar-new-session').click()
     const node = window.locator('[data-testid="session-node"][data-live="true"]')

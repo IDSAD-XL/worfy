@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp } from './helpers'
+import { canvasReady, launchApp } from './helpers'
 
 // The command palette (⌘K) and the search over the Canvas (⌘F), ticket 31, in the built app on the
 // fake agent. The Project is a git repository with the Epic `worfy-mvp`; `epic-status` is a script
@@ -141,16 +141,15 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
 
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome } })
   try {
-    const { window, app } = launched
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 1000))
+    const { window } = launched
     const ticket = (num: number): Locator => window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`)
     const palette = window.getByTestId('command-palette')
     const input = window.getByTestId('palette-input')
     const option = (id: string): Locator => window.locator(`[data-testid="palette-option"][data-command="${id}"]`)
     const options = window.getByTestId('palette-option')
     const sessionNodes = window.locator('[data-testid="session-node"]')
-    await expect(ticket(7)).toBeVisible()
-    await expect(window.locator('[data-card-id="c1"]')).toBeVisible()
+    // Ticket 07 sits near the right edge of the Canvas: it is drawn only once the window is 1600 px wide.
+    await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [ticket(7), window.locator('[data-card-id="c1"]')] })
 
     // ⌘K → "07" → Enter: Ticket 07 first (above "Release notes for build 07"), and the Canvas centers on it.
     expect(await offCenter(window, ticket(7))).toBeGreaterThan(50)
@@ -174,7 +173,9 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     await expect(options.first()).toHaveAttribute('title', 'blocked by 09')
     await input.press('Enter')
     await expect(palette).toBeVisible()
-    await window.waitForTimeout(300)
+    // Nothing moves on the Canvas and no Session Node appears. A Session started late is caught
+    // after "New session" below, by main's record of launches and by the count of Session Nodes.
+    await canvasReady(launched)
     await expect(sessionNodes).toHaveCount(0)
     // The row did not run the action at all: main was not asked, so it had nothing to refuse.
     await expect(window.getByTestId('palette-problem')).toHaveCount(0)
@@ -200,6 +201,20 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     await expect(sessionNode.getByTestId('session-node-answer')).toHaveText('Hello from the fake agent')
     const sessionNodeId = await sessionNode.getAttribute('data-node-id')
     expect(sessionNodeId).toBeTruthy()
+    // Seconds after the Enter on the inactive "Ship ticket" row: main has launched no Session for a
+    // Ticket (its own record of "Ship ticket" launches), and the Canvas still shows one Session
+    // Node, the one "New session" made. (agent.list is no help here: it also holds the Project's
+    // Orchestrator Session, which starts on its own.)
+    const launches = await window.evaluate(
+      (projectId) =>
+        (globalThis as unknown as { worfy: { invoke(channel: string, input: unknown): Promise<{ ok: boolean; value: { tickets: unknown[] } }> } }).worfy.invoke(
+          'actions.launches',
+          { projectId },
+        ),
+      PROJECT,
+    )
+    expect(launches).toMatchObject({ ok: true, value: { tickets: [] } })
+    await expect(sessionNodes).toHaveCount(1)
 
     // "New terminal" comes from the Canvas menu's items (createLabel, ADR-0014): a Terminal Node in the middle of the Canvas.
     await window.keyboard.press('Meta+k')

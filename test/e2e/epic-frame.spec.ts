@@ -8,7 +8,7 @@ import { codeSection } from '../../src/main/workflow/reader'
 import { layoutEpic, stackFrames } from '../../src/renderer/canvas/epic-layout'
 import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
 import { readyWave, ticketLevels } from '../../src/shared/workflow/waves'
-import { launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
 
 // Epic frames on the Canvas of the built app, over Projects in temporary git repositories and a
 // stub `bin/epic-status` in a temporary WORFY_CLAUDE_HOME that reads the Ticket files the way the
@@ -490,6 +490,8 @@ test('state chips use the F tokens in both themes and always carry a label; the 
     // Node is not drawn at all).
     await window.mouse.wheel(400, 0)
     await expect.poll(async () => (await box(frame)).x).toBeLessThan(pane.x)
+    // The pan has ended (React Flow ends a wheel pan after a pause) before the centering starts.
+    await canvasReady({ window })
     await row.click()
     await expect
       .poll(async () => {
@@ -554,17 +556,21 @@ test('an Auction-sized Project is interactive within 3 s and pans and zooms smoo
   const launched = await launch()
   try {
     const { window } = launched
-    const opened = Date.now()
     await expect(window.locator(`[data-testid="epic-frame"][data-epic="${generated!.biggest}"]`)).toBeVisible({ timeout: 20_000 })
     await expect(window.locator(`[data-testid="ticket-node"][data-epic="${generated!.biggest}"]`).first()).toBeVisible({ timeout: 20_000 })
-    // Interactive: the renderer answers right away.
-    await window.evaluate(() => new Promise((done) => (globalThis as unknown as PageGlobals).requestAnimationFrame(() => done(null))))
-    const interactiveMs = Date.now() - opened
-    const sinceNavigation = await window.evaluate(() => Math.round((globalThis as unknown as PageGlobals).performance.now()))
+    // Interactive: the renderer answers right away. Timed from the start of the window's page load
+    // (performance.now() in the renderer), not from Date.now() after launchApp: launchApp returns
+    // only once the window is shown, and a clock started then would leave out the load up to the
+    // first paint. Before launchApp waited for `show`, the time from firstWindow was 36–110 ms
+    // shorter than this one; this one is the stricter of the two.
+    const interactiveMs = await window.evaluate(
+      () => new Promise<number>((done) => (globalThis as unknown as PageGlobals).requestAnimationFrame(() => done(Math.round((globalThis as unknown as PageGlobals).performance.now())))),
+    )
 
     // Center on the biggest Epic through the sidebar, then pan and zoom for 5 s while counting frames.
     await window.locator(`[data-testid="sidebar-epic"][data-epic="${generated!.biggest}"]`).click()
-    await window.waitForTimeout(400)
+    // The 250 ms centering is over before the frames are counted.
+    await canvasReady({ window })
     const pane = await box(window.locator('.react-flow'))
     await window.mouse.move(pane.x + pane.width / 2, pane.y + pane.height / 2)
     await window.evaluate(() => {
@@ -602,7 +608,7 @@ test('an Auction-sized Project is interactive within 3 s and pans and zooms smoo
     const longest = Math.round(Math.max(...frames))
     const ticketsDrawn = await window.getByTestId('ticket-node').count()
     console.log(
-      `auction-size: interactive ${interactiveMs} ms after the window opened (${sinceNavigation} ms since navigation); ` +
+      `auction-size: interactive ${interactiveMs} ms after the window's page started loading; ` +
         `pan/zoom 5 s: ${frames.length} frames, median ${fps} fps, longest frame ${longest} ms; ${ticketsDrawn} Ticket Nodes in the DOM`,
     )
     test.info().annotations.push({ type: 'perf', description: `interactive=${interactiveMs}ms medianFps=${fps} longestFrame=${longest}ms frames=${frames.length}` })
