@@ -10,6 +10,10 @@
 //                                    script's first system/init, without descriptions)
 //   {"fake":"wait_message"}          wait for the next user message (the turn starts)
 //   {"fake":"wait_interrupt"}        wait until interrupt() is called
+//   {"fake":"wait_release","name":"tasks"} wait until a test releases `name` (FakeReleases.release:
+//                                    each release lets one such wait pass, also one made earlier);
+//                                    the script stands, as Claude Code does while its background
+//                                    tasks run (worfy-daily ticket 29)
 //   {"fake":"stderr","text":"..."}   Claude Code writes this to its stderr
 //   {"fake":"crash","error":"..."}   Claude Code dies: the message iterator throws
 //   {"fake":"exit"}                  Claude Code exits quietly: the message iterator ends
@@ -40,7 +44,9 @@
 // (setModel, setPermissionMode, applyFlagSettings for effort) and the settings it started with.
 // After setModel or setPermissionMode, its system/init messages carry the new model and mode, as
 // Claude Code's next turn does (ticket 06, question 6). Effort is not in system/init, here as in
-// Claude Code. Each answer canUseTool gave is recorded with the tool and its input.
+// Claude Code. Each answer canUseTool gave is recorded with the tool and its input. close() while
+// background tasks live — by the last system/background_tasks_changed the fake agent played, not
+// counting ambient ones — is recorded with their ids: Claude Code would kill them (ticket 29).
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -59,6 +65,8 @@ export type FakeCall =
   | { kind: 'applyFlagSettings'; settings: Record<string, unknown> }
   /** What canUseTool answered for a tool call of a `permission` line. */
   | { kind: 'permission'; toolName: string; input: Record<string, unknown>; result: PermissionAnswer }
+  /** close() while background tasks lived: Claude Code would have killed these (task ids). */
+  | { kind: 'close'; backgroundTasks: string[] }
 
 /** supportedModels() of the fake agent: the shape of SDK 0.3.289, extra keys included. */
 export const FAKE_MODELS: ModelInfoLike[] = [
@@ -84,6 +92,7 @@ type Step =
   | { kind: 'message'; message: unknown }
   | { kind: 'wait_message' }
   | { kind: 'wait_interrupt' }
+  | { kind: 'wait_release'; name: string }
   | { kind: 'stderr'; text: string }
   | { kind: 'crash'; error: string }
   | { kind: 'exit' }
@@ -105,6 +114,7 @@ type Line = Step | { kind: 'config'; config: FakeConfig }
 const DIRECTIVES: Record<string, (value: Record<string, unknown>) => Line> = {
   wait_message: () => ({ kind: 'wait_message' }),
   wait_interrupt: () => ({ kind: 'wait_interrupt' }),
+  wait_release: (value) => ({ kind: 'wait_release', name: String(value.name ?? '') }),
   stderr: (value) => ({ kind: 'stderr', text: String(value.text ?? '') }),
   crash: (value) => ({ kind: 'crash', error: String(value.error ?? 'Claude Code crashed') }),
   exit: () => ({ kind: 'exit' }),
@@ -158,6 +168,51 @@ const textOf = (content: unknown): string => {
     .join('\n\n')
 }
 
+/**
+ * What a test lets through the `wait_release` lines of fake scripts. A release made before the wait
+ * is kept: each one lets one wait of its name pass.
+ */
+export class FakeReleases {
+  private readonly pending = new Map<string, number>()
+  private readonly waiters = new Map<string, (() => void)[]>()
+
+  release(name: string): void {
+    const waiting = this.waiters.get(name)
+    const next = waiting?.shift()
+    if (next !== undefined) {
+      next()
+      return
+    }
+    this.pending.set(name, (this.pending.get(name) ?? 0) + 1)
+  }
+
+  /** Settles once `name` is released, or at once for a release made earlier; `cancel` gives up. */
+  wait(name: string, cancel: { onCancel(stop: () => void): void }): Promise<void> {
+    const kept = this.pending.get(name) ?? 0
+    if (kept > 0) {
+      this.pending.set(name, kept - 1)
+      return Promise.resolve()
+    }
+    return new Promise((resolve) => {
+      const list = this.waiters.get(name) ?? []
+      list.push(resolve)
+      this.waiters.set(name, list)
+      cancel.onCancel(() => {
+        const at = list.indexOf(resolve)
+        if (at >= 0) list.splice(at, 1)
+        resolve()
+      })
+    })
+  }
+}
+
+/** The ids of the live, not ambient tasks of a system/background_tasks_changed message; null for any other message. */
+function liveTaskIds(message: unknown): string[] | null {
+  const value = message as { type?: unknown; subtype?: unknown; tasks?: unknown }
+  if (value?.type !== 'system' || value.subtype !== 'background_tasks_changed' || !Array.isArray(value.tasks)) return null
+  return (value.tasks as { task_id?: unknown; ambient?: unknown }[]).filter((task) => task.ambient !== true).map((task) => String(task.task_id))
+}
+
 const isInit = (message: unknown): message is Record<string, unknown> =>
   typeof message === 'object' && message !== null && (message as Record<string, unknown>).type === 'system' && (message as Record<string, unknown>).subtype === 'init'
 
@@ -172,6 +227,10 @@ class FakeQuery implements QueryHandle {
   private closed = false
   private interruptRequested = false
   private wakeInterrupt: (() => void) | null = null
+  /** Ends a wait_release line that close() cut short. */
+  private cancelRelease: (() => void) | null = null
+  /** The background tasks the last background_tasks_changed played left alive. */
+  private liveTasks: string[] = []
   private readonly steps: Step[]
   private readonly account: Account
   private readonly models: ModelInfoLike[]
@@ -193,6 +252,7 @@ class FakeQuery implements QueryHandle {
     private readonly request: QueryRequest,
     private readonly record: (call: FakeCall) => void,
     private readonly settingsHome: string | null,
+    private readonly releases: FakeReleases,
   ) {
     this.session = request.resume ?? randomUUID()
     const lines = parseScript(path, this.session, request.cwd)
@@ -356,7 +416,9 @@ class FakeQuery implements QueryHandle {
   }
 
   close(): void {
+    if (!this.closed && this.liveTasks.length > 0) this.record({ kind: 'close', backgroundTasks: [...this.liveTasks] })
     this.closed = true
+    this.cancelRelease?.()
     this.abortRequests()
     this.wakeInterrupt?.()
     this.wake()
@@ -373,6 +435,7 @@ class FakeQuery implements QueryHandle {
           case 'message':
             // Lets the consumer react between messages, as a real stream would.
             await Promise.resolve()
+            this.liveTasks = liveTaskIds(line.message) ?? this.liveTasks
             yield this.current(line.message)
             break
           case 'wait_message':
@@ -386,6 +449,14 @@ class FakeQuery implements QueryHandle {
               this.wakeInterrupt = null
             }
             this.interruptRequested = false
+            break
+          case 'wait_release':
+            await this.releases.wait(line.name, {
+              onCancel: (stop) => {
+                this.cancelRelease = stop
+              },
+            })
+            this.cancelRelease = null
             break
           case 'stderr':
             this.request.stderr(line.text)
@@ -419,12 +490,24 @@ export interface FakeQueryOptions {
    * such an update is not applied, so a fake run never writes the real ~/.claude.
    */
   settingsHome?: string | undefined
+  /**
+   * What lets the `wait_release` lines pass. Without it the factory makes its own and puts its
+   * `release` on `globalThis.worfyFakeRelease`, where an e2e test reaches it (app.evaluate).
+   */
+  releases?: FakeReleases | undefined
 }
 
 export function fakeQueryFactory(options: FakeQueryOptions): QueryFactory {
   const record = options.record ?? (() => {})
+  let releases = options.releases
+  if (releases === undefined) {
+    const own = new FakeReleases()
+    releases = own
+    ;(globalThis as { worfyFakeRelease?: (name: string) => void }).worfyFakeRelease = (name) => own.release(name)
+  }
+  const shared = releases
   return (request) => {
     const name = typeof options.script === 'string' ? options.script : options.script(request)
-    return Promise.resolve(new FakeQuery(join(options.scriptsDir, `${name}.jsonl`), request, record, options.settingsHome ?? null))
+    return Promise.resolve(new FakeQuery(join(options.scriptsDir, `${name}.jsonl`), request, record, options.settingsHome ?? null, shared))
   }
 }

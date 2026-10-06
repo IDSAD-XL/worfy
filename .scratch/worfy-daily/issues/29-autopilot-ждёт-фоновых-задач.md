@@ -1,7 +1,7 @@
 # 29 — Autopilot ждёт background task-и Orchestrator-а, Stop их не убивает
 
 Type: task
-Status: open
+Status: claimed — 2026-10-06
 Blocked by: —
 Source: первый настоящий прогон Autopilot 2026-10-06 13:17 (стабильная копия `~/Applications/worfy-stable.app`, собрана из main 01a10ea): журнал прогона `~/Library/Application Support/worfy/autopilot/2026-10-06T10-17-22-244Z-2e53b6.jsonl`, транскрипт Orchestrator-а `~/.claude/projects/-Users-alexey-Stuff-CanvasForAI/f6ab7045-416c-471a-a78d-433567aefa5a.jsonl`; [spec.md](../spec.md), тема A, риск 1; [ADR-0024](../../../docs/adr/0024-autopilot-wave-end-and-keep-awake.md)
 
@@ -175,14 +175,14 @@ Orchestrator-а после остановки (пункт 6). ADR-0024 не пр
 
 ## Готово, когда
 
-- [ ] В «Итог» — ответы первого шага с версией Claude Code. Снятая фикстура лежит в `test/fixtures/sdk-messages/`.
-- [ ] ADR-0029 принят до кода. Он дополняет ADR-0024 в вопросе «когда Wave закончена» и выбирает (а) или (б) для Stop с объяснением.
-- [ ] Fake-сценарий: Orchestrator запускает две background task-и и кончает ход, пока Ticket-ы Wave ещё `open`, как в настоящем прогоне. Прогон остаётся в Wave: нет `wave-finished` и `run-stopped`, статус `running`. Wave кончается только после `result` последнего хода от task-notification, дальше — по ADR-0024.
-- [ ] Правило `no-progress` из пункта 3 проверено по журналу: пока набор задач не пуст или Session `busy`, нет ни `wave-finished`, ни `run-stopped`.
-- [ ] Задача с `ambient: true` Wave не держит. Без `background_tasks_changed`, только на парах `task_started` / `task_notification`, Wave держится так же.
-- [ ] Stop при живых задачах (`user-stop`, и остановка по причине цикла) не вызывает `close()` fake-агента, пока набор не пуст. Дальше — по выбору ADR. Новый старт Autopilot в это время отклоняется.
-- [ ] Предел ожидания задач на фиксированных часах останавливает прогон с причиной из ADR, со списком задач в журнале.
-- [ ] `app-quit` при живых задачах пишет их в журнал.
+- [x] В «Итог» — ответы первого шага с версией Claude Code. Снятая фикстура лежит в `test/fixtures/sdk-messages/`.
+- [x] ADR-0029 принят до кода. Он дополняет ADR-0024 в вопросе «когда Wave закончена» и выбирает (а) или (б) для Stop с объяснением.
+- [x] Fake-сценарий: Orchestrator запускает две background task-и и кончает ход, пока Ticket-ы Wave ещё `open`, как в настоящем прогоне. Прогон остаётся в Wave: нет `wave-finished` и `run-stopped`, статус `running`. Wave кончается только после `result` последнего хода от task-notification, дальше — по ADR-0024.
+- [x] Правило `no-progress` из пункта 3 проверено по журналу: пока набор задач не пуст или Session `busy`, нет ни `wave-finished`, ни `run-stopped`.
+- [x] Задача с `ambient: true` Wave не держит. Без `background_tasks_changed`, только на парах `task_started` / `task_notification`, Wave держится так же.
+- [x] Stop при живых задачах (`user-stop`, и остановка по причине цикла) не вызывает `close()` fake-агента, пока набор не пуст. Дальше — по выбору ADR. Новый старт Autopilot в это время отклоняется.
+- [x] Предел ожидания задач на фиксированных часах останавливает прогон с причиной из ADR, со списком задач в журнале.
+- [x] `app-quit` при живых задачах пишет их в журнал.
 - [ ] Снимки строки состояния ожидания задач в двух темах сверены с F-SPEC.
 - [ ] (вручную) Повторный прогон Autopilot со стабильной копии на настоящей Wave — Ticket-ы 06–09 после влития этого Ticket-а и обновления копии по README. Прогон не останавливается, пока implementer-ы работают. `wave-finished` приходит после их task-notification и хода Orchestrator-а за ними. Как проверить: журнал прогона и транскрипт Orchestrator-а — в нём нет «didn't finish before the previous session ended».
 
@@ -237,3 +237,147 @@ Claude Code. Если он не сделан, в «Итог» пишется «�
 - `src/main/agent/fake-query.ts`: 29 → 07 → 24.
 - `src/main/agent/orchestrator.ts`: 29 → 10 → 27.
 - `src/shared/agent/events.ts`: 29 → 14.
+
+## Итог
+
+### Первый шаг: проверка на настоящем Claude Code
+
+Снято 2026-10-06: `@anthropic-ai/claude-agent-sdk` 0.3.289, Claude Code 2.1.289 (нативный бинарник
+из пакета SDK), Node 24.19.0, macOS arm64, вход по подписке, модель sonnet, streaming input,
+`settingSources: []`, без MCP, `bypassPermissions`, во временной папке. Сценарий — один Bash
+`sleep 5` с `run_in_background: true`, затем ожидание хода от task-notification;
+`CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1`. Поток — `test/fixtures/sdk-messages/background-tasks.jsonl`.
+Порядок (мс от старта):
+
+```
+2478 session_state_changed running · 2499 init · 3872 assistant (tool_use Bash)
+4174 background_tasks_changed [bo1g8a214 local_bash] · 4175 task_started (is_backgrounded: true)
+4178 user (tool_result) · 4953 assistant · 4969 result/success · 4971 session_state_changed idle
+9196 background_tasks_changed [] · 9196 task_updated (status completed) · 9196 task_notification completed
+9230 session_state_changed running · 9242 init · 10247 assistant · 10267 result/success · 10268 idle
+```
+
+1. `background_tasks_changed` приходит в поток SDK без env-флага. Он идёт **перед** `task_started`
+   задачи и **перед** `task_updated` / `task_notification` её конца; `result` хода — после
+   первого. Проверено на Bash (`task_type: local_bash`). Agent с `run_in_background` не снимался:
+   бриф разрешил один короткий вызов с фоновым Bash. Что `local_agent` тоже входит в набор,
+   говорит `sdk.d.ts:3704-3724` («a foreground agent being backgrounded»), не проверка.
+2. Да: после `result` и конца задачи Claude Code сам начинает новый ход — `system/init` →
+   `assistant` → `result`, без сообщения от worfy. Две задачи не снимались (тот же запрет брифа);
+   по коду worfy каждая task-notification даёт свой ход или попадает в уже идущий.
+3. `session_state_changed: idle` приходит сразу после **первого** `result`, пока фоновая задача
+   ещё идёт (4971 мс против 9196 мс конца задачи). Признаком конца работы Session оно не годится;
+   ADR-0029 его не берёт.
+4. Workflow-скрипт не снимался (запрет брифа). Bash с `run_in_background` даёт
+   `background_tasks_changed` — пункт 1.
+
+### Что сделано
+
+- ADR-0029 (`docs/adr/0029-autopilot-waits-for-background-tasks.md`) принят до кода: набор живых
+  задач из `background_tasks_changed` с запасным путём на парах, фаза ожидания `tasks`, предел
+  60 минут без событий задач (`background-stalled`), 2 минуты на ход от task-notification после
+  конца последней задачи, Stop — вариант (а), keep-awake держится до возврата Orchestrator-а,
+  явного «убить задачи» нет.
+- `src/shared/agent/events.ts`: события `background_tasks_changed`, `task_activity`
+  (`task_progress`, `task_updated`), `background_tasks` (счёт Session); у `subagent` — поля
+  `isBackgrounded`, `taskType`, `ambient`, `reason` (необязательные: транскрипт их не даёт).
+  `session_state_changed` стал тихим, как `hook_started`: без env-флага его нет, а с флагом
+  его `idle` не годится.
+- `src/shared/agent/background-tasks.ts` — свёртка; `Session` (`src/main/agent/session.ts`)
+  сбрасывает набор на каждом новом процессе, при его смерти и при `close()`, отдаёт его
+  `backgroundTasks()` и событием `background_tasks`.
+- `src/shared/autopilot/cycle.ts`: фаза `tasks`, событие `tasks-timeout`, `turn-ended` несёт
+  число живых задач и `idle`; причина `background-stalled`.
+- `src/main/autopilot/run.ts`: число задач берётся в момент `result` (а не после чтения модели
+  workflow: иначе следующая задача успевала кончиться до хода от её task-notification, и Wave
+  кончалась раньше этого хода — test это ловил); `idle` — в момент решения. Таймер ожидания —
+  на часах `tasksClock`, которые test подменяет. После Stop с живыми задачами прогон
+  остаётся «держащим» (`anyRunning()` — да, чтобы выход из приложения дождался `stopAll()` и
+  записал `tasks-killed`), пишет `background-tasks` и `orchestrator-returned`.
+- `src/main/agent/orchestrator.ts`: возврат обычной Session ждёт конца хода и пустого набора;
+  после опустевшего набора ждёт ход от task-notification 30 секунд (`RETURN_GRACE_MS`).
+  `setUnattended(true)` отклоняется (`ORCHESTRATOR_HAS_TASKS`), пока живы задачи или ждёт возврат.
+- Журнал (`src/shared/autopilot/journal.ts`): `background-tasks`, `orchestrator-returned`,
+  `tasks-killed`, у `run-stopped` — необязательный `tasks`.
+- Строка состояния: «Wave 1 · 2 background tasks» (`autopilotStatusLine`), поле
+  `backgroundTasks` в `AutopilotState`.
+- Fake-агент: директива `{"fake":"wait_release","name":…}` (`FakeReleases`, в e2e —
+  `globalThis.worfyFakeRelease` в main) и запись `close` при живых задачах.
+
+### Тесты
+
+- `test/contract/autopilot-background.test.ts` — 16 случаев на fake-агенте по «Готово, когда»
+  (10 первого захода и 6 доработки, см. ниже).
+  Первый случай сначала падал на нынешнем main (у Session не было набора задач). Мутанты
+  проверены: без перехода в фазу `tasks` краснеют 12 test-ов (contract и unit), без ожидания
+  задач в `setUnattended(false)` — 4 случая Stop/предела/выхода, без перезапуска предела на
+  событии задачи — случай «a task event … sets the limit anew».
+- `test/unit/background-tasks.test.ts`, `test/unit/autopilot-cycle.test.ts` (переходы фазы),
+  `test/contract/agent-events.test.ts` (новые события, снятая фикстура, отказ на неверной форме
+  и вырезание лишних ключей), `test/e2e/autopilot.spec.ts` (строка, Stop при живых задачах,
+  снимки в двух темах).
+- Вне следа Ticket-а пришлось поправить test-ы, которые перечисляют поля и виды событий:
+  `test/unit/autopilot-journal.test.ts`, `test/contract/autopilot-journal.test.ts` (новые виды
+  журнала), `test/contract/autopilot.test.ts`, `test/contract/autopilot-limits.test.ts`
+  (поле `backgroundTasks` состояния), `test/unit/autopilot-run.test.ts` (`backgroundTasks()` у
+  `RunSession`). README фикстур `test/fixtures/sdk-messages/README.md` — новая строка.
+
+### Не проверено
+
+- не проверено: снимки строки в двух темах сняты e2e (`autopilot-background-tasks-light.png`,
+  `-dark.png` в выводе Playwright) и показывают строку над «Stop autopilot», но сверить их с
+  F-SPEC не с чем: в `docs/design/F-SPEC.md` нет раздела про Autopilot. Стиль — тот же, что у
+  строк Ticket-ов 04 и 05.
+- не проверено: ручной повторный прогон на стабильной копии — его делает главная Session
+  Claude Code, которая ведёт Epic из CLI, после влития (настоящий Autopilot на настоящем Claude
+  Code в этом Ticket-е запускать запрещено).
+- не проверено на настоящем Claude Code: Agent с `run_in_background`, две задачи сразу,
+  workflow-скрипт, и приходит ли `task_progress` у фонового Subagent-а во время долгой
+  Bash-команды внутри него. Если не приходит, предел 60 минут — единственная защита от
+  ложного `background-stalled` у implementer-а, который ждёт CI дольше часа одной цепочкой
+  команд.
+- Session, закрытая не возвратом, а удалением Project-а из списка, тоже даёт строку
+  `orchestrator-returned` в журнале остановленного прогона.
+- не проверено: гонка таймеров ожидания и позднего хода от task-notification. Если такой ход
+  начнётся позже чем через 30 секунд после того, как набор задач опустел (`RETURN_GRACE_MS`,
+  ожидание перед возвратом остановленного Orchestrator-а человеку), Orchestrator запустится
+  заново раньше, и этот ход пропадёт. В идущей Wave предел — 2 минуты (`TASKS_GRACE_MS`): после
+  него Wave оценивается без этого хода. Снятый поток (первый шаг) даёт ход через 34 мс после
+  конца задачи; насколько он бывает дольше, на настоящем Claude Code не мерено.
+- не проверено: остановленный прогон ждёт закрытия своей Session. Если Orchestrator не вернул
+  её человеку (Project убрали из списка — тогда Session закрывается, и это видно; или
+  `setUnattended(false)` упал), keep-awake держится до выхода из приложения.
+
+### Доработка после ревью (круг 1)
+
+- Stop во время хода Wave, пока задачи ещё не начаты (так бывает: `/epic-wave` запускает
+  implementer-ов внутри своего хода), теперь тоже держит прогон: keep-awake не отпускается,
+  `anyRunning()` — да, изменения набора идут в журнал, конец — `orchestrator-returned` (или
+  `tasks-killed` при выходе из приложения; тогда `tasks` может быть пустым, если ждали только
+  ход). Условие в `run.ts` (`end`) — «живы задачи или Session в ходе», читается после записи
+  `run-stopped`. Так оно совпадает с условием, по которому Orchestrator откладывает возврат
+  (`orchestrator.ts`, `setUnattended(false)`).
+- Из-за этого изменилось поведение Ticket-а 04 (ADR-0024, пункт 7: keep-awake отпускается на
+  остановке): Stop во время хода теперь отпускает keep-awake только после возврата
+  Orchestrator-а, как велит ADR-0029, пункт 5. Test-ы Ticket-а 04 поправлены под это:
+  `test/contract/autopilot.test.ts` (случай Stop) и `test/e2e/autopilot.spec.ts` (первый случай:
+  после Stop keep-awake держится, Interrupt хода возвращает Orchestrator, затем
+  `orchestrator-returned` и `stop`).
+- `task_activity` (каждый `task_progress` / `task_updated`) больше не уходит в окна:
+  `SessionRegistry` отдаёт его только наблюдателям main (`isMainOnlyEvent` в
+  `src/shared/agent/events.ts`). Раньше он попадал в журнал Session в renderer с пределом 5000
+  событий и вытеснял оттуда ранние строки Transcript.
+- Сброс набора задач в `Session.begin()` убран: новый процесс запускается только у новой Session
+  или после `fail()`, а `fail()` и `close()` набор уже сбрасывают. Мутант, удалявший этот вызов,
+  нельзя было поймать ни одним test-ом, потому что поведение от него не зависело.
+- `CONTEXT.md`: термин **Background task** с определением из ADR-0029 и пометкой, что это не
+  Ticket (строка «2 background tasks» стоит на рамке Epic рядом с Ticket-ами).
+- Новые случаи `test/contract/autopilot-background.test.ts`: Stop во время хода до начала задач;
+  возврат Orchestrator-а по таймеру 30 секунд без последнего хода; отказ старта, пока возврат
+  ждёт хода и задач уже нет; ход, начавшийся до свежего чтения модели workflow, решает Wave
+  своим `result` (чтение задерживается в test-е); смерть Claude Code при живых задачах
+  опустошает набор до события `error`; `task_activity` доходит до main и не доходит до окон.
+  В имеющихся случаях добавлены проверки: строки `background-tasks` между `run-stopped` и
+  `orchestrator-returned`; при `app-quit` keep-awake отпущен, `anyRunning()` — нет, а закрытие
+  Session опустошает набор. Каждый новый случай краснеет на мутанте своей правки (9 мутантов,
+  проверено вручную).

@@ -26,8 +26,9 @@
 import { randomUUID } from 'node:crypto'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { messageLabel, type Attachment } from '../../shared/agent/attachments'
+import { emptyTaskFold, foldTaskEvent, isTaskEvent, liveTasks, sameTasks, type BackgroundTask, type TaskFold } from '../../shared/agent/background-tasks'
 import type { SlashCommand } from '../../shared/agent/commands'
-import { sdkMessageToEvents, type AgentEvent, type PermissionDecision, type QueueSnapshot, type SessionState } from '../../shared/agent/events'
+import { isMainOnlyEvent, sdkMessageToEvents, type AgentEvent, type PermissionDecision, type QueueSnapshot, type SessionState } from '../../shared/agent/events'
 import {
   DEFAULT_SETTINGS,
   EFFORT_LEVELS,
@@ -216,6 +217,9 @@ export class Session {
   private configuring: Promise<unknown> = Promise.resolve()
   /** The model of the last system/init: the model list's fallback. */
   private initModel: string | null = null
+  /** The background tasks of the current Claude Code process (ADR-0029); a new process starts empty. */
+  private taskFold: TaskFold = emptyTaskFold()
+  private liveTaskList: BackgroundTask[] = []
   private readonly queue = new MessageQueue((snapshot) => this.emit({ type: 'queue', ...snapshot }))
   private readonly catalog = new CommandCatalog()
   private readonly permissions = new PermissionGate(
@@ -276,6 +280,14 @@ export class Session {
 
   info(): SessionInfo {
     return { sessionId: this.current, sdkSessionId: this.sdkSessionId, cwd: this.cwd, state: this.stateValue }
+  }
+
+  /**
+   * The live background tasks of the Session's Claude Code process, ambient ones left out
+   * (src/shared/agent/background-tasks.ts). Empty while no process runs.
+   */
+  backgroundTasks(): BackgroundTask[] {
+    return this.liveTaskList.map((task) => ({ ...task }))
   }
 
   controls(): SessionControls {
@@ -416,6 +428,8 @@ export class Session {
     } catch (error) {
       console.warn(`[agent] closing ${this.current} failed`, error)
     }
+    // Closing ends the process, and its background tasks with it.
+    this.resetTasks()
     this.setState('closed')
   }
 
@@ -444,6 +458,9 @@ export class Session {
   }
 
   private begin(): void {
+    // A new Claude Code process starts with an empty set of background tasks: a new Session has
+    // none yet, and fail() emptied it when the process before this one died. The new process
+    // reports its own only when they change.
     const settings = this.settings
     const run: Run = { query: null, input: new InputQueue<SDKUserMessage>(), stderr: [], applied: settings }
     this.run = run
@@ -526,6 +543,8 @@ export class Session {
     run.input.end()
     this.run = null
     this.interrupted = false
+    // The process is gone, and its background tasks with it.
+    this.resetTasks()
     // What waits in the queue goes when the user asks ("Send queued"), not into a new process by itself.
     this.queue.pause()
     this.setState('error', error)
@@ -569,7 +588,21 @@ export class Session {
         continue
       }
       this.emit(event)
+      if (isTaskEvent(event)) this.trackTasks(foldTaskEvent(this.taskFold, event))
     }
+  }
+
+  /** Takes a new fold of the tasks; tells the subscribers when the live set changed. */
+  private trackTasks(fold: TaskFold): void {
+    this.taskFold = fold
+    const live = liveTasks(fold)
+    if (sameTasks(live, this.liveTaskList)) return
+    this.liveTaskList = live
+    this.emit({ type: 'background_tasks', tasks: live.map((task) => ({ ...task })) })
+  }
+
+  private resetTasks(): void {
+    this.trackTasks(emptyTaskFold())
   }
 
   private setState(state: SessionState, error: string | null = null): void {
@@ -624,7 +657,8 @@ export class SessionRegistry {
   }
 
   /**
-   * Starts a Session whose events go to `sink` (the window that asked for it). Resuming an SDK
+   * Starts a Session whose events go to `sink` (the window that asked for it), main-only ones
+   * (isMainOnlyEvent) left out: those go to the observers alone. Resuming an SDK
    * session that a live Session already runs is refused: two Claude Code processes would write
    * one transcript, and both Sessions would send events under one id. `launch` is attended unless
    * Autopilot starts the Session unattended (session-settings.ts).
@@ -645,7 +679,8 @@ export class SessionRegistry {
           }
         }
         try {
-          sink(sessionId, event)
+          // Events for the main process only (task_activity) reach the observers, not the windows.
+          if (!isMainOnlyEvent(event)) sink(sessionId, event)
         } finally {
           // A sink that throws (a window already gone) must not keep a closed Session listed.
           if (event.type === 'state' && event.state === 'closed') this.forget(session)

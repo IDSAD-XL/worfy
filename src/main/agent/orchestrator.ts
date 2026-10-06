@@ -14,10 +14,12 @@
 // Autopilot (worfy-daily ticket 04, ADR-0024) runs the Orchestrator unattended for the time of a
 // run (setUnattended): its Session is started again with the unattended launch (ADR-0022),
 // continuing the same SDK session, and started again attended when the run ends — at once, or once
-// a turn that still runs has ended. The settings of an unattended Session are not saved: its forced
+// a turn that still runs has ended and the Session has no live background task (ADR-0029: starting
+// it again would kill them). The settings of an unattended Session are not saved: its forced
 // bypassPermissions would overwrite the mode the user picked for the Node. Going unattended is
-// refused while a turn runs (also the last turn of a run that was just stopped) and while messages
-// wait in the queue; going back to attended carries the queue over to the new Session.
+// refused while a turn runs (also the last turn of a run that was just stopped), while background
+// tasks live and while messages wait in the queue; going back to attended carries the queue over
+// to the new Session.
 import type { AgentEvent } from '../../shared/agent/events'
 import { DEFAULT_SETTINGS, sameSettings, type SessionSettings } from '../../shared/agent/settings'
 import { findStatusBlock } from '../../shared/agent/status-block'
@@ -102,7 +104,15 @@ export interface OrchestratorDeps {
   broadcast: EventSink
   /** Gets every new view, e.g. to send it to the windows. */
   publish(view: OrchestratorView): void
+  /**
+   * How long a Session waiting to be given back waits, after its last background task ended, for
+   * the turn the task-notification starts (default RETURN_GRACE_MS).
+   */
+  returnGraceMs?: number
 }
+
+/** After the last background task of a Session waiting to be given back ended: the wait for its task-notification turn. */
+export const RETURN_GRACE_MS = 30_000
 
 /** One Session started for an Orchestrator; `current` turns false when another replaces it. */
 interface Run {
@@ -143,8 +153,14 @@ export const ORCHESTRATOR_IN_TURN = 'The Orchestrator is in a turn: wait for it 
 /** Why Autopilot cannot take the Orchestrator while messages wait in its queue: they were meant for a person's Session. */
 export const ORCHESTRATOR_HAS_QUEUE = 'Messages wait in the Orchestrator\'s queue: send or remove them before starting Autopilot'
 
+/** Why Autopilot cannot take the Orchestrator while its background tasks live: starting its Session again would kill them. */
+export const ORCHESTRATOR_HAS_TASKS = 'The Orchestrator\'s background tasks are still running: wait for them to end before starting Autopilot'
+
 /** Why the Orchestrator's Session cannot be started again now: a turn is running. */
 const inTurn = (state: string): boolean => state === 'busy' || state === 'needs_permission'
+
+/** The live background tasks of the Orchestrator's current Session (ADR-0029). */
+const liveTasksOf = (entry: Entry): number => entry.run?.session?.backgroundTasks().length ?? 0
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
@@ -215,7 +231,7 @@ export class Orchestrators {
       if (this.entries.get(projectId) !== entry || entry.cancelled) return null
       if (!entry.launch.unattended) {
         entry.wanted = null
-      } else if (inTurn(this.current(entry).state)) {
+      } else if (inTurn(this.current(entry).state) || liveTasksOf(entry) > 0) {
         entry.wanted = ATTENDED
       } else {
         this.relaunch(entry, ATTENDED)
@@ -226,6 +242,9 @@ export class Orchestrators {
     const entry = this.entries.get(projectId)
     if (entry === undefined) throw new Error(`the Orchestrator of ${projectId} was stopped`)
     if (inTurn(this.current(entry).state)) throw new Error(ORCHESTRATOR_IN_TURN)
+    // Also while a stopped run's Session waits to be given back: for its tasks, or for the turn
+    // the last one's task-notification starts.
+    if (liveTasksOf(entry) > 0 || entry.wanted !== null) throw new Error(ORCHESTRATOR_HAS_TASKS)
     if ((entry.run?.session?.queued().items.length ?? 0) > 0) throw new Error(ORCHESTRATOR_HAS_QUEUE)
     entry.wanted = null
     if (!entry.launch.unattended) this.relaunch(entry, { unattended: true })
@@ -376,6 +395,11 @@ export class Orchestrators {
           this.saveSettings(entry, event.settings)
         }
         break
+      case 'background_tasks':
+        // The last task ended: its task-notification starts a turn, which the relaunch waits for;
+        // when none comes within the grace time, the relaunch goes on without it.
+        if (event.tasks.length === 0 && entry.wanted !== null) this.relaunchAfterGrace(entry, run)
+        break
       case 'result':
         next.costUsd = entry.cost.result(event.costUsd)
         this.patch(entry, { costUsd: next.costUsd })
@@ -438,12 +462,21 @@ export class Orchestrators {
    * the event that ended the turn (it may start a queued turn right after, which waits again).
    */
   private relaunchLater(entry: Entry, run: Run): void {
-    queueMicrotask(() => {
-      const wanted = entry.wanted
-      if (wanted === null || entry.run !== run || !run.current || entry.cancelled) return
-      if (inTurn(this.current(entry).state)) return
-      this.relaunch(entry, wanted)
-    })
+    queueMicrotask(() => this.relaunchIfFree(entry, run))
+  }
+
+  /** The waiting launch, once the Session has neither a turn nor a live background task. */
+  private relaunchIfFree(entry: Entry, run: Run): void {
+    const wanted = entry.wanted
+    if (wanted === null || entry.run !== run || !run.current || entry.cancelled) return
+    if (inTurn(this.current(entry).state) || liveTasksOf(entry) > 0) return
+    this.relaunch(entry, wanted)
+  }
+
+  private relaunchAfterGrace(entry: Entry, run: Run): void {
+    const timer = setTimeout(() => this.relaunchIfFree(entry, run), this.deps.returnGraceMs ?? RETURN_GRACE_MS)
+    // A relaunch that never comes due must not keep the app (or a test) alive.
+    ;(timer as { unref?: () => void }).unref?.()
   }
 
   /** A new session: no id to resume, and its cost starts from zero. */

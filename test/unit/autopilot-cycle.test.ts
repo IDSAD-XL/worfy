@@ -2,7 +2,7 @@
 // event to the next state and what the run does next. When a Wave counts as finished, when the next
 // one is sent, and every reason a run stops.
 import { describe, expect, it } from 'vitest'
-import { initialCycle, SETTLE_MS, step, type CycleEvent, type CycleState } from '../../src/shared/autopilot/cycle'
+import { AUTOPILOT_STOP_REASONS, initialCycle, SETTLE_MS, step, type CycleEvent, type CycleState } from '../../src/shared/autopilot/cycle'
 import type { Ticket } from '../../src/shared/workflow/types'
 
 const EPIC = 'demo'
@@ -27,7 +27,7 @@ const OPEN = [t(1, 'open'), t(2, 'open'), t(3, 'open', [1, 2])]
 const WAVE1_DONE = [t(1, 'done'), t(2, 'done'), t(3, 'open', [1, 2])]
 const ALL_DONE = [t(1, 'done'), t(2, 'done'), t(3, 'done', [1, 2])]
 
-const ok = (tickets: Ticket[]): CycleEvent => ({ type: 'turn-ended', isError: false, interrupted: false, message: null, tickets })
+const ok = (tickets: Ticket[], tasks = 0, idle = true): CycleEvent => ({ type: 'turn-ended', isError: false, interrupted: false, message: null, tickets, tasks, idle })
 
 /** Feeds events in order; answers the last state and every effect on the way. */
 function run(events: CycleEvent[], from: CycleState = initialCycle(EPIC)) {
@@ -138,9 +138,9 @@ describe('the Autopilot cycle', () => {
   })
 
   it('a turn that ends with an error stops with turn-error; an interrupted one with interrupted', () => {
-    const failed = run([{ type: 'turn-ended', isError: true, interrupted: false, message: 'Not logged in', tickets: WAVE1_DONE }], inWave1())
+    const failed = run([{ type: 'turn-ended', isError: true, interrupted: false, message: 'Not logged in', tickets: WAVE1_DONE, tasks: 0, idle: true }], inWave1())
     expect(failed.effects).toEqual([{ kind: 'session-error', message: 'Not logged in' }, { kind: 'stopped', reason: 'turn-error' }])
-    const interrupted = run([{ type: 'turn-ended', isError: true, interrupted: true, message: null, tickets: WAVE1_DONE }], inWave1())
+    const interrupted = run([{ type: 'turn-ended', isError: true, interrupted: true, message: null, tickets: WAVE1_DONE, tasks: 2, idle: true }], inWave1())
     expect(interrupted.effects).toEqual([{ kind: 'stopped', reason: 'interrupted' }])
   })
 
@@ -172,6 +172,53 @@ describe('the Autopilot cycle', () => {
     const other = [t(1, 'open', [], 'other'), t(5, 'open', [], 'other')]
     const { effects } = run([{ type: 'start', tickets: [...ALL_DONE, ...other] }])
     expect(effects).toEqual([{ kind: 'stopped', reason: 'no-ready-wave' }])
+  })
+
+  it('background tasks alive at the end of a turn keep the Wave in phase tasks, whatever the Tickets say (ADR-0029)', () => {
+    // The real run of 2026-10-06: the turn ended with four implementers in the background, before
+    // any of them claimed a Ticket. Wave 1 is open, and the ready Wave is still Wave 1.
+    const waiting = run([ok(OPEN, 4)], inWave1())
+    expect(waiting.effects).toEqual([])
+    expect(waiting.state).toMatchObject({ phase: 'tasks', wave: 1 })
+    // Even with every Ticket done, live tasks hold the Wave.
+    expect(run([ok(WAVE1_DONE, 1)], inWave1()).state.phase).toBe('tasks')
+    // A workflow change does not judge the Wave while tasks live.
+    expect(run([{ type: 'workflow', tickets: WAVE1_DONE }], waiting.state)).toEqual({ state: waiting.state, effects: [] })
+  })
+
+  it('a task-notification turn is a turn of the Wave: its result judges the Wave once no task lives', () => {
+    const waiting = run([ok(OPEN, 2)], inWave1()).state
+    const second = run([{ type: 'busy' }], waiting)
+    expect(second.state.phase).toBe('turn')
+    // One task left: still waiting.
+    const one = run([ok(WAVE1_DONE, 1)], second.state)
+    expect(one.state.phase).toBe('tasks')
+    // The last task's turn ends with none left: the Wave is finished and Wave 2 goes out.
+    const last = run([{ type: 'busy' }, ok(WAVE1_DONE, 0)], one.state)
+    expect(last.effects).toEqual([{ kind: 'wave-finished', wave: 1, tickets: [1, 2] }, { kind: 'send-wave' }])
+  })
+
+  it('a turn end while the Session already runs another turn waits for that turn', () => {
+    const next = run([ok(WAVE1_DONE, 0, false)], inWave1())
+    expect(next.effects).toEqual([])
+    expect(next.state.phase).toBe('turn')
+  })
+
+  it('in phase tasks, the timeout stops with background-stalled while tasks live, and judges the Wave once none does', () => {
+    const waiting = run([ok(OPEN, 2)], inWave1()).state
+    expect(run([{ type: 'tasks-timeout', tasks: 2, tickets: OPEN }], waiting).effects).toEqual([{ kind: 'stopped', reason: 'background-stalled' }])
+    expect(run([{ type: 'tasks-timeout', tasks: 0, tickets: WAVE1_DONE }], waiting).effects).toEqual([{ kind: 'wave-finished', wave: 1, tickets: [1, 2] }, { kind: 'send-wave' }])
+    // The same Wave ready again: no-progress, as after any turn.
+    expect(run([{ type: 'tasks-timeout', tasks: 0, tickets: OPEN }], waiting).effects).toEqual([{ kind: 'wave-finished', wave: 1, tickets: [1, 2] }, { kind: 'stopped', reason: 'no-progress' }])
+    // Outside phase tasks the timeout means nothing.
+    expect(run([{ type: 'tasks-timeout', tasks: 2, tickets: OPEN }], inWave1()).effects).toEqual([])
+    expect(AUTOPILOT_STOP_REASONS).toContain('background-stalled')
+  })
+
+  it('Stop and an error stop the run in phase tasks too', () => {
+    const waiting = run([ok(OPEN, 2)], inWave1()).state
+    expect(run([{ type: 'stop', reason: 'user-stop' }], waiting).effects).toEqual([{ kind: 'stopped', reason: 'user-stop' }])
+    expect(run([{ type: 'session-error', message: 'x' }], waiting).state).toMatchObject({ phase: 'stopped', reason: 'session-error' })
   })
 
   it('ignores a turn end before any Wave was sent', () => {

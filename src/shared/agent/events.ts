@@ -106,7 +106,11 @@ export const agentEvent = z.discriminatedUnion('type', [
   }),
   /** Text in the transcript that neither the user typed nor the model wrote. */
   z.object({ type: z.literal('notice'), kind: z.enum(['synthetic', 'user', 'local_command', 'notification']), text: z.string() }),
-  /** A subagent (Agent tool) started, or its task-notification arrived. */
+  /**
+   * A task of the Session started (task_started: a subagent of the Agent tool, a Bash or a workflow
+   * script), or its task-notification arrived. The fields from `isBackgrounded` on come only from
+   * the live Session's SDK messages (worfy-daily ticket 29), not from a transcript file.
+   */
   z.object({
     type: z.literal('subagent'),
     phase: z.enum(['started', 'finished']),
@@ -118,6 +122,37 @@ export const agentEvent = z.discriminatedUnion('type', [
     summary: nullableString,
     /** The Subagent's final answer, as a transcript file's task-notification records it. */
     result: nullableString.optional(),
+    /** Started in the background: the turn does not wait for it. */
+    isBackgrounded: z.boolean().nullable().optional(),
+    /** `local_agent`, `local_bash`, `local_workflow`, … */
+    taskType: nullableString.optional(),
+    /** Housekeeping, not work: it holds nothing (ADR-0029). */
+    ambient: z.boolean().nullable().optional(),
+    /** Why a task ended other than normally: `worker_restart` — the process restarted and the task was orphaned. */
+    reason: nullableString.optional(),
+  }),
+  /**
+   * system/background_tasks_changed: every live background task of the Claude Code process after a
+   * change, ambient ones included. A level: it replaces the set before it (ADR-0029).
+   */
+  z.object({
+    type: z.literal('background_tasks_changed'),
+    tasks: z.array(z.object({ taskId: z.string(), taskType: nullableString, description: nullableString, ambient: z.boolean() })),
+  }),
+  /**
+   * system/task_progress or system/task_updated: a task of the Session is still at work. Shown
+   * nowhere; Autopilot counts it as a sign of life. `backgrounded`: the task moved to the background.
+   * Main-process only (isMainOnlyEvent): it never goes to a window.
+   */
+  z.object({ type: z.literal('task_activity'), taskId: z.string(), backgrounded: z.boolean() }),
+  /**
+   * worfy's own count of the Session's live background tasks, ambient ones left out
+   * (src/shared/agent/background-tasks.ts): sent by the Session whenever it changes, also when a
+   * new Claude Code process empties it. Never made from an SDK message or a transcript record.
+   */
+  z.object({
+    type: z.literal('background_tasks'),
+    tasks: z.array(z.object({ taskId: z.string(), taskType: nullableString, description: nullableString })),
   }),
   /** A slash command the user typed (`/name args`); only a transcript file records it as such. */
   z.object({ type: z.literal('command'), name: z.string(), args: z.string() }),
@@ -165,6 +200,16 @@ export const agentEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('unknown'), sdkType: z.string() }),
 ])
 export type AgentEvent = z.infer<typeof agentEvent>
+
+/**
+ * Whether an event stays in the main process: the Session's observers get it (Autopilot), its
+ * sink — the windows — does not. `task_activity` comes with every tool use of every background
+ * task and is shown nowhere; in a window it would only push the Session's earlier events out of
+ * the renderer's bounded event list.
+ */
+export function isMainOnlyEvent(event: AgentEvent): boolean {
+  return event.type === 'task_activity'
+}
 
 /** What travels on `agent.event`: one event of one Session. */
 export const agentEventEnvelope = z.object({ sessionId: z.string(), event: agentEvent })
@@ -222,8 +267,21 @@ const sdkNotification = z.object({ text: str })
 // Entries that are not command objects are skipped (the fixtures shorten the list with a "<N more>" string).
 const commandName = z.object({ name: str })
 const sdkCommandsChanged = z.object({ commands: z.array(z.unknown()) })
-const sdkTaskStarted = z.object({ task_id: str, tool_use_id: optStr, description: optStr, subagent_type: optStr })
-const sdkTaskNotification = z.object({ task_id: str, tool_use_id: optStr, status: str, summary: optStr })
+const sdkTaskStarted = z.object({
+  task_id: str,
+  tool_use_id: optStr,
+  description: optStr,
+  subagent_type: optStr,
+  is_backgrounded: z.boolean().nullish(),
+  task_type: optStr,
+  ambient: z.boolean().nullish(),
+})
+const sdkTaskNotification = z.object({ task_id: str, tool_use_id: optStr, status: str, summary: optStr, reason: optStr, ambient: z.boolean().nullish() })
+const sdkBackgroundTasks = z.object({
+  tasks: z.array(z.object({ task_id: str, task_type: optStr, description: optStr, ambient: z.boolean().nullish() })),
+})
+const sdkTaskProgress = z.object({ task_id: str })
+const sdkTaskUpdated = z.object({ task_id: str, patch: z.object({ is_backgrounded: z.boolean().nullish() }).loose().nullish() })
 
 const window = z.object({ utilization: optNum }).nullish()
 const sdkRateLimit = z.object({
@@ -294,7 +352,9 @@ export function toolResultText(content: unknown): string {
 }
 
 // Messages whose content worfy does not show: they produce no event (and are not `unknown`).
-const QUIET_SYSTEM = new Set(['hook_started', 'hook_progress', 'thinking_tokens', 'task_progress', 'task_updated'])
+// session_state_changed comes only with an env flag worfy does not set; its `idle` arrives while
+// background tasks still run, so worfy does not use it (ADR-0029).
+const QUIET_SYSTEM = new Set(['hook_started', 'hook_progress', 'thinking_tokens', 'session_state_changed'])
 
 function mapSystem(subtype: string, message: unknown): AgentEvent[] {
   if (QUIET_SYSTEM.has(subtype)) return []
@@ -348,6 +408,10 @@ function mapSystem(subtype: string, message: unknown): AgentEvent[] {
           subagentType: orNull(m.subagent_type),
           status: null,
           summary: null,
+          isBackgrounded: orNull(m.is_backgrounded),
+          taskType: orNull(m.task_type),
+          ambient: orNull(m.ambient),
+          reason: null,
         },
       ]
     }
@@ -363,8 +427,30 @@ function mapSystem(subtype: string, message: unknown): AgentEvent[] {
           subagentType: null,
           status: m.status,
           summary: orNull(m.summary),
+          isBackgrounded: null,
+          taskType: null,
+          ambient: orNull(m.ambient),
+          reason: orNull(m.reason),
         },
       ]
+    }
+    case 'background_tasks_changed':
+      return [
+        {
+          type: 'background_tasks_changed',
+          tasks: read(sdkBackgroundTasks, message).tasks.map((task) => ({
+            taskId: task.task_id,
+            taskType: orNull(task.task_type),
+            description: orNull(task.description),
+            ambient: task.ambient === true,
+          })),
+        },
+      ]
+    case 'task_progress':
+      return [{ type: 'task_activity', taskId: read(sdkTaskProgress, message).task_id, backgrounded: false }]
+    case 'task_updated': {
+      const m = read(sdkTaskUpdated, message)
+      return [{ type: 'task_activity', taskId: m.task_id, backgrounded: m.patch?.is_backgrounded === true }]
     }
     default:
       return [{ type: 'unknown', sdkType: `system/${subtype}` }]
