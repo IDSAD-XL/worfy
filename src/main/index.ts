@@ -3,6 +3,7 @@ import { startOrchestrators } from './agent/app-orchestrators'
 import { sharedRegistry } from './agent/app-registry'
 import { installCardRuntime, registerCardScheme } from './cards/protocol'
 import { cardStore } from './cards/store'
+import { installDevDockIcon } from './dock-icon'
 import { liveSessionListeners } from './ipc/claude-home'
 import { appUrlMatcher, registerIpc } from './ipc/index'
 import { installAppMenu } from './menu'
@@ -52,6 +53,8 @@ function start(): void {
     .whenReady()
     .then(async () => {
       installAppMenu()
+      // Before the first window, so a dev run never shows the Electron icon in the Dock with it.
+      installDevDockIcon()
       // Handlers go in before the first window, so its first call never finds a channel missing.
       // Calls are accepted only from the renderer location the window itself loads.
       const isAppUrl = appUrlMatcher(rendererEntry())

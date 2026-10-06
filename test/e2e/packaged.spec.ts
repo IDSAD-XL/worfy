@@ -156,6 +156,18 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
     expect(verify.status).toBe(0)
   })
 
+  test('the dist/ build and the copy carry the worfy icon, build/icon.icns, not the Electron one', () => {
+    const committed = readFileSync(join(repoRoot, 'build', 'icon.icns'))
+    for (const app of [builtApp(), stableApp]) {
+      const plist = join(app, 'Contents', 'Info.plist')
+      const iconFile = spawnSync('plutil', ['-extract', 'CFBundleIconFile', 'raw', '-o', '-', plist], { encoding: 'utf8' })
+      expect(iconFile.status, app).toBe(0)
+      expect(iconFile.stdout.trim(), app).toBe('icon.icns')
+      const bundled = readFileSync(join(app, 'Contents', 'Resources', 'icon.icns'))
+      expect(bundled.equals(committed), `${app}/Contents/Resources/icon.icns equals build/icon.icns`).toBe(true)
+    }
+  })
+
   test('the copy starts and shows a window titled worfy', async () => {
     const launched = await launchApp({ executablePath: executableOf(stableApp) })
     try {
