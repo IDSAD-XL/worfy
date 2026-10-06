@@ -64,7 +64,7 @@ workflow-скрипта или показать плоской группой.
 
 ## Итог
 
-**Разбор настоящих `wf_*`** (`~/.claude/projects` на 2026-10-07, только чтение; 104 каталога запусков в 13 Session-ах):
+**Разбор настоящих `wf_*`** (`~/.claude/projects` на 2026-10-07, только чтение; 104 каталога запусков в 10 Session-ах; вызовы `Workflow` — в транскриптах 13 Session-ов):
 - Каталог запуска `<sessionId>/subagents/workflows/<runId>/` держит `agent-<id>.jsonl`, `agent-<id>.meta.json` и `journal.jsonl`; глубже каталогов нет.
 - `meta.json` — `{"agentType":"workflow-subagent","spawnDepth":1}` (118 файлов); в новых версиях ещё `description` (метка `impl:03`), `workflowPhase`, `requestShape`; `agentType` бывает и обычным (`Explore` — 24, `atakama-researcher` — 6). **`toolUseId` и `parentAgentId` нет ни у одного** — вывод Ticket-а 09 worfy-mvp подтвердился.
 - `journal.jsonl`: `started` (`agentId`, `key`; в новых — `label`, `phase`), `result` (`agentId`, `result` — объект или текст), `failed` (`agentId`), `launched` без агента. По всем журналам: 1908 `started`, 1854 `result`, 20 `failed`, 83 `launched`.
@@ -93,7 +93,7 @@ workflow-скрипта или показать плоской группой.
 
 Не проверено: «Во время Wave в Autopilot агенты workflow-скрипта видны на Canvas». Настоящую Wave Autopilot-а вести нельзя (fake-агент, запись в `~/.claude` запрещена); вместо неё — снимок e2e выше на фикстуре того же формата.
 
-**Бейджи PR и CI** (вручную, 2026-10-07): открытых PR эпика было два — нет, один: только [PR #73](https://github.com/IDSAD-XL/worfy/pull/73) этого Ticket-а (предполёт волны: «PR открыто: 0» до него). launchApp с Project = worktree тикета, `epic-status` из `~/.claude/bin` по ссылке во временном Claude home.
+**Бейджи PR и CI** (вручную, 2026-10-07): открытый PR эпика один — [PR #73](https://github.com/IDSAD-XL/worfy/pull/73) этого Ticket-а (предполёт волны: «PR открыто: 0» до него). launchApp с Project = worktree тикета, `epic-status` из `~/.claude/bin` по ссылке во временном Claude home.
 - gh с `GH_TOKEN` аккаунта IDSAD-XL: на Ticket-е 17 — `PR #73`, `OPEN`, `CI running`; `gh pr view 73 --json state,statusCheckRollup` — `OPEN`, `check` `IN_PROGRESS`, `full-macos` `SKIPPED`. Совпадает. Снимки: [светлая](../evidence/17-badges-pr73-light.png), [тёмная](../evidence/17-badges-pr73-dark.png), [Ticket 17 крупно](../evidence/17-badge-ticket17-light.png).
 - gh так, как его запускает приложение без `WORFY_GH` (из login shell, глобальный аккаунт gh — Oleksii-O-Atakama): на Ticket-е 17 — «gh unavailable» вместо PR #73; `gh pr list` из login shell отвечает «Could not resolve to a Repository with the name 'IDSAD-XL/worfy'». [Снимок](../evidence/17-badges-login-shell-gh-light.png).
 
