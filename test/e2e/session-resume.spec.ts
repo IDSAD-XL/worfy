@@ -90,8 +90,9 @@ const orchestratorSessionId = async (window: Page): Promise<string | null | unde
 /** The prompts and answers the Session view shows, in order. */
 async function shown(view: Locator): Promise<{ prompts: string[]; answers: string[] }> {
   return {
-    prompts: (await view.getByTestId('transcript-prompt').allInnerTexts()).map((text) => text.replace(/^you\s*/, '').trim()),
-    answers: (await view.getByTestId('transcript-text').allInnerTexts()).map((text) => text.replace(/^\S+\s*/, '').trim()),
+    // The body of each row: the label column also holds the row's time (worfy-daily ticket 14).
+    prompts: (await view.getByTestId('transcript-prompt').locator('.w-tr__body').allInnerTexts()).map((text) => text.trim()),
+    answers: (await view.getByTestId('transcript-text').locator('.w-tr__body').allInnerTexts()).map((text) => text.trim()),
   }
 }
 
