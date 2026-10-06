@@ -152,7 +152,7 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [ticket(7), window.locator('[data-card-id="c1"]')] })
 
     // ⌘K → "07" → Enter: Ticket 07 first (above "Release notes for build 07"), and the Canvas centers on it.
-    expect(await offCenter(window, ticket(7))).toBeGreaterThan(50)
+    expect(await offCenter(window, ticket(7))).toBeGreaterThan(50_000)
     await window.keyboard.press('Meta+k')
     await expect(palette).toBeVisible()
     await input.fill('07')
