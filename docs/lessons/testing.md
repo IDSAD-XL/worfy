@@ -20,12 +20,12 @@ Test-ом проверять все три ветки, включая подст
 Код: `processState` в `src/main/claude-home/registry.ts`, его вызов в `src/main/claude-home/subagents.ts`.
 Источник: worfy-daily/08, круг доработки PR #45.
 
-## `.app` из Finder не видит PATH login shell — внешние скрипты запускать с env из `agentEnv()`
+## Любой внешний процесс из main — с env из `agentEnv()`; test-ы из терминала этого не ловят
 
-Приложение, запущенное из Finder или через LaunchServices, получает урезанное окружение launchd:
-в `PATH` нет nvm, Homebrew и того, что добавляют `~/.zshrc` и `~/.zprofile`. Скрипт с
-`#!/usr/bin/env node` (например, `~/.claude/bin/profile`) там падает, хотя из терминала и в
-test-ах работает. Каждый внешний скрипт или CLI запускать с окружением login shell из `agentEnv()`
-(`src/main/agent/env.ts`), а не с `process.env`. Test-ом проверять, что runner получает этот env.
-Ручную проверку такой правки делать на `.app`, открытом из Finder, а не на `pnpm dev` из терминала.
+Почему у `.app` из Finder другой `PATH` и откуда берётся окружение login shell —
+[ADR-0007](../adr/0007-claude-code-launch-environment.md). Обобщение: не только Claude Code, а любой
+внешний скрипт или CLI, который запускает main (`~/.claude/bin/profile`, `gh`), получает env
+из `agentEnv()` (`src/main/agent/env.ts`), а не `process.env`. Test-ы и `pnpm dev` идут из терминала
+с полным `PATH` и такой дефект не покажут: test проверяет, что runner получил переданный env, а
+ручная проверка идёт на `.app`, открытом из Finder.
 Источник: worfy-daily/06, круг доработки PR #43.
