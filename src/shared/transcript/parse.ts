@@ -271,5 +271,15 @@ export function parseTranscriptLines(lines: readonly string[]): TranscriptEntry[
  * events of its Subagents.
  */
 export function mainThreadEvents(entries: readonly TranscriptEntry[]): AgentEvent[] {
-  return entries.flatMap((entry) => (entry.sidechain ? [] : [entry.event]))
+  return entries.flatMap((entry) => (entry.sidechain ? [] : [timedEvent(entry)]))
+}
+
+/**
+ * The event of an entry with the record's time in `at`, so a row read from the file shows when it
+ * was written, the same after every restart (ticket 14). A record without a readable time leaves
+ * the event as it is.
+ */
+export function timedEvent(entry: TranscriptEntry): AgentEvent {
+  const at = entry.timestamp === undefined ? Number.NaN : Date.parse(entry.timestamp)
+  return Number.isFinite(at) ? { ...entry.event, at } : entry.event
 }

@@ -652,7 +652,8 @@ describe('claudeHome IPC channels', () => {
     if (!result.ok) throw new Error(result.error)
     const { events } = result.value as { events: { type: string; text?: string }[] }
     expect(events.map((event) => event.text)).not.toContain('from a subagent')
-    expect(events.at(-1)).toStrictEqual({ type: 'text', text: 'after the subagent', messageId: 'own-1', parentToolUseId: null, synthetic: false })
+    // With the time of its record, so the row shows when it was written (ticket 14).
+    expect(events.at(-1)).toStrictEqual({ type: 'text', text: 'after the subagent', messageId: 'own-1', parentToolUseId: null, synthetic: false, at: Date.parse('2026-05-05T10:07:00.000Z') })
   })
 
   it('answers sessions with the contract fields only', async () => {

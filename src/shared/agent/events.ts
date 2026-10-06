@@ -27,24 +27,34 @@ export type QueueSnapshot = z.output<typeof queueSnapshotSchema>
 export const permissionDecisionSchema = z.enum(['allow', 'always_allow', 'deny'])
 export type PermissionDecision = z.infer<typeof permissionDecisionSchema>
 
+/**
+ * When an event happened, in ms since the epoch: the record's `timestamp` for an event read from a
+ * transcript file (src/shared/transcript/parse.ts), the time the renderer received a live event
+ * (src/renderer/session/store.ts). Absent when nothing says; the transcript then shows no time.
+ */
+const at = z.number().optional()
+
+/** A member of `agentEvent`: its own fields, and when it happened. */
+const timed = <Shape extends z.ZodRawShape>(shape: Shape) => z.object({ ...shape, at })
+
 export const agentEvent = z.discriminatedUnion('type', [
   // Events of worfy itself, not of an SDK message (ticket 19).
   /**
    * worfy gave Claude Code a message of the user: sent at once, or taken from the queue when the
    * turn before it ended. Not sent for a message that only went into the queue.
    */
-  z.object({ type: z.literal('prompt'), text: z.string() }),
+  timed({ type: z.literal('prompt'), text: z.string() }),
   /** The Session's message queue (src/main/agent/queue.ts) changed; the whole queue, oldest first. */
-  z.object({ type: z.literal('queue'), items: z.array(queuedMessageSchema), paused: z.boolean() }),
+  timed({ type: z.literal('queue'), items: z.array(queuedMessageSchema), paused: z.boolean() }),
   /** The model, effort and permission mode the Session now runs with, as worfy set them. */
-  z.object({ type: z.literal('settings'), settings: sessionSettingsSchema }),
+  timed({ type: z.literal('settings'), settings: sessionSettingsSchema }),
   /**
    * Claude Code asks before running a tool (canUseTool, src/main/agent/permissions.ts); the
    * Session is `needs_permission` until every open request is resolved. `alwaysAllow`: whether
    * "Always allow" may be offered. `suggestions`: what Claude Code proposed and where it would
    * write; worfy applies none of them.
    */
-  z.object({
+  timed({
     type: z.literal('permission_request'),
     requestId: z.string().min(1),
     toolName: z.string(),
@@ -57,16 +67,16 @@ export const agentEvent = z.discriminatedUnion('type', [
     suggestions: z.array(z.object({ type: z.string(), destination: nullableString })),
   }),
   /** A permission request was answered, or `cancelled` by Interrupt, by closing the Session or by Claude Code. */
-  z.object({ type: z.literal('permission_resolved'), requestId: z.string().min(1), decision: z.union([permissionDecisionSchema, z.literal('cancelled')]) }),
+  timed({ type: z.literal('permission_resolved'), requestId: z.string().min(1), decision: z.union([permissionDecisionSchema, z.literal('cancelled')]) }),
   /**
    * An unattended Session (Autopilot, src/main/agent/session-settings.ts) refused something that
    * would have waited for a person, and showed nothing: a permission request (`subject`: the tool's
    * name) or a Card's `session.ask` (`subject`: the Card's id). `message`: the refusal given. The
    * journal of an Autopilot run records it as `refused-dialog`.
    */
-  z.object({ type: z.literal('refused_dialog'), dialog: z.enum(['permission_request', 'card_ask']), subject: z.string(), message: z.string() }),
+  timed({ type: z.literal('refused_dialog'), dialog: z.enum(['permission_request', 'card_ask']), subject: z.string(), message: z.string() }),
   /** system/init: arrives at the start of every turn with the current model and mode. */
-  z.object({
+  timed({
     type: z.literal('init'),
     sdkSessionId: z.string(),
     model: z.string(),
@@ -78,9 +88,9 @@ export const agentEvent = z.discriminatedUnion('type', [
     slashCommands: z.array(z.string()),
   }),
   /** The Session's temporary id was replaced by the id Claude Code gave it; `from` is the old one. */
-  z.object({ type: z.literal('renamed'), from: z.string() }),
+  timed({ type: z.literal('renamed'), from: z.string() }),
   /** Login of Claude Code, from accountInfo() (ADR-0009). */
-  z.object({
+  timed({
     type: z.literal('account'),
     loggedIn: z.boolean(),
     subscriptionType: nullableString,
@@ -88,14 +98,14 @@ export const agentEvent = z.discriminatedUnion('type', [
     tokenSource: nullableString,
   }),
   /** A whole text block of an assistant message. `synthetic`: written by Claude Code, not the model. */
-  z.object({ type: z.literal('text'), text: z.string(), messageId: z.string(), parentToolUseId: nullableString, synthetic: z.boolean() }),
-  z.object({ type: z.literal('thinking'), text: z.string(), messageId: z.string(), parentToolUseId: nullableString }),
+  timed({ type: z.literal('text'), text: z.string(), messageId: z.string(), parentToolUseId: nullableString, synthetic: z.boolean() }),
+  timed({ type: z.literal('thinking'), text: z.string(), messageId: z.string(), parentToolUseId: nullableString }),
   /** A piece of text or thinking while the block is still being written (partial messages). */
-  z.object({ type: z.literal('delta'), kind: z.enum(['text', 'thinking']), text: z.string(), parentToolUseId: nullableString }),
-  z.object({ type: z.literal('tool_use'), id: z.string(), name: z.string(), input: z.unknown(), parentToolUseId: nullableString }),
-  z.object({ type: z.literal('tool_result'), toolUseId: z.string(), content: z.string(), isError: z.boolean(), parentToolUseId: nullableString }),
+  timed({ type: z.literal('delta'), kind: z.enum(['text', 'thinking']), text: z.string(), parentToolUseId: nullableString }),
+  timed({ type: z.literal('tool_use'), id: z.string(), name: z.string(), input: z.unknown(), parentToolUseId: nullableString }),
+  timed({ type: z.literal('tool_result'), toolUseId: z.string(), content: z.string(), isError: z.boolean(), parentToolUseId: nullableString }),
   /** A hook that said something: a non-zero exit, a failed outcome, or output (e.g. a Stop hook blocking the turn). */
-  z.object({
+  timed({
     type: z.literal('hook'),
     hookEvent: z.string(),
     hookName: z.string(),
@@ -105,13 +115,13 @@ export const agentEvent = z.discriminatedUnion('type', [
     stderr: z.string(),
   }),
   /** Text in the transcript that neither the user typed nor the model wrote. */
-  z.object({ type: z.literal('notice'), kind: z.enum(['synthetic', 'user', 'local_command', 'notification']), text: z.string() }),
+  timed({ type: z.literal('notice'), kind: z.enum(['synthetic', 'user', 'local_command', 'notification']), text: z.string() }),
   /**
    * A task of the Session started (task_started: a subagent of the Agent tool, a Bash or a workflow
    * script), or its task-notification arrived. The fields from `isBackgrounded` on come only from
    * the live Session's SDK messages (worfy-daily ticket 29), not from a transcript file.
    */
-  z.object({
+  timed({
     type: z.literal('subagent'),
     phase: z.enum(['started', 'finished']),
     taskId: z.string(),
@@ -135,7 +145,7 @@ export const agentEvent = z.discriminatedUnion('type', [
    * system/background_tasks_changed: every live background task of the Claude Code process after a
    * change, ambient ones included. A level: it replaces the set before it (ADR-0029).
    */
-  z.object({
+  timed({
     type: z.literal('background_tasks_changed'),
     tasks: z.array(z.object({ taskId: z.string(), taskType: nullableString, description: nullableString, ambient: z.boolean() })),
   }),
@@ -144,21 +154,21 @@ export const agentEvent = z.discriminatedUnion('type', [
    * nowhere; Autopilot counts it as a sign of life. `backgrounded`: the task moved to the background.
    * Main-process only (isMainOnlyEvent): it never goes to a window.
    */
-  z.object({ type: z.literal('task_activity'), taskId: z.string(), backgrounded: z.boolean() }),
+  timed({ type: z.literal('task_activity'), taskId: z.string(), backgrounded: z.boolean() }),
   /**
    * worfy's own count of the Session's live background tasks, ambient ones left out
    * (src/shared/agent/background-tasks.ts): sent by the Session whenever it changes, also when a
    * new Claude Code process empties it. Never made from an SDK message or a transcript record.
    */
-  z.object({
+  timed({
     type: z.literal('background_tasks'),
     tasks: z.array(z.object({ taskId: z.string(), taskType: nullableString, description: nullableString })),
   }),
   /** A slash command the user typed (`/name args`); only a transcript file records it as such. */
-  z.object({ type: z.literal('command'), name: z.string(), args: z.string() }),
+  timed({ type: z.literal('command'), name: z.string(), args: z.string() }),
   /** The Session got a title (`custom-title`, `ai-title`, `agent-name` records of a transcript file). */
-  z.object({ type: z.literal('title'), source: z.enum(['custom', 'ai', 'agent']), title: z.string() }),
-  z.object({
+  timed({ type: z.literal('title'), source: z.enum(['custom', 'ai', 'agent']), title: z.string() }),
+  timed({
     type: z.literal('rate_limit'),
     status: z.string(),
     rateLimitType: nullableString,
@@ -167,11 +177,11 @@ export const agentEvent = z.discriminatedUnion('type', [
     sevenDayUtilization: z.number().nullable(),
   }),
   /** system/status: `requesting`, `compacting` or null, and the permission mode after a change. */
-  z.object({ type: z.literal('status'), status: nullableString, permissionMode: nullableString }),
+  timed({ type: z.literal('status'), status: nullableString, permissionMode: nullableString }),
   /** system/commands_changed: the slash commands now available. */
-  z.object({ type: z.literal('commands'), slashCommands: z.array(z.string()) }),
+  timed({ type: z.literal('commands'), slashCommands: z.array(z.string()) }),
   /** The end of a turn, after every Stop hook continuation. */
-  z.object({
+  timed({
     type: z.literal('result'),
     subtype: z.string(),
     isError: z.boolean(),
@@ -192,12 +202,12 @@ export const agentEvent = z.discriminatedUnion('type', [
     /** The turn was stopped by agent.interrupt. */
     interrupted: z.boolean(),
   }),
-  z.object({ type: z.literal('state'), state: sessionState, error: nullableString }),
+  timed({ type: z.literal('state'), state: sessionState, error: nullableString }),
   /**
    * An SDK message or a transcript record worfy does not know (or whose shape changed): visible
    * for debugging only. For a transcript record `sdkType` names the record (src/shared/transcript/parse.ts).
    */
-  z.object({ type: z.literal('unknown'), sdkType: z.string() }),
+  timed({ type: z.literal('unknown'), sdkType: z.string() }),
 ])
 export type AgentEvent = z.infer<typeof agentEvent>
 

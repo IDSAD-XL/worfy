@@ -15,6 +15,7 @@ import { collectRowTypes } from '../../src/renderer/session/rows/index'
 import { collectRailBlocks, type RailBlockProps } from '../../src/renderer/session/rail/index'
 import { collectComposerItems } from '../../src/renderer/session/composer/index'
 import type { OutgoingMessage } from '../../src/renderer/session/MessageInput'
+import { mainThreadEvents, parseTranscriptLines } from '../../src/shared/transcript/parse'
 
 type Result = Extract<AgentEvent, { type: 'result' }>
 
@@ -45,6 +46,10 @@ const text = (value: string, overrides: Partial<Extract<AgentEvent, { type: 'tex
 const delta = (value: string, parentToolUseId: string | null = null): AgentEvent => ({ type: 'delta', kind: 'text', text: value, parentToolUseId })
 const toolUse = (id: string, name: string, input: unknown, parentToolUseId: string | null = null): AgentEvent => ({ type: 'tool_use', id, name, input, parentToolUseId })
 const toolResult = (toolUseId: string, content: string, isError = false): AgentEvent => ({ type: 'tool_result', toolUseId, content, isError, parentToolUseId: null })
+
+/** A fixed clock for the row times (ticket 14): 2026-10-06 14:20:00, local time. */
+const NOW = new Date(2026, 9, 6, 14, 20, 0).getTime()
+const DAY = 24 * 60 * 60 * 1000
 
 describe('foldTranscript', () => {
   it('shows the user prompt, then the streamed text replaced in place by the whole block', () => {
@@ -119,6 +124,32 @@ describe('foldTranscript', () => {
     const all = foldTranscript(events)
     const later = foldTranscript(events.slice(2), new Set(), 2)
     expect(later.map((item) => item.key)).toEqual(all.slice(2).map((item) => item.key))
+  })
+
+  it('gives each row the time of the event that opened it; a streamed answer takes the time of its whole block (ticket 14)', () => {
+    const hook: AgentEvent = { type: 'hook', hookEvent: 'Stop', hookName: 'gate', exitCode: 0, outcome: 'success', stdout: '', stderr: '' }
+    const streaming = foldTranscript([
+      { ...prompt('hi'), at: NOW },
+      { ...delta('Hel'), at: NOW + 1000 },
+      { ...delta('lo'), at: NOW + 2000 },
+    ])
+    expect(streaming.map((item) => [item.kind, item.at])).toEqual([
+      ['prompt', NOW],
+      ['text', NOW + 1000],
+    ])
+    const done = foldTranscript([
+      { ...prompt('hi'), at: NOW },
+      { ...delta('Hel'), at: NOW + 1000 },
+      { ...text('Hello'), at: NOW + 3000 },
+      { ...hook, at: NOW + 4000 },
+      prompt('a record without a time'),
+    ])
+    expect(done.map((item) => [item.kind, item.at])).toEqual([
+      ['prompt', NOW],
+      ['text', NOW + 3000],
+      ['hook', NOW + 4000],
+      ['prompt', null],
+    ])
   })
 
   it('hands event types that a rows/ file draws to that file', () => {
@@ -228,17 +259,43 @@ afterEach(() => {
 const emit = (sessionId: string, event: AgentEvent) => act(() => handlers.get('agent.event')?.({ sessionId, event }))
 
 describe('the event store', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('joins deltas, moves events to the new id on `renamed`, and drops an echo of the sent prompt', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
     const store = await import('../../src/renderer/session/store')
     store.acceptAgentEvent({ sessionId: 'pending-1', event: { type: 'prompt', text: 'hello' } })
     store.acceptAgentEvent({ sessionId: 'pending-1', event: delta('a') })
     store.acceptAgentEvent({ sessionId: 'sdk-1', event: { type: 'renamed', from: 'pending-1' } })
     store.acceptAgentEvent({ sessionId: 'sdk-1', event: prompt('hello') })
+    vi.setSystemTime(NOW + 5000)
     store.acceptAgentEvent({ sessionId: 'sdk-1', event: delta('b') })
     store.acceptAgentEvent({ sessionId: 'sdk-1', event: delta('c') })
     const { logs } = store.useSessionLogs.getState()
     expect(logs['pending-1']).toBeUndefined()
-    expect(logs['sdk-1']?.events).toEqual([prompt('hello'), delta('abc')])
+    // Joined deltas keep the time of the first.
+    expect(logs['sdk-1']?.events).toEqual([
+      { ...prompt('hello'), at: NOW },
+      { ...delta('abc'), at: NOW },
+    ])
+  })
+
+  it('stamps a live event with the time it arrived, keeps it on the prompt row, and keeps a time the event already has (ticket 14)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    const store = await import('../../src/renderer/session/store')
+    store.acceptAgentEvent({ sessionId: 's', event: { type: 'prompt', text: 'hi' } })
+    vi.setSystemTime(NOW + 61_000)
+    store.acceptAgentEvent({ sessionId: 's', event: text('answer') })
+    store.acceptAgentEvent({ sessionId: 's', event: { ...text('from a file'), at: NOW - DAY } })
+    expect(store.useSessionLogs.getState().logs.s?.events.map((event) => [event.type, event.at])).toEqual([
+      ['notice', NOW],
+      ['text', NOW + 61_000],
+      ['text', NOW - DAY],
+    ])
   })
 
   it('keeps a prompt the user sends again after the turn ended', async () => {
@@ -256,8 +313,8 @@ describe('the event store: limits, queue and settings', () => {
     for (let index = 0; index <= store.KEEP_EVENTS; index += 1) store.acceptAgentEvent({ sessionId: 's', event: prompt(`p${index}`) })
     const log = store.useSessionLogs.getState().logs.s
     expect(log?.events).toHaveLength(store.KEEP_EVENTS)
-    expect(log?.events[0]).toEqual(prompt('p1'))
-    expect(log?.events[store.KEEP_EVENTS - 1]).toEqual(prompt(`p${store.KEEP_EVENTS}`))
+    expect(log?.events[0]).toMatchObject(prompt('p1'))
+    expect(log?.events[store.KEEP_EVENTS - 1]).toMatchObject(prompt(`p${store.KEEP_EVENTS}`))
     expect(log?.first).toBe(1)
   })
 
@@ -658,5 +715,98 @@ describe('Transcript: following the bottom', () => {
     fireEvent.scroll(log)
     resize()
     expect(log.scrollTop).toBe(100)
+  })
+})
+
+describe('row times (ticket 14)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // A transcript file of the fixture home: its first record is the user's prompt.
+  const FIXTURE = Object.values(
+    import.meta.glob<string>('../fixtures/claude-home/projects/-Users-test-projects-agents/77777777-7777-4777-8777-777777777777.jsonl', { query: '?raw', import: 'default', eager: true }),
+  )[0]
+  const PROMPT_AT = Date.parse('2026-06-01T10:00:00.000Z')
+  const fixtureEvents = (): AgentEvent[] => mainThreadEvents(parseTranscriptLines((FIXTURE ?? '').split('\n').filter((line) => line.length > 0)))
+  const two = (value: number) => String(value).padStart(2, '0')
+  const clock = (at: number) => {
+    const date = new Date(at)
+    return `${two(date.getHours())}:${two(date.getMinutes())}`
+  }
+  const full = (at: number) => {
+    const date = new Date(at)
+    return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())} ${clock(at)}:${two(date.getSeconds())}`
+  }
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+  async function renderAt(now: number, events: readonly AgentEvent[]) {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(now)
+    const { Transcript } = await import('../../src/renderer/session/Transcript')
+    render(<Transcript events={events} />)
+  }
+
+  it('shows the time of the prompt record from the transcript file, with seconds in the tooltip', async () => {
+    await renderAt(PROMPT_AT + 60_000, fixtureEvents())
+    const row = screen.getAllByTestId('transcript-prompt')[0] as HTMLElement
+    const time = within(row).getByTestId('transcript-time')
+    expect(within(time).getByTestId('transcript-clock').textContent).toBe(clock(PROMPT_AT))
+    expect(within(time).queryByTestId('transcript-date')).toBeNull()
+    expect(time.getAttribute('title')).toBe(full(PROMPT_AT))
+    expect(time.getAttribute('datetime')).toBe('2026-06-01T10:00:00.000Z')
+  })
+
+  it('adds the date to a record older than a day, and the year to one of another year', async () => {
+    const lastYear = new Date(2025, 11, 31, 23, 5, 9).getTime()
+    await renderAt(PROMPT_AT + 3 * DAY, [...fixtureEvents(), { ...prompt('last year'), at: lastYear }])
+    const rows = screen.getAllByTestId('transcript-prompt')
+    const first = within(rows[0] as HTMLElement).getByTestId('transcript-time')
+    const day = new Date(PROMPT_AT)
+    expect(within(first).getByTestId('transcript-date').textContent).toBe(`${MONTHS[day.getMonth()]} ${day.getDate()}`)
+    expect(within(first).getByTestId('transcript-clock').textContent).toBe(clock(PROMPT_AT))
+    const old = within(rows[rows.length - 1] as HTMLElement).getByTestId('transcript-time')
+    expect(within(old).getByTestId('transcript-date').textContent).toBe("Dec 31 '25")
+    expect(within(old).getByTestId('transcript-clock').textContent).toBe('23:05')
+    expect(old.getAttribute('title')).toBe('2025-12-31 23:05:09')
+  })
+
+  it('dates the rows of yesterday once midnight passes while the view stays open', async () => {
+    const lateEvening = new Date(2026, 9, 6, 23, 59, 0).getTime()
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    vi.setSystemTime(lateEvening)
+    const { Transcript } = await import('../../src/renderer/session/Transcript')
+    render(<Transcript events={[{ ...prompt('before midnight'), at: lateEvening - 60_000 }]} />)
+    const time = screen.getByTestId('transcript-time')
+    expect(within(time).queryByTestId('transcript-date')).toBeNull()
+    act(() => {
+      vi.advanceTimersByTime(2 * 60_000)
+    })
+    expect(within(screen.getByTestId('transcript-time')).getByTestId('transcript-date').textContent).toBe('Oct 6')
+    expect(within(screen.getByTestId('transcript-time')).getByTestId('transcript-clock').textContent).toBe('23:58')
+  })
+
+  it('shows the time on prompt, hook, subagent and notice rows; the answer keeps it in the tooltip of its label; a row without a time shows none', async () => {
+    await renderAt(NOW, [
+      { ...prompt('hi'), at: NOW - 60_000 },
+      { ...text('answer'), at: NOW - 50_000 },
+      { type: 'hook', hookEvent: 'Stop', hookName: 'gate', exitCode: 0, outcome: 'success', stdout: '', stderr: '', at: NOW - 40_000 },
+      { type: 'subagent', phase: 'started', taskId: 'k', toolUseId: null, description: 'verify-08', subagentType: null, status: null, summary: null, at: NOW - 30_000 },
+      { type: 'notice', kind: 'notification', text: 'verify-08 finished', at: NOW - 20_000 },
+      prompt('no time'),
+    ])
+    for (const [testId, at] of [
+      ['transcript-hook', NOW - 40_000],
+      ['transcript-subagent', NOW - 30_000],
+      ['transcript-notice', NOW - 20_000],
+    ] as const) {
+      expect(within(screen.getByTestId(testId)).getByTestId('transcript-clock').textContent).toBe(clock(at))
+    }
+    const prompts = screen.getAllByTestId('transcript-prompt')
+    expect(within(prompts[0] as HTMLElement).getByTestId('transcript-clock').textContent).toBe(clock(NOW - 60_000))
+    expect(within(prompts[1] as HTMLElement).queryByTestId('transcript-time')).toBeNull()
+    const answer = screen.getByTestId('transcript-text')
+    expect(within(answer).queryByTestId('transcript-time')).toBeNull()
+    expect(within(answer).getByText('claude').closest('[title]')?.getAttribute('title')).toBe(full(NOW - 50_000))
   })
 })

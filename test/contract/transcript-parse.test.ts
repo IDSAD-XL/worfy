@@ -7,6 +7,7 @@ import {
   mainThreadEvents,
   parseTranscriptLine,
   parseTranscriptLines,
+  timedEvent,
   transcriptEntrySchema,
   type TranscriptEntry,
 } from '../../src/shared/transcript/parse'
@@ -164,7 +165,20 @@ describe('transcript parsing on the ticket 09 fixtures', () => {
     const subagent = entriesOf(S2_AGENT)
     const own = entriesOf(S3)
     expect(mainThreadEvents(subagent)).toEqual([])
-    expect(mainThreadEvents([...own.slice(0, 3), ...subagent, ...own.slice(3)])).toStrictEqual(own.map((entry) => entry.event))
+    expect(mainThreadEvents([...own.slice(0, 3), ...subagent, ...own.slice(3)])).toStrictEqual(own.map(timedEvent))
+  })
+
+  it('gives each event of the Session thread the time of its record, and none to a record without one (ticket 14)', () => {
+    const own = entriesOf(S3)
+    const events = mainThreadEvents(own)
+    expect(events).toHaveLength(own.length)
+    expect(own.filter((entry) => entry.timestamp !== undefined).length).toBeGreaterThan(0)
+    own.forEach((entry, index) => {
+      expect(events[index]).toStrictEqual(entry.timestamp === undefined ? entry.event : { ...entry.event, at: Date.parse(entry.timestamp) })
+    })
+    const event: AgentEvent = { type: 'notice', kind: 'user', text: 'hi' }
+    expect(timedEvent({ sidechain: false, event })).toStrictEqual(event)
+    expect(timedEvent({ sidechain: false, timestamp: 'not a time', event })).toStrictEqual(event)
   })
 
   it('names the attachment type of an attachment it does not know', () => {

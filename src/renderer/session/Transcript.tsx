@@ -1,4 +1,4 @@
-import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, createElement, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { AgentEvent } from '../../shared/agent/events'
 import { Markdown } from '../markdown/Markdown'
 import { foldTranscript, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
@@ -8,7 +8,9 @@ import { rowTypes } from './rows/index'
 // The transcript of one Session: the user's messages, the assistant's text as markdown, thinking
 // folded away, tool calls one line each with ✓ or the error, hooks that said something, subagents
 // the Session started, and how each turn ended. It gets the Session's events and does not know
-// where they come from (fold.ts); a new kind of row is a file in rows/ (rows/index.ts).
+// where they come from (fold.ts); a new kind of row is a file in rows/ (rows/index.ts). The
+// prompt, hook, subagent and notice rows show when they happened under the label; the answer
+// keeps its time in the label's tooltip, as the F mockups draw it (ticket 14).
 
 export interface TranscriptProps {
   events: readonly AgentEvent[]
@@ -57,11 +59,79 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
-/** A row with the label column on the left (who wrote it), as in the F mockups. */
-function Row({ label, labelKind, children, testId }: { label?: string; labelKind?: 'user' | 'assistant'; children: ReactNode; testId: string }) {
+/** The time rows are dated against (useToday): which of them are of today. */
+const NowContext = createContext(0)
+
+/**
+ * The time now, taken when the transcript mounts and again at every local midnight, so a row of
+ * yesterday gets its date while the view stays open.
+ */
+function useToday(): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const midnight = new Date(now)
+    midnight.setHours(24, 0, 0, 0)
+    const timer = setTimeout(() => setNow(Date.now()), Math.max(midnight.getTime() - now, 1000))
+    return () => clearTimeout(timer)
+  }, [now])
+  return now
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const two = (value: number): string => String(value).padStart(2, '0')
+
+/**
+ * When a row happened, in local time: `HH:MM`, a date before it for a row of another day than
+ * today (`Oct 4`, `Dec 31 '25` in another year), and the full time with seconds for the tooltip.
+ */
+function rowTime(at: number, now: number): { date: string | null; clock: string; full: string } {
+  const when = new Date(at)
+  const today = new Date(now)
+  const clock = `${two(when.getHours())}:${two(when.getMinutes())}`
+  const full = `${when.getFullYear()}-${two(when.getMonth() + 1)}-${two(when.getDate())} ${clock}:${two(when.getSeconds())}`
+  const sameDay = when.getFullYear() === today.getFullYear() && when.getMonth() === today.getMonth() && when.getDate() === today.getDate()
+  if (sameDay) return { date: null, clock, full }
+  const day = `${MONTHS[when.getMonth()] ?? ''} ${when.getDate()}`
+  return { date: when.getFullYear() === today.getFullYear() ? day : `${day} '${String(when.getFullYear()).slice(-2)}`, clock, full }
+}
+
+/**
+ * A row with the label column on the left (who wrote it), as in the F mockups. `at` is shown under
+ * the label when `time` is `shown`, only in the label's tooltip when it is `tooltip`.
+ */
+function Row({
+  label,
+  labelKind,
+  at = null,
+  time = 'shown',
+  children,
+  testId,
+}: {
+  label?: string
+  labelKind?: 'user' | 'assistant'
+  at?: number | null
+  time?: 'shown' | 'tooltip'
+  children: ReactNode
+  testId: string
+}) {
+  const now = useContext(NowContext)
+  // A time Date cannot hold (out of its range) is shown as none rather than thrown on.
+  const when = at === null || !Number.isFinite(new Date(at).getTime()) ? null : rowTime(at, now)
   return (
     <div className="w-tr__row" data-testid={testId}>
-      <div className={`w-tr__who w-mono${labelKind ? ` w-tr__who--${labelKind}` : ''}`}>{label}</div>
+      <div className={`w-tr__who w-mono${labelKind ? ` w-tr__who--${labelKind}` : ''}`} title={when !== null && time === 'tooltip' ? when.full : undefined}>
+        {label !== undefined ? <span className="w-tr__label">{label}</span> : null}
+        {when !== null && time === 'shown' ? (
+          <time className="w-tr__time" dateTime={new Date(at as number).toISOString()} title={when.full} data-testid="transcript-time">
+            {when.date !== null ? (
+              <span className="w-tr__date" data-testid="transcript-date">
+                {when.date}
+              </span>
+            ) : null}
+            <span data-testid="transcript-clock">{when.clock}</span>
+          </time>
+        ) : null}
+      </div>
       <div className="w-tr__body">{children}</div>
     </div>
   )
@@ -209,13 +279,14 @@ function Item({ item, props }: { item: TranscriptItem; props: TranscriptProps })
   switch (item.kind) {
     case 'prompt':
       return (
-        <Row label="you" labelKind="user" testId="transcript-prompt">
+        <Row label="you" labelKind="user" at={item.at} testId="transcript-prompt">
           <div className="w-tr__prompt">{item.text}</div>
         </Row>
       )
     case 'text':
       return (
-        <Row label={item.synthetic ? 'claude code' : assistant} labelKind="assistant" testId="transcript-text">
+        // The F mockups show no time on the answer: it stays in the label's tooltip.
+        <Row label={item.synthetic ? 'claude code' : assistant} labelKind="assistant" at={item.at} time="tooltip" testId="transcript-text">
           <div className={item.synthetic ? 'w-tr__synthetic' : undefined} data-streaming={item.streaming || undefined}>
             <Markdown text={item.text} projectId={props.projectId} breaks />
           </div>
@@ -241,7 +312,7 @@ function Item({ item, props }: { item: TranscriptItem; props: TranscriptProps })
       )
     case 'subagent':
       return (
-        <Row testId="transcript-subagent">
+        <Row at={item.at} testId="transcript-subagent">
           <div className="w-tr__chip-row">
             <span className="w-tr__tool-name">Subagent</span>
             {item.run.subagentType ? <span className="w-mono w-tr__muted">{item.run.subagentType}</span> : null}
@@ -263,7 +334,7 @@ function Item({ item, props }: { item: TranscriptItem; props: TranscriptProps })
         </span>
       )
       return (
-        <Row testId="transcript-hook">
+        <Row at={item.at} testId="transcript-hook">
           {output === '' ? (
             <div className="w-tr__chip-row">{line}</div>
           ) : (
@@ -276,7 +347,7 @@ function Item({ item, props }: { item: TranscriptItem; props: TranscriptProps })
     }
     case 'notice':
       return (
-        <Row testId="transcript-notice">
+        <Row at={item.at} testId="transcript-notice">
           {item.noticeKind === 'synthetic' ? (
             <Disclosure testId="notice" summary={<span className="w-tr__muted">Added by Claude Code</span>}>
               <pre className="w-tr__pre w-mono">{clip(item.text)}</pre>
@@ -308,6 +379,7 @@ function Item({ item, props }: { item: TranscriptItem; props: TranscriptProps })
 export function Transcript(props: TranscriptProps) {
   const { events, firstIndex = 0 } = props
   const items = useMemo(() => foldTranscript(events, extensionTypes, firstIndex), [events, firstIndex])
+  const now = useToday()
   const log = useRef<HTMLDivElement>(null)
   // Follows new rows while the reader is at the bottom; leaves the scroll alone once they scrolled up.
   const atBottom = useRef(true)
@@ -341,7 +413,9 @@ export function Transcript(props: TranscriptProps) {
         atBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 24
       }}
     >
-      {items.length === 0 ? <div className="w-tr__empty">No messages yet</div> : items.map((item) => <Item key={item.key} item={item} props={props} />)}
+      <NowContext.Provider value={now}>
+        {items.length === 0 ? <div className="w-tr__empty">No messages yet</div> : items.map((item) => <Item key={item.key} item={item} props={props} />)}
+      </NowContext.Provider>
     </div>
   )
 }

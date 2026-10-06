@@ -237,6 +237,19 @@
   color: var(--text-muted);
 }
 
+/* The label, then when the row happened under it (ticket 14; F mockups: "you" over "13:52"). */
+.w-tr__label,
+.w-tr__time,
+.w-tr__date {
+  display: block;
+}
+
+.w-tr__time {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .w-tr__who--user {
   color: var(--text-secondary);
 }

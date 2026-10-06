@@ -72,7 +72,9 @@ function update(sessionId: string, change: (log: SessionLog) => SessionLog): voi
 }
 
 /** Takes one event of one Session, as `agent.event` delivers it. */
-export function acceptAgentEvent({ sessionId, event }: AgentEventEnvelope): void {
+export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvelope): void {
+  // A live event carries no time of its own: the row shows when it arrived (ticket 14).
+  const event: AgentEvent = received.at === undefined ? { ...received, at: Date.now() } : received
   if (event.type === 'renamed') {
     useSessionLogs.setState(({ logs }) => {
       const before = logs[event.from]
@@ -103,7 +105,7 @@ export function acceptAgentEvent({ sessionId, event }: AgentEventEnvelope): void
       case 'settings':
         return { ...log, settings: event.settings }
       case 'prompt':
-        return { ...log, ...append(log, { type: 'notice', kind: 'user', text: event.text }), echo: event.text }
+        return { ...log, ...append(log, { type: 'notice', kind: 'user', text: event.text, at: event.at }), echo: event.text }
       default:
         if (event.type === 'notice' && event.kind === 'user' && log.echo !== null && event.text === log.echo) return { ...log, echo: null }
         return { ...log, ...append(log, event), echo: event.type === 'result' ? null : log.echo }
