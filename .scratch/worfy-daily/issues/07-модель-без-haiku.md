@@ -1,7 +1,7 @@
 # 07 — Модель: без haiku, минимум sonnet; Orchestrator на модели пользователя
 
 Type: task
-Status: open
+Status: blocked — blocked by 05
 Blocked by: 05
 Source: [spec.md](../spec.md), тема B; [ADR-0021](../../../docs/adr/0021-mcp-servers-allowlist-in-profile.md), раздел «Решение» (абзац про модель); Ticket 19 worfy-mvp (выбор модели)
 

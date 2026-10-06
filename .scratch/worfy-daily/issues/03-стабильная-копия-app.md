@@ -1,7 +1,7 @@
 # 03 — Стабильная копия worfy.app вне репозитория
 
 Type: task
-Status: open
+Status: blocked — второй круг ревью не чистый (находка high): ADR о раздельных папках данных packaged-сборки и dev-запуска не принят, пункт «Готово, когда» открыт; PR #37 открыт, ждёт решения владельца
 Blocked by: —
 Source: [spec.md](../spec.md), тема A, риски 5 и 6; [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md) — папка данных worfy; Ticket 32 worfy-mvp (сборка `.app`)
 

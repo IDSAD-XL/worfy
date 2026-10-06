@@ -1,7 +1,7 @@
 # 08 — Зависшие running Subagent-ы без task-notification
 
 Type: task
-Status: open
+Status: blocked — blocked by 05
 Blocked by: 05
 Source: [spec.md](../spec.md), тема B, риск 9; Ticket 15 worfy-mvp (дерево Subagent-ов)
 

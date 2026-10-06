@@ -1,7 +1,7 @@
 # 24 — Свои Session-ы worfy: один Node до первого хода и верные подписи
 
 Type: task
-Status: open
+Status: blocked — blocked by 06, 07, 08, 09, 22, 23
 Blocked by: 06, 07, 08, 09, 22, 23
 Source: [spec.md](../spec.md), тема C; ручные проверки 2026-10-06, ночь — Ticket-ы 14 и 33 worfy-mvp (`.scratch/worfy-mvp/issues/14-внешние-сессии-только-чтение.md:146`, `.scratch/worfy-mvp/issues/33-session-view-транскрипт-и-ввод.md:182`); HANDOFF, «Риски и долги»
 

@@ -1,7 +1,7 @@
 # 26 — Toolbar: подписи Limits, длинное имя Project-а, статус окна
 
 Type: task
-Status: open
+Status: blocked — blocked by 06, 07, 08, 09
 Blocked by: 06, 07, 08, 09
 Source: [spec.md](../spec.md), тема C; ручная проверка 2026-10-06, ночь — Ticket 22 worfy-mvp (`.scratch/worfy-mvp/issues/22-лимиты.md:183`); Ticket 11 этого Epic-а, «Что известно»; HANDOFF, «Риски и долги»
 

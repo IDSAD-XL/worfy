@@ -1,7 +1,7 @@
 # 09 — Задержка workflow.changed и двойное чтение истории
 
 Type: task
-Status: open
+Status: blocked — blocked by 05
 Blocked by: 05
 Source: [spec.md](../spec.md), тема B; Ticket-ы 10 и 14 worfy-mvp
 

@@ -1,7 +1,7 @@
 # 18 — Helper снимков в двух темах
 
 Type: task
-Status: open
+Status: blocked — blocked by 17
 Blocked by: 17
 Source: [spec.md](../spec.md), тема F; [F-SPEC.md](../../../docs/design/F-SPEC.md)
 

@@ -1,7 +1,7 @@
 # 22 — Session view и Node после Resume показывают прошлые ходы
 
 Type: task
-Status: open
+Status: blocked — blocked by 06, 07, 08, 09
 Blocked by: 06, 07, 08, 09
 Source: [spec.md](../spec.md), тема C; ручная проверка 2026-10-06, ночь — Ticket 18 worfy-mvp (`.scratch/worfy-mvp/issues/18-новая-сессия-история-resume.md:191`); HANDOFF, «Риски и долги»
 
