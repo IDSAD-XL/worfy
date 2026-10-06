@@ -83,7 +83,7 @@ Source: [spec.md](../spec.md), тема C; [F-SPEC.md](../../../docs/design/F-SP
 
 ## Итог
 
-Ветка `worfy-daily/11`.
+PR #64, ветка `worfy-daily/11`.
 
 **Обрезания до правки** (built app, Project-ы Auction и worfy, временный `WORFY_DATA_DIR`, обе
 темы; снимки [до, Auction, светлая](../evidence/11-before-auction-light.png),
