@@ -40,9 +40,10 @@ const GATE: Record<Exclude<GateOutcome, 'none'>, { status: Status; label: string
 }
 
 function GateBadge({ outcome, path }: { outcome: GateOutcome; path: string }) {
-  if (outcome === 'none') return <Neutral label="gate: no data" title={path} testId="checks-gate" />
+  // The label leads the tooltip: the chip may be cut to "gate: n…" on a narrow Ticket.
+  if (outcome === 'none') return <Neutral label="gate: no data" title={`gate: no data — ${path}`} testId="checks-gate" />
   const { status, label } = GATE[outcome]
-  return <Chip status={status} label={label} testId="checks-gate" value={outcome} title={path} />
+  return <Chip status={status} label={label} testId="checks-gate" value={outcome} title={`${label} — ${path}`} />
 }
 
 const CI: Record<NonNullable<PullRequest['ci']>, Status> = { passing: 'ready', failing: 'blocked', running: 'working' }
@@ -55,7 +56,7 @@ function PullBadges({ pull }: { pull: PullRequest }) {
         {label}
       </span>
       {pull.ci ? <Chip status={CI[pull.ci]} label={`CI ${pull.ci}`} testId="checks-ci" value={pull.ci} /> : null}
-      {pull.verdict ? <Chip status={pull.verdict === 'VERIFIED' ? 'ready' : 'blocked'} label={pull.verdict} testId="checks-verdict" value={pull.verdict} /> : null}
+      {pull.verdict ? <Chip status={pull.verdict === 'VERIFIED' ? 'ready' : 'blocked'} label={pull.verdict} testId="checks-verdict" value={pull.verdict} title={pull.verdict} /> : null}
     </>
   )
 }

@@ -1,7 +1,8 @@
 /* The checks badges (ChecksBadges.tsx). A Ticket Node has one row for badges, so the chips are
-   compact and the PR is plain text, like the PR link of the F mockups. When the row is too narrow,
-   every item but CI shrinks and is cut at its own edge; CI keeps its whole width (ticket 11 of
-   worfy-daily). The row's tooltip lists everything. Colours stay the status tokens. */
+   compact and the PR is plain text, like the PR link of the F mockups. The PR number and CI are
+   always whole (ticket 11 of worfy-daily); when the row is too narrow, the gate, the verdict and
+   "gh unavailable" shrink and end with "…", and the row's tooltip lists everything. Colours stay
+   the status tokens. */
 .w-checks {
   display: flex;
   flex-wrap: nowrap;
@@ -16,14 +17,25 @@
   min-width: 0;
   overflow: hidden;
 }
+.w-checks > .w-checks__pr,
 .w-checks > [data-testid='checks-ci'] {
   flex: none;
 }
+/* A block, not a flex box, so its text can end with an ellipsis; the icon is an inline box. */
 .w-checks .w-chip {
+  display: block;
+  min-width: 0;
   height: 16px;
   padding: 0 3px;
-  gap: 3px;
   font-size: var(--text-11);
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.w-checks .w-chip > svg {
+  display: inline-block;
+  margin-right: 3px;
+  vertical-align: -1px;
 }
 .w-checks__pr {
   padding: 0 2px;

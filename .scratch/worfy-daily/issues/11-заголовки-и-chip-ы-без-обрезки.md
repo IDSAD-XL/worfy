@@ -151,5 +151,33 @@ PR #64, ветка `worfy-daily/11`.
   `test/unit/epic-canvas.test.tsx` — то же для Epic без Tickets (красный без передачи имени),
   число фикстуры запаса под открытую стопку done обновлено (красный на мутанте без `reserve`).
 
+**Круг доработки (вердикт REJECTED в PR #64):**
+
+- Ссылка PR в строке checks всегда целиком (`flex: none`), и CI тоже. Сжимаются gate, вердикт и
+  «gh unavailable»: chip — блок с `text-overflow: ellipsis`, в его tooltip — подпись (у gate ещё
+  путь worktree). Test: `checks-badges.spec.ts`, Ticket 10 с gate, PR #1234, CI и REJECTED;
+  `scrollWidth ≤ clientWidth` у PR, у сжатого chip-а — многоточие и title.
+- Мёртвое grid-правило «badges и actions в одной строке» и комментарий «104px» убраны из
+  `src/renderer/canvas/actions/actions.css`.
+
+**Нарушение запрета писать в `~/.claude`** (2026-10-06, при съёмке снимков «до» и «после»):
+
+- Что было. Скрипт съёмки исполнителя (`/tmp/worfy-wave7/impl-11/snap/real.spec.ts`, вне
+  репозитория) запускал собранный worfy через `_electron.launch` напрямую, а не через `launchApp`.
+  Не было ни `WORFY_AGENT=fake`, ни временного `WORFY_CLAUDE_HOME`. Project-ы — настоящие Auction
+  и worfy. worfy поднял Orchestrator на настоящем Claude Code с настоящим `~/.claude`.
+- Когда. Три запуска: 19:46–19:48, 20:20–20:21, 20:27–20:28.
+- Что появилось в `~/.claude` в эти окна: `session-env/` — каталоги c0422bc3…, 328599b9…,
+  dff51fcf…, 540246c9…, 99715ca2…, caf63d82…; `backups/.claude.json.backup.1791305249216`,
+  `…1791307233878`, `…1791307624425`; `worktree-sessions/Users-alexey-Work-Auction-7de8b409.json`.
+  В эти же минуты в `~/.claude` писали и другие сессии, поэтому авторство каждого файла не
+  доказано. Транскриптов Auction в `~/.claude/projects` за эти окна нет.
+- Почему. Исполнитель проверил, что worfy по ADR-0005 сам не пишет в `~/.claude`. Но он не учёл,
+  что Orchestrator запускает настоящий Claude Code, а тот пишет. Брифом это было запрещено.
+- Что сделано. В `~/.claude` ничего не убиралось — что убрать, решает владелец. Снимки пересняты
+  через `launchApp` (fake-агент, временные `WORFY_DATA_DIR` и `WORFY_CLAUDE_HOME`) на фикстурах,
+  повторяющих форму Auction и worfy. Скрипт проверяет, что временный home после запуска не
+  изменился.
+
 **Не проверено:** сверка снимков с F-SPEC глазами (пункт выше).
 
