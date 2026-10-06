@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react'
+import { Fragment, useState, type CSSProperties } from 'react'
 import { NodeResizer } from '@xyflow/react'
 import type { ORCHESTRATOR_HEIGHT, ORCHESTRATOR_KIND, ORCHESTRATOR_WIDTH } from '../../../shared/ipc/orchestrator'
 import { invoke } from '../../ipc'
@@ -47,20 +47,22 @@ const styles = {
     whiteSpace: 'nowrap',
     overflow: 'hidden',
   },
+  // The four lines of the status block, one row each (ticket 27): a wrapped block of four long
+  // lines did not fit the Node of the default size, and «— Жду:» needed a scroll. A row too long
+  // for the Node is cut with an ellipsis; the whole line is its title and stays in the Session view.
+  // The block still scrolls when the Node is resized below four rows.
   block: {
     flex: 1,
     minHeight: 0,
-    margin: 0,
     padding: 'var(--space-2) var(--space-3)',
     overflow: 'auto',
     fontSize: 'var(--text-12)',
     lineHeight: '17px',
     color: 'var(--text)',
-    whiteSpace: 'pre-wrap',
-    overflowWrap: 'anywhere',
     userSelect: 'text',
     cursor: 'text',
   },
+  line: { whiteSpace: 'pre', overflow: 'hidden', textOverflow: 'ellipsis' },
   empty: { padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--text-12)', color: 'var(--text-muted)' },
   tool: {
     padding: '0 4px',
@@ -137,9 +139,18 @@ export default function OrchestratorNode({ id, selected }: CanvasNodeProps) {
         </span>
       </div>
       {view?.statusBlock ? (
-        <pre className="w-mono nodrag nowheel" style={styles.block} data-testid="orchestrator-status-block">
-          {view.statusBlock}
-        </pre>
+        <div className="w-mono nodrag nowheel" style={styles.block} data-testid="orchestrator-status-block">
+          {view.statusBlock.split('\n').map((line, index) => (
+            // The \n between rows keeps the block's text verbatim for copying; the block's normal
+            // white-space collapses it, so it draws nothing between the rows.
+            <Fragment key={index}>
+              {index > 0 ? '\n' : null}
+              <div style={styles.line} title={line} data-testid="orchestrator-status-line">
+                {line}
+              </div>
+            </Fragment>
+          ))}
+        </div>
       ) : (
         <div style={styles.empty} data-testid="orchestrator-status-block-empty">
           No status block yet

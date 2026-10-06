@@ -94,6 +94,23 @@ describe('OrchestratorNode', () => {
     expect(screen.getByTestId('orchestrator-state').getAttribute('title')).toBe('Claude Code exited')
   })
 
+  it('shows each line of the block on one row, cut with an ellipsis, with the whole line in its title', async () => {
+    const long = ['— Этап: волна 8 · ' + 'а'.repeat(80), '— Сейчас: ' + 'б'.repeat(80), '— Дальше: ' + 'в'.repeat(80), '— Жду: ' + 'г'.repeat(80)]
+    await mount()
+    await act(async () => answer({ view: view(1, { statusBlock: long.join('\n') }) }))
+    const block = screen.getByTestId('orchestrator-status-block')
+    // The text stays verbatim: copying the block gives the four lines as written.
+    expect(block.textContent).toBe(long.join('\n'))
+    const rows = screen.getAllByTestId('orchestrator-status-line')
+    expect(rows.map((row) => row.textContent)).toEqual(long)
+    expect(rows.map((row) => row.getAttribute('title'))).toEqual(long)
+    for (const row of rows) {
+      expect(row.style.whiteSpace).toBe('pre')
+      expect(row.style.overflow).toBe('hidden')
+      expect(row.style.textOverflow).toBe('ellipsis')
+    }
+  })
+
   it("ignores another Node's views", async () => {
     await mount()
     act(() => changed?.(view(2, { nodeId: 'other', statusBlock: BLOCK_NEW })))
