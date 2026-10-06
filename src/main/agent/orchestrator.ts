@@ -132,6 +132,9 @@ interface Entry {
   wanted: SessionLaunch | null
 }
 
+/** Why "New conversation" is refused while Autopilot runs the Orchestrator. */
+export const AUTOPILOT_OWNS_ORCHESTRATOR = 'Autopilot runs this Orchestrator: stop Autopilot before starting a new conversation'
+
 /** Why the Orchestrator's Session cannot be started again now: a turn is running. */
 const inTurn = (state: string): boolean => state === 'busy' || state === 'needs_permission'
 
@@ -173,9 +176,9 @@ export class Orchestrators {
     await this.open(projectId)
     const entry = this.entries.get(projectId)
     if (entry === undefined) throw new Error(`the Orchestrator of ${projectId} was stopped`)
+    if (entry.launch.unattended) throw new Error(AUTOPILOT_OWNS_ORCHESTRATOR)
     const refusal = closeRefusal(this.current(entry).state)
     if (refusal !== null) throw new Error(refusal)
-    if (entry.launch.unattended) throw new Error('Autopilot runs this Orchestrator: stop Autopilot before starting a new conversation')
     const old = entry.run
     if (old) {
       old.current = false
