@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,7 +9,8 @@ import { launchApp } from './helpers'
 // with the script test/fixtures/agent-scripts/session-view.jsonl: turn 1 answers at once, turn 2
 // holds until it is interrupted, then the script starts over. WORFY_AGENT_LOG makes the fake agent
 // write down what it was asked to do: the settings each Claude Code process started with, the
-// control calls, and each user message at the moment it reached Claude Code.
+// control calls, and each user message at the moment it reached Claude Code. The model picker
+// never offers a haiku, and a Session never runs on one (worfy-daily ticket 07).
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -68,8 +69,12 @@ test('the pickers change the live Session and survive a restart; the queue sends
     const model = view.getByTestId('picker-model')
     const effort = view.getByTestId('picker-effort')
     const mode = view.getByTestId('picker-permissions')
-    await expect(model.locator('option')).toHaveText(['Default (recommended)', 'Opus', 'Sonnet', 'Haiku'])
+    // The fake agent lists a haiku too; worfy leaves it out (worfy-daily ticket 07).
+    await expect(model.locator('option')).toHaveText(['Default (recommended)', 'Opus', 'Sonnet'])
+    await expect(model).toHaveValue('')
     await expect(mode).toHaveValue('bypassPermissions')
+    // A new Orchestrator with no pick starts on the user's model: no model named to Claude Code.
+    expect(calls().filter((call) => call.kind === 'start')).toMatchObject([{ settings: { model: null, effort: null } }])
     await expect(view.getByTestId('session-effort')).toHaveText('—')
 
     // The picks reach the live Claude Code as control calls, without a restart.
@@ -155,4 +160,49 @@ test('the pickers change the live Session and survive a restart; the queue sends
   } finally {
     await second.close()
   }
+})
+
+test("an Orchestrator saved on haiku starts on the default model with its effort reset; a haiku in the user's settings.json starts Claude Code on sonnet", async () => {
+  // The Orchestrator Node and its picks as an older build saved them: model haiku, effort high.
+  const project = join(dataDir, PROJECT)
+  const orchestrator = { id: 'orch', kind: 'orchestrator', x: 10, y: 20, w: 300, h: 180, hidden: false, locked: true, pinned: false, tags: [], data: {} }
+  writeFileSync(join(project, 'layout.json'), JSON.stringify({ nodes: [orchestrator], viewport: { x: 0, y: 0, zoom: 1 } }))
+  writeFileSync(join(project, 'session-settings.json'), JSON.stringify({ nodes: { orch: { model: 'haiku', effort: 'high', permissionMode: 'plan' } } }))
+  const userSettings = join(claudeHome, 'settings.json')
+  const userText = JSON.stringify({ model: 'claude-haiku-4-5', permissions: { allow: ['Bash'] } })
+  writeFileSync(userSettings, userText)
+  const userMtime = statSync(userSettings).mtimeMs
+
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view', WORFY_AGENT_LOG: log }
+  const app = await launchApp({ env })
+  try {
+    const view = await openSession(app.window)
+    const model = view.getByTestId('picker-model')
+    await expect(model).toHaveValue('')
+    await expect(model.locator('option')).toHaveText(['Default (recommended)', 'Opus', 'Sonnet'])
+    await expect(view.getByTestId('picker-effort')).toHaveValue('')
+    await expect(view.getByTestId('picker-permissions')).toHaveValue('plan')
+    for (const scheme of ['light', 'dark'] as const) {
+      await app.window.emulateMedia({ colorScheme: scheme })
+      await view.getByTestId('pickers').screenshot({ path: test.info().outputPath(`pickers-${scheme}.png`) })
+    }
+    await app.window.emulateMedia({ colorScheme: null })
+
+    // Claude Code is asked for sonnet, as the user's model is a haiku; the Node keeps the default model.
+    expect(calls().filter((call) => call.kind === 'start')).toMatchObject([{ settings: { model: 'sonnet', effort: null, permissionMode: 'plan' } }])
+    await expect
+      .poll(() => JSON.parse(readFileSync(join(project, 'session-settings.json'), 'utf8')) as unknown)
+      .toEqual({ nodes: { orch: { model: null, effort: null, permissionMode: 'plan' } } })
+
+    const field = view.getByRole('textbox', { name: 'Message Orchestrator' })
+    await field.fill('first')
+    await field.press('Enter')
+    await expect(view.getByTestId('transcript-turn-done')).toHaveCount(1)
+    await expect(view.getByTestId('session-model')).toHaveText('sonnet')
+  } finally {
+    await app.close()
+  }
+  // worfy never writes to the user's settings.json (ADR 0005).
+  expect(readFileSync(userSettings, 'utf8')).toBe(userText)
+  expect(statSync(userSettings).mtimeMs).toBe(userMtime)
 })

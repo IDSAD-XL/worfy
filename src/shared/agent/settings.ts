@@ -32,12 +32,30 @@ export type SettingsChange = z.output<typeof settingsChangeSchema>
 
 export const DEFAULT_SETTINGS: SessionSettings = { model: null, effort: null, permissionMode: 'bypassPermissions' }
 
+/**
+ * Whether a Session may run on this model (worfy-daily ticket 07): sonnet or larger, so nothing of
+ * the haiku family. Takes a model value or alias (`haiku`, `claude-haiku-4-5-20251001`) as well as
+ * the name the SDK shows for it (`Haiku 4.5`).
+ */
+export function isSelectableModel(model: string): boolean {
+  return !/haiku/i.test(model)
+}
+
+/**
+ * The settings with a model a Session may no longer run on (a haiku picked by an older build)
+ * replaced by the default model; its effort goes back to the default with it, as it does when the
+ * user switches to a model whose efforts do not include the picked one.
+ */
+export function withSelectableModel(settings: SessionSettings): SessionSettings {
+  return settings.model !== null && !isSelectableModel(settings.model) ? { ...settings, model: null, effort: null } : settings
+}
+
 /** One row of the model picker. */
 export const modelOptionSchema = z.object({
   /** What setModel() takes; null for Claude Code's default model. */
   value: z.string().min(1).nullable(),
   displayName: z.string(),
-  /** The effort levels the model takes; empty when it takes none (e.g. haiku). */
+  /** The effort levels the model takes; empty when it takes none. */
   efforts: z.array(effortSchema),
 })
 export type ModelOption = z.output<typeof modelOptionSchema>
