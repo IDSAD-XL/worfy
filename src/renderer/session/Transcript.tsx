@@ -139,6 +139,23 @@ function Row({
 
 const TEXT_LIMIT = 20_000
 
+/**
+ * Hook outcomes that are an error (worfy-daily ticket 25): `error` and `cancelled` of a live
+ * Session's hook_response, `blocked` of a Stop hook summary, and the attachment types of Claude
+ * Code 2.1.291 transcripts (`hook_blocking_error`, `hook_non_blocking_error`,
+ * `hook_error_during_execution`, `hook_cancelled`, `hook_stopped_continuation`). Any other outcome
+ * (`success`, `permission_decision`, `deferred_tool`) gets a cross only with a non-zero exit code.
+ */
+const HOOK_FAILURES: ReadonlySet<string> = new Set([
+  'error',
+  'cancelled',
+  'blocked',
+  'blocking_error',
+  'non_blocking_error',
+  'error_during_execution',
+  'stopped_continuation',
+])
+
 function clip(text: string): string {
   return text.length > TEXT_LIMIT ? `${text.slice(0, TEXT_LIMIT)}\n… (${text.length - TEXT_LIMIT} more characters)` : text
 }
@@ -323,7 +340,7 @@ function Item({ item, props }: { item: TranscriptItem; props: TranscriptProps })
       )
     case 'hook': {
       const { event } = item
-      const failed = event.outcome !== 'success' || (event.exitCode !== null && event.exitCode !== 0)
+      const failed = HOOK_FAILURES.has(event.outcome) || (event.exitCode !== null && event.exitCode !== 0)
       const output = [event.stdout.trim(), event.stderr.trim()].filter((part) => part !== '').join('\n')
       const line = (
         <span className="w-tr__hook-line">

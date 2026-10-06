@@ -201,16 +201,35 @@ function attachmentRecord(record: Json): AgentEvent[] {
   if (!isObject(attachment)) return [invalid('attachment')]
   const type = str(attachment.type)
   if (type?.startsWith('hook_')) {
+    const kind = type.slice('hook_'.length)
+    const blocking = isObject(attachment.blockingError) ? attachment.blockingError : {}
+    const said = contentText(attachment.content)
+    // What a hook said goes to stdout when it is its output and to stderr when it is an error.
+    const output = HOOK_OUTPUTS.has(kind) ? said : kind === 'stopped_continuation' ? (str(attachment.message) ?? '') : ''
+    const error = kind === 'error_during_execution' ? said : kind === 'blocking_error' ? (str(attachment.blockingError) ?? str(blocking.blockingError) ?? '') : ''
     return hookEvent({
       hookEvent: str(attachment.hookEvent) ?? str(attachment.hookName) ?? '',
-      hookName: str(attachment.command) ?? str(attachment.hookName) ?? '',
+      hookName: str(attachment.command) ?? str(blocking.command) ?? str(attachment.hookName) ?? '',
       exitCode: num(attachment.exitCode) ?? null,
-      outcome: type.slice('hook_'.length),
-      stdout: str(attachment.stdout) ?? '',
-      stderr: str(attachment.stderr) ?? '',
+      outcome: HOOK_OUTPUTS.has(kind) ? 'success' : kind,
+      stdout: str(attachment.stdout) ?? output,
+      stderr: str(attachment.stderr) ?? error,
     })
   }
   return [unknownType('attachment', type)]
+}
+
+/**
+ * Attachments that carry the output of a hook that ran fine, in `content` (Claude Code 2.1.291):
+ * a SessionStart hook's `systemMessage` and its `additionalContext` (worfy-daily ticket 25).
+ */
+const HOOK_OUTPUTS = new Set(['system_message', 'additional_context'])
+
+/** The text of an attachment's `content`: a string, or the strings of an array one per line. */
+function contentText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content.filter((each): each is string => typeof each === 'string').join('\n')
 }
 
 const TITLE_FIELDS = {
