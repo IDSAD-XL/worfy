@@ -24,6 +24,8 @@ const appMenus = vi.hoisted((): unknown[] => [])
 
 vi.mock('electron', () => ({
   app: {
+    isPackaged: true,
+    requestSingleInstanceLock: () => true,
     setPath: vi.fn(),
     whenReady: () => Promise.resolve(),
     on: vi.fn(),

@@ -1,3 +1,28 @@
 # worfy
 
 Personal infinite canvas where Claude agents build small apps (cards) while you chat with them. macOS, single local user.
+
+## Stable copy
+
+Autopilot over worfy itself runs only on a stable copy of `worfy.app` outside the repository, never on a dev build: agents rebuild and test the dev build in their worktrees while Autopilot runs, and `pnpm package` replaces `dist/` on every build.
+
+Install or update the copy:
+
+```sh
+pnpm install:stable                      # ~/Applications/worfy-stable.app
+pnpm install:stable /path/to/worfy.app   # any other path ending in .app
+```
+
+The command builds the `.app` (`pnpm package`), replaces the previous copy and writes the commit and the build time next to it, in `~/Applications/worfy-stable.json` (nothing is written inside the `.app`: that would break its ad-hoc signature). It refuses with a non-zero exit code while the copy is running.
+
+The copy and a dev run keep separate data: the packaged app uses `~/Library/Application Support/worfy`, `pnpm dev` and other unpacked runs use `~/Library/Application Support/worfy-dev`. Two processes over the same folder are not allowed: the second start quits and brings the running window to the front.
+
+Update the copy in this order:
+
+1. `main` is green: Gate full and CI.
+2. Autopilot on the copy is stopped, or waits between Waves.
+3. Run `pnpm install:stable`.
+4. Start the copy.
+5. Answer the macOS dialogs of the new copy (notifications and other permissions) before Autopilot starts. The ad-hoc signature changes with every build, so macOS may ask again.
+
+`WORFY_PACKAGED_APP=~/Applications/worfy-stable.app pnpm exec playwright test --grep 'stable copy of the packaged app'` runs the packaged e2e tests against the installed copy, with temporary data folders; by default `pnpm test:package` installs the `dist/` build into a temporary folder with the same script and tests that copy.

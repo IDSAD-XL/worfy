@@ -3,13 +3,31 @@ import { join, resolve } from 'node:path'
 
 type Env = Readonly<Record<string, string | undefined>>
 
+/** A packaged worfy.app, or a dev run of the unpacked bundle (`pnpm dev`, `electron .`). */
+export type BuildKind = 'packaged' | 'dev'
+
+// The packaged layout is the default, so code that runs before the entry point reports the
+// build kind keeps the folder worfy has always used.
+let currentBuildKind: BuildKind = 'packaged'
+
 /**
- * Root of worfy's own state (ADR 0005). WORFY_DATA_DIR overrides it, so tests run against a
- * temporary directory. This module is the only place that knows where worfy's data lives.
+ * Called once by src/main/index.ts from app.isPackaged, before anything reads dataRoot(). A dev
+ * run then keeps its state apart from the stable copy that runs Autopilot over worfy itself.
  */
-export function dataRoot(env: Env = process.env): string {
+export function setBuildKind(kind: BuildKind): void {
+  currentBuildKind = kind
+}
+
+/**
+ * Root of worfy's own state (ADR 0005). The packaged app uses Application Support/worfy, a dev
+ * run Application Support/worfy-dev, so both can run at once without sharing limits.json or
+ * bindings.json. WORFY_DATA_DIR overrides either, so tests run against a temporary directory.
+ * This module is the only place that knows where worfy's data lives.
+ */
+export function dataRoot(env: Env = process.env, kind: BuildKind = currentBuildKind): string {
   const override = env.WORFY_DATA_DIR
-  return override ? resolve(override) : join(homedir(), 'Library', 'Application Support', 'worfy')
+  if (override) return resolve(override)
+  return join(homedir(), 'Library', 'Application Support', kind === 'dev' ? 'worfy-dev' : 'worfy')
 }
 
 /**
