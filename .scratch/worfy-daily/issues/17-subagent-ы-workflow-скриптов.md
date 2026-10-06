@@ -1,7 +1,7 @@
 # 17 — Subagent-ы workflow-скриптов в дереве; бейджи PR и CI на живых PR
 
 Type: task
-Status: claimed — 2026-10-06
+Status: done — 2026-10-06, [PR #73](https://github.com/IDSAD-XL/worfy/pull/73)
 Blocked by: 08, 11, 12, 13, 14, 16
 Source: [spec.md](../spec.md), тема D, риск 12; Ticket 09 worfy-mvp (`.scratch/worfy-mvp/issues/09-формат-транскриптов-и-реестра.md:137`); Ticket 15 worfy-mvp (`.scratch/worfy-mvp/issues/15-дерево-subagent-ов.md:134`); Ticket 17 worfy-mvp (бейджи)
 
@@ -87,7 +87,7 @@ workflow-скрипта или показать плоской группой.
 
 **Фикстура** — `test/fixtures/claude-home/projects/-Users-test-projects-workflow/` (Session 1212), состав — в `test/fixtures/claude-home/README.md`.
 
-**Время первого показа на Auction** (вручную, только чтение, `SubagentReader.session` + `buildSubagentTree` под Node вне приложения): самая большая Session с workflow-скриптами (`auction-deepening-4`, 29 каталогов запусков, 633 агента запусков и 39 обычных, 628 MB) — 995 мс первое чтение, 27 мс и 702 байта повторное. Session `moderation` (6 запусков, 109 файлов, 55 MB) — 117 мс, повторное 5 мс и 116 байт. В окне приложения на этих Session не мерилось: прямой запуск worfy на настоящем `~/.claude` запрещён брифом.
+**Время первого показа на Auction** (вручную, только чтение, `SubagentReader.session` + `buildSubagentTree` под Node вне приложения): самая большая Session с workflow-скриптами (`auction-deepening-4`, 29 каталогов запусков, 633 агента запусков и 39 обычных, 628 MB) — 995 мс первое чтение, 27 мс и 702 байта повторное. Session `moderation` (6 запусков, 109 файлов, 55 MB) — 117 мс, повторное 5 мс и 116 байт. Байты повторного чтения — только транскрипты и журналы с курсора: кроме них каждый опрос заново читает все `meta.json` (`readMeta`, `src/main/claude-home/subagents.ts:251`) — на `auction-deepening-4` около 672 маленьких файлов каждые 2 с, пока бежит Subagent (`POLL_MS`, `src/renderer/claude-home/subagents.ts:23`). В окне приложения на этих Session не мерилось: прямой запуск worfy на настоящем `~/.claude` запрещён брифом.
 
 **Снимки дерева** (e2e на фикстуре, fake-агент): [светлая](../evidence/17-workflow-tree-light.png), [тёмная](../evidence/17-workflow-tree-dark.png). Сверено с F-SPEC (строка 6: дерево с линиями, monospace для имён и моделей, компактные чипы статуса, рамки 1px): запись запуска — тот же `SubagentNode`, расхождений нет.
 
@@ -97,5 +97,7 @@ workflow-скрипта или показать плоской группой.
 - gh с `GH_TOKEN` аккаунта IDSAD-XL: на Ticket-е 17 — `PR #73`, `OPEN`, `CI running`; `gh pr view 73 --json state,statusCheckRollup` — `OPEN`, `check` `IN_PROGRESS`, `full-macos` `SKIPPED`. Совпадает. Снимки: [светлая](../evidence/17-badges-pr73-light.png), [тёмная](../evidence/17-badges-pr73-dark.png), [Ticket 17 крупно](../evidence/17-badge-ticket17-light.png).
 - gh так, как его запускает приложение без `WORFY_GH` (из login shell, глобальный аккаунт gh — Oleksii-O-Atakama): на Ticket-е 17 — «gh unavailable» вместо PR #73; `gh pr list` из login shell отвечает «Could not resolve to a Repository with the name 'IDSAD-XL/worfy'». [Снимок](../evidence/17-badges-login-shell-gh-light.png).
 
+Не проверено: «Для каждого открытого PR этого Epic-а бейджи PR и CI на Ticket-е совпадают с `gh pr view`». Совпадение есть только с gh от `GH_TOKEN` аккаунта IDSAD-XL, которого приложение не берёт. Так, как приложение зовёт gh у владельца (`src/main/ipc/checks.ts:35-38`, окружение login shell, глобальный аккаунт), бейджи — «gh unavailable»: расхождение найдено, но Ticket-ом не стало — решает владелец (кандидат ниже). Проверить заново на живых PR после исправления аккаунта.
+
 Кандидаты в Ticket-ы (не заведены — по брифу волны):
-- Бейджи PR и CI worfy пусты («gh unavailable») у владельца: приложение зовёт gh от глобального аккаунта, которому репозиторий IDSAD-XL/worfy не виден. Нужен аккаунт gh на Project (например, `github.account` профиля → `GH_TOKEN=$(gh auth token -u …)` для этого Project-а).
+- Бейджи PR и CI worfy пусты («gh unavailable») у владельца: приложение зовёт gh от глобального аккаунта, которому репозиторий IDSAD-XL/worfy не виден. Код — `src/main/ipc/checks.ts:35-38`. Нужен аккаунт gh на Project (например, `github.account` Profile-а → `GH_TOKEN=$(gh auth token -u …)` для этого Project-а). Это уже запланировано на этап E3: `spec.md:171`, раздел «Не в этом Epic-е», и ADR-0020, раздел «Последствия». Владельцу решить, оставить на E3 или поднять в `worfy-daily`.
