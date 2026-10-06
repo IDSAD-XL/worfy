@@ -159,7 +159,8 @@ describe('terminal channels on a real pty', () => {
     await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
   })
 
-  it('open starts $SHELL -l in the Project root with TERM_PROGRAM=worfy; input reaches it, output comes back', async () => {
+  // macOS login-shell behaviour; on the Linux CI runner /bin/sh is dash. The Mac runs it in every gate.
+  it.skipIf(process.platform !== 'darwin')('open starts $SHELL -l in the Project root with TERM_PROGRAM=worfy; input reaches it, output comes back', async () => {
     const h = await harness()
     const opened = await h.open()
     expect(opened).toStrictEqual({ pid: opened.pid, shell: 'sh', replay: '', end: 0, started: true, exited: null })

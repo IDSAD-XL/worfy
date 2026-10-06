@@ -25,7 +25,8 @@ async function zshrc(content: string): Promise<void> {
   await writeFile(join(home, '.zshrc'), content)
 }
 
-describe('captureLoginShellEnv', () => {
+// Runs a real zsh: macOS has /bin/zsh, the Linux CI runner does not. The Mac runs it in every gate.
+describe.skipIf(process.platform !== 'darwin')('captureLoginShellEnv', () => {
   it('removes ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN even when worfy itself has them', async () => {
     await zshrc('export ANTHROPIC_API_KEY=from-rc\nexport ANTHROPIC_AUTH_TOKEN=from-rc\n')
     const result = await captureLoginShellEnv({
