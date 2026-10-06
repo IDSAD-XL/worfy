@@ -17,6 +17,17 @@ import { useLayoutOps } from '../useLayout'
 // remounts (main keeps its exit and output); only Restart starts a new one. Closing the Node ends
 // the shell. After a
 // restart of worfy the Node starts a new shell in the same folder; the old output is gone.
+//
+// One shell can have two views at once: focus mode draws the Node in a tile while the Canvas keeps
+// its own copy mounted under the layer (src/renderer/focus/FocusMode.tsx). Both show the output and
+// send input, but the pty has one size: the view mounted last sets it, and when that view goes, the
+// view mounted before it fits itself and sets the size again (`views` below). So leaving focus mode
+// gives the shell back the size of the Canvas Node, whose box did not change meanwhile.
+//
+// The Canvas draws its Nodes inside a CSS transform: scale(zoom). xterm.js takes the mouse position
+// against the scaled box of its screen but divides by the unscaled cell size, so at a zoom other
+// than 100% a click or a drag lands on other cells than the ones under the pointer.
+// `unscaleMouse` rewrites the position of the mouse events xterm.js reads before it reads them.
 // The same value as TERMINAL_NODE_KIND, by which main recognises a Terminal Node; written out
 // here because the Node registry needs a literal export.
 export const kind = 'terminal'
@@ -48,6 +59,72 @@ function fittedSize(element: HTMLElement, fit: FitAddon): { cols: number; rows: 
   const size = fit.proposeDimensions()
   if (size === undefined || !Number.isFinite(size.cols) || !Number.isFinite(size.rows) || size.cols <= 0 || size.rows <= 0) return undefined
   return size
+}
+
+/** A mounted view of a shell, as the other views of the same shell see it. */
+interface View {
+  /** Fits the view to its Node and sends its size to the pty. */
+  takeSize(): void
+}
+
+/**
+ * The mounted views of each shell, by `projectId nodeId`, in the order they were mounted. The last
+ * one sets the size of the pty.
+ */
+const views = new Map<string, View[]>()
+
+function addView(key: string, view: View): () => void {
+  views.set(key, [...(views.get(key) ?? []), view])
+  return () => {
+    const list = views.get(key) ?? []
+    const wasLast = list.at(-1) === view
+    const rest = list.filter((other) => other !== view)
+    if (rest.length === 0) views.delete(key)
+    else views.set(key, rest)
+    if (wasLast) rest.at(-1)?.takeSize()
+  }
+}
+
+const isLastView = (key: string, view: View): boolean => views.get(key)?.at(-1) === view
+
+/** The mouse events whose position xterm.js reads: selection, mouse reporting, links, the wheel. */
+const MOUSE_EVENTS = ['mousedown', 'mousemove', 'mouseup', 'click', 'dblclick', 'contextmenu', 'auxclick', 'wheel'] as const
+
+/** Events already rewritten, so a second terminal on the page cannot rewrite one again. */
+const unscaled = new WeakSet<Event>()
+
+/**
+ * Makes xterm.js see the mouse as if its screen were not scaled: each mouse event for this
+ * terminal gets its clientX/clientY moved so that the distance from the screen's top left corner
+ * is in unscaled CSS pixels. Listens on window in the capture phase, ahead of every listener of
+ * xterm.js (on its element, and on the document while a selection is dragged). Events over the
+ * terminal are rewritten, and so are the moves and the release of a press that began over it,
+ * wherever the pointer goes. Answers the function that stops it.
+ */
+function unscaleMouse(element: HTMLElement, screen: HTMLElement): () => void {
+  // A press began over the terminal and is not released yet.
+  let pressed = false
+  const onMouse = (event: MouseEvent) => {
+    const over = event.target instanceof Node && element.contains(event.target)
+    if (event.type === 'mousedown') pressed = over
+    else if (event.type === 'mousemove' && (event.buttons & 1) === 0) pressed = false
+    const ours = over || pressed
+    if (event.type === 'mouseup') pressed = false
+    if (!ours || unscaled.has(event)) return
+    const box = screen.getBoundingClientRect()
+    const scaleX = screen.offsetWidth > 0 ? box.width / screen.offsetWidth : 1
+    const scaleY = screen.offsetHeight > 0 ? box.height / screen.offsetHeight : 1
+    if (Math.abs(scaleX - 1) < 0.001 && Math.abs(scaleY - 1) < 0.001) return
+    unscaled.add(event)
+    // clientX and clientY are getters on MouseEvent.prototype; an own property shadows them for
+    // every listener after this one.
+    Object.defineProperty(event, 'clientX', { value: box.left + (event.clientX - box.left) / scaleX, configurable: true })
+    Object.defineProperty(event, 'clientY', { value: box.top + (event.clientY - box.top) / scaleY, configurable: true })
+  }
+  for (const type of MOUSE_EVENTS) window.addEventListener(type, onMouse, { capture: true, passive: true })
+  return () => {
+    for (const type of MOUSE_EVENTS) window.removeEventListener(type, onMouse, { capture: true })
+  }
 }
 
 export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
@@ -103,17 +180,31 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     const typed = terminal.onData((keys) => {
       if (attached) void invoke('terminal.input', { ...ref, data: keys })
     })
+    // Fits the terminal to the Node: xterm.js resizes only when the size differs.
+    const refit = () => {
+      const size = fittedSize(element, fit)
+      if (size !== undefined && (size.cols !== terminal.cols || size.rows !== terminal.rows)) terminal.resize(size.cols, size.rows)
+    }
+    const view: View = {
+      takeSize: () => {
+        refit()
+        if (attached) void invoke('terminal.resize', { ...ref, cols: terminal.cols, rows: terminal.rows })
+      },
+    }
+    const key = `${projectId} ${id}`
+    const removeView = addView(key, view)
     const resized = terminal.onResize(({ cols, rows }) => {
-      if (attached) void invoke('terminal.resize', { ...ref, cols, rows })
+      // Only the view mounted last sets the size of the pty; another view keeps its own size.
+      if (attached && isLastView(key, view)) void invoke('terminal.resize', { ...ref, cols, rows })
     })
 
     // Fits the terminal to the Node whenever the Node's box changes: a resize of the Node, and the
     // Canvas coming back from display:none (Session view), where xterm.js cannot measure itself.
-    const observer = new ResizeObserver(() => {
-      const size = fittedSize(element, fit)
-      if (size !== undefined && (size.cols !== terminal.cols || size.rows !== terminal.rows)) terminal.resize(size.cols, size.rows)
-    })
+    const observer = new ResizeObserver(refit)
     observer.observe(element)
+
+    const screen = element.querySelector<HTMLElement>('.xterm-screen')
+    const stopUnscaling = screen === null ? () => undefined : unscaleMouse(element, screen)
 
     // The appearance follows the system; the terminal colors follow the tokens.
     const scheme = window.matchMedia('(prefers-color-scheme: dark)')
@@ -142,7 +233,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
       setStatus({ state: 'running', shell, pid })
       // The size may have changed while the shell was starting.
-      if (terminal.cols !== size.cols || terminal.rows !== size.rows) void invoke('terminal.resize', { ...ref, cols: terminal.cols, rows: terminal.rows })
+      if (isLastView(key, view) && (terminal.cols !== size.cols || terminal.rows !== size.rows)) void invoke('terminal.resize', { ...ref, cols: terminal.cols, rows: terminal.rows })
     })
 
     return () => {
@@ -154,6 +245,9 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       typed.dispose()
       resized.dispose()
       observer.disconnect()
+      stopUnscaling()
+      // After `attached = false`: this view sends nothing more; the view before it takes the size.
+      removeView()
       scheme.removeEventListener('change', onScheme)
       terminal.dispose()
     }

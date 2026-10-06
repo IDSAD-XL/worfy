@@ -1,7 +1,7 @@
 # 13 — Terminal: выделение мышью при масштабе и размер pty после focus mode
 
 Type: task
-Status: open
+Status: claimed — 2026-10-06
 Blocked by: 06, 07, 08, 09
 Source: [spec.md](../spec.md), тема C; Ticket-ы 27 и 28 worfy-mvp (Terminal, focus mode)
 
@@ -35,10 +35,10 @@ xterm.js. В `src/renderer/canvas/nodes/TerminalNode.tsx` её никто не �
 
 ## Готово, когда
 
-- [ ] При масштабе 50% и 150% выделение мышью от символа A до символа B выделяет ровно A…B: e2e читает выделение xterm.
-- [ ] После входа в focus mode и выхода `stty size` в Terminal равен размеру Canvas-копии (cols × rows по `fittedSize`, `:46-51`).
-- [ ] Ввод и вывод в Terminal после focus mode работают: существующий `terminal.spec.ts` зелёный.
-- [ ] Снимки Terminal на Canvas и в focus mode в светлой и тёмной теме сверены с F-SPEC.
+- [x] При масштабе 50% и 150% выделение мышью от символа A до символа B выделяет ровно A…B: e2e читает выделение xterm.
+- [x] После входа в focus mode и выхода `stty size` в Terminal равен размеру Canvas-копии (cols × rows по `fittedSize`, `:46-51`).
+- [x] Ввод и вывод в Terminal после focus mode работают: существующий `terminal.spec.ts` зелёный.
+- [x] Снимки Terminal на Canvas и в focus mode в светлой и тёмной теме сверены с F-SPEC.
 
 ## Тесты
 
@@ -52,3 +52,13 @@ xterm.js. В `src/renderer/canvas/nodes/TerminalNode.tsx` её никто не �
 - `src/renderer/focus/FocusMode.tsx`
 - `test/e2e/terminal.spec.ts`
 - `test/e2e/focus.spec.ts`
+
+## Итог
+
+Сделано в ветке `worfy-daily/13`. ADR не заводился (решение брифа волны); устройство «два view одного shell» описано в шапке `TerminalNode.tsx`.
+
+- **Воспроизведение до правки.** Новые e2e были красными на `origin/main`: при масштабе 50% протяжка мышью от `A` до `J` выделяла `-MacB` (кусок приглашения shell строкой выше), при 150% — пустую строку; после выхода из focus mode `stty size` давал 48×172 (размер плитки) вместо 21×74 (размер Canvas-копии). Вывод тикета о причине второй ошибки подтвердился.
+- **(1) Масштаб.** Выбран перевод координат мыши, а не отрисовка Terminal без transform: React Flow рисует все Node-ы внутри одного `transform: scale`, вынести один Node из него — значит рисовать его отдельным слоем и самим следить за pan и zoom. xterm.js 6 считает клетку как `(clientX − rect.left) / cssCellWidth`, где `rect` — масштабированная коробка `.xterm-screen`, а ширина клетки — без масштаба. `unscaleMouse` в `TerminalNode.tsx` слушает mouse-события на `window` в фазе capture (раньше всех слушателей xterm.js) и подменяет у события `clientX`/`clientY` собственным свойством: `left + (clientX − left) / scale`. Подменяются события над терминалом и движения и отпускание после нажатия в нём (выделение тянется за пределы терминала). При масштабе 1 события не трогаются. Внутренний API xterm.js (`_core._mouseService`) не используется.
+- **(2) Размер pty.** Выбран вариант «последний смонтированный view задаёт размер»: модульный список view-ов каждого shell в порядке монтирования; `terminal.resize` шлёт только последний; когда он размонтируется, предыдущий подгоняет себя (fit) и шлёт свой размер. Так после выхода из focus mode Canvas-копия возвращает pty свой размер, а пока focus mode открыт, изменение коробки Canvas-копии (например, `layout.apply resize` от инструмента) не перебивает размер плитки. Canvas-копия под слоем по-прежнему смонтирована: вывод и состояние не теряются. `FocusMode.tsx` не менялся.
+- **Тесты.** `test/e2e/terminal.spec.ts` — два теста «at Canvas zoom 50% / 150% a mouse drag … selects exactly those characters»: выделение читается из события `copy` с собственным `DataTransfer` (системный буфер обмена не трогается). `test/e2e/focus.spec.ts` — «a Terminal in focus mode gets the size of its tile, and after leaving focus mode the pty has the size of the Canvas Node again»: `stty size` на Canvas, в плитке и снова на Canvas, затем ввод и вывод на Canvas-копии.
+- **Снимки.** Тот же focus-test снимает окно в светлой и тёмной теме (`emulateMedia`) на Canvas и в focus mode и проверяет вычисленные цвета терминала по таблице F-SPEC: фон `#1D1D1F` / `#0B0A09`, текст `#E5E5EA` / `#ECE8E1`. Четыре снимка просмотрены глазами: структура одинакова, меняются только цвета.
