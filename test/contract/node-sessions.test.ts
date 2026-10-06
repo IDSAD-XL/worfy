@@ -4,7 +4,7 @@
 // records and is refused for a running one or a gone folder, the Node's data keeps identifiers only
 // (ADR-0010), a busy Session is not closed, "New conversation" of the Orchestrator, and the
 // `sessions.*` channels at the IPC boundary.
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -18,6 +18,7 @@ import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
 import { LayoutStore } from '../../src/main/layout/store'
 import type { AgentEventEnvelope } from '../../src/shared/agent/events'
+import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import type { LiveSession } from '../../src/shared/ipc/claude-home'
 import { LIVE_SESSION_HEIGHT, LIVE_SESSION_WIDTH, type SessionNodeView } from '../../src/shared/ipc/sessions'
@@ -44,11 +45,16 @@ beforeEach(() => {
   worktree = join(repo, '.claude', 'worktrees', '07')
   mkdirSync(worktree, { recursive: true })
   mkdirSync(join(scratch, 'data', PROJECT), { recursive: true })
+  // The user's model and effort come from <Claude home>/settings.json: an empty home of the test's
+  // own, never the real ~/.claude.
+  mkdirSync(join(scratch, 'claude-home'))
+  vi.stubEnv('WORFY_CLAUDE_HOME', join(scratch, 'claude-home'))
 })
 
 afterEach(async () => {
   for (const registry of registries) registry.closeAll()
   registries = []
+  vi.unstubAllEnvs()
   await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
@@ -70,10 +76,12 @@ function harness(options: { script?: string | ((request: QueryRequest) => string
   const claude: Claude = options.claude ?? { live: [], history: [] }
   const broadcast: AgentEventEnvelope[] = []
   const published: SessionNodeView[] = []
+  const settings = new SessionSettingsStore((projectId) => join(scratch, 'data', projectId))
   const sessions = new NodeSessions({
     layout,
     projectPath: () => repo,
     registry,
+    settings,
     claude: () => Promise.resolve(claude),
     isDirectory: async (path) => (await stat(path).catch(() => null))?.isDirectory() === true,
     broadcast: (sessionId, event) => broadcast.push({ sessionId, event }),
@@ -91,7 +99,7 @@ function harness(options: { script?: string | ((request: QueryRequest) => string
     return found
   }
   const until = (nodeId: string, state: SessionNodeView['state']) => vi.waitFor(() => expect(view(nodeId).state).toBe(state), { timeout: 2000 })
-  return { layout, registry, requests, claude, broadcast, published, sessions, nodes, node, view, until }
+  return { layout, registry, requests, claude, broadcast, published, settings, sessions, nodes, node, view, until }
 }
 
 /** A read-only Node of ticket 14 for a Session started in a terminal. */
@@ -284,6 +292,7 @@ describe('Starts that overlap, and a start that fails', () => {
         },
         list: () => [],
       },
+      settings: new SessionSettingsStore((projectId) => join(scratch, 'data', projectId)),
       claude: () => Promise.resolve({ live: [], history: [] }),
       isDirectory: () => Promise.resolve(true),
       broadcast: () => undefined,
@@ -294,6 +303,87 @@ describe('Starts that overlap, and a start that fails', () => {
     expect(view).toMatchObject({ state: 'closed', error: 'Claude Code is not installed' })
     expect(published.at(-1)).toStrictEqual(view)
     expect(() => sessions.close(view?.nodeId ?? '')).toThrow(/No live Session/)
+  })
+})
+
+describe('the picks of a Session Node (worfy-daily ticket 23)', () => {
+  const settingsFile = () => join(scratch, 'data', PROJECT, 'session-settings.json')
+  const savedPicks = (): unknown => JSON.parse(readFileSync(settingsFile(), 'utf8'))
+  const PICKS = { model: 'sonnet', effort: 'low', permissionMode: 'acceptEdits' } as const
+
+  it('a change of model, effort or mode on a New session Node is saved under the Node id', async () => {
+    const h = harness()
+    const created = h.sessions.create(PROJECT)
+    await h.until(created.nodeId, 'idle')
+    // The start's own settings event carries the defaults: nothing to save yet.
+    expect(existsSync(settingsFile())).toBe(false)
+
+    const session = h.registry.get(h.view(created.nodeId).sessionId)
+    await session.configure({ model: 'sonnet' })
+    expect(savedPicks()).toStrictEqual({ nodes: { [created.nodeId]: { model: 'sonnet', effort: null, permissionMode: 'bypassPermissions' } } })
+    await session.configure({ effort: 'low', permissionMode: 'acceptEdits' })
+    expect(savedPicks()).toStrictEqual({ nodes: { [created.nodeId]: PICKS } })
+
+    // A second Node keeps its own picks beside the first one's.
+    const other = h.sessions.create(PROJECT)
+    await h.until(other.nodeId, 'idle')
+    await h.registry.get(h.view(other.nodeId).sessionId).configure({ model: 'opus' })
+    expect(savedPicks()).toStrictEqual({
+      nodes: { [created.nodeId]: PICKS, [other.nodeId]: { model: 'opus', effort: null, permissionMode: 'bypassPermissions' } },
+    })
+  })
+
+  it('Start after Close, and Start after a restart of worfy, run the Session with the saved picks', async () => {
+    const h = harness()
+    const created = h.sessions.create(PROJECT)
+    await h.until(created.nodeId, 'idle')
+    const session = h.registry.get(h.view(created.nodeId).sessionId)
+    await session.configure(PICKS)
+    session.send('hello')
+    await vi.waitFor(() => expect(h.view(created.nodeId).sdkSessionId).not.toBeNull())
+    await h.until(created.nodeId, 'idle')
+    const sdk = h.view(created.nodeId).sdkSessionId ?? ''
+    h.claude.history.push({ sessionId: sdk, cwd: repo })
+    h.sessions.close(created.nodeId)
+
+    await h.sessions.start(PROJECT, created.nodeId)
+    expect(h.requests).toHaveLength(2)
+    expect(h.requests[1]).toMatchObject({ resume: sdk, settings: PICKS })
+    await h.until(created.nodeId, 'idle')
+    expect(h.registry.get(h.view(created.nodeId).sessionId).settings).toStrictEqual(PICKS)
+
+    // A new run of the app: a new Layout store, registry and Node Sessions over the same data folder.
+    h.layout.flushAll()
+    h.registry.closeAll()
+    const next = harness({ claude: { live: [], history: [{ sessionId: sdk, cwd: repo }] } })
+    await next.sessions.start(PROJECT, created.nodeId)
+    expect(next.requests).toMatchObject([{ resume: sdk, settings: PICKS }])
+  })
+
+  it('a saved haiku starts on the default model, and the corrected picks are saved', async () => {
+    savedLayout([{ id: 'fresh', kind: 'session', x: 0, y: 0, w: 340, h: 220, data: { origin: 'worfy' } }])
+    writeFileSync(settingsFile(), JSON.stringify({ nodes: { fresh: { model: 'haiku', effort: 'high', permissionMode: 'plan' } } }))
+    const h = harness()
+    await h.sessions.start(PROJECT, 'fresh')
+    const corrected = { model: null, effort: null, permissionMode: 'plan' }
+    expect(h.requests.map((request) => request.settings)).toStrictEqual([corrected])
+    expect(savedPicks()).toStrictEqual({ nodes: { fresh: corrected } })
+  })
+
+  it('picks that cannot be read leave the start on the defaults', async () => {
+    savedLayout([{ id: 'fresh', kind: 'session', x: 0, y: 0, w: 340, h: 220, data: { origin: 'worfy' } }])
+    // A directory where the file should be: reading it fails with something other than "missing".
+    mkdirSync(settingsFile())
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const h = harness()
+    await h.sessions.start(PROJECT, 'fresh')
+    expect(h.requests.map((request) => request.settings)).toStrictEqual([DEFAULT_SETTINGS])
+    await h.until('fresh', 'idle')
+    // Saving fails the same way: the live Session keeps the pick.
+    const session = h.registry.get(h.view('fresh').sessionId)
+    await session.configure({ model: 'opus' })
+    expect(session.settings.model).toBe('opus')
+    expect(warn).toHaveBeenCalled()
   })
 })
 

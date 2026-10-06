@@ -13,6 +13,7 @@ import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { sharedRegistry } from './app-registry'
 import { NodeSessions } from './node-sessions'
+import { SessionSettingsStore } from './session-settings'
 
 let shared: NodeSessions | null = null
 
@@ -24,6 +25,8 @@ export function sharedNodeSessions(): NodeSessions {
       layout: layoutStore(),
       projectPath: (projectId) => projectStore().get(projectId).path,
       registry: sharedRegistry(),
+      // The same file as the Orchestrators' (app-orchestrators.ts): one per Project, keyed by Node id.
+      settings: new SessionSettingsStore((projectId) => projectStore().dataDir(projectStore().get(projectId).id)),
       claude: (projectRoot) => claude.sessions(projectRoot),
       isDirectory: async (path) => (await stat(path).catch(() => null))?.isDirectory() === true,
       broadcast: (sessionId, event) => toEveryWindow((target) => emit(target, agentEvent, { sessionId, event })),

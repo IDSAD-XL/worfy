@@ -10,8 +10,8 @@ import { fileURLToPath } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FAKE_MODELS, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { modelOptions, SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
-import { readUserModel } from '../../src/main/claude-home/user-model'
+import { modelOptions, SessionRegistry, USER_MODEL_FALLBACK, type QueryRequest } from '../../src/main/agent/session'
+import { readUserEffort, readUserModel } from '../../src/main/claude-home/user-model'
 import { agentHandlers } from '../../src/main/ipc/agent'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import type { AgentEvent, AgentEventEnvelope } from '../../src/shared/agent/events'
@@ -28,14 +28,22 @@ type Listener = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
 let cwd: string
 let registries: SessionRegistry[] = []
 
+let emptyHome: string
+
 beforeEach(async () => {
   cwd = await mkdtemp(join(tmpdir(), 'worfy-controls-'))
+  // The user's model and effort come from <Claude home>/settings.json: an empty home of the test's
+  // own unless a test writes one, never the real ~/.claude.
+  emptyHome = await mkdtemp(join(tmpdir(), 'worfy-controls-empty-home-'))
+  vi.stubEnv('WORFY_CLAUDE_HOME', emptyHome)
 })
 
 afterEach(async () => {
   for (const registry of registries) registry.closeAll()
   registries = []
+  vi.unstubAllEnvs()
   await rm(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  await rm(emptyHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
 async function harness(script: string | ((request: QueryRequest) => string), scriptsDir = fixtures) {
@@ -103,7 +111,7 @@ describe('agent.configure', () => {
     await h.ok('agent.configure', { sessionId: id, change: { permissionMode: 'plan' } })
     await h.ok('agent.configure', { sessionId: id, change: { permissionMode: 'plan' } })
     await h.ok('agent.configure', { sessionId: id, change: { effort: 'low' } })
-    // null goes back to Claude Code's default model and the model's default effort.
+    // null goes back to the user's model and effort; with neither in settings.json, to Claude Code's defaults.
     await h.ok('agent.configure', { sessionId: id, change: { model: 'opus' } })
     await h.ok('agent.configure', { sessionId: id, change: { model: null, effort: null } })
     expect(controlCalls(h.calls)).toEqual([
@@ -400,6 +408,188 @@ describe('the model floor: sonnet or larger, never haiku (worfy-daily ticket 07)
     expect(controlCalls(h.calls)).toEqual([])
     // A model at the floor still goes through.
     expect(await h.ok('agent.configure', { sessionId: id, change: { model: 'sonnet' } })).toMatchObject({ model: 'sonnet' })
+  })
+})
+
+describe("Default is the user's model and effort (worfy-daily ticket 23)", () => {
+  let home: string
+
+  beforeEach(async () => {
+    home = await mkdtemp(join(tmpdir(), 'worfy-controls-user-defaults-'))
+    vi.stubEnv('WORFY_CLAUDE_HOME', home)
+  })
+
+  afterEach(async () => {
+    await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  })
+
+  const userSettings = (value: unknown) => writeFile(join(home, 'settings.json'), typeof value === 'string' ? value : JSON.stringify(value))
+  const starts = (calls: FakeCall[]) => calls.flatMap((call) => (call.kind === 'start' ? [call.settings] : []))
+
+  it("Default after another model calls setModel with the user's model from settings.json", async () => {
+    await userSettings({ model: 'claude-opus-5-5[1m]', effortLevel: 'high' })
+    const h = await harness('turn')
+    const id = await h.start()
+    await h.ok('agent.configure', { sessionId: id, change: { model: 'sonnet' } })
+    const settings = await h.ok('agent.configure', { sessionId: id, change: { model: null } })
+    expect(controlCalls(h.calls)).toEqual([
+      { kind: 'setModel', model: 'sonnet' },
+      { kind: 'setModel', model: 'claude-opus-5-5[1m]' },
+    ])
+    // The Session's settings, and so its header and the Node's saved picks, keep "no pick".
+    expect(settings).toMatchObject({ model: null })
+    await h.ok('agent.send', { sessionId: id, text: 'hello' })
+    await vi.waitFor(() => expect(h.results()).toBe(1))
+    expect(h.ofType('init').at(-1)).toMatchObject({ model: 'claude-opus-5-5[1m]' })
+  })
+
+  it.each([
+    ['no settings.json', null],
+    ['no model field', { effortLevel: 'high' }],
+    ['a model of the wrong type', { model: 42 }],
+  ])('Default after another model calls setModel(undefined) under %s', async (_label, value) => {
+    if (value !== null) await userSettings(value)
+    const h = await harness('turn')
+    const id = await h.start()
+    await h.ok('agent.configure', { sessionId: id, change: { model: 'opus' } })
+    await h.ok('agent.configure', { sessionId: id, change: { model: null } })
+    expect(controlCalls(h.calls)).toEqual([
+      { kind: 'setModel', model: 'opus' },
+      { kind: 'setModel', model: null },
+    ])
+  })
+
+  it("Default with a haiku as the user's model goes to sonnet (the model floor of ticket 07)", async () => {
+    await userSettings({ model: 'claude-haiku-4-5' })
+    const h = await harness('turn')
+    const id = await h.start()
+    await h.ok('agent.configure', { sessionId: id, change: { model: 'opus' } })
+    await h.ok('agent.configure', { sessionId: id, change: { model: null } })
+    expect(controlCalls(h.calls)).toEqual([
+      { kind: 'setModel', model: 'opus' },
+      { kind: 'setModel', model: USER_MODEL_FALLBACK },
+    ])
+  })
+
+  it("a Session without an effort pick starts with the user's effortLevel, and effort default goes back to it", async () => {
+    await userSettings({ effortLevel: 'high' })
+    const h = await harness('turn')
+    const id = await h.start()
+    expect(h.requests.map((request) => request.settings)).toStrictEqual([{ ...DEFAULT_SETTINGS, effort: 'high' }])
+    expect(starts(h.calls)).toStrictEqual([{ ...DEFAULT_SETTINGS, effort: 'high' }])
+    // The header still shows "no pick".
+    expect(h.registry.get(id).settings).toStrictEqual(DEFAULT_SETTINGS)
+    expect(h.ofType('settings').map((event) => event.settings)).toStrictEqual([DEFAULT_SETTINGS])
+
+    await h.ok('agent.configure', { sessionId: id, change: { effort: 'low' } })
+    await h.ok('agent.configure', { sessionId: id, change: { effort: null } })
+    expect(controlCalls(h.calls)).toEqual([
+      { kind: 'applyFlagSettings', settings: { effortLevel: 'low' } },
+      { kind: 'applyFlagSettings', settings: { effortLevel: 'high' } },
+    ])
+    expect(h.registry.get(id).settings).toStrictEqual(DEFAULT_SETTINGS)
+  })
+
+  it('a picked effort is passed as it is, whatever the user effort is', async () => {
+    await userSettings({ effortLevel: 'high' })
+    const h = await harness('turn')
+    const session = h.registry.start(cwd, undefined, () => undefined, { model: null, effort: 'low', permissionMode: 'plan' })
+    await vi.waitFor(() => expect(session.state).toBe('idle'))
+    expect(h.requests.map((request) => request.settings)).toStrictEqual([{ model: null, effort: 'low', permissionMode: 'plan' }])
+  })
+
+  it.each([
+    ['no effortLevel', { model: 'opus' }],
+    ['an effortLevel worfy does not know', { effortLevel: 'ultra' }],
+    ['an effortLevel of the wrong type', { effortLevel: 3 }],
+    ['a settings.json that is not JSON', '{"effortLevel": "high"'],
+  ])('effort default calls applyFlagSettings with null under %s', async (_label, value) => {
+    await userSettings(value)
+    const h = await harness('turn')
+    const id = await h.start()
+    expect(starts(h.calls)).toStrictEqual([DEFAULT_SETTINGS])
+    await h.ok('agent.configure', { sessionId: id, change: { effort: 'max' } })
+    await h.ok('agent.configure', { sessionId: id, change: { effort: null } })
+    expect(controlCalls(h.calls)).toEqual([
+      { kind: 'applyFlagSettings', settings: { effortLevel: 'max' } },
+      { kind: 'applyFlagSettings', settings: { effortLevel: null } },
+    ])
+  })
+
+  it('reads the user effort again for each Claude Code process; a reader that throws leaves effort to Claude Code', async () => {
+    const fake = fakeQueryFactory({ scriptsDir: fixtures, script: 'turn' })
+    const requests: QueryRequest[] = []
+    let effort: () => 'xhigh' | null = () => {
+      throw new Error('unreadable')
+    }
+    const registry = new SessionRegistry(
+      (request) => {
+        requests.push(request)
+        return fake(request)
+      },
+      () => null,
+      () => effort(),
+    )
+    registries.push(registry)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const first = registry.start(cwd, undefined, () => undefined)
+    await vi.waitFor(() => expect(first.state).toBe('idle'))
+    effort = () => 'xhigh'
+    const second = registry.start(cwd, undefined, () => undefined)
+    await vi.waitFor(() => expect(second.state).toBe('idle'))
+    expect(requests.map((request) => request.settings.effort)).toStrictEqual([null, 'xhigh'])
+    expect(warn).toHaveBeenCalled()
+  })
+
+  it("leaves the Claude home as it was: settings.json and every other file", async () => {
+    await userSettings({ model: 'claude-opus-5-5[1m]', effortLevel: 'high', permissions: { allow: ['Bash'] } })
+    await mkdir(join(home, 'projects'))
+    await writeFile(join(home, 'projects', 'keep.jsonl'), '{}\n')
+    const before = await snapshot(home)
+
+    const h = await harness((request) => (request.resume === undefined ? 'crash' : 'turn'))
+    const { sessionId: id } = await h.ok<{ sessionId: string }>('agent.start', { cwd })
+    await h.ok('agent.configure', { sessionId: id, change: { model: 'sonnet', effort: 'low' } })
+    await h.ok('agent.configure', { sessionId: id, change: { model: null, effort: null } })
+    await h.ok('agent.send', { sessionId: id, text: 'go' })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('error'))
+    await h.ok('agent.send', { sessionId: id, text: 'again' })
+    await vi.waitFor(() => expect(h.results()).toBe(1))
+    expect(starts(h.calls)).toHaveLength(2)
+
+    expect(await snapshot(home)).toStrictEqual(before)
+  })
+})
+
+describe('readUserEffort', () => {
+  let home: string
+
+  beforeEach(async () => {
+    home = await mkdtemp(join(tmpdir(), 'worfy-user-effort-'))
+  })
+
+  afterEach(async () => {
+    await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  })
+
+  it.each([
+    ['no settings.json', undefined, null],
+    ['a file that is not JSON', '{"effortLevel":', null],
+    ['JSON that is not an object', '"high"', null],
+    ['no effortLevel field', '{"model":"opus"}', null],
+    ['an effortLevel that is not a string', '{"effortLevel":["high"]}', null],
+    ['an unknown level', '{"effortLevel":"ultra"}', null],
+    ['high', '{"effortLevel":"high","model":"opus"}', 'high'],
+    ['xhigh', '{"effortLevel":"xhigh"}', 'xhigh'],
+  ])('answers %s with %s', async (_label, text, expected) => {
+    if (text !== undefined) await writeFile(join(home, 'settings.json'), text)
+    expect(readUserEffort(home)).toBe(expected)
+  })
+
+  it('reads <WORFY_CLAUDE_HOME>/settings.json by default', async () => {
+    await writeFile(join(home, 'settings.json'), '{"effortLevel":"low"}')
+    vi.stubEnv('WORFY_CLAUDE_HOME', home)
+    expect(readUserEffort()).toBe('low')
   })
 })
 
