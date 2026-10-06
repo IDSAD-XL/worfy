@@ -1,26 +1,27 @@
 // The Canvas's extension points and its copy of the Layout (src/renderer/canvas/).
 //
-// The discovery test drops a temporary Node type file into src/renderer/canvas/nodes/ before
-// anything imports the canvas, then renders the real Canvas.tsx over a fake bridge: a Node of the
-// new kind is drawn by the new file, with no edit of nodes/index.ts or Canvas.tsx, and a Node of
-// a kind nobody declares is drawn as the placeholder while the rest of the Canvas still renders.
+// The discovery test copies the Node type registry, src/renderer/canvas/nodes/index.ts, unedited,
+// into a temporary mirror of the repository whose nodes/ holds the real Node type files plus one
+// probe type (./glob-probe.tsx, ADR-0036). In this file the registry's import path leads to that
+// copy, so the real Canvas.tsx, rendered over a fake bridge, draws a Node of the new kind with
+// the new file, with no edit of nodes/index.ts or Canvas.tsx, and a Node of a kind nobody declares
+// as the placeholder while the rest of the Canvas still renders. Nothing is written into src/,
+// and which test file Vite transforms the real registry for first does not matter.
 import { act, render, screen } from '@testing-library/react'
 import type { ComponentType } from 'react'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { LayoutState } from '../../src/shared/layout/types'
+import { globProbe } from './glob-probe'
 
-// This project type-checks test/**/*.tsx without Node's types (the renderer has none), so node:fs
-// and node:process are loaded through computed specifiers and given the few signatures used here.
-interface Fs {
-  rmSync(path: string, options: { force: true }): void
-  writeFileSync(path: string, data: string): void
-}
+const registryCopy = vi.hoisted(() => ({ path: '', remove: () => {} }))
 
-const nodeModule = async <T,>(name: string): Promise<T> => (await import(/* @vite-ignore */ ['node', name].join(':'))) as T
-
-let fs: Fs
-let probeFile = ''
+// The factory runs when something first imports the registry, which every test here does inside
+// a test body, after beforeAll has built the copy.
+vi.mock('../../src/renderer/canvas/nodes/index', () => {
+  if (registryCopy.path === '') throw new Error('the Node type registry was imported before its copy was built')
+  return import(/* @vite-ignore */ registryCopy.path)
+})
 
 const probeSource = `export const kind = 'zz-vitest-probe'
 export default function ZzVitestProbeNode() {
@@ -29,14 +30,17 @@ export default function ZzVitestProbeNode() {
 `
 
 beforeAll(async () => {
-  fs = await nodeModule<Fs>('fs')
-  const { cwd } = await nodeModule<{ cwd(): string }>('process')
-  probeFile = `${cwd()}/src/renderer/canvas/nodes/ZzVitestProbeNode.tsx`
-  fs.writeFileSync(probeFile, probeSource)
+  const probe = await globProbe({
+    module: 'src/renderer/canvas/nodes/index.ts',
+    globDir: 'src/renderer/canvas/nodes',
+    probes: { 'ZzVitestProbeNode.tsx': probeSource },
+  })
+  registryCopy.path = probe.modulePath
+  registryCopy.remove = probe.remove
 })
 
 afterAll(() => {
-  fs.rmSync(probeFile, { force: true })
+  registryCopy.remove()
 })
 
 const Dummy = () => null

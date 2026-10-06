@@ -38,7 +38,20 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
-      - run: pnpm test
+      # Test files run in a random order (ADR-0036), so a test that passes only after or before
+      # another file turns red here; the log names the seed ("Running tests with seed …") and
+      # `pnpm test --sequence.shuffle.files --sequence.seed=<seed>` repeats the order locally.
+      # One shuffled run replaces the plain one: CI stays one test run long.
+      - run: pnpm test --sequence.shuffle.files
+      # Tests must leave the source tree as they found it: no probe or other temporary file in src/.
+      - name: src/ is unchanged after the tests
+        run: |
+          changed="$(git status --porcelain --untracked-files=all --ignored src)"
+          if [ -n "$changed" ]; then
+            echo "Tests left these changes in src/:"
+            echo "$changed"
+            exit 1
+          fi
 
   full-macos:
     if: github.event_name == 'workflow_dispatch'

@@ -76,7 +76,8 @@ const processBoundary = {
 export default defineConfig(
   {
     // .claude/worktrees/ holds other tickets' checkouts: never lint them from here.
-    ignores: ['node_modules/**', 'out/**', 'dist/**', 'test-results/**', 'playwright-report/**', '.claude/worktrees/**'],
+    // ZzVitestProbe* is a probe file an older discovery test left in src/ (ADR-0036).
+    ignores: ['node_modules/**', 'out/**', 'dist/**', 'test-results/**', 'playwright-report/**', '.claude/worktrees/**', '**/ZzVitestProbe*'],
   },
   js.configs.recommended,
   tseslint.configs.recommended,
