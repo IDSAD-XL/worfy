@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
@@ -168,6 +168,42 @@ test('the Orchestrator starts Subagents: their Nodes appear, run with a ticking 
     await expect(rail.locator('[data-subagent-id="afake00000000impl"]')).toHaveAttribute('data-status', 'done')
     await expect(rail.locator('[data-subagent-id="afake0000000scout"]')).toHaveAttribute('data-status', 'done')
     expectUntouched()
+  } finally {
+    await launched.close()
+  }
+})
+
+test('an Epic frame keeps clear of the Subagent Nodes right of the Orchestrator (ADR-0032)', async () => {
+  // epic-status answers one Epic with one open Ticket, so the Canvas has a frame from the start.
+  mkdirSync(join(claudeHome, 'bin'), { recursive: true })
+  const answer = join(claudeHome, 'epic-status.json')
+  const ticket = { epic: 'demo', num: 1, slug: 't1', title: '01 — Ticket 1', statusRaw: 'open', state: 'open', blockedRaw: '—', blockedNums: [], blockedParsed: true }
+  writeFileSync(answer, JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: true, hasMap: false }], tickets: [ticket] }))
+  const script = join(claudeHome, 'bin', 'epic-status')
+  writeFileSync(script, `#!/bin/sh\ncat '${answer}'\n`)
+  chmodSync(script, 0o755)
+
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'subagents' } })
+  try {
+    const { window } = launched
+    await canvasReady(launched, { size: { width: 1600, height: 900 }, visible: [window.getByTestId('orchestrator-node')] })
+    const frame = window.getByTestId('rf__node-epic:demo')
+    await expect(frame).toBeVisible()
+    await expect.poll(() => window.evaluate(async () => ((await (globalThis as unknown as { worfy: Bridge }).worfy.invoke('agent.list')).value as unknown[]).length)).toBe(1)
+    await sendToOrchestrator(window, 'run wave 3')
+    const impl = window.locator('[data-testid="subagent-node"][data-subagent-id="afake00000000impl"]')
+    const scout = window.locator('[data-testid="subagent-node"][data-subagent-id="afake0000000scout"]')
+    await expect(impl).toBeVisible()
+    await expect(scout).toBeVisible()
+
+    const area = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }): number =>
+      Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y))
+    const covered = async () => {
+      const [f, i, s, o] = await Promise.all([frame.boundingBox(), impl.boundingBox(), scout.boundingBox(), window.getByTestId('orchestrator-node').boundingBox()])
+      if (!f || !i || !s || !o) return null
+      return [area(f, i), area(f, s), area(f, o)]
+    }
+    await expect.poll(covered).toEqual([0, 0, 0])
   } finally {
     await launched.close()
   }

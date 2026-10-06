@@ -216,7 +216,7 @@ describe('stackFrames', () => {
 
   it('takes the first gap wide enough for the widest frame, left to right', () => {
     const narrow = { x: 300, y: 0, w: 100, h: 100 }
-    const far = { x: 300 + 100 + FRAME_GAP + 520 + FRAME_GAP, y: 5000, w: 100, h: 100 }
+    const far = { x: 300 + 100 + FRAME_GAP + 520 + FRAME_GAP, y: 20, w: 100, h: 100 }
     // The gap between `narrow` and `far` fits a 520 frame exactly, not a 521 one.
     expect(stackFrames([{ epic: 'a', width: 520, height: 56 }], [narrow, far]).get('a')!.auto.x).toBe(300 + 100 + FRAME_GAP)
     const frames = [
@@ -228,14 +228,28 @@ describe('stackFrames', () => {
     expect(placed.get('b')!.auto.x).toBe(far.x + far.w + FRAME_GAP)
   })
 
-  it('grows down inside the column: a taller frame never reaches a Node placed before', () => {
-    const below = { x: 40, y: 2000, w: 360, h: 200 }
-    const nodes = [ORCHESTRATOR, below]
-    const short = stackFrames([{ epic: 'a', width: 800, height: 400 }, { epic: 'b', width: 800, height: 56 }], nodes)
-    const tall = stackFrames([{ epic: 'a', width: 800, height: 4000 }, { epic: 'b', width: 800, height: 56 }], nodes)
-    expect(tall.get('a')!.auto.x).toBe(short.get('a')!.auto.x)
-    for (const [epic, height] of [['a', 4000], ['b', 56]] as const) {
-      const place = tall.get(epic)!
+  it('is as tall as the stack: a Node far below the frames does not move the column', () => {
+    const frames = [
+      { epic: 'a', width: 800, height: 400 },
+      { epic: 'b', width: 800, height: 56 },
+    ]
+    const stack = 400 + FRAME_GAP + 56
+    // A Card at (500, 5000), in the column's x range, far below the stack.
+    expect(stackFrames(frames, [ORCHESTRATOR, { x: 500, y: 5000, w: 420, h: 300 }]).get('a')!.auto.x).toBe(40 + 360 + FRAME_GAP)
+    // Just below the stack's bottom plus the gap: still free; one unit higher: in the way.
+    expect(stackFrames(frames, [ORCHESTRATOR, { x: 500, y: stack + FRAME_GAP, w: 420, h: 300 }]).get('a')!.auto.x).toBe(40 + 360 + FRAME_GAP)
+    expect(stackFrames(frames, [ORCHESTRATOR, { x: 500, y: stack + FRAME_GAP - 1, w: 420, h: 300 }]).get('a')!.auto.x).toBe(500 + 420 + FRAME_GAP)
+  })
+
+  it('keeps room for the open done stack: opening it neither moves the column nor brings the frame onto a Node', () => {
+    // Folded the frame is 400 tall, open 1000; a Node lies between the two, in the column's x range.
+    const between = { x: 500, y: 700, w: 300, h: 100 }
+    const nodes = [ORCHESTRATOR, between]
+    const folded = stackFrames([{ epic: 'a', width: 800, height: 400, reserve: 1000 }, { epic: 'b', width: 800, height: 56 }], nodes)
+    const open = stackFrames([{ epic: 'a', width: 800, height: 1000, reserve: 1000 }, { epic: 'b', width: 800, height: 56 }], nodes)
+    expect(folded.get('a')!.auto.x).toBe(open.get('a')!.auto.x)
+    for (const [epic, height] of [['a', 1000], ['b', 56]] as const) {
+      const place = open.get(epic)!
       for (const node of nodes) expect(overlap({ x: place.x, y: place.y, w: 800, h: height }, node), `${epic} over ${JSON.stringify(node)}`).toBe(false)
     }
   })

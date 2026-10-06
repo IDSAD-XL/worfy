@@ -226,3 +226,32 @@ describe('blocking edges', () => {
     expect(blockingEdges(layoutWith([{ id: 'n', kind: 'note', data: { ticket: { blockedNums: [1] } } }]).nodes)).toEqual([])
   })
 })
+
+describe('the Epic node source and the Nodes on the plane (ADR-0032)', () => {
+  const ORCHESTRATOR = { id: 'o', kind: 'orchestrator', x: 40, y: 40, w: 360, h: 200 }
+
+  it('puts the frames right of the Layout Nodes on the plane and of the Nodes other sources publish', () => {
+    const tickets = model([ticket('a', 1)], ['a'])
+    expect(buildEpicNodes(freshProject(), '/repo', tickets, layoutWith([ORCHESTRATOR]), {})[0]!.position).toEqual({ x: 40 + 360 + 48, y: 0 })
+    // Hidden and pinned Nodes take no room on the plane.
+    expect(buildEpicNodes(freshProject(), '/repo', tickets, layoutWith([{ ...ORCHESTRATOR, hidden: true }]), {})[0]!.position).toEqual({ x: 0, y: 0 })
+    expect(buildEpicNodes(freshProject(), '/repo', tickets, layoutWith([{ ...ORCHESTRATOR, pinned: true }]), {})[0]!.position).toEqual({ x: 0, y: 0 })
+    // A Subagent Node right of the Orchestrator, where the column would start.
+    const subagent = { x: 456, y: 58, w: 260, h: 84 }
+    expect(buildEpicNodes(freshProject(), '/repo', tickets, layoutWith([ORCHESTRATOR]), {}, [subagent])[0]!.position).toEqual({ x: 456 + 260 + 48, y: 0 })
+  })
+
+  it('keeps room for the open done stack, so opening it does not move the frame', () => {
+    const done = { state: 'done' as const, statusRaw: 'done' }
+    const tickets = model([ticket('a', 1, done), ticket('a', 2, done), ticket('a', 3, done), ticket('a', 4)], ['a'])
+    // Below the folded frame (228 tall) and its gap, above the bottom of the open one (444 tall).
+    const between = { id: 'n', kind: 'note', x: 100, y: 300, w: 50, h: 50 }
+    const id = freshProject()
+    const folded = buildEpicNodes(id, '/repo', tickets, layoutWith([between]), {})[0]!
+    const open = buildEpicNodes(id, '/repo', tickets, layoutWith([between]), { [`${id}|a`]: true })[0]!
+    expect(open.height).toBeGreaterThan(between.y + between.h)
+    expect(folded.height! + 48).toBeLessThan(between.y)
+    expect(folded.position).toEqual({ x: 100 + 50 + 48, y: 0 })
+    expect(open.position).toEqual(folded.position)
+  })
+})
