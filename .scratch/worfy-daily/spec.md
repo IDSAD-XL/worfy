@@ -25,7 +25,8 @@ Epic готов, когда выполнены четыре условия:
    агент-наблюдатель (касание вне worfy, например системный диалог). Такой Ticket получает
    следующий свободный номер, в `Source` — ссылка на эту запись журнала. Номер 21 занят
    нестабильными e2e, 22–28 — дефектами ручных проверок worfy-mvp 2026-10-06 ночью, 29 — дефектом
-   первого настоящего прогона Autopilot 2026-10-06, 30 — дефектом второго.
+   первого настоящего прогона Autopilot 2026-10-06, 30 — дефектом второго. 31 — не вмешательство,
+   а решение владельца 2026-10-06: иконка приложения.
 3. Хотя бы один настоящий упор в Limits в Autopilot на стабильной копии прошёл без человека: прогон
    продолжился сам после сброса. Доказательство — выдержка из журнала (`limits-hit`,
    `waiting-until`, `resumed`) и запись HANDOFF о паузе. Ticket 05 этого проверить не может: Wave-ы
@@ -95,8 +96,8 @@ Session-ов, которые запускает worfy. По умолчанию �
 
 ## Этапы
 
-Темы идут по порядку A → B → C → D → E → F. Номера Ticket-ов идут в том же порядке, кроме 22–30:
-22–28 — тема C, 29 и 30 — тема A, но их завели позже. Порядок держат рёбра `Blocked by` (раздел «Волны»). Исключение —
+Темы идут по порядку A → B → C → D → E → F. Номера Ticket-ов идут в том же порядке, кроме 22–31:
+22–28 и 31 — тема C, 29 и 30 — тема A, но их завели позже. Порядок держат рёбра `Blocked by` (раздел «Волны»). Исключение —
 Ticket 21 (тема E): он идёт в Wave 1, см. пункт 5.
 
 1. **A — Autopilot** — 01–05, 29 и 30.
@@ -120,7 +121,7 @@ Ticket 21 (тема E): он идёт в Wave 1, см. пункт 5.
    - 07: модель — без haiku, минимум sonnet. Orchestrator по умолчанию на модели пользователя.
    - 08: зависшие running Subagent-ы (13 из 109 на Auction).
    - 09: задержка `workflow.changed` и двойное чтение истории, с замером на настоящем Auction.
-3. **C — UI-баги** — 10–16 и 22–28.
+3. **C — UI-баги** — 10–16, 22–28 и 31.
    - 10: рамки Epic поверх Node-ов.
    - 11: обрезанные заголовки и chip-ы.
    - 12: закреплённый Node под миникартой и toolbar выделения над ним.
@@ -135,6 +136,8 @@ Ticket 21 (тема E): он идёт в Wave 1, см. пункт 5.
    - 26: toolbar — подписи Limits, длинное имя Project-а, статус окна после моста status line.
    - 27: блок состояния Orchestrator-а помещается в Node.
    - 28: размещение Node-ов Subagent-ов и Session из «Ship ticket».
+   - 31: иконка приложения — знак worfy (вариант «ABC3») в пакете, Dock и Finder вместо иконки
+     Electron. Не дефект, а решение владельца 2026-10-06.
    - Ticket-ы 22–28 — дефекты ручных проверок worfy-mvp 2026-10-06 ночью, которые мешают работать
      из worfy каждый день. Источник — HANDOFF, «Риски и долги». Тему D они не держат: общих файлов
      с Ticket-ом 17 у них нет.
@@ -277,6 +280,10 @@ Wave — Ticket-ы, которые можно брать параллельно:
   ведёт Orchestrator worfy в Autopilot, а до 30 Autopilot берёт в Wave Ticket со Status `blocked` и
   шлёт Orchestrator-у номер Wave плана вместо списка Ticket-ов. Ticket 16 ждёт 15, общих файлов с 30
   у него нет.
+- У Ticket-а 31 (иконка приложения, тема C) блокеров нет: в плане он в Wave 9. В Wave 8 у него общие
+  с Ticket-ом 16 файлы `src/main/index.ts` и `test/e2e/packaged.spec.ts`. Ребро `Blocked by` не
+  нужно: worfy не берёт в Wave Ticket, чей файл занят Ticket-ом в работе или Ticket-ом с меньшим
+  номером в той же Wave. Раньше 16 Ticket 31 уйдёт, только пока 15 в `blocked`.
 
 | Тикет | Файлы из «Где в коде» | Волна |
 | --- | --- | --- |
@@ -307,6 +314,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 17 | `src/main/claude-home/subagents.ts`, `src/shared/transcript/subagents.ts`, `src/main/claude-home/tail.ts`, `test/contract/claude-home-subagents.test.ts`, `test/unit/subagents.test.ts`, `test/e2e/subagent-tree.spec.ts`, `test/fixtures/claude-home/` | 9 |
 | 24 | `src/main/agent/session.ts`, `src/main/agent/fake-query.ts`, `src/main/agent/options.ts`, `src/main/claude-home/registry.ts`, `src/renderer/claude-home/session-nodes.ts`, `src/renderer/shell/sidebar/SessionsSection.tsx`, `src/renderer/session/SessionView.tsx`, `test/unit/session-nodes.test.tsx`, `test/unit/agent-options.test.ts`, `test/contract/agent-session.test.ts`, `test/e2e/own-sessions.spec.ts` | 9 |
 | 28 | `src/renderer/canvas/sources/subagents.ts`, `src/renderer/canvas/actions/TicketActions.tsx`, `src/shared/ipc/actions.ts`, `src/main/ipc/actions.ts`, `src/main/actions/launch.ts`, `src/main/agent/node-sessions.ts`, `src/main/layout/place.ts`, `test/unit/subagent-nodes.test.tsx`, `test/unit/layout-place.test.ts`, `test/contract/node-sessions.test.ts`, `test/e2e/ship-ticket.spec.ts` | 9 |
+| 31 | `scripts/make-icons.mjs`, `build/icon.icns`, `build/icon.png`, `build/icons.json`, `package.json`, `electron-builder.yml`, `src/main/dock-icon.ts`, `src/main/index.ts`, `test/contract/make-icons.test.ts`, `test/unit/dock-icon.test.ts`, `test/e2e/packaged.spec.ts` | 9 |
 | 18 | `test/e2e/snapshots.ts`, `test/e2e/snapshots.spec.ts` | 10 |
 | 19 | `test/unit/canvas.test.tsx`, `test/unit/shell-discovery.test.tsx`, `test/unit/session-rail-discovery.test.tsx`, `test/unit/focus-mode.test.tsx`, `vitest.config.ts`, `.gitignore`, `eslint.config.js`, `.github/workflows/ci.yml` | 10 |
 | 20 | `test/unit/canvas-actions.test.tsx`, `test/unit/gate-state.test.ts`, `test/contract/github-prs.test.ts`, `test/unit/claude-home-titles.test.tsx`, `test/unit/session-nodes-overlay.test.tsx`, `test/unit/message-input-slash.test.tsx`, `test/unit/history.test.ts`, `test/unit/session-view.test.tsx`, `test/e2e/pin-tags.spec.ts`, `test/contract/canvas-tools.test.ts`, `test/contract/card-protocol.test.ts`, `test/contract/workflow-reader.test.ts` | 10 |
@@ -314,8 +322,9 @@ Wave — Ticket-ы, которые можно брать параллельно:
 Общие файлы есть только у Ticket-ов разных Wave-ов:
 
 - `src/main/agent/options.ts` и `test/unit/agent-options.test.ts`: 02 → 06 → 24.
-- `src/main/index.ts`: 03 → 15 → 16.
-- `test/e2e/packaged.spec.ts`: 03 → 16.
+- `src/main/index.ts`: 03 → 15 → 16 → 31.
+- `test/e2e/packaged.spec.ts`: 03 → 16 → 31.
+- `package.json`: 03 → 31.
 - `src/main/autopilot/run.ts`: 04 → 05 → 29 → 30.
 - `src/renderer/canvas/actions/AutopilotAction.tsx`: 04 → 05 → 29.
 - `src/shared/autopilot/cycle.ts` и `test/unit/autopilot-cycle.test.ts`: 04 → 29 → 30.
