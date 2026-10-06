@@ -1,7 +1,7 @@
 # 04 — Autopilot на Epic: цикл Wave-ов, keep-awake, остановка
 
 Type: task
-Status: claimed — 2026-10-06
+Status: done — 2026-10-06, [PR #39](https://github.com/IDSAD-XL/worfy/pull/39)
 Blocked by: 01, 02, 03
 Source: [spec.md](../spec.md), тема A, риски 1, 2, 4 и 5; [CONTEXT.md](../../../CONTEXT.md), термины Autopilot и Wave; [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md); Ticket 23 worfy-mvp («Run wave»)
 

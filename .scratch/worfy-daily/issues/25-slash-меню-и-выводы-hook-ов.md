@@ -1,7 +1,7 @@
 # 25 — Slash-меню без дублей; выводы hook-ов без ложной ошибки
 
 Type: task
-Status: blocked — blocked by 06, 07, 08, 09, 14
+Status: open
 Blocked by: 06, 07, 08, 09, 14
 Source: [spec.md](../spec.md), тема C; ручные проверки 2026-10-06, ночь — Ticket 20 worfy-mvp (`.scratch/worfy-mvp/issues/20-поле-ввода-slash-и-вложения.md:120`) и Ticket 14 worfy-mvp (`.scratch/worfy-mvp/issues/14-внешние-сессии-только-чтение.md:146`); HANDOFF, «Риски и долги»
 
