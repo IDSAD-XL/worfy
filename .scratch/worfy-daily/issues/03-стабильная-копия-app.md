@@ -1,7 +1,7 @@
 # 03 — Стабильная копия worfy.app вне репозитория
 
 Type: task
-Status: blocked — второй круг ревью не чистый (находка high): ADR о раздельных папках данных packaged-сборки и dev-запуска не принят, пункт «Готово, когда» открыт; PR #37 открыт, ждёт решения владельца
+Status: claimed — 2026-10-06
 Blocked by: —
 Source: [spec.md](../spec.md), тема A, риски 5 и 6; [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md) — папка данных worfy; Ticket 32 worfy-mvp (сборка `.app`)
 
@@ -58,7 +58,7 @@ e2e это не затрагивает: у них `WORFY_DATA_DIR` во врем
 
 - [x] `pnpm install:stable` кладёт копию в `~/Applications/worfy-stable.app` или в путь из аргумента. Повторный запуск заменяет копию. Если копия запущена — отказ с понятным текстом и кодом ≠ 0.
 - [x] Рядом с копией записаны commit и время сборки.
-- [ ] ADR о папке данных копии и dev-запуска принят. Одновременный запуск копии и `pnpm dev` не пишет в одни и те же `limits.json` и `bindings.json` — это проверяет test на `paths.ts` или на single-instance lock, по выбранному варианту.
+- [x] ADR о папке данных копии и dev-запуска принят. Одновременный запуск копии и `pnpm dev` не пишет в одни и те же `limits.json` и `bindings.json` — это проверяет test на `paths.ts` или на single-instance lock, по выбранному варианту.
 - [x] В `README.md` есть раздел «Стабильная копия» с порядком обновления.
 - [x] e2e `@packaged` в `test/e2e/packaged.spec.ts` запускает копию, которую скрипт положил во временную папку. Путь передаётся через env (`WORFY_PACKAGED_APP`). Terminal test `@packaged` в `test/e2e/terminal.spec.ts` по-прежнему запускает `dist/mac*/worfy.app`: файл вне следа этого Ticket-а.
 - [ ] (вручную) Копия запущена из Finder, открыт Project worfy. Через computer use снят экран после старта: системных диалогов нет, или они перечислены в «Итог».
@@ -79,6 +79,7 @@ e2e это не затрагивает: у них `WORFY_DATA_DIR` во врем
 - `test/unit/paths.test.ts`
 - `test/e2e/packaged.spec.ts`
 - `scripts/statusline-bridge.sh`, `test/contract/statusline-bridge.test.ts` — добавлены по ревью (круг 1): мост status line знает обе папки данных
+- `docs/adr/0023-separate-data-roots-packaged-and-dev.md` (новый) — добавлен по ревью (круг 2): номер выдал Orchestrator
 
 ## Итог
 
@@ -96,7 +97,7 @@ e2e это не затрагивает: у них `WORFY_DATA_DIR` во врем
   удалить чужую папку.
 - `WORFY_STABLE_PREBUILT=<путь к .app>` пропускает сборку. Им пользуются e2e: они ставят уже
   собранный `dist/` во временную папку. В JSON тогда поле `source` показывает, откуда копия.
-- Папка данных и lock — см. черновик ADR ниже. `src/main/storage/paths.ts`: `dataRoot(env, kind)`,
+- Папка данных и lock — по [ADR-0023](../../../docs/adr/0023-separate-data-roots-packaged-and-dev.md). `src/main/storage/paths.ts`: `dataRoot(env, kind)`,
   `setBuildKind()`. `src/main/index.ts` ставит вид сборки из `app.isPackaged` до первого
   `dataRoot()` и берёт `app.requestSingleInstanceLock()` после `setPath('userData')`.
 - e2e `@packaged` (`test/e2e/packaged.spec.ts`) запускает копию, которую скрипт поставил во
@@ -143,8 +144,8 @@ e2e это не затрагивает: у них `WORFY_DATA_DIR` во врем
 **Доработка после ревью (круг 1).**
 
 - ADR: файл `docs/adr/NNNN-*.md` в PR не заведён. По правилам этой ночи номер ADR и файл заводит
-  Orchestrator; черновик ниже готов к переносу как есть. Пункт «Готово, когда» про ADR остаётся
-  `[ ]`, пока файл не принят.
+  Orchestrator; черновик был готов к переносу как есть. Пункт «Готово, когда» про ADR оставался
+  `[ ]`, пока файл не принят (принят в круге 2 — ADR-0023, ниже).
 - `scripts/statusline-bridge.sh` (вне следа, назван в ревью): без `WORFY_DATA_DIR` пишет
   `statusline-limits.json` в каждую существующую из папок `…/worfy` и `…/worfy-dev`, с
   `WORFY_DATA_DIR` — только туда. Раньше писал только в `…/worfy`, и dev-запуск рядом с копией
@@ -166,41 +167,13 @@ e2e это не затрагивает: у них `WORFY_DATA_DIR` во врем
   `~/Apps/…` (test без аргумента); слеш убирается после проверки `.app` (test со слешем);
   `--untracked-files=no` (test признака `dirty`).
 
-### Черновик ADR: Папки данных packaged-сборки и dev-запуска раздельны, один процесс на папку
+**ADR.** Решение о папках данных принято как
+[ADR-0023](../../../docs/adr/0023-separate-data-roots-packaged-and-dev.md): dev-запуск берёт
+`Application Support/worfy-dev`, packaged-сборка — `…/worfy`, над каждой папкой один процесс
+(single-instance lock). Черновик, который стоял здесь, перенесён в этот файл.
 
-Дата: 2026-10-06. Статус: черновик (номер и файл заводит Orchestrator).
-
-**Контекст.** Autopilot над самим worfy идёт на стабильной копии `.app` (Ticket 03). Пока он идёт,
-владелец запускает `pnpm dev`, а агенты пересобирают `dist/`. Все они брали одну папку
-`~/Library/Application Support/worfy` (`src/main/storage/paths.ts`, `userData` туда же). Два
-процесса над одной папкой перезаписывают друг другу `limits.json` и `bindings.json`.
-
-**Решение.** Вариант (в), оба механизма.
-
-1. Dev-запуск (`app.isPackaged === false`: `pnpm dev`, `electron .`) берёт
-   `~/Library/Application Support/worfy-dev`. Packaged-сборка берёт прежнюю `…/worfy`.
-   `WORFY_DATA_DIR` по-прежнему перекрывает обе. Знает это только `paths.ts`; вид сборки ему
-   сообщает `src/main/index.ts` до первого `dataRoot()`.
-2. `app.requestSingleInstanceLock()` после `setPath('userData')`. Lock Electron держится на папке
-   `userData`, поэтому это «один процесс на папку данных». Второй процесс над той же папкой
-   выходит с кодом 0, а работающий выводит своё окно вперёд.
-
-Копия и dev-запуск работают одновременно и не делят файлы. Копия и `dist/mac*/worfy.app` —
-обе packaged и делят `…/worfy`: их развести нельзя, и lock не даёт им писать одновременно. Так же
-разведены два `pnpm dev` из разных worktree.
-
-**Последствия.** Мост status line (`scripts/statusline-bridge.sh`) без `WORFY_DATA_DIR` пишет
-Limits в обе папки, какие из них есть: имена папок повторены в shell-скрипте, и contract test
-сверяет их с `paths.ts`. У dev-запуска своя история: Project-ы, Binding-и, Layout, Limits из `…/worfy` в
-него не переезжают. Данные, накопленные в `…/worfy` dev-запусками до этого решения, достаются
-копии. Второй запуск `.app` при работающей копии ничего не открывает, только выводит окно копии
-вперёд. e2e не затронуты: у каждого запуска свой временный `WORFY_DATA_DIR`, значит и свой lock.
-
-#### Considered Options
-
-- (а) Только раздельные папки. Отвергнуто: `dist/`-сборка и копия обе packaged и делили бы одну
-  папку без защиты.
-- (б) Только lock. Отвергнуто: dev-запуск не стартовал бы, пока работает копия, — а копия
-  работает всё время, пока идёт Autopilot.
-- Папка по пути к `.app` (например, хеш пути). Отвергнуто: копия при каждом обновлении теряла бы
-  данные, если путь меняется, и папку нельзя назвать заранее в README.
+**Доработка после ревью (круг 2).** Единственная находка — файл ADR не заведён. Orchestrator выдал
+номер 0023; черновик из «Итог» перенесён в `docs/adr/0023-separate-data-roots-packaged-and-dev.md`
+по формату принятых ADR, с разделом о том, что меняется по сравнению с ADR-0005 (сам ADR-0005 не
+тронут). Пункт «Готово, когда» про ADR отмечен. Код не менялся. Ветка перенесена на `origin/main`
+(там влит Ticket 21, он менял `test/e2e/helpers.ts`), e2e прогнаны заново.
