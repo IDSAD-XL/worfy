@@ -12,6 +12,12 @@
 //   Wave's (an Interrupt of it still stops the run, as it holds the queue — also when the turn then
 //   finishes normally and the Wave is left in the held queue). A Wave still in the
 //   queue when the run stops is taken out of it, so no one's turn runs it untracked.
+// - The run waits for the background tasks of its Orchestrator Session (worfy-daily ticket 29,
+//   ADR-0029): a turn that ends while they live does not end the Wave; their task-notifications
+//   start turns of the Wave. Every change of the set goes to the journal. Without any task event
+//   for the limit the run stops with `background-stalled`. A run stopped while tasks live leaves
+//   the Orchestrator unattended, and keeps keep-awake, until they have ended (orchestrator.ts);
+//   then the journal says `orchestrator-returned`, or, if the app quits first, `tasks-killed`.
 // - keep-awake (power.ts) is held from the start to the end of the run.
 // - A turn of the Wave refused by the Limits does not end it (worfy-daily ticket 05): the run goes
 //   `waiting` until the Limits reset, then sends the Orchestrator on (limits-wait.ts). Past the
@@ -28,10 +34,20 @@ import { resolve } from 'node:path'
 import type { AutopilotWaveResult } from '../actions/launch'
 import { ticketNumber } from '../../shared/actions/render-template'
 import { messageLabel } from '../../shared/agent/attachments'
+import { isTaskEvent, type BackgroundTask } from '../../shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
 import type { JournalEventFields } from '../../shared/autopilot/journal'
 import { toMs, type LimitsHit } from '../../shared/autopilot/resume-at'
-import { initialCycle, SETTLE_MS, step, type AutopilotStopReason, type CycleEvent, type CycleState } from '../../shared/autopilot/cycle'
+import {
+  BACKGROUND_STALL_MS,
+  initialCycle,
+  SETTLE_MS,
+  step,
+  TASKS_GRACE_MS,
+  type AutopilotStopReason,
+  type CycleEvent,
+  type CycleState,
+} from '../../shared/autopilot/cycle'
 import type { AutopilotState } from '../../shared/ipc/autopilot'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
 import type { WorkflowModel } from '../../shared/workflow/types'
@@ -43,6 +59,19 @@ export interface RunSession {
   readonly state: SessionState
   queued(): QueueSnapshot
   removeQueued(id: string): boolean
+  /** The Session's live background tasks, ambient ones left out (ADR-0029). */
+  backgroundTasks(): BackgroundTask[]
+}
+
+/** The timers of the wait for background tasks; a test passes a clock it moves by hand. */
+export interface TasksClock {
+  setTimeout(fn: () => void, ms: number): unknown
+  clearTimeout(handle: unknown): void
+}
+
+const realClock: TasksClock = {
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 }
 
 /** One open journal (journal.ts, RunJournal). */
@@ -78,7 +107,16 @@ export interface AutopilotDeps {
   settleMs?: number
   /** The Limits and the wait for them (limits-wait.ts); without it a refused turn ends the run as `turn-error`. */
   limits?: LimitsWaitDeps
+  /** How long a run waits for its background tasks without an event of theirs (default BACKGROUND_STALL_MS). */
+  backgroundStallMs?: number
+  /** How long a run waits for the task-notification turn after the last task ended (default TASKS_GRACE_MS). */
+  tasksGraceMs?: number
+  /** The clock of those two waits (default: the real timers). */
+  tasksClock?: TasksClock
 }
+
+/** A task as the journal writes it. */
+const journalTasks = (tasks: readonly BackgroundTask[]) => tasks.map((task) => ({ id: task.taskId, type: task.taskType, description: task.description }))
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
@@ -129,6 +167,8 @@ class Run {
   private chain: Promise<void> = Promise.resolve()
   readonly cleanups: (() => Promise<void> | void)[] = []
   settleTimer: ReturnType<typeof setTimeout> | null = null
+  /** The wait for background tasks (phase `tasks`): their limit, or the grace time after the last one. */
+  tasksTimer: unknown = null
   /** Turns of the Orchestrator's Session the run has seen start: one per `prompt` event. */
   turns = 0
   /** True while "Run wave" is on its way to the Session (autopilotWave has not answered yet). */
@@ -183,6 +223,8 @@ export class Autopilot {
   private readonly runs = new Map<string, Run>()
   /** Projects whose run is between the click and its first state. */
   private readonly starting = new Set<string>()
+  /** Stopped runs whose Orchestrator still waits for its background tasks; each one's app-quit. */
+  private readonly lingering = new Set<() => Promise<void>>()
   /** The last stopped state of each Project, also after its run is gone. */
   private readonly last = new Map<string, AutopilotState>()
   private revision = 0
@@ -192,7 +234,8 @@ export class Autopilot {
   /** The Project's run as it is now. */
   state(projectId: string): AutopilotState {
     const run = this.runs.get(projectId)
-    if (run === undefined) return this.last.get(projectId) ?? { projectId, epic: null, status: 'stopped', wave: 0, resumesAt: null, reason: null, message: null, revision: this.revision }
+    if (run === undefined)
+      return this.last.get(projectId) ?? { projectId, epic: null, status: 'stopped', wave: 0, backgroundTasks: 0, resumesAt: null, reason: null, message: null, revision: this.revision }
     return this.snapshot(run)
   }
 
@@ -261,14 +304,18 @@ export class Autopilot {
     return this.state(projectId)
   }
 
-  /** Stops every run with `app-quit`; settles once they have all stopped. */
+  /**
+   * Stops every run with `app-quit`; settles once they have all stopped. Stopped runs still waiting
+   * for their Orchestrator's background tasks journal them as killed and release keep-awake.
+   */
   async stopAll(): Promise<void> {
-    await Promise.all(
-      [...this.runs.values()].map(async (run) => {
+    await Promise.all([
+      ...[...this.runs.values()].map(async (run) => {
         await run.enqueue(() => this.feed(run, { type: 'stop', reason: 'app-quit' }))
         await run.ended
       }),
-    )
+      ...[...this.lingering].map((quit) => quit()),
+    ])
   }
 
   private async unwatch(run: Run, unwatch: () => Promise<void> | void): Promise<void> {
@@ -313,6 +360,9 @@ export class Autopilot {
         const message = event.error ?? (event.isError ? event.text : null)
         // Whether the Limits refused the turn is known now, from the Limits status of this turn.
         const hit = run.limits?.hitOf({ isError: event.isError, interrupted: event.interrupted, message }) ?? null
+        // The background tasks the turn left alive, as of its end: a task that ends later starts a
+        // turn of its own (its task-notification), and that turn's result judges the Wave.
+        const tasks = this.liveTasks(run).length
         void run.enqueue(() => {
           // A turn ahead of the Wave that finished normally after an Interrupt still leaves the
           // queue held: the Wave waits in it until a person resumes, so the run stops as interrupted.
@@ -321,7 +371,16 @@ export class Autopilot {
           if (hit !== null && !interrupted) return this.limitsHit(run, hit)
           // A turn of the Wave that was not refused ends any wait (a person's turn during it, too).
           run.limits?.passed()
-          return this.readAndFeed(run, 'stop', (tickets) => ({ type: 'turn-ended', isError: event.isError, interrupted, message: message === '' ? null : message, tickets }))
+          return this.readAndFeed(run, 'stop', (tickets) => ({
+            type: 'turn-ended',
+            isError: event.isError,
+            interrupted,
+            message: message === '' ? null : message,
+            tickets,
+            tasks,
+            // The Session as it is now, after the fresh read: a turn may have started since.
+            idle: run.session?.state === 'idle',
+          }))
         })
         return
       }
@@ -333,7 +392,19 @@ export class Autopilot {
       case 'refused_dialog':
         void run.enqueue(() => this.write(run, { kind: 'refused-dialog', session: run.session?.id ?? null, what: `${event.dialog} ${event.subject}` }))
         return
+      case 'background_tasks': {
+        const tasks = event.tasks.map((task) => ({ ...task }))
+        void run.enqueue(async () => {
+          if (run.cycle.phase === 'stopped') return
+          await this.write(run, { kind: 'background-tasks', tasks: journalTasks(tasks) })
+          this.tasksTimer(run, true)
+          this.publish(run.projectId)
+        })
+        return
+      }
       default:
+        // Any other event of a task is a sign of life: the limit starts over.
+        if (isTaskEvent(event)) void run.enqueue(() => this.tasksTimer(run, true))
         return
     }
   }
@@ -368,6 +439,7 @@ export class Autopilot {
     const { state, effects } = step(run.cycle, event)
     run.cycle = state
     this.settleTimer(run, before)
+    this.tasksTimer(run, false)
     for (const effect of effects) {
       switch (effect.kind) {
         case 'send-wave':
@@ -490,12 +562,47 @@ export class Autopilot {
     }
   }
 
+  /**
+   * In phase `tasks`, the wait for the background tasks: their limit while any lives, the grace
+   * time for the task-notification turn once none does. Set when the phase begins and, with
+   * `restart`, set again on every task event; cleared in every other phase.
+   */
+  private tasksTimer(run: Run, restart: boolean): void {
+    const clock = this.deps.tasksClock ?? realClock
+    if (run.cycle.phase !== 'tasks' || restart) {
+      if (run.tasksTimer !== null) clock.clearTimeout(run.tasksTimer)
+      run.tasksTimer = null
+    }
+    if (run.cycle.phase !== 'tasks' || run.tasksTimer !== null) return
+    const ms = this.liveTasks(run).length > 0 ? (this.deps.backgroundStallMs ?? BACKGROUND_STALL_MS) : (this.deps.tasksGraceMs ?? TASKS_GRACE_MS)
+    const timer = clock.setTimeout(() => {
+      if (run.tasksTimer !== timer) return
+      run.tasksTimer = null
+      void run.enqueue(() => this.readAndFeed(run, 'stop', (tickets) => ({ type: 'tasks-timeout', tasks: this.liveTasks(run).length, tickets })))
+    }, ms)
+    run.tasksTimer = timer
+  }
+
+  /** The live background tasks of the run's Session; none when it cannot tell. */
+  private liveTasks(run: Run): BackgroundTask[] {
+    try {
+      return run.session?.backgroundTasks() ?? []
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: could not read the Session's background tasks`, error)
+      return []
+    }
+  }
+
   /** The run is over: its reason in the journal, keep-awake released, the Orchestrator given back. */
   private async end(run: Run, reason: AutopilotStopReason): Promise<void> {
-    await this.write(run, { kind: 'run-stopped', reason })
+    const live = this.liveTasks(run)
+    await this.write(run, { kind: 'run-stopped', reason, ...(live.length > 0 ? { tasks: journalTasks(live) } : {}) })
     this.dropQueuedWave(run)
+    // Live tasks keep the Orchestrator unattended, and the Mac awake, until they end (ADR-0029).
+    const linger = live.length > 0 && reason !== 'app-quit' && run.session !== null
+    if (linger) this.linger(run)
     // On quit the Orchestrator closes with every Session: starting it again would start Claude Code.
-    await this.release(run, reason !== 'app-quit')
+    await this.release(run, reason !== 'app-quit', !linger)
     run.done = true
     if (this.runs.get(run.projectId) === run) this.runs.delete(run.projectId)
     this.last.set(run.projectId, this.snapshot(run))
@@ -503,10 +610,44 @@ export class Autopilot {
     run.finish()
   }
 
-  /** Undoes what a run holds: subscriptions, the settle and Limits timers, keep-awake, the unattended Orchestrator. */
-  private async release(run: Run, giveBack: boolean): Promise<void> {
+  /**
+   * After a stop with live background tasks: the run's Session stays unattended until they end
+   * (orchestrator.ts gives it back then). Meanwhile every change of the set goes to the journal;
+   * once the Session is closed — given back — `orchestrator-returned` is written and keep-awake
+   * released. If the app quits first, the tasks are journaled as killed.
+   */
+  private linger(run: Run): void {
+    const session = run.session
+    if (session === null) return
+    let unsubscribe: () => void = () => undefined
+    const finish = async (last: JournalEventFields): Promise<void> => {
+      if (!this.lingering.delete(quit)) return
+      unsubscribe()
+      await this.write(run, last)
+      try {
+        run.awake?.stop()
+      } catch (error) {
+        console.error(`[autopilot] ${run.projectId}: could not release keep-awake`, error)
+      }
+    }
+    const quit = (): Promise<void> => finish({ kind: 'tasks-killed', reason: 'app-quit', tasks: journalTasks(this.liveTasks(run)) })
+    this.lingering.add(quit)
+    unsubscribe = this.deps.registry.observe((sessionId, event) => {
+      if (sessionId !== session.id) return
+      if (event.type === 'background_tasks') void this.write(run, { kind: 'background-tasks', tasks: journalTasks(event.tasks) })
+      else if (event.type === 'state' && event.state === 'closed') void finish({ kind: 'orchestrator-returned' })
+    })
+  }
+
+  /**
+   * Undoes what a run holds: subscriptions, the settle, tasks and Limits timers, keep-awake (unless
+   * `stopAwake` is false: a stop with live tasks keeps it), the unattended Orchestrator.
+   */
+  private async release(run: Run, giveBack: boolean, stopAwake = true): Promise<void> {
     if (run.settleTimer !== null) clearTimeout(run.settleTimer)
     run.settleTimer = null
+    if (run.tasksTimer !== null) (this.deps.tasksClock ?? realClock).clearTimeout(run.tasksTimer)
+    run.tasksTimer = null
     run.limits?.cancel()
     for (const cleanup of run.cleanups.splice(0)) {
       try {
@@ -515,10 +656,12 @@ export class Autopilot {
         console.warn(`[autopilot] ${run.projectId}: a cleanup failed`, error)
       }
     }
-    try {
-      run.awake?.stop()
-    } catch (error) {
-      console.error(`[autopilot] ${run.projectId}: could not release keep-awake`, error)
+    if (stopAwake) {
+      try {
+        run.awake?.stop()
+      } catch (error) {
+        console.error(`[autopilot] ${run.projectId}: could not release keep-awake`, error)
+      }
     }
     if (!giveBack) return
     try {
@@ -544,6 +687,7 @@ export class Autopilot {
       epic: run.epic,
       status: !run.running ? 'stopped' : resumesAt !== null ? 'waiting' : 'running',
       wave: run.cycle.wave,
+      backgroundTasks: run.running ? this.liveTasks(run).length : 0,
       resumesAt,
       reason: run.done ? run.cycle.reason : null,
       message: run.message,

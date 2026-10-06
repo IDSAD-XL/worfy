@@ -92,6 +92,7 @@ function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
       return state
     },
     queued: (): QueueSnapshot => ({ items: out.queue.map((item) => ({ ...item })), paused: out.paused }),
+    backgroundTasks: () => [],
     removeQueued: (id) => {
       const before = out.queue.length
       out.queue = out.queue.filter((item) => item.id !== id)

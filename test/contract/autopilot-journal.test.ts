@@ -70,7 +70,10 @@ const appended: JournalEventFields[] = [
   { kind: 'session-error', session: 'abc-123', message: 'spawn ENOENT' },
   { kind: 'refused-dialog', session: null, what: 'AskUserQuestion' },
   { kind: 'human-input', source: 'worfy', what: 'Send queued' },
-  { kind: 'run-stopped', reason: 'epic-done' },
+  { kind: 'background-tasks', tasks: [] },
+  { kind: 'run-stopped', reason: 'user-stop', tasks: [{ id: 'task-1', type: 'local_agent', description: 'Implement 01' }] },
+  { kind: 'orchestrator-returned' },
+  { kind: 'tasks-killed', reason: 'app-quit', tasks: [{ id: 'task-2', type: 'local_bash', description: null }] },
 ]
 
 describe('openRun and append', () => {

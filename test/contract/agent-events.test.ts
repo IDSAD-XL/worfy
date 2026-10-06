@@ -174,12 +174,71 @@ describe('SDK messages → agent events', () => {
     // start a subagent, so no fixture has them.
     const started = { type: 'system', subtype: 'task_started', task_id: 't1', tool_use_id: 'toolu_1', description: 'Map the IPC layer', subagent_type: 'scout', uuid: 'u', session_id: 's' }
     expect(sdkMessageToEvents(started)).toEqual([
-      { type: 'subagent', phase: 'started', taskId: 't1', toolUseId: 'toolu_1', description: 'Map the IPC layer', subagentType: 'scout', status: null, summary: null },
+      {
+        type: 'subagent',
+        phase: 'started',
+        taskId: 't1',
+        toolUseId: 'toolu_1',
+        description: 'Map the IPC layer',
+        subagentType: 'scout',
+        status: null,
+        summary: null,
+        isBackgrounded: null,
+        taskType: null,
+        ambient: null,
+        reason: null,
+      },
     ])
     const finished = { type: 'system', subtype: 'task_notification', task_id: 't1', status: 'completed', output_file: '/tmp/x', summary: 'done', uuid: 'u', session_id: 's' }
     expect(sdkMessageToEvents(finished)).toEqual([
-      { type: 'subagent', phase: 'finished', taskId: 't1', toolUseId: null, description: null, subagentType: null, status: 'completed', summary: 'done' },
+      {
+        type: 'subagent',
+        phase: 'finished',
+        taskId: 't1',
+        toolUseId: null,
+        description: null,
+        subagentType: null,
+        status: 'completed',
+        summary: 'done',
+        isBackgrounded: null,
+        taskType: null,
+        ambient: null,
+        reason: null,
+      },
     ])
+  })
+
+  // worfy-daily ticket 29: test/fixtures/sdk-messages/background-tasks.jsonl, one Bash in the background.
+  it('turns a background task start into a subagent event that says it runs in the background', () => {
+    const [event] = sdkMessageToEvents(first('background-tasks.jsonl', isSystem('task_started')))
+    expect(event).toMatchObject({ type: 'subagent', phase: 'started', taskId: 'bo1g8a214', isBackgrounded: true, taskType: 'local_bash', ambient: null })
+    const restarted = { type: 'system', subtype: 'task_notification', task_id: 't9', status: 'stopped', reason: 'worker_restart', ambient: true, output_file: '/tmp/x', summary: 's', uuid: 'u', session_id: 's' }
+    expect(sdkMessageToEvents(restarted)).toEqual([expect.objectContaining({ phase: 'finished', status: 'stopped', reason: 'worker_restart', ambient: true })])
+  })
+
+  it('turns background_tasks_changed into the whole list of live tasks, ambient flag included', () => {
+    const levels = fixture('background-tasks.jsonl')
+      .filter(isSystem('background_tasks_changed'))
+      .map((message) => sdkMessageToEvents(message))
+    expect(levels).toEqual([
+      [{ type: 'background_tasks_changed', tasks: [{ taskId: 'bo1g8a214', taskType: 'local_bash', description: 'Run sleep for 5 seconds', ambient: false }] }],
+      [{ type: 'background_tasks_changed', tasks: [] }],
+    ])
+    const ambient = { type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'w1', task_type: 'monitor', description: 'watch', ambient: true, secret: 'leak-me' }], uuid: 'u', session_id: 's' }
+    expect(sdkMessageToEvents(ambient)).toEqual([{ type: 'background_tasks_changed', tasks: [{ taskId: 'w1', taskType: 'monitor', description: 'watch', ambient: true }] }])
+  })
+
+  it('turns task_updated and task_progress into task_activity; a move to the background is marked', () => {
+    expect(sdkMessageToEvents(first('background-tasks.jsonl', isSystem('task_updated')))).toEqual([{ type: 'task_activity', taskId: 'bo1g8a214', backgrounded: false }])
+    const moved = { type: 'system', subtype: 'task_updated', task_id: 't2', patch: { is_backgrounded: true }, uuid: 'u', session_id: 's' }
+    expect(sdkMessageToEvents(moved)).toEqual([{ type: 'task_activity', taskId: 't2', backgrounded: true }])
+    const progress = { type: 'system', subtype: 'task_progress', task_id: 't3', description: 'd', usage: { total_tokens: 1, tool_uses: 1, duration_ms: 1 }, uuid: 'u', session_id: 's' }
+    expect(sdkMessageToEvents(progress)).toEqual([{ type: 'task_activity', taskId: 't3', backgrounded: false }])
+  })
+
+  it('turns a background_tasks_changed of the wrong shape into an unknown event', () => {
+    expect(sdkMessageToEvents({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 7 }], session_id: 's' })).toEqual([{ type: 'unknown', sdkType: 'system/background_tasks_changed' }])
+    expect(sdkMessageToEvents({ type: 'system', subtype: 'background_tasks_changed', tasks: 'none', session_id: 's' })).toEqual([{ type: 'unknown', sdkType: 'system/background_tasks_changed' }])
   })
 
   it.each(allFixtures)('maps every message of %s without unknown events or exceptions', (name) => {
@@ -215,10 +274,14 @@ describe('agent event schema', () => {
 
   it('rejects an event of the wrong shape', () => {
     expect(agentEvent.safeParse({ type: 'state', state: 'sleeping', error: null }).success).toBe(false)
+    expect(agentEvent.safeParse({ type: 'background_tasks', tasks: [{ taskId: 1, taskType: null, description: null }] }).success).toBe(false)
+    expect(agentEvent.safeParse({ type: 'background_tasks_changed', tasks: [{ taskId: 'a', taskType: null, description: null, ambient: 'yes' }] }).success).toBe(false)
     expect(agentEvent.safeParse({ type: 'result', subtype: 'success', isError: 'no' }).success).toBe(false)
   })
 
   it('strips keys the schema does not declare', () => {
     expect(agentEvent.parse({ ...event, extra: 'x' })).toStrictEqual(event)
+    const tasks: Extract<AgentEvent, { type: 'background_tasks' }> = { type: 'background_tasks', tasks: [{ taskId: 'a', taskType: 'local_agent', description: 'd' }] }
+    expect(agentEvent.parse({ ...tasks, tasks: [{ ...tasks.tasks[0], prompt: 'secret' }] })).toStrictEqual(tasks)
   })
 })

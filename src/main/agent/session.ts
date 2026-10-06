@@ -26,6 +26,7 @@
 import { randomUUID } from 'node:crypto'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { messageLabel, type Attachment } from '../../shared/agent/attachments'
+import { emptyTaskFold, foldTaskEvent, isTaskEvent, liveTasks, sameTasks, type BackgroundTask, type TaskFold } from '../../shared/agent/background-tasks'
 import type { SlashCommand } from '../../shared/agent/commands'
 import { sdkMessageToEvents, type AgentEvent, type PermissionDecision, type QueueSnapshot, type SessionState } from '../../shared/agent/events'
 import {
@@ -216,6 +217,9 @@ export class Session {
   private configuring: Promise<unknown> = Promise.resolve()
   /** The model of the last system/init: the model list's fallback. */
   private initModel: string | null = null
+  /** The background tasks of the current Claude Code process (ADR-0029); a new process starts empty. */
+  private taskFold: TaskFold = emptyTaskFold()
+  private liveTaskList: BackgroundTask[] = []
   private readonly queue = new MessageQueue((snapshot) => this.emit({ type: 'queue', ...snapshot }))
   private readonly catalog = new CommandCatalog()
   private readonly permissions = new PermissionGate(
@@ -276,6 +280,14 @@ export class Session {
 
   info(): SessionInfo {
     return { sessionId: this.current, sdkSessionId: this.sdkSessionId, cwd: this.cwd, state: this.stateValue }
+  }
+
+  /**
+   * The live background tasks of the Session's Claude Code process, ambient ones left out
+   * (src/shared/agent/background-tasks.ts). Empty while no process runs.
+   */
+  backgroundTasks(): BackgroundTask[] {
+    return this.liveTaskList.map((task) => ({ ...task }))
   }
 
   controls(): SessionControls {
@@ -416,6 +428,8 @@ export class Session {
     } catch (error) {
       console.warn(`[agent] closing ${this.current} failed`, error)
     }
+    // Closing ends the process, and its background tasks with it.
+    this.resetTasks()
     this.setState('closed')
   }
 
@@ -444,6 +458,9 @@ export class Session {
   }
 
   private begin(): void {
+    // A new Claude Code process: the tasks of any earlier one are gone, and the new one reports
+    // its own only when they change.
+    this.resetTasks()
     const settings = this.settings
     const run: Run = { query: null, input: new InputQueue<SDKUserMessage>(), stderr: [], applied: settings }
     this.run = run
@@ -526,6 +543,8 @@ export class Session {
     run.input.end()
     this.run = null
     this.interrupted = false
+    // The process is gone, and its background tasks with it.
+    this.resetTasks()
     // What waits in the queue goes when the user asks ("Send queued"), not into a new process by itself.
     this.queue.pause()
     this.setState('error', error)
@@ -569,7 +588,21 @@ export class Session {
         continue
       }
       this.emit(event)
+      if (isTaskEvent(event)) this.trackTasks(foldTaskEvent(this.taskFold, event))
     }
+  }
+
+  /** Takes a new fold of the tasks; tells the subscribers when the live set changed. */
+  private trackTasks(fold: TaskFold): void {
+    this.taskFold = fold
+    const live = liveTasks(fold)
+    if (sameTasks(live, this.liveTaskList)) return
+    this.liveTaskList = live
+    this.emit({ type: 'background_tasks', tasks: live.map((task) => ({ ...task })) })
+  }
+
+  private resetTasks(): void {
+    this.trackTasks(emptyTaskFold())
   }
 
   private setState(state: SessionState, error: string | null = null): void {

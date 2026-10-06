@@ -30,7 +30,19 @@
 //   refused-dialog session, what     a Session asked for a person (a permission or a question)
 //                                    and the run refused it without one; what: which request
 //   human-input    source, what      a person stepped into the run; any such line is a defect
-//   run-stopped    reason            the run ended; reason: why, in a few words
+//   background-tasks tasks           the live background tasks of the run's Orchestrator Session
+//                                    changed (ADR-0029); tasks: every one now, possibly none; also
+//                                    written after run-stopped while the run waits to give the
+//                                    Orchestrator back
+//   run-stopped    reason, tasks?    the run ended; reason: why, in a few words; tasks: the
+//                                    background tasks alive then, when any were
+//   orchestrator-returned            after a run-stopped with live tasks: they have ended and the
+//                                    Orchestrator runs as a person's Session again
+//   tasks-killed   reason, tasks     the background tasks a stopped run still waited for were
+//                                    killed; reason: `app-quit`
+//
+// A task of `tasks` is {id, type, description}: the task id of Claude Code, its type
+// (`local_agent`, `local_bash`, …) and what it does, both null when Claude Code did not say.
 //
 // human-input. `source` says who writes the line:
 //   "worfy"     worfy itself, on the user's action in a Session of the run: a message to the
@@ -65,7 +77,10 @@ export const JOURNAL_EVENT_KINDS = [
   'session-error',
   'refused-dialog',
   'human-input',
+  'background-tasks',
   'run-stopped',
+  'orchestrator-returned',
+  'tasks-killed',
 ] as const
 export type JournalEventKind = (typeof JOURNAL_EVENT_KINDS)[number]
 
@@ -96,6 +111,7 @@ const isoTime = z.iso.datetime({ offset: true })
 const text = z.string().min(1)
 const wave = { wave: z.number().int().positive(), tickets: z.array(text) }
 const session = z.string().min(1).nullable()
+const tasks = z.array(z.object({ id: text, type: z.string().nullable(), description: z.string().nullable() }))
 
 const common = {
   at: isoTime,
@@ -117,7 +133,10 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
   event('session-error', { session, message: z.string() }),
   event('refused-dialog', { session, what: text }),
   event('human-input', { source: z.enum(HUMAN_INPUT_SOURCES), what: text }),
-  event('run-stopped', { reason: text }),
+  event('background-tasks', { tasks }),
+  event('run-stopped', { reason: text, tasks: tasks.optional() }),
+  event('orchestrator-returned', {}),
+  event('tasks-killed', { reason: text, tasks }),
 ])
 export type JournalEvent = z.output<typeof journalEventSchema>
 

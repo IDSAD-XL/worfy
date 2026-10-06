@@ -629,7 +629,7 @@ async function ipcOver(modules: Record<string, () => Promise<unknown>>): Promise
 const agentIpc = (registry: SessionRegistry) => ipcOver({ './agent.ts': async () => agentHandlers(() => registry) })
 
 describe('the autopilot channels', () => {
-  const state = (overrides: Partial<AutopilotState> = {}): AutopilotState => ({ projectId: 'p', epic: 'e', status: 'running', wave: 1, resumesAt: null, reason: null, message: null, revision: 3, ...overrides })
+  const state = (overrides: Partial<AutopilotState> = {}): AutopilotState => ({ projectId: 'p', epic: 'e', status: 'running', wave: 1, backgroundTasks: 0, resumesAt: null, reason: null, message: null, revision: 3, ...overrides })
 
   async function register() {
     const calls: unknown[][] = []

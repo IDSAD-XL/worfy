@@ -29,7 +29,10 @@ const everyKind: JournalEvent[] = [
   { ...base, at: at(32), kind: 'session-error', session: 'abc-123', message: 'spawn ENOENT' },
   { ...base, at: at(33), kind: 'refused-dialog', session: 'abc-123', what: 'AskUserQuestion' },
   { ...base, at: at(34), kind: 'human-input', source: 'worfy', what: 'message to the Orchestrator' },
+  { ...base, at: at(35), kind: 'background-tasks', tasks: [{ id: 'task-1', type: 'local_agent', description: 'Implement 01' }] },
   stopped,
+  { ...base, at: at(40), kind: 'orchestrator-returned' },
+  { ...base, at: at(41), kind: 'tasks-killed', reason: 'app-quit', tasks: [{ id: 'task-2', type: null, description: null }] },
 ]
 
 describe('parseJournal', () => {
@@ -81,6 +84,19 @@ describe('parseJournal', () => {
     const parsed = parseJournal(line({ ...stopped, secret: 'x', extra: { nested: true } }))
     expect(parsed).toEqual({ events: [stopped], skipped: 0 })
     expect(Object.keys(parsed.events[0]!)).not.toContain('secret')
+  })
+
+  it('reads the background tasks of a line only in their declared shape (ADR-0029)', () => {
+    const tasks = [{ id: 'task-1', type: 'local_agent', description: 'Implement 01' }]
+    const good = { ...base, at: at(5), kind: 'background-tasks', tasks }
+    const parsed = parseJournal(
+      line({ ...good, tasks: [{ ...tasks[0], prompt: 'the whole prompt' }] }) +
+        line({ ...good, tasks: [{ id: 7, type: null, description: null }] }) +
+        line({ ...base, at: at(6), kind: 'tasks-killed', reason: 'app-quit' }) +
+        line({ ...stopped, tasks: 'all of them' }),
+    )
+    expect(parsed).toEqual({ events: [good], skipped: 3 })
+    expect(JSON.stringify(parsed.events)).not.toContain('the whole prompt')
   })
 
   it('ignores blank lines without counting them, including CRLF endings', () => {

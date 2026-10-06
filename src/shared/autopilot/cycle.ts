@@ -3,11 +3,16 @@
 // the run's Orchestrator Session and fresh reads of the workflow model, and carries out its effects.
 //
 // A Wave is finished when the Orchestrator's turn ended with a `result` that is neither an error
-// nor interrupted, and in a fresh read of the workflow model no Ticket of the Wave is in work. A
-// Ticket still in work keeps the run settling: each workflow change checks again, a new turn of the
-// Orchestrator waits for its own result, and after SETTLE_MS without either the run stops with
-// `wave-unfinished`. After a finished Wave the next ready Wave is sent, unless there is none
-// (`no-ready-wave`) or it is the very Wave just finished (`no-progress`).
+// nor interrupted, the Session has no live background task and is idle (ADR-0029), and in a fresh
+// read of the workflow model no Ticket of the Wave is in work (ADR-0024). Live background tasks
+// keep the run in `tasks`: their task-notifications start turns of the Session, each of them a turn
+// of the Wave whose result checks again. Without any task event for BACKGROUND_STALL_MS the run
+// stops with `background-stalled`; with no task left and no turn within TASKS_GRACE_MS the Wave is
+// checked without that turn. A Ticket still in work keeps the run settling: each workflow change
+// checks again, a new turn of the Orchestrator waits for its own result, and after SETTLE_MS
+// without either the run stops with `wave-unfinished`. After a finished Wave the next ready Wave
+// is sent, unless there is none (`no-ready-wave`) or it is the very Wave just finished
+// (`no-progress`).
 //
 // Waves are counted per run from 1: `wave` is the run's count, not the Wave number of the Epic's
 // plan (that one goes into the text the Orchestrator gets, through the Project's template).
@@ -26,6 +31,7 @@ export const AUTOPILOT_STOP_REASONS = [
   'send-failed',
   'workflow-error',
   'limits-timeout',
+  'background-stalled',
   'user-stop',
   'app-quit',
 ] as const
@@ -34,16 +40,26 @@ export type AutopilotStopReason = (typeof AUTOPILOT_STOP_REASONS)[number]
 /** How long a run waits after the Orchestrator's turn for the Tickets of the Wave to leave work. */
 export const SETTLE_MS = 10 * 60_000
 
+/**
+ * How long a run waits for its background tasks without any event of theirs before it stops with
+ * `background-stalled` (ADR-0029): an implementer may wait for CI in one 10-minute Bash, and more
+ * than once; a hung Subagent holds the run an hour at most.
+ */
+export const BACKGROUND_STALL_MS = 60 * 60_000
+
+/** How long a run waits, after the last background task ended, for the turn its task-notification starts. */
+export const TASKS_GRACE_MS = 2 * 60_000
+
 type CycleTicket = Parameters<typeof readyWave>[0][number] & Pick<Ticket, 'state'>
 
 export interface CycleState {
   epic: string
   /**
    * starting: nothing sent yet; sending: "Run wave" is being sent; turn: the Wave is sent and the
-   * Orchestrator's turn runs; settling: the turn ended with Tickets of the Wave still in work;
-   * stopped: the run is over.
+   * Orchestrator's turn runs; tasks: the turn ended with background tasks of the Session alive;
+   * settling: the turn ended with Tickets of the Wave still in work; stopped: the run is over.
    */
-  phase: 'starting' | 'sending' | 'turn' | 'settling' | 'stopped'
+  phase: 'starting' | 'sending' | 'turn' | 'tasks' | 'settling' | 'stopped'
   /** The run's count of Waves sent, from 1; 0 before the first. */
   wave: number
   /** Ticket numbers of the current Wave, as it was sent. */
@@ -60,8 +76,17 @@ export type CycleEvent =
   | { type: 'send-failed'; message: string }
   /** The Orchestrator started a turn. */
   | { type: 'busy' }
-  /** The Orchestrator's turn ended (`result`); the Tickets of a fresh read made after it. */
-  | { type: 'turn-ended'; isError: boolean; interrupted: boolean; message: string | null; tickets: readonly CycleTicket[] }
+  /**
+   * The Orchestrator's turn ended (`result`); the Tickets of a fresh read made after it, and the
+   * Session as it is then: its live background tasks (not ambient), and whether it is idle (no
+   * turn has started since).
+   */
+  | { type: 'turn-ended'; isError: boolean; interrupted: boolean; message: string | null; tickets: readonly CycleTicket[]; tasks: number; idle: boolean }
+  /**
+   * In `tasks`, the time ran out: BACKGROUND_STALL_MS without a task event while `tasks` live, or
+   * TASKS_GRACE_MS after the last one ended without a turn. The Tickets of a fresh read.
+   */
+  | { type: 'tasks-timeout'; tasks: number; tickets: readonly CycleTicket[] }
   /** The workflow model changed (`workflow.changed`); the Tickets of a fresh read. */
   | { type: 'workflow'; tickets: readonly CycleTicket[] }
   /** SETTLE_MS passed since the run started settling. */
@@ -143,12 +168,18 @@ export function step(state: CycleState, event: CycleEvent): CycleStep {
     case 'send-failed':
       return state.phase === 'sending' ? stop(state, 'send-failed') : stay(state)
     case 'busy':
-      return state.phase === 'settling' ? stay({ ...state, phase: 'turn' }) : stay(state)
+      return state.phase === 'settling' || state.phase === 'tasks' ? stay({ ...state, phase: 'turn' }) : stay(state)
     case 'turn-ended':
-      if (state.phase !== 'turn' && state.phase !== 'settling') return stay(state)
+      if (state.phase !== 'turn' && state.phase !== 'settling' && state.phase !== 'tasks') return stay(state)
       if (event.interrupted) return stop(state, 'interrupted')
       if (event.isError) return stop(state, 'turn-error', [{ kind: 'session-error', message: event.message ?? 'The turn ended with an error' }])
+      // A turn started since (a task-notification, a queued message): its own result decides.
+      if (!event.idle) return stay({ ...state, phase: 'turn' })
+      if (event.tasks > 0) return stay({ ...state, phase: 'tasks' })
       return evaluate(state, event.tickets)
+    case 'tasks-timeout':
+      if (state.phase !== 'tasks') return stay(state)
+      return event.tasks > 0 ? stop(state, 'background-stalled') : evaluate(state, event.tickets)
     case 'workflow':
       return state.phase === 'settling' ? evaluate(state, event.tickets) : stay(state)
     case 'settle-timeout':

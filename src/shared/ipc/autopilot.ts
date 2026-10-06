@@ -20,6 +20,11 @@ export const autopilotStateSchema = z.object({
   epic: epicNameSchema.nullable(),
   status: z.enum(['running', 'waiting', 'stopped']),
   wave: z.number().int().nonnegative(),
+  /**
+   * The live background tasks of the run's Orchestrator Session (ADR-0029), ambient ones left out;
+   * 0 when the run is stopped.
+   */
+  backgroundTasks: z.number().int().nonnegative(),
   /** While `waiting`: when the run sends the Orchestrator on, in milliseconds since the epoch; else null. */
   resumesAt: z.number().int().nonnegative().nullable(),
   reason: z.enum(AUTOPILOT_STOP_REASONS).nullable(),
@@ -50,14 +55,19 @@ export interface StatusLineOptions {
 }
 
 /**
- * The status line of the Epic's Autopilot action: `Wave 3 · running`, `waiting for limits · resumes
- * 14:20`, `stopped: no ready wave`.
+ * The status line of the Epic's Autopilot action: `Wave 3 · running`, `Wave 3 · 4 background
+ * tasks` (ADR-0029), `waiting for limits · resumes 14:20`, `stopped: no ready wave`.
  */
 export function autopilotStatusLine(
-  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt'>>,
+  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt' | 'backgroundTasks'>>,
   options: StatusLineOptions = {},
 ): string | null {
-  if (state.status === 'running') return state.wave === 0 ? 'starting' : `Wave ${state.wave} · running`
+  if (state.status === 'running') {
+    if (state.wave === 0) return 'starting'
+    const tasks = state.backgroundTasks ?? 0
+    if (tasks > 0) return `Wave ${state.wave} · ${tasks} background ${tasks === 1 ? 'task' : 'tasks'}`
+    return `Wave ${state.wave} · running`
+  }
   if (state.status === 'waiting') {
     if (state.resumesAt === null || state.resumesAt === undefined) return 'waiting for limits'
     const at = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: options.timeZone }).format(state.resumesAt)
