@@ -66,6 +66,12 @@ export interface SessionOptionsInput {
   runtime: RuntimeInfo
   /** Session id to continue, when the Session is resumed. */
   resume?: string | undefined
+  /**
+   * The id of a new SDK session (worfy-daily ticket 24): Claude Code starts the conversation under
+   * it and writes it to its entry in ~/.claude/sessions before system/init. Ignored with `resume`:
+   * the SDK takes it there only together with forkSession, which worfy never asks for.
+   */
+  sessionId?: string | undefined
   /** Receives Claude Code's stderr, to explain a crash. */
   stderr?: ((data: string) => void) | undefined
   /** Absent when the Session's cwd is in no Project: it then runs without canvas tools. */
@@ -104,6 +110,7 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   if (settings.model !== null) options.model = settings.model
   if (settings.effort !== null) options.effort = settings.effort
   if (input.resume !== undefined) options.resume = input.resume
+  else if (input.sessionId !== undefined) options.sessionId = input.sessionId
   if (input.stderr !== undefined) options.stderr = input.stderr
   if (input.canUseTool !== undefined) options.canUseTool = input.canUseTool
   const allowlist = input.mcpAllowlist ?? null

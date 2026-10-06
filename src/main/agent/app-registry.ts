@@ -51,6 +51,7 @@ export function sdkQueryFactory(canvas: CanvasResolver = canvasForSession, mcpAl
       env: environment.env,
       runtime: { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch },
       resume: request.resume,
+      sessionId: request.sessionId,
       stderr: request.stderr,
       canvas: attached?.attachment,
       settings: request.settings,
@@ -70,6 +71,8 @@ export function queryFactoryFromEnv(env: NodeJS.ProcessEnv = process.env): Query
     scriptsDir: env.WORFY_AGENT_SCRIPTS ?? join(app.getAppPath(), 'test', 'fixtures', 'agent-scripts'),
     script: env.WORFY_AGENT_SCRIPT ?? 'turn',
     record: log ? (call) => appendFileSync(log, `${JSON.stringify(call)}\n`) : undefined,
+    // WORFY_AGENT_REGISTRY=1: each fake Claude Code writes its entry to <WORFY_CLAUDE_HOME>/sessions, as the real one does.
+    registryHome: env.WORFY_AGENT_REGISTRY === '1' ? env.WORFY_CLAUDE_HOME : undefined,
   })
 }
 

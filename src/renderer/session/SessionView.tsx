@@ -127,6 +127,8 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const busy = state === 'busy' || state === 'needs_permission'
   const model = facts.model ?? view?.model ?? null
   const heading = orchestrator !== undefined || nodeSession === undefined ? 'Orchestrator' : 'Session'
+  // «orch» is the Orchestrator's alone; any other Session answers as «claude», as a read-only one does (worfy-daily ticket 24).
+  const assistantLabel = orchestrator !== undefined || savedNode?.kind === 'orchestrator' ? 'orch' : 'claude'
   const { settings } = useSessionControls(sessionId)
 
   // The transcript shows the message when main gives it to Claude Code (a `prompt` event): at
@@ -207,7 +209,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
       </header>
       <div className="w-session__body">
         <section className="w-session__main" aria-label="Session">
-          <Transcript events={events} firstIndex={firstIndex} sessionId={sessionId} projectId={projectId} assistantLabel="orch" />
+          <Transcript events={events} firstIndex={firstIndex} sessionId={sessionId} projectId={projectId} assistantLabel={assistantLabel} />
           <MessageInput key={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} onSend={send} onInterrupt={interrupt} />
         </section>
         <SessionRail blocks={blocks} projectId={projectId} nodeId={nodeId} sessionId={sessionId} />

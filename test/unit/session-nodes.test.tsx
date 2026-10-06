@@ -6,9 +6,12 @@ import {
   readSessionNodeData,
   sessionNodeId,
   SESSION_KIND,
+  sessionRow,
   sessionSourceLabel,
   sessionStatus,
   worfySessionIds,
+  worfySessions,
+  worfySessionTitle,
 } from '../../src/renderer/claude-home/session-nodes'
 
 // Which Session Nodes the Canvas needs for the Project's live Sessions (ticket 14): one Node per
@@ -109,5 +112,93 @@ describe('the status of a Session Node', () => {
   it('reads the Node data it wrote and refuses what it did not', () => {
     expect(readSessionNodeData({ sessionId: 'S', origin: 'external', source: 'desktop', cwd: '/a', extra: 1 })).toEqual({ sessionId: 'S', origin: 'external', source: 'desktop', cwd: '/a' })
     expect(readSessionNodeData({ sessionId: 5 })).toBeNull()
+  })
+})
+
+// worfy-daily ticket 24: worfy's own Sessions in the sidebar and on the Canvas.
+describe('a Session worfy runs, before Claude Code reports it in system/init', () => {
+  it('gets no read-only Node from its registry entry: its id is known to worfy from the start', () => {
+    // A new Session Node does not name its Session yet; main's view already has the id worfy gave it.
+    const nodes = [orchestrator(null), node({ id: 'n-live', kind: SESSION_KIND, data: { origin: 'worfy' } })]
+    const own = worfySessions({
+      nodes,
+      orchestrators: [{ projectId: 'p', nodeId: 'orch', sessionId: 'S-orch', state: 'idle' }],
+      sessionNodes: [{ projectId: 'p', nodeId: 'n-live', sessionId: 'S-new', sdkSessionId: null, state: 'idle' }],
+      projectId: 'p',
+      history: [],
+    })
+    const worfyIds = worfySessionIds(nodes, [...own.keys()])
+    const plan = planSessionNodes({ live: [live('S-orch', { entrypoint: 'sdk-ts' }), live('S-new', { entrypoint: 'sdk-ts' })], nodes, worfyIds, seen: new Set() })
+    expect(plan).toEqual({ create: [], remove: [] })
+  })
+})
+
+describe('the sidebar row of a live Session', () => {
+  const history = [{ sessionId: 'S-saved', title: 'Fix the tests' }]
+  const nodes = [
+    orchestrator('S-orch-saved'),
+    node({ id: 'n-new', kind: SESSION_KIND, data: { origin: 'worfy' } }),
+    node({ id: 'n-saved', kind: SESSION_KIND, data: { origin: 'worfy', sessionId: 'S-saved' } }),
+    node({ id: 'n-other', kind: 'ticket', data: { sessionId: 'S-ticket' } }),
+    external('S-cli'),
+  ]
+  const own = worfySessions({
+    nodes,
+    orchestrators: [
+      { projectId: 'p', nodeId: 'orch', sessionId: 'pending-orch', state: 'needs_permission' },
+      { projectId: 'other', nodeId: 'orch-2', sessionId: 'S-elsewhere', state: 'idle' },
+    ],
+    sessionNodes: [
+      { projectId: 'p', nodeId: 'n-new', sessionId: 'S-new', sdkSessionId: null, state: 'busy' },
+      { projectId: 'p', nodeId: 'n-saved', sessionId: 'pending-saved', sdkSessionId: 'S-saved', state: 'idle' },
+      { projectId: 'p', nodeId: 'n-gone', sessionId: 'S-closed', sdkSessionId: 'S-closed', state: 'closed' },
+    ],
+    projectId: 'p',
+    history,
+  })
+  const worfyIds = worfySessionIds(nodes, [...own.keys()])
+  const row = (session: LiveSession, title = 'auto-name') => sessionRow(session, worfyIds, own, title)
+
+  it('says «worfy» and the name on its Node for a Session worfy runs, whichever of its ids the registry has', () => {
+    expect(row(live('S-orch-saved', { entrypoint: 'sdk-ts' }))).toMatchObject({ source: 'worfy', name: 'Orchestrator' })
+    expect(row(live('pending-orch', { entrypoint: 'sdk-ts' }))).toMatchObject({ source: 'worfy', name: 'Orchestrator' })
+    expect(row(live('S-new', { entrypoint: 'sdk-ts' }))).toMatchObject({ source: 'worfy', name: 'New session' })
+    expect(row(live('S-saved', { entrypoint: 'sdk-ts' }))).toMatchObject({ source: 'worfy', name: 'Fix the tests' })
+    // Named by a Node that is neither: worfy's, under the registry's name.
+    expect(row(live('S-ticket', { entrypoint: 'sdk-ts' }))).toMatchObject({ source: 'worfy', name: 'auto-name' })
+  })
+
+  it('shows the state its Node shows, not the registry’s status', () => {
+    // Claude Code writes no idle/busy for an SDK Session: the registry says `unknown`, which reads «live».
+    expect(row(live('S-orch-saved', { status: 'unknown' })).chip).toEqual({ status: 'blocked', label: 'needs permission' })
+    expect(row(live('S-new', { status: 'unknown' })).chip).toEqual({ status: 'working', label: 'busy' })
+    // No view of it in this window: the registry's status.
+    expect(row(live('S-ticket', { status: 'idle' })).chip).toEqual({ status: 'ready', label: 'idle' })
+  })
+
+  it('does not make an `sdk-ts` Session worfy’s that worfy does not run', () => {
+    expect(row(live('S-script', { entrypoint: 'sdk-ts', status: 'unknown' }), 'my-script')).toEqual({ source: 'terminal', name: 'my-script', chip: { status: 'ready', label: 'live' } })
+    // A Session of another Project's Orchestrator, or a closed one, is not counted either.
+    expect(row(live('S-elsewhere', { entrypoint: 'sdk-ts' })).source).toBe('terminal')
+    expect(row(live('S-closed', { entrypoint: 'sdk-ts' })).source).toBe('terminal')
+  })
+
+  it('says «terminal» for a Session from a terminal and «desktop» for one from Claude desktop', () => {
+    expect(row(live('S-cli', { entrypoint: 'cli' }), 'fix-tests')).toMatchObject({ source: 'terminal', name: 'fix-tests' })
+    expect(row(live('S-desk', { entrypoint: 'claude-desktop' }))).toMatchObject({ source: 'desktop' })
+    expect(row(live('S-none', {}))).toMatchObject({ source: 'terminal' })
+  })
+
+  it('takes the worfy ids from the Nodes and from main’s views alike', () => {
+    expect([...own.keys()].sort()).toEqual(['S-new', 'S-orch-saved', 'S-saved', 'S-ticket', 'pending-orch', 'pending-saved'])
+  })
+})
+
+describe('the name of a Session worfy runs on a Session Node', () => {
+  it('is its transcript’s title, «New session» before it has an id, «Session <id>» otherwise', () => {
+    const history = [{ sessionId: 'S-1', title: 'Fix the tests' }, { sessionId: 'S-2' }]
+    expect(worfySessionTitle('S-1', history)).toBe('Fix the tests')
+    expect(worfySessionTitle('S-2abcdefgh', history)).toBe('Session S-2abcde')
+    expect(worfySessionTitle(undefined, history)).toBe('New session')
   })
 })

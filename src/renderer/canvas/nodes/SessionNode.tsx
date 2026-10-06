@@ -8,6 +8,7 @@ import {
   readWorfySessionNodeData,
   sessionSourceLabel,
   sessionStatus,
+  worfySessionTitle,
   type SESSION_HEIGHT,
   type SESSION_KIND,
   type SESSION_WIDTH,
@@ -179,7 +180,7 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
 
   const saved = info.sessionId
   const recorded = saved === undefined ? undefined : history.find((each) => each.sessionId === saved)
-  const title = recorded?.title ?? (saved === undefined ? 'New session' : `Session ${saved.slice(0, 8)}`)
+  const title = worfySessionTitle(saved, history)
   const chip: { status: Status; label: string } = running ? STATE_CHIPS[view.state] : saved === undefined ? { status: 'ready', label: 'new' } : { status: 'done', label: 'finished' }
   const cwd = (running ? view.cwd : undefined) ?? recorded?.cwd ?? project.path
   const busy = running && view.state === 'busy'
