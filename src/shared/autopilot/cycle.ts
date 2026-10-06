@@ -24,6 +24,7 @@ export const AUTOPILOT_STOP_REASONS = [
   'interrupted',
   'session-closed',
   'send-failed',
+  'workflow-error',
   'user-stop',
   'app-quit',
 ] as const
@@ -64,6 +65,8 @@ export type CycleEvent =
   | { type: 'workflow'; tickets: readonly CycleTicket[] }
   /** SETTLE_MS passed since the run started settling. */
   | { type: 'settle-timeout' }
+  /** The workflow model could not be read after the Orchestrator's turn. */
+  | { type: 'workflow-error'; message: string }
   /** The Orchestrator Session went to `error`. */
   | { type: 'session-error'; message: string }
   /** The Orchestrator Session closed. */
@@ -146,5 +149,7 @@ export function step(state: CycleState, event: CycleEvent): CycleStep {
       return state.phase === 'settling' ? evaluate(state, event.tickets) : stay(state)
     case 'settle-timeout':
       return state.phase === 'settling' ? stop(state, 'wave-unfinished') : stay(state)
+    case 'workflow-error':
+      return stop(state, 'workflow-error')
   }
 }

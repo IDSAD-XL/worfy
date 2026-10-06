@@ -96,6 +96,9 @@ export type QueryFactory = (request: QueryRequest) => Promise<QueryHandle>
 /** Receives every event of every Session, with the Session's current id. */
 export type EventSink = (sessionId: string, event: AgentEvent) => void
 
+/** Told when a person acts on a Session through the UI: what they did, in a few words. */
+export type InputListener = (session: Session, what: string) => void
+
 export interface SessionInfo {
   sessionId: string
   /** The SDK session it runs or will resume, once known: a resumed Session has it before its id is reported. */
@@ -565,8 +568,35 @@ export class Session {
 export class SessionRegistry {
   private readonly sessions = new Map<string, Session>()
   private readonly observers = new Set<EventSink>()
+  private readonly inputObservers = new Set<InputListener>()
 
   constructor(private readonly factory: QueryFactory) {}
+
+  /**
+   * Gets every action a person takes on a live Session through the UI (src/main/ipc/agent.ts):
+   * Autopilot (worfy-daily ticket 04) journals those on the Session of its run. Answers the
+   * unsubscribe.
+   */
+  observeInput(listener: InputListener): () => void {
+    this.inputObservers.add(listener)
+    return () => this.inputObservers.delete(listener)
+  }
+
+  /**
+   * A person acts on the Session `sessionId` through the UI; told before the action runs, whether
+   * the Session then takes it or refuses it. An id that is not live is ignored.
+   */
+  noteInput(sessionId: string, what: string): void {
+    const session = this.sessions.get(sessionId)
+    if (session === undefined) return
+    for (const listener of this.inputObservers) {
+      try {
+        listener(session, what)
+      } catch (error) {
+        console.warn('[agent] an input observer failed', error)
+      }
+    }
+  }
 
   /** Gets every event of every Session, besides the Session's own sink (notifications, src/main/notify.ts); answers the unsubscribe. */
   observe(listener: EventSink): () => void {

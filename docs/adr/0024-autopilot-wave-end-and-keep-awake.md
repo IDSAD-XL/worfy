@@ -24,7 +24,8 @@ Mac уснуть на время прогона.
    `no-progress`: второй раз то же самое не шлётся.
 4. **Остановка** с причиной: `no-ready-wave`, `no-progress`, `wave-unfinished`, `session-error`
    (Session в `error`: её очередь держится до «Send queued»), `turn-error` (ход закончился с
-   ошибкой), `interrupted` (ход прерван), `session-closed`, `send-failed` (шаблон не отрендерился),
+   ошибкой), `interrupted` (ход прерван), `session-closed`, `send-failed` (шаблон не отрендерился), `workflow-error` (модель workflow
+   не прочиталась после хода),
    `user-stop` (кнопка «Stop autopilot»), `app-quit`. Причина пишется в журнал прогона событием
    `run-stopped`.
 5. Wave-ы в журнале и в строке состояния нумеруются по прогону с 1. Номер Wave плана (`{wave}`

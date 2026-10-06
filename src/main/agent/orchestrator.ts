@@ -10,6 +10,12 @@
 // shows lives in memory, in the Orchestrator's view: the model and the last status block come from the saved session's transcript when the
 // Orchestrator opens (orchestrator-transcript.ts) and then from the live Session's events; the
 // state is the live Session's. Views go to the windows on `orchestrator.changed`.
+//
+// Autopilot (worfy-daily ticket 04, ADR-0024) runs the Orchestrator unattended for the time of a
+// run (setUnattended): its Session is started again with the unattended launch (ADR-0022),
+// continuing the same SDK session, and started again attended when the run ends — at once, or once
+// a turn that still runs has ended. The settings of an unattended Session are not saved: its forced
+// bypassPermissions would overwrite the mode the user picked for the Node.
 import type { AgentEvent } from '../../shared/agent/events'
 import { DEFAULT_SETTINGS, sameSettings, type SessionSettings } from '../../shared/agent/settings'
 import { findStatusBlock } from '../../shared/agent/status-block'
@@ -26,6 +32,7 @@ import { placeNewNode } from '../layout/place'
 import type { TranscriptFacts } from './orchestrator-transcript'
 import { closeRefusal } from './resume'
 import type { EventSink, Session, SessionRegistry } from './session'
+import { ATTENDED, type SessionLaunch } from './session-settings'
 
 /**
  * What Claude Code answers when asked to resume a session it has no transcript for (it removes
@@ -119,7 +126,14 @@ interface Entry {
   savedSessionId: string | null
   /** The settings last saved for the Node (or the defaults); every Session of the Orchestrator starts with them. */
   settings: SessionSettings
+  /** How the current Session runs: unattended while Autopilot has the Orchestrator. */
+  launch: SessionLaunch
+  /** A launch to switch to once the running turn ends; null when none waits. */
+  wanted: SessionLaunch | null
 }
+
+/** Why the Orchestrator's Session cannot be started again now: a turn is running. */
+const inTurn = (state: string): boolean => state === 'busy' || state === 'needs_permission'
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
@@ -161,6 +175,7 @@ export class Orchestrators {
     if (entry === undefined) throw new Error(`the Orchestrator of ${projectId} was stopped`)
     const refusal = closeRefusal(this.current(entry).state)
     if (refusal !== null) throw new Error(refusal)
+    if (entry.launch.unattended) throw new Error('Autopilot runs this Orchestrator: stop Autopilot before starting a new conversation')
     const old = entry.run
     if (old) {
       old.current = false
@@ -171,6 +186,45 @@ export class Orchestrators {
     const view = this.views.get(entry.nodeId)
     if (view === undefined) throw new Error(`the Orchestrator of ${projectId} has no view`)
     return view
+  }
+
+  /**
+   * Autopilot (worfy-daily ticket 04): starts the Orchestrator's Session again unattended, or
+   * attended again, continuing the same SDK session. Going unattended opens the Orchestrator first
+   * and is refused while a turn runs; going back to attended while a turn runs waits for the turn's
+   * end. Answers the view; for an Orchestrator that is not open, going attended does nothing.
+   */
+  async setUnattended(projectId: string, unattended: boolean): Promise<OrchestratorView | null> {
+    if (!unattended) {
+      const entry = this.entries.get(projectId)
+      if (entry === undefined) return null
+      await entry.ready
+      if (this.entries.get(projectId) !== entry || entry.cancelled) return null
+      if (!entry.launch.unattended) {
+        entry.wanted = null
+      } else if (inTurn(this.current(entry).state)) {
+        entry.wanted = ATTENDED
+      } else {
+        this.relaunch(entry, ATTENDED)
+      }
+      return this.views.get(entry.nodeId) ?? null
+    }
+    await this.open(projectId)
+    const entry = this.entries.get(projectId)
+    if (entry === undefined) throw new Error(`the Orchestrator of ${projectId} was stopped`)
+    entry.wanted = null
+    if (!entry.launch.unattended) {
+      if (inTurn(this.current(entry).state)) throw new Error('The Orchestrator is in a turn: wait for it to end, or Interrupt it, before starting Autopilot')
+      this.relaunch(entry, { unattended: true })
+    }
+    const view = this.views.get(entry.nodeId)
+    if (view === undefined) throw new Error(`the Orchestrator of ${projectId} has no view`)
+    return view
+  }
+
+  /** Whether the Project's Orchestrator runs unattended now. */
+  isUnattended(projectId: string): boolean {
+    return this.entries.get(projectId)?.launch.unattended ?? false
   }
 
   /** The last view of the Orchestrator behind a Node, or null. */
@@ -204,6 +258,8 @@ export class Orchestrators {
       cost: new CostCounter(saved.costUsd ?? 0),
       savedSessionId: saved.sessionId ?? null,
       settings: this.savedSettings(projectId, node.id),
+      launch: ATTENDED,
+      wanted: null,
     }
     entry.ready = this.start(entry)
     return entry
@@ -257,7 +313,7 @@ export class Orchestrators {
       statusBlock: facts.statusBlock,
     })
     try {
-      run.session = this.deps.registry.start(entry.path, resume, (sessionId, event) => this.onEvent(entry, run, sessionId, event), entry.settings)
+      run.session = this.deps.registry.start(entry.path, resume, (sessionId, event) => this.onEvent(entry, run, sessionId, event), entry.settings, entry.launch)
     } catch (error) {
       // E.g. the session is already live in another Session; the next open tries again.
       run.current = false
@@ -298,8 +354,11 @@ export class Orchestrators {
           }
         }
         if (event.state === 'closed' && this.entries.get(entry.projectId) === entry) this.entries.delete(entry.projectId)
+        if ((event.state === 'idle' || event.state === 'error') && entry.wanted !== null) this.relaunchLater(entry, run)
         break
       case 'settings':
+        // The forced bypassPermissions of an unattended Session is not the user's pick (ADR-0022).
+        if (entry.launch.unattended) break
         if (!sameSettings(entry.settings, event.settings)) {
           entry.settings = event.settings
           this.saveSettings(entry, event.settings)
@@ -333,6 +392,34 @@ export class Orchestrators {
     failed.session?.close()
     this.forgetSession(entry)
     this.launch(entry, undefined, { model: null, statusBlock: null })
+  }
+
+  /** Starts the Orchestrator's Session again with `launch`, continuing the saved SDK session. */
+  private relaunch(entry: Entry, launch: SessionLaunch): void {
+    entry.wanted = null
+    entry.launch = launch
+    const old = entry.run
+    if (old) {
+      old.current = false
+      old.session?.close()
+    }
+    // A new Claude Code process reports its cost from zero.
+    entry.cost.processEnded()
+    const view = this.current(entry)
+    this.launch(entry, entry.savedSessionId ?? undefined, { model: view.model, statusBlock: view.statusBlock })
+  }
+
+  /**
+   * The launch that waited for the turn's end: applied after the Session has finished handling
+   * the event that ended the turn (it may start a queued turn right after, which waits again).
+   */
+  private relaunchLater(entry: Entry, run: Run): void {
+    queueMicrotask(() => {
+      const wanted = entry.wanted
+      if (wanted === null || entry.run !== run || !run.current || entry.cancelled) return
+      if (inTurn(this.current(entry).state)) return
+      this.relaunch(entry, wanted)
+    })
   }
 
   /** A new session: no id to resume, and its cost starts from zero. */

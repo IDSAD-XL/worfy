@@ -12,7 +12,9 @@
 //   launch while its Session lives and refuses a second one for the same Ticket meanwhile
 //   (`launchedHint`); the button learns of it through `actions.launches.changed`.
 // - Run wave: the text goes to the Project's Orchestrator; while a turn runs it waits in the
-//   Orchestrator's queue (ticket 19).
+//   Orchestrator's queue (ticket 19). Autopilot (worfy-daily ticket 04) sends its Waves the same
+//   way (autopilotWave); while it runs in a Project, "Run wave" by hand is refused there, so a
+//   person's click does not put a second Wave on top of the run's.
 //
 // The agent is then bound to what it was launched for, with source `launch` (resolve.ts): once
 // Claude Code has reported the session id that names its transcript, the Binding goes into
@@ -20,6 +22,7 @@
 // The Ticket's status is changed by the agent and the `ticket` script inside the skill, never here;
 // worfy sees the change through its watch on `.scratch` (ticket 10).
 import { runWaveState, shipTicketState, ticketNumber } from '../../shared/actions/render-template'
+import { readyWave } from '../../shared/workflow/waves'
 import type { BindingTarget } from '../../shared/binding/resolve'
 import type { LaunchesSnapshot } from '../../shared/ipc/actions'
 import type { BindingAgent } from '../../shared/ipc/bindings'
@@ -70,6 +73,14 @@ export interface RunWaveResult {
   delivery: 'sent' | 'queued'
 }
 
+/** What Autopilot's "Run wave" sent, with the Tickets of the ready Wave it was sent for. */
+export interface AutopilotWaveResult extends RunWaveResult {
+  tickets: number[]
+}
+
+/** Why "Run wave" by hand is refused while Autopilot runs in the Project. */
+export const AUTOPILOT_RUNNING_HINT = 'Autopilot is running in this Project: stop it to run a Wave by hand'
+
 const POLL_MS = 250
 /** How often the Sessions "Ship ticket" launched are looked at to see whether they have closed. */
 const CLOSE_POLL_MS = 1000
@@ -96,8 +107,15 @@ export class ActionLauncher {
   private readonly starting = new Set<string>()
   private revision = 0
   private watching = false
+  /** Whether Autopilot runs in a Project now; "Run wave" by hand is refused meanwhile. */
+  private autopilot: { running(projectId: string): boolean } | null = null
 
   constructor(private readonly deps: LaunchDeps) {}
+
+  /** Autopilot tells the launcher where it runs, once it exists (src/main/ipc/autopilot.ts). */
+  attachAutopilot(autopilot: { running(projectId: string): boolean }): void {
+    this.autopilot = autopilot
+  }
 
   async shipTicket(projectId: string, epic: string, num: number): Promise<ShipTicketResult> {
     const key = launchKey(projectId, epic, num)
@@ -132,6 +150,17 @@ export class ActionLauncher {
   }
 
   async runWave(projectId: string, epic: string): Promise<RunWaveResult> {
+    if (this.autopilot?.running(projectId) === true) throw new Error(AUTOPILOT_RUNNING_HINT)
+    const { sessionId, text, delivery } = await this.sendWave(projectId, epic)
+    return { sessionId, text, delivery }
+  }
+
+  /** Autopilot's "Run wave": the same text to the same Orchestrator, and the Tickets it was for. */
+  autopilotWave(projectId: string, epic: string): Promise<AutopilotWaveResult> {
+    return this.sendWave(projectId, epic)
+  }
+
+  private async sendWave(projectId: string, epic: string): Promise<AutopilotWaveResult> {
     const root = this.deps.projectRoot(projectId)
     const [model, branch] = await Promise.all([this.model(root), this.deps.branch(root)])
     if (!model.epics.some((each) => each.epic === epic) && !model.tickets.some((each) => each.epic === epic)) throw new Error(`The Project has no Epic ${epic}`)
@@ -142,7 +171,8 @@ export class ActionLauncher {
     const session = this.deps.registry.get(view.sessionId)
     const delivery = session.send(state.text)
     this.bindWhenKnown(projectId, session, { kind: 'epic', epic })
-    return { sessionId: view.sessionId, text: state.text, delivery }
+    const tickets = readyWave(model.tickets, epic).ready.map((entry) => entry.num)
+    return { sessionId: view.sessionId, text: state.text, delivery, tickets }
   }
 
   /** Settles when every Binding started so far is written or given up; for tests. */
