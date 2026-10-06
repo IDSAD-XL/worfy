@@ -34,6 +34,7 @@ import {
   agentStart,
 } from '../../shared/ipc/agent'
 import { MAX_ATTACHMENTS, tooManyAttachments, type Attachment } from '../../shared/agent/attachments'
+import type { SettingsChange } from '../../shared/agent/settings'
 import { defineHandler, emit, type EventTarget, type HandlerModule } from './index'
 
 /** Sends a Session's events to a window, as long as the window is alive. */
@@ -106,7 +107,19 @@ export const appAttachDeps: AttachDeps = {
   },
 }
 
-/** The handlers over a registry; tests pass their own registry with the fake agent. */
+/** What a settings change touches, for the journal: `model`, `effort and permission mode`, … */
+function configured(change: SettingsChange): string {
+  const names = [change.model !== undefined && 'model', change.effort !== undefined && 'effort', change.permissionMode !== undefined && 'permission mode'].filter(
+    (name): name is string => typeof name === 'string',
+  )
+  if (names.length === 0) return 'settings'
+  return names.length === 1 ? names[0]! : `${names.slice(0, -1).join(', ')} and ${names.at(-1)!}`
+}
+
+/**
+ * The handlers over a registry; tests pass their own registry with the fake agent. Every action a
+ * person takes on a live Session is told to the registry's input observers first (noteInput).
+ */
 export function agentHandlers(registry: () => SessionRegistry, attachments: AttachDeps = appAttachDeps): HandlerModule {
   const own = ownership()
   // The messages of one Session reach it in the order they were sent, though checking the
@@ -128,6 +141,7 @@ export function agentHandlers(registry: () => SessionRegistry, attachments: Atta
     }),
     defineHandler(agentSend, ({ sessionId, text, attachments: attached }) => {
       const session = registry().get(sessionId)
+      registry().noteInput(sessionId, 'sent a message')
       const target = attachments.target(session.cwd)
       const checked = Promise.all(attached.map((each: Attachment) => recheck(each, target)))
       // Its refusal is answered below, once the messages before it are sent; not an unhandled rejection meanwhile.
@@ -154,9 +168,14 @@ export function agentHandlers(registry: () => SessionRegistry, attachments: Atta
       return { results: left.length === 0 ? results : [...results, { ok: false as const, name: left.join(', '), error: tooManyAttachments(left) }] }
     }),
     defineHandler(agentCommands, async ({ sessionId }) => ({ commands: await registry().get(sessionId).commands() })),
-    defineHandler(agentInterrupt, async ({ sessionId }) => ({ interrupted: await registry().get(sessionId).interrupt() })),
+    defineHandler(agentInterrupt, async ({ sessionId }) => {
+      const session = registry().get(sessionId)
+      registry().noteInput(sessionId, 'interrupted the turn')
+      return { interrupted: await session.interrupt() }
+    }),
     defineHandler(agentClose, ({ sessionId }) => {
       const session = registry().get(sessionId)
+      registry().noteInput(sessionId, 'closed the Session')
       // A turn is interrupted first (ticket 18); closing with the window or the app is not refused.
       const refusal = closeRefusal(session.state)
       if (refusal !== null) throw new Error(refusal)
@@ -164,13 +183,28 @@ export function agentHandlers(registry: () => SessionRegistry, attachments: Atta
     }),
     defineHandler(agentList, () => registry().list()),
     defineHandler(agentControls, ({ sessionId }) => registry().get(sessionId).controls()),
-    defineHandler(agentConfigure, ({ sessionId, change }) => registry().get(sessionId).configure(change)),
-    defineHandler(agentModels, async ({ sessionId }) => ({ models: await registry().get(sessionId).models() })),
-    defineHandler(agentQueueRemove, ({ sessionId, id }) => ({ removed: registry().get(sessionId).removeQueued(id) })),
-    defineHandler(agentQueueSend, ({ sessionId }) => {
-      registry().get(sessionId).sendQueued()
+    defineHandler(agentConfigure, ({ sessionId, change }) => {
+      const session = registry().get(sessionId)
+      // A refused change of mode is a person stepping in all the same (ADR-0022).
+      registry().noteInput(sessionId, `changed the ${configured(change)}`)
+      return session.configure(change)
     }),
-    defineHandler(agentPermission, ({ sessionId, requestId, decision }) => ({ answered: registry().get(sessionId).answerPermission(requestId, decision) })),
+    defineHandler(agentModels, async ({ sessionId }) => ({ models: await registry().get(sessionId).models() })),
+    defineHandler(agentQueueRemove, ({ sessionId, id }) => {
+      const session = registry().get(sessionId)
+      registry().noteInput(sessionId, 'removed a queued message')
+      return { removed: session.removeQueued(id) }
+    }),
+    defineHandler(agentQueueSend, ({ sessionId }) => {
+      const session = registry().get(sessionId)
+      registry().noteInput(sessionId, 'pressed Send queued')
+      session.sendQueued()
+    }),
+    defineHandler(agentPermission, ({ sessionId, requestId, decision }) => {
+      const session = registry().get(sessionId)
+      registry().noteInput(sessionId, 'answered a permission request')
+      return { answered: session.answerPermission(requestId, decision) }
+    }),
   ]
 }
 

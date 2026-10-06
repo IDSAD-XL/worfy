@@ -41,7 +41,7 @@ import {
 import { userContent } from './attachments'
 import { CommandCatalog, type CommandInfoLike } from './commands'
 import { PermissionGate, unattendedCanUseTool, type CanUseToolHandler } from './permissions'
-import { MessageQueue } from './queue'
+import { MessageQueue, type QueueEntry } from './queue'
 import { ATTENDED, launchSettings, settingsChangeRefusal, type SessionLaunch } from './session-settings'
 
 /** What accountInfo() returns, as far as worfy reads it (ADR-0009). */
@@ -95,6 +95,9 @@ export type QueryFactory = (request: QueryRequest) => Promise<QueryHandle>
 
 /** Receives every event of every Session, with the Session's current id. */
 export type EventSink = (sessionId: string, event: AgentEvent) => void
+
+/** Told when a person acts on a Session through the UI: what they did, in a few words. */
+export type InputListener = (session: Session, what: string) => void
 
 export interface SessionInfo {
   sessionId: string
@@ -310,6 +313,25 @@ export class Session {
   removeQueued(id: string): boolean {
     this.assertOpen()
     return this.queue.remove(id)
+  }
+
+  /**
+   * Takes the queue out for the Session that replaces this one (Orchestrators.relaunch): its
+   * messages, and whether they were held. Answers nothing once the Session is closed.
+   */
+  handOverQueue(): { items: QueueEntry[]; paused: boolean } {
+    if (this.closing) return { items: [], paused: false }
+    return this.queue.takeAll()
+  }
+
+  /**
+   * Takes over the queue of the Session this one replaces, held as it was there. Messages that were
+   * not held go once this Session is idle; held ones wait for "Send queued", as before.
+   */
+  adoptQueue(taken: { items: readonly QueueEntry[]; paused: boolean }): void {
+    this.assertOpen()
+    this.queue.adopt(taken)
+    if (!this.queue.paused && (this.stateValue === 'idle' || this.stateValue === 'error')) this.next()
   }
 
   /** "Send queued": lets a held queue go again; a Session with no turn running sends the next message now. */
@@ -565,8 +587,35 @@ export class Session {
 export class SessionRegistry {
   private readonly sessions = new Map<string, Session>()
   private readonly observers = new Set<EventSink>()
+  private readonly inputObservers = new Set<InputListener>()
 
   constructor(private readonly factory: QueryFactory) {}
+
+  /**
+   * Gets every action a person takes on a live Session through the UI (src/main/ipc/agent.ts):
+   * Autopilot (worfy-daily ticket 04) journals those on the Session of its run. Answers the
+   * unsubscribe.
+   */
+  observeInput(listener: InputListener): () => void {
+    this.inputObservers.add(listener)
+    return () => this.inputObservers.delete(listener)
+  }
+
+  /**
+   * A person acts on the Session `sessionId` through the UI; told before the action runs, whether
+   * the Session then takes it or refuses it. An id that is not live is ignored.
+   */
+  noteInput(sessionId: string, what: string): void {
+    const session = this.sessions.get(sessionId)
+    if (session === undefined) return
+    for (const listener of this.inputObservers) {
+      try {
+        listener(session, what)
+      } catch (error) {
+        console.warn('[agent] an input observer failed', error)
+      }
+    }
+  }
 
   /** Gets every event of every Session, besides the Session's own sink (notifications, src/main/notify.ts); answers the unsubscribe. */
   observe(listener: EventSink): () => void {

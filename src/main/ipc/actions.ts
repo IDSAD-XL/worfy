@@ -32,8 +32,8 @@ function broadcast(snapshot: LaunchesSnapshot): void {
 
 let shared: ActionLauncher | undefined
 
-/** The app's launcher, made on first use. */
-function sharedLauncher(): ActionLauncher {
+/** The app's launcher, made on first use; Autopilot (src/main/ipc/autopilot.ts) sends its Waves through it too. */
+export function sharedLauncher(): ActionLauncher {
   shared ??= new ActionLauncher({
     projectRoot: (projectId) => projectStore().get(projectId).path,
     settings: (projectId) => readProjectSettings(projectStore().dataDir(projectStore().get(projectId).id)),
