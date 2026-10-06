@@ -11,7 +11,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { readCheckout, readWorkflow, epicStatusRunner, type EpicStatusRunner } from '../../src/main/workflow/reader'
-import { WorkflowHub, WorkflowWatcher } from '../../src/main/workflow/watch'
+import { Debounce, WorkflowHub, WorkflowWatcher } from '../../src/main/workflow/watch'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { diffModels, type WorkflowDelta, type WorkflowModel } from '../../src/shared/workflow/types'
 import { generateScratch } from './scratch-gen'
@@ -460,6 +460,88 @@ describe('workflow watcher', () => {
 
     expect(peak).toBe(1)
     expect(checkoutReads).toBe(3)
+  })
+
+  it('reads during a steady stream of saves: saves every 200 ms for 3 s give a read before the stream ends', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const real = epicStatusRunner(home)
+    let checkoutReads = 0
+    const counting: EpicStatusRunner = async (cwd, ref) => {
+      if (ref === null) checkoutReads += 1
+      return real(cwd, ref)
+    }
+    const deltas: WorkflowDelta[] = []
+    const watcher = await startWatcher(repo, home, deltas, counting)
+    expect(checkoutReads).toBe(1)
+
+    const file = join(repo, '.scratch/demo/issues/03-third.md')
+    const original = readFileSync(file, 'utf8')
+    for (let i = 0; i < 15; i += 1) {
+      writeFileSync(file, original.replace(/^Status: .*$/m, `Status: blocked — save ${i}`))
+      await new Promise((done) => setTimeout(done, 200))
+    }
+    // Before max-wait every save restarted the 300 ms quiet period, and nothing was read until
+    // the stream stopped.
+    const readsDuringStream = checkoutReads - 1
+    const deltasDuringStream = deltas.filter((d) => d.tickets.some((t) => t.num === 3)).length
+    await watcher.idle()
+
+    expect(readsDuringStream).toBeGreaterThanOrEqual(1)
+    expect(deltasDuringStream).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('Debounce: quiet period with max-wait', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('fires no later than max-wait after the first event, however often events keep coming', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    const start = Date.now()
+    const fired: number[] = []
+    const debounce = new Debounce(300, 1000, () => fired.push(Date.now() - start))
+    // An event every 200 ms for 3 s: the quiet period alone would never end.
+    for (let at = 0; at < 3000; at += 200) {
+      debounce.trigger()
+      vi.advanceTimersByTime(200)
+    }
+    // Each series ends at its max-wait; the next event starts a new one.
+    expect(fired).toEqual([1000, 2000, 3000])
+
+    // A last event after the stream: the quiet period alone decides, then nothing more.
+    debounce.trigger()
+    vi.advanceTimersByTime(299)
+    expect(fired).toHaveLength(3)
+    vi.advanceTimersByTime(1)
+    expect(fired).toEqual([1000, 2000, 3000, 3300])
+    vi.advanceTimersByTime(5000)
+    expect(fired).toHaveLength(4)
+    expect(debounce.scheduled).toBe(false)
+  })
+
+  it('still waits only for the quiet period after a short burst, and cancel drops a scheduled call', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    let fired = 0
+    const debounce = new Debounce(300, 1000, () => (fired += 1))
+    debounce.trigger()
+    vi.advanceTimersByTime(60)
+    debounce.trigger()
+    vi.advanceTimersByTime(299)
+    expect(fired).toBe(0)
+    expect(debounce.scheduled).toBe(true)
+    vi.advanceTimersByTime(1)
+    expect(fired).toBe(1)
+    // The max-wait timer of the finished series is gone: it does not fire on its own later.
+    vi.advanceTimersByTime(2000)
+    expect(fired).toBe(1)
+
+    debounce.trigger()
+    debounce.cancel()
+    vi.advanceTimersByTime(2000)
+    expect(fired).toBe(1)
+    expect(debounce.scheduled).toBe(false)
   })
 })
 

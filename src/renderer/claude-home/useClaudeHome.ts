@@ -7,10 +7,19 @@
 //
 // The live list is asked again (`claudeHome.live`) when the registry changes and every
 // LIVE_POLL_MS while a Session is live: a process that dies without removing its registry file
-// changes no file, and only asking again shows that it is gone. The history (titles) is read again
-// once for a Session that is new to the renderer, and then on the next poll after its transcript
-// changed while it still has no title: the registry file can appear before the first prompt
-// creates the transcript. worfy never writes under ~/.claude.
+// changes no file, and only asking again shows that it is gone.
+//
+// The history (titles) is read once for a Session that appears in a live list and that no history
+// read has covered yet, and then on the next poll after its transcript changed while it still has
+// no title. The second read exists because Claude Code writes the registry file before the first
+// prompt creates the transcript: the read made when the Session appears finds no transcript, so the
+// title can only come from a later one. A Session that a `claudeHome.sessions` answer already
+// listed as live counts as read: the history in that same answer covered it (ticket worfy-daily/09
+// removed the second read that followed it).
+//
+// Answers can arrive out of order (a slow history read, then a quick live one). Each request takes
+// a number; an answer older than the one already shown for its part (live list or history) is
+// dropped. worfy never writes under ~/.claude.
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { AgentEvent } from '../../shared/agent/events'
@@ -63,9 +72,17 @@ function setEntry(root: string, change: Partial<ClaudeHomeEntry>): void {
 
 const users = new Map<string, number>()
 const polls = new Map<string, ReturnType<typeof setInterval>>()
-/** Live Sessions the history was read again for, by root: one more read each, not one per poll. */
+/**
+ * Live Sessions whose history was read since they appeared, by root: listed live by a
+ * `claudeHome.sessions` answer, or given their one read by `refreshLive`.
+ */
 const reread = new Map<string, Set<string>>()
-/** Live Sessions without a title whose transcript changed since the history was read, by root. */
+/** Number of the latest `claudeHome.sessions` or `claudeHome.live` request, for every root. */
+let lastRequest = 0
+/** The newest request whose answer is shown, by root and part; older answers are dropped. */
+const applied = new Map<string, { live: number; history: number }>()
+const NONE_APPLIED = { live: 0, history: 0 }
+/** Sessions without a title whose transcript changed since the history was read, by root. */
 const untitled = new Map<string, Set<string>>()
 /** Readers of each transcript, by transcriptKey. */
 const readers = new Map<string, () => void>()
@@ -85,12 +102,27 @@ function schedulePoll(root: string): void {
   }
 }
 
+function readFor(root: string): Set<string> {
+  const read = reread.get(root) ?? new Set<string>()
+  reread.set(root, read)
+  return read
+}
+
 async function refreshAll(root: string): Promise<void> {
+  const request = (lastRequest += 1)
   const result = await invoke('claudeHome.sessions', { projectRoot: root })
   if (!users.has(root)) return
-  if (result.ok) setEntry(root, { live: result.value.live, history: result.value.history, error: undefined })
-  else {
+  const shown = applied.get(root) ?? NONE_APPLIED
+  if (request < shown.history) return // a newer answer is on screen
+  if (result.ok) {
+    const newerLive = request < shown.live
+    applied.set(root, { live: newerLive ? shown.live : request, history: request })
+    const read = readFor(root)
+    for (const session of result.value.live) read.add(session.sessionId)
+    setEntry(root, { ...(newerLive ? {} : { live: result.value.live }), history: result.value.history, error: undefined })
+  } else {
     console.error(`claudeHome.sessions ${root} failed:`, result.error)
+    applied.set(root, { ...shown, history: request })
     setEntry(root, { error: result.error })
   }
   schedulePoll(root)
@@ -103,19 +135,33 @@ function wantsTitle(root: string, sessionId: string): boolean {
   return entry.history.find((session) => session.sessionId === sessionId)?.title === undefined
 }
 
+/**
+ * A Session that may still need a title: no name in the registry, no title in the history. Unlike
+ * `wantsTitle` it does not ask for the Session to be in the live list yet, so a transcript change
+ * that arrives before the answer listing the Session as live is kept until the next poll.
+ */
+function mayWantTitle(root: string, sessionId: string): boolean {
+  const entry = useClaudeHomeStore.getState().byRoot[root]
+  if (entry?.live?.some((session) => session.sessionId === sessionId && session.name !== undefined) === true) return false
+  return entry?.history.find((session) => session.sessionId === sessionId)?.title === undefined
+}
+
 async function refreshLive(root: string): Promise<void> {
+  const request = (lastRequest += 1)
   const result = await invoke('claudeHome.live', { projectRoot: root })
   if (!users.has(root)) return
   if (!result.ok) {
     console.error(`claudeHome.live ${root} failed:`, result.error)
     return
   }
+  const shown = applied.get(root) ?? NONE_APPLIED
+  if (request < shown.live) return // a newer live list is on screen
+  applied.set(root, { ...shown, live: request })
   const entry = useClaudeHomeStore.getState().byRoot[root] ?? EMPTY
   const known = new Set(entry.history.map((session) => session.sessionId))
-  const asked = reread.get(root) ?? new Set<string>()
-  reread.set(root, asked)
+  const asked = readFor(root)
   setEntry(root, { live: result.value.live, error: undefined })
-  // A Session that started since the history was read: read it again once, for its title.
+  // A Session that started since the history was read: read it once, for its title.
   const fresh = result.value.live.filter((session) => !known.has(session.sessionId) && !asked.has(session.sessionId))
   for (const session of fresh) asked.add(session.sessionId)
   // A Session whose transcript changed while it had no title: its first prompt may be there now.
@@ -130,7 +176,7 @@ function onChanged(change: { projectRoot: string; sessions: boolean; transcripts
   if (!users.has(root)) return
   if (change.sessions) void refreshLive(root)
   for (const sessionId of change.transcripts) {
-    if (wantsTitle(root, sessionId)) untitled.set(root, (untitled.get(root) ?? new Set()).add(sessionId))
+    if (mayWantTitle(root, sessionId)) untitled.set(root, (untitled.get(root) ?? new Set()).add(sessionId))
     readers.get(transcriptKey(root, sessionId))?.()
   }
 }
@@ -161,6 +207,7 @@ function release(root: string): void {
   }
   users.delete(root)
   reread.delete(root)
+  applied.delete(root)
   untitled.delete(root)
   const timer = polls.get(root)
   if (timer !== undefined) clearInterval(timer)
