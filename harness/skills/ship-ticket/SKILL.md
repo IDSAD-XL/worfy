@@ -239,7 +239,10 @@ if [ -z "$id" ]; then echo "НЕТ RUN"; else
   set -o pipefail; gh run watch "$id" --exit-status --compact --interval 30 | tail -n 5; echo "КОД=$?"; fi
 ```
 
-`НЕТ RUN` — не красный CI: run ещё не создан, или PR в `DIRTY` (см. выше).
+`НЕТ RUN` — не красный CI: run ещё не создан, или PR в `DIRTY` (см. выше), или PR меняет только
+пути, которые CI проекта пропускает (`paths-ignore` в workflow, обычно документы). В последнем
+случае финиш — локальный gate fast с кодом 0 и комментарий в PR «CI skipped: docs-only change».
+Что CI проекта не гоняет и что поэтому обязательно локально перед мержем — `rules.md` профиля.
 
 ## 9. Мерж — отдельным шагом, по зелёному
 
