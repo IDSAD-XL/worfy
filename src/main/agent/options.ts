@@ -12,6 +12,16 @@
 // (canUseTool, ticket 21, src/main/agent/permissions.ts). An unattended Session (Autopilot,
 // worfy-daily ticket 02, src/main/agent/session-settings.ts) starts in bypassPermissions whatever
 // mode its settings carry; its Subagents, those of workflow scripts included, inherit the mode.
+//
+// MCP servers (ADR-0021, worfy-daily ticket 06): a Session in a Project gets only the servers on
+// its Profile's list (src/main/workflow/profile.ts). The list goes to Claude Code as the policy
+// tier (`managedSettings`): `allowedMcpServers` filters every server the user's settings bring —
+// user, project and local config, plugins, claude.ai connectors — and `allowManagedMcpServersOnly`
+// keeps an `allowedMcpServers` in the user's own settings from widening it. settingSources stay
+// as they are, so CLAUDE.md, hooks and skills still come from the user (ADR-0002). The policy
+// covers the whole Claude Code process, so the Session's Subagents get the same set. It does not
+// cover servers passed in `mcpServers`, so `worfy-canvas` is passed only when the list names it.
+// Checked against Claude Code 2.1.289 / SDK 0.3.289 (the ticket's summary).
 import { join } from 'node:path'
 import type { McpServerConfig, Options } from '@anthropic-ai/claude-agent-sdk'
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../shared/agent/settings'
@@ -66,6 +76,11 @@ export interface SessionOptionsInput {
   canUseTool?: CanUseToolHandler | undefined
   /** No person is at the Session: it runs in bypassPermissions whatever `settings` say. */
   unattended?: boolean | undefined
+  /**
+   * The MCP servers the Project's Profile allows (ADR-0021). Absent or null — a Session outside a
+   * Project — leaves the user's servers as they are.
+   */
+  mcpAllowlist?: readonly string[] | null | undefined
 }
 
 export function sessionOptions(input: SessionOptionsInput): Options {
@@ -91,11 +106,17 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   if (input.resume !== undefined) options.resume = input.resume
   if (input.stderr !== undefined) options.stderr = input.stderr
   if (input.canUseTool !== undefined) options.canUseTool = input.canUseTool
+  const allowlist = input.mcpAllowlist ?? null
+  if (allowlist !== null) {
+    options.managedSettings = { allowManagedMcpServersOnly: true, allowedMcpServers: allowlist.map((serverName) => ({ serverName })) }
+  }
   if (input.canvas) {
-    // Added to the user's own MCP servers from settingSources, not instead of them.
-    options.mcpServers = { [CANVAS_SERVER_NAME]: input.canvas.server }
     options.additionalDirectories = [input.canvas.cardsDir]
-    options.systemPrompt = { type: 'preset', preset: 'claude_code', append: input.canvas.instructions }
+    if (allowlist === null || allowlist.includes(CANVAS_SERVER_NAME)) {
+      // Added to the user's own MCP servers from settingSources, not instead of them.
+      options.mcpServers = { [CANVAS_SERVER_NAME]: input.canvas.server }
+      options.systemPrompt = { type: 'preset', preset: 'claude_code', append: input.canvas.instructions }
+    }
   }
   return options
 }

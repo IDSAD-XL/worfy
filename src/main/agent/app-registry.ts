@@ -11,6 +11,8 @@ import { fakeQueryFactory } from './fake-query'
 import { appLimits } from './limits'
 import { sessionOptions } from './options'
 import { canvasForSession, type CanvasResolver, type CanvasSession } from '../mcp/canvas-server'
+import { claudeHome } from '../storage/paths'
+import { readMcpAllowlist } from '../workflow/profile'
 import { SessionRegistry, type QueryFactory, type QueryHandle, type QueryRequest } from './session'
 
 /** The canvas of a Session (ticket 24); a failure leaves the Session without canvas tools rather than without a Session. */
@@ -23,10 +25,21 @@ async function canvasOrNull(canvas: CanvasResolver, request: QueryRequest): Prom
   }
 }
 
-/** Claude Code through the Agent SDK, with the user's login shell environment and the Project's canvas. */
-export function sdkQueryFactory(canvas: CanvasResolver = canvasForSession): QueryFactory {
+/** The MCP servers a Session in the Project at `cwd` may use (ADR-0021); never rejects. */
+export type McpAllowlistResolver = (cwd: string) => Promise<readonly string[]>
+
+/** The list from the Profile of the Project the Session runs in, or the default list (profile.ts). */
+const profileAllowlist: McpAllowlistResolver = async (cwd) => (await readMcpAllowlist({ root: cwd, claudeHome: claudeHome() })).servers
+
+/**
+ * Claude Code through the Agent SDK, with the user's login shell environment and the Project's
+ * canvas. A Session in a Project (one the canvas attaches to) gets only the MCP servers its Profile
+ * lists; a Session outside every Project, or whose canvas failed, keeps the user's servers as they are.
+ */
+export function sdkQueryFactory(canvas: CanvasResolver = canvasForSession, mcpAllowlist: McpAllowlistResolver = profileAllowlist): QueryFactory {
   return async (request) => {
     const [{ query }, environment, attached] = await Promise.all([import('@anthropic-ai/claude-agent-sdk'), agentEnv(), canvasOrNull(canvas, request)])
+    const allowlist = attached ? await mcpAllowlist(request.cwd) : null
     const options = sessionOptions({
       cwd: request.cwd,
       env: environment.env,
@@ -37,6 +50,7 @@ export function sdkQueryFactory(canvas: CanvasResolver = canvasForSession): Quer
       settings: request.settings,
       canUseTool: request.canUseTool,
       unattended: request.unattended,
+      mcpAllowlist: allowlist,
     })
     const handle = query({ prompt: request.prompt, options }) as QueryHandle
     return attached ? attached.observe(handle) : handle
