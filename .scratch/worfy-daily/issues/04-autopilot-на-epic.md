@@ -140,6 +140,11 @@ Autopilot над самим worfy запускается только на ст�
   (совпадает `git rev-parse --git-common-dir`).
 - **Выход из приложения во время прогона.** `before-quit` откладывает выход, пока прогоны не
   запишут `run-stopped` с `app-quit`, не дольше 3 секунд (`src/main/ipc/autopilot.ts`).
+- **«stopped» только после конца.** Прогон считается идущим (`running`, причина `null`), пока не
+  записан `run-stopped`, не снят keep-awake и не возвращён Orchestrator. Первый CI run поймал
+  гонку: состояние говорило `stopped` раньше, чем строка `run-stopped` попадала в журнал. Test
+  «reports a run stopped only once its end is journaled and keep-awake released» (медленный журнал)
+  краснеет на мутанте, который берёт статус из фазы цикла.
 - **UI.** `AutopilotAction.tsx`: «Autopilot» активна по тому же вердикту, что «Run wave»
   (`useRunWaveState`), и пока в Project нет прогона. Строка состояния стоит под кнопкой, а не
   рядом: в узкой рамке Epic рядом с «Run wave» она съедала заголовок Epic-а целиком (видно на первом

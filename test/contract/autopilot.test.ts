@@ -127,6 +127,8 @@ interface HarnessOptions {
   agentMarksDone?: boolean
   selfRefusal?: AutopilotDeps['selfRefusal']
   settleMs?: number
+  /** Each journal line is written this much later, as on a slow disk. */
+  slowJournalMs?: number
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -190,7 +192,16 @@ function harness(options: HarnessOptions = {}) {
     orchestrators,
     registry,
     waves: launcher,
-    journal: (start) => openRun(start, { env }),
+    journal: async (start) => {
+      const opened = await openRun(start, { env })
+      const slow = options.slowJournalMs
+      if (slow === undefined) return opened
+      const append = async (fields: Parameters<typeof opened.append>[0]): Promise<void> => {
+        await new Promise((done) => setTimeout(done, slow))
+        await opened.append(fields)
+      }
+      return { run: opened.run, append }
+    },
     keepAwake: () => ({ start: () => power.push('start'), stop: () => power.push('stop') }),
     onChange: (state) => states.push(state),
     settleMs: options.settleMs ?? 60_000,
@@ -248,6 +259,25 @@ describe('an Autopilot run on the fake agent', () => {
     const after = tree()
     expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort())
     for (const path of Object.keys(before)) if (!path.includes('issues')) expect(after[path]).toBe(before[path])
+  })
+
+  it('reports a run stopped only once its end is journaled and keep-awake released', async () => {
+    const h = harness({ slowJournalMs: 30 })
+    await h.autopilot.start(PROJECT, EPIC)
+    const seen: string[] = []
+    await until(async () => {
+      const state = h.autopilot.state(PROJECT)
+      if (state.status === 'running') {
+        expect(state.reason).toBeNull()
+        return false
+      }
+      seen.push(...(await h.kinds()).map(([kind]) => kind as string))
+      return true
+    }, 'the run to stop')
+    expect(seen.at(-1)).toBe('run-stopped')
+    expect(h.power).toEqual(['start', 'stop'])
+    expect(h.states.at(-1)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave' })
+    expect(h.states.filter((state) => state.status === 'stopped')).toHaveLength(1)
   })
 
   it('runs the Orchestrator unattended, continuing its SDK session, and gives it back attended after the run', async () => {

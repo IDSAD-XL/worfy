@@ -127,8 +127,15 @@ class Run {
     })
   }
 
+  /** Set once the run has stopped and cleaned up: its end is journaled, keep-awake released. */
+  done = false
+
+  /**
+   * A run is running until it is done, also while it ends: the cycle has stopped, but its last
+   * line and the release of keep-awake and of the Orchestrator are still on their way.
+   */
   get running(): boolean {
-    return this.cycle.phase !== 'stopped'
+    return !this.done
   }
 
   /** Runs tasks one after another, in the order they were queued; a failing task does not stop the next. */
@@ -269,7 +276,7 @@ export class Autopilot {
    * told. After a workflow change it is skipped: the next change reads again.
    */
   private async readAndFeed(run: Run, onError: 'stop' | 'ignore', make: (tickets: WorkflowModel['tickets']) => CycleEvent): Promise<void> {
-    if (!run.running) return
+    if (run.cycle.phase === 'stopped') return
     let model: WorkflowModel
     try {
       model = await this.deps.workflow(run.root)
@@ -345,6 +352,7 @@ export class Autopilot {
     await this.write(run, { kind: 'run-stopped', reason })
     // On quit the Orchestrator closes with every Session: starting it again would start Claude Code.
     await this.release(run, reason !== 'app-quit')
+    run.done = true
     if (this.runs.get(run.projectId) === run) this.runs.delete(run.projectId)
     this.last.set(run.projectId, this.snapshot(run))
     this.publish(run.projectId)
@@ -390,7 +398,7 @@ export class Autopilot {
       epic: run.epic,
       status: run.running ? 'running' : 'stopped',
       wave: run.cycle.wave,
-      reason: run.cycle.reason,
+      reason: run.done ? run.cycle.reason : null,
       message: run.message,
       revision: this.revision,
     }
