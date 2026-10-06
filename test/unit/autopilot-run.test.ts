@@ -61,6 +61,8 @@ interface StandIn {
   emit(event: AgentEvent): void
   /** What the Session's queue holds, as the queue snapshot shows it. */
   queue: { id: string; text: string }[]
+  /** Whether the Session's queue is held (after an Interrupt). */
+  paused: boolean
   /** How the next "Run wave" goes: at once, or into the queue (a person's turn runs). */
   deliveries: ('sent' | 'queued')[]
   journal: JournalEventFields[]
@@ -78,6 +80,7 @@ function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
       for (const sink of [...sinks]) sink(SESSION, event)
     },
     queue: [],
+    paused: false,
     deliveries: [],
     journal: [],
     removed: [],
@@ -88,7 +91,7 @@ function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
     get state() {
       return state
     },
-    queued: (): QueueSnapshot => ({ items: out.queue.map((item) => ({ ...item })), paused: false }),
+    queued: (): QueueSnapshot => ({ items: out.queue.map((item) => ({ ...item })), paused: out.paused }),
     removeQueued: (id) => {
       const before = out.queue.length
       out.queue = out.queue.filter((item) => item.id !== id)
@@ -238,6 +241,71 @@ describe('the Wave a result ends', () => {
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'interrupted' })
     expect(s.queue).toEqual([])
     expect(s.removed).toEqual(['queued-2'])
+  })
+
+  it('a person\'s turn that finishes normally after an Interrupt, leaving the Wave in the held queue, stops the run', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1, 2)
+    s.deliveries.push('queued')
+    s.emit(result())
+    s.emit({ type: 'prompt', text: 'how is it going?' })
+    await settle()
+    expect(s.queue.map((item) => item.text)).toEqual(['/epic-wave 3'])
+    // Interrupt holds the queue, but the person's turn still ends with success (not interrupted).
+    s.paused = true
+    s.emit(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'interrupted', wave: 2 })
+    expect(kinds(s).slice(3)).toEqual([['run-stopped', 'interrupted']])
+    expect(s.removed).toEqual(['queued-2'])
+  })
+
+  it('a held queue resumed before the run handles the person\'s result does not stop the run', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1, 2)
+    s.deliveries.push('queued')
+    s.emit(result())
+    s.emit({ type: 'prompt', text: 'how is it going?' })
+    await settle()
+    s.paused = true
+    s.emit(result())
+    // The person resumes the queue at once: the Wave starts before the run looks at the queue.
+    s.paused = false
+    s.queue.shift()
+    s.emit({ type: 'prompt', text: '/epic-wave 3' })
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', wave: 2 })
+    done(s, 3)
+    s.emit(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave' })
+  })
+
+  it('a new turn while the run settles ends the Wave with its own result (ADR-0024)', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    // Wave 1 ends with 02 still in work: the run settles.
+    done(s, 1)
+    s.tickets = s.tickets.map((each) => (each.num === 2 ? { ...each, state: 'work' as const } : each))
+    s.emit(result())
+    await settle()
+    expect(kinds(s)).toEqual([['wave-started', 1]])
+    // A person's message starts a new turn; 02 becomes done while it runs; its result comes.
+    s.emit({ type: 'prompt', text: 'how is it going?' })
+    s.emit({ type: 'state', state: 'busy', error: null })
+    await settle()
+    done(s, 2)
+    s.emit(result())
+    await settle()
+    expect(kinds(s).slice(1, 3)).toEqual([
+      ['wave-finished', 1],
+      ['wave-started', 2],
+    ])
   })
 
   it('Stop takes the Wave out of the queue it still waits in; a person\'s own queued message stays', async () => {

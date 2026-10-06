@@ -202,6 +202,24 @@ Autopilot над самим worfy запускается только на ст�
     `WORFY_CLAUDE_HOME` до и после прогона. Каждое новое поведение проверено мутантом: 16 мутантов,
     каждый краснит хотя бы один test (в том числе мутант, который на `wave-finished` переписывает
     `Status:` Ticket-ов).
+- **Узкий круг исправления по второму ревью PR #39.**
+  - **Ход человека, законченный нормально после Interrupt.** Interrupt удерживает очередь, но ход,
+    который всё же закончился без ошибки, приходит с `interrupted: false`. Раньше такой `result`
+    игнорировался: Wave оставалась в удержанной очереди, Session — в `idle`, прогон — в фазе `turn`
+    без таймера, с включённым keep-awake, пока его не остановят вручную. Теперь `result` хода раньше
+    Wave, после которого Wave ждёт в удержанной очереди (`queued().paused`), останавливает прогон с
+    `interrupted`, и Wave вынимается из очереди. Очередь читается, когда прогон обрабатывает
+    `result` в своём порядке, а не в момент события: если человек успел снять удержание и Wave
+    пошла, прогон продолжается.
+  - **«Или более поздний ход» в конце Wave** (`turn >= waveTurn`, ADR-0024: новый ход во время
+    ожидания заканчивается своим `result`) прежде не был покрыт test-ом: заявление «каждое новое
+    поведение проверено мутантом» для этого правила было неверным. Добавлен test.
+  - **Tests** в `test/unit/autopilot-run.test.ts`: «a person's turn that finishes normally after an
+    Interrupt, leaving the Wave in the held queue, stops the run», «a held queue resumed before the
+    run handles the person's result does not stop the run», «a new turn while the run settles ends
+    the Wave with its own result (ADR-0024)». Мутанты, каждый краснит свой test: без проверки
+    удержанной очереди; `turn === waveTurn`; очередь читается в момент события; проверка без
+    `paused`.
 
 не проверено: пункт «(вручную) На стабильной копии Autopilot проводит одну Wave тестового Project»
 с агентом-наблюдателем. По брифу настоящий Autopilot на настоящем Claude Code запускает

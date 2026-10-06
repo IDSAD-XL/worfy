@@ -9,7 +9,8 @@
 //   events of the Orchestrator's Session and fresh reads of the workflow model.
 // - A Wave may wait in the Session's queue behind a person's message. Only a turn that started with
 //   the Wave's prompt, or a later one, can end the Wave: the `result` of an earlier turn is not the
-//   Wave's (an Interrupt of it still stops the run, as it holds the queue). A Wave still in the
+//   Wave's (an Interrupt of it still stops the run, as it holds the queue — also when the turn then
+//   finishes normally and the Wave is left in the held queue). A Wave still in the
 //   queue when the run stops is taken out of it, so no one's turn runs it untracked.
 // - keep-awake (power.ts) is held from the start to the end of the run.
 // - Every step goes to the run journal (src/main/autopilot/journal.ts): Waves, errors, refused
@@ -299,8 +300,11 @@ export class Autopilot {
         const turn = run.turns
         const message = event.error ?? (event.isError ? event.text : null)
         void run.enqueue(() => {
-          if (!run.endsWave(turn) && !event.interrupted) return
-          return this.readAndFeed(run, 'stop', (tickets) => ({ type: 'turn-ended', isError: event.isError, interrupted: event.interrupted, message: message === '' ? null : message, tickets }))
+          // A turn ahead of the Wave that finished normally after an Interrupt still leaves the
+          // queue held: the Wave waits in it until a person resumes, so the run stops as interrupted.
+          const interrupted = event.interrupted || (!run.endsWave(turn) && this.waveHeld(run))
+          if (!run.endsWave(turn) && !interrupted) return
+          return this.readAndFeed(run, 'stop', (tickets) => ({ type: 'turn-ended', isError: event.isError, interrupted, message: message === '' ? null : message, tickets }))
         })
         return
       }
@@ -391,6 +395,19 @@ export class Autopilot {
     }
     run.promptsWhileSending.clear()
     await this.feed(run, { type: 'wave-sent', tickets: sent.tickets })
+  }
+
+  /** Whether the current Wave waits in the Session's queue while the queue is held (after an Interrupt). */
+  private waveHeld(run: Run): boolean {
+    const prompt = run.wavePrompt
+    if (prompt === null || run.waveTurn !== null || run.session === null) return false
+    try {
+      const queue = run.session.queued()
+      return queue.paused && queue.items.some((item) => item.text === prompt)
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: could not read the Session's queue`, error)
+      return false
+    }
   }
 
   /** A Wave still in the Session's queue when the run stops is taken out: no one would follow its turn. */
