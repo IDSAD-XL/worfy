@@ -51,7 +51,8 @@ E3.
 **Что известно из ручной проверки 2026-10-06, ночь** (проверка 22, Ticket 19 `worfy-mvp`): строка
 «Default (recommended)» на живой Session после другой модели переводит её на встроенную модель
 Claude Code `claude-opus-5-5`, а не на `opus[1m]` из `settings.json`: worfy зовёт
-`query.setModel(undefined)` (`src/main/agent/session.ts:191`).
+`query.setModel(undefined)` (`src/main/agent/session.ts:191`). Правит это Ticket 23, не этот: он
+берёт `user-model.ts` этого Ticket-а и идёт после него.
 
 ## Готово, когда
 

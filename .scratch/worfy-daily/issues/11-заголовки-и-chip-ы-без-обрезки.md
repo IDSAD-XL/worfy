@@ -47,6 +47,8 @@ Source: [spec.md](../spec.md), тема C; [F-SPEC.md](../../../docs/design/F-SP
   Canvas/Session, Limits и поиск (`src/renderer/shell/Toolbar.tsx:68`, `src/renderer/shell/shell.css:86-91`,
   Ticket 09).
 
+Подпись «as of» и имя Project-а в toolbar правит Ticket 26, не этот.
+
 ## Готово, когда
 
 - [ ] В «Итог» — список обрезаний до правки, со снимками.
