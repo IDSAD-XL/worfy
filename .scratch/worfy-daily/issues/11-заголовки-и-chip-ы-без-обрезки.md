@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 10
+Blocked by: 10, 30
 Source: [spec.md](../spec.md), тема C; [F-SPEC.md](../../../docs/design/F-SPEC.md), макеты `docs/design/F-canvas-*.dc.html`; Ticket-ы 11 и 17 worfy-mvp
 
 ## Что делаем

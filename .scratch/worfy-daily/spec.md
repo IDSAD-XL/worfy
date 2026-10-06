@@ -25,7 +25,7 @@ Epic готов, когда выполнены четыре условия:
    агент-наблюдатель (касание вне worfy, например системный диалог). Такой Ticket получает
    следующий свободный номер, в `Source` — ссылка на эту запись журнала. Номер 21 занят
    нестабильными e2e, 22–28 — дефектами ручных проверок worfy-mvp 2026-10-06 ночью, 29 — дефектом
-   первого настоящего прогона Autopilot 2026-10-06.
+   первого настоящего прогона Autopilot 2026-10-06, 30 — дефектом второго.
 3. Хотя бы один настоящий упор в Limits в Autopilot на стабильной копии прошёл без человека: прогон
    продолжился сам после сброса. Доказательство — выдержка из журнала (`limits-hit`,
    `waiting-until`, `resumed`) и запись HANDOFF о паузе. Ticket 05 этого проверить не может: Wave-ы
@@ -83,6 +83,10 @@ Session-ов, которые запускает worfy. По умолчанию �
   убил четыре фоновых implementer-а (Ticket 29). Autopilot стоит, пока Ticket 29 не влит. Wave 4 —
   только Ticket 29, её тоже ведёт Orchestrator из CLI; после неё копия обновляется снова.
 - С Wave 5 Wave-ы ведёт Orchestrator worfy в Autopilot.
+- Второй прогон Autopilot 2026-10-06 провёл Wave-ы 5 и 6 без человека и остановился с `no-progress`:
+  в Wave попал Ticket 15 со Status `blocked`, а Orchestrator получил номер закрытой Wave 6 (Ticket 30).
+  Wave 7 — только Ticket 30, её ведёт Orchestrator из CLI; после неё копия обновляется, и с Wave 8
+  Wave-ы снова ведёт Autopilot.
 - Внешний агент наблюдает за Autopilot через computer use: снимки экрана, счёт касаний человека.
   Каждое касание вне worfy он дописывает в журнал прогона событием `human-input` (Ticket 01).
   У Session, запущенной через SDK, нет computer use для Claude desktop, поэтому наблюдатель —
@@ -91,11 +95,11 @@ Session-ов, которые запускает worfy. По умолчанию �
 
 ## Этапы
 
-Темы идут по порядку A → B → C → D → E → F. Номера Ticket-ов идут в том же порядке, кроме 22–29:
-22–28 — тема C, 29 — тема A, но их завели позже. Порядок держат рёбра `Blocked by` (раздел «Волны»). Исключение —
+Темы идут по порядку A → B → C → D → E → F. Номера Ticket-ов идут в том же порядке, кроме 22–30:
+22–28 — тема C, 29 и 30 — тема A, но их завели позже. Порядок держат рёбра `Blocked by` (раздел «Волны»). Исключение —
 Ticket 21 (тема E): он идёт в Wave 1, см. пункт 5.
 
-1. **A — Autopilot** — 01–05 и 29.
+1. **A — Autopilot** — 01–05, 29 и 30.
    - 01: журнал прогона.
    - 02: Session без человека.
    - 03: стабильная копия.
@@ -105,6 +109,10 @@ Ticket 21 (тема E): он идёт в Wave 1, см. пункт 5.
      настоящего прогона Autopilot 2026-10-06: прогон кончил Wave с концом хода Orchestrator-а, пока
      фоновые implementer-ы ещё работали, остановился с `no-progress`, а перезапуск Orchestrator-а
      убил implementer-ов. Тема B ждёт его: 06–09 блокированы 29.
+   - 30: Autopilot не берёт в Wave Ticket-ы не в `open` и называет Orchestrator-у Ticket-ы Wave.
+     Дефект второго настоящего прогона Autopilot 2026-10-06: в Wave попал Ticket 15 со Status
+     `blocked`, Orchestrator получил «волна 6» — номер закрытой Wave плана, ничего не запустил, и
+     прогон остановился с `no-progress`. Ticket-ы 11, 23, 25, 27 блокированы 30.
    - Итог этапа: Autopilot проводит Wave-ы на стабильной копии, ни одного диалога.
 2. **B — устойчивость и цена** — 06–09.
    - 06: MCP-серверы по списку Profile. Сейчас Session получает 634 tools, и на haiku падает
@@ -265,6 +273,10 @@ Wave — Ticket-ы, которые можно брать параллельно:
 - У Ticket-а 21 (нестабильные e2e, тема E) блокеров нет: решением владельца 2026-10-06 он идёт в
   Wave 1 вместе с темой A.
 - У Ticket-а 29 (тема A) блокеров нет: он идёт в Wave 4, до темы B.
+- У Ticket-а 30 (тема A) блокеров нет: он идёт в Wave 7. Ticket-ы 11, 23, 25 и 27 блокированы 30: их
+  ведёт Orchestrator worfy в Autopilot, а до 30 Autopilot берёт в Wave Ticket со Status `blocked` и
+  шлёт Orchestrator-у номер Wave плана вместо списка Ticket-ов. Ticket 16 ждёт 15, общих файлов с 30
+  у него нет.
 
 | Тикет | Файлы из «Где в коде» | Волна |
 | --- | --- | --- |
@@ -286,27 +298,30 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 15 | `src/main/startup-failure.ts`, `src/main/index.ts`, `src/main/window.ts`, `test/contract/startup-failure.test.ts`, `test/e2e/window.spec.ts` | 6 |
 | 22 | `src/renderer/session/SessionView.tsx`, `src/renderer/session/store.ts`, `src/renderer/canvas/nodes/SessionNode.tsx`, `test/unit/session-log-resume.test.ts`, `test/e2e/session-resume.spec.ts` | 6 |
 | 26 | `src/renderer/limits/LimitBar.tsx`, `src/renderer/shell/Toolbar.tsx`, `src/renderer/shell/shell.css`, `src/shared/agent/limits.ts`, `test/unit/limits.test.ts`, `test/e2e/limits.spec.ts`, `test/e2e/toolbar.spec.ts` | 6 |
-| 11 | `src/renderer/canvas/epic-layout.ts`, `src/renderer/canvas/epic-frame.css`, `src/renderer/canvas/nodes/EpicFrameNode.tsx`, `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/badges/ChecksBadges.tsx`, `src/renderer/canvas/badges/checks-badges.css`, `src/renderer/shell/sidebar/EpicsSection.tsx`, `test/unit/epic-layout.test.ts`, `test/e2e/epic-frame.spec.ts`, `test/e2e/checks-badges.spec.ts` | 7 |
-| 16 | `src/main/window.ts`, `src/main/ipc/index.ts`, `src/main/index.ts`, `test/unit/renderer-entry.test.ts`, `test/contract/actions.test.ts`, `test/e2e/packaged.spec.ts` | 7 |
-| 23 | `src/main/agent/node-sessions.ts`, `src/main/agent/app-node-sessions.ts`, `src/main/agent/session.ts`, `src/main/claude-home/user-model.ts`, `test/contract/node-sessions.test.ts`, `test/contract/agent-controls.test.ts` | 7 |
-| 25 | `src/main/agent/commands.ts`, `src/shared/transcript/parse.ts`, `src/renderer/session/Transcript.tsx`, `test/unit/slash-commands.test.ts`, `test/contract/transcript-parse.test.ts`, `test/unit/transcript-hooks.test.tsx` | 7 |
-| 27 | `src/renderer/canvas/nodes/OrchestratorNode.tsx`, `src/shared/ipc/orchestrator.ts`, `src/main/agent/orchestrator.ts`, `test/unit/orchestrator-node.test.tsx`, `test/e2e/orchestrator.spec.ts` | 7 |
-| 17 | `src/main/claude-home/subagents.ts`, `src/shared/transcript/subagents.ts`, `src/main/claude-home/tail.ts`, `test/contract/claude-home-subagents.test.ts`, `test/unit/subagents.test.ts`, `test/e2e/subagent-tree.spec.ts`, `test/fixtures/claude-home/` | 8 |
-| 24 | `src/main/agent/session.ts`, `src/main/agent/fake-query.ts`, `src/main/agent/options.ts`, `src/main/claude-home/registry.ts`, `src/renderer/claude-home/session-nodes.ts`, `src/renderer/shell/sidebar/SessionsSection.tsx`, `src/renderer/session/SessionView.tsx`, `test/unit/session-nodes.test.tsx`, `test/unit/agent-options.test.ts`, `test/contract/agent-session.test.ts`, `test/e2e/own-sessions.spec.ts` | 8 |
-| 28 | `src/renderer/canvas/sources/subagents.ts`, `src/renderer/canvas/actions/TicketActions.tsx`, `src/shared/ipc/actions.ts`, `src/main/ipc/actions.ts`, `src/main/actions/launch.ts`, `src/main/agent/node-sessions.ts`, `src/main/layout/place.ts`, `test/unit/subagent-nodes.test.tsx`, `test/unit/layout-place.test.ts`, `test/contract/node-sessions.test.ts`, `test/e2e/ship-ticket.spec.ts` | 8 |
-| 18 | `test/e2e/snapshots.ts`, `test/e2e/snapshots.spec.ts` | 9 |
-| 19 | `test/unit/canvas.test.tsx`, `test/unit/shell-discovery.test.tsx`, `test/unit/session-rail-discovery.test.tsx`, `test/unit/focus-mode.test.tsx`, `vitest.config.ts`, `.gitignore`, `eslint.config.js`, `.github/workflows/ci.yml` | 9 |
-| 20 | `test/unit/canvas-actions.test.tsx`, `test/unit/gate-state.test.ts`, `test/contract/github-prs.test.ts`, `test/unit/claude-home-titles.test.tsx`, `test/unit/session-nodes-overlay.test.tsx`, `test/unit/message-input-slash.test.tsx`, `test/unit/history.test.ts`, `test/unit/session-view.test.tsx`, `test/e2e/pin-tags.spec.ts`, `test/contract/canvas-tools.test.ts`, `test/contract/card-protocol.test.ts`, `test/contract/workflow-reader.test.ts` | 9 |
+| 30 | `docs/adr/<номер>-autopilot-names-wave-tickets.md`, `src/main/workflow/reader.ts`, `src/shared/workflow/waves.ts`, `src/shared/autopilot/cycle.ts`, `src/main/autopilot/run.ts`, `src/shared/autopilot/journal.ts`, `src/shared/projects/action-templates.ts`, `src/shared/actions/render-template.ts`, `src/main/projects/settings.ts`, `src/main/actions/launch.ts`, `test/fixtures/agent-scripts/autopilot-blocked.jsonl`, `test/contract/workflow-reader.test.ts`, `test/contract/autopilot.test.ts`, `test/contract/projects.test.ts`, `test/unit/waves.test.ts`, `test/unit/autopilot-cycle.test.ts`, `test/unit/action-templates.test.ts`, `test/unit/render-template.test.ts`, `test/unit/launch.test.ts`, `test/unit/binding.test.ts` | 7 |
+| 11 | `src/renderer/canvas/epic-layout.ts`, `src/renderer/canvas/epic-frame.css`, `src/renderer/canvas/nodes/EpicFrameNode.tsx`, `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/badges/ChecksBadges.tsx`, `src/renderer/canvas/badges/checks-badges.css`, `src/renderer/shell/sidebar/EpicsSection.tsx`, `test/unit/epic-layout.test.ts`, `test/e2e/epic-frame.spec.ts`, `test/e2e/checks-badges.spec.ts` | 8 |
+| 16 | `src/main/window.ts`, `src/main/ipc/index.ts`, `src/main/index.ts`, `test/unit/renderer-entry.test.ts`, `test/contract/actions.test.ts`, `test/e2e/packaged.spec.ts` | 8 |
+| 23 | `src/main/agent/node-sessions.ts`, `src/main/agent/app-node-sessions.ts`, `src/main/agent/session.ts`, `src/main/claude-home/user-model.ts`, `test/contract/node-sessions.test.ts`, `test/contract/agent-controls.test.ts` | 8 |
+| 25 | `src/main/agent/commands.ts`, `src/shared/transcript/parse.ts`, `src/renderer/session/Transcript.tsx`, `test/unit/slash-commands.test.ts`, `test/contract/transcript-parse.test.ts`, `test/unit/transcript-hooks.test.tsx` | 8 |
+| 27 | `src/renderer/canvas/nodes/OrchestratorNode.tsx`, `src/shared/ipc/orchestrator.ts`, `src/main/agent/orchestrator.ts`, `test/unit/orchestrator-node.test.tsx`, `test/e2e/orchestrator.spec.ts` | 8 |
+| 17 | `src/main/claude-home/subagents.ts`, `src/shared/transcript/subagents.ts`, `src/main/claude-home/tail.ts`, `test/contract/claude-home-subagents.test.ts`, `test/unit/subagents.test.ts`, `test/e2e/subagent-tree.spec.ts`, `test/fixtures/claude-home/` | 9 |
+| 24 | `src/main/agent/session.ts`, `src/main/agent/fake-query.ts`, `src/main/agent/options.ts`, `src/main/claude-home/registry.ts`, `src/renderer/claude-home/session-nodes.ts`, `src/renderer/shell/sidebar/SessionsSection.tsx`, `src/renderer/session/SessionView.tsx`, `test/unit/session-nodes.test.tsx`, `test/unit/agent-options.test.ts`, `test/contract/agent-session.test.ts`, `test/e2e/own-sessions.spec.ts` | 9 |
+| 28 | `src/renderer/canvas/sources/subagents.ts`, `src/renderer/canvas/actions/TicketActions.tsx`, `src/shared/ipc/actions.ts`, `src/main/ipc/actions.ts`, `src/main/actions/launch.ts`, `src/main/agent/node-sessions.ts`, `src/main/layout/place.ts`, `test/unit/subagent-nodes.test.tsx`, `test/unit/layout-place.test.ts`, `test/contract/node-sessions.test.ts`, `test/e2e/ship-ticket.spec.ts` | 9 |
+| 18 | `test/e2e/snapshots.ts`, `test/e2e/snapshots.spec.ts` | 10 |
+| 19 | `test/unit/canvas.test.tsx`, `test/unit/shell-discovery.test.tsx`, `test/unit/session-rail-discovery.test.tsx`, `test/unit/focus-mode.test.tsx`, `vitest.config.ts`, `.gitignore`, `eslint.config.js`, `.github/workflows/ci.yml` | 10 |
+| 20 | `test/unit/canvas-actions.test.tsx`, `test/unit/gate-state.test.ts`, `test/contract/github-prs.test.ts`, `test/unit/claude-home-titles.test.tsx`, `test/unit/session-nodes-overlay.test.tsx`, `test/unit/message-input-slash.test.tsx`, `test/unit/history.test.ts`, `test/unit/session-view.test.tsx`, `test/e2e/pin-tags.spec.ts`, `test/contract/canvas-tools.test.ts`, `test/contract/card-protocol.test.ts`, `test/contract/workflow-reader.test.ts` | 10 |
 
 Общие файлы есть только у Ticket-ов разных Wave-ов:
 
 - `src/main/agent/options.ts` и `test/unit/agent-options.test.ts`: 02 → 06 → 24.
 - `src/main/index.ts`: 03 → 15 → 16.
 - `test/e2e/packaged.spec.ts`: 03 → 16.
-- `src/main/autopilot/run.ts` и `src/renderer/canvas/actions/AutopilotAction.tsx`: 04 → 05 → 29.
-- `src/shared/autopilot/cycle.ts`, `src/shared/ipc/autopilot.ts`, `test/unit/autopilot-cycle.test.ts`,
-  `test/e2e/autopilot.spec.ts`: 04 → 29.
-- `src/shared/autopilot/journal.ts`: 01 → 29.
+- `src/main/autopilot/run.ts`: 04 → 05 → 29 → 30.
+- `src/renderer/canvas/actions/AutopilotAction.tsx`: 04 → 05 → 29.
+- `src/shared/autopilot/cycle.ts` и `test/unit/autopilot-cycle.test.ts`: 04 → 29 → 30.
+- `src/shared/ipc/autopilot.ts` и `test/e2e/autopilot.spec.ts`: 04 → 29.
+- `test/contract/autopilot.test.ts`: 04 → 30.
+- `src/shared/autopilot/journal.ts`: 01 → 29 → 30.
 - Дерево Subagent-ов — `src/shared/transcript/subagents.ts`, `src/main/claude-home/subagents.ts`,
   `test/unit/subagents.test.ts`, `test/contract/claude-home-subagents.test.ts`,
   `test/fixtures/claude-home/`: 08 → 17.
@@ -315,10 +330,11 @@ Wave — Ticket-ы, которые можно брать параллельно:
 - `test/e2e/new-session.spec.ts`: 21 → 10.
 - `test/e2e/subagent-tree.spec.ts`: 21 → 10 → 17.
 - `src/main/window.ts`: 15 → 16.
-- `test/contract/workflow-reader.test.ts` и `test/unit/claude-home-titles.test.tsx`: 09 → 20.
+- `test/contract/workflow-reader.test.ts`: 09 → 30 → 20.
+- `test/unit/claude-home-titles.test.tsx`: 09 → 20.
 - `test/e2e/pin-tags.spec.ts`: 12 → 20.
 - `test/unit/session-view.test.tsx`: 14 → 20.
-- `src/main/actions/launch.ts`: 04 → 28.
+- `src/main/actions/launch.ts`: 04 → 30 → 28.
 - `src/main/agent/session.ts`: 29 → 07 → 23 → 24.
 - `src/main/claude-home/user-model.ts` и `test/contract/agent-controls.test.ts`: 07 → 23.
 - `src/main/agent/fake-query.ts`: 29 → 07 → 24.
@@ -344,7 +360,8 @@ Ticket-ы 22–28 стоят после Ticket-ов, с которыми у ни
 - 28 — после 10 и 23: общие `src/main/agent/node-sessions.ts`, `src/main/layout/place.ts` и их
   test-ы; место Ticket-а для «Ship ticket» зависит от ADR Ticket-а 10.
 
-Внутри одной Wave общих файлов нет. Всего Wave-ов в плане — 9. Wave-ы 1–4 содержат только тему A и, в Wave 1, Ticket 21.
+Внутри одной Wave общих файлов нет. Всего Wave-ов в плане — 10. Wave-ы 1–4 содержат только тему A и, в Wave 1, Ticket 21; Wave 7 — только
+Ticket 30 (тема A).
 
 Строка Ticket-а 10 перечисляет файлы всех вариантов его ADR. После ADR строка сокращается до
 выбранного варианта. Пересечений с другими Ticket-ами Wave 6 нет ни при одном варианте. Строки

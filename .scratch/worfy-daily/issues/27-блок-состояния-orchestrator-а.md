@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 06, 07, 08, 09, 10
+Blocked by: 06, 07, 08, 09, 10, 30
 Source: [spec.md](../spec.md), тема C; ручная проверка 2026-10-06, ночь — Ticket 33 worfy-mvp (`.scratch/worfy-mvp/issues/33-session-view-транскрипт-и-ввод.md:182`); HANDOFF, «Риски и долги»
 
 ## Что делаем

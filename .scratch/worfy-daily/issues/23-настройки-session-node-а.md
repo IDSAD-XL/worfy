@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 06, 07, 08, 09, 10
+Blocked by: 06, 07, 08, 09, 10, 30
 Source: [spec.md](../spec.md), тема C; ручная проверка 2026-10-06, ночь — Ticket 19 worfy-mvp (`.scratch/worfy-mvp/issues/19-поле-ввода-модель-и-очередь.md:169`); Ticket 07 этого Epic-а, «Что известно»; HANDOFF, «Риски и долги»
 
 ## Что делаем
