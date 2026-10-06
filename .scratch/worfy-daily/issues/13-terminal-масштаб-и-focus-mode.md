@@ -1,7 +1,7 @@
 # 13 — Terminal: выделение мышью при масштабе и размер pty после focus mode
 
 Type: task
-Status: blocked — blocked by 06, 07, 08, 09
+Status: open
 Blocked by: 06, 07, 08, 09
 Source: [spec.md](../spec.md), тема C; Ticket-ы 27 и 28 worfy-mvp (Terminal, focus mode)
 

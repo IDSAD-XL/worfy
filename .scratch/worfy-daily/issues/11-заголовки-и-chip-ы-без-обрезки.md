@@ -1,7 +1,7 @@
 # 11 — Заголовки и chip-ы без обрезки
 
 Type: task
-Status: blocked — blocked by 10
+Status: open
 Blocked by: 10
 Source: [spec.md](../spec.md), тема C; [F-SPEC.md](../../../docs/design/F-SPEC.md), макеты `docs/design/F-canvas-*.dc.html`; Ticket-ы 11 и 17 worfy-mvp
 

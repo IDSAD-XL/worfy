@@ -1,7 +1,7 @@
 # 16 — ELECTRON_RENDERER_URL только в dev-сборке
 
 Type: task
-Status: blocked — blocked by 15
+Status: open
 Blocked by: 15
 Source: [spec.md](../spec.md), тема C; Ticket-ы 01 и 02 worfy-mvp (окно, доверенный отправитель IPC)
 

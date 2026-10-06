@@ -1,7 +1,7 @@
 # 19 — Test-ы, зависящие от порядка файлов, и временные файлы test-ов в src
 
 Type: task
-Status: blocked — blocked by 17
+Status: open
 Blocked by: 17
 Source: [spec.md](../spec.md), тема E; HANDOFF worfy-mvp, «Риски и долги» (Ticket 28 worfy-mvp)
 

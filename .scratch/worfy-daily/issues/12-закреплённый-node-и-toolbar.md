@@ -1,7 +1,7 @@
 # 12 — Закреплённый Node: не под миникартой, toolbar выделения не поверх
 
 Type: task
-Status: blocked — blocked by 06, 07, 08, 09
+Status: open
 Blocked by: 06, 07, 08, 09
 Source: [spec.md](../spec.md), тема C; [ADR-0013](../../../docs/adr/0013-pinned-node-screen-coordinates.md) — экранные координаты закреплённого Node-а; Ticket 29 worfy-mvp
 
