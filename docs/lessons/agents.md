@@ -38,3 +38,20 @@ Orchestrator-а, не может править файлы в `.claude/worktrees
 чинить. Копия `Electron.app` в `/tmp` ради изоляции тоже замедляет первый запуск — не делать её.
 Правило и путь общего замка для e2e и `gate full` — `rules.md` Profile-а worfy.
 Источник: worfy-daily Wave 6.
+
+## При заблокированном экране macOS e2e падают как «window was not shown» — это не красный test
+
+Пока экран Mac заблокирован, Electron не показывает окно, и `launchApp` падает с «the window was not
+shown within 30 s» (`test/e2e/helpers.ts:167`). Ошибка выглядит как красный test или нагрузка, хотя
+код ни при чём. Перед e2e и `gate full` проверить `ioreg -n Root -d1 | grep -o '"IOConsoleLocked" = [A-Za-z]*'`:
+при `Yes` прогон не запускать, а уже упавший — не считать красным и повторить после разблокировки.
+Источник: worfy-daily/31, PR #62 (первый `gate full` — 5 таких падений, повтор зелёный).
+
+## Снимки приложения — только через `launchApp`: прямой запуск worfy пишет в `~/.claude`
+
+Собранный worfy, запущенный напрямую (`_electron.launch` или `open`), поднимает Orchestrator на
+настоящем Claude Code с настоящим `~/.claude`, и тот пишет туда свои файлы — worfy сам при этом в
+`~/.claude` не пишет. Снимки и любые прогоны приложения в Ticket-е — только через `launchApp`
+(`test/e2e/helpers.ts:111`): fake-агент (`WORFY_AGENT=fake`), временные `WORFY_DATA_DIR` и
+`WORFY_CLAUDE_HOME`, фикстуры вместо настоящих Project-ов.
+Источник: worfy-daily/11, PR #64.
