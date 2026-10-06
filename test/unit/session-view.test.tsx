@@ -318,6 +318,20 @@ describe('the event store: limits, queue and settings', () => {
     expect(log?.first).toBe(1)
   })
 
+  it('`renamed` joins both logs within KEEP_EVENTS and counts every dropped event in `first`', async () => {
+    const store = await import('../../src/renderer/session/store')
+    // Two events of the temporary id were already dropped; three came under the new id before `renamed`.
+    for (let index = 0; index < store.KEEP_EVENTS + 2; index += 1) store.acceptAgentEvent({ sessionId: 'pending-1', event: prompt(`old${index}`) })
+    expect(store.useSessionLogs.getState().logs['pending-1']?.first).toBe(2)
+    for (const name of ['new0', 'new1', 'new2']) store.acceptAgentEvent({ sessionId: 'sdk-1', event: prompt(name) })
+    store.acceptAgentEvent({ sessionId: 'sdk-1', event: { type: 'renamed', from: 'pending-1' } })
+    const log = store.useSessionLogs.getState().logs['sdk-1']
+    expect(log?.events).toHaveLength(store.KEEP_EVENTS)
+    expect(log?.first).toBe(5)
+    expect(log?.events[0]).toMatchObject(prompt('old5'))
+    expect(log?.events[store.KEEP_EVENTS - 1]).toMatchObject(prompt('new2'))
+  })
+
   it('keeps only the latest queue and settings, outside the transcript, and moves them on `renamed`', async () => {
     const store = await import('../../src/renderer/session/store')
     store.acceptAgentEvent({ sessionId: 'pending-1', event: { type: 'settings', settings: DEFAULTS } })

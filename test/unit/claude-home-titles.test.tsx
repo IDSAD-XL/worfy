@@ -120,6 +120,62 @@ describe('useClaudeHome: titles of live Sessions', () => {
   })
 })
 
+describe('useClaudeHome: which transcript changes read the history', () => {
+  const T = 'dddddddd-0000-4000-8000-000000000004'
+  const transcriptOf = async (sessionId: string) => act(async () => changed?.({ projectRoot: ROOT, sessions: false, transcripts: [sessionId] }))
+
+  it('a transcript change is answered by one poll, not by every poll after it', async () => {
+    const { poll, transcriptChanged } = await mount()
+    history = titled(undefined)
+    await transcriptChanged()
+    await poll()
+    await vi.waitFor(() => expect(historyReads()).toBe(2))
+    await poll()
+    await poll()
+    expect(historyReads()).toBe(2)
+  })
+
+  it('does not read the history for a changed transcript of a Session that is not live at the poll', async () => {
+    // T is in the history without a title and is not live; S keeps the poll going.
+    history = [...titled(undefined), { sessionId: T, size: 10, modifiedAt: 1, live: false }]
+    const { poll } = await mount()
+    await transcriptOf(T)
+    await poll()
+    await poll()
+    expect(historyReads()).toBe(1)
+  })
+
+  it('does not read the history for a Session the registry names, though its transcript changed before it was listed live', async () => {
+    liveNow = []
+    history = titled(undefined)
+    const { hook, transcriptChanged, registryChanged } = await mount()
+    expect(historyReads()).toBe(1)
+    await transcriptChanged()
+    liveNow = [{ ...live[0]!, name: 'named in the registry' }]
+    await registryChanged()
+    await vi.waitFor(() => expect(hook.result.current.live).toEqual(liveNow))
+    await settle()
+    expect(historyReads()).toBe(1)
+  })
+
+  it('does not keep a transcript change that came while the registry named the Session', async () => {
+    liveNow = [{ ...live[0]!, name: 'named in the registry' }]
+    history = titled(undefined)
+    const { hook, poll, transcriptChanged } = await mount()
+    await transcriptChanged()
+    // The registry drops the name before the next poll; the change came while it was named.
+    liveNow = live
+    await poll()
+    await vi.waitFor(() => expect(hook.result.current.live).toEqual(live))
+    await settle()
+    expect(historyReads()).toBe(1)
+    // A change after that is kept and read on the next poll.
+    await transcriptChanged()
+    await poll()
+    await vi.waitFor(() => expect(historyReads()).toBe(2))
+  })
+})
+
 describe('useClaudeHome: one history read per new Session', () => {
   it('reads the history once when a Session appears in the registry, and the title after its first prompt', async () => {
     liveNow = []

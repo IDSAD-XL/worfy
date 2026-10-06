@@ -1,11 +1,12 @@
 // Undo and redo of the Layout (src/renderer/canvas/history.ts, ticket 30) against main's own Layout
 // store: every operation and every inverse goes through LayoutStore.apply, the code that applies
 // them in the app, so an inverse that main would read differently fails here.
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applyRecorded, deleteToTrash, grouped, History, historyOf, HISTORY_DEPTH, inverseOf, resetHistories, trashRecorded, type Group, type LayoutChannel, type Send, type TrashClient } from '../../src/renderer/canvas/history'
 import { LayoutStore } from '../../src/main/layout/store'
+import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { TrashEntry } from '../../src/shared/ipc/trash'
-import { layoutNodeSchema, type LayoutNode, type LayoutOpInput } from '../../src/shared/layout/types'
+import { layoutNodeSchema, type Layout, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../src/shared/layout/types'
 
 const PROJECT = 'demo-0a1b2c3d'
 
@@ -187,20 +188,59 @@ describe('history: inverse operations', () => {
   })
 })
 
+/** The parts of src/renderer/canvas/useLayout.ts this file uses. */
+interface UseLayoutModule {
+  acceptLayoutState(state: LayoutState): void
+  applyLayoutOp(projectId: string, op: LayoutOpInput): Promise<string | undefined>
+  currentLayout(projectId: string): Layout | undefined
+}
+// useLayout.ts imports React, which tsconfig.test.node.json leaves out of this project's files, so
+// it is loaded through a computed specifier and given the signatures used here.
+const useLayoutModule = (): Promise<UseLayoutModule> => import(/* @vite-ignore */ ['..', '..', 'src', 'renderer', 'canvas', 'useLayout.ts'].join('/')) as Promise<UseLayoutModule>
+
 describe('history: operations of agents', () => {
-  it('what an agent does through the MCP tools is not in the user history, and an undo leaves it in place', async () => {
+  // The renderer side as the app has it: the Canvas's channel sends through applyLayoutOp() and
+  // reads currentLayout(); the automatic writers (Session Nodes sync, Epic and Subagent sources)
+  // call applyLayoutOp() themselves; an agent's MCP tool call is applied by main and broadcast.
+  beforeEach(() => {
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      invoke: (channel: string, input: unknown) => {
+        if (channel !== 'layout.apply') return Promise.resolve({ ok: false, error: `no ${channel}` })
+        const { projectId, op } = input as { projectId: string; op: LayoutOpInput }
+        try {
+          return Promise.resolve({ ok: true, value: store.apply(projectId, op) })
+        } catch (error) {
+          return Promise.resolve({ ok: false, error: error instanceof Error ? error.message : String(error) })
+        }
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+  })
+  afterEach(() => {
+    delete (globalThis as { worfy?: WorfyBridge }).worfy
+  })
+
+  it('what the automatic writers and an agent change is not in the user history, and an undo leaves it in place', async () => {
+    const { acceptLayoutState, applyLayoutOp, currentLayout } = await useLayoutModule()
     note('mine')
     note('theirs')
-    await user({ op: 'move', id: 'mine', x: 100, y: 100 })
-    agent({ op: 'move', id: 'theirs', x: 500, y: 500 })
-    agent({ op: 'create', node: { id: 'card-by-agent', kind: 'card', x: 0, y: 0, w: 360, h: 280 } })
-    agent({ op: 'move', id: 'mine', x: 120, y: 130 })
+    acceptLayoutState(store.get(PROJECT))
+    const canvas: LayoutChannel = { send: (op) => applyLayoutOp(PROJECT, op), layout: () => currentLayout(PROJECT) ?? layout() }
+    await applyRecorded(PROJECT, { op: 'move', id: 'mine', x: 100, y: 100 }, canvas)
+    expect(history().size).toBe(1)
+
+    // An automatic writer of the renderer.
+    expect(await applyLayoutOp(PROJECT, { op: 'move', id: 'theirs', x: 500, y: 500 })).toBeUndefined()
+    expect(await applyLayoutOp(PROJECT, { op: 'create', node: { id: 'card-by-source', kind: 'card', x: 0, y: 0, w: 360, h: 280 } })).toBeUndefined()
+    // An agent through the canvas MCP tools: main applies it and broadcasts the Layout.
+    acceptLayoutState(store.apply(PROJECT, { op: 'move', id: 'mine', x: 120, y: 130 }))
     expect(history().size).toBe(1)
 
     expect(await history().undo()).toBe(true)
     expect(nodeOf('mine')).toMatchObject({ x: 0, y: 0 })
     expect(nodeOf('theirs')).toMatchObject({ x: 500, y: 500 })
-    expect(nodeOf('card-by-agent')).toBeDefined()
+    expect(nodeOf('card-by-source')).toBeDefined()
     expect(history().canUndo).toBe(false)
   })
 })
@@ -215,6 +255,19 @@ describe('history: one gesture, one step', () => {
     expect([nodeOf('a')?.x, nodeOf('b')?.x]).toEqual([0, 0])
     await history().redo()
     expect([nodeOf('a')?.x, nodeOf('b')?.x]).toEqual([10, 20])
+  })
+
+  it('a group undoes its parts newest first and redoes them in order', async () => {
+    note('a')
+    await grouped(async (group) => {
+      await user({ op: 'move', id: 'a', x: 10, y: 0 }, group)
+      await user({ op: 'move', id: 'a', x: 20, y: 0 }, group)
+    })
+    expect(history().size).toBe(1)
+    await history().undo()
+    expect(nodeOf('a')).toMatchObject({ x: 0 })
+    await history().redo()
+    expect(nodeOf('a')).toMatchObject({ x: 20 })
   })
 
   it('a grouped undo runs every part even when one part is refused', async () => {

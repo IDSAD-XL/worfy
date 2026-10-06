@@ -373,6 +373,20 @@ describe('TranscriptGateScanner', () => {
     expect(await scanner.lastIn(dir, { here: dir, worktrees: [dir] })).toBeNull()
   })
 
+  it('skips a gate.sh run whose folder cannot be told without a shell; the run before it stays the verdict', async () => {
+    const dir = await tempDir()
+    const file = join(dir, 's.jsonl')
+    await writeFile(
+      file,
+      [
+        bashRun('[gate] зелено (fast): a', '2026-10-05T10:00:00.000Z', { cwd: dir }),
+        bashRun('[gate] красно (fast): b', '2026-10-05T10:01:00.000Z', { command: 'W=/x; cd $W && bash ~/.claude/hooks/gate.sh fast', cwd: dir }),
+        '',
+      ].join('\n'),
+    )
+    expect(await new TranscriptGateScanner().lastIn(dir, { here: dir, worktrees: [dir] })).toEqual({ outcome: 'green', at: '2026-10-05T10:00:00.000Z' })
+  })
+
   it('is null for a folder that does not exist', async () => {
     expect(await new TranscriptGateScanner().lastIn('/nonexistent/worfy-gate', { here: '/nonexistent', worktrees: ['/nonexistent'] })).toBeNull()
   })

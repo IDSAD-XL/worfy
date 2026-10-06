@@ -208,6 +208,30 @@ describe('PrTracker over the gh stub', () => {
     expect(count).toBe(2)
   })
 
+  it('a branch lookup failing between two lists starts the doubled interval at the failure, not at the last list', async () => {
+    const gh = await stubGh([pull(1, 'demo/01')])
+    let now = 0
+    let lists = 0
+    const run: GhRunner = (args, cwd) => {
+      if (args.includes('--head')) return Promise.reject(new Error('API rate limit exceeded'))
+      lists += 1
+      return gh.run(args, cwd)
+    }
+    const tracker = new PrTracker({ run, now: () => now })
+    await tracker.read(gh.dir, [])
+    expect(lists).toBe(1)
+
+    now = 30_000 // within the list interval: no list, the lookup runs and fails
+    expect((await tracker.read(gh.dir, ['demo/02'])).gh).toEqual({ available: false, error: 'API rate limit exceeded', intervalMs: 120_000 })
+
+    now = 30_000 + 119_999 // 120 s after the last list, but not after the failure
+    await tracker.read(gh.dir, ['demo/02'])
+    expect(lists).toBe(1)
+    now = 30_000 + 120_000
+    await tracker.read(gh.dir, [])
+    expect(lists).toBe(2)
+  })
+
   it('runs gh at most once per interval, however often it is asked, and one read at a time', async () => {
     const gh = await stubGh([pull(1, 'demo/01')])
     let now = 0

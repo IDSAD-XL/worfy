@@ -434,6 +434,22 @@ describe('cards IPC domain', () => {
     }
   })
 
+  it("the app's Card store stops watching the Cards of a Project removed from the Project list", async () => {
+    const OTHER = 'other-0f0f0f0f'
+    mkdirSync(cardDir('o1', OTHER), { recursive: true })
+    writeFileSync(
+      join(dataDir, 'projects.json'),
+      JSON.stringify({ projects: [{ id: PROJECT, name: 'demo', path: join(scratch, 'repo') }, { id: OTHER, name: 'other', path: join(scratch, 'other') }], activeId: PROJECT }),
+    )
+    expect((await call({ projectId: PROJECT, cardId: 'c1' })).ok).toBe(true)
+    expect((await call({ projectId: OTHER, cardId: 'o1' })).ok).toBe(true)
+    const { cardStore } = await import('../../src/main/cards/store')
+    const { projectStore } = await import('../../src/main/projects/store')
+    expect(cardStore().watchedProjects()).toEqual([PROJECT, OTHER].sort())
+    projectStore().remove(PROJECT)
+    expect(cardStore().watchedProjects()).toEqual([OTHER])
+  })
+
   it('broadcasts cards.changed to the windows after a Card file changes', async () => {
     await call({ projectId: PROJECT, cardId: 'c1' })
     await new Promise((done) => setTimeout(done, 300))

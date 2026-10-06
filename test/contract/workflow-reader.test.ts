@@ -435,6 +435,41 @@ describe('workflow watcher', () => {
     expect(ticketOf(watcher.current, 3)?.state).toBe('work')
   })
 
+  it('sends no onChange before start resolves, though a save during the first read makes start read twice', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const real = epicStatusRunner(home)
+    const file = join(repo, '.scratch/demo/issues/03-third.md')
+    let saved = false
+    // The first checkout read saves a Ticket and lasts until the watcher has seen the save and asked
+    // for one more read, which `start` then runs before it resolves.
+    const racing: EpicStatusRunner = async (cwd, ref) => {
+      const out = await real(cwd, ref)
+      if (ref === null && !saved) {
+        saved = true
+        writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: claimed — 2026-10-05'))
+        await new Promise((done) => setTimeout(done, 1000))
+      }
+      return out
+    }
+    const deltas: WorkflowDelta[] = []
+    let started = false
+    const early: WorkflowDelta[] = []
+    const watcher = await WorkflowWatcher.start({
+      root: repo,
+      claudeHome: home,
+      run: racing,
+      debounceMs: 50,
+      onChange: (delta) => (started ? deltas : early).push(delta),
+    })
+    started = true
+    cleanups.push(() => watcher.close())
+    // The second read ran inside start: its result is already the model.
+    expect(ticketOf(watcher.current, 3)?.state).toBe('work')
+    await watcher.idle()
+    expect(early).toEqual([])
+  })
+
   // Counts reads after fs.watch events: FSEvents on macOS coalesces a save, inotify on the Linux CI
 
   // runner reports more events. worfy runs on macOS only; the Mac runs this in every gate.

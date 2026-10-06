@@ -248,6 +248,29 @@ describe('attachments', () => {
     expect(screen.getByRole('alert').textContent).toBe('Session s is closed')
   })
 
+  it('while a message with 20 attachments is being sent, nothing more is attached: they may come back', async () => {
+    const twenty = Array.from({ length: 20 }, (_, index): AttachResult => ({ ok: true, attachment: { ...file, name: `n${index}.txt` } }))
+    answers['agent.attachPick'] = () => ({ results: twenty })
+    let finish: (failure: string | null) => void = () => undefined
+    const { key } = await mount(() => new Promise((resolve) => (finish = resolve)))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('input-attach'))
+    })
+    await vi.waitFor(() => expect(screen.getAllByTestId('attachment-chip')).toHaveLength(20))
+    await key('Enter')
+    expect(screen.queryAllByTestId('attachment-chip')).toHaveLength(0)
+
+    answers['agent.attachPick'] = () => ({ results: [{ ok: true, attachment: { ...file, name: 'extra.txt' } }] })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('input-attach'))
+    })
+    await vi.waitFor(() => expect(screen.getByRole('alert').textContent).toBe('A message takes up to 20 attachments: extra.txt left out'))
+    expect(screen.queryAllByTestId('attachment-chip')).toHaveLength(0)
+
+    await act(async () => finish('Session s is closed'))
+    expect(screen.getAllByTestId('attachment-chip')).toHaveLength(20)
+  })
+
   it('a pasted image goes to main as base64; pasted text stays text', async () => {
     answers['agent.attach'] = () => ({ results: [{ ok: true, attachment: image }] })
     const { field } = await mount()
