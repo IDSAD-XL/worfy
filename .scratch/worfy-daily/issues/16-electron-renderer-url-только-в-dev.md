@@ -1,7 +1,7 @@
 # 16 — ELECTRON_RENDERER_URL только в dev-сборке
 
 Type: task
-Status: open
+Status: done — 2026-10-06, [PR #71](https://github.com/IDSAD-XL/worfy/pull/71)
 Blocked by: 15
 Source: [spec.md](../spec.md), тема C; Ticket-ы 01 и 02 worfy-mvp (окно, доверенный отправитель IPC)
 
@@ -73,4 +73,12 @@ Source: [spec.md](../spec.md), тема C; Ticket-ы 01 и 02 worfy-mvp (окн�
 - `test/e2e/packaged.spec.ts` — `@packaged`: копия `.app` с `ELECTRON_RENDERER_URL=http://127.0.0.1:1` грузит `…/app.asar/out/renderer/index.html`, и вызов `app.version` из страницы проходит. Без тега: dev-запуск с `not a url` выходит с кодом 1 и шагом `loadURL` в stderr.
 
 Не проверено: e2e `@packaged` не прогонялся на сборке `.app` без правки (красный на старом коде — по рассуждению; unit и contract test-ы краснеют на мутантах правки).
+
+Не проверено: живой `pnpm dev` с окном — что dev-сервер по-прежнему грузится в окно и IPC со страницы проходит. Ревью проверило это кодом и test-ами (адрес `http://localhost` проходит проверку отправителя), окно глазами не смотрели. Пункт — в HANDOFF, «Ждёт владельца».
+
+**Ревью и мерж.** [PR #71](https://github.com/IDSAD-XL/worfy/pull/71), merge 8a9c978. Ревью — VERIFIED, без доработки: упакованный `.app` не смотрит на переменную и доверяет только своему `file://`; правка `test/contract/startup-failure.test.ts` (Ticket 15) сохранила все прежние проверки. Перед мержем — rebase на e31c0c0 и `GATE_SCOPE=all gate.sh full` с exit 0.
+
+Долги [low]:
+- `test/e2e/helpers.ts:123-126` — `launchApp` передаёт `ELECTRON_RENDERER_URL` из shell разработчика в e2e неупакованной сборки. Убирать её, если `options.env` её не задаёт.
+- `src/main/startup-failure.ts:10-21` — нет отдельного шага старта для неверного адреса renderer. Совет шага `loadURL` (`:49-52`) написан про незапущенный dev-сервер.
 
