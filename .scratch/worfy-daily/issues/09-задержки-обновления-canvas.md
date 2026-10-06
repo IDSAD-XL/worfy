@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 05
+Blocked by: 05, 29
 Source: [spec.md](../spec.md), тема B; Ticket-ы 10 и 14 worfy-mvp
 
 ## Что делаем

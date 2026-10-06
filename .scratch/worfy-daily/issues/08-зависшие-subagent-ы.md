@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 05
+Blocked by: 05, 29
 Source: [spec.md](../spec.md), тема B, риск 9; Ticket 15 worfy-mvp (дерево Subagent-ов)
 
 ## Что делаем

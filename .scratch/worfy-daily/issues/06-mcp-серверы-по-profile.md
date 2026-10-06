@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 05
+Blocked by: 05, 29
 Source: [spec.md](../spec.md), тема B, риски 8 и 13; [ADR-0021](../../../docs/adr/0021-mcp-servers-allowlist-in-profile.md); [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md); [ADR-0020](../../../docs/adr/0020-profile-shared-and-personal-parts.md)
 
 ## Что делаем
