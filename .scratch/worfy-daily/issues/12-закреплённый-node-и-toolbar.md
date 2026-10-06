@@ -68,8 +68,19 @@ Source: [spec.md](../spec.md), тема C; [ADR-0013](../../../docs/adr/0013-pin
   закреплённым Node-ом возвращал кнопку toolbar, а не закреплённый Node; кнопка Focus
   закрывала заголовок второго закреплённого Node-а.
 
-Снимки до правки (светлая и тёмная тема, `pinned-by-minimap-*.png`, `toolbar-by-pinned-*.png`)
-остались вне репозитория, в каталоге вывода Playwright; после правки те же тесты кладут их туда же.
+Снимки в репозиторий не положены; они описаны в комментарии к PR #52 и лежат вне репозитория в
+`/tmp/worfy-wave6/impl-12/shots/`. Снято 2026-10-06 теми же e2e в светлой и тёмной теме:
+
+- `before/` — временный worktree на `origin/main` 66a34a5, в который скопирован только новый
+  `pin-tags.spec.ts`. `pinned-by-minimap-{light,dark}.png`: пунктирная рамка закреплённого Node-а
+  торчит из-под миникарты в правом нижнем углу. `toolbar-by-pinned-{light,dark}.png`: кнопка Pin
+  toolbar выделения лежит поверх низа закреплённого Node-а `above`, кнопка Focus — поверх
+  заголовка закреплённого Node-а `below`. Снимков `pinned-own-toolbar-*` в `before/` нет: тест
+  падает раньше, на `elementFromPoint` (строка 391).
+- `after/` — ветка `worfy-daily/12` после rebase на 66a34a5. `pinned-by-minimap-*`: Node стоит
+  над миникартой, с зазором. `toolbar-by-pinned-*`: закреплённые Node-ы лежат поверх toolbar и
+  кнопки Focus. `pinned-own-toolbar-*`: toolbar выделенного закреплённого Node-а `above` лежит
+  поверх закреплённого Node-а `top`, кнопка Focus — поверх `other`.
 
 ### Причина
 
