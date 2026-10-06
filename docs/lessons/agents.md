@@ -52,3 +52,40 @@ test, хотя код ни при чём. Вторая известная при
 выше). Перед e2e и `gate full` проверить `ioreg -n Root -d1 | grep -o '"IOConsoleLocked" = [A-Za-z]*'`:
 при `Yes` прогон не запускать, а уже упавший — не считать красным и повторить после разблокировки.
 Источник: worfy-daily/11, PR #64 (при доработке экран был заблокирован, `launch.spec.ts` падал на main).
+
+## Ночной прогон Autopilot: Mac не заблокирован, крышка открыта
+
+Прогон 3 Autopilot вечером 2026-10-06 держал только `prevent-app-suspension`: экран гас, macOS его
+блокировала, Electron переставал показывать окно, и `gate full` Ticket-ов 24 и 28 ждал, пока человек
+разблокирует Mac (e2e идут только локально — урок о CI в `ci-merge.md`). Теперь прогон держит
+`prevent-display-sleep` (ADR-0034), но ручную блокировку и закрытую крышку не обходит: на ночь Mac
+разблокирован, крышка открыта (README, раздел «Stable copy»).
+Код: `src/main/autopilot/power.ts`. Источник: worfy-daily/32, PR #70.
+
+## Конец хода Orchestrator-а — не конец Wave: Subagent-ы Wave живут как background task-и
+
+Skill `/epic-wave` запускает implementer-ов Subagent-ами с `run_in_background` и кончает ход, а Wave
+идёт дальше. Первый прогон Autopilot (2026-10-06, 10:17Z) счёл конец хода концом Wave: через 85 с —
+`no-progress`, Session Orchestrator-а закрылась, и с процессом Claude Code погибли четыре Subagent-а.
+Кто смотрит на Session извне, судит о конце её работы по живым background task-ам (событие SDK
+`system/background_tasks_changed`), а не по `result` хода или `idle`. Правило — ADR-0029.
+Код: `src/shared/agent/background-tasks.ts`, `src/main/autopilot/run.ts`. Источник: worfy-daily/29, PR #41.
+
+## В Session без человека любой диалог — отказ: удалять только буквальный путь, владельца не спрашивать
+
+На `rm -rf` с маской или переменной в пути Claude Code спрашивает подтверждение даже в
+`bypassPermissions`; в Autopilot worfy отклоняет запрос сам (`refused-dialog` в журнале), и шаг
+агента ломается. Так было в прогоне 2 (Wave 6 плана: `rm -rf *`, затем `AskUserQuestion`) и в
+прогоне 3 (Wave 8: `rm -rf $R/$d`); в прогоне 4 — ни разу. Правила: только буквальный путь, чистый
+каталог — новый `mktemp -d` (`~/.claude/agents/implementer.md`, `~/.claude/agents/reviewer.md`);
+развилку владельца решать рекомендованным вариантом (`~/.claude/skills/epic-wave/SKILL.md`, «2. Раздача»).
+Источник: прогоны Autopilot 2 и 3, 2026-10-06; коммиты `~/.claude` 8d2fbea, f0132fb.
+
+## Worktree и ветку влитого Ticket-а удалять сразу после мержа
+
+После Wave 6 плана деревья влитых Ticket-ов остались, и Epic показывал «3 in work». worfy накладывает
+Status ветки живого worktree на checkout, пока в checkout-е не `done` и не `blocked` (ADR-0033), так
+что старая ветка в живом дереве — ложный сигнал «в работе». Правило: влит PR Ticket-а или документный
+PR Wave — сразу `git worktree remove` и `git branch -D` (`~/.claude/skills/epic-wave/SKILL.md`,
+«4. Мерж по политике», «Уборка после мержа»).
+Код: `applyBranches` в `src/main/workflow/reader.ts`. Источник: worfy-daily Wave 6; коммит `~/.claude` ec8412c.

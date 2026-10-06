@@ -37,3 +37,13 @@ GitHub не создаёт run `pull_request`, пока у PR `mergeStateStatus:
 кэш перед мержем допустим, только когда ветка уже стояла на текущем `main`. В отчёте писать «из
 кэша», а не «прогнан». Красное не кэшируется: упавший прогон всегда идёт заново.
 Источник: worfy-daily/28, PR #66.
+
+## CI на GitHub — только Linux; e2e и собранный `.app` проверяет локальный `gate full` перед мержем
+
+2026-10-06 владелец посчитал цену: macOS-раннер — около $75 в месяц, а e2e и упаковка занимали 6,5
+из 8,7 минуты прогона. С PR #42 CI — job на `ubuntu-latest` (lint, typecheck, unit и contract
+test-ы), PR только с документами CI не запускает, e2e и `.app` проверяет только `gate full` перед
+мержем. Следствия: test, завязанный на macOS, помечать `it.skipIf(process.platform !== 'darwin')`,
+иначе на Linux он красный; e2e разных агентов — по одному под замком `/tmp/worfy-e2e.lock` (урок о
+`firstWindow` в `agents.md`). Правила — `~/.claude/profiles/worfy/rules.md`.
+Код: `.github/workflows/ci.yml`. Источник: PR #42; коммиты `~/.claude` f5f0cbb, 8d2fbea.
