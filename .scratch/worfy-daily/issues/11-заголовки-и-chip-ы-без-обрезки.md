@@ -85,23 +85,27 @@ Source: [spec.md](../spec.md), тема C; [F-SPEC.md](../../../docs/design/F-SP
 
 PR #64, ветка `worfy-daily/11`.
 
-**Обрезания до правки** (built app, Project-ы Auction и worfy, временный `WORFY_DATA_DIR`, обе
-темы; снимки [до, Auction, светлая](../evidence/11-before-auction-light.png),
-[до, Auction, тёмная](../evidence/11-before-auction-dark.png),
-[до, worfy, светлая](../evidence/11-before-worfy-light.png),
-[до, worfy, тёмная](../evidence/11-before-worfy-dark.png)):
+**Обрезания до правки.** Снимки сняты через `launchApp` из `test/e2e/helpers.ts`: fake-агент,
+временные `WORFY_DATA_DIR` и `WORFY_CLAUDE_HOME`. Project-ы — две фикстуры той же формы, что
+Auction и worfy: длинные имена Epic, Epic без Tickets, заголовок Ticket-а в 120 символов, стопка
+из 90 done, длинные причины blocked и строки blockers. Сборка «до» — origin/main 0fbcde6. Скрипт
+проверяет, что временный home после запуска не изменился, а в Project-е нет изменений. Снимки:
+[до, Auction-фикстура, светлая](../evidence/11-before-auction-light.png),
+[до, Auction-фикстура, тёмная](../evidence/11-before-auction-dark.png),
+[до, worfy-фикстура, светлая](../evidence/11-before-worfy-light.png),
+[до, worfy-фикстура, тёмная](../evidence/11-before-worfy-dark.png).
 
-- заголовок Ticket-а сжат до 21 px — одна строка без многоточия и без tooltip: 27 Ticket-ов на
-  Auction, 13 на worfy. Причина: у Ticket-а 104 px, а строки top, title, blockers и badges с actions
-  вместе выше; grid из `actions.css` ужимает title (у блока с `overflow: hidden` минимум 0);
-- заголовок рамки — одна строка с многоточием, без tooltip: 38 рамок на Auction, 1 на worfy. У рамки
-  520 px с «Run wave» и «Autopilot» на заголовок оставалось 67–85 px («audit-20…»);
-- имя Epic в sidebar обрезано многоточием: 22 из 42 на Auction;
-- список стопки done обрезан посреди строки, без tooltip (стопка «90 done» на Auction); сама подпись
-  «N done» не резалась;
-- строка blockers («blocked by 06, 07, 08, 09, 10, 30 · done») и причина blocked — многоточие;
-  полного текста blockers не было нигде;
-- chip-ы checks: при gate, PR и CI в одной строке с «Ship ticket» / «Open PR» CI уходил за край
+- Заголовок Ticket-а сжат до 21 px: одна строка без многоточия и без tooltip (11 Ticket-ов в
+  каждой фикстуре). Причина: у Ticket-а 104 px, а строки top, title, blockers и badges с actions
+  вместе выше. Grid из `actions.css` ужимает title, потому что у блока с `overflow: hidden` минимум 0.
+- Заголовок рамки — одна строка с многоточием, без tooltip (3 рамки в Auction-фикстуре, 1 в
+  worfy). У рамки 520 px с «Run wave» и «Autopilot» на заголовок оставалось 67–85 px («audit-20…»).
+- Имя Epic в sidebar обрезано многоточием (4 из 4 в Auction-фикстуре).
+- Список стопки done обрезан посреди строки, без tooltip (стопка «90 done»). Подпись «N done» не
+  резалась.
+- Строка blockers («blocked by 01, 02, 03, 05, …») и причина blocked обрезаны многоточием. Полного
+  текста blockers не было нигде.
+- Chip-ы checks: при gate, PR и CI в одной строке с «Ship ticket» / «Open PR» CI уходил за край
   (`checks-badges.spec.ts`: CI заканчивался на 4 px правее Ticket-а).
 
 **Что сделано:**
@@ -126,17 +130,17 @@ PR #64, ветка `worfy-daily/11`.
   в любом месте), под ним progress, счёт и «N in work».
 
 **Решено без владельца, подтвердить:** предел заголовка Ticket-а — 3 строки, Ticket 160 px. F-SPEC
-предела не задаёт, в макетах Ticket-ы 92–148 px. Альтернатива — 4 строки и 176 px: на Auction из 27
-длинных заголовков целиком читались бы 14 вместо 6, но рамки стали бы ещё выше. Цена выбранного:
+предела не задаёт, в макетах Ticket-ы 92–148 px. Альтернатива — 4 строки и 176 px: целиком читалось бы
+больше длинных заголовков, но рамки стали бы ещё выше. Цена выбранного:
 рамки и готовая Wave выше в 1,5 раза, у Ticket-а с коротким заголовком внизу пустое место.
 
-**После правки** ([после, Auction, светлая](../evidence/11-after-auction-light.png),
-[после, Auction, тёмная](../evidence/11-after-auction-dark.png),
-[после, worfy, светлая](../evidence/11-after-worfy-light.png),
-[после, worfy, тёмная](../evidence/11-after-worfy-dark.png); фикстура с длинными названиями:
-[светлая](../evidence/11-long-names-light.png), [тёмная](../evidence/11-long-names-dark.png)):
-ни один заголовок Ticket-а не сжат; всё, что обрезано (заголовки длиннее 3 строк, длинные заголовки
-рамок, длинные строки blockers), имеет полный текст в tooltip; имена Epic в sidebar — целиком.
+**После правки** ([после, Auction-фикстура, светлая](../evidence/11-after-auction-light.png),
+[после, Auction-фикстура, тёмная](../evidence/11-after-auction-dark.png),
+[после, worfy-фикстура, светлая](../evidence/11-after-worfy-light.png),
+[после, worfy-фикстура, тёмная](../evidence/11-after-worfy-dark.png); фикстура e2e с длинными
+названиями: [светлая](../evidence/11-long-names-light.png), [тёмная](../evidence/11-long-names-dark.png)).
+Ни один заголовок Ticket-а не сжат. У всего, что обрезано, полный текст в tooltip: заголовки длиннее
+3 строк, длинные заголовки рамок, длинные строки blockers и причины. Имена Epic в sidebar целиком.
 
 **Тесты:**
 
@@ -177,7 +181,8 @@ PR #64, ветка `worfy-daily/11`.
 - Что сделано. В `~/.claude` ничего не убиралось — что убрать, решает владелец. Снимки пересняты
   через `launchApp` (fake-агент, временные `WORFY_DATA_DIR` и `WORFY_CLAUDE_HOME`) на фикстурах,
   повторяющих форму Auction и worfy. Скрипт проверяет, что временный home после запуска не
-  изменился.
+  изменился. Числа «до» в первой редакции итога были сняты на настоящих Project-ах с этим
+  нарушением. Теперь они заменены числами с фикстур.
 
 **Не проверено:** сверка снимков с F-SPEC глазами (пункт выше).
 
