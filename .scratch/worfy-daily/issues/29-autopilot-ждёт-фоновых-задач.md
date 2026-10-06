@@ -1,7 +1,7 @@
 # 29 — Autopilot ждёт background task-и Orchestrator-а, Stop их не убивает
 
 Type: task
-Status: claimed — 2026-10-06
+Status: done — 2026-10-06, [PR #41](https://github.com/IDSAD-XL/worfy/pull/41)
 Blocked by: —
 Source: первый настоящий прогон Autopilot 2026-10-06 13:17 (стабильная копия `~/Applications/worfy-stable.app`, собрана из main 01a10ea): журнал прогона `~/Library/Application Support/worfy/autopilot/2026-10-06T10-17-22-244Z-2e53b6.jsonl`, транскрипт Orchestrator-а `~/.claude/projects/-Users-alexey-Stuff-CanvasForAI/f6ab7045-416c-471a-a78d-433567aefa5a.jsonl`; [spec.md](../spec.md), тема A, риск 1; [ADR-0024](../../../docs/adr/0024-autopilot-wave-end-and-keep-awake.md)
 
