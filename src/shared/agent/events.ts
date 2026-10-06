@@ -58,6 +58,13 @@ export const agentEvent = z.discriminatedUnion('type', [
   }),
   /** A permission request was answered, or `cancelled` by Interrupt, by closing the Session or by Claude Code. */
   z.object({ type: z.literal('permission_resolved'), requestId: z.string().min(1), decision: z.union([permissionDecisionSchema, z.literal('cancelled')]) }),
+  /**
+   * An unattended Session (Autopilot, src/main/agent/session-settings.ts) refused something that
+   * would have waited for a person, and showed nothing: a permission request (`subject`: the tool's
+   * name) or a Card's `session.ask` (`subject`: the Card's id). `message`: the refusal given. The
+   * journal of an Autopilot run records it as `refused-dialog`.
+   */
+  z.object({ type: z.literal('refused_dialog'), dialog: z.enum(['permission_request', 'card_ask']), subject: z.string(), message: z.string() }),
   /** system/init: arrives at the start of every turn with the current model and mode. */
   z.object({
     type: z.literal('init'),
