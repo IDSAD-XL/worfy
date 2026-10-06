@@ -1,7 +1,7 @@
 # 28 — Размещение Node-ов Subagent-ов и Session из «Ship ticket»
 
 Type: task
-Status: claimed — 2026-10-06
+Status: done — 2026-10-06, [PR #66](https://github.com/IDSAD-XL/worfy/pull/66)
 Blocked by: 06, 07, 08, 09, 10, 23
 Source: [spec.md](../spec.md), тема C, риск 10; ручные проверки 2026-10-06, ночь — Ticket 15 worfy-mvp (`.scratch/worfy-mvp/issues/15-дерево-subagent-ов.md:145`) и Ticket 23 worfy-mvp (`.scratch/worfy-mvp/issues/23-ship-ticket-run-wave-open-pr.md:143`); HANDOFF, «Риски и долги»
 
@@ -131,3 +131,12 @@ Node-ы Layout-а: ни рамки Epic-ов (ADR-0032 — колонка обх
   [светлая](../evidence/28-subagent-tree-light.png), [тёмная](../evidence/28-subagent-tree-dark.png).
 - Session после «Ship ticket» справа от рамки, на высоте Ticket-а 07:
   [светлая](../evidence/28-ship-ticket-session-light.png), [тёмная](../evidence/28-ship-ticket-session-dark.png).
+
+### Гейт и что не проверено
+
+Проверочный гейт — комментарий VERIFIED в [PR #66](https://github.com/IDSAD-XL/worfy/pull/66): код,
+unit- и contract-test-ы, мутанты; петли «колонка рамок — дерево Subagent-ов» нет. e2e и снимки
+проверяющий не запускал: экран Mac был заблокирован. Пункт e2e закрыт `GATE_SCOPE=all gate full`
+перед мержем (после rebase на `main`, код 0); результат взят из кэша gate на том же дереве.
+
+Не проверено: «Ship ticket» на настоящем Project-е в собранном приложении — за владельцем.

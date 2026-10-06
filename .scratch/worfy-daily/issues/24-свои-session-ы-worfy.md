@@ -1,7 +1,7 @@
 # 24 — Свои Session-ы worfy: один Node до первого хода и верные подписи
 
 Type: task
-Status: claimed — 2026-10-06
+Status: done — 2026-10-06, [PR #67](https://github.com/IDSAD-XL/worfy/pull/67)
 Blocked by: 06, 07, 08, 09, 22, 23
 Source: [spec.md](../spec.md), тема C; ручные проверки 2026-10-06, ночь — Ticket-ы 14 и 33 worfy-mvp (`.scratch/worfy-mvp/issues/14-внешние-сессии-только-чтение.md:146`, `.scratch/worfy-mvp/issues/33-session-view-транскрипт-и-ввод.md:182`); HANDOFF, «Риски и долги»
 
@@ -82,7 +82,7 @@ Orchestrator-а. У остальных Session — «claude», как у read-on
 - `test/unit/agent-options.test.ts`
 - `test/contract/agent-session.test.ts`
 - `test/e2e/own-sessions.spec.ts` (новый)
-- Расширение следа (разрешено оркестратором):
+- Расширение следа (разрешено Orchestrator-ом):
   - `src/main/agent/app-registry.ts` — `sessionId` запроса доходит до `sessionOptions`; флаг `WORFY_AGENT_REGISTRY` для fake-агента.
   - `src/renderer/canvas/nodes/SessionNode.tsx` — имя живого Session Node-а берётся из общего `worfySessionTitle`, тем же, что у sidebar.
   - `test/unit/agent-query-factory.test.ts` — три новых test-а: `sessionId` новой Session доходит до SDK, с `resume` не передаётся, запись реестра fake-агентом только по флагу.
@@ -105,19 +105,19 @@ Claude Code, искать свою запись реестра не по чем�
 
 - `--session-id` вместе с `--resume` или `--continue` — ошибка «--session-id can only be used with
   --continue or --resume if --fork-session is also specified». worfy `continue` и `forkSession`
-  не использует. При Resume, при перезапуске worfy (Orchestrator продолжает сохранённую сессию) и
-  при перезапуске Session после падения, когда SDK-сессия уже известна, передаётся только `resume`.
+  не использует. При Resume, при перезапуске worfy (Orchestrator продолжает сохранённую Session) и
+  при перезапуске Session после падения, когда id Session в SDK уже известен, передаётся только `resume`.
   Это держат два барьера: Session не задаёт `sessionId` при `resume`, и `sessionOptions`
   (`src/main/agent/options.ts`) отбрасывает `sessionId`, если есть `resume`.
 - Id, у которого уже есть транскрипт, Claude Code отвергает: «Session ID <id> is already in use».
-  Поэтому, если процесс Claude Code умер до первого хода (SDK-сессия ещё не известна), следующий
+  Поэтому, если процесс Claude Code умер до первого хода (id Session в SDK ещё не известен), следующий
   процесс получает новый uuid, а Session переименовывается в него событием `renamed`. Это
   единственный оставшийся случай `renamed` у Session без `resume`.
 - Невалидный uuid Claude Code отвергает («Invalid session ID. Must be a valid UUID»): id — `randomUUID()`.
 
-ADR-0010 (в данных Node-а только id сессии и стоимость) не затронут: Orchestrator и Session Node
+ADR-0010 (в данных Node-а только id Session и стоимость) не затронут: Orchestrator и Session Node
 по-прежнему сохраняют id в Layout по `system/init`. Меняется только то, когда id узнаёт main, и
-отдельный ADR не заведён (бриф волны: «ADR не нужен»).
+отдельный ADR не заведён (бриф Wave: «ADR не нужен»).
 
 **Кто держался за `renamed` и `pending-…`** (src, grep): `src/renderer/session/store.ts` (переносит
 журнал событий со старого id на новый — без переименования журнал сразу под одним id),
@@ -160,3 +160,7 @@ sidebar, снятие проверки флага, `sessionId` при `resume`, 
 Не проверено: настоящий Claude Code с `--session-id` (запись в `~/.claude` брифом запрещена) —
 что он пишет переданный id в реестр до `system/init`, сделан вывод по строкам бинарника и тексту
 тикета; ручной запуск собранного приложения — за владельцем.
+
+Проверочный гейт — комментарий VERIFIED в [PR #67](https://github.com/IDSAD-XL/worfy/pull/67):
+`sessionId` не уходит вместе с `resume` ни на одном пути старта, процесс, умерший до первого хода,
+получает новый uuid. Перед мержем — rebase на `main` и `GATE_SCOPE=all gate full`, код 0.
