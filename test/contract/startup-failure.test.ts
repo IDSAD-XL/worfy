@@ -12,6 +12,8 @@ const electron = vi.hoisted(() => ({
   /** What the next BrowserWindow's loadFile / loadURL answers. */
   load: (): Promise<void> => Promise.resolve(),
   destroyed: false,
+  /** Emits did-start-navigation on the last window's webContents, as Chromium does. */
+  startNavigation: (() => undefined) as (details: { isMainFrame: boolean; isSameDocument: boolean }) => void,
   requestSingleInstanceLock: vi.fn(() => true),
 }))
 
@@ -19,6 +21,11 @@ vi.mock('electron', () => {
   class FakeWindow {
     static getAllWindows(): FakeWindow[] {
       return []
+    }
+    webContents = {
+      on(event: string, listener: (details: { isMainFrame: boolean; isSameDocument: boolean }) => void): void {
+        if (event === 'did-start-navigation') electron.startNavigation = listener
+      },
     }
     on(): void {}
     once(): void {}
@@ -72,6 +79,7 @@ beforeEach(() => {
   electron.requestSingleInstanceLock.mockClear()
   electron.load = () => Promise.resolve()
   electron.destroyed = false
+  electron.startNavigation = () => undefined
   unhandled.length = 0
   process.on('unhandledRejection', onUnhandled)
   vi.stubEnv('WORFY_DATA_DIR', DATA_DIR)
@@ -79,6 +87,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   process.off('unhandledRejection', onUnhandled)
   vi.unstubAllEnvs()
 })
@@ -325,25 +334,79 @@ describe('the window page load', () => {
     expect(shownWindow().text).toContain('ERR_CONNECTION_REFUSED')
   })
 
-  it.each([
-    ['loadFile', ''],
-    ['loadURL', 'http://localhost:5173'],
-  ])('a %s cut short by another navigation (ERR_ABORTED: View ▸ Reload, a Vite reload) is no failure', async (_load, devServer) => {
-    vi.stubEnv('ELECTRON_RENDERER_URL', devServer)
-    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    try {
-      const { createMainWindow } = await import('../../src/main/window')
-      electron.load = () => Promise.reject(navigationError('ERR_ABORTED', -3))
-      createMainWindow({ firstOfStart: true })
-      await settle()
-      await settle()
+  /** The main-frame navigation of a new document that a load starts, as did-start-navigation reports it. */
+  const DOCUMENT = { isMainFrame: true, isSameDocument: false }
 
-      expect(unhandled).toEqual([])
-      expect(electron.showErrorBox).not.toHaveBeenCalled()
-      expect(electron.exit).not.toHaveBeenCalled()
-    } finally {
-      stderr.mockRestore()
-    }
+  it.each([
+    ['loadFile', '', 'ERR_ABORTED', -3],
+    ['loadURL', 'http://localhost:5173', 'ERR_ABORTED', -3],
+    ['loadFile', '', 'ERR_FAILED', -2],
+    ['loadURL', 'http://localhost:5173', 'ERR_FAILED', -2],
+  ])('a %s replaced by a newer navigation (%s, View ▸ Reload, a Vite reload) is no failure', async (_load, devServer, code, errno) => {
+    vi.stubEnv('ELECTRON_RENDERER_URL', devServer)
+    vi.useFakeTimers()
+    const { createMainWindow } = await import('../../src/main/window')
+    let reject: (error: unknown) => void = () => undefined
+    electron.load = () => new Promise((_resolve, rejectLoad) => (reject = rejectLoad))
+    createMainWindow({ firstOfStart: true })
+    electron.startNavigation(DOCUMENT)
+    electron.startNavigation(DOCUMENT)
+    reject(navigationError(code, errno))
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(unhandled).toEqual([])
+    expect(electron.showErrorBox).not.toHaveBeenCalled()
+    expect(electron.exit).not.toHaveBeenCalled()
+  })
+
+  it('a load stopped (ERR_FAILED) a moment before the navigation that replaces it starts is no failure', async () => {
+    vi.useFakeTimers()
+    const { createMainWindow, REPLACED_LOAD_GRACE_MS } = await import('../../src/main/window')
+    electron.load = () => Promise.reject(navigationError('ERR_FAILED', -2))
+    createMainWindow({ firstOfStart: true })
+    electron.startNavigation(DOCUMENT)
+    await vi.advanceTimersByTimeAsync(REPLACED_LOAD_GRACE_MS - 100)
+    electron.startNavigation(DOCUMENT)
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(electron.showErrorBox).not.toHaveBeenCalled()
+    expect(electron.exit).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['ERR_FAILED', -2, 'ERR_FAILED (-2)'],
+    ['ERR_ABORTED', -3, 'ERR_ABORTED (-3)'],
+  ])('a first load that ends with %s while no newer navigation starts fails the start after the wait', async (code, errno, shown) => {
+    vi.useFakeTimers()
+    const { createMainWindow, REPLACED_LOAD_GRACE_MS } = await import('../../src/main/window')
+    electron.load = () => Promise.reject(navigationError(code, errno))
+    createMainWindow({ firstOfStart: true })
+    // Its own navigation, then ones that replace no document: a fragment and a frame (a Card).
+    electron.startNavigation(DOCUMENT)
+    electron.startNavigation({ isMainFrame: true, isSameDocument: true })
+    electron.startNavigation({ isMainFrame: false, isSameDocument: false })
+    await vi.advanceTimersByTimeAsync(REPLACED_LOAD_GRACE_MS - 1)
+    expect(electron.exit).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(unhandled).toEqual([])
+    expect(shownWindow().text).toContain('Step: loadFile')
+    expect(shownWindow().text).toContain(shown)
+    expect(electron.exit).toHaveBeenCalledWith(1)
+  })
+
+  it('a first window closed while its stopped load waits for a newer navigation is no failure of the start', async () => {
+    vi.useFakeTimers()
+    const { createMainWindow, REPLACED_LOAD_GRACE_MS } = await import('../../src/main/window')
+    electron.load = () => Promise.reject(navigationError('ERR_FAILED', -2))
+    createMainWindow({ firstOfStart: true })
+    electron.startNavigation(DOCUMENT)
+    await vi.advanceTimersByTimeAsync(0)
+    electron.destroyed = true
+    await vi.advanceTimersByTimeAsync(REPLACED_LOAD_GRACE_MS * 2)
+
+    expect(electron.showErrorBox).not.toHaveBeenCalled()
+    expect(electron.exit).not.toHaveBeenCalled()
   })
 
   it('a window opened after the start (Dock icon, second start) only logs a failed load and keeps the app running', async () => {
@@ -379,14 +442,18 @@ describe('the window page load', () => {
     expect(electron.exit).not.toHaveBeenCalled()
   })
 
-  it('loadWasAborted tells ERR_ABORTED from other failures', async () => {
-    const { loadWasAborted } = await import('../../src/main/window')
-    expect(loadWasAborted(navigationError('ERR_ABORTED', -3))).toBe(true)
-    expect(loadWasAborted(Object.assign(new Error('x'), { errno: -3 }))).toBe(true)
-    expect(loadWasAborted(navigationError('ERR_FILE_NOT_FOUND', -6))).toBe(false)
-    expect(loadWasAborted(new Error('ERR_ABORTED (-3)'))).toBe(false)
-    expect(loadWasAborted('ERR_ABORTED')).toBe(false)
-    expect(loadWasAborted(null)).toBe(false)
+  it('loadEndedAsReplaced takes ERR_ABORTED and ERR_FAILED, by code or errno, and nothing else', async () => {
+    const { loadEndedAsReplaced } = await import('../../src/main/window')
+    expect(loadEndedAsReplaced(navigationError('ERR_ABORTED', -3))).toBe(true)
+    expect(loadEndedAsReplaced(navigationError('ERR_FAILED', -2))).toBe(true)
+    // Electron leaves `code` empty when did-fail-load reports no description.
+    expect(loadEndedAsReplaced(Object.assign(new Error('x'), { code: '', errno: -3 }))).toBe(true)
+    expect(loadEndedAsReplaced(Object.assign(new Error('x'), { errno: -2 }))).toBe(true)
+    expect(loadEndedAsReplaced(navigationError('ERR_FILE_NOT_FOUND', -6))).toBe(false)
+    expect(loadEndedAsReplaced(navigationError('ERR_CONNECTION_REFUSED', -102))).toBe(false)
+    expect(loadEndedAsReplaced(new Error('ERR_ABORTED (-3)'))).toBe(false)
+    expect(loadEndedAsReplaced('ERR_FAILED')).toBe(false)
+    expect(loadEndedAsReplaced(null)).toBe(false)
   })
 })
 

@@ -40,13 +40,22 @@ export interface MainWindowOptions {
 }
 
 /**
- * Whether a rejected loadURL / loadFile was cut short by another navigation (Electron's
- * ERR_ABORTED, -3) rather than failing to load.
+ * How long a load that ended as if replaced waits for the navigation that replaced it. Chromium
+ * may stop the load (did-stop-loading) a moment before it starts the next navigation.
  */
-export function loadWasAborted(error: unknown): boolean {
+export const REPLACED_LOAD_GRACE_MS = 1_000
+
+/**
+ * Whether a rejected loadURL / loadFile ended the way a load replaced by another navigation ends
+ * in Electron 44: ERR_ABORTED (-3) when the newer navigation started first, ERR_FAILED (-2) when
+ * Chromium stopped this load before starting the newer one (test/e2e/window.spec.ts pins both).
+ * The rejection alone does not prove a replacement: webContents.stop() and a closed window end a
+ * load the same way. createMainWindow also requires that a newer navigation has started.
+ */
+export function loadEndedAsReplaced(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false
   const { code, errno } = error as { code?: unknown; errno?: unknown }
-  return code === 'ERR_ABORTED' || errno === -3
+  return code === 'ERR_ABORTED' || errno === -3 || code === 'ERR_FAILED' || errno === -2
 }
 
 export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow {
@@ -88,18 +97,42 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
     window.show()
   })
 
+  // Navigations of the main frame to a new document: the first is the load below, any later one
+  // replaces it (View ▸ Reload, a Vite reload under `pnpm dev`). Same-document navigations
+  // (a fragment, history.pushState) and frames (Cards) replace nothing.
+  let navigations = 0
+  let onNewerNavigation: (() => void) | undefined
+  window.webContents.on('did-start-navigation', (details) => {
+    if (!details.isMainFrame || details.isSameDocument) return
+    navigations += 1
+    if (navigations > 1) onNewerNavigation?.()
+  })
+
   // The first window of the start whose page does not load leaves the start without a window: say
   // so and exit (startup-failure.ts). Any other failed load is only logged: a window opened later
   // (Dock icon, a second start, a notification) must not end an app with live Sessions, and
-  // app.exit would skip the will-quit handlers that save the Layout. ERR_ABORTED is no failure
-  // at all: another navigation replaced this load (View ▸ Reload, a Vite reload under `pnpm dev`),
-  // and a window closed while loading is not a failure either.
-  const loaded = (step: 'loadURL' | 'loadFile') => (error: unknown) => {
-    if (window.isDestroyed() || loadWasAborted(error)) return
+  // app.exit would skip the will-quit handlers that save the Layout. A load replaced by a newer
+  // navigation is no failure at all, and a window closed while loading is not one either.
+  const failed = (step: 'loadURL' | 'loadFile', error: unknown): void => {
+    if (window.isDestroyed()) return
     if (options.firstOfStart === true) {
       reportStartupFailure(error, step)
     } else {
       console.error(`[worfy] the window could not load its page (${step})`, error)
+    }
+  }
+  const loaded = (step: 'loadURL' | 'loadFile') => (error: unknown) => {
+    if (window.isDestroyed()) return
+    if (!loadEndedAsReplaced(error)) return failed(step, error)
+    if (navigations > 1) return
+    // Ended as if replaced, with no newer navigation yet: wait a moment for it, then call it a failure.
+    const timer = setTimeout(() => {
+      onNewerNavigation = undefined
+      failed(step, error)
+    }, REPLACED_LOAD_GRACE_MS)
+    onNewerNavigation = () => {
+      onNewerNavigation = undefined
+      clearTimeout(timer)
     }
   }
   const { indexHtml, devServerUrl } = rendererEntry()

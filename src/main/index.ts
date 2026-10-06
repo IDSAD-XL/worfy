@@ -71,7 +71,8 @@ function start(): void {
       // Each step runs in inStep(), so a failure names the step it happened in (startup-failure.ts).
       inStep('installAppMenu', () => installAppMenu())
       // Before the first window, so a dev run never shows the Electron icon in the Dock with it.
-      inStep('installDevDockIcon', () => installDevDockIcon())
+      // Not a step that can fail the start: it turns its own failures into a warning (dock-icon.ts).
+      installDevDockIcon()
       // Handlers go in before the first window, so its first call never finds a channel missing.
       // Calls are accepted only from the renderer location the window itself loads.
       const isAppUrl = appUrlMatcher(rendererEntry())
