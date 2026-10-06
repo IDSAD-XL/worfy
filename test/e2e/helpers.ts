@@ -150,6 +150,20 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
   const tracing = currentTest() !== undefined && (await app.context().tracing.start({ snapshots: true, screenshots: false }).then(() => true, () => false))
   try {
     const window = await app.firstWindow({ timeout: FIRST_WINDOW_TIMEOUT_MS })
+    // Returned only once the window is on screen. The app creates it hidden and shows it when the
+    // page has painted; macOS then fits it into the display. A size or position a test sets before
+    // that is undone on a display smaller than the window (a CI runner's is 1024 × 768).
+    const shown = app.evaluate(
+      ({ BrowserWindow }) =>
+        new Promise<void>((done) => {
+          const first = BrowserWindow.getAllWindows()[0]
+          if (!first || first.isVisible()) return done()
+          first.once('show', () => done())
+        }),
+    )
+    if ((await Promise.race([shown.then(() => 'shown' as const), timeout(FIRST_WINDOW_TIMEOUT_MS)])) === 'timeout') {
+      throw new Error(`the window was not shown within ${FIRST_WINDOW_TIMEOUT_MS / 1000} s`)
+    }
     return {
       app,
       window,
