@@ -110,14 +110,36 @@ unattended Session»), `test/contract/card-api.test.ts` (новый), `test/unit
 `launchSettings`, `sessionOptions` или фабрике, выбор `unattendedCanUseTool`, emit `refused_dialog`,
 проверку в `confirmAsk` — каждый краснит хотя бы один test.
 
+**Первый test и как он падал.** Первым написан test «refuses a change of its permission mode with a
+reason over IPC; the mode stays bypassPermissions» (`test/contract/permissions.test.ts`, раздел «an
+unattended Session»). Без отказа в `Session.configure` он падает на первой же проверке
+(`permissions.test.ts:407`): `agent.configure` для Session без человека отвечает
+`{ ok: true, value: { model: null, effort: null, permissionMode: 'default' } }` вместо
+`{ ok: false, error: 'agent.configure failed: This Session runs unattended (Autopilot), …' }`, то
+есть режим `default` применён. Падение воспроизведено повторно в круге доработки: из
+`session.ts` убрана строка `if (refusal !== null) return Promise.reject(new Error(refusal))`, запуск
+только этого test-а — `Tests 1 failed`, код 1.
+
+**`confirmAsk` так, как его вызывает приложение** (круг доработки по ревью). Последний test
+`test/contract/card-api.test.ts` берёт свежий граф модулей с `WORFY_AGENT=fake` и временным
+`WORFY_DATA_DIR`, запускает обычную Session и Session без человека в общем registry приложения
+(`sharedRegistry`) и вызывает `confirmAsk` без подменённых зависимостей. Для обычной Session
+открывается message box Electron, для Session без человека — нет, Card получает отказ, подписчики —
+`refused_dialog`. Мутант `session: () => undefined` в `appDeps` этот test краснит. Он заменил
+прежний test «uses Electron's dialog when no dialog is given»: тот вызывал `confirmAsk` без
+`WORFY_DATA_DIR`, и поиск Session создавал общий registry приложения вместе с Limits над настоящей
+папкой данных worfy (`~/Library/Application Support/worfy`, `fs.watch` и `mkdir`, если её нет).
+
 не проверено: пункт «(вручную) Session без человека на тестовом Project запускает workflow-скрипт
 с двумя Subagent-ами». Запустить Session без человека сейчас нечем: признак ставит только
 Autopilot (Ticket 04), в UI и IPC его нет. Кроме того, настоящий Claude Code пишет транскрипты в
 `~/.claude/projects`, а запись в `~/.claude` на эту ночь не разрешена. Проверка — после Ticket-а 04,
 по логу main (строки `refused a`) или по журналу прогона.
 
-не проверено: пункт «ADR о смене режима принят». Номер ADR не выдан; черновик — ниже, файл и номер
-заводит оркестратор.
+не проверено: пункт «ADR о смене режима принят». Номер ADR этому Ticket-у не выдан, а исполнитель
+Ticket-а по правилам этой ночи ADR не заводит и номер не резервирует: номер и файл в `docs/adr`
+заводит Orchestrator Wave. Решение принято до кода и записано черновиком ниже; код ему следует
+(`src/main/agent/session.ts`, `Session.configure`).
 
 ### Черновик ADR: Session без человека отклоняет смену режима разрешений
 

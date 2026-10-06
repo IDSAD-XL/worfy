@@ -1,7 +1,8 @@
 // confirmAsk of `session.ask` (src/main/ipc/card-api.ts) with a dialog given by the test: an
 // ordinary recipient gets the message box as before; an unattended one (Autopilot, worfy-daily
 // ticket 02) opens no box, the Card gets a refusal and the Session's subscribers a
-// `refused_dialog` event.
+// `refused_dialog` event. The last test runs confirmAsk as the app does: Electron's dialog and the
+// recipient looked up in the app's shared registry (over a temporary WORFY_DATA_DIR).
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -93,12 +94,40 @@ describe('confirmAsk for an ordinary recipient', () => {
     expect(cancel.showMessageBox.mock.calls[0]).toHaveLength(1)
     expect(received.filter((event) => event.type === 'refused_dialog')).toEqual([])
   })
+})
 
-  it('uses Electron\'s dialog when no dialog is given', async () => {
-    const session = await startSession(false)
-    electron.showMessageBox.mockResolvedValue({ response: 0, checkboxChecked: false })
-    expect(await confirmAsk(null, question(session.id))).toBe(true)
-    expect(electron.showMessageBox).toHaveBeenCalledTimes(1)
+describe('confirmAsk as the app calls it: Electron\'s dialog, the recipient found in the app\'s registry', () => {
+  it('asks through the message box for an ordinary Session and never for an unattended one', async () => {
+    // A fresh module graph whose shared registry runs the fake agent over a temporary data folder.
+    vi.stubEnv('WORFY_DATA_DIR', join(cwd, 'data'))
+    vi.stubEnv('WORFY_AGENT', 'fake')
+    vi.stubEnv('WORFY_AGENT_SCRIPTS', fixtures)
+    vi.stubEnv('WORFY_AGENT_SCRIPT', 'turn')
+    vi.resetModules()
+    const { sharedRegistry } = await import('../../src/main/agent/app-registry')
+    const { appLimits } = await import('../../src/main/agent/limits')
+    const app = await import('../../src/main/ipc/card-api')
+    try {
+      const sink = (_id: string, event: AgentEvent) => received.push(event)
+      const saved = { ...DEFAULT_SETTINGS, permissionMode: 'default' as const }
+      const ordinary = sharedRegistry().start(cwd, undefined, sink, saved)
+      const unattended = sharedRegistry().start(cwd, undefined, sink, saved, { unattended: true })
+      await vi.waitFor(() => expect([ordinary.state, unattended.state]).toEqual(['idle', 'idle']))
+      electron.showMessageBox.mockResolvedValue({ response: 0, checkboxChecked: false })
+
+      expect(await app.confirmAsk(null, question(ordinary.id))).toBe(true)
+      expect(electron.showMessageBox).toHaveBeenCalledTimes(1)
+
+      await expect(app.confirmAsk(null, question(unattended.id))).rejects.toThrow(app.NO_HUMAN_MESSAGE)
+      expect(electron.showMessageBox).toHaveBeenCalledTimes(1)
+      expect(received.filter((event) => event.type === 'refused_dialog')).toEqual([
+        { type: 'refused_dialog', dialog: 'card_ask', subject: 'card-1', message: app.NO_HUMAN_MESSAGE },
+      ])
+    } finally {
+      sharedRegistry().closeAll()
+      appLimits().stop()
+      vi.unstubAllEnvs()
+    }
   })
 })
 
