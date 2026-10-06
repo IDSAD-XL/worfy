@@ -13,7 +13,7 @@
 import { useEffect, useMemo } from 'react'
 import { useReactFlow, useStoreApi } from '@xyflow/react'
 import { create } from 'zustand'
-import { EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, ticketNodeId } from '../../../shared/layout/derived'
+import { EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, onThePlane, ticketNodeId } from '../../../shared/layout/derived'
 import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput } from '../../../shared/layout/types'
 import type { Epic, Ticket, WorkflowModel } from '../../../shared/workflow/types'
 import { useProjects } from '../../projects/useProjects'
@@ -269,7 +269,14 @@ export function buildEpicNodes(
     return { epic, saved, entry: entry! }
   })
 
-  const places = stackFrames(entries.map(({ epic, saved, entry }) => ({ epic: epic.epic, height: entry.layout.height, offset: saved.offset })))
+  // The frames' column keeps clear of the Nodes on the plane (ADR-0032); it is found again on every
+  // change of the Layout or the workflow model, so Tickets that arrive after main placed a Node
+  // still keep off it.
+  const plane = layout.nodes.filter(onThePlane)
+  const places = stackFrames(
+    entries.map(({ epic, saved, entry }) => ({ epic: epic.epic, width: entry.layout.width, height: entry.layout.height, offset: saved.offset })),
+    plane,
+  )
   const nodes: CanvasFlowNode[] = []
   for (const { epic, saved, entry } of entries) {
     const place = places.get(epic.epic)!

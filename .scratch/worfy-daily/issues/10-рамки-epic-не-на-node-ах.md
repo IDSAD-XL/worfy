@@ -97,20 +97,14 @@ Source: [spec.md](../spec.md), тема C, риск 10; [ADR-0011](../../../docs
 
 ## Где в коде
 
-Список покрывает все варианты ADR. После ADR лишнее убирается (пункт «Готово»).
+Сокращено по [ADR-0032](../../../docs/adr/0032-epic-frames-avoid-nodes.md): колонка рамок обходит
+Node-ы на плоскости в renderer, main размещает Node-ы без размера рамок.
 
-- `src/main/layout/place.ts`
-- `src/shared/canvas/tools.ts`
-- `src/main/mcp/canvas-server.ts`
-- `src/renderer/canvas/epic-layout.ts`
+- `src/shared/layout/derived.ts` — правило «Node на плоскости» (`onThePlane`), общее для main и renderer
+- `src/main/layout/place.ts` — берёт `onThePlane` из `derived.ts`
+- `src/renderer/canvas/epic-layout.ts` — `frameColumnX`, `stackFrames` с прямоугольниками Node-ов
 - `src/renderer/canvas/sources/epics.ts`
-- `src/shared/layout/derived.ts`
-- `src/shared/layout/epic-layout.ts` (новый, только вариант (а): чистый `layoutEpic` из renderer)
-- `src/main/agent/node-sessions.ts` (только вариант (в): места вызова `:74`, `:215`)
-- `src/main/agent/orchestrator.ts` (только вариант (в): место вызова `:41`)
-- `src/main/ipc/docs.ts` (только вариант (в): место вызова `:19`)
-- `test/unit/layout-place.test.ts`
 - `test/unit/epic-layout.test.ts`
-- `test/contract/canvas-tools.test.ts`
 - `test/e2e/new-session.spec.ts`
 - `test/e2e/epic-frame.spec.ts`
+- `docs/adr/0032-epic-frames-avoid-nodes.md`

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { placeNear } from '../../src/shared/canvas/tools'
 import type { Ticket } from '../../src/shared/workflow/types'
 import {
   blockedReason,
@@ -9,6 +10,7 @@ import {
   HEADER_HEIGHT,
   layoutEpic,
   progressOf,
+  type Rect,
   stackFrames,
   TICKET_HEIGHT,
   TICKET_WIDTH,
@@ -188,14 +190,66 @@ describe('defaultCollapsed', () => {
 describe('stackFrames', () => {
   it('stacks frames top to bottom; a manual offset moves only its own frame', () => {
     const frames = [
-      { epic: 'a', height: 300 },
-      { epic: 'b', height: 56, offset: { dx: 100, dy: 40 } },
-      { epic: 'c', height: 200 },
+      { epic: 'a', width: 520, height: 300 },
+      { epic: 'b', width: 520, height: 56, offset: { dx: 100, dy: 40 } },
+      { epic: 'c', width: 520, height: 200 },
     ]
     const placed = stackFrames(frames)
     expect(placed.get('a')).toEqual({ x: 0, y: 0, auto: { x: 0, y: 0 } })
     expect(placed.get('b')).toEqual({ x: 100, y: 300 + FRAME_GAP + 40, auto: { x: 0, y: 300 + FRAME_GAP } })
     expect(placed.get('c')).toEqual({ x: 0, y: 300 + FRAME_GAP + 56 + FRAME_GAP, auto: { x: 0, y: 300 + FRAME_GAP + 56 + FRAME_GAP } })
+  })
+
+  // ADR-0032: the frames stand in a column of their own that no Node on the plane is in.
+  const ORCHESTRATOR = { x: 40, y: 40, w: 360, h: 200 }
+  const HANDOFF = { x: 40, y: 280, w: 360, h: 320 }
+  const overlap = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+
+  it('starts the column right of the Nodes that would be in it, not at (0, 0)', () => {
+    const placed = stackFrames([{ epic: 'a', width: 800, height: 600 }], [ORCHESTRATOR, HANDOFF])
+    expect(placed.get('a')!.auto).toEqual({ x: 40 + 360 + FRAME_GAP, y: 0 })
+    // A Node right of the column, above it or far enough left leaves it at x = 0.
+    expect(stackFrames([{ epic: 'a', width: 800, height: 600 }], [{ x: 800 + FRAME_GAP, y: 0, w: 100, h: 100 }]).get('a')!.auto).toEqual({ x: 0, y: 0 })
+    expect(stackFrames([{ epic: 'a', width: 800, height: 600 }], [{ x: 0, y: -FRAME_GAP - 100, w: 100, h: 100 }]).get('a')!.auto).toEqual({ x: 0, y: 0 })
+    expect(stackFrames([{ epic: 'a', width: 800, height: 600 }], [{ x: -100 - FRAME_GAP, y: 0, w: 100, h: 100 }]).get('a')!.auto).toEqual({ x: 0, y: 0 })
+  })
+
+  it('takes the first gap wide enough for the widest frame, left to right', () => {
+    const narrow = { x: 300, y: 0, w: 100, h: 100 }
+    const far = { x: 300 + 100 + FRAME_GAP + 520 + FRAME_GAP, y: 5000, w: 100, h: 100 }
+    // The gap between `narrow` and `far` fits a 520 frame exactly, not a 521 one.
+    expect(stackFrames([{ epic: 'a', width: 520, height: 56 }], [narrow, far]).get('a')!.auto.x).toBe(300 + 100 + FRAME_GAP)
+    const frames = [
+      { epic: 'a', width: 300, height: 56 },
+      { epic: 'b', width: 521, height: 56 },
+    ]
+    const placed = stackFrames(frames, [narrow, far])
+    expect(placed.get('a')!.auto.x).toBe(far.x + far.w + FRAME_GAP)
+    expect(placed.get('b')!.auto.x).toBe(far.x + far.w + FRAME_GAP)
+  })
+
+  it('grows down inside the column: a taller frame never reaches a Node placed before', () => {
+    const below = { x: 40, y: 2000, w: 360, h: 200 }
+    const nodes = [ORCHESTRATOR, below]
+    const short = stackFrames([{ epic: 'a', width: 800, height: 400 }, { epic: 'b', width: 800, height: 56 }], nodes)
+    const tall = stackFrames([{ epic: 'a', width: 800, height: 4000 }, { epic: 'b', width: 800, height: 56 }], nodes)
+    expect(tall.get('a')!.auto.x).toBe(short.get('a')!.auto.x)
+    for (const [epic, height] of [['a', 4000], ['b', 56]] as const) {
+      const place = tall.get(epic)!
+      for (const node of nodes) expect(overlap({ x: place.x, y: place.y, w: 800, h: height }, node), `${epic} over ${JSON.stringify(node)}`).toBe(false)
+    }
+  })
+
+  it('moves out of the way of a Card placed next to a Session by create_card without x/y', () => {
+    const session = { x: 40, y: 40, w: 640, h: 480 }
+    const before = stackFrames([{ epic: 'a', width: 800, height: 600 }], [session]).get('a')!
+    const card = { ...placeNear([session], session, 420, 300), w: 420, h: 300 }
+    // The Card lands where the column was …
+    expect(overlap(card, { x: before.x, y: before.y, w: 800, h: 600 })).toBe(true)
+    // … and the column goes right of it.
+    const after = stackFrames([{ epic: 'a', width: 800, height: 600 }], [session, card]).get('a')!
+    expect(overlap(card, { x: after.x, y: after.y, w: 800, h: 600 })).toBe(false)
+    expect(overlap(session, { x: after.x, y: after.y, w: 800, h: 600 })).toBe(false)
   })
 })
 

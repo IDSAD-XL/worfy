@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { codeSection } from '../../src/main/workflow/reader'
-import { layoutEpic, stackFrames } from '../../src/renderer/canvas/epic-layout'
+import { FRAME_GAP, layoutEpic, MIN_FRAME_WIDTH, stackFrames, type Rect } from '../../src/renderer/canvas/epic-layout'
+import { ORCHESTRATOR_WIDTH } from '../../src/shared/ipc/orchestrator'
+import { onThePlane } from '../../src/shared/layout/derived'
 import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
 import { readyWave, ticketLevels } from '../../src/shared/workflow/waves'
 import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
@@ -75,21 +77,29 @@ let scratch: string
 let dataDir: string
 let claudeHome: string
 
-/** A Claude home whose bin/epic-status is the stub above, or `cat` of a ready answer. */
-function makeClaudeHome(answer?: string): void {
+/** A Claude home whose bin/epic-status is the stub above, or `cat` of a ready answer; `delay` seconds before it answers. */
+function makeClaudeHome(answer?: string, delay = 0): void {
   claudeHome = join(scratch, 'claude-home')
   mkdirSync(join(claudeHome, 'bin'), { recursive: true })
   const js = join(claudeHome, 'stub.cjs')
   writeFileSync(js, STUB_JS)
   const script = join(claudeHome, 'bin', 'epic-status')
-  writeFileSync(script, answer === undefined ? `#!/bin/sh\nexec '${process.execPath}' '${js}' "$@"\n` : `#!/bin/sh\ncat '${answer}'\n`)
+  const wait = delay ? `sleep ${delay}\n` : ''
+  writeFileSync(script, answer === undefined ? `#!/bin/sh\n${wait}exec '${process.execPath}' '${js}' "$@"\n` : `#!/bin/sh\n${wait}cat '${answer}'\n`)
   chmodSync(script, 0o755)
 }
 
 const PROJECT_ID = 'demo-0000000d'
 
-/** A git repository with a `.scratch`, listed as the only and active Project; the Canvas starts at `viewport`. */
-function makeProject(fill: (scratchDir: string) => void, viewport = { x: 40, y: 40, zoom: 1 }): string {
+/**
+ * main places the Orchestrator Node at (40, 40), so the frames' column starts right of it
+ * (ADR-0032); the Canvas starts with the column's left edge 40 px from the Canvas's left edge, at
+ * zoom 1, so that screen pixels are canvas units.
+ */
+const FRAMES_IN_VIEW = { x: 40 - (40 + ORCHESTRATOR_WIDTH + FRAME_GAP), y: 40, zoom: 1 }
+
+/** A git repository with a `.scratch`, listed as the only and active Project; the Canvas starts at `viewport` with the saved `nodes`. */
+function makeProject(fill: (scratchDir: string) => void, viewport = FRAMES_IN_VIEW, nodes: unknown[] = []): string {
   const repo = join(scratch, 'demo')
   mkdirSync(join(repo, '.scratch'), { recursive: true })
   fill(join(repo, '.scratch'))
@@ -98,7 +108,7 @@ function makeProject(fill: (scratchDir: string) => void, viewport = { x: 40, y: 
   git(repo, 'commit', '-q', '-m', 'init')
   mkdirSync(join(dataDir, PROJECT_ID), { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT_ID, name: 'demo', path: repo }], activeId: PROJECT_ID }))
-  writeFileSync(join(dataDir, PROJECT_ID, 'layout.json'), JSON.stringify({ nodes: [], viewport }))
+  writeFileSync(join(dataDir, PROJECT_ID, 'layout.json'), JSON.stringify({ nodes, viewport }))
   return repo
 }
 
@@ -134,6 +144,10 @@ interface StateNode {
   kind: string
   x: number
   y: number
+  w: number
+  h: number
+  hidden: boolean
+  pinned: boolean
   data: Record<string, unknown>
 }
 
@@ -148,6 +162,11 @@ async function layoutNodes(window: Page): Promise<StateNode[]> {
   )
   expect(result.ok).toBe(true)
   return result.value.layout.nodes
+}
+
+/** The Nodes on the plane in the saved Layout: the frames' column keeps clear of them (ADR-0032). */
+async function planeRects(window: Page): Promise<Rect[]> {
+  return (await layoutNodes(window)).filter(onThePlane).map(({ x, y, w, h }) => ({ x, y, w, h }))
 }
 
 async function box(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
@@ -324,13 +343,16 @@ test('a Ticket and a frame moved by hand keep their offsets after a restart and 
     const placed = layoutEpic({ tickets: demoTickets(states), collapsed: false, doneExpanded: false }).tickets.find((t) => t.num === num)!
     return placed.auto
   }
-  /** The automatic place of zeta's frame: under demo's frame. */
-  const zetaAuto = (states: Record<number, Ticket['state']>, demoCollapsed = false) => {
-    const demoHeight = layoutEpic({ tickets: demoTickets(states), collapsed: demoCollapsed, doneExpanded: false }).height
-    return stackFrames([
-      { epic: 'demo', height: demoHeight },
-      { epic: 'zeta', height: 0 },
-    ]).get('zeta')!.auto
+  /** The automatic place of zeta's frame: under demo's frame, in the column clear of the Nodes on the plane (ADR-0032). */
+  const zetaAuto = async (window: Page, states: Record<number, Ticket['state']>, demoCollapsed = false) => {
+    const demo = layoutEpic({ tickets: demoTickets(states), collapsed: demoCollapsed, doneExpanded: false })
+    return stackFrames(
+      [
+        { epic: 'demo', width: demo.width, height: demo.height },
+        { epic: 'zeta', width: MIN_FRAME_WIDTH, height: 0 },
+      ],
+      await planeRects(window),
+    ).get('zeta')!.auto
   }
   let frameOffset: { dx: number; dy: number }
 
@@ -360,7 +382,7 @@ test('a Ticket and a frame moved by hand keep their offsets after a restart and 
 
     // The second frame, dragged by its header: the Layout keeps the shift from its automatic
     // place (below demo), not the place itself.
-    expect(await flowPosition(window, 'epic:zeta')).toEqual(zetaAuto({}))
+    expect(await flowPosition(window, 'epic:zeta')).toEqual(await zetaAuto(window, {}))
     const handle = await box(window.locator('[data-testid="epic-frame"][data-epic="zeta"] .w-epic__drag .w-epic__tag'))
     await window.mouse.move(handle.x + 5, handle.y + 5)
     await window.mouse.down()
@@ -374,7 +396,7 @@ test('a Ticket and a frame moved by hand keep their offsets after a restart and 
     // the mouse; what matters is that the saved offset is where the frame was dropped.
     expect(frameOffset.dx).toBeGreaterThan(60)
     expect(frameOffset.dy).toBeGreaterThan(40)
-    const zetaPlace = zetaAuto({})
+    const zetaPlace = await zetaAuto(window, {})
     const dropped = await flowPosition(window, 'epic:zeta')
     expect({ dx: Math.round(dropped.x - zetaPlace.x), dy: Math.round(dropped.y - zetaPlace.y) }).toEqual(frameOffset)
   } finally {
@@ -387,7 +409,7 @@ test('a Ticket and a frame moved by hand keep their offsets after a restart and 
     await expect(ticketNode(window, 3)).toBeVisible()
     const before = autoOf({}, 3)
     expect(await inFrame(window, 'demo', 3)).toEqual({ x: before.x + offset.dx, y: before.y + offset.dy })
-    const zetaBefore = zetaAuto({})
+    const zetaBefore = await zetaAuto(window, {})
     expect(await flowPosition(window, 'epic:zeta')).toEqual({ x: zetaBefore.x + frameOffset.dx, y: zetaBefore.y + frameOffset.dy })
 
     // Ticket 02 is done: it folds into a Done column, 04 loses its blocker and the levels move;
@@ -403,7 +425,7 @@ test('a Ticket and a frame moved by hand keep their offsets after a restart and 
     // demo's frame is collapsed to its header, so zeta's automatic place moves up; zeta keeps its
     // shift from it.
     await window.getByRole('button', { name: 'Collapse epic demo' }).click()
-    const zetaAfter = zetaAuto({ 2: 'done' }, true)
+    const zetaAfter = await zetaAuto(window, { 2: 'done' }, true)
     expect(zetaAfter.y).toBeLessThan(zetaBefore.y)
     await expect.poll(() => flowPosition(window, 'epic:zeta')).toEqual({ x: zetaAfter.x + frameOffset.dx, y: zetaAfter.y + frameOffset.dy })
   } finally {
@@ -412,6 +434,87 @@ test('a Ticket and a frame moved by hand keep their offsets after a restart and 
   // Moving a Ticket and a frame is saved in worfy's own data, never in the repository (ADR-0005);
   // the status edit above is the test's own change to a tracked file.
   expect(git(repo, 'status', '--porcelain', '--ignored', '--untracked-files=all')).toBe('M .scratch/demo/issues/02-t2.md')
+})
+
+// ── frames and the Nodes main places (ADR-0032) ─────────────────────────────
+
+const DEMO_DONE = { 1: 'done', 2: 'done', 3: 'done' } as const
+
+/** demo with Tickets 01–03 done, so the frame has a done stack that is taller when opened, and a HANDOFF.md, so main places a HANDOFF Node. */
+function writeDemoWithHandoff(dir: string): void {
+  const issues = join(dir, 'demo', 'issues')
+  mkdirSync(issues, { recursive: true })
+  writeFileSync(join(dir, 'demo', 'spec.md'), '# demo: a small Epic\n')
+  for (const t of demoTickets(DEMO_DONE)) writeFileSync(join(issues, `${String(t.num).padStart(2, '0')}-t${t.num}.md`), ticketText(t.num, t.state, t.blockedRaw!))
+  writeFileSync(join(dir, '..', 'HANDOFF.md'), '# HANDOFF\n\nNothing yet.\n')
+}
+
+const area = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }): number =>
+  Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y))
+
+/** The Orchestrator and HANDOFF Nodes of the Layout, once main has placed both. */
+async function mainNodes(window: Page): Promise<StateNode[]> {
+  await expect.poll(async () => (await layoutNodes(window)).filter((node) => node.kind === 'orchestrator' || node.kind === 'handoff').length, { timeout: 10_000 }).toBe(2)
+  return (await layoutNodes(window)).filter((node) => node.kind === 'orchestrator' || node.kind === 'handoff')
+}
+
+/** The area the demo frame covers of each of `nodes`, measured on the screen. */
+async function underFrame(window: Page, nodes: readonly StateNode[]): Promise<number[]> {
+  const frame = await box(window.getByTestId('rf__node-epic:demo'))
+  return Promise.all(nodes.map(async (node) => area(frame, await box(window.getByTestId(`rf__node-${node.id}`)))))
+}
+
+test('Tickets that arrive after main placed the Orchestrator and HANDOFF Nodes keep their frame off both, also with the done stack open', async () => {
+  // epic-status answers 2 s late: main has placed both Nodes at the top left before there is a frame.
+  makeClaudeHome(undefined, 2)
+  makeProject(writeDemoWithHandoff, { x: 20, y: 20, zoom: 0.5 })
+  const launched = await launch()
+  try {
+    const { window } = launched
+    const placed = await mainNodes(window)
+    expect(placed.find((node) => node.kind === 'orchestrator')).toMatchObject({ x: 40, y: 40 })
+    await expect(window.getByTestId('rf__node-epic:demo')).toBeVisible({ timeout: 15_000 })
+    for (const node of placed) await expect(window.getByTestId(`rf__node-${node.id}`)).toBeVisible()
+    expect(await underFrame(window, placed)).toEqual([0, 0])
+    const column = await flowPosition(window, 'epic:demo')
+    expect(column).toEqual(
+      stackFrames([{ epic: 'demo', width: layoutEpic({ tickets: demoTickets(DEMO_DONE), collapsed: false, doneExpanded: false }).width, height: 0 }], await planeRects(window)).get('demo')!.auto,
+    )
+
+    // The opened done stack makes the frame taller; it grows down its column and covers neither Node.
+    const before = await box(window.getByTestId('rf__node-epic:demo'))
+    await window.getByRole('button', { name: 'Expand done tickets of demo' }).click()
+    await expect(ticketNode(window, 1)).toBeVisible()
+    await expect.poll(async () => (await box(window.getByTestId('rf__node-epic:demo'))).height).toBeGreaterThan(before.height)
+    expect(await flowPosition(window, 'epic:demo')).toEqual(column)
+    expect(await underFrame(window, placed)).toEqual([0, 0])
+  } finally {
+    await launched.close()
+  }
+})
+
+test('a saved Layout with the Orchestrator and HANDOFF Nodes where the frame used to go: the frame moves, the Nodes stay', async () => {
+  makeClaudeHome()
+  const saved = [
+    { id: 'orchestrator-saved', kind: 'orchestrator', x: 40, y: 40, w: 360, h: 200, locked: true, data: {} },
+    { id: 'handoff-saved', kind: 'handoff', x: 40, y: 280, w: 360, h: 320, locked: true, data: {} },
+  ]
+  const repo = makeProject(writeDemoWithHandoff, { x: 20, y: 20, zoom: 0.5 }, saved)
+  const launched = await launch()
+  try {
+    const { window } = launched
+    await expect(window.getByTestId('rf__node-epic:demo')).toBeVisible()
+    const placed = await mainNodes(window)
+    expect(placed.map(({ id, x, y }) => ({ id, x, y }))).toEqual(saved.map(({ id, x, y }) => ({ id, x, y })))
+    expect(await underFrame(window, placed)).toEqual([0, 0])
+    // Nothing was moved to get there: the Layout keeps both Nodes where they were (ADR-0032, no
+    // `move` of the user's Nodes), and the repository is not touched (ADR-0005).
+    await window.waitForTimeout(500)
+    expect((await mainNodes(window)).map(({ id, x, y }) => ({ id, x, y }))).toEqual(saved.map(({ id, x, y }) => ({ id, x, y })))
+    expect(git(repo, 'status', '--porcelain', '--ignored', '--untracked-files=all')).toBe('')
+  } finally {
+    await launched.close()
+  }
 })
 
 // ── states, themes, sidebar ─────────────────────────────────────────────────

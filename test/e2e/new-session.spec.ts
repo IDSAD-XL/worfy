@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
@@ -331,6 +331,56 @@ test('New session, New conversation, the history and Resume', async () => {
     // worfy wrote nothing under the Claude home, nor in the Project's repository (ADR 0005).
     expect(snapshot()).toEqual(expected)
     expect(snapshot(projectPath)).toEqual(expectedProject)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('New session with an Epic frame on the Canvas: the new Node and the frame do not overlap (ADR-0032)', async () => {
+  // epic-status answers one Epic with three open Tickets, so the Canvas has a frame from the start.
+  mkdirSync(join(claudeHome, 'bin'), { recursive: true })
+  const ticket = (num: number) => ({
+    epic: 'demo',
+    num,
+    slug: `t${num}`,
+    title: `0${num} — Ticket ${num}`,
+    statusRaw: 'open',
+    state: 'open',
+    blockedRaw: '—',
+    blockedNums: [],
+    blockedParsed: true,
+  })
+  const answer = join(claudeHome, 'epic-status.json')
+  writeFileSync(answer, JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: true, hasMap: false }], tickets: [1, 2, 3].map(ticket) }))
+  const script = join(claudeHome, 'bin', 'epic-status')
+  writeFileSync(script, `#!/bin/sh\ncat '${answer}'\n`)
+  chmodSync(script, 0o755)
+
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'turn' } })
+  try {
+    const { window } = launched
+    await canvasReady(launched, { size: { width: 1400, height: 900 } })
+    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+    const frame = window.getByTestId('rf__node-epic:demo')
+    await expect(frame).toBeVisible()
+
+    await window.getByTestId('sidebar-new-session').click()
+    const live = window.locator('[data-testid="session-node"][data-live="true"]')
+    await expect(live).toHaveCount(1)
+    const id = (await live.getAttribute('data-node-id')) ?? ''
+    await panTo(window, id)
+    // main put the new Node by its own rule, under the Orchestrator Node; the frame's column moved
+    // out of its way rather than the Node out of the frame's.
+    const saved = (await nodes(window)).find((node) => node.id === id)!
+    const orchestrator = (await nodes(window)).find((node) => node.kind === 'orchestrator')!
+    expect({ x: saved.x, y: saved.y }).toEqual({ x: orchestrator.x, y: orchestrator.y + orchestrator.h + 40 })
+    await expect(frame).toBeVisible()
+    const overlap = async () => {
+      const [a, b] = [await frame.boundingBox(), await window.getByTestId(`rf__node-${id}`).boundingBox()]
+      if (!a || !b) return -1
+      return Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y))
+    }
+    await expect.poll(overlap).toBe(0)
   } finally {
     await launched.close()
   }

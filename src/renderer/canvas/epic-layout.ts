@@ -239,15 +239,38 @@ export interface PlacedFrame {
   auto: { x: number; y: number }
 }
 
+/** A Node on the plane, in canvas units. */
+export interface Rect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
 /**
- * Frames one under another, in the given order, starting at (0, 0). A manual offset moves its own
- * frame only: the frames below keep their automatic place.
+ * The left edge of the frames' column (ADR-0032): the first x from 0 rightwards where a strip as
+ * wide as the widest frame, from just above y = 0 and unbounded downwards, keeps FRAME_GAP from
+ * every Node on the plane. The strip has no bottom, so a frame that grows (the done stack opened,
+ * a Ticket added) stays clear of the Nodes without the column moving. Candidates are 0 and the
+ * right edge of each Node plus the gap; the rightmost one is always free.
  */
-export function stackFrames(frames: readonly { epic: string; height: number; offset?: Offset }[]): Map<string, PlacedFrame> {
+export function frameColumnX(width: number, plane: readonly Rect[]): number {
+  const blocks = (x: number) => (node: Rect) => node.y + node.h > -FRAME_GAP && node.x < x + width + FRAME_GAP && x - FRAME_GAP < node.x + node.w
+  const candidates = [0, ...plane.map((node) => node.x + node.w + FRAME_GAP).filter((x) => x > 0)].sort((a, b) => a - b)
+  return candidates.find((x) => !plane.some(blocks(x))) ?? 0
+}
+
+/**
+ * Frames one under another, in the given order, from y = 0, in a column that no Node on the plane
+ * is in (`frameColumnX`). A manual offset moves its own frame only: the frames below keep their
+ * automatic place, and the column is found without the offsets.
+ */
+export function stackFrames(frames: readonly { epic: string; width: number; height: number; offset?: Offset }[], plane: readonly Rect[] = []): Map<string, PlacedFrame> {
   const result = new Map<string, PlacedFrame>()
+  const x = frameColumnX(Math.max(0, ...frames.map((frame) => frame.width)), plane)
   let y = 0
   for (const frame of frames) {
-    const auto = { x: 0, y }
+    const auto = { x, y }
     result.set(frame.epic, { x: auto.x + (frame.offset?.dx ?? 0), y: auto.y + (frame.offset?.dy ?? 0), auto })
     y += frame.height + FRAME_GAP
   }
