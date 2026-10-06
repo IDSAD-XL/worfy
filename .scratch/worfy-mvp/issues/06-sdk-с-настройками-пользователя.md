@@ -334,3 +334,31 @@ Fixtures — `test/fixtures/sdk-messages/` (описание в README рядо�
 `effortLevel: low` и видно ли его в `effort` входа hooks и в `CLAUDE_EFFORT`; переживает ли слой разрешений `session` `resume`; запись в
 `~/.claude/sessions` при `persistSession: false`; уведомления и вид окна в этом тикете не
 затрагиваются.
+
+### Ручная проверка 2026-10-06, ночь
+
+Сборка `main` @ 92c00a5, проверял агент. Собранный `worfy.app` запущен из shell агента командой
+`SHELL=/bin/bash "$APP/Contents/MacOS/worfy" --remote-debugging-port=9339`, то есть с «грязным»
+окружением: `ANTHROPIC_BASE_URL` и около 30 переменных `CLAUDE_*`. Порт DevTools — только чтобы читать
+DOM. Лог main и снимки лежат в scratchpad Session оркестратора, в репозиторий не положены.
+
+**Минимальное окружение с `SHELL=/bin/bash` — проверено (проверка 31 гайда).**
+
+- «New session» → Bash `echo $PATH; which gh pnpm node jq; echo $SHELL`. `PATH` собран из `/etc/paths`
+  и `/etc/paths.d` (`/usr/local/bin:…:/usr/bin:/bin:/usr/sbin:/sbin:…:/opt/homebrew/bin`),
+  `gh=/opt/homebrew/bin/gh`, `jq=/usr/bin/jq`, `node` и `pnpm` не найдены (nvm подключается в
+  `~/.zshrc`, bash его не читает), `SHELL=/bin/bash`. Совпало с ожиданием гайда.
+- Строки `[agent] using the minimal environment` (её пишет `src/main/agent/env.ts:113`, когда запуск
+  shell не удался) в логе main нет: `grep -c` = 0 до ⌘Q и после.
+- `ps -E` у процессов Claude Code Orchestrator-а и Session: `HOME`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`,
+  `SSH_AUTH_SOCK`, `__CF_USER_TEXT_ENCODING`, `PATH`, `PWD`, `SHLVL`, `_` и 3 переменные SDK.
+  `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDECODE`,
+  `CLAUDE_CODE_SESSION_ID` нет.
+- ⌘Q: worfy завершился с exit code 0, процессов этой сборки не осталось. `git status --porcelain`
+  основного checkout пуст до и после.
+- Не проверено: fish и rc-файлы, которым нужен `TERM`.
+- Попутно из других проверок той же ночи: выбранный effort применяется — `CLAUDE_EFFORT=low` в Bash
+  Session после выбора low, без выбора `medium` (проверка 22, Ticket 19); ход Orchestrator-а на
+  `claude-opus-5-5[1m]` с 634 tools и вызовом `create_card` стоил $0.1041, «Prompt is too long» не было
+  (проверка 25, Ticket 24).
+- Снимки: `31-01-start.png`, `31-02-new-session.png`, `31-03-answer.png`.

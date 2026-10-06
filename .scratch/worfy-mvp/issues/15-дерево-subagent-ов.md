@@ -139,7 +139,27 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «Subagent»; [BRIEF.md]
   без `stoppedByUser`), остаётся `running`: на данных Auction это 13 из 109 и 11 из 102. Нужен признак
   живости Сессии — отдельный тикет.
 
-не проверено: вид на настоящей Сессии Claude Code с Subagent-ами в живом приложении — агент работает без
-входа в Claude Code; то же поведение проверено e2e на fake-агенте и на записях формата 2.1.286, снимки
-сделаны Playwright (`subagent-tree-running.png`, `subagent-tree-files.png`, `subagent-transcript.png`
-в `test-results/` прогона e2e).
+Проверено 2026-10-06 ночью: вид на настоящей Session Claude Code с Subagent-ами в живом приложении —
+подраздел [«Ручная проверка 2026-10-06, ночь»](#ручная-проверка-2026-10-06-ночь).
+
+### Ручная проверка 2026-10-06, ночь
+
+Сборка `main` @ 92c00a5, проверял агент. Режим Б: собранный `worfy.app`, запущенный через
+LaunchServices с окружением launchd, настоящий Claude Code с входом владельца. Session a5e24075 на
+`claude-opus-5-5[1m]`, Permissions bypass. Снимки лежат в scratchpad Session оркестратора, в репозиторий не положены.
+
+**Дерево Subagent-ов на настоящей Session — проверено (проверка 28 гайда).**
+
+- Промпт из гайда, сразу переход на Canvas. Через ~3 с справа от Node-а Session — два Node-а Subagent-ов
+  «Explore | running 4s | Explore · claude-opus-5-5 | Transcript» с задачами про `canvas-server` и
+  `notify`, от Session к ним линии.
+- По окончании оба свернулись в «› 2 done»; щелчок развернул «Explore ✓ done 9s» и «Explore ✓ done 12s».
+- В Session view блок «Subagents» с теми же двумя строками. Щелчок по строке и кнопка «Transcript» на
+  Node-е открывают транскрипт Subagent-а только для чтения («Read-only: Subagent transcript»).
+- На диске `subagents/agent-*.jsonl` и `.meta.json` для обоих. `git status --porcelain` основного
+  checkout пуст до и после.
+- Попутно: Node-ы Subagent-ов и «2 done» ставятся вплотную справа от Session поверх Card «Вопрос» —
+  свободное место не ищется.
+- Снимки: `28-03-canvas-running.png`, `28-04-canvas-2done.png`, `28-05-canvas-expanded.png`,
+  `28-06-session-view-subagents.png`, `28-07-subagent-transcript-row.png`,
+  `28-08-subagent-transcript-node-button.png`.

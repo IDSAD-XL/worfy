@@ -35,7 +35,7 @@ Source: [BRIEF.md](../../../docs/design/BRIEF.md), Screen 2; макеты `docs/
 - [x] ↑/↓ в пустом поле листают прошлые промпты этой Сессии.
 - [x] `<script>` и `<img onerror>` в markdown не исполняются (test).
 - [x] Новый блок правой панели добавляется одним файлом в `rail/` без правки `SessionView.tsx`.
-- [x] Ручной прогон на репозитории worfy с настоящим SDK: сообщение «ответь блоком состояния» даёт блок в транскрипте и на Узле Оркестратора; снимок в «Итог».
+- [ ] Ручной прогон на репозитории worfy с настоящим SDK: сообщение «ответь блоком состояния» даёт блок в транскрипте и на Узле Оркестратора; снимок в «Итог». (Повтор 2026-10-06 ночью: блок совпал дословно, но Session view не открывается двойным щелчком по Node-у Orchestrator-а — подраздел [«Ручная проверка 2026-10-06, ночь»](#ручная-проверка-2026-10-06-ночь).)
 
 ## Тесты
 
@@ -178,3 +178,35 @@ scratchpad сессии, который будет удалён. Повтори�
 Снимки fake-сценария в обеих темах — `session-view-busy-{light,dark}.png` (ход идёт, кнопка
 «Interrupt» в поле ввода) и `session-view-{light,dark}.png` (после прерывания, многострочное поле)
 в `test-results/` после `pnpm test:e2e`.
+
+### Ручная проверка 2026-10-06, ночь
+
+Сборка `main` @ 92c00a5, проверял агент. Режим Б: собранный `worfy.app`, запущенный через
+LaunchServices с окружением launchd, настоящий Claude Code с входом владельца. Project CanvasForAI.
+Console renderer читался через CDP и сохранён (`16-console.log`). Снимки лежат в scratchpad Session оркестратора, в репозиторий не положены.
+
+**Блок состояния на Node-е Orchestrator-а и в транскрипте — не прошло (проверка 16 гайда).** Блок
+совпадает дословно, но Session view не открывается двойным щелчком по Node-у Orchestrator-а.
+
+- ⌘K → Orchestrator → Return центрирует Node (40,40, 360×200). Его целиком закрывает рамка Epic-а
+  `worfy-daily` (0,0, 1832×676): `elementFromPoint` во всех четырёх точках Node-а возвращает рамку.
+- Двойной щелчок по заголовку «Orchestrator» Session view не открыл. Открыт кнопкой «Session» в toolbar.
+- Ответ — четыре строки «— Этап / Сейчас / Дальше / Жду» за 3,6 с, без tools. Первое сравнение —
+  `verbatim: false`: вся разница в обратных кавычках, Node показывает сырой текст, транскрипт рисует
+  Markdown. Повтор с припиской «без Markdown», как велит гайд, — `verbatim: true`, на Node-е четыре
+  строки.
+- Дефекты:
+  - рамка Epic-а закрывает Node Orchestrator-а и перехватывает двойной щелчок. Свёрнутая рамка тоже
+    лежит поверх: шапка `worfy-daily` — на строке заголовка Node-а, свёрнутая `worfy-mvp` — на блоке
+    состояния. Причина — размещение: рамки стопкой от (0,0) (`src/renderer/canvas/epic-layout.ts:246-255`),
+    `placeNewNode` не видит рамок (`src/main/layout/place.ts:14-16`). Исправляет Ticket 10 `worfy-daily`;
+  - блок состояния не помещается в Node 360×200: это `pre` с `overflow: auto`
+    (`src/renderer/canvas/nodes/OrchestratorNode.tsx:50-55`), scrollHeight 169 при clientHeight 148,
+    строка «— Жду:» видна только после прокрутки.
+- Попутно, в этой и других проверках той же ночи: ответы обычной Session, не Orchestrator-а, подписаны
+  «orch» — `assistantLabel="orch"` для любой Session (`src/renderer/session/SessionView.tsx:191`).
+- Рамку сворачивали и разворачивали обратно, вид восстановлен. Cost Orchestrator-а $0.3124 → $0.3445.
+  `git status --porcelain` основного checkout пуст до и после.
+- Снимки: `16-03-step1-orchestrator-covered.png`, `16-05-step2-after-dclick.png`,
+  `16-08-step3-reply-idle.png`, `16-10-step5-node-crop.png`, `16-13-step5-repeat-node-crop.png`,
+  `16-14-extra-epic-collapsed-node-uncovered.png`.

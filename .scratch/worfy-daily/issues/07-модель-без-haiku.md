@@ -48,6 +48,11 @@ E3.
 **fake-агент.** Добавить haiku без efforts в `FAKE_MODELS` (`src/main/agent/fake-query.ts:63`),
 чтобы фильтр было видно в test-ах.
 
+**Что известно из ручной проверки 2026-10-06, ночь** (проверка 22, Ticket 19 `worfy-mvp`): строка
+«Default (recommended)» на живой Session после другой модели переводит её на встроенную модель
+Claude Code `claude-opus-5-5`, а не на `opus[1m]` из `settings.json`: worfy зовёт
+`query.setModel(undefined)` (`src/main/agent/session.ts:191`).
+
 ## Готово, когда
 
 - [ ] В выборе модели нет haiku, даже если SDK её вернул. sonnet и старше — как раньше.

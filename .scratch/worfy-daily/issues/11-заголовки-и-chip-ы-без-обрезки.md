@@ -37,6 +37,16 @@ Source: [spec.md](../spec.md), тема C; [F-SPEC.md](../../../docs/design/F-SP
 - **Chip CI** виден на Ticket-е шириной 204 px, даже если рядом PR и Gate. Остальные chip-ы можно
   обрезать, как задумано, а CI — нельзя.
 
+**Что известно из ручных проверок 2026-10-06, ночь** (номера Ticket-ов — `worfy-mvp`):
+
+- на Auction заголовок Ticket-а виден одной строкой без многоточия: высота `.w-ticket__title` 21 px
+  при `scrollHeight` 34 (Ticket 10);
+- подпись «as of» полос Limits в toolbar налезает на соседнюю и уходит под «v0.0.0» и поле поиска:
+  ширина 104 px и `nowrap` (`src/renderer/limits/LimitBar.tsx:58` и `:67`, Ticket 22);
+- длинное имя Project-а в toolbar не обрезается и выталкивает за край окна переключатель
+  Canvas/Session, Limits и поиск (`src/renderer/shell/Toolbar.tsx:68`, `src/renderer/shell/shell.css:86-91`,
+  Ticket 09).
+
 ## Готово, когда
 
 - [ ] В «Итог» — список обрезаний до правки, со снимками.

@@ -124,13 +124,9 @@ pnpm test` — код 0 (1153 test-а, из них 49 в `test/contract/card-bri
 
 Не проверено:
 
-- не проверено: вид настоящего системного диалога `session.ask` — в e2e `dialog.showMessageBox`
-  подменён в main (снимок экрана агенту недоступен: нет прав Screen Recording); проверены его
-  параметры — кнопки, текст, получатель.
-- не проверено: доставка сообщения Карточки настоящему Claude Code и его показ в транскрипте Сессии —
-  в tests только fake-агент; сообщение уходит через `Session.send`, как ввод пользователя, но
-  строку в транскрипте окно рисует само только для своего ввода, а для отправленного из main —
-  лишь если SDK вернёт его в потоке.
+- проверено 2026-10-06 ночью: вид системного диалога `session.ask` — подраздел [«Ручная проверка 2026-10-06, ночь»](#ручная-проверка-2026-10-06-ночь).
+- проверено 2026-10-06 ночью: сообщение Card доходит до настоящего Claude Code и видно в транскрипте
+  Session как ход «you» — тот же подраздел.
 
 Доработка по ревью, круг 1:
 
@@ -159,3 +155,27 @@ pnpm test` — код 0 (1153 test-а, из них 49 в `test/contract/card-bri
 зелёный); `pnpm test:e2e` — код 0 (58 test-ов).
 
 Решение записано как [ADR-0015](../../../docs/adr/0015-card-api-window-worfy-postmessage.md) — «API Карточки — `window.worfy` поверх `postMessage`, workflow только для чтения».
+
+### Ручная проверка 2026-10-06, ночь
+
+Сборка `main` @ 92c00a5, проверял агент. Режим Б: собранный `worfy.app`, запущенный через
+LaunchServices с окружением launchd, настоящий Claude Code с входом владельца. Снимки лежат в scratchpad Session оркестратора, в репозиторий не положены.
+
+**`worfy.ask` из Card настоящей Session — проверено (проверка 26 гайда).**
+
+- Orchestrator (`claude-opus-5-5[1m]`) по сообщению из гайда создал Card `card-b3279b2a` «Вопрос» через
+  `create_card`; последняя правившая Session — сам Orchestrator.
+- Диалог после «Спросить»: жирно «Card "Вопрос" wants to send a message to Session f6ab7045, which last
+  edited this Card.», ниже текст сообщения, кнопки Cancel и Send. Заголовка окна нет, как предупреждал
+  гайд.
+- Cancel: Card показала `{"sent": false, "canceled": true}`; за 20 с ни один транскрипт не изменился,
+  Cost тот же.
+- Send: `{"sent": true}`, Orchestrator ушёл в busy и ответил. В Session view это ход «you» с текстом
+  «Message from Card "Вопрос" (card-b3279b2a): …»; в транскрипте — запись `user` после
+  `queue-operation enqueue`.
+- Шаг 6: Card «Вопрос 2» от Session из «New session», Node этой Session закрыт. Диалог — «…to the
+  Orchestrator.», после Send текст пришёл в транскрипт Orchestrator-а, транскрипт закрытой Session не
+  менялся.
+- `git status --porcelain` основного checkout пуст до и после; Card-ы лежат только в папке данных worfy.
+- Снимки: `26-04-dialog-cancel-run.png`, `26-06-after-cancel.png`, `26-07-dialog-send-run.png`,
+  `26-08-orch-after-send.png`, `26-11-dialog-orchestrator.png`, `26-12-orch-fallback.png`.

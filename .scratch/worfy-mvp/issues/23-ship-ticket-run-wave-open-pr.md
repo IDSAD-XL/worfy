@@ -43,7 +43,7 @@ worfy запускает работу теми же skills, что и терми
 - [x] «Run wave» отправляет отрендеренный шаблон (по умолчанию `/epic-wave волна 3 эпика worfy-mvp`) Оркестратору; при занятом Оркестраторе встаёт в очередь.
 - [x] «Open PR» открывает URL из данных `gh`; не-GitHub URL отклоняется.
 - [x] После любого действия файлы `.scratch` не изменены worfy (test сверяет mtime на fake-агенте).
-- [ ] Ручной прогон на репозитории worfy: «Ship ticket» запускает настоящую Сессию, та делает `ticket claim`, chip Тикета меняется на working; снимок в «Итог».
+- [x] Ручной прогон на репозитории worfy: «Ship ticket» запускает настоящую Сессию, та делает `ticket claim`, chip Тикета меняется на working; снимок в «Итог».
 
 ## Тесты
 
@@ -136,5 +136,32 @@ with an open blocker, and names the blocker». Ветка — один комм�
 `failureReason`). e2e сверяет и список файлов временного `WORFY_CLAUDE_HOME` до запуска и после
 обоих закрытий приложения (ADR 0005).
 
-не проверено: ручной прогон на репозитории worfy с настоящей Сессией (`ticket claim` и смена chip на
-working) — бриф запрещает настоящие запуски агента в этой работе; пункт оставлен `[ ]`.
+Проверено 2026-10-06 ночью: «Ship ticket» запускает настоящую Session, она делает `ticket claim`,
+chip Ticket-а меняется на `claimed` (так этот статус называет `epic-status`) — подраздел
+[«Ручная проверка 2026-10-06, ночь»](#ручная-проверка-2026-10-06-ночь).
+
+### Ручная проверка 2026-10-06, ночь
+
+Сборка `main` @ 92c00a5, проверял агент. Режим Б: собранный `worfy.app`, запущенный через
+LaunchServices с окружением launchd, настоящий Claude Code с входом владельца. Временный Epic
+`manual-check` с Ticket-ами 90 и 91 (open, блокеров нет); в Project settings шаблон Ship ticket —
+`/ship-ticket {epic} {NN}`. Снимки лежат в scratchpad Session оркестратора, в репозиторий не положены.
+
+**«Ship ticket» → настоящая Session → `ticket claim` — проверено (проверка 29 гайда).**
+
+- Ticket 90: chip open, «no blockers», подсказка кнопки `/ship-ticket manual-check 90`.
+- «Ship ticket»: новый Node Session и пунктирная линия к Ticket-у (Binding launched). Кнопка стала
+  `aria-disabled` с подсказкой «Ship ticket already started a Session for 90; close that Session to start
+  another».
+- Первый ход Session — `/ship-ticket manual-check 90`, затем profile, `epic-status`, `ticket claim`.
+  Через 6 с Session сама закончила ход: в Ticket-е делать нечего, Interrupt не понадобился. Worktree,
+  веток и коммитов нет.
+- Chip Ticket-а стал `claimed`, кнопка исчезла, chip «gh unavailable» — ожидаемо. Close перевёл Node в
+  finished.
+- Уборка: worktree и веток `manual-check/*` нет ни локально, ни в origin (`ls-remote` пуст, exit code 0),
+  открытых PR с такой head нет; `.scratch/manual-check` удалён; `git status` основного checkout пуст, как
+  в начале.
+- Попутно: Node Session из «Ship ticket» встал далеко под Ticket-ом (y ≈ 2466 против ≈ 1054); при zoom
+  0.6 линия и оба Node-а не помещаются на экран.
+- Снимки: `29-01-project-settings.png`, `29-03-after-ship.png`, `29-04-node-line-ticket.png`,
+  `29-06-after-close.png`, `29-12-after-cleanup.png`.

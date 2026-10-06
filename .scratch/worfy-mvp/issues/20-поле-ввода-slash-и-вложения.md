@@ -29,7 +29,7 @@ Source: [BRIEF.md](../../../docs/design/BRIEF.md), Screen 2 (slash autocomplete)
 - [x] Вставленная из буфера картинка уходит блоком изображения (fake-агент записывает сообщение).
 - [x] Перетащенный файл вне Проекта копируется в `attachments/` и уходит путём; `git status --porcelain` Проекта пуст.
 - [x] Файл больше лимита отклоняется с сообщением.
-- [ ] Ручной прогон с настоящим SDK: `/ship-ticket` и `/epic-wave` есть в меню на репозитории worfy.
+- [x] Ручной прогон с настоящим SDK: `/ship-ticket` и `/epic-wave` есть в меню на репозитории worfy.
 
 ## Тесты
 
@@ -114,6 +114,27 @@ Source: [BRIEF.md](../../../docs/design/BRIEF.md), Screen 2 (slash autocomplete)
 - **Вид команды.** Пометка `skill` берётся из `skills` в `system/init`; до первого хода (init
   приходит с первым сообщением) все строки помечены `command`.
 
-не проверено: ручной прогон с настоящим SDK (`/ship-ticket` и `/epic-wave` в меню на репозитории
-worfy) — исполнитель работает ночью без владельца, запуск Claude Code с настоящим логином не
-делался; пункт остаётся `[ ]`.
+Проверено 2026-10-06 ночью: с настоящим SDK `/ship-ticket` и `/epic-wave` есть в меню на
+репозитории worfy — подраздел [«Ручная проверка 2026-10-06, ночь»](#ручная-проверка-2026-10-06-ночь).
+
+### Ручная проверка 2026-10-06, ночь
+
+Сборка `main` @ 92c00a5, проверял агент. Режим Б: собранный `worfy.app`, запущенный через
+LaunchServices с окружением launchd, настоящий Claude Code с входом владельца. Project CanvasForAI
+(репозиторий worfy). Снимки лежат в scratchpad Session оркестратора, в репозиторий не положены.
+
+**`/ship-ticket` и `/epic-wave` в slash-меню — проверено (проверка 21 гайда).**
+
+- «New session», Session view. До первого хода `/` открывает popover «Commands» — 136 строк, все
+  `command`; `/ship` → `/ship-ticket` с описанием.
+- Ход «ответь одним словом: ок» — ответ за 2,7 с, idle.
+- После хода `/ship` → `/ship-ticket`, `/epic` → `/epic-wave`, оба с описанием и пометкой `skill`. Меню —
+  154 строки: 94 `skill`, 60 `command`.
+- Дефект, на вердикт не влияет: после первого хода 18 строк-дублей без описания — 12 plugin skills
+  (`/docs` рядом с `/anthropic-skills:docs`) и 6 MCP prompts (`/github:AssignCodingAgent (MCP)` рядом с
+  `/mcp__github__AssignCodingAgent`). Имена из `system/init` сравниваются с `supportedCommands()`
+  буквально (`src/main/agent/commands.ts:69-75`), а Claude Code пишет их по-разному; пометка `skill`
+  достаётся строке без описания.
+- `git status --porcelain` основного checkout пуст до и после.
+- Снимки: `21-02-slash-before-turn.png`, `21-03-ship-before-turn.png`, `21-05-ship-after-turn.png`,
+  `21-06-epic-after-turn.png`.
