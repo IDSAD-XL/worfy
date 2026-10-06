@@ -68,7 +68,9 @@ Canvas (`src/renderer/canvas/sources/subagents.ts`). Ложный `done` у жи
 
 ## Итог
 
-Решение — [ADR-0030](../../../docs/adr/0030-subagent-status-without-task-notification.md).
+Решения — [ADR-0030](../../../docs/adr/0030-subagent-status-without-task-notification.md)
+(task-notification из очереди) и [ADR-0031](../../../docs/adr/0031-closed-session-ends-its-subagents.md)
+(закрытая Session кончает своих Subagent-ов).
 
 ### Разбор на данных Auction
 
@@ -95,8 +97,17 @@ Subagent-ы): только `queue-operation` `enqueue`+`remove` — 1791; `enque
 ### После правки
 
 Тем же скриптом над кодом ветки: `running` — 0, `done` — 3127 (было 2834), `error` — 52 (было 34).
-Из 311 зависших: 293 → `done` и 17 → `error` по уведомлению из очереди, 1 → `error` по закрытой
-Session. Папка `ui-motion-plan`: 109 `done`, 0 `running`.
+Сравнение по каждому Subagent-у (старый код против нового):
+
+| Переход | Почему | Сколько |
+|---|---|---|
+| `running` → `done` | уведомление из очереди со статусом `completed` (у 76 из них узел дерева теперь связан с вызовом через `<tool-use-id>` уведомления) | 294 |
+| `running` → `error` | уведомление из очереди со статусом `failed`, `killed` или `stopped` | 16 |
+| `running` → `error` | уведомления нет, Session закрыта (ADR-0031) | 1 |
+| `done` → `error` | Subagent `a8e8123df57d3153c` (Auction-sale-loop): кончился синхронным вызовом (`completed`), потом продолжен через SendMessage, второй прогон кончился уведомлением из очереди со статусом `failed`; раньше оно не читалось | 1 |
+| без изменений | (у одного `done` узел тоже связан с вызовом заново) | 2867 (2833 `done`, 34 `error`) |
+
+Папка `ui-motion-plan`: 109 `done`, 0 `running`.
 
 Пункт «(вручную)» не отмечен: число получено скриптом над тем же кодом, в самом приложении на
 Canvas не проверено (GUI-проверки в этой волне — не у исполнителя).

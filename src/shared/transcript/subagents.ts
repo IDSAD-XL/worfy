@@ -50,7 +50,7 @@ export const subagentSignalSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('finished'), agentId: z.string(), toolUseId: z.string().nullable(), at: time, status: short, summary: short, result: long }),
   /**
    * The Session's Claude Code process is not running (main reads `sessions/<pid>.json`): its
-   * Subagents live in that process, so one that has not ended by now never will (ADR-0030).
+   * Subagents live in that process, so one that has not ended by now never will (ADR-0031).
    * Counts only among the Session's own signals.
    */
   z.object({ kind: z.literal('session-closed') }),
@@ -421,7 +421,7 @@ function firstOf<T>(...values: Array<T | null | undefined>): T | null {
 
 /**
  * `closed`: the Session's process is not running. A Subagent that has not ended by then was cut off
- * with it — an error, like one the user stopped (ADR-0030). While the Session runs, a Subagent
+ * with it — an error, like one the user stopped (ADR-0031). While the Session runs, a Subagent
  * without an end stays `running`, however long its file has not changed.
  */
 function statusOf(record: Gathered, background: boolean, closed: boolean): SubagentStatus {
@@ -475,7 +475,7 @@ const byStart = (a: SubagentInfo, b: SubagentInfo): number =>
  * The Session's Subagent tree: its own Subagents, each with the Subagents it started, ordered by
  * start time. `signals` come from the Session's own events (a live Session or its transcript),
  * `files` from its `subagents/` folder; either may be missing something the other has. A
- * `session-closed` signal among `signals` ends every Subagent that has not ended (ADR-0030).
+ * `session-closed` signal among `signals` ends every Subagent that has not ended (ADR-0031).
  */
 export function buildSubagentTree({ signals, files }: { signals: readonly SubagentSignal[]; files: readonly SubagentFile[] }): SubagentInfo[] {
   const closed = signals.some((signal) => signal.kind === 'session-closed')

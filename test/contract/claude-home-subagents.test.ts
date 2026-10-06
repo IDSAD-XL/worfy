@@ -8,7 +8,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ClaudeHomeRegistry } from '../../src/main/claude-home/registry'
+import { execFileSync } from 'node:child_process'
+import { ClaudeHomeRegistry, processAlive, processState } from '../../src/main/claude-home/registry'
 import { SubagentReader } from '../../src/main/claude-home/subagents'
 import { ClaudeHomeSubscriptions, claudeHomeHandlers } from '../../src/main/ipc/claude-home'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
@@ -76,7 +77,8 @@ async function snapshot(root: string): Promise<Record<string, string>> {
 const registryOver = (home: string) => new ClaudeHomeRegistry({ home, listWorktrees: async () => [], isAlive: async () => false })
 
 /** No process of the fixtures runs on this machine: a Session is live only where a test says so. */
-const readerWith = (isAlive: (pid: number) => Promise<boolean> = async () => false) => new SubagentReader({ isAlive })
+const readerWith = (isAlive: (pid: number) => Promise<boolean> = async () => false) =>
+  new SubagentReader({ processState: async (pid) => ((await isAlive(pid)) ? 'alive' : 'gone') })
 
 /** Registers the Session `sessionId` as run by process `pid` in the Claude home `home` (a copy). */
 async function register(home: string, pid: number, sessionId: string, cwd: string): Promise<void> {
@@ -104,6 +106,11 @@ function value<T>(result: IpcResult<unknown>): T {
   if (!result.ok) throw new Error(`call failed: ${result.error}`)
   return result.value as T
 }
+
+/** Each Subagent of an answer with its status, parents first. */
+const statuses = (answer: SubagentsAnswer) => flattenSubagents(buildSubagentTree(answer)).map(({ agentId, status }) => [agentId, status])
+/** The answer for fixture Session 9999. */
+const ask = async (call: Awaited<ReturnType<typeof ipcOver>>) => value<SubagentsAnswer>(await call('claudeHome.subagents', { projectRoot: STALE, sessionId: S9 }))
 
 describe('claudeHome.subagents', () => {
   it.each([
@@ -182,7 +189,7 @@ describe('claudeHome.subagents', () => {
     const lines = (await readFile(transcript, 'utf8')).split('\n').filter((line) => line !== '')
     const notification = lines.findIndex((line) => line.includes('<task-notification>'))
     await writeFile(transcript, `${lines.slice(0, notification).join('\n')}\n`)
-    // The Session runs: a Subagent without an end is running, not cut off (ADR-0030).
+    // The Session runs: a Subagent without an end is running, not cut off (ADR-0031).
     await register(home, 47777, S7, AGENTS)
     const live = () => readerWith(async (pid) => pid === 47777)
     const call = await ipcOver(registryOver(home), live())
@@ -219,10 +226,8 @@ describe('claudeHome.subagents', () => {
   })
 })
 
-// Ticket worfy-daily/08, ADR-0030: Subagents that stayed `running` long after they stopped.
+// Ticket worfy-daily/08, ADR-0030 and ADR-0031: Subagents that stayed `running` long after they stopped.
 describe('claudeHome.subagents: Subagents without a task-notification user message', () => {
-  const statuses = (answer: SubagentsAnswer) => flattenSubagents(buildSubagentTree(answer)).map(({ agentId, status }) => [agentId, status])
-  const ask = async (call: Awaited<ReturnType<typeof ipcOver>>) => value<SubagentsAnswer>(await call('claudeHome.subagents', { projectRoot: STALE, sessionId: S9 }))
 
   it('ends a Subagent by the task-notification Claude Code queued, and cuts off one that never reported when its Session is closed', async () => {
     const answer = await ask(await ipcOver(registryOver(FIXTURE)))
@@ -296,6 +301,70 @@ describe('claudeHome.subagents: Subagents without a task-notification user messa
     expect(statuses(await ask(await ipcOver(registryOver(home))))).toEqual([
       [A, 'done'],
       [B, 'running'],
+    ])
+  })
+
+  it('does not call a Session closed when whether its process runs cannot be told', async () => {
+    const home = await copyOfFixture()
+    await register(home, 43000, S9, STALE)
+    const call = await ipcOver(registryOver(home), new SubagentReader({ processState: async () => 'unknown' }))
+    const answer = await ask(call)
+    expect(answer.signals.some((signal) => signal.kind === 'session-closed')).toBe(false)
+    expect(statuses(answer)).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+  })
+})
+
+// The process check of the Session registry (registry.ts): what `ps` cannot answer is not a
+// process that ended (PR #45 review: with `ps` missing, a live Session was called closed).
+describe('processState', () => {
+  /** This test's own process and its start time, as `ps` prints it for `procStart`. */
+  const self = () => ({ pid: process.pid, procStart: execFileSync('ps', ['-p', String(process.pid), '-o', 'lstart='], { env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' } }).toString().trim() })
+
+  async function withoutPs<T>(work: () => Promise<T>): Promise<T> {
+    const path = process.env.PATH
+    process.env.PATH = '/nonexistent'
+    try {
+      return await work()
+    } finally {
+      process.env.PATH = path
+    }
+  }
+
+  it('tells a running process, one that is gone, a reused pid, and a ps that could not answer', async () => {
+    const { pid, procStart } = self()
+    expect(await processState(pid, procStart)).toBe('alive')
+    expect(await processState(pid, undefined)).toBe('alive')
+    expect(await processState(pid, 'Thu Jan  1 00:00:00 1970')).toBe('gone')
+    expect(await processState(2_147_483_000, procStart)).toBe('gone')
+    expect(await processState(0, procStart)).toBe('gone')
+    expect(await withoutPs(() => processState(pid, procStart))).toBe('unknown')
+    // The registry's own check keeps its answer: a ps that could not answer is not running there.
+    expect(await withoutPs(() => processAlive(pid, procStart))).toBe(false)
+    expect(await processAlive(pid, procStart)).toBe(true)
+  })
+
+  it('keeps a Subagent of a Session running when ps cannot tell whether the Session runs, and cuts it off when the process is gone', async () => {
+    const home = await copyOfFixture()
+    const { pid, procStart } = self()
+    await mkdir(join(home, 'sessions'), { recursive: true })
+    const entry = join(home, 'sessions', `${pid}.json`)
+    await writeFile(entry, JSON.stringify({ pid, sessionId: S9, cwd: STALE, procStart }))
+    const read = async () => statuses(await ask(await ipcOver(registryOver(home), new SubagentReader())))
+    expect(await read()).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+    expect(await withoutPs(read)).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+    await writeFile(entry, JSON.stringify({ pid, sessionId: S9, cwd: STALE, procStart: 'Thu Jan  1 00:00:00 1970' }))
+    expect(await read()).toEqual([
+      [A, 'done'],
+      [B, 'error'],
     ])
   })
 })

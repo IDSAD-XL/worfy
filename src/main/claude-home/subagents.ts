@@ -11,11 +11,11 @@
 //
 // Whether the Session still runs is read from the Claude home's `sessions/<pid>.json` (as
 // registry.ts reads it): a Session whose process is gone gets a `session-closed` signal, which
-// ends every Subagent that never reported its end (ADR-0030).
+// ends every Subagent that never reported its end (ADR-0031).
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { emptySubagentFile, extendSubagentFile, subagentSignalsOfLines, type SubagentFile, type SubagentSignal } from '../../shared/transcript/subagents'
-import { processAlive } from './registry'
+import { processState } from './registry'
 import { readNewLines, type TailCursor } from './tail'
 
 /** `agent-<id>.jsonl` or `agent-<id>.meta.json`; the id is letters, digits, `-` and `_` only. */
@@ -73,8 +73,11 @@ async function readMeta(path: string): Promise<unknown> {
 }
 
 export interface SubagentReaderOptions {
-  /** Decides whether a `sessions/<pid>.json` entry's process runs; defaults to processAlive() (registry.ts). */
-  isAlive?: (pid: number, procStart: string | undefined) => Promise<boolean>
+  /**
+   * Whether a `sessions/<pid>.json` entry's process runs: `alive`, `gone`, or `unknown` when it
+   * cannot be told (`ps` failed); defaults to processState() (registry.ts).
+   */
+  processState?: (pid: number, procStart: string | undefined) => Promise<'alive' | 'gone' | 'unknown'>
 }
 
 const CLOSED: SubagentSignal = { kind: 'session-closed' }
@@ -83,10 +86,10 @@ const CLOSED: SubagentSignal = { kind: 'session-closed' }
  * Whether the Session `sessionId` runs, by the `sessions/` folder of the Claude home that holds
  * `transcript` (`<home>/projects/<folder>/<sessionId>.jsonl`): true when an entry names it and its
  * process runs, false when none does. Null — not known, so not closed — when the transcript is not
- * under `projects/`, the home has no `sessions/` folder, or an entry cannot be read (one being
- * rewritten may be the Session's own).
+ * under `projects/`, the home has no `sessions/` folder, an entry cannot be read (one being
+ * rewritten may be the Session's own), or whether its process runs cannot be told.
  */
-async function sessionRuns(transcript: string, sessionId: string, isAlive: NonNullable<SubagentReaderOptions['isAlive']>): Promise<boolean | null> {
+async function sessionRuns(transcript: string, sessionId: string, processOf: NonNullable<SubagentReaderOptions['processState']>): Promise<boolean | null> {
   const projects = dirname(dirname(transcript))
   if (basename(projects) !== 'projects') return null
   const dir = join(dirname(projects), 'sessions')
@@ -109,7 +112,9 @@ async function sessionRuns(transcript: string, sessionId: string, isAlive: NonNu
     if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue
     const { pid, sessionId: id, procStart } = entry as Record<string, unknown>
     if (id !== sessionId || typeof pid !== 'number') continue
-    if (await isAlive(pid, typeof procStart === 'string' ? procStart : undefined)) return true
+    const state = await processOf(pid, typeof procStart === 'string' ? procStart : undefined)
+    if (state === 'alive') return true
+    if (state === 'unknown') unknown = true
   }
   return unknown ? null : false
 }
@@ -118,10 +123,10 @@ async function sessionRuns(transcript: string, sessionId: string, isAlive: NonNu
 export class SubagentReader {
   private readonly threads = new Map<string, Thread>()
   private readonly agents = new Map<string, AgentTranscript>()
-  private readonly isAlive: NonNullable<SubagentReaderOptions['isAlive']>
+  private readonly processState: NonNullable<SubagentReaderOptions['processState']>
 
   constructor(options: SubagentReaderOptions = {}) {
-    this.isAlive = options.isAlive ?? processAlive
+    this.processState = options.processState ?? processState
   }
 
   /** The Subagent signals of a Session's own transcript at `path`. */
@@ -178,7 +183,7 @@ export class SubagentReader {
     const sessionId = path.slice(path.lastIndexOf('/') + 1).replace(/\.jsonl$/, '')
     // Asked before the files are read: a Session found closed has written every end it will
     // report, so a Subagent that ended just before the process did is read as ended, not cut off.
-    const runs = await sessionRuns(path, sessionId, this.isAlive)
+    const runs = await sessionRuns(path, sessionId, this.processState)
     const [signals, files] = await Promise.all([this.signals(path), this.files(join(dirname(path), sessionId, 'subagents'))])
     return { signals: runs === false ? [...signals, CLOSED] : signals, files }
   }

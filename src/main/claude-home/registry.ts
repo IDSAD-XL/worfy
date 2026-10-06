@@ -98,23 +98,36 @@ export async function gitWorktrees(root: string): Promise<string[]> {
 const collapse = (text: string): string => text.trim().replace(/\s+/g, ' ')
 
 /**
- * True when process `pid` exists and, if `procStart` is given, was started at that time.
- * `procStart` is `ps -o lstart=` in UTC with the C locale (ticket 09); EPERM still means alive.
+ * Whether process `pid` runs and, if `procStart` is given, was started at that time:
+ * `alive`, `gone` (no such process, or another one started at another time under a reused pid),
+ * or `unknown` when `ps` itself could not answer (not found, timed out, killed, no output).
+ * `procStart` is `ps -o lstart=` in UTC with the C locale (ticket 09); EPERM still means it runs.
  */
-export async function processAlive(pid: number, procStart: string | undefined): Promise<boolean> {
-  if (!Number.isInteger(pid) || pid <= 0) return false
+export async function processState(pid: number, procStart: string | undefined): Promise<'alive' | 'gone' | 'unknown'> {
+  if (!Number.isInteger(pid) || pid <= 0) return 'gone'
   try {
     process.kill(pid, 0)
   } catch (error) {
-    if (!(typeof error === 'object' && error !== null && 'code' in error && error.code === 'EPERM')) return false
+    if (!(typeof error === 'object' && error !== null && 'code' in error && error.code === 'EPERM')) return 'gone'
   }
-  if (procStart === undefined) return true
+  if (procStart === undefined) return 'alive'
+  let stdout: string
   try {
-    const { stdout } = await run('ps', ['-p', String(pid), '-o', 'lstart='], { env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' }, timeout: 5000 })
-    return collapse(stdout) === collapse(procStart)
-  } catch {
-    return false
+    stdout = (await run('ps', ['-p', String(pid), '-o', 'lstart='], { env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' }, timeout: 5000 })).stdout
+  } catch (error) {
+    // `ps -p` exits with 1 and prints nothing when the process ended after kill(0) found it; any
+    // other failure (spawn error, timeout, a signal) says nothing about the process.
+    const failure = error as { code?: unknown; killed?: unknown; signal?: unknown; stdout?: unknown }
+    const vanished = failure.code === 1 && failure.killed !== true && failure.signal == null && typeof failure.stdout === 'string' && failure.stdout.trim() === ''
+    return vanished ? 'gone' : 'unknown'
   }
+  if (stdout.trim() === '') return 'unknown'
+  return collapse(stdout) === collapse(procStart) ? 'alive' : 'gone'
+}
+
+/** True when processState() says `alive`; a `ps` that could not answer counts as not running here. */
+export async function processAlive(pid: number, procStart: string | undefined): Promise<boolean> {
+  return (await processState(pid, procStart)) === 'alive'
 }
 
 export interface RegistryOptions {

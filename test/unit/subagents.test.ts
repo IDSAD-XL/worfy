@@ -347,7 +347,7 @@ describe('summaryLine and the meta file', () => {
   })
 })
 
-// Ticket worfy-daily/08, ADR-0030: Subagents that stayed `running` long after they stopped.
+// Ticket worfy-daily/08, ADR-0030 and ADR-0031: Subagents that stayed `running` long after they stopped.
 describe('a Subagent whose end is not a task-notification user message', () => {
   const STALE = join(HOME, '-Users-test-projects-stale')
   const SESSION_9 = '99999999-9999-4999-8999-999999999999'
