@@ -1,0 +1,164 @@
+// The Autopilot run journal: every event of one Autopilot run, one JSON object per line (JSONL).
+// The morning after a run, the journal shows what happened and every point where a human was
+// needed. This comment is the format's specification: an observer reads and appends to the file
+// without any worfy code.
+//
+// Where. `<WORFY_DATA_DIR>/autopilot/<run>.jsonl`, one file per run, no rotation. WORFY_DATA_DIR
+// defaults to `~/Library/Application Support/worfy` (ADR-0005). `<run>` is the run id: the start
+// time in UTC with `:` and `.` replaced by `-`, a dash, and six lowercase hex digits, for example
+// `2026-10-06T01-02-03-004Z-a1b2c3`. File names sort by start time; the newest run is the last.
+//
+// Line. One JSON object, then `\n`; no newline inside the object. Every line has:
+//
+//   at       when it happened: ISO 8601 date and time with `Z` or an offset
+//            (`2026-10-06T01:02:03.004Z`, `2026-10-06T04:02:03+03:00`)
+//   run      the run id, the same as the file name without `.jsonl`
+//   project  the Project id (`<folder name>-<8 hex digits>`, src/main/projects/store.ts)
+//   epic     the Epic's name (`worfy-daily`)
+//   kind     one of the kinds below, plus that kind's fields
+//
+// Kinds and their fields:
+//
+//   run-started                      the run began; worfy writes it as the first line
+//   wave-started   wave, tickets     wave: number from 1; tickets: Ticket numbers, ["01", "02"]
+//   wave-finished  wave, tickets     the same fields as wave-started
+//   limits-hit     window, resetsAt  a Session was refused by the Limits; window: `five_hour`,
+//                                    `seven_day`, … or null; resetsAt: ISO time or null
+//   waiting-until  until             the run sleeps until this ISO time
+//   resumed                          the run continues after a wait
+//   session-error  session, message  a Session failed; session: its id or null
+//   refused-dialog session, what     a Session asked for a person (a permission or a question)
+//                                    and the run refused it without one; what: which request
+//   human-input    source, what      a person stepped into the run; any such line is a defect
+//   run-stopped    reason            the run ended; reason: why, in a few words
+//
+// human-input. `source` says who writes the line:
+//   "worfy"     worfy itself, on the user's action in a Session of the run: a message to the
+//               Orchestrator or one of its Subagents, "Send queued", a change of mode or model,
+//               a restart of the Session by hand;
+//   "observer"  the observer agent, on a touch outside worfy that only the screen shows: a macOS
+//               system dialog, Keychain, restarting the app by hand.
+// `what` says in a few words what the person did. A Ticket opened for an intervention points at
+// its line in `Source`: the file and the line's `at`.
+//
+// An observer appends one line to the file of the run it watches (while a run is going, the
+// newest file in the folder), with `>>` and nothing else, for example:
+//
+//   printf '%s\n' '{"at":"2026-10-06T04:05:00+03:00","run":"2026-10-06T01-02-03-004Z-a1b2c3","project":"worfy-1a2b3c4d","epic":"worfy-daily","kind":"human-input","source":"observer","what":"clicked Allow on a Keychain dialog"}' \
+//     >> "$HOME/Library/Application Support/worfy/autopilot/2026-10-06T01-02-03-004Z-a1b2c3.jsonl"
+//
+// Reading. A line that is not JSON (the last line cut off by a crash), a line of an unknown kind
+// and a line whose fields do not match its kind are skipped and counted; the other lines are
+// read in file order. Keys the format does not declare are dropped. Blank lines are ignored.
+//
+// Everything here is pure; src/main/autopilot/journal.ts reads and writes the files.
+import { z } from 'zod'
+
+/** Every kind of event, in the order a run usually meets them. */
+export const JOURNAL_EVENT_KINDS = [
+  'run-started',
+  'wave-started',
+  'wave-finished',
+  'limits-hit',
+  'waiting-until',
+  'resumed',
+  'session-error',
+  'refused-dialog',
+  'human-input',
+  'run-stopped',
+] as const
+export type JournalEventKind = (typeof JOURNAL_EVENT_KINDS)[number]
+
+/** Who wrote a `human-input` line. */
+export const HUMAN_INPUT_SOURCES = ['worfy', 'observer'] as const
+export type HumanInputSource = (typeof HUMAN_INPUT_SOURCES)[number]
+
+const RUN_ID_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{6}$/
+/** Hex digits after the start time in a run id. */
+export const RUN_ID_SUFFIX_LENGTH = 6
+
+/** Whether a text is a run id, and so also safe as a file name inside the journal folder. */
+export function isRunId(text: string): boolean {
+  return RUN_ID_PATTERN.test(text)
+}
+
+/** The run id for a run started at `start`; `suffix` is six lowercase hex digits. */
+export function makeRunId(start: Date, suffix: string): string {
+  const run = `${start.toISOString().replace(/[:.]/g, '-')}-${suffix}`
+  if (!isRunId(run)) throw new Error(`not a run id: ${run}`)
+  return run
+}
+
+/** The journal file's name for a run. */
+export const journalFileName = (run: string): string => `${run}.jsonl`
+
+const isoTime = z.iso.datetime({ offset: true })
+const text = z.string().min(1)
+const wave = { wave: z.number().int().positive(), tickets: z.array(text) }
+const session = z.string().min(1).nullable()
+
+const common = {
+  at: isoTime,
+  run: z.string().regex(RUN_ID_PATTERN),
+  project: text,
+  epic: text,
+}
+
+const event = <K extends JournalEventKind, F extends z.ZodRawShape>(kind: K, fields: F) =>
+  z.object({ ...common, kind: z.literal(kind), ...fields })
+
+export const journalEventSchema = z.discriminatedUnion('kind', [
+  event('run-started', {}),
+  event('wave-started', wave),
+  event('wave-finished', wave),
+  event('limits-hit', { window: z.string().min(1).nullable(), resetsAt: isoTime.nullable() }),
+  event('waiting-until', { until: isoTime }),
+  event('resumed', {}),
+  event('session-error', { session, message: z.string() }),
+  event('refused-dialog', { session, what: text }),
+  event('human-input', { source: z.enum(HUMAN_INPUT_SOURCES), what: text }),
+  event('run-stopped', { reason: text }),
+])
+export type JournalEvent = z.output<typeof journalEventSchema>
+
+/** The fields every line shares; the writer fills them in. */
+export type JournalCommon = Pick<JournalEvent, 'at' | 'run' | 'project' | 'epic'>
+/** An event as its producer gives it: the kind and that kind's fields. */
+export type JournalEventFields = JournalEvent extends infer E ? (E extends JournalEvent ? Omit<E, keyof JournalCommon> : never) : never
+
+export interface ParsedJournal {
+  /** The readable events, in file order. */
+  events: JournalEvent[]
+  /** Lines that were not blank and could not be read as an event. */
+  skipped: number
+}
+
+/** Reads a journal file's text; never throws. */
+export function parseJournal(source: string): ParsedJournal {
+  const events: JournalEvent[] = []
+  let skipped = 0
+  for (const line of source.split('\n')) {
+    if (line.trim() === '') continue
+    let value: unknown
+    try {
+      value = JSON.parse(line)
+    } catch {
+      skipped++
+      continue
+    }
+    const parsed = journalEventSchema.safeParse(value)
+    if (parsed.success) events.push(parsed.data)
+    else skipped++
+  }
+  return { events, skipped }
+}
+
+/**
+ * One journal line for `value`, newline included. The value is parsed first: undeclared keys are
+ * dropped, and a value outside the format throws instead of becoming a line no reader accepts.
+ */
+export function formatJournalLine(value: JournalEvent): string {
+  const parsed = journalEventSchema.safeParse(value)
+  if (!parsed.success) throw new Error(`refusing to write a journal line outside the format\n${z.prettifyError(parsed.error)}`)
+  return `${JSON.stringify(parsed.data)}\n`
+}
