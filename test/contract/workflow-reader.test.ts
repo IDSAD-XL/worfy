@@ -235,6 +235,25 @@ describe('workflow reader', () => {
     expect(ticketOf(model, 3)).toMatchObject({ state: 'blocked', statusRaw: 'blocked — rejected by review', fromBranch: null })
   })
 
+  it('does not let a branch say claimed or done over blocked in the checkout: a Ticket sent back for rework stays blocked (ticket 30)', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const path = join(repo, '.claude', 'worktrees', '03')
+    git(repo, 'worktree', 'add', '-q', '-b', 'demo/03', path, 'main')
+    const file = join(repo, '.scratch/demo/issues/03-third.md')
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked — rejected by review'))
+    const branchFile = join(path, '.scratch/demo/issues/03-third.md')
+    for (const status of ['claimed — 2026-10-06', 'done — 2026-10-06']) {
+      writeFileSync(branchFile, readFileSync(branchFile, 'utf8').replace(/^Status: .*$/m, `Status: ${status}`))
+      git(path, 'commit', '-qam', `03: ${status}`)
+      expect(ticketOf((await readWorkflow({ root: repo, claudeHome: home })).model, 3), status).toMatchObject({
+        state: 'blocked',
+        statusRaw: 'blocked — rejected by review',
+        fromBranch: null,
+      })
+    }
+  })
+
   it('does not let a branch say open over a claim merged into the checkout, but lets it say blocked over it', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)

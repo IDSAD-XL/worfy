@@ -553,6 +553,9 @@ describe('an Autopilot run on the fake agent', () => {
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
     expect(h.autopilot.state(PROJECT).reason).toBe('wave-unfinished')
     expect((await h.kinds()).map(([kind]) => kind)).not.toContain('wave-finished')
+    // The Wave's turn answered, but only a stop for want of a Wave carries the answer (ADR-0033).
+    expect((await h.journal()).at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'wave-unfinished' })
+    expect((await h.journal()).at(-1)).not.toHaveProperty('lastText')
   })
 
   it('a workflow change that takes the last Ticket out of work finishes the Wave', async () => {
@@ -641,6 +644,33 @@ describe('an Autopilot run on the fake agent', () => {
     const events = await h.journal()
     expect(events.map((event) => event.kind)).toEqual(['run-started', 'wave-started', 'wave-finished', 'run-stopped'])
     expect(events.at(-1)).toMatchObject({ reason: 'blocked-tickets', tickets: ['02'], lastText: ANSWER })
+  })
+
+  it('keeps the first 1000 characters of a longer answer, so run-stopped still reaches the journal', async () => {
+    const answer = JSON.parse(readFileSync(join(scriptsDir, 'autopilot-long.jsonl'), 'utf8').split('\n')[3]!).result as string
+    expect(answer.length).toBeGreaterThan(1000)
+    const h = harness({ script: 'autopilot-long' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+
+    expect(h.autopilot.state(PROJECT).reason).toBe('no-ready-wave')
+    const last = (await h.journal()).at(-1) as { kind: string; reason: string; lastText?: string }
+    expect(last).toMatchObject({ kind: 'run-stopped', reason: 'no-ready-wave' })
+    expect(last.lastText).toHaveLength(1000)
+    expect(last.lastText).toBe(answer.slice(0, 1000))
+  })
+
+  it('does not carry an answer of one Wave into the next: a Wave whose turn ends without text stops with no lastText', async () => {
+    // Wave 1's turn answers, Wave 2's ends with an empty result.
+    const h = harness({ script: 'autopilot-silent-second' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'no-ready-wave', wave: 2 })
+    expect(messages(h.calls)).toEqual([WAVE_1, WAVE_2])
+    const last = (await h.journal()).at(-1)
+    expect(last).toMatchObject({ kind: 'run-stopped', reason: 'no-ready-wave' })
+    expect(last).not.toHaveProperty('lastText')
   })
 
   it('does not start with a Run wave template that does not name the Wave\'s tickets: nothing is journaled or sent', async () => {

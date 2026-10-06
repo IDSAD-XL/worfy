@@ -235,6 +235,25 @@ Project-а — её строит тот же код из `PLACEHOLDERS`. При�
   `test/unit/autopilot-run.test.ts`, `test/unit/canvas-actions.test.tsx`,
   `test/unit/autopilot-journal.test.ts` — то же и test-ы новых полей журнала и кнопки.
 
+**Test-ы на main.** Код ветки — один commit, поэтому красный запуск записан отдельно (круг
+доработки 1): test-файлы `test/contract/workflow-reader.test.ts` и `test/contract/autopilot.test.ts`
+этой ветки с fixture-ами прогнаны против исходников main (`a87ce30`, временный worktree) — 13 из 65
+красные. Reader отдавал Ticket 03 со Status `open` из ветки `demo/03` поверх `blocked` checkout-а
+(`fromBranch: "demo/03"`, `state: "open"`), и так же `claimed` и `done` ветки перекрывали `blocked`.
+Прогон на fake-агенте слал `/epic-wave волна 1 эпика demo` вместо `/epic-wave Ticket-ы 01 эпика demo`,
+то есть брал в Wave Ticket 02, `blocked` в checkout-е. На ветке все 65 зелёные.
+
+**Круг доработки 1** добавил test-ы на правила без покрытия: ветка со Status `claimed` или `done`
+не перекрывает `blocked` checkout-а; ответ длиннее 1000 символов обрезается, и `run-stopped`
+попадает в журнал; ответ Wave 1 не переходит в `run-stopped` после Wave 2 без текста; у
+`run-stopped` с `wave-unfinished` нет `lastText`. Каждый краснеет на своём мутанте. Условие
+`run.endsWave(turn)` при записи ответа (`src/main/autopilot/run.ts`, обработка `result`) test-ом
+не покрыто: без него ответ пишется только ходу, который не Wave и прерван, а такой ход в фазе
+`turn` останавливает прогон с `interrupted`, и `end()` для этой причины `lastText` не пишет.
+Иначе — только ход человека, начатый и прерванный между `setUnattended` и первым событием
+`start` цикла (старт отказывает, пока Orchestrator в ходе); воспроизвести это окно test-ом без
+новой точки управления в `Autopilot.start` нельзя. Условие оставлено: оно и закрывает это окно.
+
 **Не проверено.**
 
 - не проверено: прогон Autopilot на стабильной копии после влития (Wave 8 плана текстом со
