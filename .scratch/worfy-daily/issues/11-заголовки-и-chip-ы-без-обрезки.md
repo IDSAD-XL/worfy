@@ -51,10 +51,12 @@ Source: [spec.md](../spec.md), тема C; [F-SPEC.md](../../../docs/design/F-SP
 
 ## Готово, когда
 
-- [ ] В «Итог» — список обрезаний до правки, со снимками.
-- [ ] На фикстуре с длинными названиями (заголовок Ticket-а — 120 символов) у заголовка Ticket-а, заголовка рамки, стопки done и имени Epic в sidebar нет скрытого переполнения, или полный текст есть в `title`. e2e проверяет `scrollWidth ≤ clientWidth` и `scrollHeight ≤ clientHeight`.
-- [ ] Chip CI виден на Ticket-е при PR, Gate и CI сразу: e2e проверяет, что boundingBox chip-а CI внутри boundingBox Ticket-а.
-- [ ] Снимки в светлой и тёмной теме сверены с F-SPEC.
+- [x] В «Итог» — список обрезаний до правки, со снимками.
+- [x] На фикстуре с длинными названиями (заголовок Ticket-а — 120 символов) у заголовка Ticket-а, заголовка рамки, стопки done и имени Epic в sidebar нет скрытого переполнения, или полный текст есть в `title`. e2e проверяет `scrollWidth ≤ clientWidth` и `scrollHeight ≤ clientHeight`.
+- [x] Chip CI виден на Ticket-е при PR, Gate и CI сразу: e2e проверяет, что boundingBox chip-а CI внутри boundingBox Ticket-а.
+- [ ] Снимки в светлой и тёмной теме сверены с F-SPEC. Не проверено: снимки сняты (Playwright, обе
+  темы, ссылки в «Итог»), но сверку глазами с F-SPEC и макетами делает владелец — GUI-проверки в
+  этой волне не у исполнителя.
 
 ## Тесты
 
@@ -75,3 +77,112 @@ Source: [spec.md](../spec.md), тема C; [F-SPEC.md](../../../docs/design/F-SP
 - `test/unit/epic-layout.test.ts`
 - `test/e2e/epic-frame.spec.ts`
 - `test/e2e/checks-badges.spec.ts`
+- Расширение следа (разрешил оркестратор): `test/unit/epic-canvas.test.tsx` — число фикстуры
+  после новой высоты Ticket-а и test на ширину рамки Epic без Tickets;
+  `src/renderer/canvas/sources/epics.ts` — имя Epic передаётся в `layoutEpic`.
+
+## Итог
+
+PR #64, ветка `worfy-daily/11`.
+
+**Обрезания до правки.** Снимки сняты через `launchApp` из `test/e2e/helpers.ts`: fake-агент,
+временные `WORFY_DATA_DIR` и `WORFY_CLAUDE_HOME`. Project-ы — две фикстуры той же формы, что
+Auction и worfy: длинные имена Epic, Epic без Tickets, заголовок Ticket-а в 120 символов, стопка
+из 90 done, длинные причины blocked и строки blockers. Сборка «до» — origin/main 0fbcde6. Скрипт
+проверяет, что временный home после запуска не изменился, а в Project-е нет изменений. Снимки:
+[до, Auction-фикстура, светлая](../evidence/11-before-auction-light.png),
+[до, Auction-фикстура, тёмная](../evidence/11-before-auction-dark.png),
+[до, worfy-фикстура, светлая](../evidence/11-before-worfy-light.png),
+[до, worfy-фикстура, тёмная](../evidence/11-before-worfy-dark.png).
+
+- Заголовок Ticket-а сжат до 21 px: одна строка без многоточия и без tooltip (11 Ticket-ов в
+  каждой фикстуре). Причина: у Ticket-а 104 px, а строки top, title, blockers и badges с actions
+  вместе выше. Grid из `actions.css` ужимает title, потому что у блока с `overflow: hidden` минимум 0.
+- Заголовок рамки — одна строка с многоточием, без tooltip (3 рамки в Auction-фикстуре, 1 в
+  worfy). У рамки 520 px с «Run wave» и «Autopilot» на заголовок оставалось 67–85 px («audit-20…»).
+- Имя Epic в sidebar обрезано многоточием (4 из 4 в Auction-фикстуре).
+- Список стопки done обрезан посреди строки, без tooltip (стопка «90 done»). Подпись «N done» не
+  резалась.
+- Строка blockers («blocked by 01, 02, 03, 05, …») и причина blocked обрезаны многоточием. Полного
+  текста blockers не было нигде.
+- Chip-ы checks: при gate, PR и CI в одной строке с «Ship ticket» / «Open PR» CI уходил за край
+  (`checks-badges.spec.ts`: CI заканчивался на 4 px правее Ticket-а).
+
+**Что сделано:**
+
+- Ticket — 160 px вместо 104 (`TICKET_HEIGHT`, `src/renderer/canvas/epic-layout.ts`). Из чего число:
+  рамка 2 + отступы 16 + номер и state 18 + заголовок 3 × 17 + строка blockers или причина 19 +
+  badges 16 и actions 20 на двух строках (между ними 4) + 3 зазора по 4 = 158, округлено до 160.
+  Заголовок — до 3 строк (`TICKET_TITLE_LINES`), дальше многоточие, полный текст — в tooltip
+  заголовка. Ни одна строка Ticket-а не сжимается (`flex: none`).
+- Badges и actions — в одной обёртке `.w-ticket__slots` с переносом: в одну строку, когда помещаются,
+  иначе actions уходят на вторую. Правило «badges и actions в одной строке» из
+  `src/renderer/canvas/actions/actions.css` больше не срабатывает (оно ждёт их прямыми детьми Ticket-а).
+- Chip CI не сжимается (`flex: none`); остальные элементы строки checks сжимаются и режутся по своему
+  краю, полный список — в tooltip строки, как раньше.
+- Строка blockers, причина blocked и «Needs attention» — полный текст в tooltip.
+- Заголовок рамки — до двух строк в 56 px заголовка, полный текст в tooltip. Рамка не уже, чем нужно
+  для имени Epic целиком: `headerWidth` = 470 px на остальные части заголовка + 11 px на символ имени
+  (моноширинный 18 px). Имя Epic `layoutEpic` получает из `sources/epics.ts` и для Epic без Tickets.
+  По ADR-0032 ширина рамки входит в поиск колонки: широкая рамка может сдвинуть колонку правее.
+- Стопка done: подпись «N done» не сжимается, список — до 4 строк с многоточием, полный — в tooltip.
+- Sidebar: строка Epic в две строки, как в макетах F (`F-canvas-*.dc.html`): имя целиком (перенос
+  в любом месте), под ним progress, счёт и «N in work».
+
+**Решено без владельца, подтвердить:** предел заголовка Ticket-а — 3 строки, Ticket 160 px. F-SPEC
+предела не задаёт, в макетах Ticket-ы 92–148 px. Альтернатива — 4 строки и 176 px: целиком читалось бы
+больше длинных заголовков, но рамки стали бы ещё выше. Цена выбранного:
+рамки и готовая Wave выше в 1,5 раза, у Ticket-а с коротким заголовком внизу пустое место.
+
+**После правки** ([после, Auction-фикстура, светлая](../evidence/11-after-auction-light.png),
+[после, Auction-фикстура, тёмная](../evidence/11-after-auction-dark.png),
+[после, worfy-фикстура, светлая](../evidence/11-after-worfy-light.png),
+[после, worfy-фикстура, тёмная](../evidence/11-after-worfy-dark.png); фикстура e2e с длинными
+названиями: [светлая](../evidence/11-long-names-light.png), [тёмная](../evidence/11-long-names-dark.png)).
+Ни один заголовок Ticket-а не сжат. У всего, что обрезано, полный текст в tooltip: заголовки длиннее
+3 строк, длинные заголовки рамок, длинные строки blockers и причины. Имена Epic в sidebar целиком.
+
+**Тесты:**
+
+- `test/e2e/epic-frame.spec.ts`, «long names…» — заголовок Ticket-а в 120 символов, заголовок
+  рамки, стопка из 33 done, имя Epic в sidebar, строка blockers и причина blocked, в обеих темах:
+  `scrollWidth ≤ clientWidth` и `scrollHeight ≤ clientHeight` или полный текст в `title`; строки
+  Ticket-а внутри его box. Красный до правки, красный на мутанте `TICKET_HEIGHT = 104`.
+- `test/e2e/checks-badges.spec.ts` — у Ticket-ов 08 (claimed) и 10 (blocked, «Ship ticket» и
+  «Open PR») gate, PR и CI сразу; box chip-а CI внутри Ticket-а и каждого обрезающего его блока, и
+  сам chip не сужен. Красный до правки и на мутанте без `flex: none` у CI.
+- `test/unit/epic-layout.test.ts` — ширина рамки под имя Epic (красный на мутанте без `headerWidth`);
+  `test/unit/epic-canvas.test.tsx` — то же для Epic без Tickets (красный без передачи имени),
+  число фикстуры запаса под открытую стопку done обновлено (красный на мутанте без `reserve`).
+
+**Круг доработки (вердикт REJECTED в PR #64):**
+
+- Ссылка PR в строке checks всегда целиком (`flex: none`), и CI тоже. Сжимаются gate, вердикт и
+  «gh unavailable»: chip — блок с `text-overflow: ellipsis`, в его tooltip — подпись (у gate ещё
+  путь worktree). Test: `checks-badges.spec.ts`, Ticket 10 с gate, PR #1234, CI и REJECTED;
+  `scrollWidth ≤ clientWidth` у PR, у сжатого chip-а — многоточие и title.
+- Мёртвое grid-правило «badges и actions в одной строке» и комментарий «104px» убраны из
+  `src/renderer/canvas/actions/actions.css`.
+
+**Нарушение запрета писать в `~/.claude`** (2026-10-06, при съёмке снимков «до» и «после»):
+
+- Что было. Скрипт съёмки исполнителя (`/tmp/worfy-wave7/impl-11/snap/real.spec.ts`, вне
+  репозитория) запускал собранный worfy через `_electron.launch` напрямую, а не через `launchApp`.
+  Не было ни `WORFY_AGENT=fake`, ни временного `WORFY_CLAUDE_HOME`. Project-ы — настоящие Auction
+  и worfy. worfy поднял Orchestrator на настоящем Claude Code с настоящим `~/.claude`.
+- Когда. Три запуска: 19:46–19:48, 20:20–20:21, 20:27–20:28.
+- Что появилось в `~/.claude` в эти окна: `session-env/` — каталоги c0422bc3…, 328599b9…,
+  dff51fcf…, 540246c9…, 99715ca2…, caf63d82…; `backups/.claude.json.backup.1791305249216`,
+  `…1791307233878`, `…1791307624425`; `worktree-sessions/Users-alexey-Work-Auction-7de8b409.json`.
+  В эти же минуты в `~/.claude` писали и другие сессии, поэтому авторство каждого файла не
+  доказано. Транскриптов Auction в `~/.claude/projects` за эти окна нет.
+- Почему. Исполнитель проверил, что worfy по ADR-0005 сам не пишет в `~/.claude`. Но он не учёл,
+  что Orchestrator запускает настоящий Claude Code, а тот пишет. Брифом это было запрещено.
+- Что сделано. В `~/.claude` ничего не убиралось — что убрать, решает владелец. Снимки пересняты
+  через `launchApp` (fake-агент, временные `WORFY_DATA_DIR` и `WORFY_CLAUDE_HOME`) на фикстурах,
+  повторяющих форму Auction и worfy. Скрипт проверяет, что временный home после запуска не
+  изменился. Числа «до» в первой редакции итога были сняты на настоящих Project-ах с этим
+  нарушением. Теперь они заменены числами с фикстур.
+
+**Не проверено:** сверка снимков с F-SPEC глазами (пункт выше).
+

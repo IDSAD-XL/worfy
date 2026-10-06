@@ -286,9 +286,9 @@ export function buildEpicNodes(
       entry.inputs.collapsed === inputs.collapsed &&
       entry.inputs.doneExpanded === inputs.doneExpanded
     if (!same) {
-      const epicLayout = layoutEpic({ tickets, collapsed: inputs.collapsed, doneExpanded: inputs.doneExpanded, offsets: saved.offsets })
+      const epicLayout = layoutEpic({ tickets, collapsed: inputs.collapsed, doneExpanded: inputs.doneExpanded, offsets: saved.offsets, name: inputs.epic.epic })
       const reserve =
-        inputs.collapsed || inputs.doneExpanded ? epicLayout.height : layoutEpic({ tickets, collapsed: false, doneExpanded: true, offsets: saved.offsets }).height
+        inputs.collapsed || inputs.doneExpanded ? epicLayout.height : layoutEpic({ tickets, collapsed: false, doneExpanded: true, offsets: saved.offsets, name: inputs.epic.epic }).height
       entry = {
         inputs,
         layout: epicLayout,

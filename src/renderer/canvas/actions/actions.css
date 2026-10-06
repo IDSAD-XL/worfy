@@ -37,22 +37,5 @@
   border-color: var(--blocked-text);
 }
 
-/*
- * A Ticket Node (nodes/TicketNode.tsx) is 104px high: room for one row below its blockers line,
- * not two. A Ticket with checks badges (ticket 17) and an action ("Open PR") puts both in that one
- * row — the badges on the left, cut at their edge if they must, the actions on the right — instead
- * of pushing its title out of the Node.
- */
-.w-ticket:has(> .w-ticket__badges + .w-ticket__actions) {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-content: start;
-  column-gap: 6px;
-}
-.w-ticket:has(> .w-ticket__badges + .w-ticket__actions) > :not(.w-ticket__badges):not(.w-ticket__actions) {
-  grid-column: 1 / -1;
-}
-.w-ticket:has(> .w-ticket__badges + .w-ticket__actions) > .w-ticket__badges {
-  min-width: 0;
-  overflow: hidden;
-}
+/* On a Ticket Node, badges and actions share one row when both fit and wrap to two when not:
+   `.w-ticket__slots` in canvas/epic-frame.css. */
