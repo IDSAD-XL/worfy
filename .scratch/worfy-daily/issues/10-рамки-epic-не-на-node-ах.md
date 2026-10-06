@@ -1,7 +1,7 @@
 # 10 — Рамки Epic не ложатся на Node-ы
 
 Type: task
-Status: open
+Status: claimed — 2026-10-06
 Blocked by: 06, 07, 08, 09
 Source: [spec.md](../spec.md), тема C, риск 10; [ADR-0011](../../../docs/adr/0011-epic-frames-derived-nodes.md) — рамки Epic как производные Node-ы; [ADR-0003](../../../docs/adr/0003-cards-as-files-canvas-via-tools.md)
 
