@@ -1,7 +1,7 @@
 # 05 — Ожидание сброса Limits и продолжение
 
 Type: task
-Status: claimed — 2026-10-06
+Status: done — 2026-10-06, [PR #40](https://github.com/IDSAD-XL/worfy/pull/40)
 Blocked by: 04
 Source: [spec.md](../spec.md), тема A, риск 3; [CONTEXT.md](../../../CONTEXT.md), термины Limits и Autopilot; Ticket 22 worfy-mvp (Limits); [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md)
 
