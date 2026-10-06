@@ -1,4 +1,5 @@
-// keep-awake of an Autopilot run (worfy-daily ticket 04, ADR-0024, src/main/autopilot/power.ts):
+// keep-awake of an Autopilot run (worfy-daily tickets 04 and 32, ADR-0024 and ADR-0034,
+// src/main/autopilot/power.ts):
 // Electron's powerSaveBlocker and the app's will-quit are replaced, so nothing here keeps the real
 // Mac awake. Every test ends with no blocker started.
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -50,12 +51,14 @@ afterEach(() => {
 })
 
 describe('KeepAwake', () => {
-  it('starts one prevent-app-suspension blocker and stops it', () => {
+  it('starts one prevent-display-sleep blocker and stops it', () => {
     const awake = new KeepAwake()
     expect(awake.held).toBe(false)
     awake.start()
-    expect(KEEP_AWAKE_TYPE).toBe('prevent-app-suspension')
-    expect(electron.calls).toEqual([['start', 'prevent-app-suspension', expect.any(Number)]])
+    expect(KEEP_AWAKE_TYPE).toBe('prevent-display-sleep')
+    // Exactly one start: the display-sleep blocker also keeps the system awake (ADR-0034), so there
+    // is no second prevent-app-suspension blocker.
+    expect(electron.calls).toEqual([['start', 'prevent-display-sleep', expect.any(Number)]])
     expect(awake.held).toBe(true)
     expect(electron.started.size).toBe(1)
     awake.stop()

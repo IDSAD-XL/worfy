@@ -17,8 +17,15 @@ import { hasRunWave, useRunWaveState } from './gates'
 // repository in a development build): the button then shows main's reason. The Project's run state
 // is asked once (`autopilot.state`), then taken from `autopilot.changed`; a state replaces the one
 // before it only with a higher revision.
+//
+// A run keeps the display on from its start to its end (ticket 32, ADR-0034): the hints of the
+// "Autopilot" button and of the status line while running or waiting say so. The visible line does
+// not: 220px is already taken by its longest lines.
 
 export const order = 30
+
+/** Added to the hints of a run that holds keep-awake (ADR-0034). */
+export const DISPLAY_STAYS_ON = 'The display stays on until the run ends'
 
 interface AutopilotStore {
   /** By projectId; undefined until main has answered. */
@@ -96,7 +103,7 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
         label="Autopilot"
         testId="action-autopilot"
         enabled={!running && wave.enabled}
-        title={running ? `Autopilot is running Epic ${state?.epic ?? ''}` : wave.enabled ? `Run the Waves of ${epic.epic} one after another, without a person` : wave.reason}
+        title={running ? `Autopilot is running Epic ${state?.epic ?? ''}` : wave.enabled ? `Run the Waves of ${epic.epic} one after another, without a person. ${DISPLAY_STAYS_ON}` : wave.reason}
         run={() => start(projectId, epic.epic)}
       />
     )
@@ -113,7 +120,7 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
       <span
         data-testid="autopilot-status"
         data-status={state?.status}
-        title={state?.message ?? line}
+        title={state?.message ?? (running ? `${line}. ${DISPLAY_STAYS_ON}` : line)}
         style={{
           position: 'absolute',
           right: 0,
