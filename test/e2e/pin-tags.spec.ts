@@ -249,6 +249,34 @@ test('a pinned Node stays at its place on the screen while the Canvas pans and z
   }
 })
 
+test('a selected pinned Node shows no resize handles; after Unpin it shows them again', async () => {
+  writeLayout([
+    { id: 'pinned', x: 120, y: 100, pinned: true },
+    { id: 'plain', x: 520, y: 100 },
+  ])
+  const launched = await launch()
+  try {
+    const { window } = launched
+    // main refuses to resize a pinned Node, so a handle on it would offer an action that fails.
+    const handles = (id: string) => window.locator(`.react-flow__node[data-id="${id}"] .react-flow__resize-control`)
+
+    // The same locator finds the handles of a selected Node that is not pinned.
+    await noteById(window, 'plain').locator('.w-note__header').click()
+    await expect(handles('plain').first()).toBeVisible()
+
+    await noteById(window, 'pinned').locator('.w-note__header').click()
+    await expect(window.locator('.react-flow__node[data-id="pinned"]')).toHaveClass(/\bselected\b/)
+    expect(await handles('pinned').count()).toBeGreaterThan(0)
+    for (const handle of await handles('pinned').all()) await expect(handle).toBeHidden()
+
+    await window.getByTestId('selection-toolbar').getByRole('button', { name: 'Unpin' }).click()
+    await expect.poll(async () => (await layoutOf(window)).nodes.find((node) => node.id === 'pinned')?.pinned).toBe(false)
+    await expect(handles('pinned').first()).toBeVisible()
+  } finally {
+    await launched.close()
+  }
+})
+
 test('a pinned Node saved outside a smaller Canvas is shown inside it, and Unpin puts it where it is shown', async () => {
   // Pinned near the right edge of a larger screen: its screen place is outside this window. (Kept
   // near the top, clear of the minimap at the bottom right; pinning.test.tsx covers every side.)

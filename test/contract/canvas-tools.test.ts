@@ -425,6 +425,16 @@ describe('canvas tools: Epic frames and Tickets', () => {
     await refused(rpc, 'move_node', { id: 'epic:other', x: 10, y: 10 }, reason)
     expect(nodeOf('epic:worfy-mvp')).toMatchObject({ x: 30, y: -20, w: 1, h: 1, hidden: false })
   })
+
+  it('a Layout Node of kind epic-frame or ticket is refused by its kind, whatever its id', async () => {
+    store.apply(PROJECT, { op: 'create', node: { id: 'stray-ticket', kind: 'ticket', x: 0, y: 0, w: 220, h: 120, data: {} } })
+    store.apply(PROJECT, { op: 'create', node: { id: 'stray-frame', kind: 'epic-frame', x: 0, y: 0, w: 1, h: 1, data: {} } })
+    const rpc = await connect()
+    const reason = /is an Epic frame or a Ticket: .*only the user moves them/
+    await refused(rpc, 'move_node', { id: 'stray-ticket', x: 10, y: 10 }, reason)
+    await refused(rpc, 'link_card', { id: 'stray-frame', target: 'worfy-mvp' }, reason)
+    expect(nodeOf('stray-ticket')).toMatchObject({ x: 0, y: 0 })
+  })
 })
 
 describe('canvas tools: Subagent Nodes', () => {

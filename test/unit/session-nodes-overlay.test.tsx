@@ -2,9 +2,9 @@
 // how it uses the plan of src/renderer/claude-home/session-nodes.ts. The race it must survive:
 // at SDK start the registry file of worfy's own Session (the Orchestrator) appears before the
 // Orchestrator Node saves `data.sessionId`, so only `agent.list` says the Session is worfy's.
-import { act, render } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
 import { useEffect } from 'react'
-import { applyNodeChanges, ReactFlowProvider, useStoreApi, type Node, type NodeChange } from '@xyflow/react'
+import { applyEdgeChanges, applyNodeChanges, ReactFlowProvider, useStoreApi, type EdgeChange, type Node, type NodeChange } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LayoutOps } from '../../src/renderer/canvas/useLayout'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
@@ -250,6 +250,43 @@ describe('SessionNodes overlay', () => {
       act(() => (flowStore as FlowStore).getState().setNodes([flowNode(false, { selected: true }), orch]))
       await frames(3)
       expect({ session: isSelected(ID), orch: isSelected('orch') }).toEqual({ session: true, orch: false })
+    })
+
+    it('deselects a selected edge, as the Node it selects is then the only selection', async () => {
+      const { selected, focus } = await mountForFocus()
+      const store = flowStore as FlowStore
+      const orch: Node = { id: 'orch', position: { x: 400, y: 0 }, width: 360, height: 200, data: {} }
+      act(() => {
+        store.setState({ onEdgesChange: (changes: EdgeChange[]) => queueMicrotask(() => store.getState().setEdges(applyEdgeChanges(changes, store.getState().edges))) })
+        store.getState().setNodes([flowNode(false), orch])
+        store.getState().setEdges([{ id: 'e1', source: ID, target: 'orch', selected: true }])
+      })
+      focus()
+      await vi.waitFor(() => expect(selected).toEqual([{ id: ID, hidden: false }]))
+      await frames(2)
+      expect(store.getState().edges.map((edge) => ({ id: edge.id, selected: edge.selected }))).toEqual([{ id: 'e1', selected: false }])
+    })
+
+    it('a new request stops the wait of the one before it: its Node is not selected when it shows up', async () => {
+      const { selected, focus } = await mountForFocus()
+      focus()
+      await frames(2)
+      const { focusSessionNode } = await import('../../src/renderer/claude-home/focus')
+      act(() => focusSessionNode(PROJECT, 'session:not-on-the-canvas'))
+      await frames(2)
+      act(() => (flowStore as FlowStore).getState().setNodes([flowNode(false)]))
+      await frames(5)
+      expect(selected).toEqual([])
+    })
+
+    it('unmounting the overlay stops the wait: the Node is not selected when it shows up', async () => {
+      const { selected, focus } = await mountForFocus()
+      focus()
+      await frames(2)
+      act(() => cleanup())
+      act(() => (flowStore as FlowStore).getState().setNodes([flowNode(false)]))
+      await frames(5)
+      expect(selected).toEqual([])
     })
   })
 })

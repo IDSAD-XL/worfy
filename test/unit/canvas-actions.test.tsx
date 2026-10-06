@@ -213,6 +213,22 @@ describe('Run wave', () => {
     await vi.waitFor(() => expect(button.getAttribute('title')).toBe('No ready wave'))
     expect(button.getAttribute('aria-disabled')).toBe('true')
   })
+
+  it('is not shown on an Epic whose Tickets are all done', async () => {
+    tickets = [ticket(7, 'done'), ticket(8, 'done')]
+    const { default: EpicActions } = await import('../../src/renderer/canvas/actions/EpicActions')
+    const { container } = render(<EpicActions subject={epicSubject()} />)
+    await vi.waitFor(() => expect(calls.some((call) => call.channel === 'projects.settings.get')).toBe(true))
+    expect(container.querySelectorAll('button')).toHaveLength(0)
+  })
+
+  it('hasRunWave: false only when the Epic has Tickets and every one of its own is done', async () => {
+    const { hasRunWave } = await import('../../src/renderer/canvas/actions/gates')
+    expect(hasRunWave('demo', [{ epic: 'demo', state: 'done' }, { epic: 'other', state: 'open' }])).toBe(false)
+    expect(hasRunWave('demo', [{ epic: 'demo', state: 'done' }, { epic: 'demo', state: 'work' }])).toBe(true)
+    expect(hasRunWave('demo', [{ epic: 'other', state: 'done' }])).toBe(true)
+    expect(hasRunWave('demo', [])).toBe(true)
+  })
 })
 
 describe('Autopilot (ticket 30, ADR-0033)', () => {
