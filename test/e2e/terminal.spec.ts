@@ -290,6 +290,105 @@ test('New terminal starts the shell in the Project root; resize, Session view an
   }
 })
 
+/**
+ * What xterm.js has selected: the text it puts into a copy event. The event is dispatched on the
+ * terminal with its own DataTransfer, so the system clipboard is not touched.
+ */
+async function selectionOf(node: Locator): Promise<string> {
+  return node.locator('.xterm').evaluate((element) => {
+    // The e2e tsconfig has no DOM lib: the page's constructors are reached through globalThis.
+    const page = globalThis as unknown as {
+      DataTransfer: new () => { getData(type: string): string }
+      ClipboardEvent: new (type: string, init: { clipboardData: unknown; bubbles: boolean; cancelable: boolean }) => unknown
+    }
+    const clipboardData = new page.DataTransfer()
+    ;(element as unknown as { dispatchEvent(event: unknown): boolean }).dispatchEvent(new page.ClipboardEvent('copy', { clipboardData, bubbles: true, cancelable: true }))
+    return clipboardData.getData('text/plain')
+  })
+}
+
+// The Canvas draws its Nodes inside a CSS transform: scale(zoom). xterm.js measures the mouse
+// against the scaled box but divides by the unscaled cell size, so without a correction a drag
+// selects other characters than the ones under the pointer.
+for (const zoom of [0.5, 1.5]) {
+  test(`at Canvas zoom ${zoom * 100}% a mouse drag from one character to another selects exactly those characters`, async () => {
+    writeFileSync(
+      join(dataDir, PROJECT, 'layout.json'),
+      JSON.stringify({ nodes: [{ id: 'term', kind: 'terminal', x: 20, y: 20, w: 560, h: 340, data: {} }], viewport: { x: 0, y: 0, zoom } }),
+    )
+    const launched = await launch()
+    try {
+      const { window } = launched
+      const node = window.getByTestId('terminal-node')
+      await expect(node).toHaveAttribute('data-state', 'running')
+      await expect(window.locator('.react-flow__viewport')).toHaveAttribute('style', new RegExp(`scale\\(${zoom}\\)`))
+
+      const { cols } = await printSize(window, node, 'z')
+      const line = 'sel-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+      // Split by quotes, so only the output row holds the line in one piece.
+      await run(window, node, `echo "sel-""${line.slice(4)}"`, new RegExp(`^${line}`, 'm'))
+      const screen = await node.locator('.xterm-screen').boundingBox()
+      const row = await node.locator('.xterm-rows > div').filter({ hasText: new RegExp(`^${line}`) }).boundingBox()
+      if (!screen || !row) throw new Error('no terminal screen or output row')
+      // The row starts at column 0; a cell is the scaled screen width over the columns.
+      const cell = screen.width / cols
+      const at = (char: string, part: number) => ({ x: screen.x + (line.indexOf(char) + part) * cell, y: row.y + row.height / 2 })
+      // From the left part of A to the right part of J: xterm.js selects A through J.
+      const from = at('A', 0.25)
+      const to = at('J', 0.75)
+      await window.mouse.move(from.x, from.y)
+      await window.mouse.down()
+      await window.mouse.move(to.x, to.y, { steps: 8 })
+      await window.mouse.up()
+      expect(await selectionOf(node)).toBe('ABCDEFGHIJ')
+      await window.screenshot({ path: test.info().outputPath(`terminal-selection-${zoom * 100}.png`) })
+    } finally {
+      await launched.close()
+    }
+  })
+}
+
+test('at Canvas zoom 50% a drag that began in one terminal and goes over another selects in the first', async () => {
+  // B comes first in the Layout, so it mounts first; it stands to the right of A and 60 px lower on
+  // the screen, so the moves over B are corrected for the wrong row if B takes them.
+  writeFileSync(
+    join(dataDir, PROJECT, 'layout.json'),
+    JSON.stringify({
+      nodes: [
+        { id: 'b', kind: 'terminal', x: 620, y: 140, w: 560, h: 340, data: {} },
+        { id: 'a', kind: 'terminal', x: 20, y: 20, w: 560, h: 340, data: {} },
+      ],
+      viewport: { x: 0, y: 0, zoom: 0.5 },
+    }),
+  )
+  const launched = await launch()
+  try {
+    const { window } = launched
+    const a = window.locator('.react-flow__node[data-id="a"]').getByTestId('terminal-node')
+    const b = window.locator('.react-flow__node[data-id="b"]').getByTestId('terminal-node')
+    await expect(a).toHaveAttribute('data-state', 'running')
+    await expect(b).toHaveAttribute('data-state', 'running')
+
+    const { cols } = await printSize(window, a, 'z')
+    await run(window, a, 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do echo "L$i-row"; done', /^L15-row$/m)
+    const screen = await a.locator('.xterm-screen').boundingBox()
+    const row = await a.locator('.xterm-rows > div').filter({ hasText: /^L12-row/ }).boundingBox()
+    const overB = await b.getByTestId('terminal-screen').boundingBox()
+    if (!screen || !row || !overB) throw new Error('no terminal screen or output row')
+    const y = row.y + row.height / 2
+    // The end point is over B's screen, level with A's row.
+    expect(y).toBeGreaterThan(overB.y)
+    expect(y).toBeLessThan(overB.y + overB.height)
+    await window.mouse.move(screen.x + 0.25 * (screen.width / cols), y)
+    await window.mouse.down()
+    await window.mouse.move(overB.x + 40, y, { steps: 8 })
+    await window.mouse.up()
+    expect(await selectionOf(a)).toBe('L12-row')
+  } finally {
+    await launched.close()
+  }
+})
+
 test('quitting worfy ends every shell; after a restart the Node starts a new shell in the same folder', async () => {
   const first = await launch()
   const mainPid = first.app.process().pid ?? 0

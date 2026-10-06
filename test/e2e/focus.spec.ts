@@ -270,3 +270,106 @@ test('keys pressed in focus mode stay in the layer: the selected Nodes on the Ca
     await launched.close()
   }
 })
+
+/** What a terminal shows; xterm.js draws spaces as no-break spaces. */
+const screenText = async (terminal: Locator): Promise<string> => (await terminal.locator('.xterm-rows').innerText()).replace(/\u00a0/g, ' ')
+
+/** The size of the terminal's pty as `stty size` reports it, typed into this view of the shell. */
+async function sttySize(window: Page, terminal: Locator, tag: string): Promise<{ rows: number; cols: number }> {
+  await terminal.getByTestId('terminal-screen').click()
+  // The output differs from the echoed command line (`$(…)`), so the regex matches only the output.
+  await window.keyboard.type(`echo "${tag}=$(stty size | tr ' ' x)"`)
+  await window.keyboard.press('Enter')
+  const pattern = new RegExp(`^${tag}=(\\d+)x(\\d+)$`, 'm')
+  await expect.poll(async () => pattern.test(await screenText(terminal)), { timeout: 10_000 }).toBe(true)
+  const [, rows, cols] = pattern.exec(await screenText(terminal)) ?? []
+  return { rows: Number(rows), cols: Number(cols) }
+}
+
+/** The terminal node colors of design F (docs/design/F-SPEC.md, color table): background, text. */
+const TERMINAL_COLORS = { light: ['rgb(29, 29, 31)', 'rgb(229, 229, 234)'], dark: ['rgb(11, 10, 9)', 'rgb(236, 232, 225)'] } as const
+
+/**
+ * Screenshots of the window in the light and the dark appearance, with the terminal's colors
+ * checked against design F; the appearance goes back to the system's after.
+ */
+async function snapshots(window: Page, terminal: Locator, where: string): Promise<void> {
+  for (const scheme of ['light', 'dark'] as const) {
+    await window.emulateMedia({ colorScheme: scheme })
+    const colors = () =>
+      terminal.locator('.xterm-screen').evaluate((screen) => {
+        // xterm.js paints the background on the scrollable element around its screen, the text on the rows.
+        const { getComputedStyle } = globalThis as unknown as { getComputedStyle(e: unknown): { backgroundColor: string; color: string } }
+        const { parentElement, querySelector } = screen as unknown as { parentElement: unknown; querySelector(s: string): unknown }
+        return [getComputedStyle(parentElement).backgroundColor, getComputedStyle(querySelector.call(screen, '.xterm-rows')).color]
+      })
+    await expect.poll(colors).toEqual([...TERMINAL_COLORS[scheme]])
+    await window.screenshot({ path: test.info().outputPath(`terminal-${where}-${scheme}.png`) })
+  }
+  await window.emulateMedia({ colorScheme: null })
+}
+
+test('a Terminal in focus mode gets the size of its tile, and after leaving focus mode the pty has the size of the Canvas Node again', async () => {
+  const home = join(scratch, 'home')
+  mkdirSync(home)
+  writeFileSync(layoutFile, JSON.stringify({ nodes: [{ id: 'term', kind: 'terminal', x: 40, y: 40, w: 560, h: 340, data: {} }], viewport: VIEWPORT }))
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, SHELL: '/bin/sh', HOME: home } })
+  try {
+    const { window } = launched
+    const onCanvas = window.locator('.react-flow__node[data-id="term"]').getByTestId('terminal-node')
+    await expect(onCanvas).toHaveAttribute('data-state', 'running')
+    const canvasSize = await sttySize(window, onCanvas, 'canvas')
+    expect(canvasSize.cols).toBeGreaterThan(40)
+    await snapshots(window, onCanvas, 'canvas')
+
+    await window.locator('.react-flow__node[data-id="term"] .w-terminal__header').click()
+    await expect(window.locator('.react-flow__node.selected')).toHaveCount(1)
+    await window.keyboard.press('Meta+Enter')
+    const focus = window.getByTestId('focus-mode')
+    const inTile = focus.getByTestId('focus-tile').getByTestId('terminal-node')
+    await expect(inTile).toHaveAttribute('data-state', 'running')
+    // One tile fills the window: the pty follows the bigger view.
+    const tileSize = await sttySize(window, inTile, 'tile')
+    expect(tileSize.cols).toBeGreaterThan(canvasSize.cols)
+    await snapshots(window, inTile, 'focus')
+
+    // Esc typed into the terminal goes to the shell, so the button leaves focus mode.
+    await focus.getByRole('button', { name: /Exit focus/ }).click()
+    await expect(focus).toHaveCount(0)
+    expect(await sttySize(window, onCanvas, 'back')).toEqual(canvasSize)
+    // Typing and output still work on the Canvas copy.
+    await onCanvas.getByTestId('terminal-screen').click()
+    await window.keyboard.type('echo mark""er-after')
+    await window.keyboard.press('Enter')
+    await expect.poll(() => screenText(onCanvas), { timeout: 10_000 }).toMatch(/^marker-after$/m)
+
+    // The Canvas Node resized while focus mode is open (by main, as a tool would): the Canvas copy
+    // under the layer fits itself, but the pty keeps the size of the tile until focus mode ends.
+    await window.locator('.react-flow__node[data-id="term"] .w-terminal__header').click()
+    await window.keyboard.press('Meta+Enter')
+    await expect(inTile).toHaveAttribute('data-state', 'running')
+    const canvasWidth = async () => (await onCanvas.boundingBox())?.width ?? 0
+    const widthBefore = await canvasWidth()
+    const resized = await window.evaluate(
+      (projectId) =>
+        (globalThis as unknown as { worfy: { invoke(c: string, i: unknown): Promise<{ ok: boolean }> } }).worfy.invoke('layout.apply', {
+          projectId,
+          op: { op: 'resize', id: 'term', w: 480, h: 260 },
+        }),
+      ALPHA,
+    )
+    expect(resized.ok).toBe(true)
+    await expect.poll(canvasWidth).toBeLessThan(widthBefore - 40)
+    // The Canvas copy's ResizeObserver runs before the next frame.
+    await nextFrame(window)
+    await nextFrame(window)
+    expect(await sttySize(window, inTile, 'tile-again')).toEqual(tileSize)
+    await focus.getByRole('button', { name: /Exit focus/ }).click()
+    await expect(focus).toHaveCount(0)
+    const smaller = await sttySize(window, onCanvas, 'smaller')
+    expect(smaller.cols).toBeLessThan(canvasSize.cols)
+    expect(smaller.rows).toBeLessThan(canvasSize.rows)
+  } finally {
+    await launched.close()
+  }
+})

@@ -8,6 +8,8 @@ import { invoke, subscribe } from '../../ipc'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import type { CanvasNodeProps } from './index'
 import { useLayoutOps } from '../useLayout'
+import { unscaleMouse } from './terminal-mouse'
+import { addView, isLastView, type ShellView } from './terminal-views'
 
 // A Terminal: the user's interactive shell in the root of the Project (CONTEXT.md, «Терминал»).
 // The agent does not use it. main runs the shell (src/main/terminal/pty.ts); this Node draws it
@@ -17,6 +19,16 @@ import { useLayoutOps } from '../useLayout'
 // remounts (main keeps its exit and output); only Restart starts a new one. Closing the Node ends
 // the shell. After a
 // restart of worfy the Node starts a new shell in the same folder; the old output is gone.
+//
+// One shell can have two views at once: focus mode draws the Node in a tile while the Canvas keeps
+// its own copy mounted under the layer (src/renderer/focus/FocusMode.tsx). Both show the output and
+// send input, but the pty has one size: the view mounted last sets it, and when that view goes, the
+// view mounted before it fits itself and sets the size again (terminal-views.ts). So leaving focus
+// mode gives the shell back the size of the Canvas Node, whose box did not change meanwhile.
+//
+// The Canvas draws its Nodes inside a CSS transform: scale(zoom), which xterm.js does not account
+// for when it maps the mouse to cells; terminal-mouse.ts corrects the mouse events it reads.
+
 // The same value as TERMINAL_NODE_KIND, by which main recognises a Terminal Node; written out
 // here because the Node registry needs a literal export.
 export const kind = 'terminal'
@@ -103,17 +115,31 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     const typed = terminal.onData((keys) => {
       if (attached) void invoke('terminal.input', { ...ref, data: keys })
     })
+    // Fits the terminal to the Node: xterm.js resizes only when the size differs.
+    const refit = () => {
+      const size = fittedSize(element, fit)
+      if (size !== undefined && (size.cols !== terminal.cols || size.rows !== terminal.rows)) terminal.resize(size.cols, size.rows)
+    }
+    const view: ShellView = {
+      takeSize: () => {
+        refit()
+        if (attached) void invoke('terminal.resize', { ...ref, cols: terminal.cols, rows: terminal.rows })
+      },
+    }
+    const key = `${projectId} ${id}`
+    const removeView = addView(key, view)
     const resized = terminal.onResize(({ cols, rows }) => {
-      if (attached) void invoke('terminal.resize', { ...ref, cols, rows })
+      // Only the view mounted last sets the size of the pty; another view keeps its own size.
+      if (attached && isLastView(key, view)) void invoke('terminal.resize', { ...ref, cols, rows })
     })
 
     // Fits the terminal to the Node whenever the Node's box changes: a resize of the Node, and the
     // Canvas coming back from display:none (Session view), where xterm.js cannot measure itself.
-    const observer = new ResizeObserver(() => {
-      const size = fittedSize(element, fit)
-      if (size !== undefined && (size.cols !== terminal.cols || size.rows !== terminal.rows)) terminal.resize(size.cols, size.rows)
-    })
+    const observer = new ResizeObserver(refit)
     observer.observe(element)
+
+    const screen = element.querySelector<HTMLElement>('.xterm-screen')
+    const stopUnscaling = screen === null ? () => undefined : unscaleMouse(element, screen)
 
     // The appearance follows the system; the terminal colors follow the tokens.
     const scheme = window.matchMedia('(prefers-color-scheme: dark)')
@@ -142,7 +168,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
       setStatus({ state: 'running', shell, pid })
       // The size may have changed while the shell was starting.
-      if (terminal.cols !== size.cols || terminal.rows !== size.rows) void invoke('terminal.resize', { ...ref, cols: terminal.cols, rows: terminal.rows })
+      if (isLastView(key, view) && (terminal.cols !== size.cols || terminal.rows !== size.rows)) void invoke('terminal.resize', { ...ref, cols: terminal.cols, rows: terminal.rows })
     })
 
     return () => {
@@ -154,6 +180,9 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       typed.dispose()
       resized.dispose()
       observer.disconnect()
+      stopUnscaling()
+      // After `attached = false`: this view sends nothing more; the view before it takes the size.
+      removeView()
       scheme.removeEventListener('change', onScheme)
       terminal.dispose()
     }
