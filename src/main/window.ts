@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, screen, session, type HandlerDetails, type WindowOpenHandlerResponse } from 'electron'
 import { MIN_SIZE, initialBounds, parseWindowState, serializeWindowState, type Rect } from '../shared/window/bounds'
 import { allowFrameNavigation } from './cards/protocol'
+import { reportStartupFailure } from './startup-failure'
 import { dataRoot } from './storage/paths'
 
 /** Path of the file that remembers the window's position and size (ADR 0005: worfy's own state). */
@@ -69,11 +70,17 @@ export function createMainWindow(): BrowserWindow {
     window.show()
   })
 
+  // A page that does not load leaves a window that never shows: say so and exit (startup-failure.ts).
+  // A window closed while it was still loading rejects too; that is no failure.
+  const loaded = (step: 'loadURL' | 'loadFile') => (error: unknown) => {
+    if (window.isDestroyed()) return
+    reportStartupFailure(error, step)
+  }
   const { indexHtml, devServerUrl } = rendererEntry()
   if (devServerUrl) {
-    void window.loadURL(devServerUrl)
+    window.loadURL(devServerUrl).catch(loaded('loadURL'))
   } else {
-    void window.loadFile(indexHtml)
+    window.loadFile(indexHtml).catch(loaded('loadFile'))
   }
   return window
 }

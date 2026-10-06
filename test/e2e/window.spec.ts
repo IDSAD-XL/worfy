@@ -1,12 +1,57 @@
+import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { launchApp } from './helpers'
+import { launchApp, repoRoot } from './helpers'
 
 // Electron helper processes may still hold files in a directory for a moment after the app exits.
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+
+test('a data folder that is a file stops the start with exit code 1 and names the step on stderr', async () => {
+  // Started without Playwright: launchApp waits for a window, and this start must never open one.
+  const root = await mkdtemp(join(tmpdir(), 'worfy-bad-data-'))
+  const dataFile = join(root, 'data')
+  await writeFile(dataFile, 'not a folder')
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE') env[key] = value
+  }
+  Object.assign(env, {
+    WORFY_DATA_DIR: dataFile,
+    WORFY_CLAUDE_HOME: root,
+    WORFY_AGENT: 'fake',
+    WORFY_GH: join(repoRoot, 'test', 'fixtures', 'gh', 'gh'),
+    // The native error window is modal and would hold the process until someone dismisses it.
+    WORFY_STARTUP_DIALOG: 'off',
+  })
+  const electron = createRequire(import.meta.url)('electron') as string
+  const child = spawn(electron, [repoRoot], { cwd: repoRoot, env, stdio: ['ignore', 'ignore', 'pipe'] })
+  let stderr = ''
+  child.stderr.setEncoding('utf8')
+  child.stderr.on('data', (chunk: string) => {
+    stderr += chunk
+  })
+  // Listen before anything can make it exit: an 'exit' that already fired would never resolve once().
+  const exited = once(child, 'exit') as Promise<[number | null, NodeJS.Signals | null]>
+  const killer = setTimeout(() => child.kill('SIGKILL'), 20_000)
+  try {
+    const [code, signal] = await exited
+    expect(signal, `stderr:\n${stderr}`).toBeNull()
+    expect(code, `stderr:\n${stderr}`).toBe(1)
+    expect(stderr).toContain('worfy could not start')
+    expect(stderr).toContain('Step: checkDataFolder (checking the data folder) failed.')
+    expect(stderr).toContain(`${dataFile} is a file, not a folder`)
+    expect(stderr).toContain(`worfy's data folder: ${dataFile}`)
+    // The single-instance lock was never tried, so the start is not mistaken for a second worfy.
+    expect(stderr).not.toContain('another worfy already runs')
+  } finally {
+    clearTimeout(killer)
+    await removeDir(root)
+  }
+})
 
 test('the window has no system title bar: traffic lights sit inset in the toolbar', async () => {
   const launched = await launchApp()
