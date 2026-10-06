@@ -1,7 +1,7 @@
 # 19 — Test-ы, зависящие от порядка файлов, и временные файлы test-ов в src
 
 Type: task
-Status: claimed — 2026-10-06
+Status: done — 2026-10-06, [PR #77](https://github.com/IDSAD-XL/worfy/pull/77)
 Blocked by: 17
 Source: [spec.md](../spec.md), тема E; HANDOFF worfy-mvp, «Риски и долги» (Ticket 28 worfy-mvp)
 
@@ -50,7 +50,7 @@ Source: [spec.md](../spec.md), тема E; HANDOFF worfy-mvp, «Риски и д
 ## Готово, когда
 
 - [x] ADR принят.
-- [x] `pnpm vitest run --sequence.shuffle.files --sequence.seed=3` зелёный. Ещё 5 случайных seed — тоже зелёные, числа в «Итог».
+- [x] `pnpm vitest run --sequence.shuffle.files --sequence.seed=3` зелёный. Ещё 5 случайных seed — тоже зелёные, числа в «Итог». Проверено командой `pnpm test …` вместо буквальной — причина в «Итог».
 - [x] После `pnpm test` в `src/` нет `ZzVitestProbe*`. После убитого посреди прогона vitest и следующего прогона — тоже нет. Это проверяет шаг CI с `git status --porcelain src`.
 - [x] В `focus-mode.test.tsx` нет `vi.mock` реестра Node-ов.
 - [x] Проверка «файл добавлен — подхватился» осталась для Node-ов, разделов sidebar, элементов toolbar и блоков правой панели Session — если ADR не решил иначе.
@@ -112,7 +112,7 @@ seed 1–4: все зелёные, и seed 3 тоже.
 каждый:
 - 3, 17, 4242, 90210, 7 — зелёные;
 - 123456 — красный один раз, только `test/contract/claude-home-registry.test.ts` (известный
-  нестабильный, вне волны); повторный прогон зелёный.
+  нестабильный, вне этой Wave); повторный прогон зелёный.
 
 Буквальная команда пункта `pnpm vitest run …` запускает vitest под системным Node, а не под Node
 из Electron. На ней краснеет `test/unit/runtime.test.ts` («runs under the Node built into
@@ -134,3 +134,9 @@ Electron. Решено без владельца, подтвердить.
 
 Guard удаляет `src/**/ZzVitestProbe*`: подложенный `ZzVitestProbeNode.tsx` исчез после запуска.
 Каталог `worfy-glob-probe-*` с mtime старше часа удаляется, свежий остаётся.
+
+**Ревью** ([PR #77](https://github.com/IDSAD-XL/worfy/pull/77), VERIFIED, без доработки): test-ы
+обнаружения по-прежнему краснеют на испорченном glob настоящего модуля (свои 4 мутанта); уборка при
+старте удаляет только каталоги старше часа; перемешанный порядок в CI — один прогон, без повторов.
+Долги [low]: `test/unit/focus-mode.test.tsx:11-12` — две пустые строки подряд; прогон длиннее часа
+может потерять свою копию от уборки параллельного запуска (`vitest.config.ts:28-37`).
