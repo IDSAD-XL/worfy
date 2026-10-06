@@ -83,11 +83,22 @@ test('the Session view: opened from the Orchestrator Node, a turn, an interrupte
     // Turn 1: Return sends; busy, then the answer as markdown, then idle with the cost in the header.
     const field = view.getByRole('textbox', { name: 'Message Orchestrator' })
     await field.fill('first prompt')
+    const sentFrom = Date.now()
     await field.press('Enter')
     await expect(field).toHaveValue('')
-    await expect(view.getByTestId('transcript-prompt').first()).toContainText('first prompt')
+    const firstPrompt = view.getByTestId('transcript-prompt').first()
+    await expect(firstPrompt).toContainText('first prompt')
+    // A live row shows when it arrived (ticket 14): HH:MM of this machine's clock, seconds in the tooltip.
+    const clock = (at: number) => `${String(new Date(at).getHours()).padStart(2, '0')}:${String(new Date(at).getMinutes()).padStart(2, '0')}`
+    const shown = await firstPrompt.getByTestId('transcript-clock').textContent()
+    expect([clock(sentFrom), clock(Date.now())]).toContain(shown)
+    await expect(firstPrompt.getByTestId('transcript-date')).toHaveCount(0)
+    await expect(firstPrompt.getByTestId('transcript-time')).toHaveAttribute('title', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
     const answer = view.getByTestId('transcript-text').first()
     await expect(answer.locator('table td').first()).toHaveText('33')
+    // The answer keeps its time in the tooltip of its label, as the F mockups draw it.
+    await expect(answer.getByTestId('transcript-time')).toHaveCount(0)
+    await expect(answer.locator('.w-tr__who')).toHaveAttribute('title', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
     await expect(answer.locator('strong')).toHaveText('Wave 6')
     await expect(answer.locator('input[type="checkbox"]')).toHaveCount(2)
     await expect(view.getByTestId('tool-call')).toHaveCount(1)

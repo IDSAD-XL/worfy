@@ -1,6 +1,7 @@
 // Turns a Session's events (src/shared/agent/events.ts) into the rows of its transcript. The
-// events may come from the live Session (store.ts) or, later, from a transcript file (ticket 14):
-// this file does not know which.
+// events may come from the live Session (store.ts) or from a transcript file: this file does not
+// know which. Each row takes the time of its event (`at`): the record's time for a file, the time
+// it arrived for a live event (ticket 14).
 //
 // Only the main thread of the Session is folded: text, thinking and tool calls of a subagent
 // (parentToolUseId set) belong to the subagent tree (ticket 15). Bookkeeping events (init,
@@ -30,7 +31,11 @@ export interface ToolCall {
   subagent: SubagentRun | null
 }
 
-export type TranscriptItem =
+/**
+ * A row of the transcript. `at`: when the event that opened the row happened (the event's `at`,
+ * ms since the epoch), the whole block's time for an answer; null when the event has none.
+ */
+export type TranscriptItem = { at: number | null } & (
   | { kind: 'prompt'; key: string; text: string }
   /** `streaming`: still being written (deltas), replaced by the whole block when it arrives. */
   | { kind: 'text'; key: string; text: string; synthetic: boolean; streaming: boolean }
@@ -44,6 +49,7 @@ export type TranscriptItem =
   | { kind: 'error'; key: string; text: string }
   /** An event drawn by a row of src/renderer/session/rows/ (rows/index.ts). */
   | { kind: 'extension'; key: string; event: AgentEvent }
+)
 
 /**
  * Folds events into transcript rows. `extensionTypes` are the event types a row file draws; they
@@ -78,41 +84,44 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
 
   events.forEach((event, index) => {
     const key = `e${firstIndex + index}`
+    const at = event.at ?? null
     if (extensionTypes.has(event.type)) {
-      push({ kind: 'extension', key, event })
+      push({ kind: 'extension', key, at, event })
       return
     }
     switch (event.type) {
       case 'notice':
         if (event.kind === 'user') {
           // The interruption is shown once, by the turn's result.
-          if (!INTERRUPT_NOTICE.test(event.text)) push({ kind: 'prompt', key, text: event.text })
+          if (!INTERRUPT_NOTICE.test(event.text)) push({ kind: 'prompt', key, at, text: event.text })
         } else {
-          push({ kind: 'notice', key, noticeKind: event.kind, text: event.text })
+          push({ kind: 'notice', key, at, noticeKind: event.kind, text: event.text })
         }
         return
       case 'delta': {
         if (event.parentToolUseId !== null) return
-        const at = event.kind === 'text' ? streamingText : streamingThinking
-        const current = at === null ? undefined : items[at]
+        const slot = event.kind === 'text' ? streamingText : streamingThinking
+        const current = slot === null ? undefined : items[slot]
         if (current && (current.kind === 'text' || current.kind === 'thinking')) {
-          replace(at as number, { ...current, text: current.text + event.text })
+          replace(slot as number, { ...current, text: current.text + event.text })
           return
         }
-        push(event.kind === 'text' ? { kind: 'text', key, text: event.text, synthetic: false, streaming: true } : { kind: 'thinking', key, text: event.text, streaming: true })
+        push(event.kind === 'text' ? { kind: 'text', key, at, text: event.text, synthetic: false, streaming: true } : { kind: 'thinking', key, at, text: event.text, streaming: true })
         if (event.kind === 'text') streamingText = items.length - 1
         else streamingThinking = items.length - 1
         return
       }
       case 'text': {
         if (event.parentToolUseId !== null) return
-        const at = event.synthetic ? null : streamingText
-        const current = at === null ? undefined : items[at]
+        const slot = event.synthetic ? null : streamingText
+        const current = slot === null ? undefined : items[slot]
         if (current?.kind === 'text') {
-          replace(at as number, { ...current, text: event.text, streaming: false })
+          // The whole block replaces the streamed one, and so does its time: a transcript file
+          // has only the block, and the row reads the same after a restart.
+          replace(slot as number, { ...current, at: at ?? current.at, text: event.text, streaming: false })
           streamingText = null
         } else {
-          push({ kind: 'text', key, text: event.text, synthetic: event.synthetic, streaming: false })
+          push({ kind: 'text', key, at, text: event.text, synthetic: event.synthetic, streaming: false })
         }
         return
       }
@@ -120,10 +129,10 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
         if (event.parentToolUseId !== null) return
         const current = streamingThinking === null ? undefined : items[streamingThinking]
         if (current?.kind === 'thinking') {
-          replace(streamingThinking as number, { ...current, text: event.text, streaming: false })
+          replace(streamingThinking as number, { ...current, at: at ?? current.at, text: event.text, streaming: false })
           streamingThinking = null
         } else {
-          push({ kind: 'thinking', key, text: event.text, streaming: false })
+          push({ kind: 'thinking', key, at, text: event.text, streaming: false })
         }
         return
       }
@@ -132,7 +141,7 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
         const call: ToolCall = { id: event.id, name: event.name, input: event.input, result: null, subagent: null }
         calls.set(event.id, call)
         if (group === null) {
-          const opened: Extract<TranscriptItem, { kind: 'tools' }> = { kind: 'tools', key, calls: [call] }
+          const opened: Extract<TranscriptItem, { kind: 'tools' }> = { kind: 'tools', key, at, calls: [call] }
           push(opened)
           group = opened
         } else {
@@ -165,20 +174,20 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
         // A subagent started by an Agent tool call of this thread is shown on that call's row.
         const call = event.toolUseId === null ? undefined : calls.get(event.toolUseId)
         if (call) call.subagent = run
-        else push({ kind: 'subagent', key, run })
+        else push({ kind: 'subagent', key, at, run })
         return
       }
       case 'hook':
-        push({ kind: 'hook', key, event })
+        push({ kind: 'hook', key, at, event })
         return
       case 'result':
         endStreaming()
-        push({ kind: 'result', key, event })
+        push({ kind: 'result', key, at, event })
         return
       case 'state':
         if (event.state === 'error') {
           endStreaming()
-          push({ kind: 'error', key, text: event.error ?? 'The Session stopped with an error' })
+          push({ kind: 'error', key, at, text: event.error ?? 'The Session stopped with an error' })
         }
         return
       default:

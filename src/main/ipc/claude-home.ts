@@ -21,7 +21,7 @@ import {
   claudeHomeTranscript,
   type LiveSession,
 } from '../../shared/ipc/claude-home'
-import { mainThreadEvents, parseTranscriptLines } from '../../shared/transcript/parse'
+import { mainThreadEvents, parseTranscriptLines, timedEvent } from '../../shared/transcript/parse'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 /** The part of a window's webContents the subscriptions use; tests pass a fake. */
@@ -168,7 +168,7 @@ export function claudeHomeHandlers(
       const path = session === null ? null : await subagentTranscriptPath(session, agentId)
       if (path === null) return notFound
       const chunk = await readNewLines(path, cursor, maxBytes === undefined ? {} : { maxBytes })
-      return { found: true, events: parseTranscriptLines(chunk.lines).map((entry) => entry.event), cursor: chunk.cursor, reset: chunk.reset, more: chunk.more }
+      return { found: true, events: parseTranscriptLines(chunk.lines).map(timedEvent), cursor: chunk.cursor, reset: chunk.reset, more: chunk.more }
     }),
   ]
 }

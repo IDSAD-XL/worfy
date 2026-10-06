@@ -376,6 +376,8 @@ describe('claudeHome.subagentTranscript', () => {
     expect(answer.found).toBe(true)
     expect(answer.events.map((event) => event.type)).toEqual(['notice', 'text'])
     expect(answer.events[1]).toMatchObject({ type: 'text', text: '**REJECTED**\n\nSynthetic finding: the test does not fail without the fix.' })
+    // Each event carries the time of its record, so the rows show when they were written (ticket 14).
+    expect(answer.events.map((event) => event.at)).toEqual([Date.parse('2026-06-01T10:00:11.000Z'), Date.parse('2026-06-01T10:00:59.000Z')])
   })
 
   it('answers found: false for an unknown Subagent and for a file outside subagents/', async () => {
