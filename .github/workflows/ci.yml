@@ -4,22 +4,25 @@ name: CI
 # e2e tests and the packaged .app run on the owner's Mac before merge (gate full), because a
 # macOS runner minute costs ten times a Linux one and e2e plus packaging took 6.5 of 8.7 minutes.
 # The full macOS run stays available by hand: Actions → CI → Run workflow.
+# Docs-only changes skip CI: Markdown at the root, docs/ and .scratch/. Markdown under src/ and test/
+# is code (src/main/mcp/agent-instructions.md, test fixtures) and still runs it.
 on:
   pull_request:
-    paths-ignore:
-      - '**/*.md'
-      - '.scratch/**'
-      - 'docs/**'
+    paths-ignore: ['*.md', 'docs/**', '.scratch/**']
+  push:
+    branches: [main]
+    paths-ignore: ['*.md', 'docs/**', '.scratch/**']
   workflow_dispatch:
 
 # A new push to the same pull request cancels the run still going for the previous one.
+# A push to main gets a group of its own (the run id), so every merge keeps its own result.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
-    if: github.event_name == 'pull_request'
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
