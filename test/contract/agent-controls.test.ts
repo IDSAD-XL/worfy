@@ -1,14 +1,17 @@
 // The controls of a Session through the `agent.*` IPC channels, on the fake agent (ticket 19):
 // model, effort and permission mode (agent.configure, agent.models), and the message queue
-// (agent.controls, agent.queueRemove, agent.queueSend).
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+// (agent.controls, agent.queueRemove, agent.queueSend). The model floor of worfy-daily ticket 07:
+// no haiku in the list or in a Session, and a haiku in the user's settings.json of a temporary
+// WORFY_CLAUDE_HOME starts Claude Code on sonnet without that file being touched.
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FAKE_MODELS, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
 import { modelOptions, SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
+import { readUserModel } from '../../src/main/claude-home/user-model'
 import { agentHandlers } from '../../src/main/ipc/agent'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import type { AgentEvent, AgentEventEnvelope } from '../../src/shared/agent/events'
@@ -118,13 +121,13 @@ describe('agent.configure', () => {
     const { sessionId: id } = await h.ok<{ sessionId: string }>('agent.start', { cwd })
     await h.ok('agent.send', { sessionId: id, text: 'go' })
     await vi.waitFor(() => expect(h.registry.get(id).state).toBe('error'))
-    await h.ok('agent.configure', { sessionId: id, change: { model: 'haiku', permissionMode: 'default' } })
+    await h.ok('agent.configure', { sessionId: id, change: { model: 'opus', permissionMode: 'default' } })
     await h.ok('agent.send', { sessionId: id, text: 'again' })
     await vi.waitFor(() => expect(h.results()).toBe(1))
     const starts = h.calls.filter((call) => call.kind === 'start')
     expect(starts).toHaveLength(2)
-    expect(starts[1]).toMatchObject({ settings: { model: 'haiku', effort: null, permissionMode: 'default' } })
-    expect(h.ofType('init').at(-1)).toMatchObject({ model: 'haiku', permissionMode: 'default' })
+    expect(starts[1]).toMatchObject({ settings: { model: 'opus', effort: null, permissionMode: 'default' } })
+    expect(h.ofType('init').at(-1)).toMatchObject({ model: 'opus', permissionMode: 'default' })
   })
 
   it('settings changed while Claude Code is still starting reach it once it is up', async () => {
@@ -200,19 +203,32 @@ describe('agent.configure', () => {
 })
 
 describe('agent.models', () => {
-  it("lists supportedModels() of the live Session with only the declared keys; the SDK's default row is the null model", async () => {
+  it("lists supportedModels() of the live Session with only the declared keys, haiku left out; the SDK's default row is the null model", async () => {
     const h = await harness('turn')
     const id = await h.start()
-    // The fake's rows carry `description` and `resolvedModel`, as the SDK's do.
+    // The fake's rows carry `description` and `resolvedModel`, as the SDK's do, and a haiku row.
     expect(FAKE_MODELS[0]).toHaveProperty('resolvedModel')
+    expect(FAKE_MODELS.map((model) => model.value)).toContain('haiku')
     expect(await h.ok('agent.models', { sessionId: id })).toStrictEqual({
       models: [
         { value: null, displayName: 'Default (recommended)', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
         { value: 'opus', displayName: 'Opus', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
         { value: 'sonnet', displayName: 'Sonnet', efforts: ['low', 'medium', 'high', 'max'] },
-        { value: 'haiku', displayName: 'Haiku', efforts: [] },
       ],
     })
+  })
+
+  it('modelOptions leaves out the haiku family by value or by name; sonnet and larger stay', () => {
+    expect(
+      modelOptions([
+        { value: 'haiku' },
+        { value: 'claude-haiku-4-5-20251001' },
+        { value: 'claude-3-5-haiku-latest' },
+        { value: 'fast', displayName: 'Haiku 4.5' },
+        { value: 'sonnet[1m]', displayName: 'Sonnet (1M context)' },
+        { value: 'claude-opus-5-5' },
+      ]).map((row) => row.value),
+    ).toStrictEqual(['sonnet[1m]', 'claude-opus-5-5'])
   })
 
   it('modelOptions keeps the declared keys only and drops effort levels it does not know', () => {
@@ -224,21 +240,208 @@ describe('agent.models', () => {
     ])
   })
 
-  it('falls back to the model of the last system/init when supportedModels() has nothing', async () => {
+  it.each([
+    ['claude-sonnet-4-5-20250929', [{ value: 'claude-sonnet-4-5-20250929', displayName: 'claude-sonnet-4-5-20250929', efforts: [] }]],
+    // The init model of a process is not offered when it is a haiku.
+    ['claude-haiku-4-5-20251001', []],
+  ])('falls back to the model of the last system/init (%s) when supportedModels() has nothing', async (initModel, offered) => {
     const scriptsDir = await mkdtemp(join(tmpdir(), 'worfy-controls-scripts-'))
     try {
-      const turn = await import('node:fs/promises').then(({ readFile }) => readFile(join(fixtures, 'turn.jsonl'), 'utf8'))
-      await writeFile(join(scriptsDir, 'no-models.jsonl'), `${JSON.stringify({ fake: 'models', models: [] })}\n${turn}`)
+      const turn = await readFile(join(fixtures, 'turn.jsonl'), 'utf8')
+      expect(turn).toContain('claude-haiku-4-5-20251001')
+      await writeFile(join(scriptsDir, 'no-models.jsonl'), `${JSON.stringify({ fake: 'models', models: [] })}\n${turn.replaceAll('claude-haiku-4-5-20251001', initModel)}`)
       const h = await harness('no-models', scriptsDir)
       const id = await h.start()
       // Before any turn there is no model to offer.
       expect(await h.ok('agent.models', { sessionId: id })).toEqual({ models: [] })
       await h.ok('agent.send', { sessionId: id, text: 'hello' })
       await vi.waitFor(() => expect(h.results()).toBe(1))
-      expect(await h.ok('agent.models', { sessionId: id })).toStrictEqual({ models: [{ value: 'claude-haiku-4-5-20251001', displayName: 'claude-haiku-4-5-20251001', efforts: [] }] })
+      expect(h.ofType('init').at(-1)).toMatchObject({ model: initModel })
+      expect(await h.ok('agent.models', { sessionId: id })).toStrictEqual({ models: offered })
     } finally {
       await rm(scriptsDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
+  })
+})
+
+/** Every file under `dir` with its bytes and mtime: two equal snapshots mean nothing was written there. */
+async function snapshot(dir: string): Promise<Record<string, { bytes: string; mtimeMs: number }>> {
+  const tree: Record<string, { bytes: string; mtimeMs: number }> = {}
+  for (const entry of await readdir(dir, { recursive: true, withFileTypes: true })) {
+    const path = join(entry.parentPath, entry.name)
+    const info = await stat(path)
+    tree[relative(dir, path)] = { bytes: entry.isFile() ? (await readFile(path)).toString('base64') : '', mtimeMs: info.mtimeMs }
+  }
+  return tree
+}
+
+describe('the model floor: sonnet or larger, never haiku (worfy-daily ticket 07)', () => {
+  let home: string
+
+  beforeEach(async () => {
+    home = await mkdtemp(join(tmpdir(), 'worfy-controls-claude-home-'))
+    vi.stubEnv('WORFY_CLAUDE_HOME', home)
+  })
+
+  afterEach(async () => {
+    vi.unstubAllEnvs()
+    await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  })
+
+  const userSettings = (value: unknown) => writeFile(join(home, 'settings.json'), typeof value === 'string' ? value : JSON.stringify(value))
+
+  it.each([
+    ['no settings.json', null],
+    ['a settings.json without a model', { theme: 'dark' }],
+    ['a settings.json that is not JSON', '{"model": "haiku"'],
+    ['a model of the wrong type', { model: 42 }],
+    ['the user model opus[1m]', { model: 'opus[1m]' }],
+    ['the user model sonnet', { model: 'sonnet' }],
+  ])('a new Session without a pick starts with model null under %s', async (_label, settings) => {
+    if (settings !== null) await userSettings(settings)
+    const h = await harness('turn')
+    const id = await h.start()
+    expect(h.requests.map((request) => request.settings)).toStrictEqual([DEFAULT_SETTINGS])
+    expect(h.registry.get(id).settings).toStrictEqual(DEFAULT_SETTINGS)
+    expect(h.ofType('settings')).toEqual([{ type: 'settings', settings: DEFAULT_SETTINGS }])
+  })
+
+  it.each(['haiku', 'claude-haiku-4-5-20251001', 'Haiku'])(
+    "a user model %s in settings.json starts Claude Code on sonnet; the Session keeps null and the Claude home is not touched",
+    async (userModel) => {
+      await userSettings({ model: userModel, permissions: { allow: ['Bash'] } })
+      await mkdir(join(home, 'projects'))
+      await writeFile(join(home, 'projects', 'keep.jsonl'), '{}\n')
+      const before = await snapshot(home)
+
+      const h = await harness((request) => (request.resume === undefined ? 'crash' : 'turn'))
+      const { sessionId: id } = await h.ok<{ sessionId: string }>('agent.start', { cwd })
+      await h.ok('agent.send', { sessionId: id, text: 'go' })
+      await vi.waitFor(() => expect(h.registry.get(id).state).toBe('error'))
+      // Every process the Session starts is asked for sonnet: the first one and the resumed one.
+      await h.ok('agent.send', { sessionId: id, text: 'again' })
+      await vi.waitFor(() => expect(h.results()).toBe(1))
+      const starts = h.calls.filter((call) => call.kind === 'start')
+      expect(starts.map((call) => (call.kind === 'start' ? call.settings : null))).toStrictEqual([
+        { ...DEFAULT_SETTINGS, model: 'sonnet' },
+        { ...DEFAULT_SETTINGS, model: 'sonnet' },
+      ])
+      expect(h.ofType('init').at(-1)).toMatchObject({ model: 'sonnet' })
+      // The Session's own settings, and so the Node's saved picks, stay the default model.
+      expect(h.registry.get(id).settings).toStrictEqual(DEFAULT_SETTINGS)
+      expect(h.ofType('settings').map((event) => event.settings)).toStrictEqual([DEFAULT_SETTINGS])
+      // Back to the default model while on it: no control call, the process stays on sonnet.
+      await h.ok('agent.configure', { sessionId: id, change: { model: null } })
+      expect(controlCalls(h.calls)).toEqual([])
+
+      expect(await snapshot(home)).toStrictEqual(before)
+    },
+  )
+
+  it('a picked model is passed as it is, whatever the user model is', async () => {
+    await userSettings({ model: 'haiku' })
+    const h = await harness('turn')
+    const session = h.registry.start(cwd, undefined, () => undefined, { model: 'opus', effort: 'high', permissionMode: 'plan' })
+    await vi.waitFor(() => expect(session.state).toBe('idle'))
+    expect(h.requests.map((request) => request.settings)).toStrictEqual([{ model: 'opus', effort: 'high', permissionMode: 'plan' }])
+  })
+
+  it('reads the user model again for each Claude Code process', async () => {
+    const h = await harness((request) => (request.resume === undefined ? 'crash' : 'turn'))
+    const { sessionId: id } = await h.ok<{ sessionId: string }>('agent.start', { cwd })
+    await h.ok('agent.send', { sessionId: id, text: 'go' })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('error'))
+    await userSettings({ model: 'haiku' })
+    await h.ok('agent.send', { sessionId: id, text: 'again' })
+    await vi.waitFor(() => expect(h.results()).toBe(1))
+    expect(h.requests.map((request) => request.settings.model)).toStrictEqual([null, 'sonnet'])
+  })
+
+  it('a user model that cannot be read leaves the Session on the default model', async () => {
+    const fake = fakeQueryFactory({ scriptsDir: fixtures, script: 'turn' })
+    const requests: QueryRequest[] = []
+    const registry = new SessionRegistry(
+      (request) => {
+        requests.push(request)
+        return fake(request)
+      },
+      () => {
+        throw new Error('unreadable')
+      },
+    )
+    registries.push(registry)
+    const session = registry.start(cwd, undefined, () => undefined)
+    await vi.waitFor(() => expect(session.state).toBe('idle'))
+    expect(requests.map((request) => request.settings)).toStrictEqual([DEFAULT_SETTINGS])
+  })
+
+  it.each([
+    ['haiku', { model: 'haiku', effort: 'high', permissionMode: 'plan' }],
+    ['a full haiku id', { model: 'claude-haiku-4-5-20251001', effort: null, permissionMode: 'acceptEdits' }],
+  ] as const)('a Node with a saved %s starts on the default model with the effort reset', async (_label, saved) => {
+    const h = await harness('turn')
+    const events: AgentEvent[] = []
+    const session = h.registry.start(cwd, undefined, (_id, event) => events.push(event), saved)
+    const expected = { model: null, effort: null, permissionMode: saved.permissionMode }
+    expect(session.settings).toStrictEqual(expected)
+    // The start's settings event carries the corrected picks: the Orchestrator saves them from it.
+    expect(events.find((event) => event.type === 'settings')).toEqual({ type: 'settings', settings: expected })
+    await vi.waitFor(() => expect(session.state).toBe('idle'))
+    expect(h.requests.map((request) => request.settings)).toStrictEqual([expected])
+    expect(h.calls.find((call) => call.kind === 'start')).toMatchObject({ settings: expected })
+  })
+
+  it('refuses to switch a Session to a haiku; the settings stay as they were', async () => {
+    const h = await harness('turn')
+    const id = await h.start()
+    const result = await h.call('agent.configure', { sessionId: id, change: { model: 'claude-haiku-4-5', effort: 'low' } })
+    expect(!result.ok && result.error).toMatch(/sonnet or a larger model/)
+    expect(h.registry.get(id).settings).toStrictEqual(DEFAULT_SETTINGS)
+    expect(controlCalls(h.calls)).toEqual([])
+    // A model at the floor still goes through.
+    expect(await h.ok('agent.configure', { sessionId: id, change: { model: 'sonnet' } })).toMatchObject({ model: 'sonnet' })
+  })
+})
+
+describe('readUserModel', () => {
+  let home: string
+
+  beforeEach(async () => {
+    home = await mkdtemp(join(tmpdir(), 'worfy-user-model-'))
+  })
+
+  afterEach(async () => {
+    await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  })
+
+  it.each([
+    ['no settings.json', undefined, null],
+    ['an empty file', '', null],
+    ['a file that is not JSON', '{"model":', null],
+    ['JSON that is not an object', '"opus"', null],
+    ['JSON null', 'null', null],
+    ['no model field', '{"theme":"dark"}', null],
+    ['a model that is not a string', '{"model":["opus"]}', null],
+    ['an empty model', '{"model":"  "}', null],
+    ['a model', '{"model":"opus[1m]","env":{}}', 'opus[1m]'],
+  ])('answers %s with %s', async (_label, text, expected) => {
+    if (text !== undefined) await writeFile(join(home, 'settings.json'), text)
+    expect(readUserModel(home)).toBe(expected)
+  })
+
+  it('reads <WORFY_CLAUDE_HOME>/settings.json by default', async () => {
+    await writeFile(join(home, 'settings.json'), '{"model":"sonnet"}')
+    vi.stubEnv('WORFY_CLAUDE_HOME', home)
+    try {
+      expect(readUserModel()).toBe('sonnet')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('answers null when settings.json is a directory', async () => {
+    await mkdir(join(home, 'settings.json'))
+    expect(readUserModel(home)).toBeNull()
   })
 })
 

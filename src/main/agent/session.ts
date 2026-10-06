@@ -23,6 +23,11 @@
 // A Session launched unattended (Autopilot, worfy-daily ticket 02, session-settings.ts) never waits
 // for a person: it runs in bypassPermissions, refuses a change of mode, refuses canUseTool at once,
 // and each refusal reaches its subscribers as a `refused_dialog` event.
+//
+// A Session runs on sonnet or a larger model, never on haiku (worfy-daily ticket 07,
+// isSelectableModel): the model list leaves haiku out, a saved haiku goes back to the default model,
+// and when the default model would be a haiku from the user's settings.json (user-model.ts) the
+// query is started on sonnet instead. The Session's own settings keep `model: null` then.
 import { randomUUID } from 'node:crypto'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { messageLabel, type Attachment } from '../../shared/agent/attachments'
@@ -32,13 +37,16 @@ import { isMainOnlyEvent, sdkMessageToEvents, type AgentEvent, type PermissionDe
 import {
   DEFAULT_SETTINGS,
   EFFORT_LEVELS,
+  isSelectableModel,
   sameSettings,
+  withSelectableModel,
   type EffortChoice,
   type ModelOption,
   type PermissionModeChoice,
   type SessionSettings,
   type SettingsChange,
 } from '../../shared/agent/settings'
+import { readUserModel, type UserModelReader } from '../claude-home/user-model'
 import { userContent } from './attachments'
 import { CommandCatalog, type CommandInfoLike } from './commands'
 import { PermissionGate, unattendedCanUseTool, type CanUseToolHandler } from './permissions'
@@ -119,9 +127,13 @@ const DEFAULT_MODEL_VALUE = 'default'
 
 const isEffort = (level: string): level is EffortChoice => (EFFORT_LEVELS as readonly string[]).includes(level)
 
-/** supportedModels() rows as the model picker lists them. */
+/** What a Session that names no model is started on when the user's own model is a haiku. */
+export const USER_MODEL_FALLBACK = 'sonnet'
+
+/** supportedModels() rows as the model picker lists them; models below sonnet are left out. */
 export function modelOptions(models: readonly ModelInfoLike[]): ModelOption[] {
-  return models.map((model) => ({
+  const selectable = models.filter((model) => isSelectableModel(model.value) && isSelectableModel(model.displayName ?? model.value))
+  return selectable.map((model) => ({
     value: model.value === DEFAULT_MODEL_VALUE ? null : model.value,
     displayName: model.displayName ?? model.value,
     efforts: model.supportsEffort === false ? [] : (model.supportedEffortLevels ?? []).filter(isEffort),
@@ -237,10 +249,14 @@ export class Session {
     resume: string | undefined,
     settings: SessionSettings = DEFAULT_SETTINGS,
     private readonly launch: SessionLaunch = ATTENDED,
+    /** The user's own model, read again for every Claude Code process the Session starts. */
+    private readonly userModel: UserModelReader = () => readUserModel(),
   ) {
     this.current = `pending-${randomUUID()}`
     this.sdkSessionId = resume ?? null
-    this.settingsValue = launchSettings(settings, launch)
+    // A haiku saved before ticket 07 goes back to the default model; the start's `settings` event
+    // lets the Orchestrator save the corrected picks.
+    this.settingsValue = withSelectableModel(launchSettings(settings, launch))
     this.canUseTool = launch.unattended
       ? unattendedCanUseTool((toolName, message) => this.refuseDialog('permission_request', toolName, message))
       : this.permissions.canUseTool
@@ -382,6 +398,9 @@ export class Session {
     this.assertOpen()
     const refusal = settingsChangeRefusal(this.launch, change)
     if (refusal !== null) return Promise.reject(new Error(refusal))
+    if (typeof change.model === 'string' && !isSelectableModel(change.model)) {
+      return Promise.reject(new Error(`${change.model}: a Session runs on sonnet or a larger model`))
+    }
     const task = this.configuring.then(async () => {
       const before = this.settingsValue
       const wanted = mergeSettings(before, change)
@@ -408,7 +427,7 @@ export class Session {
       }
     }
     const model = this.initModel ?? this.settingsValue.model
-    return model === null ? [] : [{ value: model, displayName: model, efforts: [] }]
+    return model === null || !isSelectableModel(model) ? [] : [{ value: model, displayName: model, efforts: [] }]
   }
 
   /** The slash menu's rows: supportedCommands() of the live query, with the names of the last system/init. */
@@ -473,11 +492,29 @@ export class Session {
         run.stderr.push(data)
         if (run.stderr.length > STDERR_KEEP) run.stderr.shift()
       },
-      settings,
+      settings: this.querySettings(settings),
       canUseTool: this.canUseTool,
       unattended: this.launch.unattended,
     }
     void this.consume(run, request)
+  }
+
+  /**
+   * The settings a new Claude Code process is asked for. With no model named the SDK runs the
+   * user's model from settings.json; when that is a haiku the process is asked for sonnet instead.
+   * Only the request changes: the Session's settings (and the Node's saved picks) keep `null`, and
+   * the user's settings.json is left as it is (ADR 0005).
+   */
+  private querySettings(settings: SessionSettings): SessionSettings {
+    if (settings.model !== null) return settings
+    let userModel: string | null
+    try {
+      userModel = this.userModel()
+    } catch (error) {
+      console.warn(`[agent] could not read the user's model for ${this.current}`, error)
+      userModel = null
+    }
+    return userModel !== null && !isSelectableModel(userModel) ? { ...settings, model: USER_MODEL_FALLBACK } : settings
   }
 
   /** Settings changed while the query was being started: the query gets them now. */
@@ -622,7 +659,11 @@ export class SessionRegistry {
   private readonly observers = new Set<EventSink>()
   private readonly inputObservers = new Set<InputListener>()
 
-  constructor(private readonly factory: QueryFactory) {}
+  /** `userModel` reads the user's own model (user-model.ts); tests give it a fixed answer. */
+  constructor(
+    private readonly factory: QueryFactory,
+    private readonly userModel: UserModelReader = () => readUserModel(),
+  ) {}
 
   /**
    * Gets every action a person takes on a live Session through the UI (src/main/ipc/agent.ts):
@@ -690,6 +731,7 @@ export class SessionRegistry {
       resume,
       settings,
       launch,
+      this.userModel,
     )
     this.sessions.set(session.id, session)
     session.start()
