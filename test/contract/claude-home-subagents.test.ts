@@ -8,7 +8,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ClaudeHomeRegistry } from '../../src/main/claude-home/registry'
+import { execFileSync } from 'node:child_process'
+import { ClaudeHomeRegistry, processAlive, processState } from '../../src/main/claude-home/registry'
 import { SubagentReader } from '../../src/main/claude-home/subagents'
 import { ClaudeHomeSubscriptions, claudeHomeHandlers } from '../../src/main/ipc/claude-home'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
@@ -25,6 +26,12 @@ const DEMO = '/Users/test/projects/demo'
 const S5 = '55555555-5555-4555-8555-555555555555'
 const S7 = '77777777-7777-4777-8777-777777777777'
 const S7_DIR = join('projects', '-Users-test-projects-agents')
+const STALE = '/Users/test/projects/stale'
+const S9 = '99999999-9999-4999-8999-999999999999'
+const S9_DIR = join('projects', '-Users-test-projects-stale')
+/** Fixture Subagents of Session 9999: A ended by a queued task-notification, B never reported. */
+const A = 'a6000000000000260'
+const B = 'a7000000000000260'
 
 const temps: string[] = []
 const closers: (() => Promise<void>)[] = []
@@ -69,7 +76,17 @@ async function snapshot(root: string): Promise<Record<string, string>> {
 
 const registryOver = (home: string) => new ClaudeHomeRegistry({ home, listWorktrees: async () => [], isAlive: async () => false })
 
-async function ipcOver(registry: ClaudeHomeRegistry, reader = new SubagentReader()) {
+/** No process of the fixtures runs on this machine: a Session is live only where a test says so. */
+const readerWith = (isAlive: (pid: number) => Promise<boolean> = async () => false) =>
+  new SubagentReader({ processState: async (pid) => ((await isAlive(pid)) ? 'alive' : 'gone') })
+
+/** Registers the Session `sessionId` as run by process `pid` in the Claude home `home` (a copy). */
+async function register(home: string, pid: number, sessionId: string, cwd: string): Promise<void> {
+  await mkdir(join(home, 'sessions'), { recursive: true })
+  await writeFile(join(home, 'sessions', `${pid}.json`), JSON.stringify({ pid, sessionId, cwd, procStart: 'Thu Sep 10 02:29:00 2026', status: 'busy' }))
+}
+
+async function ipcOver(registry: ClaudeHomeRegistry, reader = readerWith()) {
   const handlers = new Map<string, Listener>()
   const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
   const subscriptions = new ClaudeHomeSubscriptions(registry)
@@ -89,6 +106,11 @@ function value<T>(result: IpcResult<unknown>): T {
   if (!result.ok) throw new Error(`call failed: ${result.error}`)
   return result.value as T
 }
+
+/** Each Subagent of an answer with its status, parents first. */
+const statuses = (answer: SubagentsAnswer) => flattenSubagents(buildSubagentTree(answer)).map(({ agentId, status }) => [agentId, status])
+/** The answer for fixture Session 9999. */
+const ask = async (call: Awaited<ReturnType<typeof ipcOver>>) => value<SubagentsAnswer>(await call('claudeHome.subagents', { projectRoot: STALE, sessionId: S9 }))
 
 describe('claudeHome.subagents', () => {
   it.each([
@@ -128,7 +150,12 @@ describe('claudeHome.subagents', () => {
   it('answers found: false for a Session without a transcript, and no files for one without Subagents', async () => {
     const call = await ipcOver(registryOver(FIXTURE))
     expect(value(await call('claudeHome.subagents', { projectRoot: AGENTS, sessionId: '99999999-9999-4999-8999-999999999999' }))).toStrictEqual({ found: false, signals: [], files: [] })
-    expect(value(await call('claudeHome.subagents', { projectRoot: DEMO, sessionId: '11111111-1111-4111-8111-111111111111' }))).toStrictEqual({ found: true, signals: [], files: [] })
+    // Session 1111 has ended (no sessions/ entry): its only signal says so.
+    expect(value(await call('claudeHome.subagents', { projectRoot: DEMO, sessionId: '11111111-1111-4111-8111-111111111111' }))).toStrictEqual({
+      found: true,
+      signals: [{ kind: 'session-closed' }],
+      files: [],
+    })
   })
 
   it('passes on the contract fields only, whatever the reader returns', async () => {
@@ -162,14 +189,17 @@ describe('claudeHome.subagents', () => {
     const lines = (await readFile(transcript, 'utf8')).split('\n').filter((line) => line !== '')
     const notification = lines.findIndex((line) => line.includes('<task-notification>'))
     await writeFile(transcript, `${lines.slice(0, notification).join('\n')}\n`)
-    const call = await ipcOver(registryOver(home))
+    // The Session runs: a Subagent without an end is running, not cut off (ADR-0031).
+    await register(home, 47777, S7, AGENTS)
+    const live = () => readerWith(async (pid) => pid === 47777)
+    const call = await ipcOver(registryOver(home), live())
     const before = buildSubagentTree(value<SubagentsAnswer>(await call('claudeHome.subagents', { projectRoot: AGENTS, sessionId: S7 })))
     expect(before[0]).toMatchObject({ name: 'impl-08', status: 'done', summary: 'Synthetic implementer report for 08.' })
     // The implementer's file already ends its turn; a file still being written keeps it running.
     const implementer = join(home, S7_DIR, S7, 'subagents', 'agent-a3000000000000286.jsonl')
     const implementerLines = (await readFile(implementer, 'utf8')).split('\n').filter((line) => line !== '')
     await writeFile(implementer, `${implementerLines.slice(0, -1).join('\n')}\n`)
-    const fresh = await ipcOver(registryOver(home))
+    const fresh = await ipcOver(registryOver(home), live())
     const running = buildSubagentTree(value<SubagentsAnswer>(await fresh('claudeHome.subagents', { projectRoot: AGENTS, sessionId: S7 })))
     expect(running[0]).toMatchObject({ name: 'impl-08', status: 'running', durationMs: null })
     await appendFile(implementer, `${implementerLines.at(-1)!}\n`)
@@ -185,6 +215,7 @@ describe('claudeHome.subagents', () => {
     for (const [projectRoot, sessionId] of [
       [AGENTS, S7],
       [DEMO, S5],
+      [STALE, S9],
     ] as const) {
       expect(value<SubagentsAnswer>(await call('claudeHome.subagents', { projectRoot, sessionId })).found).toBe(true)
     }
@@ -192,6 +223,149 @@ describe('claudeHome.subagents', () => {
       expect(value<TranscriptAnswer>(await call('claudeHome.subagentTranscript', { projectRoot: AGENTS, sessionId: S7, agentId })).found).toBe(true)
     }
     expect(await snapshot(home)).toStrictEqual(before)
+  })
+})
+
+// Ticket worfy-daily/08, ADR-0030 and ADR-0031: Subagents that stayed `running` long after they stopped.
+describe('claudeHome.subagents: Subagents without a task-notification user message', () => {
+
+  it('ends a Subagent by the task-notification Claude Code queued, and cuts off one that never reported when its Session is closed', async () => {
+    const answer = await ask(await ipcOver(registryOver(FIXTURE)))
+    expect(answer.signals.at(-1)).toEqual({ kind: 'session-closed' })
+    expect(statuses(answer)).toEqual([
+      [A, 'done'],
+      [B, 'error'],
+    ])
+  })
+
+  it('keeps a Subagent running while its Session runs, however long its file has not changed, and cuts it off once the Session is gone', async () => {
+    const home = await copyOfFixture()
+    await register(home, 43000, S9, STALE)
+    let running = true
+    const call = await ipcOver(registryOver(home), readerWith(async (pid) => running && pid === 43000))
+    const live = await ask(call)
+    expect(live.signals.some((signal) => signal.kind === 'session-closed')).toBe(false)
+    expect(statuses(live)).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+    // Its file grows: still running.
+    const b = join(home, S9_DIR, S9, 'subagents', `agent-${B}.jsonl`)
+    await appendFile(b, `${JSON.stringify({ type: 'user', isSidechain: true, agentId: B, timestamp: '2026-09-10T02:40:00.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_01S9FETCH1XXXXXXXXXXXXXX', content: 'Synthetic page.' }] } })}\n`)
+    expect(statuses(await ask(call))).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+    running = false
+    const closed = buildSubagentTree(await ask(call))
+    expect(flattenSubagents(closed).map(({ agentId, status, durationMs }) => [agentId, status, durationMs])).toEqual([
+      [A, 'done', 175_000],
+      [B, 'error', 593_000],
+    ])
+  })
+
+  it('asks whether the Session runs before it reads the files: an end written just before the process stopped is read as an end', async () => {
+    const home = await copyOfFixture()
+    await register(home, 43000, S9, STALE)
+    const transcript = join(home, S9_DIR, `${S9}.jsonl`)
+    const ended = JSON.stringify({
+      type: 'queue-operation',
+      operation: 'enqueue',
+      timestamp: '2026-09-10T02:45:00.000Z',
+      sessionId: S9,
+      content: `<task-notification>\n<task-id>${B}</task-id>\n<tool-use-id>toolu_01S9AGENT2XXXXXXXXXXXXXX</tool-use-id>\n<status>completed</status>\n<summary>Agent "Research option B" finished</summary>\n</task-notification>`,
+    })
+    // The process writes the notification and exits while worfy asks whether it runs.
+    const call = await ipcOver(
+      registryOver(home),
+      readerWith(async () => {
+        await appendFile(transcript, `${ended}\n`)
+        return false
+      }),
+    )
+    expect(statuses(await ask(call))).toEqual([
+      [A, 'done'],
+      [B, 'done'],
+    ])
+  })
+
+  it('does not call a Session closed when it cannot tell: no sessions/ folder, or an entry being rewritten', async () => {
+    const home = await copyOfFixture()
+    await rm(join(home, 'sessions'), { recursive: true })
+    expect(statuses(await ask(await ipcOver(registryOver(home))))).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+    await mkdir(join(home, 'sessions'))
+    await writeFile(join(home, 'sessions', '43000.json'), `{"pid":43000,"sessionId":"${S9}","cwd`)
+    expect(statuses(await ask(await ipcOver(registryOver(home))))).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+  })
+
+  it('does not call a Session closed when whether its process runs cannot be told', async () => {
+    const home = await copyOfFixture()
+    await register(home, 43000, S9, STALE)
+    const call = await ipcOver(registryOver(home), new SubagentReader({ processState: async () => 'unknown' }))
+    const answer = await ask(call)
+    expect(answer.signals.some((signal) => signal.kind === 'session-closed')).toBe(false)
+    expect(statuses(answer)).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+  })
+})
+
+// The process check of the Session registry (registry.ts): what `ps` cannot answer is not a
+// process that ended (PR #45 review: with `ps` missing, a live Session was called closed).
+describe('processState', () => {
+  /** This test's own process and its start time, as `ps` prints it for `procStart`. */
+  const self = () => ({ pid: process.pid, procStart: execFileSync('ps', ['-p', String(process.pid), '-o', 'lstart='], { env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' } }).toString().trim() })
+
+  async function withoutPs<T>(work: () => Promise<T>): Promise<T> {
+    const path = process.env.PATH
+    process.env.PATH = '/nonexistent'
+    try {
+      return await work()
+    } finally {
+      process.env.PATH = path
+    }
+  }
+
+  it('tells a running process, one that is gone, a reused pid, and a ps that could not answer', async () => {
+    const { pid, procStart } = self()
+    expect(await processState(pid, procStart)).toBe('alive')
+    expect(await processState(pid, undefined)).toBe('alive')
+    expect(await processState(pid, 'Thu Jan  1 00:00:00 1970')).toBe('gone')
+    expect(await processState(2_147_483_000, procStart)).toBe('gone')
+    expect(await processState(0, procStart)).toBe('gone')
+    expect(await withoutPs(() => processState(pid, procStart))).toBe('unknown')
+    // The registry's own check keeps its answer: a ps that could not answer is not running there.
+    expect(await withoutPs(() => processAlive(pid, procStart))).toBe(false)
+    expect(await processAlive(pid, procStart)).toBe(true)
+  })
+
+  it('keeps a Subagent of a Session running when ps cannot tell whether the Session runs, and cuts it off when the process is gone', async () => {
+    const home = await copyOfFixture()
+    const { pid, procStart } = self()
+    await mkdir(join(home, 'sessions'), { recursive: true })
+    const entry = join(home, 'sessions', `${pid}.json`)
+    await writeFile(entry, JSON.stringify({ pid, sessionId: S9, cwd: STALE, procStart }))
+    const read = async () => statuses(await ask(await ipcOver(registryOver(home), new SubagentReader())))
+    expect(await read()).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+    expect(await withoutPs(read)).toEqual([
+      [A, 'done'],
+      [B, 'running'],
+    ])
+    await writeFile(entry, JSON.stringify({ pid, sessionId: S9, cwd: STALE, procStart: 'Thu Jan  1 00:00:00 1970' }))
+    expect(await read()).toEqual([
+      [A, 'done'],
+      [B, 'error'],
+    ])
   })
 })
 
