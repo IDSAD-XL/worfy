@@ -34,10 +34,10 @@ test('the window has no system title bar: traffic lights sit inset in the toolba
 test('the window position and size survive a restart', async () => {
   // One data directory for both runs: the launch helper would give each run a fresh one.
   const dataDir = await mkdtemp(join(tmpdir(), 'worfy-window-'))
-  // Fits the GitHub macOS runner's display (1024 × 768, 677 px high below the menu bar): macOS
-  // shrinks a shown window that is taller than the display, and the window is shown before the
-  // test gets it (test/e2e/helpers.ts).
-  const wanted = { x: 140, y: 160, width: 1000, height: 600 }
+  // Wholly inside the GitHub macOS runner's display (1024 × 768; the work area is x 0–1024,
+  // y 31–708): macOS moves or shrinks a window that sticks out of the display when it is shown,
+  // and the window is shown before the test gets it (test/e2e/helpers.ts).
+  const wanted = { x: 60, y: 100, width: 900, height: 560 }
   try {
     const first = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
     try {
