@@ -53,6 +53,34 @@ test('a data folder that is a file stops the start with exit code 1 and names th
   }
 })
 
+test('a page load cut short by another navigation rejects with the ERR_ABORTED that the start ignores', async () => {
+  // src/main/window.ts (loadWasAborted) tells a replaced load from a failed one by Electron's
+  // `code` and `errno`; this pins that shape on the real Electron, which a mocked test cannot.
+  const launched = await launchApp()
+  try {
+    await expect(launched.window.getByTestId('app-shell')).toBeVisible()
+    const rejection = await launched.app.evaluate(async ({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0]
+      if (!window) throw new Error('no window')
+      // Without the fragment: a load of the same document with another fragment would only scroll.
+      const [url = ''] = window.webContents.getURL().split('#')
+      const first = window.loadURL(`${url}?first`).then(
+        () => null,
+        (error: { code?: unknown; errno?: unknown }) => ({ code: error.code, errno: error.errno }),
+      )
+      // A second navigation while the first load runs replaces it, as View ▸ Reload or a Vite
+      // reload does.
+      await window.loadURL(url)
+      return first
+    })
+    expect(rejection).toEqual({ code: 'ERR_ABORTED', errno: -3 })
+    // The app is still there with its window.
+    await expect(launched.window.getByTestId('app-shell')).toBeVisible()
+  } finally {
+    await launched.close()
+  }
+})
+
 test('the window has no system title bar: traffic lights sit inset in the toolbar', async () => {
   const launched = await launchApp()
   try {

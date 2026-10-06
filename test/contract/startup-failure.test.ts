@@ -291,28 +291,32 @@ describe('the start in src/main/index.ts', () => {
   })
 })
 
+/** A rejection shaped as Electron's for a failed navigation: errno is the net error, code its name. */
+function navigationError(code: string, errno: number): Error {
+  return Object.assign(new Error(`${code} (${errno}) loading 'file:///app/out/renderer/index.html'`), { code, errno })
+}
+
 describe('the window page load', () => {
-  it('a loadFile that fails opens the error window with the step, not an unhandled rejection', async () => {
+  it('a loadFile of the first window that fails opens the error window with the step, not an unhandled rejection', async () => {
     const { createMainWindow } = await import('../../src/main/window')
-    electron.load = () => Promise.reject(new Error('ERR_FILE_NOT_FOUND (-6) loading index.html'))
-    createMainWindow()
+    electron.load = () => Promise.reject(navigationError('ERR_FILE_NOT_FOUND', -6))
+    createMainWindow({ firstOfStart: true })
     await settle()
     await settle()
 
     expect(unhandled).toEqual([])
-    expect(electron.showErrorBox).toHaveBeenCalledTimes(1)
-    const [title, text] = electron.showErrorBox.mock.calls[0] as [string, string]
+    const { title, text } = shownWindow()
     expect(title).toBe('worfy could not start')
-    expect(text).toContain('loadFile')
-    expect(text).toContain('ERR_FILE_NOT_FOUND (-6) loading index.html')
+    expect(text).toContain('Step: loadFile')
+    expect(text).toContain('ERR_FILE_NOT_FOUND (-6)')
     expect(electron.exit).toHaveBeenCalledWith(1)
   })
 
-  it('a loadURL that fails (the dev server) is reported as step loadURL', async () => {
+  it('a loadURL of the first window that fails (the dev server) is reported as step loadURL', async () => {
     vi.stubEnv('ELECTRON_RENDERER_URL', 'http://localhost:5173')
     const { createMainWindow } = await import('../../src/main/window')
-    electron.load = () => Promise.reject(new Error('ERR_CONNECTION_REFUSED (-102)'))
-    createMainWindow()
+    electron.load = () => Promise.reject(navigationError('ERR_CONNECTION_REFUSED', -102))
+    createMainWindow({ firstOfStart: true })
     await settle()
     await settle()
 
@@ -321,16 +325,100 @@ describe('the window page load', () => {
     expect(shownWindow().text).toContain('ERR_CONNECTION_REFUSED')
   })
 
-  it('a window closed while loading is no failure of the start', async () => {
+  it.each([
+    ['loadFile', ''],
+    ['loadURL', 'http://localhost:5173'],
+  ])('a %s cut short by another navigation (ERR_ABORTED: View ▸ Reload, a Vite reload) is no failure', async (_load, devServer) => {
+    vi.stubEnv('ELECTRON_RENDERER_URL', devServer)
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const { createMainWindow } = await import('../../src/main/window')
+      electron.load = () => Promise.reject(navigationError('ERR_ABORTED', -3))
+      createMainWindow({ firstOfStart: true })
+      await settle()
+      await settle()
+
+      expect(unhandled).toEqual([])
+      expect(electron.showErrorBox).not.toHaveBeenCalled()
+      expect(electron.exit).not.toHaveBeenCalled()
+    } finally {
+      stderr.mockRestore()
+    }
+  })
+
+  it('a window opened after the start (Dock icon, second start) only logs a failed load and keeps the app running', async () => {
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const { createMainWindow } = await import('../../src/main/window')
+      electron.load = () => Promise.reject(navigationError('ERR_FILE_NOT_FOUND', -6))
+      createMainWindow()
+      await settle()
+      await settle()
+
+      expect(unhandled).toEqual([])
+      expect(electron.showErrorBox).not.toHaveBeenCalled()
+      expect(electron.exit).not.toHaveBeenCalled()
+      const written = stderr.mock.calls.map((call) => call.map(String).join(' ')).join('\n')
+      expect(written).toContain('the window could not load its page (loadFile)')
+      expect(written).toContain('ERR_FILE_NOT_FOUND')
+    } finally {
+      stderr.mockRestore()
+    }
+  })
+
+  it('a first window closed while loading is no failure of the start', async () => {
     const { createMainWindow } = await import('../../src/main/window')
-    electron.load = () => Promise.reject(new Error('ERR_ABORTED (-3)'))
+    electron.load = () => Promise.reject(navigationError('ERR_FILE_NOT_FOUND', -6))
     electron.destroyed = true
-    createMainWindow()
+    createMainWindow({ firstOfStart: true })
     await settle()
     await settle()
 
     expect(unhandled).toEqual([])
     expect(electron.showErrorBox).not.toHaveBeenCalled()
     expect(electron.exit).not.toHaveBeenCalled()
+  })
+
+  it('loadWasAborted tells ERR_ABORTED from other failures', async () => {
+    const { loadWasAborted } = await import('../../src/main/window')
+    expect(loadWasAborted(navigationError('ERR_ABORTED', -3))).toBe(true)
+    expect(loadWasAborted(Object.assign(new Error('x'), { errno: -3 }))).toBe(true)
+    expect(loadWasAborted(navigationError('ERR_FILE_NOT_FOUND', -6))).toBe(false)
+    expect(loadWasAborted(new Error('ERR_ABORTED (-3)'))).toBe(false)
+    expect(loadWasAborted('ERR_ABORTED')).toBe(false)
+    expect(loadWasAborted(null)).toBe(false)
+  })
+})
+
+describe('which windows src/main/index.ts opens as the first of the start', () => {
+  it('the start opens its window with firstOfStart; a window for the Dock icon or a second start without it', async () => {
+    const createMainWindow = vi.fn()
+    vi.doMock('../../src/main/window', async () => ({
+      ...(await vi.importActual<object>('../../src/main/window')),
+      createMainWindow,
+    }))
+    try {
+      const { app } = await import('electron')
+      const on = app.on as unknown as ReturnType<typeof vi.fn>
+      on.mockClear()
+      await import('../../src/main/index')
+      await vi.waitFor(() => expect(createMainWindow).toHaveBeenCalledTimes(1))
+      expect(createMainWindow).toHaveBeenLastCalledWith({ firstOfStart: true })
+
+      const listener = (event: string) => {
+        const found = on.mock.calls.find((call) => call[0] === event)
+        if (!found) throw new Error(`no ${event} listener`)
+        return found[1] as () => void
+      }
+      // No window is open (getAllWindows() is empty in this mock): both open a new one.
+      await vi.waitFor(() => listener('activate'))
+      listener('activate')()
+      listener('second-instance')()
+      expect(createMainWindow).toHaveBeenCalledTimes(3)
+      expect(createMainWindow.mock.calls.slice(1)).toEqual([[], []])
+      expect(electron.showErrorBox).not.toHaveBeenCalled()
+    } finally {
+      vi.doUnmock('../../src/main/window')
+    }
   })
 })

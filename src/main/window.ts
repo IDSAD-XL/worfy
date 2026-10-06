@@ -31,7 +31,25 @@ function saveBounds(file: string, bounds: Rect): void {
   }
 }
 
-export function createMainWindow(): BrowserWindow {
+export interface MainWindowOptions {
+  /**
+   * The window src/main/index.ts creates as the last step of the start. Only for it does a page
+   * that fails to load stop the app with the startup error window.
+   */
+  firstOfStart?: boolean
+}
+
+/**
+ * Whether a rejected loadURL / loadFile was cut short by another navigation (Electron's
+ * ERR_ABORTED, -3) rather than failing to load.
+ */
+export function loadWasAborted(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const { code, errno } = error as { code?: unknown; errno?: unknown }
+  return code === 'ERR_ABORTED' || errno === -3
+}
+
+export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow {
   const stateFile = windowStatePath()
   const bounds = initialBounds(
     readSavedBounds(stateFile),
@@ -70,11 +88,19 @@ export function createMainWindow(): BrowserWindow {
     window.show()
   })
 
-  // A page that does not load leaves a window that never shows: say so and exit (startup-failure.ts).
-  // A window closed while it was still loading rejects too; that is no failure.
+  // The first window of the start whose page does not load leaves the start without a window: say
+  // so and exit (startup-failure.ts). Any other failed load is only logged: a window opened later
+  // (Dock icon, a second start, a notification) must not end an app with live Sessions, and
+  // app.exit would skip the will-quit handlers that save the Layout. ERR_ABORTED is no failure
+  // at all: another navigation replaced this load (View ▸ Reload, a Vite reload under `pnpm dev`),
+  // and a window closed while loading is not a failure either.
   const loaded = (step: 'loadURL' | 'loadFile') => (error: unknown) => {
-    if (window.isDestroyed()) return
-    reportStartupFailure(error, step)
+    if (window.isDestroyed() || loadWasAborted(error)) return
+    if (options.firstOfStart === true) {
+      reportStartupFailure(error, step)
+    } else {
+      console.error(`[worfy] the window could not load its page (${step})`, error)
+    }
   }
   const { indexHtml, devServerUrl } = rendererEntry()
   if (devServerUrl) {

@@ -83,8 +83,9 @@ function start(): void {
       inStep('startOrchestrators', () => startOrchestrators())
       // macOS notifications when a Session ends its turn or asks for permission (ticket 21).
       inStep('installNotifications', () => installNotifications(sharedRegistry(), liveSessionListeners))
-      // A page that fails to load is reported by createMainWindow itself, as step loadURL or loadFile.
-      inStep('createMainWindow', () => createMainWindow())
+      // A page that fails to load is reported by createMainWindow itself, as step loadURL or
+      // loadFile, and only for this first window; windows opened later only log such a failure.
+      inStep('createMainWindow', () => createMainWindow({ firstOfStart: true }))
       started = true
 
       app.on('activate', () => {
