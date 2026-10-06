@@ -15,6 +15,11 @@ const electron = vi.hoisted(() => ({
   /** Emits did-start-navigation on the last window's webContents, as Chromium does. */
   startNavigation: (() => undefined) as (details: { isMainFrame: boolean; isSameDocument: boolean }) => void,
   requestSingleInstanceLock: vi.fn(() => true),
+  /**
+   * app.isPackaged. ELECTRON_RENDERER_URL counts only in a dev run (ticket worfy-daily/16), so the
+   * tests of the dev server load set it to false.
+   */
+  isPackaged: true,
 }))
 
 vi.mock('electron', () => {
@@ -47,7 +52,9 @@ vi.mock('electron', () => {
     app: {
       exit: electron.exit,
       on: vi.fn(),
-      isPackaged: true,
+      get isPackaged() {
+        return electron.isPackaged
+      },
       requestSingleInstanceLock: electron.requestSingleInstanceLock,
       setPath: vi.fn(),
       getPath: () => DATA_DIR,
@@ -80,6 +87,7 @@ beforeEach(() => {
   electron.load = () => Promise.resolve()
   electron.destroyed = false
   electron.startNavigation = () => undefined
+  electron.isPackaged = true
   unhandled.length = 0
   process.on('unhandledRejection', onUnhandled)
   vi.stubEnv('WORFY_DATA_DIR', DATA_DIR)
@@ -280,6 +288,36 @@ describe('the start in src/main/index.ts', () => {
     expect(text).toContain('createMainWindow broke')
   })
 
+  it('a dev run whose ELECTRON_RENDERER_URL is not a URL names step loadURL and the variable, before any handler is registered', async () => {
+    electron.isPackaged = false
+    vi.stubEnv('ELECTRON_RENDERER_URL', 'not a url')
+    const { ipcMain } = await import('electron')
+    vi.mocked(ipcMain.handle).mockClear()
+    const text = await start({})
+    expect(text).toContain('Step: loadURL (loading the window from the dev server) failed.')
+    expect(text).toContain('ELECTRON_RENDERER_URL is not an http(s) URL: "not a url"')
+    expect(ipcMain.handle).not.toHaveBeenCalled()
+    expect(unhandled).toEqual([])
+    expect(electron.exit).toHaveBeenCalledWith(1)
+  })
+
+  it('a packaged app ignores an ELECTRON_RENDERER_URL that is not a URL and starts', async () => {
+    vi.stubEnv('ELECTRON_RENDERER_URL', 'not a url')
+    const loaded: string[] = []
+    vi.doMock('../../src/main/window', async () => ({
+      ...(await vi.importActual<object>('../../src/main/window')),
+      createMainWindow: () => loaded.push('createMainWindow'),
+    }))
+    try {
+      await import('../../src/main/index')
+      await vi.waitFor(() => expect(loaded).toEqual(['createMainWindow']))
+    } finally {
+      vi.doUnmock('../../src/main/window')
+    }
+    expect(electron.showErrorBox).not.toHaveBeenCalled()
+    expect(electron.exit).not.toHaveBeenCalled()
+  })
+
   it('a data folder that is a file stops the start before the single-instance lock', async () => {
     const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
@@ -322,6 +360,7 @@ describe('the window page load', () => {
   })
 
   it('a loadURL of the first window that fails (the dev server) is reported as step loadURL', async () => {
+    electron.isPackaged = false
     vi.stubEnv('ELECTRON_RENDERER_URL', 'http://localhost:5173')
     const { createMainWindow } = await import('../../src/main/window')
     electron.load = () => Promise.reject(navigationError('ERR_CONNECTION_REFUSED', -102))
@@ -343,6 +382,7 @@ describe('the window page load', () => {
     ['loadFile', '', 'ERR_FAILED', -2],
     ['loadURL', 'http://localhost:5173', 'ERR_FAILED', -2],
   ])('a %s replaced by a newer navigation (%s, View ▸ Reload, a Vite reload) is no failure', async (_load, devServer, code, errno) => {
+    electron.isPackaged = false
     vi.stubEnv('ELECTRON_RENDERER_URL', devServer)
     vi.useFakeTimers()
     const { createMainWindow } = await import('../../src/main/window')

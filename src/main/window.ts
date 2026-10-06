@@ -148,10 +148,30 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
  * Where the window loads the renderer from: the dev server in `electron-vite dev`, the bundled
  * index.html otherwise. The IPC frame check trusts exactly this location (src/main/index.ts), so
  * the two cannot drift apart.
+ *
+ * ELECTRON_RENDERER_URL counts only in a dev run (app.isPackaged false; the e2e tests run the
+ * unpacked out/ build, which is one too). The variable outlives `electron-vite dev` in a shell or a
+ * CI job, and a packaged worfy.app started from there would otherwise load a dev server that is
+ * not running and trust IPC from any page on its origin. In a dev run a value that is not an
+ * http(s) URL throws, so the start fails with a message instead of loading or trusting it.
  */
 export function rendererEntry(): { indexHtml: string; devServerUrl: string | undefined } {
   // After the build this code runs from out/main/, next to out/renderer/.
-  return { indexHtml: join(import.meta.dirname, '../renderer/index.html'), devServerUrl: process.env.ELECTRON_RENDERER_URL }
+  const indexHtml = join(import.meta.dirname, '../renderer/index.html')
+  const value = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL
+  if (!value) return { indexHtml, devServerUrl: undefined }
+  if (!isHttpUrl(value)) {
+    throw new Error(
+      `ELECTRON_RENDERER_URL is not an http(s) URL: ${JSON.stringify(value)}. Unset it, or start worfy with \`pnpm dev\`, which sets it to the dev server.`,
+    )
+  }
+  return { indexHtml, devServerUrl: value }
+}
+
+function isHttpUrl(value: string): boolean {
+  if (!URL.canParse(value)) return false
+  const { protocol } = new URL(value)
+  return protocol === 'http:' || protocol === 'https:'
 }
 
 // What a page inside worfy may do beyond showing itself. Electron keeps one window-open handler per

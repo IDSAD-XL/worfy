@@ -73,6 +73,12 @@ async function secondStart(first: LaunchedApp, command: string, args: string[]):
   return exitWithin(child, 20_000)
 }
 
+/** Calls an IPC channel from the window's page through the preload bridge, as the renderer does. */
+const appVersionFromPage = (launched: LaunchedApp): Promise<{ ok: boolean; value?: unknown; error?: string }> =>
+  launched.window.evaluate(() =>
+    (globalThis as unknown as { worfy: { invoke(channel: string): Promise<{ ok: boolean; value?: unknown; error?: string }> } }).worfy.invoke('app.version'),
+  )
+
 const userData = (launched: LaunchedApp): Promise<string> => launched.app.evaluate(({ app }) => app.getPath('userData'))
 
 /** Every window of the app, as the second-instance handler in src/main/index.ts leaves them. */
@@ -174,6 +180,23 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
       expect(await launched.app.evaluate(({ app }) => app.isPackaged)).toBe(true)
       await expect(launched.window).toHaveTitle('worfy')
       await expect(launched.window.getByText('worfy', { exact: true })).toBeVisible()
+    } finally {
+      await launched.close()
+    }
+  })
+
+  // ELECTRON_RENDERER_URL left over from `electron-vite dev` in the shell that starts the copy
+  // (ticket worfy-daily/16): nothing listens on port 1, so a copy that took the variable would
+  // show an empty window. It loads its own bundle and trusts IPC from it.
+  test('the copy ignores ELECTRON_RENDERER_URL and loads out/renderer/index.html from its bundle', async () => {
+    const launched = await launchApp({ executablePath: executableOf(stableApp), env: { ELECTRON_RENDERER_URL: 'http://127.0.0.1:1' } })
+    try {
+      expect(await launched.app.evaluate(() => process.env.ELECTRON_RENDERER_URL)).toBe('http://127.0.0.1:1')
+      const url = new URL(launched.window.url())
+      expect(url.protocol).toBe('file:')
+      expect(decodeURIComponent(url.pathname)).toMatch(/\/Contents\/Resources\/app\.asar\/out\/renderer\/index\.html$/)
+      await expect(launched.window.getByText('worfy', { exact: true })).toBeVisible()
+      expect(await appVersionFromPage(launched)).toMatchObject({ ok: true })
     } finally {
       await launched.close()
     }
@@ -353,6 +376,44 @@ test.describe('dev run of the unpacked build', () => {
       await expectSecondStartOpensWindow(first, electron, [repoRoot])
     } finally {
       await first.close()
+    }
+  })
+
+  // A dev run takes ELECTRON_RENDERER_URL (ticket worfy-daily/16); a value that is not an http(s)
+  // URL fails the start with the error window's text, not with an unhandled exception.
+  test('with an ELECTRON_RENDERER_URL that is not a URL stops with exit code 1 and names step loadURL', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'worfy-bad-renderer-url-'))
+    const env: Record<string, string> = {}
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE') env[key] = value
+    }
+    Object.assign(env, {
+      WORFY_DATA_DIR: join(root, 'data'),
+      WORFY_CLAUDE_HOME: root,
+      WORFY_AGENT: 'fake',
+      WORFY_GH: join(repoRoot, 'test', 'fixtures', 'gh', 'gh'),
+      ELECTRON_RENDERER_URL: 'not a url',
+      // The native error window is modal and would hold the process until someone dismisses it.
+      WORFY_STARTUP_DIALOG: 'off',
+    })
+    const electron = createRequire(import.meta.url)('electron') as string
+    // Started without Playwright: launchApp waits for a window, and this start must never open one.
+    const child = spawn(electron, [repoRoot], { cwd: repoRoot, env, stdio: ['ignore', 'ignore', 'pipe'] })
+    let stderr = ''
+    child.stderr?.setEncoding('utf8')
+    child.stderr?.on('data', (chunk: string) => {
+      stderr += chunk
+    })
+    try {
+      const { exited, code } = await exitWithin(child, 20_000)
+      expect(exited, `stderr:\n${stderr}`).toBe(true)
+      expect(code, `stderr:\n${stderr}`).toBe(1)
+      expect(stderr).toContain('worfy could not start')
+      expect(stderr).toContain('Step: loadURL (loading the window from the dev server) failed.')
+      expect(stderr).toContain('ELECTRON_RENDERER_URL is not an http(s) URL: "not a url"')
+      expect(stderr).not.toContain('Uncaught Exception')
+    } finally {
+      await removeDir(root)
     }
   })
 

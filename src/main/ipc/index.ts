@@ -61,17 +61,27 @@ export const handlerModules: Record<string, ModuleLoader> = import.meta.glob(['.
 export interface AppUrlOptions {
   /** Absolute path of the bundled renderer entry (out/renderer/index.html). */
   indexHtml: string
-  /** ELECTRON_RENDERER_URL in `electron-vite dev`; the window then loads from this origin. */
+  /**
+   * ELECTRON_RENDERER_URL in a dev run (`electron-vite dev`); the window then loads from this
+   * origin. rendererEntry() in src/main/window.ts leaves it out of a packaged app.
+   */
   devServerUrl?: string | undefined
 }
 
 /**
  * True for URLs of the app's own renderer: the dev server origin in development, the bundled
  * index.html otherwise. Query and hash are ignored, any other page is not the app.
+ *
+ * A dev server address that is not an http(s) URL throws: its origin would be "null" (a data: or
+ * about: page has that origin too) or would not parse, and trusting either is no check at all.
  */
 export function appUrlMatcher({ indexHtml, devServerUrl }: AppUrlOptions): (url: string) => boolean {
   if (devServerUrl) {
-    const origin = new URL(devServerUrl).origin
+    const server = URL.canParse(devServerUrl) ? new URL(devServerUrl) : undefined
+    if (server === undefined || (server.protocol !== 'http:' && server.protocol !== 'https:')) {
+      throw new TypeError(`The dev server address is not an http(s) URL: ${JSON.stringify(devServerUrl)}`)
+    }
+    const { origin } = server
     return (url) => URL.canParse(url) && new URL(url).origin === origin
   }
   const expected = pathToFileURL(indexHtml).href
