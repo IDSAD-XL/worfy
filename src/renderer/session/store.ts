@@ -14,10 +14,12 @@
 //   of each (ticket 19), and asks main for both (`agent.controls`) when a view needs them before
 //   any arrived.
 //
-// Nothing here is saved: after a restart the view starts empty, and the transcript file is the
-// record of the Session (ADR 0002, ADR 0005).
+// Nothing here is saved: the transcript file is the record of the Session (ADR 0002, ADR 0005).
+// A view of a Session that has a transcript — a resumed one, the Orchestrator after a restart —
+// shows the transcript's events first and these after them (joinPastAndLive, worfy-daily ticket 22).
 import { useEffect } from 'react'
 import { create } from 'zustand'
+import { typedText } from '../../shared/agent/attachments'
 import type { AgentEvent, AgentEventEnvelope, QueueSnapshot } from '../../shared/agent/events'
 import type { SessionSettings } from '../../shared/agent/settings'
 import { invoke, subscribe } from '../ipc'
@@ -140,6 +142,94 @@ export function ensureAgentEvents(): void {
 export function useSessionLog(sessionId: string | null): SessionLog {
   useEffect(ensureAgentEvents, [])
   return useSessionLogs((store) => (sessionId === null ? EMPTY_LOG : (store.logs[sessionId] ?? EMPTY_LOG)))
+}
+
+// ── the turns before the live events (worfy-daily ticket 22) ─────────────────
+
+/**
+ * What only one event carries: the ids Claude Code gave to a message, a tool call and a task. Both
+ * the transcript file and the live Session carry them, so they tell where one starts in the other.
+ */
+function identity(event: AgentEvent): string | null {
+  switch (event.type) {
+    case 'text':
+    case 'thinking':
+      return `message:${event.messageId}`
+    case 'tool_use':
+      return `tool:${event.id}`
+    case 'tool_result':
+      return `result:${event.toolUseId}`
+    case 'subagent':
+      return `task:${event.taskId}:${event.phase}`
+    default:
+      return null
+  }
+}
+
+/**
+ * The text the user typed, for an event that opens a turn: a prompt (`notice` of kind `user`), or a
+ * slash command, which a transcript file records as a `command` event and the live Session as the
+ * prompt the user typed. Without the leading slash, and without the `Attached images: …` line the
+ * live prompt carries and the file does not (the images go as blocks of their own; typedText), so
+ * the two compare equal. Claude Code's own `[Request interrupted by user]` is a prompt here too: it
+ * closes a turn in the file.
+ */
+function typed(event: AgentEvent): string | null {
+  if (event.type === 'notice' && event.kind === 'user') return typedText(event.text).trim().replace(/^\//, '')
+  if (event.type === 'command') return `${event.name.replace(/^\//, '')} ${event.args}`.trim()
+  return null
+}
+
+/**
+ * The events of a Session's transcript file (`past`) followed by its live events, with no turn
+ * twice. The Session writes its transcript while a turn runs, so the file read after Resume may
+ * already hold turns the live events bring as well; those are shown from the live events.
+ *
+ * The live part starts in the file at the first event that carries an id one of the live events
+ * carries too (`identity`), or else at its end. The file records a prompt before its answer, so
+ * the live part starts earlier, at the prompts the live events open with that lie right before
+ * that point, after the last event with an id. A prompt in the file that already has an answer,
+ * or that an interruption closed, is a turn from before Resume and stays, even when the user typed
+ * the same text again. A prompt from before Resume that got neither and reads like the first live
+ * one cannot be told from it and is shown once.
+ */
+export function joinPastAndLive(past: readonly AgentEvent[], live: readonly AgentEvent[]): readonly AgentEvent[] {
+  if (live.length === 0) return past
+  if (past.length === 0) return live
+  const ids = new Set<string>()
+  let firstWithId = -1
+  live.forEach((event, at) => {
+    const id = identity(event)
+    if (id === null) return
+    ids.add(id)
+    if (firstWithId < 0) firstWithId = at
+  })
+  // The prompts the live events open with, each as often as it comes.
+  const opening = new Map<string, number>()
+  for (const event of firstWithId < 0 ? live : live.slice(0, firstWithId)) {
+    const text = typed(event)
+    if (text !== null) opening.set(text, (opening.get(text) ?? 0) + 1)
+  }
+  let cut = past.findIndex((event) => {
+    const id = identity(event)
+    return id !== null && ids.has(id)
+  })
+  if (cut < 0) cut = past.length
+  // Back to the last event with an id: the prompts in between are live ones as long as each is one
+  // the live events open with. Any other — a prompt from before Resume, the interruption that
+  // closed one — ends the live part there.
+  let start = cut
+  for (let at = cut - 1; at >= 0; at -= 1) {
+    const event = past[at] as AgentEvent
+    if (identity(event) !== null) break
+    const text = typed(event)
+    if (text === null) continue
+    const left = opening.get(text) ?? 0
+    if (left === 0) break
+    opening.set(text, left - 1)
+    start = at
+  }
+  return [...past.slice(0, start), ...live]
 }
 
 /** A Session's queue and settings; asks main for them when no event has brought them yet. */

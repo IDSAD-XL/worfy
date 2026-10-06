@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AgentEvent } from '../../shared/agent/events'
+import { readOrchestratorData } from '../../shared/ipc/orchestrator'
 import { useOrchestratorView } from '../canvas/nodes/orchestrator-view'
+import { useLayout } from '../canvas/useLayout'
+import { useSessionTranscript } from '../claude-home/useClaudeHome'
 import { invoke } from '../ipc'
+import { useProjects } from '../projects/useProjects'
 import { StatusChip } from '../theme/primitives'
 import { formatCost, permissionLabel, STATE_CHIPS } from './format'
 import { promptHistory } from './history'
@@ -10,7 +14,7 @@ import { MessageInput, type OutgoingMessage } from './MessageInput'
 import { useNavigation } from './navigation'
 import { useSessionNodeView } from './node-sessions'
 import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
-import { ensureAgentEvents, useSessionControls, useSessionLog } from './store'
+import { ensureAgentEvents, joinPastAndLive, useSessionControls, useSessionLog } from './store'
 import { Transcript } from './Transcript'
 import './session.css'
 
@@ -19,6 +23,11 @@ import './session.css'
 // button; the transcript; the input field; and on the right the rail, made of the blocks in
 // rail/ (rail/index.ts). It shows the Session a double click on its Node opened (navigation.ts),
 // or else the active Project's Orchestrator.
+//
+// A Session that already has a transcript file — resumed on its Node, or the Orchestrator's saved
+// Session after a restart of worfy — shows the turns the file holds first, read as the read-only
+// view reads them (ExternalSessionPanel.tsx), and its live events after them, no turn twice
+// (store.ts, joinPastAndLive; worfy-daily ticket 22).
 
 export interface SessionViewProps {
   /** The active Project; undefined while there is none. */
@@ -99,9 +108,19 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const view = orchestrator ?? nodeSession
   const sessionId = view?.sessionId ?? null
   const log = useSessionLog(sessionId)
-  const events = log.events
-  const history = useMemo(() => promptHistory(events), [events])
-  const facts = useMemo(() => sessionFacts(events), [events])
+  const live = log.events
+  const root = useProjects()?.projects.find((project) => project.id === projectId)?.path
+  const savedNode = useLayout(projectId).state?.layout.nodes.find((node) => node.id === nodeId)
+  // The SDK session whose transcript holds the turns before the live events: the one a Session
+  // Node resumed, or the one the Orchestrator's Node saved.
+  const transcriptId = (orchestrator !== undefined ? (savedNode ? readOrchestratorData(savedNode.data).sessionId : null) : nodeSession?.sdkSessionId) ?? undefined
+  const past = useSessionTranscript(root, transcriptId)
+  const events = useMemo(() => joinPastAndLive(past.events, live), [past.events, live])
+  // Rows are keyed by position (store.ts, SessionLog.first): counted back from the live events, so
+  // a live event keeps its row as the turns before it grow or shrink.
+  const firstIndex = log.first - (events.length - live.length)
+  const history = useMemo(() => promptHistory(live), [live])
+  const facts = useMemo(() => sessionFacts(live), [live])
   const state = view?.state ?? 'starting'
   const chip = STATE_CHIPS[state]
   // A turn waiting for a permission answer still runs: Interrupt refuses the request (ticket 21).
@@ -126,7 +145,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   }
 
   return (
-    <div className="w-session" data-testid="session-view" data-session-id={sessionId ?? undefined} data-node-id={nodeId}>
+    <div className="w-session" data-testid="session-view" data-session-id={sessionId ?? undefined} data-node-id={nodeId} data-transcript-events={past.events.length}>
       <header className="w-session__header">
         <span className="w-session__icon" aria-hidden="true">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -188,7 +207,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
       </header>
       <div className="w-session__body">
         <section className="w-session__main" aria-label="Session">
-          <Transcript events={events} firstIndex={log.first} sessionId={sessionId} projectId={projectId} assistantLabel="orch" />
+          <Transcript events={events} firstIndex={firstIndex} sessionId={sessionId} projectId={projectId} assistantLabel="orch" />
           <MessageInput key={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} onSend={send} onInterrupt={interrupt} />
         </section>
         <SessionRail blocks={blocks} projectId={projectId} nodeId={nodeId} sessionId={sessionId} />

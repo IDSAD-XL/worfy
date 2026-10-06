@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
+import { memo, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
 import { NodeResizer } from '@xyflow/react'
 import type { AgentEvent } from '../../../shared/agent/events'
 import type { ProjectView } from '../../../shared/ipc/projects'
@@ -36,7 +36,8 @@ import type { CanvasNodeProps } from './index'
 // - Live (ticket 18): a Session worfy runs (`data.origin: 'worfy'`, src/shared/ipc/sessions.ts),
 //   made by "New session" or by Resume. It shows main's view of the Session (session/node-sessions.ts),
 //   its last answer and an input field. A Node whose Session is not running offers Resume, under
-//   the rule of src/main/agent/resume.ts; a message sent to it resumes it first.
+//   the rule of src/main/agent/resume.ts; a message sent to it resumes it first. Until the live
+//   Session answers, a resumed Node shows the last answer of its transcript (worfy-daily ticket 22).
 //
 // The registry (index.ts) needs the kind and size here as literals; `satisfies` fails the
 // typecheck the moment they differ from those of claude-home/session-nodes.ts.
@@ -122,6 +123,46 @@ function lastAnswer(events: readonly AgentEvent[]): string | null {
   return null
 }
 
+/** How much of a transcript file one `claudeHome.transcript` call reads, as claude-home/useClaudeHome.ts reads it. */
+const CHUNK_BYTES = 1024 * 1024
+
+/**
+ * The last answer a Session's transcript file holds, read once to its end; null while reading,
+ * for no `sessionId`, or when the file has none. It calls `claudeHome.transcript` itself rather
+ * than useSessionTranscript: that one keeps a single state per transcript, which the Session view
+ * of the same Session uses at the same time, and whichever of the two let go first would drop
+ * the state of the other.
+ */
+function usePastAnswer(root: string, sessionId: string | null): string | null {
+  const [read, setRead] = useState<{ sessionId: string; answer: string | null } | null>(null)
+  useEffect(() => {
+    if (sessionId === null) return
+    let current = true
+    void (async () => {
+      let cursor: { offset: number; fileId: string | null } | undefined
+      let answer: string | null = null
+      for (let round = 0; round < 1000; round += 1) {
+        const result = await invoke('claudeHome.transcript', { projectRoot: root, sessionId, maxBytes: CHUNK_BYTES, ...(cursor ? { cursor } : {}) })
+        if (!current) return
+        if (!result.ok) {
+          console.error(`claudeHome.transcript ${sessionId} failed:`, result.error)
+          return
+        }
+        const { found, events, reset, more } = result.value
+        if (reset) answer = null
+        answer = lastAnswer(events) ?? answer
+        cursor = result.value.cursor
+        if (!found || !more) break
+      }
+      setRead({ sessionId, answer })
+    })()
+    return () => {
+      current = false
+    }
+  }, [root, sessionId])
+  return read !== null && read.sessionId === sessionId ? read.answer : null
+}
+
 /** A Session worfy runs, or ran: main's view while it runs, its saved session id otherwise. */
 function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 'id' | 'selected'> & { info: WorfySessionNodeData; project: ProjectView }) {
   const ops = useLayoutOps()
@@ -129,7 +170,10 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
   const view = useSessionNodeView(project.id, id)
   const running = isRunning(view)
   const log = useSessionLog(running ? view.sessionId : null)
-  const answer = useMemo(() => lastAnswer(log.events), [log.events])
+  const liveAnswer = useMemo(() => lastAnswer(log.events), [log.events])
+  // A resumed Session: the answer from before Resume, until the live Session brings one.
+  const pastAnswer = usePastAnswer(project.path, running && liveAnswer === null ? view.sdkSessionId : null)
+  const answer = liveAnswer ?? pastAnswer
   const [draft, setDraft] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
 
