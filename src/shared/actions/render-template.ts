@@ -4,17 +4,19 @@
 //
 // worfy does not know what the skill does with the text (ADR 0002): it only fills in
 //
-//   {epic}   the Epic's folder name under .scratch/
-//   {NN}     the Ticket's number, two digits at least (07)
-//   {wave}   the number of the ready Wave in the Epic's plan (readyWaveNumber below)
-//   {slug}   the slug of the Ticket's file name
-//   {branch} the branch checked out in the Project's root
+//   {epic}    the Epic's folder name under .scratch/
+//   {NN}      the Ticket's number, two digits at least (07)
+//   {wave}    the number of the ready Wave in the Epic's plan (readyWaveNumber below); kept for
+//             owners' own templates, the default no longer has it (ADR-0033)
+//   {slug}    the slug of the Ticket's file name
+//   {branch}  the branch checked out in the Project's root
+//   {tickets} the Tickets of the ready Wave, two digits at least, by number: `11, 23, 25, 27`
 //
 // A placeholder the action has no value for (`{NN}` in "Run wave") fails the render rather than
 // turning into an empty string: the agent would get a command with a hole in it.
-import { ACTION_LABELS, isActionConfigured, PLACEHOLDERS, unknownPlaceholders, type Action, type Placeholder } from '../projects/action-templates'
+import { ACTION_LABELS, AUTOPILOT_TEMPLATE_HINT, isActionConfigured, namesWaveTickets, PLACEHOLDERS, unknownPlaceholders, type Action, type Placeholder } from '../projects/action-templates'
 import type { Ticket } from '../workflow/types'
-import { readyWave, waveNumbers } from '../workflow/waves'
+import { readyWave, waveNumbers, type SkippedTicket } from '../workflow/waves'
 
 /** The values one action has; a placeholder without one cannot be rendered. */
 export type TemplateValues = Partial<Record<Placeholder, string>>
@@ -43,9 +45,19 @@ export function ticketValues(ticket: Pick<Ticket, 'epic' | 'num' | 'slug'>, bran
   return { epic: ticket.epic, NN: ticketNumber(ticket.num), slug: ticket.slug, ...(branch === null ? {} : { branch }) }
 }
 
-/** What "Run wave" fills in: the Epic, its ready Wave's number and the branch; no Ticket. */
-export function waveValues(epic: string, wave: number | null, branch: string | null): TemplateValues {
-  return { epic, ...(wave === null ? {} : { wave: String(wave) }), ...(branch === null ? {} : { branch }) }
+/** `{tickets}`: the numbers in order, two digits at least, joined by `, ` — `11, 23, 25, 27`. */
+export const waveTickets = (nums: readonly number[]): string =>
+  [...nums]
+    .sort((a, b) => a - b)
+    .map(ticketNumber)
+    .join(', ')
+
+/**
+ * What "Run wave" fills in: the Epic, its ready Wave's number in the plan, the branch and the
+ * Wave's Tickets; no single Ticket. No Tickets (or none given) leaves {tickets} without a value.
+ */
+export function waveValues(epic: string, wave: number | null, branch: string | null, tickets: readonly number[] = []): TemplateValues {
+  return { epic, ...(wave === null ? {} : { wave: String(wave) }), ...(branch === null ? {} : { branch }), ...(tickets.length === 0 ? {} : { tickets: waveTickets(tickets) }) }
 }
 
 type WaveTicket = Parameters<typeof readyWave>[0][number]
@@ -103,12 +115,24 @@ export function shipTicketState(input: { ticket: ShipTicket; tickets: readonly P
   return rendered.ok ? { enabled: true, text: rendered.text } : { enabled: false, reason: rendered.error }
 }
 
-/** "Run wave": the Epic's ready Wave is not empty, and the Project's template is set and renders. */
-export function runWaveState(input: { epic: string; tickets: readonly WaveTicket[]; template: string; branch: string | null }): ActionState {
-  const { epic, tickets, template, branch } = input
-  const wave = readyWaveNumber(tickets, epic)
-  if (readyWave(tickets, epic).ready.length === 0) return { enabled: false, reason: 'No ready wave' }
+/**
+ * "Run wave" when it can run: the text, and from the same read the Tickets it names and the
+ * Tickets left out because they are not open (ADR-0033), so a run's journal says exactly what went.
+ */
+export type WaveState = { enabled: true; text: string; tickets: number[]; skipped: SkippedTicket[] } | { enabled: false; reason: string }
+
+/**
+ * "Run wave": the Epic's ready Wave is not empty, and the Project's template is set and renders.
+ * For Autopilot (`autopilot`) the template must also name the Wave's Tickets ({tickets}): a run
+ * has no person to read a Wave number against the plan. By hand any template runs.
+ */
+export function runWaveState(input: { epic: string; tickets: readonly WaveTicket[]; template: string; branch: string | null; autopilot?: boolean }): WaveState {
+  const { epic, tickets, template, branch, autopilot = false } = input
+  const { ready, skipped } = readyWave(tickets, epic)
+  if (ready.length === 0) return { enabled: false, reason: 'No ready wave' }
   if (!isActionConfigured(template)) return { enabled: false, reason: emptyTemplateHint('runWave') }
-  const rendered = renderTemplate(template, waveValues(epic, wave, branch), 'runWave')
-  return rendered.ok ? { enabled: true, text: rendered.text } : { enabled: false, reason: rendered.error }
+  if (autopilot && !namesWaveTickets(template)) return { enabled: false, reason: AUTOPILOT_TEMPLATE_HINT }
+  const nums = ready.map((entry) => entry.num)
+  const rendered = renderTemplate(template, waveValues(epic, readyWaveNumber(tickets, epic), branch, nums), 'runWave')
+  return rendered.ok ? { enabled: true, text: rendered.text, tickets: nums, skipped } : { enabled: false, reason: rendered.error }
 }

@@ -124,8 +124,9 @@ function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
         sent += 1
         if (delivery === 'sent') out.emit({ type: 'prompt', text })
         else out.queue.push({ id: `queued-${sent}`, text })
-        return Promise.resolve({ sessionId: SESSION, text, delivery, tickets })
+        return Promise.resolve({ sessionId: SESSION, text, delivery, tickets, skipped: [] })
       },
+      autopilotRefusal: () => null,
     },
     journal: () =>
       Promise.resolve({

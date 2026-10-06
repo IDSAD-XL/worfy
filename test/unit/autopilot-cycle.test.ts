@@ -221,6 +221,31 @@ describe('the Autopilot cycle', () => {
     expect(run([{ type: 'session-error', message: 'x' }], waiting).state).toMatchObject({ phase: 'stopped', reason: 'session-error' })
   })
 
+  it('stops at once with blocked-tickets and their numbers when only blocked or status-less Tickets have their blockers done (ticket 30)', () => {
+    const { state, effects } = run([{ type: 'start', tickets: [t(1, 'done'), t(2, 'blocked', [1]), t(3, 'none'), t(4, 'blocked', [5]), t(5, 'work')] }])
+    expect(effects).toEqual([{ kind: 'stopped', reason: 'blocked-tickets', tickets: [2, 3] }])
+    expect(state).toMatchObject({ phase: 'stopped', reason: 'blocked-tickets', wave: 0 })
+    expect(AUTOPILOT_STOP_REASONS).toContain('blocked-tickets')
+  })
+
+  it('after a Wave, stops with blocked-tickets when nothing open is ready but a blocked Ticket has its blockers done', () => {
+    const { effects } = run([ok([t(1, 'done'), t(2, 'done'), t(3, 'blocked', [1, 2])])], inWave1())
+    expect(effects).toEqual([{ kind: 'wave-finished', wave: 1, tickets: [1, 2] }, { kind: 'stopped', reason: 'blocked-tickets', tickets: [3] }])
+  })
+
+  it('stops with no-ready-wave, not blocked-tickets, when a blocked Ticket still waits for a blocker', () => {
+    expect(run([{ type: 'start', tickets: [t(1, 'work'), t(2, 'blocked', [1])] }]).effects).toEqual([{ kind: 'stopped', reason: 'no-ready-wave' }])
+    expect(run([ok([t(1, 'done'), t(2, 'done'), t(3, 'blocked', [4]), t(4, 'work')])], inWave1()).effects).toEqual([
+      { kind: 'wave-finished', wave: 1, tickets: [1, 2] },
+      { kind: 'stopped', reason: 'no-ready-wave' },
+    ])
+  })
+
+  it('a blocked Ticket with its blockers done stays out of the next Wave, which goes on with the open ones', () => {
+    const { effects } = run([ok([t(1, 'done'), t(2, 'done'), t(3, 'blocked', [1, 2]), t(4, 'open', [1])])], inWave1())
+    expect(effects).toEqual([{ kind: 'wave-finished', wave: 1, tickets: [1, 2] }, { kind: 'send-wave' }])
+  })
+
   it('ignores a turn end before any Wave was sent', () => {
     expect(run([ok(WAVE1_DONE)]).effects).toEqual([])
     const sending = run([{ type: 'start', tickets: OPEN }]).state

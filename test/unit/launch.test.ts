@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ActionLauncher, type LaunchDeps, type LaunchedSession } from '../../src/main/actions/launch'
 import { launchedHint, runWaveState, shipTicketState } from '../../src/shared/actions/render-template'
 import type { LaunchesSnapshot } from '../../src/shared/ipc/actions'
-import { DEFAULT_ACTION_TEMPLATES, type ActionTemplates } from '../../src/shared/projects/action-templates'
+import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE, type ActionTemplates } from '../../src/shared/projects/action-templates'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 
 const t = (num: number, state: Ticket['state'], blockedNums: number[] = [], epic = 'worfy-mvp'): Ticket => ({
@@ -73,8 +73,39 @@ describe('shipTicketState', () => {
 })
 
 describe('runWaveState', () => {
-  it('is active with a ready Wave and renders its number', () => {
-    expect(runWaveState({ epic: 'worfy-mvp', tickets: TICKETS, template: DEFAULT_ACTION_TEMPLATES.runWave, branch: 'main' })).toEqual({ enabled: true, text: '/epic-wave волна 1 эпика worfy-mvp' })
+  it('is active with a ready Wave and names its Tickets, with the list it named', () => {
+    expect(runWaveState({ epic: 'worfy-mvp', tickets: TICKETS, template: DEFAULT_ACTION_TEMPLATES.runWave, branch: 'main' })).toEqual({
+      enabled: true,
+      text: '/epic-wave Ticket-ы 07, 09 эпика worfy-mvp',
+      tickets: [7, 9],
+      skipped: [],
+    })
+    // An owner's own template keeps {wave}, the number of the Wave in the plan.
+    expect(runWaveState({ epic: 'worfy-mvp', tickets: TICKETS, template: LEGACY_RUN_WAVE_TEMPLATE, branch: 'main' })).toMatchObject({ enabled: true, text: '/epic-wave волна 1 эпика worfy-mvp' })
+  })
+
+  it('leaves blocked Tickets out of the Wave and lists them as skipped (ticket 30)', () => {
+    const tickets = [t(11, 'open'), t(15, 'blocked'), t(16, 'none'), t(17, 'blocked', [11])]
+    expect(runWaveState({ epic: 'worfy-mvp', tickets, template: DEFAULT_ACTION_TEMPLATES.runWave, branch: null })).toEqual({
+      enabled: true,
+      text: '/epic-wave Ticket-ы 11 эпика worfy-mvp',
+      tickets: [11],
+      skipped: [
+        { num: 15, state: 'blocked' },
+        { num: 16, state: 'none' },
+      ],
+    })
+  })
+
+  it('for Autopilot, refuses a template that does not name the Wave\'s tickets; by hand it runs', () => {
+    const input = { epic: 'worfy-mvp', tickets: TICKETS, template: LEGACY_RUN_WAVE_TEMPLATE, branch: 'main' }
+    expect(runWaveState({ ...input, autopilot: true })).toEqual({ enabled: false, reason: AUTOPILOT_TEMPLATE_HINT })
+    expect(AUTOPILOT_TEMPLATE_HINT).toBe("The Run wave template does not name the Wave's tickets: add {tickets}")
+    expect(runWaveState(input).enabled).toBe(true)
+    // No ready Wave and an empty template still say so first.
+    expect(runWaveState({ ...input, tickets: [t(1, 'work')], autopilot: true })).toEqual({ enabled: false, reason: 'No ready wave' })
+    expect(runWaveState({ ...input, template: '', autopilot: true })).toEqual({ enabled: false, reason: 'Set the Run wave template in Project settings' })
+    expect(runWaveState({ ...input, template: DEFAULT_ACTION_TEMPLATES.runWave, autopilot: true }).enabled).toBe(true)
   })
 
   it('is inactive without a ready Wave, with an empty template, and with {NN}', () => {
@@ -271,8 +302,8 @@ describe('ActionLauncher.runWave', () => {
     const orchestrator = new FakeSession()
     orchestrator.sdkId = 'sdk-orch'
     const { launch, bindings } = launcher({ orchestrator })
-    expect(await launch.runWave('p', 'worfy-mvp')).toEqual({ sessionId: 'orch-1', text: '/epic-wave волна 1 эпика worfy-mvp', delivery: 'sent' })
-    expect(orchestrator.sent).toEqual(['/epic-wave волна 1 эпика worfy-mvp'])
+    expect(await launch.runWave('p', 'worfy-mvp')).toEqual({ sessionId: 'orch-1', text: '/epic-wave Ticket-ы 07, 09 эпика worfy-mvp', delivery: 'sent' })
+    expect(orchestrator.sent).toEqual(['/epic-wave Ticket-ы 07, 09 эпика worfy-mvp'])
     await launch.idle()
     expect(bindings).toEqual([{ projectId: 'p', agent: { sessionId: 'sdk-orch', agentId: null }, target: { kind: 'epic', epic: 'worfy-mvp' } }])
   })
@@ -290,5 +321,42 @@ describe('ActionLauncher.runWave', () => {
     await expect(empty.launch.runWave('p', 'worfy-mvp')).rejects.toThrow('Set the Run wave template in Project settings')
     await expect(launcher().launch.runWave('p', 'nope')).rejects.toThrow('The Project has no Epic nope')
     for (const each of [none, empty]) expect(each.orchestrator.sent).toEqual([])
+  })
+
+  it('by hand, sends a template without {tickets} as it is', async () => {
+    const { launch, orchestrator } = launcher({ templates: { runWave: LEGACY_RUN_WAVE_TEMPLATE } })
+    await launch.runWave('p', 'worfy-mvp')
+    expect(orchestrator.sent).toEqual(['/epic-wave волна 1 эпика worfy-mvp'])
+  })
+})
+
+describe('ActionLauncher.autopilotWave (ticket 30)', () => {
+  it('takes the text, the Tickets and the skipped ones from one read of the workflow model', async () => {
+    let reads = 0
+    // Each read answers a different Epic: a second read would name other Tickets than the text.
+    const reads_ = [
+      [t(11, 'open'), t(15, 'blocked'), t(23, 'open')],
+      [t(11, 'done'), t(15, 'open'), t(23, 'done')],
+    ]
+    const workflow: LaunchDeps['workflow'] = async (root) => {
+      const tickets = reads_[Math.min(reads, reads_.length - 1)]!
+      reads += 1
+      return { root, epics: [{ epic: 'worfy-mvp', hasSpec: true, hasMap: false, title: null }], tickets, error: null, branchErrors: [] }
+    }
+    const { launch, orchestrator } = launcher({ workflow })
+    const sent = await launch.autopilotWave('p', 'worfy-mvp')
+    expect(reads).toBe(1)
+    expect(sent).toMatchObject({ text: '/epic-wave Ticket-ы 11, 23 эпика worfy-mvp', tickets: [11, 23], skipped: [{ num: 15, state: 'blocked' }] })
+    expect(orchestrator.sent).toEqual(['/epic-wave Ticket-ы 11, 23 эпика worfy-mvp'])
+  })
+
+  it('refuses a template without {tickets} and sends nothing; autopilotRefusal says the same before a run', async () => {
+    const own = launcher({ templates: { runWave: LEGACY_RUN_WAVE_TEMPLATE } })
+    await expect(own.launch.autopilotWave('p', 'worfy-mvp')).rejects.toThrow(AUTOPILOT_TEMPLATE_HINT)
+    expect(own.orchestrator.sent).toEqual([])
+    expect(own.launch.autopilotRefusal('p')).toBe(AUTOPILOT_TEMPLATE_HINT)
+    expect(launcher().launch.autopilotRefusal('p')).toBeNull()
+    // An empty template is the button's own reason, not this one.
+    expect(launcher({ templates: { runWave: '' } }).launch.autopilotRefusal('p')).toBe('Set the Run wave template in Project settings')
   })
 })

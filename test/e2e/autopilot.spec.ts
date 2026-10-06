@@ -243,7 +243,7 @@ test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave mea
     await expectStatusClear(window, header, status)
     await expect(stop).toHaveText('Stop autopilot')
     await expect(autopilot).toHaveCount(0)
-    await expect.poll(() => messages(log)).toEqual([`/epic-wave волна 1 эпика ${EPIC}`])
+    await expect.poll(() => messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
     expect(await power()).toEqual(['start prevent-app-suspension'])
     await snapshots(window, header, 'autopilot-running')
 
@@ -318,7 +318,7 @@ test('Autopilot waits for the Limits after a refusal: the status line says until
     // Still a run: Stop is offered, keep-awake is held, and the Orchestrator got only the Wave.
     await expect(stop).toHaveText('Stop autopilot')
     expect(await power()).toEqual(['start prevent-app-suspension'])
-    expect(messages(log)).toEqual([`/epic-wave волна 1 эпика ${EPIC}`])
+    expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
     expect(journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'limits-hit', 'waiting-until'])
     await snapshots(window, header, 'autopilot-waiting')
 
@@ -327,7 +327,7 @@ test('Autopilot waits for the Limits after a refusal: the status line says until
     await expect(status).toHaveText('stopped: user stop')
     expect(await power()).toEqual(['start prevent-app-suspension', 'stop'])
     expect(journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'limits-hit', 'waiting-until', 'run-stopped user-stop'])
-    expect(messages(log)).toEqual([`/epic-wave волна 1 эпика ${EPIC}`])
+    expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
     // worfy wrote nothing into the repository, and nothing into the Claude home the run read.
     expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
     expect(files(claudeHome)).toEqual(claudeHomeBefore)
@@ -389,7 +389,7 @@ test('Autopilot waits for the background tasks of the Wave; Stop keeps them aliv
     await expect.poll(() => journalKinds(dataDir).at(-1)).toBe('orchestrator-returned')
     await expect.poll(() => power()).toEqual(['start prevent-app-suspension', 'stop'])
     expect(closes(log)).toEqual([])
-    expect(messages(log)).toEqual([`/epic-wave волна 1 эпика ${EPIC}`])
+    expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
 
     expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
     expect(files(claudeHome)).toEqual(claudeHomeBefore)

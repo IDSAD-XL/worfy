@@ -119,14 +119,14 @@ skill-е — её вписывает владелец: агентам запис
 
 ## Готово, когда
 
-- [ ] ADR (номер от Orchestrator-а) принят до кода и заменяет пункт 5 ADR-0024. ADR-0024 не правится.
-- [ ] Ticket со Status `blocked` в checkout-е не попадает в Wave, когда ветка его worktree говорит `open`, — случай Ticket-а 15 2026-10-06. Ticket, взятый в ветке (`work` в ветке, `open` в checkout-е), остаётся `work`.
-- [ ] Wave Autopilot и «Run wave» — только Ticket-ы в `open`. `wave-started` пишет `skipped` с номером и state каждого пропущенного.
-- [ ] Готовых `open` нет, а Ticket-ы с закрытыми блокерами не в `open` есть: `run-stopped` с причиной `blocked-tickets` и полем `tickets`. На старте прогона — то же, без `wave-started`.
-- [ ] Текст Orchestrator-у называет Ticket-ы Wave (`/epic-wave Ticket-ы 11, 23, 25, 27 эпика worfy-daily`). Список в тексте совпадает с `tickets` в `wave-started`.
-- [ ] Сохранённый старый default шаблона «Run wave» при чтении настроек становится новым. Свой шаблон без `{tickets}` Autopilot не запускает, причина видна на кнопке.
-- [ ] `run-stopped` с `no-progress`, `no-ready-wave` и `blocked-tickets` несёт `lastText`. Прогон на fake-агенте повторяет прогон 2026-10-06 15:24Z: Orchestrator ничего не запускает, и по журналу видно, что ушло, что он ответил и что 15 пропущен.
-- [ ] (владелец) В `~/.claude/skills/epic-wave/SKILL.md` есть явный список Ticket-ов как аргумент: «`/epic-wave Ticket-ы NN, NN эпика X` — волна из этих Ticket-ов. Строку таблицы плана не искать. Список посчитан по тем же правилам, разрешение владельца на волну не по таблице дано шаблоном Project-а».
+- [x] ADR (номер от Orchestrator-а) принят до кода и заменяет пункт 5 ADR-0024. ADR-0024 не правится.
+- [x] Ticket со Status `blocked` в checkout-е не попадает в Wave, когда ветка его worktree говорит `open`, — случай Ticket-а 15 2026-10-06. Ticket, взятый в ветке (`work` в ветке, `open` в checkout-е), остаётся `work`.
+- [x] Wave Autopilot и «Run wave» — только Ticket-ы в `open`. `wave-started` пишет `skipped` с номером и state каждого пропущенного.
+- [x] Готовых `open` нет, а Ticket-ы с закрытыми блокерами не в `open` есть: `run-stopped` с причиной `blocked-tickets` и полем `tickets`. На старте прогона — то же, без `wave-started`.
+- [x] Текст Orchestrator-у называет Ticket-ы Wave (`/epic-wave Ticket-ы 11, 23, 25, 27 эпика worfy-daily`). Список в тексте совпадает с `tickets` в `wave-started`.
+- [x] Сохранённый старый default шаблона «Run wave» при чтении настроек становится новым. Свой шаблон без `{tickets}` Autopilot не запускает, причина видна на кнопке.
+- [x] `run-stopped` с `no-progress`, `no-ready-wave` и `blocked-tickets` несёт `lastText`. Прогон на fake-агенте повторяет прогон 2026-10-06 15:24Z: Orchestrator ничего не запускает, и по журналу видно, что ушло, что он ответил и что 15 пропущен.
+- [x] (владелец) В `~/.claude/skills/epic-wave/SKILL.md` есть явный список Ticket-ов как аргумент: «`/epic-wave Ticket-ы NN, NN эпика X` — волна из этих Ticket-ов. Строку таблицы плана не искать. Список посчитан по тем же правилам, разрешение владельца на волну не по таблице дано шаблоном Project-а».
 - [ ] (вручную) Прогон Autopilot на стабильной копии, обновлённой после влития Ticket-а: Wave 8 плана (11, 23, 25, 27) уходит текстом со списком. Пока Ticket 15 `blocked`, он в `skipped`. Как проверить: журнал прогона.
 
 Ручные пункты агент не проверяет: первый — запись в `~/.claude`, второй требует стабильной копии и
@@ -193,24 +193,52 @@ Project-а — её строит тот же код из `PLACEHOLDERS`. При�
 
 ## Итог
 
-### Черновик ADR (номер не взят)
+Решение — [ADR-0033](../../../docs/adr/0033-autopilot-names-wave-tickets.md) (черновик, который
+здесь лежал, стал этим ADR). Он заменяет пункт 5 ADR-0024; ADR-0024 не правился.
 
-**Autopilot называет Orchestrator-у Ticket-ы Wave, а не номер Wave плана.** Заменяет пункт 5
-ADR-0024.
+**Корень дефекта 1 решён правилом модели, а не фильтром Autopilot.** `applyBranches`
+(`src/main/workflow/reader.ts`, `branchOverrides`): Status ветки worktree перекрывает checkout,
+только когда в checkout-е не `blocked` и не `done`, а в ветке не `open` и не `none`. Правило шире,
+чем в «Что делаем» (там — «только при `open` или `none` в checkout-е»): Ticket, чей claim уже влит
+в main (`work` в checkout-е), а ветка говорит `blocked` или `done`, по-прежнему показывается по
+ветке, как до Ticket-а. Во всех случаях «Готово, когда» итог тот же. Цена: Ticket, вернувшийся в
+доработку (`blocked` в checkout-е, `claimed` в ветке), Canvas показывает `blocked`, пока claim не
+влит в main.
 
-- Контекст. Пункт 5 ADR-0024 оставил в тексте Orchestrator-у номер Wave плана (`{wave}`). Оба
-  настоящих прогона 2026-10-06 показали, что номер ненадёжен. Он зависит от версии таблицы
-  «Волны». Его считает worfy, всем Ticket-ам ставя `open`. Он берёт меньший номер среди готовых
-  Ticket-ов, включая тот, которого в Wave быть не должно. 15:24Z: «волна 6» — закрытая Wave,
-  Orchestrator ничего не запустил, прогон встал с `no-progress`.
-- Решение. Текст называет Ticket-ы Wave: placeholder `{tickets}`, default
-  `/epic-wave Ticket-ы {tickets} эпика {epic}`. Список тот же, что в `wave-started`, из одного
-  чтения модели. Сохранённый старый default заменяется новым. Autopilot не стартует с шаблоном без
-  `{tickets}`. `{wave}` остаётся для своих шаблонов «Run wave».
-- Отвергнуто. (а) Номер Wave прогона: skill читает таблицу плана, номер прогона ему ничего не
-  говорит. (б) Номер «как в таблице»: worfy не разбирает spec.md (только `epic-status`), а таблица
-  отстаёт от решений по ходу Epic-а.
-- Последствия. Skill `epic-wave` должен принимать явный список. Это одна фраза в
-  `~/.claude/skills/epic-wave/SKILL.md`, её вписывает владелец. Изменение меняет данные владельца:
-  `settings.json` Project-ов со старым default. Откат — вернуть default и правило чтения; свои
-  шаблоны не затронуты.
+**Неочевидные решения.**
+
+- `{tickets}` сортирует номера и пишет их двузначными через `, `. Пустой список — у `{tickets}`
+  нет значения (render не проходит), а не пустая строка.
+- Старый default переписывается только при чтении (`migrateProjectSettings` в
+  `readProjectSettings`); файл `settings.json` не пишется. Новый текст ляжет в файл при следующем
+  сохранении настроек. Сборка старше Ticket-а отложит такой файл как нечитаемый (`{tickets}` ей
+  неизвестен) — поэтому стабильную копию обновляют вместе с влитием.
+- Отказ Autopilot по шаблону — в двух местах: на кнопке (`useRunWaveState(…, true)` в
+  `src/renderer/canvas/actions/gates.ts`) и в main до старта прогона
+  (`ActionLauncher.autopilotRefusal`, вызов в `Autopilot.start`). Main отказывает и при пустом
+  шаблоне «Run wave» — раньше такой прогон стартовал и сразу вставал с `send-failed`.
+- `lastText` — `result.text` последнего хода Wave (ход Wave или поздний, как считает
+  `endsWave`), обрезанный до 1000 UTF-16 единиц без половины суррогатной пары (`clipLastText`):
+  формат журнала проверяет длину в тех же единицах. Новый Wave обнуляет `lastText`.
+- Новые поля журнала (`text`, `skipped` у `wave-started`; `tickets`, `lastText` у `run-stopped`)
+  в схеме необязательные: строки журналов, записанных до Ticket-а, читаются, как раньше. Пишет их
+  worfy всегда, когда есть что писать.
+
+**Файлы вне следа** (без них пункт не закрывался):
+
+- `src/renderer/canvas/actions/gates.ts`, `src/renderer/canvas/actions/AutopilotAction.tsx` —
+  причина «The Run wave template does not name the Wave's tickets: add {tickets}» на кнопке
+  Autopilot.
+- `src/main/ipc/autopilot.ts` — проводка `autopilotRefusal` в Autopilot.
+- `test/e2e/projects.spec.ts`, `test/e2e/ship-ticket.spec.ts`, `test/e2e/autopilot.spec.ts` —
+  ожидали старый default и текст «волна N»; `test/contract/autopilot-limits.test.ts`,
+  `test/unit/autopilot-run.test.ts`, `test/unit/canvas-actions.test.tsx`,
+  `test/unit/autopilot-journal.test.ts` — то же и test-ы новых полей журнала и кнопки.
+
+**Не проверено.**
+
+- не проверено: прогон Autopilot на стабильной копии после влития (Wave 8 плана текстом со
+  списком, Ticket 15 в `skipped`) — нужен настоящий Claude Code и стабильная копия, агенту запрещено
+  запускать настоящий Autopilot; пункт остаётся за владельцем.
+- Пункт владельца про skill `epic-wave` проверен только чтением: в
+  `~/.claude/skills/epic-wave/SKILL.md` есть форма «Ticket-ы NN, NN эпика X» (commit 364070b).

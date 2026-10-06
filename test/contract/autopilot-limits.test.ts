@@ -39,8 +39,8 @@ const fixtures = join(resolve(dirname(fileURLToPath(import.meta.url)), '..'), 'f
 const SCRIPT = 'autopilot-limits'
 const PROJECT = 'demo-000000a4'
 const EPIC = 'demo'
-const WAVE_1 = '/epic-wave волна 1 эпика demo'
-const WAVE_2 = '/epic-wave волна 2 эпика demo'
+const WAVE_1 = '/epic-wave Ticket-ы 01, 02 эпика demo'
+const WAVE_2 = '/epic-wave Ticket-ы 03 эпика demo'
 
 /** The reset of the refused 5-hour window in the fixture: 2026-10-05T07:10:00Z, in Unix seconds. */
 const RESET_S = 1791184200

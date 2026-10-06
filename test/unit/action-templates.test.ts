@@ -3,6 +3,9 @@ import {
   actionTemplateSchema,
   defaultProjectSettings,
   isActionConfigured,
+  LEGACY_RUN_WAVE_TEMPLATE,
+  migrateProjectSettings,
+  namesWaveTickets,
   projectSettingsSchema,
   templateError,
   unknownPlaceholders,
@@ -13,9 +16,29 @@ describe('action templates', () => {
     expect(defaultProjectSettings()).toStrictEqual({
       actionTemplates: {
         shipTicket: '/ship-ticket {epic} {NN}',
-        runWave: '/epic-wave волна {wave} эпика {epic}',
+        runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}',
       },
     })
+  })
+
+  it('reads a saved Run wave template equal to the old default as the new default, and leaves every other template alone (ticket 30)', () => {
+    expect(LEGACY_RUN_WAVE_TEMPLATE).toBe('/epic-wave волна {wave} эпика {epic}')
+    const old = { actionTemplates: { shipTicket: 'my ship {NN}', runWave: LEGACY_RUN_WAVE_TEMPLATE } }
+    expect(migrateProjectSettings(old)).toStrictEqual({ actionTemplates: { shipTicket: 'my ship {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}' } })
+    // The argument is not changed in place.
+    expect(old.actionTemplates.runWave).toBe(LEGACY_RUN_WAVE_TEMPLATE)
+    for (const own of ['/epic-wave волна {wave} эпика {epic} ', '/epic-wave wave {wave} of {epic}', '', '/epic-wave Ticket-ы {tickets} эпика {epic}']) {
+      expect(migrateProjectSettings({ actionTemplates: { shipTicket: '', runWave: own } }).actionTemplates.runWave).toBe(own)
+    }
+    // A Ship ticket template that happens to read like the old Run wave default is not touched.
+    expect(migrateProjectSettings({ actionTemplates: { shipTicket: LEGACY_RUN_WAVE_TEMPLATE, runWave: '' } }).actionTemplates.shipTicket).toBe(LEGACY_RUN_WAVE_TEMPLATE)
+  })
+
+  it('tells whether a Run wave template names the Wave\'s tickets', () => {
+    expect(namesWaveTickets('/epic-wave Ticket-ы {tickets} эпика {epic}')).toBe(true)
+    expect(namesWaveTickets(LEGACY_RUN_WAVE_TEMPLATE)).toBe(false)
+    expect(namesWaveTickets('/epic-wave {Tickets}')).toBe(false)
+    expect(namesWaveTickets('')).toBe(false)
   })
 
   it('hands out a fresh copy each time, so editing one does not change the defaults', () => {
@@ -25,7 +48,7 @@ describe('action templates', () => {
   })
 
   it('accepts every known placeholder', () => {
-    const template = '{epic} {NN} {wave} {slug} {branch}'
+    const template = '{epic} {NN} {wave} {slug} {branch} {tickets}'
     expect(unknownPlaceholders(template)).toEqual([])
     expect(actionTemplateSchema.safeParse(template).success).toBe(true)
   })

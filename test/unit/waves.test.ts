@@ -227,6 +227,29 @@ describe('ready wave', () => {
       { num: 4, reason: { kind: 'missing-blocker', missing: [42] } },
     ])
   })
+
+  it('lists as skipped the blocked and status-less Tickets whose blockers are all done, and nothing in work or done (ticket 30)', () => {
+    const wave = readyWave([
+      ticket(1, { state: 'done', statusRaw: 'done' }),
+      ticket(2, { ...blocked(1), state: 'blocked', statusRaw: 'blocked — rejected' }),
+      ticket(3, { state: 'none', statusRaw: null }),
+      ticket(4, { ...blocked(5), state: 'blocked', statusRaw: 'blocked' }),
+      ticket(5),
+      ticket(6, { state: 'work', statusRaw: 'claimed' }),
+      ticket(7, { ...blocked(1), state: 'done', statusRaw: 'done' }),
+      ticket(8, { state: 'blocked', statusRaw: 'blocked', blockedParsed: false, blockedRaw: '???', blockedNums: [] }),
+    ])
+    expect(wave.ready.map((r) => r.num)).toEqual([5])
+    // 4 waits for 5, 8 has a "Blocked by" that is not a list: neither is skipped for its state alone.
+    expect(wave.skipped).toEqual([
+      { num: 2, state: 'blocked' },
+      { num: 3, state: 'none' },
+    ])
+  })
+
+  it('has no skipped Tickets when every Ticket not done is open', () => {
+    expect(readyWave([ticket(1), ticket(2, blocked(1))]).skipped).toEqual([])
+  })
 })
 
 describe('wave numbers', () => {

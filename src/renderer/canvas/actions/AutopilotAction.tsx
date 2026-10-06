@@ -12,8 +12,8 @@ import { hasRunWave, useRunWaveState } from './gates'
 // Orchestrator's background tasks still run), "waiting for limits · resumes 14:20" (ticket 05),
 // "stopped: no ready wave". A run that waits for the Limits or for background tasks is still a run:
 // Stop is offered and stops it (the tasks live on; main gives the Orchestrator back after them).
-// Autopilot can start when "Run wave" could (the same verdict, gates.ts) and the Project has no
-// run; main checks again and may still refuse (the Orchestrator is in a turn, worfy's own
+// Autopilot can start when "Run wave" could (the same verdict, gates.ts) with a template that names
+// the Wave's Tickets ({tickets}, ADR-0033), and the Project has no run; main checks again and may still refuse (the Orchestrator is in a turn, worfy's own
 // repository in a development build): the button then shows main's reason. The Project's run state
 // is asked once (`autopilot.state`), then taken from `autopilot.changed`; a state replaces the one
 // before it only with a higher revision.
@@ -81,7 +81,7 @@ async function stop(projectId: string): Promise<string | undefined> {
 }
 
 function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], { kind: 'epic' }>) {
-  const wave = useRunWaveState(projectId, epic.epic, tickets)
+  const wave = useRunWaveState(projectId, epic.epic, tickets, true)
   const state = useAutopilot(projectId)
   const mine = state?.epic === epic.epic
   const running = state?.status === 'running' || state?.status === 'waiting'

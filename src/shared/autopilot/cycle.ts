@@ -11,17 +11,20 @@
 // checked without that turn. A Ticket still in work keeps the run settling: each workflow change
 // checks again, a new turn of the Orchestrator waits for its own result, and after SETTLE_MS
 // without either the run stops with `wave-unfinished`. After a finished Wave the next ready Wave
-// is sent, unless there is none (`no-ready-wave`) or it is the very Wave just finished
-// (`no-progress`).
+// is sent, unless there is none or it is the very Wave just finished (`no-progress`). With none
+// ready, the run stops with `blocked-tickets` when blocked or status-less Tickets have all their
+// blockers done (they would be the Wave if they were open; ADR-0033), else with `no-ready-wave`;
+// the same holds at the start of the run.
 //
 // Waves are counted per run from 1: `wave` is the run's count, not the Wave number of the Epic's
-// plan (that one goes into the text the Orchestrator gets, through the Project's template).
+// plan. The text the Orchestrator gets names the Wave's Tickets (ADR-0033).
 import type { Ticket } from '../workflow/types'
 import { readyWave } from '../workflow/waves'
 
 /** Why a run ended; the `reason` of its `run-stopped` journal line. */
 export const AUTOPILOT_STOP_REASONS = [
   'no-ready-wave',
+  'blocked-tickets',
   'no-progress',
   'wave-unfinished',
   'session-error',
@@ -110,8 +113,11 @@ export type CycleEffect =
   | { kind: 'wave-finished'; wave: number; tickets: number[] }
   /** The Session failed or its turn ended with an error. */
   | { kind: 'session-error'; message: string }
-  /** The run is over: release keep-awake, give the Orchestrator back, write `run-stopped`. */
-  | { kind: 'stopped'; reason: AutopilotStopReason }
+  /**
+   * The run is over: release keep-awake, give the Orchestrator back, write `run-stopped`. With
+   * `blocked-tickets`, `tickets` are the Tickets it stopped on.
+   */
+  | { kind: 'stopped'; reason: AutopilotStopReason; tickets?: number[] }
 
 export interface CycleStep {
   state: CycleState
@@ -124,12 +130,19 @@ export function initialCycle(epic: string): CycleState {
 
 const stay = (state: CycleState): CycleStep => ({ state, effects: [] })
 
-function stop(state: CycleState, reason: AutopilotStopReason, before: CycleEffect[] = []): CycleStep {
-  return { state: { ...state, phase: 'stopped', reason }, effects: [...before, { kind: 'stopped', reason }] }
+function stop(state: CycleState, reason: AutopilotStopReason, before: CycleEffect[] = [], tickets?: number[]): CycleStep {
+  const stopped: CycleEffect = tickets === undefined ? { kind: 'stopped', reason } : { kind: 'stopped', reason, tickets }
+  return { state: { ...state, phase: 'stopped', reason }, effects: [...before, stopped] }
 }
 
 function readyNums(state: CycleState, tickets: readonly CycleTicket[]): number[] {
   return readyWave(tickets, state.epic).ready.map((entry) => entry.num)
+}
+
+/** Nothing open is ready: `blocked-tickets` with the Tickets that would be, or `no-ready-wave`. */
+function nothingReady(state: CycleState, tickets: readonly CycleTicket[], before: CycleEffect[] = []): CycleStep {
+  const skipped = readyWave(tickets, state.epic).skipped.map((entry) => entry.num)
+  return skipped.length > 0 ? stop(state, 'blocked-tickets', before, skipped) : stop(state, 'no-ready-wave', before)
 }
 
 const sameSet = (a: readonly number[], b: readonly number[]): boolean => a.length === b.length && a.every((num) => b.includes(num))
@@ -140,7 +153,7 @@ function evaluate(state: CycleState, tickets: readonly CycleTicket[]): CycleStep
   if (inWork.length > 0) return stay({ ...state, phase: 'settling' })
   const finished: CycleEffect = { kind: 'wave-finished', wave: state.wave, tickets: state.tickets }
   const next = readyNums(state, tickets)
-  if (next.length === 0) return stop(state, 'no-ready-wave', [finished])
+  if (next.length === 0) return nothingReady(state, tickets, [finished])
   if (sameSet(next, state.tickets)) return stop(state, 'no-progress', [finished])
   return { state: { ...state, phase: 'sending' }, effects: [finished, { kind: 'send-wave' }] }
 }
@@ -157,7 +170,7 @@ export function step(state: CycleState, event: CycleEvent): CycleStep {
       return stop(state, 'session-closed')
     case 'start':
       if (state.phase !== 'starting') return stay(state)
-      if (readyNums(state, event.tickets).length === 0) return stop(state, 'no-ready-wave')
+      if (readyNums(state, event.tickets).length === 0) return nothingReady(state, event.tickets)
       return { state: { ...state, phase: 'sending' }, effects: [{ kind: 'send-wave' }] }
     case 'wave-sent': {
       if (state.phase !== 'sending') return stay(state)

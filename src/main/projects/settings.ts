@@ -2,16 +2,21 @@
 // The schema and the defaults live in src/shared/projects/action-templates.ts.
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { defaultProjectSettings, projectSettingsSchema, type ProjectSettings } from '../../shared/projects/action-templates'
+import { defaultProjectSettings, migrateProjectSettings, projectSettingsSchema, type ProjectSettings } from '../../shared/projects/action-templates'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 
 export function settingsPath(projectDataDir: string): string {
   return join(projectDataDir, 'settings.json')
 }
 
-/** The saved settings, or the defaults when there are none (or they were unreadable and set aside). */
+/**
+ * The saved settings, or the defaults when there are none (or they were unreadable and set aside).
+ * A saved "Run wave" template equal to the old default reads as the new one (ADR-0033); the file
+ * is not rewritten here, the next save writes it.
+ */
 export function readProjectSettings(projectDataDir: string): ProjectSettings {
-  return readJsonFile(settingsPath(projectDataDir), projectSettingsSchema) ?? defaultProjectSettings()
+  const saved = readJsonFile(settingsPath(projectDataDir), projectSettingsSchema)
+  return saved === undefined ? defaultProjectSettings() : migrateProjectSettings(saved)
 }
 
 /** Saves the settings; a template with an unknown placeholder throws and nothing is written. */

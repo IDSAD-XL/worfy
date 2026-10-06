@@ -235,22 +235,22 @@ test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what
     await window.waitForTimeout(300)
     await expect(sessionNodes).toHaveCount(2)
 
-    // Run wave with the default template: the Orchestrator gets `/epic-wave волна 3 эпика worfy-mvp`
-    // and is bound to the Epic.
+    // Run wave with the default template: the Orchestrator gets `/epic-wave Ticket-ы 07, 09 эпика worfy-mvp`
+    // and is bound to the Epic. The old default saved here reads as the new one (ADR-0033).
     await bridgeCall(window, 'projects.settings.set', { id: PROJECT, settings: { actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave волна {wave} эпика {epic}' } } })
     await expect(runWave).toHaveAttribute('aria-disabled', 'false')
     await runWave.click()
-    await expect.poll(() => messages(log)).toContain(`/epic-wave волна 3 эпика ${EPIC}`)
+    await expect.poll(() => messages(log)).toContain(`/epic-wave Ticket-ы 07, 09 эпика ${EPIC}`)
     await expect
       .poll(() => (JSON.parse(readFileSync(bindingsFile, 'utf8')) as { bindings: Stored[] }).bindings.filter((binding) => binding.target.kind === 'epic'))
       .toEqual([{ sessionId: expect.any(String) as unknown as string, agentId: null, target: { kind: 'epic', epic: EPIC }, source: 'launch' }])
 
     // The Orchestrator is busy: the next wave waits in its queue.
     const second = await bridgeCall(window, 'actions.runWave', { projectId: PROJECT, epic: EPIC })
-    expect(second).toMatchObject({ ok: true, value: { delivery: 'queued', text: `/epic-wave волна 3 эпика ${EPIC}` } })
+    expect(second).toMatchObject({ ok: true, value: { delivery: 'queued', text: `/epic-wave Ticket-ы 07, 09 эпика ${EPIC}` } })
     const orchestratorSession = (second.value as { sessionId: string }).sessionId
     const controls = await bridgeCall(window, 'agent.controls', { sessionId: orchestratorSession })
-    expect((controls.value as { queue: { items: { text: string }[] } }).queue.items.map((item) => item.text)).toEqual([`/epic-wave волна 3 эпика ${EPIC}`])
+    expect((controls.value as { queue: { items: { text: string }[] } }).queue.items.map((item) => item.text)).toEqual([`/epic-wave Ticket-ы 07, 09 эпика ${EPIC}`])
     expect(messages(log).filter((text) => text.startsWith('/epic-wave'))).toHaveLength(1)
 
     // Open PR: the GitHub address opens; another address is refused on the button.

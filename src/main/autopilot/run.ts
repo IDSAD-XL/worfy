@@ -23,9 +23,11 @@
 // - A turn of the Wave refused by the Limits does not end it (worfy-daily ticket 05): the run goes
 //   `waiting` until the Limits reset, then sends the Orchestrator on (limits-wait.ts). Past the
 //   wait's limit it stops with `limits-timeout`.
-// - Every step goes to the run journal (src/main/autopilot/journal.ts): Waves, errors, refused
-//   dialogs of the unattended Session, the reason the run stopped, and every action a person takes
-//   on the run's Session through the UI as `human-input` with source "worfy".
+// - Every step goes to the run journal (src/main/autopilot/journal.ts): Waves with the text sent and
+//   the Tickets left out for not being open, errors, refused dialogs of the unattended Session, the
+//   reason the run stopped with the Orchestrator's last answer in the Wave (ADR-0033), and every
+//   action a person takes on the run's Session through the UI as `human-input` with source "worfy".
+// - A run does not start with a "Run wave" template that does not name the Wave's Tickets.
 // - One run per Project at most. On a development build (not packaged), a run over worfy's own
 //   repository is refused: its agents would rebuild the app the run lives in.
 //
@@ -37,7 +39,7 @@ import { ticketNumber } from '../../shared/actions/render-template'
 import { messageLabel } from '../../shared/agent/attachments'
 import { isTaskEvent, type BackgroundTask } from '../../shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
-import type { JournalEventFields } from '../../shared/autopilot/journal'
+import { clipLastText, type JournalEventFields } from '../../shared/autopilot/journal'
 import { toMs, type LimitsHit } from '../../shared/autopilot/resume-at'
 import {
   BACKGROUND_STALL_MS,
@@ -96,8 +98,11 @@ export interface AutopilotDeps {
     observe(sink: (sessionId: string, event: AgentEvent) => void): () => void
     observeInput(listener: (session: RunSession, what: string) => void): () => void
   }
-  /** Sends "Run wave" to the Orchestrator (ActionLauncher.autopilotWave). */
-  waves: { autopilotWave(projectId: string, epic: string): Promise<AutopilotWaveResult> }
+  /**
+   * Sends "Run wave" to the Orchestrator (ActionLauncher.autopilotWave); `autopilotRefusal` says
+   * why the Project's template cannot drive a run, before it starts (ADR-0033), or null.
+   */
+  waves: { autopilotWave(projectId: string, epic: string): Promise<AutopilotWaveResult>; autopilotRefusal(projectId: string): string | null }
   /** Opens the run's journal; writes its `run-started` line. */
   journal(start: { project: string; epic: string }): Promise<RunJournalLike>
   /** A new keep-awake for one run (power.ts, KeepAwake). */
@@ -183,6 +188,10 @@ class Run {
   wavePrompt: string | null = null
   /** The turn the current Wave's prompt started; null while the Wave waits in the Session's queue. */
   waveTurn: number | null = null
+  /** What the current Wave's "Run wave" sent: its text and the skipped Tickets go to `wave-started`. */
+  sent: AutopilotWaveResult | null = null
+  /** The Orchestrator's last answer in the turns of the current Wave, clipped; null before any. */
+  lastText: string | null = null
   /** Settles once the run has stopped and cleaned up. */
   readonly ended: Promise<void>
   finish!: () => void
@@ -260,7 +269,7 @@ export class Autopilot {
     this.starting.add(projectId)
     try {
       const root = this.deps.projectRoot(projectId)
-      const refusal = await this.deps.selfRefusal(root)
+      const refusal = (await this.deps.selfRefusal(root)) ?? this.deps.waves.autopilotRefusal(projectId)
       if (refusal !== null) throw new Error(refusal)
       const model = await this.deps.workflow(root)
       if (model.error !== null) throw new Error(`Cannot read the workflow: ${model.error.message}`)
@@ -375,6 +384,8 @@ export class Autopilot {
           // queue held: the Wave waits in it until a person resumes, so the run stops as interrupted.
           const interrupted = event.interrupted || (!run.endsWave(turn) && this.waveHeld(run))
           if (!run.endsWave(turn) && !interrupted) return
+          // The answer of a turn of the Wave, for run-stopped (ADR-0033).
+          if (run.endsWave(turn) && event.text !== null && event.text.trim() !== '') run.lastText = clipLastText(event.text)
           if (hit !== null && !interrupted) return this.limitsHit(run, hit)
           // A turn of the Wave that was not refused ends any wait (a person's turn during it, too).
           run.limits?.passed()
@@ -452,7 +463,16 @@ export class Autopilot {
         case 'send-wave':
           await this.sendWave(run)
           break
-        case 'wave-started':
+        case 'wave-started': {
+          const sent = run.sent
+          await this.write(run, {
+            kind: 'wave-started',
+            wave: effect.wave,
+            tickets: effect.tickets.map(ticketNumber),
+            ...(sent === null ? {} : { text: sent.text, skipped: sent.skipped.map((each) => ({ num: ticketNumber(each.num), state: each.state })) }),
+          })
+          break
+        }
         case 'wave-finished':
           await this.write(run, { kind: effect.kind, wave: effect.wave, tickets: effect.tickets.map(ticketNumber) })
           break
@@ -461,7 +481,7 @@ export class Autopilot {
           await this.write(run, { kind: 'session-error', session: run.session?.id ?? null, message: effect.message })
           break
         case 'stopped':
-          await this.end(run, effect.reason)
+          await this.end(run, effect.reason, effect.tickets)
           break
       }
     }
@@ -481,6 +501,8 @@ export class Autopilot {
     } finally {
       run.sending = false
     }
+    run.sent = sent
+    run.lastText = null
     // Sent at once, its turn has started by now; queued, it starts with a later `prompt`.
     run.wavePrompt = messageLabel(sent.text, [])
     run.waveTurn = null
@@ -600,10 +622,21 @@ export class Autopilot {
     }
   }
 
-  /** The run is over: its reason in the journal, keep-awake released, the Orchestrator given back. */
-  private async end(run: Run, reason: AutopilotStopReason): Promise<void> {
+  /**
+   * The run is over: its reason in the journal, keep-awake released, the Orchestrator given back.
+   * A stop for want of a Wave carries the Orchestrator's last answer in the Wave (ADR-0033), and
+   * `blocked-tickets` the Tickets it stopped on.
+   */
+  private async end(run: Run, reason: AutopilotStopReason, tickets?: number[]): Promise<void> {
     const live = this.liveTasks(run)
-    await this.write(run, { kind: 'run-stopped', reason, ...(live.length > 0 ? { tasks: journalTasks(live) } : {}) })
+    const lastText = reason === 'no-progress' || reason === 'no-ready-wave' || reason === 'blocked-tickets' ? run.lastText : null
+    await this.write(run, {
+      kind: 'run-stopped',
+      reason,
+      ...(live.length > 0 ? { tasks: journalTasks(live) } : {}),
+      ...(tickets === undefined ? {} : { tickets: tickets.map(ticketNumber) }),
+      ...(lastText === null ? {} : { lastText }),
+    })
     this.dropQueuedWave(run)
     // Live tasks keep the Orchestrator unattended, and the Mac awake, until they end (ADR-0029).
     // So does a turn still running: /epic-wave starts the implementers inside the Wave's turn, so

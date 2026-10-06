@@ -4,7 +4,7 @@
 // what the agent would, and marks the Tickets of each Wave done when "Run wave" reaches it.
 // keep-awake is a fake (src/main/autopilot/power.ts is tested over Electron's in
 // test/unit/autopilot-power.test.ts), so nothing here keeps the Mac awake.
-import { readdirSync, readFileSync, realpathSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
@@ -23,12 +23,12 @@ import { autopilotHandlers } from '../../src/main/ipc/autopilot'
 import { sendFromCard } from '../../src/main/ipc/card-api'
 import { appUrlMatcher, emit, registerIpc } from '../../src/main/ipc/index'
 import { LayoutStore } from '../../src/main/layout/store'
-import { readWorkflow, type EpicStatusRunner } from '../../src/main/workflow/reader'
+import { applyBranches, readCheckout, readWorkflow, type BranchCache, type EpicStatusRunner } from '../../src/main/workflow/reader'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import { autopilotChanged, autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
+import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE } from '../../src/shared/projects/action-templates'
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -56,6 +56,9 @@ const TICKETS = [
   { num: 3, blocked: '01, 02' },
 ]
 const nn = (num: number): string => String(num).padStart(2, '0')
+/** What the default Run wave template sends for each Wave (ticket 30: the Wave's Tickets, ADR-0033). */
+const WAVE_1 = '/epic-wave Ticket-ы 01, 02 эпика demo'
+const WAVE_2 = '/epic-wave Ticket-ы 03 эпика demo'
 const ticketPath = (num: number): string => join(repo, '.scratch', EPIC, 'issues', `${nn(num)}-ticket-${num}.md`)
 
 /** Every file the test itself wrote into the repository, as the agent would, with its last content. */
@@ -77,7 +80,7 @@ const runner: EpicStatusRunner = (cwd) => {
     const status = field('Status')
     const blocked = field('Blocked by')
     const word = (status ?? '').split(/\s/)[0] ?? ''
-    const state = /^done$/i.test(word) ? 'done' : /^claimed$/i.test(word) ? 'work' : 'open'
+    const state = /^done$/i.test(word) ? 'done' : /^claimed$/i.test(word) ? 'work' : /^blocked$/i.test(word) ? 'blocked' : 'open'
     const nums = blocked && blocked !== '—' ? blocked.split(',').map((each) => Number(each.trim())) : []
     const match = /^(\d+)-(.*)\.md$/.exec(name)!
     return { epic: EPIC, num: Number(match[1]), slug: match[2], title: text.split('\n')[0]!.replace(/^#\s*/, ''), statusRaw: status, state, blockedRaw: blocked, blockedNums: nums, blockedParsed: true }
@@ -136,6 +139,10 @@ interface HarnessOptions {
   settleMs?: number
   /** Each journal line is written this much later, as on a slow disk. */
   slowJournalMs?: number
+  /** Worktree branches laid over the checkout as the reader does (applyBranches); default: the reader's own. */
+  branches?: BranchCache
+  /** The Project's Run wave template (default DEFAULT_ACTION_TEMPLATES.runWave). */
+  runWave?: string
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -162,10 +169,12 @@ function harness(options: HarnessOptions = {}) {
     broadcast: () => undefined,
     publish: () => undefined,
   })
-  const workflow = async (root: string) => (await readWorkflow({ root, claudeHome: join(scratch, 'claude-home') }, runner)).model
+  const branches = options.branches
+  const workflow = async (root: string) =>
+    branches === undefined ? (await readWorkflow({ root, claudeHome: join(scratch, 'claude-home') }, runner)).model : applyBranches(await readCheckout(root, runner), branches)
   const launcher = new ActionLauncher({
     projectRoot: () => repo,
-    settings: () => ({ actionTemplates: { ...DEFAULT_ACTION_TEMPLATES } }),
+    settings: () => ({ actionTemplates: { ...DEFAULT_ACTION_TEMPLATES, ...(options.runWave === undefined ? {} : { runWave: options.runWave }) } }),
     branch: () => Promise.resolve('main'),
     workflow,
     sessions: { create: () => ({ nodeId: 'n', sessionId: 's' }) as never },
@@ -179,8 +188,8 @@ function harness(options: HarnessOptions = {}) {
   if (options.agentMarksDone !== false) {
     registry.observe((_sessionId, event) => {
       if (event.type !== 'prompt') return
-      if (event.text === '/epic-wave волна 1 эпика demo') for (const num of [1, 2]) writeTicket(num, 'done — 2026-10-06')
-      if (event.text === '/epic-wave волна 2 эпика demo') writeTicket(3, 'done — 2026-10-06')
+      if (event.text === WAVE_1) for (const num of [1, 2]) writeTicket(num, 'done — 2026-10-06')
+      if (event.text === WAVE_2) writeTicket(3, 'done — 2026-10-06')
     })
   }
   const power: string[] = []
@@ -244,7 +253,7 @@ describe('an Autopilot run on the fake agent', () => {
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
 
     expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave', wave: 2 })
-    expect(messages(h.calls)).toEqual(['/epic-wave волна 1 эпика demo', '/epic-wave волна 2 эпика demo'])
+    expect(messages(h.calls)).toEqual([WAVE_1, WAVE_2])
     expect(await h.kinds()).toEqual([
       ['run-started', null],
       ['wave-started', 1],
@@ -256,6 +265,13 @@ describe('an Autopilot run on the fake agent', () => {
     const events = await h.journal()
     expect(events.find((event) => event.kind === 'wave-started')).toMatchObject({ project: PROJECT, epic: EPIC, wave: 1, tickets: ['01', '02'] })
     expect(events.filter((event) => event.kind === 'wave-finished').map((event) => (event as { tickets: string[] }).tickets)).toEqual([['01', '02'], ['03']])
+    // Each Wave's line carries the text that went, which names the line's Tickets (ADR-0033).
+    expect(events.filter((event) => event.kind === 'wave-started').map((event) => [(event as { text?: string }).text, (event as { skipped?: unknown[] }).skipped])).toEqual([
+      [WAVE_1, []],
+      [WAVE_2, []],
+    ])
+    // The stop carries the Orchestrator's answer of the last Wave.
+    expect(events.at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'no-ready-wave', lastText: 'Wave done: its Tickets are merged and marked done.' })
     // keep-awake from start to stop, once each.
     expect(h.power).toEqual(['start', 'stop'])
     // The status line runs through the Waves and ends with the reason.
@@ -522,7 +538,7 @@ describe('an Autopilot run on the fake agent', () => {
     await h.autopilot.stop(PROJECT)
     expect(h.autopilot.running(PROJECT)).toBe(false)
     // Wave 1 is done by now (the agent marked it when it got the run's "Run wave").
-    await expect(h.launcher.runWave(PROJECT, EPIC)).resolves.toMatchObject({ text: '/epic-wave волна 2 эпика demo' })
+    await expect(h.launcher.runWave(PROJECT, EPIC)).resolves.toMatchObject({ text: WAVE_2 })
   })
 
   it('a Ticket of the Wave left in work after the turn stops the run with wave-unfinished once the settle time is out', async () => {
@@ -542,11 +558,11 @@ describe('an Autopilot run on the fake agent', () => {
   it('a workflow change that takes the last Ticket out of work finishes the Wave', async () => {
     const h = harness({ agentMarksDone: false })
     h.registry.observe((_id, event) => {
-      if (event.type === 'prompt' && event.text.includes('волна 1')) {
+      if (event.type === 'prompt' && event.text === WAVE_1) {
         writeTicket(1, 'done — 2026-10-06')
         writeTicket(2, 'claimed — 2026-10-06')
       }
-      if (event.type === 'prompt' && event.text.includes('волна 2')) writeTicket(3, 'done — 2026-10-06')
+      if (event.type === 'prompt' && event.text === WAVE_2) writeTicket(3, 'done — 2026-10-06')
     })
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => messages(h.calls).length === 1, 'Wave 1')
@@ -568,8 +584,74 @@ describe('an Autopilot run on the fake agent', () => {
       ['run-started', null],
       ['run-stopped', 'no-ready-wave'],
     ])
+    // No turn of a Wave: no answer to carry.
+    expect((await h.journal()).at(-1)).not.toHaveProperty('lastText')
     expect(messages(h.calls)).toEqual([])
     expect(h.power).toEqual(['start', 'stop'])
+  })
+
+  // ── ticket 30 (ADR-0033): blocked Tickets stay out of the Wave, the text names the Wave's Tickets ──
+
+  /** The worktree branch of Ticket 02 that never touched its file: Status open, as on its base. */
+  const untouchedBranch = (): BranchCache => new Map([['demo/02', { head: 'b0', ticket: { epic: EPIC, num: 2, state: 'open', statusRaw: 'open' }, error: null }]])
+  const ANSWER = 'Волна уже закрыта, перезапускать в ней нечего.'
+
+  it('repeats the run of 2026-10-06 15:24Z: a Ticket blocked in the checkout and open in its branch stays out; the journal shows what went, the answer and the skipped Ticket', async () => {
+    writeTicket(2, 'blocked — rejected by review')
+    const h = harness({ script: 'autopilot-blocked', agentMarksDone: false, branches: untouchedBranch() })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+
+    expect(h.autopilot.state(PROJECT).reason).toBe('no-progress')
+    expect(messages(h.calls)).toEqual(['/epic-wave Ticket-ы 01 эпика demo'])
+    const events = await h.journal()
+    expect(events.map((event) => event.kind)).toEqual(['run-started', 'wave-started', 'wave-finished', 'run-stopped'])
+    const started = events.find((event) => event.kind === 'wave-started')
+    expect(started).toMatchObject({ wave: 1, tickets: ['01'], skipped: [{ num: '02', state: 'blocked' }], text: '/epic-wave Ticket-ы 01 эпика demo' })
+    // The list in the text is the list of the line.
+    expect((started as { text: string }).text).toContain((started as { tickets: string[] }).tickets.join(', '))
+    expect(events.at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'no-progress', lastText: ANSWER })
+    expect(events.at(-1)).not.toHaveProperty('tickets')
+  })
+
+  it('stops at once with blocked-tickets when only a blocked Ticket has its blockers done: no Wave, no text, no lastText', async () => {
+    writeTicket(1, 'done — 2026-10-06')
+    writeTicket(2, 'blocked — waits for the owner')
+    const h = harness({ agentMarksDone: false, branches: untouchedBranch() })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+
+    expect(h.autopilot.state(PROJECT).reason).toBe('blocked-tickets')
+    expect(messages(h.calls)).toEqual([])
+    const events = await h.journal()
+    expect(events.map((event) => event.kind)).toEqual(['run-started', 'run-stopped'])
+    expect(events.at(-1)).toMatchObject({ reason: 'blocked-tickets', tickets: ['02'] })
+    expect(events.at(-1)).not.toHaveProperty('lastText')
+  })
+
+  it('after a Wave, stops with blocked-tickets and the Orchestrator\'s last answer when the next Tickets wait for a blocked one', async () => {
+    writeTicket(2, 'blocked — waits for the owner')
+    const h = harness({ script: 'autopilot-blocked', agentMarksDone: false })
+    h.registry.observe((_id, event) => {
+      if (event.type === 'prompt' && event.text === '/epic-wave Ticket-ы 01 эпика demo') writeTicket(1, 'done — 2026-10-06')
+    })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+
+    const events = await h.journal()
+    expect(events.map((event) => event.kind)).toEqual(['run-started', 'wave-started', 'wave-finished', 'run-stopped'])
+    expect(events.at(-1)).toMatchObject({ reason: 'blocked-tickets', tickets: ['02'], lastText: ANSWER })
+  })
+
+  it('does not start with a Run wave template that does not name the Wave\'s tickets: nothing is journaled or sent', async () => {
+    const h = harness({ runWave: LEGACY_RUN_WAVE_TEMPLATE })
+    await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow(AUTOPILOT_TEMPLATE_HINT)
+    expect(h.autopilot.running(PROJECT)).toBe(false)
+    expect(existsSync(join(h.env.WORFY_DATA_DIR, 'autopilot'))).toBe(false)
+    expect(h.requests.some((request) => request.unattended === true)).toBe(false)
+    expect(h.power).toEqual([])
+    // By hand, the same template still runs a Wave: a person presses the button.
+    await expect(h.launcher.runWave(PROJECT, EPIC)).resolves.toMatchObject({ text: '/epic-wave волна 1 эпика demo' })
   })
 
   it('a refused start leaves nothing behind: no journal, no keep-awake, the Orchestrator untouched', async () => {

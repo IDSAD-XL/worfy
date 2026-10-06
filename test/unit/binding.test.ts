@@ -108,6 +108,13 @@ describe('resolveBinding: signals in order of strength', () => {
     // Without the workflow model, the last word that can be an Epic's name.
     expect(resolveBinding({ signals: signals({ skill: { name: 'epic-wave', args: 'wave 2 of auction' } }) }, undefined)?.target).toEqual({ kind: 'epic', epic: 'auction' })
     expect(resolveBinding({ signals: signals({ skill: { name: 'epic-wave', args: 'волна 2' } }) }, workflow)).toBeNull()
+    // The text the Run wave default sends since ticket 30: the Wave's Tickets, then the Epic.
+    expect(resolveBinding({ signals: signals({ skill: { name: 'epic-wave', args: 'Ticket-ы 11, 23 эпика worfy-mvp' } }) }, workflow)).toEqual({
+      target: { kind: 'epic', epic: 'worfy-mvp' },
+      source: 'skill',
+      detail: '/epic-wave Ticket-ы 11, 23 эпика worfy-mvp',
+    })
+    expect(resolveBinding({ signals: signals({ skill: { name: 'epic-wave', args: 'Ticket-ы 11, 23 эпика worfy-mvp' } }) }, undefined)?.target).toEqual({ kind: 'epic', epic: 'worfy-mvp' })
   })
 
   it('/epic-wave beats the branch and the worktree folder: the Orchestrator is bound to the Epic whatever its checkout holds', () => {

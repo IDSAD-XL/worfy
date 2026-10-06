@@ -14,21 +14,23 @@
 // - Run wave: the text goes to the Project's Orchestrator; while a turn runs it waits in the
 //   Orchestrator's queue (ticket 19). Autopilot (worfy-daily ticket 04) sends its Waves the same
 //   way (autopilotWave); while it runs in a Project, "Run wave" by hand is refused there, so a
-//   person's click does not put a second Wave on top of the run's.
+//   person's click does not put a second Wave on top of the run's. Autopilot's text must name the
+//   Wave's Tickets ({tickets}, ADR-0033); the text, those Tickets and the skipped ones come from
+//   one read of the workflow model, so the run's journal names exactly what went.
 //
 // The agent is then bound to what it was launched for, with source `launch` (resolve.ts): once
 // Claude Code has reported the session id that names its transcript, the Binding goes into
 // `<Project data folder>/bindings.json` (src/main/layout/bindings.ts), so it outlives a restart.
 // The Ticket's status is changed by the agent and the `ticket` script inside the skill, never here;
 // worfy sees the change through its watch on `.scratch` (ticket 10).
-import { runWaveState, shipTicketState, ticketNumber } from '../../shared/actions/render-template'
-import { readyWave } from '../../shared/workflow/waves'
+import { emptyTemplateHint, runWaveState, shipTicketState, ticketNumber } from '../../shared/actions/render-template'
+import type { SkippedTicket } from '../../shared/workflow/waves'
 import type { BindingTarget } from '../../shared/binding/resolve'
 import type { LaunchesSnapshot } from '../../shared/ipc/actions'
 import type { BindingAgent } from '../../shared/ipc/bindings'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
 import type { SessionNodeView } from '../../shared/ipc/sessions'
-import type { ProjectSettings } from '../../shared/projects/action-templates'
+import { AUTOPILOT_TEMPLATE_HINT, isActionConfigured, namesWaveTickets, type ProjectSettings } from '../../shared/projects/action-templates'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import type { Session } from '../agent/session'
 
@@ -73,9 +75,13 @@ export interface RunWaveResult {
   delivery: 'sent' | 'queued'
 }
 
-/** What Autopilot's "Run wave" sent, with the Tickets of the ready Wave it was sent for. */
+/**
+ * What Autopilot's "Run wave" sent, with the Tickets of the ready Wave it was sent for and the
+ * Tickets left out of it for not being open, all from the read the text was made from.
+ */
 export interface AutopilotWaveResult extends RunWaveResult {
   tickets: number[]
+  skipped: SkippedTicket[]
 }
 
 /** Why "Run wave" by hand is refused while Autopilot runs in the Project. */
@@ -151,28 +157,38 @@ export class ActionLauncher {
 
   async runWave(projectId: string, epic: string): Promise<RunWaveResult> {
     if (this.autopilot?.running(projectId) === true) throw new Error(AUTOPILOT_RUNNING_HINT)
-    const { sessionId, text, delivery } = await this.sendWave(projectId, epic)
+    const { sessionId, text, delivery } = await this.sendWave(projectId, epic, false)
     return { sessionId, text, delivery }
   }
 
   /** Autopilot's "Run wave": the same text to the same Orchestrator, and the Tickets it was for. */
   autopilotWave(projectId: string, epic: string): Promise<AutopilotWaveResult> {
-    return this.sendWave(projectId, epic)
+    return this.sendWave(projectId, epic, true)
   }
 
-  private async sendWave(projectId: string, epic: string): Promise<AutopilotWaveResult> {
+  /**
+   * Why Autopilot may not start with the Project's "Run wave" template, before a run begins: the
+   * template is empty, or it does not name the Wave's Tickets (ADR-0033). Null when it may.
+   */
+  autopilotRefusal(projectId: string): string | null {
+    const template = this.deps.settings(projectId).actionTemplates.runWave
+    if (!isActionConfigured(template)) return emptyTemplateHint('runWave')
+    return namesWaveTickets(template) ? null : AUTOPILOT_TEMPLATE_HINT
+  }
+
+  private async sendWave(projectId: string, epic: string, autopilot: boolean): Promise<AutopilotWaveResult> {
     const root = this.deps.projectRoot(projectId)
     const [model, branch] = await Promise.all([this.model(root), this.deps.branch(root)])
     if (!model.epics.some((each) => each.epic === epic) && !model.tickets.some((each) => each.epic === epic)) throw new Error(`The Project has no Epic ${epic}`)
-    const state = runWaveState({ epic, tickets: model.tickets, template: this.deps.settings(projectId).actionTemplates.runWave, branch })
+    // One read: the text, the Tickets it names and the skipped ones all come from `model`.
+    const state = runWaveState({ epic, tickets: model.tickets, template: this.deps.settings(projectId).actionTemplates.runWave, branch, autopilot })
     if (!state.enabled) throw new Error(state.reason)
     const view = await this.deps.orchestrators.open(projectId)
     if (view.sessionId === null) throw new Error('The Orchestrator has no Session')
     const session = this.deps.registry.get(view.sessionId)
     const delivery = session.send(state.text)
     this.bindWhenKnown(projectId, session, { kind: 'epic', epic })
-    const tickets = readyWave(model.tickets, epic).ready.map((entry) => entry.num)
-    return { sessionId: view.sessionId, text: state.text, delivery, tickets }
+    return { sessionId: view.sessionId, text: state.text, delivery, tickets: state.tickets, skipped: state.skipped }
   }
 
   /** Settles when every Binding started so far is written or given up; for tests. */

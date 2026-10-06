@@ -24,12 +24,16 @@ function useBranch(projectId: string): string | null {
   return useProjects()?.projects.find((project) => project.id === projectId)?.branch ?? null
 }
 
-/** Whether "Run wave" of `epic` can run now, and the text it sends or the reason it cannot. */
-export function useRunWaveState(projectId: string, epic: string, tickets: readonly Ticket[]): ActionState {
+/**
+ * Whether "Run wave" of `epic` can run now, and the text it sends or the reason it cannot. With
+ * `autopilot`, whether Autopilot can start: the template must also name the Wave's Tickets
+ * ({tickets}, ADR-0033), and the reason says so on the Autopilot button.
+ */
+export function useRunWaveState(projectId: string, epic: string, tickets: readonly Ticket[], autopilot = false): ActionState {
   const branch = useBranch(projectId)
   const templates = useActionTemplates(projectId)
   if (templates === undefined) return READING
-  return runWaveState({ epic, tickets, template: templates.runWave, branch })
+  return runWaveState({ epic, tickets, template: templates.runWave, branch, autopilot })
 }
 
 /** Whether "Ship ticket" of `ticket` can run now; `tickets` are every Ticket, for its blockers. */

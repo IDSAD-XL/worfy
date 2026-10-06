@@ -98,7 +98,7 @@ test('Projects: add, switch, edit settings, restart, remove — and the reposito
     let dialog = await openSettings(window, 'worfy')
     const shipTicket = dialog.getByLabel('Ship ticket')
     await expect(shipTicket).toHaveValue('/ship-ticket {epic} {NN}')
-    await expect(dialog.getByLabel('Run wave')).toHaveValue('/epic-wave волна {wave} эпика {epic}')
+    await expect(dialog.getByLabel('Run wave')).toHaveValue('/epic-wave Ticket-ы {tickets} эпика {epic}')
     await shipTicket.fill('/ship-ticket {foo}')
     await expect(dialog.getByRole('alert')).toContainText('Unknown placeholder {foo}')
     await expect(shipTicket).toHaveAttribute('aria-invalid', 'true')

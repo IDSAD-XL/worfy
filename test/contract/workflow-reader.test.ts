@@ -224,6 +224,33 @@ describe('workflow reader', () => {
     expect(ticketOf(model, 2)).toMatchObject({ state: 'done', fromBranch: null })
   })
 
+  it('does not let a branch that never touched its Ticket (open from its base) override blocked in the checkout (ticket 30, Ticket 15 on 2026-10-06)', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    // The branch's worktree is made from main and leaves the Ticket file alone: Status open, as on its base.
+    git(repo, 'worktree', 'add', '-q', '-b', 'demo/03', join(repo, '.claude', 'worktrees', '03'), 'main')
+    const file = join(repo, '.scratch/demo/issues/03-third.md')
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked — rejected by review'))
+    const { model } = await readWorkflow({ root: repo, claudeHome: home })
+    expect(ticketOf(model, 3)).toMatchObject({ state: 'blocked', statusRaw: 'blocked — rejected by review', fromBranch: null })
+  })
+
+  it('does not let a branch say open over a claim merged into the checkout, but lets it say blocked over it', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const path = join(repo, '.claude', 'worktrees', '04')
+    git(repo, 'worktree', 'add', '-q', '-b', 'demo/04', path, 'main')
+    const file = join(repo, '.scratch/demo/issues/04-fourth.md')
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: claimed — 2026-10-06'))
+    // The branch still says open, from its base: the checkout's claim stands.
+    expect(ticketOf((await readWorkflow({ root: repo, claudeHome: home })).model, 4)).toMatchObject({ state: 'work', statusRaw: 'claimed — 2026-10-06', fromBranch: null })
+    // The branch blocks the Ticket: that is news the checkout does not have yet.
+    const branchFile = join(path, '.scratch/demo/issues/04-fourth.md')
+    writeFileSync(branchFile, readFileSync(branchFile, 'utf8').replace(/^Status: .*$/m, 'Status: blocked — waits for the owner'))
+    git(path, 'commit', '-qam', 'block 04')
+    expect(ticketOf((await readWorkflow({ root: repo, claudeHome: home })).model, 4)).toMatchObject({ state: 'blocked', fromBranch: 'demo/04' })
+  })
+
   it('understands the older <epic>/<NN>-<slug> branches and skips branches that name no Ticket', async () => {
     const repo = makeRepo(dir)
     const { home, log } = makeClaudeHome(dir)
