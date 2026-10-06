@@ -361,8 +361,9 @@ test('a pinned Node moved into the corner of the minimap is shown clear of it', 
 test("the toolbars of another Node's selection do not cover a pinned Node; a pinned Node's own toolbar is on top", async () => {
   // At zoom 1 and no pan, a pinned Node's screen place is its canvas place. `other` is selected:
   // its selection toolbar sits above it, over the bottom of `above`, and its Focus button below
-  // it, over the header of `below`.
+  // it, over the header of `below`. When `above` is selected, its own toolbar sits over `top`.
   writeLayout([
+    { id: 'top', x: 120, y: 40, pinned: true },
     { id: 'above', x: 120, y: 160, pinned: true },
     { id: 'other', x: 260, y: 300 },
     { id: 'below', x: 260, y: 432, pinned: true },
@@ -392,9 +393,12 @@ test("the toolbars of another Node's selection do not cover a pinned Node; a pin
     // Elsewhere the toolbars stay above the plane and work.
     expect(await ownsCentreOf(window, toolbar, await box(toolbar.getByRole('button', { name: 'Delete' })))).toBe(true)
 
-    // A pinned Node's own toolbar is on top, over the Node `other` too.
+    // A pinned Node's own toolbar is on top: over the pinned Node `top`, and its Focus button over `other`.
     await above.locator('.w-note__header').click()
     await expect(toolbar.getByRole('button', { name: 'Unpin' })).toBeVisible()
+    const overTop = intersection(await box(toolbar), await box(noteById(window, 'top')))
+    expect(overTop.width * overTop.height).toBeGreaterThan(0)
+    expect(await ownsCentreOf(window, toolbar, overTop)).toBe(true)
     expect(await ownsCentreOf(window, toolbar, await box(toolbar))).toBe(true)
     expect(await ownsCentreOf(window, focus, await box(focus))).toBe(true)
     await screenshotsInBothThemes(window, 'pinned-own-toolbar')
