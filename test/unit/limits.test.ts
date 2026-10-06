@@ -161,6 +161,8 @@ describe('mergeLimits', () => {
       expect(mergeLimits(warned, bridge(reset + 7 * 24 * 3600)).windows.seven_day).toMatchObject({ status: null })
       expect(mergeLimits(warned, bridge(reset + 7 * 24 * 3600, reset * 1000)).windows.seven_day).toMatchObject({ status: null })
       expect(mergeLimits(warned, bridge(null, reset * 1000)).windows.seven_day).toMatchObject({ status: null, resetsAt: null })
+      // A late file still naming the passed reset time does not bring the old window's status back.
+      expect(mergeLimits(warned, bridge(reset, reset * 1000)).windows.seven_day).toMatchObject({ status: null, resetsAt: reset })
     })
 
     it('drops it when the window had no reset time to compare with', () => {
