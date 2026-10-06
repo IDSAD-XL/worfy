@@ -139,6 +139,43 @@ describe('mergeLimits', () => {
     expect(mergeLimits(emptyLimits(), [refusal(AT)]).windows.seven_day).toMatchObject({ resetsAt: null })
   })
 
+  describe('an update without a status (the status line bridge) after a status from the SDK', () => {
+    // Both sources give the reset time in Unix seconds on the hour: 7-day 1791777600 in both
+    // (recorded 2026-10-06). One window's reset time from the two may differ by up to an hour.
+    const reset = 1791777600
+    const warned = mergeLimits(emptyLimits(), [{ window: 'seven_day', state: { utilization: 0.45, resetsAt: reset, status: 'allowed_warning', receivedAt: AT, source: 'sdk' } }])
+    const bridge = (resetsAt: number | null, receivedAt = AT + 1000) => limitUpdatesFromStatusline({ seven_day: { used_percentage: 33, resets_at: resetsAt } }, receivedAt)
+
+    it('keeps the status while the window is the same: the same reset time, or one an hour apart at most', () => {
+      expect(mergeLimits(warned, bridge(reset)).windows.seven_day).toEqual({ utilization: 0.33, resetsAt: reset, status: 'allowed_warning', receivedAt: AT + 1000, source: 'statusline' })
+      expect(mergeLimits(warned, bridge(reset + 3600)).windows.seven_day).toMatchObject({ status: 'allowed_warning', resetsAt: reset + 3600 })
+      expect(mergeLimits(warned, bridge(reset - 3600)).windows.seven_day).toMatchObject({ status: 'allowed_warning' })
+      // Without a reset time of its own the update takes the known one, which is still ahead.
+      expect(mergeLimits(warned, bridge(null)).windows.seven_day).toMatchObject({ status: 'allowed_warning', resetsAt: reset })
+      // The bar keeps its warning colour.
+      expect(limitBars(mergeLimits(warned, bridge(reset)), AT + 1000, { timeZone: TZ })?.[1]).toMatchObject({ value: '33%', level: 'working' })
+    })
+
+    it('drops the status in a new window: another reset time, or the known one passed', () => {
+      expect(mergeLimits(warned, bridge(reset + 3601)).windows.seven_day).toMatchObject({ status: null, resetsAt: reset + 3601 })
+      expect(mergeLimits(warned, bridge(reset + 7 * 24 * 3600)).windows.seven_day).toMatchObject({ status: null })
+      expect(mergeLimits(warned, bridge(reset + 7 * 24 * 3600, reset * 1000)).windows.seven_day).toMatchObject({ status: null })
+      expect(mergeLimits(warned, bridge(null, reset * 1000)).windows.seven_day).toMatchObject({ status: null, resetsAt: null })
+      // A late file still naming the passed reset time does not bring the old window's status back.
+      expect(mergeLimits(warned, bridge(reset, reset * 1000)).windows.seven_day).toMatchObject({ status: null, resetsAt: reset })
+    })
+
+    it('drops it when the window had no reset time to compare with', () => {
+      const noReset = mergeLimits(emptyLimits(), [{ window: 'seven_day', state: { utilization: null, resetsAt: null, status: 'allowed_warning', receivedAt: AT, source: 'sdk' } }])
+      expect(mergeLimits(noReset, bridge(reset)).windows.seven_day).toMatchObject({ status: null })
+    })
+
+    it('lets a newer status replace the known one in the same window', () => {
+      const allowed = { utilization: 0.4, resetsAt: reset, status: 'allowed', receivedAt: AT + 1000, source: 'sdk' as const }
+      expect(mergeLimits(warned, [{ window: 'seven_day', state: allowed }]).windows.seven_day).toEqual(allowed)
+    })
+  })
+
   it('returns the same state when nothing changed', () => {
     const state = mergeLimits(emptyLimits(), [{ window: 'five_hour', state: window(0.5, AT) }])
     expect(mergeLimits(state, [{ window: 'five_hour', state: window(0.5, AT) }])).toBe(state)

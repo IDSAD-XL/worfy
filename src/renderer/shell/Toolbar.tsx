@@ -49,6 +49,7 @@ export interface ToolbarViewProps {
 }
 
 export function ToolbarView({ items, project, view, onViewChange, sidebarVisible, onToggleSidebar }: ToolbarViewProps) {
+  const title = project ? `worfy — ${project.name}` : 'worfy'
   return (
     <header className="w-toolbar" data-sidebar={sidebarVisible ? 'visible' : 'hidden'}>
       <button
@@ -64,9 +65,13 @@ export function ToolbarView({ items, project, view, onViewChange, sidebarVisible
         </svg>
       </button>
 
+      {/* The title is the one item that gives way: a long Project name ends with an ellipsis
+          (the full text is the tooltip), and the controls to its right stay whole. */}
       <div className="w-toolbar__title">
-        <span className="w-toolbar__name">{project ? `worfy — ${project.name}` : 'worfy'}</span>
-        <span className="w-toolbar__subtitle">
+        <span className="w-toolbar__name" title={title}>
+          {title}
+        </span>
+        <span className="w-toolbar__subtitle" title={project ? `${project.name} · ${project.branch}` : undefined}>
           <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <circle cx="5" cy="3.5" r="1.5" />
             <circle cx="5" cy="12.5" r="1.5" />
@@ -74,9 +79,9 @@ export function ToolbarView({ items, project, view, onViewChange, sidebarVisible
             <path d="M5 5v6M11 6.5c0 2.5-6 2-6 4.5" />
           </svg>
           {project ? (
-            <>
+            <span className="w-toolbar__subtitle-text">
               {project.name} · <span className="w-mono">{project.branch}</span>
-            </>
+            </span>
           ) : (
             'No project'
           )}

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, writeFi
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, repoRoot } from './helpers'
 
 // The Limits in the toolbar against the built app, on the fake agent: the script
@@ -68,6 +68,45 @@ async function playTurns(window: Page, cwd: string, turns: number): Promise<void
 
 const meter = (window: Page) => window.getByTestId('limits-meter')
 
+/** The DOM the page side of textBoxes uses; the e2e tests are compiled without the DOM library. */
+interface PageElement {
+  ownerDocument: { createRange(): { selectNodeContents(node: unknown): void; getBoundingClientRect(): { x: number; y: number; width: number; height: number } } }
+  querySelectorAll(selector: string): Iterable<PageElement>
+  scrollWidth: number
+  clientWidth: number
+}
+
+interface TextBox {
+  x: number
+  y: number
+  width: number
+  height: number
+  /** Whether some text of the element is hidden: wider than its box, or ended with an ellipsis. */
+  cut: boolean
+}
+
+/**
+ * The box of each element's text as drawn, not of the element: a line that does not wrap runs
+ * past its element's box, and that overflow is what overlaps the next bar.
+ */
+async function textBoxes<K extends string>(window: Page, elements: Record<K, Locator>): Promise<Record<K, TextBox>> {
+  const result = {} as Record<K, TextBox>
+  for (const [name, locator] of Object.entries(elements) as [K, Locator][]) {
+    result[name] = await locator.evaluate((node) => {
+      const element = node as unknown as PageElement
+      const range = element.ownerDocument.createRange()
+      range.selectNodeContents(element)
+      const rect = range.getBoundingClientRect()
+      const lines = [element, ...element.querySelectorAll('*')]
+      const cut = lines.some((line) => line.scrollWidth > line.clientWidth && line.clientWidth > 0)
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, cut }
+    })
+  }
+  return result
+}
+
+const overlap = (a: TextBox, b: TextBox): boolean => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+
 /** The 7-day reset time in test/fixtures/agent-scripts/limits.jsonl, turn 1 (Unix seconds). */
 const FIXTURE_SEVEN_DAY_RESET = '1791795600'
 
@@ -115,18 +154,47 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
     await first.close()
   }
 
-  // Back-date what was saved by two hours: after the restart the bars carry "as of".
+  // Back-date what was saved by two days: after the restart the bars carry "as of" with a weekday,
+  // the longest note the toolbar has to fit ("resets Thu 09:00 · as of Mon 04:53").
   const file = join(dataDir, 'limits.json')
   const saved = JSON.parse(readFileSync(file, 'utf8')) as { windows: Record<string, { receivedAt: number }> }
-  for (const window of Object.values(saved.windows)) window.receivedAt -= 2 * 60 * 60 * 1000
+  for (const window of Object.values(saved.windows)) window.receivedAt -= 2 * 24 * 60 * 60 * 1000
   writeFileSync(file, JSON.stringify(saved))
 
   const second = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_AGENT_SCRIPTS: scripts, WORFY_AGENT_SCRIPT: 'limits' } })
   try {
     const fiveHour = meter(second.window).getByTestId('limit-five_hour')
+    const sevenDay = meter(second.window).getByTestId('limit-seven_day')
     await expect(fiveHour.getByTestId('limit-five_hour-value')).toHaveText('62%')
-    await expect(fiveHour.getByTestId('limit-five_hour-note')).toHaveText(/^resets \d\d:\d\d · as of \d\d:\d\d$|^resets \d\d:\d\d · as of [A-Z][a-z]{2} \d\d:\d\d$/)
-    await expect(meter(second.window).getByTestId('limit-seven_day-value')).toHaveText('limit reached')
+    await expect(sevenDay.getByTestId('limit-seven_day-value')).toHaveText('limit reached')
+    await expect(sevenDay.getByTestId('limit-seven_day-note')).toContainText('as of')
+
+    // The notes fit their bars: the text of the 5-hour note, the 7-day note, the app version and
+    // the search field do not overlap, and no note text is cut.
+    const boxes = await textBoxes(second.window, {
+      fiveHour: fiveHour.getByTestId('limit-five_hour-note'),
+      sevenDay: sevenDay.getByTestId('limit-seven_day-note'),
+      version: second.window.getByTestId('app-version'),
+      search: second.window.locator('.w-toolbar__palette-hint'),
+      // "limit reached" in place of a share: on the label's line, whole.
+      sevenDayValue: sevenDay.getByTestId('limit-seven_day-value'),
+    })
+    expect(boxes.sevenDayValue.cut, '"limit reached" is cut').toBe(false)
+    expect(boxes.sevenDayValue.height, '"limit reached" is one line').toBeLessThan(20)
+    const toolbar = await second.window.getByRole('banner').boundingBox()
+    for (const [a, b] of [['fiveHour', 'sevenDay'], ['sevenDay', 'version'], ['sevenDay', 'search'], ['fiveHour', 'version'], ['fiveHour', 'search']] as const) {
+      expect(overlap(boxes[a], boxes[b]), `${a} ${JSON.stringify(boxes[a])} and ${b} ${JSON.stringify(boxes[b])}`).toBe(false)
+    }
+    for (const name of ['fiveHour', 'sevenDay'] as const) {
+      expect(boxes[name].cut, `${name} note is cut`).toBe(false)
+      expect(boxes[name].y >= toolbar!.y && boxes[name].y + boxes[name].height <= toolbar!.y + toolbar!.height, `${name} note inside the toolbar`).toBe(true)
+    }
+    // The full note is the tooltip; on screen the reset time and "as of" are two lines.
+    await expect(fiveHour.getByTestId('limit-five_hour-note')).toHaveAttribute('title', /^resets \d\d:\d\d · as of [A-Z][a-z]{2} \d\d:\d\d$/)
+    await expect(fiveHour.getByTestId('limit-five_hour-resets')).toHaveText(/^resets \d\d:\d\d$/)
+    await expect(fiveHour.getByTestId('limit-five_hour-as-of')).toHaveText(/^as of [A-Z][a-z]{2} \d\d:\d\d$/)
+    await expect(sevenDay.getByTestId('limit-seven_day-note')).toHaveAttribute('title', /^resets [A-Z][a-z]{2} \d\d:\d\d · as of [A-Z][a-z]{2} \d\d:\d\d$/)
+    await second.window.getByRole('banner').screenshot({ path: test.info().outputPath('toolbar-limits-as-of.png') })
 
     // The status line bridge's file, replaced by a rename as the script does it.
     const temporary = join(dataDir, '.statusline-limits.json.e2e')
