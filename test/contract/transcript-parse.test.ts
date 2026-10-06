@@ -250,3 +250,47 @@ describe('the claudeHome.transcript answer', () => {
     expect(claudeHomeTranscript.output.safeParse(answer(entriesOf(S6))).success).toBe(false)
   })
 })
+
+// Hook attachments in the shape Claude Code 2.1.291 writes them (worfy-daily ticket 25): a
+// SessionStart hook's systemMessage and additionalContext come as attachments of their own, with
+// the text in `content` (a string, an array of strings) and no command, exit code or stdout.
+describe('transcript parsing of hook attachments', () => {
+  const line = (attachment: Record<string, unknown>) =>
+    JSON.stringify({ type: 'attachment', uuid: 'u1', timestamp: '2026-10-06T10:00:00.000Z', isSidechain: false, attachment })
+  const eventOf = (attachment: Record<string, unknown>) => parseTranscriptLine(line(attachment)).map((entry) => entry.event)
+
+  it('reads hook_system_message as a successful hook with its text', () => {
+    const events = eventOf({ type: 'hook_system_message', content: 'Worktree /tmp/x is ready', hookName: 'SessionStart:startup', toolUseID: 't1', hookEvent: 'SessionStart' })
+    expect(events).toStrictEqual([
+      { type: 'hook', hookEvent: 'SessionStart', hookName: 'SessionStart:startup', exitCode: null, outcome: 'success', stdout: 'Worktree /tmp/x is ready', stderr: '' },
+    ])
+  })
+
+  it('reads hook_additional_context as a successful hook with its texts, one per line', () => {
+    const events = eventOf({ type: 'hook_additional_context', content: ['## Rules', 'Second context'], hookName: 'SessionStart', toolUseID: 'SessionStart', hookEvent: 'SessionStart' })
+    expect(events).toStrictEqual([{ type: 'hook', hookEvent: 'SessionStart', hookName: 'SessionStart', exitCode: null, outcome: 'success', stdout: '## Rules\nSecond context', stderr: '' }])
+  })
+
+  it('keeps the error outcomes and their text', () => {
+    expect(
+      eventOf({ type: 'hook_non_blocking_error', hookName: 'SessionStart:startup', hookEvent: 'SessionStart', stderr: 'node: not found', stdout: '', exitCode: 127, command: 'lock claim' }),
+    ).toStrictEqual([{ type: 'hook', hookEvent: 'SessionStart', hookName: 'lock claim', exitCode: 127, outcome: 'non_blocking_error', stdout: '', stderr: 'node: not found' }])
+    expect(eventOf({ type: 'hook_error_during_execution', content: 'spawn failed', hookName: 'PostToolUse:Edit', hookEvent: 'PostToolUse' })).toStrictEqual([
+      { type: 'hook', hookEvent: 'PostToolUse', hookName: 'PostToolUse:Edit', exitCode: null, outcome: 'error_during_execution', stdout: '', stderr: 'spawn failed' },
+    ])
+    expect(
+      eventOf({ type: 'hook_blocking_error', hookName: 'PreToolUse:Bash', hookEvent: 'PreToolUse', blockingError: { blockingError: 'git push refused', command: 'guard.mjs' } }),
+    ).toStrictEqual([{ type: 'hook', hookEvent: 'PreToolUse', hookName: 'guard.mjs', exitCode: null, outcome: 'blocking_error', stdout: '', stderr: 'git push refused' }])
+    expect(eventOf({ type: 'hook_stopped_continuation', message: 'gate red', hookName: 'PostToolUse:Bash', hookEvent: 'PostToolUse' })).toStrictEqual([
+      { type: 'hook', hookEvent: 'PostToolUse', hookName: 'PostToolUse:Bash', exitCode: null, outcome: 'stopped_continuation', stdout: 'gate red', stderr: '' },
+    ])
+    expect(eventOf({ type: 'hook_cancelled', hookName: 'Stop', hookEvent: 'Stop', command: 'stop.sh', timedOut: true })).toStrictEqual([
+      { type: 'hook', hookEvent: 'Stop', hookName: 'stop.sh', exitCode: null, outcome: 'cancelled', stdout: '', stderr: '' },
+    ])
+  })
+
+  it('drops a successful output attachment with no text, as it drops a quiet hook', () => {
+    expect(eventOf({ type: 'hook_system_message', content: '', hookName: 'SessionStart:startup', hookEvent: 'SessionStart' })).toStrictEqual([])
+    expect(eventOf({ type: 'hook_additional_context', content: [], hookName: 'SessionStart', hookEvent: 'SessionStart' })).toStrictEqual([])
+  })
+})

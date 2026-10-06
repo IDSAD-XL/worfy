@@ -37,10 +37,11 @@ Code принимает. Это проверяется вживую, итог �
 
 ## Готово, когда
 
-- [ ] Фикстура `system/init` и `supportedCommands()` с обеими формами имён plugin skill и MCP prompt: у каждой команды одна строка, с описанием. Unit-test.
+- [x] Фикстура `system/init` и `supportedCommands()` с обеими формами имён plugin skill и MCP prompt: у каждой команды одна строка, с описанием. Unit-test.
 - [ ] (вручную) Собранное приложение, настоящий Claude Code: команда plugin skill и MCP prompt, выбранные из меню после первого хода, запускаются. Итог — в «Итог».
-- [ ] Вложения `hook_system_message` и `hook_additional_context` из транскрипта разбираются как успешный hook с текстом: contract-test на фикстуре.
-- [ ] Session view рисует их без красного креста и с текстом; hook с ненулевым exit code — с крестом, как раньше. Unit-test.
+  не проверено: агенту Ticket-а запрещено запускать настоящий Claude Code (запись в `~/.claude`) и GUI-проверки; пункт — для Orchestrator-а или владельца.
+- [x] Вложения `hook_system_message` и `hook_additional_context` из транскрипта разбираются как успешный hook с текстом: contract-test на фикстуре.
+- [x] Session view рисует их без красного креста и с текстом; hook с ненулевым exit code — с крестом, как раньше. Unit-test.
 
 ## Тесты
 
@@ -57,3 +58,58 @@ Code принимает. Это проверяется вживую, итог �
 - `test/unit/slash-commands.test.ts`
 - `test/contract/transcript-parse.test.ts`
 - `test/unit/transcript-hooks.test.tsx` (новый)
+
+## Итог
+
+**1. Slash-меню.** Как Claude Code 2.1.291 пишет имена (прочитано в его бинарнике, функции
+`system/init` и ответа `initialize`): `slash_commands` и `skills` в `system/init` несут собственное
+имя команды, `supportedCommands()` — имя из меню Claude Code, а собственное кладёт в `aliases`, когда
+оно другое и в нём есть `:`.
+
+- plugin skill: `anthropic-skills:docs` в `system/init`, `docs` с `aliases: ["anthropic-skills:docs"]`
+  в `supportedCommands()`;
+- MCP prompt: `mcp__github__AssignCodingAgent` в `system/init`, `github:AssignCodingAgent (MCP)` в
+  `supportedCommands()`, без alias. Часть сервера в собственном имени — имя сервера, где всё, кроме
+  `[a-zA-Z0-9_-]`, заменено на `_` (у серверов `claude.ai …` ещё схлопнуты `_`).
+
+`CommandCatalog.list` (`src/main/agent/commands.ts`) сводит строку `supportedCommands()` (или
+`system/commands_changed`) и имя `system/init` одной команды в одну строку: описание и подсказка —
+из строки, имя — из `system/init`, пометка `skill` — по `skills`. Alias, который совпадает с
+показанным именем другой строки (`/cost` у `/usage`, когда есть строка `/cost`), команду не
+забирает. До первого хода (`system/init` ещё нет) MCP prompt получает имя `mcp__<сервер>__<prompt>`
+вместо имени с пробелом: поле ввода считает имя команды до первого пробела.
+
+Решено без владельца, подтвердить: в поле вставляется собственное имя (`/anthropic-skills:docs`,
+`/mcp__github__AssignCodingAgent`), а не имя из меню Claude Code. Довод: по собственному имени
+Claude Code находит команду всегда, а короткое `docs` может совпасть со встроенной командой или
+skill-ом пользователя (в `SlashCommand.builtin` SDK описано, что тогда `/docs` запускает встроенную).
+Цена: до первого хода plugin skill в меню — `/docs`, после — `/anthropic-skills:docs`. Что обе формы
+запускаются в настоящем Claude Code, не проверено — ручной пункт выше открыт.
+
+**2. Выводы hook-ов.** Типы вложений hook-ов в транскриптах Claude Code (транскрипты в
+`~/.claude/projects`, только чтение, и бинарник 2.1.291):
+
+- вывод успешного hook-а: `hook_success` (stdout, exitCode), `hook_system_message` (`content` —
+  строка), `hook_additional_context` (`content` — массив строк);
+- ошибки: `hook_non_blocking_error` (stderr, exitCode), `hook_blocking_error`
+  (`blockingError.blockingError`, `blockingError.command`), `hook_error_during_execution`
+  (`content`), `hook_cancelled` (timedOut), `hook_stopped_continuation` (`message`: hook остановил ход);
+- не ошибки и не вывод: `hook_permission_decision`, `hook_deferred_tool`.
+
+`src/shared/transcript/parse.ts`: `hook_system_message` и `hook_additional_context` — исход
+`success`, текст `content` в stdout (строки массива через перевод строки); пустой `content` —
+hook не показывается, как молчаливый hook. Текст ошибки `hook_error_during_execution` и
+`hook_blocking_error` — в stderr, `message` у `hook_stopped_continuation` — в stdout.
+
+`src/renderer/session/Transcript.tsx`: крест — у исходов `error`, `cancelled` (live Session,
+`hook_response`), `blocked` (сводка Stop hook-ов) и пяти ошибок выше, и у ненулевого exit code.
+Остальные исходы — галочка.
+
+Снимок: собранное приложение, транскрипт внешней Session с четырьмя hook-ами SessionStart —
+[25-hook-rows.png](../evidence/25-hook-rows.png). Три успешных с галочкой и текстом, крест только у
+`exit 127`.
+
+Test-ы: `test/unit/slash-commands.test.ts` (обе формы имён, `commands_changed`, до `system/init`,
+alias чужой строки), `test/contract/transcript-parse.test.ts` (раздел «hook attachments»),
+`test/unit/transcript-hooks.test.tsx` (новый).
+
