@@ -1,7 +1,7 @@
 # 06 — MCP-серверы Session по списку из Profile
 
 Type: task
-Status: open
+Status: claimed — 2026-10-06
 Blocked by: 05, 29
 Source: [spec.md](../spec.md), тема B, риски 8 и 13; [ADR-0021](../../../docs/adr/0021-mcp-servers-allowlist-in-profile.md); [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md); [ADR-0020](../../../docs/adr/0020-profile-shared-and-personal-parts.md)
 
@@ -49,12 +49,12 @@ haiku от этого падает «Prompt too long». Profile worfy не чи�
 
 ## Готово, когда
 
-- [ ] В «Итог» записан способ ограничить серверы в SDK при `settingSources` пользователя, с версиями Claude Code и SDK.
-- [ ] `profile.ts` покрыт test-ами на каждый случай: код 0 со списком, код 3, код 4, нет скрипта, сломанный JSON. Во всех отказных случаях — список по умолчанию `qmd` и `worfy-canvas`.
-- [ ] Session в Project получает только серверы из списка, `worfy-canvas` — если он в списке. Session вне Project работает как раньше.
-- [ ] (вручную) Живая Session на Project worfy: в `system/init` только серверы из списка. Число tools до и после — в «Итог».
-- [ ] (вручную) Subagent этой Session и Subagent workflow-скрипта видят тот же набор серверов — по tools в их транскриптах. Итог — в «Итог».
-- [ ] worfy не пишет в `~/.claude` и в репозиторий Project: test сравнивает деревья временных папок до и после.
+- [x] В «Итог» записан способ ограничить серверы в SDK при `settingSources` пользователя, с версиями Claude Code и SDK.
+- [x] `profile.ts` покрыт test-ами на каждый случай: код 0 со списком, код 3, код 4, нет скрипта, сломанный JSON. Во всех отказных случаях — список по умолчанию `qmd` и `worfy-canvas`.
+- [x] Session в Project получает только серверы из списка, `worfy-canvas` — если он в списке. Session вне Project работает как раньше.
+- [ ] (вручную) Живая Session на Project worfy: в `system/init` только серверы из списка. Число tools до и после — в «Итог». Не проверено: живая Session пишет транскрипт в `~/.claude/projects`, а исполнителю запись в `~/.claude` запрещена; проверка — за владельцем.
+- [ ] (вручную) Subagent этой Session и Subagent workflow-скрипта видят тот же набор серверов — по tools в их транскриптах. Итог — в «Итог». Не проверено: нужен ход модели, а значит живая Session с записью в `~/.claude`; проверка — за владельцем.
+- [x] worfy не пишет в `~/.claude` и в репозиторий Project: test сравнивает деревья временных папок до и после.
 
 ## Тесты
 
@@ -69,3 +69,55 @@ haiku от этого падает «Prompt too long». Profile worfy не чи�
 - `src/main/agent/app-registry.ts`
 - `test/contract/workflow-profile.test.ts` (новый)
 - `test/unit/agent-options.test.ts` (из 02: файл создаёт Ticket 02)
+
+## Итог
+
+Сделано в ветке `worfy-daily/06`.
+
+- **Способ (проверка до кода).** Claude Code 2.1.289, `@anthropic-ai/claude-agent-sdk` 0.3.289.
+  Список уходит в Claude Code как policy-уровень настроек — опция SDK `managedSettings`:
+  `{ allowManagedMcpServersOnly: true, allowedMcpServers: [{ serverName: <имя> }, …] }`.
+  `settingSources` остаются `['user', 'project', 'local']`, поэтому `CLAUDE.md`, hooks и skills
+  пользователя приходят как раньше (ADR-0002); `strictMcpConfig` и замена `mcpServers` не нужны,
+  и `qmd` из конфигурации пользователя остаётся.
+- **Как проверено.** Скрипт на SDK в изолированном `HOME` и `CLAUDE_CONFIG_DIR` во временной папке
+  (не в `~/.claude`): три stdio-сервера пользователя (`qmd`, `github`, `datadog`), сервер проекта из
+  `.mcp.json` и in-process `worfy-canvas`; читалось сообщение `system/init` (`mcp_servers`, `tools`),
+  до ответа модели.
+  - Без `managedSettings`: все пять серверов, MCP tools у четырёх подключённых.
+  - С `allowedMcpServers` [`qmd`, `worfy-canvas`]: в `mcp_servers` только `qmd` и `worfy-canvas`;
+    сервер проекта тоже отфильтрован.
+  - `allowedMcpServers` в `settings.json` пользователя (`github`) **расширяет** список из
+    `managedSettings`: списки разрешённых объединяются по уровням. `allowManagedMcpServersOnly: true`
+    это закрывает — `github` снова отфильтрован.
+  - In-process сервер из опции `mcpServers` (`worfy-canvas`) политикой **не фильтруется**: он
+    остаётся, даже когда его нет в списке. Поэтому `options.ts` передаёт `worfy-canvas` (и
+    инструкции Canvas в system prompt) только тогда, когда список его называет.
+- **Поле Profile — `mcp.allowed`**: массив имён MCP-серверов, например `["qmd", "worfy-canvas"]`.
+  Пустой массив `[]` — ни одного сервера. Поле в свой Profile и в `~/.claude/profiles/README.md`
+  владелец вносит вручную: worfy в `~/.claude` не пишет.
+- **`src/main/workflow/profile.ts`** — `readMcpAllowlist` запускает
+  `<claudeHome>/bin/profile -C <cwd> --field mcp.allowed` с cwd Session и с окружением login
+  shell (`agentEnv()`, то же, что получает Session): скрипт начинается с `#!/usr/bin/env node`, а у
+  `.app`, запущенного из Finder, в PATH только системные каталоги, и node там нет. Список по умолчанию
+  `qmd`, `worfy-canvas` с причиной в логе (`[profile] MCP servers for <cwd>: the default list …,
+  because …`) — при коде 3, коде 4, отсутствии скрипта, другом коде, таймауте, ответе не-JSON,
+  `null` и не списке имён.
+- **`app-registry.ts`.** Список читается, только когда Session в Project (к ней подключён Canvas).
+  Session вне Project, а также Session, чей Canvas не поднялся, получает серверы пользователя
+  как раньше: `managedSettings` не передаётся.
+- **Subagent-ы.** Политика действует на весь процесс Claude Code, поэтому Subagent-ы Session и
+  Subagent-ы workflow-скриптов должны получать тот же набор; по документации SDK
+  `allowedMcpServers` покрывает и серверы из frontmatter агентов, плагинов и коннекторов claude.ai.
+  Вживую не проверено (см. «Готово, когда»).
+- **Замер.** В изолированной проверке: 26 tools без списка, 24 со списком (минус два tools
+  отфильтрованных серверов). Число tools на Project worfy до и после — не замерено, это ручная
+  проверка владельца: нужна живая Session с конфигурацией пользователя.
+- **Ограничение.** Если на машине есть админский уровень managed settings (MDM,
+  `managed-settings.json`), `managedSettings` от SDK по умолчанию отбрасываются. Сейчас такого
+  уровня нет: `/Library/Application Support/ClaudeCode/` отсутствует.
+- **Test-ы.** `test/contract/workflow-profile.test.ts` — каждый код выхода, нет скрипта,
+  сломанный JSON; настоящий runner против подставного `bin/profile` во временной Claude home;
+  снимки деревьев временной Claude home и папки Project до и после совпадают; передача списка из
+  `sdkQueryFactory` в `query()`. `test/unit/agent-options.test.ts` — набор серверов со списком
+  `[qmd]`, по умолчанию, с пустым списком, без списка, вне Project.

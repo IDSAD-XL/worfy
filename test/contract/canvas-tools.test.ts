@@ -551,7 +551,7 @@ describe('canvas in a Session', () => {
 
   it('a Session in a Project gets the worfy-canvas server, the Cards folder and the agent instructions in its system prompt', async () => {
     const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
-    await sdkQueryFactory((input) => server.canvasForSession(input, deps()))(request(repo))
+    await sdkQueryFactory((input) => server.canvasForSession(input, deps()), () => Promise.resolve(['qmd', CANVAS_SERVER_NAME]))(request(repo))
     const options = sdkOptions()
     const cardsDir = join(dataDir, PROJECT, 'cards')
     expect(statSync(cardsDir).isDirectory()).toBe(true)
@@ -571,7 +571,7 @@ describe('canvas in a Session', () => {
     const worktree = join(repo, '.claude', 'worktrees', '24')
     mkdirSync(worktree, { recursive: true })
     const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
-    await sdkQueryFactory((input) => server.canvasForSession(input, deps()))(request(worktree))
+    await sdkQueryFactory((input) => server.canvasForSession(input, deps()), () => Promise.resolve(['qmd', CANVAS_SERVER_NAME]))(request(worktree))
     expect(sdkOptions().additionalDirectories).toEqual([join(dataDir, PROJECT, 'cards')])
   })
 
@@ -726,7 +726,7 @@ describe('canvas in a Session', () => {
     const before = tree(repo)
 
     const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
-    for (const cwd of [repo, worktree]) await sdkQueryFactory((input) => server.canvasForSession(input, deps()))(request(cwd))
+    for (const cwd of [repo, worktree]) await sdkQueryFactory((input) => server.canvasForSession(input, deps()), () => Promise.resolve(['qmd', CANVAS_SERVER_NAME]))(request(cwd))
     store.apply(PROJECT, orchestrator())
     const canvas = await server.canvasForSession({ cwd: worktree, resume: undefined }, deps())
     if (canvas === null) throw new Error('no canvas for the worktree')
