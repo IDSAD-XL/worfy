@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, screen, session, type HandlerDetails, type WindowOpenHandlerResponse } from 'electron'
 import { MIN_SIZE, initialBounds, parseWindowState, serializeWindowState, type Rect } from '../shared/window/bounds'
 import { allowFrameNavigation } from './cards/protocol'
+import { reportStartupFailure } from './startup-failure'
 import { dataRoot } from './storage/paths'
 
 /** Path of the file that remembers the window's position and size (ADR 0005: worfy's own state). */
@@ -30,7 +31,34 @@ function saveBounds(file: string, bounds: Rect): void {
   }
 }
 
-export function createMainWindow(): BrowserWindow {
+export interface MainWindowOptions {
+  /**
+   * The window src/main/index.ts creates as the last step of the start. Only for it does a page
+   * that fails to load stop the app with the startup error window.
+   */
+  firstOfStart?: boolean
+}
+
+/**
+ * How long a load that ended as if replaced waits for the navigation that replaced it. Chromium
+ * may stop the load (did-stop-loading) a moment before it starts the next navigation.
+ */
+export const REPLACED_LOAD_GRACE_MS = 1_000
+
+/**
+ * Whether a rejected loadURL / loadFile ended the way a load replaced by another navigation ends
+ * in Electron 44: ERR_ABORTED (-3) when the newer navigation started first, ERR_FAILED (-2) when
+ * Chromium stopped this load before starting the newer one (test/e2e/window.spec.ts pins both).
+ * The rejection alone does not prove a replacement: webContents.stop() and a closed window end a
+ * load the same way. createMainWindow also requires that a newer navigation has started.
+ */
+export function loadEndedAsReplaced(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const { code, errno } = error as { code?: unknown; errno?: unknown }
+  return code === 'ERR_ABORTED' || errno === -3 || code === 'ERR_FAILED' || errno === -2
+}
+
+export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow {
   const stateFile = windowStatePath()
   const bounds = initialBounds(
     readSavedBounds(stateFile),
@@ -69,11 +97,49 @@ export function createMainWindow(): BrowserWindow {
     window.show()
   })
 
+  // Navigations of the main frame to a new document: the first is the load below, any later one
+  // replaces it (View ▸ Reload, a Vite reload under `pnpm dev`). Same-document navigations
+  // (a fragment, history.pushState) and frames (Cards) replace nothing.
+  let navigations = 0
+  let onNewerNavigation: (() => void) | undefined
+  window.webContents.on('did-start-navigation', (details) => {
+    if (!details.isMainFrame || details.isSameDocument) return
+    navigations += 1
+    if (navigations > 1) onNewerNavigation?.()
+  })
+
+  // The first window of the start whose page does not load leaves the start without a window: say
+  // so and exit (startup-failure.ts). Any other failed load is only logged: a window opened later
+  // (Dock icon, a second start, a notification) must not end an app with live Sessions, and
+  // app.exit would skip the will-quit handlers that save the Layout. A load replaced by a newer
+  // navigation is no failure at all, and a window closed while loading is not one either.
+  const failed = (step: 'loadURL' | 'loadFile', error: unknown): void => {
+    if (window.isDestroyed()) return
+    if (options.firstOfStart === true) {
+      reportStartupFailure(error, step)
+    } else {
+      console.error(`[worfy] the window could not load its page (${step})`, error)
+    }
+  }
+  const loaded = (step: 'loadURL' | 'loadFile') => (error: unknown) => {
+    if (window.isDestroyed()) return
+    if (!loadEndedAsReplaced(error)) return failed(step, error)
+    if (navigations > 1) return
+    // Ended as if replaced, with no newer navigation yet: wait a moment for it, then call it a failure.
+    const timer = setTimeout(() => {
+      onNewerNavigation = undefined
+      failed(step, error)
+    }, REPLACED_LOAD_GRACE_MS)
+    onNewerNavigation = () => {
+      onNewerNavigation = undefined
+      clearTimeout(timer)
+    }
+  }
   const { indexHtml, devServerUrl } = rendererEntry()
   if (devServerUrl) {
-    void window.loadURL(devServerUrl)
+    window.loadURL(devServerUrl).catch(loaded('loadURL'))
   } else {
-    void window.loadFile(indexHtml)
+    window.loadFile(indexHtml).catch(loaded('loadFile'))
   }
   return window
 }
