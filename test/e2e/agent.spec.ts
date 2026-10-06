@@ -40,8 +40,9 @@ test('a Session started from the renderer streams its events back: busy, result,
     expect(states.slice(-2)).toEqual(['busy', 'idle'])
     expect(envelopes.find((e) => e.event.type === 'result')?.event).toMatchObject({ isError: false })
     expect(envelopes.find((e) => e.event.type === 'text')?.event.text).toBe('Hello from the fake agent')
-    const renamed = envelopes.find((e) => e.event.type === 'renamed')
-    expect(renamed?.sessionId).toMatch(/^[0-9a-f-]{36}$/)
+    const init = envelopes.find((e) => e.event.type === 'init')
+    expect(init?.sessionId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(envelopes.find((e) => e.event.type === 'renamed')).toBeUndefined()
   } finally {
     await launched.close()
     await rm(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })

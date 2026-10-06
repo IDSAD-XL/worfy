@@ -164,7 +164,7 @@ describe('Orchestrator Node', () => {
     const [first, second] = await Promise.all([h.orchestrators.open(PROJECT), h.orchestrators.open(PROJECT)])
     const node = h.node()
     expect(node).toMatchObject({ id: first.nodeId, kind: 'orchestrator', locked: true, x: 40, y: 40, w: ORCHESTRATOR_WIDTH, h: ORCHESTRATOR_HEIGHT })
-    expect(first).toMatchObject({ projectId: PROJECT, sessionId: expect.stringMatching(/^pending-/) as unknown })
+    expect(first).toMatchObject({ projectId: PROJECT, sessionId: h.requests[0]?.sessionId ?? 'no session id asked for' })
     expect(second.sessionId).toBe(first.sessionId)
     expect((await h.orchestrators.open(PROJECT)).sessionId).toBe(first.sessionId)
     expect(h.requests).toHaveLength(1)
@@ -252,7 +252,7 @@ describe('Orchestrator Session', () => {
     expect(versions).toEqual([...versions].sort((a, b) => a - b))
     expect(new Set(versions).size).toBe(versions.length)
     expect(h.broadcast.filter((e) => e.event.type === 'result')).toHaveLength(3)
-    expect(h.broadcast.find((e) => e.event.type === 'renamed')).toEqual({ sessionId: sdkId, event: { type: 'renamed', from: tempId } })
+    expect(h.broadcast.find((e) => e.event.type === 'renamed')).toBeUndefined()
   })
 
   it('after a restart resumes the saved session, shows its transcript rather than anything kept, and keeps counting its cost', async () => {

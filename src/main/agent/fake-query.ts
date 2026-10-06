@@ -30,9 +30,17 @@
 //                                    localSettings / projectSettings write <cwd>/.claude/settings.local.json
 //                                    / settings.json, userSettings writes <settingsHome>/settings.json
 //                                    (FakeQueryOptions; not applied without it)
-// In SDK messages, "{{session}}" becomes the SDK session id (a new uuid, or the id passed as
-// `resume`) and "{{cwd}}" the Session's cwd. After the last line the script starts over, so one
-// script serves any number of turns; it ends when the Session closes its input.
+// In SDK messages, "{{session}}" becomes the SDK session id (the id passed as `resume`, else the one
+// passed as `sessionId`, else a new uuid) and "{{cwd}}" the Session's cwd. After the last line the
+// script starts over, so one script serves any number of turns; it ends when the Session closes its
+// input.
+//
+// With `registryHome` (FakeQueryOptions) the fake agent registers itself as Claude Code does as
+// soon as it starts, before any system/init (worfy-daily ticket 24): <registryHome>/sessions/<n>.json
+// with that session id, its cwd and `entrypoint: "sdk-ts"`, removed when the query ends or closes.
+// The entry's pid is the process the fake agent runs in, so the registry finds it alive; `n` is a
+// number of its own per query, as each Claude Code process has its own pid. Without the option it
+// writes nothing.
 //
 // Head lines (account, models, commands) configure the fake agent and are not played; they may
 // stand anywhere, the first of each kind counts. A new directive is one entry in DIRECTIVES and,
@@ -48,7 +56,7 @@
 // background tasks live — by the last system/background_tasks_changed the fake agent played, not
 // counting ambient ones — is recorded with their ids: Claude Code would kill them (ticket 29).
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SessionSettings } from '../../shared/agent/settings'
 import type { CommandInfoLike } from './commands'
@@ -213,6 +221,23 @@ function liveTaskIds(message: unknown): string[] | null {
   return (value.tasks as { task_id?: unknown; ambient?: unknown }[]).filter((task) => task.ambient !== true).map((task) => String(task.task_id))
 }
 
+/** Registry entries written by fake queries of this process; numbers their files. */
+let registered = 0
+
+/**
+ * Writes the registry entry of a fake Claude Code that has just started, as the real one writes
+ * ~/.claude/sessions/<pid>.json (src/main/claude-home/registry.ts reads it): the file's path.
+ */
+function register(home: string, sessionId: string, cwd: string): string {
+  const dir = join(home, 'sessions')
+  mkdirSync(dir, { recursive: true })
+  registered += 1
+  const file = join(dir, `${process.pid}${String(registered).padStart(4, '0')}.json`)
+  const entry = { pid: process.pid, sessionId, cwd, entrypoint: 'sdk-ts', kind: 'sdk', name: `auto-${sessionId.slice(0, 8)}`, startedAt: Date.now() }
+  writeFileSync(file, JSON.stringify(entry))
+  return file
+}
+
 const isInit = (message: unknown): message is Record<string, unknown> =>
   typeof message === 'object' && message !== null && (message as Record<string, unknown>).type === 'system' && (message as Record<string, unknown>).subtype === 'init'
 
@@ -246,6 +271,8 @@ class FakeQuery implements QueryHandle {
   private readonly session: string
   /** Signals of the permission requests now open; Interrupt and close abort them. */
   private readonly requests = new Set<AbortController>()
+  /** The file of this query's entry in the registry of live Sessions, while it stands there. */
+  private registryEntry: string | null
 
   constructor(
     path: string,
@@ -253,8 +280,10 @@ class FakeQuery implements QueryHandle {
     private readonly record: (call: FakeCall) => void,
     private readonly settingsHome: string | null,
     private readonly releases: FakeReleases,
+    registryHome: string | null,
   ) {
-    this.session = request.resume ?? randomUUID()
+    this.session = request.resume ?? request.sessionId ?? randomUUID()
+    this.registryEntry = registryHome === null ? null : register(registryHome, this.session, request.cwd)
     const lines = parseScript(path, this.session, request.cwd)
     this.steps = lines.filter((line): line is Step => line.kind !== 'config')
     const config = configOf(lines)
@@ -422,9 +451,26 @@ class FakeQuery implements QueryHandle {
     this.abortRequests()
     this.wakeInterrupt?.()
     this.wake()
+    this.unregister()
+  }
+
+  /** Claude Code's entry leaves the registry with its process. */
+  private unregister(): void {
+    const file = this.registryEntry
+    this.registryEntry = null
+    if (file !== null) rmSync(file, { force: true })
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<unknown> {
+    try {
+      yield* this.play()
+    } finally {
+      // The process ended: by exit, crash or close.
+      this.unregister()
+    }
+  }
+
+  private async *play(): AsyncGenerator<unknown> {
     this.readInput()
     const body = this.steps
     if (body.length === 0) return
@@ -495,6 +541,11 @@ export interface FakeQueryOptions {
    * `release` on `globalThis.worfyFakeRelease`, where an e2e test reaches it (app.evaluate).
    */
   releases?: FakeReleases | undefined
+  /**
+   * Stands for ~/.claude when the fake agent registers itself in <registryHome>/sessions, as Claude
+   * Code does before system/init; without it nothing is written.
+   */
+  registryHome?: string | undefined
 }
 
 export function fakeQueryFactory(options: FakeQueryOptions): QueryFactory {
@@ -508,6 +559,6 @@ export function fakeQueryFactory(options: FakeQueryOptions): QueryFactory {
   const shared = releases
   return (request) => {
     const name = typeof options.script === 'string' ? options.script : options.script(request)
-    return Promise.resolve(new FakeQuery(join(options.scriptsDir, `${name}.jsonl`), request, record, options.settingsHome ?? null, shared))
+    return Promise.resolve(new FakeQuery(join(options.scriptsDir, `${name}.jsonl`), request, record, options.settingsHome ?? null, shared, options.registryHome ?? null))
   }
 }

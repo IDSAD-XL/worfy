@@ -48,6 +48,30 @@ describe('sessionOptions of an unattended Session', () => {
   })
 })
 
+// worfy-daily ticket 24: a new Session names its SDK session (`--session-id`), so its id is known
+// before system/init. Claude Code 0.3.289 refuses --session-id with --resume unless --fork-session.
+describe('the SDK session id of a Session', () => {
+  const ID = 'f0000000-0000-4000-8000-000000000024'
+
+  it('is passed as `sessionId` to a new Session', () => {
+    const options = sessionOptions(input({ sessionId: ID }))
+    expect(options.sessionId).toBe(ID)
+    expect(options.resume).toBeUndefined()
+  })
+
+  it('is not passed with `resume`: the resumed session keeps its own', () => {
+    const options = sessionOptions(input({ resume: 'f0000000-0000-4000-8000-000000000001', sessionId: ID }))
+    expect(options.resume).toBe('f0000000-0000-4000-8000-000000000001')
+    expect(options).not.toHaveProperty('sessionId')
+    expect(options).not.toHaveProperty('forkSession')
+    expect(options).not.toHaveProperty('continue')
+  })
+
+  it('is left to Claude Code when none is given', () => {
+    expect(sessionOptions(input({}))).not.toHaveProperty('sessionId')
+  })
+})
+
 const canvasServer = { type: 'sdk', name: CANVAS_SERVER_NAME } as unknown as McpServerConfig
 const canvas: CanvasAttachment = { server: canvasServer, cardsDir: '/data/project/cards', instructions: 'Use the worfy-canvas tools.' }
 

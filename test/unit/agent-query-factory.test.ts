@@ -1,7 +1,7 @@
 // How a Session's Claude Code is started (src/main/agent/app-registry.ts): the real SDK unless
 // WORFY_AGENT=fake, with the login shell environment from env.ts rather than worfy's own, and the
 // unpacked native binary in the packaged app. The SDK's query() and agentEnv() are mocked.
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -107,6 +107,21 @@ describe('sdkQueryFactory', () => {
     ])
   })
 
+  it('names the SDK session of a new Session with the id the Session asks for (worfy-daily ticket 24)', async () => {
+    const id = 'f0000000-0000-4000-8000-000000000024'
+    await sdkQueryFactory()({ ...request(), resume: undefined, sessionId: id })
+    const options = sdkOptions()
+    expect(options.sessionId).toBe(id)
+    expect(options).not.toHaveProperty('resume')
+  })
+
+  it('passes no session id with `resume`: Claude Code refuses --session-id with --resume', async () => {
+    await sdkQueryFactory()({ ...request(), sessionId: 'f0000000-0000-4000-8000-000000000024' })
+    const options = sdkOptions()
+    expect(options.resume).toBe('sdk-123')
+    expect(options).not.toHaveProperty('sessionId')
+  })
+
   it('lets the SDK find Claude Code itself when worfy is not packaged', async () => {
     await sdkQueryFactory()(request())
     expect(sdkOptions()).not.toHaveProperty('pathToClaudeCodeExecutable')
@@ -137,5 +152,26 @@ describe('queryFactoryFromEnv', () => {
     expect(mocks.query).not.toHaveBeenCalled()
     expect(mocks.agentEnv).not.toHaveBeenCalled()
     query.close()
+  })
+
+  it('lets the fake agent write its registry entry to WORFY_CLAUDE_HOME only with WORFY_AGENT_REGISTRY=1', async () => {
+    const scriptsDir = join(import.meta.dirname, '..', 'fixtures', 'agent-scripts')
+    const home = join(dataDir, 'claude-home')
+    const fake = { WORFY_AGENT: 'fake', WORFY_AGENT_SCRIPTS: scriptsDir, WORFY_AGENT_SCRIPT: 'turn', WORFY_CLAUDE_HOME: home }
+    const sessions = join(home, 'sessions')
+    const fresh = { ...request(), resume: undefined, sessionId: 'f0000000-0000-4000-8000-000000000024' }
+
+    // Without the flag nothing is written to the Claude home, as with the real agent (ADR-0005).
+    const quiet = await queryFactoryFromEnv(fake)(fresh)
+    expect(existsSync(home)).toBe(false)
+    quiet.close()
+
+    const registering = await queryFactoryFromEnv({ ...fake, WORFY_AGENT_REGISTRY: '1' })(fresh)
+    const files = readdirSync(sessions)
+    expect(files).toHaveLength(1)
+    expect(JSON.parse(readFileSync(join(sessions, files[0] ?? ''), 'utf8'))).toMatchObject({ sessionId: fresh.sessionId, cwd: fresh.cwd, entrypoint: 'sdk-ts' })
+    registering.close()
+    expect(readdirSync(sessions)).toEqual([])
+    expect(mocks.query).not.toHaveBeenCalled()
   })
 })

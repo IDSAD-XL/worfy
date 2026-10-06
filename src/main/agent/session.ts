@@ -7,6 +7,13 @@
 // the start of a queued turn and makes the Session busy again. When Claude Code dies, the Session
 // goes to `error`; the next send starts a new query that resumes the same SDK session.
 //
+// A new Session names its SDK session itself (worfy-daily ticket 24): its id is a new uuid, passed
+// to Claude Code as `sessionId`, so the id is known before system/init. Claude Code writes that id
+// to ~/.claude/sessions/<pid>.json as soon as it starts; worfy then already knows the entry as its
+// own and makes no read-only Node for it. A resumed Session keeps a temporary `pending-…` id until
+// system/init, as Claude Code may report another id there; a Claude Code process started after
+// one that died before its first turn gets a new uuid, so no two processes are given one id.
+//
 // A message sent while a turn runs waits in the Session's queue (queue.ts) and goes after the
 // turn's `result`, one per turn (ticket 19); Interrupt and a crash hold the queue until "Send
 // queued". The model, effort and permission mode (src/shared/agent/settings.ts) are applied to
@@ -94,6 +101,11 @@ export interface QueryRequest {
   cwd: string
   /** SDK session id to continue. */
   resume: string | undefined
+  /**
+   * The id a new SDK session is to have (SDK option `sessionId`): set when `resume` is not, so the
+   * Session's id is known before system/init. Never set together with `resume`.
+   */
+  sessionId?: string | undefined
   /** Claude Code's stderr, kept to explain a crash. */
   stderr: (data: string) => void
   /** The model, effort and permission mode the query starts with. */
@@ -242,6 +254,8 @@ export class Session {
   private initModel: string | null = null
   /** The background tasks of the current Claude Code process (ADR-0029); a new process starts empty. */
   private taskFold: TaskFold = emptyTaskFold()
+  /** Claude Code processes started for this Session without an SDK session to resume. */
+  private processes = 0
   private liveTaskList: BackgroundTask[] = []
   private readonly queue = new MessageQueue((snapshot) => this.emit({ type: 'queue', ...snapshot }))
   private readonly catalog = new CommandCatalog()
@@ -265,7 +279,8 @@ export class Session {
     /** The user's own effort, read like the model. */
     private readonly userEffort: UserEffortReader = () => readUserEffort(),
   ) {
-    this.current = `pending-${randomUUID()}`
+    // A new Session's id is the SDK session id it asks Claude Code for (begin()).
+    this.current = resume === undefined ? randomUUID() : `pending-${randomUUID()}`
     this.sdkSessionId = resume ?? null
     // A haiku saved before ticket 07 goes back to the default model; the start's `settings` event
     // lets the Orchestrator save the corrected picks.
@@ -497,10 +512,12 @@ export class Session {
     const run: Run = { query: null, input: new InputQueue<SDKUserMessage>(), stderr: [], applied: settings }
     this.run = run
     this.interrupted = false
+    const resume = this.sdkSessionId ?? undefined
     const request: QueryRequest = {
       prompt: run.input,
       cwd: this.cwd,
-      resume: this.sdkSessionId ?? undefined,
+      resume,
+      sessionId: resume === undefined ? this.newSessionId() : undefined,
       stderr: (data) => {
         run.stderr.push(data)
         if (run.stderr.length > STDERR_KEEP) run.stderr.shift()
@@ -510,6 +527,22 @@ export class Session {
       unattended: this.launch.unattended,
     }
     void this.consume(run, request)
+  }
+
+  /**
+   * The id a Claude Code process with no SDK session to resume is asked for: the Session's own id
+   * for its first process. A process started after one that died before its first turn gets a new
+   * id, and the Session is renamed to it: Claude Code may have kept the first one.
+   */
+  private newSessionId(): string {
+    if (this.processes > 0) {
+      const from = this.current
+      this.current = randomUUID()
+      this.onRenamed(from, this.current)
+      this.emit({ type: 'renamed', from })
+    }
+    this.processes += 1
+    return this.current
   }
 
   /**

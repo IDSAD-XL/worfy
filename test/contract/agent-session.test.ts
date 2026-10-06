@@ -1,7 +1,7 @@
 // The Session lifecycle through the `agent.*` IPC channels, on the fake agent
 // (test/fixtures/agent-scripts/): what the renderer sends and the events it gets back.
 import { EventEmitter } from 'node:events'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -34,10 +34,11 @@ afterEach(async () => {
 /**
  * The agent handlers registered on a fake ipcMain, over a registry with the fake agent. `script`
  * picks the scenario for each query the registry starts (a resumed Session starts a new one).
+ * With `registryHome` the fake agent writes its entry to <registryHome>/sessions, as Claude Code does.
  */
-async function harness(script: string | ((request: QueryRequest) => string)) {
+async function harness(script: string | ((request: QueryRequest) => string), registryHome?: string) {
   const requests: QueryRequest[] = []
-  const factory = fakeQueryFactory({ scriptsDir, script })
+  const factory = fakeQueryFactory({ scriptsDir, script, registryHome })
   /** close() of each query the registry started, in start order. */
   const closes: MockInstance<() => void>[] = []
   const registry = new SessionRegistry(async (request) => {
@@ -93,38 +94,100 @@ async function harness(script: string | ((request: QueryRequest) => string)) {
 const ofType = <T extends AgentEvent['type']>(events: AgentEvent[], type: T) => events.filter((e): e is Extract<AgentEvent, { type: T }> => e.type === type)
 
 describe('agent channels on the fake agent', () => {
-  it('start → send gives busy … result … idle, with the id Claude Code assigned', async () => {
+  it('start → send gives busy … result … idle, under the id worfy gave the new Session from its start', async () => {
     const h = await harness('turn')
-    const tempId = await h.start()
-    expect(tempId).toMatch(/^pending-/)
-    await vi.waitFor(() => expect(h.states([tempId])).toEqual(['starting', 'idle']))
-    expect(ofType(h.eventsOf([tempId]), 'account')).toEqual([{ type: 'account', loggedIn: true, subscriptionType: 'Claude Max', apiProvider: 'firstParty', tokenSource: 'claude.ai' }])
+    const id = await h.start()
+    // worfy-daily ticket 24: a new Session's id is the SDK session id it asks Claude Code for.
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    await vi.waitFor(() => expect(h.states([id])).toEqual(['starting', 'idle']))
+    expect(ofType(h.eventsOf([id]), 'account')).toEqual([{ type: 'account', loggedIn: true, subscriptionType: 'Claude Max', apiProvider: 'firstParty', tokenSource: 'claude.ai' }])
 
-    await h.ok('agent.send', { sessionId: tempId, text: 'hello' })
-    await vi.waitFor(() => expect(h.states([tempId])).toEqual(['starting', 'idle', 'busy', 'idle']))
+    await h.ok('agent.send', { sessionId: id, text: 'hello' })
+    await vi.waitFor(() => expect(h.states([id])).toEqual(['starting', 'idle', 'busy', 'idle']))
 
-    const events = h.eventsOf([tempId])
+    const events = h.eventsOf([id])
     const types = events.map((e) => e.type)
-    expect(types.slice(types.indexOf('renamed'))).toEqual(['renamed', 'init', 'status', 'delta', 'delta', 'text', 'result', 'state'])
+    expect(types.slice(types.indexOf('init'))).toEqual(['init', 'status', 'delta', 'delta', 'text', 'result', 'state'])
     expect(types.indexOf('state', types.indexOf('account') + 2)).toBeLessThan(types.indexOf('result'))
     const [init] = ofType(events, 'init')
-    const finalId = init?.sdkSessionId ?? ''
-    expect(finalId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(init?.sdkSessionId).toBe(id)
     expect(init?.slashCommands).toContain('ship-ticket')
     expect(init?.cwd).toBe(cwd)
-    // Everything from `renamed` on carries the final id; everything before it, the temporary one.
-    const renamedAt = h.received.findIndex((e) => e.event.type === 'renamed')
-    expect(h.received[renamedAt]).toEqual({ sessionId: finalId, event: { type: 'renamed', from: tempId } })
-    expect(new Set(h.received.slice(0, renamedAt).map((e) => e.sessionId))).toEqual(new Set([tempId]))
-    expect(new Set(h.received.slice(renamedAt).map((e) => e.sessionId))).toEqual(new Set([finalId]))
+    // No rename: every event carries the one id.
+    expect(types).not.toContain('renamed')
+    expect(new Set(h.received.map((e) => e.sessionId))).toEqual(new Set([id]))
     expect(ofType(events, 'result')).toMatchObject([{ isError: false, text: 'Hello from the fake agent', costUsd: 0.0021, interrupted: false }])
 
-    // Both ids reach the Session; the list shows it once, under its final id.
-    expect(await h.ok('agent.list')).toStrictEqual([{ sessionId: finalId, cwd, state: 'idle' }])
-    await h.ok('agent.send', { sessionId: finalId, text: 'again' })
-    await vi.waitFor(() => expect(ofType(h.eventsOf([tempId]), 'result')).toHaveLength(2))
-    expect(h.states([tempId]).at(-1)).toBe('idle')
+    expect(await h.ok('agent.list')).toStrictEqual([{ sessionId: id, cwd, state: 'idle' }])
+    await h.ok('agent.send', { sessionId: id, text: 'again' })
+    await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'result')).toHaveLength(2))
+    expect(h.states([id]).at(-1)).toBe('idle')
     expect(h.requests).toHaveLength(1)
+  })
+
+  it('a new Session asks Claude Code for its id before system/init; a resumed one asks for none', async () => {
+    const h = await harness('turn')
+    const id = await h.start()
+    // Known before any message, so before system/init.
+    expect(h.requests).toHaveLength(1)
+    expect(h.requests[0]).toMatchObject({ sessionId: id, resume: undefined })
+    expect(ofType(h.eventsOf([id]), 'init')).toEqual([])
+
+    const resumed = await h.ok<{ sessionId: string }>('agent.start', { cwd, resume: 'f0000000-0000-4000-8000-000000000001' })
+    expect(h.requests).toHaveLength(2)
+    expect(h.requests[1]?.resume).toBe('f0000000-0000-4000-8000-000000000001')
+    // The SDK refuses `sessionId` with `resume` (unless forking): it is never passed with it.
+    expect(h.requests[1]?.sessionId).toBeUndefined()
+    expect(resumed.sessionId).toMatch(/^pending-/)
+  })
+
+  it('a Session restarted after a crash resumes its SDK session and asks for no new id', async () => {
+    const h = await harness((request) => (request.resume === undefined ? 'crash' : 'turn'))
+    const id = await h.start()
+    await h.ok('agent.send', { sessionId: id, text: 'work' })
+    await vi.waitFor(() => expect(h.states([id]).at(-1)).toBe('error'))
+    await h.ok('agent.send', { sessionId: id, text: 'try again' })
+    await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'result')).toHaveLength(1))
+    expect(h.requests.map((request) => [request.resume, request.sessionId])).toEqual([
+      [undefined, id],
+      [id, undefined],
+    ])
+  })
+
+  it('a Claude Code that died before the first turn is replaced under a new id, never the one it was given', async () => {
+    // Claude Code refuses a --session-id it already has a transcript for («is already in use»).
+    const h = await harness(() => (h.requests.length <= 1 ? 'account-error' : 'turn'))
+    const first = await h.start()
+    await vi.waitFor(() => expect(h.states([first]).at(-1)).toBe('error'))
+    await h.ok('agent.send', { sessionId: first, text: 'again' })
+    await vi.waitFor(() => expect(ofType(h.eventsOf([first]), 'result')).toHaveLength(1))
+    const second = h.requests[1]?.sessionId ?? ''
+    expect(h.requests.map((request) => request.resume)).toEqual([undefined, undefined])
+    expect(h.requests[0]?.sessionId).toBe(first)
+    expect(second).toMatch(/^[0-9a-f-]{36}$/)
+    expect(second).not.toBe(first)
+    expect(h.received.find((e) => e.event.type === 'renamed')).toEqual({ sessionId: second, event: { type: 'renamed', from: first } })
+    expect(ofType(h.eventsOf([first]), 'init').map((init) => init.sdkSessionId)).toEqual([second])
+    expect(await h.ok('agent.list')).toStrictEqual([{ sessionId: second, cwd, state: 'idle' }])
+  })
+
+  it('the fake agent registers under the new Session’s id before system/init, and leaves the registry when closed', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'worfy-claude-home-'))
+    try {
+      const h = await harness('turn', home)
+      const id = await h.start()
+      const entries = async () =>
+        Promise.all((await readdir(join(home, 'sessions'))).map(async (name) => ({ name, entry: JSON.parse(await readFile(join(home, 'sessions', name), 'utf8')) as Record<string, unknown> })))
+      const [registered, ...more] = await entries()
+      expect(more).toEqual([])
+      expect(registered?.name).toMatch(/^\d+\.json$/)
+      expect(registered?.entry).toMatchObject({ pid: process.pid, sessionId: id, cwd, entrypoint: 'sdk-ts' })
+      expect(ofType(h.eventsOf([id]), 'init')).toEqual([])
+      await h.ok('agent.close', { sessionId: id })
+      expect(await entries()).toEqual([])
+    } finally {
+      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    }
   })
 
   // `interrupt-no-reason` ends the turn without terminal_reason: the mark then comes from the
@@ -233,8 +296,8 @@ describe('agent channels on the fake agent', () => {
     await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'result')).toHaveLength(1))
     expect(h.requests.map((r) => r.resume)).toEqual([undefined, init?.sdkSessionId])
     expect(h.states([id]).slice(-3)).toEqual(['error', 'busy', 'idle'])
-    // The resumed query reports the same SDK session: no second rename.
-    expect(ofType(h.eventsOf([id]), 'renamed')).toHaveLength(1)
+    // The resumed query reports the same SDK session, the one the Session was started under: no rename.
+    expect(ofType(h.eventsOf([id]), 'renamed')).toHaveLength(0)
   })
 
   it('Claude Code exiting without agent.close puts the Session in error', async () => {

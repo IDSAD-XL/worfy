@@ -1,19 +1,23 @@
-import { useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { ProjectView } from '../../../shared/ipc/projects'
+import { useOrchestratorView, useOrchestratorViews } from '../../canvas/nodes/orchestrator-view'
 import { applyLayoutOp, useLayout } from '../../canvas/useLayout'
 import { focusSessionNode } from '../../claude-home/focus'
-import { sessionNodeId, sessionStatus } from '../../claude-home/session-nodes'
+import { sessionNodeId, sessionRow, worfySessionIds, worfySessions } from '../../claude-home/session-nodes'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
 import { invoke } from '../../ipc'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import { HistoryPopover } from '../../session/HistoryPopover'
 import { setView } from '../../session/navigation'
+import { ensureProject, useSessionNodeViews } from '../../session/node-sessions'
 import { StatusChip } from '../../theme/primitives'
 
 /**
  * The live Sessions of the active Project, wherever they were started (design F, sidebar «Sessions»),
  * "New session" (a new live Session Node in the Project's root, ticket 18) and the Project's history
- * (session/HistoryPopover.tsx).
+ * (session/HistoryPopover.tsx). A Session worfy runs — the Orchestrator, a Session Node's — is
+ * «worfy», with the name and state its Node shows (worfy-daily ticket 24, claude-home/session-nodes.ts,
+ * sessionRow); the others are «terminal» or «desktop» by where Claude Code says they were started.
  */
 export const order = 30
 
@@ -59,9 +63,26 @@ const styles = {
   source: { flex: 'none', fontSize: 'var(--text-11)', color: 'var(--text-muted)' },
 } satisfies Record<string, CSSProperties>
 
+/** Asks main for the Orchestrator's view, so its row has its state even before its Node is drawn. */
+function FollowOrchestrator({ nodeId }: { nodeId: string }) {
+  useOrchestratorView(nodeId)
+  return null
+}
+
 function Sessions({ project }: { project: ProjectView }) {
   const { live, history, error } = useClaudeHome(project.path)
   const layout = useLayout(project.id).state
+  const orchestrators = useOrchestratorViews()
+  const sessionNodes = useSessionNodeViews()
+  useEffect(() => ensureProject(project.id), [project.id])
+  const nodes = layout?.layout.nodes
+  const orchestratorNode = nodes?.find((node) => node.kind === 'orchestrator')
+  const worfy = useMemo(
+    () =>
+      worfySessions({ nodes: nodes ?? [], orchestrators: Object.values(orchestrators), sessionNodes: Object.values(sessionNodes), projectId: project.id, history }),
+    [nodes, orchestrators, sessionNodes, project.id, history],
+  )
+  const worfyIds = useMemo(() => worfySessionIds(nodes ?? [], [...worfy.keys()]), [nodes, worfy])
   const [historyOpen, setHistoryOpen] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
 
@@ -94,7 +115,7 @@ function Sessions({ project }: { project: ProjectView }) {
       <ul style={styles.list}>
         {live.map((session) => {
           const title = session.name ?? history.find((each) => each.sessionId === session.sessionId)?.title ?? `Session ${session.sessionId.slice(0, 8)}`
-          const chip = sessionStatus(session)
+          const row = sessionRow(session, worfyIds, worfy, title)
           return (
             <li key={session.sessionId}>
               <button
@@ -103,12 +124,17 @@ function Sessions({ project }: { project: ProjectView }) {
                 style={styles.row}
                 data-testid="sidebar-session"
                 data-session-id={session.sessionId}
-                title={`${title} — ${session.cwd}`}
+                data-source={row.source}
+                title={`${row.name} — ${session.cwd}`}
                 onClick={() => open(session.sessionId)}
               >
-                <span style={styles.name}>{title}</span>
-                <span style={styles.source}>{session.entrypoint === 'claude-desktop' ? 'desktop' : 'terminal'}</span>
-                <StatusChip status={chip.status} label={chip.label} />
+                <span style={styles.name} data-testid="sidebar-session-name">
+                  {row.name}
+                </span>
+                <span style={styles.source} data-testid="sidebar-session-source">
+                  {row.source}
+                </span>
+                <StatusChip status={row.chip.status} label={row.chip.label} />
               </button>
             </li>
           )
@@ -136,6 +162,7 @@ function Sessions({ project }: { project: ProjectView }) {
           {problem}
         </p>
       ) : null}
+      {orchestratorNode ? <FollowOrchestrator nodeId={orchestratorNode.id} /> : null}
       {historyOpen ? <HistoryPopover project={project} onClose={() => setHistoryOpen(false)} /> : null}
       {body}
     </section>
