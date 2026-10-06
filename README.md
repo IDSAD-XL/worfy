@@ -19,7 +19,7 @@ The copy and a dev run keep separate data: the packaged app uses `~/Library/Appl
 
 Update the copy in this order:
 
-1. `main` is green: Gate full and CI.
+1. `main` is green: Gate full on the Mac (lint, typecheck, unit, e2e and the packaged app) and CI (lint, typecheck and unit tests on Linux).
 2. Autopilot on the copy is stopped, or waits between Waves.
 3. Run `pnpm install:stable`.
 4. Start the copy.

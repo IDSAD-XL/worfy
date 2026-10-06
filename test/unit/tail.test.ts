@@ -64,7 +64,9 @@ describe('readNewLines', () => {
     expect(second.lines).toEqual(['{"n":9}'])
   })
 
-  it('rereads from the start when the file was replaced by a new one', async () => {
+  // APFS gives a new file a new inode; ext4 on the Linux CI runner reuses the freed one at once.
+  // worfy runs on macOS only; the Mac runs this in every gate.
+  it.skipIf(process.platform !== 'darwin')('rereads from the start when the file was replaced by a new one', async () => {
     await writeFile(file, '{"n":1}\n')
     const first = await readNewLines(file)
     await unlink(file)

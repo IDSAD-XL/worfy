@@ -25,8 +25,12 @@ async function zshrc(content: string): Promise<void> {
   await writeFile(join(home, '.zshrc'), content)
 }
 
+// Cases marked onMac run a real /bin/zsh: macOS has it, the Linux CI runner does not. The Mac runs
+// them in every gate.
+const onMac = it.skipIf(process.platform !== 'darwin')
+
 describe('captureLoginShellEnv', () => {
-  it('removes ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN even when worfy itself has them', async () => {
+  onMac('removes ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN even when worfy itself has them', async () => {
     await zshrc('export ANTHROPIC_API_KEY=from-rc\nexport ANTHROPIC_AUTH_TOKEN=from-rc\n')
     const result = await captureLoginShellEnv({
       shell: '/bin/zsh',
@@ -38,7 +42,7 @@ describe('captureLoginShellEnv', () => {
     expect(JSON.stringify(result.env)).not.toContain('worfy-own-key')
   })
 
-  it("keeps the user's own ANTHROPIC_* and CLAUDE_CODE_* variables from the rc file", async () => {
+  onMac("keeps the user's own ANTHROPIC_* and CLAUDE_CODE_* variables from the rc file", async () => {
     await zshrc('export ANTHROPIC_MODEL=opus\nexport CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000\nexport PATH="$HOME/bin:$PATH"\n')
     const { env } = await captureLoginShellEnv({ shell: '/bin/zsh', source: worfyEnv() })
     expect(env.ANTHROPIC_MODEL).toBe('opus')
@@ -47,7 +51,7 @@ describe('captureLoginShellEnv', () => {
     expect(env.PATH?.split(':')[0]).toBe(join(home, 'bin'))
   })
 
-  it('does not pass the variables of whoever started worfy into the shell', async () => {
+  onMac('does not pass the variables of whoever started worfy into the shell', async () => {
     const { env } = await captureLoginShellEnv({
       shell: '/bin/zsh',
       source: worfyEnv({ CLAUDE_CODE_SESSION_ID: 'parent-session', ANTHROPIC_BASE_URL: 'http://proxy', PATH: '/parent/bin:/usr/bin' }),
@@ -58,7 +62,7 @@ describe('captureLoginShellEnv', () => {
     expect(env.HOME).toBe(home)
   })
 
-  it('keeps a value with a newline whole and ignores what the rc file prints', async () => {
+  onMac('keeps a value with a newline whole and ignores what the rc file prints', async () => {
     await zshrc("echo 'banner from zshrc'\nexport MULTI=$'line one\\nFAKE=line two'\n")
     const { env } = await captureLoginShellEnv({ shell: '/bin/zsh', source: worfyEnv() })
     expect(env.MULTI).toBe('line one\nFAKE=line two')

@@ -389,7 +389,11 @@ describe('workflow watcher', () => {
     expect(ticketOf(watcher.current, 3)?.state).toBe('work')
   })
 
-  it('waits for 300 ms of quiet: saves closer together than that give exactly one read', async () => {
+  // Counts reads after fs.watch events: FSEvents on macOS coalesces a save, inotify on the Linux CI
+
+  // runner reports more events. worfy runs on macOS only; the Mac runs this in every gate.
+
+  it.skipIf(process.platform !== 'darwin')('waits for 300 ms of quiet: saves closer together than that give exactly one read', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
     const real = epicStatusRunner(home)

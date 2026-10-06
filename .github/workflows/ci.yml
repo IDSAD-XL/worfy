@@ -1,21 +1,29 @@
 name: CI
 
+# CI is the cheap check: lint, typecheck and unit/contract tests on Linux.
+# e2e tests and the packaged .app run on the owner's Mac before merge (gate full), because a
+# macOS runner minute costs ten times a Linux one and e2e plus packaging took 6.5 of 8.7 minutes.
+# The full macOS run stays available by hand: Actions → CI → Run workflow.
+# Docs-only changes skip CI: Markdown at the root, docs/ and .scratch/. Markdown under src/ and test/
+# is code (src/main/mcp/agent-instructions.md, test fixtures) and still runs it.
 on:
   pull_request:
+    paths-ignore: ['*.md', 'docs/**', '.scratch/**']
   push:
     branches: [main]
+    paths-ignore: ['*.md', 'docs/**', '.scratch/**']
+  workflow_dispatch:
 
 # A new push to the same pull request cancels the run still going for the previous one.
-# A push to main gets a group of its own (the run id): a concurrency group keeps at most one
-# pending run and cancels an older pending one, so a shared group would drop runs of earlier
-# merges. This way every merge keeps its own result.
+# A push to main gets a group of its own (the run id), so every merge keeps its own result.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
-    runs-on: macos-latest
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       # Installs the pnpm version pinned by "packageManager" in package.json.
@@ -31,17 +39,26 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+
+  full-macos:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
       # Builds the app into out/ and drives it with Playwright.
       - run: pnpm test:e2e
       # Packages dist/mac-*/worfy.app (ad-hoc signed) and drives the packaged app.
-      # electron-builder skips code signing on pull request builds unless CSC_FOR_PULL_REQUEST is
-      # set. Its warning is about leaking a signing certificate to fork PRs; the ad-hoc identity
-      # ('-' in electron-builder.yml) uses no certificate or secret, so nothing can leak.
       - run: pnpm test:package
-        env:
-          CSC_FOR_PULL_REQUEST: 'true'
-      # A failing e2e test keeps the app's trace and a screenshot of its window under test-results/
-      # (test/e2e/helpers.ts); without this step they are lost with the runner.
+      # A failing e2e test keeps the app's trace and a screenshot of its window under test-results/.
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
