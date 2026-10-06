@@ -25,6 +25,7 @@ export const AUTOPILOT_STOP_REASONS = [
   'session-closed',
   'send-failed',
   'workflow-error',
+  'limits-timeout',
   'user-stop',
   'app-quit',
 ] as const
@@ -71,8 +72,11 @@ export type CycleEvent =
   | { type: 'session-error'; message: string }
   /** The Orchestrator Session closed. */
   | { type: 'session-closed' }
-  /** The user pressed Stop, or the app quits. */
-  | { type: 'stop'; reason: 'user-stop' | 'app-quit' }
+  /**
+   * The user pressed Stop, the app quits, or the wait for the Limits would pass its limit
+   * (src/shared/autopilot/resume-at.ts, MAX_WAIT_MS).
+   */
+  | { type: 'stop'; reason: 'user-stop' | 'app-quit' | 'limits-timeout' }
 
 export type CycleEffect =
   /** Send "Run wave" to the Orchestrator; answer with `wave-sent` or `send-failed`. */

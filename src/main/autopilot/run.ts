@@ -13,6 +13,9 @@
 //   finishes normally and the Wave is left in the held queue). A Wave still in the
 //   queue when the run stops is taken out of it, so no one's turn runs it untracked.
 // - keep-awake (power.ts) is held from the start to the end of the run.
+// - A turn of the Wave refused by the Limits does not end it (worfy-daily ticket 05): the run goes
+//   `waiting` until the Limits reset, then sends the Orchestrator on (limits-wait.ts). Past the
+//   wait's limit it stops with `limits-timeout`.
 // - Every step goes to the run journal (src/main/autopilot/journal.ts): Waves, errors, refused
 //   dialogs of the unattended Session, the reason the run stopped, and every action a person takes
 //   on the run's Session through the UI as `human-input` with source "worfy".
@@ -27,10 +30,12 @@ import { ticketNumber } from '../../shared/actions/render-template'
 import { messageLabel } from '../../shared/agent/attachments'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
 import type { JournalEventFields } from '../../shared/autopilot/journal'
+import { toMs, type LimitsHit } from '../../shared/autopilot/resume-at'
 import { initialCycle, SETTLE_MS, step, type AutopilotStopReason, type CycleEvent, type CycleState } from '../../shared/autopilot/cycle'
 import type { AutopilotState } from '../../shared/ipc/autopilot'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
 import type { WorkflowModel } from '../../shared/workflow/types'
+import { LimitsWait, type LimitsWaitDeps } from './limits-wait'
 
 /** The run's Orchestrator Session, as far as the run needs it. */
 export interface RunSession {
@@ -71,6 +76,8 @@ export interface AutopilotDeps {
   onChange?(state: AutopilotState): void
   /** How long a run settles before `wave-unfinished` (default SETTLE_MS). */
   settleMs?: number
+  /** The Limits and the wait for them (limits-wait.ts); without it a refused turn ends the run as `turn-error`. */
+  limits?: LimitsWaitDeps
 }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
@@ -116,6 +123,8 @@ class Run {
   session: RunSession | null = null
   journal: RunJournalLike | null = null
   awake: { start(): void; stop(): void } | null = null
+  /** The run's wait for the Limits; null when the app gave no Limits (AutopilotDeps.limits). */
+  limits: LimitsWait | null = null
   message: string | null = null
   private chain: Promise<void> = Promise.resolve()
   readonly cleanups: (() => Promise<void> | void)[] = []
@@ -183,7 +192,7 @@ export class Autopilot {
   /** The Project's run as it is now. */
   state(projectId: string): AutopilotState {
     const run = this.runs.get(projectId)
-    if (run === undefined) return this.last.get(projectId) ?? { projectId, epic: null, status: 'stopped', wave: 0, reason: null, message: null, revision: this.revision }
+    if (run === undefined) return this.last.get(projectId) ?? { projectId, epic: null, status: 'stopped', wave: 0, resumesAt: null, reason: null, message: null, revision: this.revision }
     return this.snapshot(run)
   }
 
@@ -211,6 +220,7 @@ export class Autopilot {
       if (!model.epics.some((each) => each.epic === epic) && !model.tickets.some((each) => each.epic === epic)) throw new Error(`The Project has no Epic ${epic}`)
 
       const run = new Run(projectId, epic, root)
+      if (this.deps.limits !== undefined) run.limits = new LimitsWait(this.deps.limits)
       const view = await this.deps.orchestrators.setUnattended(projectId, true)
       try {
         if (view === null || view.sessionId === null) throw new Error('The Orchestrator has no Session')
@@ -275,6 +285,7 @@ export class Autopilot {
   }
 
   private subscribe(run: Run): void {
+    if (run.limits !== null) run.cleanups.push(run.limits.watch((sessionId) => run.session !== null && sessionId === run.session.id))
     run.cleanups.push(
       this.deps.registry.observe((sessionId, event) => {
         if (run.session === null || sessionId !== run.session.id) return
@@ -291,6 +302,7 @@ export class Autopilot {
     switch (event.type) {
       case 'prompt':
         run.turns += 1
+        run.limits?.turnStarted()
         if (run.sending) run.promptsWhileSending.set(run.turns, event.text)
         else if (run.waveTurn === null && run.wavePrompt !== null && event.text === run.wavePrompt) run.waveTurn = run.turns
         return
@@ -299,11 +311,16 @@ export class Autopilot {
         // Wave's is decided in the run's order, once the Wave's own sending has been handled.
         const turn = run.turns
         const message = event.error ?? (event.isError ? event.text : null)
+        // Whether the Limits refused the turn is known now, from the Limits status of this turn.
+        const hit = run.limits?.hitOf({ isError: event.isError, interrupted: event.interrupted, message }) ?? null
         void run.enqueue(() => {
           // A turn ahead of the Wave that finished normally after an Interrupt still leaves the
           // queue held: the Wave waits in it until a person resumes, so the run stops as interrupted.
           const interrupted = event.interrupted || (!run.endsWave(turn) && this.waveHeld(run))
           if (!run.endsWave(turn) && !interrupted) return
+          if (hit !== null && !interrupted) return this.limitsHit(run, hit)
+          // A turn of the Wave that was not refused ends any wait (a person's turn during it, too).
+          run.limits?.passed()
           return this.readAndFeed(run, 'stop', (tickets) => ({ type: 'turn-ended', isError: event.isError, interrupted, message: message === '' ? null : message, tickets }))
         })
         return
@@ -397,6 +414,43 @@ export class Autopilot {
     await this.feed(run, { type: 'wave-sent', tickets: sent.tickets })
   }
 
+  /**
+   * The Limits refused a turn of the Wave: the run waits until they reset (resume-at.ts) and then
+   * sends the Orchestrator on, or stops with `limits-timeout` when the wait would be too long.
+   */
+  private async limitsHit(run: Run, hit: LimitsHit): Promise<void> {
+    const wait = run.limits
+    if (wait === null || (run.cycle.phase !== 'turn' && run.cycle.phase !== 'settling')) return
+    await this.write(run, { kind: 'limits-hit', window: hit.window, resetsAt: hit.resetsAt === null ? null : new Date(toMs(hit.resetsAt)).toISOString() })
+    const plan = wait.plan(hit)
+    if (plan.kind === 'give-up') {
+      run.message = plan.reason
+      await this.feed(run, { type: 'stop', reason: 'limits-timeout' })
+      return
+    }
+    await this.write(run, { kind: 'waiting-until', until: new Date(plan.at).toISOString() })
+    const id = wait.wait(plan.at, () => void run.enqueue(() => this.resume(run, id)))
+    this.publish(run.projectId)
+  }
+
+  /**
+   * The wait `id` is over: the Orchestrator gets the continuation, once; a Session that is gone stops
+   * the run. A wait cancelled or replaced since its timer fired resumes nothing.
+   */
+  private async resume(run: Run, id: number): Promise<void> {
+    const wait = run.limits
+    if (wait === null || !wait.isCurrent(id) || run.cycle.phase === 'stopped' || run.session === null) return
+    const text = wait.resume()
+    await this.write(run, { kind: 'resumed' })
+    this.publish(run.projectId)
+    try {
+      wait.send(run.session.id, text)
+    } catch (error) {
+      run.message = messageOf(error)
+      await this.feed(run, { type: 'session-error', message: run.message })
+    }
+  }
+
   /** Whether the current Wave waits in the Session's queue while the queue is held (after an Interrupt). */
   private waveHeld(run: Run): boolean {
     const prompt = run.wavePrompt
@@ -449,10 +503,11 @@ export class Autopilot {
     run.finish()
   }
 
-  /** Undoes what a run holds: subscriptions, the settle timer, keep-awake, the unattended Orchestrator. */
+  /** Undoes what a run holds: subscriptions, the settle and Limits timers, keep-awake, the unattended Orchestrator. */
   private async release(run: Run, giveBack: boolean): Promise<void> {
     if (run.settleTimer !== null) clearTimeout(run.settleTimer)
     run.settleTimer = null
+    run.limits?.cancel()
     for (const cleanup of run.cleanups.splice(0)) {
       try {
         await cleanup()
@@ -483,11 +538,13 @@ export class Autopilot {
   }
 
   private snapshot(run: Run): AutopilotState {
+    const resumesAt = run.running ? (run.limits?.until ?? null) : null
     return {
       projectId: run.projectId,
       epic: run.epic,
-      status: run.running ? 'running' : 'stopped',
+      status: !run.running ? 'stopped' : resumesAt !== null ? 'waiting' : 'running',
       wave: run.cycle.wave,
+      resumesAt,
       reason: run.done ? run.cycle.reason : null,
       message: run.message,
       revision: this.revision,

@@ -8,11 +8,13 @@ import { ActionButton } from './action-button'
 import { hasRunWave, useRunWaveState } from './gates'
 
 // "Autopilot" and "Stop autopilot" on an Epic frame (worfy-daily ticket 04, ADR-0024), with the
-// run's status line: "Wave 3 · running", "stopped: no ready wave". Autopilot can start when "Run
-// wave" could (the same verdict, gates.ts) and the Project has no run; main checks again and may
-// still refuse (the Orchestrator is in a turn, worfy's own repository in a development build): the
-// button then shows main's reason. The Project's run state is asked once (`autopilot.state`), then
-// taken from `autopilot.changed`; a state replaces the one before it only with a higher revision.
+// run's status line: "Wave 3 · running", "waiting for limits · resumes 14:20" (ticket 05), "stopped:
+// no ready wave". A run that waits for the Limits is still a run: Stop is offered and stops it.
+// Autopilot can start when "Run wave" could (the same verdict, gates.ts) and the Project has no
+// run; main checks again and may still refuse (the Orchestrator is in a turn, worfy's own
+// repository in a development build): the button then shows main's reason. The Project's run state
+// is asked once (`autopilot.state`), then taken from `autopilot.changed`; a state replaces the one
+// before it only with a higher revision.
 
 export const order = 30
 
@@ -80,7 +82,7 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
   const wave = useRunWaveState(projectId, epic.epic, tickets)
   const state = useAutopilot(projectId)
   const mine = state?.epic === epic.epic
-  const running = state?.status === 'running'
+  const running = state?.status === 'running' || state?.status === 'waiting'
   const line = mine && state !== undefined ? autopilotStatusLine(state) : null
   if (!hasRunWave(epic.epic, tickets) && !(mine && running) && line === null) return null
 
@@ -97,16 +99,31 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
       />
     )
   if (line === null) return button
-  // The status line goes under the button rather than beside it: the Epic's title keeps its room
-  // in the header (56px high: room for the 20px button and one 14px line).
+  // The status line goes above the button, out of the header's row: it takes no width from the
+  // Epic's title, and runs left over the actions beside the button through the header's top margin
+  // (56px header: the 20px button centred, 18px free above it). It stays inside the header: below
+  // it, a Node placed over the Epic's frame (the Orchestrator lands at 40,40 of the Canvas) would
+  // be under the line. 220px holds the longest line whole, "waiting for limits · resumes 14:20":
+  // its time is what the line is for.
   return (
-    <div className="nodrag" style={{ flex: 'none', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+    <div className="nodrag" style={{ flex: 'none', position: 'relative' }}>
       {button}
       <span
         data-testid="autopilot-status"
         data-status={state?.status}
         title={state?.message ?? line}
-        style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 'var(--text-11)', lineHeight: '14px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}
+        style={{
+          position: 'absolute',
+          right: 0,
+          bottom: 'calc(100% + 2px)',
+          maxWidth: 220,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          fontSize: 'var(--text-11)',
+          lineHeight: '14px',
+          color: 'var(--text-secondary)',
+          whiteSpace: 'nowrap',
+        }}
       >
         {line}
       </span>

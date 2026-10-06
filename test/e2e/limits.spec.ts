@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { launchApp } from './helpers'
+import { launchApp, repoRoot } from './helpers'
 
 // The Limits in the toolbar against the built app, on the fake agent: the script
 // test/fixtures/agent-scripts/limits.jsonl sends a rate_limit_event with both windows on turn 1
@@ -68,8 +68,25 @@ async function playTurns(window: Page, cwd: string, turns: number): Promise<void
 
 const meter = (window: Page) => window.getByTestId('limits-meter')
 
+/** The 7-day reset time in test/fixtures/agent-scripts/limits.jsonl, turn 1 (Unix seconds). */
+const FIXTURE_SEVEN_DAY_RESET = '1791795600'
+
+/**
+ * The `limits` script with its 7-day reset three days from now, in a scripts folder of the test:
+ * the fixture's time is a fixed one, and what turn 2 shows depends on it still being ahead.
+ */
+function limitsScripts(): string {
+  const fixture = readFileSync(join(repoRoot, 'test', 'fixtures', 'agent-scripts', 'limits.jsonl'), 'utf8')
+  if (!fixture.includes(FIXTURE_SEVEN_DAY_RESET)) throw new Error('the limits fixture no longer has its 7-day reset time')
+  const scripts = join(scratch, 'scripts')
+  mkdirSync(scripts, { recursive: true })
+  writeFileSync(join(scripts, 'limits.jsonl'), fixture.replaceAll(FIXTURE_SEVEN_DAY_RESET, String(Math.floor(Date.now() / 1000) + 3 * 24 * 3600)))
+  return scripts
+}
+
 test('rate_limit_event fills the toolbar bars, they survive a restart marked with their age, and the status line file updates them', async () => {
-  const first = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_AGENT_SCRIPT: 'limits' } })
+  const scripts = limitsScripts()
+  const first = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_AGENT_SCRIPTS: scripts, WORFY_AGENT_SCRIPT: 'limits' } })
   try {
     await expect(meter(first.window)).toHaveText(/Limits\s*no data yet/)
 
@@ -86,11 +103,13 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
     await first.window.getByRole('banner').screenshot({ path: test.info().outputPath('toolbar-limits.png') })
 
     // Turn 2: an event without utilization and resetsAt; the 7-day bar shows its status in words.
+    // It keeps the reset time known from turn 1, which is still ahead (worfy-daily ticket 05:
+    // Autopilot waits by it).
     await playTurns(first.window, project, 2)
     await expect(sevenDay.getByTestId('limit-seven_day-value')).toHaveText('limit reached')
     await expect(sevenDay).toHaveAttribute('data-level', 'blocked')
     await expect(sevenDay.getByRole('meter')).toHaveCount(0)
-    await expect(sevenDay.getByTestId('limit-seven_day-note')).toHaveCount(0)
+    await expect(sevenDay.getByTestId('limit-seven_day-note')).toHaveText(/^resets [A-Z][a-z]{2} \d\d:\d\d$/)
     await expect(fiveHour.getByTestId('limit-five_hour-value')).toHaveText('62%')
   } finally {
     await first.close()
@@ -102,7 +121,7 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
   for (const window of Object.values(saved.windows)) window.receivedAt -= 2 * 60 * 60 * 1000
   writeFileSync(file, JSON.stringify(saved))
 
-  const second = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_AGENT_SCRIPT: 'limits' } })
+  const second = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_AGENT_SCRIPTS: scripts, WORFY_AGENT_SCRIPT: 'limits' } })
   try {
     const fiveHour = meter(second.window).getByTestId('limit-five_hour')
     await expect(fiveHour.getByTestId('limit-five_hour-value')).toHaveText('62%')

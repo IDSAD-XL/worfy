@@ -123,6 +123,22 @@ describe('mergeLimits', () => {
     expect(next.windows.five_hour).toMatchObject({ utilization: null, status: 'rejected' })
   })
 
+  it('keeps the known reset time for an update without one while it is ahead, from either source, and drops it once passed', () => {
+    const reset = 1791184200
+    const known = mergeLimits(emptyLimits(), [{ window: 'seven_day', state: { utilization: 0.4, resetsAt: reset, status: 'allowed', receivedAt: AT, source: 'sdk' } }])
+    const refusal = (receivedAt: number, source: 'sdk' | 'statusline' = 'sdk') => ({ window: 'seven_day', state: { utilization: null, resetsAt: null, status: 'rejected', receivedAt, source } })
+
+    expect(mergeLimits(known, [refusal(reset * 1000 - 1)]).windows.seven_day).toEqual({ utilization: null, resetsAt: reset, status: 'rejected', receivedAt: reset * 1000 - 1, source: 'sdk' })
+    expect(mergeLimits(known, [refusal(reset * 1000 - 1, 'statusline')]).windows.seven_day).toMatchObject({ resetsAt: reset, source: 'statusline' })
+    // At the reset time or after it, the old time is no longer the window's.
+    expect(mergeLimits(known, [refusal(reset * 1000)]).windows.seven_day).toMatchObject({ resetsAt: null, status: 'rejected' })
+    // An update with its own reset time replaces the known one.
+    const own = { ...refusal(AT + 1).state, resetsAt: reset + 60 }
+    expect(mergeLimits(known, [{ window: 'seven_day', state: own }]).windows.seven_day).toEqual(own)
+    // A window with nothing known keeps none.
+    expect(mergeLimits(emptyLimits(), [refusal(AT)]).windows.seven_day).toMatchObject({ resetsAt: null })
+  })
+
   it('returns the same state when nothing changed', () => {
     const state = mergeLimits(emptyLimits(), [{ window: 'five_hour', state: window(0.5, AT) }])
     expect(mergeLimits(state, [{ window: 'five_hour', state: window(0.5, AT) }])).toBe(state)

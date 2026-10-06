@@ -3,16 +3,19 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { AUTOPILOT_RUNNING_HINT } from '../../src/main/actions/launch'
 import { SELF_PROJECT_MESSAGE } from '../../src/main/autopilot/run'
+import { RESUME_MARGIN_MS } from '../../src/shared/autopilot/resume-at'
+import { autopilotStatusLine } from '../../src/shared/ipc/autopilot'
 import { launchApp, repoRoot } from './helpers'
 
-// Autopilot on an Epic frame (worfy-daily ticket 04, ADR-0024) in the built app on the fake agent,
-// which records every message it gets (WORFY_AGENT_LOG) and never calls the model. It plays
-// `orchestrator`: its first turn holds until it is interrupted, so the run stays in Wave 1 until
-// the test stops it. Electron's powerSaveBlocker is replaced in main before the run starts, so the
-// test never keeps the Mac awake; the replacement records what the run asked for.
+// Autopilot on an Epic frame (worfy-daily tickets 04 and 05, ADR-0024) in the built app on the fake
+// agent, which records every message it gets (WORFY_AGENT_LOG) and never calls the model. The first
+// test plays `orchestrator`: its first turn holds until it is interrupted, so the run stays in Wave 1
+// until the test stops it. The second plays `autopilot-limits`, whose Wave turn the Limits refuse,
+// so the run waits for their reset. Electron's powerSaveBlocker is replaced in main before the run
+// starts, so the test never keeps the Mac awake; the replacement records what the run asked for.
 //
 // The Project is a git repository in a temporary folder with the Epic `demo`: 01 and 02 ready, 03
 // after both. A second Project points at this worktree, worfy's own repository: on this
@@ -94,15 +97,35 @@ async function snapshots(window: Page, header: Locator, name: string): Promise<v
   await window.emulateMedia({ colorScheme: null })
 }
 
-test.beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-autopilot-')))
-})
+type Box = { x: number; y: number; width: number; height: number }
 
-test.afterEach(async () => {
-  await removeDir(scratch)
-})
+const intersects = (a: Box, b: Box): boolean => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 
-test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave meanwhile, and stops on Stop', async () => {
+/**
+ * The status line lies inside the Epic's header and over nothing: not over the header's buttons or
+ * the Epic's title, and not over the Orchestrator Node, which this layout places over the frame.
+ */
+async function expectStatusClear(window: Page, header: Locator, status: Locator): Promise<void> {
+  const line = (await status.boundingBox())!
+  const room = (await header.boundingBox())!
+  expect(line.y, 'the status line starts inside the header').toBeGreaterThanOrEqual(room.y)
+  expect(line.y + line.height, 'the status line ends inside the header').toBeLessThanOrEqual(room.y + room.height)
+  const others: [string, Locator][] = [
+    ['the Orchestrator Node', window.getByTestId('orchestrator-node')],
+    ['the Epic title', header.locator('h2')],
+    ...(await header.locator('button').all()).map((button, i): [string, Locator] => [`header button ${i}`, button]),
+  ]
+  for (const [name, locator] of others) {
+    const box = await locator.boundingBox()
+    if (box !== null) expect(intersects(line, box), `the status line is clear of ${name}`).toBe(false)
+  }
+}
+
+/**
+ * The Project in a temporary folder: a git repository with the Epic, an epic-status that answers its
+ * Tickets, and worfy's data folder with the Project (and worfy's own repository as a second one).
+ */
+function prepare() {
   const dataDir = join(scratch, 'data')
   const claudeHome = join(scratch, 'claude-home')
   const log = join(scratch, 'agent.jsonl')
@@ -151,34 +174,49 @@ test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave mea
     }),
   )
   writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 20, y: 20, zoom: 0.8 } }))
-  const statusBefore = git(repo, 'status', '--porcelain')
-  const claudeHomeBefore = files(claudeHome)
 
+  return { dataDir, claudeHome, log, repo, statusBefore: git(repo, 'status', '--porcelain'), claudeHomeBefore: files(claudeHome) }
+}
+
+/** Replaces Electron's powerSaveBlocker in main by one that records the calls, so the test never keeps the Mac awake; answers the reader of the record. */
+async function recordPower(app: ElectronApplication): Promise<() => Promise<string[]>> {
+  await app.evaluate(({ powerSaveBlocker }) => {
+    const calls: string[] = []
+    const started = new Set<number>()
+    let next = 100
+    ;(globalThis as unknown as { power: string[] }).power = calls
+    powerSaveBlocker.start = (type) => {
+      next += 1
+      started.add(next)
+      calls.push(`start ${type}`)
+      return next
+    }
+    powerSaveBlocker.stop = (id) => {
+      started.delete(id)
+      calls.push('stop')
+      return true
+    }
+    powerSaveBlocker.isStarted = (id) => started.has(id)
+  })
+  return () => app.evaluate(() => [...(globalThis as unknown as { power: string[] }).power])
+}
+
+test.beforeEach(() => {
+  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-autopilot-')))
+})
+
+test.afterEach(async () => {
+  await removeDir(scratch)
+})
+
+test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave meanwhile, and stops on Stop', async () => {
+  const { dataDir, claudeHome, log, repo, statusBefore, claudeHomeBefore } = prepare()
   const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'orchestrator', WORFY_AGENT_LOG: log }
   const launched = await launchApp({ env })
   try {
     const { window, app } = launched
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
-    // keep-awake: recorded, never the real one.
-    await app.evaluate(({ powerSaveBlocker }) => {
-      const calls: string[] = []
-      const started = new Set<number>()
-      let next = 100
-      ;(globalThis as unknown as { power: string[] }).power = calls
-      powerSaveBlocker.start = (type) => {
-        next += 1
-        started.add(next)
-        calls.push(`start ${type}`)
-        return next
-      }
-      powerSaveBlocker.stop = (id) => {
-        started.delete(id)
-        calls.push('stop')
-        return true
-      }
-      powerSaveBlocker.isStarted = (id) => started.has(id)
-    })
-    const power = () => app.evaluate(() => [...(globalThis as unknown as { power: string[] }).power])
+    const power = await recordPower(app)
 
     const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
     const header = frame.locator('header')
@@ -202,6 +240,7 @@ test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave mea
     // Start: Wave 1 goes to the Orchestrator, now unattended.
     await autopilot.click()
     await expect(status).toHaveText('Wave 1 · running')
+    await expectStatusClear(window, header, status)
     await expect(stop).toHaveText('Stop autopilot')
     await expect(autopilot).toHaveCount(0)
     await expect.poll(() => messages(log)).toEqual([`/epic-wave волна 1 эпика ${EPIC}`])
@@ -221,8 +260,68 @@ test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave mea
     await expect(autopilot).toHaveText('Autopilot')
     expect(await power()).toEqual(['start prevent-app-suspension', 'stop'])
     expect(journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'run-stopped user-stop'])
+    await expectStatusClear(window, header, status)
     await snapshots(window, header, 'autopilot-stopped')
 
+    // worfy wrote nothing into the repository, and nothing into the Claude home the run read.
+    expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
+    expect(files(claudeHome)).toEqual(claudeHomeBefore)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('Autopilot waits for the Limits after a refusal: the status line says until when, and Stop cancels the wait', async () => {
+  const { dataDir, claudeHome, log, repo, statusBefore, claudeHomeBefore } = prepare()
+  // The fake agent's script refuses the Wave's turn by the Limits, with a reset two hours from now
+  // (the fixture's reset time is a fixed one in the past).
+  const reset = Math.floor(Date.now() / 1000) + 2 * 3600
+  const scripts = join(scratch, 'scripts')
+  mkdirSync(scripts, { recursive: true })
+  const fixture = readFileSync(join(repoRoot, 'test', 'fixtures', 'agent-scripts', 'autopilot-limits.jsonl'), 'utf8')
+  const lines = fixture.split('\n').filter(Boolean).map((line) => {
+    const value = JSON.parse(line) as { type?: string; rate_limit_info?: { status?: string; resetsAt?: number } }
+    if (value.type === 'rate_limit_event' && value.rate_limit_info?.status === 'rejected') value.rate_limit_info.resetsAt = reset
+    return JSON.stringify(value)
+  })
+  writeFileSync(join(scripts, 'autopilot-limits.jsonl'), `${lines.join('\n')}\n`)
+
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPTS: scripts, WORFY_AGENT_SCRIPT: 'autopilot-limits', WORFY_AGENT_LOG: log }
+  const launched = await launchApp({ env })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
+    const power = await recordPower(app)
+
+    const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
+    const header = frame.locator('header')
+    const status = frame.getByTestId('autopilot-status')
+    const stop = frame.getByTestId('action-stop-autopilot')
+    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+
+    await frame.getByTestId('action-autopilot').click()
+    const resumesAt = reset * 1000 + RESUME_MARGIN_MS
+    const line = autopilotStatusLine({ status: 'waiting', wave: 1, reason: null, resumesAt })
+    expect(line).toMatch(/^waiting for limits · resumes \d{2}:\d{2}$/)
+    await expect(status).toHaveText(line!)
+    await expect(status).toHaveAttribute('data-status', 'waiting')
+    // The line is shown whole: the time is not cut off.
+    expect(await status.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    // ...and covers nothing: it stays in the header, clear of its buttons and of the Orchestrator Node.
+    await expectStatusClear(window, header, status)
+    // Still a run: Stop is offered, keep-awake is held, and the Orchestrator got only the Wave.
+    await expect(stop).toHaveText('Stop autopilot')
+    expect(await power()).toEqual(['start prevent-app-suspension'])
+    expect(messages(log)).toEqual([`/epic-wave волна 1 эпика ${EPIC}`])
+    expect(journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'limits-hit', 'waiting-until'])
+    await snapshots(window, header, 'autopilot-waiting')
+
+    // Stop during the wait: no continuation goes out.
+    await stop.click()
+    await expect(status).toHaveText('stopped: user stop')
+    expect(await power()).toEqual(['start prevent-app-suspension', 'stop'])
+    expect(journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'limits-hit', 'waiting-until', 'run-stopped user-stop'])
+    expect(messages(log)).toEqual([`/epic-wave волна 1 эпика ${EPIC}`])
     // worfy wrote nothing into the repository, and nothing into the Claude home the run read.
     expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
     expect(files(claudeHome)).toEqual(claudeHomeBefore)

@@ -10,8 +10,10 @@
 //   scripts/statusline-bridge.sh copies into <WORFY_DATA_DIR>/statusline-limits.json.
 //
 // Both are read leniently into per-window updates; a newer update replaces the older one of the
-// same window (mergeLimits). limitBars() turns the merged state into what the toolbar and the
-// Session rail draw. Everything here is pure: main keeps the state, the renderer draws it.
+// same window, except that an update without a reset time keeps the one already known while it is
+// still ahead (mergeLimits, the only place one update of a window replaces another). limitBars()
+// turns the merged state into what the toolbar and the Session rail draw. Everything here is pure:
+// main keeps the state, the renderer draws it.
 import { z } from 'zod'
 
 /** The windows the toolbar shows, in display order. */
@@ -120,18 +122,28 @@ function clean(state: LimitWindowState): LimitWindowState {
 
 /**
  * The state after `updates`: each one replaces what is known about its window, unless what is
- * known is newer (a status line file read late must not undo a fresher SDK event). Returns
- * `state` itself when nothing changed.
+ * known is newer (a status line file read late must not undo a fresher SDK event). An update
+ * without a reset time keeps the known one while it is still ahead of the update's `receivedAt`:
+ * a refusal (`rejected`) may come without `resetsAt`, and Autopilot then waits by the time kept
+ * here (worfy-daily ticket 05). Returns `state` itself when nothing changed.
  */
 export function mergeLimits(state: LimitsState, updates: readonly LimitUpdate[]): LimitsState {
   let windows = state.windows
-  for (const { window, state: next } of updates) {
+  for (const update of updates) {
+    const { window } = update
     const known = windows[window]
-    if (known !== undefined && known.receivedAt > next.receivedAt) continue
+    if (known !== undefined && known.receivedAt > update.state.receivedAt) continue
+    const next = keepKnownReset(known, update.state)
     if (known !== undefined && sameWindow(known, next)) continue
     windows = { ...windows, [window]: next }
   }
   return windows === state.windows ? state : { windows }
+}
+
+/** `next`, with the known reset time when `next` has none and the known one is still ahead of it. */
+function keepKnownReset(known: LimitWindowState | undefined, next: LimitWindowState): LimitWindowState {
+  if (next.resetsAt !== null || known === undefined || known.resetsAt === null) return next
+  return known.resetsAt * 1000 > next.receivedAt ? { ...next, resetsAt: known.resetsAt } : next
 }
 
 function sameWindow(a: LimitWindowState, b: LimitWindowState): boolean {
