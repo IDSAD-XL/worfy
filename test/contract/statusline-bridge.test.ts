@@ -99,6 +99,23 @@ describe('statusline-bridge.sh', () => {
     expect(existsSync(defaultDataDir('packaged'))).toBe(false)
   })
 
+  // The script ships in the .app (worfy-harness ticket 15) and runs from there, with no checkout of
+  // the repository next to it: its commands name no path of the owner's machine or of the repository.
+  it('names no path of a checkout in its executable lines', () => {
+    const code = readFileSync(SCRIPT, 'utf8')
+      .split('\n')
+      .map((line) => line.replace(/(^|\s)#.*$/, '').trim())
+      .filter((line) => line !== '')
+    // The comments are gone, the commands are still there.
+    expect(code).toContain('input=$(cat)')
+    expect(code.join('\n')).not.toContain('statusline-bridge')
+    for (const line of code) {
+      expect(line).not.toContain('/Users/')
+      expect(line).not.toContain('CanvasForAI')
+      expect(line).not.toContain('scripts/')
+    }
+  })
+
   it('with WORFY_DATA_DIR writes there and leaves the default data folders alone', () => {
     const packaged = defaultDataDir('packaged')
     const dev = defaultDataDir('dev')

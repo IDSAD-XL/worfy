@@ -16,6 +16,20 @@ import { launchApp, type LaunchedApp, repoRoot } from './helpers'
 
 const distDir = join(repoRoot, 'dist')
 const installScript = join(repoRoot, 'scripts', 'install-stable.sh')
+const bridgeScript = join(repoRoot, 'scripts', 'statusline-bridge.sh')
+
+// The status line JSON of test/contract/statusline-bridge.test.ts (Claude Code 2.1.284), copied:
+// that file runs under vitest and cannot be imported here.
+const RATE_LIMITS = { five_hour: { used_percentage: 29, resets_at: 1791202800 }, seven_day: { used_percentage: 9, resets_at: 1791777600 } }
+const STATUS = {
+  session_id: '00000000-0000-4000-8000-000000000001',
+  transcript_path: '/Users/someone/.claude/projects/x/00000000-0000-4000-8000-000000000001.jsonl',
+  cwd: '/Users/someone/project',
+  model: { id: 'claude-haiku-4-5-20251001', display_name: 'Haiku 4.5' },
+  version: '2.1.284',
+  cost: { total_cost_usd: 0.001 },
+  rate_limits: RATE_LIMITS,
+}
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
 /** electron-builder writes the .app to dist/mac-arm64/ or dist/mac/, depending on the arch. */
@@ -355,6 +369,42 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
       await launched.close()
     }
   })
+
+  // The status line bridge ships in the .app (worfy-harness ticket 15), so the `statusLine` the
+  // Harness migration form of ticket 14 proposes, <process.resourcesPath>/statusline-bridge.sh,
+  // does not depend on a checkout of the repository.
+  test('the copy carries scripts/statusline-bridge.sh as Contents/Resources/statusline-bridge.sh, executable', () => {
+    const bridge = join(stableApp, 'Contents', 'Resources', 'statusline-bridge.sh')
+    expect(existsSync(bridge)).toBe(true)
+    expect(isExecutable(bridge)).toBe(true)
+    // Packaged from this build (not a WORFY_PACKAGED_APP copy): the very file of the repository.
+    if (!process.env.WORFY_PACKAGED_APP) {
+      expect(readFileSync(bridge).equals(readFileSync(bridgeScript))).toBe(true)
+    }
+  })
+
+  test('the bridge in the copy writes rate_limits to Application Support/worfy and passes stdin to the wrapped command', async () => {
+    const bridge = join(stableApp, 'Contents', 'Resources', 'statusline-bridge.sh')
+    const home = await mkdtemp(join(tmpdir(), 'worfy-bridge-home-'))
+    try {
+      const dataDir = join(home, 'Library', 'Application Support', 'worfy')
+      mkdirSync(dataDir, { recursive: true })
+      const input = JSON.stringify(STATUS)
+      // Run as Claude Code runs a status line command: the script itself, not `sh <script>`, from
+      // a folder that is not the repository, with a HOME of its own and no WORFY_DATA_DIR.
+      const result = spawnSync(bridge, ['cat'], { input, encoding: 'utf8', cwd: home, env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home } })
+      expect(result.error).toBeUndefined()
+      expect(result.stderr).toBe('')
+      expect(result.status).toBe(0)
+      expect(result.stdout).toBe(input)
+      expect(readJson(join(dataDir, 'statusline-limits.json'))).toEqual(RATE_LIMITS)
+      expect(readdirSync(dataDir)).toEqual(['statusline-limits.json'])
+      // The dev data folder does not exist under this HOME, and the bridge does not create it.
+      expect(readdirSync(join(home, 'Library', 'Application Support'))).toEqual(['worfy'])
+    } finally {
+      await removeDir(home)
+    }
+  })
 })
 
 test.describe('scripts/install-stable.sh', { tag: '@packaged' }, () => {
@@ -398,6 +448,22 @@ test.describe('scripts/install-stable.sh', { tag: '@packaged' }, () => {
     expect(existsSync(executableOf(target))).toBe(true)
     // No staging folder is left next to the copy.
     expect(readdirSync(dir).sort()).toEqual(['worfy-stable.app', 'worfy-stable.json'])
+  })
+
+  // A `statusLine` that points at the bridge of the stable copy keeps working when the copy is
+  // replaced: the path stays the same and the file stays executable.
+  test('a second run leaves the status line bridge at the same path, executable', () => {
+    const target = join(dir, 'worfy-stable.app')
+    const bridge = join(target, 'Contents', 'Resources', 'statusline-bridge.sh')
+    expect(install(target).status).toBe(0)
+    expect(isExecutable(bridge)).toBe(true)
+
+    const again = install(target)
+    expect(again.stderr).toBe('')
+    expect(again.status).toBe(0)
+    expect(existsSync(bridge)).toBe(true)
+    expect(isExecutable(bridge)).toBe(true)
+    expect(readFileSync(bridge).equals(readFileSync(bridgeScript))).toBe(true)
   })
 
   test('refuses with a non-zero exit code while the copy is running, and leaves it in place', async () => {
