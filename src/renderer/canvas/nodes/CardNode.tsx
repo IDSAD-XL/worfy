@@ -184,7 +184,13 @@ export default function CardNode({ id, data, selected }: CanvasNodeProps) {
       <div className="w-note__header" data-testid="card-title">
         {title}
       </div>
-      <div style={bodyStyle}>{body}</div>
+      {/* Until the Card is the active Node its iframe takes no mouse (canvas.css), so the click that
+          activates it lands here. nodrag keeps React Flow's drag from swallowing that click when the
+          mouse shifts by a pixel; the Card is dragged by its title. The placeholder drawn when zoomed
+          out has no page to click into and stays draggable. */}
+      <div className={live ? 'nodrag' : undefined} style={bodyStyle}>
+        {body}
+      </div>
     </div>
   )
 }

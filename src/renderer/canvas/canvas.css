@@ -30,10 +30,24 @@
   pointer-events: none;
 }
 
+/* A Card's page takes the mouse only while its Node is the active one (worfy-week ticket 16): until
+   the first click a wheel over a Card lands on the Node and moves the Canvas, and that click makes
+   the Card active instead of reaching its page. Focus mode draws its tiles outside .w-canvas. */
+.w-canvas .react-flow__node:not(.w-node--active) iframe {
+  pointer-events: none;
+}
+
 /* A selected Node gets the accent ring; the surface keeps its own border and shadow. */
 .w-canvas .react-flow__node.selected > .w-node-surface {
   border-color: var(--accent);
   box-shadow: var(--shadow-node), 0 0 0 1px var(--accent);
+}
+
+/* The active Node — clicked, and its content takes the wheel — gets a 2 px ring. A Node selected
+   another way (a rectangle, ⌘-click, a drag) keeps the 1 px one. */
+.w-canvas .react-flow__node.selected.w-node--active > .w-node-surface,
+.w-canvas .react-flow__node.selected.w-node--active > .w-pinned-frame > .w-node-surface {
+  box-shadow: var(--shadow-node), 0 0 0 2px var(--accent);
 }
 
 .w-canvas-message {

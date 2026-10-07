@@ -93,7 +93,8 @@ export default function HandoffNode({ id, selected }: CanvasNodeProps) {
         </span>
         <span style={styles.pill}>markdown</span>
       </div>
-      {/* nodrag/nowheel: text can be selected and scrolled instead of moving the Canvas. */}
+      {/* nodrag: text can be selected instead of moving the Node. nowheel: once the Node is active
+          (clicked), the wheel scrolls the text; before that it moves the Canvas (wheel-router.ts). */}
       <div className="nodrag nowheel" style={styles.body} data-testid="handoff-body" data-version={handoff?.version}>
         {body}
       </div>

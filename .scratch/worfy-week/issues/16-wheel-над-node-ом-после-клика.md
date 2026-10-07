@@ -124,6 +124,9 @@ Canvas двигается wheel-ом и свайпом двумя пальцам
 - `test/unit/wheel-router.test.ts` — новый
 - `test/e2e/wheel-over-nodes.spec.ts` — новый
 - `test/e2e/card-drag.spec.ts`
+- `tsconfig.test.node.json` — правка вне следа, разрешённая оркестратором 2026-10-07: строка
+  `src/renderer/canvas/wheel-router.ts` в `include`, чтобы unit test в проекте node проходил typecheck
+  (как у `snapping.ts` и `history.ts`).
 
 Остальные Node-ы (`OrchestratorNode.tsx`, `NoteNode.tsx`, `SessionNode.tsx`, `TerminalNode.tsx`) и
 `terminal-mouse.ts` не меняются: решение принимает router. Overlay-и с `nowheel` — не Node-ы, router
@@ -132,4 +135,33 @@ Canvas двигается wheel-ом и свайпом двумя пальцам
 
 ## Итог
 
-Заполняется при закрытии.
+- **Активный Node** — `Canvas.tsx`: `activeNodeId` и ref; ставит `onNodeClick` без модификаторов, снимают
+  `onPaneClick`, pointerdown вне активного Node-а (window, capture), Esc на window (кроме фокуса в
+  `.w-terminal`) и снятие выделения средствами React Flow (изменение `select` в `onNodesChange`: выделенный
+  потом рамкой или клавиатурой Node активным не становится). Класс `w-node--active` получает только объект
+  активного Node-а. Кольцо 2 px — `canvas.css`, в том числе у закреплённого Node-а (`.w-pinned-frame`).
+- **Wheel router** — `wheel-router.ts`: `routeWheel` (решение) и `routeWheels` (listener на `.w-canvas`,
+  capture, `passive: false`; копия события уходит на `.react-flow__renderer`, clientX/clientY — getter-ом
+  `MouseEvent.prototype`). Модуль не называет типов DOM, как `card-bridge.ts`: unit test гоняет его на
+  простых объектах в проекте node.
+- **Card** — правило `:not(.w-node--active) iframe { pointer-events: none }`; телу Card `nodrag` дан только
+  когда рисуется страница (`live`): заглушка при zoom < 0.4 по-прежнему тянет Node.
+- **Как падал test первым** (на коде origin/main 3bf0abb): `wheel-over-nodes.spec.ts` — 5 из 6 красные; шаг
+  «до клика wheel двигает Canvas» над телом HANDOFF — `Expected: not "translate(20px, 20px) scale(1)"`
+  (viewport стоял), над Terminal в alt buffer — то же; остальные — нет класса `w-node--active`. Focus mode
+  зелёный и до правки (так и должно быть).
+- **e2e-наблюдение:** страница Card — в другом процессе; окно отдаёт ей мышь только после кадра без
+  `pointer-events: none`. Клик сразу за активацией (в тот же кадр) до страницы не доходит; test-ы ждут два
+  кадра (`clickReachesCard`, `expectActive`). Человек так быстро не кликает.
+- Снимки: [активный Node, светлая](../evidence/16-активный-node.png),
+  [тёмная](../evidence/16-активный-node-dark.png); [выделенный неактивный, светлая](../evidence/16-выделенный-node.png),
+  [тёмная](../evidence/16-выделенный-node-dark.png).
+- **Решено без владельца, подтвердить** — три пункта из «Что делаем» приняты как записаны: Card до клика не
+  получает мышь (hover и первый клик); pinch над активной Card принадлежит Card; активный Node без
+  прокрутки отдаёт wheel Canvas-у, докрученный до края — не отдаёт; Terminal строгий.
+- Проверки: `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (2344 test-а); gate fast — `[gate] зелено`;
+  `GATE_SCOPE=all gate full` — 137 из 138, красный только известный нестабильный
+  `epic-frame.spec.ts:721` («long names»), повтор отдельно — passed. `wheel-over-nodes.spec.ts` и
+  `card-drag.spec.ts` с `--repeat-each=3` — 33 из 33.
+- Пункт «(вручную) Stable copy после влития, trackpad» — не проверено: нужна сборка после мержа и trackpad
+  владельца; e2e проверяет те же ветки колесом мыши Playwright.

@@ -134,11 +134,31 @@ async function jerk(window: Page, from: Point, by: Point, button: 'left' | 'midd
   return { x: (by.x * (steps - 1)) / steps, y: (by.y * (steps - 1)) / steps }
 }
 
-/** A click in the middle of the Card's page reaches the page. */
+/**
+ * A click in the middle of the Card's page reaches the page. The page takes the mouse only while
+ * the Card is the active Node (worfy-week ticket 16), so a Card that is not yet active is first
+ * made active by a click, which does not reach the page.
+ */
 async function clickReachesCard(window: Page, clicks: number): Promise<void> {
   const frame = await box(cardFrame(window))
-  await window.mouse.click(frame.x + frame.width / 2, frame.y + frame.height / 2)
-  await expect(window.frameLocator('[data-card-id="c1"] iframe').locator('body')).toHaveAttribute('data-clicks', String(clicks))
+  const middle = { x: frame.x + frame.width / 2, y: frame.y + frame.height / 2 }
+  const page = window.frameLocator('[data-card-id="c1"] iframe').locator('body')
+  if (!/\bw-node--active\b/.test((await nodeElement(window, 'c1').getAttribute('class')) ?? '')) {
+    await window.mouse.click(middle.x, middle.y)
+    await expect(nodeElement(window, 'c1')).toHaveClass(/\bw-node--active\b/)
+    await expect(page).toHaveAttribute('data-clicks', String(clicks - 1))
+    // The page is in another process: the window hands it the mouse only once frames without
+    // pointer-events: none on the iframe have been drawn.
+    await window.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          const page = globalThis as unknown as { requestAnimationFrame(cb: () => void): void }
+          page.requestAnimationFrame(() => page.requestAnimationFrame(() => resolve()))
+        }),
+    )
+  }
+  await window.mouse.click(middle.x, middle.y)
+  await expect(page).toHaveAttribute('data-clicks', String(clicks))
 }
 
 // Held in the middle of the header, the drag starts and the Card then falls behind the pointer
