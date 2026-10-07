@@ -58,7 +58,7 @@ Describes what is built (worfy-daily tickets 04, 05, 29, 32). Reference look in 
 - **Status line text** (`Wave N` counts the Waves this run has sent, from 1 — not the Wave number in the Epic's plan):
   - `starting` — running, no Wave sent yet;
   - `Wave 3 · running`;
-  - `Wave 3 · 4 background tasks`, `Wave 1 · 1 background task` — the Wave's turn is over, the Orchestrator's background tasks still run;
+  - `Wave 3 · 4 background tasks`, `Wave 1 · 1 background task` — running, and the Orchestrator's background tasks are live;
   - `waiting for limits`, `waiting for limits · resumes 14:20` — waiting for the Limits to reset; time is 24-hour local;
   - `stopped: <reason>` — the last run's stop reason, dashes as spaces: `stopped: no ready wave`, `stopped: blocked tickets`, `stopped: no progress`, `stopped: wave unfinished`, `stopped: session error`, `stopped: turn error`, `stopped: interrupted`, `stopped: session closed`, `stopped: send failed`, `stopped: workflow error`, `stopped: limits timeout`, `stopped: background stalled`, `stopped: user stop`, `stopped: app quit`.
 - **Status line tooltip**: the run's error message when it has one; else, while running or waiting, the line plus ". The display stays on until the run ends" (the visible line never says it: 220px is taken by its longest forms); else the line itself.
