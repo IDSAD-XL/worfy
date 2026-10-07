@@ -173,7 +173,10 @@ test('another version installed: "Update Harness" → the dialog shows from → 
     await answerDialogWith(launched, 0)
     await item.getByTestId('harness-action').click()
     await expect(item.getByTestId('harness-text')).toHaveText(`Harness ${bundledVersion()}`)
+    await shoot(launched, 'updated')
     const [shown] = await shownDialogs(launched)
+    // The native dialog cannot be screenshotted from Playwright: its text is kept with the test's output.
+    await test.info().attach('13-harness-dialog-update.json', { body: JSON.stringify(shown, null, 2), contentType: 'application/json' })
     expect(shown?.buttons).toEqual(['Update', 'Cancel'])
     expect(shown?.message).toBe(`Update the worfy Harness ${OLD} → ${bundledVersion()}?`)
     expect(shown?.detail).toContain('claude plugin update worfy@worfy-harness --scope user')

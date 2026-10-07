@@ -91,17 +91,17 @@ plugin в Session-ах worfy (Ticket 12); пометка «Harness в main но�
 и `WORFY_CLAUDE_HOME` указывают внутрь неё (Q8). На настоящем `~/.claude` установщик в этом Ticket-е
 не запускается.
 
-- [ ] Contract test с подменённым `claude` (пишет аргументы и env в файл): без `worfy-harness/plugin/` состояние — «не установлен»; чтение состояния не создаёт ни одного файла.
-- [ ] Тот же test: после согласия дерево `worfy-harness/plugin/` побайтно совпадает с копией Harness этой сборки (путь из `bundled.ts`), включая `.claude-plugin/plugin.json` с `<semver>+<SHA>`; подменённый `claude` получил команды ADR-0048 по порядку (регистрация marketplace с папкой plugin, затем `install worfy@<marketplace> --scope user`) с `HOME` и `CLAUDE_CONFIG_DIR` песочницы; состояние — «установлен, <версия>».
-- [ ] Повторный запуск с той же версией: копии нет, `claude` вызван только для `plugin list`.
-- [ ] Другая версия: диалог показывает «было → стало»; после согласия файла, которого нет в новой версии, в папке plugin нет; вызвана команда обновления по ADR-0048.
-- [ ] Отказ в диалоге: ничего не записано, `claude` не вызван.
-- [ ] Код не 0 у `claude` на каждом шаге и отсутствие бинаря — состояние «ошибка» с именем шага и хвостом stderr. Сбой посреди копии (подменяется в test-е) — прежняя папка plugin побайтно цела.
-- [ ] Снимок дерева песочницы до и после установки с подменённым `claude`: worfy записал только `worfy-harness/plugin/`; `settings.json` песочницы побайтно прежний.
-- [ ] Unit test: dev-сборка без `WORFY_CLAUDE_HOME` установку не предлагает, состояние показывает.
-- [ ] Только macOS (`skipIf(process.platform !== 'darwin')`), локально в `gate full`: тот же сценарий с настоящим встроенным бинарём в песочнице — `claude plugin list --json` с `CLAUDE_CONFIG_DIR` песочницы показывает `worfy` включённым и с версией сборки; ключи, которые были в `settings.json` песочницы до установки, на месте; повторная установка — код 0. Если `claude plugin` в песочнице требует входа, один `/login` делает владелец (Q8): исполнитель пишет это в «Итог», пункт — в HANDOFF, раздел «Ждёт владельца».
-- [ ] `@packaged` test в `test/e2e/packaged.spec.ts` (локально, `pnpm test:package` в `gate full`): в `.app` есть `Contents/Resources/harness/.claude-plugin/plugin.json` с `name: worfy` и версией этой сборки.
-- [ ] e2e с временным `WORFY_CLAUDE_HOME` и подменённым `claude`: toolbar показывает «Harness not installed»; Install → диалог (ответ подменён в main) → «Harness <версия>». В `test/e2e/toolbar.spec.ts` (окно 1280 px, длинное имя Project) новый элемент целиком в окне.
+- [x] Contract test с подменённым `claude` (пишет аргументы и env в файл): без `worfy-harness/plugin/` состояние — «не установлен»; чтение состояния не создаёт ни одного файла.
+- [x] Тот же test: после согласия дерево `worfy-harness/plugin/` побайтно совпадает с копией Harness этой сборки (путь из `bundled.ts`), включая `.claude-plugin/plugin.json` с `<semver>+<SHA>`; подменённый `claude` получил команды ADR-0048 по порядку (регистрация marketplace с папкой plugin, затем `install worfy@<marketplace> --scope user`) с `HOME` и `CLAUDE_CONFIG_DIR` песочницы; состояние — «установлен, <версия>».
+- [x] Повторный запуск с той же версией: копии нет, `claude` вызван только для `plugin list`.
+- [x] Другая версия: диалог показывает «было → стало»; после согласия файла, которого нет в новой версии, в папке plugin нет; вызвана команда обновления по ADR-0048.
+- [x] Отказ в диалоге: ничего не записано, `claude` не вызван.
+- [x] Код не 0 у `claude` на каждом шаге и отсутствие бинаря — состояние «ошибка» с именем шага и хвостом stderr. Сбой посреди копии (подменяется в test-е) — прежняя папка plugin побайтно цела.
+- [x] Снимок дерева песочницы до и после установки с подменённым `claude`: worfy записал только `worfy-harness/plugin/`; `settings.json` песочницы побайтно прежний.
+- [x] Unit test: dev-сборка без `WORFY_CLAUDE_HOME` установку не предлагает, состояние показывает.
+- [x] Только macOS (`skipIf(process.platform !== 'darwin')`), локально в `gate full`: тот же сценарий с настоящим встроенным бинарём в песочнице — `claude plugin list --json` с `CLAUDE_CONFIG_DIR` песочницы показывает `worfy` включённым и с версией сборки; ключи, которые были в `settings.json` песочницы до установки, на месте; повторная установка — код 0. Если `claude plugin` в песочнице требует входа, один `/login` делает владелец (Q8): исполнитель пишет это в «Итог», пункт — в HANDOFF, раздел «Ждёт владельца».
+- [x] `@packaged` test в `test/e2e/packaged.spec.ts` (локально, `pnpm test:package` в `gate full`): в `.app` есть `Contents/Resources/harness/.claude-plugin/plugin.json` с `name: worfy` и версией этой сборки.
+- [x] e2e с временным `WORFY_CLAUDE_HOME` и подменённым `claude`: toolbar показывает «Harness not installed»; Install → диалог (ответ подменён в main) → «Harness <версия>». В `test/e2e/toolbar.spec.ts` (окно 1280 px, длинное имя Project) новый элемент целиком в окне.
 
 ## Тесты
 
@@ -143,4 +143,58 @@ plugin в Session-ах worfy (Ticket 12); пометка «Harness в main но�
 
 ## Итог
 
-Заполняется при закрытии.
+- `src/main/harness/install.ts` — установщик. Состояние: `not-installed`, `installed` (версия, включён ли),
+  `outdated` (было → стало), `error` (шаг `copy` / `marketplace add` / `install` / `update` / `plugin list`
+  и хвост stderr, 5 строк). Чтение состояния ничего не пишет; без папки plugin оно не вызывает даже
+  `claude`. Включён ли plugin и его версия — из `claude plugin list --json` (запись `worfy@worfy-harness`).
+- Команды — по ADR-0048: первая установка — `claude plugin marketplace add <harnessHome>/plugin`, затем
+  `claude plugin install worfy@worfy-harness --scope user`; смена `version` — `claude plugin update
+  worfy@worfy-harness --scope user`. Повторный `install` версию не меняет, поэтому при смене версии идёт
+  только `update`. Одна и та же версия — ни копии, ни диалога, `claude` вызван только для `plugin list`.
+- Манифест marketplace — `harness/.claude-plugin/marketplace.json` в репозитории: marketplace `worfy-harness`,
+  plugin `worfy` с `source: "./"`. Копия Harness сама и marketplace, и plugin (ADR-0048, пункт 3). В `.app`
+  он едет с `harness/` сборки Ticket-а 04; `electron-builder.yml` не менялся.
+- Копия: `bundledHarnessDir()` (`out/harness` в dev, `<Resources>/harness` в `.app`) → временная папка
+  `<harnessHome>/.plugin-new-*` → прежняя папка отодвигается в `.plugin-old-*` → новая встаёт на место →
+  прежняя удаляется. Сбой копии оставляет прежнюю папку побайтно. Если прошлый запуск оборвался между
+  двумя переименованиями (папки `plugin/` нет, прежняя лежит в `.plugin-old-*`), следующая установка сначала
+  возвращает её на место.
+- Бинарь: `bundledClaudeBinary()` в `src/main/agent/options.ts` — бинарь SDK и в `.app`, и в dev (пакет
+  `@anthropic-ai/claude-agent-sdk-<platform>-<arch>` рядом с SDK). Подменённый `claude` для test-ов —
+  переменная окружения **`WORFY_CLAUDE`** (как `WORFY_GH`). С `WORFY_CLAUDE_HOME` установщик передаёт
+  `claude` `CLAUDE_CONFIG_DIR` той же папки.
+- dev-сборка без `WORFY_CLAUDE_HOME` показывает состояние без кнопки; `harness.install` в ней отказывает
+  до диалога.
+- IPC: `harness.state` и `harness.install` (`src/shared/ipc/harness.ts`, `src/main/ipc/harness.ts`), их же
+  возьмёт экран первого запуска (Ticket 19). Toolbar: `src/renderer/shell/toolbar/HarnessStatus.tsx`, между
+  Limits и версией: «Harness not installed» + Install, «Update Harness» (в подсказке было → стало),
+  «Harness <версия>», «Harness error: <шаг>» (причина в подсказке) + Retry.
+- **Зависимость `mattpocock-skills`** (ADR-0048 о ней молчит; проверено в песочнице встроенным бинарём
+  2.1.289, без входа и с закрытым прокси): `marketplace add` и `install` — код 0, `outcome: ok`, хотя
+  marketplace `claude-plugins-official` в песочнице не добавлен. `plugin list --json` показывает `worfy`
+  включённым, с версией сборки и с `errors: ["Dependency \"mattpocock-skills@claude-plugins-official\" is
+  not installed — run …"]`. Повторный `install` — код 0, «1 dependency still unresolved». worfy показывает
+  это как «ошибка, шаг `install`» с этим текстом, а не как успех; диалог согласия называет зависимость и
+  команду, которой её ставить. Входа `claude plugin` в песочнице не потребовал — `/login` владельца не нужен.
+  **Решено без владельца, подтвердить:** worfy сам зависимость не ставит (её marketplace — чужой, сеть), а
+  только называет. Кнопка Retry в этом состоянии ничего не делает: версия та же, установщику делать нечего.
+- Красный test первым: на main модуля `src/main/harness/install.ts` нет (`git show origin/main:src/main/harness/install.ts`
+  — «exists on disk, but not in 'origin/main'»), импорт в `test/contract/harness-install.test.ts` падает,
+  файл test-а красный целиком. Test возврата прежней копии после оборванной установки до правки падал на
+  `expect(treeOf(plugin)).toEqual(before)` — папка была пуста (`{}`).
+- Test-ы: `test/contract/harness-install.test.ts` (состояние, установка, повтор, обновление, отказ, две
+  установки сразу, ошибки по шагам, нет бинаря, сломанный plugin, сбой копии, оборванная установка, снимок
+  записей песочницы, dev-сборка, диалог; настоящий бинарь — `skipIf` не macOS), `test/unit/harness-status.test.tsx`
+  (вид элемента toolbar: без права установки кнопки нет), `test/e2e/harness-install.spec.ts`,
+  `test/e2e/toolbar.spec.ts`, `test/e2e/packaged.spec.ts` (`marketplace.json` в `.app`, «Harness not
+  installed» + Install в упакованном приложении).
+- Снимки toolbar в обеих темах: не установлен — [светлая](../evidence/13-harness-not-installed-light.png),
+  [тёмная](../evidence/13-harness-not-installed-dark.png); установлен — [светлая](../evidence/13-harness-installed-light.png),
+  [тёмная](../evidence/13-harness-installed-dark.png); «Update Harness» (было) — [светлая](../evidence/13-harness-update-light.png),
+  [тёмная](../evidence/13-harness-update-dark.png); после обновления (стало) — [светлая](../evidence/13-harness-updated-light.png),
+  [тёмная](../evidence/13-harness-updated-dark.png); ошибка шага — [светлая](../evidence/13-harness-error-light.png),
+  [тёмная](../evidence/13-harness-error-dark.png).
+- Не проверено: вид нативного диалога согласия на снимке. Агент в приложении не снимает экран средствами
+  ОС (PR #120), Playwright нативный диалог не видит. Текст диалога проверяет e2e с подменённым диалогом
+  (кнопки, «Update the worfy Harness <было> → <стало>?», команды, папка, зависимость) и прикладывает его к
+  отчёту Playwright (`13-harness-dialog-update.json`).
