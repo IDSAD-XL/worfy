@@ -6,8 +6,8 @@
 ready, потом номер». Пересечения Edge-ей Blocked by никто не уменьшал, а сами Edge-и были кривыми
 React Flow по умолчанию от handle к handle: Edge через уровень (Level 1 → Level 3) проходил через
 Ticket-ы средней колонки. Ticket-ы и Node-ы Subagent-ов перетаскивались, их смещения лежали в
-Layout (ADR-0011: `data["offset:<NN>"]` в Node-е `epic-frame`; Node `subagent-tree` с
-`offset:<key>`). Владелец 2026-10-07 решил (spec.md Epic-а worfy-week, решения 15–17, 28, 29):
+Layout: `data["offset:<NN>"]` в Node-е `epic-frame` (ADR-0011) и Node `subagent-tree` с
+`offset:<key>` на Session (Ticket 15 Epic-а worfy-mvp, раздел «Итог»). Владелец 2026-10-07 решил (spec.md Epic-а worfy-week, решения 15–17, 28, 29):
 Edge-и ортогональные, по коридорам между колонками, в обход Ticket-ов; порядок в колонке — с
 минимизацией пересечений, ready отмечен chip-ом, а не местом; Ticket-ы и деревья Subagent-ов не
 перетаскиваются, их сохранённые смещения снимаются один раз; раскладку считает ELK в Web Worker,
@@ -91,8 +91,19 @@ Edge-и ортогональные, по коридорам между коло�
   них не минимизируются.
 
 Источник: Ticket 03 Epic-а worfy-week (`.scratch/worfy-week/issues/03-elk-раскладка-рамок-epic-ов.md`),
-решения владельца 2026-10-07 №15–17, 28, 29 (`.scratch/worfy-week/spec.md`). ADR-0011 остаётся в
-силе, кроме смещений Ticket-ов (пункт 5); ADR-0032 остаётся в силе целиком.
+решения владельца 2026-10-07 №15–17, 28, 29 (`.scratch/worfy-week/spec.md`). ADR-0032 остаётся в
+силе целиком. ADR-0011 остаётся в силе, кроме смещений Ticket-ов (пункт 5).
+
+Что этот ADR отменяет:
+
+- смещения Ticket-ов внутри рамки — `data["offset:<NN>"]` Node-а `epic-frame` (ADR-0011);
+- ручные смещения Node-ов Subagent-ов — Node `subagent-tree` с `offset:<key>` на Session (Ticket 15
+  Epic-а worfy-mvp, раздел «Итог»);
+- правило Ticket-а 28 Epic-а worfy-daily «сдвинутый руками Subagent следует только за своей
+  Session» (`.scratch/worfy-daily/issues/28-размещение-subagent-ов-и-ship-ticket.md`): сдвинутых
+  руками Subagent-ов больше нет, дерево целиком, кроме anchor-а, уходит от Node-ов Layout-а;
+- строку Ticket-а 11 Epic-а worfy-daily «Offset-ы относительно авто-места сохраняются»
+  (`.scratch/worfy-daily/issues/11-заголовки-и-chip-ы-без-обрезки.md`): смещений Ticket-ов больше нет.
 
 ## Considered Options
 
