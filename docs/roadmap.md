@@ -1,15 +1,20 @@
 # Дорожная карта worfy: E2–E4
 
-Status: принята владельцем 2026-10-06; раздел E3 переписан по решениям владельца 2026-10-07.
+Status: принята владельцем 2026-10-06; раздел E3 переписан по решениям владельца 2026-10-07; разделы
+`worfy-link` и `worfy-windows` добавлены по решениям владельца 2026-10-07, их «Готово, когда»
+подтверждены 2026-10-08.
 Source: итог проектирования 2026-10-06; [CONTEXT.md](../CONTEXT.md); ADR
-[0017](adr/0017-english-canonical-terms.md)–[0021](adr/0021-mcp-servers-allowlist-in-profile.md), 0040–0047 (E3).
+[0017](adr/0017-english-canonical-terms.md)–[0021](adr/0021-mcp-servers-allowlist-in-profile.md), 0040–0047 (E3);
+0052–0056 (`worfy-link` и `worfy-windows`).
 
 ## Куда идёт worfy
 
 worfy становится самостоятельным сервисом: любой человек ставит его на свою машину, и вместе с ним
 ставится весь Harness — правила, skills, агенты, скрипты и hooks, по которым агенты ведут работу над
-Project. Путь туда — три Epic-а подряд: E2 → E3 → E4. До первого внешнего пользователя worfy
-собирается из исходников. Подпись Developer ID и нотаризация Apple появляются только в E4.
+Project. Путь туда — E2 → E3 → E4. Между E3 и E4 параллельно идут два Epic-а: `worfy-link` —
+Machine-ы одного пользователя работают с Project-ами друг друга по локальной сети, и `worfy-windows` —
+полный порт worfy под Windows. До первого внешнего пользователя worfy собирается из исходников.
+Подпись Developer ID и нотаризация Apple, как и подпись установщика Windows, появляются только в E4.
 
 ## E2 — worfy-daily: worfy каждый день и Autopilot
 
@@ -122,6 +127,116 @@ Wave-ы E3 идут на plugin. Откат — восстановление и�
 **Не в E3:** смена режима Project на ходу; PR из форка, когда нет прав на `origin`; eval-кейсы
 перевода Harness (`claude plugin eval`) — в E4.
 
+## worfy-link — Linked machines
+
+Спроектирован 2026-10-07 (решения владельца). Epic `worfy-link`, Ticket-ы — в
+[.scratch/worfy-link/](../.scratch/worfy-link/spec.md). Решения — ADR-0052 и ADR-0053 в [docs/adr/](adr/).
+
+**Цель.** Владелец работает с Project-ом одной своей Machine с другой: например, Project живёт на
+Mac, а его Canvas, Session-ы и Terminal открыты на Windows-ПК. Работа выполняется на Machine
+Project-а, оба экрана видят её вживую. Связь — только по локальной сети.
+
+**Готово, когда:**
+
+1. Два worfy связываются по коду — сначала dev-сборка и Stable copy на одном Mac, потом Mac и
+   Windows; отзыв работает.
+2. С другой Machine можно открыть Canvas Project-а, править его, писать в Session, печатать в
+   Terminal, запускать и останавливать Autopilot — всё выполняется на Machine Project-а, оба экрана
+   обновляются вживую, камера и ⌘Z у каждого свои.
+3. Session, запущенная удалённо, переживает закрытие окна; «Add Project» на Linked machine — через
+   просмотр её папок.
+4. Уведомления приходят на подключённые Machine; Machine Project-а не засыпает, пока подключены; второй
+   Autopilot на тот же Epic не стартует.
+5. По умолчанию доступ выключен; проверка Origin/Host покрыта test-ами; токены не логируются.
+
+Здесь «камера» — положение и масштаб Canvas на экране. Origin и Host — заголовки HTTP-запроса; их
+проверка не даёт чужой веб-странице подключиться к worfy.
+
+**Решения.**
+
+- [ADR-0052](adr/0052-machines-and-linking.md) «Machines and linking» — Machine и Linked machine; у
+  Project ровно одна Machine; host и client — роли соединения, а не виды Machine. «Link a machine»
+  находит worfy в сети (Bonjour) или берёт адрес; вторая Machine показывает код из 6 цифр. Связь
+  двусторонняя, по TLS с запомненным сертификатом. Переключатель «Linked machines can work with my
+  Projects» по умолчанию выключен. Только LAN, проверка Origin и Host, отзыв с любой стороны. Список
+  Project-ов слева сгруппирован по Machine, у каждой состояние: «в сети», «спит», «недоступна».
+  «Add Project» — выбор Machine, затем папка через просмотр её файлов внутри worfy.
+- [ADR-0053](adr/0053-several-screens-on-one-project.md) «Several screens on one Project» — общее
+  состояние Project-а приходит на все экраны вживую. Камера Canvas своя у каждого экрана и уходит из
+  общего Layout. ⌘Z отменяет только свои правки. Session живёт на Machine Project-а и не зависит от
+  окна. Размер Terminal задаёт экран, где последним печатали. Системные диалоги открываются в UI
+  Machine, откуда вызваны. Уведомления получают Machine Project-а и подключённые к нему Linked
+  machine. Machine Project-а не засыпает, пока к ней подключены. Один Autopilot на пару Epic и
+  `origin` (адрес репозитория на GitHub) на все Machine. Wake-on-LAN — позже.
+
+**Порядок.** Начинается после закрытия E3, параллельно с `worfy-windows`. Ведёт Session на Mac
+владельца. Связь сначала проверяется на одном Mac — dev-сборка и Stable copy. Пара Mac и Windows из
+пункта 1 требует worfy на Windows из `worfy-windows`. Мерж в main — по очереди с `worfy-windows`
+([ADR-0056](adr/0056-windows-checks-and-two-sessions.md)).
+
+**Не в `worfy-link`:** работа вне локальной сети; Wake-on-LAN; браузерный клиент (отвергнут,
+[ADR-0054](adr/0054-full-windows-port.md)).
+
+## worfy-windows — Windows-порт
+
+Спроектирован 2026-10-07 (решения владельца). Epic `worfy-windows`, Ticket-ы — в
+[.scratch/worfy-windows/](../.scratch/worfy-windows/spec.md). Решения — ADR-0054, ADR-0055 и ADR-0056 в
+[docs/adr/](adr/).
+
+**Цель.** worfy работает на Windows целиком, а не как экран к Mac: Project, Canvas, агенты,
+Session-ы, Terminal, Gate и Autopilot идут на самой Windows-машине. Пользователь, у которого есть
+только Windows, тоже работает в worfy.
+
+**Готово, когда:**
+
+1. На чистой Windows 11 с Git for Windows, node и gh неподписанный установщик ставит worfy; первый
+   запуск проходит проверки, установщик E3 ставит Harness plugin.
+2. На Windows работают Project worfy, Canvas, Session-ы, Terminal на PowerShell, Gate, epic-status;
+   одна Wave Autopilot проходит целиком (implementer, gate full на Windows, PR, мерж).
+3. Скрипты Harness на Node работают на обеих системах, bash — только в test-ах, .gitattributes держит
+   LF в скриптах.
+4. qmd работает на Windows или grep явно запасной путь.
+5. На Mac ничего не сломалось — gate full на Mac зелёный.
+
+Здесь установщик E3 — Ticket 13 `worfy-harness`: worfy ставит Harness своей версии как plugin.
+`epic-status` — скрипт Harness, который печатает строку этапа Epic-а. `gate full` — полный прогон
+Gate. `.gitattributes` — файл git с правилами концов строк: LF — перевод строки, как на macOS, без
+`\r` из Windows.
+
+**Решения.**
+
+- [ADR-0054](adr/0054-full-windows-port.md) «Full Windows port» — Windows 10 21H2+ и Windows 11, x64;
+  arm64 позже. Git for Windows обязателен: worfy проверяет его и предлагает
+  `winget install Git.Git`. node ≥ 22. Terminal — PowerShell: `pwsh`, если его нет — Windows
+  PowerShell; Git Bash выбирается в настройках. До E4 установщик NSIS (формат установщика, который
+  собирает electron-builder) не подписан. Если на ПК включён Smart App Control (защита Windows 11,
+  которая блокирует неподписанные программы), вопрос подписи встаёт сразу. qmd на Windows — последним
+  Ticket-ом порта, до него поиск — grep. Браузерный клиент и тонкий клиент (окно к worfy на Mac)
+  отвергнуты: нужен полный порт.
+- [ADR-0055](adr/0055-harness-scripts-in-node.md) «Harness scripts in Node» — всё, что вызывают hooks и
+  worfy, переписывается на Node; bash остаётся только в test-ах. Причины: в Git Bash утилиты GNU
+  coreutils, и `stat -f` там значит другое, чем на macOS; вызов скрипта по shebang (первая строка
+  `#!` с именем интерпретатора) в hooks на Windows считается ненадёжным, но на живой Windows не
+  проверен — это делает Ticket 01 Epic-а `worfy-windows`; скрипты qmd написаны на zsh, а zsh в Git
+  Bash нет.
+- [ADR-0056](adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions» — Windows-runner
+  на PR в CI не добавляется. Перед мержем PR, который трогает платформенный код, `gate full` идёт на
+  Windows-ПК владельца. Job «Windows» в CI запускается только вручную. Session на Mac
+  (`worfy-link`) и Session на Windows (`worfy-windows`) общаются через репозиторий. Перед Wave каждая
+  проверяет открытые PR второго Epic-а на общие файлы; мерж в main — по очереди.
+
+**Порядок.** Начинается после закрытия E3, параллельно с `worfy-link`. Ведёт отдельная Session на
+Windows-ПК владельца; неподписанный установщик собирает она же. Факты для Ticket-ов собраны чтением
+кода и документации, на Windows ничего не запускалось. Поэтому первый Ticket — проверка фактов на
+живой Windows и правка Ticket-ов порта.
+
+**Не установлено** (проверяет первый Ticket `worfy-windows`): кодирует ли Claude Code на Windows путь
+Project-а в имя папки так же, как worfy ожидает на Mac; нужна ли на Windows пересборка `node-pty`
+(библиотека Terminal); работает ли qmd на Windows; хватит ли лимита длины пути Windows (260 символов)
+для `.claude/worktrees/…/node_modules`.
+
+**Не в `worfy-windows`:** Windows на arm64; подпись установщика — в E4.
+
 ## E4 — Для других людей
 
 **Цель.** Любой человек ставит worfy вместе с Harness на свою машину и работает без помощи
@@ -130,12 +245,14 @@ Wave-ы E3 идут на plugin. Откат — восстановление и�
 **Готово, когда** (черновик, уточняется при проектировании E4): первый внешний пользователь
 поставил подписанную и нотаризованную сборку и подключил свой Project.
 
-**Темы:** подпись Developer ID и нотаризация. Делаются только при первом внешнем пользователе.
+**Темы:** подпись Developer ID и нотаризация; подпись установщика Windows — до E4 он не подписан
+([ADR-0054](adr/0054-full-windows-port.md)). Делаются только при первом внешнем пользователе. E4 идёт после
+`worfy-link` и `worfy-windows`.
 
 ## Сознательно вне E2–E4
 
-- Подпись и нотаризация до появления первого внешнего пользователя. До тех пор достаточно сборки из
-  исходников и ad-hoc подписи.
+- Подпись и нотаризация до появления первого внешнего пользователя. До тех пор на Mac достаточно
+  сборки из исходников и ad-hoc подписи, на Windows — неподписанного установщика NSIS (ADR-0054).
 - Личные skills, MCP-серверы и память пользователя. Они не входят в Harness, и worfy их не ставит и
   не переносит. Исключение — qmd: он часть Harness (ADR-0043).
 - Переключение глобального `gh`.
@@ -146,5 +263,6 @@ Wave-ы E3 идут на plugin. Откат — восстановление и�
   - управление с телефона;
   - другие провайдеры моделей;
   - несколько окон;
-  - синхронизация состояния worfy (Card-ы, Layout) с облаком: worfy пока приложение одной машины
-    (решение владельца 2026-10-07).
+  - синхронизация состояния worfy (Card-ы, Layout) с облаком (решение владельца 2026-10-07).
+    Состояние Project-а живёт на его Machine; Linked machine работает с ним по локальной сети
+    (ADR-0052).

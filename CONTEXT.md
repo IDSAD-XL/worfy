@@ -1,6 +1,6 @@
 # worfy
 
-macOS-приложение для одного пользователя на его машине: бесконечный Canvas, на котором виден и запускается workflow работы с агентами Claude — Epic-и, Ticket-ы, Session-ы агентов и их Subagent-ы, проверки, — а агенты по ходу разговора собирают Card-ы.
+Приложение для одного пользователя на его Machine-ах: бесконечный Canvas, на котором виден и запускается workflow работы с агентами Claude — Epic-и, Ticket-ы, Session-ы агентов и их Subagent-ы, проверки, — а агенты по ходу разговора собирают Card-ы.
 
 Канонические термины — английские, как в интерфейсе; русский текст вокруг них остаётся русским.
 
@@ -57,7 +57,7 @@ Ticket-ы Epic, которые можно брать в работу парал�
 _Avoid_: волна, batch, спринт
 
 **Autopilot**:
-Режим, в котором Wave-ы Epic идут без человека: worfy не даёт машине уснуть, ждёт сброса Limits и продолжает с того же места; любая точка, где понадобился человек, считается дефектом.
+Режим, в котором Wave-ы Epic идут без человека: worfy не даёт Machine уснуть, ждёт сброса Limits и продолжает с того же места; любая точка, где понадобился человек, считается дефектом.
 _Avoid_: ночной режим, автономный прогон
 
 **Stable copy**:
@@ -73,7 +73,7 @@ _Avoid_: проверка, CI (CI — отдельная проверка на G
 _Avoid_: kit, обвязка, тулинг
 
 **Profile**:
-Описание Project для Harness: как проверять изменения, где лежат Ticket-ы, как называются ветки и worktree, по каким линзам ревьюить, какие MCP-серверы доступны агентам Project, от какого аккаунта GitHub работать, в каком режиме — Full mode или Silent mode — идёт работа. Profile целиком лежит на машине пользователя; в репозитории Project его нет.
+Описание Project для Harness: как проверять изменения, где лежат Ticket-ы, как называются ветки и worktree, по каким линзам ревьюить, какие MCP-серверы доступны агентам Project, от какого аккаунта GitHub работать, в каком режиме — Full mode или Silent mode — идёт работа. Profile целиком лежит на Machine пользователя; в репозитории Project его нет.
 _Avoid_: профиль, конфиг проекта, settings
 
 **Full mode**:
@@ -114,13 +114,25 @@ _Avoid_: job; «task» и «задача» без «background»
 Связь Session или Subagent с Ticket либо Epic, над которым он работает. Определяется по сигналам из работы агента или задаётся пользователем вручную.
 _Avoid_: привязка, assignment, линк
 
+## Machines
+
+**Machine**:
+Компьютер пользователя, на котором стоит worfy. Точнее, Machine привязана к папке данных worfy: две установки worfy с разными папками данных на одном компьютере — например, dev-сборка и Stable copy — две Machine ([ADR-0023](docs/adr/0023-separate-data-roots-packaged-and-dev.md), [ADR-0052](docs/adr/0052-machines-and-linking.md)). Project живёт на одной Machine: там лежит его папка и работают его Session-ы, worktree и Gate. Одна и та же Machine в разных соединениях бывает и host, и client: это роли соединения, а не виды Machine ([ADR-0052](docs/adr/0052-machines-and-linking.md)).
+_Avoid_: инстанс, машина (как термин), host и client (как виды устройств)
+
+**Linked machine**:
+Machine, связанная с этой по коду из 6 цифр. Связь двусторонняя, отзывается с любой стороны. Если здесь включён доступ «Linked machines can work with my Projects» (по умолчанию выключен), Linked machine видит Project-ы этой Machine и работает с ними: открывает Canvas, пишет в Session, печатает в Terminal, запускает Autopilot. При выключенном доступе Project-ов этой Machine она не видит. Всё это выполняется на Machine Project-а ([ADR-0052](docs/adr/0052-machines-and-linking.md), [ADR-0053](docs/adr/0053-several-screens-on-one-project.md)).
+_Avoid_: удалённый инстанс, host, client, remote
+
 ## Relationships
 
 - **Project** содержит много **Epic**-ов; **Epic** — много **Ticket**-ов; **Ticket** может блокироваться другими Ticket-ами того же Epic.
 - У **Session** или **Subagent** не более одного **Binding** — к Ticket или Epic; у **Ticket** может быть несколько Binding-ов (реализация, ревью, доработка). Binding Orchestrator-а, ведущего **Wave**, — к Epic, а Binding-и его implementer-ов и reviewer-ов — к их Ticket-ам.
 - **Session** запускает **Subagent**-ов; **Subagent** может запускать своих.
 - У **Project** ровно один **Orchestrator**.
-- У **Project** ровно один **Profile**; **Harness** один на машину и ведёт работу каждого Project по его **Profile**.
+- У **Project** ровно один **Profile**; **Harness** один на **Machine** и ведёт работу каждого Project по его **Profile**.
+- У **Project** ровно одна **Machine**. Один репозиторий, подключённый на двух Machine, — это два разных Project-а, у каждого свой Canvas.
+- **Linked machine** видит **Project**-ы другой **Machine** и работает с ними, только если та включила доступ; при выключенном доступе Project-ов не видит. Session-ы, Terminal, Gate и Autopilot такого Project-а всё равно идут на его Machine.
 - У **Project** ровно один режим — **Full mode** или **Silent mode**; Project над несколькими репозиториями всегда в **Silent mode**.
 - У **Project** ровно одна **Workflow folder**: в **Full mode** это корень репозитория, в **Silent mode** — папка вне репозитория.
 - **Card** принадлежит **Project**, а не Session: менять её может любая Session Project.
