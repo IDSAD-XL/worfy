@@ -9,6 +9,7 @@ import { Autopilot, STOP_TEXT, type AutopilotDeps, type RunSession } from '../..
 import type { BackgroundTask } from '../../src/shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../src/shared/agent/events'
 import type { JournalEventFields } from '../../src/shared/autopilot/journal'
+import type { AutopilotState } from '../../src/shared/ipc/autopilot'
 import type { OrchestratorView } from '../../src/shared/ipc/orchestrator'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { readyWave } from '../../src/shared/workflow/waves'
@@ -722,6 +723,157 @@ describe('the graceful Stop: no new Ticket, the ones in work finish (worfy-week 
     expect(s.halts).toBe(0)
     expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'wave-finished', 'wave-started', 'run-stopped'])
   })
+})
+
+describe('the click on Stop is noted at once: no Wave goes after it (worfy-week ticket 18)', () => {
+  /** The stand-in whose workflow reads take READ_MS once `slow.on` is set, as epic-status and git do. */
+  const READ_MS = 50
+  function slowStandIn() {
+    const s = standIn()
+    const fast = s.deps.workflow
+    const slow = { on: false }
+    s.deps.workflow = async (root) => {
+      if (slow.on) await new Promise((done) => setTimeout(done, READ_MS))
+      return fast(root)
+    }
+    return { s, slow }
+  }
+  const pause = (ms: number) => new Promise((done) => setTimeout(done, ms))
+  const kindsOnly = (s: StandIn) => s.journal.map((line) => line.kind)
+
+  it('Stop during the read after the Wave\'s result: the next Wave does not go, the run stops with user-stop', async () => {
+    const { s, slow } = slowStandIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1, 2)
+    slow.on = true
+    s.emit(result())
+    // The click comes while the run reads the workflow after the result; Wave 2 (03) is ready.
+    await pause(10)
+    const answer = await s.autopilot.stop(PROJECT)
+    expect(answer).toMatchObject({ status: 'stopped', reason: 'user-stop', stopping: false })
+    expect(s.resumes).toHaveLength(1)
+    expect(s.sent).toEqual([])
+    expect(kindsOnly(s)).toEqual(['wave-started', 'wave-finished', 'run-stopped'])
+  })
+
+  it('the state says stopping from the click on, while the step for it still waits', async () => {
+    const { s, slow } = slowStandIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.tickets = s.tickets.map((each) => (each.num === 1 ? { ...each, state: 'work' as const } : each))
+    slow.on = true
+    s.emit(result())
+    await pause(10)
+    const answer = s.autopilot.stop(PROJECT)
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', stopping: true })
+    expect(await answer).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+  })
+
+  it('Stop during the read after a workflow change while settling: the next Wave does not go', async () => {
+    const { s, slow } = slowStandIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    // The Wave's turn ends with 02 still in work: the run settles.
+    done(s, 1)
+    s.tickets = s.tickets.map((each) => (each.num === 2 ? { ...each, state: 'work' as const } : each))
+    s.emit(result())
+    await settle()
+    expect(kindsOnly(s)).toEqual(['wave-started'])
+    // 02 is merged; the watcher's change is read slowly, and the click comes meanwhile.
+    done(s, 2)
+    slow.on = true
+    s.workflowChanged()
+    await pause(10)
+    const answer = await s.autopilot.stop(PROJECT)
+    expect(answer).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    expect(s.resumes).toHaveLength(1)
+    expect(kindsOnly(s)).toEqual(['wave-started', 'wave-finished', 'run-stopped'])
+  })
+
+  it('Stop before the workflow change while settling: stops at once, the change finds the run stopped', async () => {
+    const { s } = slowStandIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1)
+    s.tickets = s.tickets.map((each) => (each.num === 2 ? { ...each, state: 'work' as const } : each))
+    s.emit(result())
+    await settle()
+    done(s, 2)
+    const answer = s.autopilot.stop(PROJECT)
+    s.workflowChanged()
+    expect(await answer).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    await settle()
+    expect(s.resumes).toHaveLength(1)
+    expect(kindsOnly(s)).toEqual(['wave-started', 'run-stopped'])
+  })
+
+  it('Stop while "Run wave" is on its way: the Wave goes out stopping, and STOP_TEXT follows it once', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1, 2)
+    const wave = s.deps.waves.autopilotWave
+    const answers: Promise<unknown>[] = []
+    s.deps.waves.autopilotWave = (projectId, epic, resume) => {
+      // The click lands while Wave 2 is being sent; its turn starts at once and runs.
+      answers.push(s.autopilot.stop(PROJECT))
+      s.state = 'busy'
+      return wave(projectId, epic, resume)
+    }
+    s.emit(result())
+    await settle()
+    await Promise.all(answers)
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', stopping: true, wave: 2 })
+    expect(s.sent).toEqual([STOP_TEXT])
+    expect(s.queue.map((item) => item.text)).toEqual([STOP_TEXT])
+    expect(lines(s).slice(2)).toEqual([{ kind: 'wave-started' }, { kind: 'run-stopping', reason: 'user-stop', wave: 2, tickets: ['03'], inWork: [] }])
+  })
+
+  it('Stop right after the start, before the first Wave goes: nothing is sent, the run stops with user-stop', async () => {
+    // The click lands as the run publishes its first state, before its first step runs.
+    let answer: Promise<AutopilotState> | null = null
+    const holder: { s?: StandIn } = {}
+    const s = standIn({
+      onChange: (state) => {
+        if (answer === null && state.status === 'running' && state.wave === 0) answer = holder.s!.autopilot.stop(PROJECT)
+      },
+    })
+    holder.s = s
+    await s.autopilot.start(PROJECT, EPIC)
+    expect(answer).not.toBeNull()
+    expect(await answer).toMatchObject({ status: 'stopped', reason: 'user-stop', wave: 0 })
+    expect(s.resumes).toEqual([])
+    expect(s.sent).toEqual([])
+    expect(kindsOnly(s)).toEqual(['run-stopped'])
+  })
+
+  it('Force stop right after a Stop whose step still waits: the run ends once, no Wave, no STOP_TEXT', async () => {
+    const { s, slow } = slowStandIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1, 2)
+    slow.on = true
+    s.emit(result())
+    await pause(10)
+    const answers = await Promise.all([s.autopilot.stop(PROJECT), s.autopilot.forceStop(PROJECT)])
+    // The step ahead of both ended the run before the Wave: there was nothing left to interrupt.
+    for (const answer of answers) expect(answer).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    expect(s.resumes).toHaveLength(1)
+    expect(s.sent).toEqual([])
+    expect(s.halts).toBe(0)
+    expect(kindsOnly(s).filter((kind) => kind === 'run-stopped')).toHaveLength(1)
+  })
+
+  /** Every journal line with what the graceful Stop is judged by. */
+  const lines = (s: StandIn) =>
+    s.journal.map((line) => ({
+      kind: line.kind,
+      ...('reason' in line ? { reason: line.reason } : {}),
+      ...('wave' in line && line.kind === 'run-stopping' ? { wave: line.wave } : {}),
+      ...('tickets' in line && line.tickets !== undefined && line.kind === 'run-stopping' ? { tickets: line.tickets } : {}),
+      ...('inWork' in line ? { inWork: line.inWork } : {}),
+    }))
 })
 
 describe('a Session that fails while the run opens its workflow watch', () => {

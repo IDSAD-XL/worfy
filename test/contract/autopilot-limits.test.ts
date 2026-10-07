@@ -360,6 +360,22 @@ describe('Autopilot and the Limits on the fake agent', () => {
     expect(h.power).toEqual(['start', 'stop'])
   })
 
+  it('a Stop clicked as the wait ends, its step behind the continuation\'s: still one message, the continuation and STOP_TEXT', async () => {
+    const h = harness()
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'waiting', 'the wait for the Limits')
+    const timer = h.live()[0]!
+    clock = timer.at
+    // The reset fires first; the click lands before the run has sent the continuation.
+    timer.fire()
+    const answer = h.autopilot.stop(PROJECT)
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    await answer
+    expect(h.messages()).toEqual([WAVE_1, `${continueText(START_MS, timer.at)}\n\n${STOP_TEXT}`])
+    expect(h.state()).toMatchObject({ reason: 'user-stop', wave: 1 })
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'resumed', 'run-stopping', 'run-stopped'])
+  })
+
   it('Force stop during the wait cancels the timer: no continuation goes out (worfy-week tickets 17, 18)', async () => {
     const h = harness()
     await h.autopilot.start(PROJECT, EPIC)

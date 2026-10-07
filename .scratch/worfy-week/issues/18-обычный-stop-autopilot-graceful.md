@@ -268,6 +268,12 @@ ADR — файл в `docs/adr`, номер выдаёт Orchestrator. Общие
   `run.ts` (`this.last`, `run.interrupted`), условие — `user-force-stop`. При конце прогона из
   очереди Session убирается и Wave, и ещё не ушедший `STOP_TEXT` (иначе Force stop во время
   graceful Stop отдал бы `STOP_TEXT` в очередь Session человека).
+- **Круг доработки (гейт)**: клик по Stop отмечается на прогоне сразу (`stopRequested`), до того как
+  его шаг дождётся очереди прогона. `sendWave` с этим флагом Wave не шлёт и кончает прогон с
+  `user-stop`. Если «Run wave» уже в пути, cycle получает `graceful-stop` в фазе `sending`, и Wave
+  уходит в состоянии stopping. Продолжение после Limits несёт `STOP_TEXT` и тогда, когда шаг Stop
+  ещё ждёт. Test-ы — `test/unit/autopilot-run.test.ts`, describe «the click on Stop is noted at
+  once», и Limits-test «a Stop clicked as the wait ends …».
 - **UI**: «⋯» и меню — `src/renderer/canvas/actions/action-menu.ts` (без JSX), стили —
   `actions.css` (`.w-action--icon`, `.w-action-menu`).
 - **Test вне следа** (разрешён брифом): `test/contract/agent-controls.test.ts` — «Send queued» на

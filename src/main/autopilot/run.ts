@@ -25,7 +25,8 @@
 //   turn; while the run waits for the Limits, together with the continuation after the reset). It
 //   is not a protocol (ADR-0002): the run ends by the Session's events, with the first turn end that
 //   leaves the Session idle and no task alive. A Wave still in the Session's queue leaves it, and the
-//   run stops at once. stop() answers as soon as the run is stopping or stopped.
+//   run stops at once. The click is noted on the run at once (`stopRequested`): no Wave goes after
+//   it, also from a step already under way. stop() answers as soon as the run is stopping or stopped.
 // - Force stop (`user-force-stop`, worfy-week ticket 17, ADR-0050) does not wait: it halts the
 //   Orchestrator's Session (interrupts its turn, HALT_TURN_MS at most, and holds its queue) and
 //   gives the Orchestrator back at once; closing the old process kills its background tasks. The
@@ -229,6 +230,10 @@ class Run {
   lastText: string | null = null
   /** The Tickets of an interrupted Wave the next "Run wave" takes along; emptied once it is sent. */
   resume: readonly number[] = []
+  /** Set at the click on Stop (Autopilot.stop), before its step runs: no new Wave goes from then on. */
+  stopRequested = false
+  /** Whether STOP_TEXT has gone to the Orchestrator: once per run. */
+  stopSent = false
   /** After a Force stop: the Tickets of the Wave it interrupted (AutopilotState.resumable). */
   interrupted: number[] = []
   /** Settles once the run has stopped and cleaned up. */
@@ -368,10 +373,15 @@ export class Autopilot {
   /**
    * The graceful Stop (worfy-week ticket 18): answers the run's state as soon as it is stopping or
    * stopped. A second Stop while stopping sends nothing and answers the state.
+   *
+   * The Stop is noted on the run at once, before its step waits in the run's order: a step ahead of
+   * it (the end of a turn, a workflow change, reading the workflow for hundreds of milliseconds)
+   * must not send a new Wave after the click (sendWave checks it).
    */
   async stop(projectId: string): Promise<AutopilotState> {
     const run = this.runs.get(projectId)
     if (run === undefined) return this.state(projectId)
+    run.stopRequested = true
     await run.enqueue(async () => {
       if (run.cycle.phase === 'stopped' || run.cycle.stopping) return
       await this.feed(run, { type: 'graceful-stop', tickets: await this.freshTickets(run) })
@@ -577,6 +587,12 @@ export class Autopilot {
 
   private async sendWave(run: Run): Promise<void> {
     let sent: AutopilotWaveResult
+    // Stop was clicked while the step that decided on this Wave ran (worfy-week ticket 18): the
+    // Wave has not gone, so no Ticket was taken, and the run ends here.
+    if (run.stopRequested) {
+      await this.feed(run, { type: 'stop', reason: 'user-stop' })
+      return
+    }
     run.sending = true
     run.promptsWhileSending.clear()
     // Only the run's first Wave takes the interrupted Tickets along.
@@ -602,6 +618,9 @@ export class Autopilot {
       break
     }
     run.promptsWhileSending.clear()
+    // Stop was clicked while "Run wave" was on its way: the cycle notes it now (phase `sending`), so
+    // the Wave goes out stopping, ahead of any step queued behind this one.
+    if (run.stopRequested && !run.cycle.stopping) await this.feed(run, { type: 'graceful-stop', tickets: await this.freshTickets(run) })
     await this.feed(run, { type: 'wave-sent', tickets: sent.tickets })
   }
 
@@ -632,8 +651,12 @@ export class Autopilot {
     const wait = run.limits
     if (wait === null || !wait.isCurrent(id) || run.cycle.phase === 'stopped' || run.session === null) return
     // A graceful Stop during the wait goes with the continuation, in one message (worfy-week ticket 18).
+    // Also when Stop was clicked but its step still waits behind this one: the Session would hold
+    // STOP_TEXT behind the continuation's turn, which then runs without it.
     const continuation = wait.resume()
-    const text = run.cycle.stopping ? `${continuation}\n\n${STOP_TEXT}` : continuation
+    const withStop = run.cycle.stopping || run.stopRequested
+    const text = withStop ? `${continuation}\n\n${STOP_TEXT}` : continuation
+    if (withStop) run.stopSent = true
     await this.write(run, { kind: 'resumed' })
     this.publish(run.projectId)
     try {
@@ -658,8 +681,10 @@ export class Autopilot {
       return
     }
     await this.write(run, { kind: 'run-stopping', reason: 'user-stop', wave: effect.wave, tickets: effect.tickets.map(ticketNumber), inWork: effect.inWork.map(ticketNumber) })
-    if (run.limits?.until != null || run.session === null) return
+    // Gone already with the continuation after a Limits wait (resume), or to go with it.
+    if (run.stopSent || run.limits?.until != null || run.session === null) return
     try {
+      run.stopSent = true
       run.session.send(STOP_TEXT)
     } catch (error) {
       // The Session is gone: its own events end the run.
@@ -888,7 +913,8 @@ export class Autopilot {
 
   private snapshot(run: Run): AutopilotState {
     const resumesAt = run.running ? (run.limits?.until ?? null) : null
-    const stopping = run.running && run.cycle.stopping
+    // From the click on: the run's step for it may still wait behind another one.
+    const stopping = run.running && (run.cycle.stopping || run.stopRequested)
     return {
       projectId: run.projectId,
       epic: run.epic,
