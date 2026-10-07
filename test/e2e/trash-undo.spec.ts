@@ -39,7 +39,9 @@ test.beforeEach(() => {
   const layout = {
     nodes: [
       { id: 'n1', kind: 'note', x: 120, y: 100, w: 220, h: 120, data: { text: 'move me' } },
-      { id: 'c1', kind: 'card', x: 480, y: 100, w: 360, h: 280, tags: ['kept'] },
+      // Far enough right that the note dragged below lands on free plane: main would put it off
+      // the Card otherwise (ADR-0038). Still inside the default 1280-px window.
+      { id: 'c1', kind: 'card', x: 620, y: 100, w: 360, h: 280, tags: ['kept'] },
     ],
     viewport: { x: 0, y: 0, zoom: 1 },
   }
@@ -139,7 +141,7 @@ test('a deleted Card comes back from the Trash with its files and data; a Card d
     await expect(popover.getByTestId('trash-entry')).toHaveCount(0)
     expect(readFileSync(join(cardDir('c1'), 'index.html'), 'utf8')).toBe(CARD_HTML)
     expect(JSON.parse(readFileSync(dataFile('c1'), 'utf8'))).toEqual({ count: 3 })
-    expect(await nodeIn(window, 'c1')).toMatchObject({ x: 480, y: 100, tags: ['kept'] })
+    expect(await nodeIn(window, 'c1')).toMatchObject({ x: 620, y: 100, tags: ['kept'] })
     expect(trashEntries()).toHaveLength(0)
     await window.keyboard.press('Escape')
     await expect(popover).toHaveCount(0)

@@ -67,6 +67,24 @@ async function offCenter(window: Page, node: Locator): Promise<number> {
   return Math.hypot(box.x + box.width / 2 - (canvas.x + canvas.width / 2), box.y + box.height / 2 - (canvas.y + canvas.height / 2))
 }
 
+/**
+ * Whether `node` is wholly inside the visible Canvas and at least 16 px (the gap of ADR-0038, in
+ * screen pixels at the current zoom) clear of `other`.
+ */
+async function clearInView(window: Page, node: Locator, other: Locator): Promise<boolean> {
+  const canvas = await window.getByTestId('canvas').boundingBox()
+  const box = await node.boundingBox()
+  const near = await other.boundingBox()
+  if (!canvas || !box || !near) return false
+  const zoom = await window.evaluate(() => {
+    const viewport = (globalThis as unknown as { document: { querySelector(s: string): { style: { transform: string } } | null } }).document.querySelector('.react-flow__viewport')
+    return Number(/scale\(([\d.]+)\)/.exec(viewport?.style.transform ?? '')?.[1] ?? 1)
+  })
+  const inside = box.x >= canvas.x && box.y >= canvas.y && box.x + box.width <= canvas.x + canvas.width && box.y + box.height <= canvas.y + canvas.height
+  const apart = Math.max(near.x - (box.x + box.width), box.x - (near.x + near.width), near.y - (box.y + box.height), box.y - (near.y + near.height))
+  return inside && apart >= 16 * zoom - 1
+}
+
 /** The React Flow wrapper of a Node, which carries its id. */
 const flowNode = (window: Page, id: string): Locator => window.locator(`.react-flow__node[data-id="${id}"]`)
 
@@ -222,7 +240,10 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     await expect(options.first()).toHaveAttribute('data-command', 'new:terminal')
     await input.press('Enter')
     await expect(window.getByTestId('terminal-node')).toHaveCount(1)
-    await expect.poll(() => offCenter(window, window.getByTestId('terminal-node'))).toBeLessThan(3)
+    // Asked for in the middle of the view, which the Session Node takes: main puts it on the nearest
+    // free place (ADR-0038). It is still where the user looks: wholly inside the visible Canvas,
+    // 16 px clear of the Session Node.
+    await expect.poll(() => clearInView(window, window.getByTestId('terminal-node'), sessionNode)).toBe(true)
 
     // Show only the Nodes tagged `plan`, then all again.
     await window.keyboard.press('Meta+k')
