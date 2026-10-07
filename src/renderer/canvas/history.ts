@@ -14,6 +14,8 @@
 // One history per Project, HISTORY_DEPTH steps deep: a 41st step pushes out the oldest. A new step
 // clears what could be redone. Several operations made by one gesture (a drag of three Nodes, a tag
 // given to the selection) are one step when they are recorded into the Group that grouped() gives.
+// Such a step takes its place in the history when its first operation is recorded, not when the
+// gesture ends: a gesture that waits on main keeps its place below a gesture that started later.
 import type { Layout, LayoutNode, LayoutOpInput } from '../../shared/layout/types'
 import { trashRefusal, type TrashEntry } from '../../shared/ipc/trash'
 import { invoke } from '../ipc'
@@ -28,6 +30,11 @@ export type Send = (op: LayoutOpInput) => Promise<string | undefined>
 export interface HistoryStep {
   undo(): Promise<string | undefined>
   redo(): Promise<string | undefined>
+  /**
+   * Resolves when the step is complete. A gesture's step is in the history from its first operation
+   * and complete when the gesture is over; a step without it is complete when pushed.
+   */
+  readonly complete?: Promise<void>
 }
 
 export class History {
@@ -57,17 +64,26 @@ export class History {
     this.future = []
   }
 
+  /** A change was made that belongs to a step already in the history: what was undone can no longer be redone. */
+  dropRedo(): void {
+    this.future = []
+  }
+
   /**
    * Undoes the latest step. Resolves to false when there was nothing to undo or main refused the
    * inverse (the Node is gone, an agent removed it): such a step is dropped, not retried.
+   *
+   * When the latest step is a gesture still waiting on main, the undo waits for the gesture to be
+   * over and then undoes all of it. Undoing only the operations recorded so far would let the rest
+   * land afterwards and leave the Node where it never was, neither before nor after the gesture.
    */
   undo(): Promise<boolean> {
-    return this.run(() => this.past.pop(), 'undo', (step) => this.future.push(step))
+    return this.run(() => this.past, 'undo', (step) => this.future.push(step))
   }
 
   /** Redoes the latest undone step; false when there was none or main refused it. */
   redo(): Promise<boolean> {
-    return this.run(() => this.future.pop(), 'redo', (step) => this.past.push(step))
+    return this.run(() => this.future, 'redo', (step) => this.past.push(step))
   }
 
   clear(): void {
@@ -75,9 +91,16 @@ export class History {
     this.future = []
   }
 
-  private run(take: () => HistoryStep | undefined, direction: 'undo' | 'redo', done: (step: HistoryStep) => void): Promise<boolean> {
+  private run(stack: () => HistoryStep[], direction: 'undo' | 'redo', done: (step: HistoryStep) => void): Promise<boolean> {
     const next = this.queue.then(async () => {
-      const step = take()
+      // Wait until the latest step is complete; another gesture may take the top meanwhile.
+      for (let top = stack().at(-1); top?.complete !== undefined; ) {
+        await top.complete
+        const now = stack().at(-1)
+        if (now === top) break
+        top = now
+      }
+      const step = stack().pop()
       if (step === undefined) return false
       const error = await step[direction]()
       if (error !== undefined) {
@@ -144,14 +167,19 @@ export function inverseOf(layout: Layout, op: LayoutOpInput): LayoutOpInput | un
 }
 
 /**
- * The steps of one gesture, gathered while it runs and pushed as one step when grouped() closes it.
- * It is handed to every operation of the gesture explicitly, so an operation of another gesture that
- * finishes meanwhile never joins it.
+ * The steps of one gesture, gathered while it runs into one step of the history. That step is pushed
+ * when the first of them is recorded, so it keeps its place below a gesture that started later and
+ * ended sooner; it is complete when grouped() closes the group. The group is handed to every
+ * operation of the gesture explicitly, so an operation of another gesture that finishes meanwhile
+ * never joins it: it is a step of its own, below this one when it finishes before the first step
+ * here is recorded.
  */
 export class Group {
   private readonly steps: HistoryStep[] = []
   private projectId: string | undefined
   private open = true
+  private finish: () => void = () => undefined
+  private readonly complete = new Promise<void>((resolve) => (this.finish = resolve))
 
   /** Takes the step unless the gesture is over or the step is of another Project. */
   add(projectId: string, step: HistoryStep): boolean {
@@ -159,18 +187,22 @@ export class Group {
     this.projectId ??= projectId
     if (this.projectId !== projectId) return false
     this.steps.push(step)
+    const history = historyOf(projectId)
+    if (this.steps.length === 1) history.push({ ...combine(this.steps), complete: this.complete })
+    else history.dropRedo()
     return true
   }
 
   close(): void {
     this.open = false
-    if (this.projectId !== undefined && this.steps.length > 0) {
-      historyOf(this.projectId).push(this.steps.length === 1 ? this.steps[0]! : combine(this.steps))
-    }
+    this.finish()
   }
 }
 
-/** Several steps that are undone and redone as one: undone newest first, redone in order. */
+/**
+ * Several steps that are undone and redone as one: undone newest first, redone in order. The list is
+ * read when the step runs, so the parts a gesture records later belong to it.
+ */
 function combine(steps: readonly HistoryStep[]): HistoryStep {
   const each = async (list: readonly HistoryStep[], direction: 'undo' | 'redo'): Promise<string | undefined> => {
     let first: string | undefined
