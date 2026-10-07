@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Тесты hooks/session-start.sh и hooks/session-end.sh.
-# Запуск: bash harness/hooks/tests/session-hooks.test.sh; код выхода 0 — всё прошло.
+# Tests of hooks/session-start.sh and hooks/session-end.sh.
+# Run: bash harness/hooks/tests/session-hooks.test.sh; exit code 0 means everything passed.
 #
-# Реестр — живой (~/.claude/gate/config.json, только чтение), профили — копия
-# ~/.claude/profiles во временном каталоге (CLAUDE_PROFILES_DIR), поэтому настоящий
-# state/pending-retro.log не трогается. Плюс синтетический реестр для крайних случаев.
+# The registry is the live one (read only; this test looks for it at $HOME/.claude/gate/config.json,
+# the legacy place the hooks fall back to when $HARNESS_HOME/gate/config.json is missing), the profiles
+# are a copy of ~/.claude/profiles in a temporary directory (CLAUDE_PROFILES_DIR), so the real
+# state/pending-retro.log is not touched. Plus a synthetic registry for edge cases.
 set -u
 # The hooks and bin/profile under test are the copies next to this test (harness/); BIN_DIR and
 # HOOKS_DIR point it at another copy. Checks on live repositories need the live registry too.
@@ -32,7 +33,7 @@ fi
 mkdir -p "$T/plain"
 export CLAUDE_PROFILES_DIR="$T/profiles"
 
-# $1 хук, $2 каталог запуска ($PWD), $3 cwd в JSON (пусто — без поля cwd)
+# $1 hook, $2 directory to run in ($PWD), $3 cwd in the JSON (empty means no cwd field)
 run() {
     local payload='{"session_id":"t-1","hook_event_name":"X"}'
     [ -n "$3" ] && payload="{\"session_id\":\"t-1\",\"cwd\":\"$3\",\"hook_event_name\":\"X\"}"
@@ -55,7 +56,7 @@ if [ -d "$ATAKAMA/Atakama-Browser-Server" ] && [ -f "$LIVE_GATE" ]; then
     [[ "$c" != *"## Sources"* ]] && ok "atakama repo: Sources section stripped" || bad "atakama repo: Sources leaked"
     [[ "$c" != *"Housekeeping"* ]] && ok "atakama repo: no retro reminder without log" || bad "atakama repo: reminder without log"
 
-    # session-end пишет в state профиля; на третьей строке session-start напоминает
+    # session-end writes into the profile's state; at the third line session-start reminds
     for d in "$ATAKAMA" "$R" "$R/elt"; do [ -d "$d" ] && run "$END" "$d" "$d" >/dev/null; done
     n="$(wc -l <"$LOG" 2>/dev/null | tr -d ' ')"
     [ "${n:-0}" -ge 2 ] && grep -q $'\t'"$R"'$' "$LOG" && ok "session-end appends time<TAB>cwd ($n lines)" \
@@ -65,12 +66,12 @@ if [ -d "$ATAKAMA/Atakama-Browser-Server" ] && [ -f "$LIVE_GATE" ]; then
     [[ "$c" == *"## Housekeeping"$'\n'"3 sessions have ended without a retrospective."* ]] \
         && ok "retro reminder at 3 pending sessions" || bad "retro reminder missing"
 
-    # активный эпик
+    # active epic
     mkdir -p "$T/profiles/atakama/epics/ep1" && echo "MAP-OF-EP1" >"$T/profiles/atakama/epics/ep1/map.md"
     echo ep1 >"$T/profiles/atakama/state/active-epic"
     c="$(run "$START" "$R" "$R" | ctx)"
     [[ "$c" == *"## Active epic: ep1"$'\n'"MAP-OF-EP1"* ]] && ok "active epic map injected" || bad "active epic map missing"
-    # большая карта эпика режется до предела раздела и называет полный файл
+    # a large epic map is cut to the section limit and names the full file
     mkdir -p "$T/profiles/atakama/epics/big"
     { echo "BIG-MAP-HEAD"; for i in $(seq 1 3000); do echo "line $i of a very large epic map, padding padding"; done; echo "BIG-MAP-TAIL"; } \
         >"$T/profiles/atakama/epics/big/map.md"
@@ -78,28 +79,28 @@ if [ -d "$ATAKAMA/Atakama-Browser-Server" ] && [ -f "$LIVE_GATE" ]; then
     c="$(run "$START" "$R" "$R" | ctx)"
     sec="${c#*## Active epic: big}"
     [[ "$c" == *"## Active epic: big"$'\n'"BIG-MAP-HEAD"* && "$c" != *"BIG-MAP-TAIL"* \
-        && "$sec" == *"обрезано, полностью: $T/profiles/atakama/epics/big/map.md"* ]] && [ "$(printf '%s' "$sec" | wc -c)" -le 20300 ] \
+        && "$sec" == *"truncated, full text: $T/profiles/atakama/epics/big/map.md"* ]] && [ "$(printf '%s' "$sec" | wc -c)" -le 20300 ] \
         && ok "large epic map capped with a pointer to the full file ($(printf '%s' "$sec" | wc -c | tr -d ' ') bytes)" \
         || bad "large map not capped: section $(printf '%s' "$sec" | wc -c) bytes"
     rm -rf "$T/profiles/atakama/state/active-epic" "$T/profiles/atakama/epics/ep1" "$T/profiles/atakama/epics/big"
     c="$(run "$START" "$R" "$R" | ctx)"
-    [[ "$c" != *"обрезано"* ]] && ok "normal sections are not capped" || bad "small sections got a cut marker"
-    # граница ровно на конце строки: строка целиком остаётся; нечисловой предел — 20000 по умолчанию
+    [[ "$c" != *"truncated, full text"* ]] && ok "normal sections are not capped" || bad "small sections got a cut marker"
+    # the boundary exactly at the end of a line: the whole line stays; a non-numeric limit means the default 20000
     mkdir -p "$T/profiles/atakama/epics/edge"; printf 'abc\ndefg\nhij\n' >"$T/profiles/atakama/epics/edge/map.md"
     echo edge >"$T/profiles/atakama/state/active-epic"
     c="$(CLAUDE_SESSION_SECTION_CAP=8 run "$START" "$R" "$R" | ctx)"
-    [[ "$c" == *"## Active epic: edge"$'\n'"abc"$'\n'"defg"$'\n'"… обрезано"* ]] && ok "cut on a line boundary keeps the whole line" \
+    [[ "$c" == *"## Active epic: edge"$'\n'"abc"$'\n'"defg"$'\n'"… truncated"* ]] && ok "cut on a line boundary keeps the whole line" \
         || bad "boundary cut lost a line: $(printf '%s' "${c#*Active epic: edge}" | head -c 80)"
     c="$(CLAUDE_SESSION_SECTION_CAP=20k run "$START" "$R" "$R" 2>&1 | ctx)"
-    [[ "$c" == *"abc"$'\n'"defg"$'\n'"hij"* && "$c" != *"обрезано"* ]] && ok "non-numeric cap falls back to the default" || bad "non-numeric cap broke the hook"
+    [[ "$c" == *"abc"$'\n'"defg"$'\n'"hij"* && "$c" != *"truncated, full text"* ]] && ok "non-numeric cap falls back to the default" || bad "non-numeric cap broke the hook"
     rm -rf "$T/profiles/atakama/state/active-epic" "$T/profiles/atakama/epics/edge"
 
-    # общий каталог над тремя репозиториями (сам не git) — тот же профиль
+    # the shared directory above three repositories (not git itself) — the same profile
     a="$(run "$START" "$ATAKAMA" "$ATAKAMA")"; b="$(run "$START" "$R" "$R")"
     [ -n "$a" ] && [ "$a" = "$b" ] && ok "atakama workspace root: same context as a repo" || bad "atakama workspace root differs"
 
-    # чужой git-репозиторий в общем каталоге, которого нет в реестре (flux-config-platform), —
-    # «не зарегистрирован»: session-start молчит, session-end ничего не пишет
+    # someone else's git repository in the shared directory that is not in the registry (flux-config-platform) —
+    # "not registered": session-start stays silent, session-end writes nothing
     F="$ATAKAMA/flux-config-platform"
     if [ -d "$F/.git" ]; then
         : >"$LOG"
@@ -110,10 +111,10 @@ if [ -d "$ATAKAMA/Atakama-Browser-Server" ] && [ -f "$LIVE_GATE" ]; then
             || bad "flux end: rc=$rc log=$(wc -l <"$LOG")"
     fi
 
-    # cwd из JSON важнее $PWD
+    # cwd from the JSON wins over $PWD
     c="$(run "$START" "$T/plain" "$R" | ctx)"
     [[ "$c" == *"Personal working rules"* ]] && ok "cwd from hook JSON wins over PWD" || bad "cwd from JSON ignored"
-    # без поля cwd — $PWD
+    # without the cwd field — $PWD
     c="$(run "$START" "$R" "" | ctx)"
     [[ "$c" == *"Personal working rules"* ]] && ok "no cwd in JSON: falls back to PWD" || bad "PWD fallback broken"
 else
@@ -139,7 +140,7 @@ after="$(find "$T/profiles" -name pending-retro.log -exec cat {} + 2>/dev/null |
 [ "$rc" -eq 0 ] && [ -z "$out" ] && [ "$before" = "$after" ] && ok "unregistered dir: session-end silent, writes nothing" \
     || bad "unregistered end: rc=$rc before=$before after=$after"
 
-# --- синтетический реестр: профиль без поля session, битый профиль ---------------------
+# --- synthetic registry: a profile without the session field, a broken profile -------------
 mkdir -p "$T/syn/p1" "$T/syn/p2" "$T/sp/quiet" "$T/sp/broken"
 git -C "$T/syn/p1" init -q; git -C "$T/syn/p2" init -q
 echo '{"schema":1,"name":"quiet","lessons":"profile"}' >"$T/sp/quiet/profile.json"
@@ -157,7 +158,7 @@ for hook in "$START" "$END"; do
     [ "$rc" -eq 0 ] && [ -z "$out" ] && ok "$h: broken profile.json -> silent exit 0" || bad "$h: broken profile rc=$rc"
 done
 
-# напоминание о /retro без подмешивания rules.md (inject_rules нет, retro_reminder_after есть)
+# a reminder about /retro without mixing in rules.md (no inject_rules, retro_reminder_after present)
 mkdir -p "$T/syn/p3" "$T/sp/remind"; git -C "$T/syn/p3" init -q
 echo '{"schema":1,"name":"remind","session":{"retro_reminder_after":1}}' >"$T/sp/remind/profile.json"
 echo '# remind rules' >"$T/sp/remind/rules.md"

@@ -1,67 +1,68 @@
 ---
 name: qmd
-description: Поиск по решениям и урокам зарегистрированных проектов через MCP-сервер qmd — ADR, файлы состояния, тикеты, память проектов, базы уроков; какие коллекции чьи, говорят профили (`~/.claude/profiles/*/profile.json`, поле qmd). Использовать в Phase 0 и перед планированием тикета, когда нужно узнать «почему так решили», «уже наступали на это» или где лежит нужный документ. Содержит правила подзапросов для русского текста.
+description: Search the decisions and lessons of registered projects through the qmd MCP server — ADRs, state files, tickets, project memory, lesson bases; which collections belong to whom is stated by the profiles (`~/.claude/profiles/*/profile.json`, field qmd). Use in Phase 0 and before planning a ticket, when you need to find out "why was it decided this way", "have we already stepped on this", or where the needed document lives. Contains the rules for sub-queries over Russian text.
 ---
 
-# qmd: поиск по решениям и урокам
+# qmd: searching decisions and lessons
 
-Индекс глобальный, один на все проекты: конфиг `~/.config/qmd/index.yml`, база
-`~/.cache/qmd/index.sqlite`. Какие коллекции относятся к какому проекту и что в них лежит,
-говорит профиль проекта (`~/.claude/profiles/<имя>/profile.json`, поле `qmd`: `collections`,
-`covers`, `fallback_grep`; контракт — `~/.claude/profiles/README.md`). Откуда коллекция берёт
-файлы — `index.yml`. Обе таблицы печатает один вызов:
+The index is global, one for all projects: config `~/.config/qmd/index.yml`, database
+`~/.cache/qmd/index.sqlite`. Which collections belong to which project and what they hold is
+stated by the project's profile (`~/.claude/profiles/<name>/profile.json`, field `qmd`: `collections`,
+`covers`, `fallback_grep`; contract — `~/.claude/profiles/README.md`). Where a collection takes its
+files from is in `index.yml`. One call prints both tables:
 
 ```bash
 for f in ~/.claude/profiles/*/profile.json; do
-  jq -r '"\(.name): \((.qmd.collections // []) | join(", ")) — \(.qmd.covers // "поля qmd нет")"' "$f"
+  jq -r '"\(.name): \((.qmd.collections // []) | join(", ")) — \(.qmd.covers // "no qmd field")"' "$f"
 done
 awk '/^collections:/{c=1; next} c && /^[^ ]/{c=0} c && /^  [^ ]/{n=$1; sub(/:$/, "", n)} c && /^    path:/{print n "\t" $2}' ~/.config/qmd/index.yml
 ```
 
-Коллекции профиля — подсказка, где ждать ответа, а не фильтр: ищи по всему индексу и не
-передавай их в параметр `collections` как исключающий список. Особенности путей и копий
-конкретного проекта (например, что коллекция собрана с копии основной ветки) — в `rules.md`
-его профиля: `~/.claude/bin/profile --rules`.
+A profile's collections are a hint about where to expect the answer, not a filter: search the whole
+index and do not pass them in the `collections` parameter as an exclusive list. Quirks of a specific
+project's paths and copies (for example, that a collection is built from a copy of the main branch)
+are in the `rules.md` of its profile: `"${CLAUDE_PLUGIN_ROOT}/bin/profile" --rules`.
 
-Индекс обновляется в фоне при старте каждой сессии (обёртка `~/.claude/bin/qmd-mcp`,
-лог `~/.cache/qmd/refresh.log`); коллекция с `update:` в `index.yml` перед этим подтягивает свою
-копию (`~/.claude/bin/qmd-sync-main <профиль>`), новые файлы векторизуются. Индекс — снимок на
-начало сессии: незакоммиченное и рабочие ветки читать из рабочего дерева.
+The index is refreshed in the background at the start of every session (wrapper
+`${CLAUDE_PLUGIN_ROOT}/bin/qmd-mcp`, log `~/.cache/qmd/refresh.log`); before that, a collection with
+`update:` in `index.yml` pulls its own copy (`${CLAUDE_PLUGIN_ROOT}/bin/qmd-sync-main <profile>`), and
+new files are embedded. The index is a snapshot taken at session start: read uncommitted changes and
+work branches from the working tree.
 
-## Инструменты сервера
+## Server tools
 
-- `query` — гибридный поиск (BM25 + вектор + реранк). Передавать `searches`
-  (типизированные подзапросы, до 10), а не строку `query`: параметры взаимоисключающие,
-  и авторасширение на русском (проверка 2026-09-06) слабее подзапросов, написанных по вопросу.
-  Текстовый ответ: `#docid балл путь - заголовок` на результат. В `structuredContent`
-  дополнительно `line` (строка лучшего фрагмента) и `snippet`; если их не видно,
-  брать фрагмент через `get` по `#docid`.
-- `get` — документ или фрагмент: `file` = путь из выдачи как есть или `#docid`;
-  `fromLine`, `maxLines`. Брать 40–80 строк вокруг попадания, не весь файл.
-- `multi_get` — несколько файлов: параметр `pattern` (glob, список через запятую или docid);
-  большие файлы пропускаются, `HANDOFF.md` через него не читать.
-- `status` — коллекции, число документов, ожидающие векторизации.
-- Дополнительно у `query`: `limit` (5–8 достаточно), `collections: ["memory", "lessons"]`
-  (массив; единственное число `collection` молча игнорируется), `intent` (контекст для
-  уточнения, сам не ищет), `minScore`, `rerank: false` (быстрее, но порядок хуже).
+- `query` — hybrid search (BM25 + vector + rerank). Pass `searches`
+  (typed sub-queries, up to 10), not a `query` string: the parameters are mutually exclusive,
+  and auto-expansion on Russian text (checked 2026-09-06) is weaker than sub-queries written for the question.
+  Text answer: `#docid score path - title` per result. `structuredContent`
+  additionally has `line` (the line of the best fragment) and `snippet`; if you do not see them,
+  fetch the fragment with `get` by `#docid`.
+- `get` — a document or a fragment: `file` = the path from the results as is, or `#docid`;
+  `fromLine`, `maxLines`. Take 40–80 lines around the hit, not the whole file.
+- `multi_get` — several files: parameter `pattern` (glob, comma-separated list or docid);
+  large files are skipped; do not read `HANDOFF.md` through it.
+- `status` — collections, document counts, documents waiting to be embedded.
+- Extra `query` parameters: `limit` (5–8 is enough), `collections: ["memory", "lessons"]`
+  (an array; the singular `collection` is silently ignored), `intent` (context for
+  disambiguation, does not search by itself), `minScore`, `rerank: false` (faster, but worse ordering).
 
-## Как писать `searches` для русского текста
+## How to write `searches` for Russian text
 
-Один вызов, 3–5 подзапросов, первый весит вдвое:
+One call, 3–5 sub-queries, the first one weighs double:
 
-1. `vec` — вопрос своими словами, целиком:
+1. `vec` — the question in your own words, whole:
    «почему отказались от websocket и живого обновления страницы».
-2. `lex` — 2–4 основы слов без окончаний: `сторож выкат документн`. Совпадение
-   префиксное, звёздочка не нужна. Не писать предложение: термы объединяются через И,
-   одно лишнее слово обнуляет выдачу. Есть `"точная фраза"` (без префикса) и `-слово`
-   для исключения (только рядом с положительным термом). Английские идентификаторы
-   (`staleTime`, `legal_lock`) — отдельной lex-строкой; дефисные (`verify-deploy`)
-   ищутся как точная фраза, без префикса.
-3. `hyde` — одна-две фразы, похожие на ожидаемый ответ: «От WebSocket отказались,
+2. `lex` — 2–4 word stems without endings: `сторож выкат документн`. Matching is
+   by prefix, no asterisk needed. Do not write a sentence: terms are combined with AND,
+   one extra word zeroes the results. There is `"exact phrase"` (no prefix matching) and `-word`
+   for exclusion (only next to a positive term). English identifiers
+   (`staleTime`, `legal_lock`) go in a separate lex line; hyphenated ones (`verify-deploy`)
+   are searched as an exact phrase, without prefix matching.
+3. `hyde` — one or two sentences that look like the expected answer: «От WebSocket отказались,
    потому что у api нет домена; если понадобится живость — SSE со страницы лота».
-4. Второй `lex` с синонимами, когда у темы два имени (смоук / дымовые проверки / verify-deploy).
+4. A second `lex` with synonyms, when the topic has two names (смоук / дымовые проверки / verify-deploy).
 
-Пример вызова:
+Example call:
 
 ```json
 {"searches": [
@@ -71,12 +72,12 @@ awk '/^collections:/{c=1; next} c && /^[^ ]/{c=0} c && /^  [^ ]/{n=$1; sub(/:$/,
 ], "limit": 6}
 ```
 
-## Что учитывать
+## What to keep in mind
 
-- Где проект держит уроки — поле `lessons` профиля: `repo:<путь>` — в репозитории (у Auction
-  `docs/lessons/<тема>.md`, ADR-0085; HANDOFF там — только текущее состояние), `profile` — в
-  `~/.claude/profiles/<имя>/lessons/` (у Atakama, коллекция `lessons`).
-- Попадание в `memory/MEMORY.md` — это оглавление файлов памяти: открыть сам файл памяти.
-- Новый гибридный запрос стоит 7–14 с, повтор мгновенный. Не гонять по одному слову,
-  собрать один хороший вызов.
-- То же из терминала: `qmd query $'vec: …\nlex: …'`, `qmd get <путь>` — из каталога без своего `.qmd/`.
+- Where a project keeps its lessons is the profile's `lessons` field: `repo:<path>` — in the repository (Auction has
+  `docs/lessons/<topic>.md`, ADR-0085; HANDOFF there holds only the current state), `profile` — in
+  `~/.claude/profiles/<name>/lessons/` (Atakama, collection `lessons`).
+- A hit in `memory/MEMORY.md` is the table of contents of the memory files: open the memory file itself.
+- A new hybrid query costs 7–14 s, a repeat is instant. Do not run it one word at a time;
+  put together one good call.
+- The same from a terminal: `qmd query $'vec: …\nlex: …'`, `qmd get <path>` — from a directory without its own `.qmd/`.

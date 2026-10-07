@@ -195,4 +195,44 @@ Test-ы (исходные — `~/.claude/bin/tests/`, `~/.claude/hooks/tests/`):
 
 ## Итог
 
-Заполняется при закрытии.
+- **Падающий test** — `harness/bin/tests/harness-home.test.sh` на копии `harness/` с базы ветки (origin/main
+  31bc642, `HARNESS_DIR`): 34 FAIL, 8 ok (зелёные — строка `Status:`, коды `profile` 1 и 2 и проверки, которые
+  база проходит случайно). `gate.sh` заводил `cache/`, маркеры и `stop-blocks/` в `$HOME/.claude/gate/state/`, `worktree-lock` —
+  замок в `$HOME/.claude/worktree-sessions/`, `epic-board` — снимок в `$HOME/.claude/state/`; копия `harness/`
+  звала подменённые `$HOME/.claude/bin/profile` и `$HOME/.claude/bin/ticket` (ловушка записала 6 вызовов),
+  `epic-status` падал на `$HOME/.claude/bin/ticket: No such file or directory`; старый реестр не читался.
+- **Состояние** — `HARNESS_HOME`, по умолчанию `~/.claude/worfy-harness`: реестр и маркеры Gate, замки worktree,
+  снимок `epic-board`. Реестр ищут `gate.sh`, `gate-resolve.mjs`, `profile`, `qmd-sync-main`: `CLAUDE_GATE_CONFIG`,
+  иначе `$HARNESS_HOME/gate/config.json`, а если его нет и есть `~/.claude/gate/config.json` — старый, только чтение.
+- **Соседи** — от настоящего пути своего файла: bash — `realpath "${BASH_SOURCE[0]}"`, zsh — `${0:A:h}`, node —
+  `fs.realpathSync(__filename)` / `import.meta.url`. `CLAUDE_PLUGIN_ROOT` скрипты не читают: свой путь и есть
+  корень plugin-а и не зависит от env Session. Сообщение `stop.sh` при красном Gate называет `bash <plugin>/hooks/gate.sh fast`.
+- **Mutation testing** — 28 мутантов путей и состояния (старые места, без `realpath`, без перехода на старый
+  реестр, без приоритета `CLAUDE_GATE_CONFIG`/`HARNESS_HOME`, без правила schema 1 в `preflight`): все краснеют
+  `harness-home.test.sh`, кроме одного эквивалентного — `profile` без `realpathSync` (Node сам раскрывает
+  symlink главного модуля). Мутант слов `worktree-lock status` краснеет на двух проверках `preflight`.
+- **Вывод `session-start.sh` у Atakama** — 7 850 символов `additionalContext` (8 241 байт JSON) на копии
+  `~/.claude/profiles/atakama` во временном `HOME`; карты Epic-а в копии нет (`state/active-epic` отсутствует).
+  Предел hook-а 10 000 символов не превышен.
+- **`claude plugin validate harness`** — не запускался: бриф волны запретил запуск настоящего Claude Code.
+- **Решено без владельца, подтвердить:**
+  - Четыре строки вердикта Gate оставлены целиком, с русским хвостом («(кэш)», «(прошло: …)», причины «node не
+    найден», «резолвер … завершился с кодом N», «проект не зарегистрирован в …») — их меняет Ticket 09. В причине
+    «не зарегистрирован» теперь настоящий путь реестра (`~/.claude/worfy-harness/gate/config.json` по умолчанию).
+    Остальные строки `[gate] …` переведены (`[gate] набор` → `[gate] scope`).
+  - `preflight` читает значение `tickets.epic_status` вида `~/.claude/bin/<скрипт>` (schema 1) как своего соседа —
+    иначе `preflight` plugin-а звал бы замороженный `~/.claude/bin/epic-status`. То же правило в `tickets-to-tasks`
+    для `tasks.tool`; в `continuous-audit` голое имя skill из `workflow.ticket_skill` читается как `worfy:<имя>`.
+  - Человеческий вывод переведён и там, где его читает другой скрипт того же plugin-а: стадия `закрыт` → `closed`
+    (`epic-status`, `epic-board`, `preflight`), строки `worktree-lock status` (`holds`/`also`, `seen N min ago`,
+    `← this`) — `preflight` разбирает новые слова. `epic-status --json`, строка `Status:`, `GO`/`BLOCKED: `,
+    коды `profile` и `gate.sh`, имена маркеров — прежние.
+  - Заголовки тикета («## Где в коде», «## Что делаем» …) и метки блока статуса («Этап», «Сейчас», «Дальше», «Жду»)
+    в шаблонах `continuous-audit` оставлены по-русски: их разбирает worfy (`src/main/workflow/reader.ts:98`,
+    `src/shared/agent/status-block.ts:20`).
+  - `/to-tickets` и `/wayfinder` — skills plugin-а `mattpocock-skills` 1.2.3 (оба в его `plugin.json`, с
+    `disable-model-invocation`): в тексте `/mattpocock-skills:to-tickets` и `/mattpocock-skills:wayfinder`. Голое
+    `/to-tickets` осталось там, где цитируется стадия из вывода `epic-status`.
+- **Кириллица** — `harness-home.test.sh` держит список разрешённых подстрок: слова и строки вердикта Gate, старые
+  значения `Status` и слова-отрицания в `epic-status`, плейсхолдеры Profile (`<эпик>`, `<имя>`, `<каталог пакета>` …),
+  заголовки тикета и метки блока статуса, русские примеры запросов `qmd` и фразы-триггеры skills.

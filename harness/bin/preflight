@@ -1,53 +1,53 @@
 #!/usr/bin/env bash
-# preflight — проверка перед стартом работы над тикетом или волной в зарегистрированном проекте.
+# preflight — a check before starting work on a ticket or a wave in a registered project.
 #
-#   preflight [--epic <эпик>] [--no-fetch]
+#   preflight [--epic <epic>] [--no-fetch]
 #
-# Те же шаги, что «## 1. Предполёт» скилла epic-wave и разделы 2–3 скилла ship-ticket,
-# но одной командой: шаг в тексте можно пропустить, код выхода 1 — нет.
+# The same steps as section 1 (preflight) of the epic-wave skill and sections 2–3 of the ship-ticket skill,
+# but as one command: a step in the text can be skipped, exit code 1 cannot.
 #
-# Запускается из любого каталога внутри репозитория (любой worktree, любой подкаталог).
-# Все проверки отрабатывают до конца и собирают причины — поэтому set -u -o pipefail
-# без set -e. Вывод — не больше 20 строк, предупреждения начинаются с «! », последняя
-# строка ровно «GO» либо «BLOCKED: <причины через «; »>».
+# Runs from any directory inside the repository (any worktree, any subdirectory).
+# All checks run to the end and collect reasons — hence set -u -o pipefail
+# without set -e. Output is at most 20 lines, warnings start with "! ", the last
+# line is exactly "GO" or "BLOCKED: <reasons separated by "; ">".
 #
-# Код выхода: 0 — GO, 1 — BLOCKED, 2 — ошибка вызова (не git-репозиторий, проект не
-# зарегистрирован или профиль не читается, неизвестный флаг).
+# Exit code: 0 — GO, 1 — BLOCKED, 2 — usage error (not a git repository, project not
+# registered or profile unreadable, unknown flag).
 #
-# Проектные факты — из профиля (~/.claude/bin/profile, контракт в ~/.claude/profiles/README.md):
-#   worktree.base               — база (origin/main); основная ветка — она без «origin/»;
-#   numbering.adr.dir           — каталог ADR (запасной — docs.adr_dir); нет — шаг ADR пропущен;
-#   numbering.migrations.journal / .generate — журнал миграций (формат drizzle _journal.json)
-#                                 и команда генерации для подсказки; нет — шаг пропущен;
-#   tickets.epic_status         — сводка эпиков; нет — шаг пропущен (с --epic — BLOCKED).
-# Пропуск шага печатается строкой, а не проходит молча.
+# Project facts come from the profile (bin/profile next to this script, contract in ~/.claude/profiles/README.md):
+#   worktree.base               — the base (origin/main); the main branch is that without "origin/";
+#   numbering.adr.dir           — the ADR directory (fallback — docs.adr_dir); none — the ADR step is skipped;
+#   numbering.migrations.journal / .generate — the migrations journal (drizzle _journal.json format)
+#                                 and the generate command for the hint; none — the step is skipped;
+#   tickets.epic_status         — the epic summary; none — the step is skipped (with --epic — BLOCKED).
+# A skipped step is printed as a line, not passed over silently.
 #
-# Совместимость: bash 3.2 (macOS), без coreutils timeout — время сетевых команд
-# ограничивает perl (fork + alarm + kill всей группы процессов: git оставляет
-# git-remote-https, gh не умирает от SIGALRM, а от SIGTERM — умирает).
+# Compatibility: bash 3.2 (macOS), no coreutils timeout — the time of network commands
+# is limited by perl (fork + alarm + kill of the whole process group: git leaves
+# git-remote-https behind, gh does not die from SIGALRM, but does die from SIGTERM).
 #
-# Логику ADR можно проверить на подставном списке имён, не трогая git:
-#   source ~/.claude/bin/preflight; printf '%s\n' 0001-a.md 0001-b.md | adr_scan
+# The ADR logic can be checked on a substitute list of names, without touching git:
+#   source <plugin>/bin/preflight; printf '%s\n' 0001-a.md 0001-b.md | adr_scan
 #   adr_scan 0005-x.md 0005-y.md 0007-z.md
 #   printf '0098\tfoo.md\torigin/a\n0098\tbar.md\torigin/b\n' | adr_collisions
 
 set -u -o pipefail
 
-# bash 3.2 режет строки по символам, а не байтам, только в UTF-8 локали.
+# bash 3.2 slices strings by characters, not bytes, only in a UTF-8 locale.
 unset LC_ALL
 export LC_CTYPE=en_US.UTF-8
 export GIT_TERMINAL_PROMPT=0 GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1
 
-USAGE='usage: preflight [--epic <эпик>] [--no-fetch]'
-BIN=$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd) || BIN=$HOME/.claude/bin
-PROFILE_BIN=${PREFLIGHT_PROFILE_BIN:-$BIN/profile}   # переопределение — для тестов
-# Заполняет load_profile; значения по умолчанию — только для источника функций в тестах.
+USAGE='usage: preflight [--epic <epic>] [--no-fetch]'
+BIN=$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" 2>/dev/null && pwd -P)
+PROFILE_BIN=${PREFLIGHT_PROFILE_BIN:-$BIN/profile}   # the override is for tests
+# load_profile fills these; the defaults are only for sourcing the functions in tests.
 BASE=origin/main MAIN=main ADR_DIR=docs/adr JOURNAL='' MIG_GEN='' EPIC_TOOL=''
-FETCH_TIMEOUT=60   # секунд; типичный fetch — единицы секунд
+FETCH_TIMEOUT=60   # seconds; a typical fetch takes a few seconds
 GH_TIMEOUT=20
-TOOL_TIMEOUT=20    # worktree-lock, epic-status — локальные, но node может зависнуть
+TOOL_TIMEOUT=20    # worktree-lock, epic-status are local, but node may hang
 
-# ── вывод ─────────────────────────────────────────────────────────────────────
+# ── output ────────────────────────────────────────────────────────────────────
 REASONS=''
 say()   { printf '%s\n' "$*"; }
 warn()  { printf '! %s\n' "$*"; }
@@ -55,14 +55,14 @@ block() { REASONS="${REASONS:+$REASONS; }$*"; }
 die()   { printf 'preflight: %s\n' "$*" >&2; exit 2; }
 first_line() { printf '%s' "${1%%$'\n'*}"; }
 fmt4()  { printf '%04d' "$1"; }
-cut_chars() {  # <строка> <N> — обрезать до N символов с «…»
+cut_chars() {  # <string> <N> — cut to N characters with "…"
   local s=$1 n=$2
   [ "${#s}" -gt "$n" ] && s="${s:0:$n}…"
   printf '%s' "$s"
 }
 
-# with_timeout <сек> <команда…> — код команды; 124, если время вышло.
-# Ребёнок получает свою группу процессов, и по таймауту гибнет вся группа.
+# with_timeout <sec> <command…> — the command's exit code; 124 if time ran out.
+# The child gets its own process group, and on timeout the whole group dies.
 with_timeout() {
   perl -e '
     my $t = shift @ARGV;
@@ -77,22 +77,22 @@ with_timeout() {
   ' "$@"
 }
 
-# ── ADR: чистые функции над списком имён (stdin), проверяемые без git ─────────
-adr_numbers() {  # имена файлов → четырёхзначные номера, по одному в строке
+# ── ADR: pure functions over a list of names (stdin), testable without git ────
+adr_numbers() {  # file names → four-digit numbers, one per line
   awk '{ n=$0; sub(/.*\//,"",n); if (n ~ /^[0-9][0-9][0-9][0-9]-/) print substr(n,1,4) }'
 }
-adr_max()  { adr_numbers | sort -n | tail -1; }            # пусто, если ADR нет
+adr_max()  { adr_numbers | sort -n | tail -1; }            # empty if there are no ADRs
 adr_dups() { adr_numbers | sort | uniq -d | paste -s -d, - | sed 's/,/, /g'; }
-adr_scan() {  # [имена…] или stdin → «старший NNNN · дубли …»
+adr_scan() {  # [names…] or stdin → "highest NNNN · duplicates …"
   local list
   if [ $# -gt 0 ]; then list=$(printf '%s\n' "$@"); else list=$(cat); fi
   local mx dp
   mx=$(printf '%s\n' "$list" | adr_max)
   dp=$(printf '%s\n' "$list" | adr_dups)
-  printf 'старший %s · дубли %s\n' "${mx:-нет}" "${dp:-нет}"
+  printf 'highest %s · duplicates %s\n' "${mx:-none}" "${dp:-none}"
 }
-# stdin: строки «номер<TAB>имя файла<TAB>ветка» → «NNNN: ветка1, ветка2» по номерам,
-# которые в разных ветках носят разные файлы (две сессии взяли один номер).
+# stdin: lines "number<TAB>file name<TAB>branch" → "NNNN: branch1, branch2" for numbers
+# that name different files in different branches (two sessions took the same number).
 adr_collisions() {
   awk -F'\t' '
     !($1 in name) { name[$1]=$2; br[$1]=$3; next }
@@ -100,49 +100,49 @@ adr_collisions() {
     END { for (k in hit) print k ": " br[k] }' | sort
 }
 
-mig_last() {  # stdin: _journal.json → idx последней записи десятичным числом; пусто, если нет
+mig_last() {  # stdin: _journal.json → idx of the last entry as a decimal number; empty if none
   local v
   v=$(jq -r '.entries[-1].idx // empty' 2>/dev/null) || return 0
-  # Строковый idx с ведущими нулями («0077») без 10# ушёл бы в восьмеричную арифметику.
+  # A string idx with leading zeros ("0077") without 10# would go into octal arithmetic.
   case $v in ''|*[!0-9]*) return 0 ;; esac
   printf '%s\n' "$(( 10#$v ))"
 }
 
-# ── аргументы ─────────────────────────────────────────────────────────────────
+# ── arguments ─────────────────────────────────────────────────────────────────
 EPIC='' FETCH=1
 parse_args() {
   while [ $# -gt 0 ]; do
     case $1 in
-      --epic)     [ $# -ge 2 ] || die "--epic без значения · $USAGE"; EPIC=$2; shift 2 ;;
+      --epic)     [ $# -ge 2 ] || die "--epic without a value · $USAGE"; EPIC=$2; shift 2 ;;
       --epic=*)   EPIC=${1#--epic=}; shift ;;
       --no-fetch) FETCH=0; shift ;;
       -h|--help)  say "$USAGE"; exit 0 ;;
-      *)          die "неизвестный флаг $1 · $USAGE" ;;
+      *)          die "unknown flag $1 · $USAGE" ;;
     esac
   done
 }
 
-# ── проверки ──────────────────────────────────────────────────────────────────
+# ── checks ────────────────────────────────────────────────────────────────────
 ROOT='' BRANCH='' HEAD7='' MAIN_TREE='' ME=''
 
 locate_repo() {
-  ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || die "не git-репозиторий: $PWD"
-  cd "$ROOT" || die "нет доступа к $ROOT"
-  TMP=$(mktemp -d 2>/dev/null) || die "mktemp не удался"
+  ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || die "not a git repository: $PWD"
+  cd "$ROOT" || die "no access to $ROOT"
+  TMP=$(mktemp -d 2>/dev/null) || die "mktemp failed"
   trap 'rm -rf "$TMP"' EXIT
   trap 'rm -rf "$TMP"; exit 130' INT
   trap 'rm -rf "$TMP"; exit 143' TERM
 }
 
-# Поля профиля одной строкой TSV. Код profile 3 — проект не зарегистрирован, 1 — сломан
-# реестр или профиль: в обоих случаях проверять не по чему, это ошибка вызова (код 2).
+# Profile fields as one TSV line. profile exit 3 — the project is not registered, 1 — the registry
+# or the profile is broken: in both cases there is nothing to check against, it is a usage error (exit 2).
 load_profile() {
   local json rc vals
   json=$(with_timeout "$TOOL_TIMEOUT" "$PROFILE_BIN" -C "$ROOT" --json </dev/null 2>"$TMP/profile.err"); rc=$?
   case $rc in
     0) ;;
-    3) die "проект не зарегистрирован в ~/.claude/gate/config.json (или у записи нет профиля): $(first_line "$(cat "$TMP/profile.err")")" ;;
-    *) die "профиль не читается (profile, код $rc): $(first_line "$(cat "$TMP/profile.err")")" ;;
+    3) die "project not registered in ${HARNESS_HOME:-~/.claude/worfy-harness}/gate/config.json (or its entry has no profile): $(first_line "$(cat "$TMP/profile.err")")" ;;
+    *) die "profile unreadable (profile, exit $rc): $(first_line "$(cat "$TMP/profile.err")")" ;;
   esac
   vals=$(printf '%s' "$json" | node -e '
     let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
@@ -155,15 +155,20 @@ load_profile() {
         g(p, "tickets", "epic_status") || "",
       ]
       process.stdout.write(v.map((x) => String(x).replace(/[\t\n]/g, " ")).join("\t") + "\n")
-    })' 2>"$TMP/profile.err") || die "profile --json не разобран: $(first_line "$(cat "$TMP/profile.err")")"
-  # IFS-таб схлопывает пустые поля: поля режутся руками, как в gate.sh.
+    })' 2>"$TMP/profile.err") || die "profile --json not parsed: $(first_line "$(cat "$TMP/profile.err")")"
+  # A tab IFS collapses empty fields: the fields are cut by hand, as in gate.sh.
   BASE=${vals%%$'\t'*};      vals=${vals#*$'\t'}
   ADR_DIR=${vals%%$'\t'*};   vals=${vals#*$'\t'}
   JOURNAL=${vals%%$'\t'*};   vals=${vals#*$'\t'}
   MIG_GEN=${vals%%$'\t'*};   EPIC_TOOL=${vals#*$'\t'}
   ADR_DIR=${ADR_DIR%/}
   MAIN=${BASE#origin/}
-  case $EPIC_TOOL in '~/'*) EPIC_TOOL=$HOME/${EPIC_TOOL#'~/'} ;; esac
+  # A profile of schema 1 names the scripts of the Harness as ~/.claude/bin/<script>: that is the
+  # frozen copy; the script next to this one is read instead.
+  case $EPIC_TOOL in
+    '~/.claude/bin/'*) EPIC_TOOL=$BIN/${EPIC_TOOL#'~/.claude/bin/'} ;;  # schema 1
+    '~/'*) EPIC_TOOL=$HOME/${EPIC_TOOL#'~/'} ;;
+  esac
 }
 
 check_tree() {  # 1
@@ -171,14 +176,14 @@ check_tree() {  # 1
   HEAD7=$(git rev-parse --short HEAD 2>/dev/null) || HEAD7='?'
   local dirty
   dirty=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ') || dirty='?'
-  say "дерево: $ROOT · ветка ${BRANCH:-detached $HEAD7} · незакоммиченных файлов ${dirty:-?}"
+  say "tree: $ROOT · branch ${BRANCH:-detached $HEAD7} · uncommitted files ${dirty:-?}"
 }
 
-# Активный аккаунт gh против владельца remote. gh держит два аккаунта, git берёт токен
-# у gh: чужой активный аккаунт роняет fetch и gh pr list невнятным «repository not
-# found». Аккаунт не переключается — настройка машинная, её делят другие сессии;
-# результат — подсказка в GH_WARN, печатает её check_fetch. Провал gh — молча:
-# про недоступность gh уже говорит строка PR.
+# The active gh account versus the remote's owner. gh holds two accounts, git takes its token
+# from gh: a wrong active account fails fetch and gh pr list with an obscure "repository not
+# found". The account is not switched — it is a machine-wide setting shared by other sessions;
+# the result is a hint in GH_WARN, which check_fetch prints. A gh failure stays silent:
+# the PR line already reports gh being unavailable.
 GH_WARN=''
 check_gh_account() {
   local url path owner login
@@ -190,30 +195,30 @@ check_gh_account() {
   [ -n "$owner" ] || return 0
   login=$(with_timeout "$GH_TIMEOUT" gh api user --jq .login 2>/dev/null) || return 0
   [ -n "$login" ] || return 0
-  # Логины GitHub регистронезависимы, а в URL remote регистр произвольный.
+  # GitHub logins are case-insensitive, and the case in a remote URL is arbitrary.
   [ "$(printf '%s' "$login" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$owner" | tr '[:upper:]' '[:lower:]')" ] && return 0
-  GH_WARN="gh: активный аккаунт $login, remote принадлежит $owner — gh auth switch --user $owner"
+  GH_WARN="gh: active account $login, remote belongs to $owner — gh auth switch --user $owner"
 }
 
 check_fetch() {  # 2
-  # Подсказка про аккаунт gh делит строку с fetch (или причину BLOCKED): отдельная
-  # строка ломала бы лимит в 20 строк, а без неё отказ fetch — загадка.
-  [ "$FETCH" = 1 ] || { warn "fetch пропущен${GH_WARN:+ · $GH_WARN}"; return; }
+  # The gh account hint shares a line with fetch (or the BLOCKED reason): a separate
+  # line would break the 20-line limit, and without it a fetch failure is a mystery.
+  [ "$FETCH" = 1 ] || { warn "fetch skipped${GH_WARN:+ · $GH_WARN}"; return; }
   local rc
   with_timeout "$FETCH_TIMEOUT" git fetch origin --prune --quiet >/dev/null 2>"$TMP/fetch.err"; rc=$?
   case $rc in
     0)   [ -z "$GH_WARN" ] || warn "$GH_WARN" ;;
-    124) block "fetch не удался: превышено время ожидания $FETCH_TIMEOUT с${GH_WARN:+ · $GH_WARN}" ;;
-    *)   block "fetch не удался: $(first_line "$(cat "$TMP/fetch.err")")${GH_WARN:+ · $GH_WARN}" ;;
+    124) block "fetch failed: timed out after $FETCH_TIMEOUT s${GH_WARN:+ · $GH_WARN}" ;;
+    *)   block "fetch failed: $(first_line "$(cat "$TMP/fetch.err")")${GH_WARN:+ · $GH_WARN}" ;;
   esac
 }
 
 check_origin_main() {  # 3
   git rev-parse --verify -q "refs/remotes/$BASE" >/dev/null 2>&1 \
-    || { block "нет ref $BASE"; return; }
+    || { block "no ref $BASE"; return; }
   local sha date subj
   IFS=$'\t' read -r sha date subj < <(git log -1 --format='%h%x09%cd%x09%s' --date=format:%Y-%m-%dT%H:%M "$BASE")
-  say "$BASE: $sha $date «$(cut_chars "$subj" 60)»"
+  say "$BASE: $sha $date \"$(cut_chars "$subj" 60)\""
 }
 
 check_main() {  # 4
@@ -230,26 +235,26 @@ check_main() {  # 4
     ahead=$(git rev-list --count "$BASE..$MAIN" 2>/dev/null) || ahead='?'
     if [ "$behind" != 0 ]; then
       if [ "$ahead" != 0 ]; then
-        hint="разошлись (впереди на $ahead): ff невозможен, разбираться руками"
+        hint="diverged (ahead by $ahead): ff impossible, sort it out by hand"
       elif [ -z "$MAIN_TREE" ]; then
-        hint="догнать: git fetch origin $MAIN:$MAIN ($MAIN нигде не checked out)"
+        hint="catch up: git fetch origin $MAIN:$MAIN ($MAIN is not checked out anywhere)"
       elif [ "$MAIN_TREE" = "$ROOT" ]; then
-        hint="догнать: git pull --ff-only"
+        hint="catch up: git pull --ff-only"
       else
-        hint="догнать: git -C $MAIN_TREE pull --ff-only"
+        hint="catch up: git -C $MAIN_TREE pull --ff-only"
       fi
-      warn "$MAIN отстаёт от $BASE на $behind — $hint"
-      [ "$BRANCH" = "$MAIN" ] && block "работа на устаревшем $MAIN (отстаёт на $behind)"
+      warn "$MAIN is behind $BASE by $behind — $hint"
+      [ "$BRANCH" = "$MAIN" ] && block "working on a stale $MAIN (behind by $behind)"
     elif [ "$ahead" != 0 ]; then
-      warn "$MAIN впереди $BASE на $ahead — незапушенные коммиты в $MAIN"
+      warn "$MAIN is ahead of $BASE by $ahead — unpushed commits in $MAIN"
     fi
   else
-    warn "локальной ветки $MAIN нет"
+    warn "no local branch $MAIN"
   fi
 
   if [ "$BRANCH" != "$MAIN" ]; then
     k=$(git rev-list --count "HEAD..$BASE" 2>/dev/null) || k='?'
-    say "ветка ${BRANCH:-detached $HEAD7}: позади $BASE на $k"
+    say "branch ${BRANCH:-detached $HEAD7}: behind $BASE by $k"
   fi
 }
 
@@ -258,54 +263,54 @@ check_lock() {  # 5
   local out rc line role id age mins stale mine=0 holder_me=0 foreign='' my_age='' nparsed=0
   out=$(CLAUDE_SESSION_ID="$ME" with_timeout "$TOOL_TIMEOUT" "$BIN/worktree-lock" status </dev/null 2>&1); rc=$?
   if [ "$rc" != 0 ] || [ -z "$out" ]; then
-    warn "lock: worktree-lock недоступен (код $rc)${out:+: $(first_line "$out")}"; return
+    warn "lock: worktree-lock unavailable (exit $rc)${out:+: $(first_line "$out")}"; return
   fi
   case $out in
-    *'живых сессий не записано'*) say "lock: свободно"; return ;;
-    *'реестр не читается'*)       warn "lock: реестр не читается, замок выключен — $(first_line "$out")"; return ;;
+    *'no live sessions recorded'*) say "lock: free"; return ;;
+    *'registry unreadable'*)       warn "lock: registry unreadable, lock disabled — $(first_line "$out")"; return ;;
   esac
-  # Строки вида «  держит a0184940  с 06:54  отметилась 7 мин назад  ← эта» / «    ещё …».
+  # Lines like "  holds a0184940  since 06:54  seen 7 min ago  ← this" / "   also …".
   while IFS= read -r line; do
-    case $line in *отметилась*) ;; *) continue ;; esac
+    case $line in *'  seen '*) ;; *) continue ;; esac
     nparsed=$((nparsed + 1))
     set -- $line
     role=$1; id=$2
-    age=${line#*отметилась }; age=${age%%  ←*}
+    age=${line#*  seen }; age=${age%%  ←*}
     mins=0
     case $age in
-      *' мин назад') mins=${age%% *} ;;
-      *' ч назад')   mins=$(( ${age%% *} * 60 )) ;;
+      *' min ago') mins=${age%% *} ;;
+      *' h ago')   mins=$(( ${age%% *} * 60 )) ;;
     esac
     case $line in
-      *'← эта'*) mine=1; my_age=$age; [ "$role" = держит ] && holder_me=1 ;;
+      *'← this'*) mine=1; my_age=$age; [ "$role" = holds ] && holder_me=1 ;;
       *) stale=''
-         # Живой считается запись моложе TTL (60 мин): упавшая сессия без release
-         # выглядит живой до часа — возраст heartbeat и есть проверка на это.
-         [ "$mins" -ge 30 ] && stale=', возможно брошена'
+         # An entry younger than the TTL (60 min) counts as alive: a crashed session without release
+         # looks alive for up to an hour — the heartbeat age is the check for that.
+         [ "$mins" -ge 30 ] && stale=', possibly abandoned'
          foreign="${foreign:+$foreign, }$id (heartbeat $age$stale)" ;;
     esac
   done <<<"$out"
 
   if [ "$nparsed" -eq 0 ]; then
-    warn "lock: вывод worktree-lock не разобран: $(first_line "$out")"
+    warn "lock: worktree-lock output not parsed: $(first_line "$out")"
   elif [ -n "$foreign" ] && [ -n "$ME" ]; then
-    say "lock: чужая живая сессия $foreign"
-    block "чужая живая сессия в дереве: $foreign"
+    say "lock: another live session $foreign"
+    block "another live session in the tree: $foreign"
   elif [ -n "$foreign" ]; then
-    warn "lock: в дереве живая сессия $foreign; своя или чужая — не определить, нет CLAUDE_SESSION_ID"
+    warn "lock: a live session in the tree $foreign; ours or another — cannot tell, no CLAUDE_SESSION_ID"
   elif [ "$holder_me" = 1 ]; then
-    say "lock: держит эта сессия (heartbeat $my_age)"
+    say "lock: held by this session (heartbeat $my_age)"
   elif [ "$mine" = 1 ]; then
-    say "lock: эта сессия записана, держатель не она (heartbeat $my_age)"
+    say "lock: this session is registered, but is not the holder (heartbeat $my_age)"
   fi
 }
 
-# Ветки, чьи заявки на номера ADR и миграций надо учесть: все refs/remotes/origin/*
-# (кроме HEAD и main — origin/main считается отдельно) и все локальные refs/heads/*,
-# включая main и текущую. С 2026-09-14 ветки пачки живут локально без push неделями,
-# и заглушка ADR из соседнего worktree до push видна только здесь. Сначала remote,
-# потом local: при равных номерах в строке остаётся ветка, видимая всем.
-# Печатает «<полный ref><TAB><метка>»: origin/<ветка> либо local:<ветка>.
+# Branches whose claims on ADR and migration numbers must be counted: all refs/remotes/origin/*
+# (except HEAD and main — origin/main is counted separately) and all local refs/heads/*,
+# including main and the current one. Since 2026-09-14 the branches of a batch live locally without push for weeks,
+# and an ADR stub from a neighbouring worktree is visible before push only here. Remote first,
+# then local: with equal numbers the line keeps the branch everyone can see.
+# Prints "<full ref><TAB><label>": origin/<branch> or local:<branch>.
 ref_sources() {
   git for-each-ref --format='%(refname)%09%(refname:strip=2)' refs/remotes/origin/ 2>/dev/null \
     | awk -F'\t' -v base="$BASE" '$2 != "origin/HEAD" && $2 != base'
@@ -313,12 +318,12 @@ ref_sources() {
 }
 
 check_adr() {  # 6
-  [ -n "$ADR_DIR" ] || { say "ADR: каталога ADR в профиле нет (numbering.adr) — шаг пропущен"; return; }
+  [ -n "$ADR_DIR" ] || { say "ADR: no ADR directory in the profile (numbering.adr) — step skipped"; return; }
   local list main_max dups ref b m br_max=0 br_name='' local_max next coll
   list=$(git ls-tree --name-only "$BASE" "$ADR_DIR/" 2>/dev/null)
   main_max=$(printf '%s\n' "$list" | adr_max); main_max=$(( 10#${main_max:-0} ))
   dups=$(printf '%s\n' "$list" | adr_dups)
-  [ -n "$dups" ] && block "дубль ADR $dups на $BASE"
+  [ -n "$dups" ] && block "duplicate ADR $dups on $BASE"
 
   : >"$TMP/adr.tsv"
   while IFS=$'\t' read -r ref b; do
@@ -326,7 +331,7 @@ check_adr() {  # 6
     list=$(git ls-tree --name-only "$ref" "$ADR_DIR/" 2>/dev/null) || continue
     m=$(printf '%s\n' "$list" | adr_max); m=$(( 10#${m:-0} ))
     [ "$m" -gt "$br_max" ] && { br_max=$m; br_name=$b; }
-    # Номера старше main — заявки веток; один номер с разными файлами в двух ветках — столкновение.
+    # Numbers above main are branch claims; one number with different files in two branches is a collision.
     printf '%s\n' "$list" | awk -v b="$b" -v top="$main_max" '
       { n=$0; sub(/.*\//,"",n); if (n ~ /^[0-9][0-9][0-9][0-9]-/ && substr(n,1,4)+0 > top) printf "%s\t%s\t%s\n", substr(n,1,4), n, b }' \
       >>"$TMP/adr.tsv"
@@ -337,15 +342,15 @@ check_adr() {  # 6
   [ "$br_max" -gt "$next" ] && next=$br_max
   [ "$local_max" -gt "$next" ] && next=$local_max
   next=$((next + 1))
-  say "ADR: старший $(fmt4 "$main_max") на $BASE, $([ "$br_max" -gt 0 ] && printf '%s в %s' "$(fmt4 "$br_max")" "$br_name" || printf 'в других ветках нет'), локально $(fmt4 "$local_max") → следующий свободный $(fmt4 "$next")"
+  say "ADR: highest $(fmt4 "$main_max") on $BASE, $([ "$br_max" -gt 0 ] && printf '%s in %s' "$(fmt4 "$br_max")" "$br_name" || printf 'none in other branches'), locally $(fmt4 "$local_max") → next free $(fmt4 "$next")"
 
   coll=$(adr_collisions <"$TMP/adr.tsv" | paste -s -d';' - | sed 's/;/; /g')
-  [ -n "$coll" ] && warn "номер ADR занят разными файлами — $coll"
+  [ -n "$coll" ] && warn "ADR number taken by different files — $coll"
 }
 
 check_migrations() {  # 7
-  [ -n "$JOURNAL" ] || { say "migrations: журнала миграций в профиле нет (numbering.migrations) — шаг пропущен"; return; }
-  command -v jq >/dev/null 2>&1 || { warn "jq не найден — migrations не проверены"; return; }
+  [ -n "$JOURNAL" ] || { say "migrations: no migrations journal in the profile (numbering.migrations) — step skipped"; return; }
+  command -v jq >/dev/null 2>&1 || { warn "jq not found — migrations not checked"; return; }
   local main_last ref b m br_max=0 br_name='' local_last next taken='' hint=''
   main_last=$(git show "$BASE:$JOURNAL" 2>/dev/null | mig_last)
   while IFS=$'\t' read -r ref b; do
@@ -355,78 +360,78 @@ check_migrations() {  # 7
   done < <(ref_sources)
   local_last=''
   [ -f "$JOURNAL" ] && local_last=$(mig_last <"$JOURNAL")
-  say "migrations: последняя $([ -n "$main_last" ] && fmt4 "$main_last" || printf '?') на $BASE, $([ "$br_max" -gt 0 ] && printf '%s в %s' "$(fmt4 "$br_max")" "$br_name" || printf 'в других ветках нет'), локально $([ -n "$local_last" ] && fmt4 "$local_last" || printf '?')${local_last:+ → следующий локально $(fmt4 $((local_last + 1)))}"
-  # Генератор миграций (numbering.migrations.generate, у Auction — pnpm db:generate) берёт следующий idx от ЛОКАЛЬНОГО журнала. Если этот номер уже
-  # есть на origin/main или в ветке, после слияния младшая по when миграция молча не
-  # применится — одна строка предупреждения на оба источника, подсказка по источнику:
-  # занятый на origin/main освобождает rebase, занятый в ветке — нет (локальный idx
-  # от rebase не меняется), там ждать мержа ветки или договариваться о номере.
+  say "migrations: last $([ -n "$main_last" ] && fmt4 "$main_last" || printf '?') on $BASE, $([ "$br_max" -gt 0 ] && printf '%s in %s' "$(fmt4 "$br_max")" "$br_name" || printf 'none in other branches'), locally $([ -n "$local_last" ] && fmt4 "$local_last" || printf '?')${local_last:+ → next locally $(fmt4 $((local_last + 1)))}"
+  # The migrations generator (numbering.migrations.generate, for Auction — pnpm db:generate) takes the next idx from the LOCAL journal. If this number already
+  # exists on origin/main or in a branch, after the merge the migration that is younger by when will silently not
+  # be applied — one warning line for both sources, the hint depends on the source:
+  # one taken on origin/main is freed by a rebase, one taken in a branch is not (the local idx
+  # does not change with a rebase), there one waits for the branch to merge or agrees on the number.
   [ -n "$local_last" ] || return 0
   next=$((local_last + 1))
   if [ -n "$main_last" ] && [ "$main_last" -ge "$next" ]; then
-    taken="$(fmt4 "$main_last") занят на $BASE"
-    hint="сперва rebase на свежий $MAIN, потом ${MIG_GEN:-генерация миграции}"
+    taken="$(fmt4 "$main_last") taken on $BASE"
+    hint="first rebase onto a fresh $MAIN, then ${MIG_GEN:-generate the migration}"
   fi
   if [ "$br_max" -ge "$next" ]; then
-    if [ -n "$taken" ]; then taken="$taken, $(fmt4 "$br_max") в $br_name"
-    else taken="$(fmt4 "$br_max") занят в $br_name"; fi
-    hint="${hint:+$hint · }rebase не освободит: дождаться мержа $br_name или согласовать номер"
+    if [ -n "$taken" ]; then taken="$taken, $(fmt4 "$br_max") in $br_name"
+    else taken="$(fmt4 "$br_max") taken in $br_name"; fi
+    hint="${hint:+$hint · }a rebase will not free it: wait for $br_name to merge or agree on the number"
   fi
-  [ -z "$taken" ] || warn "номер миграции $taken — $hint"
+  [ -z "$taken" ] || warn "migration number $taken — $hint"
 }
 
 check_prs() {  # 8
   local json rc n
   json=$(with_timeout "$GH_TIMEOUT" gh pr list --state open --limit 100 --json number,headRefName,mergeStateStatus 2>"$TMP/gh.err"); rc=$?
-  if [ "$rc" = 124 ]; then warn "gh недоступен: превышено время ожидания $GH_TIMEOUT с"; return; fi
+  if [ "$rc" = 124 ]; then warn "gh unavailable: timed out after $GH_TIMEOUT s"; return; fi
   if [ "$rc" != 0 ] || [ -z "$json" ]; then
-    warn "gh недоступен: $(first_line "$(cat "$TMP/gh.err" 2>/dev/null)")"; return
+    warn "gh unavailable: $(first_line "$(cat "$TMP/gh.err" 2>/dev/null)")"; return
   fi
-  n=$(printf '%s' "$json" | jq 'length' 2>/dev/null) || { warn "gh недоступен: ответ не разобран"; return; }
-  say "PR открыто: $n"
+  n=$(printf '%s' "$json" | jq 'length' 2>/dev/null) || { warn "gh unavailable: answer not parsed"; return; }
+  say "open PRs: $n"
   printf '%s' "$json" | jq -r '.[:4][] | "  #\(.number) \(.headRefName) \(.mergeStateStatus)"' 2>/dev/null
-  [ "$n" -gt 4 ] && say "  … и ещё $((n - 4))"
+  [ "$n" -gt 4 ] && say "  … and $((n - 4)) more"
 }
 
 check_tickets() {  # 9
   local out rc line total=0 active=0 first='' second='' tool=$EPIC_TOOL why
   if [ -z "$tool" ]; then
-    why="эпики: сводки эпиков в профиле нет (tickets.epic_status)"
-    if [ -n "$EPIC" ]; then block "$why — эпик $EPIC не проверить"; else say "$why — шаг пропущен"; fi
+    why="epics: no epic summary in the profile (tickets.epic_status)"
+    if [ -n "$EPIC" ]; then block "$why — epic $EPIC cannot be checked"; else say "$why — step skipped"; fi
     return
   fi
-  # «недоступен» — только если команда не запустилась (нет файла / не исполняемый).
+  # "unavailable" — only if the command did not start (no file / not executable).
   if [ ! -x "$tool" ]; then
-    why="epic-status недоступен: нет исполняемого $tool"
+    why="epic-status unavailable: no executable $tool"
     if [ -n "$EPIC" ]; then block "$why"; else warn "$why"; fi
     return
   fi
   if [ -n "$EPIC" ]; then
     out=$(with_timeout "$TOOL_TIMEOUT" "$tool" "$EPIC" </dev/null 2>&1); rc=$?
-    # Эпик назван явно: любой ненулевой код — причина остановки, не предупреждение.
-    if [ "$rc" = 0 ] && [ -n "$out" ]; then say "эпик: $(first_line "$out")"
-    elif [ "$rc" = 124 ]; then block "epic-status $EPIC: не ответил за $TOOL_TIMEOUT с"
-    else block "epic-status $EPIC: $(first_line "${out:-код $rc без вывода}")"; fi
+    # The epic is named explicitly: any non-zero exit is a reason to stop, not a warning.
+    if [ "$rc" = 0 ] && [ -n "$out" ]; then say "epic: $(first_line "$out")"
+    elif [ "$rc" = 124 ]; then block "epic-status $EPIC: no answer within $TOOL_TIMEOUT s"
+    else block "epic-status $EPIC: $(first_line "${out:-exit $rc with no output}")"; fi
     return
   fi
   out=$(with_timeout "$TOOL_TIMEOUT" "$tool" </dev/null 2>&1); rc=$?
-  if [ "$rc" = 124 ]; then warn "epic-status не ответил за $TOOL_TIMEOUT с"; return; fi
-  if [ "$rc" != 0 ]; then warn "epic-status вернул код $rc${out:+: $(first_line "$out")}"; return; fi
-  if [ -z "$out" ]; then warn "epic-status: пустой вывод"; return; fi
-  # Заголовок «<ветка>:» повторяет строку «дерево», закрытые эпики не интересны:
-  # печатаются только эпики в работе, не больше трёх строк на всё.
+  if [ "$rc" = 124 ]; then warn "epic-status gave no answer within $TOOL_TIMEOUT s"; return; fi
+  if [ "$rc" != 0 ]; then warn "epic-status returned exit $rc${out:+: $(first_line "$out")}"; return; fi
+  if [ -z "$out" ]; then warn "epic-status: empty output"; return; fi
+  # The "<branch>:" heading repeats the "tree" line, closed epics are of no interest:
+  # only epics in progress are printed, no more than three lines in all.
   while IFS= read -r line; do
     case $line in *' · '*) ;; *) continue ;; esac
     total=$((total + 1))
-    case $line in 'закрыт'*) continue ;; esac
+    case $line in 'closed'*) continue ;; esac
     active=$((active + 1))
     if [ -z "$first" ]; then first=$line; elif [ -z "$second" ]; then second=$line; fi
   done <<<"$out"
-  if [ "$total" -eq 0 ]; then say "эпики: $(first_line "$out")"; return; fi
-  say "эпики: $total, в работе $active"
+  if [ "$total" -eq 0 ]; then say "epics: $(first_line "$out")"; return; fi
+  say "epics: $total, in progress $active"
   [ -n "$first" ] && say "  $first"
   if [ "$active" -eq 2 ]; then say "  $second"
-  elif [ "$active" -gt 2 ]; then say "  … и ещё $((active - 1))"; fi
+  elif [ "$active" -gt 2 ]; then say "  … and $((active - 1)) more"; fi
 }
 
 verdict() {  # 10

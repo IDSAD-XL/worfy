@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Тесты кода 3 гейта («проверить не удалось») и его доставки через stop.sh:
-#   - битый или отсутствующий реестр: резолвер выходит не с нулём, гейт — с кодом 3
-#     «резолвер … завершился», а не «не зарегистрирован»; stop.sh всё равно держит ход
-#     на красном маркере зарегистрированного проекта;
-#   - node не найден / резолвер упал: код 3, а не 0;
-#   - сообщение stop.sh — не больше одного раза за сессию на репозиторий;
-#   - маркер доставляется только своей сессии и своему дереву; маркер без сессии
-#     («anon») — только если он свежее начала сессии.
-# Запуск: bash harness/hooks/tests/gate-notverified.test.sh; код выхода 0 — всё прошло.
-# HOOKS_DIR — прогнать тест на другой копии хуков (например, на версии до правки).
+# Tests of the gate's code 3 ("could not verify") and its delivery through stop.sh:
+#   - a broken or missing registry: the resolver exits non-zero, the gate with code 3
+#     «резолвер … завершился» (the resolver exited), not «не зарегистрирован» (not registered); stop.sh still holds the turn
+#     on the red marker of a registered project;
+#   - node not found / the resolver crashed: code 3, not 0;
+#   - the stop.sh message is said at most once per session per repository;
+#   - a marker is delivered only to its own session and its own tree; a marker without a session
+#     ("anon") only if it is newer than the start of the session.
+# Run: bash harness/hooks/tests/gate-notverified.test.sh; exit code 0 means everything passed.
+# HOOKS_DIR runs the test on another copy of the hooks (for example, on the version before an edit).
 set -u
 HOOKS="${HOOKS_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"   # the hooks next to this test (harness/hooks)
 GATE="$HOOKS/gate.sh"
@@ -20,7 +20,7 @@ trap 'rm -rf "$T"' EXIT
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
-check() { # $1 = описание, остальное — условие
+check() { # $1 = description, the rest is the condition
     local d="$1"; shift
     if "$@"; then ok "$d"; else bad "$d (rc=$rc, out: ${out:0:300})"; fi
 }
@@ -37,7 +37,7 @@ GOOD_CFG="$(printf '{"repos":[{"key":"t","match":"%s","pm":"npm","root":{},"work
 echo "$GOOD_CFG" >"$CLAUDE_GATE_CONFIG"
 RED="$T/state/red-t-$(tag "$T/reg")"
 
-# --- 1. Битый реестр -------------------------------------------------------------
+# --- 1. Broken registry -----------------------------------------------------------
 echo '{"repos": [ broken' >"$CLAUDE_GATE_CONFIG"
 out="$(node "$CLAUDE_GATE_RESOLVE" --which "$T/reg" 2>&1)"; rc=$?
 check "resolver: unparseable config -> non-zero exit" [ "$rc" -ne 0 ]
@@ -57,50 +57,50 @@ check "gate: broken config -> 'ПРОВЕРИТЬ НЕ УДАЛОСЬ: резо�
 date -u +%Y-%m-%dT%H:%M:%SZ >"$RED"
 out="$(cd "$T/reg" && sp s1 | bash "$STOP" 2>&1)"; rc=$?
 check "stop: broken config + red marker -> still blocks (exit 2)" [ "$rc" -eq 2 ]
-check "stop: broken config + red marker -> red message" bash -c '[[ "$1" == *"Гейт качества красный"* ]]' _ "$out"
+check "stop: broken config + red marker -> red message" bash -c '[[ "$1" == *"The quality gate is red"* ]]' _ "$out"
 check "stop: broken config + red marker -> block message names the gate-3 reason" \
-    bash -c '[[ "$1" == *"Кроме того"*"резолвер"* ]]' _ "$out"
+    bash -c '[[ "$1" == *"Also:"*"резолвер"* ]]' _ "$out"
 out="$(cd "$T/reg" && sp s1 | bash "$STOP" 2>&1)"; rc=$?
 check "stop: gate-3 reason already said in this session -> not repeated" \
-    bash -c '[ "$2" -eq 2 ] && [[ "$1" != *"Кроме того"* ]]' _ "$out" "$rc"
+    bash -c '[ "$2" -eq 2 ] && [[ "$1" != *"Also:"* ]]' _ "$out" "$rc"
 rm -f "$RED" "$T/state/stop-blocks/"*
 
 (cd "$T/reg" && sp s1b | bash "$GATE" fast >/dev/null 2>&1)
 out="$(cd "$T/reg" && sp s1b | bash "$STOP" 2>&1)"; rc=$?
-check "stop: broken config, no red -> exit 0, says 'не проверено' once" \
-    bash -c '[ "$2" -eq 0 ] && [[ "$1" == *additionalContext* && "$1" == *"не проверено"* ]]' _ "$out" "$rc"
+check "stop: broken config, no red -> exit 0, says 'not verified' once" \
+    bash -c '[ "$2" -eq 0 ] && [[ "$1" == *additionalContext* && "$1" == *"not verified"* ]]' _ "$out" "$rc"
 check "stop: additionalContext output is valid JSON" node -e 'JSON.parse(process.argv[1])' "$out"
-echo "Профиль fast, репозиторий t. Проверить не удалось: docker" >"$T/state/unverified-t-$(tag "$T/reg")"
+echo "Profile fast, repository t. Could not verify: docker" >"$T/state/unverified-t-$(tag "$T/reg")"
 out="$(cd "$T/reg" && sp s1u | bash "$STOP" 2>&1)"; rc=$?
 check "stop: broken config + unverified marker of this tree -> said once, exit 0" \
-    bash -c '[ "$2" -eq 0 ] && [[ "$1" == *"не смог проверить"* ]]' _ "$out" "$rc"
+    bash -c '[ "$2" -eq 0 ] && [[ "$1" == *"could not verify the work"* ]]' _ "$out" "$rc"
 rm -f "$T/state/unverified-t-"*
 
-# Красный и маркер кода 3 вместе: ход держится, причина кода 3 — в том же сообщении.
+# Red and a code-3 marker together: the turn is held, the code-3 reason is in the same message.
 (cd "$T/reg" && sp s1r | bash "$GATE" fast >/dev/null 2>&1)
 date -u +%Y-%m-%dT%H:%M:%SZ >"$RED"
 out="$(cd "$T/reg" && sp s1r | bash "$STOP" 2>&1)"; rc=$?
 check "stop: red + gate-3 marker -> blocks and names the gate-3 reason" \
-    bash -c '[ "$2" -eq 2 ] && [[ "$1" == *"Гейт качества красный"* && "$1" == *"резолвер"* ]]' _ "$out" "$rc"
+    bash -c '[ "$2" -eq 2 ] && [[ "$1" == *"The quality gate is red"* && "$1" == *"резолвер"* ]]' _ "$out" "$rc"
 (cd "$T/reg" && sp s1r | bash "$STOP" >/dev/null 2>&1)
 out="$(cd "$T/reg" && sp s1r | bash "$STOP" 2>&1)"; rc=$?
-check "stop: red past MAX_BLOCKS -> exit 0 with 'всё ещё красный'" \
-    bash -c '[ "$2" -eq 0 ] && [[ "$1" == *"всё ещё красный"* ]]' _ "$out" "$rc"
+check "stop: red past MAX_BLOCKS -> exit 0 with 'still red'" \
+    bash -c '[ "$2" -eq 0 ] && [[ "$1" == *"still red"* ]]' _ "$out" "$rc"
 out="$(cd "$T/reg" && sp s1r | bash "$STOP" 2>&1)"; rc=$?
 check "stop: red past MAX_BLOCKS again -> silent (once per session)" bash -c '[ "$2" -eq 0 ] && [ -z "$1" ]' _ "$out" "$rc"
 rm -f "$RED" "$T/state/stop-blocks/"*
 echo "$GOOD_CFG" >"$CLAUDE_GATE_CONFIG"
 
-# --- 10. Нет node / резолвер упал -------------------------------------------------
-# gate.sh и stop.sh сами добавляют /opt/homebrew/bin: если node там есть, «нет node» не изобразить.
+# --- 10. No node / the resolver crashed -------------------------------------------
+# gate.sh and stop.sh add /opt/homebrew/bin themselves: if node is there, "no node" cannot be simulated.
 if [ -x /opt/homebrew/bin/node ]; then echo "skip node-missing checks: /opt/homebrew/bin/node exists"; else
 out="$(cd "$T/reg" && sp s10 | HOME="$T/home" PATH=/usr/bin:/bin bash "$GATE" fast 2>&1)"; rc=$?
 check "gate: node missing -> exit 3 (not 0)" [ "$rc" -eq 3 ]
 check "gate: node missing -> 'ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден'" \
     bash -c '[[ "$1" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден"* ]]' _ "$out"
 out="$(cd "$T/reg" && sp s10 | HOME="$T/home" PATH=/usr/bin:/bin bash "$STOP" 2>&1)"; rc=$?
-check "stop without node: gate's node-missing marker -> exit 0, says 'не проверено'" \
-    bash -c '[ "$2" -eq 0 ] && [[ "$1" == *"node не найден"* && "$1" == *"не проверено"* ]]' _ "$out" "$rc"
+check "stop without node: gate's node-missing marker -> exit 0, says 'not verified'" \
+    bash -c '[ "$2" -eq 0 ] && [[ "$1" == *"node не найден"* && "$1" == *"not verified"* ]]' _ "$out" "$rc"
 date -u +%Y-%m-%dT%H:%M:%SZ >"$RED"
 out="$(cd "$T/reg" && sp s10 | HOME="$T/home" PATH=/usr/bin:/bin bash "$STOP" 2>&1)"; rc=$?
 check "stop without node + red marker -> blocks (exit 2)" [ "$rc" -eq 2 ]
@@ -112,7 +112,7 @@ out="$(cd "$T/reg" && sp s10b | CLAUDE_GATE_RESOLVE="$T/crash.mjs" bash "$GATE" 
 check "gate: resolver crash -> exit 3 + 'ПРОВЕРИТЬ НЕ УДАЛОСЬ'" \
     bash -c '[ "$2" -eq 3 ] && [[ "$1" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: резолвер"* ]]' _ "$out" "$rc"
 
-# --- 3. Не больше одного сообщения за сессию на репозиторий ------------------------
+# --- 3. At most one message per session per repository ---------------------------
 U="$T/unreg"; UM="$T/state/nokey-unregistered-$(tag "$U")"
 (cd "$U" && sp s3 | bash "$GATE" fast >/dev/null 2>&1)
 out="$(cd "$U" && sp s3 | bash "$STOP" 2>&1)"; rc=$?
@@ -123,7 +123,7 @@ out="$(cd "$U" && sp s3 | bash "$STOP" 2>&1)"; rc=$?
 check "stop: second gate run, same session -> silent exit 0 (once per session)" bash -c '[ "$2" -eq 0 ] && [ -z "$1" ]' _ "$out" "$rc"
 check "stop: silent run still consumes the marker" [ ! -e "$UM-s3" ]
 
-# --- 4. Маркер — только своей сессии и своему дереву ------------------------------
+# --- 4. A marker goes only to its own session and its own tree --------------------
 (cd "$U" && sp sA | bash "$GATE" fast >/dev/null 2>&1)
 out="$(cd "$U" && sp sB | bash "$STOP" 2>&1)"; rc=$?
 check "stop in session B: marker of session A not delivered" bash -c '[ "$2" -eq 0 ] && [ -z "$1" ]' _ "$out" "$rc"
@@ -137,7 +137,7 @@ check "stop in main tree: marker of another worktree not delivered" bash -c '[ -
 out="$(cd "$T/unreg-wt" && sp sW | bash "$STOP" 2>&1)"
 check "stop in that worktree: gets its marker" bash -c '[[ "$1" == *"не зарегистрирован"* ]]' _ "$out"
 
-# Без сессии (запуск из терминала): маркер anon, берётся только сессией, начавшейся раньше.
+# Without a session (run from a terminal): an anon marker, taken only by a session that started earlier.
 (cd "$U" && bash "$GATE" fast </dev/null >/dev/null 2>&1)
 AM="$UM-anon"
 check "gate without session -> anon marker" [ -s "$AM" ]

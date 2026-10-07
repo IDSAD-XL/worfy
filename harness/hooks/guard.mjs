@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-// PreToolUse: запрещает команды, которые уничтожают незакоммиченную работу, и
-// трубы, глотающие код возврата проверок.
+// PreToolUse: refuses commands that destroy uncommitted work, and
+// pipes that swallow the exit code of checks.
 //
-// Решение отдаётся полем permissionDecision. Выходим всегда с нулём: ошибка в
-// самом хуке не должна ни ломать сессию, ни молча пропускать вызов незамеченным.
+// The decision is returned in the permissionDecision field. We always exit with zero: an error in
+// the hook itself must neither break the session nor silently let a call through unnoticed.
 //
-// Разбор идёт по звеньям команды и по её аргументам, а не по совпадению строки:
-// `git -C /p checkout HEAD -- .` и `git checkout -f .` — одно и то же действие,
-// и ловиться они должны одинаково.
+// The parsing goes by the segments of the command and by its arguments, not by a string match:
+// `git -C /p checkout HEAD -- .` and `git checkout -f .` are the same action,
+// and they must be caught the same way.
 
 let raw = ""
 process.stdin.setEncoding("utf8")
@@ -37,15 +37,15 @@ if (payload?.tool_name !== "Bash") ok()
 const cmd = String(payload?.tool_input?.command ?? "")
 if (!cmd.trim()) ok()
 
-// --- нормализация -------------------------------------------------------------
+// --- normalization ------------------------------------------------------------
 
-// Тело heredoc — это данные (им в этих репозиториях пишут документацию про сами
-// эти команды), а не вызовы.
+// A heredoc body is data (in these repositories it is used to write documentation about these very
+// commands), not calls.
 const noHeredoc = cmd.replace(/<<-?\s*['"]?(\w+)['"]?[\s\S]*?^\s*\1\s*$/gm, " <<данные>> ")
 
 const unquoted = noHeredoc.replace(/'[^']*'/g, " ").replace(/"[^"]*"/g, " ")
 
-// Ведущее слово команды — мимо присваиваний окружения и обёрток.
+// The leading word of the command — skipping environment assignments and wrappers.
 const leadingWord = (s) => {
     for (const t of s.trim().split(/\s+/)) {
         if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(t)) continue
@@ -55,13 +55,13 @@ const leadingWord = (s) => {
     return ""
 }
 
-// У поисковых и текстовых утилит содержимое кавычек — данные: искать строку про
-// опасную команду и писать о ней документацию можно.
+// For search and text utilities the contents of quotes are data: searching for a string about
+// a dangerous command and writing documentation about it is allowed.
 const TEXT_ONLY =
     /^(grep|rg|ack|ag|cat|echo|printf|sed|awk|less|head|tail|find|jq|wc|diff|comm|bat|column|sort|uniq)$/
 const textual = TEXT_ONLY.test(leadingWord(noHeredoc))
 
-// `git -C <путь>` и `git -c k=v` сути действия не меняют — снимаем их.
+// `git -C <path>` and `git -c k=v` do not change the nature of the action — strip them.
 const normalizeGit = (s) =>
     s
         .replace(/\bgit\s+((?:-C\s+\S+|-c\s+\S+|--git-dir=\S+|--work-tree=\S+)\s+)+/g, "git ")
@@ -69,12 +69,12 @@ const normalizeGit = (s) =>
 
 const segments = (s) => s.split(/;|&&|\|\||\||\n/)
 
-// --- 1. Уничтожение незакоммиченной работы -----------------------------------
+// --- 1. Destroying uncommitted work -------------------------------------------
 const HOWTO =
-    "\nКак надо: отложить работу временным коммитом (`git commit -m wip`), а если без стэша " +
-    'никак — `git stash push -u -m "<метка>"`, запомнить SHA через ' +
-    "`git stash list --format='%H %gs'` и возвращать через `git stash apply <sha>`.\n" +
-    "Если правки действительно надо выбросить — скажи об этом пользователю и дай команду ему."
+    "\nThe right way: set the work aside with a temporary commit (`git commit -m wip`), and if a stash " +
+    'cannot be avoided — `git stash push -u -m "<label>"`, note the SHA via ' +
+    "`git stash list --format='%H %gs'` and bring it back with `git stash apply <sha>`.\n" +
+    "If the edits really must be thrown away — tell the user so and give the command to them."
 
 const WIPES_ALL = (a) => a === "." || a === "./" || a === "*"
 
@@ -89,26 +89,26 @@ const inspect = (form) => {
             return (
                 "`git " +
                 sub +
-                "` по всему дереву затирает незакоммиченные правки без следа. Так уже терялась работа."
+                "` over the whole tree wipes uncommitted edits without a trace. Work has already been lost this way."
             )
 
         if (sub === "reset" && args.some((a) => a === "--hard"))
-            return "`git reset --hard` сносит и индекс, и рабочее дерево."
+            return "`git reset --hard` wipes both the index and the working tree."
 
         if (sub === "clean" && args.some((a) => a === "--force" || /^-[a-zA-Z]*f/.test(a)))
-            return "`git clean` с принудительным ключом удаляет неотслеживаемые файлы безвозвратно."
+            return "`git clean` with the force flag deletes untracked files irreversibly."
 
         if (sub === "stash") {
             const first = args[0]
             if (first === "pop" || first === "drop")
                 return (
-                    "Стек стэша общий со всеми рабочими деревьями: `" +
+                    "The stash stack is shared with all worktrees: `" +
                     first +
-                    "` может снять чужую запись."
+                    "` may take someone else's entry."
                 )
             const BARE = ["-u", "--include-untracked", "-k", "--keep-index", "-a", "--all", "save"]
             if (!first || BARE.includes(first))
-                return "Голый `git stash` кладёт в общий для всех деревьев стек безымянную запись."
+                return "A bare `git stash` puts an unnamed entry onto the stack shared by all worktrees."
         }
     }
     return null
@@ -120,25 +120,25 @@ for (const form of forms) {
     if (why) deny(why + HOWTO)
 }
 
-// --- 2. Труба, съедающая код возврата ----------------------------------------
-// Фильтровать длинный вывод правильно и нужно — контекст не резиновый. Нельзя
-// только терять при этом код возврата: pipefail возвращает код первой упавшей
-// команды конвейера, без него виден лишь код последней (grep, tail, head).
+// --- 2. A pipe that eats the exit code ----------------------------------------
+// Filtering long output is right and necessary — the context is not unlimited. The only thing
+// not allowed is losing the exit code while doing it: pipefail returns the code of the first failed
+// command in the pipeline, without it only the code of the last one is visible (grep, tail, head).
 const VERIFY =
     /\b(pnpm|yarn|npm)\b[^|]*\b(lint|test|typecheck|check|build)\b|\b(vitest|eslint|tsc|jest|pytest)\b|\bgh\s+pr\s+checks\b/
 
 const pipeline = noHeredoc.replace(/\|\|/g, " ")
 const firstPipe = pipeline.indexOf("|")
 if (firstPipe !== -1 && !textual) {
-    // Первое звено берём в сыром виде: `pnpm "test" | tail` — это проверка.
+    // The first segment is taken raw: `pnpm "test" | tail` is a check.
     const before = pipeline.slice(0, firstPipe)
-    // pipefail засчитывается, только если объявлен до самой трубы.
+    // pipefail counts only if it is declared before the pipe itself.
     if (!/pipefail/.test(before) && VERIFY.test(before)) {
         deny(
-            "Труба съедает код возврата: виден код последней команды конвейера, а не проверки.\n" +
-                "Именно так линт объявлялся чистым, будучи красным: `pnpm lint | grep` вернул код grep.\n" +
-                "Как надо: `set -o pipefail; <команда> | tail -n 20` — фильтр остаётся, код возврата выживает.\n" +
-                "Либо сохранить вывод в файл, напечатать `echo $?` и посмотреть хвост отдельно."
+            "The pipe eats the exit code: what is visible is the code of the last command in the pipeline, not of the check.\n" +
+                "This is exactly how lint was declared clean while it was red: `pnpm lint | grep` returned grep's code.\n" +
+                "The right way: `set -o pipefail; <command> | tail -n 20` — the filter stays, the exit code survives.\n" +
+                "Or save the output to a file, print `echo $?` and look at the tail separately."
         )
     }
 }

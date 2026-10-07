@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
-# epic-status [эпик] — одна готовая строка «Этап» для блока состояния:
-#   <стадия workflow> · <эпик> <сделано>/<всего> · <ветка> · тикет <NN> [· ждёт NN]
-# Без аргумента — по строке на каждый эпик репозитория.
+# epic-status [epic] — one ready-made «Этап» (stage) line for the status block:
+#   <workflow stage> · <epic> <done>/<total> · <branch> · ticket <NN> [· waits for NN]
+# Without an argument — one line per epic of the repository.
 #
-# epic-status --json [--ref <ref>] — тот же разбор машиночитаемо, по объекту на тикет.
-#   Без --ref читается рабочее дерево; с --ref — дерево ветки. Обход веток и слияние
-#   их правды — забота epic-board: здесь живёт читатель ОДНОГО дерева и ничего больше.
+# epic-status --json [--ref <ref>] — the same parse, machine-readable, one object per ticket.
+#   Without --ref the working tree is read; with --ref — the branch's tree. Walking branches and merging
+#   their truth is epic-board's job: here lives the reader of ONE tree and nothing more.
 #
-# epic-status --root <каталог> ... — корень тикетов явно (каталог эпиков). Без него корень
-#   даёт `ticket root`: поле tickets.root профиля, иначе <git top-level>/.scratch, как раньше.
-#   --ref читает корень из git; корень вне git-репозитория (Atakama: общий каталог над
-#   тремя репозиториями) — отказ с кодом 3, а не пустой ответ.
+# epic-status --root <dir> ... — the tickets root given explicitly (the directory of epics). Without it the root
+#   comes from `ticket root`: the profile's tickets.root field, otherwise <git top-level>/.scratch, as before.
+#   --ref reads the root from git; a root outside a git repository (Atakama: a common directory above
+#   three repositories) — refusal with exit 3, not an empty answer.
 #
-# Источник правды: <корень тикетов>/<эпик>/issues/NN-slug.md.
-# Поля пишут и в шапке, и в подвале тикета, в двух написаниях — «**Status:** done»
-# и «Status: done», — поэтому берётся ПОСЛЕДНЕЕ вхождение по всему файлу.
+# Source of truth: <tickets root>/<epic>/issues/NN-slug.md.
+# Fields are written both in the ticket's header and in its footer, in two spellings — "**Status:** done"
+# and "Status: done" — so the LAST occurrence across the whole file is taken.
 #
-# Разбор целиком лежит в одной программе awk ниже — не из любви к awk, а потому что
-# читателей формата должно быть ровно столько же, сколько форматов. Человеческая
-# строка и --json питаются одними и теми же строками TSV.
+# The whole parse lives in one awk program below — not out of love for awk, but because
+# there must be exactly as many readers of the format as there are formats. The human
+# line and --json are fed from the very same TSV lines.
 set -u
 
 export LC_CTYPE=${LC_CTYPE:-${LANG:-en_US.UTF-8}}
@@ -27,30 +27,31 @@ JSON=0; JSON_REF=''; ROOT_ARG=''
 while [ $# -gt 0 ]; do
   case $1 in
     --json) JSON=1; shift ;;
-    --ref)  [ $# -ge 2 ] || { echo 'epic-status: --ref без значения' >&2; exit 2; }
+    --ref)  [ $# -ge 2 ] || { echo 'epic-status: --ref without a value' >&2; exit 2; }
             JSON_REF=$2; shift 2 ;;
-    --root) [ $# -ge 2 ] && [ -n "$2" ] || { echo 'epic-status: --root без значения' >&2; exit 2; }
+    --root) [ $# -ge 2 ] && [ -n "$2" ] || { echo 'epic-status: --root without a value' >&2; exit 2; }
             ROOT_ARG=$2; shift 2 ;;
     --)     shift; break ;;
     *)      break ;;
   esac
 done
-# --root принимается и после имени эпика (`epic-status <эпик> --root X`), как у ticket;
-# --json и --ref — только до него: `epic-status <эпик> --json` печатает строку, как раньше.
+# --root is accepted after the epic name too (`epic-status <epic> --root X`), as with ticket;
+# --json and --ref — only before it: `epic-status <epic> --json` prints the line, as before.
 rest=()
 while [ $# -gt 0 ]; do
   case $1 in
-    --root) [ $# -ge 2 ] && [ -n "$2" ] || { echo 'epic-status: --root без значения' >&2; exit 2; }
+    --root) [ $# -ge 2 ] && [ -n "$2" ] || { echo 'epic-status: --root without a value' >&2; exit 2; }
             ROOT_ARG=$2; shift 2 ;;
     *)      rest+=("$1"); shift ;;
   esac
 done
 set -- ${rest[@]+"${rest[@]}"}
-[ "$JSON" = 1 ] || [ -z "$JSON_REF" ] || { echo 'epic-status: --ref только вместе с --json' >&2; exit 2; }
+[ "$JSON" = 1 ] || [ -z "$JSON_REF" ] || { echo 'epic-status: --ref only together with --json' >&2; exit 2; }
 
-# Корень тикетов — один читатель на всех: `ticket root` (профиль, --root, git top-level).
-# Без node — прежнее поведение: <git top-level или cwd>/.scratch.
-TICKET="${CLAUDE_TICKET_BIN:-$HOME/.claude/bin/ticket}"
+# The tickets root — one reader for everyone: `ticket root` (profile, --root, git top-level).
+# Without node — the old behaviour: <git top-level or cwd>/.scratch.
+# ticket is the script next to this one (the folder of its real file, not of a symlink).
+TICKET="${CLAUDE_TICKET_BIN:-$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" && pwd -P)/ticket}"
 if command -v node >/dev/null 2>&1; then
   scratch=$("$TICKET" root ${ROOT_ARG:+--root "$ROOT_ARG"}) || exit $?
 elif [ -n "$ROOT_ARG" ]; then
@@ -61,38 +62,38 @@ else
 fi
 scratch=${scratch%/}; [ -n "$scratch" ] || scratch=/
 
-# Git-репозиторий, в котором лежит корень тикетов (самый близкий существующий
-# предок: каталога может не быть в рабочем дереве, но быть в ветке). Пусто — вне git.
+# The git repository holding the tickets root (the closest existing
+# ancestor: the directory may be missing in the working tree but present in the branch). Empty — outside git.
 anc=$scratch
 while [ ! -d "$anc" ] && [ "$anc" != / ] && [ -n "$anc" ]; do anc=${anc%/*}; [ -n "$anc" ] || anc=/; done
 scratch_git=$(git -C "$anc" rev-parse --show-toplevel 2>/dev/null) || scratch_git=''
 
-# Состояние тикетов лежит в ветке (.scratch отслеживается гитом), а деревьев у
-# репозитория несколько — без имени ветки строка «Этап» неоднозначна. Ветка — того
-# дерева, где лежат тикеты, а не того, где запущена команда; вне git ветки нет.
+# The tickets' state lives in the branch (.scratch is tracked by git), and a repository
+# has several trees — without the branch name the «Этап» line is ambiguous. The branch is that of the
+# tree holding the tickets, not of the one where the command runs; outside git there is no branch.
 branch=''
 if [ -n "$scratch_git" ]; then
   branch=$(git -C "$scratch_git" rev-parse --abbrev-ref HEAD 2>/dev/null)
   [ "$branch" = HEAD ] && branch=$(git -C "$scratch_git" rev-parse --short HEAD 2>/dev/null)
 fi
-where=''  # ветка идёт в строку только для одного эпика; в общем списке — заголовком
+where=''  # the branch goes into the line only for a single epic; in the full list — as a heading
 
-# ── разбор ────────────────────────────────────────────────────────────────────
-# Один проход awk по всем тикетам дерева. На выходе TSV, по строке на тикет:
+# ── parse ─────────────────────────────────────────────────────────────────────
+# One awk pass over all tickets of the tree. The output is TSV, one line per ticket:
 #   epic  num  slug  title  statusRaw  state  blockedRaw  blockedNums  blockedParsed
-# Разделитель — \037, а не таб: таб для bash пробельный, и пустое поле в read схлопнулось бы.
-# Строковые поля приходят уже экранированными для JSON.
+# The separator is \037, not a tab: for bash a tab is whitespace, and an empty field would collapse in read.
+# String fields arrive already escaped for JSON.
 read -r -d '' AWK_ROWS <<'AWK' || true
 function isdone(w) { return w ~ /^(done|Done|DONE|resolved|Resolved|closed|Closed|выкачено|Выкачено|выкачена|Выкачена|выкачен|Выкачен)$/ }
 function iswork(w) { return w ~ /^(claimed|Claimed|in-progress|In-progress|ready-for-agent)$/ }
 function isblok(w) { return w ~ /^(blocked|Blocked|заблокирован|Заблокирован)$/ }
-# Слова, которыми пишут «блокировок нет». Пустой список номеров и «не понял» —
-# разные вещи, и различает их blockedParsed, а не длина списка.
+# Words people use to write "no blockers". An empty list of numbers and "did not understand" are
+# different things, and blockedParsed tells them apart, not the length of the list.
 function isnone(x) { return x ~ /^([Nn]one|NONE|нет|Нет|нету|Нету|ничего|Ничего|нечего|Нечего|n\/a|N\/A|-|—|–)$/ }
-# Управляющие символы вычищаются ВСЕГДА: сырыми они рвут и TSV, и JSON.
+# Control characters are ALWAYS stripped: raw, they break both TSV and JSON.
 function clean(x)  { gsub(/[\001-\037\177]/," ",x); return x }
-# JSON-экранирование только в json-режиме. Раньше оно шло и в TSV, а TSV читает
-# человеческая строка — и заголовок с кавычкой печатался как Тест \"кавычка\".
+# JSON escaping only in json mode. It used to go into TSV too, and TSV is read by
+# the human line — so a title with a quote printed as Test \"quote\".
 function esc(x)    { x=clean(x); gsub(/\\/,"\\\\",x); gsub(/"/,"\\\"",x); return x }
 function jstr(x)   { return "\"" esc(x) "\"" }
 
@@ -108,22 +109,22 @@ function emit(  w,st,v,hd,cnt,arr,i,tok,n,okall,bn,bp) {
   bn=""; bp=0
   if (blocked != "") {
     v = blocked; gsub(/\*/,"",v); sub(/^[ \t]+/,"",v); sub(/[ \t.]+$/,"",v)
-    # «None — can start immediately» — всё ещё «нет блокировок»: отрицание в голове
-    # значения, дальше пояснение. Голова — до первого тире, скобки, точки или запятой.
+    # "None — can start immediately" is still "no blockers": the negation is at the head
+    # of the value, an explanation follows. The head runs up to the first dash, bracket, dot or comma.
     hd = v; sub(/[ \t]*(—|–|\(|\.|,|-).*$/,"",hd); sub(/[ \t]+$/,"",hd)
     if (isnone(v) || isnone(hd)) { bp=1 }
     else {
-      # Разделители: запятая, точка с запятой и союз «и». Только по запятой
-      # «Blocked by: 01 и 02» был ОДНИМ элементом с ведущей цифрой — разбор
-      # объявлялся удачным, второй блокер терялся молча, и тикет выходил
-      # разблокированным. Тихо неверный ответ хуже отказа разобрать.
+      # Separators: comma, semicolon and the Russian conjunction «и» ("and"). Splitting by comma only,
+      # «Blocked by: 01 и 02» was ONE item with a leading digit — the parse
+      # was declared successful, the second blocker was silently lost, and the ticket came out
+      # unblocked. A quietly wrong answer is worse than a refusal to parse.
       gsub(/[;]|[ \t]+и[ \t]+/,",",v)
       okall=1; cnt=split(v,arr,",")
       for (i=1;i<=cnt;i++) {
         tok=arr[i]; sub(/^[ \t]+/,"",tok)
         if (tok == "") continue
-        # Блокер — ведущие цифры элемента списка: «08 — все перекладки» считается,
-        # «Пакет юристу» — нет и рвёт разбор всего значения.
+        # A blocker is the leading digits of a list item: «08 — все перекладки» ("08 — all the moves") counts,
+        # «Пакет юристу» ("package for the lawyer") does not, and it breaks the parse of the whole value.
         if (tok ~ /^[0-9]+/) { n=tok; sub(/[^0-9].*$/,"",n); bn = bn (bn==""?"":",") (n+0) }
         else okall=0
       }
@@ -148,7 +149,7 @@ FNR==1 {
   epic=file; sub(/\/issues\/[^\/]*$/,"",epic); sub(/.*\//,"",epic)
   num=base;  sub(/-.*/,"",num)
   slug=base; sub(/\.md$/,"",slug); sub(/^[^-]*-/,"",slug)
-  ok = (num ~ /^[0-9]+$/)   # файл без ведущего номера тикетом не считается
+  ok = (num ~ /^[0-9]+$/)   # a file without a leading number is not a ticket
   if (slug == base) slug=num
   l=$0; sub(/\r$/,"",l)
   if (l ~ /^#[ \t]*/) { t=l; sub(/^#[ \t]*/,"",t); title=t }
@@ -156,7 +157,7 @@ FNR==1 {
 {
   l=$0; sub(/\r$/,"",l)
   if (l ~ /^[ \t]*(```|~~~)/) { fence = !fence; next }
-  if (fence) next   # «Status: done» в примере кода — не поле тикета
+  if (fence) next   # "Status: done" in a code example is not a ticket field
   low=tolower(l)
   if      (low ~ /^\*?\*?status[ \t]*\*?\*?[ \t]*:/)     { v=l; sub(/^\*?\*?[^:]*:\*?\*?[ \t]*/,"",v); status=v }
   else if (low ~ /^\*?\*?blocked by[ \t]*\*?\*?[ \t]*:/) { v=l; sub(/^\*?\*?[^:]*:\*?\*?[ \t]*/,"",v); blocked=v }
@@ -164,25 +165,25 @@ FNR==1 {
 END { emit() }
 AWK
 
-rows() {  # <каталог .scratch> [эпик] [mode] [ref] → TSV или JSON-объекты
+rows() {  # <.scratch dir> [epic] [mode] [ref] → TSV or JSON objects
   local sc=$1 only=${2:-} mode=${3:-tsv} ref=${4:-} f n=0 rc
   [ -d "$sc" ] || return 0
-  # Кавычки вокруг $sc обязательны: без них пробел в пути репозитория рвал glob
-  # на слова, и все тикеты исчезали молча — «тикетов нет» при живом каталоге.
+  # The quotes around $sc are required: without them a space in the repository path split the glob
+  # into words, and all tickets vanished silently — "no tickets" with a live directory.
   if [ -n "$only" ]; then set -- "$sc/$only/issues"/*.md; else set -- "$sc"/*/issues/*.md; fi
   for f; do [ -f "$f" ] && n=$((n + 1)); done
   [ "$n" -gt 0 ] || return 0
-  # NUL-разделённый список: имя файла с переводом строки не рвёт разбор, а xargs
-  # спасает от ARG_MAX на объединении веток.
+  # A NUL-separated list: a file name with a newline does not break the parse, and xargs
+  # saves us from ARG_MAX when branches are merged.
   { for f; do [ -f "$f" ] && printf '%s\0' "$f"; done; } \
     | xargs -0 awk -v mode="$mode" -v ref="$ref" "$AWK_ROWS"
   rc=$?
-  [ "$rc" = 0 ] || { echo "epic-status: разбор упал (код $rc)" >&2; return "$rc"; }
+  [ "$rc" = 0 ] || { echo "epic-status: parse failed (exit $rc)" >&2; return "$rc"; }
 }
 
-[ "$JSON" = 1 ] || [ -d "$scratch" ] || { echo "вне тикетов (нет $scratch)"; exit 0; }
+[ "$JSON" = 1 ] || [ -d "$scratch" ] || { echo "outside tickets (no $scratch)"; exit 0; }
 
-# ── человеческая строка ───────────────────────────────────────────────────────
+# ── human line ────────────────────────────────────────────────────────────────
 line_for() {
   local dir=$1 epic=${1##*/}
   local total=0 ndone=0 working=0 nostatus=0 curnum='' curtitle='' curstate='' curbn=''
@@ -206,11 +207,11 @@ line_for() {
     if   [ -f "$dir/spec.md" ]; then stage='/to-spec'
     elif [ -f "$dir/map.md" ];  then stage='/wayfinder'
     else stage='—'; fi
-    printf '%s · %s%s — тикетов нет\n' "$stage" "$epic" "$where"
+    printf '%s · %s%s — no tickets\n' "$stage" "$epic" "$where"
     return
   fi
 
-  if   [ "$ndone" -eq "$total" ];                  then stage='закрыт'
+  if   [ "$ndone" -eq "$total" ];                  then stage='closed'
   elif [ "$working" -eq 1 ] || [ "$ndone" -gt 0 ]; then stage='/implement'
   else                                                  stage='/to-tickets'; fi
 
@@ -221,7 +222,7 @@ line_for() {
     cur=$curtitle
     pad=$(printf '%02d' "$curnum")
     case $cur in "$pad"*|"$curnum"*) ;; *) cur="$pad — $cur" ;; esac
-    printf ' · тикет %s' "$cur"
+    printf ' · ticket %s' "$cur"
 
     local IFS=','
     for tok in $curbn; do
@@ -232,20 +233,20 @@ line_for() {
       local IFS=','
     done
     unset IFS
-    [ -n "$waiting" ] && printf ' · ждёт%s' "$waiting"
-    [ "$curstate" = blocked ] && printf ' · заблокирован'
+    [ -n "$waiting" ] && printf ' · waits for%s' "$waiting"
+    [ "$curstate" = blocked ] && printf ' · blocked'
   fi
 
-  [ "$nostatus" -gt 0 ] && printf ' · %d без Status' "$nostatus"
+  [ "$nostatus" -gt 0 ] && printf ' · %d without Status' "$nostatus"
   printf '\n'
 }
 
-# ── машиночитаемый срез ───────────────────────────────────────────────────────
-jstr() {  # только для метки ref; поля тикетов экранирует awk
+# ── machine-readable slice ────────────────────────────────────────────────────
+jstr() {  # only for the ref label; awk escapes the ticket fields
   printf '"%s"' "$(printf '%s' "${1:-}" | tr -d '\r\n' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
 }
 
-json_dump() {  # <каталог .scratch> <метка ref>
+json_dump() {  # <.scratch dir> <ref label>
   local sc=$1 ref=$2 first d epic
   printf '{"ref":%s,"epics":[' "$(jstr "$ref")"
   first=1
@@ -265,34 +266,34 @@ json_dump() {  # <каталог .scratch> <метка ref>
 if [ "$JSON" = 1 ]; then
   src=$scratch
   if [ -n "$JSON_REF" ]; then
-    # Корень вне git: ветке нечего показать, а пустой ответ читался бы как «в ветке
-    # тикетов нет». Это разные вещи — отказ.
+    # A root outside git: the branch has nothing to show, and an empty answer would read as "the branch
+    # has no tickets". These are different things — refusal.
     if [ -z "$scratch_git" ]; then
-      echo "epic-status: --ref читает тикеты из git, а корень тикетов $scratch не в git-репозитории; без --ref читается сам каталог" >&2
+      echo "epic-status: --ref reads tickets from git, but the tickets root $scratch is not in a git repository; without --ref the directory itself is read" >&2
       exit 3
     fi
-    # Путь корня внутри репозитория. git отдаёт путь без симлинков — сверяем так же.
+    # The root's path inside the repository. git gives the path without symlinks — we compare the same way.
     anc_real=$(cd "$anc" && pwd -P)
     rel=${anc_real#"$scratch_git"}; rel=${rel#/}
     [ "$anc" = "$scratch" ] || rel=${rel:+$rel/}${scratch#"$anc"/}
     case $anc_real in "$scratch_git"|"$scratch_git"/*) ;; *)
-      echo "epic-status: корень тикетов $scratch не разобран относительно $scratch_git" >&2; exit 3 ;; esac
-    [ -n "$rel" ] || { echo "epic-status: корень тикетов совпадает с корнем репозитория $scratch_git — --ref не поддержан" >&2; exit 3; }
-    # Одна распаковка на ветку вместо git show на каждый файл.
+      echo "epic-status: tickets root $scratch could not be resolved relative to $scratch_git" >&2; exit 3 ;; esac
+    [ -n "$rel" ] || { echo "epic-status: tickets root is the repository root $scratch_git — --ref is not supported" >&2; exit 3; }
+    # One extraction per branch instead of git show per file.
     tmp=$(mktemp -d) || exit 1
-    trap 'rm -rf "$tmp"' EXIT INT TERM   # без INT/TERM каталог переживал прерывание
-    # Молчащий провал здесь неотличим от «в ветке нет тикетов», а это разные ответы:
-    # первый — сломанный инструмент, второй — факт о ветке.
-    # Через конвейер код возврата git archive теряется: tar на пустом входе успешен,
-    # и сломанный ref выглядел бы как «ветка без тикетов».
+    trap 'rm -rf "$tmp"' EXIT INT TERM   # without INT/TERM the directory survived an interruption
+    # A silent failure here is indistinguishable from "the branch has no tickets", and these are different answers:
+    # the first is a broken tool, the second a fact about the branch.
+    # Through a pipeline the exit code of git archive is lost: tar on empty input succeeds,
+    # and a broken ref would look like "a branch without tickets".
     if ! git -C "$scratch_git" archive "$JSON_REF" "$rel" > "$tmp/tree.tar" 2>/dev/null; then
       if ! git -C "$scratch_git" rev-parse --verify --quiet "$JSON_REF^{commit}" >/dev/null 2>&1; then
-        echo "epic-status: нет такого ref: $JSON_REF" >&2; exit 3
+        echo "epic-status: no such ref: $JSON_REF" >&2; exit 3
       fi
-      : # ref есть, .scratch в нём нет — законный пустой ответ
+      : # the ref exists, it has no .scratch — a legitimate empty answer
     else
       tar -x -C "$tmp" -f "$tmp/tree.tar" 2>/dev/null || {
-        echo "epic-status: не удалось распаковать дерево $JSON_REF" >&2; exit 3; }
+        echo "epic-status: could not extract the tree of $JSON_REF" >&2; exit 3; }
     fi
     rm -f "$tmp/tree.tar"
     src=$tmp/$rel
@@ -304,7 +305,7 @@ fi
 if [ $# -gt 0 ]; then
   where=${branch:+ · $branch}
   epic=$1; epic=${epic%%/}; epic=${epic##*/}
-  [ -d "$scratch/$epic" ] || { echo "нет эпика «${epic}» в ${scratch}"; exit 1; }
+  [ -d "$scratch/$epic" ] || { echo "no epic \"${epic}\" in ${scratch}"; exit 1; }
   line_for "$scratch/$epic"
 else
   [ -n "$branch" ] && echo "${branch}:"

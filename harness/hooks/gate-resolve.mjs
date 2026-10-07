@@ -1,43 +1,53 @@
 #!/usr/bin/env node
-// Сопоставляет изменённые файлы с воркспейсами, которым они принадлежат.
+// Maps changed files to the workspaces they belong to.
 //
-//   gate-resolve.mjs --which <path>          -> TSV: key \t repoRoot \t pm   (или пусто)
-//   <изменённые пути> | gate-resolve.mjs <repoPath> <profile> <key>
+//   gate-resolve.mjs --which <path>          -> TSV: key \t repoRoot \t pm   (or empty)
+//   <changed paths> | gate-resolve.mjs <repoPath> <profile> <key>
 //                                            -> TSV: wsdir \t packageName \t "script1 script2"
-//                                                    \t "пути для отпечатка" \t "добавлен от"
-//                                               ("." + пустое имя = корень репозитория;
-//                                                у корня два последних поля отсутствуют)
-//                                               В набор входят и воркспейсы, зависящие
-//                                               от изменённых (транзитивно).
+//                                                    \t "fingerprint paths" \t "added from"
+//                                               ("." + an empty name = the repository root;
+//                                                the root has no last two fields)
+//                                               The scope also includes the workspaces that depend
+//                                               on the changed ones (transitively).
 //   GATE_ALL=1 ... gate-resolve.mjs <repoPath> <profile> <key>
-//                                            -> то же, но все воркспейсы и корень, без
-//                                               оглядки на список изменений
+//                                            -> the same, but all workspaces and the root, without
+//                                               regard to the list of changes
 //
-// Пустое второе поле у корня — причина, по которой в gate.sh нельзя разбирать
-// строку через IFS=$'\t' read: таб — пробельный разделитель, два подряд
-// схлопываются, и имя скрипта уезжает в поле пакета.
+// The empty second field of the root is the reason gate.sh must not parse
+// the line with IFS=$'\t' read: tab is a whitespace separator, two in a row
+// collapse, and the script name slides into the package field.
 
 import fs from "node:fs"
 import path from "node:path"
 
-const CFG =
-    process.env.CLAUDE_GATE_CONFIG || path.join(process.env.HOME, ".claude/gate/config.json")
+// The gate registry: CLAUDE_GATE_CONFIG, else $HARNESS_HOME/gate/config.json (HARNESS_HOME
+// defaults to ~/.claude/worfy-harness, ADR-0040 item 5). Transition: with no registry there but
+// one in the old place, ~/.claude/gate/config.json, read the old one (read only).
+function gateConfig() {
+    if (process.env.CLAUDE_GATE_CONFIG) return process.env.CLAUDE_GATE_CONFIG
+    const home = process.env.HOME || ""
+    const harnessHome = process.env.HARNESS_HOME || path.join(home, ".claude", "worfy-harness")
+    const current = path.join(harnessHome, "gate", "config.json")
+    const legacy = path.join(home, ".claude", "gate", "config.json")
+    return !fs.existsSync(current) && fs.existsSync(legacy) ? legacy : current
+}
+const CFG = gateConfig()
 
-// Нечитаемый или битый реестр — это не «проект не зарегистрирован». Раньше здесь был
-// `exit 0` с пустым выводом, и gate.sh/stop.sh принимали зарегистрированный проект за
-// чужой: гейт отвечал «не зарегистрирован», а stop.sh не замечал красного маркера.
-// Теперь — код 4 и причина в stderr; вызывающие считают это «проверить не удалось».
+// An unreadable or broken registry is not "the project is not registered". There used to be
+// `exit 0` with empty output here, and gate.sh/stop.sh took a registered project for
+// someone else's: the gate answered "not registered", and stop.sh did not notice the red marker.
+// Now it is code 4 and the reason on stderr; the callers treat this as "could not verify".
 let cfg
 try {
     cfg = JSON.parse(fs.readFileSync(CFG, "utf8"))
 } catch (e) {
-    process.stderr.write(`gate-resolve: реестр ${CFG} не читается: ${e.message}\n`)
+    process.stderr.write(`gate-resolve: registry ${CFG} cannot be read: ${e.message}\n`)
     process.exit(4)
 }
-// Нет поля `repos` (`{}`, опечатка `"Repos"`) — тоже битый реестр, а не пустой: иначе все
-// проекты молча стали бы «не зарегистрированы», а красный маркер перестал бы держать ход.
+// No `repos` field (`{}`, the typo `"Repos"`) is a broken registry too, not an empty one: otherwise all
+// projects would silently become "not registered", and the red marker would stop holding the turn.
 if (!cfg || typeof cfg !== "object" || !Array.isArray(cfg.repos)) {
-    process.stderr.write(`gate-resolve: реестр ${CFG} битый: поле "repos" должно быть массивом\n`)
+    process.stderr.write(`gate-resolve: registry ${CFG} is broken: the "repos" field must be an array\n`)
     process.exit(4)
 }
 const repos = cfg.repos
@@ -50,13 +60,13 @@ const readPkg = (p) => {
     }
 }
 
-// --- выбор репозитория: побеждает самое длинное совпадение префикса ------------
-// Регистр букв: на нечувствительной к регистру ФС (APFS по умолчанию) /users/alexey/work/auction —
-// тот же каталог, что /Users/alexey/Work/Auction. fs.realpathSync.native (realpath(3)) возвращает
-// написание с диска, обычный fs.realpathSync — нет. Поэтому цель приводится через native, а
-// `match` — тоже через native, но только если результат отличается от записи одним регистром:
-// так не меняется ничего, кроме регистра (хвостовой слеш, симлинки и несуществующие пути
-// остаются как записаны). На чувствительной к регистру ФС native ничего не меняет.
+// --- choosing the repository: the longest prefix match wins -------------------
+// Letter case: on a case-insensitive file system (APFS by default) /users/alexey/work/auction is
+// the same directory as /Users/alexey/Work/Auction. fs.realpathSync.native (realpath(3)) returns
+// the spelling from disk, the plain fs.realpathSync does not. So the target is normalized through native, and
+// `match` through native too, but only if the result differs from the entry by case alone:
+// that way nothing but the case changes (a trailing slash, symlinks and nonexistent paths
+// stay as written). On a case-sensitive file system native changes nothing.
 const onDisk = (p) => {
     try {
         const n = fs.realpathSync.native(p)
@@ -82,8 +92,8 @@ const [, , repoPath, profile, key] = process.argv
 const rc = repos.find((r) => r.key === key)
 if (!rc || !repoPath) process.exit(0)
 
-// Режим «всё»: gate.sh не доверяет диффу от merge-base (базы нет, HEAD
-// отсоединён, ветка далеко от origin/main) и просит полный набор.
+// "Everything" mode: gate.sh does not trust the diff from the merge-base (no base, HEAD
+// detached, the branch far from origin/main) and asks for the full scope.
 const ALL = process.env.GATE_ALL === "1"
 const changed = fs
     .readFileSync(0, "utf8")
@@ -94,16 +104,16 @@ if (!changed.length && !ALL) process.exit(0)
 
 const pick = (table) => (table && (table[profile] || [])) || []
 const rootWanted = pick(rc.root)
-// Корневые скрипты незачем гонять из-за одних только документов: root_if
-// ограничивает их путями, которые эти скрипты вообще смотрят.
+// There is no point running the root scripts for documents alone: root_if
+// limits them to the paths those scripts look at at all.
 const rootIf = rc.root_if ? new RegExp(rc.root_if) : null
 const rootApplies = ALL || !rootIf || changed.some((f) => rootIf.test(f))
 const wsWanted = pick(rc.workspace)
 
-// --- где живут воркспейсы -----------------------------------------------------
-// Записи бывают буквальные ("shared") и с хвостовой звездой ("apps/*"). Ничего
-// сложнее звезды в конце здесь не разбирается — таких записей в наших
-// репозиториях нет, а полноценный glob потянул бы зависимость в хук.
+// --- where the workspaces live -----------------------------------------------
+// Entries are literal ("shared") or with a trailing star ("apps/*"). Nothing
+// more complex than a star at the end is parsed here — our repositories have
+// no such entries, and a full glob would drag a dependency into the hook.
 function workspaceGlobs() {
     const yaml = path.join(repoPath, "pnpm-workspace.yaml")
     if (fs.existsSync(yaml)) {
@@ -145,7 +155,7 @@ function workspaceDirs() {
             dirs.push(g)
         }
     }
-    return dirs.sort((a, b) => b.length - a.length) // сначала самый длинный путь
+    return dirs.sort((a, b) => b.length - a.length) // the longest path first
 }
 
 const dirs = wsWanted.length ? workspaceDirs() : []
@@ -157,18 +167,18 @@ for (const file of ALL ? [] : changed) {
     else uncovered.push(file)
 }
 
-// --- граф зависимостей между воркспейсами -----------------------------------------
-// Изменённый пакет ломает тех, кто его импортирует: ветка сменила тип в
-// packages/shared, гейт проверил shared, api и web, а demo-bot, который тоже
-// зависит от shared, остался непроверенным и красным на typecheck. Поэтому в
-// набор добавляются все воркспейсы, зависящие от изменённых, транзитивно.
-// Зависимость — имя другого воркспейса в dependencies/devDependencies/
-// peerDependencies/optionalDependencies с любой версией (workspace:* или нет).
+// --- the dependency graph between workspaces -----------------------------------------
+// A changed package breaks those who import it: a branch changed a type in
+// packages/shared, the gate checked shared, api and web, and demo-bot, which also
+// depends on shared, stayed unchecked and red on typecheck. So all workspaces
+// that depend on the changed ones are added to the scope, transitively.
+// A dependency is the name of another workspace in dependencies/devDependencies/
+// peerDependencies/optionalDependencies with any version (workspace:* or not).
 const DEP_FIELDS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
 const pkgOf = new Map(dirs.map((d) => [d, readPkg(path.join(repoPath, d, "package.json"))]))
 const dirByName = new Map()
 for (const [d, p] of pkgOf) if (p?.name) dirByName.set(p.name, d)
-const depsOf = new Map() // dir -> прямые зависимости-воркспейсы (dirs)
+const depsOf = new Map() // dir -> direct workspace dependencies (dirs)
 for (const [d, p] of pkgOf) {
     const out = new Set()
     for (const f of DEP_FIELDS)
@@ -179,7 +189,7 @@ for (const [d, p] of pkgOf) {
     depsOf.set(d, out)
 }
 const closure = (d) => {
-    // все воркспейсы, от которых d зависит транзитивно (без самого d)
+    // all workspaces d depends on transitively (without d itself)
     const seen = new Set()
     const stack = [...(depsOf.get(d) || [])]
     while (stack.length) {
@@ -191,7 +201,7 @@ const closure = (d) => {
     return seen
 }
 const direct = new Set(hit)
-const addedFrom = new Map() // dir -> изменённые пакеты, из-за которых он добавлен
+const addedFrom = new Map() // dir -> the changed packages it was added because of
 if (!ALL) {
     for (const d of dirs) {
         if (direct.has(d)) continue
@@ -203,7 +213,7 @@ if (!ALL) {
     }
 }
 
-// --- вывод --------------------------------------------------------------------
+// --- output -------------------------------------------------------------------
 if (rootWanted.length && rootApplies) {
     const pkg = readPkg(path.join(repoPath, "package.json"))
     const scripts = rootWanted.filter((s) => pkg?.scripts?.[s])
@@ -213,24 +223,24 @@ if (rootWanted.length && rootApplies) {
 for (const dir of [...hit].sort()) {
     const pkg = readPkg(path.join(repoPath, dir, "package.json"))
     if (!pkg?.name) continue
-    // Точечное послабление: воркспейс, которому в этом профиле положен свой набор.
+    // A targeted relaxation: a workspace that has its own set of scripts in this profile.
     const wanted = pick(rc.workspace_overrides?.[dir]) || wsWanted
     const scripts = (wanted.length ? wanted : wsWanted).filter((s) => pkg.scripts?.[s])
-    // Четвёртое поле — пути для отпечатка кэша: сам пакет и все его зависимости-
-    // воркспейсы. Иначе незакоммиченная правка в shared не меняла отпечаток
-    // demo-bot, и кэш выдавал старое «зелено». Пятое — от чего пакет добавлен
-    // как зависимый (пусто, если он изменён сам).
+    // The fourth field is the paths for the cache fingerprint: the package itself and all its workspace
+    // dependencies. Otherwise an uncommitted edit in shared did not change the fingerprint of
+    // demo-bot, and the cache handed out a stale «зелено» (green). The fifth is what the package was added
+    // from as a dependent (empty if it changed itself).
     const fpScope = [dir, ...[...closure(dir)].sort()].join(" ")
     const from = (addedFrom.get(dir) || []).join(",")
     if (scripts.length) console.log([dir, pkg.name, scripts.join(" "), fpScope, from].join("\t"))
 }
 
-// Корневые скрипты покрывают весь репозиторий, поэтому «ничей» файл — проблема
-// только там, где корневых скриптов нет вовсе. Отсев по root_if — решение
-// осознанное (документы линтеру не нужны), и жаловаться на него незачем.
+// The root scripts cover the whole repository, so a file that belongs to no workspace is a problem
+// only where there are no root scripts at all. Filtering by root_if is a deliberate
+// decision (the linter does not need documents), and there is no reason to complain about it.
 if (uncovered.length && !rootWanted.length) {
     process.stderr.write(
-        `[gate] ${key}: изменений вне воркспейсов и без корневых скриптов: ${uncovered.length} — ` +
+        `[gate] ${key}: changes outside workspaces and with no root scripts: ${uncovered.length} — ` +
             uncovered.slice(0, 5).join(", ") +
             (uncovered.length > 5 ? ", ..." : "") +
             "\n"

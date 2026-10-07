@@ -1,48 +1,57 @@
 #!/usr/bin/env bash
-# Гейт качества. Гоняет линт и тесты там, где менялись файлы относительно
-# merge-base с origin/main, а при сомнительной базе (её нет, HEAD отсоединён,
-# ветка далеко от origin/main) — во всех пакетах; выбранный набор и причину
-# печатает строкой «[gate] набор …». Кэширует зелёные результаты по отпечатку
-# содержимого (попадание печатается как «[gate] зелено (…): … (кэш)») и выходит
-# с кодом 2 на красном («[gate] красно (…): …»).
+# Quality gate. Runs lint and tests where files changed relative to the
+# merge-base with origin/main, and when the base is doubtful (there is none, HEAD is detached,
+# the branch is far from origin/main) — in every package; it prints the chosen scope and the reason
+# as a line "[gate] scope …". Caches green results by a fingerprint of the
+# content (a hit is printed as «[gate] зелено (…): … (кэш)») and exits
+# with code 2 on red («[gate] красно (…): …»).
 #
-#   gate.sh fast   -> потикетный профиль (TaskCompleted / TeammateIdle)
-#   gate.sh full   -> всё (руками или на закрытии эпика)
+#   gate.sh fast   -> the per-ticket profile (TaskCompleted / TeammateIdle)
+#   gate.sh full   -> everything (by hand or when an epic closes)
 #
-# Репозиторий опознаётся по общему git-каталогу, а не по пути: рабочие деревья
-# лежат и внутри репозитория, и рядом с ним (Auction-arch, Auction-sale-loop).
+# The repository is identified by its common git directory, not by its path: worktrees
+# live both inside the repository and next to it (Auction-arch, Auction-sale-loop).
 #
-# Главное правило: «ничего не прогналось» — это не «зелено». Красный маркер
-# снимается только прогоном, который действительно что-то проверил.
+# The main rule: «ничего не прогналось» (nothing ran) is not «зелено» (green). The red marker
+# is removed only by a run that actually checked something.
 #
-# Коды выхода:
-#   0 — зелено, «ничего не прогналось», «ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение
-#       недоступно» (маркер unverified) или каталог вне git — различаются по
-#       строке «[gate] …», а не по коду;
-#   2 — красно (TaskCompleted / TeammateIdle на этом коде не дают закончить);
-#   3 — не проверено: ни зелено, ни красно. Строка «[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …»
-#       называет причину: проект не зарегистрирован в gate/config.json; реестр не
-#       читается или резолвер упал; node не найден. Код не блокирующий для хуков
-#       (блокирует только 2). Гейт оставляет маркер на дерево и сессию; stop.sh
-#       говорит о нём модели не больше одного раза за сессию на репозиторий
-#       (через additionalContext — это стоит модели лишнего хода, поэтому один раз)
-#       и ход не держит. Агенты кладут код 3 в not_verified, скиллы на нём не мержат.
+# Exit codes:
+#   0 — green, «ничего не прогналось», «ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение
+#       недоступно» (the unverified marker) or a directory outside git — they are told apart by
+#       the "[gate] …" line, not by the code;
+#   2 — red (TaskCompleted / TeammateIdle do not let the work finish on this code);
+#   3 — not verified: neither green nor red. The line «[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …»
+#       names the reason: the project is not registered in gate/config.json; the registry
+#       cannot be read or the resolver crashed; node was not found. The code does not block hooks
+#       (only 2 blocks). The gate leaves a marker per tree and session; stop.sh
+#       tells the model about it at most once per session per repository
+#       (through additionalContext — that costs the model an extra turn, hence only once)
+#       and does not hold the turn. Agents put code 3 into not_verified, skills do not merge on it.
 
 set -uo pipefail
 
 PROFILE="${1:-fast}"
-CONFIG="${CLAUDE_GATE_CONFIG:-$HOME/.claude/gate/config.json}"
+# The scripts next to this one: the folder of its real file, not of a symlink to it.
+HERE="$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" && pwd -P)"
+# The Harness state on this machine (ADR-0040 item 5): the gate registry and markers.
+HARNESS_HOME="${HARNESS_HOME:-$HOME/.claude/worfy-harness}"
+CONFIG="${CLAUDE_GATE_CONFIG:-$HARNESS_HOME/gate/config.json}"
+# Transition: with no registry in HARNESS_HOME but one in the old place, read the old one.
+# Only read it — the state is always written under HARNESS_HOME.
+if [ -z "${CLAUDE_GATE_CONFIG:-}" ] && [ ! -e "$CONFIG" ] && [ -e "$HOME/.claude/gate/config.json" ]; then
+    CONFIG="$HOME/.claude/gate/config.json"
+fi
 export CLAUDE_GATE_CONFIG="$CONFIG"
-STATE="${CLAUDE_GATE_STATE:-$HOME/.claude/gate/state}"   # переопределение — для тестов
+STATE="${CLAUDE_GATE_STATE:-$HARNESS_HOME/gate/state}"   # override for tests
 CACHE="$STATE/cache"
-RESOLVE="${CLAUDE_GATE_RESOLVE:-$HOME/.claude/hooks/gate-resolve.mjs}"
+RESOLVE="${CLAUDE_GATE_RESOLVE:-$HERE/gate-resolve.mjs}"
 
 mkdir -p "$CACHE" "$STATE/stop-blocks"
 
-# Хуки присылают JSON на stdin и закрывают его — вычерпываем. При ручном запуске из
-# Bash-инструмента stdin открыт и пуст, и `cat` ждал бы EOF вечно (так гейт «подвисал»,
-# пока владелец не спросил «Ты подвис?»): читаем построчно не дольше двух секунд на
-# строку и дальше не ждём. На терминале (stdin — TTY) читать нечего.
+# Hooks send JSON on stdin and close it — drain it. When run by hand from the
+# Bash tool, stdin is open and empty, and `cat` would wait for EOF forever (that is how the gate
+# "hung" until the owner asked «Ты подвис?» — "Are you stuck?"): read line by line, no longer than two
+# seconds per line, and do not wait beyond that. On a terminal (stdin is a TTY) there is nothing to read.
 hook_in=""
 if [ ! -t 0 ]; then
     while :; do
@@ -55,17 +64,17 @@ if [ ! -t 0 ]; then
     done
 fi
 
-# Чья это сессия: session_id из JSON хука, иначе CLAUDE_CODE_SESSION_ID (его видит
-# ручной запуск из Bash-инструмента; у субагентов он тот же, что у родителя).
-# Нужен, чтобы маркер «проверить не удалось» без ключа проекта доставлялся только
-# той сессии, что гоняла гейт, а не соседней в том же дереве.
+# Whose session this is: session_id from the hook JSON, else CLAUDE_CODE_SESSION_ID (a
+# manual run from the Bash tool sees it; subagents have the same one as their parent).
+# Needed so that the "could not verify" marker without a project key is delivered only to
+# the session that ran the gate, not to a neighbouring one in the same tree.
 SESSION=""
 re_sid='"session_id"[[:space:]]*:[[:space:]]*"([^"]+)"'
 [[ "$hook_in" =~ $re_sid ]] && SESSION="${BASH_REMATCH[1]}"
 [ -n "$SESSION" ] || SESSION="${CLAUDE_CODE_SESSION_ID:-}"
 SESSION="${SESSION//[^A-Za-z0-9_-]/_}"
 
-# Шелл хука стартует с голым PATH; делаем node и пакетные менеджеры достижимыми.
+# The hook shell starts with a bare PATH; make node and the package managers reachable.
 if ! command -v node >/dev/null 2>&1; then
     for d in "$HOME"/.nvm/versions/node/*/bin; do
         [ -d "$d" ] && PATH="$d:$PATH"
@@ -74,7 +83,7 @@ fi
 PATH="/opt/homebrew/bin:$PATH:$HOME/.local/share/pnpm"
 export PATH
 
-# Проверять надо рабочее дерево, а опознавать — репозиторий целиком.
+# What is checked is the worktree; what is identified is the repository as a whole.
 repo="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 [ -n "$repo" ] || exit 0
 common="$(git rev-parse --git-common-dir 2>/dev/null)" || exit 0
@@ -85,17 +94,17 @@ esac
 canon="$(cd "$(dirname "$common")" 2>/dev/null && pwd)" || canon="$repo"
 tag="$(printf '%s' "$repo" | shasum | awk '{print $1}' | cut -c1-8)"
 
-# Маркеры без ключа проекта (проект не определён) старше недели — мусор от
-# брошенных сессий и удалённых worktree.
+# Markers without a project key (project not determined) older than a week are garbage from
+# abandoned sessions and deleted worktrees.
 find "$STATE" -maxdepth 1 -name 'nokey-*' -mtime +7 -delete 2>/dev/null
-find "$STATE/stop-blocks" -maxdepth 1 -name '*__*' -mtime +7 -delete 2>/dev/null   # счётчики и «once» stop.sh
+find "$STATE/stop-blocks" -maxdepth 1 -name '*__*' -mtime +7 -delete 2>/dev/null   # stop.sh counters and "once" files
 
-# «Проверить не удалось» без ключа проекта: код 3, строка «[gate] ПРОВЕРИТЬ НЕ
-# УДАЛОСЬ: …» и маркер для stop.sh. Маркер — на дерево и на сессию
-# (nokey-<вид>-<дерево>-<сессия>); без сессии — «anon», и stop.sh берёт такой
-# маркер, только если тот свежее начала его собственной сессии.
-#   $1 — вид (unregistered | broken), $2 — строка после «ПРОВЕРИТЬ НЕ УДАЛОСЬ: »,
-#   $3 — пояснение для модели. В маркер уходят оба: «$2. $3».
+# "Could not verify" without a project key: code 3, the line «[gate] ПРОВЕРИТЬ НЕ
+# УДАЛОСЬ: …» and a marker for stop.sh. The marker is per tree and per session
+# (nokey-<kind>-<tree>-<session>); with no session it is "anon", and stop.sh takes such a
+# marker only if it is newer than the start of its own session.
+#   $1 — kind (unregistered | broken), $2 — the text after «ПРОВЕРИТЬ НЕ УДАЛОСЬ: »,
+#   $3 — an explanation for the model. Both go into the marker: "$2. $3".
 not_verified() {
     printf '%s. %s\n' "$2" "$3" >"$STATE/nokey-$1-$tag-${SESSION:-anon}" 2>/dev/null || true
     {
@@ -107,28 +116,29 @@ not_verified() {
 
 command -v node >/dev/null 2>&1 ||
     not_verified broken "node не найден" \
-        "Репозиторий: $repo. Гейт без node не работает — это не «зелено»: работа гейтом не проверена."
+        "Repository: $repo. The gate does not work without node — this is not green: the work was not verified by the gate."
 
 which="$(node "$RESOLVE" --which "$canon" 2>"$STATE/.resolve-err-$$")"
 rc=$?
-rerr="$(head -n 1 "$STATE/.resolve-err-$$" 2>/dev/null)"   # строка целиком: обрезка байтами режет букву UTF-8
+rerr="$(head -n 1 "$STATE/.resolve-err-$$" 2>/dev/null)"   # the whole line: cutting by bytes splits a UTF-8 letter
 rm -f "$STATE/.resolve-err-$$"
 if [ "$rc" -ne 0 ]; then
-    # Упавший резолвер (битый реестр, сломанный node) — это не «каталог вне
-    # репозиториев» и не «не зарегистрирован». Молчать и выходить с 0 тоже нельзя.
+    # A crashed resolver (broken registry, broken node) is not "a directory outside
+    # the repositories" and not "not registered". Staying silent and exiting with 0 is not allowed either.
     not_verified broken "резолвер gate-resolve.mjs завершился с кодом $rc" \
-        "Репозиторий: $repo. ${rerr:+Причина: $rerr. }Проект не определён, ничего не проверено — это не «зелено»."
+        "Repository: $repo. ${rerr:+Reason: $rerr. }Project not determined, nothing was checked — this is not green."
 fi
-# Репозиторий вне реестра: раньше здесь был молчаливый `exit 0`, и «гейт молчит»
-# читалось как «гейт доволен». Теперь — громко и кодом 3.
+# A repository outside the registry: there used to be a silent `exit 0` here, and "the gate is silent"
+# read as "the gate is happy". Now it is loud, with code 3.
 if [ -z "$which" ]; then
-    not_verified unregistered "проект не зарегистрирован в ~/.claude/gate/config.json" \
-        "Репозиторий $repo не зарегистрирован в $CONFIG — гейт ничего не проверял. Это не «зелено»: работа гейтом не проверена."
+    tilde='~'
+    not_verified unregistered "проект не зарегистрирован в ${CONFIG/#$HOME/$tilde}" \
+        "Repository $repo is not registered in $CONFIG — the gate checked nothing. This is not green: the work was not verified by the gate."
 fi
-# Разбор TSV без `IFS=$'\t' read`: таб — пробельный символ IFS, два таба подряд
-# схлопываются, и пустое поле пропадает (так строка корня ".\t\tlint" теряла
-# имя скрипта, и корневой lint не запускался вовсе). Режем руками.
-split3() { # $1 = строка; кладёт поля в F1 F2 F3, пустые поля сохраняются
+# Parsing TSV without `IFS=$'\t' read`: tab is an IFS whitespace character, two tabs in a row
+# collapse, and an empty field disappears (that is how the root line ".\t\tlint" lost
+# the script name, and the root lint never ran at all). Split by hand.
+split3() { # $1 = the line; puts the fields into F1 F2 F3, empty fields are kept
     local line="$1" rest
     F1="${line%%$'\t'*}"
     rest="${line#*$'\t'}"
@@ -139,9 +149,9 @@ split3() { # $1 = строка; кладёт поля в F1 F2 F3, пустые 
 }
 split3 "$which"
 KEY="$F1" MATCH="$F2" PM="$F3"
-# Строки плана длиннее трёх полей (пути отпечатка, «добавлен от») — режем все поля
-# в массив FLD тем же способом, с сохранением пустых.
-splitn() { # $1 = строка
+# Plan lines longer than three fields (fingerprint paths, "added from") — split all fields
+# into the FLD array the same way, keeping empty ones.
+splitn() { # $1 = the line
     local line="$1"
     FLD=()
     while :; do
@@ -151,17 +161,17 @@ splitn() { # $1 = строка
     done
 }
 
-# Маркеры — на каждое рабочее дерево своё (tag выше): у Auction их два десятка, и
-# красное в одном не должно мешать закончить ход в другом.
+# Markers are per worktree (tag above): Auction has a couple of dozen of them, and
+# red in one must not stop the turn from finishing in another.
 RED_MARKER="$STATE/red-$KEY-$tag"
 UNVERIFIED_MARKER="$STATE/unverified-$KEY-$tag"
 
-# --- какой набор проверять ------------------------------------------------------
-# Сужение по диффу от merge-base с origin/main верно только для обычной ветки,
-# отведённой недавно. Во всех остальных случаях дифф врёт в меньшую сторону, и
-# гейт молча проверял один-два пакета. Поэтому: базы нет, merge-base не
-# находится, HEAD отсоединён или ветка далеко от origin/main — проверяем всё.
-# GATE_SCOPE=all принудительно включает полный набор.
+# --- which scope to check -------------------------------------------------------
+# Narrowing by the diff from the merge-base with origin/main is right only for an ordinary branch
+# forked recently. In every other case the diff errs on the small side, and
+# the gate silently checked one or two packages. Hence: no base, the merge-base cannot
+# be found, HEAD is detached or the branch is far from origin/main — check everything.
+# GATE_SCOPE=all forces the full scope.
 MAX_AHEAD="${GATE_MAX_AHEAD:-50}"
 MAX_BEHIND="${GATE_MAX_BEHIND:-300}"
 SCOPE_ALL=0
@@ -173,40 +183,40 @@ fi
 mb=""
 [ -n "$base_ref" ] && mb="$(git -C "$repo" merge-base HEAD "$base_ref" 2>/dev/null || true)"
 if [ "${GATE_SCOPE:-}" = "all" ]; then
-    SCOPE_ALL=1 SCOPE_WHY="задано GATE_SCOPE=all"
+    SCOPE_ALL=1 SCOPE_WHY="set by GATE_SCOPE=all"
 elif [ -z "$base_ref" ]; then
-    SCOPE_ALL=1 SCOPE_WHY="нет ни origin/HEAD, ни origin/main — базы для диффа нет"
+    SCOPE_ALL=1 SCOPE_WHY="neither origin/HEAD nor origin/main exists — no base for a diff"
 elif [ -z "$mb" ]; then
-    SCOPE_ALL=1 SCOPE_WHY="merge-base HEAD с $base_ref не находится"
+    SCOPE_ALL=1 SCOPE_WHY="no merge-base of HEAD with $base_ref"
 elif ! git -C "$repo" symbolic-ref -q HEAD >/dev/null 2>&1; then
-    SCOPE_ALL=1 SCOPE_WHY="HEAD отсоединён (detached) — неизвестно, какая ветка проверяется"
+    SCOPE_ALL=1 SCOPE_WHY="HEAD is detached — unknown which branch is being checked"
 else
     counts="$(git -C "$repo" rev-list --left-right --count "$base_ref...HEAD" 2>/dev/null || true)"
     behind="${counts%%[[:space:]]*}"
     ahead="${counts##*[[:space:]]}"
     if ! [[ "$behind" =~ ^[0-9]+$ && "$ahead" =~ ^[0-9]+$ ]]; then
-        SCOPE_ALL=1 SCOPE_WHY="не удалось посчитать расхождение с $base_ref"
+        SCOPE_ALL=1 SCOPE_WHY="could not count the divergence from $base_ref"
     elif [ "$ahead" -gt "$MAX_AHEAD" ]; then
-        SCOPE_ALL=1 SCOPE_WHY="ветка впереди $base_ref на $ahead коммитов (порог GATE_MAX_AHEAD=$MAX_AHEAD) — долгоживущая ветка"
+        SCOPE_ALL=1 SCOPE_WHY="the branch is $ahead commits ahead of $base_ref (threshold GATE_MAX_AHEAD=$MAX_AHEAD) — a long-lived branch"
     elif [ "$behind" -gt "$MAX_BEHIND" ]; then
-        SCOPE_ALL=1 SCOPE_WHY="ветка отстала от $base_ref на $behind коммитов (порог GATE_MAX_BEHIND=$MAX_BEHIND)"
+        SCOPE_ALL=1 SCOPE_WHY="the branch is $behind commits behind $base_ref (threshold GATE_MAX_BEHIND=$MAX_BEHIND)"
     fi
 fi
 
 changed_paths() {
     {
-        # рабочее дерево и индекс, со снятыми стрелками переименования
+        # the worktree and the index, with rename arrows removed
         git -C "$repo" -c core.quotePath=false status --porcelain 2>/dev/null | sed 's/^...//; s/.* -> //'
-        # всё, что ветка добавила поверх своей базы
+        # everything the branch added on top of its base
         [ -n "$mb" ] && git -C "$repo" -c core.quotePath=false diff --name-only "$mb"...HEAD 2>/dev/null
     } | sed 's/^"//; s/"$//; /^$/d' | sort -u
 }
 
-# Отпечаток без HEAD — это отпечаток пустоты, то есть вечная константа: такое
-# кэшировать нельзя.
-# Пути — сам пакет и его зависимости-воркспейсы: незакоммиченная правка в
-# packages/shared должна менять отпечаток каждого пакета, который от него зависит.
-fingerprint() { # $@ = пути внутри репозитория
+# A fingerprint without HEAD is a fingerprint of nothing, that is, an eternal constant: such a thing
+# must not be cached.
+# The paths are the package itself and its workspace dependencies: an uncommitted edit in
+# packages/shared must change the fingerprint of every package that depends on it.
+fingerprint() { # $@ = paths inside the repository
     local head
     head="$(git -C "$repo" rev-parse HEAD 2>/dev/null)" || return 1
     [ -n "$head" ] || return 1
@@ -219,7 +229,7 @@ fingerprint() { # $@ = пути внутри репозитория
     } | shasum | awk '{print $1}'
 }
 
-run_script() { # $1 = имя пакета (пусто = корень), $2 = скрипт
+run_script() { # $1 = package name (empty = root), $2 = script
     local pkg="$1" script="$2"
     if [ -n "$pkg" ]; then
         case "$PM" in
@@ -232,14 +242,14 @@ run_script() { # $1 = имя пакета (пусто = корень), $2 = ск
     fi
 }
 
-# Отсутствующее окружение — не дефект кода. Блокировать по нему нельзя, но и
-# засчитывать за зелёное тоже: такая работа остаётся непроверенной.
+# A missing environment is not a defect in the code. It must not block, but it must
+# not count as green either: such work stays unverified.
 UNVERIFIABLE='command not found|Cache entry required but missing|ENOENT.*node_modules'
 UNVERIFIABLE+='|Cannot connect to the Docker daemon|Could not find a working container runtime'
 UNVERIFIABLE+='|docker daemon is not running|ECONNREFUSED.*:5432|could not connect to server'
 
-# Строка про окружение может попасться и в стеке настоящего падения теста.
-# Признак живого прогона важнее: если тесты отчитались, это провал, а не среда.
+# An environment line can also turn up in the stack trace of a real test failure.
+# The sign of a live run matters more: if the tests reported, it is a failure, not the environment.
 real_failure() {
     printf '%s' "$1" | grep -qE 'Tests?[[:space:]]+[0-9]+[[:space:]]+(failed|passed)|^ *FAIL |AssertionError|✗|Expected .* to'
 }
@@ -262,27 +272,27 @@ fi
 plan="$(printf '%s\n' "$changed" | GATE_ALL="$SCOPE_ALL" node "$RESOLVE" "$repo" "$PROFILE" "$KEY")"
 rc=$?
 if [ "$rc" -ne 0 ]; then
-    # Упавший резолвер дал бы пустой план, а пустой план читается как «ничего не
-    # затронуто». Это не так: проверить не удалось. Красный маркер не трогаем.
-    printf 'Профиль %s, репозиторий %s. Проверить не удалось: резолвер плана завершился с кодом %s.\n' \
+    # A crashed resolver would give an empty plan, and an empty plan reads as "nothing
+    # touched". That is not so: verification failed. The red marker is left alone.
+    printf 'Profile %s, repository %s. Could not verify: the plan resolver exited with code %s.\n' \
         "$PROFILE" "$KEY" "$rc" >"$UNVERIFIED_MARKER"
     echo "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: резолвер плана gate-resolve.mjs завершился с кодом $rc — ничего не проверено, это не «зелено»." >&2
     exit 3
 fi
 
-# Набор печатается всегда: по нему видно, сузился ли гейт и почему.
+# The scope is always printed: it shows whether the gate narrowed and why.
 plan_dirs=""
 plan_added=""
 while IFS= read -r line; do
     [ -n "$line" ] || continue
     splitn "$line"
     plan_dirs+=" ${FLD[0]}"
-    [ -n "${FLD[4]:-}" ] && plan_added+="${plan_added:+, }${FLD[0]} (от ${FLD[4]//,/, })"
+    [ -n "${FLD[4]:-}" ] && plan_added+="${plan_added:+, }${FLD[0]} (from ${FLD[4]//,/, })"
 done <<<"$plan"
 if [ "$SCOPE_ALL" -eq 1 ]; then
-    echo "[gate] набор ($PROFILE): все пакеты —${plan_dirs:- пусто} (причина: $SCOPE_WHY)"
+    echo "[gate] scope ($PROFILE): all packages —${plan_dirs:- none} (reason: $SCOPE_WHY)"
 else
-    echo "[gate] набор ($PROFILE): сужен по диффу от merge-base ${mb:0:8} с $base_ref (ветка впереди на $ahead, позади на $behind; изменено файлов: $nchanged) —${plan_dirs:- пусто}${plan_added:+; добавлены как зависимые: $plan_added}. Полный набор: GATE_SCOPE=all"
+    echo "[gate] scope ($PROFILE): narrowed by the diff from merge-base ${mb:0:8} with $base_ref (branch ahead by $ahead, behind by $behind; files changed: $nchanged) —${plan_dirs:- none}${plan_added:+; added as dependents: $plan_added}. Full scope: GATE_SCOPE=all"
 fi
 if [ -z "$plan_dirs" ]; then
     echo "[gate] ничего не прогналось ($PROFILE): изменения не затрагивают проверяемые пакеты. Это не «зелено»."
@@ -296,14 +306,14 @@ while IFS= read -r line; do
     [ -n "$scripts" ] || continue
     [ -n "$fpscope" ] || fpscope="$wsdir"
 
-    # В ключ входит и состав скриптов: расширили профиль — старое зелёное не в счёт.
+    # The key includes the set of scripts too: the profile was widened — the old green does not count.
     shash="$(printf '%s' "$scripts" | shasum | awk '{print $1}' | cut -c1-8)"
     key="$CACHE/${KEY}__${tag}__${wsdir//\//_}__${PROFILE}__${shash}"
-    # shellcheck disable=SC2086 # пути воркспейсов без пробелов, делим намеренно
+    # shellcheck disable=SC2086 # workspace paths have no spaces, split on purpose
     fp="$(fingerprint $fpscope)" || fp=""
     if [ -n "$fp" ] && [ -f "$key" ] && [ "$(cat "$key")" = "$fp" ]; then
-        # Не менялось с тех пор, как позеленело. Кэшируется только зелёное:
-        # красное всегда прогоняется заново, чтобы флак не залипал.
+        # Unchanged since it turned green. Only green is cached:
+        # red is always run again, so that a flaky test does not stick.
         for script in $scripts; do CACHED+=" $KEY/$wsdir:$script"; done
         continue
     fi
@@ -311,7 +321,7 @@ while IFS= read -r line; do
     ws_ok=1
     for script in $scripts; do
         label="$KEY/$wsdir:$script"
-        out="$(run_script "$pkgname" "$script" </dev/null)" # stdin цикла — план, не отдавать его pnpm
+        out="$(run_script "$pkgname" "$script" </dev/null)" # the loop's stdin is the plan, do not hand it to pnpm
         rc=$?
         if [ "$rc" -eq 0 ]; then
             RAN+=" $label"
@@ -322,7 +332,7 @@ while IFS= read -r line; do
             ws_ok=0
             FAILED=1
             FAILED_LABELS+=" $label"
-            REPORT+=$'\n'"--- УПАЛО: $label"$'\n'"$(printf '%s\n' "$out" | tail -n 40)"$'\n'
+            REPORT+=$'\n'"--- FAILED: $label"$'\n'"$(printf '%s\n' "$out" | tail -n 40)"$'\n'
         fi
     done
 
@@ -333,8 +343,8 @@ if [ "$FAILED" -eq 1 ]; then
     date -u +%Y-%m-%dT%H:%M:%SZ >"$RED_MARKER"
     {
         echo "[gate] красно ($PROFILE):$FAILED_LABELS${RAN:+ (прошло:$RAN)}"
-        echo "Гейт качества не пройден (профиль: $PROFILE, репозиторий: $KEY)."
-        echo "Это надо починить до отчёта о готовности."
+        echo "The quality gate did not pass (profile: $PROFILE, repository: $KEY)."
+        echo "This must be fixed before reporting the work as done."
         echo "$REPORT"
     } >&2
     exit 2
@@ -342,21 +352,21 @@ fi
 
 if [ -n "$ENV_BROKEN" ]; then
     {
-        printf 'Профиль %s, репозиторий %s. Проверить не удалось:%s\n' "$PROFILE" "$KEY" "$ENV_BROKEN"
+        printf 'Profile %s, repository %s. Could not verify:%s\n' "$PROFILE" "$KEY" "$ENV_BROKEN"
     } >"$UNVERIFIED_MARKER"
     {
         echo "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно:"
         echo "$ENV_BROKEN"
-        echo "Это не зелёный результат. Так и говори: работа не проверена, — вместо отчёта об успехе."
+        echo "This is not a green result. Say so: the work is not verified — instead of a success report."
     } >&2
 elif [ -n "$RAN$CACHED" ]; then
-    # Чистим только по итогам проверки, которая действительно что-то проверила:
-    # свежий прогон или кэш, записанный зелёным прогоном того же содержимого.
-    # Иначе красное состояние отмывалось бы правкой документа.
+    # Clear only on the result of a check that actually checked something:
+    # a fresh run or a cache entry written by a green run of the same content.
+    # Otherwise a red state could be washed away by editing a document.
     rm -f "$RED_MARKER" "$UNVERIFIED_MARKER"
     rm -f "$STATE/stop-blocks/"*"__${KEY}-${tag}" 2>/dev/null
-    # Строка «[gate] зелено (<профиль>): …» — единственный признак зелёного, и
-    # при попадании в кэш она тоже печатается, с пометкой «(кэш)».
+    # The line «[gate] зелено (<profile>): …» is the only sign of green, and
+    # on a cache hit it is printed too, marked «(кэш)».
     if [ -z "$RAN" ]; then
         echo "[gate] зелено ($PROFILE):$CACHED (кэш)"
     elif [ -n "$CACHED" ]; then

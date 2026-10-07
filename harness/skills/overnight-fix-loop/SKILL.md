@@ -1,94 +1,96 @@
 ---
 name: overnight-fix-loop
-description: Ночной автономный прогон по модулям любого зарегистрированного проекта — враждебные тесты, правка до зелёного, мутационное тестирование, ревью, мерж модуля в ветку ночи, утром один PR в основную ветку. Раскладку модулей, команды, аккаунт GitHub и деплой берёт из профиля (`~/.claude/bin/profile`). Только ручной вызов на ночь — `/overnight-fix-loop <модули>` или `claude -p`; вопросов пользователю не задаёт.
+description: An autonomous overnight run over the modules of any registered project — adversarial tests, fixing until green, mutation testing, review, merging each module into the night branch, one PR into the main branch in the morning. Takes the module layout, commands, GitHub account and deploy from the profile (`${CLAUDE_PLUGIN_ROOT}/bin/profile`). Manual invocation only, for the night — `/worfy:overnight-fix-loop <modules>` or `claude -p`; asks the user no questions.
 disable-model-invocation: true
 ---
 
-# Ночной прогон: red → green → мутации → сведение
+# Overnight run: red → green → mutations → integration
 
-Один вызов — несколько модулей, каждый в своём worktree и своём агенте `implementer`.
-Готовый модуль вливается в ветку ночи `overnight/<дата>`. В основную ветку ночью не вливается ничего:
-у проекта с деплоем (`deploy` в профиле не `null`) мерж в неё катит прод (`deploy.how`), поэтому
-последний мерж — утреннее решение человека.
+One invocation — several modules, each in its own worktree and its own `worfy:implementer` agent.
+A finished module is merged into the night branch `overnight/<date>`. Nothing is merged into the main branch at night:
+for a project with a deploy (`deploy` in the profile is not `null`) a merge into it ships to production (`deploy.how`), so
+the last merge is a human's decision in the morning.
 
-## Профиль проекта
+## Project profile
 
-Всё проектное — пакеты, модули, команды, worktree, аккаунт GitHub, деплой — берётся из профиля
-(`~/.claude/bin/profile`, контракт — `~/.claude/profiles/README.md`). Ниже `F <поле>` — сокращение
-для `~/.claude/bin/profile --field <поле>` в корне проекта; в блоках bash оно объявлено функцией
-первой строкой. Скилл запускается из корня проекта (или с `-C <корень>` у каждого вызова `profile`).
+Everything project-specific — packages, modules, commands, worktrees, GitHub account, deploy — comes from the profile
+(`${CLAUDE_PLUGIN_ROOT}/bin/profile`, contract — `~/.claude/profiles/README.md`). Below, `F <field>` is shorthand
+for `"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field <field>` in the project root; in the bash blocks it is declared as a function
+on the first line. The skill is run from the project root (or with `-C <root>` on every `profile` call).
 
 ```bash
-~/.claude/bin/profile --name; echo "КОД=$?"
+"${CLAUDE_PLUGIN_ROOT}/bin/profile" --name; echo "EXIT=$?"
 ```
 
-- `0` — работать по профилю.
-- `3` — проект не зарегистрирован или у него нет профиля. **Стоп**: записать в
-  `<scratchpad>/OVERNIGHT-REPORT.md` и в ответ «проект `<путь>` не зарегистрирован — профиля нет,
-  ночному прогону не по чему» и ничего не начинать. Команды и пути не угадывать.
-- `1`, `2` — сломан реестр или профиль: тот же стоп с сообщением из stderr.
+- `0` — work by the profile.
+- `3` — the project is not registered or has no profile. **Stop**: write into
+  `<scratchpad>/OVERNIGHT-REPORT.md` and into the answer "project `<path>` is not registered — there is no profile,
+  nothing to run the night against" and start nothing. Do not guess commands or paths.
+- `1`, `2` — the registry or the profile is broken: the same stop, with the message from stderr.
 
-Поле, которого нет (`F` вернул код 4 или напечатал `null`), выключает шаг, который на нём держится;
-выключенный шаг — строка в утреннем отчёте, а не молчаливый пропуск.
+A missing field (`F` returned exit code 4 or printed `null`) turns off the step that depends on it;
+a turned-off step is a line in the morning report, not a silent skip.
 
-Проектные факты ночного прогона — в полях профиля: раскладка модулей и лимит тяжёлого пакета
-(`F modules`), команды одного пакета (`F commands.package`), файлы новых тестов и маски тест-файлов
-(`F tests.new_file`, `F tests.globs`), аккаунт GitHub (`F github.account`). То, что в поле не
-умещается, — раздел `## Ночной прогон и аудит` в `rules.md` профиля (`~/.claude/bin/profile --rules`):
-обязательные пересборки, проектные классы ошибок, почему лимит именно такой. Прочитать один раз до
-старта; ниже он называется «раздел профиля». Утренний отчёт и брифы — на языке `F language.reports`;
-сообщения коммитов, заголовки и описания PR, комментарии в коде — на языке `F language.team`
-(шаблоны `test(<имя>): red — …` и `overnight(<имя>): …` ниже — форма, а не язык).
+The project facts of the overnight run are in profile fields: the module layout and the limit for heavy packages
+(`F modules`), the commands of one package (`F commands.package`), new-test files and test-file globs
+(`F tests.new_file`, `F tests.globs`), the GitHub account (`F github.account`). What does not fit into a field is in
+the section `## Ночной прогон и аудит` (overnight run and audit) of the profile's `rules.md` (`"${CLAUDE_PLUGIN_ROOT}/bin/profile" --rules`):
+mandatory rebuilds, project-specific bug classes, why the limit is what it is. Read it once before
+the start; below it is called "the profile section". The morning report and the briefs are in the language of `F language.reports`;
+commit messages, PR titles and descriptions, code comments — in the language of `F language.team`
+(the templates `test(<имя>): red — …` and `overnight(<имя>): …` below are a form, not a language).
 
-Состояние shell между вызовами Bash не сохраняется: каждый блок ниже сам объявляет `F` и сам
-выводит переменные, которые использует.
+Shell state does not persist between Bash calls: every block below declares `F` itself and derives
+the variables it uses itself.
 
-## Параллельность и очередь
+## Parallelism and queue
 
-Всего не больше пяти агентов разом; тяжёлые пакеты (тесты поднимают свою базу или стек) — с
-лимитом из `F modules.heavy` (`{"<пакет>": <модулей разом>}`); модули остальных пакетов идут сверх
-этого лимита. Модули берутся очередью: освободилось место — взят следующий, и так до бюджета
-времени (по умолчанию шесть часов от старта, иначе аргумент вида `до 06:30`). Невзятые модули
-идут в утренний отчёт строкой «не начат». Главная сессия — оркестратор: раздаёт модули, вливает
-их ветки, пишет утренний отчёт. Вопрос пользователю ночью — запись в `FAILURE.md` и остановка модуля.
+No more than five agents at once in total; heavy packages (their tests bring up their own database or stack) — with
+the limit from `F modules.heavy` (`{"<package>": <modules at once>}`); modules of the other packages run on top of
+that limit. Modules are taken as a queue: a slot frees up — the next one is taken, and so on until the time
+budget runs out (by default six hours from the start, otherwise an argument like `until 06:30` or `до 06:30`). Modules not taken
+go into the morning report as a "not started" line. The main session is the orchestrator: it hands out modules, merges
+their branches, writes the morning report. A question to the user at night is an entry in `FAILURE.md` and a stop of the module.
 
-`F parallel` = `single` (локальный стек один на проект) — модули строго по одному, без worktree:
-ветка модуля заводится в основном checkout (`git switch -c overnight/<дата>-<имя> overnight/<дата>`),
-и только если `git status --porcelain` там пуст; не пуст — стоп всего прогона со строкой в отчёте.
+`F parallel` = `single` (one local stack per project) — modules strictly one at a time, no worktrees:
+the module branch is created in the main checkout (`git switch -c overnight/<date>-<имя> overnight/<date>`),
+and only if `git status --porcelain` there is empty; not empty — the whole run stops with a line in the report.
 
-Файлы прогона — в scratchpad-каталоге сессии (путь даёт сессия): `<scratchpad>/overnight/<имя>/PR.md`,
-там же `FAILURE.md`, `<scratchpad>/OVERNIGHT-REPORT.md`. Внутри worktree их держать нельзя: в
-`.gitignore` их нет, а 1b и 1d коммитят `git add -A` — файлы уехали бы в коммит модуля.
+The run's files live in the session's scratchpad directory (the session gives the path): `<scratchpad>/overnight/<имя>/PR.md`,
+`FAILURE.md` next to it, `<scratchpad>/OVERNIGHT-REPORT.md`. They must not be kept inside the worktree: they are not in
+`.gitignore`, and 1b and 1d commit with `git add -A` — the files would end up in the module's commit.
 
-## 0. Ветка ночи и выбор модулей
+`<имя>` throughout is the module name (the same placeholder the profile's `tests.new_file` uses).
 
-Ветка сведения — одна на прогон, от свежей базы `F worktree.base` (код 4 — основная ветка:
+## 0. The night branch and choosing modules
+
+The integration branch — one per run, from a fresh base `F worktree.base` (exit code 4 — the main branch:
 `git symbolic-ref -q --short refs/remotes/origin/HEAD`):
 
 ```bash
-F() { ~/.claude/bin/profile --field "$1"; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$1"; }
 git fetch origin --prune
 BASE=$(F worktree.base) && [ "$BASE" != null ] || BASE=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
-NIGHT=overnight/$(date +%F)          # ветка уже есть (перезапуск, вторая сессия) — переиспользовать
+NIGHT=overnight/$(date +%F)          # the branch already exists (restart, a second session) — reuse it
 git rev-parse --verify --quiet "origin/$NIGHT" \
   || { git branch "$NIGHT" "$BASE" && git push -u origin "$NIGHT"; }
 ```
 
-Модуль — каталог прямо под `<пакет>/src` для каждого пакета из `F layout.packages`
-(`apps/api/src/auctions`). Поле `F modules` уточняет: `deep` — корни, где модуль — каталог на
-уровень глубже; `flat` — пакеты, которые целиком один модуль; `skip` — имена каталогов, которые
-модулей не образуют. Нет поля — все три пусты. Файлы в корне `src` пакета модуля не образуют. Имя модуля — последний сегмент пути, у
-пакета из `FLAT` — имя каталога пакета; при совпадении имён — с префиксом пакета (`api-catalog`,
-`web-catalog`). Если список не дан — самые изменяемые за 30 дней:
+A module is a directory directly under `<package>/src` for every package from `F layout.packages`
+(`apps/api/src/auctions`). The field `F modules` refines this: `deep` — roots where a module is a directory one
+level deeper; `flat` — packages that are a single module as a whole; `skip` — directory names that
+do not form modules. No field — all three are empty. Files in the root of a package's `src` do not form a module. The module name is the last path segment; for
+a package from `FLAT` — the package directory name; when names collide — with the package prefix (`api-catalog`,
+`web-catalog`). If no list is given — the most changed over 30 days:
 
 ```bash
-F() { ~/.claude/bin/profile --field "$1"; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$1"; }
 BASE=$(F worktree.base) && [ "$BASE" != null ] || BASE=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
 PK=$(F layout.packages | jq -r 'join(" ")')
 M=$(F modules 2>/dev/null) && [ "$M" != null ] || M='{}'
 DEEP=$(jq -r '.deep // [] | join(" ")' <<<"$M"); FLAT=$(jq -r '.flat // [] | join(" ")' <<<"$M"); SKIP=$(jq -r '.skip // [] | join(" ")' <<<"$M")
-# pathspec — массивом, а не `for p in $PK`: Bash-инструмент запускает zsh, а zsh не делит
-# переменную без кавычек на слова, и цикл шёл бы один раз по всей строке
+# pathspec as an array, not `for p in $PK`: the Bash tool runs zsh, and zsh does not split
+# an unquoted variable into words, so the loop would run once over the whole string
 SRC=(); while IFS= read -r p; do SRC+=("$p/src"); done < <(F layout.packages | jq -r '.[]')
 git log "$BASE" --since=30.days --name-only --pretty=format: -- "${SRC[@]}" \
   | awk -v pk="$PK" -v deep="$DEEP" -v flat="$FLAT" -v skip="$SKIP" '
@@ -101,259 +103,261 @@ git log "$BASE" --since=30.days --name-only --pretty=format: -- "${SRC[@]}" \
   | sort | uniq -c | sort -rn | head -8
 ```
 
-Дерево модулю — от ветки ночи, в корне `F worktree.root`; чужие деревья держат другие сессии, их не
-трогать. Имя ветки модуля не может начинаться с `overnight/<дата>/`: git не заводит ветку внутри уже
-занятого имени, поэтому разделитель — дефис. Зависимости ставит `F commands.install` внутри дерева.
+The module's tree is created from the night branch, under `F worktree.root`; other trees are held by other sessions — do not
+touch them. The module branch name cannot start with `overnight/<date>/`: git does not create a branch inside an
+already taken name, so the separator is a hyphen. Dependencies are installed by `F commands.install` inside the tree.
 
 ```bash
-git worktree add <worktree.root>/overnight-<имя> -b overnight/<дата>-<имя> overnight/<дата> \
+git worktree add <worktree.root>/overnight-<имя> -b overnight/<date>-<имя> overnight/<date> \
   && (cd <worktree.root>/overnight-<имя> && <commands.install>)
 ```
 
-Перед 1a — `scout` по модулю, в брифе — путь дерева модуля: входные точки, цепочка вызовов и, если
-раздел профиля или `rules.md` называют код, который ходит в базу мимо схемы, — какие таблицы модуля
-он читает. Карта идёт в бриф исполнителя.
+Before 1a — a `worfy:scout` over the module, with the module tree path in the brief: entry points, the call chain and, if
+the profile section or `rules.md` names code that goes to the database bypassing the schema, which tables of the module
+it reads. The map goes into the implementer's brief.
 
-## 1. Цикл по модулю — агент `implementer`, один на модуль
+## 1. The loop over a module — a `worfy:implementer` agent, one per module
 
-Агент привязан к тикетам (`tickets.path`, `claim`, JSON с `ticket`, шаги `workflow.ticket_skill`).
-В брифе явно: тикета нет, `claim` не делать, скилл тикета не загружать, порядок — шаги 1a–1e этого
-скилла, отчёт — по форме ниже, не JSON тикета; push и PR не делать до сообщения оркестратора
-(шаг 6 агента, `pr-green-ci`, здесь заменён шагом 1g). Дать: путь worktree (профиль — `-C` на нём; работать
-только в нём, своего дерева не заводить), имя и каталог модуля, имя ветки ночи, карту от `scout`,
-«Классы ошибок» вместе с проектными из раздела профиля, пути `PR.md` и `FAILURE.md`. Исполнитель
-идёт 1a–1e и останавливается на зелёном гейте: ни push, ни PR. Ревьюера он не запускает — ревью шаг
-оркестратора (1f); PR исполнитель открывает только по сообщению оркестратора после вердикта
-«чисто» (1g). Назад — ≤30 строк: тесты, коды возврата каждого прогона, строка мутаций «до → после»,
-код гейта и его строка `[gate] …`, SHA последнего коммита ветки модуля (всё закоммичено) или путь
-`FAILURE.md`; без пересказа хода работы.
+The agent is built around tickets (`tickets.path`, `claim`, JSON with `ticket`, the steps of `workflow.ticket_skill`).
+The brief says explicitly: there is no ticket, do not `claim`, do not load the ticket skill, the order is steps 1a–1e of this
+skill, the report follows the form below, not the ticket JSON; no push and no PR until the orchestrator's message
+(the agent's step 6, `pr-green-ci`, is replaced here by step 1g). Give it: the worktree path (the profile — `-C` on it; work
+only in it, do not create a tree of its own), the module name and directory, the night branch name, the map from `worfy:scout`,
+"Bug classes" together with the project-specific ones from the profile section, the paths of `PR.md` and `FAILURE.md`. The implementer
+goes through 1a–1e and stops at a green gate: no push, no PR. It does not run a reviewer — review is the
+orchestrator's step (1f); the implementer opens the PR only on the orchestrator's message after the verdict
+"clean" (1g). Back — ≤30 lines: the tests, the exit codes of every run, the mutation line "before → after",
+the gate exit code and its `[gate] …` line, the SHA of the last commit of the module branch (everything committed) or the path of
+`FAILURE.md`; no retelling of the work.
 
-Правки — только внутри следа модуля: его каталог и его новый файл тестов. Правка вне следа нужна
-для зелёного — это `FAILURE.md`, не расширение следа. Код возврата печатать рядом с каждым прогоном;
-фильтр длинного вывода — только `set -o pipefail; <команда> | tail -n 20` (без него хук
-`guard.mjs` откажет в трубе, стоящей после проверочной команды).
+Changes — only inside the module's footprint: its directory and its new test file. A change outside the footprint needed
+for green is a `FAILURE.md`, not an extension of the footprint. Print the exit code next to every run;
+filtering long output — only `set -o pipefail; <command> | tail -n 20` (without it the hook
+`guard.mjs` refuses a pipe that follows a verification command).
 
-Команды ниже: `<typecheck пакета>`, `<test пакета>`, `<test_one пакета>` — шаблоны
-`F commands.package.typecheck`, `.test`, `.test_one`; `<пакет>` — имя из `F commands.package.names`
-по каталогу пакета (`apps/api` → `@auction/api`), `<файл>` — путь от корня пакета. Нет
-`commands.package` — `F commands.typecheck`, `F commands.test`, `F commands.test_one` из корня.
+Commands below: `<package typecheck>`, `<package test>`, `<package test_one>` — the templates
+`F commands.package.typecheck`, `.test`, `.test_one`; `<package>` — the name from `F commands.package.names`
+by package directory (`apps/api` → `@auction/api`), `<file>` — a path from the package root. No
+`commands.package` — `F commands.typecheck`, `F commands.test`, `F commands.test_one` from the root.
 
-### 1a. Тесты модуля, точки мутаций и база «до»
+### 1a. Module tests, mutation points and the "before" baseline
 
-Существующие тест-файлы модуль читает, но не правит: общие тест-файлы обычно импортируют больше
-одного модуля, и два параллельных агента столкнулись бы в одном файле. Новые тесты — всегда в новый
-файл, свой у каждого модуля, с суффиксом `.hardening`; где он лежит в каждом пакете — шаблон
-`F tests.new_file` по каталогу пакета (`<имя>` — имя модуля, `<каталог модуля>` — его путь). Нет
-поля или пакета в нём — рядом с ближайшим существующим тестом этого пакета, по его образцу имени.
+The module reads existing test files but does not edit them: shared test files usually import more than
+one module, and two parallel agents would collide in one file. New tests always go into a new
+file, one per module, with the `.hardening` suffix; where it lives in each package is given by the template
+`F tests.new_file` by package directory (`<имя>` — the module name, `<каталог модуля>` — its path). No
+field, or no package in it — next to the nearest existing test of that package, following its naming pattern.
 
-Список тестов модуля для мутационного тестирования — существующие тест-файлы, импортирующие
-каталог модуля, плюс новый файл. Поиск идёт из каталога пакета; каталоги — те из `test` и `src`,
-что там есть; маски тест-файлов — `F tests.globs` (нет поля — маски по образцу имён тестов пакета):
+The module's test list for mutation testing — the existing test files that import the
+module directory, plus the new file. The search runs from the package directory; the directories — those of `test` and `src`
+that exist there; the test-file globs — `F tests.globs` (no field — globs following the package's test naming pattern):
 
 ```bash
-F() { ~/.claude/bin/profile --field "$1"; }
-# Маски — массивом в кавычках: так их не раскрывает ни bash, ни zsh (`set -f` в zsh глоб не
-# выключает, а строка `$INC` без кавычек в zsh на слова не делится — grep получал одну маску-склейку)
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$1"; }
+# Globs as a quoted array: that way neither bash nor zsh expands them (`set -f` in zsh does not
+# turn globbing off, and an unquoted `$INC` string is not split into words in zsh — grep got one glued glob)
 INC=(); while IFS= read -r g; do INC+=("--include=$g"); done < <(F tests.globs | jq -r '.[]')
 DIRS=(); for d in test src; do [ -d "<каталог пакета>/$d" ] && DIRS+=("$d"); done
-cd <каталог пакета> && grep -rslE "/<имя>(/|')" "${INC[@]}" "${DIRS[@]}"   # код 1 при пустом ответе — не ошибка
+cd <каталог пакета> && grep -rslE "/<имя>(/|')" "${INC[@]}" "${DIRS[@]}"   # exit 1 on an empty result is not an error
 ```
 
-Список фиксируется здесь и без изменений используется в 1d.
+`<каталог пакета>` is the package directory. The list is fixed here and used unchanged in 1d.
 
-Прочитать модуль, выбрать не меньше пяти точек мутации (см. «Что ломать»); подходящих мест меньше
-пяти — взять все и записать их число. По каждой: сломать, прогнать тесты модуля, записать
-красный/зелёный, вернуть файл `git checkout -- <файл>`. Итог — «до: красных X из N».
+Read the module, choose at least five mutation points (see "What to break"); fewer than
+five suitable places — take all of them and record their number. For each: break it, run the module tests, record
+red/green, restore the file with `git checkout -- <file>`. The result — "before: X of N red".
 
-### 1b. Враждебные тесты — RED, закоммичены
+### 1b. Adversarial tests — RED, committed
 
-Написать тесты по «Классам ошибок» ниже — то, что в проекте уже ломалось. Условие завершения:
-`typecheck` пакета зелёный, прицельный прогон новых тестов красный по утверждению
-(assertion), не по ошибке компиляции.
+Write tests following the "Bug classes" below — what has already broken in the project. Completion condition:
+the package `typecheck` is green, the targeted run of the new tests is red on an assertion,
+not on a compile error.
 
 ```bash
-<typecheck пакета>; echo "КОД=$?"
-<test_one пакета с новым файлом>; echo "КОД=$?"
-git add -A && git commit -m "test(<имя>): red — <что проверяется>"
+<package typecheck>; echo "EXIT=$?"
+<package test_one with the new file>; echo "EXIT=$?"
+git add -A && git commit -m "test(<имя>): red — <what is checked>"
 ```
 
-Обязательные пересборки перед `typecheck` (пакет, который другие читают собранным) — в разделе
-профиля; причина там же.
+Mandatory rebuilds before `typecheck` (a package that others read in built form) are in the profile
+section; the reason is there too.
 
-С этого коммита текст тестов заморожен: ожидание, изменённое ради зелёного, — `FAILURE.md`.
-Новые тесты зелены с первого прогона — переписать утверждение строже; зелены и во второй раз —
-закрыть модуль строкой отчёта «нечего укреплять», PR не открывать.
+From this commit on the test text is frozen: an expectation changed to get green is a `FAILURE.md`.
+New tests are green on the first run — rewrite the assertion stricter; green the second time too —
+close the module with the report line "nothing to harden", do not open a PR.
 
-### 1c. Правка до зелёного — не больше 15 итераций
+### 1c. Fix until green — no more than 15 iterations
 
-После каждого изменения — весь набор того пакета, где правка, голым:
-`<test пакета>; echo "КОД=$?"`. Пятнадцатая итерация красная — остановиться,
-написать `FAILURE.md`: какой тест красный, что пробовали, на чём стоит. Модуль закрыт, PR не открывать.
+After every change — the whole suite of the package where the change is, bare:
+`<package test>; echo "EXIT=$?"`. The fifteenth iteration is red — stop,
+write `FAILURE.md`: which test is red, what was tried, what it is stuck on. The module is closed, do not open a PR.
 
-### 1d. Мутационное тестирование
+### 1d. Mutation testing
 
-Сначала коммит: восстановление после мутации сносит незакоммиченное. Те же точки и тот же
-список тестов, что в 1a, по одной: сломать → прогон тестов модуля → ожидается красный →
-`git checkout -- <файл>` (один путь; `checkout -- .` хук откажет). Итог «после: красных Y из N».
+Commit first: restoring after a mutation wipes anything uncommitted. The same points and the same
+test list as in 1a, one at a time: break → run the module tests → red is expected →
+`git checkout -- <file>` (one path; the hook refuses `checkout -- .`). The result "after: Y of N red".
 
-Порог — 80 % убитых. Ниже порога: на каждую выжившую мутацию добавить тест, повторить 1c
-один раз, прогнать мутации снова. Второй недобор — `FAILURE.md` с перечнем выживших, PR не открывать.
+The threshold is 80 % killed. Below the threshold: for every surviving mutation add a test, repeat 1c
+once, run the mutations again. A second shortfall — `FAILURE.md` listing the survivors, do not open a PR.
 
-### 1e. Гейт
+### 1e. Gate
 
-Гейт — `gate.sh fast`: lint корня плюс `typecheck` и `test` изменённых пакетов. Зелено — код 0
-**и** строка `[gate] зелено (…)`; код 0 со строкой «ничего не прогналось» или «окружение
-недоступно» — не проверка. Код 2 — красно. Код 3 — не проверено, ни зелено, ни красно: строка
-`[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …` называет причину (проект не зарегистрирован, реестр не читается,
-резолвер упал, нет node). Красный гейт, код 3 и код 0 без строки «зелено» — `FAILURE.md` с этой
-строкой, ни ревью, ни PR, ни мержа. Перед гейтом всё закоммичено: ревьюер смотрит дифф коммитов,
-push в 1g отправляет только коммиты. Пересборки, которые раздел профиля требует перед
-`typecheck` и гейтом, — один раз перед гейтом; после каждой мутации — только если раздел так говорит.
+The gate is `gate.sh fast`: the root lint plus `typecheck` and `test` of the changed packages. Green is exit 0
+**and** the line `[gate] зелено (…)`; exit 0 with the line «ничего не прогналось» or «окружение
+недоступно» is not a check. Exit 2 is red (`[gate] красно`). Exit 3 is unverified, neither green nor red: the line
+`[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …` names the reason (project not registered, registry unreadable,
+resolver crashed, no node). A red gate, exit 3, and exit 0 without the «зелено» line — `FAILURE.md` with that
+line, no review, no PR, no merge. Before the gate everything is committed: the reviewer looks at the diff of the commits,
+the push in 1g sends only commits. Rebuilds that the profile section requires before
+`typecheck` and the gate — once before the gate; after each mutation — only if the section says so.
 
 ```bash
-bash ~/.claude/hooks/gate.sh fast </dev/null; echo "КОД=$?"   # stdin закрыт, иначе скрипт ждёт на cat вечно
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh" fast </dev/null; echo "EXIT=$?"   # stdin closed, otherwise the script waits on cat forever
 ```
 
-### 1f. Ревью — оркестратор запускает агента `reviewer` после отчёта исполнителя
+### 1f. Review — the orchestrator runs a `worfy:reviewer` agent after the implementer's report
 
-PR ещё нет: ревью идёт до него, по локальной ветке модуля. Как гейт в `epic-wave`: дерево модуля
-к этому моменту простаивает, проверяющий в нём один; второго агента туда не запускать, мутации —
-только на копиях в scratchpad. Линза «корректность и след по файлам». В брифе — путь дерева модуля,
-ветка ночи, дифф `git diff overnight/<дата>...HEAD` в этом дереве и отчёт исполнителя. Отчёт —
-заявление, не факт: ревьюер сам повторяет каждую проверочную команду (гейт — с правилом кодов из
-1e) и вставляет коды возврата. Контракт: находки только, `file:line`, ≤30 строк, явное «чисто».
-Каждую ссылку оркестратор перечитывает сам.
+There is no PR yet: the review comes before it, over the local module branch. As with the gate in `worfy:epic-wave`: the module tree
+is idle by this point, and there is one checker in it; do not run a second agent there, mutations —
+only on copies in the scratchpad. Lens "correctness and file footprint". The brief carries the module tree path,
+the night branch, the diff `git diff overnight/<date>...HEAD` in that tree and the implementer's report. The report is
+a claim, not a fact: the reviewer repeats every verification command itself (the gate — with the exit-code rule from
+1e) and pastes the exit codes. Contract: findings only, `file:line`, ≤30 lines, an explicit "clean".
+The orchestrator re-reads every reference itself.
 
-Есть находки — оркестратор отдаёт их тому же исполнителю через `SendMessage`: ровно один круг
-доработки (1c → 1e с коммитом, без push и без PR, новый SHA — в ответе), потом ревью заново. Второй раз не «чисто» — оркестратор
-пишет `FAILURE.md` с находками, PR не открывается, модуль из ночи выпадает.
+There are findings — the orchestrator hands them to the same implementer via `SendMessage`: exactly one round of
+rework (1c → 1e with a commit, no push and no PR, the new SHA in the answer), then review again. Not "clean" the second time — the orchestrator
+writes `FAILURE.md` with the findings, no PR is opened, the module drops out of the night.
 
-### 1g. PR в ветку ночи — только после «чисто»
+### 1g. PR into the night branch — only after "clean"
 
-Вердикт «чисто» получен — оркестратор через `SendMessage` поручает тому же исполнителю открыть PR
-(как и раньше, PR открывает агент модуля); в сообщении — вердикт ревьюера и SHA, который он
-смотрел. Исполнитель сперва сверяет `git rev-parse HEAD` с этим SHA: не совпало — PR не открывать,
-ответить оркестратору (ревью видело другой код).
+The verdict "clean" is in — the orchestrator, via `SendMessage`, tells the same implementer to open the PR
+(as before, the module's agent opens the PR); the message carries the reviewer's verdict and the SHA it
+looked at. The implementer first compares `git rev-parse HEAD` with that SHA: no match — do not open the PR,
+answer the orchestrator (the review saw different code).
 
 ```bash
-export GH_TOKEN=$(gh auth token -u <F github.account>)   # глобальный аккаунт gh не переключать
-git push -u origin overnight/<дата>-<имя>
-gh pr create --base overnight/<дата> --title "overnight(<имя>): <что укреплено>" \
+export GH_TOKEN=$(gh auth token -u <F github.account>)   # do not switch the global gh account
+git push -u origin overnight/<date>-<имя>
+gh pr create --base overnight/<date> --title "overnight(<имя>): <what was hardened>" \
   --body-file <scratchpad>/overnight/<имя>/PR.md
 ```
 
-Нет `github.account` — `gh auth status` только печатается, переключения нет.
-В теле: тесты списком, «мутации: до X из N → после Y из N», код гейта, вердикт ревьюера 1f.
-Исполнитель возвращает номер PR и на этом заканчивает: мерж — шаг оркестратора.
+No `github.account` — `gh auth status` is only printed, no switching.
+In the body: the tests as a list, "mutations: before X of N → after Y of N", the gate exit code, the 1f reviewer's verdict.
+The implementer returns the PR number and stops there: the merge is the orchestrator's step.
 
-### 1h. Мерж модуля — делает оркестратор
+### 1h. Merging the module — done by the orchestrator
 
-Проверки и мерж — тремя отдельными командами, без трубы между ними:
+Checks and merge — three separate commands, no pipe between them:
 
 ```bash
-gh pr checks <N> --watch --fail-fast; echo "КОД=$?"
-gh pr view <N> --json mergeStateStatus -q .mergeStateStatus   # CLEAN — вливать
+gh pr checks <N> --watch --fail-fast; echo "EXIT=$?"
+gh pr view <N> --json mergeStateStatus -q .mergeStateStatus   # CLEAN — merge
 gh pr merge <N> --squash --delete-branch
 ```
 
-Условие мержа — все три сразу: зелёный CI, `CLEAN` и «чисто» от ревьюера 1f (без него PR не
-открылся бы вовсе). Иначе:
+The merge condition — all three at once: green CI, `CLEAN` and "clean" from the 1f reviewer (without it the PR would not
+have been opened at all). Otherwise:
 
-- `DIRTY` — перебазировать ветку модуля на ветку ночи, прогнать гейт заново, дождаться
-  проверок, влить. Второй конфликт — `FAILURE.md`, PR остаётся открытым.
-- Красные проверки (ненулевой код `gh pr checks`) или любое другое состояние
-  (`BLOCKED`, `UNSTABLE`, `BEHIND`) — `FAILURE.md` с именем упавшей джобы, PR остаётся
-  открытым, модуль из ночи выпадает. Чинить ночью CI, зелёный локально, значит править вслепую.
+- `DIRTY` — rebase the module branch onto the night branch, run the gate again, wait for the
+  checks, merge. A second conflict — `FAILURE.md`, the PR stays open.
+- Red checks (non-zero exit of `gh pr checks`) or any other state
+  (`BLOCKED`, `UNSTABLE`, `BEHIND`) — `FAILURE.md` with the name of the failed job, the PR stays
+  open, the module drops out of the night. Fixing at night a CI that is green locally means editing blind.
 
-Ветка ночи после мержа сдвинулась: следующий модуль это не задевает, следы модулей и файлы
-тестов не пересекаются.
+The night branch has moved after the merge: this does not affect the next module, the module footprints and test
+files do not overlap.
 
-## Классы ошибок — что проверять враждебным тестом
+## Bug classes — what to check with an adversarial test
 
-Тест на каждый применимый пункт, не на выдуманное. Общие:
+A test for every applicable item, not for invented ones. General:
 
-- Дата и часовой пояс, вычисленные в приложении вместо базы; граница суток в часовом поясе проекта.
-- Регулярное выражение на `CRLF` против `LF`.
-- Планировщик за один проход делает два перехода состояния (предупредить и закрыть в
-  одном тике) — тест на ровно один переход за проход.
-- Разбор статуса из строки: регистр, пробелы, незнакомое значение.
-- Код возврата, съеденный трубой, — для скриптов модуля, если они есть.
+- Date and time zone computed in the application instead of the database; the day boundary in the project's time zone.
+- A regular expression on `CRLF` versus `LF`.
+- A scheduler makes two state transitions in one pass (warn and close in
+  one tick) — a test for exactly one transition per pass.
+- Parsing a status from a string: case, whitespace, an unknown value.
+- An exit code swallowed by a pipe — for the module's scripts, if it has any.
 
-Проектные — из раздела профиля (часовой пояс, ловушки ORM, код, который читает базу мимо схемы).
+Project-specific ones — from the profile section (time zone, ORM traps, code that reads the database bypassing the schema).
 
-## Что ломать — точки мутаций
+## What to break — mutation points
 
-Инвертировать условие ветвления; сдвинуть границу (`<` ↔ `<=`); убрать `await`; поменять
-статус в переходе на соседний; вернуть константу вместо вычисления; убрать одну ветку
-`switch`. Одна мутация — одно место — один прогон.
+Invert a branch condition; shift a boundary (`<` ↔ `<=`); remove an `await`; change
+the status in a transition to the neighbouring one; return a constant instead of a computation; remove one branch
+of a `switch`. One mutation — one place — one run.
 
-## Ночью не делать
+## Not to do at night
 
-Мерж в основную ветку и любой деплой прода; миграции и любые изменения схемы; правки вне следа
-модуля; правку чужих тест-файлов; контрактные тесты (`F commands.contract`); `push --force`;
-изменения ADR (`F docs.adr_dir`), файла состояния (`F docs.handoff.path`), `CLAUDE.md`. Нужное из
-этого списка — запись в `FAILURE.md` и утренний отчёт, работа модуля останавливается.
+Merging into the main branch and any production deploy; migrations and any schema changes; changes outside the module
+footprint; editing other test files; contract tests (`F commands.contract`); `push --force`;
+changes to ADRs (`F docs.adr_dir`), the state file (`F docs.handoff.path`), `CLAUDE.md`. Anything needed from
+this list — an entry in `FAILURE.md` and the morning report, the module's work stops.
 
-## 2. Сведение ночи — один PR в основную ветку, открытый до утра
+## 2. Integrating the night — one PR into the main branch, left open until morning
 
-Очередь пуста или вышел бюджет времени — сначала написать `OVERNIGHT-REPORT.md` (раздел 3), он же
-идёт телом PR; затем открыть PR ветки ночи и дождаться проверок:
+The queue is empty or the time budget is used up — first write `OVERNIGHT-REPORT.md` (section 3), which also
+serves as the PR body; then open the PR of the night branch and wait for the checks:
 
 ```bash
-F() { ~/.claude/bin/profile --field "$1"; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$1"; }
 BASE=$(F worktree.base) && [ "$BASE" != null ] || BASE=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
-MAIN=${BASE#origin/}                 # основная ветка — цель PR сведения
-gh pr create --base "$MAIN" --head overnight/<дата> --title "overnight <дата>: модулей <K>" \
+MAIN=${BASE#origin/}                 # the main branch — the target of the integration PR
+gh pr create --base "$MAIN" --head overnight/<date> --title "overnight <date>: <K> modules" \
   --body-file <scratchpad>/OVERNIGHT-REPORT.md
-gh pr checks <N> --watch --fail-fast; echo "КОД=$?"
+gh pr checks <N> --watch --fail-fast; echo "EXIT=$?"
 ```
 
-PR остаётся открытым. Красные проверки сведения — строка в отчёте с номером PR и упавшей джобой,
-разбор утром: чинить ночью то, что зелено помодульно, а красно вместе, значит править вслепую.
+The PR stays open. Red checks of the integration — a line in the report with the PR number and the failed job,
+triage in the morning: fixing at night what is green module by module but red together means editing blind.
 
-## 3. Утренний отчёт
+## 3. Morning report
 
-`OVERNIGHT-REPORT.md` в scratchpad-каталоге сессии: таблица по модулям, затем блок статуса.
-В таблицу — только PR с кодом гейта и `FAILURE.md` с причиной.
+`OVERNIGHT-REPORT.md` in the session's scratchpad directory: a table per module, then the status block.
+Into the table go only a PR with the gate exit code and a `FAILURE.md` with the reason.
 
-| Модуль | Тестов добавлено | Мутации до → после | PR | Влит | FAILURE |
+| Module | Tests added | Mutations before → after | PR | Merged | FAILURE |
 |---|---|---|---|---|---|
-| `<имя>` | 7 | 1 из 5 → 5 из 5 | #NNN | да | — |
+| `<имя>` | 7 | 1 of 5 → 5 of 5 | #NNN | yes | — |
 
-Человеку остаётся подтвердить мерж. После его «да» — две команды подряд, затем проверка прода
-(только если `F deploy` не `null`; иначе после мержа проверять нечего — так и сказать):
+What is left for the human is to confirm the merge. After their "yes" — two commands in a row, then the production check
+(only if `F deploy` is not `null`; otherwise there is nothing to check after the merge — say so):
 
 ```bash
-gh pr merge <N> --merge --delete-branch      # коммиты модулей раздельны; --squash, если нужен один
+gh pr merge <N> --merge --delete-branch      # module commits stay separate; --squash if one is needed
 ```
 
 ```bash
-F() { ~/.claude/bin/profile --field "$1"; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$1"; }
 BASE=$(F worktree.base) && [ "$BASE" != null ] || BASE=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
 MAIN=${BASE#origin/}
 sha=$(gh pr view <N> --json mergeCommit -q .mergeCommit.oid)
 id=$(gh run list --branch "$MAIN" --limit 10 --json databaseId,headSha \
        -q "[.[] | select(.headSha==\"$sha\")][0].databaseId")
-gh run watch "$id" --exit-status; echo "КОД=$?"      # в этом CI run деплой — F deploy.how
-got=$(<F deploy.production_check>); echo "КОД=$? commit=$got sha=$sha"
+gh run watch "$id" --exit-status; echo "EXIT=$?"      # the deploy in this CI run — F deploy.how
+got=$(<F deploy.production_check>); echo "EXIT=$? commit=$got sha=$sha"
 ```
 
-Ожидание — `F deploy.production_expect`: ненулевой `КОД`, пустой `commit` или `commit` не равен
-`$sha` — прод «не проверен», так и пишется. Пароль стенда не идёт в аргументы команды — только так,
-как это делает `F deploy.production_check`.
+The expectation is `F deploy.production_expect`: a non-zero `EXIT`, an empty `commit` or a `commit` not equal to
+`$sha` — production is "not verified", and that is what gets written. The environment's password never goes into command arguments — only the way
+`F deploy.production_check` does it.
 
-    — Этап: вне эпиков (ночной прогон)
-    — Сейчас: <модулей влито в ветку ночи, сколько в FAILURE, состояние PR сведения>
-    — Дальше: подтвердить мерж PR #<N>
-    — Жду: «да» на мерж в основную ветку или разбор FAILURE
+    — Этап: outside epics (overnight run)
+    — Сейчас: <modules merged into the night branch, how many in FAILURE, state of the integration PR>
+    — Дальше: confirm the merge of PR #<N>
+    — Жду: a "yes" to the merge into the main branch, or a triage of FAILURE
 
-## Запуск без терминала (не проверено)
+The four labels are what worfy parses; the values are in `F language.reports`.
 
-Без человека у терминала любой запрос разрешения останавливает `-p`, а `--permission-mode dontAsk` отвечает
-на него отказом — тот же стоп; поэтому `--dangerously-skip-permissions`. Потолок — деньгами: флага на число ходов у `claude` нет.
-Запускать из корня проекта: по нему `profile` находит профиль.
+## Running without a terminal (not verified)
+
+With no human at the terminal any permission request stops `-p`, and `--permission-mode dontAsk` answers
+it with a refusal — the same stop; hence `--dangerously-skip-permissions`. The ceiling is money: `claude` has no flag for the number of turns.
+Run from the project root: that is how `profile` finds the profile.
 
 ```bash
-cd <корень проекта> && claude -p "/overnight-fix-loop <каталог модуля> <каталог модуля> до 06:30" \
+cd <project root> && claude -p "/worfy:overnight-fix-loop <module dir> <module dir> until 06:30" \
   --dangerously-skip-permissions --max-budget-usd 40
 ```

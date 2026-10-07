@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# SessionEnd: отмечает, что сессия проекта закончилась без ретроспективы, чтобы
-# hooks/session-start.sh напомнил о /retro (порог — session.retro_reminder_after профиля).
+# SessionEnd: records that a project session ended without a retrospective, so that
+# hooks/session-start.sh reminds about /retro (the threshold is the profile's session.retro_reminder_after).
 #
-# Проект — ~/.claude/bin/profile по каталогу сессии (поле `cwd` из JSON хука, иначе $PWD).
-# Пишет только для профиля с полем session.retro_reminder_after: строка «время<TAB>каталог»
-# в <профиль>/state/pending-retro.log (каталог state/ не в git). Очищает журнал скилл /retro.
-# Остальное — ничего, код 0. В репозитории ничего не пишется.
+# The project is found by bin/profile of this plugin from the session directory (the `cwd` field of the hook JSON, else $PWD).
+# Writes only for a profile with the session.retro_reminder_after field: a line "time<TAB>directory"
+# into <profile>/state/pending-retro.log (the state/ directory is not in git). The /retro skill clears the log.
+# Otherwise nothing, code 0. Nothing is written into the repository.
 #
-# Для тестов: CLAUDE_PROFILE_BIN, CLAUDE_GATE_CONFIG, CLAUDE_PROFILES_DIR — как у session-start.sh.
+# For tests: CLAUDE_PROFILE_BIN, CLAUDE_GATE_CONFIG, CLAUDE_PROFILES_DIR — as with session-start.sh.
 
 set -uo pipefail
 
@@ -19,7 +19,8 @@ fi
 PATH="/opt/homebrew/bin:$PATH"
 export PATH
 
-PROFILE_BIN="${CLAUDE_PROFILE_BIN:-$HOME/.claude/bin/profile}"
+# bin/profile of this plugin: the folder above hooks/, found from this script's real file.
+PROFILE_BIN="${CLAUDE_PROFILE_BIN:-$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/.." && pwd -P)/bin/profile}"
 
 input=""
 [ -t 0 ] || input="$(cat 2>/dev/null || true)"

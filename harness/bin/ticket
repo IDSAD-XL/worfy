@@ -1,41 +1,42 @@
 #!/usr/bin/env node
-// ticket — механический перевод статуса тикета. Пишет ОДНУ каноническую строку,
-// чтобы поле Status перестало вестись руками в четырёх разных написаниях.
+// ticket — mechanical change of a ticket's status. Writes ONE canonical line,
+// so that the Status field stops being kept by hand in four different spellings.
 //
-//   ticket done  <эпик> <NN> [--pr N]   Status: done — 2026-08-27, [PR #N](…)
-//   ticket claim <эпик> <NN>            Status: claimed — 2026-08-27
-//   ticket open  <эпик> <NN>            Status: open
-//   ticket block <эпик> <NN> <причина>  Status: blocked — <причина>
-//   ticket show  <эпик> <NN>            показать текущую строку, файл не трогать
-//   ticket root                         напечатать корень тикетов (каталог эпиков) и выйти
+//   ticket done  <epic> <NN> [--pr N]   Status: done — 2026-08-27, [PR #N](…)
+//   ticket claim <epic> <NN>            Status: claimed — 2026-08-27
+//   ticket open  <epic> <NN>            Status: open
+//   ticket block <epic> <NN> <reason>   Status: blocked — <reason>
+//   ticket show  <epic> <NN>            show the current line, do not touch the file
+//   ticket root                         print the tickets root (the directory of epics) and exit
 //
-// Корень тикетов (каталог, где лежат <эпик>/issues/): --root <каталог>, иначе
-// поле tickets.root профиля проекта (~/.claude/bin/profile), иначе, как раньше,
-// <git top-level или текущий каталог>/.scratch. Правила пути — в profiles/README.md
-// (поле tickets.root); epic-status и epic-board берут корень отсюда же.
+// Tickets root (the directory holding <epic>/issues/): --root <dir>, otherwise
+// the tickets.root field of the project's profile (bin/profile next to this script), otherwise, as before,
+// <git top-level or the current directory>/.scratch. The path rules are in profiles/README.md
+// (the tickets.root field); epic-status and epic-board take the root from here too.
 //
-// Эпик и номер можно писать через слэш: ticket done disputes/03
-// Флаг -n печатает будущую строку и не записывает. Флаги распознаются в любой
-// позиции, поэтому причина у block не должна содержать отдельный токен «-n».
+// Epic and number can be written with a slash: ticket done disputes/03
+// The -n flag prints the future line and does not write it. Flags are recognised in any
+// position, so a block reason must not contain a separate token "-n".
 //
-// Написание поля НЕ навязывается: если строка Status уже есть, её префикс
-// (`**Status:**` или `Status:`) сохраняется — меняется только значение. Так
-// инструмент не воюет с шаблонами /to-tickets и /wayfinder.
+// The field's spelling is NOT imposed: if a Status line already exists, its prefix
+// (`**Status:**` or `Status:`) is kept — only the value changes. This way
+// the tool does not fight the /to-tickets and /wayfinder templates.
 
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
+import { fileURLToPath } from "node:url"
 
 const die = (msg) => {
     process.stderr.write(msg + "\n")
     process.exit(1)
 }
 
-const USAGE = `usage: ticket <done|claim|open|block|show> <эпик> <NN> [--pr N] [-n] [--root <каталог>]
-       ticket root [--root <каталог>]
+const USAGE = `usage: ticket <done|claim|open|block|show> <epic> <NN> [--pr N] [-n] [--root <dir>]
+       ticket root [--root <dir>]
        ticket done disputes/03 --pr 42
-       ticket block disputes 04 «ждёт ADR-0045»`
+       ticket block disputes 04 "waits for ADR-0045"`
 
 const git = (args) => {
     try {
@@ -45,7 +46,7 @@ const git = (args) => {
     }
 }
 
-// --- аргументы --------------------------------------------------------------
+// --- arguments --------------------------------------------------------------
 const argv = process.argv.slice(2)
 let dryRun = false
 let pr = null
@@ -56,48 +57,49 @@ for (let i = 0; i < argv.length; i++) {
     if (a === "-n") dryRun = true
     else if (a === "--pr") {
         pr = argv[++i]
-        if (pr === undefined) die("--pr ждёт номер")
+        if (pr === undefined) die("--pr needs a number")
     } else if (a.startsWith("--pr=")) pr = a.slice(5)
     else if (a === "--root") {
         rootArg = argv[++i]
-        if (!rootArg) die("--root ждёт каталог")
+        if (!rootArg) die("--root needs a directory")
     } else if (a.startsWith("--root=")) {
         rootArg = a.slice(7)
-        if (!rootArg) die("--root ждёт каталог")
+        if (!rootArg) die("--root needs a directory")
     }
-    else if (a.startsWith("-")) die(`неизвестный флаг: ${a}\n${USAGE}`)
+    else if (a.startsWith("-")) die(`unknown flag: ${a}\n${USAGE}`)
     else positional.push(a)
 }
 
 const [cmd, ...where] = positional
 if (!cmd || !["done", "claim", "open", "block", "show", "root"].includes(cmd)) die(USAGE)
 
-// --- корень тикетов ---------------------------------------------------------
-// Профиль спрашиваем всегда, а не только вне git: у Atakama тикеты лежат в общем
-// каталоге над тремя репозиториями, и из любого из них git top-level указал бы
-// не туда. Код 3 (каталог не зарегистрирован) и пустое поле — прежнее поведение.
-// Сломанный реестр или профиль (код 1) — отказ: тихий откат на git top-level
-// записал бы статус не в тот файл.
-const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(os.homedir(), ".claude", "bin", "profile")
-// Логический каталог запуска, как у $PWD в shell: process.cwd() раскрывает симлинки
-// (/tmp → /private/tmp), и сообщения вне git расходились бы с прежними.
+// --- tickets root -----------------------------------------------------------
+// The profile is always asked, not only outside git: Atakama's tickets live in a common
+// directory above three repositories, and from any of them git top-level would point
+// to the wrong place. Exit 3 (directory not registered) and an empty field — the old behaviour.
+// A broken registry or profile (exit 1) — refusal: a silent fallback to git top-level
+// would write the status into the wrong file.
+// profile is the script next to this one (the folder of its real file, not of a symlink).
+const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(path.dirname(fs.realpathSync(fileURLToPath(import.meta.url))), "profile")
+// The logical launch directory, like $PWD in a shell: process.cwd() resolves symlinks
+// (/tmp → /private/tmp), and messages outside git would differ from the old ones.
 function launchDir() {
     const cwd = process.cwd()
     const pwd = process.env.PWD
     try {
         if (pwd && path.isAbsolute(pwd) && fs.realpathSync(pwd) === fs.realpathSync(cwd)) return pwd
     } catch {
-        /* $PWD устарел — берём cwd */
+        /* $PWD is stale — take cwd */
     }
     return cwd
 }
 function ticketsRoot() {
     const top = git(["rev-parse", "--show-toplevel"])
-    // Для `ticket root` (его зовёт epic-status) — логический каталог, как раньше у
-    // epic-status; для правки тикета — process.cwd(), как раньше у ticket.
+    // For `ticket root` (epic-status calls it) — the logical directory, as epic-status
+    // used before; for editing a ticket — process.cwd(), as ticket used before.
     const here = cmd === "root" ? launchDir() : process.cwd()
-    // Явный --root — от process.cwd() у всех команд: `ticket root --root ../x` (его
-    // зовёт epic-status) и `ticket claim --root ../x` должны указывать в один каталог.
+    // An explicit --root is taken from process.cwd() for every command: `ticket root --root ../x` (epic-status
+    // calls it) and `ticket claim --root ../x` must point to the same directory.
     if (rootArg !== null) return path.resolve(process.cwd(), rootArg)
     let prof = null
     try {
@@ -108,7 +110,7 @@ function ticketsRoot() {
         if (e.code === "ENOENT" || e.status === 3) prof = null
         else {
             const why = String(e.stderr || e.message || "").split("\n")[0].trim()
-            die(`профиль проекта не прочитан (${PROFILE}, код ${e.status ?? e.code}): ${why}\nукажи корень тикетов явно: --root <каталог>`)
+            die(`project profile not read (${PROFILE}, exit ${e.status ?? e.code}): ${why}\ngive the tickets root explicitly: --root <dir>`)
         }
     }
     const field = prof?.tickets?.root
@@ -116,18 +118,18 @@ function ticketsRoot() {
     let r = field.trim()
     if (r === "~" || r.startsWith("~/")) r = path.join(os.homedir(), r.slice(1))
     if (path.isAbsolute(r)) return path.resolve(r)
-    // Относительный — от корня текущего рабочего дерева: тикеты едут в ветке, и
-    // у worktree они свои. Вне git — от общего каталога профиля, иначе от cwd.
+    // A relative one is taken from the root of the current working tree: tickets travel with the branch, and
+    // a worktree has its own. Outside git — from the profile's common directory, otherwise from cwd.
     return path.resolve(top || prof?._resolved?.workspace || here, r)
 }
 const scratch = ticketsRoot()
 if (cmd === "root") {
-    if (where.length) die(`лишние аргументы: ${where.join(" ")}\n${USAGE}`)
+    if (where.length) die(`extra arguments: ${where.join(" ")}\n${USAGE}`)
     console.log(scratch)
     process.exit(0)
 }
 
-// эпик и номер: «disputes 03» или «disputes/03»; остаток — причина для block
+// epic and number: "disputes 03" or "disputes/03"; the rest is the reason for block
 let epic, num, reason
 if (where[0]?.includes("/")) {
     ;[epic, num] = where[0].split("/")
@@ -137,46 +139,46 @@ if (where[0]?.includes("/")) {
     reason = where.slice(2).join(" ").replace(/\s+/g, " ").trim()
 }
 if (!epic || !num) die(USAGE)
-if (/[/\\]/.test(epic) || epic === "." || epic === "..") die(`имя эпика — один каталог в .scratch, получил «${epic}»`)
-if (cmd !== "block" && reason) die(`лишние аргументы: ${reason}\n${USAGE}`)
-if (!/^\d+$/.test(String(num).trim())) die(`номер тикета ждёт цифры, получил «${num}»`)
+if (/[/\\]/.test(epic) || epic === "." || epic === "..") die(`an epic name is one directory in .scratch, got "${epic}"`)
+if (cmd !== "block" && reason) die(`extra arguments: ${reason}\n${USAGE}`)
+if (!/^\d+$/.test(String(num).trim())) die(`a ticket number needs digits, got "${num}"`)
 const n = Number(num)
 
-// --- файл тикета ------------------------------------------------------------
-// Пути в выводе — от каталога над корнем тикетов: «.scratch/<эпик>/issues/…».
+// --- ticket file ------------------------------------------------------------
+// Paths in the output are relative to the directory above the tickets root: ".scratch/<epic>/issues/…".
 const root = path.dirname(scratch)
 const issuesDir = path.join(scratch, epic, "issues")
-if (!fs.existsSync(issuesDir)) die(`нет эпика «${epic}»: ${issuesDir}`)
+if (!fs.existsSync(issuesDir)) die(`no epic "${epic}": ${issuesDir}`)
 
 const matches = fs.readdirSync(issuesDir).filter((f) => f.endsWith(".md") && new RegExp(`^0*${n}-`).test(f))
-if (!matches.length) die(`нет тикета ${n} в ${epic}`)
-if (matches.length > 1) die(`номер ${n} в ${epic} неоднозначен: ${matches.join(", ")}`)
+if (!matches.length) die(`no ticket ${n} in ${epic}`)
+if (matches.length > 1) die(`number ${n} in ${epic} is ambiguous: ${matches.join(", ")}`)
 const file = path.join(issuesDir, matches[0])
 
-// Тикеты очереди фиксов лежат в `.scratch/research-triage/fixes/`, а в каталоге
-// эпика на них стоят символические ссылки. Запись шла через rename поверх ссылки
-// и заменяла её обычным файлом: Status уезжал в копию, источник оставался
-// прежним, и дальше расходились два файла с одним именем (три случая за ночь
-// 2026-09-09 — тикеты 29, 31, 33). Пишем по адресу ссылки: и ссылка цела, и
-// Status один. Отсутствующая цель — ошибка ссылки, а не тикета, поэтому её
-// называем прямо.
+// Tickets of the fix queue live in `.scratch/research-triage/fixes/`, and the epic's
+// directory holds symbolic links to them. Writing went through rename over the link
+// and replaced it with a regular file: Status went into the copy, the source stayed
+// as it was, and from then on two files with the same name diverged (three cases in one night,
+// 2026-09-09 — tickets 29, 31, 33). We write to the link's target: the link stays intact, and
+// there is one Status. A missing target is an error of the link, not of the ticket, so we
+// name it directly.
 let target
 try {
     target = fs.realpathSync(file)
 } catch (e) {
-    die(`не разобрал путь ${path.relative(root, file)}: ${e.message}`)
+    die(`could not resolve the path ${path.relative(root, file)}: ${e.message}`)
 }
 const viaLink = target !== file
 
-// --- чтение с сохранением формы файла ---------------------------------------
+// --- reading while keeping the file's shape ----------------------------------
 let raw = fs.readFileSync(target, "utf8")
 const bom = raw.startsWith("﻿") ? "﻿" : ""
 if (bom) raw = raw.slice(1)
 const eol = raw.includes("\r\n") ? "\r\n" : "\n"
 const lines = raw.split(/\r?\n/)
 
-// Префикс поля разбирается двумя вариантами, а не одним: у `Status: **open**`
-// звёздочки принадлежат значению, а у `**Status:**` — префиксу.
+// The field prefix is parsed with two variants, not one: in `Status: **open**`
+// the asterisks belong to the value, and in `**Status:**` to the prefix.
 const STATUS_BOLD = /^(\*\*Status\b[ \t]*\*{0,2}[ \t]*:[ \t]*\*{0,2}[ \t]*)(.*)$/i
 const STATUS_PLAIN = /^(Status\b[ \t]*:[ \t]*)(.*)$/i
 const statusOf = (l) => l.match(STATUS_BOLD) || l.match(STATUS_PLAIN)
@@ -185,24 +187,24 @@ const FIELD_LINE = /^(\*{0,2})(Type|Status|Blocked by|Source|What to build)\b/i
 const statusIdx = lines.reduce((last, l, i) => (statusOf(l) ? i : last), -1)
 
 if (cmd === "show") {
-    if (statusIdx === -1) die(`${matches[0]}: строки Status нет`)
+    if (statusIdx === -1) die(`${matches[0]}: no Status line`)
     console.log(`${matches[0]}:${statusIdx + 1}  ${lines[statusIdx].trim()}`)
     process.exit(0)
 }
 
-// --- новое значение ---------------------------------------------------------
+// --- new value --------------------------------------------------------------
 const today = new Date().toISOString().slice(0, 10)
 
 const prLink = () => {
     if (pr === null) return ""
     const num = String(pr).replace(/\D/g, "")
-    if (!num) die(`--pr ждёт номер, получил «${pr}»`)
+    if (!num) die(`--pr needs a number, got "${pr}"`)
     const repo = git(["remote", "get-url", "origin"]).match(/github\.com[:/](.+?)(?:\.git)?$/)?.[1]
     return repo ? `, [PR #${num}](https://github.com/${repo}/pull/${num})` : `, PR #${num}`
 }
 
-if (cmd === "block" && !reason) die(`block ждёт причину:\n${USAGE}`)
-if (pr !== null && cmd !== "done") die(`--pr бывает только у done, не у ${cmd}`)
+if (cmd === "block" && !reason) die(`block needs a reason:\n${USAGE}`)
+if (pr !== null && cmd !== "done") die(`--pr goes only with done, not with ${cmd}`)
 const value = {
     done: () => `done — ${today}${prLink()}`,
     claim: () => `claimed — ${today}`,
@@ -210,7 +212,7 @@ const value = {
     block: () => `blocked — ${reason}`,
 }[cmd]()
 
-// --- правка -----------------------------------------------------------------
+// --- edit -------------------------------------------------------------------
 let before = null
 let at
 if (statusIdx !== -1) {
@@ -218,8 +220,8 @@ if (statusIdx !== -1) {
     lines[statusIdx] = statusOf(before)[1] + value
     at = statusIdx
 } else {
-    // Поля нет — вставляем в шапку следом за последним полем, а если полей нет,
-    // то за заголовком. Написание берём у соседей.
+    // No field — insert into the header right after the last field, and if there are no fields,
+    // after the heading. The spelling is taken from the neighbours.
     const headEnd = lines.slice(0, 25).reduce((last, l, i) => (FIELD_LINE.test(l) ? i : last), -1)
     const bold = headEnd !== -1 && lines[headEnd].match(FIELD_LINE)[1] === "**"
     const line = bold ? `**Status:** ${value}` : `Status: ${value}`
@@ -228,21 +230,21 @@ if (statusIdx !== -1) {
     if (headEnd !== -1) [at, insert] = [headEnd + 1, [line]]
     else if (lines[0]?.startsWith("#")) [at, insert] = [1, ["", line]]
     else [at, insert] = [0, [line]]
-    // Вставка не должна склеиваться со следующим разделом.
+    // The insertion must not merge with the next section.
     if (lines[at] !== undefined && lines[at].trim() !== "") insert.push("")
     lines.splice(at, 0, ...insert)
     at += insert.indexOf(line)
 }
 
-console.log(`${path.relative(root, target)}:${at + 1}${viaLink ? `  (по ссылке ${path.relative(root, file)})` : ""}`)
-if (before !== null) console.log(`  было:  ${before.trim()}`)
-console.log(`  стало: ${lines[at].trim()}`)
+console.log(`${path.relative(root, target)}:${at + 1}${viaLink ? `  (via link ${path.relative(root, file)})` : ""}`)
+if (before !== null) console.log(`  was: ${before.trim()}`)
+console.log(`  now: ${lines[at].trim()}`)
 if (dryRun) {
-    console.log("  (-n: файл не тронут)")
+    console.log("  (-n: file not touched)")
     process.exit(0)
 }
 
-// Запись через временный файл: обрыв на полуслове не оставит обрезанный тикет.
+// Writing through a temporary file: an interruption mid-write will not leave a truncated ticket.
 const tmp = `${target}.ticket.tmp`
 try {
     fs.writeFileSync(tmp, bom + lines.join(eol))
@@ -251,7 +253,7 @@ try {
     try {
         fs.unlinkSync(tmp)
     } catch {
-        /* временного файла может и не быть */
+        /* the temporary file may not exist */
     }
-    die(`не записал ${path.relative(root, target)}: ${e.message}`)
+    die(`could not write ${path.relative(root, target)}: ${e.message}`)
 }

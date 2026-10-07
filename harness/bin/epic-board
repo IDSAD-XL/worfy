@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-// epic-board — снимок всех эпиков и тикетов одной страницей.
+// epic-board — a snapshot of all epics and tickets on one page.
 //
 //   epic-board [--days N] [--no-open] [--out FILE]
 //
-// Правда о тикетах живёт в .scratch/<эпик>/issues/NN-slug.md и лежит В ВЕТКЕ, а веток
-// у репозитория под сотню. Поэтому:
-//   • читатель формата один и он снаружи — epic-status --json --ref <ref>;
-//   • сам epic-board тоже живёт вне репозитория (~/.claude/bin): инструмент, читающий
-//     ЧЕРЕЗ ветки, не может лежать В ветке — иначе у него столько же версий, сколько веток;
-//   • main — база («что действительно есть»), ветка — пометка («обещание»).
+// The truth about tickets lives in .scratch/<epic>/issues/NN-slug.md and sits IN THE BRANCH, and the repository
+// has close to a hundred branches. Therefore:
+//   • there is one reader of the format and it is outside — epic-status --json --ref <ref>;
+//   • epic-board itself also lives outside the project's repository (the plugin's bin/): a tool that reads
+//     ACROSS branches cannot sit IN a branch — otherwise it has as many versions as there are branches;
+//   • main is the base ("what really exists"), a branch is a mark ("a promise").
 'use strict';
 const { execFileSync, execFile } = require('child_process');
 const fs = require('fs');
@@ -16,31 +16,33 @@ const os = require('os');
 const path = require('path');
 
 const argv = process.argv.slice(2);
-// argv[i+1] у флага последним — undefined, а не default: --days в хвосте молча
-// давал NaN и отбрасывал все ветки, --out в хвосте ронял path.dirname.
+// argv[i+1] of a flag that comes last is undefined, not the default: a trailing --days silently
+// gave NaN and dropped all branches, a trailing --out crashed path.dirname.
 const opt = (name, def) => {
   const i = argv.indexOf(name);
   if (i < 0) return def;
   const v = argv[i + 1];
-  if (v === undefined || v.startsWith('--')) die(`${name} без значения`);
+  if (v === undefined || v.startsWith('--')) die(`${name} without a value`);
   return v;
 };
 const die = m => { process.stderr.write('epic-board: ' + m + '\n'); process.exit(2); };
 const DAYS = Number(opt('--days', 14));
-if (!Number.isFinite(DAYS) || DAYS < 0) die('--days ждёт неотрицательное число');
-const OUT = opt('--out', path.join(os.homedir(), '.claude', 'state', 'epic-board.html'));
+if (!Number.isFinite(DAYS) || DAYS < 0) die('--days needs a non-negative number');
+// The snapshot is Harness state on this machine: $HARNESS_HOME/state (ADR-0040 item 5).
+const HARNESS_HOME = process.env.HARNESS_HOME || path.join(os.homedir(), '.claude', 'worfy-harness');
+const OUT = opt('--out', path.join(HARNESS_HOME, 'state', 'epic-board.html'));
 const NO_OPEN = argv.includes('--no-open');
 const BASE = 'main';
 
 const git = (...a) => execFileSync('git', a, { encoding: 'utf8', maxBuffer: 1 << 28 }).trim();
 
-// ── какие ветки читать ───────────────────────────────────────────────────────
-// Не влитые в main и с активностью за DAYS дней. Ветка — не единица показа:
-// единица показа — тикет, а ветки становятся его пометками.
+// ── which branches to read ───────────────────────────────────────────────────
+// Not merged into main and with activity within DAYS days. A branch is not the unit of display:
+// the unit of display is the ticket, and branches become its marks.
 function pickRefs() {
-  // Без main вся модель «база плюс обещания» лишена базы — это отказ, а не пустая страница.
+  // Without main the whole "base plus promises" model has no base — that is a refusal, not an empty page.
   try { git('rev-parse', '--verify', '--quiet', BASE + '^{commit}'); }
-  catch { die(`нет ветки ${BASE} — не от чего считать базу`); }
+  catch { die(`no branch ${BASE} — nothing to count the base from`); }
   const notMerged = new Set(
     git('branch', '--no-merged', BASE, '--format=%(refname:short)').split('\n').filter(Boolean));
   const now = Date.now() / 1000;
@@ -53,16 +55,18 @@ function pickRefs() {
   return [BASE, ...live];
 }
 
-const EPIC_STATUS = path.join(os.homedir(), '.claude', 'bin', 'epic-status');
-// Корень тикетов один на все ветки — спрашиваем его раз (профиль проекта, иначе
-// <git top-level>/.scratch) и передаём каждому epic-status, а не резолвим профиль
-// заново на каждую из сотни веток.
+// The scripts next to this one: the folder of its real file, not of a symlink to it.
+const BIN = path.dirname(fs.realpathSync(__filename));
+const EPIC_STATUS = path.join(BIN, 'epic-status');
+// The tickets root is the same for all branches — we ask for it once (the project's profile, otherwise
+// <git top-level>/.scratch) and pass it to every epic-status, instead of resolving the profile
+// again for each of a hundred branches.
 let TICKETS_ROOT;
 try {
-  TICKETS_ROOT = execFileSync(path.join(os.homedir(), '.claude', 'bin', 'ticket'), ['root'],
+  TICKETS_ROOT = execFileSync(path.join(BIN, 'ticket'), ['root'],
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 } catch (e) {
-  die(`корень тикетов не определён: ${String(e.stderr || e.message).split('\n')[0]}`);
+  die(`tickets root not determined: ${String(e.stderr || e.message).split('\n')[0]}`);
 }
 
 function readRef(ref) {
@@ -70,7 +74,7 @@ function readRef(ref) {
     execFile(EPIC_STATUS, ['--json', '--ref', ref, '--root', TICKETS_ROOT], { maxBuffer: 1 << 28 }, (err, stdout) => {
       if (err) return resolve({ ref, epics: [], tickets: [], error: String(err.message || err) });
       try { resolve(JSON.parse(stdout)); }
-      catch (e) { resolve({ ref, epics: [], tickets: [], error: 'нечитаемый JSON: ' + e.message }); }
+      catch (e) { resolve({ ref, epics: [], tickets: [], error: 'unreadable JSON: ' + e.message }); }
     });
   });
 }
@@ -84,7 +88,7 @@ async function pool(items, n, fn) {
   return out;
 }
 
-// ── слияние ──────────────────────────────────────────────────────────────────
+// ── merge ────────────────────────────────────────────────────────────────────
 const key = t => t.epic + '/' + t.num;
 const DONE = 'done';
 
@@ -99,7 +103,7 @@ function merge(snapshots) {
   const mainEpics = new Set(base.epics.map(e => e.epic));
   const epicMeta = new Map(base.epics.map(e => [e.epic, { ...e, onMain: true, refs: new Set([base.ref]) }]));
 
-  // Тикет — единица показа. У каждого: правда main (если есть) и пометки веток.
+  // The ticket is the unit of display. Each has: main's truth (if any) and branch marks.
   const rows = new Map();
   for (const t of mainTickets.values()) rows.set(key(t), { ...t, onMain: true, ahead: [], onlyIn: [] });
 
@@ -118,13 +122,13 @@ function merge(snapshots) {
       seen.add(k);
       let row = rows.get(k);
       if (!row) {
-        // Тикета нет на main: он существует только в ветках — это обещание, не факт.
+        // The ticket is not on main: it exists only in branches — a promise, not a fact.
         row = { ...t, onMain: false, state: 'none', statusRaw: null, ahead: [], onlyIn: [] };
         rows.set(k, row);
       }
       if (row.onMain) {
-        // «Ушёл вперёд» = состояние в ветке ОТЛИЧАЕТСЯ от main. Не «продвинутее»:
-        // blocked и claimed на одной шкале не сравнимы, порядка между ними в домене нет.
+        // "Moved ahead" = the state in the branch DIFFERS from main. Not "more advanced":
+        // blocked and claimed are not comparable on one scale, the domain has no order between them.
         if (t.state !== row.state) row.ahead.push({ ref: snap.ref, state: t.state, statusRaw: t.statusRaw });
       } else {
         row.onlyIn.push({ ref: snap.ref, state: t.state, statusRaw: t.statusRaw, title: t.title });
@@ -133,8 +137,8 @@ function merge(snapshots) {
     }
   }
 
-  // Для тикета вне main видимое состояние — самое свежее из веток (они отсортированы
-  // по времени коммита), но это по-прежнему помечено как «не на main».
+  // For a ticket outside main the visible state is the freshest of the branches (they are sorted
+  // by commit time), but it is still marked as "not on main".
   for (const row of rows.values()) {
     if (!row.onMain && row.onlyIn.length) {
       row.state = row.onlyIn[0].state;
@@ -142,22 +146,22 @@ function merge(snapshots) {
     }
   }
 
-  // Разблокированность считается по видимому состоянию блокеров того же эпика.
+  // Being unblocked is computed from the visible state of the blockers in the same epic.
   const stateOf = k => (rows.get(k) ? rows.get(k).state : null);
   for (const row of rows.values()) {
     if (!row.blockedParsed) { row.ready = null; row.waiting = []; row.unknown = []; continue; }
     row.waiting = []; row.unknown = [];
     for (const n of row.blockedNums) {
       const st = stateOf(row.epic + '/' + n);
-      // Блокера с таким номером в эпике нет. Молча считать его выполненным значит
-      // объявить тикет готовым по опечатке в номере — поэтому он держит блокировку.
+      // There is no blocker with this number in the epic. Silently counting it as done would mean
+      // declaring the ticket ready because of a typo in the number — so it keeps the block.
       if (st === null) row.unknown.push(n);
       else if (st !== DONE) row.waiting.push(n);
     }
     row.ready = row.waiting.length === 0 && row.unknown.length === 0;
   }
 
-  // Эпики. Прогресс — по main (сделанное), стадия — по объединению (процесс идёт в ветке).
+  // Epics. Progress is by main (what is done), the stage is by the union (the process goes on in the branch).
   const epics = [];
   for (const [name, meta] of epicMeta) {
     const all = [...rows.values()].filter(r => r.epic === name)
@@ -183,19 +187,19 @@ function stageOf(all, meta) {
   if (!all.length) return meta.hasSpec ? '/to-spec' : meta.hasMap ? '/wayfinder' : '—';
   const done = all.filter(r => r.state === DONE).length;
   const busy = all.some(r => r.state === 'work' || r.state === 'blocked');
-  if (done === all.length) return 'закрыт';
+  if (done === all.length) return 'closed';
   if (busy || done > 0) return '/implement';
   return '/to-tickets';
 }
 
-// ── страница ─────────────────────────────────────────────────────────────────
+// ── page ─────────────────────────────────────────────────────────────────────
 const esc = s => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-const STATE_RU = { done: 'выкачен', work: 'в работе', blocked: 'заблокирован', open: 'открыт', none: 'без Status' };
+const STATE_RU = { done: 'shipped', work: 'in progress', blocked: 'blocked', open: 'open', none: 'no Status' };
 
-// Часть заголовков начинается с собственного номера («17 — Уборка после вертикали»).
-// Рядом с колонкой номера это удвоение, а не информация.
+// Some titles start with their own number ("17 — Cleanup after the vertical").
+// Next to the number column that is duplication, not information.
 function shortTitle(t) {
   const pad = String(t.num).padStart(2, '0');
   return String(t.title || '').replace(new RegExp('^(?:' + pad + '|' + t.num + ')(?:\\s+[—–-]\\s+|\\s*[—–]\\s*)'), '');
@@ -208,19 +212,19 @@ function ticketHtml(t) {
   if (!t.onMain) cls.push('offmain');
   const bits = [];
   if (t.ready === null && t.blockedRaw === null) {
-    bits.push(`<span class="chip warn">нет поля Blocked by</span>`);
+    bits.push(`<span class="chip warn">no Blocked by field</span>`);
   } else if (t.ready === null) {
-    bits.push(`<span class="chip warn" title="${esc(t.blockedRaw)}">блокировка не разобрана</span>`);
+    bits.push(`<span class="chip warn" title="${esc(t.blockedRaw)}">blockers not parsed</span>`);
   } else if (t.unknown.length) {
-    bits.push(`<span class="chip warn" title="${esc(t.blockedRaw)}">блокер ${t.unknown.map(n => String(n).padStart(2, '0')).join(', ')} не найден</span>`);
+    bits.push(`<span class="chip warn" title="${esc(t.blockedRaw)}">blocker ${t.unknown.map(n => String(n).padStart(2, '0')).join(', ')} not found</span>`);
   } else if (t.waiting.length) {
-    bits.push(`<span class="chip wait">ждёт ${t.waiting.map(n => String(n).padStart(2, '0')).join(', ')}</span>`);
+    bits.push(`<span class="chip wait">waits for ${t.waiting.map(n => String(n).padStart(2, '0')).join(', ')}</span>`);
   } else if (t.state !== 'done') {
-    bits.push(`<span class="chip go">разблокирован</span>`);
+    bits.push(`<span class="chip go">unblocked</span>`);
   }
-  // Пометки схлопываются по состоянию: один тикет живёт в десятках веток одного
-  // семейства, и шестьдесят чипов «в работе» — это не сигнал, а стена.
-  // Ветки отсортированы по свежести, поэтому в чип идёт самая свежая.
+  // Marks are collapsed by state: one ticket lives in dozens of branches of one
+  // family, and sixty "in progress" chips are not a signal but a wall.
+  // Branches are sorted by freshness, so the freshest goes into the chip.
   const byState = new Map();
   for (const a of t.ahead) {
     if (!byState.has(a.state)) byState.set(a.state, []);
@@ -229,15 +233,15 @@ function ticketHtml(t) {
   for (const [st, list] of byState) {
     const more = list.length > 1 ? ` +${list.length - 1}` : '';
     const title = list.map(a => a.ref + (a.statusRaw ? ' — ' + a.statusRaw : '')).join('\n');
-    bits.push(`<span class="chip br" title="${esc(title)}">${esc(STATE_RU[st] || st)} в ветке ${esc(list[0].ref)}${esc(more)}</span>`);
+    bits.push(`<span class="chip br" title="${esc(title)}">${esc(STATE_RU[st] || st)} in branch ${esc(list[0].ref)}${esc(more)}</span>`);
   }
   if (!t.onMain) {
     const more = t.onlyIn.length > 1 ? ` +${t.onlyIn.length - 1}` : '';
     const title = t.onlyIn.map(o => o.ref + (o.statusRaw ? ' — ' + o.statusRaw : '')).join('\n');
-    bits.push(`<span class="chip off" title="${esc(title)}">только в ветке ${esc(t.onlyIn[0].ref)}${esc(more)}</span>`);
+    bits.push(`<span class="chip off" title="${esc(title)}">only in branch ${esc(t.onlyIn[0].ref)}${esc(more)}</span>`);
   }
-  // «Разблокирован» = можно брать в работу. Выкаченный тикет формально ничем не
-  // заблокирован, но брать его нельзя, и в фильтре он был бы шумом на 140 строк.
+  // "Unblocked" = can be taken into work. A shipped ticket is formally not blocked by anything,
+  // but it cannot be taken, and in the filter it would be 140 lines of noise.
   const takeable = t.ready === true && t.state !== 'done' ? 1 : 0;
   return `<div class="${cls.join(' ')}" data-ready="${takeable}">
     <span class="num">${String(t.num).padStart(2, '0')}</span>
@@ -249,8 +253,8 @@ function ticketHtml(t) {
 
 function epicHtml(e) {
   const counter = e.onMain
-    ? `${e.done}/${e.total}` + (e.unionTotal > e.total ? ` <span class="dim">(+${e.unionTotal - e.total} в ветках)</span>` : '')
-    : `${e.unionTotal} в ветках`;
+    ? `${e.done}/${e.total}` + (e.unionTotal > e.total ? ` <span class="dim">(+${e.unionTotal - e.total} in branches)</span>` : '')
+    : `${e.unionTotal} in branches`;
   return `<details class="epic" open>
     <summary><span class="stage">${esc(e.stage)}</span><span class="ename">${esc(e.name)}</span>
       <span class="count">${counter}</span></summary>
@@ -263,9 +267,9 @@ function page(model, refs, elapsed) {
   const offMain = model.epics.filter(e => !e.onMain);
   const totals = model.epics.reduce((a, e) => (a.t += e.unionTotal, a.m += e.total, a.d += e.done, a), { t: 0, m: 0, d: 0 });
   const collisions = model.collisions.length
-    ? `<div class="err"><b>Коллизия номеров.</b> Один номер занят дважды — это надо чинить в файлах,
-        а не здесь: ${model.collisions.map(c => esc(c.ref + ' → ' + c.key)).join(', ')}</div>` : '';
-  return `<!doctype html><meta charset="utf-8"><title>Эпики и тикеты</title>
+    ? `<div class="err"><b>Number collision.</b> One number is taken twice — fix it in the files,
+        not here: ${model.collisions.map(c => esc(c.ref + ' → ' + c.key)).join(', ')}</div>` : '';
+  return `<!doctype html><meta charset="utf-8"><title>Epics and tickets</title>
 <style>
 :root{--bg:#fff;--fg:#111;--dim:#777;--line:#e3e3e3;--card:#fafafa}
 @media(prefers-color-scheme:dark){:root{--bg:#15161a;--fg:#e6e6e6;--dim:#8b8b93;--line:#2c2e35;--card:#1c1e24}}
@@ -308,19 +312,19 @@ h2{font-size:14px;margin:26px 0 10px;color:var(--dim);font-weight:600}
 body.only-ready .t[data-ready="0"]{display:none}
 body.only-ready .epic:not(:has(.t[data-ready="1"])){display:none}
 </style>
-<h1>Эпики и тикеты</h1>
-<div class="meta">Снимок ${esc(new Date().toLocaleString('ru-RU'))} · база <b>${esc(BASE)}</b> +
- ${refs.length - 1} ${refs.length - 1 === 1 ? 'живая ветка' : 'живых веток'} (не влиты, активность ≤ ${DAYS} дней) ·
- ${model.epics.length} эпиков · ${totals.m} тикетов на ${esc(BASE)}, ${totals.t} с учётом веток ·
- собрано за ${elapsed} с</div>
+<h1>Epics and tickets</h1>
+<div class="meta">Snapshot ${esc(new Date().toLocaleString('ru-RU'))} · base <b>${esc(BASE)}</b> +
+ ${refs.length - 1} ${refs.length - 1 === 1 ? 'live branch' : 'live branches'} (not merged, activity ≤ ${DAYS} days) ·
+ ${model.epics.length} epics · ${totals.m} tickets on ${esc(BASE)}, ${totals.t} including branches ·
+ built in ${elapsed} s</div>
 ${collisions}
 <div class="bar">
-  <label><input type="checkbox" id="ready"> только разблокированные</label>
-  <button id="expand">развернуть всё</button>
-  <button id="collapse">свернуть всё</button>
+  <label><input type="checkbox" id="ready"> unblocked only</label>
+  <button id="expand">expand all</button>
+  <button id="collapse">collapse all</button>
 </div>
 <div id="main">${onMain.map(epicHtml).join('')}</div>
-${offMain.length ? `<h2>Ещё не на ${esc(BASE)} — существуют только в ветках</h2>
+${offMain.length ? `<h2>Not on ${esc(BASE)} yet — exist only in branches</h2>
 <div id="off">${offMain.map(epicHtml).join('')}</div>` : ''}
 <script>
 document.getElementById('ready').onchange = e =>
@@ -331,22 +335,22 @@ document.getElementById('collapse').onclick = () => all(false);
 </script>`;
 }
 
-// ── ход ──────────────────────────────────────────────────────────────────────
+// ── run ──────────────────────────────────────────────────────────────────────
 (async () => {
   const t0 = Date.now();
   const refs = pickRefs();
-  process.stderr.write(`epic-board: ${refs.length} деревьев (${BASE} + ${refs.length - 1})…\n`);
+  process.stderr.write(`epic-board: ${refs.length} trees (${BASE} + ${refs.length - 1})…\n`);
   const snaps = await pool(refs, 8, readRef);
   const failed = snaps.filter(s => s.error);
   for (const f of failed) process.stderr.write(`  ! ${f.ref}: ${f.error}\n`);
-  // Сломанный снимок базы даёт страницу, где ВСЁ уехало в «только в ветках»:
-  // выглядит правдоподобно и врёт целиком. Лучше не отдать ничего.
-  if (snaps[0].error) die(`база ${BASE} не прочиталась: ${snaps[0].error}`);
-  if (!snaps[0].epics.length) die(`база ${BASE} без эпиков — .scratch пуст или недоступен`);
+  // A broken snapshot of the base gives a page where EVERYTHING moved to "only in branches":
+  // it looks plausible and lies entirely. Better to give nothing.
+  if (snaps[0].error) die(`base ${BASE} could not be read: ${snaps[0].error}`);
+  if (!snaps[0].epics.length) die(`base ${BASE} has no epics — .scratch is empty or unavailable`);
   const model = merge(snaps);
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   fs.writeFileSync(OUT, page(model, refs, elapsed));
-  process.stderr.write(`epic-board: ${model.epics.length} эпиков → ${OUT} (${elapsed} с)\n`);
+  process.stderr.write(`epic-board: ${model.epics.length} epics → ${OUT} (${elapsed} s)\n`);
   if (!NO_OPEN) execFileSync('open', [OUT]);
 })().catch(e => { process.stderr.write('epic-board: ' + (e.stack || e) + '\n'); process.exit(1); });
