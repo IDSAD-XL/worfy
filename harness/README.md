@@ -12,7 +12,7 @@ any session before then; the waves of epic E3 (`worfy-harness`) run on the froze
 
 | Path | What it is | Imported from `~/.claude` |
 |---|---|---|
-| `rules/global.md` | Global rules of every session | `CLAUDE.md` |
+| `hooks/rules/orchestrator.md`, `hooks/rules/common.md` | Global rules: the main session gets both parts, a subagent gets `common.md`; `hooks/inject-rules.sh` hands them over, `hooks/hooks.json` wires every hook (ticket 05) | `CLAUDE.md` |
 | `agents/` | Generic agents: `implementer`, `reviewer`, `scout` | `agents/` |
 | `skills/<name>/SKILL.md` | `epic-wave`, `ship-ticket`, `retro`, `qmd`, `overnight-fix-loop`, `continuous-audit`, `tickets-to-tasks` | `skills/` |
 | `bin/` | Scripts: `profile`, `ticket`, `epic-status`, `preflight`, `worktree-lock`, `epic-board`, `qmd-mcp`, `qmd-refresh`, `qmd-sync-main`; notes in `ТИКЕТЫ.md` | `bin/` |
@@ -22,9 +22,10 @@ any session before then; the waves of epic E3 (`worfy-harness`) run on the froze
 | `.claude-plugin/plugin.json` | Plugin manifest: name `worfy`, dependency `mattpocock-skills` | new |
 | `package.json` | Package scope without a module type, see below | new |
 
-The global rules are `rules/global.md`, not `CLAUDE.md`: Claude Code does not load a `CLAUDE.md`
-from a plugin root, and a `CLAUDE.md` in a subfolder of the repository would be added to every
-session that edits this folder.
+The global rules are not a `CLAUDE.md`: Claude Code does not load a `CLAUDE.md` from a plugin root,
+and a `CLAUDE.md` in a subfolder of the repository would be added to every session that edits this
+folder. They reach a session as `additionalContext` of the `SessionStart` and `SubagentStart` hooks,
+in parts of at most 10,000 characters each (ADR-0041).
 
 `package.json` has no `"type"` on purpose. The worfy `package.json` says `"type": "module"`, and
 Node would then load the extensionless CommonJS scripts in `bin/` (`profile`, `epic-board`) as ES

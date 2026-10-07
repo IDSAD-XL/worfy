@@ -1,7 +1,7 @@
 # 05 — Правила Harness приходят через hooks `SessionStart` и `SubagentStart`: по-английски, частями до 10 000 символов
 
 Type: task
-Status: open
+Status: claimed — 2026-10-07
 Blocked by: 02
 Source: решения владельца 2026-10-07, вопросы Q9, Q6, Q34 и Q32; [ADR-0041](../../../docs/adr/0041-harness-rules-via-session-hooks.md) (правила через hooks), [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness на английском, машинные строки), [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (plugin `worfy`, `${CLAUDE_PLUGIN_ROOT}`); [spec.md](../spec.md)
 
@@ -121,15 +121,15 @@ Source: решения владельца 2026-10-07, вопросы Q9, Q6, Q34
 
 ## Готово, когда
 
-- [ ] Каждая часть в `harness/hooks/rules/` — не больше 10 000 символов, первая строка — метка части. Проверяет `harness/hooks/tests/rules-hooks.test.sh`.
-- [ ] `inject-rules.sh` на JSON `SessionStart` и на JSON `SubagentStart` печатает JSON: `hookEventName` — событие из stdin, `additionalContext` — текст части, где `${CLAUDE_PLUGIN_ROOT}` заменён значением env; строки `${CLAUDE_PLUGIN_ROOT}` в выводе нет; код 0. Тот же test.
-- [ ] Без env `CLAUDE_PLUGIN_ROOT` подставляется каталог plugin, вычисленный от файла скрипта. Нет файла части или пустой stdin — код 0, `additionalContext` нет, причина — одна строка в stderr. Тот же test.
-- [ ] В частях нет `~/.claude/bin`, `~/.claude/hooks`, `~/.claude/profiles`, `$HOME/.claude`; скрипты Harness — через `${CLAUDE_PLUGIN_ROOT}/`; agents — `worfy:scout`, `worfy:implementer`, `worfy:reviewer`; голых `` `scout` ``, `` `implementer` ``, `` `reviewer` `` нет. Тот же test.
-- [ ] Ни одно правило не потеряно: test держит список тем старого `CLAUDE.md` (от «Default loop» до «Context hygiene», без «Standing authorization») и находит каждую в `orchestrator.md` или `common.md`. В `common.md` — ровно «Plain language», «Evidence before "green"», «Context hygiene»; тем Orchestrator-а («Phase 0», «Quota», «Default loop») в нём нет. Тот же test.
-- [ ] В `orchestrator.md` есть строки, которые ловит `LINE` из `src/shared/agent/status-block.ts:23`: «— Этап:», «— Сейчас:», «— Дальше:», «— Жду:». Кириллица в частях — только в этих подписях, в словах вердикта Gate и в русских примерах раздела о русском языке; разрешённые подстроки перечислены в test-е, остальной кириллицы нет. Тот же test.
-- [ ] В частях нет «Telegram» и «Standing authorization». Тот же test.
-- [ ] `harness/hooks/hooks.json` — валидный JSON. События, matcher и timeout совпадают с `~/.claude/settings.json:5-109` без `qmd-refresh` (ожидаемый список — в test-е). Есть три записи `inject-rules.sh`: две в `SessionStart`, одна в `SubagentStart`. Каждый путь команды после подстановки `${CLAUDE_PLUGIN_ROOT}` = `harness` существует и исполняем. Тот же test.
-- [ ] Старого файла правил нет: `test ! -e harness/rules/global.md` — exit 0.
+- [x] Каждая часть в `harness/hooks/rules/` — не больше 10 000 символов, первая строка — метка части. Проверяет `harness/hooks/tests/rules-hooks.test.sh`.
+- [x] `inject-rules.sh` на JSON `SessionStart` и на JSON `SubagentStart` печатает JSON: `hookEventName` — событие из stdin, `additionalContext` — текст части, где `${CLAUDE_PLUGIN_ROOT}` заменён значением env; строки `${CLAUDE_PLUGIN_ROOT}` в выводе нет; код 0. Тот же test.
+- [x] Без env `CLAUDE_PLUGIN_ROOT` подставляется каталог plugin, вычисленный от файла скрипта. Нет файла части или пустой stdin — код 0, `additionalContext` нет, причина — одна строка в stderr. Тот же test.
+- [x] В частях нет `~/.claude/bin`, `~/.claude/hooks`, `~/.claude/profiles`, `$HOME/.claude`; скрипты Harness — через `${CLAUDE_PLUGIN_ROOT}/`; agents — `worfy:scout`, `worfy:implementer`, `worfy:reviewer`; голых `` `scout` ``, `` `implementer` ``, `` `reviewer` `` нет. Тот же test.
+- [x] Ни одно правило не потеряно: test держит список тем старого `CLAUDE.md` (от «Default loop» до «Context hygiene», без «Standing authorization») и находит каждую в `orchestrator.md` или `common.md`. В `common.md` — ровно «Plain language», «Evidence before "green"», «Context hygiene»; тем Orchestrator-а («Phase 0», «Quota», «Default loop») в нём нет. Тот же test.
+- [x] В `orchestrator.md` есть строки, которые ловит `LINE` из `src/shared/agent/status-block.ts:23`: «— Этап:», «— Сейчас:», «— Дальше:», «— Жду:». Кириллица в частях — только в этих подписях, в словах вердикта Gate и в русских примерах раздела о русском языке; разрешённые подстроки перечислены в test-е, остальной кириллицы нет. Тот же test.
+- [x] В частях нет «Telegram» и «Standing authorization». Тот же test.
+- [x] `harness/hooks/hooks.json` — валидный JSON. События, matcher и timeout совпадают с `~/.claude/settings.json:5-109` без `qmd-refresh` (ожидаемый список — в test-е). Есть три записи `inject-rules.sh`: две в `SessionStart`, одна в `SubagentStart`. Каждый путь команды после подстановки `${CLAUDE_PLUGIN_ROOT}` = `harness` существует и исполняем. Тот же test.
+- [x] Старого файла правил нет: `test ! -e harness/rules/global.md` — exit 0.
 - [ ] (локально) Части доходят: `claude -p --plugin-dir "$PWD/harness" 'Quote verbatim every line of your context that starts with "# worfy Harness".' | grep -c '^# worfy Harness — '` печатает `2`. Subagent: `claude -p --plugin-dir "$PWD/harness" 'Start a general-purpose Subagent. Ask it to quote verbatim every line of its context that starts with "# worfy Harness" and nothing else. Print only its answer.'` — в ответе `grep -c 'common rules'` не меньше `1`, а `grep -c 'orchestrator rules'` печатает `0`. Транскрипты пишутся в `~/.claude/projects`, как у любой Session; другой записи в `~/.claude` нет.
 - [ ] Ревьюер с линзой «смысл сохранён» (Q34; в `review.lenses` Profile worfy её нет — Orchestrator даёт её явно) сравнил `harness/rules/global.md` на базе ветки с обеими частями: `gh pr view <N> --json comments --jq '[.comments[].body | select(startswith("VERIFIED"))] | length'` — не меньше `1`.
 - [ ] CI на PR зелёный. Перед мержем — `GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full` под замком `/tmp/worfy-e2e.lock`: код 0 и строка `[gate] зелено`.
@@ -155,6 +155,9 @@ Source: решения владельца 2026-10-07, вопросы Q9, Q6, Q34
 - `harness/hooks/inject-rules.sh` (новый)
 - `harness/hooks/hooks.json` (новый)
 - `harness/hooks/tests/rules-hooks.test.sh` (новый)
+- вне следа, разрешено Orchestrator-ом 2026-10-07: `test/contract/harness-plugin.test.ts` (ждал
+  `rules/global.md` среди импортированных файлов — теперь ждёт обе части) и `harness/README.md` (только
+  строка таблицы и абзац о `rules/global.md`)
 
 Не меняются: остальные скрипты `harness/hooks/` и `harness/bin/` (Ticket 08; он не переименовывает
 файлы, на которые ссылается `hooks.json`), `~/.claude` (заморожен, ADR-0047), код worfy. Общих
@@ -162,4 +165,72 @@ Source: решения владельца 2026-10-07, вопросы Q9, Q6, Q34
 
 ## Итог
 
-Заполняется при закрытии.
+- **Части и размеры** (символы, `jq -Rs length`): `harness/hooks/rules/orchestrator.md` — 8 590,
+  `harness/hooks/rules/common.md` — 4 899. Третья часть не понадобилась. С длинным путём plugin-а
+  (113 символов вместо `${CLAUDE_PLUGIN_ROOT}`) обе части остаются в пределах 10 000 — это тоже
+  проверяет test.
+- **Падающий test** — `harness/hooks/tests/rules-hooks.test.sh` на базе ветки: код 1, `passed: 39,
+  failed: 79` (нет частей, `inject-rules.sh`, `hooks.json`; `rules/global.md` на месте). Зелёные 39 —
+  отрицательные проверки («нет Telegram», «нет `~/.claude/bin`» и т. п.), которые на пустом месте
+  проходят; их держат положительные проверки того же test-а. После правки — `passed: 139, failed: 0`.
+- **CI** — job из Ticket-а 02 (`test/contract/harness-scripts.test.ts`) берёт `*.test.sh` маской
+  (`readdirSync` + `endsWith('.test.sh')`), новый test он подхватывает сам; `ci.yml` не менялся.
+- **Правка вне следа** (разрешил Orchestrator): `test/contract/harness-plugin.test.ts:63` ждал
+  `rules/global.md` среди файлов `harness/` — после удаления ждёт `hooks/rules/orchestrator.md` и
+  `hooks/rules/common.md`; `harness/README.md` — строка таблицы и абзац о `rules/global.md`.
+- **`inject-rules.sh`** — bash и `jq`. Подставляет `${CLAUDE_PLUGIN_ROOT}` буквально (`split`/`join`,
+  без regex). Пустой `CLAUDE_PLUGIN_ROOT` считается отсутствующим. Имя части с `/` или с точкой в
+  начале не принимается (часть берётся только из `hooks/rules/`). Без `jq`, на пустом stdin, на stdin
+  не JSON и без `hook_event_name` — код 0, stdout пуст, одна строка в stderr.
+- **`hooks.json`** — записи `~/.claude/settings.json:5-109` с теми же событиями, matcher и timeout, без
+  `qmd-refresh --quiet`; плюс `inject-rules.sh orchestrator` и `common` в `SessionStart`, `common` в
+  `SubagentStart`, timeout 10. Поле `description` верхнего уровня — необязательное поле `hooks.json`
+  plugin-а. Решено без владельца, подтвердить: timeout 10 у `inject-rules.sh`.
+
+**Куда легли разделы `harness/rules/global.md`** (строки старого файла → новое место):
+
+| Старый раздел (строки) | Новое место | Что изменилось |
+|---|---|---|
+| Заголовок «Workflow: orchestrator + subagents» (1–4) | `orchestrator.md:3-5` | заголовок слит с вводным абзацем; добавлена фраза, что простой язык, доказательства и гигиена — в общих правилах |
+| Standing authorization (6–11) | убран | согласие самого пользователя; plugin его за пользователя не даёт (п. 3 тикета). «Delegate by default» остался |
+| Project profile (13–31) | `orchestrator.md:7-22` | пути — `${CLAUDE_PLUGIN_ROOT}/bin/profile`, `${CLAUDE_PLUGIN_ROOT}/profiles/README.md`; ticket CLI и `epic-status` действуют, когда у Project есть `tickets.path` (Q11), остальное — когда Profile их объявляет; «no `qmd` query» → «no qmd query» |
+| Default loop (33–40) | `orchestrator.md:24-31` | без изменений |
+| Answering, not exploring (42–47) | `orchestrator.md:33-37` | без изменений |
+| Plain language (49–56) | `common.md:5-11` | без изменений |
+| Writing in Russian (58–67) | `common.md:13-20` | без изменений, русские примеры как есть |
+| Metaphors (69–72) | `common.md:22-24` | без изменений |
+| Codes carry their meaning (74–78) | `common.md:26-30` | без изменений |
+| Restate, don't point back (80–82) | `common.md:32-34` | без изменений |
+| Short sentences (84–85) | `common.md:36-37` | без изменений |
+| Self-check before sending (87–91) | `common.md:39-42` | без изменений |
+| Scope (93–95) | `common.md:44-45` | «a message drafted for a friend in Telegram» → «a personal message drafted for someone» |
+| Which language (97–100) | `common.md:47-50` | «to me», «I am writing in» → «to the user», «the user writes in» |
+| Phase 0 (102–116) | `orchestrator.md:39-50` | `scout` → `worfy:scout`; «skill `qmd`» → «skill `worfy:qmd`», «MCP server `qmd`» → «the qmd MCP server», «one `qmd` query» → «one search of the qmd index»; «Ask it for» слито с первым абзацем |
+| Delegate by default (118–128) | `orchestrator.md:52-61` | «you sharpen it» → «the orchestrator sharpens it» |
+| Your own hands (130–141) | `orchestrator.md:63-73` | без изменений |
+| Quota (143–156) | `orchestrator.md:75-86` | «Every line above» → «Every line of the closed list» (часть не ссылается на текст вне себя); «Two counters» слито с первым абзацем |
+| Long output (158–163) | `orchestrator.md:88-92` | без изменений |
+| Subagent contract (165–175) | `orchestrator.md:94-103` | agents — `worfy:scout`, `worfy:implementer`, `worfy:reviewer`; «resolve my directory» → «the orchestrator's directory» |
+| Evidence before "green" (177–195) | `common.md:52-67` | «(above)» убрано; `echo $?` → `echo "EXIT=$?"`; путь Gate — `${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh fast`; «my reading» → «reading»; «`3` is «не проверено»» → «`3` is not verified» (кириллица — только в словах вердикта); `0` — зелено только со строкой `[gate] зелено (…)`, «ничего не прогналось» и «ПРОВЕРИТЬ НЕ УДАЛОСЬ» как есть, с английским переводом рядом |
+| Phase 2 (197–205) | `orchestrator.md:105-111` | `reviewer` → `worfy:reviewer`; «before you report to me» → «before reporting to the user» |
+| Phase 3: блок статуса (207–226) | `orchestrator.md:113-132` | подписи «— Этап / Сейчас / Дальше / Жду:» как есть; описания в скобках — по-английски («ничего» → «"nothing" in the language of reports»); добавлено «подписи не переводятся — их читает worfy»; «Готово» → «Done»; условие Этап-строки — `tickets.path` и `${CLAUDE_PLUGIN_ROOT}/bin/epic-status <epic>` вместо `tickets.epic_status` |
+| Phase 3: статус тикета (228–233) | `orchestrator.md:134-138` | `${CLAUDE_PLUGIN_ROOT}/bin/ticket` вместо `tickets.status_tool`; `block <причина>` → `block <reason>`, `<эпик>` → `<epic>`; «No status tool in the profile» → «No tickets in the profile» |
+| Phase 3: файл состояния (235–244) | `orchestrator.md:140-147` | без изменений |
+| Phase 3: ADR и файл состояния (246–251) | `orchestrator.md:149-153` | без изменений |
+| Context hygiene (253–262) | `common.md:69-78` | «Report to me … what I need to decide» → «Report to the user … what they need to decide» |
+
+**Вопросы владельцу** (в HANDOFF, «Ждёт владельца», их вносит Orchestrator):
+
+1. Как согласие «звать Subagent-ов без вопроса» (бывший «Standing authorization») даёт новый
+   пользователь plugin-а: plugin его за пользователя не даёт, у владельца раздел остаётся в личном
+   `~/.claude/CLAUDE.md` (Ticket 14).
+2. Подписи блока статуса остались русскими («— Этап: / — Сейчас: / — Дальше: / — Жду:»): их разбирает
+   `src/shared/agent/status-block.ts:23`. Английские подписи потребуют правки worfy — в плане E3 её нет.
+
+**Не проверено.**
+- [ ] Live-проверка в Claude Code (`claude -p --plugin-dir …`, пункт «Готово, когда») — не проверено:
+  бриф волны запретил запускать настоящий Claude Code (он пишет транскрипты в `~/.claude/projects`).
+  Hook проверен shell-test-ом с JSON событий на stdin, как его подаёт Claude Code. По той же причине не
+  запускался `claude plugin validate`.
+- Пока записи hooks в `~/.claude/settings.json` владельца на месте, Session с plugin-ом запускает
+  каждый hook дважды (ADR-0041); убирает их перенос — Ticket 14.
