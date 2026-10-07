@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp } from './helpers'
+import { snapshotThemes } from './snapshots'
 
 // The command palette (⌘K) and the search over the Canvas (⌘F), ticket 31, in the built app on the
 // fake agent. The Project is a git repository with the Epic `worfy-mvp`; `epic-status` is a script
@@ -173,9 +174,39 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     expect(await offCenter(window, ticket(7))).toBeGreaterThan(50)
     await window.keyboard.press('Meta+k')
     await expect(palette).toBeVisible()
+
+    // The search field is as tall as a result row (28 px, --row-height) however many rows there are.
+    // With the empty query the list holds every command and scrolls: a flex column squeezed the
+    // field below a row's height there (ticket worfy-week/13).
+    const field = window.getByTestId('palette-field')
+    const heights = async (): Promise<{ field: number; input: number; row: number; scrolls: boolean }> => ({
+      field: await field.evaluate((element) => element.clientHeight),
+      input: (await input.boundingBox())?.height ?? -1,
+      row: (await options.first().boundingBox())?.height ?? -1,
+      scrolls: await palette.getByRole('listbox').evaluate((list) => list.scrollHeight > list.clientHeight),
+    })
+    await expect(field).toBeVisible()
+    const many = await heights()
+    expect(many.scrolls).toBe(true)
+    expect(many).toMatchObject({ field: 28, input: 28, row: 28 })
+    await snapshotThemes(window, '13-palette-many')
+
+    // One result and none: the field keeps its height.
+    await input.fill('tidy up')
+    await expect(options).toHaveCount(1)
+    await expect(options.first()).toHaveAttribute('data-command', 'tidy-up')
+    expect(await heights()).toMatchObject({ field: 28, input: 28, row: 28, scrolls: false })
+    await snapshotThemes(window, '13-palette-one')
+    await input.fill('qqzzxx')
+    await expect(options).toHaveCount(0)
+    expect(await field.evaluate((element) => element.clientHeight)).toBe(28)
+    await snapshotThemes(window, '13-palette-none')
+
     await input.fill('07')
     await expect(options.first()).toHaveAttribute('data-command', `ticket:${EPIC}/07`)
     await expect(option(`ticket:${EPIC}/12`)).toBeVisible()
+    // Four rows, no scrolling: the field is still a row's height (it was 40 px before).
+    expect(await heights()).toMatchObject({ field: 28, input: 28, row: 28, scrolls: false })
     await window.screenshot({ path: test.info().outputPath('palette-07.png') })
     await input.press('Enter')
     await expect(palette).toHaveCount(0)

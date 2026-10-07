@@ -42,8 +42,19 @@ const styles = {
     overflow: 'hidden',
     zIndex: 101,
   },
-  field: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', height: 40, padding: '0 var(--space-3)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' },
-  input: { flex: 1, minWidth: 0, height: '100%', border: 0, outline: 'none', background: 'transparent', color: 'var(--text)', font: 'inherit', fontSize: 'var(--text-13)' },
+  // As tall as a result row. `flex: none`: otherwise, with a long list, the panel's column shrinks the field.
+  field: {
+    display: 'flex',
+    flex: 'none',
+    alignItems: 'center',
+    gap: 'var(--space-2)',
+    height: 'var(--row-height)',
+    padding: '0 var(--space-3)',
+    borderBottom: '1px solid var(--border)',
+    color: 'var(--text-muted)',
+  },
+  // border-box keeps the browser's 1 px vertical padding inside the field's height.
+  input: { flex: 1, minWidth: 0, height: '100%', boxSizing: 'border-box', border: 0, outline: 'none', background: 'transparent', color: 'var(--text)', font: 'inherit', fontSize: 'var(--text-13)' },
   list: { margin: 0, padding: 'var(--space-1)', listStyle: 'none', overflowY: 'auto' },
   row: {
     display: 'flex',
@@ -248,7 +259,7 @@ function PaletteBody({ commands, empty, onClose }: BodyProps) {
     <>
       <div style={styles.backdrop} onMouseDown={onClose} aria-hidden="true" />
       <div role="dialog" aria-label="Command palette" style={styles.panel} data-testid="command-palette">
-        <div style={styles.field}>
+        <div style={styles.field} data-testid="palette-field">
           <SearchIcon />
           <input
             ref={input}
