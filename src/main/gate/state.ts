@@ -124,9 +124,11 @@ export const verdictFileName = (tag: string): string => `verdict-${tag}.json`
  * The verdict file of the worktree `worktree` (its path on disk): `{ verdict }` when the file is
  * the gate's format and is about this worktree, `{ problem }` with one line saying why it is not
  * taken, and null when there is no file. Two worktrees whose tags (8 hex digits) collide share a
- * file name; the `worktree` inside it tells them apart.
+ * file name; the `worktree` inside it tells them apart. When both the file and `head` (the
+ * worktree's HEAD now) name a commit and they differ, the file is about an earlier checkout — a
+ * worktree removed and created again at the same path — and is not taken either.
  */
-export async function readVerdictFile(file: string, worktree: string): Promise<{ verdict: GateVerdictFile } | { problem: string } | null> {
+export async function readVerdictFile(file: string, worktree: string, head?: string | null): Promise<{ verdict: GateVerdictFile } | { problem: string } | null> {
   let text: string
   try {
     text = await readFile(file, 'utf8')
@@ -143,6 +145,7 @@ export async function readVerdictFile(file: string, worktree: string): Promise<{
   if (!parsed.success) return { problem: `is not the gate's verdict format: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || '(root)'} ${issue.message}`).join('; ')}` }
   const verdict = parsed.data
   if (verdict.worktree !== worktree && (await onDisk(verdict.worktree)) !== worktree) return { problem: `is about another worktree: ${verdict.worktree}` }
+  if (verdict.head !== null && head && verdict.head !== head) return { problem: `is about commit ${verdict.head}, the worktree is at ${head}` }
   return { verdict }
 }
 
@@ -364,6 +367,8 @@ export class TranscriptGateScanner {
 export interface Worktree {
   path: string
   branch: string | null
+  /** The SHA of its HEAD as `git worktree list` gives it; absent or null when unknown. */
+  head?: string | null
 }
 
 /** Variables that would point git at another repository than the one `-C` names. */
@@ -381,7 +386,8 @@ export async function listWorktrees(root: string): Promise<Worktree[]> {
       const path = lines.find((line) => line.startsWith('worktree '))?.slice('worktree '.length)
       if (!path) continue
       const ref = lines.find((line) => line.startsWith('branch '))?.slice('branch '.length)
-      result.push({ path, branch: ref ? ref.replace(/^refs\/heads\//, '') : null })
+      const head = lines.find((line) => line.startsWith('HEAD '))?.slice('HEAD '.length)
+      result.push({ path, branch: ref ? ref.replace(/^refs\/heads\//, '') : null, head: head || null })
     }
     return result.length ? result : [{ path: root, branch: null }]
   } catch {
@@ -410,10 +416,10 @@ export class GateReader {
 
   constructor(private readonly options: GateReaderOptions) {}
 
-  private async fromFile(names: ReadonlySet<string>, tag: string, worktree: string): Promise<GateState | null> {
+  private async fromFile(names: ReadonlySet<string>, tag: string, worktree: string, head: string | null | undefined): Promise<GateState | null> {
     const name = verdictFileName(tag)
     const file = join(this.options.home, 'gate', 'state', name)
-    const read = names.has(name) ? await readVerdictFile(file, worktree) : null
+    const read = names.has(name) ? await readVerdictFile(file, worktree, head) : null
     if (read !== null && 'verdict' in read) {
       this.reported.delete(file)
       return { outcome: read.verdict.outcome, source: 'file', at: read.verdict.at }
@@ -433,14 +439,14 @@ export class GateReader {
     const names = await listState(home)
     const real = await Promise.all(worktrees.map((worktree) => onDisk(worktree.path)))
     const result: (Worktree & { gate: GateState })[] = []
-    for (const [index, worktree] of worktrees.entries()) {
+    for (const [index, { head, ...worktree }] of worktrees.entries()) {
       const tag = gateTag(real[index]!)
       const marker = key === null ? null : markerOutcome(names, key, tag)
       if (marker !== null) {
         result.push({ ...worktree, gate: { outcome: marker, source: 'marker', at: null } })
         continue
       }
-      const file = await this.fromFile(names, tag, real[index]!)
+      const file = await this.fromFile(names, tag, real[index]!, head)
       if (file !== null) {
         result.push({ ...worktree, gate: file })
         continue

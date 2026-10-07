@@ -456,6 +456,20 @@ describe('GateReader and the verdict file', () => {
     expect(warnings).toHaveLength(1)
   })
 
+  it('a file about another commit than the worktree’s HEAD is not taken; one about the same commit is', async () => {
+    const { home, root, worktree07, marker } = await world()
+    await rm(marker)
+    await writeVerdict(home, { worktree: worktree07, outcome: 'red', exit: 2, head: 'a'.repeat(40) })
+    const warnings: string[] = []
+    const reader = new GateReader({ home, warn: (message) => warnings.push(message) })
+    const recreated = [{ path: root, branch: 'main' }, { path: worktree07, branch: 'demo/07', head: 'b'.repeat(40) }]
+    expect((await reader.read(root, recreated))[1]).toEqual({ path: worktree07, branch: 'demo/07', gate: { outcome: 'green', source: 'transcript', at: '2026-10-05T10:05:00.000Z' } })
+    expect(warnings).toEqual([expect.stringContaining(`is about commit ${'a'.repeat(40)}, the worktree is at ${'b'.repeat(40)}`)])
+    const same = [{ path: root, branch: 'main' }, { path: worktree07, branch: 'demo/07', head: 'a'.repeat(40) }]
+    // The worktree's HEAD is not passed on: the result is the path, the branch and the gate state.
+    expect((await reader.read(root, same))[1]).toEqual({ path: worktree07, branch: 'demo/07', gate: { outcome: 'red', source: 'file', at: '2026-10-05T09:00:00Z' } })
+  })
+
   it('readVerdictFile: null without a file, the verdict for its own worktree', async () => {
     const { home, worktree07 } = await world()
     expect(await readVerdictFile(join(home, 'gate', 'state', verdictFileName(gateTag(worktree07))), worktree07)).toBeNull()
@@ -485,7 +499,8 @@ describe('GateReader and the verdict file', () => {
     await writeFile(join(home, 'gate', 'config.json'), JSON.stringify({ repos: [{ key: 'demo', match: repo, pm: 'true', root: { fast: ['check'] }, workspace: {} }] }))
     const out = execFileSync('bash', [join(__dirname, '..', '..', 'harness', 'hooks', 'gate.sh'), 'fast'], { cwd: repo, env, input: '', encoding: 'utf8' })
     expect(out).toContain('[gate] зелено (fast)')
-    const [wt] = await new GateReader({ home }).read(repo, [{ path: repo, branch: 'main' }])
+    // listWorktrees gives the worktree's HEAD, which the file's `head` must match.
+    const [wt] = await new GateReader({ home }).read(repo, await listWorktrees(repo))
     expect(wt!.gate).toEqual({ outcome: 'green', source: 'file', at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u) })
   })
 })
@@ -535,9 +550,10 @@ describe('listWorktrees', () => {
     git(root, 'init', '-q')
     git(root, 'commit', '-q', '--allow-empty', '-m', 'init')
     git(root, 'worktree', 'add', '-q', '-b', 'demo/07', join(root, '.claude', 'worktrees', '07'))
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, env, encoding: 'utf8' }).trim()
     expect(await listWorktrees(root)).toEqual([
-      { path: root, branch: 'main' },
-      { path: join(root, '.claude', 'worktrees', '07'), branch: 'demo/07' },
+      { path: root, branch: 'main', head },
+      { path: join(root, '.claude', 'worktrees', '07'), branch: 'demo/07', head },
     ])
   })
 

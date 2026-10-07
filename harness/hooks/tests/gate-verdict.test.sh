@@ -157,13 +157,30 @@ if jq -e . "$f" >/dev/null 2>&1; then ok "odd path: jq -e . exits 0"; else bad "
 if [ "$(jq -r .worktree "$f" 2>/dev/null)" = "$W" ]; then ok "odd path: worktree equals the path"; else bad "odd path: worktree is $(jq -r .worktree "$f" 2>/dev/null)"; fi
 verdict "odd path -> outcome green, key w" "$W" '.outcome == "green" and .key == "w"'
 
-# --- 9. Outside git: no file -------------------------------------------------------------
+# --- 9. A run that cannot write the file removes the previous one ------------------------
+# A full disk: mktemp fails. The gate still says red with code 2, and the green file of the run
+# before must not stay to contradict it.
+mode ok; touched
+out="$(cd "$R" && GATE_SCOPE=all bash "$GATE" fast </dev/null 2>&1)"; rc=$?
+verdict "before the failed write: a green file" "$R" '.outcome == "green"'
+mkdir -p "$T/failbin"
+printf '#!/bin/sh\necho "mktemp: No space left on device" >&2\nexit 1\n' >"$T/failbin/mktemp"
+chmod +x "$T/failbin/mktemp"
+mode bad; touched
+out="$(cd "$R" && GATE_SCOPE=all PATH="$T/failbin:$PATH" bash "$GATE" fast </dev/null 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && [[ "$out" == *"[gate] красно (fast)"* ]]; then ok "failed write: the gate still says red, exit 2"
+else bad "failed write: rc=$rc, out: ${out:0:300}"; fi
+if [ ! -e "$STATE/verdict-$(tag "$R").json" ]; then ok "failed write: the previous green file is gone"
+else bad "failed write: the file is left: $(head -c 300 "$STATE/verdict-$(tag "$R").json")"; fi
+mode ok
+
+# --- 10. Outside git: no file -------------------------------------------------------------
 mkdir -p "$T/nogit" "$T/state-nogit"
 out="$(cd "$T/nogit" && CLAUDE_GATE_STATE="$T/state-nogit" bash "$GATE" fast </dev/null 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] && [ -z "$(find "$T/state-nogit" -name 'verdict-*')" ]; then ok "outside git -> exit 0, no verdict file"
 else bad "outside git: rc=$rc, files: $(find "$T/state-nogit" -name 'verdict-*')"; fi
 
-# --- 10. No temporary files of the gate are left ---------------------------------------
+# --- 11. No temporary files of the gate are left ---------------------------------------
 left="$(find "$STATE" -maxdepth 1 -type f ! -name 'verdict-*.json' ! -name 'red-*' ! -name 'unverified-*' ! -name 'nokey-*')"
 if [ -z "$left" ]; then ok "no temporary files in the state folder"; else bad "left in the state folder: $left"; fi
 

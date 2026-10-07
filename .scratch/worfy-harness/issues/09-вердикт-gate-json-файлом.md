@@ -128,10 +128,11 @@ Wave они не попадут, второй делает rebase. Файл ве
 ## Итог
 
 - `harness/hooks/gate.sh` пишет `verdict-<tag>.json` в папку состояния Gate на каждом пути таблицы пункта 1; формат описан в шапке скрипта. Запись — `mktemp` в той же папке и `mv`; экранирование строк JSON — посимвольно на bash, без node и без `${s//…}` (замена с обратной косой чертой ведёт себя по-разному в bash 3.2 и 5.2). Маркеры, строки `[gate] …` и коды выхода не менялись: `gate-notverified.test.sh` (32 проверки) и `gate-unregistered.test.sh` (10) зелёные без правок.
-- Падающий test первым: `harness/hooks/tests/gate-verdict.test.sh` на main — «passed 3, failed 14», каждый путь падал с «no …/state/verdict-<tag>.json» (зелёный прогон: `FAIL green run -> outcome green, exit 0, profile fast, key t, head (no …/verdict-e41243ab.json; rc=0 …)`). После правки — «passed 17, failed 0».
+- Падающий test первым: `harness/hooks/tests/gate-verdict.test.sh` на main — «passed 3, failed 14», каждый путь падал с «no …/state/verdict-<tag>.json» (зелёный прогон: `FAIL green run -> outcome green, exit 0, profile fast, key t, head (no …/verdict-e41243ab.json; rc=0 …)`). После правки — «passed 20, failed 0».
 - worfy (`src/main/gate/state.ts`) читает файл после маркеров `red` и `unverified` и до транскриптов; `GateState.source` получил значение `file`, `at` — время из файла. Файл с чужим `worktree`, битый JSON или не та схема — следующий источник и одна строка в лог на файл, пока причина та же.
 - Строки `[gate] …` Ticket 08 не перевёл — они по-прежнему русские, поэтому разбор транскрипта узнаёт только русские слова. Unit test «knows every verdict word harness/hooks/gate.sh prints» берёт слова прямо из `gate.sh` и покраснеет, если их переведут без правки `GATE_LINE`.
 - Решено без владельца, подтвердить:
   - тексты `reason` для `unverified` и `none` — свои английские формулировки (в тикете их нет);
-  - если файл не удалось перезаписать, старый удаляется: файл не должен говорить итог прошлого прогона;
+  - прогон, который не записал файл (не сработал `mktemp`, `printf` или `mv` — например, диск полон — или прогон вышел раньше записи), удаляет файл прошлого прогона через `trap … EXIT`: иначе worfy показал бы прошлое зелёное поверх нынешнего «красно» (находка ревью круга 1; test — случай 9 в `gate-verdict.test.sh`, с `mktemp`, который падает);
+  - worfy не берёт файл, если его `head` не совпадает с HEAD worktree из `git worktree list` (worktree удалён и создан заново по тому же пути); тогда — транскрипт и строка в лог;
   - файл worfy ищет там же, где маркеры, — `<claudeHome>/gate/state`. Gate из `harness/` пишет в `$HARNESS_HOME/gate/state`, замороженный `~/.claude` файла не пишет, так что в работе приложение получит вердикт из файла только после Ticket-ов 12 и 16.

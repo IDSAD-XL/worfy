@@ -42,8 +42,9 @@
 #   exit     — the exit code of this run (green 0, red 2, unverified 0 or 3, none 0);
 #   at       — the time of the run, UTC, ISO 8601 (2026-10-07T12:00:00Z);
 #   reason   — one line in English for "unverified" and "none", else null.
-# It is written whole or not at all: a temporary file in the same folder, then mv. Bash writes
-# it, not node: a missing node is one of the "unverified" cases.
+# It is written whole or not at all: a temporary file in the same folder, then mv. A run that
+# could not write it removes the previous file, so the file never tells an older run's outcome.
+# Bash writes it, not node: a missing node is one of the "unverified" cases.
 
 set -uo pipefail
 
@@ -112,6 +113,13 @@ canon="$(cd "$(dirname "$common")" 2>/dev/null && pwd)" || canon="$repo"
 tag="$(printf '%s' "$repo" | shasum | awk '{print $1}' | cut -c1-8)"
 KEY=""   # the registry key; set once the resolver has named the project
 
+# The verdict file tells the outcome of the last run or nothing: a run that ends without writing
+# it (mktemp, printf or mv failed — a full disk — or any exit before write_verdict) removes the
+# previous run's file, or worfy would show that outcome over what this run printed.
+VERDICT_FILE="$STATE/verdict-$tag.json"
+VERDICT_WRITTEN=0
+trap '[ "$VERDICT_WRITTEN" -eq 1 ] || rm -f "$VERDICT_FILE" 2>/dev/null' EXIT
+
 # A JSON string literal of $1: backslash, quote and control characters escaped. Character by
 # character, with single-quoted literals only: ${s//\\/…} treats backslashes in the replacement
 # differently across bash versions (3.2 on macOS, 5.2 with patsub_replacement on Linux).
@@ -138,7 +146,8 @@ json_str() {
 }
 
 # Writes $STATE/verdict-<tag>.json (see the header). $1 — outcome, $2 — exit code, $3 — reason
-# (empty = null). A failed write changes nothing else: the markers, the line and the code stay.
+# (empty = null). A failed write changes nothing else: the markers, the line and the code stay; the
+# EXIT trap above removes the previous file.
 write_verdict() {
     local head key reason tmp
     head="$(git -C "$repo" rev-parse -q --verify HEAD 2>/dev/null)" || head=""
@@ -149,11 +158,11 @@ write_verdict() {
     if printf '{"version":1,"outcome":"%s","profile":%s,"worktree":%s,"key":%s,"head":%s,"exit":%s,"at":"%s","reason":%s}\n' \
         "$1" "$(json_str "$PROFILE")" "$(json_str "$repo")" "$key" "$head" "$2" \
         "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$reason" >"$tmp" 2>/dev/null &&
-        mv -f "$tmp" "$STATE/verdict-$tag.json" 2>/dev/null; then
+        mv -f "$tmp" "$VERDICT_FILE" 2>/dev/null; then
+        VERDICT_WRITTEN=1
         return 0
     fi
-    # A file that cannot be replaced must not keep telling the previous run's outcome.
-    rm -f "$tmp" "$STATE/verdict-$tag.json" 2>/dev/null
+    rm -f "$tmp" 2>/dev/null
     return 0
 }
 
