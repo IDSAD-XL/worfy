@@ -1,6 +1,6 @@
 {
   "name": "worfy",
-  "version": "0.0.0",
+  "version": "0.2.0",
   "private": true,
   "description": "A macOS canvas for the Claude agent workflow",
   "type": "module",

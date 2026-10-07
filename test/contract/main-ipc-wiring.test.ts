@@ -1,7 +1,10 @@
 // src/main/index.ts over a mocked `electron` module: the handlers it registers on ipcMain answer
 // only the renderer location the window loads (rendererEntry), not any frame that asks.
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
@@ -60,7 +63,25 @@ const startup: {
   policyBeforeWindow: boolean
 } = { schemes: [], served: [], servedBeforeWindow: false, policies: [], policyBeforeWindow: false }
 
+// The mocked app is packaged, so src/main/harness/bundled.ts looks for the Harness copy of the build
+// in <process.resourcesPath>/harness: a temporary folder the tests fill or leave empty.
+const resources = mkdtempSync(join(tmpdir(), 'worfy-resources-'))
+const pluginJson = join(resources, 'harness', '.claude-plugin', 'plugin.json')
+const originalResourcesPath = Object.getOwnPropertyDescriptor(process, 'resourcesPath')
+
+function bundleHarness(manifest: Record<string, unknown>): void {
+  mkdirSync(join(resources, 'harness', '.claude-plugin'), { recursive: true })
+  writeFileSync(pluginJson, JSON.stringify(manifest))
+}
+
+afterAll(() => {
+  if (originalResourcesPath) Object.defineProperty(process, 'resourcesPath', originalResourcesPath)
+  else Reflect.deleteProperty(process, 'resourcesPath')
+  rmSync(resources, { recursive: true, force: true })
+})
+
 beforeAll(async () => {
+  Object.defineProperty(process, 'resourcesPath', { value: resources, configurable: true, writable: true })
   await import('../../src/main/index')
   // registerIpc runs inside whenReady().then(...); the window is created right after it.
   await vi.waitFor(() => expect(electron.createMainWindow).toHaveBeenCalled())
@@ -91,6 +112,30 @@ describe('IPC wiring in src/main/index.ts', () => {
     expect(appMenus).toHaveLength(1)
     const { template } = appMenus[0] as { template: { label?: string; submenu?: { id?: string }[] }[] }
     expect(template.find((item) => item.label === 'View')?.submenu?.some((item) => item.id === 'view.minimap')).toBe(true)
+  })
+})
+
+describe('app.version in src/main/index.ts', () => {
+  afterEach(() => {
+    rmSync(join(resources, 'harness'), { recursive: true, force: true })
+  })
+
+  it('answers the version of the Harness copy bundled with the build', async () => {
+    bundleHarness({ name: 'worfy', version: '0.2.0+abc1234' })
+    expect(await call(`file://${INDEX_HTML}`)).toEqual({ ok: true, value: { version: '0.2.0+abc1234' } })
+  })
+
+  it('falls back to app.getVersion() when the build has no Harness copy', async () => {
+    expect(await call(`file://${INDEX_HTML}`)).toEqual({ ok: true, value: { version: '1.2.3' } })
+  })
+
+  it('falls back to app.getVersion() when the copy has no version or an unreadable plugin.json', async () => {
+    bundleHarness({ name: 'worfy' })
+    expect(await call(`file://${INDEX_HTML}`)).toEqual({ ok: true, value: { version: '1.2.3' } })
+    bundleHarness({ name: 'worfy', version: '' })
+    expect(await call(`file://${INDEX_HTML}`)).toEqual({ ok: true, value: { version: '1.2.3' } })
+    writeFileSync(pluginJson, '{ not json')
+    expect(await call(`file://${INDEX_HTML}`)).toEqual({ ok: true, value: { version: '1.2.3' } })
   })
 })
 

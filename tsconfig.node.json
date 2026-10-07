@@ -10,6 +10,7 @@
     "src/preload/**/*.ts",
     "src/shared/**/*.ts",
     "src/card-runtime/**/*.ts",
+    "scripts/build-version.ts",
     "electron.vite.config.ts",
     "vitest.config.ts",
     "playwright.config.ts"
