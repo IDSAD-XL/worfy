@@ -46,7 +46,7 @@ const inWave1 = () => run([{ type: 'start', tickets: OPEN }, { type: 'wave-sent'
 
 describe('the Autopilot cycle', () => {
   it('starts in the starting phase, with no Wave yet', () => {
-    expect(initialCycle(EPIC)).toEqual({ epic: EPIC, phase: 'starting', wave: 0, tickets: [], reason: null })
+    expect(initialCycle(EPIC)).toEqual({ epic: EPIC, phase: 'starting', wave: 0, tickets: [], reason: null, stopping: false, inWork: [] })
   })
 
   it('sends the first Wave when the Epic has a ready one, and counts it once it is sent', () => {
@@ -148,9 +148,11 @@ describe('the Autopilot cycle', () => {
     expect(run([{ type: 'session-closed' }], inWave1()).effects).toEqual([{ kind: 'stopped', reason: 'session-closed' }])
     const sending = run([{ type: 'start', tickets: OPEN }]).state
     expect(run([{ type: 'send-failed', message: 'No ready wave' }], sending).effects).toEqual([{ kind: 'stopped', reason: 'send-failed' }])
-    // Stop names the Tickets of the Wave it interrupts (worfy-week ticket 17): the next run takes them first.
-    expect(run([{ type: 'stop', reason: 'user-stop' }], inWave1()).effects).toEqual([{ kind: 'stopped', reason: 'user-stop', tickets: [1, 2] }])
-    expect(run([{ type: 'stop', reason: 'user-stop' }], sending).effects).toEqual([{ kind: 'stopped', reason: 'user-stop' }])
+    // Force stop names the Tickets of the Wave it interrupts (worfy-week tickets 17, 18): the next run takes them first.
+    expect(run([{ type: 'stop', reason: 'user-force-stop' }], inWave1()).effects).toEqual([{ kind: 'stopped', reason: 'user-force-stop', tickets: [1, 2] }])
+    expect(run([{ type: 'stop', reason: 'user-force-stop' }], sending).effects).toEqual([{ kind: 'stopped', reason: 'user-force-stop' }])
+    // A stop with user-stop (the run ends a graceful Stop itself) names none.
+    expect(run([{ type: 'stop', reason: 'user-stop' }], inWave1()).effects).toEqual([{ kind: 'stopped', reason: 'user-stop' }])
     expect(run([{ type: 'stop', reason: 'app-quit' }], inWave1()).effects).toEqual([{ kind: 'stopped', reason: 'app-quit' }])
     expect(run([{ type: 'workflow-error', message: 'epic-status failed' }], inWave1()).effects).toEqual([{ kind: 'stopped', reason: 'workflow-error' }])
   })
@@ -219,7 +221,7 @@ describe('the Autopilot cycle', () => {
 
   it('Stop and an error stop the run in phase tasks too', () => {
     const waiting = run([ok(OPEN, 2)], inWave1()).state
-    expect(run([{ type: 'stop', reason: 'user-stop' }], waiting).effects).toEqual([{ kind: 'stopped', reason: 'user-stop', tickets: [1, 2] }])
+    expect(run([{ type: 'stop', reason: 'user-force-stop' }], waiting).effects).toEqual([{ kind: 'stopped', reason: 'user-force-stop', tickets: [1, 2] }])
     expect(run([{ type: 'session-error', message: 'x' }], waiting).state).toMatchObject({ phase: 'stopped', reason: 'session-error' })
   })
 
@@ -264,5 +266,88 @@ describe('the Autopilot cycle', () => {
     expect(run([ok(WAVE1_DONE)]).effects).toEqual([])
     const sending = run([{ type: 'start', tickets: OPEN }]).state
     expect(run([ok(WAVE1_DONE)], sending).effects).toEqual([])
+  })
+})
+
+describe('the graceful Stop (worfy-week ticket 18)', () => {
+  // 01 claimed, 02 still open: the Wave's turn has started one implementer so far.
+  const ONE_IN_WORK = [t(1, 'work'), t(2, 'open'), t(3, 'open', [1, 2])]
+  const graceful = (tickets: Ticket[] = ONE_IN_WORK): CycleEvent => ({ type: 'graceful-stop', tickets })
+
+  it('before anything is sent, stops at once with user-stop', () => {
+    const started = run([graceful(OPEN)])
+    expect(started.effects).toEqual([{ kind: 'stopped', reason: 'user-stop' }])
+    expect(started.state).toMatchObject({ phase: 'stopped', reason: 'user-stop' })
+  })
+
+  it('while "Run wave" is on its way: no effect yet; once it is sent, the Wave starts and the run is stopping', () => {
+    const sending = run([{ type: 'start', tickets: OPEN }]).state
+    const flagged = run([graceful()], sending)
+    expect(flagged.effects).toEqual([])
+    expect(flagged.state).toMatchObject({ phase: 'sending', stopping: true })
+    const sent = run([{ type: 'wave-sent', tickets: [1, 2] }], flagged.state)
+    expect(sent.effects).toEqual([
+      { kind: 'wave-started', wave: 1, tickets: [1, 2] },
+      { kind: 'stopping', wave: 1, tickets: [1, 2], inWork: [1] },
+    ])
+    expect(sent.state).toMatchObject({ phase: 'turn', stopping: true, inWork: [1] })
+  })
+
+  it('during the turn and while tasks live: the stopping effect, the phase stays', () => {
+    const turn = run([graceful()], inWave1())
+    expect(turn.effects).toEqual([{ kind: 'stopping', wave: 1, tickets: [1, 2], inWork: [1] }])
+    expect(turn.state).toMatchObject({ phase: 'turn', stopping: true, inWork: [1] })
+    const waiting = run([ok(ONE_IN_WORK, 1)], inWave1()).state
+    const tasks = run([graceful()], waiting)
+    expect(tasks.effects).toEqual([{ kind: 'stopping', wave: 1, tickets: [1, 2], inWork: [1] }])
+    expect(tasks.state).toMatchObject({ phase: 'tasks', stopping: true })
+  })
+
+  it('a second graceful Stop while stopping does nothing', () => {
+    const stopping = run([graceful()], inWave1()).state
+    expect(step(stopping, graceful())).toEqual({ state: stopping, effects: [] })
+  })
+
+  it('the next turn end, idle and with no task, stops with user-stop: no wave-finished, no send-wave, even with the next Wave ready', () => {
+    const stopping = run([graceful()], inWave1()).state
+    // Wave 1 done: Wave 2 (03) would be ready.
+    const ended = run([ok(WAVE1_DONE)], stopping)
+    expect(ended.effects).toEqual([{ kind: 'stopped', reason: 'user-stop' }])
+    // A Ticket left in work does not hold the run either: no settling while stopping.
+    expect(run([ok(ONE_IN_WORK)], stopping).effects).toEqual([{ kind: 'stopped', reason: 'user-stop' }])
+  })
+
+  it('while stopping, tasks still hold the run, a busy Session still waits, and the stall and errors act as before', () => {
+    const stopping = run([graceful()], inWave1()).state
+    const tasks = run([ok(ONE_IN_WORK, 2)], stopping)
+    expect(tasks.effects).toEqual([])
+    expect(tasks.state).toMatchObject({ phase: 'tasks', stopping: true })
+    expect(run([ok(ONE_IN_WORK, 0, false)], stopping).state).toMatchObject({ phase: 'turn', stopping: true })
+    expect(run([{ type: 'tasks-timeout', tasks: 2, tickets: ONE_IN_WORK }], tasks.state).effects).toEqual([{ kind: 'stopped', reason: 'background-stalled' }])
+    expect(run([{ type: 'tasks-timeout', tasks: 0, tickets: WAVE1_DONE }], tasks.state).effects).toEqual([{ kind: 'stopped', reason: 'user-stop' }])
+    expect(run([{ type: 'turn-ended', isError: true, interrupted: true, message: null, tickets: OPEN, tasks: 0, idle: true }], stopping).effects).toEqual([{ kind: 'stopped', reason: 'interrupted' }])
+    expect(run([{ type: 'stop', reason: 'app-quit' }], stopping).effects).toEqual([{ kind: 'stopped', reason: 'app-quit' }])
+  })
+
+  it('once the turn has ended with Tickets still in work (settling), stops at once with user-stop', () => {
+    const settling = run([ok(ONE_IN_WORK)], inWave1()).state
+    expect(settling.phase).toBe('settling')
+    expect(run([graceful()], settling).effects).toEqual([{ kind: 'stopped', reason: 'user-stop' }])
+  })
+
+  it('Force stop while stopping stops with user-force-stop and the Tickets of the Wave', () => {
+    const stopping = run([graceful()], inWave1()).state
+    expect(run([{ type: 'stop', reason: 'user-force-stop' }], stopping).effects).toEqual([{ kind: 'stopped', reason: 'user-force-stop', tickets: [1, 2] }])
+  })
+
+  it('while stopping, inWork follows the workflow, the turn ends and the tasks time-out', () => {
+    const stopping = run([graceful()], inWave1()).state
+    const both = run([{ type: 'workflow', tickets: [t(1, 'work'), t(2, 'work'), t(3, 'open', [1, 2])] }], stopping)
+    expect(both.effects).toEqual([])
+    expect(both.state).toMatchObject({ phase: 'turn', inWork: [1, 2] })
+    const tasks = run([ok([t(1, 'done'), t(2, 'work'), t(3, 'open', [1, 2])], 1)], both.state)
+    expect(tasks.state).toMatchObject({ phase: 'tasks', inWork: [2] })
+    // A workflow change outside stopping keeps inWork empty.
+    expect(run([{ type: 'workflow', tickets: ONE_IN_WORK }], inWave1()).state.inWork).toEqual([])
   })
 })

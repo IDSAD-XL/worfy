@@ -19,9 +19,17 @@
 // Waves are counted per run from 1: `wave` is the run's count, not the Wave number of the Epic's
 // plan. The text the Orchestrator gets names the Wave's Tickets (ADR-0033).
 //
-// Stop by the user (worfy-week ticket 17, ADR-0050) names the Tickets of the Wave it interrupts in
-// its `stopped` effect. A run started after it is given those Tickets (`start`, `resume`): the ones
-// still in work count as ready, so the first Wave goes even when nothing else is.
+// Stop by the user is graceful (worfy-week ticket 18, ADR-0051): no new Ticket, the ones in work
+// finish. Before the Wave is sent, and once the Orchestrator's turn has ended with no task left
+// (`settling`), the run stops at once with `user-stop`. While "Run wave" is on its way the run only
+// notes it; during the turn and while tasks live it goes `stopping` (the phase stays, the
+// `stopping` effect tells the run to say so to the Orchestrator). A stopping run sends no new Wave
+// and waits for no Ticket file: the first turn end with the Session idle and no task alive stops it
+// with `user-stop`, without `wave-finished`. `inWork` follows the Tickets of the Wave in work.
+//
+// Force stop (`user-force-stop`, worfy-week ticket 17, ADR-0050) names the Tickets of the Wave it
+// interrupts in its `stopped` effect. A run started after it is given those Tickets (`start`,
+// `resume`): the ones still in work count as ready, so the first Wave goes even when nothing else is.
 import { resumedTickets } from '../actions/render-template'
 import type { Ticket } from '../workflow/types'
 import { readyWave } from '../workflow/waves'
@@ -41,6 +49,7 @@ export const AUTOPILOT_STOP_REASONS = [
   'limits-timeout',
   'background-stalled',
   'user-stop',
+  'user-force-stop',
   'app-quit',
 ] as const
 export type AutopilotStopReason = (typeof AUTOPILOT_STOP_REASONS)[number]
@@ -73,6 +82,13 @@ export interface CycleState {
   /** Ticket numbers of the current Wave, as it was sent. */
   tickets: number[]
   reason: AutopilotStopReason | null
+  /** A graceful Stop came: no new Wave; the run ends with the first turn end that leaves nothing alive. */
+  stopping: boolean
+  /**
+   * While stopping: the Tickets of the current Wave in work by the last read of the workflow (while
+   * "Run wave" is on its way, of the whole Epic: the Wave is not known yet). Empty otherwise.
+   */
+  inWork: number[]
 }
 
 export type CycleEvent =
@@ -108,11 +124,14 @@ export type CycleEvent =
   | { type: 'session-error'; message: string }
   /** The Orchestrator Session closed. */
   | { type: 'session-closed' }
+  /** The user pressed Stop (graceful, worfy-week ticket 18); the Tickets of a fresh read. */
+  | { type: 'graceful-stop'; tickets: readonly CycleTicket[] }
   /**
-   * The user pressed Stop, the app quits, or the wait for the Limits would pass its limit
-   * (src/shared/autopilot/resume-at.ts, MAX_WAIT_MS).
+   * The user chose Force stop, the app quits, the wait for the Limits would pass its limit
+   * (src/shared/autopilot/resume-at.ts, MAX_WAIT_MS), or the run ends a graceful Stop itself
+   * (`user-stop`: its Wave still waited in the Session's queue).
    */
-  | { type: 'stop'; reason: 'user-stop' | 'app-quit' | 'limits-timeout' }
+  | { type: 'stop'; reason: 'user-stop' | 'user-force-stop' | 'app-quit' | 'limits-timeout' }
 
 export type CycleEffect =
   /** Send "Run wave" to the Orchestrator; answer with `wave-sent` or `send-failed`. */
@@ -122,9 +141,14 @@ export type CycleEffect =
   /** The Session failed or its turn ended with an error. */
   | { kind: 'session-error'; message: string }
   /**
+   * A graceful Stop during the Wave's turn or its tasks: write `run-stopping` and tell the
+   * Orchestrator to take no new Ticket (run.ts, STOP_TEXT). `inWork`: the Wave's Tickets in work.
+   */
+  | { kind: 'stopping'; wave: number; tickets: number[]; inWork: number[] }
+  /**
    * The run is over: release keep-awake, give the Orchestrator back, write `run-stopped`. With
-   * `blocked-tickets`, `tickets` are the Tickets it stopped on; with `user-stop`, the Tickets of the
-   * Wave it interrupted (none before the first Wave is sent).
+   * `blocked-tickets`, `tickets` are the Tickets it stopped on; with `user-force-stop`, the Tickets
+   * of the Wave it interrupted (none before the first Wave is sent).
    */
   | { kind: 'stopped'; reason: AutopilotStopReason; tickets?: number[] }
 
@@ -134,7 +158,37 @@ export interface CycleStep {
 }
 
 export function initialCycle(epic: string): CycleState {
-  return { epic, phase: 'starting', wave: 0, tickets: [], reason: null }
+  return { epic, phase: 'starting', wave: 0, tickets: [], reason: null, stopping: false, inWork: [] }
+}
+
+/** Which of `nums` are Tickets of the run's Epic in work in `tickets`. */
+function inWorkOf(state: CycleState, tickets: readonly CycleTicket[], nums: readonly number[]): number[] {
+  return nums.filter((num) => tickets.some((ticket) => ticket.epic === state.epic && ticket.num === num && ticket.state === 'work'))
+}
+
+/** While stopping, `inWork` from a fresh read; otherwise the state as it is. */
+function followWork(state: CycleState, tickets: readonly CycleTicket[]): CycleState {
+  return state.stopping ? { ...state, inWork: inWorkOf(state, tickets, state.tickets) } : state
+}
+
+/** The graceful Stop: at once where nothing is under way, else `stopping` (worfy-week ticket 18). */
+function gracefulStop(state: CycleState, tickets: readonly CycleTicket[]): CycleStep {
+  if (state.stopping) return stay(state)
+  switch (state.phase) {
+    case 'sending': {
+      // The Wave is not known until "Run wave" answers: every Ticket of the Epic in work, cut to the Wave then.
+      const epicInWork = tickets.filter((ticket) => ticket.epic === state.epic && ticket.state === 'work').map((ticket) => ticket.num)
+      return stay({ ...state, stopping: true, inWork: epicInWork })
+    }
+    case 'turn':
+    case 'tasks': {
+      const inWork = inWorkOf(state, tickets, state.tickets)
+      return { state: { ...state, stopping: true, inWork }, effects: [{ kind: 'stopping', wave: state.wave, tickets: [...state.tickets], inWork: [...inWork] }] }
+    }
+    default:
+      // starting: the Wave has not gone; settling: the Orchestrator's turn is over and no task lives.
+      return stop(state, 'user-stop')
+  }
 }
 
 const stay = (state: CycleState): CycleStep => ({ state, effects: [] })
@@ -158,6 +212,8 @@ const sameSet = (a: readonly number[], b: readonly number[]): boolean => a.lengt
 
 /** After the Orchestrator's turn: is the Wave finished, and what comes next. */
 function evaluate(state: CycleState, tickets: readonly CycleTicket[]): CycleStep {
+  // A graceful Stop: nothing is left running, and Tickets still in work are a person's now.
+  if (state.stopping) return stop(state, 'user-stop')
   const inWork = state.tickets.filter((num) => tickets.some((ticket) => ticket.epic === state.epic && ticket.num === num && ticket.state === 'work'))
   if (inWork.length > 0) return stay({ ...state, phase: 'settling' })
   const finished: CycleEffect = { kind: 'wave-finished', wave: state.wave, tickets: state.tickets }
@@ -172,7 +228,9 @@ export function step(state: CycleState, event: CycleEvent): CycleStep {
   if (state.phase === 'stopped') return stay(state)
   switch (event.type) {
     case 'stop':
-      return event.reason === 'user-stop' && state.tickets.length > 0 ? stop(state, event.reason, [], [...state.tickets]) : stop(state, event.reason)
+      return event.reason === 'user-force-stop' && state.tickets.length > 0 ? stop(state, event.reason, [], [...state.tickets]) : stop(state, event.reason)
+    case 'graceful-stop':
+      return gracefulStop(state, event.tickets)
     case 'session-error':
       return stop(state, 'session-error', [{ kind: 'session-error', message: event.message }])
     case 'session-closed':
@@ -185,7 +243,11 @@ export function step(state: CycleState, event: CycleEvent): CycleStep {
       if (state.phase !== 'sending') return stay(state)
       const wave = state.wave + 1
       const tickets = [...event.tickets]
-      return { state: { ...state, phase: 'turn', wave, tickets }, effects: [{ kind: 'wave-started', wave, tickets }] }
+      const started: CycleEffect = { kind: 'wave-started', wave, tickets }
+      if (!state.stopping) return { state: { ...state, phase: 'turn', wave, tickets }, effects: [started] }
+      // Stopped while "Run wave" was on its way: the Wave has gone, so the run says Stop now.
+      const inWork = state.inWork.filter((num) => tickets.includes(num))
+      return { state: { ...state, phase: 'turn', wave, tickets, inWork }, effects: [started, { kind: 'stopping', wave, tickets: [...tickets], inWork: [...inWork] }] }
     }
     case 'send-failed':
       return state.phase === 'sending' ? stop(state, 'send-failed') : stay(state)
@@ -195,14 +257,18 @@ export function step(state: CycleState, event: CycleEvent): CycleStep {
       if (state.phase !== 'turn' && state.phase !== 'settling' && state.phase !== 'tasks') return stay(state)
       if (event.interrupted) return stop(state, 'interrupted')
       if (event.isError) return stop(state, 'turn-error', [{ kind: 'session-error', message: event.message ?? 'The turn ended with an error' }])
-      // A turn started since (a task-notification, a queued message): its own result decides.
-      if (!event.idle) return stay({ ...state, phase: 'turn' })
-      if (event.tasks > 0) return stay({ ...state, phase: 'tasks' })
-      return evaluate(state, event.tickets)
+      {
+        const next = followWork(state, event.tickets)
+        // A turn started since (a task-notification, a queued message): its own result decides.
+        if (!event.idle) return stay({ ...next, phase: 'turn' })
+        if (event.tasks > 0) return stay({ ...next, phase: 'tasks' })
+        return evaluate(next, event.tickets)
+      }
     case 'tasks-timeout':
       if (state.phase !== 'tasks') return stay(state)
-      return event.tasks > 0 ? stop(state, 'background-stalled') : evaluate(state, event.tickets)
+      return event.tasks > 0 ? stop(state, 'background-stalled') : evaluate(followWork(state, event.tickets), event.tickets)
     case 'workflow':
+      if (state.stopping) return state.phase === 'sending' ? stay(state) : stay(followWork(state, event.tickets))
       return state.phase === 'settling' ? evaluate(state, event.tickets) : stay(state)
     case 'settle-timeout':
       return state.phase === 'settling' ? stop(state, 'wave-unfinished') : stay(state)

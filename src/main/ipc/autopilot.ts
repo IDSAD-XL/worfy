@@ -1,12 +1,13 @@
 // Handlers of the `autopilot` domain (src/shared/ipc/autopilot.ts), and the app's Autopilot
 // (src/main/autopilot/run.ts) wired to its Projects, Orchestrators, Sessions, workflow watch, run
-// journal, keep-awake and the Limits (the wait after a refusal, worfy-daily ticket 05). Stop gives
-// the Orchestrator back at once (Orchestrators.giveBackNow, worfy-week ticket 17). A run's
+// journal, keep-awake and the Limits (the wait after a refusal, worfy-daily ticket 05). Stop is
+// graceful (worfy-week ticket 18); Force stop gives the Orchestrator back at once
+// (Orchestrators.giveBackNow, worfy-week ticket 17). A run's
 // changes go to every window. When the app quits during a run, the quit waits (a few seconds at
 // most) until the run has written `run-stopped` with `app-quit`; that also cancels a Limits wait.
 import { execFile } from 'node:child_process'
 import { app } from 'electron'
-import { autopilotChanged, autopilotStart, autopilotState, autopilotStop, type AutopilotState } from '../../shared/ipc/autopilot'
+import { autopilotChanged, autopilotForceStop, autopilotStart, autopilotState, autopilotStop, type AutopilotState } from '../../shared/ipc/autopilot'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
 import { appLimits, observeSessionLimits } from '../agent/limits'
@@ -22,10 +23,11 @@ import { defineHandler, emit, type HandlerModule } from './index'
 import { workflowHub } from './workflow'
 
 /** The handlers over an Autopilot; tests pass their own. */
-export function autopilotHandlers(autopilot: () => Pick<Autopilot, 'start' | 'stop' | 'state'>): HandlerModule {
+export function autopilotHandlers(autopilot: () => Pick<Autopilot, 'start' | 'stop' | 'forceStop' | 'state'>): HandlerModule {
   return [
     defineHandler(autopilotStart, ({ projectId, epic }) => autopilot().start(projectId, epic)),
     defineHandler(autopilotStop, ({ projectId }) => autopilot().stop(projectId)),
+    defineHandler(autopilotForceStop, ({ projectId }) => autopilot().forceStop(projectId)),
     defineHandler(autopilotState, ({ projectId }) => autopilot().state(projectId)),
   ]
 }

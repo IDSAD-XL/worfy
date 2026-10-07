@@ -39,14 +39,17 @@ let listeners: Map<string, (payload: unknown) => void>
 let launches: LaunchesSnapshot
 let shipAnswer: IpcResult<unknown>
 let autopilot: AutopilotState
-/** What autopilot.stop answers; null answers the stopped state at once. */
+/** What autopilot.stop answers; null answers the stopping state at once. */
 let stopAnswer: Promise<IpcResult<unknown>> | null
+/** What autopilot.forceStop answers; null answers the stopped state at once. */
+let forceStopAnswer: Promise<IpcResult<unknown>> | null
 
 beforeEach(() => {
   vi.resetModules()
   calls = []
-  autopilot = { projectId: PROJECT, epic: null, status: 'stopped', wave: 0, backgroundTasks: 0, resumesAt: null, reason: null, message: null, resumable: [], revision: 1 }
+  autopilot = { projectId: PROJECT, epic: null, status: 'stopped', wave: 0, backgroundTasks: 0, resumesAt: null, reason: null, message: null, resumable: [], stopping: false, ticketsInWork: 0, revision: 1 }
   stopAnswer = null
+  forceStopAnswer = null
   listeners = new Map()
   // 07 done; 08 open, blocked by 07 (done) → ready; 09 open; 10 open, blocked by 09 (open); 11 claimed.
   tickets = [ticket(7, 'done'), ticket(8, 'open', [7]), ticket(9, 'open'), ticket(10, 'open', [9]), ticket(11, 'work')]
@@ -76,7 +79,9 @@ beforeEach(() => {
         case 'autopilot.state':
           return Promise.resolve({ ok: true, value: autopilot })
         case 'autopilot.stop':
-          return stopAnswer ?? Promise.resolve({ ok: true, value: { ...autopilot, status: 'stopped', reason: 'user-stop', revision: autopilot.revision + 1 } })
+          return stopAnswer ?? Promise.resolve({ ok: true, value: { ...autopilot, stopping: true, revision: autopilot.revision + 1 } })
+        case 'autopilot.forceStop':
+          return forceStopAnswer ?? Promise.resolve({ ok: true, value: { ...autopilot, status: 'stopped', reason: 'user-force-stop', stopping: false, revision: autopilot.revision + 1 } })
         case 'shell.openExternal':
           return Promise.resolve({ ok: true, value: { url: (input as { url: string }).url } })
         default:
@@ -265,16 +270,16 @@ describe('Autopilot (ticket 30, ADR-0033)', () => {
   })
 })
 
-describe('Stop autopilot interrupts the Orchestrator (worfy-week ticket 17)', () => {
-  it('is available again with the Tickets a Stop interrupted, still in work, though nothing else is ready', async () => {
+describe('Force stop interrupts the Orchestrator (worfy-week tickets 17, 18)', () => {
+  it('is available again with the Tickets a Force stop interrupted, still in work, though nothing else is ready', async () => {
     // 08 and 09 were the interrupted Wave and stay claimed; 10 waits for 09: nothing is ready on its own.
     tickets = [ticket(7, 'done'), ticket(8, 'work', [7]), ticket(9, 'work'), ticket(10, 'open', [9])]
-    autopilot = { ...autopilot, epic: 'demo', status: 'stopped', wave: 1, reason: 'user-stop', resumable: [8, 9] }
+    autopilot = { ...autopilot, epic: 'demo', status: 'stopped', wave: 1, reason: 'user-force-stop', resumable: [8, 9] }
     const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
     render(<AutopilotAction subject={epicSubject()} />)
     // The button is drawn again under the status line once the run's state comes: look it up each time.
     await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Autopilot' }).getAttribute('aria-disabled')).toBe('false'))
-    expect(screen.getByTestId('autopilot-status').textContent).toBe('stopped: user stop')
+    expect(screen.getByTestId('autopilot-status').textContent).toBe('stopped: user force stop')
   })
 
   it('without that list, the same Tickets in work leave no ready Wave', async () => {
@@ -288,30 +293,171 @@ describe('Stop autopilot interrupts the Orchestrator (worfy-week ticket 17)', ()
     expect(button().getAttribute('aria-disabled')).toBe('true')
   })
 
-  it('says what Stop does, and stays "Stopping…" and inactive until autopilot.stop answers', async () => {
+  it('Force stop under "⋯": says what it does, and Stop stays "Stopping…", the item inactive, until autopilot.forceStop answers', async () => {
     autopilot = { ...autopilot, epic: 'demo', status: 'running', wave: 1 }
     let answer: (result: IpcResult<unknown>) => void = () => undefined
-    stopAnswer = new Promise((done) => (answer = done))
+    forceStopAnswer = new Promise((done) => (answer = done))
     const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
     render(<AutopilotAction subject={epicSubject()} />)
-    const stop = await screen.findByRole('button', { name: 'Stop autopilot' })
-    expect(stop.getAttribute('title')).toBe('Stop Autopilot over demo: interrupts the Orchestrator and its background tasks; worktrees stay')
-    expect(stop.getAttribute('aria-disabled')).toBe('false')
-    fireEvent.click(stop)
+    fireEvent.click(await screen.findByRole('button', { name: 'More Autopilot actions for demo' }))
+    const force = screen.getByRole('menuitem', { name: 'Force stop' })
+    expect(force.getAttribute('title')).toBe(
+      'Stop Autopilot over demo now: interrupts the Orchestrator and its background tasks; worktrees stay. The next Autopilot takes the interrupted Tickets first',
+    )
+    fireEvent.click(force)
+    // Choosing the item closes the menu and asks main once.
+    expect(screen.queryByRole('menu')).toBeNull()
     const stopping = await screen.findByRole('button', { name: 'Stopping…' })
     expect(stopping.getAttribute('aria-disabled')).toBe('true')
-    // A second click while it stops asks main nothing more.
+    expect(stopping.getAttribute('title')).toBe("Stopping Autopilot: the Orchestrator's turn is being interrupted")
+    // While it is on its way, the item is inactive and a click on it or on "Stopping…" asks main nothing more.
+    fireEvent.click(screen.getByRole('button', { name: 'More Autopilot actions for demo' }))
+    expect(screen.getByRole('menuitem', { name: 'Force stop' }).getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Force stop' }))
     fireEvent.click(stopping)
-    expect(calls.filter((call) => call.channel === 'autopilot.stop')).toHaveLength(1)
+    expect(calls.filter((call) => call.channel === 'autopilot.forceStop')).toEqual([{ channel: 'autopilot.forceStop', input: { projectId: PROJECT } }])
+    expect(calls.filter((call) => call.channel === 'autopilot.stop')).toEqual([])
     // The run's stopped state may come by autopilot.changed first: the button still waits for the answer.
-    act(() => listeners.get('autopilot.changed')?.({ ...autopilot, status: 'stopped', reason: 'user-stop', revision: 5 }))
+    act(() => listeners.get('autopilot.changed')?.({ ...autopilot, status: 'stopped', reason: 'user-force-stop', revision: 5 }))
     expect(screen.getByRole('button', { name: 'Stopping…' }).getAttribute('aria-disabled')).toBe('true')
     await act(async () => {
-      answer({ ok: true, value: { ...autopilot, status: 'stopped', reason: 'user-stop', revision: 6 } })
+      answer({ ok: true, value: { ...autopilot, status: 'stopped', reason: 'user-force-stop', revision: 6 } })
       await Promise.resolve()
     })
     await screen.findByRole('button', { name: 'Autopilot' })
-    expect(screen.getByTestId('autopilot-status').textContent).toBe('stopped: user stop')
+    expect(screen.getByTestId('autopilot-status').textContent).toBe('stopped: user force stop')
+    // A stopped run has no "⋯": there is nothing to force.
+    expect(screen.queryByTestId('action-autopilot-more')).toBeNull()
+  })
+
+  it('main\'s refusal of Force stop is the title of "⋯", with the error mark', async () => {
+    autopilot = { ...autopilot, epic: 'demo', status: 'running', wave: 1 }
+    forceStopAnswer = Promise.resolve({ ok: false, error: 'autopilot.forceStop failed: no run' })
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    render(<AutopilotAction subject={epicSubject()} />)
+    const more = await screen.findByRole('button', { name: 'More Autopilot actions for demo' })
+    expect(more.getAttribute('title')).toBe('More Autopilot actions')
+    fireEvent.click(more)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Force stop' }))
+    await vi.waitFor(() => expect(more.getAttribute('data-error')).not.toBeNull())
+    expect(more.getAttribute('title')).toBe(more.getAttribute('data-error'))
+    expect(more.getAttribute('title')).toContain('no run')
+  })
+})
+
+describe('the graceful Stop and the "⋯" menu (worfy-week ticket 18)', () => {
+  async function running(state: Partial<AutopilotState> = {}) {
+    autopilot = { ...autopilot, epic: 'demo', status: 'running', wave: 1, ...state }
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    return render(<AutopilotAction subject={epicSubject()} />)
+  }
+
+  it('Stop says it takes no new Tickets; a click asks main once, and the stopping run shows "Stopping…" and the Tickets in work', async () => {
+    await running()
+    const stop = await screen.findByRole('button', { name: 'Stop autopilot' })
+    expect(stop.getAttribute('title')).toBe('Stop Autopilot over demo: takes no new Tickets; the Tickets in work finish (merge or blocked)')
+    fireEvent.click(stop)
+    await vi.waitFor(() => expect(calls.filter((call) => call.channel === 'autopilot.stop')).toEqual([{ channel: 'autopilot.stop', input: { projectId: PROJECT } }]))
+    act(() => listeners.get('autopilot.changed')?.({ ...autopilot, stopping: true, ticketsInWork: 2, revision: 9 }))
+    const stopping = await screen.findByRole('button', { name: 'Stopping…' })
+    expect(stopping.getAttribute('aria-disabled')).toBe('true')
+    expect(stopping.getAttribute('title')).toBe('Autopilot over demo is stopping: no new Tickets; it waits for the Tickets in work. Force stop is under ⋯')
+    expect(screen.getByTestId('autopilot-status').textContent).toBe('stopping · 2 tickets in work')
+    fireEvent.click(stopping)
+    expect(calls.filter((call) => call.channel === 'autopilot.stop')).toHaveLength(1)
+    // Force stop is still there while it stops.
+    expect(screen.getByTestId('action-autopilot-more')).toBeTruthy()
+  })
+
+  it.each<[string, Partial<AutopilotState>]>([
+    ['running', { status: 'running' }],
+    ['waiting', { status: 'waiting', resumesAt: Date.UTC(2026, 9, 8, 14, 20) }],
+    ['stopping', { status: 'running', stopping: true, ticketsInWork: 1 }],
+  ])('"⋯" is there while %s, with its name, popup and title', async (_name, state) => {
+    await running(state)
+    const more = await screen.findByTestId('action-autopilot-more')
+    expect(more.getAttribute('aria-label')).toBe('More Autopilot actions for demo')
+    expect(more.getAttribute('aria-haspopup')).toBe('menu')
+    expect(more.getAttribute('aria-expanded')).toBe('false')
+    expect(more.getAttribute('title')).toBe('More Autopilot actions')
+    expect(more.textContent).toBe('⋯')
+  })
+
+  it('"⋯" is not there once the run has stopped', async () => {
+    await running({ status: 'stopped', reason: 'user-stop' })
+    await screen.findByTestId('autopilot-status')
+    expect(screen.queryByTestId('action-autopilot-more')).toBeNull()
+  })
+
+  it('opens the menu with the focus on Force stop; Esc closes it with preventDefault and gives the focus back to "⋯"', async () => {
+    await running()
+    const more = await screen.findByTestId('action-autopilot-more')
+    more.focus()
+    fireEvent.click(more)
+    const menu = screen.getByRole('menu', { name: 'Autopilot over demo' })
+    // Drawn into document.body, out of the Node, where the Canvas's zoom does not reach it.
+    expect(menu.parentElement).toBe(document.body)
+    expect(more.getAttribute('aria-expanded')).toBe('true')
+    const item = screen.getByRole('menuitem', { name: 'Force stop' })
+    expect(item.getAttribute('data-testid')).toBe('action-force-stop-autopilot')
+    expect(document.activeElement).toBe(item)
+    // The arrows stay on the one item.
+    fireEvent.keyDown(item, { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(item)
+    const esc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    act(() => void item.dispatchEvent(esc))
+    expect(esc.defaultPrevented).toBe(true)
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(document.activeElement).toBe(more)
+    expect(more.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('a click outside, the wheel outside and the window losing focus close the menu', async () => {
+    await running()
+    const more = await screen.findByTestId('action-autopilot-more')
+    fireEvent.click(more)
+    expect(screen.getByRole('menu')).toBeTruthy()
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByRole('menu')).toBeNull()
+    fireEvent.click(more)
+    fireEvent.wheel(document.body)
+    expect(screen.queryByRole('menu')).toBeNull()
+    fireEvent.click(more)
+    // The wheel over the menu itself keeps it.
+    fireEvent.wheel(screen.getByRole('menu'))
+    expect(screen.getByRole('menu')).toBeTruthy()
+    act(() => void window.dispatchEvent(new Event('blur')))
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('Force stop while stopping asks main to force, and focus goes back to "⋯"', async () => {
+    await running({ stopping: true, ticketsInWork: 1 })
+    const more = await screen.findByTestId('action-autopilot-more')
+    fireEvent.click(more)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Force stop' }))
+    expect(document.activeElement).toBe(more)
+    await vi.waitFor(() => expect(calls.filter((call) => call.channel === 'autopilot.forceStop')).toHaveLength(1))
+    await screen.findByRole('button', { name: 'Autopilot' })
+    expect(screen.getByTestId('autopilot-status').textContent).toBe('stopped: user force stop')
+  })
+
+  it('on another Epic\'s frame, Autopilot is inactive and says the run is stopping', async () => {
+    autopilot = { ...autopilot, epic: 'other', status: 'running', wave: 1, stopping: true, ticketsInWork: 1 }
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    render(<AutopilotAction subject={epicSubject()} />)
+    const button = () => screen.getByRole('button', { name: 'Autopilot' })
+    await vi.waitFor(() => expect(button().getAttribute('title')).toBe('Autopilot is stopping Epic other'))
+    expect(button().getAttribute('aria-disabled')).toBe('true')
+    expect(screen.queryByTestId('action-autopilot-more')).toBeNull()
+  })
+
+  it('autopilotStatusLine says stopping, with the Tickets in work, and the Force stop reason', () => {
+    expect(autopilotStatusLine({ status: 'running', wave: 1, reason: null, stopping: true, ticketsInWork: 2 })).toBe('stopping · 2 tickets in work')
+    expect(autopilotStatusLine({ status: 'running', wave: 1, reason: null, stopping: true, ticketsInWork: 1 })).toBe('stopping · 1 ticket in work')
+    expect(autopilotStatusLine({ status: 'running', wave: 1, reason: null, stopping: true, ticketsInWork: 0 })).toBe('stopping')
+    expect(autopilotStatusLine({ status: 'stopped', wave: 1, reason: 'user-force-stop' })).toBe('stopped: user force stop')
+    // While waiting for the Limits the line keeps saying so.
+    expect(autopilotStatusLine({ status: 'waiting', wave: 1, reason: null, resumesAt: null, stopping: true, ticketsInWork: 1 })).toBe('waiting for limits')
   })
 })
 

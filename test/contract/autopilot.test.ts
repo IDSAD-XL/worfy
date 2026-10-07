@@ -17,7 +17,7 @@ import { AUTOPILOT_OWNS_ORCHESTRATOR, ORCHESTRATOR_HAS_QUEUE, ORCHESTRATOR_IN_TU
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { SessionSettingsStore, UNATTENDED_MODE_MESSAGE } from '../../src/main/agent/session-settings'
 import { openRun, readRun } from '../../src/main/autopilot/journal'
-import { Autopilot, alreadyRunning, selfProjectRefusal, SELF_PROJECT_MESSAGE, type AutopilotDeps } from '../../src/main/autopilot/run'
+import { Autopilot, alreadyRunning, selfProjectRefusal, SELF_PROJECT_MESSAGE, STOP_TEXT, type AutopilotDeps } from '../../src/main/autopilot/run'
 import { agentHandlers } from '../../src/main/ipc/agent'
 import { autopilotHandlers } from '../../src/main/ipc/autopilot'
 import { sendFromCard } from '../../src/main/ipc/card-api'
@@ -143,6 +143,8 @@ interface HarnessOptions {
   branches?: BranchCache
   /** The Project's Run wave template (default DEFAULT_ACTION_TEMPLATES.runWave). */
   runWave?: string
+  /** Told every state the run publishes, as it is published. */
+  onState?: (state: AutopilotState, autopilot: Autopilot) => void
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -219,7 +221,10 @@ function harness(options: HarnessOptions = {}) {
       return { run: opened.run, append }
     },
     keepAwake: () => ({ start: () => power.push('start'), stop: () => power.push('stop') }),
-    onChange: (state) => states.push(state),
+    onChange: (state) => {
+      states.push(state)
+      options.onState?.(state, autopilot)
+    },
     settleMs: options.settleMs ?? 60_000,
   })
   autopilots.push(autopilot)
@@ -367,7 +372,7 @@ describe('an Autopilot run on the fake agent', () => {
     const other = h.registry.start(repo, undefined, () => undefined)
     const ipc = await agentIpc(h.registry)
     expect((await ipc('agent.send', { sessionId: other.id, text: 'unrelated', attachments: [] })).ok).toBe(true)
-    await h.autopilot.stop(PROJECT)
+    await h.autopilot.forceStop(PROJECT)
     expect((await h.kinds()).map(([kind]) => kind)).not.toContain('human-input')
   })
 
@@ -388,17 +393,17 @@ describe('an Autopilot run on the fake agent', () => {
     expect(error).toMatchObject({ message: expect.stringContaining('Claude Code process exited with code 1') })
   })
 
-  it('Stop ends the run with user-stop: it interrupts the Orchestrator\'s turn, gives the Orchestrator back and releases keep-awake before it answers (worfy-week ticket 17)', async () => {
+  it('Force stop ends the run with user-force-stop: it interrupts the Orchestrator\'s turn, gives the Orchestrator back and releases keep-awake before it answers (worfy-week tickets 17, 18)', async () => {
     const h = harness({ script: 'orchestrator' })
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => messages(h.calls).length === 1, 'Wave 1')
     const unattended = await h.session()
     expect(unattended.state).toBe('busy')
     expect(h.power).toEqual(['start'])
-    const stopped = await h.autopilot.stop(PROJECT)
-    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-stop', wave: 1 })
+    const stopped = await h.autopilot.forceStop(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-force-stop', wave: 1 })
     expect((await h.kinds()).slice(-2)).toEqual([
-      ['run-stopped', 'user-stop'],
+      ['run-stopped', 'user-force-stop'],
       ['orchestrator-returned', null],
     ])
     // The turn ended on the interrupt (the script's turn waits for it); no new turn follows.
@@ -464,11 +469,63 @@ describe('an Autopilot run on the fake agent', () => {
     expect(h.autopilot.running(PROJECT)).toBe(false)
   })
 
-  it('takes a new start at once after Stop: no turn of the stopped run is left to wait for (worfy-week ticket 17)', async () => {
+  it('a graceful Stop during the Wave\'s turn: stopping at once, STOP_TEXT waits behind the turn, a second Stop sends nothing, a new start is refused (worfy-week ticket 18)', async () => {
     const h = harness({ script: 'orchestrator' })
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => messages(h.calls).length === 1, 'Wave 1')
-    await h.autopilot.stop(PROJECT)
+    const unattended = await h.session()
+    expect(unattended.state).toBe('busy')
+    const first = await h.autopilot.stop(PROJECT)
+    expect(first).toMatchObject({ status: 'running', stopping: true, reason: null })
+    expect(autopilotStatusLine(first)).toBe('stopping')
+    expect(unattended.queued().items.map((item) => item.text)).toEqual([STOP_TEXT])
+    // Again while stopping: the same state, nothing more sent or queued.
+    expect(await h.autopilot.stop(PROJECT)).toMatchObject({ status: 'running', stopping: true })
+    expect(unattended.queued().items.map((item) => item.text)).toEqual([STOP_TEXT])
+    await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow(alreadyRunning(EPIC))
+    // Nothing was interrupted; the Orchestrator is still the run's.
+    expect(unattended.state).toBe('busy')
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
+    expect((await h.kinds()).at(-1)).toEqual(['run-stopping', 1])
+    // Force stop then: the turn is interrupted, and STOP_TEXT, still queued, does not reach the person's Session.
+    expect(await h.autopilot.forceStop(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-force-stop', stopping: false, resumable: [1, 2] })
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
+    const attended = await h.session()
+    expect(attended).not.toBe(unattended)
+    expect(attended.queued().items).toEqual([])
+    expect((await h.kinds()).slice(-3)).toEqual([
+      ['run-stopping', 1],
+      ['run-stopped', 'user-force-stop'],
+      ['orchestrator-returned', null],
+    ])
+    await new Promise((done) => setTimeout(done, 50))
+    expect(messages(h.calls)).toEqual([WAVE_1])
+  })
+
+  it('a Stop that comes before the first Wave is sent stops the run at once with user-stop: nothing goes to the Orchestrator', async () => {
+    let stopping: Promise<AutopilotState> | null = null
+    const h = harness({
+      onState: (state, autopilot) => {
+        // The run's first state: its "Run wave" has not gone yet.
+        if (stopping === null && state.status === 'running' && state.wave === 0) stopping = autopilot.stop(PROJECT)
+      },
+    })
+    await h.autopilot.start(PROJECT, EPIC)
+    expect(stopping).not.toBeNull()
+    expect(await stopping).toMatchObject({ status: 'stopped', reason: 'user-stop', wave: 0, stopping: false })
+    expect(messages(h.calls)).toEqual([])
+    expect(await h.kinds()).toEqual([
+      ['run-started', null],
+      ['run-stopped', 'user-stop'],
+    ])
+    expect(h.power).toEqual(['start', 'stop'])
+  })
+
+  it('takes a new start at once after Force stop: no turn of the stopped run is left to wait for (worfy-week tickets 17, 18)', async () => {
+    const h = harness({ script: 'orchestrator' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => messages(h.calls).length === 1, 'Wave 1')
+    await h.autopilot.forceStop(PROJECT)
     expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
     expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
     // After Stop no new turn: the stopped run's Wave is not sent again by itself.
@@ -501,7 +558,7 @@ describe('an Autopilot run on the fake agent', () => {
     const unattended = await h.session()
     unattended.send('look at ticket 02 when you can')
     // Stop interrupts the turn and holds the queue; the Orchestrator is attended when it answers.
-    await h.autopilot.stop(PROJECT)
+    await h.autopilot.forceStop(PROJECT)
     expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
     const attended = await h.session()
     expect(attended).not.toBe(unattended)
@@ -537,7 +594,7 @@ describe('an Autopilot run on the fake agent', () => {
     const h = harness({ script: 'orchestrator' })
     await h.autopilot.start(PROJECT, EPIC)
     await expect(h.launcher.runWave(PROJECT, EPIC)).rejects.toThrow(AUTOPILOT_RUNNING_HINT)
-    await h.autopilot.stop(PROJECT)
+    await h.autopilot.forceStop(PROJECT)
     expect(h.autopilot.running(PROJECT)).toBe(false)
     // Wave 1 is done by now (the agent marked it when it got the run's "Run wave").
     await expect(h.launcher.runWave(PROJECT, EPIC)).resolves.toMatchObject({ text: WAVE_2 })
@@ -746,7 +803,7 @@ async function ipcOver(modules: Record<string, () => Promise<unknown>>): Promise
 const agentIpc = (registry: SessionRegistry) => ipcOver({ './agent.ts': async () => agentHandlers(() => registry) })
 
 describe('the autopilot channels', () => {
-  const state = (overrides: Partial<AutopilotState> = {}): AutopilotState => ({ projectId: 'p', epic: 'e', status: 'running', wave: 1, backgroundTasks: 0, resumesAt: null, reason: null, message: null, resumable: [], revision: 3, ...overrides })
+  const state = (overrides: Partial<AutopilotState> = {}): AutopilotState => ({ projectId: 'p', epic: 'e', status: 'running', wave: 1, backgroundTasks: 0, resumesAt: null, reason: null, message: null, resumable: [], stopping: false, ticketsInWork: 0, revision: 3, ...overrides })
 
   async function register() {
     const calls: unknown[][] = []
@@ -759,6 +816,10 @@ describe('the autopilot channels', () => {
       stop: (projectId: string) => {
         calls.push(['stop', projectId])
         return Promise.resolve({ ...state({ status: 'stopped', reason: 'user-stop' }), journal: '/secret' } as AutopilotState)
+      },
+      forceStop: (projectId: string) => {
+        calls.push(['forceStop', projectId])
+        return Promise.resolve({ ...state({ status: 'stopped', reason: 'user-force-stop', resumable: [1, 2] }), journal: '/secret' } as AutopilotState)
       },
       state: (projectId: string) => {
         calls.push(['state', projectId])
@@ -795,6 +856,14 @@ describe('the autopilot channels', () => {
     expect((await invoke('autopilot.stop', { projectId: 7 })).ok).toBe(false)
     expect((await invoke('autopilot.state', {})).ok).toBe(false)
     expect(calls).toHaveLength(2)
+  })
+
+  it('autopilot.forceStop passes only the Project to Force stop and answers only the contract keys (worfy-week ticket 18)', async () => {
+    const { invoke, calls } = await register()
+    expect(await invoke('autopilot.forceStop', { projectId: 'p', reason: 'app-quit' })).toEqual({ ok: true, value: state({ status: 'stopped', reason: 'user-force-stop', resumable: [1, 2] }) })
+    expect(calls).toEqual([['forceStop', 'p']])
+    expect((await invoke('autopilot.forceStop', { projectId: '' })).ok).toBe(false)
+    expect(calls).toHaveLength(1)
   })
 
   it('an answer outside the contract does not reach the renderer', async () => {

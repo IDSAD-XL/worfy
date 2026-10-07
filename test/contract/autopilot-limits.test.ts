@@ -18,7 +18,7 @@ import { SessionRegistry } from '../../src/main/agent/session'
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
 import { openRun, readRun } from '../../src/main/autopilot/journal'
 import { CONTINUE_TEXT, continueText, LimitsWait, WALL_TICK_MS, wallTimer } from '../../src/main/autopilot/limits-wait'
-import { Autopilot } from '../../src/main/autopilot/run'
+import { Autopilot, STOP_TEXT } from '../../src/main/autopilot/run'
 import { emit } from '../../src/main/ipc/index'
 import { LayoutStore } from '../../src/main/layout/store'
 import { readWorkflow, type EpicStatusRunner } from '../../src/main/workflow/reader'
@@ -311,7 +311,7 @@ describe('Autopilot and the Limits on the fake agent', () => {
     expect(h.messages()).toEqual([WAVE_1, continuation, WAVE_2])
     expect(h.state()).toMatchObject({ status: 'waiting', wave: 2 })
 
-    await h.autopilot.stop(PROJECT)
+    await h.autopilot.forceStop(PROJECT)
     expect(await h.kinds()).toEqual([
       'run-started',
       'wave-started',
@@ -334,23 +334,65 @@ describe('Autopilot and the Limits on the fake agent', () => {
     expect(tree()).toEqual({ ...before, ...Object.fromEntries(written) })
   })
 
-  it('Stop during the wait cancels the timer: no continuation goes out', async () => {
+  it('a graceful Stop during the wait keeps waiting; at the reset the Orchestrator gets one message, the continuation and STOP_TEXT, and the run ends with that turn (worfy-week ticket 18)', async () => {
     const h = harness()
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => h.state().status === 'waiting', 'the wait for the Limits')
     const timer = h.live()[0]!
-    const stopped = await h.autopilot.stop(PROJECT)
-    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-stop', resumesAt: null })
+    const stopping = await h.autopilot.stop(PROJECT)
+    expect(stopping).toMatchObject({ status: 'waiting', stopping: true, resumesAt: timer.at })
+    // The status line keeps the wait: it says when the run goes on.
+    expect(autopilotStatusLine(stopping, { timeZone: 'UTC' })).toBe('waiting for limits · resumes 07:12')
+    expect(timer.cancelled).toBe(false)
+    // Nothing goes during the wait: the Session would refuse the turn.
+    await tick()
+    expect(h.messages()).toEqual([WAVE_1])
+    // The reset: one message, the continuation and then STOP_TEXT.
+    clock = timer.at
+    timer.fire()
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    expect(h.messages()).toEqual([WAVE_1, `${continueText(START_MS, timer.at)}\n\n${STOP_TEXT}`])
+    expect(h.state()).toMatchObject({ reason: 'user-stop', wave: 1, stopping: false, resumable: [] })
+    // Wave 2 was ready after the continuation's turn and did not go.
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'run-stopping', 'resumed', 'run-stopped'])
+    await until(() => !h.orchestrators.isUnattended(PROJECT), 'the Orchestrator to be given back')
+    expect(autopilotStatusLine(h.state())).toBe('stopped: user stop')
+    expect(h.power).toEqual(['start', 'stop'])
+  })
+
+  it('a Stop clicked as the wait ends, its step behind the continuation\'s: still one message, the continuation and STOP_TEXT', async () => {
+    const h = harness()
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'waiting', 'the wait for the Limits')
+    const timer = h.live()[0]!
+    clock = timer.at
+    // The reset fires first; the click lands before the run has sent the continuation.
+    timer.fire()
+    const answer = h.autopilot.stop(PROJECT)
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    await answer
+    expect(h.messages()).toEqual([WAVE_1, `${continueText(START_MS, timer.at)}\n\n${STOP_TEXT}`])
+    expect(h.state()).toMatchObject({ reason: 'user-stop', wave: 1 })
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'resumed', 'run-stopping', 'run-stopped'])
+  })
+
+  it('Force stop during the wait cancels the timer: no continuation goes out (worfy-week tickets 17, 18)', async () => {
+    const h = harness()
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'waiting', 'the wait for the Limits')
+    const timer = h.live()[0]!
+    const stopped = await h.autopilot.forceStop(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-force-stop', resumesAt: null })
     expect(timer.cancelled).toBe(true)
     // A timer that fires late all the same sends nothing.
     clock = timer.at
     timer.fire()
     await tick()
     expect(h.messages()).toEqual([WAVE_1])
-    // Stop gives the Orchestrator back to the person at once (worfy-week ticket 17): its Session was idle, waiting.
+    // Force stop gives the Orchestrator back to the person at once (worfy-week ticket 17): its Session was idle, waiting.
     expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'run-stopped', 'orchestrator-returned'])
     expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
-    expect(autopilotStatusLine(h.state())).toBe('stopped: user stop')
+    expect(autopilotStatusLine(h.state())).toBe('stopped: user force stop')
     expect(h.power).toEqual(['start', 'stop'])
   })
 
@@ -550,7 +592,7 @@ describe('wallTimer', () => {
 })
 
 describe('the waiting state on autopilot.changed', () => {
-  const waiting: AutopilotState = { projectId: 'p', epic: 'e', status: 'waiting', wave: 2, backgroundTasks: 0, resumesAt: RESET_MS + RESUME_MARGIN_MS, reason: null, message: null, resumable: [], revision: 4 }
+  const waiting: AutopilotState = { projectId: 'p', epic: 'e', status: 'waiting', wave: 2, backgroundTasks: 0, resumesAt: RESET_MS + RESUME_MARGIN_MS, reason: null, message: null, resumable: [], stopping: false, ticketsInWork: 0, revision: 4 }
 
   it('sends the state and its resume time, without keys outside the contract', () => {
     const sent: unknown[] = []

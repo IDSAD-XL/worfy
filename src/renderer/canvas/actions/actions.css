@@ -37,5 +37,29 @@
   border-color: var(--blocked-text);
 }
 
+/* The icon-only action button, a 20×20 square: "⋯" of Autopilot (action-menu.ts, worfy-week ticket 18). */
+.w-action--icon {
+  width: 20px;
+  padding: 0;
+  text-align: center;
+}
+
+/* The menu of an action (action-menu.ts): the look of the Canvas menu (overlays/CanvasMenu.tsx,
+   menuStyle), drawn into document.body and placed by the button. */
+.w-action-menu {
+  position: fixed;
+  z-index: 90;
+  min-width: 180px;
+  padding: var(--space-1);
+  border-radius: var(--radius-popover);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-node);
+}
+.w-action-menu .w-row[aria-disabled='true'] {
+  color: var(--text-muted);
+  background: transparent;
+}
+
 /* On a Ticket Node, badges and actions share one row when both fit and wrap to two when not:
    `.w-ticket__slots` in canvas/epic-frame.css. */

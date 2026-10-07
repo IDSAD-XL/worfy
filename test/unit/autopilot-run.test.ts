@@ -5,10 +5,11 @@
 // the test gives it.
 import { afterEach, describe, expect, it } from 'vitest'
 import type { AutopilotWaveResult } from '../../src/main/actions/launch'
-import { Autopilot, type AutopilotDeps, type RunSession } from '../../src/main/autopilot/run'
+import { Autopilot, STOP_TEXT, type AutopilotDeps, type RunSession } from '../../src/main/autopilot/run'
 import type { BackgroundTask } from '../../src/shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../src/shared/agent/events'
 import type { JournalEventFields } from '../../src/shared/autopilot/journal'
+import type { AutopilotState } from '../../src/shared/ipc/autopilot'
 import type { OrchestratorView } from '../../src/shared/ipc/orchestrator'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { readyWave } from '../../src/shared/workflow/waves'
@@ -82,6 +83,10 @@ interface StandIn {
   power: string[]
   /** The `resume` list of each "Run wave" the run sent. */
   resumes: (readonly number[] | undefined)[]
+  /** What the run sent the Session itself (Session.send): an idle Session starts a turn, a busy one queues it. */
+  sent: string[]
+  /** Tells the run its workflow changed (`workflow.changed`). */
+  workflowChanged: () => void
 }
 
 function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
@@ -105,6 +110,8 @@ function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
     orchestrator: [],
     power: [],
     resumes: [],
+    sent: [],
+    workflowChanged: () => undefined,
   }
   const session: RunSession = {
     id: SESSION,
@@ -123,6 +130,16 @@ function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
       if (out.queue.length !== before) out.removed.push(id)
       return out.queue.length !== before
     },
+    send: (text) => {
+      out.sent.push(text)
+      if (out.state !== 'idle') {
+        out.queue.push({ id: `sent-${out.sent.length}`, text })
+        return 'queued'
+      }
+      out.state = 'busy'
+      out.emit({ type: 'prompt', text })
+      return 'sent'
+    },
   }
   const model = (): WorkflowModel => ({ root: '/repo', epics: [{ epic: EPIC, hasSpec: true, hasMap: false }], tickets: out.tickets.map((each) => ({ ...each })), error: null, branchErrors: [] }) as unknown as WorkflowModel
   let sent = 0
@@ -130,7 +147,10 @@ function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
     projectRoot: () => '/repo',
     selfRefusal: () => Promise.resolve(null),
     workflow: () => Promise.resolve(model()),
-    watchWorkflow: () => Promise.resolve(() => undefined),
+    watchWorkflow: (_root, onChange) => {
+      out.workflowChanged = onChange
+      return Promise.resolve(() => undefined)
+    },
     orchestrators: {
       setUnattended: (_projectId, unattended) => {
         out.orchestrator.push(`unattended ${unattended}`)
@@ -345,7 +365,7 @@ describe('the Wave a result ends', () => {
     ])
   })
 
-  it('Stop takes the Wave out of the queue it still waits in; a person\'s own queued message stays', async () => {
+  it('Force stop takes the Wave out of the queue it still waits in; a person\'s own queued message stays', async () => {
     const s = standIn()
     await s.autopilot.start(PROJECT, EPIC)
     await settle()
@@ -355,23 +375,23 @@ describe('the Wave a result ends', () => {
     s.emit({ type: 'prompt', text: 'how is it going?' })
     await settle()
     s.queue.push({ id: 'person', text: 'and then this' })
-    await s.autopilot.stop(PROJECT)
+    await s.autopilot.forceStop(PROJECT)
     expect(s.queue).toEqual([{ id: 'person', text: 'and then this' }])
     expect(s.removed).toEqual(['queued-2'])
   })
 
-  it('Stop leaves the queue alone when the Wave\'s turn has started', async () => {
+  it('Force stop leaves the queue alone when the Wave\'s turn has started', async () => {
     const s = standIn()
     await s.autopilot.start(PROJECT, EPIC)
     await settle()
     s.queue.push({ id: 'person', text: '/epic-wave 1 2' })
-    await s.autopilot.stop(PROJECT)
+    await s.autopilot.forceStop(PROJECT)
     expect(s.removed).toEqual([])
     expect(s.queue).toHaveLength(1)
   })
 })
 
-describe('Stop interrupts the Orchestrator and its background tasks (worfy-week ticket 17)', () => {
+describe('Force stop interrupts the Orchestrator and its background tasks (worfy-week tickets 17, 18)', () => {
   const TASK: BackgroundTask = { taskId: 'task-1', taskType: 'local_agent', description: 'Implement 01' }
   const claim = (s: StandIn, ...nums: number[]) => {
     for (const num of nums) s.tickets = s.tickets.map((each) => (each.num === num ? { ...each, state: 'work' as const } : each))
@@ -402,16 +422,16 @@ describe('Stop interrupts the Orchestrator and its background tasks (worfy-week 
       s.tasks = []
       return Promise.resolve()
     }
-    const stopped = await s.autopilot.stop(PROJECT)
-    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-stop', resumable: [1, 2] })
+    const stopped = await s.autopilot.forceStop(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-force-stop', resumable: [1, 2] })
     expect(s.halts).toBe(1)
     expect(s.orchestrator).toEqual(['unattended true', 'give-back'])
     // Nothing lingers: keep-awake is released, and the app's quit has nothing to wait for.
     expect(s.power).toEqual(['start', 'stop'])
     expect(s.autopilot.anyRunning()).toBe(false)
     expect(fromStop(s)).toEqual([
-      { kind: 'run-stopped', reason: 'user-stop', tasks: ['task-1'], tickets: ['01', '02'] },
-      { kind: 'tasks-killed', reason: 'user-stop', tasks: ['task-1'] },
+      { kind: 'run-stopped', reason: 'user-force-stop', tasks: ['task-1'], tickets: ['01', '02'] },
+      { kind: 'tasks-killed', reason: 'user-force-stop', tasks: ['task-1'] },
       { kind: 'orchestrator-returned' },
     ])
   })
@@ -421,13 +441,13 @@ describe('Stop interrupts the Orchestrator and its background tasks (worfy-week 
     await s.autopilot.start(PROJECT, EPIC)
     await settle()
     s.state = 'busy'
-    const stopped = await s.autopilot.stop(PROJECT)
-    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    const stopped = await s.autopilot.forceStop(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-force-stop' })
     expect(s.halts).toBe(1)
     expect(s.orchestrator).toEqual(['unattended true', 'give-back'])
     expect(s.power).toEqual(['start', 'stop'])
     expect(s.autopilot.anyRunning()).toBe(false)
-    expect(fromStop(s)).toEqual([{ kind: 'run-stopped', reason: 'user-stop', tickets: ['01', '02'] }, { kind: 'orchestrator-returned' }])
+    expect(fromStop(s)).toEqual([{ kind: 'run-stopped', reason: 'user-force-stop', tickets: ['01', '02'] }, { kind: 'orchestrator-returned' }])
   })
 
   it('journals as killed a task that started while the halt waited for the turn', async () => {
@@ -442,27 +462,27 @@ describe('Stop interrupts the Orchestrator and its background tasks (worfy-week 
       s.state = 'idle'
       return Promise.resolve()
     }
-    await s.autopilot.stop(PROJECT)
+    await s.autopilot.forceStop(PROJECT)
     expect(fromStop(s)).toEqual([
-      { kind: 'run-stopped', reason: 'user-stop', tickets: ['01', '02'] },
-      { kind: 'tasks-killed', reason: 'user-stop', tasks: ['task-1'] },
+      { kind: 'run-stopped', reason: 'user-force-stop', tickets: ['01', '02'] },
+      { kind: 'tasks-killed', reason: 'user-force-stop', tasks: ['task-1'] },
       { kind: 'orchestrator-returned' },
     ])
   })
 
-  it('a second Stop while the first one waits for the turn halts nothing more; both answer the stopped run', async () => {
+  it('a second Force stop while the first one waits for the turn halts nothing more; both answer the stopped run', async () => {
     const s = standIn()
     await s.autopilot.start(PROJECT, EPIC)
     await settle()
     s.state = 'busy'
     let endTurn: () => void = () => undefined
     s.onHalt = () => new Promise((done) => (endTurn = done))
-    const first = s.autopilot.stop(PROJECT)
+    const first = s.autopilot.forceStop(PROJECT)
     await settle()
     expect(s.halts).toBe(1)
     // The run still ends: it is running until its Orchestrator is back.
     expect(s.autopilot.running(PROJECT)).toBe(true)
-    const second = s.autopilot.stop(PROJECT)
+    const second = s.autopilot.forceStop(PROJECT)
     // The interrupted turn's result and its tasks' events come in meanwhile: no Wave is judged, nothing is sent.
     s.emit(result(true))
     s.emit({ type: 'background_tasks', tasks: [] })
@@ -471,7 +491,7 @@ describe('Stop interrupts the Orchestrator and its background tasks (worfy-week 
     expect(s.orchestrator).toEqual(['unattended true'])
     endTurn()
     const answers = await Promise.all([first, second])
-    for (const answer of answers) expect(answer).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    for (const answer of answers) expect(answer).toMatchObject({ status: 'stopped', reason: 'user-force-stop' })
     expect(s.halts).toBe(1)
     expect(s.orchestrator).toEqual(['unattended true', 'give-back'])
     expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'run-stopped', 'orchestrator-returned'])
@@ -497,7 +517,7 @@ describe('Stop interrupts the Orchestrator and its background tasks (worfy-week 
     await settle()
     claim(s, 1, 2)
     s.state = 'busy'
-    await s.autopilot.stop(PROJECT)
+    await s.autopilot.forceStop(PROJECT)
     expect(s.autopilot.state(PROJECT).resumable).toEqual([1, 2])
     s.state = 'idle'
     // 01 was finished by hand meanwhile; 02 is still claimed: nothing is ready on its own.
@@ -520,13 +540,340 @@ describe('Stop interrupts the Orchestrator and its background tasks (worfy-week 
     await s.autopilot.start(PROJECT, EPIC)
     await settle()
     claim(s, 1, 2)
-    await s.autopilot.stop(PROJECT)
+    await s.autopilot.forceStop(PROJECT)
     // Another Epic: its run does not take this Epic's Tickets.
     s.tickets = [...s.tickets, { ...s.tickets[0]!, epic: 'other', num: 9 }]
     await s.autopilot.start(PROJECT, 'other').catch(() => undefined)
     await settle()
     expect(s.resumes.at(-1)).toEqual([])
   })
+})
+
+describe('the graceful Stop: no new Ticket, the ones in work finish (worfy-week ticket 18)', () => {
+  const TASK: BackgroundTask = { taskId: 'task-1', taskType: 'local_agent', description: 'Implement 01' }
+  const claim = (s: StandIn, ...nums: number[]) => {
+    for (const num of nums) s.tickets = s.tickets.map((each) => (each.num === num ? { ...each, state: 'work' as const } : each))
+  }
+  /** Every journal line with what the graceful Stop is judged by. */
+  const lines = (s: StandIn) =>
+    s.journal.map((line) => ({
+      kind: line.kind,
+      ...('reason' in line ? { reason: line.reason } : {}),
+      ...('wave' in line && line.kind === 'run-stopping' ? { wave: line.wave } : {}),
+      ...('tickets' in line && line.tickets !== undefined && line.kind !== 'wave-started' ? { tickets: line.tickets } : {}),
+      ...('inWork' in line ? { inWork: line.inWork } : {}),
+      ...('tasks' in line && line.tasks !== undefined && line.kind !== 'background-tasks' ? { tasks: line.tasks.map((task) => task.id) } : {}),
+    }))
+
+  it('during the Wave\'s turn: STOP_TEXT goes once, nothing is halted, stop() answers stopping before the turn ends, and the run ends with its turn', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    // The Wave's turn runs and has claimed 01 so far.
+    s.state = 'busy'
+    claim(s, 1)
+    const answer = await s.autopilot.stop(PROJECT)
+    expect(answer).toMatchObject({ status: 'running', stopping: true, ticketsInWork: 1 })
+    expect(s.sent).toEqual([STOP_TEXT])
+    // Behind the running turn: the text waits in the Session's queue.
+    expect(s.queue.map((item) => item.text)).toEqual([STOP_TEXT])
+    // A second Stop sends nothing more and answers the same.
+    expect(await s.autopilot.stop(PROJECT)).toMatchObject({ status: 'running', stopping: true })
+    expect(s.sent).toHaveLength(1)
+    expect(s.halts).toBe(0)
+    // The Wave's turn ends; the queued STOP_TEXT starts the next turn at once.
+    s.queue.shift()
+    s.emit(result())
+    s.emit({ type: 'prompt', text: STOP_TEXT })
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', stopping: true })
+    // That turn ends: idle, no task. 01 is still in work: it is a person's now.
+    s.state = 'idle'
+    s.emit(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-stop', stopping: false, ticketsInWork: 0, resumable: [] })
+    expect(s.halts).toBe(0)
+    expect(s.orchestrator).toEqual(['unattended true', 'unattended false'])
+    expect(s.power).toEqual(['start', 'stop'])
+    expect(lines(s)).toEqual([
+      { kind: 'wave-started' },
+      { kind: 'run-stopping', reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: ['01'] },
+      { kind: 'run-stopped', reason: 'user-stop' },
+    ])
+    // After a graceful Stop the next run takes nothing along, though 01 is still in work.
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(s.resumes).toEqual([[], []])
+  })
+
+  it('Stop and the end of the turn at the same moment: the turn STOP_TEXT started decides, no next Wave goes', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    // Wave 1 is done and its turn has just ended (the Session idle); the Stop arrives first.
+    done(s, 1, 2)
+    const answer = s.autopilot.stop(PROJECT)
+    s.emit(result())
+    await settle()
+    expect(await answer).toMatchObject({ stopping: true })
+    // STOP_TEXT went at once and runs: the Wave's turn end is not the end of the run.
+    expect(s.sent).toEqual([STOP_TEXT])
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', stopping: true, wave: 1 })
+    s.state = 'idle'
+    s.emit(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-stop', wave: 1 })
+    // Wave 2 (03) was ready, and still did not go.
+    expect(s.resumes).toHaveLength(1)
+    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'run-stopping', 'run-stopped'])
+  })
+
+  it('while background tasks live: STOP_TEXT starts a turn at once, and the run ends with the turn after the last task', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    claim(s, 1, 2)
+    s.tasks = [TASK]
+    s.emit({ type: 'background_tasks', tasks: [TASK] })
+    s.emit(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', backgroundTasks: 1 })
+    expect(await s.autopilot.stop(PROJECT)).toMatchObject({ stopping: true, ticketsInWork: 2 })
+    // The Orchestrator is idle: the text starts its turn now, not from the queue.
+    expect(s.sent).toEqual([STOP_TEXT])
+    expect(s.queue).toEqual([])
+    s.state = 'idle'
+    s.emit(result())
+    await settle()
+    // The implementer still runs: the run waits for it.
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', stopping: true })
+    // 01 merges: the count follows the workflow.
+    done(s, 1)
+    s.workflowChanged()
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', stopping: true, ticketsInWork: 1 })
+    s.tasks = []
+    s.emit({ type: 'background_tasks', tasks: [] })
+    await settle()
+    // The task-notification turn of the last task ends.
+    s.emit({ type: 'prompt', text: '<task-notification>' })
+    s.emit(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    expect(s.halts).toBe(0)
+    expect(s.sent).toHaveLength(1)
+    expect(lines(s)).toEqual([
+      { kind: 'wave-started' },
+      { kind: 'background-tasks' },
+      { kind: 'run-stopping', reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: ['01', '02'] },
+      { kind: 'background-tasks' },
+      { kind: 'run-stopped', reason: 'user-stop' },
+    ])
+  })
+
+  it('Force stop during the graceful Stop halts and gives back once each; the next run takes the interrupted Tickets', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    claim(s, 1, 2)
+    s.tasks = [TASK]
+    s.emit({ type: 'background_tasks', tasks: [TASK] })
+    s.state = 'busy'
+    await s.autopilot.stop(PROJECT)
+    s.onHalt = () => {
+      s.tasks = []
+      s.state = 'idle'
+      return Promise.resolve()
+    }
+    const stopped = await s.autopilot.forceStop(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-force-stop', stopping: false, resumable: [1, 2] })
+    expect(s.halts).toBe(1)
+    expect(s.orchestrator).toEqual(['unattended true', 'give-back'])
+    expect(s.power).toEqual(['start', 'stop'])
+    expect(s.sent).toEqual([STOP_TEXT])
+    expect(lines(s).slice(2)).toEqual([
+      { kind: 'run-stopping', reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: ['01', '02'] },
+      { kind: 'run-stopped', reason: 'user-force-stop', tickets: ['01', '02'], tasks: ['task-1'] },
+      { kind: 'tasks-killed', reason: 'user-force-stop', tasks: ['task-1'] },
+      { kind: 'orchestrator-returned' },
+    ])
+    // 01 is finished by hand; the next run takes 02, still in work.
+    done(s, 1)
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(s.resumes.at(-1)).toEqual([1, 2])
+    expect(s.journal.filter((line) => line.kind === 'wave-started').at(-1)).toMatchObject({ tickets: ['02'] })
+  })
+
+  it('while "Run wave" still waits in the Session\'s queue: the Wave leaves the queue, the run stops with user-stop, STOP_TEXT does not go', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    // Wave 2 goes into the queue behind a person's turn.
+    done(s, 1, 2)
+    s.deliveries.push('queued')
+    s.emit(result())
+    s.emit({ type: 'prompt', text: 'how is it going?' })
+    await settle()
+    expect(s.queue.map((item) => item.text)).toEqual(['/epic-wave 3'])
+    const stopped = await s.autopilot.stop(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-stop', resumable: [] })
+    expect(s.removed).toEqual(['queued-2'])
+    expect(s.sent).toEqual([])
+    expect(s.halts).toBe(0)
+    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'wave-finished', 'wave-started', 'run-stopped'])
+  })
+})
+
+describe('the click on Stop is noted at once: no Wave goes after it (worfy-week ticket 18)', () => {
+  /** The stand-in whose workflow reads take READ_MS once `slow.on` is set, as epic-status and git do. */
+  const READ_MS = 50
+  function slowStandIn() {
+    const s = standIn()
+    const fast = s.deps.workflow
+    const slow = { on: false }
+    s.deps.workflow = async (root) => {
+      if (slow.on) await new Promise((done) => setTimeout(done, READ_MS))
+      return fast(root)
+    }
+    return { s, slow }
+  }
+  const pause = (ms: number) => new Promise((done) => setTimeout(done, ms))
+  const kindsOnly = (s: StandIn) => s.journal.map((line) => line.kind)
+
+  it('Stop during the read after the Wave\'s result: the next Wave does not go, the run stops with user-stop', async () => {
+    const { s, slow } = slowStandIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1, 2)
+    slow.on = true
+    s.emit(result())
+    // The click comes while the run reads the workflow after the result; Wave 2 (03) is ready.
+    await pause(10)
+    const answer = await s.autopilot.stop(PROJECT)
+    expect(answer).toMatchObject({ status: 'stopped', reason: 'user-stop', stopping: false })
+    expect(s.resumes).toHaveLength(1)
+    expect(s.sent).toEqual([])
+    expect(kindsOnly(s)).toEqual(['wave-started', 'wave-finished', 'run-stopped'])
+  })
+
+  it('the state says stopping from the click on, while the step for it still waits', async () => {
+    const { s, slow } = slowStandIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.tickets = s.tickets.map((each) => (each.num === 1 ? { ...each, state: 'work' as const } : each))
+    slow.on = true
+    s.emit(result())
+    await pause(10)
+    const answer = s.autopilot.stop(PROJECT)
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', stopping: true })
+    expect(await answer).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+  })
+
+  it('Stop during the read after a workflow change while settling: the next Wave does not go', async () => {
+    const { s, slow } = slowStandIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    // The Wave's turn ends with 02 still in work: the run settles.
+    done(s, 1)
+    s.tickets = s.tickets.map((each) => (each.num === 2 ? { ...each, state: 'work' as const } : each))
+    s.emit(result())
+    await settle()
+    expect(kindsOnly(s)).toEqual(['wave-started'])
+    // 02 is merged; the watcher's change is read slowly, and the click comes meanwhile.
+    done(s, 2)
+    slow.on = true
+    s.workflowChanged()
+    await pause(10)
+    const answer = await s.autopilot.stop(PROJECT)
+    expect(answer).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    expect(s.resumes).toHaveLength(1)
+    expect(kindsOnly(s)).toEqual(['wave-started', 'wave-finished', 'run-stopped'])
+  })
+
+  it('Stop before the workflow change while settling: stops at once, the change finds the run stopped', async () => {
+    const { s } = slowStandIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1)
+    s.tickets = s.tickets.map((each) => (each.num === 2 ? { ...each, state: 'work' as const } : each))
+    s.emit(result())
+    await settle()
+    done(s, 2)
+    const answer = s.autopilot.stop(PROJECT)
+    s.workflowChanged()
+    expect(await answer).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    await settle()
+    expect(s.resumes).toHaveLength(1)
+    expect(kindsOnly(s)).toEqual(['wave-started', 'run-stopped'])
+  })
+
+  it('Stop while "Run wave" is on its way: the Wave goes out stopping, and STOP_TEXT follows it once', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1, 2)
+    const wave = s.deps.waves.autopilotWave
+    const answers: Promise<unknown>[] = []
+    s.deps.waves.autopilotWave = (projectId, epic, resume) => {
+      // The click lands while Wave 2 is being sent; its turn starts at once and runs.
+      answers.push(s.autopilot.stop(PROJECT))
+      s.state = 'busy'
+      return wave(projectId, epic, resume)
+    }
+    s.emit(result())
+    await settle()
+    await Promise.all(answers)
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', stopping: true, wave: 2 })
+    expect(s.sent).toEqual([STOP_TEXT])
+    expect(s.queue.map((item) => item.text)).toEqual([STOP_TEXT])
+    expect(lines(s).slice(2)).toEqual([{ kind: 'wave-started' }, { kind: 'run-stopping', reason: 'user-stop', wave: 2, tickets: ['03'], inWork: [] }])
+  })
+
+  it('Stop right after the start, before the first Wave goes: nothing is sent, the run stops with user-stop', async () => {
+    // The click lands as the run publishes its first state, before its first step runs.
+    let answer: Promise<AutopilotState> | null = null
+    const holder: { s?: StandIn } = {}
+    const s = standIn({
+      onChange: (state) => {
+        if (answer === null && state.status === 'running' && state.wave === 0) answer = holder.s!.autopilot.stop(PROJECT)
+      },
+    })
+    holder.s = s
+    await s.autopilot.start(PROJECT, EPIC)
+    expect(answer).not.toBeNull()
+    expect(await answer).toMatchObject({ status: 'stopped', reason: 'user-stop', wave: 0 })
+    expect(s.resumes).toEqual([])
+    expect(s.sent).toEqual([])
+    expect(kindsOnly(s)).toEqual(['run-stopped'])
+  })
+
+  it('Force stop right after a Stop whose step still waits: the run ends once, no Wave, no STOP_TEXT', async () => {
+    const { s, slow } = slowStandIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1, 2)
+    slow.on = true
+    s.emit(result())
+    await pause(10)
+    const answers = await Promise.all([s.autopilot.stop(PROJECT), s.autopilot.forceStop(PROJECT)])
+    // The step ahead of both ended the run before the Wave: there was nothing left to interrupt.
+    for (const answer of answers) expect(answer).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    expect(s.resumes).toHaveLength(1)
+    expect(s.sent).toEqual([])
+    expect(s.halts).toBe(0)
+    expect(kindsOnly(s).filter((kind) => kind === 'run-stopped')).toHaveLength(1)
+  })
+
+  /** Every journal line with what the graceful Stop is judged by. */
+  const lines = (s: StandIn) =>
+    s.journal.map((line) => ({
+      kind: line.kind,
+      ...('reason' in line ? { reason: line.reason } : {}),
+      ...('wave' in line && line.kind === 'run-stopping' ? { wave: line.wave } : {}),
+      ...('tickets' in line && line.tickets !== undefined && line.kind === 'run-stopping' ? { tickets: line.tickets } : {}),
+      ...('inWork' in line ? { inWork: line.inWork } : {}),
+    }))
 })
 
 describe('a Session that fails while the run opens its workflow watch', () => {

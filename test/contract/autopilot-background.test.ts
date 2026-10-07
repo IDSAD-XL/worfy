@@ -19,7 +19,7 @@ import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
 import { openRun, readRun } from '../../src/main/autopilot/journal'
 import { LayoutStore } from '../../src/main/layout/store'
-import { Autopilot } from '../../src/main/autopilot/run'
+import { Autopilot, STOP_TEXT } from '../../src/main/autopilot/run'
 import { readWorkflow, type EpicStatusRunner } from '../../src/main/workflow/reader'
 import { BACKGROUND_STALL_MS, TASKS_GRACE_MS } from '../../src/shared/autopilot/cycle'
 import type { AgentEvent } from '../../src/shared/agent/events'
@@ -307,6 +307,19 @@ function noLastTurn(name: string): string {
   return script
 }
 
+/**
+ * A variant of the script with one more turn right after the Wave's turn: the answer to the next
+ * user message (STOP_TEXT of a graceful Stop), played while both tasks still run.
+ */
+function stopTurn(name: string): string {
+  const script = variant(name, (line) => line)
+  const lines = readFileSync(join(scriptsDir, `${script}.jsonl`), 'utf8').trim().split('\n')
+  const resultAt = lines.findIndex((line) => (JSON.parse(line) as { type?: string }).type === 'result')
+  const turn = ['{"fake":"wait_message"}', lines[1]!, lines[resultAt - 1]!, lines[resultAt]!]
+  writeFileSync(join(scriptsDir, `${script}.jsonl`), `${[...lines.slice(0, resultAt + 1), ...turn, ...lines.slice(resultAt + 1)].join('\n')}\n`)
+  return script
+}
+
 describe('Autopilot waits for the background tasks of its Orchestrator', () => {
   it('keeps the Wave while tasks run, and ends it only with the result of the last turn a task-notification started', async () => {
     const h = harness()
@@ -367,12 +380,50 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     expect(heldWhileTasksLive(await h.journal())).toEqual([])
   })
 
-  it('Stop with live tasks interrupts the Orchestrator: its process closes with the tasks, it is a person\'s Session again when stop() answers, and nothing more is sent (worfy-week ticket 17)', async () => {
+  it('a graceful Stop with live tasks keeps the Orchestrator unattended until the last task\'s turn has ended; STOP_TEXT goes once, no new Wave (worfy-week ticket 18)', async () => {
+    const h = harness({ script: stopTurn('graceful-tasks') })
+    await waveWaitsForTasks(h)
+    const answer = await h.autopilot.stop(PROJECT)
+    expect(answer).toMatchObject({ status: 'running', stopping: true })
+    // The Orchestrator was idle: STOP_TEXT starts its turn at once, and that turn ends with both tasks alive.
+    await until(() => h.calls.some((call) => call.kind === 'message' && call.text === STOP_TEXT), 'STOP_TEXT to reach the Orchestrator')
+    await until(async () => (await h.session()).state === 'idle' && (await h.kinds()).includes('run-stopping'), 'the turn of STOP_TEXT to end')
+    await new Promise((done) => setTimeout(done, 50))
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'running', stopping: true, backgroundTasks: 2 })
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
+    // The implementers finish their Tickets; the first task's turn ends: one task still runs.
+    writeTicket(1, 'done — 2026-10-06')
+    h.releases.release('tasks')
+    await until(async () => (await taskIds(h)).length === 1 && (await h.session()).state === 'idle', 'the first task-notification turn')
+    await new Promise((done) => setTimeout(done, 50))
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'running', stopping: true })
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
+    // The last task's turn ends: the run ends with user-stop and gives the Orchestrator back.
+    writeTicket(2, 'done — 2026-10-06')
+    h.releases.release('tasks')
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'user-stop', stopping: false, resumable: [] })
+    await until(() => !h.orchestrators.isUnattended(PROJECT), 'the Orchestrator to be given back')
+    expect(h.power).toEqual(['start', 'stop'])
+    expect(h.calls.filter((call) => call.kind === 'message' && call.text === STOP_TEXT)).toHaveLength(1)
+    // Wave 2 (Ticket 03) was ready and did not go; nothing was killed.
+    const kinds = await h.kinds()
+    expect(kinds.filter((kind) => kind === 'wave-started')).toHaveLength(1)
+    expect(kinds).not.toContain('wave-finished')
+    expect(kinds).not.toContain('tasks-killed')
+    expect(h.closes()).toEqual([])
+    const events = await h.journal()
+    expect(events.find((event) => event.kind === 'run-stopping')).toMatchObject({ reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: [] })
+    expect(events.at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'user-stop' })
+    expect(events.at(-1)).not.toHaveProperty('tickets')
+  })
+
+  it('Force stop with live tasks interrupts the Orchestrator: its process closes with the tasks, it is a person\'s Session again when forceStop() answers, and nothing more is sent (worfy-week tickets 17, 18)', async () => {
     const h = harness()
     await waveWaitsForTasks(h)
     const before = h.sent()
-    const stopped = await h.autopilot.stop(PROJECT)
-    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-stop', resumable: [1, 2] })
+    const stopped = await h.autopilot.forceStop(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-force-stop', resumable: [1, 2] })
     // Closing the unattended Session's process killed both implementers.
     expect(h.closes()).toEqual([['task_impl_0001', 'task_impl_0002']])
     expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
@@ -381,8 +432,8 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     expect(h.autopilot.anyRunning()).toBe(false)
     const events = await h.journal()
     expect(events.slice(events.findIndex((event) => event.kind === 'run-stopped'))).toMatchObject([
-      { kind: 'run-stopped', reason: 'user-stop', tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }], tickets: ['01', '02'] },
-      { kind: 'tasks-killed', reason: 'user-stop', tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }] },
+      { kind: 'run-stopped', reason: 'user-force-stop', tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }], tickets: ['01', '02'] },
+      { kind: 'tasks-killed', reason: 'user-force-stop', tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }] },
       { kind: 'orchestrator-returned' },
     ])
     // No turn follows: the attended Session gets no prompt and no message by itself.
@@ -411,8 +462,8 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     expect(unattended.state).toBe('busy')
     expect(await taskIds(h)).toEqual([])
     const before = h.sent()
-    const stopped = await h.autopilot.stop(PROJECT)
-    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    const stopped = await h.autopilot.forceStop(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-force-stop' })
     expect(unattended.state).toBe('closed')
     expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
     expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
@@ -435,13 +486,13 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     await h.autopilot.start(PROJECT, EPIC)
     await until(async () => (await taskIds(h)).length === 2, 'the two tasks')
     expect((await h.session()).state).toBe('busy')
-    await h.autopilot.stop(PROJECT)
+    await h.autopilot.forceStop(PROJECT)
     expect(h.closes()).toEqual([['task_impl_0001', 'task_impl_0002']])
     expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
     const events = await h.journal()
     expect(events.slice(events.findIndex((event) => event.kind === 'run-stopped'))).toMatchObject([
-      { kind: 'run-stopped', reason: 'user-stop', tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }] },
-      { kind: 'tasks-killed', reason: 'user-stop', tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }] },
+      { kind: 'run-stopped', reason: 'user-force-stop', tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }] },
+      { kind: 'tasks-killed', reason: 'user-force-stop', tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }] },
       { kind: 'orchestrator-returned' },
     ])
   })
@@ -453,7 +504,7 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     const unattended = await h.session()
     expect(unattended.send('look at ticket 02 when you can')).toBe('queued')
     const before = h.sent()
-    await h.autopilot.stop(PROJECT)
+    await h.autopilot.forceStop(PROJECT)
     const attended = await h.session()
     expect(attended).not.toBe(unattended)
     expect(attended.queued()).toMatchObject({ items: [{ text: 'look at ticket 02 when you can' }], paused: true })
@@ -465,7 +516,7 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
   it('after a stop of the cycle, the Orchestrator returns when the grace time passes without the last task\'s turn', async () => {
     const h = harness({ script: noLastTurn('return-grace'), returnGraceMs: 20 })
     await waveWaitsForTasks(h)
-    // background-stalled waits for the tasks (ADR-0029); only user-stop interrupts them (worfy-week ticket 17).
+    // background-stalled waits for the tasks (ADR-0029); only user-force-stop interrupts them (worfy-week tickets 17, 18).
     h.clock.fire(BACKGROUND_STALL_MS)
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
     h.releases.release('tasks')
