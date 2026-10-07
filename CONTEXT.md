@@ -26,6 +26,14 @@ _Avoid_: карточка, card app, виджет, приложение
 Положение и размер Node-ов на Canvas. Это собственное состояние worfy, не часть workflow.
 _Avoid_: раскладка, canvas.json
 
+**Derived Node**:
+Node, место которого считает worfy из workflow: рамка Epic, Ticket, дерево Subagent-ов. Ticket и дерево Subagent-ов руками не двигаются, рамка Epic — только целиком.
+_Avoid_: авто-нода, вычисляемый узел
+
+**Edge**:
+Линия связи между Node-ами на Canvas одного из трёх видов: Blocked by (Ticket → Ticket), Binding (Session или Subagent → Ticket или Epic), Subagent (Session → Subagent).
+_Avoid_: связь, стрелка, линия (как имя Edge)
+
 **Limits**:
 Доля использованных окон подписки Claude (5 часов, 7 дней) и время их сброса.
 _Avoid_: лимиты, usage, квота, расход
@@ -51,6 +59,10 @@ _Avoid_: волна, batch, спринт
 **Autopilot**:
 Режим, в котором Wave-ы Epic идут без человека: worfy не даёт машине уснуть, ждёт сброса Limits и продолжает с того же места; любая точка, где понадобился человек, считается дефектом.
 _Avoid_: ночной режим, автономный прогон
+
+**Stable copy**:
+Собранная копия worfy вне репозитория (`~/Applications/worfy-stable.app`), из которой Autopilot ведёт Wave-ы самого worfy; обновляется между прогонами.
+_Avoid_: стабильная копия, prod-сборка, релиз
 
 **Gate**:
 Проверка готовности изменений (`gate.sh`) с исходом «зелено», «красно» или «не удалось проверить».
@@ -98,3 +110,4 @@ _Avoid_: привязка, assignment, линк
 - У **Project** ровно один **Orchestrator**.
 - У **Project** ровно один **Profile**; **Harness** один на машину и ведёт работу каждого Project по его **Profile**.
 - **Card** принадлежит **Project**, а не Session: менять её может любая Session Project.
+- **Autopilot** над самим worfy идёт только из **Stable copy**; агенты **Wave** в это время собирают и проверяют dev-сборку worfy в своих worktree.
