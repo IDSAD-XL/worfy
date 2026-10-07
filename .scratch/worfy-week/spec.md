@@ -36,6 +36,9 @@ Epic готов, когда:
   дизайна: Edge-и между Node-ами, раскладка рамок Epic-ов, Node-ы без перекрытий, snapping
   (прилипание при перетаскивании) и «Tidy up». Решения владельца по ним — раздел «Решения владельца
   по Canvas», Wave-ы — таблица «Волны».
+- Ticket-ы 08–12 — первые дефекты недели: второй круг ручных проверок 2026-10-07
+  ([PR #93](https://github.com/IDSAD-XL/worfy/pull/93), a3a2c50). Улики — в подразделах «Ручная
+  проверка 2026-10-07» Ticket-ов, на которых их нашли; ссылки — в `Source` каждого.
 - Первый длинный прогон Autopilot над этим Epic-ом может впервые упереться в Limits. Тогда
   проверится условие 3 готовности E2 ([worfy-daily spec.md](../worfy-daily/spec.md), «Цель»;
   Ticket 05 `worfy-daily`): прогон ждёт сброса и продолжает сам.
@@ -57,7 +60,17 @@ Epic готов, когда:
    - 06: snapping при перетаскивании — сетка 8 px, направляющие выравнивания и равных промежутков,
      контур места, куда встанет Node; ⌘ выключает snapping.
    - 07: команда «Tidy up» в палитре ⌘K и в контекстном меню Canvas; один ⌘Z её отменяет.
-3. **Дефекты недели** — по мере находок.
+3. **Дефекты недели** — по мере находок. Первые — 08–12, из второго круга ручных проверок
+   2026-10-07.
+   - 08: ⌘Z после перетаскивания рамки Epic-а возвращает рамку, а не отменяет прошлый шаг;
+     сворачивание рамки — тоже шаг ⌘Z.
+   - 09: перетаскивание и изменение размера Node-а не зависают, когда курсор попадает на iframe Card.
+   - 10: тёмная тема — стопка done со второй карточкой, кольцо акцента у выделенного Node-а и
+     Ticket-а; токены теней не `none`.
+   - 11: открытая стопка done не опускает открытые колонки рамки — done Ticket-ы не участвуют в
+     раскладке ELK. Новый ADR.
+   - 12: мелкие подписи — источник Session в History, подсказки Remove и Hide, имена tool-ов в превью
+     Subagent-а, модель в шапке Session view, окно About в `pnpm dev`.
 
 ## Решения владельца по Canvas
 
@@ -190,6 +203,11 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 05 | `src/renderer/canvas/edge-focus.ts`, `src/renderer/canvas/overlays/EdgeFocus.tsx`, `src/renderer/canvas/edge-types/RoutedEdge.tsx`, `src/renderer/canvas/edge-types/StepEdge.tsx`, `src/renderer/canvas/edges/blocking.ts`, `src/renderer/canvas/edges/bindings.ts`, `src/renderer/canvas/edges/subagents.ts`, `src/renderer/canvas/sources/workflow-bindings.ts`, `src/renderer/canvas/epic-frame.css`, `test/unit/edge-focus.test.tsx`, `test/unit/binding-canvas.test.tsx`, `test/e2e/edges.spec.ts`, `test/e2e/epic-frame.spec.ts`, `test/e2e/binding.spec.ts` | 3 |
 | 06 | `src/renderer/canvas/snapping.ts`, `src/renderer/canvas/overlays/SnapGuides.tsx`, `src/renderer/canvas/NodeResizeClamp.tsx`, `src/renderer/canvas/Canvas.tsx`, `src/renderer/canvas/canvas.css`, `src/renderer/canvas/nodes/CardNode.tsx`, `src/renderer/canvas/nodes/NoteNode.tsx`, `src/renderer/canvas/nodes/SessionNode.tsx`, `src/renderer/canvas/nodes/OrchestratorNode.tsx`, `src/renderer/canvas/nodes/HandoffNode.tsx`, `src/renderer/canvas/nodes/TerminalNode.tsx`, `test/unit/snapping.test.ts`, `test/unit/canvas.test.tsx`, `test/e2e/snapping.spec.ts` | 4 |
 | 07 | `src/renderer/canvas/tidy.ts`, `src/renderer/canvas/elk/`, `src/renderer/canvas/overlays/CanvasMenu.tsx`, `src/renderer/palette/commands.ts`, `src/renderer/find/canvas-requests.ts`, `src/renderer/find/CanvasFind.tsx`, `test/unit/tidy.test.ts`, `test/unit/palette-commands.test.tsx`, `test/unit/canvas-menu.test.tsx`, `test/e2e/tidy-up.spec.ts` | 4 |
+| 08 | `src/renderer/canvas/sources/epics.ts`, `src/renderer/canvas/nodes/EpicFrameNode.tsx`, `src/renderer/canvas/extensions.ts`, `src/renderer/canvas/Canvas.tsx`, `src/renderer/canvas/history.ts`, `src/renderer/canvas/useLayout.ts`, `test/unit/epic-canvas.test.tsx`, `test/unit/history.test.ts`, `test/e2e/epic-frame-undo.spec.ts` | 5 |
+| 09 | `src/renderer/canvas/canvas.css`, `src/renderer/canvas/NodeResizeClamp.tsx`, `src/renderer/canvas/nodes/CardNode.tsx`, `test/unit/node-resize-clamp.test.tsx`, `test/e2e/card-drag.spec.ts` | 5 |
+| 10 | `src/renderer/theme/tokens.css`, `test/unit/shadow-tokens.test.ts`, `test/e2e/theme-shadows.spec.ts` | 5 |
+| 11 | `src/renderer/canvas/elk/layout.ts`, `test/unit/epic-layout.test.ts`, `test/e2e/done-stack.spec.ts` | 5 |
+| 12 | `src/renderer/session/HistoryPopover.tsx`, `src/renderer/canvas/nodes/SessionNode.tsx`, `src/shared/transcript/subagents.ts`, `src/renderer/session/SessionView.tsx`, `src/renderer/session/store.ts`, `src/main/dock-icon.ts`, `test/unit/history-popover.test.tsx`, `test/unit/session-node-remove.test.tsx`, `test/unit/subagents.test.ts`, `test/unit/session-view.test.tsx`, `test/unit/dock-icon.test.ts` | 5 |
 
 Общих файлов у 01 и 02 нет, блокеров нет: оба в Wave 1.
 
@@ -203,6 +221,17 @@ Ticket-ы Canvas (03–07) — по `Blocked by` и спискам файлов:
 - **Wave 4 — 06 и 07.** 06 ждёт 04 (общий модуль места, групповое перемещение), 07 — 03 и 04
   (worker ELK, групповое перемещение). Общих файлов у них нет: 06 — `Canvas.tsx`, `canvas.css`,
   Node-ы с изменением размера; 07 — палитра, контекстное меню, запросы Canvas-у, папка `elk/`.
+
+Ticket-ы дефектов недели (08–12) — из второго круга ручных проверок 2026-10-07:
+
+- **Wave 5 — 08, 09, 10, 11 и 12.** Блокеров нет: всё, на чём они стоят в коде (Ticket-ы 01–07),
+  влито. Общих файлов нет. 08 — запись рамки Epic-а в историю ⌘Z: source рамок, `Canvas.tsx`,
+  `history.ts`. 09 — `canvas.css` и `NodeResizeClamp.tsx`, без `Canvas.tsx`. 10 — только токены
+  `tokens.css`, без правил в `canvas.css` и `epic-frame.css`. 11 — только `elk/layout.ts`, без
+  `sources/epics.ts` и `epic-layout.ts`. 12 — подписи Session-ов, превью Subagent-ов и
+  `dock-icon.ts`. 08 и 11 оба про рамку Epic-а, но 08 меняет запись её смещения и `collapsed`, а
+  11 — раскладку внутри рамки. Если исполнителю понадобится файл другого Ticket-а этой Wave, Ticket
+  об этом говорит, и Wave вычисляется заново.
 
 Списки сверены скриптом, который читает «Где в коде» так же, как `src/main/workflow/reader.ts`, и
 ищет пересечения правилом `filesOverlap` (`src/shared/workflow/waves.ts:145`): внутри каждой Wave
