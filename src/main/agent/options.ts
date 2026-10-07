@@ -25,7 +25,8 @@
 //
 // The Harness (ADR-0040, ADR-0049, worfy-harness ticket 12): unless the old Harness is on the
 // machine, a Session gets the Harness copy of this build inline (`plugins`, sessionHarnessPlugin).
-import { join } from 'node:path'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import type { McpServerConfig, Options } from '@anthropic-ai/claude-agent-sdk'
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
@@ -51,6 +52,24 @@ export interface RuntimeInfo {
 export function claudeExecutablePath(runtime: RuntimeInfo): string | undefined {
   if (!runtime.packaged) return undefined
   return join(runtime.resourcesPath, 'app.asar.unpacked', 'node_modules', '@anthropic-ai', `claude-agent-sdk-${runtime.platform}-${runtime.arch}`, 'claude')
+}
+
+/**
+ * The Claude Code binary of the SDK's platform package in any build, for commands worfy runs itself
+ * (the Harness installer, src/main/harness/install.ts): claudeExecutablePath() in the packaged app,
+ * otherwise the package next to the SDK in node_modules, found the way the SDK finds it. Undefined
+ * when the package is not installed for this platform.
+ */
+export function bundledClaudeBinary(runtime: RuntimeInfo): string | undefined {
+  const packaged = claudeExecutablePath(runtime)
+  if (packaged !== undefined) return packaged
+  try {
+    const sdk = createRequire(import.meta.url).resolve('@anthropic-ai/claude-agent-sdk')
+    const manifest = createRequire(sdk).resolve(`@anthropic-ai/claude-agent-sdk-${runtime.platform}-${runtime.arch}/package.json`)
+    return join(dirname(manifest), 'claude')
+  } catch {
+    return undefined
+  }
 }
 
 /** The canvas a Session in a Project works with. */
