@@ -1,7 +1,7 @@
 # 01 — Бейджи PR и CI идут от аккаунта GitHub Project-а
 
 Type: task
-Status: claimed — 2026-10-07
+Status: done — 2026-10-07, [PR #81](https://github.com/IDSAD-XL/worfy/pull/81)
 Blocked by: —
 Source: решение владельца 2026-10-07 (вопросы 3 и 4); HANDOFF 2026-10-06, «Ждёт владельца», пункт [med] о бейджах «gh unavailable»; ревью Ticket-а 17 `worfy-daily`; [ADR-0020](../../../docs/adr/0020-profile-shared-and-personal-parts.md); [spec.md](../spec.md), этап 1
 
@@ -104,7 +104,7 @@ Session-ов агентов. Общих файлов с Ticket-ом 02 нет.
   «аккаунта нет» пишется в лог один раз на Project, пока не сменится, а не раз в минуту.
 
 **Решение: токен берётся на каждое чтение, а не держится на время опроса** (решено исполнителем,
-как разрешает тикет). Чтение с запуском `gh` бывает не чаще раза в 60 с на Project. Одно чтение —
+как разрешает Ticket). Чтение с запуском `gh` бывает не чаще раза в 60 с на Project. Одно чтение —
 один `gh auth token` на все его вызовы `gh` (список и до 10 поисков по ветке). Причина: токен
 живёт только в окружении дочерних процессов одного чтения и в памяти между чтениями не лежит;
 выход из аккаунта или новый вход в `gh` действуют со следующего чтения без перезапуска worfy.
@@ -136,8 +136,7 @@ renderer-е и схема `checks`.
 - e2e `test/e2e/checks-badges.spec.ts` не менялся: в его временном Claude home нет `bin/profile`,
   поэтому аккаунта нет и `gh` идёт как раньше.
 
-**Ручная проверка (окно приложения).** Stable copy после влития не проверена: тикет ещё не влит.
-Вместо неё — собранное приложение ветки через `launchApp` (fake-агент, временные `WORFY_DATA_DIR` и
+**Ручная проверка (окно приложения).** Сделана до влития, на сборке ветки, а не на Stable copy: собранное приложение ветки через `launchApp` (fake-агент, временные `WORFY_DATA_DIR` и
 `WORFY_CLAUDE_HOME`), настоящий `gh` (`WORFY_GH=/opt/homebrew/bin/gh`), временный репозиторий с
 origin `IDSAD-XL/worfy` и подменённый `bin/profile`; глобальный аккаунт gh — Oleksii-O-Atakama.
 Под Ticket Node-ом на каждом снимке — панель, которую вставляет сам временный spec (подписана
@@ -151,12 +150,26 @@ origin `IDSAD-XL/worfy` и подменённый `bin/profile`; глобаль�
   «CI running» при check `IN_PROGRESS`. [Снимок](../evidence/01-badges-account.png),
   [текст](../evidence/01-badges-account.txt).
 - `bin/profile` с кодом 4 (аккаунта нет): «gh unavailable», в подсказке «GraphQL: Could not
-  resolve to a Repository with the name 'IDSAD-XL/worfy'. (repository)» — так было до тикета.
+  resolve to a Repository with the name 'IDSAD-XL/worfy'. (repository)» — так было до Ticket-а.
   [Снимок](../evidence/01-badges-no-account.png), [текст](../evidence/01-badges-no-account.txt).
 - `bin/profile` отдаёт аккаунт, в который gh не вошёл: «gh unavailable», в подсказке «no gh login
   for nobody-logged-in-xyz, the Project's GitHub account: no oauth token found for github.com
   account nobody-logged-in-xyz; run `gh auth login` and sign in as nobody-logged-in-xyz».
   [Снимок](../evidence/01-badges-no-login.png), [текст](../evidence/01-badges-no-login.txt).
 
-Пункт «(вручную)» остаётся открытым: на Stable copy после влития не проверено, проверка выше
-сделана на сборке ветки.
+Пункт «(вручную)» остаётся `[ ]` — не проверено: Stable copy после влития (main @ 3032865) не
+пересобрана, бейджи в её окне не сверены с `gh pr view`. Проверка выше сделана на сборке ветки.
+Пункт — в HANDOFF, раздел «Ждёт владельца».
+
+**Ревью и влитие.** [PR #81](https://github.com/IDSAD-XL/worfy/pull/81), merge 3032865, один круг
+доработки.
+- Круг 1 — REJECTED (head ccd9674): [high] снимки `01-badges-no-login.png` и
+  `01-badges-no-account.png` совпадали побайтно — на обоих только «gh unavailable», имя аккаунта
+  и подсказка `gh auth login` были лишь в `title`; [low] test «токена нет в снимке» ронял
+  `pr list` на разборе JSON, а не на отказе `gh`, и мутант, дописывающий `GH_TOKEN` в текст
+  ошибки, выживал.
+- Круг 2 — VERIFIED (f57313b..a468980): снимки пересняты с текстом ошибки на экране (вставленная
+  панель подписана как не часть приложения, `src/` не менялся) и `.txt` рядом с каждым; test на
+  отказ самого `gh pr list` ловит этот мутант. Пути утечки токена ревью не нашло.
+- Перед мержем: `GATE_SCOPE=all gate.sh full` — exit 0 после rebase на d28ff1a (Ticket 02);
+  rebase на aa372eb меняет только `.scratch/` и `HANDOFF.md`, после него gate fast и CI зелёные.
