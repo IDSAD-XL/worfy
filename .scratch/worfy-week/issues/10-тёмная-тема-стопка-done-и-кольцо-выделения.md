@@ -1,7 +1,7 @@
 # 10 — Тёмная тема: стопка done со второй карточкой, кольцо акцента у выделенного Node-а и Ticket-а
 
 Type: task
-Status: claimed — 2026-10-07
+Status: done — 2026-10-07, [PR #96](https://github.com/IDSAD-XL/worfy/pull/96)
 Blocked by: —
 Source: ручные проверки 2026-10-07, второй круг, проверка M7 ([PR #93](https://github.com/IDSAD-XL/worfy/pull/93), a3a2c50) — Ticket 11 `worfy-daily`, подраздел [«Ручная проверка 2026-10-07»](../../worfy-daily/issues/11-заголовки-и-chip-ы-без-обрезки.md#ручная-проверка-2026-10-07); [F-SPEC.md](../../../docs/design/F-SPEC.md), «Light/dark pairing rule»; макет `docs/design/F-canvas-dark.dc.html:205-207`; HANDOFF, «Риски и долги»; [spec.md](../spec.md), этап 3
 
@@ -98,3 +98,11 @@ ADR не нужен.
 [тёмная тема](../evidence/10-тёмная-тема.png), [светлая тема](../evidence/10-светлая-тема.png). Сверены с F-SPEC
 («Light/dark pairing rule») и `F-canvas-dark.dc.html:205-207`: в тёмной теме у стопки done видна вторая карточка,
 у выделенных Ticket-а 03 и Note — кольцо акцента, теней нет; светлая тема — как раньше, с мягкими тенями.
+
+**Влито.** [PR #96](https://github.com/IDSAD-XL/worfy/pull/96), merge d71bf9a. Ревью — VERIFIED с первого
+круга, без доработки и без находок. Попиксельное сравнение тёмной темы: возврат токенов к `none`
+меняет только полосу 4 px второй карточки стопки done; minimap, корзина, focus mode и панели не
+меняются, светлая тема — тоже.
+
+**Долг.** Нет. Вне тикета ревью заметило давнее: панель выделения закрывает шапку рамки Epic-а и
+подпись колонки «Done 2» — кандидат в новый тикет.

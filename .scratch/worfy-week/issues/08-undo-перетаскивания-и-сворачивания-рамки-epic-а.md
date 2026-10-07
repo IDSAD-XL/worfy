@@ -1,7 +1,7 @@
 # 08 — ⌘Z после перетаскивания рамки Epic-а возвращает рамку; сворачивание рамки тоже отменяется
 
 Type: task
-Status: claimed — 2026-10-07
+Status: done — 2026-10-07, [PR #98](https://github.com/IDSAD-XL/worfy/pull/98)
 Blocked by: —
 Source: ручные проверки 2026-10-07, второй круг, проверка M21 ([PR #93](https://github.com/IDSAD-XL/worfy/pull/93), a3a2c50) — Ticket [03](03-elk-раскладка-рамок-epic-ов.md), подраздел [«Ручная проверка 2026-10-07»](03-elk-раскладка-рамок-epic-ов.md#ручная-проверка-2026-10-07); HANDOFF, «Риски и долги»; [spec.md](../spec.md), этап 3
 
@@ -136,3 +136,15 @@ ticket 08)», шесть test-ов), `test/unit/history.test.ts` (обратна
 e2e: `test/e2e/epic-frame-undo.spec.ts`. На мутанте, где `saveEpicChange` снова пишет через
 `applyLayoutOp`, e2e красный. Бюджет `test/e2e/epic-frame.spec.ts:885` держится: interactive
 1058 ms, median 120.5 fps.
+
+**Влито.** [PR #98](https://github.com/IDSAD-XL/worfy/pull/98), merge 8609452. Ревью — VERIFIED с первого
+круга, без доработки. Красный `test/e2e/epic-frame.spec.ts:721` в Gate ревью отнесло к известному
+нестабильному test-у: рамку он не перетаскивает и не сворачивает.
+
+**Долг** (все low, из вердикта ревью).
+
+- `src/renderer/canvas/sources/epics.ts:165-169` — при первом изменении рамки без Node-а `epic-frame` шаг
+  истории появляется только после двух ответов main (`create`, потом `move` или `patchData`). ⌘Z,
+  нажатый в этот промежуток, отменяет прошлый шаг истории.
+- `epics.ts:166` — между ответами на `create` и на `move` рамка, возможно, на один кадр мелькает на
+  автоматическом месте. Снимком не подтверждено.
