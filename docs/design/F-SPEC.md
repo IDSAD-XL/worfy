@@ -62,7 +62,7 @@ Describes what is built (worfy-daily tickets 04, 05, 29, 32). Reference look in 
   - `waiting for limits`, `waiting for limits · resumes 14:20` — waiting for the Limits to reset; time is 24-hour local;
   - `stopped: <reason>` — the last run's stop reason, dashes as spaces: `stopped: no ready wave`, `stopped: blocked tickets`, `stopped: no progress`, `stopped: wave unfinished`, `stopped: session error`, `stopped: turn error`, `stopped: interrupted`, `stopped: session closed`, `stopped: send failed`, `stopped: workflow error`, `stopped: limits timeout`, `stopped: background stalled`, `stopped: user stop`, `stopped: app quit`.
 - **Status line tooltip**: the run's error message when it has one; else, while running or waiting, the line plus ". The display stays on until the run ends" (the visible line never says it: 220px is taken by its longest forms); else the line itself.
-- **Visible when**: the Epic has "Run wave" (not every Ticket done), or this Epic's run is running or waiting, or this Epic's last run has a stop reason. Otherwise neither button nor line is drawn.
+- **Visible when**: the Epic has "Run wave" (hidden only when the Epic has Tickets and all of them are done; an Epic with no Tickets shows an inactive button with "No ready wave"), or this Epic's run is running or waiting, or this Epic's last run has a stop reason. Otherwise neither button nor line is drawn.
 - **Themes**: only roles from the Tokens table (surface raised, border, text, secondary text, muted, blocked); no colors of its own. State is always in words — the label and the status line; the blocked border after a refusal comes with the reason in the tooltip.
 
 ## Light/dark pairing rule
