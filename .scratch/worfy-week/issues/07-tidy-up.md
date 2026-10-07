@@ -1,7 +1,7 @@
 # 07 — «Tidy up»: Node-ы пользователя раскладываются без перекрытий, один ⌘Z отменяет
 
 Type: task
-Status: claimed — 2026-10-07
+Status: done — 2026-10-07, [PR #90](https://github.com/IDSAD-XL/worfy/pull/90)
 Blocked by: 03, 04
 Source: решения владельца 2026-10-07, вопросы 19, 25 и 28 ([spec.md](../spec.md), раздел «Решения владельца по Canvas»); [spec.md](../spec.md), этап 2
 
@@ -47,7 +47,7 @@ Source: решения владельца 2026-10-07, вопросы 19, 25 и 2
 - [x] Бюджет `test/e2e/epic-frame.spec.ts:779` держится.
 - [x] Снимки в светлой и тёмной теме (helper `test/e2e/snapshots.ts`) до и после «Tidy up» на фикстуре e2e; пункт меню и строка палитры выглядят как соседние. Сверены с F-SPEC; ссылка из «Итог» — `../evidence/07-tidy-up.png`.
 - [ ] (вручную) Stable copy после влития: «Tidy up» на Canvas Project-а worfy — Node-ы без перекрытий, рамки справа от них, ⌘Z возвращает всё. Как проверить: окно приложения.
-  не проверено: GUI-проверки в этой Wave не за исполнителем, а Stable copy ставится только после влития.
+  не проверено: GUI-проверки в этой Wave не за исполнителем, а Stable copy ставится только после влития. После влития Stable copy из bc38674 или новее ещё не собрана (установлена сборка 5060858), окно никто не смотрел; ждёт владельца (HANDOFF.md, «Ждёт владельца»).
 
 ## Тесты
 
@@ -83,6 +83,10 @@ Ticket-ом 06 нет, он в той же Wave.
 
 Сделано в ветке `worfy-week/07`, база `origin/main` 11b0b2b. ADR не заводился: решение 28 и
 ADR-0037/0038 его покрывают.
+
+**Влито.** [PR #90](https://github.com/IDSAD-XL/worfy/pull/90), merge bc38674. Ревью — VERIFIED с первого
+круга, без доработки. Перед мержем ветка перебазирована на `origin/main` 11b0b2b, head 5a382ce:
+`GATE_SCOPE=all gate.sh full` — exit 0, CI — зелёный.
 
 **Как падал первый test.** `test/unit/palette-commands.test.tsx`, «has Tidy up in the Action
 group…»: на `origin/main` в палитре нет команды `tidy-up`, `expect(tidy).toMatchObject({ group:
@@ -142,3 +146,10 @@ rows», «hairline 1px borders»). Строка палитры — как «New 
 **Решено без владельца, подтвердить.** Пояснение строки палитры — «lay out the Nodes without
 overlaps»; запрос из палитры, пришедший, пока идёт прежний «Tidy up», отбрасывается.
 
+**Долг** (все low, из вердикта ревью).
+
+- На Canvas больше чем с 5000 собственных Node-ов «Tidy up» молча ничего не делает: main отклоняет
+  `moveMany` сверх `MOVES_PER_OP_MAX` (`src/shared/layout/types.ts:34`), а `src/renderer/canvas/tidy.ts:138-141`
+  только пишет в лог — ни сообщения, ни разбиения на части.
+- На снимке «после» (`07-tidy-up.png`) закреплённая Note закрывает Card, поэтому снимок слабо показывает
+  «без перекрытий на экране».
