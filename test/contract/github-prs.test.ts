@@ -427,7 +427,11 @@ if [ "$1" = auth ] && [ "$2" = token ]; then
   printf 'no oauth token found for github.com account %s\\n' "$4" >&2
   exit 1
 fi
-if [ "$1" = pr ] && [ "$2" = list ]; then cat "$GH_STUB_DIR/prs.json"; exit 0; fi
+if [ "$1" = pr ] && [ "$2" = list ]; then
+  if [ -n "$GH_STUB_LIST_EXIT" ]; then printf '%s' "$GH_STUB_LIST_STDERR" >&2; exit "$GH_STUB_LIST_EXIT"; fi
+  cat "$GH_STUB_DIR/prs.json"
+  exit 0
+fi
 printf 'gh stub: unsupported command: %s\\n' "$*" >&2
 exit 2
 `
@@ -619,6 +623,29 @@ describe("gh with the Project's GitHub account", () => {
     const read = await failing.read(world.root, [])
     expect(read.gh.available).toBe(false)
     expect(JSON.stringify(read)).not.toContain(TOKEN)
+    expect(world.logged.join('\n')).not.toContain(TOKEN)
+  })
+
+  it.each([
+    ['with a reason in stderr', 'HTTP 401: Bad credentials (https://api.github.com/graphql)\nTry authenticating with:  gh auth login\n', /^HTTP 401: Bad credentials \(https:\/\/api\.github\.com\/graphql\)$/],
+    ['with an empty stderr', '', /^Command failed: /],
+  ])('gh pr list refused by gh %s: the checks snapshot has gh’s reason, not the token', async (_case, stderr, reason) => {
+    const world = await accountWorld({ code: 0, stdout: `${ACCOUNT}\n` }, { token: TOKEN })
+    world.env.GH_STUB_LIST_EXIT = '1'
+    world.env.GH_STUB_LIST_STDERR = stderr
+    const home = await tempDir()
+    const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>()
+    const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
+    const module = checksHandlers({ gate: new GateReader({ home }), prs: world.tracker(), worktrees: async (root) => [{ path: root, branch: 'demo/01' }] })
+    await registerIpc(ipc, { modules: { './checks.ts': async () => module }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
+    const result = (await handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!({ senderFrame: { url: `file://${INDEX_HTML}` } } as unknown as IpcMainInvokeEvent, { root: world.root, branches: [] })) as IpcResult<ChecksSnapshot>
+    expect(result.ok).toBe(true)
+    const gh = result.ok ? result.value.gh : null
+    expect(gh?.available).toBe(false)
+    expect(gh?.error).toMatch(reason)
+    // The refusal came from pr list itself, run with the account's token.
+    expect((await world.calls()).filter((call) => call.args[0] === 'pr')).toEqual([{ token: TOKEN, args: LIST }])
+    expect(JSON.stringify(result)).not.toContain(TOKEN)
     expect(world.logged.join('\n')).not.toContain(TOKEN)
   })
 

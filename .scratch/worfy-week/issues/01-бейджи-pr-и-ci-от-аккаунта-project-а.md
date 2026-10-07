@@ -127,7 +127,10 @@ renderer-е и схема `checks`.
   `auth token -u <аккаунт>` и `pr list`; пять случаев без аккаунта; собственный `GH_TOKEN` login
   shell проходит без аккаунта и заменяется при аккаунте; нет входа — ошибка с аккаунтом и
   `gh auth login`, `pr list` не вызывается, удвоенный интервал держится; токена нет в снимке
-  `checks`, в логе и в console.
+  `checks`, в логе и в console. Отдельно проверен отказ самого `gh pr list` с токеном: код выхода
+  1, в stderr причина или пусто. Снимок несёт причину gh («HTTP 401: Bad credentials…» или
+  «Command failed: …»), токена в нём нет. Мутант, который дописывает `GH_TOKEN` в текст ошибки
+  `ghRunner`, краснеет на этом test-е.
 - `test/contract/workflow-profile.test.ts`, describe «readGithubAccount» — коды 0, 3, 4, `null`,
   нет скрипта, неверные значения; настоящий запуск скрипта не пишет ни в Claude home, ни в Project.
 - e2e `test/e2e/checks-badges.spec.ts` не менялся: в его временном Claude home нет `bin/profile`,
@@ -137,15 +140,23 @@ renderer-е и схема `checks`.
 Вместо неё — собранное приложение ветки через `launchApp` (fake-агент, временные `WORFY_DATA_DIR` и
 `WORFY_CLAUDE_HOME`), настоящий `gh` (`WORFY_GH=/opt/homebrew/bin/gh`), временный репозиторий с
 origin `IDSAD-XL/worfy` и подменённый `bin/profile`; глобальный аккаунт gh — Oleksii-O-Atakama.
-- `bin/profile` отдаёт `IDSAD-XL`: на Ticket-е 01 «PR #81» и «CI running», как у
-  `gh pr view 81 -R IDSAD-XL/worfy` в ту же минуту (OPEN, check `IN_PROGRESS`) —
-  [снимок](../evidence/01-badges-account.png).
-- `bin/profile` с кодом 4 (аккаунта нет): «gh unavailable», причина «Could not resolve to a
-  Repository with the name 'IDSAD-XL/worfy'» — так было до тикета —
-  [снимок](../evidence/01-badges-no-account.png).
-- `bin/profile` отдаёт аккаунт без входа в `gh`: «gh unavailable», в подсказке бейджа (атрибут `title`, на снимке не виден) «no gh login for
-  nobody-logged-in-xyz, the Project's GitHub account: … run `gh auth login` and sign in as …» —
-  [снимок](../evidence/01-badges-no-login.png).
+Под Ticket Node-ом на каждом снимке — панель, которую вставляет сам временный spec (подписана
+«inserted by the evidence spec, not app UI»; в коде приложения её нет): в ней текст подсказки
+бейджа, то есть `title`, а в нём `gh.error` из снимка `checks`. Рядом с каждым снимком — `.txt` из
+того же запуска: ответ подменённого `bin/profile`, `title` строки бейджей и `title` бейджа
+«gh unavailable».
+- `bin/profile` отдаёт `IDSAD-XL`: на Ticket-е 01 «PR #81», «CI passing» и «REJECTED»; это
+  совпадает с `gh pr view 81 -R IDSAD-XL/worfy` в ту же минуту: OPEN, check `SUCCESS`, первая
+  строка комментария «REJECTED (round 1, head ccd9674)». В первом запуске, до конца CI, там было
+  «CI running» при check `IN_PROGRESS`. [Снимок](../evidence/01-badges-account.png),
+  [текст](../evidence/01-badges-account.txt).
+- `bin/profile` с кодом 4 (аккаунта нет): «gh unavailable», в подсказке «GraphQL: Could not
+  resolve to a Repository with the name 'IDSAD-XL/worfy'. (repository)» — так было до тикета.
+  [Снимок](../evidence/01-badges-no-account.png), [текст](../evidence/01-badges-no-account.txt).
+- `bin/profile` отдаёт аккаунт, в который gh не вошёл: «gh unavailable», в подсказке «no gh login
+  for nobody-logged-in-xyz, the Project's GitHub account: no oauth token found for github.com
+  account nobody-logged-in-xyz; run `gh auth login` and sign in as nobody-logged-in-xyz».
+  [Снимок](../evidence/01-badges-no-login.png), [текст](../evidence/01-badges-no-login.txt).
 
-Пункт «(вручную)» остаётся открытым: не проверено на Stable copy после влития, проверка выше —
-на сборке ветки.
+Пункт «(вручную)» остаётся открытым: на Stable copy после влития не проверено, проверка выше
+сделана на сборке ветки.

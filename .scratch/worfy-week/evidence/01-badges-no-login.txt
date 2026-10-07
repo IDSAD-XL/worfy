@@ -1,0 +1,3 @@
+profile stub: echo nobody-logged-in-xyz
+badge row title: gh unavailable
+gh unavailable title (gh.error): no gh login for nobody-logged-in-xyz, the Project's GitHub account: no oauth token found for github.com account nobody-logged-in-xyz; run `gh auth login` and sign in as nobody-logged-in-xyz
