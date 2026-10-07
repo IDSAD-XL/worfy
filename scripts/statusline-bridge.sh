@@ -10,11 +10,16 @@
 # run that works next to the stable copy sees the same Limits. A shell script cannot import
 # paths.ts; test/contract/statusline-bridge.test.ts keeps the two folder names in step with it.
 #
-# worfy never installs this script and never edits ~/.claude/settings.json (ADR-0005): the user
-# puts it in front of their own status line command, which gets the same stdin and whose output
-# is passed through unchanged:
+# The script ships inside worfy.app as Contents/Resources/statusline-bridge.sh (electron-builder.yml)
+# and runs from there, so it depends on no checkout of the repository. It goes in front of the
+# user's own status line command, which gets the same stdin and whose output is passed through
+# unchanged:
 #
-#   "statusLine": {"type": "command", "command": "/path/to/statusline-bridge.sh 'bash ~/.claude/statusline.sh'"}
+#   "statusLine": {"type": "command", "command": "/Applications/worfy.app/Contents/Resources/statusline-bridge.sh 'bash ~/.claude/statusline.sh'"}
+#
+# worfy points `statusLine` at this script only through the Harness migration form, after the user
+# agrees to that row (ADR-0040, ADR-0047); nothing else in worfy edits ~/.claude/settings.json.
+# Apart from that, worfy only reads statusline-limits.json.
 #
 # Without an argument the script prints nothing. It writes nothing but that one file per folder,
 # only into a folder that exists (worfy has run) and only when jq is available, and never fails

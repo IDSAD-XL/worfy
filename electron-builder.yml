@@ -15,9 +15,16 @@ files:
 # The Harness copy of this build (electron.vite.config.ts writes out/harness/ with the build version
 # in its plugin.json) sits in Contents/Resources/harness/: its scripts are run, and a file inside
 # app.asar cannot be (ADR-0008). src/main/harness/bundled.ts finds it at process.resourcesPath.
+#
+# The status line bridge sits in Contents/Resources/statusline-bridge.sh, executable: the user's
+# `statusLine` runs it from the .app, so Limits from the terminal do not depend on a checkout of
+# this repository (worfy-harness ticket 15). The Harness migration form (src/main/harness/migrate/)
+# proposes <process.resourcesPath>/statusline-bridge.sh by this name; do not rename or move it.
 extraResources:
   - from: out/harness
     to: harness
+  - from: scripts/statusline-bridge.sh
+    to: statusline-bridge.sh
 
 # Package the Electron that is already installed instead of downloading another copy.
 electronDist: node_modules/electron/dist
