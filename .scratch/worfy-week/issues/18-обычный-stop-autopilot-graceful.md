@@ -1,7 +1,7 @@
 # 18 — Обычный Stop в Autopilot — graceful: новых Ticket-ов не брать; Force stop — в меню «⋯»
 
 Type: task
-Status: claimed — 2026-10-07
+Status: done — 2026-10-07, [PR #129](https://github.com/IDSAD-XL/worfy/pull/129)
 Blocked by: 17
 Source: ответ владельца 2026-10-07 на решения по умолчанию Ticket-а [17](17-stop-в-autopilot-прерывает-orchestrator.md) («17 верно, но давай обычный стоп автопилота сделаем graceful, т.е не брать новые тикеты, и на карточке в троеточие спрятать пункт force stop»); [ADR-0029](../../../docs/adr/0029-autopilot-waits-for-background-tasks.md), пункты 5–6; [spec.md](../spec.md), этап 3
 
@@ -189,19 +189,19 @@ Background task-ов. Кому нужен Mac сейчас — Force stop.
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/autopilot-cycle.test.ts`: `graceful-stop` в `starting` — `stopped` с `user-stop`; в `sending` — эффектов нет, а `wave-sent` после него даёт `wave-started` и `stopping`; в `turn` и `tasks` — эффект `stopping`, фаза прежняя; следующий `turn-ended` (idle, 0 Background task-ов) — `stopped` с `user-stop` без `wave-finished` и `send-wave`, даже когда готова следующая Wave; в `settling` — `stopped` с `user-stop` сразу; `stop` с `user-force-stop` при `stopping` — `stopped` с `user-force-stop` и Ticket-ами Wave; событие `workflow` при `stopping` пересчитывает `inWork`.
-- [ ] Unit `test/unit/autopilot-run.test.ts`: Stop в фазе `turn` шлёт `STOP_TEXT` один раз и не вызывает `halt`; `stop()` возвращается с `stopping: true` до конца хода; журнал по порядку — `run-stopping` (`user-stop`, `wave`, `tickets`, `inWork`), `run-stopped` (`user-stop`, без `tickets`). Force stop при `stopping` вызывает `halt` и `giveBackNow` по одному разу; журнал — `run-stopping`, `run-stopped` (`user-force-stop`, `tickets`), `tasks-killed` (`user-force-stop`), `orchestrator-returned`. Сценарии Ticket-а 17 с `user-stop` переведены на `forceStop` и `user-force-stop`.
-- [ ] Unit там же: Stop, пока «Run wave» лежит в очереди Session (ход Wave не начался), убирает его из очереди (`removeQueued`) и кончает прогон с `user-stop`; `STOP_TEXT` не уходит.
-- [ ] Unit там же: после Force stop `resumable` — Ticket-ы прерванной Wave, которые всё ещё в `work`; после graceful Stop — пустой, даже когда Ticket Wave остался в `work`.
-- [ ] Contract `test/contract/autopilot-background.test.ts`: Stop в фазе `tasks` — Orchestrator unattended, пока последний Background task не кончился и ход от его task-notification не вернул `result`; нового «Run wave» нет; `STOP_TEXT` ушёл в Session один раз; потом `isUnattended(PROJECT)` false, power `['start', 'stop']`. Сценарии Stop Ticket-а 17 идут через `forceStop`.
-- [ ] Contract `test/contract/autopilot.test.ts`: `autopilot.forceStop` по IPC; `autopilot.stop` при `stopping` отвечает состоянием без второго `STOP_TEXT`; старт при `stopping` отклонён; Stop в `starting` — `stopped` с `user-stop` сразу.
-- [ ] Contract `test/contract/autopilot-limits.test.ts`: test «Stop during the wait cancels the timer: no continuation goes out» (main `:336`) переписан — Stop во время ожидания Limits оставляет `waiting` и `stopping: true`; после сброса Orchestrator получает одно сообщение — продолжение и `STOP_TEXT`. Новый test: Force stop во время ожидания — `stopped` с `user-force-stop`, ожидание снято, продолжение не уходит.
-- [ ] Contract `test/contract/autopilot-journal.test.ts`: строка `run-stopping` проходит схему; строка `run-stopping` без `inWork` пропускается и считается.
-- [ ] Unit `test/unit/canvas-actions.test.tsx`: при `stopping` кнопка «Stopping…» с `aria-disabled="true"` и строка `stopping · 2 tickets in work`; «⋯» есть при `running`, `waiting` и `stopping`, нет при `stopped`; клик по «⋯» открывает меню, фокус на «Force stop»; Esc закрывает меню с `defaultPrevented`, фокус на «⋯»; клик по пункту зовёт `autopilot.forceStop`; на рамке другого Epic-а при `stopping` «Autopilot» неактивна, title «Autopilot is stopping Epic <epic>». `autopilotStatusLine` даёт `stopping · 1 ticket in work`, `stopping`, `stopped: user force stop`.
-- [ ] e2e `test/e2e/autopilot.spec.ts` (локально, в gate full; строки — по main, после 17 они сдвинутся). Test «Autopilot on an Epic: … stops on Stop» (`:217`) — после Stop кнопка «Stopping…», строка `stopping`, Orchestrator получил `STOP_TEXT`; после конца хода — `stopped: user stop`, журнал `['run-started', 'wave-started 1', 'run-stopping', 'run-stopped user-stop']`, power `['start prevent-display-sleep', 'stop']`; снимок `autopilot-stopping` в светлой и тёмной теме. Test «Autopilot waits for the Limits after a refusal …» (`:288`) — под новое поведение Stop во время Limits. Test-ы Stop, которые переписал или добавил Ticket 17 («Autopilot waits for the background tasks of the Wave; Stop kills them …» и «Stop during the Wave's turn: …» в ветке `worfy-week/17`), жмут «⋯» → «Force stop».
-- [ ] `grep -n "Force stop" docs/design/F-SPEC.md src/renderer/canvas/actions/AutopilotAction.tsx` и `grep -n "interrupts the Orchestrator"` по тем же файлам находят строки в обоих.
-- [ ] ADR записан.
-- [ ] `~/.claude/hooks/gate.sh fast` — exit 0, строка `[gate]` говорит green.
+- [x] Unit `test/unit/autopilot-cycle.test.ts`: `graceful-stop` в `starting` — `stopped` с `user-stop`; в `sending` — эффектов нет, а `wave-sent` после него даёт `wave-started` и `stopping`; в `turn` и `tasks` — эффект `stopping`, фаза прежняя; следующий `turn-ended` (idle, 0 Background task-ов) — `stopped` с `user-stop` без `wave-finished` и `send-wave`, даже когда готова следующая Wave; в `settling` — `stopped` с `user-stop` сразу; `stop` с `user-force-stop` при `stopping` — `stopped` с `user-force-stop` и Ticket-ами Wave; событие `workflow` при `stopping` пересчитывает `inWork`.
+- [x] Unit `test/unit/autopilot-run.test.ts`: Stop в фазе `turn` шлёт `STOP_TEXT` один раз и не вызывает `halt`; `stop()` возвращается с `stopping: true` до конца хода; журнал по порядку — `run-stopping` (`user-stop`, `wave`, `tickets`, `inWork`), `run-stopped` (`user-stop`, без `tickets`). Force stop при `stopping` вызывает `halt` и `giveBackNow` по одному разу; журнал — `run-stopping`, `run-stopped` (`user-force-stop`, `tickets`), `tasks-killed` (`user-force-stop`), `orchestrator-returned`. Сценарии Ticket-а 17 с `user-stop` переведены на `forceStop` и `user-force-stop`.
+- [x] Unit там же: Stop, пока «Run wave» лежит в очереди Session (ход Wave не начался), убирает его из очереди (`removeQueued`) и кончает прогон с `user-stop`; `STOP_TEXT` не уходит.
+- [x] Unit там же: после Force stop `resumable` — Ticket-ы прерванной Wave, которые всё ещё в `work`; после graceful Stop — пустой, даже когда Ticket Wave остался в `work`.
+- [x] Contract `test/contract/autopilot-background.test.ts`: Stop в фазе `tasks` — Orchestrator unattended, пока последний Background task не кончился и ход от его task-notification не вернул `result`; нового «Run wave» нет; `STOP_TEXT` ушёл в Session один раз; потом `isUnattended(PROJECT)` false, power `['start', 'stop']`. Сценарии Stop Ticket-а 17 идут через `forceStop`.
+- [x] Contract `test/contract/autopilot.test.ts`: `autopilot.forceStop` по IPC; `autopilot.stop` при `stopping` отвечает состоянием без второго `STOP_TEXT`; старт при `stopping` отклонён; Stop в `starting` — `stopped` с `user-stop` сразу.
+- [x] Contract `test/contract/autopilot-limits.test.ts`: test «Stop during the wait cancels the timer: no continuation goes out» (main `:336`) переписан — Stop во время ожидания Limits оставляет `waiting` и `stopping: true`; после сброса Orchestrator получает одно сообщение — продолжение и `STOP_TEXT`. Новый test: Force stop во время ожидания — `stopped` с `user-force-stop`, ожидание снято, продолжение не уходит.
+- [x] Contract `test/contract/autopilot-journal.test.ts`: строка `run-stopping` проходит схему; строка `run-stopping` без `inWork` пропускается и считается.
+- [x] Unit `test/unit/canvas-actions.test.tsx`: при `stopping` кнопка «Stopping…» с `aria-disabled="true"` и строка `stopping · 2 tickets in work`; «⋯» есть при `running`, `waiting` и `stopping`, нет при `stopped`; клик по «⋯» открывает меню, фокус на «Force stop»; Esc закрывает меню с `defaultPrevented`, фокус на «⋯»; клик по пункту зовёт `autopilot.forceStop`; на рамке другого Epic-а при `stopping` «Autopilot» неактивна, title «Autopilot is stopping Epic <epic>». `autopilotStatusLine` даёт `stopping · 1 ticket in work`, `stopping`, `stopped: user force stop`.
+- [x] e2e `test/e2e/autopilot.spec.ts` (локально, в gate full; строки — по main, после 17 они сдвинутся). Test «Autopilot on an Epic: … stops on Stop» (`:217`) — после Stop кнопка «Stopping…», строка `stopping`, Orchestrator получил `STOP_TEXT`; после конца хода — `stopped: user stop`, журнал `['run-started', 'wave-started 1', 'run-stopping', 'run-stopped user-stop']`, power `['start prevent-display-sleep', 'stop']`; снимок `autopilot-stopping` в светлой и тёмной теме. Test «Autopilot waits for the Limits after a refusal …» (`:288`) — под новое поведение Stop во время Limits. Test-ы Stop, которые переписал или добавил Ticket 17 («Autopilot waits for the background tasks of the Wave; Stop kills them …» и «Stop during the Wave's turn: …» в ветке `worfy-week/17`), жмут «⋯» → «Force stop».
+- [x] `grep -n "Force stop" docs/design/F-SPEC.md src/renderer/canvas/actions/AutopilotAction.tsx` и `grep -n "interrupts the Orchestrator"` по тем же файлам находят строки в обоих.
+- [x] ADR записан.
+- [x] `~/.claude/hooks/gate.sh fast` — exit 0, строка `[gate]` говорит green.
 - [ ] (вручную) Stable copy после влития: Autopilot над Wave с implementer-ом, Stop — строка `stopping · 1 ticket in work`, новых implementer-ов Orchestrator не запускает, implementer доходит до merge или blocked, прогон кончается `stopped: user stop`. Снова Autopilot, «⋯» → «Force stop» — за 15 s процесса implementer-а нет (`ps`), повторный Autopilot берёт прерванный Ticket первым. Как проверить: окно приложения и журнал `~/Library/Application Support/worfy/autopilot/`.
 
 ## Тесты
@@ -256,6 +256,11 @@ ADR — файл в `docs/adr`, номер выдаёт Orchestrator. Общие
 Ветка `worfy-week/18`, решение — [ADR-0051](../../../docs/adr/0051-autopilot-graceful-stop-force-stop-in-menu.md)
 (ссылается на ADR-0029 и ADR-0050, оба не правлены).
 
+**Влито.** [PR #129](https://github.com/IDSAD-XL/worfy/pull/129), merge 4473a9e. Ревью — REJECTED в
+первом круге, VERIFIED после одного круга доработки. Первый круг нашёл гонку: мягкий Stop, нажатый,
+пока его шаг ждал очереди прогона, не мешал прогону отправить следующую Wave. Исправлено синхронным
+флагом `stopRequested` на прогоне (абзац «Круг доработки» ниже). Решение — ADR-0051.
+
 - **Как падали test-ы до правки.** `test/unit/autopilot-cycle.test.ts` — 12 из 35 красных: события
   `graceful-stop` нет, у `initialCycle` нет `stopping` и `inWork`, `stop` с `user-stop` нёс
   Ticket-ы. Contract «a graceful Stop with live tasks …» (`test/contract/autopilot-background.test.ts`)
@@ -290,3 +295,12 @@ ADR — файл в `docs/adr`, номер выдаёт Orchestrator. Общие
   `journalKinds` добавляет номер Wave).
 - **Не проверено**: ручная проверка stable copy после влития (пункт «вручную» выше) — за
   владельцем.
+
+**Долг** (из комментариев в PR #129).
+
+- `src/main/autopilot/run.ts:623` — ветка «Stop нажат, пока „Run wave“ в пути»: cycle получает
+  `graceful-stop` в фазе `sending`, когда ответ на «Run wave» пришёл. Строка не покрыта test-ом.
+- Force stop сразу после мягкого Stop, пока идёт ход человека, кончается как `user-stop` без `halt`.
+  Так было и до круга доработки.
+- Закрыт долг Ticket-а 17: проверка `if (this.halted) return` в `Session.next()` теперь покрыта
+  test-ом `test/contract/agent-controls.test.ts:765` (абзац «Test вне следа» выше).
