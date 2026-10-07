@@ -253,4 +253,34 @@ ADR — файл в `docs/adr`, номер выдаёт Orchestrator. Общие
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-week/18`, решение — [ADR-0051](../../../docs/adr/0051-autopilot-graceful-stop-force-stop-in-menu.md)
+(ссылается на ADR-0029 и ADR-0050, оба не правлены).
+
+- **Как падали test-ы до правки.** `test/unit/autopilot-cycle.test.ts` — 12 из 35 красных: события
+  `graceful-stop` нет, у `initialCycle` нет `stopping` и `inWork`, `stop` с `user-stop` нёс
+  Ticket-ы. Contract «a graceful Stop with live tasks …» (`test/contract/autopilot-background.test.ts`)
+  проверен на мутанте «Stop идёт путём Force stop»: красный (Orchestrator прерван, `STOP_TEXT` не
+  ушёл).
+- **Cycle** (`src/shared/autopilot/cycle.ts`): событие `graceful-stop` (с Ticket-ами свежего
+  чтения), флаг `stopping`, список `inWork`, эффект `stopping`; причина `user-force-stop`.
+- **Main** (`src/main/autopilot/run.ts`): `stop()` — graceful, `forceStop()` — путь Ticket-а 17;
+  `STOP_TEXT` — константа там же; в `RunSession` добавлен `send`. Правило `resumable` осталось в
+  `run.ts` (`this.last`, `run.interrupted`), условие — `user-force-stop`. При конце прогона из
+  очереди Session убирается и Wave, и ещё не ушедший `STOP_TEXT` (иначе Force stop во время
+  graceful Stop отдал бы `STOP_TEXT` в очередь Session человека).
+- **UI**: «⋯» и меню — `src/renderer/canvas/actions/action-menu.ts` (без JSX), стили —
+  `actions.css` (`.w-action--icon`, `.w-action-menu`).
+- **Test вне следа** (разрешён брифом): `test/contract/agent-controls.test.ts` — «Send queued» на
+  halted Session ничего не шлёт в процесс; краснеет без проверки `halted` в `Session.next()`.
+- **Снимки** (e2e `test/e2e/autopilot.spec.ts`, fake-агент):
+  - меню «⋯»: [светлая](../evidence/18-autopilot-menu-light.png), [тёмная](../evidence/18-autopilot-menu-dark.png);
+  - «Stopping…» и строка `stopping`: [светлая](../evidence/18-autopilot-stopping-light.png), [тёмная](../evidence/18-autopilot-stopping-dark.png);
+  - Stop во время ожидания Limits: [светлая](../evidence/18-autopilot-waiting-stopping-light.png), [тёмная](../evidence/18-autopilot-waiting-stopping-dark.png);
+  - меню при Force stop в пути, пункт неактивен: [светлая](../evidence/18-force-stop-pending-menu-light.png), [тёмная](../evidence/18-force-stop-pending-menu-dark.png).
+- **Решено без владельца, подтвердить** — пять пунктов раздела «Что делаем» приняты как
+  рекомендовано: имена причин; Stop во время Limits ждёт сброса; Stop в `settling` — сразу; строка
+  считает Ticket-ы Wave, а не Background task-и; «⋯» только у идущего прогона. Ещё одно: в
+  журнальном test-е e2e строка `run-stopping` записана как `run-stopping 1` (помощник
+  `journalKinds` добавляет номер Wave).
+- **Не проверено**: ручная проверка stable copy после влития (пункт «вручную» выше) — за
+  владельцем.
