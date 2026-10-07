@@ -1,7 +1,7 @@
 # 12 — worfy находит Harness в папке plugin, передаёт свой Harness Session-ам и шлёт команды по установленному Harness
 
 Type: task
-Status: open
+Status: claimed — 2026-10-07
 Blocked by: 04, 10
 Source: решения владельца 2026-10-07: Q1 (копия `harness/` в `~/.claude/worfy-harness/plugin/` как локальный marketplace; Session-ы worfy получают plugin своей версии inline), Q2 (имя plugin-а `worfy`, команды `/worfy:epic-wave`, `/worfy:ship-ticket`), Q4 (состояние Harness — `~/.claude/worfy-harness/`), Q6 (формат команды Autopilot — английская машинная строка), Q13 и Q33 (машина владельца переходит на plugin в Ticket-е 16, до того Wave-ы идут на старом Harness); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (доставка Harness, состояние машины); [ADR-0047](../../../docs/adr/0047-harness-lessons-by-pr-early-owner-switch.md) (развитие Harness, ранний переход машины владельца); [spec.md](../spec.md)
 
