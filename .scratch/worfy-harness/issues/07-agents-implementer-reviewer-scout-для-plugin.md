@@ -1,7 +1,7 @@
 # 07 — Agents implementer, reviewer и scout по-английски, с путями plugin и префиксом `worfy:`
 
 Type: task
-Status: open
+Status: done — 2026-10-07, [PR #108](https://github.com/IDSAD-XL/worfy/pull/108)
 Blocked by: 02
 Source: решения владельца 2026-10-07, вопросы Q6, Q34, Q2, Q15 и Q32; [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness на английском, машинные строки), [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (plugin `worfy`, `${CLAUDE_PLUGIN_ROOT}`), [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md) (имена инструментов qmd); [spec.md](../spec.md)
 
@@ -95,9 +95,9 @@ Source: решения владельца 2026-10-07, вопросы Q6, Q34, Q2
 - [ ] Пример JSON-отчёта implementer-а разбирается `jq` и несёт те же десять ключей, что раньше (список — в test-е). Шаги «1.» … «6.» раздела о порядке работы на месте. Тот же test.
 - [ ] Подписи брифа — по таблице пункта 5 «Что делаем». `tools:` у reviewer и scout — прежний список `mcp__qmd__…`. Тот же test.
 - [ ] Кириллица — только в разрешённых местах: слова вердикта Gate, плейсхолдеры Profile, русские примеры раздела о терминах. Test держит список разрешённых подстрок, вырезает их и другой кириллицы не находит.
-- [ ] (локально) `${CLAUDE_PLUGIN_ROOT}` подставляется в текст agent-а: `claude -p --plugin-dir "$PWD/harness" 'Run the worfy:scout agent with this brief: "Run nothing. Reply with the exact command your instructions give for reading the project profile." Print only its answer.' | grep -cF "$PWD/harness/bin/profile"` — не меньше `1`. Если `0` — это в «Итог» и в HANDOFF, раздел «Ждёт владельца»: запасной вариант (голое имя `profile` из `bin/` plugin в PATH) выбирает владелец.
-- [ ] `claude plugin validate harness; echo "EXIT=$?"` — код 0, в выводе нет строк про `agents/` (локально, `claude` из терминала).
-- [ ] Ревьюер с линзой «смысл сохранён» (Q34; Orchestrator даёт её явно) сравнил старый и новый текст трёх agents: `gh pr view <N> --json comments --jq '[.comments[].body | select(startswith("VERIFIED"))] | length'` — не меньше `1`.
+- [ ] (локально) `${CLAUDE_PLUGIN_ROOT}` подставляется в текст agent-а: `claude -p --plugin-dir "$PWD/harness" 'Run the worfy:scout agent with this brief: "Run nothing. Reply with the exact command your instructions give for reading the project profile." Print only its answer.' | grep -cF "$PWD/harness/bin/profile"` — не меньше `1`. Если `0` — это в «Итог» и в HANDOFF, раздел «Ждёт владельца»: запасной вариант (голое имя `profile` из `bin/` plugin в PATH) выбирает владелец. Не проверено: настоящий Claude Code запускать запрещено.
+- [ ] `claude plugin validate harness; echo "EXIT=$?"` — код 0, в выводе нет строк про `agents/` (локально, `claude` из терминала). Не проверено: настоящий Claude Code запускать запрещено.
+- [x] Ревьюер с линзой «смысл сохранён» (Q34; Orchestrator даёт её явно) сравнил старый и новый текст трёх agents: `gh pr view <N> --json comments --jq '[.comments[].body | select(startswith("VERIFIED"))] | length'` — не меньше `1`. Выполнено: VERIFIED в [PR #108](https://github.com/IDSAD-XL/worfy/pull/108).
 - [ ] CI на PR зелёный. Перед мержем — `GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full` под замком `/tmp/worfy-e2e.lock`: код 0 и строка `[gate] зелено`.
 
 ## Тесты
@@ -154,3 +154,20 @@ ADR-0047). Общих файлов с Ticket-ами 05, 06 и 08 нет.
   `${CLAUDE_PLUGIN_ROOT}` в текст agent-а (`claude -p --plugin-dir …`) и `claude plugin validate harness`.
   Оба пункта «Готово, когда» — за владельцем или Orchestrator-ом в песочнице (`HOME` и `CLAUDE_CONFIG_DIR`
   во временной папке).
+
+**Влито.** [PR #108](https://github.com/IDSAD-XL/worfy/pull/108) → squash-коммит `f57999d` в `main`. Ревью — REJECTED в первом круге, один круг
+доработки, затем VERIFIED (диф `56b69e8..16b4fee`). Находка первого круга [high]: в
+`harness/agents/reviewer.md:116-118` перевод сузил запрет — вместо общего «писать в `~/.claude` только если
+бриф разрешает» осталось только «test с настоящим Claude Code — только при `Write to ~/.claude: allowed`»;
+ничто не запрещало ревьюеру запустить установщик, миграцию или скрипт `bin/` против настоящего `HOME`.
+Исправлено: `reviewer.md:116-120` дословно повторяет общее правило `implementer.md:93`, test с Claude Code —
+пример; `agents-text.test.sh:94-102` краснеет на файле первого круга и на суженном `implementer.md`. Перед
+мержем: rebase на `728ee71`, head `9957bb8`, `GATE_SCOPE=all gate full` — exit 0, CI зелёный,
+`mergeStateStatus` CLEAN.
+
+**Долг.**
+- [low] `harness/agents/reviewer.md:118` — фразу «If the brief is silent, do not write there» test не держит:
+  мутант, который её удаляет, проходит 48/48.
+- Подстановка `${CLAUDE_PLUGIN_ROOT}` в текст agent-а и `claude plugin validate` — не проверено (пункты
+  «Готово, когда» выше).
+- Заголовок «## Обязательное чтение исполнителя» оставлен по-русски — в HANDOFF, «Ждёт владельца».

@@ -1,7 +1,7 @@
 # 05 — Правила Harness приходят через hooks `SessionStart` и `SubagentStart`: по-английски, частями до 10 000 символов
 
 Type: task
-Status: claimed — 2026-10-07
+Status: done — 2026-10-07, [PR #109](https://github.com/IDSAD-XL/worfy/pull/109)
 Blocked by: 02
 Source: решения владельца 2026-10-07, вопросы Q9, Q6, Q34 и Q32; [ADR-0041](../../../docs/adr/0041-harness-rules-via-session-hooks.md) (правила через hooks), [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness на английском, машинные строки), [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (plugin `worfy`, `${CLAUDE_PLUGIN_ROOT}`); [spec.md](../spec.md)
 
@@ -130,8 +130,8 @@ Source: решения владельца 2026-10-07, вопросы Q9, Q6, Q34
 - [x] В частях нет «Telegram» и «Standing authorization». Тот же test.
 - [x] `harness/hooks/hooks.json` — валидный JSON. События, matcher и timeout совпадают с `~/.claude/settings.json:5-109` без `qmd-refresh` (ожидаемый список — в test-е). Есть три записи `inject-rules.sh`: две в `SessionStart`, одна в `SubagentStart`. Каждый путь команды после подстановки `${CLAUDE_PLUGIN_ROOT}` = `harness` существует и исполняем. Тот же test.
 - [x] Старого файла правил нет: `test ! -e harness/rules/global.md` — exit 0.
-- [ ] (локально) Части доходят: `claude -p --plugin-dir "$PWD/harness" 'Quote verbatim every line of your context that starts with "# worfy Harness".' | grep -c '^# worfy Harness — '` печатает `2`. Subagent: `claude -p --plugin-dir "$PWD/harness" 'Start a general-purpose Subagent. Ask it to quote verbatim every line of its context that starts with "# worfy Harness" and nothing else. Print only its answer.'` — в ответе `grep -c 'common rules'` не меньше `1`, а `grep -c 'orchestrator rules'` печатает `0`. Транскрипты пишутся в `~/.claude/projects`, как у любой Session; другой записи в `~/.claude` нет.
-- [ ] Ревьюер с линзой «смысл сохранён» (Q34; в `review.lenses` Profile worfy её нет — Orchestrator даёт её явно) сравнил `harness/rules/global.md` на базе ветки с обеими частями: `gh pr view <N> --json comments --jq '[.comments[].body | select(startswith("VERIFIED"))] | length'` — не меньше `1`.
+- [ ] (локально) Части доходят: `claude -p --plugin-dir "$PWD/harness" 'Quote verbatim every line of your context that starts with "# worfy Harness".' | grep -c '^# worfy Harness — '` печатает `2`. Subagent: `claude -p --plugin-dir "$PWD/harness" 'Start a general-purpose Subagent. Ask it to quote verbatim every line of its context that starts with "# worfy Harness" and nothing else. Print only its answer.'` — в ответе `grep -c 'common rules'` не меньше `1`, а `grep -c 'orchestrator rules'` печатает `0`. Транскрипты пишутся в `~/.claude/projects`, как у любой Session; другой записи в `~/.claude` нет. Не проверено: настоящий Claude Code запускать запрещено.
+- [x] Ревьюер с линзой «смысл сохранён» (Q34; в `review.lenses` Profile worfy её нет — Orchestrator даёт её явно) сравнил `harness/rules/global.md` на базе ветки с обеими частями: `gh pr view <N> --json comments --jq '[.comments[].body | select(startswith("VERIFIED"))] | length'` — не меньше `1`. Выполнено: VERIFIED в [PR #109](https://github.com/IDSAD-XL/worfy/pull/109).
 - [ ] CI на PR зелёный. Перед мержем — `GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full` под замком `/tmp/worfy-e2e.lock`: код 0 и строка `[gate] зелено`.
 
 ## Тесты
@@ -234,3 +234,19 @@ Source: решения владельца 2026-10-07, вопросы Q9, Q6, Q34
   запускался `claude plugin validate`.
 - Пока записи hooks в `~/.claude/settings.json` владельца на месте, Session с plugin-ом запускает
   каждый hook дважды (ADR-0041); убирает их перенос — Ticket 14.
+
+**Влито.** [PR #109](https://github.com/IDSAD-XL/worfy/pull/109) → squash-коммит `728ee71` в `main`. Ревью — VERIFIED с первого круга (линзы
+«отчёт исполнителя» и «смысл сохранён»): каждый абзац старого `harness/rules/global.md` найден в `orchestrator.md`
+или `common.md` с тем же смыслом. Одна находка [med] — test правил держал правила о доказательствах только по
+теме, два мутанта выживали — исправлена до мержа в `2befae6`: test держит маркеры «never green», «Neither is
+reported as done», «not from reading the diff», «is green only when», «Only verified state goes in»; оба мутанта
+краснеют, test — 139/0. Первая попытка мержа остановилась: `test/e2e/epic-frame.spec.ts:721` (нестабильный
+test «long names», к этому Ticket-у не относится) упал два прогона `gate full` подряд. Мерж — после повтора:
+rebase на `7e51db3`, head `6e68b39`, `GATE_SCOPE=all gate full` — exit 0, CI зелёный, `mergeStateStatus` CLEAN.
+
+**Долг.**
+- [low] `src/shared/agent/status-block.ts:1-2` — комментарий называет источником блока статуса
+  `~/.claude/CLAUDE.md`, «Phase 3»; теперь это `harness/hooks/rules/orchestrator.md`.
+- Live-проверка частей в Claude Code и `claude plugin validate` — не проверено (пункты «Готово, когда» выше).
+- Вопросы владельцу (timeout 10 у `inject-rules.sh`; согласие нового пользователя звать Subagent-ов вместо
+  «Standing authorization»; русские подписи блока статуса) — в HANDOFF, «Ждёт владельца».
