@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import { subagentTypeLabel } from '../../../shared/agent/subagent-type'
 import { flattenSubagents, type SubagentInfo } from '../../../shared/transcript/subagents'
 import { statusLabel, useSubagentTree, useTick } from '../../claude-home/subagents'
 import { useProjects } from '../../projects/useProjects'
@@ -74,9 +75,9 @@ export function SubagentsList({ tree, now, onOpen }: SubagentsListProps) {
                     <span className="w-mono" style={styles.branch} aria-hidden="true">
                       {info.depth > 1 ? '└' : '•'}
                     </span>
-                    <span className="w-mono" style={styles.name}>
-                      {info.name ?? info.subagentType ?? 'Subagent'}
-                      {info.name !== null && info.subagentType !== null ? <span style={{ color: 'var(--text-muted)' }}> · {info.subagentType}</span> : null}
+                    <span className="w-mono" style={styles.name} title={info.subagentType ?? undefined} data-testid="subagents-rail-name">
+                      {info.name ?? subagentTypeLabel(info.subagentType) ?? 'Subagent'}
+                      {info.name !== null && info.subagentType !== null ? <span style={{ color: 'var(--text-muted)' }}> · {subagentTypeLabel(info.subagentType)}</span> : null}
                     </span>
                     {info.verdict !== null ? <StatusChip status={info.verdict === 'VERIFIED' ? 'done' : 'blocked'} label={info.verdict} /> : null}
                     <StatusChip status={CHIP[info.status]} label={statusLabel(info, now)} />

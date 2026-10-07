@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import { subagentTypeLabel } from '../../shared/agent/subagent-type'
 import { flattenSubagents } from '../../shared/transcript/subagents'
 import { readSessionNodeData, sessionStatus } from '../claude-home/session-nodes'
 import { useLayout } from '../canvas/useLayout'
@@ -51,9 +52,13 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
   const sessionTitle = session?.name ?? history.find((each) => each.sessionId === sessionId)?.title ?? data?.name ?? `Session ${sessionId.slice(0, 8)}`
   let chip: { status: Status; label: string } = live === undefined ? { status: 'ready', label: '…' } : sessionStatus(session)
   let title = sessionTitle
+  // A Subagent's type is shown without the Harness plugin (`worfy:`); the tooltip keeps the full one.
+  let titleTooltip = sessionTitle
+  const type = subagent?.subagentType ?? null
   if (agentId !== undefined) {
     chip = subagent ? SUBAGENT_CHIPS[subagent.status] : { status: 'ready', label: '…' }
-    title = `Subagent ${subagent?.name ?? subagent?.subagentType ?? agentId}`
+    title = `Subagent ${subagent?.name ?? subagentTypeLabel(type) ?? agentId}`
+    titleTooltip = `Subagent ${subagent?.name ?? type ?? agentId}`
   }
   // The live entry says where it runs; once it is gone, the Node's data and the transcript do.
   const desktop = session ? session.entrypoint === 'claude-desktop' : data?.source === 'desktop'
@@ -65,7 +70,7 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
   else if (transcript.loaded && !transcript.found) empty = agentId === undefined ? 'No transcript of this Session yet' : 'No transcript of this Subagent yet'
   const source =
     agentId !== undefined
-      ? [subagent?.subagentType, subagent?.model, `of ${sessionTitle}`].filter((part) => part !== undefined && part !== null).join(' · ')
+      ? [subagentTypeLabel(type), subagent?.model, `of ${sessionTitle}`].filter((part) => part !== undefined && part !== null).join(' · ')
       : desktop
         ? 'Claude desktop'
         : `terminal${cwd ? ` · ${cwd}` : ''}`
@@ -73,14 +78,14 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
   return (
     <div className="w-session" data-testid="session-view" data-session-id={sessionId} data-node-id={nodeId} data-agent-id={agentId} data-read-only="true">
       <header className="w-session__header">
-        <h1 className="w-session__title" title={title}>
+        <h1 className="w-session__title" title={titleTooltip}>
           {title}
         </h1>
         <span data-testid="session-state">
           <StatusChip status={chip.status} label={chip.label} />
         </span>
         <span className="w-session__divider" aria-hidden="true" />
-        <span className="w-mono" style={styles.source} data-testid="session-source">
+        <span className="w-mono" style={styles.source} data-testid="session-source" title={agentId !== undefined ? (type ?? undefined) : undefined}>
           {source}
         </span>
         <span className="w-session__spacer" />
