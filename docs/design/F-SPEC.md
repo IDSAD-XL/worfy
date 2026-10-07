@@ -66,5 +66,19 @@ Describes what is built (worfy-daily tickets 04, 05, 29, 32; worfy-week ticket 1
 - **Visible when**: the Epic has "Run wave" (hidden only when the Epic has Tickets and all of them are done; an Epic with no Tickets shows an inactive button with "No ready wave"), or this Epic's run is running or waiting, or this Epic's last run has a stop reason. Otherwise neither button nor line is drawn.
 - **Themes**: only roles from the Tokens table (surface raised, border, text, secondary text, muted, blocked); no colors of its own. State is always in words — the label and the status line; the blocked border after a refusal comes with the reason in the tooltip.
 
+## Done stack (Epic frame)
+Describes what is built (worfy-week ticket 15). Reference look in both themes: the e2e `test/e2e/done-stack.spec.ts` shoots the Canvas as `done-stack-toggle-folded` and `done-stack-toggle-open`, each `light` and `dark` (test output, not committed; crops of the Done column are kept as `.scratch/worfy-week/evidence/15-стопка-done-*.png`).
+
+- **What it is**: the Done column of an Epic frame. Folded, it is one card 204×120 in the column's place: a check icon, "N done" and the Tickets' numbers. Open, the card is gone and the done Tickets stand in the column as Ticket Nodes.
+- **Toggle — place**: the Done column's label row ("Done N"), at its right end, in both states: a click in the same place opens and folds the stack.
+- **Toggle — labels**: folded — a chevron pointing down and "Expand", aria-label "Expand done tickets of <epic>", `aria-expanded="false"`; open — a chevron pointing up and "Collapse", aria-label "Collapse done tickets of <epic>", `aria-expanded="true"`. The chevron is the same 12px stroke icon as the frame's collapse chevron in the header.
+- **Toggle — button**: the shared action button (as in Autopilot) — 20px tall, 1px border (border), radius 6px (buttons), surface raised fill, text 12px in text, regular weight; 6px side padding, 4px between icon and label. Hover: border turns secondary text. Keyboard focus: a 2px accent outline, 1px off the button — the toggle's own; the other action buttons do not change.
+- **Folded card**: stays a button that opens the stack; its name is "<N> done tickets of <epic>", `aria-expanded="false"`. After it opens the stack the focus moves to "Collapse".
+- **Open stack backdrop**: a dashed 1px outline (border), radius 8px (nodes), no fill, decorative (`aria-hidden`), from 6px above the Done column's label to 6px below its last Ticket, 6px wider than the column on each side. No shadow in either theme.
+- **Esc**: folds the stack opened last in the Project, one stack per press, only when nothing else takes the press: no text field has the focus, nothing on the Canvas is selected (the first Esc takes the selection off, the next one folds), no dialog or menu is open (the first Esc closes it). Collapsing the frame folds its stack too.
+- **Not a ⌘Z step**: opening and folding are a state of the view, like the viewport (worfy-week ticket 08); ⌘Z undoes the change before them. A stack folded by mistake opens again by "Expand" in the same place.
+- **Not saved**: which stacks are open lives only in the window's memory; after a restart every stack is folded.
+- **Themes**: only roles from the Tokens table (surface raised, border, text, secondary text, accent, done); no colors of its own.
+
 ## Light/dark pairing rule
 Write the LIGHT file first. The DARK file must have the IDENTICAL markup structure, positions and copy — only token values differ (and light shadows removed in dark). Someone comparing the two should see the same screen in two appearances.

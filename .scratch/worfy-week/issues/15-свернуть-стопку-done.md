@@ -1,7 +1,7 @@
 # 15 — Открытую стопку done видно, как свернуть: кнопка Collapse на месте Expand, Esc
 
 Type: task
-Status: open
+Status: claimed — 2026-10-07
 Blocked by: —
 Source: замечание владельца 2026-10-07 («я развернул done ноды, но при этом непонятно как свернуть их обратно»); Ticket [08](08-undo-перетаскивания-и-сворачивания-рамки-epic-а.md) (стопка — не шаг ⌘Z); [spec.md](../spec.md), этап 3
 
@@ -77,15 +77,15 @@ Source: замечание владельца 2026-10-07 («я разверну�
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/epic-canvas.test.tsx`: открытая стопка даёт кнопку «Collapse done tickets of b» с `aria-expanded="true"`; клик по ней возвращает карточку `done-stack` с именем «<N> done tickets of b» и `aria-expanded="false"`, а переключатель становится «Expand done tickets of b». Кнопки «Fold» нет.
-- [ ] Unit там же, переделанный test «opening and folding the done stack is no step» (`:499`): открытие, Collapse и `foldLastDoneStack` не меняют `historyOf(id).size`; ⌘Z по-прежнему отменяет перемещение Note-а.
-- [ ] Unit `test/unit/epics-ui.test.ts`: `foldLastDoneStack` сворачивает стопки двух Epic-ов в обратном порядке открытия; повторное открытие переносит стопку в конец; сворачивание кнопкой убирает её из порядка; без открытых — `false`; сворачивание рамки сбрасывает её стопку. Чистая функция-охрана Esc: `false` при текстовом поле, `defaultPrevented`, модификаторе, непустом выделении, открытом `[role="dialog"]` или `[role="menu"]`.
-- [ ] e2e `test/e2e/done-stack.spec.ts`, новый test (локально, в gate full), фикстура этого файла, zoom 0.5: после клика по карточке фокус на Collapse (`document.activeElement`); Collapse виден, высота ≥ 9.5 screen px, `borderTopWidth` 1px, внутри `svg`; клик по нему — стопка свёрнута (`done-stack` 1, `ticket-node` 01 — 0). Снова открыть, Escape — свёрнута. Снова открыть, клик по Ticket 01, Escape — снято только выделение, стопка открыта; второй Escape — свёрнута. Снова открыть, открыть меню Canvas правым кликом по пустому месту, Escape — меню закрыто, стопка открыта; второй Escape — свёрнута. Снова открыть, ⌘Z — стопка открыта.
-- [ ] e2e `test/e2e/epic-frame.spec.ts` зелёный: `:531` открывает стопку кнопкой с новым именем.
-- [ ] Снимки заголовка колонки Done, стопка открыта и свёрнута, в светлой и тёмной теме (helper `test/e2e/snapshots.ts`); ссылка из «Итог» — `../evidence/15-стопка-done.png`.
-- [ ] `grep -rnw Fold src/renderer` и `grep -rn w-epic__link src/renderer` ничего не находят (сейчас первый находит `EpicFrameNode.tsx:94`).
-- [ ] `grep -n "Done stack (Epic frame)" docs/design/F-SPEC.md` находит раздел.
-- [ ] `pnpm lint`, `pnpm typecheck` и `pnpm test` — exit 0.
+- [x] Unit `test/unit/epic-canvas.test.tsx`: открытая стопка даёт кнопку «Collapse done tickets of b» с `aria-expanded="true"`; клик по ней возвращает карточку `done-stack` с именем «<N> done tickets of b» и `aria-expanded="false"`, а переключатель становится «Expand done tickets of b». Кнопки «Fold» нет.
+- [x] Unit там же, переделанный test «opening and folding the done stack is no step» (`:499`): открытие, Collapse и `foldLastDoneStack` не меняют `historyOf(id).size`; ⌘Z по-прежнему отменяет перемещение Note-а.
+- [x] Unit `test/unit/epics-ui.test.ts`: `foldLastDoneStack` сворачивает стопки двух Epic-ов в обратном порядке открытия; повторное открытие переносит стопку в конец; сворачивание кнопкой убирает её из порядка; без открытых — `false`; сворачивание рамки сбрасывает её стопку. Чистая функция-охрана Esc: `false` при текстовом поле, `defaultPrevented`, модификаторе, непустом выделении, открытом `[role="dialog"]` или `[role="menu"]`.
+- [x] e2e `test/e2e/done-stack.spec.ts`, новый test (локально, в gate full), фикстура этого файла, zoom 0.5: после клика по карточке фокус на Collapse (`document.activeElement`); Collapse виден, высота ≥ 9.5 screen px, `borderTopWidth` 1px, внутри `svg`; клик по нему — стопка свёрнута (`done-stack` 1, `ticket-node` 01 — 0). Снова открыть, Escape — свёрнута. Снова открыть, клик по Ticket 01, Escape — снято только выделение, стопка открыта; второй Escape — свёрнута. Снова открыть, открыть меню Canvas правым кликом по пустому месту, Escape — меню закрыто, стопка открыта; второй Escape — свёрнута. Снова открыть, ⌘Z — стопка открыта.
+- [x] e2e `test/e2e/epic-frame.spec.ts` зелёный: `:531` открывает стопку кнопкой с новым именем.
+- [x] Снимки заголовка колонки Done, стопка открыта и свёрнута, в светлой и тёмной теме (helper `test/e2e/snapshots.ts`); ссылка из «Итог» — `../evidence/15-стопка-done.png`.
+- [x] `grep -rnw Fold src/renderer` и `grep -rn w-epic__link src/renderer` ничего не находят (сейчас первый находит `EpicFrameNode.tsx:94`).
+- [x] `grep -n "Done stack (Epic frame)" docs/design/F-SPEC.md` находит раздел.
+- [x] `pnpm lint`, `pnpm typecheck` и `pnpm test` — exit 0.
 - [ ] (вручную) Снимки сверены с разделом F-SPEC «Done stack (Epic frame)»: вид `.w-action`, токены обеих тем. Как проверить: снимки из `test-results`.
 
 ## Тесты
@@ -122,4 +122,36 @@ Source: замечание владельца 2026-10-07 («я разверну�
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-week/15`. Свернуть открытую стопку теперь можно кнопкой Collapse на месте Expand и
+клавишей Esc; ⌘Z стопку по-прежнему не трогает.
+
+- **Переключатель** — `EpicFrameNode.tsx`: одна кнопка `done-stack-toggle` в строке «Done N», справа, в
+  обоих состояниях (Expand ⇄ Collapse, шеврон вниз/вверх, `aria-expanded`). Вид — `.w-action` плюс свой
+  класс `.w-epic__stack-toggle` (отступы, outline `:focus-visible` 2 px `--accent`). Карточка свёрнутой
+  стопки осталась кнопкой с именем «<N> done tickets of <epic>»; после её клика фокус встаёт на
+  Collapse. «Fold» и `.w-epic__link` удалены. Подложка открытой стопки — `.w-epic__stack-region`,
+  пунктир 1 px `--border`, `aria-hidden`.
+- **Store** — `sources/epics.ts`: вместо словаря `doneExpanded` — список открытых стопок в порядке
+  открытия; `setDoneStack`, `foldLastDoneStack`, `openDoneStacks`. `foldHiddenDoneStacks` после каждой
+  сборки Node-ов сворачивает стопки свёрнутых рамок и рамок без done Ticket-ов (рамку сворачивают и
+  ⌘Z, и правило по умолчанию «все Ticket-ы done», не только шеврон). `toggleDoneStack` удалён.
+- **Esc** — `SelectionToolbar.tsx`, `useCanvasKeys`: listener на window в capture phase; решает чистая
+  функция `escapeFoldsDoneStack` (`sources/epics.ts`) плюс прежние проверки «Canvas на экране, нажатие
+  на нём». Сворачивает — `preventDefault`. Меню Binding, Trash и меню Canvas при закрытии по Esc теперь
+  вызывают `preventDefault`.
+- **Как падали test-ы первыми** (на коде origin/main 4f983ef, отдельный worktree): unit — 16 красных,
+  `TypeError: openDoneStacks / setDoneStack / foldLastDoneStack is not a function`; e2e новый test —
+  `getByTestId('done-stack-toggle')`: `element(s) not found`. Мутант «Esc в bubble phase вместо capture»
+  ловится e2e: первый Esc при выделенном Ticket 01 свернул стопку (`rf__node-ticket:telegram/1` —
+  `element(s) not found`).
+- Снимки (вырезка колонки Done, zoom 0.5): [открыта, светлая](../evidence/15-стопка-done-open-light.png),
+  [открыта, тёмная](../evidence/15-стопка-done-open-dark.png),
+  [свёрнута, светлая](../evidence/15-стопка-done-folded-light.png),
+  [свёрнута, тёмная](../evidence/15-стопка-done-folded-dark.png).
+- **Решено без владельца, подтвердить:**
+  - unit-файл назван `test/unit/epics-ui.test.tsx`, а не `.ts`: `.ts` попадает в проект vitest `node`
+    и в `tsconfig.test.node.json` без DOM и JSX, а test импортирует модуль renderer-а;
+  - функция-охрана Esc живёт в `sources/epics.ts`, а не в `SelectionToolbar.tsx`: lint-правило
+    `react-refresh/only-export-components` не даёт экспортировать функцию из файла компонента;
+  - снимков четыре, а не один `15-стопка-done.png`: склеить PNG на машине нечем;
+  - стопка Epic-а, у которого не осталось done Ticket-ов, тоже сворачивается сама.

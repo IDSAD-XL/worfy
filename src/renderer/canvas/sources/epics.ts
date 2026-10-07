@@ -78,20 +78,83 @@ export interface TicketNodeData {
 
 // ── state of the view that is not saved ─────────────────────────────────────
 
+interface OpenStack {
+  projectId: string
+  epic: string
+}
+
 interface EpicsUiStore {
-  /** `<projectId>|<epic>` of the Epics whose done stack is open. */
-  doneExpanded: Readonly<Record<string, boolean>>
+  /** The Epics whose done stack is open, in the order they were opened: Esc folds the last one of a Project. */
+  openStacks: readonly OpenStack[]
   /** The last request to center the Canvas on a frame; `seq` makes a repeat a new request. */
   focus: { projectId: string; epic: string; seq: number } | null
 }
 
-const useEpicsUi = create<EpicsUiStore>(() => ({ doneExpanded: {}, focus: null }))
+const NO_STACKS: readonly OpenStack[] = []
+const useEpicsUi = create<EpicsUiStore>(() => ({ openStacks: NO_STACKS, focus: null }))
 const uiKey = (projectId: string, epic: string) => `${projectId}|${epic}`
 
-/** Opens or folds the done stack of an Epic frame. */
-export function toggleDoneStack(projectId: string, epic: string): void {
-  const key = uiKey(projectId, epic)
-  useEpicsUi.setState(({ doneExpanded }) => ({ doneExpanded: { ...doneExpanded, [key]: !doneExpanded[key] } }))
+/**
+ * Opens or folds the done stack of an Epic frame. Opening puts the stack last in the order Esc
+ * folds them, also when it was open already. Neither is a step of the ⌘Z history (worfy-week
+ * ticket 08): the stack is a state of the view, like the viewport.
+ */
+export function setDoneStack(projectId: string, epic: string, open: boolean): void {
+  useEpicsUi.setState((state) => {
+    const others = state.openStacks.filter((stack) => stack.projectId !== projectId || stack.epic !== epic)
+    const last = state.openStacks.at(-1)
+    if (open && last?.projectId === projectId && last.epic === epic) return state
+    if (!open && others.length === state.openStacks.length) return state
+    return { openStacks: open ? [...others, { projectId, epic }] : others }
+  })
+}
+
+/** Folds the done stack of the Project opened last; false when none of its stacks is open. */
+export function foldLastDoneStack(projectId: string): boolean {
+  const last = useEpicsUi.getState().openStacks.findLast((stack) => stack.projectId === projectId)
+  if (last === undefined) return false
+  setDoneStack(projectId, last.epic, false)
+  return true
+}
+
+/** What the Esc check reads of a key press. */
+export type EscapePress = Pick<KeyboardEvent, 'key' | 'defaultPrevented' | 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'target'>
+
+/**
+ * True when a press of Esc on the Canvas may fold the last open done stack: a bare Esc nobody
+ * took, outside a text field, with nothing selected on the Canvas — React Flow's Esc takes the
+ * selection off first, and the active Node of worfy-week ticket 16 is always selected — and no
+ * dialog or menu open, as each of them closes on the same press. The Canvas's key listener
+ * (overlays/SelectionToolbar.tsx) adds that the Canvas is on screen and the press is on it.
+ */
+export function escapeFoldsDoneStack(event: EscapePress, selected: number, doc: Pick<Document, 'querySelector'>): boolean {
+  if (event.key !== 'Escape' || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false
+  if (selected > 0) return false
+  // A place to type, as the Canvas's other keys see it (isTextTarget in SelectionToolbar.tsx).
+  const target = event.target
+  if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]') !== null)) return false
+  return doc.querySelector('[role="dialog"], [role="menu"]') === null
+}
+
+/** The Epics of the Project whose done stack is open, in the order they were opened. */
+export function openDoneStacks(projectId: string): string[] {
+  return useEpicsUi
+    .getState()
+    .openStacks.filter((stack) => stack.projectId === projectId)
+    .map((stack) => stack.epic)
+}
+
+/**
+ * Folds the open stacks nobody sees: their frame is collapsed (by its chevron, by ⌘Z, or by
+ * default once every Ticket is done) or has no done Ticket left. Otherwise Esc would fold an
+ * invisible stack and do nothing the user can see.
+ */
+export function foldHiddenDoneStacks(projectId: string, nodes: readonly CanvasFlowNode[]): void {
+  for (const node of nodes) {
+    if (node.type !== EPIC_FRAME_KIND) continue
+    const frame = node.data.node.data as EpicFrameData
+    if (frame.doneExpanded && (frame.collapsed || !frame.tickets.some((ticket) => ticket.state === 'done'))) setDoneStack(projectId, frame.epic.epic, false)
+  }
 }
 
 /** Centers the Canvas of the Project on the Epic's frame (the sidebar's Epics section). */
@@ -446,7 +509,11 @@ function useEpicNodes({ projectId, layout }: NodeSourceContext): readonly Canvas
   const projects = useProjects()
   const root = projects?.projects.find((project) => project.id === projectId)?.path
   const { model } = useWorkflow(root)
-  const doneExpanded = useEpicsUi((state) => state.doneExpanded)
+  const openStacks = useEpicsUi((state) => state.openStacks)
+  const doneExpanded = useMemo(
+    () => Object.fromEntries(openStacks.filter((stack) => stack.projectId === projectId).map((stack) => [uiKey(projectId, stack.epic), true])),
+    [openStacks, projectId],
+  )
   const derived = useDerivedRects(projectId)
   const answers = useElkAnswers((state) => state[projectId])
   const nodes = useMemo(
@@ -455,6 +522,7 @@ function useEpicNodes({ projectId, layout }: NodeSourceContext): readonly Canvas
   )
   // After the build, so a request goes out for the inputs the Canvas shows.
   useEffect(() => requestEpicLayouts(projectId), [projectId, nodes])
+  useEffect(() => foldHiddenDoneStacks(projectId, nodes), [projectId, nodes])
   useFocusRequests(projectId, nodes)
   return nodes
 }

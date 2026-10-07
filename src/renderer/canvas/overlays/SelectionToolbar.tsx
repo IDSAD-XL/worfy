@@ -5,7 +5,8 @@
 //
 // The Canvas's keys of ticket 30 live here too, active while the Canvas is on screen and the focus
 // is on it (or nowhere), never in a text field: Delete and Backspace delete the selection to the
-// trash, ⌘Z undoes and ⇧⌘Z redoes the user's last change to the Layout (history.ts).
+// trash, ⌘Z undoes and ⇧⌘Z redoes the user's last change to the Layout (history.ts). Esc with
+// nothing selected folds the done stack of an Epic frame opened last (worfy-week ticket 15).
 import { useEffect, useState, type ComponentType, type KeyboardEvent } from 'react'
 import { useNodes, useReactFlow, useStoreApi, ViewportPortal } from '@xyflow/react'
 import { create } from 'zustand'
@@ -14,6 +15,7 @@ import { activeProject, useProjects } from '../../projects/useProjects'
 import { deletableNodes, deleteToTrash, grouped, historyOf } from '../history'
 import type { CanvasFlowNode } from '../nodes'
 import { canvasSizeOf, pinOp, unpinOp, usePlaneToolbar } from '../pinning'
+import { escapeFoldsDoneStack, foldLastDoneStack } from '../sources/epics'
 import { addTagOps, normalizeTag, removeTagOps, selectionTags } from '../tags'
 import { useLayoutOps, type LayoutOps } from '../useLayout'
 import './selection-toolbar.css'
@@ -38,24 +40,29 @@ function isTextTarget(target: EventTarget | null): boolean {
   return target.isContentEditable || target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]') !== null
 }
 
-/** Delete / Backspace, ⌘Z and ⇧⌘Z on the Canvas of `projectId`. */
+/** Delete / Backspace, ⌘Z, ⇧⌘Z and Esc on the Canvas of `projectId`. */
 function useCanvasKeys(projectId: string | undefined): void {
   const flow = useReactFlow<CanvasFlowNode>()
   const store = useStoreApi<CanvasFlowNode>()
   useEffect(() => {
     if (projectId === undefined) return
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.defaultPrevented || event.altKey || event.ctrlKey || isTextTarget(event.target)) return
+    /** The press is the Canvas's: the Canvas is the view on screen and the focus is on it or nowhere. */
+    const onCanvas = (event: globalThis.KeyboardEvent): boolean => {
       // Only while this Canvas is the view on screen (the Session view hides it).
       const canvas = store.getState().domNode
-      if (!(canvas instanceof HTMLElement) || canvas.offsetParent === null) return
+      if (!(canvas instanceof HTMLElement) || canvas.offsetParent === null) return false
       // Keys typed elsewhere (the sidebar, the focus mode layer over the Canvas) are not the Canvas's.
-      if (event.target !== document.body && !(event.target instanceof Node && canvas.contains(event.target))) return
+      return event.target === document.body || (event.target instanceof Node && canvas.contains(event.target))
+    }
+    const selectedNodes = () => flow.getNodes().filter((node) => node.selected && !node.hidden)
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || isTextTarget(event.target)) return
+      if (!onCanvas(event)) return
       if (event.metaKey && (event.key === 'z' || event.key === 'Z')) {
         event.preventDefault()
         void (event.shiftKey ? historyOf(projectId).redo() : historyOf(projectId).undo())
       } else if (!event.metaKey && !event.shiftKey && (event.key === 'Delete' || event.key === 'Backspace')) {
-        const selected = flow.getNodes().filter((node) => node.selected && !node.hidden)
+        const selected = selectedNodes()
         if (selected.length === 0) return
         event.preventDefault()
         deleteSelection(
@@ -64,8 +71,20 @@ function useCanvasKeys(projectId: string | undefined): void {
         )
       }
     }
+    // Esc folds the done stack opened last, one per press. Capture phase: React Flow takes the
+    // selection off a focused Node on Esc without preventDefault, so in the bubble phase the
+    // selection would already be empty and the same press would fold a stack too. The Esc of the
+    // active Node (Canvas.tsx) and of Focus mode skip a press this one took (defaultPrevented).
+    const onEscape = (event: globalThis.KeyboardEvent) => {
+      if (!escapeFoldsDoneStack(event, selectedNodes().length, document) || !onCanvas(event)) return
+      if (foldLastDoneStack(projectId)) event.preventDefault()
+    }
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    window.addEventListener('keydown', onEscape, true)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keydown', onEscape, true)
+    }
   }, [flow, store, projectId])
 }
 

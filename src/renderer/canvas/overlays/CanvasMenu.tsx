@@ -95,7 +95,11 @@ function ProjectCanvasMenu({ projectId, root }: { projectId: string; root: strin
       aria-label="Canvas"
       style={{ ...menuStyle, left: opened.x, top: opened.y }}
       onKeyDown={(event) => {
-        if (event.key === 'Escape') close()
+        if (event.key === 'Escape') {
+          // The press that closes the menu does nothing else (the Esc of an active Node, of Focus mode).
+          event.preventDefault()
+          close()
+        }
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
           event.preventDefault()
           const buttons = [...(menu.current?.querySelectorAll('button') ?? [])]

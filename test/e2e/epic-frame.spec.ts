@@ -528,7 +528,7 @@ test('Tickets that arrive after main placed the Orchestrator and HANDOFF Nodes k
 
     // The opened done stack makes the frame taller; it grows down its column and covers neither Node.
     const before = await box(window.getByTestId('rf__node-epic:demo'))
-    await window.getByRole('button', { name: 'Expand done tickets of demo' }).click()
+    await window.getByRole('button', { name: /^\d+ done tickets of demo$/ }).click()
     await expect(ticketNode(window, 1)).toBeVisible()
     await expect.poll(async () => (await box(window.getByTestId('rf__node-epic:demo'))).height).toBeGreaterThan(before.height)
     expect(await flowPosition(window, 'epic:demo')).toEqual(column)
