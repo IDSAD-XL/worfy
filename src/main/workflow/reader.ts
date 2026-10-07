@@ -12,7 +12,7 @@ import { execFile } from 'node:child_process'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
-import { harnessHomes, locateHarness, notFoundPaths, scriptEnv } from '../harness/locate'
+import { harnessHomes, locateHarness, notFoundPaths, scriptEnv, type HarnessLocation } from '../harness/locate'
 import {
   epicStatusSchema,
   ticketKey,
@@ -75,23 +75,38 @@ export const epicStatusPath = (claudeHome: string): string => join(locateHarness
  * restart; the plugin's script gets HARNESS_HOME.
  */
 export function epicStatusRunner(claudeHome: string): EpicStatusRunner {
-  return (cwd, ref) =>
-    new Promise((resolvePromise, reject) => {
-      const harness = locateHarness(harnessHomes(claudeHome))
-      const script = join(harness.binDir, 'epic-status')
-      const args = ref === null ? ['--json'] : ['--json', '--ref', ref]
-      const env = scriptEnv(harness, process.env)
-      execFile(script, args, { cwd, env, maxBuffer: MAX_OUTPUT, timeout: TIMEOUT_MS, encoding: 'utf8' }, (error, stdout, stderr) => {
-        if (!error) return resolvePromise(stdout)
-        const code = (error as NodeJS.ErrnoException).code
-        if (code === 'ENOENT' || code === 'EACCES') {
-          const where = harness.kind === 'none' ? notFoundPaths(harness, 'epic-status') : script
-          return reject(new EpicStatusError({ code: 'not-found', message: `epic-status not found: ${where}` }))
-        }
-        const detail = stderr.trim() || error.message
-        reject(new EpicStatusError({ code: 'failed', message: `epic-status failed${ref ? ` for ${ref}` : ''}: ${detail}` }))
-      })
+  return async (cwd, ref) => {
+    const harness = locateHarness(harnessHomes(claudeHome))
+    try {
+      return await runEpicStatus(harness, cwd, ref)
+    } catch (error) {
+      // The Harness changed under the run — the move (ticket 14) took the old scripts away while
+      // they ran: one more run, with the Harness found now, instead of an error that would stay
+      // on the canvas until the next change in the Project.
+      const now = locateHarness(harnessHomes(claudeHome))
+      if (now.kind === harness.kind && now.binDir === harness.binDir) throw error
+      return runEpicStatus(now, cwd, ref)
+    }
+  }
+}
+
+/** One run of `epic-status` of `harness`; the plugin's gets HARNESS_HOME. */
+function runEpicStatus(harness: HarnessLocation, cwd: string, ref: string | null): Promise<string> {
+  return new Promise((resolvePromise, reject) => {
+    const script = join(harness.binDir, 'epic-status')
+    const args = ref === null ? ['--json'] : ['--json', '--ref', ref]
+    const env = scriptEnv(harness, process.env)
+    execFile(script, args, { cwd, env, maxBuffer: MAX_OUTPUT, timeout: TIMEOUT_MS, encoding: 'utf8' }, (error, stdout, stderr) => {
+      if (!error) return resolvePromise(stdout)
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'EACCES') {
+        const where = harness.kind === 'none' ? notFoundPaths(harness, 'epic-status') : script
+        return reject(new EpicStatusError({ code: 'not-found', message: `epic-status not found: ${where}` }))
+      }
+      const detail = stderr.trim() || error.message
+      reject(new EpicStatusError({ code: 'failed', message: `epic-status failed${ref ? ` for ${ref}` : ''}: ${detail}` }))
     })
+  })
 }
 
 /** Parses the script's stdout with the schema; anything else is an `invalid-output` error. */

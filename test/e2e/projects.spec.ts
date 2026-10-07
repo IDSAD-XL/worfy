@@ -54,6 +54,8 @@ const PLUGIN_SHIP = '/worfy:ship-ticket {epic} {NN}'
 const PLUGIN_WAVE = '/worfy:epic-wave tickets {tickets} of epic {epic}'
 const LEGACY_SHIP = '/ship-ticket {epic} {NN}'
 const LEGACY_WAVE = '/epic-wave Ticket-ы {tickets} эпика {epic}'
+/** An `epic-status` stub that answers with no Epics, so the sidebar reads the Project without an error. */
+const NO_EPICS = `#!/bin/sh\necho '{"ref":"main","epics":[],"tickets":[]}'\n`
 
 let scratch: string
 let dataDir: string
@@ -164,7 +166,7 @@ test('Project settings: the defaults and "Reset to default" follow the Harness o
     const { window, claudeHome } = launched
     // The old Harness: <Claude home>/bin/epic-status. A new Project gets its templates.
     mkdirSync(join(claudeHome, 'bin'))
-    writeFileSync(join(claudeHome, 'bin', 'epic-status'), '#!/bin/sh\n')
+    writeFileSync(join(claudeHome, 'bin', 'epic-status'), NO_EPICS, { mode: 0o755 })
     await addProject(launched, worfy)
     await expect(rowButton(window, 'worfy')).toHaveAttribute('aria-current', 'true')
 
@@ -184,7 +186,7 @@ test('Project settings: the defaults and "Reset to default" follow the Harness o
     mkdirSync(join(plugin, '.claude-plugin'), { recursive: true })
     mkdirSync(join(plugin, 'bin'), { recursive: true })
     writeFileSync(join(plugin, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'worfy' }))
-    writeFileSync(join(plugin, 'bin', 'epic-status'), '#!/bin/sh\n')
+    writeFileSync(join(plugin, 'bin', 'epic-status'), NO_EPICS, { mode: 0o755 })
     dialog = await openSettings(window, 'worfy')
     await expect(dialog.getByLabel('Ship ticket')).toHaveValue(PLUGIN_SHIP)
     await expect(dialog.getByLabel('Run wave')).toHaveValue(PLUGIN_WAVE)

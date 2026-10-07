@@ -388,6 +388,28 @@ describe('workflow reader', () => {
     expect(calls(harnessEnv)).toEqual([])
   })
 
+  it('runs once more with the plugin when the old Harness goes away during a run (the move of ticket 14), instead of keeping the error', async () => {
+    const repo = makeRepo(dir)
+    const { home, log, harnessEnv } = makePluginHome(dir)
+    // The old epic-status: the move takes <home>/bin away while it runs, and it fails.
+    mkdirSync(join(home, 'bin'))
+    writeFileSync(join(home, 'bin', 'epic-status'), `#!/bin/sh\nrm -rf '${join(home, 'bin')}'\nexit 1\n`)
+    chmodSync(join(home, 'bin', 'epic-status'), 0o755)
+    const model = await readCheckout(repo, epicStatusRunner(home))
+    expect(model.error).toBeNull()
+    expect(model.tickets.map((t) => t.num)).toEqual([1, 2, 3, 4])
+    expect(calls(log)).toEqual(['.'])
+    expect(calls(harnessEnv)).toHaveLength(1)
+  })
+
+  it('does not run again when the Harness is the same after a failed run', async () => {
+    const repo = makeRepo(dir)
+    const { home, log } = makeClaudeHome(dir)
+    process.env.STUB_MODE = 'fail'
+    expect((await readCheckout(repo, epicStatusRunner(home))).error?.code).toBe('failed')
+    expect(calls(log)).toEqual(['.'])
+  })
+
   it('writes nothing under the Claude home or the Harness home while reading through the plugin', async () => {
     const repo = makeRepo(dir)
     const { home } = makePluginHome(dir)

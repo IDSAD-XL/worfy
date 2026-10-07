@@ -158,6 +158,10 @@ Ticket 10.
 - `test/contract/workflow-reader.test.ts`
 - `test/contract/workflow-profile.test.ts`
 - `test/e2e/packaged.spec.ts`
+- `docs/adr/0049-worfy-sessions-without-inline-plugin-on-legacy-harness.md` — новый
+- `test/contract/projects.test.ts` — добавлен при работе: test читал шаблоны по умолчанию от настоящего `~/.claude`
+- `test/unit/agent-query-factory.test.ts` — добавлен при работе: `plugins` от `sdkQueryFactory`
+- `test/e2e/projects.spec.ts` — добавлен при работе: пустой Claude home `launchApp` теперь `none`, снимки диалога
 
 Только чтение: `src/main/harness/bundled.ts` (Ticket 04) — путь и версия копии Harness этой сборки.
 Новый файл ADR (`docs/adr/<номер>-….md`, «Что делаем», после пункта 5) добавляется сюда, когда
@@ -172,4 +176,40 @@ Ticket (Blocked by) и берёт helper отсюда.
 
 ## Итог
 
-Заполняется при закрытии.
+- `src/main/harness/locate.ts` — какой Harness на машине: `plugin`, `legacy`, `none`, по правилам пункта 1;
+  при обоих — `legacy`. Ищет при каждом вызове, ничего не кэширует и не пишет. `harnessHome()` в
+  `src/main/storage/paths.ts` — `WORFY_HARNESS_HOME` или `<claudeHome>/worfy-harness`.
+- `epic-status` и `profile` берутся из `bin/` найденного Harness; скрипты plugin-а получают `HARNESS_HOME`.
+  Если Harness сменился посреди прогона `epic-status` (перенос Ticket-а 14 убрал старые скрипты), reader
+  запускает его ещё раз с найденным заново — иначе ошибка висела бы на Canvas до следующего изменения в
+  Project-е (гонка замечена на e2e-снимке, test — «runs once more with the plugin…» в `workflow-reader.test.ts`).
+- `GateReader` читает реестр, маркеры и файл вердикта из `gate/` найденного Harness, транскрипты — из
+  `<claudeHome>/projects/`. Новое поле `GateReaderOptions.harnessHome` необязательное.
+- Session-ы worfy при `plugin` и `none` получают `plugins: [{ type: 'local', path: bundledHarnessDir() }]`,
+  при `legacy` — без `plugins` (ADR-0049). `harness/` в `.app` уже кладёт сборка Ticket-а 04; `@packaged`
+  проверяет `name: worfy` в `Contents/Resources/harness/.claude-plugin/plugin.json`.
+- Шаблоны по умолчанию: при `legacy` — прежние, при `plugin` и `none` — `/worfy:ship-ticket {epic} {NN}` и
+  `/worfy:epic-wave tickets {tickets} of epic {epic}` (формат Autopilot из `harness/skills/epic-wave/SKILL.md`).
+  Любой прежний шаблон по умолчанию читается как шаблон найденного Harness, файл не переписывается.
+  «Reset to default» берёт шаблоны у main по новому каналу `projects.settings.defaults`.
+- Падающие test-ы первыми: `test/unit/harness-locate.test.ts` — «Failed to resolve import
+  ../../src/main/harness/locate» (модуля нет); contract в `workflow-reader.test.ts` со stub-ом только в
+  `<harnessHome>/plugin/bin/` — `expected { code: 'not-found', … } to be null`.
+- Снимки диалога «Project settings» в обеих темах (`test/e2e/projects.spec.ts`, «follow the Harness»):
+  старый Harness — [светлая](../evidence/12-project-settings-legacy-light.png),
+  [тёмная](../evidence/12-project-settings-legacy-dark.png); plugin после «Reset to default» —
+  [светлая](../evidence/12-project-settings-plugin-light.png), [тёмная](../evidence/12-project-settings-plugin-dark.png).
+- Решено без владельца, подтвердить:
+  - `none` (Harness не найден) читает скрипты и Gate из `<claudeHome>/bin` и `<claudeHome>/gate`, как до
+    Ticket-а: так прежние test-ы и машины без Harness ведут себя по-старому;
+  - `legacy` узнаётся по наличию файла `<claudeHome>/bin/epic-status`, без проверки права на запуск: любой
+    след старого Harness — без inline plugin-а, чтобы hooks не сработали дважды;
+  - при `none` про оба пути говорит только ошибка `epic-status`; причина «нет скрипта profile» называет
+    `<claudeHome>/bin/profile`, как раньше (прежние случаи `workflow-profile.test.ts` — без правок);
+  - `DEFAULT_ACTION_TEMPLATES` остался именем шаблонов старого Harness: на нём стоят test-ы и фикстуры с
+    `bin/epic-status`; код приложения берёт `defaultActionTemplates(kind)`;
+  - канал `projects.settings.defaults` без аргументов, ответ — настройки Project-а целиком.
+- Не проверено: ручной пункт про Stable copy на машине владельца. Окно Stable copy агент не открывал:
+  запуск настоящего worfy поднимает Orchestrator на настоящем Claude Code и пишет в `~/.claude`, это запрещено.
+  Вместо него — test-ы на `legacy` (старый Harness, с plugin-ом рядом и без): прежние шаблоны, скрипты из
+  `<claudeHome>/bin`, Gate из `<claudeHome>/gate`, Session без `plugins`. Пункт идёт в HANDOFF, «Ждёт владельца» (HANDOFF правит Orchestrator).
