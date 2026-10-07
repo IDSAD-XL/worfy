@@ -388,23 +388,26 @@ describe('an Autopilot run on the fake agent', () => {
     expect(error).toMatchObject({ message: expect.stringContaining('Claude Code process exited with code 1') })
   })
 
-  it('Stop ends the run with user-stop; the Orchestrator turns attended once its turn ends, and keep-awake is released then', async () => {
+  it('Stop ends the run with user-stop: it interrupts the Orchestrator\'s turn, gives the Orchestrator back and releases keep-awake before it answers (worfy-week ticket 17)', async () => {
     const h = harness({ script: 'orchestrator' })
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => messages(h.calls).length === 1, 'Wave 1')
+    const unattended = await h.session()
+    expect(unattended.state).toBe('busy')
     expect(h.power).toEqual(['start'])
     const stopped = await h.autopilot.stop(PROJECT)
     expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-stop', wave: 1 })
-    expect((await h.kinds()).at(-1)).toEqual(['run-stopped', 'user-stop'])
-    // The turn still runs: the Orchestrator stays unattended until it ends, and the Mac awake
-    // (ADR-0029, point 5: the turn may start background tasks).
-    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
-    expect(h.power).toEqual(['start'])
-    await (await h.session()).interrupt()
-    await until(() => !h.orchestrators.isUnattended(PROJECT), 'the attended Orchestrator')
+    expect((await h.kinds()).slice(-2)).toEqual([
+      ['run-stopped', 'user-stop'],
+      ['orchestrator-returned', null],
+    ])
+    // The turn ended on the interrupt (the script's turn waits for it); no new turn follows.
+    expect(unattended.state).toBe('closed')
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
     expect(h.requests.at(-1)?.unattended).toBe(false)
-    await until(async () => (await h.kinds()).at(-1)?.[0] === 'orchestrator-returned', 'the orchestrator-returned line')
     expect(h.power).toEqual(['start', 'stop'])
+    await new Promise((done) => setTimeout(done, 50))
+    expect(messages(h.calls)).toHaveLength(1)
   })
 
   it('refuses "New conversation" of the Orchestrator while the run has it', async () => {
@@ -461,19 +464,19 @@ describe('an Autopilot run on the fake agent', () => {
     expect(h.autopilot.running(PROJECT)).toBe(false)
   })
 
-  it('refuses a new start while the turn of a stopped run still runs, and allows it once the Orchestrator is attended again', async () => {
+  it('takes a new start at once after Stop: no turn of the stopped run is left to wait for (worfy-week ticket 17)', async () => {
     const h = harness({ script: 'orchestrator' })
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => messages(h.calls).length === 1, 'Wave 1')
     await h.autopilot.stop(PROJECT)
-    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
-    await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow(ORCHESTRATOR_IN_TURN)
-    // The refused start sent nothing into the busy Session and kept the return to attended.
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
+    // After Stop no new turn: the stopped run's Wave is not sent again by itself.
     expect(messages(h.calls)).toHaveLength(1)
     expect((await h.session()).queued().items).toEqual([])
-    await (await h.session()).interrupt()
-    await until(() => !h.orchestrators.isUnattended(PROJECT), 'the attended Orchestrator')
-    expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
+    // The attended Session is still coming up; the start waits for nothing else.
+    await expect(h.autopilot.start(PROJECT, EPIC)).resolves.toMatchObject({ status: 'running' })
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false, true])
   })
 
   it('refuses to start while messages wait in the Orchestrator\'s queue', async () => {
@@ -497,10 +500,9 @@ describe('an Autopilot run on the fake agent', () => {
     await until(() => messages(h.calls).length === 1, 'Wave 1')
     const unattended = await h.session()
     unattended.send('look at ticket 02 when you can')
+    // Stop interrupts the turn and holds the queue; the Orchestrator is attended when it answers.
     await h.autopilot.stop(PROJECT)
-    // Interrupt ends the turn and holds the queue; then the Orchestrator turns attended.
-    await unattended.interrupt()
-    await until(() => !h.orchestrators.isUnattended(PROJECT), 'the attended Orchestrator')
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
     const attended = await h.session()
     expect(attended).not.toBe(unattended)
     expect(attended.queued()).toMatchObject({ items: [{ text: 'look at ticket 02 when you can' }], paused: true })
@@ -744,7 +746,7 @@ async function ipcOver(modules: Record<string, () => Promise<unknown>>): Promise
 const agentIpc = (registry: SessionRegistry) => ipcOver({ './agent.ts': async () => agentHandlers(() => registry) })
 
 describe('the autopilot channels', () => {
-  const state = (overrides: Partial<AutopilotState> = {}): AutopilotState => ({ projectId: 'p', epic: 'e', status: 'running', wave: 1, backgroundTasks: 0, resumesAt: null, reason: null, message: null, revision: 3, ...overrides })
+  const state = (overrides: Partial<AutopilotState> = {}): AutopilotState => ({ projectId: 'p', epic: 'e', status: 'running', wave: 1, backgroundTasks: 0, resumesAt: null, reason: null, message: null, resumable: [], revision: 3, ...overrides })
 
   async function register() {
     const calls: unknown[][] = []

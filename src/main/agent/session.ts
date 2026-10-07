@@ -31,6 +31,11 @@
 // for a person: it runs in bypassPermissions, refuses a change of mode, refuses canUseTool at once,
 // and each refusal reaches its subscribers as a `refused_dialog` event.
 //
+// Stop in Autopilot halts the Orchestrator's Session before the Orchestrator is given back
+// (halt(), worfy-week ticket 17, ADR-0050): the queue is held, open requests are refused, and a
+// running turn is interrupted and waited for, HALT_TURN_MS at most. From then on the Session sends
+// nothing more into its process: what a person queues stays held, for the Session that replaces it.
+//
 // A Session runs on sonnet or a larger model, never on haiku (worfy-daily ticket 07,
 // isSelectableModel): the model list leaves haiku out, a saved haiku goes back to the default model,
 // and when the default model would be a haiku from the user's settings.json (user-model.ts) the
@@ -207,6 +212,15 @@ class InputQueue<T> implements AsyncIterable<T> {
 
 const STDERR_KEEP = 20
 
+/**
+ * How long halt() waits for an interrupted turn to end. Past it the caller closes the process,
+ * which ends the turn all the same (Orchestrators.giveBackNow).
+ */
+export const HALT_TURN_MS = 15_000
+
+/** Whether a Session state is a running turn. */
+const inTurn = (state: SessionState): boolean => state === 'busy' || state === 'needs_permission'
+
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /** One live query and what belongs to it; replaced when a crashed Session is resumed. */
@@ -247,6 +261,10 @@ export class Session {
   private run: Run | null = null
   private interrupted = false
   private closing = false
+  /** Set by halt(): nothing more goes into the process; queued messages stay held. */
+  private halted = false
+  /** Told when the running turn ends: the Session leaves `busy` and `needs_permission`. */
+  private turnEndWaiters: (() => void)[] = []
   private settingsValue: SessionSettings
   /** Settings changes run one after another, in the order they were asked for. */
   private configuring: Promise<unknown> = Promise.resolve()
@@ -352,6 +370,12 @@ export class Session {
   send(text: string, attachments: readonly Attachment[] = []): 'sent' | 'queued' {
     this.assertOpen()
     if (text.trim() === '' && attachments.length === 0) throw new Error('The message is empty')
+    if (this.halted) {
+      // The process is about to be closed: the message waits, held, for the Session after it.
+      this.queue.add(text, attachments)
+      this.queue.pause()
+      return 'queued'
+    }
     if (this.stateValue === 'busy' || this.stateValue === 'needs_permission') {
       this.queue.add(text, attachments)
       return 'queued'
@@ -408,6 +432,36 @@ export class Session {
     this.queue.pause()
     this.permissions.cancelAll()
     await query.interrupt()
+    return true
+  }
+
+  /**
+   * Stop in Autopilot (worfy-week ticket 17): holds the queue, refuses open permission requests,
+   * and from now on sends nothing more into this process. A running turn is interrupted and waited
+   * for — its `result`, an error or the close — `timeoutMs` at most; the caller then closes the
+   * process, which ends whatever is still running in it, background tasks included. Answers whether
+   * a turn was interrupted.
+   */
+  async halt(timeoutMs = HALT_TURN_MS): Promise<boolean> {
+    if (this.closing) return false
+    this.halted = true
+    this.queue.pause()
+    this.permissions.cancelAll()
+    const query = this.run?.query
+    if (!inTurn(this.stateValue) || !query) return false
+    this.interrupted = true
+    const ended = new Promise<void>((done) => this.turnEndWaiters.push(done))
+    // Not awaited: an interrupt that never answers must not hold the stop past its limit.
+    query.interrupt().catch((error: unknown) => console.warn(`[agent] interrupting ${this.current} failed`, error))
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const limit = new Promise<void>((done) => {
+      timer = setTimeout(done, timeoutMs)
+    })
+    try {
+      await Promise.race([ended, limit])
+    } finally {
+      clearTimeout(timer)
+    }
     return true
   }
 
@@ -498,8 +552,9 @@ export class Session {
     this.setState('busy')
   }
 
-  /** Sends the next queued message, unless the queue is held or empty. */
+  /** Sends the next queued message, unless the queue is held or empty, or the Session is halted. */
   private next(): void {
+    if (this.halted) return
     const item = this.queue.take()
     if (item !== undefined) this.deliver(item.text, item.attachments)
   }
@@ -715,6 +770,7 @@ export class Session {
   private setState(state: SessionState, error: string | null = null): void {
     if (this.stateValue === state && error === null) return
     this.stateValue = state
+    if (!inTurn(state)) for (const done of this.turnEndWaiters.splice(0)) done()
     this.emit({ type: 'state', state, error })
   }
 

@@ -29,6 +29,13 @@ export const autopilotStateSchema = z.object({
   resumesAt: z.number().int().nonnegative().nullable(),
   reason: z.enum(AUTOPILOT_STOP_REASONS).nullable(),
   message: z.string().nullable(),
+  /**
+   * After a Stop by the user (`user-stop`, worfy-week ticket 17): the Ticket numbers of the Wave it
+   * interrupted, for `epic`. A new run of that Epic takes those still in work into its first Wave,
+   * also when nothing else is ready; the button and main filter them by the Tickets they read.
+   * Empty while running and after any other stop.
+   */
+  resumable: z.array(z.number().int().positive()),
   revision: z.number().int().nonnegative(),
 })
 export type AutopilotState = z.infer<typeof autopilotStateSchema>
@@ -40,7 +47,11 @@ export type AutopilotState = z.infer<typeof autopilotStateSchema>
  */
 export const autopilotStart = invokeChannel('autopilot.start', z.object({ projectId, epic: epicNameSchema }), autopilotStateSchema)
 
-/** Stops the Project's run (`user-stop`); answers its state once it has stopped. */
+/**
+ * Stops the Project's run (`user-stop`): interrupts the Orchestrator's turn and its background
+ * tasks and gives the Orchestrator back (worfy-week ticket 17, ADR-0050). Answers its state once it
+ * has stopped — up to HALT_TURN_MS (src/main/agent/session.ts) after the click.
+ */
 export const autopilotStop = invokeChannel('autopilot.stop', z.object({ projectId }), autopilotStateSchema)
 
 /** The Project's run as it is now. */

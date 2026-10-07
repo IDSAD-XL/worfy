@@ -18,6 +18,11 @@
 //
 // Waves are counted per run from 1: `wave` is the run's count, not the Wave number of the Epic's
 // plan. The text the Orchestrator gets names the Wave's Tickets (ADR-0033).
+//
+// Stop by the user (worfy-week ticket 17, ADR-0050) names the Tickets of the Wave it interrupts in
+// its `stopped` effect. A run started after it is given those Tickets (`start`, `resume`): the ones
+// still in work count as ready, so the first Wave goes even when nothing else is.
+import { resumedTickets } from '../actions/render-template'
 import type { Ticket } from '../workflow/types'
 import { readyWave } from '../workflow/waves'
 
@@ -71,8 +76,11 @@ export interface CycleState {
 }
 
 export type CycleEvent =
-  /** The run begins; the Tickets of a fresh read of the workflow model. */
-  | { type: 'start'; tickets: readonly CycleTicket[] }
+  /**
+   * The run begins; the Tickets of a fresh read of the workflow model, and the Tickets of the Wave
+   * the last Stop of this Epic interrupted (`resume`): those still in work go into the first Wave.
+   */
+  | { type: 'start'; tickets: readonly CycleTicket[]; resume?: readonly number[] }
   /** "Run wave" went to the Orchestrator for these Tickets. */
   | { type: 'wave-sent'; tickets: number[] }
   /** "Run wave" could not be sent (the template fails, the Orchestrator is gone). */
@@ -115,7 +123,8 @@ export type CycleEffect =
   | { kind: 'session-error'; message: string }
   /**
    * The run is over: release keep-awake, give the Orchestrator back, write `run-stopped`. With
-   * `blocked-tickets`, `tickets` are the Tickets it stopped on.
+   * `blocked-tickets`, `tickets` are the Tickets it stopped on; with `user-stop`, the Tickets of the
+   * Wave it interrupted (none before the first Wave is sent).
    */
   | { kind: 'stopped'; reason: AutopilotStopReason; tickets?: number[] }
 
@@ -163,14 +172,14 @@ export function step(state: CycleState, event: CycleEvent): CycleStep {
   if (state.phase === 'stopped') return stay(state)
   switch (event.type) {
     case 'stop':
-      return stop(state, event.reason)
+      return event.reason === 'user-stop' && state.tickets.length > 0 ? stop(state, event.reason, [], [...state.tickets]) : stop(state, event.reason)
     case 'session-error':
       return stop(state, 'session-error', [{ kind: 'session-error', message: event.message }])
     case 'session-closed':
       return stop(state, 'session-closed')
     case 'start':
       if (state.phase !== 'starting') return stay(state)
-      if (readyNums(state, event.tickets).length === 0) return nothingReady(state, event.tickets)
+      if (resumedTickets(event.tickets, state.epic, event.resume ?? []).length === 0 && readyNums(state, event.tickets).length === 0) return nothingReady(state, event.tickets)
       return { state: { ...state, phase: 'sending' }, effects: [{ kind: 'send-wave' }] }
     case 'wave-sent': {
       if (state.phase !== 'sending') return stay(state)

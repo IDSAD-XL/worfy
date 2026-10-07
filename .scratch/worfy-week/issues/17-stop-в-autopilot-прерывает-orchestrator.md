@@ -1,7 +1,7 @@
 # 17 — Stop в Autopilot прерывает Session Orchestrator-а и его Background task-и
 
 Type: task
-Status: open
+Status: claimed — 2026-10-07
 Blocked by: —
 Source: замечание владельца 2026-10-07 («Поставь работу на паузу, мне кое че нужно сделать с ноутом», затем «я нажал на стоп но он продолжает, мб там еще есть?»); журнал Autopilot `2026-10-07T17-46-49-381Z-d32be6.jsonl`; [ADR-0029](../../../docs/adr/0029-autopilot-waits-for-background-tasks.md), пункты 5–6; [spec.md](../spec.md), этап 3
 
@@ -92,17 +92,17 @@ EXIT не срабатывает при SIGKILL). Замок снимет сле
 
 ## Готово, когда
 
-- [ ] Contract `test/contract/agent-controls.test.ts`: `halt()` у Session в ходе вызывает interrupt и ждёт `result` не дольше `HALT_TURN_MS`; у idle Session interrupt не вызывает; после `halt()` очередь на паузе.
-- [ ] Unit `test/unit/autopilot-run.test.ts`: Stop в фазе `tasks` и во время хода вызывает `halt` и `giveBackNow` по одному разу, linger не включается; `stop()` возвращает status `stopped`, reason `user-stop`; журнал по порядку — `run-stopped` (`user-stop`, `tasks`, `tickets` прерванной Wave), `tasks-killed` (`user-stop`), `orchestrator-returned`.
-- [ ] Contract `test/contract/autopilot-background.test.ts`: сценарии `:360` и `:390` переписаны — после `stop()` записан `close`, `isUnattended(PROJECT)` false сразу после возврата `stop()`, power `['start', 'stop']`, после Stop ни одного нового prompt и message. `:424` и `:439` (ожидание последнего Background task-а после Stop) переписаны под новое поведение или удалены с причиной в «Итог»; `:601` переведён на причину `background-stalled`; `:526` не меняется.
-- [ ] Contract `test/contract/autopilot.test.ts`: `:391` и `:464` переписаны — после Stop нового хода нет, повторный start принят сразу.
-- [ ] Contract `test/contract/autopilot-background.test.ts`, новый сценарий: сообщение человека, поставленное в очередь до Stop, после возврата `stop()` лежит в очереди новой Session (`queued().items` — одно, `queued().paused` — true), и новых prompt нет.
-- [ ] Unit `test/unit/autopilot-cycle.test.ts` и `test/unit/launch.test.ts`: `start` с `resume: [13]`, где Ticket 13 в `work`, даёт `wave-started` с Ticket-ом 13; `runWaveState` с `resumable` не отвечает «No ready wave».
-- [ ] Unit `test/unit/canvas-actions.test.tsx`: кнопка Autopilot доступна при `resumable` и Ticket-е в `work`; title Stop — новый; пока `autopilot.stop` не вернулся, кнопка в «Stopping…» и не нажимается.
-- [ ] e2e `test/e2e/autopilot.spec.ts` (локально, в gate full): сценарий `:358` переписан — после Stop `orchestrator-returned` приходит без `release()`, power `['start prevent-display-sleep', 'stop']`, повторный `autopilot.start` даёт ok.
-- [ ] `grep -n "interrupts the Orchestrator" docs/design/F-SPEC.md src/renderer/canvas/actions/AutopilotAction.tsx` находит обе строки.
-- [ ] ADR со следующим свободным номером записан.
-- [ ] `~/.claude/hooks/gate.sh fast` — exit 0, строка `[gate]` говорит green.
+- [x] Contract `test/contract/agent-controls.test.ts`: `halt()` у Session в ходе вызывает interrupt и ждёт `result` не дольше `HALT_TURN_MS`; у idle Session interrupt не вызывает; после `halt()` очередь на паузе.
+- [x] Unit `test/unit/autopilot-run.test.ts`: Stop в фазе `tasks` и во время хода вызывает `halt` и `giveBackNow` по одному разу, linger не включается; `stop()` возвращает status `stopped`, reason `user-stop`; журнал по порядку — `run-stopped` (`user-stop`, `tasks`, `tickets` прерванной Wave), `tasks-killed` (`user-stop`), `orchestrator-returned`.
+- [x] Contract `test/contract/autopilot-background.test.ts`: сценарии `:360` и `:390` переписаны — после `stop()` записан `close`, `isUnattended(PROJECT)` false сразу после возврата `stop()`, power `['start', 'stop']`, после Stop ни одного нового prompt и message. `:424` и `:439` (ожидание последнего Background task-а после Stop) переписаны под новое поведение или удалены с причиной в «Итог»; `:601` переведён на причину `background-stalled`; `:526` не меняется.
+- [x] Contract `test/contract/autopilot.test.ts`: `:391` и `:464` переписаны — после Stop нового хода нет, повторный start принят сразу.
+- [x] Contract `test/contract/autopilot-background.test.ts`, новый сценарий: сообщение человека, поставленное в очередь до Stop, после возврата `stop()` лежит в очереди новой Session (`queued().items` — одно, `queued().paused` — true), и новых prompt нет.
+- [x] Unit `test/unit/autopilot-cycle.test.ts` и `test/unit/launch.test.ts`: `start` с `resume: [13]`, где Ticket 13 в `work`, даёт `wave-started` с Ticket-ом 13; `runWaveState` с `resumable` не отвечает «No ready wave».
+- [x] Unit `test/unit/canvas-actions.test.tsx`: кнопка Autopilot доступна при `resumable` и Ticket-е в `work`; title Stop — новый; пока `autopilot.stop` не вернулся, кнопка в «Stopping…» и не нажимается.
+- [x] e2e `test/e2e/autopilot.spec.ts` (локально, в gate full): сценарий `:358` переписан — после Stop `orchestrator-returned` приходит без `release()`, power `['start prevent-display-sleep', 'stop']`, повторный `autopilot.start` даёт ok.
+- [x] `grep -n "interrupts the Orchestrator" docs/design/F-SPEC.md src/renderer/canvas/actions/AutopilotAction.tsx` находит обе строки.
+- [x] ADR со следующим свободным номером записан.
+- [x] `~/.claude/hooks/gate.sh fast` — exit 0, строка `[gate]` говорит green.
 - [ ] (вручную) Stable copy после влития: Autopilot над Wave с implementer-ом, Stop — за 15 s Orchestrator не начинает нового хода, процесса implementer-а нет (`ps`), в журнале `run-stopped`, `tasks-killed`, `orchestrator-returned`; повторный Autopilot берёт прерванный Ticket первым. Как проверить: окно приложения и журнал `~/Library/Application Support/worfy/autopilot/`.
 
 ## Тесты
@@ -141,6 +141,9 @@ main после `stop()` нет `close`, Orchestrator unattended) и `test/unit/
 - `test/unit/launch.test.ts`
 - `test/unit/canvas-actions.test.tsx`
 - `test/e2e/autopilot.spec.ts`
+- `test/contract/autopilot-limits.test.ts` — правка вне исходного следа, разрешённая оркестратором
+  2026-10-07: два ожидания журнала после Stop получили `orchestrator-returned`, литерал
+  `AutopilotState` — поле `resumable`, harness отдаёт `orchestrators`
 
 `journal.ts` — только шапка файла: поле `tickets` у `run-stopped` с `user-stop` и причина `user-stop`
 у `tasks-killed`; схема не меняется. `src/main/agent/fake-query.ts` не меняется: `stopTask` не нужен.
@@ -149,4 +152,40 @@ main после `stop()` нет `close`, Orchestrator unattended) и `test/unit/
 
 ## Итог
 
-Заполняется при закрытии.
+Сделано по пунктам 1–7 «Что делаем»; решение — [ADR-0050](../../../docs/adr/0050-autopilot-user-stop-interrupts-orchestrator.md).
+
+- `Session.halt()` (`src/main/agent/session.ts`, `HALT_TURN_MS` = 15 s): пауза очереди, отказ
+  открытым permission-запросам, `interrupt()` идущего хода и ожидание его конца не дольше предела.
+  После `halt()` Session ничего не шлёт в свой процесс: сообщение, пришедшее во время Stop или
+  после него, ложится в очередь на паузе.
+- `Orchestrators.giveBackNow()` (`src/main/agent/orchestrator.ts`): возврат обычной Session сразу.
+- `end()` для `user-stop` (`src/main/autopilot/run.ts`): `run-stopped` (`tasks`, `tickets`
+  прерванной Wave) → снятие Wave из очереди → `halt` → `tasks-killed` (`user-stop`), если задачи
+  были → `giveBackNow` → `orchestrator-returned` → keep-awake. Linger для `user-stop` больше нет;
+  остальные причины ждут задачи, как раньше.
+- `AutopilotState.resumable`; `runWaveState`, кнопка и событие `start` cycle-а берут из него
+  Ticket-ы, ещё бывшие в `work`, в первую Wave.
+- Кнопка: новый title, «Stopping…» до ответа `autopilot.stop`; F-SPEC, раздел Autopilot.
+
+Как падали test-ы до правки (коммит e47a822, прогон 5 файлов): `Test Files 5 failed`,
+`Tests 20 failed | 145 passed` — в том числе `autopilot-background.test.ts` «Stop with live tasks
+interrupts…» (нет `close`, Orchestrator unattended), все новые сценарии `autopilot-run.test.ts`
+(нет `halt`/`giveBackNow`), `agent-controls.test.ts` (нет `Session.halt`).
+
+Сценарии `autopilot-background.test.ts` `:424` и `:439` (ожидание последнего Background task-а после
+Stop) переписаны на причину `background-stalled`: это поведение осталось, но только для остановок
+cycle-а. Новые: Stop во время хода до задач, Stop во время запуска задач, сообщение человека в
+очереди после Stop. Гонки: второй Stop во время первого, задача, начатая ходом во время `halt`,
+сообщение во время `halt`, Stop во время ожидания лимитов (`autopilot-limits.test.ts`) — покрыты
+test-ами.
+
+Снимки (e2e, обе темы): до Stop — [светлая](../evidence/17-stop-before-light.png),
+[тёмная](../evidence/17-stop-before-dark.png); «Stopping…» —
+[светлая](../evidence/17-stop-stopping-light.png), [тёмная](../evidence/17-stop-stopping-dark.png);
+после — [светлая](../evidence/17-stop-stopped-light.png), [тёмная](../evidence/17-stop-stopped-dark.png).
+
+Решено без владельца, подтвердить: `resumable` живёт в памяти main — после перезапуска
+приложения он пуст, и прерванный Ticket снова надо продолжать руками («No ready wave»).
+
+Не проверено: пункт «(вручную) Stable copy после влития» — ручная проверка на настоящем
+Claude Code, после мержа.

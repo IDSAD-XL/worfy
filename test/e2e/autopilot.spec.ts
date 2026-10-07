@@ -261,21 +261,19 @@ test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave mea
     await expect(runWave).toHaveAttribute('data-error', AUTOPILOT_RUNNING_HINT)
     expect(messages(log)).toHaveLength(1)
 
-    // Stop: the run ends with user-stop. The Wave's turn still runs (it may start background
-    // tasks, ADR-0029): keep-awake is held until the Orchestrator is given back after it.
+    // Stop: the run ends with user-stop. It interrupts the Wave's turn and gives the Orchestrator
+    // back before it answers (worfy-week ticket 17): keep-awake is released with it.
+    await expect(stop).toHaveAttribute('title', `Stop Autopilot over ${EPIC}: interrupts the Orchestrator and its background tasks; worktrees stay`)
     await stop.click()
     await expect(status).toHaveText('stopped: user stop')
     await expect(status).toHaveAttribute('title', 'stopped: user stop')
     await expect(autopilot).toHaveText('Autopilot')
-    expect(journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'run-stopped user-stop'])
-    expect(await power()).toEqual(['start prevent-display-sleep'])
+    expect(journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'run-stopped user-stop', 'orchestrator-returned'])
+    expect(await power()).toEqual(['start prevent-display-sleep', 'stop'])
     await expectStatusClear(window, header, status)
     await snapshots(window, header, 'autopilot-stopped')
-    // The turn ends (Interrupt): the Orchestrator comes back, and keep-awake is released.
-    const orchestrator = (await bridgeCall(window, 'orchestrator.open', { projectId: PROJECT })) as { ok: boolean; value: { sessionId: string } }
-    expect(await bridgeCall(window, 'agent.interrupt', { sessionId: orchestrator.value.sessionId })).toEqual({ ok: true, value: { interrupted: true } })
-    await expect.poll(() => journalKinds(dataDir).at(-1)).toBe('orchestrator-returned')
-    await expect.poll(() => power()).toEqual(['start prevent-display-sleep', 'stop'])
+    // The interrupted turn left nothing to send: the Orchestrator got only the Wave.
+    expect(messages(log)).toHaveLength(1)
 
     // worfy wrote nothing into the repository, and nothing into the Claude home the run read.
     expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
@@ -335,7 +333,7 @@ test('Autopilot waits for the Limits after a refusal: the status line says until
     await stop.click()
     await expect(status).toHaveText('stopped: user stop')
     expect(await power()).toEqual(['start prevent-display-sleep', 'stop'])
-    expect(journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'limits-hit', 'waiting-until', 'run-stopped user-stop'])
+    await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'limits-hit', 'waiting-until', 'run-stopped user-stop', 'orchestrator-returned'])
     expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
     // worfy wrote nothing into the repository, and nothing into the Claude home the run read.
     expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
@@ -355,7 +353,7 @@ function closes(log: string): unknown[] {
     .filter((call) => call.kind === 'close')
 }
 
-test('Autopilot waits for the background tasks of the Wave; Stop keeps them alive and gives the Orchestrator back after them', async () => {
+test('Autopilot waits for the background tasks of the Wave; Stop kills them with the Orchestrator\'s process and gives the Orchestrator back at once', async () => {
   // The fake agent plays autopilot-background: the Wave's turn starts two background tasks and ends
   // while the Tickets are open, as /epic-wave does (worfy-daily ticket 29, ADR-0029). The test lets
   // each task end with globalThis.worfyFakeRelease in main (src/main/agent/fake-query.ts).
@@ -366,7 +364,6 @@ test('Autopilot waits for the background tasks of the Wave; Stop keeps them aliv
     const { window, app } = launched
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
     const power = await recordPower(app)
-    const release = () => app.evaluate(() => (globalThis as unknown as { worfyFakeRelease: (name: string) => void }).worfyFakeRelease('tasks'))
 
     const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
     const header = frame.locator('header')
@@ -383,25 +380,85 @@ test('Autopilot waits for the background tasks of the Wave; Stop keeps them aliv
     await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'background-tasks', 'background-tasks'])
     await snapshots(window, header, 'autopilot-background-tasks')
 
-    // Stop with live tasks: the run stops at once, the tasks live on in the unattended Session.
+    // Stop with live tasks (worfy-week ticket 17): no release of the tasks is needed. Closing the
+    // unattended Session's process kills both, and the Orchestrator is a person's Session again.
     await stop.click()
     await expect(status).toHaveText('stopped: user stop')
-    expect(journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'background-tasks', 'background-tasks', 'run-stopped user-stop'])
-    expect(await power()).toEqual(['start prevent-display-sleep'])
-    expect(closes(log)).toEqual([])
-    const again = await bridgeCall(window, 'autopilot.start', { projectId: PROJECT, epic: EPIC })
-    expect(again).toMatchObject({ ok: false, error: expect.stringContaining('background tasks are still running') as unknown as string })
-
-    // The tasks end; the Orchestrator comes back as a person's Session, and keep-awake is released.
-    await release()
-    await release()
-    await expect.poll(() => journalKinds(dataDir).at(-1)).toBe('orchestrator-returned')
-    await expect.poll(() => power()).toEqual(['start prevent-display-sleep', 'stop'])
-    expect(closes(log)).toEqual([])
+    await expect.poll(() => journalKinds(dataDir)).toEqual([
+      'run-started',
+      'wave-started 1',
+      'background-tasks',
+      'background-tasks',
+      'run-stopped user-stop',
+      'tasks-killed user-stop',
+      'orchestrator-returned',
+    ])
+    expect(await power()).toEqual(['start prevent-display-sleep', 'stop'])
+    expect(closes(log)).toMatchObject([{ kind: 'close', backgroundTasks: ['task_impl_0001', 'task_impl_0002'] }])
     expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
+    await snapshots(window, header, 'autopilot-stopped-tasks')
+
+    // Nothing waits to be given back: a new run is taken at once.
+    const again = await bridgeCall(window, 'autopilot.start', { projectId: PROJECT, epic: EPIC })
+    expect(again).toMatchObject({ ok: true, value: { status: 'running' } })
+    await expect(status).toHaveText(/^Wave 1/)
 
     expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
     expect(files(claudeHome)).toEqual(claudeHomeBefore)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('Stop during the Wave\'s turn: the button says Stopping… until the turn is interrupted, then the tasks it started are killed', async () => {
+  // The Wave's turn holds right after it started both tasks (wait_release "turn"), and the fake
+  // agent's wait does not end on interrupt(): Stop waits HALT_TURN_MS for the turn, then closes the
+  // process (worfy-week ticket 17).
+  const { dataDir, log } = prepare()
+  const scripts = join(scratch, 'scripts')
+  mkdirSync(scripts, { recursive: true })
+  const fixture = readFileSync(join(repoRoot, 'test', 'fixtures', 'agent-scripts', 'autopilot-background.jsonl'), 'utf8').split('\n').filter(Boolean)
+  writeFileSync(join(scripts, 'autopilot-stop-in-turn.jsonl'), `${[...fixture.slice(0, 6), '{"fake":"wait_release","name":"turn"}', ...fixture.slice(6)].join('\n')}\n`)
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: join(scratch, 'claude-home'), WORFY_AGENT_SCRIPTS: scripts, WORFY_AGENT_SCRIPT: 'autopilot-stop-in-turn', WORFY_AGENT_LOG: log }
+  const launched = await launchApp({ env })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
+    const power = await recordPower(app)
+    const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
+    const header = frame.locator('header')
+    const status = frame.getByTestId('autopilot-status')
+    const stop = frame.getByTestId('action-stop-autopilot')
+    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+
+    await frame.getByTestId('action-autopilot').click()
+    await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'background-tasks', 'background-tasks'])
+    await expect(status).toHaveText('Wave 1 · 2 background tasks')
+    await snapshots(window, header, 'stop-before')
+
+    await stop.click()
+    await expect(stop).toHaveText('Stopping…')
+    await expect(stop).toHaveAttribute('aria-disabled', 'true')
+    await snapshots(window, header, 'stop-stopping')
+    // A second click while it stops changes nothing. Dispatched at once: Playwright's click would wait
+    // for the inactive button to turn active, and click "Autopilot" once Stop is over.
+    await stop.dispatchEvent('click')
+    await expect(stop).toHaveText('Stopping…')
+    await expect(status).toHaveText('stopped: user stop', { timeout: 30_000 })
+    await expect(frame.getByTestId('action-autopilot')).toHaveText('Autopilot')
+    await expect.poll(() => journalKinds(dataDir)).toEqual([
+      'run-started',
+      'wave-started 1',
+      'background-tasks',
+      'background-tasks',
+      'run-stopped user-stop',
+      'tasks-killed user-stop',
+      'orchestrator-returned',
+    ])
+    expect(closes(log)).toMatchObject([{ kind: 'close', backgroundTasks: ['task_impl_0001', 'task_impl_0002'] }])
+    expect(await power()).toEqual(['start prevent-display-sleep', 'stop'])
+    expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
+    await snapshots(window, header, 'stop-stopped')
   } finally {
     await launched.close()
   }

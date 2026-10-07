@@ -19,7 +19,9 @@
 // bypassPermissions would overwrite the mode the user picked for the Node. Going unattended is
 // refused while a turn runs (also the last turn of a run that was just stopped), while background
 // tasks live and while messages wait in the queue; going back to attended carries the queue over
-// to the new Session.
+// to the new Session. Stop in Autopilot (worfy-week ticket 17, ADR-0050) gives the Orchestrator back
+// at once instead (giveBackNow): its halted Session's process closes, and with it every background
+// task and the turn the interrupt did not end.
 import type { AgentEvent } from '../../shared/agent/events'
 import { DEFAULT_SETTINGS, sameSettings, type SessionSettings } from '../../shared/agent/settings'
 import { findStatusBlock } from '../../shared/agent/status-block'
@@ -251,6 +253,22 @@ export class Orchestrators {
     const view = this.views.get(entry.nodeId)
     if (view === undefined) throw new Error(`the Orchestrator of ${projectId} has no view`)
     return view
+  }
+
+  /**
+   * Stop in Autopilot (worfy-week ticket 17, ADR-0050): starts the Orchestrator's Session again
+   * attended at once, without waiting for a turn or background tasks — the Session has been halted
+   * (Session.halt), and closing its process ends whatever outlived the interrupt. The queue goes
+   * over held, as Session.halt left it. Answers the view; null for an Orchestrator that is not open.
+   */
+  async giveBackNow(projectId: string): Promise<OrchestratorView | null> {
+    const entry = this.entries.get(projectId)
+    if (entry === undefined) return null
+    await entry.ready
+    if (this.entries.get(projectId) !== entry || entry.cancelled) return null
+    if (entry.launch.unattended) this.relaunch(entry, ATTENDED)
+    else entry.wanted = null
+    return this.views.get(entry.nodeId) ?? null
   }
 
   /** Whether the Project's Orchestrator runs unattended now. */

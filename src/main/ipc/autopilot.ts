@@ -1,6 +1,7 @@
 // Handlers of the `autopilot` domain (src/shared/ipc/autopilot.ts), and the app's Autopilot
 // (src/main/autopilot/run.ts) wired to its Projects, Orchestrators, Sessions, workflow watch, run
-// journal, keep-awake and the Limits (the wait after a refusal, worfy-daily ticket 05). A run's
+// journal, keep-awake and the Limits (the wait after a refusal, worfy-daily ticket 05). Stop gives
+// the Orchestrator back at once (Orchestrators.giveBackNow, worfy-week ticket 17). A run's
 // changes go to every window. When the app quits during a run, the quit waits (a few seconds at
 // most) until the run has written `run-stopped` with `app-quit`; that also cancels a Limits wait.
 import { execFile } from 'node:child_process'
@@ -59,13 +60,16 @@ export function sharedAutopilot(): Autopilot {
         await workflowHub.close(root, id)
       }
     },
-    orchestrators: { setUnattended: (projectId, unattended) => sharedOrchestrators().setUnattended(projectId, unattended) },
+    orchestrators: {
+      setUnattended: (projectId, unattended) => sharedOrchestrators().setUnattended(projectId, unattended),
+      giveBackNow: (projectId) => sharedOrchestrators().giveBackNow(projectId),
+    },
     registry: {
       get: (sessionId) => sharedRegistry().get(sessionId),
       observe: (sink) => sharedRegistry().observe(sink),
       observeInput: (listener) => sharedRegistry().observeInput(listener),
     },
-    waves: { autopilotWave: (projectId, epic) => sharedLauncher().autopilotWave(projectId, epic), autopilotRefusal: (projectId) => sharedLauncher().autopilotRefusal(projectId) },
+    waves: { autopilotWave: (projectId, epic, resume) => sharedLauncher().autopilotWave(projectId, epic, resume), autopilotRefusal: (projectId) => sharedLauncher().autopilotRefusal(projectId) },
     journal: (start) => openRun(start),
     keepAwake: () => new KeepAwake(),
     onChange: (state: AutopilotState) => toEveryWindow((target) => emit(target, autopilotChanged, state)),
