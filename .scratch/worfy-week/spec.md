@@ -222,6 +222,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 15 | `src/renderer/canvas/nodes/EpicFrameNode.tsx`, `src/renderer/canvas/epic-frame.css`, `src/renderer/canvas/sources/epics.ts`, `src/renderer/canvas/overlays/SelectionToolbar.tsx`, `src/renderer/canvas/overlays/BindingDrop.tsx`, `src/renderer/canvas/overlays/TrashPopover.tsx`, `src/renderer/canvas/overlays/CanvasMenu.tsx`, `docs/design/F-SPEC.md`, `test/unit/epic-canvas.test.tsx`, `test/unit/epics-ui.test.ts`, `test/e2e/done-stack.spec.ts`, `test/e2e/epic-frame.spec.ts` | 7 |
 | 16 | `src/renderer/canvas/Canvas.tsx`, `src/renderer/canvas/wheel-router.ts`, `src/renderer/canvas/canvas.css`, `src/renderer/canvas/nodes/CardNode.tsx`, `src/renderer/canvas/nodes/HandoffNode.tsx`, `test/unit/wheel-router.test.ts`, `test/e2e/wheel-over-nodes.spec.ts`, `test/e2e/card-drag.spec.ts` | 6 |
 | 17 | `src/main/autopilot/run.ts`, `src/main/agent/session.ts`, `src/main/agent/orchestrator.ts`, `src/main/ipc/autopilot.ts`, `src/main/actions/launch.ts`, `src/shared/ipc/autopilot.ts`, `src/shared/autopilot/cycle.ts`, `src/shared/autopilot/journal.ts`, `src/shared/actions/render-template.ts`, `src/renderer/canvas/actions/gates.ts`, `src/renderer/canvas/actions/AutopilotAction.tsx`, `docs/design/F-SPEC.md`, `test/contract/agent-controls.test.ts`, `test/contract/autopilot-background.test.ts`, `test/contract/autopilot.test.ts`, `test/unit/autopilot-run.test.ts`, `test/unit/autopilot-cycle.test.ts`, `test/unit/launch.test.ts`, `test/unit/canvas-actions.test.tsx`, `test/e2e/autopilot.spec.ts` | 6 |
+| 18 | `src/shared/autopilot/cycle.ts`, `src/shared/autopilot/journal.ts`, `src/shared/ipc/autopilot.ts`, `src/main/autopilot/run.ts`, `src/main/ipc/autopilot.ts`, `src/renderer/canvas/actions/AutopilotAction.tsx`, `src/renderer/canvas/actions/action-menu.ts`, `src/renderer/canvas/actions/actions.css`, `docs/design/F-SPEC.md`, `test/unit/autopilot-cycle.test.ts`, `test/unit/autopilot-run.test.ts`, `test/contract/autopilot-background.test.ts`, `test/contract/autopilot.test.ts`, `test/contract/autopilot-limits.test.ts`, `test/contract/autopilot-journal.test.ts`, `test/unit/canvas-actions.test.tsx`, `test/e2e/autopilot.spec.ts` | 8 |
 
 Общих файлов у 01 и 02 нет, блокеров нет: оба в Wave 1.
 
@@ -256,6 +257,14 @@ Ticket-ы 13–17 — замечания владельца 2026-10-07 о пов
   кнопка Autopilot и F-SPEC.
 - **Wave 7 — 15.** Общий файл с 14 — `EpicFrameNode.tsx`, с 17 — `F-SPEC.md`. С 16 общих файлов
   нет, но оба вводят Esc на Canvas; 15 учитывает активный Node из 16.
+
+Ticket 18 — ответ владельца 2026-10-07 на решения Ticket-а 17: обычный Stop в Autopilot —
+graceful, Force stop — в меню «⋯».
+
+- **Wave 8 — 18.** Ждёт 17: общие с ним почти все файлы. Общий файл с 15 — `F-SPEC.md`, поэтому
+  Wave-ой позже 15. С 13, 14 и 16 общих файлов нет. Esc в меню «⋯» зовёт
+  `preventDefault`: Esc из 15 при открытом меню стопку done не сворачивает, Esc из 16 это нажатие
+  пропускает.
 
 Списки сверены скриптом, который читает «Где в коде» так же, как `src/main/workflow/reader.ts`, и
 ищет пересечения правилом `filesOverlap` (`src/shared/workflow/waves.ts:145`): внутри каждой Wave
