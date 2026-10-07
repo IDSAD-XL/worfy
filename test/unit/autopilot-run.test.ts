@@ -250,9 +250,9 @@ describe('the Wave a result ends', () => {
     s.emit(result())
     s.emit({ type: 'prompt', text: 'how is it going?' })
     const wave2 = s.deps.waves.autopilotWave
-    s.deps.waves.autopilotWave = (projectId, epic) => {
+    s.deps.waves.autopilotWave = (projectId, epic, resume) => {
       s.emit(result())
-      return wave2(projectId, epic)
+      return wave2(projectId, epic, resume)
     }
     await settle()
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', wave: 2 })

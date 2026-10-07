@@ -27,13 +27,15 @@ function useBranch(projectId: string): string | null {
 /**
  * Whether "Run wave" of `epic` can run now, and the text it sends or the reason it cannot. With
  * `autopilot`, whether Autopilot can start: the template must also name the Wave's Tickets
- * ({tickets}, ADR-0033), and the reason says so on the Autopilot button.
+ * ({tickets}, ADR-0033), and the reason says so on the Autopilot button. `resumable`: the Tickets
+ * of the Wave the last Stop of this Epic interrupted (worfy-week ticket 17); those still in work
+ * count as ready, as main counts them.
  */
-export function useRunWaveState(projectId: string, epic: string, tickets: readonly Ticket[], autopilot = false): ActionState {
+export function useRunWaveState(projectId: string, epic: string, tickets: readonly Ticket[], autopilot = false, resumable: readonly number[] = []): ActionState {
   const branch = useBranch(projectId)
   const templates = useActionTemplates(projectId)
   if (templates === undefined) return READING
-  return runWaveState({ epic, tickets, template: templates.runWave, branch, autopilot })
+  return runWaveState({ epic, tickets, template: templates.runWave, branch, autopilot, resumable })
 }
 
 /** Whether "Ship ticket" of `ticket` can run now; `tickets` are every Ticket, for its blockers. */

@@ -323,6 +323,7 @@ describe('Autopilot and the Limits on the fake agent', () => {
       'limits-hit',
       'waiting-until',
       'run-stopped',
+      'orchestrator-returned',
     ])
     const events = await h.journal()
     expect(events.find((event) => event.kind === 'limits-hit')).toMatchObject({ window: 'five_hour', resetsAt: iso(RESET_MS) })
@@ -549,7 +550,7 @@ describe('wallTimer', () => {
 })
 
 describe('the waiting state on autopilot.changed', () => {
-  const waiting: AutopilotState = { projectId: 'p', epic: 'e', status: 'waiting', wave: 2, backgroundTasks: 0, resumesAt: RESET_MS + RESUME_MARGIN_MS, reason: null, message: null, revision: 4 }
+  const waiting: AutopilotState = { projectId: 'p', epic: 'e', status: 'waiting', wave: 2, backgroundTasks: 0, resumesAt: RESET_MS + RESUME_MARGIN_MS, reason: null, message: null, resumable: [], revision: 4 }
 
   it('sends the state and its resume time, without keys outside the contract', () => {
     const sent: unknown[] = []

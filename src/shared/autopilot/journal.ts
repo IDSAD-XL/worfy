@@ -42,15 +42,21 @@
 //   run-stopped    reason, tasks?,   the run ended; reason: why, in a few words; tasks: the
 //                  tickets?,         background tasks alive then, when any were; tickets: with
 //                  lastText?         `blocked-tickets`, the Tickets it stopped on (as skipped of
-//                                    wave-started, numbers only); lastText: with `no-progress`,
+//                                    wave-started, numbers only); with `user-stop`, the Tickets of
+//                                    the Wave it interrupted, none before the first Wave
+//                                    (worfy-week ticket 17); lastText: with `no-progress`,
 //                                    `no-ready-wave` and `blocked-tickets`, the first 1000
 //                                    characters of the Orchestrator's last answer in the turns of
 //                                    the Wave, none when no Wave was sent (ADR-0033)
 //   orchestrator-returned            after a run-stopped with live tasks: they have ended and the
-//                                    Orchestrator runs as a person's Session again
+//                                    Orchestrator runs as a person's Session again; after
+//                                    `user-stop`: it was given back at once (ADR-0050)
 //   tasks-killed   reason, tasks     the background tasks a stopped run still waited for were
-//                                    killed; reason: `app-quit`; tasks: none when the run waited
-//                                    only for a turn of the Orchestrator still running
+//                                    killed; reason: `app-quit`, tasks: none when the run waited
+//                                    only for a turn of the Orchestrator still running; or
+//                                    `user-stop`: the tasks alive at the Stop, or started by the
+//                                    turn it interrupted, ended with the Orchestrator's process
+//                                    (ADR-0050), written only when there were any
 //
 // A task of `tasks` is {id, type, description}: the task id of Claude Code, its type
 // (`local_agent`, `local_bash`, …) and what it does, both null when Claude Code did not say.

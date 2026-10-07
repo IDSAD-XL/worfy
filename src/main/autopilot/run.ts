@@ -15,10 +15,16 @@
 // - The run waits for the background tasks of its Orchestrator Session (worfy-daily ticket 29,
 //   ADR-0029): a turn that ends while they live does not end the Wave; their task-notifications
 //   start turns of the Wave. Every change of the set goes to the journal. Without any task event
-//   for the limit the run stops with `background-stalled`. A run stopped while tasks live, or
-//   while a turn runs (it may start some), leaves the Orchestrator unattended, and keeps
+//   for the limit the run stops with `background-stalled`. A run stopped by the cycle while tasks
+//   live, or while a turn runs (it may start some), leaves the Orchestrator unattended, and keeps
 //   keep-awake, until the turn and the tasks have ended (orchestrator.ts);
 //   then the journal says `orchestrator-returned`, or, if the app quits first, `tasks-killed`.
+// - Stop by the user (`user-stop`, worfy-week ticket 17, ADR-0050) does not wait: it halts the
+//   Orchestrator's Session (interrupts its turn, HALT_TURN_MS at most, and holds its queue) and
+//   gives the Orchestrator back at once; closing the old process kills its background tasks. The
+//   journal says `run-stopped` with the Tickets of the interrupted Wave, `tasks-killed` when tasks
+//   lived, and `orchestrator-returned`; stop() answers after that. The next run of the Epic takes
+//   those Tickets, if still in work, into its first Wave (`resumable`).
 // - keep-awake (power.ts) is held from the start to the end of the run.
 // - A turn of the Wave refused by the Limits does not end it (worfy-daily ticket 05): the run goes
 //   `waiting` until the Limits reset, then sends the Orchestrator on (limits-wait.ts). Past the
@@ -64,6 +70,8 @@ export interface RunSession {
   removeQueued(id: string): boolean
   /** The Session's live background tasks, ambient ones left out (ADR-0029). */
   backgroundTasks(): BackgroundTask[]
+  /** Stop by the user: holds the queue, interrupts a running turn and waits for it, `timeoutMs` at most (Session.halt). */
+  halt(timeoutMs?: number): Promise<unknown>
 }
 
 /** The timers of the wait for background tasks; a test passes a clock it moves by hand. */
@@ -92,17 +100,22 @@ export interface AutopilotDeps {
   workflow(root: string): Promise<WorkflowModel>
   /** Calls `onChange` on every `workflow.changed` of the root; answers the unsubscribe. */
   watchWorkflow(root: string, onChange: () => void): Promise<() => Promise<void> | void>
-  orchestrators: { setUnattended(projectId: string, unattended: boolean): Promise<OrchestratorView | null> }
+  orchestrators: {
+    setUnattended(projectId: string, unattended: boolean): Promise<OrchestratorView | null>
+    /** Stop by the user: the Orchestrator attended again at once, its old process closed (Orchestrators.giveBackNow). */
+    giveBackNow(projectId: string): Promise<OrchestratorView | null>
+  }
   registry: {
     get(sessionId: string): RunSession
     observe(sink: (sessionId: string, event: AgentEvent) => void): () => void
     observeInput(listener: (session: RunSession, what: string) => void): () => void
   }
   /**
-   * Sends "Run wave" to the Orchestrator (ActionLauncher.autopilotWave); `autopilotRefusal` says
-   * why the Project's template cannot drive a run, before it starts (ADR-0033), or null.
+   * Sends "Run wave" to the Orchestrator (ActionLauncher.autopilotWave), with the Tickets of an
+   * interrupted Wave to take along when still in work (`resume`); `autopilotRefusal` says why the
+   * Project's template cannot drive a run, before it starts (ADR-0033), or null.
    */
-  waves: { autopilotWave(projectId: string, epic: string): Promise<AutopilotWaveResult>; autopilotRefusal(projectId: string): string | null }
+  waves: { autopilotWave(projectId: string, epic: string, resume: readonly number[]): Promise<AutopilotWaveResult>; autopilotRefusal(projectId: string): string | null }
   /** Opens the run's journal; writes its `run-started` line. */
   journal(start: { project: string; epic: string }): Promise<RunJournalLike>
   /** A new keep-awake for one run (power.ts, KeepAwake). */
@@ -119,6 +132,8 @@ export interface AutopilotDeps {
   tasksGraceMs?: number
   /** The clock of those two waits (default: the real timers). */
   tasksClock?: TasksClock
+  /** How long Stop waits for the interrupted turn before the Orchestrator's process is closed (default HALT_TURN_MS of session.ts). */
+  haltTurnMs?: number
 }
 
 /** A task as the journal writes it. */
@@ -192,6 +207,10 @@ class Run {
   sent: AutopilotWaveResult | null = null
   /** The Orchestrator's last answer in the turns of the current Wave, clipped; null before any. */
   lastText: string | null = null
+  /** The Tickets of an interrupted Wave the next "Run wave" takes along; emptied once it is sent. */
+  resume: readonly number[] = []
+  /** After a Stop by the user: the Tickets of the Wave it interrupted (AutopilotState.resumable). */
+  interrupted: number[] = []
   /** Settles once the run has stopped and cleaned up. */
   readonly ended: Promise<void>
   finish!: () => void
@@ -248,7 +267,7 @@ export class Autopilot {
   state(projectId: string): AutopilotState {
     const run = this.runs.get(projectId)
     if (run === undefined)
-      return this.last.get(projectId) ?? { projectId, epic: null, status: 'stopped', wave: 0, backgroundTasks: 0, resumesAt: null, reason: null, message: null, revision: this.revision }
+      return this.last.get(projectId) ?? { projectId, epic: null, status: 'stopped', wave: 0, backgroundTasks: 0, resumesAt: null, reason: null, message: null, resumable: [], revision: this.revision }
     return this.snapshot(run)
   }
 
@@ -276,6 +295,9 @@ export class Autopilot {
       if (!model.epics.some((each) => each.epic === epic) && !model.tickets.some((each) => each.epic === epic)) throw new Error(`The Project has no Epic ${epic}`)
 
       const run = new Run(projectId, epic, root)
+      // The Wave the last Stop of this Epic interrupted goes along with the first Wave (worfy-week ticket 17).
+      const last = this.last.get(projectId)
+      run.resume = last?.epic === epic ? [...last.resumable] : []
       if (this.deps.limits !== undefined) run.limits = new LimitsWait(this.deps.limits)
       const view = await this.deps.orchestrators.setUnattended(projectId, true)
       try {
@@ -301,7 +323,7 @@ export class Autopilot {
       this.runs.set(projectId, run)
       this.starting.delete(projectId)
       this.publish(projectId)
-      void run.enqueue(() => this.feed(run, { type: 'start', tickets: model.tickets }))
+      void run.enqueue(() => this.feed(run, { type: 'start', tickets: model.tickets, resume: run.resume }))
       return this.snapshot(run)
     } finally {
       this.starting.delete(projectId)
@@ -492,8 +514,11 @@ export class Autopilot {
     let sent: AutopilotWaveResult
     run.sending = true
     run.promptsWhileSending.clear()
+    // Only the run's first Wave takes the interrupted Tickets along.
+    const resume = run.resume
+    run.resume = []
     try {
-      sent = await this.deps.waves.autopilotWave(run.projectId, run.epic)
+      sent = await this.deps.waves.autopilotWave(run.projectId, run.epic, resume)
     } catch (error) {
       run.message = messageOf(error)
       await this.feed(run, { type: 'send-failed', message: run.message })
@@ -638,19 +663,55 @@ export class Autopilot {
       ...(lastText === null ? {} : { lastText }),
     })
     this.dropQueuedWave(run)
-    // Live tasks keep the Orchestrator unattended, and the Mac awake, until they end (ADR-0029).
-    // So does a turn still running: /epic-wave starts the implementers inside the Wave's turn, so
-    // a Stop during it may come before any task has started. The Session is read again here, after
-    // the journal write: its turn may have ended meanwhile.
-    const linger = reason !== 'app-quit' && run.session !== null && (this.liveTasks(run).length > 0 || inTurn(run.session.state))
-    if (linger) this.linger(run)
-    // On quit the Orchestrator closes with every Session: starting it again would start Claude Code.
-    await this.release(run, reason !== 'app-quit', !linger)
+    if (reason === 'user-stop') {
+      run.interrupted = tickets ?? []
+      await this.interruptAndGiveBack(run, live)
+    } else {
+      // Live tasks keep the Orchestrator unattended, and the Mac awake, until they end (ADR-0029).
+      // So does a turn still running: /epic-wave starts the implementers inside the Wave's turn, so
+      // a stop during it may come before any task has started. The Session is read again here, after
+      // the journal write: its turn may have ended meanwhile.
+      const linger = reason !== 'app-quit' && run.session !== null && (this.liveTasks(run).length > 0 || inTurn(run.session.state))
+      if (linger) this.linger(run)
+      // On quit the Orchestrator closes with every Session: starting it again would start Claude Code.
+      await this.release(run, reason !== 'app-quit', !linger)
+    }
     run.done = true
     if (this.runs.get(run.projectId) === run) this.runs.delete(run.projectId)
     this.last.set(run.projectId, this.snapshot(run))
     this.publish(run.projectId)
     run.finish()
+  }
+
+  /**
+   * Stop by the user (worfy-week ticket 17, ADR-0050): no wait for the turn or the tasks. The
+   * run's timers go first, so nothing of the run fires during the halt; then the Session is halted
+   * (its turn interrupted, HALT_TURN_MS at most) and the Orchestrator given back at once, which
+   * closes the old process and every task in it. The tasks alive at the stop, and any the turn
+   * started before the interrupt reached it, are journaled as killed. Should the give-back fail,
+   * the Orchestrator goes back the usual way (setUnattended), once its turn and tasks have ended.
+   */
+  private async interruptAndGiveBack(run: Run, atStop: readonly BackgroundTask[]): Promise<void> {
+    this.stopTimers(run)
+    const session = run.session
+    let returned = false
+    if (session !== null) {
+      try {
+        await session.halt(this.deps.haltTurnMs)
+      } catch (error) {
+        console.warn(`[autopilot] ${run.projectId}: could not halt the Orchestrator's Session`, error)
+      }
+      const killed = new Map(atStop.map((task) => [task.taskId, task]))
+      for (const task of this.liveTasks(run)) killed.set(task.taskId, task)
+      if (killed.size > 0) await this.write(run, { kind: 'tasks-killed', reason: 'user-stop', tasks: journalTasks([...killed.values()]) })
+      try {
+        returned = (await this.deps.orchestrators.giveBackNow(run.projectId)) !== null
+      } catch (error) {
+        console.warn(`[autopilot] ${run.projectId}: could not give the Orchestrator back at once`, error)
+      }
+      if (returned) await this.write(run, { kind: 'orchestrator-returned' })
+    }
+    await this.release(run, !returned)
   }
 
   /**
@@ -688,11 +749,7 @@ export class Autopilot {
    * `stopAwake` is false: a stop with live tasks keeps it), the unattended Orchestrator.
    */
   private async release(run: Run, giveBack: boolean, stopAwake = true): Promise<void> {
-    if (run.settleTimer !== null) clearTimeout(run.settleTimer)
-    run.settleTimer = null
-    if (run.tasksTimer !== null) (this.deps.tasksClock ?? realClock).clearTimeout(run.tasksTimer)
-    run.tasksTimer = null
-    run.limits?.cancel()
+    this.stopTimers(run)
     for (const cleanup of run.cleanups.splice(0)) {
       try {
         await cleanup()
@@ -715,6 +772,15 @@ export class Autopilot {
     }
   }
 
+  /** Clears the settle, tasks and Limits timers of the run. */
+  private stopTimers(run: Run): void {
+    if (run.settleTimer !== null) clearTimeout(run.settleTimer)
+    run.settleTimer = null
+    if (run.tasksTimer !== null) (this.deps.tasksClock ?? realClock).clearTimeout(run.tasksTimer)
+    run.tasksTimer = null
+    run.limits?.cancel()
+  }
+
   private async write(run: Run, fields: JournalEventFields): Promise<void> {
     if (run.journal === null) return
     try {
@@ -735,6 +801,7 @@ export class Autopilot {
       resumesAt,
       reason: run.done ? run.cycle.reason : null,
       message: run.message,
+      resumable: run.done && run.cycle.reason === 'user-stop' ? [...run.interrupted] : [],
       revision: this.revision,
     }
   }

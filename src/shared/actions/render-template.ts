@@ -69,14 +69,31 @@ type WaveTicket = Parameters<typeof readyWave>[0][number]
  * the earliest one. Null when nothing is ready.
  */
 export function readyWaveNumber(tickets: readonly WaveTicket[], epic: string): number | null {
-  const ready = readyWave(tickets, epic).ready
-  if (ready.length === 0) return null
+  return planWaveNumber(
+    tickets,
+    epic,
+    readyWave(tickets, epic).ready.map((entry) => entry.num),
+  )
+}
+
+/** The lowest Wave number of the Epic's plan among `nums`; null when none has one. */
+function planWaveNumber(tickets: readonly WaveTicket[], epic: string, nums: readonly number[]): number | null {
+  if (nums.length === 0) return null
   const plan = waveNumbers(
     tickets.filter((ticket) => ticket.epic === epic).map((ticket) => ({ ...ticket, state: 'open' as const })),
     epic,
   )
-  const numbers = ready.map((entry) => plan.get(entry.num)).filter((wave): wave is number => wave !== undefined)
+  const numbers = nums.map((num) => plan.get(num)).filter((wave): wave is number => wave !== undefined)
   return numbers.length === 0 ? null : Math.min(...numbers)
+}
+
+/**
+ * The Tickets of `resumable` — the Wave a Stop of Autopilot interrupted (worfy-week ticket 17) —
+ * that are still in work in `epic`, by number. A later run takes them into its first Wave: the
+ * implementers the Stop killed left them claimed, so the ready Wave never would.
+ */
+export function resumedTickets(tickets: readonly WaveTicket[], epic: string, resumable: readonly number[]): number[] {
+  return [...new Set(resumable)].filter((num) => tickets.some((ticket) => ticket.epic === epic && ticket.num === num && ticket.state === 'work')).sort((a, b) => a - b)
 }
 
 /** Whether an action can run now: the text it would send, or why not, in words for the button. */
@@ -124,15 +141,18 @@ export type WaveState = { enabled: true; text: string; tickets: number[]; skippe
 /**
  * "Run wave": the Epic's ready Wave is not empty, and the Project's template is set and renders.
  * For Autopilot (`autopilot`) the template must also name the Wave's Tickets ({tickets}): a run
- * has no person to read a Wave number against the plan. By hand any template runs.
+ * has no person to read a Wave number against the plan. By hand any template runs. `resumable`
+ * (Autopilot after a Stop, worfy-week ticket 17): the interrupted Wave's Tickets; those still in
+ * work join the ready ones.
  */
-export function runWaveState(input: { epic: string; tickets: readonly WaveTicket[]; template: string; branch: string | null; autopilot?: boolean }): WaveState {
-  const { epic, tickets, template, branch, autopilot = false } = input
+export function runWaveState(input: { epic: string; tickets: readonly WaveTicket[]; template: string; branch: string | null; autopilot?: boolean; resumable?: readonly number[] }): WaveState {
+  const { epic, tickets, template, branch, autopilot = false, resumable = [] } = input
   const { ready, skipped } = readyWave(tickets, epic)
-  if (ready.length === 0) return { enabled: false, reason: 'No ready wave' }
+  const resumed = resumedTickets(tickets, epic, resumable)
+  const nums = [...new Set([...resumed, ...ready.map((entry) => entry.num)])].sort((a, b) => a - b)
+  if (nums.length === 0) return { enabled: false, reason: 'No ready wave' }
   if (!isActionConfigured(template)) return { enabled: false, reason: emptyTemplateHint('runWave') }
   if (autopilot && !namesWaveTickets(template)) return { enabled: false, reason: AUTOPILOT_TEMPLATE_HINT }
-  const nums = ready.map((entry) => entry.num)
-  const rendered = renderTemplate(template, waveValues(epic, readyWaveNumber(tickets, epic), branch, nums), 'runWave')
+  const rendered = renderTemplate(template, waveValues(epic, planWaveNumber(tickets, epic, nums), branch, nums), 'runWave')
   return rendered.ok ? { enabled: true, text: rendered.text, tickets: nums, skipped } : { enabled: false, reason: rendered.error }
 }

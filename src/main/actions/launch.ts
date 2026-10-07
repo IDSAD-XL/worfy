@@ -16,7 +16,8 @@
 //   way (autopilotWave); while it runs in a Project, "Run wave" by hand is refused there, so a
 //   person's click does not put a second Wave on top of the run's. Autopilot's text must name the
 //   Wave's Tickets ({tickets}, ADR-0033); the text, those Tickets and the skipped ones come from
-//   one read of the workflow model, so the run's journal names exactly what went.
+//   one read of the workflow model, so the run's journal names exactly what went. A run after a
+//   Stop passes the interrupted Wave's Tickets (worfy-week ticket 17): those still in work join it.
 //
 // The agent is then bound to what it was launched for, with source `launch` (resolve.ts): once
 // Claude Code has reported the session id that names its transcript, the Binding goes into
@@ -174,9 +175,12 @@ export class ActionLauncher {
     return { sessionId, text, delivery }
   }
 
-  /** Autopilot's "Run wave": the same text to the same Orchestrator, and the Tickets it was for. */
-  autopilotWave(projectId: string, epic: string): Promise<AutopilotWaveResult> {
-    return this.sendWave(projectId, epic, true)
+  /**
+   * Autopilot's "Run wave": the same text to the same Orchestrator, and the Tickets it was for.
+   * `resume`: the Tickets of the Wave a Stop interrupted; those still in work join the Wave.
+   */
+  autopilotWave(projectId: string, epic: string, resume: readonly number[] = []): Promise<AutopilotWaveResult> {
+    return this.sendWave(projectId, epic, true, resume)
   }
 
   /**
@@ -189,12 +193,12 @@ export class ActionLauncher {
     return namesWaveTickets(template) ? null : AUTOPILOT_TEMPLATE_HINT
   }
 
-  private async sendWave(projectId: string, epic: string, autopilot: boolean): Promise<AutopilotWaveResult> {
+  private async sendWave(projectId: string, epic: string, autopilot: boolean, resumable: readonly number[] = []): Promise<AutopilotWaveResult> {
     const root = this.deps.projectRoot(projectId)
     const [model, branch] = await Promise.all([this.model(root), this.deps.branch(root)])
     if (!model.epics.some((each) => each.epic === epic) && !model.tickets.some((each) => each.epic === epic)) throw new Error(`The Project has no Epic ${epic}`)
     // One read: the text, the Tickets it names and the skipped ones all come from `model`.
-    const state = runWaveState({ epic, tickets: model.tickets, template: this.deps.settings(projectId).actionTemplates.runWave, branch, autopilot })
+    const state = runWaveState({ epic, tickets: model.tickets, template: this.deps.settings(projectId).actionTemplates.runWave, branch, autopilot, resumable })
     if (!state.enabled) throw new Error(state.reason)
     const view = await this.deps.orchestrators.open(projectId)
     if (view.sessionId === null) throw new Error('The Orchestrator has no Session')

@@ -272,8 +272,9 @@ describe('Stop autopilot interrupts the Orchestrator (worfy-week ticket 17)', ()
     autopilot = { ...autopilot, epic: 'demo', status: 'stopped', wave: 1, reason: 'user-stop', resumable: [8, 9] }
     const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
     render(<AutopilotAction subject={epicSubject()} />)
-    const button = await screen.findByRole('button', { name: 'Autopilot' })
-    await vi.waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
+    // The button is drawn again under the status line once the run's state comes: look it up each time.
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Autopilot' }).getAttribute('aria-disabled')).toBe('false'))
+    expect(screen.getByTestId('autopilot-status').textContent).toBe('stopped: user stop')
   })
 
   it('without that list, the same Tickets in work leave no ready Wave', async () => {
@@ -281,9 +282,10 @@ describe('Stop autopilot interrupts the Orchestrator (worfy-week ticket 17)', ()
     autopilot = { ...autopilot, epic: 'demo', status: 'stopped', wave: 1, reason: 'no-progress', resumable: [] }
     const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
     render(<AutopilotAction subject={epicSubject()} />)
-    const button = await screen.findByRole('button', { name: 'Autopilot' })
-    await vi.waitFor(() => expect(button.getAttribute('title')).toBe('No ready wave'))
-    expect(button.getAttribute('aria-disabled')).toBe('true')
+    // The button is drawn again under the status line once the run's state comes: look it up each time.
+    const button = () => screen.getByRole('button', { name: 'Autopilot' })
+    await vi.waitFor(() => expect(button().getAttribute('title')).toBe('No ready wave'))
+    expect(button().getAttribute('aria-disabled')).toBe('true')
   })
 
   it('says what Stop does, and stays "Stopping…" and inactive until autopilot.stop answers', async () => {
