@@ -319,9 +319,15 @@ export class HarnessInstaller {
     }
   }
 
-  /** Staging folders an interrupted copy left in <harnessHome>. */
+  /**
+   * Folders an interrupted copy left in <harnessHome>. A copy that stopped between its two renames
+   * left no plugin/ and the previous copy in `.plugin-old-*`: that copy goes back into place first,
+   * so a failure of the copy that follows still leaves it as it was.
+   */
   private async removeLeftovers(): Promise<void> {
     const { harnessHome } = this.options
+    const setAside = readdirSync(harnessHome).find((name) => name.startsWith('.plugin-old-'))
+    if (setAside !== undefined && !existsSync(this.pluginDir)) await rename(join(harnessHome, setAside), this.pluginDir)
     for (const name of readdirSync(harnessHome)) {
       if (name.startsWith('.plugin-new-') || name.startsWith('.plugin-old-')) await rm(join(harnessHome, name), { recursive: true, force: true })
     }

@@ -5,7 +5,7 @@
 // sandbox; the last case runs the Claude Code binary of the SDK on macOS.
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, sep } from 'node:path'
@@ -380,6 +380,21 @@ describe('errors', () => {
     expect(treeOf(sb.pluginDir)).toEqual(before)
     expect(readdirSync(sb.harnessHome)).toEqual(['plugin'])
     expect(commands().filter((command) => command !== 'plugin list --json')).toEqual([])
+  })
+
+  it('a copy interrupted between its two renames (the old folder set aside, the new one not in place) gets the old folder back before the next copy', async () => {
+    const v1 = makeBundle(join(sb.root, 'bundle-v1'), V1)
+    await installer(v1).install(yes)
+    const before = treeOf(sb.pluginDir)
+    // What a crash after `rename(plugin, .plugin-old-X)` leaves: no plugin/, the previous copy aside, a staging folder.
+    renameSync(sb.pluginDir, join(sb.harnessHome, '.plugin-old-crash'))
+    mkdirSync(join(sb.harnessHome, '.plugin-new-crash'))
+    const v2 = makeBundle(join(sb.root, 'bundle-v2'), V2)
+    const failing = (): Promise<void> => Promise.reject(new Error('disk full (injected)'))
+    const result = await installer(v2, { copyTree: failing }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    expect(treeOf(sb.pluginDir)).toEqual(before)
+    expect(readdirSync(sb.harnessHome)).toEqual(['plugin'])
   })
 })
 
