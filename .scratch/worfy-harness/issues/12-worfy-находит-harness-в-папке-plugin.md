@@ -1,7 +1,7 @@
 # 12 — worfy находит Harness в папке plugin, передаёт свой Harness Session-ам и шлёт команды по установленному Harness
 
 Type: task
-Status: claimed — 2026-10-07
+Status: done — 2026-10-07, [PR #117](https://github.com/IDSAD-XL/worfy/pull/117)
 Blocked by: 04, 10
 Source: решения владельца 2026-10-07: Q1 (копия `harness/` в `~/.claude/worfy-harness/plugin/` как локальный marketplace; Session-ы worfy получают plugin своей версии inline), Q2 (имя plugin-а `worfy`, команды `/worfy:epic-wave`, `/worfy:ship-ticket`), Q4 (состояние Harness — `~/.claude/worfy-harness/`), Q6 (формат команды Autopilot — английская машинная строка), Q13 и Q33 (машина владельца переходит на plugin в Ticket-е 16, до того Wave-ы идут на старом Harness); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (доставка Harness, состояние машины); [ADR-0047](../../../docs/adr/0047-harness-lessons-by-pr-early-owner-switch.md) (развитие Harness, ранний переход машины владельца); [spec.md](../spec.md)
 
@@ -104,18 +104,18 @@ Ticket 10.
 
 ## Готово, когда
 
-- [ ] Unit (`test/unit/harness-locate.test.ts`, на временных папках): только plugin — `plugin` с путями `bin/` и `gate/` от `harnessHome`; только `<claudeHome>/bin/epic-status` — `legacy`; оба — `legacy`; ничего — `none`; `plugin.json` с другим `name` или plugin без `bin/epic-status` — не `plugin`.
-- [ ] Unit (`test/unit/paths.test.ts`): `harnessHome()` — `WORFY_HARNESS_HOME`, а без него — `<claudeHome()>/worfy-harness`.
-- [ ] Contract (`test/contract/workflow-reader.test.ts`): stub `epic-status` в `<harnessHome>/plugin/bin/` читается при `plugin` и получает `HARNESS_HOME`; прежние случаи со stub-ом в `<claudeHome>/bin/` проходят без правок; при `none` ошибка `not-found` называет оба пути.
-- [ ] Contract (`test/contract/workflow-profile.test.ts`): `profile` из `<harnessHome>/plugin/bin/` с `HARNESS_HOME` в окружении; прежние случаи — без правок.
-- [ ] Unit (`test/unit/gate-state.test.ts`): при `plugin` маркер в `<harnessHome>/gate/state/` и реестр `<harnessHome>/gate/config.json` дают вердикт, транскрипты читаются из `<claudeHome>/projects/`; при `legacy` — как сейчас.
-- [ ] Unit (`test/unit/agent-options.test.ts`): с путём своего Harness — `plugins: [{ type: 'local', path }]`; без него поля `plugins` нет. Путь своего Harness берётся из `bundled.ts` Ticket-а 04 (test подменяет его), а не из `<appPath>/harness`.
-- [ ] Unit (`test/unit/action-templates.test.ts`): шаблоны по умолчанию для `legacy` и для `plugin`; каждый прежний шаблон по умолчанию читается как шаблон найденного Harness; свой шаблон (`my ship {NN}`, пустой) не меняется; шаблон «Run wave» при `plugin` содержит `{tickets}`.
-- [ ] Ничего не пишется: test сравнивает списки файлов `<claudeHome>` и `<harnessHome>` до и после чтения workflow, Profile и Gate (по образцу «writes nothing», `test/unit/gate-state.test.ts:338`).
-- [ ] `@packaged` (`test/e2e/packaged.spec.ts`): в собранном `.app` есть `Contents/Resources/harness/.claude-plugin/plugin.json` с `"name": "worfy"`.
-- [ ] Новый ADR об отступлении от ADR-0040, пункт 2: вторая строка «Дата: … Статус: принят.», раздел `## Considered Options`; ADR говорит, что уточняет ADR-0040, и называет условие, при котором отступление кончается.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0; CI на PR зелёный. `GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full` на ветке после rebase — код 0 и строка `[gate] зелено` (e2e и `@packaged` идут здесь).
-- [ ] (вручную) Stable copy после влития, машина владельца до Ticket-а 16: Canvas Project-а worfy показывает Epic-и и бейджи Gate, как до Ticket-а (найден `legacy`); «Run wave» шлёт прежний текст. Как проверить: окно приложения.
+- [x] Unit (`test/unit/harness-locate.test.ts`, на временных папках): только plugin — `plugin` с путями `bin/` и `gate/` от `harnessHome`; только `<claudeHome>/bin/epic-status` — `legacy`; оба — `legacy`; ничего — `none`; `plugin.json` с другим `name` или plugin без `bin/epic-status` — не `plugin`.
+- [x] Unit (`test/unit/paths.test.ts`): `harnessHome()` — `WORFY_HARNESS_HOME`, а без него — `<claudeHome()>/worfy-harness`.
+- [x] Contract (`test/contract/workflow-reader.test.ts`): stub `epic-status` в `<harnessHome>/plugin/bin/` читается при `plugin` и получает `HARNESS_HOME`; прежние случаи со stub-ом в `<claudeHome>/bin/` проходят без правок; при `none` ошибка `not-found` называет оба пути.
+- [x] Contract (`test/contract/workflow-profile.test.ts`): `profile` из `<harnessHome>/plugin/bin/` с `HARNESS_HOME` в окружении; прежние случаи — без правок.
+- [x] Unit (`test/unit/gate-state.test.ts`): при `plugin` маркер в `<harnessHome>/gate/state/` и реестр `<harnessHome>/gate/config.json` дают вердикт, транскрипты читаются из `<claudeHome>/projects/`; при `legacy` — как сейчас.
+- [x] Unit (`test/unit/agent-options.test.ts`): с путём своего Harness — `plugins: [{ type: 'local', path }]`; без него поля `plugins` нет. Путь своего Harness берётся из `bundled.ts` Ticket-а 04 (test подменяет его), а не из `<appPath>/harness`.
+- [x] Unit (`test/unit/action-templates.test.ts`): шаблоны по умолчанию для `legacy` и для `plugin`; каждый прежний шаблон по умолчанию читается как шаблон найденного Harness; свой шаблон (`my ship {NN}`, пустой) не меняется; шаблон «Run wave» при `plugin` содержит `{tickets}`.
+- [x] Ничего не пишется: test сравнивает списки файлов `<claudeHome>` и `<harnessHome>` до и после чтения workflow, Profile и Gate (по образцу «writes nothing», `test/unit/gate-state.test.ts:338`).
+- [x] `@packaged` (`test/e2e/packaged.spec.ts`): в собранном `.app` есть `Contents/Resources/harness/.claude-plugin/plugin.json` с `"name": "worfy"`.
+- [x] Новый ADR об отступлении от ADR-0040, пункт 2: вторая строка «Дата: … Статус: принят.», раздел `## Considered Options`; ADR говорит, что уточняет ADR-0040, и называет условие, при котором отступление кончается.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0; CI на PR зелёный. `GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full` на ветке после rebase — код 0 и строка `[gate] зелено` (e2e и `@packaged` идут здесь).
+- [ ] (вручную) Stable copy после влития, машина владельца до Ticket-а 16: Canvas Project-а worfy показывает Epic-и и бейджи Gate, как до Ticket-а (найден `legacy`); «Run wave» шлёт прежний текст. Как проверить: окно приложения. — Не проверено: окно Stable copy агент не открывал; пункт в HANDOFF, «Ждёт владельца».
 
 Ручной пункт агент проверяет, только если может посмотреть окно Stable copy. Если не может —
 «не проверено: …» в «Итог» и пункт в HANDOFF, раздел «Ждёт владельца».
@@ -213,3 +213,26 @@ Ticket (Blocked by) и берёт helper отсюда.
   запуск настоящего worfy поднимает Orchestrator на настоящем Claude Code и пишет в `~/.claude`, это запрещено.
   Вместо него — test-ы на `legacy` (старый Harness, с plugin-ом рядом и без): прежние шаблоны, скрипты из
   `<claudeHome>/bin`, Gate из `<claudeHome>/gate`, Session без `plugins`. Пункт идёт в HANDOFF, «Ждёт владельца» (HANDOFF правит Orchestrator).
+
+**Влито.** [PR #117](https://github.com/IDSAD-XL/worfy/pull/117) → squash-коммит `7652f5d` в `main`. Ревью —
+VERIFIED с первого круга. Новый ADR — [ADR-0049](../../../docs/adr/0049-worfy-sessions-without-inline-plugin-on-legacy-harness.md)
+(Session-ы worfy без inline plugin-а, пока на машине старый Harness). Ревьюер сверил `legacy` (один и с
+plugin-ом рядом) с базой `6580d95`: шаблоны, `epic-status` и `profile`, папка Gate и Session-ы без `plugins`
+те же; четыре мутанта красные; в Claude home и Harness home ничего не пишется. Перед мержем: rebase на
+`6580d95`, head `4ee394d`, `GATE_SCOPE=all gate full` — exit 0 и `[gate] зелено (full)`, CI зелёный,
+`mergeStateStatus` CLEAN.
+
+**Долг.**
+- [low] `src/main/harness/locate.ts:75` — при `none` (Harness не найден) Session получает inline plugin, а
+  worfy читает Gate из `<claudeHome>/gate`. `gate.sh` plugin-а пишет в
+  `${HARNESS_HOME:-~/.claude/worfy-harness}/gate/state`, поэтому эти вердикты Gate worfy не видит. Решено
+  без владельца.
+- [low] `docs/adr/0049-…md:44` — слова «`bin/epic-status` в первую очередь» можно прочесть как «удалить его первым».
+  Ticket 14 (перенос Harness из `~/.claude`) должен удалять `bin/epic-status` последним, после записей
+  hooks в `~/.claude/settings.json`. Иначе Session-ы в этот промежуток получат inline plugin, и hooks
+  сработают дважды.
+- [low] `src/renderer/shell/ProjectSettings.tsx:113` — ответ «Reset to default» может затереть текст,
+  набранный, пока запрос IPC в пути.
+- [low] `test/unit/agent-query-factory.test.ts` — прежние случаи ищут Harness в настоящем `~/.claude`:
+  результат зависит от машины.
+- Решения без владельца (пункты «Решено без владельца, подтвердить» выше) — в HANDOFF, «Ждёт владельца».
