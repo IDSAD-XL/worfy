@@ -145,8 +145,11 @@ plugin в Session-ах worfy (Ticket 12); пометка «Harness в main но�
 
 - `src/main/harness/install.ts` — установщик. Состояние: `not-installed`, `installed` (версия, включён ли),
   `outdated` (было → стало), `error` (шаг `copy` / `marketplace add` / `install` / `update` / `plugin list`
-  и хвост stderr, 5 строк). Чтение состояния ничего не пишет; без папки plugin оно не вызывает даже
-  `claude`. Включён ли plugin и его версия — из `claude plugin list --json` (запись `worfy@worfy-harness`).
+  и хвост stderr, 5 строк). Сам worfy при чтении состояния ничего не пишет; без папки plugin он не вызывает
+  даже `claude`. Включён ли plugin и его версия — из `claude plugin list --json` (запись `worfy@worfy-harness`).
+  Но сам `claude plugin list` при каждом вызове пишет в `<CLAUDE_CONFIG_DIR>/telemetry/` (в песочнице с
+  закрытым прокси — файл `1p_failed_events.*.json`; проверено `find -newer` после одного `plugin list`).
+  Поэтому «чтение ничего не пишет» верно только про worfy.
 - Команды — по ADR-0048: первая установка — `claude plugin marketplace add <harnessHome>/plugin`, затем
   `claude plugin install worfy@worfy-harness --scope user`; смена `version` — `claude plugin update
   worfy@worfy-harness --scope user`. Повторный `install` версию не меняет, поэтому при смене версии идёт
@@ -162,13 +165,25 @@ plugin в Session-ах worfy (Ticket 12); пометка «Harness в main но�
 - Бинарь: `bundledClaudeBinary()` в `src/main/agent/options.ts` — бинарь SDK и в `.app`, и в dev (пакет
   `@anthropic-ai/claude-agent-sdk-<platform>-<arch>` рядом с SDK). Подменённый `claude` для test-ов —
   переменная окружения **`WORFY_CLAUDE`** (как `WORFY_GH`). С `WORFY_CLAUDE_HOME` установщик передаёт
-  `claude` `CLAUDE_CONFIG_DIR` той же папки.
+  `claude` `CLAUDE_CONFIG_DIR` той же папки и `HOME` внутри песочницы (`claudeCommandEnv`: родитель папки,
+  если она называется `.claude`, иначе сама папка). Без `WORFY_CLAUDE_HOME` окружение пользователя не
+  меняется. e2e проверяет `HOME` и `CLAUDE_CONFIG_DIR` каждого вызова подменённого `claude`.
 - dev-сборка без `WORFY_CLAUDE_HOME` показывает состояние без кнопки; `harness.install` в ней отказывает
   до диалога.
 - IPC: `harness.state` и `harness.install` (`src/shared/ipc/harness.ts`, `src/main/ipc/harness.ts`), их же
   возьмёт экран первого запуска (Ticket 19). Toolbar: `src/renderer/shell/toolbar/HarnessStatus.tsx`, между
   Limits и версией: «Harness not installed» + Install, «Update Harness» (в подсказке было → стало),
   «Harness <версия>», «Harness error: <шаг>» (причина в подсказке) + Retry.
+- Диалог согласия называет папку, команды `claude plugin`, версии было → стало и зависимость. Когда папка
+  plugin-а заменяется, диалог предупреждает: Claude Code грузит plugin прямо из неё (ADR-0048), поэтому
+  Session-ы Claude Code, запущенные в терминале, стоит перезапустить.
+- **Старый Harness в `~/.claude`.** Установщик предлагает Install и там, где ещё стоит старый Harness
+  (`locate.ts` даёт `legacy`). Так задумано порядком Epic-а: на машине владельца plugin ставит шаг владельца
+  (Ticket 16), а старые файлы убирает перенос (Ticket 14). До переноса hooks в терминальных Session-ах
+  сработают дважды: и записи `settings.json`, и hooks plugin-а. Session-ы самого worfy при `legacy` идут
+  без inline plugin-а (ADR-0049), но plugin в области пользователя они тоже загрузят. Поэтому при `legacy`
+  диалог добавляет предупреждение с путём `bin/epic-status` старого Harness.
+  **Решено без владельца, подтвердить:** установку при старом Harness не запрещать, а предупреждать в диалоге.
 - **Зависимость `mattpocock-skills`** (ADR-0048 о ней молчит; проверено в песочнице встроенным бинарём
   2.1.289, без входа и с закрытым прокси): `marketplace add` и `install` — код 0, `outcome: ok`, хотя
   marketplace `claude-plugins-official` в песочнице не добавлен. `plugin list --json` показывает `worfy`
@@ -177,7 +192,9 @@ plugin в Session-ах worfy (Ticket 12); пометка «Harness в main но�
   это как «ошибка, шаг `install`» с этим текстом, а не как успех; диалог согласия называет зависимость и
   команду, которой её ставить. Входа `claude plugin` в песочнице не потребовал — `/login` владельца не нужен.
   **Решено без владельца, подтвердить:** worfy сам зависимость не ставит (её marketplace — чужой, сеть), а
-  только называет. Кнопка Retry в этом состоянии ничего не делает: версия та же, установщику делать нечего.
+  только называет. Retry в этом состоянии — не тупик: он заново читает состояние через `plugin list`. Если
+  зависимость к этому времени поставлена, состояние станет «Harness <версия>». Подсказка у Retry говорит
+  об этом: сначала поставьте то, что называет ошибка, затем Retry.
 - Красный test первым: на main модуля `src/main/harness/install.ts` нет (`git show origin/main:src/main/harness/install.ts`
   — «exists on disk, but not in 'origin/main'»), импорт в `test/contract/harness-install.test.ts` падает,
   файл test-а красный целиком. Test возврата прежней копии после оборванной установки до правки падал на

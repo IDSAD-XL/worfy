@@ -53,5 +53,7 @@ describe('HarnessStatusView', () => {
   it('an error carries its reason in the tooltip', () => {
     render(<HarnessStatusView status={status(STATES[2]!, true)} busy={false} failure={undefined} onInstall={() => undefined} />)
     expect(screen.getByTestId('harness-text').getAttribute('title')).toBe('claude plugin marketplace add … exited with 1')
+    // Retry reads the state again (`plugin list`): after a missing dependency is installed it clears the error.
+    expect(screen.getByTestId('harness-action').getAttribute('title')).toMatch(/missing dependency.*then Retry/)
   })
 })

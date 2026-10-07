@@ -3,13 +3,13 @@
 //
 // The Claude Code binary is the SDK's (bundledClaudeBinary), or WORFY_CLAUDE when set: tests point
 // it at a stub, as WORFY_GH points `gh` at one (src/main/ipc/checks.ts). With WORFY_CLAUDE_HOME (a
-// sandbox) `claude` gets CLAUDE_CONFIG_DIR set to the same folder, so worfy and Claude Code see one
-// ~/.claude; without it the user's environment is left as it is.
+// sandbox) `claude` gets CLAUDE_CONFIG_DIR and HOME inside the same folder (claudeCommandEnv), so
+// worfy and Claude Code see one ~/.claude; without it the user's environment is left as it is.
 import { app, BrowserWindow, dialog } from 'electron'
 import { harnessInstall, harnessState } from '../../shared/ipc/harness'
 import { bundledClaudeBinary } from '../agent/options'
 import { bundledHarnessDir } from '../harness/bundled'
-import { confirmationText, HarnessInstaller, installOffered, type InstallPlan } from '../harness/install'
+import { claudeCommandEnv, confirmationText, HarnessInstaller, installOffered, type InstallPlan } from '../harness/install'
 import { claudeHome, harnessHome } from '../storage/paths'
 import { defineHandler, type HandlerModule } from './index'
 
@@ -23,8 +23,9 @@ function appInstaller(): HarnessInstaller {
     bundledDir: bundledHarnessDir(),
     harnessHome: harnessHome(env),
     claude: env.WORFY_CLAUDE || bundledClaudeBinary(runtime),
-    env: env.WORFY_CLAUDE_HOME ? { ...env, CLAUDE_CONFIG_DIR: claudeHome(env) } : env,
+    env: claudeCommandEnv(env),
     canInstall: installOffered({ packaged: app.isPackaged, env }),
+    claudeHome: claudeHome(env),
   })
   return installer
 }

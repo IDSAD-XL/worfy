@@ -22,6 +22,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs
 import { join } from 'node:path'
 const args = process.argv.slice(2)
 appendFileSync(process.env.STUB_CLAUDE_LOG, args.join(' ') + '\\n')
+appendFileSync(process.env.STUB_CLAUDE_ENV_LOG, JSON.stringify({ HOME: process.env.HOME ?? null, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR ?? null }) + '\\n')
 const command = args.slice(0, args[1] === 'marketplace' ? 3 : 2).join(' ')
 if (process.env.STUB_CLAUDE_FAIL === command) {
   process.stderr.write('Installing worfy@worfy-harness…\\n✘ ' + command + ' failed: stub error\\n')
@@ -40,7 +41,7 @@ writeFileSync(statePath, JSON.stringify(state))
 `
 
 let scratch: string
-let stub: { env: Record<string, string>; log: string; state: string }
+let stub: { env: Record<string, string>; log: string; envLog: string; state: string }
 
 test.beforeEach(() => {
   scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-harness-')))
@@ -50,7 +51,8 @@ test.beforeEach(() => {
   chmodSync(claude, 0o755)
   const log = join(scratch, 'calls.log')
   const state = join(scratch, 'state.json')
-  stub = { env: { WORFY_CLAUDE: claude, STUB_CLAUDE_LOG: log, STUB_CLAUDE_STATE: state }, log, state }
+  const envLog = join(scratch, 'env.log')
+  stub = { env: { WORFY_CLAUDE: claude, STUB_CLAUDE_LOG: log, STUB_CLAUDE_ENV_LOG: envLog, STUB_CLAUDE_STATE: state }, log, envLog, state }
 })
 
 test.afterEach(async () => {
@@ -58,6 +60,15 @@ test.afterEach(async () => {
 })
 
 const calls = (): string[] => (existsSync(stub.log) ? readFileSync(stub.log, 'utf8').trim().split('\n').filter(Boolean) : [])
+/** HOME and CLAUDE_CONFIG_DIR each `claude` call got. */
+const callEnvs = (): { HOME: string | null; CLAUDE_CONFIG_DIR: string | null }[] =>
+  existsSync(stub.envLog)
+    ? readFileSync(stub.envLog, 'utf8')
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { HOME: string | null; CLAUDE_CONFIG_DIR: string | null })
+    : []
 
 /** Files of a tree with their bytes' hash and mode. */
 function treeOf(dir: string): Record<string, string> {
@@ -131,6 +142,9 @@ test('"Harness not installed" → Install → the dialog names the folder, the c
     expect(shown?.detail).toContain('mattpocock-skills@claude-plugins-official')
 
     expect(calls()).toEqual([`plugin marketplace add ${pluginDir}`, 'plugin install worfy@worfy-harness --scope user', 'plugin list --json'])
+    // The app runs `claude` inside the sandbox of WORFY_CLAUDE_HOME (src/main/ipc/harness.ts,
+    // claudeCommandEnv): without it the commands would register the marketplace in the real ~/.claude.
+    expect(callEnvs()).toEqual(calls().map(() => ({ HOME: claudeHome, CLAUDE_CONFIG_DIR: claudeHome })))
     expect(treeOf(pluginDir)).toEqual(treeOf(bundle))
   } finally {
     await launched.close()

@@ -12,6 +12,7 @@ import { dirname, join, relative, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { bundledClaudeBinary, claudeExecutablePath } from '../../src/main/agent/options'
 import {
+  claudeCommandEnv,
   confirmationText,
   HARNESS_MARKETPLACE,
   HARNESS_PLUGIN_ID,
@@ -156,7 +157,7 @@ const commands = (): string[] => calls().map((call) => call.args.join(' '))
 const clearCalls = (): void => rmSync(sb.log, { force: true })
 
 function installer(bundle: string, options: Partial<InstallerOptions> = {}): HarnessInstaller {
-  return new HarnessInstaller({ bundledDir: bundle, harnessHome: sb.harnessHome, claude: sb.stub, env: sb.env, canInstall: true, ...options })
+  return new HarnessInstaller({ bundledDir: bundle, harnessHome: sb.harnessHome, claude: sb.stub, env: sb.env, canInstall: true, claudeHome: sb.claudeHome, ...options })
 }
 
 const yes = (): Promise<boolean> => Promise.resolve(true)
@@ -192,6 +193,7 @@ describe('installing', () => {
           ['plugin', 'install', HARNESS_PLUGIN_ID, '--scope', 'user'],
         ],
         dependencies: ['mattpocock-skills@claude-plugins-official'],
+        legacyHarness: null,
       },
     ])
     expect(result).toEqual({ outcome: 'done', status: { state: { kind: 'installed', version: V1, enabled: true }, bundledVersion: V1, canInstall: true, pluginDir: sb.pluginDir } })
@@ -423,6 +425,34 @@ describe('the dev build', () => {
   })
 })
 
+describe('the old Harness', () => {
+  it('still in the Claude home: the plan names its epic-status, so the dialog warns that hooks run twice', async () => {
+    mkdirSync(join(sb.claudeHome, 'bin'))
+    writeFileSync(join(sb.claudeHome, 'bin', 'epic-status'), '#!/bin/sh\n', { mode: 0o755 })
+    const plans: InstallPlan[] = []
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install((plan) => {
+      plans.push(plan)
+      return Promise.resolve(false)
+    })
+    expect(plans.map((plan) => plan.legacyHarness)).toEqual([join(sb.claudeHome, 'bin', 'epic-status')])
+    expect(confirmationText(plans[0]!).detail).toContain('run its hooks and the plugin')
+  })
+})
+
+describe('the environment of the claude commands', () => {
+  it('with WORFY_CLAUDE_HOME puts CLAUDE_CONFIG_DIR and HOME into the sandbox; without it leaves the environment as it is', () => {
+    expect(claudeCommandEnv({ WORFY_CLAUDE_HOME: '/tmp/sb/home/.claude', HOME: '/Users/me', PATH: '/bin' })).toEqual({
+      WORFY_CLAUDE_HOME: '/tmp/sb/home/.claude',
+      HOME: '/tmp/sb/home',
+      CLAUDE_CONFIG_DIR: '/tmp/sb/home/.claude',
+      PATH: '/bin',
+    })
+    expect(claudeCommandEnv({ WORFY_CLAUDE_HOME: '/tmp/worfy-claude-x', HOME: '/Users/me' })).toMatchObject({ HOME: '/tmp/worfy-claude-x', CLAUDE_CONFIG_DIR: '/tmp/worfy-claude-x' })
+    const real = { HOME: '/Users/me', PATH: '/bin' }
+    expect(claudeCommandEnv(real)).toBe(real)
+  })
+})
+
 describe('the dialog', () => {
   it('names the folder, the commands, the versions and the dependency', () => {
     const plan: InstallPlan = {
@@ -435,8 +465,15 @@ describe('the dialog', () => {
         ['plugin', 'install', HARNESS_PLUGIN_ID, '--scope', 'user'],
       ],
       dependencies: ['mattpocock-skills@claude-plugins-official'],
+      legacyHarness: null,
     }
     const text = confirmationText(plan)
+    // The plugin loads in place (ADR-0048): Sessions running in a terminal see the copy change.
+    expect(text.detail).toContain('Restart them')
+    expect(text.detail).not.toContain('old Harness')
+    expect(confirmationText({ ...plan, copy: false }).detail).not.toContain('Restart them')
+    const legacy = confirmationText({ ...plan, legacyHarness: '/Users/me/.claude/bin/epic-status' })
+    expect(legacy.detail).toContain('The old Harness is still in ~/.claude (/Users/me/.claude/bin/epic-status')
     expect(text.button).toBe('Install')
     expect(text.message).toContain(V1)
     expect(text.detail).toContain('/Users/me/.claude/worfy-harness/plugin')

@@ -20,9 +20,10 @@ import { execFile } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, rename, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import type { HarnessState, HarnessStatus, HarnessStep } from '../../shared/ipc/harness'
-import { HARNESS_PLUGIN_NAME } from './locate'
+import { claudeHome } from '../storage/paths'
+import { HARNESS_PLUGIN_NAME, locateHarness } from './locate'
 
 /** The marketplace of harness/.claude-plugin/marketplace.json. */
 export const HARNESS_MARKETPLACE = 'worfy-harness'
@@ -44,6 +45,18 @@ export function installOffered({ packaged, env }: { packaged: boolean; env: Env 
   return packaged || Boolean(env.WORFY_CLAUDE_HOME)
 }
 
+/**
+ * The environment of the `claude` commands. With WORFY_CLAUDE_HOME (a sandbox) Claude Code gets the
+ * same folder as CLAUDE_CONFIG_DIR, and HOME inside the sandbox too (its parent when the folder is
+ * named `.claude`), so worfy and Claude Code see one ~/.claude and nothing reaches the real one.
+ * Without it the user's environment is left as it is.
+ */
+export function claudeCommandEnv(env: Env): Env {
+  if (!env.WORFY_CLAUDE_HOME) return env
+  const home = claudeHome(env)
+  return { ...env, HOME: basename(home) === '.claude' ? dirname(home) : home, CLAUDE_CONFIG_DIR: home }
+}
+
 /** What an install would do; the dialog shows it before anything is written. */
 export interface InstallPlan {
   /** <harnessHome>/plugin. */
@@ -58,6 +71,8 @@ export interface InstallPlan {
   commands: string[][]
   /** The plugins the Harness depends on (plugin.json `dependencies`): Claude Code does not install them from an unknown marketplace. */
   dependencies: string[]
+  /** `bin/epic-status` of the old Harness in the Claude home when it is still there (ADR-0049, `legacy`); null otherwise. */
+  legacyHarness: string | null
 }
 
 export interface InstallerOptions {
@@ -70,6 +85,8 @@ export interface InstallerOptions {
   /** The environment of every `claude` command. */
   env: Env
   canInstall: boolean
+  /** Claude Code's home (claudeHome()), where the old Harness is looked for; without it the dialog does not warn about it. */
+  claudeHome?: string
   /** Copies a tree into an empty folder; tests inject a failing one. */
   copyTree?: (from: string, to: string) => Promise<void>
 }
@@ -156,6 +173,18 @@ export function confirmationText(plan: InstallPlan): { button: string; message: 
     '',
     'Claude Code records the plugin in its settings.json and its plugins folder. Nothing else in ~/.claude changes.',
   ]
+  if (plan.copy) {
+    lines.push(
+      '',
+      'Claude Code loads the plugin straight from this folder: Claude Code sessions already running in a terminal see the files change under them. Restart them afterwards.',
+    )
+  }
+  if (plan.legacyHarness !== null) {
+    lines.push(
+      '',
+      `The old Harness is still in ~/.claude (${plan.legacyHarness}, its hooks in settings.json). Until it is moved out, Claude Code sessions in a terminal run its hooks and the plugin's both.`,
+    )
+  }
   if (plan.dependencies.length > 0) {
     lines.push(
       '',
@@ -282,7 +311,23 @@ export class HarnessInstaller {
       commands = [['plugin', 'update', HARNESS_PLUGIN_ID, '--scope', 'user']]
     }
     if (!copy && commands.length === 0) return null
-    return { pluginDir: this.pluginDir, from: entry?.version ?? null, to: bundled, copy, commands, dependencies: dependenciesOf(this.options.bundledDir) }
+    return {
+      pluginDir: this.pluginDir,
+      from: entry?.version ?? null,
+      to: bundled,
+      copy,
+      commands,
+      dependencies: dependenciesOf(this.options.bundledDir),
+      legacyHarness: this.legacyHarness(),
+    }
+  }
+
+  /** `bin/epic-status` of the old Harness when it is still in the Claude home (locate.ts, ADR-0049). */
+  private legacyHarness(): string | null {
+    const { claudeHome: home, harnessHome } = this.options
+    if (home === undefined) return null
+    const location = locateHarness({ claudeHome: home, harnessHome })
+    return location.kind === 'legacy' ? location.checked[0] : null
   }
 
   /**

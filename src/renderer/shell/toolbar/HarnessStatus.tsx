@@ -76,7 +76,7 @@ export function HarnessStatusView({ status, busy, failure, onInstall }: HarnessS
       text = `Harness error: ${state.step}`
       title = state.reason
       tone = 'var(--blocked-text)'
-      button = action('Retry', `Run the install again (${status.pluginDir})`)
+      button = action('Retry', 'Fix what the error names first (a missing dependency: install it with claude plugin install), then Retry: it reads the state again and runs what is left of the install')
       break
   }
   return (
