@@ -15,6 +15,7 @@
     "src/renderer/canvas/card-bridge.ts",
     "src/renderer/canvas/history.ts",
     "src/renderer/canvas/snapping.ts",
+    "src/renderer/canvas/wheel-router.ts",
     "src/renderer/find/search-index.ts",
     "src/renderer/ipc.ts",
     "test/unit/**/*.ts",

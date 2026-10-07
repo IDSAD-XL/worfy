@@ -22,6 +22,12 @@
 // overlay draws the guides and, when the rule "Nodes never overlap" moves it off that place, the
 // outline of where it lands. The drop sends the landing place, which main answers with unchanged
 // (ADR-0038). A resize stops each edge short of a neighbour while the mouse is still down.
+//
+// The active Node (worfy-week ticket 16): a plain click on a Node makes it active while it stays
+// selected; a click on the empty plane, a press anywhere outside it and Esc (except in a Terminal,
+// whose shell needs Esc) end that. Only the active Node's content takes the wheel — before, the
+// wheel over any Node moves the Canvas (wheel-router.ts) — and only the active Card's page takes
+// the mouse (canvas.css).
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   applyNodeChanges,
@@ -51,6 +57,7 @@ import { applyLayoutOp, currentLayout, LayoutOpsContext, useLayout, type LayoutO
 import { withNodeChrome } from './withNodeChrome'
 import { usePinnedPlacement } from './pinning'
 import { clearSnapGuides, planDrag, resizeObstacles, showSnapGuides, stopEdges, type Dragged, type DragPlan } from './snapping'
+import { routeWheels } from './wheel-router'
 
 const flowNodeTypes: NodeTypes = {
   ...Object.fromEntries([...registeredNodeTypes].map(([kind, type]) => [kind, withNodeChrome(type.Component)])),
@@ -164,6 +171,14 @@ interface ResizeSession {
 
 const intersects = (a: Rect, b: Rect): boolean => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
 
+/** The class of the active Node's element; canvas.css draws it and lets an active Card's page take the mouse. */
+const ACTIVE_NODE_CLASS = 'w-node--active'
+
+const withActiveClass = (node: CanvasFlowNode): CanvasFlowNode => ({
+  ...node,
+  className: node.className === undefined ? ACTIVE_NODE_CLASS : `${node.className} ${ACTIVE_NODE_CLASS}`,
+})
+
 interface FlowProps {
   projectId: string
   state: LayoutState
@@ -175,6 +190,15 @@ function Flow({ projectId, state }: FlowProps) {
   const wrapper = useRef<HTMLDivElement>(null)
   const dragScene = useRef<DragScene | null>(null)
   const resizes = useRef(new Map<string, ResizeSession>())
+  // The active Node (worfy-week ticket 16): the one a plain click chose, as long as it stays
+  // selected — any way React Flow takes the selection away ends it too. The ref serves the
+  // listeners, which outlive the render they were made in.
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null)
+  const activeRef = useRef<string | null>(null)
+  const activate = useCallback((id: string | null) => {
+    activeRef.current = id
+    setActiveNodeId(id)
+  }, [])
   const derived = useSourceNodes(projectId, state.layout)
   const [nodes, setNodes] = useState<CanvasFlowNode[]>(() => toFlowNodes(state.layout.nodes, derived.nodes, []))
   const [shown, setShown] = useState({ layout: state.layout, derived: derived.nodes })
@@ -267,8 +291,12 @@ function Flow({ projectId, state }: FlowProps) {
       // Removing goes through main only: Delete sends the selection to the trash (overlays/SelectionToolbar.tsx).
       const kept = stopResizes(changes.filter((change) => change.type !== 'remove'))
       setNodes((current) => applyNodeChanges(kept, current))
+      // The active Node unselected ends its activity for good: selected again some other way (a
+      // rectangle, the keyboard), it is not active.
+      const active = activeRef.current
+      if (active !== null && changes.some((change) => change.type === 'select' && change.id === active && !change.selected)) activate(null)
     },
-    [stopResizes],
+    [stopResizes, activate],
   )
 
   /**
@@ -404,8 +432,58 @@ function Flow({ projectId, state }: FlowProps) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [flow])
 
+  // A plain click activates: a click with a modifier adds to the selection instead, and a drag or
+  // a selection rectangle ends without a click.
+  const onNodeClick = useCallback(
+    (event: ReactMouseEvent, node: CanvasFlowNode) => {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+      activate(node.id)
+    },
+    [activate],
+  )
+  const onPaneClick = useCallback(() => activate(null), [activate])
+
+  // A press outside the active Node, or Esc nobody else took, ends the activity. Esc inside a
+  // Terminal belongs to its shell. A press inside a Card's page never reaches this window, and it
+  // is inside the active Node anyway.
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      const active = activeRef.current
+      if (active === null) return
+      const node = event.target instanceof Element ? event.target.closest('.react-flow__node') : null
+      if (node?.getAttribute('data-id') === active) return
+      activate(null)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || activeRef.current === null) return
+      if (event.target instanceof Element && event.target.closest('.w-terminal') !== null) return
+      activate(null)
+    }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [activate])
+
+  // The wheel over a Node goes to the Canvas unless the Node is active (wheel-router.ts).
+  useEffect(() => {
+    const root = wrapper.current
+    if (root === null) return
+    return routeWheels(root, (element) => {
+      const id = element.getAttribute('data-id')
+      return id !== null && id === activeRef.current && flow.getNode(id)?.selected === true
+    })
+  }, [flow])
+
   // Nodes pinned to the screen are placed anew for every viewport (pinning.ts).
-  const shownNodes = usePinnedPlacement(nodes)
+  const pinnedNodes = usePinnedPlacement(nodes)
+  // Only the active Node's object is replaced, so a drag does not redraw every Node on each frame.
+  const shownNodes = useMemo(
+    () => (activeNodeId === null ? pinnedNodes : pinnedNodes.map((node) => (node.id === activeNodeId && node.selected === true ? withActiveClass(node) : node))),
+    [pinnedNodes, activeNodeId],
+  )
 
   return (
     <LayoutOpsContext.Provider value={ops}>
@@ -416,6 +494,8 @@ function Flow({ projectId, state }: FlowProps) {
           nodeTypes={flowNodeTypes}
           edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
+          onNodeClick={onNodeClick}
+          onPaneClick={onPaneClick}
           onNodeDragStart={onNodeDragStart}
           onNodeDrag={onNodeDrag}
           onNodeDragStop={onNodeDragStop}
