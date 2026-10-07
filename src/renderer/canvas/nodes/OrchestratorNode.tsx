@@ -1,10 +1,10 @@
 import { Fragment, useState, type CSSProperties } from 'react'
-import { NodeResizer } from '@xyflow/react'
 import type { ORCHESTRATOR_HEIGHT, ORCHESTRATOR_KIND, ORCHESTRATOR_WIDTH } from '../../../shared/ipc/orchestrator'
 import { invoke } from '../../ipc'
 import { openSession } from '../../session/navigation'
 import { formatCost, STATE_CHIPS } from '../../session/format'
 import { StatusChip } from '../../theme/primitives'
+import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
 import { useOrchestratorView } from './orchestrator-view'
@@ -102,7 +102,7 @@ export default function OrchestratorNode({ id, selected }: CanvasNodeProps) {
         if (view) openSession({ nodeId: id, projectId: view.projectId })
       }}
     >
-      <NodeResizer
+      <NodeResizeClamp
         isVisible={selected}
         minWidth={240}
         minHeight={120}

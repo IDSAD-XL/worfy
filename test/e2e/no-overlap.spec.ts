@@ -160,10 +160,12 @@ test('two neighbouring Notes dragged together move by the same distance, uncorre
     // The same distance for both: the group moved as one and main did not move it off itself.
     expect(b.x - a.x).toBeCloseTo(240, 6)
     expect(b.y - a.y).toBeCloseTo(0, 6)
-    expect(a.y).toBeCloseTo(300, 6)
-    // About the 100 px the pointer went (React Flow starts a drag past a small threshold).
+    // The group moves by the shift that puts a on the grid of 8 (worfy-week ticket 06): y 300 goes to 304.
+    expect(a.y).toBeCloseTo(304, 6)
+    expect(a.x % 8).toBe(0)
+    // About the 100 px the pointer went (React Flow starts a drag past a small threshold), give or take the grid.
     expect(a.x - 500).toBeGreaterThan(50)
-    expect(a.x - 500).toBeLessThanOrEqual(100)
+    expect(a.x - 500).toBeLessThanOrEqual(104)
 
     await window.locator('.react-flow__pane').click({ position: { x: 300, y: 700 } })
     await window.keyboard.press('Meta+z')

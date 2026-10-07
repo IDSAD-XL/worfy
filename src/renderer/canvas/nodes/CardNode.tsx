@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { NodeResizer, useStore } from '@xyflow/react'
+import { useStore } from '@xyflow/react'
 import { CARD_ID_PATTERN, type CardInfo } from '../../../shared/ipc/cards'
 import type { LayoutNode } from '../../../shared/layout/types'
 import { invoke, subscribe } from '../../ipc'
 import { activeProject, useProjects } from '../../projects/useProjects'
+import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
 
@@ -127,7 +128,7 @@ export default function CardNode({ id, data, selected }: CanvasNodeProps) {
 
   return (
     <div className="w-node-surface w-note" data-testid="card-node" data-node-id={id} data-card-id={cardId}>
-      <NodeResizer
+      <NodeResizeClamp
         isVisible={selected}
         minWidth={160}
         minHeight={100}

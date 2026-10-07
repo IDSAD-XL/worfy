@@ -118,10 +118,10 @@ describe('edge sources', () => {
   })
 })
 
-const layoutState = (revision: number, nodes: LayoutState['layout']['nodes'], projectId = 'demo-00000000'): LayoutState => ({
+const layoutState = (revision: number, nodes: LayoutState['layout']['nodes'], projectId = 'demo-00000000', viewport = { x: 0, y: 0, zoom: 1 }): LayoutState => ({
   projectId,
   revision,
-  layout: { nodes, viewport: { x: 0, y: 0, zoom: 1 } },
+  layout: { nodes, viewport },
 })
 
 const node = (id: string, kind: string, x: number, data: Record<string, unknown> = {}) => ({
@@ -232,5 +232,263 @@ describe('Canvas', () => {
     const { Canvas } = (await import('../../src/renderer/canvas/Canvas')) as { Canvas: ComponentType<{ projectId: string | undefined }> }
     render(<Canvas projectId={undefined} />)
     expect(screen.getByText('Add a project to see its canvas.')).toBeTruthy()
+  })
+})
+
+// ── dragging and resizing through the real Canvas (worfy-week ticket 06) ─────
+
+type LayoutNodeInput = ReturnType<typeof node>
+
+/**
+ * The Canvas over a fake main: `layout.apply` answers with the Layout the operation makes, corrected
+ * the way main corrects it (src/main/layout/store.ts: the shared freePlace and stopResize, ADR-0038).
+ * Returns every operation the renderer sent.
+ */
+async function renderCanvas(projectId: string, nodes: LayoutNodeInput[], zoom = 1) {
+  const { freePlace, obstaclesFor, stopResize } = await import('../../src/shared/layout/free-place')
+  const restore: (() => void)[] = []
+  // A Node's wrapper measures as the size React Flow gives it in its style, the pane as 1200 × 800.
+  // React Flow pans by itself while a drag is near the edge of its pane, which jsdom sizes 0 × 0;
+  // the pane gets the window's size, and the Canvas origin sits PANE_ORIGIN pixels in.
+  const rect = HTMLElement.prototype.getBoundingClientRect
+  HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+    return this.classList.contains('react-flow') ? new DOMRect(0, 0, 1200, 800) : rect.call(this)
+  }
+  restore.push(() => {
+    HTMLElement.prototype.getBoundingClientRect = rect
+  })
+  for (const [name, value] of [
+    ['offsetWidth', 1200],
+    ['offsetHeight', 800],
+  ] as const) {
+    const before = Object.getOwnPropertyDescriptor(HTMLElement.prototype, name)
+    const side = name === 'offsetWidth' ? 'width' : 'height'
+    Object.defineProperty(HTMLElement.prototype, name, {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.classList.contains('react-flow__node') ? parseFloat(this.style[side]) || 0 : value
+      },
+    })
+    restore.push(() => {
+      if (before) Object.defineProperty(HTMLElement.prototype, name, before)
+    })
+  }
+  const globals = globalThis as { ResizeObserver?: unknown; DOMMatrixReadOnly?: unknown; worfy?: WorfyBridge }
+  const observer = globals.ResizeObserver
+  const matrix = globals.DOMMatrixReadOnly
+  // React Flow measures a Node when its observer reports it; this one reports every element once.
+  // Measuring reads the zoom from the viewport's CSS transform, which jsdom cannot parse.
+  globals.DOMMatrixReadOnly = class {
+    readonly m22 = zoom
+  }
+  globals.ResizeObserver = class {
+    constructor(private readonly report: (entries: { target: Element; contentRect: DOMRect }[], observer: unknown) => void) {}
+    observe(target: Element): void {
+      queueMicrotask(() => this.report([{ target, contentRect: target.getBoundingClientRect() }], this))
+    }
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  const viewport = { x: PANE_ORIGIN, y: PANE_ORIGIN, zoom }
+  let layout = layoutState(1, nodes, projectId, viewport)
+  const sent: Record<string, unknown>[] = []
+  const settle = (all: LayoutNodeInput[], id: string, before: LayoutNodeInput | undefined, resize: boolean): LayoutNodeInput[] =>
+    all.map((each) => {
+      if (each.id !== id) return each
+      const obstacles = obstaclesFor(all, new Set([id]))
+      return resize && before ? { ...each, ...stopResize(before, each, obstacles) } : { ...each, ...freePlace(each, obstacles) }
+    })
+  globals.worfy = {
+    invoke: (channel: string, payload: unknown) => {
+      if (channel === 'layout.get') return Promise.resolve({ ok: true, value: layout })
+      if (channel !== 'layout.apply') return Promise.resolve({ ok: false, error: 'not in this test' })
+      const op = (payload as { op: Record<string, unknown> }).op
+      sent.push(op)
+      const all = layout.layout.nodes as LayoutNodeInput[]
+      const before = all.find((each) => each.id === op.id)
+      let next = all
+      if (op.op === 'move') next = settle(all.map((each) => (each.id === op.id ? { ...each, x: op.x as number, y: op.y as number } : each)), op.id as string, before, false)
+      if (op.op === 'resize') {
+        const sized = all.map((each) => (each.id === op.id ? { ...each, x: op.x as number, y: op.y as number, w: op.w as number, h: op.h as number } : each))
+        next = settle(sized, op.id as string, before, true)
+      }
+      layout = layoutState(layout.revision + 1, next, projectId, viewport)
+      return Promise.resolve({ ok: true, value: layout })
+    },
+    on: () => 1,
+    off: () => undefined,
+  } as unknown as WorfyBridge
+  const { Canvas } = (await import('../../src/renderer/canvas/Canvas')) as { Canvas: ComponentType<{ projectId: string | undefined }> }
+  const view = render(<Canvas projectId={projectId} />)
+  await screen.findAllByTestId('note-node')
+  return {
+    sent,
+    view,
+    layout: () => layout.layout,
+    cleanup() {
+      view.unmount()
+      for (const undo of restore) undo()
+      if (observer === undefined) delete globals.ResizeObserver
+      else globals.ResizeObserver = observer
+      if (matrix === undefined) delete globals.DOMMatrixReadOnly
+      else globals.DOMMatrixReadOnly = matrix
+      delete globals.worfy
+    },
+  }
+}
+
+/** Where the Canvas origin is in the pane, in pixels: far from the edges where React Flow pans by itself. */
+const PANE_ORIGIN = 200
+
+/** React Flow's wrapper of a Node: d3-drag listens on it. */
+const flowNode = (id: string): HTMLElement => document.querySelector(`.react-flow__node[data-id="${id}"]`) as HTMLElement
+
+/**
+ * Drags a Node with the mouse from where it is (`at`) so that its corner ends at `to`, as d3-drag
+ * sees it: a press on the Node, moves on the window, a release. React Flow starts the drag on the
+ * first move past its 1 px threshold and measures from there, so that first move is a small one.
+ * `at` and `to` are in canvas units; the pane shows the Canvas at PANE_ORIGIN and `zoom`.
+ */
+async function drag(id: string, at: { x: number; y: number }, to: { x: number; y: number }, keys: { metaKey?: boolean } = {}, during?: () => void, zoom = 1) {
+  // d3-drag listens for the moves on `event.view`; jsdom refuses vitest's window as the init's
+  // `view`, so it is set on the event afterwards.
+  const view = window
+  const mouse = (type: string, point: { x: number; y: number }) => {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: point.x, clientY: point.y, ...keys })
+    Object.defineProperty(event, 'view', { value: view })
+    return event
+  }
+  const press = { x: PANE_ORIGIN + at.x * zoom + 5, y: PANE_ORIGIN + at.y * zoom + 5 }
+  const start = { x: press.x + 2, y: press.y + 2 }
+  const end = { x: start.x + (to.x - at.x) * zoom, y: start.y + (to.y - at.y) * zoom }
+  await act(async () => {
+    flowNode(id).dispatchEvent(mouse('mousedown', press))
+    view.dispatchEvent(mouse('mousemove', start))
+    view.dispatchEvent(mouse('mousemove', { x: (start.x + end.x) / 2 + 0.25, y: (start.y + end.y) / 2 + 0.25 }))
+    view.dispatchEvent(mouse('mousemove', end))
+  })
+  during?.()
+  await act(async () => {
+    view.dispatchEvent(mouse('mouseup', end))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
+describe('dragging a Node on the Canvas (worfy-week ticket 06)', () => {
+  it('a Note dropped at (13, 21) with no neighbour near goes to the grid: the renderer sends a move to (16, 24)', async () => {
+    const canvas = await renderCanvas('snap-grid-0000', [node('n', 'note', 0, { text: '' })])
+    try {
+      await drag('n', { x: 0, y: 0 }, { x: 13, y: 21 })
+      expect(canvas.sent).toEqual([{ op: 'move', id: 'n', x: 16, y: 24 }])
+    } finally {
+      canvas.cleanup()
+    }
+  })
+
+  it('with ⌘ held the Note dropped at (13, 21) stays at (13, 21), and no guide is drawn', async () => {
+    const canvas = await renderCanvas('snap-meta-0000', [node('n', 'note', 0, { text: '' }), { ...node('m', 'note', 300, { text: '' }), y: 0 }])
+    try {
+      let guides = -1
+      // Without ⌘ the grid would take it to (16, 24); with ⌘ nothing snaps and nothing is drawn.
+      await drag('n', { x: 0, y: 0 }, { x: 13, y: 21 }, { metaKey: true }, () => {
+        guides = document.querySelectorAll('[data-testid="snap-guide"]').length
+      })
+      expect(guides).toBe(0)
+      expect(canvas.sent).toEqual([{ op: 'move', id: 'n', x: 13, y: 21 }])
+    } finally {
+      canvas.cleanup()
+    }
+  })
+
+  it('shows a guide while a Node lines up with a neighbour, and none after the drop', async () => {
+    const canvas = await renderCanvas('snap-guide-0000', [node('n', 'note', 0, { text: '' }), { ...node('m', 'note', 0, { text: '' }), y: 400 }])
+    try {
+      let during: string[] = []
+      await drag('n', { x: 0, y: 0 }, { x: 5, y: 101 }, {}, () => {
+        during = [...document.querySelectorAll('[data-testid="snap-guide"]')].map((line) => `${line.getAttribute('data-axis')}${line.getAttribute('data-at')}`)
+      })
+      expect(during).toContain('x0')
+      expect(document.querySelectorAll('[data-testid="snap-guide"]')).toHaveLength(0)
+      expect(canvas.sent).toEqual([{ op: 'move', id: 'n', x: 0, y: 104 }])
+    } finally {
+      canvas.cleanup()
+    }
+  })
+
+  it('on the fixture of ticket 04 the outline is where main\'s correction puts the Note, and the drop sends that place', async () => {
+    // test/unit/free-place.test.ts and test/contract/layout-store.test.ts: a Note dropped onto a
+    // Card at (40, 40) goes to (40, 216).
+    const card = { ...node('card', 'note', 0, { text: '' }), w: 300, h: 200 }
+    const note = { ...node('note', 'note', 600, { text: '' }), w: 220, h: 120 }
+    const canvas = await renderCanvas('snap-outline-0000', [card, note])
+    try {
+      let outline: (string | null)[] = []
+      await drag('note', { x: 600, y: 0 }, { x: 40, y: 40 }, {}, () => {
+        outline = [...document.querySelectorAll('[data-testid="snap-outline"]')].flatMap((rect) => [rect.getAttribute('data-x'), rect.getAttribute('data-y')])
+      })
+      expect(outline).toEqual(['40', '216'])
+      expect(canvas.sent).toEqual([{ op: 'move', id: 'note', x: 40, y: 216 }])
+      // The fake main corrects the move with main's functions and keeps the place.
+      expect(canvas.layout().nodes.find((each) => each.id === 'note')).toMatchObject({ x: 40, y: 216 })
+      expect(document.querySelectorAll('[data-testid="snap-outline"]')).toHaveLength(0)
+      expect(flowNode('note').style.transform).toBe('translate(40px,216px)')
+    } finally {
+      canvas.cleanup()
+    }
+  })
+
+  it('a drag stays one ⌘Z step: undo sends the Note back with one move', async () => {
+    const { historyOf } = await import('../../src/renderer/canvas/history')
+    const canvas = await renderCanvas('snap-undo-0000', [node('n', 'note', 0, { text: '' })])
+    try {
+      await drag('n', { x: 0, y: 0 }, { x: 13, y: 21 })
+      expect(historyOf('snap-undo-0000').size).toBe(1)
+      await act(async () => {
+        await historyOf('snap-undo-0000').undo()
+      })
+      expect(canvas.sent).toEqual([
+        { op: 'move', id: 'n', x: 16, y: 24 },
+        { op: 'move', id: 'n', x: 0, y: 0 },
+      ])
+    } finally {
+      canvas.cleanup()
+    }
+  })
+})
+
+describe('resizing a Node on the Canvas (worfy-week ticket 06)', () => {
+  it('stops the edge 16 short of the neighbour while the mouse is down, sends that size, and stays one ⌘Z step', async () => {
+    const { historyOf } = await import('../../src/renderer/canvas/history')
+    const canvas = await renderCanvas('snap-resize-0000', [node('n', 'note', 0, { text: '' }), node('m', 'note', 300, { text: '' })])
+    try {
+      // Select the Note so that its resizer shows, then drag its right edge 200 to the right.
+      await act(async () => {
+        flowNode('n').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      const handle = flowNode('n').querySelector('.react-flow__resize-control.line.right') as HTMLElement
+      expect(handle).toBeTruthy()
+      const mouse = (type: string, x: number, y: number) => {
+        const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y })
+        Object.defineProperty(event, 'view', { value: window })
+        return event
+      }
+      const y = PANE_ORIGIN + 50
+      let during = ''
+      await act(async () => {
+        handle.dispatchEvent(mouse('mousedown', PANE_ORIGIN + 200, y))
+        window.dispatchEvent(mouse('mousemove', PANE_ORIGIN + 250, y))
+        window.dispatchEvent(mouse('mousemove', PANE_ORIGIN + 400, y))
+      })
+      during = flowNode('n').style.width
+      await act(async () => {
+        window.dispatchEvent(mouse('mouseup', PANE_ORIGIN + 400, y))
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      expect(during).toBe('284px')
+      expect(canvas.sent).toEqual([{ op: 'resize', id: 'n', x: 0, y: 0, w: 284, h: 100 }])
+      expect(historyOf('snap-resize-0000').size).toBe(1)
+    } finally {
+      canvas.cleanup()
+    }
   })
 })

@@ -1,5 +1,4 @@
 import { memo, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
-import { NodeResizer } from '@xyflow/react'
 import type { AgentEvent } from '../../../shared/agent/events'
 import type { ProjectView } from '../../../shared/ipc/projects'
 import type { WorfySessionNodeData } from '../../../shared/ipc/sessions'
@@ -22,6 +21,7 @@ import { isRunning, useSessionNodeView } from '../../session/node-sessions'
 import { useSessionLog } from '../../session/store'
 import { StatusChip, type Status } from '../../theme/primitives'
 import { badges, type SlotSubject } from '../badges'
+import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
 
@@ -233,7 +233,7 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
         else if (saved !== undefined) openSession({ nodeId: id, projectId: project.id, external: { sessionId: saved } })
       }}
     >
-      <NodeResizer
+      <NodeResizeClamp
         isVisible={selected}
         minWidth={240}
         minHeight={140}
@@ -358,7 +358,7 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
       data-status={chip.label}
       onDoubleClick={() => openSession({ nodeId: id, projectId: project.id, external: { sessionId: info.sessionId } })}
     >
-      <NodeResizer
+      <NodeResizeClamp
         isVisible={selected}
         minWidth={200}
         minHeight={80}

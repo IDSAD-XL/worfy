@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { NodeResizer } from '@xyflow/react'
 import type { CanvasNodeProps } from './index'
+import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
 
 // A plain text note. It is the debug Node type: a double click on an empty spot of the Canvas
@@ -62,7 +62,7 @@ export default function NoteNode({ id, data, selected }: CanvasNodeProps) {
 
   return (
     <div className="w-node-surface w-note" data-testid="note-node" data-node-id={id}>
-      <NodeResizer
+      <NodeResizeClamp
         isVisible={selected}
         minWidth={120}
         minHeight={64}
