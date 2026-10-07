@@ -1,5 +1,6 @@
 import { memo, type CSSProperties } from 'react'
 import { Handle, Position } from '@xyflow/react'
+import { subagentTypeLabel } from '../../../shared/agent/subagent-type'
 import { statusLabel, useTick } from '../../claude-home/subagents'
 import { openSession } from '../../session/navigation'
 import { StatusChip, type Status } from '../../theme/primitives'
@@ -62,8 +63,9 @@ const CHIP: Record<SubagentSummary['status'], Status> = { running: 'working', do
 
 function AgentNode({ id, data, agent }: { id: string; data: SubagentNodeData; agent: SubagentSummary }) {
   const now = useTick(agent.status === 'running')
-  const title = agent.name ?? agent.subagentType ?? 'Subagent'
-  const kindLine = [agent.subagentType, agent.model].filter((part) => part !== null).join(' · ')
+  const type = subagentTypeLabel(agent.subagentType)
+  const title = agent.name ?? type ?? 'Subagent'
+  const kindLine = [type, agent.model].filter((part) => part !== null).join(' · ')
   const canOpen = agent.agentId !== null && agent.transcript
   // The verdict has its chip; the line shows the rest of the answer's first line, or what the Subagent was asked.
   const summaryText = agent.summary === null ? (agent.description ?? '') : agent.summary === agent.verdict ? '' : agent.summary
@@ -83,7 +85,7 @@ function AgentNode({ id, data, agent }: { id: string; data: SubagentNodeData; ag
     >
       <Handle type="target" position={Position.Left} isConnectable={false} style={styles.handle} />
       <div style={styles.header}>
-        <span className="w-mono" style={styles.name} data-testid="subagent-name">
+        <span className="w-mono" style={styles.name} data-testid="subagent-name" title={agent.name === null ? (agent.subagentType ?? undefined) : undefined}>
           {title}
         </span>
         <span data-testid="subagent-status">
@@ -92,7 +94,7 @@ function AgentNode({ id, data, agent }: { id: string; data: SubagentNodeData; ag
       </div>
       <div style={styles.body}>
         <div style={styles.line}>
-          <span className="w-mono" style={styles.clip} data-testid="subagent-kind">
+          <span className="w-mono" style={styles.clip} data-testid="subagent-kind" title={agent.subagentType ?? undefined}>
             {kindLine || '—'}
           </span>
           <span style={{ flex: 1 }} />

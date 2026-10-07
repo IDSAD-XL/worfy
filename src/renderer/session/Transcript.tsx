@@ -1,5 +1,6 @@
 import { createContext, createElement, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { AgentEvent } from '../../shared/agent/events'
+import { subagentTypeLabel } from '../../shared/agent/subagent-type'
 import { Markdown } from '../markdown/Markdown'
 import { foldTranscript, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
 import { formatDuration } from './format'
@@ -332,7 +333,11 @@ function Item({ item, props }: { item: TranscriptItem; props: TranscriptProps })
         <Row at={item.at} testId="transcript-subagent">
           <div className="w-tr__chip-row">
             <span className="w-tr__tool-name">Subagent</span>
-            {item.run.subagentType ? <span className="w-mono w-tr__muted">{item.run.subagentType}</span> : null}
+            {item.run.subagentType ? (
+              <span className="w-mono w-tr__muted" title={item.run.subagentType} data-testid="transcript-subagent-type">
+                {subagentTypeLabel(item.run.subagentType)}
+              </span>
+            ) : null}
             <span className="w-tr__tool-summary">{item.run.description ?? item.run.taskId}</span>
             <SubagentStatus run={item.run} />
           </div>

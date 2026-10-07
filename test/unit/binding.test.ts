@@ -217,6 +217,39 @@ describe('extendSignals', () => {
     expect(state.signals.skill?.name).toBe('ship-ticket')
   })
 
+  it('reads the skills of the `worfy` plugin under their `worfy:` names, and no other plugin\'s skill of the same name', () => {
+    const skillTool = (skill: string, args: string) => line({ type: 'assistant', message: { id: 'm', content: [{ type: 'tool_use', id: 's', name: 'Skill', input: { skill, args } }] } })
+    let state = extendSignals(emptySignalState(), [userText('<command-name>/worfy:epic-wave</command-name>\n<command-args>Ticket-ы 05, 06 эпика worfy-mvp</command-args>')], { subagent: false })
+    expect(state.signals.skill).toEqual({ name: 'epic-wave', args: 'Ticket-ы 05, 06 эпика worfy-mvp' })
+    state = extendSignals(state, [skillTool('worfy:ship-ticket', 'worfy-mvp 16')], { subagent: false })
+    expect(state.signals.skill).toEqual({ name: 'ship-ticket', args: 'worfy-mvp 16' })
+    state = extendSignals(state, [skillTool('worfy:epic-wave', 'worfy-mvp')], { subagent: false })
+    expect(state.signals.skill).toEqual({ name: 'epic-wave', args: 'worfy-mvp' })
+    // The bare names of the Harness before it became a plugin still count.
+    state = extendSignals(state, [skillTool('/ship-ticket', 'worfy-mvp 7')], { subagent: false })
+    expect(state.signals.skill).toEqual({ name: 'ship-ticket', args: 'worfy-mvp 7' })
+    // Another plugin's skill of the same name is not the Harness: the last Harness call stays.
+    state = extendSignals(state, [userText('<command-name>/other:epic-wave</command-name>\n<command-args>auction</command-args>'), skillTool('other:ship-ticket', 'auction 30')], { subagent: false })
+    expect(state.signals.skill).toEqual({ name: 'ship-ticket', args: 'worfy-mvp 7' })
+    const other = extendSignals(emptySignalState(), [userText('<command-name>/other:epic-wave</command-name>\n<command-args>auction</command-args>'), skillTool('other:ship-ticket', 'auction 30')], { subagent: false })
+    expect(other.signals.skill).toBeNull()
+  })
+
+  it('binds a Session to its Epic through /worfy:epic-wave whatever the wording of the Autopilot command, and to its Ticket through /worfy:ship-ticket', () => {
+    const bound = (command: string, args: string) => {
+      const state = extendSignals(emptySignalState(), [userText(`<command-name>${command}</command-name>\n<command-args>${args}</command-args>`)], { subagent: false })
+      return resolveBinding({ signals: state.signals }, workflow)
+    }
+    // The oldest wording, the one Autopilot sends today (ADR-0033) and the English one of the
+    // Harness as a plugin (ticket worfy-harness/06): the Epic is a word of its own in each.
+    for (const args of ['волна 3 эпика worfy-mvp', 'Ticket-ы 05, 06 эпика worfy-mvp', 'tickets 05, 06 of epic worfy-mvp']) {
+      expect(bound('/worfy:epic-wave', args), args).toEqual({ target: { kind: 'epic', epic: 'worfy-mvp' }, source: 'skill', detail: `/epic-wave ${args}` })
+      expect(bound('/epic-wave', args)?.target, args).toEqual({ kind: 'epic', epic: 'worfy-mvp' })
+    }
+    expect(bound('/worfy:ship-ticket', 'worfy-mvp 16')).toEqual({ target: { kind: 'ticket', epic: 'worfy-mvp', num: 16 }, source: 'skill', detail: '/ship-ticket worfy-mvp 16' })
+    expect(bound('/other:ship-ticket', 'worfy-mvp 16')).toBeNull()
+  })
+
   it('in a Session file, leaves out what a Subagent wrote there', () => {
     const state = extendSignals(emptySignalState(), [bash('ticket claim worfy-mvp 07', { isSidechain: true, cwd: '/repo/.claude/worktrees/07' })], { subagent: false })
     expect(state.signals).toEqual(EMPTY_AGENT_SIGNALS)
