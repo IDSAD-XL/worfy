@@ -1,9 +1,11 @@
 // The gate's verdict on each worktree of a Project, read from what gate.sh leaves behind
-// (~/.claude/hooks/gate.sh; WORFY_CLAUDE_HOME stands for ~/.claude in tests):
+// (~/.claude/hooks/gate.sh; WORFY_CLAUDE_HOME stands for ~/.claude in tests). <gate> below is the
+// gate/ folder of the Harness found on the machine (src/main/harness/locate.ts, worfy-harness
+// ticket 12): <harnessHome>/gate with the plugin, <home>/gate with the old Harness or none.
 //
-// - markers in <home>/gate/state/: `red-<key>-<tag>` (red) and `unverified-<key>-<tag>` (could not
+// - markers in <gate>/state/: `red-<key>-<tag>` (red) and `unverified-<key>-<tag>` (could not
 //   verify), where `tag` is the first 8 hex digits of SHA-1 of the worktree path (gate.sh:
-//   `printf '%s' "$repo" | shasum | cut -c1-8`) and `key` is the entry of <home>/gate/config.json
+//   `printf '%s' "$repo" | shasum | cut -c1-8`) and `key` is the entry of <gate>/config.json
 //   whose `match` is the longest prefix of the repository root (gate-resolve.mjs --which);
 // - without a marker, the verdict file `verdict-<tag>.json` in the same folder: gate.sh rewrites it
 //   on every run with the outcome of that run (ticket worfy-harness/09, the format is in the header
@@ -28,6 +30,7 @@ import { promisify } from 'node:util'
 import { z } from 'zod'
 import { gateOutcomeSchema, type GateOutcome, type GateState } from '../../shared/ipc/checks'
 import { projectDirName } from '../claude-home/registry'
+import { harnessHomes, locateHarness } from '../harness/locate'
 import { readNewLines, type TailCursor } from '../claude-home/tail'
 
 const run = promisify(execFile)
@@ -45,10 +48,10 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const configSchema = z.object({ repos: z.array(z.object({ key: z.string().min(1), match: z.string().min(1) }).loose()) }).loose()
 export type GateConfig = z.infer<typeof configSchema>
 
-/** <home>/gate/config.json, or null when it is missing or not the gate's format. */
-export async function readGateConfig(home: string): Promise<GateConfig | null> {
+/** <gateDir>/config.json, or null when it is missing or not the gate's format. */
+export async function readGateConfig(gateDir: string): Promise<GateConfig | null> {
   try {
-    const parsed = configSchema.safeParse(JSON.parse(await readFile(join(home, 'gate', 'config.json'), 'utf8')))
+    const parsed = configSchema.safeParse(JSON.parse(await readFile(join(gateDir, 'config.json'), 'utf8')))
     return parsed.success ? parsed.data : null
   } catch {
     return null
@@ -91,9 +94,9 @@ export function markerOutcome(names: ReadonlySet<string>, key: string, tag: stri
   return null
 }
 
-async function listState(home: string): Promise<Set<string>> {
+async function listState(gateDir: string): Promise<Set<string>> {
   try {
-    return new Set(await readdir(join(home, 'gate', 'state')))
+    return new Set(await readdir(join(gateDir, 'state')))
   } catch {
     return new Set()
   }
@@ -398,8 +401,15 @@ export async function listWorktrees(root: string): Promise<Worktree[]> {
 // ── all together ─────────────────────────────────────────────────────────────
 
 export interface GateReaderOptions {
-  /** The Claude home (src/main/storage/paths.ts, claudeHome()). */
+  /** The Claude home (src/main/storage/paths.ts, claudeHome()): the transcripts are in its projects/. */
   home: string
+  /**
+   * The Harness home (src/main/storage/paths.ts, harnessHome()); WORFY_HARNESS_HOME or
+   * <home>/worfy-harness by default. The Gate registry and state are in the gate/ folder of the
+   * Harness found from both homes (src/main/harness/locate.ts): <harnessHome>/gate with the
+   * plugin, <home>/gate with the old Harness or none.
+   */
+  harnessHome?: string
   /** Where a verdict file that is not taken is reported, one line each; console.warn by default. */
   warn?: (message: string) => void
 }
@@ -416,9 +426,15 @@ export class GateReader {
 
   constructor(private readonly options: GateReaderOptions) {}
 
-  private async fromFile(names: ReadonlySet<string>, tag: string, worktree: string, head: string | null | undefined): Promise<GateState | null> {
+  /** The gate/ folder of the Harness on the machine now: looked for on every read, so a switch to the plugin needs no restart. */
+  private gateDir(): string {
+    const { home, harnessHome } = this.options
+    return locateHarness(harnessHome === undefined ? harnessHomes(home) : { claudeHome: home, harnessHome }).gateDir
+  }
+
+  private async fromFile(gateDir: string, names: ReadonlySet<string>, tag: string, worktree: string, head: string | null | undefined): Promise<GateState | null> {
     const name = verdictFileName(tag)
-    const file = join(this.options.home, 'gate', 'state', name)
+    const file = join(gateDir, 'state', name)
     const read = names.has(name) ? await readVerdictFile(file, worktree, head) : null
     if (read !== null && 'verdict' in read) {
       this.reported.delete(file)
@@ -435,8 +451,9 @@ export class GateReader {
 
   async read(root: string, worktrees: readonly Worktree[]): Promise<(Worktree & { gate: GateState })[]> {
     const { home } = this.options
-    const key = await gateKey(await readGateConfig(home), root)
-    const names = await listState(home)
+    const gateDir = this.gateDir()
+    const key = await gateKey(await readGateConfig(gateDir), root)
+    const names = await listState(gateDir)
     const real = await Promise.all(worktrees.map((worktree) => onDisk(worktree.path)))
     const result: (Worktree & { gate: GateState })[] = []
     for (const [index, { head, ...worktree }] of worktrees.entries()) {
@@ -446,7 +463,7 @@ export class GateReader {
         result.push({ ...worktree, gate: { outcome: marker, source: 'marker', at: null } })
         continue
       }
-      const file = await this.fromFile(names, tag, real[index]!, head)
+      const file = await this.fromFile(gateDir, names, tag, real[index]!, head)
       if (file !== null) {
         result.push({ ...worktree, gate: file })
         continue

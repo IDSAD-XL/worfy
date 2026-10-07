@@ -7,9 +7,12 @@ import {
   projectsRemove,
   projectsSelect,
   projectsSettingsChanged,
+  projectsSettingsDefaults,
   projectsSettingsGet,
   projectsSettingsSet,
 } from '../../shared/ipc/projects'
+import { defaultProjectSettings } from '../../shared/projects/action-templates'
+import { currentHarness } from '../harness/locate'
 import { readProjectSettings, writeProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
 import { defineHandler, emit, type HandlerModule } from './index'
@@ -65,6 +68,9 @@ export default [
   }),
 
   defineHandler(projectsSettingsGet, ({ id }) => readProjectSettings(store.dataDir(store.get(id).id))),
+
+  // The defaults of the Harness on the machine now: the old one's or the plugin's (worfy-harness ticket 12).
+  defineHandler(projectsSettingsDefaults, () => defaultProjectSettings(currentHarness().kind)),
 
   defineHandler(projectsSettingsSet, ({ id, settings }) => {
     const saved = writeProjectSettings(store.dataDir(store.get(id).id), settings)

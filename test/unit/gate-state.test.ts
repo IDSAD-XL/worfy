@@ -382,6 +382,88 @@ describe('GateReader', () => {
   })
 })
 
+describe('GateReader and the Harness plugin (worfy-harness ticket 12)', () => {
+  /**
+   * The world above (its Gate state in <home>/gate) plus the Harness plugin in `harnessHome` with a
+   * Gate state of its own: the registry, the red marker of worktree 07 and a green verdict file of
+   * the checkout.
+   */
+  async function withPlugin(harnessHome?: string): Promise<World & { harnessHome: string; pluginMarker: string }> {
+    const world0 = await world()
+    const home = harnessHome ?? join(world0.home, 'worfy-harness')
+    const plugin = join(home, 'plugin')
+    await mkdir(join(plugin, '.claude-plugin'), { recursive: true })
+    await mkdir(join(plugin, 'bin'), { recursive: true })
+    await writeFile(join(plugin, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'worfy', version: '0.2.0+abc' }))
+    await writeFile(join(plugin, 'bin', 'epic-status'), '#!/bin/sh\n')
+    await mkdir(join(home, 'gate', 'state'), { recursive: true })
+    await writeFile(join(home, 'gate', 'config.json'), JSON.stringify({ repos: [{ key: 'plugged', match: world0.root, profile: 'worfy', pm: 'pnpm' }] }))
+    const pluginMarker = join(home, 'gate', 'state', `red-plugged-${gateTag(world0.worktree07)}`)
+    await writeFile(pluginMarker, '')
+    await writeVerdict(home, { worktree: world0.root, outcome: 'green', key: 'plugged', at: '2026-10-05T11:00:00Z' })
+    // The old Harness's state says otherwise about the checkout: unverified.
+    await writeFile(join(world0.home, 'gate', 'state', `unverified-worfy-${gateTag(world0.root)}`), '')
+    return { ...world0, harnessHome: home, pluginMarker }
+  }
+
+  it('reads the registry, the markers and the verdict file from <harnessHome>/gate with the plugin, and the transcripts from <claudeHome>/projects', async () => {
+    const { home, root, worktrees, harnessHome, pluginMarker } = await withPlugin()
+    const reader = new GateReader({ home })
+    const [checkout, wt07] = await reader.read(root, worktrees)
+    expect(checkout!.gate).toEqual({ outcome: 'green', source: 'file', at: '2026-10-05T11:00:00Z' })
+    expect(wt07!.gate).toEqual({ outcome: 'red', source: 'marker', at: null })
+    // Without the plugin's marker, worktree 07 falls back to its transcript in <claudeHome>/projects.
+    await rm(pluginMarker)
+    expect((await reader.read(root, worktrees))[1]!.gate.source).toBe('transcript')
+    expect(harnessHome).toBe(join(home, 'worfy-harness'))
+  })
+
+  it('takes the Harness home it is given', async () => {
+    const base = await tempDir()
+    const { home, root, worktrees, harnessHome } = await withPlugin(join(base, 'elsewhere'))
+    const [checkout, wt07] = await new GateReader({ home, harnessHome }).read(root, worktrees)
+    expect(checkout!.gate.source).toBe('file')
+    expect(wt07!.gate).toEqual({ outcome: 'red', source: 'marker', at: null })
+    // Without it the reader looks in <home>/worfy-harness, finds no plugin and reads <home>/gate as before.
+    const [checkoutDefault, wt07Default] = await new GateReader({ home }).read(root, worktrees)
+    expect(checkoutDefault!.gate).toEqual({ outcome: 'unverified', source: 'marker', at: null })
+    expect(wt07Default!.gate).toEqual({ outcome: 'red', source: 'marker', at: null })
+  })
+
+  it('keeps reading <claudeHome>/gate while the old Harness is there next to the plugin', async () => {
+    const { home, root, worktrees, pluginMarker } = await withPlugin()
+    await mkdir(join(home, 'bin'), { recursive: true })
+    await writeFile(join(home, 'bin', 'epic-status'), '#!/bin/sh\n')
+    const reader = new GateReader({ home })
+    await rm(pluginMarker)
+    const [checkout, wt07] = await reader.read(root, worktrees)
+    // The old registry (key worfy) and markers: the checkout unverified, worktree 07 red.
+    expect(checkout!.gate).toEqual({ outcome: 'unverified', source: 'marker', at: null })
+    expect(wt07!.gate).toEqual({ outcome: 'red', source: 'marker', at: null })
+    // The move takes the old scripts away: the next read, by the same reader, is the plugin's.
+    await rm(join(home, 'bin'), { recursive: true })
+    const [checkoutAfter] = await reader.read(root, worktrees)
+    expect(checkoutAfter!.gate).toEqual({ outcome: 'green', source: 'file', at: '2026-10-05T11:00:00Z' })
+  })
+
+  it('writes nothing under the Claude home, the Harness home or in the Project', async () => {
+    const { home, root, worktrees } = await withPlugin()
+    const listing = async (dir: string): Promise<string[]> => {
+      const out: string[] = []
+      for (const entry of await readdir(dir, { recursive: true, withFileTypes: true })) {
+        const path = join(entry.parentPath, entry.name)
+        const info = await stat(path)
+        out.push(`${path} ${info.size} ${info.mtimeMs}`)
+      }
+      return out.sort()
+    }
+    // The Harness home is inside the Claude home here, so the first listing covers both.
+    const before = [await listing(home), await listing(root)]
+    await new GateReader({ home }).read(root, worktrees)
+    expect([await listing(home), await listing(root)]).toEqual(before)
+  })
+})
+
 /** Writes `verdict-<tag>.json` of `fields.worktree` into the gate state folder, as gate.sh does. */
 async function writeVerdict(home: string, fields: Record<string, unknown> & { worktree: string }, text?: string): Promise<string> {
   const file = join(home, 'gate', 'state', verdictFileName(gateTag(fields.worktree)))

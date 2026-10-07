@@ -26,16 +26,55 @@ export const ACTION_LABELS: Readonly<Record<Action, string>> = {
 }
 
 /**
- * "Run wave" names the Wave's Tickets, not the number of the Wave in the plan (ADR-0033): the
- * number depended on the spec's table and on Tickets that should not be in the Wave.
+ * Which Harness is on the machine (src/main/harness/locate.ts, worfy-harness ticket 12): the plugin
+ * `worfy` in ~/.claude/worfy-harness/plugin, the old Harness in ~/.claude/bin, or none.
  */
-export const DEFAULT_ACTION_TEMPLATES: Readonly<Record<Action, string>> = {
+export const HARNESS_KINDS = ['plugin', 'legacy', 'none'] as const
+export type HarnessKind = (typeof HARNESS_KINDS)[number]
+
+/**
+ * The defaults with the old Harness in ~/.claude: its skills go by their bare names. "Run wave"
+ * names the Wave's Tickets, not the number of the Wave in the plan (ADR-0033): the number depended
+ * on the spec's table and on Tickets that should not be in the Wave.
+ */
+export const LEGACY_HARNESS_TEMPLATES: Readonly<Record<Action, string>> = {
   shipTicket: '/ship-ticket {epic} {NN}',
   runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}',
 }
 
+/**
+ * The defaults with the Harness plugin, and with no Harness found (Sessions of worfy then carry
+ * its own plugin inline, ADR-0040): a plugin's skill is called only with its prefix. "Run wave" is
+ * the Autopilot command that harness/skills/epic-wave/SKILL.md declares, `tickets NN, NN of epic X`.
+ */
+export const PLUGIN_HARNESS_TEMPLATES: Readonly<Record<Action, string>> = {
+  shipTicket: '/worfy:ship-ticket {epic} {NN}',
+  runWave: '/worfy:epic-wave tickets {tickets} of epic {epic}',
+}
+
+/**
+ * The defaults with the old Harness (LEGACY_HARNESS_TEMPLATES): the app's code uses
+ * defaultActionTemplates(kind); tests and fixtures that stand on a Claude home with
+ * bin/epic-status use this one.
+ */
+export const DEFAULT_ACTION_TEMPLATES: Readonly<Record<Action, string>> = LEGACY_HARNESS_TEMPLATES
+
+/** The default templates for the Harness found on the machine, a fresh copy. */
+export function defaultActionTemplates(harness: HarnessKind): Record<Action, string> {
+  return { ...(harness === 'legacy' ? LEGACY_HARNESS_TEMPLATES : PLUGIN_HARNESS_TEMPLATES) }
+}
+
 /** The default "Run wave" template before ADR-0033; saved settings that still hold it read as the new one. */
 export const LEGACY_RUN_WAVE_TEMPLATE = '/epic-wave волна {wave} эпика {epic}'
+
+/**
+ * Every template that was or is a default of an action. A saved template equal to one of them was
+ * never the owner's own, and reads as the default of the Harness found now.
+ */
+const KNOWN_DEFAULTS: Readonly<Record<Action, ReadonlySet<string>>> = {
+  shipTicket: new Set([LEGACY_HARNESS_TEMPLATES.shipTicket, PLUGIN_HARNESS_TEMPLATES.shipTicket]),
+  runWave: new Set([LEGACY_HARNESS_TEMPLATES.runWave, LEGACY_RUN_WAVE_TEMPLATE, PLUGIN_HARNESS_TEMPLATES.runWave]),
+}
 
 /** Why Autopilot does not run with a "Run wave" template that does not name the Wave's Tickets (ADR-0033). */
 export const AUTOPILOT_TEMPLATE_HINT = "The Run wave template does not name the Wave's tickets: add {tickets}"
@@ -83,16 +122,24 @@ export const projectSettingsSchema = z.object({
 })
 export type ProjectSettings = z.output<typeof projectSettingsSchema>
 
-/** What a new Project starts with. */
-export function defaultProjectSettings(): ProjectSettings {
-  return { actionTemplates: { ...DEFAULT_ACTION_TEMPLATES } }
+/** What a new Project starts with: the defaults of the Harness found on the machine. */
+export function defaultProjectSettings(harness: HarnessKind): ProjectSettings {
+  return { actionTemplates: defaultActionTemplates(harness) }
 }
 
 /**
- * Saved settings as they are read (ADR-0033): a "Run wave" template equal to the old default
- * becomes the new default; every other template, the owner's own, stays as it was saved.
+ * Saved settings as they are read: a template equal to any default an action has had — the old
+ * Harness's, the plugin's, the "Run wave" one before ADR-0033 — reads as the default of the Harness
+ * found now (worfy-harness ticket 12), so a Project keeps sending what that Harness understands.
+ * Every other template, the owner's own (an empty one too), stays as it was saved.
  */
-export function migrateProjectSettings(settings: ProjectSettings): ProjectSettings {
-  if (settings.actionTemplates.runWave !== LEGACY_RUN_WAVE_TEMPLATE) return settings
-  return { ...settings, actionTemplates: { ...settings.actionTemplates, runWave: DEFAULT_ACTION_TEMPLATES.runWave } }
+export function migrateProjectSettings(settings: ProjectSettings, harness: HarnessKind): ProjectSettings {
+  const defaults = defaultActionTemplates(harness)
+  const current = settings.actionTemplates
+  const next = { ...current }
+  for (const action of ACTIONS) {
+    if (KNOWN_DEFAULTS[action].has(current[action])) next[action] = defaults[action]
+  }
+  if (ACTIONS.every((action) => next[action] === current[action])) return settings
+  return { ...settings, actionTemplates: next }
 }

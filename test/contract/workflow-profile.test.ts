@@ -139,6 +139,30 @@ function stubHome(code: number, stdout: string, stderr = ''): { home: string; ca
   return { home, calls }
 }
 
+/**
+ * A Claude home with no Harness of its own and the Harness plugin in <home>/worfy-harness/plugin
+ * (worfy-harness ticket 12): its `bin/profile` prints `stdout` and logs its cwd, args and the
+ * HARNESS_HOME it got. The Profile is where the plugin keeps it, <harnessHome>/projects/demo.
+ */
+function pluginHome(stdout: string): { home: string; harnessHome: string; calls: string } {
+  const home = join(scratch, 'claude-home')
+  const harnessHome = join(home, 'worfy-harness')
+  const plugin = join(harnessHome, 'plugin')
+  mkdirSync(join(plugin, 'bin'), { recursive: true })
+  mkdirSync(join(plugin, '.claude-plugin'), { recursive: true })
+  mkdirSync(join(harnessHome, 'projects', 'demo'), { recursive: true })
+  writeFileSync(join(plugin, '.claude-plugin', 'plugin.json'), '{"name": "worfy", "version": "0.2.0+abc"}\n')
+  writeFileSync(join(harnessHome, 'projects', 'demo', 'profile.json'), '{"name": "demo"}\n')
+  writeFileSync(join(plugin, 'bin', 'epic-status'), '#!/bin/sh\n')
+  chmodSync(join(plugin, 'bin', 'epic-status'), 0o755)
+  const out = join(scratch, 'stdout.txt')
+  const calls = join(scratch, 'calls.txt')
+  writeFileSync(out, stdout)
+  writeFileSync(join(plugin, 'bin', 'profile'), `#!/usr/bin/env ${INTERPRETER}\necho "$(pwd -P) $* HARNESS_HOME=\${HARNESS_HOME-unset}" >> '${calls}'\ncat '${out}'\n`)
+  chmodSync(join(plugin, 'bin', 'profile'), 0o755)
+  return { home, harnessHome, calls }
+}
+
 /** A Project folder with a repository-like tree. */
 function projectRoot(): string {
   const root = join(scratch, 'project')
@@ -195,6 +219,39 @@ describe('readMcpAllowlist with the real runner', () => {
     const bare = await readMcpAllowlist({ root, claudeHome: home, env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' }, log })
     expect(bare).toMatchObject({ servers: ['qmd', 'worfy-canvas'], source: 'default' })
     expect(bare.reason).toMatch(/failed with exit code 127/)
+  })
+})
+
+describe('bin/profile of the Harness plugin (worfy-harness ticket 12)', () => {
+  it('runs the plugin\'s bin/profile with HARNESS_HOME when only the plugin is there, and writes nothing', async () => {
+    const { home, harnessHome, calls } = pluginHome('[\n  "qmd",\n  "github"\n]\n')
+    const root = projectRoot()
+    const before = { home: snapshot(home), root: snapshot(root) }
+    const list = await readMcpAllowlist({ root, claudeHome: home, env: loginEnv(), log })
+    expect(list).toEqual({ servers: ['qmd', 'github'], source: 'profile', reason: null })
+    expect(readFileSync(calls, 'utf8').trim()).toBe(`${realpathSync(root)} -C ${root} --field mcp.allowed HARNESS_HOME=${harnessHome}`)
+    // The login shell environment it was given is kept: the interpreter is still found on its PATH.
+    expect(snapshot(home)).toEqual(before.home)
+    expect(snapshot(root)).toEqual(before.root)
+  })
+
+  it('reads the GitHub account through the plugin\'s script too', async () => {
+    const { home } = pluginHome('IDSAD-XL\n')
+    const account = await readGithubAccount({ root: projectRoot(), claudeHome: home, env: loginEnv(), log })
+    expect(account).toEqual({ account: 'IDSAD-XL', reason: null })
+  })
+
+  it('keeps running <claudeHome>/bin/profile, without HARNESS_HOME, while the old Harness is there next to the plugin', async () => {
+    const { calls: pluginCalls } = pluginHome('["from-plugin"]\n')
+    const { home, calls } = stubHome(0, '["from-old"]\n')
+    writeFileSync(join(home, 'bin', 'epic-status'), '#!/bin/sh\n')
+    chmodSync(join(home, 'bin', 'epic-status'), 0o755)
+    const list = await readMcpAllowlist({ root: projectRoot(), claudeHome: home, env: loginEnv(), log })
+    expect(list.servers).toEqual(['from-old'])
+    // stubHome and pluginHome log to the same file: one call, the old script's, with no HARNESS_HOME in it.
+    expect(pluginCalls).toBe(calls)
+    expect(readFileSync(calls, 'utf8').trim().split('\n')).toHaveLength(1)
+    expect(readFileSync(calls, 'utf8')).not.toContain('HARNESS_HOME')
   })
 })
 

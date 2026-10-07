@@ -49,6 +49,14 @@ async function openSettings(window: Page, name: string) {
   return dialog
 }
 
+// The default templates by the Harness on the machine (src/shared/projects/action-templates.ts).
+const PLUGIN_SHIP = '/worfy:ship-ticket {epic} {NN}'
+const PLUGIN_WAVE = '/worfy:epic-wave tickets {tickets} of epic {epic}'
+const LEGACY_SHIP = '/ship-ticket {epic} {NN}'
+const LEGACY_WAVE = '/epic-wave Ticket-ы {tickets} эпика {epic}'
+/** An `epic-status` stub that answers with no Epics, so the sidebar reads the Project without an error. */
+const NO_EPICS = `#!/bin/sh\necho '{"ref":"main","epics":[],"tickets":[]}'\n`
+
 let scratch: string
 let dataDir: string
 
@@ -95,10 +103,11 @@ test('Projects: add, switch, edit settings, restart, remove — and the reposito
     await expect(subtitle(window)).toHaveText('auction · main')
 
     // A template with an unknown placeholder shows its error under the field and cannot be saved.
+    // The temporary Claude home of launchApp holds no Harness: the defaults are the plugin's (worfy-harness ticket 12).
     let dialog = await openSettings(window, 'worfy')
     const shipTicket = dialog.getByLabel('Ship ticket')
-    await expect(shipTicket).toHaveValue('/ship-ticket {epic} {NN}')
-    await expect(dialog.getByLabel('Run wave')).toHaveValue('/epic-wave Ticket-ы {tickets} эпика {epic}')
+    await expect(shipTicket).toHaveValue(PLUGIN_SHIP)
+    await expect(dialog.getByLabel('Run wave')).toHaveValue(PLUGIN_WAVE)
     await shipTicket.fill('/ship-ticket {foo}')
     await expect(dialog.getByRole('alert')).toContainText('Unknown placeholder {foo}')
     await expect(shipTicket).toHaveAttribute('aria-invalid', 'true')
@@ -108,7 +117,7 @@ test('Projects: add, switch, edit settings, restart, remove — and the reposito
     await expect(dialog).toBeHidden()
 
     dialog = await openSettings(window, 'worfy')
-    await expect(dialog.getByLabel('Ship ticket')).toHaveValue('/ship-ticket {epic} {NN}')
+    await expect(dialog.getByLabel('Ship ticket')).toHaveValue(PLUGIN_SHIP)
     await dialog.getByLabel('Ship ticket').fill('/ship {epic}-{NN} on {branch}')
     await dialog.getByRole('button', { name: 'Save' }).click()
     await expect(dialog).toBeHidden()
@@ -128,7 +137,7 @@ test('Projects: add, switch, edit settings, restart, remove — and the reposito
     const dialog = await openSettings(window, 'worfy')
     await expect(dialog.getByLabel('Ship ticket')).toHaveValue('/ship {epic}-{NN} on {branch}')
     await dialog.getByRole('button', { name: 'Reset to default' }).click()
-    await expect(dialog.getByLabel('Ship ticket')).toHaveValue('/ship-ticket {epic} {NN}')
+    await expect(dialog.getByLabel('Ship ticket')).toHaveValue(PLUGIN_SHIP)
     await dialog.getByRole('button', { name: 'Cancel' }).click()
 
     // Removing a Project takes it off the list and keeps its data folder.
@@ -145,6 +154,54 @@ test('Projects: add, switch, edit settings, restart, remove — and the reposito
   for (const repo of [auction, worfy]) {
     expect(git(repo, 'status', '--porcelain', '--ignored', '--untracked-files=all')).toBe('')
   }
+})
+
+// worfy-harness ticket 12: the default templates are those of the Harness found on the machine,
+// looked for again on every read. The screenshots of the dialog in both themes are the ticket's
+// evidence (copied from test-results to .scratch/worfy-harness/evidence/12-*.png).
+test('Project settings: the defaults and "Reset to default" follow the Harness on the machine', async () => {
+  const worfy = makeRepo(scratch, 'worfy', 'main')
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+  try {
+    const { window, claudeHome } = launched
+    // The old Harness: <Claude home>/bin/epic-status. A new Project gets its templates.
+    mkdirSync(join(claudeHome, 'bin'))
+    writeFileSync(join(claudeHome, 'bin', 'epic-status'), NO_EPICS, { mode: 0o755 })
+    await addProject(launched, worfy)
+    await expect(rowButton(window, 'worfy')).toHaveAttribute('aria-current', 'true')
+
+    let dialog = await openSettings(window, 'worfy')
+    await expect(dialog.getByLabel('Ship ticket')).toHaveValue(LEGACY_SHIP)
+    await expect(dialog.getByLabel('Run wave')).toHaveValue(LEGACY_WAVE)
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      await window.screenshot({ path: test.info().outputPath(`12-project-settings-legacy-${scheme}.png`) })
+    }
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+
+    // The move takes the old Harness away and the plugin is installed: the saved defaults now read
+    // as the plugin's, with no restart; an edited field goes back to the plugin's on Reset.
+    await rm(join(claudeHome, 'bin'), { recursive: true })
+    const plugin = join(claudeHome, 'worfy-harness', 'plugin')
+    mkdirSync(join(plugin, '.claude-plugin'), { recursive: true })
+    mkdirSync(join(plugin, 'bin'), { recursive: true })
+    writeFileSync(join(plugin, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'worfy' }))
+    writeFileSync(join(plugin, 'bin', 'epic-status'), NO_EPICS, { mode: 0o755 })
+    dialog = await openSettings(window, 'worfy')
+    await expect(dialog.getByLabel('Ship ticket')).toHaveValue(PLUGIN_SHIP)
+    await expect(dialog.getByLabel('Run wave')).toHaveValue(PLUGIN_WAVE)
+    await dialog.getByLabel('Run wave').fill('my wave {tickets}')
+    await dialog.getByRole('button', { name: 'Reset to default' }).click()
+    await expect(dialog.getByLabel('Run wave')).toHaveValue(PLUGIN_WAVE)
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      await window.screenshot({ path: test.info().outputPath(`12-project-settings-plugin-${scheme}.png`) })
+    }
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+  } finally {
+    await launched.close()
+  }
+  expect(git(worfy, 'status', '--porcelain', '--ignored', '--untracked-files=all')).toBe('')
 })
 
 test('a broken projects.json is set aside and the app still starts', async () => {

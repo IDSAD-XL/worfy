@@ -1,8 +1,10 @@
 // Reads the Project's Profile: the list of MCP servers its agents may use (ADR-0021) and the
 // GitHub account worfy's own gh calls go with (ADR-0020, worfy-week ticket 01).
 //
-// The Profile lives outside the repository, in `<claude home>/profiles/<name>/profile.json`, and
-// its only reader is `<claude home>/bin/profile -C <root> --field <a.b>`: exit code 0 prints the
+// The Profile lives outside the repository — `<claude home>/profiles/<name>/profile.json` with the
+// old Harness, `<Harness home>/projects/<name>/` with the plugin — and its only reader is the
+// Harness's `bin/profile -C <root> --field <a.b>` (src/main/harness/locate.ts says which; the
+// plugin's script gets HARNESS_HOME): exit code 0 prints the
 // field (JSON for an array, the bare string for a string, the bare word `null` for a null), 3 means
 // the folder is in no registered project, 4 means the field is absent. Every way of not getting a
 // value — those codes, a missing script, a failed run, output of the wrong shape — falls back to
@@ -14,6 +16,7 @@ import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
+import { harnessHomes, locateHarness, scriptEnv } from '../harness/locate'
 
 /** The script's environment, for example the login shell's from src/main/agent/env.ts. */
 export type ProfileEnv = Readonly<Record<string, string | undefined>>
@@ -38,7 +41,11 @@ export interface ProfileRun {
  */
 export type ProfileRunner = (cwd: string, args: readonly string[]) => Promise<ProfileRun>
 
-export const profilePath = (claudeHome: string): string => join(claudeHome, 'bin', 'profile')
+/**
+ * The `profile` script of the Harness found on the machine (src/main/harness/locate.ts): the
+ * plugin's in <harnessHome>/plugin/bin, or the old one in <claudeHome>/bin.
+ */
+export const profilePath = (claudeHome: string): string => join(locateHarness(harnessHomes(claudeHome)).binDir, 'profile')
 
 const MAX_OUTPUT = 1024 * 1024
 const TIMEOUT_MS = 15_000
@@ -49,10 +56,12 @@ const TIMEOUT_MS = 15_000
  * and an app started from Finder has only the system PATH, where there is no node.
  */
 export function profileRunner(claudeHome: string, env: ProfileEnv): ProfileRunner {
-  const script = profilePath(claudeHome)
   return (cwd, args) =>
     new Promise((resolvePromise, reject) => {
-      execFile(script, [...args], { cwd, env, maxBuffer: MAX_OUTPUT, timeout: TIMEOUT_MS, encoding: 'utf8' }, (error, stdout, stderr) => {
+      // Looked for on every run; the plugin's script gets HARNESS_HOME, where its Profiles are.
+      const harness = locateHarness(harnessHomes(claudeHome))
+      const script = join(harness.binDir, 'profile')
+      execFile(script, [...args], { cwd, env: scriptEnv(harness, env), maxBuffer: MAX_OUTPUT, timeout: TIMEOUT_MS, encoding: 'utf8' }, (error, stdout, stderr) => {
         if (!error) return resolvePromise({ code: 0, stdout, stderr })
         const code = (error as NodeJS.ErrnoException).code
         // A number is the script's exit code; a string is a failure to start it (ENOENT, EACCES…).
@@ -77,7 +86,7 @@ const serverNames = z.array(z.string().trim().min(1))
 export interface ReadProfileOptions {
   /** The Project's root, or any folder inside it: the script's cwd and its `-C`. */
   root: string
-  /** Claude Code's home; the script is `<claudeHome>/bin/profile`. */
+  /** Claude Code's home; the script is that of the Harness found from it (profilePath). */
   claudeHome: string
   /** The environment the script runs with: the login shell's, so PATH finds node. */
   env: ProfileEnv
@@ -102,6 +111,7 @@ async function readField(options: ReadProfileOptions, field: string): Promise<Fi
     result = await run(options.root, ['-C', options.root, '--field', field])
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
+    // With no Harness found this names <claudeHome>/bin/profile, where it was looked for before the plugin.
     if (code === 'ENOENT') return none(`there is no profile script at ${profilePath(options.claudeHome)}`)
     return none(`the profile script could not be run: ${error instanceof Error ? error.message : String(error)}`)
   }

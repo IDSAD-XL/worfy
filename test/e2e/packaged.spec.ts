@@ -329,6 +329,9 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
   test('the copy carries the Harness of its build in Contents/Resources/harness, outside app.asar, and shows its version', async () => {
     const resources = join(stableApp, 'Contents', 'Resources')
     const version = expectHarnessCopy(join(resources, 'harness'))
+    // The plugin worfy's Sessions get inline (worfy-harness ticket 12, src/main/agent/options.ts):
+    // named worfy, the name it replaces an installed copy by.
+    expect(readJson(join(resources, 'harness', '.claude-plugin', 'plugin.json')).name).toBe('worfy')
     // Packaged from this build (not a WORFY_PACKAGED_APP copy): the same files as out/harness,
     // plugin.json with its version included, none dropped by electron-builder.
     if (!process.env.WORFY_PACKAGED_APP) {

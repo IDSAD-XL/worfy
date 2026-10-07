@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom'
 import {
   ACTION_LABELS,
   ACTIONS,
-  DEFAULT_ACTION_TEMPLATES,
   PLACEHOLDER_DESCRIPTIONS,
   PLACEHOLDERS,
   templateError,
@@ -110,6 +109,15 @@ export function ProjectSettings({ project, onClose }: ProjectSettingsProps) {
     else setFailure(result.error)
   }
 
+  // The defaults depend on the Harness on the machine (worfy-harness ticket 12): main says which.
+  const resetToDefault = async (): Promise<void> => {
+    const result = await invoke('projects.settings.defaults')
+    if (result.ok) {
+      setFailure(undefined)
+      setTemplates(result.value.actionTemplates)
+    } else setFailure(result.error)
+  }
+
   return createPortal(
     <div
       style={styles.backdrop}
@@ -189,7 +197,7 @@ export function ProjectSettings({ project, onClose }: ProjectSettingsProps) {
         ) : null}
 
         <div style={styles.actions}>
-          <button type="button" style={styles.secondary} disabled={!templates} onClick={() => setTemplates({ ...DEFAULT_ACTION_TEMPLATES })}>
+          <button type="button" style={styles.secondary} disabled={!templates} onClick={() => void resetToDefault()}>
             Reset to default
           </button>
           <span style={{ flex: 1 }} />
