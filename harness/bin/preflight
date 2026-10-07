@@ -14,13 +14,16 @@
 # Exit code: 0 — GO, 1 — BLOCKED, 2 — usage error (not a git repository, project not
 # registered or profile unreadable, unknown flag).
 #
-# Project facts come from the profile (bin/profile next to this script, contract in ~/.claude/profiles/README.md):
+# Project facts come from the profile (bin/profile next to this script, contract in <plugin>/profiles/README.md):
 #   worktree.base               — the base (origin/main); the main branch is that without "origin/";
+#                                 none — origin/<layout.repos.<repo>.default_branch>, then the branch
+#                                 origin/HEAD points to, then origin/main;
 #   numbering.adr.dir           — the ADR directory (fallback — docs.adr_dir); none — the ADR step is skipped;
 #   numbering.migrations.journal / .generate — the migrations journal (drizzle _journal.json format)
-#                                 and the generate command for the hint; none — the step is skipped;
-#   tickets.epic_status         — the epic summary; none — the step is skipped (with --epic — BLOCKED).
+#                                 and the generate command for the hint; none — the step is skipped.
 # A skipped step is printed as a line, not passed over silently.
+# The epic summary is not a profile fact: it is the Harness's own epic-status next to this script
+# (a path to it in a schema 1 profile is not read; profiles/README.md, "Schema 1").
 #
 # Compatibility: bash 3.2 (macOS), no coreutils timeout — the time of network commands
 # is limited by perl (fork + alarm + kill of the whole process group: git leaves
@@ -42,7 +45,8 @@ USAGE='usage: preflight [--epic <epic>] [--no-fetch]'
 BIN=$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" 2>/dev/null && pwd -P)
 PROFILE_BIN=${PREFLIGHT_PROFILE_BIN:-$BIN/profile}   # the override is for tests
 # load_profile fills these; the defaults are only for sourcing the functions in tests.
-BASE=origin/main MAIN=main ADR_DIR=docs/adr JOURNAL='' MIG_GEN='' EPIC_TOOL=''
+BASE=origin/main MAIN=main ADR_DIR=docs/adr JOURNAL='' MIG_GEN=''
+EPIC_TOOL=$BIN/epic-status   # a constant of the Harness, the same for every project
 FETCH_TIMEOUT=60   # seconds; a typical fetch takes a few seconds
 GH_TIMEOUT=20
 TOOL_TIMEOUT=20    # worktree-lock, epic-status are local, but node may hang
@@ -147,12 +151,14 @@ load_profile() {
   vals=$(printf '%s' "$json" | node -e '
     let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
       const p = JSON.parse(s), g = (o, ...k) => k.reduce((a, x) => (a == null ? a : a[x]), o)
+      // No worktree.base (Atakama: several repositories, not all on main) — the default branch
+      // of this repository from layout.repos; none — empty, and the shell asks origin/HEAD.
+      const repo = g(p, "_resolved", "repo_root"), db = repo ? g(p, "layout", "repos", repo.split("/").pop(), "default_branch") : null
       const v = [
-        g(p, "worktree", "base") || "origin/main",
+        g(p, "worktree", "base") || (typeof db === "string" && db ? "origin/" + db : ""),
         g(p, "numbering", "adr", "dir") || g(p, "docs", "adr_dir") || "",
         g(p, "numbering", "migrations", "journal") || "",
         g(p, "numbering", "migrations", "generate") || "",
-        g(p, "tickets", "epic_status") || "",
       ]
       process.stdout.write(v.map((x) => String(x).replace(/[\t\n]/g, " ")).join("\t") + "\n")
     })' 2>"$TMP/profile.err") || die "profile --json not parsed: $(first_line "$(cat "$TMP/profile.err")")"
@@ -160,15 +166,14 @@ load_profile() {
   BASE=${vals%%$'\t'*};      vals=${vals#*$'\t'}
   ADR_DIR=${vals%%$'\t'*};   vals=${vals#*$'\t'}
   JOURNAL=${vals%%$'\t'*};   vals=${vals#*$'\t'}
-  MIG_GEN=${vals%%$'\t'*};   EPIC_TOOL=${vals#*$'\t'}
+  MIG_GEN=$vals
   ADR_DIR=${ADR_DIR%/}
+  # Neither field: the branch origin/HEAD points to (set by git clone), and only then origin/main.
+  if [ -z "$BASE" ]; then
+    BASE=$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) || BASE=''
+    [ -n "$BASE" ] || BASE=origin/main
+  fi
   MAIN=${BASE#origin/}
-  # A profile of schema 1 names the scripts of the Harness as ~/.claude/bin/<script>: that is the
-  # frozen copy; the script next to this one is read instead.
-  case $EPIC_TOOL in
-    '~/.claude/bin/'*) EPIC_TOOL=$BIN/${EPIC_TOOL#'~/.claude/bin/'} ;;  # schema 1
-    '~/'*) EPIC_TOOL=$HOME/${EPIC_TOOL#'~/'} ;;
-  esac
 }
 
 check_tree() {  # 1
@@ -395,11 +400,6 @@ check_prs() {  # 8
 
 check_tickets() {  # 9
   local out rc line total=0 active=0 first='' second='' tool=$EPIC_TOOL why
-  if [ -z "$tool" ]; then
-    why="epics: no epic summary in the profile (tickets.epic_status)"
-    if [ -n "$EPIC" ]; then block "$why — epic $EPIC cannot be checked"; else say "$why — step skipped"; fi
-    return
-  fi
   # "unavailable" — only if the command did not start (no file / not executable).
   if [ ! -x "$tool" ]; then
     why="epic-status unavailable: no executable $tool"

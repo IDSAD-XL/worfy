@@ -13,9 +13,9 @@ Everything project-specific comes from the project profile (contract:
 short for `"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field <field>`.
 
 **Harness paths in profile values.** A profile value that starts with `~/.claude/bin/` is read as `${CLAUDE_PLUGIN_ROOT}/bin/` followed by the rest of the value.
-Schema-1 profiles carry such values in `tickets.status_tool`, `tickets.epic_status`,
-`workflow.preflight` and `numbering.reserve_with`; they point into the frozen pre-plugin Harness, so
-run the plugin's copy instead. A bare skill name in `workflow.ticket_skill` (`ship-ticket`) means
+Schema-1 profiles may still carry such values; they point into the frozen pre-plugin Harness, so run
+the plugin's copy instead. The Harness's own scripts — `ticket`, `epic-status`, `preflight` — are
+not profile facts: they are always called from `${CLAUDE_PLUGIN_ROOT}/bin/`. A bare skill name in `workflow.ticket_skill` (`ship-ticket`) means
 `/worfy:ship-ticket`. Placeholders inside profile values (`<эпик>` — the epic, `<NN>` — the ticket
 number, `<slug>`, `<ветка>` — the branch, `<имя-тикета>` — `<NN>-<slug>`, `<что-ревьюишь>` — what
 is reviewed, `<файл>` — a test file) are part of the profile contract: substitute them as written.
@@ -64,15 +64,16 @@ Project pitfalls and what each `BLOCKED` reason of the preflight means are in th
 ## 1. Preflight
 
 ```bash
-<F workflow.preflight>; echo "EXIT=$?"                    # placeholder <эпик>
-<F tickets.epic_status> --json | jq '.tickets[] | select(.epic=="<epic>")'
+"${CLAUDE_PLUGIN_ROOT}/bin/preflight" --epic <epic>; echo "EXIT=$?"
+"${CLAUDE_PLUGIN_ROOT}/bin/epic-status" --json | jq '.tickets[] | select(.epic=="<epic>")'
 gh pr list --state open --json number,headRefName,mergeStateStatus,files   # pr-green-ci only
 ```
 
 Preflight: the last line is `GO` or `BLOCKED: <reasons>`, exit code 1 on `BLOCKED`. The line
 `<база>: <sha> …` (the base is `F worktree.base`) is the base for the dispatch briefs. What it
-checks is in `rules.md`. Without `workflow.preflight` — say "the profile sets no preflight, running
-a minimal one" and run `git -C <repo> fetch`, `git -C <repo> status --porcelain` and how far behind
+checks is in `rules.md`. If the preflight cannot run here (exit 2: not a git repository, for
+example the common directory above a multi-repository project) — say "preflight cannot run here,
+running a minimal one" and run `git -C <repo> fetch`, `git -C <repo> status --porcelain` and how far behind
 the base the checkout is; the briefs' base is then `git log -1 --format='%h %s' <base>`. `gh pr list`
 with `files` is needed separately: files under `F numbering.adr.dir` in other PRs are taken numbers.
 
@@ -81,10 +82,10 @@ active, do not switch the global account without the owner's permission: other s
 Then every `gh` command and every `git` command against `origin` — the orchestrator's and the
 agents' (the brief's "GitHub:" line) — runs with `GH_TOKEN=$(gh auth token -u <F github.account>)`.
 
-`epic-status --json` (`tickets.epic_status`) takes no epic name (`epic-status <epic> --json`
+`epic-status --json` takes no epic name (`epic-status <epic> --json`
 prints the human-readable line) and returns `{ref, epics, tickets[]}` across all epics — hence the
-filter. `state` takes `open|work|blocked|done|none`; the word "claimed" lives in `statusRaw`. No
-`tickets.epic_status` — say so and build the ticket list from `F tickets.path` by hand.
+filter. `state` takes `open|work|blocked|done|none`; the word "claimed" lives in `statusRaw`. If
+`epic-status` refuses — say so and build the ticket list from `F tickets.path` by hand.
 
 Outcomes: `BLOCKED` — stop with a message (the reasons, and which of them are only warnings, are in
 `rules.md`); an open PR on the ticket's branch (`F tickets.branch`) — the ticket is resumed (section
@@ -129,7 +130,7 @@ soon as the PR of every number in its `blockedNums` is merged (`gh pr view --jso
 overlap with the running tickets; without that permission — by the table. Numbers only if the
 profile keeps them (`F numbering.adr`, `F numbering.migrations`; none — the column is "—" and the
 line "the project has no numbers"). ADR numbers are handed out in the plan one per ticket, next
-after the highest on the base (printed by `F numbering.reserve_with`); the implementer pushes a
+after the highest on the base (printed by the preflight, `"${CLAUDE_PLUGIN_ROOT}/bin/preflight"`); the implementer pushes a
 placeholder with the taken number in the first minutes, so the claim shows up in `gh pr list` for
 other sessions. A number goes to every ticket whose acceptance list (worfy: «Готово, когда»)
 requires an accepted ADR (`grep -n '^- \[ \].*ADR' <wave tickets>`), not only to the one that asks
@@ -354,7 +355,7 @@ staging password never goes into command arguments — only the way `F deploy.pr
 passes it.
 
 4. The documents PR — last, after production is verified (with `local-green` — a documents commit
-   after the last `VERIFIED`). `F tickets.status_tool` edits ticket files in the worktree where it
+   after the last `VERIFIED`). `ticket` edits ticket files in the worktree where it
    runs, so the wave's statuses and one state-file edit per wave go on its branch.
    The state file (`F docs.handoff`: `path`, `kind`, `check`) is rewritten as a snapshot (skill
    `/worfy:ship-ticket`, step 11) and takes the `debt:` lines from the gate verdicts as debts; the
@@ -363,8 +364,8 @@ passes it.
    `F docs.handoff.check` before push. No `docs.handoff` — "the project has no state file".
 
 ```bash
-<F tickets.status_tool> done <epic> <NN> --pr <N>                  # for each merged ticket; with local-green — without --pr
-<F tickets.status_tool> block <epic> <NN> "<reason it was rejected by the gate>"   # for each removed one; the reason in the docs' language
+"${CLAUDE_PLUGIN_ROOT}/bin/ticket" done <epic> <NN> --pr <N>                  # for each merged ticket; with local-green — without --pr
+"${CLAUDE_PLUGIN_ROOT}/bin/ticket" block <epic> <NN> "<reason it was rejected by the gate>"   # for each removed one; the reason in the docs' language
 ```
 
 A conflict with the base at any step: the implementer rebases onto the base in its own worktree
@@ -387,7 +388,7 @@ after the merge).
 A table for the wave, then the four-line status block. Its labels stay exactly as written —
 `— Этап:`, `— Сейчас:`, `— Дальше:`, `— Жду:` — whatever the reports language: worfy reads them
 (`src/shared/agent/status-block.ts`); the values are in `F language.reports`. `— Этап:` — the
-output of `<F tickets.epic_status> <epic>` after a fast-forward of the main branch; `— Сейчас:` —
+output of `"${CLAUDE_PLUGIN_ROOT}/bin/epic-status" <epic>` after a fast-forward of the main branch; `— Сейчас:` —
 only what the gate and the live address confirmed (with `local-green` or without `deploy` — the
 gate); `— Жду:` — a decision on a `blocked` ticket, or "nothing". Re-read every `file:line` from
 the verifier's answer yourself before quoting it.
@@ -407,9 +408,9 @@ branches, PRs and worktrees (branches — the `F tickets.branch` template with e
 `<эпик>/` replaced by `*`; below — for `<epic>/<NN>-<slug>` and `<epic>/<NN>`):
 
 ```bash
-<F workflow.preflight>; echo "EXIT=$?"         # or the minimal preflight from section 1
+"${CLAUDE_PLUGIN_ROOT}/bin/preflight" --epic <epic>; echo "EXIT=$?"   # or the minimal preflight from section 1
 for b in $(git for-each-ref --format='%(refname:short)' "refs/heads/<epic>/*" "refs/remotes/origin/<epic>/*"); do
-  <F tickets.epic_status> --json --ref "$b" | jq -c '.tickets[] | select(.epic=="<epic>" and .state!="open")'
+  "${CLAUDE_PLUGIN_ROOT}/bin/epic-status" --json --ref "$b" | jq -c '.tickets[] | select(.epic=="<epic>" and .state!="open")'
 done                                            # or "${CLAUDE_PLUGIN_ROOT}/bin/epic-board" — a snapshot across all branches
 ls <F worktree.root>                            # parallel: worktrees only
 ```

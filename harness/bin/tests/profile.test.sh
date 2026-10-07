@@ -200,6 +200,100 @@ rm -rf "$T/ws/.git"
 printf '{"repos":[{"key":"a","match":"%s/","profile":"multi"},{"key":"b","match":"%s","profile":"multi"}]}\n' "$T/ws/a" "$T/ws/b" >"$T/ws-slash.json"
 check "match with trailing slash stays 3" 3 "" env CLAUDE_GATE_CONFIG="$T/ws-slash.json" "$PROFILE" -C "$T/ws/a" --name
 unset CLAUDE_GATE_CONFIG CLAUDE_PROFILES_DIR
+
+# --- schema 2 and the profile's place on the machine ---------------------------------
+# Temporary HOME and HARNESS_HOME, the registry in $HARNESS_HOME/gate/config.json, no
+# CLAUDE_GATE_CONFIG / CLAUDE_PROFILES_DIR: the lookup goes the way it goes on a machine.
+# A profile lives in $HARNESS_HOME/projects/<name>/; a schema 1 one in ~/.claude/profiles/<name>/
+# is read during the transition; with both, $HARNESS_HOME wins.
+H="$T/home" HH="$T/hh"
+BINREAL="$(cd "$BIN" && pwd -P)"
+mkdir -p "$H/.claude/profiles" "$HH/projects" "$HH/gate" "$T/r"
+for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj; do git -C "$T/r" init -q -b main "$n"; done
+{
+    printf '{"repos":['
+    sep=""
+    for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj; do printf '%s{"key":"%s","match":"%s","profile":"%s"}' "$sep" "$n" "$T/r/$n" "$n"; sep=","; done
+    printf ']}\n'
+} >"$HH/gate/config.json"
+newp() { mkdir -p "$HH/projects/$1" && printf '%s\n' "$2" >"$HH/projects/$1/profile.json"; }
+oldp() { mkdir -p "$H/.claude/profiles/$1" && printf '%s\n' "$2" >"$H/.claude/profiles/$1/profile.json"; }
+# demo still names stale Harness paths: schema 2 does not take them from the file.
+newp demo '{"schema":2,"name":"demo","mode":"silent","attribution":"off","language":{"reports":"ru","team":"en","docs":"ru"},"mcp":{"allowed":["qmd","worfy-canvas","github"]},"tickets":{"status_tool":"/elsewhere/ticket","epic_status":"/elsewhere/epic-status"},"workflow":{"preflight":null},"numbering":{"reserve_with":"/elsewhere/preflight"}}'
+printf '# demo v2 rules\n' >"$HH/projects/demo/rules.md"
+oldp legacy '{"schema":1,"name":"legacy","language":"ru","tickets":{"status_tool":"~/.claude/bin/ticket","epic_status":"~/.claude/bin/epic-status"},"workflow":{"preflight":"~/.claude/bin/preflight --epic <эпик>"},"numbering":{"reserve_with":null}}' # schema 1
+newp both '{"schema":2,"name":"both","title":"from harness home","mode":"full"}'
+oldp both '{"schema":1,"name":"both","title":"from legacy dir"}'
+newp nomode '{"schema":2,"name":"nomode"}'
+newp badmode '{"schema":2,"name":"badmode","mode":"other"}'
+newp bare '{"schema":2,"name":"bare","mode":"full","language":{"reports":"en","team":"en"}}'
+newp schema3 '{"schema":3,"name":"schema3","mode":"full"}'
+# schema 1 with the absolute form of the old place: <HOME>/.claude/bin/<script>
+oldp absbin "{\"schema\":1,\"name\":\"absbin\",\"tickets\":{\"status_tool\":\"$H/.claude/bin/ticket\"},\"workflow\":{\"preflight\":\"$H/.claude/bin/preflight --epic <эпик>\"}}"
+# valid JSON, but not an object
+newp notobj '["schema",2]'
+cat >"$T/p2" <<EOF
+#!/usr/bin/env bash
+exec env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR HOME="$H" HARNESS_HOME="$HH" "$PROFILE" "\$@"
+EOF
+chmod +x "$T/p2"
+P2="$T/p2"
+snapshot() { find "$H" "$HH" | LC_ALL=C sort && find "$H" "$HH" -type f -exec cksum {} + | LC_ALL=C sort; }
+before="$(snapshot)"
+eq() { # $1 name, $2 expected stdout exactly, then the command (exit code must be 0)
+    local name="$1" want="$2"
+    shift 2
+    check "$name" 0 "" bash -c 'got="$("$@")" && [ "$got" = "$0" ]' "$want" "$@"
+}
+fails_with() { # $1 name, $2 exit code, $3 substring of stderr, then the command
+    local name="$1" rc="$2" sub="$3"
+    shift 3
+    check "$name" 0 "" bash -c 'e="$("${@:2}" 2>&1 >/dev/null)"; r=$?; [ "$r" -eq "$0" ] && [[ "$e" == *"$1"* ]]' "$rc" "$sub" "$@"
+}
+eq "schema 2: in HARNESS_HOME/projects: --name" demo "$P2" -C "$T/r/demo" --name
+eq "schema 2: in HARNESS_HOME/projects: --dir" "$HH/projects/demo" "$P2" -C "$T/r/demo" --dir
+eq "schema 2: in HARNESS_HOME/projects: _resolved.dir" "$HH/projects/demo" "$P2" -C "$T/r/demo" --field _resolved.dir
+eq "schema 2: --field mode from the file" silent "$P2" -C "$T/r/demo" --field mode
+eq "schema 2: --rules from HARNESS_HOME" "# demo v2 rules" "$P2" -C "$T/r/demo" --rules
+eq "schema 1: only in ~/.claude/profiles: --name" legacy "$P2" -C "$T/r/legacy" --name
+eq "schema 1: only in ~/.claude/profiles: --dir" "$H/.claude/profiles/legacy" "$P2" -C "$T/r/legacy" --dir
+eq "in both places: HARNESS_HOME wins (--dir)" "$HH/projects/both" "$P2" -C "$T/r/both" --dir
+eq "in both places: HARNESS_HOME wins (field)" "from harness home" "$P2" -C "$T/r/both" --field title
+fails_with "schema 2: without mode -> 1 with the reason" 1 '"mode"' "$P2" -C "$T/r/nomode" --name
+fails_with "schema 2: with mode other -> 1 with the reason" 1 '"other"' "$P2" -C "$T/r/badmode" --field schema
+fails_with "unknown schema 3 -> 1 with the reason" 1 'schema' "$P2" -C "$T/r/schema3" --name
+fails_with "profile in neither place -> 3 naming both" 3 "$HH/projects/nofile/profile.json" "$P2" -C "$T/r/nofile" --name
+eq "schema 1: --field mode -> full" full "$P2" -C "$T/r/legacy" --field mode
+eq "--field attribution absent -> on (schema 2)" on "$P2" -C "$T/r/bare" --field attribution
+eq "--field attribution absent -> on (schema 1)" on "$P2" -C "$T/r/legacy" --field attribution
+eq "--field attribution from the file" off "$P2" -C "$T/r/demo" --field attribution
+check "--field language.docs absent -> 4" 4 "" "$P2" -C "$T/r/bare" --field language.docs
+check "--field language.docs absent (schema 1, string language) -> 4" 4 "" "$P2" -C "$T/r/legacy" --field language.docs
+eq "--field language.docs from the file" ru "$P2" -C "$T/r/demo" --field language.docs
+check "--field mcp.allowed is a JSON list from the file" 0 "" bash -c '[ "$("$@" | node -e "console.log(JSON.parse(require(\"fs\").readFileSync(0,\"utf8\")).join(\",\"))")" = qmd,worfy-canvas,github ]' _ "$P2" -C "$T/r/demo" --field mcp.allowed
+check "--field mcp.allowed absent -> 4" 4 "" "$P2" -C "$T/r/bare" --field mcp.allowed
+# The four Harness paths: answered with this Harness's own scripts, never from a schema 2 file.
+eq "schema 2: tickets.status_tool -> bin next to profile" "$BINREAL/ticket" "$P2" -C "$T/r/demo" --field tickets.status_tool
+eq "schema 2: tickets.epic_status -> bin next to profile" "$BINREAL/epic-status" "$P2" -C "$T/r/demo" --field tickets.epic_status
+eq "schema 2: numbering.reserve_with -> bin next to profile" "$BINREAL/preflight" "$P2" -C "$T/r/demo" --field numbering.reserve_with
+eq "schema 2: workflow.preflight -> bin next to profile" "$BINREAL/preflight --epic <эпик>" "$P2" -C "$T/r/demo" --field workflow.preflight
+eq "schema 2: without the fields: tickets.status_tool still answered" "$BINREAL/ticket" "$P2" -C "$T/r/bare" --field tickets.status_tool
+eq "schema 1: ~/.claude/bin/ticket -> the same path as v2" "$BINREAL/ticket" "$P2" -C "$T/r/legacy" --field tickets.status_tool
+eq "schema 1: ~/.claude/bin/epic-status -> bin next to profile" "$BINREAL/epic-status" "$P2" -C "$T/r/legacy" --field tickets.epic_status
+eq "schema 1: ~/.claude/bin/preflight --epic -> bin next to profile" "$BINREAL/preflight --epic <эпик>" "$P2" -C "$T/r/legacy" --field workflow.preflight
+eq "schema 1: null stays null" null "$P2" -C "$T/r/legacy" --field numbering.reserve_with
+eq "schema 1: <HOME>/.claude/bin/ticket -> bin next to profile" "$BINREAL/ticket" "$P2" -C "$T/r/absbin" --field tickets.status_tool
+eq "schema 1: <HOME>/.claude/bin/preflight --epic -> bin next to profile" "$BINREAL/preflight --epic <эпик>" "$P2" -C "$T/r/absbin" --field workflow.preflight
+fails_with "profile.json that is not an object -> 1 with the reason" 1 "not a JSON object" "$P2" -C "$T/r/notobj" --name
+check "schema 1: --json and briefing name no ~/.claude/bin" 0 "" bash -c 'o="$("$@" --json && "$@")" && [[ "$o" == *"$0"* && "$o" != *"~/.claude/bin"* ]]' "$BINREAL/ticket" "$P2" -C "$T/r/legacy"
+eq "schema 1: string language -> language.reports" ru "$P2" -C "$T/r/legacy" --field language.reports
+eq "schema 1: string language -> language.team" ru "$P2" -C "$T/r/legacy" --field language.team
+# CLAUDE_PROFILES_DIR (tests) overrides both places.
+mkdir -p "$T/override/both"
+printf '{"schema":2,"name":"both","title":"override","mode":"full"}\n' >"$T/override/both/profile.json"
+eq "CLAUDE_PROFILES_DIR overrides both places" "$T/override/both" env CLAUDE_PROFILES_DIR="$T/override" HOME="$H" HARNESS_HOME="$HH" "$PROFILE" -C "$T/r/both" --dir
+after="$(snapshot)"
+check "profile writes nothing into HOME or HARNESS_HOME" 0 "" test "$before" = "$after"
 if [ -f "$LIVE_GATE" ]; then
     check "live registry: unregistered dir -> 3" 3 "" "$PROFILE" -C "$T/plain"
 else

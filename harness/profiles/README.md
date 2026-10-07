@@ -1,199 +1,282 @@
-# Профили проектов
+# Project profiles
 
-Профиль — всё, что отличает один проект от другого для общих агентов и скиллов: команды,
-пути, режим параллельной работы, деплой, линзы ревью и аудита. Агенты `scout`, `implementer`,
-`reviewer` (`~/.claude/agents/`) одинаковы для всех проектов; первым делом они запускают
-`~/.claude/bin/profile` и дальше следуют тому, что он напечатал.
+A profile is everything that tells one project apart from another for the shared agents and skills:
+commands, paths, the parallel-work mode, deploy, review and audit lenses. The `scout`,
+`implementer` and `reviewer` agents (`${CLAUDE_PLUGIN_ROOT}/agents/`) are the same for every
+project; their first action is to run `${CLAUDE_PLUGIN_ROOT}/bin/profile`, and from then on they
+follow what it printed.
 
-**Оркестратор пишет путь репозитория или worktree в каждый бриф** этим агентам. Агент запускает
-`profile -C <путь из брифа>`, а без пути — `profile` в каталоге, где его запустили; это каталог
-оркестратора, и он может лежать вне проекта или в другом проекте. Без пути в брифе агент получит
-чужой профиль или код выхода 3.
+**The orchestrator writes the repository or worktree path into every brief** for these agents. The
+agent runs `profile -C <path from the brief>`, and without a path — `profile` in the directory it
+was started in; that is the orchestrator's directory, and it may lie outside the project or in
+another project. Without a path in the brief the agent gets someone else's profile or exit code 3.
 
-Что агент делает по коду выхода: `0` — работает по профилю; `1`, `2`, `3` — scout и reviewer пишут
-код первой строкой ответа и не угадывают команды и пути, implementer останавливается и возвращает
-отчёт с причиной первой строкой `not_verified`; `4` — шаг, который держится на поле, пропускается.
+What the agent does by exit code: `0` — works by the profile; `1`, `2`, `3` — scout and reviewer
+write the code as the first line of their answer and do not guess commands or paths, implementer
+stops and returns a report whose first `not_verified` line is the reason; `4` — the step that rests
+on the field is skipped.
 
-Этот файл — контракт. Скилл, хук или агент, которому нужен проектный факт, читает его из
-профиля по полю, описанному здесь, а не держит у себя.
+This file is the contract. A skill, hook or agent that needs a project fact reads it from the
+profile by a field described here, and does not keep it itself.
 
-## Где лежит
+## Where it lives
 
-```
-~/.claude/profiles/<имя>/
-  profile.json   машиночитаемые факты (схема ниже)
-  rules.md       проза для агентов: факты, которые не умещаются в поле
-  lessons/       необязательно: уроки, если проект держит их вне репозитория (lessons: "profile");
-                 lessons.md — полный журнал, lessons-index.md — по строке на урок
-  bin/           необязательно: инструменты проекта, которые называют поля профиля (tasks.tool)
-  epics/         необязательно: карты эпиков (<эпик>/map.md — в git; task-map.json пишет
-                 tickets-to-tasks, он в .gitignore)
-  state/         рабочее состояние хуков (pending-retro.log, active-epic); не в git
-```
-
-Не `~/.claude/projects/` — там транскрипты Claude Code.
-
-## Как профиль находится
-
-Реестр один — `~/.claude/gate/config.json`. У записи проекта есть поле `"profile": "<имя>"`.
-Второго реестра путей нет.
-
-`~/.claude/bin/profile` делает то же, что `hooks/gate.sh`:
-1. каталог → `git rev-parse --git-common-dir` → канонический корень основного репозитория
-   (так worktree в любом месте диска опознаётся по своему репозиторию);
-2. `hooks/gate-resolve.mjs --which <корень>` — самый длинный префикс `match` в реестре; путь
-   приводится к написанию с диска (`realpath` native), так что на нечувствительной к регистру ФС
-   `/users/alexey/work/auction` узнаётся как `/Users/alexey/Work/Auction`;
-3. поле `profile` найденной записи → `~/.claude/profiles/<имя>/profile.json`.
-4. Ни один `match` не подошёл — общий каталог (workspace): если каталог лежит внутри общего
-   родителя всех репозиториев ОДНОГО профиля (у профиля не меньше двух записей), профиль — этот.
-   Так `/Users/alexey/Work/Atakama` (над тремя репозиториями Atakama, сам не git) и соседние
-   каталоги вне git в нём получают профиль `atakama`. Родитель вычисляется из реестра, а не хранится.
-   Не считается: корень диска, `$HOME`, каталог, в котором лежит репозиторий другого профиля
-   или записи без профиля, и любой каталог внутри git-репозитория, которого нет в реестре
-   (`/Users/alexey/Work/Atakama/flux-config-platform` — код 3: гейт, preflight и хуки сессии
-   считают его незарегистрированным). `hooks/gate.sh` этого шага не делает: гейт проверяет только
-   зарегистрированные репозитории.
-
-Несколько записей реестра (например, три репозитория одного продукта) могут называть один профиль.
+The profile lives on the machine, in the Harness state folder (`HARNESS_HOME`, by default
+`~/.claude/worfy-harness/`):
 
 ```
-profile                    сводка: имя, пути, profile.json и rules.md — это читают агенты
-profile --json             profile.json + блок _resolved
-profile --field a.b.c      одно поле; строка печатается как есть, остальное — JSON
-profile --rules            только rules.md
-profile --dir | --name     каталог или имя профиля
-profile -C <каталог> ...   разрешать так, будто запущен из <каталога> (относительный — от текущего)
+$HARNESS_HOME/projects/<name>/
+  profile.json   machine-readable facts (schema below)
+  rules.md       prose for agents: facts that do not fit into a field
+  lessons/       optional: lessons, if the project keeps them outside the repository (lessons: "profile");
+                 lessons.md — the full log, lessons-index.md — one line per lesson
+  bin/           optional: the project's tools named by profile fields (tasks.tool)
+  epics/         optional: epic maps (<epic>/map.md — versioned; task-map.json is written by
+                 tickets-to-tasks and is git-ignored)
+  state/         working state of the hooks (pending-retro.log, active-epic); not versioned
 ```
 
-`_resolved` (вычисляется, в файле не хранится): `name`, `dir`, `gate_key`, `repo_root`,
-`checkout` (корень текущего рабочего дерева), `in_worktree` (true, если checkout — не основной),
-`workspace` (общий каталог из шага 4, иначе `null`; при нём `gate_key` и `repo_root` — `null`).
+There is no profile in the project's repository and no PR with a profile. `rules.md` is mixed into a
+session only by the Harness (`hooks/session-start.sh`, from the folder `_resolved.dir`), never
+through the repository's `.claude/rules/`.
 
-Коды выхода: `0` найден; `2` ошибка вызова; `3` каталог вне зарегистрированных проектов, у записи
-нет поля `profile` или нет файла профиля (сообщение одной строкой в stderr); `4` поля нет
-(`--field`); `1` сломан реестр, резолвер или `profile.json`.
+Not `~/.claude/projects/` — that is where Claude Code keeps transcripts.
 
-Переменные для тестов: `CLAUDE_GATE_CONFIG`, `CLAUDE_GATE_RESOLVE`, `CLAUDE_PROFILES_DIR`.
-Тесты: `bash ~/.claude/bin/tests/profile.test.sh`.
+During the transition (schema 1, see below) a profile may still lie in the old place,
+`~/.claude/profiles/<name>/`, with the same layout.
+
+## How the profile is found
+
+There is one registry — the gate's `$HARNESS_HOME/gate/config.json` (during the transition, while it
+does not exist, the old `~/.claude/gate/config.json`). A project's entry has the field
+`"profile": "<name>"`. There is no second registry of paths.
+
+`${CLAUDE_PLUGIN_ROOT}/bin/profile` does the same as `hooks/gate.sh`:
+1. directory → `git rev-parse --git-common-dir` → the canonical root of the main repository
+   (so a worktree anywhere on disk is recognised by its repository);
+2. `hooks/gate-resolve.mjs --which <root>` — the longest `match` prefix in the registry; the path
+   is brought to its spelling on disk (native `realpath`), so on a case-insensitive filesystem
+   `/users/alexey/work/auction` is recognised as `/Users/alexey/Work/Auction`;
+3. the `profile` field of the found entry → `$HARNESS_HOME/projects/<name>/profile.json`; if it is
+   not there — during the transition `~/.claude/profiles/<name>/profile.json` (schema 1). If it is
+   in both places, `$HARNESS_HOME` wins. `_resolved.dir` is the folder where the profile was found.
+4. No `match` fits — the common directory (workspace): if the directory lies inside the common
+   parent of all repositories of ONE profile (the profile has at least two entries), the profile is
+   that one. So `/Users/alexey/Work/Atakama` (above the three Atakama repositories, not git itself)
+   and the directories outside git next to them get the `atakama` profile. The parent is computed
+   from the registry, not stored. It does not count: the disk root, `$HOME`, a directory holding a
+   repository of another profile or of an entry without a profile, and any directory inside a git
+   repository that is not in the registry (`/Users/alexey/Work/Atakama/flux-config-platform` —
+   exit 3: the gate, preflight and the session hooks treat it as unregistered). `hooks/gate.sh`
+   does not take this step: the gate checks only registered repositories.
+
+Several registry entries (for example, three repositories of one product) may name one profile.
+
+```
+profile                    summary: name, paths, profile.json and rules.md — this is what agents read
+profile --json             profile.json + the _resolved block
+profile --field a.b.c      one field; a string is printed as is, anything else as JSON
+profile --rules            only rules.md
+profile --dir | --name     the profile's folder or name
+profile -C <directory> ... resolve as if run from <directory> (a relative one — from the current)
+```
+
+`_resolved` (computed, not stored in the file): `name`, `dir` (the folder where the profile was
+found), `gate_key`, `repo_root`, `checkout` (the root of the current working tree), `in_worktree`
+(true if the checkout is not the main one), `workspace` (the common directory from step 4,
+otherwise `null`; with it `gate_key` and `repo_root` are `null`).
+
+Exit codes: `0` found; `2` usage error; `3` the directory is outside the registered projects, the
+entry has no `profile` field, or the profile file exists in neither place (a one-line message in
+stderr); `4` no such field (`--field`); `1` broken registry, resolver or `profile.json` (including
+an unsupported `schema` and a schema 2 profile without a valid `mode`).
+
+`profile` only reads: it writes nothing, neither into `HARNESS_HOME` nor into `~/.claude`.
+
+Variables for tests: `HARNESS_HOME`, `CLAUDE_GATE_CONFIG`, `CLAUDE_GATE_RESOLVE`,
+`CLAUDE_PROFILES_DIR` (a folder of profiles that replaces both places of step 3).
+Tests: `bash bin/tests/profile.test.sh` from the plugin root (in the worfy repository —
+`harness/bin/tests/profile.test.sh`).
 
 ## profile.json
 
-Поле, которого в проекте нет, — `null` или отсутствует; агент тогда пропускает шаг, а не
-угадывает. Скиллы (`ship-ticket`, `epic-wave`) читают поле через `--field`: код 4 или напечатанное
-`null` — шаг пропускается, и скилл говорит об этом словами, а не молча. Команды записываются так, как проект их действительно запускает.
+A field the project does not have is `null` or absent; the agent then skips the step rather than
+guessing. Skills (`ship-ticket`, `epic-wave`) read a field through `--field`: exit 4 or a printed
+`null` — the step is skipped, and the skill says so in words, not silently. Commands are written
+the way the project really runs them.
 
-| Поле | Тип | Что значит | Кто читает |
+| Field | Type | What it means | Who reads |
 |---|---|---|---|
-| `schema` | число | версия формата, сейчас `1` | все |
-| `name` | строка | имя профиля = имя каталога | все |
-| `title` | строка | человеческое имя проекта | отчёты |
-| `language.reports` | `"ru"` \| `"en"` | язык отчётов агентов и сообщений пользователю | все агенты, скиллы |
-| `language.team` | `"ru"` \| `"en"` | язык всего, что видит команда: комментарии в коде, сообщения коммитов, заголовки и описания PR, комментарии ревью и вердикты в PR. Документы (тикеты, `spec.md`, ADR, файл состояния) пишутся на языке, которым уже написаны соседние; новый набор без соседей — `language.reports`; исключения — в `rules.md`. Старая форма — строка `"language": "ru"`: `bin/profile` читает её как `{reports: "ru", team: "ru"}`, так что `--field language.team` работает и на ней | implementer, reviewer, ship-ticket, epic-wave, overnight-fix-loop, continuous-audit |
-| `layout.summary` | строка | раскладка кода одной фразой (пакеты, репозитории) | scout |
-| `layout.packages` | строки | каталоги пакетов или репозиториев | scout, аудит |
-| `layout.repos` | `{"<репозиторий>": {kind, default_branch, what}}` \| null | проект из нескольких репозиториев: `kind` — `single` (один пакет) или `workspaces`; основная ветка; что в нём | scout, implementer |
-| `layout.read_only` | `[{path, what}]` \| нет | каталоги рядом с проектом, которые только читаются: команд в них не запускать, ничего не править | scout, implementer, оркестратор |
-| `stack` | строки | стек — факты, а не пожелания | все агенты |
-| `commands.install` | строка | установка зависимостей в свежем дереве | implementer, reviewer |
-| `commands.lint` / `typecheck` / `test` / `build` | строка | как проект их запускает из корня | все |
-| `commands.test_one` | строка | прицельный запуск одного теста, с плейсхолдером `<файл>` | implementer, reviewer |
-| `commands.contract` / `e2e` | строка \| null | наборы, которые не входят в `test` | implementer, reviewer |
-| `commands.verify` | строка | полная локальная проверка одной строкой; агенты дописывают `; echo "КОД=$?"` | implementer, reviewer |
-| `commands.prepare_tree` | строка | что сделать в только что созданном worktree, прежде чем гонять проверки | оркестратор, reviewer |
-| `commands.requires` | строки | что должно быть поднято (Docker, база, стек) | implementer, reviewer |
-| `commands.package` | `{typecheck, test, test_one, names}` \| null | команды одного пакета монорепозитория: шаблоны с плейсхолдерами `<пакет>` (имя пакета) и `<файл>` (путь от корня пакета, только `test_one`); `names` — каталог пакета → имя для `<пакет>` (`{"apps/api": "@auction/api"}`). Нет поля — команды корня | overnight-fix-loop |
-| `modules` | `{deep, flat, skip, heavy}` \| null | что считается модулем: по умолчанию каталог прямо под `<пакет>/src`; `deep` — корни, где модуль на уровень глубже; `flat` — пакеты, которые целиком один модуль; `skip` — имена каталогов, которые модулей не образуют; `heavy` — `{"<пакет>": N}`, не больше N модулей пакета разом (тесты поднимают свою базу или стек) | overnight-fix-loop |
-| `tests.new_file` | `{"<пакет>": шаблон}` \| null | куда класть новый файл тестов модуля; плейсхолдеры `<имя>` (имя модуля) и `<каталог модуля>` | overnight-fix-loop |
-| `tests.globs` | строки \| null | маски имён тест-файлов (`*.spec.ts`), для `grep --include` | overnight-fix-loop |
-| `parallel` | `"worktrees"` \| `"single"` | `worktrees` — несколько исполнителей, каждый в своём worktree; `single` — один исполнитель, работа в основном checkout, без worktree | все агенты, epic-wave |
-| `worktree.root` | путь \| null | где создаются рабочие деревья | implementer, reviewer, оркестратор |
-| `worktree.base` | строка | от чего ветвиться (`origin/main`, `origin/master`) | implementer |
-| `worktree.implementer` / `reviewer` | строка | готовая команда `git worktree add` с плейсхолдерами: `<ветка>` (= `tickets.branch`), `<имя-тикета>` (= `<NN>-<slug>`), `<эпик>`, `<NN>`, `<slug>`, `<что-ревьюишь>`. worfy называет дерево только номером — `…/worktrees/<NN>` | implementer, reviewer, ship-ticket, epic-wave |
-| `tickets.root` | путь \| null | корень каталога эпиков (`.scratch/`), со слешем в конце; там создаётся эпик аудита. Отсюда же корень берут `bin/ticket`, `bin/epic-status` и `bin/epic-board` (правила пути — ниже таблицы) | continuous-audit, ticket, epic-status, epic-board |
-| `tickets.path` | шаблон пути | где лежит тикет | implementer, epic-wave |
-| `tickets.trail_section` | строка | раздел тикета со списком файлов, которые можно править | implementer |
-| `tickets.status_tool` | путь | чем двигать статус тикета (`claim`, `block`, `done`) | оркестратор, ship-ticket, epic-wave |
-| `tickets.epic_status` | путь \| null | сводка по эпику: `<путь> <эпик>` — строка, `--json [--ref <ветка>]` — все эпики в JSON; `--ref` при корне тикетов вне git — код 3 с причиной | ship-ticket, epic-wave |
-| `tickets.spec` | шаблон пути \| null | спецификация эпика, которую читают вместе с тикетом | ship-ticket, epic-wave |
-| `tickets.branch` | шаблон \| null | имя ветки тикета: `<эпик>/<NN>-<slug>` (auction) или `<эпик>/<NN>` (worfy — только номер); по нему epic-wave находит ветки волны при возобновлении (всё после `<эпик>/` → `*`) | ship-ticket, epic-wave |
-| `workflow.preflight` | строка \| null | проверка перед тикетом или волной, с плейсхолдером `<эпик>`. Контракт: последняя строка вывода — `GO` или `BLOCKED: <причины>`, код выхода 1 при `BLOCKED`; строка `<база>: <sha> …` — база для брифов. `null` — скилл делает минимальный предполёт сам (`git fetch`, состояние дерева, открытые PR) | ship-ticket, epic-wave |
-| `workflow.ticket_skill` | строка \| null | скилл, по которому идёт тикет | implementer |
-| `workflow.implementer_steps` | строка | какие шаги скилла делает исполнитель | implementer |
-| `workflow.finish` | `"pr-green-ci"` \| `"local-green"` | докуда доводит исполнитель: PR с зелёным CI или локально зелёные проверки. При `local-green` ship-ticket и epic-wave не открывают PR и не мержат | implementer, ship-ticket, epic-wave |
-| `workflow.merge` | `"orchestrator"` | кто мержит | implementer, epic-wave |
-| `numbering.reserve_with` | строка \| null | чем занимать номера до содержания | оркестратор, ship-ticket, epic-wave |
-| `numbering.adr` | `{dir, check}` \| null | каталог ADR и проверка уникальности номеров | оркестратор, reviewer, ship-ticket, epic-wave |
-| `numbering.migrations` | `{generate, journal, order_key, check}` \| null | как создаются миграции и что задаёт их порядок | implementer, reviewer, ship-ticket, epic-wave |
-| `deploy` | объект \| null | `how` — как деплоится; `ci_run_check` — команда проверки CI run по коммиту (`$sha` — SHA merge-коммита); `production_check` + `production_expect` — запрос к живому адресу и ожидаемый ответ (требования к команде — ниже таблицы); `smoke`, `auth` — пояснения; `env` — имена переменных окружения, без которых проверки прода не запустить (имена, не значения). `null` — проект не деплоится | оркестратор, ship-ticket, epic-wave |
-| `github.account` | строка \| null | аккаунт `gh`, от которого открываются PR и идут git-команды по origin: если активный аккаунт `gh` другой, каждая такая команда начинается с `export GH_TOKEN=$(gh auth token -u <аккаунт>);` — глобальный аккаунт не переключается; нет — `gh auth status` только печатается | overnight-fix-loop, ship-ticket, epic-wave |
-| `serial_merge.paths` | строки | PR, трогающие эти пути, мержатся по одному | epic-wave |
-| `serial_merge.rule` | строка | когда можно мержить следующий | epic-wave |
-| `docs.context` | `{path, vocabulary_section, decided_in}` \| null | словарь терминов проекта | все агенты |
-| `docs.handoff` | `{path, kind, check}` \| null | файл состояния проекта и проверка его формы | оркестратор, ship-ticket, epic-wave; implementer его не правит |
-| `docs.adr_dir` | путь \| null | каталог ADR; implementer его не правит | implementer, reviewer |
-| `lessons` | `"repo:<путь>"` \| `"profile"` | куда пишутся уроки: в репозиторий или в `lessons/` профиля | retro, ship-ticket, epic-wave, hooks/session-start.sh |
-| `session.inject_rules` | bool | `true` — `hooks/session-start.sh` подмешивает в каждую сессию проекта `rules.md` (без раздела источников), индекс уроков при `lessons: "profile"` и карту активного эпика (`state/active-epic` → `epics/<эпик>/map.md`); текст каждого раздела — не больше 20000 байт (`CLAUDE_SESSION_SECTION_CAP`), длиннее обрезается строкой «… обрезано, полностью: <путь>». Нет поля или `false` — старт сессии пустой | hooks/session-start.sh |
-| `session.rules_heading` | строка | заголовок, под которым подмешивается `rules.md` | hooks/session-start.sh |
-| `session.retro_reminder_after` | число \| нет | есть — `hooks/session-end.sh` пишет каждую сессию в `state/pending-retro.log`, а session-start напоминает о `/retro`, когда строк не меньше этого числа | hooks/session-start.sh, session-end.sh, retro |
-| `tasks.tool` | путь | чем сканировать тикеты и хранить связь тикет → задача (`scan`, `link`, `map`) | tickets-to-tasks |
-| `tasks.list_id` | шаблон | `CLAUDE_CODE_TASK_LIST_ID` эпика, `<slug>` — имя эпика | tickets-to-tasks |
-| `tasks.scan_root` | путь | где искать `.scratch/<эпик>/issues/` без явного каталога | tickets-to-tasks (через `tasks.tool`) |
-| `qmd.collections` | строки | коллекции `qmd`, где ждать ответа по проекту. Подсказка, а не фильтр: агенты ищут по всему индексу и не передают этот список в параметр `collections` | все агенты |
-| `qmd.covers` | строка | что в них лежит | все агенты |
-| `qmd.fallback_grep` | строки | где искать `grep`ом, если `qmd` молчит | scout |
-| `review.lenses` | строки | линзы ревью проекта; оркестратор даёт каждому reviewer одну | оркестратор |
-| `review.ticket_lenses` | строки | два-три из `review.lenses`, которые ship-ticket запускает на каждом тикете по умолчанию | ship-ticket |
-| `dev_stack` | `{check, web_port}` \| null | как убедиться, что локальный стек поднят | continuous-audit `--live` |
-| `audit_lenses` | `[{id, title, where[], finding}]` | линзы continuous-audit: где смотреть и что считается находкой | continuous-audit |
+| `schema` | number | format version, currently `2`; `1` is read during the transition (section "Schema 1"); any other value — exit 1 | all |
+| `name` | string | profile name = folder name | all |
+| `title` | string | the project's human name | reports |
+| `mode` | `"full"` \| `"silent"` | where the workflow files (tickets, the epic spec, the state file, ADRs, lessons) live: `full` — in the repository (Full mode); `silent` — outside git, in the project's Workflow folder (Silent mode). Required in schema 2: absent or another value — exit 1 with the reason in stderr, because a guessed mode would quietly put the workflow files in the wrong place | all skills and agents that write workflow files |
+| `language.reports` | `"ru"` \| `"en"` | language of agent reports and messages to the user | all agents, skills |
+| `language.team` | `"ru"` \| `"en"` | language of everything the team sees: code comments, commit messages, PR titles and descriptions, review comments and verdicts in PRs. While the profile has no `language.docs`, documents (tickets, `spec.md`, ADRs, the state file) are written in the language their neighbours are already written in; a new set without neighbours — `language.reports`; exceptions — in `rules.md`. The old form is the string `"language": "ru"`: `bin/profile` reads it as `{reports: "ru", team: "ru"}`, so `--field language.team` works on it too | implementer, reviewer, ship-ticket, epic-wave, overnight-fix-loop, continuous-audit |
+| `language.docs` | `"ru"` \| `"en"` | language of the project's documents: tickets, the epic spec, ADRs, the state file, lessons. Absent — exit 4, and the reader keeps the rule of `language.team` (the language of the neighbouring documents) | implementer, reviewer, ship-ticket, epic-wave, retro |
+| `attribution` | `"on"` \| `"off"` | whether commits and PRs carry the Claude attribution lines. Absent — `--field attribution` prints `on` | agents and skills that commit or open PRs |
+| `layout.summary` | string | the code layout in one phrase (packages, repositories) | scout |
+| `layout.packages` | strings | package or repository directories | scout, audit |
+| `layout.repos` | `{"<repository>": {kind, default_branch, what}}` \| null | a project of several repositories: `kind` — `single` (one package) or `workspaces`; the main branch; what is in it | scout, implementer |
+| `layout.read_only` | `[{path, what}]` \| absent | directories next to the project that are only read: run no commands in them, edit nothing | scout, implementer, orchestrator |
+| `stack` | strings | the stack — facts, not wishes | all agents |
+| `commands.install` | string | installing dependencies in a fresh tree | implementer, reviewer |
+| `commands.lint` / `typecheck` / `test` / `build` | string | how the project runs them from the root | all |
+| `commands.test_one` | string | a targeted run of one test, with the placeholder `<файл>` (file) | implementer, reviewer |
+| `commands.contract` / `e2e` | string \| null | suites not included in `test` | implementer, reviewer |
+| `commands.verify` | string | the full local check in one line; agents append `; echo "EXIT=$?"` | implementer, reviewer |
+| `commands.prepare_tree` | string | what to do in a freshly created worktree before running checks | orchestrator, reviewer |
+| `commands.requires` | strings | what must be up (Docker, a database, the stack) | implementer, reviewer |
+| `commands.package` | `{typecheck, test, test_one, names}` \| null | commands of one package of a monorepo: templates with the placeholders `<пакет>` (package name) and `<файл>` (path from the package root, `test_one` only); `names` — package directory → name for `<пакет>` (`{"apps/api": "@auction/api"}`). No field — the root's commands | overnight-fix-loop |
+| `modules` | `{deep, flat, skip, heavy}` \| null | what counts as a module: by default a directory right under `<пакет>/src`; `deep` — roots where a module is one level deeper; `flat` — packages that are one module as a whole; `skip` — directory names that form no modules; `heavy` — `{"<пакет>": N}`, no more than N modules of the package at once (the tests bring up their own database or stack) | overnight-fix-loop |
+| `tests.new_file` | `{"<пакет>": template}` \| null | where a module's new test file goes; placeholders `<имя>` (module name) and `<каталог модуля>` (module directory) | overnight-fix-loop |
+| `tests.globs` | strings \| null | test file name masks (`*.spec.ts`), for `grep --include` | overnight-fix-loop |
+| `parallel` | `"worktrees"` \| `"single"` | `worktrees` — several implementers, each in its own worktree; `single` — one implementer, work in the main checkout, no worktree | all agents, epic-wave |
+| `worktree.root` | path \| null | where working trees are created | implementer, reviewer, orchestrator |
+| `worktree.base` | string \| null | what to branch from (`origin/main`, `origin/master`). `null` — the Harness preflight takes `origin/<layout.repos.<repo>.default_branch>`, then the branch `origin/HEAD` points to, then `origin/main` | implementer, preflight |
+| `worktree.implementer` / `reviewer` | string | a ready `git worktree add` command with placeholders: `<ветка>` (branch, = `tickets.branch`), `<имя-тикета>` (ticket name, = `<NN>-<slug>`), `<эпик>` (epic), `<NN>`, `<slug>`, `<что-ревьюишь>` (what is reviewed). worfy names the tree by number only — `…/worktrees/<NN>` | implementer, reviewer, ship-ticket, epic-wave |
+| `tickets.root` | path \| null | root of the epics directory (`.scratch/`), with a trailing slash; the audit epic is created there. `bin/ticket`, `bin/epic-status` and `bin/epic-board` take the root from here too (path rules — below the table) | continuous-audit, ticket, epic-status, epic-board |
+| `tickets.path` | path template | where a ticket lies | implementer, epic-wave |
+| `tickets.trail_section` | string | the ticket section listing the files that may be edited | implementer |
+| `tickets.spec` | path template \| null | the epic spec, read together with the ticket | ship-ticket, epic-wave |
+| `tickets.branch` | template \| null | the ticket's branch name: `<эпик>/<NN>-<slug>` (auction) or `<эпик>/<NN>` (worfy — number only); epic-wave finds the wave's branches by it when resuming (everything after `<эпик>/` → `*`) | ship-ticket, epic-wave |
+| `workflow.ticket_skill` | string \| null | the skill a ticket goes by | implementer |
+| `workflow.implementer_steps` | string | which steps of the skill the implementer does | implementer |
+| `workflow.finish` | `"pr-green-ci"` \| `"local-green"` | how far the implementer takes the work: a PR with green CI or locally green checks. With `local-green` ship-ticket and epic-wave open no PR and do not merge | implementer, ship-ticket, epic-wave |
+| `workflow.merge` | `"orchestrator"` | who merges | implementer, epic-wave |
+| `numbering.adr` | `{dir, check}` \| null | the ADR directory and the check that numbers are unique | orchestrator, reviewer, ship-ticket, epic-wave |
+| `numbering.migrations` | `{generate, journal, order_key, check}` \| null | how migrations are created and what sets their order | implementer, reviewer, ship-ticket, epic-wave |
+| `deploy` | object \| null | `how` — how it deploys; `ci_run_check` — the command that checks the CI run by commit (`$sha` — the merge commit's SHA); `production_check` + `production_expect` — a request to the live address and the expected answer (requirements for the command — below the table); `smoke`, `auth` — explanations; `env` — names of environment variables without which the production checks cannot run (names, not values). `null` — the project does not deploy | orchestrator, ship-ticket, epic-wave |
+| `github.account` | string \| null | the `gh` account that opens PRs and runs git commands against origin: if the active `gh` account is another one, every such command starts with `export GH_TOKEN=$(gh auth token -u <account>);` — the global account is not switched; absent — `gh auth status` is only printed | overnight-fix-loop, ship-ticket, epic-wave |
+| `serial_merge.paths` | strings | PRs that touch these paths are merged one at a time | epic-wave |
+| `serial_merge.rule` | string | when the next one may be merged | epic-wave |
+| `docs.context` | `{path, vocabulary_section, decided_in}` \| null | the project's glossary | all agents |
+| `docs.handoff` | `{path, kind, check}` \| null | the project's state file and the check of its form | orchestrator, ship-ticket, epic-wave; implementer does not edit it |
+| `docs.adr_dir` | path \| null | the ADR directory; implementer does not edit it | implementer, reviewer |
+| `lessons` | `"repo:<path>"` \| `"profile"` | where lessons are written: into the repository or into the profile's `lessons/` | retro, ship-ticket, epic-wave, hooks/session-start.sh |
+| `session.inject_rules` | bool | `true` — `hooks/session-start.sh` mixes into every session of the project `rules.md` (without the sources section), the lessons index with `lessons: "profile"` and the map of the active epic (`state/active-epic` → `epics/<epic>/map.md`); the text of each section is at most 20000 bytes (`CLAUDE_SESSION_SECTION_CAP`), a longer one is cut with the line "… truncated, full text: <path>". No field or `false` — the session starts empty | hooks/session-start.sh |
+| `session.rules_heading` | string | the heading under which `rules.md` is mixed in | hooks/session-start.sh |
+| `session.retro_reminder_after` | number \| absent | present — `hooks/session-end.sh` writes every session into `state/pending-retro.log`, and session-start reminds about `/retro` when there are at least this many lines | hooks/session-start.sh, session-end.sh, retro |
+| `tasks.tool` | path | what scans tickets and keeps the ticket → task link (`scan`, `link`, `map`) | tickets-to-tasks |
+| `tasks.list_id` | template | the epic's `CLAUDE_CODE_TASK_LIST_ID`, `<slug>` — the epic name | tickets-to-tasks |
+| `tasks.scan_root` | path | where to look for `.scratch/<epic>/issues/` without an explicit directory | tickets-to-tasks (through `tasks.tool`) |
+| `mcp.allowed` | strings \| absent | names of the MCP servers allowed to the agents of the project in the sessions worfy starts (orchestrator, new sessions, Autopilot; their subagents inherit the set). Absent — exit 4, and worfy takes `qmd` and `worfy-canvas`, the servers the workflow needs | worfy |
+| `qmd.collections` | strings | `qmd` collections where an answer about the project is expected. A hint, not a filter: agents search the whole index and do not pass this list into the `collections` parameter | all agents |
+| `qmd.covers` | string | what lies in them | all agents |
+| `qmd.fallback_grep` | strings | where to search with `grep` if `qmd` is silent | scout |
+| `review.lenses` | strings | the project's review lenses; the orchestrator gives each reviewer one | orchestrator |
+| `review.ticket_lenses` | strings | two or three of `review.lenses` that ship-ticket runs on every ticket by default | ship-ticket |
+| `dev_stack` | `{check, web_port}` \| null | how to make sure the local stack is up | continuous-audit `--live` |
+| `audit_lenses` | `[{id, title, where[], finding}]` | continuous-audit lenses: where to look and what counts as a finding | continuous-audit |
 
-Секреты в профиль не пишутся: ни значения переменных окружения, ни пароли, ни адреса закрытых баз.
-Профиль называет переменную (`$API_URL`), а не её значение.
+Secrets are not written into the profile: no environment variable values, no passwords, no
+addresses of private databases. The profile names the variable (`$API_URL`), not its value.
 
-`tickets.root` — как его читают `bin/ticket`, `bin/epic-status` и `bin/epic-board`:
-- абсолютный путь (`/Users/alexey/Work/Atakama/.scratch/`) или `~/…` — берётся как есть. Так пишет
-  корень проект из нескольких репозиториев, у которого тикеты лежат в общем каталоге (workspace) вне
-  git: из любого его репозитория и из самого общего каталога тикеты одни и те же;
-- относительный (`.scratch/`) — от корня текущего рабочего дерева (`git rev-parse --show-toplevel`):
-  тикеты едут в ветке, у каждого worktree они свои. Вне git — от `_resolved.workspace`, иначе от
-  текущего каталога;
-- `null`, поля нет или каталог не зарегистрирован (код 3 у `profile`) — как до профилей:
-  `<git top-level или текущий каталог>/.scratch`;
-- сломанный реестр или профиль (код 1) — отказ с кодом 1, а не тихий откат: статус ушёл бы не в тот
-  файл;
-- флаг `--root <каталог>` у `ticket` и `epic-status` перекрывает всё это; `ticket root` печатает
-  итоговый корень.
+Placeholders inside values (`<эпик>`, `<NN>`, `<пакет>` and the rest above) are part of the
+contract: they are substituted as written, not translated.
 
-`epic-status --json --ref <ветка>` читает корень из git того репозитория, где он лежит. Корень вне
-git (Atakama) — код 3 и причина в stderr, а не пустой ответ. Тесты: `bash ~/.claude/bin/tests/tickets-root.test.sh`;
-переменные для тестов — `CLAUDE_PROFILE_BIN` (чем `ticket` читает профиль), `CLAUDE_TICKET_BIN` (чем `epic-status` берёт корень).
+`tickets.root` — how `bin/ticket`, `bin/epic-status` and `bin/epic-board` read it:
+- an absolute path (`/Users/alexey/Work/Atakama/.scratch/`) or `~/…` — taken as is. This is how a
+  project of several repositories writes the root when its tickets lie in the common directory
+  (workspace) outside git: from any of its repositories and from the common directory itself the
+  tickets are the same;
+- a relative one (`.scratch/`) — from the root of the current working tree
+  (`git rev-parse --show-toplevel`): the tickets travel in the branch, each worktree has its own.
+  Outside git — from `_resolved.workspace`, otherwise from the current directory;
+- `null`, no field, or the directory is not registered (exit 3 from `profile`) — as before profiles:
+  `<git top-level or the current directory>/.scratch`;
+- a broken registry or profile (exit 1) — refusal with exit 1, not a quiet fallback: the status
+  would go into the wrong file;
+- the `--root <directory>` flag of `ticket` and `epic-status` overrides all of this; `ticket root`
+  prints the resulting root.
 
-`deploy.production_check` — одна строка, которую скиллы запускают как `got=$(<команда>); echo "КОД=$?"`.
-Требования: пароль не попадает в аргументы процесса (их видно в `ps`) — пара передаётся через stdin,
-например `printf 'user = "%s:%s"\n' "$USER_VAR" "$PASS_VAR" | curl -K - …` (`printf` — встроенная
-команда shell, отдельного процесса нет); символы `"` и `\` в паре в таком конфиге нужно
-экранировать — у auction это `esc() { printf '%s' "$1" | sed 's/[\\"]/\\&/g'; }` (значение идёт
-в `sed` через stdin, не аргументом), проверка — `bin/tests/production-check.test.sh`; код возврата не теряется — `set -o pipefail` в начале строки, `curl -f` и `jq -e`,
-так что 401, пустой ответ или незаданная переменная дают ненулевой код и читаются как «не проверено».
+`epic-status --json --ref <branch>` reads the root from the git of the repository where it lies. A
+root outside git (Atakama) — exit 3 and the reason in stderr, not an empty answer. Tests:
+`bash bin/tests/tickets-root.test.sh` from the plugin root; variables for tests —
+`CLAUDE_PROFILE_BIN` (what `ticket` reads the profile with), `CLAUDE_TICKET_BIN` (what `epic-status`
+takes the root from).
+
+`deploy.production_check` is one line that skills run as `got=$(<command>); echo "EXIT=$?"`.
+Requirements: the password does not get into the process arguments (they are visible in `ps`) — the
+pair goes through stdin, for example `printf 'user = "%s:%s"\n' "$USER_VAR" "$PASS_VAR" | curl -K - …`
+(`printf` is a shell builtin, there is no separate process); the characters `"` and `\` in the pair
+must be escaped in such a config — auction does it with
+`esc() { printf '%s' "$1" | sed 's/[\\"]/\\&/g'; }` (the value goes into `sed` through stdin, not as
+an argument), the check is `bin/tests/production-check.test.sh`; the exit code is not lost —
+`set -o pipefail` at the start of the line, `curl -f` and `jq -e`, so a 401, an empty answer or an
+unset variable give a non-zero code and read as "not verified".
+
+## The Harness's own scripts
+
+Four scripts are constants of the Harness, the same for every project, and not facts of a project;
+they are not profile fields. They live in `${CLAUDE_PLUGIN_ROOT}/bin/`:
+
+- `ticket` — moves a ticket's status (`claim`, `block`, `done`);
+- `epic-status` — the epic summary: `epic-status <epic>` — one line, `--json [--ref <branch>]` — all
+  epics as JSON; `--ref` with the tickets root outside git — exit 3 with the reason;
+- `preflight --epic <epic>` — the check before a ticket or a wave; it also prints the next free ADR
+  and migration numbers, which are taken before the content. Contract: the last line of the output
+  is `GO` or `BLOCKED: <reasons>`, exit code 1 on `BLOCKED`; the line `<base>: <sha> …` is the base
+  for briefs. `preflight` takes `epic-status` next to itself, not from the profile. The base is
+  `worktree.base`; when it is `null` (a project of several repositories whose main branches
+  differ, like Atakama: `master` in two repositories, `main` in the third) — `origin/<default_branch>`
+  of this repository from `layout.repos`, then the branch `origin/HEAD` points to, and only then
+  `origin/main`. So every repository of such a project runs the Harness preflight against its own
+  main branch. Exit 2 (not a git repository — for example the common directory above the
+  repositories of such a project, — or a project that is not registered) — the skill runs a minimal
+  preflight itself (`git fetch`, the state of the tree, open PRs).
+
+## Schema 1 (transition)
+
+Profiles of schema 1 are read until they are moved to schema 2 and into `$HARNESS_HOME`. How
+`bin/profile` reads them:
+
+- **Place.** `~/.claude/profiles/<name>/` is looked at only when `$HARNESS_HOME/projects/<name>/`
+  has no `profile.json` (step 3 of the lookup).
+- **`mode`.** Schema 1 has no such field; `--field mode` prints `full`: before modes the whole
+  Harness worked as Full mode. A schema 1 profile with no `schema` field is read the same way.
+- **`attribution`** — absent prints `on`, as in schema 2; **`language.docs`** — absent, exit 4.
+- **The four path fields.** Schema 1 has `tickets.status_tool`, `tickets.epic_status`,
+  `workflow.preflight` (with the placeholder `<эпик>`) and `numbering.reserve_with` — paths to the
+  Harness, not facts of the project. A value that starts with `~/.claude/bin/` or with its
+  absolute form `$HOME/.claude/bin/` (the Harness before the plugin) is replaced with the same
+  script next to `bin/profile`: `~/.claude/bin/ticket` → `<bin>/ticket`,
+  `~/.claude/bin/preflight --epic <эпик>` → `<bin>/preflight --epic <эпик>`. Any other value is
+  left as it is, and `null` stays `null` (Atakama has `workflow.preflight: null`). Schema 2 has no
+  such choice — the Harness preflight is one for all projects; skills no longer read these fields,
+  so Atakama's repositories now go through the Harness preflight too (its base — section "The
+  Harness's own scripts").
+- **The same four fields in schema 2.** They are not in the table and not read from the file. So
+  that a reader that still asks for one does not break, `--field` (and `--json`) answers with this
+  Harness's own script: `tickets.status_tool` → `<bin>/ticket`, `tickets.epic_status` →
+  `<bin>/epic-status`, `numbering.reserve_with` → `<bin>/preflight`, `workflow.preflight` →
+  `<bin>/preflight --epic <эпик>`, where `<bin>` is the folder of `bin/profile`.
+- **`language`** as a string — expanded into `{reports, team}` (the `language.team` row).
 
 ## rules.md
 
-Проза, которую агент читает целиком (`profile` без флагов печатает её после JSON). Сюда идут факты,
-которые нельзя выразить полем: ловушки инструментов («`pnpm test -- <файл>` не фильтрует»),
-обязательные шаги («после правки `packages/shared` — сборка»), запреты проекта. Общих правил работы
-здесь нет — они в агентах.
+Prose that the agent reads whole (`profile` without flags prints it after the JSON). Facts that
+cannot be expressed as a field go here: tool pitfalls ("`pnpm test -- <file>` does not filter"),
+mandatory steps ("after editing `packages/shared` — a build"), the project's prohibitions. There are
+no general working rules here — they are in the agents.
 
-`rules.md` — не список чтения. Пути в нём агент открывает, только когда они нужны для задачи.
-Если проекту действительно нужны документы, которые исполнитель обязан прочитать сверх
-`CLAUDE.md` / `AGENTS.md`, тикета и брифа, они перечисляются под отдельным заголовком
-`## Обязательное чтение исполнителя`, и только там.
+`rules.md` is not a reading list. The agent opens the paths in it only when the task needs them.
+If a project really needs documents the implementer must read beyond `CLAUDE.md` / `AGENTS.md`, the
+ticket and the brief, they are listed under a separate heading
+`## Обязательное чтение исполнителя` (required reading for the implementer), and only there.
 
-В конце — раздел `## Источники`: происхождение фактов (файл и строка) для того, кто сопровождает
-профиль, чтобы при расхождении было видно, что проверять. Это не инструкция агенту.
+At the end — a `## Sources` section (in the existing Russian profiles `## Источники`): where the
+facts come from (file and line), for whoever maintains the profile, so that on a mismatch it is
+clear what to check. It is not an instruction to the agent; `hooks/session-start.sh` leaves it out.
 
-## Новый проект
+## New project
 
-1. Запись в `gate/config.json` (`key`, `match`, `pm`, скрипты gate) и поле `"profile": "<имя>"`.
-2. `profiles/<имя>/profile.json` по таблице выше; поля, которых нет, — `null`.
-3. `profiles/<имя>/rules.md` с разделом `## Источники`.
-4. Проверка: `~/.claude/bin/profile -C <корень проекта>` печатает профиль, код выхода 0.
+The profile is written on the machine, in `$HARNESS_HOME/projects/<name>/`, not into the project's
+repository.
+
+1. An entry in `$HARNESS_HOME/gate/config.json` (`key`, `match`, `pm`, gate scripts) and the field
+   `"profile": "<name>"`.
+2. `$HARNESS_HOME/projects/<name>/profile.json` with `"schema": 2` and `mode` by the table above;
+   fields the project does not have — `null`.
+3. `$HARNESS_HOME/projects/<name>/rules.md` with a `## Sources` section.
+4. Check: `${CLAUDE_PLUGIN_ROOT}/bin/profile -C <project root>` prints the profile, exit code 0.
