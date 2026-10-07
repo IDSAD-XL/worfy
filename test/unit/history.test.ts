@@ -300,6 +300,131 @@ describe('history: one gesture, one step', () => {
     expect(nodeOf('b')).toMatchObject({ w: 400 })
   })
 
+  it('a gesture takes its place in the history at its first recorded operation, not when it ends', async () => {
+    note('a')
+    let release: () => void = () => undefined
+    const waiting = new Promise<void>((resolve) => (release = resolve))
+    const slow: LayoutChannel = { send: async (op) => (await waiting, send(op)), layout: () => layout() }
+    // Gesture A moves `a` to x=10, then waits for main's answer on its second operation.
+    let recorded: () => void = () => undefined
+    const first = new Promise<void>((resolve) => (recorded = resolve))
+    const gestureA = grouped(async (group) => {
+      await user({ op: 'move', id: 'a', x: 10, y: 0 }, group)
+      recorded()
+      await applyRecorded(PROJECT, { op: 'move', id: 'a', x: 20, y: 0 }, slow, group)
+    })
+    await first
+    // Meanwhile gesture B moves `a` to x=50 and is over; then A is over.
+    await grouped((group) => user({ op: 'move', id: 'a', x: 50, y: 0 }, group))
+    release()
+    await gestureA
+    expect(history().size).toBe(2)
+
+    await history().undo()
+    await history().undo()
+    expect(nodeOf('a')).toMatchObject({ x: 0 })
+    await history().redo()
+    await history().redo()
+    expect(nodeOf('a')).toMatchObject({ x: 50 })
+  })
+
+  it('⌘Z while a gesture whose step is already in the history waits on main undoes the whole gesture once it is over', async () => {
+    note('a')
+    note('b')
+    let release: () => void = () => undefined
+    const waiting = new Promise<void>((resolve) => (release = resolve))
+    const slow: LayoutChannel = { send: async (op) => (await waiting, send(op)), layout: () => layout() }
+    let recorded: () => void = () => undefined
+    const first = new Promise<void>((resolve) => (recorded = resolve))
+    const gesture = grouped(async (group) => {
+      await user({ op: 'move', id: 'a', x: 10, y: 0 }, group)
+      recorded()
+      await applyRecorded(PROJECT, { op: 'move', id: 'b', x: 20, y: 0 }, slow, group)
+    })
+    await first
+    let undone: boolean | undefined
+    const undo = history().undo().then((result) => (undone = result))
+    // The undo does not touch the half-done gesture: `a` stays where the gesture put it.
+    for (let turn = 0; turn < 20; turn += 1) await Promise.resolve()
+    expect(undone).toBeUndefined()
+    expect(nodeOf('a')).toMatchObject({ x: 10 })
+    release()
+    await gesture
+    await undo
+    expect(undone).toBe(true)
+    expect([nodeOf('a')?.x, nodeOf('b')?.x]).toEqual([0, 0])
+    expect(history().canUndo).toBe(false)
+    // ⇧⌘Z brings the whole gesture back.
+    expect(await history().redo()).toBe(true)
+    expect([nodeOf('a')?.x, nodeOf('b')?.x]).toEqual([10, 20])
+  })
+
+  it('a waiting ⌘Z waits for a gesture that took the top while it waited, and undoes that gesture', async () => {
+    note('a')
+    note('b')
+    const gate = () => {
+      let release: () => void = () => undefined
+      const waiting = new Promise<void>((resolve) => (release = resolve))
+      const slow: LayoutChannel = { send: async (op) => (await waiting, send(op)), layout: () => layout() }
+      return { release, slow }
+    }
+    const started = (body: (group: Group, recorded: () => void) => Promise<unknown>) => {
+      let recorded: () => void = () => undefined
+      const first = new Promise<void>((resolve) => (recorded = resolve))
+      return { done: grouped((group) => body(group, recorded)), first }
+    }
+    const one = gate()
+    const two = gate()
+    const gestureA = started(async (group, recorded) => {
+      await user({ op: 'move', id: 'a', x: 10, y: 0 }, group)
+      recorded()
+      await applyRecorded(PROJECT, { op: 'move', id: 'a', x: 20, y: 0 }, one.slow, group)
+    })
+    await gestureA.first
+    const undo = history().undo()
+    // While ⌘Z waits for A, gesture C records its first part on top of A and waits on main too.
+    const gestureC = started(async (group, recorded) => {
+      await user({ op: 'move', id: 'b', x: 30, y: 0 }, group)
+      recorded()
+      await applyRecorded(PROJECT, { op: 'move', id: 'b', x: 40, y: 0 }, two.slow, group)
+    })
+    await gestureC.first
+    one.release()
+    await gestureA.done
+    two.release()
+    await gestureC.done
+    expect(await undo).toBe(true)
+    // The ⌘Z took C, the latest step, whole; A is still done.
+    expect([nodeOf('a')?.x, nodeOf('b')?.x]).toEqual([20, 0])
+    expect(history().size).toBe(1)
+  })
+
+  it('⌘Z while a gesture waits on main undoes the newer finished step above it at once', async () => {
+    note('a')
+    note('b')
+    let release: () => void = () => undefined
+    const waiting = new Promise<void>((resolve) => (release = resolve))
+    const slow: LayoutChannel = { send: async (op) => (await waiting, send(op)), layout: () => layout() }
+    let recorded: () => void = () => undefined
+    const first = new Promise<void>((resolve) => (recorded = resolve))
+    const gesture = grouped(async (group) => {
+      await user({ op: 'move', id: 'a', x: 10, y: 0 }, group)
+      recorded()
+      await applyRecorded(PROJECT, { op: 'move', id: 'a', x: 20, y: 0 }, slow, group)
+    })
+    await first
+    await user({ op: 'resize', id: 'b', w: 400, h: 300, x: 0, y: 0 })
+    expect(await history().undo()).toBe(true)
+    expect(nodeOf('b')).toMatchObject({ w: 220 })
+    expect(nodeOf('a')).toMatchObject({ x: 10 })
+    release()
+    await gesture
+    // The rest of the gesture is a new change: the undone resize can no longer be redone.
+    expect(history().canRedo).toBe(false)
+    expect(await history().undo()).toBe(true)
+    expect(nodeOf('a')).toMatchObject({ x: 0 })
+  })
+
   it('a step recorded after its gesture closed is still a step', async () => {
     note('a')
     let release: () => void = () => undefined
