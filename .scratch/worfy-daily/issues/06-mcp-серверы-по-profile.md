@@ -52,8 +52,8 @@ haiku от этого падает «Prompt too long». Profile worfy не чи�
 - [x] В «Итог» записан способ ограничить серверы в SDK при `settingSources` пользователя, с версиями Claude Code и SDK.
 - [x] `profile.ts` покрыт test-ами на каждый случай: код 0 со списком, код 3, код 4, нет скрипта, сломанный JSON. Во всех отказных случаях — список по умолчанию `qmd` и `worfy-canvas`.
 - [x] Session в Project получает только серверы из списка, `worfy-canvas` — если он в списке. Session вне Project работает как раньше.
-- [ ] (вручную) Живая Session на Project worfy: в `system/init` только серверы из списка. Число tools до и после — в «Итог». Не проверено: живая Session пишет транскрипт в `~/.claude/projects`, а исполнителю запись в `~/.claude` запрещена; проверка — за владельцем.
-- [ ] (вручную) Subagent этой Session и Subagent workflow-скрипта видят тот же набор серверов — по tools в их транскриптах. Итог — в «Итог». Не проверено: нужен ход модели, а значит живая Session с записью в `~/.claude`; проверка — за владельцем.
+- [x] (вручную) Живая Session на Project worfy: в `system/init` только серверы из списка. Число tools до и после — в «Итог». Проверено 2026-10-07: 12 MCP tools вместо 634 tools всего — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
+- [x] (вручную) Subagent этой Session и Subagent workflow-скрипта видят тот же набор серверов — по tools в их транскриптах. Итог — в «Итог». Проверено 2026-10-07 — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
 - [x] worfy не пишет в `~/.claude` и в репозиторий Project: test сравнивает деревья временных папок до и после.
 
 ## Тесты
@@ -109,7 +109,7 @@ haiku от этого падает «Prompt too long». Profile worfy не чи�
 - **Subagent-ы.** Политика действует на весь процесс Claude Code, поэтому Subagent-ы Session и
   Subagent-ы workflow-скриптов должны получать тот же набор; по документации SDK
   `allowedMcpServers` покрывает и серверы из frontmatter агентов, плагинов и коннекторов claude.ai.
-  Вживую не проверено (см. «Готово, когда»).
+  Вживую проверено 2026-10-07 — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
 - **Замер.** В изолированной проверке: 26 tools без списка, 24 со списком (минус два tools
   отфильтрованных серверов). Число tools на Project worfy до и после — не замерено, это ручная
   проверка владельца: нужна живая Session с конфигурацией пользователя.
@@ -121,3 +121,36 @@ haiku от этого падает «Prompt too long». Profile worfy не чи�
   снимки деревьев временной Claude home и папки Project до и после совпадают; передача списка из
   `sdkQueryFactory` в `query()`. `test/unit/agent-options.test.ts` — набор серверов со списком
   `[qmd]`, по умолчанию, с пустым списком, без списка, вне Project.
+
+### Ручная проверка 2026-10-07
+
+Проверял агент, ночь 2026-10-07 (второй круг ручных проверок).
+
+**Агенты workflow-скрипта, MCP-серверы и модели — проверка M18.** Stable copy из 6df9791 (pid 2455,
+CDP 9351), Project CanvasForAI, настоящий Claude Code. Это замена проверки «во время Wave Autopilot»:
+Orchestrator пока не запускает workflow-скрипты.
+
+- В Profile worfy нет поля `mcp` (exit 4), в выводе main — строка «[profile] MCP servers for
+  …/CanvasForAI: the default list (qmd, worfy-canvas), because … no mcp.allowed field (profile exit
+  code 4)». Она пишется в stderr (`console.warn`, `src/main/workflow/profile.ts:119-121`).
+- Новая Session b5c7b667: Claude Code (pid 18181) запущен с `--managed-settings`, где
+  `allowManagedMcpServersOnly` и разрешены только qmd и worfy-canvas.
+- `/context`: 12 MCP tools (qmd — 4, worfy-canvas — 8). Всего tools 43 против прежних 634: 31
+  отложенный (по записи `deferred_tools_delta`) и 12 загруженных (со слов модели).
+- Ход «Agent + workflow-скрипт из двух агентов»: по записи `deferred_tools_delta` самого Claude Code у
+  Subagent-а и у обоих агентов workflow-скрипта те же 12 `mcp__`, агенты ответили теми же списками.
+  `mcp__github` — 0 во всех транскриптах.
+- Модели: у Session, Subagent-а и агентов workflow-скрипта — `claude-opus-5-5` (в attachment модели
+  у всех `claude-opus-5-5[1m]`). После выбора Sonnet 5.5 в picker Subagent и агент workflow-скрипта
+  тоже ответили на `claude-sonnet-5-5`.
+- Canvas: под Node-ом Session — дерево из general-purpose и запуска list-mcp-tools с agent-1 и agent-2.
+  Второй запуск снят в состоянии running (sleep-1, running 23s), потом — done 1m 05s. Тот же список —
+  в панели Subagents Session view.
+- Замечание [low]: в превью Node-а агента workflow-скрипта имя tool-а `mcp__qmd__get` показано как
+  «mcpqmdget». `summaryLine` снимает `__x__` как выделение даже внутри слова:
+  `src/shared/transcript/subagents.ts:401`. По CommonMark подчёркивания внутри слова выделением не
+  считаются.
+- Вердикт: проверено. Session закрыта кнопкой Close, процесс Claude Code завершён.
+- Снимки: дерево workflow-скрипта во время работы — [17-workflow-agents-session.png](../../worfy-daily/evidence/17-workflow-agents-session.png). Остальное — в scratchpad Session
+  Orchestrator-а: `M18-context.png`, `M18-canvas-workflow.png`, `M18-canvas-workflow-done.png`,
+  `M18-picker-menu.png`, `M18-session-sonnet.png`, `M18-after-close.png`.

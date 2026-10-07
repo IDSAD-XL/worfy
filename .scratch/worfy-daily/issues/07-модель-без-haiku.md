@@ -60,7 +60,7 @@ Claude Code `claude-opus-5-5`, а не на `opus[1m]` из `settings.json`: wor
 - [x] Node с сохранённой моделью haiku стартует на модели по умолчанию, effort сброшен.
 - [x] Новый Orchestrator и новая Session без выбора пользователя стартуют с `model: null`, если в `settings.json` пользователя не haiku.
 - [x] Если в `settings.json` пользователя стоит haiku, Session без выбора пользователя стартует с явной моделью `sonnet`. Файл не меняется: test сравнивает дерево временного `WORFY_CLAUDE_HOME` до и после.
-- [ ] (вручную) Живая Session: модель Subagent-а в его транскрипте совпадает с моделью Session. Итог — в «Итог». Не проверено: нужен ход настоящего Claude Code, а он пишет транскрипт в `~/.claude/projects`; исполнителю запись в `~/.claude` запрещена. Проверка — за владельцем.
+- [x] (вручную) Живая Session: модель Subagent-а в его транскрипте совпадает с моделью Session. Итог — в «Итог». Проверено 2026-10-07 — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
 - [x] Снимки Pickers в светлой и тёмной теме сверены с F-SPEC. Сверил проверяющий PR #44 по снимкам e2e в обеих темах (`session-view-light.png`, `session-view-dark.png`, `pickers-*.png`; во временной папке проверки, в репозиторий не входят): расхождений с F-SPEC нет.
 
 ## Тесты
@@ -88,5 +88,38 @@ Claude Code `claude-opus-5-5`, а не на `opus[1m]` из `settings.json`: wor
 - **Модель пользователя.** Новый `src/main/claude-home/user-model.ts` читает `model` из `<claudeHome>/settings.json`, только чтение; нет файла, сломанный JSON или нет поля — `null`. Session с `model: null`, у пользователя которой стоит haiku, просит у Claude Code `sonnet`. Меняется только запрос: настройки Session и сохранённый выбор Node-а остаются `null`, `settings.json` пользователя не пишется (ADR-0005). Модель пользователя читается заново для каждого процесса Claude Code.
 - **Не менялись.** `options.ts` (его в той же Wave правит Ticket 06), `Pickers.tsx` и `fake-query.ts`: список фильтрует main, а в `FAKE_MODELS` строка haiku без effort уже была.
 - **Test-ы.** `test/contract/agent-controls.test.ts` — список без haiku, правило `modelOptions`, запасной список, сохранённая haiku, `null` по умолчанию при разных `settings.json`, haiku во временном `WORFY_CLAUDE_HOME` даёт `sonnet` в запросе к fake-query при неизменном дереве (байты и mtime), повторное чтение на каждый процесс, нечитаемая модель пользователя, отказ `configure`. `test/e2e/session-controls.spec.ts` — picker без haiku, новый Orchestrator с `model: null`, Orchestrator на haiku стартует на модели по умолчанию, снимки Pickers в двух темах. Мутанты каждого правила в `session.ts` роняют contract test-ы; без правил краснеют оба e2e.
-- **Не проверено.** Живая проверка модели Subagent-а — пункт «Готово, когда» выше.
+- **Проверено 2026-10-07.** Живая проверка модели Subagent-а — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
 - **Долги** — в `HANDOFF.md`: `readUserModel()` по умолчанию читает настоящий `~/.claude/settings.json` (с haiku там падают 10 contract test-ов); подстановка `sonnet` сохраняет effort, которого у sonnet может не быть.
+
+### Ручная проверка 2026-10-07
+
+Проверял агент, ночь 2026-10-07 (второй круг ручных проверок).
+
+**Агенты workflow-скрипта, MCP-серверы и модели — проверка M18.** Stable copy из 6df9791 (pid 2455,
+CDP 9351), Project CanvasForAI, настоящий Claude Code. Это замена проверки «во время Wave Autopilot»:
+Orchestrator пока не запускает workflow-скрипты.
+
+- В Profile worfy нет поля `mcp` (exit 4), в выводе main — строка «[profile] MCP servers for
+  …/CanvasForAI: the default list (qmd, worfy-canvas), because … no mcp.allowed field (profile exit
+  code 4)». Она пишется в stderr (`console.warn`, `src/main/workflow/profile.ts:119-121`).
+- Новая Session b5c7b667: Claude Code (pid 18181) запущен с `--managed-settings`, где
+  `allowManagedMcpServersOnly` и разрешены только qmd и worfy-canvas.
+- `/context`: 12 MCP tools (qmd — 4, worfy-canvas — 8). Всего tools 43 против прежних 634: 31
+  отложенный (по записи `deferred_tools_delta`) и 12 загруженных (со слов модели).
+- Ход «Agent + workflow-скрипт из двух агентов»: по записи `deferred_tools_delta` самого Claude Code у
+  Subagent-а и у обоих агентов workflow-скрипта те же 12 `mcp__`, агенты ответили теми же списками.
+  `mcp__github` — 0 во всех транскриптах.
+- Модели: у Session, Subagent-а и агентов workflow-скрипта — `claude-opus-5-5` (в attachment модели
+  у всех `claude-opus-5-5[1m]`). После выбора Sonnet 5.5 в picker Subagent и агент workflow-скрипта
+  тоже ответили на `claude-sonnet-5-5`.
+- Canvas: под Node-ом Session — дерево из general-purpose и запуска list-mcp-tools с agent-1 и agent-2.
+  Второй запуск снят в состоянии running (sleep-1, running 23s), потом — done 1m 05s. Тот же список —
+  в панели Subagents Session view.
+- Замечание [low]: в превью Node-а агента workflow-скрипта имя tool-а `mcp__qmd__get` показано как
+  «mcpqmdget». `summaryLine` снимает `__x__` как выделение даже внутри слова:
+  `src/shared/transcript/subagents.ts:401`. По CommonMark подчёркивания внутри слова выделением не
+  считаются.
+- Вердикт: проверено. Session закрыта кнопкой Close, процесс Claude Code завершён.
+- Снимки: дерево workflow-скрипта во время работы — [17-workflow-agents-session.png](../../worfy-daily/evidence/17-workflow-agents-session.png). Остальное — в scratchpad Session
+  Orchestrator-а: `M18-context.png`, `M18-canvas-workflow.png`, `M18-canvas-workflow-done.png`,
+  `M18-picker-menu.png`, `M18-session-sonnet.png`, `M18-after-close.png`.

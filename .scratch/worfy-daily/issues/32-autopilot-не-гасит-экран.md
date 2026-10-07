@@ -127,7 +127,7 @@ HANDOFF.
 - [x] Прогон держит один blocker `prevent-display-sleep` со старта до остановки, включая ожидание сброса Limits и задержку после Stop с живыми background task-ами. Отпускает его на остановке, на `will-quit` и после конца задач, как сейчас. Второго blocker-а нет.
 - [x] Подсказка активной кнопки «Autopilot» и подсказка строки состояния в `running` и `waiting` говорят «The display stays on until the run ends». Видимая строка состояния не меняется.
 - [x] README, раздел «Stable copy»: на ночной прогон крышка открыта, Mac не блокируют вручную.
-- [ ] (вручную) Стабильная копия, обновлённая после влития. Во время прогона у процесса worfy есть assertion запрета гашения экрана; экран не гаснет и не блокируется дольше времени «Turn display off» из настроек; после остановки assertion нет. Как проверить: `pmset -g assertions` до, во время и после прогона (`NoDisplaySleepAssertion` у процесса worfy, `PreventUserIdleDisplaySleep 1` в системной сводке).
+- [x] (вручную) Стабильная копия, обновлённая после влития. Во время прогона у процесса worfy есть assertion запрета гашения экрана; экран не гаснет и не блокируется дольше времени «Turn display off» из настроек; после остановки assertion нет. Как проверить: `pmset -g assertions` до, во время и после прогона (`NoDisplaySleepAssertion` у процесса worfy, `PreventUserIdleDisplaySleep 1` в системной сводке). (Проверено 2026-10-07 — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).)
 
 Ручной пункт агент не проверяет: нужен настоящий прогон на стабильной копии и время. Не сделанный
 пункт — «не проверено: …» в «Итог» и пункт в HANDOFF, раздел «Ждёт владельца». Если экран всё же
@@ -203,11 +203,31 @@ Ticket-ом из другой Wave — `test/unit/canvas-actions.test.tsx`: 32 �
 Проверки перед мержем: `pnpm lint && pnpm typecheck && pnpm test` — exit 0;
 `GATE_SCOPE=all gate.sh full` — exit 0.
 
-Не проверено: ручной пункт «Готово, когда» — настоящий прогон Autopilot на стабильной копии,
-обновлённой после влития: `pmset -g assertions` до, во время и после прогона
-(`NoDisplaySleepAssertion` у процесса worfy, `PreventUserIdleDisplaySleep 1`), экран не гаснет
-дольше «Turn display off». Нужен настоящий прогон и время; пункт — в HANDOFF, «Ждёт владельца».
+Ручной пункт «Готово, когда» проверен 2026-10-07 на настоящем прогоне Autopilot — подраздел
+[«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
 
 Долг ревью [low]: после Stop с живыми background task-ами экран горит, а подсказка строки
 «stopped» об этом молчит (`test/e2e/autopilot.spec.ts:268`), хотя ADR-0034, раздел «Последствия»,
 обещает, что о горящем экране говорят подсказки.
+
+### Ручная проверка 2026-10-07
+
+Проверял агент, ночь 2026-10-07 (проверка M1 второго круга ручных проверок), без GUI: журнал прогона,
+`pmset -g assertions` и unified log процесса `powerd`. Stable copy `~/Applications/worfy-stable.app`
+из 5060858 (pid 74430), прогон Autopilot `2026-10-07T00-32-09-524Z-66ddaf` над Epic-ом `worfy-week`
+(4 Wave).
+
+- Во время прогона: assertion у процесса worfy Orchestrator видел в `pmset -g assertions` в 00:32Z.
+  По журналу `powerd` worfy (pid 74430) создал `NoDisplaySleepAssertion` «Electron» в 00:32:09.457Z,
+  за 67 мс до `run-started`. За весь прогон у worfy был один id, второго blocker-а не было.
+- Остановка: `background-tasks` с пустым списком задач — 04:38:02.310Z, `run-stopped` (reason
+  `no-ready-wave`) — 04:38:34.551Z. worfy снял assertion в 04:38:34.539Z, за 12 мс до `run-stopped`.
+  Assertion держался 4 ч 06 мин 25 с.
+- После остановки: снимки `pmset -g assertions` в 04:39:57Z и 04:46:04Z — строк worfy нет ни в
+  одном. `PreventUserIdleDisplaySleep 1` в системной сводке держит не worfy, а
+  `caffeinate -dimsu -t 43200` (pid 92405, родитель launchd, запущен около 00:59Z). После снятия
+  `powerd` не записал от worfy ни одного нового assertion.
+- Гас ли экран, глазами не смотрели: доказательство — assertion, который держался весь прогон.
+- Вердикт: проверено.
+- Улики (в scratchpad Session Orchestrator-а, в репозиторий не положены): `M1-journal-tail.txt`,
+  `M1-pmset-after-stop.txt`, `M1-pmset-after-stop-5min.txt`, `M1-powerd-log.txt`.

@@ -71,3 +71,30 @@ worfy только читает транскрипт ([ADR-0002](../../../docs/a
 - `test/e2e/session-resume.spec.ts`: (1) Resume над транскриптом из двух ходов — ответ Node-а берётся из транскрипта, Session view показывает оба хода, потом новый; после того как новый ход дописан в файл так, как пишет Claude Code, каждый ход по-прежнему виден один раз. (2) Перезапуск приложения с тем же `WORFY_DATA_DIR` — Orchestrator показывает ходы сохранённой Session. В обоих test-ах дерево `WORFY_CLAUDE_HOME` не меняется, кроме файлов, которые записал сам test; снимки в светлой и тёмной теме приложены к выводу test-а.
 - Мутанты: склейка, заменённая простой конкатенацией, роняет 7 unit-test-ов и e2e Resume. Без `typedText`, без остановки на чужом prompt-е или без счёта живых prompt-ов падает по одному unit-test-у.
 - Снимки проверяющего после круга доработки: Session view после Resume — [22-session-view-after-resume-light.png](../evidence/22-session-view-after-resume-light.png), [22-session-view-after-resume-dark.png](../evidence/22-session-view-after-resume-dark.png); ход с картинкой — [22-session-view-image-turn-light.png](../evidence/22-session-view-image-turn-light.png), [22-session-view-image-turn-dark.png](../evidence/22-session-view-image-turn-dark.png); прошлый ответ в Node — [22-node-past-answer-light.png](../evidence/22-node-past-answer-light.png), [22-node-past-answer-dark.png](../evidence/22-node-past-answer-dark.png).
+
+### Ручная проверка 2026-10-07
+
+Проверял агент, ночь 2026-10-07 (проверка M12 второго круга ручных проверок). Stable copy из 5060858
+(pid 74430, CDP 9351), настоящий Claude Code.
+
+- В терминале два хода `claude -p --model sonnet` в одной Session 859ee605: «alpha», затем
+  `--resume` → «beta». Оба хода в одном `.jsonl`, `entrypoint: sdk-cli`.
+- В worfy: History → Resume у этой строки (щелчок мышью ОС, 05:50:52Z). Появился живой Node
+  `session:859ee605`, Claude Code (pid 87874) запущен с `--resume`. Node сразу показывает «beta»,
+  а не «No answer yet».
+- Session view открыт двойным щелчком до нового хода: промпты alpha и beta и ответы alpha и beta —
+  каждый ровно один раз.
+- Ход «gamma» дописан в тот же транскрипт (`sdk-ts`, `claude-sonnet-5-5`). После него alpha, beta и
+  gamma — по одному разу, Node показывает «gamma».
+- Замечание [low], вне критериев: History подписывает Session, начатую `claude -p` в терминале
+  (`entrypoint: sdk-cli`), как «worfy». Причина — `src/renderer/session/HistoryPopover.tsx:64`
+  (`if (entrypoint.startsWith('sdk')) return 'worfy'`). Это расходится с
+  `src/renderer/claude-home/session-nodes.ts:171`: «`sdk-ts` alone does not make a Session worfy's».
+  Интерактивный `claude` (`entrypoint: cli`) подписан верно — «terminal».
+- Наблюдение, не проверено: один запуск hook-а SessionStart виден в Session view дважды —
+  «SessionStart:resume success» из транскрипта и «SessionStart:resume exit 0» из живого потока. У
+  новой Session без Resume так же («startup success» и «startup exit 0»). Ходы не задвоены.
+- Вердикт: проверено.
+- Снимок Session view после хода gamma: [18-resume-terminal-session.png](../../worfy-mvp/evidence/18-resume-terminal-session.png).
+  Остальное — в scratchpad Session Orchestrator-а: `M12-before.png`, `M12-history-popover.png`,
+  `M12-after-resume-canvas.png`, `M12-before-turn.png`, `M12-transcript.txt`, `M12-dom.json`.

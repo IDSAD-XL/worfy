@@ -40,8 +40,8 @@ workflow-скрипта или показать плоской группой.
 - [x] Фикстура `<sessionId>/subagents/workflows/wf_x/agent-*.jsonl` с `journal.jsonl`: агенты появляются в дереве так, как решил ADR. Без каталога `workflows/` дерево такое же, как раньше.
 - [x] Повторное чтение изменившегося транскрипта wf-агента берёт только хвост: test проверяет счётчик прочитанных байт.
 - [x] (вручную) Время первого показа дерева Session с workflow на Auction — в «Итог».
-- [ ] (вручную) Во время Wave в Autopilot агенты workflow-скрипта видны на Canvas. Снимок — в «Итог».
-- [ ] (вручную) Для каждого открытого PR этого Epic-а бейджи PR и CI на Ticket-е совпадают с `gh pr view`. Расхождения стали Ticket-ами, снимки — в «Итог».
+- [x] (вручную) Во время Wave в Autopilot агенты workflow-скрипта видны на Canvas. Снимок — в «Итог». (Проверено 2026-10-07 заменой: обычная Session с workflow-скриптом, а не Wave Autopilot — Orchestrator пока не запускает workflow-скрипты; подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).)
+- [x] (вручную) Для каждого открытого PR этого Epic-а бейджи PR и CI на Ticket-е совпадают с `gh pr view`. Расхождения стали Ticket-ами, снимки — в «Итог». (Открытых PR у Epic-а больше нет. 2026-10-07 на Stable copy бейджи всех 32 Ticket-ов Epic-а совпали с `gh pr view` — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).)
 - [x] Снимки дерева в светлой и тёмной теме сверены с F-SPEC.
 - [x] `~/.claude` только читается: дерево временного `WORFY_CLAUDE_HOME` после test-а не изменилось.
 
@@ -91,13 +91,72 @@ workflow-скрипта или показать плоской группой.
 
 **Снимки дерева** (e2e на фикстуре, fake-агент): [светлая](../evidence/17-workflow-tree-light.png), [тёмная](../evidence/17-workflow-tree-dark.png). Сверено с F-SPEC (строка 6: дерево с линиями, monospace для имён и моделей, компактные чипы статуса, рамки 1px): запись запуска — тот же `SubagentNode`, расхождений нет.
 
-Не проверено: «Во время Wave в Autopilot агенты workflow-скрипта видны на Canvas». Настоящую Wave Autopilot-а вести нельзя (fake-агент, запись в `~/.claude` запрещена); вместо неё — снимок e2e выше на фикстуре того же формата.
+Не проверено: «Во время Wave в Autopilot агенты workflow-скрипта видны на Canvas». Настоящую Wave Autopilot-а вести нельзя (fake-агент, запись в `~/.claude` запрещена); вместо неё — снимок e2e выше на фикстуре того же формата. 2026-10-07 проверено на Stable copy заменой — обычной Session с workflow-скриптом из двух агентов, подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
 
 **Бейджи PR и CI** (вручную, 2026-10-07): открытый PR эпика один — [PR #73](https://github.com/IDSAD-XL/worfy/pull/73) этого Ticket-а (предполёт волны: «PR открыто: 0» до него). launchApp с Project = worktree тикета, `epic-status` из `~/.claude/bin` по ссылке во временном Claude home.
 - gh с `GH_TOKEN` аккаунта IDSAD-XL: на Ticket-е 17 — `PR #73`, `OPEN`, `CI running`; `gh pr view 73 --json state,statusCheckRollup` — `OPEN`, `check` `IN_PROGRESS`, `full-macos` `SKIPPED`. Совпадает. Снимки: [светлая](../evidence/17-badges-pr73-light.png), [тёмная](../evidence/17-badges-pr73-dark.png), [Ticket 17 крупно](../evidence/17-badge-ticket17-light.png).
 - gh так, как его запускает приложение без `WORFY_GH` (из login shell, глобальный аккаунт gh — Oleksii-O-Atakama): на Ticket-е 17 — «gh unavailable» вместо PR #73; `gh pr list` из login shell отвечает «Could not resolve to a Repository with the name 'IDSAD-XL/worfy'». [Снимок](../evidence/17-badges-login-shell-gh-light.png).
 
-Не проверено: «Для каждого открытого PR этого Epic-а бейджи PR и CI на Ticket-е совпадают с `gh pr view`». Совпадение есть только с gh от `GH_TOKEN` аккаунта IDSAD-XL, которого приложение не берёт. Так, как приложение зовёт gh у владельца (`src/main/ipc/checks.ts:35-38`, окружение login shell, глобальный аккаунт), бейджи — «gh unavailable»: расхождение найдено, но Ticket-ом не стало — решает владелец (кандидат ниже). Проверить заново на живых PR после исправления аккаунта.
+Не проверено: «Для каждого открытого PR этого Epic-а бейджи PR и CI на Ticket-е совпадают с `gh pr view`». Совпадение есть только с gh от `GH_TOKEN` аккаунта IDSAD-XL, которого приложение не берёт. Так, как приложение зовёт gh у владельца (`src/main/ipc/checks.ts:35-38`, окружение login shell, глобальный аккаунт), бейджи — «gh unavailable»: расхождение найдено, но Ticket-ом не стало — решает владелец (кандидат ниже). Проверить заново на живых PR после исправления аккаунта. Аккаунт gh Project-а дал Ticket 01 `worfy-week`; 2026-10-07 на Stable copy бейджи совпали с `gh pr view` — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
 
 Кандидаты в Ticket-ы (не заведены — по брифу волны):
 - Бейджи PR и CI worfy пусты («gh unavailable») у владельца: приложение зовёт gh от глобального аккаунта, которому репозиторий IDSAD-XL/worfy не виден. Код — `src/main/ipc/checks.ts:35-38`. Нужен аккаунт gh на Project (например, `github.account` Profile-а → `GH_TOKEN=$(gh auth token -u …)` для этого Project-а). Это уже запланировано на этап E3: `spec.md:171`, раздел «Не в этом Epic-е», и ADR-0020, раздел «Последствия». Владельцу решить, оставить на E3 или поднять в `worfy-daily`.
+
+### Ручная проверка 2026-10-07
+
+Проверял агент, ночь 2026-10-07 (второй круг ручных проверок).
+
+**Агенты workflow-скрипта, MCP-серверы и модели — проверка M18.** Stable copy из 6df9791 (pid 2455,
+CDP 9351), Project CanvasForAI, настоящий Claude Code. Это замена проверки «во время Wave Autopilot»:
+Orchestrator пока не запускает workflow-скрипты.
+
+- В Profile worfy нет поля `mcp` (exit 4), в выводе main — строка «[profile] MCP servers for
+  …/CanvasForAI: the default list (qmd, worfy-canvas), because … no mcp.allowed field (profile exit
+  code 4)». Она пишется в stderr (`console.warn`, `src/main/workflow/profile.ts:119-121`).
+- Новая Session b5c7b667: Claude Code (pid 18181) запущен с `--managed-settings`, где
+  `allowManagedMcpServersOnly` и разрешены только qmd и worfy-canvas.
+- `/context`: 12 MCP tools (qmd — 4, worfy-canvas — 8). Всего tools 43 против прежних 634: 31
+  отложенный (по записи `deferred_tools_delta`) и 12 загруженных (со слов модели).
+- Ход «Agent + workflow-скрипт из двух агентов»: по записи `deferred_tools_delta` самого Claude Code у
+  Subagent-а и у обоих агентов workflow-скрипта те же 12 `mcp__`, агенты ответили теми же списками.
+  `mcp__github` — 0 во всех транскриптах.
+- Модели: у Session, Subagent-а и агентов workflow-скрипта — `claude-opus-5-5` (в attachment модели
+  у всех `claude-opus-5-5[1m]`). После выбора Sonnet 5.5 в picker Subagent и агент workflow-скрипта
+  тоже ответили на `claude-sonnet-5-5`.
+- Canvas: под Node-ом Session — дерево из general-purpose и запуска list-mcp-tools с agent-1 и agent-2.
+  Второй запуск снят в состоянии running (sleep-1, running 23s), потом — done 1m 05s. Тот же список —
+  в панели Subagents Session view.
+- Замечание [low]: в превью Node-а агента workflow-скрипта имя tool-а `mcp__qmd__get` показано как
+  «mcpqmdget». `summaryLine` снимает `__x__` как выделение даже внутри слова:
+  `src/shared/transcript/subagents.ts:401`. По CommonMark подчёркивания внутри слова выделением не
+  считаются.
+- Вердикт: проверено. Session закрыта кнопкой Close, процесс Claude Code завершён.
+- Снимки: дерево workflow-скрипта во время работы — [17-workflow-agents-session.png](../evidence/17-workflow-agents-session.png). Остальное — в scratchpad Session
+  Orchestrator-а: `M18-context.png`, `M18-canvas-workflow.png`, `M18-canvas-workflow-done.png`,
+  `M18-picker-menu.png`, `M18-session-sonnet.png`, `M18-after-close.png`.
+
+**Бейджи PR и CI — проверка M19.** Stable copy из 6df9791 (pid 2455, CDP 9351), Canvas Project-а
+worfy (CanvasForAI).
+
+- Рамки `worfy-week` и `worfy-daily` развёрнуты, стопки done раскрыты щелчками мыши ОС, Canvas
+  пролистан колесом. На всех 39 Ticket-ах (`worfy-daily` 01–32, `worfy-week` 01–07) видны бейджи
+  «PR #N merged», «CI passing» и вердикт. Бейджа «gh unavailable» нет ни на одном экране.
+- Эталон — `gh pr view` от аккаунта IDSAD-XL в 07:00Z. Номер PR, состояние, CI и вердикт совпали у 39
+  из 39; номер — PR ветки `<epic>/<NN>`.
+- Chip CI лежит внутри Ticket-а и строки бейджей, текст не обрезан. До «●…» обрезан только chip
+  вердикта — так задумано (`src/renderer/canvas/badges/checks-badges.css:2-4`).
+- Дочерний процесс `gh pr list` от worfy (родитель — pid 2455) получает `GH_TOKEN`, равный токену
+  `gh auth token -u IDSAD-XL`, а не глобального аккаунта Oleksii-O-Atakama. Глобальный аккаунт без
+  токена получает «Could not resolve to a Repository». Значение токена сравнивалось в памяти и нигде
+  не печаталось.
+- Токена нет в выводе main, в журналах Autopilot, в данных Project-а и в ответе `checks.get`:
+  совпадений с шаблоном токена 0.
+- Не проверено: открытых PR в IDSAD-XL/worfy нет (OPEN 0 из 92), поэтому вид бейджей у открытого PR
+  не смотрели.
+- После проверки viewport, выделение, стопки и свёрнутость рамок возвращены. Одно отличие: у рамки
+  `worfy-week` в `layout.json` теперь явное `collapsed: true` вместо значения по умолчанию.
+- Вердикт: проверено.
+- Снимки: рамка `worfy-daily` с бейджами — [17-badges-stable.png](../evidence/17-badges-stable.png).
+  Остальное — в scratchpad Session Orchestrator-а: `M19-frames.png`, `M19-frame-week.png`,
+  `M19-badge-zoom-week01-02.png`, `M19-frame-daily-0.png`, `M19-frame-daily-6.png`,
+  `M19-frame-daily-12.png`, `M19-after-restore.png`.

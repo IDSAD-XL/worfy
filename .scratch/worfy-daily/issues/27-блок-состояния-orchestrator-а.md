@@ -85,3 +85,27 @@ test пишет сам во временный каталог (`WORFY_AGENT_SCRI
 [светлая](../evidence/27-orchestrator-long-block-light.png),
 [тёмная](../evidence/27-orchestrator-long-block-dark.png). Все четыре строки видны, каждая
 заканчивается многоточием, строка «— Жду:» — последняя, без прокрутки.
+
+### Ручная проверка 2026-10-07
+
+Проверял агент, ночь 2026-10-07 (проверка M8 второго круга ручных проверок). Stable copy из 5060858
+(pid 74430, CDP 9351) после прогона Autopilot `2026-10-07T00-32-09-524Z-66ddaf` (кончился
+`run-stopped` в 04:38:34Z). Node Orchestrator-а был за краем Canvas — сдвинут прокруткой.
+
+- Контроль: кнопка «Transcript» у Subagent-а impl-09 переключила Session view на него, потом возврат
+  на Canvas. Значит, до щелчка Session view не показывал Orchestrator.
+- Один двойной щелчок мышью ОС (CGEvent) по заголовку «Orchestrator» (`elementFromPoint` подтвердил
+  цель) открыл Session view «Orchestrator · CanvasForAI · idle», Canvas скрыт.
+- Последний ответ Orchestrator-а (04:38:33Z) уже кончался блоком состояния из 4 строк, поэтому новый
+  ход не отправлялся.
+- На Node-е 4 строки блока: `textContent` и `title` дословно равны тексту ответа в транскрипте
+  `f6ab7045-416c-471a-a78d-433567aefa5a.jsonl`. В Session view тот же текст, `6df9791` отрисован как code.
+- Блок на Node-е: `scrollHeight` 148 = `clientHeight` 148, `scrollTop` 0, строка «— Жду:» в видимой
+  области. Три длинные строки обрезаны «…» (вариант (б) Ticket-а 27 `worfy-daily`), полный текст —
+  в `title`.
+- Попутно: пунктирный Edge Binding идёт поверх текста Node-а Orchestrator-а, и без выделения тоже.
+  Не разбиралось.
+- Вердикт: проверено.
+- Снимки: Session view — [33-orchestrator-session-view.png](../../worfy-mvp/evidence/33-orchestrator-session-view.png), блок
+  на Node-е — [33-orchestrator-node-block.png](../../worfy-mvp/evidence/33-orchestrator-node-block.png). Остальное — в
+  scratchpad Session Orchestrator-а: `M8-before-dblclick.png`, `M8-node-window.png`, `M8-block.json`.
