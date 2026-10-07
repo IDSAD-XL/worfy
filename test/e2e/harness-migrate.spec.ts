@@ -128,7 +128,14 @@ test('the move form: from the toolbar, rows by group and the CLAUDE.md diff, swi
     await expect(diff.locator('[data-diff="removed"]', { hasText: '### Quota' })).toHaveCount(0)
     await quota.getByRole('button', { name: 'Remove' }).click()
     await expect(diff.locator('[data-diff="removed"]', { hasText: '### Quota' })).toHaveCount(1)
+    // Evidence: the top of the form, the CLAUDE.md diff and a Profile diff.
+    const body = form.getByTestId('migration-body')
+    await body.evaluate((element) => element.scrollTo(0, 0))
     await shoot(launched, form, 'form')
+    await diff.evaluate((element) => element.scrollIntoView({ block: 'center' }))
+    await shoot(launched, form, 'form-claude-md')
+    await form.getByTestId('profile-diff').first().evaluate((element) => element.scrollIntoView({ block: 'center' }))
+    await shoot(launched, form, 'form-profiles')
 
     await answerDialogWith(launched, 0)
     await form.getByTestId('migration-actions').getByRole('button', { name: 'Move' }).click()

@@ -56,6 +56,7 @@ const styles = {
   },
   header: { padding: 'var(--space-4) var(--space-4) var(--space-2)' },
   body: { overflowY: 'auto', padding: '0 var(--space-4)', flex: 1 },
+  outcome: { padding: 'var(--space-3) var(--space-4) 0', borderTop: '1px solid var(--border)' },
   footer: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: 'var(--space-3) var(--space-4)', borderTop: '1px solid var(--border)' },
   title: { margin: '0 0 var(--space-1)', fontSize: 'var(--text-15)', fontWeight: 600 },
   hint: { margin: 0, color: 'var(--text-muted)', fontSize: 'var(--text-12)' },
@@ -320,7 +321,7 @@ export function MigrationFormView({ plan, busy, result, onMove, onClose }: Migra
           Everything removed or changed is copied first to {plan.harnessHome}/backup-&lt;date&gt;/, with a command that undoes the move.
         </p>
       </div>
-      <div style={styles.body}>
+      <div style={styles.body} data-testid="migration-body">
         {plan.missing.map((line) => (
           <p key={line} style={styles.warning} data-testid="migration-missing">
             {line}
@@ -370,8 +371,12 @@ export function MigrationFormView({ plan, busy, result, onMove, onClose }: Migra
             ))}
           </section>
         )}
-        {result === undefined ? null : <Outcome result={result} />}
       </div>
+      {result === undefined ? null : (
+        <div style={styles.outcome}>
+          <Outcome result={result} />
+        </div>
+      )}
       <div style={styles.footer} data-testid="migration-actions">
         <span style={{ flex: 1 }} />
         <button type="button" style={styles.secondary} onClick={onClose} disabled={busy} data-testid="migration-close">

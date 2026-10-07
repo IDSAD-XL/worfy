@@ -191,4 +191,91 @@ hooks, `statusLine` и личными ключами, `.claude.json` с `qmd` и
 
 ## Итог
 
-Заполняется при закрытии.
+- **Модули.** `src/main/harness/migrate/plan.ts` — строки формы с диска; `apply.ts` — перенос по шагам;
+  `profiles.ts` — schema 1 → schema 2 и переписывание путей; `restore.ts` — текст `restore.mjs` и манифест.
+  IPC: `harnessMigration.offer` (показывать ли кнопку; `claude` не вызывает), `harnessMigration.plan` (строки,
+  ничего не пишет), `harnessMigration.apply` (перенос после нативного диалога «Move / Cancel»). Форма —
+  `src/renderer/harness/MigrationForm.tsx`; кнопка «Move old Harness…» — в элементе Harness toolbar
+  (`HarnessStatus.tsx`), пока в `~/.claude` есть что переносить. Перенос предлагается там же, где установка
+  Ticket-а 13: в `.app` или с `WORFY_CLAUDE_HOME` (песочница). dev-сборка на настоящем `~/.claude` ничего не
+  переносит: форма называет причину, `apply` отказывает до чтения plugin-а.
+- **Строки.** Файлы `agents/`, `skills/`, `bin/`, `hooks/` и `profiles/README.md`, у которых есть одноимённые в
+  `<harnessHome>/plugin/`. Имя Q19 без пары в plugin — строка только «Keep» с пометкой «not in the plugin»: в
+  копии сборки нет `bin/tests` и `hooks/tests` (сборка их вырезает), а `bin/ТИКЕТЫ.md` в `harness/` назван
+  `TICKETS.md`. Записи hooks — те, чей `command` ведёт в файл первой группы (`$HOME`, `${HOME}`, `~` и
+  абсолютный путь раскрываются через HOME, с которым работает Claude Code). Запись к файлу без пары в plugin —
+  только «Keep». Перенос отказывает, если оставить запись hook, а её файл убрать.
+- **CLAUDE.md.** Разделы `##` и `###`, блоки кода пропускаются. Заголовки исходного `CLAUDE.md` взяты из
+  импорта Ticket-а 02 (`git show 728ee71^:harness/rules/global.md`, 16 заголовков) и лежат константой в
+  `plan.ts`. По умолчанию «уберу» — только раздел, чей заголовок есть и в этом списке, и в правилах plugin-а
+  (`hooks/rules/*.md`). «Workflow: orchestrator + subagents» и «Standing authorization» в правилах plugin-а
+  нет, поэтому они по умолчанию остаются с пометкой. Это закрывает долг Ticket-а 05: раздел «Standing
+  authorization» остаётся в личном `CLAUDE.md`. **Решено без владельца, подтвердить.**
+- **statusLine.** Строка есть, если команда ведёт в `statusline-bridge.sh` не этой сборки. Предложение —
+  `<process.resourcesPath>/statusline-bridge.sh` и прежний аргумент как есть. В dev-сборке или без файла
+  моста строка только «Keep» с причиной.
+- **qmd.** Три скрипта, запись hook `qmd-refresh --quiet` и `mcpServers.qmd` из `.claude.json` — одна строка.
+  Запись `.claude.json` входит в группу, только если её `command` ведёт в `bin/qmd-*` старого Harness. Без
+  сервера `qmd` в `<plugin>/.mcp.json` у строки предупреждение про `qmd.fallback_grep`.
+- **Где `.claude.json`.** При `CLAUDE_CONFIG_DIR` — `$CLAUDE_CONFIG_DIR/.claude.json`, иначе `~/.claude.json`.
+  Проверено по бинарю Claude Code из SDK 0.3.289: `configPath: join(process.env.CLAUDE_CONFIG_DIR || homedir(),
+  ".claude.json")`. В песочнице `WORFY_CLAUDE_HOME` worfy передаёт `claude` этот каталог как
+  `CLAUDE_CONFIG_DIR`, поэтому `.claude.json` лежит в нём; fixture кладёт его туда же. Запись — через
+  временный файл рядом и `rename`, права файла сохраняются; формат (отступ, перевод строки в конце) — прежний.
+- **Profile-ы.** `~/.claude/profiles/<p>/` → `<harnessHome>/projects/<p>/`: `schema: 2`; четыре поля с путями
+  Harness убраны; `mode` и `attribution` встают после `title`; `language.docs` добавлен в `language`
+  (строка `"language": "en"` разворачивается в `{reports, team, docs}`). `mode` — `full`, если папка
+  Ticket-ов (`tickets.root`, по умолчанию `.scratch`; относительный путь — от первого репозитория Profile-а
+  в реестре Gate) лежит в git; иначе `silent`. Проверка — только `git rev-parse` с `GIT_OPTIONAL_LOCKS=0`.
+  `mcp.allowed` не пишется: отсутствие поля и есть умолчание контракта. Пути переписываются в
+  `profile.json` (во всех строках) и в `rules.md`: `bin/` и `hooks/` → `worfy-harness/plugin/…`, `gate/` →
+  `worfy-harness/gate/`, `profiles/README.md` → `worfy-harness/plugin/profiles/README.md`, `profiles/` →
+  `worfy-harness/projects/`. Пути `~/.claude/agents/…` не переписываются: тикет их не называет.
+  Папки `bin/`, `lessons/`, `state/` переносятся как есть. Если `projects/<p>` уже есть — строка только «Keep».
+- **Состояние.** Реестр → `<harnessHome>/gate/config.json` (если там уже есть реестр — только «Keep»). Маркеры
+  `gate/state/` и замки `worktree-sessions/` сливаются в `<harnessHome>/gate/state/` и
+  `<harnessHome>/worktree-sessions/` (там их ищет `bin/worktree-lock` после Ticket-а 08). Файл, который в цели
+  уже есть, не перезаписывается; его прежняя версия остаётся только в копии.
+- **git `worfy-harness/`.** Если репозитория нет, перенос делает `git init` и коммитит `.gitignore`,
+  `projects/` и `gate/config.json`. В `.gitignore` — список разрешённого: копия plugin-а, `gate/state/`, замки,
+  `backup-*/` и `projects/*/state/` — состояние, а не история (**решено исполнителем**).
+- **Копия и откат.** Копия — `<harnessHome>/backup-<ГГГГ-ММ-ДД-ЧЧ-ММ-СС>/`: `claude/<путь>` — всё, что перенос
+  убирает или меняет в `~/.claude`; `manifest.json` — что откуда, что создано в `worfy-harness`, убранная
+  запись `.claude.json` с её местом среди серверов, SHA обоих коммитов. Там же `restore.mjs`. Он выключает
+  plugin (`claude plugin disable worfy@worfy-harness --scope user`; без `claude` в PATH печатает команду),
+  делает `git revert` коммита переноса и возвращает файлы из копии побайтно. Созданное в `worfy-harness`
+  он удаляет, а запись `qmd` ставит на прежнее место. Каждый путь проверяется: он должен лежать внутри Claude
+  home или Harness home из манифеста. Сбой шага: перенос импортирует тот же `restore.mjs` и вызывает
+  `restore` без выключения plugin-а (до переноса plugin был включён). После удачного отката копия удаляется,
+  ответ называет шаг.
+- **Порядок шагов:** `backup` → `settings` → `claude-json` → `claude-md` → `state` → `files` →
+  `epic-status` → `commit`. `bin/epic-status` удаляется последним, после записей hooks в `settings.json`
+  (долг Ticket-а 12 к `ADR-0049:44`): пока он есть, worfy видит `legacy` и не даёт Session-ам plugin inline.
+  Test порядка краснеет на мутанте, который удаляет `epic-status` в шаге `files`.
+- **Границы записи.** Без `offered`, без включённого plugin-а нужной версии (`installed` и `enabled`; при
+  `outdated` — отказ «update it first») и без «Move» в диалоге ничего не пишется. Claude home и Harness home не
+  могут быть корнем диска или домашней папкой. Устаревший выбор (строки формы не совпадают со свежим планом)
+  — отказ «open it again». Коммит в `~/.claude` берёт только тронутые пути, которые git знает (`git commit
+  -- <пути>`), без hooks git и без подписи; если у машины нет `user.email`, ставится `worfy <worfy@localhost>`.
+- **Session-ы, которые уже идут** (п. 9): форма и диалог предупреждают, что их нужно перезапустить; найти их
+  форма не пытается (**решено исполнителем**).
+- **Расхождение с ADR-0049:44.** Там сказано «`bin/epic-status` в первую очередь». Перенос удаляет его
+  последним, как требует долг в HANDOFF: иначе Session, запущенная в промежутке, получит plugin inline при
+  живых старых hooks.
+- **Красный test первым.** На main модуля `src/main/harness/migrate/` нет: с убранным каталогом
+  `test/contract/harness-migrate.test.ts` падает на импорте `…/migrate/apply` («Test Files 1 failed, Tests no
+  tests»).
+- **Test-ы.** `test/contract/harness-migrate.test.ts` — 39 случаев: план, перенос «всё уберу», Profile-ы
+  через `harness/bin/profile` и `gate.sh` с `HARNESS_HOME` песочницы, git, «Keep» у строки каждого вида,
+  statusLine, qmd, порядок `epic-status`, предложение в toolbar, `node restore.mjs` отдельным процессом (с
+  подменённым `claude` и без `claude` в PATH), сбой до и после каждого из 8 шагов, отказы. Fixture —
+  `test/fixtures/claude-home-legacy/` (`home/.claude` и `repos/`, `__SANDBOX__` подставляется при копировании,
+  `.gitignore` лежит как `gitignore`, чтобы не скрыть fixture от git репозитория).
+  `test/unit/harness-migration-form.test.tsx` — группы, переключатели, diff `CLAUDE.md` и Profile-а, поля
+  Profile-а, отказ без plugin-а, итог переноса. `test/e2e/harness-migrate.spec.ts` — форма из toolbar, Move,
+  копия и команда отката.
+- Снимки (обе темы): toolbar — [светлая](../evidence/14-toolbar-light.png), [тёмная](../evidence/14-toolbar-dark.png);
+  форма — [светлая](../evidence/14-form-light.png), [тёмная](../evidence/14-form-dark.png); diff `CLAUDE.md` —
+  [светлая](../evidence/14-form-claude-md-light.png), [тёмная](../evidence/14-form-claude-md-dark.png); diff
+  Profile-а — [светлая](../evidence/14-form-profiles-light.png), [тёмная](../evidence/14-form-profiles-dark.png);
+  после Move — [светлая](../evidence/14-done-light.png), [тёмная](../evidence/14-done-dark.png).
