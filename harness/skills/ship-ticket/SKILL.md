@@ -181,7 +181,13 @@ With `local-green` a green step 6 is the ticket's finish as far as code goes: ne
 by the agent itself if the OS has granted screen recording and control (macOS: Screen Recording and
 Accessibility). Strictly one such agent at a time (in a wave — the brief's "GUI checks" line);
 keystrokes only to the app's frontmost process and only after checking that it is frontmost;
-screenshots only of the app's window, not the whole screen; do not touch system settings. Launching
+screenshots only of the app's window, not the whole screen; do not touch system settings.
+An agent started from inside an app (an Autopilot or worfy Session) runs as that app's child: an
+OS-level capture (`screencapture` and the like) makes macOS ask Screen Recording for the app itself,
+and granting it quits and reopens the app, which kills the whole run (worfy-harness, 2026-10-07).
+Such agents never capture the screen through the OS: screenshots come only from Playwright
+(`page.screenshot`) of their own build, and a native dialog is checked by a test with a stubbed
+dialog, not by a picture. Launching
 "as from Finder" from the agent's shell: `open <app>` passes the agent's environment to the app
 (`CLAUDECODE`, `CLAUDE_CODE_*`, `ANTHROPIC_BASE_URL`, the full PATH) — such a launch is not the
 same as Finder; launch through `env -i` with the launchd environment (HOME, USER, LOGNAME, SHELL,
