@@ -12,7 +12,10 @@
 //   sent never gets a `prompt`, so there is nothing to take back;
 // - `queue` and `settings` events are not part of the transcript: the store keeps only the latest
 //   of each (ticket 19), and asks main for both (`agent.controls`) when a view needs them before
-//   any arrived.
+//   any arrived;
+// - a `settings` event that changes the model is a pick in the picker: the store keeps it as
+//   `modelPick` until the next `init` says which model the Session runs, so the Session view's
+//   header does not show the model before the pick as the current one (worfy-week ticket 12).
 //
 // Nothing here is saved: the transcript file is the record of the Session (ADR 0002, ADR 0005).
 // A view of a Session that has a transcript — a resumed one, the Orchestrator after a restart —
@@ -41,6 +44,11 @@ export interface SessionLog {
   queue: QueueSnapshot | null
   /** The Session's model, effort and permission mode as worfy set them; null until main reported them. */
   settings: SessionSettings | null
+  /**
+   * The model picked since the last `init` (null in `model`: Claude Code's default); null when no
+   * pick waits for an `init` to confirm it. The first report of the settings is no pick.
+   */
+  modelPick: { model: string | null } | null
 }
 
 interface LogsStore {
@@ -48,7 +56,7 @@ interface LogsStore {
 }
 
 const EMPTY: readonly AgentEvent[] = []
-const EMPTY_LOG: SessionLog = { events: EMPTY, first: 0, echo: null, queue: null, settings: null }
+const EMPTY_LOG: SessionLog = { events: EMPTY, first: 0, echo: null, queue: null, settings: null, modelPick: null }
 
 export const useSessionLogs = create<LogsStore>(() => ({ logs: {} }))
 
@@ -83,6 +91,8 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
       const rest = { ...logs }
       delete rest[event.from]
       const merged = after ? capped([...before.events, ...after.events], before.first) : before
+      // An `init` under the new id came after any pick made under the old one.
+      const modelPick = after !== undefined && (after.modelPick !== null || after.events.some((each) => each.type === 'init')) ? after.modelPick : before.modelPick
       return {
         logs: {
           ...rest,
@@ -92,6 +102,7 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
             echo: after?.echo ?? before.echo,
             queue: after?.queue ?? before.queue,
             settings: after?.settings ?? before.settings,
+            modelPick,
           },
         },
       }
@@ -102,13 +113,15 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
     switch (event.type) {
       case 'queue':
         return { ...log, queue: { items: event.items, paused: event.paused } }
-      case 'settings':
-        return { ...log, settings: event.settings }
+      case 'settings': {
+        const picked = log.settings !== null && event.settings.model !== log.settings.model
+        return { ...log, settings: event.settings, modelPick: picked ? { model: event.settings.model } : log.modelPick }
+      }
       case 'prompt':
         return { ...log, ...append(log, { type: 'notice', kind: 'user', text: event.text, at: event.at }), echo: event.text }
       default:
         if (event.type === 'notice' && event.kind === 'user' && log.echo !== null && event.text === log.echo) return { ...log, echo: null }
-        return { ...log, ...append(log, event), echo: event.type === 'result' ? null : log.echo }
+        return { ...log, ...append(log, event), echo: event.type === 'result' ? null : log.echo, modelPick: event.type === 'init' ? null : log.modelPick }
     }
   })
 }
@@ -234,14 +247,15 @@ export function joinPastAndLive(past: readonly AgentEvent[], live: readonly Agen
   return [...past.slice(0, start), ...live]
 }
 
-/** A Session's queue and settings; asks main for them when no event has brought them yet. */
-export function useSessionControls(sessionId: string | null): Pick<SessionLog, 'queue' | 'settings'> {
+/** A Session's queue, settings and model pick; asks main for the first two when no event has brought them yet. */
+export function useSessionControls(sessionId: string | null): Pick<SessionLog, 'queue' | 'settings' | 'modelPick'> {
   useEffect(ensureAgentEvents, [])
   const queue = useSessionLogs((store) => (sessionId === null ? null : (store.logs[sessionId]?.queue ?? null)))
   const settings = useSessionLogs((store) => (sessionId === null ? null : (store.logs[sessionId]?.settings ?? null)))
+  const modelPick = useSessionLogs((store) => (sessionId === null ? null : (store.logs[sessionId]?.modelPick ?? null)))
   const missing = sessionId !== null && (queue === null || settings === null)
   useEffect(() => {
     if (missing) void loadControls(sessionId)
   }, [sessionId, missing])
-  return { queue, settings }
+  return { queue, settings, modelPick }
 }

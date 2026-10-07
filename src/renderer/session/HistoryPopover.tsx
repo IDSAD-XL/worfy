@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { HistorySession } from '../../shared/ipc/claude-home'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { ResumeVerdict } from '../../shared/ipc/sessions'
+import { useOrchestratorViews } from '../canvas/nodes/orchestrator-view'
 import { applyLayoutOp, useLayout } from '../canvas/useLayout'
 import { focusSessionNode } from '../claude-home/focus'
-import { showSessionNodeOp } from '../claude-home/session-nodes'
+import { externalSource, readSessionNodeData, SESSION_KIND, showSessionNodeOp, worfySessionIds, worfySessions } from '../claude-home/session-nodes'
 import { refreshClaudeHome, useClaudeHome } from '../claude-home/useClaudeHome'
 import { invoke } from '../ipc'
 import { setView } from './navigation'
+import { ensureProject, useSessionNodeViews } from './node-sessions'
 
 // The history of a Project (ticket 18): every Session the Project's transcripts record, wherever
 // it was started — newest first, with its title, where it was started, when it last changed and
@@ -15,6 +17,15 @@ import { setView } from './navigation'
 // for it on the Canvas, or goes to the Node it has. "Resume" continues it in worfy on its Node
 // (`sessions.resume`, src/main/agent/node-sessions.ts); main's rule of Resume
 // (src/main/agent/resume.ts) also decides which rows offer it, and the row says why not.
+//
+// Where a row says the Session was started (worfy-week ticket 12): «worfy» for a Session worfy runs
+// or has a Node of — the sidebar's rule (claude-home/session-nodes.ts, sessionRow) — else
+// «desktop» or «terminal» by its `entrypoint`. `sdk-cli` is `claude -p` in a terminal. A finished
+// `sdk-ts` Session no Node names any more — an earlier conversation of the Orchestrator, a Session
+// whose Node was removed — is «worfy» too: worfy keeps no list of the Sessions it ran, and it is
+// the program on the Agent SDK for TypeScript that writes transcripts into its Projects. Not so for
+// one with a read-only Node: worfy found it running as someone else's. A live one follows the
+// sidebar: worfy knows every Session it runs now, so an unknown live `sdk-ts` is not its.
 
 /** Rows the popover shows; older Sessions stay in the transcripts. */
 export const HISTORY_ROWS = 100
@@ -56,13 +67,18 @@ const styles = {
   message: { margin: 4, fontSize: 'var(--text-12)', color: 'var(--text-muted)' },
 } satisfies Record<string, CSSProperties>
 
-/** Where a Session was started, as its transcript's `entrypoint` says. */
-function historySource(entrypoint: string | undefined): string {
-  if (entrypoint === undefined) return '—'
-  if (entrypoint === 'cli') return 'terminal'
-  if (entrypoint === 'claude-desktop') return 'desktop'
-  if (entrypoint.startsWith('sdk')) return 'worfy'
-  return entrypoint
+/** Ids of Sessions worfy and others run, as the Layout and main's views know them. */
+interface KnownSessions {
+  worfy: ReadonlySet<string>
+  /** Named by a read-only Session Node: worfy found them running as someone else's. */
+  external: ReadonlySet<string>
+}
+
+/** Where a Session was started: «worfy» when worfy runs or ran it, else by its transcript's `entrypoint`. */
+function historySource(session: HistorySession, known: KnownSessions): string {
+  if (known.worfy.has(session.sessionId)) return 'worfy'
+  if (session.entrypoint === 'sdk-ts' && !session.live && !known.external.has(session.sessionId)) return 'worfy'
+  return externalSource(session.entrypoint)
 }
 
 /** «5 Oct, 10:42», in the user's locale. */
@@ -99,6 +115,19 @@ export interface HistoryPopoverProps {
 export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
   const { live, history, error } = useClaudeHome(project.path)
   const layout = useLayout(project.id).state
+  const orchestrators = useOrchestratorViews()
+  const sessionNodes = useSessionNodeViews()
+  useEffect(() => ensureProject(project.id), [project.id])
+  const nodes = layout?.layout.nodes
+  const known = useMemo((): KnownSessions => {
+    const running = worfySessions({ nodes: nodes ?? [], orchestrators: Object.values(orchestrators), sessionNodes: Object.values(sessionNodes), projectId: project.id, history })
+    const external = new Set<string>()
+    for (const node of nodes ?? []) {
+      const data = node.kind === SESSION_KIND ? readSessionNodeData(node.data) : null
+      if (data !== null) external.add(data.sessionId)
+    }
+    return { worfy: worfySessionIds(nodes ?? [], [...running.keys()]), external }
+  }, [nodes, orchestrators, sessionNodes, project.id, history])
   const rows = useMemo(() => history.slice(0, HISTORY_ROWS), [history])
   const liveKey = (live ?? []).map((session) => `${session.sessionId}:${session.status}`).join(',')
   const verdicts = useVerdicts(project.id, rows, `${liveKey}|${history.length}`)
@@ -164,7 +193,7 @@ export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
                 </button>
               </div>
               <div style={styles.meta}>
-                <span data-testid="history-source">{historySource(session.entrypoint)}</span>
+                <span data-testid="history-source">{historySource(session, known)}</span>
                 <span>{when(session.lastAt, session.modifiedAt)}</span>
                 {session.gitBranch !== undefined ? (
                   <span className="w-mono" data-testid="history-branch">

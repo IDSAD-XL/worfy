@@ -347,6 +347,9 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
   const chip = live === undefined ? { status: 'ready' as const, label: '…' } : sessionStatus(session)
   const title = session?.name ?? history.find((each) => each.sessionId === info.sessionId)?.title ?? info.name ?? `Session ${info.sessionId.slice(0, 8)}`
   const subject: SlotSubject = { kind: 'session', projectId: project.id, root: project.path, sessionId: info.sessionId }
+  // What Hide and Remove leave behind (worfy-week ticket 12): a Session that runs goes on; any other
+  // keeps its transcript — also true while the registry has not been read yet.
+  const leaves = session !== undefined ? 'the Session goes on' : 'the transcript stays'
 
   return (
     <div
@@ -372,10 +375,10 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
           <StatusChip status={chip.status} label={chip.label} />
         </span>
         <span className="nodrag" style={styles.tools}>
-          <button type="button" style={styles.tool} title="Hide the Node; the Session goes on" onClick={() => void ops.apply({ op: 'hide', id, hidden: true })}>
+          <button type="button" style={styles.tool} title={`Hide the Node; ${leaves}`} onClick={() => void ops.apply({ op: 'hide', id, hidden: true })}>
             Hide
           </button>
-          <button type="button" style={styles.tool} title="Remove the Node; the Session goes on" onClick={() => void ops.apply({ op: 'remove', id })}>
+          <button type="button" style={styles.tool} title={`Remove the Node; ${leaves}`} onClick={() => void ops.apply({ op: 'remove', id })}>
             Remove
           </button>
         </span>

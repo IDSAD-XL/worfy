@@ -125,12 +125,14 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const chip = STATE_CHIPS[state]
   // A turn waiting for a permission answer still runs: Interrupt refuses the request (ticket 21).
   const busy = state === 'busy' || state === 'needs_permission'
-  const model = facts.model ?? view?.model ?? null
+  const { settings, modelPick } = useSessionControls(sessionId)
+  // A model picked since the last system/init shows at once, as the picker shows it; the next
+  // init names the model it runs (store.ts, modelPick; worfy-week ticket 12). Claude Code's
+  // default model is «default» until then: only init says which model it stands for.
+  const model = modelPick !== null ? (modelPick.model ?? 'default') : (facts.model ?? view?.model ?? null)
   const heading = orchestrator !== undefined || nodeSession === undefined ? 'Orchestrator' : 'Session'
   // «orch» is the Orchestrator's alone; any other Session answers as «claude», as a read-only one does (worfy-daily ticket 24).
   const assistantLabel = orchestrator !== undefined || savedNode?.kind === 'orchestrator' ? 'orch' : 'claude'
-  const { settings } = useSessionControls(sessionId)
-
   // The transcript shows the message when main gives it to Claude Code (a `prompt` event): at
   // once, or after the running turn when it waits in the queue.
   const send = async ({ text, attachments }: OutgoingMessage): Promise<string | null> => {
@@ -172,7 +174,11 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
         <span className="w-session__divider" aria-hidden="true" />
         <span className="w-session__fact">
           <span className="w-session__fact-label">Model</span>
-          <span className="w-mono w-session__fact-value" data-testid="session-model">
+          <span
+            className="w-mono w-session__fact-value"
+            data-testid="session-model"
+            title={modelPick !== null ? 'Picked for the next turn: its system/init will name the model' : undefined}
+          >
             {model ?? '—'}
           </span>
         </span>
