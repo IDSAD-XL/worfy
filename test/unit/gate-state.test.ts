@@ -1,10 +1,23 @@
 import { execFileSync } from 'node:child_process'
-import { appendFile, mkdir, mkdtemp, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { projectDirName } from '../../src/main/claude-home/registry'
-import { GateReader, gateKey, gateOutputs, gateRunDir, gateTag, lastGateOutcome, listWorktrees, markerOutcome, TranscriptGateScanner, type Worktree } from '../../src/main/gate/state'
+import {
+  GateReader,
+  gateKey,
+  gateOutputs,
+  gateRunDir,
+  gateTag,
+  lastGateOutcome,
+  listWorktrees,
+  markerOutcome,
+  readVerdictFile,
+  TranscriptGateScanner,
+  verdictFileName,
+  type Worktree,
+} from '../../src/main/gate/state'
 import { worktreeOfCwd, worktreeOfTicket, type ChecksSnapshot } from '../../src/shared/ipc/checks'
 
 // The gate's verdict per worktree (ticket 17): gate.sh's tag, the key from gate/config.json, the
@@ -76,6 +89,16 @@ describe('lastGateOutcome', () => {
     ['[gate] красно (fast): a\nКОД=2\n[gate] зелено (fast): a', 'green'],
   ])('%j → %s', (text, outcome) => {
     expect(lastGateOutcome(text)).toBe(outcome)
+  })
+
+  it('knows every verdict word harness/hooks/gate.sh prints', async () => {
+    // The gate prints its verdict lines in the words it has today (Russian, until a ticket translates
+    // them); whatever they are, the transcript fallback must read each of them.
+    const gate = await readFile(join(__dirname, '..', '..', 'harness', 'hooks', 'gate.sh'), 'utf8')
+    const words = new Set([...gate.matchAll(/"\[gate\] ([^"(:—$]+?)\s*[(:—]/gu)].map((match) => match[1]!.trim()).filter((word) => word !== 'scope'))
+    const outcomes = [...words].map((word) => lastGateOutcome(`[gate] ${word} (fast): x`))
+    expect(outcomes).not.toContain(null)
+    expect(new Set(outcomes)).toEqual(new Set(['green', 'red', 'none', 'unverified']))
   })
 
   it('ignores lines that only mention the gate, not at the start of a line', () => {
@@ -336,7 +359,9 @@ describe('GateReader', () => {
   })
 
   it('writes nothing under the Claude home or in the Project', async () => {
-    const { home, root, worktrees, marker } = await world()
+    const { home, root, worktree07, worktrees, marker } = await world()
+    await writeVerdict(home, { worktree: root, outcome: 'green' })
+    await writeVerdict(home, { worktree: worktree07, outcome: 'none' })
     const listing = async (dir: string): Promise<string[]> => {
       const out: string[] = []
       for (const entry of await readdir(dir, { recursive: true, withFileTypes: true })) {
@@ -354,6 +379,129 @@ describe('GateReader', () => {
     await reader.read(root, worktrees)
     expect([await listing(home), await listing(root)]).toEqual(afterRemoval)
     expect(afterRemoval[0]!.length).toBe(before[0]!.length - 1)
+  })
+})
+
+/** Writes `verdict-<tag>.json` of `fields.worktree` into the gate state folder, as gate.sh does. */
+async function writeVerdict(home: string, fields: Record<string, unknown> & { worktree: string }, text?: string): Promise<string> {
+  const file = join(home, 'gate', 'state', verdictFileName(gateTag(fields.worktree)))
+  const verdict = { version: 1, outcome: 'green', profile: 'fast', key: 'worfy', head: 'a'.repeat(40), exit: 0, at: '2026-10-05T09:00:00Z', reason: null, ...fields }
+  await writeFile(file, text ?? `${JSON.stringify(verdict)}\n`)
+  return file
+}
+
+describe('GateReader and the verdict file', () => {
+  /** The world with no marker and a transcript that has no gate line at all. */
+  async function quiet(): Promise<World> {
+    const w = await world()
+    await rm(w.marker)
+    await writeFile(w.transcript, `${prompt('no gate here', '2026-10-05T10:00:00.000Z')}\n`)
+    return w
+  }
+
+  it('takes a green verdict file when the transcript has no gate line', async () => {
+    const { home, root, worktree07, worktrees } = await quiet()
+    await writeVerdict(home, { worktree: worktree07, outcome: 'green', at: '2026-10-05T09:30:00Z' })
+    const [checkout, wt07] = await new GateReader({ home }).read(root, worktrees)
+    expect(wt07!.gate).toEqual({ outcome: 'green', source: 'file', at: '2026-10-05T09:30:00Z' })
+    expect(checkout!.gate).toEqual({ outcome: 'none', source: 'none', at: null })
+  })
+
+  it('a red marker wins over a verdict file that says none; an unverified marker wins over a green one', async () => {
+    const { home, root, worktree07, worktrees, marker } = await world()
+    await writeVerdict(home, { worktree: worktree07, outcome: 'none', reason: 'no changes relative to the merge-base' })
+    const reader = new GateReader({ home })
+    expect((await reader.read(root, worktrees))[1]!.gate).toEqual({ outcome: 'red', source: 'marker', at: null })
+    await rm(marker)
+    await writeFile(join(home, 'gate', 'state', `unverified-worfy-${gateTag(worktree07)}`), '')
+    await writeVerdict(home, { worktree: worktree07, outcome: 'green' })
+    expect((await reader.read(root, worktrees))[1]!.gate).toEqual({ outcome: 'unverified', source: 'marker', at: null })
+  })
+
+  it('takes the verdict file over a newer gate line in a transcript', async () => {
+    const { home, root, worktree07, worktrees, marker } = await world()
+    await rm(marker)
+    // The transcript's last line is green at 10:05; the file, written at 09:00, says red.
+    await writeVerdict(home, { worktree: worktree07, outcome: 'red', exit: 2, at: '2026-10-05T09:00:00Z' })
+    expect((await new GateReader({ home }).read(root, worktrees))[1]!.gate).toEqual({ outcome: 'red', source: 'file', at: '2026-10-05T09:00:00Z' })
+  })
+
+  it('a file about another worktree is not taken: the transcript gives the verdict, the reason is logged once', async () => {
+    const { home, root, worktree07, worktrees, marker } = await world()
+    await rm(marker)
+    // The name is worktree 07's, the worktree inside is another one: two tags that collide.
+    await writeVerdict(home, { worktree: worktree07, outcome: 'red' }, `${JSON.stringify({ version: 1, outcome: 'red', profile: 'fast', worktree: '/elsewhere/repo', key: 'worfy', head: null, exit: 2, at: '2026-10-05T09:00:00Z', reason: null })}\n`)
+    const warnings: string[] = []
+    const reader = new GateReader({ home, warn: (message) => warnings.push(message) })
+    expect((await reader.read(root, worktrees))[1]!.gate).toEqual({ outcome: 'green', source: 'transcript', at: '2026-10-05T10:05:00.000Z' })
+    expect((await reader.read(root, worktrees))[1]!.gate.source).toBe('transcript')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('another worktree: /elsewhere/repo')
+    expect(warnings[0]).not.toContain('\n')
+  })
+
+  it.each([
+    ['not JSON', '{"version":1,"outcome":"gr'],
+    ['an unknown version', JSON.stringify({ version: 2, outcome: 'red', profile: 'fast', key: null, head: null, exit: 2, at: '2026-10-05T09:00:00Z', reason: null })],
+    ['an unknown outcome', JSON.stringify({ version: 1, outcome: 'зелено', profile: 'fast', key: null, head: null, exit: 0, at: '2026-10-05T09:00:00Z', reason: null })],
+    ['no time', JSON.stringify({ version: 1, outcome: 'red', profile: 'fast', key: null, head: null, exit: 2, reason: null })],
+  ])('a broken file (%s) is not taken: the transcript gives the verdict', async (_what, body) => {
+    const { home, root, worktree07, worktrees, marker } = await world()
+    await rm(marker)
+    const text = body.startsWith('{"version":1,"outcome":"gr') ? body : JSON.stringify({ ...JSON.parse(body), worktree: worktree07 })
+    await writeVerdict(home, { worktree: worktree07 }, text)
+    const warnings: string[] = []
+    const [, wt07] = await new GateReader({ home, warn: (message) => warnings.push(message) }).read(root, worktrees)
+    expect(wt07!.gate).toEqual({ outcome: 'green', source: 'transcript', at: '2026-10-05T10:05:00.000Z' })
+    expect(warnings).toHaveLength(1)
+  })
+
+  it('a file about another commit than the worktree’s HEAD is not taken; one about the same commit is', async () => {
+    const { home, root, worktree07, marker } = await world()
+    await rm(marker)
+    await writeVerdict(home, { worktree: worktree07, outcome: 'red', exit: 2, head: 'a'.repeat(40) })
+    const warnings: string[] = []
+    const reader = new GateReader({ home, warn: (message) => warnings.push(message) })
+    const recreated = [{ path: root, branch: 'main' }, { path: worktree07, branch: 'demo/07', head: 'b'.repeat(40) }]
+    expect((await reader.read(root, recreated))[1]).toEqual({ path: worktree07, branch: 'demo/07', gate: { outcome: 'green', source: 'transcript', at: '2026-10-05T10:05:00.000Z' } })
+    expect(warnings).toEqual([expect.stringContaining(`is about commit ${'a'.repeat(40)}, the worktree is at ${'b'.repeat(40)}`)])
+    const same = [{ path: root, branch: 'main' }, { path: worktree07, branch: 'demo/07', head: 'a'.repeat(40) }]
+    // The worktree's HEAD is not passed on: the result is the path, the branch and the gate state.
+    expect((await reader.read(root, same))[1]).toEqual({ path: worktree07, branch: 'demo/07', gate: { outcome: 'red', source: 'file', at: '2026-10-05T09:00:00Z' } })
+  })
+
+  it('readVerdictFile: null without a file, the verdict for its own worktree', async () => {
+    const { home, worktree07 } = await world()
+    expect(await readVerdictFile(join(home, 'gate', 'state', verdictFileName(gateTag(worktree07))), worktree07)).toBeNull()
+    const file = await writeVerdict(home, { worktree: worktree07, outcome: 'none', reason: 'nothing ran', key: null })
+    expect(await readVerdictFile(file, worktree07)).toEqual({ verdict: expect.objectContaining({ outcome: 'none', reason: 'nothing ran', key: null, worktree: worktree07 }) })
+  })
+
+  it('reads the file harness/hooks/gate.sh writes: a green run in a registered repository', async () => {
+    const base = await tempDir()
+    const home = join(base, 'claude')
+    const repo = join(base, 'repo')
+    await mkdir(join(home, 'gate', 'state'), { recursive: true })
+    await mkdir(repo)
+    const env = {
+      ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_') && !key.startsWith('CLAUDE_') && key !== 'HARNESS_HOME' && key !== 'GATE_SCOPE')),
+      HOME: base,
+      CLAUDE_GATE_STATE: join(home, 'gate', 'state'),
+      CLAUDE_GATE_CONFIG: join(home, 'gate', 'config.json'),
+      GATE_SCOPE: 'all',
+    }
+    const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], { cwd: repo, env })
+    await writeFile(join(repo, 'package.json'), JSON.stringify({ name: 'fixture', scripts: { check: 'true' } }))
+    git('init', '-q')
+    git('add', 'package.json')
+    git('commit', '-q', '-m', 'init')
+    // pm is `true`: the gate runs "true run check", which passes.
+    await writeFile(join(home, 'gate', 'config.json'), JSON.stringify({ repos: [{ key: 'demo', match: repo, pm: 'true', root: { fast: ['check'] }, workspace: {} }] }))
+    const out = execFileSync('bash', [join(__dirname, '..', '..', 'harness', 'hooks', 'gate.sh'), 'fast'], { cwd: repo, env, input: '', encoding: 'utf8' })
+    expect(out).toContain('[gate] зелено (fast)')
+    // listWorktrees gives the worktree's HEAD, which the file's `head` must match.
+    const [wt] = await new GateReader({ home }).read(repo, await listWorktrees(repo))
+    expect(wt!.gate).toEqual({ outcome: 'green', source: 'file', at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u) })
   })
 })
 
@@ -402,9 +550,10 @@ describe('listWorktrees', () => {
     git(root, 'init', '-q')
     git(root, 'commit', '-q', '--allow-empty', '-m', 'init')
     git(root, 'worktree', 'add', '-q', '-b', 'demo/07', join(root, '.claude', 'worktrees', '07'))
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, env, encoding: 'utf8' }).trim()
     expect(await listWorktrees(root)).toEqual([
-      { path: root, branch: 'main' },
-      { path: join(root, '.claude', 'worktrees', '07'), branch: 'demo/07' },
+      { path: root, branch: 'main', head },
+      { path: join(root, '.claude', 'worktrees', '07'), branch: 'demo/07', head },
     ])
   })
 
