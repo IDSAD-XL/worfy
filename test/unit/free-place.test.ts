@@ -178,6 +178,30 @@ describe('removeOverlaps', () => {
     expect(moves).toEqual([{ id: 'b', from: { x: 40, y: 40 }, to: DROP_PLACE }])
   })
 
+  it('puts a moved Node where no later Node is either, so a Node that crowded nothing stays', () => {
+    const a = node('a', 0, 0, 300, 200)
+    const b = node('b', 40, 40, 220, 120)
+    // Exactly NODE_GAP under `a`: clear of everything, where `b` alone would have gone.
+    const c = node('c', 40, 216, 220, 120)
+    const { nodes, moves } = removeOverlaps([a, b, c])
+    expect(moves.map((move) => move.id)).toEqual(['b'])
+    expect(nodes[2]).toBe(c)
+    // Above `a` (176 up) is the nearest place clear of `a` and of `c`; right of `a` would be 276.
+    expect(nodes[1]).toMatchObject({ x: 40, y: -16 - 120 })
+    for (const [index, one] of nodes.entries()) for (const other of nodes.slice(index + 1)) expect(crowds(one, other)).toBe(false)
+  })
+
+  it('moves only the later Node of each crowded pair on a grid of 500 with every tenth Node dropped onto its neighbour', () => {
+    const nodes = Array.from({ length: 500 }, (_, index) => {
+      const dropped = index % 10 === 9
+      return node(`n${index}`, (index % 25) * 260 - (dropped ? 200 : 0), Math.floor(index / 25) * 160 + (dropped ? 30 : 0), 220, 120)
+    })
+    const { nodes: after, moves } = removeOverlaps(nodes)
+    // Each dropped Node overlaps the one before it, so at least it has to move; nothing else does.
+    expect(moves.map((move) => move.id)).toEqual(nodes.filter((_, index) => index % 10 === 9).map((each) => each.id))
+    for (const [index, one] of after.entries()) for (const other of after.slice(index + 1)) expect(crowds(one, other)).toBe(false)
+  })
+
   it('changes nothing the second time', () => {
     const next = random(11)
     const nodes = Array.from({ length: 40 }, (_, index) => node(`n${index}`, Math.round(next() * 600), Math.round(next() * 600), 100 + Math.round(next() * 200), 80 + Math.round(next() * 150)))

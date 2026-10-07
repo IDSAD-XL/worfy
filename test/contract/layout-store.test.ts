@@ -672,8 +672,8 @@ describe('layout store: Nodes never overlap (ADR-0038)', () => {
       const { layout } = store.apply(PROJECT, { op: 'move', id: 'n0', x: 3000, y: 1500 })
       const moveMs = performance.now() - moveStarted
       console.log(`[perf] 500 Nodes: read with overlap removal ${readMs.toFixed(1)} ms (${info.mock.calls.length} moved), one corrected move ${moveMs.toFixed(1)} ms`)
-      // The 50 dropped Nodes, and the later Nodes that a moved one now crowds.
-      expect(info.mock.calls.length).toBeGreaterThanOrEqual(50)
+      // Only the 50 dropped Nodes: a moved Node keeps clear of the later ones too.
+      expect(info.mock.calls.length).toBe(50)
       expect(crowded(read.layout)).toEqual([])
       expect(crowded(layout)).toEqual([])
       expect(readMs + moveMs).toBeLessThan(1000)

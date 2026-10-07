@@ -251,7 +251,8 @@ test('an Epic frame whose saved offset puts it on a Card is drawn next to the Ca
     const { window } = launched
     const frame = nodeElement(window, 'epic:demo')
     await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [frame, nodeElement(window, 'c1')] })
-    expect(apart(await box(frame), await box(nodeElement(window, 'c1')))).toBeGreaterThan(0)
+    // The gap on the screen at zoom 0.6, less a pixel of rounding.
+    expect(apart(await box(frame), await box(nodeElement(window, 'c1')))).toBeGreaterThanOrEqual(GAP * 0.6 - 1)
     expect(await byId(window, DEMO, 'c1')).toMatchObject({ x: column + 40, y: 700 })
     expect(await byId(window, DEMO, 'epic:demo')).toMatchObject({ x: offset.x, y: offset.y })
     await snapshotThemes(window, '04-frame-next-to-card')

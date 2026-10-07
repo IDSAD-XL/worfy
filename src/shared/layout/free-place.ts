@@ -164,17 +164,28 @@ export interface NodeMove {
 /**
  * The Layout's Nodes with their overlaps removed (decision 27 of the owner): the Nodes on the plane
  * are taken in the order of `nodes`, that is, the order they were created in, and a Node closer
- * than the gap to one taken before it goes to its nearest clear place. The others stay. Nodes off
- * the plane are neither moved nor in the way. Running it on its own answer moves nothing.
+ * than the gap to one taken before it goes to its nearest clear place. That place keeps clear of
+ * the Nodes taken before it, where they ended up, and of the Nodes after it, where they are now:
+ * a moved Node never lands on a later Node that crowded nothing, so only the later Node of each
+ * crowded pair moves. The others stay. Nodes off the plane are neither moved nor in the way.
+ * Running it on its own answer moves nothing.
  */
 export function removeOverlaps(nodes: readonly LayoutNode[], gap: number = NODE_GAP): { nodes: LayoutNode[]; moves: NodeMove[] } {
+  const participants = nodes.filter(isParticipant)
   const placed: Rect[] = []
   const moves: NodeMove[] = []
+  let taken = 0
   const result = nodes.map((node) => {
     if (!isParticipant(node)) return node
-    const { dx, dy } = freeShift([node], placed, gap)
-    const next = dx === 0 && dy === 0 ? node : { ...node, x: node.x + dx, y: node.y + dy }
-    if (next !== node) moves.push({ id: node.id, from: { x: node.x, y: node.y }, to: { x: next.x, y: next.y } })
+    taken += 1
+    // Whether a Node moves depends only on the Nodes before it.
+    if (isClear([node], placed, undefined, gap)) {
+      placed.push(node)
+      return node
+    }
+    const { dx, dy } = freeShift([node], [...placed, ...participants.slice(taken)], gap)
+    const next = { ...node, x: node.x + dx, y: node.y + dy }
+    moves.push({ id: node.id, from: { x: node.x, y: node.y }, to: { x: next.x, y: next.y } })
     placed.push(next)
     return next
   })
