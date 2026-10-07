@@ -3,10 +3,12 @@
 # под bash и под zsh (Bash-инструмент Claude Code запускает zsh, а zsh не делит переменную
 # без кавычек на слова). Блоки вырезаются из самого SKILL.md, профиль подменяется заглушкой F.
 # Ниже — блоки skills/qmd (таблица коллекций) и skills/tickets-to-tasks (инструмент из профиля).
-# Запуск: bash ~/.claude/bin/tests/skill-blocks.test.sh; код выхода 0 — всё прошло.
+# Запуск: bash harness/bin/tests/skill-blocks.test.sh; код выхода 0 — всё прошло.
 # SKILL_FILE — проверить другую копию SKILL.md.
 set -u
-SKILL="${SKILL_FILE:-$HOME/.claude/skills/overnight-fix-loop/SKILL.md}"
+# The SKILL.md files under test are the copies in harness/skills, next to this test.
+SKILLS="$(cd "$(dirname "$0")/../.." && pwd)/skills"
+SKILL="${SKILL_FILE:-$SKILLS/overnight-fix-loop/SKILL.md}"
 T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 pass=0 fail=0
@@ -55,7 +57,7 @@ for sh in bash zsh; do
 done
 
 # --- skills/qmd: таблица коллекций из профилей и index.yml -----------------------------
-QSKILL="${QMD_SKILL_FILE:-$HOME/.claude/skills/qmd/SKILL.md}"
+QSKILL="${QMD_SKILL_FILE:-$SKILLS/qmd/SKILL.md}"
 B3="$(SKILL="$QSKILL" block 'profiles/*/profile.json')"
 [ -n "$B3" ] || bad "qmd collections block not found in $QSKILL"
 H="$T/home"; mkdir -p "$H/.claude/profiles/p1" "$H/.claude/profiles/p2" "$H/.config/qmd"
@@ -70,20 +72,22 @@ for sh in bash zsh; do
 done
 
 # --- skills/tickets-to-tasks: инструмент и шаблон списка из профиля --------------------
-TSKILL="${TASKS_SKILL_FILE:-$HOME/.claude/skills/tickets-to-tasks/SKILL.md}"
+TSKILL="${TASKS_SKILL_FILE:-$SKILLS/tickets-to-tasks/SKILL.md}"
 B4="$(SKILL="$TSKILL" block 'tasks.tool')"
 [ -n "$B4" ] || bad "tickets-to-tasks profile block not found in $TSKILL"
-if [ -d /Users/alexey/Work/Atakama/Atakama-Browser-Server ] && [ -d /Users/alexey/Work/Auction ]; then
+# The block calls the live ~/.claude/bin/profile: it runs only with the live registry and repositories.
+ATAKAMA="$HOME/Work/Atakama" AUCTION="$HOME/Work/Auction"
+if [ -f "$HOME/.claude/gate/config.json" ] && [ -d "$ATAKAMA/Atakama-Browser-Server" ] && [ -d "$AUCTION" ]; then
     for sh in bash zsh; do
-        got="$($sh -c "${B4//<repo>//Users/alexey/Work/Atakama}" 2>&1)"
+        got="$($sh -c "${B4//<repo>/$ATAKAMA}" 2>&1)"
         [[ "$got" == *"КОД=0"* && "$got" == *"tool: $HOME/.claude/profiles/atakama/bin/tickets.mjs"* && "$got" == *"atakama-<slug>"* ]] \
             && [ -f "$HOME/.claude/profiles/atakama/bin/tickets.mjs" ] \
             && ok "$sh: tickets-to-tasks block resolves the tool with ~ expanded" || bad "$sh: tickets-to-tasks atakama: [$got]"
-        got="$($sh -c "${B4//<repo>//Users/alexey/Work/Auction}" 2>&1)"
+        got="$($sh -c "${B4//<repo>/$AUCTION}" 2>&1)"
         [[ "$got" == *"КОД=4"* ]] && ok "$sh: tickets-to-tasks block: project without tasks -> 4" || bad "$sh: tickets-to-tasks auction: [$got]"
     done
 else
-    echo "skip tickets-to-tasks block: live Atakama/Auction missing"
+    echo "skip tickets-to-tasks block: live registry or Atakama/Auction missing"
 fi
 
 echo "passed $pass, failed $fail"

@@ -3,10 +3,10 @@
 #   - qmd-sync-main: копия, которая не корень своего репозитория, — отказ без fetch/checkout;
 #   - qmd-refresh: один битый профиль / одна пропавшая копия не останавливают прогон —
 #     qmd update всё равно зовётся; с --quiet (Stop-хук) код 0, без --quiet — 1.
-# Запуск: bash ~/.claude/bin/tests/qmd.test.sh; код выхода 0 — всё прошло.
+# Запуск: bash harness/bin/tests/qmd.test.sh; код выхода 0 — всё прошло.
 # BIN_DIR — прогнать тест на другой копии скриптов.
 set -u
-BIN="${BIN_DIR:-$HOME/.claude/bin}"
+BIN="${BIN_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"   # the scripts next to this test (harness/bin)
 T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 pass=0 fail=0

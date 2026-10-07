@@ -1,23 +1,34 @@
 #!/usr/bin/env bash
 # Тесты hooks/session-start.sh и hooks/session-end.sh.
-# Запуск: bash ~/.claude/hooks/tests/session-hooks.test.sh; код выхода 0 — всё прошло.
+# Запуск: bash harness/hooks/tests/session-hooks.test.sh; код выхода 0 — всё прошло.
 #
 # Реестр — живой (~/.claude/gate/config.json, только чтение), профили — копия
 # ~/.claude/profiles во временном каталоге (CLAUDE_PROFILES_DIR), поэтому настоящий
 # state/pending-retro.log не трогается. Плюс синтетический реестр для крайних случаев.
 set -u
-START="$HOME/.claude/hooks/session-start.sh"
-END="$HOME/.claude/hooks/session-end.sh"
-ATAKAMA=/Users/alexey/Work/Atakama
-AUCTION=/Users/alexey/Work/Auction
+# The hooks and bin/profile under test are the copies next to this test (harness/); BIN_DIR and
+# HOOKS_DIR point it at another copy. Checks on live repositories need the live registry too.
+HARNESS="$(cd "$(dirname "$0")/../.." && pwd)"
+BIN="${BIN_DIR:-$HARNESS/bin}"
+HOOKS="${HOOKS_DIR:-$HARNESS/hooks}"
+START="$HOOKS/session-start.sh"
+END="$HOOKS/session-end.sh"
+export CLAUDE_PROFILE_BIN="$BIN/profile" CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
+LIVE_GATE="$HOME/.claude/gate/config.json"
+ATAKAMA="$HOME/Work/Atakama"
+AUCTION="$HOME/Work/Auction"
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 
 T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
-cp -Rp "$HOME/.claude/profiles" "$T/profiles"
-rm -rf "$T"/profiles/*/state
+if [ -d "$HOME/.claude/profiles" ]; then
+    cp -Rp "$HOME/.claude/profiles" "$T/profiles"
+    rm -rf "$T"/profiles/*/state
+else
+    mkdir -p "$T/profiles"
+fi
 mkdir -p "$T/plain"
 export CLAUDE_PROFILES_DIR="$T/profiles"
 
@@ -31,7 +42,7 @@ ctx() { jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null; }
 
 LOG="$T/profiles/atakama/state/pending-retro.log"
 
-if [ -d "$ATAKAMA/Atakama-Browser-Server" ]; then
+if [ -d "$ATAKAMA/Atakama-Browser-Server" ] && [ -f "$LIVE_GATE" ]; then
     R="$ATAKAMA/Atakama-Browser-Server"
     out="$(run "$START" "$R" "$R")"; rc=$?
     c="$(printf '%s' "$out" | ctx)"
@@ -106,10 +117,10 @@ if [ -d "$ATAKAMA/Atakama-Browser-Server" ]; then
     c="$(run "$START" "$R" "" | ctx)"
     [[ "$c" == *"Personal working rules"* ]] && ok "no cwd in JSON: falls back to PWD" || bad "PWD fallback broken"
 else
-    echo "skip atakama checks: $ATAKAMA missing"
+    echo "skip atakama checks: $ATAKAMA or $LIVE_GATE missing"
 fi
 
-if [ -d "$AUCTION" ]; then
+if [ -d "$AUCTION" ] && [ -f "$LIVE_GATE" ]; then
     out="$(run "$START" "$AUCTION" "$AUCTION")"; rc=$?
     [ "$rc" -eq 0 ] && [ -z "$out" ] && ok "auction: session-start prints nothing (inject_rules false)" \
         || bad "auction: rc=$rc out=${out:0:120}"
@@ -117,7 +128,7 @@ if [ -d "$AUCTION" ]; then
     [ "$rc" -eq 0 ] && [ -z "$out" ] && [ ! -e "$T/profiles/auction/state" ] \
         && ok "auction: session-end writes nothing" || bad "auction: session-end rc=$rc or wrote state"
 else
-    echo "skip auction checks: $AUCTION missing"
+    echo "skip auction checks: $AUCTION or $LIVE_GATE missing"
 fi
 
 out="$(run "$START" "$T/plain" "$T/plain")"; rc=$?

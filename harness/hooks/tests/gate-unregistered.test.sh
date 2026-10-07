@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Тесты gate.sh и stop.sh для репозитория вне реестра gate/config.json.
-# Запуск: bash ~/.claude/hooks/tests/gate-unregistered.test.sh; код выхода 0 — всё прошло.
+# Запуск: bash harness/hooks/tests/gate-unregistered.test.sh; код выхода 0 — всё прошло.
 #
 # Реестр, каталог состояния и репозитории — временные (CLAUDE_GATE_CONFIG, CLAUDE_GATE_STATE):
 # живые маркеры в ~/.claude/gate/state тест не трогает.
 set -u
-HOOKS="${HOOKS_DIR:-$HOME/.claude/hooks}"   # HOOKS_DIR — прогнать тест на другой копии хуков
+# The hooks under test are the copies next to this test (harness/hooks).
+HOOKS="${HOOKS_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"   # HOOKS_DIR — прогнать тест на другой копии хуков
 GATE="$HOOKS/gate.sh"
 STOP="$HOOKS/stop.sh"
 export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"

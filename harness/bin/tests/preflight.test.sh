@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
-# Тесты ~/.claude/bin/preflight вне Auction. Запуск: bash ~/.claude/bin/tests/preflight.test.sh;
+# Тесты ~/.claude/bin/preflight вне Auction. Запуск: bash harness/bin/tests/preflight.test.sh;
 # код выхода 0 — всё прошло.
 #
 # Реестр и профили — временные (CLAUDE_GATE_CONFIG, CLAUDE_PROFILES_DIR, их понимает bin/profile).
 # Поведение на Auction проверяется сравнением с прошлым выводом, а не здесь: оно зависит от
 # живого origin/main.
 set -u
-PF="$HOME/.claude/bin/preflight"
+# The scripts under test are the copies next to this test (harness/); BIN_DIR and HOOKS_DIR
+# point it at another copy.
+HARNESS="$(cd "$(dirname "$0")/../.." && pwd)"
+BIN="${BIN_DIR:-$HARNESS/bin}"
+HOOKS="${HOOKS_DIR:-$HARNESS/hooks}"
+PF="$BIN/preflight"
+export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
 T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 pass=0 fail=0

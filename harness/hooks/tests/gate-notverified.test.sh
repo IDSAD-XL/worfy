@@ -7,10 +7,10 @@
 #   - сообщение stop.sh — не больше одного раза за сессию на репозиторий;
 #   - маркер доставляется только своей сессии и своему дереву; маркер без сессии
 #     («anon») — только если он свежее начала сессии.
-# Запуск: bash ~/.claude/hooks/tests/gate-notverified.test.sh; код выхода 0 — всё прошло.
+# Запуск: bash harness/hooks/tests/gate-notverified.test.sh; код выхода 0 — всё прошло.
 # HOOKS_DIR — прогнать тест на другой копии хуков (например, на версии до правки).
 set -u
-HOOKS="${HOOKS_DIR:-$HOME/.claude/hooks}"
+HOOKS="${HOOKS_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"   # the hooks next to this test (harness/hooks)
 GATE="$HOOKS/gate.sh"
 STOP="$HOOKS/stop.sh"
 export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"

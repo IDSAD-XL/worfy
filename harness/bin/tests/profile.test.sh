@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
-# Тесты ~/.claude/bin/profile. Запуск: bash ~/.claude/bin/tests/profile.test.sh; код выхода 0 — всё прошло.
+# Тесты ~/.claude/bin/profile. Запуск: bash harness/bin/tests/profile.test.sh; код выхода 0 — всё прошло.
 #
 # Часть проверок идёт по живому реестру (gate/config.json) и живому репозиторию Auction;
 # часть — по синтетическому репозиторию во временном каталоге со своим конфигом, чтобы
 # проверить рабочее дерево ВНЕ префикса match (опознание через git common dir).
 set -u
-PROFILE="$HOME/.claude/bin/profile"
-AUCTION=/Users/alexey/Work/Auction
+# The scripts under test are the copies next to this test (harness/); BIN_DIR and HOOKS_DIR
+# point it at another copy. Live checks run only when both the repository and the live gate
+# registry ($HOME/.claude/gate/config.json) exist.
+HARNESS="$(cd "$(dirname "$0")/../.." && pwd)"
+BIN="${BIN_DIR:-$HARNESS/bin}"
+HOOKS="${HOOKS_DIR:-$HARNESS/hooks}"
+PROFILE="$BIN/profile"
+export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
+LIVE_GATE="$HOME/.claude/gate/config.json"
+AUCTION="$HOME/Work/Auction"
 pass=0
 fail=0
 
@@ -26,7 +34,7 @@ check() { # $1 имя, $2 ожидаемый код, $3 ожидаемая по�
 }
 
 # --- живой реестр ------------------------------------------------------------------
-if [ -d "$AUCTION" ]; then
+if [ -d "$AUCTION" ] && [ -f "$LIVE_GATE" ]; then
     check "auction root --name" 0 "auction" "$PROFILE" -C "$AUCTION" --name
     check "auction subdir --field commands.test" 0 "pnpm test" "$PROFILE" -C "$AUCTION/apps/api" --field commands.test
     check "auction --field parallel" 0 "worktrees" "$PROFILE" -C "$AUCTION" --field parallel
@@ -56,11 +64,11 @@ if [ -d "$AUCTION" ]; then
         echo "skip auction worktree: no live worktree"
     fi
 else
-    echo "skip live Auction checks: $AUCTION missing"
+    echo "skip live Auction checks: $AUCTION or $LIVE_GATE missing"
 fi
 
-ATAKAMA=/Users/alexey/Work/Atakama
-if [ -d "$ATAKAMA/Atakama-Browser-Server" ]; then
+ATAKAMA="$HOME/Work/Atakama"
+if [ -d "$ATAKAMA/Atakama-Browser-Server" ] && [ -f "$LIVE_GATE" ]; then
     for r in Atakama-Browser-Extension Atakama-Browser-Server Atakama-Browser-Shared; do
         check "atakama $r --name" 0 "atakama" "$PROFILE" -C "$ATAKAMA/$r" --name
     done
@@ -78,27 +86,27 @@ if [ -d "$ATAKAMA/Atakama-Browser-Server" ]; then
     if [ -d "$ATAKAMA/flux-config-platform" ]; then
         check "atakama: unregistered flux-config-platform -> 3" 3 "" "$PROFILE" -C "$ATAKAMA/flux-config-platform" --name
     fi
-    check "parent of two profiles (/Users/alexey/Work) -> 3" 3 "" "$PROFILE" -C /Users/alexey/Work
+    check "parent of two profiles (~/Work) -> 3" 3 "" "$PROFILE" -C "$HOME/Work"
 else
-    echo "skip live Atakama checks: $ATAKAMA missing"
+    echo "skip live Atakama checks: $ATAKAMA or $LIVE_GATE missing"
 fi
 
-WORFY=/Users/alexey/Stuff/CanvasForAI
-if [ -d "$WORFY/.git" ]; then
+WORFY="$HOME/Stuff/CanvasForAI"
+if [ -d "$WORFY/.git" ] && [ -f "$LIVE_GATE" ]; then
     check "worfy --name" 0 "worfy" "$PROFILE" -C "$WORFY" --name
     check "worfy workflow.finish" 0 "pr-green-ci" "$PROFILE" -C "$WORFY" --field workflow.finish
     check "worfy deploy null" 0 "null" "$PROFILE" -C "$WORFY" --field deploy
     check "worfy language.team en" 0 "en" "$PROFILE" -C "$WORFY" --field language.team
     check "worfy --rules names ticket 01" 0 "только после тикета 01" "$PROFILE" -C "$WORFY" --rules
 else
-    echo "skip live worfy checks: $WORFY missing"
+    echo "skip live worfy checks: $WORFY or $LIVE_GATE missing"
 fi
 
 # --- регистр букв в пути: на нечувствительной к регистру ФС (APFS по умолчанию) ---------------
-# /users/alexey/work/... — тот же каталог, что /Users/alexey/Work/...; резолвер и profile должны
+# ~/work/auction в нижнем регистре — тот же каталог, что ~/Work/Auction; резолвер и profile должны
 # узнавать его, а не отвечать «не зарегистрирован».
-RES="$HOME/.claude/hooks/gate-resolve.mjs"
-if [ -d "$AUCTION" ] && [ -d "$(printf '%s' "$AUCTION" | tr '[:upper:]' '[:lower:]')" ]; then
+RES="$HOOKS/gate-resolve.mjs"
+if [ -f "$LIVE_GATE" ] && [ -d "$AUCTION" ] && [ -d "$(printf '%s' "$AUCTION" | tr '[:upper:]' '[:lower:]')" ]; then
     lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
     check "case-insensitive FS: resolver --which lowercased Auction" 0 "auction"$'\t'"$AUCTION" node "$RES" --which "$(lc "$AUCTION")/apps"
     check "case-insensitive FS: profile -C lowercased Auction" 0 "auction" "$PROFILE" -C "$(lc "$AUCTION")/apps" --name
@@ -190,7 +198,11 @@ rm -rf "$T/ws/.git"
 printf '{"repos":[{"key":"a","match":"%s/","profile":"multi"},{"key":"b","match":"%s","profile":"multi"}]}\n' "$T/ws/a" "$T/ws/b" >"$T/ws-slash.json"
 check "match with trailing slash stays 3" 3 "" env CLAUDE_GATE_CONFIG="$T/ws-slash.json" "$PROFILE" -C "$T/ws/a" --name
 unset CLAUDE_GATE_CONFIG CLAUDE_PROFILES_DIR
-check "live registry: unregistered dir -> 3" 3 "" "$PROFILE" -C "$T/plain"
+if [ -f "$LIVE_GATE" ]; then
+    check "live registry: unregistered dir -> 3" 3 "" "$PROFILE" -C "$T/plain"
+else
+    echo "skip live registry check: $LIVE_GATE missing"
+fi
 
 echo "passed: $pass, failed: $fail"
 [ "$fail" -eq 0 ]

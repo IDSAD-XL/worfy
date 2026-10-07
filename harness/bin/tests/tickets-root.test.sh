@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 # Тесты корня тикетов у ~/.claude/bin/ticket и ~/.claude/bin/epic-status: поле tickets.root
 # профиля, флаг --root и прежнее поведение вне реестра (<git top-level>/.scratch).
-# Запуск: bash ~/.claude/bin/tests/tickets-root.test.sh; код выхода 0 — всё прошло.
+# Запуск: bash harness/bin/tests/tickets-root.test.sh; код выхода 0 — всё прошло.
 #
 # Реестр и профили — временные (CLAUDE_GATE_CONFIG, CLAUDE_PROFILES_DIR); живой реестр не читается.
 set -u
-BIN="${BIN_DIR:-$HOME/.claude/bin}"   # BIN_DIR — прогнать тест на другой копии инструментов
+# The scripts under test are the copies next to this test (harness/).
+HARNESS="$(cd "$(dirname "$0")/../.." && pwd)"
+BIN="${BIN_DIR:-$HARNESS/bin}"   # BIN_DIR — прогнать тест на другой копии инструментов
+HOOKS="${HOOKS_DIR:-$HARNESS/hooks}"
 TICKET="$BIN/ticket"
 STATUS="$BIN/epic-status"
 export CLAUDE_TICKET_BIN="$TICKET"
-export CLAUDE_GATE_RESOLVE="$HOME/.claude/hooks/gate-resolve.mjs"
+export CLAUDE_PROFILE_BIN="$BIN/profile"
+export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
 T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 pass=0 fail=0
@@ -17,7 +21,7 @@ ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 
 export CLAUDE_GATE_CONFIG="$T/config.json" CLAUDE_PROFILES_DIR="$T/profiles"
-WS="$T/ws"            # общий каталог, как /Users/alexey/Work/Atakama: сам не git
+WS="$T/ws"            # общий каталог, как ~/Work/Atakama: сам не git
 mkdir -p "$WS/Repo-A/src" "$WS/Repo-B" "$T/rel" "$T/unreg" "$CLAUDE_PROFILES_DIR/multi" "$CLAUDE_PROFILES_DIR/rel"
 for r in "$WS/Repo-A" "$WS/Repo-B" "$T/rel" "$T/unreg"; do
     git -C "$r" init -q -b main && git -C "$r" commit -q --allow-empty -m init
