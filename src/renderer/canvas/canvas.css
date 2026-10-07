@@ -90,3 +90,28 @@
   text-align: center;
   overflow: hidden;
 }
+
+/* Snapping while a Node is dragged (overlays/SnapGuides.tsx, worfy-week ticket 06): 1 px lines in
+   screen pixels above the Nodes, the landing outline dashed. */
+.w-snap {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 5;
+  pointer-events: none;
+  overflow: visible;
+}
+.w-snap__guide,
+.w-snap__gap line {
+  stroke: var(--accent);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+.w-snap__outline {
+  fill: color-mix(in srgb, var(--accent) 6%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  shape-rendering: crispEdges;
+}

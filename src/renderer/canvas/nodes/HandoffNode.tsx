@@ -1,9 +1,9 @@
 import type { CSSProperties } from 'react'
-import { NodeResizer } from '@xyflow/react'
 import type { HANDOFF_HEIGHT, HANDOFF_KIND, HANDOFF_WIDTH } from '../../../shared/ipc/docs'
 import { useDocs, useDocText } from '../../docs/useDocs'
 import { Markdown } from '../../markdown/Markdown'
 import { activeProject, useProjects } from '../../projects/useProjects'
+import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
 
@@ -77,7 +77,7 @@ export default function HandoffNode({ id, selected }: CanvasNodeProps) {
 
   return (
     <article className="w-node-surface" style={styles.root} aria-label="HANDOFF.md" data-testid="handoff-node" data-node-id={id}>
-      <NodeResizer
+      <NodeResizeClamp
         isVisible={selected}
         minWidth={240}
         minHeight={120}

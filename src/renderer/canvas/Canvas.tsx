@@ -15,6 +15,12 @@
 //
 // Every operation sent from here is recorded for ⌘Z / ⇧⌘Z (history.ts); the keys themselves, and
 // Delete to the trash, are handled by overlays/SelectionToolbar.tsx.
+//
+// Snapping (snapping.ts, worfy-week ticket 06): while a Layout Node or an Epic frame is dragged, it
+// is shown at its snapped place — grid, alignment guides, equal gaps; none with ⌘ held — and the
+// overlay draws the guides and, when the rule "Nodes never overlap" moves it off that place, the
+// outline of where it lands. The drop sends the landing place, which main answers with unchanged
+// (ADR-0038). A resize stops each edge short of a neighbour while the mouse is still down.
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   applyNodeChanges,
@@ -23,6 +29,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
+  useStoreApi,
   type NodeChange,
   type NodeTypes,
   type OnMoveEnd,
@@ -30,6 +37,8 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import './canvas.css'
+import { EPIC_FRAME_KIND, SUBAGENT_KIND } from '../../shared/layout/derived'
+import { isParticipant, obstaclesFor, type Rect } from '../../shared/layout/free-place'
 import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
 import { edgeSources, edgesOf, edgeTypes, nodeSources, overlays, type NodeSource } from './extensions'
 import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
@@ -40,6 +49,7 @@ import { applyLayoutOp, currentLayout, LayoutOpsContext, useLayout, type LayoutO
 // anew for every viewport (ticket 29).
 import { withNodeChrome } from './withNodeChrome'
 import { usePinnedPlacement } from './pinning'
+import { clearSnapGuides, planDrag, resizeObstacles, showSnapGuides, stopEdges, type Dragged, type DragPlan } from './snapping'
 
 const flowNodeTypes: NodeTypes = {
   ...Object.fromEntries([...registeredNodeTypes].map(([kind, type]) => [kind, withNodeChrome(type.Component)])),
@@ -134,6 +144,25 @@ function useSourceNodes(projectId: string, layout: Layout): SourceNodes {
   return value
 }
 
+/** What a drag snaps against; found once when the drag starts, since nothing else moves meanwhile. */
+interface DragScene {
+  /** The Layout Nodes and Epic frames that are not dragged: what the lead snaps to when they are on screen. */
+  neighbours: Rect[]
+  /** Every other Layout Node on the plane, as main has them: what main keeps a moved Layout Node clear of. */
+  layoutObstacles: Rect[]
+  /** Everything else on the plane, Subagent Nodes too: what an Epic frame keeps clear of. */
+  planeObstacles: Rect[]
+}
+
+/** A resize going on: where the Node was before it, where the mouse has put it, and what it stops at. */
+interface ResizeSession {
+  before: Rect
+  raw: Rect
+  obstacles: Rect[]
+}
+
+const intersects = (a: Rect, b: Rect): boolean => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+
 interface FlowProps {
   projectId: string
   state: LayoutState
@@ -141,7 +170,10 @@ interface FlowProps {
 
 function Flow({ projectId, state }: FlowProps) {
   const flow = useReactFlow<CanvasFlowNode>()
+  const store = useStoreApi<CanvasFlowNode>()
   const wrapper = useRef<HTMLDivElement>(null)
+  const dragScene = useRef<DragScene | null>(null)
+  const resizes = useRef(new Map<string, ResizeSession>())
   const derived = useSourceNodes(projectId, state.layout)
   const [nodes, setNodes] = useState<CanvasFlowNode[]>(() => toFlowNodes(state.layout.nodes, derived.nodes, []))
   const [shown, setShown] = useState({ layout: state.layout, derived: derived.nodes })
@@ -186,13 +218,141 @@ function Flow({ projectId, state }: FlowProps) {
     }
   }, [projectId])
 
-  const onNodesChange = useCallback((changes: NodeChange<CanvasFlowNode>[]) => {
-    // Removing goes through main only: Delete sends the selection to the trash (overlays/SelectionToolbar.tsx).
-    setNodes((current) => applyNodeChanges(changes.filter((change) => change.type !== 'remove'), current))
+  /**
+   * A resize step of a Layout Node, with each edge that ran into a neighbour stopped NODE_GAP short
+   * of it (decision 23): React Flow's resizer reports where the mouse put the Node, a position
+   * change for the left and top edges and a size change; both are replaced by the stopped
+   * rectangle. The resizer's own end goes through NodeResizeClamp.tsx, which stops it the same way.
+   */
+  const stopResizes = useCallback(
+    (changes: NodeChange<CanvasFlowNode>[]): NodeChange<CanvasFlowNode>[] => {
+      const sizing = changes.filter((change) => change.type === 'dimensions' && change.resizing !== undefined && change.dimensions !== undefined)
+      if (sizing.length === 0) return changes
+      const stopped = new Map<string, Rect>()
+      for (const change of sizing) {
+        if (change.type !== 'dimensions' || change.dimensions === undefined) continue
+        const node = flow.getNode(change.id)
+        if (node === undefined || latest.current.derived.sourceOf.has(node.id) || !isParticipant(node.data.node)) continue
+        let session = resizes.current.get(node.id)
+        if (session === undefined) {
+          const { x, y, w, h } = node.data.node
+          const layout = currentLayout(projectId) ?? latest.current.layout
+          session = { before: { x, y, w, h }, raw: { x: node.position.x, y: node.position.y, w, h }, obstacles: resizeObstacles(layout.nodes, node.id) }
+          resizes.current.set(node.id, session)
+        }
+        const moved = changes.find((each) => each.type === 'position' && each.id === node.id && each.position !== undefined)
+        if (moved?.type === 'position' && moved.position) session.raw = { ...session.raw, x: moved.position.x, y: moved.position.y }
+        session.raw = { ...session.raw, w: change.dimensions.width, h: change.dimensions.height }
+        stopped.set(node.id, stopEdges(session.before, session.raw, session.obstacles))
+        if (change.resizing === false) resizes.current.delete(node.id)
+      }
+      if (stopped.size === 0) return changes
+      const out: NodeChange<CanvasFlowNode>[] = []
+      for (const change of changes) {
+        const rect = change.type === 'add' ? undefined : stopped.get(change.id)
+        if (rect === undefined) out.push(change)
+        else if (change.type === 'dimensions' && change.resizing !== undefined) {
+          out.push({ id: change.id, type: 'position', position: { x: rect.x, y: rect.y } })
+          out.push({ ...change, dimensions: { width: rect.w, height: rect.h } })
+        } else if (change.type !== 'position') out.push(change)
+      }
+      return out
+    },
+    [flow, projectId],
+  )
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange<CanvasFlowNode>[]) => {
+      // Removing goes through main only: Delete sends the selection to the trash (overlays/SelectionToolbar.tsx).
+      const kept = stopResizes(changes.filter((change) => change.type !== 'remove'))
+      setNodes((current) => applyNodeChanges(kept, current))
+    },
+    [stopResizes],
+  )
+
+  /**
+   * Where the dragged Nodes are shown and where they land (snapping.ts). Undefined when the Node
+   * under the mouse does not snap: only a Layout Node on the plane and an Epic frame do (decision 18).
+   */
+  const planFor = useCallback(
+    (lead: CanvasFlowNode, dragged: readonly CanvasFlowNode[], free: boolean): DragPlan | undefined => {
+      const { derived } = latest.current
+      const snaps = (node: CanvasFlowNode): boolean => (derived.sourceOf.has(node.id) ? node.type === EPIC_FRAME_KIND : isParticipant(node.data.node))
+      if (!snaps(lead)) return undefined
+      const moving = dragged.filter(snaps)
+      const ids = new Set(moving.map((node) => node.id))
+      const layout = currentLayout(projectId) ?? latest.current.layout
+      if (dragScene.current === null) {
+        const all = flow.getNodes()
+        const byId = new Map(all.map((node) => [node.id, node]))
+        const neighbours: Rect[] = []
+        const planeObstacles: Rect[] = []
+        for (const node of all) {
+          if (ids.has(node.id) || node.hidden === true) continue
+          const fromSource = derived.sourceOf.has(node.id)
+          if (fromSource && node.type === SUBAGENT_KIND) {
+            // A Subagent Node sits inside its Session's tree: its place is relative to the Session.
+            const parent = node.parentId === undefined ? undefined : byId.get(node.parentId)
+            const w = node.width ?? 0
+            const h = node.height ?? 0
+            if (parent !== undefined && w > 1 && h > 1) planeObstacles.push({ x: parent.position.x + node.position.x, y: parent.position.y + node.position.y, w, h })
+            continue
+          }
+          if (fromSource ? node.type !== EPIC_FRAME_KIND : !isParticipant(node.data.node)) continue
+          const rect = { x: node.position.x, y: node.position.y, w: node.width ?? node.data.node.w, h: node.height ?? node.data.node.h }
+          neighbours.push(rect)
+          planeObstacles.push(rect)
+        }
+        dragScene.current = { neighbours, layoutObstacles: obstaclesFor(layout.nodes, ids), planeObstacles }
+      }
+      const scene = dragScene.current
+      const { width, height, transform } = store.getState()
+      const [tx, ty, zoom] = transform
+      const screen = { x: -tx / zoom, y: -ty / zoom, w: width / zoom, h: height / zoom }
+      const input: Dragged[] = moving.map((node) => {
+        const own = !derived.sourceOf.has(node.id)
+        const w = own ? node.data.node.w : (node.width ?? 0)
+        const h = own ? node.data.node.h : (node.height ?? 0)
+        return { id: node.id, rect: { x: node.position.x, y: node.position.y, w, h }, layout: own }
+      })
+      return planDrag({
+        lead: lead.id,
+        dragged: input,
+        neighbours: scene.neighbours.filter((rect) => intersects(rect, screen)),
+        layoutObstacles: scene.layoutObstacles,
+        planeObstacles: scene.planeObstacles,
+        zoom,
+        free,
+      })
+    },
+    [flow, projectId, store],
+  )
+
+  const onNodeDragStart: OnNodeDrag<CanvasFlowNode> = useCallback(() => {
+    dragScene.current = null
   }, [])
 
+  const onNodeDrag: OnNodeDrag<CanvasFlowNode> = useCallback(
+    (event, node, dragged) => {
+      const plan = planFor(node, dragged, event.metaKey)
+      if (plan === undefined) return
+      showSnapGuides(plan)
+      if (dragged.every((each) => !plan.snapped.has(each.id) || (plan.snapped.get(each.id)!.x === each.position.x && plan.snapped.get(each.id)!.y === each.position.y))) return
+      setNodes((current) => current.map((each) => (plan.snapped.has(each.id) ? { ...each, position: plan.snapped.get(each.id)! } : each)))
+    },
+    [planFor],
+  )
+
   const onNodeDragStop: OnNodeDrag<CanvasFlowNode> = useCallback(
-    (_event, _node, dragged) => {
+    (event, lead, released) => {
+      const plan = planFor(lead, released, event.metaKey)
+      dragScene.current = null
+      clearSnapGuides()
+      // Every dropped Node at its landing place: the place the outline showed.
+      const dragged = released.map((node) => (plan?.landing.has(node.id) ? { ...node, position: plan.landing.get(node.id)! } : node))
+      if (plan !== undefined) {
+        setNodes((current) => current.map((each) => (plan.landing.has(each.id) ? { ...each, position: plan.landing.get(each.id)! } : each)))
+      }
       const { layout, derived } = latest.current
       const back = new Set<string>()
       const layoutNodes: CanvasFlowNode[] = []
@@ -209,7 +369,7 @@ function Flow({ projectId, state }: FlowProps) {
         setNodes((current) => current.map((node) => (at.has(node.id) ? { ...node, position: at.get(node.id)!, dragging: false } : node)))
       }
     },
-    [ops, projectId],
+    [ops, planFor, projectId],
   )
 
   const onMoveEnd: OnMoveEnd = useCallback(
@@ -262,6 +422,8 @@ function Flow({ projectId, state }: FlowProps) {
           nodeTypes={flowNodeTypes}
           edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
+          onNodeDragStart={onNodeDragStart}
+          onNodeDrag={onNodeDrag}
           onNodeDragStop={onNodeDragStop}
           onMoveEnd={onMoveEnd}
           defaultViewport={state.layout.viewport}

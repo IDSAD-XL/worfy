@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { NodeResizer } from '@xyflow/react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal, type ITheme } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
@@ -7,6 +6,7 @@ import './TerminalNode.css'
 import { invoke, subscribe } from '../../ipc'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import type { CanvasNodeProps } from './index'
+import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
 import { unscaleMouse } from './terminal-mouse'
 import { addView, isLastView, type ShellView } from './terminal-views'
@@ -204,7 +204,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       data-state={status.state}
       data-pid={status.state === 'running' ? status.pid : undefined}
     >
-      <NodeResizer
+      <NodeResizeClamp
         isVisible={selected}
         minWidth={240}
         minHeight={120}
