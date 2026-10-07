@@ -345,6 +345,29 @@ describe('the event store: limits, queue and settings', () => {
     expect(log?.settings).toEqual({ ...DEFAULTS, effort: 'low' })
   })
 
+  it('keeps a model pick that no system/init has confirmed yet across `renamed`, and an init clears it', async () => {
+    const store = await import('../../src/renderer/session/store')
+    const init: AgentEvent = { type: 'init', sdkSessionId: 'sdk-1', model: 'claude-sonnet-4-5', permissionMode: 'default', apiKeySource: 'none', cwd: '/p', claudeCodeVersion: null, slashCommands: [] }
+    store.acceptAgentEvent({ sessionId: 'pending-1', event: { type: 'settings', settings: DEFAULTS } })
+    expect(store.useSessionLogs.getState().logs['pending-1']?.modelPick).toBeNull()
+    store.acceptAgentEvent({ sessionId: 'pending-1', event: { type: 'settings', settings: { ...DEFAULTS, model: 'sonnet' } } })
+    expect(store.useSessionLogs.getState().logs['pending-1']?.modelPick).toEqual({ model: 'sonnet' })
+    store.acceptAgentEvent({ sessionId: 'sdk-1', event: { type: 'renamed', from: 'pending-1' } })
+    expect(store.useSessionLogs.getState().logs['sdk-1']?.modelPick).toEqual({ model: 'sonnet' })
+    store.acceptAgentEvent({ sessionId: 'sdk-1', event: init })
+    expect(store.useSessionLogs.getState().logs['sdk-1']?.modelPick).toBeNull()
+  })
+
+  it('on `renamed`, an init already under the new id outranks a pick made under the old one', async () => {
+    const store = await import('../../src/renderer/session/store')
+    const init: AgentEvent = { type: 'init', sdkSessionId: 'sdk-1', model: 'claude-sonnet-4-5', permissionMode: 'default', apiKeySource: 'none', cwd: '/p', claudeCodeVersion: null, slashCommands: [] }
+    store.acceptAgentEvent({ sessionId: 'pending-1', event: { type: 'settings', settings: DEFAULTS } })
+    store.acceptAgentEvent({ sessionId: 'pending-1', event: { type: 'settings', settings: { ...DEFAULTS, model: 'sonnet' } } })
+    store.acceptAgentEvent({ sessionId: 'sdk-1', event: init })
+    store.acceptAgentEvent({ sessionId: 'sdk-1', event: { type: 'renamed', from: 'pending-1' } })
+    expect(store.useSessionLogs.getState().logs['sdk-1']?.modelPick).toBeNull()
+  })
+
   it('loadControls fills in what no event brought, and never overwrites what one did', async () => {
     answers['agent.controls'] = () => ({ settings: { ...DEFAULTS, model: 'old' }, queue: { items: [{ id: 'q', text: 'from main' }], paused: false } })
     const store = await import('../../src/renderer/session/store')
@@ -608,6 +631,30 @@ describe('SessionPanel', () => {
     expect(screen.getByTestId('session-effort').textContent).toBe('—')
     emit('pending-1', { type: 'settings', settings: { ...DEFAULTS, effort: 'high' } })
     expect(screen.getByTestId('session-effort').textContent).toBe('high')
+  })
+
+  // worfy-week ticket 12: after a pick in the model picker the header kept the model of the last
+  // system/init until the next turn, while the picker already showed the new one.
+  it('shows the model picked in the picker until the next system/init confirms which model it is', async () => {
+    const init = (model: string): AgentEvent => ({ type: 'init', sdkSessionId: 'sdk-1', model, permissionMode: 'bypassPermissions', apiKeySource: 'none', cwd: '/p', claudeCodeVersion: null, slashCommands: [] })
+    await mountPanel()
+    const header = () => screen.getByTestId('session-model').textContent
+    emit('pending-1', { type: 'settings', settings: DEFAULTS })
+    emit('pending-1', init('claude-opus-5-5'))
+    expect(header()).toBe('claude-opus-5-5')
+    // A change of effort alone is no pick of a model.
+    emit('pending-1', { type: 'settings', settings: { ...DEFAULTS, effort: 'high' } })
+    expect(header()).toBe('claude-opus-5-5')
+    emit('pending-1', { type: 'settings', settings: { ...DEFAULTS, model: 'sonnet' } })
+    expect(header()).toBe('sonnet')
+    expect((screen.getByTestId('picker-model') as HTMLSelectElement).value).toBe('sonnet')
+    emit('pending-1', init('claude-sonnet-4-5'))
+    expect(header()).toBe('claude-sonnet-4-5')
+    // «Default (recommended)»: until init names the model it stands for, the header says default.
+    emit('pending-1', { type: 'settings', settings: DEFAULTS })
+    expect(header()).toBe('default')
+    emit('pending-1', init('claude-opus-5-5'))
+    expect(header()).toBe('claude-opus-5-5')
   })
 
   it('keeps the rows (and an opened Thinking) when the store drops the oldest events', async () => {

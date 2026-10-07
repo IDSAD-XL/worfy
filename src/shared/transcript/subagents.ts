@@ -392,13 +392,16 @@ export function subagentFile(agentId: string, meta: unknown, lines: readonly str
 
 /**
  * The first line of a final answer without markdown marks: heading and quote marks at the start,
- * and emphasis (`**x**`, `__x__`, `*x*`) anywhere in the line. Null when there is no line.
+ * and emphasis anywhere in the line — `**x**` and `*x*`, and `__x__` only at word boundaries, as in
+ * CommonMark, so a tool name like `mcp__qmd__get` keeps its underscores (worfy-week ticket 12).
+ * Null when there is no line.
  */
 export function summaryLine(text: string | null | undefined): string | null {
   if (!text) return null
   for (const raw of text.split('\n')) {
     const line = raw
-      .replace(/(\*\*|__)(?=\S)(.+?)(?<=\S)\1/g, '$2')
+      .replace(/\*\*(?=\S)(.+?)(?<=\S)\*\*/g, '$1')
+      .replace(/(?<![\p{L}\p{N}_])__(?=\S)(.+?)(?<=\S)__(?![\p{L}\p{N}_])/gu, '$1')
       .replace(/(?<![\w*])\*(?=\S)([^*]+?)(?<=\S)\*(?![\w*])/g, '$1')
       .replace(/^[\s#>*_`-]+/, '')
       .replace(/[\s*_`]+$/, '')

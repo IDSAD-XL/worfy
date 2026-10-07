@@ -306,6 +306,17 @@ describe('summaryLine and the meta file', () => {
     expect(summaryLine('x'.repeat(400))).toHaveLength(160)
   })
 
+  // worfy-week ticket 12: an MCP tool name lost its `__` as if `__qmd__` were emphasis («mcpqmdget»).
+  it('keeps `__` inside a word: a tool name stays as it is, emphasis at word boundaries still goes', () => {
+    expect(summaryLine('mcp__qmd__get')).toBe('mcp__qmd__get')
+    expect(summaryLine('Called mcp__qmd__get and mcp__worfy-canvas__create_card')).toBe('Called mcp__qmd__get and mcp__worfy-canvas__create_card')
+    expect(summaryLine('__VERIFIED__: mcp__qmd__get works')).toBe('VERIFIED: mcp__qmd__get works')
+    expect(summaryLine('the __fix__ holds, (__really__)')).toBe('the fix holds, (really)')
+    expect(summaryLine('**REJECTED** and *twice*')).toBe('REJECTED and twice')
+    // `**` stays emphasis inside a word, as in CommonMark.
+    expect(summaryLine('un**frigging**believable')).toBe('unfriggingbelievable')
+  })
+
   it('reads meta.json leniently: a field of another type is dropped, unknown keys are not copied', () => {
     expect(readSubagentMeta({ agentType: 'scout', spawnDepth: 'two', name: 7, secret: 'x', toolUseId: 'toolu_1' })).toEqual({ agentType: 'scout', toolUseId: 'toolu_1' })
     expect(readSubagentMeta([1, 2])).toBeNull()
