@@ -1,7 +1,7 @@
 # 11 — Profile schema 2 целиком на машине: `mode`, `language.docs`, `attribution`, `mcp.allowed`, без путей Harness
 
 Type: task
-Status: open
+Status: claimed — 2026-10-07
 Blocked by: 06, 07, 08
 Source: решения владельца 2026-10-07: Q11' и Q10 (Profile целиком на машине, правила Project-а подмешивает только Harness; заменяет ADR-0020), Q11 (поля без путей Harness, schema 1 читается на время перехода, `mcp.allowed` — в контракт, новые поля `mode`, `language.docs`, `attribution`), Q4 (состояние Harness — `~/.claude/worfy-harness/`), Q6 (`language.docs`), Q23 и Q28 (`mode`: Full mode и Silent mode), Q25 (`attribution`); [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) (Profile на машине, Full mode и Silent mode); [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness на английском, язык документов из Profile); [ADR-0021](../../../docs/adr/0021-mcp-servers-allowlist-in-profile.md) (список MCP-серверов агентов в Profile); [spec.md](../spec.md)
 
@@ -133,6 +133,9 @@ Ticket 14 (перенос); где worfy ищет `bin/profile` — Ticket 12; �
 - `harness/profiles/README.md` (из `~/.claude/profiles/README.md`)
 - `harness/skills/epic-wave/SKILL.md` (из `~/.claude/skills/epic-wave/SKILL.md`) — только строки с четырьмя полями-путями, если Ticket 06 их оставил
 - `harness/skills/ship-ticket/SKILL.md` (из `~/.claude/skills/ship-ticket/SKILL.md`) — то же
+- `harness/agents/implementer.md` — только строка 23 (пример правила о значениях schema 1 называл
+  поле `tickets.status_tool`): правка вне следа, разрешённая оркестратором 2026-10-07, — без неё
+  проверка `grep … harness/agents` из «Готово, когда» не проходит
 
 Скрипты и skills — файлы групп Ticket-ов 06 и 08, которые этот Ticket ждёт (Blocked by). Файлы
 Ticket-а 05 (части правил для hooks) и `harness/hooks/session-start.sh` не меняются. Общих файлов
@@ -140,4 +143,28 @@ Ticket-а 05 (части правил для hooks) и `harness/hooks/session-st
 
 ## Итог
 
-Заполняется при закрытии.
+- Красный test первым: новый случай `profile.test.sh` «Profile schema 2 в `$HARNESS_HOME/projects/demo/`
+  находится» на main падал с кодом 3 — `project "demo" names profile "demo", but
+  <HOME>/.claude/profiles/demo/profile.json does not exist`: `bin/profile` искал Profile-ы только
+  в `~/.claude/profiles/`. Из 36 новых случаев на main краснели 28 (зелёные 8 — то, что main уже умел: schema 1 в старом месте, строка `language`, `null`, код 4, «ничего не пишет»). Новый `preflight.test.sh`
+  на `preflight` с main — 4 красных из 8 (`--epic` без `tickets.epic_status` давал BLOCKED).
+- `harness/bin/profile`: поиск `$HARNESS_HOME/projects/<имя>/`, потом `~/.claude/profiles/<имя>/`;
+  `CLAUDE_PROFILES_DIR` перекрывает оба; `_resolved.dir` — папка, где Profile найден. schema 2 без
+  `mode` или с другим значением — код 1. `schema`, отличная от 1 и 2, — тоже код 1 (решено без
+  владельца, подтвердить: чтение неизвестной схемы как schema 1 угадывало бы поля); без поля
+  `schema` — читается как schema 1. Четыре поля-пути в `--field` и `--json` — скрипты рядом с
+  `bin/profile`; в schema 1 подменяется и абсолютная форма `$HOME/.claude/bin/…`, не только `~/…`.
+  Сводка без флагов печатает тот же нормализованный Profile (с `mode`, `attribution` и путями
+  своего Harness), что и `--json`.
+- `harness/bin/preflight` берёт `epic-status` рядом с собой; ветка «нет сводки Epic-а в Profile»
+  убрана. Если `preflight` не запускается (код 2: не git, например общий каталог Atakama), skills
+  делают минимальный предполёт сам — так сохранён прежний путь Atakama с `workflow.preflight: null`.
+- Skills epic-wave и ship-ticket зовут `ticket`, `epic-status`, `preflight` из
+  `${CLAUDE_PLUGIN_ROOT}/bin/`; правило о значениях `~/.claude/bin/` (schema 1) оставлено — его
+  требует `epic-wave-ship-ticket.test.sh`.
+- Части правил Ticket-а 05 (`harness/hooks/rules/`) имён четырёх полей не содержат — правки не нужно.
+- Проверка на копиях живых Profile-ов worfy, Auction и Atakama (schema 1, во временном `HOME`):
+  `--json` старого и нового `bin/profile` различаются только четырьмя путями (стали путями своего
+  Harness; `null` у Atakama остался `null`) и добавленными `mode: full`, `attribution: on`.
+- Вне Ticket-а: `src/main/workflow/profile.ts:4` в комментарии всё ещё называет место Profile-а
+  `<claude home>/profiles/<имя>/` — это Ticket 12.

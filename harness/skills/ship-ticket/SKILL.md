@@ -16,9 +16,9 @@ where the work happens; `F <field>` is short for
 `"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field <field>`.
 
 **Harness paths in profile values.** A profile value that starts with `~/.claude/bin/` is read as `${CLAUDE_PLUGIN_ROOT}/bin/` followed by the rest of the value.
-Schema-1 profiles carry such values in `tickets.status_tool`, `tickets.epic_status`,
-`workflow.preflight` and `numbering.reserve_with`; they point into the frozen pre-plugin Harness, so
-run the plugin's copy instead. A bare skill name in `workflow.ticket_skill` (`ship-ticket`) means
+Schema-1 profiles may still carry such values; they point into the frozen pre-plugin Harness, so run
+the plugin's copy instead. The Harness's own scripts — `ticket`, `epic-status`, `preflight` — are
+not profile facts: they are always called from `${CLAUDE_PLUGIN_ROOT}/bin/`. A bare skill name in `workflow.ticket_skill` (`ship-ticket`) means
 `/worfy:ship-ticket`. Placeholders inside profile values (`<эпик>` — the epic, `<NN>` — the ticket
 number, `<slug>`, `<ветка>` — the branch, `<имя-тикета>` — `<NN>-<slug>`, `<что-ревьюишь>` — what
 is reviewed, `<файл>` — a test file) are part of the profile contract: substitute them as written.
@@ -63,12 +63,12 @@ Read it once, before the plan.
 ## 1. Claim
 
 ```bash
-<F tickets.epic_status> <epic>              # what is done, what is free
-<F tickets.status_tool> claim <epic> <NN>   # writes Status in the spelling the file already uses
+"${CLAUDE_PLUGIN_ROOT}/bin/epic-status" <epic>              # what is done, what is free
+"${CLAUDE_PLUGIN_ROOT}/bin/ticket" claim <epic> <NN>       # writes Status in the spelling the file already uses
 ```
 
-Without `tickets.epic_status` or `tickets.status_tool` — say that the profile does not track
-ticket status, and move it the way the repository's `CLAUDE.md` says.
+If the project keeps no tickets in this form (`F tickets.path` is `null` or `ticket` refuses) — say
+that ticket status is not tracked here, and move it the way the repository's `CLAUDE.md` says.
 
 Read the ticket itself (`F tickets.path`) and the spec next to it (`F tickets.spec`). If the
 decision in it is not locked — an ADR first (directory `F docs.adr_dir`; no directory — a question
@@ -81,10 +81,10 @@ plan while it is not yet written.
 
 ## 2. Fresh base, own worktree and free numbers
 
-If the profile sets a preflight (`F workflow.preflight`, placeholder `<эпик>`):
+The preflight is the Harness's own, the same for every project:
 
 ```bash
-<F workflow.preflight>; echo "EXIT=$?"
+"${CLAUDE_PLUGIN_ROOT}/bin/preflight" --epic <epic>; echo "EXIT=$?"
 ```
 
 The last line of the output is `GO` or `BLOCKED: <reasons>`, exit code 1 on `BLOCKED`. What exactly
@@ -96,7 +96,8 @@ Any other reason — stop, do not work around it. Put the line `<база>: <sha
 `F worktree.base`) into every agent's brief as the base — a subagent that read the local `main`
 once reasoned over a stale tree.
 
-Without `workflow.preflight` — say "the profile sets no preflight, running a minimal one" and run:
+If the preflight cannot run here (exit 2: not a git repository, for example the common directory
+above a multi-repository project) — say "preflight cannot run here, running a minimal one" and run:
 `git -C <repo> fetch`, `git -C <repo> status --porcelain`, how far behind `F worktree.base` the
 checkout is, and with `pr-green-ci` also `gh pr list --state open`. Put the line
 `git log -1 --format='%h %s' <base>` into the briefs as the base.
@@ -125,8 +126,8 @@ The step exists only if the profile keeps numbers: `F numbering.adr` or `F numbe
 Both `null` or absent — "the project has no ADR or migration numbers, step 3 skipped".
 
 Take the next free number from the output of step 2; do not run it a second time (the preflight's
-`ADR:` and `migrations:` lines; details — `rules.md`). If the profile has no preflight, the number
-is printed by `F numbering.reserve_with`. Count across all `origin/*` and local branches, not
+`ADR:` and `migrations:` lines; details — `rules.md`). If the preflight could not run, the number
+is printed by `"${CLAUDE_PLUGIN_ROOT}/bin/preflight"` from a repository checkout. Count across all `origin/*` and local branches, not
 within one directory. A number is taken with a placeholder at once and the content is written
 later: that is how 0039 turned into 0059, when two sessions took the same number.
 
@@ -308,7 +309,7 @@ not count as verified.
 ## 11. Close
 
 ```bash
-<F tickets.status_tool> done <epic> <NN> --pr <N>     # with local-green — without --pr
+"${CLAUDE_PLUGIN_ROOT}/bin/ticket" done <epic> <NN> --pr <N>     # with local-green — without --pr
 ```
 
 The state file is `F docs.handoff` (`path`, `kind`, `check`). No field — "the project has no state

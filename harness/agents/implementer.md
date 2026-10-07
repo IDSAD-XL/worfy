@@ -20,7 +20,7 @@ project are written in.
 
 Reading profile values:
 - A Profile value that starts with `~/.claude/bin/` (schema 1) reads as `${CLAUDE_PLUGIN_ROOT}/bin/`
-  followed by the rest: a `tickets.status_tool` of that form runs as `${CLAUDE_PLUGIN_ROOT}/bin/ticket`.
+  followed by the rest of the value: the script `ticket` there runs as `${CLAUDE_PLUGIN_ROOT}/bin/ticket`.
 - Placeholders in profile values (`<эпик>` — epic, `<ветка>` — branch, `<NN>` — ticket number) are
   part of the profile contract: substitute them, do not translate them.
 

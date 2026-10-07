@@ -19,7 +19,9 @@
 // in gate/config.json). So a worktree anywhere on disk is identified
 // by its main repository. The matching logic is not duplicated —
 // we call the resolver. The profile is the "profile" field of the entry in gate/config.json;
-// the profile itself lives in ~/.claude/profiles/<name>/ (format: profiles/README.md).
+// the profile itself lives in $HARNESS_HOME/projects/<name>/, during the transition also in
+// ~/.claude/profiles/<name>/ (schema 1); format: profiles/README.md.
+// profile only reads: it writes nothing anywhere.
 // A directory outside every `match` but inside the common parent of one profile's repositories
 // (workspace, see workspaceOf below) gets that profile; _resolved.workspace is that parent.
 "use strict"
@@ -41,8 +43,13 @@ const CFG = process.env.CLAUDE_GATE_CONFIG || gateConfig()
 // The plugin root: the folder above bin/, found from this script's real file (not a symlink).
 const PLUGIN_ROOT = path.dirname(path.dirname(fs.realpathSync(__filename)))
 const RESOLVE = process.env.CLAUDE_GATE_RESOLVE || path.join(PLUGIN_ROOT, "hooks", "gate-resolve.mjs")
-// Profiles stay in ~/.claude/profiles until ticket 11.
-const PROFILES = process.env.CLAUDE_PROFILES_DIR || path.join(CLAUDE, "profiles")
+// Where a profile is looked for, in order: $HARNESS_HOME/projects/<name>/, then (transition, schema 1)
+// ~/.claude/profiles/<name>/. CLAUDE_PROFILES_DIR (tests) replaces both.
+const PROFILE_DIRS = process.env.CLAUDE_PROFILES_DIR
+    ? [process.env.CLAUDE_PROFILES_DIR]
+    : [path.join(HARNESS_HOME, "projects"), path.join(CLAUDE, "profiles")]
+// This Harness's own scripts: the folder this script lives in.
+const BIN = path.dirname(fs.realpathSync(__filename))
 
 const USAGE = `usage: profile [-C <dir>] [--json | --field <dotted.path> | --rules | --dir | --name]
 exit: 0 found, 2 usage, 3 not a registered project / no profile, 4 field absent, 1 broken config`
@@ -202,14 +209,58 @@ if (which) {
 }
 
 const name = entry.profile
-const dir = path.join(PROFILES, name)
-const pjPath = path.join(dir, "profile.json")
-if (!fs.existsSync(pjPath)) die(3, `${key ? `project "${key}"` : `workspace ${workspace.ws}`} names profile "${name}", but ${pjPath} does not exist`)
+const candidates = PROFILE_DIRS.map((d) => path.join(d, name, "profile.json"))
+const pjPath = candidates.find((p) => fs.existsSync(p))
+if (!pjPath)
+    die(3, `${key ? `project "${key}"` : `workspace ${workspace.ws}`} names profile "${name}", but neither ${candidates.join(" nor ")} exists`)
+const dir = path.dirname(pjPath)
 let profile
 try {
     profile = JSON.parse(fs.readFileSync(pjPath, "utf8"))
 } catch (e) {
     die(1, `${pjPath} is not valid JSON: ${e.message}`)
+}
+if (profile === null || typeof profile !== "object" || Array.isArray(profile)) die(1, `${pjPath} is not a JSON object`)
+
+// --- schema 1 and 2 ----------------------------------------------------------------
+// schema 2 is the current format; schema 1 (or no "schema") is read during the transition.
+// Any other value is a broken profile: reading it as one of the two would guess at its fields.
+const schema = profile.schema === undefined ? 1 : profile.schema
+if (schema !== 1 && schema !== 2) die(1, `${pjPath}: "schema": ${JSON.stringify(profile.schema)} is not supported (1 or 2) — broken profile`)
+const MODES = ["full", "silent"]
+if (schema === 2 && !MODES.includes(profile.mode))
+    die(
+        1,
+        `${pjPath}: schema 2 needs "mode": "full" or "silent", got ${profile.mode === undefined ? "no mode" : JSON.stringify(profile.mode)} — broken profile (a guessed mode would put the workflow files in the wrong place)`
+    )
+// Before modes existed the whole Harness worked as Full mode.
+if (schema === 1) profile.mode = "full"
+if (profile.attribution === undefined) profile.attribution = "on"
+// The old form `"language": "ru"` is one language for everything. Readers ask for `language.reports` and
+// `language.team` (profiles/README.md), so the string is expanded into an object with both fields.
+if (typeof profile.language === "string") profile.language = { reports: profile.language, team: profile.language }
+
+// The four Harness paths are constants of the Harness, not facts of the project. A reader that still
+// asks for them gets this Harness's own scripts: in schema 2 always (the file is not consulted), in
+// schema 1 a value naming ~/.claude/bin/<script> (the pre-plugin Harness) is mapped onto the same
+// script next to this one; null and any other value stay as they are.
+const HARNESS_PATHS = [
+    ["tickets", "status_tool", `${BIN}/ticket`],
+    ["tickets", "epic_status", `${BIN}/epic-status`],
+    ["workflow", "preflight", `${BIN}/preflight --epic <эпик>`],
+    ["numbering", "reserve_with", `${BIN}/preflight`],
+]
+const LEGACY_BIN = ["~/.claude/bin/", path.join(CLAUDE, "bin") + path.sep] // schema 1
+for (const [group, field, value] of HARNESS_PATHS) {
+    if (schema === 2) {
+        if (profile[group] === null || typeof profile[group] !== "object") profile[group] = {}
+        profile[group][field] = value
+        continue
+    }
+    const g = profile[group]
+    if (g === null || typeof g !== "object" || typeof g[field] !== "string") continue
+    const prefix = LEGACY_BIN.find((p) => g[field].startsWith(p))
+    if (prefix) g[field] = `${BIN}/${g[field].slice(prefix.length)}`
 }
 
 let checkoutReal = null
@@ -229,9 +280,6 @@ const resolved = {
     in_worktree: Boolean(!workspace && checkoutReal && checkoutReal !== canon),
     workspace: workspace ? workspace.ws : null,
 }
-// The old form `"language": "ru"` is one language for everything. Readers ask for `language.reports` and
-// `language.team` (profiles/README.md), so the string is expanded into an object with both fields.
-if (typeof profile.language === "string") profile.language = { reports: profile.language, team: profile.language }
 const full = { ...profile, _resolved: resolved }
 const rulesPath = path.join(dir, "rules.md")
 const rules = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, "utf8") : null
