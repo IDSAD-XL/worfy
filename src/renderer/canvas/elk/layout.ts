@@ -3,10 +3,12 @@
 // layers; ELK orders the Tickets inside each column so that fewer Edges cross, and routes the
 // "Blocked by" Edges orthogonally through the corridors between the columns, around the Tickets.
 //
-// ELK gets only the Edges that go forward, from one column to a later one. An Edge inside one
-// column (done → done in the open stack, a cycle in "Needs attention") or back to an earlier
-// column (from "Needs attention" to a level) is routed here, also orthogonally and around the
-// Tickets: see `ownRoute`.
+// ELK gets only the Edges that go forward between the columns of open Tickets. The Done column is
+// one block for ELK whether the stack is folded or open, with no Edges (ADR-0039): an Edge from a
+// done blocker would make ELK pull the blocked Ticket down to its blocker's height, so opening the
+// stack would move the open columns. An Edge from a done Ticket, one inside a column (done → done
+// in the open stack, a cycle in "Needs attention") and one back to an earlier column (from "Needs
+// attention" to a level) are routed here, also orthogonally and around the Tickets: see `ownRoute`.
 //
 // The ELK instance is passed in: the app's runs in a Web Worker (client.ts), tests pass ELK
 // without a worker (elkjs/lib/elk.bundled.js). Building the graph and reading the answer are
@@ -68,15 +70,29 @@ const LAYOUT_OPTIONS: Record<string, string> = {
   'elk.padding': `[top=${TICKETS_TOP},left=${FRAME_PADDING},bottom=${FRAME_PADDING},right=${FRAME_PADDING}]`,
 }
 
-/** The ELK graph of an open frame: one node per drawn Ticket (or the folded done stack) in its column's partition, and the forward Edges. */
+/** The height of the open done stack: its Tickets one under another, a row gap apart. */
+const openStackHeight = (count: number) => count * TICKET_HEIGHT + Math.max(0, count - 1) * ROW_GAP
+
+/**
+ * The ELK graph of an open frame: one node per open Ticket in its column's partition, the Done
+ * column as one block (the folded stack, or the open stack's whole height), and the forward Edges
+ * between open Tickets. `own` are the Edges routed here instead.
+ */
 export function elkGraph({ tickets, doneExpanded }: ElkEpicInput): { graph: ElkNode; own: { blocker: number; blocked: number }[] } {
   const { columns } = epicColumns(tickets)
   const columnOf = new Map<number, number>()
+  const doneNums = new Set<number>()
   const children: ElkNode[] = []
   columns.forEach((c, index) => {
     const partition = { 'elk.partitioning.partition': String(index) }
-    if (c.column.kind === 'done' && !doneExpanded) {
-      children.push({ id: DONE_STACK_ID, width: TICKET_WIDTH, height: DONE_STACK_HEIGHT, layoutOptions: partition })
+    if (c.column.kind === 'done') {
+      const height = doneExpanded ? openStackHeight(c.tickets.length) : DONE_STACK_HEIGHT
+      children.push({ id: DONE_STACK_ID, width: TICKET_WIDTH, height, layoutOptions: partition })
+      if (!doneExpanded) return
+      for (const t of c.tickets) {
+        columnOf.set(t.num, index)
+        doneNums.add(t.num)
+      }
       return
     }
     for (const t of c.tickets) {
@@ -97,7 +113,7 @@ export function elkGraph({ tickets, doneExpanded }: ElkEpicInput): { graph: ElkN
   const edges: ElkExtendedEdge[] = []
   const own: { blocker: number; blocked: number }[] = []
   for (const pair of blockingPairs(tickets, new Set(columnOf.keys()))) {
-    if (columnOf.get(pair.blocker)! < columnOf.get(pair.blocked)!) {
+    if (!doneNums.has(pair.blocker) && columnOf.get(pair.blocker)! < columnOf.get(pair.blocked)!) {
       edges.push({ id: routeKey(pair.blocker, pair.blocked), sources: [outPort(pair.blocker)], targets: [inPort(pair.blocked)] })
     } else own.push(pair)
   }
@@ -108,17 +124,35 @@ const pointsOf = (edge: ElkExtendedEdge): Point[] =>
   (edge.sections ?? []).flatMap((section, index) => [...(index === 0 ? [section.startPoint] : []), ...(section.bendPoints ?? []), section.endPoint]).map(({ x, y }) => ({ x, y }))
 
 /**
+ * The height at which an Edge from `start` to `end`, a later column, crosses the columns between
+ * them: the free height nearest to a straight line, so that it runs through no Ticket of those
+ * columns. Free heights are the ends' own heights, the gaps between and around those Tickets, and
+ * `below` every Ticket.
+ */
+function forwardAcross(start: Point, end: Point, placed: readonly PlacedTicket[], below: number): number {
+  const between = placed.filter((t) => t.x > start.x && t.x < end.x)
+  const clear = (y: number) => between.every((t) => y <= t.y || y >= t.y + TICKET_HEIGHT)
+  const candidates = [end.y, start.y, ...between.flatMap((t) => [t.y - ROW_GAP / 2, t.y + TICKET_HEIGHT + ROW_GAP / 2])].filter(
+    (y) => y > TICKETS_TOP - ROW_GAP && y < below && clear(y),
+  )
+  const cost = (y: number) => Math.abs(y - start.y) + Math.abs(y - end.y)
+  return candidates.reduce((best, y) => (cost(y) < cost(best) ? y : best), below)
+}
+
+/**
  * The route of an Edge ELK does not get, around every Ticket: out of the blocker's right side into
  * the corridor right of its column, then across to the corridor left of the blocked Ticket's
  * column, and into its left side. Inside one column it crosses through the gap next to the
  * blocked Ticket, on the blocker's side; back to an earlier column it runs under every Ticket
- * (`below`).
+ * (`below`); forward, from a done blocker, it crosses the columns between at a free height
+ * (`forwardAcross`).
  */
-function ownRoute(from: PlacedTicket, to: PlacedTicket, sameColumn: boolean, column: readonly PlacedTicket[], below: number): Point[] {
+function ownRoute(from: PlacedTicket, to: PlacedTicket, sameColumn: boolean, column: readonly PlacedTicket[], placed: readonly PlacedTicket[], below: number): Point[] {
   const start = { x: from.x + TICKET_WIDTH, y: from.y + TICKET_HEIGHT / 2 }
   const end = { x: to.x, y: to.y + TICKET_HEIGHT / 2 }
   let across = below
-  if (sameColumn) {
+  if (!sameColumn && from.x < to.x) across = forwardAcross(start, end, placed, below)
+  else if (sameColumn) {
     const above = from.y < to.y
     const neighbour = above
       ? column.filter((t) => t.y < to.y).reduce<PlacedTicket | null>((best, t) => (best === null || t.y > best.y ? t : best), null)
@@ -126,7 +160,7 @@ function ownRoute(from: PlacedTicket, to: PlacedTicket, sameColumn: boolean, col
     // `from` itself is on that side, so the neighbour always exists.
     across = above ? (neighbour!.y + TICKET_HEIGHT + to.y) / 2 : (to.y + TICKET_HEIGHT + neighbour!.y) / 2
   }
-  return [
+  const points = [
     start,
     { x: start.x + CORRIDOR_STEP, y: start.y },
     { x: start.x + CORRIDOR_STEP, y: across },
@@ -134,6 +168,8 @@ function ownRoute(from: PlacedTicket, to: PlacedTicket, sameColumn: boolean, col
     { x: end.x - CORRIDOR_STEP, y: end.y },
     end,
   ]
+  // A forward Edge whose free height is one of its ends' runs straight there: drop the repeats.
+  return points.filter((p, i) => i === 0 || p.x !== points[i - 1]!.x || p.y !== points[i - 1]!.y)
 }
 
 /**
@@ -152,7 +188,7 @@ export async function layoutEpicElk(input: ElkEpicInput, elk: ElkEngine): Promis
 
   // A column's x is where ELK put its partition; every node of a partition shares it.
   const xs = columns.columns.map((c) => {
-    const id = c.column.kind === 'done' && !input.doneExpanded ? DONE_STACK_ID : nodeId(c.tickets[0]!.num)
+    const id = c.column.kind === 'done' ? DONE_STACK_ID : nodeId(c.tickets[0]!.num)
     return at.get(id)?.x ?? 0
   })
   const placed: PlacedTicket[] = []
@@ -163,6 +199,16 @@ export async function layoutEpicElk(input: ElkEpicInput, elk: ElkEngine): Promis
       const stack = at.get(DONE_STACK_ID) ?? { x: xs[index]!, y: TICKETS_TOP }
       doneStack = { x: stack.x, y: stack.y, width: TICKET_WIDTH, height: DONE_STACK_HEIGHT, nums: c.tickets.map((t) => t.num) }
       bottom = Math.max(bottom, stack.y + DONE_STACK_HEIGHT)
+      return
+    }
+    if (c.column.kind === 'done') {
+      // The open stack: its Tickets from the block's top down, by number (ADR-0039).
+      const top = at.get(DONE_STACK_ID)?.y ?? TICKETS_TOP
+      c.tickets.forEach((t, row) => {
+        const y = top + row * (TICKET_HEIGHT + ROW_GAP)
+        placed.push({ num: t.num, column: c.column, x: xs[index]!, y, ready: columns.ready.has(t.num), attention: columns.attention.get(t.num) ?? null })
+        bottom = Math.max(bottom, y + TICKET_HEIGHT)
+      })
       return
     }
     for (const t of c.tickets) {
@@ -188,8 +234,9 @@ export async function layoutEpicElk(input: ElkEpicInput, elk: ElkEngine): Promis
     const from = byNum.get(blocker)!
     const to = byNum.get(blocked)!
     const sameColumn = columnOf(from) === columnOf(to)
-    if (!sameColumn) usesBelow = true
-    routes[routeKey(blocker, blocked)] = ownRoute(from, to, sameColumn, placed.filter((t) => columnOf(t) === columnOf(to)), below)
+    const route = ownRoute(from, to, sameColumn, placed.filter((t) => columnOf(t) === columnOf(to)), placed, below)
+    if (route.some((p) => p.y === below)) usesBelow = true
+    routes[routeKey(blocker, blocked)] = route
   }
 
   const height = Math.max(answer.height ?? 0, bottom + FRAME_PADDING, usesBelow ? below + FRAME_PADDING : 0)

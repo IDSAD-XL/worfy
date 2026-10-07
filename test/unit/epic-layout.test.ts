@@ -25,6 +25,7 @@ import {
   stackFrames,
   TICKET_HEIGHT,
   TICKET_WIDTH,
+  TICKETS_TOP,
   type EpicLayout,
   ticketFile,
   ticketTitle,
@@ -215,6 +216,55 @@ describe('layoutEpic by ELK', () => {
     const open = await laidOut(tickets, true)
     expect(open.doneStack).toBeNull()
     expect(columnsOf(open)).toEqual(['Done: 1,2', 'Level 1: 3'])
+  })
+
+  // worfy-week ticket 11 (ADR-0039): the done column is one block for ELK, so opening the stack
+  // does not pull the open Tickets down to their done blockers. The fixture follows the
+  // notifications-telegram Epic of Auction: more done Tickets than open ones, and the Tickets of
+  // Level 1–3 blocked by done Tickets low in the done column.
+  describe('the open done stack', () => {
+    const doneChain = Array.from({ length: 10 }, (_, i) => ticket(i + 1, { ...done, ...(i ? blocked(i) : {}) }))
+    const telegram = [
+      ...doneChain,
+      ticket(11, blocked(9)),
+      ticket(12, blocked(10)),
+      ticket(13, blocked(11, 8)),
+      ticket(14, blocked(12, 10)),
+      ticket(15, blocked(13, 9)),
+      ticket(16, blocked(14, 6)),
+    ]
+    const openNums = [11, 12, 13, 14, 15, 16]
+
+    it('leaves the open columns where the folded stack has them: at the top of the frame', async () => {
+      const folded = await laidOut(telegram)
+      const open = await laidOut(telegram, true)
+      expect(columnsOf(open)).toEqual(['Done: 1,2,3,4,5,6,7,8,9,10', 'Level 1: 11,12', 'Level 2: 13,14', 'Level 3: 15,16'])
+      const top = Math.min(...openNums.map((num) => placed(open, num).y))
+      expect(top - TICKETS_TOP).toBeLessThanOrEqual(ROW_GAP)
+      for (const num of openNums) {
+        expect(Math.abs(placed(open, num).x - placed(folded, num).x), `ticket ${num} x`).toBeLessThanOrEqual(ROW_GAP)
+        expect(Math.abs(placed(open, num).y - placed(folded, num).y), `ticket ${num} y`).toBeLessThanOrEqual(ROW_GAP)
+      }
+    })
+
+    it('routes every Edge, from a done blocker too, orthogonally around the Tickets, right side to left side', async () => {
+      const open = await laidOut(telegram, true)
+      // 9 Edges inside the done column, 10 from open blockers and from done blockers.
+      expect(expectRoutesAroundTickets(open, telegram)).toBe(9 + 10)
+      // 08 → 13 and 06 → 16 cross a column of open Tickets on their way.
+      for (const key of [routeKey(8, 13), routeKey(6, 16), routeKey(9, 15)]) expect(open.routes[key]!.length, key).toBeGreaterThan(2)
+    })
+
+    it('stands the done Tickets in the Done column by number, a row gap apart, and makes the frame hold them', async () => {
+      const open = await laidOut(telegram, true)
+      const doneColumn = open.columns.find((c) => c.column.kind === 'done')!
+      const column = open.tickets.filter((t) => t.column.kind === 'done')
+      expect(column.map((t) => t.num)).toEqual(doneChain.map((t) => t.num))
+      for (const t of column) expect(t.x, `ticket ${t.num}`).toBe(doneColumn.x)
+      expect(column[0]!.y - TICKETS_TOP).toBeLessThanOrEqual(ROW_GAP)
+      column.slice(1).forEach((t, i) => expect(t.y - column[i]!.y, `ticket ${t.num}`).toBe(TICKET_HEIGHT + ROW_GAP))
+      expect(open.height).toBeGreaterThanOrEqual(column[column.length - 1]!.y + TICKET_HEIGHT + FRAME_PADDING)
+    })
   })
 
   it('moves Tickets with an unreadable "Blocked by", a blocker outside the Epic or a cycle to "Needs attention"', async () => {
