@@ -6,10 +6,11 @@
 // computed from the renderer's copy of the Layout just before the operation is sent.
 //
 // Only what the user does on the Canvas is recorded: the Canvas's LayoutOps (Canvas.tsx, the
-// LayoutOpsContext of useLayout.ts) send the user's gestures through applyRecorded(). Everything
-// else writes the Layout without a step: main itself, an agent through the canvas MCP tools, and the
-// renderer's automatic writers (the Session Nodes sync, the Epic and Subagent sources), which call
-// applyLayoutOp() directly. An undo after them only reverts the user's own step.
+// LayoutOpsContext of useLayout.ts) send the user's gestures through applyRecorded(), the gestures
+// on an Epic frame too — its drag and its collapse button (sources/epics.ts, worfy-week ticket 08).
+// Everything else writes the Layout without a step: main itself, an agent through the canvas MCP
+// tools, and the renderer's automatic writers (the Session Nodes sync, the Subagent source), which
+// call applyLayoutOp() directly. An undo after them only reverts the user's own step.
 //
 // One history per Project, HISTORY_DEPTH steps deep: a 41st step pushes out the oldest. A new step
 // clears what could be redone. Several operations made by one gesture (a drag of three Nodes, a tag
@@ -134,13 +135,23 @@ export function resetHistories(): void {
 
 const nodeOf = (layout: Layout, id: string): LayoutNode | undefined => layout.nodes.find((node) => node.id === id)
 
+/** How an operation is recorded. */
+export interface RecordOptions {
+  /**
+   * Record a `patchData` too. By default a Node's data is not a step (a note's text has its own
+   * undo); a gesture whose whole effect is a data key, as collapsing an Epic frame, asks for it.
+   */
+  data?: boolean
+}
+
 /**
  * The operation that reverts `op` on `layout`, or undefined when `op` is not recorded: the
- * viewport, a Node's data (a note's text has its own undo), a Node that is not there. A `create`
- * must carry its id (applyRecorded() gives it one).
+ * viewport, a Node's data unless `options.data` (a note's text has its own undo), a Node that is
+ * not there. A `create` must carry its id (applyRecorded() gives it one).
  */
-export function inverseOf(layout: Layout, op: LayoutOpInput): LayoutOpInput | undefined {
-  if (op.op === 'setViewport' || op.op === 'patchData') return undefined
+export function inverseOf(layout: Layout, op: LayoutOpInput, options: RecordOptions = {}): LayoutOpInput | undefined {
+  if (op.op === 'setViewport') return undefined
+  if (op.op === 'patchData') return options.data === true ? dataInverse(layout, op) : undefined
   if (op.op === 'create') return op.node.id === undefined ? undefined : { op: 'remove', id: op.node.id }
   if (op.op === 'moveMany') {
     // The same group operation with the old places: main checks the group as a whole again (ADR-0038).
@@ -172,6 +183,21 @@ export function inverseOf(layout: Layout, op: LayoutOpInput): LayoutOpInput | un
       return add.length === 0 && remove.length === 0 ? undefined : { op: 'tag', id: op.id, add, remove }
     }
   }
+}
+
+/**
+ * A `patchData` that puts back the old values of the keys `op` patches. A key the Node did not have
+ * comes back as null: main merges data and cannot drop a key, and a reader takes null as absent
+ * (sources/epics.ts reads a `collapsed` that is not a boolean as the default). Undefined when the
+ * Node is not there or `op` changes nothing.
+ */
+function dataInverse(layout: Layout, op: Extract<LayoutOpInput, { op: 'patchData' }>): LayoutOpInput | undefined {
+  const before = nodeOf(layout, op.id)
+  if (before === undefined) return undefined
+  const keys = Object.keys(op.data)
+  const old = (key: string): unknown => (Object.hasOwn(before.data, key) ? before.data[key] : null)
+  if (keys.every((key) => JSON.stringify(old(key)) === JSON.stringify(op.data[key]))) return undefined
+  return { op: 'patchData', id: op.id, data: Object.fromEntries(keys.map((key) => [key, old(key)])) }
 }
 
 /**
@@ -289,9 +315,9 @@ function takeAndBring(id: string, first: NodeInput, channel: LayoutChannel): { t
  * gesture. The inverse is computed from channel.layout() just before sending. A `create` without an
  * id gets one here, so that its undo can name the Node.
  */
-export async function applyRecorded(projectId: string, op: LayoutOpInput, channel: LayoutChannel, group?: Group): Promise<string | undefined> {
+export async function applyRecorded(projectId: string, op: LayoutOpInput, channel: LayoutChannel, group?: Group, options?: RecordOptions): Promise<string | undefined> {
   const sent: LayoutOpInput = op.op === 'create' && op.node.id === undefined ? { ...op, node: { ...op.node, id: newNodeId() } } : op
-  const inverse = inverseOf(channel.layout(), sent)
+  const inverse = inverseOf(channel.layout(), sent, options)
   const error = await channel.send(sent)
   if (error !== undefined || inverse === undefined) return error
   let step: HistoryStep

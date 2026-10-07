@@ -2,6 +2,7 @@ import { memo } from 'react'
 import { actions, type SlotSubject } from '../badges'
 import { PROGRESS_SEGMENTS, type Progress, type TicketColumn } from '../epic-layout'
 import { saveEpicChange, toggleDoneStack, type EpicFrameData } from '../sources/epics'
+import { useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
 import '../epic-frame.css'
 
@@ -38,7 +39,9 @@ function EpicFrameNode({ data }: CanvasNodeProps) {
   const frame = data.node.data as EpicFrameData
   const { projectId, root, epic, tickets, layout, progress, collapsed, doneExpanded, saved } = frame
   const subject: SlotSubject = { kind: 'epic', projectId, root, epic, tickets }
-  const toggleCollapsed = () => void saveEpicChange(projectId, epic.epic, saved, { collapsed: !collapsed })
+  const ops = useLayoutOps()
+  // A step of the ⌘Z history; the done stack below is not (it is not in the Layout, like the viewport).
+  const toggleCollapsed = () => void saveEpicChange(projectId, epic.epic, saved, { collapsed: !collapsed }, ops)
 
   return (
     <section

@@ -7,7 +7,8 @@
 //
 // Node sources (extensions.ts) add Nodes computed from elsewhere — the Epic frames and Tickets
 // from the workflow model. They are drawn after the Layout's Nodes; dropping one after a drag goes
-// to its source, which saves what it needs in the Layout, instead of a `move` operation.
+// to its source, which saves what it needs in the Layout, instead of a `move` operation — through
+// the same LayoutOps, into the drop's one ⌘Z step (extensions.ts dropNodes()).
 //
 // Navigation: the wheel pans, ⌘ + wheel (and a pinch) zooms around the pointer, ⌘= / ⌘− zoom
 // in and out, dragging with Space held or with the middle button pans, dragging on an empty spot
@@ -40,10 +41,10 @@ import './canvas.css'
 import { EPIC_FRAME_KIND, SUBAGENT_KIND } from '../../shared/layout/derived'
 import { isParticipant, obstaclesFor, type Rect } from '../../shared/layout/free-place'
 import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
-import { edgeSources, edgesOf, edgeTypes, nodeSources, overlays, type NodeSource } from './extensions'
+import { dropNodes, edgeSources, edgesOf, edgeTypes, nodeSources, overlays, type NodeSource } from './extensions'
 import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
 import { UnknownNode } from './UnknownNode'
-import { applyRecorded, dropOperation, type Group, type LayoutChannel } from './history'
+import { applyRecorded, type Group, type LayoutChannel, type RecordOptions } from './history'
 import { applyLayoutOp, currentLayout, LayoutOpsContext, useLayout, type LayoutOps } from './useLayout'
 // Every Node type is drawn inside the chrome (tags, the pinned frame); pinned Nodes are placed
 // anew for every viewport (ticket 29).
@@ -212,8 +213,8 @@ function Flow({ projectId, state }: FlowProps) {
     }
     return {
       // Every operation sent here is a user's gesture and is recorded for ⌘Z (history.ts, ticket 30).
-      async apply(op: LayoutOpInput, group?: Group) {
-        await applyRecorded(projectId, op, channel, group)
+      async apply(op: LayoutOpInput, group?: Group, options?: RecordOptions) {
+        await applyRecorded(projectId, op, channel, group, options)
       },
     }
   }, [projectId])
@@ -354,15 +355,8 @@ function Flow({ projectId, state }: FlowProps) {
         setNodes((current) => current.map((each) => (plan.landing.has(each.id) ? { ...each, position: plan.landing.get(each.id)! } : each)))
       }
       const { layout, derived } = latest.current
-      const back = new Set<string>()
-      const layoutNodes: CanvasFlowNode[] = []
-      for (const node of dragged) {
-        const source = derived.sourceOf.get(node.id)
-        if (!source) layoutNodes.push(node)
-        else if (source.moved({ projectId, layout }, node) !== true) back.add(node.id)
-      }
-      const op = dropOperation(layoutNodes)
-      if (op !== undefined) void ops.apply(op)
+      // One ⌘Z step for the whole drop, the Epic frames in it too (worfy-week ticket 08).
+      const { back } = dropNodes({ projectId, layout, ops, sourceOf: derived.sourceOf }, dragged)
       // A Node whose source keeps no place for it goes back to where the source has it (ADR-0037).
       if (back.size > 0) {
         const at = new Map(derived.nodes.filter((node) => back.has(node.id)).map((node) => [node.id, node.position]))

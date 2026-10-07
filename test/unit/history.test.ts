@@ -155,6 +155,29 @@ describe('history: inverse operations', () => {
     expect(inverseOf(layout(), { op: 'move', id: 'missing', x: 1, y: 1 })).toBeUndefined()
   })
 
+  // worfy-week ticket 08: the collapse button of an Epic frame is a step; a note's text still is not.
+  it('a data patch asked to be recorded is a step: ⌘Z puts back the old value, and null for a key the Node did not have', async () => {
+    store.apply(PROJECT, { op: 'create', node: { id: 'epic:a', kind: 'epic-frame', x: 0, y: 0, w: 1, h: 1, locked: true, data: {} } })
+    expect(inverseOf(layout(), { op: 'patchData', id: 'epic:a', data: { collapsed: true } }, { data: true })).toEqual({ op: 'patchData', id: 'epic:a', data: { collapsed: null } })
+    // Without the option the same patch is no step, and a patch that changes nothing is none either.
+    expect(inverseOf(layout(), { op: 'patchData', id: 'epic:a', data: { collapsed: true } })).toBeUndefined()
+    expect(inverseOf(layout(), { op: 'patchData', id: 'missing', data: { collapsed: true } }, { data: true })).toBeUndefined()
+
+    expect(await applyRecorded(PROJECT, { op: 'patchData', id: 'epic:a', data: { collapsed: true } }, channel, undefined, { data: true })).toBeUndefined()
+    expect(await applyRecorded(PROJECT, { op: 'patchData', id: 'epic:a', data: { collapsed: false } }, channel, undefined, { data: true })).toBeUndefined()
+    expect(inverseOf(layout(), { op: 'patchData', id: 'epic:a', data: { collapsed: false } }, { data: true })).toBeUndefined()
+    expect(history().size).toBe(2)
+
+    expect(await history().undo()).toBe(true)
+    expect(nodeOf('epic:a')?.data).toEqual({ collapsed: true })
+    expect(await history().undo()).toBe(true)
+    expect(nodeOf('epic:a')?.data).toEqual({ collapsed: null })
+    expect(await history().redo()).toBe(true)
+    expect(nodeOf('epic:a')?.data).toEqual({ collapsed: true })
+    expect(await history().redo()).toBe(true)
+    expect(nodeOf('epic:a')?.data).toEqual({ collapsed: false })
+  })
+
   it('a created note keeps the text typed into it through undo and redo', async () => {
     // Double click creates the note, the user types (patchData, not a step), clicks away, ⌘Z, ⇧⌘Z.
     await user({ op: 'create', node: { kind: 'note', x: 10, y: 10, w: 220, h: 120, data: { text: '' } } })
