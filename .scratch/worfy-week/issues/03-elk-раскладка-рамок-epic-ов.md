@@ -1,7 +1,7 @@
 # 03 — Рамку Epic-а раскладывает ELK: Edge-и Blocked by идут по коридорам, порядок без пересечений
 
 Type: task
-Status: open
+Status: done — 2026-10-07, [PR #85](https://github.com/IDSAD-XL/worfy/pull/85)
 Blocked by: —
 Source: решения владельца 2026-10-07, вопросы 14–17, 28 и 29 ([spec.md](../spec.md), раздел «Решения владельца по Canvas»); [spec.md](../spec.md), этап 2
 
@@ -87,9 +87,9 @@ Source: решения владельца 2026-10-07, вопросы 14–17, 28
 - [x] Ticket и Node Subagent-а не двигаются: e2e тянет каждый на 200 px — Node на месте, `layout.json` не изменился. Рамка тянется целиком, её смещение переживает перезапуск.
 - [x] Contract test: `layout.json` с `offset:3` в Node-е `epic-frame` и с Node-ом `subagent-tree`. После чтения ключей `offset:*` и Node-а `subagent-tree` нет, `x`, `y` и `collapsed` рамки прежние, в логе одна строка. Второе чтение файл не пишет.
 - [x] ELK считает в worker-е: e2e против собранного приложения видит запущенный worker раскладки (`page.on('worker')`), и рамки получают места ELK. Unit-test с медленным подменённым ELK: после смены статуса Ticket-а и до ответа места прежние, после ответа — новые, промежуточных нет.
-- [x] Бюджет `test/e2e/epic-frame.spec.ts:779` держится: interactive ≤ 3 с; с `WORFY_PERF=1` на Mac — медиана ≥ 55 fps, самый долгий кадр ≤ 100 ms. Цифры до и после — в «Итог».
-- [x] Снимки рамки Epic-а `worfy-mvp` из e2e `test/e2e/epic-frame.spec.ts:206` в светлой и тёмной теме (helper `test/e2e/snapshots.ts`) сверены с F-SPEC: маршруты Edge-ей, скругления, chip-ы ready. Ссылка из «Итог» — `../evidence/03-рамка-elk.png`.
-- [ ] (вручную) Stable copy, обновлённая после влития: Canvas Project-а Auction, самая большая рамка — ни один Edge не проходит через Ticket, Ticket не тянется, рамка тянется целиком. Как проверить: окно приложения, снимок в «Итог».
+- [x] Бюджет `test/e2e/epic-frame.spec.ts:814` держится: interactive ≤ 3 с; с `WORFY_PERF=1` на Mac — медиана ≥ 55 fps, самый долгий кадр ≤ 100 ms. Цифры до и после — в «Итог».
+- [x] Снимки рамки Epic-а `worfy-mvp` из e2e `test/e2e/epic-frame.spec.ts:209` в светлой и тёмной теме (helper `test/e2e/snapshots.ts`) сверены с F-SPEC: маршруты Edge-ей, скругления, chip-ы ready. Ссылка из «Итог» — `../evidence/03-рамка-elk.png`.
+- [ ] (вручную) Stable copy, обновлённая после влития: Canvas Project-а Auction, самая большая рамка — ни один Edge не проходит через Ticket, Ticket не тянется, рамка тянется целиком. Как проверить: окно приложения, снимок в «Итог». Не проверено: Stable copy ещё не пересобрана из 140b8d3 или новее, а запускать настоящий worfy агенту запрещено (он пишет в `~/.claude`); пункт ждёт владельца (HANDOFF.md, «Ждёт владельца»).
 
 ## Тесты
 
@@ -161,6 +161,14 @@ Ticket-ами Wave.
 Сделано в ветке `worfy-week/03`, база `origin/main` f5e9d49. Решение — [ADR-0037](../../../docs/adr/0037-epic-frame-layout-by-elk.md),
 первый коммит PR.
 
+**Влито.** [PR #85](https://github.com/IDSAD-XL/worfy/pull/85), merge 140b8d3. Ревью — VERIFIED с
+первого круга, без доработки кода: ответ ELK, разбивший колонку, отбрасывается; устаревший ответ
+ELK отбрасывается (мутант пойман); один worker на окно; `upgradeLayout` снимает ровно `offset:*` у
+`epic-frame` и Node-ы `subagent-tree`. Перед мержем по замечанию ревью исправлены источники
+ADR-0037 (коммит d9989e0, правка только ADR): `subagent-tree` — из Ticket-а 15 Epic-а worfy-mvp, а
+не из ADR-0011, и названы заменённые правила Ticket-ов 28 и 11 Epic-а worfy-daily. Перед мержем
+`GATE_SCOPE=all gate.sh full` — exit 0; gate fast и CI на d9989e0 — зелёные.
+
 **Как падал первый test.** Фикстура из шести Ticket-ов (`test/unit/epic-layout.test.ts`, «orders
 the Tickets in a column…»): на main `layoutEpic` ставит Level 2 по номеру (04, 05, 06), и счёт
 пересечений между Level 1 и Level 2 — 2 при ожидаемом 0 (`- 0 + 2`). Теперь тот же счёт по
@@ -204,7 +212,8 @@ the Tickets in a column…»): на main `layoutEpic` ставит Level 2 по 
 **Бюджет `test/e2e/epic-frame.spec.ts` (Auction-размер), `WORFY_PERF=1`, этот Mac, по 3 прогона.**
 До (`origin/main` f5e9d49): interactive 1067–1072 ms, медиана 120,5 fps, самый долгий кадр 10 ms.
 После: interactive 1098–1570 ms, медиана 120,5 fps, самый долгий кадр 10 ms. Бюджет (≤ 3 с, ≥ 55 fps,
-≤ 100 ms) держится.
+≤ 100 ms) держится. Ревью на той же ветке намерило interactive 1065 ms ([комментарий в PR #85](https://github.com/IDSAD-XL/worfy/pull/85#issuecomment-6029459370)). Откуда один прогон
+в 1570 ms, не исследовано (долг в HANDOFF.md, «Риски и долги»).
 
 **Снимки** рамки `worfy-mvp` из e2e «the worfy-mvp Epic…» (zoom 0,3, рамка целиком):
 [светлая](../evidence/03-рамка-elk.png), [тёмная](../evidence/03-рамка-elk-тёмная.png). Сверено с
