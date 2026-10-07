@@ -332,6 +332,9 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
     // The plugin worfy's Sessions get inline (worfy-harness ticket 12, src/main/agent/options.ts):
     // named worfy, the name it replaces an installed copy by.
     expect(readJson(join(resources, 'harness', '.claude-plugin', 'plugin.json')).name).toBe('worfy')
+    // The copy is also the local marketplace the installer registers (worfy-harness ticket 13,
+    // ADR-0048): `worfy-harness`, with the plugin at its root.
+    expect(readJson(join(resources, 'harness', '.claude-plugin', 'marketplace.json'))).toMatchObject({ name: 'worfy-harness', plugins: [{ name: 'worfy', source: './' }] })
     // Packaged from this build (not a WORFY_PACKAGED_APP copy): the same files as out/harness,
     // plugin.json with its version included, none dropped by electron-builder.
     if (!process.env.WORFY_PACKAGED_APP) {
@@ -344,6 +347,10 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
     const launched = await launchApp({ executablePath: executableOf(stableApp) })
     try {
       await expect(launched.window.getByTestId('app-version')).toHaveText(`v${version}`)
+      // A packaged app offers the install (worfy-harness ticket 13); the Claude home of launchApp is
+      // a sandbox without the plugin, so reading the state runs no `claude` at all.
+      await expect(launched.window.getByTestId('harness-text')).toHaveText('Harness not installed')
+      await expect(launched.window.getByTestId('harness-action')).toHaveText('Install')
     } finally {
       await launched.close()
     }

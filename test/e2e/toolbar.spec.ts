@@ -7,8 +7,9 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, repoRoot } from './helpers'
 
 // The toolbar with a long Project name: the name is cut with an ellipsis (full in its title), and
-// the Canvas/Session switch, the Limits and the search field stay inside the window. The Limits
-// are two days old, so their notes are the longest the toolbar shows ("resets … · as of …").
+// the Canvas/Session switch, the Limits, the Harness item and the search field stay inside the
+// window. The Limits are two days old, so their notes are the longest the toolbar shows
+// ("resets … · as of …").
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -91,6 +92,8 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
     await expect(subtitle).toHaveText(`${LONG_NAME} · main`)
     await expect(toolbar.getByTestId('limit-seven_day-note')).toContainText('as of')
     await expect(toolbar.getByTestId('app-version')).toBeVisible()
+    await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness not installed')
+    await expect(toolbar.getByTestId('harness-action')).toHaveText('Install')
     // The build version from the Harness copy (out/harness, scripts/build-version.ts), longer than v0.0.0 was.
     await expect(toolbar.getByTestId('app-version')).toHaveText(new RegExp(`^v${packageVersion.replaceAll('.', '\\.')}\\+[0-9a-f]{7,}(\\.dirty)?$`))
 
@@ -100,6 +103,8 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
     const items: Record<string, Locator> = {
       view: toolbar.getByRole('group', { name: 'View' }),
       limits: toolbar.getByTestId('limits-meter'),
+      // worfy-harness ticket 13: "Harness not installed" with its Install button (the Claude home of launchApp is a sandbox).
+      harness: toolbar.getByTestId('harness-status'),
       version: toolbar.getByTestId('app-version'),
       search: toolbar.locator('.w-toolbar__palette-hint'),
     }
