@@ -191,4 +191,40 @@ plugin-а (13); перенос и уборка `~/.claude` (14, 16); qmd (17).
 
 ## Итог
 
-Заполняется при закрытии.
+- **База импорта** — `2e3b274cc2eacdc25fd3a5f46f24d4da422fa225` («worfy rules: worfy-harness epic, next ADR
+  0049, Harness freeze after ticket 02»), HEAD `~/.claude` на 2026-10-07; записана и в `harness/README.md`.
+- **Инструмент** — встроенный `git filter-branch` (`git filter-repo` на машине нет) на `git clone --no-local`
+  `~/.claude` во временной папке: `--index-filter` оставляет только пути таблицы и переносит их в `harness/`
+  (`CLAUDE.md` → `harness/rules/global.md`), `--msg-filter 'git interpret-trailers --trailer "Imported-from:
+  ~/.claude $GIT_COMMIT"'`, `--prune-empty`. Из 26 коммитов осталось 22; ветка вливает их
+  `git merge --allow-unrelated-histories` (коммит 6e9edfd). Переименований путей таблицы в истории нет.
+- **Падающий test** — `test/contract/harness-scripts.test.ts` на ветке до импорта: `expected 0 to be greater
+  than or equal to 8` (папки `harness/` нет), остальные 5 case-ов (`bash`, `zsh`, `jq`, `git`, `node` на PATH) — зелёные.
+- **Правки test-ов** (только поиск скриптов и env): скрипт ищется в `$(dirname "$0")/..`, `BIN_DIR`/`HOOKS_DIR`
+  переопределяют; test ставит `CLAUDE_GATE_RESOLVE` и `CLAUDE_PROFILE_BIN` на копии в `harness/`; проверки по
+  живым репозиториям — только при наличии и репозитория, и `~/.claude/gate/config.json`; пути репозиториев
+  владельца — от `$HOME` (`$HOME/Work/Auction` и т. п.) вместо `/Users/alexey/...`; `session-hooks.test.sh`
+  копирует `~/.claude/profiles`, только если папка есть.
+- **Новый файл вне таблицы** — `harness/package.json` без поля `type`. Без него `profile` и `epic-board`
+  (CommonJS без расширения) Node грузит как ES-модули: корневой `package.json` worfy — `"type": "module"`,
+  `profile` падал на `require` (строка 27). Без `type` Node определяет синтаксис каждого скрипта сам, как в
+  `~/.claude`. Решено без владельца, подтвердить.
+- **Переносимые правки скриптов для Linux** — не понадобились: все 8 test-ов зелёные в `node:24-bookworm`
+  (docker) с пустым `HOME` и `LANG=C.UTF-8`. Без `LANG` `epic-status` берёт `en_US.UTF-8`, которой в
+  минимальном образе нет, и предупреждение `setlocale` попадает в сравниваемый вывод; contract test передаёт
+  `LANG` (по умолчанию `C.UTF-8`). На `ubuntu-latest` `LANG=C.UTF-8` и так задан.
+- **ESLint** — настоящих ошибок нет. Два `no-empty` в `harness/hooks/gate-resolve.mjs:72`, `:138` — намеренно
+  пустые `catch {}`; блок `harness/**/*.{js,mjs}` в `eslint.config.js` разрешает их (`allowEmptyCatch`),
+  файл не меняется.
+- **CI** — шаг `Install zsh` в job `check` (ставит, только если `zsh` нет).
+- **`claude plugin validate harness`** (бинарь SDK 2.1.289, `HOME` и `CLAUDE_CONFIG_DIR` во временной папке) —
+  exit 0, одно предупреждение: `version: No version specified` (так и задумано, версию пишет Ticket 04).
+  Зависимость записана строкой `mattpocock-skills@claude-plugins-official`; форма
+  `{"name","marketplace"}` тоже проходит validate.
+- **Предложение для реестра Gate** (вносит владелец): в `root_if` записи `worfy` дописать `|^harness/`:
+  `"\\.(ts|tsx|js|jsx|mjs|cjs|css|html)$|(^|/)package\\.json$|(^|/)tsconfig[^/]*\\.json$|(^|/)eslint[^/]*$|(^|/)pnpm-(lock|workspace)\\.yaml$|^harness/"`.
+- **Найдено при проверке на личные данные** (не секреты, оставлено — содержимое файлов совпадает с базой
+  побайтно): пути `/Users/alexey/Work/{Auction,Atakama}` в комментариях `harness/bin/profile:138,143,172`,
+  `harness/hooks/gate-resolve.mjs:55`, `harness/profiles/README.md:46,50,54,154`,
+  `harness/bin/qmd-sync-main:15`, и в истории — те же строки старых версий. Токенов (`ghp_`, `gho_`,
+  `github_pat_`, `sk-ant-`, `xox*`, `AKIA`, приватные ключи) нет ни в дереве, ни в истории.
