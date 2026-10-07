@@ -48,7 +48,7 @@ Canvas (`src/renderer/canvas/sources/subagents.ts`). Ложный `done` у жи
 - [x] В «Итог» — таблица причин для зависших Subagent-ов Auction.
 - [x] ADR о статусе принят.
 - [x] Фикстура каждой причины даёт статус по ADR. Subagent, который реально работает (файл растёт, Session live), остаётся `running`.
-- [ ] (вручную) На Auction после изменения в `running` остались только реально работающие Subagent-ы. Число — в «Итог».
+- [x] (вручную) На Auction после изменения в `running` остались только реально работающие Subagent-ы. Число — в «Итог». (Проверено 2026-10-07: `running` 0 при 0 работающих — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).)
 - [x] `~/.claude` только читается: дерево временного `WORFY_CLAUDE_HOME` после test-а не изменилось.
 
 ## Тесты
@@ -109,8 +109,9 @@ Subagent-ы): только `queue-operation` `enqueue`+`remove` — 1791; `enque
 
 Папка `ui-motion-plan`: 109 `done`, 0 `running`.
 
-Пункт «(вручную)» не отмечен: число получено скриптом над тем же кодом, в самом приложении на
-Canvas не проверено (GUI-проверки в этой волне — не у исполнителя).
+Пункт «(вручную)» до 2026-10-07 не был отмечен: число получено скриптом над тем же кодом, в самом приложении на
+Canvas не проверено (GUI-проверки в этой волне — не у исполнителя). На Canvas проверено 2026-10-07 —
+подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
 
 ### Фикстуры
 
@@ -118,3 +119,33 @@ Canvas не проверено (GUI-проверки в этой волне — 
 `a6…260` кончился уведомлением только из очереди; Subagent `a7…260` без уведомления, последняя
 запись — `tool_use`, Session закрыта. Живая Session (запись в `sessions/` и идущий процесс)
 моделируется в test-е на копии: `a7…260` остаётся `running` и при растущем файле.
+
+### Ручная проверка 2026-10-07
+
+Проверял агент, ночь 2026-10-07 (второй круг ручных проверок).
+
+**Auction на Stable copy — проверка M20.** Stable copy из 6df9791 (pid 2455, CDP 9351). Project Auction
+добавлен через `projects.add` в 07:12:04Z. Orchestrator Auction стартовал без хода (pid 64936, Session
+c3223b30, транскрипта нет), сообщений ему не отправляли.
+
+- Живая Session Auction в `~/.claude/sessions` одна — этот Orchestrator, idle, без Subagent-ов.
+  Значит, реально работающих Subagent-ов 0.
+- Чтобы было что считать, History → Show поставил 3 read-only Node-а прошлых Session (Claude Code не
+  запускался). d36f39e0 — та Session, где до правки было «13 из 109» в `running`: теперь «109 done».
+  0d0f7e4c — «104 done». 99564eee — 16 error («Concurrent subagent limit reached») и 50 done.
+- `running` на Canvas — 0 и в store React Flow, и в DOM: совпадает с числом работающих (0).
+- Потом все три Node-а сняты кнопкой Remove: в `layout.json` Auction снова 2 Node-а, viewport
+  возвращён в (0, 0, 1).
+- Замечания [low], вне критериев:
+  - History Auction показывает одну Session двумя строками: транскрипт с одним sessionId лежит в двух
+    папках `~/.claude/projects` (`ui-motion-plan` и `ui-triage-3-night-wave-7ee36e`). При сборке
+    History строки по sessionId не схлопываются (`src/main/claude-home/registry.ts:428-440`), и в
+    `HistoryPopover` у двух строк одинаковый React key (`session.sessionId`).
+  - Строки History идут по mtime файла транскрипта (`registry.ts:439`), а не по времени последней
+    записи. Поэтому даты в списке не монотонны: Sep 28, Oct 4, Aug 27.
+  - У read-only Node-а истории подсказка кнопки Remove — «Remove the Node; the Session goes on»
+    (`src/renderer/canvas/nodes/SessionNode.tsx:378`), хотя Session давно закончена.
+- Вердикт: проверено.
+- Снимки (в scratchpad Session Orchestrator-а, в репозиторий не положены): `M20-before.png`,
+  `M20-auction-open.png`, `M20-history-popover.png`, `M20-show-d36f39e0.png`, `M20-show-three.png`,
+  `M20-after-remove.png`, `M20-final.png`.

@@ -139,4 +139,31 @@ unit- и contract-test-ы, мутанты; петли «колонка рамо�
 проверяющий не запускал: экран Mac был заблокирован. Пункт e2e закрыт `GATE_SCOPE=all gate full`
 перед мержем (после rebase на `main`, код 0); результат взят из кэша gate на том же дереве.
 
-Не проверено: «Ship ticket» на настоящем Project-е в собранном приложении — за владельцем.
+«Ship ticket» на настоящем Project-е в собранном приложении проверен 2026-10-07 — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
+
+### Ручная проверка 2026-10-07
+
+Проверял агент, ночь 2026-10-07 (проверка M13 второго круга ручных проверок). Stable copy из 5060858
+(pid 74430, CDP 9351), настоящий Claude Code. Для проверки заведён временный Epic `manual-check` с
+Ticket-ом 01 (`epic-status`: open); после проверки он удалён.
+
+- Epic открыт через ⌘K → Go to. Кнопка «Ship ticket» нажата мышью ОС (CGEvent) в 05:59:52Z.
+- Node e912ca0e (Session 92ba5f44) сразу встал в (2078, 576), размер 340×220. По x это правый край
+  колонки рамок 2030 плюс зазор `FRAME_GAP` 48 (`src/renderer/canvas/epic-layout.ts:39`); верх
+  Node-а совпадает с верхом Ticket-а 01 (576).
+- Пересечений нет ни с одним из 55 Node-ов store React Flow и 26 Node-ов Layout-а (кроме точки
+  привязки Binding самого Node-а). Рамки, Ticket и колонка Epic-ов на тех же местах до создания Node-а,
+  после создания и после claim, в координатах Canvas и экрана. Viewport не менялся.
+- Первый ход /ship-ticket прерван на первом Bash (чтение Profile): сработал guard агента-проверяющего,
+  Bash не выполнялся. Затем Session получила сообщение «выполни только ticket claim manual-check 01,
+  ничего больше не делай». Claim выполнен (Status: claimed). Interrupt — IPC-вызов `agent.interrupt`,
+  тот же, что у кнопки Interrupt в Session view. Node после claim не сдвинулся.
+- Замечание: после claim на Ticket-е появился chip «gh unavailable». В сборке 5060858 ещё нет
+  Ticket-а 01 `worfy-week` (бейджи от аккаунта GitHub Project-а); на сборке 6df9791 «gh unavailable»
+  нет ни на одном Ticket-е (проверка M19, «Итог» Ticket-а 01 `worfy-week`).
+- Уборка: Node закрыт кнопкой Close, процесс Claude Code завершён. Worktree, ветки, открытые PR и
+  ветки origin не изменились, папка `.scratch/manual-check` удалена, `git status` пуст. Node Session
+  92ba5f44 остался на Canvas CanvasForAI в состоянии finished.
+- Вердикт: проверено.
+- Снимки (в scratchpad Session Orchestrator-а, в репозиторий не положены): `M13-goto.png`,
+  `M13-palette.png`, `M13-canvas-created.png`, `M13-canvas.png`, `M13-after-close.png`.

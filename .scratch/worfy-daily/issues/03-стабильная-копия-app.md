@@ -61,7 +61,7 @@ e2e это не затрагивает: у них `WORFY_DATA_DIR` во врем
 - [x] ADR о папке данных копии и dev-запуска принят. Одновременный запуск копии и `pnpm dev` не пишет в одни и те же `limits.json` и `bindings.json` — это проверяет test на `paths.ts` или на single-instance lock, по выбранному варианту.
 - [x] В `README.md` есть раздел «Стабильная копия» с порядком обновления.
 - [x] e2e `@packaged` в `test/e2e/packaged.spec.ts` запускает копию, которую скрипт положил во временную папку. Путь передаётся через env (`WORFY_PACKAGED_APP`). Terminal test `@packaged` в `test/e2e/terminal.spec.ts` по-прежнему запускает `dist/mac*/worfy.app`: файл вне следа этого Ticket-а.
-- [ ] (вручную) Копия запущена из Finder, открыт Project worfy. Через computer use снят экран после старта: системных диалогов нет, или они перечислены в «Итог».
+- [x] (вручную) Копия запущена из Finder, открыт Project worfy. Через computer use снят экран после старта: системных диалогов нет, или они перечислены в «Итог». (Проверено 2026-10-07: новых системных диалогов нет; два окна, которые были на экране до запуска, перечислены — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).)
 
 ## Тесты
 
@@ -130,10 +130,8 @@ e2e это не затрагивает: у них `WORFY_DATA_DIR` во врем
 
 **Ручные проверки.**
 
-- не проверено: запуск копии из Finder, открытый Project worfy и системные диалоги macOS после
-  старта. Бриф этой ночи запрещает трогать экран (`open` настоящего `.app`, `screencapture`,
-  computer use) и ставить настоящую копию. Её ставит Orchestrator после Wave 3; список диалогов
-  записывается тогда.
+- запуск копии из Finder, открытый Project worfy и системные диалоги macOS после старта проверены
+  2026-10-07 — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
 - Установка в путь по умолчанию проверена e2e без настоящей папки владельца: скрипт без
   аргумента с `HOME=<временная папка>` кладёт `<HOME>/Applications/worfy-stable.app` и
   `worfy-stable.json` рядом. Настоящую `~/Applications/worfy-stable.app` этой ночью не ставили.
@@ -177,3 +175,33 @@ e2e это не затрагивает: у них `WORFY_DATA_DIR` во врем
 по формату принятых ADR, с разделом о том, что меняется по сравнению с ADR-0005 (сам ADR-0005 не
 тронут). Пункт «Готово, когда» про ADR отмечен. Код не менялся. Ветка перенесена на `origin/main`
 (там влит Ticket 21, он менял `test/e2e/helpers.ts`), e2e прогнаны заново.
+
+### Ручная проверка 2026-10-07
+
+Проверял агент, ночь 2026-10-07 (проверка M16 второго круга ручных проверок): пересборка Stable copy
+и запуск из Finder.
+
+- Перед пересборкой: прогон Autopilot `2026-10-07T00-32-09-524Z-66ddaf` кончился `run-stopped`, Epic
+  `worfy-week` закрыт 7/7. Ни одна Session worfy не была `busy`.
+- Чистый worktree на origin/main 6df9791. `GATE_SCOPE=all gate.sh full` под `/tmp/worfy-e2e.lock` —
+  exit 0, «[gate] зелено (full)» (lint, typecheck, test, test:e2e, test:package). CI main — success на
+  4dbd67e; 6df9791 меняет только `.md` и `.scratch`, CI на нём не запускается.
+- Копия из 5060858 закрыта ⌘Q. `pnpm install:stable` — exit 0: в `worfy-stable.json` commit 6df9791,
+  `dirty: false`, подпись ad-hoc, атрибута quarantine нет.
+- Запуск из Finder — клавишами в своём окне Finder: ⌘N → ⌘⇧G `~/Applications` → выбор worfy-stable →
+  ⌘O. Путь через AppleScript «tell Finder» из плана был закрыт: на экране висел неотвеченный запрос
+  Automation «"claude" wants access to control "Finder"» (проверка M15, «Итог» Ticket-а 31), его не
+  трогали.
+- Результат: pid 152, родитель — launchd, PATH как у launchd. За 30 с появилось одно новое окно — окно
+  worfy; новых системных диалогов нет. Два окна были на экране до запуска и к нему не относятся:
+  этот запрос Automation (UserNotificationCenter) и предупреждение `universalAccessAuthWarn` о
+  Screen Recording.
+- На снимке окна: «worfy — CanvasForAI», CanvasForAI · main, Canvas, Epic-и 32/32, 33/33, 7/7.
+- Не проверено, за владельцем: спросит ли macOS разрешение на уведомления у новой ad-hoc подписи при
+  первом уведомлении. При старте не спросил.
+- После проверки копия перезапущена с CDP на порту 9351 и логом main (pid 2455): `app.version`
+  отвечает, ошибок в stderr нет. На ней шли проверки M17–M24.
+- Вердикт: проверено.
+- Улики (в scratchpad Session Orchestrator-а, в репозиторий не положены): `M16-window.png`,
+  `M16-finder-selected.png`, `M16-gate.txt`, `M16-stable.json`, `M16-wins-before.txt`,
+  `M16-wins-after.txt`, `M16-launch.txt`, `M16-ci.txt`.

@@ -39,7 +39,7 @@ Code принимает. Это проверяется вживую, итог �
 
 - [x] Фикстура `system/init` и `supportedCommands()` с обеими формами имён plugin skill и MCP prompt: у каждой команды одна строка, с описанием. Unit-test.
 - [ ] (вручную) Собранное приложение, настоящий Claude Code: команда plugin skill и MCP prompt, выбранные из меню после первого хода, запускаются. Итог — в «Итог».
-  не проверено: агенту Ticket-а запрещено запускать настоящий Claude Code (запись в `~/.claude`) и GUI-проверки; пункт — для Orchestrator-а или владельца.
+  2026-10-07: plugin skill из меню после первого хода запускается; MCP prompt не проверен — у серверов из списка по умолчанию (qmd, worfy-canvas) prompts нет, решение за владельцем — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
 - [x] Вложения `hook_system_message` и `hook_additional_context` из транскрипта разбираются как успешный hook с текстом: contract-test на фикстуре.
 - [x] Session view рисует их без красного креста и с текстом; hook с ненулевым exit code — с крестом, как раньше. Unit-test.
 
@@ -84,7 +84,8 @@ Code принимает. Это проверяется вживую, итог �
 Claude Code находит команду всегда, а короткое `docs` может совпасть со встроенной командой или
 skill-ом пользователя (в `SlashCommand.builtin` SDK описано, что тогда `/docs` запускает встроенную).
 Цена: до первого хода plugin skill в меню — `/docs`, после — `/anthropic-skills:docs`. Что обе формы
-запускаются в настоящем Claude Code, не проверено — ручной пункт выше открыт.
+запускаются в настоящем Claude Code: форма после первого хода проверена 2026-10-07 (подраздел
+[«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07)), форма до первого хода не проверялась.
 
 **2. Выводы hook-ов.** Типы вложений hook-ов в транскриптах Claude Code (транскрипты в
 `~/.claude/projects`, только чтение, и бинарник 2.1.291):
@@ -113,3 +114,28 @@ Test-ы: `test/unit/slash-commands.test.ts` (обе формы имён, `comman
 alias чужой строки), `test/contract/transcript-parse.test.ts` (раздел «hook attachments»),
 `test/unit/transcript-hooks.test.tsx` (новый).
 
+
+### Ручная проверка 2026-10-07
+
+Проверял агент, ночь 2026-10-07 (проверка M11 второго круга ручных проверок). Stable copy из 5060858
+(pid 74430, CDP 9351), Session view Node-а «New session» (Session 03d83bd0, Claude Code pid 56399)
+после двух ходов, модель Sonnet.
+
+- «/» открыл slash-меню: 130 строк (94 skill, 36 command). У всех строк есть описание, повторов
+  имён нет. codebase-design — одна строка `/mattpocock-skills:codebase-design`, дубля без префикса
+  нет. Пары code-review и deep-research — разные команды с разными описаниями (встроенный skill и
+  synced skill), это не дубли.
+- Щелчок мышью ОС по отфильтрованной строке вставил в поле «/mattpocock-skills:codebase-design ».
+  Дописана просьба, отправлено по Return в 05:44:36Z. В транскрипте — `command-name`
+  `/mattpocock-skills:codebase-design` и meta-сообщение «Base directory for this skill:
+  …/codebase-design». Ответ — «Skill codebase-design загружен.» (`claude-sonnet-5-5`, 1.5 с).
+  «Unknown skill/command» — 0.
+- MCP prompt не проверен: строк «(MCP)» и `mcp__` в меню нет (3 совпадения `mcp__` — только в
+  описаниях skill-ов). Session получила `allowedMcpServers` = qmd, worfy-canvas: поля `mcp` в Profile
+  нет (`profile --field mcp` — exit 4). У qmd только tools (get, multi_get, query, status), в коде
+  worfy нет `registerPrompt`.
+- Решение за владельцем: добавить в `mcp.allowed` Profile-а сервер с prompts или закрыть подпункт
+  как неприменимый.
+- Вердикт: plugin skill — проверено; MCP prompt — не проверено, пункт остаётся `[ ]`.
+- Снимки (в scratchpad Session Orchestrator-а, в репозиторий не положены): `M11-before.png`,
+  `M11-menu-open.png`, `M11-menu-filtered.png`, `M11-composed.png`, `M11-skill-run.png`.

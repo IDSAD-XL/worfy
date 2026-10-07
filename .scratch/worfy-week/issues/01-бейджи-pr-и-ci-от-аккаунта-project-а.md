@@ -56,7 +56,7 @@ ADR не нужен: решение уже принято в ADR-0020, Ticket в
 - [x] Нет аккаунта в Profile (код 3, код 4, `null`, нет скрипта, сбой скрипта) — `gh` вызывается как до Ticket-а, без `GH_TOKEN` от worfy.
 - [x] Аккаунт есть, а `gh auth token -u` упал — снимок `checks` несёт ошибку с именем аккаунта, и `gh pr list` от глобального аккаунта не вызывается.
 - [x] Токена нет в снимке `checks` и в выводе лога.
-- [ ] (вручную) Stable copy, обновлённая после влития: на Canvas Project-а worfy у Ticket-ов с PR видны бейджи PR и CI, а не «gh unavailable»; номер PR и вердикт CI совпадают с `gh pr view <N> -R IDSAD-XL/worfy`. Как проверить: окно приложения.
+- [x] (вручную) Stable copy, обновлённая после влития: на Canvas Project-а worfy у Ticket-ов с PR видны бейджи PR и CI, а не «gh unavailable»; номер PR и вердикт CI совпадают с `gh pr view <N> -R IDSAD-XL/worfy`. Как проверить: окно приложения. (Проверено 2026-10-07 на Stable copy из 6df9791 — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).)
 
 Ручной пункт агент проверяет, только если может посмотреть окно Stable copy. Если не может —
 «не проверено: …» в «Итог» и пункт в HANDOFF, раздел «Ждёт владельца». Этот же пункт закрывает
@@ -157,9 +157,7 @@ origin `IDSAD-XL/worfy` и подменённый `bin/profile`; глобаль�
   account nobody-logged-in-xyz; run `gh auth login` and sign in as nobody-logged-in-xyz».
   [Снимок](../evidence/01-badges-no-login.png), [текст](../evidence/01-badges-no-login.txt).
 
-Пункт «(вручную)» остаётся `[ ]` — не проверено: Stable copy после влития (main @ 3032865) не
-пересобрана, бейджи в её окне не сверены с `gh pr view`. Проверка выше сделана на сборке ветки.
-Пункт — в HANDOFF, раздел «Ждёт владельца».
+Пункт «(вручную)» проверен 2026-10-07 на Stable copy из 6df9791 — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
 
 **Ревью и влитие.** [PR #81](https://github.com/IDSAD-XL/worfy/pull/81), merge 3032865, один круг
 доработки.
@@ -173,3 +171,33 @@ origin `IDSAD-XL/worfy` и подменённый `bin/profile`; глобаль�
   отказ самого `gh pr list` ловит этот мутант. Пути утечки токена ревью не нашло.
 - Перед мержем: `GATE_SCOPE=all gate.sh full` — exit 0 после rebase на d28ff1a (Ticket 02);
   rebase на aa372eb меняет только `.scratch/` и `HANDOFF.md`, после него gate fast и CI зелёные.
+
+### Ручная проверка 2026-10-07
+
+Проверял агент, ночь 2026-10-07 (второй круг ручных проверок).
+
+**Бейджи PR и CI — проверка M19.** Stable copy из 6df9791 (pid 2455, CDP 9351), Canvas Project-а
+worfy (CanvasForAI).
+
+- Рамки `worfy-week` и `worfy-daily` развёрнуты, стопки done раскрыты щелчками мыши ОС, Canvas
+  пролистан колесом. На всех 39 Ticket-ах (`worfy-daily` 01–32, `worfy-week` 01–07) видны бейджи
+  «PR #N merged», «CI passing» и вердикт. Бейджа «gh unavailable» нет ни на одном экране.
+- Эталон — `gh pr view` от аккаунта IDSAD-XL в 07:00Z. Номер PR, состояние, CI и вердикт совпали у 39
+  из 39; номер — PR ветки `<epic>/<NN>`.
+- Chip CI лежит внутри Ticket-а и строки бейджей, текст не обрезан. До «●…» обрезан только chip
+  вердикта — так задумано (`src/renderer/canvas/badges/checks-badges.css:2-4`).
+- Дочерний процесс `gh pr list` от worfy (родитель — pid 2455) получает `GH_TOKEN`, равный токену
+  `gh auth token -u IDSAD-XL`, а не глобального аккаунта Oleksii-O-Atakama. Глобальный аккаунт без
+  токена получает «Could not resolve to a Repository». Значение токена сравнивалось в памяти и нигде
+  не печаталось.
+- Токена нет в выводе main, в журналах Autopilot, в данных Project-а и в ответе `checks.get`:
+  совпадений с шаблоном токена 0.
+- Не проверено: открытых PR в IDSAD-XL/worfy нет (OPEN 0 из 92), поэтому вид бейджей у открытого PR
+  не смотрели.
+- После проверки viewport, выделение, стопки и свёрнутость рамок возвращены. Одно отличие: у рамки
+  `worfy-week` в `layout.json` теперь явное `collapsed: true` вместо значения по умолчанию.
+- Вердикт: проверено.
+- Снимки: рамка `worfy-daily` с бейджами — [17-badges-stable.png](../../worfy-daily/evidence/17-badges-stable.png).
+  Остальное — в scratchpad Session Orchestrator-а: `M19-frames.png`, `M19-frame-week.png`,
+  `M19-badge-zoom-week01-02.png`, `M19-frame-daily-0.png`, `M19-frame-daily-6.png`,
+  `M19-frame-daily-12.png`, `M19-after-restore.png`.

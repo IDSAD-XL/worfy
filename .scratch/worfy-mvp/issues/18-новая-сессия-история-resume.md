@@ -30,7 +30,7 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «Сессия»; [spec.
 - [x] Resume завершённой внешней Сессии делает её Узел живым, и новый ход дописывается в тот же транскрипт (fixture + fake-агент проверяет `resume` в опциях).
 - [x] Resume Сессии с живым процессом недоступен, подпись объясняет почему.
 - [x] Resume Сессии, начатой в `.claude/worktrees/07`, запускается с этим `cwd` (fake-агент записывает опции); Сессия из удалённого worktree — Resume неактивен.
-- [ ] Ручной прогон: Сессия, начатая `claude` в терминале и закрытая, продолжается в worfy; снимок в «Итог».
+- [x] Ручной прогон: Сессия, начатая `claude` в терминале и закрытая, продолжается в worfy; снимок в «Итог». (Проверено 2026-10-07 — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07); ходы из терминала после Resume видны с Ticket-а 22 `worfy-daily`.)
 
 ## Тесты
 
@@ -215,3 +215,30 @@ LaunchServices с окружением launchd, настоящий Claude Code �
 - `git status --porcelain` основного checkout пуст до и после. Возобновлённая Session оставлена idle.
 - Снимки: `19-01-history.png`, `19-03-after-resume-4s.png`, `19-06-step4-idle.png`,
   `19-07-step6-session-view.png`.
+
+### Ручная проверка 2026-10-07
+
+Проверял агент, ночь 2026-10-07 (проверка M12 второго круга ручных проверок). Stable copy из 5060858
+(pid 74430, CDP 9351), настоящий Claude Code.
+
+- В терминале два хода `claude -p --model sonnet` в одной Session 859ee605: «alpha», затем
+  `--resume` → «beta». Оба хода в одном `.jsonl`, `entrypoint: sdk-cli`.
+- В worfy: History → Resume у этой строки (щелчок мышью ОС, 05:50:52Z). Появился живой Node
+  `session:859ee605`, Claude Code (pid 87874) запущен с `--resume`. Node сразу показывает «beta»,
+  а не «No answer yet».
+- Session view открыт двойным щелчком до нового хода: промпты alpha и beta и ответы alpha и beta —
+  каждый ровно один раз.
+- Ход «gamma» дописан в тот же транскрипт (`sdk-ts`, `claude-sonnet-5-5`). После него alpha, beta и
+  gamma — по одному разу, Node показывает «gamma».
+- Замечание [low], вне критериев: History подписывает Session, начатую `claude -p` в терминале
+  (`entrypoint: sdk-cli`), как «worfy». Причина — `src/renderer/session/HistoryPopover.tsx:64`
+  (`if (entrypoint.startsWith('sdk')) return 'worfy'`). Это расходится с
+  `src/renderer/claude-home/session-nodes.ts:171`: «`sdk-ts` alone does not make a Session worfy's».
+  Интерактивный `claude` (`entrypoint: cli`) подписан верно — «terminal».
+- Наблюдение, не проверено: один запуск hook-а SessionStart виден в Session view дважды —
+  «SessionStart:resume success» из транскрипта и «SessionStart:resume exit 0» из живого потока. У
+  новой Session без Resume так же («startup success» и «startup exit 0»). Ходы не задвоены.
+- Вердикт: проверено.
+- Снимок Session view после хода gamma: [18-resume-terminal-session.png](../evidence/18-resume-terminal-session.png).
+  Остальное — в scratchpad Session Orchestrator-а: `M12-before.png`, `M12-history-popover.png`,
+  `M12-after-resume-canvas.png`, `M12-before-turn.png`, `M12-transcript.txt`, `M12-dom.json`.

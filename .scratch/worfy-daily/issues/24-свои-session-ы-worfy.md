@@ -157,10 +157,34 @@ sidebar, снятие проверки флага, `sessionId` при `resume`, 
 Наблюдение: chip «needs permission» широкий, и имя «Orchestrator» в строке sidebar обрезается до
 «Orc…» многоточием, как любое длинное имя строки.
 
-Не проверено: настоящий Claude Code с `--session-id` (запись в `~/.claude` брифом запрещена) —
-что он пишет переданный id в реестр до `system/init`, сделан вывод по строкам бинарника и тексту
-тикета; ручной запуск собранного приложения — за владельцем.
+Настоящий Claude Code с `--session-id` проверен 2026-10-07: id в реестре до `system/init`, до первого
+хода один Node — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
 
 Ревью — комментарий VERIFIED в [PR #67](https://github.com/IDSAD-XL/worfy/pull/67):
 `sessionId` не уходит вместе с `resume` ни на одном пути старта, процесс, умерший до первого хода,
 получает новый uuid. Перед мержем — rebase на `main` и `GATE_SCOPE=all gate full`, код 0.
+
+### Ручная проверка 2026-10-07
+
+Проверял агент, ночь 2026-10-07 (проверка M9 второго круга ручных проверок). Stable copy из 5060858
+(pid 74430, CDP 9351), настоящий Claude Code.
+
+- Щелчок мышью ОС по «New session» в sidebar — 05:33:34Z. Claude Code (pid 56399) стартовал с
+  `--session-id=03d83bd0-c559-4515-ac7d-bc4d11398741`. Запись реестра `~/.claude/sessions/56399.json`
+  (`entrypoint: sdk-ts`, тот же id) появилась в 05:33:36Z, а транскрипт — только с первым ходом в
+  05:34:58Z. Значит, реестр записан до `system/init`.
+- Canvas рисует только видимые Node-ы, поэтому Node-ы считались по store React Flow. Node-ов
+  `type=session` было 18, стало 19: через 2 с, через 15 с и во всех 248 замерах с шагом 0.5 с до и
+  после хода. Read-only дубля `session:03d83bd0` не было ни разу.
+- В main `sessions.views` Node 3273673d связан с sessionId 03d83bd0 уже до хода (`sdkSessionId` null);
+  после хода `sdkSessionId` тот же.
+- Sidebar: «New session | worfy | idle», после хода — «Session 03d83bd0 | worfy | idle».
+- Ход «Ответь одним словом: ok. Ничего больше не делай.», ответ «ok». В Session view ответ подписан
+  «claude», у Orchestrator-а все 185 ответов подписаны «orch».
+- Наблюдения, не дефекты: до хода в `layout.json` у Node-а только `{"origin":"worfy"}`, sessionId
+  записан туда после хода. Шапка Session view — «Session · CanvasForAI», а заголовок Node-а —
+  «Session 03d83bd0».
+- Вердикт: проверено.
+- Снимки (в scratchpad Session Orchestrator-а, в репозиторий не положены): `M9-before.png`,
+  `M9-sidebar.png`, `M9-after-turn.png`, `M9-session-view.png`, `M9-orchestrator-view.png`,
+  `M9-final-canvas.png`.

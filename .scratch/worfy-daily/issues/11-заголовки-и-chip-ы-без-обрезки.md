@@ -55,8 +55,8 @@ Source: [spec.md](../spec.md), тема C; [F-SPEC.md](../../../docs/design/F-SP
 - [x] На фикстуре с длинными названиями (заголовок Ticket-а — 120 символов) у заголовка Ticket-а, заголовка рамки, стопки done и имени Epic в sidebar нет скрытого переполнения, или полный текст есть в `title`. e2e проверяет `scrollWidth ≤ clientWidth` и `scrollHeight ≤ clientHeight`.
 - [x] Chip CI виден на Ticket-е при PR, Gate и CI сразу: e2e проверяет, что boundingBox chip-а CI внутри boundingBox Ticket-а.
 - [ ] Снимки в светлой и тёмной теме сверены с F-SPEC.
-  не проверено: снимки сняты (Playwright, обе темы, ссылки в «Итог»), но сверку глазами с F-SPEC и
-  макетами делает владелец — GUI-проверки не у исполнителя.
+  не прошло 2026-10-07: в тёмной теме стопка done плоская, а у выделенного Node-а и Ticket-а нет
+  кольца акцента — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
 
 ## Тесты
 
@@ -184,5 +184,46 @@ Auction и worfy: длинные имена Epic, Epic без Tickets, заго�
   изменился. Числа «до» в первой редакции итога были сняты на настоящих Project-ах с этим
   нарушением. Теперь они заменены числами с фикстур.
 
-**Не проверено:** сверка снимков с F-SPEC глазами (пункт выше).
+**Не прошло 2026-10-07:** сверка снимков с F-SPEC — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
 
+
+### Ручная проверка 2026-10-07
+
+Проверял агент, ночь 2026-10-07 (проверка M7 второго круга ручных проверок). С F-SPEC и макетами
+`docs/design/F-*.dc.html` сверены 10 снимков `../evidence/11-*.png` из main @ 6df9791 (все сняты на
+1153f1d, PR #64). Цвета — по пикселям (PIL); как ведёт себя Chromium — через CDP Stable copy, только
+чтение.
+
+- Токены совпадают ±1 в обеих темах: sidebar, toolbar, canvas, surface, selected, primary, ready,
+  working, blocked, done, progress, вторичный текст. 6 PNG сохранены в Display P3, их сверял после
+  перевода ICC→sRGB. Sidebar в PNG полупрозрачный (alpha 0.80 и 0.82), поэтому в просмотрщике
+  тёмный sidebar кажется серым. Это артефакт снимка: RGB равен токену.
+- Заголовок Ticket-а — не больше 3 строк, дальше «…» (Ticket 40 из 120 символов, Ticket-ы 91,
+  05–07, 17, 23). Скрытого переполнения нет. Обрезания на снимках «до» совпадают с «Итог».
+- Chip-а CI нет ни на одном из 10 снимков: правило «chip CI внутри Ticket-а» здесь подтверждает только
+  e2e `test/e2e/checks-badges.spec.ts`. На Stable copy chip CI виден целиком (проверка M19 той же
+  ночи, «Итог» Ticket-а 01 `worfy-week`).
+- **Не прошло.** Расхождение с Light/dark pairing rule и макетом
+  `docs/design/F-canvas-dark.dc.html:205-207`: в тёмной теме стопка done плоская, в светлой — со
+  второй карточкой. Причина — `src/renderer/canvas/epic-frame.css:170-173`: `box-shadow` — список
+  `4px 4px 0 -1px var(--done-bg), 4px 4px 0 0 var(--border), var(--shadow-node)`, а в тёмной теме
+  `--shadow-node: none` (`src/renderer/theme/tokens.css:117`). `none` внутри списка через запятую
+  недопустим, и браузер отбрасывает весь `box-shadow`. В Chromium 152 `CSS.supports` даёт false, у
+  живой стопки на Stable copy computed `box-shadow` — `none`. Причина появилась в a634fa2
+  (2026-10-05), не в PR #64. Где видно: `11-long-names-dark.png` (297–504, 185–307),
+  `11-after-auction-dark.png` (684–830, 312–397).
+- **Та же причина у выделения.** `var(--shadow-node), 0 0 0 1px var(--accent)` —
+  `src/renderer/canvas/canvas.css:22`, `src/renderer/canvas/node-chrome.css:37`,
+  `src/renderer/canvas/epic-frame.css:243`. В тёмной теме у выделенного Node-а и Ticket-а пропадает
+  кольцо акцента 1 px, остаётся только цвет рамки. Вывод по `CSS.supports`: на снимках Ticket-а 11
+  выделения нет.
+- Остальная разметка пар light/dark совпадает (сверено наложением краёв).
+- Замечание: кнопка Trash (`src/renderer/canvas/overlays/TrashPopover.tsx`) висит поверх холста внизу
+  по центру и на `11-after-auction-*.png` закрывает часть Ticket-а 05. Правила в F-SPEC об этом нет.
+- Решение владельца, не проверка: предел заголовка 3 строки при Ticket-е 160 px (выше, «Решено без
+  владельца, подтвердить»).
+- Вердикт: не прошло. Пункт «Снимки … сверены с F-SPEC» остаётся `[ ]`, пока `box-shadow` в тёмной
+  теме не исправлен.
+- Улики (в scratchpad Session Orchestrator-а, в репозиторий не положены): `M7-stack-light-dark.png`,
+  `M7-ticket40-light-dark.png`, `M7-trash-overlay.png`, `M7-pair-after-worfy.png`, таблица
+  `M7-fspec-table.md`.

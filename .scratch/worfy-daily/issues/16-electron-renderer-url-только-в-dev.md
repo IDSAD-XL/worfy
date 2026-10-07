@@ -74,7 +74,7 @@ Source: [spec.md](../spec.md), тема C; Ticket-ы 01 и 02 worfy-mvp (окн�
 
 Не проверено: e2e `@packaged` не прогонялся на сборке `.app` без правки (красный на старом коде — по рассуждению; unit и contract test-ы краснеют на мутантах правки).
 
-Не проверено: живой `pnpm dev` с окном — что dev-сервер по-прежнему грузится в окно и IPC со страницы проходит. Ревью проверило это кодом и test-ами (адрес `http://localhost` проходит проверку отправителя), окно глазами не смотрели. Пункт — в HANDOFF, «Ждёт владельца».
+Живой `pnpm dev` с окном проверен 2026-10-07 — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
 
 **Ревью и мерж.** [PR #71](https://github.com/IDSAD-XL/worfy/pull/71), merge 8a9c978. Ревью — VERIFIED, без доработки: упакованный `.app` не смотрит на переменную и доверяет только своему `file://`; правка `test/contract/startup-failure.test.ts` (Ticket 15) сохранила все прежние проверки. Перед мержем — rebase на e31c0c0 и `GATE_SCOPE=all gate.sh full` с exit 0 ([комментарий в PR #71](https://github.com/IDSAD-XL/worfy/pull/71#issuecomment-6026434721), CI run 37538172616).
 
@@ -82,3 +82,19 @@ Source: [spec.md](../spec.md), тема C; Ticket-ы 01 и 02 worfy-mvp (окн�
 - `test/e2e/helpers.ts:123-126` — `launchApp` передаёт `ELECTRON_RENDERER_URL` из shell разработчика в e2e неупакованной сборки. Убирать её, если `options.env` её не задаёт.
 - `src/main/startup-failure.ts:10-21` — нет отдельного шага старта для неверного адреса renderer. Совет шага `loadURL` (`:49-52`) написан про незапущенный dev-сервер.
 
+
+### Ручная проверка 2026-10-07
+
+Проверял агент, ночь 2026-10-07 (проверка M6 второго круга ручных проверок). `pnpm dev` из основного
+checkout на 6df9791 (перед этим `pnpm install --frozen-lockfile`, exit 0), `WORFY_DATA_DIR` во
+временной папке, fake-агент, пустой `WORFY_CLAUDE_HOME`, CDP на порту 9353.
+
+- Адрес страницы — `http://localhost:5173/`. Вызов `worfy.invoke('app.version')` со страницы вернул
+  `{ok: true, version: '0.0.0'}`, оболочка приложения на месте. В окне — Canvas с Node-ом
+  Orchestrator временного Project-а.
+- Вердикт: проверено.
+- Известный долг подтвердился: окно ошибки шага `loadURL` при запущенном dev-сервере советует
+  «Make sure the dev server is running». Совет не подходит, когда загрузку остановили, а новая
+  навигация не началась (`src/main/startup-failure.ts`, совет шага `loadURL`; снимок
+  `M6-stop-reload-error.png`).
+- Снимок (в scratchpad Session Orchestrator-а, в репозиторий не положен): `M6-dev-window.png`.

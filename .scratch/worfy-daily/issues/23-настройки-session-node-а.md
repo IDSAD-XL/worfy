@@ -59,8 +59,8 @@ Session Node-а стартует без сохранённого выбора: `
 - [x] «Default» на живой Session после другой модели зовёт `setModel` с моделью из `settings.json` временного `WORFY_CLAUDE_HOME`; без поля `model` — `setModel(undefined)`. Contract-test читает вызовы fake-query.
 - [x] При `effortLevel: high` в `settings.json` временного `WORFY_CLAUDE_HOME` Session без выбора effort и после «effort default» передаёт SDK `high`: contract-test. Причина нынешнего `medium` — в «Итог».
 - [x] `settings.json` пользователя не меняется: test сравнивает дерево временного `WORFY_CLAUDE_HOME` до и после.
-- [ ] (вручную) Собранное приложение, настоящий Claude Code: Node «New session» → Sonnet → перезапуск worfy → Resume, Session на Sonnet. Затем «Default» → модель из `settings.json`, с `[1m]`. Без выбора effort `echo $CLAUDE_EFFORT` в Bash Session даёт `effortLevel` из `settings.json`. Проверка — транскрипт и вывод команды. Итог — в «Итог».
-  не проверено: GUI-проверка и запуск настоящего Claude Code исполнителю запрещены брифом (запись в `~/.claude`); пункт за владельцем.
+- [x] (вручную) Собранное приложение, настоящий Claude Code: Node «New session» → Sonnet → перезапуск worfy → Resume, Session на Sonnet. Затем «Default» → модель из `settings.json`, с `[1m]`. Без выбора effort `echo $CLAUDE_EFFORT` в Bash Session даёт `effortLevel` из `settings.json`. Проверка — транскрипт и вывод команды. Итог — в «Итог».
+  Проверено 2026-10-07 — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
 
 ## Тесты
 
@@ -112,5 +112,36 @@ Session Node-а стартует без сохранённого выбора: `
 `modelSettings.<модель>.effortLevel` worfy не читает. Если у пользователя есть оба поля, worfy
 передаёт верхнее, а Claude Code сам выбрал бы поле модели.
 
-**Ручная проверка** (собранное приложение, настоящий Claude Code) не проведена: исполнителю брифом
-запрещены GUI-проверки и запуск Claude Code. Пункт за владельцем.
+**Ручная проверка** (собранное приложение, настоящий Claude Code) проведена 2026-10-07 — подраздел
+[«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
+
+### Ручная проверка 2026-10-07
+
+Проверял агент, ночь 2026-10-07 (проверки M10 и M17 второго круга ручных проверок), настоящий Claude
+Code. Перезапуском worfy служила пересборка Stable copy: Sonnet выбран на копии из 5060858 (pid 74430),
+Resume — на копии из 6df9791 (pid 2455); CDP 9351 у обеих.
+
+- **Выбор Sonnet (5060858).** Session view Node-а «New session» (Node 3273673d, Session 03d83bd0)
+  открыт двойным щелчком по заголовку Node-а; в шапке `claude-opus-5-5[1m]`, picker «Default». Picker →
+  нативное меню → «Sonnet 5.5» (05:40:32Z). В тот же момент появился `session-settings.json` Project-а:
+  `nodes["3273673d-…"] = {model: "sonnet", effort: null, permissionMode: "bypassPermissions"}`; до этого
+  файла не было. Claude Code (pid 56399) не перезапускался, в транскрипте — «Set model to `sonnet
+  (claude-sonnet-5-5)`». Ход «…sonnet-check…» — ответ «sonnet-check», `assistant.message.model` —
+  `claude-sonnet-5-5`.
+- **Перезапуск.** Stable copy пересобрана из 6df9791 и запущена заново (проверка M16, «Итог» Ticket-а 03).
+- **Resume на Sonnet (6df9791).** ⌘K «Одно слово» → Go to → щелчок по Resume на Node-е (06:34:58Z).
+  Claude Code (pid 7917) запущен с `--model sonnet --effort high --resume=03d83bd0`, picker
+  «Sonnet 5.5». На ход «after-restart» шапка и `assistant.message.model` — `claude-sonnet-5-5`.
+- **«Default (recommended)».** В `session-settings.json` `model` стал null, в транскрипте `/model
+  opus[1m]` и «Set model to `opus[1m] (claude-opus-5-5[1m])`». На ход «default» шапка —
+  `claude-opus-5-5[1m]`, модель хода — `claude-opus-5-5`.
+- **Effort без выбора.** `echo $CLAUDE_EFFORT` в Bash Session дал `high` — `effortLevel` из
+  `~/.claude/settings.json`. В шапке Effort «—», то есть «без выбора», как задумано.
+- Замечание [low]: после выбора модели в picker шапка Session view до следующего хода показывает
+  прежнюю модель — и при Sonnet, и при «Default». Шапка берёт модель из событий `init`:
+  `src/renderer/session/SessionView.tsx:128` (`facts.model ?? view?.model ?? null`). После хода шапка
+  верна.
+- Вердикт: проверено. Session закрыта кнопкой Close, процесс Claude Code завершён.
+- Улики (в scratchpad Session Orchestrator-а, в репозиторий не положены): `M10-picker-menu.png`,
+  `M10-after-turn.png`, `M10-settings.json`, `M10-model.txt`, `M17-resume.png`, `M17-resume-view.png`,
+  `M17-picker-menu.png`, `M17-default.png`, `M17-effort.png`, `M17-models.txt`, `M17-effort.txt`.
