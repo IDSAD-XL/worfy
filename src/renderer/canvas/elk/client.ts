@@ -3,6 +3,7 @@
 // worker script, emitted by the build as a file of its own — not a `blob:`, which the renderer's
 // CSP (`script-src 'self'`, src/renderer/index.html) refuses — and spoken to through elkjs's API.
 // Graphs are built and answers read here, in the renderer (layout.ts); only ELK runs in the worker.
+// "Tidy up" packs its rectangles through the same worker (`elkEngine`, pack.ts, ../tidy.ts).
 //
 // One request per Epic whose layout inputs changed; an answer to a request that a newer one for
 // the same Epic replaced is dropped. Answers go into a store the Epic node source reads
@@ -46,6 +47,15 @@ function defaultEngine(): ElkEngine | null {
   return new ELK({ workerFactory: () => new Worker(elkWorkerUrl, { name: 'worfy-epic-layout' }) })
 }
 
+/**
+ * The window's ELK, in its Web Worker; null without a Worker, unless a test set one. "Tidy up"
+ * (canvas/tidy.ts) packs its rectangles here too, so the window keeps one worker.
+ */
+export function elkEngine(): ElkEngine | null {
+  if (engine === undefined) engine = defaultEngine()
+  return engine
+}
+
 /** Replaces the ELK the requests go to (tests); null sends nothing. Forgets every request and answer. */
 export function setElkEngine(next: ElkEngine | null): void {
   engine = next
@@ -67,8 +77,7 @@ export function elkKey(tickets: readonly LayoutTicket[], name: string): string {
 export function requestEpicLayout(projectId: string, epic: string, request: ElkRequest): void {
   const id = `${projectId}|${epic}`
   if (latest.get(id)?.key === request.key) return
-  if (engine === undefined) engine = defaultEngine()
-  const elk = engine
+  const elk = elkEngine()
   if (elk === null) return
   const seq = (sequence += 1)
   latest.set(id, { key: request.key, seq })

@@ -2,14 +2,17 @@
 // The context menu of the Canvas: a right click on an empty spot opens it, and each item creates a
 // Node there. The items come from the Node types themselves: a file in ../nodes/ that exports
 // `createLabel` (e.g. `export const createLabel = 'New terminal'`) gets an item, so a new
-// creatable Node type adds no line here or in Canvas.tsx.
+// creatable Node type adds no line here or in Canvas.tsx. Under them, past a separator, "Tidy up"
+// lays out the Nodes of the Canvas (../tidy.ts, worfy-week/07).
 //
 // The menu is HTML, not a native Menu.popup: Playwright cannot click a native menu (ticket 04).
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { useReactFlow, useStore } from '@xyflow/react'
 import '../../theme/primitives.css'
+import { activeProject, useProjects } from '../../projects/useProjects'
 import { nodeTypes, type NodeType } from '../nodes'
+import { useTidyUp } from '../tidy'
 import { createItems } from './create-items'
 import { useLayoutOps } from '../useLayout'
 
@@ -34,9 +37,17 @@ interface Opened {
   y: number
 }
 
+const separatorStyle: CSSProperties = { height: 1, margin: 'var(--space-1) 0', background: 'var(--border)' }
+
 export default function CanvasMenu() {
+  const project = activeProject(useProjects())
+  return project ? <ProjectCanvasMenu key={project.id} projectId={project.id} root={project.path} /> : null
+}
+
+function ProjectCanvasMenu({ projectId, root }: { projectId: string; root: string }) {
   const flow = useReactFlow()
   const ops = useLayoutOps()
+  const tidyUp = useTidyUp(projectId, root)
   const container = useStore((state) => state.domNode)
   const [opened, setOpened] = useState<Opened>()
   const menu = useRef<HTMLDivElement>(null)
@@ -99,6 +110,18 @@ export default function CanvasMenu() {
           {label}
         </button>
       ))}
+      <div role="separator" style={separatorStyle} />
+      <button
+        type="button"
+        role="menuitem"
+        className="w-row"
+        onClick={() => {
+          close()
+          void tidyUp()
+        }}
+      >
+        Tidy up
+      </button>
     </div>,
     document.body,
   )
