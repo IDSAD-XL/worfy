@@ -86,6 +86,13 @@ export default defineConfig(
     languageOptions: { globals: globals.node },
   },
   {
+    // The Harness scripts (harness/hooks/*.mjs) run under Node, outside the app. They skip a path
+    // that cannot be read with an empty catch on purpose (gate-resolve.mjs), so that is allowed.
+    files: ['harness/**/*.{js,mjs}'],
+    languageOptions: { globals: globals.node },
+    rules: { 'no-empty': ['error', { allowEmptyCatch: true }] },
+  },
+  {
     files: ['src/renderer/**/*.{ts,tsx}', 'test/**/*.tsx'],
     languageOptions: { globals: globals.browser },
     extends: [reactHooks.configs.flat.recommended],
