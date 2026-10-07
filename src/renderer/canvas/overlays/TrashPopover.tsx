@@ -63,7 +63,10 @@ export default function TrashPopover() {
       if (event.target instanceof Node && root.current?.contains(event.target) !== true) setOpen(false)
     }
     const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
+      if (event.key !== 'Escape') return
+      // The press that closes the popover does nothing else (the Esc of an active Node, of Focus mode).
+      event.preventDefault()
+      setOpen(false)
     }
     document.addEventListener('mousedown', outside)
     window.addEventListener('keydown', escape)

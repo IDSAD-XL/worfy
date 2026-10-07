@@ -1,13 +1,15 @@
-import { memo } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import { actions, type SlotSubject } from '../badges'
-import { PROGRESS_SEGMENTS, type Progress, type TicketColumn } from '../epic-layout'
-import { saveEpicChange, toggleDoneStack, type EpicFrameData } from '../sources/epics'
+import { PROGRESS_SEGMENTS, TICKET_HEIGHT, TICKET_WIDTH, type EpicLayout, type Progress, type TicketColumn } from '../epic-layout'
+import { saveEpicChange, setDoneStack, type EpicFrameData } from '../sources/epics'
 import { useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
+import '../actions/actions.css'
 import '../epic-frame.css'
 
 // The frame of one Epic: header with the progress bar, column labels with the "Ready wave · N"
-// chip, and the folded done stack. Its Tickets are separate Nodes inside it (TicketNode.tsx), each
+// chip, and the done stack with its Expand / Collapse toggle in the Done column's label row
+// (worfy-week ticket 15). Its Tickets are separate Nodes inside it (TicketNode.tsx), each
 // ready one with its own "Ready" chip; both come from the node source sources/epics.ts, never from
 // the Layout. The frame is dragged as a whole by its header; its Tickets are not dragged (ADR-0037).
 export const kind = 'epic-frame'
@@ -27,21 +29,53 @@ function ProgressBar({ progress }: { progress: Progress }) {
   )
 }
 
-const chevron = (open: boolean) => (
+const CHEVRON_PATHS = { down: 'M4 6l4 4 4-4', right: 'M6 4l4 4-4 4', up: 'M4 10l4-4 4 4' } as const
+
+const chevron = (direction: keyof typeof CHEVRON_PATHS) => (
   <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d={open ? 'M4 6l4 4 4-4' : 'M6 4l4 4-4 4'} />
+    <path d={CHEVRON_PATHS[direction]} />
   </svg>
 )
 
 const columnClass = (column: TicketColumn) => `w-epic__column w-epic__column--${column.kind}`
+
+/** Top of the column labels (`.w-epic__column`), relative to the frame. */
+const COLUMN_LABEL_TOP = 64
+/** How far the open stack's backdrop reaches past the column label and the done Tickets. */
+const STACK_REGION_INSET = 6
+
+/** The backdrop of the open done stack: from the Done column's label to the bottom of its last Ticket; null while folded. */
+function openStackRegion(layout: EpicLayout): { left: number; top: number; width: number; height: number } | null {
+  const done = layout.tickets.filter((ticket) => ticket.column.kind === 'done')
+  if (layout.doneStack !== null || done.length === 0) return null
+  const left = Math.min(...done.map((ticket) => ticket.x)) - STACK_REGION_INSET
+  const top = COLUMN_LABEL_TOP - STACK_REGION_INSET
+  const bottom = Math.max(...done.map((ticket) => ticket.y)) + TICKET_HEIGHT + STACK_REGION_INSET
+  return { left, top, width: TICKET_WIDTH + 2 * STACK_REGION_INSET, height: bottom - top }
+}
 
 function EpicFrameNode({ data }: CanvasNodeProps) {
   const frame = data.node.data as EpicFrameData
   const { projectId, root, epic, tickets, layout, progress, collapsed, doneExpanded, saved } = frame
   const subject: SlotSubject = { kind: 'epic', projectId, root, epic, tickets }
   const ops = useLayoutOps()
-  // A step of the ⌘Z history; the done stack below is not (it is not in the Layout, like the viewport).
-  const toggleCollapsed = () => void saveEpicChange(projectId, epic.epic, saved, { collapsed: !collapsed }, ops)
+  // A step of the ⌘Z history; the done stack below is not (it is not in the Layout, like the
+  // viewport). A collapsed frame shows no stack, so its stack is folded with it.
+  const toggleCollapsed = () => {
+    if (!collapsed) setDoneStack(projectId, epic.epic, false)
+    void saveEpicChange(projectId, epic.epic, saved, { collapsed: !collapsed }, ops)
+  }
+
+  // The card that opened the stack leaves the DOM with the focus on it: the focus goes to the
+  // toggle, which now says Collapse in the same place as Expand.
+  const toggle = useRef<HTMLButtonElement>(null)
+  const focusToggle = useRef(false)
+  useEffect(() => {
+    if (!focusToggle.current || !doneExpanded) return
+    focusToggle.current = false
+    toggle.current?.focus()
+  }, [doneExpanded])
+  const region = doneExpanded ? openStackRegion(layout) : null
 
   return (
     <section
@@ -73,12 +107,13 @@ function EpicFrameNode({ data }: CanvasNodeProps) {
           aria-expanded={!collapsed}
           onClick={toggleCollapsed}
         >
-          {chevron(!collapsed)}
+          {chevron(collapsed ? 'right' : 'down')}
         </button>
       </header>
 
       {collapsed ? null : (
         <>
+          {region ? <div className="w-epic__stack-region" aria-hidden="true" data-testid="done-stack-region" style={region} /> : null}
           {layout.columns.map((column) => (
             <div key={JSON.stringify(column.column)} className={columnClass(column.column)} style={{ left: column.x }} data-testid="epic-column">
               <span className="w-epic__column-label">{column.label}</span>
@@ -89,9 +124,18 @@ function EpicFrameNode({ data }: CanvasNodeProps) {
                   Ready wave · <span className="w-mono">{layout.readyCount}</span>
                 </span>
               ) : null}
-              {column.column.kind === 'done' && doneExpanded ? (
-                <button type="button" className="w-epic__link nodrag" onClick={() => toggleDoneStack(projectId, epic.epic)}>
-                  Fold
+              {column.column.kind === 'done' ? (
+                <button
+                  ref={toggle}
+                  type="button"
+                  className="w-action w-epic__stack-toggle nodrag"
+                  data-testid="done-stack-toggle"
+                  aria-label={`${doneExpanded ? 'Collapse' : 'Expand'} done tickets of ${epic.epic}`}
+                  aria-expanded={doneExpanded}
+                  onClick={() => setDoneStack(projectId, epic.epic, !doneExpanded)}
+                >
+                  {chevron(doneExpanded ? 'up' : 'down')}
+                  {doneExpanded ? 'Collapse' : 'Expand'}
                 </button>
               ) : null}
             </div>
@@ -101,9 +145,13 @@ function EpicFrameNode({ data }: CanvasNodeProps) {
               type="button"
               className="w-epic__stack nodrag"
               data-testid="done-stack"
-              aria-label={`Expand done tickets of ${epic.epic}`}
+              aria-label={`${layout.doneStack.nums.length} done tickets of ${epic.epic}`}
+              aria-expanded={false}
               style={{ left: layout.doneStack.x, top: layout.doneStack.y, width: layout.doneStack.width, height: layout.doneStack.height }}
-              onClick={() => toggleDoneStack(projectId, epic.epic)}
+              onClick={() => {
+                focusToggle.current = true
+                setDoneStack(projectId, epic.epic, true)
+              }}
             >
               <span className="w-epic__stack-title">
                 <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

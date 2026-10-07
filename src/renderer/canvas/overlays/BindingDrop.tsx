@@ -192,6 +192,8 @@ function BindingDropFor({ projectId }: { projectId: string }) {
     const close = (event: Event) => {
       if (event instanceof KeyboardEvent && event.key !== 'Escape') return
       if (event.target instanceof Element && event.target.closest('[data-testid="binding-menu"]')) return
+      // The press that closes the menu does nothing else (the Esc of an active Node, of Focus mode).
+      if (event instanceof KeyboardEvent) event.preventDefault()
       setMenu(null)
     }
     window.addEventListener('mousedown', close, true)

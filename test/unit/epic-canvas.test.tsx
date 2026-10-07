@@ -14,7 +14,17 @@ import { collectEdgeTypes, dropNodes, edgeTypes } from '../../src/renderer/canva
 import EpicFrameNode from '../../src/renderer/canvas/nodes/EpicFrameNode'
 import TicketNode from '../../src/renderer/canvas/nodes/TicketNode'
 import type { CanvasFlowNode, CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
-import epicSource, { buildEpicNodes, epicNodeId, requestEpicLayouts, ticketNodeId, type EpicFrameData, type TicketNodeData } from '../../src/renderer/canvas/sources/epics'
+import epicSource, {
+  buildEpicNodes,
+  epicNodeId,
+  foldLastDoneStack,
+  openDoneStacks,
+  requestEpicLayouts,
+  setDoneStack,
+  ticketNodeId,
+  type EpicFrameData,
+  type TicketNodeData,
+} from '../../src/renderer/canvas/sources/epics'
 import { applyWorkflowDelta } from '../../src/renderer/workflow/useWorkflow'
 import { headerWidth, layoutEpic, MIN_FRAME_WIDTH, orthogonalPath, placeRoute } from '../../src/renderer/canvas/epic-layout'
 import { applyRecorded, historyOf, trashRecorded, type LayoutChannel, type TrashClient } from '../../src/renderer/canvas/history'
@@ -499,25 +509,21 @@ describe('⌘Z over an Epic frame (worfy-week ticket 08)', () => {
   it('opening and folding the done stack is no step: what ⌘Z undoes stays the same', async () => {
     const id = freshProject()
     startMain(id, [NOTE])
-    const workflow = model([ticket('a', 1), ticket('b', 1, { state: 'done', statusRaw: 'done' }), ticket('b', 2)])
     // A step before: the Note moved.
     await drop(id, mainLayout(id), [noteDragged(NOTE.x + 40, NOTE.y)])
     expect(historyOf(id).size).toBe(1)
 
-    const view = renderFrame(id, 'b', workflow)
+    const { view, redraw } = renderLiveFrame(id, 'b')
+    screen.getByRole('button', { name: '2 done tickets of b' }).click()
+    redraw()
+    expect(openDoneStacks(id)).toEqual(['b'])
+    screen.getByRole('button', { name: 'Collapse done tickets of b' }).click()
+    redraw()
+    expect(openDoneStacks(id)).toEqual([])
     screen.getByRole('button', { name: 'Expand done tickets of b' }).click()
+    expect(foldLastDoneStack(id)).toBe(true)
+    expect(openDoneStacks(id)).toEqual([])
     view.unmount()
-    const open = buildEpicNodes(id, '/repo', workflow, mainLayout(id), { [`${id}|b`]: true }).find((n) => n.id === epicNodeId('b'))!
-    const props = { id: open.id, data: open.data, selected: false } as unknown as CanvasNodeProps
-    const folded = render(
-      <ReactFlowProvider>
-        <LayoutOpsContext.Provider value={opsOf(id)}>
-          <EpicFrameNode {...props} />
-        </LayoutOpsContext.Provider>
-      </ReactFlowProvider>,
-    )
-    screen.getByRole('button', { name: 'Fold' }).click()
-    folded.unmount()
     await new Promise((wake) => setTimeout(wake, 10))
     expect(historyOf(id).size).toBe(1)
     expect(applied.filter((each) => each.projectId === id)).toHaveLength(1)
@@ -525,6 +531,76 @@ describe('⌘Z over an Epic frame (worfy-week ticket 08)', () => {
     // ⌘Z still undoes the move of the Note.
     expect(await historyOf(id).undo()).toBe(true)
     expect(mainLayout(id).nodes.find((node) => node.id === 'note')).toMatchObject({ x: NOTE.x, y: NOTE.y })
+  })
+})
+
+// ── the done stack's toggle (worfy-week ticket 15) ──────────────────────────
+
+const WITH_DONE = model([ticket('a', 1), ticket('b', 1, { state: 'done', statusRaw: 'done' }), ticket('b', 2, { state: 'done', statusRaw: 'done' }), ticket('b', 3)])
+
+/** Draws the frame of an Epic with the done stacks the store has open now; `redraw` draws it again after a click. */
+function renderLiveFrame(projectId: string, name: string, workflow = WITH_DONE) {
+  const element = () => {
+    const open = Object.fromEntries(openDoneStacks(projectId).map((epic) => [`${projectId}|${epic}`, true]))
+    const frame = buildEpicNodes(projectId, '/repo', workflow, mainLayout(projectId), open).find((n) => n.id === epicNodeId(name))!
+    const props = { id: frame.id, data: frame.data, selected: false } as unknown as CanvasNodeProps
+    return (
+      <ReactFlowProvider>
+        <LayoutOpsContext.Provider value={opsOf(projectId)}>
+          <EpicFrameNode {...props} />
+        </LayoutOpsContext.Provider>
+      </ReactFlowProvider>
+    )
+  }
+  const view = render(element())
+  return { view, redraw: () => view.rerender(element()) }
+}
+
+describe('the done stack toggle (worfy-week ticket 15)', () => {
+  it('says Collapse with aria-expanded true while the stack is open, Expand in the same place once it is folded; the card is named for its Tickets', () => {
+    const id = freshProject()
+    startMain(id, [])
+    const { redraw } = renderLiveFrame(id, 'b')
+    const card = screen.getByRole('button', { name: '2 done tickets of b' })
+    expect(card.getAttribute('data-testid')).toBe('done-stack')
+    expect(card.getAttribute('aria-expanded')).toBe('false')
+    const expand = screen.getByRole('button', { name: 'Expand done tickets of b' })
+    expect(expand.getAttribute('aria-expanded')).toBe('false')
+    expect(expand.getAttribute('data-testid')).toBe('done-stack-toggle')
+    expect(expand.textContent).toBe('Expand')
+    expect(expand.querySelector('svg')).not.toBeNull()
+    expect(screen.queryByTestId('done-stack-region')).toBeNull()
+
+    // Opened by the card: the card leaves, the toggle says Collapse and has the focus.
+    card.click()
+    redraw()
+    expect(screen.queryByTestId('done-stack')).toBeNull()
+    const collapse = screen.getByRole('button', { name: 'Collapse done tickets of b' })
+    expect(collapse).toBe(expand)
+    expect(collapse.getAttribute('aria-expanded')).toBe('true')
+    expect(collapse.textContent).toBe('Collapse')
+    expect(document.activeElement).toBe(collapse)
+    expect(screen.getByTestId('done-stack-region').getAttribute('aria-hidden')).toBe('true')
+
+    // Folded by the toggle: the card is back, the toggle says Expand again.
+    collapse.click()
+    redraw()
+    expect(openDoneStacks(id)).toEqual([])
+    expect(screen.getByRole('button', { name: '2 done tickets of b' }).getAttribute('aria-expanded')).toBe('false')
+    expect(screen.getByRole('button', { name: 'Expand done tickets of b' }).getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByRole('button', { name: 'Fold' })).toBeNull()
+    expect(screen.queryByText('Fold')).toBeNull()
+  })
+
+  it('collapsing the frame folds its open stack', async () => {
+    const id = freshProject()
+    startMain(id, [])
+    setDoneStack(id, 'b', true)
+    const { view } = renderLiveFrame(id, 'b')
+    screen.getByRole('button', { name: 'Collapse epic b' }).click()
+    expect(openDoneStacks(id)).toEqual([])
+    await vi.waitFor(() => expect(frameDataOf(id, 'b', WITH_DONE).collapsed).toBe(true))
+    view.unmount()
   })
 })
 

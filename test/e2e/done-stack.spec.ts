@@ -133,3 +133,87 @@ test('opening the done stack leaves the open Tickets where they stood with the s
     await launched.close()
   }
 })
+
+// worfy-week ticket 15: the open stack folds by the Collapse button in the place of Expand, and by
+// Esc once nothing else takes the press — a selection, a menu — one press, one action. Opening and
+// folding are not steps of ⌘Z (ticket 08).
+test('the open done stack folds by Collapse in the place of Expand, and by Esc once nothing else takes the press', async () => {
+  const { dataDir, claudeHome } = makeFixture()
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome } })
+  try {
+    const { window } = launched
+    const card = window.getByTestId('done-stack')
+    const toggle = window.getByTestId('done-stack-toggle')
+    const first = ticketNode(window, 1)
+    await canvasReady(launched, { size: { width: 1400, height: 1000 }, visible: [card, toggle] })
+    const folded = async () => {
+      await expect(card).toHaveCount(1)
+      await expect(first).toHaveCount(0)
+      await expect(toggle).toHaveAccessibleName(`Expand done tickets of ${EPIC}`)
+    }
+    const open = async () => {
+      await expect(card).toHaveCount(0)
+      await expect(first).toBeVisible()
+      await expect(toggle).toHaveAccessibleName(`Collapse done tickets of ${EPIC}`)
+    }
+    await expect(card).toHaveAccessibleName(`10 done tickets of ${EPIC}`)
+    const foldedShots = await snapshotThemes(window, 'done-stack-toggle-folded')
+
+    // The card opens the stack; the focus it had goes to Collapse, a bordered button with an icon
+    // that is legible at zoom 0.5.
+    await card.click()
+    await open()
+    await expect(toggle).toBeFocused()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await expect(toggle).toBeVisible()
+    expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(9.5)
+    await expect(toggle).toHaveCSS('border-top-width', '1px')
+    await expect(toggle.locator('svg')).toHaveCount(1)
+    await expect(window.getByTestId('done-stack-region')).toBeVisible()
+    const openShots = await snapshotThemes(window, 'done-stack-toggle-open')
+    await toggle.click()
+    await folded()
+
+    // A bare Esc folds it.
+    await toggle.click()
+    await open()
+    await window.keyboard.press('Escape')
+    await folded()
+
+    // With a Ticket selected, the first Esc only takes the selection off; the second folds.
+    await toggle.click()
+    await open()
+    const firstNode = window.getByTestId(`rf__node-ticket:${EPIC}/1`)
+    await first.click()
+    await expect(firstNode).toHaveClass(/\bselected\b/)
+    await window.keyboard.press('Escape')
+    await expect(firstNode).not.toHaveClass(/\bselected\b/)
+    await open()
+    await window.keyboard.press('Escape')
+    await folded()
+
+    // With the Canvas menu open, the first Esc only closes the menu; the second folds.
+    await toggle.click()
+    await open()
+    const pane = window.locator('.react-flow__pane')
+    const size = (await pane.boundingBox())!
+    await pane.click({ button: 'right', position: { x: size.width - 120, y: size.height / 2 } })
+    const menu = window.getByRole('menu', { name: 'Canvas' })
+    await expect(menu).toBeVisible()
+    await window.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+    await open()
+    await window.keyboard.press('Escape')
+    await folded()
+
+    // ⌘Z does not fold it: the stack is not a step of the history.
+    await toggle.click()
+    await open()
+    await window.keyboard.press('Meta+z')
+    await window.waitForTimeout(300)
+    await open()
+    console.log(`done stack toggle: folded ${foldedShots.light} ${foldedShots.dark}; open ${openShots.light} ${openShots.dark}`)
+  } finally {
+    await launched.close()
+  }
+})

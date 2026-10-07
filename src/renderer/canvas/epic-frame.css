@@ -145,15 +145,28 @@
 .w-epic__ready-chip {
   margin-left: auto;
 }
-.w-epic__link {
+/* Expand / Collapse of the done stack: the shared action button (actions/actions.css), at the
+   right end of the Done column's label row, in the same place whether the stack is open or not.
+   The focus ring is this button's own, so the other action buttons keep their look. */
+.w-epic__stack-toggle {
   margin-left: auto;
-  padding: 0 4px;
-  border: 0;
-  border-radius: var(--radius-chip);
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  font-weight: 400;
+}
+.w-epic__stack-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* The open stack as one group: a dashed outline from the Done column's label to its last Ticket. */
+.w-epic__stack-region {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-node);
+  pointer-events: none;
 }
 
 .w-epic__stack {
