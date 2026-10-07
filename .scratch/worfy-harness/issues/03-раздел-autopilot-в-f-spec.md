@@ -1,7 +1,7 @@
 # 03 — Раздел Autopilot в F-SPEC: кнопка и строка состояния прогона
 
 Type: task
-Status: open
+Status: claimed — 2026-10-07
 Blocked by: —
 Source: решения владельца 2026-10-07 («Перенесено из E2»); [spec.md](../spec.md); [F-SPEC.md](../../../docs/design/F-SPEC.md); Ticket-ы 04, 05, 29, 32 `worfy-daily`; [ADR-0024](../../../docs/adr/0024-autopilot-wave-end-and-keep-awake.md); [ADR-0029](../../../docs/adr/0029-autopilot-waits-for-background-tasks.md); [ADR-0033](../../../docs/adr/0033-autopilot-names-wave-tickets.md); [ADR-0034](../../../docs/adr/0034-autopilot-keeps-display-awake.md)
 
@@ -92,4 +92,17 @@ Test-ов нет: Ticket меняет только документ. Прове�
 
 ## Итог
 
-Заполняется при закрытии.
+- В `docs/design/F-SPEC.md` добавлен раздел `## Autopilot (Epic frame)` перед «Light/dark pairing rule»:
+  место, подписи, вид кнопки (активная, неактивная, после отказа, на время клика), когда активна,
+  четыре подсказки, строка состояния (место, 11px, 14px, вторичный текст, 220px, многоточие), все
+  формы текста строки и 14 причин остановки в виде `stopped: …`, подсказка строки с «The display
+  stays on until the run ends», когда кнопка и строка видны, обе темы через роли таблицы «Tokens».
+  Раздел называет `test/e2e/autopilot.spec.ts` и пять снимков шапки (`-light` и `-dark`).
+- Сверх тикета раздел уточняет по коду: `Wave N` — счёт Wave-ов этого прогона с 1, а не номер Wave
+  в плане Epic-а (`src/shared/autopilot/cycle.ts:19-20`); при ошибке прогона подсказка строки —
+  только её текст, без «The display stays on…» (`AutopilotAction.tsx:123`); Autopilot неактивен,
+  если шаблон «Run wave» не называет Ticket-ы Wave-а (`{tickets}`, ADR-0033,
+  `src/shared/actions/render-template.ts:134`); строка видна только у Epic-а своего прогона.
+- Ошибок в коде при сверке не найдено. Код не менялся.
+- Команды «Готово, когда» 1–4 — exit 0, 0, 0, 1 (как требуется). Ревью против кода и снимков e2e —
+  за оркестратором; вердикт сюда не вписан.

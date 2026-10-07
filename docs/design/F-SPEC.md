@@ -39,5 +39,31 @@ The user picked a merge of A (Graphite) and E (Native). Rules of the merge:
 
 Always pair status color with a text label or icon. Contrast ≥ 4.5:1 for text.
 
+## Autopilot (Epic frame)
+Describes what is built (worfy-daily tickets 04, 05, 29, 32). Reference look in both themes: the e2e `test/e2e/autopilot.spec.ts` shoots the Epic frame's header as `autopilot-idle`, `autopilot-running`, `autopilot-stopped`, `autopilot-waiting` and `autopilot-background-tasks`, each as `-light` and `-dark` (test output, not committed).
+
+- **Place**: the Epic frame's header (56px tall), in the actions slot after "Run wave". "Run wave" is the primary action; "Autopilot" is a plain action button, never primary.
+- **Labels**: "Autopilot" when the Project has no run, or its run is over another Epic; "Stop autopilot" while this Epic's run is running or waiting.
+- **Button**: the shared action button — 20px tall, 8px side padding, 1px border (border), radius 6px (buttons), surface raised fill, text 12px in text. Hover on an active button: border turns secondary text.
+  - Inactive: transparent fill, border, muted text. It stays focusable and keeps its tooltip, which says why.
+  - Refused by the app: border turns blocked text, and the tooltip shows the reason until the next click.
+  - While a click is in flight the button is inactive.
+- **When "Autopilot" is active**: when "Run wave" of the same Epic would be (the same verdict, plus one condition: the Run wave template names the Wave's Tickets, `{tickets}`), and the Project has no run. "Stop autopilot" is active whenever shown.
+- **Tooltips**:
+  - active: "Run the Waves of <epic> one after another, without a person. The display stays on until the run ends";
+  - another Epic's run: "Autopilot is running Epic <epic>";
+  - otherwise inactive: the reason "Run wave" gives, or that the template must name the Wave's Tickets;
+  - "Stop autopilot": "Stop Autopilot over <epic> after this step".
+- **Status line**: above the button, out of the header's row so it takes no width from the Epic title; right-aligned to the button, 2px above it, inside the header. 11px, line height 14px, secondary text, one line, at most 220px wide, cut with an ellipsis. Only this Epic's run has a line; a run over another Epic shows none here.
+- **Status line text** (`Wave N` counts the Waves this run has sent, from 1 — not the Wave number in the Epic's plan):
+  - `starting` — running, no Wave sent yet;
+  - `Wave 3 · running`;
+  - `Wave 3 · 4 background tasks`, `Wave 1 · 1 background task` — the Wave's turn is over, the Orchestrator's background tasks still run;
+  - `waiting for limits`, `waiting for limits · resumes 14:20` — waiting for the Limits to reset; time is 24-hour local;
+  - `stopped: <reason>` — the last run's stop reason, dashes as spaces: `stopped: no ready wave`, `stopped: blocked tickets`, `stopped: no progress`, `stopped: wave unfinished`, `stopped: session error`, `stopped: turn error`, `stopped: interrupted`, `stopped: session closed`, `stopped: send failed`, `stopped: workflow error`, `stopped: limits timeout`, `stopped: background stalled`, `stopped: user stop`, `stopped: app quit`.
+- **Status line tooltip**: the run's error message when it has one; else, while running or waiting, the line plus ". The display stays on until the run ends" (the visible line never says it: 220px is taken by its longest forms); else the line itself.
+- **Visible when**: the Epic has "Run wave" (not every Ticket done), or this Epic's run is running or waiting, or this Epic's last run has a stop reason. Otherwise neither button nor line is drawn.
+- **Themes**: only roles from the Tokens table (surface raised, border, text, secondary text, muted, blocked); no colors of its own. State is always in words — the label and the status line; the blocked border after a refusal comes with the reason in the tooltip.
+
 ## Light/dark pairing rule
 Write the LIGHT file first. The DARK file must have the IDENTICAL markup structure, positions and copy — only token values differ (and light shadows removed in dark). Someone comparing the two should see the same screen in two appearances.
