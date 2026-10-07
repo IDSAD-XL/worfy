@@ -80,7 +80,7 @@ UI (Ticket 13); минимальная версия Claude Code (Q20, Ticket 19)
 
 - `package.json`
 - `scripts/build-version.ts` (новый) — строка `<semver>+<SHA>[.dirty]`
-- `electron.vite.config.ts` — копия `harness/` в `out/harness/` с версией в `plugin.json`
+- `electron.vite.config.ts` — копия папки harness в out/harness с версией в plugin.json
 - `electron-builder.yml` — `extraResources`, `out/harness/**` вне `app.asar`
 - `src/main/harness/bundled.ts` (новый) — путь копии Harness сборки и её версия
 - `src/main/ipc/app.ts`

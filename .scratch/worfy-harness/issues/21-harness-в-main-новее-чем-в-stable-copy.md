@@ -101,7 +101,7 @@ SHA сборки». На нынешнем main модуля `harness-drift.ts` �
 
 ## Где в коде
 
-- `src/main/autopilot/harness-drift.ts` — новый: сравнение версии сборки с `harness/` в main
+- `src/main/autopilot/harness-drift.ts` — новый: сравнение версии сборки с папкой harness в main
 - `src/main/autopilot/run.ts`
 - `src/main/ipc/autopilot.ts`
 - `src/shared/autopilot/journal.ts`
