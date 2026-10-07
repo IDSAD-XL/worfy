@@ -56,6 +56,14 @@ export type BindingAnchorData =
       binding: Binding
       /** The anchor the line ends at: on the Ticket, or on its Epic's frame when the frame hides the Ticket. */
       targetId: string
+      /** The Node that anchor hangs from: the Ticket's, or the Epic frame's. */
+      targetNodeId: string
+      /**
+       * The agent works now: a Session (or the Orchestrator) whose Claude Code process runs, a
+       * Subagent whose status is `running`. Its line is always drawn; another's only while its Node
+       * or its target's is hovered or selected (worfy-week ticket 05).
+       */
+      live: boolean
     }
   | { [key: string]: unknown; variant: 'ticket'; projectId: string; epic: string; num: number }
   | { [key: string]: unknown; variant: 'epic'; projectId: string; epic: string }
@@ -76,6 +84,8 @@ export interface PresentSubagent {
   nodeId: string
   sessionId: string
   agentId: string
+  /** Its status is `running`. */
+  running: boolean
 }
 
 function anchor(id: string, parentId: string, x: number, y: number, data: BindingAnchorData): CanvasFlowNode {
@@ -106,33 +116,38 @@ export interface BuildInput {
   tickets: ReadonlySet<string>
   /** Subagent Nodes on the Canvas now. */
   subagents: readonly PresentSubagent[]
+  /** The Sessions whose Claude Code process runs now (`claudeHome.live`). */
+  live: ReadonlySet<string>
 }
 
 /** The anchors for one Project's bound agents and their targets; agents whose target is not on the Canvas get none. */
-export function buildBindingAnchors({ projectId, layout, bindings, epics, tickets, subagents }: BuildInput): CanvasFlowNode[] {
+export function buildBindingAnchors({ projectId, layout, bindings, epics, tickets, subagents, live }: BuildInput): CanvasFlowNode[] {
   const agents: CanvasFlowNode[] = []
   const targets = new Map<string, CanvasFlowNode>()
   /** The anchor a line to `binding` ends at, made once per target; null when neither the Ticket nor its frame is shown. */
-  const targetOf = (binding: Binding): string | null => {
+  const targetOf = (binding: Binding): { id: string; nodeId: string } | null => {
     const { target } = binding
-    if (target.kind === 'ticket' && tickets.has(ticketNodeId(target.epic, target.num))) {
+    const ticketId = target.kind === 'ticket' ? ticketNodeId(target.epic, target.num) : null
+    if (target.kind === 'ticket' && ticketId !== null && tickets.has(ticketId)) {
       const id = ticketAnchorId(target.epic, target.num)
-      if (!targets.has(id)) targets.set(id, anchor(id, ticketNodeId(target.epic, target.num), TICKET_WIDTH, TICKET_ANCHOR_Y, { variant: 'ticket', projectId, epic: target.epic, num: target.num }))
-      return id
+      if (!targets.has(id)) targets.set(id, anchor(id, ticketId, TICKET_WIDTH, TICKET_ANCHOR_Y, { variant: 'ticket', projectId, epic: target.epic, num: target.num }))
+      return { id, nodeId: ticketId }
     }
     if (!epics.has(target.epic)) return null
     const id = epicAnchorId(target.epic)
     if (!targets.has(id)) targets.set(id, anchor(id, epicNodeId(target.epic), EPIC_ANCHOR_X, 0, { variant: 'epic', projectId, epic: target.epic }))
-    return id
+    return { id, nodeId: epicNodeId(target.epic) }
   }
-  const add = (agentNodeId: string, sessionId: string, agentId: string | null, y: number) => {
+  const add = (agentNodeId: string, sessionId: string, agentId: string | null, y: number, working: boolean) => {
     const binding = bindings.get(agentKey(sessionId, agentId))
-    const targetId = binding ? targetOf(binding) : null
-    if (!binding || targetId === null) return
-    agents.push(anchor(agentAnchorId(agentNodeId), agentNodeId, 0, y, { variant: 'agent', projectId, sessionId, agentId, agentNodeId, binding, targetId }))
+    const target = binding ? targetOf(binding) : null
+    if (!binding || target === null) return
+    agents.push(
+      anchor(agentAnchorId(agentNodeId), agentNodeId, 0, y, { variant: 'agent', projectId, sessionId, agentId, agentNodeId, binding, targetId: target.id, targetNodeId: target.nodeId, live: working }),
+    )
   }
-  for (const node of agentNodes(layout)) add(node.id, node.data.sessionId as string, null, SESSION_ANCHOR_Y)
-  for (const subagent of subagents) add(subagent.nodeId, subagent.sessionId, subagent.agentId, SUBAGENT_ANCHOR_Y)
+  for (const node of agentNodes(layout)) add(node.id, node.data.sessionId as string, null, SESSION_ANCHOR_Y, live.has(node.data.sessionId as string))
+  for (const subagent of subagents) add(subagent.nodeId, subagent.sessionId, subagent.agentId, SUBAGENT_ANCHOR_Y, subagent.running)
   // Targets first: a line's two ends are both known by the time React Flow reads the agents.
   return [...[...targets.values()].sort((a, b) => a.id.localeCompare(b.id)), ...agents]
 }
@@ -140,13 +155,13 @@ export function buildBindingAnchors({ projectId, layout, bindings, epics, ticket
 const EMPTY: readonly CanvasFlowNode[] = []
 const last = new Map<string, { signature: string; nodes: readonly CanvasFlowNode[] }>()
 
-/** "<nodeId>\t<sessionId>\t<agentId>" per Subagent Node on the Canvas, one per line; a string so the selector result compares by value. */
+/** "<nodeId>\t<sessionId>\t<agentId>\t<status>" per Subagent Node on the Canvas, one per line; a string so the selector result compares by value. */
 function presentSubagents(nodeLookup: ReadonlyMap<string, { type?: string | undefined; data: Record<string, unknown> }>): string {
   const lines: string[] = []
   for (const [id, node] of nodeLookup) {
     if (node.type !== SUBAGENT_KIND) continue
-    const data = ((node.data as Partial<CanvasFlowNode['data']>).node?.data ?? {}) as { variant?: unknown; sessionId?: unknown; agent?: { agentId?: unknown } | null }
-    if (data.variant === 'agent' && typeof data.sessionId === 'string' && typeof data.agent?.agentId === 'string') lines.push(`${id}\t${data.sessionId}\t${data.agent.agentId}`)
+    const data = ((node.data as Partial<CanvasFlowNode['data']>).node?.data ?? {}) as { variant?: unknown; sessionId?: unknown; agent?: { agentId?: unknown; status?: unknown } | null }
+    if (data.variant === 'agent' && typeof data.sessionId === 'string' && typeof data.agent?.agentId === 'string') lines.push(`${id}\t${data.sessionId}\t${data.agent.agentId}\t${String(data.agent.status)}`)
   }
   return lines.join('\n')
 }
@@ -170,10 +185,10 @@ function useBindingAnchors({ projectId, layout }: NodeSourceContext): readonly C
     const epics = new Set(model?.error === null ? [...model.epics.map((epic) => epic.epic), ...model.tickets.map((ticket) => ticket.epic)] : [])
     const tickets = new Set(ticketsShown === '' ? [] : ticketsShown.split('\n'))
     const subagents = subagentsShown === '' ? [] : subagentsShown.split('\n').map((line) => {
-      const [nodeId, sessionId, agentId] = line.split('\t') as [string, string, string]
-      return { nodeId, sessionId, agentId }
+      const [nodeId, sessionId, agentId, status] = line.split('\t') as [string, string, string, string]
+      return { nodeId, sessionId, agentId, running: status === 'running' }
     })
-    const nodes = buildBindingAnchors({ projectId, layout, bindings, epics, tickets, subagents })
+    const nodes = buildBindingAnchors({ projectId, layout, bindings, epics, tickets, subagents, live: new Set(liveIds) })
     if (nodes.length === 0) {
       last.delete(projectId)
       return EMPTY
@@ -184,7 +199,7 @@ function useBindingAnchors({ projectId, layout }: NodeSourceContext): readonly C
     if (before && before.signature === signature) return before.nodes
     last.set(projectId, { signature, nodes })
     return nodes
-  }, [projectId, layout, model, bindings, ticketsShown, subagentsShown])
+  }, [projectId, layout, model, bindings, ticketsShown, subagentsShown, liveIds])
 }
 
 // `binding-anchor` is owned though the Layout never holds one: a stray Layout Node of that kind is not drawn.

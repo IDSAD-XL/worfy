@@ -1,6 +1,8 @@
 // Blocking arrows inside an Epic frame: from each blocker to the Ticket it blocks, as the
-// Ticket's "Blocked by" says. An arrow from a blocker that is not done yet is dashed ("waits on");
-// one from a done blocker is a faint solid line. An arrow is drawn only when both Tickets are on
+// Ticket's "Blocked by" says. Every arrow is a thin pale line; one from a blocker that is not done
+// yet is dashed ("waits on"). One from a done blocker is in the list but not drawn until it is on
+// the chain of a hovered or selected Ticket (edge-focus.ts, worfy-week ticket 05), and then it is a
+// solid line. The list does not change with the pointer. An arrow is drawn only when both Tickets are on
 // the Canvas: a folded done stack or a collapsed frame hides theirs. Each arrow follows the route
 // the frame's layout made for it (edge-types/RoutedEdge.tsx, ADR-0037): out of the blocker's right
 // side, through the corridors between the columns, into the blocked Ticket's left side.
@@ -38,19 +40,18 @@ export default function blockingEdges(nodes: readonly LayoutNode[]): Edge[] {
       const from = tickets.get(source)
       if (!from || source === target) continue
       const waiting = from.state !== 'done'
-      const color = waiting ? 'var(--text-muted)' : 'var(--border-strong)'
       edges.push({
         id: `blocks:${ticket.epic}/${blocker}->${ticket.num}`,
         source,
         target,
         type: ROUTED_EDGE,
         className: waiting ? 'w-edge-blocking w-edge-blocking--waits' : 'w-edge-blocking w-edge-blocking--done',
-        markerEnd: { type: MarkerType.ArrowClosed, color, width: 14, height: 14 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--border-strong)', width: 14, height: 14 },
         selectable: false,
         focusable: false,
         deletable: false,
         ariaLabel: `${String(blocker).padStart(2, '0')} blocks ${String(ticket.num).padStart(2, '0')}`,
-        data: { kind: 'blocking', epic: ticket.epic, blocker, blocked: ticket.num, waiting, route: routes.get(ticket.epic)?.[routeKey(blocker, ticket.num)] },
+        data: { kind: 'blocking', epic: ticket.epic, blocker, blocked: ticket.num, waiting, idle: waiting ? 'pale' : 'hidden', route: routes.get(ticket.epic)?.[routeKey(blocker, ticket.num)] },
       })
     }
   }

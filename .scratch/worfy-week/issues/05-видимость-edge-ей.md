@@ -44,15 +44,16 @@ Source: решения владельца 2026-10-07, вопросы 14, 15 и 2
 
 ## Готово, когда
 
-- [ ] Unit: на фикстуре Epic-а Edge от done блокера по умолчанию не нарисован; остальные Edge-и Blocked by — 1 px и с бледным классом.
-- [ ] Unit: цепочка на фикстуре A→B→C, D→B, C→E, F→G (стрелка — «блокирует»): наведение на B подсвечивает A→B, D→B, B→C, C→E и не трогает F→G. Edge от done блокера в цепочке нарисован, пока цепочка подсвечена. Уход курсора возвращает вид по умолчанию.
-- [ ] Unit: выделенный Ticket держит подсветку, пока он выделен; наведение на другой Ticket добавляет его цепочку.
-- [ ] Unit: смена наведения перерисовывает только Edge-и, чьё состояние поменялось (счётчик render-ов компонента Edge-а).
-- [ ] Binding: линия живой Session видна всегда; линия Session без процесса — только при наведении или выделении её Node-а или Node-а цели; форма ортогональная. Unit-test в `test/unit/binding-canvas.test.tsx` и e2e.
-- [ ] e2e `test/e2e/edges.spec.ts`: наведение на Ticket рамки `worfy-mvp` подсвечивает ровно Edge-и его цепочки (по `data-testid`) не позже 100 ms после наведения; уход курсора возвращает вид по умолчанию.
-- [ ] Бюджет `test/e2e/epic-frame.spec.ts:779` держится. В нём же — замер: наведение на Ticket самой большой рамки, время до подсветки печатается, с `WORFY_PERF=1` — не больше 100 ms.
-- [ ] Снимки в светлой и тёмной теме (helper `test/e2e/snapshots.ts`): вид по умолчанию, подсвеченная цепочка, линия живой и неживой Session. Сверены с F-SPEC (линии 1 px, токены обеих тем); ссылка из «Итог» — `../evidence/05-edge-и.png`.
+- [x] Unit: на фикстуре Epic-а Edge от done блокера по умолчанию не нарисован; остальные Edge-и Blocked by — 1 px и с бледным классом.
+- [x] Unit: цепочка на фикстуре A→B→C, D→B, C→E, F→G (стрелка — «блокирует»): наведение на B подсвечивает A→B, D→B, B→C, C→E и не трогает F→G. Edge от done блокера в цепочке нарисован, пока цепочка подсвечена. Уход курсора возвращает вид по умолчанию.
+- [x] Unit: выделенный Ticket держит подсветку, пока он выделен; наведение на другой Ticket добавляет его цепочку.
+- [x] Unit: смена наведения перерисовывает только Edge-и, чьё состояние поменялось (счётчик render-ов компонента Edge-а).
+- [x] Binding: линия живой Session видна всегда; линия Session без процесса — только при наведении или выделении её Node-а или Node-а цели; форма ортогональная. Unit-test в `test/unit/binding-canvas.test.tsx` и e2e.
+- [x] e2e `test/e2e/edges.spec.ts`: наведение на Ticket рамки `worfy-mvp` подсвечивает ровно Edge-и его цепочки (по `data-testid`) не позже 100 ms после наведения; уход курсора возвращает вид по умолчанию.
+- [x] Бюджет `test/e2e/epic-frame.spec.ts:779` держится. В нём же — замер: наведение на Ticket самой большой рамки, время до подсветки печатается, с `WORFY_PERF=1` — не больше 100 ms.
+- [x] Снимки в светлой и тёмной теме (helper `test/e2e/snapshots.ts`): вид по умолчанию, подсвеченная цепочка, линия живой и неживой Session. Сверены с F-SPEC (линии 1 px, токены обеих тем); ссылка из «Итог» — `../evidence/05-edge-и.png`.
 - [ ] (вручную) Stable copy после влития: самая большая рамка Auction — по умолчанию только бледные Edge-и, наведение на Ticket показывает его цепочку, линии Binding видны у работающих Session-ов. Как проверить: окно приложения.
+  не проверено: ручная проверка окна Stable copy после влития — не моя часть (GUI-проверки в этой волне не у исполнителя), и до влития Stable copy этой правки не содержит.
 
 ## Тесты
 
@@ -91,3 +92,74 @@ Test-ы, которые меняются вместе с поведением:
 `workflow-bindings.ts` кладёт в данные anchor-а Binding-а, жив ли агент (он уже читает
 `useClaudeHome`). `Canvas.tsx` этот Ticket не меняет. Общих файлов с Ticket-ом 04 нет, он в той же
 Wave.
+
+## Итог
+
+Сделано в ветке `worfy-week/05`, база `origin/main` 73e8b52. ADR не заводился.
+
+**Как падал первый test.** `test/unit/edge-focus.test.tsx`, «does not draw the Edge from a done
+blocker…»: Epic из трёх Ticket-ов, 01 done блокирует 02. На main React Flow рисовал Edge
+`blocks:e/1->2` — у обёртки Edge-а был `path.react-flow__edge-path` (`d="M101,20.5 C…"`), а test
+ждал, что линии нет (`expected … toBeNull()`).
+
+**Что сделано.**
+
+- `src/renderer/canvas/edge-focus.ts` — store (zustand): Node-ы под курсором и выделенные
+  (`focused`) и Edge-и Blocked by на их цепочках (`lit`). `chainOf` — обход вверх по блокерам и
+  вниз по блокируемым, цикл останавливается на уже пройденном. Каждый Edge подписан на свой ответ
+  «да/нет» (`useEdgeLit`, `useAnyFocused`), поэтому смена наведения перерисовывает только Edge-и,
+  чьё состояние поменялось; неизменные множества в store остаются теми же объектами.
+- `src/renderer/canvas/overlays/EdgeFocus.tsx` — overlay без разметки: `pointerover` /
+  `pointerleave` на корне React Flow (Node — ближайший `.react-flow__node`), выделение — из store
+  React Flow, Edge-и Blocked by — из `state.edges`. `Canvas.tsx` и `edgesOf` не менялись.
+- `edge-types/RoutedEdge.tsx`: данные `idle: 'pale' | 'hidden'`; бледный путь —
+  `w-edge-path--pale`, подсвеченный — `w-edge-path--lit` и `data-focus`. Edge с `idle: 'hidden'`
+  (от done блокера) рисуется только подсвеченным. У подсвеченного Edge-а свой marker стрелки
+  (`w-edge-arrow--lit`): marker React Flow одного цвета, а стрелка должна менять цвет вместе с
+  линией. Маршруты ELK и кривая до первого ответа — как в Ticket-е 03.
+- `edges/blocking.ts`: все Edge-и — `markerEnd` цвета `--border-strong`, `idle` по состоянию
+  блокера; список Edge-ей прежний (Edge от done блокера в нём есть, классы прежние).
+- `epic-frame.css`: все Edge-и Blocked by — 1 px, `--border-strong`; ждущие — пунктир `4 3`;
+  подсвеченные — `--text-secondary`, тоже 1 px. Новых токенов нет.
+- `edge-types/StepEdge.tsx` (новый, kind `rounded-step`): `getSmoothStepPath` с радиусом
+  `EDGE_CORNER_RADIUS` (8, как у Blocked by). Данные `showWith` — список Node-ов: Edge рисуется,
+  только пока один из них наведён или выделен.
+- `edges/bindings.ts`: тип `rounded-step`; у неживого агента `showWith = [Node агента, Node цели]`.
+  Пунктир `5 4`, цвет `--accent`, толщина 1.25 — прежние.
+- `edges/subagents.ts`: тип `rounded-step` вместо `smoothstep`; видимость прежняя.
+- `sources/workflow-bindings.ts`: в данных anchor-а агента — `live` (Session: её id в
+  `claudeHome.live`; Subagent: статус `running`) и `targetNodeId` (Node Ticket-а или рамки Epic-а,
+  на котором висит anchor цели).
+
+**Проверки.**
+
+- Unit: `test/unit/edge-focus.test.tsx` (вид по умолчанию, цепочка на фикстуре A→B→C, D→B, C→E,
+  F→G, выделение, счётчик render-ов через React `Profiler`), `test/unit/binding-canvas.test.tsx`
+  (живая и неживая Session, наведение и выделение Node-а агента и Node-а цели, форма и радиус).
+  Мутанты пойманы: подписка Edge-а на всё множество `lit` вместо своего ответа — краснеет test
+  счётчика render-ов; `showWith` и у живого агента — краснеют два test-а Binding.
+- e2e `test/e2e/edges.spec.ts` (новый): фикстура worfy-mvp с done 01 и 02, стопка done открыта;
+  по умолчанию нарисованы ровно Edge-и от блокеров не done, все бледные, 1 px, цвет
+  `--border-strong`; наведение на 04 подсвечивает ровно его цепочку (с Edge-ами от 01 и 02) за
+  7–10 ms от прихода курсора до кадра с подсветкой; уход курсора, выделение 04, добавление цепочки
+  20 наведением, сброс щелчком по пустому месту.
+- `test/e2e/epic-frame.spec.ts`: в test-е рамки worfy-mvp по умолчанию нарисованы бледными ровно
+  Edge-и от блокеров не done (в этой фикстуре done нет — все). В test-е Auction — замер наведения:
+  6.9 ms с `WORFY_PERF=1`, бюджеты test-а (интерактивность до 3 s, кадры) держатся.
+- `test/e2e/binding.spec.ts`: шесть Edge-ей Binding в DOM, нарисована линия живой Session волны;
+  у трёх Session-ов без процесса и у Subagent-ов не `running` линии нет; наведение на Session —
+  её линия, наведение на Ticket 12 — линия Session, привязанной к нему.
+
+**Снимки** (сверены с F-SPEC: линии 1 px, токены обеих тем):
+
+- подсвеченная цепочка 04, крупно: ![](../evidence/05-edge-и.png), тёмная —
+  [05-edge-и-тёмная.png](../evidence/05-edge-и-тёмная.png);
+- вид по умолчанию: [светлая](../evidence/05-edge-и-по-умолчанию.png),
+  [тёмная](../evidence/05-edge-и-по-умолчанию-тёмная.png);
+- линии Binding — живая Session волны и наведённая Session без процесса:
+  [светлая](../evidence/05-binding.png), [тёмная](../evidence/05-binding-тёмная.png).
+
+**Решено без владельца, подтвердить.** Подсвеченная цепочка — тоже 1 px, отличается только цветом
+(`--text-secondary` против `--border-strong`): тикет требует «линии 1 px», про толщину подсветки
+не говорит. Наведение на Ticket внутри рамки — наведение на Ticket, не на рамку: линии Binding к
+рамке Epic-а показывает наведение на саму рамку (заголовок, пустое место).

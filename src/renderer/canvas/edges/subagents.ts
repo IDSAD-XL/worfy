@@ -1,9 +1,11 @@
 // The lines of each Session's Subagent tree (ticket 15): from the Session's Node (its anchor at
 // the Node's right edge) to each of its Subagents, from a Subagent to each Subagent it started,
 // and to the "N done" row of each parent. The Nodes and who is whose parent come from
-// sources/subagents.ts; a line is drawn only when both ends are on the Canvas.
+// sources/subagents.ts; a line is drawn only when both ends are on the Canvas. A line is orthogonal
+// with rounded corners, like a Binding line (edge-types/StepEdge.tsx).
 import type { Edge } from '@xyflow/react'
 import type { LayoutNode } from '../../../shared/layout/types'
+import { kind as STEP_EDGE } from '../edge-types/StepEdge'
 import { SUBAGENT_KIND, type SubagentNodeData } from '../sources/subagents'
 
 const dataOf = (node: LayoutNode): SubagentNodeData | undefined => {
@@ -23,7 +25,7 @@ export default function subagentEdges(nodes: readonly LayoutNode[]): Edge[] {
       id: `subagent-edge:${node.id}`,
       source: data.parentNodeId,
       target: node.id,
-      type: 'smoothstep',
+      type: STEP_EDGE,
       className: running ? 'w-edge-subagent w-edge-subagent--running' : 'w-edge-subagent',
       style: { stroke: running ? 'var(--text-muted)' : 'var(--border-strong)', strokeWidth: 1 },
       selectable: false,

@@ -1,15 +1,20 @@
 // Bindings on the Canvas and in the Session rail (ticket 16): the anchors the lines start and end at
 // (canvas/sources/workflow-bindings.ts), the lines (edges/bindings.ts), the drop targets of a
 // manual Binding (binding/drop.ts), the Bindings of every agent (binding/store.ts) and the rail's
-// block (session/rail/BindingRail.tsx).
+// block (session/rail/BindingRail.tsx). Which lines are drawn (worfy-week ticket 05): a working
+// agent's always, another's while its Node or its target's is hovered or selected.
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { getSmoothStepPath, Position, ReactFlow, ReactFlowProvider, type EdgeProps, type Node } from '@xyflow/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { clearEdgeFocus } from '../../src/renderer/canvas/edge-focus'
+import StepEdge, { kind as STEP } from '../../src/renderer/canvas/edge-types/StepEdge'
+import EdgeFocus from '../../src/renderer/canvas/overlays/EdgeFocus'
 import { agentOfNode, dropTargetAt, type DropCandidate } from '../../src/renderer/binding/drop'
 import { bindingTargetTitle, launchOf, manualOf, resolveAgentBindings } from '../../src/renderer/binding/store'
 import bindingEdges from '../../src/renderer/canvas/edges/bindings'
-import { TICKET_WIDTH } from '../../src/renderer/canvas/epic-layout'
+import { EDGE_CORNER_RADIUS, TICKET_WIDTH } from '../../src/renderer/canvas/epic-layout'
 import type { CanvasFlowNode } from '../../src/renderer/canvas/nodes/index'
-import { agentAnchorId, buildBindingAnchors, epicAnchorId, ticketAnchorId } from '../../src/renderer/canvas/sources/workflow-bindings'
+import { agentAnchorId, buildBindingAnchors, epicAnchorId, ticketAnchorId, type BindingAnchorData } from '../../src/renderer/canvas/sources/workflow-bindings'
 import { BindingCard } from '../../src/renderer/session/rail/BindingRail'
 import { EMPTY_AGENT_SIGNALS, type Binding, type BindingWorkflow } from '../../src/shared/binding/resolve'
 import type { ManualBinding, SessionBindingSignals } from '../../src/shared/ipc/bindings'
@@ -58,7 +63,8 @@ describe('buildBindingAnchors and bindingEdges', () => {
       bindings,
       epics: new Set(['e']),
       tickets: new Set(['ticket:e/7']),
-      subagents: [{ nodeId: 'subagent:s2/toolu_1', sessionId: 's2', agentId: 'a1' }],
+      subagents: [{ nodeId: 'subagent:s2/toolu_1', sessionId: 's2', agentId: 'a1', running: true }],
+      live: new Set(['s1']),
     })
     const byId = new Map(nodes.map((each) => [each.id, each]))
     // Targets come before the agents; a pinned Session gets no line.
@@ -71,10 +77,11 @@ describe('buildBindingAnchors and bindingEdges', () => {
     ])
     expect(byId.get(ticketAnchorId('e', 7))).toMatchObject({ parentId: 'ticket:e/7', position: { x: TICKET_WIDTH, y: 18 }, selectable: false, draggable: false })
     expect(byId.get(epicAnchorId('e'))).toMatchObject({ parentId: 'epic:e', position: { x: 24, y: 0 } })
-    expect(byId.get(agentAnchorId('session:s1'))?.data.node.data).toMatchObject({ variant: 'agent', targetId: ticketAnchorId('e', 7), binding: claim7, agentId: null })
-    expect(byId.get(agentAnchorId('orchestrator'))?.data.node.data).toMatchObject({ targetId: epicAnchorId('e') })
+    expect(byId.get(agentAnchorId('session:s1'))?.data.node.data).toMatchObject({ variant: 'agent', targetId: ticketAnchorId('e', 7), targetNodeId: 'ticket:e/7', binding: claim7, agentId: null, live: true })
+    // The Orchestrator's process is not running; the Subagent is.
+    expect(byId.get(agentAnchorId('orchestrator'))?.data.node.data).toMatchObject({ targetId: epicAnchorId('e'), targetNodeId: 'epic:e', live: false })
     // Ticket 12 is folded away: the Subagent's line ends at the frame.
-    expect(byId.get(agentAnchorId('subagent:s2/toolu_1'))).toMatchObject({ parentId: 'subagent:s2/toolu_1', data: { node: { data: { targetId: epicAnchorId('e'), agentId: 'a1' } } } })
+    expect(byId.get(agentAnchorId('subagent:s2/toolu_1'))).toMatchObject({ parentId: 'subagent:s2/toolu_1', data: { node: { data: { targetId: epicAnchorId('e'), agentId: 'a1', live: true } } } })
 
     const edges = bindingEdges(nodes.map((each) => each.data.node))
     expect(edges.map(({ id, source, target, ariaLabel }) => ({ id, source, target, ariaLabel }))).toEqual([
@@ -82,16 +89,134 @@ describe('buildBindingAnchors and bindingEdges', () => {
       { id: 'binding:orchestrator', source: agentAnchorId('orchestrator'), target: epicAnchorId('e'), ariaLabel: 'bound to e · /epic-wave' },
       { id: 'binding:subagent:s2/toolu_1', source: agentAnchorId('subagent:s2/toolu_1'), target: epicAnchorId('e'), ariaLabel: 'bound to e/12 · task' },
     ])
-    expect(edges[0]).toMatchObject({ selectable: false, deletable: false, style: { strokeDasharray: '5 4' }, className: 'w-edge-binding' })
+    expect(edges[0]).toMatchObject({ type: 'rounded-step', selectable: false, deletable: false, style: { strokeDasharray: '5 4' }, className: 'w-edge-binding' })
+    // A working agent's line is always drawn; another's only with its Node or its target's.
+    expect(edges.map((edge) => edge.data?.showWith)).toEqual([undefined, ['orchestrator', 'epic:e'], undefined])
   })
 
   it('draws nothing to an Epic the Canvas has no frame for, and no line whose end is missing', () => {
-    expect(buildBindingAnchors({ projectId: PROJECT, layout: sessions, bindings, epics: new Set(), tickets: new Set(), subagents: [] })).toEqual([])
-    const nodes = buildBindingAnchors({ projectId: PROJECT, layout: sessions, bindings: new Map([['s1', { ...claim7, source: 'manual' as const }]]), epics: new Set(['e']), tickets: new Set(['ticket:e/7']), subagents: [] })
+    expect(buildBindingAnchors({ projectId: PROJECT, layout: sessions, bindings, epics: new Set(), tickets: new Set(), subagents: [], live: new Set() })).toEqual([])
+    const nodes = buildBindingAnchors({ projectId: PROJECT, layout: sessions, bindings: new Map([['s1', { ...claim7, source: 'manual' as const }]]), epics: new Set(['e']), tickets: new Set(['ticket:e/7']), subagents: [], live: new Set() })
     const layoutNodes = nodes.map((each) => each.data.node)
     expect(bindingEdges(layoutNodes)[0]?.className).toBe('w-edge-binding w-edge-binding--manual')
     expect(bindingEdges(layoutNodes.filter((each) => each.id !== ticketAnchorId('e', 7)))).toEqual([])
     expect(bindingEdges([node('session:s1', 'session', { sessionId: 's1' })])).toEqual([])
+  })
+})
+
+describe('which Binding lines are drawn', () => {
+  // Session s1's process runs, s4's does not; both are bound to a Ticket on the Canvas.
+  const agents = layout([node('session:s1', 'session', { sessionId: 's1' }), node('session:s4', 'session', { sessionId: 's4' }, { y: 300 })])
+  const anchors = buildBindingAnchors({
+    projectId: PROJECT,
+    layout: agents,
+    bindings: new Map([
+      ['s1', claim7],
+      ['s4', task12],
+    ]),
+    epics: new Set(['e']),
+    tickets: new Set(['ticket:e/7', 'ticket:e/12']),
+    subagents: [],
+    live: new Set(['s1']),
+  })
+  const edges = bindingEdges(anchors.map((each) => each.data.node))
+  const handle = { left: { type: 'source', position: Position.Left }, ticket: { type: 'target', position: Position.Right }, epic: { type: 'target', position: Position.Top } } as const
+
+  /** The agents' and Tickets' Nodes, then the anchors with their handles given: jsdom measures nothing. */
+  const flowNodes = (selected: ReadonlySet<string>): Node[] => [
+    ...[
+      { id: 'session:s1', x: 0, y: 200 },
+      { id: 'session:s4', x: 0, y: 400 },
+      { id: 'ticket:e/7', x: 600, y: 0 },
+      { id: 'ticket:e/12', x: 600, y: 300 },
+    ].map(({ id, x, y }) => ({ id, type: 'plain', position: { x, y }, width: 200, height: 120, selected: selected.has(id), data: {} })),
+    ...anchors.map((anchor) => {
+      const variant = (anchor.data.node.data as BindingAnchorData).variant
+      const side = variant === 'agent' ? handle.left : variant === 'ticket' ? handle.ticket : handle.epic
+      return { id: anchor.id, type: 'plain', parentId: anchor.parentId!, position: anchor.position, width: 1, height: 1, selectable: false, data: {}, handles: [{ ...side, x: 0, y: 0, width: 1, height: 1 }] }
+    }),
+  ]
+
+  const Plain = () => <div />
+  const flow = (selected: ReadonlySet<string> = new Set()) => (
+    <div style={{ width: 1000, height: 600 }}>
+      <ReactFlowProvider>
+        <ReactFlow nodes={flowNodes(selected)} edges={edges} nodeTypes={{ plain: Plain }} edgeTypes={{ [STEP]: StepEdge }}>
+          <EdgeFocus />
+        </ReactFlow>
+      </ReactFlowProvider>
+    </div>
+  )
+  const line = (container: HTMLElement, sessionId: string): Element | null => container.querySelector(`[data-testid="rf__edge-binding:session:${sessionId}"] path.react-flow__edge-path`)
+  const nodeElement = (container: HTMLElement, id: string): Element => container.querySelector(`.react-flow__node[data-id="${id}"]`)!
+
+  let hadObserver = false
+  beforeEach(() => {
+    const globals = globalThis as { ResizeObserver?: unknown }
+    hadObserver = 'ResizeObserver' in globals
+    globals.ResizeObserver ??= class {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    clearEdgeFocus()
+  })
+  afterEach(() => {
+    if (!hadObserver) delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver
+  })
+
+  it('draws the live Session’s line always, orthogonal with rounded corners, dashed in the accent colour', () => {
+    const { container } = render(flow())
+    const live = line(container, 's1')
+    expect(live).not.toBeNull()
+    expect(live!.getAttribute('data-shape')).toBe('orthogonal')
+    // Straight segments joined by quadratic corners, no curve.
+    expect(live!.getAttribute('d')).toMatch(/^M[^C]*Q[^C]*$/)
+    expect((live as SVGPathElement).style.strokeDasharray).toBe('5 4')
+    expect((live as SVGPathElement).style.stroke).toBe('var(--accent)')
+  })
+
+  it('rounds its corners with the radius of the "Blocked by" Edges', () => {
+    const props = { id: 'x', source: 'a', target: 'b', sourceX: 0, sourceY: 100, targetX: 300, targetY: 0, sourcePosition: Position.Left, targetPosition: Position.Right, data: {} } as unknown as EdgeProps
+    const { container } = render(
+      <svg>
+        <StepEdge {...props} />
+      </svg>,
+    )
+    const at = { sourceX: 0, sourceY: 100, targetX: 300, targetY: 0, sourcePosition: Position.Left, targetPosition: Position.Right }
+    const d = container.querySelector('path.react-flow__edge-path')!.getAttribute('d')
+    expect(d).toBe(getSmoothStepPath({ ...at, borderRadius: EDGE_CORNER_RADIUS })[0])
+    expect(d).not.toBe(getSmoothStepPath(at)[0])
+  })
+
+  it('draws the line of a Session without a process only while its Node or its target’s is hovered or selected', () => {
+    const { container, rerender } = render(flow())
+    expect(container.querySelector('[data-testid="rf__edge-binding:session:s4"]')).not.toBeNull()
+    expect(line(container, 's4')).toBeNull()
+
+    fireEvent.pointerOver(nodeElement(container, 'session:s4'))
+    expect(line(container, 's4')!.getAttribute('data-shape')).toBe('orthogonal')
+    fireEvent.pointerOver(container.querySelector('.react-flow__pane')!)
+    expect(line(container, 's4')).toBeNull()
+
+    // Its target, Ticket 12.
+    fireEvent.pointerOver(nodeElement(container, 'ticket:e/12'))
+    expect(line(container, 's4')).not.toBeNull()
+    fireEvent.pointerLeave(container.querySelector('.react-flow')!)
+    expect(line(container, 's4')).toBeNull()
+
+    // Another Ticket shows nothing more; the live line stays all along.
+    fireEvent.pointerOver(nodeElement(container, 'ticket:e/7'))
+    expect(line(container, 's4')).toBeNull()
+    expect(line(container, 's1')).not.toBeNull()
+
+    rerender(flow(new Set(['session:s4'])))
+    expect(line(container, 's4')).not.toBeNull()
+    rerender(flow(new Set(['ticket:e/12'])))
+    expect(line(container, 's4')).not.toBeNull()
+    rerender(flow(new Set()))
+    fireEvent.pointerOver(container.querySelector('.react-flow__pane')!)
+    expect(line(container, 's4')).toBeNull()
   })
 })
 

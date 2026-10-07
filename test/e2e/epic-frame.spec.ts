@@ -279,6 +279,16 @@ test('the worfy-mvp Epic: columns by level, places and routes by ELK in a worker
     const paths = await window.locator('[data-testid^="rf__edge-blocks:"] path.react-flow__edge-path').evaluateAll((edges) => edges.map((e) => e.getAttribute('d') ?? ''))
     expect(paths.some((d) => d.includes('Q'))).toBe(true)
     for (const d of paths) expect(d, d).toMatch(/^M [\d.-]+ [\d.-]+( L [\d.-]+ [\d.-]+( Q [\d.-]+ [\d.-]+ [\d.-]+ [\d.-]+)?)+$/)
+    // By default only the Edges from blockers that are not done are drawn (worfy-week ticket 05),
+    // all of them pale: here no Ticket is done yet, so every one. Hiding the Edges from done
+    // blockers and lighting a chain are in edges.spec.ts.
+    const notDone = new Set(tickets.filter((t) => t.state !== 'done').map((t) => t.num))
+    const drawnByDefault = tickets.flatMap((t) => t.blockedNums.filter((b) => notDone.has(b)).map((b) => `blocks:worfy-mvp/${b}->${t.num}`)).sort()
+    expect(drawnByDefault).toEqual(expected.map((id) => id.replace(/^rf__edge-/, '')))
+    await window.mouse.move(0, 0)
+    await expect
+      .poll(async () => (await window.locator('[data-testid^="rf__edge-blocks:"] path.react-flow__edge-path[data-focus="pale"]').evaluateAll((edges) => edges.map((e) => e.getAttribute('id')))).sort())
+      .toEqual(drawnByDefault)
     const shots = await snapshotThemes(window, 'epic-frame-elk')
     console.log(`epic frame by ELK: ${shots.light} ${shots.dark}`)
 
@@ -811,6 +821,67 @@ function generateAuction(dir: string): { json: string; biggest: string } {
   return { json: JSON.stringify(answer), biggest: 'epic-01' }
 }
 
+/** The page's DOM for the hover clock, typed for this file. */
+interface PageClock {
+  document: {
+    body: object
+    querySelector(selector: string): object | null
+    addEventListener(type: string, listener: (event: { target: { closest?(selector: string): object | null } | null }) => void, capture: boolean): void
+  }
+  MutationObserver: new (callback: () => void) => { observe(target: object, options: object): void; disconnect(): void }
+  performance: { now(): number }
+  requestAnimationFrame(callback: () => void): number
+  hoverAt?: number
+  litAt?: number
+}
+
+/**
+ * Hovers a Ticket of `epic` on screen that a drawn "Blocked by" Edge ends at, and returns the
+ * milliseconds from the pointer's arrival on its Node to the frame that shows a lit Edge, both
+ * taken inside the page.
+ */
+async function hoverUntilLit(window: Page, epic: string, pane: { x: number; y: number; width: number; height: number }): Promise<number> {
+  const targets = await window
+    .locator(`[data-testid^="rf__edge-blocks:${epic}/"]:has(path.react-flow__edge-path)`)
+    .evaluateAll((edges) => edges.map((edge) => Number(/->(\d+)$/.exec(edge.getAttribute('data-testid') ?? '')?.[1])))
+  let num: number | undefined
+  for (const candidate of targets) {
+    const found = await window.locator(`[data-testid="ticket-node"][data-epic="${epic}"][data-ticket="${candidate}"]`).boundingBox()
+    if (found && found.x > pane.x && found.y > pane.y && found.x + found.width < pane.x + pane.width && found.y + found.height < pane.y + pane.height) {
+      num = candidate
+      break
+    }
+  }
+  if (num === undefined) throw new Error(`no Ticket of ${epic} with a drawn Edge is on screen`)
+  expect(await window.locator('path.react-flow__edge-path[data-focus="lit"]').count()).toBe(0)
+  await window.evaluate((nodeId) => {
+    const page = globalThis as unknown as PageClock
+    page.hoverAt = undefined
+    page.litAt = undefined
+    page.document.addEventListener(
+      'pointerover',
+      (event) => {
+        if (page.hoverAt === undefined && event.target?.closest?.(`.react-flow__node[data-id="${nodeId}"]`)) page.hoverAt = page.performance.now()
+      },
+      true,
+    )
+    const observer = new page.MutationObserver(() => {
+      if (page.hoverAt === undefined || page.document.querySelector('path.react-flow__edge-path[data-focus="lit"]') === null) return
+      observer.disconnect()
+      page.requestAnimationFrame(() => {
+        page.litAt = page.performance.now()
+      })
+    })
+    observer.observe(page.document.body, { subtree: true, childList: true, attributes: true })
+  }, `ticket:${epic}/${num}`)
+  await window.locator(`[data-testid="ticket-node"][data-epic="${epic}"][data-ticket="${num}"]`).hover()
+  await expect.poll(() => window.evaluate(() => (globalThis as unknown as PageClock).litAt !== undefined)).toBe(true)
+  return window.evaluate(() => {
+    const page = globalThis as unknown as PageClock
+    return Math.round((page.litAt! - page.hoverAt!) * 10) / 10
+  })
+}
+
 test('an Auction-sized Project is interactive within 3 s and pans and zooms smoothly over its biggest Epic', async () => {
   let generated: { json: string; biggest: string } | undefined
   makeProject((dir) => {
@@ -875,6 +946,17 @@ test('an Auction-sized Project is interactive within 3 s and pans and zooms smoo
     const fps = Math.round((1000 / median) * 10) / 10
     const longest = Math.round(Math.max(...frames))
     const ticketsDrawn = await window.getByTestId('ticket-node').count()
+
+    // Hovering a Ticket of the biggest frame lights its chain (worfy-week ticket 05): the time from
+    // the pointer's arrival to the frame that shows it is printed, and checked with WORFY_PERF=1.
+    await window.locator(`[data-testid="sidebar-epic"][data-epic="${generated!.biggest}"]`).click()
+    await canvasReady({ window })
+    await window.mouse.move(pane.x + 8, pane.y + pane.height - 8)
+    const hoverMs = await hoverUntilLit(window, generated!.biggest, pane)
+    console.log(`auction-size: hover on a Ticket of ${generated!.biggest} to its lit chain ${hoverMs} ms`)
+    test.info().annotations.push({ type: 'perf', description: `hoverToLit=${hoverMs}ms` })
+    if (enforce) expect(hoverMs).toBeLessThanOrEqual(100)
+
     console.log(
       `auction-size: interactive ${interactiveMs} ms after the window's page started loading; ` +
         `pan/zoom 5 s: ${frames.length} frames, median ${fps} fps, longest frame ${longest} ms; ${ticketsDrawn} Ticket Nodes in the DOM`,
