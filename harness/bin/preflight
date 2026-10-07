@@ -16,6 +16,8 @@
 #
 # Project facts come from the profile (bin/profile next to this script, contract in <plugin>/profiles/README.md):
 #   worktree.base               — the base (origin/main); the main branch is that without "origin/";
+#                                 none — origin/<layout.repos.<repo>.default_branch>, then the branch
+#                                 origin/HEAD points to, then origin/main;
 #   numbering.adr.dir           — the ADR directory (fallback — docs.adr_dir); none — the ADR step is skipped;
 #   numbering.migrations.journal / .generate — the migrations journal (drizzle _journal.json format)
 #                                 and the generate command for the hint; none — the step is skipped.
@@ -149,8 +151,11 @@ load_profile() {
   vals=$(printf '%s' "$json" | node -e '
     let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
       const p = JSON.parse(s), g = (o, ...k) => k.reduce((a, x) => (a == null ? a : a[x]), o)
+      // No worktree.base (Atakama: several repositories, not all on main) — the default branch
+      // of this repository from layout.repos; none — empty, and the shell asks origin/HEAD.
+      const repo = g(p, "_resolved", "repo_root"), db = repo ? g(p, "layout", "repos", repo.split("/").pop(), "default_branch") : null
       const v = [
-        g(p, "worktree", "base") || "origin/main",
+        g(p, "worktree", "base") || (typeof db === "string" && db ? "origin/" + db : ""),
         g(p, "numbering", "adr", "dir") || g(p, "docs", "adr_dir") || "",
         g(p, "numbering", "migrations", "journal") || "",
         g(p, "numbering", "migrations", "generate") || "",
@@ -163,6 +168,11 @@ load_profile() {
   JOURNAL=${vals%%$'\t'*};   vals=${vals#*$'\t'}
   MIG_GEN=$vals
   ADR_DIR=${ADR_DIR%/}
+  # Neither field: the branch origin/HEAD points to (set by git clone), and only then origin/main.
+  if [ -z "$BASE" ]; then
+    BASE=$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) || BASE=''
+    [ -n "$BASE" ] || BASE=origin/main
+  fi
   MAIN=${BASE#origin/}
 }
 

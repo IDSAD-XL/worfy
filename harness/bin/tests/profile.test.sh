@@ -209,11 +209,11 @@ unset CLAUDE_GATE_CONFIG CLAUDE_PROFILES_DIR
 H="$T/home" HH="$T/hh"
 BINREAL="$(cd "$BIN" && pwd -P)"
 mkdir -p "$H/.claude/profiles" "$HH/projects" "$HH/gate" "$T/r"
-for n in demo legacy both nomode badmode bare schema3 nofile; do git -C "$T/r" init -q -b main "$n"; done
+for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj; do git -C "$T/r" init -q -b main "$n"; done
 {
     printf '{"repos":['
     sep=""
-    for n in demo legacy both nomode badmode bare schema3 nofile; do printf '%s{"key":"%s","match":"%s","profile":"%s"}' "$sep" "$n" "$T/r/$n" "$n"; sep=","; done
+    for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj; do printf '%s{"key":"%s","match":"%s","profile":"%s"}' "$sep" "$n" "$T/r/$n" "$n"; sep=","; done
     printf ']}\n'
 } >"$HH/gate/config.json"
 newp() { mkdir -p "$HH/projects/$1" && printf '%s\n' "$2" >"$HH/projects/$1/profile.json"; }
@@ -228,6 +228,10 @@ newp nomode '{"schema":2,"name":"nomode"}'
 newp badmode '{"schema":2,"name":"badmode","mode":"other"}'
 newp bare '{"schema":2,"name":"bare","mode":"full","language":{"reports":"en","team":"en"}}'
 newp schema3 '{"schema":3,"name":"schema3","mode":"full"}'
+# schema 1 with the absolute form of the old place: <HOME>/.claude/bin/<script>
+oldp absbin "{\"schema\":1,\"name\":\"absbin\",\"tickets\":{\"status_tool\":\"$H/.claude/bin/ticket\"},\"workflow\":{\"preflight\":\"$H/.claude/bin/preflight --epic <эпик>\"}}"
+# valid JSON, but not an object
+newp notobj '["schema",2]'
 cat >"$T/p2" <<EOF
 #!/usr/bin/env bash
 exec env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR HOME="$H" HARNESS_HOME="$HH" "$PROFILE" "\$@"
@@ -278,6 +282,9 @@ eq "schema 1: ~/.claude/bin/ticket -> the same path as v2" "$BINREAL/ticket" "$P
 eq "schema 1: ~/.claude/bin/epic-status -> bin next to profile" "$BINREAL/epic-status" "$P2" -C "$T/r/legacy" --field tickets.epic_status
 eq "schema 1: ~/.claude/bin/preflight --epic -> bin next to profile" "$BINREAL/preflight --epic <эпик>" "$P2" -C "$T/r/legacy" --field workflow.preflight
 eq "schema 1: null stays null" null "$P2" -C "$T/r/legacy" --field numbering.reserve_with
+eq "schema 1: <HOME>/.claude/bin/ticket -> bin next to profile" "$BINREAL/ticket" "$P2" -C "$T/r/absbin" --field tickets.status_tool
+eq "schema 1: <HOME>/.claude/bin/preflight --epic -> bin next to profile" "$BINREAL/preflight --epic <эпик>" "$P2" -C "$T/r/absbin" --field workflow.preflight
+fails_with "profile.json that is not an object -> 1 with the reason" 1 "not a JSON object" "$P2" -C "$T/r/notobj" --name
 check "schema 1: --json and briefing name no ~/.claude/bin" 0 "" bash -c 'o="$("$@" --json && "$@")" && [[ "$o" == *"$0"* && "$o" != *"~/.claude/bin"* ]]' "$BINREAL/ticket" "$P2" -C "$T/r/legacy"
 eq "schema 1: string language -> language.reports" ru "$P2" -C "$T/r/legacy" --field language.reports
 eq "schema 1: string language -> language.team" ru "$P2" -C "$T/r/legacy" --field language.team

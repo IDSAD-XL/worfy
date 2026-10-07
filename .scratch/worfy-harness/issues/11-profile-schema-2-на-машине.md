@@ -148,6 +148,9 @@ Ticket-а 05 (части правил для hooks) и `harness/hooks/session-st
   <HOME>/.claude/profiles/demo/profile.json does not exist`: `bin/profile` искал Profile-ы только
   в `~/.claude/profiles/`. Из 36 новых случаев на main краснели 28 (зелёные 8 — то, что main уже умел: schema 1 в старом месте, строка `language`, `null`, код 4, «ничего не пишет»). Новый `preflight.test.sh`
   на `preflight` с main — 4 красных из 8 (`--epic` без `tickets.epic_status` давал BLOCKED).
+  Круг доработки 1 добавил случаи: 3 в `preflight.test.sh` (основная ветка `master`,
+  `worktree.base: null`) и 3 в `profile.test.sh` (форма `$HOME/.claude/bin/`, `profile.json`, который
+  не объект). Каждый краснеет на мутанте, убирающем свою ветку кода.
 - `harness/bin/profile`: поиск `$HARNESS_HOME/projects/<имя>/`, потом `~/.claude/profiles/<имя>/`;
   `CLAUDE_PROFILES_DIR` перекрывает оба; `_resolved.dir` — папка, где Profile найден. schema 2 без
   `mode` или с другим значением — код 1. `schema`, отличная от 1 и 2, — тоже код 1 (решено без
@@ -157,8 +160,16 @@ Ticket-а 05 (части правил для hooks) и `harness/hooks/session-st
   Сводка без флагов печатает тот же нормализованный Profile (с `mode`, `attribution` и путями
   своего Harness), что и `--json`.
 - `harness/bin/preflight` берёт `epic-status` рядом с собой; ветка «нет сводки Epic-а в Profile»
-  убрана. Если `preflight` не запускается (код 2: не git, например общий каталог Atakama), skills
-  делают минимальный предполёт сам — так сохранён прежний путь Atakama с `workflow.preflight: null`.
+  убрана. Минимальный предполёт skills остаётся только для случая, когда `preflight` не
+  запускается (код 2: не git, например общий каталог Atakama над тремя репозиториями). Прежний
+  путь Atakama (`workflow.preflight: null` — минимальный предполёт в каждом репозитории) не
+  сохранён: её репозитории теперь идут через `preflight` Harness-а. Поэтому при `worktree.base: null`
+  `preflight` больше не подставляет `origin/main` вслепую. Порядок такой: `origin/<default_branch>`
+  этого репозитория из `layout.repos`, затем ветка, на которую указывает `origin/HEAD`, затем
+  `origin/main`. Иначе Atakama-Browser-Extension и Atakama-Browser-Server (основная ветка
+  `master`) вставали на «BLOCKED: no ref origin/main» — находка ревью, круг доработки 1.
+  Проверено на клонах трёх репозиториев Atakama во временном каталоге: `preflight` первого круга —
+  код 1 «BLOCKED: no ref origin/main», нынешний — код 0, база `origin/master`, `GO`.
 - Skills epic-wave и ship-ticket зовут `ticket`, `epic-status`, `preflight` из
   `${CLAUDE_PLUGIN_ROOT}/bin/`; правило о значениях `~/.claude/bin/` (schema 1) оставлено — его
   требует `epic-wave-ship-ticket.test.sh`.

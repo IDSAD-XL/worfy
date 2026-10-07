@@ -133,7 +133,7 @@ the way the project really runs them.
 | `tests.globs` | strings \| null | test file name masks (`*.spec.ts`), for `grep --include` | overnight-fix-loop |
 | `parallel` | `"worktrees"` \| `"single"` | `worktrees` — several implementers, each in its own worktree; `single` — one implementer, work in the main checkout, no worktree | all agents, epic-wave |
 | `worktree.root` | path \| null | where working trees are created | implementer, reviewer, orchestrator |
-| `worktree.base` | string | what to branch from (`origin/main`, `origin/master`) | implementer |
+| `worktree.base` | string \| null | what to branch from (`origin/main`, `origin/master`). `null` — the Harness preflight takes `origin/<layout.repos.<repo>.default_branch>`, then the branch `origin/HEAD` points to, then `origin/main` | implementer, preflight |
 | `worktree.implementer` / `reviewer` | string | a ready `git worktree add` command with placeholders: `<ветка>` (branch, = `tickets.branch`), `<имя-тикета>` (ticket name, = `<NN>-<slug>`), `<эпик>` (epic), `<NN>`, `<slug>`, `<что-ревьюишь>` (what is reviewed). worfy names the tree by number only — `…/worktrees/<NN>` | implementer, reviewer, ship-ticket, epic-wave |
 | `tickets.root` | path \| null | root of the epics directory (`.scratch/`), with a trailing slash; the audit epic is created there. `bin/ticket`, `bin/epic-status` and `bin/epic-board` take the root from here too (path rules — below the table) | continuous-audit, ticket, epic-status, epic-board |
 | `tickets.path` | path template | where a ticket lies | implementer, epic-wave |
@@ -217,9 +217,14 @@ they are not profile fields. They live in `${CLAUDE_PLUGIN_ROOT}/bin/`:
 - `preflight --epic <epic>` — the check before a ticket or a wave; it also prints the next free ADR
   and migration numbers, which are taken before the content. Contract: the last line of the output
   is `GO` or `BLOCKED: <reasons>`, exit code 1 on `BLOCKED`; the line `<base>: <sha> …` is the base
-  for briefs. `preflight` takes `epic-status` next to itself, not from the profile. Exit 2 (not a
-  git repository, project not registered) — the skill runs a minimal preflight itself (`git fetch`,
-  the state of the tree, open PRs).
+  for briefs. `preflight` takes `epic-status` next to itself, not from the profile. The base is
+  `worktree.base`; when it is `null` (a project of several repositories whose main branches
+  differ, like Atakama: `master` in two repositories, `main` in the third) — `origin/<default_branch>`
+  of this repository from `layout.repos`, then the branch `origin/HEAD` points to, and only then
+  `origin/main`. So every repository of such a project runs the Harness preflight against its own
+  main branch. Exit 2 (not a git repository — for example the common directory above the
+  repositories of such a project, — or a project that is not registered) — the skill runs a minimal
+  preflight itself (`git fetch`, the state of the tree, open PRs).
 
 ## Schema 1 (transition)
 
@@ -233,11 +238,14 @@ Profiles of schema 1 are read until they are moved to schema 2 and into `$HARNES
 - **`attribution`** — absent prints `on`, as in schema 2; **`language.docs`** — absent, exit 4.
 - **The four path fields.** Schema 1 has `tickets.status_tool`, `tickets.epic_status`,
   `workflow.preflight` (with the placeholder `<эпик>`) and `numbering.reserve_with` — paths to the
-  Harness, not facts of the project. A value that starts with `~/.claude/bin/` (the Harness before
-  the plugin) is replaced with the same script next to `bin/profile`: `~/.claude/bin/ticket` →
-  `<bin>/ticket`, `~/.claude/bin/preflight --epic <эпик>` → `<bin>/preflight --epic <эпик>`.
-  `null` stays `null` (Atakama has `workflow.preflight: null`; schema 2 has no such choice — the
-  Harness preflight is one for all projects).
+  Harness, not facts of the project. A value that starts with `~/.claude/bin/` or with its
+  absolute form `$HOME/.claude/bin/` (the Harness before the plugin) is replaced with the same
+  script next to `bin/profile`: `~/.claude/bin/ticket` → `<bin>/ticket`,
+  `~/.claude/bin/preflight --epic <эпик>` → `<bin>/preflight --epic <эпик>`. Any other value is
+  left as it is, and `null` stays `null` (Atakama has `workflow.preflight: null`). Schema 2 has no
+  such choice — the Harness preflight is one for all projects; skills no longer read these fields,
+  so Atakama's repositories now go through the Harness preflight too (its base — section "The
+  Harness's own scripts").
 - **The same four fields in schema 2.** They are not in the table and not read from the file. So
   that a reader that still asks for one does not break, `--field` (and `--json`) answers with this
   Harness's own script: `tickets.status_tool` → `<bin>/ticket`, `tickets.epic_status` →

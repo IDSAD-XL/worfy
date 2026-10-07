@@ -83,6 +83,38 @@ out="$(cd "$T/reg" && CLAUDE_SESSION_ID= bash "$PF" --no-fetch --epic x 2>&1)"; 
 [ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | tail -1)" = GO ] && [[ "$out" != *"/nonexistent/"* ]] \
     && ok "tickets.epic_status in the profile is ignored" || bad "stale epic_status: exit $rc, out: ${out:0:400}"
 
+# 4c. Repositories whose main branch is master, in a profile with worktree.base null (Atakama):
+# the base is not guessed as origin/main. ext — a clone, origin/HEAD -> origin/master; srv — no
+# origin/HEAD, layout.repos.srv.default_branch is master; bare — neither, so origin/main as before.
+mkdir -p "$T/m" "$T/profiles/m"
+for r in ext srv bare; do
+    git init -q --bare -b master "$T/m/$r.git"
+    git -C "$T/m" init -q -b master "seed-$r" && git -C "$T/m/seed-$r" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+    git -C "$T/m/seed-$r" push -q "$T/m/$r.git" master 2>/dev/null
+done
+git clone -q "$T/m/ext.git" "$T/m/ext" 2>/dev/null
+for r in srv bare; do
+    git -C "$T/m" init -q -b master "$r" && git -C "$T/m/$r" remote add origin "$T/m/$r.git" && git -C "$T/m/$r" fetch -q origin
+    git -C "$T/m/$r" reset -q --hard origin/master
+    # git 2.48+ sets origin/HEAD on fetch; these two must have none.
+    git -C "$T/m/$r" remote set-head origin -d >/dev/null 2>&1
+    git -C "$T/m/$r" config remote.origin.followRemoteHEAD never
+done
+printf '{"schema":1,"name":"m","worktree":{"base":null},"layout":{"repos":{"srv":{"default_branch":"master"}}},"numbering":{"adr":null,"migrations":null},"docs":{"adr_dir":null}}\n' \
+    >"$T/profiles/m/profile.json"
+printf '{"repos":[{"key":"ext","match":"%s","profile":"m"},{"key":"srv","match":"%s","profile":"m"},{"key":"bare","match":"%s","profile":"m"}]}\n' \
+    "$T/m/ext" "$T/m/srv" "$T/m/bare" >"$T/m.json"
+for r in ext srv; do
+    out="$(cd "$T/m/$r" && CLAUDE_GATE_CONFIG="$T/m.json" CLAUDE_SESSION_ID= bash "$PF" --no-fetch 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | tail -1)" = GO ] && [[ "$out" == *"origin/master: "* ]] \
+        && ok "worktree.base null, main branch master ($r) -> base origin/master, GO" \
+        || bad "master base ($r): exit $rc, out: ${out:0:500}"
+done
+out="$(cd "$T/m/bare" && CLAUDE_GATE_CONFIG="$T/m.json" CLAUDE_SESSION_ID= bash "$PF" --no-fetch 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && [[ "$(printf '%s\n' "$out" | tail -1)" == "BLOCKED: "*"no ref origin/main"* ]] \
+    && ok "worktree.base null, no origin/HEAD, no layout.repos -> origin/main (BLOCKED here)" \
+    || bad "no hint for the base: exit $rc, out: ${out:0:500}"
+
 # 5. A broken profile (invalid JSON) — exit 2, not GO.
 printf '{broken' >"$T/profiles/t/profile.json"
 err="$(cd "$T/reg" && bash "$PF" --no-fetch 2>&1 >/dev/null)"; rc=$?
