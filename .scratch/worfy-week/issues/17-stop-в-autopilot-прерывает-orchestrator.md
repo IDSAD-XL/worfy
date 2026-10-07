@@ -1,7 +1,7 @@
 # 17 — Stop в Autopilot прерывает Session Orchestrator-а и его Background task-и
 
 Type: task
-Status: claimed — 2026-10-07
+Status: done — 2026-10-07, [PR #124](https://github.com/IDSAD-XL/worfy/pull/124)
 Blocked by: —
 Source: замечание владельца 2026-10-07 («Поставь работу на паузу, мне кое че нужно сделать с ноутом», затем «я нажал на стоп но он продолжает, мб там еще есть?»); журнал Autopilot `2026-10-07T17-46-49-381Z-d32be6.jsonl`; [ADR-0029](../../../docs/adr/0029-autopilot-waits-for-background-tasks.md), пункты 5–6; [spec.md](../spec.md), этап 3
 
@@ -154,6 +154,14 @@ main после `stop()` нет `close`, Orchestrator unattended) и `test/unit/
 
 Сделано по пунктам 1–7 «Что делаем»; решение — [ADR-0050](../../../docs/adr/0050-autopilot-user-stop-interrupts-orchestrator.md).
 
+**Влито.** [PR #124](https://github.com/IDSAD-XL/worfy/pull/124), merge 403f4c9. Ревью — VERIFIED с
+первого круга, без доработки. Гонки проверены по коду: второго Orchestrator-а нет (start отклоняется,
+пока идёт `end()`), второй Stop ничего не делает, естественный конец хода во время `halt` обработан,
+таймеры ожидания лимитов остановлены до `halt`, задачи, начатые во время `halt`, убиты. Порядок в
+журнале: `run-stopped` → `tasks-killed` → `orchestrator-returned`. Мутанты: без `halt` — 6 красных, без
+защиты в `send()` — 1 красный. Перед мержем ветка перебазирована на `origin/main` 12faaee, head 785d8ac:
+`GATE_SCOPE=all gate.sh full` — exit 0, CI — зелёный.
+
 - `Session.halt()` (`src/main/agent/session.ts`, `HALT_TURN_MS` = 15 s): пауза очереди, отказ
   открытым permission-запросам, `interrupt()` идущего хода и ожидание его конца не дольше предела.
   После `halt()` Session ничего не шлёт в свой процесс: сообщение, пришедшее во время Stop или
@@ -189,3 +197,17 @@ test-ами.
 
 Не проверено: пункт «(вручную) Stable copy после влития» — ручная проверка на настоящем
 Claude Code, после мержа.
+
+**Долг** (все low, из вердикта ревью).
+
+- `src/main/agent/session.ts:557` — защита `if (this.halted) return` в `next()` не покрыта test-ом:
+  мутант без неё проходит. Без неё «Send queued», нажатое во время `halt` (до 15 s), отправит
+  сообщение в процесс, который вот-вот закроется, и сообщение потеряется.
+- `src/main/autopilot/run.ts:300` — `resumable` только в памяти, одно место на Project: теряется при
+  перезапуске приложения или другом запуске. Решено без владельца, записано в ADR-0050.
+- `src/main/agent/orchestrator.ts:456-475` — было и до тикета: если `relaunch` упал, переданная очередь
+  сообщений теряется, а `orchestrator-returned` всё равно пишется в журнал.
+
+**Вопрос ревью.** `src/main/agent/orchestrator.ts:269` — relaunch с `--resume` сразу после 15-секундного
+таймаута `halt` может стартовать, пока старый процесс после SIGTERM ещё пишет тот же транскрипт. На
+fake agent это не проверить; на настоящем Claude Code не проверено.
