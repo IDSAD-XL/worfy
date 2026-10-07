@@ -72,6 +72,17 @@ export interface PlanOptions {
   pluginState?: HarnessState
 }
 
+/**
+ * Claude Code's .claude.json: `$CLAUDE_CONFIG_DIR/.claude.json` when that variable is set, else
+ * `~/.claude.json` (the Claude Code binary of the SDK 0.3.289 reads it so). A WORFY_CLAUDE_HOME
+ * sandbox gives Claude Code CLAUDE_CONFIG_DIR = that folder (claudeCommandEnv), so it is inside it.
+ */
+export function claudeJsonPath(env: Readonly<Record<string, string | undefined>>, claudeHome: string, home: string = homedir()): string {
+  if (env.WORFY_CLAUDE_HOME) return join(claudeHome, '.claude.json')
+  if (env.CLAUDE_CONFIG_DIR) return join(resolve(env.CLAUDE_CONFIG_DIR), '.claude.json')
+  return join(home, '.claude.json')
+}
+
 /** A hook record of settings.json: `hooks[event][group].hooks[index]`. */
 export interface HookRef {
   event: string
@@ -460,7 +471,7 @@ export function buildPlan(options: PlanOptions): BuiltPlan {
   }
   const legacyFound =
     rows.some((value) => value.choices.includes('remove')) ||
-    (claudeMd?.sections.some((section) => (IMPORTED_CLAUDE_MD_HEADINGS as readonly string[]).includes(section.label)) ?? false) ||
+    (claudeMd?.sections.some((section) => section.defaultChoice === 'remove') ?? false) ||
     profiles.some((value) => value.choices.includes('remove'))
   if (!legacyFound) missing.push('nothing of the old Harness is left in ~/.claude')
 

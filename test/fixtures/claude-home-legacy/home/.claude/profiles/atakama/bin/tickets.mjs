@@ -1,1 +1,1 @@
-console.log("tickets of atakama (fixture)")
+export const tickets = 'atakama (fixture)'

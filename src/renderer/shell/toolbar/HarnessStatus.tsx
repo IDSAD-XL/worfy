@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { HarnessStatus as Status } from '../../../shared/ipc/harness'
+import MigrationForm from '../../harness/MigrationForm'
 import { invoke } from '../../ipc'
 
 // The Harness in the toolbar (worfy-harness ticket 13): whether the plugin `worfy` of this build is
 // installed, and the Install or Update button that opens main's consent dialog (src/main/ipc/harness.ts).
 // A dev run on the real ~/.claude shows the state without the button (canInstall).
+// While the old Harness is still in ~/.claude, "Move old Harness…" opens the move form (ticket 14,
+// src/renderer/harness/MigrationForm.tsx); the form itself says what is missing before a move.
 
 // After the Limits (100), before the app version (1000).
 export const order = 500
@@ -28,10 +31,12 @@ export interface HarnessStatusViewProps {
   /** The last call that failed, shown instead of the state. */
   failure: string | undefined
   onInstall: () => void
+  /** Opens the move form; the button shows only when given (main offers a move: harnessMigration.offer). */
+  onMigrate?: (() => void) | undefined
 }
 
 /** The item for a given status; exported for tests. */
-export function HarnessStatusView({ status, busy, failure, onInstall }: HarnessStatusViewProps) {
+export function HarnessStatusView({ status, busy, failure, onInstall, onMigrate }: HarnessStatusViewProps) {
   if (failure !== undefined) {
     return (
       <span style={{ ...textStyle, color: 'var(--blocked-text)' }} title={failure} data-testid="harness-status">
@@ -87,6 +92,11 @@ export function HarnessStatusView({ status, busy, failure, onInstall }: HarnessS
         </span>
       )}
       {button}
+      {onMigrate === undefined ? null : (
+        <button type="button" style={buttonStyle} onClick={onMigrate} title="Move the old Harness out of ~/.claude: the plugin worfy carries it now" data-testid="harness-migrate">
+          Move old Harness…
+        </button>
+      )}
     </span>
   )
 }
@@ -96,6 +106,15 @@ export default function HarnessStatus() {
   const [status, setStatus] = useState<Status>()
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string>()
+  const [migration, setMigration] = useState(false)
+  const [formOpen, setFormOpen] = useState(false)
+
+  const readOffer = useCallback(() => {
+    void invoke('harnessMigration.offer').then((result) => {
+      setMigration(result.ok && result.value.offered)
+    })
+  }, [])
+  useEffect(readOffer, [readOffer])
 
   useEffect(() => {
     let active = true
@@ -120,5 +139,18 @@ export default function HarnessStatus() {
     })
   }
 
-  return <HarnessStatusView status={status} busy={busy} failure={failure} onInstall={onInstall} />
+  return (
+    <>
+      <HarnessStatusView status={status} busy={busy} failure={failure} onInstall={onInstall} onMigrate={migration ? () => setFormOpen(true) : undefined} />
+      {formOpen ? (
+        <MigrationForm
+          onClose={() => {
+            setFormOpen(false)
+            readOffer()
+          }}
+          onMoved={readOffer}
+        />
+      ) : null}
+    </>
+  )
 }

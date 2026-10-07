@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { HarnessState } from '../../src/shared/ipc/harness'
 import type { MigrationChoice, MigrationPlan, MigrationSelection, MigrationStep } from '../../src/shared/ipc/harness-migration'
 import { applyMigration, MIGRATION_STEPS, type ApplyOptions } from '../../src/main/harness/migrate/apply'
-import { buildPlan, HARNESS_AGENTS, HARNESS_SKILLS, hookRecords, QMD_WARNING, RUNNING_SESSIONS_WARNING, type PlanOptions } from '../../src/main/harness/migrate/plan'
+import { buildPlan, claudeJsonPath, HARNESS_AGENTS, hasLegacyHarness, HARNESS_SKILLS, hookRecords, QMD_WARNING, RUNNING_SESSIONS_WARNING, type PlanOptions } from '../../src/main/harness/migrate/plan'
 import { rewriteHarnessPaths } from '../../src/main/harness/migrate/profiles'
 
 const REPO = join(__dirname, '..', '..')
@@ -194,12 +194,8 @@ function selection(view: MigrationPlan, pick: (id: string) => MigrationChoice | 
   return { choices, profiles }
 }
 
-/** The same choices the form starts with. */
-const defaults = (view: MigrationPlan): MigrationSelection =>
-  selection(view, (id) => [...view.rows, ...(view.claudeMd?.sections ?? []), ...view.profiles].find((row) => row.id === id)?.defaultChoice)
-
 function applyOptions(extra: Partial<ApplyOptions> = {}): ApplyOptions {
-  const { pluginState: _ignored, ...rest } = planOptions()
+  const rest = omit(planOptions() as unknown as Record<string, unknown>, 'pluginState') as unknown as Omit<PlanOptions, 'pluginState'>
   return { ...rest, pluginStatus: () => Promise.resolve(INSTALLED), confirm: () => Promise.resolve(true), now: () => new Date('2026-10-08T10:20:30Z'), ...extra }
 }
 
@@ -305,6 +301,12 @@ describe('the plan of the form', () => {
     expect(plan({ pluginState: { kind: 'not-installed' } }).available).toBe(false)
   })
 
+  it('.claude.json: inside a WORFY_CLAUDE_HOME sandbox, else in CLAUDE_CONFIG_DIR, else in the home folder', () => {
+    expect(claudeJsonPath({ WORFY_CLAUDE_HOME: '/s/.claude', CLAUDE_CONFIG_DIR: '/other' }, '/s/.claude', '/home/me')).toBe('/s/.claude/.claude.json')
+    expect(claudeJsonPath({ CLAUDE_CONFIG_DIR: '/cfg' }, '/home/me/.claude', '/home/me')).toBe('/cfg/.claude.json')
+    expect(claudeJsonPath({}, '/home/me/.claude', '/home/me')).toBe('/home/me/.claude.json')
+  })
+
   it('rewrites the paths of the old Harness in every form it is written in', () => {
     const homes = { claudeHome: sandbox.claudeHome, harnessHome: sandbox.harnessHome }
     expect(
@@ -353,18 +355,13 @@ describe('the move', () => {
     // settings.json: only the planned hook records went; everything else is deep-equal.
     const settings = readJson(join(sandbox.claudeHome, 'settings.json'))
     expect(hookCommands(join(sandbox.claudeHome, 'settings.json'))).toEqual(['$HOME/.claude/bin/telegram-mcp --hello'])
-    const { hooks: _a, statusLine: _b, ...restBefore } = settingsBefore
-    const { hooks: _c, statusLine: _d, ...restAfter } = settings
-    expect(restAfter).toEqual(restBefore)
+    expect(omit(settings, 'hooks', 'statusLine')).toEqual(omit(settingsBefore, 'hooks', 'statusLine'))
     expect(settings.statusLine).toEqual(settingsBefore.statusLine)
 
     // .claude.json: the qmd record went, the personal servers stayed.
     const claudeJson = readJson(sandbox.claudeJson)
-    const { mcpServers: serversBefore, ...otherBefore } = claudeJsonBefore
-    const { mcpServers: serversAfter, ...otherAfter } = claudeJson
-    const { qmd: _q, ...personalServers } = serversBefore as Record<string, unknown>
-    expect(serversAfter).toEqual(personalServers)
-    expect(otherAfter).toEqual(otherBefore)
+    expect(claudeJson.mcpServers).toEqual(omit(claudeJsonBefore.mcpServers as Record<string, unknown>, 'qmd'))
+    expect(omit(claudeJson, 'mcpServers')).toEqual(omit(claudeJsonBefore, 'mcpServers'))
     expect(read(sandbox.claudeJson)).toBe(`${JSON.stringify(claudeJson, null, 2)}\n`)
 
     // CLAUDE.md: the removed sections went, the kept ones are byte for byte in place.
@@ -492,6 +489,23 @@ describe('the move', () => {
     expect(Object.keys(servers)).toEqual(['freecad', 'telegram'])
   })
 
+  it('the toolbar offer: there before a move, gone after a move with the defaults, there while a Harness file is kept', async () => {
+    const offered = (): boolean => hasLegacyHarness(omit(planOptions() as unknown as Record<string, unknown>, 'pluginState') as unknown as Omit<PlanOptions, 'pluginState'>)
+    expect(offered()).toBe(true)
+    const view = plan()
+    const sectionDefault = (id: string): MigrationChoice | undefined => view.claudeMd?.sections.find((section) => section.id === id)?.defaultChoice
+    expect((await applyMigration(selection(view, sectionDefault), applyOptions())).outcome).toBe('done')
+    expect(offered()).toBe(false)
+    expect(plan().missing).toEqual(['nothing of the old Harness is left in ~/.claude'])
+
+    rmSync(sandbox.root, { recursive: true, force: true })
+    makeSandbox()
+    const again = plan()
+    const keepScout = (id: string): MigrationChoice | undefined => (id === 'file:agents/scout.md' ? 'keep' : (again.claudeMd?.sections.find((section) => section.id === id)?.defaultChoice))
+    expect((await applyMigration(selection(again, keepScout), applyOptions())).outcome).toBe('done')
+    expect(offered()).toBe(true)
+  })
+
   it('removes bin/epic-status last, after the hook records left settings.json (ADR-0049)', async () => {
     const seen: { step: MigrationStep; marker: boolean; hooks: number }[] = []
     const settingsPath = join(sandbox.claudeHome, 'settings.json')
@@ -617,6 +631,11 @@ describe('restore and refusals', () => {
     expect(lstatSync(backupDir()).isDirectory()).toBe(true)
   })
 })
+
+/** `value` without `keys`. */
+function omit(value: Record<string, unknown>, ...keys: string[]): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !keys.includes(key)))
+}
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 

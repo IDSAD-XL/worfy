@@ -73,9 +73,9 @@ const HARNESS_COMMIT_MESSAGE = 'Profiles and the Gate registry moved from ~/.cla
 class StepFailure extends Error {
   constructor(
     readonly step: MigrationStep,
-    readonly cause: unknown,
+    error: unknown,
   ) {
-    super(cause instanceof Error ? cause.message : String(cause))
+    super(error instanceof Error ? error.message : String(error))
   }
 }
 
@@ -150,7 +150,7 @@ function isRepoRoot(dir: string): boolean {
 /** `git commit` options: no hooks, no signing, and an identity when the machine has none. */
 function commitArgs(dir: string): string[] {
   const args = ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false']
-  let email = ''
+  let email: string
   try {
     email = git(dir, ['config', 'user.email']).trim()
   } catch {
