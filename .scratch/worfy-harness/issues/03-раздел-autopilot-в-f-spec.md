@@ -1,7 +1,7 @@
 # 03 — Раздел Autopilot в F-SPEC: кнопка и строка состояния прогона
 
 Type: task
-Status: claimed — 2026-10-07
+Status: done — 2026-10-07, [PR #103](https://github.com/IDSAD-XL/worfy/pull/103)
 Blocked by: —
 Source: решения владельца 2026-10-07 («Перенесено из E2»); [spec.md](../spec.md); [F-SPEC.md](../../../docs/design/F-SPEC.md); Ticket-ы 04, 05, 29, 32 `worfy-daily`; [ADR-0024](../../../docs/adr/0024-autopilot-wave-end-and-keep-awake.md); [ADR-0029](../../../docs/adr/0029-autopilot-waits-for-background-tasks.md); [ADR-0033](../../../docs/adr/0033-autopilot-names-wave-tickets.md); [ADR-0034](../../../docs/adr/0034-autopilot-keeps-display-awake.md)
 
@@ -64,12 +64,12 @@ Source: решения владельца 2026-10-07 («Перенесено и�
 
 ## Готово, когда
 
-- [ ] В `docs/design/F-SPEC.md` ровно один раздел Autopilot: `[ "$(grep -c '^## Autopilot' docs/design/F-SPEC.md)" -eq 1 ]` — exit 0.
-- [ ] Раздел называет подписи, тексты строки и подсказку: `for s in 'Autopilot' 'Stop autopilot' 'starting' 'Wave 3 · running' 'Wave 3 · 4 background tasks' 'Wave 1 · 1 background task' 'waiting for limits' 'waiting for limits · resumes 14:20' 'The display stays on until the run ends' '220px' '11px' 'test/e2e/autopilot.spec.ts'; do grep -qF "$s" docs/design/F-SPEC.md || exit 1; done` — exit 0.
-- [ ] Каждая причина остановки названа в виде строки: `for r in $(sed -n '/AUTOPILOT_STOP_REASONS = \[/,/\]/p' src/shared/autopilot/cycle.ts | grep -oE "'[a-z-]+'" | tr -d "'"); do grep -qF "stopped: ${r//-/ }" docs/design/F-SPEC.md || exit 1; done` — exit 0.
-- [ ] Новых цветов нет: `git diff origin/main -- docs/design/F-SPEC.md | grep -E '^\+.*#[0-9A-Fa-f]{3,6}'` — exit 1.
-- [ ] Меняется только F-SPEC: `git diff --name-only origin/main` печатает `docs/design/F-SPEC.md` и файл этого Ticket-а.
-- [ ] Ревьюер сверил раздел с `AutopilotAction.tsx`, `actions.css`, `autopilot.ts` и снимками e2e `autopilot.spec.ts` в обеих темах; расхождений нет (вердикт ревью — в «Итог»).
+- [x] В `docs/design/F-SPEC.md` ровно один раздел Autopilot: `[ "$(grep -c '^## Autopilot' docs/design/F-SPEC.md)" -eq 1 ]` — exit 0.
+- [x] Раздел называет подписи, тексты строки и подсказку: `for s in 'Autopilot' 'Stop autopilot' 'starting' 'Wave 3 · running' 'Wave 3 · 4 background tasks' 'Wave 1 · 1 background task' 'waiting for limits' 'waiting for limits · resumes 14:20' 'The display stays on until the run ends' '220px' '11px' 'test/e2e/autopilot.spec.ts'; do grep -qF "$s" docs/design/F-SPEC.md || exit 1; done` — exit 0.
+- [x] Каждая причина остановки названа в виде строки: `for r in $(sed -n '/AUTOPILOT_STOP_REASONS = \[/,/\]/p' src/shared/autopilot/cycle.ts | grep -oE "'[a-z-]+'" | tr -d "'"); do grep -qF "stopped: ${r//-/ }" docs/design/F-SPEC.md || exit 1; done` — exit 0.
+- [x] Новых цветов нет: `git diff origin/main -- docs/design/F-SPEC.md | grep -E '^\+.*#[0-9A-Fa-f]{3,6}'` — exit 1.
+- [x] Меняется только F-SPEC: `git diff --name-only origin/main` печатает `docs/design/F-SPEC.md` и файл этого Ticket-а.
+- [x] Ревьюер сверил раздел с `AutopilotAction.tsx`, `actions.css`, `autopilot.ts` и снимками e2e `autopilot.spec.ts` в обеих темах; расхождений нет (вердикт ревью — в «Итог»).
 
 PR только с документами: CI не запускается. Финиш — по правилам Project-а: Gate fast с кодом 0 и
 комментарий в PR «CI skipped: docs-only change».
@@ -105,4 +105,16 @@ Test-ов нет: Ticket меняет только документ. Прове�
   `src/shared/actions/render-template.ts:134`); строка видна только у Epic-а своего прогона.
 - Ошибок в коде при сверке не найдено. Код не менялся.
 - Команды «Готово, когда» 1–4 — exit 0, 0, 0, 1 (как требуется). Ревью против кода и снимков e2e —
-  за оркестратором; вердикт сюда не вписан.
+  за оркестратором; вердикт — следующий пункт.
+- **Вердикт ревью** (последний пункт «Готово, когда»): VERIFIED с первого круга. Все 12 утверждений
+  раздела совпали с `AutopilotAction.tsx`, `actions.css`, `autopilot.ts`; `autopilot.spec.ts` — 3 passed,
+  все 10 снимков шапки (5 состояний × светлая и тёмная тема) совпали с разделом. Одна находка уровня low
+  (`docs/design/F-SPEC.md:65`, видимость Epic-а без Ticket-ов) исправлена коммитом 97bf5da до мержа и
+  перепроверена.
+
+**Влито.** [PR #103](https://github.com/IDSAD-XL/worfy/pull/103) → squash-коммит `0e96488` в `main`.
+Ревью — VERIFIED с первого круга. CI на PR с одними документами не запускался; `GATE_SCOPE=all gate fast` —
+exit 0. После мержа команды «Готово, когда» 1–4 перепроверены на `main` (`0e96488`): exit 0, 0, 0, 1;
+коммит меняет только `docs/design/F-SPEC.md` и файл этого Ticket-а.
+
+**Долг.** Нет.
