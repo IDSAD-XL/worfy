@@ -4,9 +4,10 @@
 // "Blocked by" Edges orthogonally through the corridors between the columns, around the Tickets.
 //
 // ELK gets only the Edges that go forward between the columns of open Tickets. The Done column is
-// one block for ELK whether the stack is folded or open, with no Edges (ADR-0039): an Edge from a
-// done blocker would make ELK pull the blocked Ticket down to its blocker's height, so opening the
-// stack would move the open columns. An Edge from a done Ticket, one inside a column (done → done
+// one block for ELK of the folded stack's size whether the stack is folded or open, with no Edges
+// (ADR-0039): ELK gets the same graph for both, so opening the stack moves no open Ticket. An Edge
+// from a done blocker would make ELK pull the blocked Ticket down to its blocker's height, and a
+// block as tall as the open column changes where ELK puts the Tickets beside it. An Edge from a done Ticket, one inside a column (done → done
 // in the open stack, a cycle in "Needs attention") and one back to an earlier column (from "Needs
 // attention" to a level) are routed here, also orthogonally and around the Tickets: see `ownRoute`.
 //
@@ -70,13 +71,11 @@ const LAYOUT_OPTIONS: Record<string, string> = {
   'elk.padding': `[top=${TICKETS_TOP},left=${FRAME_PADDING},bottom=${FRAME_PADDING},right=${FRAME_PADDING}]`,
 }
 
-/** The height of the open done stack: its Tickets one under another, a row gap apart. */
-const openStackHeight = (count: number) => count * TICKET_HEIGHT + Math.max(0, count - 1) * ROW_GAP
-
 /**
  * The ELK graph of an open frame: one node per open Ticket in its column's partition, the Done
- * column as one block (the folded stack, or the open stack's whole height), and the forward Edges
- * between open Tickets. `own` are the Edges routed here instead.
+ * column as one block of the folded stack's size (open or not: the frame's height holds the open
+ * column, see `layoutEpicElk`), and the forward Edges between open Tickets. `own` are the Edges
+ * routed here instead.
  */
 export function elkGraph({ tickets, doneExpanded }: ElkEpicInput): { graph: ElkNode; own: { blocker: number; blocked: number }[] } {
   const { columns } = epicColumns(tickets)
@@ -86,8 +85,7 @@ export function elkGraph({ tickets, doneExpanded }: ElkEpicInput): { graph: ElkN
   columns.forEach((c, index) => {
     const partition = { 'elk.partitioning.partition': String(index) }
     if (c.column.kind === 'done') {
-      const height = doneExpanded ? openStackHeight(c.tickets.length) : DONE_STACK_HEIGHT
-      children.push({ id: DONE_STACK_ID, width: TICKET_WIDTH, height, layoutOptions: partition })
+      children.push({ id: DONE_STACK_ID, width: TICKET_WIDTH, height: DONE_STACK_HEIGHT, layoutOptions: partition })
       if (!doneExpanded) return
       for (const t of c.tickets) {
         columnOf.set(t.num, index)
@@ -202,10 +200,10 @@ export async function layoutEpicElk(input: ElkEpicInput, elk: ElkEngine): Promis
       return
     }
     if (c.column.kind === 'done') {
-      // The open stack: its Tickets from the block's top down, by number (ADR-0039).
-      const top = at.get(DONE_STACK_ID)?.y ?? TICKETS_TOP
+      // The open stack: its Tickets from the top of the column down, by number (ADR-0039). The block
+      // ELK placed only holds the column's x: ELK may put it lower, beside the Tickets it lines up.
       c.tickets.forEach((t, row) => {
-        const y = top + row * (TICKET_HEIGHT + ROW_GAP)
+        const y = TICKETS_TOP + row * (TICKET_HEIGHT + ROW_GAP)
         placed.push({ num: t.num, column: c.column, x: xs[index]!, y, ready: columns.ready.has(t.num), attention: columns.attention.get(t.num) ?? null })
         bottom = Math.max(bottom, y + TICKET_HEIGHT)
       })
