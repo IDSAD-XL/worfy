@@ -136,21 +136,21 @@ hooks, `statusLine` и личными ключами, `.claude.json` с `qmd` и
 три Profile-а schema 1 с путями Harness), установленный plugin (дерево `harness/`), подменённый
 `claude`. На настоящем `~/.claude` перенос в этом Ticket-е не запускается.
 
-- [ ] Contract test: план на fixture — ровно строки из «Что делаем», п. 2; ни одной личной (личные skills, `skills/synced/`, `telegram-mcp`, `auction-staging-db-mcp`, `agent-time-split`, личный MCP, `model`, `env`, `effortLevel`).
-- [ ] Перенос «всё уберу»: Harness-файлы исчезли из `~/.claude` и побайтно лежат в `backup-<дата>/`; личные файлы побайтно прежние; в `settings.json` убраны только записи hooks из плана, остальные ключи равны прежним (deep equal).
-- [ ] `statusLine`: скрипт есть в подменённом `resourcesPath` — команда указывает на него и сохраняет аргумент; скрипта нет или dev-сборка — у строки только «оставлю», `statusLine` прежний.
-- [ ] Группа qmd: «уберу» — `bin/qmd-*`, запись hook и запись `qmd` в `.claude.json` убраны вместе, личный MCP на месте; «оставлю» — все пять на месте, `.claude.json` побайтно прежний. Plugin без сервера qmd в `.mcp.json` — у строки предупреждение про `qmd.fallback_grep`, plugin с ним — без предупреждения.
-- [ ] `worfy-harness/` песочницы — git-репозиторий; Profile-ы и реестр Gate в его последнем коммите.
-- [ ] `CLAUDE.md`: разделы с «уберу» исчезли, с «оставлю» — побайтно на месте.
-- [ ] Profile-ы: в `worfy-harness/projects/<p>/` у трёх Project-ов `profile.json` schema 2 без полей с путями Harness и с `mode`, `language.docs`, `attribution` из формы; в `rules.md` и `profile.json` нет `~/.claude/bin/`, `~/.claude/hooks/`, `~/.claude/gate/`, `~/.claude/profiles/`; у atakama на месте `bin/`, `lessons/`, `state/`. `bin/profile` из `harness/` (Ticket 11) по fixture-репозиторию Project-а с `--field mode` — код 0 и значение формы.
-- [ ] Gate: реестр и маркеры — в `worfy-harness/gate/`; `hooks/gate.sh` из `harness/` с `HARNESS_HOME` песочницы на fixture-репозитории не отвечает «проект не зарегистрирован».
-- [ ] git песочницы: ровно один новый коммит, его файлы — пути переноса; незакоммиченная правка в другом файле осталась незакоммиченной.
-- [ ] «оставлю» у строки каждого вида (файл, раздел `CLAUDE.md`, запись hook, `statusLine`, Profile) — этот файл или запись не тронуты.
-- [ ] Откат: `node <копия>/restore.mjs` отдельным процессом — код 0; дерево `~/.claude` песочницы и `.claude.json` равны снимку до переноса (в истории git — revert); подменённый `claude` получил `plugin disable worfy…`.
-- [ ] Сбой на каждом шаге (подменяется в test-е) — перенос откатился сам, дерево равно снимку до, ответ называет шаг.
-- [ ] plugin не установлен или выключен — перенос отказывает с причиной и ничего не пишет.
-- [ ] Снимок песочницы: вне `~/.claude`, `.claude.json` и `worfy-harness/` ничего не появилось; в fixture-репозиториях Project-ов — ничего (ADR-0005).
-- [ ] e2e (локально в `gate full`): форма открывается из элемента Harness в toolbar, показывает строки по группам и diff `CLAUDE.md`, переключатели «уберу / оставлю» работают; после Move видны путь копии и команда отката. Временный `WORFY_CLAUDE_HOME` с fixture, подменённый `claude`, ответ диалога подменён в main, как в `test/e2e/card-api.spec.ts:135-143`.
+- [x] Contract test: план на fixture — ровно строки из «Что делаем», п. 2; ни одной личной (личные skills, `skills/synced/`, `telegram-mcp`, `auction-staging-db-mcp`, `agent-time-split`, личный MCP, `model`, `env`, `effortLevel`).
+- [x] Перенос «всё уберу»: Harness-файлы исчезли из `~/.claude` и побайтно лежат в `backup-<дата>/`; личные файлы побайтно прежние; в `settings.json` убраны только записи hooks из плана, остальные ключи равны прежним (deep equal).
+- [x] `statusLine`: скрипт есть в подменённом `resourcesPath` — команда указывает на него и сохраняет аргумент; скрипта нет или dev-сборка — у строки только «оставлю», `statusLine` прежний.
+- [x] Группа qmd: «уберу» — `bin/qmd-*`, запись hook и запись `qmd` в `.claude.json` убраны вместе, личный MCP на месте; «оставлю» — все пять на месте, `.claude.json` побайтно прежний. Plugin без сервера qmd в `.mcp.json` — у строки предупреждение про `qmd.fallback_grep`, plugin с ним — без предупреждения.
+- [x] `worfy-harness/` песочницы — git-репозиторий; Profile-ы и реестр Gate в его последнем коммите.
+- [x] `CLAUDE.md`: разделы с «уберу» исчезли, с «оставлю» — побайтно на месте.
+- [x] Profile-ы: в `worfy-harness/projects/<p>/` у трёх Project-ов `profile.json` schema 2 без полей с путями Harness и с `mode`, `language.docs`, `attribution` из формы; в `rules.md` и `profile.json` нет `~/.claude/bin/`, `~/.claude/hooks/`, `~/.claude/gate/`, `~/.claude/profiles/`; у atakama на месте `bin/`, `lessons/`, `state/`. `bin/profile` из `harness/` (Ticket 11) по fixture-репозиторию Project-а с `--field mode` — код 0 и значение формы.
+- [x] Gate: реестр и маркеры — в `worfy-harness/gate/`; `hooks/gate.sh` из `harness/` с `HARNESS_HOME` песочницы на fixture-репозитории не отвечает «проект не зарегистрирован».
+- [x] git песочницы: ровно один новый коммит, его файлы — пути переноса; незакоммиченная правка в другом файле осталась незакоммиченной.
+- [x] «оставлю» у строки каждого вида (файл, раздел `CLAUDE.md`, запись hook, `statusLine`, Profile) — этот файл или запись не тронуты.
+- [x] Откат: `node <копия>/restore.mjs` отдельным процессом — код 0; дерево `~/.claude` песочницы и `.claude.json` равны снимку до переноса (в истории git — revert); подменённый `claude` получил `plugin disable worfy…`.
+- [x] Сбой на каждом шаге (подменяется в test-е) — перенос откатился сам, дерево равно снимку до, ответ называет шаг.
+- [x] plugin не установлен или выключен — перенос отказывает с причиной и ничего не пишет.
+- [x] Снимок песочницы: вне `~/.claude`, `.claude.json` и `worfy-harness/` ничего не появилось; в fixture-репозиториях Project-ов — ничего (ADR-0005).
+- [x] e2e (локально в `gate full`): форма открывается из элемента Harness в toolbar, показывает строки по группам и diff `CLAUDE.md`, переключатели «уберу / оставлю» работают; после Move видны путь копии и команда отката. Временный `WORFY_CLAUDE_HOME` с fixture, подменённый `claude`, ответ диалога подменён в main, как в `test/e2e/card-api.spec.ts:135-143`.
 
 ## Тесты
 
