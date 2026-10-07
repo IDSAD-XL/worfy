@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { AutopilotWaveResult } from '../../src/main/actions/launch'
 import { Autopilot, type AutopilotDeps, type RunSession } from '../../src/main/autopilot/run'
+import type { BackgroundTask } from '../../src/shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../src/shared/agent/events'
 import type { JournalEventFields } from '../../src/shared/autopilot/journal'
 import type { OrchestratorView } from '../../src/shared/ipc/orchestrator'
@@ -68,11 +69,23 @@ interface StandIn {
   journal: JournalEventFields[]
   removed: string[]
   deps: AutopilotDeps
+  /** The Session's state as the run reads it. */
+  state: SessionState
+  /** The Session's live background tasks. */
+  tasks: BackgroundTask[]
+  /** What happens on halt() (default: at once); each call is counted in `halts`. */
+  onHalt: () => Promise<void>
+  halts: number
+  /** giveBackNow and setUnattended calls, in order: `give-back`, `unattended true`, `unattended false`. */
+  orchestrator: string[]
+  /** keep-awake starts and stops. */
+  power: string[]
+  /** The `resume` list of each "Run wave" the run sent. */
+  resumes: (readonly number[] | undefined)[]
 }
 
 function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
   const sinks = new Set<(sessionId: string, event: AgentEvent) => void>()
-  const state: SessionState = 'idle'
   const out: StandIn = {
     autopilot: null as unknown as Autopilot,
     tickets: [t(1, 'open'), t(2, 'open'), t(3, 'open', [1, 2])],
@@ -85,14 +98,25 @@ function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
     journal: [],
     removed: [],
     deps: null as unknown as AutopilotDeps,
+    state: 'idle',
+    tasks: [],
+    onHalt: () => Promise.resolve(),
+    halts: 0,
+    orchestrator: [],
+    power: [],
+    resumes: [],
   }
   const session: RunSession = {
     id: SESSION,
     get state() {
-      return state
+      return out.state
     },
     queued: (): QueueSnapshot => ({ items: out.queue.map((item) => ({ ...item })), paused: out.paused }),
-    backgroundTasks: () => [],
+    backgroundTasks: () => out.tasks.map((task) => ({ ...task })),
+    halt: () => {
+      out.halts += 1
+      return out.onHalt()
+    },
     removeQueued: (id) => {
       const before = out.queue.length
       out.queue = out.queue.filter((item) => item.id !== id)
@@ -107,7 +131,16 @@ function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
     selfRefusal: () => Promise.resolve(null),
     workflow: () => Promise.resolve(model()),
     watchWorkflow: () => Promise.resolve(() => undefined),
-    orchestrators: { setUnattended: () => Promise.resolve({ sessionId: SESSION } as OrchestratorView) },
+    orchestrators: {
+      setUnattended: (_projectId, unattended) => {
+        out.orchestrator.push(`unattended ${unattended}`)
+        return Promise.resolve({ sessionId: SESSION } as OrchestratorView)
+      },
+      giveBackNow: () => {
+        out.orchestrator.push('give-back')
+        return Promise.resolve({ sessionId: 'attended-session' } as OrchestratorView)
+      },
+    },
     registry: {
       get: () => session,
       observe: (sink) => {
@@ -117,8 +150,10 @@ function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
       observeInput: () => () => undefined,
     },
     waves: {
-      autopilotWave: (): Promise<AutopilotWaveResult> => {
-        const tickets = readyWave(out.tickets, EPIC).ready.map((entry) => entry.num)
+      autopilotWave: (_projectId, _epic, resume): Promise<AutopilotWaveResult> => {
+        out.resumes.push(resume)
+        const resumed = (resume ?? []).filter((num) => out.tickets.some((each) => each.num === num && each.state === 'work'))
+        const tickets = [...resumed, ...readyWave(out.tickets, EPIC).ready.map((entry) => entry.num)]
         const text = `/epic-wave ${tickets.join(' ')}`
         const delivery = out.deliveries.shift() ?? 'sent'
         sent += 1
@@ -136,7 +171,7 @@ function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
           return Promise.resolve()
         },
       }),
-    keepAwake: () => ({ start: () => undefined, stop: () => undefined }),
+    keepAwake: () => ({ start: () => void out.power.push('start'), stop: () => void out.power.push('stop') }),
     settleMs: 60_000,
     ...overrides,
   }
@@ -333,6 +368,164 @@ describe('the Wave a result ends', () => {
     await s.autopilot.stop(PROJECT)
     expect(s.removed).toEqual([])
     expect(s.queue).toHaveLength(1)
+  })
+})
+
+describe('Stop interrupts the Orchestrator and its background tasks (worfy-week ticket 17)', () => {
+  const TASK: BackgroundTask = { taskId: 'task-1', taskType: 'local_agent', description: 'Implement 01' }
+  const claim = (s: StandIn, ...nums: number[]) => {
+    for (const num of nums) s.tickets = s.tickets.map((each) => (each.num === num ? { ...each, state: 'work' as const } : each))
+  }
+  /** The journal from run-stopped on, with each line's reason, tasks and tickets. */
+  const fromStop = (s: StandIn) =>
+    s.journal
+      .slice(s.journal.findIndex((line) => line.kind === 'run-stopped'))
+      .map((line) => ({
+        kind: line.kind,
+        ...('reason' in line ? { reason: line.reason } : {}),
+        ...('tasks' in line && line.tasks !== undefined ? { tasks: line.tasks.map((task) => task.id) } : {}),
+        ...('tickets' in line && line.tickets !== undefined ? { tickets: line.tickets } : {}),
+      }))
+
+  it('in phase tasks: halts the Session and gives the Orchestrator back at once, once each; the journal says so in order', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    // The Wave's turn ends with an implementer alive and its Tickets claimed: the run waits for it.
+    claim(s, 1, 2)
+    s.tasks = [TASK]
+    s.emit(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', backgroundTasks: 1 })
+    // The implementer dies with the process the halt and the give-back end.
+    s.onHalt = () => {
+      s.tasks = []
+      return Promise.resolve()
+    }
+    const stopped = await s.autopilot.stop(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-stop', resumable: [1, 2] })
+    expect(s.halts).toBe(1)
+    expect(s.orchestrator).toEqual(['unattended true', 'give-back'])
+    // Nothing lingers: keep-awake is released, and the app's quit has nothing to wait for.
+    expect(s.power).toEqual(['start', 'stop'])
+    expect(s.autopilot.anyRunning()).toBe(false)
+    expect(fromStop(s)).toEqual([
+      { kind: 'run-stopped', reason: 'user-stop', tasks: ['task-1'], tickets: ['01', '02'] },
+      { kind: 'tasks-killed', reason: 'user-stop', tasks: ['task-1'] },
+      { kind: 'orchestrator-returned' },
+    ])
+  })
+
+  it('during the Wave\'s turn, before any task: the same, without tasks-killed', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.state = 'busy'
+    const stopped = await s.autopilot.stop(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    expect(s.halts).toBe(1)
+    expect(s.orchestrator).toEqual(['unattended true', 'give-back'])
+    expect(s.power).toEqual(['start', 'stop'])
+    expect(s.autopilot.anyRunning()).toBe(false)
+    expect(fromStop(s)).toEqual([{ kind: 'run-stopped', reason: 'user-stop', tickets: ['01', '02'] }, { kind: 'orchestrator-returned' }])
+  })
+
+  it('journals as killed a task that started while the halt waited for the turn', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.state = 'busy'
+    s.onHalt = () => {
+      // The turn started an implementer before the interrupt reached it.
+      s.tasks = [TASK]
+      s.emit({ type: 'background_tasks', tasks: [TASK] })
+      s.state = 'idle'
+      return Promise.resolve()
+    }
+    await s.autopilot.stop(PROJECT)
+    expect(fromStop(s)).toEqual([
+      { kind: 'run-stopped', reason: 'user-stop', tickets: ['01', '02'] },
+      { kind: 'tasks-killed', reason: 'user-stop', tasks: ['task-1'] },
+      { kind: 'orchestrator-returned' },
+    ])
+  })
+
+  it('a second Stop while the first one waits for the turn halts nothing more; both answer the stopped run', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.state = 'busy'
+    let endTurn: () => void = () => undefined
+    s.onHalt = () => new Promise((done) => (endTurn = done))
+    const first = s.autopilot.stop(PROJECT)
+    await settle()
+    expect(s.halts).toBe(1)
+    // The run still ends: it is running until its Orchestrator is back.
+    expect(s.autopilot.running(PROJECT)).toBe(true)
+    const second = s.autopilot.stop(PROJECT)
+    // The interrupted turn's result and its tasks' events come in meanwhile: no Wave is judged, nothing is sent.
+    s.emit(result(true))
+    s.emit({ type: 'background_tasks', tasks: [] })
+    s.emit({ type: 'state', state: 'idle', error: null })
+    await settle()
+    expect(s.orchestrator).toEqual(['unattended true'])
+    endTurn()
+    const answers = await Promise.all([first, second])
+    for (const answer of answers) expect(answer).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    expect(s.halts).toBe(1)
+    expect(s.orchestrator).toEqual(['unattended true', 'give-back'])
+    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'run-stopped', 'orchestrator-returned'])
+  })
+
+  it('a stop for another reason still waits for the tasks: no halt, no give-back at once (ADR-0029)', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.tasks = [TASK]
+    s.emit(result(true))
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'interrupted', resumable: [] })
+    expect(s.halts).toBe(0)
+    expect(s.orchestrator).toEqual(['unattended true', 'unattended false'])
+    expect(s.power).toEqual(['start'])
+    expect(s.autopilot.anyRunning()).toBe(true)
+  })
+
+  it('the next run takes the interrupted Tickets still in work first; once, for its first Wave', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    claim(s, 1, 2)
+    s.state = 'busy'
+    await s.autopilot.stop(PROJECT)
+    expect(s.autopilot.state(PROJECT).resumable).toEqual([1, 2])
+    s.state = 'idle'
+    // 01 was finished by hand meanwhile; 02 is still claimed: nothing is ready on its own.
+    done(s, 1)
+    const again = await s.autopilot.start(PROJECT, EPIC)
+    expect(again).toMatchObject({ status: 'running', resumable: [] })
+    await settle()
+    expect(s.resumes).toEqual([[], [1, 2]])
+    expect(s.journal.filter((line) => line.kind === 'wave-started').at(-1)).toMatchObject({ wave: 1, tickets: ['02'] })
+    // Wave 2 of this run is the ready set alone.
+    done(s, 2)
+    s.emit(result())
+    await settle()
+    expect(s.resumes).toEqual([[], [1, 2], []])
+  })
+
+  it('a Stop of another Epic\'s run, or no Stop at all, resumes nothing', async () => {
+    const s = standIn()
+    expect(s.autopilot.state(PROJECT).resumable).toEqual([])
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    claim(s, 1, 2)
+    await s.autopilot.stop(PROJECT)
+    // Another Epic: its run does not take this Epic's Tickets.
+    s.tickets = [...s.tickets, { ...s.tickets[0]!, epic: 'other', num: 9 }]
+    await s.autopilot.start(PROJECT, 'other').catch(() => undefined)
+    await settle()
+    expect(s.resumes.at(-1)).toEqual([])
   })
 })
 

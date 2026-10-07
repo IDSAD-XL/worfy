@@ -265,7 +265,7 @@ function harness(options: HarnessOptions = {}) {
   const state = () => autopilot.state(PROJECT)
   /** The run's live timer: the last one set and not cancelled. */
   const live = () => timers.filter((timer) => !timer.cancelled)
-  return { autopilot, registry, tracker, timers, live, states, power, journal, kinds, messages, state }
+  return { autopilot, registry, orchestrators, tracker, timers, live, states, power, journal, kinds, messages, state }
 }
 
 const iso = (ms: number): string => new Date(ms).toISOString()
@@ -346,7 +346,9 @@ describe('Autopilot and the Limits on the fake agent', () => {
     timer.fire()
     await tick()
     expect(h.messages()).toEqual([WAVE_1])
-    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'run-stopped'])
+    // Stop gives the Orchestrator back to the person at once (worfy-week ticket 17): its Session was idle, waiting.
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'run-stopped', 'orchestrator-returned'])
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
     expect(autopilotStatusLine(h.state())).toBe('stopped: user stop')
     expect(h.power).toEqual(['start', 'stop'])
   })

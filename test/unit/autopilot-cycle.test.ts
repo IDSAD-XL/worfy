@@ -148,7 +148,9 @@ describe('the Autopilot cycle', () => {
     expect(run([{ type: 'session-closed' }], inWave1()).effects).toEqual([{ kind: 'stopped', reason: 'session-closed' }])
     const sending = run([{ type: 'start', tickets: OPEN }]).state
     expect(run([{ type: 'send-failed', message: 'No ready wave' }], sending).effects).toEqual([{ kind: 'stopped', reason: 'send-failed' }])
-    expect(run([{ type: 'stop', reason: 'user-stop' }], inWave1()).effects).toEqual([{ kind: 'stopped', reason: 'user-stop' }])
+    // Stop names the Tickets of the Wave it interrupts (worfy-week ticket 17): the next run takes them first.
+    expect(run([{ type: 'stop', reason: 'user-stop' }], inWave1()).effects).toEqual([{ kind: 'stopped', reason: 'user-stop', tickets: [1, 2] }])
+    expect(run([{ type: 'stop', reason: 'user-stop' }], sending).effects).toEqual([{ kind: 'stopped', reason: 'user-stop' }])
     expect(run([{ type: 'stop', reason: 'app-quit' }], inWave1()).effects).toEqual([{ kind: 'stopped', reason: 'app-quit' }])
     expect(run([{ type: 'workflow-error', message: 'epic-status failed' }], inWave1()).effects).toEqual([{ kind: 'stopped', reason: 'workflow-error' }])
   })
@@ -217,7 +219,7 @@ describe('the Autopilot cycle', () => {
 
   it('Stop and an error stop the run in phase tasks too', () => {
     const waiting = run([ok(OPEN, 2)], inWave1()).state
-    expect(run([{ type: 'stop', reason: 'user-stop' }], waiting).effects).toEqual([{ kind: 'stopped', reason: 'user-stop' }])
+    expect(run([{ type: 'stop', reason: 'user-stop' }], waiting).effects).toEqual([{ kind: 'stopped', reason: 'user-stop', tickets: [1, 2] }])
     expect(run([{ type: 'session-error', message: 'x' }], waiting).state).toMatchObject({ phase: 'stopped', reason: 'session-error' })
   })
 
@@ -244,6 +246,18 @@ describe('the Autopilot cycle', () => {
   it('a blocked Ticket with its blockers done stays out of the next Wave, which goes on with the open ones', () => {
     const { effects } = run([ok([t(1, 'done'), t(2, 'done'), t(3, 'blocked', [1, 2]), t(4, 'open', [1])])], inWave1())
     expect(effects).toEqual([{ kind: 'wave-finished', wave: 1, tickets: [1, 2] }, { kind: 'send-wave' }])
+  })
+
+  it('starts with the Tickets an earlier Stop interrupted when they are still in work, even with nothing ready (worfy-week ticket 17)', () => {
+    // 01 and 02 were the interrupted Wave: still claimed, so nothing is ready on its own.
+    const inWork = [t(1, 'work'), t(2, 'work'), t(3, 'open', [1, 2])]
+    expect(run([{ type: 'start', tickets: inWork }]).effects).toEqual([{ kind: 'stopped', reason: 'no-ready-wave' }])
+    const resumed = run([{ type: 'start', tickets: inWork, resume: [1] }])
+    expect(resumed.effects).toEqual([{ kind: 'send-wave' }])
+    expect(resumed.state.phase).toBe('sending')
+    // A Ticket of the list that left work since, or one of another Epic, does not count.
+    expect(run([{ type: 'start', tickets: [t(1, 'done'), t(2, 'done'), t(3, 'done', [1, 2])], resume: [1, 2] }]).effects).toEqual([{ kind: 'stopped', reason: 'no-ready-wave' }])
+    expect(run([{ type: 'start', tickets: [t(1, 'work', [], 'other'), t(2, 'work')], resume: [1] }]).effects).toEqual([{ kind: 'stopped', reason: 'no-ready-wave' }])
   })
 
   it('ignores a turn end before any Wave was sent', () => {

@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FAKE_MODELS, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { modelOptions, SessionRegistry, USER_MODEL_FALLBACK, type QueryRequest } from '../../src/main/agent/session'
+import { HALT_TURN_MS, modelOptions, SessionRegistry, USER_MODEL_FALLBACK, type QueryRequest } from '../../src/main/agent/session'
 import { readUserEffort, readUserModel } from '../../src/main/claude-home/user-model'
 import { agentHandlers } from '../../src/main/ipc/agent'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
@@ -679,6 +679,87 @@ describe('the queue over IPC', () => {
       queue: { items: [{ id: 'q', text: 't', at: 1 }], paused: false, extra: 1 },
     } as never)
     expect(await h.ok('agent.controls', { sessionId: id })).toStrictEqual({ settings: DEFAULT_SETTINGS, queue: { items: [{ id: 'q', text: 't' }], paused: false } })
+  })
+})
+
+describe('Session.halt: Stop in Autopilot (worfy-week ticket 17)', () => {
+  /** A registry over the fake agent whose queries count their interrupt() calls. */
+  async function halting(script: string, dir = fixtures) {
+    const calls: FakeCall[] = []
+    const interrupts: number[] = []
+    const factory = fakeQueryFactory({ scriptsDir: dir, script, record: (call) => calls.push(call) })
+    const registry = new SessionRegistry(async (request) => {
+      const query = await factory(request)
+      const interrupt = query.interrupt.bind(query)
+      query.interrupt = () => {
+        interrupts.push(Date.now())
+        return interrupt()
+      }
+      return query
+    })
+    registries.push(registry)
+    const session = registry.start(cwd, undefined, () => undefined)
+    await vi.waitFor(() => expect(session.state).toBe('idle'))
+    const messages = () => calls.flatMap((call) => (call.kind === 'message' ? [call.text] : []))
+    return { session, interrupts, messages }
+  }
+
+  it('in a turn: interrupts it and waits for its result; the queue is held after', async () => {
+    const { session, interrupts, messages } = await halting('interrupt')
+    session.send('count')
+    session.send('then this')
+    expect(session.state).toBe('busy')
+    await session.halt()
+    expect(interrupts).toHaveLength(1)
+    expect(session.state).toBe('idle')
+    expect(session.queued()).toMatchObject({ items: [{ text: 'then this' }], paused: true })
+    // Nothing more goes into the process: the queued message waits for "Send queued".
+    await new Promise((done) => setTimeout(done, 50))
+    expect(messages()).toEqual(['count'])
+  })
+
+  it('an idle Session is not interrupted', async () => {
+    const { session, interrupts } = await halting('interrupt')
+    await session.halt()
+    expect(interrupts).toEqual([])
+    expect(session.state).toBe('idle')
+  })
+
+  it('waits no longer than its limit for a turn that does not end; HALT_TURN_MS is 15 s', async () => {
+    expect(HALT_TURN_MS).toBe(15_000)
+    const dir = await mkdtemp(join(tmpdir(), 'worfy-halt-scripts-'))
+    try {
+      const init = { type: 'system', subtype: 'init', cwd: '{{cwd}}', session_id: '{{session}}', tools: [], mcp_servers: [], model: 'claude-opus-5-5', permissionMode: 'default', slash_commands: [], apiKeySource: 'none', uuid: '00000000-0000-4000-8000-000000017001' }
+      await writeFile(join(dir, 'stuck.jsonl'), `${[{ fake: 'wait_message' }, init, { fake: 'wait_release', name: 'never' }].map((line) => JSON.stringify(line)).join('\n')}\n`)
+      const { session, interrupts } = await halting('stuck', dir)
+      session.send('a long task')
+      const started = Date.now()
+      await session.halt(100)
+      expect(Date.now() - started).toBeLessThan(2000)
+      expect(interrupts).toHaveLength(1)
+      // The turn still runs: closing the process (Orchestrators.giveBackNow) ends it.
+      expect(session.state).toBe('busy')
+      session.close()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('a message a person sends while the halt waits is held, not sent after the interrupted turn', async () => {
+    const { session, messages } = await halting('interrupt')
+    session.send('count')
+    const halted = session.halt()
+    // Between the interrupt and the turn's result: the queue was empty when it was held.
+    expect(session.send('sent during the stop')).toBe('queued')
+    await halted
+    await new Promise((done) => setTimeout(done, 50))
+    expect(messages()).toEqual(['count'])
+    expect(session.queued()).toMatchObject({ items: [{ text: 'sent during the stop' }], paused: true })
+    // After the halt an idle Session takes nothing in either: the message waits in the held queue.
+    expect(session.send('sent after the stop')).toBe('queued')
+    await new Promise((done) => setTimeout(done, 50))
+    expect(messages()).toEqual(['count'])
+    expect(session.queued().items.map((item) => item.text)).toEqual(['sent during the stop', 'sent after the stop'])
   })
 })
 

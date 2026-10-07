@@ -108,6 +108,22 @@ describe('runWaveState', () => {
     expect(runWaveState({ ...input, template: DEFAULT_ACTION_TEMPLATES.runWave, autopilot: true }).enabled).toBe(true)
   })
 
+  it('puts the Tickets a Stop interrupted, still in work, first in the Wave: not "No ready wave" (worfy-week ticket 17)', () => {
+    const input = { epic: 'worfy-mvp', template: DEFAULT_ACTION_TEMPLATES.runWave, branch: null, autopilot: true }
+    // Only 01 left, claimed by the implementer the Stop killed: nothing is ready on its own.
+    expect(runWaveState({ ...input, tickets: [t(1, 'work'), t(2, 'open', [1])] })).toEqual({ enabled: false, reason: 'No ready wave' })
+    expect(runWaveState({ ...input, tickets: [t(1, 'work'), t(2, 'open', [1])], resumable: [1] })).toEqual({
+      enabled: true,
+      text: '/epic-wave Ticket-ы 01 эпика worfy-mvp',
+      tickets: [1],
+      skipped: [],
+    })
+    // Together with the ready set, by number; a Ticket of the list that left work, or is not in the Epic, is not taken.
+    expect(runWaveState({ ...input, tickets: TICKETS, resumable: [12, 11, 40] })).toMatchObject({ enabled: true, text: '/epic-wave Ticket-ы 07, 09, 12 эпика worfy-mvp', tickets: [7, 9, 12] })
+    // An owner's template with {wave} gets the plan's Wave of the resumed Tickets.
+    expect(runWaveState({ ...input, autopilot: false, template: LEGACY_RUN_WAVE_TEMPLATE, tickets: [t(1, 'work'), t(2, 'open', [1])], resumable: [1] })).toMatchObject({ enabled: true, text: '/epic-wave волна 1 эпика worfy-mvp' })
+  })
+
   it('is inactive without a ready Wave, with an empty template, and with {NN}', () => {
     expect(runWaveState({ epic: 'worfy-mvp', tickets: [t(1, 'work'), t(2, 'open', [1])], template: 'x', branch: null })).toEqual({ enabled: false, reason: 'No ready wave' })
     expect(runWaveState({ epic: 'worfy-mvp', tickets: TICKETS, template: '', branch: null })).toEqual({ enabled: false, reason: 'Set the Run wave template in Project settings' })
@@ -348,6 +364,15 @@ describe('ActionLauncher.autopilotWave (ticket 30)', () => {
     expect(reads).toBe(1)
     expect(sent).toMatchObject({ text: '/epic-wave Ticket-ы 11, 23 эпика worfy-mvp', tickets: [11, 23], skipped: [{ num: 15, state: 'blocked' }] })
     expect(orchestrator.sent).toEqual(['/epic-wave Ticket-ы 11, 23 эпика worfy-mvp'])
+  })
+
+  it('sends the Tickets a Stop interrupted first, when the run passes them (worfy-week ticket 17)', async () => {
+    const workflow: LaunchDeps['workflow'] = (root) =>
+      Promise.resolve({ root, epics: [{ epic: 'worfy-mvp', hasSpec: true, hasMap: false, title: null }], tickets: [t(13, 'work'), t(14, 'open', [13])], error: null, branchErrors: [] })
+    const { launch, orchestrator } = launcher({ workflow })
+    await expect(launch.autopilotWave('p', 'worfy-mvp')).rejects.toThrow('No ready wave')
+    expect(await launch.autopilotWave('p', 'worfy-mvp', [13])).toMatchObject({ text: '/epic-wave Ticket-ы 13 эпика worfy-mvp', tickets: [13] })
+    expect(orchestrator.sent).toEqual(['/epic-wave Ticket-ы 13 эпика worfy-mvp'])
   })
 
   it('refuses a template without {tickets} and sends nothing; autopilotRefusal says the same before a run', async () => {

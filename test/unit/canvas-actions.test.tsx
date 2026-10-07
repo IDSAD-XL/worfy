@@ -2,7 +2,7 @@
 // frame and "Open PR" on a Ticket with a PR (src/renderer/canvas/actions/*.tsx). Each one decides
 // from the workflow model, the Project's action templates and the checks snapshot whether it is
 // active, and says why not; a click goes to main (`actions.*`, `shell.openExternal`).
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { launchedHint } from '../../src/shared/actions/render-template'
 import type { LaunchesSnapshot } from '../../src/shared/ipc/actions'
@@ -39,11 +39,14 @@ let listeners: Map<string, (payload: unknown) => void>
 let launches: LaunchesSnapshot
 let shipAnswer: IpcResult<unknown>
 let autopilot: AutopilotState
+/** What autopilot.stop answers; null answers the stopped state at once. */
+let stopAnswer: Promise<IpcResult<unknown>> | null
 
 beforeEach(() => {
   vi.resetModules()
   calls = []
-  autopilot = { projectId: PROJECT, epic: null, status: 'stopped', wave: 0, backgroundTasks: 0, resumesAt: null, reason: null, message: null, revision: 1 }
+  autopilot = { projectId: PROJECT, epic: null, status: 'stopped', wave: 0, backgroundTasks: 0, resumesAt: null, reason: null, message: null, resumable: [], revision: 1 }
+  stopAnswer = null
   listeners = new Map()
   // 07 done; 08 open, blocked by 07 (done) → ready; 09 open; 10 open, blocked by 09 (open); 11 claimed.
   tickets = [ticket(7, 'done'), ticket(8, 'open', [7]), ticket(9, 'open'), ticket(10, 'open', [9]), ticket(11, 'work')]
@@ -72,6 +75,8 @@ beforeEach(() => {
           return Promise.resolve({ ok: true, value: { sessionId: 'o1', text: '/epic-wave Ticket-ы 08, 09 эпика demo', delivery: 'sent' } })
         case 'autopilot.state':
           return Promise.resolve({ ok: true, value: autopilot })
+        case 'autopilot.stop':
+          return stopAnswer ?? Promise.resolve({ ok: true, value: { ...autopilot, status: 'stopped', reason: 'user-stop', revision: autopilot.revision + 1 } })
         case 'shell.openExternal':
           return Promise.resolve({ ok: true, value: { url: (input as { url: string }).url } })
         default:
@@ -257,6 +262,54 @@ describe('Autopilot (ticket 30, ADR-0033)', () => {
     const autopilot = await screen.findByRole('button', { name: 'Autopilot' })
     await vi.waitFor(() => expect(autopilot.getAttribute('aria-disabled')).toBe('false'))
     expect(autopilot.getAttribute('title')).toBe('Run the Waves of demo one after another, without a person. The display stays on until the run ends')
+  })
+})
+
+describe('Stop autopilot interrupts the Orchestrator (worfy-week ticket 17)', () => {
+  it('is available again with the Tickets a Stop interrupted, still in work, though nothing else is ready', async () => {
+    // 08 and 09 were the interrupted Wave and stay claimed; 10 waits for 09: nothing is ready on its own.
+    tickets = [ticket(7, 'done'), ticket(8, 'work', [7]), ticket(9, 'work'), ticket(10, 'open', [9])]
+    autopilot = { ...autopilot, epic: 'demo', status: 'stopped', wave: 1, reason: 'user-stop', resumable: [8, 9] }
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    render(<AutopilotAction subject={epicSubject()} />)
+    const button = await screen.findByRole('button', { name: 'Autopilot' })
+    await vi.waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
+  })
+
+  it('without that list, the same Tickets in work leave no ready Wave', async () => {
+    tickets = [ticket(7, 'done'), ticket(8, 'work', [7]), ticket(9, 'work'), ticket(10, 'open', [9])]
+    autopilot = { ...autopilot, epic: 'demo', status: 'stopped', wave: 1, reason: 'no-progress', resumable: [] }
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    render(<AutopilotAction subject={epicSubject()} />)
+    const button = await screen.findByRole('button', { name: 'Autopilot' })
+    await vi.waitFor(() => expect(button.getAttribute('title')).toBe('No ready wave'))
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+  })
+
+  it('says what Stop does, and stays "Stopping…" and inactive until autopilot.stop answers', async () => {
+    autopilot = { ...autopilot, epic: 'demo', status: 'running', wave: 1 }
+    let answer: (result: IpcResult<unknown>) => void = () => undefined
+    stopAnswer = new Promise((done) => (answer = done))
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    render(<AutopilotAction subject={epicSubject()} />)
+    const stop = await screen.findByRole('button', { name: 'Stop autopilot' })
+    expect(stop.getAttribute('title')).toBe('Stop Autopilot over demo: interrupts the Orchestrator and its background tasks; worktrees stay')
+    expect(stop.getAttribute('aria-disabled')).toBe('false')
+    fireEvent.click(stop)
+    const stopping = await screen.findByRole('button', { name: 'Stopping…' })
+    expect(stopping.getAttribute('aria-disabled')).toBe('true')
+    // A second click while it stops asks main nothing more.
+    fireEvent.click(stopping)
+    expect(calls.filter((call) => call.channel === 'autopilot.stop')).toHaveLength(1)
+    // The run's stopped state may come by autopilot.changed first: the button still waits for the answer.
+    act(() => listeners.get('autopilot.changed')?.({ ...autopilot, status: 'stopped', reason: 'user-stop', revision: 5 }))
+    expect(screen.getByRole('button', { name: 'Stopping…' }).getAttribute('aria-disabled')).toBe('true')
+    await act(async () => {
+      answer({ ok: true, value: { ...autopilot, status: 'stopped', reason: 'user-stop', revision: 6 } })
+      await Promise.resolve()
+    })
+    await screen.findByRole('button', { name: 'Autopilot' })
+    expect(screen.getByTestId('autopilot-status').textContent).toBe('stopped: user stop')
   })
 })
 
