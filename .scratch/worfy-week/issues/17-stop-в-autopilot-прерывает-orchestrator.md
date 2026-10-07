@@ -1,7 +1,7 @@
 # 17 — Stop в Autopilot прерывает Session Orchestrator-а и его Background task-и
 
 Type: task
-Status: open
+Status: claimed — 2026-10-07
 Blocked by: —
 Source: замечание владельца 2026-10-07 («Поставь работу на паузу, мне кое че нужно сделать с ноутом», затем «я нажал на стоп но он продолжает, мб там еще есть?»); журнал Autopilot `2026-10-07T17-46-49-381Z-d32be6.jsonl`; [ADR-0029](../../../docs/adr/0029-autopilot-waits-for-background-tasks.md), пункты 5–6; [spec.md](../spec.md), этап 3
 
