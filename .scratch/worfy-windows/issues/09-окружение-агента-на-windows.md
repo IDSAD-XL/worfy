@@ -126,7 +126,7 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
   `git --version && node --version && gh --version` агент вызывает Bash tool, в ответе три версии.
   Как проверить: окно worfy, Session Node.
 - [ ] Mac: test-ы `onMac` в `test/unit/agent-env.test.ts` зелёные с прежними ожиданиями; gate full
-  на Mac зелёный.
+  на Mac зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
 - [ ] ADR об окружении агента на Windows лежит в `docs/adr/` и ссылается на ADR-0007 и ADR-0054.
 
 ## Тесты

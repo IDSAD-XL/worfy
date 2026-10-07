@@ -201,6 +201,12 @@ Session (Q1–Q25). Ticket-ы ссылаются на эти номера и н�
 - **Порядок и две Session-и** — ADR-0056 (Q12, Q25). Спроектировано сейчас, делается после E3 (Q8).
   `worfy-link` и `worfy-windows` идут параллельно, каждый на своей машине. Session-и общаются через репозиторий.
   Перед Wave — проверка открытых PR второго Epic-а на общие файлы. Мерж в main — по очереди.
+- **gate full на Mac для PR Session Windows** — решение владельца 2026-10-08, вопрос Q30 (ответ
+  «согласен»). Дополняет ADR-0056; принятый ADR не правится. PR Session на Windows, которые трогают
+  общий код, получают метку `needs-mac-gate`. Вливает их Session на Mac после зелёного gate full на
+  Mac. Правило — «Метка needs-mac-gate» в «Соглашениях» ниже. Отвергнуты: «хватает Linux CI, Mac
+  проверится в следующей Wave» (main может быть сломан на Mac) и «все PR порта вливает только Mac»
+  (Session на Windows простаивает).
 - **Один Autopilot на Epic** — ADR-0053, пункт 9 (Q13). Autopilot на Mac и на Windows идут
   одновременно над разными Epic-ами — запрет им не мешает.
 - **Epic** — имя `worfy-windows`, пять пунктов «Готово, когда» (подтверждены 2026-10-08). E4 — после
@@ -265,11 +271,21 @@ Session (Q1–Q25). Ticket-ы ссылаются на эти номера и н�
 5. **Платформенные PR ждут ПК владельца** (ADR-0056). Мерж ждёт включённого Windows-ПК; PR Session
    Mac, который оказался платформенным, тоже ждёт. Регрессию на Windows из PR, который не сочли
    платформенным, CI на Linux не поймает — её увидит следующий gate full на Windows.
-6. **gate full на Mac для PR Session Windows — не решено.** Ticket-ы этого Epic-а держат в «Готово,
-   когда» «Mac: gate full зелёный», а Session на Windows прогнать его не может. ADR-0056 этот вопрос
-   оставил открытым. Ticket 16 (пункт 5 «Готово, когда» Epic-а) просит прогон через `HANDOFF.md`,
-   раздел «Ждёт владельца»: его делает Session на Mac или владелец. Для остальных Ticket-ов кто и
-   когда гонит gate full на Mac — не решено, это вопрос владельцу.
+6. **gate full на Mac для PR Session Windows — решено владельцем 2026-10-08** (Q30). Ticket-ы этого
+   Epic-а держат в «Готово, когда» «Mac: gate full зелёный», а Session на Windows прогнать его не
+   может. ADR-0056 этот вопрос оставил открытым. Решение — правило «Метка needs-mac-gate» в
+   «Соглашениях» ниже: такой PR проверяет и вливает Session на Mac. Ticket 16 (пункт 5 «Готово,
+   когда» Epic-а) по-прежнему просит прогон на коммите main через `HANDOFF.md`, раздел «Ждёт
+   владельца»: его делает Session на Mac или владелец. Осталось открытым, вопросы владельцу:
+   - main ушёл вперёд после gate full на Windows. Для платформенного PR ADR-0056, пункт 6 требует
+     после обновления от main снова прогнать gate full на Windows. Rebase делает Session на Mac, а
+     прогнать gate full на Windows она не может. Кто и когда повторяет этот прогон — не решено.
+   - У Session на Mac нет Wave: Epic `worfy-link` закрыт или стоит. Тогда PR с меткой ждут.
+   - Пункты «Готово, когда» на Mac сверх gate full правило не покрывает: `pnpm icons` до сборки
+     установщика (Ticket 12), запуск упакованной сборки с окружением launchd (Ticket 05) и через
+     `open` (Ticket 04), сверки старой и новой версии скриптов на Mac (Ticket-ы 05 и 06),
+     `git add --renormalize` и `install:stable` (Ticket 02), `pnpm test --reporter=verbose`
+     (Ticket 14).
 7. **Общие файлы двух Epic-ов.** План ниже не знает о PR `worfy-link`. Перед каждой Wave Session
    сверяет файлы своих Ticket-ов с файлами открытых PR `worfy-link`; до Ticket-а 07 — вручную.
    `HANDOFF.md` — один файл на репозиторий; конфликт в нём решает Session, которая мержит второй.
@@ -302,8 +318,9 @@ UI в двух темах, Autopilot над worfy — только на Stable c
   Orchestrator Session на Windows.
 - **Ветки** — `worfy-windows/<NN>`; worktree — `.claude/worktrees/<NN>`.
 - **ADR.** Номера ADR выдаёт Orchestrator в момент взятия Ticket-а, по одному решению на файл.
-  Принятые ADR 0001–0056 не правятся: уточнение — новым ADR, который говорит, что он уточняет. Новый
-  ADR ждёт Ticket 09 (окружение агента на Windows).
+  Принятые ADR 0001–0056 не правятся: уточнение — новым ADR, который говорит, что он уточняет. Новые
+  ADR ждут Ticket-ы 07 (метка needs-mac-gate, уточняет ADR-0056) и 09 (окружение агента на
+  Windows).
 - **Перед каждой Wave — открытые PR `worfy-link`** (Q25, ADR-0056, пункт 5). Файлы открытых PR
   второго Epic-а сравниваются с файлами «Где в коде» Ticket-ов Wave. Ticket с общим файлом в Wave не
   берётся, пока тот PR не влит. В отчёте Wave — Ticket, файл и номер PR. До Ticket-а 07 проверка
@@ -311,6 +328,37 @@ UI в двух темах, Autopilot над worfy — только на Stable c
   Ticket-а 01.
 - **Мерж по очереди** (Q12, ADR-0056, пункт 6). За раз вливается один PR. Второй перед мержем
   перебазируется на свежий main, и его проверки идут заново.
+- **Метка needs-mac-gate** (Q30, решение владельца 2026-10-08; дополняет ADR-0056, пункты 2 и 6).
+  Session на Windows не может прогнать gate full на Mac, а main должен оставаться зелёным на Mac.
+  - **Какие PR.** PR Session на Windows, которые трогают общий код: хотя бы один файл — не документ
+    и не чисто Windows-специфичный. Документы — `.scratch/`, `docs/`, `HANDOFF.md`, `CONTEXT.md`,
+    `README.md`. Чисто Windows-специфичный файл — тот, который на macOS не читают ни код, ни test-ы,
+    ни сборка. Тексты Harness (`harness/**/*.md`: skills, agents, rules, контракт Profile) — не
+    документы: по ним работают агенты и на Mac. В сомнении метка ставится.
+  - **Кто ставит.** Session на Windows, когда открывает PR:
+    `gh pr edit <N> --add-label needs-mac-gate`. Свои проверки, в том числе gate full на Windows для
+    платформенного PR, она проходит до метки. PR с меткой она сама не вливает. Ticket — `blocked` с
+    причиной «ждёт Session на Mac: needs-mac-gate, PR #<N>».
+  - **Что делает Session на Mac.** Перед каждой своей Wave она проходит открытые PR с меткой
+    (`gh pr list --state open --label needs-mac-gate`), по одному — мерж по очереди:
+    1. rebase ветки PR на свежий main и push;
+    2. `GATE_SCOPE=all` gate full на Mac под замком `/tmp/worfy-e2e.lock` (команда — `rules.md`
+       Profile-а worfy);
+    3. зелёный, и CI на PR после push зелёный — мерж (squash) и снятие метки;
+    4. красный — комментарий в PR: строка `[gate]`, код выхода, хвост вывода и причина. Метка
+       остаётся, PR не вливается. Конфликт при rebase — тоже красный: в комментарии файлы конфликта.
+       Исключение — конфликт только в `HANDOFF.md`: его решает Session, которая мержит (ADR-0056,
+       «Последствия»).
+
+    Ticket-ы этого Epic-а Session на Mac не берёт и их Status не меняет. Повтор gate full на Windows
+    после rebase, которого для платформенного PR требует ADR-0056, пункт 6, правило не покрывает:
+    это открытый вопрос владельцу (риск 6).
+  - **Что дальше делает Session на Windows.** В начале своей Wave — свои PR с меткой. PR влит —
+    Ticket закрывается (`ticket done worfy-windows <NN> --pr <N>`, строка в `HANDOFF.md`). В PR
+    комментарий о красном — Ticket снова в работе; ветку она берёт с origin заново, потому что на
+    Mac её перебазировали.
+  - До мержа Ticket-а 07 правило выполняется вручную. Ticket 07 вписывает его в skills `epic-wave`
+    и `ship-ticket`, а роль Machine задаёт её Profile.
 - **Платформенный PR — после gate full на Windows-ПК** (Q23, ADR-0056, пункт 2). Строка вердикта Gate
   и код выхода — в отчёт Ticket-а; «не удалось проверить» — не зелено.
   - До Ticket-а 03 Gate на Windows нет: `pnpm lint`, `pnpm typecheck`, `pnpm test` с кодами выхода
@@ -355,7 +403,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 04 | `harness/hooks/inject-rules.mjs`, `harness/hooks/session-start.mjs`, `harness/hooks/session-end.mjs`, `harness/hooks/stop.mjs`, `harness/hooks/inject-rules.sh`, `harness/hooks/session-start.sh`, `harness/hooks/session-end.sh`, `harness/hooks/stop.sh`, `harness/hooks/hooks.json`, `harness/hooks/gate.mjs`, `harness/hooks/gate-resolve.mjs`, `harness/hooks/gh-token-env.sh`, `harness/hooks/gh-token-env.mjs`, `harness/hooks/tests/gh-token-env.test.sh`, `harness/hooks/tests/rules-hooks.test.sh`, `harness/hooks/tests/session-hooks.test.sh`, `harness/hooks/tests/gate-notverified.test.sh`, `harness/hooks/tests/gate-unregistered.test.sh`, `harness/bin/tests/harness-home.test.sh`, `harness/README.md`, `harness/profiles/README.md`, `harness/skills/retro/SKILL.md`, `harness/skills/tickets-to-tasks/SKILL.md`, `test/contract/harness-plugin.test.ts` | 4 |
 | 05 | `harness/bin/epic-status`, `harness/bin/profile`, `harness/bin/ticket`, `harness/bin/worktree-lock`, `harness/bin/epic-board`, `harness/bin/tests/epic-status.test.sh`, `harness/bin/tests/harness-home.test.sh`, `src/main/workflow/reader.ts`, `src/main/workflow/profile.ts`, `test/contract/workflow-reader.test.ts`, `test/contract/workflow-profile.test.ts`, `test/contract/github-prs.test.ts`, `test/contract/projects.test.ts`, `test/e2e/autopilot.spec.ts`, `test/e2e/binding.spec.ts`, `test/e2e/card-api.spec.ts`, `test/e2e/checks-badges.spec.ts`, `test/e2e/done-stack.spec.ts`, `test/e2e/edges.spec.ts`, `test/e2e/epic-frame-undo.spec.ts`, `test/e2e/epic-frame.spec.ts`, `test/e2e/new-session.spec.ts`, `test/e2e/no-overlap.spec.ts`, `test/e2e/palette-find.spec.ts`, `test/e2e/projects.spec.ts`, `test/e2e/ship-ticket.spec.ts`, `test/e2e/snapping.spec.ts`, `test/e2e/subagent-tree.spec.ts`, `test/e2e/theme-shadows.spec.ts` | 5 |
 | 06 | `harness/bin/preflight`, `harness/bin/tests/preflight.test.sh`, `harness/bin/tests/harness-home.test.sh` | 6 |
-| 07 | `harness/skills/epic-wave/SKILL.md`, `harness/skills/continuous-audit/SKILL.md`, `harness/skills/ship-ticket/SKILL.md`, `harness/bin/tests/skill-blocks.test.sh`, `harness/bin/tests/epic-wave-ship-ticket.test.sh` | 6 |
+| 07 | `harness/skills/epic-wave/SKILL.md`, `harness/skills/continuous-audit/SKILL.md`, `harness/skills/ship-ticket/SKILL.md`, `harness/bin/tests/skill-blocks.test.sh`, `harness/bin/tests/epic-wave-ship-ticket.test.sh`, `harness/bin/profile`, `harness/bin/tests/profile.test.sh`, `harness/profiles/README.md` | 6 |
 | 08 | `src/main/storage/paths.ts`, `src/shared/paths.ts`, `src/shared/ipc/claude-home.ts`, `src/shared/ipc/bindings.ts`, `src/shared/cards/last-editor.ts`, `src/renderer/markdown/links.ts`, `src/shared/binding/signals.ts`, `src/shared/binding/resolve.ts`, `src/shared/workflow/ticket-ref.ts`, `src/shared/transcript/subagents.ts`, `src/main/claude-home/registry.ts`, `src/main/claude-home/binding-signals.ts`, `src/main/claude-home/subagents.ts`, `src/main/agent/limits.ts`, `src/shared/autopilot/journal.ts`, `scripts/statusline-bridge.mjs`, `scripts/statusline-bridge.sh`, `electron-builder.yml`, `test/unit/paths.test.ts`, `test/unit/platform-paths.test.ts`, `test/unit/markdown.test.tsx`, `test/unit/binding.test.ts`, `test/unit/ticket-ref.test.ts`, `test/contract/card-last-editor.test.ts`, `test/contract/claude-home-registry.test.ts`, `test/contract/claude-home-subagents.test.ts`, `test/contract/statusline-bridge.test.ts`, `test/e2e/packaged.spec.ts` | 4 |
 | 09 | `src/main/agent/env.ts`, `src/main/agent/options.ts`, `test/unit/agent-env.test.ts`, `test/unit/agent-executable.test.ts` | 3 |
 | 10 | `src/main/terminal/pty.ts`, `src/main/ipc/terminal.ts`, `src/shared/ipc/terminal.ts`, `src/shared/projects/action-templates.ts`, `src/main/projects/settings.ts`, `src/renderer/shell/ProjectSettings.tsx`, `test/unit/terminal-shell.test.ts`, `test/contract/terminal.test.ts`, `test/contract/projects.test.ts` | 4 |
@@ -386,7 +434,8 @@ Ticket-ов одной Wave общий файл, Ticket с большим ном
   это не меняет: 10 — в Wave 4, 14 — в Wave 7.
 - **Wave 6 — 06, 07 и 13.** 06 ждёт 03, 07 — 03 и 12, 13 — 04, 05 и 12. Общих файлов нет: 06 —
   `preflight` и `harness-home.test.sh`, 07 — тексты skills `epic-wave`, `continuous-audit`,
-  `ship-ticket` и их test-ы, 13 — экран первого запуска и установщик Harness.
+  `ship-ticket`, поле Profile `cross_machine_gate` (`bin/profile`, контракт Profile) и их test-ы,
+  13 — экран первого запуска и установщик Harness.
 - **Wave 7 — 14, один.** Ждёт 03, 08, 10, 11 и 12; сдвинут.
 - **Wave 8 — 15, один.** Ждёт 06, 07, 13 и 14.
 - **Wave 9 — 16, один.** Ждёт 15. Autopilot его не берёт: в нём шаги владельца.

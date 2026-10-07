@@ -143,7 +143,7 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 - [ ] Unit: схема канала `checks` принимает `C:\a`, `C:/a` и `\\srv\share\a` и отвергает `a\b` и `C:a`.
 - [ ] `git grep -n 'gate\.sh' -- harness` пуст. В `src` имя `gate.sh` осталось только в распознавании старых вызовов (`src/main/gate/state.ts`).
 - [ ] Windows-ПК, Session Claude Code в worktree worfy: `node "<папка plugin>/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"`, затем то же с `full`. Оба прогона идут до конца: каждый скрипт профиля запущен, строка `[gate] …` и код соответствуют исходам скриптов, в выводе нет `command not found` и `is not recognized`. Красный исход из-за test-ов, которые чинит Ticket 14, ожидаем. Имя появившегося `verdict-<tag>.json` совпадает с тегом, который даёт `gateTag` worfy для этого worktree. Вывод — в Итог.
-- [ ] Mac: gate full через `gate.mjs` зелёный. В него входят e2e бейджей Gate (`test/e2e/checks-badges.spec.ts`) и проверка копии Harness в сборке (`test/e2e/packaged.spec.ts`). В Session worfy hook `TaskCompleted` зовёт `gate.mjs`: в транскрипте — строка `[gate] …` от hook-а.
+- [ ] Mac: gate full через `gate.mjs` зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac). В него входят e2e бейджей Gate (`test/e2e/checks-badges.spec.ts`) и проверка копии Harness в сборке (`test/e2e/packaged.spec.ts`). В Session worfy hook `TaskCompleted` зовёт `gate.mjs`: в транскрипте — строка `[gate] …` от hook-а.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` на Mac — exit 0; CI на PR зелёный.
 
 ## Тесты

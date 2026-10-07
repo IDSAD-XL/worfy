@@ -98,9 +98,9 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
    (например, нет рабочего стола), job оставляет то, что идёт, а причина — в комментарии и в Итог.
 9. **Q23 целиком.** С мержа этого Ticket-а платформенные PR Epic-а влиты только после зелёного
    gate full на ПК владельца. До него хватает проверки своего среза на Windows: падения `pnpm test`
-   сверены со списком Ticket-а 02, новых нет (ADR-0056, «Последствия»). Кто гонит gate full на Mac для
-   PR Session Windows — открытый вопрос (spec.md, риск 6).
-   В Итог — коммит, с которого правило действует.
+   сверены со списком Ticket-а 02, новых нет (ADR-0056, «Последствия»). В Итог — коммит, с которого
+   правило действует. gate full на Mac для PR Session Windows гонит Session на Mac, она же их
+   вливает: правило needs-mac-gate (spec.md, «Соглашения»; решение владельца 2026-10-08, Q30).
 
 **Не входит:** код Terminal (Ticket 10); упаковка и Stable copy (Ticket 12); stub-ы скриптов
 Harness (Ticket 05); test-ы qmd (Ticket 15); Windows-раннер на PR (Q23 — его нет).
@@ -114,7 +114,7 @@ Harness (Ticket 05); test-ы qmd (Ticket 15); Windows-раннер на PR (Q23 
 - [ ] На ПК владельца `pnpm test:package` — код 0: test-ы `@packaged` запустили `dist/win-unpacked/worfy.exe`, Terminal в собранном приложении работает.
 - [ ] `harness-scripts.test.ts` на Windows запускает `.test.sh` через Git Bash, а не через `C:\Windows\System32\bash.exe` (путь bash виден в выводе test-а); `qmd.test.sh` пропущен с причиной, где назван Ticket 15.
 - [ ] `GATE_SCOPE=all` gate full (команда Gate — какой её оставил Ticket 03) на ПК владельца — код 0 и вердикт «зелено». Вывод `[gate]` — в Итог.
-- [ ] То же на Mac — код 0 и вердикт «зелено».
+- [ ] То же на Mac — код 0 и вердикт «зелено» (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
 - [ ] `ci.yml`: `git diff origin/main -- .github/workflows/ci.yml` не трогает job `check` и триггеры `pull_request` и `push`; job `windows` и `full-macos` идут только на `workflow_dispatch` со своим значением `platform`.
 - [ ] Один ручной прогон `gh workflow run CI -f platform=windows` — только с согласия владельца (минута Windows — $0.010); ссылка на прогон — в Итог. Без согласия пункт — «не проверено», с причиной.
 

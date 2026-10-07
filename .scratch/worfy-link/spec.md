@@ -299,6 +299,17 @@ Session проектирования 2026-10-07: вопросы Q1–Q25 в дв
   владельца. Прямого канала между ними нет. Всё, что нужно знать о второй, Session читает из
   репозитория: Status Ticket-ов, открытые PR и их файлы, main, `HANDOFF.md` (ADR-0056, пункт 4).
 - **Ветки** — `worfy-link/<NN>`; worktree — `.claude/worktrees/<NN>`.
+- **Перед каждой Wave — PR с меткой `needs-mac-gate`** (Q30, решение владельца 2026-10-08;
+  дополняет ADR-0056). Session на Mac проходит открытые PR с этой меткой по правилу
+  [worfy-windows](../worfy-windows/spec.md), раздел «Соглашения для Ticket-ов этого Epic-а», пункт
+  «Метка needs-mac-gate». По одному: rebase на свежий main, `GATE_SCOPE=all` gate full на Mac под
+  замком `/tmp/worfy-e2e.lock`. Зелёный, и CI на PR после push зелёный — мерж (squash) и снятие
+  метки. Красный — комментарий в PR с выводом и причиной, метка остаётся. Конфликт при rebase — тоже
+  красный, кроме конфликта только в `HANDOFF.md`: его решает Session, которая мержит. Ticket-ы
+  `worfy-windows` Session на Mac не берёт и их Status не меняет: Ticket закрывает Session на Windows.
+  Проход идёт до сверки файлов открытых PR `worfy-windows` (следующий пункт), и влитый PR в сверку
+  уже не попадает. Повтор gate full на Windows после rebase (ADR-0056, пункт 6) правило не
+  покрывает — открытый вопрос владельцу, spec `worfy-windows`, риск 6.
 - **Перед каждой Wave — открытые PR Epic-а worfy-windows** (ADR-0056, пункт 5). Их файлы сравниваются с
   «Где в коде» Ticket-ов Wave тем же правилом, что внутри Wave. Ticket с общим файлом ждёт мержа того
   PR. Пересечение и отложенный Ticket называются в отчёте Wave.

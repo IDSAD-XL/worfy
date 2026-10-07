@@ -136,7 +136,7 @@ AppUserModelId в меню Пуск создаёт установщик Ticket-�
   Electron): окно worfy не в фокусе, Session закончила ход — приходит уведомление, клик по нему
   открывает Session. Как проверить: уведомление Windows и окно worfy.
 - [ ] Mac: e2e с `Meta+…` (`test/e2e/palette-find.spec.ts`, `test/e2e/focus.spec.ts`,
-  `test/e2e/epic-frame-undo.spec.ts` и остальные) зелёные без правок; gate full на Mac зелёный.
+  `test/e2e/epic-frame-undo.spec.ts` и остальные) зелёные без правок; gate full на Mac зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
 
 ## Тесты
 

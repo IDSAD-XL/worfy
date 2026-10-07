@@ -126,7 +126,7 @@ Harness (Ticket 13); `@packaged` e2e на Windows (Ticket 14); шаг для Win
 - [ ] Mac: блок «with a stand-in app» в `test/e2e/packaged.spec.ts` (теперь про
   `scripts/install-stable.mjs`) зелёный в gate full; `pnpm test:package` — exit 0;
   `pnpm install:stable "$(mktemp -d)/worfy.app"` — exit 0, `worfy.json` рядом с прежними полями;
-  gate full на Mac зелёный.
+  gate full на Mac зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
 - [ ] Windows-ПК: `pnpm package` — exit 0; в `dist\` есть установщик `.exe` и
   `dist\win-unpacked\worfy.exe`;
   `Test-Path dist\win-unpacked\resources\app.asar.unpacked\node_modules\@anthropic-ai\claude-agent-sdk-win32-x64\claude.exe`

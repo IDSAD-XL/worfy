@@ -124,7 +124,7 @@ Terminal на фоне ускорителей меню и горячих кла�
   `Get-Process node, pwsh, bash` нет процессов этого Terminal. Как проверить: окно worfy и
   PowerShell вне worfy.
 - [ ] Mac: `test/contract/terminal.test.ts` и e2e `test/e2e/terminal.spec.ts` зелёные с прежними
-  ожиданиями; в окне настроек Project-а выбора оболочки нет; gate full на Mac зелёный.
+  ожиданиями; в окне настроек Project-а выбора оболочки нет; gate full на Mac зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
 
 ## Тесты
 
