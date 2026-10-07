@@ -341,12 +341,20 @@
 }
 
 /* ── blocking arrows ───────────────────────────────────────────────────── */
+/* Thin and pale by default; the chain of a hovered or selected Ticket is lit (edge-focus.ts). An
+   arrow from a done blocker is drawn only while lit (edge-types/RoutedEdge.tsx). */
+.react-flow__edge.w-edge-blocking .react-flow__edge-path {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
 .react-flow__edge.w-edge-blocking--waits .react-flow__edge-path {
-  stroke: var(--text-muted);
-  stroke-width: 1.25;
   stroke-dasharray: 4 3;
 }
-.react-flow__edge.w-edge-blocking--done .react-flow__edge-path {
-  stroke: var(--border-strong);
+.react-flow__edge.w-edge-blocking .react-flow__edge-path.w-edge-path--lit {
+  stroke: var(--text-secondary);
+}
+.w-edge-arrow--lit {
+  fill: var(--text-secondary);
+  stroke: var(--text-secondary);
   stroke-width: 1;
 }
