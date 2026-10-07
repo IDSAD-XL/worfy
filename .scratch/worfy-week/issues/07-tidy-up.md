@@ -1,7 +1,7 @@
 # 07 — «Tidy up»: Node-ы пользователя раскладываются без перекрытий, один ⌘Z отменяет
 
 Type: task
-Status: open
+Status: claimed — 2026-10-07
 Blocked by: 03, 04
 Source: решения владельца 2026-10-07, вопросы 19, 25 и 28 ([spec.md](../spec.md), раздел «Решения владельца по Canvas»); [spec.md](../spec.md), этап 2
 
@@ -38,15 +38,16 @@ Source: решения владельца 2026-10-07, вопросы 19, 25 и 2
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/tidy.test.ts`: фикстура из 12 разбросанных Node-ов — Session с деревом из трёх Subagent-ов, Card-ы, Note-ы, Terminal, закреплённый Node, скрытый Node. После «Tidy up» никакие два участника не ближе 16 px; закреплённый и скрытый на месте; дерево Subagent-ов не лежит на соседях; размеры прежние; углы на сетке 8 px; Node-ы идут в порядке чтения.
-- [ ] Unit: повторный «Tidy up» на результате не отправляет операцию.
-- [ ] Unit `test/unit/palette-commands.test.tsx`: команда «Tidy up» есть в палитре, её запуск оставляет Canvas-у запрос.
-- [ ] Unit `test/unit/canvas-menu.test.tsx`: пункт «Tidy up» в контекстном меню Canvas, под пунктами «New …».
-- [ ] e2e `test/e2e/tidy-up.spec.ts`: Canvas с разбросанными Node-ами → «Tidy up» из ⌘K → Node-ы стоят плотно и без перекрытий; один ⌘Z возвращает каждое место до единицы; ⇧⌘Z раскладывает снова. То же из контекстного меню.
-- [ ] Расчёт вне главного потока: Canvas из 200 Node-ов раскладывается не дольше 2 с от команды до последнего места на экране; e2e печатает время и проверяет предел.
-- [ ] Бюджет `test/e2e/epic-frame.spec.ts:779` держится.
-- [ ] Снимки в светлой и тёмной теме (helper `test/e2e/snapshots.ts`) до и после «Tidy up» на фикстуре e2e; пункт меню и строка палитры выглядят как соседние. Сверены с F-SPEC; ссылка из «Итог» — `../evidence/07-tidy-up.png`.
+- [x] Unit `test/unit/tidy.test.ts`: фикстура из 12 разбросанных Node-ов — Session с деревом из трёх Subagent-ов, Card-ы, Note-ы, Terminal, закреплённый Node, скрытый Node. После «Tidy up» никакие два участника не ближе 16 px; закреплённый и скрытый на месте; дерево Subagent-ов не лежит на соседях; размеры прежние; углы на сетке 8 px; Node-ы идут в порядке чтения.
+- [x] Unit: повторный «Tidy up» на результате не отправляет операцию.
+- [x] Unit `test/unit/palette-commands.test.tsx`: команда «Tidy up» есть в палитре, её запуск оставляет Canvas-у запрос.
+- [x] Unit `test/unit/canvas-menu.test.tsx`: пункт «Tidy up» в контекстном меню Canvas, под пунктами «New …».
+- [x] e2e `test/e2e/tidy-up.spec.ts`: Canvas с разбросанными Node-ами → «Tidy up» из ⌘K → Node-ы стоят плотно и без перекрытий; один ⌘Z возвращает каждое место до единицы; ⇧⌘Z раскладывает снова. То же из контекстного меню.
+- [x] Расчёт вне главного потока: Canvas из 200 Node-ов раскладывается не дольше 2 с от команды до последнего места на экране; e2e печатает время и проверяет предел.
+- [x] Бюджет `test/e2e/epic-frame.spec.ts:779` держится.
+- [x] Снимки в светлой и тёмной теме (helper `test/e2e/snapshots.ts`) до и после «Tidy up» на фикстуре e2e; пункт меню и строка палитры выглядят как соседние. Сверены с F-SPEC; ссылка из «Итог» — `../evidence/07-tidy-up.png`.
 - [ ] (вручную) Stable copy после влития: «Tidy up» на Canvas Project-а worfy — Node-ы без перекрытий, рамки справа от них, ⌘Z возвращает всё. Как проверить: окно приложения.
+  не проверено: GUI-проверки в этой Wave не за исполнителем, а Stable copy ставится только после влития.
 
 ## Тесты
 
@@ -77,3 +78,67 @@ Ticket-а 03.
 `history.ts` этот Ticket не меняет: один шаг ⌘Z даёт групповая операция Ticket-а 04, а её обратную
 операцию заводит 04. Поэтому прямого ребра к Ticket-у 02 нет: 04 сам ждёт 02. Общих файлов с
 Ticket-ом 06 нет, он в той же Wave.
+
+## Итог
+
+Сделано в ветке `worfy-week/07`, база `origin/main` 11b0b2b. ADR не заводился: решение 28 и
+ADR-0037/0038 его покрывают.
+
+**Как падал первый test.** `test/unit/palette-commands.test.tsx`, «has Tidy up in the Action
+group…»: на `origin/main` в палитре нет команды `tidy-up`, `expect(tidy).toMatchObject({ group:
+'Action', title: 'Tidy up' })` получал `undefined`.
+
+**Что сделано.**
+
+- `src/renderer/canvas/tidy.ts` — новый. `tidyItems`: участники — Node-ы Layout-а на плоскости
+  (`onThePlane`), закреплённые и скрытые не трогаются, рамки Epic-ов не участвуют. Session с деревом
+  Subagent-ов — один прямоугольник: дерево берётся там, где оно висит без помех
+  (`placeSubagents` без `around`, `naturalTreeBlocks`), поэтому после раскладки оно ни от кого не
+  уходит и повторный «Tidy up» видит те же прямоугольники. `tidyOperation`: порядок чтения по
+  нынешним местам (y, потом x), размеры вверх до сетки 8 px, промежуток 24 px, начало — левый
+  верхний угол охватывающего прямоугольника на сетке; результат — один `moveMany` со всеми
+  участниками или ничего, если все уже на месте или участников меньше двух. `runTidyUp`: один
+  запуск на Project за раз; если Node-ы сдвинулись, пока ELK считал, раскладка считается заново (до
+  трёх раз); ошибка ELK — ничего не двигается. `useTidyUp` — то же через `LayoutOps` Canvas-а, то есть
+  один шаг ⌘Z.
+- `src/renderer/canvas/elk/pack.ts` — новый: граф `rectpacking` со стратегией `SIMPLE`. Стратегия по
+  умолчанию (`COMPACTION`) складывает прямоугольники внутри ряда и меняет порядок: на 200 случайных
+  наборах в 77 повторная раскладка давала другой ответ; `SIMPLE` — 0 из 200, порядок входа равен
+  порядку чтения ответа. `elk/client.ts` отдаёт свой worker наружу (`elkEngine`): один worker на окно.
+- Палитра: команда `Tidy up` в группе `Action` после «New …»; запуск оставляет запрос
+  `requestTidyUp` (`find/canvas-requests.ts`), его выполняет `find/CanvasFind.tsx`
+  (`useTidyRequests`). Меню Canvas: под пунктами «New …» разделитель и «Tidy up», вызывает
+  `useTidyUp` напрямую.
+- Main не менялся: `moveMany` проверяет группу целиком; в группе все участники, препятствий вне неё
+  нет, поэтому поправка ADR-0038 места не меняет. Обратная операция — `moveMany` со старыми местами
+  (Ticket 04), ⇧⌘Z шлёт раскладку заново.
+
+**Отступление от следа.** Unit-test лежит в `test/unit/tidy.test.tsx`, а не `tidy.test.ts`:
+`tidy.ts` тянет React, источник Node-ов Subagent-ов и типы из `.tsx`, а проект типов
+`tsconfig.test.node.json` перечисляет файлы renderer-а поштучно и `.tsx` исключает. Поэтому в test-е
+нет `LayoutStore` из main (он вне проекта типов jsdom); вместо него — заменитель, который
+поправляет `moveMany` той же общей функцией `freeShift`, что и main. Настоящий main проверяет e2e.
+
+**Проверки.** `pnpm lint && pnpm typecheck && pnpm test` — код 0 (120 файлов, 2129 test-ов);
+`gate.sh fast` — код 0, «зелено»; `GATE_SCOPE=all gate.sh full` — код 0, «зелено» (lint, typecheck,
+test, test:e2e, test:package), в том числе бюджет Project-а размера Auction
+(`test/e2e/epic-frame.spec.ts`, test «an Auction-sized Project is interactive within 3 s…», сейчас
+строка 885). e2e `test/e2e/tidy-up.spec.ts`: 200 Node-ов — 92 ms от Enter в палитре до последнего
+места на экране (предел 2000 ms).
+
+**Снимки.** После раскладки, светлая тема — [07-tidy-up.png](../evidence/07-tidy-up.png), тёмная —
+[07-tidy-up-dark.png](../evidence/07-tidy-up-dark.png); до —
+[07-tidy-up-before.png](../evidence/07-tidy-up-before.png),
+[07-tidy-up-before-dark.png](../evidence/07-tidy-up-before-dark.png); меню —
+[07-tidy-up-menu.png](../evidence/07-tidy-up-menu.png),
+[07-tidy-up-menu-dark.png](../evidence/07-tidy-up-menu-dark.png); палитра —
+[07-tidy-up-palette.png](../evidence/07-tidy-up-palette.png),
+[07-tidy-up-palette-dark.png](../evidence/07-tidy-up-palette-dark.png). Пункт меню — та же строка
+`w-row` 28 px, что «New terminal», разделитель — линия 1 px цвета `--border` (F-SPEC: «compact 28px
+rows», «hairline 1px borders»). Строка палитры — как «New session»: заголовок и пояснение, метка
+`Action`. Закреплённая Note на снимке лежит поверх Card-а: закреплённый Node — слой поверх экрана и
+не участник (решение 25), так и задумано.
+
+**Решено без владельца, подтвердить.** Пояснение строки палитры — «lay out the Nodes without
+overlaps»; запрос из палитры, пришедший, пока идёт прежний «Tidy up», отбрасывается.
+

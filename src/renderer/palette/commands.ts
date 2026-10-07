@@ -4,8 +4,8 @@
 // same way it gets an item in the Canvas menu, and every Epic, Ticket, Session, Card and ADR is a
 // "go to" command because it exists.
 //
-// A command only asks: moving the Canvas and creating a Node go through requests the Canvas
-// carries out (find/canvas-requests.ts), the rest through the same IPC calls as the buttons they
+// A command only asks: moving the Canvas, creating a Node and "Tidy up" go through requests the
+// Canvas carries out (find/canvas-requests.ts), the rest through the same IPC calls as the buttons they
 // stand for. "Ship ticket" and "Run wave" are the actions of ticket 23 (`actions.shipTicket`,
 // `actions.runWave`); when they exist and whether they are active is decided by the same code the
 // buttons use (canvas/actions/gates.ts), and main checks again.
@@ -19,7 +19,7 @@ import type { LayoutNode } from '../../shared/layout/types'
 import type { Ticket, WorkflowModel } from '../../shared/workflow/types'
 import { hasRunWave, hasShipTicket } from '../canvas/actions/gates'
 import { applyLayoutOp } from '../canvas/useLayout'
-import { createCanvasNode, focusCanvasNode, openAdr, setTagFilter, type TagFilter } from '../find/canvas-requests'
+import { createCanvasNode, focusCanvasNode, openAdr, requestTidyUp, setTagFilter, type TagFilter } from '../find/canvas-requests'
 import { kindLabel, nodeTitle, type Rankable } from '../find/search-index'
 import { invoke } from '../ipc'
 import { acceptProjectsState } from '../projects/useProjects'
@@ -113,6 +113,19 @@ function actionCommands({ project, createItems }: CommandContext): PaletteComman
       },
     })
   }
+  commands.push({
+    id: 'tidy-up',
+    group: 'Action',
+    title: 'Tidy up',
+    detail: 'lay out the Nodes without overlaps',
+    keys: ['tidy', 'arrange', 'layout'],
+    // The Canvas lays the Nodes out (canvas/tidy.ts) through its LayoutOps: one step of ⌘Z.
+    run: () => {
+      setView('canvas')
+      requestTidyUp(projectId)
+      return undefined
+    },
+  })
   return commands
 }
 

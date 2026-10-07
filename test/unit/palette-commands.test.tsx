@@ -3,6 +3,8 @@ import type { LayoutNode } from '../../src/shared/layout/types'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { buildCommands, type CommandContext } from '../../src/renderer/palette/commands'
 import { rankItems } from '../../src/renderer/find/search-index'
+import { useCanvasRequests } from '../../src/renderer/find/canvas-requests'
+import { setView, useNavigation } from '../../src/renderer/session/navigation'
 
 function ticket(num: number, state: Ticket['state'], blockedNums: number[] = []): Ticket {
   return {
@@ -93,6 +95,19 @@ describe('palette commands', () => {
     expect(all).not.toContain('project:p1')
     expect(all).not.toContain('tag:all')
     expect(ids(context({ tagFilter: { projectId: 'p1', tag: 'plan' } }))).toContain('tag:all')
+  })
+
+  it('has Tidy up in the Action group, and running it leaves the Canvas a request for the Project (worfy-week/07)', async () => {
+    useCanvasRequests.setState({ tidy: null })
+    setView('session')
+    const tidy = buildCommands(context()).find((command) => command.id === 'tidy-up')
+    expect(tidy).toMatchObject({ group: 'Action', title: 'Tidy up' })
+    expect(rankItems(buildCommands(context()), 'tidy')[0]?.id).toBe('tidy-up')
+    expect(await tidy!.run()).toBeUndefined()
+    expect(useCanvasRequests.getState().tidy).toMatchObject({ projectId: 'p1', seq: 1 })
+    expect(useNavigation.getState().view).toBe('canvas')
+    await tidy!.run()
+    expect(useCanvasRequests.getState().tidy).toMatchObject({ projectId: 'p1', seq: 2 })
   })
 
   it('without a Project keeps only the views and the Projects', () => {
