@@ -142,6 +142,14 @@ const nodeOf = (layout: Layout, id: string): LayoutNode | undefined => layout.no
 export function inverseOf(layout: Layout, op: LayoutOpInput): LayoutOpInput | undefined {
   if (op.op === 'setViewport' || op.op === 'patchData') return undefined
   if (op.op === 'create') return op.node.id === undefined ? undefined : { op: 'remove', id: op.node.id }
+  if (op.op === 'moveMany') {
+    // The same group operation with the old places: main checks the group as a whole again (ADR-0038).
+    const moves = op.moves.flatMap(({ id }) => {
+      const node = nodeOf(layout, id)
+      return node === undefined ? [] : [{ id, x: node.x, y: node.y }]
+    })
+    return moves.length === 0 ? undefined : { op: 'moveMany', moves }
+  }
   const before = nodeOf(layout, op.id)
   if (before === undefined) return undefined
   switch (op.op) {
@@ -233,6 +241,18 @@ export async function grouped<T>(make: (group: Group) => Promise<T>): Promise<T>
   } finally {
     group.close()
   }
+}
+
+/**
+ * The operation one drag of Layout Nodes sends: a `move` for one Node, one `moveMany` for several.
+ * One drag is one operation and one step of the history, however many Nodes it moved, and main
+ * checks the dragged Nodes as one group, so none of them is put off a neighbour from the same
+ * selection that has not moved yet (ADR-0038).
+ */
+export function dropOperation(dragged: readonly { id: string; position: { x: number; y: number } }[]): LayoutOpInput | undefined {
+  const moves = dragged.map((node) => ({ id: node.id, x: node.position.x, y: node.position.y }))
+  if (moves.length === 0) return undefined
+  return moves.length === 1 ? { op: 'move', ...moves[0]! } : { op: 'moveMany', moves }
 }
 
 const newNodeId = (): string => crypto.randomUUID()

@@ -210,8 +210,9 @@ describe('canvas tools: the tool list', () => {
 describe('canvas tools: each tool changes the Layout and the change is broadcast', () => {
   it('list_nodes reports id, kind, title, place, size, hidden and locked, and nothing else', async () => {
     store.apply(PROJECT, note('n1'))
-    store.apply(PROJECT, orchestrator())
+    // Hidden before the Orchestrator comes: a hidden Node is in nobody's way (ADR-0038), so both are at (0, 0).
     store.apply(PROJECT, { op: 'hide', id: 'n1', hidden: true })
+    store.apply(PROJECT, orchestrator())
     const rpc = await connect()
     const listed = json<ListedNode[]>(await rpc.call('list_nodes'))
     expect(listed).toEqual([
@@ -245,6 +246,40 @@ describe('canvas tools: each tool changes the Layout and the change is broadcast
     const second = json<ListedNode>(await rpc.call('create_card', { title: 'Two' }))
     expect(nodeOf(first.id)).toMatchObject({ x: 340, y: 0 })
     expect(nodeOf(second.id)).toMatchObject({ x: 340, y: 320 })
+  })
+
+  it('create_card, create_note, move_node and resize_node onto a taken place answer with the nearest free place, and the Layout has the answer (ADR-0038)', async () => {
+    // A Card-sized Node at (0, 0): 300 × 200.
+    store.apply(PROJECT, orchestrator())
+    const rpc = await connect()
+    const card = json<ListedNode>(await rpc.call('create_card', { title: 'Here', x: 40, y: 40, w: 220, h: 120 }))
+    expect(card).toMatchObject({ x: 40, y: 200 + 16, w: 220, h: 120 })
+    expect(nodeOf(card.id)).toMatchObject({ x: card.x, y: card.y })
+    const created = json<ListedNode>(await rpc.call('create_note', { text: 'n', x: 40, y: 40, w: 220, h: 120 }))
+    // Under the Orchestrator is the Card now; above it (176 up) is nearer than right of it (276).
+    expect(created).toMatchObject({ x: 40, y: -16 - 120 })
+    expect(nodeOf(created.id)).toMatchObject({ x: created.x, y: created.y })
+
+    const moved = json<ListedNode>(await rpc.call('move_node', { id: created.id, x: 10, y: 10 }))
+    expect(moved).toMatchObject({ x: 10, y: -16 - 120 })
+    expect(nodeOf(created.id)).toMatchObject({ x: moved.x, y: moved.y })
+
+    // Wider with nothing in the way: as asked. Then the Orchestrator wider into the Note on its
+    // right: its right edge stops 16 px short of the Note.
+    const resized = json<ListedNode>(await rpc.call('resize_node', { id: card.id, w: 600, h: 120 }))
+    expect(resized).toMatchObject({ x: 40, y: 216, w: 600, h: 120 })
+    json<ListedNode>(await rpc.call('move_node', { id: created.id, x: 400, y: 10 }))
+    const grown = json<ListedNode>(await rpc.call('resize_node', { id: 'orch', w: 600, h: 200 }))
+    expect(grown).toMatchObject({ x: 0, y: 0, w: 400 - 16, h: 200 })
+    expect(nodeOf('orch')).toMatchObject({ w: grown.w, h: grown.h })
+    expect(lastBroadcast()?.layout).toEqual(store.get(PROJECT).layout)
+  })
+
+  it('the tool descriptions tell the agent that the place may be corrected and the answer has the real one', async () => {
+    const rpc = await connect()
+    const { result } = await rpc.request('tools/list', {})
+    const tools = new Map((result as { tools: { name: string; description: string }[] }).tools.map((tool) => [tool.name, tool.description]))
+    for (const name of ['create_card', 'create_note', 'move_node', 'resize_node']) expect(tools.get(name), name).toMatch(/nearest free place.*answer/i)
   })
 
   it('create_note makes a note Node with its text', async () => {
@@ -523,7 +558,8 @@ describe('canvas tools: tool calls and the renderer at once', () => {
       if (op.op === 'move') order.push({ id: op.id, x: op.x, y: op.y })
     })
 
-    const moves = Array.from({ length: 100 }, (_, n) => ({ id: ids[n % ids.length] ?? 'a', x: n * 10 + 1, y: n * -7 - 1 }))
+    // Places far apart: none of them is corrected for an overlap (ADR-0038), so the last move is where the Node is.
+    const moves = Array.from({ length: 100 }, (_, n) => ({ id: ids[n % ids.length] ?? 'a', x: n * 1000 + 1, y: n * -700 - 1 }))
     const results = await Promise.all(
       moves.map(async (move, n) => {
         if (n % 2 === 0) return (await rendererApply({ op: 'move', ...move })).ok

@@ -30,6 +30,8 @@ export const nodeDataSchema = z.record(z.string(), z.unknown())
 /** The longest tag a `tag` operation accepts, and how many tags one operation may name. */
 export const TAG_LENGTH_MAX = 40
 const TAGS_PER_OP_MAX = 50
+/** How many Nodes one `moveMany` may move. */
+const MOVES_PER_OP_MAX = 5000
 /** A free-form tag of a Node: trimmed, not empty. */
 export const tagSchema = z.string().trim().min(1).max(TAG_LENGTH_MAX)
 
@@ -81,7 +83,7 @@ export type Layout = z.output<typeof layoutSchema>
 
 export const EMPTY_LAYOUT: Layout = { nodes: [], viewport: DEFAULT_VIEWPORT }
 
-/** The operations that change a Layout. Each names one Node, except setViewport. */
+/** The operations that change a Layout. Each names one Node, except setViewport and moveMany. */
 export const layoutOpSchema = z.discriminatedUnion('op', [
   /** Adds a Node; main makes up the id when there is none. A taken id is refused. */
   z.object({ op: z.literal('create'), node: layoutNodeSchema.extend({ id: nodeIdSchema.optional() }) }),
@@ -107,6 +109,19 @@ export const layoutOpSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('pin'), id: nodeIdSchema, pinned: z.boolean(), x: coordinate, y: coordinate, w: size, h: size }),
   /** Adds and removes tags of one Node; a tag both added and removed ends up removed. */
   z.object({ op: z.literal('tag'), id: nodeIdSchema, add: z.array(tagSchema).max(TAGS_PER_OP_MAX).default([]), remove: z.array(tagSchema).max(TAGS_PER_OP_MAX).default([]) }),
+  /**
+   * Moves several Nodes at once, as one drag of a selection does (ADR-0038): main checks the group
+   * as a whole and shifts all of it when it lands on a Node outside it, so the Nodes keep their
+   * places to each other. Refused, like `move`, when one of them is pinned; each Node once.
+   */
+  z.object({
+    op: z.literal('moveMany'),
+    moves: z
+      .array(z.object({ id: nodeIdSchema, x: coordinate, y: coordinate }))
+      .min(1)
+      .max(MOVES_PER_OP_MAX)
+      .refine((moves) => new Set(moves.map((move) => move.id)).size === moves.length, 'each Node may be moved once'),
+  }),
 ])
 /** An operation as a caller writes it (defaults may be left out). */
 export type LayoutOpInput = z.input<typeof layoutOpSchema>

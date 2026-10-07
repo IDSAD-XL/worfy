@@ -34,7 +34,7 @@ import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput, t
 import { edgeSources, edgesOf, edgeTypes, nodeSources, overlays, type NodeSource } from './extensions'
 import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
 import { UnknownNode } from './UnknownNode'
-import { applyRecorded, grouped, type Group, type LayoutChannel } from './history'
+import { applyRecorded, dropOperation, type Group, type LayoutChannel } from './history'
 import { applyLayoutOp, currentLayout, LayoutOpsContext, useLayout, type LayoutOps } from './useLayout'
 // Every Node type is drawn inside the chrome (tags, the pinned frame); pinned Nodes are placed
 // anew for every viewport (ticket 29).
@@ -201,10 +201,8 @@ function Flow({ projectId, state }: FlowProps) {
         if (!source) layoutNodes.push(node)
         else if (source.moved({ projectId, layout }, node) !== true) back.add(node.id)
       }
-      // One drag is one step of the history, however many Nodes it moved.
-      void grouped(async (group) => {
-        await Promise.all(layoutNodes.map((node) => ops.apply({ op: 'move', id: node.id, x: node.position.x, y: node.position.y }, group)))
-      })
+      const op = dropOperation(layoutNodes)
+      if (op !== undefined) void ops.apply(op)
       // A Node whose source keeps no place for it goes back to where the source has it (ADR-0037).
       if (back.size > 0) {
         const at = new Map(derived.nodes.filter((node) => back.has(node.id)).map((node) => [node.id, node.position]))

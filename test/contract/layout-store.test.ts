@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { layoutSchema, type Layout, type LayoutOpInput, type LayoutState } from '../../src/shared/layout/types'
 import type { LayoutStore } from '../../src/main/layout/store'
+import { freePlace, freeShift } from '../../src/shared/layout/free-place'
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PROJECT = 'demo-0a1b2c3d'
@@ -109,7 +110,8 @@ describe('layout store: parallel writes', () => {
       if (op.op === 'move') order.push({ id: op.id, x: op.x, y: op.y })
     })
 
-    const moves = Array.from({ length: 100 }, (_, n) => ({ op: 'move' as const, id: ids[n % ids.length] ?? 'a', x: n * 10 + 1, y: n * -7 - 1 }))
+    // Places far apart: none of them is corrected for an overlap (ADR-0038), so the last move is where the Node is.
+    const moves = Array.from({ length: 100 }, (_, n) => ({ op: 'move' as const, id: ids[n % ids.length] ?? 'a', x: n * 1000 + 1, y: n * -700 - 1 }))
     const results = await Promise.all(
       moves.map(async (move, n) => {
         if (n % 2 === 0) return apply(move)
@@ -456,5 +458,227 @@ describe('layout store: saving', () => {
     expect((await value('layout.get', { projectId: other })).layout.nodes.map((node) => node.id)).toEqual(['theirs'])
     store.flushAll()
     expect(onDisk(other).nodes.map((node) => node.id)).toEqual(['theirs'])
+  })
+})
+
+// ── Nodes never overlap (ADR-0038) ─────────────────────────────────────────
+
+/** The gap two Nodes on the plane keep (ADR-0038, decision 25). */
+const GAP = 16
+type Box = { id: string; x: number; y: number; w: number; h: number }
+/** How far apart two boxes are along the axis they are separated on; negative when they overlap. */
+const separation = (a: Box, b: Box): number => Math.max(b.x - (a.x + a.w), a.x - (b.x + b.w), b.y - (a.y + a.h), a.y - (b.y + b.h))
+/** Pairs of Nodes on the plane closer than the gap. */
+function crowded(layout: Layout): string[] {
+  const plane = layout.nodes.filter((node) => !node.hidden && !node.pinned && !['epic-frame', 'ticket', 'subagent', 'subagent-tree'].includes(node.kind))
+  const pairs: string[] = []
+  for (const [i, a] of plane.entries()) for (const b of plane.slice(i + 1)) if (separation(a, b) < GAP) pairs.push(`${a.id}~${b.id}`)
+  return pairs
+}
+const card = (id: string, x: number, y: number) => ({ op: 'create', node: { id, kind: 'card', x, y, w: 300, h: 200, data: { title: id } } }) as LayoutOpInput
+
+describe('layout store: Nodes never overlap (ADR-0038)', () => {
+  const OLD = new Date('2026-10-01T00:00:00Z')
+  const CARD = { x: 0, y: 0, w: 300, h: 200 }
+
+  /** A Card at (0, 0), a Node pinned to the screen and a hidden Node over it: neither of the last two takes part. */
+  async function fixture(): Promise<{ pinned: unknown; hidden: unknown }> {
+    await applied(card('card', CARD.x, CARD.y))
+    await applied(note('pinned', { x: 50, y: 50, pinned: true }))
+    const { layout } = await applied(note('hidden', { x: 40, y: 40, hidden: true }))
+    return { pinned: nodeOf(layout, 'pinned'), hidden: nodeOf(layout, 'hidden') }
+  }
+
+  /** After the operation: no two Nodes on the plane closer than the gap, the Card where it was, the pinned and hidden Nodes untouched. */
+  function expectClear(layout: Layout, untouched: { pinned: unknown; hidden: unknown }): void {
+    expect(crowded(layout)).toEqual([])
+    expect(nodeOf(layout, 'card')).toMatchObject(CARD)
+    expect(nodeOf(layout, 'pinned')).toEqual(untouched.pinned)
+    expect(nodeOf(layout, 'hidden')).toEqual(untouched.hidden)
+  }
+
+  it('a move of a Note onto a Card puts the Note on the nearest free place, at least 16 px off the Card, and the Card stays', async () => {
+    await applied(card('card', 0, 0))
+    await applied(note('note', { x: 1000, y: 0 }))
+    const { layout } = await applied({ op: 'move', id: 'note', x: 40, y: 40 })
+    expect(crowded(layout)).toEqual([])
+    expect(nodeOf(layout, 'card')).toMatchObject({ x: 0, y: 0, w: 300, h: 200 })
+    // The same place the shared function gives for the same input (test/unit/free-place.test.ts).
+    expect(nodeOf(layout, 'note')).toMatchObject({ x: 40, y: 216 })
+    expect(nodeOf(layout, 'note')).toMatchObject(freePlace({ x: 40, y: 40, w: 220, h: 120 }, [CARD]))
+  })
+
+  it('create onto the Card', async () => {
+    const untouched = await fixture()
+    const { layout } = await applied(note('new', { x: 40, y: 40 }))
+    expectClear(layout, untouched)
+    expect(nodeOf(layout, 'new')).toMatchObject({ x: 40, y: 216 })
+  })
+
+  it('move onto the Card', async () => {
+    const untouched = await fixture()
+    await applied(note('note', { x: 1000, y: 0 }))
+    const { layout } = await applied({ op: 'move', id: 'note', x: 40, y: 40 })
+    expectClear(layout, untouched)
+  })
+
+  it('resize into the Card on the right stops the right edge 16 px short of it; the left edge stays', async () => {
+    const untouched = await fixture()
+    await applied(note('note', { x: -400, y: 0, w: 200, h: 120 }))
+    const { layout } = await applied({ op: 'resize', id: 'note', w: 900, h: 120 })
+    expectClear(layout, untouched)
+    expect(nodeOf(layout, 'note')).toMatchObject({ x: -400, y: 0, w: 400 - GAP, h: 120 })
+  })
+
+  it('resize into the Card on the left stops the left edge 16 px short of it; the right edge stays', async () => {
+    const untouched = await fixture()
+    await applied(note('note', { x: 400, y: 0, w: 200, h: 120 }))
+    // Dragged by the left edge: x moves with it.
+    const { layout } = await applied({ op: 'resize', id: 'note', x: 100, y: 0, w: 500, h: 120 })
+    expectClear(layout, untouched)
+    expect(nodeOf(layout, 'note')).toMatchObject({ x: 300 + GAP, y: 0, w: 600 - 300 - GAP, h: 120 })
+  })
+
+  it('hide with hidden: false of a Node hidden over the Card', async () => {
+    const untouched = await fixture()
+    await applied(note('note', { x: 40, y: 40, hidden: true }))
+    const { layout } = await applied({ op: 'hide', id: 'note', hidden: false })
+    expectClear(layout, untouched)
+    expect(nodeOf(layout, 'note')).toMatchObject({ hidden: false, x: 40, y: 216 })
+  })
+
+  it('pin with pinned: false onto the Card', async () => {
+    const untouched = await fixture()
+    await applied(note('note', { x: 600, y: 600, pinned: true }))
+    const { layout } = await applied({ op: 'pin', id: 'note', pinned: false, x: 40, y: 40, w: 220, h: 120 })
+    expectClear(layout, untouched)
+    expect(nodeOf(layout, 'note')).toMatchObject({ pinned: false, x: 40, y: 216 })
+  })
+
+  it('moveMany onto the Card shifts the whole group and keeps the Nodes where they are to each other', async () => {
+    const untouched = await fixture()
+    await applied(note('a', { x: 1000, y: 0 }))
+    await applied(note('b', { x: 1240, y: 0 }))
+    const { layout } = await applied({ op: 'moveMany', moves: [{ id: 'a', x: 40, y: 40 }, { id: 'b', x: 280, y: 40 }] })
+    expectClear(layout, untouched)
+    const a = nodeOf(layout, 'a')!
+    const b = nodeOf(layout, 'b')!
+    expect([b.x - a.x, b.y - a.y]).toEqual([240, 0])
+    expect(a).toMatchObject({ x: 40 + freeShift([{ x: 40, y: 40, w: 220, h: 120 }, { x: 280, y: 40, w: 220, h: 120 }], [CARD]).dx })
+  })
+
+  it('moveMany of two neighbours by +100 px on x puts them exactly 100 px further, though the first lands where the second was', async () => {
+    await applied(note('a', { x: 0, y: 0 }))
+    await applied(note('b', { x: 240, y: 0 }))
+    const { layout } = await applied({ op: 'moveMany', moves: [{ id: 'a', x: 100, y: 0 }, { id: 'b', x: 340, y: 0 }] })
+    expect(nodeOf(layout, 'a')).toMatchObject({ x: 100, y: 0 })
+    expect(nodeOf(layout, 'b')).toMatchObject({ x: 340, y: 0 })
+  })
+
+  it('moveMany is refused for a pinned Node, a missing Node and a Node named twice, and changes nothing', async () => {
+    await applied(note('a', { x: 0, y: 0 }))
+    await applied(note('p', { x: 500, y: 0, pinned: true }))
+    const before = store.get(PROJECT).layout
+    expect(await apply({ op: 'moveMany', moves: [{ id: 'a', x: 1, y: 1 }, { id: 'p', x: 2, y: 2 }] })).toMatchObject({ ok: false, error: expect.stringContaining('pinned') })
+    expect(await apply({ op: 'moveMany', moves: [{ id: 'a', x: 1, y: 1 }, { id: 'gone', x: 2, y: 2 }] })).toMatchObject({ ok: false, error: expect.stringContaining('gone') })
+    expect(await apply({ op: 'moveMany', moves: [{ id: 'a', x: 1, y: 1 }, { id: 'a', x: 2, y: 2 }] })).toMatchObject({ ok: false })
+    expect(await apply({ op: 'moveMany', moves: [] })).toMatchObject({ ok: false })
+    expect(store.get(PROJECT).layout).toEqual(before)
+  })
+
+  it('patchData and tag do not move a Node', async () => {
+    await applied(card('card', 0, 0))
+    await applied(note('note', { x: 400, y: 0 }))
+    const before = nodeOf(store.get(PROJECT).layout, 'note')
+    await applied({ op: 'patchData', id: 'note', data: { text: 'x' } })
+    const { layout } = await applied({ op: 'tag', id: 'note', add: ['t'] })
+    expect(nodeOf(layout, 'note')).toMatchObject({ x: before!.x, y: before!.y })
+  })
+
+  it('the HANDOFF Node shown again when HANDOFF.md comes back goes to a free place; the Orchestrator at (40, 40) stays', async () => {
+    const base = { hidden: false, locked: true, pinned: false, tags: [] }
+    writeFileSync(
+      layoutFile(),
+      JSON.stringify({
+        nodes: [
+          { id: 'orch', kind: 'orchestrator', x: 40, y: 40, w: 360, h: 200, ...base, data: {} },
+          { id: 'handoff', kind: 'handoff', x: 40, y: 40, w: 360, h: 320, ...base, hidden: true, data: { missing: true } },
+        ],
+        viewport: { x: 0, y: 0, zoom: 1 },
+      }),
+    )
+    await start()
+    const { syncHandoffNode } = await import('../../src/main/ipc/docs')
+    syncHandoffNode(PROJECT, true)
+    const { layout } = store.get(PROJECT)
+    expect(nodeOf(layout, 'orch')).toMatchObject({ x: 40, y: 40 })
+    expect(nodeOf(layout, 'handoff')).toMatchObject({ hidden: false, data: { missing: false } })
+    expect(crowded(layout)).toEqual([])
+  })
+
+  it('reading a saved Layout moves B (created later) off A to the nearest free place, A stays, one log line names B, from and to; a second read writes nothing; nothing is broadcast', async () => {
+    const base = { hidden: false, locked: false, pinned: false, tags: [], data: {} }
+    writeFileSync(
+      layoutFile(),
+      JSON.stringify({
+        nodes: [
+          { id: 'A', kind: 'card', x: 0, y: 0, w: 300, h: 200, ...base },
+          { id: 'B', kind: 'note', x: 40, y: 40, w: 220, h: 120, ...base },
+        ],
+        viewport: { x: 0, y: 0, zoom: 1 },
+      }),
+    )
+    utimesSync(layoutFile(), OLD, OLD)
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    try {
+      const state = await value('layout.get', { projectId: PROJECT })
+      expect(state.revision).toBe(0)
+      expect(nodeOf(state.layout, 'A')).toMatchObject({ x: 0, y: 0 })
+      expect(nodeOf(state.layout, 'B')).toMatchObject({ x: 40, y: 216 })
+      expect(info.mock.calls.map((args) => String(args[0]))).toEqual([`[layout] ${PROJECT}: moved Node B from (40, 40) to (40, 216) off the Nodes created before it; Nodes never overlap (ADR-0038)`])
+      expect(onDisk()).toEqual(state.layout)
+      expect(statSync(layoutFile()).mtimeMs).toBeGreaterThan(OLD.getTime())
+      // Not an operation: nothing broadcast, so nothing reaches the renderer's ⌘Z history.
+      expect(electron.sent).toEqual([])
+
+      utimesSync(layoutFile(), OLD, OLD)
+      info.mockClear()
+      await start()
+      expect((await value('layout.get', { projectId: PROJECT })).layout).toEqual(state.layout)
+      store.flushAll()
+      expect(statSync(layoutFile()).mtimeMs).toBe(OLD.getTime())
+      expect(info).not.toHaveBeenCalled()
+    } finally {
+      info.mockRestore()
+    }
+  })
+
+  it('correcting one operation and reading a Layout of 500 Nodes take less than 1 s together', async () => {
+    const base = { hidden: false, locked: false, pinned: false, tags: [], data: {} }
+    // 500 Nodes on a grid, every tenth one dropped onto its neighbour.
+    const nodes = Array.from({ length: 500 }, (_, index) => {
+      const column = index % 25
+      const row = Math.floor(index / 25)
+      const onNeighbour = index % 10 === 9
+      return { id: `n${index}`, kind: 'note', x: column * 260 - (onNeighbour ? 200 : 0), y: row * 160 + (onNeighbour ? 30 : 0), w: 220, h: 120, ...base }
+    })
+    writeFileSync(layoutFile(), JSON.stringify({ nodes, viewport: { x: 0, y: 0, zoom: 1 } }))
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    try {
+      const started = performance.now()
+      const read = store.get(PROJECT)
+      const readMs = performance.now() - started
+      const moveStarted = performance.now()
+      const { layout } = store.apply(PROJECT, { op: 'move', id: 'n0', x: 3000, y: 1500 })
+      const moveMs = performance.now() - moveStarted
+      console.log(`[perf] 500 Nodes: read with overlap removal ${readMs.toFixed(1)} ms (${info.mock.calls.length} moved), one corrected move ${moveMs.toFixed(1)} ms`)
+      // The 50 dropped Nodes, and the later Nodes that a moved one now crowds.
+      expect(info.mock.calls.length).toBeGreaterThanOrEqual(50)
+      expect(crowded(read.layout)).toEqual([])
+      expect(crowded(layout)).toEqual([])
+      expect(readMs + moveMs).toBeLessThan(1000)
+    } finally {
+      info.mockRestore()
+    }
   })
 })

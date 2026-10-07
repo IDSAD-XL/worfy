@@ -39,3 +39,8 @@ Change the canvas only with the `worfy-canvas` tools, never by editing files:
 Tickets are laid out from the workflow: the tools do not list or move them; `link_card` links a
 Card to them. Subagent Nodes are laid out from their Session's transcript: the tools do not list,
 move or link them.
+
+Nodes never overlap. When `create_card`, `create_note` or `move_node` asks for a place another Node
+takes (or one closer than 16 px to it), the Node goes to the nearest free place instead; a
+`resize_node` edge that runs into another Node stops 16 px short of it. The other Nodes do not
+move. The tool's answer has the real x, y, w and h: use those, not the ones you asked for.

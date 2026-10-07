@@ -4,16 +4,22 @@
 // through the same schema check here. The process applies operations one at a time, in the order
 // they arrive, so the last operation on a Node wins and two callers can never interleave halfway.
 //
+// Nodes never overlap (ADR-0038): an operation that puts a Node on the plane — create, move,
+// resize, showing a hidden Node, unpinning, moveMany — is corrected here, whoever sent it, so the
+// Node keeps the gap from every other Node on the plane; the neighbours do not move. The answer
+// carries the corrected place.
+//
 // Operations change the Layout in memory at once; the file is written after a quiet period
 // (LAYOUT_SAVE_DELAY_MS since the last operation), and right away by flush() — the IPC module
 // calls flushAll() when the app quits.
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { z } from 'zod'
+import { freePlace, freeShift, isParticipant, obstaclesFor, stopResize } from '../../shared/layout/free-place'
 import { EMPTY_LAYOUT, layoutOpSchema, layoutSchema, type Layout, type LayoutNode, type LayoutOp, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
 import { projectStore } from '../projects/store'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
-import { upgradeLayout, upgradeMessage } from './upgrade'
+import { upgradeLayout, upgradeMessages } from './upgrade'
 
 /** How long the Layout must stay unchanged before it is written. */
 export const LAYOUT_SAVE_DELAY_MS = 250
@@ -40,14 +46,53 @@ interface Entry {
 
 const writeLayoutFile = (file: string, layout: Layout): void => writeJsonFile(file, layoutSchema, layout)
 
-/** Applies one parsed operation to a Layout; returns the new Layout. Throws when it is refused. */
+/**
+ * The Node at `index` of `nodes`, put where it keeps the gap from every other Node on the plane
+ * (ADR-0038): at the nearest clear place, or, after a resize, with the edges that ran into a
+ * neighbour stopped short of it. A Node off the plane (pinned, hidden, a node source's) stays as it
+ * is and is in nobody's way.
+ */
+function settle(nodes: readonly LayoutNode[], index: number, before: LayoutNode | undefined, op: LayoutOp): LayoutNode {
+  const node = nodes[index]!
+  if (!isParticipant(node)) return node
+  const obstacles = obstaclesFor(nodes, new Set([node.id]))
+  if (op.op === 'resize' && before !== undefined && isParticipant(before)) return { ...node, ...stopResize(before, node, obstacles) }
+  return { ...node, ...freePlace(node, obstacles) }
+}
+
+/** Moves several Nodes as one group: the group shifts as a whole off the Nodes outside it (ADR-0038). */
+function moveMany(layout: Layout, op: Extract<LayoutOp, { op: 'moveMany' }>): Layout {
+  const at = new Map(op.moves.map((move) => [move.id, move]))
+  for (const { id } of op.moves) {
+    const node = layout.nodes.find((each) => each.id === id)
+    if (node === undefined) throw new Error(`The Layout has no Node with id ${id}`)
+    if (node.pinned) throw new Error(`Node ${id} is pinned to the screen; unpin it before a move`)
+  }
+  const moved = layout.nodes.map((node) => {
+    const move = at.get(node.id)
+    return move === undefined ? node : { ...node, x: move.x, y: move.y }
+  })
+  const group = moved.filter((node) => at.has(node.id) && isParticipant(node))
+  const { dx, dy } = freeShift(group, obstaclesFor(moved, new Set(at.keys())))
+  if (dx === 0 && dy === 0) return { ...layout, nodes: moved }
+  const shifted = new Set(group.map((node) => node.id))
+  return { ...layout, nodes: moved.map((node) => (shifted.has(node.id) ? { ...node, x: node.x + dx, y: node.y + dy } : node)) }
+}
+
+/**
+ * Applies one parsed operation to a Layout; returns the new Layout. Throws when it is refused. An
+ * operation that puts a Node on the plane is corrected so that the Node overlaps none (ADR-0038).
+ */
 function applyOp(layout: Layout, op: LayoutOp): Layout {
   if (op.op === 'setViewport') return { ...layout, viewport: op.viewport }
+  if (op.op === 'moveMany') return moveMany(layout, op)
 
   if (op.op === 'create') {
     const id = op.node.id ?? randomUUID()
     if (layout.nodes.some((node) => node.id === id)) throw new Error(`The Layout already has a Node with id ${id}`)
-    return { ...layout, nodes: [...layout.nodes, { ...op.node, id }] }
+    const nodes = [...layout.nodes, { ...op.node, id }]
+    nodes[nodes.length - 1] = settle(nodes, nodes.length - 1, undefined, op)
+    return { ...layout, nodes }
   }
 
   const index = layout.nodes.findIndex((node) => node.id === op.id)
@@ -91,6 +136,8 @@ function applyOp(layout: Layout, op: LayoutOp): Layout {
   }
   const nodes = [...layout.nodes]
   nodes[index] = next
+  // Data and tags do not move a Node; the operations that put it somewhere on the plane are corrected.
+  if (op.op === 'move' || op.op === 'resize' || op.op === 'hide' || op.op === 'pin') nodes[index] = settle(nodes, index, current, op)
   return { ...layout, nodes }
 }
 
@@ -122,12 +169,13 @@ export class LayoutStore {
     let entry = this.entries.get(projectId)
     if (!entry) {
       const read = readJsonFile(file, layoutSchema) ?? EMPTY_LAYOUT
-      // What this version no longer keeps goes once, on the first read (upgrade.ts, ADR-0037).
+      // What this version no longer keeps goes once, and overlaps are removed, on the first read
+      // (upgrade.ts, ADR-0037, ADR-0038).
       const upgraded = upgradeLayout(read)
       entry = { layout: upgraded?.layout ?? read, revision: 0, timer: undefined, dirty: false }
       this.entries.set(projectId, entry)
       if (upgraded) {
-        console.info(upgradeMessage(projectId, upgraded))
+        for (const line of upgradeMessages(projectId, upgraded)) console.info(line)
         entry.dirty = true
         this.flush(projectId)
       }

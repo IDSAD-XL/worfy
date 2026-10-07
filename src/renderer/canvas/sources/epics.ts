@@ -355,7 +355,10 @@ export function buildEpicNodes(
   // The frames' column keeps clear of the Nodes on the plane, the Layout's and other sources' (ADR-0032);
   // it is found again on every change of the Layout, the workflow model or those Nodes, so Tickets
   // that arrive after main placed a Node still keep off it.
+  // A frame with an offset yields to the Nodes, the Subagent trees, the column and the frames with an
+  // offset before it, in the order of their `epic-frame` Nodes in the Layout (ADR-0038).
   const plane = [...layout.nodes.filter(onThePlane), ...derived]
+  const order = new Map(layout.nodes.map((node, index) => [node.id, index]))
   const places = stackFrames(
     entries.map(({ epic, saved, entry }) => ({
       epic: epic.epic,
@@ -363,6 +366,7 @@ export function buildEpicNodes(
       height: entry.layout.height,
       reserve: entry.reserve,
       offset: saved.offset,
+      order: order.get(epicNodeId(epic.epic)),
     })),
     plane,
   )
