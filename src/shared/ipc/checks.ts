@@ -1,6 +1,6 @@
 // The `checks` domain: what the gate, GitHub pull requests and CI say about a Project's worktrees
 // and Ticket branches, for the badges on Tickets and Sessions (ticket 17). Main reads the gate's
-// state files under ~/.claude/gate, the Sessions' transcripts and `gh pr list`; nothing is
+// state files under ~/.claude/gate (markers and the verdict file), the Sessions' transcripts and `gh pr list`; nothing is
 // written anywhere (ADR-0002, ADR-0005). The main process side is src/main/gate/state.ts,
 // src/main/github/prs.ts and src/main/ipc/checks.ts.
 import { z } from 'zod'
@@ -32,9 +32,12 @@ export type GateOutcome = z.infer<typeof gateOutcomeSchema>
 
 export const gateStateSchema = z.object({
   outcome: gateOutcomeSchema,
-  /** Where it came from: a marker file of gate.sh, the last `[gate]` line of a transcript, or nothing. */
-  source: z.enum(['marker', 'transcript', 'none']),
-  /** ISO time of the transcript record with the gate line; null for a marker or no data. */
+  /**
+   * Where it came from: a marker file of gate.sh, its verdict file (`verdict-<tag>.json`, ticket
+   * worfy-harness/09), the last `[gate]` line of a transcript, or nothing.
+   */
+  source: z.enum(['marker', 'file', 'transcript', 'none']),
+  /** ISO time of the run in the verdict file or of the transcript record with the gate line; null for a marker or no data. */
   at: z.string().nullable(),
 })
 export type GateState = z.infer<typeof gateStateSchema>

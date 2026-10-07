@@ -5,14 +5,19 @@
 //   verify), where `tag` is the first 8 hex digits of SHA-1 of the worktree path (gate.sh:
 //   `printf '%s' "$repo" | shasum | cut -c1-8`) and `key` is the entry of <home>/gate/config.json
 //   whose `match` is the longest prefix of the repository root (gate-resolve.mjs --which);
-// - without a marker, the last `[gate] зелено | красно | ничего не прогналось | ПРОВЕРИТЬ НЕ УДАЛОСЬ`
+// - without a marker, the verdict file `verdict-<tag>.json` in the same folder: gate.sh rewrites it
+//   on every run with the outcome of that run (ticket worfy-harness/09, the format is in the header
+//   of harness/hooks/gate.sh). A marker goes first: after a red run, a run that checked nothing
+//   writes `none` into the file, and the worktree stays red while the red marker is there;
+// - without a marker or a usable verdict file (a gate older than the file, ~/.claude before the
+//   Harness moves to the plugin), the last `[gate] зелено | красно | ничего не прогналось | ПРОВЕРИТЬ НЕ УДАЛОСЬ`
 //   line in the transcripts of the Sessions started in that worktree: the output of a Bash call
 //   that ran gate.sh in that worktree, and hook output. The output of other commands (the gate's
 //   own tests, `tail` of an old log, gate.sh after `cd` to another repository) and a line the user
 //   or the model wrote (a prompt, a brief, a reply) do not count.
 //
-// «Ничего не прогналось» is «нет данных», never green. Nothing here writes: the state folder and
-// the transcripts are only listed and read, git only lists worktrees.
+// «Ничего не прогналось» (`none` in the file) is «нет данных», never green. Nothing here writes: the
+// state folder and the transcripts are only listed and read, git only lists worktrees.
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { realpath } from 'node:fs'
@@ -21,7 +26,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { z } from 'zod'
-import type { GateOutcome, GateState } from '../../shared/ipc/checks'
+import { gateOutcomeSchema, type GateOutcome, type GateState } from '../../shared/ipc/checks'
 import { projectDirName } from '../claude-home/registry'
 import { readNewLines, type TailCursor } from '../claude-home/tail'
 
@@ -32,6 +37,8 @@ const realpathNative = promisify(realpath.native)
 export function gateTag(path: string): string {
   return createHash('sha1').update(path, 'utf8').digest('hex').slice(0, 8)
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 
 // ── which entry of gate/config.json ─────────────────────────────────────────
 
@@ -92,6 +99,53 @@ async function listState(home: string): Promise<Set<string>> {
   }
 }
 
+// ── the verdict file ─────────────────────────────────────────────────────────
+
+/** `verdict-<tag>.json` as gate.sh writes it (harness/hooks/gate.sh, the header). */
+const verdictFileSchema = z
+  .object({
+    version: z.literal(1),
+    outcome: gateOutcomeSchema,
+    profile: z.string(),
+    worktree: z.string().min(1),
+    key: z.string().nullable(),
+    head: z.string().nullable(),
+    exit: z.number().int(),
+    at: z.iso.datetime({ offset: true }),
+    reason: z.string().nullable(),
+  })
+  .loose()
+export type GateVerdictFile = z.infer<typeof verdictFileSchema>
+
+/** The name of the verdict file of a worktree with this tag in the gate state folder. */
+export const verdictFileName = (tag: string): string => `verdict-${tag}.json`
+
+/**
+ * The verdict file of the worktree `worktree` (its path on disk): `{ verdict }` when the file is
+ * the gate's format and is about this worktree, `{ problem }` with one line saying why it is not
+ * taken, and null when there is no file. Two worktrees whose tags (8 hex digits) collide share a
+ * file name; the `worktree` inside it tells them apart.
+ */
+export async function readVerdictFile(file: string, worktree: string): Promise<{ verdict: GateVerdictFile } | { problem: string } | null> {
+  let text: string
+  try {
+    text = await readFile(file, 'utf8')
+  } catch (error) {
+    return isRecord(error) && error.code === 'ENOENT' ? null : { problem: `cannot be read: ${String(error)}` }
+  }
+  let json: unknown
+  try {
+    json = JSON.parse(text)
+  } catch {
+    return { problem: 'is not JSON' }
+  }
+  const parsed = verdictFileSchema.safeParse(json)
+  if (!parsed.success) return { problem: `is not the gate's verdict format: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || '(root)'} ${issue.message}`).join('; ')}` }
+  const verdict = parsed.data
+  if (verdict.worktree !== worktree && (await onDisk(verdict.worktree)) !== worktree) return { problem: `is about another worktree: ${verdict.worktree}` }
+  return { verdict }
+}
+
 // ── gate lines in transcripts ────────────────────────────────────────────────
 
 const GATE_LINE = /^\[gate\] (зелено|красно|ничего не прогналось|ПРОВЕРИТЬ НЕ УДАЛОСЬ)/gmu
@@ -109,8 +163,6 @@ export function lastGateOutcome(text: string): GateOutcome | null {
   for (const match of text.matchAll(GATE_LINE)) last = OUTCOME[match[1]!] ?? last
   return last
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /** The text of a tool result's `content`: a string or a list of text blocks. */
 function toolResultText(content: unknown): string[] {
@@ -342,13 +394,38 @@ export async function listWorktrees(root: string): Promise<Worktree[]> {
 export interface GateReaderOptions {
   /** The Claude home (src/main/storage/paths.ts, claudeHome()). */
   home: string
+  /** Where a verdict file that is not taken is reported, one line each; console.warn by default. */
+  warn?: (message: string) => void
 }
 
-/** Reads the gate state of a Project's worktrees; keeps what it learned of transcripts between reads. */
+/**
+ * Reads the gate state of a Project's worktrees; keeps what it learned of transcripts between reads.
+ * Per worktree: the red marker, the unverified marker, the verdict file, the last gate line of a
+ * transcript.
+ */
 export class GateReader {
   private readonly scanner = new TranscriptGateScanner()
+  /** The last problem reported per verdict file: the reader runs on every refresh, and says each one once. */
+  private readonly reported = new Map<string, string>()
 
   constructor(private readonly options: GateReaderOptions) {}
+
+  private async fromFile(names: ReadonlySet<string>, tag: string, worktree: string): Promise<GateState | null> {
+    const name = verdictFileName(tag)
+    const file = join(this.options.home, 'gate', 'state', name)
+    const read = names.has(name) ? await readVerdictFile(file, worktree) : null
+    if (read !== null && 'verdict' in read) {
+      this.reported.delete(file)
+      return { outcome: read.verdict.outcome, source: 'file', at: read.verdict.at }
+    }
+    if (read === null) this.reported.delete(file)
+    else if (this.reported.get(file) !== read.problem) {
+      this.reported.set(file, read.problem)
+      const warn = this.options.warn ?? ((message: string) => console.warn(message))
+      warn(`[gate] the verdict file ${file} is not taken for ${worktree}: it ${read.problem}`)
+    }
+    return null
+  }
 
   async read(root: string, worktrees: readonly Worktree[]): Promise<(Worktree & { gate: GateState })[]> {
     const { home } = this.options
@@ -357,9 +434,15 @@ export class GateReader {
     const real = await Promise.all(worktrees.map((worktree) => onDisk(worktree.path)))
     const result: (Worktree & { gate: GateState })[] = []
     for (const [index, worktree] of worktrees.entries()) {
-      const marker = key === null ? null : markerOutcome(names, key, gateTag(real[index]!))
+      const tag = gateTag(real[index]!)
+      const marker = key === null ? null : markerOutcome(names, key, tag)
       if (marker !== null) {
         result.push({ ...worktree, gate: { outcome: marker, source: 'marker', at: null } })
+        continue
+      }
+      const file = await this.fromFile(names, tag, real[index]!)
+      if (file !== null) {
+        result.push({ ...worktree, gate: file })
         continue
       }
       const sighting = await this.scanner.lastIn(join(home, 'projects', projectDirName(worktree.path)), { here: real[index]!, worktrees: real })
