@@ -122,4 +122,35 @@ ADR-0047). Общих файлов с Ticket-ами 05, 06 и 08 нет.
 
 ## Итог
 
-Заполняется при закрытии.
+- **Падающий test** — `harness/bin/tests/agents-text.test.sh` на базе ветки (31bc642): `passed 13, failed 33`,
+  код 1. Падали все проверки новых строк: нет `${CLAUDE_PLUGIN_ROOT}/bin/profile` и `…/hooks/gate.sh`, в
+  agents есть `~/.claude/bin/profile` и `КОД=`, нет `/worfy:ship-ticket`, пример отчёта не разбирается `jq`
+  (`"pr": <N>`), кириллица в `description` и в тексте. После перевода — `passed 46, failed 0`.
+- **Мутанты** (копия agents в scratchpad, `AGENTS_DIR`): возврат `~/.claude/hooks/gate.sh`, `КОД=` вместо
+  `EXIT=`, удалённый ключ `removed`, пропавший шаг «4.», `mcp__plugin_worfy_qmd__status` в `tools:`,
+  `/ship-ticket` без `worfy:`, кириллица в `description` и в тексте, `$HOME/.claude`, `"pr": <N>`, пропавший
+  пример «ложная зелень» — test краснеет на каждом.
+- **Разделы** сохранены по смыслу и по порядку: «Где работать» → `Where to work`, «Границы» → `Boundaries`,
+  «Порядок» → `Order` (шаги 1–6 с прежними номерами), «Отчёт — JSON и ничего больше» → `Report — JSON and
+  nothing else`, «Лексика» → `Terms` (действует, когда текст пишется по-русски; русские примеры метафор на
+  месте); у scout «Порядок работы» → `Order of work` (шаги 1–7), «Формат ответа» → `Answer format`.
+- **Добавлено** к переводу: абзац о языке (`language.reports` / `language.team` / `language.docs`, пока поля
+  нет — язык уже написанных документов) у implementer и reviewer; правило «значение Profile с
+  `~/.claude/bin/` (schema 1) читается как `${CLAUDE_PLUGIN_ROOT}/bin/`» и строка о плейсхолдерах Profile
+  (`<эпик>`, `<ветка>`, `<NN>`, `<что-ревьюишь>` — подставлять, не переводить) у implementer и reviewer;
+  подписи брифа `Repository:` / `Worktree:` у первого действия всех трёх agents; `worfy:reviewer` у
+  implementer и `worfy:implementer` у reviewer.
+- **Кириллица вне списка тикета** — заголовок `## Обязательное чтение исполнителя`: его ищет implementer в
+  `rules.md`, и так его называет контракт Profile (`harness/profiles/README.md:189`, `rules.md` Auction и
+  Atakama). Перевод сломал бы поиск, заголовок оставлен по-русски с английским пояснением и внесён в список
+  разрешённых подстрок test-а. Решено без владельца, подтвердить; заголовок меняет Ticket 11 вместе с
+  контрактом Profile.
+- **Пример JSON-отчёта** — теперь настоящий JSON в блоке ```json: `"pr": 123` вместо `<N>` (строка ниже
+  поясняет: номер PR), `"<epic>/<NN>"` вместо `"<эпик>/<NN>"`. Ключи те же десять.
+- **`description` implementer-а** — `parallel: single` в YAML без кавычек не разбирается строгим парсером
+  (Ruby `YAML.safe_load`: «mapping values are not allowed», и в исходном файле тоже); теперь «`parallel` set
+  to `single`». Frontmatter трёх файлов разбирается.
+- **Не проверено локально** (бриф запретил запускать настоящий Claude Code): подстановка
+  `${CLAUDE_PLUGIN_ROOT}` в текст agent-а (`claude -p --plugin-dir …`) и `claude plugin validate harness`.
+  Оба пункта «Готово, когда» — за владельцем или Orchestrator-ом в песочнице (`HOME` и `CLAUDE_CONFIG_DIR`
+  во временной папке).
