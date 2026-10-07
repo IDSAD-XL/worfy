@@ -1,7 +1,7 @@
 # 04 — Версия worfy и Harness: `0.2.0+<SHA>` в сборке, копия Harness в `.app`, версия в UI
 
 Type: task
-Status: claimed — 2026-10-07
+Status: done — 2026-10-07, [PR #111](https://github.com/IDSAD-XL/worfy/pull/111)
 Blocked by: 02
 Source: решения владельца 2026-10-07 (Q1, Q12); [spec.md](../spec.md); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md); [ADR-0019](../../../docs/adr/0019-harness-claude-code-plugin.md); [ADR-0008](../../../docs/adr/0008-claude-code-native-binary-path.md)
 
@@ -131,3 +131,16 @@ Wave по плану правят только `harness/` — общих фай�
      «is the version of this repository».
   3. Версия `package.json` не вида `X.Y.Z` (например `0.3.0-rc.1`) ломает сборку: строка не проходит
      `^\d+\.\d+\.\d+\+[0-9a-f]{7,}(\.dirty)?$` из тикета.
+
+**Влито.** [PR #111](https://github.com/IDSAD-XL/worfy/pull/111) → squash-коммит `c960ee0` в `main`. Ревью — VERIFIED с первого круга.
+Ревьюер проверил и то, что исполнитель не делал: CI не собирает `.app` (checkout глубины 1 хватает
+`build-version.test.ts`), `install-stable.sh` собирает в git checkout, копия равна `harness/` без восьми
+test-файлов с сохранёнными правами. Перед мержем: rebase на `d787c83`, head `7378818`,
+`GATE_SCOPE=all gate full` — exit 0, CI зелёный, `mergeStateStatus` CLEAN.
+
+**Долг.**
+- [low] `test/unit/build-version.test.ts:29` — `headOf` зовёт git, не очищая переменные `GIT_*` (`buildVersion` и
+  checkout в test-е их очищают). `pnpm test` из hook-а git с заданным `GIT_DIR` прочтёт SHA чужого репозитория.
+- [low] Отчёт исполнителя называет проверку регулярного выражения в `test/e2e/toolbar.spec.ts:93-94`, а она на `:95`.
+- Решения без владельца — пункты 1 и 3 выше (права в копии `bin/` проверяются как совпадение с `harness/`;
+  версия не вида `X.Y.Z` ломает сборку) — вынесены в HANDOFF, «Ждёт владельца».

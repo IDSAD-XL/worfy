@@ -1,7 +1,7 @@
 # 06 — Skills `epic-wave` и `ship-ticket` по-английски, с путями plugin, префиксом `worfy:` и новой командой Autopilot
 
 Type: task
-Status: open
+Status: done — 2026-10-07, [PR #110](https://github.com/IDSAD-XL/worfy/pull/110)
 Blocked by: 02
 Source: решения владельца 2026-10-07, вопросы Q6, Q34, Q2, Q11 и Q32; [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness на английском; формат команды Autopilot задаёт этот Ticket), [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (plugin `worfy`, `${CLAUDE_PLUGIN_ROOT}`), [ADR-0033](../../../docs/adr/0033-autopilot-names-wave-tickets.md) (Autopilot называет Ticket-ы Wave); [spec.md](../spec.md)
 
@@ -129,8 +129,8 @@ Ticket 20. Silent mode — Ticket 22. Удаление полей путей и�
 - [x] Номера разделов совпадают со старыми (список — в test-е). Тот же test.
 - [x] Подписи брифа — по таблице пункта 6 «Что делаем». Тот же test.
 - [x] Кириллица — только в разрешённых местах: старые формы команды Autopilot, слова вердикта Gate, плейсхолдеры Profile, названия разделов документов Project, русские примеры. Test держит список разрешённых подстрок, вырезает их и другой кириллицы не находит.
-- [ ] `claude plugin validate harness; echo "EXIT=$?"` — код 0, в выводе нет строк про `skills/epic-wave` и `skills/ship-ticket` (локально, `claude` из терминала).
-- [ ] Ревьюер с линзой «смысл сохранён» (Q34; Orchestrator даёт её явно) сравнил старый и новый текст обоих skills: `gh pr view <N> --json comments --jq '[.comments[].body | select(startswith("VERIFIED"))] | length'` — не меньше `1`.
+- [ ] `claude plugin validate harness; echo "EXIT=$?"` — код 0, в выводе нет строк про `skills/epic-wave` и `skills/ship-ticket` (локально, `claude` из терминала). Не проверено: настоящий Claude Code запускать запрещено.
+- [x] Ревьюер с линзой «смысл сохранён» (Q34; Orchestrator даёт её явно) сравнил старый и новый текст обоих skills: `gh pr view <N> --json comments --jq '[.comments[].body | select(startswith("VERIFIED"))] | length'` — не меньше `1`. Выполнено: VERIFIED в [PR #110](https://github.com/IDSAD-XL/worfy/pull/110).
 - [ ] CI на PR зелёный. Перед мержем — `GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full` под замком `/tmp/worfy-e2e.lock`: код 0 и строка `[gate] зелено`.
 
 ## Тесты
@@ -184,3 +184,21 @@ PR #110 (ветка `worfy-harness/06`).
   чтобы переформулировать правило, нужно поправить и test.
 - **Не проверено: `claude plugin validate harness`.** Бриф исполнителя запрещал запускать настоящий
   Claude Code; команда остаётся владельцу или Orchestrator-у.
+
+**Влито.** [PR #110](https://github.com/IDSAD-XL/worfy/pull/110) → squash-коммит `d787c83` в `main`. Ревью — REJECTED в первом круге, один круг
+доработки, затем VERIFIED (диф `d45e0df..c5ca0cf`). Находки первого круга: [med] раздел 5 `epic-wave` заменил
+дословные подписи блока статуса («— Этап: / — Сейчас: / — Дальше: / — Жду:») описанием — Orchestrator в
+английском Project напечатал бы «— Stage: …», и Node Orchestrator-а не показал бы статус Wave; [low] test не
+держал запреты (мутанты, убирающие «не переключать глобальный аккаунт gh», «мутации только на копиях» и
+«exit 0 без `[gate] зелено` — не проверка», выживали); [low] «Итог» не заполнен. Всё исправлено: подписи
+процитированы, по одной проверке на запрет, test 70/70. Перед мержем: rebase на `f57999d`, head `0b1a09b`,
+`GATE_SCOPE=all gate full` — exit 0, CI зелёный, `mergeStateStatus` CLEAN.
+
+**Долг.**
+- [low] Проверка подписей блока статуса ищет подпись где угодно в разделе 5: мутант, убирающий «— Сейчас:» из
+  списка в `harness/skills/epic-wave/SKILL.md:388`, проходит, потому что `:390` повторяет подпись.
+- [low] Skills печатают `NO RUN`, а `~/.claude/profiles/worfy/rules.md:23` (Profile worfy, вне репозитория)
+  говорит «НЕТ RUN».
+- [low] Skills этого Ticket-а ссылаются на `${CLAUDE_PLUGIN_ROOT}/profiles/README.md`, а пять skills Ticket-а 08 —
+  на `~/.claude/profiles/README.md`.
+- Противоречие пунктов 1 и 2 «Готово, когда» решено без владельца — в HANDOFF, «Ждёт владельца».

@@ -1,7 +1,7 @@
 # 08 — Остальные пять skills, скрипты `bin/` и `hooks/` по-английски; состояние Harness — в `~/.claude/worfy-harness/`
 
 Type: task
-Status: open
+Status: done — 2026-10-07, [PR #112](https://github.com/IDSAD-XL/worfy/pull/112)
 Blocked by: 02
 Source: решения владельца 2026-10-07, вопросы Q4, Q6, Q34, Q2, Q15 и Q32; [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (состояние Harness на машине, plugin `worfy`), [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness на английском, машинные строки), [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md) (qmd в plugin — граница с Ticket-ом 17); [spec.md](../spec.md)
 
@@ -127,8 +127,8 @@ Profile schema 2 и каталог Profile-ов — Ticket 11. worfy читае�
 - [ ] `skill-blocks.test.sh` проходит на новых SKILL.md под bash и zsh и ждёт `EXIT=` вместо `КОД=`: `bash harness/bin/tests/skill-blocks.test.sh` — код 0.
 - [ ] В файлах этого Ticket-а нет `~/.claude/bin`, `~/.claude/hooks`, `$HOME/.claude/bin`, `$HOME/.claude/hooks` и `КОД=`; кириллица — только в разрешённых местах: слова вердикта Gate, старые русские значения статуса в `epic-status`, плейсхолдеры Profile (`<эпик>`…), русские примеры. Test держит список разрешённых подстрок, вырезает их и другой кириллицы не находит. `harness-home.test.sh`.
 - [ ] Каждый test-файл из «Где в коде»: `bash <файл>; echo "EXIT=$?"` — код 0. Test-ы, которым нужны живые Auction и Atakama (часть `profile.test.sh` и `skill-blocks.test.sh`), без них печатают `skip`, как сейчас.
-- [ ] `claude plugin validate harness; echo "EXIT=$?"` — код 0, в выводе нет строк про пять skills этого Ticket-а (локально, `claude` из терминала).
-- [ ] Ревьюер с линзой «смысл сохранён» (Q34; Orchestrator даёт её явно) сравнил старый и новый текст пяти skills и сообщений скриптов: `gh pr view <N> --json comments --jq '[.comments[].body | select(startswith("VERIFIED"))] | length'` — не меньше `1`.
+- [ ] `claude plugin validate harness; echo "EXIT=$?"` — код 0, в выводе нет строк про пять skills этого Ticket-а (локально, `claude` из терминала). Не проверено: настоящий Claude Code запускать запрещено.
+- [x] Ревьюер с линзой «смысл сохранён» (Q34; Orchestrator даёт её явно) сравнил старый и новый текст пяти skills и сообщений скриптов: `gh pr view <N> --json comments --jq '[.comments[].body | select(startswith("VERIFIED"))] | length'` — не меньше `1`. Выполнено: VERIFIED в [PR #112](https://github.com/IDSAD-XL/worfy/pull/112).
 - [ ] CI на PR зелёный. Перед мержем — `GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full` под замком `/tmp/worfy-e2e.lock`: код 0 и строка `[gate] зелено`.
 
 ## Тесты
@@ -236,3 +236,26 @@ Test-ы (исходные — `~/.claude/bin/tests/`, `~/.claude/hooks/tests/`):
 - **Кириллица** — `harness-home.test.sh` держит список разрешённых подстрок: слова и строки вердикта Gate, старые
   значения `Status` и слова-отрицания в `epic-status`, плейсхолдеры Profile (`<эпик>`, `<имя>`, `<каталог пакета>` …),
   заголовки тикета и метки блока статуса, русские примеры запросов `qmd` и фразы-триггеры skills.
+
+**Влито.** [PR #112](https://github.com/IDSAD-XL/worfy/pull/112) → squash-коммит `7e51db3` в `main`. Ревью — VERIFIED с первого круга от двух
+ревьюеров: скрипты и смысл пяти skills и сообщений скриптов. Сломанных читателей переведённого вывода нет:
+worfy читает только `epic-status --json` и четыре строки вердикта Gate (не менялись); `closed`, `[gate] scope`
+и слова `worktree-lock status` читает только `preflight`. Скрипты пишут только под `$HARNESS_HOME`, старый
+реестр — только чтение. Перед мержем: rebase на `31bc642`, head `b1f7e31`, `GATE_SCOPE=all gate full` — exit 0,
+CI зелёный, `mergeStateStatus` CLEAN.
+
+**Долг.**
+- [med, вопрос владельцу] `harness/skills/continuous-audit/SKILL.md:228-229` — фраза исходника о статусах чужих
+  тикетов читается двояко; перевод выбрал «не трогать вовсе». В HANDOFF, «Ждёт владельца».
+- [low] `harness/bin/tests/harness-home.test.sh:21-22` — если `mktemp` упадёт, `T` станет текущим каталогом, и
+  trap на `EXIT` сделает ему `rm -rf`. Тот же шаблон — ещё в восьми test-ах (был до Ticket-а).
+- [low] Фильтр `'closed'*` в `harness/bin/preflight:426` не связан test-ом со стадией в `harness/bin/epic-status:214`:
+  мутант `closed` → `complete` выживает.
+- [low] `harness/hooks/session-end.sh:35-36` по-прежнему пишет `~/.claude/profiles/<p>/state/pending-retro.log`
+  (Ticket 11).
+- [low] `harness/hooks/session-start.sh:102` предлагает `/retro`, нужно `/worfy:retro`.
+- [low] `harness/skills/continuous-audit/SKILL.md:32` называет раздел «new project» переведённым именем, а в
+  `harness/profiles/README.md:194` он «## Новый проект».
+- [low] Пять skills этого Ticket-а ссылаются на `~/.claude/profiles/README.md`, а skills Ticket-а 06 — на
+  `${CLAUDE_PLUGIN_ROOT}/profiles/README.md`.
+- `claude plugin validate` — не проверено (пункт «Готово, когда» выше).
