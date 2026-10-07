@@ -74,14 +74,17 @@ export function parseToolArgs<Name extends CanvasToolName>(name: Name, args: unk
   return z.object(canvasToolShapes[name]).safeParse(args) as z.ZodSafeParseResult<CanvasToolArgs[Name]>
 }
 
+/** Nodes never overlap (ADR-0038): main moves a Node off its neighbours, and the answer says where it is. */
+const CORRECTED = ' Nodes never overlap: a taken place is corrected to the nearest free place; the answer has the real x/y/w/h.'
+
 export const canvasToolDescriptions: Record<CanvasToolName, string> = {
   list_nodes: 'List the Nodes on this Project\'s canvas: id, kind, title, position, size, hidden, locked.',
   create_card:
-    'Create a Card: a folder for a self-contained HTML app. Returns its id, folder and index.html path; write the files there with Write. Placed next to your Session\'s Node unless x/y are given.',
-  create_note: 'Create a text note on the canvas.',
+    'Create a Card: a folder for a self-contained HTML app. Returns its id, folder and index.html path; write the files there with Write. Placed next to your Session\'s Node unless x/y are given.' + CORRECTED,
+  create_note: 'Create a text note on the canvas.' + CORRECTED,
   update_node: 'Change a Card\'s title or a note\'s text.',
-  move_node: 'Move a Node to x/y (canvas units).',
-  resize_node: 'Resize a Node.',
+  move_node: 'Move a Node to x/y (canvas units).' + CORRECTED,
+  resize_node: 'Resize a Node; an edge that runs into another Node stops 16 px short of it.' + CORRECTED,
   hide_node: 'Hide a Node (hidden=false shows it again). Locked Nodes cannot be hidden. Nodes cannot be deleted.',
   link_card: 'Link a Card to an Epic ("<epic>") or a Ticket ("<epic>/<NN>"); remove=true unlinks.',
 }

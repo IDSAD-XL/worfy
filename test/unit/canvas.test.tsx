@@ -217,6 +217,17 @@ describe('Canvas', () => {
     }
   })
 
+  it('a drag of several Layout Nodes sends one moveMany with every dropped place; a drag of one sends a move (ADR-0038)', async () => {
+    const { dropOperation } = await import('../../src/renderer/canvas/history')
+    const dragged = [
+      { id: 'a', position: { x: 100, y: 0 } },
+      { id: 'b', position: { x: 340, y: 0 } },
+    ]
+    expect(dropOperation(dragged)).toEqual({ op: 'moveMany', moves: [{ id: 'a', x: 100, y: 0 }, { id: 'b', x: 340, y: 0 }] })
+    expect(dropOperation(dragged.slice(0, 1))).toEqual({ op: 'move', id: 'a', x: 100, y: 0 })
+    expect(dropOperation([])).toBeUndefined()
+  })
+
   it('shows a hint instead of a Canvas when there is no active Project', async () => {
     const { Canvas } = (await import('../../src/renderer/canvas/Canvas')) as { Canvas: ComponentType<{ projectId: string | undefined }> }
     render(<Canvas projectId={undefined} />)

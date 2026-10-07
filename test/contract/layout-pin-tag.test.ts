@@ -112,6 +112,17 @@ describe('a pinned Node in main', () => {
     store.apply(PROJECT, { op: 'move', id: 'n1', x: 900, y: 900 })
     expect(nodeOf()).toMatchObject({ pinned: false, x: 900, y: 900 })
   })
+
+  it('is no obstacle while pinned, and unpinned onto a taken place goes to the nearest free one; the Node there stays (ADR-0038)', () => {
+    // A Card where the pinned Node's screen pixels would be, read as canvas units: not in its way.
+    store.apply(PROJECT, { op: 'create', node: { id: 'card', kind: 'card', x: 300, y: 150, w: 300, h: 200 } })
+    expect(store.get(PROJECT).layout.nodes.find((node) => node.id === 'card')).toMatchObject({ x: 300, y: 150 })
+    // Unpinned back onto the plane right over the Card.
+    store.apply(PROJECT, { op: 'pin', id: 'n1', pinned: false, x: 320, y: 170, w: 220, h: 120 })
+    expect(store.get(PROJECT).layout.nodes.find((node) => node.id === 'card')).toMatchObject({ x: 300, y: 150, w: 300, h: 200 })
+    // Above the Card (156 up) is nearer than under it (350 + 16 − 170 = 196 down).
+    expect(nodeOf()).toMatchObject({ pinned: false, x: 320, y: 150 - 16 - 120, w: 220, h: 120 })
+  })
 })
 
 describe('tag', () => {

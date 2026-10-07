@@ -10,6 +10,7 @@
 // The order inside the columns and the routes of the "Blocked by" Edges come from ELK in a Web
 // Worker (elk/layout.ts, ADR-0037). `layoutEpic` here is the synchronous layout an Epic gets until
 // ELK's first answer: Tickets by number, Edges without a route.
+import { freePlace, NODE_GAP } from '../../shared/layout/free-place'
 import type { Ticket } from '../../shared/workflow/types'
 import { readyWave, ticketLevels } from '../../shared/workflow/waves'
 
@@ -389,6 +390,11 @@ export interface StackedFrame {
    */
   reserve?: number
   offset?: Offset
+  /**
+   * Where the frame's `epic-frame` Node is in the Layout: frames with an offset yield to each other
+   * in this order (ADR-0038). Frames without it come after, in the given order.
+   */
+  order?: number
 }
 
 /**
@@ -396,16 +402,36 @@ export interface StackedFrame {
  * is in (`frameColumnX`), as tall as the frames' reserved heights. A Node lower than that does not
  * move the column. A manual offset moves its own frame only: the frames below keep their automatic
  * place, and the column is found without the offsets.
+ *
+ * A frame with an offset yields (ADR-0038): when its place, the automatic one plus the offset,
+ * comes closer than NODE_GAP to a Node on the plane, a frame of the column or a frame with an
+ * offset before it (`order`), the frame is drawn at the nearest clear place instead. The offset
+ * itself is not changed; `auto` stays the automatic place. Each frame yields only to what comes
+ * before it, so the answer for the same input is always the same.
  */
 export function stackFrames(frames: readonly StackedFrame[], plane: readonly Rect[] = []): Map<string, PlacedFrame> {
   const result = new Map<string, PlacedFrame>()
   const bottom = frames.reduce((sum, frame, index) => sum + (index ? FRAME_GAP : 0) + Math.max(frame.height, frame.reserve ?? frame.height), 0)
   const x = frameColumnX(Math.max(0, ...frames.map((frame) => frame.width)), bottom, plane)
+  const taken: Rect[] = [...plane]
+  const moved: { frame: StackedFrame; index: number; auto: { x: number; y: number } }[] = []
   let y = 0
-  for (const frame of frames) {
+  for (const [index, frame] of frames.entries()) {
     const auto = { x, y }
-    result.set(frame.epic, { x: auto.x + (frame.offset?.dx ?? 0), y: auto.y + (frame.offset?.dy ?? 0), auto })
+    const dx = frame.offset?.dx ?? 0
+    const dy = frame.offset?.dy ?? 0
+    if (dx === 0 && dy === 0) {
+      result.set(frame.epic, { x: auto.x, y: auto.y, auto })
+      taken.push({ x: auto.x, y: auto.y, w: frame.width, h: frame.height })
+    } else moved.push({ frame, index, auto })
     y += frame.height + FRAME_GAP
+  }
+  moved.sort((a, b) => (a.frame.order ?? Infinity) - (b.frame.order ?? Infinity) || a.index - b.index)
+  for (const { frame, auto } of moved) {
+    const wanted = { x: auto.x + frame.offset!.dx, y: auto.y + frame.offset!.dy, w: frame.width, h: frame.height }
+    const place = freePlace(wanted, taken, NODE_GAP)
+    result.set(frame.epic, { x: place.x, y: place.y, auto })
+    taken.push({ ...wanted, ...place })
   }
   return result
 }

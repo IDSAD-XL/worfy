@@ -245,6 +245,31 @@ describe('history: operations of agents', () => {
   })
 })
 
+describe('history: a drag of several Nodes (moveMany, ADR-0038)', () => {
+  it('two neighbours dragged together by +100 px on x stand exactly 100 px further; one ⌘Z brings both back, ⇧⌘Z moves both again', async () => {
+    note('a', { x: 0, y: 0 })
+    note('b', { x: 240, y: 0 })
+    sent = []
+    // `a` lands where `b` was: one move at a time would have put `a` off the `b` not yet moved.
+    await user({ op: 'moveMany', moves: [{ id: 'a', x: 100, y: 0 }, { id: 'b', x: 340, y: 0 }] })
+    expect(sent).toHaveLength(1)
+    expect([nodeOf('a'), nodeOf('b')]).toMatchObject([{ x: 100, y: 0 }, { x: 340, y: 0 }])
+    expect(history().size).toBe(1)
+
+    expect(await history().undo()).toBe(true)
+    expect([nodeOf('a'), nodeOf('b')]).toMatchObject([{ x: 0, y: 0 }, { x: 240, y: 0 }])
+    expect(sent.at(-1)).toEqual({ op: 'moveMany', moves: [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 240, y: 0 }] })
+    expect(await history().redo()).toBe(true)
+    expect([nodeOf('a'), nodeOf('b')]).toMatchObject([{ x: 100, y: 0 }, { x: 340, y: 0 }])
+  })
+
+  it('the inverse names the Nodes that are there with their old places, and there is none when none of them is', () => {
+    note('a', { x: 5, y: 6 })
+    expect(inverseOf(layout(), { op: 'moveMany', moves: [{ id: 'a', x: 1, y: 1 }, { id: 'gone', x: 2, y: 2 }] })).toEqual({ op: 'moveMany', moves: [{ id: 'a', x: 5, y: 6 }] })
+    expect(inverseOf(layout(), { op: 'moveMany', moves: [{ id: 'gone', x: 2, y: 2 }] })).toBeUndefined()
+  })
+})
+
 describe('history: one gesture, one step', () => {
   it('operations made inside grouped() are undone and redone together', async () => {
     note('a')

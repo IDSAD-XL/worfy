@@ -1,6 +1,7 @@
 import ELK from 'elkjs/lib/elk.bundled.js'
 import { describe, expect, it } from 'vitest'
 import { placeNear } from '../../src/shared/canvas/tools'
+import { freePlace, NODE_GAP } from '../../src/shared/layout/free-place'
 import type { Ticket } from '../../src/shared/workflow/types'
 import {
   blockedReason,
@@ -357,12 +358,13 @@ describe('stackFrames', () => {
   it('stacks frames top to bottom; a manual offset moves only its own frame', () => {
     const frames = [
       { epic: 'a', width: 520, height: 300 },
-      { epic: 'b', width: 520, height: 56, offset: { dx: 100, dy: 40 } },
+      // Down by less than the room to `c` minus the gap: the frame stays clear of `c` (ADR-0038).
+      { epic: 'b', width: 520, height: 56, offset: { dx: 100, dy: 20 } },
       { epic: 'c', width: 520, height: 200 },
     ]
     const placed = stackFrames(frames)
     expect(placed.get('a')).toEqual({ x: 0, y: 0, auto: { x: 0, y: 0 } })
-    expect(placed.get('b')).toEqual({ x: 100, y: 300 + FRAME_GAP + 40, auto: { x: 0, y: 300 + FRAME_GAP } })
+    expect(placed.get('b')).toEqual({ x: 100, y: 300 + FRAME_GAP + 20, auto: { x: 0, y: 300 + FRAME_GAP } })
     expect(placed.get('c')).toEqual({ x: 0, y: 300 + FRAME_GAP + 56 + FRAME_GAP, auto: { x: 0, y: 300 + FRAME_GAP + 56 + FRAME_GAP } })
   })
 
@@ -430,6 +432,51 @@ describe('stackFrames', () => {
     const after = stackFrames([{ epic: 'a', width: 800, height: 600 }], [session, card]).get('a')!
     expect(overlap(card, { x: after.x, y: after.y, w: 800, h: 600 })).toBe(false)
     expect(overlap(session, { x: after.x, y: after.y, w: 800, h: 600 })).toBe(false)
+  })
+
+  // ADR-0038: a frame with an offset yields; the offset itself stays as saved.
+  const crowds = (a: Rect, b: Rect) => a.x < b.x + b.w + NODE_GAP && b.x < a.x + a.w + NODE_GAP && a.y < b.y + b.h + NODE_GAP && b.y < a.y + a.h + NODE_GAP
+
+  it('draws a frame whose offset puts it on a Card next to the Card, the Card where it is; the automatic place is unchanged', () => {
+    const card = { x: 2000, y: 100, w: 360, h: 280 }
+    // Without the Card the frame is drawn exactly at its offset: the column is at x = 0.
+    const offset = { dx: 2000, dy: 100 }
+    expect(stackFrames([{ epic: 'a', width: 520, height: 300, offset }]).get('a')).toEqual({ x: 2000, y: 100, auto: { x: 0, y: 0 } })
+    const placed = stackFrames([{ epic: 'a', width: 520, height: 300, offset }], [card]).get('a')!
+    expect(placed.auto).toEqual({ x: 0, y: 0 })
+    expect(crowds({ x: placed.x, y: placed.y, w: 520, h: 300 }, card)).toBe(false)
+    // The nearest clear place: just under the Card (100 + 280 + 16 - 100 = 296 down) is nearer than right of it (360 + 16 = 376).
+    expect(placed).toMatchObject({ x: 2000, y: card.y + card.h + NODE_GAP })
+    expect(placed).toEqual({ ...freePlace({ x: 2000, y: 100, w: 520, h: 300 }, [card]), auto: { x: 0, y: 0 } })
+  })
+
+  it('a frame with an offset keeps clear of the column and of the frames with an offset before it, in the order of their Layout Nodes', () => {
+    const frames = [
+      { epic: 'a', width: 520, height: 300 },
+      // Both moved onto the same spot, over `a`; `c` has its Layout Node first, so `b` yields to it.
+      { epic: 'b', width: 520, height: 100, offset: { dx: 50, dy: -300 - FRAME_GAP + 50 }, order: 7 },
+      { epic: 'c', width: 520, height: 100, offset: { dx: 50, dy: -300 - FRAME_GAP - 100 - FRAME_GAP + 50 }, order: 3 },
+    ]
+    const placed = stackFrames(frames)
+    const rect = (epic: string, h: number): Rect => ({ x: placed.get(epic)!.x, y: placed.get(epic)!.y, w: 520, h })
+    expect(crowds(rect('b', 100), rect('a', 300))).toBe(false)
+    expect(crowds(rect('c', 100), rect('a', 300))).toBe(false)
+    expect(crowds(rect('b', 100), rect('c', 100))).toBe(false)
+    // `a` (no offset) and `c` (first in the Layout) yield to nothing that comes after them.
+    expect(placed.get('a')).toEqual({ x: 0, y: 0, auto: { x: 0, y: 0 } })
+    expect(rect('c', 100)).toEqual({ ...freePlace({ x: 50, y: 50, w: 520, h: 100 }, [rect('a', 300)]), w: 520, h: 100 })
+  })
+
+  it('gives the same places when computed twice, and a frame placed where it was drawn does not move on', () => {
+    const plane = [{ x: 600, y: 0, w: 300, h: 200 }, { x: 0, y: 900, w: 300, h: 200 }]
+    const frames = [
+      { epic: 'a', width: 520, height: 300 },
+      { epic: 'b', width: 520, height: 300, offset: { dx: 600, dy: -300 - FRAME_GAP }, order: 1 },
+      { epic: 'c', width: 520, height: 300, offset: { dx: 610, dy: -2 * (300 + FRAME_GAP) + 10 }, order: 2 },
+    ]
+    const first = stackFrames(frames, plane)
+    expect(stackFrames(frames, plane)).toEqual(first)
+    expect(stackFrames(frames.map((frame) => ({ ...frame })), [...plane])).toEqual(first)
   })
 })
 

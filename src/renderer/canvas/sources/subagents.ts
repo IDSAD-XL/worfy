@@ -12,7 +12,9 @@
 // and the tree's edges (edges/subagents.ts) start there.
 //
 // The places keep clear of the Nodes of the Layout on the plane (worfy-daily ticket 28): the whole
-// tree but its anchor shifts, right and down, to the nearest room where it covers none. The Epic
+// tree but its anchor shifts, right and down, to the nearest room where it covers none. It keeps
+// clear, as one block, of the trees of the Sessions before its own in the Layout too (ADR-0038):
+// each tree yields only to the trees before it, so they never push each other around. The Epic
 // frames are not counted: their column keeps clear of the tree (ADR-0032), and if the tree kept
 // clear of the frames too, each would push the other.
 import { useEffect, useMemo } from 'react'
@@ -224,6 +226,15 @@ function flowNode(projectId: string, session: LayoutNode, sessionId: string, pla
   }
 }
 
+/** The rectangle around a tree's Nodes but its anchor, relative to the Session's Node; null for a tree with none. */
+export function treeBlock(places: readonly PlacedSubagent[]): Rect | null {
+  const nodes = places.filter((place) => place.key !== 'anchor')
+  if (nodes.length === 0) return null
+  const x = Math.min(...nodes.map((place) => place.x))
+  const y = Math.min(...nodes.map((place) => place.y))
+  return { x, y, w: Math.max(...nodes.map((place) => place.x + place.w)) - x, h: Math.max(...nodes.map((place) => place.y + place.h)) - y }
+}
+
 /** The Session Nodes a tree can hang from: shown on the plane, naming a Session; one per Session. */
 export function sessionParents(layout: Layout): LayoutNode[] {
   const seen = new Set<string>()
@@ -248,14 +259,17 @@ export function buildSubagentNodes(
   expanded: Readonly<Record<string, boolean>>,
 ): readonly CanvasFlowNode[] {
   const nodes: CanvasFlowNode[] = []
-  // The Layout's Nodes on the plane; the frames and Tickets are not among them (ADR-0032).
-  const plane = layout.nodes.filter(onThePlane)
+  // The Layout's Nodes on the plane; the frames and Tickets are not among them (ADR-0032). The
+  // trees placed so far join them, each as one block (ADR-0038).
+  const taken: Rect[] = layout.nodes.filter(onThePlane)
   for (const session of sessionParents(layout)) {
     const sessionId = session.data.sessionId as string
     const tree = trees.get(sessionId)
     if (!tree || tree.length === 0) continue
-    const around = plane.map((node) => ({ x: node.x - session.x, y: node.y - session.y, w: node.w, h: node.h }))
+    const around = taken.map((node) => ({ x: node.x - session.x, y: node.y - session.y, w: node.w, h: node.h }))
     const places = placeSubagents({ sessionId, sessionWidth: session.w, tree, around, expanded: (parentKey) => expanded[uiKey(projectId, sessionId, parentKey)] === true })
+    const block = treeBlock(places)
+    if (block) taken.push({ x: session.x + block.x, y: session.y + block.y, w: block.w, h: block.h })
     for (const place of places) {
       const node = flowNode(projectId, session, sessionId, place)
       const signature = JSON.stringify([node.parentId, node.position, node.width, node.height, node.data.node.data])

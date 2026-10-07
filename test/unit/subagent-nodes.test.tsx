@@ -199,6 +199,53 @@ describe('the tree keeps clear of the Nodes of the Layout (worfy-daily ticket 28
   })
 })
 
+describe('the trees of two Sessions keep clear of each other (ADR-0038)', () => {
+  const S8 = '88888888-8888-4888-8888-888888888888'
+  // The second Session right under the first: its tree's automatic place is on the first one's tree.
+  const second = node({ id: `session:${S8}`, kind: 'session', x: session.x, y: session.y + session.h + 16, data: { sessionId: S8 } })
+  const both = (tree: SubagentInfo[]) =>
+    new Map([
+      [S7, tree],
+      [S8, tree],
+    ])
+  const crowds = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }): boolean =>
+    a.x < b.x + b.w + 16 && b.x < a.x + a.w + 16 && a.y < b.y + b.h + 16 && b.y < a.y + a.h + 16
+  const rectsOf = (layout: Layout, nodes: ReturnType<typeof buildSubagentNodes>, sessionNodeId: string) =>
+    subagentPlaneRects(
+      layout,
+      nodes.filter((each) => each.parentId === sessionNodeId),
+    )
+
+  it('the later Session’s tree goes around the earlier one’s, which stays where it is alone; computed twice, the answer is the same', () => {
+    const tree = tree7(RUNNING_AT)
+    const layout = layoutWith(session, second)
+    const alone = buildSubagentNodes('p-two-alone', layoutWith(session), trees(tree), {})
+    const nodes = buildSubagentNodes('p-two', layout, both(tree), {})
+    const first = rectsOf(layout, nodes, session.id)
+    const later = rectsOf(layout, nodes, second.id)
+    expect(first).toHaveLength(3)
+    expect(later).toHaveLength(3)
+    // Without the rule the second tree would sit on the first: the same shape, 136 px lower.
+    const unshifted = first.map((rect) => ({ ...rect, y: rect.y + second.y - session.y }))
+    expect(unshifted.some((rect) => first.some((other) => crowds(rect, other)))).toBe(true)
+    for (const rect of later) for (const other of first) expect(crowds(rect, other), `${JSON.stringify(rect)} on ${JSON.stringify(other)}`).toBe(false)
+    // The earlier Session's tree does not yield to the later one.
+    expect(first).toEqual(rectsOf(layoutWith(session), alone, session.id))
+    // The same input twice: the same places, no back and forth.
+    const again = buildSubagentNodes('p-two-again', layout, both(tree), {})
+    expect(again.map((each) => [each.id, each.position])).toEqual(nodes.map((each) => [each.id, each.position]))
+  })
+
+  it('the order of the Sessions in the Layout decides who yields', () => {
+    const tree = tree7(RUNNING_AT)
+    const swapped = layoutWith(second, session)
+    const nodes = buildSubagentNodes('p-two-swapped', swapped, both(tree), {})
+    const alone = buildSubagentNodes('p-two-swapped-alone', layoutWith(second), new Map([[S8, tree]]), {})
+    expect(rectsOf(swapped, nodes, second.id)).toEqual(rectsOf(layoutWith(second), alone, second.id))
+    for (const rect of rectsOf(swapped, nodes, session.id)) for (const other of rectsOf(swapped, nodes, second.id)) expect(crowds(rect, other)).toBe(false)
+  })
+})
+
 describe('subagent edges', () => {
   it('draws a line from each parent to its Subagents and to its done row, only between Nodes on the Canvas', () => {
     const nodes = buildSubagentNodes('p5', layoutWith(session), trees(tree7(RUNNING_AT)), {}).map((each) => each.data.node)
