@@ -2,10 +2,10 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GateReader, type Worktree } from '../../src/main/gate/state'
-import { ciOf, ghRunner, parsePrList, PrTracker, verdictOf, type GhRunner } from '../../src/main/github/prs'
-import { checksHandlers } from '../../src/main/ipc/checks'
+import { accountAuth, ciOf, ghRunner, parsePrList, PrTracker, verdictOf, type GhRunner } from '../../src/main/github/prs'
+import { appPrTracker, checksHandlers } from '../../src/main/ipc/checks'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { pullOfTicket, type ChecksSnapshot } from '../../src/shared/ipc/checks'
@@ -404,5 +404,245 @@ describe('checks.get', () => {
       ok: true,
       value: { root: '/r', worktrees: [{ path: '/r', branch: 'main', gate: { outcome: 'green', source: 'marker', at: null } }], pulls: [], gh: { available: true, error: null, intervalMs: 60_000 } },
     })
+  })
+})
+
+// ── the Project's GitHub account (worfy-week ticket 01, ADR-0020) ────────────
+//
+// gh runs with GH_TOKEN of the account the Project's Profile names (`github.account`), taken with
+// `gh auth token -u <account>`; the global gh account is never switched. Here `bin/profile` and
+// `gh` are shell stubs in a temporary folder: the gh stub records GH_TOKEN and its arguments, and
+// knows one logged-in account.
+
+const ACCOUNT = 'IDSAD-XL'
+const TOKEN = 'gho_TestToken0123456789abcdef'
+const LIST = ['pr', 'list', '--state', 'all', '--limit', '100', '--json', 'number,headRefName,state,url,statusCheckRollup,comments']
+const lookup = (branch: string) => ['pr', 'list', '--state', 'all', '--head', branch, '--limit', '1', '--json', 'number,headRefName,state,url,statusCheckRollup,comments']
+
+/** A gh that logs `<GH_TOKEN or <unset>>\t<arg>\t<arg>…` and is logged in only as GH_STUB_ACCOUNT, when GH_STUB_TOKEN is set. */
+const GH_ACCOUNT_STUB = `#!/bin/sh
+{ printf '%s' "\${GH_TOKEN-<unset>}"; for a in "$@"; do printf '\\t%s' "$a"; done; printf '\\n'; } >> "$GH_STUB_LOG"
+if [ "$1" = auth ] && [ "$2" = token ]; then
+  if [ "$3" = -u ] && [ "$4" = "$GH_STUB_ACCOUNT" ] && [ -n "$GH_STUB_TOKEN" ]; then printf '%s\\n' "$GH_STUB_TOKEN"; exit 0; fi
+  printf 'no oauth token found for github.com account %s\\n' "$4" >&2
+  exit 1
+fi
+if [ "$1" = pr ] && [ "$2" = list ]; then cat "$GH_STUB_DIR/prs.json"; exit 0; fi
+printf 'gh stub: unsupported command: %s\\n' "$*" >&2
+exit 2
+`
+
+interface GhCall {
+  /** GH_TOKEN as gh saw it; null when it was not set. */
+  token: string | null
+  args: string[]
+}
+
+type ProfileAnswer = { code: number; stdout?: string; stderr?: string } | 'no script'
+
+/** A Project, a Claude home whose bin/profile gives `profile`, and the gh stub; `gh.shellToken` is a GH_TOKEN of the login shell itself. */
+async function accountWorld(profile: ProfileAnswer, gh: { token?: string; shellToken?: string } = {}) {
+  const dir = await tempDir()
+  const root = join(dir, 'project')
+  const home = join(dir, 'claude-home')
+  await mkdir(root)
+  await mkdir(join(home, 'bin'), { recursive: true })
+  const profileLog = join(dir, 'profile-calls.txt')
+  if (profile !== 'no script') {
+    const script = `#!/bin/sh\nprintf '%s\\n' "$*" >> '${profileLog}'\nprintf '%s' '${profile.stdout ?? ''}'\nprintf '%s' '${profile.stderr ?? ''}' >&2\nexit ${profile.code}\n`
+    await writeFile(join(home, 'bin', 'profile'), script, { mode: 0o755 })
+  }
+  const command = join(dir, 'gh')
+  await writeFile(command, GH_ACCOUNT_STUB, { mode: 0o755 })
+  await writeFile(join(dir, 'prs.json'), JSON.stringify([pull(1, 'demo/01')]))
+  const ghLog = join(dir, 'gh-calls.txt')
+  const env: Record<string, string> = { PATH: '/usr/bin:/bin', HOME: dir, GH_STUB_LOG: ghLog, GH_STUB_DIR: dir, GH_STUB_ACCOUNT: ACCOUNT }
+  if (gh.token !== undefined) env.GH_STUB_TOKEN = gh.token
+  if (gh.shellToken !== undefined) env.GH_TOKEN = gh.shellToken
+  const logged: string[] = []
+  const calls = async (): Promise<GhCall[]> =>
+    (await readFile(ghLog, 'utf8').catch(() => ''))
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [token = '', ...args] = line.split('\t')
+        return { token: token === '<unset>' ? null : token, args }
+      })
+  const profileCalls = async (): Promise<string[]> => (await readFile(profileLog, 'utf8').catch(() => '')).split('\n').filter(Boolean)
+  const tracker = (now: () => number = () => 0) =>
+    appPrTracker({ claudeHome: home, command, env: () => Promise.resolve({ ...env }), log: (message) => void logged.push(message), now })
+  return { dir, root, home, command, env, logged, calls, profileCalls, tracker }
+}
+
+describe("gh with the Project's GitHub account", () => {
+  it('every gh pr list of a Project whose Profile names an account goes with GH_TOKEN from `gh auth token -u <account>`', async () => {
+    const world = await accountWorld({ code: 0, stdout: `${ACCOUNT}\n` }, { token: TOKEN })
+    const read = await world.tracker().read(world.root, ['demo/02'])
+    expect(read.gh).toEqual({ available: true, error: null, intervalMs: 60_000 })
+    expect(read.pulls.map((each) => each.number)).toEqual([1])
+
+    const calls = await world.calls()
+    const lists = calls.filter((call) => call.args[0] === 'pr')
+    expect(lists.map((call) => call.args)).toEqual([LIST, lookup('demo/02')])
+    for (const call of lists) expect(call.token).toBe(TOKEN)
+    // The token is asked of gh for the Profile's account, before any pr list, with no token of worfy's own.
+    expect(calls[0]).toEqual({ token: null, args: ['auth', 'token', '-u', ACCOUNT] })
+    expect(await world.profileCalls()).toEqual([`-C ${world.root} --field github.account`])
+    expect(world.logged).toEqual([])
+  })
+
+  it('gh sees from worfy only `auth token -u <account>` and `pr list`, read after read', async () => {
+    const world = await accountWorld({ code: 0, stdout: `${ACCOUNT}\n` }, { token: TOKEN })
+    let now = 0
+    const tracker = world.tracker(() => now)
+    for (let index = 0; index < 3; index += 1) {
+      await tracker.read(world.root, ['demo/02', 'demo/03'])
+      now += 6 * 60_000
+    }
+    const calls = await world.calls()
+    expect(calls.filter((call) => call.args[0] === 'pr')).toHaveLength(9)
+    for (const call of calls) {
+      if (call.args[0] === 'pr') {
+        expect(call.args.slice(0, 2)).toEqual(['pr', 'list'])
+        expect(call.token).toBe(TOKEN)
+      } else {
+        expect(call.args).toEqual(['auth', 'token', '-u', ACCOUNT])
+      }
+    }
+    // One token per read that runs gh, not one per gh call.
+    expect(calls.filter((call) => call.args[0] === 'auth')).toHaveLength(3)
+  })
+
+  it.each<[string, ProfileAnswer, RegExp]>([
+    ['exit code 3 (no registered project)', { code: 3, stderr: 'profile: not in a registered project' }, /no registered project.*exit code 3/],
+    ['exit code 4 (no such field)', { code: 4, stderr: 'profile: field "github.account" is absent' }, /no github\.account field \(profile exit code 4\)/],
+    ['a field that is null', { code: 0, stdout: 'null\n' }, /github\.account is null/],
+    ['no script', 'no script', /no profile script at /],
+    ['a failing script', { code: 1, stderr: 'registry is broken' }, /failed with exit code 1: registry is broken/],
+  ])('no account (%s): gh runs as before, without a GH_TOKEN of worfy, and the reason is one log line', async (_case, profile, reason) => {
+    const world = await accountWorld(profile, { token: TOKEN })
+    let now = 0
+    const tracker = world.tracker(() => now)
+    const read = await tracker.read(world.root, ['demo/02'])
+    expect(read.gh.available).toBe(true)
+    expect(await world.calls()).toEqual([
+      { token: null, args: LIST },
+      { token: null, args: lookup('demo/02') },
+    ])
+    expect(world.logged).toHaveLength(1)
+    expect(world.logged[0]).toMatch(new RegExp(`^\\[profile\\] GitHub account for ${world.root}: none, gh runs with the login shell's own account, because `))
+    expect(world.logged[0]).toMatch(reason)
+
+    // The next read logs the same reason again only if it changed.
+    now = 60_000
+    await tracker.read(world.root, [])
+    expect(world.logged).toHaveLength(1)
+  })
+
+  it("no account: the login shell's own GH_TOKEN reaches gh untouched", async () => {
+    const world = await accountWorld({ code: 4 }, { token: TOKEN, shellToken: 'shell-token' })
+    await world.tracker().read(world.root, [])
+    expect(await world.calls()).toEqual([{ token: 'shell-token', args: LIST }])
+  })
+
+  it("an account replaces the login shell's own GH_TOKEN for pr list", async () => {
+    const world = await accountWorld({ code: 0, stdout: `${ACCOUNT}\n` }, { token: TOKEN, shellToken: 'shell-token' })
+    await world.tracker().read(world.root, [])
+    expect((await world.calls()).filter((call) => call.args[0] === 'pr')).toEqual([{ token: TOKEN, args: LIST }])
+  })
+
+  it('an account gh has no login for: «gh unavailable» naming the account and gh auth login, and no pr list from the global account', async () => {
+    const world = await accountWorld({ code: 0, stdout: `${ACCOUNT}\n` })
+    let now = 0
+    const tracker = world.tracker(() => now)
+    const read = await tracker.read(world.root, ['demo/02'])
+    expect(read.pulls).toEqual([])
+    expect(read.gh.available).toBe(false)
+    expect(read.gh.intervalMs).toBe(120_000)
+    expect(read.gh.error).toContain(ACCOUNT)
+    expect(read.gh.error).toContain('gh auth login')
+    expect(await world.calls()).toEqual([{ token: null, args: ['auth', 'token', '-u', ACCOUNT] }])
+
+    // The doubled interval holds for the token too: nothing runs before it passes.
+    now = 119_999
+    await tracker.read(world.root, ['demo/02'])
+    expect(await world.calls()).toHaveLength(1)
+    now = 120_000
+    await tracker.read(world.root, ['demo/02'])
+    expect((await world.calls()).map((call) => call.args[0])).toEqual(['auth', 'auth'])
+  })
+
+  it.each([
+    ['nothing', ''],
+    ['two words', `${TOKEN} more`],
+  ])('`gh auth token -u` that prints %s: no token, and the output is not quoted in the reason', async (_case, printed) => {
+    const asked: string[][] = []
+    const auth = accountAuth({ account: () => Promise.resolve(ACCOUNT), run: (args) => (asked.push([...args]), Promise.resolve(`${printed}\n`)) })
+    const refusal = await auth('/r').then(
+      () => null,
+      (error: unknown) => (error as Error).message,
+    )
+    expect(asked).toEqual([['auth', 'token', '-u', ACCOUNT]])
+    expect(refusal).toBe(`gh auth token -u ${ACCOUNT} printed no token; run \`gh auth login\` and sign in as ${ACCOUNT}`)
+  })
+
+  it('no account: no gh call for a token and no environment added', async () => {
+    let count = 0
+    const auth = accountAuth({ account: () => Promise.resolve(null), run: () => ((count += 1), Promise.resolve(TOKEN)) })
+    expect(await auth('/r')).toEqual({})
+    expect(count).toBe(0)
+  })
+
+  it('an account name that is not a GitHub login is not passed to gh', async () => {
+    const world = await accountWorld({ code: 0, stdout: '--hostname\n' }, { token: TOKEN })
+    const read = await world.tracker().read(world.root, [])
+    expect(read.gh.available).toBe(true)
+    expect(await world.calls()).toEqual([{ token: null, args: LIST }])
+    expect(world.logged[0]).toMatch(/github\.account is not a GitHub login: "--hostname"/)
+  })
+
+  it('the token is in neither the checks snapshot nor the log, also when pr list fails', async () => {
+    const world = await accountWorld({ code: 0, stdout: `${ACCOUNT}\n` }, { token: TOKEN })
+    const home = await tempDir()
+    const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>()
+    const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
+    const module = checksHandlers({ gate: new GateReader({ home }), prs: world.tracker(), worktrees: async (root) => [{ path: root, branch: 'demo/01' }] })
+    await registerIpc(ipc, { modules: { './checks.ts': async () => module }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
+    const call = (input: unknown) => handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!({ senderFrame: { url: `file://${INDEX_HTML}` } } as unknown as IpcMainInvokeEvent, input)
+    const good = (await call({ root: world.root, branches: ['demo/02'] })) as IpcResult<ChecksSnapshot>
+    expect(good.ok && good.value.pulls.map((each) => each.number)).toEqual([1])
+    expect(JSON.stringify(good)).not.toContain(TOKEN)
+
+    // pr list fails: its error is in the snapshot, the token is not.
+    await writeFile(join(world.dir, 'prs.json'), 'not json')
+    const failing = appPrTracker({ claudeHome: world.home, command: world.command, env: () => Promise.resolve({ ...world.env }), log: (message) => void world.logged.push(message) })
+    const read = await failing.read(world.root, [])
+    expect(read.gh.available).toBe(false)
+    expect(JSON.stringify(read)).not.toContain(TOKEN)
+    expect(world.logged.join('\n')).not.toContain(TOKEN)
+  })
+
+  it("the app's own checks handler reads the account with <WORFY_CLAUDE_HOME>/bin/profile and runs WORFY_GH with its token; nothing reaches the console", async () => {
+    const world = await accountWorld({ code: 0, stdout: `${ACCOUNT}\n` }, { token: TOKEN })
+    for (const [name, value] of Object.entries(world.env)) if (name !== 'PATH' && name !== 'HOME') vi.stubEnv(name, value)
+    vi.stubEnv('WORFY_GH', world.command)
+    vi.stubEnv('WORFY_CLAUDE_HOME', world.home)
+    const printed: string[] = []
+    const spies = (['log', 'warn', 'error', 'info'] as const).map((method) => vi.spyOn(console, method).mockImplementation((...args: unknown[]) => void printed.push(args.map(String).join(' '))))
+    try {
+      vi.resetModules()
+      const app = (await import('../../src/main/ipc/checks')).default
+      const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>()
+      const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
+      await registerIpc(ipc, { modules: { './checks.ts': async () => app }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
+      const result = (await handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!({ senderFrame: { url: `file://${INDEX_HTML}` } } as unknown as IpcMainInvokeEvent, { root: world.root, branches: [] })) as IpcResult<ChecksSnapshot>
+      expect(result.ok && result.value.gh).toEqual({ available: true, error: null, intervalMs: 60_000 })
+      expect(JSON.stringify(result)).not.toContain(TOKEN)
+    } finally {
+      for (const spy of spies) spy.mockRestore()
+      vi.unstubAllEnvs()
+    }
+    expect((await world.calls()).filter((call) => call.args[0] === 'pr')).toEqual([{ token: TOKEN, args: LIST }])
+    expect(printed.join('\n')).not.toContain(TOKEN)
   })
 })
