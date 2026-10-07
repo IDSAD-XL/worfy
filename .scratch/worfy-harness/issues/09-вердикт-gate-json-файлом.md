@@ -1,7 +1,7 @@
 # 09 — Gate пишет вердикт JSON-файлом, worfy читает его, а не слово «зелено»
 
 Type: task
-Status: open
+Status: done — 2026-10-07, [PR #114](https://github.com/IDSAD-XL/worfy/pull/114)
 Blocked by: 08
 Source: решения владельца 2026-10-07: Q6 (Harness на английском; машинные строки — английские константы или JSON, старые русские читаются) и «Машинный контракт Gate» (Gate пишет вердикт JSON-файлом, worfy читает его); [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness на английском, язык из Profile, машинный контракт без языка); [spec.md](../spec.md)
 
@@ -87,15 +87,15 @@ Ticket-ы 05–07; перевод строк `[gate] …` — Ticket 08.
 
 ## Готово, когда
 
-- [ ] `bash harness/hooks/tests/gate-verdict.test.sh` — код 0. На временных репозитории, реестре и папке состояния каждый путь таблицы пункта 1 оставляет `verdict-<tag>.json` с нужными `outcome`, `exit`, `profile`, `key` и `worktree`; в каталоге вне git файла нет.
-- [ ] Тот же test: worktree с пробелом и кавычкой в пути — `jq -e .` по файлу даёт код 0, `worktree` равен пути.
-- [ ] Тот же test: второй прогон перезаписывает файл итогом второго; после прогона в папке состояния нет временных файлов Gate.
-- [ ] `bash harness/hooks/tests/gate-notverified.test.sh` и `bash harness/hooks/tests/gate-unregistered.test.sh` — код 0 без правок ожиданий: маркеры, строки и коды выхода не изменились.
-- [ ] Unit (`test/unit/gate-state.test.ts`): файл `green` при транскрипте без строк Gate — `{ outcome: 'green', source: 'file', at: <время из файла> }`; маркер `red` и файл `none` — `red` из маркера; файл есть, а в транскрипте строка новее — вердикт из файла; файл с чужим `worktree` и битый файл — вердикт из транскрипта; файла нет — как до Ticket-а (прежние test-ы без правок ожиданий).
-- [ ] Unit: строки транскрипта с русскими словами дают вердикт, как раньше; если `harness/hooks/gate.sh` после Ticket-а 08 печатает строки по-английски — они тоже.
-- [ ] Unit: test «writes nothing» (`test/unit/gate-state.test.ts:338`) с файлом вердикта в папке состояния — списки файлов Claude home и Project-а до и после чтения одинаковы.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0 (`pnpm test` включает `test/contract/harness-scripts.test.ts`, то есть новый test Gate с пустым `HOME`); CI на PR зелёный.
-- [ ] `GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full` на ветке после rebase — код 0 и строка `[gate] зелено` (e2e бейджей `test/e2e/checks-badges.spec.ts` идёт здесь).
+- [x] `bash harness/hooks/tests/gate-verdict.test.sh` — код 0. На временных репозитории, реестре и папке состояния каждый путь таблицы пункта 1 оставляет `verdict-<tag>.json` с нужными `outcome`, `exit`, `profile`, `key` и `worktree`; в каталоге вне git файла нет.
+- [x] Тот же test: worktree с пробелом и кавычкой в пути — `jq -e .` по файлу даёт код 0, `worktree` равен пути.
+- [x] Тот же test: второй прогон перезаписывает файл итогом второго; после прогона в папке состояния нет временных файлов Gate.
+- [x] `bash harness/hooks/tests/gate-notverified.test.sh` и `bash harness/hooks/tests/gate-unregistered.test.sh` — код 0 без правок ожиданий: маркеры, строки и коды выхода не изменились.
+- [x] Unit (`test/unit/gate-state.test.ts`): файл `green` при транскрипте без строк Gate — `{ outcome: 'green', source: 'file', at: <время из файла> }`; маркер `red` и файл `none` — `red` из маркера; файл есть, а в транскрипте строка новее — вердикт из файла; файл с чужим `worktree` и битый файл — вердикт из транскрипта; файла нет — как до Ticket-а (прежние test-ы без правок ожиданий).
+- [x] Unit: строки транскрипта с русскими словами дают вердикт, как раньше; если `harness/hooks/gate.sh` после Ticket-а 08 печатает строки по-английски — они тоже.
+- [x] Unit: test «writes nothing» (`test/unit/gate-state.test.ts:338`) с файлом вердикта в папке состояния — списки файлов Claude home и Project-а до и после чтения одинаковы.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0 (`pnpm test` включает `test/contract/harness-scripts.test.ts`, то есть новый test Gate с пустым `HOME`); CI на PR зелёный.
+- [x] `GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full` на ветке после rebase — код 0 и строка `[gate] зелено` (e2e бейджей `test/e2e/checks-badges.spec.ts` идёт здесь).
 
 ## Тесты
 
@@ -136,3 +136,24 @@ Wave они не попадут, второй делает rebase. Файл ве
   - прогон, который не записал файл (не сработал `mktemp`, `printf` или `mv` — например, диск полон — или прогон вышел раньше записи), удаляет файл прошлого прогона через `trap … EXIT`: иначе worfy показал бы прошлое зелёное поверх нынешнего «красно» (находка ревью круга 1; test — случай 9 в `gate-verdict.test.sh`, с `mktemp`, который падает);
   - worfy не берёт файл, если его `head` не совпадает с HEAD worktree из `git worktree list` (worktree удалён и создан заново по тому же пути); тогда — транскрипт и строка в лог;
   - файл worfy ищет там же, где маркеры, — `<claudeHome>/gate/state`. Gate из `harness/` пишет в `$HARNESS_HOME/gate/state`, замороженный `~/.claude` файла не пишет, так что в работе приложение получит вердикт из файла только после Ticket-ов 12 и 16.
+
+**Влито.** [PR #114](https://github.com/IDSAD-XL/worfy/pull/114) → squash-коммит `8b9eacb` в `main`. Ревью —
+REJECTED → VERIFIED, один круг доработки. В первом круге найден ложный зелёный: если `mktemp` падал, файл
+вердикта прошлого прогона оставался, и worfy показывал прошлое «зелено» поверх нынешнего «ПРОВЕРИТЬ НЕ
+УДАЛОСЬ». Исправлено `trap … EXIT` (`gate.sh:119-121`): прогон, который не записал свой файл, удаляет прежний.
+Ревьюер повторил сценарий с падающим `mktemp` — exit 2, `[gate] красно`, файла нет. Прогоны во втором круге:
+`gate-verdict` 20/0, `gate-notverified` 32/0, `gate-unregistered` 10/0, vitest 78 passed, `gate fast` exit 0.
+Перед мержем: rebase на `aea94e3`, head `6900040`, `GATE_SCOPE=all gate full` — exit 0, CI зелёный,
+`mergeStateStatus` CLEAN. На head `6900040` было два прогона CI: run 37645629910 отменён, run 37645630325 —
+success. Скрипт мержа взял отменённый, получил код 1 и всё равно влил PR (урок процесса — в HANDOFF). Что head
+прошёл CI, проверено после мержа; push-прогон `8b9eacb` в `main` (run 37647843579) — тоже success.
+
+**Долг.**
+- [low] `src/main/gate/state.ts:127-129` — комментарий объясняет сверку `head` файла с HEAD worktree тем, что
+  worktree удалили и создали заново по тому же пути. Сверка срабатывает и после обычного «gate, потом коммит»
+  (`state.ts:148`): worfy уходит к транскрипту и пишет предупреждение раз на новый HEAD. Поведение то же, что у
+  ключа кэша Gate; неверен только комментарий (и пункт «Решено без владельца» выше).
+- [low] SIGKILL (hook убит по timeout) не запускает `trap … EXIT`: файл вердикта прошлого прогона остаётся.
+  Было и до Ticket-а.
+- Решение без владельца — файл вердикта в живом приложении появится только после Ticket-ов 12 (worfy находит
+  Harness в папке plugin) и 16 (переход машины владельца на plugin) — в HANDOFF, «Ждёт владельца».

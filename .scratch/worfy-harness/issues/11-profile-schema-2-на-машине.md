@@ -1,7 +1,7 @@
 # 11 — Profile schema 2 целиком на машине: `mode`, `language.docs`, `attribution`, `mcp.allowed`, без путей Harness
 
 Type: task
-Status: claimed — 2026-10-07
+Status: done — 2026-10-07, [PR #115](https://github.com/IDSAD-XL/worfy/pull/115)
 Blocked by: 06, 07, 08
 Source: решения владельца 2026-10-07: Q11' и Q10 (Profile целиком на машине, правила Project-а подмешивает только Harness; заменяет ADR-0020), Q11 (поля без путей Harness, schema 1 читается на время перехода, `mcp.allowed` — в контракт, новые поля `mode`, `language.docs`, `attribution`), Q4 (состояние Harness — `~/.claude/worfy-harness/`), Q6 (`language.docs`), Q23 и Q28 (`mode`: Full mode и Silent mode), Q25 (`attribution`); [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) (Profile на машине, Full mode и Silent mode); [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness на английском, язык документов из Profile); [ADR-0021](../../../docs/adr/0021-mcp-servers-allowlist-in-profile.md) (список MCP-серверов агентов в Profile); [spec.md](../spec.md)
 
@@ -99,19 +99,19 @@ Ticket 14 (перенос); где worfy ищет `bin/profile` — Ticket 12; �
 
 ## Готово, когда
 
-- [ ] `HOME=$(mktemp -d) bash harness/bin/tests/profile.test.sh` — код 0. Новые случаи — на временных `HARNESS_HOME`, реестре и Profile-ах:
+- [x] `HOME=$(mktemp -d) bash harness/bin/tests/profile.test.sh` — код 0. Новые случаи — на временных `HARNESS_HOME`, реестре и Profile-ах:
   - Profile schema 2 в `$HARNESS_HOME/projects/demo/` находится: `--name` — `demo`, `--dir` и `--field _resolved.dir` — эта папка, `--field mode` — значение из файла;
   - schema 1 только в `$HOME/.claude/profiles/demo/` — находится; Profile в обоих местах — берётся `$HARNESS_HOME`;
   - schema 2 без `mode` и с `"mode": "other"` — код 1, причина в stderr; schema 1 — `--field mode` печатает `full`;
   - `--field attribution` без поля — `on`; `--field language.docs` без поля — код 4; `--field mcp.allowed` — JSON-список из файла;
   - `--field tickets.status_tool`, `tickets.epic_status`, `numbering.reserve_with`, `workflow.preflight` на schema 2 — пути рядом с `bin/profile`; на schema 1 со значением `~/.claude/bin/ticket` — тот же путь, что на schema 2; `null` в schema 1 — `null`;
   - строка `"language": "ru"` по-прежнему даёт `language.reports` и `language.team`.
-- [ ] Тот же test: списки файлов временных `HOME` и `HARNESS_HOME` до и после вызовов `bin/profile` одинаковы.
-- [ ] `HOME=$(mktemp -d) bash harness/bin/tests/preflight.test.sh` — код 0; случай «`--epic` у Profile-а без `tickets.epic_status`» (`preflight.test.sh:56-59`) теперь проверяет Epic через `epic-status` Harness-а, а не отвечает BLOCKED.
-- [ ] `grep -rlE 'tickets\.status_tool|tickets\.epic_status|workflow\.preflight|numbering\.reserve_with' harness/skills harness/agents harness/bin/preflight` — код 1 (совпадений нет).
-- [ ] `` test "$(grep -cE '^\| `(mode|language\.docs|attribution|mcp\.allowed)` ' harness/profiles/README.md)" -eq 4 `` — код 0: четыре новых поля есть в таблице контракта.
-- [ ] Ревью с линзой «смысл сохранён» (Q34: ревьюер сравнивает старый русский и новый английский текст `profiles/README.md`) — VERIFIED; расхождения по смыслу, кроме изменений этого Ticket-а, — находки.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0 (`pnpm test` гоняет `harness/bin/tests/*.test.sh` через `test/contract/harness-scripts.test.ts` с пустым `HOME`); CI на PR зелёный.
+- [x] Тот же test: списки файлов временных `HOME` и `HARNESS_HOME` до и после вызовов `bin/profile` одинаковы.
+- [x] `HOME=$(mktemp -d) bash harness/bin/tests/preflight.test.sh` — код 0; случай «`--epic` у Profile-а без `tickets.epic_status`» (`preflight.test.sh:56-59`) теперь проверяет Epic через `epic-status` Harness-а, а не отвечает BLOCKED.
+- [x] `grep -rlE 'tickets\.status_tool|tickets\.epic_status|workflow\.preflight|numbering\.reserve_with' harness/skills harness/agents harness/bin/preflight` — код 1 (совпадений нет).
+- [x] `` test "$(grep -cE '^\| `(mode|language\.docs|attribution|mcp\.allowed)` ' harness/profiles/README.md)" -eq 4 `` — код 0: четыре новых поля есть в таблице контракта.
+- [x] Ревью с линзой «смысл сохранён» (Q34: ревьюер сравнивает старый русский и новый английский текст `profiles/README.md`) — VERIFIED; расхождения по смыслу, кроме изменений этого Ticket-а, — находки.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0 (`pnpm test` гоняет `harness/bin/tests/*.test.sh` через `test/contract/harness-scripts.test.ts` с пустым `HOME`); CI на PR зелёный.
 
 ## Тесты
 
@@ -179,3 +179,24 @@ Ticket-а 05 (части правил для hooks) и `harness/hooks/session-st
   Harness; `null` у Atakama остался `null`) и добавленными `mode: full`, `attribution: on`.
 - Вне Ticket-а: `src/main/workflow/profile.ts:4` в комментарии всё ещё называет место Profile-а
   `<claude home>/profiles/<имя>/` — это Ticket 12.
+
+**Влито.** [PR #115](https://github.com/IDSAD-XL/worfy/pull/115) → squash-коммит `f3fc9e1` в `main`. Ревью —
+REJECTED → VERIFIED, один круг доработки. В первом круге Atakama вставала на предполёте: `preflight`
+подставлял `origin/main`, а Atakama-Browser-Extension и Atakama-Browser-Server на `master` — «BLOCKED: no ref
+origin/main». Исправлено выбором базы: `layout.repos` → `origin/HEAD` → `origin/main` (`preflight:156`,
+`:172-175`). Ревьюер проверил на клонах трёх репозиториев Atakama — `GO` с базами `origin/master`,
+`origin/master`, `origin/main`; вывод для worfy и Auction побайтно тот же. Там же закрыты три находки [low]:
+непроверенные ветки `bin/profile` (форма `$HOME/.claude/bin/`, `profile.json`, который не объект) и README.
+Проверка «смысл сохранён» по `harness/profiles/README.md`: все правила старого текста на месте. Прогоны во
+втором круге: `preflight.test.sh` 11/11, `profile.test.sh` зелёный, три мутанта красные, `gate fast` exit 0.
+Перед мержем: rebase на `8b9eacb`, head `a59e95c`, `GATE_SCOPE=all gate full` — exit 0, CI зелёный,
+`mergeStateStatus` CLEAN. Правка одной строки `harness/agents/implementer.md:23` — вне следа Ticket-а,
+разрешена оркестратором.
+
+**Долг.**
+- [low] `harness/bin/preflight:173` — если репозитория нет в `layout.repos`, а `origin/HEAD` указывает на рабочую
+  ветку, `preflight` молча берёт её базой. Ревьюер воспроизвёл на клоне Server без `layout.repos`: база
+  `origin/feat/BPD-7741`, `GO`. Клон с GitHub ставит `origin/HEAD` на ветку по умолчанию, поэтому риск низкий.
+  Идея правки: брать `origin/HEAD`, только если есть такая же локальная ветка, иначе предупреждать.
+- Решения без владельца — порядок выбора базы (`layout.repos` раньше `origin/HEAD`) и правка
+  `implementer.md:23` вне следа — в HANDOFF, «Ждёт владельца».
