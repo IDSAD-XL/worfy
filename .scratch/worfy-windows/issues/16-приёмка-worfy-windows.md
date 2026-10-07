@@ -100,7 +100,7 @@ machines (`worfy-link`).
 - [ ] Пункт 2, Wave: выбранный Ticket — `done`, его PR влит. В журнале прогона нет строк `refused-dialog` и `human-input`, последняя строка — `run-stopped`. Вердикт gate full на Windows в этой Wave — «зелено». Номер Ticket-а, PR, путь журнала и вердикт — в Итог.
 - [ ] Пункт 4: по пути Ticket-а 15 агент нашёл ADR через qmd или grep-ом, на ПК владельца и на чистой Windows. Выдержка из транскрипта (вызов инструмента и найденный файл) — в Итог.
 - [ ] Пункт 5: `GATE_SCOPE=all` gate full на Mac на коммите main после последнего мержа Epic-а — код 0 и вердикт «зелено». Кто прогнал, коммит и строка `[gate]` — в Итог.
-- [ ] `GATE_SCOPE=all` gate full на ветке с contract test-ом — код 0 на ПК владельца и на Mac.
+- [ ] `GATE_SCOPE=all` gate full на ветке с contract test-ом — код 0 на ПК владельца и на Mac (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
 
 ## Тесты
 

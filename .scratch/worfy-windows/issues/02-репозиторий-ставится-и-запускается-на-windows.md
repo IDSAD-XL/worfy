@@ -79,7 +79,7 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
 - [ ] Windows-ПК: `pnpm lint` и `pnpm typecheck` — exit 0.
 - [ ] Windows-ПК: `pnpm test` стартует и печатает итог vitest; exit code и список упавших файлов с причиной — в Итог.
 - [ ] Если появился `scripts/postinstall.mjs` — `test/contract/postinstall.test.ts` зелёный: на `darwin` скрипт зовёт `electron-rebuild --only node-pty`, на `win32` — нет.
-- [ ] Mac: gate full зелёный (`lint`, `typecheck`, `test`, `test:e2e`, `test:package`). Если выбран `shellEmulator` — ещё `pnpm install:stable "$(mktemp -d)/worfy.app"` ставит Stable copy, exit 0.
+- [ ] Mac: gate full зелёный (`lint`, `typecheck`, `test`, `test:e2e`, `test:package`) (по правилу needs-mac-gate: проверяет и вливает Session на Mac). Если выбран `shellEmulator` — ещё `pnpm install:stable "$(mktemp -d)/worfy.app"` ставит Stable copy, exit 0.
 - [ ] CI на PR зелёный (Linux).
 
 ## Тесты

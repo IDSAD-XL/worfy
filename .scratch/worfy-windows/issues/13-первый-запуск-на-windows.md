@@ -126,7 +126,7 @@ Source: решения владельца 2026-10-07: Q18 (Git for Windows об�
 - [ ] Там же после Install: `claude plugin list --json` в PowerShell — `worfy` включён, версия равна версии сборки. Та же версия — в `%USERPROFILE%\.claude\worfy-harness\plugin\.claude-plugin\plugin.json`.
 - [ ] Hooks срабатывают: `claude -p "ok" --output-format stream-json --verbose` в PowerShell в клоне worfy. В `system/init` есть plugin `worfy`, есть `hook_response` hook-а `SessionStart` с `exit_code` 0. Вывод (без токенов) — в Итог.
 - [ ] Limits. Отказ в окне подтверждения — хеш `settings.json` до и после совпадает. После «Confirm» `claude` в Terminal Node отвечает один раз; в папке данных worfy (путь — Ticket 08) появляется `statusline-limits.json`; Limits в worfy показывают проценты. Снимок — `../evidence/13-limits.png`.
-- [ ] `GATE_SCOPE=all` gate full (команда Gate — какой её оставил Ticket 03) — код 0 на Mac и на ПК владельца.
+- [ ] `GATE_SCOPE=all` gate full (команда Gate — какой её оставил Ticket 03) — код 0 на Mac (по правилу needs-mac-gate: проверяет и вливает Session на Mac) и на ПК владельца.
 
 ## Тесты
 
