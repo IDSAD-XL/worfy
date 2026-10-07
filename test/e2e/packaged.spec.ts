@@ -1,10 +1,11 @@
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
+import { BUILD_VERSION, buildVersion } from '../../scripts/build-version'
 import { launchApp, type LaunchedApp, repoRoot } from './helpers'
 
 // The packaged tests drive the stable copy of worfy.app that scripts/install-stable.sh installs:
@@ -126,6 +127,54 @@ function runScript(script: string, args: string[], env: Record<string, string>):
 }
 
 const readJson = (path: string): Record<string, unknown> => JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+
+/**
+ * Every path in an app.asar archive, from its header: a pickle of the header size (bytes 4–8),
+ * then a pickle whose string (length at byte 12) is the JSON tree of `files` from byte 16.
+ */
+function asarPaths(archive: string): string[] {
+  const head = readFileSync(archive)
+  const json = head.subarray(16, 16 + head.readUInt32LE(12)).toString('utf8')
+  type Entry = { files?: Record<string, Entry> }
+  const paths: string[] = []
+  const walk = (entry: Entry, prefix: string): void => {
+    for (const [name, child] of Object.entries(entry.files ?? {})) {
+      paths.push(`${prefix}${name}`)
+      walk(child, `${prefix}${name}/`)
+    }
+  }
+  walk(JSON.parse(json) as Entry, '')
+  return paths
+}
+
+const isExecutable = (path: string): boolean => (statSync(path).mode & 0o111) !== 0
+
+/** The files of bin/ and hooks/ of a Harness folder, without tests/, each with whether it is executable. */
+function harnessScripts(dir: string): Record<string, boolean> {
+  const scripts: Record<string, boolean> = {}
+  for (const sub of ['bin', 'hooks']) {
+    for (const entry of readdirSync(join(dir, sub), { withFileTypes: true })) {
+      if (entry.isFile()) scripts[`${sub}/${entry.name}`] = isExecutable(join(dir, sub, entry.name))
+    }
+  }
+  return scripts
+}
+
+/**
+ * The Harness copy of a build next to harness/: the build version as `version`, the scripts as
+ * executable as in harness/, and no tests/ folders.
+ */
+function expectHarnessCopy(copy: string): string {
+  const version = readJson(join(copy, '.claude-plugin', 'plugin.json')).version
+  expect(version).toEqual(expect.stringMatching(BUILD_VERSION))
+  const scripts = harnessScripts(copy)
+  expect(scripts).toEqual(harnessScripts(join(repoRoot, 'harness')))
+  expect(scripts['bin/profile']).toBe(true)
+  expect(scripts['hooks/gate.sh']).toBe(true)
+  expect(existsSync(join(copy, 'bin', 'tests'))).toBe(false)
+  expect(existsSync(join(copy, 'hooks', 'tests'))).toBe(false)
+  return version as string
+}
 
 test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () => {
   let installDir: string
@@ -276,6 +325,26 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
       await first.close()
     }
   })
+
+  test('the copy carries the Harness of its build in Contents/Resources/harness, outside app.asar, and shows its version', async () => {
+    const resources = join(stableApp, 'Contents', 'Resources')
+    const version = expectHarnessCopy(join(resources, 'harness'))
+    // Packaged from this build (not a WORFY_PACKAGED_APP copy): the same files as out/harness,
+    // plugin.json with its version included, none dropped by electron-builder.
+    if (!process.env.WORFY_PACKAGED_APP) {
+      expect(spawnSync('diff', ['-rq', join(repoRoot, 'out', 'harness'), join(resources, 'harness')], { encoding: 'utf8' }).stdout).toBe('')
+    }
+    // Not a second time inside the archive: electron-builder.yml excludes out/harness/** from `files`.
+    const inArchive = asarPaths(join(resources, 'app.asar'))
+    expect(inArchive).toContain('out/main/index.js')
+    expect(inArchive.filter((path) => path.startsWith('out/harness'))).toEqual([])
+    const launched = await launchApp({ executablePath: executableOf(stableApp) })
+    try {
+      await expect(launched.window.getByTestId('app-version')).toHaveText(`v${version}`)
+    } finally {
+      await launched.close()
+    }
+  })
 })
 
 test.describe('scripts/install-stable.sh', { tag: '@packaged' }, () => {
@@ -422,6 +491,13 @@ test.describe('dev run of the unpacked build', () => {
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain('must be a path ending in .app')
   })
+  test('pnpm build copies harness/ into out/harness with the build version, and leaves harness/ untouched', () => {
+    const version = expectHarnessCopy(join(repoRoot, 'out', 'harness'))
+    expect(version).toBe(buildVersion(repoRoot))
+    expect(spawnSync('git', ['-C', repoRoot, 'diff', '--quiet', '--', 'harness']).status).toBe(0)
+    expect(readJson(join(repoRoot, 'harness', '.claude-plugin', 'plugin.json'))).not.toHaveProperty('version')
+  })
+
 })
 
 // The install script against a stand-in app: no packaged build needed, so these run in `pnpm test:e2e`.

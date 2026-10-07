@@ -8,7 +8,16 @@ directories:
 
 files:
   - out/**
+  # The Harness copy goes outside app.asar (extraResources below), not into it as well.
+  - '!out/harness/**'
   - package.json
+
+# The Harness copy of this build (electron.vite.config.ts writes out/harness/ with the build version
+# in its plugin.json) sits in Contents/Resources/harness/: its scripts are run, and a file inside
+# app.asar cannot be (ADR-0008). src/main/harness/bundled.ts finds it at process.resourcesPath.
+extraResources:
+  - from: out/harness
+    to: harness
 
 # Package the Electron that is already installed instead of downloading another copy.
 electronDist: node_modules/electron/dist

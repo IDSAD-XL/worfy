@@ -23,13 +23,18 @@ test("Electron's own files go to WORFY_DATA_DIR, not the real Application Suppor
   }
 })
 
-test('the window shows the version from package.json, which main returns over app.version', async () => {
-  // The expected value comes from package.json, not from the same app.getVersion() call the
-  // handler makes: a handler that reports another version (Electron's, say) must fail here.
+test('the window shows the build version of the Harness copy, which main returns over app.version', async () => {
+  // The expected value comes from the files of the build, not from the same calls the handler
+  // makes: a handler that reports another version (Electron's, say) must fail here. The build
+  // writes `<package.json version>+<short SHA>[.dirty]` into out/harness (electron.vite.config.ts).
   const { version } = JSON.parse(await readFile(join(repoRoot, 'package.json'), 'utf8')) as { version: string }
+  const manifest = JSON.parse(await readFile(join(repoRoot, 'out', 'harness', '.claude-plugin', 'plugin.json'), 'utf8')) as { version: string }
+  expect(manifest.version.startsWith(`${version}+`)).toBe(true)
+  expect(manifest.version.slice(version.length)).toMatch(/^\+[0-9a-f]{7,}(\.dirty)?$/)
   const launched = await launchApp()
   try {
-    await expect(launched.window.getByTestId('app-version')).toHaveText(`v${version}`)
+    expect(manifest.version).not.toBe(await launched.app.evaluate(() => process.versions.electron))
+    await expect(launched.window.getByTestId('app-version')).toHaveText(`v${manifest.version}`)
   } finally {
     await launched.close()
   }

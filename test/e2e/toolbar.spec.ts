@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp } from './helpers'
+import { launchApp, repoRoot } from './helpers'
 
 // The toolbar with a long Project name: the name is cut with an ellipsis (full in its title), and
 // the Canvas/Session switch, the Limits and the search field stay inside the window. The Limits
@@ -15,6 +15,7 @@ const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, for
 /** 80 characters: the folder name of the repository is the Project's name. */
 const LONG_NAME = 'a-project-with-a-very-long-name-that-does-not-fit-into-the-toolbar-of-the-window'
 const WIDTH = 1280
+const packageVersion = (JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as { version: string }).version
 
 function makeRepo(parent: string, name: string): string {
   const dir = join(parent, name)
@@ -90,6 +91,8 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
     await expect(subtitle).toHaveText(`${LONG_NAME} · main`)
     await expect(toolbar.getByTestId('limit-seven_day-note')).toContainText('as of')
     await expect(toolbar.getByTestId('app-version')).toBeVisible()
+    // The build version from the Harness copy (out/harness, scripts/build-version.ts), longer than v0.0.0 was.
+    await expect(toolbar.getByTestId('app-version')).toHaveText(new RegExp(`^v${packageVersion.replaceAll('.', '\\.')}\\+[0-9a-f]{7,}(\\.dirty)?$`))
 
     // Every other item of the toolbar is whole and inside the window, to the right of the title.
     const width = await innerWidth(window)
