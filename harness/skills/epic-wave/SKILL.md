@@ -1,392 +1,427 @@
 ---
 name: epic-wave
-description: «Прогони волну N эпика X», «run wave N of epic X», «Ticket-ы NN, NN эпика X» (Autopilot worfy), возобновление волны эпика после перерыва сессии. Работает в любом зарегистрированном проекте; команды, пути, деплой и порядок мержа берёт из профиля (`~/.claude/bin/profile`).
+description: Run a wave of an epic's tickets — "tickets NN, NN of epic X" (the worfy Autopilot command, `/worfy:epic-wave tickets 05, 06 of epic X`); the older forms "Ticket-ы NN, NN эпика X" (Autopilot before the plugin), "волна N эпика X", "run wave N of epic X" and the request "прогони волну N эпика X"; resuming a wave after a session break. Works in any registered project; commands, paths, deploy and merge order come from the project profile (`${CLAUDE_PLUGIN_ROOT}/bin/profile`).
 ---
 
-# Провести волну эпика
+# Run a wave of an epic
 
-`ship-ticket` ведёт один тикет; здесь — раздача, гейт, мерж. Волна — тикеты одного эпика, не
-блокирующие друг друга: код пишут агенты-исполнители.
+`/worfy:ship-ticket` carries one ticket; this skill does the dispatch, the gate and the merge. A
+wave is the tickets of one epic that do not block each other; implementer agents write the code.
 
-Всё проектное берётся из профиля проекта (контракт — `~/.claude/profiles/README.md`). Ниже `<repo>` —
-корень проекта; `F <поле>` — сокращение для `~/.claude/bin/profile -C <repo> --field <поле>`.
+Everything project-specific comes from the project profile (contract:
+`${CLAUDE_PLUGIN_ROOT}/profiles/README.md`). Below, `<repo>` is the project root; `F <field>` is
+short for `"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field <field>`.
 
-## 0. Профиль
+**Harness paths in profile values.** A profile value that starts with `~/.claude/bin/` is read as `${CLAUDE_PLUGIN_ROOT}/bin/` followed by the rest of the value.
+Schema-1 profiles carry such values in `tickets.status_tool`, `tickets.epic_status`,
+`workflow.preflight` and `numbering.reserve_with`; they point into the frozen pre-plugin Harness, so
+run the plugin's copy instead. A bare skill name in `workflow.ticket_skill` (`ship-ticket`) means
+`/worfy:ship-ticket`. Placeholders inside profile values (`<эпик>` — the epic, `<NN>` — the ticket
+number, `<slug>`, `<ветка>` — the branch, `<имя-тикета>` — `<NN>-<slug>`, `<что-ревьюишь>` — what
+is reviewed, `<файл>` — a test file) are part of the profile contract: substitute them as written.
 
-```bash
-~/.claude/bin/profile -C <repo> --name; echo "КОД=$?"
-```
-
-- `0` — работать по профилю.
-- `3` — проект не зарегистрирован или у него нет профиля. **Стоп**: сказать пользователю
-  «проект <repo> не зарегистрирован — профиля нет, волну вести не по чему» и предложить завести
-  профиль (`~/.claude/profiles/README.md`, раздел «Новый проект»). Команды не угадывать.
-- `1`, `2` — сломан реестр или профиль, либо неверный путь: стоп, сообщение из stderr — пользователю.
-
-Шаг, который держится на поле, выполняется, только если поле есть. Код 4 или напечатанный `null` —
-шаг пропускается, и это говорится словами («проверка прода пропущена: в профиле нет `deploy`»), а
-не молча.
-
-**Язык.** Отчёт пользователю и брифы агентам — на языке `F language.reports`. Всё, что видит
-команда, — сообщения коммитов (и WIP, и `gate:`), заголовок и описание PR, комментарии в PR
-(вердикты `VERIFIED` / `REJECTED` с их списком), комментарии в коде — на языке `F language.team`.
-Записи в файлах тикета и в документах репозитория (итог тикета, ADR, файл состояния) — на языке,
-которым эти файлы уже написаны.
-
-Форму волны задают два поля:
-
-- `F parallel` — `worktrees`: исполнители параллельно, каждый в своём worktree; `single`: тикеты
-  волны идут **по одному** в основном checkout `<repo>` — следующий исполнитель стартует, когда
-  предыдущий тикет прошёл гейт (раздел 3) и, при `pr-green-ci`, влит (раздел 4, пункты 1–2: мерж
-  идёт внутри цикла по тикетам, а проверка прода и документы — один раз в конце). Worktree не
-  заводятся.
-- `F workflow.finish` — `pr-green-ci`: PR, CI, мерж, прод; `local-green`: финиш тикета — локально
-  зелёные проверки, PR нет, раздел 4 (мерж) пропускается целиком, кроме пункта 4 (документы).
-  Скилл ничего не вливает: при `single` ветка каждого следующего тикета создаётся от ветки
-  предыдущего (первая — от `F worktree.base`), документный коммит ложится на ветку последнего;
-  когда и куда вливать эту цепочку, решает пользователь.
-
-Проектные ловушки и что значит каждая причина `BLOCKED` предполёта — `rules.md` профиля
-(`~/.claude/bin/profile -C <repo> --rules`), прочитать один раз до плана.
-
-## 1. Предполёт
+## 0. Profile
 
 ```bash
-<F workflow.preflight>; echo "КОД=$?"                    # плейсхолдер <эпик>
-<F tickets.epic_status> --json | jq '.tickets[] | select(.epic=="<эпик>")'
-gh pr list --state open --json number,headRefName,mergeStateStatus,files   # только при pr-green-ci
+"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --name; echo "EXIT=$?"
 ```
 
-Предполёт: последняя строка — `GO` или `BLOCKED: <причины>`, код 1 при `BLOCKED`. Строка
-`<база>: <sha> …` (база — `F worktree.base`) — база для брифов раздачи. Что он проверяет — `rules.md`.
-Без `workflow.preflight` — сказать «предполёт профиль не задаёт, делаю минимальный» и выполнить
-`git -C <repo> fetch`, `git -C <repo> status --porcelain`, отставание от базы; базой брифов служит
-`git log -1 --format='%h %s' <база>`. `gh pr list` с `files` нужен отдельно: файлы в каталоге
-`F numbering.adr.dir` в чужих PR — занятые номера.
+- `0` — work by the profile.
+- `3` — the project is not registered or has no profile. **Stop**: tell the user "project <repo>
+  is not registered — there is no profile, nothing to run the wave by" and offer to create a
+  profile (`${CLAUDE_PLUGIN_ROOT}/profiles/README.md`, the section on a new project). Do not guess
+  commands.
+- `1`, `2` — the registry or the profile is broken, or the path is wrong: stop, pass the stderr
+  message to the user.
 
-Аккаунт GitHub — `F github.account`. Если `gh auth status` показывает активным другой аккаунт,
-глобальный аккаунт без разрешения владельца не переключать: им пользуются другие сессии. Тогда
-каждая команда `gh` и `git` по `origin` — и у оркестратора, и у агентов (строка «GitHub:» брифа) —
-идёт с `GH_TOKEN=$(gh auth token -u <F github.account>)`.
+A step that depends on a field runs only if the field exists. Exit code 4 or a printed `null` —
+the step is skipped, and that is said in words ("production check skipped: the profile has no
+`deploy`"), not silently.
 
-`epic-status --json` (`tickets.epic_status`) не принимает имя эпика (`epic-status <эпик> --json`
-печатает человеческую строку) и отдаёт `{ref, epics, tickets[]}` по всем эпикам — отсюда фильтр.
-`state` принимает `open|work|blocked|done|none`; слово «claimed» лежит в `statusRaw`. Нет
-`tickets.epic_status` — сказать об этом и собрать список тикетов по `F tickets.path` вручную.
+**Language.** The report to the user and the briefs to agents are in `F language.reports`.
+Everything the team sees — commit messages (WIP and `gate:` ones too), the PR title and
+description, PR comments (the verdicts `VERIFIED` / `REJECTED` with their list), code comments — is
+in `F language.team`. Project documents (ticket files and the ticket's result section, the epic
+spec, ADRs, the state file, lessons) are in `F language.docs`; while the profile has no such field
+(exit code 4 or `null`), in the language those documents are already written in.
 
-Исходы: `BLOCKED` — стоп с сообщением (причины и какие из них лишь предупреждения — `rules.md`);
-открытый PR на ветке тикета (`F tickets.branch`) — тикет возобновляется (раздел «Как возобновить»),
-не раздаётся заново; остальное — строки таблицы плана.
+Two fields set the shape of the wave:
 
-**Что брать в волну.** Запрос называет волну одним из двух способов, и оба — разрешение владельца:
-- «волна N эпика X» — тикеты строки N таблицы плана (раздел «Волны» в `F tickets.spec`), которые
-  ещё не `done`;
-- «Ticket-ы NN, NN эпика X» (так пишет Autopilot worfy) — ровно перечисленные тикеты, номер волны
-  плана не важен. Проверить: каждый `open`, его блокеры `done`, общих файлов в «Где в коде» нет;
-  тикет, который не проходит, — не раздавать и назвать в отчёте с причиной.
+- `F parallel` — `worktrees`: implementers run in parallel, each in its own worktree; `single`:
+  the wave's tickets go **one at a time** in the main checkout `<repo>` — the next implementer
+  starts when the previous ticket has passed the gate (section 3) and, with `pr-green-ci`, has been
+  merged (section 4, items 1–2: the merge happens inside the per-ticket loop, while the production
+  check and the documents happen once at the end). No worktrees are created.
+- `F workflow.finish` — `pr-green-ci`: PR, CI, merge, production; `local-green`: a ticket finishes
+  on locally green checks, there is no PR, and section 4 (merge) is skipped entirely except item 4
+  (documents). The skill merges nothing: with `single` each next ticket's branch is created from
+  the previous ticket's branch (the first from `F worktree.base`), and the documents commit lands on
+  the last ticket's branch; when and where to merge that chain is the user's call.
 
-В волну входят тикеты со `state: "open"`, `blockedParsed: true` и каждым номером из
-`blockedNums` в состоянии `done`; при `blockedParsed: false` сначала поправить `Blocked by`.
+Project pitfalls and what each `BLOCKED` reason of the preflight means are in the profile's
+`rules.md` (`"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --rules`); read it once, before the plan.
 
-Один вызов `qmd` (скилл `qmd`: `vec` вопросом, `lex` основами слов, `hyde` ожидаемым
-ответом; где ждать ответа — `F qmd.collections`) по теме эпика — до плана: принятое ADR или
-оплаченный урок меняют брифы.
+## 1. Preflight
 
-След по файлам берётся из раздела `F tickets.trail_section` тикета. Неполный след (нет теста,
-точки входа или того, что `rules.md` требует для такой правки) до раздачи дополняет агент `scout`
-(в брифе — путь `<repo>`): карта тикета с `file:line`.
+```bash
+<F workflow.preflight>; echo "EXIT=$?"                    # placeholder <эпик>
+<F tickets.epic_status> --json | jq '.tickets[] | select(.epic=="<epic>")'
+gh pr list --state open --json number,headRefName,mergeStateStatus,files   # pr-green-ci only
+```
 
-План волны — таблица, и она же итог предполёта:
+Preflight: the last line is `GO` or `BLOCKED: <reasons>`, exit code 1 on `BLOCKED`. The line
+`<база>: <sha> …` (the base is `F worktree.base`) is the base for the dispatch briefs. What it
+checks is in `rules.md`. Without `workflow.preflight` — say "the profile sets no preflight, running
+a minimal one" and run `git -C <repo> fetch`, `git -C <repo> status --porcelain` and how far behind
+the base the checkout is; the briefs' base is then `git log -1 --format='%h %s' <base>`. `gh pr list`
+with `files` is needed separately: files under `F numbering.adr.dir` in other PRs are taken numbers.
 
-| Тикет | След по файлам | ADR / миграция | Кто |
+The GitHub account is `F github.account`. If `gh auth status` shows a different account as
+active, do not switch the global account without the owner's permission: other sessions use it.
+Then every `gh` command and every `git` command against `origin` — the orchestrator's and the
+agents' (the brief's "GitHub:" line) — runs with `GH_TOKEN=$(gh auth token -u <F github.account>)`.
+
+`epic-status --json` (`tickets.epic_status`) takes no epic name (`epic-status <epic> --json`
+prints the human-readable line) and returns `{ref, epics, tickets[]}` across all epics — hence the
+filter. `state` takes `open|work|blocked|done|none`; the word "claimed" lives in `statusRaw`. No
+`tickets.epic_status` — say so and build the ticket list from `F tickets.path` by hand.
+
+Outcomes: `BLOCKED` — stop with a message (the reasons, and which of them are only warnings, are in
+`rules.md`); an open PR on the ticket's branch (`F tickets.branch`) — the ticket is resumed (section
+"How to resume a wave"), not dispatched again; everything else becomes rows of the plan table.
+
+**What goes into the wave.** The request names the wave in one of these ways, and each is the
+owner's permission:
+- "tickets NN, NN of epic X" — the worfy Autopilot command, for example
+  `/worfy:epic-wave tickets 05, 06, 07, 08 of epic worfy-harness` (the numbers have two digits at
+  least and are joined by a comma and a space), and its older form "Ticket-ы NN, NN эпика X" (Autopilot before the plugin, still in old transcripts and
+  saved project templates) — exactly the listed tickets; the wave number of the plan does not
+  matter. Check that each is `open`, its blockers are `done`, and the tickets share no files in
+  their trail section; a ticket that fails the check is not dispatched and is named in the report
+  with the reason;
+- "волна N эпика X" or "run wave N of epic X" — the tickets of row N of the plan table (the waves
+  section of `F tickets.spec`; worfy: «Волны») that are not yet `done`.
+
+The wave takes tickets with `state: "open"`, `blockedParsed: true` and every number in
+`blockedNums` in state `done`; with `blockedParsed: false`, fix `Blocked by` first.
+
+One `qmd` call (skill `worfy:qmd`: `vec` as a question, `lex` with word stems, `hyde` as the
+expected answer; where to expect the answer — `F qmd.collections`) on the epic's subject — before
+the plan: an accepted ADR or a lesson already paid for changes the briefs.
+
+The files a ticket may touch come from its section `F tickets.trail_section` (worfy: `## Где в коде`).
+An incomplete list (no test, no entry point, or not what `rules.md` requires for such a change) is
+completed before dispatch by the agent `worfy:scout` (the brief gives the path `<repo>`): a map of
+the ticket with `file:line`.
+
+The wave plan is a table, and it is also the outcome of the preflight:
+
+| Ticket | Files | ADR / migration | Who |
 |---|---|---|---|
 | 05 | src/moderation/*.ts, test/moderation.spec.ts | ADR-0061 | impl-05 |
 | 07 | web/lots/[id]/page.tsx | — | impl-07 |
 
-Два тикета с общим файлом в следе идут последовательно: второй стартует после мержа
-первого (при `single` все идут последовательно и так). С разрешения владельца волну можно вести не
-строго по таблице, а по зависимостям и пересечению следов: тикет стартует, как только PR каждого
-номера из его `blockedNums` влит (`gh pr view --json state` — `MERGED`; `done` в файле тикета
-появится лишь с документным коммитом) и у его следа нет общих файлов с идущими тикетами; без
-такого разрешения — по таблице. Номера — только если профиль их ведёт
-(`F numbering.adr`, `F numbering.migrations`; нет — колонка «—» и строка «номеров в проекте нет»).
-Номера ADR раздаются в плане по одному, следующие за старшим на базе (печатает
-`F numbering.reserve_with`); исполнитель пушит заглушку с занятым номером в первые минуты, чтобы
-заявка была видна в `gh pr list` другим сессиям. Номер получает каждый тикет, чей «Готово, когда»
-требует принятый ADR (`grep -n '^- \[ \].*ADR' <тикеты волны>`), — не только тот, что сам просит
-номер: бриф «номера нет — файлов ADR не заводить» при таком пункте выводит тикет из волны
-(worfy-daily, волна 1: тикет 03 и вслед за ним весь эпик). Миграция — только `F numbering.migrations.generate`
-поверх базы. Таблица готова — раздача сразу, без ожидания подтверждения.
+Two tickets with a shared file go one after the other: the second starts after the first is
+merged (with `single` all of them go one after the other anyway). With the owner's permission the
+wave may run not strictly by the table but by dependencies and file overlap: a ticket starts as
+soon as the PR of every number in its `blockedNums` is merged (`gh pr view --json state` —
+`MERGED`; `done` in the ticket file appears only with the documents commit) and its files do not
+overlap with the running tickets; without that permission — by the table. Numbers only if the
+profile keeps them (`F numbering.adr`, `F numbering.migrations`; none — the column is "—" and the
+line "the project has no numbers"). ADR numbers are handed out in the plan one per ticket, next
+after the highest on the base (printed by `F numbering.reserve_with`); the implementer pushes a
+placeholder with the taken number in the first minutes, so the claim shows up in `gh pr list` for
+other sessions. A number goes to every ticket whose acceptance list (worfy: «Готово, когда»)
+requires an accepted ADR (`grep -n '^- \[ \].*ADR' <wave tickets>`), not only to the one that asks
+for a number itself: the brief "no number — do not create ADR files" with such an item takes the
+ticket out of the wave (worfy-daily, wave 1: ticket 03 and, after it, the whole epic). Migrations
+only via `F numbering.migrations.generate` on top of the base. Once the table is ready, dispatch
+right away, without waiting for confirmation.
 
-## 2. Раздача
+## 2. Dispatch
 
-**Вопросы владельцу волну не останавливают.** Развилка, которую решает владелец, посреди
-волны: выбрать рекомендованный вариант, записать его в итог тикета и в «Ждёт владельца» файла
-состояния как «решено без владельца, подтвердить». `AskUserQuestion` — только когда без ответа
-волну продолжить нельзя; в Session без человека (Autopilot worfy) он отклоняется автоматически.
+**Questions for the owner do not stop the wave.** A fork the owner decides, in the middle of a
+wave: pick the recommended option and record it in the ticket's result section and in the state
+file's list of what waits for the owner (worfy: «Ждёт владельца») as "decided without the owner,
+confirm" (in the docs' language; worfy: «решено без владельца, подтвердить»). `AskUserQuestion` —
+only when the wave cannot continue without an answer; in a Session without a human (worfy
+Autopilot) it is declined automatically.
 
-Агент `implementer`, имя `impl-<NN>`, фоном: шаги `F workflow.implementer_steps` скилла
-`F workflow.ticket_skill` до финиша `F workflow.finish` (PR с зелёным CI или локально зелёные
-проверки); мерж остаётся оркестратору. Порядок работы и формат отчёта заданы в определении агента,
-бриф их не повторяет.
+Agent `worfy:implementer` (`subagent_type: "worfy:implementer"`), name `impl-<NN>`, in the
+background: steps `F workflow.implementer_steps` of the skill `F workflow.ticket_skill` up to the
+finish `F workflow.finish` (a PR with green CI, or locally green checks); the merge stays with the
+orchestrator. The order of work and the report format are set in the agent definition; the brief
+does not repeat them.
 
-- `parallel: worktrees` — один агент на тикет, все в одном сообщении.
-- `parallel: single` — один агент за раз; следующего — после гейта (раздел 3) и, при
-  `pr-green-ci`, мержа (раздел 4, пункты 1–2) по предыдущему.
+- `parallel: worktrees` — one agent per ticket, all in one message.
+- `parallel: single` — one agent at a time; the next one after the gate (section 3) and, with
+  `pr-green-ci`, the merge (section 4, items 1–2) of the previous one.
 
 ```
-Цель: <одна фраза из тикета>
-Репозиторий: <repo>                          # агент запускает profile -C с этим путём
-Тикет: <F tickets.path для NN>; спецификация: <F tickets.spec>
-Дерево: <F worktree.implementer>, <ветка> = <F tickets.branch>, <имя-тикета> = <NN>-<slug>;
-        # <эпик>, <NN>, <slug> в шаблонах — из тикета (worfy: ветка <эпик>/<NN>, дерево <NN>)
-        # при single: «основной checkout <repo>, worktree не заводить, ветка <F tickets.branch>
-        #   от базы» (при local-green — от ветки предыдущего тикета волны)
-База: <строка базы из предполёта>
-След по файлам: <точный список>
-Номера: ADR-<NNNN> — создай <F numbering.adr.dir>/<NNNN>-<slug>.md, сначала заглушкой;
-        миграция — <F numbering.migrations.generate> поверх базы      # или «номеров нет»
-Следы соседей по волне (не трогать): <NN>: <файлы>; <NN>: <файлы>
-Scratchpad: только свой подкаталог <scratchpad>/impl-<NN>/; чужие скрипты из scratchpad не запускать
-Запись в ~/.claude: разрешена | запрещена   # настоящий Claude Code / Agent SDK пишет транскрипты в ~/.claude/projects
-GitHub: GH_TOKEN=$(gh auth token -u <F github.account>) в каждой команде gh и git по origin
-        # строка только если глобальный аккаунт gh чужой (раздел 1)
-GUI-проверки: тебе | не тебе                   # «тебе» — не больше чем одному агенту волны за раз
+Goal: <one sentence from the ticket>
+Repository: <repo>                           # the agent runs profile -C with this path
+Ticket: <F tickets.path for NN>; spec: <F tickets.spec>
+Worktree: <F worktree.implementer>, <ветка> = <F tickets.branch>, <имя-тикета> = <NN>-<slug>;
+        # <эпик>, <NN>, <slug> in the templates come from the ticket (worfy: branch <эпик>/<NN>, worktree <NN>)
+        # with single: "main checkout <repo>, no worktree, branch <F tickets.branch>
+        #   from the base" (with local-green — from the previous wave ticket's branch)
+Base: <base line from the preflight>
+Files: <exact list>
+Numbers: ADR-<NNNN> — create <F numbering.adr.dir>/<NNNN>-<slug>.md, as a placeholder first;
+        migration — <F numbering.migrations.generate> on top of the base      # or "no numbers"
+Wave neighbours' files (do not touch): <NN>: <files>; <NN>: <files>
+Scratchpad: only your own subdirectory <scratchpad>/impl-<NN>/; do not run other agents' scripts from the scratchpad
+Write to ~/.claude: allowed | forbidden   # real Claude Code / Agent SDK writes transcripts to ~/.claude/projects
+GitHub: GH_TOKEN=$(gh auth token -u <F github.account>) in every gh command and every git command against origin
+        # the line only if the global gh account is someone else's (section 1)
+GUI checks: yours | not yours                  # "yours" — to at most one agent of the wave at a time
 ```
 
-Строку «Запись в ~/.claude» бриф заполняет всегда: запуск настоящего Claude Code или Agent SDK в
-test-е пишет транскрипты в `~/.claude/projects`, даже если код тикета туда не пишет, и без явного
-ответа исполнитель либо нарушит запрет, либо молча пропустит проверку. Test-раннеры — только
-однократным запуском, без watch-режима (vitest — `vitest run`): процесс в watch не завершается, и
-агент встаёт. Ручные проверки GUI (правила — скилл `ship-ticket`, шаг 6) — не больше одного агента
-за раз на всю волну: «тебе» в строке «GUI-проверки» получает следующий агент, только когда
-предыдущий отчитался. Бриф проверяющего (раздел 3) несёт те же строки «Scratchpad», «Запись в
-~/.claude» и «GitHub:»: гейт тоже гоняет test-ы и `gh`.
+The brief always fills the "Write to ~/.claude" line: running real Claude Code or the Agent SDK in a
+test writes transcripts to `~/.claude/projects` even if the ticket's code writes nothing there, and
+without an explicit answer the implementer either breaks the ban or silently skips the check. Test
+runners run once only, never in watch mode (vitest — `vitest run`): a watch process never exits,
+and the agent hangs. Manual GUI checks (rules — skill `/worfy:ship-ticket`, step 6) — at most one
+agent at a time across the whole wave: the next agent gets "yours" in the "GUI checks" line only
+after the previous one has reported. The verifier's brief (section 3) carries the same
+"Scratchpad", "Write to ~/.claude" and "GitHub:" lines: the gate runs tests and `gh` too.
 
-Вопрос вместо отчёта (спорная спецификация, конфликт, который не разводится механически,
-CI или локальная проверка, красные после двух попыток) решается ответом через `SendMessage` тому
-же агенту.
+A question instead of a report (a disputed spec, a conflict that cannot be resolved mechanically,
+CI or a local check red after two attempts) is resolved by an answer through `SendMessage` to the
+same agent.
 
-## 3. Проверочный гейт
+## 3. Verification gate
 
-На каждый вернувшийся отчёт — агент `reviewer` (имя `verify-<NN>`, линза «отчёт исполнителя»,
-в брифе — путь к дереву). Дерево исполнителя к этому моменту простаивает, и проверяющий в нём
-один — поэтому оно же (при `single` — основной checkout); второго агента в это дерево не
-запускать, а мутации гонять только на копиях в своём подкаталоге scratchpad
-(`<scratchpad>/verify-<NN>/`; 16 сентября второй ревьюер в общем дереве принял мутанта за
-нестабильный тест). Чужие скрипты из scratchpad не запускать: проверяющий, запустивший чужой
-`mut.sh`, висел три часа. Отчёт — заявка; проверяющий читает `not_verified`
-первым и добывает доказательства сам:
+For every returned report — agent `worfy:reviewer` (name `verify-<NN>`, lens "implementer's
+report", the brief gives the path to the worktree). By then the implementer's worktree is idle and
+the verifier is alone in it — so it uses that worktree (with `single` — the main checkout); do not
+start a second agent in that worktree, and run mutations only on copies in its own scratchpad
+subdirectory (`<scratchpad>/verify-<NN>/`; on 16 September a second reviewer in a shared worktree
+took a mutant for a flaky test). Do not run other agents' scripts from the scratchpad: a verifier
+that ran someone else's `mut.sh` hung for three hours. The report is a claim; the verifier reads
+`not_verified` first and gathers the evidence itself:
 
 ```bash
-cd <дерево исполнителя>                                       # дерево из <F worktree.implementer> или <repo>
-git diff --name-only <база>...HEAD                            # сверить с files_changed
-bash ~/.claude/hooks/gate.sh fast </dev/null; echo "КОД=$?"   # зелёный: см. ниже
-gh pr checks <N>                                              # только pr-green-ci; отдельной командой, без пайпа
-gh pr view <N> --json mergeStateStatus,headRefOid             # только pr-green-ci
+cd <implementer worktree>                                     # the worktree from <F worktree.implementer> or <repo>
+git diff --name-only <base>...HEAD                            # compare with files_changed
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh" fast </dev/null; echo "EXIT=$?"   # green: see below
+gh pr checks <N>                                              # pr-green-ci only; a separate command, no pipe
+gh pr view <N> --json mergeStateStatus,headRefOid             # pr-green-ci only
 ```
 
-Гейт зелёный только при `КОД=0` **и** строке `[gate] зелено (fast): …` в выводе: код 0
-без неё значит «ничего не прогналось» или «окружение недоступно», и это не проверка.
-`КОД=2` — красно. `КОД=3` — не проверено, ни зелено, ни красно: строка `[gate] ПРОВЕРИТЬ НЕ
-УДАЛОСЬ: …` называет причину (проект не зарегистрирован, реестр не читается, резолвер упал, нет
-node). На коде 3 тикет не мержится: вердикт `REJECTED: gate 3 — <строка>`. Исполнителю он на
-доработку не уходит и круг не расходует — это поломка окружения, не кода: тикет выходит из волны
-строкой `blocked` с этой причиной, чинит её человек.
-Дальше проверяющий перечитывает каждую `file:line` из `claims`, сверяет `exit_code` из
-`commands` со своим прогоном и ищет опровержение самой сильной фразе отчёта (тест проходил
-и до правки). Правила владельца, которые проверяющий получает в брифе: пункт «Готово, когда»,
-который нельзя автоматизировать (системный диалог, уведомление ОС, живой терминал), может остаться
-`[ ]` со строкой «не проверено: <почему>» в итоге тикета — это не находка и не повод для
-`REJECTED`; приложенное доказательство (снимок, вывод команды), которое не показывает заявленного, —
-находка уровня high.
+The gate is green only with `EXIT=0` **and** the line `[gate] зелено (fast): …` in the output:
+exit code 0 without it means «ничего не прогналось» (nothing ran) or «окружение недоступно» (the
+environment is unavailable), and that is not a check. `EXIT=2` — red. `EXIT=3` — not verified,
+neither green nor red: the line `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …` names the reason (project not
+registered, registry unreadable, resolver crashed, no node). On exit code 3 the ticket is not
+merged: the verdict is `REJECTED: gate 3 — <line>`. It does not go back to the implementer and
+does not use up a round — it is a broken environment, not broken code: the ticket leaves the wave
+as a `blocked` row with that reason, and a human fixes it.
+Then the verifier re-reads every `file:line` in `claims`, compares `exit_code` in `commands` with
+its own run, and looks for a refutation of the report's strongest sentence (the test passed before
+the change too). Owner rules the verifier gets in its brief: an acceptance item that cannot be
+automated (a system dialog, an OS notification, a live terminal) may stay `[ ]` with a line
+"not verified: <why>" (in the docs' language; worfy: «не проверено: …») in the ticket's result
+section — that is not a finding and not a reason for `REJECTED`; attached evidence (a screenshot,
+command output) that does not show what is claimed is a high-severity finding.
 
-**UI-тикет — снимки в обеих темах.** Тикет, чей диф меняет видимое на экране (разметка, стили,
-компоненты, тексты интерфейса), бриф проверяющего называет UI-тикетом и даёт путь к спецификации
-дизайна проекта, если она есть. Проверяющий собирает дерево (`F commands.build`), снимает каждый
-затронутый экран через Playwright `page.screenshot()` в светлой и в тёмной теме, кладёт снимки в
-`<scratchpad>/verify-<NN>/screens/`, смотрит каждый сам и сверяет со спецификацией; в ответе — пути
-и что на каждом видно. Подробности — агент `reviewer`. Снимков у UI-тикета нет — находка уровня
-med, а не «не проверено»: снимок автоматизируется, исключение для ручных GUI-проверок на него не
-распространяется.
+**UI ticket — screenshots in both themes.** A ticket whose diff changes what is visible on screen
+(markup, styles, components, interface texts) is called a UI ticket in the verifier's brief, and
+the brief gives the path to the project's design spec if there is one. The verifier builds the
+worktree (`F commands.build`), captures every affected screen with Playwright `page.screenshot()`
+in the light and the dark theme, puts the screenshots in `<scratchpad>/verify-<NN>/screens/`,
+looks at each one itself and compares it with the spec; the answer gives the paths and what each
+shows. Details — agent `worfy:reviewer`. A UI ticket without screenshots is a medium-severity
+finding, not "not verified": a screenshot can be automated, and the exception for manual GUI checks
+does not cover it.
 
-Вердикт — первая строка ответа: `VERIFIED` или `REJECTED` со списком неподтверждённых
-утверждений; ≤30 строк, `file:line`. Каждый вердикт записывается так, чтобы счёт кругов пережил
-перерыв сессии:
+The verdict is the first line of the answer: `VERIFIED` or `REJECTED` with the list of unconfirmed
+claims; ≤30 lines, `file:line`. Every verdict is recorded so the round count survives a session
+break:
 
 ```bash
-gh pr comment <N> --body "VERIFIED"            # или "REJECTED: <список>"
+gh pr comment <N> --body "VERIFIED"            # or "REJECTED: <list>"
 gh pr view <N> --json comments --jq '[.comments[].body | select(startswith("REJECTED"))] | length'
 ```
 
-При `local-green` PR нет: вердикт пишется пустым коммитом в ветку тикета — он переживает перерыв
-сессии так же, как комментарий в PR:
+With `local-green` there is no PR: the verdict is written as an empty commit on the ticket's
+branch — it survives a session break just as a PR comment does:
 
 ```bash
-git -C <дерево исполнителя> commit --allow-empty -m "gate: VERIFIED"     # или "gate: REJECTED: <список>"
-git -C <дерево исполнителя> log --format=%s <база>..HEAD | grep -c '^gate: REJECTED'
+git -C <implementer worktree> commit --allow-empty -m "gate: VERIFIED"     # or "gate: REJECTED: <list>"
+git -C <implementer worktree> log --format=%s <base>..HEAD | grep -c '^gate: REJECTED'
 ```
 
-`REJECTED` (кроме `REJECTED: gate 3 …` — см. выше) уходит тому же исполнителю через `SendMessage` с этим списком — ровно один
-круг доработки (исключение — узкий круг ниже), после него гейт заново. В том же сообщении — напоминание: каждое новое поведение
-доработки покрыть test-ом, который краснеет на мутанте этой правки, и продумать гонки в асинхронном
-коде — круг доработки сам вносил дефекты.
+`REJECTED` (except `REJECTED: gate 3 …` — see above) goes to the same implementer through
+`SendMessage` with that list — exactly one rework round (the exception is the narrow round below),
+then the gate again. The same message reminds the implementer: cover every new behaviour of the
+rework with a test that turns red on a mutant of that change, and think through races in async
+code — rework rounds have introduced defects themselves.
 
-**Второй круг гейта проверяет круг доработки, а не ищет всё заново.** В брифе — список `REJECTED`
-первого круга и дифф только доработки: `git diff <sha>..HEAD`, где `<sha>` — HEAD ветки перед
-доработкой, уже после rebase (его же дописать в комментарий `REJECTED`, чтобы он пережил перерыв
-сессии). `REJECTED` второго круга ставится только за: (а) пункт первого круга не исправлен и не
-опровергнут; (б) дефект, внесённый правками доработки; (в) новый дефект уровня high. Остальное
-новое — `[low] debt: …`: оно не блокирует, вердикт несёт его строкой (`VERIFIED; debt: …`), а
-документный коммит (раздел 4, пункт 4) переносит в файл состояния. Без этого правила свежий
-проверяющий всегда находит новое, и тикет на критическом пути блокирует всех зависимых.
+**The second gate round checks the rework round; it does not search everything again.** The
+brief gives the first round's `REJECTED` list and the diff of the rework only: `git diff <sha>..HEAD`,
+where `<sha>` is the branch HEAD before the rework, already after the rebase (append it to the
+`REJECTED` comment too, so it survives a session break). A second-round `REJECTED` is given only
+for: (a) a first-round item that is neither fixed nor refuted; (b) a defect introduced by the
+rework's changes; (c) a new high-severity defect. Everything else new is `[low] debt: …`: it does
+not block, the verdict carries it as a line (`VERIFIED; debt: …`), and the documents commit
+(section 4, item 4) moves it into the state file. Without this rule a fresh verifier always finds
+something new, and a ticket on the critical path blocks everything that depends on it.
 
-Второй `REJECTED` выводит тикет из волны: строка `blocked` в таблице отчёта, `ticket block` — в
-документном PR (раздел 4, пункт 4). Исключение — **узкий круг исправления**: тикет на критическом
-пути — у него ≥3 транзитивно зависимых не-`done` тикета (по `blockedNums` из `epic-status --json`),
-и подтверждённые находки второго круга не уровня high. Подтверждают их агенты-скептики — по агенту
-`reviewer` на находку, с задачей опровергнуть её; скептики только читают, а если опровержению
-нужен запуск — каждому своё дерево (`F worktree.reviewer`), не дерево исполнителя. Тогда — ещё один
-круг доработки ровно по устоявшим находкам и гейт только этого круга, по тем же трём основаниям.
-Вердикты узкого круга — с префиксом: `NARROW: <устоявшие находки>` перед доработкой, затем
-`NARROW: VERIFIED` или `NARROW: REJECTED: …`; `NARROW: REJECTED` выводит тикет из волны. Листовому
-тикету узкий круг — только по решению владельца. Сколько тикетов встало за выведенным, считать от
-тикетов, реально выведенных из волны, а не от пропущенных в ней как уже влитые.
-Гейт закрыт, когда у каждого тикета волны есть вердикт.
+A second `REJECTED` takes the ticket out of the wave: a `blocked` row in the report table,
+`ticket block` in the documents PR (section 4, item 4). The exception is the **narrow fix round**:
+a ticket on the critical path — it has ≥3 transitively dependent tickets that are not `done` (by
+`blockedNums` from `epic-status --json`) — whose confirmed second-round findings are not
+high-severity. Sceptic agents confirm them — one `worfy:reviewer` agent per finding, tasked with
+refuting it; sceptics only read, and if a refutation needs a run, each gets its own worktree
+(`F worktree.reviewer`), not the implementer's. Then — one more rework round on exactly the
+findings that stood, and a gate of that round only, on the same three grounds. Narrow-round
+verdicts carry a prefix: `NARROW: <findings that stood>` before the rework, then `NARROW: VERIFIED`
+or `NARROW: REJECTED: …`; `NARROW: REJECTED` takes the ticket out of the wave. A leaf ticket gets
+a narrow round only by the owner's decision. How many tickets stand behind the removed one is
+counted from tickets actually removed from the wave, not from those skipped in it as already
+merged.
+The gate is closed when every ticket of the wave has a verdict.
 
-## 4. Мерж по политике
+## 4. Merge by policy
 
-Пункты 1–3 — только при `pr-green-ci`; при `local-green` — «мержа нет: проект заканчивает на
-локально зелёных проверках», и сразу пункт 4.
+Items 1–3 — only with `pr-green-ci`; with `local-green` — "no merge: the project finishes on
+locally green checks", and straight to item 4.
 
-Каждый шаг — статус и мерж двумя командами; «no checks reported» — вывод `gh pr checks`
-при конфликте, не значение `mergeStateStatus`:
+Each step is status and merge as two commands; "no checks reported" is what `gh pr checks` prints
+on a conflict, not a value of `mergeStateStatus`:
 
 ```bash
-gh pr view <N> --json mergeStateStatus   # CLEAN — мерж; DIRTY — конфликт; BLOCKED, UNSTABLE, BEHIND — ждать
+gh pr view <N> --json mergeStateStatus   # CLEAN — merge; DIRTY — conflict; BLOCKED, UNSTABLE, BEHIND — wait
 gh pr merge <N> --squash
 ```
 
-CI ждать одной долгой командой, а не частым опросом: у агента ограничено число ходов, и опрос
-`gh pr checks` дважды обрывал мерж посреди CI. Вызов Bash — с timeout 600000; не дождался —
-повторить ту же команду:
+Wait for CI with one long command, not frequent polling: an agent has a limited number of turns,
+and polling `gh pr checks` twice cut a merge off in the middle of CI. The Bash call has timeout
+600000; if it did not finish waiting, repeat the same command:
 
 ```bash
 sha=$(gh pr view <N> --json headRefOid --jq .headRefOid)
-id=$(gh run list --branch <ветка> --limit 10 --json databaseId,headSha \
+id=$(gh run list --branch <branch> --limit 10 --json databaseId,headSha \
        --jq "[.[] | select(.headSha==\"$sha\")][0].databaseId")
-if [ -z "$id" ]; then echo "НЕТ RUN"; else
-  set -o pipefail; gh run watch "$id" --exit-status --compact --interval 30 | tail -n 5; echo "КОД=$?"; fi
+if [ -z "$id" ]; then echo "NO RUN"; else
+  set -o pipefail; gh run watch "$id" --exit-status --compact --interval 30 | tail -n 5; echo "EXIT=$?"; fi
 ```
 
-`НЕТ RUN` — не красный CI: run ещё не создан, или PR в `DIRTY` и GitHub его не создаст. Смотреть
-`mergeStateStatus`; при `DIRTY` нужен rebase (абзац о конфликте в конце раздела).
+`NO RUN` is not red CI: the run has not been created yet, or the PR is `DIRTY` and GitHub will not
+create one. Look at `mergeStateStatus`; on `DIRTY` a rebase is needed (the paragraph on conflicts
+at the end of this section).
 
-**Замок на основную ветку.** Когда параллельно идут несколько волн или workflow одного проекта,
-каждый мерж и каждый документный коммит в основную ветку — по одному, под общим замком. Взять его
-одним вызовом Bash с timeout 600000 (не взял — повторить), снять при выходе и при ошибке тоже:
+**Lock on the main branch.** When several waves or workflows of one project run in parallel, every
+merge and every documents commit to the main branch goes one at a time, under a shared lock. Take
+it in one Bash call with timeout 600000 (if not taken, repeat), and release it on exit and on error
+too:
 
 ```bash
-L=<scratchpad оркестратора>/main.lock                 # один путь на все параллельные волны (см. ниже)
+L=<orchestrator scratchpad>/main.lock                 # one path for all parallel waves (see below)
 until mkdir "$L" 2>/dev/null; do
-  m=$(stat -f %m "$L" 2>/dev/null) || continue        # замок сняли между mkdir и stat; Linux: stat -c %Y
-  if [ $(( $(date +%s) - m )) -gt 5400 ]; then rmdir "$L"; fi   # старше 90 мин — завис
+  m=$(stat -f %m "$L" 2>/dev/null) || continue        # lock released between mkdir and stat; Linux: stat -c %Y
+  if [ $(( $(date +%s) - m )) -gt 5400 ]; then rmdir "$L"; fi   # older than 90 min — stuck
   sleep 30
 done; echo LOCKED
-# rebase на свежую базу → мерж или коммит → push; затем:
+# rebase on a fresh base → merge or commit → push; then:
 rmdir "$L"
 ```
 
-Scratchpad оркестратора годится, когда все волны идут из одной сессии. У разных сессий scratchpad
-разный, и замок там друг друга не видит — тогда общий путь репозитория:
-`$(git -C <repo> rev-parse --git-common-dir)/main.lock`.
+The orchestrator's scratchpad works when all waves run from one session. Different sessions have
+different scratchpads, and locks there do not see each other — then use the repository's shared
+path: `$(git -C <repo> rev-parse --git-common-dir)/main.lock`.
 
-1. Обычные PR с кодом — подряд, по мере вердиктов `VERIFIED`.
-2. PR, трогающие пути из `F serial_merge.paths` (миграции, правка деплоя), — по одному, по
-   правилу `F serial_merge.rule`. Нет поля — «последовательного мержа профиль не требует».
-3. Проверка прода — один раз, после последнего мержа кода. Только если есть `F deploy`; нет —
-   «проверка прода пропущена: проект не деплоится». Как деплоится — `F deploy.how`; чего
-   локально не запускать и какие переменные нужны — `F deploy.smoke`, `F deploy.env`:
+1. Ordinary PRs with code — one after another, as `VERIFIED` verdicts arrive.
+2. PRs touching paths from `F serial_merge.paths` (migrations, deploy changes) — one at a time, by
+   the rule `F serial_merge.rule`. No field — "the profile requires no serial merge".
+3. Production check — once, after the last code merge. Only if `F deploy` exists; if not —
+   "production check skipped: the project does not deploy". How it deploys — `F deploy.how`; what
+   not to run locally and which variables are needed — `F deploy.smoke`, `F deploy.env`:
 
-Блок запускается целиком, вместе со строкой `sha=`: состояние shell между вызовами не сохраняется.
-Повторять его, пока CI run не станет `completed`:
+The block runs whole, together with the `sha=` line: shell state does not persist between calls.
+Repeat it until the CI run is `completed`:
 
 ```bash
 sha=$(gh pr view <N> --json mergeCommit --jq .mergeCommit.oid)
-<F deploy.ci_run_check>                                          # использует $sha; ждать completed, success
-got=$(<F deploy.production_check>); echo "КОД=$? commit=$got sha=$sha"
+<F deploy.ci_run_check>                                          # uses $sha; wait for completed, success
+got=$(<F deploy.production_check>); echo "EXIT=$? commit=$got sha=$sha"
 ```
 
-Ожидание — `F deploy.production_expect`: ненулевой `КОД`, пустой `commit` или `commit` не равен
-`$sha` — прод «не проверен», и так и пишется в отчёте. Пароль стенда не идёт в аргументы команды —
-только так, как это делает `F deploy.production_check`.
+The expectation is `F deploy.production_expect`: a non-zero `EXIT`, an empty `commit`, or a
+`commit` not equal to `$sha` — production is "not verified", and the report says exactly that. The
+staging password never goes into command arguments — only the way `F deploy.production_check`
+passes it.
 
-4. Документный PR — последним, после проверенного прода (при `local-green` — документный коммит
-   после последнего `VERIFIED`). `F tickets.status_tool` правит файлы тикетов в дереве, где
-   запущен, поэтому статусы волны и одна правка файла состояния на волну — в его ветке.
-   Файл состояния (`F docs.handoff`: `path`, `kind`, `check`) переписывается как снимок (скилл
-   ship-ticket, шаг 11) и принимает строки `debt:` из вердиктов гейта как долги, рассказ о волне
-   идёт в описание документного PR, обобщаемые уроки —
-   туда, куда велит `F lessons` (при `local-green` рассказ — в сообщение документного коммита);
-   `F docs.handoff.check` перед push. Нет `docs.handoff` — «файла
-   состояния у проекта нет».
+4. The documents PR — last, after production is verified (with `local-green` — a documents commit
+   after the last `VERIFIED`). `F tickets.status_tool` edits ticket files in the worktree where it
+   runs, so the wave's statuses and one state-file edit per wave go on its branch.
+   The state file (`F docs.handoff`: `path`, `kind`, `check`) is rewritten as a snapshot (skill
+   `/worfy:ship-ticket`, step 11) and takes the `debt:` lines from the gate verdicts as debts; the
+   story of the wave goes into the documents PR description, lessons that generalize go where
+   `F lessons` says (with `local-green` the story goes into the documents commit message);
+   `F docs.handoff.check` before push. No `docs.handoff` — "the project has no state file".
 
 ```bash
-<F tickets.status_tool> done <эпик> <NN> --pr <N>                          # на каждый влитый тикет; при local-green — без --pr
-<F tickets.status_tool> block <эпик> <NN> «отклонён проверкой: <причина>»   # на каждый выведенный
+<F tickets.status_tool> done <epic> <NN> --pr <N>                  # for each merged ticket; with local-green — without --pr
+<F tickets.status_tool> block <epic> <NN> "<reason it was rejected by the gate>"   # for each removed one; the reason in the docs' language
 ```
 
-Конфликт с базой на любом шаге: исполнитель делает rebase на базу в своём дереве (миграцию
-перегенерировать `F numbering.migrations.generate`, а не разрешать руками), затем гейт заново,
-затем мерж. Следующий PR берётся после того, как предыдущий влит: CI идёт по свежему merge-коммиту.
-CI не стартует на PR в состоянии `DIRTY`, а документный коммит волны меняет файлы тикетов, и
-открытые PR (следующей волны, параллельной волны, ещё не влитые) становятся `DIRTY`. Поэтому
-`mergeStateStatus` смотреть и rebase делать до круга доработки и до ожидания CI, а не после.
+A conflict with the base at any step: the implementer rebases onto the base in its own worktree
+(regenerate the migration with `F numbering.migrations.generate`, do not resolve it by hand), then
+the gate again, then the merge. The next PR is taken after the previous one is merged: CI runs on
+the fresh merge commit. CI does not start on a PR in state `DIRTY`, and the wave's documents
+commit changes ticket files, so open PRs (of the next wave, of a parallel wave, not yet merged)
+become `DIRTY`. So check `mergeStateStatus` and rebase before the rework round and before waiting
+for CI, not after.
 
-**Уборка после мержа.** Влит PR тикета (и документный PR волны) — сразу `git worktree remove
-<дерево>` и `git branch -D <ветка>`; деревья проверяющих — тоже. Остаётся дерево только у тикета,
-выведенного из волны с открытым PR. Старая ветка тикета в живом дереве — не мусор, а ложный
-сигнал: worfy читает статус тикета и из веток деревьев, и `claimed` из влитой ветки перекрывает
-`done` на main (worfy-daily, волна 6: «3 in work» после мержа).
+**Cleanup after the merge.** Once a ticket's PR (and the wave's documents PR) is merged — at once
+`git worktree remove <worktree>` and `git branch -D <branch>`; the verifiers' worktrees too. A
+worktree stays only for a ticket removed from the wave with an open PR. An old ticket branch in a
+live worktree is not litter but a false signal: worfy reads ticket status from worktree branches
+too, and `claimed` from a merged branch overrides `done` on main (worfy-daily, wave 6: "3 in work"
+after the merge).
 
-## 5. Отчёт
+## 5. Report
 
-Таблица по волне, потом четыре строки статуса: «Этап» — вывод `<F tickets.epic_status> <эпик>`
-после fast-forward основной ветки; «Сейчас» — только подтверждённое гейтом и живым адресом (при
-`local-green` или без `deploy` — гейтом); «Жду» — решение по `blocked`-тикету или «ничего».
-`file:line` из ответа проверяющего перед цитированием перечитать самому.
+A table for the wave, then the four-line status block (in `F language.reports`): the stage line —
+the output of `<F tickets.epic_status> <epic>` after a fast-forward of the main branch; the "now"
+line — only what the gate and the live address confirmed (with `local-green` or without `deploy` —
+the gate); the "waiting" line — a decision on a `blocked` ticket, or "nothing". Re-read every
+`file:line` from the verifier's answer yourself before quoting it.
 
-| Тикет | PR | Гейт | Доработка | Прод |
+| Ticket | PR | Gate | Rework | Production |
 |---|---|---|---|---|
-| 07 | #341 | REJECTED → VERIFIED | 1 круг | 1a2b3c4 |
+| 07 | #341 | REJECTED → VERIFIED | 1 round | 1a2b3c4 |
 | 09 | — | REJECTED ×2 | blocked | — |
 
-Колонки «PR» и «Прод» при `local-green` и без `deploy` — «—».
+The "PR" and "Production" columns are "—" with `local-green` and without `deploy`.
 
-## Как возобновить волну
+## How to resume a wave
 
-`ticket claim` выполняется в дереве исполнителя, и статус живёт в его ветке: `epic-status`
-по локальной основной ветке его не видит. Состояние волны читается из веток, PR и деревьев
-(ветки — шаблон `F tickets.branch`, где всё после `<эпик>/` заменено на `*`; ниже — для
-`<эпик>/<NN>-<slug>` и `<эпик>/<NN>`):
+`ticket claim` runs in the implementer's worktree, and the status lives on its branch:
+`epic-status` on the local main branch does not see it. The state of the wave is read from
+branches, PRs and worktrees (branches — the `F tickets.branch` template with everything after
+`<эпик>/` replaced by `*`; below — for `<epic>/<NN>-<slug>` and `<epic>/<NN>`):
 
 ```bash
-<F workflow.preflight>; echo "КОД=$?"           # или минимальный предполёт из раздела 1
-for b in $(git for-each-ref --format='%(refname:short)' "refs/heads/<эпик>/*" "refs/remotes/origin/<эпик>/*"); do
-  <F tickets.epic_status> --json --ref "$b" | jq -c '.tickets[] | select(.epic=="<эпик>" and .state!="open")'
-done                                            # или ~/.claude/bin/epic-board — снимок по всем веткам
-ls <F worktree.root>                            # только при parallel: worktrees
+<F workflow.preflight>; echo "EXIT=$?"         # or the minimal preflight from section 1
+for b in $(git for-each-ref --format='%(refname:short)' "refs/heads/<epic>/*" "refs/remotes/origin/<epic>/*"); do
+  <F tickets.epic_status> --json --ref "$b" | jq -c '.tickets[] | select(.epic=="<epic>" and .state!="open")'
+done                                            # or "${CLAUDE_PLUGIN_ROOT}/bin/epic-board" — a snapshot across all branches
+ls <F worktree.root>                            # parallel: worktrees only
 ```
 
-Тикет `state: "work"` без дерева (при `single` — без коммитов в его ветке) — исполнитель не
-стартовал: раздать заново. Дерево без PR — исполнитель остановился до шага 8: продолжить
-`ship-ticket` в этом дереве. Открытый PR — тикет стоит перед гейтом (раздел 3); круги доработки
-считать по комментариям PR. Влитый PR при `state` не `done` — документный PR ещё впереди
-(раздел 4, пункт 4).
+A ticket with `state: "work"` and no worktree (with `single` — no commits on its branch) — the
+implementer never started: dispatch it again. A worktree without a PR — the implementer stopped
+before step 8: continue `/worfy:ship-ticket` in that worktree. An open PR — the ticket waits for
+the gate (section 3); count rework rounds by the PR comments. A merged PR while `state` is not
+`done` — the documents PR is still ahead (section 4, item 4).
 
-При `local-green` PR нет, и состояние читается по коммитам `gate:` в ветке тикета: последнего
-`gate: VERIFIED` нет — прогнать гейт (раздел 3); он красный — исполнитель не закончил, продолжить
-`ship-ticket` в этой ветке до зелёного шага 6. `gate: VERIFIED` есть, а `state` не `done` —
-документный коммит ещё впереди. Круги доработки — число коммитов `gate: REJECTED`.
+With `local-green` there is no PR, and the state is read from the `gate:` commits on the ticket's
+branch: no last `gate: VERIFIED` — run the gate (section 3); if it is red, the implementer has not
+finished — continue `/worfy:ship-ticket` on that branch up to a green step 6. `gate: VERIFIED`
+exists but `state` is not `done` — the documents commit is still ahead. Rework rounds — the number
+of `gate: REJECTED` commits.
 
-Дальше — с раздела 1: предполёт идемпотентен.
+Then — from section 1: the preflight is idempotent.
