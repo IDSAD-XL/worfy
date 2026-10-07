@@ -60,7 +60,8 @@ describe('harness/ holds only the Harness', () => {
   it('has the imported files', () => {
     expect(files).toEqual(
       expect.arrayContaining([
-        'rules/global.md',
+        'hooks/rules/orchestrator.md',
+        'hooks/rules/common.md',
         'agents/implementer.md',
         'skills/epic-wave/SKILL.md',
         'bin/profile',
@@ -78,7 +79,7 @@ describe('harness/ holds only the Harness', () => {
     ['machine state', /(^|\/)(settings\.json|gate\/.*|profiles\/(worfy|auction|atakama)\/.*)$/],
     ['synced skills', /^skills\/synced\//],
     // Claude Code loads a CLAUDE.md under harness/ into sessions that edit harness/: the global
-    // rules live in rules/global.md instead.
+    // rules reach sessions through hooks/inject-rules.sh and hooks/rules/*.md instead (ticket 05).
     ['CLAUDE.md', /(^|\/)CLAUDE\.md$/],
   ]
 
