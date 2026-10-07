@@ -31,7 +31,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import './canvas.css'
 import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
-import { edgeSources, edgesOf, nodeSources, overlays, type NodeSource } from './extensions'
+import { edgeSources, edgesOf, edgeTypes, nodeSources, overlays, type NodeSource } from './extensions'
 import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
 import { UnknownNode } from './UnknownNode'
 import { applyRecorded, grouped, type Group, type LayoutChannel } from './history'
@@ -194,16 +194,22 @@ function Flow({ projectId, state }: FlowProps) {
   const onNodeDragStop: OnNodeDrag<CanvasFlowNode> = useCallback(
     (_event, _node, dragged) => {
       const { layout, derived } = latest.current
+      const back = new Set<string>()
+      const layoutNodes: CanvasFlowNode[] = []
+      for (const node of dragged) {
+        const source = derived.sourceOf.get(node.id)
+        if (!source) layoutNodes.push(node)
+        else if (source.moved({ projectId, layout }, node) !== true) back.add(node.id)
+      }
       // One drag is one step of the history, however many Nodes it moved.
       void grouped(async (group) => {
-        const moves: Promise<void>[] = []
-        for (const node of dragged) {
-          const source = derived.sourceOf.get(node.id)
-          if (source) source.moved({ projectId, layout }, node)
-          else moves.push(ops.apply({ op: 'move', id: node.id, x: node.position.x, y: node.position.y }, group))
-        }
-        await Promise.all(moves)
+        await Promise.all(layoutNodes.map((node) => ops.apply({ op: 'move', id: node.id, x: node.position.x, y: node.position.y }, group)))
       })
+      // A Node whose source keeps no place for it goes back to where the source has it (ADR-0037).
+      if (back.size > 0) {
+        const at = new Map(derived.nodes.filter((node) => back.has(node.id)).map((node) => [node.id, node.position]))
+        setNodes((current) => current.map((node) => (at.has(node.id) ? { ...node, position: at.get(node.id)!, dragging: false } : node)))
+      }
     },
     [ops, projectId],
   )
@@ -256,6 +262,7 @@ function Flow({ projectId, state }: FlowProps) {
           nodes={shownNodes}
           edges={edges}
           nodeTypes={flowNodeTypes}
+          edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
           onNodeDragStop={onNodeDragStop}
           onMoveEnd={onMoveEnd}

@@ -1,15 +1,19 @@
 // The Epic frames and their Tickets on the Canvas, computed from the Project's workflow model
-// (renderer/workflow/useWorkflow.ts) by epic-layout.ts. None of them is a Layout Node: the
-// Layout keeps, per Epic, one Node of kind `epic-frame` with what the user changed by hand —
+// (renderer/workflow/useWorkflow.ts): the places inside a frame by ELK in a Web Worker
+// (elk/client.ts, ADR-0037), and by the synchronous epic-layout.ts until ELK's first answer for the
+// Epic. None of them is a Layout Node: the Layout keeps, per Epic, one Node of kind `epic-frame`
+// with what the user changed by hand —
 //
 //   id   `epic:<epic>`, locked, w = h = 1 (not drawn)
 //   x, y           the frame's offset from its automatic place
 //   data.collapsed the frame was collapsed or opened by the user (absent: the default, collapsed
 //                  only when every Ticket is done)
-//   data["offset:<NN>"] = { dx, dy }  a Ticket's offset from its automatic place in the frame
 //
 // so a recomputed place keeps the user's shift, and nothing about the workflow is copied into the
-// Layout. The Node is created the first time the user changes something about the Epic.
+// Layout. The Node is created the first time the user changes something about the Epic. Tickets
+// are not dragged (ADR-0037): the frame moves only as a whole, by its header. Older Layouts kept
+// Tickets' offsets as `data["offset:<NN>"]`; main drops them when it reads the file
+// (src/main/layout/upgrade.ts).
 import { useEffect, useMemo } from 'react'
 import { useReactFlow, useStoreApi } from '@xyflow/react'
 import { create } from 'zustand'
@@ -18,8 +22,10 @@ import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput } 
 import type { Epic, Ticket, WorkflowModel } from '../../../shared/workflow/types'
 import { useProjects } from '../../projects/useProjects'
 import { useWorkflow } from '../../workflow/useWorkflow'
+import { elkKey, requestEpicLayout, useElkAnswers, type ElkAnswer, type ElkRequest } from '../elk/client'
 import {
   defaultCollapsed,
+  epicColumns,
   layoutEpic,
   progressOf,
   stackFrames,
@@ -28,6 +34,7 @@ import {
   type EpicLayout,
   type Offset,
   type PlacedTicket,
+  type Point,
   type Progress,
   type Rect,
 } from '../epic-layout'
@@ -37,7 +44,6 @@ import { applyLayoutOp } from '../useLayout'
 
 // The kinds and ids are shared with main: the canvas tools must not list or move these Nodes.
 export { EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, ticketNodeId }
-const offsetKey = (num: number): string => `offset:${num}`
 
 /** What an Epic frame Node carries in `data.node.data`. */
 export interface EpicFrameData {
@@ -123,34 +129,20 @@ interface Saved {
   exists: boolean
   offset: Offset
   collapsed: boolean | undefined
-  offsets: Map<number, Offset>
 }
-
-const isOffset = (value: unknown): value is Offset =>
-  typeof value === 'object' &&
-  value !== null &&
-  Number.isFinite((value as Offset).dx) &&
-  Number.isFinite((value as Offset).dy)
 
 function readSaved(node: LayoutNode | undefined): Saved {
-  if (!node) return { exists: false, offset: { dx: 0, dy: 0 }, collapsed: undefined, offsets: new Map() }
-  const offsets = new Map<number, Offset>()
-  for (const [key, value] of Object.entries(node.data)) {
-    const match = /^offset:(\d+)$/.exec(key)
-    if (match && isOffset(value)) offsets.set(Number(match[1]), { dx: value.dx, dy: value.dy })
-  }
+  if (!node) return { exists: false, offset: { dx: 0, dy: 0 }, collapsed: undefined }
   const collapsed = typeof node.data.collapsed === 'boolean' ? node.data.collapsed : undefined
-  return { exists: true, offset: { dx: node.x, dy: node.y }, collapsed, offsets }
+  return { exists: true, offset: { dx: node.x, dy: node.y }, collapsed }
 }
 
-const savedKey = (saved: Saved): string =>
-  JSON.stringify([saved.exists, saved.offset, saved.collapsed, [...saved.offsets].sort(([a], [b]) => a - b)])
+const savedKey = (saved: Saved): string => JSON.stringify([saved.exists, saved.offset, saved.collapsed])
 
 export interface EpicChange {
   /** The frame's new offset from its automatic place. */
   offset?: Offset
   collapsed?: boolean
-  ticket?: { num: number; offset: Offset }
 }
 
 /**
@@ -161,7 +153,6 @@ export async function saveEpicChange(projectId: string, epic: string, exists: bo
   const id = epicNodeId(epic)
   const data: Record<string, unknown> = {}
   if (change.collapsed !== undefined) data.collapsed = change.collapsed
-  if (change.ticket) data[offsetKey(change.ticket.num)] = change.ticket.offset
 
   if (!exists) {
     const op: LayoutOpInput = {
@@ -191,7 +182,7 @@ const syntheticNode = (id: string, kind: string, x: number, y: number, w: number
 })
 
 interface EpicEntry {
-  inputs: { root: string; epic: Epic; tickets: readonly Ticket[]; saved: string; collapsed: boolean; doneExpanded: boolean }
+  inputs: { root: string; epic: Epic; tickets: readonly Ticket[]; saved: string; collapsed: boolean; doneExpanded: boolean; answer: ElkAnswer | undefined }
   layout: EpicLayout
   /** The frame's height with the done stack open: what the frames' column keeps free for it (ADR-0032). */
   reserve: number
@@ -199,6 +190,38 @@ interface EpicEntry {
   tickets: CanvasFlowNode[]
   frame: CanvasFlowNode | undefined
   frameData: EpicFrameData | undefined
+  /** What to ask ELK for this Epic; null for a collapsed frame or one without Tickets, which ELK does not lay out. */
+  request: ElkRequest | null
+}
+
+/**
+ * A layout ELK made for earlier inputs, shown until the answer for the current ones: the Tickets
+ * keep its places (ADR-0037), the ready Wave and "Needs attention" are the current ones, and a
+ * Ticket that is gone is dropped with its routes. A Ticket that is new has no place in it and
+ * waits for the answer.
+ */
+function keepPlaces(stale: EpicLayout, tickets: readonly Ticket[]): EpicLayout {
+  const nums = new Set(tickets.map((t) => t.num))
+  const { ready, attention } = epicColumns(tickets)
+  const kept = stale.tickets.filter((t) => nums.has(t.num)).map((t) => ({ ...t, ready: ready.has(t.num), attention: attention.get(t.num) ?? null }))
+  const shown = new Set(kept.map((t) => t.num))
+  const routes: Record<string, readonly Point[]> = {}
+  for (const [key, route] of Object.entries(stale.routes)) {
+    const [blocker, blocked] = key.split('->').map(Number)
+    if (shown.has(blocker!) && shown.has(blocked!)) routes[key] = route
+  }
+  return { ...stale, tickets: kept, readyCount: kept.filter((t) => t.ready).length, routes }
+}
+
+/** The layout a frame shows, and the height the frames' column keeps free for it (ADR-0032). */
+function frameLayout(tickets: readonly Ticket[], name: string, collapsed: boolean, doneExpanded: boolean, answer: ElkAnswer | undefined, key: string | null): { layout: EpicLayout; reserve: number } {
+  if (collapsed || answer === undefined || key === null) {
+    const layout = layoutEpic({ tickets, collapsed, doneExpanded, name })
+    const reserve = collapsed || doneExpanded ? layout.height : layoutEpic({ tickets, collapsed: false, doneExpanded: true, name }).height
+    return { layout, reserve }
+  }
+  const chosen = doneExpanded ? answer.open : answer.folded
+  return { layout: answer.key === key ? chosen : keepPlaces(chosen, tickets), reserve: answer.open.height }
 }
 
 /** Per Project and Epic, the last computed frame, so an Epic that did not change keeps its objects. */
@@ -211,8 +234,9 @@ const sameArray = <T>(a: readonly T[], b: readonly T[]) => a.length === b.length
 function ticketNodes(projectId: string, root: string, epic: string, tickets: readonly Ticket[], layout: EpicLayout, saved: boolean): CanvasFlowNode[] {
   const byNum = new Map(tickets.map((t) => [t.num, t]))
   const parentId = epicNodeId(epic)
-  return layout.tickets.map((placed) => {
-    const ticket = byNum.get(placed.num)!
+  return layout.tickets.flatMap((placed) => {
+    const ticket = byNum.get(placed.num)
+    if (ticket === undefined) return []
     const id = ticketNodeId(epic, placed.num)
     const data: TicketNodeData = {
       projectId,
@@ -231,9 +255,19 @@ function ticketNodes(projectId: string, root: string, epic: string, tickets: rea
       height: TICKET_HEIGHT,
       deletable: false,
       connectable: false,
+      // Its place is computed (ADR-0037); it can still be selected.
+      draggable: false,
       data: { node: syntheticNode(id, TICKET_KIND, placed.x, placed.y, TICKET_WIDTH, TICKET_HEIGHT, data) },
     }
   })
+}
+
+/** Per Project, what to ask ELK for after the last build. */
+const wanted = new Map<string, readonly { epic: string; request: ElkRequest }[]>()
+
+/** Asks ELK for every Epic of the Project whose layout inputs changed since the last request (elk/client.ts). */
+export function requestEpicLayouts(projectId: string): void {
+  for (const { epic, request } of wanted.get(projectId) ?? []) requestEpicLayout(projectId, epic, request)
 }
 
 /** Every Epic frame and its Tickets for one Project; the same array while nothing changed. */
@@ -245,9 +279,12 @@ export function buildEpicNodes(
   doneExpanded: Readonly<Record<string, boolean>>,
   /** Nodes of other node sources on the plane, in absolute canvas units (`publishPlaneRects`). */
   derived: readonly Rect[] = [],
+  /** ELK's last answer per Epic of this Project (elk/client.ts). */
+  answers: Readonly<Record<string, ElkAnswer>> = {},
 ): readonly CanvasFlowNode[] {
   if (root === undefined || model === undefined || model.error !== null) {
     lastNodes.delete(projectId)
+    wanted.delete(projectId)
     return EMPTY
   }
 
@@ -275,20 +312,27 @@ export function buildEpicNodes(
       saved: savedKey(saved),
       collapsed: saved.collapsed ?? defaultCollapsed(tickets),
       doneExpanded: doneExpanded[key] === true,
+      answer: answers[epic.epic],
     }
     let entry = cache.get(key)
+    const sameTickets = entry !== undefined && entry.inputs.epic === inputs.epic && sameArray(entry.inputs.tickets, inputs.tickets)
     const same =
       entry !== undefined &&
+      sameTickets &&
       entry.inputs.root === inputs.root &&
-      entry.inputs.epic === inputs.epic &&
-      sameArray(entry.inputs.tickets, inputs.tickets) &&
       entry.inputs.saved === inputs.saved &&
       entry.inputs.collapsed === inputs.collapsed &&
-      entry.inputs.doneExpanded === inputs.doneExpanded
+      entry.inputs.doneExpanded === inputs.doneExpanded &&
+      entry.inputs.answer === inputs.answer
     if (!same) {
-      const epicLayout = layoutEpic({ tickets, collapsed: inputs.collapsed, doneExpanded: inputs.doneExpanded, offsets: saved.offsets, name: inputs.epic.epic })
-      const reserve =
-        inputs.collapsed || inputs.doneExpanded ? epicLayout.height : layoutEpic({ tickets, collapsed: false, doneExpanded: true, offsets: saved.offsets, name: inputs.epic.epic }).height
+      // ELK lays out an open frame with Tickets; the key is computed again only when they changed.
+      const request =
+        inputs.collapsed || tickets.length === 0
+          ? null
+          : sameTickets && entry!.request !== null
+            ? entry!.request
+            : { key: elkKey(tickets, epic.epic), tickets, name: epic.epic }
+      const { layout: epicLayout, reserve } = frameLayout(tickets, epic.epic, inputs.collapsed, inputs.doneExpanded, inputs.answer, request?.key ?? null)
       entry = {
         inputs,
         layout: epicLayout,
@@ -297,11 +341,16 @@ export function buildEpicNodes(
         tickets: ticketNodes(projectId, root, epic.epic, tickets, epicLayout, saved.exists),
         frame: undefined,
         frameData: undefined,
+        request,
       }
       cache.set(key, entry)
     }
     return { epic, saved, entry: entry! }
   })
+  wanted.set(
+    projectId,
+    entries.flatMap(({ epic, entry }) => (entry.request ? [{ epic: epic.epic, request: entry.request }] : [])),
+  )
 
   // The frames' column keeps clear of the Nodes on the plane, the Layout's and other sources' (ADR-0032);
   // it is found again on every change of the Layout, the workflow model or those Nodes, so Tickets
@@ -391,23 +440,24 @@ function useEpicNodes({ projectId, layout }: NodeSourceContext): readonly Canvas
   const { model } = useWorkflow(root)
   const doneExpanded = useEpicsUi((state) => state.doneExpanded)
   const derived = useDerivedRects(projectId)
-  const nodes = useMemo(() => buildEpicNodes(projectId, root, model, layout, doneExpanded, derived), [projectId, root, model, layout, doneExpanded, derived])
+  const answers = useElkAnswers((state) => state[projectId])
+  const nodes = useMemo(
+    () => buildEpicNodes(projectId, root, model, layout, doneExpanded, derived, answers),
+    [projectId, root, model, layout, doneExpanded, derived, answers],
+  )
+  // After the build, so a request goes out for the inputs the Canvas shows.
+  useEffect(() => requestEpicLayouts(projectId), [projectId, nodes])
   useFocusRequests(projectId, nodes)
   return nodes
 }
 
-function moved({ projectId, layout }: NodeSourceContext, node: CanvasFlowNode): void {
-  const data = node.data.node.data
-  if (node.type === EPIC_FRAME_KIND) {
-    const frame = data as EpicFrameData
-    const offset = { dx: Math.round(node.position.x - frame.auto.x), dy: Math.round(node.position.y - frame.auto.y) }
-    void saveEpicChange(projectId, frame.epic.epic, layout.nodes.some((n) => n.id === node.id), { offset })
-  } else if (node.type === TICKET_KIND) {
-    const { ticket, placed } = data as TicketNodeData
-    const offset = { dx: Math.round(node.position.x - placed.auto.x), dy: Math.round(node.position.y - placed.auto.y) }
-    const exists = layout.nodes.some((n) => n.id === epicNodeId(ticket.epic))
-    void saveEpicChange(projectId, ticket.epic, exists, { ticket: { num: ticket.num, offset } })
-  }
+/** Only a frame is dragged (by its header); its offset from its automatic place is saved. Tickets are not draggable. */
+function moved({ projectId, layout }: NodeSourceContext, node: CanvasFlowNode): boolean {
+  if (node.type !== EPIC_FRAME_KIND) return false
+  const frame = node.data.node.data as EpicFrameData
+  const offset = { dx: Math.round(node.position.x - frame.auto.x), dy: Math.round(node.position.y - frame.auto.y) }
+  void saveEpicChange(projectId, frame.epic.epic, layout.nodes.some((n) => n.id === node.id), { offset })
+  return true
 }
 
 // `ticket` is owned too though the Layout never holds one: a stray Layout Node of that kind (a

@@ -6,25 +6,23 @@
 // opens a menu with "Remove binding", after which its automatic Binding applies again.
 //
 // The overlay draws only the outline and the menu. It learns of drags from React Flow's store and
-// of the pointer from the window: the Canvas still saves the move as for any drag (Canvas.tsx),
-// and the overlay moves the Node back right after.
+// of the pointer from the window: the Canvas still saves the move of a Layout Node as for any drag
+// (Canvas.tsx), and the overlay moves it back right after. A Subagent's Node keeps no place of its
+// own: the Canvas puts it back on the drop (ADR-0037).
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { useReactFlow, useStoreApi, ViewportPortal, type InternalNode } from '@xyflow/react'
 import { bindingTargetLabel } from '../../../shared/binding/resolve'
 import type { BindingAgent } from '../../../shared/ipc/bindings'
-import { EPIC_FRAME_KIND, subagentTreeNodeId, TICKET_KIND } from '../../../shared/layout/derived'
+import { EPIC_FRAME_KIND, TICKET_KIND } from '../../../shared/layout/derived'
 import { agentOfNode, dropTargetAt, type DropCandidate } from '../../binding/drop'
 import { bindManually, manualOf, removeManualBinding, useManualBindings } from '../../binding/store'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import type { CanvasFlowNode } from '../nodes'
-import { saveSubagentOffset, type SubagentNodeData } from '../sources/subagents'
-import { applyLayoutOp, useLayout } from '../useLayout'
+import type { SubagentNodeData } from '../sources/subagents'
+import { applyLayoutOp } from '../useLayout'
 
 export const order = 60
-
-/** How long the Node waits for the Canvas to save a Subagent's first offset before it goes back. */
-const SAVE_WAIT_MS = 2000
 
 function candidateOf(node: InternalNode<CanvasFlowNode>): DropCandidate | null {
   if (node.hidden) return null
@@ -93,12 +91,11 @@ function BindingDropFor({ projectId }: { projectId: string }) {
   const flow = useReactFlow<CanvasFlowNode>()
   const store = useStoreApi<CanvasFlowNode>()
   const manual = useManualBindings(projectId)
-  const layout = useLayout(projectId).state?.layout
   const [hover, setHover] = useState<DropCandidate | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; agent: BindingAgent } | null>(null)
-  const latest = useRef({ manual, layout })
+  const latest = useRef({ manual })
   useEffect(() => {
-    latest.current = { manual, layout }
+    latest.current = { manual }
   })
 
   useEffect(() => {
@@ -137,18 +134,9 @@ function BindingDropFor({ projectId }: { projectId: string }) {
     }
 
     const goBack = async (done: Drag) => {
-      const { start, subagent } = done
-      if (!subagent) {
-        await applyLayoutOp(projectId, { op: 'move', id: done.nodeId, x: start.x, y: start.y })
-        return
-      }
-      // The Canvas saves a Subagent's place as an offset in its Session's `subagent-tree` Node,
-      // creating that Node the first time: wait for it, so this offset comes after the Canvas's.
-      const treeId = subagentTreeNodeId(subagent.sessionId)
-      const until = Date.now() + SAVE_WAIT_MS
-      while (!latest.current.layout?.nodes.some((node) => node.id === treeId) && Date.now() < until) await new Promise((wake) => setTimeout(wake, 50))
-      const exists = latest.current.layout?.nodes.some((node) => node.id === treeId) ?? false
-      await saveSubagentOffset(projectId, subagent.sessionId, exists, subagent.key, { dx: Math.round(start.x - subagent.auto.x), dy: Math.round(start.y - subagent.auto.y) })
+      // A Subagent's Node keeps no place of its own: the Canvas has already put it back (ADR-0037).
+      if (done.subagent) return
+      await applyLayoutOp(projectId, { op: 'move', id: done.nodeId, x: done.start.x, y: done.start.y })
     }
 
     const unsubscribe = store.subscribe((state) => {

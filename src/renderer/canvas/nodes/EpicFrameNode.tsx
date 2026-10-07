@@ -5,9 +5,10 @@ import { saveEpicChange, toggleDoneStack, type EpicFrameData } from '../sources/
 import type { CanvasNodeProps } from './index'
 import '../epic-frame.css'
 
-// The frame of one Epic: header with the progress bar, column labels, the ready-Wave box and the
-// folded done stack. Its Tickets are separate Nodes inside it (TicketNode.tsx); both come from
-// the node source sources/epics.ts, never from the Layout. The frame is dragged by its header.
+// The frame of one Epic: header with the progress bar, column labels with the "Ready wave · N"
+// chip, and the folded done stack. Its Tickets are separate Nodes inside it (TicketNode.tsx), each
+// ready one with its own "Ready" chip; both come from the node source sources/epics.ts, never from
+// the Layout. The frame is dragged as a whole by its header; its Tickets are not dragged (ADR-0037).
 export const kind = 'epic-frame'
 export const defaultWidth = 520
 export const defaultHeight = 56
@@ -75,22 +76,14 @@ function EpicFrameNode({ data }: CanvasNodeProps) {
 
       {collapsed ? null : (
         <>
-          {layout.readyWave ? (
-            <div
-              className="w-epic__ready"
-              data-testid="ready-wave"
-              aria-hidden="true"
-              style={{ left: layout.readyWave.x, top: layout.readyWave.y, width: layout.readyWave.width, height: layout.readyWave.height }}
-            />
-          ) : null}
           {layout.columns.map((column) => (
             <div key={JSON.stringify(column.column)} className={columnClass(column.column)} style={{ left: column.x }} data-testid="epic-column">
               <span className="w-epic__column-label">{column.label}</span>
               <span className="w-mono w-epic__column-count">{column.count}</span>
-              {column.column.kind === 'level' && column.column.level === 0 && layout.readyWave ? (
+              {column.column.kind === 'level' && column.column.level === 0 && layout.readyCount > 0 ? (
                 <span className="w-chip w-chip--ready w-epic__ready-chip" data-status="ready">
                   <span className="w-chip__dot" aria-hidden="true" />
-                  Ready wave · <span className="w-mono">{layout.readyWave.count}</span>
+                  Ready wave · <span className="w-mono">{layout.readyCount}</span>
                 </span>
               ) : null}
               {column.column.kind === 'done' && doneExpanded ? (

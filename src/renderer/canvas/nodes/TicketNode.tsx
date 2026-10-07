@@ -108,6 +108,13 @@ function TicketNode({ data }: CanvasNodeProps) {
       <div className="w-ticket__top">
         <span className="w-mono w-ticket__num">{pad(ticket.num)}</span>
         <StateChip ticket={ticket} />
+        {placed.ready ? (
+          // In the ready Wave: marked here, not by the Ticket's place in its column (ADR-0037).
+          <span className="w-chip w-chip--ready w-ticket__ready" data-status="ready" data-testid="ticket-ready">
+            <span className="w-chip__dot" aria-hidden="true" />
+            Ready
+          </span>
+        ) : null}
       </div>
       <div className="w-ticket__title" title={title}>
         {title}
