@@ -440,8 +440,10 @@ test('Stop during the Wave\'s turn: the button says Stopping… until the turn i
     await expect(stop).toHaveText('Stopping…')
     await expect(stop).toHaveAttribute('aria-disabled', 'true')
     await snapshots(window, header, 'stop-stopping')
-    // A second click while it stops changes nothing.
-    await stop.click()
+    // A second click while it stops changes nothing. Dispatched at once: Playwright's click would wait
+    // for the inactive button to turn active, and click "Autopilot" once Stop is over.
+    await stop.dispatchEvent('click')
+    await expect(stop).toHaveText('Stopping…')
     await expect(status).toHaveText('stopped: user stop', { timeout: 30_000 })
     await expect(frame.getByTestId('action-autopilot')).toHaveText('Autopilot')
     await expect.poll(() => journalKinds(dataDir)).toEqual([
