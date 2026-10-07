@@ -1,7 +1,7 @@
 # 01 — Spike: hooks у Subagent-ов workflow-скриптов, `GH_TOKEN` через `CLAUDE_ENV_FILE`, установка plugin и имя его MCP-сервера → ADR-0048
 
 Type: research
-Status: open
+Status: claimed — 2026-10-07
 Blocked by: —
 Source: решения владельца 2026-10-07 (Q1, Q2, Q8, Q9, Q12, Q15, Q21; «Факты spike»); [spec.md](../spec.md); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md); [ADR-0041](../../../docs/adr/0041-harness-rules-via-session-hooks.md); [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md); [ADR-0021](../../../docs/adr/0021-mcp-servers-allowlist-in-profile.md); [ADR-0035](../../../docs/adr/0035-workflow-script-subagents-in-tree.md); [ADR-0007](../../../docs/adr/0007-claude-code-launch-environment.md)
 
@@ -118,13 +118,13 @@ plugin-а на настоящий `~/.claude`.
 
 ## Готово, когда
 
-- [ ] На каждый из вопросов пунктов 3–6 в «Итог» есть ответ с выводом spike-а: команда, код выхода, фрагмент вывода; указаны версии SDK, встроенного Claude Code и `claude --version` терминала.
-- [ ] Spike лежит в `scripts/spikes/harness-plugin/`; каждый сценарий запускается одной командой из шапки `probe.ts`; `pnpm lint` — exit 0.
-- [ ] Сценарий `install` не трогает настоящие файлы: `shasum ~/.claude/settings.json ~/.claude/plugins/installed_plugins.json ~/.claude/plugins/known_marketplaces.json` до и после прогона совпадают; оба вывода — в «Итог».
-- [ ] Фальшивого токена нет в выводе spike-а и в транскриптах его Session-ов: `grep -rlF '<фальшивый токен>' <папка вывода> <файлы транскриптов spike-а>` — exit 1 (совпадений нет). Настоящий токен сравнивается только в памяти и нигде не печатается.
-- [ ] `docs/adr/0048-harness-plugin-spike-results.md`: вторая строка «Дата: … Статус: принят.», раздел `## Considered Options`, по каждому из четырёх вопросов — вывод и путь, список затронутых Ticket-ов.
-- [ ] Фикстуры без путей пользователя и секретов: `grep -lE '/Users/|ghp_|gho_|github_pat_' test/fixtures/sdk-messages/plugin-*.jsonl` — exit 1.
-- [ ] `src/` не изменён: `git diff --quiet origin/main -- src` — exit 0.
+- [x] На каждый из вопросов пунктов 3–6 в «Итог» есть ответ с выводом spike-а: команда, код выхода, фрагмент вывода; указаны версии SDK, встроенного Claude Code и `claude --version` терминала.
+- [x] Spike лежит в `scripts/spikes/harness-plugin/`; каждый сценарий запускается одной командой из шапки `probe.ts`; `pnpm lint` — exit 0.
+- [x] Сценарий `install` не трогает настоящие файлы: `shasum ~/.claude/settings.json ~/.claude/plugins/installed_plugins.json ~/.claude/plugins/known_marketplaces.json` до и после прогона совпадают; оба вывода — в «Итог».
+- [x] Фальшивого токена нет в выводе spike-а и в транскриптах его Session-ов: `grep -rlF '<фальшивый токен>' <папка вывода> <файлы транскриптов spike-а>` — exit 1 (совпадений нет). Настоящий токен сравнивается только в памяти и нигде не печатается.
+- [x] `docs/adr/0048-harness-plugin-spike-results.md`: вторая строка «Дата: … Статус: принят.», раздел `## Considered Options`, по каждому из четырёх вопросов — вывод и путь, список затронутых Ticket-ов.
+- [x] Фикстуры без путей пользователя и секретов: `grep -lE '/Users/|ghp_|gho_|github_pat_' test/fixtures/sdk-messages/plugin-*.jsonl` — exit 1.
+- [x] `src/` не изменён: `git diff --quiet origin/main -- src` — exit 0.
 
 ## Тесты
 
@@ -145,4 +145,88 @@ contract test-ам Ticket-а 12; test-ы, которые их читают, пи
 
 ## Итог
 
-Заполняется при закрытии.
+Вывод и выбранный путь по каждому вопросу — [ADR-0048](../../../docs/adr/0048-harness-plugin-spike-results.md).
+Ниже — чем это снято.
+
+- **Версии.** `@anthropic-ai/claude-agent-sdk` 0.3.289; встроенный Claude Code — `2.1.289 (Claude
+  Code)`; `claude --version` терминала — `2.1.291 (Claude Code)`; Electron 44.5.1. Модель — haiku;
+  SDK-Session сценария `env-file` — sonnet: haiku отказался выполнить шаг с хешем `GH_TOKEN`
+  («would expose the GH_TOKEN environment variable»).
+- **Прогон.** `pnpm exec electron scripts/spikes/harness-plugin/probe.ts known workflow-hooks
+  env-file install mcp-name --out <tmp> --fixtures test/fixtures/sdk-messages` — exit 0; затем
+  `… install mcp-name …` ещё раз (без модели) — exit 0: добавились шаги версии `<semver>+<SHA>`
+  и вариант `host-server` в `mcp-name`. Круг доработки (ревью гейта): `… mcp-name --fixtures
+  test/fixtures/sdk-messages` (без модели) — exit 0, добавлены варианты `host-server-not-listed`,
+  `host-server-allow-none`, `skip-discovery-no-allowlist`, `skip-discovery-allow-command`; затем
+  `probe.ts --rescrub test/fixtures/sdk-messages` (без модели) — exit 0: UUID рядом с `_` теперь
+  обезличены. Каждый сценарий запускается и отдельно, командой из шапки `probe.ts`.
+- **`known`** — все пять фактов spike 2026-10-07 повторились. В песочнице `system/init` показал
+  установленный `worfy@worfy-spike` 0.1.0 с путём папки marketplace, а с inline — один `worfy`,
+  `source: worfy@inline`, `version: 9.9.9-inline`. В Session на настройках пользователя
+  `worfy-spike-bin` запустили skill, главная Session и Subagent: у всех `plugin_bin_on_path: true`;
+  skill передал путь plugin-а (`substituted: true`); главная Session видит метку `SessionStart`
+  (`amber-5172`), Subagent — только метку `SubagentStart` (`cobalt-9038`, `NONE` вместо второй).
+- **`workflow-hooks` (вопрос 1) — да.** Главная Session вызвала `Workflow` (`Workflow` есть в
+  `system/init.tools`). `hooks.jsonl`: `SubagentStart` с `agent_type: workflow-subagent` и
+  `agent_id`; `PreToolUse` того же агента — команда `worfy-spike-bin wf cobalt-9038 NONE`. Агент
+  видит метку `SubagentStart`, не видит `SessionStart`, `plugin_bin_on_path: true`. `meta.json`
+  агента — `agentType: workflow-subagent`, журнал — `result: "worfy-spike-bin ok wf token=no"`.
+- **`env-file` (вопрос 2) — да.** `CLAUDE_ENV_FILE` задан hook-у `SessionStart` plugin-а у
+  встроенного бинаря (`claude_env_file_set: true`) и у `claude -p --plugin-dir` терминала (`true`,
+  exit 0). 5 команд Bash SDK-Session (3 главная, 1 `general-purpose`, 1 `workflow-subagent`) — 5
+  вызовов `gh auth token -u IDSAD-XL` подменённого `gh`; терминал: 1 команда — 1 вызов. У всех
+  четырёх `worfy-spike-bin` `gh_token_set: true`, sha256 = sha256 фальшивого токена; хеш из шага
+  `printf %s "$GH_TOKEN" | shasum -a 256` совпал. Ещё 4 вызова `gh auth token --user …` — это
+  hook Stop пользователя (`qmd-refresh` → `qmd-sync-main`, их git credential helper), не файл
+  окружения. Настоящий `gh`: `gh_api_user_login: IDSAD-XL`, `token_is_the_accounts: true`,
+  настоящий токен в транскриптах и в выводе spike-а — 0 файлов. `grep -rlF '<фальшивый токен>'
+  <вывод spike-а> ~/.claude/projects/*worfy-harness-probe*` — exit 1.
+- **`install` (вопрос 3).** Встроенный бинарь в песочнице без входа: `plugin validate` plugin-а и
+  marketplace — 0, 0; `marketplace add` — 0, 0 («already on disk»); `install --scope user --json` —
+  0 (`"outcome":"ok"`), 0 («already installed … loads in place»); `list --json` — `installPath` в
+  `plugins/cache/worfy-spike/worfy/0.1.0`, `readFromFolder` — папка marketplace; Session грузит
+  plugin из папки marketplace. Версия 0.2.0 в папке: `update --scope user` — 0 («updated from
+  0.1.0 to 0.2.0»), повтор — 0 («already at the latest version»); `install` при 0.3.0 — 0, версия
+  не меняется, совет вызвать `update`. `0.4.0+aaaaaaa` → `0.4.0+bbbbbbb` → `0.4.0+aaaaaaa` →
+  `0.3.9+ccccccc`: каждый `update` — 0, `list` показывает новую строку, каталог копии
+  `0.4.0-aaaaaaa`. `uninstall` — 0, повтор — 1 («not found in installed plugins»); после него
+  `enabledPlugins: {}`, marketplace остаётся в `extraKnownMarketplaces`, копии в `plugins/cache` с
+  `.orphaned_at`. Одна папка с `plugin.json` и `marketplace.json` (`source: "./"`) — `validate`,
+  `marketplace add`, `install` — 0. С `HTTPS_PROXY`/`HTTP_PROXY` на `127.0.0.1:9` — `marketplace
+  add`, `install`, `list`, `uninstall` — 0. Вход не нужен ни одной команде.
+- **`mcp-name` (вопрос 4)** — песочница, `managedSettings` как у worfy, 17 вариантов списка × (без
+  `qmd` пользователя / с ним). Сервер plugin-а — `plugin:worfy:qmd`, инструмент
+  `mcp__plugin_worfy_qmd__plugin_ping`. `serverName` `qmd`, `plugin:worfy:qmd`, `plugin_worfy_qmd`,
+  `worfy:qmd`, `worfy` — сервера plugin-а нет. `serverCommand: ['node', '<plugin>/mcp/server.mjs']`
+  — есть; с `${CLAUDE_PLUGIN_ROOT}` в записи — нет. `[qmd, serverCommand plugin-а]` при `qmd`
+  пользователя — только сервер plugin-а. Без списка с `qmd` пользователя видны оба (`qmd`,
+  `source: user` и `plugin:worfy:qmd`). `skipMcpDiscovery: true` убирает сервер plugin-а: без
+  списка и со `serverCommand` plugin-а его нет. Сервер worfy `plugin_worfy_qmd` в `mcpServers`
+  список фильтрует по имени: `[plugin_worfy_qmd, qmd, worfy-canvas]` — подключены
+  `plugin_worfy_qmd` (`mcp__plugin_worfy_qmd__plugin_ping`) и `qmd` пользователя;
+  `[qmd, worfy-canvas]` — только `qmd`; `[]` — ни одного. Мимо списка проходит только SDK-сервер
+  в процессе (`worfy-canvas`). Строка Profile
+  `mcp.allowed` для qmd из plugin-а — `plugin_worfy_qmd`; `DEFAULT_MCP_SERVERS` →
+  `['plugin_worfy_qmd', 'worfy-canvas']` — **решено без владельца, подтвердить** (ADR-0048,
+  пункт 4).
+- **Настоящие файлы.** `shasum ~/.claude/settings.json ~/.claude/plugins/installed_plugins.json
+  ~/.claude/plugins/known_marketplaces.json ~/.claude.json` до (15:32) и после прогона:
+  `506a889c…`, `a57d2b1b…`, `038f3125…` — совпали; `~/.claude.json` — `6cf2582b…` → `82d902f4…`.
+  Изменились только служебные поля Claude Code (`cachedGrowthBookFeaturesAt`, `pluginUsage`,
+  `skillUsage`, `clientDataCacheSlots`, `additionalModelOptionsAnsweredAt`); `mcpServers` и
+  `projects` прежние. Их пишет любая Session на настройках пользователя, в том числе Session-ы
+  spike-а. Сценарий `install` хеши не менял: хеши после него совпали с хешами до него.
+- **Транскрипты spike-а** — 13 папок `~/.claude/projects/-private-var-folders-…-T-worfy-harness-probe-<id>-work-<сценарий>`
+  (41 файл): последний полный прогон и пробные прогоны во время отладки. Их можно удалить.
+- **Фикстуры** — 14 файлов `test/fixtures/sdk-messages/plugin-*.jsonl`, по одному `system/init`:
+  `plugin-known-installed`, `plugin-known-inline-over-installed` (песочница),
+  `plugin-known-user-settings`, `plugin-workflow-hooks-user-settings`, `plugin-env-file-sdk`
+  (настройки пользователя, plugin-ы пользователя — `plugin-N`) и девять вариантов
+  `plugin-mcp-name-*`. `grep -lE '/Users/|ghp_|gho_|github_pat_' test/fixtures/sdk-messages/plugin-*.jsonl`
+  — exit 1. `accountUuid` и `organizationUuid` владельца (путь synced plugin-а
+  `<accountUuid>_<organizationUuid>`) заменены на `00000000-0000-4000-8000-…19` и `…20`; их нет ни в
+  одной фикстуре и ни в одном коммите ветки (проверено сравнением без печати значений).
+- Фальшивый токен — `worfy-spike-fake-token-…`, не похож ни на один формат токена GitHub. Прогоны с
+  моделью шли ещё с прежним фальшивым значением в формате `gho_`; после замены строки `env-file` не
+  перезапускался.
+- `git diff --quiet origin/main -- src` — exit 0.

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Command of the spike plugin's bin/ (ticket worfy-harness/01). If an agent can run it by name,
+# bin/ is on the PATH of its Bash. The work is in ../lib/spike-bin.mjs.
+exec node "$(dirname "$0")/../lib/spike-bin.mjs" "$@"

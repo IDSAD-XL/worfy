@@ -1,0 +1,5 @@
+{
+  "name": "worfy",
+  "version": "0.1.0",
+  "description": "Spike sample of the worfy Harness plugin (ticket worfy-harness/01): hooks, bin/, one skill and an MCP server named qmd. Not the real Harness."
+}

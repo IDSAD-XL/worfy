@@ -1,0 +1,12 @@
+{
+  "name": "worfy-spike",
+  "owner": { "name": "worfy" },
+  "metadata": { "description": "Local marketplace of the worfy-harness/01 spike. probe.ts copies it into a sandbox and puts the plugin sample (../../fixture) next to it as ./worfy." },
+  "plugins": [
+    {
+      "name": "worfy",
+      "source": "./worfy",
+      "description": "Spike sample of the worfy Harness plugin"
+    }
+  ]
+}
