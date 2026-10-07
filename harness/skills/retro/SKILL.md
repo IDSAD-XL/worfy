@@ -7,7 +7,7 @@ description: Run a retrospective on the work just done and record what generaliz
 
 Turn what just happened into something a future session can use. Where lessons
 go is a project fact, so it comes from the project profile
-(`~/.claude/bin/profile`, contract in `~/.claude/profiles/README.md`), field
+(`${CLAUDE_PLUGIN_ROOT}/bin/profile`, contract in `~/.claude/profiles/README.md`), field
 `lessons`.
 
 ## Where to write
@@ -16,9 +16,9 @@ Run from the repo (or workspace) the work happened in — pass it with `-C` if t
 session sits elsewhere:
 
 ```bash
-~/.claude/bin/profile -C <repo> --name; echo "КОД=$?"
-~/.claude/bin/profile -C <repo> --field lessons; echo "КОД=$?"
-~/.claude/bin/profile -C <repo> --dir
+"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --name; echo "EXIT=$?"
+"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field lessons; echo "EXIT=$?"
+"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --dir
 ```
 
 - Exit `3` (unregistered project or no profile) or `4` (no `lessons` field):

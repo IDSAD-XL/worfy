@@ -1,27 +1,27 @@
 #!/usr/bin/env node
-// profile — по каталогу находит профиль проекта и печатает его.
+// profile — finds the project's profile from a directory and prints it.
 //
-//   profile                     сводка: имя, пути, profile.json и rules.md (это читают агенты)
-//   profile --json              profile.json + блок _resolved (имя, каталог профиля, корень, checkout)
-//   profile --field a.b.c       одно поле (строка — как есть, остальное — JSON); _resolved.* тоже
-//   profile --rules             только rules.md
-//   profile --dir               только каталог профиля
-//   profile --name              только имя профиля
-//   -C <каталог>                разрешать так, будто profile запущен из <каталога> (относительный
-//                               путь — от текущего); агенты передают сюда путь репозитория из брифа
+//   profile                     summary: name, paths, profile.json and rules.md (this is what agents read)
+//   profile --json              profile.json + a _resolved block (name, profile directory, root, checkout)
+//   profile --field a.b.c       one field (a string as is, anything else as JSON); _resolved.* too
+//   profile --rules             only rules.md
+//   profile --dir               only the profile directory
+//   profile --name              only the profile name
+//   -C <dir>                    resolve as if profile were run from <dir> (a relative path is
+//                               taken from the current one); agents pass the repository path from their brief here
 //
-// Коды выхода: 0 — найден; 2 — ошибка вызова; 3 — каталог вне зарегистрированных
-// проектов или у проекта нет профиля; 4 — поля нет (--field); 1 — сломан конфиг,
-// резолвер или profile.json.
+// Exit codes: 0 — found; 2 — usage error; 3 — the directory is outside the registered
+// projects or the project has no profile; 4 — no such field (--field); 1 — broken config,
+// resolver or profile.json.
 //
-// Опознание то же, что у hooks/gate.sh: каталог -> git common dir -> канонический
-// корень репозитория -> `hooks/gate-resolve.mjs --which` (самый длинный префикс
-// `match` в gate/config.json). Поэтому рабочее дерево где угодно на диске
-// опознаётся по основному репозиторию. Логику сопоставления не дублируем —
-// вызываем резолвер. Профиль — поле "profile" записи в gate/config.json;
-// сам профиль лежит в ~/.claude/profiles/<имя>/ (формат: profiles/README.md).
-// Каталог вне всех `match`, но внутри общего родителя репозиториев одного профиля
-// (workspace, см. workspaceOf ниже), получает этот профиль; _resolved.workspace — этот родитель.
+// Identification is the same as in hooks/gate.sh: directory -> git common dir -> canonical
+// repository root -> `hooks/gate-resolve.mjs --which` (the longest `match` prefix
+// in gate/config.json). So a worktree anywhere on disk is identified
+// by its main repository. The matching logic is not duplicated —
+// we call the resolver. The profile is the "profile" field of the entry in gate/config.json;
+// the profile itself lives in ~/.claude/profiles/<name>/ (format: profiles/README.md).
+// A directory outside every `match` but inside the common parent of one profile's repositories
+// (workspace, see workspaceOf below) gets that profile; _resolved.workspace is that parent.
 "use strict"
 
 const fs = require("node:fs")
@@ -29,8 +29,19 @@ const path = require("node:path")
 const { execFileSync } = require("node:child_process")
 
 const CLAUDE = path.join(process.env.HOME, ".claude")
-const CFG = process.env.CLAUDE_GATE_CONFIG || path.join(CLAUDE, "gate/config.json")
-const RESOLVE = process.env.CLAUDE_GATE_RESOLVE || path.join(CLAUDE, "hooks/gate-resolve.mjs")
+// The Harness state on this machine (ADR-0040 item 5); the gate registry lives there.
+const HARNESS_HOME = process.env.HARNESS_HOME || path.join(CLAUDE, "worfy-harness")
+// Transition: with no registry in HARNESS_HOME but one in the old place, read the old one.
+const gateConfig = () => {
+    const current = path.join(HARNESS_HOME, "gate", "config.json")
+    const legacy = path.join(CLAUDE, "gate", "config.json")
+    return !fs.existsSync(current) && fs.existsSync(legacy) ? legacy : current
+}
+const CFG = process.env.CLAUDE_GATE_CONFIG || gateConfig()
+// The plugin root: the folder above bin/, found from this script's real file (not a symlink).
+const PLUGIN_ROOT = path.dirname(path.dirname(fs.realpathSync(__filename)))
+const RESOLVE = process.env.CLAUDE_GATE_RESOLVE || path.join(PLUGIN_ROOT, "hooks", "gate-resolve.mjs")
+// Profiles stay in ~/.claude/profiles until ticket 11.
 const PROFILES = process.env.CLAUDE_PROFILES_DIR || path.join(CLAUDE, "profiles")
 
 const USAGE = `usage: profile [-C <dir>] [--json | --field <dotted.path> | --rules | --dir | --name]
@@ -48,7 +59,7 @@ const usage = (msg) => {
     process.exit(2)
 }
 
-// --- аргументы -----------------------------------------------------------------
+// --- arguments -----------------------------------------------------------------
 let mode = null
 let field = null
 let target = process.cwd()
@@ -87,14 +98,14 @@ for (let i = 0; i < argv.length; i++) {
 let abs = path.resolve(target)
 try {
     if (!fs.statSync(abs).isDirectory()) usage(`not a directory: ${target}`)
-    // native: написание с диска (на нечувствительной к регистру ФС /users/... -> /Users/...),
-    // иначе workspaceOf и резолвер сравнивали бы строки в чужом регистре
+    // native: the spelling from disk (on a case-insensitive FS /users/... -> /Users/...),
+    // otherwise workspaceOf and the resolver would compare strings in someone else's case
     abs = fs.realpathSync.native(abs)
 } catch {
     usage(`no such directory: ${target}`)
 }
 
-// --- канонический корень: как в gate.sh ------------------------------------------
+// --- canonical root: as in gate.sh ------------------------------------------------
 const git = (...a) => {
     try {
         return execFileSync("git", ["-C", abs, ...a], {
@@ -115,7 +126,7 @@ if (checkout) {
     } catch {}
 }
 
-// --- резолвер гейта: тот же код, что выбирает проверки ----------------------------
+// --- gate resolver: the same code that picks the checks ----------------------------
 let which
 try {
     which = execFileSync("node", [RESOLVE, "--which", canon], {
@@ -133,16 +144,16 @@ try {
     die(1, `cannot read ${CFG}: ${e.message}`)
 }
 
-// Общий каталог проекта из нескольких репозиториев (workspace). Каталог, который сам не лежит
-// ни в одном `match`, но лежит в общем родителе всех репозиториев ОДНОГО профиля, относится к
-// этому профилю: так сессия в /Users/alexey/Work/Atakama (над тремя репозиториями, сам не git)
-// получает профиль atakama. Общий родитель вычисляется из реестра, а не хранится: второго
-// реестра путей нет. Не считается workspace: профиль с одним репозиторием (его каталог и есть
-// match), корень диска, $HOME и его родители, каталог внутри записи реестра и каталог, где лежит репозиторий другого профиля или без профиля.
-// Профиль общего каталога получают только каталоги ВНЕ git. Git-репозиторий, которого нет в
-// реестре, но который лежит в общем каталоге (flux-config-platform в /Users/alexey/Work/Atakama),
-// — чужой проект: код 3, как у любого незарегистрированного репозитория. Иначе гейт, хуки сессии
-// и preflight принимали бы его за репозиторий профиля.
+// The common directory of a project made of several repositories (workspace). A directory that itself
+// lies in no `match` but lies in the common parent of all repositories of ONE profile belongs to
+// that profile: this is how a session in /Users/alexey/Work/Atakama (above three repositories, not git itself)
+// gets the atakama profile. The common parent is computed from the registry, not stored: there is no second
+// registry of paths. Not a workspace: a profile with one repository (its directory is the
+// match itself), the disk root, $HOME and its parents, a directory inside a registry entry, and a directory holding a repository of another profile or of no profile.
+// Only directories OUTSIDE git get the common directory's profile. A git repository that is not in
+// the registry but lies in the common directory (flux-config-platform in /Users/alexey/Work/Atakama)
+// is someone else's project: exit 3, like any unregistered repository. Otherwise the gate, the session hooks
+// and preflight would take it for one of the profile's repositories.
 const under = (p, dir) => p === dir || p.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep)
 let checkoutCanon = null
 if (checkout) {
@@ -157,8 +168,8 @@ function workspaceOf(target) {
     const groups = new Map()
     for (const r of repos) if (r.profile) groups.set(r.profile, [...(groups.get(r.profile) || []), r])
     const home = process.env.HOME ? path.resolve(process.env.HOME) : null
-    // Каталог внутри записи реестра (например, `match` с хвостовым слешем, который резолвер
-    // сравнивает как строку) — не workspace: пусть остаётся громким кодом 3, как раньше.
+    // A directory inside a registry entry (for example, a `match` with a trailing slash, which the resolver
+    // compares as a string) is not a workspace: let it stay a loud exit 3, as before.
     if (repos.some((r) => under(target, path.resolve(r.match)))) return null
     const hits = []
     for (const [name, rs] of groups) {
@@ -167,9 +178,9 @@ function workspaceOf(target) {
         for (const r of rs.slice(1)) while (!under(path.resolve(r.match), ws) && ws !== path.dirname(ws)) ws = path.dirname(ws)
         if (ws === path.dirname(ws) || (home && under(home, ws))) continue
         if (repos.some((r) => r.profile !== name && under(path.resolve(r.match), ws))) continue
-        // Каталог внутри незарегистрированного git-репозитория, который лежит в общем каталоге, —
-        // чужой проект. Если git-репозиторий — сам общий каталог или лежит выше него (git init
-        // в /Users/alexey/Work/Atakama, dotfiles в $HOME), это не мешает: каталог остаётся workspace.
+        // A directory inside an unregistered git repository that lies in the common directory is
+        // someone else's project. If the git repository is the common directory itself or lies above it (git init
+        // in /Users/alexey/Work/Atakama, dotfiles in $HOME), that does not matter: the directory stays a workspace.
         if (checkoutCanon && checkoutCanon !== ws && under(checkoutCanon, ws)) continue
         if (under(target, ws)) hits.push({ name, ws, n: rs.length })
     }
@@ -218,14 +229,14 @@ const resolved = {
     in_worktree: Boolean(!workspace && checkoutReal && checkoutReal !== canon),
     workspace: workspace ? workspace.ws : null,
 }
-// Старая форма `"language": "ru"` — один язык на всё. Читатели спрашивают `language.reports` и
-// `language.team` (profiles/README.md), поэтому строка разворачивается в объект с обоими полями.
+// The old form `"language": "ru"` is one language for everything. Readers ask for `language.reports` and
+// `language.team` (profiles/README.md), so the string is expanded into an object with both fields.
 if (typeof profile.language === "string") profile.language = { reports: profile.language, team: profile.language }
 const full = { ...profile, _resolved: resolved }
 const rulesPath = path.join(dir, "rules.md")
 const rules = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, "utf8") : null
 
-// --- вывод ------------------------------------------------------------------------
+// --- output -----------------------------------------------------------------------
 switch (mode) {
     case "name":
         out(name)
@@ -253,7 +264,7 @@ switch (mode) {
         out(`profile: ${name} (${dir})`)
         if (workspace)
             out(
-                `workspace: ${workspace.ws} (общий каталог ${workspace.n} репозиториев профиля, сам не репозиторий проекта)` +
+                `workspace: ${workspace.ws} (common directory of the profile's ${workspace.n} repositories, not a project repository itself)` +
                     (checkoutReal ? `   checkout: ${checkoutReal}` : "")
             )
         else out(
@@ -263,5 +274,5 @@ switch (mode) {
         out("--- profile.json")
         out(JSON.stringify(profile, null, 2))
         out("--- rules.md")
-        out(rules === null ? "(нет rules.md)" : rules)
+        out(rules === null ? "(no rules.md)" : rules)
 }

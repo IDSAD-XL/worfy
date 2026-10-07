@@ -1,25 +1,26 @@
 ---
 name: tickets-to-tasks
-description: Import the markdown tickets produced by /to-tickets or /wayfinder into native Claude Code Tasks, preserving their blocking edges so the task list enforces ordering. Use after /to-tickets has published tickets, or when the user says "залей тикеты в таски", "import tickets", or asks why the task list is empty for an epic.
+description: Import the markdown tickets produced by /mattpocock-skills:to-tickets or /mattpocock-skills:wayfinder into native Claude Code Tasks, preserving their blocking edges so the task list enforces ordering. Use after /mattpocock-skills:to-tickets has published tickets, or when the user says "залей тикеты в таски", "import tickets", or asks why the task list is empty for an epic.
 ---
 
 # Tickets -> native Tasks
 
-`/to-tickets` writes markdown files. Native Tasks enforce ordering: a task with
+`/mattpocock-skills:to-tickets` writes markdown files. Native Tasks enforce ordering: a task with
 unresolved `blockedBy` cannot be claimed. This skill moves the first into the
 second so nobody has to police the sequence by hand.
 
 ## Before you start
 
 The tool, the task-list ID and where tickets are looked for are project facts.
-They come from the project profile (`~/.claude/bin/profile`, contract in
+They come from the project profile (`${CLAUDE_PLUGIN_ROOT}/bin/profile`, contract in
 `~/.claude/profiles/README.md`), field `tasks`. Run from the repo or workspace
 the tickets belong to — pass it with `-C` if the session sits elsewhere:
 
 ```bash
-T="$(~/.claude/bin/profile -C <repo> --field tasks.tool)"; echo "КОД=$?"
+T="$("${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field tasks.tool)"; echo "EXIT=$?"
+case "$T" in "~/.claude/bin/"*) T="${CLAUDE_PLUGIN_ROOT}/bin/${T#\~/.claude/bin/}" ;; esac # schema 1 value: plugin bin
 T="${T/#\~/$HOME}"; echo "tool: $T"
-~/.claude/bin/profile -C <repo> --field tasks.list_id
+"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field tasks.list_id
 ```
 
 - Exit `3`: the directory is not a registered project (or has no profile).
@@ -27,6 +28,8 @@ T="${T/#\~/$HOME}"; echo "tool: $T"
   does not). Either way, stop and tell the user — do not guess a tool.
 - `$T` below is that tool; `tasks.list_id` is the list-ID template, e.g.
   `atakama-<slug>`.
+- A `tasks.tool` value that starts with `~/.claude/bin/` (schema 1) is read as `${CLAUDE_PLUGIN_ROOT}/bin/` plus the rest;
+  the `case` line of the block does that, then `~` is expanded to `$HOME`.
 
 Tasks are session-scoped unless a task list ID is set. For an epic spanning
 several sessions, every session must start with the same ID — the template with
@@ -107,7 +110,7 @@ outside the repo, so a later session can tell which tickets are already imported
 Then record the epic as active:
 
 ```bash
-D="$(~/.claude/bin/profile -C <repo> --dir)" && mkdir -p "$D/state" && echo <slug> > "$D/state/active-epic"
+D="$("${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --dir)" && mkdir -p "$D/state" && echo <slug> > "$D/state/active-epic"
 ```
 
 `hooks/session-start.sh` reads that file and, for a profile with
@@ -123,7 +126,7 @@ set. Say so instead of picking one arbitrarily.
 
 ## Rules
 
-- **Never edit the ticket files.** `/to-tickets` owns them; this skill is a
+- **Never edit the ticket files.** `/mattpocock-skills:to-tickets` owns them; this skill is a
   one-way import. Corrections belong in the tickets, then re-run the scan.
 - **Never write into the team repositories.** The map lives in the profile
   folder (`~/.claude/profiles/<name>/`). If `.scratch/` sits inside a clone, it

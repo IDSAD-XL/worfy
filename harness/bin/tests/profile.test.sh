@@ -1,24 +1,26 @@
 #!/usr/bin/env bash
-# Тесты ~/.claude/bin/profile. Запуск: bash harness/bin/tests/profile.test.sh; код выхода 0 — всё прошло.
+# Tests of harness/bin/profile. Run: bash harness/bin/tests/profile.test.sh; exit code 0 — everything passed.
 #
-# Часть проверок идёт по живому реестру (gate/config.json) и живому репозиторию Auction;
-# часть — по синтетическому репозиторию во временном каталоге со своим конфигом, чтобы
-# проверить рабочее дерево ВНЕ префикса match (опознание через git common dir).
+# Some checks run against the live registry (gate/config.json) and the live Auction repository;
+# some against a synthetic repository in a temporary directory with its own config, to
+# check a worktree OUTSIDE the match prefix (identification via git common dir).
 set -u
 # The scripts under test are the copies next to this test (harness/); BIN_DIR and HOOKS_DIR
 # point it at another copy. Live checks run only when both the repository and the live gate
-# registry ($HOME/.claude/gate/config.json) exist.
+# registry exist: $HARNESS_HOME/gate/config.json, or during the transition the legacy
+# ~/.claude/gate/config.json, which profile reads when the new one is missing.
 HARNESS="$(cd "$(dirname "$0")/../.." && pwd)"
 BIN="${BIN_DIR:-$HARNESS/bin}"
 HOOKS="${HOOKS_DIR:-$HARNESS/hooks}"
 PROFILE="$BIN/profile"
 export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
-LIVE_GATE="$HOME/.claude/gate/config.json"
+LIVE_GATE="${HARNESS_HOME:-$HOME/.claude/worfy-harness}/gate/config.json"
+[ -f "$LIVE_GATE" ] || LIVE_GATE="$HOME/.claude/gate/config.json"
 AUCTION="$HOME/Work/Auction"
 pass=0
 fail=0
 
-check() { # $1 имя, $2 ожидаемый код, $3 ожидаемая подстрока stdout (или ""), дальше — команда
+check() { # $1 name, $2 expected exit code, $3 expected stdout substring (or ""), then the command
     local name="$1" want_rc="$2" want_out="$3"
     shift 3
     local got rc
@@ -33,7 +35,7 @@ check() { # $1 имя, $2 ожидаемый код, $3 ожидаемая по�
     fi
 }
 
-# --- живой реестр ------------------------------------------------------------------
+# --- live registry ----------------------------------------------------------------
 if [ -d "$AUCTION" ] && [ -f "$LIVE_GATE" ]; then
     check "auction root --name" 0 "auction" "$PROFILE" -C "$AUCTION" --name
     check "auction subdir --field commands.test" 0 "pnpm test" "$PROFILE" -C "$AUCTION/apps/api" --field commands.test
@@ -49,7 +51,7 @@ if [ -d "$AUCTION" ] && [ -f "$LIVE_GATE" ]; then
     check "auction --field tickets.root" 0 ".scratch/" "$PROFILE" -C "$AUCTION" --field tickets.root
     check "auction language.reports ru" 0 "ru" "$PROFILE" -C "$AUCTION" --field language.reports
     check "auction language.team ru" 0 "ru" "$PROFILE" -C "$AUCTION" --field language.team
-    # пароль стенда не должен попадать в аргументы curl: пара идёт через stdin (curl -K -)
+    # the staging password must not get into curl's arguments: the pair goes through stdin (curl -K -)
     check "auction production_check: no -u in args" 1 "" bash -c "'$PROFILE' -C '$AUCTION' --field deploy.production_check | grep -q -- ' -u '"
     check "auction production_check: curl -K - and pipefail" 0 "" bash -c "c=\$('$PROFILE' -C '$AUCTION' --field deploy.production_check) && [[ \$c == 'set -o pipefail;'* && \$c == *'curl -K -'* ]]"
     check "auction --dir" 0 "/.claude/profiles/auction" "$PROFILE" -C "$AUCTION" --dir
@@ -102,9 +104,9 @@ else
     echo "skip live worfy checks: $WORFY or $LIVE_GATE missing"
 fi
 
-# --- регистр букв в пути: на нечувствительной к регистру ФС (APFS по умолчанию) ---------------
-# ~/work/auction в нижнем регистре — тот же каталог, что ~/Work/Auction; резолвер и profile должны
-# узнавать его, а не отвечать «не зарегистрирован».
+# --- letter case in the path: on a case-insensitive FS (APFS by default) ----------------------
+# ~/work/auction in lower case is the same directory as ~/Work/Auction; the resolver and profile must
+# recognise it, not answer "not registered".
 RES="$HOOKS/gate-resolve.mjs"
 if [ -f "$LIVE_GATE" ] && [ -d "$AUCTION" ] && [ -d "$(printf '%s' "$AUCTION" | tr '[:upper:]' '[:lower:]')" ]; then
     lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
@@ -117,7 +119,7 @@ else
     echo "skip case-insensitive checks: case-sensitive filesystem or no Auction"
 fi
 
-# --- синтетика ---------------------------------------------------------------------
+# --- synthetic ----------------------------------------------------------------------
 T="$(mktemp -d)"
 T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T" /tmp/profile-test-err.$$' EXIT
@@ -136,7 +138,7 @@ cat >"$T/config.json" <<EOF
 EOF
 export CLAUDE_GATE_CONFIG="$T/config.json" CLAUDE_PROFILES_DIR="$T/profiles"
 check "synthetic root --field" 0 "make test" "$PROFILE" -C "$T/repo" --field commands.test
-# старая форма language — строка: читается как {reports, team} с одним языком
+# the old form of language is a string: read as {reports, team} with one language
 check "legacy string language -> language.team" 0 "en" "$PROFILE" -C "$T/repo" --field language.team
 check "legacy string language -> language.reports" 0 "en" "$PROFILE" -C "$T/repo" --field language.reports
 check "synthetic modules.heavy" 0 '"pkg/a": 2' "$PROFILE" -C "$T/repo" --field modules.heavy
@@ -147,7 +149,7 @@ check "worktree outside match prefix" 0 "demo" "$PROFILE" -C "$T/elsewhere-wt" -
 check "worktree flagged" 0 "true" "$PROFILE" -C "$T/elsewhere-wt" --field _resolved.in_worktree
 check "root not flagged" 0 "false" "$PROFILE" -C "$T/repo" --field _resolved.in_worktree
 check "unregistered dir -> 3" 3 "" "$PROFILE" -C "$T/plain"
-# -C <каталог> разрешает так, будто profile запущен из <каталога>, независимо от cwd
+# -C <dir> resolves as if profile were run from <dir>, regardless of cwd
 check "-C from unregistered cwd" 0 "demo" bash -c "cd '$T/plain' && '$PROFILE' -C '$T/repo' --name"
 check "-C relative to cwd" 0 "demo" bash -c "cd '$T' && '$PROFILE' -C repo/sub --name"
 check "-C overrides registered cwd -> 3" 3 "" bash -c "cd '$T/repo' && '$PROFILE' -C '$T/plain' --name"
@@ -167,7 +169,7 @@ check "profile dir missing file -> 3" 3 "" "$PROFILE" -C "$T/repo"
 echo '{broken' >"$T/profiles/demo/profile.json"
 check "broken profile.json -> 1" 1 "" "$PROFILE" -C "$T/repo"
 
-# общий каталог (workspace): родитель всех репозиториев одного профиля, сам не repo
+# common directory (workspace): the parent of all repositories of one profile, not a repo itself
 mkdir -p "$T/ws/a" "$T/ws/b" "$T/ws/notes" "$T/ws/c" "$T/profiles/multi" "$T/profiles/multi2" "$T/mixed/x" "$T/mixed/y" "$T/mixed/z"
 for d in ws/a ws/b ws/c mixed/x mixed/y mixed/z; do git -C "$T/$d" init -q -b main; done
 printf '{"schema":1,"name":"multi","commands":{"test":"yarn test"}}\n' >"$T/profiles/multi/profile.json"
@@ -178,8 +180,8 @@ printf '{"repos":[{"key":"a","match":"%s","profile":"multi"},{"key":"b","match":
 export CLAUDE_GATE_CONFIG="$T/ws.json"
 check "workspace root -> profile" 0 "multi" "$PROFILE" -C "$T/ws" --name
 check "workspace non-git subdir -> profile" 0 "multi" "$PROFILE" -C "$T/ws/notes" --name
-# чужой git-репозиторий в общем каталоге, которого нет в реестре, — не проект профиля (код 3);
-# профиль общего каталога получают только каталоги вне git
+# another git repository in the common directory that is not in the registry is not the profile's project (exit 3);
+# only directories outside git get the common directory's profile
 check "workspace: unregistered git repo inside -> 3" 3 "" "$PROFILE" -C "$T/ws/c" --name
 mkdir -p "$T/ws/c/deep"
 check "workspace: subdir of unregistered git repo -> 3" 3 "" "$PROFILE" -C "$T/ws/c/deep" --name
@@ -188,13 +190,13 @@ check "workspace: in_worktree false at workspace root" 0 "false" "$PROFILE" -C "
 check "registered repo inside workspace: own key" 0 "a" "$PROFILE" -C "$T/ws/a" --field _resolved.gate_key
 check "parent holding another profile's repo -> 3" 3 "" "$PROFILE" -C "$T/mixed"
 check "parent of the workspace -> 3" 3 "" "$PROFILE" -C "$T"
-# общий каталог сам стал git-репозиторием (git init в нём): он и его каталоги вне вложенных
-# репозиториев — по-прежнему workspace; незарегистрированный вложенный репозиторий — код 3
+# the common directory itself became a git repository (git init in it): it and its directories outside nested
+# repositories are still a workspace; an unregistered nested repository — exit 3
 git -C "$T/ws" init -q -b main
 check "workspace root that is itself git -> profile" 0 "multi" "$PROFILE" -C "$T/ws/notes" --name
 check "workspace root that is git: nested foreign repo -> 3" 3 "" "$PROFILE" -C "$T/ws/c" --name
 rm -rf "$T/ws/.git"
-# match с хвостовым слешем резолвер не находит; workspace это не маскирует — код 3, как раньше
+# the resolver does not find a match with a trailing slash; the workspace does not mask that — exit 3, as before
 printf '{"repos":[{"key":"a","match":"%s/","profile":"multi"},{"key":"b","match":"%s","profile":"multi"}]}\n' "$T/ws/a" "$T/ws/b" >"$T/ws-slash.json"
 check "match with trailing slash stays 3" 3 "" env CLAUDE_GATE_CONFIG="$T/ws-slash.json" "$PROFILE" -C "$T/ws/a" --name
 unset CLAUDE_GATE_CONFIG CLAUDE_PROFILES_DIR
