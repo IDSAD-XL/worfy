@@ -16,6 +16,20 @@
   color: var(--text);
 }
 
+/* While a mouse button pressed on the Canvas is held, and while a Node is dragged or resized or the
+   Canvas is panned, no iframe on the Canvas takes the mouse (worfy-week ticket 09). A Card's page
+   is on another origin: a pointer that runs ahead onto its iframe would hand the mouse events to
+   the Card, the window would see neither the moves nor the release, and the gesture would stop
+   following the mouse or never end. CardNode marks the root with data-pointer-pressed from the
+   press to the release, NodeResizeClamp with data-node-resizing for a resize, and React Flow marks
+   a dragged Node and a panned plane with `dragging`. */
+.w-canvas .react-flow[data-pointer-pressed] iframe,
+.w-canvas .react-flow[data-node-resizing] iframe,
+.w-canvas .react-flow:has(.react-flow__node.dragging) iframe,
+.w-canvas .react-flow:has(.react-flow__pane.dragging) iframe {
+  pointer-events: none;
+}
+
 /* A selected Node gets the accent ring; the surface keeps its own border and shadow. */
 .w-canvas .react-flow__node.selected > .w-node-surface {
   border-color: var(--accent);
