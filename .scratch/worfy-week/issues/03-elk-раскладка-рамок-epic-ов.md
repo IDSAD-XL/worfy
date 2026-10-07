@@ -77,18 +77,18 @@ Source: решения владельца 2026-10-07, вопросы 14–17, 28
 
 ## Готово, когда
 
-- [ ] ADR (по плану 0037) лежит в `docs/adr/`, статус «принят», есть `## Considered Options`; это первый коммит PR.
-- [ ] `elkjs` 0.12.0 — в `dependencies` файла `package.json` с точной версией; `pnpm install --frozen-lockfile` на чистом checkout-е — код 0.
-- [ ] Фикстура из шести Ticket-ов: порядок по номеру даёт 2 пересечения Edge-ей между Level 1 и Level 2, а порядок без пересечений существует. В раскладке рамки пересечений 0. Unit-test считает пары Edge-ей между соседними колонками, у которых концы идут в обратном порядке.
-- [ ] Ни один маршрут Edge Blocked by не проходит через Node Ticket-а, кроме своих концов у handle-ов. Unit-test на фикстурах, среди них Edge Level 1 → Level 3 мимо Ticket-а Level 2 на той же высоте и открытая стопка done.
-- [ ] Каждый отрезок маршрута горизонтальный или вертикальный. Путь SVG скруглён радиусом не больше половины более короткого соседнего отрезка. Unit-test функции, которая строит путь.
-- [ ] Колонки прежние: test-ы уровней, стопки done и «Needs attention» (`test/unit/epic-layout.test.ts:85`, `:98`, `:110`, `:128`) зелёные против новой раскладки.
-- [ ] У ready Ticket-а есть chip «Ready» и `data-ready="true"`; `data-testid="ready-wave"` на Canvas нет; chip «Ready wave · N» на месте.
-- [ ] Ticket и Node Subagent-а не двигаются: e2e тянет каждый на 200 px — Node на месте, `layout.json` не изменился. Рамка тянется целиком, её смещение переживает перезапуск.
-- [ ] Contract test: `layout.json` с `offset:3` в Node-е `epic-frame` и с Node-ом `subagent-tree`. После чтения ключей `offset:*` и Node-а `subagent-tree` нет, `x`, `y` и `collapsed` рамки прежние, в логе одна строка. Второе чтение файл не пишет.
-- [ ] ELK считает в worker-е: e2e против собранного приложения видит запущенный worker раскладки (`page.on('worker')`), и рамки получают места ELK. Unit-test с медленным подменённым ELK: после смены статуса Ticket-а и до ответа места прежние, после ответа — новые, промежуточных нет.
-- [ ] Бюджет `test/e2e/epic-frame.spec.ts:779` держится: interactive ≤ 3 с; с `WORFY_PERF=1` на Mac — медиана ≥ 55 fps, самый долгий кадр ≤ 100 ms. Цифры до и после — в «Итог».
-- [ ] Снимки рамки Epic-а `worfy-mvp` из e2e `test/e2e/epic-frame.spec.ts:206` в светлой и тёмной теме (helper `test/e2e/snapshots.ts`) сверены с F-SPEC: маршруты Edge-ей, скругления, chip-ы ready. Ссылка из «Итог» — `../evidence/03-рамка-elk.png`.
+- [x] ADR (по плану 0037) лежит в `docs/adr/`, статус «принят», есть `## Considered Options`; это первый коммит PR.
+- [x] `elkjs` 0.12.0 — в `dependencies` файла `package.json` с точной версией; `pnpm install --frozen-lockfile` на чистом checkout-е — код 0.
+- [x] Фикстура из шести Ticket-ов: порядок по номеру даёт 2 пересечения Edge-ей между Level 1 и Level 2, а порядок без пересечений существует. В раскладке рамки пересечений 0. Unit-test считает пары Edge-ей между соседними колонками, у которых концы идут в обратном порядке.
+- [x] Ни один маршрут Edge Blocked by не проходит через Node Ticket-а, кроме своих концов у handle-ов. Unit-test на фикстурах, среди них Edge Level 1 → Level 3 мимо Ticket-а Level 2 на той же высоте и открытая стопка done.
+- [x] Каждый отрезок маршрута горизонтальный или вертикальный. Путь SVG скруглён радиусом не больше половины более короткого соседнего отрезка. Unit-test функции, которая строит путь.
+- [x] Колонки прежние: test-ы уровней, стопки done и «Needs attention» (`test/unit/epic-layout.test.ts:85`, `:98`, `:110`, `:128`) зелёные против новой раскладки.
+- [x] У ready Ticket-а есть chip «Ready» и `data-ready="true"`; `data-testid="ready-wave"` на Canvas нет; chip «Ready wave · N» на месте.
+- [x] Ticket и Node Subagent-а не двигаются: e2e тянет каждый на 200 px — Node на месте, `layout.json` не изменился. Рамка тянется целиком, её смещение переживает перезапуск.
+- [x] Contract test: `layout.json` с `offset:3` в Node-е `epic-frame` и с Node-ом `subagent-tree`. После чтения ключей `offset:*` и Node-а `subagent-tree` нет, `x`, `y` и `collapsed` рамки прежние, в логе одна строка. Второе чтение файл не пишет.
+- [x] ELK считает в worker-е: e2e против собранного приложения видит запущенный worker раскладки (`page.on('worker')`), и рамки получают места ELK. Unit-test с медленным подменённым ELK: после смены статуса Ticket-а и до ответа места прежние, после ответа — новые, промежуточных нет.
+- [x] Бюджет `test/e2e/epic-frame.spec.ts:779` держится: interactive ≤ 3 с; с `WORFY_PERF=1` на Mac — медиана ≥ 55 fps, самый долгий кадр ≤ 100 ms. Цифры до и после — в «Итог».
+- [x] Снимки рамки Epic-а `worfy-mvp` из e2e `test/e2e/epic-frame.spec.ts:206` в светлой и тёмной теме (helper `test/e2e/snapshots.ts`) сверены с F-SPEC: маршруты Edge-ей, скругления, chip-ы ready. Ссылка из «Итог» — `../evidence/03-рамка-elk.png`.
 - [ ] (вручную) Stable copy, обновлённая после влития: Canvas Project-а Auction, самая большая рамка — ни один Edge не проходит через Ticket, Ticket не тянется, рамка тянется целиком. Как проверить: окно приложения, снимок в «Итог».
 
 ## Тесты
@@ -155,3 +155,62 @@ Ticket-ами Wave.
 
 Общих файлов с Ticket-ами 01 и 02 нет. Ticket-ы 04 и 05 строятся на этом коде и идут после него
 (`Blocked by: 03`).
+
+## Итог
+
+Сделано в ветке `worfy-week/03`, база `origin/main` f5e9d49. Решение — [ADR-0037](../../../docs/adr/0037-epic-frame-layout-by-elk.md),
+первый коммит PR.
+
+**Как падал первый test.** Фикстура из шести Ticket-ов (`test/unit/epic-layout.test.ts`, «orders
+the Tickets in a column…»): на main `layoutEpic` ставит Level 2 по номеру (04, 05, 06), и счёт
+пересечений между Level 1 и Level 2 — 2 при ожидаемом 0 (`- 0 + 2`). Теперь тот же счёт по
+синхронной раскладке остаётся 2 (это проверяется), а по раскладке ELK — 0.
+
+**Что сделано.**
+
+- `elkjs` 0.12.0 в `dependencies`, `pnpm-lock.yaml` — через `pnpm add elkjs@0.12.0 --save-exact`.
+- `src/renderer/canvas/elk/layout.ts` — граф рамки для ELK и чтение ответа. Колонки — разбиение
+  ELK (`elk.partitioning.partition`); `elk.separateConnectedComponents: false` обязателен: без
+  него Ticket без Edge-ей уходил из своей колонки (ELK раскладывал компоненты связности отдельно).
+  Если ELK всё же поставит Ticket-ы одной колонки на разные x, ответ отбрасывается, рамка остаётся
+  на прежних местах. ELK получает только Edge-и вперёд; Edge внутри колонки и назад прокладывает
+  наш код (ADR-0037, пункт 2). Проверено разовым прогоном на 150 случайных Epic-ах до 47 Ticket-ов, со свёрнутой и открытой стопкой done (в репозиторий не вошёл): ни один маршрут не
+  прошёл через Ticket, расчёт — до 42 ms.
+- `src/renderer/canvas/elk/client.ts` — один worker на окно: worker — собственный
+  `elk-worker.min.js` пакета, отдельным файлом сборки (`out/renderer/assets/elk-worker.min-*.js`),
+  renderer говорит с ним через `elk-api.js`. Запрос на Epic с изменившимися входами; устаревший
+  ответ отбрасывается; один запрос считает рамку со свёрнутой и с открытой стопкой done.
+  `electron.vite.config.ts` не менялся: файл worker-а идёт как asset через `?url`.
+- `sources/epics.ts`: до первого ответа — синхронный `layoutEpic` (по номеру, Edge-и без маршрута),
+  пока новый запрос в пути — места последнего ответа, ready и «Needs attention» — текущие.
+- `edge-types/RoutedEdge.tsx` и `extensions.ts` (`collectEdgeTypes`, `edgeTypes`), `Canvas.tsx`
+  передаёт `edgeTypes` один раз. Handle-ы Ticket-а — нулевого размера, чтобы концы Edge-а React
+  Flow совпали с портами ELK.
+- Ready — chip «Ready» на Ticket-е и рамка Ticket-а цвета `--ready-dot`; `ready-wave` убран.
+- `src/main/layout/upgrade.ts` и вызов из `LayoutStore`: `offset:*` у `epic-frame` и Node-ы
+  `subagent-tree` снимаются при первом чтении, одна строка `console.info` на Project, файл
+  пишется сразу; второе чтение файл не трогает.
+
+**Решено без владельца, подтвердить.**
+
+1. Node Subagent-а перетаскивать можно, но только ради ручного Binding-а: при броске Canvas
+   возвращает его на место, сохранять нечего. Тикет требовал `draggable: false` и для Subagent-ов,
+   но это убило бы ручной Binding Subagent-а (Ticket 16 Epic-а worfy-mvp, `test/e2e/binding.spec.ts`).
+   Для этого `NodeSource.moved` отвечает, сохранил ли источник место; `overlays/BindingDrop.tsx`
+   (вне следа) больше не пишет смещение Subagent-а. Строка «Done» и anchor не перетаскиваются.
+2. Строку «Done» дерева, которую нельзя ни выделить, ни перетащить, React Flow делает прозрачной
+   для мыши; ей дан `pointerEvents: 'all'`, иначе щелчок её не открывает.
+
+**Бюджет `test/e2e/epic-frame.spec.ts` (Auction-размер), `WORFY_PERF=1`, этот Mac, по 3 прогона.**
+До (`origin/main` f5e9d49): interactive 1067–1072 ms, медиана 120,5 fps, самый долгий кадр 10 ms.
+После: interactive 1098–1570 ms, медиана 120,5 fps, самый долгий кадр 10 ms. Бюджет (≤ 3 с, ≥ 55 fps,
+≤ 100 ms) держится.
+
+**Снимки** рамки `worfy-mvp` из e2e «the worfy-mvp Epic…» (zoom 0,3, рамка целиком):
+[светлая](../evidence/03-рамка-elk.png), [тёмная](../evidence/03-рамка-elk-тёмная.png). Сверено с
+F-SPEC: Edge-и ортогональные, со скруглёнными углами, идут по коридорам, ни один не проходит
+через Ticket; chip «Ready» у 01 цвета ready, chip колонки «Ready wave · 1» на месте; пунктирной
+рамки ready нет.
+
+**Не проверено.** Ручная проверка на Stable copy (Canvas Project-а Auction): копия обновляется
+только после влития, а запуск настоящего worfy из агента запрещён (он пишет в `~/.claude`).

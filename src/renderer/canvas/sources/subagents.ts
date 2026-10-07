@@ -215,7 +215,9 @@ function flowNode(projectId: string, session: LayoutNode, sessionId: string, pla
     // Not selectable: the selection toolbar's Pin and tags are for Layout Nodes, and these are not.
     selectable: false,
     draggable,
-    ...(anchor ? { focusable: false } : {}),
+    // React Flow lets the pointer through a Node that can be neither dragged nor selected; a fold
+    // row is still clicked to open it.
+    ...(anchor ? { focusable: false } : draggable ? {} : { style: { pointerEvents: 'all' as const } }),
     data: {
       node: { id: place.id, kind: SUBAGENT_KIND, x: place.x, y: place.y, w: place.w, h: place.h, hidden: false, locked: true, pinned: false, tags: [], data },
     },

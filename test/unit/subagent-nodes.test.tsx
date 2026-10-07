@@ -136,6 +136,8 @@ describe('buildSubagentNodes', () => {
     const variant = (each: (typeof nodes)[number]) => (each.data.node.data as SubagentNodeData).variant
     expect(nodes.filter((each) => each.draggable !== false).map(variant)).toEqual(['agent', 'agent'])
     expect(nodes.filter((each) => each.draggable === false).map(variant)).toEqual(['anchor', 'fold'])
+    // A fold row is neither dragged nor selected, yet clicked: React Flow must not let the pointer through it.
+    expect(nodes.find((each) => variant(each) === 'fold')!.style).toEqual({ pointerEvents: 'all' })
     const agent = nodes.find((each) => variant(each) === 'agent')!
     // Not saved: the Canvas puts the Node back where the source has it (Canvas.tsx).
     expect(subagentSource.moved({ projectId: 'p-drag-none', layout: layoutWith(session) }, { ...agent, position: { x: agent.position.x + 200, y: agent.position.y + 200 } })).toBe(false)
