@@ -103,6 +103,27 @@ for old in 'Цель:' 'Репозиторий:' 'Тикет:' 'Дерево:' '
     check "epic-wave brief has no old label '$old'" bash -c '[[ "$1" != *"$2"* ]]' _ "$brief" "$old"
 done
 
+# The status block's labels stay Russian whatever the reports language: worfy reads them
+# (src/shared/agent/status-block.ts; spec of worfy-harness, risk 4).
+STATUS_LABELS=('— Этап:' '— Сейчас:' '— Дальше:' '— Жду:')
+sec5="$(awk '/^## 5\./{p=1; next} /^## /{p=0} p' "$EW")"
+for label in "${STATUS_LABELS[@]}"; do
+    check "epic-wave section 5 quotes the status label '$label'" bash -c '[[ "$1" == *"$2"* ]]' _ "$sec5" "$label"
+done
+
+# Bans the translation must keep, one check each (a lost sentence is a lost rule).
+check "epic-wave: do not switch the global gh account" \
+    has "$EW" "do not switch the global account without the owner's permission"
+check "epic-wave: gate exit code 0 without the green line is not a check" \
+    bash -c 'grep -qF "$2" "$1" && grep -qF "$3" "$1" && grep -qF "$4" "$1"' _ "$EW" \
+    'The gate is green only with `EXIT=0` **and** the line `[gate] зелено (fast): …` in the output:' \
+    'exit code 0 without it means «ничего не прогналось»' 'and that is not a check'
+check "ship-ticket: mutations only in your own worktree or on copies" \
+    has "$ST" 'In both modes mutations only in your own worktree or on copies in your own scratchpad subdirectory'
+check "ship-ticket: do not run other agents' scripts (the mut.sh lesson)" \
+    bash -c 'grep -qF "$2" "$1" && grep -qF "$3" "$1"' _ "$ST" \
+    'Do not run other' "agents' scripts from the scratchpad: a reviewer that ran someone else's \`mut.sh\` hung for three"
+
 # 8. Cyrillic only in allowed places: the old Autopilot forms, Gate verdict words, placeholders
 # of profile values, section names of Project documents and Russian examples.
 ALLOWED=(
@@ -111,6 +132,8 @@ ALLOWED=(
     # Gate verdict words; ticket 09 changes them.
     '[gate] зелено (fast): …' '[gate] зелено (…)' 'ничего не прогналось' 'окружение недоступно'
     '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …'
+    # Labels of the status block, read by worfy.
+    "${STATUS_LABELS[@]}"
     # Placeholders in profile values (schema 1; ticket 11 changes them).
     '<эпик>' '<ветка>' '<имя-тикета>' '<что-ревьюишь>' '<файл>' '<база>'
     # Section names of worfy's Project documents and examples of what an agent writes there.

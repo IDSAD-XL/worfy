@@ -121,14 +121,14 @@ Ticket 20. Silent mode — Ticket 22. Удаление полей путей и�
 
 ## Готово, когда
 
-- [ ] В обоих SKILL.md нет `~/.claude/bin`, `~/.claude/hooks`, `$HOME/.claude`; `~/.claude` встречается только как `~/.claude/projects`, `~/.claude/worfy-harness` и в строке брифа `Write to ~/.claude`. Проверяет `harness/bin/tests/epic-wave-ship-ticket.test.sh`.
-- [ ] Profile и Gate вызываются через `${CLAUDE_PLUGIN_ROOT}/bin/profile` и `${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh`; правило «значение Profile с `~/.claude/bin/` читается как `${CLAUDE_PLUGIN_ROOT}/bin/`» есть в обоих skills. Тот же test.
-- [ ] Нет голых `` `implementer` ``, `` `reviewer` ``, `` `scout` `` и вызовов `/ship-ticket`, `/epic-wave`, `/retro` без `worfy:`; есть `worfy:implementer`, `worfy:reviewer`, `worfy:scout`. Тот же test.
-- [ ] `description` и раздел выбора Wave в `epic-wave` называют `tickets NN, NN of epic X`, «Ticket-ы NN, NN эпика X» и «волна N эпика X». Тот же test.
-- [ ] Нет `КОД=`; код выхода печатается `EXIT=$?`. Тот же test.
-- [ ] Номера разделов совпадают со старыми (список — в test-е). Тот же test.
-- [ ] Подписи брифа — по таблице пункта 6 «Что делаем». Тот же test.
-- [ ] Кириллица — только в разрешённых местах: старые формы команды Autopilot, слова вердикта Gate, плейсхолдеры Profile, названия разделов документов Project, русские примеры. Test держит список разрешённых подстрок, вырезает их и другой кириллицы не находит.
+- [x] В обоих SKILL.md нет `~/.claude/bin`, `~/.claude/hooks`, `$HOME/.claude`; `~/.claude` встречается только как `~/.claude/projects`, `~/.claude/worfy-harness` и в строке брифа `Write to ~/.claude`. Проверяет `harness/bin/tests/epic-wave-ship-ticket.test.sh`.
+- [x] Profile и Gate вызываются через `${CLAUDE_PLUGIN_ROOT}/bin/profile` и `${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh`; правило «значение Profile с `~/.claude/bin/` читается как `${CLAUDE_PLUGIN_ROOT}/bin/`» есть в обоих skills. Тот же test.
+- [x] Нет голых `` `implementer` ``, `` `reviewer` ``, `` `scout` `` и вызовов `/ship-ticket`, `/epic-wave`, `/retro` без `worfy:`; есть `worfy:implementer`, `worfy:reviewer`, `worfy:scout`. Тот же test.
+- [x] `description` и раздел выбора Wave в `epic-wave` называют `tickets NN, NN of epic X`, «Ticket-ы NN, NN эпика X» и «волна N эпика X». Тот же test.
+- [x] Нет `КОД=`; код выхода печатается `EXIT=$?`. Тот же test.
+- [x] Номера разделов совпадают со старыми (список — в test-е). Тот же test.
+- [x] Подписи брифа — по таблице пункта 6 «Что делаем». Тот же test.
+- [x] Кириллица — только в разрешённых местах: старые формы команды Autopilot, слова вердикта Gate, плейсхолдеры Profile, названия разделов документов Project, русские примеры. Test держит список разрешённых подстрок, вырезает их и другой кириллицы не находит.
 - [ ] `claude plugin validate harness; echo "EXIT=$?"` — код 0, в выводе нет строк про `skills/epic-wave` и `skills/ship-ticket` (локально, `claude` из терминала).
 - [ ] Ревьюер с линзой «смысл сохранён» (Q34; Orchestrator даёт её явно) сравнил старый и новый текст обоих skills: `gh pr view <N> --json comments --jq '[.comments[].body | select(startswith("VERIFIED"))] | length'` — не меньше `1`.
 - [ ] CI на PR зелёный. Перед мержем — `GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full` под замком `/tmp/worfy-e2e.lock`: код 0 и строка `[gate] зелено`.
@@ -155,4 +155,32 @@ Ticket-а 02) в skills есть `~/.claude/bin/profile` и `КОД=` — test �
 
 ## Итог
 
-Заполняется при закрытии.
+PR #110 (ветка `worfy-harness/06`).
+
+- **Перевод.** `harness/skills/epic-wave/SKILL.md` и `harness/skills/ship-ticket/SKILL.md` — по-английски,
+  включая `description`. Номера разделов прежние: `## 0.`–`## 5.` и `## 0.`–`## 11.`. Блок ожидания CI
+  (`gh run watch`) остался в шаге 8 `ship-ticket`: на него ссылается `implementer.md`.
+- **Пути.** `F` — `"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field <field>`. Gate вызывается как
+  `bash "${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh" fast`. Под тот же корень переехали `epic-board` и контракт
+  Profile (`harness/profiles/README.md` есть после Ticket-а 02). В обоих skills — правило: значение
+  Profile, которое начинается с `~/.claude/bin/`, читается как `${CLAUDE_PLUGIN_ROOT}/bin/` и остаток.
+- **Префикс `worfy:`.** `worfy:implementer`, `worfy:reviewer`, `worfy:scout`, `/worfy:ship-ticket`,
+  `/worfy:epic-wave`, `worfy:qmd`. Голое `ship-ticket` в `workflow.ticket_skill` значит `/worfy:ship-ticket`.
+- **Команда Autopilot.** Формат — `/worfy:epic-wave tickets {tickets} of epic {epic}`. Он совпадает с тем,
+  что worfy уже привязывает после Ticket-а 10 (`test/unit/binding.test.ts:245`; эпик — последнее слово,
+  которое является известным эпиком, `src/shared/binding/resolve.ts:143`). Шаблон по умолчанию в
+  `src/shared/projects/action-templates.ts:34` пока прежний; его меняет Ticket 12. Skill узнаёт и старые
+  формы: «Ticket-ы NN, NN эпика X», «волна N эпика X», «run wave N of epic X».
+- **Машинные строки.** `КОД=` заменён на `EXIT=`, строка `НЕТ RUN` — на `NO RUN` (о ней говорит
+  `rules.md` профиля worfy). Подписи блока статуса `— Этап:`, `— Сейчас:`, `— Дальше:`, `— Жду:`
+  процитированы дословно: их читает worfy (`src/shared/agent/status-block.ts:23`, spec.md, риск 4).
+- **Test.** `harness/bin/tests/epic-wave-ship-ticket.test.sh`, в CI через
+  `test/contract/harness-scripts.test.ts`. На базе ветки (31bc642) он падал: 11 проверок прошли,
+  51 упала. Первые FAIL: `~/.claude/bin` в тексте, `F` не через `${CLAUDE_PLUGIN_ROOT}/bin/profile`,
+  `КОД=`. Каждая проверка краснеет на своём мутанте skill-а.
+- **Противоречие пунктов 1 и 2 «Готово, когда»** — решено без владельца, подтвердить. Пункт 1 запрещает
+  `~/.claude/bin` в skills, а пункт 2 требует правило, которое называет это значение. Правило стоит в
+  каждом skill одной дословной фразой; test вырезает ровно её, а потом ищет `~/.claude/bin`. Цена:
+  чтобы переформулировать правило, нужно поправить и test.
+- **Не проверено: `claude plugin validate harness`.** Бриф исполнителя запрещал запускать настоящий
+  Claude Code; команда остаётся владельцу или Orchestrator-у.

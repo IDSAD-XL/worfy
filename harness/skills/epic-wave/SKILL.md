@@ -384,11 +384,13 @@ after the merge).
 
 ## 5. Report
 
-A table for the wave, then the four-line status block (in `F language.reports`): the stage line —
-the output of `<F tickets.epic_status> <epic>` after a fast-forward of the main branch; the "now"
-line — only what the gate and the live address confirmed (with `local-green` or without `deploy` —
-the gate); the "waiting" line — a decision on a `blocked` ticket, or "nothing". Re-read every
-`file:line` from the verifier's answer yourself before quoting it.
+A table for the wave, then the four-line status block. Its labels stay exactly as written —
+`— Этап:`, `— Сейчас:`, `— Дальше:`, `— Жду:` — whatever the reports language: worfy reads them
+(`src/shared/agent/status-block.ts`); the values are in `F language.reports`. `— Этап:` — the
+output of `<F tickets.epic_status> <epic>` after a fast-forward of the main branch; `— Сейчас:` —
+only what the gate and the live address confirmed (with `local-green` or without `deploy` — the
+gate); `— Жду:` — a decision on a `blocked` ticket, or "nothing". Re-read every `file:line` from
+the verifier's answer yourself before quoting it.
 
 | Ticket | PR | Gate | Rework | Production |
 |---|---|---|---|---|
