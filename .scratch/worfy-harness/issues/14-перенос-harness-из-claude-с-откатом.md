@@ -1,7 +1,7 @@
 # 14 — Перенос: старые файлы Harness уходят из `~/.claude` по форме «уберу / оставлю», с резервной копией и откатом
 
 Type: task
-Status: open
+Status: claimed — 2026-10-07
 Blocked by: 11, 13
 Source: решения владельца 2026-10-07, Q19, Q13, Q33, Q4, Q9, Q11, Q11', Q15, Q17, Q24, Q25, Q28, Q8; [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (состояние машины в `~/.claude/worfy-harness/`, worfy пишет в `~/.claude` только установщиком и переносом); [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) (Profile целиком на машине, Full mode и Silent mode, `attribution`); [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md) (qmd — часть Harness, запись qmd в `~/.claude.json` убирается при переносе); [ADR-0047](../../../docs/adr/0047-harness-lessons-by-pr-early-owner-switch.md) (ранний переход машины владельца, откат одной командой); [spec.md](../spec.md)
 

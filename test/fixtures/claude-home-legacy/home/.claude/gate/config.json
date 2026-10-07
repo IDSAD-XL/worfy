@@ -1,0 +1,29 @@
+{
+  "_comment": "The gate registry of the fixture: the longest `match` wins.",
+  "repos": [
+    {
+      "key": "worfy",
+      "match": "__SANDBOX__/repos/worfy",
+      "profile": "worfy",
+      "pm": "pnpm",
+      "root": {},
+      "workspace": {}
+    },
+    {
+      "key": "auction",
+      "match": "__SANDBOX__/repos/auction",
+      "profile": "auction",
+      "pm": "pnpm",
+      "root": {},
+      "workspace": {}
+    },
+    {
+      "key": "Atakama-Browser-Server",
+      "match": "__SANDBOX__/repos/Atakama/Atakama-Browser-Server",
+      "profile": "atakama",
+      "pm": "pnpm",
+      "root": {},
+      "workspace": {}
+    }
+  ]
+}

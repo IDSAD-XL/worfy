@@ -1,0 +1,27 @@
+{
+  "numStartups": 42,
+  "mcpServers": {
+    "freecad": {
+      "type": "stdio",
+      "command": "/opt/homebrew/bin/uvx",
+      "args": [
+        "freecad-mcp"
+      ]
+    },
+    "qmd": {
+      "type": "stdio",
+      "command": "__SANDBOX__/home/.claude/bin/qmd-mcp",
+      "args": []
+    },
+    "telegram": {
+      "type": "stdio",
+      "command": "__SANDBOX__/home/.claude/bin/telegram-mcp",
+      "args": []
+    }
+  },
+  "projects": {
+    "__SANDBOX__/repos/worfy": {
+      "allowedTools": []
+    }
+  }
+}

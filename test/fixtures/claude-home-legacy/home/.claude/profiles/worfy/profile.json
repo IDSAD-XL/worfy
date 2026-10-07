@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "name": "worfy",
+  "title": "worfy",
+  "language": {
+    "reports": "ru",
+    "team": "en"
+  },
+  "commands": {
+    "verify": "pnpm lint && pnpm typecheck && pnpm test"
+  },
+  "parallel": "worktrees",
+  "tickets": {
+    "root": ".scratch/",
+    "path": ".scratch/<эпик>/issues/NN-*.md",
+    "status_tool": "~/.claude/bin/ticket",
+    "epic_status": "~/.claude/bin/epic-status",
+    "branch": "<эпик>/<NN>"
+  },
+  "workflow": {
+    "preflight": "~/.claude/bin/preflight --epic <эпик>",
+    "ticket_skill": "ship-ticket",
+    "finish": "pr-green-ci"
+  },
+  "numbering": {
+    "reserve_with": "~/.claude/bin/preflight",
+    "adr": {
+      "dir": "docs/adr",
+      "check": null
+    }
+  },
+  "qmd": {
+    "collections": []
+  }
+}
