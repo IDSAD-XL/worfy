@@ -91,8 +91,14 @@ steps="$(awk '/^## Order/{o=1; next} o && /^## /{exit} o && /^[1-6]\. /{print su
 [ "$steps" = "1.2.3.4.5.6." ] && ok "implementer: steps 1. to 6. in section Order" || bad "implementer: steps in Order: [$steps]"
 
 # --- 6. brief labels and tools: ---------------------------------------------------------------
+# The rule is general: any write to ~/.claude needs the brief's permission, not only a test with a
+# real Claude Code (that test is just an example of such a write).
+WRITE_RULE='Write to the Claude configuration directory only if the brief says `Write to ~/.claude: allowed`.'
 for a in implementer reviewer; do
     has "$a" 'Write to ~/.claude: allowed' && ok "$a: brief label 'Write to ~/.claude'" || bad "$a: no brief label 'Write to ~/.claude: allowed'"
+    grep -E '^- ' "$AGENTS/$a.md" | grep -qF -- "$WRITE_RULE" \
+        && ok "$a: general rule: write to ~/.claude only when the brief allows it" \
+        || bad "$a: no general rule '$WRITE_RULE' at the start of a list item"
     has "$a" '`GitHub:`' && ok "$a: brief label 'GitHub:'" || bad "$a: no brief label 'GitHub:'"
 done
 TOOLS='tools: Read, Grep, Glob, Bash, mcp__qmd__query, mcp__qmd__get, mcp__qmd__multi_get, mcp__qmd__status'

@@ -113,11 +113,11 @@ Rules of evidence:
   `<commands.verify>; echo "EXIT=$?"`; targeted — `commands.test_one`. Environment requirements —
   `commands.requires`, specifics of the checks — `rules.md`. A pipe only under `set -o pipefail`.
 - Independent commands — in one call.
-- Run a test with a real Claude Code or Agent SDK only if the brief says `Write to ~/.claude: allowed`:
-  such a test writes transcripts to `~/.claude/projects`. If the brief is silent, do not run such a
-  test and say so in the "could not verify" line. If the brief gives a `GitHub:` line — run every
-  `gh` command and every `git` command against `origin` with that `GH_TOKEN`; do not switch the
-  global `gh` account.
+- Write to the Claude configuration directory only if the brief says `Write to ~/.claude: allowed`.
+  For example, a test with a real Claude Code or Agent SDK writes transcripts to `~/.claude/projects`.
+  If the brief is silent, do not write there and do not run such a test; say so in the "could not
+  verify" line. If the brief gives a `GitHub:` line — run every `gh` command and every `git` command
+  against `origin` with that `GH_TOKEN`; do not switch the global `gh` account.
 
 Answer format — no more than 30 lines:
 - `path:line: [high|med|low] <defect>; scenario: <which input or state gives which wrong
