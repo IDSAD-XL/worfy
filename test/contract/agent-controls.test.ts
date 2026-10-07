@@ -761,6 +761,25 @@ describe('Session.halt: Stop in Autopilot (worfy-week ticket 17)', () => {
     expect(messages()).toEqual(['count'])
     expect(session.queued().items.map((item) => item.text)).toEqual(['sent during the stop', 'sent after the stop'])
   })
+
+  it('"Send queued" on a halted Session sends nothing into its process: during the halt\'s wait, at the turn\'s end, or after (Force stop, worfy-week ticket 18)', async () => {
+    const { session, messages } = await halting('interrupt')
+    session.send('count')
+    session.send('then this')
+    const halted = session.halt()
+    // The person resumes the queue while the halt waits: the interrupted turn's end must not send it.
+    session.sendQueued()
+    await halted
+    await new Promise((done) => setTimeout(done, 50))
+    expect(session.state).toBe('idle')
+    expect(messages()).toEqual(['count'])
+    // Resumed again on the idle, halted Session: still nothing goes into the process.
+    session.sendQueued()
+    await new Promise((done) => setTimeout(done, 50))
+    expect(messages()).toEqual(['count'])
+    expect(session.state).toBe('idle')
+    expect(session.queued().items.map((item) => item.text)).toEqual(['then this'])
+  })
 })
 
 describe('readSettings', () => {

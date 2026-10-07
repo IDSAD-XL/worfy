@@ -71,6 +71,7 @@ const appended: JournalEventFields[] = [
   { kind: 'refused-dialog', session: null, what: 'AskUserQuestion' },
   { kind: 'human-input', source: 'worfy', what: 'Send queued' },
   { kind: 'background-tasks', tasks: [] },
+  { kind: 'run-stopping', reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: ['01'] },
   { kind: 'run-stopped', reason: 'user-stop', tasks: [{ id: 'task-1', type: 'local_agent', description: 'Implement 01' }] },
   { kind: 'orchestrator-returned' },
   { kind: 'tasks-killed', reason: 'app-quit', tasks: [{ id: 'task-2', type: 'local_bash', description: null }] },
@@ -182,6 +183,18 @@ describe('readRun', () => {
     const parsed = await readRun(journal.run)
     expect(parsed?.events.map((event) => event.kind)).toEqual(['run-started', 'resumed'])
     expect(parsed?.skipped).toBe(2)
+  })
+
+  it('reads a run-stopping line and skips, and counts, one without inWork (worfy-week ticket 18)', async () => {
+    const journal = await openRun({ project: PROJECT, epic: EPIC }, { now: ticking(T0) })
+    const head = `"at":"2026-10-06T01:00:01Z","run":"${journal.run}","project":"${PROJECT}","epic":"${EPIC}"`
+    appendFileSync(journal.file, `{"kind":"run-stopping",${head},"reason":"user-stop","wave":1,"tickets":["01","02"],"inWork":["01"]}\n`)
+    appendFileSync(journal.file, `{"kind":"run-stopping",${head},"reason":"user-stop","wave":1,"tickets":["01","02"]}\n`)
+
+    const parsed = await readRun(journal.run)
+    expect(parsed?.events.map((event) => event.kind)).toEqual(['run-started', 'run-stopping'])
+    expect(parsed?.events[1]).toMatchObject({ reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: ['01'] })
+    expect(parsed?.skipped).toBe(1)
   })
 
   it('returns undefined for a run without a file and refuses a name that is not a run id', async () => {

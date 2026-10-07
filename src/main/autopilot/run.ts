@@ -19,12 +19,20 @@
 //   live, or while a turn runs (it may start some), leaves the Orchestrator unattended, and keeps
 //   keep-awake, until the turn and the tasks have ended (orchestrator.ts);
 //   then the journal says `orchestrator-returned`, or, if the app quits first, `tasks-killed`.
-// - Stop by the user (`user-stop`, worfy-week ticket 17, ADR-0050) does not wait: it halts the
+// - Stop by the user is graceful (`user-stop`, worfy-week ticket 18, ADR-0051): no new Ticket, the
+//   ones in work finish. During the Wave's turn or its tasks the run goes `stopping`: it journals
+//   `run-stopping` and sends the Orchestrator STOP_TEXT through its Session (queued behind a running
+//   turn; while the run waits for the Limits, together with the continuation after the reset). It
+//   is not a protocol (ADR-0002): the run ends by the Session's events, with the first turn end that
+//   leaves the Session idle and no task alive. A Wave still in the Session's queue leaves it, and the
+//   run stops at once. stop() answers as soon as the run is stopping or stopped.
+// - Force stop (`user-force-stop`, worfy-week ticket 17, ADR-0050) does not wait: it halts the
 //   Orchestrator's Session (interrupts its turn, HALT_TURN_MS at most, and holds its queue) and
 //   gives the Orchestrator back at once; closing the old process kills its background tasks. The
 //   journal says `run-stopped` with the Tickets of the interrupted Wave, `tasks-killed` when tasks
-//   lived, and `orchestrator-returned`; stop() answers after that. The next run of the Epic takes
-//   those Tickets, if still in work, into its first Wave (`resumable`).
+//   lived, and `orchestrator-returned`; forceStop() answers after that. The next run of the Epic
+//   takes those Tickets, if still in work, into its first Wave (`resumable`); after a graceful Stop
+//   it takes none.
 // - keep-awake (power.ts) is held from the start to the end of the run.
 // - A turn of the Wave refused by the Limits does not end it (worfy-daily ticket 05): the run goes
 //   `waiting` until the Limits reset, then sends the Orchestrator on (limits-wait.ts). Past the
@@ -70,9 +78,21 @@ export interface RunSession {
   removeQueued(id: string): boolean
   /** The Session's live background tasks, ambient ones left out (ADR-0029). */
   backgroundTasks(): BackgroundTask[]
-  /** Stop by the user: holds the queue, interrupts a running turn and waits for it, `timeoutMs` at most (Session.halt). */
+  /** Force stop: holds the queue, interrupts a running turn and waits for it, `timeoutMs` at most (Session.halt). */
   halt(timeoutMs?: number): Promise<unknown>
+  /** A message to the Orchestrator: starts a turn when idle, else waits in the queue (Session.send); throws when the Session is gone. */
+  send(text: string): unknown
 }
+
+/**
+ * What the Orchestrator gets on a graceful Stop (worfy-week ticket 18, ADR-0051). Not a protocol
+ * (ADR-0002): the run does not check that the Orchestrator obeyed.
+ */
+export const STOP_TEXT =
+  'Autopilot остановлен человеком. Новые Ticket-ы не бери и новые Wave-ы не начинай. Ticket-ы текущей Wave, которые ещё не запущены, не запускай. Ticket-ы, уже взятые в работу, доведи до конца как обычно — merge или blocked, — потом закончи ход.'
+
+/** STOP_TEXT as the Session's queue shows it. */
+const STOP_LABEL = messageLabel(STOP_TEXT, [])
 
 /** The timers of the wait for background tasks; a test passes a clock it moves by hand. */
 export interface TasksClock {
@@ -209,7 +229,7 @@ class Run {
   lastText: string | null = null
   /** The Tickets of an interrupted Wave the next "Run wave" takes along; emptied once it is sent. */
   resume: readonly number[] = []
-  /** After a Stop by the user: the Tickets of the Wave it interrupted (AutopilotState.resumable). */
+  /** After a Force stop: the Tickets of the Wave it interrupted (AutopilotState.resumable). */
   interrupted: number[] = []
   /** Settles once the run has stopped and cleaned up. */
   readonly ended: Promise<void>
@@ -267,7 +287,22 @@ export class Autopilot {
   state(projectId: string): AutopilotState {
     const run = this.runs.get(projectId)
     if (run === undefined)
-      return this.last.get(projectId) ?? { projectId, epic: null, status: 'stopped', wave: 0, backgroundTasks: 0, resumesAt: null, reason: null, message: null, resumable: [], revision: this.revision }
+      return (
+        this.last.get(projectId) ?? {
+          projectId,
+          epic: null,
+          status: 'stopped',
+          wave: 0,
+          backgroundTasks: 0,
+          resumesAt: null,
+          reason: null,
+          message: null,
+          resumable: [],
+          stopping: false,
+          ticketsInWork: 0,
+          revision: this.revision,
+        }
+      )
     return this.snapshot(run)
   }
 
@@ -295,7 +330,7 @@ export class Autopilot {
       if (!model.epics.some((each) => each.epic === epic) && !model.tickets.some((each) => each.epic === epic)) throw new Error(`The Project has no Epic ${epic}`)
 
       const run = new Run(projectId, epic, root)
-      // The Wave the last Stop of this Epic interrupted goes along with the first Wave (worfy-week ticket 17).
+      // The Wave the last Force stop of this Epic interrupted goes along with the first Wave (worfy-week tickets 17, 18).
       const last = this.last.get(projectId)
       run.resume = last?.epic === epic ? [...last.resumable] : []
       if (this.deps.limits !== undefined) run.limits = new LimitsWait(this.deps.limits)
@@ -330,11 +365,26 @@ export class Autopilot {
     }
   }
 
-  /** Stops the Project's run with `user-stop`; answers its state once it has stopped. */
+  /**
+   * The graceful Stop (worfy-week ticket 18): answers the run's state as soon as it is stopping or
+   * stopped. A second Stop while stopping sends nothing and answers the state.
+   */
   async stop(projectId: string): Promise<AutopilotState> {
     const run = this.runs.get(projectId)
     if (run === undefined) return this.state(projectId)
-    await run.enqueue(() => this.feed(run, { type: 'stop', reason: 'user-stop' }))
+    await run.enqueue(async () => {
+      if (run.cycle.phase === 'stopped' || run.cycle.stopping) return
+      await this.feed(run, { type: 'graceful-stop', tickets: await this.freshTickets(run) })
+    })
+    if (run.cycle.phase === 'stopped') await run.ended
+    return this.state(projectId)
+  }
+
+  /** Force stop: stops the Project's run with `user-force-stop`; answers its state once it has stopped. */
+  async forceStop(projectId: string): Promise<AutopilotState> {
+    const run = this.runs.get(projectId)
+    if (run === undefined) return this.state(projectId)
+    await run.enqueue(() => this.feed(run, { type: 'stop', reason: 'user-force-stop' }))
     await run.ended
     return this.state(projectId)
   }
@@ -473,6 +523,18 @@ export class Autopilot {
     await this.feed(run, make(model.tickets))
   }
 
+  /** The Tickets of a fresh read of the workflow model; none when it cannot be read (a Stop still goes). */
+  private async freshTickets(run: Run): Promise<WorkflowModel['tickets']> {
+    try {
+      const model = await this.deps.workflow(run.root)
+      if (model.error === null) return model.tickets
+      console.warn(`[autopilot] ${run.projectId}: cannot read the workflow: ${model.error.message}`)
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: cannot read the workflow`, error)
+    }
+    return []
+  }
+
   /** One cycle step and its effects, in order. */
   private async feed(run: Run, event: CycleEvent): Promise<void> {
     const before = run.cycle.phase
@@ -497,6 +559,9 @@ export class Autopilot {
         }
         case 'wave-finished':
           await this.write(run, { kind: effect.kind, wave: effect.wave, tickets: effect.tickets.map(ticketNumber) })
+          break
+        case 'stopping':
+          await this.beginStopping(run, effect)
           break
         case 'session-error':
           run.message = effect.message
@@ -566,7 +631,9 @@ export class Autopilot {
   private async resume(run: Run, id: number): Promise<void> {
     const wait = run.limits
     if (wait === null || !wait.isCurrent(id) || run.cycle.phase === 'stopped' || run.session === null) return
-    const text = wait.resume()
+    // A graceful Stop during the wait goes with the continuation, in one message (worfy-week ticket 18).
+    const continuation = wait.resume()
+    const text = run.cycle.stopping ? `${continuation}\n\n${STOP_TEXT}` : continuation
     await this.write(run, { kind: 'resumed' })
     this.publish(run.projectId)
     try {
@@ -574,6 +641,29 @@ export class Autopilot {
     } catch (error) {
       run.message = messageOf(error)
       await this.feed(run, { type: 'session-error', message: run.message })
+    }
+  }
+
+  /**
+   * The graceful Stop came during the Wave's turn or its tasks (worfy-week ticket 18). A Wave that
+   * still waits in the Session's queue has had no Ticket taken: the run stops at once with
+   * `user-stop`, and end() takes the Wave out of the queue. Otherwise `run-stopping` goes to the
+   * journal and STOP_TEXT to the Orchestrator: at once when it is idle (phase `tasks`), behind the
+   * running turn otherwise. While the run waits for the Limits the Session would refuse the turn,
+   * so the text goes with the continuation (resume).
+   */
+  private async beginStopping(run: Run, effect: { wave: number; tickets: number[]; inWork: number[] }): Promise<void> {
+    if (run.waveTurn === null) {
+      await this.feed(run, { type: 'stop', reason: 'user-stop' })
+      return
+    }
+    await this.write(run, { kind: 'run-stopping', reason: 'user-stop', wave: effect.wave, tickets: effect.tickets.map(ticketNumber), inWork: effect.inWork.map(ticketNumber) })
+    if (run.limits?.until != null || run.session === null) return
+    try {
+      run.session.send(STOP_TEXT)
+    } catch (error) {
+      // The Session is gone: its own events end the run.
+      console.warn(`[autopilot] ${run.projectId}: could not tell the Orchestrator to stop`, error)
     }
   }
 
@@ -590,15 +680,21 @@ export class Autopilot {
     }
   }
 
-  /** A Wave still in the Session's queue when the run stops is taken out: no one would follow its turn. */
+  /**
+   * A Wave still in the Session's queue when the run stops is taken out: no one would follow its
+   * turn. So is STOP_TEXT of a graceful Stop that has not gone yet: a Force stop or another stop
+   * came first, and the person who gets the Orchestrator back should not find it in the queue.
+   */
   private dropQueuedWave(run: Run): void {
-    const prompt = run.wavePrompt
-    if (prompt === null || run.waveTurn !== null || run.session === null) return
+    const session = run.session
+    if (session === null) return
+    const prompt = run.wavePrompt !== null && run.waveTurn === null ? run.wavePrompt : null
+    const stop = run.cycle.stopping ? STOP_LABEL : null
+    if (prompt === null && stop === null) return
     try {
-      const queued = run.session.queued().items.find((item) => item.text === prompt)
-      if (queued !== undefined) run.session.removeQueued(queued.id)
+      for (const item of session.queued().items) if (item.text === prompt || item.text === stop) session.removeQueued(item.id)
     } catch (error) {
-      console.warn(`[autopilot] ${run.projectId}: could not take the Wave out of the queue`, error)
+      console.warn(`[autopilot] ${run.projectId}: could not take the run's messages out of the queue`, error)
     }
   }
 
@@ -663,7 +759,7 @@ export class Autopilot {
       ...(lastText === null ? {} : { lastText }),
     })
     this.dropQueuedWave(run)
-    if (reason === 'user-stop') {
+    if (reason === 'user-force-stop') {
       run.interrupted = tickets ?? []
       await this.interruptAndGiveBack(run, live)
     } else {
@@ -684,7 +780,7 @@ export class Autopilot {
   }
 
   /**
-   * Stop by the user (worfy-week ticket 17, ADR-0050): no wait for the turn or the tasks. The
+   * Force stop (worfy-week tickets 17, 18, ADR-0050): no wait for the turn or the tasks. The
    * run's timers go first, so nothing of the run fires during the halt; then the Session is halted
    * (its turn interrupted, HALT_TURN_MS at most) and the Orchestrator given back at once, which
    * closes the old process and every task in it. The tasks alive at the stop, and any the turn
@@ -703,7 +799,7 @@ export class Autopilot {
       }
       const killed = new Map(atStop.map((task) => [task.taskId, task]))
       for (const task of this.liveTasks(run)) killed.set(task.taskId, task)
-      if (killed.size > 0) await this.write(run, { kind: 'tasks-killed', reason: 'user-stop', tasks: journalTasks([...killed.values()]) })
+      if (killed.size > 0) await this.write(run, { kind: 'tasks-killed', reason: 'user-force-stop', tasks: journalTasks([...killed.values()]) })
       try {
         returned = (await this.deps.orchestrators.giveBackNow(run.projectId)) !== null
       } catch (error) {
@@ -792,6 +888,7 @@ export class Autopilot {
 
   private snapshot(run: Run): AutopilotState {
     const resumesAt = run.running ? (run.limits?.until ?? null) : null
+    const stopping = run.running && run.cycle.stopping
     return {
       projectId: run.projectId,
       epic: run.epic,
@@ -801,7 +898,9 @@ export class Autopilot {
       resumesAt,
       reason: run.done ? run.cycle.reason : null,
       message: run.message,
-      resumable: run.done && run.cycle.reason === 'user-stop' ? [...run.interrupted] : [],
+      resumable: run.done && run.cycle.reason === 'user-force-stop' ? [...run.interrupted] : [],
+      stopping,
+      ticketsInWork: stopping ? run.cycle.inWork.length : 0,
       revision: this.revision,
     }
   }

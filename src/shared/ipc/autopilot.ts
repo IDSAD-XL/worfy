@@ -30,12 +30,20 @@ export const autopilotStateSchema = z.object({
   reason: z.enum(AUTOPILOT_STOP_REASONS).nullable(),
   message: z.string().nullable(),
   /**
-   * After a Stop by the user (`user-stop`, worfy-week ticket 17): the Ticket numbers of the Wave it
-   * interrupted, for `epic`. A new run of that Epic takes those still in work into its first Wave,
-   * also when nothing else is ready; the button and main filter them by the Tickets they read.
-   * Empty while running and after any other stop.
+   * After a Force stop (`user-force-stop`, worfy-week tickets 17, 18): the Ticket numbers of the
+   * Wave it interrupted, for `epic`. A new run of that Epic takes those still in work into its first
+   * Wave, also when nothing else is ready; the button and main filter them by the Tickets they read.
+   * Empty while running and after any other stop, the graceful Stop (`user-stop`) included.
    */
   resumable: z.array(z.number().int().positive()),
+  /**
+   * A graceful Stop came (worfy-week ticket 18): the run takes no new Ticket and ends once the
+   * Orchestrator's turn and background tasks are over. A flag over `running` and `waiting`; false
+   * once stopped.
+   */
+  stopping: z.boolean(),
+  /** While `stopping`: how many Tickets of the current Wave are in work; 0 otherwise. */
+  ticketsInWork: z.number().int().nonnegative(),
   revision: z.number().int().nonnegative(),
 })
 export type AutopilotState = z.infer<typeof autopilotStateSchema>
@@ -48,11 +56,19 @@ export type AutopilotState = z.infer<typeof autopilotStateSchema>
 export const autopilotStart = invokeChannel('autopilot.start', z.object({ projectId, epic: epicNameSchema }), autopilotStateSchema)
 
 /**
- * Stops the Project's run (`user-stop`): interrupts the Orchestrator's turn and its background
- * tasks and gives the Orchestrator back (worfy-week ticket 17, ADR-0050). Answers its state once it
- * has stopped — up to HALT_TURN_MS (src/main/agent/session.ts) after the click.
+ * Stops the Project's run gracefully (`user-stop`, worfy-week ticket 18, ADR-0051): no new Ticket,
+ * the Orchestrator is told so, and the Tickets in work finish. Answers as soon as the run is
+ * `stopping` or already stopped, not at its end; again while stopping, it only answers the state.
  */
 export const autopilotStop = invokeChannel('autopilot.stop', z.object({ projectId }), autopilotStateSchema)
+
+/**
+ * Force stop (`user-force-stop`): interrupts the Orchestrator's turn and its background tasks and
+ * gives the Orchestrator back (worfy-week ticket 17, ADR-0050), also while a graceful Stop goes on.
+ * Answers its state once it has stopped — up to HALT_TURN_MS (src/main/agent/session.ts) after the
+ * click.
+ */
+export const autopilotForceStop = invokeChannel('autopilot.forceStop', z.object({ projectId }), autopilotStateSchema)
 
 /** The Project's run as it is now. */
 export const autopilotState = invokeChannel('autopilot.state', z.object({ projectId }), autopilotStateSchema)
@@ -67,13 +83,19 @@ export interface StatusLineOptions {
 
 /**
  * The status line of the Epic's Autopilot action: `Wave 3 · running`, `Wave 3 · 4 background
- * tasks` (ADR-0029), `waiting for limits · resumes 14:20`, `stopped: no ready wave`.
+ * tasks` (ADR-0029), `stopping · 2 tickets in work` and `stopping` (a graceful Stop, worfy-week
+ * ticket 18), `waiting for limits · resumes 14:20`, `stopped: no ready wave`, `stopped: user force
+ * stop`.
  */
 export function autopilotStatusLine(
-  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt' | 'backgroundTasks'>>,
+  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt' | 'backgroundTasks' | 'stopping' | 'ticketsInWork'>>,
   options: StatusLineOptions = {},
 ): string | null {
   if (state.status === 'running') {
+    if (state.stopping === true) {
+      const inWork = state.ticketsInWork ?? 0
+      return inWork > 0 ? `stopping · ${inWork} ${inWork === 1 ? 'ticket' : 'tickets'} in work` : 'stopping'
+    }
     if (state.wave === 0) return 'starting'
     const tasks = state.backgroundTasks ?? 0
     if (tasks > 0) return `Wave ${state.wave} · ${tasks} background ${tasks === 1 ? 'task' : 'tasks'}`
@@ -92,6 +114,7 @@ declare module './channels' {
   interface IpcContract {
     'autopilot.start': typeof autopilotStart
     'autopilot.stop': typeof autopilotStop
+    'autopilot.forceStop': typeof autopilotForceStop
     'autopilot.state': typeof autopilotState
     'autopilot.changed': typeof autopilotChanged
   }

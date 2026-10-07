@@ -39,24 +39,35 @@
 //                                    changed (ADR-0029); tasks: every one now, possibly none; also
 //                                    written after run-stopped while the run waits to give the
 //                                    Orchestrator back
+//   run-stopping   reason, wave,     a graceful Stop (worfy-week ticket 18, ADR-0051): the run takes
+//                  tickets, inWork   no new Ticket and told the Orchestrator so; it ends with
+//                                    run-stopped once the turn and the background tasks are over;
+//                                    reason: `user-stop`; wave and tickets as in wave-started;
+//                                    inWork: the Tickets of the Wave in work at the Stop
 //   run-stopped    reason, tasks?,   the run ended; reason: why, in a few words; tasks: the
 //                  tickets?,         background tasks alive then, when any were; tickets: with
 //                  lastText?         `blocked-tickets`, the Tickets it stopped on (as skipped of
-//                                    wave-started, numbers only); with `user-stop`, the Tickets of
-//                                    the Wave it interrupted, none before the first Wave
-//                                    (worfy-week ticket 17); lastText: with `no-progress`,
+//                                    wave-started, numbers only); with `user-force-stop`, the
+//                                    Tickets of the Wave it interrupted, none before the first Wave
+//                                    (worfy-week tickets 17, 18; lines written before ticket 18 say
+//                                    `user-stop` for it); lastText: with `no-progress`,
 //                                    `no-ready-wave` and `blocked-tickets`, the first 1000
 //                                    characters of the Orchestrator's last answer in the turns of
 //                                    the Wave, none when no Wave was sent (ADR-0033)
 //   orchestrator-returned            after a run-stopped with live tasks: they have ended and the
 //                                    Orchestrator runs as a person's Session again; after
-//                                    `user-stop`: it was given back at once (ADR-0050)
+//                                    `user-force-stop`: it was given back at once (ADR-0050)
 //   tasks-killed   reason, tasks     the background tasks a stopped run still waited for were
 //                                    killed; reason: `app-quit`, tasks: none when the run waited
 //                                    only for a turn of the Orchestrator still running; or
-//                                    `user-stop`: the tasks alive at the Stop, or started by the
-//                                    turn it interrupted, ended with the Orchestrator's process
-//                                    (ADR-0050), written only when there were any
+//                                    `user-force-stop`: the tasks alive at the Force stop, or
+//                                    started by the turn it interrupted, ended with the
+//                                    Orchestrator's process (ADR-0050), written only when there
+//                                    were any
+//
+// A graceful Stop journals run-stopping → background-tasks … → run-stopped (`user-stop`, no
+// tickets). A Force stop during it: run-stopping → … → run-stopped (`user-force-stop`, tickets) →
+// tasks-killed (`user-force-stop`), when tasks lived → orchestrator-returned.
 //
 // A task of `tasks` is {id, type, description}: the task id of Claude Code, its type
 // (`local_agent`, `local_bash`, …) and what it does, both null when Claude Code did not say.
@@ -95,6 +106,7 @@ export const JOURNAL_EVENT_KINDS = [
   'refused-dialog',
   'human-input',
   'background-tasks',
+  'run-stopping',
   'run-stopped',
   'orchestrator-returned',
   'tasks-killed',
@@ -154,6 +166,7 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
   event('refused-dialog', { session, what: text }),
   event('human-input', { source: z.enum(HUMAN_INPUT_SOURCES), what: text }),
   event('background-tasks', { tasks }),
+  event('run-stopping', { reason: text, ...wave, inWork: z.array(text) }),
   event('run-stopped', { reason: text, tasks: tasks.optional(), tickets: z.array(text).optional(), lastText: z.string().max(LAST_TEXT_MAX).optional() }),
   event('orchestrator-returned', {}),
   event('tasks-killed', { reason: text, tasks }),
