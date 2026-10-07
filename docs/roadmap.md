@@ -1,8 +1,8 @@
 # Дорожная карта worfy: E2–E4
 
-Status: принята владельцем 2026-10-06.
+Status: принята владельцем 2026-10-06; раздел E3 переписан по решениям владельца 2026-10-07.
 Source: итог проектирования 2026-10-06; [CONTEXT.md](../CONTEXT.md); ADR
-[0017](adr/0017-english-canonical-terms.md)–[0021](adr/0021-mcp-servers-allowlist-in-profile.md).
+[0017](adr/0017-english-canonical-terms.md)–[0021](adr/0021-mcp-servers-allowlist-in-profile.md), 0040–0047 (E3).
 
 ## Куда идёт worfy
 
@@ -41,57 +41,86 @@ Ticket-ы — в [.scratch/worfy-daily/](../.scratch/worfy-daily/spec.md).
 дефекты недели — его Ticket-ы, Wave-ы ведёт Autopilot. Ticket-ы — в
 [.scratch/worfy-week/](../.scratch/worfy-week/spec.md).
 
-## E3 — Harness как часть worfy
+## E3 — worfy-harness: Harness как часть worfy
 
-**Цель.** worfy X ставит и обновляет Harness X. Project подключается к worfy без ручной правки
-`~/.claude`.
+Спроектирован 2026-10-07 (решения владельца). Epic `worfy-harness`, 26 Ticket-ов — в
+[.scratch/worfy-harness/](../.scratch/worfy-harness/spec.md). Решения — ADR 0040–0047 в
+[docs/adr/](adr/).
 
-**Готово, когда** (черновик, уточняется при проектировании E3): на машине без разрозненных файлов
-владельца в `~/.claude` worfy ставит Harness своей версии. Потом он подключает Project: общая часть
-Profile приходит PR-ом, личная лежит на машине. После этого Wave проходит на этом Harness.
+**Цель.** worfy версии X ставит и обновляет Harness версии X. Project подключается к worfy без
+ручной правки `~/.claude` — в Full mode, как worfy и Auction, или в Silent mode, когда в
+репозитории не должно остаться следов workflow.
 
-**Решения, уже принятые** (ADR 0018–0021):
+**Готово, когда** (песочница — отдельные `HOME` и `CLAUDE_CONFIG_DIR` во временной папке):
 
-- Project — папка с workflow: один git-репозиторий или папка над несколькими репозиториями.
-- Harness — plugin Claude Code. Исходник лежит в `harness/` репозитория worfy, версия общая с
-  приложением. worfy ставит его в область пользователя через `claude plugin install`. Скрипты
-  `ticket`, `epic-status`, `preflight`, `profile` и `gate` лежат внутри plugin-а и вызываются по
-  его пути.
-- При установке Harness разрозненные файлы владельца из `~/.claude` переносятся в резервную папку.
-  Перед этим владелец подтверждает список «что уберу / что оставлю». Личные skills и MCP-серверы не
-  трогаются.
-- Profile состоит из двух частей. Общая часть лежит в репозитории Project и попадает туда PR-ом
-  агента. Личная часть лежит на машине: пути, папка worktree, аккаунт GitHub.
-- worfy и Harness работают с Project через `GH_TOKEN` выбранного аккаунта. Глобальный `gh` они не
-  переключают. Для своих вызовов `gh` worfy берёт аккаунт из нынешнего Profile раньше — Ticket 01
-  Epic-а `worfy-week`; выбор аккаунта в UI и `GH_TOKEN` у Session-ов агентов остаются в E3.
-- MCP-серверы агентов Project берутся по списку из Profile.
+1. В песочнице без файлов в `~/.claude` worfy ставит Harness своей версии. Первый запуск показывает
+   проверки, qmd ставится с согласия пользователя.
+2. Silent Project (тестовый репозиторий) подключается, и Wave на нём проходит. После неё в
+   репозитории нет файлов workflow, а в ветках, коммитах и PR — номеров Ticket-ов.
+3. На машине владельца в `~/.claude` осталось только личное. Одна Wave в Autopilot прошла на plugin
+   без человека.
+4. Auction остаётся в Full mode: его Profile перенесён, worfy показывает его Epic-и. Проверка только
+   на чтение: писать в `/Users/alexey/Work/*` нельзя.
+5. Ручной прогон под вторым пользователем macOS — шаг владельца.
 
-**Темы по порядку:**
+**Решения.** ADR 0018, 0019 и 0021 остаются в силе. ADR-0020 (Profile из двух частей, общая часть —
+PR-ом в репозиторий) заменён ADR-0042.
 
-1. Plugin.
-2. Обобщение: из общих файлов убрать `/Users/alexey`, Auction/Atakama и `~/.claude/atakama`.
-3. Установка, обновление и перенос разрозненных файлов.
-4. Первый запуск: проверка Claude Code и входа, git, gh, node.
-5. Подключение Project:
-   - пользователь выбирает папку, worfy проверяет Harness;
-   - агентская Session пишет черновик Profile: команды проверки, где Ticket-ы (или заводит
-     `.scratch/`), ветки, линзы ревью, MCP-серверы;
-   - пользователь подтверждает черновик в форме и выбирает аккаунт GitHub из `gh auth status`
-     (если аккаунта нет, worfy предлагает `gh auth login`);
-   - общая часть Profile уходит PR-ом, личная остаётся на машине, затем регистрируется Gate.
-   Project без Ticket-ов подключается с пустым Canvas и предложением завести первый Epic.
-6. Project над несколькими репозиториями (Atakama).
+- ADR-0040 — доставка: worfy копирует `harness/` своей версии в `~/.claude/worfy-harness/plugin/` и
+  ставит оттуда plugin `worfy` в область пользователя; Session-ы самого worfy грузят его inline;
+  состояние машины — в `~/.claude/worfy-harness/`; версия `<semver>+<SHA>`.
+- ADR-0041 — правила Harness доходят до Session и Subagent-а через hooks plugin-а `SessionStart` и
+  `SubagentStart`, а не через `CLAUDE.md` пользователя.
+- ADR-0042 — Profile целиком на машине; Full mode и Silent mode; Workflow folder; worktree новых
+  Project-ов вне репозитория; в Silent mode ветки, коммиты и PR без следов workflow; поле
+  `attribution`.
+- ADR-0043 — qmd — часть Harness: worfy ставит его через npm, модели — с согласия, коллекции — по
+  Profile.
+- ADR-0044 — Harness на английском; язык отчётов и документов Project — из Profile; машинные строки
+  без языка (вердикт Gate — JSON).
+- ADR-0045 — один Ticket — один репозиторий; Project над несколькими репозиториями — всегда Silent
+  mode; без прав на `origin` — локальный финиш.
+- ADR-0046 — Autopilot при заблокированном Ticket-е на критическом пути делает один узкий круг ревью
+  без владельца, если у находок уровень только med или low.
+- ADR-0047 — развитие Harness: урок — PR в `harness/` и пересборка Stable copy; `~/.claude`
+  заморожен после импорта; машина владельца переходит на plugin рано; во время Autopilot Stable copy
+  не пересобирается.
+- ADR-0048 зарезервирован за итогом spike Ticket-а 01: доходят ли hooks до Subagent-ов
+  workflow-скриптов, выдаётся ли `GH_TOKEN` аккаунта Project-а через `CLAUDE_ENV_FILE`, как ставится
+  plugin. Глобальный `gh` по-прежнему не переключается.
 
-**Перенесено в E3 из E2** (решения владельца 2026-10-07):
+**Этапы плана** (номера Ticket-ов `worfy-harness`; Wave вычисляется по Blocked by, план Wave-ов —
+в [spec.md](../.scratch/worfy-harness/spec.md)):
 
-- Дописать раздел Autopilot в [docs/design/F-SPEC.md](design/F-SPEC.md): кнопка «Autopilot» и
-  строка состояния прогона. Сейчас она сделана по образцу строк Ticket-ов 04 и 05 `worfy-daily`
-  без раздела в F-SPEC; владелец принял её как есть (Ticket 29 `worfy-daily`).
-- Известный предел: при заблокированном Ticket-е на критическом пути Autopilot не доходит до
-  конца Epic сам. Так было с Ticket-ом 15 `worfy-daily`: после второго нечистого круга ревью
-  решает владелец (правило ревью), и доработку вёл Orchestrator из CLI. Это не дефект Autopilot.
-  Вернуться в E3 — например, узкий круг без владельца при находках уровня med.
+1. Без блокеров: spike (01), импорт Harness из `~/.claude` в `harness/` с историей git (02), раздел
+   Autopilot в F-SPEC (03), worfy понимает префикс `worfy:` и новый формат команды Autopilot (10).
+2. Harness по группам файлов: версия (04), правила для hooks (05), skills `epic-wave` и `ship-ticket`
+   (06), agents (07), остальные skills и скрипты (08), вердикт Gate JSON-файлом (09).
+3. Plugin в worfy: Profile schema 2 на машине (11), worfy находит Harness в plugin (12), установщик
+   (13), перенос файлов из `~/.claude` (14), мост Limits из `.app` (15).
+4. Шаг владельца — переход машины (16).
+5. На plugin: qmd (17), `GH_TOKEN` у Session-ов агентов (18), экран первого запуска (19), узкий круг
+   ревью в Autopilot (20), пометка «Harness в main новее, чем в Stable copy» (21), Silent mode в
+   Harness и в worfy (22, 23), подключение Project (24), аккаунт GitHub Project-а (25).
+6. Приёмка по пяти пунктам «Готово, когда» (26).
+
+**Шаг владельца — Ticket 16.** Wave-ы до установщика и переноса проходит Autopilot на замороженном
+`~/.claude`. Перед Ticket-ом 16 Autopilot останавливается: переход машины владельца на plugin
+делает сам владелец — кнопка в worfy и подтверждение списка «уберу / оставлю». После перехода все
+Wave-ы E3 идут на plugin. Откат — восстановление из резервной копии одной командой. Ещё два шага
+владельца: один `/login` в песочнице для приёмки (Ticket 26) и второй пользователь macOS для
+ручного прогона.
+
+**Перенесено из E2 и чем закрыто:**
+
+- Раздел Autopilot в [docs/design/F-SPEC.md](design/F-SPEC.md) — кнопка «Autopilot» и строка
+  состояния прогона, как они сделаны в Ticket-е 29 `worfy-daily` — Ticket 03 `worfy-harness`.
+- Известный предел Autopilot: при заблокированном Ticket-е на критическом пути он не доходит до
+  конца Epic-а сам (так было с Ticket-ом 15 `worfy-daily`) — решение ADR-0046, реализация — Ticket
+  20 `worfy-harness`.
+
+**Не в E3:** смена режима Project на ходу; PR из форка, когда нет прав на `origin`; eval-кейсы
+перевода Harness (`claude plugin eval`) — в E4.
 
 ## E4 — Для других людей
 
@@ -108,9 +137,10 @@ Profile приходит PR-ом, личная лежит на машине. П�
 - Подпись и нотаризация до появления первого внешнего пользователя. До тех пор достаточно сборки из
   исходников и ad-hoc подписи.
 - Личные skills, MCP-серверы и память пользователя. Они не входят в Harness, и worfy их не ставит и
-  не переносит.
+  не переносит. Исключение — qmd: он часть Harness (ADR-0043).
 - Переключение глобального `gh`.
-- Прямая запись worfy в репозиторий Project. Общая часть Profile попадает туда только PR-ом агента.
+- Прямая запись worfy в репозиторий Project. Profile в репозиторий не попадает совсем: он целиком
+  лежит на машине (ADR-0042).
 - Всё, что было вне worfy-mvp и не названо выше:
   - Dock со встроенным браузером;
   - управление с телефона;

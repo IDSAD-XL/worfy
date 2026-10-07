@@ -7,7 +7,7 @@ macOS-приложение для одного пользователя на е�
 ## Canvas
 
 **Project**:
-Папка, в которой живёт workflow одной работы пользователя — Epic-и, Ticket-ы, HANDOFF, ADR. Это сам git-репозиторий (например, Auction) или папка над несколькими репозиториями (например, Atakama). У каждого Project ровно один Canvas.
+Папка одной работы пользователя, над которой идёт workflow — Epic-и, Ticket-ы, HANDOFF, ADR. Это сам git-репозиторий (например, Auction) или папка над несколькими репозиториями (например, Atakama). Файлы workflow лежат в Workflow folder Project-а. У каждого Project ровно один Canvas.
 _Avoid_: проект, space, workspace, пространство, репозиторий (как синоним Project)
 
 **Canvas**:
@@ -45,7 +45,7 @@ _Avoid_: терминал (как имя Node)
 ## Workflow
 
 **Epic**:
-Набор Ticket-ов под одну цель; живёт в папке `.scratch/<epic>/` Project.
+Набор Ticket-ов под одну цель; живёт в папке `.scratch/<epic>/` Workflow folder Project-а.
 _Avoid_: эпик, milestone, проект
 
 **Ticket**:
@@ -69,15 +69,27 @@ _Avoid_: стабильная копия, prod-сборка, релиз
 _Avoid_: проверка, CI (CI — отдельная проверка на GitHub)
 
 **Harness**:
-Набор правил, skills, агентов, скриптов и hooks, по которому агенты Claude ведут работу над Project: Epic-и, Ticket-ы, Wave-ы, Gate, ревью. worfy ставит и обновляет Harness; личные skills, MCP-серверы и память пользователя в него не входят.
+Набор правил, skills, агентов, скриптов и hooks, по которому агенты Claude ведут работу над Project: Epic-и, Ticket-ы, Wave-ы, Gate, ревью. В Harness входит и qmd — поиск по документам и Ticket-ам Project. worfy ставит и обновляет Harness; остальные личные skills, MCP-серверы и память пользователя в него не входят.
 _Avoid_: kit, обвязка, тулинг
 
 **Profile**:
-Описание Project для Harness: как проверять изменения, где лежат Ticket-ы, как называются ветки и worktree, по каким линзам ревьюить, какие MCP-серверы доступны агентам Project, от какого аккаунта GitHub работать.
+Описание Project для Harness: как проверять изменения, где лежат Ticket-ы, как называются ветки и worktree, по каким линзам ревьюить, какие MCP-серверы доступны агентам Project, от какого аккаунта GitHub работать, в каком режиме — Full mode или Silent mode — идёт работа. Profile целиком лежит на машине пользователя; в репозитории Project его нет.
 _Avoid_: профиль, конфиг проекта, settings
 
+**Full mode**:
+Режим Project, в котором файлы workflow — Ticket-ы, spec Epic-а, HANDOFF, ADR, уроки — лежат в репозитории Project вместе с кодом и видны всем, кто с ним работает.
+_Avoid_: полный режим, открытый режим, public mode
+
+**Silent mode**:
+Режим Project, в котором файлы workflow лежат вне его репозитория, в отдельной Workflow folder, и в репозитории Project от workflow не остаётся следа. След — это не только файлы: ветки, коммиты и PR тоже выглядят как обычная работа, без номеров Ticket-ов и ADR, имён Epic-ов и путей к Workflow folder.
+_Avoid_: тихий режим, скрытый режим, private mode, stealth
+
+**Workflow folder**:
+Папка, где лежат файлы workflow Project-а: Epic-и с Ticket-ами, HANDOFF, ADR, уроки. В Full mode это корень репозитория; в Silent mode — папка вне репозитория, которую пользователь выбирает при подключении Project.
+_Avoid_: папка workflow, папка тикетов, workspace
+
 **HANDOFF**:
-Файл Project со снимком текущего состояния работы: что в работе, что дальше, что ждёт владельца.
+Файл в Workflow folder Project-а со снимком текущего состояния работы: что в работе, что дальше, что ждёт владельца.
 _Avoid_: статус-файл, notes
 
 ## Agents
@@ -109,5 +121,7 @@ _Avoid_: привязка, assignment, линк
 - **Session** запускает **Subagent**-ов; **Subagent** может запускать своих.
 - У **Project** ровно один **Orchestrator**.
 - У **Project** ровно один **Profile**; **Harness** один на машину и ведёт работу каждого Project по его **Profile**.
+- У **Project** ровно один режим — **Full mode** или **Silent mode**; Project над несколькими репозиториями всегда в **Silent mode**.
+- У **Project** ровно одна **Workflow folder**: в **Full mode** это корень репозитория, в **Silent mode** — папка вне репозитория.
 - **Card** принадлежит **Project**, а не Session: менять её может любая Session Project.
 - **Autopilot** над самим worfy идёт только из **Stable copy**; агенты **Wave** в это время собирают и проверяют dev-сборку worfy в своих worktree.
