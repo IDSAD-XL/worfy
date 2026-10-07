@@ -1,7 +1,7 @@
 # 10 — worfy понимает имена Harness с префиксом `worfy:` и новый формат команды Autopilot
 
 Type: task
-Status: claimed — 2026-10-07
+Status: done — 2026-10-07, [PR #104](https://github.com/IDSAD-XL/worfy/pull/104)
 Blocked by: —
 Source: решения владельца 2026-10-07: Q2 (имя plugin-а — `worfy`: `/worfy:epic-wave`, `/worfy:ship-ticket`, Subagent `worfy:implementer`; старые имена без префикса тоже понимаются), Q6 (машинные строки и формат команды Autopilot — по-английски, старые понимаются); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (доставка Harness plugin-ом `worfy`); [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness на английском, машинный контракт без языка); [spec.md](../spec.md)
 
@@ -145,3 +145,16 @@ ADR не нужен: имя plugin-а решено в ADR-0040, машинные
   [Canvas, светлая](../evidence/10-subagent-nodes-light.png), [Canvas, тёмная](../evidence/10-subagent-nodes-dark.png),
   [транскрипт Subagent-а, светлая](../evidence/10-subagent-transcript-light.png),
   [транскрипт Subagent-а, тёмная](../evidence/10-subagent-transcript-dark.png).
+
+**Влито.** [PR #104](https://github.com/IDSAD-XL/worfy/pull/104) → squash-коммит `7ff9366` в `main`.
+Ревью — VERIFIED с первого круга. Перед мержем: rebase на `0e96488`, head `3bc549f`,
+`GATE_SCOPE=all gate full` — exit 0, CI зелёный.
+
+**Долг.**
+- Пункт «Снимки» выше (строка 143 этого файла) неверен: закоммиченные фикстуры Session 7777 несут голые
+  типы, не `worfy:…` (`grep -rlE '"worfy:(implementer|reviewer|scout)' test/fixtures` — пусто). Префикс на
+  снимках исполнителя подставлял незакоммиченный временный spec, поэтому эти снимки сами по себе не
+  доказывают, что helper срезает `worfy:`. Доказательство — свой e2e ревьюера на фикстурах с `worfy:`
+  (2 passed) и его снимки Canvas, списка Subagent-ов, панели Subagent-а и транскрипта в обеих темах
+  (комментарий ревью в PR #104).
+- После мержа Ticket-а 06 сверить английский формат команды Autopilot с `harness/skills/epic-wave/SKILL.md`.

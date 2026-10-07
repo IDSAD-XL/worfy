@@ -1,7 +1,7 @@
 # 01 — Spike: hooks у Subagent-ов workflow-скриптов, `GH_TOKEN` через `CLAUDE_ENV_FILE`, установка plugin и имя его MCP-сервера → ADR-0048
 
 Type: research
-Status: claimed — 2026-10-07
+Status: done — 2026-10-07, [PR #106](https://github.com/IDSAD-XL/worfy/pull/106)
 Blocked by: —
 Source: решения владельца 2026-10-07 (Q1, Q2, Q8, Q9, Q12, Q15, Q21; «Факты spike»); [spec.md](../spec.md); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md); [ADR-0041](../../../docs/adr/0041-harness-rules-via-session-hooks.md); [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md); [ADR-0021](../../../docs/adr/0021-mcp-servers-allowlist-in-profile.md); [ADR-0035](../../../docs/adr/0035-workflow-script-subagents-in-tree.md); [ADR-0007](../../../docs/adr/0007-claude-code-launch-environment.md)
 
@@ -230,3 +230,14 @@ contract test-ам Ticket-а 12; test-ы, которые их читают, пи
   моделью шли ещё с прежним фальшивым значением в формате `gho_`; после замены строки `env-file` не
   перезапускался.
 - `git diff --quiet origin/main -- src` — exit 0.
+
+**Влито.** [PR #106](https://github.com/IDSAD-XL/worfy/pull/106) → squash-коммит `968ddce` в `main`.
+Ревью: круг 1 — REJECTED (в коммитах ветки были настоящие UUID аккаунта Claude владельца в фикстурах);
+один круг доработки переписал историю ветки без них; круг 2 — VERIFIED (`git diff cd28023 cca80ae`).
+Перед мержем: rebase на `969a51a`, head `cca80ae`, `GATE_SCOPE=all gate full` — exit 0, CI зелёный.
+
+**Долг.**
+- Старые коммиты ветки `cd28023` и `3a4c0f5` с двумя настоящими UUID аккаунта Claude владельца
+  (`accountUuid`, `organizationUuid`) успели попасть на GitHub. После force-push они могут оставаться
+  доступными по sha из ленты PR #106. Полностью их убирает только поддержка GitHub — решает владелец.
+- `scripts/spikes/harness-plugin/probe.ts`: повторный `--rescrub` обрезает уже обрезанные строки.

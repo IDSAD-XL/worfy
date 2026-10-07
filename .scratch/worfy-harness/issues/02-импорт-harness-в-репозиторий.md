@@ -1,7 +1,7 @@
 # 02 — Импорт Harness из `~/.claude` в `harness/` с историей git; test-ы скриптов Harness в CI
 
 Type: task
-Status: claimed — 2026-10-07
+Status: done — 2026-10-07, [PR #105](https://github.com/IDSAD-XL/worfy/pull/105)
 Blocked by: —
 Source: решения владельца 2026-10-07 (Q2, Q3, Q13, Q19, Q33); [spec.md](../spec.md); [ADR-0019](../../../docs/adr/0019-harness-claude-code-plugin.md); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md); [ADR-0047](../../../docs/adr/0047-harness-lessons-by-pr-early-owner-switch.md)
 
@@ -149,7 +149,7 @@ plugin-а (13); перенос и уборка `~/.claude` (14, 16); qmd (17).
 - [ ] Test-ы не трогают настоящий `~/.claude`: вывод `git -C ~/.claude status --porcelain` одинаков до и после `pnpm test` (пустым он быть не обязан: 2026-10-07 там `?? skills/synced/` — личная папка, Q19).
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный; перед мержем `GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full` под замком e2e — exit 0 и «[gate] зелено».
 - [ ] На момент мержа `~/.claude` не менял импортированные файлы после базы: `test -z "$(git -C ~/.claude log --format=%h <база>..HEAD -- CLAUDE.md agents/implementer.md agents/reviewer.md agents/scout.md skills/epic-wave skills/ship-ticket skills/retro skills/qmd skills/overnight-fix-loop skills/continuous-audit skills/tickets-to-tasks bin hooks profiles/README.md)"` — exit 0.
-- [ ] После мержа импортированные коммиты — в `main`: `git log origin/main --format=%h --grep='Imported-from: ~/.claude 331a6ca' | wc -l` печатает 1.
+- [x] После мержа импортированные коммиты — в `main`: `git log origin/main --format=%h --grep='Imported-from: ~/.claude 331a6ca' | wc -l` печатает 1.
 
 ## Тесты
 
@@ -228,3 +228,14 @@ plugin-а (13); перенос и уборка `~/.claude` (14, 16); qmd (17).
   `harness/hooks/gate-resolve.mjs:55`, `harness/profiles/README.md:46,50,54,154`,
   `harness/bin/qmd-sync-main:15`, и в истории — те же строки старых версий. Токенов (`ghp_`, `gho_`,
   `github_pat_`, `sk-ant-`, `xox*`, `AKIA`, приватные ключи) нет ни в дереве, ни в истории.
+
+**Влито.** [PR #105](https://github.com/IDSAD-XL/worfy/pull/105) → merge-коммит `969a51a` в `main`
+(обычный merge, не squash: так импортированная история попадает в `main`, ADR-0047 и пункт 7 «Что делаем»).
+Ревью — VERIFIED с первого круга. Перед мержем: `git merge origin/main` в ветку (без rebase, чтобы не
+переписать импорт), head `5ee725e`, `GATE_SCOPE=all gate full` — exit 0, CI зелёный. Пункт «после мержа»
+проверен на `origin/main` @ `968ddce`: `git log origin/main --format=%h --grep='Imported-from: ~/.claude 331a6ca' | wc -l` — 1.
+
+**Долг.** Личные несекретные данные, перенесённые из `~/.claude` побайтно: пути
+`/Users/alexey/Work/{Auction,Atakama}` в `harness/bin/profile:138,143,172`, `harness/hooks/gate-resolve.mjs:55`,
+`harness/profiles/README.md:46,50,54,154`, `harness/bin/qmd-sync-main:15` и имена рабочих репозиториев — в
+дереве `harness/` и в уже влитой истории импорта. Секретов нет. Устраивает ли это — вопрос владельцу (HANDOFF).
