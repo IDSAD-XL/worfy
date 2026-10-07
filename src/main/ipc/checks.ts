@@ -5,8 +5,9 @@ import { checksGet, type ChecksSnapshot } from '../../shared/ipc/checks'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import { agentEnv } from '../agent/env'
 import { GateReader, listWorktrees, type Worktree } from '../gate/state'
-import { ghRunner, PrTracker } from '../github/prs'
+import { accountAuth, ghRunner, PrTracker } from '../github/prs'
 import { claudeHome } from '../storage/paths'
+import { readGithubAccount } from '../workflow/profile'
 import { defineHandler, type HandlerModule } from './index'
 
 export interface ChecksService {
@@ -28,14 +29,50 @@ export function checksHandlers(service: ChecksService): HandlerModule {
   return [defineHandler(checksGet, ({ root, branches }) => readChecks(service, resolve(root), branches))]
 }
 
-/**
- * The app's gh: WORFY_GH when set (tests point it at a stub), else `gh` from the login shell's
- * PATH, since an app started from Finder has a bare PATH (ADR-0007).
- */
-function appGhRunner() {
-  const stub = process.env.WORFY_GH
-  if (stub) return ghRunner({ command: stub })
-  return ghRunner({ env: async () => (await agentEnv()).env })
+export interface AppPrTrackerOptions {
+  /** Claude Code's home, whose `bin/profile` names the Project's GitHub account. */
+  claudeHome: string
+  /** The gh executable; `gh` from the environment's PATH by default. */
+  command?: string | undefined
+  /** The environment of gh and of `bin/profile`. */
+  env: () => Promise<Record<string, string | undefined>>
+  /** Where the reason a Project has no account goes; console.warn by default. */
+  log?: ((message: string) => void) | undefined
+  now?: () => number
 }
 
-export default checksHandlers({ gate: new GateReader({ home: claudeHome() }), prs: new PrTracker({ run: appGhRunner() }) })
+/**
+ * The PR tracker with the Project's GitHub account (ADR-0020): each read runs gh with GH_TOKEN of
+ * the account the Profile names, or with the environment's own account when it names none. The
+ * Profile is read again on each read that runs gh, so an edited Profile counts without a restart;
+ * the reason for no account is logged once per Project until it changes, not once a minute.
+ */
+export function appPrTracker(options: AppPrTrackerOptions): PrTracker {
+  const run = ghRunner({ command: options.command, env: options.env })
+  const log = options.log ?? ((message: string) => console.warn(message))
+  const lastReason = new Map<string, string | null>()
+  const account = async (root: string): Promise<string | null> => {
+    const env = await options.env()
+    let message: string | null = null
+    const read = await readGithubAccount({ root, claudeHome: options.claudeHome, env, log: (line) => void (message = line) })
+    if (lastReason.get(root) !== read.reason) {
+      lastReason.set(root, read.reason)
+      if (message !== null) log(message)
+    }
+    return read.account
+  }
+  return new PrTracker({ run, auth: accountAuth({ account, run }), ...(options.now ? { now: options.now } : {}) })
+}
+
+/**
+ * The app's gh: WORFY_GH when set (tests point it at a stub) with the app's own environment, else
+ * `gh` with the login shell's environment, since an app started from Finder has a bare PATH
+ * (ADR-0007). The same environment runs `bin/profile`.
+ */
+function appPrs(): PrTracker {
+  const stub = process.env.WORFY_GH
+  const env = stub ? () => Promise.resolve(process.env) : async () => (await agentEnv()).env
+  return appPrTracker({ claudeHome: claudeHome(), command: stub || undefined, env })
+}
+
+export default checksHandlers({ gate: new GateReader({ home: claudeHome() }), prs: appPrs() })

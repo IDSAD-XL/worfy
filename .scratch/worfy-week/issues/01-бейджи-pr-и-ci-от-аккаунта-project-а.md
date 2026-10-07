@@ -1,7 +1,7 @@
 # 01 — Бейджи PR и CI идут от аккаунта GitHub Project-а
 
 Type: task
-Status: open
+Status: claimed — 2026-10-07
 Blocked by: —
 Source: решение владельца 2026-10-07 (вопросы 3 и 4); HANDOFF 2026-10-06, «Ждёт владельца», пункт [med] о бейджах «gh unavailable»; ревью Ticket-а 17 `worfy-daily`; [ADR-0020](../../../docs/adr/0020-profile-shared-and-personal-parts.md); [spec.md](../spec.md), этап 1
 
@@ -51,11 +51,11 @@ ADR не нужен: решение уже принято в ADR-0020, Ticket в
 
 ## Готово, когда
 
-- [ ] У Project-а с `github.account` в Profile каждый вызов `gh`, который делает worfy, идёт с `GH_TOKEN` из `gh auth token -u <аккаунт>`. Проверяет contract test с подменённым `gh` и подменённым скриптом `profile`.
-- [ ] Подменённый `gh` видит от worfy только `auth token -u <аккаунт>` и `pr list`: ни `auth switch`, ни `auth login`, ни других команд, меняющих глобальный аккаунт.
-- [ ] Нет аккаунта в Profile (код 3, код 4, `null`, нет скрипта, сбой скрипта) — `gh` вызывается как до Ticket-а, без `GH_TOKEN` от worfy.
-- [ ] Аккаунт есть, а `gh auth token -u` упал — снимок `checks` несёт ошибку с именем аккаунта, и `gh pr list` от глобального аккаунта не вызывается.
-- [ ] Токена нет в снимке `checks` и в выводе лога.
+- [x] У Project-а с `github.account` в Profile каждый вызов `gh`, который делает worfy, идёт с `GH_TOKEN` из `gh auth token -u <аккаунт>`. Проверяет contract test с подменённым `gh` и подменённым скриптом `profile`.
+- [x] Подменённый `gh` видит от worfy только `auth token -u <аккаунт>` и `pr list`: ни `auth switch`, ни `auth login`, ни других команд, меняющих глобальный аккаунт.
+- [x] Нет аккаунта в Profile (код 3, код 4, `null`, нет скрипта, сбой скрипта) — `gh` вызывается как до Ticket-а, без `GH_TOKEN` от worfy.
+- [x] Аккаунт есть, а `gh auth token -u` упал — снимок `checks` несёт ошибку с именем аккаунта, и `gh pr list` от глобального аккаунта не вызывается.
+- [x] Токена нет в снимке `checks` и в выводе лога.
 - [ ] (вручную) Stable copy, обновлённая после влития: на Canvas Project-а worfy у Ticket-ов с PR видны бейджи PR и CI, а не «gh unavailable»; номер PR и вердикт CI совпадают с `gh pr view <N> -R IDSAD-XL/worfy`. Как проверить: окно приложения.
 
 Ручной пункт агент проверяет, только если может посмотреть окно Stable copy. Если не может —
@@ -85,3 +85,78 @@ ADR не нужен: решение уже принято в ADR-0020, Ticket в
 
 Не меняются: `src/main/agent/env.ts` (окружение login shell берётся как есть), окружение
 Session-ов агентов. Общих файлов с Ticket-ом 02 нет.
+
+## Итог
+
+**Что сделано.**
+- `src/main/workflow/profile.ts` — `readGithubAccount()` читает `github.account` тем же скриптом
+  `bin/profile -C <корень> --field github.account` и с теми же кодами выхода, что список
+  MCP-серверов. Общая часть (запуск скрипта и разбор кодов 3, 4, сбоя, timeout-а, отсутствия
+  скрипта) вынесена в `readField()`; поведение и тексты списка MCP-серверов не изменились. Нет
+  аккаунта — код 3, код 4, `null`, пустое значение, нет скрипта, сбой скрипта, значение, которое не
+  похоже на логин GitHub (например, `--hostname`), — `account: null` и одна строка в лог.
+- `src/main/github/prs.ts` — `accountAuth()` берёт токен командой `gh auth token -u <аккаунт>`
+  и отдаёт `GH_TOKEN` в окружение дочернего процесса `gh`. `GhRunner` принимает добавочное
+  окружение на вызов. `PrTracker` спрашивает токен один раз на чтение, в котором `gh` вообще
+  запускается: отказ в токене роняет первый вызов `gh` этого чтения, и `pr list` не идёт.
+- `src/main/ipc/checks.ts` — `appPrTracker()` связывает всё вместе для приложения: Profile
+  читается на каждом чтении с запуском `gh` (правка Profile действует без перезапуска), причина
+  «аккаунта нет» пишется в лог один раз на Project, пока не сменится, а не раз в минуту.
+
+**Решение: токен берётся на каждое чтение, а не держится на время опроса** (решено исполнителем,
+как разрешает тикет). Чтение с запуском `gh` бывает не чаще раза в 60 с на Project. Одно чтение —
+один `gh auth token` на все его вызовы `gh` (список и до 10 поисков по ветке). Причина: токен
+живёт только в окружении дочерних процессов одного чтения и в памяти между чтениями не лежит;
+выход из аккаунта или новый вход в `gh` действуют со следующего чтения без перезапуска worfy.
+Цена — один лишний быстрый локальный вызов `gh` раз в минуту.
+
+**Другие вызовы `gh` в `src/`.** Поиск `grep -rnwE "gh" src` и по `execFile`/`spawn`: процесс
+`gh` запускает только `ghRunner` в `src/main/github/prs.ts`, и его вызывает только `PrTracker`
+(`pr list` списком и `pr list --head <ветка>`). Остальные упоминания `gh` — тексты бейджей в
+renderer-е и схема `checks`.
+
+**Как падал test до правки.** На `origin/main` test «the app's own checks handler…» в
+`test/contract/github-prs.test.ts` (настоящий default export `src/main/ipc/checks.ts` с
+`WORFY_GH` и `WORFY_CLAUDE_HOME` на подменённые `gh` и `bin/profile`) падал так:
+`expected [ { token: null, …(1) } ] to deeply equal [ { …(2) } ]` — `pr list` шёл без
+`GH_TOKEN`. Остальные новые test-ы падали на отсутствии `appPrTracker`.
+
+**Test-ы.**
+- `test/contract/github-prs.test.ts`, describe «gh with the Project's GitHub account» — пункты
+  «Готово, когда» 1–5: каждый `pr list` с токеном аккаунта; `gh` видит только
+  `auth token -u <аккаунт>` и `pr list`; пять случаев без аккаунта; собственный `GH_TOKEN` login
+  shell проходит без аккаунта и заменяется при аккаунте; нет входа — ошибка с аккаунтом и
+  `gh auth login`, `pr list` не вызывается, удвоенный интервал держится; токена нет в снимке
+  `checks`, в логе и в console. Отдельно проверен отказ самого `gh pr list` с токеном: код выхода
+  1, в stderr причина или пусто. Снимок несёт причину gh («HTTP 401: Bad credentials…» или
+  «Command failed: …»), токена в нём нет. Мутант, который дописывает `GH_TOKEN` в текст ошибки
+  `ghRunner`, краснеет на этом test-е.
+- `test/contract/workflow-profile.test.ts`, describe «readGithubAccount» — коды 0, 3, 4, `null`,
+  нет скрипта, неверные значения; настоящий запуск скрипта не пишет ни в Claude home, ни в Project.
+- e2e `test/e2e/checks-badges.spec.ts` не менялся: в его временном Claude home нет `bin/profile`,
+  поэтому аккаунта нет и `gh` идёт как раньше.
+
+**Ручная проверка (окно приложения).** Stable copy после влития не проверена: тикет ещё не влит.
+Вместо неё — собранное приложение ветки через `launchApp` (fake-агент, временные `WORFY_DATA_DIR` и
+`WORFY_CLAUDE_HOME`), настоящий `gh` (`WORFY_GH=/opt/homebrew/bin/gh`), временный репозиторий с
+origin `IDSAD-XL/worfy` и подменённый `bin/profile`; глобальный аккаунт gh — Oleksii-O-Atakama.
+Под Ticket Node-ом на каждом снимке — панель, которую вставляет сам временный spec (подписана
+«inserted by the evidence spec, not app UI»; в коде приложения её нет): в ней текст подсказки
+бейджа, то есть `title`, а в нём `gh.error` из снимка `checks`. Рядом с каждым снимком — `.txt` из
+того же запуска: ответ подменённого `bin/profile`, `title` строки бейджей и `title` бейджа
+«gh unavailable».
+- `bin/profile` отдаёт `IDSAD-XL`: на Ticket-е 01 «PR #81», «CI passing» и «REJECTED»; это
+  совпадает с `gh pr view 81 -R IDSAD-XL/worfy` в ту же минуту: OPEN, check `SUCCESS`, первая
+  строка комментария «REJECTED (round 1, head ccd9674)». В первом запуске, до конца CI, там было
+  «CI running» при check `IN_PROGRESS`. [Снимок](../evidence/01-badges-account.png),
+  [текст](../evidence/01-badges-account.txt).
+- `bin/profile` с кодом 4 (аккаунта нет): «gh unavailable», в подсказке «GraphQL: Could not
+  resolve to a Repository with the name 'IDSAD-XL/worfy'. (repository)» — так было до тикета.
+  [Снимок](../evidence/01-badges-no-account.png), [текст](../evidence/01-badges-no-account.txt).
+- `bin/profile` отдаёт аккаунт, в который gh не вошёл: «gh unavailable», в подсказке «no gh login
+  for nobody-logged-in-xyz, the Project's GitHub account: no oauth token found for github.com
+  account nobody-logged-in-xyz; run `gh auth login` and sign in as nobody-logged-in-xyz».
+  [Снимок](../evidence/01-badges-no-login.png), [текст](../evidence/01-badges-no-login.txt).
+
+Пункт «(вручную)» остаётся открытым: на Stable copy после влития не проверено, проверка выше
+сделана на сборке ветки.

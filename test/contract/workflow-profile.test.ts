@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QueryRequest } from '../../src/main/agent/session'
 import type { CanvasSession } from '../../src/main/mcp/canvas-server'
-import { DEFAULT_MCP_SERVERS, MCP_ALLOWED_FIELD, profileRunner, readMcpAllowlist, type ProfileRun, type ProfileRunner } from '../../src/main/workflow/profile'
+import { DEFAULT_MCP_SERVERS, GITHUB_ACCOUNT_FIELD, MCP_ALLOWED_FIELD, profileRunner, readGithubAccount, readMcpAllowlist, type ProfileRun, type ProfileRunner } from '../../src/main/workflow/profile'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
 
@@ -195,6 +195,71 @@ describe('readMcpAllowlist with the real runner', () => {
     const bare = await readMcpAllowlist({ root, claudeHome: home, env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' }, log })
     expect(bare).toMatchObject({ servers: ['qmd', 'worfy-canvas'], source: 'default' })
     expect(bare.reason).toMatch(/failed with exit code 127/)
+  })
+})
+
+// ── the GitHub account (worfy-week ticket 01, ADR-0020) ───────────────────────
+
+describe('readGithubAccount', () => {
+  it('exit code 0 with a login: the account, asked of the Project root, nothing logged', async () => {
+    const run = stubRun({ code: 0, stdout: 'IDSAD-XL\n', stderr: '' })
+    expect(await readGithubAccount({ root: '/repo', claudeHome: '/h', env: {}, run, log })).toEqual({ account: 'IDSAD-XL', reason: null })
+    expect(run.calls).toEqual([['/repo', ['-C', '/repo', '--field', GITHUB_ACCOUNT_FIELD]]])
+    expect(GITHUB_ACCOUNT_FIELD).toBe('github.account')
+    expect(logged).toEqual([])
+  })
+
+  it('a JSON-quoted login is taken too', async () => {
+    const account = await readGithubAccount({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun({ code: 0, stdout: '"IDSAD-XL"\n', stderr: '' }), log })
+    expect(account).toEqual({ account: 'IDSAD-XL', reason: null })
+  })
+
+  it.each<[string, ProfileRun | Error, RegExp]>([
+    ['exit code 3 (no registered project)', { code: 3, stdout: '', stderr: 'profile: /repo is not in a registered project\n' }, /no registered project.*exit code 3: profile: \/repo is not in a registered project/],
+    ['exit code 4 (no such field)', { code: 4, stdout: '', stderr: 'profile: field "github.account" is absent\n' }, /no github\.account field \(profile exit code 4\)/],
+    ['a field that is null', { code: 0, stdout: 'null\n', stderr: '' }, /github\.account is null/],
+    ['no script', enoent(), /no profile script at \/h\/bin\/profile/],
+    ['another exit code', { code: 1, stdout: '', stderr: 'registry is broken\n' }, /failed with exit code 1: registry is broken/],
+    ['a timeout', { code: null, stdout: '', stderr: '' }, /timed out/],
+    ['an empty value', { code: 0, stdout: '\n', stderr: '' }, /github\.account is empty/],
+    ['an object', { code: 0, stdout: '{\n  "account": "x"\n}\n', stderr: '' }, /not a GitHub login/],
+    ['an option instead of a login', { code: 0, stdout: '--hostname\n', stderr: '' }, /not a GitHub login: "--hostname"/],
+    ['two words', { code: 0, stdout: 'IDSAD-XL other\n', stderr: '' }, /not a GitHub login/],
+    ['a login too long for GitHub', { code: 0, stdout: `${'a'.repeat(40)}\n`, stderr: '' }, /not a GitHub login/],
+  ])('%s: no account, the reason in one log line', async (_case, answer, reason) => {
+    const account = await readGithubAccount({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun(answer), log })
+    expect(account.account).toBeNull()
+    expect(account.reason).toMatch(reason)
+    expect(logged).toHaveLength(1)
+    expect(logged[0]).toMatch(/^\[profile\] GitHub account for \/repo: none, gh runs with the login shell's own account, because /)
+    expect(logged[0]).toMatch(reason)
+  })
+
+  it.each<[string, number, string, string, string | null]>([
+    ['code 0 with a login', 0, 'IDSAD-XL\n', '', 'IDSAD-XL'],
+    ['code 3', 3, '', 'profile: not in a registered project', null],
+    ['code 4', 4, '', 'profile: field "github.account" is absent', null],
+    ['null', 0, 'null\n', '', null],
+  ])('with the real runner, %s: runs bin/profile in the Project and writes neither to the Claude home nor to the Project', async (_case, code, stdout, stderr, expected) => {
+    const { home, calls } = stubHome(code, stdout, stderr)
+    const root = projectRoot()
+    const before = { home: snapshot(home), root: snapshot(root) }
+    const account = await readGithubAccount({ root, claudeHome: home, env: loginEnv(), log })
+    expect(account.account).toBe(expected)
+    expect(readFileSync(calls, 'utf8').trim()).toBe(`${realpathSync(root)} -C ${root} --field github.account`)
+    expect(snapshot(home)).toEqual(before.home)
+    expect(snapshot(root)).toEqual(before.root)
+  })
+
+  it('with the real runner and no script: no account, nothing created in the Claude home', async () => {
+    const home = join(scratch, 'empty-home')
+    mkdirSync(home)
+    const root = projectRoot()
+    const before = { home: snapshot(home), root: snapshot(root) }
+    const account = await readGithubAccount({ root, claudeHome: home, env: loginEnv(), log })
+    expect(account).toEqual({ account: null, reason: `there is no profile script at ${join(home, 'bin', 'profile')}` })
+    expect(snapshot(home)).toEqual(before.home)
+    expect(snapshot(root)).toEqual(before.root)
   })
 })
 

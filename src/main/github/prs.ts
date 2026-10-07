@@ -9,8 +9,14 @@
 // the answer is "gh unavailable" and the interval doubles, up to MAX_INTERVAL_MS; the first
 // success brings it back to the base interval. Failures are not logged one by one.
 //
-// Read-only: the only gh command ever run is `gh pr list`. Nothing is written to GitHub, to the
-// Project or to the Claude home.
+// When the Project's Profile names its GitHub account (ADR-0020, worfy-week ticket 01), every gh
+// call of a read goes with GH_TOKEN of that account, taken once per read with
+// `gh auth token -u <account>`: the global gh account belongs to the user and other sessions and
+// is never switched. The token lives only in the environment of the gh child processes of that
+// read; it is not kept between reads, logged or put into an answer.
+//
+// Read-only: the only gh commands ever run are `gh pr list` and `gh auth token -u <account>`.
+// Nothing is written to GitHub, to the Project, to the gh config or to the Claude home.
 import { execFile } from 'node:child_process'
 import { z } from 'zod'
 import type { CiState, GhStatus, PullRequest } from '../../shared/ipc/checks'
@@ -24,8 +30,11 @@ export const SEARCHES_PER_READ = 10
 
 const FIELDS = 'number,headRefName,state,url,statusCheckRollup,comments'
 
-/** Runs `gh <args>` in `cwd` and resolves its stdout; rejects with a short reason. */
-export type GhRunner = (args: readonly string[], cwd: string) => Promise<string>
+/** Variables a gh call gets on top of the runner's environment, e.g. GH_TOKEN of the Project's account. */
+export type GhEnv = Readonly<Record<string, string>>
+
+/** Runs `gh <args>` in `cwd`, with `env` added to its environment, and resolves its stdout; rejects with a short reason. */
+export type GhRunner = (args: readonly string[], cwd: string, env?: GhEnv) => Promise<string>
 
 export interface GhRunnerOptions {
   /** The gh executable; `gh` from PATH by default. WORFY_GH points tests at a stub. */
@@ -36,17 +45,18 @@ export interface GhRunnerOptions {
 }
 
 const firstLine = (text: string): string => text.trim().split('\n')[0]?.trim() ?? ''
+const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /** The default runner: gh as a child process, never through a shell. */
 export function ghRunner(options: GhRunnerOptions = {}): GhRunner {
   const command = options.command ?? 'gh'
-  return async (args, cwd) => {
+  return async (args, cwd, extra = {}) => {
     const env = options.env ? await options.env() : process.env
     return new Promise((resolve, reject) => {
       execFile(
         command,
         [...args],
-        { cwd, env: { ...env, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', NO_COLOR: '1' }, encoding: 'utf8', timeout: options.timeoutMs ?? 30_000, maxBuffer: 32 * 1024 * 1024 },
+        { cwd, env: { ...env, ...extra, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', NO_COLOR: '1' }, encoding: 'utf8', timeout: options.timeoutMs ?? 30_000, maxBuffer: 32 * 1024 * 1024 },
         (error, stdout, stderr) => {
           if (!error) return resolve(stdout)
           const code = (error as NodeJS.ErrnoException).code
@@ -55,6 +65,49 @@ export function ghRunner(options: GhRunnerOptions = {}): GhRunner {
         },
       )
     })
+  }
+}
+
+// ── the Project's account ────────────────────────────────────────────────────
+
+/**
+ * The extra environment gh gets for the Project at `root`; rejects when gh cannot be run as the
+ * Project's account, and then no gh command of that read runs.
+ */
+export type GhAuth = (root: string) => Promise<GhEnv>
+
+export interface AccountAuthOptions {
+  /** The Project's GitHub account, or null when it has none (src/main/workflow/profile.ts). */
+  account: (root: string) => Promise<string | null>
+  /** The runner `gh auth token -u <account>` goes through: the same gh and environment as pr list. */
+  run: GhRunner
+}
+
+/** A token as gh prints it: one word, no whitespace. */
+const TOKEN_SHAPE = /^\S+$/u
+
+/**
+ * GH_TOKEN of the Project's account, from `gh auth token -u <account>`. Without an account, no
+ * extra environment: gh runs as before, with the login shell's own account. With an account gh has
+ * no login for, the read fails with a reason naming the account — falling back to the global
+ * account would show another account's answer or the same refusal.
+ */
+export function accountAuth(options: AccountAuthOptions): GhAuth {
+  return async (root): Promise<GhEnv> => {
+    const account = await options.account(root)
+    if (account === null) return {}
+    const how = `run \`gh auth login\` and sign in as ${account}`
+    let printed: string
+    try {
+      printed = await options.run(['auth', 'token', '-u', account], root)
+    } catch (error) {
+      // gh's own reason (no login, gh not found); it never contains a token.
+      throw new Error(`no gh login for ${account}, the Project's GitHub account: ${messageOf(error)}; ${how}`, { cause: error })
+    }
+    const token = printed.trim()
+    // The output is not quoted in the reason: it may be a token in an unexpected shape.
+    if (!TOKEN_SHAPE.test(token)) throw new Error(`gh auth token -u ${account} printed no token; ${how}`)
+    return { GH_TOKEN: token }
   }
 }
 
@@ -136,6 +189,8 @@ export function parsePrList(stdout: string): PullRequest[] {
 
 export interface PrTrackerOptions {
   run: GhRunner
+  /** The environment gh needs for the Project (accountAuth); asked once per read that runs gh. None by default. */
+  auth?: GhAuth
   now?: () => number
   baseIntervalMs?: number
   searchIntervalMs?: number
@@ -158,7 +213,6 @@ interface ProjectState {
   running: Promise<PrRead> | null
 }
 
-const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /** Keeps the pull requests of each Project and decides when gh may run again. */
 export class PrTracker {
@@ -196,10 +250,17 @@ export class PrTracker {
 
   private async refresh(root: string, state: ProjectState, branches: readonly string[]): Promise<PrRead> {
     const now = this.now()
+    // The Project's environment for gh, asked for only when this read runs gh, and once: a refused
+    // token fails the first gh call of the read like a refused gh would, and no pr list runs.
+    let access: Promise<GhEnv> | undefined
+    const runGh = async (args: readonly string[]): Promise<string> => {
+      access ??= this.options.auth ? this.options.auth(root) : Promise.resolve({})
+      return this.options.run(args, root, await access)
+    }
     if (now - state.listedAt >= state.intervalMs) {
       state.listedAt = now
       try {
-        state.listed = parsePrList(await this.options.run(['pr', 'list', '--state', 'all', '--limit', String(LIST_LIMIT), '--json', FIELDS], root))
+        state.listed = parsePrList(await runGh(['pr', 'list', '--state', 'all', '--limit', String(LIST_LIMIT), '--json', FIELDS]))
         state.error = null
         state.intervalMs = this.base
       } catch (error) {
@@ -217,7 +278,7 @@ export class PrTracker {
         if (started >= SEARCHES_PER_READ) break
         started += 1
         try {
-          const pulls = parsePrList(await this.options.run(['pr', 'list', '--state', 'all', '--head', branch, '--limit', '1', '--json', FIELDS], root))
+          const pulls = parsePrList(await runGh(['pr', 'list', '--state', 'all', '--head', branch, '--limit', '1', '--json', FIELDS]))
           state.searched.set(branch, { at: now, pulls: pulls.filter((pull) => pull.branch === branch) })
         } catch (error) {
           this.fail(state, error)

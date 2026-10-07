@@ -1,12 +1,13 @@
-// Reads the Project's Profile: the list of MCP servers its agents may use (ADR-0021).
+// Reads the Project's Profile: the list of MCP servers its agents may use (ADR-0021) and the
+// GitHub account worfy's own gh calls go with (ADR-0020, worfy-week ticket 01).
 //
 // The Profile lives outside the repository, in `<claude home>/profiles/<name>/profile.json`, and
 // its only reader is `<claude home>/bin/profile -C <root> --field <a.b>`: exit code 0 prints the
-// field (JSON for an array, the bare word `null` for a null), 3 means the folder is in no
-// registered project, 4 means the field is absent. Every way of not getting a list — those codes,
-// a missing script, a failed run, output that is not a list of names — falls back to the default
-// list, the servers the workflow itself needs, and the reason goes to the log: a Session never
-// fails to start over its Profile.
+// field (JSON for an array, the bare string for a string, the bare word `null` for a null), 3 means
+// the folder is in no registered project, 4 means the field is absent. Every way of not getting a
+// value — those codes, a missing script, a failed run, output of the wrong shape — falls back to
+// what worfy did without a Profile (the default MCP list; gh with the login shell's own account),
+// and the reason goes to the log: nothing fails over its Profile.
 //
 // Nothing here writes: the script runs with the Project as cwd and only reads.
 import { execFile } from 'node:child_process'
@@ -73,7 +74,7 @@ export interface McpAllowlist {
 
 const serverNames = z.array(z.string().trim().min(1))
 
-export interface ReadMcpAllowlistOptions {
+export interface ReadProfileOptions {
   /** The Project's root, or any folder inside it: the script's cwd and its `-C`. */
   root: string
   /** Claude Code's home; the script is `<claudeHome>/bin/profile`. */
@@ -86,31 +87,44 @@ export interface ReadMcpAllowlistOptions {
   log?: ((message: string) => void) | undefined
 }
 
+export type ReadMcpAllowlistOptions = ReadProfileOptions
+
+/** One field of the Profile: its printed value, or why there is none. */
+type FieldRead = { ok: true; stdout: string } | { ok: false; reason: string }
+
+/** Runs `bin/profile -C <root> --field <field>` and turns every exit but code 0 into a reason. */
+async function readField(options: ReadProfileOptions, field: string): Promise<FieldRead> {
+  const run = options.run ?? profileRunner(options.claudeHome, options.env)
+  const none = (reason: string): FieldRead => ({ ok: false, reason })
+
+  let result: ProfileRun
+  try {
+    result = await run(options.root, ['-C', options.root, '--field', field])
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT') return none(`there is no profile script at ${profilePath(options.claudeHome)}`)
+    return none(`the profile script could not be run: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  const detail = result.stderr.trim()
+  if (result.code === 3) return none(`the folder is in no registered project (profile exit code 3${detail ? `: ${detail}` : ''})`)
+  if (result.code === 4) return none(`the Profile has no ${field} field (profile exit code 4)`)
+  if (result.code === null) return none('the profile script timed out')
+  if (result.code !== 0) return none(`the profile script failed with exit code ${result.code}${detail ? `: ${detail}` : ''}`)
+  return { ok: true, stdout: result.stdout.trim() }
+}
+
 /** The Profile's list of MCP servers for the Project at `root`, or the default list with the reason. */
 export async function readMcpAllowlist(options: ReadMcpAllowlistOptions): Promise<McpAllowlist> {
-  const run = options.run ?? profileRunner(options.claudeHome, options.env)
   const log = options.log ?? ((message: string) => console.warn(message))
   const fallback = (reason: string): McpAllowlist => {
     log(`[profile] MCP servers for ${options.root}: the default list (${DEFAULT_MCP_SERVERS.join(', ')}), because ${reason}`)
     return { servers: DEFAULT_MCP_SERVERS, source: 'default', reason }
   }
 
-  let result: ProfileRun
-  try {
-    result = await run(options.root, ['-C', options.root, '--field', MCP_ALLOWED_FIELD])
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code
-    if (code === 'ENOENT') return fallback(`there is no profile script at ${profilePath(options.claudeHome)}`)
-    return fallback(`the profile script could not be run: ${error instanceof Error ? error.message : String(error)}`)
-  }
-
-  const detail = result.stderr.trim()
-  if (result.code === 3) return fallback(`the folder is in no registered project (profile exit code 3${detail ? `: ${detail}` : ''})`)
-  if (result.code === 4) return fallback(`the Profile has no ${MCP_ALLOWED_FIELD} field (profile exit code 4)`)
-  if (result.code === null) return fallback('the profile script timed out')
-  if (result.code !== 0) return fallback(`the profile script failed with exit code ${result.code}${detail ? `: ${detail}` : ''}`)
-
-  const stdout = result.stdout.trim()
+  const field = await readField(options, MCP_ALLOWED_FIELD)
+  if (!field.ok) return fallback(field.reason)
+  const stdout = field.stdout
   let json: unknown
   try {
     json = JSON.parse(stdout)
@@ -121,4 +135,52 @@ export async function readMcpAllowlist(options: ReadMcpAllowlistOptions): Promis
   const parsed = serverNames.safeParse(json)
   if (!parsed.success) return fallback(`${MCP_ALLOWED_FIELD} is not a list of server names: ${JSON.stringify(stdout.slice(0, 200))}`)
   return { servers: [...new Set(parsed.data)], source: 'profile', reason: null }
+}
+
+// ── the GitHub account ───────────────────────────────────────────────────────
+
+/** The Profile field with the login of the GitHub account the Project's repository belongs to. */
+export const GITHUB_ACCOUNT_FIELD = 'github.account'
+
+/**
+ * A GitHub login: letters, digits and single hyphens, at most 39 characters, never starting with a
+ * hyphen — so it can never be read by gh as an option.
+ */
+const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/u
+
+/** The Project's GitHub account, or null with the reason there is none. */
+export interface GithubAccount {
+  account: string | null
+  /** Why there is no account; null when there is one. */
+  reason: string | null
+}
+
+/**
+ * The GitHub account the Profile names for the Project at `root` (`github.account`). Without one —
+ * exit code 3 or 4, `null`, no script, a failed run, a value that is not a login — the account is
+ * null, gh goes with the login shell's own account as before, and the reason is logged.
+ */
+export async function readGithubAccount(options: ReadProfileOptions): Promise<GithubAccount> {
+  const log = options.log ?? ((message: string) => console.warn(message))
+  const none = (reason: string): GithubAccount => {
+    log(`[profile] GitHub account for ${options.root}: none, gh runs with the login shell's own account, because ${reason}`)
+    return { account: null, reason }
+  }
+
+  const field = await readField(options, GITHUB_ACCOUNT_FIELD)
+  if (!field.ok) return none(field.reason)
+  // A string field prints bare; a JSON-quoted one is taken too.
+  let value = field.stdout
+  if (value.startsWith('"')) {
+    try {
+      const json: unknown = JSON.parse(value)
+      if (typeof json === 'string') value = json.trim()
+    } catch {
+      // Not JSON: checked as it is below.
+    }
+  }
+  if (value === 'null') return none(`${GITHUB_ACCOUNT_FIELD} is null`)
+  if (value === '') return none(`${GITHUB_ACCOUNT_FIELD} is empty`)
+  if (!GITHUB_LOGIN.test(value)) return none(`${GITHUB_ACCOUNT_FIELD} is not a GitHub login: ${JSON.stringify(value.slice(0, 200))}`)
+  return { account: value, reason: null }
 }

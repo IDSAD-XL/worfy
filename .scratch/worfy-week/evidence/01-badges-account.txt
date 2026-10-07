@@ -1,0 +1,3 @@
+profile stub: echo IDSAD-XL
+badge row title: PR #81 open · CI passing · REJECTED
+gh unavailable title (gh.error): null
