@@ -13,6 +13,7 @@ import { z } from 'zod'
 import { EMPTY_LAYOUT, layoutOpSchema, layoutSchema, type Layout, type LayoutNode, type LayoutOp, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
 import { projectStore } from '../projects/store'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
+import { upgradeLayout, upgradeMessage } from './upgrade'
 
 /** How long the Layout must stay unchanged before it is written. */
 export const LAYOUT_SAVE_DELAY_MS = 250
@@ -120,8 +121,16 @@ export class LayoutStore {
     const file = this.file(projectId)
     let entry = this.entries.get(projectId)
     if (!entry) {
-      entry = { layout: readJsonFile(file, layoutSchema) ?? EMPTY_LAYOUT, revision: 0, timer: undefined, dirty: false }
+      const read = readJsonFile(file, layoutSchema) ?? EMPTY_LAYOUT
+      // What this version no longer keeps goes once, on the first read (upgrade.ts, ADR-0037).
+      const upgraded = upgradeLayout(read)
+      entry = { layout: upgraded?.layout ?? read, revision: 0, timer: undefined, dirty: false }
       this.entries.set(projectId, entry)
+      if (upgraded) {
+        console.info(upgradeMessage(projectId, upgraded))
+        entry.dirty = true
+        this.flush(projectId)
+      }
     }
     return entry
   }

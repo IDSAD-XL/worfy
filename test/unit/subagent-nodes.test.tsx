@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import subagentEdges from '../../src/renderer/canvas/edges/subagents'
 import SubagentNode from '../../src/renderer/canvas/nodes/SubagentNode'
 import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
-import {
+import subagentSource, {
   anchorNodeId,
   buildSubagentNodes,
   doneExpanded,
@@ -67,7 +67,7 @@ describe('placeSubagents', () => {
   const X = 300 + 56
 
   it('puts running Subagents right of the Session, nested ones right of their parent, and folds the done ones', () => {
-    const placed = placeSubagents({ sessionId: S7, sessionWidth: 300, tree: tree7(RUNNING_AT), expanded: () => false, offsets: new Map() })
+    const placed = placeSubagents({ sessionId: S7, sessionWidth: 300, tree: tree7(RUNNING_AT), expanded: () => false })
     expect(placed.map(({ key, x, y, h, parentId, fold }) => ({ key, x, y, h, parentId, fold }))).toEqual([
       { key: 'anchor', x: 300, y: 18, h: 1, parentId: null, fold: null },
       { key: 'toolu_01S7AGENT1XXXXXXXXXXXXXX', x: X, y: 0, h: SUBAGENT_HEIGHT, parentId: anchorNodeId(S7), fold: null },
@@ -76,24 +76,17 @@ describe('placeSubagents', () => {
     ])
   })
 
-  it('shows the done Subagents when their row is open, and keeps a manual offset', () => {
-    const placed = placeSubagents({
-      sessionId: S7,
-      sessionWidth: 300,
-      tree: tree7(RUNNING_AT),
-      expanded: (key) => key === 'session',
-      offsets: new Map([['toolu_01S7AGENT1XXXXXXXXXXXXXX', { dx: 40, dy: -10 }]]),
-    })
+  it('shows the done Subagents when their row is open', () => {
+    const placed = placeSubagents({ sessionId: S7, sessionWidth: 300, tree: tree7(RUNNING_AT), expanded: (key) => key === 'session' })
     const byKey = new Map(placed.map((place) => [place.key, place]))
-    expect(byKey.get('toolu_01S7AGENT1XXXXXXXXXXXXXX')).toMatchObject({ x: X + 40, y: -10, auto: { x: X, y: 0 } })
-    // Its Subagent follows it; the siblings below stay where the automatic layout puts them.
-    expect(byKey.get('toolu_01S7AGENT2XXXXXXXXXXXXXX')).toMatchObject({ x: X + 40 + SUBAGENT_WIDTH + 56, y: -10 })
+    expect(byKey.get('toolu_01S7AGENT1XXXXXXXXXXXXXX')).toMatchObject({ x: X, y: 0 })
+    expect(byKey.get('toolu_01S7AGENT2XXXXXXXXXXXXXX')).toMatchObject({ x: X + SUBAGENT_WIDTH + 56, y: 0 })
     expect(byKey.get('toolu_01S7AGENT3XXXXXXXXXXXXXX')).toMatchObject({ x: X, y: SUBAGENT_HEIGHT + 12 })
     expect(byKey.get('done:session')).toMatchObject({ y: 2 * (SUBAGENT_HEIGHT + 12), fold: { count: 1, expanded: true } })
   })
 
   it('folds every done Subagent of the finished Session into one row, nested ones included', () => {
-    const placed = placeSubagents({ sessionId: S7, sessionWidth: 300, tree: tree7(), expanded: () => false, offsets: new Map() })
+    const placed = placeSubagents({ sessionId: S7, sessionWidth: 300, tree: tree7(), expanded: () => false })
     expect(placed.map((place) => place.key)).toEqual(['anchor', 'done:session'])
     expect(placed[1]!.fold).toEqual({ parentKey: 'session', count: 2, expanded: false })
   })
@@ -129,10 +122,25 @@ describe('buildSubagentNodes', () => {
     expect(subagentPlaneRects(layoutWith(), nodes)).toEqual([])
   })
 
-  it('reads the offsets the subagent-tree Node keeps', () => {
-    const saved = node({ id: `subagents:${S7}`, kind: 'subagent-tree', w: 1, h: 1, data: { 'offset:toolu_01S7AGENT1XXXXXXXXXXXXXX': { dx: 5, dy: 7 }, 'offset:bad': 'x' } })
+  // ADR-0037: the places are computed; a `subagent-tree` Node an older version left moves nothing.
+  it('ignores the offsets of a subagent-tree Node an older version left', () => {
+    const saved = node({ id: `subagents:${S7}`, kind: 'subagent-tree', w: 1, h: 1, data: { 'offset:toolu_01S7AGENT1XXXXXXXXXXXXXX': { dx: 5, dy: 7 } } })
+    const plain = buildSubagentNodes('p4a', layoutWith(session), trees(tree7(RUNNING_AT)), {})
     const nodes = buildSubagentNodes('p4', layoutWith(session, saved), trees(tree7(RUNNING_AT)), {})
-    expect(nodes.find((each) => each.id.endsWith('AGENT1XXXXXXXXXXXXXX'))!.position).toEqual({ x: 300 + 56 + 5, y: 7 })
+    expect(nodes.find((each) => each.id.endsWith('AGENT1XXXXXXXXXXXXXX'))!.position).toEqual({ x: 300 + 56, y: 0 })
+    expect(nodes.map((each) => each.position)).toEqual(plain.map((each) => each.position))
+  })
+
+  it('lets only a Subagent’s own Node be dragged, to bind it, and saves nothing when it is dropped', () => {
+    const nodes = buildSubagentNodes('p-drag-none', layoutWith(session), trees(tree7(RUNNING_AT)), {})
+    const variant = (each: (typeof nodes)[number]) => (each.data.node.data as SubagentNodeData).variant
+    expect(nodes.filter((each) => each.draggable !== false).map(variant)).toEqual(['agent', 'agent'])
+    expect(nodes.filter((each) => each.draggable === false).map(variant)).toEqual(['anchor', 'fold'])
+    // A fold row is neither dragged nor selected, yet clicked: React Flow must not let the pointer through it.
+    expect(nodes.find((each) => variant(each) === 'fold')!.style).toEqual({ pointerEvents: 'all' })
+    const agent = nodes.find((each) => variant(each) === 'agent')!
+    // Not saved: the Canvas puts the Node back where the source has it (Canvas.tsx).
+    expect(subagentSource.moved({ projectId: 'p-drag-none', layout: layoutWith(session) }, { ...agent, position: { x: agent.position.x + 200, y: agent.position.y + 200 } })).toBe(false)
   })
 })
 
@@ -143,10 +151,6 @@ describe('the tree keeps clear of the Nodes of the Layout (worfy-daily ticket 28
   const near = card(session.x + session.w + 40, session.y)
   const overlaps = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }): boolean =>
     a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
-  const absolute = (nodes: ReturnType<typeof buildSubagentNodes>, id: string) => {
-    const found = nodes.find((each) => each.id === id)!
-    return { x: session.x + found.position.x, y: session.y + found.position.y }
-  }
 
   it('puts the Subagent Nodes and the done row where they cover neither the Card nor another Node', () => {
     const other = node({ id: 'note', kind: 'note', x: 1100, y: 180, w: 200, h: 140 })
@@ -170,34 +174,27 @@ describe('the tree keeps clear of the Nodes of the Layout (worfy-daily ticket 28
     }
   })
 
-  it('a Subagent Node the user moved stays where it was put when a Card next to it moves', () => {
+  // ADR-0037: no Node of the tree keeps a place of its own; the whole tree but its anchor moves.
+  it('shifts the whole tree but its anchor together off a Card, keeping its shape', () => {
     const tree = tree7(RUNNING_AT)
-    const before = buildSubagentNodes('p-drag', layoutWith(session, near), trees(tree), {})
-    const shown = before.find((each) => each.id === AGENT1)!
-    // The user drags it 30 px right and 20 px down; the source keeps its offset from the automatic place (moved()).
-    const auto = (shown.data.node.data as SubagentNodeData).auto
-    const dropped = { x: shown.position.x + 30, y: shown.position.y + 20 }
-    const saved = node({ id: `subagents:${S7}`, kind: 'subagent-tree', w: 1, h: 1, data: { 'offset:toolu_01S7AGENT1XXXXXXXXXXXXXX': { dx: dropped.x - auto.x, dy: dropped.y - auto.y } } })
-
-    const after = buildSubagentNodes('p-drag', layoutWith(session, near, saved), trees(tree), {})
-    expect(after.find((each) => each.id === AGENT1)!.position).toEqual(dropped)
-    const at = absolute(after, AGENT1)
-
-    // The Card moves away, then onto another spot by the tree: the moved Node does not follow it.
-    for (const moved of [card(2000, 2000), card(session.x + session.w + 20, session.y - 60)]) {
-      const nodes = buildSubagentNodes('p-drag', layoutWith(session, moved, saved), trees(tree), {})
-      expect(absolute(nodes, AGENT1), JSON.stringify(moved)).toEqual(at)
-    }
-    // The rows nobody moved do follow the free room.
-    const far = buildSubagentNodes('p-drag', layoutWith(session, card(2000, 2000), saved), trees(tree), {})
-    expect(absolute(far, `subagent:${S7}/done:session`)).not.toEqual(absolute(after, `subagent:${S7}/done:session`))
+    const free = buildSubagentNodes('p-whole-a', layoutWith(session), trees(tree), {})
+    const shifted = buildSubagentNodes('p-whole-b', layoutWith(session, near), trees(tree), {})
+    const anchor = anchorNodeId(S7)
+    expect(shifted.find((each) => each.id === anchor)!.position).toEqual(free.find((each) => each.id === anchor)!.position)
+    const offsets = shifted
+      .filter((each) => each.id !== anchor)
+      .map((each) => {
+        const before = free.find((other) => other.id === each.id)!.position
+        return { dx: each.position.x - before.x, dy: each.position.y - before.y }
+      })
+    expect(offsets[0]).not.toEqual({ dx: 0, dy: 0 })
+    for (const offset of offsets) expect(offset).toEqual(offsets[0])
   })
 
-  it('only the Session moves a moved Subagent Node', () => {
+  it('follows its Session: a Session and a Card moved together leave the tree where it was relative to the Session', () => {
     const tree = tree7(RUNNING_AT)
-    const saved = node({ id: `subagents:${S7}`, kind: 'subagent-tree', w: 1, h: 1, data: { 'offset:toolu_01S7AGENT1XXXXXXXXXXXXXX': { dx: 400, dy: 300 } } })
-    const here = buildSubagentNodes('p-follow', layoutWith(session, near, saved), trees(tree), {})
-    const there = buildSubagentNodes('p-follow', layoutWith({ ...session, x: session.x + 500, y: session.y + 70 }, card(near.x + 500, near.y + 70), saved), trees(tree), {})
+    const here = buildSubagentNodes('p-follow', layoutWith(session, near), trees(tree), {})
+    const there = buildSubagentNodes('p-follow', layoutWith({ ...session, x: session.x + 500, y: session.y + 70 }, card(near.x + 500, near.y + 70)), trees(tree), {})
     expect(there.find((each) => each.id === AGENT1)!.position).toEqual(here.find((each) => each.id === AGENT1)!.position)
   })
 })

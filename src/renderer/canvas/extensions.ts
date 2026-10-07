@@ -10,13 +10,42 @@
 // - a node source, src/renderer/canvas/sources/<name>.ts, default-exports a NodeSource: Nodes that
 //   are computed from something other than the Layout (the Epic frames and Tickets from the
 //   workflow model) and are drawn next to the Layout's own Nodes. The Layout keeps only what the
-//   user changed about them, in Nodes of the kinds the source `owns`.
-import type { Edge } from '@xyflow/react'
+//   user changed about them, in Nodes of the kinds the source `owns`;
+// - an edge type, src/renderer/canvas/edge-types/<Name>Edge.tsx, exports `kind` (the `type` an edge
+//   source gives its edges) and default-exports the component that draws such an edge
+//   (RoutedEdge.tsx: the route ELK made for a "Blocked by" Edge, ADR-0037).
+import type { Edge, EdgeTypes } from '@xyflow/react'
 import type { Layout, LayoutNode } from '../../shared/layout/types'
 import { collectExtensions, type ShellExtension } from '../shell/registry'
 import type { CanvasFlowNode } from './nodes'
 
 export type EdgeSource = (nodes: readonly LayoutNode[]) => Edge[]
+
+/** Lower-case words joined by dashes, like a Node kind. */
+const EDGE_KIND_PATTERN = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/
+
+/**
+ * Turns an eager import.meta.glob of edge types into React Flow's `edgeTypes`. A module without a
+ * component or a valid `kind`, or two modules with one kind, throws when the module loads.
+ */
+export function collectEdgeTypes(modules: Record<string, unknown>): EdgeTypes {
+  const types: EdgeTypes = {}
+  const declaredIn = new Map<string, string>()
+  for (const [path, module] of Object.entries(modules).sort(([a], [b]) => a.localeCompare(b))) {
+    const { default: Component, kind } = (module ?? {}) as Record<string, unknown>
+    if (typeof Component !== 'function' && (typeof Component !== 'object' || Component === null || !('$$typeof' in Component))) {
+      throw new Error(`${path} must default-export the edge's React component`)
+    }
+    if (typeof kind !== 'string' || !EDGE_KIND_PATTERN.test(kind)) throw new Error(`${path} must export a \`kind\` of lower-case words joined by dashes, e.g. export const kind = 'routed'`)
+    const taken = declaredIn.get(kind)
+    if (taken !== undefined) throw new Error(`${taken} and ${path} both declare edge kind '${kind}'`)
+    declaredIn.set(kind, path)
+    types[kind] = Component as EdgeTypes[string]
+  }
+  return types
+}
+
+export const edgeTypes: EdgeTypes = collectEdgeTypes(import.meta.glob('./edge-types/*Edge.tsx', { eager: true }))
 
 export interface EdgeSourceEntry {
   /** File name without the extension. */
@@ -71,8 +100,13 @@ export interface NodeSource {
    */
   owns: readonly string[]
   useNodes(context: NodeSourceContext): readonly CanvasFlowNode[]
-  /** One of the source's Nodes was dragged and dropped; `node.position` is where it is now. */
-  moved(context: NodeSourceContext, node: CanvasFlowNode): void
+  /**
+   * One of the source's Nodes was dragged and dropped; `node.position` is where it is now. True
+   * when the source saved where it was dropped: the Node stays there until the source draws it
+   * anew. False or undefined when the source keeps no place for it (a Subagent Node dragged to
+   * bind it, ADR-0037): the Canvas puts the Node back where the source has it.
+   */
+  moved(context: NodeSourceContext, node: CanvasFlowNode): boolean | undefined
 }
 
 export interface NodeSourceEntry {

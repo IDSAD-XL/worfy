@@ -156,15 +156,6 @@
   font-weight: 500;
 }
 
-.w-epic__ready {
-  position: absolute;
-  box-sizing: border-box;
-  border-radius: var(--radius-node);
-  border: 1px dashed var(--ready-dot);
-  background: color-mix(in srgb, var(--ready-dot) 6%, transparent);
-  pointer-events: none;
-}
-
 .w-epic__stack {
   position: absolute;
   box-sizing: border-box;
@@ -255,12 +246,17 @@
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 4px;
   height: 18px;
 }
 .w-ticket__num {
+  margin-right: auto;
   font-size: var(--text-12);
   font-weight: 600;
+}
+/* In the ready Wave (ADR-0037): the "Ready" chip and the ready colour on the border, F-SPEC's ready token. */
+.w-ticket--ready {
+  border-color: var(--ready-dot);
 }
 /* TICKET_TITLE_LINES lines (epic-layout.ts), never squeezed below them: TICKET_HEIGHT holds them. */
 .w-ticket__title {
@@ -325,7 +321,14 @@
   flex: none;
   margin-left: auto;
 }
-.w-ticket__handle {
+/* No size: React Flow then puts an Edge's end exactly on the middle of the Ticket's side, where the
+   route ELK made for it starts or ends (elk/layout.ts). */
+.w-ticket__handle.react-flow__handle {
+  width: 0;
+  height: 0;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
   opacity: 0;
   pointer-events: none;
 }

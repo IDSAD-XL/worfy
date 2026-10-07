@@ -1,18 +1,21 @@
 // Epic frames and Tickets on the Canvas are not Layout Nodes: the renderer computes them from the
 // workflow model (src/renderer/canvas/sources/epics.ts, ticket 11). What the user changed by hand
 // is kept in one Layout Node per Epic, of kind `epic-frame`, whose `x`/`y` are the frame's offset
-// from its automatic place (not a position) and whose `w`/`h` are 1. Such a Node is a node
-// source's saved state, not a Node on the Canvas, so the canvas tools (src/main/mcp, ADR-0003)
-// neither list nor change it, and refuse the ids of frames and Tickets: those are laid out from
-// the workflow and moved by the user only. An agent refers to an Epic or a Ticket through
+// from its automatic place (not a position), whose `w`/`h` are 1 and whose `data.collapsed` says
+// whether the user collapsed the frame — nothing else (ADR-0037). Such a Node is a node source's
+// saved state, not a Node on the Canvas, so the canvas tools (src/main/mcp, ADR-0003) neither list
+// nor change it, and refuse the ids of frames and Tickets: those are laid out from the workflow,
+// and only a whole frame is moved, by the user. An agent refers to an Epic or a Ticket through
 // `link_card`.
 
 export const EPIC_FRAME_KIND = 'epic-frame'
 export const TICKET_KIND = 'ticket'
 /**
  * The Subagent tree of a Session (ticket 15) is drawn the same way: its Nodes (`subagent`) are
- * computed from the Session's transcript (src/renderer/canvas/sources/subagents.ts), and one Layout
- * Node per Session, of kind `subagent-tree`, keeps the user's offsets.
+ * computed from the Session's transcript (src/renderer/canvas/sources/subagents.ts), and nothing
+ * about them is saved. A Layout Node of kind `subagent-tree` kept the user's offsets of a
+ * Session's Subagent Nodes in older versions; it keeps nothing now, and main removes it when it
+ * reads a Layout (src/main/layout/upgrade.ts, ADR-0037).
  */
 export const SUBAGENT_KIND = 'subagent'
 export const SUBAGENT_TREE_KIND = 'subagent-tree'
@@ -35,7 +38,7 @@ export const SOURCE_NODE_KINDS: readonly string[] = [EPIC_FRAME_KIND, TICKET_KIN
 export const onThePlane = (node: { kind: string; pinned: boolean; hidden: boolean }): boolean =>
   !node.pinned && !node.hidden && !SOURCE_NODE_KINDS.includes(node.kind)
 
-/** True for the id of a Subagent Node, or of the Layout Node that keeps a Session's Subagent offsets. */
+/** True for the id of a Subagent Node, or of the Layout Node that kept a Session's Subagent offsets in older versions. */
 export const isSubagentNodeId = (id: string): boolean => id.startsWith('subagent:') || id.startsWith('subagents:')
 
 /** True for the id of an Epic frame, a Ticket or a Subagent on the Canvas, whether or not the Layout has a Node for it. */

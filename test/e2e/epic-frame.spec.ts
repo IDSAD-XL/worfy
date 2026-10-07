@@ -5,12 +5,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { codeSection } from '../../src/main/workflow/reader'
-import { FRAME_GAP, layoutEpic, MIN_FRAME_WIDTH, stackFrames, TICKET_TITLE_LINES, type Rect } from '../../src/renderer/canvas/epic-layout'
+import ELK from 'elkjs/lib/elk.bundled.js'
+import { FRAME_GAP, layoutEpic, MIN_FRAME_WIDTH, stackFrames, TICKET_TITLE_LINES, type EpicLayout, type Rect } from '../../src/renderer/canvas/epic-layout'
+import { layoutEpicElk } from '../../src/renderer/canvas/elk/layout'
 import { ORCHESTRATOR_WIDTH } from '../../src/shared/ipc/orchestrator'
 import { onThePlane } from '../../src/shared/layout/derived'
 import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
 import { readyWave, ticketLevels } from '../../src/shared/workflow/waves'
 import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { snapshotThemes } from './snapshots'
 
 // Epic frames on the Canvas of the built app, over Projects in temporary git repositories and a
 // stub `bin/epic-status` in a temporary WORFY_CLAUDE_HOME that reads the Ticket files the way the
@@ -203,7 +206,7 @@ function fixtureTickets(): Ticket[] {
   })
 }
 
-test('the worfy-mvp Epic: columns by level, the ready Wave framed, blocking arrows as "Blocked by" says, a status change shown within a second', async () => {
+test('the worfy-mvp Epic: columns by level, places and routes by ELK in a worker, ready Tickets marked by a chip, blocking arrows as "Blocked by" says, a status change shown within a second', async () => {
   makeClaudeHome()
   const repo = makeProject(
     (dir) => {
@@ -216,6 +219,10 @@ test('the worfy-mvp Epic: columns by level, the ready Wave framed, blocking arro
   )
   const tickets = fixtureTickets()
   const launched = await launch()
+  // The window's workers, those started before this line included.
+  const layoutWorkers: string[] = []
+  launched.window.on('worker', (worker) => layoutWorkers.push(worker.url()))
+  layoutWorkers.push(...launched.window.workers().map((worker) => worker.url()))
   try {
     const { window } = launched
     const frame = window.locator('[data-testid="epic-frame"][data-epic="worfy-mvp"]')
@@ -238,20 +245,16 @@ test('the worfy-mvp Epic: columns by level, the ready Wave framed, blocking arro
     expect(ordered).toEqual([...ordered].sort((a, b) => a - b))
     expect(new Set(ordered).size).toBe(ordered.length)
 
-    // The ready Wave: exactly the Tickets of Wave 1, inside the dashed box.
+    // The ready Wave: exactly the Tickets of Wave 1, each with its "Ready" chip (ADR-0037); no box
+    // around them, the column's "Ready wave · N" chip stays.
     const ready = readyWave(tickets, 'worfy-mvp').ready.map((entry) => entry.num)
     expect(ready.length).toBeGreaterThan(0)
     const marked = await window.locator('[data-testid="ticket-node"][data-ready="true"]').evaluateAll((nodes) => nodes.map((node) => Number(node.getAttribute('data-ticket'))))
     expect(marked.sort((a, b) => a - b)).toEqual(ready)
+    const chips = await window.locator('[data-testid="ticket-node"]:has([data-testid="ticket-ready"])').evaluateAll((nodes) => nodes.map((node) => Number(node.getAttribute('data-ticket'))))
+    expect(chips.sort((a, b) => a - b)).toEqual(ready)
     await expect(frame.getByText(`Ready wave · ${ready.length}`)).toBeVisible()
-    const wave = await box(window.getByTestId('ready-wave'))
-    for (const num of ready) {
-      const ticket = await box(ticketNode(window, num))
-      expect(ticket.x).toBeGreaterThanOrEqual(wave.x)
-      expect(ticket.y).toBeGreaterThanOrEqual(wave.y)
-      expect(ticket.x + ticket.width).toBeLessThanOrEqual(wave.x + wave.width)
-      expect(ticket.y + ticket.height).toBeLessThanOrEqual(wave.y + wave.height)
-    }
+    await expect(window.getByTestId('ready-wave')).toHaveCount(0)
 
     // One arrow per "Blocked by" entry, from the blocker to the blocked Ticket.
     const expected = tickets.flatMap((t) => t.blockedNums.map((b) => `rf__edge-blocks:worfy-mvp/${b}->${t.num}`)).sort()
@@ -259,6 +262,25 @@ test('the worfy-mvp Epic: columns by level, the ready Wave framed, blocking arro
     await expect
       .poll(async () => (await window.locator('[data-testid^="rf__edge-blocks:"]').evaluateAll((edges) => edges.map((e) => e.getAttribute('data-testid')))).sort())
       .toEqual(expected)
+
+    // ELK lays the frame out in a worker of the built app (ADR-0037): the worker runs, every Ticket
+    // gets ELK's place and every arrow its route.
+    expect(layoutWorkers.some((url) => url.includes('elk-worker')), layoutWorkers.join(', ')).toBe(true)
+    const elkLayout = await layoutEpicElk({ tickets, doneExpanded: false, name: 'worfy-mvp' }, new ELK())
+    await expect
+      .poll(async () => {
+        const shown: Record<number, { x: number; y: number }> = {}
+        for (const t of elkLayout.tickets) shown[t.num] = await inFrame(window, 'worfy-mvp', t.num)
+        return shown
+      })
+      .toEqual(Object.fromEntries(elkLayout.tickets.map((t) => [t.num, { x: Math.round(t.x), y: Math.round(t.y) }])))
+    await expect.poll(() => window.locator('[data-testid^="rf__edge-blocks:"] path.react-flow__edge-path[data-routed="true"]').count()).toBe(expected.length)
+    // Rounded corners: every route ELK bent has a quadratic curve at each corner.
+    const paths = await window.locator('[data-testid^="rf__edge-blocks:"] path.react-flow__edge-path').evaluateAll((edges) => edges.map((e) => e.getAttribute('d') ?? ''))
+    expect(paths.some((d) => d.includes('Q'))).toBe(true)
+    for (const d of paths) expect(d, d).toMatch(/^M [\d.-]+ [\d.-]+( L [\d.-]+ [\d.-]+( Q [\d.-]+ [\d.-]+ [\d.-]+ [\d.-]+)?)+$/)
+    const shots = await snapshotThemes(window, 'epic-frame-elk')
+    console.log(`epic frame by ELK: ${shots.light} ${shots.dark}`)
 
     // `ticket claim` rewrites the Status line; the chip follows without a restart.
     const first = join(repo, '.scratch', 'worfy-mvp', 'issues', readdirSync(join(repo, '.scratch', 'worfy-mvp', 'issues')).find((f) => f.startsWith('01-'))!)
@@ -289,13 +311,14 @@ test('the worfy-mvp Epic: columns by level, the ready Wave framed, blocking arro
     expect(elapsed).toBeLessThanOrEqual(1_000)
     await expect(ticketNode(window, 1).getByText('claimed')).toBeVisible()
     // Wave 1 is taken: nothing is ready now.
-    await expect(window.getByTestId('ready-wave')).toHaveCount(0)
+    await expect(window.getByTestId('ticket-ready')).toHaveCount(0)
+    await expect(window.locator('[data-testid="ticket-node"][data-ready="true"]')).toHaveCount(0)
   } finally {
     await launched.close()
   }
 })
 
-// ── manual offsets ──────────────────────────────────────────────────────────
+// ── nothing inside a frame is dragged (ADR-0037) ────────────────────────────
 
 /** Tickets of the small Epic `demo` as the stub reports them. */
 function demoTickets(states: Record<number, Ticket['state']>): Ticket[] {
@@ -331,7 +354,17 @@ function writeZeta(dir: string): void {
   writeFileSync(join(issues, '01-z1.md'), ticketText(1, 'open', '—'))
 }
 
-test('a Ticket and a frame moved by hand keep their offsets after a restart and after a neighbour changes', async () => {
+/** demo's frame as ELK lays it out, with the done stack folded and open (the open one is the frames' column's reserve, ADR-0032). */
+async function demoByElk(states: Record<number, Ticket['state']>): Promise<{ folded: EpicLayout; open: EpicLayout }> {
+  const elk = new ELK()
+  const tickets = demoTickets(states)
+  return {
+    folded: await layoutEpicElk({ tickets, doneExpanded: false, name: 'demo' }, elk),
+    open: await layoutEpicElk({ tickets, doneExpanded: true, name: 'demo' }, elk),
+  }
+}
+
+test('a Ticket is not dragged and keeps its ELK place; a frame dragged by its header keeps its offset after a restart and after a neighbour changes', async () => {
   makeClaudeHome()
   const repo = makeProject((dir) => {
     writeDemo(dir)
@@ -339,16 +372,19 @@ test('a Ticket and a frame moved by hand keep their offsets after a restart and 
   })
   const issues = join(repo, '.scratch', 'demo', 'issues')
 
-  const autoOf = (states: Record<number, Ticket['state']>, num: number) => {
-    const placed = layoutEpic({ tickets: demoTickets(states), collapsed: false, doneExpanded: false }).tickets.find((t) => t.num === num)!
-    return placed.auto
+  const placeOf = (layout: EpicLayout, num: number) => {
+    const placed = layout.tickets.find((t) => t.num === num)!
+    return { x: Math.round(placed.x), y: Math.round(placed.y) }
   }
   /** The automatic place of zeta's frame: under demo's frame, in the column clear of the Nodes on the plane (ADR-0032). */
   const zetaAuto = async (window: Page, states: Record<number, Ticket['state']>, demoCollapsed = false) => {
-    const demo = layoutEpic({ tickets: demoTickets(states), collapsed: demoCollapsed, doneExpanded: false })
+    const demo = await demoByElk(states)
+    const collapsed = layoutEpic({ tickets: demoTickets(states), collapsed: true, doneExpanded: false, name: 'demo' })
     return stackFrames(
       [
-        { epic: 'demo', width: demo.width, height: demo.height },
+        demoCollapsed
+          ? { epic: 'demo', width: collapsed.width, height: collapsed.height }
+          : { epic: 'demo', width: demo.folded.width, height: demo.folded.height, reserve: demo.open.height },
         { epic: 'zeta', width: MIN_FRAME_WIDTH, height: 0 },
       ],
       await planeRects(window),
@@ -356,33 +392,30 @@ test('a Ticket and a frame moved by hand keep their offsets after a restart and 
   }
   let frameOffset: { dx: number; dy: number }
 
-  let offset: { dx: number; dy: number }
   const first = await launch()
   try {
     const { window } = first
     const three = ticketNode(window, 3)
     await expect(three).toBeVisible()
-    expect(await inFrame(window, 'demo', 3)).toEqual(autoOf({}, 3))
+    const elk = (await demoByElk({})).folded
+    await expect.poll(() => inFrame(window, 'demo', 3)).toEqual(placeOf(elk, 3))
+    const before = await layoutNodes(window)
 
-    // Dragged at zoom 1: screen pixels are canvas units.
+    // Dragged 200 px at zoom 1 (screen pixels are canvas units): the Ticket stays, nothing is saved.
     const start = await box(three.locator('.w-ticket__title'))
     await window.mouse.move(start.x + 20, start.y + 5)
     await window.mouse.down()
-    await window.mouse.move(start.x + 20 + 90, start.y + 5 + 140, { steps: 12 })
+    await window.mouse.move(start.x + 20 + 200, start.y + 5 + 200, { steps: 12 })
     await window.mouse.up()
-
-    await expect.poll(async () => (await layoutNodes(window)).find((node) => node.id === 'epic:demo')?.data['offset:3']).toBeTruthy()
-    const saved = (await layoutNodes(window)).find((node) => node.id === 'epic:demo')!
-    expect(saved).toMatchObject({ kind: 'epic-frame', x: 0, y: 0 })
-    offset = saved.data['offset:3'] as { dx: number; dy: number }
-    expect(offset.dx).toBeGreaterThan(60)
-    expect(offset.dy).toBeGreaterThan(100)
-    const auto = autoOf({}, 3)
-    await expect.poll(() => inFrame(window, 'demo', 3)).toEqual({ x: auto.x + offset.dx, y: auto.y + offset.dy })
+    expect(await inFrame(window, 'demo', 3)).toEqual(placeOf(elk, 3))
+    // Long enough for a save to have gone through main (LAYOUT_SAVE_DELAY_MS is 250 ms).
+    await window.waitForTimeout(500)
+    expect(await inFrame(window, 'demo', 3)).toEqual(placeOf(elk, 3))
+    expect(await layoutNodes(window)).toEqual(before)
 
     // The second frame, dragged by its header: the Layout keeps the shift from its automatic
     // place (below demo), not the place itself.
-    expect(await flowPosition(window, 'epic:zeta')).toEqual(await zetaAuto(window, {}))
+    await expect.poll(() => flowPosition(window, 'epic:zeta')).toEqual(await zetaAuto(window, {}))
     const handle = await box(window.locator('[data-testid="epic-frame"][data-epic="zeta"] .w-epic__drag .w-epic__tag'))
     await window.mouse.move(handle.x + 5, handle.y + 5)
     await window.mouse.down()
@@ -391,6 +424,7 @@ test('a Ticket and a frame moved by hand keep their offsets after a restart and 
     await expect.poll(async () => (await layoutNodes(window)).find((node) => node.id === 'epic:zeta')).toBeTruthy()
     const zeta = (await layoutNodes(window)).find((node) => node.id === 'epic:zeta')!
     expect(zeta.kind).toBe('epic-frame')
+    expect(zeta.data).toEqual({})
     frameOffset = { dx: zeta.x, dy: zeta.y }
     // React Flow starts the drag on the first mouse step, so the frame travels a bit less than
     // the mouse; what matters is that the saved offset is where the frame was dropped.
@@ -399,6 +433,8 @@ test('a Ticket and a frame moved by hand keep their offsets after a restart and 
     const zetaPlace = await zetaAuto(window, {})
     const dropped = await flowPosition(window, 'epic:zeta')
     expect({ dx: Math.round(dropped.x - zetaPlace.x), dy: Math.round(dropped.y - zetaPlace.y) }).toEqual(frameOffset)
+    // Its Ticket moved with it: the place inside the frame is the same.
+    expect(await inFrame(window, 'zeta', 1)).toEqual(placeOf(await layoutEpicElk({ tickets: [{ ...demoTickets({})[0]!, epic: 'zeta' }], doneExpanded: false, name: 'zeta' }, new ELK()), 1))
   } finally {
     await first.close()
   }
@@ -407,32 +443,31 @@ test('a Ticket and a frame moved by hand keep their offsets after a restart and 
   try {
     const { window } = second
     await expect(ticketNode(window, 3)).toBeVisible()
-    const before = autoOf({}, 3)
-    expect(await inFrame(window, 'demo', 3)).toEqual({ x: before.x + offset.dx, y: before.y + offset.dy })
+    await expect.poll(() => inFrame(window, 'demo', 3)).toEqual(placeOf((await demoByElk({})).folded, 3))
     const zetaBefore = await zetaAuto(window, {})
-    expect(await flowPosition(window, 'epic:zeta')).toEqual({ x: zetaBefore.x + frameOffset.dx, y: zetaBefore.y + frameOffset.dy })
+    await expect.poll(() => flowPosition(window, 'epic:zeta')).toEqual({ x: zetaBefore.x + frameOffset.dx, y: zetaBefore.y + frameOffset.dy })
 
     // Ticket 02 is done: it folds into a Done column, 04 loses its blocker and the levels move;
-    // 03 keeps its shift from its new automatic place.
+    // ELK's new places replace the old ones.
     setStatus(join(issues, '02-t2.md'), 'done')
-    const after = autoOf({ 2: 'done' }, 3)
-    expect(after).not.toEqual(before)
-    await expect.poll(() => inFrame(window, 'demo', 3), { timeout: 5_000 }).toEqual({ x: after.x + offset.dx, y: after.y + offset.dy })
+    const after = (await demoByElk({ 2: 'done' })).folded
+    expect(placeOf(after, 3)).not.toEqual(placeOf((await demoByElk({})).folded, 3))
+    await expect.poll(() => inFrame(window, 'demo', 3), { timeout: 5_000 }).toEqual(placeOf(after, 3))
     await expect(ticketNode(window, 2)).toHaveCount(0)
-    // A Ticket nobody moved sits at its automatic place.
-    expect(await inFrame(window, 'demo', 4)).toEqual(autoOf({ 2: 'done' }, 4))
-    await expect.poll(() => flowPosition(window, 'epic:zeta')).toEqual({ x: zetaBefore.x + frameOffset.dx, y: zetaBefore.y + frameOffset.dy })
+    expect(await inFrame(window, 'demo', 4)).toEqual(placeOf(after, 4))
+    const zetaAfterDone = await zetaAuto(window, { 2: 'done' })
+    await expect.poll(() => flowPosition(window, 'epic:zeta')).toEqual({ x: zetaAfterDone.x + frameOffset.dx, y: zetaAfterDone.y + frameOffset.dy })
     // demo's frame is collapsed to its header, so zeta's automatic place moves up; zeta keeps its
     // shift from it.
     await window.getByRole('button', { name: 'Collapse epic demo' }).click()
     const zetaAfter = await zetaAuto(window, { 2: 'done' }, true)
-    expect(zetaAfter.y).toBeLessThan(zetaBefore.y)
+    expect(zetaAfter.y).toBeLessThan(zetaAfterDone.y)
     await expect.poll(() => flowPosition(window, 'epic:zeta')).toEqual({ x: zetaAfter.x + frameOffset.dx, y: zetaAfter.y + frameOffset.dy })
   } finally {
     await second.close()
   }
-  // Moving a Ticket and a frame is saved in worfy's own data, never in the repository (ADR-0005);
-  // the status edit above is the test's own change to a tracked file.
+  // Moving a frame is saved in worfy's own data, never in the repository (ADR-0005); the status
+  // edit above is the test's own change to a tracked file.
   expect(git(repo, 'status', '--porcelain', '--ignored', '--untracked-files=all')).toBe('M .scratch/demo/issues/02-t2.md')
 })
 

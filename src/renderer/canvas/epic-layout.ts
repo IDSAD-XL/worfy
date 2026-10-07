@@ -1,11 +1,15 @@
 // Where an Epic frame and its Tickets sit on the Canvas. Pure functions over the workflow model:
-// no React, no IPC, nothing stored. The Layout keeps only what the user changed by hand — a
-// frame's or a Ticket's offset from the place computed here, and whether a frame is collapsed —
-// so a recomputed place (a Ticket done, a blocker added) keeps the user's shift.
+// no React, no IPC, nothing stored. The Layout keeps only the frame's offset from the place
+// computed here and whether the frame is collapsed (ADR-0011, ADR-0037); the Tickets inside a
+// frame are never moved by hand.
 //
 // Inside a frame: the header, then columns. "Done" comes first (one folded stack unless opened),
 // then one column per dependency level, then "Needs attention" for Tickets whose blocking cannot
 // be read. Levels count only Tickets that are not done: a done blocker no longer holds anything.
+//
+// The order inside the columns and the routes of the "Blocked by" Edges come from ELK in a Web
+// Worker (elk/layout.ts, ADR-0037). `layoutEpic` here is the synchronous layout an Epic gets until
+// ELK's first answer: Tickets by number, Edges without a route.
 import type { Ticket } from '../../shared/workflow/types'
 import { readyWave, ticketLevels } from '../../shared/workflow/waves'
 
@@ -32,8 +36,6 @@ export const COLUMN_HEADER_HEIGHT = 36
 export const DONE_STACK_HEIGHT = 120
 /** Vertical space between two frames. */
 export const FRAME_GAP = 48
-/** The ready-Wave box reaches this far around its Tickets. */
-export const READY_MARGIN = 6
 /** A frame with no Tickets or a collapsed one is still this wide, so the header fits. */
 export const MIN_FRAME_WIDTH = 520
 /**
@@ -45,12 +47,19 @@ export const HEADER_CHROME_WIDTH = 470
 /** One character of the Epic's name in the header: 18 px monospace, 0.6 em. */
 export const NAME_CHAR_WIDTH = 11
 export const PROGRESS_SEGMENTS = 12
+/** The largest radius of a rounded corner of an Edge's route. */
+export const EDGE_CORNER_RADIUS = 8
 
-const TICKETS_TOP = HEADER_HEIGHT + COLUMN_HEADER_HEIGHT
+export const TICKETS_TOP = HEADER_HEIGHT + COLUMN_HEADER_HEIGHT
 
 export interface Offset {
   dx: number
   dy: number
+}
+
+export interface Point {
+  x: number
+  y: number
 }
 
 export type TicketColumn = { kind: 'done' } | { kind: 'level'; level: number } | { kind: 'attention' }
@@ -64,9 +73,7 @@ export type AttentionReason =
 export interface PlacedTicket {
   num: number
   column: TicketColumn
-  /** The automatic place, relative to the frame's top-left corner. */
-  auto: { x: number; y: number }
-  /** Where the Ticket is drawn: the automatic place plus the manual offset. */
+  /** Where the Ticket is drawn, relative to the frame's top-left corner. */
   x: number
   y: number
   /** In the ready Wave of the Epic. */
@@ -98,8 +105,15 @@ export interface EpicLayout {
   tickets: PlacedTicket[]
   /** The folded done Tickets; null when there are none or the stack is open. */
   doneStack: (Box & { nums: number[] }) | null
-  /** Around the Tickets of the ready Wave; null when none is ready. */
-  readyWave: (Box & { count: number }) | null
+  /** How many of the drawn Tickets are in the ready Wave ("Ready wave · N"). */
+  readyCount: number
+  /**
+   * The route of each drawn "Blocked by" Edge, by `routeKey(blocker, blocked)`: points relative to
+   * the frame's top-left corner, from the blocker's right side to the blocked Ticket's left side,
+   * every segment horizontal or vertical. An Edge without a route is drawn straight between the
+   * two Tickets (the synchronous layout before ELK's answer).
+   */
+  routes: Readonly<Record<string, readonly Point[]>>
 }
 
 /** What the layout reads of a Ticket. */
@@ -111,11 +125,11 @@ export interface EpicLayoutInput {
   collapsed: boolean
   /** The done stack is opened into a column of Tickets. */
   doneExpanded: boolean
-  /** Manual offsets by Ticket number. */
-  offsets?: ReadonlyMap<number, Offset>
   /** The Epic's name, which the header shows whole (`headerWidth`); defaults to its Tickets' Epic. */
-  name?: string
+  name?: string | undefined
 }
+
+export const routeKey = (blocker: number, blocked: number): string => `${blocker}->${blocked}`
 
 const byNum = (a: { num: number }, b: { num: number }) => a.num - b.num
 
@@ -168,18 +182,31 @@ function placeOpenTickets(tickets: readonly LayoutTicket[]): Map<number, { level
   return result
 }
 
-const columnX = (index: number) => FRAME_PADDING + index * (TICKET_WIDTH + COLUMN_GAP)
-/** A frame at least this wide shows the Epic's whole name in its header, beside the header's other parts. */
-export const headerWidth = (name: string) => (name ? HEADER_CHROME_WIDTH + Math.ceil(name.length * NAME_CHAR_WIDTH) : 0)
-const rowY = (index: number) => TICKETS_TOP + index * (TICKET_HEIGHT + ROW_GAP)
+export interface EpicColumn {
+  column: TicketColumn
+  label: string
+  /** By number. */
+  tickets: LayoutTicket[]
+}
 
-export function layoutEpic({ tickets, collapsed, doneExpanded, offsets, name }: EpicLayoutInput): EpicLayout {
+export interface EpicColumns {
+  columns: EpicColumn[]
+  /** Numbers of the Tickets in the ready Wave. */
+  ready: ReadonlySet<number>
+  /** Why each Ticket in "Needs attention" is there. */
+  attention: ReadonlyMap<number, AttentionReason>
+}
+
+/** The columns of a frame and the Tickets in each, by number; the same for every layout of the frame. */
+export function epicColumns(tickets: readonly LayoutTicket[]): EpicColumns {
   const sorted = [...tickets].sort(byNum)
-  const doneTickets = sorted.filter((t) => t.state === 'done')
   const places = placeOpenTickets(sorted)
   const ready = new Set(readyWave(sorted, sorted[0]?.epic).ready.map((entry) => entry.num))
+  const attention = new Map<number, AttentionReason>()
+  for (const [num, place] of places) if ('attention' in place) attention.set(num, place.attention)
 
-  const columns: { column: TicketColumn; label: string; tickets: LayoutTicket[] }[] = []
+  const columns: EpicColumn[] = []
+  const doneTickets = sorted.filter((t) => t.state === 'done')
   if (doneTickets.length) columns.push({ column: { kind: 'done' }, label: 'Done', tickets: doneTickets })
   let maxLevel = -1
   for (const place of places.values()) if ('level' in place) maxLevel = Math.max(maxLevel, place.level)
@@ -188,26 +215,54 @@ export function layoutEpic({ tickets, collapsed, doneExpanded, offsets, name }: 
       const place = places.get(t.num)
       return place !== undefined && 'level' in place && place.level === level
     })
-    // The ready Wave first, so one box can hold it.
-    inLevel.sort((a, b) => Number(ready.has(b.num)) - Number(ready.has(a.num)) || a.num - b.num)
     columns.push({ column: { kind: 'level', level }, label: `Level ${level + 1}`, tickets: inLevel })
   }
-  const attention = sorted.filter((t) => {
-    const place = places.get(t.num)
-    return place !== undefined && 'attention' in place
-  })
-  if (attention.length) columns.push({ column: { kind: 'attention' }, label: 'Needs attention', tickets: attention })
+  const inAttention = sorted.filter((t) => attention.has(t.num))
+  if (inAttention.length) columns.push({ column: { kind: 'attention' }, label: 'Needs attention', tickets: inAttention })
+  return { columns, ready, attention }
+}
 
-  const placedColumns = columns.map((c, index) => ({ column: c.column, label: c.label, count: c.tickets.length, x: columnX(index) }))
-  const contentWidth = columns.length ? columnX(columns.length - 1) + TICKET_WIDTH + FRAME_PADDING : 0
-  const width = Math.max(MIN_FRAME_WIDTH, contentWidth, headerWidth(name ?? sorted[0]?.epic ?? ''))
+/** Every "Blocked by" Edge between two drawn Tickets, once per pair, as `blockingEdges` draws them. */
+export function blockingPairs(tickets: readonly LayoutTicket[], drawn: ReadonlySet<number>): { blocker: number; blocked: number }[] {
+  const pairs: { blocker: number; blocked: number }[] = []
+  for (const t of [...tickets].sort(byNum)) {
+    if (!drawn.has(t.num)) continue
+    for (const blocker of new Set(t.blockedNums)) if (blocker !== t.num && drawn.has(blocker)) pairs.push({ blocker, blocked: t.num })
+  }
+  return pairs
+}
 
-  if (collapsed) return { width, height: HEADER_HEIGHT, collapsed, columns: placedColumns, tickets: [], doneStack: null, readyWave: null }
+const columnX = (index: number) => FRAME_PADDING + index * (TICKET_WIDTH + COLUMN_GAP)
+/** A frame at least this wide shows the Epic's whole name in its header, beside the header's other parts. */
+export const headerWidth = (name: string) => (name ? HEADER_CHROME_WIDTH + Math.ceil(name.length * NAME_CHAR_WIDTH) : 0)
+const rowY = (index: number) => TICKETS_TOP + index * (TICKET_HEIGHT + ROW_GAP)
+
+/** The frame's width: its columns' or the header's, at least MIN_FRAME_WIDTH. */
+export const frameWidth = (contentWidth: number, name: string): number => Math.max(MIN_FRAME_WIDTH, contentWidth, headerWidth(name))
+
+/** The layout of a collapsed frame, or of a frame without Tickets: its header and column labels only. */
+export function headerOnly(columns: EpicColumns, collapsed: boolean, name: string): EpicLayout {
+  const placedColumns = columns.columns.map((c, index) => ({ column: c.column, label: c.label, count: c.tickets.length, x: columnX(index) }))
+  const contentWidth = columns.columns.length ? columnX(columns.columns.length - 1) + TICKET_WIDTH + FRAME_PADDING : 0
+  const width = frameWidth(contentWidth, name)
+  const height = collapsed ? HEADER_HEIGHT : TICKETS_TOP + FRAME_PADDING
+  return { width, height, collapsed, columns: placedColumns, tickets: [], doneStack: null, readyCount: 0, routes: {} }
+}
+
+/**
+ * The synchronous layout: Tickets by number in rows, Edges without a route. An Epic shows it until
+ * ELK's first answer (ADR-0037); a collapsed frame and one without Tickets always show it.
+ */
+export function layoutEpic({ tickets, collapsed, doneExpanded, name }: EpicLayoutInput): EpicLayout {
+  const columns = epicColumns(tickets)
+  const epicName = name ?? columns.columns[0]?.tickets[0]?.epic ?? ''
+  const shell = headerOnly(columns, collapsed, epicName)
+  if (collapsed || !columns.columns.length) return shell
 
   const placed: PlacedTicket[] = []
   let doneStack: EpicLayout['doneStack'] = null
   let bottom = TICKETS_TOP
-  columns.forEach((c, index) => {
+  columns.columns.forEach((c, index) => {
     const x = columnX(index)
     if (c.column.kind === 'done' && !doneExpanded) {
       doneStack = { x, y: TICKETS_TOP, width: TICKET_WIDTH, height: DONE_STACK_HEIGHT, nums: c.tickets.map((t) => t.num) }
@@ -215,39 +270,79 @@ export function layoutEpic({ tickets, collapsed, doneExpanded, offsets, name }: 
       return
     }
     c.tickets.forEach((t, row) => {
-      const auto = { x, y: rowY(row) }
-      const offset = offsets?.get(t.num)
-      const place = places.get(t.num)
-      placed.push({
-        num: t.num,
-        column: c.column,
-        auto,
-        x: auto.x + (offset?.dx ?? 0),
-        y: auto.y + (offset?.dy ?? 0),
-        ready: ready.has(t.num),
-        attention: place && 'attention' in place ? place.attention : null,
-      })
-      bottom = Math.max(bottom, auto.y + TICKET_HEIGHT)
+      const y = rowY(row)
+      placed.push({ num: t.num, column: c.column, x, y, ready: columns.ready.has(t.num), attention: columns.attention.get(t.num) ?? null })
+      bottom = Math.max(bottom, y + TICKET_HEIGHT)
     })
   })
 
-  const readyPlaced = placed.filter((t) => t.ready)
-  let readyBox: EpicLayout['readyWave'] = null
-  if (readyPlaced.length) {
-    const top = Math.min(...readyPlaced.map((t) => t.auto.y))
-    const end = Math.max(...readyPlaced.map((t) => t.auto.y + TICKET_HEIGHT))
-    const left = readyPlaced[0]!.auto.x
-    readyBox = {
-      x: left - READY_MARGIN,
-      y: top - READY_MARGIN,
-      width: TICKET_WIDTH + 2 * READY_MARGIN,
-      height: end - top + 2 * READY_MARGIN,
-      count: readyPlaced.length,
-    }
+  return {
+    ...shell,
+    height: bottom + FRAME_PADDING,
+    tickets: placed,
+    doneStack,
+    readyCount: placed.filter((t) => t.ready).length,
   }
+}
 
-  const height = columns.length ? bottom + FRAME_PADDING : TICKETS_TOP + FRAME_PADDING
-  return { width, height, collapsed, columns: placedColumns, tickets: placed, doneStack, readyWave: readyBox }
+/**
+ * A route made relative to its frame, moved to where React Flow draws its ends: shifted so that it
+ * starts at `source`, then its last point put on `target` (and the point before it moved along, so
+ * the last segment stays horizontal or vertical). Moving the frame moves the route without
+ * another layout; the handles' few pixels of difference from the Tickets' sides are absorbed by
+ * the last segment.
+ */
+export function placeRoute(points: readonly Point[], source: Point, target: Point): Point[] {
+  if (points.length < 2) return [source, target]
+  const dx = source.x - points[0]!.x
+  const dy = source.y - points[0]!.y
+  const moved = points.map((p) => ({ x: p.x + dx, y: p.y + dy }))
+  const last = moved[moved.length - 1]!
+  const before = moved[moved.length - 2]!
+  if (moved.length > 2 && before.y === last.y) before.y = target.y
+  else if (moved.length > 2 && before.x === last.x) before.x = target.x
+  moved[moved.length - 1] = { ...target }
+  // A straight route whose ends no longer line up gets an elbow halfway rather than a slant.
+  if (moved.length === 2 && source.x !== target.x && source.y !== target.y) {
+    const middle = (source.x + target.x) / 2
+    return [moved[0]!, { x: middle, y: source.y }, { x: middle, y: target.y }, moved[1]!]
+  }
+  return moved
+}
+
+/**
+ * The SVG path of an orthogonal route: straight segments joined by rounded corners. A corner's
+ * radius is at most `radius` and at most half of the shorter of its two segments, so two corners
+ * on one segment never overlap. Repeated points and points in the middle of a straight run are
+ * dropped first.
+ */
+export function orthogonalPath(points: readonly Point[], radius = EDGE_CORNER_RADIUS): string {
+  const clean: Point[] = []
+  for (const point of points) {
+    const last = clean[clean.length - 1]
+    if (last && last.x === point.x && last.y === point.y) continue
+    const before = clean[clean.length - 2]
+    // Three points in one line: the middle one is not a corner.
+    if (before && last && ((before.x === last.x && last.x === point.x) || (before.y === last.y && last.y === point.y))) clean[clean.length - 1] = point
+    else clean.push(point)
+  }
+  const fmt = (n: number) => String(Math.round(n * 100) / 100)
+  const at = (p: Point) => `${fmt(p.x)} ${fmt(p.y)}`
+  if (clean.length === 0) return ''
+  let path = `M ${at(clean[0]!)}`
+  for (let i = 1; i < clean.length - 1; i += 1) {
+    const prev = clean[i - 1]!
+    const corner = clean[i]!
+    const next = clean[i + 1]!
+    const into = Math.hypot(corner.x - prev.x, corner.y - prev.y)
+    const out = Math.hypot(next.x - corner.x, next.y - corner.y)
+    const r = Math.min(radius, into / 2, out / 2)
+    const enter = { x: corner.x - ((corner.x - prev.x) / into) * r, y: corner.y - ((corner.y - prev.y) / into) * r }
+    const leave = { x: corner.x + ((next.x - corner.x) / out) * r, y: corner.y + ((next.y - corner.y) / out) * r }
+    path += ` L ${at(enter)} Q ${at(corner)} ${at(leave)}`
+  }
+  if (clean.length > 1) path += ` L ${at(clean[clean.length - 1]!)}`
+  return path
 }
 
 /** An Epic whose every Ticket is done starts collapsed, unless the user opened it. */

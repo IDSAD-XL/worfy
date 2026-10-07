@@ -252,29 +252,26 @@ test('a terminal Session with three Subagents: the tree from its files, REJECTED
     await expect(reviewer.getByTestId('subagent-kind')).toHaveText('reviewer · claude-opus-5-5')
     await window.screenshot({ path: test.info().outputPath('subagent-tree-files.png') })
 
-    // A Node moved by hand keeps its place: the offset goes into the Session's subagent-tree Node.
+    // A Subagent's Node is not moved by hand (ADR-0037): dragged 200 px and dropped on nothing, it
+    // goes back to its place, and the Layout's Nodes do not change.
+    const layoutNow = () =>
+      window.evaluate(async (projectId) => {
+        const bridge = (globalThis as unknown as { worfy: Bridge }).worfy
+        return JSON.stringify(((await bridge.invoke('layout.get', { projectId })).value as { layout: { nodes: unknown[] } }).layout.nodes)
+      }, PROJECT)
+    const savedBefore = await layoutNow()
     const before = (await reviewer.boundingBox())!
     await window.mouse.move(before.x + 40, before.y + 12)
     await window.mouse.down()
-    await window.mouse.move(before.x + 40, before.y + 212, { steps: 8 })
+    await window.mouse.move(before.x + 40 + 200, before.y + 212, { steps: 8 })
     await window.mouse.up()
-    const offset = () =>
-      window.evaluate(
-        async ({ projectId, id }) => {
-          const bridge = (globalThis as unknown as { worfy: Bridge }).worfy
-          const result = await bridge.invoke('layout.get', { projectId })
-          const nodes = (result.value as { layout: { nodes: { id: string; kind: string; data: Record<string, unknown> }[] } }).layout.nodes
-          const saved = nodes.find((node) => node.id === id)
-          return saved ? { kind: saved.kind, offset: saved.data['offset:toolu_01S7AGENT3XXXXXXXXXXXXXX'] ?? null } : null
-        },
-        { projectId: PROJECT, id: `subagents:${S7}` },
-      )
-    // React Flow's drag threshold and the zoom make the exact numbers vary; the direction does not.
-    await expect.poll(async () => ((await offset())?.offset as { dy?: number } | null)?.dy ?? 0).toBeGreaterThan(200)
-    expect((await offset())?.kind).toBe('subagent-tree')
-    // After the Layout came back from main the Node stays where it was dropped.
     await canvasReady(launched)
-    expect((await reviewer.boundingBox())!.y).toBeGreaterThan(before.y + 100)
+    // Long enough for a save to have gone through main (LAYOUT_SAVE_DELAY_MS is 250 ms).
+    await window.waitForTimeout(500)
+    const after = (await reviewer.boundingBox())!
+    expect({ x: Math.round(after.x), y: Math.round(after.y) }).toEqual({ x: Math.round(before.x), y: Math.round(before.y) })
+    expect(JSON.parse(await layoutNow()) as unknown).toEqual(JSON.parse(savedBefore) as unknown)
+    expect(await layoutNow()).not.toContain('subagent-tree')
 
     // A click opens the reviewer's own transcript, read-only.
     await reviewer.getByTestId('subagent-open').click()

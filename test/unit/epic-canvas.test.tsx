@@ -1,12 +1,25 @@
 // The pieces between the workflow model and the Canvas: the delta applied in the renderer, the
 // Epic node source (what it builds and what it keeps from the Layout), and the blocking arrows.
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { ReactFlowProvider, type EdgeProps } from '@xyflow/react'
+import ELK from 'elkjs/lib/elk.bundled.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Layout, LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 import type { Epic, Ticket, WorkflowModel } from '../../src/shared/workflow/types'
+import RoutedEdge from '../../src/renderer/canvas/edge-types/RoutedEdge'
 import blockingEdges from '../../src/renderer/canvas/edges/blocking'
-import epicSource, { buildEpicNodes, epicNodeId, ticketNodeId, type EpicFrameData, type TicketNodeData } from '../../src/renderer/canvas/sources/epics'
+import { setElkEngine, useElkAnswers } from '../../src/renderer/canvas/elk/client'
+import { layoutEpicElk, type ElkEngine } from '../../src/renderer/canvas/elk/layout'
+import { collectEdgeTypes, edgeTypes } from '../../src/renderer/canvas/extensions'
+import EpicFrameNode from '../../src/renderer/canvas/nodes/EpicFrameNode'
+import TicketNode from '../../src/renderer/canvas/nodes/TicketNode'
+import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
+import epicSource, { buildEpicNodes, epicNodeId, requestEpicLayouts, ticketNodeId, type EpicFrameData, type TicketNodeData } from '../../src/renderer/canvas/sources/epics'
 import { applyWorkflowDelta } from '../../src/renderer/workflow/useWorkflow'
-import { headerWidth, MIN_FRAME_WIDTH } from '../../src/renderer/canvas/epic-layout'
+import { headerWidth, layoutEpic, MIN_FRAME_WIDTH, orthogonalPath, placeRoute } from '../../src/renderer/canvas/epic-layout'
+
+// The badges and actions on a Ticket and a frame are other tickets' business: none here.
+vi.mock('../../src/renderer/canvas/badges', () => ({ actions: [], badges: [] }))
 
 // The Layout operations the source sends to main, recorded instead of sent; each one succeeds.
 const applied = vi.hoisted(() => [] as { projectId: string; op: unknown }[])
@@ -118,18 +131,18 @@ describe('the Epic node source', () => {
     expect(next[4]).not.toBe(nodes[4])
   })
 
-  it('reads the frame offset, collapsed flag and Ticket offsets from the Epic’s Layout Node', () => {
+  it('reads only the frame offset and the collapsed flag from the Epic’s Layout Node; a Ticket offset left by an older version moves nothing', () => {
     const id = freshProject()
-    const saved = layoutWith([{ id: epicNodeId('a'), x: 30, y: -20, data: { 'offset:2': { dx: 15, dy: 25 }, 'offset:x': { dx: 1, dy: 1 }, 'offset:1': 'junk' } }])
+    const saved = layoutWith([{ id: epicNodeId('a'), x: 30, y: -20, data: { 'offset:2': { dx: 15, dy: 25 }, 'offset:1': 'junk' } }])
     const tickets = [ticket('a', 1), ticket('a', 2)]
     const plain = buildEpicNodes(id, '/repo', model(tickets, ['a']), layoutWith(), {})
     const moved = buildEpicNodes(id, '/repo', model(tickets, ['a']), saved, {})
     expect(moved[0]!.position).toEqual({ x: 30, y: -20 })
     expect((moved[0]!.data.node.data as EpicFrameData).auto).toEqual({ x: 0, y: 0 })
     expect(moved[0]!.data.node.data.saved).toBe(true)
-    expect(moved[2]!.position).toEqual({ x: plain[2]!.position.x + 15, y: plain[2]!.position.y + 25 })
-    // A malformed entry is ignored, not a crash.
+    // The Tickets sit where the layout puts them, relative to the frame.
     expect(moved[1]!.position).toEqual(plain[1]!.position)
+    expect(moved[2]!.position).toEqual(plain[2]!.position)
 
     const collapsed = buildEpicNodes(id, '/repo', model(tickets, ['a']), layoutWith([{ id: epicNodeId('a'), data: { collapsed: true } }]), {})
     expect(collapsed.map((n) => n.id)).toEqual([epicNodeId('a')])
@@ -196,16 +209,21 @@ describe('dropping an Epic frame', () => {
     expect(applied[1]).toEqual({ projectId: id, op: { op: 'move', id: epicNodeId('b'), x: 30, y: 30 } })
   })
 
-  it('saves a dropped Ticket’s offset from its automatic place in the Epic’s Node', async () => {
+  it('does not let a Ticket be dragged, and saves nothing for one that is dropped anyway', async () => {
     const id = freshProject()
     const saved = layoutWith([{ id: epicNodeId('a') }])
     const nodes = buildEpicNodes(id, '/repo', model([ticket('a', 1), ticket('a', 2, { blockedNums: [1] })], ['a']), saved, {})
     const two = nodes.find((n) => n.id === ticketNodeId('a', 2))!
-    const auto = (two.data.node.data as TicketNodeData).placed.auto
-    expect(auto.x).toBeGreaterThan(0)
-    epicSource.moved({ projectId: id, layout: saved }, { ...two, position: { x: auto.x + 7, y: auto.y - 3 } })
-    await vi.waitFor(() => expect(applied).toHaveLength(1))
-    expect(applied[0]).toEqual({ projectId: id, op: { op: 'patchData', id: epicNodeId('a'), data: { 'offset:2': { dx: 7, dy: -3 } } } })
+    expect(two.draggable).toBe(false)
+    // Still selectable: Ticket 05 of worfy-week shows a selected Ticket's chain.
+    expect(two.selectable).not.toBe(false)
+    // The frame is dragged by its header.
+    expect(nodes[0]!.draggable).not.toBe(false)
+    expect(nodes[0]!.dragHandle).toBe('.w-epic__drag')
+    // Dropped anyway: the source keeps no place for it, so the Canvas puts it back (Canvas.tsx).
+    expect(epicSource.moved({ projectId: id, layout: saved }, { ...two, position: { x: two.position.x + 7, y: two.position.y - 3 } })).toBe(false)
+    await new Promise((wake) => setTimeout(wake, 10))
+    expect(applied).toEqual([])
   })
 })
 
@@ -262,5 +280,204 @@ describe('the Epic node source and the Nodes on the plane (ADR-0032)', () => {
     expect(folded.height! + 48).toBeLessThan(between.y)
     expect(folded.position).toEqual({ x: 100 + 50 + 48, y: 0 })
     expect(open.position).toEqual(folded.position)
+  })
+})
+
+// ── ELK, Ready chips and routed Edges (ADR-0037) ────────────────────────────
+
+describe('the Epic node source and ELK in a worker (ADR-0037)', () => {
+  afterEach(() => setElkEngine(null))
+
+  // By number, 02 → 04, 03 → 05 and 01 → 06 cross; ELK orders Level 2 differently.
+  const six = [
+    ticket('a', 1),
+    ticket('a', 2),
+    ticket('a', 3),
+    ticket('a', 4, { blockedNums: [2], blockedRaw: '2' }),
+    ticket('a', 5, { blockedNums: [3], blockedRaw: '3' }),
+    ticket('a', 6, { blockedNums: [1], blockedRaw: '1' }),
+  ]
+  const markDone = (tickets: Ticket[], num: number) => tickets.map((t) => (t.num === num ? { ...t, state: 'done' as const, statusRaw: 'done' } : t))
+  /** Where each drawn Ticket is, relative to its frame. */
+  const places = (nodes: ReturnType<typeof buildEpicNodes>) => Object.fromEntries(nodes.filter((n) => n.type === 'ticket').map((n) => [n.id, n.position]))
+  const elkPlaces = async (tickets: Ticket[]) =>
+    Object.fromEntries((await layoutEpicElk({ tickets, doneExpanded: false, name: 'a' }, new ELK())).tickets.map((t) => [ticketNodeId('a', t.num), { x: t.x, y: t.y }]))
+
+  it('shows the synchronous places until the first answer, the last answer’s places while a newer request is out, and drops a stale answer', async () => {
+    const real = new ELK()
+    // ELK that answers only when the test lets it.
+    const held: (() => void)[] = []
+    const slow: ElkEngine = { layout: (graph) => new Promise((resolve, reject) => held.push(() => void real.layout(graph).then(resolve, reject))) }
+    setElkEngine(slow)
+    const id = freshProject()
+    const build = (tickets: Ticket[]) => buildEpicNodes(id, '/repo', model(tickets, ['a']), layoutWith(), {}, [], useElkAnswers.getState()[id])
+    const answered = (count: number) => vi.waitFor(() => expect(Object.keys(useElkAnswers.getState()[id] ?? {}).length === count && useElkAnswers.getState()[id]!.a!.key).toBeTruthy())
+
+    // Before any answer: the synchronous layout, Tickets by number.
+    const sync = places(build(six))
+    expect(sync).toEqual(Object.fromEntries(layoutEpic({ tickets: six, collapsed: false, doneExpanded: false }).tickets.map((t) => [ticketNodeId('a', t.num), { x: t.x, y: t.y }])))
+    requestEpicLayouts(id)
+    // Nothing is done: one layout, with the done stack folded.
+    expect(held).toHaveLength(1)
+    // The same inputs are not asked again.
+    requestEpicLayouts(id)
+    expect(held).toHaveLength(1)
+    expect(places(build(six))).toEqual(sync)
+    held.shift()!()
+    await answered(1)
+    const first = places(build(six))
+    expect(first).toEqual(await elkPlaces(six))
+    expect(first).not.toEqual(sync)
+
+    // 01 is done: until the answer, every Ticket keeps the first answer's place, 01 included.
+    const after = markDone(six, 1)
+    expect(places(build(after))).toEqual(first)
+    requestEpicLayouts(id)
+    // A done Ticket: the folded and the open stack are asked for together.
+    expect(held).toHaveLength(2)
+    const stale = useElkAnswers.getState()[id]!.a
+    // 02 is done too before ELK answered: a newer request replaces the one for `after`.
+    const later = markDone(after, 2)
+    expect(places(build(later))).toEqual(first)
+    requestEpicLayouts(id)
+    expect(held).toHaveLength(4)
+
+    // The answer for `after` comes first and is dropped: still the first answer's places.
+    held.shift()!()
+    held.shift()!()
+    await new Promise((wake) => setTimeout(wake, 50))
+    expect(useElkAnswers.getState()[id]!.a).toBe(stale)
+    expect(places(build(later))).toEqual(first)
+
+    // The answer for `later` replaces the places at once.
+    held.shift()!()
+    held.shift()!()
+    await vi.waitFor(() => expect(useElkAnswers.getState()[id]!.a).not.toBe(stale))
+    const final = places(build(later))
+    expect(final).toEqual(await elkPlaces(later))
+    expect(final).not.toEqual(first)
+  })
+
+  it('gives every blocking Edge the route ELK made for it, drawn by the routed Edge type', async () => {
+    setElkEngine(new ELK())
+    const id = freshProject()
+    buildEpicNodes(id, '/repo', model(six, ['a']), layoutWith(), {})
+    requestEpicLayouts(id)
+    await vi.waitFor(() => expect(useElkAnswers.getState()[id]?.a).toBeDefined())
+    const answer = useElkAnswers.getState()[id]!.a!
+    const edges = blockingEdges(buildEpicNodes(id, '/repo', model(six, ['a']), layoutWith(), {}, [], useElkAnswers.getState()[id]).map((n) => n.data.node))
+    expect(edges.map((e) => e.id).sort()).toEqual(['blocks:a/1->6', 'blocks:a/2->4', 'blocks:a/3->5'])
+    for (const edge of edges) {
+      expect(edge.type).toBe('routed')
+      const { blocker, blocked, route } = edge.data as { blocker: number; blocked: number; route: unknown }
+      expect(route).toEqual(answer.folded.routes[`${blocker}->${blocked}`])
+    }
+    // Before ELK's answer an Edge has no route: drawn between the handles.
+    const before = blockingEdges(buildEpicNodes(freshProject(), '/repo', model(six, ['a']), layoutWith(), {}).map((n) => n.data.node))
+    expect(before.every((e) => e.type === 'routed' && (e.data as { route?: unknown }).route === undefined)).toBe(true)
+  })
+
+  it('asks nothing for a collapsed frame', () => {
+    const held: unknown[] = []
+    setElkEngine({ layout: (graph) => (held.push(graph), new Promise(() => undefined)) })
+    const id = freshProject()
+    buildEpicNodes(id, '/repo', model(six, ['a']), layoutWith([{ id: epicNodeId('a'), data: { collapsed: true } }]), {})
+    requestEpicLayouts(id)
+    expect(held).toEqual([])
+  })
+})
+
+describe('ready Tickets', () => {
+  const tickets = [ticket('a', 1), ticket('a', 2), ticket('a', 3, { blockedNums: [1], blockedRaw: '1' })]
+
+  it('marks each ready Ticket with a "Ready" chip, and the frame has no ready-Wave box, only its "Ready wave · N" chip', () => {
+    const nodes = buildEpicNodes(freshProject(), '/repo', model(tickets, ['a']), layoutWith(), {})
+    const props = (node: (typeof nodes)[number]) => ({ id: node.id, data: node.data, selected: false }) as unknown as CanvasNodeProps
+    for (const node of nodes.filter((n) => n.type === 'ticket')) {
+      const { unmount } = render(
+        <ReactFlowProvider>
+          <TicketNode {...props(node)} />
+        </ReactFlowProvider>,
+      )
+      const ready = (node.data.node.data as TicketNodeData).placed.ready
+      expect(screen.getByTestId('ticket-node').getAttribute('data-ready')).toBe(ready ? 'true' : null)
+      expect(screen.queryByTestId('ticket-ready')?.textContent ?? null).toBe(ready ? 'Ready' : null)
+      unmount()
+    }
+    expect(nodes.filter((n) => n.type === 'ticket' && (n.data.node.data as TicketNodeData).placed.ready).map((n) => n.id)).toEqual([ticketNodeId('a', 1), ticketNodeId('a', 2)])
+
+    render(
+      <ReactFlowProvider>
+        <EpicFrameNode {...props(nodes[0]!)} />
+      </ReactFlowProvider>,
+    )
+    expect(screen.queryByTestId('ready-wave')).toBeNull()
+    expect(screen.getByText(/Ready wave ·/).textContent).toBe('Ready wave · 2')
+  })
+})
+
+describe('edge types', () => {
+  it('finds each edge type by its file and refuses a module without a component or a kind', () => {
+    expect(Object.keys(edgeTypes)).toContain('routed')
+    const Dummy = () => null
+    expect(collectEdgeTypes({ './edge-types/AEdge.tsx': { kind: 'a', default: Dummy } })).toEqual({ a: Dummy })
+    expect(() => collectEdgeTypes({ './edge-types/AEdge.tsx': { kind: 'a' } })).toThrow(/must default-export/)
+    expect(() => collectEdgeTypes({ './edge-types/AEdge.tsx': { kind: 'Not A Kind', default: Dummy } })).toThrow(/must export a `kind`/)
+    expect(() => collectEdgeTypes({ './edge-types/AEdge.tsx': { kind: 'a', default: Dummy }, './edge-types/BEdge.tsx': { kind: 'a', default: Dummy } })).toThrow(/both declare edge kind 'a'/)
+  })
+
+  it('draws a route moved to where the source handle is, with rounded corners; without a route, a curve between the handles', () => {
+    const route = [
+      { x: 220, y: 172 },
+      { x: 236, y: 172 },
+      { x: 236, y: 344 },
+      { x: 244, y: 344 },
+    ]
+    const edgeProps = (data: Record<string, unknown>) =>
+      ({ id: 'e', source: 's', target: 't', sourceX: 1220, sourceY: 1172, targetX: 1244, targetY: 1344, sourcePosition: 'right', targetPosition: 'left', data, markerEnd: 'url(#m)' }) as unknown as EdgeProps
+    const { container } = render(
+      <svg>
+        <RoutedEdge {...edgeProps({ route })} />
+      </svg>,
+    )
+    const path = container.querySelector('path.react-flow__edge-path')!
+    expect(path.getAttribute('data-routed')).toBe('true')
+    // The frame is at (1000, 1000): the route is shifted by it, as a dragged frame's would be.
+    expect(path.getAttribute('d')).toBe(orthogonalPath(route.map((p) => ({ x: p.x + 1000, y: p.y + 1000 }))))
+    expect(path.getAttribute('d')).toContain('Q')
+    expect(path.getAttribute('marker-end')).toBe('url(#m)')
+
+    const { container: plain } = render(
+      <svg>
+        <RoutedEdge {...edgeProps({})} />
+      </svg>,
+    )
+    expect(plain.querySelector('path.react-flow__edge-path')!.getAttribute('data-routed')).toBe('false')
+  })
+
+  it('keeps the last segment straight when the handle is a little off the route’s end', () => {
+    const moved = placeRoute(
+      [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 10, y: 50 },
+        { x: 30, y: 50 },
+      ],
+      { x: 100, y: 100 },
+      { x: 127, y: 152 },
+    )
+    expect(moved).toEqual([
+      { x: 100, y: 100 },
+      { x: 110, y: 100 },
+      { x: 110, y: 152 },
+      { x: 127, y: 152 },
+    ])
+    // Two points whose ends no longer line up get an elbow, not a slant.
+    expect(placeRoute([{ x: 0, y: 0 }, { x: 20, y: 0 }], { x: 0, y: 0 }, { x: 20, y: 4 })).toEqual([
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 4 },
+      { x: 20, y: 4 },
+    ])
   })
 })

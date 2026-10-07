@@ -2,7 +2,7 @@
 // registerIpc (the same wrapper the app uses) over a mocked `electron`, the shared store from
 // src/main/layout/store.ts called directly as later parts of main (MCP tools) will call it, and a
 // temporary WORFY_DATA_DIR. main is the only writer of layout.json (ADR-0003).
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -290,6 +290,70 @@ describe('layout store: schema at the boundary', () => {
     const state = await value('layout.get', { projectId: PROJECT })
     expect(state.layout).toEqual({ nodes: [], viewport: { x: 0, y: 0, zoom: 1 } })
     expect(readdirSync(join(dataDir, PROJECT)).some((name) => name.startsWith('layout.json.unreadable-'))).toBe(true)
+  })
+})
+
+describe('layout store: what an older version kept and this one drops (ADR-0037)', () => {
+  const SESSION = 'b2c3d4e5-0000-4000-8000-000000000001'
+  const OLD = new Date('2026-10-01T00:00:00Z')
+
+  it('removes Ticket offsets from the Epic frames and the subagent-tree Nodes once, with one log line; the frame keeps x, y and collapsed; a second read writes nothing', async () => {
+    const before = {
+      nodes: [
+        { id: 'epic:worfy-mvp', kind: 'epic-frame', x: 30, y: -20, w: 1, h: 1, hidden: false, locked: true, pinned: false, tags: [], data: { collapsed: true, 'offset:3': { dx: 5, dy: 6 }, 'offset:12': { dx: 1, dy: 2 } } },
+        { id: 'epic:demo', kind: 'epic-frame', x: 7, y: 8, w: 1, h: 1, hidden: false, locked: true, pinned: false, tags: [], data: { collapsed: false } },
+        { id: `subagents:${SESSION}`, kind: 'subagent-tree', x: 0, y: 0, w: 1, h: 1, hidden: false, locked: true, pinned: false, tags: [], data: { 'offset:toolu_1': { dx: 5, dy: 6 } } },
+        { id: 'n1', kind: 'note', x: 40, y: 40, w: 220, h: 120, hidden: false, locked: false, pinned: false, tags: [], data: { text: 'kept', 'offset:3': 'a note may hold any key' } },
+      ],
+      viewport: { x: 1, y: 2, zoom: 1 },
+    }
+    writeFileSync(layoutFile(), JSON.stringify(before))
+    utimesSync(layoutFile(), OLD, OLD)
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    try {
+      const state = await value('layout.get', { projectId: PROJECT })
+      expect(state.revision).toBe(0)
+      expect(state.layout.nodes.map((node) => node.id)).toEqual(['epic:worfy-mvp', 'epic:demo', 'n1'])
+      expect(nodeOf(state.layout, 'epic:worfy-mvp')).toMatchObject({ kind: 'epic-frame', x: 30, y: -20, data: { collapsed: true } })
+      expect(nodeOf(state.layout, 'epic:worfy-mvp')!.data).toEqual({ collapsed: true })
+      expect(nodeOf(state.layout, 'epic:demo')).toEqual(layoutSchema.parse(before).nodes[1])
+      // Only the frames lose `offset:*` keys.
+      expect(nodeOf(state.layout, 'n1')!.data).toEqual({ text: 'kept', 'offset:3': 'a note may hold any key' })
+      expect(state.layout.viewport).toEqual(before.viewport)
+      // One line for the Project, naming what went.
+      expect(info.mock.calls.map((args) => String(args[0]))).toEqual([expect.stringMatching(new RegExp(`^\\[layout\\] ${PROJECT}: removed 2 Ticket offset\\(s\\) from Epic frames and 1 Subagent tree Node\\(s\\)`))])
+      // Written right away, not as an operation: nothing broadcast, nothing for ⌘Z.
+      expect(onDisk()).toEqual(state.layout)
+      expect(statSync(layoutFile()).mtimeMs).toBeGreaterThan(OLD.getTime())
+      expect(electron.sent).toEqual([])
+
+      // The next start reads a clean file and neither writes it nor logs.
+      utimesSync(layoutFile(), OLD, OLD)
+      const written = readFileSync(layoutFile(), 'utf8')
+      info.mockClear()
+      await start()
+      expect((await value('layout.get', { projectId: PROJECT })).layout).toEqual(state.layout)
+      store.flushAll()
+      expect(statSync(layoutFile()).mtimeMs).toBe(OLD.getTime())
+      expect(readFileSync(layoutFile(), 'utf8')).toBe(written)
+      expect(info).not.toHaveBeenCalled()
+    } finally {
+      info.mockRestore()
+    }
+  })
+
+  it('leaves a Layout with nothing to drop as it is on disk', async () => {
+    writeFileSync(layoutFile(), JSON.stringify({ nodes: [{ id: 'epic:demo', kind: 'epic-frame', x: 3, y: 4, w: 1, h: 1, locked: true, data: { collapsed: true } }], viewport: { x: 0, y: 0, zoom: 1 } }))
+    utimesSync(layoutFile(), OLD, OLD)
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    try {
+      expect((await value('layout.get', { projectId: PROJECT })).layout.nodes[0]).toMatchObject({ x: 3, y: 4, data: { collapsed: true } })
+      store.flushAll()
+      expect(statSync(layoutFile()).mtimeMs).toBe(OLD.getTime())
+      expect(info).not.toHaveBeenCalled()
+    } finally {
+      info.mockRestore()
+    }
   })
 })
 

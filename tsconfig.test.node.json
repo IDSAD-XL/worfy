@@ -9,6 +9,7 @@
     "src/shared/**/*.ts",
     "src/card-runtime/**/*.ts",
     "src/renderer/canvas/epic-layout.ts",
+    "src/renderer/canvas/elk/layout.ts",
     "src/renderer/focus/split-tree.ts",
     "src/renderer/canvas/card-bridge.ts",
     "src/renderer/canvas/history.ts",
