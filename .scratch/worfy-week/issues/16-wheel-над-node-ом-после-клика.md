@@ -1,7 +1,7 @@
 # 16 — Wheel над Node-ом двигает Canvas; прокрутка содержимого — только после клика по Node-у
 
 Type: task
-Status: open
+Status: done — 2026-10-07, [PR #123](https://github.com/IDSAD-XL/worfy/pull/123)
 Blocked by: —
 Source: замечание владельца 2026-10-07 («если курсор стоит на некоторых нодах типа оркестратора или handoff, то свайпами двумя пальцами не работает перемещение. с handoff понятно, потому что там скролл, поэтому возможность скроллить нужно сделать только после клика на ноду»); [spec.md](../spec.md), этап 3
 
@@ -89,17 +89,17 @@ Canvas двигается wheel-ом и свайпом двумя пальцам
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/wheel-router.test.ts`: функция решения на все ветки правила пункта 2, в том числе Session (`.nowheel` у ответа — тот же путь, что у HANDOFF; в e2e Session нет) и активный Node без переполнения.
-- [ ] e2e `test/e2e/wheel-over-nodes.spec.ts` (локально, в gate full): для HANDOFF, Note, Card и Terminal до клика wheel над содержимым меняет transform `.react-flow__viewport`, прокрутка содержимого прежняя (у Card — счётчик wheel страницы, у Terminal — верхняя строка `.xterm-rows`). После клика у Node-а класс `w-node--active`, тот же wheel прокручивает содержимое, viewport стоит. Для Terminal wheel вверх (`wheel(0, -120)`): после вывода он уже внизу.
-- [ ] Тот же spec: Orchestrator с блоком без переполнения — wheel над блоком двигает viewport и до клика, и после.
-- [ ] Тот же spec: pinch (`Control` + wheel) над активными HANDOFF, Note и Terminal меняет scale Canvas; над активной Card — scale прежний, счётчик wheel страницы растёт. ⌘+wheel над активным Terminal с фокусом в xterm меняет scale.
-- [ ] Тот же spec: Esc снимает активность у HANDOFF и Note, у Terminal — нет; клик по пустому Canvas снимает у всех; после этого wheel снова двигает Canvas.
-- [ ] Тот же spec: неактивный Terminal с программой в alt buffer (`printf '\033[?1049h'; cat -v`) после wheel не показывает `^[[A`/`^[[B`; активный — показывает.
-- [ ] Тот же spec: в Focus mode тело HANDOFF в плитке прокручивается от wheel.
-- [ ] e2e `test/e2e/card-drag.spec.ts` зелёный: helper `clickReachesCard` (`:138`) сначала кликом активирует Card, потом проверяет, что клик дошёл до страницы.
-- [ ] Прежние e2e зелёные: `test/e2e/canvas-layout.spec.ts`, `test/e2e/terminal.spec.ts`, `test/e2e/focus.spec.ts`, `test/e2e/handoff.spec.ts`, `test/e2e/orchestrator.spec.ts`.
-- [ ] Снимки активного и выделенного неактивного Node-а в светлой и тёмной теме (helper `test/e2e/snapshots.ts`); ссылка из «Итог» — `../evidence/16-активный-node.png`.
-- [ ] `pnpm lint`, `pnpm typecheck` и `pnpm test` — exit 0.
+- [x] Unit `test/unit/wheel-router.test.ts`: функция решения на все ветки правила пункта 2, в том числе Session (`.nowheel` у ответа — тот же путь, что у HANDOFF; в e2e Session нет) и активный Node без переполнения.
+- [x] e2e `test/e2e/wheel-over-nodes.spec.ts` (локально, в gate full): для HANDOFF, Note, Card и Terminal до клика wheel над содержимым меняет transform `.react-flow__viewport`, прокрутка содержимого прежняя (у Card — счётчик wheel страницы, у Terminal — верхняя строка `.xterm-rows`). После клика у Node-а класс `w-node--active`, тот же wheel прокручивает содержимое, viewport стоит. Для Terminal wheel вверх (`wheel(0, -120)`): после вывода он уже внизу.
+- [x] Тот же spec: Orchestrator с блоком без переполнения — wheel над блоком двигает viewport и до клика, и после.
+- [x] Тот же spec: pinch (`Control` + wheel) над активными HANDOFF, Note и Terminal меняет scale Canvas; над активной Card — scale прежний, счётчик wheel страницы растёт. ⌘+wheel над активным Terminal с фокусом в xterm меняет scale.
+- [x] Тот же spec: Esc снимает активность у HANDOFF и Note, у Terminal — нет; клик по пустому Canvas снимает у всех; после этого wheel снова двигает Canvas.
+- [x] Тот же spec: неактивный Terminal с программой в alt buffer (`printf '\033[?1049h'; cat -v`) после wheel не показывает `^[[A`/`^[[B`; активный — показывает.
+- [x] Тот же spec: в Focus mode тело HANDOFF в плитке прокручивается от wheel.
+- [x] e2e `test/e2e/card-drag.spec.ts` зелёный: helper `clickReachesCard` (`:138`) сначала кликом активирует Card, потом проверяет, что клик дошёл до страницы.
+- [x] Прежние e2e зелёные: `test/e2e/canvas-layout.spec.ts`, `test/e2e/terminal.spec.ts`, `test/e2e/focus.spec.ts`, `test/e2e/handoff.spec.ts`, `test/e2e/orchestrator.spec.ts`.
+- [x] Снимки активного и выделенного неактивного Node-а в светлой и тёмной теме (helper `test/e2e/snapshots.ts`); ссылка из «Итог» — `../evidence/16-активный-node.png`.
+- [x] `pnpm lint`, `pnpm typecheck` и `pnpm test` — exit 0.
 - [ ] (вручную) Stable copy после влития, trackpad: свайп двумя пальцами над Orchestrator, HANDOFF, Card и Terminal двигает Canvas до клика и прокручивает содержимое после (Orchestrator — двигает и после); pinch зумит Canvas над любым Node-ом, кроме активной Card. Как проверить: окно приложения.
 
 ## Тесты
@@ -135,6 +135,13 @@ Canvas двигается wheel-ом и свайпом двумя пальцам
 
 ## Итог
 
+**Влито.** [PR #123](https://github.com/IDSAD-XL/worfy/pull/123), merge 12faaee. Ревью — VERIFIED с
+первого круга, без доработки: двойной прокрутки нет, listener снимается при unmount, правило iframe
+Ticket-а 09 и snapping/resize Ticket-а 06 целы; остальные изменения поведения требует тикет (⌘+wheel
+зумит, первый клик активирует Card, неактивный Terminal не получает wheel). Перед мержем ветка
+перебазирована на `origin/main` e566ec2, head 93d9cc9: `GATE_SCOPE=all gate.sh full` — exit 0 (прогон
+ниже, в «Проверки», — до rebase), CI — зелёный.
+
 - **Активный Node** — `Canvas.tsx`: `activeNodeId` и ref; ставит `onNodeClick` без модификаторов, снимают
   `onPaneClick`, pointerdown вне активного Node-а (window, capture), Esc на window (кроме фокуса в
   `.w-terminal`) и снятие выделения средствами React Flow (изменение `select` в `onNodesChange`: выделенный
@@ -165,3 +172,13 @@ Canvas двигается wheel-ом и свайпом двумя пальцам
   `card-drag.spec.ts` с `--repeat-each=3` — 33 из 33.
 - Пункт «(вручную) Stable copy после влития, trackpad» — не проверено: нужна сборка после мержа и trackpad
   владельца; e2e проверяет те же ветки колесом мыши Playwright.
+
+**Долг** (все low, из вердикта ревью).
+
+- `src/renderer/canvas/nodes/CardNode.tsx:191` — `nodrag` у тела Card зависит только от zoom: Card в
+  состоянии error, files-missing или loading нельзя тянуть за тело. `nodrag` нужен только когда
+  рисуется iframe.
+- `src/renderer/canvas/Canvas.tsx:297` — снятие активности при снятии выделения (unselect) не покрыто
+  test-ом: мутант выживает. Проверка — ⌘-клик дважды, Node должен остаться неактивным.
+- `src/renderer/canvas/wheel-router.ts:140` — координаты переотправленного события колеса не покрыты
+  test-ом: мутант с `event.clientX` выживает. Нужен ⌘+wheel над Terminal при zoom ≠ 1.
