@@ -163,11 +163,11 @@ export interface NodeMove {
 
 /**
  * The Layout's Nodes with their overlaps removed (decision 27 of the owner): the Nodes on the plane
- * are taken in the order of `nodes`, that is, the order they were created in, and a Node closer
- * than the gap to one taken before it goes to its nearest clear place. That place keeps clear of
- * the Nodes taken before it, where they ended up, and of the Nodes after it, where they are now:
- * a moved Node never lands on a later Node that crowded nothing, so only the later Node of each
- * crowded pair moves. The others stay. Nodes off the plane are neither moved nor in the way.
+ * are taken in the order of `nodes`, that is, the order they were created in. A Node moves only
+ * when it is closer than the gap to where a Node taken before it ended up; it goes to its nearest
+ * place clear of the earlier Nodes where they ended up and of the later Nodes where they are now,
+ * so it never lands on a later Node that crowded nothing. The others stay; a later Node that
+ * crowded only a Node that moved away stays too. Nodes off the plane are neither moved nor in the way.
  * Running it on its own answer moves nothing.
  */
 export function removeOverlaps(nodes: readonly LayoutNode[], gap: number = NODE_GAP): { nodes: LayoutNode[]; moves: NodeMove[] } {
