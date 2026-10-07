@@ -389,12 +389,12 @@ describe('dragging a Node on the Canvas (worfy-week ticket 06)', () => {
     const canvas = await renderCanvas('snap-meta-0000', [node('n', 'note', 0, { text: '' }), { ...node('m', 'note', 300, { text: '' }), y: 0 }])
     try {
       let guides = -1
-      // The top edges are 21 apart; with ⌘ nothing would stick anyway, and nothing is drawn.
-      await drag('n', { x: 0, y: 0 }, { x: 13, y: 3 }, { metaKey: true }, () => {
+      // Without ⌘ the grid would take it to (16, 24); with ⌘ nothing snaps and nothing is drawn.
+      await drag('n', { x: 0, y: 0 }, { x: 13, y: 21 }, { metaKey: true }, () => {
         guides = document.querySelectorAll('[data-testid="snap-guide"]').length
       })
       expect(guides).toBe(0)
-      expect(canvas.sent).toEqual([{ op: 'move', id: 'n', x: 13, y: 3 }])
+      expect(canvas.sent).toEqual([{ op: 'move', id: 'n', x: 13, y: 21 }])
     } finally {
       canvas.cleanup()
     }
