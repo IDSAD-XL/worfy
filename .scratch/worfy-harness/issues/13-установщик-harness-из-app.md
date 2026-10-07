@@ -1,7 +1,7 @@
 # 13 — Установщик: worfy ставит Harness своей версии как plugin `worfy`
 
 Type: task
-Status: claimed — 2026-10-07
+Status: done — 2026-10-07, [PR #132](https://github.com/IDSAD-XL/worfy/pull/132)
 Blocked by: 04, 12
 Source: решения владельца 2026-10-07, Q1, Q2, Q4, Q12, Q22, Q8; [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (доставка Harness: копия `harness/` из `.app` в `~/.claude/worfy-harness/plugin/`, локальный marketplace, plugin `worfy` в области пользователя, версия `<semver>+<SHA>`); ADR-0048 (будет `docs/adr/0048-harness-plugin-spike-results.md`; итог spike Ticket-а 01: установка plugin встроенным `claude`); [spec.md](../spec.md)
 
@@ -215,3 +215,16 @@ plugin в Session-ах worfy (Ticket 12); пометка «Harness в main но�
   ОС (PR #120), Playwright нативный диалог не видит. Текст диалога проверяет e2e с подменённым диалогом
   (кнопки, «Update the worfy Harness <было> → <стало>?», команды, папка, зависимость) и прикладывает его к
   отчёту Playwright (`13-harness-dialog-update.json`).
+
+**Влито.** [PR #132](https://github.com/IDSAD-XL/worfy/pull/132) → squash-коммит `a85e312` в `main`. Ревью —
+REJECTED → VERIFIED, один круг переделки. В первом круге не был покрыт test-ом env встроенного `claude`:
+с `WORFY_CLAUDE_HOME` он должен получать `CLAUDE_CONFIG_DIR` и `HOME` песочницы. Без этого dev-run в
+песочнице выполнил бы `marketplace add` и `install` в настоящий `~/.claude`. Теперь это проверяет e2e
+(`test/e2e/harness-install.spec.ts`): мутант без подмены env делает его красным. Ticket шёл с
+перерывами: прошлый исполнитель дважды остановился вместе с сессией; WIP-коммит `6c9740c` восстановлен
+и доделан.
+
+**Долг.** Из комментария VERIFIED в PR #132:
+- [low] `src/renderer/shell/toolbar/HarnessStatus.tsx` — подсказка у Retry одна на все шаги ошибки (`copy`,
+  `marketplace add`, `install`, `update`, `plugin list`) и говорит про зависимость.
+- [low] В состоянии «ошибка» путь папки plugin-а больше не виден.
