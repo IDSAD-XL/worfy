@@ -10,26 +10,73 @@ import RoutedEdge from '../../src/renderer/canvas/edge-types/RoutedEdge'
 import blockingEdges from '../../src/renderer/canvas/edges/blocking'
 import { setElkEngine, useElkAnswers } from '../../src/renderer/canvas/elk/client'
 import { layoutEpicElk, type ElkEngine } from '../../src/renderer/canvas/elk/layout'
-import { collectEdgeTypes, edgeTypes } from '../../src/renderer/canvas/extensions'
+import { collectEdgeTypes, dropNodes, edgeTypes } from '../../src/renderer/canvas/extensions'
 import EpicFrameNode from '../../src/renderer/canvas/nodes/EpicFrameNode'
 import TicketNode from '../../src/renderer/canvas/nodes/TicketNode'
-import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
+import type { CanvasFlowNode, CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import epicSource, { buildEpicNodes, epicNodeId, requestEpicLayouts, ticketNodeId, type EpicFrameData, type TicketNodeData } from '../../src/renderer/canvas/sources/epics'
 import { applyWorkflowDelta } from '../../src/renderer/workflow/useWorkflow'
 import { headerWidth, layoutEpic, MIN_FRAME_WIDTH, orthogonalPath, placeRoute } from '../../src/renderer/canvas/epic-layout'
+import { applyRecorded, historyOf, trashRecorded, type LayoutChannel, type TrashClient } from '../../src/renderer/canvas/history'
+import { acceptLayoutState, applyLayoutOp, currentLayout, LayoutOpsContext, type LayoutOps } from '../../src/renderer/canvas/useLayout'
+import type { TrashEntry } from '../../src/shared/ipc/trash'
 
 // The badges and actions on a Ticket and a frame are other tickets' business: none here.
 vi.mock('../../src/renderer/canvas/badges', () => ({ actions: [], badges: [] }))
 
-// The Layout operations the source sends to main, recorded instead of sent; each one succeeds.
+// The Layout operations the source sends to main, recorded instead of sent; each one succeeds,
+// unless the Project has a fake main (startMain below), which applies it and may refuse it.
 const applied = vi.hoisted(() => [] as { projectId: string; op: unknown }[])
-vi.mock('../../src/renderer/canvas/useLayout', async (original) => ({
-  ...(await original<typeof import('../../src/renderer/canvas/useLayout')>()),
-  applyLayoutOp: (projectId: string, op: unknown) => {
-    applied.push({ projectId, op })
-    return Promise.resolve(undefined)
-  },
-}))
+const mains = vi.hoisted(() => new Map<string, { revision: number; layout: Layout }>())
+vi.mock('../../src/renderer/canvas/useLayout', async (original) => {
+  const actual = await original<typeof import('../../src/renderer/canvas/useLayout')>()
+  return {
+    ...actual,
+    applyLayoutOp: (projectId: string, op: LayoutOpInput) => {
+      applied.push({ projectId, op })
+      const main = mains.get(projectId)
+      if (main === undefined) return Promise.resolve(undefined)
+      const result = applyOnMain(main.layout, op)
+      if (typeof result === 'string') return Promise.resolve(result)
+      main.layout = result
+      main.revision += 1
+      actual.acceptLayoutState({ projectId, revision: main.revision, layout: result })
+      return Promise.resolve(undefined)
+    },
+  }
+})
+
+/** What main does with the operations these tests send (src/main/layout/store.ts): the new Layout, or why it refused. */
+function applyOnMain(layout: Layout, op: LayoutOpInput): Layout | string {
+  const nodes = layout.nodes
+  const at = (id: string) => nodes.findIndex((node) => node.id === id)
+  const change = (id: string, make: (node: LayoutNode) => LayoutNode): Layout | string => {
+    const index = at(id)
+    if (index < 0) return `The Layout has no Node with id ${id}`
+    return { ...layout, nodes: nodes.map((node, i) => (i === index ? make(node) : node)) }
+  }
+  switch (op.op) {
+    case 'create': {
+      const id = op.node.id ?? 'made-up'
+      if (at(id) >= 0) return `A Node with id ${id} already exists`
+      return { ...layout, nodes: [...nodes, { hidden: false, locked: false, pinned: false, tags: [], ...op.node, data: op.node.data ?? {}, id }] }
+    }
+    case 'remove': {
+      const node = nodes[at(op.id)]
+      if (node === undefined) return `The Layout has no Node with id ${op.id}`
+      if (node.locked) return `Node ${op.id} is locked and cannot be removed`
+      return { ...layout, nodes: nodes.filter((each) => each.id !== op.id) }
+    }
+    case 'move':
+      return change(op.id, (node) => ({ ...node, x: op.x, y: op.y }))
+    case 'moveMany':
+      return op.moves.reduce<Layout | string>((next, move) => (typeof next === 'string' ? next : applyOnMain(next, { op: 'move', ...move })), layout)
+    case 'patchData':
+      return change(op.id, (node) => ({ ...node, data: { ...node.data, ...op.data } }))
+    default:
+      return `${op.op} is not in this test`
+  }
+}
 
 function ticket(epic: string, num: number, over: Partial<Ticket> = {}): Ticket {
   return {
@@ -192,21 +239,29 @@ describe('dropping an Epic frame', () => {
     const auto = (frameB.data.node.data as EpicFrameData).auto
     expect(auto.y).toBeGreaterThan(0)
 
-    // First drop: the Layout has no Node for the Epic yet, so it is created with the offset.
-    epicSource.moved({ projectId: id, layout: layoutWith() }, { ...frameB, position: { x: auto.x + 40.4, y: auto.y + 24.6 } })
-    await vi.waitFor(() => expect(applied).toHaveLength(1))
-    expect(applied[0]).toEqual({
-      projectId: id,
-      op: { op: 'create', node: { id: epicNodeId('b'), kind: 'epic-frame', x: 40, y: 25, w: 1, h: 1, locked: true, data: {} } } satisfies LayoutOpInput,
-    })
+    // First drop: the Layout has no Node for the Epic yet. It is created where the frame already is
+    // (offset 0, 0), then moved by the offset: the move is the ⌘Z step (worfy-week ticket 08).
+    await drop(id, layoutWith(), [{ ...frameB, position: { x: auto.x + 40.4, y: auto.y + 24.6 } }])
+    expect(applied).toEqual([
+      { projectId: id, op: { op: 'create', node: { id: epicNodeId('b'), kind: 'epic-frame', x: 0, y: 0, w: 1, h: 1, locked: true, data: {} } } satisfies LayoutOpInput },
+      { projectId: id, op: { op: 'move', id: epicNodeId('b'), x: 40, y: 25 } },
+    ])
 
     // A later drop moves the Node that is already there.
     const saved = layoutWith([{ id: epicNodeId('b'), x: 40, y: 25 }])
     const placed = buildEpicNodes(id, '/repo', model(tickets), saved, {}).find((n) => n.id === epicNodeId('b'))!
     expect(placed.position).toEqual({ x: auto.x + 40, y: auto.y + 25 })
-    epicSource.moved({ projectId: id, layout: saved }, { ...placed, position: { x: placed.position.x - 10, y: placed.position.y + 5 } })
-    await vi.waitFor(() => expect(applied).toHaveLength(2))
-    expect(applied[1]).toEqual({ projectId: id, op: { op: 'move', id: epicNodeId('b'), x: 30, y: 30 } })
+    await drop(id, saved, [{ ...placed, position: { x: placed.position.x - 10, y: placed.position.y + 5 } }])
+    expect(applied).toHaveLength(3)
+    expect(applied[2]).toEqual({ projectId: id, op: { op: 'move', id: epicNodeId('b'), x: 30, y: 30 } })
+  })
+
+  it('outside a Canvas, with nothing to record the drop, a frame saves nothing and goes back', async () => {
+    const id = freshProject()
+    const frame = buildEpicNodes(id, '/repo', model([ticket('a', 1)], ['a']), layoutWith(), {})[0]!
+    expect(epicSource.moved({ projectId: id, layout: layoutWith() }, { ...frame, position: { x: 40, y: 25 } })).toBe(false)
+    await new Promise((wake) => setTimeout(wake, 10))
+    expect(applied).toEqual([])
   })
 
   it('does not let a Ticket be dragged, and saves nothing for one that is dropped anyway', async () => {
@@ -221,9 +276,255 @@ describe('dropping an Epic frame', () => {
     expect(nodes[0]!.draggable).not.toBe(false)
     expect(nodes[0]!.dragHandle).toBe('.w-epic__drag')
     // Dropped anyway: the source keeps no place for it, so the Canvas puts it back (Canvas.tsx).
-    expect(epicSource.moved({ projectId: id, layout: saved }, { ...two, position: { x: two.position.x + 7, y: two.position.y - 3 } })).toBe(false)
-    await new Promise((wake) => setTimeout(wake, 10))
+    const dropped = dropNodes({ projectId: id, layout: saved, ops: opsOf(id), sourceOf: new Map([[two.id, epicSource]]) }, [{ ...two, position: { x: two.position.x + 7, y: two.position.y - 3 } }])
+    expect([...dropped.back]).toEqual([two.id])
+    await dropped.saved
     expect(applied).toEqual([])
+    expect(historyOf(id).canUndo).toBe(false)
+  })
+})
+
+// ── ⌘Z over an Epic frame (worfy-week ticket 08) ───────────────────────────
+
+const NOTE: LayoutNode = { id: 'note', kind: 'note', x: -800, y: 0, w: 200, h: 120, hidden: false, locked: false, pinned: false, tags: [], data: { text: '' } }
+
+/** Gives the Project a fake main with these Nodes; the renderer has the same Layout. */
+function startMain(projectId: string, nodes: LayoutNode[]): void {
+  const layout: Layout = { nodes, viewport: { x: 0, y: 0, zoom: 1 } }
+  mains.set(projectId, { revision: 1, layout })
+  acceptLayoutState({ projectId, revision: 1, layout })
+}
+const mainLayout = (projectId: string): Layout => mains.get(projectId)!.layout
+const hasNode = (projectId: string, id: string): boolean => mainLayout(projectId).nodes.some((node) => node.id === id)
+
+/** The trash of the fake main: putting a Node away removes it from the Layout, restoring puts it back. */
+function fakeTrash(projectId: string): TrashClient {
+  const bin = new Map<string, LayoutNode>()
+  const write = (layout: Layout) => {
+    const main = mains.get(projectId)!
+    main.layout = layout
+    main.revision += 1
+    acceptLayoutState({ projectId, revision: main.revision, layout })
+  }
+  return {
+    put(_, nodeId) {
+      const node = mainLayout(projectId).nodes.find((each) => each.id === nodeId)
+      if (node === undefined) return Promise.resolve({ ok: false, error: `no Node ${nodeId}` })
+      const label = `entry-${bin.size + 1}`
+      bin.set(label, node)
+      write({ ...mainLayout(projectId), nodes: mainLayout(projectId).nodes.filter((each) => each.id !== nodeId) })
+      return Promise.resolve({ ok: true, value: { label } as unknown as TrashEntry })
+    },
+    restore(_, label) {
+      const node = bin.get(label)
+      if (node === undefined) return Promise.resolve({ ok: false, error: `no entry ${label}` })
+      bin.delete(label)
+      write({ ...mainLayout(projectId), nodes: [...mainLayout(projectId).nodes, node] })
+      return Promise.resolve({ ok: true, value: { label } as unknown as TrashEntry })
+    },
+  }
+}
+
+/** The Canvas's LayoutOps (Canvas.tsx) over the fake main: every operation is the user's and recorded for ⌘Z. */
+function opsOf(projectId: string): LayoutOps {
+  const channel: LayoutChannel = { send: (op) => applyLayoutOp(projectId, op), layout: () => currentLayout(projectId) ?? layoutWith() }
+  return {
+    async apply(op, group, options) {
+      await applyRecorded(projectId, op, channel, group, options)
+    },
+  }
+}
+
+/** Drops Nodes as the Canvas does (extensions.ts dropNodes): the Epic source's Nodes go to it, the rest are the Layout's. */
+async function drop(projectId: string, layout: Layout, dragged: CanvasFlowNode[]): Promise<ReadonlySet<string>> {
+  const sourceOf = new Map(dragged.filter((node) => node.type === 'epic-frame' || node.type === 'ticket').map((node) => [node.id, epicSource]))
+  const { back, saved } = dropNodes({ projectId, layout, ops: opsOf(projectId), sourceOf }, dragged)
+  await saved
+  return back
+}
+
+const TWO_EPICS = model([ticket('a', 1), ticket('b', 1)])
+
+/** The frame of an Epic as the Canvas draws it over main's Layout now. */
+const frameOf = (projectId: string, name: string, workflow = TWO_EPICS) =>
+  buildEpicNodes(projectId, '/repo', workflow, mainLayout(projectId), {}).find((n) => n.id === epicNodeId(name))!
+const frameDataOf = (projectId: string, name: string, workflow = TWO_EPICS) => frameOf(projectId, name, workflow).data.node.data as EpicFrameData
+
+/** The offset main keeps for the frame; (0, 0) when the Layout has no Node for the Epic. */
+function offsetOf(projectId: string, name: string): { dx: number; dy: number } {
+  const node = mainLayout(projectId).nodes.find((each) => each.id === epicNodeId(name))
+  return { dx: node?.x ?? 0, dy: node?.y ?? 0 }
+}
+
+/** The frame dragged `by` away from its automatic place, as the Canvas hands it over on the drop. */
+function frameDragged(projectId: string, name: string, by: { dx: number; dy: number }, workflow = TWO_EPICS): CanvasFlowNode {
+  const frame = frameOf(projectId, name, workflow)
+  const { auto } = frame.data.node.data as EpicFrameData
+  return { ...frame, position: { x: auto.x + by.dx, y: auto.y + by.dy } }
+}
+
+/** The Note as React Flow hands a dragged Layout Node over. */
+const noteDragged = (x: number, y: number): CanvasFlowNode => ({ id: NOTE.id, type: 'note', position: { x, y }, data: { node: NOTE } })
+
+/** Draws the frame of an Epic inside the Canvas's LayoutOps, as React Flow does. */
+function renderFrame(projectId: string, name: string, workflow = TWO_EPICS) {
+  const frame = frameOf(projectId, name, workflow)
+  const props = { id: frame.id, data: frame.data, selected: false } as unknown as CanvasNodeProps
+  return render(
+    <ReactFlowProvider>
+      <LayoutOpsContext.Provider value={opsOf(projectId)}>
+        <EpicFrameNode {...props} />
+      </LayoutOpsContext.Provider>
+    </ReactFlowProvider>,
+  )
+}
+
+describe('⌘Z over an Epic frame (worfy-week ticket 08)', () => {
+  it('⌘Z after a drag of a frame puts the frame back and leaves the step before it alone; ⇧⌘Z does both again', async () => {
+    const id = freshProject()
+    startMain(id, [NOTE, { ...NOTE, id: epicNodeId('b'), kind: 'epic-frame', x: 10, y: 0, w: 1, h: 1, locked: true, data: {} }])
+    // A step of the user before the drag: the Note deleted to the trash.
+    expect(await trashRecorded(id, 'note', fakeTrash(id))).toBeUndefined()
+    expect(hasNode(id, 'note')).toBe(false)
+
+    const before = frameOf(id, 'b').position
+    expect(await drop(id, mainLayout(id), [frameDragged(id, 'b', { dx: 40, dy: 25 })])).toEqual(new Set())
+    expect(offsetOf(id, 'b')).toEqual({ dx: 40, dy: 25 })
+    expect(historyOf(id).size).toBe(2)
+
+    expect(await historyOf(id).undo()).toBe(true)
+    expect(offsetOf(id, 'b')).toEqual({ dx: 10, dy: 0 })
+    expect(frameOf(id, 'b').position).toEqual(before)
+    expect(hasNode(id, 'note')).toBe(false)
+    expect(await historyOf(id).undo()).toBe(true)
+    expect(hasNode(id, 'note')).toBe(true)
+    expect(offsetOf(id, 'b')).toEqual({ dx: 10, dy: 0 })
+
+    expect(await historyOf(id).redo()).toBe(true)
+    expect(await historyOf(id).redo()).toBe(true)
+    expect(hasNode(id, 'note')).toBe(false)
+    expect(offsetOf(id, 'b')).toEqual({ dx: 40, dy: 25 })
+  })
+
+  it('the first drag of a frame without an epic-frame Node: ⌘Z sets the offset back to (0, 0) and keeps the frame open or collapsed as it was', async () => {
+    // Epic b open by default, Epic c collapsed by default (every Ticket done); neither has a Node.
+    const workflow = model([ticket('a', 1), ticket('b', 1), ticket('c', 1, { state: 'done', statusRaw: 'done' })], ['a', 'b', 'c'])
+    for (const [name, collapsed] of [
+      ['b', false],
+      ['c', true],
+    ] as const) {
+      const id = freshProject()
+      startMain(id, [])
+      const before = frameOf(id, name, workflow).position
+      expect(frameDataOf(id, name, workflow).collapsed).toBe(collapsed)
+
+      await drop(id, mainLayout(id), [frameDragged(id, name, { dx: 40, dy: 25 }, workflow)])
+      expect(offsetOf(id, name)).toEqual({ dx: 40, dy: 25 })
+      expect(historyOf(id).size).toBe(1)
+
+      expect(await historyOf(id).undo()).toBe(true)
+      expect(offsetOf(id, name)).toEqual({ dx: 0, dy: 0 })
+      expect(frameOf(id, name, workflow).position).toEqual(before)
+      expect(frameDataOf(id, name, workflow).collapsed).toBe(collapsed)
+      expect(historyOf(id).canUndo).toBe(false)
+
+      expect(await historyOf(id).redo()).toBe(true)
+      expect(offsetOf(id, name)).toEqual({ dx: 40, dy: 25 })
+      expect(frameDataOf(id, name, workflow).collapsed).toBe(collapsed)
+    }
+  })
+
+  it('a drag of a selection of a frame and a Layout Node is one step: one ⌘Z puts both back', async () => {
+    const id = freshProject()
+    startMain(id, [NOTE])
+    const note = { x: NOTE.x, y: NOTE.y }
+    const back = await drop(id, mainLayout(id), [noteDragged(NOTE.x + 40, NOTE.y + 25), frameDragged(id, 'b', { dx: 40, dy: 25 })])
+    expect(back).toEqual(new Set())
+    expect(offsetOf(id, 'b')).toEqual({ dx: 40, dy: 25 })
+    expect(mainLayout(id).nodes.find((node) => node.id === 'note')).toMatchObject({ x: note.x + 40, y: note.y + 25 })
+    expect(historyOf(id).size).toBe(1)
+
+    expect(await historyOf(id).undo()).toBe(true)
+    expect(offsetOf(id, 'b')).toEqual({ dx: 0, dy: 0 })
+    expect(mainLayout(id).nodes.find((node) => node.id === 'note')).toMatchObject(note)
+    expect(historyOf(id).canUndo).toBe(false)
+
+    expect(await historyOf(id).redo()).toBe(true)
+    expect(offsetOf(id, 'b')).toEqual({ dx: 40, dy: 25 })
+    expect(mainLayout(id).nodes.find((node) => node.id === 'note')).toMatchObject({ x: note.x + 40, y: note.y + 25 })
+  })
+
+  it('the collapse button is a step: ⌘Z shows the frame as before the click, ⇧⌘Z collapses it again — with a collapsed key, without one, and without a Node', async () => {
+    const frameNode = (data: Record<string, unknown>): LayoutNode => ({ ...NOTE, id: epicNodeId('b'), kind: 'epic-frame', x: 0, y: 0, w: 1, h: 1, locked: true, data })
+    for (const nodes of [[frameNode({ collapsed: false })], [frameNode({})], []]) {
+      const id = freshProject()
+      startMain(id, nodes)
+      expect(frameDataOf(id, 'b').collapsed).toBe(false)
+
+      const view = renderFrame(id, 'b')
+      screen.getByRole('button', { name: 'Collapse epic b' }).click()
+      await vi.waitFor(() => expect(frameDataOf(id, 'b').collapsed).toBe(true))
+      view.unmount()
+      expect(historyOf(id).size).toBe(1)
+
+      expect(await historyOf(id).undo()).toBe(true)
+      expect(frameDataOf(id, 'b').collapsed).toBe(false)
+      expect(await historyOf(id).redo()).toBe(true)
+      expect(frameDataOf(id, 'b').collapsed).toBe(true)
+
+      // And back: opening it is a step too.
+      const again = renderFrame(id, 'b')
+      screen.getByRole('button', { name: 'Expand epic b' }).click()
+      await vi.waitFor(() => expect(frameDataOf(id, 'b').collapsed).toBe(false))
+      again.unmount()
+      expect(await historyOf(id).undo()).toBe(true)
+      expect(frameDataOf(id, 'b').collapsed).toBe(true)
+    }
+  })
+
+  it('⌘Z of the first collapse leaves the frame on the default, so it still collapses by itself once every Ticket is done', async () => {
+    const id = freshProject()
+    startMain(id, [])
+    const view = renderFrame(id, 'b')
+    screen.getByRole('button', { name: 'Collapse epic b' }).click()
+    await vi.waitFor(() => expect(frameDataOf(id, 'b').collapsed).toBe(true))
+    view.unmount()
+    expect(await historyOf(id).undo()).toBe(true)
+    expect(mainLayout(id).nodes.find((node) => node.id === epicNodeId('b'))?.data).toEqual({ collapsed: null })
+    expect(frameDataOf(id, 'b').collapsed).toBe(false)
+    const allDone = model([ticket('a', 1), ticket('b', 1, { state: 'done', statusRaw: 'done' })])
+    expect(frameDataOf(id, 'b', allDone).collapsed).toBe(true)
+  })
+
+  it('opening and folding the done stack is no step: what ⌘Z undoes stays the same', async () => {
+    const id = freshProject()
+    startMain(id, [NOTE])
+    const workflow = model([ticket('a', 1), ticket('b', 1, { state: 'done', statusRaw: 'done' }), ticket('b', 2)])
+    // A step before: the Note moved.
+    await drop(id, mainLayout(id), [noteDragged(NOTE.x + 40, NOTE.y)])
+    expect(historyOf(id).size).toBe(1)
+
+    const view = renderFrame(id, 'b', workflow)
+    screen.getByRole('button', { name: 'Expand done tickets of b' }).click()
+    view.unmount()
+    const open = buildEpicNodes(id, '/repo', workflow, mainLayout(id), { [`${id}|b`]: true }).find((n) => n.id === epicNodeId('b'))!
+    const props = { id: open.id, data: open.data, selected: false } as unknown as CanvasNodeProps
+    const folded = render(
+      <ReactFlowProvider>
+        <LayoutOpsContext.Provider value={opsOf(id)}>
+          <EpicFrameNode {...props} />
+        </LayoutOpsContext.Provider>
+      </ReactFlowProvider>,
+    )
+    screen.getByRole('button', { name: 'Fold' }).click()
+    folded.unmount()
+    await new Promise((wake) => setTimeout(wake, 10))
+    expect(historyOf(id).size).toBe(1)
+    expect(applied.filter((each) => each.projectId === id)).toHaveLength(1)
+
+    // ⌘Z still undoes the move of the Note.
+    expect(await historyOf(id).undo()).toBe(true)
+    expect(mainLayout(id).nodes.find((node) => node.id === 'note')).toMatchObject({ x: NOTE.x, y: NOTE.y })
   })
 })
 

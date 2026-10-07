@@ -6,11 +6,12 @@
 //
 //   id   `epic:<epic>`, locked, w = h = 1 (not drawn)
 //   x, y           the frame's offset from its automatic place
-//   data.collapsed the frame was collapsed or opened by the user (absent: the default, collapsed
-//                  only when every Ticket is done)
+//   data.collapsed the frame was collapsed or opened by the user (absent, or null after ⌘Z of the
+//                  first collapse: the default, collapsed only when every Ticket is done)
 //
 // so a recomputed place keeps the user's shift, and nothing about the workflow is copied into the
-// Layout. The Node is created the first time the user changes something about the Epic. Tickets
+// Layout. The Node is created the first time the user changes something about the Epic; each such
+// change — a drag of the frame, its collapse button — is a step of the ⌘Z history. Tickets
 // are not dragged (ADR-0037): the frame moves only as a whole, by its header. Older Layouts kept
 // Tickets' offsets as `data["offset:<NN>"]`; main drops them when it reads the file
 // (src/main/layout/upgrade.ts).
@@ -38,9 +39,10 @@ import {
   type Progress,
   type Rect,
 } from '../epic-layout'
-import type { NodeSource, NodeSourceContext } from '../extensions'
+import type { NodeDrop, NodeSource, NodeSourceContext } from '../extensions'
+import type { Group } from '../history'
 import type { CanvasFlowNode } from '../nodes'
-import { applyLayoutOp } from '../useLayout'
+import { applyLayoutOp, type LayoutOps } from '../useLayout'
 
 // The kinds and ids are shared with main: the canvas tools must not list or move these Nodes.
 export { EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, ticketNodeId }
@@ -146,23 +148,25 @@ export interface EpicChange {
 }
 
 /**
- * Saves a manual change of an Epic into its `epic-frame` Node: creates the Node the first time,
- * then moves or patches it. A create that lost a race to another one falls back to the update.
+ * Saves a change the user made to an Epic frame — a drop, the collapse button — into its
+ * `epic-frame` Node. It is the user's gesture, so it goes through `ops` and is a step of the ⌘Z
+ * history (history.ts), part of `group` when the frame was dropped with a selection (worfy-week
+ * ticket 08). The change is a `move` or a `patchData` of the Node, which ⌘Z reverts: the offset it
+ * had, the `collapsed` it had (null when it had none, which readSaved() takes as the default).
+ *
+ * The first change of an Epic creates the Node before that, at offset (0, 0) and without data: the
+ * frame shows exactly as without the Node, so the create is no step of its own, and the Node stays
+ * when the change is undone. A create that lost a race to another one leaves the change to the Node
+ * already there.
  */
-export async function saveEpicChange(projectId: string, epic: string, exists: boolean, change: EpicChange): Promise<void> {
+export async function saveEpicChange(projectId: string, epic: string, exists: boolean, change: EpicChange, ops: LayoutOps, group?: Group): Promise<void> {
   const id = epicNodeId(epic)
-  const data: Record<string, unknown> = {}
-  if (change.collapsed !== undefined) data.collapsed = change.collapsed
-
   if (!exists) {
-    const op: LayoutOpInput = {
-      op: 'create',
-      node: { id, kind: EPIC_FRAME_KIND, x: change.offset?.dx ?? 0, y: change.offset?.dy ?? 0, w: 1, h: 1, locked: true, data },
-    }
-    if ((await applyLayoutOp(projectId, op)) === undefined) return
+    const create: LayoutOpInput = { op: 'create', node: { id, kind: EPIC_FRAME_KIND, x: 0, y: 0, w: 1, h: 1, locked: true, data: {} } }
+    await applyLayoutOp(projectId, create)
   }
-  if (change.offset) await applyLayoutOp(projectId, { op: 'move', id, x: change.offset.dx, y: change.offset.dy })
-  if (Object.keys(data).length) await applyLayoutOp(projectId, { op: 'patchData', id, data })
+  if (change.offset) await ops.apply({ op: 'move', id, x: change.offset.dx, y: change.offset.dy }, group)
+  if (change.collapsed !== undefined) await ops.apply({ op: 'patchData', id, data: { collapsed: change.collapsed } }, group, { data: true })
 }
 
 // ── Nodes ───────────────────────────────────────────────────────────────────
@@ -455,13 +459,16 @@ function useEpicNodes({ projectId, layout }: NodeSourceContext): readonly Canvas
   return nodes
 }
 
-/** Only a frame is dragged (by its header); its offset from its automatic place is saved. Tickets are not draggable. */
-function moved({ projectId, layout }: NodeSourceContext, node: CanvasFlowNode): boolean {
-  if (node.type !== EPIC_FRAME_KIND) return false
+/**
+ * Only a frame is dragged (by its header); its offset from its automatic place is saved as part of
+ * the drop's ⌘Z step. Tickets are not draggable. Without `drop` nothing records the gesture, so
+ * nothing is saved and the frame goes back.
+ */
+function moved({ projectId, layout }: NodeSourceContext, node: CanvasFlowNode, drop?: NodeDrop): boolean | Promise<void> {
+  if (node.type !== EPIC_FRAME_KIND || drop === undefined) return false
   const frame = node.data.node.data as EpicFrameData
   const offset = { dx: Math.round(node.position.x - frame.auto.x), dy: Math.round(node.position.y - frame.auto.y) }
-  void saveEpicChange(projectId, frame.epic.epic, layout.nodes.some((n) => n.id === node.id), { offset })
-  return true
+  return saveEpicChange(projectId, frame.epic.epic, layout.nodes.some((n) => n.id === node.id), { offset }, drop.ops, drop.group)
 }
 
 // `ticket` is owned too though the Layout never holds one: a stray Layout Node of that kind (a

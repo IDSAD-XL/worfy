@@ -5,7 +5,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { create } from 'zustand'
 import type { Layout, LayoutOpInput, LayoutState } from '../../shared/layout/types'
 import { invoke, subscribe } from '../ipc'
-import type { Group } from './history'
+import type { Group, RecordOptions } from './history'
 
 interface LayoutsStore {
   byProject: Readonly<Record<string, LayoutState>>
@@ -82,16 +82,18 @@ export function currentLayout(projectId: string): Layout | undefined {
 }
 
 /**
- * What the user's gestures on the Canvas use to change the Layout. Every operation sent here is a
- * step of the user's undo history (history.ts); code that changes the Layout on its own (a sync, a
- * source of Nodes) calls applyLayoutOp() instead.
+ * What the user's gestures on the Canvas use to change the Layout, the gestures on an Epic frame
+ * too (its drag and its collapse button, sources/epics.ts). Every operation sent here is a step of
+ * the user's undo history (history.ts); code that changes the Layout on its own (the Session Nodes
+ * sync, the Subagent source) calls applyLayoutOp() instead.
  */
 export interface LayoutOps {
   /**
    * Resolves once main has answered, whether it applied the operation or refused it. `group` makes
-   * the operation part of one gesture's step (history.ts grouped()).
+   * the operation part of one gesture's step (history.ts grouped()); `options` say how it is
+   * recorded (a `patchData` is a step only with `data`).
    */
-  apply(op: LayoutOpInput, group?: Group): Promise<void>
+  apply(op: LayoutOpInput, group?: Group, options?: RecordOptions): Promise<void>
 }
 
 export const LayoutOpsContext = createContext<LayoutOps>({
