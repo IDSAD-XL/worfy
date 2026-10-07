@@ -1,0 +1,4 @@
+{
+  "description": "Package scope of the Harness scripts. It has no \"type\" on purpose: the worfy package.json says \"type\": \"module\", which would make Node load the extensionless CommonJS scripts in harness/bin (profile, epic-board) as ES modules. Without a type Node detects the module syntax of each script, as it does in ~/.claude.",
+  "private": true
+}

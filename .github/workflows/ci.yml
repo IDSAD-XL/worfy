@@ -36,6 +36,10 @@ jobs:
       # pnpm-workspace.yaml; any other package with a build script fails the install.
       # The root postinstall rebuilds node-pty for Electron's ABI.
       - run: pnpm install --frozen-lockfile
+      # The shell tests of the Harness (test/contract/harness-scripts.test.ts) run the qmd scripts
+      # under zsh; the Ubuntu image has bash, git, jq and node but no zsh.
+      - name: Install zsh
+        run: command -v zsh || { sudo apt-get update -qq && sudo apt-get install -y -qq zsh; }
       - run: pnpm lint
       - run: pnpm typecheck
       # Test files run in a random order (ADR-0036), so a test that passes only after or before

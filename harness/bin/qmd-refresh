@@ -1,0 +1,196 @@
+#!/bin/zsh
+# qmd-refresh — догоняет индекс qmd до текущих основных веток проектов.
+#
+# Обёртка qmd-mcp обновляет индекс ОДИН раз, при старте MCP-сервера. В длинной
+# сессии этого мало: main уходит на десяток мержей вперёд, а поиск продолжает
+# отвечать снимком начала сессии — и отвечает уверенно, что хуже молчания.
+#
+# Здесь то же обновление, но по требованию и дёшево: сперва спрашиваем удалённые
+# репозитории, сдвинулась ли основная ветка, и выходим, если нет. Сетевой вызов —
+# один на git-копию.
+#
+# Что проверять, берётся из ~/.config/qmd/index.yml, а не из этого файла:
+#   git-копии — коллекции с `update: …/qmd-sync-main <профиль>`; путь копии, ветку и
+#               аккаунт gh даёт `qmd-sync-main --describe <профиль>` (то есть профиль проекта);
+#   локальные — пути коллекций без `update:` (память проекта, уроки).
+# Исключение — память и уроки: они вне git, и если там есть файл новее последнего
+# обновления (`last-index`), обновляем без сетевой проверки (с 2026-09-29: до того
+# заметка ждала сдвига main или перезапуска MCP-сервера).
+#
+#   qmd-refresh            — обновить, если main сдвинулся
+#   qmd-refresh --force    — обновить безусловно
+#   qmd-refresh --quiet    — без вывода (для хука)
+#   qmd-refresh --wait     — не уходить в фон, дождаться конца (для проверки руками)
+#
+# Проверка идёт на месте и стоит один сетевой вызов; само обновление (`update` +
+# `embed`) уходит в ФОН, потому что embed идёт минутами, а хук ждать не может.
+#
+# Замок общий с qmd-mcp: `qmd update` делает checkout в общей копии, и два
+# checkout разом дают мусор. Занят — молча выходим: тот, кто держит замок,
+# делает ровно ту же работу.
+set -u
+
+CACHE="$HOME/.cache/qmd"
+INDEX_YML="${QMD_INDEX_YML:-$HOME/.config/qmd/index.yml}"
+SYNC="${QMD_REFRESH_SYNC:-$HOME/.claude/bin/qmd-sync-main}"   # переопределение — для тестов
+LOG="$CACHE/refresh.log"
+LOCK="$CACHE/refresh.lock"
+STAMP="$CACHE/last-check"
+THROTTLE=300   # секунд между сетевыми проверками
+INDEXED="$CACHE/last-index"   # время начала последнего обновления индекса
+
+FORCE=0; QUIET=0; WAIT=0
+for a in "$@"; do
+  case "$a" in
+    --force) FORCE=1 ;;
+    --quiet) QUIET=1 ;;
+    --wait)  WAIT=1 ;;
+  esac
+done
+say() { [[ "$QUIET" == 1 ]] || print -r -- "$*" }
+
+# Частичный сбой (один профиль не разобран, одной копии нет) не останавливает прогон:
+# память и уроки должны обновиться и тогда. Код выхода: без --quiet — 1 при частичном
+# сбое; с --quiet (так зовёт Stop-хук в settings.json) — 0, потому что ненулевой код
+# хука показывался бы ошибкой на каждом ходе. Сигнал в этом случае — строка в $LOG; пишется
+# она только проходом, который миновал ограничение частоты, иначе лог рос бы на строку
+# за каждый ход.
+PARTIAL=0
+WARNINGS=()
+warn() {
+  PARTIAL=1
+  WARNINGS+=("$*")
+  say "qmd-refresh: $*"
+}
+log_warnings() {
+  (( ${#WARNINGS} )) || return 0
+  mkdir -p "$CACHE" 2>/dev/null || return 0
+  for w in "${WARNINGS[@]}"; do print -r -- "$(date '+%F %T') qmd-refresh: $w"; done >>"$LOG" 2>/dev/null
+  WARNINGS=()
+}
+finish() {
+  [[ "$PARTIAL" == 1 && "$QUIET" != 1 ]] && exit 1
+  exit 0
+}
+# Сбой целиком (нет qmd, нет index.yml): с --quiet тоже 0 — по той же причине.
+die() { # $1 = код без --quiet, остальное — сообщение
+  local code="$1"; shift
+  say "qmd-refresh: $*"
+  [[ "$QUIET" == 1 ]] && exit 0
+  exit "$code"
+}
+
+if ! command -v qmd >/dev/null 2>&1 && [[ -s "$HOME/.nvm/nvm.sh" ]]; then
+  source "$HOME/.nvm/nvm.sh" >/dev/null 2>&1
+  nvm use default --silent >/dev/null 2>&1 || true
+fi
+QMD_BIN="$(command -v qmd)" || die 127 "qmd не найден"
+
+# Разбор index.yml: коллекции — ключи с отступом 2 под `collections:`, их поля — с отступом 4.
+# Печатает «m<TAB>профиль» на каждую git-копию и «l<TAB>путь» на каждую локальную коллекцию.
+[[ -r "$INDEX_YML" ]] || die 1 "нет $INDEX_YML"
+SOURCES="$(awk '
+  function flush() { if (name == "") return
+    if (upd ~ /qmd-sync-main[ \t]+[^ \t]/) { n = upd; sub(/.*qmd-sync-main[ \t]+/, "", n); sub(/[ \t].*/, "", n); if (!(n in seen)) { seen[n] = 1; print "m\t" n } }
+    else if (upd == "" && path != "") print "l\t" path
+    name = ""; path = ""; upd = "" }
+  /^[^ #]/ { flush(); inside = ($0 ~ /^collections:/); next }
+  !inside { next }
+  /^  [^ #][^:]*:[ \t]*$/ { flush(); name = $1; next }
+  /^    path:/   { path = $0; sub(/^    path:[ \t]*/, "", path); gsub(/^"|"$/, "", path) }
+  /^    update:/ { upd = $0;  sub(/^    update:[ \t]*/, "", upd) }
+  END { flush() }' "$INDEX_YML")"
+MIRRORS=(${(f)"$(print -r -- "$SOURCES" | awk -F'\t' '$1 == "m" { print $2 }')"})
+LOCAL_DIRS=(${(f)"$(print -r -- "$SOURCES" | awk -F'\t' '$1 == "l" { print $2 }')"})
+
+# Копия, ветка, аккаунт каждой git-копии — из профиля через qmd-sync-main --describe.
+COPIES=(); BRANCHES=(); ACCOUNTS=()
+for p in "${MIRRORS[@]}"; do
+  d="$("$SYNC" --describe "$p" 2>&1)" || { warn "профиль $p не разобран, его копия пропущена — ${d}"; continue }
+  c="${d%%$'\t'*}"; r="${d#*$'\t'}"
+  [[ -d "$c/.git" ]] || { warn "копии $c (профиль $p) нет, пропущена — сперва запусти сессию с qmd-mcp"; continue }
+  COPIES+=("$c"); BRANCHES+=("${r%%$'\t'*}"); ACCOUNTS+=("${r#*$'\t'}")
+done
+
+# Сбой подтяжки (маркеры пишет qmd-sync-main, свой на профиль): индекс отвечает старым снимком.
+for f in "$CACHE"/sync-failed*(N); do
+  say "qmd-refresh: ВНИМАНИЕ — прошлая подтяжка main упала, индекс может быть старым: $(head -c 300 "$f")"
+done
+
+# Память и уроки лежат вне git: main мог не сдвинуться, а заметка появиться. Проверка
+# локальная и дешёвая, поэтому идёт до ограничения частоты и без сети.
+LOCAL_NEWER=0
+if [[ ! -f "$INDEXED" ]]; then
+  LOCAL_NEWER=1
+else
+  for d in "${LOCAL_DIRS[@]}"; do
+    [[ -d "$d" ]] || continue
+    [[ -n "$(find "$d" -name '*.md' -newer "$INDEXED" -print -quit 2>/dev/null)" ]] && { LOCAL_NEWER=1; break }
+  done
+fi
+
+# Частота: сетевой вызов не чаще раза в THROTTLE секунд.
+if [[ "$FORCE" != 1 && "$LOCAL_NEWER" != 1 && -f "$STAMP" ]]; then
+  age=$(( $(date +%s) - $(stat -f%m "$STAMP" 2>/dev/null || echo 0) ))
+  (( age < THROTTLE )) && { say "qmd-refresh: проверяли $age с назад, пропуск"; finish }
+fi
+
+log_warnings   # ограничение частоты пройдено (или обновление вне очереди) — пишем предупреждения
+
+# Сдвинулась ли основная ветка хоть одной копии. Пустой ответ (нет сети) — не повод
+# считать, что сдвинулась.
+if [[ "$FORCE" != 1 && "$LOCAL_NEWER" != 1 ]]; then
+  (( ${#COPIES} )) || { say "qmd-refresh: живых git-копий в $INDEX_YML нет, локальное не менялось — пропуск"; finish }
+  moved=0
+  for i in {1..${#COPIES}}; do
+    COPY="${COPIES[$i]}" BRANCH="${BRANCHES[$i]}" ACCOUNT="${ACCOUNTS[$i]}"
+    # Токен явно у аккаунта из профиля: активным в gh бывает рабочий аккаунт, и тогда
+    # приватный репозиторий «не существует», а пустой ответ ниже молча пропускает обновление.
+    if [[ -n "$ACCOUNT" ]]; then
+      remote="$(git -c credential.helper= \
+        -c "credential.helper=!f() { echo username=x-access-token; echo password=\$(gh auth token --user $ACCOUNT); }; f" \
+        -C "$COPY" ls-remote --heads origin "$BRANCH" 2>/dev/null | cut -f1)"
+    else
+      remote="$(git -C "$COPY" ls-remote --heads origin "$BRANCH" 2>/dev/null | cut -f1)"
+    fi
+    [[ -z "$remote" ]] && { say "qmd-refresh: удалённый недоступен, пропуск"; continue }
+    # Сравнивать надо с ВЫКАЧЕННЫМ коммитом, а не с `origin/main`: ссылку двигает
+    # любой `git fetch`, в том числе чужой и диагностический, а индексируется то,
+    # что лежит в рабочем дереве копии. Разойдясь, эти двое дают ложное «свежо».
+    local_ref="$(git -C "$COPY" rev-parse HEAD 2>/dev/null || echo none)"
+    if [[ "$remote" == "$local_ref" ]]; then say "qmd-refresh: индекс уже на $remote"; else moved=1; fi
+  done
+  : > "$STAMP"
+  [[ "$moved" == 1 ]] || finish
+fi
+
+# Замок общий с qmd-mcp: занят — там идёт та же работа.
+mkdir "$LOCK" 2>/dev/null || { say "qmd-refresh: обновление уже идёт"; finish }
+
+run_update() {
+  trap 'rm -rf "$LOCK" 2>/dev/null' EXIT TERM INT HUP
+  print -r -- "$$" > "$LOCK/pid" 2>/dev/null || true
+  # Отметка — ДО update: заметка, записанная во время индексации, окажется новее и
+  # попадёт в следующий проход, а не потеряется.
+  : > "$INDEXED"
+  {
+    echo "== $(date '+%F %T') refresh (qmd-refresh)"
+    "$QMD_BIN" update; echo "update rc=$?"
+    nice -n 10 "$QMD_BIN" embed; echo "embed rc=$?"
+  } >>"$LOG" 2>&1
+}
+
+if [[ "$WAIT" == 1 ]]; then
+  run_update
+  for c in "${COPIES[@]}"; do
+    say "qmd-refresh: индекс на $(git -C "$c" rev-parse --short HEAD 2>/dev/null || echo '?')"
+  done
+  (( ${#COPIES} )) || say "qmd-refresh: индекс обновлён"
+else
+  # В фон без наследования stdio: хук, ждущий конца `embed`, повесит сессию.
+  ( run_update ) </dev/null >/dev/null 2>&1 &
+  print -r -- "$!" > "$LOCK/pid" 2>/dev/null || true
+  disown 2>/dev/null
+  say "qmd-refresh: обновление пошло в фоне, лог $LOG"
+fi
+finish

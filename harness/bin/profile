@@ -1,0 +1,267 @@
+#!/usr/bin/env node
+// profile — по каталогу находит профиль проекта и печатает его.
+//
+//   profile                     сводка: имя, пути, profile.json и rules.md (это читают агенты)
+//   profile --json              profile.json + блок _resolved (имя, каталог профиля, корень, checkout)
+//   profile --field a.b.c       одно поле (строка — как есть, остальное — JSON); _resolved.* тоже
+//   profile --rules             только rules.md
+//   profile --dir               только каталог профиля
+//   profile --name              только имя профиля
+//   -C <каталог>                разрешать так, будто profile запущен из <каталога> (относительный
+//                               путь — от текущего); агенты передают сюда путь репозитория из брифа
+//
+// Коды выхода: 0 — найден; 2 — ошибка вызова; 3 — каталог вне зарегистрированных
+// проектов или у проекта нет профиля; 4 — поля нет (--field); 1 — сломан конфиг,
+// резолвер или profile.json.
+//
+// Опознание то же, что у hooks/gate.sh: каталог -> git common dir -> канонический
+// корень репозитория -> `hooks/gate-resolve.mjs --which` (самый длинный префикс
+// `match` в gate/config.json). Поэтому рабочее дерево где угодно на диске
+// опознаётся по основному репозиторию. Логику сопоставления не дублируем —
+// вызываем резолвер. Профиль — поле "profile" записи в gate/config.json;
+// сам профиль лежит в ~/.claude/profiles/<имя>/ (формат: profiles/README.md).
+// Каталог вне всех `match`, но внутри общего родителя репозиториев одного профиля
+// (workspace, см. workspaceOf ниже), получает этот профиль; _resolved.workspace — этот родитель.
+"use strict"
+
+const fs = require("node:fs")
+const path = require("node:path")
+const { execFileSync } = require("node:child_process")
+
+const CLAUDE = path.join(process.env.HOME, ".claude")
+const CFG = process.env.CLAUDE_GATE_CONFIG || path.join(CLAUDE, "gate/config.json")
+const RESOLVE = process.env.CLAUDE_GATE_RESOLVE || path.join(CLAUDE, "hooks/gate-resolve.mjs")
+const PROFILES = process.env.CLAUDE_PROFILES_DIR || path.join(CLAUDE, "profiles")
+
+const USAGE = `usage: profile [-C <dir>] [--json | --field <dotted.path> | --rules | --dir | --name]
+exit: 0 found, 2 usage, 3 not a registered project / no profile, 4 field absent, 1 broken config`
+
+const out = (s) => process.stdout.write(s.endsWith("\n") ? s : s + "\n")
+const err = (s) => process.stderr.write(s.endsWith("\n") ? s : s + "\n")
+const die = (code, msg) => {
+    if (msg) err(`profile: ${msg}`)
+    process.exit(code)
+}
+const usage = (msg) => {
+    if (msg) err(`profile: ${msg}`)
+    err(USAGE)
+    process.exit(2)
+}
+
+// --- аргументы -----------------------------------------------------------------
+let mode = null
+let field = null
+let target = process.cwd()
+const setMode = (m) => {
+    if (mode) usage(`only one of --json/--field/--rules/--dir/--name at a time`)
+    mode = m
+}
+const argv = process.argv.slice(2)
+for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    switch (a) {
+        case "--json":
+        case "--rules":
+        case "--dir":
+        case "--name":
+            setMode(a.slice(2))
+            break
+        case "--field":
+            setMode("field")
+            field = argv[++i]
+            if (!field || field.startsWith("-")) usage("--field needs a dotted path, e.g. commands.test")
+            break
+        case "-C":
+            target = argv[++i]
+            if (!target) usage("-C needs a directory")
+            break
+        case "-h":
+        case "--help":
+            out(USAGE)
+            process.exit(0)
+        default:
+            usage(`unknown argument: ${a}`)
+    }
+}
+
+let abs = path.resolve(target)
+try {
+    if (!fs.statSync(abs).isDirectory()) usage(`not a directory: ${target}`)
+    // native: написание с диска (на нечувствительной к регистру ФС /users/... -> /Users/...),
+    // иначе workspaceOf и резолвер сравнивали бы строки в чужом регистре
+    abs = fs.realpathSync.native(abs)
+} catch {
+    usage(`no such directory: ${target}`)
+}
+
+// --- канонический корень: как в gate.sh ------------------------------------------
+const git = (...a) => {
+    try {
+        return execFileSync("git", ["-C", abs, ...a], {
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+        }).trim()
+    } catch {
+        return null
+    }
+}
+const checkout = git("rev-parse", "--show-toplevel")
+let canon = abs
+if (checkout) {
+    const common = git("rev-parse", "--path-format=absolute", "--git-common-dir")
+    if (common) canon = path.dirname(common)
+    try {
+        canon = fs.realpathSync.native(canon)
+    } catch {}
+}
+
+// --- резолвер гейта: тот же код, что выбирает проверки ----------------------------
+let which
+try {
+    which = execFileSync("node", [RESOLVE, "--which", canon], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, CLAUDE_GATE_CONFIG: CFG },
+    }).trim()
+} catch (e) {
+    die(1, `resolver ${RESOLVE} failed (exit ${e.status}) — project not determined`)
+}
+let cfg
+try {
+    cfg = JSON.parse(fs.readFileSync(CFG, "utf8"))
+} catch (e) {
+    die(1, `cannot read ${CFG}: ${e.message}`)
+}
+
+// Общий каталог проекта из нескольких репозиториев (workspace). Каталог, который сам не лежит
+// ни в одном `match`, но лежит в общем родителе всех репозиториев ОДНОГО профиля, относится к
+// этому профилю: так сессия в /Users/alexey/Work/Atakama (над тремя репозиториями, сам не git)
+// получает профиль atakama. Общий родитель вычисляется из реестра, а не хранится: второго
+// реестра путей нет. Не считается workspace: профиль с одним репозиторием (его каталог и есть
+// match), корень диска, $HOME и его родители, каталог внутри записи реестра и каталог, где лежит репозиторий другого профиля или без профиля.
+// Профиль общего каталога получают только каталоги ВНЕ git. Git-репозиторий, которого нет в
+// реестре, но который лежит в общем каталоге (flux-config-platform в /Users/alexey/Work/Atakama),
+// — чужой проект: код 3, как у любого незарегистрированного репозитория. Иначе гейт, хуки сессии
+// и preflight принимали бы его за репозиторий профиля.
+const under = (p, dir) => p === dir || p.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep)
+let checkoutCanon = null
+if (checkout) {
+    try {
+        checkoutCanon = fs.realpathSync.native(checkout)
+    } catch {
+        checkoutCanon = checkout
+    }
+}
+function workspaceOf(target) {
+    const repos = (cfg.repos || []).filter((r) => r && typeof r.match === "string" && r.match)
+    const groups = new Map()
+    for (const r of repos) if (r.profile) groups.set(r.profile, [...(groups.get(r.profile) || []), r])
+    const home = process.env.HOME ? path.resolve(process.env.HOME) : null
+    // Каталог внутри записи реестра (например, `match` с хвостовым слешем, который резолвер
+    // сравнивает как строку) — не workspace: пусть остаётся громким кодом 3, как раньше.
+    if (repos.some((r) => under(target, path.resolve(r.match)))) return null
+    const hits = []
+    for (const [name, rs] of groups) {
+        if (rs.length < 2) continue
+        let ws = path.resolve(rs[0].match)
+        for (const r of rs.slice(1)) while (!under(path.resolve(r.match), ws) && ws !== path.dirname(ws)) ws = path.dirname(ws)
+        if (ws === path.dirname(ws) || (home && under(home, ws))) continue
+        if (repos.some((r) => r.profile !== name && under(path.resolve(r.match), ws))) continue
+        // Каталог внутри незарегистрированного git-репозитория, который лежит в общем каталоге, —
+        // чужой проект. Если git-репозиторий — сам общий каталог или лежит выше него (git init
+        // в /Users/alexey/Work/Atakama, dotfiles в $HOME), это не мешает: каталог остаётся workspace.
+        if (checkoutCanon && checkoutCanon !== ws && under(checkoutCanon, ws)) continue
+        if (under(target, ws)) hits.push({ name, ws, n: rs.length })
+    }
+    return hits.length === 1 ? hits[0] : null
+}
+
+let key = null
+let repoRoot = null
+let workspace = null
+let entry
+if (which) {
+    ;[key, repoRoot] = which.split("\t")
+    entry = (cfg.repos || []).find((r) => r.key === key)
+    if (!entry || !entry.profile) die(3, `project "${key}" is registered in ${CFG} but has no "profile" field`)
+} else {
+    workspace = workspaceOf(canon)
+    if (!workspace) die(3, `${abs} is not in a registered project (no "match" in ${CFG} covers ${canon})`)
+    entry = { profile: workspace.name }
+}
+
+const name = entry.profile
+const dir = path.join(PROFILES, name)
+const pjPath = path.join(dir, "profile.json")
+if (!fs.existsSync(pjPath)) die(3, `${key ? `project "${key}"` : `workspace ${workspace.ws}`} names profile "${name}", but ${pjPath} does not exist`)
+let profile
+try {
+    profile = JSON.parse(fs.readFileSync(pjPath, "utf8"))
+} catch (e) {
+    die(1, `${pjPath} is not valid JSON: ${e.message}`)
+}
+
+let checkoutReal = null
+if (checkout) {
+    try {
+        checkoutReal = fs.realpathSync(checkout)
+    } catch {
+        checkoutReal = checkout
+    }
+}
+const resolved = {
+    name,
+    dir,
+    gate_key: key,
+    repo_root: repoRoot,
+    checkout: checkoutReal,
+    in_worktree: Boolean(!workspace && checkoutReal && checkoutReal !== canon),
+    workspace: workspace ? workspace.ws : null,
+}
+// Старая форма `"language": "ru"` — один язык на всё. Читатели спрашивают `language.reports` и
+// `language.team` (profiles/README.md), поэтому строка разворачивается в объект с обоими полями.
+if (typeof profile.language === "string") profile.language = { reports: profile.language, team: profile.language }
+const full = { ...profile, _resolved: resolved }
+const rulesPath = path.join(dir, "rules.md")
+const rules = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, "utf8") : null
+
+// --- вывод ------------------------------------------------------------------------
+switch (mode) {
+    case "name":
+        out(name)
+        break
+    case "dir":
+        out(dir)
+        break
+    case "rules":
+        if (rules === null) err(`profile: ${rulesPath} does not exist`)
+        else out(rules)
+        break
+    case "json":
+        out(JSON.stringify(full, null, 2))
+        break
+    case "field": {
+        let v = full
+        for (const part of field.split(".")) {
+            if (v !== null && typeof v === "object" && Object.prototype.hasOwnProperty.call(v, part)) v = v[part]
+            else die(4, `field "${field}" is absent in profile "${name}"`)
+        }
+        out(typeof v === "string" ? v : JSON.stringify(v, null, 2))
+        break
+    }
+    default:
+        out(`profile: ${name} (${dir})`)
+        if (workspace)
+            out(
+                `workspace: ${workspace.ws} (общий каталог ${workspace.n} репозиториев профиля, сам не репозиторий проекта)` +
+                    (checkoutReal ? `   checkout: ${checkoutReal}` : "")
+            )
+        else out(
+            `repo: ${repoRoot}` +
+                (checkoutReal ? `   checkout: ${checkoutReal}${resolved.in_worktree ? " (worktree)" : ""}` : "")
+        )
+        out("--- profile.json")
+        out(JSON.stringify(profile, null, 2))
+        out("--- rules.md")
+        out(rules === null ? "(нет rules.md)" : rules)
+}
