@@ -39,6 +39,8 @@ Epic готов, когда:
 - Ticket-ы 08–12 — первые дефекты недели: второй круг ручных проверок 2026-10-07
   ([PR #93](https://github.com/IDSAD-XL/worfy/pull/93), a3a2c50). Улики — в подразделах «Ручная
   проверка 2026-10-07» Ticket-ов, на которых их нашли; ссылки — в `Source` каждого.
+- Ticket-ы 13–17 — замечания владельца 2026-10-07 о повседневной работе; его слова — в `Source`
+  каждого.
 - Первый длинный прогон Autopilot над этим Epic-ом может впервые упереться в Limits. Тогда
   проверится условие 3 готовности E2 ([worfy-daily spec.md](../worfy-daily/spec.md), «Цель»;
   Ticket 05 `worfy-daily`): прогон ждёт сброса и продолжает сам.
@@ -71,6 +73,13 @@ Epic готов, когда:
      раскладке ELK. Новый ADR.
    - 12: мелкие подписи — источник Session в History, подсказки Remove и Hide, имена tool-ов в превью
      Subagent-а, модель в шапке Session view, окно About в `pnpm dev`.
+
+   Следующие — 13–17, замечания владельца 2026-10-07 о повседневной работе:
+   - 13: поле поиска палитры ⌘K высотой с ряд результатов при любом числе результатов.
+   - 14: перетаскивание группы Node-ов, Card и рамки Epic-а без фризов на большом Canvas.
+   - 15: открытую стопку done видно, как свернуть: кнопка Collapse на месте Expand, Esc.
+   - 16: wheel над Node-ом двигает Canvas; прокрутка содержимого — только после клика по Node-у.
+   - 17: Stop в Autopilot прерывает Session Orchestrator-а и его Background task-и. Новый ADR.
 
 ## Решения владельца по Canvas
 
@@ -208,6 +217,11 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 10 | `src/renderer/theme/tokens.css`, `test/unit/shadow-tokens.test.ts`, `test/e2e/theme-shadows.spec.ts` | 5 |
 | 11 | `src/renderer/canvas/elk/layout.ts`, `test/unit/epic-layout.test.ts`, `test/e2e/done-stack.spec.ts` | 5 |
 | 12 | `src/renderer/session/HistoryPopover.tsx`, `src/renderer/canvas/nodes/SessionNode.tsx`, `src/shared/transcript/subagents.ts`, `src/renderer/session/SessionView.tsx`, `src/renderer/session/store.ts`, `src/main/dock-icon.ts`, `test/unit/history-popover.test.tsx`, `test/unit/session-node-remove.test.tsx`, `test/unit/subagents.test.ts`, `test/unit/session-view.test.tsx`, `test/unit/dock-icon.test.ts` | 5 |
+| 13 | `src/renderer/palette/CommandPalette.tsx`, `test/e2e/palette-find.spec.ts` | 6 |
+| 14 | `src/shared/layout/free-place.ts`, `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/nodes/EpicFrameNode.tsx`, `test/unit/free-place.test.ts`, `test/unit/epic-node-memo.test.tsx`, `test/e2e/snapping.spec.ts` | 6 |
+| 15 | `src/renderer/canvas/nodes/EpicFrameNode.tsx`, `src/renderer/canvas/epic-frame.css`, `src/renderer/canvas/sources/epics.ts`, `src/renderer/canvas/overlays/SelectionToolbar.tsx`, `src/renderer/canvas/overlays/BindingDrop.tsx`, `src/renderer/canvas/overlays/TrashPopover.tsx`, `src/renderer/canvas/overlays/CanvasMenu.tsx`, `docs/design/F-SPEC.md`, `test/unit/epic-canvas.test.tsx`, `test/unit/epics-ui.test.ts`, `test/e2e/done-stack.spec.ts`, `test/e2e/epic-frame.spec.ts` | 7 |
+| 16 | `src/renderer/canvas/Canvas.tsx`, `src/renderer/canvas/wheel-router.ts`, `src/renderer/canvas/canvas.css`, `src/renderer/canvas/nodes/CardNode.tsx`, `src/renderer/canvas/nodes/HandoffNode.tsx`, `test/unit/wheel-router.test.ts`, `test/e2e/wheel-over-nodes.spec.ts`, `test/e2e/card-drag.spec.ts` | 6 |
+| 17 | `src/main/autopilot/run.ts`, `src/main/agent/session.ts`, `src/main/agent/orchestrator.ts`, `src/main/ipc/autopilot.ts`, `src/main/actions/launch.ts`, `src/shared/ipc/autopilot.ts`, `src/shared/autopilot/cycle.ts`, `src/shared/autopilot/journal.ts`, `src/shared/actions/render-template.ts`, `src/renderer/canvas/actions/gates.ts`, `src/renderer/canvas/actions/AutopilotAction.tsx`, `docs/design/F-SPEC.md`, `test/contract/agent-controls.test.ts`, `test/contract/autopilot-background.test.ts`, `test/contract/autopilot.test.ts`, `test/unit/autopilot-run.test.ts`, `test/unit/autopilot-cycle.test.ts`, `test/unit/launch.test.ts`, `test/unit/canvas-actions.test.tsx`, `test/e2e/autopilot.spec.ts` | 6 |
 
 Общих файлов у 01 и 02 нет, блокеров нет: оба в Wave 1.
 
@@ -232,6 +246,16 @@ Ticket-ы дефектов недели (08–12) — из второго кру
   `dock-icon.ts`. 08 и 11 оба про рамку Epic-а, но 08 меняет запись её смещения и `collapsed`, а
   11 — раскладку внутри рамки. Если исполнителю понадобится файл другого Ticket-а этой Wave, Ticket
   об этом говорит, и Wave вычисляется заново.
+
+Ticket-ы 13–17 — замечания владельца 2026-10-07 о повседневной работе. Они идут раньше
+продолжения E3 (Epic `worfy-harness`). Блокеров нет:
+
+- **Wave 6 — 13, 14, 16 и 17.** Общих файлов нет. 13 — только палитра ⌘K. 14 — общий модуль места
+  `free-place.ts` и memo Ticket Node и рамки, без `Canvas.tsx` и `snapping.ts`. 16 — активный Node и
+  wheel router: `Canvas.tsx`, `canvas.css`, Card и HANDOFF. 17 — Stop в Autopilot: main, cycle,
+  кнопка Autopilot и F-SPEC.
+- **Wave 7 — 15.** Общий файл с 14 — `EpicFrameNode.tsx`, с 17 — `F-SPEC.md`. С 16 общих файлов
+  нет, но оба вводят Esc на Canvas; 15 учитывает активный Node из 16.
 
 Списки сверены скриптом, который читает «Где в коде» так же, как `src/main/workflow/reader.ts`, и
 ищет пересечения правилом `filesOverlap` (`src/shared/workflow/waves.ts:145`): внутри каждой Wave
