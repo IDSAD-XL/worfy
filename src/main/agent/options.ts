@@ -22,10 +22,15 @@
 // covers the whole Claude Code process, so the Session's Subagents get the same set. It does not
 // cover servers passed in `mcpServers`, so `worfy-canvas` is passed only when the list names it.
 // Checked against Claude Code 2.1.289 / SDK 0.3.289 (the ticket's summary).
+//
+// The Harness (ADR-0040, ADR-0049, worfy-harness ticket 12): unless the old Harness is on the
+// machine, a Session gets the Harness copy of this build inline (`plugins`, sessionHarnessPlugin).
 import { join } from 'node:path'
 import type { McpServerConfig, Options } from '@anthropic-ai/claude-agent-sdk'
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
+import type { HarnessKind } from '../../shared/projects/action-templates'
+import { bundledHarnessDir } from '../harness/bundled'
 import type { Env } from './env'
 import type { CanUseToolHandler } from './permissions'
 
@@ -87,6 +92,24 @@ export interface SessionOptionsInput {
    * Project — leaves the user's servers as they are.
    */
   mcpAllowlist?: readonly string[] | null | undefined
+  /**
+   * The folder of worfy's own Harness to pass inline (sessionHarnessPlugin). Absent or null — the
+   * old Harness is on the machine — passes no plugins.
+   */
+  harnessPlugin?: string | null | undefined
+}
+
+/**
+ * The Harness a Session of worfy carries inline (ADR-0040, item 2; ADR-0049): the copy of this
+ * build (src/main/harness/bundled.ts — <resourcesPath>/harness in the .app, out/harness otherwise,
+ * looked up on every Session start, so a moved .app still finds it), never the harness/ folder of a
+ * source tree. With the plugin installed or no Harness at all the Session gets it: an inline plugin
+ * named `worfy` silently replaces the installed one (ADR-0048). With the old Harness — on its own
+ * or next to the plugin — it gets none: the old hooks are still written in ~/.claude/settings.json
+ * and the plugin's would run a second time (ADR-0049).
+ */
+export function sessionHarnessPlugin(harness: HarnessKind, bundledDir: () => string = bundledHarnessDir): string | null {
+  return harness === 'legacy' ? null : bundledDir()
 }
 
 export function sessionOptions(input: SessionOptionsInput): Options {
@@ -113,6 +136,7 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   else if (input.sessionId !== undefined) options.sessionId = input.sessionId
   if (input.stderr !== undefined) options.stderr = input.stderr
   if (input.canUseTool !== undefined) options.canUseTool = input.canUseTool
+  if (input.harnessPlugin != null) options.plugins = [{ type: 'local', path: input.harnessPlugin }]
   const allowlist = input.mcpAllowlist ?? null
   if (allowlist !== null) {
     options.managedSettings = { allowManagedMcpServersOnly: true, allowedMcpServers: allowlist.map((serverName) => ({ serverName })) }

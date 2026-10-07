@@ -1,6 +1,7 @@
 // Reads the workflow model of a Project (ADR-0002: worfy reads the workflow, never writes it).
 //
-// The only reader of the Ticket format is `<claude home>/bin/epic-status --json`. worfy adds the
+// The only reader of the Ticket format is `epic-status --json` of the Harness found on the machine
+// (src/main/harness/locate.ts: the plugin's bin/ or `<claude home>/bin`). worfy adds the
 // two things that script does not carry: the files listed under each Ticket's "Где в коде"
 // section and the Epic's title (the H1 of spec.md). A Ticket claimed in a worktree branch is
 // shown with the branch's status: `epic-status --json --ref <branch>` reads that branch. A branch
@@ -11,6 +12,7 @@ import { execFile } from 'node:child_process'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
+import { harnessHomes, locateHarness, notFoundPaths, scriptEnv } from '../harness/locate'
 import {
   epicStatusSchema,
   ticketKey,
@@ -27,7 +29,7 @@ export type EpicStatusRunner = (cwd: string, ref: string | null) => Promise<stri
 export interface ReaderOptions {
   /** The Project's repository root. */
   root: string
-  /** Claude Code's home; the script is `<claudeHome>/bin/epic-status`. */
+  /** Claude Code's home; the script is that of the Harness found from it (epicStatusPath). */
   claudeHome: string
   /** How many branch snapshots run at once (default 4). */
   concurrency?: number
@@ -60,19 +62,31 @@ class EpicStatusError extends Error {
 const MAX_OUTPUT = 64 * 1024 * 1024
 const TIMEOUT_MS = 60_000
 
-export const epicStatusPath = (claudeHome: string): string => join(claudeHome, 'bin', 'epic-status')
+/**
+ * The `epic-status` of the Harness found on the machine (src/main/harness/locate.ts): the plugin's
+ * in <harnessHome>/plugin/bin, or the old one in <claudeHome>/bin. The Harness home is
+ * WORFY_HARNESS_HOME or <claudeHome>/worfy-harness.
+ */
+export const epicStatusPath = (claudeHome: string): string => join(locateHarness(harnessHomes(claudeHome)).binDir, 'epic-status')
 
-/** The default runner: the real script as a child process, with a timeout and a size cap. */
+/**
+ * The default runner: the real script as a child process, with a timeout and a size cap. The
+ * Harness is looked for on every run, so a machine that switches to the plugin is read without a
+ * restart; the plugin's script gets HARNESS_HOME.
+ */
 export function epicStatusRunner(claudeHome: string): EpicStatusRunner {
-  const script = epicStatusPath(claudeHome)
   return (cwd, ref) =>
     new Promise((resolvePromise, reject) => {
+      const harness = locateHarness(harnessHomes(claudeHome))
+      const script = join(harness.binDir, 'epic-status')
       const args = ref === null ? ['--json'] : ['--json', '--ref', ref]
-      execFile(script, args, { cwd, maxBuffer: MAX_OUTPUT, timeout: TIMEOUT_MS, encoding: 'utf8' }, (error, stdout, stderr) => {
+      const env = scriptEnv(harness, process.env)
+      execFile(script, args, { cwd, env, maxBuffer: MAX_OUTPUT, timeout: TIMEOUT_MS, encoding: 'utf8' }, (error, stdout, stderr) => {
         if (!error) return resolvePromise(stdout)
         const code = (error as NodeJS.ErrnoException).code
         if (code === 'ENOENT' || code === 'EACCES') {
-          return reject(new EpicStatusError({ code: 'not-found', message: `epic-status not found: ${script}` }))
+          const where = harness.kind === 'none' ? notFoundPaths(harness, 'epic-status') : script
+          return reject(new EpicStatusError({ code: 'not-found', message: `epic-status not found: ${where}` }))
         }
         const detail = stderr.trim() || error.message
         reject(new EpicStatusError({ code: 'failed', message: `epic-status failed${ref ? ` for ${ref}` : ''}: ${detail}` }))

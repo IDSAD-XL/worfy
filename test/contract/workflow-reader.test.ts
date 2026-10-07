@@ -78,6 +78,31 @@ function makeClaudeHome(dir: string): { home: string; log: string } {
   return { home, log }
 }
 
+/**
+ * A temporary Claude home with no Harness of its own and the Harness plugin in
+ * <home>/worfy-harness/plugin (worfy-harness ticket 12): the same stub as bin/epic-status of the
+ * plugin, which also writes the HARNESS_HOME it was given to `harnessEnv`.
+ */
+function makePluginHome(dir: string): { home: string; harnessHome: string; log: string; harnessEnv: string } {
+  const home = join(dir, 'claude-home')
+  const harnessHome = join(home, 'worfy-harness')
+  const plugin = join(harnessHome, 'plugin')
+  mkdirSync(join(plugin, 'bin'), { recursive: true })
+  mkdirSync(join(plugin, '.claude-plugin'), { recursive: true })
+  writeFileSync(join(plugin, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'worfy', version: '0.2.0+abc' }))
+  const js = join(dir, 'stub.cjs')
+  writeFileSync(js, STUB_JS)
+  const harnessEnv = join(dir, 'harness-env.log')
+  writeFileSync(harnessEnv, '')
+  const script = join(plugin, 'bin', 'epic-status')
+  writeFileSync(script, `#!/bin/sh\nprintf '%s\\n' "\${HARNESS_HOME-unset}" >> '${harnessEnv}'\nELECTRON_RUN_AS_NODE=1 exec '${process.execPath}' '${js}' "$@"\n`)
+  chmodSync(script, 0o755)
+  const log = join(dir, 'stub-calls.log')
+  writeFileSync(log, '')
+  process.env.STUB_LOG = log
+  return { home, harnessHome, log, harnessEnv }
+}
+
 const calls = (log: string): string[] => readFileSync(log, 'utf8').split('\n').filter(Boolean)
 
 // ── temporary repository ─────────────────────────────────────────────────────
@@ -311,12 +336,65 @@ describe('workflow reader', () => {
     expect(peak).toBe(4)
   })
 
-  it('gives an empty model with the reason when epic-status is missing, and does not throw', async () => {
+  it('gives an empty model with the reason when epic-status is missing, and does not throw; the reason names both places it looked', async () => {
     const repo = makeRepo(dir)
     const { model } = await readWorkflow({ root: repo, claudeHome: join(dir, 'no-such-home') })
     expect(model.tickets).toEqual([])
     expect(model.epics).toEqual([])
-    expect(model.error).toEqual({ code: 'not-found', message: `epic-status not found: ${join(dir, 'no-such-home', 'bin', 'epic-status')}` })
+    const legacy = join(dir, 'no-such-home', 'bin', 'epic-status')
+    const plugin = join(dir, 'no-such-home', 'worfy-harness', 'plugin', 'bin', 'epic-status')
+    expect(model.error).toEqual({ code: 'not-found', message: `epic-status not found: ${legacy} or ${plugin}` })
+  })
+
+  it('runs epic-status of the Harness plugin when only the plugin is there, with HARNESS_HOME in its environment (worfy-harness ticket 12)', async () => {
+    const repo = makeRepo(dir)
+    const { home, harnessHome, log, harnessEnv } = makePluginHome(dir)
+    claimInWorktree(repo, 'demo/02', '02', '02-second.md')
+    const { model } = await readWorkflow({ root: repo, claudeHome: home })
+    expect(model.error).toBeNull()
+    expect(model.tickets.map((t) => t.num)).toEqual([1, 2, 3, 4])
+    expect(ticketOf(model, 2)).toMatchObject({ state: 'work', fromBranch: 'demo/02' })
+    expect(calls(log)).toEqual(['.', 'demo/02'])
+    // Every run, the checkout's and the branch's, got the Harness home.
+    expect(calls(harnessEnv)).toEqual([harnessHome, harnessHome])
+    // The plain runner the MCP server uses (canvas-server.ts) finds it too.
+    expect((await readCheckout(repo, epicStatusRunner(home))).error).toBeNull()
+  })
+
+  it('takes WORFY_HARNESS_HOME as the Harness home when it is set', async () => {
+    const repo = makeRepo(dir)
+    const { harnessHome, harnessEnv } = makePluginHome(dir)
+    const before = process.env.WORFY_HARNESS_HOME
+    process.env.WORFY_HARNESS_HOME = harnessHome
+    try {
+      // The Claude home is elsewhere and empty: the Harness home comes from the variable.
+      const { model } = await readWorkflow({ root: repo, claudeHome: join(dir, 'empty-claude-home') })
+      expect(model.error).toBeNull()
+      expect(calls(harnessEnv)).toEqual([harnessHome])
+    } finally {
+      if (before === undefined) delete process.env.WORFY_HARNESS_HOME
+      else process.env.WORFY_HARNESS_HOME = before
+    }
+  })
+
+  it('keeps running <claudeHome>/bin/epic-status, without HARNESS_HOME, while the old Harness is there next to the plugin', async () => {
+    const repo = makeRepo(dir)
+    const { harnessEnv } = makePluginHome(dir)
+    const { home, log } = makeClaudeHome(dir)
+    const { model } = await readWorkflow({ root: repo, claudeHome: home })
+    expect(model.error).toBeNull()
+    expect(calls(log)).toEqual(['.'])
+    // The plugin's script was not run.
+    expect(calls(harnessEnv)).toEqual([])
+  })
+
+  it('writes nothing under the Claude home or the Harness home while reading through the plugin', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makePluginHome(dir)
+    claimInWorktree(repo, 'demo/02', '02', '02-second.md')
+    const before = treeState(home)
+    await readWorkflow({ root: repo, claudeHome: home })
+    expect(treeState(home)).toEqual(before)
   })
 
   it('reports a failing script and output that is not the expected JSON', async () => {

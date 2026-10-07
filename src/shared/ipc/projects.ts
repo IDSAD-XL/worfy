@@ -61,6 +61,12 @@ export const projectsSettingsSet = invokeChannel(
   projectSettingsSchema,
 )
 
+/**
+ * The default settings for the Harness found on the machine now (worfy-harness ticket 12): what
+ * "Reset to default" puts into the fields. Main looks for the Harness on every call.
+ */
+export const projectsSettingsDefaults = invokeChannel('projects.settings.defaults', z.void(), projectSettingsSchema)
+
 /** Sent to every window after a Project's settings were saved, so the action buttons (ticket 23) follow at once. */
 export const projectsSettingsChanged = eventChannel('projects.settings.changed', z.object({ id: z.string().min(1), settings: projectSettingsSchema }))
 
@@ -76,6 +82,7 @@ declare module './channels' {
     'projects.remove': typeof projectsRemove
     'projects.settings.get': typeof projectsSettingsGet
     'projects.settings.set': typeof projectsSettingsSet
+    'projects.settings.defaults': typeof projectsSettingsDefaults
     'projects.changed': typeof projectsChanged
     'projects.settings.changed': typeof projectsSettingsChanged
   }

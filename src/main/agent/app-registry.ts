@@ -9,7 +9,8 @@ import { app } from 'electron'
 import { agentEnv, type Env } from './env'
 import { fakeQueryFactory } from './fake-query'
 import { appLimits } from './limits'
-import { sessionOptions } from './options'
+import { sessionHarnessPlugin, sessionOptions } from './options'
+import { currentHarness } from '../harness/locate'
 import { canvasForSession, type CanvasResolver, type CanvasSession } from '../mcp/canvas-server'
 import { claudeHome } from '../storage/paths'
 import { readMcpAllowlist } from '../workflow/profile'
@@ -41,6 +42,8 @@ const profileAllowlist: McpAllowlistResolver = async (cwd, env) => (await readMc
  * Claude Code through the Agent SDK, with the user's login shell environment and the Project's
  * canvas. A Session in a Project (one the canvas attaches to) gets only the MCP servers its Profile
  * lists; a Session outside every Project, or whose canvas failed, keeps the user's servers as they are.
+ * Every Session gets the Harness copy of this build inline unless the old Harness is on the machine
+ * (sessionHarnessPlugin, ADR-0049).
  */
 export function sdkQueryFactory(canvas: CanvasResolver = canvasForSession, mcpAllowlist: McpAllowlistResolver = profileAllowlist): QueryFactory {
   return async (request) => {
@@ -58,6 +61,8 @@ export function sdkQueryFactory(canvas: CanvasResolver = canvasForSession, mcpAl
       canUseTool: request.canUseTool,
       unattended: request.unattended,
       mcpAllowlist: allowlist,
+      // Looked for at every Session start: worfy's own Harness inline unless the old one is on the machine (ADR-0049).
+      harnessPlugin: sessionHarnessPlugin(currentHarness().kind),
     })
     const handle = query({ prompt: request.prompt, options }) as QueryHandle
     return attached ? attached.observe(handle) : handle

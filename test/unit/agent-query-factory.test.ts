@@ -1,7 +1,7 @@
 // How a Session's Claude Code is started (src/main/agent/app-registry.ts): the real SDK unless
 // WORFY_AGENT=fake, with the login shell environment from env.ts rather than worfy's own, and the
 // unpacked native binary in the packaged app. The SDK's query() and agentEnv() are mocked.
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -173,5 +173,44 @@ describe('queryFactoryFromEnv', () => {
     registering.close()
     expect(readdirSync(sessions)).toEqual([])
     expect(mocks.query).not.toHaveBeenCalled()
+  })
+})
+
+// worfy-harness ticket 12 (ADR-0049): the Harness on the machine is looked for at every Session
+// start, in WORFY_CLAUDE_HOME here; the plugin, or no Harness, gives the Session the build's copy.
+describe('the Harness a Session of sdkQueryFactory carries', () => {
+  let home: string
+
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'worfy-query-factory-home-'))
+    vi.stubEnv('WORFY_CLAUDE_HOME', home)
+    vi.stubEnv('WORFY_HARNESS_HOME', '')
+    mocks.app.isPackaged = true
+  })
+
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  const plugins = async (): Promise<unknown> => {
+    mocks.query.mockClear()
+    await sdkQueryFactory()(request())
+    return sdkOptions().plugins
+  }
+
+  it('is the copy in Contents/Resources/harness with the plugin and with none; nothing with the old Harness; looked for again at each start', async () => {
+    const own = [{ type: 'local', path: join(RESOURCES, 'harness') }]
+    expect(await plugins()).toEqual(own)
+
+    const plugin = join(home, 'worfy-harness', 'plugin')
+    mkdirSync(join(plugin, '.claude-plugin'), { recursive: true })
+    mkdirSync(join(plugin, 'bin'), { recursive: true })
+    writeFileSync(join(plugin, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'worfy' }))
+    writeFileSync(join(plugin, 'bin', 'epic-status'), '#!/bin/sh\n')
+    expect(await plugins()).toEqual(own)
+
+    mkdirSync(join(home, 'bin'))
+    writeFileSync(join(home, 'bin', 'epic-status'), '#!/bin/sh\n')
+    expect(await plugins()).toBeUndefined()
   })
 })

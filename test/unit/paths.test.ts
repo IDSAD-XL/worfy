@@ -1,7 +1,7 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { claudeHome, dataRoot, setBuildKind } from '../../src/main/storage/paths'
+import { claudeHome, dataRoot, harnessHome, setBuildKind } from '../../src/main/storage/paths'
 
 describe('storage paths', () => {
   it('uses WORFY_DATA_DIR as the data root when it is set', () => {
@@ -34,6 +34,24 @@ describe('storage paths', () => {
 
   it('resolves a relative WORFY_CLAUDE_HOME to an absolute path', () => {
     expect(claudeHome({ WORFY_CLAUDE_HOME: 'rel/claude' })).toBe(join(process.cwd(), 'rel', 'claude'))
+  })
+})
+
+describe('Harness home (worfy-harness ticket 12)', () => {
+  it('uses WORFY_HARNESS_HOME when it is set, resolved to an absolute path', () => {
+    expect(harnessHome({ WORFY_HARNESS_HOME: '/tmp/harness-home', WORFY_CLAUDE_HOME: '/tmp/claude-home' })).toBe('/tmp/harness-home')
+    expect(harnessHome({ WORFY_HARNESS_HOME: 'rel/harness' })).toBe(join(process.cwd(), 'rel', 'harness'))
+  })
+
+  it('defaults to <claudeHome()>/worfy-harness, so a temporary WORFY_CLAUDE_HOME never reaches the real one', () => {
+    expect(harnessHome({ WORFY_CLAUDE_HOME: '/tmp/claude-home' })).toBe(join('/tmp/claude-home', 'worfy-harness'))
+    expect(harnessHome({})).toBe(join(homedir(), '.claude', 'worfy-harness'))
+    expect(harnessHome({ WORFY_HARNESS_HOME: '' })).toBe(join(homedir(), '.claude', 'worfy-harness'))
+  })
+
+  it('sits in the Claude home it is given when the variable is not set', () => {
+    expect(harnessHome({}, '/tmp/other-claude')).toBe(join('/tmp/other-claude', 'worfy-harness'))
+    expect(harnessHome({ WORFY_HARNESS_HOME: '/tmp/harness-home' }, '/tmp/other-claude')).toBe('/tmp/harness-home')
   })
 })
 

@@ -41,3 +41,15 @@ export function claudeHome(env: Env = process.env): string {
   const override = env.WORFY_CLAUDE_HOME
   return override ? resolve(override) : join(homedir(), '.claude')
 }
+
+/**
+ * Root of the Harness on the machine (ADR-0040): the plugin in `plugin/`, the Gate registry and
+ * state in `gate/`, the Profiles in `projects/`. Read but never written by worfy; the installer
+ * (worfy-harness ticket 13) puts it there. WORFY_HARNESS_HOME overrides it; without it the folder
+ * sits in the Claude home given (claudeHome() by default), so a test or e2e run with a temporary
+ * WORFY_CLAUDE_HOME never sees the real ~/.claude/worfy-harness.
+ */
+export function harnessHome(env: Env = process.env, home: string = claudeHome(env)): string {
+  const override = env.WORFY_HARNESS_HOME
+  return override ? resolve(override) : join(home, 'worfy-harness')
+}

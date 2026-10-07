@@ -2,15 +2,22 @@
 // ticket 02): the permission mode Claude Code starts in, the flag that lets it skip permissions, and
 // the canUseTool the Session hands over. And the MCP servers of a Session (worfy-daily ticket 06,
 // ADR-0021): in a Project only those on the Profile's list, outside a Project the user's own set.
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
-import { describe, expect, it } from 'vitest'
-import { sessionOptions, type CanvasAttachment, type RuntimeInfo, type SessionOptionsInput } from '../../src/main/agent/options'
+import { describe, expect, it, vi } from 'vitest'
+import { sessionHarnessPlugin, sessionOptions, type CanvasAttachment, type RuntimeInfo, type SessionOptionsInput } from '../../src/main/agent/options'
+import * as bundled from '../../src/main/harness/bundled'
 import type { CanUseToolHandler } from '../../src/main/agent/permissions'
 import { DEFAULT_MCP_SERVERS } from '../../src/main/workflow/profile'
 import { PERMISSION_MODES, type SessionSettings } from '../../src/shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
 
-const runtime: RuntimeInfo = { packaged: false, resourcesPath: '/nowhere', platform: 'darwin', arch: 'arm64' }
+/** The Harness copy of the build, as bundled.ts (worfy-harness ticket 04) would give it. */
+const BUNDLED = '/Applications/worfy.app/Contents/Resources/harness'
+vi.mock('../../src/main/harness/bundled', () => ({ bundledHarnessDir: vi.fn(() => '/Applications/worfy.app/Contents/Resources/harness') }))
+
+const runtime: RuntimeInfo ={ packaged: false, resourcesPath: '/nowhere', platform: 'darwin', arch: 'arm64' }
 const env = { PATH: '/usr/bin', HOME: '/Users/me' }
 const canUseTool: CanUseToolHandler = () => Promise.resolve({ behavior: 'deny', message: 'no' })
 const input = (more: Partial<SessionOptionsInput>): SessionOptionsInput => ({ cwd: '/repo', env, runtime, ...more })
@@ -119,5 +126,48 @@ describe('MCP servers of a Session outside a Project', () => {
     expect(options).not.toHaveProperty('managedSettings')
     expect(options).not.toHaveProperty('mcpServers')
     expect(options.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code' })
+  })
+})
+
+// worfy-harness ticket 12 (ADR-0040 item 2, ADR-0049): a Session carries worfy's own Harness inline
+// unless the old Harness is on the machine. The path is that of bundled.ts (ticket 04), replaced
+// here; the shape is the one the spike passed (scripts/spikes/harness-plugin/probe.ts), and the
+// spike's system/init shows Claude Code taking it over the installed plugin of the same name.
+describe('the Harness plugin of a Session', () => {
+  it('passes the Harness folder it is given as the one local plugin', () => {
+    const options = sessionOptions(input({ harnessPlugin: '/Applications/worfy.app/Contents/Resources/harness' }))
+    expect(options.plugins).toEqual([{ type: 'local', path: '/Applications/worfy.app/Contents/Resources/harness' }])
+  })
+
+  it('passes no plugins field without one', () => {
+    expect(sessionOptions(input({}))).not.toHaveProperty('plugins')
+    expect(sessionOptions(input({ harnessPlugin: null }))).not.toHaveProperty('plugins')
+  })
+
+  it('takes the folder from bundled.ts for the plugin and for no Harness, and none for the old Harness', () => {
+    expect(bundled.bundledHarnessDir).not.toHaveBeenCalled()
+    expect(sessionHarnessPlugin('plugin')).toBe(BUNDLED)
+    expect(sessionHarnessPlugin('none')).toBe(BUNDLED)
+    expect(bundled.bundledHarnessDir).toHaveBeenCalledTimes(2)
+    expect(sessionHarnessPlugin('legacy')).toBeNull()
+    expect(bundled.bundledHarnessDir).toHaveBeenCalledTimes(2)
+  })
+
+  it('end to end: the old Harness gives a Session without plugins, the plugin gives it the bundled copy', () => {
+    expect(sessionOptions(input({ harnessPlugin: sessionHarnessPlugin('legacy') }))).not.toHaveProperty('plugins')
+    expect(sessionOptions(input({ harnessPlugin: sessionHarnessPlugin('plugin') })).plugins).toEqual([{ type: 'local', path: BUNDLED }])
+  })
+
+  it('matches what Claude Code reported for an inline plugin over an installed one (fixture of worfy-harness ticket 01)', () => {
+    const fixture = join(import.meta.dirname, '..', 'fixtures', 'sdk-messages', 'plugin-known-inline-over-installed.jsonl')
+    const init = readFileSync(fixture, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { type?: string; subtype?: string; plugins?: { name: string; source: string; path: string }[] })
+      .find((message) => message.type === 'system' && message.subtype === 'init')
+    const worfy = (init?.plugins ?? []).filter((plugin) => plugin.name === 'worfy')
+    // One plugin named worfy, the inline one: the installed copy of the same name is replaced.
+    expect(worfy).toHaveLength(1)
+    expect(worfy[0]).toMatchObject({ source: 'worfy@inline', path: '<tmp>/inline-known/worfy' })
   })
 })

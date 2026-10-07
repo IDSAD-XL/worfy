@@ -105,9 +105,34 @@ function repoStatus(repo: string): string {
   return git(repo, 'status', '--porcelain', '--ignored', '--untracked-files=all')
 }
 
+/**
+ * The Claude home of the test (WORFY_CLAUDE_HOME): the default templates follow the Harness found
+ * there (worfy-harness ticket 12), so the test brings its own instead of reading the machine's
+ * ~/.claude. It starts with the old Harness, <home>/bin/epic-status.
+ */
+let claudeHome: string
+
+/** Puts the Harness plugin into <claudeHome>/worfy-harness and, unless `keepOld`, takes the old Harness away. */
+function switchToPlugin(keepOld = false): void {
+  const plugin = join(claudeHome, 'worfy-harness', 'plugin')
+  mkdirSync(join(plugin, '.claude-plugin'), { recursive: true })
+  mkdirSync(join(plugin, 'bin'), { recursive: true })
+  writeFileSync(join(plugin, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'worfy' }))
+  writeFileSync(join(plugin, 'bin', 'epic-status'), '#!/bin/sh\n')
+  if (!keepOld) rmSync(join(claudeHome, 'bin'), { recursive: true, force: true })
+}
+
+const LEGACY_TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}' }
+const PLUGIN_TEMPLATES = { shipTicket: '/worfy:ship-ticket {epic} {NN}', runWave: '/worfy:epic-wave tickets {tickets} of epic {epic}' }
+
 beforeEach(async () => {
   scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-projects-')))
   dataDir = join(scratch, 'data')
+  claudeHome = join(scratch, 'claude-home')
+  mkdirSync(join(claudeHome, 'bin'), { recursive: true })
+  writeFileSync(join(claudeHome, 'bin', 'epic-status'), '#!/bin/sh\n')
+  vi.stubEnv('WORFY_CLAUDE_HOME', claudeHome)
+  vi.stubEnv('WORFY_HARNESS_HOME', '')
   electron.sent.length = 0
   electron.showOpenDialog.mockReset()
   vi.spyOn(console, 'warn').mockImplementation(() => undefined)
@@ -117,6 +142,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
   delete process.env.WORFY_DATA_DIR
   rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
@@ -324,6 +350,51 @@ describe('projects.settings', () => {
     expect(result.ok).toBe(false)
     expect(!result.ok && result.error).toMatch(/Unknown placeholder \{foo\}/)
     expect(readFileSync(file, 'utf8')).toBe(before)
+  })
+
+  it('gives a new Project the plugin\'s templates when the Harness plugin is on the machine (worfy-harness ticket 12)', async () => {
+    switchToPlugin()
+    const { project } = await addOk(makeRepo('auction'))
+    expect(await value('projects.settings.get', { id: project.id })).toStrictEqual({ actionTemplates: PLUGIN_TEMPLATES })
+    expect(JSON.parse(readFileSync(join(dataDir, project.id, 'settings.json'), 'utf8'))).toStrictEqual({ actionTemplates: PLUGIN_TEMPLATES })
+  })
+
+  it('reads saved defaults as those of the Harness found now, without writing the file; the owner\'s own template stays', async () => {
+    const { project } = await addOk(makeRepo('auction'))
+    const file = join(dataDir, project.id, 'settings.json')
+    const saved = `${JSON.stringify({ actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave волна {wave} эпика {epic}' } }, null, 2)}\n`
+    writeFileSync(file, saved)
+    // The old Harness next to the plugin: still the old Harness, still its templates.
+    switchToPlugin(true)
+    expect(await value('projects.settings.get', { id: project.id })).toStrictEqual({ actionTemplates: LEGACY_TEMPLATES })
+    // The move takes the old Harness away: the same file reads as the plugin's, with no restart.
+    rmSync(join(claudeHome, 'bin'), { recursive: true })
+    expect(await value('projects.settings.get', { id: project.id })).toStrictEqual({ actionTemplates: PLUGIN_TEMPLATES })
+    expect(readFileSync(file, 'utf8')).toBe(saved)
+
+    const own = { actionTemplates: { shipTicket: 'my ship {NN}', runWave: '' } }
+    writeFileSync(file, JSON.stringify(own))
+    expect(await value('projects.settings.get', { id: project.id })).toStrictEqual(own)
+  })
+
+  it('gives "Reset to default" the defaults of the Harness on the machine at the time of the call', async () => {
+    expect(await value('projects.settings.defaults')).toStrictEqual({ actionTemplates: LEGACY_TEMPLATES })
+    switchToPlugin()
+    expect(await value('projects.settings.defaults')).toStrictEqual({ actionTemplates: PLUGIN_TEMPLATES })
+    // No Harness at all: worfy's Sessions carry its own plugin, so the plugin's names.
+    rmSync(join(claudeHome, 'worfy-harness'), { recursive: true })
+    expect(await value('projects.settings.defaults')).toStrictEqual({ actionTemplates: PLUGIN_TEMPLATES })
+  })
+
+  it('writes nothing under the Claude home or the Harness home', async () => {
+    switchToPlugin(true)
+    const listing = (dir: string) => readdirSync(dir, { recursive: true }).map(String).sort()
+    const before = listing(claudeHome)
+    const { project } = await addOk(makeRepo('auction'))
+    await value('projects.settings.get', { id: project.id })
+    await value('projects.settings.defaults')
+    await value('projects.settings.set', { id: project.id, settings: { actionTemplates: { shipTicket: '/x {NN}', runWave: '' } } })
+    expect(listing(claudeHome)).toEqual(before)
   })
 
   it('stores only the declared keys, whatever else the caller sends', async () => {
