@@ -1,0 +1,54 @@
+#!/bin/zsh
+# qmd-mcp — запуск MCP-сервера qmd для Claude Code.
+# Задаёт модели (0.6B-эмбеддинг, русское расширение запроса), находит node из nvm,
+# в фоне обновляет глобальный индекс (git-копия main, память проекта, уроки) и запускает сервер.
+# Индекс: ~/.config/qmd/index.yml и ~/.cache/qmd/index.sqlite. Лог обновлений: ~/.cache/qmd/refresh.log.
+# Отключить фоновое обновление: QMD_MCP_NO_REFRESH=1.
+set -u
+
+export QMD_EMBED_MODEL="hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
+# generate: в index.yml запрос не читает (qmd 2.8.3), работает только переменная окружения
+export QMD_GENERATE_MODEL="hf:AGmind/qmd-query-expansion-ru/qmd-query-expansion-ru-q4_k_m.gguf"
+
+# Приложение Claude запускает сервер без пользовательского PATH; node живёт в nvm.
+if ! command -v qmd >/dev/null 2>&1 && [[ -s "$HOME/.nvm/nvm.sh" ]]; then
+  source "$HOME/.nvm/nvm.sh" >/dev/null 2>&1
+  nvm use default --silent >/dev/null 2>&1 || true
+fi
+QMD_BIN="$(command -v qmd)" || { echo "qmd-mcp: qmd не найден в PATH" >&2; exit 127; }
+
+# Всегда глобальный индекс: cwd сессии может содержать проектный .qmd/.
+cd "$HOME" || exit 1
+
+CACHE="$HOME/.cache/qmd"
+LOG="$CACHE/refresh.log"
+LOCK="$CACHE/refresh.lock"   # каталог-замок, внутри pid фоновой задачи
+mkdir -p "$CACHE"
+[[ -f "$LOG" && "$(stat -f%z "$LOG")" -gt 1000000 ]] && : > "$LOG"
+
+# Брошенный замок: pid записан и процесс мёртв, либо pid так и не записан за две минуты.
+if [[ -d "$LOCK" ]]; then
+  pid="$(cat "$LOCK/pid" 2>/dev/null || true)"
+  if [[ -n "$pid" ]]; then
+    kill -0 "$pid" 2>/dev/null || rm -rf "$LOCK"
+  elif [[ -n "$(find "$LOCK" -maxdepth 0 -mmin +2 2>/dev/null)" ]]; then
+    rm -rf "$LOCK"
+  fi
+fi
+
+# Обновление индекса в фоне: без наследования stdio сервера, иначе MCP-рукопожатие ждёт конца embed.
+# Замок нужен ради `qmd update` (git checkout в общей копии); у `qmd embed` свой замок.
+if [[ "${QMD_MCP_NO_REFRESH:-}" != "1" ]] && mkdir "$LOCK" 2>/dev/null; then
+  (
+    trap 'rm -rf "$LOCK" 2>/dev/null; exit' EXIT TERM INT HUP
+    {
+      echo "== $(date '+%F %T') refresh"
+      "$QMD_BIN" update; echo "update rc=$?"
+      nice -n 10 "$QMD_BIN" embed; echo "embed rc=$?"
+    } >>"$LOG" 2>&1
+  ) </dev/null >/dev/null 2>&1 &
+  print -r -- "$!" >"$LOCK/pid" 2>/dev/null || true
+  disown 2>/dev/null
+fi
+
+exec "$QMD_BIN" mcp "$@"

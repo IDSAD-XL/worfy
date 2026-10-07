@@ -1,0 +1,288 @@
+#!/usr/bin/env node
+// worktree-lock — совещательный замок на рабочее дерево. Отвечает на вопрос
+// «кто ещё сейчас пишет в эту папку», потому что git этого не отслеживает:
+// две сессии в одном дереве правят одни файлы, побеждает последняя запись.
+//
+// Подкоманды (зовутся из хуков, JSON события читается со stdin):
+//   claim    SessionStart — записаться в дерево и сказать, кто здесь уже есть
+//   beat     Stop         — отметиться живой; сказать, если состав изменился
+//   release  SessionEnd   — выписаться
+//   status   вручную      — показать состав дерева человеку
+//
+// ПЕРВОЕ СВОЙСТВО — не мешать. Любой сбой в режиме хука заканчивается кодом 0 и
+// молчанием: замок совещательный, ронять из-за него старт сессии недопустимо.
+//
+// Реестр лежит ВНЕ репозитория: ~/.claude/worktree-sessions/<дерево>.json,
+// чтобы не подкладывать посторонние файлы в служебный каталог git. Живой
+// считается сессия, отметившаяся за последние WORKTREE_LOCK_TTL_MIN минут
+// (по умолчанию 60): Stop срабатывает на каждом ходу, поэтому молчание дольше
+// часа означает, что сессия брошена или упала.
+
+import fs from "node:fs"
+import path from "node:path"
+import crypto from "node:crypto"
+import { execFileSync } from "node:child_process"
+
+const cmd = process.argv[2]
+const HOOK = ["claim", "beat", "release"].includes(cmd)
+
+// EPIPE на stdout прилетает асинхронным событием и минует try/catch внизу файла.
+// Для хука любой сбой обязан быть беззвучным и с кодом 0.
+process.stdout.on("error", () => {})
+if (HOOK) process.on("uncaughtException", () => process.exit(0))
+// Брошенный мьютекс: критическая секция занимает миллисекунды, поэтому всё, что
+// старше этого, — след упавшего процесса.
+const MUTEX_STALE_MS = 15000
+
+const main = () => {
+    const TTL_MS = Math.max(0, Number(process.env.WORKTREE_LOCK_TTL_MIN ?? 60)) * 60000
+    const home = process.env.HOME
+    if (!home) return
+
+    const git = (args, cwd) => {
+        try {
+            return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 2000 }).trim()
+        } catch {
+            return ""
+        }
+    }
+
+    // stdin читаем только у подкоманд-хуков: у них он есть и закрывается. status
+    // зовут руками, и чтение с открытого терминала повисло бы навсегда.
+    let payload = {}
+    if (HOOK) {
+        try {
+            const raw = fs.readFileSync(0, "utf8")
+            if (raw.trim()) payload = JSON.parse(raw) ?? {}
+        } catch {
+            /* пустой или битый payload — работаем по process.cwd() */
+        }
+    }
+    if (typeof payload !== "object" || payload === null) payload = {}
+
+    const cwd = typeof payload.cwd === "string" ? payload.cwd : process.cwd()
+    const root = git(["rev-parse", "--show-toplevel"], cwd)
+    if (!root) return // не репозиторий — замку не за что держаться
+
+    const rawMe = payload.session_id || process.env.CLAUDE_SESSION_ID || process.env.CLAUDE_CODE_SESSION_ID || ""
+    // __proto__ в роли ключа задал бы прототип вместо собственного поля.
+    const me = rawMe === "__proto__" || rawMe === "constructor" ? "" : String(rawMe)
+    const branch = HOOK ? git(["rev-parse", "--abbrev-ref", "HEAD"], cwd) : ""
+    // Хвост-хеш от полного пути: сам по себе slug схлопывает Auction-sale-loop,
+    // Auction/sale-loop и Auction_sale_loop в одно имя.
+    const slug = `${root.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${crypto.createHash("sha1").update(root).digest("hex").slice(0, 8)}`
+    const dir = path.join(home, ".claude", "worktree-sessions")
+    const file = path.join(dir, `${slug}.json`)
+    const now = Date.now()
+
+    const short = (id) => String(id || "?").slice(0, 8)
+    const ago = (t) => {
+        const m = Math.round((now - t) / 60000)
+        if (m < 1) return "только что"
+        if (m < 60) return `${m} мин назад`
+        return `${Math.round(m / 60)} ч назад`
+    }
+    const clock = (t) => new Date(t).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })
+
+    // Запись считается годной, только если оба времени — числа и не из будущего:
+    // иначе подделанный started делает сессию вечным держателем.
+    const sane = (e) =>
+        e &&
+        typeof e === "object" &&
+        Number.isFinite(e.seen) &&
+        Number.isFinite(e.started) &&
+        e.seen <= now + 60000 &&
+        e.started <= now + 60000 &&
+        now - e.seen <= TTL_MS
+
+    // fn получает реестр и может его менять; запись на диск — только под взятым
+    // мьютексом. Не взяли — работаем по прочитанному, но НЕ пишем: без замка
+    // легко затереть чужие записи.
+    let broken = false
+    const withRegistry = (fn) => {
+        let all = {}
+        let readable = true
+        try {
+            const raw = fs.readFileSync(file, "utf8")
+            const parsed = JSON.parse(raw)
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) all = parsed
+            else readable = false
+        } catch (e) {
+            // Нет файла — нормальный первый запуск. Есть, но не читается или не
+            // разбирается — чужие записи целы, и перезаписывать их нельзя.
+            if (e.code !== "ENOENT") readable = false
+        }
+
+        const mutex = `${file}.lock`
+        let held = false
+        if (readable) {
+            try {
+                fs.mkdirSync(dir, { recursive: true })
+                fs.accessSync(dir, fs.constants.W_OK)
+                for (let i = 0; i < (cmd === "release" ? 150 : 50) && !held; i++) {
+                    try {
+                        fs.mkdirSync(mutex)
+                        held = true
+                    } catch {
+                        try {
+                            if (now - fs.statSync(mutex).mtimeMs > MUTEX_STALE_MS) fs.rmdirSync(mutex)
+                        } catch {
+                            /* уже снят кем-то другим */
+                        }
+                        if (!held) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
+                    }
+                }
+                // Перечитываем под замком: между первым чтением и захватом реестр мог измениться.
+                if (held) {
+                    try {
+                        const parsed = JSON.parse(fs.readFileSync(file, "utf8"))
+                        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) all = parsed
+                    } catch {
+                        /* файла ещё нет — оставляем то, что прочитали */
+                    }
+                }
+            } catch {
+                held = false
+            }
+        }
+
+        // Убитый по таймауту хук оставляет .tmp; подметаем старые.
+        try {
+            for (const f of fs.readdirSync(dir)) {
+                if (!f.endsWith(".tmp")) continue
+                const t = path.join(dir, f)
+                if (now - fs.statSync(t).mtimeMs > MUTEX_STALE_MS) fs.unlinkSync(t)
+            }
+        } catch {
+            /* каталога нет или он не читается */
+        }
+        broken = !readable
+        for (const [id, e] of Object.entries(all)) if (!sane(e)) delete all[id]
+
+        try {
+            fn(all) // fn печатает предупреждение ДО записи: потерять запись told
+            // безопаснее, чем потерять предупреждение навсегда.
+        } finally {
+            if (held) {
+                try {
+                    const tmp = `${file}.${process.pid}.tmp`
+                    fs.writeFileSync(tmp, JSON.stringify(all, null, 2) + "\n")
+                    fs.renameSync(tmp, file)
+                } catch {
+                    /* не записали — в следующий раз */
+                } finally {
+                    try {
+                        fs.rmdirSync(mutex)
+                    } catch {
+                        /* уже снят */
+                    }
+                }
+            }
+        }
+        return all
+    }
+
+    // Держатель — самая ранняя из живых записей: кто пришёл первым, тот и пишет.
+    const digest = (ids) => `${ids.length}:${crypto.createHash("sha1").update(ids.join(",")).digest("hex").slice(0, 8)}`
+
+    const holderOf = (all) => Object.entries(all).sort((a, b) => a[1].started - b[1].started)[0]
+
+    const describe = (all) => {
+        const others = Object.entries(all).filter(([id]) => id !== me)
+        if (!others.length) return null
+        const [hid, h] = holderOf(all)
+        const card = ([id, e]) => `${short(id)} (с ${clock(e.started)}, отметилась ${ago(e.seen)})`
+        // Перечисляем не больше трёх: в дереве с сотней сессий сообщение
+        // раздувает и контекст, и сам реестр.
+        const list = (xs) => xs.slice(0, 3).map(card).join("; ") + (xs.length > 3 ? ` и ещё ${xs.length - 3}` : "")
+        if (hid === me) {
+            return {
+                ids: digest(others.map(([id]) => id).sort()),
+                text: `Рабочее дерево ${root} держит эта сессия, но здесь же ещё ${list(others)}. Согласуй правки, прежде чем менять общие файлы.`,
+            }
+        }
+        const rest = others.filter(([id]) => id !== hid)
+        return {
+            ids: digest(others.map(([id]) => id).sort()),
+            text:
+                `Рабочее дерево ${root} держит сессия ${card([hid, h])}` +
+                (rest.length ? `; кроме неё здесь ${list(rest)}` : "") +
+                `. Читать и разбираться можно, а править файлы — только договорившись: git параллельные правки не разводит, побеждает последняя запись.`,
+        }
+    }
+
+    if (cmd === "status") {
+        const all = withRegistry(() => {})
+        if (broken) {
+            console.log(`${root}: реестр не читается, замок выключен — удали ${file}`)
+            return
+        }
+        const entries = Object.entries(all).sort((a, b) => a[1].started - b[1].started)
+        if (!entries.length) {
+            console.log(`${root}: живых сессий не записано`)
+            return
+        }
+        const [hid] = holderOf(all)
+        console.log(`${root}:`)
+        for (const [id, e] of entries) {
+            console.log(`  ${id === hid ? "держит" : "  ещё "} ${short(id)}  с ${clock(e.started)}  отметилась ${ago(e.seen)}${id === me ? "  ← эта" : ""}`)
+        }
+        return
+    }
+
+    if (!me) return // без идентификатора сессии записываться некому
+
+    const say = (event, said) => {
+        if (!said) return
+        process.stdout.write(JSON.stringify({ systemMessage: said.text, hookSpecificOutput: { hookEventName: event, additionalContext: said.text } }))
+    }
+
+    if (cmd === "claim") {
+        withRegistry((all) => {
+            all[me] = { started: sane(all[me]) ? all[me].started : now, seen: now, cwd, branch }
+            const said = describe(all)
+            say("SessionStart", said)
+            all[me].told = said ? said.ids : ""
+        })
+        return
+    }
+
+    if (cmd === "beat") {
+        withRegistry((all) => {
+            const prev = sane(all[me]) ? all[me].told : undefined
+            all[me] = {
+                started: sane(all[me]) ? all[me].started : now,
+                seen: now,
+                cwd,
+                branch: (sane(all[me]) && all[me].branch) || branch,
+                told: prev,
+            }
+            const said = describe(all)
+            const ids = said ? said.ids : ""
+            // Молчим, пока состав не менялся: иначе предупреждение на каждом ходу.
+            if (prev === undefined || prev !== ids) say("Stop", said)
+            all[me].told = ids
+        })
+        return
+    }
+
+    if (cmd === "release") {
+        withRegistry((all) => {
+            delete all[me]
+        })
+        return
+    }
+
+    process.stderr.write("usage: worktree-lock <claim|beat|release|status>\n")
+    process.exitCode = 1
+}
+
+try {
+    main()
+} catch (e) {
+    // В режиме хука сбой обязан быть беззвучным: код 0, пустой stdout.
+    if (!HOOK) {
+        process.stderr.write(`worktree-lock: ${e.message}\n`)
+        process.exitCode = 1
+    }
+}
