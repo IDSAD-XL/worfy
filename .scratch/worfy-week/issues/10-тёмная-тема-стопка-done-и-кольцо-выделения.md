@@ -1,7 +1,7 @@
 # 10 — Тёмная тема: стопка done со второй карточкой, кольцо акцента у выделенного Node-а и Ticket-а
 
 Type: task
-Status: open
+Status: claimed — 2026-10-07
 Blocked by: —
 Source: ручные проверки 2026-10-07, второй круг, проверка M7 ([PR #93](https://github.com/IDSAD-XL/worfy/pull/93), a3a2c50) — Ticket 11 `worfy-daily`, подраздел [«Ручная проверка 2026-10-07»](../../worfy-daily/issues/11-заголовки-и-chip-ы-без-обрезки.md#ручная-проверка-2026-10-07); [F-SPEC.md](../../../docs/design/F-SPEC.md), «Light/dark pairing rule»; макет `docs/design/F-canvas-dark.dc.html:205-207`; HANDOFF, «Риски и долги»; [spec.md](../spec.md), этап 3
 
@@ -42,10 +42,11 @@ ADR не нужен.
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/shadow-tokens.test.ts`: ни один токен `--shadow-*` в `src/renderer/theme/tokens.css` ни в светлой, ни в тёмной теме не равен `none`.
-- [ ] e2e `test/e2e/theme-shadows.spec.ts`, тёмная тема (эмуляция prefers-color-scheme): вычисленный `box-shadow` свёрнутой стопки done не `none` и рисует вторую карточку (смещение 4px 4px); у выделенного Node-а пользователя и у выделенного Ticket-а — кольцо `0 0 0 1px` цвета `--accent`. В светлой теме — то же и прежние мягкие тени.
-- [ ] Снимки в светлой и тёмной теме (helper `test/e2e/snapshots.ts`): рамка Epic-а со свёрнутой стопкой done и выделенным Ticket-ом, выделенный Node пользователя. Сверены с F-SPEC и макетом `F-canvas-dark.dc.html:205-207`: в тёмной теме стопка со второй карточкой, кольцо выделения видно, теней нет. Ссылка из «Итог» — `../evidence/10-тёмная-тема.png`.
+- [x] Unit `test/unit/shadow-tokens.test.ts`: ни один токен `--shadow-*` в `src/renderer/theme/tokens.css` ни в светлой, ни в тёмной теме не равен `none`.
+- [x] e2e `test/e2e/theme-shadows.spec.ts`, тёмная тема (эмуляция prefers-color-scheme): вычисленный `box-shadow` свёрнутой стопки done не `none` и рисует вторую карточку (смещение 4px 4px); у выделенного Node-а пользователя и у выделенного Ticket-а — кольцо `0 0 0 1px` цвета `--accent`. В светлой теме — то же и прежние мягкие тени.
+- [x] Снимки в светлой и тёмной теме (helper `test/e2e/snapshots.ts`): рамка Epic-а со свёрнутой стопкой done и выделенным Ticket-ом, выделенный Node пользователя. Сверены с F-SPEC и макетом `F-canvas-dark.dc.html:205-207`: в тёмной теме стопка со второй карточкой, кольцо выделения видно, теней нет. Ссылка из «Итог» — `../evidence/10-тёмная-тема.png`.
 - [ ] (вручную) Stable copy после влития, тёмная тема: стопка done со второй карточкой, у выделенного Node-а и Ticket-а кольцо акцента. Как проверить: окно приложения. После этого можно отметить пункт «Снимки в светлой и тёмной теме сверены с F-SPEC» Ticket-а 11 `worfy-daily` (`11-заголовки-и-chip-ы-без-обрезки.md:57`).
+  не проверено: окно Stable copy смотрит владелец после влития; исполнитель приложение напрямую не запускает (это подняло бы Orchestrator на настоящем Claude Code).
 
 ## Тесты
 
@@ -61,5 +62,39 @@ ADR не нужен.
 - `src/renderer/theme/tokens.css`
 - `test/unit/shadow-tokens.test.ts` — новый
 - `test/e2e/theme-shadows.spec.ts` — новый
+- `test/e2e/theme.spec.ts` — правка вне исходного следа, разрешена оркестратором: ожидание тени Node-а в
+  тёмной теме
 
 Общих файлов с Ticket-ами 08, 09, 11 и 12 нет.
+
+## Итог
+
+Сделано в ветке `worfy-week/10`, база `origin/main` c539cfd. ADR не заводился (тикет его не требует).
+
+**Как падали test-ы до правки.** `test/unit/shadow-tokens.test.ts`, «dark: no shadow token is "none"…»: на
+`origin/main` в тёмной теме `none` у трёх токенов — `--shadow-node`, `--shadow-control`, `--shadow-primary`.
+`test/e2e/theme-shadows.spec.ts` на том же main: светлая тема прошла целиком (стопка, кольцо у Ticket-а и у Note);
+в тёмной вычисленный `box-shadow` стопки done — `none` вместо
+`rgb(27, 26, 24) 4px 4px 0px -1px, rgb(46, 43, 40) 4px 4px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px`.
+
+**Что сделано.**
+- `src/renderer/theme/tokens.css`: в тёмной теме три токена теней — `0 0 #0000` (прозрачная тень нулевого размера)
+  вместо `none`. Светлые значения не менялись. Правила в `canvas.css`, `node-chrome.css`, `epic-frame.css` не
+  менялись: списки `box-shadow` с этими токенами в тёмной теме снова действуют.
+- `test/unit/shadow-tokens.test.ts`: читает `tokens.css`; в обеих темах одинаковый набор `--shadow-*`, ни один не
+  содержит `none`.
+- `test/e2e/theme-shadows.spec.ts`: Epic `demo` (две done-карточки в стопке, 03 и 04 открыты), Note пользователя;
+  выделены Ticket 03 и Note (⌘-клик). В обеих темах точное сравнение вычисленного `box-shadow`: стопка — вторая
+  карточка `4px 4px` цвета `--done-bg` с рамкой `--border` плюс `--shadow-node`; Ticket и Note — `--shadow-node`
+  плюс `0 0 0 1px` цвета `--accent`. В светлой `--shadow-node` — прежние две мягкие тени, в тёмной — прозрачный слой.
+- `test/e2e/theme.spec.ts` (с разрешения оркестратора): «dark: a Node has no shadow» ждёт
+  `rgba(0, 0, 0, 0) 0px 0px 0px 0px` вместо `none` — тени по-прежнему не видно.
+
+**Что изменилось вне трёх правил.** Остальные места с этими токенами (`focus.css`, `trash.css`,
+`selection-toolbar.css`, `minimap.css`, `session.css`, `primitives.css`, inline-стили панелей) ставят токен одним
+значением: в тёмной теме там теперь прозрачная тень вместо `none`, на экране разницы нет.
+
+**Снимки** (helper `snapshotThemes`, копии из `test-results/snapshots/theme-shadows/`):
+[тёмная тема](../evidence/10-тёмная-тема.png), [светлая тема](../evidence/10-светлая-тема.png). Сверены с F-SPEC
+(«Light/dark pairing rule») и `F-canvas-dark.dc.html:205-207`: в тёмной теме у стопки done видна вторая карточка,
+у выделенных Ticket-а 03 и Note — кольцо акцента, теней нет; светлая тема — как раньше, с мягкими тенями.

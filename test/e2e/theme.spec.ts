@@ -127,7 +127,9 @@ for (const scheme of ['light', 'dark'] as const) {
 
   test(`${scheme}: a Node has ${scheme === 'light' ? 'the layered shadow' : 'no shadow'}`, async () => {
     await launched.window.emulateMedia({ colorScheme: scheme })
-    expect(await nodeShadow(launched.window)).toBe(scheme === 'light' ? lightNodeShadow : 'none')
+    // Dark has no visible shadow: the token is one transparent layer rather than `none`, so that it
+    // stays valid inside a box-shadow list (test/e2e/theme-shadows.spec.ts).
+    expect(await nodeShadow(launched.window)).toBe(scheme === 'light' ? lightNodeShadow : 'rgba(0, 0, 0, 0) 0px 0px 0px 0px')
   })
 
   test(`${scheme}: the shell renders and its screenshot is saved for review`, async () => {

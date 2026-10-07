@@ -114,9 +114,15 @@
     --segment-track: #22201e;
     --segment-thumb: #3b3834;
 
-    --shadow-node: none;
-    --shadow-control: none;
-    --shadow-primary: none;
+    /*
+     * No shadows in dark, but not `none`: rules put these tokens into comma-separated box-shadow
+     * lists (the done stack, the accent ring of a selected Node), and `none` inside a list makes
+     * the browser drop the whole declaration. A transparent zero shadow is valid there and draws
+     * nothing (test/unit/shadow-tokens.test.ts).
+     */
+    --shadow-node: 0 0 #0000;
+    --shadow-control: 0 0 #0000;
+    --shadow-primary: 0 0 #0000;
 
     --sidebar-translucent: rgba(22, 21, 19, 0.82);
   }
