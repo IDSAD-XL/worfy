@@ -1,7 +1,7 @@
 # 11 — Открытая стопка done не опускает открытые колонки рамки Epic-а
 
 Type: task
-Status: open
+Status: claimed — 2026-10-07
 Blocked by: —
 Source: ручные проверки 2026-10-07, второй круг, проверка M21, замечание ([PR #93](https://github.com/IDSAD-XL/worfy/pull/93), a3a2c50) — Ticket [03](03-elk-раскладка-рамок-epic-ов.md), подраздел [«Ручная проверка 2026-10-07»](03-elk-раскладка-рамок-epic-ов.md#ручная-проверка-2026-10-07); [ADR-0037](../../../docs/adr/0037-epic-frame-layout-by-elk.md); HANDOFF, «Риски и долги»; [spec.md](../spec.md), этап 3
 
