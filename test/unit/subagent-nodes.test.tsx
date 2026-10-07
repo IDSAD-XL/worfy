@@ -22,6 +22,7 @@ import subagentSource, {
 import { formatElapsed, statusLabel } from '../../src/renderer/claude-home/subagents'
 import { useNavigation } from '../../src/renderer/session/navigation'
 import { SubagentsList } from '../../src/renderer/session/rail/SubagentsRail'
+import { Transcript } from '../../src/renderer/session/Transcript'
 import type { Layout, LayoutNode } from '../../src/shared/layout/types'
 import { parseTranscriptLines } from '../../src/shared/transcript/parse'
 import { buildSubagentTree, flattenSubagents, subagentFile, subagentSignals, type SubagentFile, type SubagentInfo } from '../../src/shared/transcript/subagents'
@@ -288,6 +289,17 @@ describe('SubagentNode', () => {
     expect(screen.getByTestId('subagent-status').textContent).toBe('running 1m 07s')
   })
 
+  it('shows the type of a Subagent of the `worfy` plugin without the plugin, and the full type in the tooltip', () => {
+    const data = dataOf('AGENT1XXXXXXXXXXXXXX')
+    renderNode({ ...data, agent: { ...data.agent!, name: null, subagentType: 'worfy:implementer' } })
+    const name = screen.getByTestId('subagent-name')
+    const kind = screen.getByTestId('subagent-kind')
+    expect(name.textContent).toBe('implementer')
+    expect(name.title).toBe('worfy:implementer')
+    expect(kind.textContent).toBe('implementer · claude-sonnet-5')
+    expect(kind.title).toBe('worfy:implementer')
+  })
+
   it('shows a reviewer that rejected with the word REJECTED on the Node', () => {
     const reviewer = dataOf('done:session')
     expect(reviewer.fold?.count).toBe(1)
@@ -346,9 +358,37 @@ describe('SubagentsList', () => {
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'a5000000000000286' }))
   })
 
+  it('shows the types of the `worfy` plugin without the plugin, the full type in the tooltip', () => {
+    const [first] = tree7(RUNNING_AT)
+    const tree = [{ ...first!, subagentType: 'worfy:implementer', children: [] }, { ...first!, id: 'x', agentId: 'ax', name: null, subagentType: 'worfy:scout', children: [] }]
+    render(<SubagentsList tree={tree} now={Date.parse('2026-06-01T10:01:10.000Z')} onOpen={() => undefined} />)
+    const names = screen.getAllByTestId('subagents-rail-name')
+    expect(names.map((name) => [name.textContent, name.title])).toEqual([
+      ['impl-08 · implementer', 'worfy:implementer'],
+      ['scout', 'worfy:scout'],
+    ])
+  })
+
   it('says so when the Session has no Subagents', () => {
     render(<SubagentsList tree={[]} now={0} onOpen={() => undefined} />)
     expect(screen.getByTestId('subagents-rail').textContent).toContain('No Subagents yet')
     expect(flattenSubagents([])).toEqual([])
+  })
+})
+
+describe('the Subagent row of a transcript', () => {
+  it('shows the type of a `worfy` plugin Subagent without the plugin, the full type in the tooltip', () => {
+    render(
+      <Transcript
+        events={[
+          { type: 'subagent', phase: 'started', taskId: 'k1', toolUseId: null, description: 'impl-10', subagentType: 'worfy:implementer', status: null, summary: null },
+          { type: 'subagent', phase: 'started', taskId: 'k2', toolUseId: null, description: 'map', subagentType: 'scout', status: null, summary: null },
+        ]}
+      />,
+    )
+    expect(screen.getAllByTestId('transcript-subagent-type').map((type) => [type.textContent, type.title])).toEqual([
+      ['implementer', 'worfy:implementer'],
+      ['scout', 'scout'],
+    ])
   })
 })

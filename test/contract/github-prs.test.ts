@@ -84,6 +84,9 @@ describe('verdictOf', () => {
     expect(verdictOf([{ body: 'REJECTED\n- a\n- b' }, { body: 'VERIFIED' }])).toBe('VERIFIED')
     expect(verdictOf([{ body: 'VERIFIED' }, { body: 'REJECTED: 2 findings' }, { body: 'thanks' }])).toBe('REJECTED')
     expect(verdictOf([{ body: '  VERIFIED — all three lenses\nnothing found' }])).toBe('VERIFIED')
+    // The English reviewer of the Harness as a plugin (ticket worfy-harness/10): the word, then its round and head.
+    expect(verdictOf([{ body: 'VERIFIED (round 1, head abc1234)\nAll three lenses clean.' }])).toBe('VERIFIED')
+    expect(verdictOf([{ body: 'REJECTED (round 1, head abc1234)\n- src/a.ts:1 — x' }, { body: 'VERIFIED (round 2, head def5678)' }])).toBe('VERIFIED')
   })
 
   it('does not take the word anywhere but at the start of the first line', () => {

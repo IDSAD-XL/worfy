@@ -6,6 +6,7 @@
 //
 // The record format is internal to Claude Code (src/shared/transcript/parse.ts): what this module
 // does not recognise is skipped, and nothing here throws on input.
+import { harnessName } from '../agent/subagent-type'
 import { parseTranscriptRecord } from '../transcript/parse'
 import { ARGS_MAX, BRANCH_MAX, COMMAND_MAX, EMPTY_AGENT_SIGNALS, PATH_MAX, SKILL_NAMES, type AgentSignals, type TicketRef } from './resolve'
 
@@ -49,11 +50,13 @@ export function ticketPathIn(text: string): TicketRef | null {
   return match ? { epic: match[1]!, num: Number(match[2]) } : null
 }
 
-/** `/ship-ticket`, `ship-ticket` or `plugin:ship-ticket` → `ship-ticket`; null for any other skill. */
+/**
+ * `/ship-ticket`, `ship-ticket`, `/worfy:ship-ticket` or `worfy:ship-ticket` → `ship-ticket`; null
+ * for any other skill, a skill of the same name from another plugin (`other:ship-ticket`) included.
+ */
 function skillName(name: string): (typeof SKILL_NAMES)[number] | null {
-  const bare = name.trim().replace(/^\//u, '')
-  const short = bare.slice(bare.lastIndexOf(':') + 1)
-  return (SKILL_NAMES as readonly string[]).includes(short) ? (short as (typeof SKILL_NAMES)[number]) : null
+  const short = harnessName(name.trim().replace(/^\//u, ''))
+  return short !== null && (SKILL_NAMES as readonly string[]).includes(short) ? (short as (typeof SKILL_NAMES)[number]) : null
 }
 
 /** The text of a user record: its string content, or its text blocks joined. */

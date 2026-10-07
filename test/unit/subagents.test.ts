@@ -229,6 +229,21 @@ describe('buildSubagentTree on live events', () => {
     ])
   })
 
+  it('reads the verdict of a `worfy:reviewer` answering in English, bold, with a tail after the word', () => {
+    const verdictOf = (answer: string) => {
+      const signals = live([
+        [1000, call('toolu_r', { subagent_type: 'worfy:reviewer', name: 'verify-10' })],
+        [1010, started('task-r', 'toolu_r', 'worfy:reviewer')],
+        [9000, finished('task-r', 'toolu_r', 'completed', answer)],
+      ])
+      const [reviewer] = flattenSubagents(buildSubagentTree({ signals, files: [] }))
+      return { subagentType: reviewer?.subagentType, verdict: reviewer?.verdict }
+    }
+    expect(verdictOf('**VERIFIED** (round 2, head abc1234)\nAll three lenses clean.')).toEqual({ subagentType: 'worfy:reviewer', verdict: 'VERIFIED' })
+    expect(verdictOf('REJECTED: 2 findings\n- src/a.ts:1 — x\n- src/b.ts:2 — y')).toEqual({ subagentType: 'worfy:reviewer', verdict: 'REJECTED' })
+    expect(verdictOf('## REJECTED — round 1\n')).toEqual({ subagentType: 'worfy:reviewer', verdict: 'REJECTED' })
+  })
+
   it('shows a call whose Subagent has no id yet, and keeps one node when the files name it', () => {
     const signals = live([[1000, call('toolu_01S7AGENT3XXXXXXXXXXXXXX', { subagent_type: 'reviewer', name: 'verify-07' })]])
     expect(buildSubagentTree({ signals, files: [] }).map(({ id, agentId, status }) => ({ id, agentId, status }))).toEqual([

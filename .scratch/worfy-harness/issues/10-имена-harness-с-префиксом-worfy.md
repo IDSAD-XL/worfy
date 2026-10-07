@@ -1,7 +1,7 @@
 # 10 — worfy понимает имена Harness с префиксом `worfy:` и новый формат команды Autopilot
 
 Type: task
-Status: open
+Status: claimed — 2026-10-07
 Blocked by: —
 Source: решения владельца 2026-10-07: Q2 (имя plugin-а — `worfy`: `/worfy:epic-wave`, `/worfy:ship-ticket`, Subagent `worfy:implementer`; старые имена без префикса тоже понимаются), Q6 (машинные строки и формат команды Autopilot — по-английски, старые понимаются); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (доставка Harness plugin-ом `worfy`); [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness на английском, машинный контракт без языка); [spec.md](../spec.md)
 
@@ -111,4 +111,37 @@ ADR не нужен: имя plugin-а решено в ADR-0040, машинные
 
 ## Итог
 
-Заполняется при закрытии.
+- **Binding по skill.** `skillName` (`src/shared/binding/signals.ts`) принимает имя Harness голым или с
+  `worfy:` и отвергает любой другой префикс: `other:epic-wave` и `other:ship-ticket` больше не дают
+  сигнала skill (раньше давали). Правило «голое имя или `worfy:`» — `harnessName` в
+  `src/shared/agent/subagent-type.ts`, там же константа `HARNESS_PLUGIN = 'worfy'`.
+- **Формат команды Autopilot.** `epicInArgs` справился со всеми тремя форматами без правки
+  `src/shared/binding/resolve.ts`: `волна 3 эпика worfy-mvp`, `Ticket-ы 05, 06 эпика worfy-mvp` и
+  `tickets 05, 06 of epic worfy-mvp`. Английская фраза взята из Ticket-а 06
+  (`.scratch/worfy-harness/issues/06-…md`, пункт 4: `/worfy:epic-wave tickets 05, 06, 07, 08 of epic worfy-harness`);
+  `harness/skills/epic-wave/SKILL.md` на момент работы ещё нет — **после мержа Ticket-а 06 сверить
+  формат с SKILL.md**.
+- **Тип Subagent-а.** Helper `subagentTypeLabel` (`src/shared/agent/subagent-type.ts`) срезает
+  только `worfy:`; другие префиксы, голые типы, `workflow` и `null` — как есть. Места показа типа
+  (`grep -rn subagentType src/renderer`, кроме `session/fold.ts`, где тип только переносится):
+  - `src/renderer/canvas/nodes/SubagentNode.tsx` — заголовок (`subagent-name`, полное имя в `title`,
+    когда заголовок — тип) и строка вида (`subagent-kind`, полное имя в `title`);
+  - `src/renderer/session/rail/SubagentsRail.tsx` — имя строки списка и тип после имени (`title` — полный тип);
+  - `src/renderer/session/ExternalSessionPanel.tsx` — заголовок панели Subagent-а (в `title` заголовка —
+    полный тип) и строка источника (`session-source`, `title` — полный тип);
+  - `src/renderer/session/Transcript.tsx` — тип в строке запуска Subagent-а (`transcript-subagent-type`, `title` — полный тип).
+- **Вердикты.** `VERIFIED`/`REJECTED` у `worfy:reviewer` с английским ответом и в комментарии PR
+  вида `VERIFIED (round 1, head abc1234)` читаются без правки кода: test-ы зелёные сразу,
+  `src/shared/transcript/subagents.ts` и `src/main/github/prs.ts` не менялись.
+- **Как падали test-ы до правки:** `binding.test.ts` — Skill tool `other:ship-ticket` перезаписал
+  сигнал (`expected { name: 'ship-ticket', … } to deeply equal …`), `/other:ship-ticket worfy-mvp 16`
+  дал Binding (`expected { …(3) } to be null`); `subagent-nodes.test.tsx` — заголовок Node-а
+  `expected 'worfy:implementer' to be 'implementer'`.
+- Прежние test-ы Binding-а и Subagent-ов не менялись. `pnpm lint && pnpm typecheck && pnpm test` —
+  код 0 (126 файлов, 2211 test-ов); `GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full` — код 0,
+  `[gate] зелено (full)`.
+- Снимки (Session 7777 из фикстур с типами `worfy:implementer`, `worfy:reviewer`, `worfy:scout`,
+  через `launchApp`, временные `WORFY_DATA_DIR` и `WORFY_CLAUDE_HOME`):
+  [Canvas, светлая](../evidence/10-subagent-nodes-light.png), [Canvas, тёмная](../evidence/10-subagent-nodes-dark.png),
+  [транскрипт Subagent-а, светлая](../evidence/10-subagent-transcript-light.png),
+  [транскрипт Subagent-а, тёмная](../evidence/10-subagent-transcript-dark.png).
