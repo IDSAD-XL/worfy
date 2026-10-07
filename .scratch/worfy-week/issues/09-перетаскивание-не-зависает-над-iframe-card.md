@@ -1,7 +1,7 @@
 # 09 — Перетаскивание и изменение размера Node-а не зависают над iframe Card
 
 Type: task
-Status: claimed — 2026-10-07
+Status: done — 2026-10-07, [PR #99](https://github.com/IDSAD-XL/worfy/pull/99)
 Blocked by: —
 Source: ручные проверки 2026-10-07, второй круг, проверка M23 ([PR #93](https://github.com/IDSAD-XL/worfy/pull/93), a3a2c50) — Ticket [06](06-snapping-при-перетаскивании.md), подраздел [«Ручная проверка 2026-10-07»](06-snapping-при-перетаскивании.md#ручная-проверка-2026-10-07); HANDOFF, «Риски и долги»; [spec.md](../spec.md), этап 3
 
@@ -72,7 +72,7 @@ main Node остаётся `dragging` после отпускания, как в
 
 ## Итог
 
-Сделано в ветке `worfy-week/09`, база `origin/main` c539cfd. Правки только в файлах следа:
+Сделано в ветке `worfy-week/09`, база `origin/main` b4a397f. Правки только в файлах следа:
 `src/renderer/canvas/canvas.css`, `src/renderer/canvas/NodeResizeClamp.tsx`,
 `src/renderer/canvas/nodes/CardNode.tsx`, `test/unit/node-resize-clamp.test.tsx` (новый),
 `test/e2e/card-drag.spec.ts` (новый). `Canvas.tsx` не тронут.
@@ -118,3 +118,18 @@ e2e держат и `data-pointer-pressed`, и `data-node-resizing`; сам пр
 
 Снимки: [Card после рывка, щелчок дошёл](../evidence/09-card-drag-dropped-and-clickable.png),
 [Note протянута через Card, Card уменьшена, щелчков 2](../evidence/09-note-across-card-and-card-resized.png).
+
+**Влито.** [PR #99](https://github.com/IDSAD-XL/worfy/pull/99), merge 3f52e52. Ревью — VERIFIED с первого
+круга, без доработки; отступление от тикета (признак нажатия, а не только класс `dragging` React Flow)
+ревью признало обоснованным: без правила признака нажатия краснеют 2 из 5 test-ов `card-drag`.
+Перед мержем ветка перебазирована на 309d3ad (влитый Ticket 11), head 3c58f48; `gate full` прошёл со второго прогона,
+какой test упал в первом — неизвестно (лог перезаписан повтором).
+
+**Долг** (все low, из вердикта ревью).
+
+- `src/renderer/canvas/nodes/CardNode.tsx:118` — признак нажатия общий для всех Card, а снимает его
+  cleanup любой одной Card. С `onlyRenderVisibleElements` Card, размонтированная между нажатием и
+  первым mousemove, снимет признак, и быстрый рывок над iframe снова может зависнуть (начатые
+  перетаскивание, изменение размера и pan держат свои признаки). Правка — один владелец признака
+  (счётчик на корне или один hook в `Canvas.tsx`).
+- Снимок `09-card-drag-dropped-and-clickable.png` не показывает места начала и броска.
