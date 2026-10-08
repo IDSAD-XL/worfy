@@ -98,9 +98,18 @@ to both. `HARNESS_DIR=<dir>` evaluates another copy of the Harness. The exit cod
 the two calls: `0` — every case at 0.8 or above, `1` — a case below it or not loaded, `2` — a
 partial run (cost ceiling, the account refused), `130`/`143` — interrupted.
 
-Every run and every `llm` grader is a real model call on the owner's account. A full run costs
-COST_PLACEHOLDER. The report is `evals/results/<time>-main/report.html` (and `-gui`), next to
+Every run and every `llm` grader is a real model call on the owner's account. The cost of a full
+run is not measured yet: see the result section of ticket worfy-harness/27. One run of
+`status-block` costs about 0.12 USD, one run of an `epic-wave` case about 0.3 USD (`claude-sonnet-5`).
+The report is `evals/results/<time>-main/report.html` (and `-gui`), next to
 `aggregate-result.json`; `evals/results/` holds run transcripts and stays out of git and out of
 the app (`electron.vite.config.ts`, `HARNESS_NOT_BUNDLED`). CI and the gate do not run the evals:
 `test/contract/harness-evals.test.ts` checks for free only that every case is complete, every
 fixture builds, and the Harness scripts recognise it.
+
+Known limit (2026-10-08): on a Mac whose only git is Apple's (`/usr/bin/git` from the Command Line
+Tools), `git` does not run inside a run's sandbox. The sandbox settings `claude plugin eval` writes
+for a run list the Command Line Tools `git` binary among denied credential files, next to the
+`git-credential-*` helpers (the system git config sets `credential.helper osxkeychain`), so
+`/usr/bin/git` cannot start it. Every case needs git, so the paid runs wait for a decision; the
+details are in the result section of ticket worfy-harness/27.

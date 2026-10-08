@@ -7,7 +7,7 @@
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, sep } from 'node:path'
+import { delimiter, join, sep } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 
 const REPO = join(__dirname, '..', '..')
@@ -150,7 +150,7 @@ const log = process.env.STUB_LOG
 const calls = existsSync(log) ? readFileSync(log, 'utf8').split('\\n').filter(Boolean).length : 0
 const manifest = JSON.parse(readFileSync(join(args[2], '.claude-plugin', 'plugin.json'), 'utf8'))
 const evals = readdirSync(join(args[2], 'evals'))
-appendFileSync(log, JSON.stringify({ args, manifest, evals }) + '\\n')
+appendFileSync(log, JSON.stringify({ args, manifest, evals, path: process.env.PATH }) + '\\n')
 process.exit(Number((process.env.STUB_CODES || '0').split(',')[calls] || 0))
 `
 
@@ -158,10 +158,16 @@ interface StubCall {
   args: string[]
   manifest: Record<string, unknown>
   evals: string[]
+  path: string
 }
 
 /** Runs scripts/eval-harness.mjs against the stub; returns the run and the logged eval calls. */
-function evalHarness(version: string, codes: string, args: string[] = []): { run: SpawnSyncReturns<string>; calls: StubCall[] } {
+function evalHarness(
+  version: string,
+  codes: string,
+  args: string[] = [],
+  path: (home: string) => string = () => process.env.PATH ?? '',
+): { run: SpawnSyncReturns<string>; calls: StubCall[] } {
   const dir = tempDir('worfy-eval-stub-')
   const claude = join(dir, 'claude')
   writeFileSync(claude, STUB)
@@ -169,7 +175,7 @@ function evalHarness(version: string, codes: string, args: string[] = []): { run
   const log = join(dir, 'calls.log')
   const run = spawnSync(process.execPath, [join(REPO, 'scripts', 'eval-harness.mjs'), ...args], {
     env: {
-      PATH: process.env.PATH,
+      PATH: path(dir),
       HOME: dir,
       ELECTRON_RUN_AS_NODE: '1',
       CLAUDE_BIN: claude,
@@ -249,6 +255,23 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     expect(first.evals).toEqual(expect.arrayContaining(CASES.map(([name]) => name)))
     expect(first.evals).not.toContain('results')
     expect(existsSync(target)).toBe(false)
+  })
+
+  it('keeps other Harness copies off the PATH of the run', () => {
+    const others = (home: string): string[] => [
+      join(home, '.claude', 'bin'),
+      join(home, '.claude', 'worfy-harness', 'plugin', 'bin'),
+      '/Users/x/Applications/worfy-stable.app/Contents/Resources/harness/bin',
+    ]
+    let home = ''
+    const { run, calls } = evalHarness('2.1.289', '0,0', [], (dir) => {
+      home = dir
+      return [...others(dir), process.env.PATH ?? ''].join(delimiter)
+    })
+    expect(run.status, run.stderr).toBe(0)
+    const path = (calls[0]?.path ?? '').split(delimiter)
+    for (const dir of others(home)) expect(path).not.toContain(dir)
+    expect(path).toEqual(expect.arrayContaining((process.env.PATH ?? '').split(delimiter).filter((dir) => !/harness[\\/]bin$/.test(dir))))
   })
 
   it.each([

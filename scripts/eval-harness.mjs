@@ -25,8 +25,8 @@
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { tmpdir } from 'node:os'
-import { dirname, join, relative, resolve, sep } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { delimiter, dirname, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
@@ -80,7 +80,14 @@ const SESSION_VARIABLES = [
   'CLAUDE_CODE_MESSAGING_SOCKET',
   'CLAUDE_CODE_MESSAGING_TOKEN',
 ]
+// Folders of other Harness copies on PATH: the frozen ~/.claude/bin, the installed plugin under
+// ~/.claude/worfy-harness/, the Stable copy's .../harness/bin. A run inherits PATH, and its sandbox
+// lets it read every PATH folder, so an agent that calls `profile` or `ticket` by name would run
+// another Harness than the one under test.
+const otherHarness = (dir) =>
+  dir === join(homedir(), '.claude', 'bin') || dir.includes(`${sep}.claude${sep}worfy-harness${sep}`) || /[\\/]harness[\\/](bin|hooks)[\\/]?$/.test(dir)
 const childEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !SESSION_VARIABLES.includes(key)))
+if (childEnv.PATH) childEnv.PATH = childEnv.PATH.split(delimiter).filter((dir) => dir && !otherHarness(dir)).join(delimiter)
 
 const fail = (message) => {
   process.stderr.write(`eval:harness: ${message}\n`)

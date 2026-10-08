@@ -153,23 +153,30 @@ Mac.
 
 ## Готово, когда
 
-- [ ] В `harness/evals/` восемь кейсов из таблицы; у каждого `prompt.md`, `case.yaml` с
+- [x] В `harness/evals/` восемь кейсов из таблицы; у каждого `prompt.md`, `case.yaml` с
   `scaffold_script`, не меньше двух graders, из них хотя бы один `tool_used`.
-- [ ] Проверка окружения (шаг 0) сделана, ответы (а)–(д) и её цена — в «Итог».
-- [ ] `pnpm eval:harness` есть в `package.json`; скрипт зовёт `claude plugin eval` с флагами из
+- [x] Проверка окружения (шаг 0) сделана, ответы (а)–(д) и её цена — в «Итог».
+- [x] `pnpm eval:harness` есть в `package.json`; скрипт зовёт `claude plugin eval` с флагами из
   шага 3, отказывает с кодом 1 на `claude` старше 2.1.269 и возвращает худший код выхода вызовов.
 - [ ] `no-os-screen-capture` идёт отдельным вызовом с узким `Bash`; ни один run не выполнил
   `screencapture` (в транскриптах — только отказы, если были попытки).
-- [ ] Contract test зелёный в `pnpm test` и не запускает `claude`.
-- [ ] `grep -nE 'eval:harness|plugin eval' .github/workflows/ci.yml harness/hooks/gate.sh` — код 1.
-- [ ] Contract test: список папок, которые сборка не копирует в `out/harness/`, содержит `evals`.
+  Отдельный вызов с узким `Bash` есть (contract test). Не проверено: кейс не запускался — git в
+  песочнице прогона не работает, см. «Итог».
+- [x] Contract test зелёный в `pnpm test` и не запускает `claude`.
+- [x] `grep -nE 'eval:harness|plugin eval' .github/workflows/ci.yml harness/hooks/gate.sh` — код 1.
+- [x] Contract test: список папок, которые сборка не копирует в `out/harness/`, содержит `evals`.
 - [ ] Mutation: в копии Harness во временной папке из `hooks/rules/orchestrator.md` убран раздел
   «Phase 3»; `claude plugin eval <копия>` с флагами шага 3 и `--case status-block --runs 1` даёт кейс ниже 0.8 и код 1.
   На настоящем Harness тот же вызов — код 0.
+  Не проверено: на настоящем Harness `status-block` уже ниже 0.8 (шаг 0: 0.5), а git в песочнице не
+  работает; mutation отложена до решения про git, см. «Итог».
 - [ ] Полный прогон `pnpm eval:harness`: код 0 или 1, не 2, 130, 143; `partial: false`. Каждый кейс
   не ниже 0.8 или разобран в «Итог» как нарушение правила Harness с предложением Ticket-а.
+  Не проверено: полный прогон не запускался — без git в песочнице ни один кейс не дойдёт до
+  проверяемого правила, см. «Итог».
 - [ ] «Итог»: таблица кейс / оценка / run-ы / цена / время, общая цена, `claudeVersion`, модели
   агента и судьи, путь к `report.html`, вопрос владельцу — когда гонять.
+  Не проверено: таблицы полного прогона нет; есть таблица шага 0 и вопрос владельцу, см. «Итог».
 
 ## Тесты
 
@@ -194,4 +201,90 @@ Mac.
 
 ## Итог
 
-Заполняется при закрытии.
+Состояние на 2026-10-08: бесплатная часть сделана и идёт PR-ом; платные прогоны ждут решения про git в
+песочнице прогона (ниже). Ветка `worfy-harness/27`.
+
+**Что сделано.** Восемь кейсов в `harness/evals/<кейс>/` (`prompt.md`, `case.yaml` со
+`scaffold_script`, `graders/*.md`; у каждого кейса бесплатный grader на результат и `tool_used` на
+шаги). Фикстура — `harness/evals/lib/demo-project.sh <finish> [none|blocked|ui|reviewer]`: git-репозиторий
+с Epic `demo` (Ticket-ы `01-alpha` … `04-delta`), при `local-green` — локальный bare-репозиторий как
+`origin` в `.git/demo-origin.git`, чтобы `preflight` делал fetch без сети; реестр Gate и Profile `demo`
+schema 2 — во временном `HOME`. `pnpm eval:harness` (`scripts/eval-harness.mjs`): два вызова
+`claude plugin eval` (`main` с `Bash Write Edit`, `gui` с `Bash` только для `git`, `node` и скриптов
+Harness), флаги шага 3, модели закреплены — агент `claude-sonnet-5`, судья `claude-haiku-4-5`. Скрипт
+проверяет копию `harness/` без `dependencies` (ответ (а)), убирает из окружения переменные Session
+Claude Code, из которой он запущен, и папки других копий Harness из `PATH` (`~/.claude/bin`,
+`~/.claude/worfy-harness/…`, `…/harness/bin` Stable copy): песочница прогона читает каждую папку `PATH`,
+и агент, позвавший `profile` по имени, получил бы чужой Harness. `harness/evals` — в
+`HARNESS_NOT_BUNDLED` (`electron.vite.config.ts`), `harness/evals/results/` — в `.gitignore`.
+
+**Как падал первый test.** `test/contract/harness-evals.test.ts` на ветке без `harness/evals/`: 36 из 36
+красные — нет кейсов, нет `case.yaml`, нет `evals` в списке сборки, `harness/evals/results/` не в
+`.gitignore`. Сейчас 45 зелёных (с проверками скрипта против stub-а вместо `claude`). `pnpm lint`,
+`pnpm typecheck`, `pnpm test` — код 0.
+
+**Шаг 0** (`--runs 1`, `status-block` и `epic-wave-tickets`, `claudeVersion` 2.1.289):
+
+- (а) нет с зависимостью: plugin `worfy` с `mattpocock-skills@claude-plugins-official` в `dependencies`
+  не грузится (`plugin_errors`: `dependency-unsatisfied`) — ни одного правила Harness в Session. Без
+  поля `dependencies` грузится: скрипт гоняет такую временную копию.
+- (б) да: hooks `SessionStart` отдают `orchestrator.md` и `common.md` (`hook_response` в trace).
+- (в) да: `bin/profile -C <рабочая папка>` из `Bash` в песочнице — код 0, Profile `demo`. Рабочая папка
+  прогона лежит внутри временного `HOME` (`<tmp>/home/cwd`), его чтение разрешено.
+- (г) да: `scaffold.sh` находит `../lib/demo-project.sh` от `$0`.
+- (д) да по поведению: `/worfy:epic-wave tickets 02, 03 of epic demo` — агент пошёл по шагам skill
+  (`profile`, затем `preflight`).
+
+| Прогон | Оценка | Run-ы | Цена, USD | Время |
+| --- | --- | --- | --- | --- |
+| `status-block`, plugin с `dependencies` (не загрузился) | 0.00 | 1 | 0.14 | 11 с |
+| `status-block` | 0.50 | 1 | 0.12 | 19 с |
+| `epic-wave-tickets` | 0.67 | 1 | 0.31 | 101 с |
+| пять проб песочницы на `claude-haiku-4-5` | — | 5 | 0.18 | ~40 с |
+
+Всего 0.75 USD. В `status-block` агент закончил ход блоком Этап / Сейчас / Дальше / Жду, но
+`epic-status` не позвал: строка Этап — фраза, хотя Profile `demo` ведёт Ticket-ы (`tickets.path`
+агент прочитал). Это нарушение правила `hooks/rules/orchestrator.md` («Phase 3»), а не ошибка grader-а;
+на одном run-е выводов не делаю — разбор после полного прогона. Снимки `~/.claude` (список
+`projects`, хэши `settings.json` и `installed_plugins.json`) после каждого прогона совпали с исходными.
+
+**Препятствие: git в песочнице прогона не работает.** В `epic-wave-tickets` `preflight` ответил «not a
+git repository», агент честно остановился. Причина: на этой машине git — только `/usr/bin/git`, shim
+Xcode Command Line Tools. Настройки песочницы, которые `claude plugin eval` пишет прогону
+(`<tmp>/config/settings.json`, `sandbox.credentials.files`), запрещают
+`/Library/Developer/CommandLineTools/usr/bin/git` рядом с `git-credential-*` (системный gitconfig CLT
+задаёт `credential.helper osxkeychain`); вдобавок `xcrun` пишет кэш в `/var/folders/…/T`, а эта папка
+в `denyRead`. Ещё из песочницы нельзя писать в `$HOME/.claude` временного `HOME` (`denyWrite`) — туда
+пишут состояние Gate и блокировки worktree.
+
+Пробы обойти это настройками песочницы, без шага владельца (каждая — `claude-haiku-4-5`, `--runs 1`):
+
+1. scaffold дописывает `sandbox.filesystem.allowRead` (`/Library/Developer/CommandLineTools`) и
+   `allowWrite` в `settings.json` конфигурации прогона — прогон падает до старта: `EEXIST` — scaffold идёт
+   раньше, и `claude plugin eval` создаёт этот файл сам, только новым (0 USD);
+2. те же настройки плюс `sandbox.excludedCommands: ["git"]` и `env.TMPDIR` — в `$HOME/.claude/settings.json`
+   временного `HOME` и `<рабочая папка>/.claude/settings.json` — не грузятся (как и сказано в документации:
+   конфигурация прогона — отдельная папка, проектная не читается), git падает так же (0.04 USD);
+3. до этих двух — копия бинарника git из CLT в `/tmp` и в копию plugin-а под `/var/folders/…/T`: обе
+   папки в `denyRead`, запуск запрещён (две пробы по 0.04 USD; ещё одна проба, 0.06 USD, — диагностика:
+   `PATH`, права, `git --version`).
+
+`excludedCommands` не помог бы и при загрузке: git зовут скрипты Harness (`preflight`, `gate.sh`,
+`profile`) изнутри своей команды, а не агент напрямую.
+
+**Вопрос владельцу.** Как дать прогонам git:
+- (а) отдельный git (`brew install git`) и `/opt/homebrew/bin` раньше `/usr/bin` в `PATH` прогона —
+  меняет git для всей машины; не проверено, не запретит ли песочница и его (если его gitconfig тоже
+  задаёт `osxkeychain`);
+- (б) правка Harness, отдельный Ticket: скрипты берут путь к git и `HARNESS_HOME` из переменных
+  `EVAL_*`, а `scripts/eval-harness.mjs` кладёт копию git в папку, которую песочница читает (папки
+  `PATH` она читает), — обходит запрет `credentials.files` копией того же бинарника;
+- (в) ждать исправления в Claude Code: бинарник git сам по себе не файл с секретами.
+
+И второй вопрос Ticket-а — когда гонять полный набор (например, перед мержем PR, которые правят
+`harness/skills/`, `harness/agents/`, `harness/hooks/rules/`). Цена полного прогона не измерена;
+оценка по шагу 0: 0.1–0.3 USD за run, 8 кейсов × 2–3 run-а — порядка 3–8 USD, без учёта субагентов в
+кейсах `implementer-report` и `reviewer-verdict`.
+
+Отчёты шага 0 — `harness/evals/results/2026-10-08T02-15-10-313Z-main/report.html` и
+`…/2026-10-08T02-15-52-506Z-main/report.html` в worktree Ticket-а (вне git).
