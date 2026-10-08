@@ -66,6 +66,29 @@ const machineIcon = (
   </svg>
 )
 
+/**
+ * A Machine name whose trailing "(…)" — "(dev)" of a development build — stays visible when the
+ * row is too narrow: the name before it is cut with an ellipsis instead. Two worfy on one Mac
+ * differ only by it.
+ */
+export function MachineName({ name }: { name: string }) {
+  const match = /^(.*\S)(\s+\([^()]+\))$/.exec(name)
+  const base = match?.[1] ?? name
+  const suffix = match?.[2] ?? ''
+  return (
+    <span style={{ display: 'flex', minWidth: 0, fontWeight: 600 }}>
+      <span data-testid="machine-name" style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {base}
+      </span>
+      {suffix ? (
+        <span data-testid="machine-name-suffix" style={{ flex: 'none', whiteSpace: 'pre' }}>
+          {suffix}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
 /** The state of a row in words, always with its colour (F-SPEC: a status colour never stands alone). */
 function MachineState({ machine }: { machine: LinkedMachineView }) {
   if (machine.certificateChanged) return <StatusChip status="blocked" label="Certificate changed" />
@@ -174,7 +197,7 @@ export default function MachinesSection() {
               setMenu({ machine, x: event.clientX, y: event.clientY })
             }}
           >
-            <ListRow label={<span style={{ fontWeight: 600 }}>{machine.name}</span>} icon={machineIcon} trailing={<MachineState machine={machine} />} />
+            <ListRow label={<MachineName name={machine.name} />} icon={machineIcon} trailing={<MachineState machine={machine} />} />
           </li>
         ))}
       </ul>

@@ -53,6 +53,14 @@ test('two worfy link by address and code, and each lists the other as online', a
     await expect(row(a.window, bId)).toHaveAttribute('data-state', 'online')
     await expect(row(b.window, aId)).toHaveAttribute('data-state', 'online')
     await expect(row(a.window, bId)).toContainText('Online')
+    // A development build's "(dev)" stays visible, left of the chip, however long the name is.
+    const suffix = row(a.window, bId).getByTestId('machine-name-suffix')
+    await expect(suffix).toHaveText('(dev)')
+    const suffixBox = await suffix.boundingBox()
+    const chipBox = await row(a.window, bId).getByText('Online').boundingBox()
+    expect(suffixBox).not.toBeNull()
+    expect(chipBox).not.toBeNull()
+    if (suffixBox && chipBox) expect(suffixBox.x + suffixBox.width).toBeLessThanOrEqual(chipBox.x)
     await snapshotThemes(a.window, 'machines-section')
   } finally {
     await a.close()

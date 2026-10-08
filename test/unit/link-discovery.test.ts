@@ -7,6 +7,7 @@ import {
   dialAddress,
   instanceName,
   LinkDiscovery,
+  MAX_FOUND,
   type BonjourLike,
   type FoundMachine,
   type MdnsBackend,
@@ -22,6 +23,8 @@ const OLD = '44444444-4444-4444-8444-444444444444'
 /** An mDNS backend that records what is announced and lets the test play the network. */
 class FakeMdns implements MdnsBackend {
   readonly published: { name: string; port: number; txt: Record<string, string>; stopped: boolean }[] = []
+  /** What reached the network, in order: announcements, goodbyes, the socket closing. */
+  readonly wire: string[] = []
   browsers = 0
   destroyed = false
   refreshes = 0
@@ -30,7 +33,18 @@ class FakeMdns implements MdnsBackend {
   publish(announcement: { name: string; port: number; txt: Record<string, string> }) {
     const entry = { ...announcement, stopped: false }
     this.published.push(entry)
-    return { stop: () => (entry.stopped = true) }
+    this.wire.push(`announce ${announcement.port}`)
+    // The goodbye goes out a moment later, as bonjour-service's callback does.
+    return {
+      stop: () =>
+        new Promise<void>((done) =>
+          setTimeout(() => {
+            entry.stopped = true
+            this.wire.push(`goodbye ${announcement.port}`)
+            done()
+          }, 5),
+        ),
+    }
   }
 
   browse(events: { up(service: MdnsService): void; down(service: MdnsService): void }) {
@@ -47,6 +61,7 @@ class FakeMdns implements MdnsBackend {
 
   destroy(): void {
     this.destroyed = true
+    this.wire.push('closed')
   }
 
   up(service: MdnsService): void {
@@ -69,15 +84,15 @@ const worfy = (id: string, name: string, options: { port?: number; proto?: strin
 
 let discovery: LinkDiscovery | undefined
 
-afterEach(() => {
-  discovery?.stop()
+afterEach(async () => {
+  await discovery?.stop()
   discovery = undefined
   vi.useRealTimers()
 })
 
-function makeDiscovery(linked: Set<string> = new Set()) {
+function makeDiscovery(linked: Set<string> = new Set(), options: { now?: () => number } = {}) {
   const mdns = new FakeMdns()
-  discovery = new LinkDiscovery({ backend: mdns, self: () => SELF, isLinked: (id) => linked.has(id), protocol: 1 })
+  discovery = new LinkDiscovery({ backend: mdns, self: () => SELF, isLinked: (id) => linked.has(id), protocol: 1, ...options })
   return { mdns, discovery, linked }
 }
 
@@ -88,7 +103,7 @@ describe('the list of found worfy', () => {
     mdns.up(worfy(SELF.id, SELF.name))
     mdns.up(worfy(OTHER, 'Laptop'))
     mdns.up(worfy(LINKED, 'Office'))
-    expect(discovery.list()).toEqual([{ id: OTHER, name: 'Laptop', host: '192.168.1.20', port: 52000, protocol: 1, compatible: true }])
+    expect(discovery.list()).toEqual([{ id: OTHER, name: 'Laptop', host: '192.168.1.20', port: 52000, protocol: 1, compatible: true, conflict: false }])
 
     // Linked meanwhile: it leaves the list.
     linked.add(OTHER)
@@ -101,8 +116,8 @@ describe('the list of found worfy', () => {
     mdns.up(worfy(OLD, 'Old Mac', { proto: '2' }))
     mdns.up(worfy(OTHER, 'Laptop', { proto: 'x' }))
     expect(discovery.list()).toEqual([
-      { id: OTHER, name: 'Laptop', host: '192.168.1.20', port: 52000, protocol: null, compatible: false },
-      { id: OLD, name: 'Old Mac', host: '192.168.1.20', port: 52000, protocol: 2, compatible: false },
+      { id: OTHER, name: 'Laptop', host: '192.168.1.20', port: 52000, protocol: null, compatible: false, conflict: false },
+      { id: OLD, name: 'Old Mac', host: '192.168.1.20', port: 52000, protocol: 2, compatible: false, conflict: false },
     ])
   })
 
@@ -122,18 +137,52 @@ describe('the list of found worfy', () => {
     expect(changes).toHaveBeenCalledTimes(2)
   })
 
-  it('ignores services without a Machine id, and lists one entry per Machine', () => {
+  it('ignores services without a Machine id', () => {
     const { mdns, discovery } = makeDiscovery()
     discovery.browse('linking', true)
     mdns.up({ name: 'printer', host: 'printer.local', port: 631, txt: {} })
     mdns.up({ name: 'bad', host: 'bad.local', port: 1, txt: { id: 'not-a-uuid' } })
-    mdns.up(worfy(OTHER, 'Laptop', { fqdn: 'a' }))
-    mdns.up(worfy(OTHER, 'Laptop', { fqdn: 'b', addresses: ['10.0.0.5'] }))
-    expect(discovery.list()).toEqual([{ id: OTHER, name: 'Laptop', host: '10.0.0.5', port: 52000, protocol: 1, compatible: true }])
+    expect(discovery.list()).toEqual([])
   })
 
-  it('tells about a Linked machine it found (for reconnecting), without listing it', () => {
-    const { mdns, discovery } = makeDiscovery(new Set([LINKED]))
+  it('lists both addresses when two announcements claim one Machine id, each marked as a conflict', () => {
+    const { mdns, discovery } = makeDiscovery()
+    discovery.browse('linking', true)
+    mdns.up(worfy(OTHER, 'Laptop', { fqdn: 'a' }))
+    // The same announcement on two interfaces is one entry, not a conflict.
+    mdns.up(worfy(OTHER, 'Laptop', { fqdn: 'a2' }))
+    expect(discovery.list()).toEqual([{ id: OTHER, name: 'Laptop', host: '192.168.1.20', port: 52000, protocol: 1, compatible: true, conflict: false }])
+    mdns.up(worfy(OTHER, 'Laptop', { fqdn: 'b', addresses: ['10.0.0.5'] }))
+    expect(discovery.list()).toEqual([
+      { id: OTHER, name: 'Laptop', host: '10.0.0.5', port: 52000, protocol: 1, compatible: true, conflict: true },
+      { id: OTHER, name: 'Laptop', host: '192.168.1.20', port: 52000, protocol: 1, compatible: true, conflict: true },
+    ])
+  })
+
+  it('takes only local-network addresses, and a host name only under .local', () => {
+    const { mdns, discovery } = makeDiscovery()
+    discovery.browse('linking', true)
+    mdns.up({ ...worfy(OTHER, 'Laptop'), host: 'evil.example.com', addresses: ['8.8.8.8', '2001:db8::5'] })
+    expect(discovery.list()).toEqual([])
+    mdns.up({ ...worfy(OTHER, 'Laptop'), host: 'laptop.local.', addresses: ['8.8.8.8'] })
+    expect(discovery.list()).toMatchObject([{ id: OTHER, host: 'laptop.local' }])
+  })
+
+  it(`keeps at most ${MAX_FOUND} announcements and ignores more until some leave`, () => {
+    const { mdns, discovery } = makeDiscovery()
+    discovery.browse('linking', true)
+    const id = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
+    for (let n = 0; n < MAX_FOUND + 10; n += 1) mdns.up(worfy(id(n), `M${n}`, { fqdn: `m${n}` }))
+    expect(discovery.list()).toHaveLength(MAX_FOUND)
+    expect(discovery.list().some((machine) => machine.id === id(MAX_FOUND))).toBe(false)
+    mdns.down(worfy(id(0), 'M0', { fqdn: 'm0' }))
+    mdns.up(worfy(id(MAX_FOUND), `M${MAX_FOUND}`, { fqdn: `m${MAX_FOUND}` }))
+    expect(discovery.list().some((machine) => machine.id === id(MAX_FOUND))).toBe(true)
+  })
+
+  it('tells about a Linked machine it found (for reconnecting), without listing it, at most once per 10 s', () => {
+    let now = 1_000_000
+    const { mdns, discovery } = makeDiscovery(new Set([LINKED]), { now: () => now })
     const seen: FoundMachine[] = []
     discovery.on('seen', (machine) => seen.push(machine))
     discovery.browse('reconnect', true)
@@ -141,6 +190,16 @@ describe('the list of found worfy', () => {
     mdns.up(worfy(OTHER, 'Laptop'))
     expect(seen).toEqual([{ id: LINKED, name: 'Office', host: '192.168.1.30', port: 53000, protocol: 1 }])
     expect(discovery.lastSeen(LINKED)).toEqual(seen[0])
+
+    // A flood of announcements for the same id: still one sighting in 10 s.
+    for (let n = 0; n < 20; n += 1) mdns.up(worfy(LINKED, 'Office', { port: 54000 + n, fqdn: `flood${n}`, addresses: ['192.168.1.66'] }))
+    now += 9_999
+    mdns.up(worfy(LINKED, 'Office', { port: 53001, addresses: ['192.168.1.30'] }))
+    expect(seen).toHaveLength(1)
+    now += 1
+    mdns.up(worfy(LINKED, 'Office', { port: 53002, addresses: ['192.168.1.30'] }))
+    expect(seen).toHaveLength(2)
+    expect(seen[1]).toMatchObject({ port: 53002 })
   })
 })
 
@@ -174,20 +233,31 @@ describe('searching and announcing', () => {
     expect(mdns.refreshes).toBe(3)
   })
 
-  it('announces this Machine with its id, protocol and name on the server port, and stops when the server does', () => {
+  it('announces this Machine with its id, protocol and name on the server port, and stops when the server does', async () => {
     const { mdns, discovery } = makeDiscovery()
     discovery.advertise(52000)
     discovery.advertise(52000)
     expect(mdns.published).toEqual([{ name: 'Studio (11111111)', port: 52000, txt: { id: SELF.id, proto: '1', name: 'Studio' }, stopped: false }])
     discovery.advertise(52001)
+    await vi.waitFor(() => expect(mdns.published[0]?.stopped).toBe(true))
     expect(mdns.published.map((entry) => [entry.port, entry.stopped])).toEqual([
       [52000, true],
       [52001, false],
     ])
     discovery.advertise(null)
-    expect(mdns.published.every((entry) => entry.stopped)).toBe(true)
-    discovery.stop()
-    expect(mdns.destroyed).toBe(true)
+    await vi.waitFor(() => expect(mdns.published.every((entry) => entry.stopped)).toBe(true))
+  })
+
+  it('stop sends the goodbye before it closes the socket, and resolves once both are done', async () => {
+    const { mdns, discovery } = makeDiscovery()
+    discovery.advertise(52000)
+    discovery.browse('linking', true)
+    await discovery.stop()
+    expect(mdns.wire).toEqual(['announce 52000', 'goodbye 52000', 'closed'])
+    expect(mdns.browsers).toBe(0)
+    // Stopped for good: nothing is announced again.
+    discovery.advertise(52001)
+    expect(mdns.wire).toHaveLength(3)
   })
 
   it('keeps the instance name within one DNS label', () => {
@@ -196,18 +266,20 @@ describe('searching and announcing', () => {
     expect(name.endsWith(' (11111111)')).toBe(true)
   })
 
-  it('dials IPv4 first, then an IPv6 address without a zone, then the host name', () => {
-    expect(dialAddress({ host: 'a.local', addresses: ['fe80::1', '2001:db8::5', '192.168.1.9'] })).toBe('192.168.1.9')
-    expect(dialAddress({ host: 'a.local', addresses: ['fe80::1', '2001:db8::5'] })).toBe('2001:db8::5')
-    expect(dialAddress({ host: 'a.local.', addresses: ['fe80::1'] })).toBe('a.local')
+  it('dials a local IPv4 address first, then a local IPv6 address without a zone, then a .local name', () => {
+    expect(dialAddress({ host: 'a.local', addresses: ['fe80::1', 'fd00::5', '192.168.1.9'] })).toBe('192.168.1.9')
+    expect(dialAddress({ host: 'a.local', addresses: ['fe80::1', 'fd00::5'] })).toBe('fd00::5')
+    expect(dialAddress({ host: 'a.local.', addresses: ['fe80::1', '2001:db8::5', '8.8.8.8'] })).toBe('a.local')
+    expect(dialAddress({ host: 'a.example.com', addresses: ['8.8.8.8'] })).toBeUndefined()
   })
 })
 
 describe('bonjourBackend', () => {
-  it('maps announcing and searching onto bonjour-service as _worfy._tcp, and opens nothing before the first use', () => {
+  it('maps announcing and searching onto bonjour-service as _worfy._tcp, and opens nothing before the first use', async () => {
     const listeners = new Map<string, (service: MdnsService) => void>()
     const browser = { on: vi.fn((event: string, listener: (service: MdnsService) => void) => listeners.set(event, listener)), stop: vi.fn(), update: vi.fn(), expire: vi.fn() }
-    const service = { stop: vi.fn(), on: vi.fn() }
+    let goodbyeSent: (() => void) | undefined
+    const service = { stop: vi.fn((callback: () => void) => (goodbyeSent = callback)), on: vi.fn() }
     const fake = { publish: vi.fn(() => service), find: vi.fn(() => browser), destroy: vi.fn() }
     const create = vi.fn(() => fake as unknown as BonjourLike)
     const backend = bonjourBackend({ create, warn: () => undefined })
@@ -215,8 +287,13 @@ describe('bonjourBackend', () => {
 
     const handle = backend.publish({ name: 'Studio (11111111)', port: 52000, txt: { id: SELF.id, proto: '1', name: 'Studio' } })
     expect(fake.publish).toHaveBeenCalledWith({ name: 'Studio (11111111)', type: 'worfy', protocol: 'tcp', port: 52000, txt: { id: SELF.id, proto: '1', name: 'Studio' } })
-    handle.stop()
+    let stopped = false
+    void handle.stop().then(() => (stopped = true))
     expect(service.stop).toHaveBeenCalled()
+    await Promise.resolve()
+    expect(stopped).toBe(false)
+    goodbyeSent?.()
+    await vi.waitFor(() => expect(stopped).toBe(true))
 
     const up = vi.fn()
     const down = vi.fn()

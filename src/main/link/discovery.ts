@@ -9,6 +9,12 @@
 // - The list shown in "Link a machine" leaves out this Machine (by its id in the TXT record) and the
 //   Machines already linked; a worfy of another link protocol is listed and marked incompatible.
 //
+// An announcement is a claim, not a proof: anyone in the network can announce any Machine id at
+// any address. So only local-network addresses are taken (checks.ts, as the server's own check),
+// at most MAX_FOUND announcements are kept, two addresses for one id are both listed and marked
+// as a conflict, a Linked machine's sighting (`seen`) goes out at most once per `seenIntervalMs`,
+// and connections.ts dials such an address only to check the remembered certificate there.
+//
 // The mDNS library is behind MdnsBackend: bonjourBackend() wraps `bonjour-service` (plain
 // JavaScript over UDP multicast, no native build — the same code runs on Windows), and the unit test
 // (test/unit/link-discovery.test.ts) passes a fake. WORFY_LINK_BONJOUR=0 turns Bonjour off for the
@@ -18,6 +24,7 @@ import { EventEmitter } from 'node:events'
 import { isIP } from 'node:net'
 import { Bonjour } from 'bonjour-service'
 import { z } from 'zod'
+import { isLocalNetworkAddress } from './checks'
 
 /** The DNS-SD service type without underscores: `_worfy._tcp`. */
 export const LINK_SERVICE_TYPE = 'worfy'
@@ -36,7 +43,8 @@ export interface MdnsService {
 }
 
 export interface MdnsBackend {
-  publish(announcement: { name: string; port: number; txt: Record<string, string> }): { stop(): void }
+  /** `stop` sends the goodbye (the records with TTL 0) and resolves once it is out. */
+  publish(announcement: { name: string; port: number; txt: Record<string, string> }): { stop(): Promise<void> }
   browse(events: { up(service: MdnsService): void; down(service: MdnsService): void }): { stop(): void; refresh(): void }
   destroy(): void
 }
@@ -52,7 +60,12 @@ export interface FoundMachine {
 
 export interface DiscoveredMachine extends FoundMachine {
   compatible: boolean
+  /** Another announcement claims the same Machine id at another address: one of them is not it. */
+  conflict: boolean
 }
+
+/** At most this many announcements are kept; more are ignored until some leave. */
+export const MAX_FOUND = 64
 
 export type BrowseReason = 'linking' | 'reconnect'
 
@@ -65,6 +78,9 @@ export interface LinkDiscoveryOptions {
   protocol: number
   /** How often the search asks again and drops what has expired; 10 s by default. */
   refreshMs?: number
+  /** At most one `seen` per Machine id in this time; 10 s by default. */
+  seenIntervalMs?: number
+  now?: () => number
 }
 
 export interface LinkDiscoveryEvents {
@@ -76,14 +92,19 @@ export interface LinkDiscoveryEvents {
 
 const machineId = z.uuid()
 
-/** The address to dial: IPv4 first, then an IPv6 address that needs no zone, then the host name. */
-export function dialAddress(service: Pick<MdnsService, 'host' | 'addresses'>): string {
-  const addresses = service.addresses ?? []
-  const v4 = addresses.find((address) => isIP(address) === 4)
+/**
+ * The address to dial, from the local network only (checks.ts): IPv4 first, then an IPv6 address
+ * that needs no zone (not fe80::/10), then the host name when it is an mDNS name (`*.local`).
+ * Undefined when the announcement offers none of these.
+ */
+export function dialAddress(service: Pick<MdnsService, 'host' | 'addresses'>): string | undefined {
+  const local = (service.addresses ?? []).filter((address) => isIP(address) !== 0 && isLocalNetworkAddress(address))
+  const v4 = local.find((address) => isIP(address) === 4)
   if (v4 !== undefined) return v4
-  const v6 = addresses.find((address) => isIP(address) === 6 && !/^fe[89ab]/i.test(address))
+  const v6 = local.find((address) => isIP(address) === 6 && !/^fe[89ab]/i.test(address))
   if (v6 !== undefined) return v6
-  return service.host.replace(/\.$/, '')
+  const host = service.host.replace(/\.$/, '')
+  return /^[A-Za-z0-9-]{1,63}\.local$/i.test(host) ? host : undefined
 }
 
 /** What a found service says about itself; undefined when it is not a worfy (no Machine id). */
@@ -94,7 +115,9 @@ export function readAnnouncement(service: MdnsService): FoundMachine | undefined
   const protocol = typeof txt.proto === 'string' && /^\d{1,6}$/.test(txt.proto) ? Number(txt.proto) : null
   const name = typeof txt.name === 'string' && txt.name.trim() !== '' ? txt.name.trim() : service.name
   if (!Number.isInteger(service.port) || service.port < 1 || service.port > 65535) return undefined
-  return { id, name, host: dialAddress(service), port: service.port, protocol: protocol !== null && protocol > 0 ? protocol : null }
+  const host = dialAddress(service)
+  if (host === undefined) return undefined
+  return { id, name, host, port: service.port, protocol: protocol !== null && protocol > 0 ? protocol : null }
 }
 
 /** The instance name: the Machine name and the start of its id, so two worfy on one Mac differ. */
@@ -108,6 +131,8 @@ export function instanceName(machine: { id: string; name: string }): string {
 
 export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
   private readonly found = new Map<string, FoundMachine>()
+  /** When `seen` last went out per Machine id. */
+  private readonly lastSeenAt = new Map<string, number>()
   private readonly reasons = new Set<BrowseReason>()
   private announcement: { port: number; handle: { stop(): void } } | null = null
   private browser: { stop(): void; refresh(): void } | null = null
@@ -122,8 +147,7 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
   advertise(port: number | null): void {
     if (this.stopped) return
     if (this.announcement !== null && this.announcement.port === port) return
-    this.announcement?.handle.stop()
-    this.announcement = null
+    void this.withdraw()
     if (port === null) return
     const self = this.options.self()
     const handle = this.options.backend.publish({
@@ -147,15 +171,25 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
     return this.browser !== null
   }
 
-  /** The worfy "Link a machine" offers: not this Machine, not a Linked machine; one entry per Machine. */
+  /**
+   * The worfy "Link a machine" offers: not this Machine, not a Linked machine; one entry per id and
+   * address. Two addresses for one id are both listed, each marked `conflict`.
+   */
   list(): DiscoveredMachine[] {
     const self = this.options.self().id
-    const byId = new Map<string, DiscoveredMachine>()
+    const entries = new Map<string, DiscoveredMachine>()
+    const addressesOf = new Map<string, Set<string>>()
     for (const machine of this.found.values()) {
       if (machine.id === self || this.options.isLinked(machine.id)) continue
-      byId.set(machine.id, { ...machine, compatible: machine.protocol === this.options.protocol })
+      const address = `${machine.host}|${machine.port}`
+      entries.set(`${machine.id}|${address}`, { ...machine, compatible: machine.protocol === this.options.protocol, conflict: false })
+      const addresses = addressesOf.get(machine.id) ?? new Set<string>()
+      addresses.add(address)
+      addressesOf.set(machine.id, addresses)
     }
-    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+    return [...entries.values()]
+      .map((entry) => ({ ...entry, conflict: (addressesOf.get(entry.id)?.size ?? 0) > 1 }))
+      .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id) || a.host.localeCompare(b.host) || a.port - b.port)
   }
 
   /** Where a Linked machine was last found, while the search runs. */
@@ -165,13 +199,31 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
     return last
   }
 
-  stop(): void {
+  /**
+   * Stops for good: the goodbye goes out first (other worfy drop this one at once, not when the
+   * announcement's TTL of 8 hours runs out), then the socket closes. Resolves when both are done.
+   */
+  async stop(): Promise<void> {
     if (this.stopped) return
-    this.advertise(null)
+    this.stopped = true
     this.reasons.clear()
     this.stopBrowsing()
-    this.stopped = true
-    this.options.backend.destroy()
+    try {
+      await this.withdraw()
+    } finally {
+      this.options.backend.destroy()
+    }
+  }
+
+  /** Stops announcing; resolves once the goodbye is out. */
+  private async withdraw(): Promise<void> {
+    const current = this.announcement
+    this.announcement = null
+    try {
+      await current?.handle.stop()
+    } catch {
+      // The goodbye could not be sent; the announcement then expires with its TTL.
+    }
   }
 
   private startBrowsing(): void {
@@ -188,6 +240,7 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
     this.refreshTimer = null
     this.browser?.stop()
     this.browser = null
+    this.lastSeenAt.clear()
     if (this.found.size === 0) return
     this.found.clear()
     this.emit('changed')
@@ -198,9 +251,20 @@ export class LinkDiscovery extends EventEmitter<LinkDiscoveryEvents> {
     const machine = readAnnouncement(service)
     if (machine === undefined) return
     if (machine.id === this.options.self().id) return
-    this.found.set(service.fqdn ?? service.name, machine)
-    if (this.options.isLinked(machine.id)) this.emit('seen', machine)
+    const key = service.fqdn ?? service.name
+    if (!this.found.has(key) && this.found.size >= MAX_FOUND) return
+    this.found.set(key, machine)
+    if (this.options.isLinked(machine.id)) this.sighted(machine)
     this.emit('changed')
+  }
+
+  /** A Linked machine announced itself: `seen`, at most once per seenIntervalMs per id. */
+  private sighted(machine: FoundMachine): void {
+    const now = (this.options.now ?? Date.now)()
+    const last = this.lastSeenAt.get(machine.id)
+    if (last !== undefined && now - last < (this.options.seenIntervalMs ?? 10_000)) return
+    this.lastSeenAt.set(machine.id, now)
+    this.emit('seen', machine)
   }
 
   private down(service: MdnsService): void {
@@ -234,7 +298,14 @@ export function bonjourBackend(options: { create?: () => BonjourLike; warn?: (me
     publish: (announcement) => {
       const service = instance().publish({ name: announcement.name, type: LINK_SERVICE_TYPE, protocol: 'tcp', port: announcement.port, txt: announcement.txt })
       service.on?.('error', (error) => warn(`[link] Bonjour could not announce this Machine: ${error.message}`))
-      return { stop: () => service.stop?.() }
+      return {
+        stop: () =>
+          new Promise<void>((done) => {
+            if (service.stop === undefined) return done()
+            // bonjour-service calls back once the goodbye (the records with TTL 0) is sent.
+            service.stop(() => done())
+          }),
+      }
     },
     browse: (events) => {
       const browser = instance().find({ type: LINK_SERVICE_TYPE, protocol: 'tcp' })

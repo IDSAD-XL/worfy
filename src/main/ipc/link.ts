@@ -26,13 +26,45 @@ import {
   parseLinkAddress,
   type LinkState,
 } from '../../shared/ipc/link'
-import { clientOf, type Client, type ClientId } from '../clients'
+import { ClientHolders, clientOf, type Client, type ClientId } from '../clients'
 import { localMachineOf } from '../link/ipc-adapter'
 import { appLink, appLinkProblem, appLinkService, onAppLinkStart, type AppLink } from '../link/service'
 import { defineHandler, emit, type HandlerModule } from './index'
 
-/** Windows with "Link a machine" open; linking stays open while there is one. */
-const openers = new Set<ClientId>()
+/**
+ * The windows with "Link a machine" open; linking stays open while there is one. A window that
+ * goes away with it open closes it too: its `destroyed` is listened to once per window, however
+ * often it opens the dialog (ClientHolders, src/main/clients.ts).
+ */
+export class LinkingWindows {
+  private readonly open = new Set<ClientId>()
+  private readonly holders: ClientHolders
+
+  constructor(onLastGone: () => void) {
+    this.holders = new ClientHolders((id) => {
+      if (this.close(id)) onLastGone()
+    })
+  }
+
+  /** Adds a window: 'first' when no other has it open, 'added', 'again' when it already had, 'gone' for a destroyed one. */
+  add(client: Pick<Client, 'id' | 'once' | 'isDestroyed'>): 'first' | 'added' | 'again' | 'gone' {
+    if (!this.holders.hold(client)) return 'gone'
+    if (this.open.has(client.id)) return 'again'
+    this.open.add(client.id)
+    return this.open.size === 1 ? 'first' : 'added'
+  }
+
+  /** Removes a window; true when it was the last one with the dialog open. */
+  close(id: ClientId): boolean {
+    return this.open.delete(id) && this.open.size === 0
+  }
+
+  get size(): number {
+    return this.open.size
+  }
+}
+
+const openers = new LinkingWindows(() => void lastClosed())
 /** The Machine linked while "Link a machine" was open: the success it shows. */
 let linkedNow: { id: string; name: string } | null = null
 /** The last failed attempt of another worfy to link to this one. */
@@ -164,9 +196,8 @@ function buildState(): LinkState {
   }
 }
 
-/** Closes linking for one window; the last one closes it on the service. */
-async function closeFor(id: ClientId): Promise<void> {
-  if (!openers.delete(id) || openers.size > 0) return
+/** The last window closed "Link a machine": linking closes on the service. */
+async function lastClosed(): Promise<void> {
   linkedNow = null
   failure = null
   const link = appLink()
@@ -192,14 +223,9 @@ export default [
   defineHandler(linkOpen, async (_input, { event }) => {
     const { service, discovery } = requireLink()
     const client: Client | undefined = clientOf(event)
-    if (client !== undefined && !openers.has(client.id)) {
-      if (openers.size === 0) {
-        linkedNow = null
-        failure = null
-      }
-      openers.add(client.id)
-      // A window closed with the dialog open closes it too.
-      client.once('destroyed', () => void closeFor(client.id))
+    if (client !== undefined && openers.add(client) === 'first') {
+      linkedNow = null
+      failure = null
     }
     // Opens again after the service closed linking itself (too many failed attempts).
     await service.openLinking()
@@ -211,7 +237,7 @@ export default [
   defineHandler(linkClose, async (_input, { event }) => {
     follow()
     const client = clientOf(event)
-    if (client !== undefined) await closeFor(client.id)
+    if (client !== undefined && openers.close(client.id)) await lastClosed()
     return buildState()
   }),
 

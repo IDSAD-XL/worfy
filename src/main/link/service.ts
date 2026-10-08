@@ -244,11 +244,6 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     return [...new Set([...v4, ...v6])]
   }
 
-  /** Bonjour found Linked machine `machineId` at host:port: the next connection goes there. */
-  noteAddress(machineId: string, host: string, port: number): void {
-    this.store.touch(machineId, { address: normalizeAddress(host), port })
-  }
-
   // ---- "Link a machine" on this side (B) -------------------------------------------------------
 
   /** Opens "Link a machine": a code to show, and the server listens. */
@@ -325,20 +320,28 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   // ---- connections -----------------------------------------------------------------------------
 
   /**
-   * Connects to Linked machine `machineId` (once per call; reconnecting is ticket 02's). A 401 from
-   * a Machine whose certificate checked out means it has forgotten this one: this side forgets it
-   * too. Another certificate marks it "certificate changed".
+   * Connects to Linked machine `machineId` (once per call; connections.ts retries). A 401 from a
+   * Machine whose certificate checked out means it has forgotten this one: this side forgets it
+   * too. Another certificate at the remembered address marks it "certificate changed".
+   *
+   * `via` is an address someone else claims for it — a Bonjour announcement (connections.ts), which
+   * anyone in the network can send with any Machine id. It is tried once and proves nothing until
+   * the certificate there is the remembered one: only then is the address kept (after the
+   * connection opened). Another certificate there means "not that Machine": an error, with neither
+   * the record nor the "certificate changed" mark touched. No token is sent before that check
+   * (client.ts).
    */
-  async connect(machineId: string): Promise<void> {
+  async connect(machineId: string, via?: { host: string; port: number }): Promise<void> {
     const record = this.store.get(machineId)
     if (record === undefined) throw new Error(`Machine ${machineId} is not linked`)
     const token = this.secrets.get(record.outgoingTokenKey)
     if (token === undefined) throw new Error(`the token for Machine ${record.id} (${record.name}) is missing; link it again`)
+    const target = via ?? { host: record.address, port: record.port }
     let opened: Awaited<ReturnType<typeof openLinkSocket>>
     try {
       opened = await openLinkSocket({
-        host: record.address,
-        port: record.port,
+        host: target.host,
+        port: target.port,
         path: CONNECT_PATH,
         key: this.machineKey(),
         certificate: this.identity.certificate,
@@ -346,6 +349,9 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
         token,
       })
     } catch (error) {
+      if (via !== undefined && error instanceof LinkConnectError && error.kind === 'certificate-changed') {
+        throw new LinkConnectError('refused', `the worfy announced at ${target.host}:${target.port} is not Machine ${record.id} (${record.name}): another certificate; nothing was changed`)
+      }
       if (error instanceof LinkConnectError && error.kind === 'certificate-changed') {
         this.certificateChanged.add(record.id)
         this.emit('certificate-changed', { id: record.id, name: record.name })
@@ -362,6 +368,8 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       throw new Error(`Machine ${record.id} (${record.name}) was linked again while connecting; connect again`)
     }
     if (!this.attach(opened.ws, current ?? record, 'out')) throw new Error(`Machine ${record.id} (${record.name}) was unlinked while connecting`)
+    // The remembered certificate answered there: from now on it is where this Machine is.
+    if (via !== undefined) this.store.touch(record.id, { address: normalizeAddress(via.host), port: via.port })
   }
 
   /** Calls an IPC channel on Linked machine `machineId` over an open connection. */
@@ -780,6 +788,29 @@ export function wireAppLink(service: LinkService, options: { bonjour: boolean; d
   }
   connections.start()
   return { service, connections, discovery }
+}
+
+/**
+ * Stops a link for good: no more dials, Bonjour sends its goodbye (other worfy drop this one from
+ * their list now, not when the announcement's TTL runs out) and closes its socket, and the service
+ * closes its connections and the server. The order matters: dials stop first, so none starts
+ * against a service being stopped.
+ */
+export async function stopLink(link: AppLink): Promise<void> {
+  link.connections.stop()
+  try {
+    await link.discovery?.stop()
+  } finally {
+    await link.service.stop()
+  }
+}
+
+/** Stops the app's link on quit (src/main/index.ts, before-quit); undefined when it is not running. */
+export function stopAppLink(): Promise<void> | undefined {
+  const link = appLinkValue
+  if (link === undefined) return undefined
+  appLinkValue = undefined
+  return stopLink(link)
 }
 
 /** Starts the app's link over worfy's data folder (src/main/index.ts, after registerIpc). */

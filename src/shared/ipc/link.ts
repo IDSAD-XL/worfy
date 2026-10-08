@@ -92,6 +92,8 @@ export const discoveredMachineSchema = z.object({
   protocol: z.number().int().positive().nullable(),
   /** False when it speaks another link protocol: linking would be refused. */
   compatible: z.boolean(),
+  /** Another announcement claims the same Machine id at another address: one of them is not it. */
+  conflict: z.boolean(),
 })
 export type DiscoveredMachineView = z.output<typeof discoveredMachineSchema>
 

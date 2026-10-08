@@ -153,17 +153,28 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
   const targetLabel = target ? (target.name === null ? target.address : `${target.name} (${target.address})`) : ''
 
   const foundRow = (found: DiscoveredMachineView) => (
-    <li key={found.id} data-testid="link-found-row" data-machine-id={found.id}>
+    <li key={`${found.id}|${found.host}|${found.port}`} data-testid="link-found-row" data-machine-id={found.id}>
       <button type="button" className="w-row" onClick={() => choose({ name: found.name, address: formatLinkAddress(found) })}>
         <span className="w-row__label" style={styles.found}>
           <span style={{ fontWeight: 600 }}>{found.name}</span>
           <span style={styles.mono}>{formatLinkAddress(found)}</span>
         </span>
-        {found.compatible ? null : (
-          <span className="w-row__trailing">
-            <span className="w-chip w-chip--blocked" title={`It speaks link protocol ${found.protocol ?? 'unknown'}: linking will be refused until both run the same version`}>
-              Other version
-            </span>
+        {found.compatible && !found.conflict ? null : (
+          <span className="w-row__trailing" style={{ display: 'inline-flex', gap: 'var(--space-1)' }}>
+            {found.conflict ? (
+              <span
+                className="w-chip w-chip--blocked"
+                data-testid="link-found-conflict"
+                title="Two worfy announce this Machine at different addresses: one of them is not it. Link by the address the other worfy shows"
+              >
+                Two addresses
+              </span>
+            ) : null}
+            {found.compatible ? null : (
+              <span className="w-chip w-chip--blocked" title={`It speaks link protocol ${found.protocol ?? 'unknown'}: linking will be refused until both run the same version`}>
+                Other version
+              </span>
+            )}
           </span>
         )}
       </button>
