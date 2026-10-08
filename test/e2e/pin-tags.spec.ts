@@ -60,6 +60,16 @@ async function layoutOf(window: Page): Promise<Layout> {
   return result.value.layout
 }
 
+/** The camera this machine saved for the Canvas (worfy-link ticket 06): it is not part of the Layout. */
+async function cameraOf(window: Page): Promise<Layout['viewport']> {
+  const result = await window.evaluate(
+    (id) => (globalThis as unknown as { worfy: { invoke(c: string, i: unknown): Promise<{ ok: boolean; value: Layout['viewport'] }> } }).worfy.invoke('viewport.get', { projectId: id }),
+    PROJECT,
+  )
+  expect(result.ok).toBe(true)
+  return result.value
+}
+
 /** The notes of a Layout: every Project's Canvas also has its Orchestrator Node (ticket 08). */
 const notesOf = (layout: Layout): StateNode[] => layout.nodes.filter((node) => node.kind === 'note')
 
@@ -127,7 +137,7 @@ test('a click on the minimap moves the viewport there; View ▸ Show Minimap hid
     const viewport = await viewportOf(window)
     expect(viewport.zoom).toBe(before.zoom)
     // The new viewport is saved like any other move of the Canvas.
-    await expect.poll(async () => (await layoutOf(window)).viewport.x).toBeCloseTo(viewport.x, 0)
+    await expect.poll(async () => (await cameraOf(window)).x).toBeCloseTo(viewport.x, 0)
 
     // The View menu hides it and shows it again.
     expect(await toggleMinimapMenu(app)).toBe(false)
@@ -212,7 +222,7 @@ test('a pinned Node stays at its place on the screen while the Canvas pans and z
     await pinme.locator('.w-note__header').click()
     await window.screenshot({ path: test.info().outputPath('pinned-zoomed-out.png') })
     // Main has the zoomed-out viewport before the app quits.
-    await expect.poll(async () => (await layoutOf(window)).viewport.zoom).toBeLessThan(zoomAtPin)
+    await expect.poll(async () => (await cameraOf(window)).zoom).toBeLessThan(zoomAtPin)
   } finally {
     await first.close()
   }
@@ -230,7 +240,8 @@ test('a pinned Node stays at its place on the screen while the Canvas pans and z
     const toolbar = window.getByTestId('selection-toolbar')
     await toolbar.getByRole('button', { name: 'Unpin' }).click()
     await expect.poll(async () => (await layoutOf(window)).nodes.find((node) => node.id === 'pinme')?.pinned).toBe(false)
-    const { viewport, nodes } = await layoutOf(window)
+    const { nodes } = await layoutOf(window)
+    const viewport = await cameraOf(window)
     const node = nodes.find((entry) => entry.id === 'pinme')
     if (!node) throw new Error('no node')
     const canvas = await box(window.locator('.react-flow'))
@@ -302,7 +313,8 @@ test('a pinned Node saved outside a smaller Canvas is shown inside it, and Unpin
     await away.locator('.w-note__header').click()
     await window.getByTestId('selection-toolbar').getByRole('button', { name: 'Unpin' }).click()
     await expect.poll(async () => (await layoutOf(window)).nodes.find((node) => node.id === 'away')?.pinned).toBe(false)
-    const { viewport, nodes } = await layoutOf(window)
+    const { nodes } = await layoutOf(window)
+    const viewport = await cameraOf(window)
     const node = nodes.find((entry) => entry.id === 'away')
     if (!node) throw new Error('no node')
     expect(canvas.x + node.x * viewport.zoom + viewport.x).toBeCloseTo(shown.x, 0)

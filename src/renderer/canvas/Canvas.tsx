@@ -14,6 +14,10 @@
 // in and out, dragging with Space held or with the middle button pans, dragging on an empty spot
 // selects. A double click on an empty spot creates a `note` Node.
 //
+// The camera is this screen's own, not part of the Layout (worfy-link ticket 06): the Canvas opens
+// at the camera main saved for this machine (`viewport.get`), and the end of every pan or zoom
+// saves it (`viewport.set`). No other window hears of it, and the Layout does not change.
+//
 // Every operation sent from here is recorded for ⌘Z / ⇧⌘Z (history.ts); the keys themselves, and
 // Delete to the trash, are handled by overlays/SelectionToolbar.tsx.
 //
@@ -46,7 +50,8 @@ import '@xyflow/react/dist/style.css'
 import './canvas.css'
 import { EPIC_FRAME_KIND, SUBAGENT_KIND } from '../../shared/layout/derived'
 import { isParticipant, obstaclesFor, type Rect } from '../../shared/layout/free-place'
-import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
+import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput, type LayoutState, type Viewport } from '../../shared/layout/types'
+import { invoke } from '../ipc'
 import { dropNodes, edgeSources, edgesOf, edgeTypes, nodeSources, overlays, type NodeSource } from './extensions'
 import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
 import { UnknownNode } from './UnknownNode'
@@ -183,9 +188,11 @@ const withActiveClass = (node: CanvasFlowNode): CanvasFlowNode => ({
 interface FlowProps {
   projectId: string
   state: LayoutState
+  /** The camera the Canvas opens at: this machine's saved one (`viewport.get`). */
+  opening: Viewport
 }
 
-function Flow({ projectId, state }: FlowProps) {
+function Flow({ projectId, state, opening }: FlowProps) {
   const flow = useReactFlow<CanvasFlowNode>()
   const store = useStoreApi<CanvasFlowNode>()
   const wrapper = useRef<HTMLDivElement>(null)
@@ -397,13 +404,18 @@ function Flow({ projectId, state }: FlowProps) {
     [ops, planFor, projectId],
   )
 
+  // The camera this screen last saved; a move that ends where it started (a click on the plane) saves nothing.
+  const savedCamera = useRef(opening)
   const onMoveEnd: OnMoveEnd = useCallback(
     (_event, viewport) => {
-      const saved = latest.current.layout.viewport
+      const saved = savedCamera.current
       if (saved.x === viewport.x && saved.y === viewport.y && saved.zoom === viewport.zoom) return
-      ops.apply({ op: 'setViewport', viewport })
+      savedCamera.current = { x: viewport.x, y: viewport.y, zoom: viewport.zoom }
+      void invoke('viewport.set', { projectId, viewport: savedCamera.current }).then((result) => {
+        if (!result.ok) console.error('viewport.set failed:', result.error)
+      })
     },
-    [ops],
+    [projectId],
   )
 
   const onDoubleClick = useCallback(
@@ -503,7 +515,7 @@ function Flow({ projectId, state }: FlowProps) {
           onNodeDrag={onNodeDrag}
           onNodeDragStop={onNodeDragStop}
           onMoveEnd={onMoveEnd}
-          defaultViewport={state.layout.viewport}
+          defaultViewport={opening}
           minZoom={ZOOM_MIN}
           maxZoom={ZOOM_MAX}
           panOnScroll
@@ -528,8 +540,35 @@ function Flow({ projectId, state }: FlowProps) {
   )
 }
 
+/**
+ * The camera this screen opens the Project's Canvas at (worfy-link ticket 06): main's saved one for
+ * this machine, or the Layout's old `viewport` while there is none. Undefined until main answers;
+ * when it cannot, the Canvas opens at the Layout's `viewport`, as before there was a camera apart.
+ */
+function useOpeningCamera(projectId: string, layout: Layout | undefined): Viewport | undefined {
+  const [answer, setAnswer] = useState<{ viewport: Viewport } | { failed: true }>()
+  useEffect(() => {
+    let active = true
+    void invoke('viewport.get', { projectId }).then((result) => {
+      if (!active) return
+      if (result.ok) setAnswer({ viewport: result.value })
+      else {
+        console.error('viewport.get failed:', result.error)
+        setAnswer({ failed: true })
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [projectId])
+  if (answer === undefined) return undefined
+  return 'viewport' in answer ? answer.viewport : layout?.viewport
+}
+
 function ProjectCanvas({ projectId }: { projectId: string }) {
   const { state, error } = useLayout(projectId)
+  // React Flow takes the camera only when it mounts: the Canvas waits for both answers.
+  const opening = useOpeningCamera(projectId, state?.layout)
   if (error !== undefined) {
     return (
       <div className="w-canvas-message" role="alert">
@@ -537,10 +576,10 @@ function ProjectCanvas({ projectId }: { projectId: string }) {
       </div>
     )
   }
-  if (state === undefined) return null
+  if (state === undefined || opening === undefined) return null
   return (
     <ReactFlowProvider>
-      <Flow projectId={projectId} state={state} />
+      <Flow projectId={projectId} state={state} opening={opening} />
     </ReactFlowProvider>
   )
 }

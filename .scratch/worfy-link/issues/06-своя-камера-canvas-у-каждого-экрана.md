@@ -1,7 +1,7 @@
 # 06 — Камера Canvas своя у каждого экрана: viewport уходит из общего Layout
 
 Type: task
-Status: open
+Status: claimed — 2026-10-08
 Blocked by: —
 Source: решения владельца 2026-10-07: Q2 (общее состояние живое, у каждого экрана своё — камера, выделение, ⌘Z), Q15 (камера Canvas своя у каждого экрана на каждый Project и уходит из общего Layout); [spec.md](../spec.md); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — несколько экранов на одном Project-е; [ADR-0013](../../../docs/adr/0013-pinned-node-screen-coordinates.md) — закреплённый Node хранит экранные координаты
 
@@ -113,16 +113,59 @@ test.
 - `src/main/ipc/viewport.ts` (новый)
 - `src/renderer/canvas/Canvas.tsx`
 - `src/renderer/canvas/history.ts`
+- `src/renderer/shell/FirstRun.tsx` (добавлен при работе, согласовано с оркестратором: ставил Terminal входа в GitHub по камере из Layout)
 - `test/contract/viewport-store.test.ts` (новый)
 - `test/contract/layout-store.test.ts`
 - `test/unit/history.test.ts`
 - `test/e2e/helpers.ts`
 - `test/e2e/canvas-layout.spec.ts`
 - `test/e2e/card-drag.spec.ts`
+- `test/e2e/pin-tags.spec.ts` (добавлен при работе, согласовано с оркестратором: читал сохранённую камеру из Layout, gate full был красным)
 
 С Ticket-ом 07 общие файлы history.ts и store.ts: если они попадут в одну Wave, Ticket-ы идут по
 очереди. С Ticket-ом 03 общий файл helpers.ts (helper второго окна).
 
 ## Итог
 
-Заполняется при закрытии.
+- **Store камеры** — `src/main/layout/viewports.ts`, файл `viewports.json` в папке данных worfy:
+  `{ [projectId]: Viewport }`. Запись — через `LAYOUT_SAVE_DELAY_MS` после последней правки и при
+  выходе (`will-quit` → `flush()`). Камера, равная сохранённой, файл не пишет. Project ушёл из
+  списка — запись удаляется (`projectStore().onChange` → `prune()`), и ещё раз при первом чтении
+  файла: так убирается запись Project-а, удалённого перед аварийным выходом. Камера Project-а вне
+  списка отклоняется («No Project with id …»), как у Layout.
+- **IPC** — домен `viewport` (`src/shared/ipc/viewport.ts`, `src/main/ipc/viewport.ts`):
+  `viewport.get {projectId} → Viewport` (своя камера, иначе `viewport` из `layout.json`, иначе
+  `{0, 0, 1}`) и `viewport.set {projectId, viewport} → void`. События нет. Ticket 08 на момент
+  работы не влит — пометку «состояние машины экрана, Linked machine-у не отдаётся» ставит он.
+- **Layout без камеры.** `setViewport` убран из `layoutOpSchema`, `applyOp` и `history.ts`
+  (`footprintOf`, `inverseOf`). Поле `viewport` в `layoutSchema` осталось только для чтения:
+  старые `layout.json` читаются, после других операций значение в файле прежнее.
+- **Renderer.** `ProjectCanvas` монтирует React Flow, когда пришли Layout и ответ `viewport.get`;
+  `defaultViewport` — этот ответ. Если `viewport.get` не ответил, Canvas открывается в камере из
+  Layout (как раньше), ошибка — в консоль. `onMoveEnd` сравнивает с последней своей сохранённой
+  камерой и шлёт `viewport.set`. `FirstRun.tsx` ставит Terminal `gh auth login` по
+  `viewport.get` вместо `layout.viewport`.
+- **Два окна одной машины** (пункт 5) — как рекомендовано: живая камера своя у каждого окна,
+  сохранённая — одна на Machine и Project; её пишет окно, где Canvas сдвинули последним.
+  Решено без владельца, подтвердить.
+- **Закреплённые Node-ы** — правило не менялось (ADR-0013). e2e проверяет: Node, закреплённый у
+  правого края окна 1 (1600×1000), в окне 2 (1000×700) виден целиком; pan окна 1 не двигает его ни
+  в одном окне, перезагрузка окна 2 тоже.
+- **Test-ы, читавшие камеру из Layout,** — `canvas-layout.spec.ts`, `card-drag.spec.ts` и не
+  названный в Ticket-е `pin-tags.spec.ts` (минимап, закреплённый Node при pan и zoom) — читают
+  `viewport.get` или `viewports.json`; сами проверки прежние. После правки `grep '\.viewport'` по
+  `src/` и `test/` находит только запасную камеру (`viewports.ts`, `Canvas.tsx` при отказе
+  `viewport.get`) и проверки, что поле в `layout.json` не меняется.
+- **Helper второго окна** — `openSecondWindow` из Ticket-а 03; добавлен параметр `size`.
+- **Как падал первый test.** e2e «two windows have their own cameras…» на исходниках origin/main
+  (d70315f) красный: `expect(await revision()).toBe(revisionBefore)` — Expected 3, Received 4
+  (`setViewport` двигал ревизию Layout). Contract `viewport-store.test.ts` — на мутантах: без
+  подписки на список Project-ов падает test удаления, без запасной камеры из Layout — test первого
+  открытия и три test-а отказа.
+- **Снимки** (два окна после pan в окне 1, окно 2 после перезагрузки):
+  окно 1 — [светлая](../evidence/06-camera-window-1-light.png),
+  [тёмная](../evidence/06-camera-window-1-dark.png); окно 2 —
+  [светлая](../evidence/06-camera-window-2-light.png),
+  [тёмная](../evidence/06-camera-window-2-dark.png).
+- **Не проверено test-ом:** место Terminal-а входа в GitHub (`FirstRun.tsx`) по камере
+  `viewport.get` — e2e `first-run.spec.ts` проверяет только, что Terminal открылся.

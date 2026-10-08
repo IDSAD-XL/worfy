@@ -4,6 +4,9 @@
 // through the same schema check here. The process applies operations one at a time, in the order
 // they arrive, so the last operation on a Node wins and two callers can never interleave halfway.
 //
+// The camera of the Canvas is not written here: each screen keeps its own (viewports.ts,
+// worfy-link ticket 06). The `viewport` of layout.json is read as it is and written back unchanged.
+//
 // Nodes never overlap (ADR-0038): an operation that puts a Node on the plane — create, move,
 // resize, showing a hidden Node, unpinning, moveMany — is corrected here, whoever sent it, so the
 // Node keeps the gap from every other Node on the plane; the neighbours do not move. The answer
@@ -89,7 +92,6 @@ function moveMany(layout: Layout, op: Extract<LayoutOp, { op: 'moveMany' }>): La
  * operation that puts a Node on the plane is corrected so that the Node overlaps none (ADR-0038).
  */
 function applyOp(layout: Layout, op: LayoutOp): Layout {
-  if (op.op === 'setViewport') return { ...layout, viewport: op.viewport }
   if (op.op === 'moveMany') return moveMany(layout, op)
 
   if (op.op === 'create') {

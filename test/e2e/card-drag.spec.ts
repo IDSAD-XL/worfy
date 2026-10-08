@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -97,6 +97,15 @@ async function start(nodes: unknown[], viewport: SavedLayout['viewport'] = VIEWP
 
 /** layout.json as main saved it. */
 const saved = (): SavedLayout => JSON.parse(readFileSync(join(dataDir, PROJECT_ID, 'layout.json'), 'utf8')) as SavedLayout
+/**
+ * The camera main saved for the Canvas: this machine's own in viewports.json (worfy-link ticket 06),
+ * or, while it has none, the one layout.json was written with.
+ */
+const savedCamera = (): SavedLayout['viewport'] => {
+  const file = join(dataDir, 'viewports.json')
+  const own = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Record<string, SavedLayout['viewport']>)[PROJECT_ID] : undefined
+  return own ?? saved().viewport
+}
 const savedNode = (id: string): StateNode => {
   const node = saved().nodes.find((each) => each.id === id)
   if (!node) throw new Error(`no Node ${id} in layout.json`)
@@ -177,7 +186,7 @@ for (const [where, below] of [['the middle', 0.5], ['the lower end', 1]] as cons
     expect(dropped.x).toBe(1000)
     expect(Math.abs(dropped.y - (200 + moved.y))).toBeLessThanOrEqual(GRID)
     expect(await viewportTransform(window)).toBe(viewportBefore)
-    expect(saved().viewport).toEqual(VIEWPORT)
+    expect(savedCamera()).toEqual(VIEWPORT)
     await clickReachesCard(window, 1)
   })
 }
@@ -193,7 +202,7 @@ test('a Note jerked across a Card iframe ends its drag on the release and lands 
 
   await expect(nodeElement(window, 'n1')).not.toHaveClass(/\bdragging\b/)
   await expect.poll(() => savedNode('n1').x).not.toBe(1064)
-  expect(saved().viewport).toEqual(viewport)
+  expect(savedCamera()).toEqual(viewport)
   expect(Math.abs(savedNode('n1').x - (1064 + moved.x / viewport.zoom))).toBeLessThanOrEqual(GRID)
   expect(savedNode('n1').y).toBe(300)
   await clickReachesCard(window, 1)
@@ -224,9 +233,11 @@ test('the Canvas panned with the middle button across a Card ends the pan on the
   await jerk(window, { x: card.x + card.width + 6, y: card.y + card.height / 2 }, { x: -172, y: 0 }, 'middle')
 
   await expect(window.locator('.react-flow__pane')).not.toHaveClass(/\bdragging\b/)
-  await expect.poll(() => saved().viewport.x).not.toBe(VIEWPORT.x)
+  await expect.poll(() => savedCamera().x).not.toBe(VIEWPORT.x)
   // The pan follows the pointer from the press, give or take the first step.
-  expect(Math.abs(saved().viewport.x - (VIEWPORT.x - 172))).toBeLessThanOrEqual(STEP_PX)
+  expect(Math.abs(savedCamera().x - (VIEWPORT.x - 172))).toBeLessThanOrEqual(STEP_PX)
+  // The pan changed this machine's camera, not the Layout's.
+  expect(saved().viewport).toEqual(VIEWPORT)
   const panned = await viewportTransform(window)
   await window.mouse.move(card.x - 100, card.y, { steps: 4 })
   expect(await viewportTransform(window)).toBe(panned)

@@ -1,4 +1,6 @@
-// The Layout of a Project's Canvas (CONTEXT.md, «Раскладка»): its Nodes and the viewport.
+// The Layout of a Project's Canvas (CONTEXT.md, «Раскладка»): its Nodes. The camera of the Canvas
+// is not part of it: each screen keeps its own (src/main/layout/viewports.ts, worfy-link ticket 06);
+// the `viewport` left in layout.json is only read, as the camera of a first opening.
 // main is its only writer (ADR-0003): the renderer and, later, the MCP tools send the operations
 // below, main checks them with these schemas, applies them and saves layout.json
 // (src/main/layout/store.ts).
@@ -70,6 +72,11 @@ export const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1 }
 export const layoutSchema = z
   .object({
     nodes: z.array(layoutNodeSchema),
+    /**
+     * The camera the Canvas was saved with before each screen kept its own (worfy-link ticket 06).
+     * Read only, as the camera of a screen that has none of its own yet; no operation changes it,
+     * so a file keeps the value it had.
+     */
     viewport: viewportSchema.default(DEFAULT_VIEWPORT),
   })
   .superRefine((layout, context) => {
@@ -83,7 +90,7 @@ export type Layout = z.output<typeof layoutSchema>
 
 export const EMPTY_LAYOUT: Layout = { nodes: [], viewport: DEFAULT_VIEWPORT }
 
-/** The operations that change a Layout. Each names one Node, except setViewport and moveMany. */
+/** The operations that change a Layout. Each names one Node, except moveMany. */
 export const layoutOpSchema = z.discriminatedUnion('op', [
   /** Adds a Node; main makes up the id when there is none. A taken id is refused. */
   z.object({ op: z.literal('create'), node: layoutNodeSchema.extend({ id: nodeIdSchema.optional() }) }),
@@ -99,7 +106,6 @@ export const layoutOpSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('remove'), id: nodeIdSchema }),
   /** Merges the given keys into the Node's data, one level deep. */
   z.object({ op: z.literal('patchData'), id: nodeIdSchema, data: nodeDataSchema }),
-  z.object({ op: z.literal('setViewport'), viewport: viewportSchema }),
   /**
    * Pins the Node to the screen or puts it back on the plane. The position and size come along:
    * while a Node is pinned, its x and y are screen coordinates of the Canvas (pixels from the
