@@ -38,6 +38,8 @@ export class LinkConnection extends EventEmitter<LinkConnectionEvents> {
   ) {
     super()
     ws.on('message', (data) => {
+      // Once either side started closing (a revoke, linking again), nothing more is acted on.
+      if (ws.readyState !== ws.OPEN) return
       let frame: Frame
       try {
         const parsed = frameSchema.safeParse(JSON.parse(String(data)))

@@ -3,7 +3,7 @@
 // server listens, and service messages. Services run over temporary data folders on 127.0.0.1
 // (test/contract/link-bench.ts).
 import { randomBytes, randomUUID } from 'node:crypto'
-import { request } from 'node:https'
+import { createServer as createHttpsServer, request } from 'node:https'
 import { connect as netConnect } from 'node:net'
 import tls from 'node:tls'
 import { WebSocket, WebSocketServer } from 'ws'
@@ -13,7 +13,8 @@ import { defineHandler, type HandlerModule } from '../../src/main/ipc/index'
 import { LinkConnectError, openLinkSocket } from '../../src/main/link/client'
 import { LinkConnection } from '../../src/main/link/connection'
 import { generateCertificate } from '../../src/main/link/identity'
-import { defineLinkMessage } from '../../src/main/link/messages'
+import { CONNECT_PATH, defineLinkMessage, LINK_MAX_PAYLOAD, PAIR_PATH, PAIRING_MAX_PAYLOAD } from '../../src/main/link/messages'
+import { startLinkServer } from '../../src/main/link/server'
 import { projectsList } from '../../src/shared/ipc/projects'
 import { LinkBench, type BenchMachine } from './link-bench'
 
@@ -403,5 +404,197 @@ describe('the heartbeat', () => {
     await b.service.stop()
     expect(await gone).toEqual({ id: b.service.machine.id, name: 'beta' })
     expect(a.service.isConnected(b.service.machine.id)).toBe(false)
+  })
+})
+
+/** Resolves with the close code of `ws`, or 'still open' after `ms`. */
+function closeCode(ws: WebSocket, ms = 1000): Promise<number | 'still open'> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve('still open'), ms)
+    ws.once('close', (code: number) => {
+      clearTimeout(timer)
+      resolve(code)
+    })
+  })
+}
+
+/** B's own connection to A, opened as a bare socket that acts on nothing it receives. */
+async function bareConnection(from: BenchMachine, to: BenchMachine): Promise<WebSocket> {
+  const toId = to.service.machine.id
+  const record = from.service.linkedMachines().find((machine) => machine.id === toId)
+  const { ws } = await openLinkSocket({
+    host: '127.0.0.1',
+    port: to.service.status().port ?? 0,
+    path: CONNECT_PATH,
+    key: keyOf(from),
+    certificate: certificateOf(from),
+    expectFingerprint: record?.fingerprint ?? '',
+    token: secretsOf(from)[`outgoing:${toId}`] ?? '',
+  })
+  return ws
+}
+
+describe('round 2: revoking closes from this side', () => {
+  it('A itself closes the connection with 4003 within a second, even when B ignores `revoked`', async () => {
+    newBench()
+    const { a, b } = await linkedPair()
+    const bId = b.service.machine.id
+    bench!.rememberTokens()
+    const ws = await bareConnection(b, a)
+    const received: string[] = []
+    ws.on('message', (data) => received.push(String(data)))
+    await expect.poll(() => a.service.isConnected(bId)).toBe(true)
+    const code = closeCode(ws)
+    const started = Date.now()
+    a.service.revoke(bId)
+    expect(await code).toBe(4003)
+    expect(Date.now() - started).toBeLessThan(1000)
+    expect(received.some((frame) => frame.includes('"revoked"'))).toBe(true)
+  })
+})
+
+describe('round 2: a peer outside the local network', () => {
+  it('is dropped on the TCP connection, before the TLS handshake shows the certificate', async () => {
+    const own = await generateCertificate(randomUUID())
+    const server = await startLinkServer({
+      key: own.key,
+      certificate: own.certificate,
+      host: '127.0.0.1',
+      port: 0,
+      build: '0.2.0+bench',
+      hostNames: () => ({ interfaces: {}, hostname: 'bench.local' }),
+      admit: () => ({ status: 403, body: 'forbidden' }),
+      // 127.0.0.1 stands in for an address outside the local network.
+      isAllowedPeer: () => false,
+    })
+    try {
+      const outcome = await new Promise<string>((resolve) => {
+        const socket = tls.connect({ host: '127.0.0.1', port: server.port, rejectUnauthorized: false, minVersion: 'TLSv1.3' })
+        socket.once('secureConnect', () => {
+          resolve(`handshake done, certificate ${socket.getPeerCertificate().subject?.CN ?? ''}`)
+          socket.destroy()
+        })
+        socket.once('error', () => resolve('dropped'))
+        socket.once('close', () => resolve('dropped'))
+      })
+      expect(outcome).toBe('dropped')
+    } finally {
+      server.close()
+    }
+  })
+})
+
+describe('round 2: message size limits', () => {
+  it(`the server closes a pairing socket that sends more than ${PAIRING_MAX_PAYLOAD} bytes with 1009`, async () => {
+    newBench()
+    const b = await bench!.machine('beta')
+    const c = await bench!.machine('gamma')
+    await bench!.codeOf(b)
+    const { ws } = await openLinkSocket({ host: '127.0.0.1', port: bench!.portOf(b), path: PAIR_PATH, key: keyOf(c), certificate: certificateOf(c) })
+    const code = closeCode(ws)
+    ws.send('x'.repeat(PAIRING_MAX_PAYLOAD + 1))
+    expect(await code).toBe(1009)
+  })
+
+  it(`the server closes a connection that sends more than ${LINK_MAX_PAYLOAD} bytes with 1009`, async () => {
+    newBench()
+    const { a, b } = await linkedPair()
+    bench!.rememberTokens()
+    const ws = await bareConnection(a, b)
+    const code = closeCode(ws, 5000)
+    ws.send('x'.repeat(LINK_MAX_PAYLOAD + 1))
+    expect(await code).toBe(1009)
+  })
+
+  /** A plain wss server on 127.0.0.1 that sends `size` bytes to whoever connects. */
+  async function sender(size: number): Promise<{ port: number; close: () => void }> {
+    const own = await generateCertificate(randomUUID())
+    const server = createHttpsServer({ key: own.key, cert: own.certificate })
+    const wss = new WebSocketServer({ server })
+    wss.on('connection', (ws) => ws.send('y'.repeat(size)))
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address()
+    return {
+      port: typeof address === 'object' && address !== null ? address.port : 0,
+      close: () => {
+        wss.close()
+        server.close()
+      },
+    }
+  }
+
+  it.each([
+    [PAIR_PATH, PAIRING_MAX_PAYLOAD],
+    [CONNECT_PATH, LINK_MAX_PAYLOAD],
+  ])('the client on %s refuses a message over %i bytes and drops the connection', async (path, limit) => {
+    const own = await generateCertificate(randomUUID())
+    const server = await sender(limit + 1)
+    try {
+      const { ws } = await openLinkSocket({ host: '127.0.0.1', port: server.port, path, key: own.key, certificate: own.certificate })
+      const errors: string[] = []
+      let delivered = false
+      ws.on('error', (error: Error & { code?: string }) => errors.push(error.code ?? error.message))
+      ws.on('message', () => {
+        delivered = true
+      })
+      expect(await closeCode(ws, 5000)).not.toBe('still open')
+      expect(errors).toEqual(['WS_ERR_UNSUPPORTED_MESSAGE_LENGTH'])
+      expect(delivered).toBe(false)
+    } finally {
+      server.close()
+    }
+  })
+})
+
+describe('round 2: re-linking and races', () => {
+  it('linking a Machine again closes the connections opened with the old tokens, on both sides', async () => {
+    newBench()
+    const { a, b } = await linkedPair()
+    const bId = b.service.machine.id
+    const aId = a.service.machine.id
+    await a.service.connect(bId)
+    await expect.poll(() => b.service.isConnected(aId)).toBe(true)
+    bench!.rememberTokens()
+    const oldToken = secretsOf(a)[`outgoing:${bId}`] ?? ''
+
+    await bench!.link(a, b)
+    await expect.poll(() => a.service.isConnected(bId)).toBe(false)
+    await expect.poll(() => b.service.isConnected(aId)).toBe(false)
+    expect(await upgrade(b.service.status().port ?? 0, { client: a, headers: { authorization: `Bearer ${oldToken}` } })).toEqual({ status: 401, body: 'unauthorized' })
+    await a.service.connect(bId)
+    expect((await a.service.call(bId, 'link.ping')).ok).toBe(true)
+  })
+
+  it('a connect that was overtaken by a new link is closed and refused', async () => {
+    newBench()
+    const { a, b } = await linkedPair()
+    const bId = b.service.machine.id
+    const connecting = rejection(a.service.connect(bId))
+    // As if a new link had replaced the token while the connection was being opened.
+    ;(a.service as unknown as { secrets: { set(key: string, value: string): void } }).secrets.set(`outgoing:${bId}`, randomBytes(32).toString('base64url'))
+    expect((await connecting).message).toMatch(/linked again while connecting/)
+    expect(a.service.isConnected(bId)).toBe(false)
+  })
+
+  it('frames that arrive after this side started closing are not acted on', async () => {
+    newBench()
+    const { a, b } = await linkedPair()
+    const aId = a.service.machine.id
+    const note = defineLinkMessage('test.late', z.object({ n: z.number() }))
+    const received: number[] = []
+    b.service.registerMessage(note, ({ n }) => {
+      received.push(n)
+    })
+    await a.service.connect(b.service.machine.id)
+    await expect.poll(() => b.service.isConnected(aId)).toBe(true)
+    a.service.sendMessage(b.service.machine.id, note, { n: 1 })
+    await expect.poll(() => received).toEqual([1])
+    a.service.sendMessage(b.service.machine.id, note, { n: 2 })
+    // B starts closing before the frame above reaches it.
+    const connections = (b.service as unknown as { connections: Map<string, Set<LinkConnection>> }).connections
+    for (const connection of connections.get(aId) ?? []) connection.close(4004, 'test')
+    await expect.poll(() => b.service.isConnected(aId)).toBe(false)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(received).toEqual([1])
   })
 })

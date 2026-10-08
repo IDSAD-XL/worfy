@@ -2,8 +2,11 @@
 // stores, where the secrets live, the one-time code, and a machine in the middle. Every service
 // runs over its own temporary data folder on 127.0.0.1 (test/contract/link-bench.ts).
 import { randomUUID } from 'node:crypto'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import tls from 'node:tls'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { WebSocket } from 'ws'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openLinkSocket } from '../../src/main/link/client'
 import { fingerprintOf, generateCertificate } from '../../src/main/link/identity'
 import { PAIRING_CODE_TTL_MS, PAIRING_FAILED, PAIRING_MAX_FAILURES, spake2Finish, spake2Share } from '../../src/main/link/pairing'
@@ -267,5 +270,114 @@ describe('a machine in the middle', () => {
     } finally {
       proxy.close()
     }
+  })
+})
+
+describe('round 2: closing "Link a machine" during an attempt', () => {
+  it('cuts off the attempt in flight at once', async () => {
+    const b = await bench.machine('beta')
+    const c = await bench.machine('gamma')
+    await bench.codeOf(b)
+    const held = await openLinkSocket({ host: '127.0.0.1', port: bench.portOf(b), path: '/link/pair', key: secretsOf(c)['machine-key'] ?? '', certificate: certificateOf(c) })
+    const closed = new Promise<number | 'still open'>((resolve) => {
+      const timer = setTimeout(() => resolve('still open'), 1000)
+      held.ws.once('close', (code: number) => {
+        clearTimeout(timer)
+        resolve(code)
+      })
+    })
+    await b.service.closeLinking()
+    expect(await closed).not.toBe('still open')
+    await expect.poll(() => b.pairingFailures.length).toBe(1)
+  })
+
+  it('stores nothing when it closes after B took the code, even if the socket outlives the close', async () => {
+    const a = await bench.machine('alpha')
+    const b = await bench.machine('beta')
+    const code = await bench.codeOf(b)
+    const port = bench.portOf(b)
+    // Right before A sends its confirmation, B closes "Link a machine"; terminate() is held back
+    // for that one call, so only the check before the commit can stop the link.
+    const send = WebSocket.prototype.send
+    const sendSpy = vi.spyOn(WebSocket.prototype, 'send').mockImplementation(function (this: WebSocket, data: unknown, ...rest: unknown[]) {
+      if (typeof data === 'string' && data.includes('"t":"pake3"')) {
+        const terminate = vi.spyOn(WebSocket.prototype, 'terminate').mockImplementation(() => undefined)
+        void b.service.closeLinking()
+        terminate.mockRestore()
+      }
+      return (send as (...args: unknown[]) => void).call(this, data, ...rest)
+    })
+    try {
+      const error = await rejection(a.service.pair({ host: '127.0.0.1', port, code }))
+      expect(error.message).toBe(PAIRING_FAILED)
+    } finally {
+      sendSpy.mockRestore()
+    }
+    await expect.poll(() => b.pairingFailures.some((message) => message.includes('was closed while linking'))).toBe(true)
+    expect(a.service.linkedMachines()).toEqual([])
+    expect(b.service.linkedMachines()).toEqual([])
+  })
+})
+
+describe('round 2: a pairing socket that dies mid-step', () => {
+  it('ends B\'s attempt at once instead of waiting out the step timeout', async () => {
+    const a = await bench.machine('alpha')
+    const b = await bench.machine('beta')
+    const code = await bench.codeOf(b)
+    // The socket of B's attempt is cut right as A's first message arrives, while B derives w from
+    // the code: when B then waits for A's confirmation, the socket is already closed.
+    const sockets = (b.service as unknown as { pairingSockets: Set<WebSocket> }).pairingSockets
+    const add = sockets.add.bind(sockets)
+    sockets.add = (ws: WebSocket) => {
+      ws.once('message', () => ws.terminate())
+      return add(ws)
+    }
+    const started = Date.now()
+    await rejection(a.service.pair({ host: '127.0.0.1', port: bench.portOf(b), code }))
+    await expect.poll(() => b.pairingFailures.length, { timeout: 2000 }).toBe(1)
+    expect(Date.now() - started).toBeLessThan(2000)
+  })
+})
+
+describe('round 2: a Machine id is bound to its certificate', () => {
+  /** A Machine with its own certificate that claims the id of `victim`. */
+  async function impostorOf(victim: BenchMachine): Promise<BenchMachine> {
+    const impostor = await bench.machine('delta')
+    await impostor.service.stop()
+    const file = join(impostor.dataDir, 'link', 'machine.json')
+    const machine = JSON.parse(readFileSync(file, 'utf8')) as { id: string }
+    writeFileSync(file, JSON.stringify({ ...machine, id: victim.service.machine.id }))
+    await bench.restart(impostor)
+    expect(impostor.service.machine.id).toBe(victim.service.machine.id)
+    return impostor
+  }
+
+  it('B refuses a peer that claims the id of a Machine linked with another certificate', async () => {
+    const a = await bench.machine('alpha')
+    const c = await bench.machine('gamma')
+    await bench.link(a, c)
+    const before = a.service.linkedMachines()
+    const impostor = await impostorOf(c)
+
+    const error = await rejection(impostor.service.pair({ host: '127.0.0.1', port: bench.portOf(a), code: await bench.codeOf(a) }))
+    expect(error.message).toBe(PAIRING_FAILED)
+    await expect.poll(() => a.pairingFailures.some((message) => message.includes('already linked with another certificate'))).toBe(true)
+    expect(a.service.linkedMachines()).toEqual(before)
+    expect(impostor.service.linkedMachines()).toEqual([])
+  })
+
+  it('A refuses a server that claims the id of a Machine linked with another certificate', async () => {
+    const a = await bench.machine('alpha')
+    const c = await bench.machine('gamma')
+    await bench.link(a, c)
+    const before = a.service.linkedMachines()
+    const impostor = await impostorOf(c)
+
+    const code = await bench.codeOf(impostor)
+    const error = await rejection(a.service.pair({ host: '127.0.0.1', port: bench.portOf(impostor), code }))
+    expect(error.message).toMatch(/already linked with another certificate/)
+    await expect.poll(() => impostor.pairingFailures.length).toBe(1)
+    expect(a.service.linkedMachines()).toEqual(before)
+    expect(impostor.service.linkedMachines()).toEqual([])
   })
 })

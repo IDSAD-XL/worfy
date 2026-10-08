@@ -207,8 +207,10 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     await this.listenChain
   }
 
+  /** Closes "Link a machine"; an attempt in flight is cut off and stores nothing. */
   async closeLinking(): Promise<void> {
     this.pairingWindow.close()
+    for (const ws of this.pairingSockets) ws.terminate()
     this.reasons.delete('linking')
     this.updateReasons()
     await this.listenChain
@@ -247,6 +249,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
           clientFingerprint: this.identity.fingerprint,
           serverFingerprint,
           ...(this.options.pairingStepTimeoutMs === undefined ? {} : { stepTimeoutMs: this.options.pairingStepTimeoutMs }),
+          accept: (peer) => this.checkPeerId(peer.id, serverFingerprint),
           commit: (result) => {
             stored = this.commitLink(result, serverFingerprint, normalizeAddress(target.host), result.peer.port ?? target.port)
           },
@@ -300,7 +303,13 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       throw error
     }
     this.certificateChanged.delete(record.id)
-    if (!this.attach(opened.ws, record, 'out')) throw new Error(`Machine ${record.id} (${record.name}) was unlinked while connecting`)
+    // Linked again while connecting: this socket was opened with the old token.
+    const current = this.store.get(record.id)
+    if (current !== undefined && this.secrets.get(current.outgoingTokenKey) !== token) {
+      opened.ws.close(CLOSE_UNLINKED, 'linked again')
+      throw new Error(`Machine ${record.id} (${record.name}) was linked again while connecting; connect again`)
+    }
+    if (!this.attach(opened.ws, current ?? record, 'out')) throw new Error(`Machine ${record.id} (${record.name}) was unlinked while connecting`)
   }
 
   /** Calls an IPC channel on Linked machine `machineId` over an open connection. */
@@ -386,7 +395,24 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     return undefined
   }
 
-  /** Stores a finished pairing: the token this side presents first, then the record that names it. */
+  /**
+   * A Machine id is bound to the certificate it was linked with: linking it again is fine with the
+   * same certificate, and refused with another one — else whoever knows a code could take over the
+   * record (and the trust) of a Machine linked before. Such a Machine is revoked first, then linked.
+   */
+  private checkPeerId(peerId: string, fingerprint: string): void {
+    const existing = this.store.get(peerId)
+    if (existing !== undefined && existing.fingerprint !== fingerprint) {
+      throw new PairingError(
+        `Machine ${existing.id} (${existing.name}) is already linked with another certificate; revoke it on this Machine first, then link again; nothing was linked`,
+      )
+    }
+  }
+
+  /**
+   * Stores a finished pairing: the token this side presents first, then the record that names it.
+   * Linking a Machine again closes its connections: they were opened with the old tokens.
+   */
   private commitLink(result: PairingResult, fingerprint: string, address: string, port: number | null): LinkedMachineRecord {
     if (port === null) throw new PairingError('the other Machine did not say which port it listens on; nothing was linked')
     const key = outgoingTokenKey(result.peer.id)
@@ -401,6 +427,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       outgoingTokenKey: key,
       linkedAt: new Date((this.options.now ?? Date.now)()).toISOString(),
     }
+    for (const connection of this.connections.get(record.id) ?? []) connection.close(CLOSE_UNLINKED, 'linked again')
     this.store.put(record)
     this.certificateChanged.delete(record.id)
     this.updateReasons()
@@ -511,6 +538,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     // The token and the certificate must both be the ones of one Linked machine.
     if (record === undefined || record.fingerprint !== upgrade.clientFingerprint) return UNAUTHORIZED
     return {
+      // handleUpgrade calls back synchronously after this check, so the record is still current.
       accept: (ws) => {
         this.store.touch(record.id, { address: upgrade.remoteAddress })
         this.attach(ws, record, 'in')
@@ -528,7 +556,10 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
         clientFingerprint,
         serverFingerprint: this.identity.fingerprint,
         ...(this.options.pairingStepTimeoutMs === undefined ? {} : { stepTimeoutMs: this.options.pairingStepTimeoutMs }),
+        accept: (peer) => this.checkPeerId(peer.id, clientFingerprint),
         commit: (result) => {
+          // "Link a machine" closed while the attempt ran: nothing is stored.
+          if (!this.pairingWindow.isOpen) throw new PairingError('"Link a machine" was closed while linking; nothing was linked')
           stored = this.commitLink(result, clientFingerprint, remoteAddress, result.peer.port)
         },
       })

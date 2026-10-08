@@ -15,6 +15,12 @@ export const LINK_PROTOCOL_VERSION = 1
 /** The handshake header that carries the protocol version (an integer). */
 export const LINK_PROTOCOL_HEADER = 'x-worfy-link-protocol'
 
+/** The largest WebSocket message either side takes while pairing: the pairing frames are a few hundred bytes. */
+export const PAIRING_MAX_PAYLOAD = 64 * 1024
+
+/** The largest WebSocket message either side takes on an established connection (ws allows 100 MiB by default). */
+export const LINK_MAX_PAYLOAD = 16 * 1024 * 1024
+
 /** Paths of the two WebSocket endpoints. */
 export const PAIR_PATH = '/link/pair'
 export const CONNECT_PATH = '/link/connect'

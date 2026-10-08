@@ -16,7 +16,7 @@ import type { Socket } from 'node:net'
 import type { TLSSocket } from 'node:tls'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { isAllowedHost, isLocalNetworkAddress, normalizeAddress, type HostNames } from './checks'
-import { CONNECT_PATH, LINK_PROTOCOL_HEADER, LINK_PROTOCOL_VERSION, PAIR_PATH } from './messages'
+import { CONNECT_PATH, LINK_MAX_PAYLOAD, LINK_PROTOCOL_HEADER, LINK_PROTOCOL_VERSION, PAIR_PATH, PAIRING_MAX_PAYLOAD } from './messages'
 
 /** A refusal before the handshake: status and body. */
 export interface Refusal {
@@ -88,6 +88,8 @@ export interface LinkServerOptions {
   hostNames: () => HostNames
   /** The endpoint's own check after the common ones: a refusal, or an admission. */
   admit: (upgrade: AcceptedUpgrade) => Refusal | Admission
+  /** Which peer addresses may connect at all; isLocalNetworkAddress by default (tests narrow it). */
+  isAllowedPeer?: (address: string) => boolean
 }
 
 /** What to do with an admitted request: `accept` gets the WebSocket, `abort` runs when the handshake fails instead. */
@@ -110,9 +112,17 @@ export function startLinkServer(options: LinkServerOptions): Promise<LinkServer>
     requestCert: true,
     rejectUnauthorized: false,
   })
-  const pairing = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 })
-  const connections = new WebSocketServer({ noServer: true })
+  const pairing = new WebSocketServer({ noServer: true, maxPayload: PAIRING_MAX_PAYLOAD })
+  const connections = new WebSocketServer({ noServer: true, maxPayload: LINK_MAX_PAYLOAD })
   let port = options.port
+  const isAllowedPeer = options.isAllowedPeer ?? isLocalNetworkAddress
+
+  // A peer outside the local network is dropped on the TCP connection, before the TLS handshake:
+  // it never gets as far as the certificate (whose name carries the Machine id). The check at
+  // 'upgrade' below stays as the second line.
+  server.on('connection', (socket: Socket) => {
+    if (socket.remoteAddress === undefined || !isAllowedPeer(socket.remoteAddress)) socket.destroy()
+  })
 
   // Plain HTTPS requests have nothing here.
   server.on('request', (_request, response) => {

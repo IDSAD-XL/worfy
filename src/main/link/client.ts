@@ -13,7 +13,7 @@
 import tls from 'node:tls'
 import type { Duplex } from 'node:stream'
 import WebSocket from 'ws'
-import { LINK_PROTOCOL_HEADER, LINK_PROTOCOL_VERSION } from './messages'
+import { LINK_MAX_PAYLOAD, LINK_PROTOCOL_HEADER, LINK_PROTOCOL_VERSION, PAIR_PATH, PAIRING_MAX_PAYLOAD } from './messages'
 
 /** Why a connection attempt failed, for the service and the UI (worfy-link ticket 02). */
 export type LinkFailureKind = 'certificate-changed' | 'unauthorized' | 'refused' | 'protocol' | 'unreachable'
@@ -42,6 +42,8 @@ export interface OpenOptions {
   timeoutMs?: number
   /** Overrides the protocol version sent (tests of a mismatch). */
   protocolVersion?: number
+  /** The largest message taken from the server; by default PAIRING_MAX_PAYLOAD on the pairing path, LINK_MAX_PAYLOAD otherwise. */
+  maxPayload?: number
 }
 
 export interface OpenedSocket {
@@ -66,6 +68,7 @@ export function openLinkSocket(options: OpenOptions): Promise<OpenedSocket> {
     headers,
     handshakeTimeout: options.timeoutMs ?? CONNECT_TIMEOUT_MS,
     perMessageDeflate: false,
+    maxPayload: options.maxPayload ?? (options.path === PAIR_PATH ? PAIRING_MAX_PAYLOAD : LINK_MAX_PAYLOAD),
     createConnection: ((_options: unknown, ready: (error: Error | null, socket?: Duplex) => void) => {
       const socket = tls.connect({
         host: options.host.replace(/^\[|\]$/g, ''),
