@@ -77,7 +77,7 @@ async function harness(script = 'message-input', picked: string[] = []) {
   }
   const handlers = new Map<string, Listener>()
   const ipc: IpcMainLike = { handle: (channel, listener) => handlers.set(channel, listener) }
-  await registerIpc(ipc, { modules: { './agent.ts': () => Promise.resolve(agentHandlers(() => registry, deps)) }, isTrustedSender: (url) => url === APP_URL })
+  await registerIpc(ipc, { modules: { './agent.ts': () => Promise.resolve(agentHandlers(() => registry, deps, (send) => send(sender))) }, isTrustedSender: (url) => url === APP_URL })
   const received: AgentEventEnvelope[] = []
   const sender = { isDestroyed: () => false, send: (_channel: string, payload: unknown) => received.push(payload as AgentEventEnvelope), once: () => undefined }
   const call = async (channel: string, input?: unknown): Promise<IpcResult<unknown>> => {
