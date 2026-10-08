@@ -1,0 +1,44 @@
+#!/bin/sh
+# A stand-in for Claude Code's CLI (test/fixtures/first-run-tools/README.md).
+[ -n "$FIRST_RUN_TOOLS_LOG" ] && printf 'claude %s\n' "$*" >>"$FIRST_RUN_TOOLS_LOG"
+state=$FIRST_RUN_TOOLS_STATE
+case "$1" in
+  --version)
+    printf '%s (Claude Code)\n' "${FAKE_CLAUDE_VERSION:-2.1.289}"
+    exit 0
+    ;;
+  plugin)
+    case "$2" in
+      list)
+        if [ -n "$state" ] && [ -f "$state/plugin-version" ]; then
+          IFS= read -r version <"$state/plugin-version"
+          printf '[{"id":"worfy@worfy-harness","version":"%s","scope":"user","enabled":true,"errors":[]}]\n' "$version"
+        else
+          printf '[]\n'
+        fi
+        exit 0
+        ;;
+      marketplace)
+        [ "$3" = add ] && printf '%s\n' "$4" >"$state/marketplace"
+        exit 0
+        ;;
+      install | update)
+        IFS= read -r folder <"$state/marketplace"
+        version=
+        while IFS= read -r line; do
+          case "$line" in
+            *'"version"'*)
+              version=${line#*\"version\"}
+              version=${version#*\"}
+              version=${version%%\"*}
+              ;;
+          esac
+        done <"$folder/.claude-plugin/plugin.json"
+        printf '%s\n' "$version" >"$state/plugin-version"
+        exit 0
+        ;;
+    esac
+    ;;
+esac
+printf 'claude stand-in: unsupported: %s\n' "$*" >&2
+exit 2

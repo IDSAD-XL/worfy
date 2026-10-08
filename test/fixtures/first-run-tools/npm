@@ -1,0 +1,20 @@
+#!/bin/sh
+# A stand-in for npm (test/fixtures/first-run-tools/README.md): `npm prefix -g` and `npm install -g`,
+# which "installs" qmd by linking the qmd stand-in into $FAKE_NPM_BIN.
+[ -n "$FIRST_RUN_TOOLS_LOG" ] && printf 'npm %s\n' "$*" >>"$FIRST_RUN_TOOLS_LOG"
+case "$1" in
+  prefix)
+    printf '%s\n' "${FAKE_NPM_PREFIX:-/usr/local}"
+    exit 0
+    ;;
+  install)
+    if [ -n "$FAKE_NPM_FAIL" ]; then
+      printf 'npm error %s\n' "$FAKE_NPM_FAIL" >&2
+      exit 1
+    fi
+    /bin/ln -s "$FIRST_RUN_TOOLS_DIR/qmd" "$FAKE_NPM_BIN/qmd" || exit 1
+    exit 0
+    ;;
+esac
+printf 'npm stand-in: unsupported: %s\n' "$*" >&2
+exit 2

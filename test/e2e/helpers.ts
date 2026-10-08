@@ -130,6 +130,9 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
     WORFY_AGENT: 'fake',
     // A gh that never reaches GitHub (test/fixtures/gh/gh-stub.mjs): no PRs unless GH_STUB_DIR says otherwise.
     WORFY_GH: join(repoRoot, 'test', 'fixtures', 'gh', 'gh'),
+    // The first-run screen (worfy-harness ticket 19) does not open by itself: it would cover the
+    // window of every test. test/e2e/first-run.spec.ts turns it back on with WORFY_FIRST_RUN_AUTO=1.
+    WORFY_FIRST_RUN_AUTO: '0',
     ...options.env,
   })
 

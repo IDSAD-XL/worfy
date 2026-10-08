@@ -18,8 +18,8 @@ import { buildPlan, claudeJsonPath, hasLegacyHarness, type PlanOptions } from '.
 import { claudeHome, harnessHome } from '../storage/paths'
 import { defineHandler, type HandlerModule } from './index'
 
-/** Where the move reads and writes, from the app's environment. */
-function planOptions(): Omit<PlanOptions, 'pluginState'> {
+/** Where the move reads and writes, from the app's environment; the first-run screen (ticket 19) looks for the old Harness with it too. */
+export function planOptions(): Omit<PlanOptions, 'pluginState'> {
   const env = process.env
   const commandEnv = claudeCommandEnv(env)
   const home = claudeHome(env)

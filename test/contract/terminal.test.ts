@@ -2,7 +2,7 @@
 // Electron's Node, ELECTRON_RUN_AS_NODE=1): open, input, output, resize, close, and that no shell
 // process outlives its Node, its window or the app.
 import { EventEmitter } from 'node:events'
-import { mkdtemp, realpath, rm } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SYSTEM_PATH } from '../../src/main/agent/env'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { closeRemovedNode, closeRemovedProjects, terminalHandlers, terminalKey, wireRegistry } from '../../src/main/ipc/terminal'
-import { clampSize, ReplayBuffer, REPLAY_LIMIT, terminalEnv, TerminalRegistry } from '../../src/main/terminal/pty'
+import { clampSize, ReplayBuffer, REPLAY_LIMIT, terminalEnv, TerminalRegistry, type PtyProcess, type TerminalSink } from '../../src/main/terminal/pty'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
@@ -18,6 +18,8 @@ vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindow
 const APP_URL = 'file:///Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PROJECT = 'demo-00000001'
 const NODE = 'node-1'
+/** The stand-in tools of the first-run screen; its `gh auth login` prints one line (worfy-harness ticket 19). */
+const TOOLS = join(import.meta.dirname, '..', 'fixtures', 'first-run-tools')
 
 type Listener = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
 interface OpenResult {
@@ -124,7 +126,7 @@ async function harness(options: { killGraceMs?: number; nodes?: string[] } = {})
       .filter((o) => o.nodeId === nodeId)
       .map((o) => o.data)
       .join('')
-  const open = (nodeId = NODE, size: { cols: number; rows: number; restart?: boolean } = { cols: 80, rows: 24 }, from?: ReturnType<typeof makeWindow>) =>
+  const open = (nodeId = NODE, size: { cols: number; rows: number; restart?: boolean; command?: string } = { cols: 80, rows: 24 }, from?: ReturnType<typeof makeWindow>) =>
     ok<OpenResult>('terminal.open', { projectId: PROJECT, nodeId, ...size }, from)
   const type = (data: string, nodeId = NODE) => ok('terminal.input', { projectId: PROJECT, nodeId, data })
   /** Runs a command and waits for the line its output starts with. */
@@ -338,6 +340,123 @@ function wiring(projectIds: string[]) {
     },
   }
 }
+
+describe('terminal.open with a command (worfy-harness ticket 19)', () => {
+  it('the new shell gets `gh auth login` typed once it has started, and runs it; a shell opened without one gets nothing', async () => {
+    // The stand-ins go first on the PATH through $HOME/.profile, which a login shell reads after
+    // /etc/profile: on macOS /etc/profile (path_helper) moves the system folders, Homebrew's
+    // included, before what the PATH had, and a real gh would win.
+    await writeFile(join(home, '.profile'), `PATH="${TOOLS}:$PATH"; export PATH\n`)
+    const h = await harness({ nodes: [NODE, 'node-2'] })
+    const opened = await h.open(NODE, { cols: 80, rows: 24, command: 'gh auth login' })
+    expect(opened.started).toBe(true)
+    // The stand-in gh prints this line: the command reached the shell and ran there.
+    await vi.waitFor(() => expect(h.text()).toContain('fake gh: auth login started'), { timeout: 4000 }).catch((error: unknown) => {
+      throw new Error(`${String(error)}\n--- output:\n${h.text()}`)
+    })
+
+    // Without a command, as before: nothing is typed.
+    await h.open('node-2')
+    await h.run('echo mark""er-two', /marker-two\r?\n/, 'node-2')
+    expect(h.text('node-2')).not.toContain('gh auth login')
+    expect(h.text('node-2')).not.toContain('fake gh')
+  })
+
+  it('refuses a command outside the list and starts nothing', async () => {
+    const h = await harness()
+    for (const command of ['rm -rf ~', 'gh auth login; rm -rf ~', '']) {
+      const result = await h.call('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24, command })
+      expect(result.ok).toBe(false)
+      expect(!result.ok && result.error).toMatch(/invalid input/)
+    }
+    expect(h.registry.size).toBe(0)
+  })
+})
+
+describe('the command typed into a new shell, on a stand-in pty', () => {
+  class FakePty implements PtyProcess {
+    static last: FakePty | null = null
+    readonly pid = 4242
+    readonly writes: string[] = []
+    private data: ((data: string) => void)[] = []
+    private exit: ((event: { exitCode: number; signal?: number }) => void)[] = []
+    constructor() {
+      FakePty.last = this
+    }
+    onData(listener: (data: string) => void): void {
+      this.data.push(listener)
+    }
+    onExit(listener: (event: { exitCode: number; signal?: number }) => void): void {
+      this.exit.push(listener)
+    }
+    write(data: string): void {
+      this.writes.push(data)
+    }
+    resize(): void {}
+    kill(): void {
+      this.end(0)
+    }
+    print(data: string): void {
+      for (const listener of this.data) listener(data)
+    }
+    end(exitCode: number): void {
+      for (const listener of this.exit) listener({ exitCode })
+    }
+  }
+  const sink: TerminalSink = { output: () => undefined, exit: () => undefined }
+  const request = { cwd: '/tmp', cols: 80, rows: 24 }
+  const registry = (commandDelayMs = 60_000) =>
+    new TerminalRegistry({ env: () => Promise.resolve({ SHELL: '/bin/sh' }), spawn: () => new FakePty(), commandDelayMs, killGraceMs: 10 })
+  const pty = (): FakePty => {
+    if (FakePty.last === null) throw new Error('no pty')
+    return FakePty.last
+  }
+
+  it('types the command and a newline after the first output, once', async () => {
+    const r = registry()
+    await r.open('k', { ...request, command: 'gh auth login' }, sink)
+    expect(pty().writes).toEqual([])
+    pty().print('$ ')
+    expect(pty().writes).toEqual(['gh auth login\n'])
+    pty().print('more output\r\n$ ')
+    expect(pty().writes).toEqual(['gh auth login\n'])
+  })
+
+  it('types it after the delay when the shell prints nothing', async () => {
+    const r = registry(20)
+    await r.open('k', { ...request, command: 'gh auth login' }, sink)
+    await vi.waitFor(() => expect(pty().writes).toEqual(['gh auth login\n']))
+    pty().print('$ ')
+    expect(pty().writes).toEqual(['gh auth login\n'])
+  })
+
+  it('without a command types nothing, as before', async () => {
+    const r = registry(20)
+    await r.open('k', request, sink)
+    pty().print('$ ')
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(pty().writes).toEqual([])
+  })
+
+  it('attaching to a running shell with a command types nothing into it', async () => {
+    const r = registry()
+    await r.open('k', request, sink)
+    pty().print('$ ')
+    const attached = await r.open('k', { ...request, command: 'gh auth login' }, sink)
+    expect(attached.started).toBe(false)
+    pty().print('$ ')
+    expect(pty().writes).toEqual([])
+  })
+
+  it('a shell that exits before its first output gets nothing typed', async () => {
+    const r = registry(20)
+    await r.open('k', { ...request, command: 'gh auth login' }, sink)
+    const first = pty()
+    first.end(1)
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(first.writes).toEqual([])
+  })
+})
 
 describe('wireRegistry: the shells follow the Layout, the Projects and quitting', () => {
   it('a Terminal Node removed from the Layout by any route ends its shell; other ops and other Nodes do not', async () => {

@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { FirstRun } from './FirstRun'
 import { Sidebar } from './Sidebar'
 import { Toolbar, type ShellView, type ToolbarProject } from './Toolbar'
 import './shell.css'
@@ -49,6 +50,8 @@ export function AppShell({ project, canvas, session, view: controlledView, onVie
           </div>
         </main>
       </div>
+      {/* The first-run screen (worfy-harness ticket 19): over the window when open; it asks main at start whether to open. */}
+      <FirstRun />
     </div>
   )
 }

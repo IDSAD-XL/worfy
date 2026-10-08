@@ -1,0 +1,23 @@
+#!/bin/sh
+# A stand-in for the GitHub CLI (test/fixtures/first-run-tools/README.md). It never reaches GitHub.
+[ -n "$FIRST_RUN_TOOLS_LOG" ] && printf 'gh %s\n' "$*" >>"$FIRST_RUN_TOOLS_LOG"
+case "$1 $2" in
+  '--version '*)
+    printf 'gh version 2.62.0 (2024-11-14)\n'
+    exit 0
+    ;;
+  'auth status')
+    if [ -n "$FAKE_GH_ACCOUNT" ]; then
+      printf 'github.com\n  ✓ Logged in to github.com account %s (keyring)\n  - Active account: true\n' "$FAKE_GH_ACCOUNT"
+      exit 0
+    fi
+    printf 'You are not logged into any GitHub hosts. To log in, run: gh auth login\n' >&2
+    exit 1
+    ;;
+  'auth login')
+    printf 'fake gh: auth login started\n'
+    exit 0
+    ;;
+esac
+printf 'gh stand-in: unsupported: %s\n' "$*" >&2
+exit 2

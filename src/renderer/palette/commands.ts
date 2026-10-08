@@ -24,6 +24,7 @@ import { kindLabel, nodeTitle, type Rankable } from '../find/search-index'
 import { invoke } from '../ipc'
 import { acceptProjectsState } from '../projects/useProjects'
 import { setView } from '../session/navigation'
+import { openFirstRun } from '../shell/first-run-store'
 import type { ShellView } from '../shell/Toolbar'
 
 export type CommandGroup = 'Action' | 'Go to' | 'View' | 'Project'
@@ -180,6 +181,18 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
       return undefined
     },
   }))
+  // The first-run screen (worfy-harness ticket 19): always here, with or without a Project.
+  commands.push({
+    id: 'first-run',
+    group: 'View',
+    title: 'First-run checks',
+    detail: 'Claude Code, tools, Harness, qmd',
+    keys: ['first run', 'setup', 'checks'],
+    run: () => {
+      openFirstRun()
+      return undefined
+    },
+  })
   if (project) {
     const projectId = project.id
     const tags = [...new Set(layoutNodes.flatMap((node) => node.tags))].sort((a, b) => a.localeCompare(b))

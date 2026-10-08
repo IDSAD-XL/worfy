@@ -1,0 +1,9 @@
+#!/bin/sh
+# A stand-in for jq (test/fixtures/first-run-tools/README.md): only `jq --version`.
+[ -n "$FIRST_RUN_TOOLS_LOG" ] && printf 'jq %s\n' "$*" >>"$FIRST_RUN_TOOLS_LOG"
+if [ "$1" = --version ]; then
+  printf 'jq-1.7.1\n'
+  exit 0
+fi
+printf 'jq stand-in: unsupported: %s\n' "$*" >&2
+exit 2

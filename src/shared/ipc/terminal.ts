@@ -8,6 +8,10 @@
 // it already has. A shell that exited on its own stays exited: open answers with its exit and
 // output, and starts a new shell only when asked to (`restart`). The shell runs until `terminal.close`, the removal of its Node from the
 // Layout, the window going away or the app quitting.
+//
+// `terminal.open` may name a command (worfy-harness ticket 19): main types it into the shell it
+// starts, once the shell has started. Only the commands of TERMINAL_COMMANDS are accepted, so the
+// renderer still never names a program of its own; opening a shell that already runs types nothing.
 import { z } from 'zod'
 import { eventChannel, invokeChannel } from './channels'
 
@@ -16,6 +20,14 @@ export const TERMINAL_NODE_KIND = 'terminal'
 
 /** The size the renderer asks for; main clamps it to 20–500 columns × 5–300 rows. */
 const cells = z.number().int().positive().max(10_000)
+
+/**
+ * The commands main types into a new shell when `terminal.open` asks: `gh auth login` — the
+ * first-run screen's sign-in to GitHub (worfy-harness ticket 19); the user answers gh there.
+ */
+export const TERMINAL_COMMANDS = ['gh auth login'] as const
+export const terminalCommandSchema = z.enum(TERMINAL_COMMANDS)
+export type TerminalCommand = z.infer<typeof terminalCommandSchema>
 
 const terminalRef = {
   projectId: z.string().min(1),
@@ -30,6 +42,8 @@ export const terminalOpen = invokeChannel(
     rows: cells,
     /** Start a new shell even when the last one exited on its own (the Restart button). */
     restart: z.boolean().optional(),
+    /** Typed into the shell with a newline once it has started; only when this call starts the shell. */
+    command: terminalCommandSchema.optional(),
   }),
   z.object({
     pid: z.number().int().positive(),

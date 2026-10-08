@@ -1,0 +1,18 @@
+#!/bin/sh
+# A stand-in for qmd 2.8.3 (test/fixtures/first-run-tools/README.md): `qmd --version` and `qmd pull`.
+[ -n "$FIRST_RUN_TOOLS_LOG" ] && printf 'qmd %s\n' "$*" >>"$FIRST_RUN_TOOLS_LOG"
+case "$1" in
+  --version)
+    printf 'qmd 2.8.3 (facd35e)\n'
+    exit 0
+    ;;
+  pull)
+    if [ -n "$FAKE_QMD_PULL_FAIL" ]; then
+      printf '%s\n' "$FAKE_QMD_PULL_FAIL" >&2
+      exit 1
+    fi
+    exit 0
+    ;;
+esac
+printf 'qmd stand-in: unsupported: %s\n' "$*" >&2
+exit 2
