@@ -1,5 +1,5 @@
 {
-  "description": "worfy Harness hooks: rules for sessions and subagents, the quality gate, worktree locks, session bookkeeping and the Bash guard",
+  "description": "worfy Harness hooks: rules for sessions and subagents, the quality gate, worktree locks, session bookkeeping, the Bash guard and the qmd index refresh",
   "hooks": {
     "SessionStart": [
       {
@@ -88,6 +88,15 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/worktree-lock\" beat",
             "timeout": 5
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/qmd-refresh\" --quiet",
+            "timeout": 15
           }
         ]
       }

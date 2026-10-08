@@ -1,7 +1,7 @@
 # 17 — qmd ставится вместе с Harness: npm, модели с согласия, коллекции по Profile
 
 Type: task
-Status: open
+Status: claimed — 2026-10-08
 Blocked by: 16
 Source: решения владельца 2026-10-07, вопросы Q5, Q15 и Q16 ([spec.md](../spec.md)); [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md) — qmd часть Harness; [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) — папка plugin и состояние машины в `~/.claude/worfy-harness/`; ADR-0048 (будет `docs/adr/0048-harness-plugin-spike-results.md`) — итог spike Ticket-а 01 (имя MCP-сервера plugin в `allowedMcpServers`; файл заводит Ticket 01)
 
@@ -210,7 +210,9 @@ test-ы `harness/bin/tests/` идут в CI worfy на Linux (Ticket 02). `qmd-m
 - `src/main/harness/qmd.ts` — новый. Если Ticket 13 завёл для кода установщика другую папку —
   файл ложится рядом с ним, путь — в «Итог».
 - `src/main/workflow/profile.ts`
+- `src/main/agent/options.ts` — добавлен по ходу работы с согласия оркестратора: схему ADR-0048, пункт 4 (сервер plugin-а регистрирует worfy) не делал ни один Ticket
 - `test/contract/harness-qmd.test.ts` — новый
+- `test/unit/agent-query-factory.test.ts`, `test/contract/harness-migrate.test.ts`, `harness/bin/tests/agents-text.test.sh`, `harness/hooks/tests/rules-hooks.test.sh` — добавлены по ходу работы: эти test-ы фиксировали прежнее поведение (plugin без `skipMcpDiscovery`, plugin без `.mcp.json`, старые имена инструментов qmd, Stop-hook без `qmd-refresh`)
 - `test/contract/workflow-profile.test.ts`
 - `test/unit/agent-options.test.ts`
 
@@ -225,4 +227,70 @@ test-ы `harness/bin/tests/` идут в CI worfy на Linux (Ticket 02). `qmd-m
 
 ## Итог
 
-Заполняется при закрытии.
+Сделано в ветке `worfy-harness/17`.
+
+- **Сервер qmd в plugin.** `harness/.mcp.json` объявляет сервер `qmd` с командой
+  `${CLAUDE_PLUGIN_ROOT}/bin/qmd-mcp`. У `scout` и `reviewer` в `tools` —
+  `mcp__plugin_worfy_qmd__query`, `__get`, `__multi_get`, `__status`; `grep -rn 'mcp__qmd__' harness/` — код
+  выхода 1. Stop-hook `qmd-refresh --quiet` Ticket 05 не перенёс — добавлен в `harness/hooks/hooks.json`
+  (timeout 15, как в старом `settings.json`).
+- **Session-ы worfy (ADR-0048, пункт 4) — схема сделана здесь**, потому что больше её никто не делал;
+  решено без владельца, подтвердить. Inline plugin идёт с `skipMcpDiscovery: true`, а серверы его
+  `.mcp.json` worfy регистрирует сам как `plugin_worfy_<сервер>` (`src/main/agent/options.ts`,
+  `pluginMcpServers`), с `${CLAUDE_PLUGIN_ROOT}`, заменённым на путь inline plugin-а, и только если имя
+  пропускает список MCP-серверов Profile. Нечитаемый или битый `.mcp.json` — Session стартует без этих
+  серверов, причина уходит в `console.warn`. `DEFAULT_MCP_SERVERS` — `['plugin_worfy_qmd', 'worfy-canvas']`.
+  При старом Harness (`legacy`, plugin не передаётся) сервера `plugin_worfy_qmd` нет, а `qmd`
+  пользователя список по умолчанию больше не пропускает.
+- **Падающий test первым:** `test/unit/agent-options.test.ts`, «with the default list, gets the plugin qmd
+  and worfy-canvas…» упал на main так: ожидалось `allowedMcpServers: [{serverName: 'plugin_worfy_qmd'},
+  {serverName: 'worfy-canvas'}]`, пришло `[{serverName: 'qmd'}, …]`.
+- **Модуль установки** — `src/main/harness/qmd.ts` (рядом с установщиком Ticket-а 13,
+  `src/main/harness/install.ts`). `qmdState`, `installQmd` (`npm install -g @tobilu/qmd@2.8.3`, только с
+  `consent: true`), `answerModels` (`qmd pull` с переменными `qmd-mcp` или «пропущено»),
+  `setupCollections` (зовёт `bin/qmd-collections`). `QMD_VERSION = '2.8.3'`.
+- **Файл ответа про модели** — `~/.claude/worfy-harness/qmd-models`: первая строка `downloaded` или
+  `skipped`, дальше URI моделей, которые сообщил `qmd pull`. Без `downloaded` `qmd-mcp` выходит с кодом
+  3 и одной строкой в stderr, `qmd-refresh` делает `qmd update`, но не `qmd embed`.
+- **Размеры моделей** (`ls -l ~/.cache/qmd/models` владельца, 2026-10-08):
+  - embed `Qwen3-Embedding-0.6B-Q8_0` — 639 150 592 байт;
+  - rerank `qwen3-reranker-0.6b-q8_0` — 639 153 184 байт;
+  - русская модель расширения `qmd-query-expansion-ru-q4_k_m` — 1 107 409 152 байт;
+  - модель расширения qmd по умолчанию `qmd-query-expansion-1.7B-q4_k_m` — 1 282 438 912 байт.
+
+  С русской моделью — 2 385 712 928 байт (2,2 ГиБ), без неё — 2 560 742 688 байт (2,4 ГиБ). У владельца
+  3,4 ГиБ, потому что лежат обе модели расширения. Upstream по умолчанию берёт embed
+  `embeddinggemma-300M` (меньше), Harness — Qwen3 0.6B, как `qmd-mcp` раньше.
+- **Найдено в песочнице:** первая команда qmd на машине записывает в `index.yml` раздел `models:` с теми
+  моделями, что получились из окружения или умолчаний, и дальше он сильнее переменных окружения. Поэтому
+  `qmd-collections` и `qmd-refresh` зовут qmd с моделью embed от `qmd-mcp`, а файл ответа хранит то, что
+  реально скачал `qmd pull`; `qmd-mcp` выбирает модель расширения только из скачанных.
+- **Коллекции:** `harness/bin/qmd-collections <project>` — `<project>-docs`, `<project>-tickets`,
+  `<project>-memory`; Full mode — копия main (клонирует, если её нет), Silent mode — Workflow folder
+  (`workflow.folder`, по умолчанию `~/.claude/worfy-harness/projects/<project>/workflow`). Папка памяти —
+  путь Project, где каждый символ кроме буквы и цифры заменён на `-` (так Claude Code называет и
+  `Application Support` → `Application-Support`).
+- **Песочница, локально** (`HOME`, `HARNESS_HOME`, `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`,
+  `XDG_CACHE_HOME`, `npm_config_prefix`, `npm_config_cache` — во временной папке), каждая команда — код 0:
+  - `npm install -g @tobilu/qmd@2.8.3` во временный `npm_config_prefix` — EXIT=0, `qmd 2.8.3 (facd35e)`;
+  - `qmd-collections worfy` на временном клоне worfy в Full mode — EXIT=0; копия склонирована, три
+    коллекции, имена в Profile песочницы; второй запуск — EXIT=0, `index.yml` и Profile побайтно те же;
+  - `qmd update` — EXIT=0;
+  - `qmd search "qmd часть Harness"` — EXIT=0, первым `qmd://worfy-docs/docs/adr/0043-qmd-is-part-of-harness.md`;
+  - моделей в песочнице не скачано (`qmd pull` не запускался).
+- **Linux CI:** test-ы `harness/bin/tests/qmd*.test.sh` идут под zsh; `stat -f` в `qmd-mcp` и `qmd-refresh`
+  они не задевают, пропуска по платформе нет.
+- **mtime** `~/.config/qmd/index.yml` до и после всех прогонов — 1791161777. `~/.claude.json` меняется
+  во время работы и без test-ов: 1791428067 в брифе, 1791428111 до первой команды этого Ticket-а.
+- **не проверено:** Session `claude` с plugin в песочнице после `/login` (ручной пункт): входа в
+  песочнице нет. Живую Session worfy с `plugin_worfy_qmd` тоже не запускали. Обе проверки — за владельцем.
+- **Ждёт владельца** (Profile и `index.yml` на машине этот Ticket не менял):
+  1. обновить plugin в `~/.claude/worfy-harness/plugin` сборкой с этим Ticket-ом;
+  2. записать согласие на модели. Модели у владельца уже скачаны, поэтому `qmd pull` только сверит их:
+     `QMD_EMBED_MODEL=hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf QMD_GENERATE_MODEL=hf:AGmind/qmd-query-expansion-ru/qmd-query-expansion-ru-q4_k_m.gguf qmd pull`,
+     затем файл `~/.claude/worfy-harness/qmd-models` с первой строкой `downloaded` и URI из вывода `qmd pull`
+     (позже это делает экран первого запуска, Ticket 19);
+  3. `~/.claude/worfy-harness/plugin/bin/qmd-collections worfy` — коллекции worfy;
+  4. `~/.claude/worfy-harness/plugin/bin/qmd-collections auction` — путь `update:` коллекций `auction` и
+     `tickets` с `/Users/alexey/.claude/bin/qmd-sync-main` (после Ticket-а 16 его нет) на plugin, копия
+     `index.yml` рядом.

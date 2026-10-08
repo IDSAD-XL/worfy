@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# Tests of harness/bin/qmd-sync-main and harness/bin/qmd-refresh on temporary directories (no network needed: origin is a local bare repository).
+# Tests of harness/bin/qmd-sync-main, qmd-refresh and qmd-mcp on temporary directories (no network needed: origin is a local bare repository).
 #   - qmd-sync-main: a copy that is not the root of its own repository — refusal without fetch/checkout;
 #   - qmd-refresh: one broken profile / one missing copy do not stop the run —
-#     qmd update is still called; with --quiet (Stop hook) exit 0, without --quiet — 1.
+#     qmd update is still called; with --quiet (Stop hook) exit 0, without --quiet — 1;
+#     qmd embed only after the consent to the models (worfy-harness ticket 17);
+#   - qmd-mcp (ticket 17): without the answer "downloaded" no server; the Russian query expansion
+#     model only for a project with language.docs ru; the plugin's .mcp.json, the agents' qmd tools
+#     and the Stop hook.
 # Run: bash harness/bin/tests/qmd.test.sh; exit code 0 — everything passed.
 # BIN_DIR — run the test against another copy of the scripts.
 set -u
@@ -84,6 +88,79 @@ out="$(run_refresh)"; rc=$?
 [ "$rc" -eq 1 ] && [[ "$out" == *"profile bad not resolved"* ]] && [[ "$out" == *"no-such-copy"* ]] \
     && ok "refresh (manual): warns about both, exit 1 (partial failure)" || bad "refresh manual: rc=$rc out=${out:0:300}"
 grep -qx update "$T/qmd.calls" 2>/dev/null && ok "refresh (manual): qmd update still ran" || bad "refresh manual: qmd update not called"
+
+# --- 6b. qmd-refresh: qmd embed only with the consent to the models -----------------------
+HH="$T/hh"; mkdir -p "$HH"
+rm -f "$T/qmd.calls" "$H/.cache/qmd/last-index"
+HARNESS_HOME="$HH" run_refresh --force --quiet >/dev/null; rc=$?
+grep -qx embed "$T/qmd.calls" 2>/dev/null && bad "refresh without consent: qmd embed ran" \
+    || { grep -qx update "$T/qmd.calls" 2>/dev/null && ok "refresh without consent: update ran, embed did not"; } \
+    || bad "refresh without consent: rc=$rc calls=[$(cat "$T/qmd.calls" 2>/dev/null)]"
+printf 'downloaded\n' >"$HH/qmd-models"
+rm -f "$T/qmd.calls"
+HARNESS_HOME="$HH" run_refresh --force --quiet >/dev/null
+grep -qx embed "$T/qmd.calls" 2>/dev/null && ok "refresh with consent: qmd embed ran" || bad "refresh with consent: no embed: [$(cat "$T/qmd.calls" 2>/dev/null)]"
+rm -f "$HH/qmd-models"
+
+# --- 7. qmd-mcp: consent and the model of the project's language ---------------------------
+RU='hf:AGmind/qmd-query-expansion-ru/qmd-query-expansion-ru-q4_k_m.gguf'
+DEF='hf:tobil/qmd-query-expansion-1.7B-gguf/qmd-query-expansion-1.7B-q4_k_m.gguf'
+EMB='hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf'
+mkdir -p "$T/mcpbin" "$T/session"
+cat >"$T/mcpbin/qmd" <<EOF
+#!/bin/sh
+echo "\$1 gen=\${QMD_GENERATE_MODEL:-unset} emb=\${QMD_EMBED_MODEL:-unset}" >>"$T/mcp.calls"
+EOF
+# The profile stub prints the language it is given in LANG_DOCS; "absent" — exit 4 like a missing field.
+cat >"$T/profile-lang" <<'EOF'
+#!/bin/sh
+[ "$1 $2" = "--field language.docs" ] || exit 2
+[ "$LANG_DOCS" = absent ] && exit 4
+echo "$LANG_DOCS"
+EOF
+chmod +x "$T/mcpbin/qmd" "$T/profile-lang"
+run_mcp() { # $1 = language of the stub; the rest — the answer file lines (none — no file)
+    local lang="$1"; shift
+    rm -f "$T/mcp.calls" "$HH/qmd-models"
+    [ $# -gt 0 ] && printf '%s\n' "$@" >"$HH/qmd-models"
+    (cd "$T/session" && HOME="$H" HARNESS_HOME="$HH" PATH="$T/mcpbin:$PATH" QMD_MCP_NO_REFRESH=1 \
+        QMD_MCP_PROFILE_BIN="$T/profile-lang" LANG_DOCS="$lang" zsh "$BIN/qmd-mcp" 2>"$T/mcp.err")
+}
+for answer in none skipped; do
+    if [ "$answer" = none ]; then run_mcp ru; else run_mcp ru skipped; fi; rc=$?
+    [ "$rc" -ne 0 ] && [ "$(wc -l <"$T/mcp.err" | tr -d ' ')" = 1 ] && grep -q "consent" "$T/mcp.err" && [ ! -e "$T/mcp.calls" ] \
+        && ok "qmd-mcp, answer $answer: exit $rc, one line in stderr, qmd mcp not started" \
+        || bad "qmd-mcp, answer $answer: rc=$rc err=[$(cat "$T/mcp.err")] calls=[$(cat "$T/mcp.calls" 2>/dev/null)]"
+done
+run_mcp ru downloaded; rc=$?
+[ "$rc" -eq 0 ] && [ "$(cat "$T/mcp.calls" 2>/dev/null)" = "mcp gen=$RU emb=$EMB" ] \
+    && ok "qmd-mcp, downloaded, language.docs ru: qmd mcp with the Russian model" || bad "qmd-mcp ru: rc=$rc calls=[$(cat "$T/mcp.calls" 2>/dev/null)] err=[$(cat "$T/mcp.err")]"
+for lang in en absent; do
+    run_mcp "$lang" downloaded; rc=$?
+    [ "$rc" -eq 0 ] && [ "$(cat "$T/mcp.calls" 2>/dev/null)" = "mcp gen=unset emb=$EMB" ] \
+        && ok "qmd-mcp, downloaded, language.docs $lang: qmd mcp with the default expansion model" || bad "qmd-mcp $lang: rc=$rc calls=[$(cat "$T/mcp.calls" 2>/dev/null)]"
+done
+run_mcp en downloaded "$EMB" "$RU"
+[ "$(cat "$T/mcp.calls" 2>/dev/null)" = "mcp gen=$RU emb=$EMB" ] \
+    && ok "qmd-mcp: only the Russian model was downloaded -> it, not a new download, for an en project" || bad "qmd-mcp consented list en: [$(cat "$T/mcp.calls" 2>/dev/null)]"
+run_mcp ru downloaded "$EMB" "$DEF"
+[ "$(cat "$T/mcp.calls" 2>/dev/null)" = "mcp gen=unset emb=$EMB" ] \
+    && ok "qmd-mcp: only the default model was downloaded -> it for a ru project" || bad "qmd-mcp consented list ru: [$(cat "$T/mcp.calls" 2>/dev/null)]"
+
+# --- 8. the plugin: .mcp.json, the agents' tools, the Stop hook ----------------------------
+PLUGIN="$(cd "$BIN/.." && pwd)"
+[ "$(jq -r '.mcpServers.qmd.command' "$PLUGIN/.mcp.json" 2>/dev/null)" = '${CLAUDE_PLUGIN_ROOT}/bin/qmd-mcp' ] && [ -x "$PLUGIN/bin/qmd-mcp" ] \
+    && ok ".mcp.json: server qmd runs \${CLAUDE_PLUGIN_ROOT}/bin/qmd-mcp" || bad ".mcp.json: $(cat "$PLUGIN/.mcp.json" 2>/dev/null)"
+for a in scout reviewer; do
+    line="$(grep -m1 '^tools:' "$PLUGIN/agents/$a.md")"
+    n=0; for t in query get multi_get status; do [[ "$line" == *"mcp__plugin_worfy_qmd__$t"* ]] && n=$((n + 1)); done
+    [ "$n" = 4 ] && ok "$a: tools name the four mcp__plugin_worfy_qmd__ tools" || bad "$a: tools: $line"
+done
+# The old tool prefix is spelled in two halves, so this file does not match itself.
+grep -rn 'mcp__''qmd__' "$PLUGIN" >/dev/null; rc=$?
+[ "$rc" -eq 1 ] && ok "no old qmd tool names (mcp__ + qmd__) left in the plugin (grep exit 1)" || bad "old qmd tool names in the plugin: grep exit $rc"
+jq -e '[.hooks.Stop[].hooks[].command] | index("\"${CLAUDE_PLUGIN_ROOT}/bin/qmd-refresh\" --quiet") != null' "$PLUGIN/hooks/hooks.json" >/dev/null \
+    && ok "hooks.json: Stop runs qmd-refresh --quiet" || bad "hooks.json: no Stop hook qmd-refresh --quiet"
 
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

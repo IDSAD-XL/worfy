@@ -39,6 +39,12 @@ LOCK="$CACHE/refresh.lock"
 STAMP="$CACHE/last-check"
 THROTTLE=300   # seconds between network checks
 INDEXED="$CACHE/last-index"   # start time of the last index update
+# `qmd embed` downloads its model when it is missing, so it runs only after the user agreed to the
+# models (the answer file of qmd-mcp, worfy-harness ticket 17) and with the embedding model qmd-mcp
+# sets: vectors of another model would not match the server's queries. `qmd update` needs no model.
+ANSWER_FILE="${HARNESS_HOME:-$HOME/.claude/worfy-harness}/qmd-models"
+export QMD_EMBED_MODEL="hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
+models_agreed() { [[ -r "$ANSWER_FILE" && "$(head -n 1 "$ANSWER_FILE" 2>/dev/null)" == downloaded ]] }
 
 FORCE=0; QUIET=0; WAIT=0
 for a in "$@"; do
@@ -177,7 +183,7 @@ run_update() {
   {
     echo "== $(date '+%F %T') refresh (qmd-refresh)"
     "$QMD_BIN" update; echo "update rc=$?"
-    nice -n 10 "$QMD_BIN" embed; echo "embed rc=$?"
+    if models_agreed; then nice -n 10 "$QMD_BIN" embed; echo "embed rc=$?"; else echo "embed skipped: no consent to the models in $ANSWER_FILE"; fi
   } >>"$LOG" 2>&1
 }
 
