@@ -495,7 +495,20 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
         await expect(chip).toBeVisible({ timeout: 20_000 })
         await expect(chip).toHaveText('Harness in main is newer than the Stable copy')
         await expect(chip).toHaveAttribute('title', `origin/main has 1 commit in harness/ that this build (${version}) has not. Rebuild the Stable copy with pnpm install:stable between runs`)
-        await frame.locator('header').screenshot({ path: test.info().outputPath('harness-behind-header.png') })
+        // Whole, inside the header, and over none of its buttons or the Epic's title.
+        const header = frame.locator('header')
+        const [box, room] = [(await chip.boundingBox())!, (await header.boundingBox())!]
+        expect(box.y).toBeGreaterThanOrEqual(room.y)
+        expect(box.y + box.height).toBeLessThanOrEqual(room.y + room.height + 0.5)
+        expect(box.x).toBeGreaterThanOrEqual(room.x)
+        expect(box.x + box.width).toBeLessThanOrEqual(room.x + room.width)
+        expect(await chip.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+        for (const other of [header.locator('h2'), ...(await header.locator('button').all())]) {
+          const at = await other.boundingBox()
+          if (at !== null) expect(box.x < at.x + at.width && at.x < box.x + box.width && box.y < at.y + at.height && at.y < box.y + box.height).toBe(false)
+        }
+        await expect(frame.getByTestId('action-autopilot')).toBeInViewport()
+        await header.screenshot({ path: test.info().outputPath('harness-behind-header.png') })
 
         // The clone whose origin/main is the build commit: no chip, and main says null.
         type Bridge = { invoke(channel: string, input?: unknown): Promise<{ ok: boolean; value?: unknown }> }

@@ -38,8 +38,9 @@ import { hasRunWave, useRunWaveState } from './gates'
 //
 // When the Harness in worfy's main is newer than the Harness of this build (worfy-harness ticket 21,
 // `harnessBehind` of the state; packaged builds over worfy's own repository only), the chip "Harness
-// in main is newer than the Stable copy" stands left of the button, under the status line, while a
-// run goes on and when none does. Its hint counts the commits and names the rebuild between runs.
+// in main is newer than the Stable copy" stands under the button, right-aligned to it (the status
+// line is above), while a run goes on and when none does. Its hint counts the commits and names the
+// rebuild between runs.
 
 export const order = 30
 
@@ -194,52 +195,54 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
         items={[{ label: 'Force stop', title: forceStopTitle(epic.epic), testId: 'action-force-stop-autopilot', disabled: pending === 'force', run: () => stop(projectId, 'force') }]}
       />
     ) : null
-  const behind = state?.harnessBehind ?? null
-  const chip =
-    behind === null ? null : (
-      <span className="w-chip w-chip--open" data-testid="autopilot-harness-behind" title={harnessBehindTitle(behind)}>
-        {HARNESS_BEHIND_LABEL}
-      </span>
-    )
   const controls =
-    more === null && chip === null ? (
+    more === null ? (
       button
     ) : (
       <div className="nodrag" style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
-        {chip}
         {button}
         {more}
       </div>
     )
-  if (line === null) return controls
+  const behind = state?.harnessBehind ?? null
+  if (line === null && behind === null) return controls
   // The status line goes above the button, out of the header's row: it takes no width from the
   // Epic's title, and runs left over the actions beside the button through the header's top margin
   // (56px header: the 20px button centred, 18px free above it). It stays inside the header: below
   // it, a Node placed over the Epic's frame (the Orchestrator lands at 40,40 of the Canvas) would
   // be under the line. 220px holds the longest lines whole, "waiting for limits · resumes 14:20"
   // and "Wave 1 · 2 background tasks" (test/e2e/autopilot.spec.ts checks both).
+  // The Harness chip (worfy-harness ticket 21) goes the same way under the button, in the 18px
+  // free below it, the chip's own height: out of the row, whole, under the actions beside the button.
   return (
     <div className="nodrag" style={{ flex: 'none', position: 'relative' }}>
       {controls}
-      <span
-        data-testid="autopilot-status"
-        data-status={state?.status}
-        title={state?.message ?? (running ? `${line}. ${DISPLAY_STAYS_ON}` : line)}
-        style={{
-          position: 'absolute',
-          right: 0,
-          bottom: 'calc(100% + 2px)',
-          maxWidth: 220,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          fontSize: 'var(--text-11)',
-          lineHeight: '14px',
-          color: 'var(--text-secondary)',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {line}
-      </span>
+      {line === null ? null : (
+        <span
+          data-testid="autopilot-status"
+          data-status={state?.status}
+          title={state?.message ?? (running ? `${line}. ${DISPLAY_STAYS_ON}` : line)}
+          style={{
+            position: 'absolute',
+            right: 0,
+            bottom: 'calc(100% + 2px)',
+            maxWidth: 220,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            fontSize: 'var(--text-11)',
+            lineHeight: '14px',
+            color: 'var(--text-secondary)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {line}
+        </span>
+      )}
+      {behind === null ? null : (
+        <span className="w-chip w-chip--open" data-testid="autopilot-harness-behind" title={harnessBehindTitle(behind)} style={{ position: 'absolute', right: 0, top: '100%' }}>
+          {HARNESS_BEHIND_LABEL}
+        </span>
+      )}
     </div>
   )
 }
