@@ -500,7 +500,7 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
         // The clone whose origin/main is the build commit: no chip, and main says null.
         type Bridge = { invoke(channel: string, input?: unknown): Promise<{ ok: boolean; value?: unknown }> }
         const call = (channel: string, input: unknown) => window.evaluate(([name, value]) => (globalThis as unknown as { worfy: Bridge }).worfy.invoke(name as string, value), [channel, input] as const)
-        expect(await call('projects.select', ids.current)).toMatchObject({ ok: true })
+        expect(await call('projects.select', { id: ids.current })).toMatchObject({ ok: true })
         await expect(frame.getByTestId('action-autopilot')).toBeVisible({ timeout: 20_000 })
         // The comparison answers through autopilot.changed once git has: give it the time the
         // chip above took, several times over, before saying it is not there.
