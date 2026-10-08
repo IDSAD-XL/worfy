@@ -89,17 +89,17 @@ Source: решения владельца 2026-10-07: Q2 (обе машины р
 
 ## Готово, когда
 
-- [ ] Contract `test/contract/terminal.test.ts`: два клиента открыли один Terminal — оба получают каждый чанк с одним `end`; второй `open` не отнимает вывод у первого. На нынешнем main test красный: первый клиент перестаёт получать вывод.
-- [ ] Contract: второй клиент подключается к работающему shell-у — `replay` и `end` как в `:194`; следующие чанки не повторяют replay.
-- [ ] Contract, размер (spy на `resize` поддельного `SpawnPty`): A печатает — pty размера A; `terminal.resize` от B pty не меняет; `terminal.input` от B — pty размера B до записи; `terminal.takeSize` от A — снова размер A; `open` третьего клиента размер не меняет; A уничтожен — pty размера B.
-- [ ] Contract: один из двух клиентов уничтожен — shell жив, второй получает вывод; уничтожен последний — shell закрыт и не помечен как exited (как `:209` сейчас).
-- [ ] Contract: Restart от A — B получает `terminal.started` с новым pid; `open` от B подключается к новому shell-у.
-- [ ] e2e `test/e2e/terminal.spec.ts`, два окна одного worfy разного размера (helper Ticket-а 03): маркер, напечатанный `echo` в окне 1, виден в окне 2; окно 2, открытое после вывода, показывает прежний вывод (replay).
-- [ ] Тот же e2e: после ввода в окне 2 `tput cols` (helper `printSize`, `:202`) печатает ширину окна 2; после клика и ввода в окне 1 — ширину окна 1.
-- [ ] Тот же e2e: закрытие окна 1 — shell жив в окне 2 (тот же `data-pid`); Restart в окне 1 — окно 2 показывает `running` с новым pid.
-- [ ] Замер напечатан в выводе test-ов (число событий, время, p99); цифры и решение о склейке — в «Итог». Если склейка сделана — contract: чанки за 16 ms уходят одним событием с `end` последнего, текст без потерь.
-- [ ] Одно окно — как раньше: `test/e2e/terminal.spec.ts`, `test/e2e/focus.spec.ts` (Terminal в режиме фокуса, `:315`) и `test/unit/terminal-views.test.tsx` зелёные без правки ожиданий. Исключение — `test/contract/terminal.test.ts:209`: теперь это «ушёл последний подписчик».
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально (команда — `rules.md` Profile-а worfy) — exit 0 (e2e идут в нём).
+- [x] Contract `test/contract/terminal.test.ts`: два клиента открыли один Terminal — оба получают каждый чанк с одним `end`; второй `open` не отнимает вывод у первого. На нынешнем main test красный: первый клиент перестаёт получать вывод.
+- [x] Contract: второй клиент подключается к работающему shell-у — `replay` и `end` как в `:194`; следующие чанки не повторяют replay.
+- [x] Contract, размер (spy на `resize` поддельного `SpawnPty`): A печатает — pty размера A; `terminal.resize` от B pty не меняет; `terminal.input` от B — pty размера B до записи; `terminal.takeSize` от A — снова размер A; `open` третьего клиента размер не меняет; A уничтожен — pty размера B.
+- [x] Contract: один из двух клиентов уничтожен — shell жив, второй получает вывод; уничтожен последний — shell закрыт и не помечен как exited (как `:209` сейчас).
+- [x] Contract: Restart от A — B получает `terminal.started` с новым pid; `open` от B подключается к новому shell-у.
+- [x] e2e `test/e2e/terminal.spec.ts`, два окна одного worfy разного размера (helper Ticket-а 03): маркер, напечатанный `echo` в окне 1, виден в окне 2; окно 2, открытое после вывода, показывает прежний вывод (replay).
+- [x] Тот же e2e: после ввода в окне 2 `tput cols` (helper `printSize`, `:202`) печатает ширину окна 2; после клика и ввода в окне 1 — ширину окна 1.
+- [x] Тот же e2e: закрытие окна 1 — shell жив в окне 2 (тот же `data-pid`); Restart в окне 1 — окно 2 показывает `running` с новым pid.
+- [x] Замер напечатан в выводе test-ов (число событий, время, p99); цифры и решение о склейке — в «Итог». Если склейка сделана — contract: чанки за 16 ms уходят одним событием с `end` последнего, текст без потерь.
+- [x] Одно окно — как раньше: `test/e2e/terminal.spec.ts`, `test/e2e/focus.spec.ts` (Terminal в режиме фокуса, `:315`) и `test/unit/terminal-views.test.tsx` зелёные без правки ожиданий. Исключение — `test/contract/terminal.test.ts:209`: теперь это «ушёл последний подписчик».
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально (команда — `rules.md` Profile-а worfy) — exit 0 (e2e идут в нём).
 
 ## Тесты
 
@@ -192,3 +192,8 @@ helper `printSize` (`terminal.spec.ts:202`). Второе окно — helper Ti
   нет `terminal.started`; уход последнего не закрывает shell; нет проверки уничтоженного клиента
   после `open` и до него — каждый краснит `test/contract/terminal.test.ts`. В renderer: нет
   переподключения по `terminal.started`, нет `takeSize` по клику — каждый краснит e2e.
+- **Проверки** (2026-10-08, ветка `worfy-link/05`): `pnpm lint && pnpm typecheck && pnpm test` — exit 0
+  (145 файлов, 2799 test-ов); gate fast — exit 0, «зелено»; `GATE_SCOPE=all` gate full: первый
+  прогон — exit 2, упал только известный нестабильный `test/e2e/epic-frame.spec.ts:721` (длинные
+  имена Ticket-ов, вне следа), повтор — exit 0, «[gate] зелено (full): lint typecheck test test:e2e
+  test:package». CI PR — `check` pass.
