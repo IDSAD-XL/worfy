@@ -1,0 +1,394 @@
+#!/usr/bin/env node
+// qmd-collections <project> — puts the project's documents into the global qmd index
+// (worfy-harness ticket 17, ADR-0043) and names the collections in its profile.
+//
+// Three collections, one name each on the whole machine:
+//   <project>-docs     ADRs, CONTEXT, HANDOFF and lessons — from the profile's docs.* and lessons;
+//   <project>-tickets  the tickets folder (tickets.root, `.scratch/` by default);
+//   <project>-memory   Claude's memory of the project: <CLAUDE_CONFIG_DIR or ~/.claude>/projects/
+//                      <the project path with every character other than a letter or a digit
+//                      replaced by "-">/memory, the folder Claude Code keeps it in.
+// Where docs and tickets are read from:
+//   Full mode    the git copy of the main branch, the one qmd-sync-main pulls
+//                (`qmd-sync-main --describe`: ~/.cache/qmd/<project>-<branch>, or qmd.mirror.path).
+//                No copy — it is cloned here from the project's origin, with the token of
+//                github.account when there is one, the global gh account untouched. The
+//                collections get `update: <plugin>/bin/qmd-sync-main <project>`.
+//   Silent mode  the Workflow folder (the profile's workflow.folder, by default
+//                $HARNESS_HOME/projects/<project>/workflow), without `update:`: qmd-refresh treats
+//                such collections as local.
+// Then: the names go to qmd.collections and a description to qmd.covers of the profile on the
+// machine (profile.json in the profile folder, no other field changes), `qmd update` runs, and —
+// only when the user agreed to the models ($HARNESS_HOME/qmd-models starts with `downloaded`) —
+// `qmd embed` goes to the background, as in qmd-refresh.
+//
+// A profile that already names collections, all of them in index.yml (Auction: auction, tickets,
+// memory), gets no new ones: only the `update:` of the collections that run a qmd-sync-main other
+// than the plugin's for this project is pointed at the plugin's. Names, paths and patterns stay.
+//
+// Every write of index.yml is preceded by a copy next to it, index.yml.<date>. A second run changes
+// nothing. A collection with one of the names and another path is someone else's: refusal, exit 1,
+// index.yml and the profile untouched. The project's repository is only read (its origin URL).
+//
+// Exit codes: 0 — done (or nothing to do); 1 — refusal or failure, the reason in stderr; 2 — usage.
+// Environment: HARNESS_HOME, CLAUDE_CONFIG_DIR, QMD_INDEX_YML (else QMD_CONFIG_DIR, XDG_CONFIG_HOME,
+// ~/.config/qmd), CLAUDE_GATE_CONFIG; for tests QMD_COLLECTIONS_PROFILE_BIN and QMD_COLLECTIONS_SYNC_BIN.
+"use strict"
+
+const fs = require("node:fs")
+const path = require("node:path")
+const { spawn, spawnSync } = require("node:child_process")
+
+const HOME = process.env.HOME || require("node:os").homedir()
+const CLAUDE = path.join(HOME, ".claude")
+const HARNESS_HOME = process.env.HARNESS_HOME || path.join(CLAUDE, "worfy-harness")
+const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || CLAUDE
+const BIN = path.dirname(fs.realpathSync(__filename))
+const PROFILE_BIN = process.env.QMD_COLLECTIONS_PROFILE_BIN || path.join(BIN, "profile")
+const SYNC_BIN = process.env.QMD_COLLECTIONS_SYNC_BIN || path.join(BIN, "qmd-sync-main")
+// What `update:` runs: the plugin in the Harness home when it is there (a stable path across plugin
+// versions), otherwise the qmd-sync-main next to this script.
+const SYNC_FOR_UPDATE = (() => {
+    const installed = path.join(HARNESS_HOME, "plugin", "bin", "qmd-sync-main")
+    return fs.existsSync(installed) ? installed : path.join(BIN, "qmd-sync-main")
+})()
+const INDEX_YML =
+    process.env.QMD_INDEX_YML ||
+    (process.env.QMD_CONFIG_DIR
+        ? path.join(process.env.QMD_CONFIG_DIR, "index.yml")
+        : path.join(process.env.XDG_CONFIG_HOME || path.join(HOME, ".config"), "qmd", "index.yml"))
+const CACHE = path.join(HOME, ".cache", "qmd")
+const ANSWER_FILE = path.join(HARNESS_HOME, "qmd-models")
+// The embedding model of qmd-mcp: vectors of another model would not match the server's queries.
+const EMBED_MODEL = "hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
+const RU_GENERATE_MODEL = "hf:AGmind/qmd-query-expansion-ru/qmd-query-expansion-ru-q4_k_m.gguf"
+const LOCK_WAIT_MS = 120_000
+
+const say = (s) => process.stdout.write(`qmd-collections: ${s}\n`)
+const die = (code, s) => {
+    process.stderr.write(`qmd-collections: ${s}\n`)
+    process.exit(code)
+}
+const expandHome = (p) => p.replace(/^~(?=\/|$)/, HOME)
+
+// --- arguments ---------------------------------------------------------------------------
+const args = process.argv.slice(2)
+if (args.length !== 1 || !args[0] || args[0].startsWith("-")) die(2, "usage: qmd-collections <project>")
+const NAME = args[0]
+if (!/^[A-Za-z0-9._-]+$/.test(NAME)) die(2, `"${NAME}" is not a profile name`)
+
+// --- the project: its entry in the gate registry and its profile -------------------------
+function registryMatch() {
+    const current = path.join(HARNESS_HOME, "gate", "config.json")
+    const legacy = path.join(CLAUDE, "gate", "config.json")
+    const cfg = process.env.CLAUDE_GATE_CONFIG || (!fs.existsSync(current) && fs.existsSync(legacy) ? legacy : current)
+    let repos
+    try {
+        repos = JSON.parse(fs.readFileSync(cfg, "utf8")).repos || []
+    } catch (e) {
+        die(1, `registry ${cfg} unreadable: ${e.message}`)
+    }
+    const hit = repos.find((r) => r && r.profile === NAME && r.match)
+    if (!hit) die(1, `profile ${NAME} is not in the registry ${cfg}`)
+    return hit.match
+}
+const MATCH = registryMatch()
+
+const run = (cmd, argv, opts = {}) => spawnSync(cmd, argv, { encoding: "utf8", ...opts })
+const resolved = run(PROFILE_BIN, ["-C", MATCH, "--json"])
+if (resolved.status !== 0) die(1, `profile -C ${MATCH} --json: exit ${resolved.status}: ${(resolved.stderr || "").trim()}`)
+let P
+try {
+    P = JSON.parse(resolved.stdout)
+} catch (e) {
+    die(1, `profile -C ${MATCH} --json is not JSON: ${e.message}`)
+}
+const PROFILE_FILE = path.join(P._resolved.dir, "profile.json")
+const MODE = P.mode
+
+// --- index.yml: collections are keys indented by 2 under `collections:`, fields by 4 ---------
+// (the same reading as in qmd-refresh). Values in quotes are read as JSON or as a YAML single-quoted string.
+function unquote(v) {
+    v = v.trim()
+    if (v.startsWith('"')) {
+        try {
+            return JSON.parse(v)
+        } catch {
+            return v.slice(1, -1)
+        }
+    }
+    if (v.startsWith("'")) return v.slice(1, -1).replace(/''/g, "'")
+    return v
+}
+function readIndex() {
+    const text = fs.existsSync(INDEX_YML) ? fs.readFileSync(INDEX_YML, "utf8") : null
+    const lines = text === null ? [] : text.split("\n")
+    const collections = new Map()
+    let start = -1 // the `collections:` line
+    let end = -1 // the first line after the block
+    let current = null
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        if (/^[^ #\s]/.test(line)) {
+            if (start >= 0 && end < 0) end = i
+            if (/^collections:/.test(line)) {
+                if (!/^collections:\s*$/.test(line)) die(1, `${INDEX_YML}: "collections:" holds an inline value, not editing it`)
+                start = i
+            }
+            current = null
+            continue
+        }
+        if (start < 0 || end >= 0) continue
+        const key = /^ {2}([^ #][^:]*):\s*$/.exec(line)
+        if (key) {
+            current = { name: key[1], path: null, update: null, updateLine: -1, last: i }
+            collections.set(current.name, current)
+            continue
+        }
+        const field = /^ {4}(path|update):(.*)$/.exec(line)
+        if (current && field) {
+            if (field[1] === "path") current.path = unquote(field[2])
+            else {
+                current.update = unquote(field[2])
+                current.updateLine = i
+            }
+        }
+        if (current && /^ {4}\S/.test(line)) current.last = i
+    }
+    if (start >= 0 && end < 0) end = lines.length
+    return { text, lines, collections, start, end }
+}
+const yamlScalar = (v) => (/^[A-Za-z0-9_/.~][A-Za-z0-9_/.,~@+=-]*( [A-Za-z0-9_/.,~@+=-]+)*$/.test(v) ? v : JSON.stringify(v))
+// The qmd-sync-main a collection's `update:` runs and for which profile: [script, profile] or null.
+function syncOf(update) {
+    const m = /^(\S*qmd-sync-main)\s+(\S+)/.exec(update || "")
+    return m ? [m[1], m[2]] : null
+}
+
+// --- writes ------------------------------------------------------------------------------
+const stamp = () => new Date().toISOString().replace(/[:.]/g, "-")
+function writeIndex(index, newText) {
+    if (newText === index.text) return false
+    fs.mkdirSync(path.dirname(INDEX_YML), { recursive: true })
+    if (index.text !== null) {
+        let backup = `${INDEX_YML}.${stamp()}`
+        while (fs.existsSync(backup)) backup += "-1"
+        fs.copyFileSync(INDEX_YML, backup)
+        say(`copy of the previous index.yml: ${backup}`)
+    }
+    const tmp = `${INDEX_YML}.tmp-${process.pid}`
+    fs.writeFileSync(tmp, newText)
+    fs.renameSync(tmp, INDEX_YML)
+    return true
+}
+// The `update:` lines of this project's collections that run another qmd-sync-main, pointed at SYNC_FOR_UPDATE.
+function retargetUpdates(index, lines) {
+    const fixed = []
+    for (const c of index.collections.values()) {
+        const sync = syncOf(c.update)
+        if (!sync || sync[1] !== NAME || sync[0] === SYNC_FOR_UPDATE) continue
+        lines[c.updateLine] = `    update: ${yamlScalar(c.update.replace(sync[0], SYNC_FOR_UPDATE))}`
+        fixed.push(c.name)
+    }
+    return fixed
+}
+
+// --- the profile already names its collections: only the update: paths ------------------
+const index = readIndex()
+const named = (P.qmd && Array.isArray(P.qmd.collections) && P.qmd.collections) || []
+if (named.length > 0) {
+    const missing = named.filter((n) => !index.collections.has(n))
+    if (missing.length > 0)
+        die(1, `the profile names collections that ${INDEX_YML} does not have: ${missing.join(", ")} — nothing changed`)
+    const lines = index.lines.slice()
+    const fixed = retargetUpdates(index, lines)
+    if (fixed.length > 0 && writeIndex(index, lines.join("\n")))
+        say(`update: of ${fixed.join(", ")} now runs ${SYNC_FOR_UPDATE}`)
+    else say(`the profile already names ${named.join(", ")}, all in ${INDEX_YML} — nothing to change`)
+    process.exit(0)
+}
+
+// --- where the documents are read from ---------------------------------------------------
+let source // the folder the docs and tickets collections are read from
+let update = null // the update: of those collections
+if (MODE === "full") {
+    const d = run(SYNC_BIN, ["--describe", NAME])
+    if (d.status !== 0) die(1, `qmd-sync-main --describe ${NAME}: ${(d.stderr || d.stdout || "").trim()}`)
+    const [copy, branch, account] = d.stdout.replace(/\n$/, "").split("\t")
+    if (!copy || !branch) die(1, `qmd-sync-main --describe ${NAME} printed no copy and branch: ${d.stdout.trim()}`)
+    source = copy
+    update = `${SYNC_FOR_UPDATE} ${NAME}`
+    if (!fs.existsSync(path.join(copy, ".git"))) {
+        if (fs.existsSync(copy) && fs.readdirSync(copy).length > 0)
+            die(1, `${copy} exists and is not a git copy — not cloning into it`)
+        const origin = run("git", ["-C", MATCH, "remote", "get-url", "origin"])
+        if (origin.status !== 0 || !origin.stdout.trim()) die(1, `${MATCH} has no origin to clone the copy from`)
+        // The token of the profile's account, as qmd-sync-main takes it; the active gh account stays as it is.
+        const auth = account
+            ? ["-c", "credential.helper=", "-c", `credential.helper=!f() { echo username=x-access-token; echo password=$(gh auth token --user ${account}); }; f`]
+            : []
+        fs.mkdirSync(path.dirname(copy), { recursive: true })
+        const clone = run("git", [...auth, "clone", "-q", "--depth", "1", "--branch", branch, origin.stdout.trim(), copy])
+        if (clone.status !== 0) die(1, `cloning ${origin.stdout.trim()} (${branch}) into ${copy} failed: ${(clone.stderr || "").trim()}`)
+        say(`cloned the copy of ${branch}: ${copy}`)
+    }
+} else if (MODE === "silent") {
+    const folder = P.workflow && typeof P.workflow.folder === "string" ? expandHome(P.workflow.folder) : path.join(HARNESS_HOME, "projects", NAME, "workflow")
+    if (!fs.existsSync(folder)) die(1, `the Workflow folder ${folder} does not exist`)
+    source = folder
+} else die(1, `the profile's mode is ${JSON.stringify(MODE)}, not "full" or "silent"`)
+
+// A path from the profile relative to the source: absolute and ~ paths only when they are inside it.
+function relative(p) {
+    if (typeof p !== "string" || p.trim() === "") return null
+    p = expandHome(p.trim())
+    if (path.isAbsolute(p)) {
+        const rel = path.relative(source, p)
+        if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) return null
+        p = rel
+    }
+    return p.replace(/^\.\//, "").replace(/\/+$/, "")
+}
+const fieldPath = (v) => (typeof v === "string" ? v : v && typeof v === "object" ? v.path : null)
+
+// --- the three collections ---------------------------------------------------------------
+const docs = P.docs || {}
+const patterns = []
+const adr = relative(docs.adr_dir)
+if (adr) patterns.push(`${adr}/**/*.md`)
+for (const f of [fieldPath(docs.context), fieldPath(docs.handoff)]) {
+    const rel = relative(f)
+    if (rel) patterns.push(rel)
+}
+const lessonsRepo = typeof P.lessons === "string" && /^repo:(.+)$/.exec(P.lessons)
+const lessons = lessonsRepo ? relative(lessonsRepo[1]) : null
+if (lessons) patterns.push(`${lessons}/**/*.md`)
+
+const ticketsRoot = expandHome((P.tickets && typeof P.tickets.root === "string" && P.tickets.root) || ".scratch/")
+const ticketsPath = path.isAbsolute(ticketsRoot) ? ticketsRoot.replace(/\/+$/, "") : path.join(source, ticketsRoot.replace(/\/+$/, ""))
+const ticketsInSource = !path.relative(source, ticketsPath).startsWith("..")
+const memoryPath = path.join(CLAUDE_DIR, "projects", MATCH.replace(/[^A-Za-z0-9]/g, "-"), "memory")
+
+const wanted = []
+if (patterns.length > 0) wanted.push({ name: `${NAME}-docs`, path: source, pattern: patterns.join(","), update })
+else say(`the profile names no ADR directory, CONTEXT, HANDOFF or lessons inside ${source}: no ${NAME}-docs collection`)
+wanted.push({ name: `${NAME}-tickets`, path: ticketsPath, pattern: "**/*.md", update: ticketsInSource ? update : null })
+wanted.push({ name: `${NAME}-memory`, path: memoryPath, pattern: "**/*.md", update: null })
+
+// Someone else's collection under one of the names: refuse before writing anything.
+const foreign = wanted.filter((w) => {
+    const c = index.collections.get(w.name)
+    return c && path.resolve(expandHome(c.path || "")) !== path.resolve(w.path)
+})
+if (foreign.length > 0)
+    die(1, foreign.map((w) => `collection ${w.name} in ${INDEX_YML} reads ${index.collections.get(w.name).path}, not ${w.path}`).join("; ") + " — someone else's, nothing changed")
+
+// --- index.yml ---------------------------------------------------------------------------
+const lines = index.lines.slice()
+const block = (w) => [
+    `  ${w.name}:`,
+    `    path: ${yamlScalar(w.path)}`,
+    `    pattern: ${yamlScalar(w.pattern)}`,
+    ...(w.update ? [`    update: ${yamlScalar(w.update)}`] : []),
+]
+const fresh = wanted.filter((w) => !index.collections.has(w.name))
+const fixed = retargetUpdates(index, lines)
+if (fresh.length > 0) {
+    const added = fresh.flatMap(block)
+    if (index.start < 0) {
+        const rest = index.text === null || index.text === "" ? [] : lines
+        lines.splice(0, lines.length, "collections:", ...added, ...rest)
+        if (rest.length === 0) lines.push("")
+    } else {
+        let at = index.end
+        while (at > index.start + 1 && lines[at - 1].trim() === "") at--
+        lines.splice(at, 0, ...added)
+    }
+}
+const indexChanged = writeIndex(index, lines.join("\n"))
+if (fresh.length > 0) say(`added to ${INDEX_YML}: ${fresh.map((w) => w.name).join(", ")}`)
+if (fixed.length > 0) say(`update: of ${fixed.join(", ")} now runs ${SYNC_FOR_UPDATE}`)
+
+// --- the profile: only the qmd field -----------------------------------------------------
+const raw = JSON.parse(fs.readFileSync(PROFILE_FILE, "utf8"))
+const names = wanted.map((w) => w.name)
+const where = MODE === "full" ? `the copy of the main branch ${source}` : `the Workflow folder ${source}`
+const covers = [
+    ...(patterns.length > 0 ? [`${NAME}-docs: ADRs, CONTEXT, HANDOFF and lessons (${patterns.join(", ")}) from ${where}`] : []),
+    `${NAME}-tickets: tickets (${ticketsPath})`,
+    `${NAME}-memory: Claude's memory of the project (${memoryPath})`,
+].join("; ")
+const before = JSON.stringify(raw, null, 2) + "\n"
+raw.qmd = raw.qmd && typeof raw.qmd === "object" ? raw.qmd : {}
+raw.qmd.collections = names
+raw.qmd.covers = covers
+const after = JSON.stringify(raw, null, 2) + "\n"
+if (after !== before) {
+    const tmp = `${PROFILE_FILE}.tmp-${process.pid}`
+    fs.writeFileSync(tmp, after)
+    fs.renameSync(tmp, PROFILE_FILE)
+    say(`qmd.collections of ${PROFILE_FILE}: ${names.join(", ")}`)
+}
+if (!indexChanged) {
+    say("index.yml already had these collections — nothing else to do")
+    process.exit(0)
+}
+
+// --- qmd update, then embed in the background with consent -------------------------------
+function findQmd() {
+    for (const dir of (process.env.PATH || "").split(path.delimiter)) {
+        if (dir && fs.existsSync(path.join(dir, "qmd"))) return path.join(dir, "qmd")
+    }
+    const nvm = path.join(HOME, ".nvm", "versions", "node")
+    const versions = fs.existsSync(nvm) ? fs.readdirSync(nvm).sort((a, b) => b.localeCompare(a, "en", { numeric: true })) : []
+    for (const v of versions) if (fs.existsSync(path.join(nvm, v, "bin", "qmd"))) return path.join(nvm, v, "bin", "qmd")
+    return null
+}
+const qmd = findQmd()
+if (!qmd) {
+    say("qmd not found: the collections are recorded, qmd indexes them on its next update")
+    process.exit(0)
+}
+// The lock shared with qmd-mcp and qmd-refresh: `qmd update` checks out the shared copies.
+const LOCK = path.join(CACHE, "refresh.lock")
+fs.mkdirSync(CACHE, { recursive: true })
+const deadline = Date.now() + LOCK_WAIT_MS
+let locked = false
+while (!locked) {
+    try {
+        fs.mkdirSync(LOCK)
+        locked = true
+    } catch {
+        if (Date.now() > deadline) die(1, `${LOCK} is held for over ${LOCK_WAIT_MS / 1000} s — the collections are recorded, run \`qmd update\` later`)
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)
+    }
+}
+// The first qmd command on a machine writes the models it resolves into index.yml (`models:`), and
+// from then on they win over the environment: so every qmd command of the Harness runs with the
+// models of qmd-mcp, never with qmd's defaults.
+const qmdEnv = { ...process.env, QMD_EMBED_MODEL: EMBED_MODEL }
+if (P.language && P.language.docs === "ru") qmdEnv.QMD_GENERATE_MODEL = RU_GENERATE_MODEL
+let updated
+try {
+    fs.writeFileSync(path.join(LOCK, "pid"), String(process.pid))
+    updated = run(qmd, ["update"], { cwd: HOME, stdio: "inherit", env: qmdEnv })
+} finally {
+    fs.rmSync(LOCK, { recursive: true, force: true })
+}
+if (updated.status !== 0) die(1, `qmd update exited ${updated.status}`)
+
+let agreed = false
+try {
+    agreed = fs.readFileSync(ANSWER_FILE, "utf8").split("\n")[0] === "downloaded"
+} catch {}
+if (agreed) {
+    const log = fs.openSync(path.join(CACHE, "refresh.log"), "a")
+    const child = spawn("nice", ["-n", "10", qmd, "embed"], {
+        cwd: HOME,
+        detached: true,
+        stdio: ["ignore", log, log],
+        env: qmdEnv,
+    })
+    child.unref()
+    say(`qmd embed started in the background, log ${path.join(CACHE, "refresh.log")}`)
+} else say(`no consent to the models in ${ANSWER_FILE}: qmd embed not started, search works by words (BM25)`)

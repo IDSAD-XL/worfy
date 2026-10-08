@@ -244,10 +244,12 @@ fi
 HJ="$HOOKS/hooks.json"
 if jq -e .hooks "$HJ" >/dev/null 2>&1; then ok "hooks.json is valid JSON with .hooks"; else bad "hooks.json missing or invalid"; fi
 
-# The hooks of ~/.claude/settings.json:5-109 without qmd-refresh, plus the three inject-rules
-# entries. One line per hook: event|matcher|command|timeout.
+# The hooks of ~/.claude/settings.json:5-109, plus the three inject-rules entries; qmd-refresh came
+# with the qmd server of the plugin (worfy-harness ticket 17). One line per hook: event|matcher|command|timeout.
 R='"${CLAUDE_PLUGIN_ROOT}'
-expected="$(sort <<EOF
+# Read outside $(…): macOS bash 3.2 cannot parse a here-document with an odd number of quotes
+# inside a command substitution.
+IFS= read -r -d '' hooks_expected <<EOF
 SessionStart||$R/hooks/session-start.sh"|15
 SessionStart||$R/bin/worktree-lock" claim|10
 SessionStart||$R/hooks/inject-rules.sh" orchestrator|10
@@ -257,11 +259,12 @@ TaskCompleted||$R/hooks/gate.sh" fast|900
 TeammateIdle||$R/hooks/gate.sh" fast|900
 Stop||$R/hooks/stop.sh"|10
 Stop||$R/bin/worktree-lock" beat|5
+Stop||$R/bin/qmd-refresh" --quiet|15
 SessionEnd||$R/hooks/session-end.sh"|10
 SessionEnd||$R/bin/worktree-lock" release|5
 PreToolUse|Bash|$R/hooks/guard.mjs"|10
 EOF
-)"
+expected="$(printf '%s' "$hooks_expected" | sort)"
 actual="$(jq -r '.hooks | to_entries[] | .key as $e | .value[] | (.matcher // "") as $m
     | .hooks[] | "\($e)|\($m)|\(.command)|\(.timeout)"' "$HJ" 2>/dev/null | sort)"
 if [ "$actual" = "$expected" ]; then
@@ -271,7 +274,7 @@ else
 fi
 types="$(jq -r '[.hooks[][] | .hooks[] | .type] | unique | join(",")' "$HJ" 2>/dev/null)"
 [ "$types" = command ] && ok "hooks.json: every hook is a command" || bad "hooks.json: hook types '$types'"
-if grep -q 'qmd-refresh' "$HJ" 2>/dev/null; then bad "hooks.json runs qmd-refresh"; else ok "hooks.json: no qmd-refresh"; fi
+if grep -q 'bin/qmd-refresh.* --quiet' "$HJ" 2>/dev/null; then ok "hooks.json: Stop runs qmd-refresh --quiet"; else bad "hooks.json: no qmd-refresh"; fi
 
 # Every command path, with ${CLAUDE_PLUGIN_ROOT} = harness, exists and is executable.
 while IFS= read -r cmd; do

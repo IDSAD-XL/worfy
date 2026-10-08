@@ -199,7 +199,8 @@ describe('the Harness a Session of sdkQueryFactory carries', () => {
   }
 
   it('is the copy in Contents/Resources/harness with the plugin and with none; nothing with the old Harness; looked for again at each start', async () => {
-    const own = [{ type: 'local', path: join(RESOURCES, 'harness') }]
+    // Without its own MCP discovery: worfy registers the plugin's servers itself (worfy-harness ticket 17).
+    const own = [{ type: 'local', path: join(RESOURCES, 'harness'), skipMcpDiscovery: true }]
     expect(await plugins()).toEqual(own)
 
     const plugin = join(home, 'worfy-harness', 'plugin')

@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Reviews a diff of any registered project through one assigned lens. The project's lenses come from its profile; the orchestrator gets them with `${CLAUDE_PLUGIN_ROOT}/bin/profile --field review.lenses` and gives each reviewer one. Runs the checks itself and attaches the exit code; fixes nothing. Launch several in parallel, one lens each.
-tools: Read, Grep, Glob, Bash, mcp__qmd__query, mcp__qmd__get, mcp__qmd__multi_get, mcp__qmd__status
+tools: Read, Grep, Glob, Bash, mcp__plugin_worfy_qmd__query, mcp__plugin_worfy_qmd__get, mcp__plugin_worfy_qmd__multi_get, mcp__plugin_worfy_qmd__status
 model: inherit
 effort: high
 ---

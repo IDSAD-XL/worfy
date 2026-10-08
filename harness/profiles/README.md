@@ -160,9 +160,11 @@ the way the project really runs them.
 | `tasks.tool` | path | what scans tickets and keeps the ticket → task link (`scan`, `link`, `map`) | tickets-to-tasks |
 | `tasks.list_id` | template | the epic's `CLAUDE_CODE_TASK_LIST_ID`, `<slug>` — the epic name | tickets-to-tasks |
 | `tasks.scan_root` | path | where to look for `.scratch/<epic>/issues/` without an explicit directory | tickets-to-tasks (through `tasks.tool`) |
-| `mcp.allowed` | strings \| absent | names of the MCP servers allowed to the agents of the project in the sessions worfy starts (orchestrator, new sessions, Autopilot; their subagents inherit the set). Absent — exit 4, and worfy takes `qmd` and `worfy-canvas`, the servers the workflow needs | worfy |
-| `qmd.collections` | strings | `qmd` collections where an answer about the project is expected. A hint, not a filter: agents search the whole index and do not pass this list into the `collections` parameter | all agents |
-| `qmd.covers` | string | what lies in them | all agents |
+| `mcp.allowed` | strings \| absent | names of the MCP servers allowed to the agents of the project in the sessions worfy starts (orchestrator, new sessions, Autopilot; their subagents inherit the set). Absent — exit 4, and worfy takes `plugin_worfy_qmd` and `worfy-canvas`, the servers the workflow needs. `plugin_worfy_qmd` is the qmd server of the Harness plugin, which worfy registers under that name (ADR-0048); `qmd` means the user's own server from `~/.claude.json` | worfy |
+| `qmd.collections` | strings | `qmd` collections where an answer about the project is expected. A hint, not a filter: agents search the whole index and do not pass this list into the `collections` parameter. Filled by the Harness, not by hand: `bin/qmd-collections <name>` adds `<name>-docs`, `<name>-tickets` and `<name>-memory` to the qmd index and writes their names here; a profile that already names collections present in the index (Auction) keeps them, and only their `update:` is pointed at the plugin's `qmd-sync-main` | all agents; written by qmd-collections |
+| `qmd.covers` | string | what lies in them; written by `bin/qmd-collections` together with `qmd.collections` | all agents |
+| `qmd.mirror.path` | path \| absent | the git copy of the main branch that the qmd collections of a Full mode project are read from; absent — `~/.cache/qmd/<name>-<branch>`. `~/` is expanded | qmd-sync-main, qmd-collections, qmd-refresh |
+| `qmd.mirror.branch` | string \| absent | the branch of that copy; absent — `worktree.base` without `origin/`, and without it `main` | qmd-sync-main, qmd-collections, qmd-refresh |
 | `qmd.fallback_grep` | strings | where to search with `grep` if `qmd` is silent | scout |
 | `review.lenses` | strings | the project's review lenses; the orchestrator gives each reviewer one | orchestrator |
 | `review.ticket_lenses` | strings | two or three of `review.lenses` that ship-ticket runs on every ticket by default | ship-ticket |
@@ -225,6 +227,16 @@ they are not profile fields. They live in `${CLAUDE_PLUGIN_ROOT}/bin/`:
   main branch. Exit 2 (not a git repository — for example the common directory above the
   repositories of such a project, — or a project that is not registered) — the skill runs a minimal
   preflight itself (`git fetch`, the state of the tree, open PRs).
+
+The qmd scripts are Harness constants too (worfy ADR-0043; skill `qmd`): `qmd-mcp` starts the MCP
+server of `.mcp.json` (only after the user agreed to the models: `$HARNESS_HOME/qmd-models` starts
+with `downloaded`), `qmd-refresh` is the Stop hook that updates the index when a main branch moved,
+`qmd-sync-main <name>` pulls the copy of `qmd.mirror`, and `qmd-collections <name>` adds a project's
+collections. `qmd-collections` reads the documents from that copy in Full mode (it clones the copy
+when there is none, with the token of `github.account`) and from the Workflow folder in Silent mode
+(`workflow.folder`, by default `$HARNESS_HOME/projects/<name>/workflow`); it writes `index.yml` (a
+dated copy of the old one next to it), the `qmd` field of `profile.json` and nothing in the project's
+repository.
 
 ## Schema 1 (transition)
 

@@ -101,10 +101,11 @@ for a in implementer reviewer; do
         || bad "$a: no general rule '$WRITE_RULE' at the start of a list item"
     has "$a" '`GitHub:`' && ok "$a: brief label 'GitHub:'" || bad "$a: no brief label 'GitHub:'"
 done
-TOOLS='tools: Read, Grep, Glob, Bash, mcp__qmd__query, mcp__qmd__get, mcp__qmd__multi_get, mcp__qmd__status'
+# The qmd server of the plugin (harness/.mcp.json, worfy-harness ticket 17): its tools are mcp__plugin_worfy_qmd__*.
+TOOLS='tools: Read, Grep, Glob, Bash, mcp__plugin_worfy_qmd__query, mcp__plugin_worfy_qmd__get, mcp__plugin_worfy_qmd__multi_get, mcp__plugin_worfy_qmd__status'
 for a in reviewer scout; do
     [ "$(sed -n '1,/^---$/{1d;/^---$/d;p;}' "$AGENTS/$a.md" | grep '^tools:')" = "$TOOLS" ] \
-        && ok "$a: tools: is the old mcp__qmd__ list" || bad "$a: tools: changed"
+        && ok "$a: tools: is the plugin qmd list" || bad "$a: tools: changed"
 done
 sed -n '1,/^---$/{1d;/^---$/d;p;}' "$AGENTS/implementer.md" | grep -q '^tools:' && bad "implementer: got a tools: line" \
     || ok "implementer: no tools: line (all tools, as before)"

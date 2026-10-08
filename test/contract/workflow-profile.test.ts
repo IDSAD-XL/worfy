@@ -1,5 +1,5 @@
 // The Profile reader (src/main/workflow/profile.ts, worfy-daily ticket 06, ADR-0021): the list of
-// MCP servers from `bin/profile --field mcp.allowed`, and the default list `qmd`, `worfy-canvas`
+// MCP servers from `bin/profile --field mcp.allowed`, and the default list `plugin_worfy_qmd` (the qmd of the Harness plugin, worfy-harness ticket 17), `worfy-canvas`
 // for every way of not getting one. With a stand-in runner for each exit code, then with a stub
 // `bin/profile` in a temporary Claude home, which must stay as it was, like the Project's folder.
 // Last, how the Session factory (src/main/agent/app-registry.ts) hands the list to Claude Code.
@@ -77,18 +77,18 @@ describe('readMcpAllowlist with a stand-in runner', () => {
     ['another exit code', { code: 1, stdout: '', stderr: 'registry is broken\n' }, /failed with exit code 1: registry is broken/],
     ['a timeout', { code: null, stdout: '', stderr: '' }, /timed out/],
     ['a script that cannot be started', Object.assign(new Error('spawn EACCES'), { code: 'EACCES' }), /could not be run: spawn EACCES/],
-  ])('%s: the default list qmd and worfy-canvas, the reason in the log', async (_case, answer, reason) => {
+  ])('%s: the default list plugin_worfy_qmd and worfy-canvas, the reason in the log', async (_case, answer, reason) => {
     const list = await readMcpAllowlist({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun(answer), log })
-    expect(list.servers).toEqual(['qmd', CANVAS_SERVER_NAME])
+    expect(list.servers).toEqual(['plugin_worfy_qmd', CANVAS_SERVER_NAME])
     expect(list.source).toBe('default')
     expect(list.reason).toMatch(reason)
     expect(logged).toHaveLength(1)
-    expect(logged[0]).toMatch(/^\[profile\] MCP servers for \/repo: the default list \(qmd, worfy-canvas\), because /)
+    expect(logged[0]).toMatch(/^\[profile\] MCP servers for \/repo: the default list \(plugin_worfy_qmd, worfy-canvas\), because /)
     expect(logged[0]).toMatch(reason)
   })
 
-  it('the default list is qmd and worfy-canvas, and nobody can change it', () => {
-    expect(DEFAULT_MCP_SERVERS).toEqual(['qmd', 'worfy-canvas'])
+  it('the default list is the plugin qmd and worfy-canvas, without the user qmd, and nobody can change it', () => {
+    expect(DEFAULT_MCP_SERVERS).toEqual(['plugin_worfy_qmd', 'worfy-canvas'])
     expect(Object.isFrozen(DEFAULT_MCP_SERVERS)).toBe(true)
   })
 })
@@ -176,9 +176,9 @@ function projectRoot(): string {
 describe('readMcpAllowlist with the real runner', () => {
   it.each<[string, number, string, string, string[]]>([
     ['code 0 with a list', 0, '[\n  "qmd",\n  "github"\n]\n', '', ['qmd', 'github']],
-    ['code 3', 3, '', 'profile: not in a registered project', ['qmd', 'worfy-canvas']],
-    ['code 4', 4, '', 'profile: field "mcp.allowed" is absent', ['qmd', 'worfy-canvas']],
-    ['broken JSON', 0, '["qmd"\n', '', ['qmd', 'worfy-canvas']],
+    ['code 3', 3, '', 'profile: not in a registered project', ['plugin_worfy_qmd', 'worfy-canvas']],
+    ['code 4', 4, '', 'profile: field "mcp.allowed" is absent', ['plugin_worfy_qmd', 'worfy-canvas']],
+    ['broken JSON', 0, '["qmd"\n', '', ['plugin_worfy_qmd', 'worfy-canvas']],
   ])('%s: runs bin/profile in the Project and writes neither to the Claude home nor to the Project', async (_case, code, stdout, stderr, servers) => {
     const { home, calls } = stubHome(code, stdout, stderr)
     const root = projectRoot()
@@ -196,7 +196,7 @@ describe('readMcpAllowlist with the real runner', () => {
     const root = projectRoot()
     const before = { home: snapshot(home), root: snapshot(root) }
     const list = await readMcpAllowlist({ root, claudeHome: home, env: loginEnv(), log })
-    expect(list).toMatchObject({ servers: ['qmd', 'worfy-canvas'], source: 'default' })
+    expect(list).toMatchObject({ servers: ['plugin_worfy_qmd', 'worfy-canvas'], source: 'default' })
     expect(list.reason).toBe(`there is no profile script at ${join(home, 'bin', 'profile')}`)
     expect(snapshot(home)).toEqual(before.home)
     expect(snapshot(root)).toEqual(before.root)
@@ -217,7 +217,7 @@ describe('readMcpAllowlist with the real runner', () => {
     expect(withShell).toEqual({ servers: ['github'], source: 'profile', reason: null })
     // The same script with the bare PATH of an app started from Finder: env cannot find the interpreter.
     const bare = await readMcpAllowlist({ root, claudeHome: home, env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' }, log })
-    expect(bare).toMatchObject({ servers: ['qmd', 'worfy-canvas'], source: 'default' })
+    expect(bare).toMatchObject({ servers: ['plugin_worfy_qmd', 'worfy-canvas'], source: 'default' })
     expect(bare.reason).toMatch(/failed with exit code 127/)
   })
 })

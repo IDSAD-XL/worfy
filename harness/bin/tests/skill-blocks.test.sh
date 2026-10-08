@@ -58,15 +58,18 @@ done
 
 # --- skills/qmd: collections table from the profiles and index.yml -----------------------
 QSKILL="${QMD_SKILL_FILE:-$SKILLS/qmd/SKILL.md}"
-B3="$(SKILL="$QSKILL" block 'profiles/*/profile.json')"
+B3="$(SKILL="$QSKILL" block 'name profile.json')"
 [ -n "$B3" ] || bad "qmd collections block not found in $QSKILL"
-H="$T/home"; mkdir -p "$H/.claude/profiles/p1" "$H/.claude/profiles/p2" "$H/.config/qmd"
+# Profiles in the Harness home (worfy-harness ticket 17: p3 with the collections qmd-collections
+# writes) and, during the transition, in the old ~/.claude/profiles.
+H="$T/home"; mkdir -p "$H/.claude/profiles/p1" "$H/.claude/profiles/p2" "$H/.claude/worfy-harness/projects/p3" "$H/.config/qmd"
 echo '{"name":"p1","qmd":{"collections":["c1","c2"],"covers":"docs of p1"}}' >"$H/.claude/profiles/p1/profile.json"
 echo '{"name":"p2"}' >"$H/.claude/profiles/p2/profile.json"
-printf 'collections:\n  c1:\n    path: /x/one\n    pattern: "**/*.md"\n  c2:\n    path: /x/two\nmodels:\n  embed: e\n' >"$H/.config/qmd/index.yml"
-want="$(printf 'p1: c1, c2 — docs of p1\np2:  — no qmd field\nc1\t/x/one\nc2\t/x/two')"
+echo '{"name":"p3","qmd":{"collections":["p3-docs","p3-tickets","p3-memory"],"covers":"p3"}}' >"$H/.claude/worfy-harness/projects/p3/profile.json"
+printf 'collections:\n  c1:\n    path: /x/one\n    pattern: "**/*.md"\n  c2:\n    path: /x/two\n  p3-docs:\n    path: "/x/three"\n    update: /p/qmd-sync-main p3\nmodels:\n  embed: e\n' >"$H/.config/qmd/index.yml"
+want="$(printf 'p3: p3-docs, p3-tickets, p3-memory — p3\np1: c1, c2 — docs of p1\np2:  — no qmd field\nc1\t/x/one\nc2\t/x/two\np3-docs\t"/x/three"')"
 for sh in bash zsh; do
-    got="$(HOME="$H" $sh -c "$B3" 2>&1)"
+    got="$(HOME="$H" HARNESS_HOME= $sh -c "$B3" 2>&1)"
     [ "$got" = "$want" ] && ok "$sh: qmd block prints profile collections and index paths" \
         || bad "$sh: qmd block: got [$got] want [$want]"
 done

@@ -25,13 +25,20 @@
 //
 // The Harness (ADR-0040, ADR-0049, worfy-harness ticket 12): unless the old Harness is on the
 // machine, a Session gets the Harness copy of this build inline (`plugins`, sessionHarnessPlugin).
+// Its MCP servers (worfy-harness ticket 17, ADR-0048 item 4): no `serverName` lets a plugin's own
+// server through the allowlist, so the plugin goes with `skipMcpDiscovery` and worfy registers the
+// servers of its .mcp.json itself as `plugin_worfy_<server>` (pluginMcpServers). The allowlist then
+// filters them by that name like the user's own, and their tools keep the names they have in a
+// terminal session, where the installed plugin registers them: `mcp__plugin_worfy_qmd__…`.
+import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
-import type { McpServerConfig, Options } from '@anthropic-ai/claude-agent-sdk'
+import type { McpServerConfig, McpStdioServerConfig, Options } from '@anthropic-ai/claude-agent-sdk'
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
 import type { HarnessKind } from '../../shared/projects/action-templates'
 import { bundledHarnessDir } from '../harness/bundled'
+import { HARNESS_PLUGIN_NAME } from '../harness/locate'
 import type { Env } from './env'
 import type { CanUseToolHandler } from './permissions'
 
@@ -116,6 +123,53 @@ export interface SessionOptionsInput {
    * old Harness is on the machine — passes no plugins.
    */
   harnessPlugin?: string | null | undefined
+  /** Where the reason a plugin server is left out goes; console.warn by default. */
+  warn?: ((message: string) => void) | undefined
+}
+
+/** The name worfy registers a server of the Harness plugin under: `plugin_worfy_qmd` for `qmd`. */
+export const pluginServerName = (server: string): string => `plugin_${HARNESS_PLUGIN_NAME}_${server}`
+
+const PLUGIN_ROOT_VARIABLE = '${CLAUDE_PLUGIN_ROOT}'
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
+const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string')
+
+/**
+ * The stdio servers of `<pluginDir>/.mcp.json` (`{"mcpServers": {name: {command, args?, env?}}}`)
+ * under pluginServerName(), with ${CLAUDE_PLUGIN_ROOT} in the command, the arguments and the
+ * environment replaced by `pluginDir`. A file that cannot be read or parsed gives no servers and one
+ * warning; a server without a string `command` is left out with a warning, the others stay.
+ */
+export function pluginMcpServers(pluginDir: string, warn: (message: string) => void): Record<string, McpServerConfig> {
+  const file = join(pluginDir, '.mcp.json')
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf8'))
+  } catch (error) {
+    warn(`[harness] ${file} is unreadable, the Session starts without the plugin's MCP servers: ${error instanceof Error ? error.message : String(error)}`)
+    return {}
+  }
+  if (!isRecord(parsed) || !isRecord(parsed.mcpServers)) {
+    warn(`[harness] ${file} has no "mcpServers" object, the Session starts without the plugin's MCP servers`)
+    return {}
+  }
+  const put = (text: string): string => text.split(PLUGIN_ROOT_VARIABLE).join(pluginDir)
+  const servers: Record<string, McpServerConfig> = {}
+  for (const [name, config] of Object.entries(parsed.mcpServers)) {
+    const args = isRecord(config) ? config.args : undefined
+    const env = isRecord(config) ? config.env : undefined
+    const envOk = env === undefined || (isRecord(env) && Object.values(env).every((value) => typeof value === 'string'))
+    if (!isRecord(config) || typeof config.command !== 'string' || (args !== undefined && !isStringArray(args)) || !envOk) {
+      warn(`[harness] ${file}: the server "${name}" is not a stdio server with a command, the Session starts without it`)
+      continue
+    }
+    const server: McpStdioServerConfig = { type: 'stdio', command: put(config.command) }
+    if (args !== undefined) server.args = args.map(put)
+    if (isRecord(env)) server.env = Object.fromEntries(Object.entries(env).map(([key, value]) => [key, put(String(value))]))
+    servers[pluginServerName(name)] = server
+  }
+  return servers
 }
 
 /**
@@ -155,18 +209,27 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   else if (input.sessionId !== undefined) options.sessionId = input.sessionId
   if (input.stderr !== undefined) options.stderr = input.stderr
   if (input.canUseTool !== undefined) options.canUseTool = input.canUseTool
-  if (input.harnessPlugin != null) options.plugins = [{ type: 'local', path: input.harnessPlugin }]
   const allowlist = input.mcpAllowlist ?? null
+  const allowed = (name: string): boolean => allowlist === null || allowlist.includes(name)
   if (allowlist !== null) {
     options.managedSettings = { allowManagedMcpServersOnly: true, allowedMcpServers: allowlist.map((serverName) => ({ serverName })) }
   }
+  // Added to the user's own MCP servers from settingSources, not instead of them.
+  const servers: Record<string, McpServerConfig> = {}
   if (input.canvas) {
     options.additionalDirectories = [input.canvas.cardsDir]
-    if (allowlist === null || allowlist.includes(CANVAS_SERVER_NAME)) {
-      // Added to the user's own MCP servers from settingSources, not instead of them.
-      options.mcpServers = { [CANVAS_SERVER_NAME]: input.canvas.server }
+    if (allowed(CANVAS_SERVER_NAME)) {
+      servers[CANVAS_SERVER_NAME] = input.canvas.server
       options.systemPrompt = { type: 'preset', preset: 'claude_code', append: input.canvas.instructions }
     }
   }
+  if (input.harnessPlugin != null) {
+    options.plugins = [{ type: 'local', path: input.harnessPlugin, skipMcpDiscovery: true }]
+    const warn = input.warn ?? ((message: string) => console.warn(message))
+    for (const [name, server] of Object.entries(pluginMcpServers(input.harnessPlugin, warn))) {
+      if (allowed(name)) servers[name] = server
+    }
+  }
+  if (Object.keys(servers).length > 0) options.mcpServers = servers
   return options
 }

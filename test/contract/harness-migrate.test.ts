@@ -123,7 +123,9 @@ function installPlugin(target: string, withQmd: boolean): void {
   const manifest = join(target, '.claude-plugin', 'plugin.json')
   const { name, ...rest } = JSON.parse(readFileSync(manifest, 'utf8')) as Record<string, unknown>
   writeFileSync(manifest, `${JSON.stringify({ name, version: '0.2.0+aaaaaaa', ...rest }, null, 2)}\n`)
+  // harness/ declares qmd since worfy-harness ticket 17; without `withQmd` the plugin is one from before it.
   if (withQmd) writeFileSync(join(target, '.mcp.json'), `${JSON.stringify({ mcpServers: { qmd: { command: '${CLAUDE_PLUGIN_ROOT}/bin/qmd-mcp' } } }, null, 2)}\n`)
+  else rmSync(join(target, '.mcp.json'), { force: true })
 }
 
 function makeSandbox({ qmdInPlugin = false }: { qmdInPlugin?: boolean } = {}): Sandbox {
