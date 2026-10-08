@@ -1,7 +1,7 @@
 # 15 — Мост Limits лежит в `.app`, а не в dev-checkout
 
 Type: task
-Status: open
+Status: done — 2026-10-08, [PR #134](https://github.com/IDSAD-XL/worfy/pull/134)
 Blocked by: 13
 Source: решения владельца 2026-10-07, Q19 (мост Limits: скрипт из `.app`, запись `statusLine` меняется с согласия в форме переноса), Q8; [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (worfy пишет в `~/.claude` только установщиком и переносом, с согласия); [ADR-0047](../../../docs/adr/0047-harness-lessons-by-pr-early-owner-switch.md) (ранний переход машины владельца); [ADR-0023](../../../docs/adr/0023-separate-data-roots-packaged-and-dev.md) (папки данных dev и packaged); [spec.md](../spec.md)
 
@@ -48,13 +48,13 @@ Source: решения владельца 2026-10-07, Q19 (мост Limits: ск
 
 ## Готово, когда
 
-- [ ] `@packaged` test (локально, `pnpm test:package` в `gate full`): в `.app` есть `Contents/Resources/statusline-bridge.sh`, исполняемый (`mode & 0o111`), побайтно равный `scripts/statusline-bridge.sh`.
-- [ ] `@packaged` test: скрипт из `.app` с образцом JSON строки состояния (тот же, что в `test/contract/statusline-bridge.test.ts`) и временным `HOME` с `Library/Application Support/worfy` пишет туда `statusline-limits.json`, равный `rate_limits`; с аргументом команда получает тот же stdin, её вывод проходит без изменений; код выхода 0.
-- [ ] `@packaged` test: после второго `install-stable.sh` в ту же папку `<копия>/Contents/Resources/statusline-bridge.sh` лежит на том же пути и исполняемый.
-- [ ] Contract test: в исполняемых строках скрипта (без комментариев) нет `/Users/`, `CanvasForAI` и путей вида `scripts/`.
-- [ ] `test/contract/statusline-bridge.test.ts` зелёный, его прежние случаи не менялись.
-- [ ] `grep -n 'never installs' scripts/statusline-bridge.sh src/main/agent/limits.ts` — код 1.
-- [ ] Test-ы Ticket-а не пишут в настоящий `HOME`: скрипт гоняется только с временным `HOME`.
+- [x] `@packaged` test (локально, `pnpm test:package` в `gate full`): в `.app` есть `Contents/Resources/statusline-bridge.sh`, исполняемый (`mode & 0o111`), побайтно равный `scripts/statusline-bridge.sh`.
+- [x] `@packaged` test: скрипт из `.app` с образцом JSON строки состояния (тот же, что в `test/contract/statusline-bridge.test.ts`) и временным `HOME` с `Library/Application Support/worfy` пишет туда `statusline-limits.json`, равный `rate_limits`; с аргументом команда получает тот же stdin, её вывод проходит без изменений; код выхода 0.
+- [x] `@packaged` test: после второго `install-stable.sh` в ту же папку `<копия>/Contents/Resources/statusline-bridge.sh` лежит на том же пути и исполняемый.
+- [x] Contract test: в исполняемых строках скрипта (без комментариев) нет `/Users/`, `CanvasForAI` и путей вида `scripts/`.
+- [x] `test/contract/statusline-bridge.test.ts` зелёный, его прежние случаи не менялись.
+- [x] `grep -n 'never installs' scripts/statusline-bridge.sh src/main/agent/limits.ts` — код 1.
+- [x] Test-ы Ticket-а не пишут в настоящий `HOME`: скрипт гоняется только с временным `HOME`.
 
 ## Тесты
 
@@ -79,4 +79,26 @@ Source: решения владельца 2026-10-07, Q19 (мост Limits: ск
 
 ## Итог
 
-Заполняется при закрытии.
+- `electron-builder.yml:26-27` — `extraResources` копирует `scripts/statusline-bridge.sh` в
+  `Contents/Resources/statusline-bridge.sh`; electron-builder сохраняет право на запуск. Имя и место —
+  контракт с Ticket-ом 14: форма переноса предлагает `<process.resourcesPath>/statusline-bridge.sh`.
+- `scripts/statusline-bridge.sh` и `src/main/agent/limits.ts` — только комментарии: мост едет в `.app`,
+  `statusLine` указывает на него только после согласия в форме переноса (ADR-0040, ADR-0047), сам worfy
+  только читает `statusline-limits.json`. Фразы «never installs» больше нет. Команды скрипта не менялись.
+- Красный test первым: на main все три `@packaged` test-а падали с ENOENT на
+  `Contents/Resources/statusline-bridge.sh`.
+- Test-ы: `test/e2e/packaged.spec.ts:376`, `:386`, `:455` — мост в копии (исполняемый, побайтно равен
+  исходному), запуск из копии с временным `HOME`, путь после второго `install-stable.sh` (ставит во
+  временную папку `mkdtemp`, не в `~/Applications/worfy-stable.app`). `test/contract/statusline-bridge.test.ts:104`
+  — в исполняемых строках скрипта нет путей checkout-а; прежние случаи не менялись.
+
+**Влито.** [PR #134](https://github.com/IDSAD-XL/worfy/pull/134) → squash-коммит `4bdfb5a` в `main`. Ревью —
+VERIFIED с первого круга. Перед мержем: rebase на `cc1d342`, `GATE_SCOPE=all gate.sh full` — код 0, CI
+зелёный. Первый прогон `gate full` у исполнителя упал только на нестабильном
+`test/e2e/epic-frame.spec.ts:721` («long names»), повтор зелёный.
+
+**Долг.** Из комментария VERIFIED в PR #134:
+- [low] `scripts/statusline-bridge.sh:21` — «nothing else in worfy edits ~/.claude/settings.json» неточно:
+  установка plugin-а через `claude plugin` пишет `extraKnownMarketplaces` (ADR-0040, п. 7), форма переноса
+  убирает записи hooks (ADR-0047, п. 5 и 8). Предложенная формулировка: «apart from the plugin install
+  (ADR-0040) and the migration form, worfy does not edit settings.json».
