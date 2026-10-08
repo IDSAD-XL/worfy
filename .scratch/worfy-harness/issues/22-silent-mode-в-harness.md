@@ -1,7 +1,7 @@
 # 22 — Silent mode в Harness: файлы workflow в Workflow folder, без следов в ветках, коммитах и PR
 
 Type: task
-Status: open
+Status: blocked — gate: узкий круг REJECTED — локальный финиш local-green (ship-ticket, шаг 11) оставляет незакоммиченные документы при NOT ON TOP и перематывает main при упавшем коммите документов; PR #150 открыт, пункт 7 ждёт ответа владельца про живые пробы claude -p
 Blocked by: 16
 Source: решения владельца 2026-10-07, Q11' (б), Q17, Q23–Q30; [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) (Profile на машине, Full mode и Silent mode, Workflow folder, worktree вне репозитория, `attribution`; заменяет ADR-0020); [ADR-0045](../../../docs/adr/0045-one-ticket-one-repository.md) (один Ticket — один репозиторий, Project над несколькими репозиториями — всегда Silent mode, финиш без прав — локальный); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (состояние Harness на машине — `~/.claude/worfy-harness/`); [spec.md](../spec.md)
 
@@ -225,4 +225,23 @@ E3 её нет).
 
 ## Итог
 
-Заполняется при закрытии.
+Wave 10 (2026-10-08): Ticket выведен из Wave гейтом, `blocked`. Работа — в открытом PR #150 (ветка
+`worfy-harness/22`, worktree `.claude/worktrees/h22` оставлен); полный «Итог» исполнителя — в файле Ticket-а на
+этой ветке, вердикты — в комментариях PR.
+
+- Круг 1 `REJECTED`: [high] локальный финиш при `single` без `worktree.base` брал основную ветку из HEAD
+  checkout-а и печатал `MERGED=0` без вливания (настройка Atakama) + 2 med, 4 low текста. Исправлено.
+- Круг 2 `REJECTED`: доработка внесла 2 med — `done` на ветке до gate full; документам волны нечем ехать, если
+  последний тикет выпал. Скептики подтвердили обе; Ticket на критическом пути (от него зависят 23–26) — узкий круг.
+- Узкий круг `NARROW: REJECTED`: A и B закрыты, но внесены 2 med — при NOT ON TOP подготовленные документы
+  остаются незакоммиченными в worktree, где implementer делает rebase (rebase падает, коммит возвращает `done` на
+  невлитую ветку); результат коммита документов не проверяется, main перематывается и печатается `MERGED=0`.
+  Плюс low: `git commit` без pathspec берёт весь индекс; `git worktree remove` без `--force` для грязного
+  временного дерева; `add -A -- .scratch/` в основном checkout-е цепляет чужие файлы.
+- Пункт 7 не сделан: живая проба `claude -p` пишет в `~/.claude` (с `CLAUDE_CONFIG_DIR` во временной папке —
+  «Not logged in»; с `--no-session-persistence` — пустая `~/.claude/projects/<cwd>/memory`). Вопрос владельцу —
+  разрешить ли такие пробы.
+- Долги ревьюеров: guard пропускает `git push origin HEAD:<эпик>/05`, `git merge -m`, `git tag`, сообщение из
+  `$VAR`; `src/main/workflow/reader.ts:321` читает `done` с невлитой ветки как закрытый.
+- Решено без владельца, подтвердить: документы тикета при local-green — коммитом на его ветке после зелёного gate
+  full перед перемоткой; документы волны без невлитого тикета — коммитом в main под замком (временный worktree).
