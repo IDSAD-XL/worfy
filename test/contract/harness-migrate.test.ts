@@ -784,8 +784,7 @@ describe('boundaries, races and what changed after the move', () => {
     expect(runRestore().status).toBe(0)
     // As if the first run had stopped before marking the backup restored.
     const manifestPath = join(backupDir(), 'manifest.json')
-    const { restoredAt: _restoredAt, ...manifest } = readJson(manifestPath)
-    writeFileSync(manifestPath, JSON.stringify(manifest))
+    writeFileSync(manifestPath, JSON.stringify(omit(readJson(manifestPath), 'restoredAt')))
     expect(runRestore().status).toBe(0)
     expect(readJson(join(backupDir(), 'after', 'claude', 'settings.json')).theme).toBe('light')
     expect(readJson(join(backupDir(), 'after-2', 'claude', 'settings.json')).theme).toBe('dark')
