@@ -6,6 +6,7 @@
 import { z } from 'zod'
 import type { LayoutNode } from '../layout/types'
 import { eventChannel, invokeChannel } from './channels'
+import { screenIdSchema } from './layout'
 
 /** How long a trash entry is kept; older ones are deleted when the app starts. */
 export const TRASH_KEEP_MS = 3 * 24 * 60 * 60 * 1000
@@ -48,11 +49,18 @@ export const trashEntrySchema = z.object({
 })
 export type TrashEntry = z.output<typeof trashEntrySchema>
 
-/** Moves a Node to the trash: its Layout entry, and for a Card its files and data. Refused for a Node the user may not delete. */
-export const trashPut = invokeChannel('trash.put', z.object({ projectId, nodeId }), trashEntrySchema)
+/**
+ * Moves a Node to the trash: its Layout entry, and for a Card its files and data. Refused for a Node
+ * the user may not delete. `screen` is the screen whose recorded gesture or undo this is
+ * (src/shared/ipc/layout.ts screenIdSchema); the Layout change carries it in `layout.changed`.
+ */
+export const trashPut = invokeChannel('trash.put', z.object({ projectId, nodeId, screen: screenIdSchema.optional() }), trashEntrySchema)
 
-/** Puts an entry back: the Card's files and data, then the Node at its old place. Refused when its id or Card id is taken again. */
-export const trashRestore = invokeChannel('trash.restore', z.object({ projectId, label: trashLabelSchema }), trashEntrySchema)
+/**
+ * Puts an entry back: the Card's files and data, then the Node at its old place. Refused when its id
+ * or Card id is taken again. `screen` as for trash.put.
+ */
+export const trashRestore = invokeChannel('trash.restore', z.object({ projectId, label: trashLabelSchema, screen: screenIdSchema.optional() }), trashEntrySchema)
 
 /** The Project's trash, newest first. */
 export const trashList = invokeChannel('trash.list', z.object({ projectId }), z.object({ entries: z.array(trashEntrySchema) }))

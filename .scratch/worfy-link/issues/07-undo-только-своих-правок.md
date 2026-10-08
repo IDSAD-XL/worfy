@@ -1,7 +1,7 @@
 # 07 — ⌘Z отменяет только свои правки
 
 Type: task
-Status: open
+Status: claimed — 2026-10-08
 Blocked by: 03
 Source: решения владельца 2026-10-07: Q15 (⌘Z — только свои правки; если тот же Node после шага правил другой экран, шаг пропускается с подсказкой); [spec.md](../spec.md); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — несколько экранов на одном Project-е; [ADR-0016](../../../docs/adr/0016-trash-folder-per-entry-undo-in-renderer.md) — корзина как папка, undo в renderer
 
@@ -120,4 +120,39 @@ Ticket-ы идут по очереди. Если Ticket 08 уже влит, но
 
 ## Итог
 
-Заполняется при закрытии.
+- **Id экрана** — `src/renderer/canvas/screen.ts` (`crypto.randomUUID()` при загрузке renderer-а).
+  Его шлют только канал `send` Canvas-а (`sendLayoutOp` в `useLayout.ts`) и `ipcTrash`
+  (`history.ts`); автоматические писатели, main и агенты — без него.
+- **Каналы.** `layout.apply`, `trash.put`, `trash.restore` принимают необязательный `screen`
+  (`screenIdSchema`, 1–100 символов). `LayoutStore.apply(projectId, op, screen = null)` кладёт его в
+  `LayoutChange`; `layout.changed` несёт `screen` (или `null`) и операцию (`layoutChangeSchema`).
+  Корзина передаёт `screen` в свою правку Layout.
+- **Ревизия шага.** Ответ `layout.apply` даёт ревизию: тип `Send` теперь отвечает
+  `string | { revision } | undefined` (старые поддельные каналы test-ов, отвечающие `undefined`,
+  подходят). Для корзины ответ не менялся (contract `trash.test.ts` проверяет ключи ответа):
+  ревизия берётся из своего `layout.changed` — main рассылает его до ответа.
+- **Устаревание** (`history.ts`): у каждой части шага — отметка (Node-ы, стороны, ревизия).
+  `layout.changed` с чужим `screen`, большей ревизией и пересечением помечает её. Последние 200
+  правок с `screen` хранятся, чтобы чужая правка, пришедшая раньше ответа main на свой шаг, тоже
+  учлась. Удаление и создание Node-а пересекаются с любой стороной. Шаг жеста устаревает целиком.
+  Отметки шагов, ушедших из истории, снимаются.
+- **⌘Z / ⇧⌘Z на устаревшем шаге** — `undo()`/`redo()` отвечают `'skipped'`, ничего не шлют, шаг
+  выброшен; подсказка `UndoSkipped.tsx` (`role="status"`, `data-testid="undo-skipped"`, вверху по
+  центру Canvas-а, 4 s — `SKIPPED_NOTICE_MS`). Снимки:
+  [светлая](../evidence/07-undo-skipped-light.png), [тёмная](../evidence/07-undo-skipped-dark.png).
+- **Как падал первый test.** Unit `test/unit/history.test.ts` сначала падал на отсутствии модуля
+  `screen.ts`. После реализации каждая проверка подтверждена мутантом: без проверки устаревания
+  в `History.run` падают 9 новых unit-test-ов, без досчёта ранних правок — test гонки, с
+  пересечением по любой стороне — test тегов, со своими правками как чужими — 3 test-а. e2e
+  `trash-undo.spec.ts` «⌘Z with two windows» на сборке без проверки устаревания красный: в окне A
+  нет подсказки `undo-skipped` (на origin/main её нет вовсе).
+- **Вне следа:** одна строка в `tsconfig.test.node.json` — `screen.ts` в списке файлов: его
+  импортирует `history.ts`, а этот проект перечисляет файлы renderer-а поимённо (иначе TS6307).
+
+Решено без владельца, подтвердить:
+- Толкование Q15: нажатие ⌘Z на устаревшем шаге только выбрасывает его и показывает подсказку;
+  следующее нажатие отменяет предыдущий шаг.
+- Текст для ⇧⌘Z — «Not redone: this Node was changed on another screen» (для ⌘Z — как в тикете).
+- Подсказка вверху по центру Canvas-а (низ занят кнопкой Trash), стили — токены `tokens.css`
+  инлайном: отдельного CSS-файла в следе нет.
+- Шаг корзины считает своей ревизию из своего `layout.changed`, а не из ответа `trash.put`.

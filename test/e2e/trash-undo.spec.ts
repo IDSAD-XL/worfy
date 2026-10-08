@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp, type LaunchedApp } from './helpers'
+import { launchApp, openSecondWindow, type LaunchedApp } from './helpers'
 
 // Ticket 30 against the built app: ⌘Z and ⇧⌘Z undo and redo a move; a Card deleted from the
 // selection toolbar comes back from the Trash popover with its files and data; one deleted with the
@@ -241,4 +241,111 @@ test('in a text field Backspace and ⌘Z edit the text: the selection is not del
   } finally {
     await launched.close()
   }
+})
+
+// worfy-link ticket 07 (ADR-0053): two windows of one worfy are two screens, each with its own ⌘Z.
+// ⌘Z undoes only the window's own step; a step whose Note the other window moved since is skipped
+// with a notice. The Notes are dragged with the mouse: only the Canvas's gestures are steps.
+test.describe('⌘Z with two windows', () => {
+  test.beforeEach(() => {
+    const layout = {
+      nodes: [
+        { id: 'n1', kind: 'note', x: 120, y: 100, w: 220, h: 120, data: { text: 'one' } },
+        { id: 'n2', kind: 'note', x: 120, y: 420, w: 220, h: 120, data: { text: 'two' } },
+      ],
+      viewport: { x: 0, y: 0, zoom: 1 },
+    }
+    writeFileSync(join(projectDir(), 'layout.json'), JSON.stringify(layout))
+  })
+
+  const header = (window: Page, id: string) => window.locator(`[data-testid="note-node"][data-node-id="${id}"] .w-note__header`)
+
+  /** Drags the Note by its header by about (dx, dy) and waits until main has it elsewhere. */
+  async function drag(window: Page, id: string, dx: number, dy: number): Promise<StateNode> {
+    const before = await nodeIn(window, id)
+    const start = await box(header(window, id))
+    await window.mouse.move(start.x + 20, start.y + 8)
+    await window.mouse.down()
+    await window.mouse.move(start.x + 20 + dx / 2, start.y + 8 + dy / 2, { steps: 8 })
+    await window.mouse.move(start.x + 20 + dx, start.y + 8 + dy, { steps: 8 })
+    await window.mouse.up()
+    await expect
+      .poll(async () => {
+        const now = await nodeIn(window, id)
+        return now !== undefined && (now.x !== before?.x || now.y !== before?.y)
+      })
+      .toBe(true)
+    const after = await nodeIn(window, id)
+    if (after === undefined) throw new Error(`${id} is gone`)
+    return after
+  }
+
+  /** Waits until the window draws the Note at `place` (it has heard of the change), relative to a known drawing. */
+  async function drawnAt(window: Page, id: string, seen: { box: { x: number; y: number }; at: StateNode }, place: StateNode): Promise<void> {
+    await expect.poll(async () => (await box(header(window, id))).x).toBeCloseTo(seen.box.x + place.x - seen.at.x, 0)
+    await expect.poll(async () => (await box(header(window, id))).y).toBeCloseTo(seen.box.y + place.y - seen.at.y, 0)
+  }
+
+  async function launchTwo(): Promise<{ launched: LaunchedApp; a: Page; b: Page }> {
+    const launched = await launch()
+    const b = await openSecondWindow(launched)
+    await expect(b.getByTestId('canvas')).toHaveAttribute('data-project-id', PROJECT)
+    await expect(header(b, 'n1')).toBeVisible()
+    await expect(header(launched.window, 'n1')).toBeVisible()
+    return { launched, a: launched.window, b }
+  }
+
+  test("⌘Z in A skips A's move of n1 that B moved since, with a notice; ⌘Z in B puts n1 back where A had it", async () => {
+    const { launched, a, b } = await launchTwo()
+    try {
+      const seenInB = { box: await box(header(b, 'n1')), at: (await nodeIn(b, 'n1'))! }
+      const byA = await drag(a, 'n1', 260, 0)
+      const seenInA = { box: await box(header(a, 'n1')), at: byA }
+      // B draws n1 where A put it before it drags it: B's step then remembers A's place.
+      await drawnAt(b, 'n1', seenInB, byA)
+      const byB = await drag(b, 'n1', 0, 160)
+      await drawnAt(a, 'n1', seenInA, byB)
+
+      await a.keyboard.press('Meta+z')
+      const notice = a.getByTestId('undo-skipped')
+      await expect(notice).toBeVisible()
+      await expect(notice).toHaveAttribute('role', 'status')
+      await expect(notice).toHaveText('Not undone: this Node was changed on another screen')
+      // The skip is decided before the notice shows: nothing was sent, n1 stays where B put it.
+      expect(await nodeIn(a, 'n1')).toMatchObject({ x: byB.x, y: byB.y })
+      for (const scheme of ['light', 'dark'] as const) {
+        await a.emulateMedia({ colorScheme: scheme })
+        await a.screenshot({ path: test.info().outputPath(`07-undo-skipped-${scheme}.png`) })
+      }
+      await a.emulateMedia({ colorScheme: null })
+      await expect(b.getByTestId('undo-skipped')).toHaveCount(0)
+
+      // B's own step is not out of date: A changed n1 before it.
+      await b.keyboard.press('Meta+z')
+      await expect.poll(async () => await nodeIn(b, 'n1')).toMatchObject({ x: byA.x, y: byA.y })
+      await expect(b.getByTestId('undo-skipped')).toHaveCount(0)
+      // The notice goes away by itself.
+      await expect(notice).toHaveCount(0, { timeout: 8000 })
+    } finally {
+      await launched.close()
+    }
+  })
+
+  test('⌘Z in A undoes its move of n2 without a notice while B moved only n1', async () => {
+    const { launched, a, b } = await launchTwo()
+    try {
+      const start = await nodeIn(a, 'n2')
+      await drag(a, 'n2', 260, 0)
+      const seenInA = { box: await box(header(a, 'n1')), at: (await nodeIn(a, 'n1'))! }
+      const byB = await drag(b, 'n1', 0, 160)
+      await drawnAt(a, 'n1', seenInA, byB)
+
+      await a.keyboard.press('Meta+z')
+      await expect.poll(async () => await nodeIn(a, 'n2')).toMatchObject({ x: start?.x, y: start?.y })
+      expect(await nodeIn(a, 'n1')).toMatchObject({ x: byB.x, y: byB.y })
+      await expect(a.getByTestId('undo-skipped')).toHaveCount(0)
+    } finally {
+      await launched.close()
+    }
+  })
 })

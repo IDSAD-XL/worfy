@@ -48,13 +48,15 @@ setTimeout(() => {
 }, 0)
 
 export default [
-  defineHandler(trashPut, ({ projectId, nodeId }) => {
-    const entry = store.put(projectId, nodeId)
+  // `screen`: the screen whose recorded gesture or undo this is; the Layout change carries it in
+  // `layout.changed` (worfy-link ticket 07).
+  defineHandler(trashPut, ({ projectId, nodeId, screen }) => {
+    const entry = store.put(projectId, nodeId, screen ?? null)
     changed(projectId)
     return entry
   }),
-  defineHandler(trashRestore, ({ projectId, label }) => {
-    const entry = store.restore(projectId, label)
+  defineHandler(trashRestore, ({ projectId, label, screen }) => {
+    const entry = store.restore(projectId, label, screen ?? null)
     changed(projectId)
     return entry
   }),

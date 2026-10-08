@@ -14,6 +14,7 @@
     "src/renderer/focus/split-tree.ts",
     "src/renderer/canvas/card-bridge.ts",
     "src/renderer/canvas/history.ts",
+    "src/renderer/canvas/screen.ts",
     "src/renderer/canvas/snapping.ts",
     "src/renderer/canvas/wheel-router.ts",
     "src/renderer/find/search-index.ts",
