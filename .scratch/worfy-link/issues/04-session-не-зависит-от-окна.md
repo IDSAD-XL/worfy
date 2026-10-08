@@ -1,7 +1,7 @@
 # 04 — Session живёт на Machine Project-а и не зависит от окна
 
 Type: task
-Status: claimed — 2026-10-08
+Status: done — 2026-10-08, [PR #156](https://github.com/IDSAD-XL/worfy/pull/156)
 Blocked by: 03
 Source: решения владельца 2026-10-07: Q14 (Session, запущенная с другой Machine, живёт на Machine Project-а и не закрывается с окном) и Q2 (обе Machine работают одновременно, общее состояние живое) ([spec.md](../spec.md), «Готово, когда» Epic-а, пункты 2 и 3); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) (пункт 4 — Session живёт на Machine Project-а; последствие про `agent.start`)
 
@@ -175,3 +175,7 @@ fake-агент транскрипт не пишет. Селекторы Session
 - Вне следа: `test/contract/agent-attachments.test.ts`, `agent-controls.test.ts`,
   `permissions.test.ts` получали события через окно-отправителя; в стенд каждого добавлена
   рассылка в их поддельное окно, сами test-ы не менялись (согласовано с оркестратором).
+
+Гейт Wave 2: `REJECTED` (1 high — доказательство `grep -n` без `-r` ничего не показывало; 1 med — e2e очереди шёл
+через interrupt с неверной причиной) → доработка `9d2b6e1..b1e98ce` → `VERIFIED` во втором круге (PR #156, влит
+`23e7d98`).

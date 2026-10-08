@@ -1,7 +1,7 @@
 # 07 — ⌘Z отменяет только свои правки
 
 Type: task
-Status: claimed — 2026-10-08
+Status: done — 2026-10-08, [PR #157](https://github.com/IDSAD-XL/worfy/pull/157)
 Blocked by: 03
 Source: решения владельца 2026-10-07: Q15 (⌘Z — только свои правки; если тот же Node после шага правил другой экран, шаг пропускается с подсказкой); [spec.md](../spec.md); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — несколько экранов на одном Project-е; [ADR-0016](../../../docs/adr/0016-trash-folder-per-entry-undo-in-renderer.md) — корзина как папка, undo в renderer
 
@@ -156,3 +156,11 @@ Ticket-ы идут по очереди. Если Ticket 08 уже влит, но
 - Подсказка вверху по центру Canvas-а (низ занят кнопкой Trash), стили — токены `tokens.css`
   инлайном: отдельного CSS-файла в следе нет.
 - Шаг корзины считает своей ревизию из своего `layout.changed`, а не из ответа `trash.put`.
+
+Гейт Wave 2: `VERIFIED` с первого круга (PR #157, влит `8afb4de`); снимки ревьюера в обеих темах — подсказка
+«Not undone…» вверху по центру. Выход за след — одна строка в `tsconfig.test.node.json` (`screen.ts`) — принял
+оркестратор. Долги ревьюера (не блокируют):
+- [low] `src/renderer/canvas/history.ts:605-606` — ни один test не проверяет, что `ipcTrash.put` / `restore` шлют
+  `screen` (mutant без него проходит).
+- [low] `src/renderer/canvas/history.ts:245-246` — у шага `hide` сторона только «видимость», а показ Node-а сдвигает
+  его на свободное место (`src/main/layout/store.ts:146`): ⌘Z в A после «скрыл и показал» в B вернёт место без подсказки.

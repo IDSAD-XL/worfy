@@ -1,7 +1,7 @@
 # 05 — Terminal на несколько экранов: вывод всем, replay при входе, размер по последнему печатавшему экрану
 
 Type: task
-Status: claimed — 2026-10-08
+Status: done — 2026-10-08, [PR #159](https://github.com/IDSAD-XL/worfy/pull/159)
 Blocked by: 03
 Source: решения владельца 2026-10-07: Q2 (обе машины работают одновременно, общее состояние живое), Q3 (с другой машины можно всё, кроме действий, которым нужен рабочий стол машины Project-а, — в том числе печатать в Terminal), Q14 (размер Terminal — у экрана, где последним печатали или кликнули); [spec.md](../spec.md); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — несколько экранов на одном Project-е
 
@@ -197,3 +197,8 @@ helper `printSize` (`terminal.spec.ts:202`). Второе окно — helper Ti
   прогон — exit 2, упал только известный нестабильный `test/e2e/epic-frame.spec.ts:721` (длинные
   имена Ticket-ов, вне следа), повтор — exit 0, «[gate] зелено (full): lint typecheck test test:e2e
   test:package». CI PR — `check` pass.
+
+Гейт Wave 2: `VERIFIED` с первого круга (PR #159, влит `ae896af`); снимки ревьюера в обеих темах — живой вывод,
+exit и Restart в двух окнах. Долги ревьюера (не блокируют):
+- [low] `src/main/terminal/pty.ts:312` — try/catch в `broadcast` не покрыт test-ом (mutant без него проходит 37/37).
+- [low] `src/main/terminal/pty.ts:484` — удаление набора подписчиков после `close()` не покрыто test-ом.
