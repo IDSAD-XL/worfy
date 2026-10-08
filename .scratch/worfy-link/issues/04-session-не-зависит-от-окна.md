@@ -83,7 +83,7 @@ Source: решения владельца 2026-10-07: Q14 (Session, запуще
 - [x] Там же: Session, продолженная (Resume) поверх файла транскрипта из fixture в окне 1, во втором окне показывает прошлые ходы один раз и после них новый живой ход из окна 1 — тоже один раз (`transcript-prompt` в Session view).
 - [x] Там же: два сообщения из двух окон во время хода (сценарий fake-агента с долгим ходом из `test/fixtures/agent-scripts/`; подходящего нет — новый) — оба окна показывают одну очередь, а после хода — оба prompt-а в порядке отправки, без смешения текста.
 - [x] `test/e2e/agent.spec.ts` и `test/e2e/limits.spec.ts` зелёные без правок.
-- [x] `grep -n "windowSink\|ownership" src/main` пуст (вывод — в «Итог»).
+- [x] `grep -rn "windowSink\|ownership" src/main` не находит ничего в `agent`-домене (вывод — в «Итог»; найденный `windowSink` — Terminal, Ticket 05).
 - [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all gate.sh full` — exit 0.
 
 ## Тесты
@@ -147,17 +147,30 @@ fake-агент транскрипт не пишет. Селекторы Session
   окон, окно 1 закрыто — Session в окне 2 `idle`, сообщение из окна 2 даёт ответ; Resume поверх
   транскрипта из fixture — окно 2 показывает прошлые ходы и живой ход из окна 1 по одному разу, и
   после дописи хода в транскрипт тоже; очередь из двух окон.
-- **Очередь.** Подходящий сценарий нашёлся — `session-view.jsonl` (ход 2 держится до interrupt),
-  нового fixture нет. Ход прерывается, очередь держится, «Send queued» из окна 2 отправляет оба
-  сообщения в порядке прихода; оба окна показывают одну очередь и одни prompt-ы. Самостоятельно
-  кончающегося долгого хода у fake-агента нет (`wait_release` из e2e не отпустить), поэтому ход
-  кончается прерыванием.
+- **Очередь.** Новый сценарий fake-агента `test/fixtures/agent-scripts/long-turn.jsonl` (ход `turn.jsonl`
+  с `{"fake":"wait_release","name":"turn"}` посреди ответа): каждый ход держится, пока test не
+  отпустит его через `globalThis.worfyFakeRelease('turn')` в main (`app.evaluate`, как
+  `test/e2e/autopilot.spec.ts`). Окно 1 и окно 2 пишут во время хода; оба окна показывают одну
+  очередь в порядке прихода; ход отпущен — main сам берёт следующее сообщение после `result`
+  (`session.ts`, `next()`), по одному на ход; оба prompt-а доходят до fake-агента и в оба Session
+  view в порядке отправки, каждый один раз. Mutant без `this.next()` после `result` в
+  `src/main/agent/session.ts` (копия в scratchpad, восстановлено копированием) — test красный:
+  `expect.poll(messages).toEqual(['hold', 'queued from window one'])`, получено `['hold']`.
 - **Стык прошлого и живого** во втором окне без разрыва и повторов — `src/renderer/session/store.ts`
   не правился.
-- `grep -n "windowSink\|ownership" src/main` — пусто (exit 1).
+- `grep -rn "windowSink\|ownership" src/main` (exit 0):
+  ```
+  src/main/ipc/terminal.ts:25:function windowSink(target: Window, projectId: string, nodeId: string): TerminalSink {
+  src/main/ipc/terminal.ts:71:      const result = await deps.registry().open(key, { cwd, cols, rows, restart, command }, windowSink(window, projectId, nodeId))
+  ```
+  Обе строки — свой sink Terminal (`TerminalSink`), зона Ticket-а 05; в `agent`-домене
+  (`src/main/ipc/agent.ts`, `src/main/agent/`) совпадений нет. Первый круг приводил `grep -n` без
+  `-r`: на каталоге BSD grep ничего не читает, и «пусто» ничего не доказывало.
 - Проверки: `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (145 файлов, 2789 test-ов);
   `gate.sh fast` — exit 0, `[gate] зелено (fast)`; `GATE_SCOPE=all gate.sh full` — exit 0,
-  `[gate] зелено (full): lint typecheck test test:e2e test:package`. `test/e2e/agent.spec.ts` и
+  `[gate] зелено (full): lint typecheck test test:e2e test:package`. Круг доработки: lint, typecheck,
+  test — exit 0; gate fast — зелено; gate full с первого раза красный только на известном нестабильном
+  `test/e2e/epic-frame.spec.ts:721` (153 passed), повтор — exit 0, зелено. `test/e2e/agent.spec.ts` и
   `test/e2e/limits.spec.ts` зелёные без правок.
 - Вне следа: `test/contract/agent-attachments.test.ts`, `agent-controls.test.ts`,
   `permissions.test.ts` получали события через окно-отправителя; в стенд каждого добавлена

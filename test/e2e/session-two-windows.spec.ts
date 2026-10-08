@@ -260,21 +260,23 @@ test('a Session resumed in window 1 shows window 2 its past turns, then the live
   }
 })
 
-test('messages from two windows during a turn wait in one queue, in the order they came, and go in that order', async () => {
-  // test/fixtures/agent-scripts/session-view.jsonl: turn 1 answers at once, turn 2 holds until it
-  // is interrupted, then the script starts over.
-  const launched = await launch('session-view')
+/** Lets one held turn of test/fixtures/agent-scripts/long-turn.jsonl end (FakeReleases in src/main/agent/fake-query.ts). */
+const releaseTurn = (app: ElectronApplication): Promise<void> =>
+  app.evaluate(() => (globalThis as unknown as { worfyFakeRelease: (name: string) => void }).worfyFakeRelease('turn'))
+
+test('messages from two windows during a turn wait in one queue, in the order they came, and go by themselves in that order', async () => {
+  // test/fixtures/agent-scripts/long-turn.jsonl: every turn holds until the test releases it,
+  // then ends with its result.
+  const launched = await launch('long-turn')
   try {
-    const { window: one } = launched
+    const { app, window: one } = launched
     await canvasReady(launched, { size: SIZE })
     const id = await newSession(one)
     const two = await twoWindows(launched)
     const views = [await openView(one, liveNode(one, id)), await openView(two, liveNode(two, id))] as const
     const [inOne, inTwo] = views
 
-    await write(inOne, 'first')
-    for (const view of views) await expect(view.getByTestId('transcript-turn-done')).toHaveCount(1)
-    // Turn 2 holds; window 1, then window 2 write meanwhile.
+    // The turn holds; window 1, then window 2 write meanwhile.
     await write(inOne, 'hold')
     for (const view of views) await expect(view.getByTestId('session-state')).toHaveText('busy')
     await write(inOne, 'queued from window one')
@@ -289,22 +291,23 @@ test('messages from two windows during a turn wait in one queue, in the order th
       await expect(view.getByTestId('queue-item').nth(0)).toContainText('queued from window one')
       await expect(view.getByTestId('queue-item').nth(1)).toContainText('queued from window two')
     }
-    expect(messages()).toEqual(['first', 'hold'])
+    expect(messages()).toEqual(['hold'])
 
-    // The turn ends (interrupted, which holds the queue); Send queued from window 2 lets them go in order.
-    await inOne.getByTestId('input-interrupt').click()
-    for (const view of views) await expect(view.getByTestId('queue-send')).toBeVisible()
-    await inTwo.getByTestId('queue-send').click()
-    const sent = ['first', 'hold', 'queued from window one', 'queued from window two']
+    // The turn ends: main takes the next queued message after its result by itself, one per turn.
+    await releaseTurn(app)
+    await expect.poll(messages).toEqual(['hold', 'queued from window one'])
+    for (const view of views) await expect(view.getByTestId('queue-chip')).toHaveText('1 queued')
+    await releaseTurn(app)
+    const sent = ['hold', 'queued from window one', 'queued from window two']
     await expect.poll(messages).toEqual(sent)
+    for (const view of views) await expect(view.getByTestId('queue-chip')).toHaveCount(0)
+    await releaseTurn(app)
     for (const view of views) {
-      await expect(view.getByTestId('queue-chip')).toHaveCount(0)
-      await expect(view.getByTestId('transcript-prompt')).toHaveCount(4)
-      expect((await shown(view)).prompts).toEqual(sent)
+      await expect(view.getByTestId('session-state')).toHaveText('idle')
+      await expect(view.getByTestId('transcript-turn-done')).toHaveCount(3)
+      // Each prompt once, in the order sent, the text of one never mixed into another.
+      expect(await shown(view)).toEqual({ prompts: sent, answers: [FAKE_ANSWER, FAKE_ANSWER, FAKE_ANSWER] })
     }
-    // The last of them holds as turn 2 did; interrupted, the Session is left idle.
-    await inTwo.getByTestId('input-interrupt').click()
-    for (const view of views) await expect(view.getByTestId('session-state')).toHaveText('idle')
   } finally {
     await launched.close()
   }
