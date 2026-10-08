@@ -1,7 +1,7 @@
 # 06 — Камера Canvas своя у каждого экрана: viewport уходит из общего Layout
 
 Type: task
-Status: claimed — 2026-10-08
+Status: done — 2026-10-08, [PR #162](https://github.com/IDSAD-XL/worfy/pull/162)
 Blocked by: —
 Source: решения владельца 2026-10-07: Q2 (общее состояние живое, у каждого экрана своё — камера, выделение, ⌘Z), Q15 (камера Canvas своя у каждого экрана на каждый Project и уходит из общего Layout); [spec.md](../spec.md); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — несколько экранов на одном Project-е; [ADR-0013](../../../docs/adr/0013-pinned-node-screen-coordinates.md) — закреплённый Node хранит экранные координаты
 
@@ -169,3 +169,11 @@ test.
   [тёмная](../evidence/06-camera-window-2-dark.png).
 - **Не проверено test-ом:** место Terminal-а входа в GitHub (`FirstRun.tsx`) по камере
   `viewport.get` — e2e `first-run.spec.ts` проверяет только, что Terminal открылся.
+
+Гейт Wave 3: `VERIFIED` с первого круга (PR #162, влит `ca7a3b9`); снимки ревьюера в обеих темах — два окна с
+разными камерами, перезагрузка, сбой `viewport.get`, перезапуск. Выход за след — `src/renderer/shell/FirstRun.tsx` и
+`test/e2e/pin-tags.spec.ts` — разрешил оркестратор. Долги ревьюера (не блокируют):
+- [low] `src/renderer/shell/FirstRun.tsx:166-168` — Terminal входа в GitHub ставится по сохранённой камере машины
+  (окна, где сдвигали последним), а не по живой камере своего окна; test-а нет.
+- [low] снимки `06-camera-window-*` показывают одну камеру в обоих окнах (окно 2 перезагружено) — разные камеры
+  видны только на снимках ревьюера.

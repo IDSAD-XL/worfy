@@ -1,7 +1,7 @@
 # 08 — Project-ы Machine открыты Linked machine-ам: каналы, события, переключатель
 
 Type: task
-Status: claimed — 2026-10-08
+Status: done — 2026-10-08, [PR #161](https://github.com/IDSAD-XL/worfy/pull/161)
 Blocked by: 01, 02, 03
 Source: решения владельца 2026-10-07: Q3 (с другой машины можно всё, кроме действий, которым нужен рабочий стол машины Project-а), Q4 (доступ выключен по умолчанию, только LAN, токен устройства, отзыв), Q7 (host и client — роли соединения: каждый worfy бывает и тем, и другим), Q11 (переключатель «Linked machines can work with my Projects», по умолчанию выключен); [spec.md](../spec.md); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md) — Machine, Linked machine, связь по коду, доступ выключен по умолчанию
 
@@ -273,3 +273,16 @@ Session, Autopilot и очередь `agent.send`, которые Linked machine
 - С включённым переключателем Linked machine может `projects.add` любую папку git-репозитория
   машины Project-а и открыть в ней Terminal (`project` по разметке Ticket-а).
 - `projects.remove` активного Project-а с Linked machine — отказ (а не смена или сброс `activeId`).
+
+Гейт Wave 3: `REJECTED` (2 ревьюера — отчёт и безопасность: 3 med — `projects.add` делал Project активным у
+владельца и запускал его Orchestrator, `agent.attach` по любому пути, `agent.start` в любой папке; 2 low — корни
+claude-home/bindings/workflow/checks, имя канала, объявленное дважды) → доработка `ace643c..1e596c2` (проверка
+«путь внутри Project-а из списка» по realpath для вызова не из окна) → `VERIFIED` во втором круге (PR #161, влит
+`a0110d2`). Долги ревьюера (не блокируют):
+- [low] `src/main/ipc/{workflow.ts:31,checks.ts:35,bindings.ts:52,claude-home.ts:146}` — проверенный realpath не
+  используется, handler-ы работают с путём из вызова (окно между проверкой и использованием; в рамках ADR-0052 п.6,
+  т.к. `terminal.open` и так даёт shell).
+- [low] `src/main/ipc/agent.ts:114` — `assertDirectory(cwd)` идёт до проверки Project-ов: текст отказа выдаёт
+  Linked machine, существует ли папка вне Project-ов.
+- [low] `src/main/projects/store.ts:236` — при пустом списке Project, добавленный с Linked machine, не становится
+  активным: список непуст, активного нет.
