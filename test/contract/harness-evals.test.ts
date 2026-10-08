@@ -271,7 +271,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     expect(run.status, run.stderr).toBe(0)
     const path = (calls[0]?.path ?? '').split(delimiter)
     for (const dir of others(home)) expect(path).not.toContain(dir)
-    expect(path).toEqual(expect.arrayContaining((process.env.PATH ?? '').split(delimiter).filter((dir) => !/harness[\\/]bin$/.test(dir))))
+    expect(path).toEqual(expect.arrayContaining((process.env.PATH ?? '').split(delimiter).filter((dir) => !/(harness|worfy-harness[\\/]plugin)[\\/]bin$/.test(dir))))
   })
 
   it.each([

@@ -197,6 +197,8 @@ Orchestrator на настоящем Claude Code и пишет в `~/.claude`, �
   Ticket-а 40 вышла за Node; со snapping-ом не связан), на main c539cfd — 2 прогона из 8, в Gate ревью
   `worfy-week` 08; остановил мерж PR #109 (`worfy-harness` 05, два красных `gate full` подряд); в Wave 6
   дважды уронил `gate full` исполнителя `worfy-week` 13 и 1 раз из 3 — у его ревьюера.
+- `test/contract/autopilot-background.test.ts` — проверки `h.power` сразу после `orchestrator-returned`: запрет сна
+  выключается на следующем тике; 2026-10-08 упала `:529`. Исправлено ожиданием (`until`) во всех 7 местах.
 - `test/contract/autopilot-background.test.ts:435` (`worfy-daily` 29, test начинается на `:424`) —
   подробности в «Долги из HANDOFF» Ticket-а 29 `worfy-daily`.
 - `test/e2e/focus.spec.ts:87` (три выделенные заметки в focus mode) — под нагрузкой падал 2 раза из 3.
@@ -205,3 +207,5 @@ Orchestrator на настоящем Claude Code и пишет в `~/.claude`, �
   повтор зелёный); причина не разобрана.
 - `test/e2e/edges.spec.ts:166` — один раз упал у исполнителя `worfy-week` 08, при перезапуске прошёл;
   причина не разобрана.
+  Ещё раз 2026-10-08 в `gate full` на 7c11b2f (толщина линии `""` вместо `1px` в `:196`), затем 5 из 5
+  повторов зелёные.

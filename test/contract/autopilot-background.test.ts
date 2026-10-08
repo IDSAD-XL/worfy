@@ -404,6 +404,8 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
     expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'user-stop', stopping: false, resumable: [] })
     await until(() => !h.orchestrators.isUnattended(PROJECT), 'the Orchestrator to be given back')
+    // Keep-awake stops right after the run's last journal line, on its own tick.
+    await until(() => h.power.length >= 2, 'keep-awake to stop')
     expect(h.power).toEqual(['start', 'stop'])
     expect(h.calls.filter((call) => call.kind === 'message' && call.text === STOP_TEXT)).toHaveLength(1)
     // Wave 2 (Ticket 03) was ready and did not go; nothing was killed.
@@ -428,6 +430,8 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     expect(h.closes()).toEqual([['task_impl_0001', 'task_impl_0002']])
     expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
     expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
+    // Keep-awake stops right after the run's last journal line, on its own tick.
+    await until(() => h.power.length >= 2, 'keep-awake to stop')
     expect(h.power).toEqual(['start', 'stop'])
     expect(h.autopilot.anyRunning()).toBe(false)
     const events = await h.journal()
@@ -467,6 +471,8 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     expect(unattended.state).toBe('closed')
     expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
     expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
+    // Keep-awake stops right after the run's last journal line, on its own tick.
+    await until(() => h.power.length >= 2, 'keep-awake to stop')
     expect(h.power).toEqual(['start', 'stop'])
     expect(h.autopilot.anyRunning()).toBe(false)
     const events = await h.journal()
@@ -526,6 +532,8 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     // No turn follows the last task's end: only the grace timer gives the Orchestrator back.
     await until(() => !h.orchestrators.isUnattended(PROJECT), 'the attended Orchestrator')
     await until(async () => (await h.kinds()).at(-1) === 'orchestrator-returned', 'the orchestrator-returned line')
+    // Keep-awake stops right after the run's last journal line, on its own tick.
+    await until(() => h.power.length >= 2, 'keep-awake to stop')
     expect(h.power).toEqual(['start', 'stop'])
     expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
   })
@@ -602,6 +610,8 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     expect(last).not.toHaveProperty('tasks')
     // Nothing holds the Orchestrator: it is given back at once, and keep-awake is released.
     await until(() => !h.orchestrators.isUnattended(PROJECT), 'the attended Orchestrator')
+    // Keep-awake stops right after the run's last journal line, on its own tick.
+    await until(() => h.power.length >= 2, 'keep-awake to stop')
     expect(h.power).toEqual(['start', 'stop'])
     expect(h.autopilot.anyRunning()).toBe(false)
   })
@@ -684,6 +694,8 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     await h.autopilot.stopAll()
     expect((await h.journal()).at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'app-quit', tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }] })
     // On quit the run does not wait for the tasks: every Session closes with the app.
+    // Keep-awake stops right after the run's last journal line, on its own tick.
+    await until(() => h.power.length >= 2, 'keep-awake to stop')
     expect(h.power).toEqual(['start', 'stop'])
     expect(h.autopilot.anyRunning()).toBe(false)
     // Closing the Session ends its process, and the tasks with it.
@@ -705,6 +717,8 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     await h.autopilot.stopAll()
     expect(h.autopilot.anyRunning()).toBe(false)
     expect((await h.journal()).at(-1)).toMatchObject({ kind: 'tasks-killed', reason: 'app-quit', tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }] })
+    // Keep-awake stops right after the run's last journal line, on its own tick.
+    await until(() => h.power.length >= 2, 'keep-awake to stop')
     expect(h.power).toEqual(['start', 'stop'])
   })
 })
