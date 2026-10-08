@@ -122,7 +122,10 @@ Helper двух связанных worfy берётся из Ticket-а 02 как
 Проверки: `pnpm lint`, `pnpm typecheck` — exit 0; `test/unit/link-power.test.ts` — 17 passed;
 `test/e2e/linked-sleep.spec.ts` и `test/e2e/linked-machines.spec.ts` — 7 passed; `GATE_SCOPE=all gate.sh full` — lint,
 typecheck, test:e2e, test:package прошли, `test` красный только таймаутами (5000 ms) `test/contract/github-prs.test.ts`
-под нагрузкой машины (load average 6–7, рядом идут другие агенты); отдельно эти файлы — 154 passed.
+под нагрузкой машины (load average 5–7, рядом идут другие агенты). Полный `pnpm test` в эти же минуты — 21 таймаут в
+семи файлах `test/contract/` (`github-prs`, `harness-evals`, `harness-install`, `harness-migrate`, `harness-qmd`,
+`workflow-profile`, `workflow-reader`), ни одного в файлах связи; те же семь файлов на чистом `origin/main` (27f12f6) в
+отдельном worktree — 20 failed, тоже таймауты. Unit и contract test-ы на Linux — CI PR-а.
 Mutation-проверка в своём worktree (вернул из копии), test-ы `link-power.test.ts` краснеют на всех семи: без условия
 доступа; без подписки на `unlinked` (blocker держится после отзыва); перезапуск blocker-а на каждом событии; «спит» не
 снимается новым соединением; «спит» только после обрыва; «спит» не снимается отзывом; `stop()` не отписывается от
