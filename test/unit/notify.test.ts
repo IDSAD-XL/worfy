@@ -398,9 +398,48 @@ describe('notify.pending at the IPC boundary', () => {
     const pending = new PendingOpens()
     const handlers = new Map<string, (event: unknown, input?: unknown) => unknown>()
     await registerIpc({ handle: (channel, listener) => handlers.set(channel, listener as never) }, { modules: { './notify.ts': () => Promise.resolve(notifyHandlers(pending)) }, isTrustedSender: (url) => url === APP_URL })
-    const call = (senderId: number, input?: unknown) => handlers.get('worfy:notify.pending')?.({ senderFrame: { url: APP_URL }, sender: { id: senderId } }, input)
-    return { pending, call }
+    const callFrom = (sender: unknown, input?: unknown) => handlers.get('worfy:notify.pending')?.({ senderFrame: { url: APP_URL }, sender }, input)
+    const call = (senderId: number, input?: unknown) => callFrom({ id: senderId }, input)
+    return { pending, call, callFrom }
   }
+
+  /** A client without a window (src/main/clients.ts), e.g. a Linked machine's connection. */
+  function windowless(id: string) {
+    const onDestroyed: (() => void)[] = []
+    const client = { id, send: () => undefined, isDestroyed: () => false, once: (_event: 'destroyed', listener: () => void) => onDestroyed.push(listener) }
+    return { client, onDestroyed, destroy: () => onDestroyed.splice(0).forEach((listener) => listener()) }
+  }
+
+  it('answers the note of a client without a window to that client only, and drops it when the client is destroyed', async () => {
+    const h = await harness()
+    const linked = windowless('link:machine-b')
+    h.pending.holdFor(linked.client, { sessionId: 's1', projectRoot: '/r' })
+    h.pending.hold(4, { sessionId: 's2', projectRoot: null })
+    // Neither a window nor another client gets it.
+    expect(await h.call(4)).toEqual({ ok: true, value: { note: { sessionId: 's2', projectRoot: null } } })
+    expect(await h.callFrom(windowless('link:machine-c').client)).toEqual({ ok: true, value: { note: null } })
+    expect(await h.callFrom(linked.client)).toEqual({ ok: true, value: { note: { sessionId: 's1', projectRoot: '/r' } } })
+    expect(await h.callFrom(linked.client)).toEqual({ ok: true, value: { note: null } })
+
+    // A note left untaken goes with the client; one listener per client however many notes it gets.
+    h.pending.holdFor(linked.client, { sessionId: 's3', projectRoot: null })
+    h.pending.holdFor(linked.client, { sessionId: 's4', projectRoot: null })
+    expect(linked.onDestroyed).toHaveLength(1)
+    linked.destroy()
+    expect(await h.callFrom(linked.client)).toEqual({ ok: true, value: { note: null } })
+    // A client that comes back under the same id is watched again.
+    const back = windowless('link:machine-b')
+    h.pending.holdFor(back.client, { sessionId: 's5', projectRoot: null })
+    back.destroy()
+    expect(h.pending.take('link:machine-b')).toBeNull()
+  })
+
+  it('answers no note to a call without a client', async () => {
+    const h = await harness()
+    h.pending.hold(4, { sessionId: 's1', projectRoot: null })
+    expect(await h.callFrom(undefined)).toEqual({ ok: true, value: { note: null } })
+    expect(h.pending.take(4)).toEqual({ sessionId: 's1', projectRoot: null })
+  })
 
   it('answers the note of the asking window only, once', async () => {
     const h = await harness()

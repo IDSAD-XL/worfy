@@ -1,9 +1,9 @@
 // Handlers of the `trash` domain (src/shared/ipc/trash.ts): the Nodes the user deleted, kept in
 // each Project's data folder (src/main/layout/trash.ts). When the app starts, entries older than
 // three days are deleted from the trash of every Project in the list.
-import { BrowserWindow } from 'electron'
 import { trashChanged, trashList, trashPut, trashRestore } from '../../shared/ipc/trash'
 import { sharedNodeSessions } from '../agent/app-node-sessions'
+import { toEveryWindow } from '../broadcast'
 import { cardDataStore } from '../cards/data'
 import { cardStore } from '../cards/store'
 import { layoutStore } from '../layout/store'
@@ -32,9 +32,7 @@ const store = new TrashStore({
 })
 
 function changed(projectId: string): void {
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (!window.isDestroyed()) emit(window.webContents, trashChanged, { projectId })
-  }
+  toEveryWindow((client) => emit(client, trashChanged, { projectId }))
 }
 
 // Start-up cleanup. Deferred, so loading the handlers never waits on the disk; one Project that

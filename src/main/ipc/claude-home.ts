@@ -1,7 +1,7 @@
 // Handlers of the `claudeHome` domain (src/shared/ipc/claude-home.ts): Sessions of a Project read
-// from the Claude home. Asking for a Project's Sessions also subscribes the asking window to
+// from the Claude home. Asking for a Project's Sessions also subscribes the asking client to
 // `claudeHome.changed` for that Project; the subscription ends with `claudeHome.close` or with the
-// window.
+// client (src/main/clients.ts).
 //
 // The live Sessions a watcher sees also go to liveSessionListeners (ticket 21: a notification when
 // a Session from the registry finishes its turn, src/main/notify.ts): once when the watcher starts,
@@ -10,6 +10,7 @@ import { resolve } from 'node:path'
 import { ClaudeHomeRegistry, type ClaudeHomeWatch } from '../claude-home/registry'
 import { SubagentReader, subagentTranscriptPath } from '../claude-home/subagents'
 import { readNewLines } from '../claude-home/tail'
+import { clientOf, type Client, type ClientId } from '../clients'
 import { claudeHome } from '../storage/paths'
 import {
   claudeHomeChanged,
@@ -24,13 +25,8 @@ import {
 import { mainThreadEvents, parseTranscriptLines, timedEvent } from '../../shared/transcript/parse'
 import { defineHandler, emit, type HandlerModule } from './index'
 
-/** The part of a window's webContents the subscriptions use; tests pass a fake. */
-export interface Subscriber {
-  readonly id: number
-  send(channel: string, ...args: unknown[]): void
-  isDestroyed(): boolean
-  once(event: 'destroyed', listener: () => void): unknown
-}
+/** The client the subscriptions serve (src/main/clients.ts); tests pass a fake. */
+export type Subscriber = Client
 
 /** Who gets the live Sessions of a Project each time a watcher reads them. */
 export type LiveSessionsListener = (projectRoot: string, live: readonly LiveSession[]) => void
@@ -38,10 +34,10 @@ export type LiveSessionsListener = (projectRoot: string, live: readonly LiveSess
 /** The app's listeners of live Sessions (src/main/notify.ts adds one). */
 export const liveSessionListeners = new Set<LiveSessionsListener>()
 
-/** Keeps one watcher per (window, Project) and forwards its changes to that window. */
+/** Keeps one watcher per (client, Project) and forwards its changes to that client. */
 export class ClaudeHomeSubscriptions {
   private readonly watches = new Map<string, Promise<ClaudeHomeWatch | undefined>>()
-  private readonly subscribers = new Set<number>()
+  private readonly subscribers = new Set<ClientId>()
 
   constructor(
     private readonly registry: ClaudeHomeRegistry,
@@ -65,7 +61,7 @@ export class ClaudeHomeSubscriptions {
     )
   }
 
-  /** Starts watching `projectRoot` for `subscriber` unless it already does or the window is gone. */
+  /** Starts watching `projectRoot` for `subscriber` unless it already does or the client is gone. */
   async subscribe(subscriber: Subscriber, projectRoot: string): Promise<void> {
     // A destroyed webContents never emits 'destroyed' again: its watcher would never be closed.
     if (subscriber.isDestroyed()) return
@@ -100,8 +96,8 @@ export class ClaudeHomeSubscriptions {
     await this.watches.get(key)
   }
 
-  /** Stops watching `projectRoot` for one window; false when it was not watching. */
-  async unsubscribe(subscriberId: number, projectRoot: string): Promise<boolean> {
+  /** Stops watching `projectRoot` for one client; false when it was not watching. */
+  async unsubscribe(subscriberId: ClientId, projectRoot: string): Promise<boolean> {
     const key = `${subscriberId}\0${projectRoot}`
     const watch = this.watches.get(key)
     if (watch === undefined) return false
@@ -115,7 +111,7 @@ export class ClaudeHomeSubscriptions {
     return this.watches.size
   }
 
-  async unsubscribeAll(subscriberId: number): Promise<void> {
+  async unsubscribeAll(subscriberId: ClientId): Promise<void> {
     this.subscribers.delete(subscriberId)
     const prefix = `${subscriberId}\0`
     const closing: Promise<void>[] = []
@@ -143,14 +139,14 @@ export function claudeHomeHandlers(
     defineHandler(claudeHomeSessions, async ({ projectRoot }, { event }) => {
       const root = resolve(projectRoot)
       // Watch first, read second: a change made while the files are read still produces an event.
-      const sender = event.sender as Subscriber | undefined
-      if (sender) await subscriptions.subscribe(sender, root)
+      const client = clientOf(event)
+      if (client) await subscriptions.subscribe(client, root)
       return registry.sessions(root)
     }),
     defineHandler(claudeHomeLive, async ({ projectRoot }) => ({ live: await registry.live(resolve(projectRoot)) })),
     defineHandler(claudeHomeClose, async ({ projectRoot }, { event }) => {
-      const sender = event.sender as Subscriber | undefined
-      return { closed: sender ? await subscriptions.unsubscribe(sender.id, resolve(projectRoot)) : false }
+      const client = clientOf(event)
+      return { closed: client ? await subscriptions.unsubscribe(client.id, resolve(projectRoot)) : false }
     }),
     defineHandler(claudeHomeTranscript, async ({ projectRoot, sessionId, cursor, maxBytes }) => {
       const path = await registry.transcriptPath(resolve(projectRoot), sessionId)

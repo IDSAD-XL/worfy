@@ -1,27 +1,24 @@
-// Handlers of the `limits` domain (src/shared/ipc/limits.ts). A window that opens the Limits gets
-// every later change on `limits.changed` until it is destroyed.
-import type { WebContents } from 'electron'
+// Handlers of the `limits` domain (src/shared/ipc/limits.ts). A client (src/main/clients.ts) that
+// opens the Limits gets every later change on `limits.changed` until it is destroyed.
 import { appLimits, type LimitsTracker } from '../agent/limits'
+import { clientOf, type Client } from '../clients'
 import { limitsChanged, limitsOpen } from '../../shared/ipc/limits'
 import { defineHandler, emit, type HandlerModule } from './index'
 
-/** The window as far as sending it the Limits needs. */
-export type LimitsWindow = Pick<WebContents, 'send' | 'isDestroyed' | 'once'>
-
 /** The handlers over a tracker; tests pass their own. */
 export function limitsHandlers(tracker: () => LimitsTracker): HandlerModule {
-  const subscribed = new WeakSet<LimitsWindow>()
+  const subscribed = new WeakSet<Client>()
   return [
     defineHandler(limitsOpen, (_input, { event }) => {
-      const window: LimitsWindow = event.sender
-      if (!subscribed.has(window)) {
-        subscribed.add(window)
+      const client = clientOf(event)
+      if (client !== undefined && !subscribed.has(client) && !client.isDestroyed()) {
+        subscribed.add(client)
         const unsubscribe = tracker().subscribe((state) => {
-          if (!window.isDestroyed()) emit(window, limitsChanged, state)
+          if (!client.isDestroyed()) emit(client, limitsChanged, state)
         })
-        window.once('destroyed', () => {
+        client.once('destroyed', () => {
           unsubscribe()
-          subscribed.delete(window)
+          subscribed.delete(client)
         })
       }
       return tracker().snapshot()

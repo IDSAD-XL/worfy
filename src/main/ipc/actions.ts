@@ -1,13 +1,13 @@
 // Handlers of the `actions` domain (src/shared/ipc/actions.ts): "Ship ticket" and "Run wave", and
 // the Tickets "Ship ticket" has a live Session for. The work itself is src/main/actions/launch.ts;
 // here it is wired to the app's Projects, Sessions, Orchestrators and Bindings, and its changes go
-// to every window.
-import { BrowserWindow } from 'electron'
+// to every client.
 import { actionsLaunches, actionsLaunchesChanged, actionsRunWave, actionsShipTicket, type LaunchesSnapshot } from '../../shared/ipc/actions'
 import { ActionLauncher } from '../actions/launch'
 import { sharedNodeSessions } from '../agent/app-node-sessions'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
+import { toEveryWindow } from '../broadcast'
 import { bindingStore } from '../layout/bindings'
 import { readProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
@@ -27,9 +27,7 @@ export function actionsHandlers(launcher: () => Pick<ActionLauncher, 'shipTicket
 }
 
 function broadcast(snapshot: LaunchesSnapshot): void {
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (!window.isDestroyed()) emit(window.webContents, actionsLaunchesChanged, snapshot)
-  }
+  toEveryWindow((client) => emit(client, actionsLaunchesChanged, snapshot))
 }
 
 let shared: ActionLauncher | undefined

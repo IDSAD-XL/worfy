@@ -12,6 +12,7 @@ import {
   projectsSettingsSet,
 } from '../../shared/ipc/projects'
 import { defaultProjectSettings } from '../../shared/projects/action-templates'
+import { toEveryWindow } from '../broadcast'
 import { currentHarness } from '../harness/locate'
 import { readProjectSettings, writeProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
@@ -19,16 +20,14 @@ import { defineHandler, emit, type HandlerModule } from './index'
 
 const store = projectStore()
 
-// Every window hears about every change, whoever made it: a select from one window, or a later
+// Every client hears about every change, whoever made it: a select from one window, or a later
 // part of main that switches the Project. A client keeps the state with the highest revision, so
 // two broadcasts that finish out of order do not roll the list back.
 store.onChange(() => {
   void store
     .state()
     .then((state) => {
-      for (const window of BrowserWindow.getAllWindows()) {
-        if (!window.isDestroyed()) emit(window.webContents, projectsChanged, state)
-      }
+      toEveryWindow((client) => emit(client, projectsChanged, state))
     })
     .catch((error: unknown) => console.error('[projects] could not broadcast the change', error))
 })
@@ -74,9 +73,7 @@ export default [
 
   defineHandler(projectsSettingsSet, ({ id, settings }) => {
     const saved = writeProjectSettings(store.dataDir(store.get(id).id), settings)
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) emit(window.webContents, projectsSettingsChanged, { id, settings: saved })
-    }
+    toEveryWindow((client) => emit(client, projectsSettingsChanged, { id, settings: saved }))
     return saved
   }),
 ] satisfies HandlerModule
