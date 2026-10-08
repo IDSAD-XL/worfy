@@ -58,7 +58,7 @@ Source: решения владельца 2026-10-07: Q13 (второй Autopilo
 - [x] e2e `test/e2e/linked-autopilot.spec.ts` (новый, локально в gate full): два worfy, связанные helper-ом Ticket-а 02 («Link a machine» и список Linked machine-ов). У каждого свой Project — клон одного fixture-репозитория с одним `origin`. Autopilot Epic-а на A (fake-агент, скрипт `orchestrator`) — на B кнопка Autopilot того же Epic-а отвечает отказом с именем Machine A (`data-error`). «Start anyway» на B стартует прогон.
 - [x] e2e там же: Stop прогона A нажат одновременно в окне A и в окне B (Project A, открытый на B). Оба экрана показывают `stopped`, в журнале прогона один `run-stopped`.
 - [x] `test/e2e/autopilot.spec.ts` зелёный без правок: машина без Linked machine-ов ведёт себя как раньше.
-- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all gate.sh full` — зелёный.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all gate.sh full` — зелёный.
 
 ## Тесты
 
@@ -165,6 +165,14 @@ renderer, открыт в этой же Wave). Поэтому Stop шлют од
 
 **Вне следа:** в `test/contract/main-ipc-wiring.test.ts` mock `src/main/link/service` дополнен
 `onAppLinkStart`: модуль `src/main/ipc/autopilot.ts` подписывается при загрузке.
+
+**Проверки.** `pnpm lint`, `pnpm typecheck` — EXIT=0. CI PR #168 (lint, typecheck, unit и contract
+на ubuntu) — зелёный. `GATE_SCOPE=all gate.sh full` на d6d558d: lint, typecheck, `test:e2e`,
+`test:package` прошли, `test` красный — 8 test-ов в двух файлах (`harness-qmd.test.ts` и ещё
+один), все «Test timed out in 5000ms». gate fast повторён дважды — так же (9–10 test-ов, таймауты
+процессов в `harness-*`, `github-prs`, `workflow-reader`). Не проверено: зелёный `pnpm test` на
+этой машине — нагрузка 5–7 от e2e соседних Ticket-ов не спадала; каждый упавший файл отдельно
+зелёный, файлы этого Ticket-а не падали ни разу.
 
 **Долг:** у узкой рамки Epic-а (два Ticket-а) «Start anyway» рядом с «Autopilot» и «Run wave»
 сжимает заголовок Epic-а до нуля (снимок 15-other-machine); полное имя — в подсказке.
