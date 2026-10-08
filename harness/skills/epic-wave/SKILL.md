@@ -266,7 +266,7 @@ where `<sha>` is the branch HEAD before the rework, already after the rebase (ap
 for: (a) a first-round item that is neither fixed nor refuted; (b) a defect introduced by the
 rework's changes; (c) a new high-severity defect. Everything else new is `[low] debt: …`: it does
 not block, the verdict carries it as a line (`VERIFIED; debt: …`), and the documents commit
-(section 4, item 4) moves it into the state file. Without this rule a fresh verifier always finds
+(section 4, item 4) moves it into the ticket's result section. Without this rule a fresh verifier always finds
 something new, and a ticket on the critical path blocks everything that depends on it.
 
 A second `REJECTED` takes the ticket out of the wave: a `blocked` row in the report table,
@@ -357,11 +357,17 @@ passes it.
 4. The documents PR — last, after production is verified (with `local-green` — a documents commit
    after the last `VERIFIED`). `ticket` edits ticket files in the worktree where it
    runs, so the wave's statuses and one state-file edit per wave go on its branch.
-   The state file (`F docs.handoff`: `path`, `kind`, `check`) is rewritten as a snapshot (skill
-   `/worfy:ship-ticket`, step 11) and takes the `debt:` lines from the gate verdicts as debts; the
-   story of the wave goes into the documents PR description, lessons that generalize go where
-   `F lessons` says (with `local-green` the story goes into the documents commit message);
-   `F docs.handoff.check` before push. No `docs.handoff` — "the project has no state file".
+   The state file (`F docs.handoff`: `path`, `kind`, `check`) is a snapshot; its rules are in
+   skill `/worfy:ship-ticket`, step 11. The wave rewrites only its own epic's lines: what is in
+   progress and what waits for the owner. Do not add a block per wave; the details of the wave
+   go into the result sections of its tickets. The `debt:` lines from the gate verdicts go into
+   the result section of their ticket; the state file gets one line that links there. A wave that
+   closes the epic sorts its debts: those worth doing become tickets of the next epic, the rest
+   stay in the result sections. The closed epic leaves the other sections and becomes one line
+   among the pointers to where the rest lives. The story of the wave goes into the documents PR
+   description, lessons that generalize go where `F lessons` says (with `local-green` the story
+   goes into the documents commit message). Run `F docs.handoff.check`, if the profile sets it,
+   before push. No `docs.handoff` — "the project has no state file".
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/ticket" done <epic> <NN> --pr <N>                  # for each merged ticket; with local-green — without --pr

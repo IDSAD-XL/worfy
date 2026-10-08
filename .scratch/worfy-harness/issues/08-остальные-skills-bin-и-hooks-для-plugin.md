@@ -259,3 +259,10 @@ CI зелёный, `mergeStateStatus` CLEAN.
 - [low] Пять skills этого Ticket-а ссылаются на `~/.claude/profiles/README.md`, а skills Ticket-а 06 — на
   `${CLAUDE_PLUGIN_ROOT}/profiles/README.md`.
 - `claude plugin validate` — не проверено (пункт «Готово, когда» выше).
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] `harness/README.md:18` называет `ТИКЕТЫ.md` (теперь `harness/bin/TICKETS.md`); `:34-35` говорит,
+  что пути скриптов указывают на `~/.claude` и текст частично русский, — устарело после Ticket-ов 05–08.
+- Урок процесса Wave 2 (история): замок на main разбирается не в порядке постановки мержей в очередь.
+  На итог это не влияет: каждый мерж заново перебазируется на свежий `main` и гоняет `gate full`.

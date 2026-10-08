@@ -124,6 +124,30 @@ check "ship-ticket: do not run other agents' scripts (the mut.sh lesson)" \
     bash -c 'grep -qF "$2" "$1" && grep -qF "$3" "$1"' _ "$ST" \
     'Do not run other' "agents' scripts from the scratchpad: a reviewer that ran someone else's \`mut.sh\` hung for three"
 
+# The state-file rules (owner's decisions of 2026-10-08): a snapshot, rewritten only on the lines
+# of one's own epic, no block per wave, review debts in the ticket's result section, the waiting
+# list as one line per item, a closed epic as one line, the form check before push.
+check "epic-wave: the wave rewrites only its own epic's lines" has "$EW" "The wave rewrites only its own epic's lines"
+check "epic-wave: no block per wave" has "$EW" 'Do not add a block per wave'
+check "epic-wave: gate debts go to the ticket, the state file only links" \
+    has "$EW" 'the state file gets one line that links there'
+check "epic-wave: closing the epic sorts its debts" has "$EW" 'closes the epic sorts its debts'
+check "epic-wave: a closed epic is one line" has "$EW" 'The closed epic leaves the other sections and becomes one line'
+check "epic-wave: docs.handoff.check before push" has "$EW" 'Run `F docs.handoff.check`, if the profile sets it,'
+check "epic-wave: debts are not collected in the state file" lacks "$EW" 'as debts'
+check "ship-ticket: only the lines of your own epic, no block per ticket or wave" \
+    has "$ST" 'the lines of your own epic; do not add a block per ticket or per wave'
+check "ship-ticket: review debts stay in the ticket's result section" \
+    has "$ST" "Low-severity debts from review stay in the ticket's result section; the state file holds one"
+check "ship-ticket: what waits for the owner is one line per item with a link" \
+    has "$ST" 'What waits for the owner: one line per item, with a link to its ticket.'
+check "ship-ticket: a finished item is deleted in the same PR" has "$ST" 'finishes is deleted in this PR.'
+check "ship-ticket: an item older than two weeks becomes a ticket" has "$ST" 'An item waiting longer than two weeks becomes a ticket for the'
+check "ship-ticket: the waiting list stays at about ten items" has "$ST" 'Keep the list to about ten items.'
+check "ship-ticket: a closed epic is one line" has "$ST" 'A closed epic is one line among the pointers to where the rest lives.'
+check "ship-ticket: docs.handoff.check before push" has "$ST" '`F docs.handoff.check` checks the form — run it before push, if the profile sets it'
+check "ship-ticket: no debts section in the state file" lacks "$ST" "state file's debts"
+
 # 8. Cyrillic only in allowed places: the old Autopilot forms, Gate verdict words, placeholders
 # of profile values, section names of Project documents and Russian examples.
 ALLOWED=(

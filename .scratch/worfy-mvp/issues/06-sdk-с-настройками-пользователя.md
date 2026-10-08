@@ -362,3 +362,9 @@ DOM. Лог main и снимки лежат в scratchpad Session оркестр
   `claude-opus-5-5[1m]` с 634 tools и вызовом `create_card` стоил $0.1041, «Prompt is too long» не было
   (проверка 25, Ticket 24).
 - Снимки: `31-01-start.png`, `31-02-new-session.png`, `31-03-answer.png`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- Окружение запуска shell с fish (`SSH_AUTH_SOCK`, `__CF_USER_TEXT_ENCODING` и другие, ADR-0007) не
+  проверено, потому что fish на машине нет (`which fish` — not found), а ставить программы решает
+  владелец. zsh и `SHELL=/bin/bash` проверены раньше.

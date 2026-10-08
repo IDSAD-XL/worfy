@@ -167,3 +167,10 @@ Ticket-ом 01 (`epic-status`: open); после проверки он удал�
 - Вердикт: проверено.
 - Снимки (в scratchpad Session Orchestrator-а, в репозиторий не положены): `M13-goto.png`,
   `M13-palette.png`, `M13-canvas-created.png`, `M13-canvas.png`, `M13-after-close.png`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] `test/contract/actions.test.ts:19` — нет contract test-а на то, что IPC-обработчик
+  `actions.shipTicket` передаёт `near` дальше и отвергает плохой `near`.
+- [low] `src/main/layout/place.ts:31-37` — `placeDownFrom` не видит рамку, которую пользователь утащил
+  правее колонки (main не знает размера рамок), и Session может лечь на неё.

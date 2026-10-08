@@ -149,3 +149,12 @@ c3223b30, транскрипта нет), сообщений ему не отп�
 - Снимки (в scratchpad Session Orchestrator-а, в репозиторий не положены): `M20-before.png`,
   `M20-auction-open.png`, `M20-history-popover.png`, `M20-show-d36f39e0.png`, `M20-show-three.png`,
   `M20-after-remove.png`, `M20-final.png`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] Реестр Session-ов при сбое `ps` считает Session неживой: `processAlive`
+  (`src/main/claude-home/registry.ts:129`) сводит «не знаю» к `false`. `SubagentReader` после круга
+  доработки так уже не делает.
+- [low] Просмотр транскрипта не показывает task-notification из очереди Claude Code:
+  `src/shared/transcript/parse.ts:75` читает только форму `user`.
+- [low] Признак конца Subagent-а по `stop_reason: end_turn` почти не срабатывает в Claude Code 2.1.2xx.

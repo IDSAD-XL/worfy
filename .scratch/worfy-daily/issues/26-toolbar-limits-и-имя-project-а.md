@@ -84,3 +84,8 @@ Stable copy из 5060858 со своей папкой данных (`WORFY_DATA_
 - Улики (в scratchpad Session Orchestrator-а, в репозиторий не положены): `M3-toolbar.png`,
   `M3-toolbar-zoom.png`, `M3-toolbar-weekday.png`, `M3-toolbar-weekday-zoom.png`, прямоугольники —
   `M3-rects.json`, `M3-rects-weekday.json`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] `src/shared/agent/limits.ts:166-170` (`keepKnownStatus`) — статус `rejected` держится до сброса
+  окна; если лимит сняли досрочно, а время сброса то же, полоса остаётся красной.

@@ -186,3 +186,13 @@ electron-rebuild --only node-pty` тот же test зелёный. Цена: `po
   (с 05:24); проверка в нём ничего не создавала, Chromium обновил служебные DIPS и Session Storage.
 - Вердикт: проверено. Снимок: `32-finder-open-window.png` (в scratchpad сессии оркестратора, в
   репозиторий не положен).
+
+### Долги из HANDOFF (2026-10-08)
+
+- Запись Gate для worfy живёт вне репозитория (`~/.claude/gate/config.json`, после переноса Harness —
+  `$HARNESS_HOME/gate/config.json`): `fast` = lint, typecheck, test; `full` добавляет `test:e2e` и
+  `test:package` (с 2026-10-06). Новые скрипты проверки нужно вписывать туда вручную.
+- [low] Electron 44 скачивает свой бинарник при первом запуске, а не в `pnpm install`: в CI загрузка идёт
+  в шаге `pnpm test`, без сети unit test-ы под Electron не стартуют. По той же причине `pnpm package` на
+  чистом checkout падает, пока что-то не запустит electron: скрипту `package` (`package.json:12`) нужен
+  шаг `install-electron` перед сборкой.

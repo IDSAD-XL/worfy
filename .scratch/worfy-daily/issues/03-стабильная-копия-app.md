@@ -205,3 +205,14 @@ e2e это не затрагивает: у них `WORFY_DATA_DIR` во врем
 - Улики (в scratchpad Session Orchestrator-а, в репозиторий не положены): `M16-window.png`,
   `M16-finder-selected.png`, `M16-gate.txt`, `M16-stable.json`, `M16-wins-before.txt`,
   `M16-wins-after.txt`, `M16-launch.txt`, `M16-ci.txt`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] границы модулей: формат журнала Autopilot из Ticket-а 01 называет папкой по умолчанию
+  `~/Library/Application Support/worfy` (`src/shared/autopilot/journal.ts:7`), а пример для наблюдателя
+  жёстко прописывает этот путь (строка 48). После PR #37 dev-запуск хранит данные в `…/worfy-dev`
+  (ADR-0023), и для него описание неверно.
+- [low] Нет test-а на второй запуск, пока первый процесс ещё стартует и окна у него нет (ветка
+  `started=false` в `src/main/index.ts`, на 2026-10-08 — строки 50–62). e2e свёрнутого окна требует
+  оконного сервера macOS: локально 3 из 3 и на CI macos-latest были зелёные; без входа пользователя в
+  оконную систему может вести себя иначе.

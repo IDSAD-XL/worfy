@@ -155,3 +155,12 @@ c3223b30, транскрипта нет), сообщений ему не отп�
 - Снимок сразу после добавления Project-а: [10-auction-frames-stable.png](../evidence/10-auction-frames-stable.png).
   Остальное — в scratchpad Session Orchestrator-а: `M20-before.png`, `M20-auction-open.png`,
   `M20-show-three.png`, `M20-after-remove.png`, `M20-final.png`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] `src/renderer/canvas/sources/subagents.ts:314` — у публикации прямоугольников Subagent-ов
+  (`publishPlaneRects`) нет cleanup при размонтировании.
+- [low] ADR-0032, строки 60–61, говорит о задержке в один кадр, а на деле задержка равна времени загрузки
+  деревьев Subagent-ов. Принятый ADR не правится — уточнение здесь.
+- [low] `.scratch/worfy-daily/spec.md:340-349` — обоснования порядка Ticket-ов 23–28 после этого Ticket-а
+  написаны до ADR-0032 и устарели.

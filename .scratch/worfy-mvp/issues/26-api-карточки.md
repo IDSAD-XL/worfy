@@ -179,3 +179,9 @@ LaunchServices с окружением launchd, настоящий Claude Code �
 - `git status --porcelain` основного checkout пуст до и после; Card-ы лежат только в папке данных worfy.
 - Снимки: `26-04-dialog-cancel-run.png`, `26-06-after-cancel.png`, `26-07-dialog-send-run.png`,
   `26-08-orch-after-send.png`, `26-11-dialog-orchestrator.png`, `26-12-orch-fallback.png`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- Неточные ссылки в отчёте (на код не влияет): test «reads the workflow only after a Card asks…»
+  начинается в `test/unit/card-bridge-overlay.test.tsx:98`, а не на 95; «sends workflow events only to a
+  Card that subscribed…» — на 133, а не на 134.

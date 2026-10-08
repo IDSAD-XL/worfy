@@ -261,3 +261,9 @@ Project-а — её строит тот же код из `PLACEHOLDERS`. При�
   `skipped`. Ручной пункт «Готово, когда» отмечен 2026-10-07 по решению владельца.
 - Пункт владельца про skill `epic-wave` проверен только чтением: в
   `~/.claude/skills/epic-wave/SKILL.md` есть форма «Ticket-ы NN, NN эпика X» (commit 364070b).
+
+### Долги из HANDOFF (2026-10-08)
+
+- История: `GATE_SCOPE=all gate.sh full` шёл на ветке без commit-а e7509d2 (Ticket 31: документы и
+  `build/brand/*.svg`); на влитом main @ f4ddffc CI зелёный (lint, typecheck, unit и contract test-ы), e2e
+  на нём не прогонялись. С тех пор e2e на main много раз шли в `gate full` следующих Wave.

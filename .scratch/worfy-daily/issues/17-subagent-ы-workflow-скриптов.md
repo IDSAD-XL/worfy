@@ -160,3 +160,18 @@ worfy (CanvasForAI).
   Остальное — в scratchpad Session Orchestrator-а: `M19-frames.png`, `M19-frame-week.png`,
   `M19-badge-zoom-week01-02.png`, `M19-frame-daily-0.png`, `M19-frame-daily-6.png`,
   `M19-frame-daily-12.png`, `M19-after-restore.png`.
+
+### Долги из HANDOFF (2026-10-08)
+
+Все low, из ревью [PR #73](https://github.com/IDSAD-XL/worfy/pull/73).
+
+- `src/main/claude-home/subagents.ts:35` (`AGENT_FILE =/…/`) и `src/shared/transcript/subagents.ts:623`
+  (`byStart =(…)`) — нет пробела после «=».
+- `src/renderer/canvas/nodes/SubagentNode.tsx:106` — у записи `workflow` подсказка неактивной кнопки
+  Transcript «No transcript of this Subagent yet», хотя у запуска транскрипта не будет никогда.
+- Гонка: транскрипт Session и журналы запусков читаются параллельно (`Promise.all`,
+  `src/main/claude-home/subagents.ts:265`). Агент запуска может ненадолго показаться `error`: конец
+  запуска уже прочитан из транскрипта, а запись `result` журнала — ещё нет. Исправится при следующей
+  записи транскрипта.
+- `test/fixtures/claude-home/README.md:40-41` — фраза «разбирает все шесть Сессий» про Agent SDK не
+  перепроверена после добавления Session 1212 (и пишет «Сессий» — слово из _Avoid_ CONTEXT.md).

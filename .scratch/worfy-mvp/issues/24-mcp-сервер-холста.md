@@ -199,3 +199,9 @@ LaunchServices с окружением launchd, настоящий Claude Code �
   Ticket-а 11, его исправляет Ticket 10 `worfy-daily`.
 - Снимки: `25-02-turn-transcript.png`, `25-03-palette-chasy.png`, `25-04-goto-card.png`,
   `25-05-card-t1.png`, `25-06-card-t2.png`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] границы модулей: `repositoryRoot()` в `src/main/mcp/canvas-server.ts:345` копирует правило из
+  закрытого `ProjectStore.resolve()` (`src/main/projects/store.ts:192`) — корень репозитория для linked
+  worktree. Две реализации вызывают git в разном порядке.

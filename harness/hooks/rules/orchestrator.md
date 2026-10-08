@@ -139,9 +139,12 @@ No tickets in the profile — no ticket CLI; say where the status was recorded i
 
 **A task is not finished until the project's state file is updated.** The profile's
 `docs.handoff` names it (`path`), its form (`kind`) and a `check` to run after editing — typically
-`HANDOFF.md` at the root with "what's done / what's next / what went wrong". Update it at phase
+`HANDOFF.md` at the root: a snapshot of what is in progress, what waits for the owner, the risks
+that affect the next steps, the next step, and where the rest lives. Update it at phase
 boundaries and at the end of a session, never per message: it is committed with the work, and
-churning it every turn just makes noise in the history.
+churning it every turn just makes noise in the history. A documents PR rewrites only the lines of
+its own epic and appends no block per wave; details go into the tickets' result sections (rules —
+skill `worfy:ship-ticket`, step 11).
 
 Never invent a second state file. If the profile or the repo has one, use it; if neither does, ask
 before creating one. Two files describing where we are means one of them is lying.

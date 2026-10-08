@@ -98,3 +98,10 @@ worfy только читает транскрипт ([ADR-0002](../../../docs/a
 - Снимок Session view после хода gamma: [18-resume-terminal-session.png](../../worfy-mvp/evidence/18-resume-terminal-session.png).
   Остальное — в scratchpad Session Orchestrator-а: `M12-before.png`, `M12-history-popover.png`,
   `M12-after-resume-canvas.png`, `M12-before-turn.png`, `M12-transcript.txt`, `M12-dom.json`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] `src/renderer/claude-home/useClaudeHome.ts:305-328` — один общий state транскрипта на ключ
+  `<root, sessionId>`: два потребителя одного транскрипта делят и сброс при размонтировании. (Принятый
+  пробел склейки — prompt до Resume без ответа и без записи прерывания показывается один раз — записан
+  выше.)

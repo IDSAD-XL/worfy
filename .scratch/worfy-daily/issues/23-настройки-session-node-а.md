@@ -145,3 +145,10 @@ Resume — на копии из 6df9791 (pid 2455); CDP 9351 у обеих.
 - Улики (в scratchpad Session Orchestrator-а, в репозиторий не положены): `M10-picker-menu.png`,
   `M10-after-turn.png`, `M10-settings.json`, `M10-model.txt`, `M17-resume.png`, `M17-resume-view.png`,
   `M17-picker-menu.png`, `M17-default.png`, `M17-effort.png`, `M17-models.txt`, `M17-effort.txt`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] `test/contract/agent-session.test.ts`, `autopilot*.test.ts`, `permissions.test.ts`, `card-*.test.ts`
+  читают настоящий `~/.claude/settings.json`. Тот же корень, что долг [med] `worfy-daily` 07
+  (`readUserModel()`); правка общая — `WORFY_CLAUDE_HOME` на пустой каталог в setup vitest
+  (`test/setup-dom.ts` его не задаёт).

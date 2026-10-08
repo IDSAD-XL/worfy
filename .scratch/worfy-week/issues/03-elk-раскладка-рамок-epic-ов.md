@@ -263,3 +263,10 @@ F-SPEC: Edge-и ортогональные, со скруглёнными угл
   `M21-hover.png`, `M21-hover-zoom.png`, `M21-after-ticket-drag.png`, `M21-frame-dragged.png`,
   `M21-after-undo.png`, `M21-stack-open-default.png`, `M21-all-lit.png`, `M21-hover-done-chain.png`,
   `M21-deepening-lit-zoom.png`, `M21-final.png`; данные — `M21-edges.json`, `M21-drag.txt`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] `test/contract/canvas-tools.test.ts:438`, `:481` — фикстуры ещё создают Node `epic-frame` с ключом
+  `offset:3` и Node `subagent-tree` со смещением Subagent-а, которых после ADR-0037 нет: renderer их не
+  пишет, main снимает при чтении `layout.json`. Комментарии над фикстурами (`:434-435`, `:476-477`)
+  описывают прежнее поведение — renderer хранит смещения Ticket-ов и Node-ов Subagent-ов.

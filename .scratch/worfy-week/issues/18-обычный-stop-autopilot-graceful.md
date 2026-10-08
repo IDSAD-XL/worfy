@@ -304,3 +304,7 @@ ADR — файл в `docs/adr`, номер выдаёт Orchestrator. Общие
   Так было и до круга доработки.
 - Закрыт долг Ticket-а 17: проверка `if (this.halted) return` в `Session.next()` теперь покрыта
   test-ом `test/contract/agent-controls.test.ts:765` (абзац «Test вне следа» выше).
+
+**Как читать старый журнал Autopilot.** Строки `run-stopped` с причиной `user-stop` и Ticket-ами,
+записанные между мержами Ticket-ов 17 (403f4c9) и 18 (4473a9e), значат прерывающий Stop, то есть
+нынешний Force stop. Переводить их не нужно: журнал по причине никто не читает.

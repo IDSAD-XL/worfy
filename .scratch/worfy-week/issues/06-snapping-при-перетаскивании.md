@@ -186,3 +186,22 @@ Orchestrator на настоящем Claude Code и пишет в `~/.claude`, �
   `M23-threshold-472.png`, `M23-nosnap-8.png`, `M23-cmd.png`, `M23-cmd-after-drop.png`,
   `M23-outline.png`, `M23-outline-after-drop.png`, `M23-stuck.png`, `M23-freeze-repro.png`,
   `M23-final.png`; данные — `M23-positions.txt`, `M23-freeze.txt`.
+
+### Долги из HANDOFF (2026-10-08)
+
+Сводка нестабильных test-ов проекта на 2026-10-08 (здесь — потому что первый из них упал у этого Ticket-а):
+
+- `test/e2e/epic-frame.spec.ts:721` «long names» — первый кандидат в Ticket. Причина: helper
+  `expectRowsInside` (`:706`, вызовы `:751-753`) меряет Node и его строки двумя отдельными чтениями, и
+  между ними приходит ответ ELK, который двигает Node. Падал: у исполнителя этого Ticket-а (строка
+  Ticket-а 40 вышла за Node; со snapping-ом не связан), на main c539cfd — 2 прогона из 8, в Gate ревью
+  `worfy-week` 08; остановил мерж PR #109 (`worfy-harness` 05, два красных `gate full` подряд); в Wave 6
+  дважды уронил `gate full` исполнителя `worfy-week` 13 и 1 раз из 3 — у его ревьюера.
+- `test/contract/autopilot-background.test.ts:435` (`worfy-daily` 29, test начинается на `:424`) —
+  подробности в «Долги из HANDOFF» Ticket-а 29 `worfy-daily`.
+- `test/e2e/focus.spec.ts:87` (три выделенные заметки в focus mode) — под нагрузкой падал 2 раза из 3.
+- `test/contract/claude-home-registry.test.ts` «reports transcripts in a subfolder of the root…» — красный
+  CI на 29c627b и один красный прогон из шести с перемешанным порядком в `worfy-daily` 19 (seed 123456,
+  повтор зелёный); причина не разобрана.
+- `test/e2e/edges.spec.ts:166` — один раз упал у исполнителя `worfy-week` 08, при перезапуске прошёл;
+  причина не разобрана.
