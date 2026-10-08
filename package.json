@@ -17,6 +17,7 @@
     "test:e2e": "electron-vite build && playwright test --grep-invert @packaged",
     "test:package": "pnpm package && playwright test --grep @packaged",
     "install:stable": "scripts/install-stable.sh",
+    "eval:harness": "node scripts/eval-harness.mjs",
     "postinstall": "electron-rebuild --only node-pty"
   },
   "dependencies": {

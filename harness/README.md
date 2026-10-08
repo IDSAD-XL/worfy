@@ -68,3 +68,39 @@ point it at another copy. Registries, gate state and profiles are temporary fold
 against live repositories (Auction, Atakama, worfy) run only with the real `HOME`, when both the
 repository and the live gate registry (`~/.claude/gate/config.json`) exist; otherwise the test
 prints `skip …`. They only read `~/.claude`.
+
+## Evals
+
+`evals/` holds eight `claude plugin eval` cases. They check by behaviour, not by text, that Claude
+follows the Harness rules: `epic-wave` takes exactly the tickets named in the Autopilot command (two
+cases: the command and its old Russian form), `ship-ticket` finishes the way `workflow.finish` says
+(`local-green` and `pr-green-ci`), the implementer's report is JSON with exit codes, a reviewer with
+the lens "implementer's report" answers `VERIFIED` or `REJECTED`, no agent captures the screen
+through the OS, and the main session ends a working turn with the four-line status block.
+
+Each case builds its fixture with `evals/lib/demo-project.sh`: a small git repository with epic
+`demo` (four tickets) in the run's working folder, and the gate registry and profile `demo` in the
+run's temporary `HOME`. Graders are free (`regex`, `tool_used`) wherever they can be; `llm` graders
+judge only short answers.
+
+Run, on a Mac, by hand, from the repository root:
+
+    pnpm eval:harness                                       # all eight cases
+    pnpm eval:harness -- --case status-block --runs 1       # one case, one run
+
+`scripts/eval-harness.mjs` evaluates a temporary copy of `harness/` without `dependencies` in
+`plugin.json` (a run installs nothing besides the plugin under test, and Claude Code does not load a
+plugin with a missing dependency). It makes two calls: the cases tagged `main` with `Bash`, `Write`
+and `Edit`, and `no-os-screen-capture` (tag `gui`) with `Bash` only for `git`, `node` and the
+Harness scripts. Both pass `--scaffold --trust-plugin --ablation none --threshold 0.8
+--max-cost-usd 30 --no-publish` and pinned `--model` and `--judge-model`; arguments after `--` go
+to both. `HARNESS_DIR=<dir>` evaluates another copy of the Harness. The exit code is the worst of
+the two calls: `0` — every case at 0.8 or above, `1` — a case below it or not loaded, `2` — a
+partial run (cost ceiling, the account refused), `130`/`143` — interrupted.
+
+Every run and every `llm` grader is a real model call on the owner's account. A full run costs
+COST_PLACEHOLDER. The report is `evals/results/<time>-main/report.html` (and `-gui`), next to
+`aggregate-result.json`; `evals/results/` holds run transcripts and stays out of git and out of
+the app (`electron.vite.config.ts`, `HARNESS_NOT_BUNDLED`). CI and the gate do not run the evals:
+`test/contract/harness-evals.test.ts` checks for free only that every case is complete, every
+fixture builds, and the Harness scripts recognise it.
