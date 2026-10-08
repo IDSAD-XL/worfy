@@ -1,7 +1,7 @@
 # 21 — Пометка «Harness в main новее, чем в Stable copy» в worfy и в журнале прогона Autopilot
 
 Type: task
-Status: claimed — 2026-10-08
+Status: done — 2026-10-08, [PR #141](https://github.com/IDSAD-XL/worfy/pull/141)
 Blocked by: 12
 Source: решения владельца 2026-10-07, Q14 и Q12; [ADR-0047](../../../docs/adr/0047-harness-lessons-by-pr-early-owner-switch.md) (развитие Harness: урок — PR в `harness/`, во время Autopilot Stable copy не пересобирается); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (доставка Harness, версия `<semver>+<SHA>`); [spec.md](../spec.md)
 
@@ -147,3 +147,14 @@ SHA сборки». На нынешнем main модуля `harness-drift.ts` �
 - [ ] (вручную) не проверено: пункт требует пересобрать Stable copy (`pnpm install:stable`), а пересборка
   и замена `~/Applications/worfy-stable.app` агенту запрещены. Тот же сценарий на установленной во временную
   папку копии проверяет e2e `@packaged` в `test/e2e/packaged.spec.ts`.
+
+Гейт волны 7: `VERIFIED` (PR #141, влит `cc9f9bd`); снимки chip-а в светлой и тёмной теме — chip целиком в
+заголовке рамки Epic-а, ничего не накрывает. Долги ревьюера (не блокируют):
+- [low] `src/main/autopilot/harness-drift.ts:59-63` — в partial clone (remote с `promisor`) `rev-list -- harness/`
+  сам докачивает объекты с origin, то есть пишет в `.git` Project-а. Лечится `GIT_NO_LAZY_FETCH=1` рядом с
+  `GIT_OPTIONAL_LOCKS`. Репозиторий владельца — полный клон, сейчас не проявляется.
+- [low] `src/renderer/canvas/actions/AutopilotAction.tsx:107-108` — окно спрашивает `autopilot.state` один раз на
+  Project за свою жизнь. Без прогона урок, влитый пока приложение простаивает, виден только после перезапуска или
+  при старте прогона (а не «при открытии Project-а»).
+- [low] `test/e2e/packaged.spec.ts:514-517` — отрицательный случай держится на паузе 3 с: `null` — это и значение
+  до ответа git.

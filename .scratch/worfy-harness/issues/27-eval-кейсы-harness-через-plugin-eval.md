@@ -1,7 +1,7 @@
 # 27 — Eval-кейсы Harness: `claude plugin eval` проверяет, что Claude следует правилам Harness
 
 Type: task
-Status: claimed — 2026-10-08
+Status: blocked — платная часть не идёт: песочница claude plugin eval запрещает git из Command Line Tools; ждёт решения владельца (brew git / правка Harness / исправление Claude Code), бесплатная часть влита PR #142
 Blocked by: 05, 06, 07, 11
 Source: решения владельца 2026-10-08, пересмотр E3: вопрос 34, вариант б («давай таки попробуем б» — eval-кейсы Harness через `claude plugin eval`), и вопрос 35 («Готово, когда» E3 без изменений) — номера Session «Несколько машин и порт под Windows», продолжают Q30–Q33 spec-а worfy-windows, это не Q34 и Q35 spec-а E3; решение владельца о дешёвом CI (2026-10-06, PR #42: CI — одна задача на Linux, e2e и `.app` — локально); [ADR-0041](../../../docs/adr/0041-harness-rules-via-session-hooks.md) (правила Harness через hooks `SessionStart` и `SubagentStart`), [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (plugin `worfy`, состояние машины в `~/.claude/worfy-harness/`), [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) (скрипты Harness на Node, bash — только в test-ах); [документация `claude plugin eval`](https://code.claude.com/docs/en/plugin-evals); [spec.md](../spec.md)
 
@@ -288,3 +288,15 @@ Xcode Command Line Tools. Настройки песочницы, которые 
 
 Отчёты шага 0 — `harness/evals/results/2026-10-08T02-15-10-313Z-main/report.html` и
 `…/2026-10-08T02-15-52-506Z-main/report.html` в worktree Ticket-а (вне git).
+
+Гейт волны 7: `VERIFIED` (PR #142, влит `7893df3`) — бесплатная часть; платные пункты остались `[ ]`, Ticket
+переведён в `blocked` до решения владельца про git в песочнице eval («решено без владельца, подтвердить»: вариант
+«влить бесплатную часть, платную — после решения»). Отчёты `report.html` шага 0 удалены вместе с worktree Ticket-а
+(они лежали в игнорируемой `harness/evals/results/`); trace-ы прогонов остались в `/private/tmp/e-*` (8 папок,
+можно удалить руками). Долги ревьюера (не блокируют):
+- [low] `scripts/eval-harness.mjs:89` — удаление переменных Session Claude Code (`CLAUDECODE` и др.) не покрыто
+  test-ом: mutant, который их оставляет, проходит.
+- [low] `test/contract/harness-evals.test.ts:302` — test проверяет, что `HARNESS_NOT_BUNDLED` содержит `evals`, но не
+  что фильтр копирования (`electron.vite.config.ts:40`) этот список читает.
+- [low] `scripts/eval-harness.mjs:207` — если `claude` не запустился (`status` и `signal` — null), скрипт выходит с
+  кодом 143 «interrupted» вместо 1.
