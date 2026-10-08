@@ -194,3 +194,9 @@ renderer, открыт в этой же Wave). Поэтому Stop шлют од
    e2e второго test-а: отказ на B, конец прогона A, «Start anyway» на B — в журнале без `override`.
 5. Пункты «Готово, когда» переписаны под сделанное; e2e Stop с окна B оставлен `[ ]` с «не
    проверено».
+
+Проверки доработки на 698fa88: `GATE_SCOPE=all gate.sh full` — lint, typecheck, `test:e2e`,
+`test:package` прошли, `test` красный: 7 test-ов, все «Test timed out in 5000ms», только в
+`test/contract/github-prs.test.ts` и `test/contract/harness-qmd.test.ts` (оба в списке известных
+нестабильных, нагрузка 5–7). Эти два файла отдельно — 76 из 76 зелёные. CI PR #168 на 698fa88 —
+зелёный.
