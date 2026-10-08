@@ -1,9 +1,9 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, launchApp } from './helpers'
+import { canvasReady, launchApp, openSecondWindow } from './helpers'
 
 // The Canvas of a Project against the built app: Nodes are created, moved and resized in the
 // window, main saves layout.json in the Project's data folder, and a restarted app shows the same
@@ -24,9 +24,11 @@ interface StateNode {
   h: number
   data: Record<string, unknown>
 }
+type Camera = { x: number; y: number; zoom: number }
 interface State {
   projectId: string
-  layout: { nodes: StateNode[]; viewport: { x: number; y: number; zoom: number } }
+  layout: { nodes: StateNode[]; viewport: Camera }
+  revision: number
 }
 
 let scratch: string
@@ -49,15 +51,24 @@ test.afterEach(async () => {
   await removeDir(scratch)
 })
 
+/** What main answers on `channel`; fails the test on {ok:false}. */
+async function ask<T>(window: Page, channel: string, input: unknown): Promise<T> {
+  const result = await window.evaluate(
+    ({ channel, input }) =>
+      (globalThis as unknown as { worfy: { invoke(c: string, i: unknown): Promise<{ ok: boolean; value: unknown; error?: string }> } }).worfy.invoke(channel, input),
+    { channel, input },
+  )
+  expect(result, `${channel}: ${result.error ?? ''}`).toMatchObject({ ok: true })
+  return result.value as T
+}
+
 /** The Layout as main has it. */
 async function layoutOf(window: Page, projectId: string): Promise<State['layout']> {
-  const result = await window.evaluate(
-    (id) => (globalThis as unknown as { worfy: { invoke(c: string, i: unknown): Promise<{ ok: boolean; value: State }> } }).worfy.invoke('layout.get', { projectId: id }),
-    projectId,
-  )
-  expect(result.ok).toBe(true)
-  return result.value.layout
+  return (await ask<State>(window, 'layout.get', { projectId })).layout
 }
+
+/** The camera this machine saved for the Project's Canvas (worfy-link ticket 06). */
+const cameraOf = (window: Page, projectId: string): Promise<Camera> => ask<Camera>(window, 'viewport.get', { projectId })
 
 /** The notes of a Layout: every Project's Canvas also has its Orchestrator Node (ticket 08). */
 const notesOf = (layout: Pick<State['layout'], 'nodes'>): StateNode[] => layout.nodes.filter((node) => node.kind === 'note')
@@ -279,7 +290,7 @@ test('a Node of an unknown kind is drawn as a placeholder and the rest of the Ca
 
 test('zoom: ⌘= and ⌘− step within 0.2–2.5, ⌘ + wheel zooms, the wheel pans, and the viewport is saved', async () => {
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
-  const zoom = async () => (await layoutOf(launched.window, ALPHA)).viewport.zoom
+  const zoom = async () => (await cameraOf(launched.window, ALPHA)).zoom
   try {
     const { window } = launched
     await expect(window.getByTestId('canvas')).toBeVisible()
@@ -295,9 +306,9 @@ test('zoom: ⌘= and ⌘− step within 0.2–2.5, ⌘ + wheel zooms, the wheel 
     await expect.poll(zoom).toBeCloseTo(0.2)
 
     // The wheel alone pans and keeps the zoom.
-    const before = (await layoutOf(window, ALPHA)).viewport
+    const before = await cameraOf(window, ALPHA)
     await window.mouse.wheel(0, 200)
-    await expect.poll(async () => (await layoutOf(window, ALPHA)).viewport.y).not.toBe(before.y)
+    await expect.poll(async () => (await cameraOf(window, ALPHA)).y).not.toBe(before.y)
     expect(await zoom()).toBeCloseTo(0.2)
 
     // ⌘ + wheel zooms.
@@ -305,6 +316,101 @@ test('zoom: ⌘= and ⌘− step within 0.2–2.5, ⌘ + wheel zooms, the wheel 
     await window.mouse.wheel(0, -300)
     await window.keyboard.up('Meta')
     await expect.poll(zoom).toBeGreaterThan(0.21)
+  } finally {
+    await launched.close()
+  }
+})
+
+// ── The camera of each screen (worfy-link ticket 06) ─────────────────────────
+
+/** React Flow's camera transform in a window. */
+const transformOf = (window: Page): Promise<string> =>
+  window.locator('.react-flow__viewport').evaluate((element) => (element as unknown as { style: { transform: string } }).style.transform)
+
+/** The camera a window shows, read off React Flow's transform. */
+async function shownCamera(window: Page): Promise<Camera> {
+  const transform = await transformOf(window)
+  const match = /translate\((-?[\d.e+-]+)px,\s*(-?[\d.e+-]+)px\)\s*scale\(([\d.e+-]+)\)/.exec(transform)
+  if (!match) throw new Error(`not a React Flow transform: ${transform}`)
+  return { x: Number(match[1]), y: Number(match[2]), zoom: Number(match[3]) }
+}
+
+const viewportsFile = () => join(dataDir, 'viewports.json')
+const savedCameras = (): Record<string, Camera> => JSON.parse(readFileSync(viewportsFile(), 'utf8')) as Record<string, Camera>
+const layoutCamera = (): Camera => (JSON.parse(readFileSync(join(dataDir, ALPHA, 'layout.json'), 'utf8')) as State['layout']).viewport
+
+test('two windows have their own cameras: a pan in one moves nothing in the other and leaves the Layout alone; a reload opens at the camera saved last', async () => {
+  // Saved by a worfy that kept the camera in the Layout: it is the camera of the first opening.
+  const saved: Camera = { x: -40, y: 20, zoom: 1 }
+  writeFileSync(
+    join(dataDir, ALPHA, 'layout.json'),
+    JSON.stringify({ nodes: [{ id: 'n1', kind: 'note', x: 120, y: 80, w: 220, h: 120, data: { text: 'plane' } }], viewport: saved }),
+  )
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+  try {
+    const { window } = launched
+    const plane = (page: Page) => page.getByTestId('rf__node-n1')
+    const pinned = (page: Page) => page.getByTestId('rf__node-p1')
+    await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [plane(window)] })
+    expect(await shownCamera(window)).toEqual(saved)
+
+    // A Node pinned at the right edge of window 1's Canvas: in the narrower window 2 it is moved inside.
+    const canvas1 = await box(window.getByTestId('canvas'))
+    await ask(window, 'layout.apply', { projectId: ALPHA, op: { op: 'create', node: { id: 'p1', kind: 'note', x: 0, y: 600, w: 220, h: 120, data: { text: 'pinned' } } } })
+    await ask(window, 'layout.apply', { projectId: ALPHA, op: { op: 'pin', id: 'p1', pinned: true, x: canvas1.width - 230, y: 100, w: 220, h: 120 } })
+    await expect(pinned(window)).toBeVisible()
+
+    const second = await openSecondWindow(launched, { size: { width: 1000, height: 700 } })
+    await canvasReady({ window: second }, { visible: [plane(second), pinned(second)] })
+    const canvas2 = await box(second.getByTestId('canvas'))
+    expect(canvas2.width).toBeLessThan(canvas1.width - 230)
+    await canvasReady({ window }, { visible: [pinned(window)] })
+
+    const pinnedBefore = { one: await box(pinned(window)), two: await box(pinned(second)) }
+    expect(Math.round(pinnedBefore.one.x - canvas1.x)).toBe(Math.round(canvas1.width - 230))
+    // Whole inside window 2's Canvas, against its right edge.
+    expect(pinnedBefore.two.x).toBeGreaterThanOrEqual(canvas2.x)
+    expect(pinnedBefore.two.x + pinnedBefore.two.width).toBeLessThanOrEqual(canvas2.x + canvas2.width + 0.5)
+    expect(pinnedBefore.two.y).toBeGreaterThanOrEqual(canvas2.y)
+    expect(pinnedBefore.two.y + pinnedBefore.two.height).toBeLessThanOrEqual(canvas2.y + canvas2.height + 0.5)
+
+    const revisionBefore = (await ask<State>(window, 'layout.get', { projectId: ALPHA })).revision
+    const secondBefore = await transformOf(second)
+
+    // Pan window 1 with the wheel, over the empty plane.
+    await window.mouse.move(canvas1.x + 600, canvas1.y + 500)
+    await window.mouse.wheel(120, 200)
+    await expect.poll(async () => (await shownCamera(window)).y).not.toBe(saved.y)
+    await canvasReady({ window })
+    const camera1 = await shownCamera(window)
+    // main has the end of the pan once it saved it somewhere: in viewports.json, or (before ticket 06) in the Layout.
+    const revision = async () => (await ask<State>(second, 'layout.get', { projectId: ALPHA })).revision
+    await expect.poll(async () => existsSync(viewportsFile()) || (await revision()) !== revisionBefore).toBe(true)
+
+    // The Layout's revision did not move, and layout.json keeps its camera; window 2 kept its own.
+    expect(await revision()).toBe(revisionBefore)
+    await canvasReady({ window: second })
+    expect(await transformOf(second)).toBe(secondBefore)
+    await expect.poll(() => (existsSync(viewportsFile()) ? savedCameras()[ALPHA] : undefined)).toEqual(camera1)
+    expect(await cameraOf(window, ALPHA)).toEqual(camera1)
+    expect(layoutCamera()).toEqual(saved)
+
+    // The pinned Node stayed where it was in both windows.
+    expect(await box(pinned(window))).toEqual(pinnedBefore.one)
+    expect(await box(pinned(second))).toEqual(pinnedBefore.two)
+
+    // One saved camera per machine and Project: window 2 reloaded opens where window 1 left the Canvas.
+    await second.reload()
+    await canvasReady({ window: second }, { visible: [pinned(second)] })
+    expect(await shownCamera(second)).toEqual(camera1)
+    expect(await box(pinned(second))).toEqual(pinnedBefore.two)
+
+    for (const scheme of ['light', 'dark'] as const) {
+      for (const [name, page] of [['window-1', window], ['window-2', second]] as const) {
+        await page.emulateMedia({ colorScheme: scheme })
+        await page.screenshot({ path: test.info().outputPath(`camera-${name}-${scheme}.png`) })
+      }
+    }
   } finally {
     await launched.close()
   }

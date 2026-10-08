@@ -226,12 +226,10 @@ type Side = 'place' | 'visibility' | 'tags' | 'existence' | `data:${string}`
 /** The sides of each Node an operation changes, by Node id. */
 export type Footprint = ReadonlyMap<string, ReadonlySet<Side>>
 
-/** What `op` changes, Node by Node; nothing for the viewport or a `create` without an id. */
+/** What `op` changes, Node by Node; nothing for a `create` without an id. */
 export function footprintOf(op: LayoutOpInput): Footprint {
   const one = (id: string, ...sides: Side[]): Footprint => new Map([[id, new Set(sides)]])
   switch (op.op) {
-    case 'setViewport':
-      return new Map()
     case 'create':
       return op.node.id === undefined ? new Map() : one(op.node.id, 'existence')
     case 'remove':
@@ -401,12 +399,10 @@ export interface RecordOptions {
 }
 
 /**
- * The operation that reverts `op` on `layout`, or undefined when `op` is not recorded: the
- * viewport, a Node's data unless `options.data` (a note's text has its own undo), a Node that is
- * not there. A `create` must carry its id (applyRecorded() gives it one).
+ * The operation that reverts `op` on `layout`, or undefined when `op` is not recorded: a Node's
+ * data unless `options.data` (a note's text has its own undo), a Node that is not there. A `create` must carry its id (applyRecorded() gives it one).
  */
 export function inverseOf(layout: Layout, op: LayoutOpInput, options: RecordOptions = {}): LayoutOpInput | undefined {
-  if (op.op === 'setViewport') return undefined
   if (op.op === 'patchData') return options.data === true ? dataInverse(layout, op) : undefined
   if (op.op === 'create') return op.node.id === undefined ? undefined : { op: 'remove', id: op.node.id }
   if (op.op === 'moveMany') {

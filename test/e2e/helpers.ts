@@ -211,21 +211,25 @@ const builtPreload = join(repoRoot, 'out', 'preload', 'index.cjs')
  * app has no command for it yet (no "New Window" menu item), so the window is made from main
  * through app.evaluate. Its calls pass the IPC sender check like the first window's: both load
  * the same out/renderer/index.html. Resolves with the new window once its page has loaded; built
- * bundle only (`launchApp` without `executablePath`).
+ * bundle only (`launchApp` without `executablePath`). `size` is the window's outer size (default
+ * 1100×760); set it here, not with canvasReady(), whose `size` resizes the first window.
  */
-export async function openSecondWindow(launched: Pick<LaunchedApp, 'app'>): Promise<Page> {
+export async function openSecondWindow(launched: Pick<LaunchedApp, 'app'>, options: { size?: { width: number; height: number } } = {}): Promise<Page> {
   const opened = launched.app.waitForEvent('window')
-  await launched.app.evaluate(async ({ BrowserWindow }, preload) => {
-    const first = BrowserWindow.getAllWindows().find((each) => !each.isDestroyed())
-    if (!first) throw new Error('no window of the app is open')
-    const second = new BrowserWindow({
-      width: 1100,
-      height: 760,
-      show: true,
-      webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false },
-    })
-    await second.loadURL(first.webContents.getURL())
-  }, builtPreload)
+  const size = options.size ?? { width: 1100, height: 760 }
+  await launched.app.evaluate(
+    async ({ BrowserWindow }, { preload, size }) => {
+      const first = BrowserWindow.getAllWindows().find((each) => !each.isDestroyed())
+      if (!first) throw new Error('no window of the app is open')
+      const second = new BrowserWindow({
+        ...size,
+        show: true,
+        webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false },
+      })
+      await second.loadURL(first.webContents.getURL())
+    },
+    { preload: builtPreload, size },
+  )
   const window = await opened
   await window.waitForLoadState('domcontentloaded')
   return window

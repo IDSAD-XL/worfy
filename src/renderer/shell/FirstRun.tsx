@@ -13,7 +13,7 @@ import { createPortal } from 'react-dom'
 import '../canvas/actions/actions.css'
 import { failureReason } from '../../shared/ipc/channels'
 import type { Check, CheckGroup, CheckStatus, FirstRunAction } from '../../shared/ipc/first-run'
-import { applyLayoutOp, currentLayout } from '../canvas/useLayout'
+import { applyLayoutOp } from '../canvas/useLayout'
 import { focusCanvasNode } from '../find/canvas-requests'
 import MigrationForm from '../harness/MigrationForm'
 import { invoke } from '../ipc'
@@ -163,7 +163,9 @@ function CheckRow({ check, running, locked, projectName, onAction }: RowProps) {
 
 /** Puts a Terminal Node on the Project's Canvas and has main type `gh auth login` into its new shell. */
 async function openSignInTerminal(projectId: string): Promise<string | undefined> {
-  const viewport = currentLayout(projectId)?.viewport ?? { x: 0, y: 0, zoom: 1 }
+  // The camera this machine saved for the Canvas (worfy-link ticket 06): the Terminal lands in sight.
+  const camera = await invoke('viewport.get', { projectId })
+  const viewport = camera.ok ? camera.value : { x: 0, y: 0, zoom: 1 }
   const id = `terminal-${crypto.randomUUID()}`
   // Hidden until its shell runs: the Canvas does not draw a hidden Node, so the Node's own view
   // cannot start a shell without the command first. main moves it off any Node it would cover.

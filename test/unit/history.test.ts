@@ -7,7 +7,7 @@ import { screenId } from '../../src/renderer/canvas/screen'
 import { LayoutStore, type LayoutChange } from '../../src/main/layout/store'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { TrashEntry } from '../../src/shared/ipc/trash'
-import { layoutNodeSchema, type Layout, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../src/shared/layout/types'
+import { layoutNodeSchema, layoutOpSchema, type Layout, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../src/shared/layout/types'
 
 const PROJECT = 'demo-0a1b2c3d'
 
@@ -148,9 +148,11 @@ describe('history: inverse operations', () => {
     expect(nodeOf('a')).toEqual(before)
   })
 
-  it('the viewport, a note text and a no-op hide are not steps', () => {
+  it('a note text and a no-op hide are not steps, and the camera is not a Layout operation at all', () => {
     note('a')
-    expect(inverseOf(layout(), { op: 'setViewport', viewport: { x: 1, y: 2, zoom: 1 } })).toBeUndefined()
+    // The camera is each screen's own, outside the Layout and its history (worfy-link ticket 06).
+    // @ts-expect-error -- setViewport is no longer a Layout operation
+    expect(() => layoutOpSchema.parse({ op: 'setViewport', viewport: { x: 1, y: 2, zoom: 1 } } satisfies LayoutOpInput)).toThrow()
     expect(inverseOf(layout(), { op: 'patchData', id: 'a', data: { text: 'x' } })).toBeUndefined()
     expect(inverseOf(layout(), { op: 'hide', id: 'a', hidden: false })).toBeUndefined()
     expect(inverseOf(layout(), { op: 'move', id: 'missing', x: 1, y: 1 })).toBeUndefined()

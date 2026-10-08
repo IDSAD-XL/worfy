@@ -170,14 +170,11 @@ describe('layout store: operations', () => {
     state = await applied({ op: 'patchData', id: 'n1', data: { color: 'blue' } })
     expect(nodeOf(state.layout, 'n1')?.data).toEqual({ text: 'n1', color: 'blue' })
 
-    state = await applied({ op: 'setViewport', viewport: { x: 12, y: 34, zoom: 1.5 } })
-    expect(state.layout.viewport).toEqual({ x: 12, y: 34, zoom: 1.5 })
-
     state = await applied({ op: 'remove', id: 'n1' })
     expect(state.layout.nodes).toEqual([])
 
     const broadcasts = electron.sent.filter((message) => message.channel === `${IPC_CHANNEL_PREFIX}layout.changed`)
-    expect(broadcasts.map((message) => (message.payload as LayoutState).revision)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    expect(broadcasts.map((message) => (message.payload as LayoutState).revision)).toEqual([1, 2, 3, 4, 5, 6, 7])
     expect((broadcasts.at(-1)?.payload as LayoutState).layout).toEqual(state.layout)
   })
 
@@ -244,7 +241,8 @@ describe('layout store: schema at the boundary', () => {
     ['a move with a string coordinate', { op: 'move', id: 'n1', x: '10', y: 0 }],
     ['a resize to zero width', { op: 'resize', id: 'n1', w: 0, h: 10 }],
     ['an unknown operation', { op: 'teleport', id: 'n1' }],
-    ['a zoom outside 0.2–2.5', { op: 'setViewport', viewport: { x: 0, y: 0, zoom: 3 } }],
+    // The camera is each screen's own (src/main/layout/viewports.ts, worfy-link ticket 06), not a Layout operation.
+    ['a setViewport', { op: 'setViewport', viewport: { x: 12, y: 34, zoom: 1.5 } }],
     ['a create without a kind', { op: 'create', node: { x: 0, y: 0, w: 10, h: 10 } }],
     ['a hide without the flag', { op: 'hide', id: 'n1' }],
   ])('refuses %s, over IPC and from a direct call', async (_name, op) => {
@@ -438,10 +436,15 @@ describe('layout store: saving', () => {
   })
 
   it('a restarted main reads the Layout back, and it is written only into the data folder', async () => {
+    // A layout.json saved with a camera, as worfy wrote it before each screen kept its own
+    // (worfy-link ticket 06): the camera is read and written back as it was.
+    writeFileSync(layoutFile(), JSON.stringify({ nodes: [], viewport: { x: -50, y: 25, zoom: 0.5 } }))
+    await start()
+    expect((await value('layout.get', { projectId: PROJECT })).layout.viewport).toEqual({ x: -50, y: 25, zoom: 0.5 })
     await applied(note('n1'))
     await applied({ op: 'move', id: 'n1', x: 120, y: 64 })
-    await applied({ op: 'setViewport', viewport: { x: -50, y: 25, zoom: 0.5 } })
     store.flushAll()
+    expect(onDisk().viewport).toEqual({ x: -50, y: 25, zoom: 0.5 })
 
     await start()
     const state = await value('layout.get', { projectId: PROJECT })
