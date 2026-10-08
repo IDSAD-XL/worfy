@@ -9,6 +9,11 @@
 // is newer than this build's (worfy-harness ticket 21, packaged builds only); a changed answer comes
 // as `autopilot.changed`. The run reads the PRs of its Wave Tickets for the narrow fix round
 // (worfy-harness ticket 20) through the app's one PR tracker, the PR badges' (checks.ts).
+// One run per Epic and origin across the Linked machines (worfy-link ticket 15): a start asks them
+// through the link (src/main/link/autopilot-runs.ts), and this Machine answers their questions from
+// the moment its link starts, whether or not its Autopilot has been used. A start refused for a run
+// elsewhere answers `runningElsewhere`, not an error. The question goes after the quit's wait
+// (before-quit) has begun no more: the link stops in will-quit, after it (service.ts).
 import { execFile } from 'node:child_process'
 import { app } from 'electron'
 import { autopilotChanged, autopilotForceStop, autopilotStart, autopilotState, autopilotStop, type AutopilotState } from '../../shared/ipc/autopilot'
@@ -18,9 +23,12 @@ import { appLimits, observeSessionLimits } from '../agent/limits'
 import { harnessDriftWatch } from '../autopilot/harness-drift'
 import { openRun } from '../autopilot/journal'
 import { KeepAwake } from '../autopilot/power'
-import { Autopilot, selfProjectRefusal } from '../autopilot/run'
+import { readOriginKey } from '../autopilot/origin'
+import { Autopilot, RunningElsewhere, selfProjectRefusal } from '../autopilot/run'
 import { toEveryWindow } from '../broadcast'
 import { bundledHarnessVersion } from '../harness/bundled'
+import { AutopilotRunsLink } from '../link/autopilot-runs'
+import { appLinkService, onAppLinkStart, type LinkService } from '../link/service'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { readWorkflow } from '../workflow/reader'
@@ -32,7 +40,14 @@ import { workflowHub } from './workflow'
 /** The handlers over an Autopilot; tests pass their own. */
 export function autopilotHandlers(autopilot: () => Pick<Autopilot, 'start' | 'stop' | 'forceStop' | 'state'> & Partial<Pick<Autopilot, 'refreshHarness'>>): HandlerModule {
   return [
-    defineHandler(autopilotStart, ({ projectId, epic }) => autopilot().start(projectId, epic)),
+    defineHandler(autopilotStart, async ({ projectId, epic, override }) => {
+      try {
+        return await autopilot().start(projectId, epic, { override: override === true })
+      } catch (error) {
+        if (!(error instanceof RunningElsewhere)) throw error
+        return { runningElsewhere: { epic: error.epic, machine: error.machine, message: error.message } }
+      }
+    }),
     defineHandler(autopilotStop, ({ projectId }) => autopilot().stop(projectId)),
     defineHandler(autopilotForceStop, ({ projectId }) => autopilot().forceStop(projectId)),
     defineHandler(autopilotState, ({ projectId }) => {
@@ -58,6 +73,26 @@ const QUIT_WAIT_MS = 3000
 let watchIds = 0
 
 let shared: Autopilot | undefined
+
+/** The question about Autopilot runs on each link service (one per app; tests may start more). */
+const runsLinks = new WeakMap<LinkService, AutopilotRunsLink>()
+
+/** The question on the app's link service, registered on first use; undefined while the link does not run. */
+function runsLink(): AutopilotRunsLink | undefined {
+  const service = appLinkService()
+  if (service === undefined) return undefined
+  let link = runsLinks.get(service)
+  if (link === undefined) {
+    link = new AutopilotRunsLink(service, () => shared?.runKeys() ?? [])
+    runsLinks.set(service, link)
+  }
+  return link
+}
+
+// This Machine answers from the start of its link: a Linked machine asking must not wait 3 s for a
+// worfy whose Autopilot was never opened.
+onAppLinkStart(() => void runsLink())
+runsLink()
 
 /** The app's Autopilot, made on first use. */
 export function sharedAutopilot(): Autopilot {
@@ -88,6 +123,13 @@ export function sharedAutopilot(): Autopilot {
     keepAwake: () => new KeepAwake(),
     harnessDrift: harnessDriftWatch({ packaged: app.isPackaged, harnessVersion: () => bundledHarnessVersion() }),
     prs: sharedPrTracker(),
+    origin: (root) => readOriginKey(root),
+    linkedRuns: async () => (await runsLink()?.ask()) ?? [],
+    // Named only while this Machine has Linked machines: alone, which Machine runs it says nothing.
+    machine: () => {
+      const service = appLinkService()
+      return service !== undefined && service.linkedMachines().length > 0 ? service.machine : null
+    },
     onChange: (state: AutopilotState) => toEveryWindow((target) => emit(target, autopilotChanged, state)),
     limits: {
       state: () => appLimits().snapshot(),

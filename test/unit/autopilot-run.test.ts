@@ -4,9 +4,12 @@
 // watch. The Session, the waves and the workflow are stand-ins, so every event comes in the order
 // the test gives it.
 import { afterEach, describe, expect, it } from 'vitest'
+import type { z } from 'zod'
 import type { AutopilotWaveResult } from '../../src/main/actions/launch'
 import { harnessDriftWatch } from '../../src/main/autopilot/harness-drift'
-import { Autopilot, STOP_TEXT, type AutopilotDeps, type RunSession } from '../../src/main/autopilot/run'
+import { Autopilot, QUITTING_MESSAGE, RunningElsewhere, runningElsewhere, STOP_TEXT, type AutopilotDeps, type LinkedRuns, type RunKey, type RunSession } from '../../src/main/autopilot/run'
+import { ASK_RUNS_TIMEOUT_MS, AutopilotRunsLink, type RunsLinkService } from '../../src/main/link/autopilot-runs'
+import { MessageRegistry, type LinkMessage, type MessageHandler } from '../../src/main/link/messages'
 import type { BackgroundTask } from '../../src/shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../src/shared/agent/events'
 import type { JournalEventFields } from '../../src/shared/autopilot/journal'
@@ -1286,5 +1289,338 @@ describe('a Session that fails while the run opens its workflow watch', () => {
       ['session-error', null],
       ['run-stopped', 'session-error'],
     ])
+  })
+})
+
+describe('one Autopilot per Epic and origin across the Linked machines (worfy-link ticket 15)', () => {
+  const KEY = 'github.com/idsad-xl/worfy'
+  const HERE = { id: '00000000-0000-4000-8000-0000000000aa', name: 'Laptop' }
+
+  /** A stand-in whose Project has origin KEY (or `origin`), and whose Linked machines answer `answers`. */
+  function linked(answers: () => Promise<LinkedRuns[]> | LinkedRuns[], origin: string | null = KEY, overrides: Partial<AutopilotDeps> = {}) {
+    let asked = 0
+    const opened: Parameters<AutopilotDeps['journal']>[0][] = []
+    const s = standIn({
+      origin: () => Promise.resolve(origin),
+      linkedRuns: async () => {
+        asked += 1
+        return answers()
+      },
+      machine: () => HERE,
+      ...overrides,
+    })
+    const journal = s.deps.journal
+    s.deps.journal = (start) => {
+      opened.push(start)
+      return journal(start)
+    }
+    return { s, opened, asked: () => asked }
+  }
+
+  it('a Linked machine runs the same Epic of the same origin: start is refused with its name, nothing is taken', async () => {
+    const { s, opened } = linked(() => [{ machine: 'Studio', runs: [{ epic: EPIC, origin: KEY }] }])
+    const refusal = await s.autopilot.start(PROJECT, EPIC).then(
+      () => null,
+      (error: unknown) => error,
+    )
+    expect(refusal).toBeInstanceOf(RunningElsewhere)
+    expect((refusal as RunningElsewhere).message).toBe(runningElsewhere(EPIC, 'Studio'))
+    expect(refusal).toMatchObject({ epic: EPIC, machine: 'Studio' })
+    expect(runningElsewhere(EPIC, 'Studio')).toBe(`Autopilot is already running Epic ${EPIC} of this repository on Studio`)
+    expect(s.orchestrator).toEqual([])
+    expect(s.power).toEqual([])
+    expect(opened).toEqual([])
+    expect(s.autopilot.running(PROJECT)).toBe(false)
+    expect(s.autopilot.anyRunning()).toBe(false)
+    expect(s.autopilot.runKeys()).toEqual([])
+  })
+
+  it('another Epic or another origin on the Linked machine: the start goes, and the run is answered by its key', async () => {
+    const { s, opened } = linked(() => [
+      { machine: 'Studio', runs: [{ epic: 'other', origin: KEY }] },
+      { machine: 'Desk', runs: [{ epic: EPIC, origin: 'github.com/idsad-xl/other' }] },
+    ])
+    await s.autopilot.start(PROJECT, EPIC)
+    expect(s.orchestrator).toEqual(['unattended true'])
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY }])
+    expect(s.autopilot.runKeys()).toEqual([{ epic: EPIC, origin: KEY }])
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', machine: HERE, unasked: [] })
+  })
+
+  it('Start anyway (override): no question, the run goes, and run-started says override', async () => {
+    const { s, opened, asked } = linked(() => [{ machine: 'Studio', runs: [{ epic: EPIC, origin: KEY }] }])
+    await s.autopilot.start(PROJECT, EPIC, { override: true })
+    expect(asked()).toBe(0)
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running' })
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, override: true }])
+  })
+
+  it('another Project of this Machine over the same repository runs the Epic: refused, naming this Machine', async () => {
+    const { s } = linked(() => [])
+    s.deps.projectRoot = (projectId) => `/repo/${projectId}`
+    await s.autopilot.start(PROJECT, EPIC)
+    await expect(s.autopilot.start('clone-00000001', EPIC)).rejects.toThrow(runningElsewhere(EPIC, `${HERE.name} (this Machine, Project ${PROJECT})`))
+    // A Project of this Machine over another repository runs the same Epic.
+    s.deps.origin = (root) => Promise.resolve(root.endsWith('fork-00000002') ? 'github.com/someone/worfy' : KEY)
+    await expect(s.autopilot.start('fork-00000002', EPIC)).resolves.toMatchObject({ status: 'running', epic: EPIC })
+  })
+
+  it('two Machines start one key at once, each answering while the other starts: at most one run goes', async () => {
+    let both: () => void = () => undefined
+    let inside = 0
+    const met = new Promise<void>((done) => (both = done))
+    const meet = async (): Promise<void> => {
+      inside += 1
+      if (inside === 2) both()
+      await met
+    }
+    const pair: { s: StandIn }[] = []
+    const answerOf = (other: number) => async (): Promise<LinkedRuns[]> => {
+      await meet()
+      return [{ machine: `machine ${other}`, runs: pair[other]!.s.autopilot.runKeys() }]
+    }
+    pair.push(linked(answerOf(1)), linked(answerOf(0)))
+    const results = await Promise.allSettled(pair.map(({ s }) => s.autopilot.start(PROJECT, EPIC)))
+    const going = pair.filter(({ s }) => s.autopilot.running(PROJECT)).length
+    expect(going).toBeLessThanOrEqual(1)
+    expect(results.filter((each) => each.status === 'fulfilled')).toHaveLength(going)
+    for (const each of results) if (each.status === 'rejected') expect(each.reason).toBeInstanceOf(RunningElsewhere)
+  })
+
+  it('the second of two starts asks while the first runs: only the first goes', async () => {
+    const pair: { s: StandIn }[] = []
+    pair.push(
+      linked(() => [{ machine: 'B', runs: pair[1]!.s.autopilot.runKeys() }]),
+      linked(() => [{ machine: 'A', runs: pair[0]!.s.autopilot.runKeys() }]),
+    )
+    await pair[0]!.s.autopilot.start(PROJECT, EPIC)
+    await expect(pair[1]!.s.autopilot.start(PROJECT, EPIC)).rejects.toThrow(runningElsewhere(EPIC, 'A'))
+  })
+
+  it('a run that waits for the Limits is still answered', async () => {
+    const { s } = linked(() => [])
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(s.autopilot.runKeys()).toEqual([{ epic: EPIC, origin: KEY }])
+    await s.autopilot.forceStop(PROJECT)
+    expect(s.autopilot.runKeys()).toEqual([])
+  })
+
+  it('question 1: a Linked machine that did not answer within 3 s does not block; the state and run-started name it', async () => {
+    const { s, opened } = linked(() => [
+      { machine: 'Studio', runs: null },
+      { machine: 'Desk', runs: [] },
+    ])
+    await s.autopilot.start(PROJECT, EPIC)
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', unasked: ['Studio'] })
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, unasked: ['Studio'] }])
+  })
+
+  it('question 3: a Project without origin asks no one, and starts as before', async () => {
+    const { s, opened, asked } = linked(() => [{ machine: 'Studio', runs: [{ epic: EPIC, origin: KEY }] }], null)
+    await s.autopilot.start(PROJECT, EPIC)
+    expect(asked()).toBe(0)
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running' })
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC }])
+    expect(s.autopilot.runKeys()).toEqual([])
+  })
+
+  it('an origin read or a question that throws counts as no origin and no answer: the start goes', async () => {
+    const { s } = linked(() => Promise.reject(new Error('link down')), KEY, { origin: () => Promise.reject(new Error('git gone')) })
+    await expect(s.autopilot.start(PROJECT, EPIC)).resolves.toMatchObject({ status: 'running' })
+    const other = linked(() => Promise.reject(new Error('link down')))
+    await expect(other.s.autopilot.start(PROJECT, EPIC)).resolves.toMatchObject({ status: 'running', unasked: [] })
+  })
+
+  it('the app quits while the start asks: the start is refused, and nothing is taken', async () => {
+    let answer: (runs: LinkedRuns[]) => void = () => undefined
+    const { s } = linked(() => new Promise((done) => (answer = done)))
+    const started = s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(s.autopilot.anyRunning()).toBe(true)
+    await s.autopilot.stopAll()
+    answer([])
+    await expect(started).rejects.toThrow(QUITTING_MESSAGE)
+    expect(s.orchestrator).toEqual([])
+    expect(s.power).toEqual([])
+    expect(s.autopilot.anyRunning()).toBe(false)
+  })
+
+  it('without the link, the state names no Machine', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    expect(s.autopilot.state(PROJECT).machine ?? null).toBeNull()
+  })
+})
+
+describe('two screens stop one run at once (worfy-link ticket 15)', () => {
+  it('two Stops at once during the Wave\'s turn: STOP_TEXT goes once, both answer stopping; then one run-stopped, the Orchestrator given back once', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.state = 'busy'
+    // The graceful Stop (worfy-week ticket 18) answers as soon as the run is stopping.
+    const answers = await Promise.all([s.autopilot.stop(PROJECT), s.autopilot.stop(PROJECT)])
+    for (const answer of answers) expect(answer).toMatchObject({ status: 'running', stopping: true })
+    expect(s.sent).toEqual([STOP_TEXT])
+    expect(s.journal.filter((line) => line.kind === 'run-stopping')).toHaveLength(1)
+    // The Wave's turn ends, STOP_TEXT's turn runs and ends: the run is over.
+    s.queue.shift()
+    s.emit(result())
+    s.emit({ type: 'prompt', text: STOP_TEXT })
+    await settle()
+    s.state = 'idle'
+    s.emit(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    expect(s.journal.filter((line) => line.kind === 'run-stopped')).toHaveLength(1)
+    expect(s.orchestrator).toEqual(['unattended true', 'unattended false'])
+    expect(s.power).toEqual(['start', 'stop'])
+    expect(s.halts).toBe(0)
+    // A Stop or Force stop after the end answers the state and writes nothing.
+    const lines = s.journal.length
+    expect(await s.autopilot.stop(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    expect(await s.autopilot.forceStop(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    expect(s.journal).toHaveLength(lines)
+    expect(s.orchestrator).toEqual(['unattended true', 'unattended false'])
+  })
+
+  it('two Force stops at once: one run-stopped, giveBackNow once, both answer stopped with user-force-stop', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.state = 'busy'
+    const answers = await Promise.all([s.autopilot.forceStop(PROJECT), s.autopilot.forceStop(PROJECT)])
+    for (const answer of answers) expect(answer).toMatchObject({ status: 'stopped', reason: 'user-force-stop' })
+    expect(s.journal.filter((line) => line.kind === 'run-stopped')).toHaveLength(1)
+    expect(s.orchestrator.filter((call) => call === 'give-back')).toHaveLength(1)
+    expect(s.halts).toBe(1)
+  })
+
+  it('Stop on one screen and Force stop on the other at once: one run-stopped, giveBackNow once, both answer the stopped run', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.state = 'busy'
+    const [stopped, forced] = await Promise.all([s.autopilot.stop(PROJECT), s.autopilot.forceStop(PROJECT)])
+    expect(forced).toMatchObject({ status: 'stopped', reason: 'user-force-stop' })
+    // The graceful Stop answers as soon as the run is stopping; the Force stop behind it ends the run.
+    expect(stopped).toMatchObject({ status: 'running', stopping: true })
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-force-stop' })
+    expect(s.journal.filter((line) => line.kind === 'run-stopped')).toHaveLength(1)
+    expect(s.orchestrator.filter((call) => call === 'give-back')).toHaveLength(1)
+  })
+})
+
+describe('the question about Autopilot runs over the link (worfy-link ticket 15, src/main/link/autopilot-runs.ts)', () => {
+  /** A link service of one Machine over the real message registry; `send` hands each message to the peer on a later tick. */
+  class FakeLink implements RunsLinkService {
+    readonly registry = new MessageRegistry()
+    readonly peers = new Map<string, FakeLink>()
+    readonly connected = new Set<string>()
+    readonly sent: { to: string; name: string; payload: unknown }[] = []
+    constructor(
+      readonly id: string,
+      readonly name: string,
+    ) {}
+    registerMessage<S extends z.ZodType>(message: LinkMessage<S>, handle: MessageHandler<S>): void {
+      this.registry.register(message, handle)
+    }
+    sendMessage<S extends z.ZodType>(machineId: string, message: LinkMessage<S>, payload: z.input<S>): void {
+      if (!this.connected.has(machineId)) throw new Error(`Machine ${machineId} is not connected`)
+      const parsed = this.registry.outgoing(message, payload)
+      this.sent.push({ to: machineId, name: message.name, payload: parsed })
+      const peer = this.peers.get(machineId)!
+      setTimeout(() => void peer.deliver(message.name, parsed, this.id), 0)
+    }
+    deliver(name: string, payload: unknown, from: string): Promise<void> {
+      return this.registry.dispatch(name, payload, { machineId: from }, () => undefined)
+    }
+    linkedMachines() {
+      return [...this.peers.values()].map((peer) => ({ id: peer.id, name: peer.name, connected: this.connected.has(peer.id) }))
+    }
+  }
+  const link = (a: FakeLink, b: FakeLink, connected = true) => {
+    a.peers.set(b.id, b)
+    b.peers.set(a.id, a)
+    if (connected) {
+      a.connected.add(b.id)
+      b.connected.add(a.id)
+    }
+  }
+  const KEY = 'github.com/idsad-xl/worfy'
+
+  it('asks every connected Linked machine; each answers the Epic and origin key of its runs, nothing more', async () => {
+    const [a, b, c] = [new FakeLink('a', 'Laptop'), new FakeLink('b', 'Studio'), new FakeLink('c', 'Desk')]
+    link(a, b)
+    link(a, c)
+    const asking = new AutopilotRunsLink(a, () => [])
+    new AutopilotRunsLink(b, () => [{ epic: EPIC, origin: KEY, project: 'secret' } as RunKey])
+    new AutopilotRunsLink(c, () => [])
+    expect(await asking.ask()).toEqual([
+      { machine: 'Studio', runs: [{ epic: EPIC, origin: KEY }] },
+      { machine: 'Desk', runs: [] },
+    ])
+    expect(b.sent).toEqual([{ to: 'a', name: 'autopilot-runs', payload: { id: expect.any(String) as unknown, runs: [{ epic: EPIC, origin: KEY }] } }])
+  })
+
+  it('a Linked machine that is not connected is not asked, and counts as unasked at once', async () => {
+    const [a, b] = [new FakeLink('a', 'Laptop'), new FakeLink('b', 'Studio')]
+    link(a, b, false)
+    const asking = new AutopilotRunsLink(a, () => [], { timeoutMs: 60_000 })
+    expect(await asking.ask()).toEqual([{ machine: 'Studio', runs: null }])
+    expect(a.sent).toEqual([])
+  })
+
+  it('no answer within the limit counts as unasked; a late answer changes nothing', async () => {
+    const [a, b] = [new FakeLink('a', 'Laptop'), new FakeLink('b', 'Studio')]
+    link(a, b)
+    // B is an older build: it knows no such message and drops it.
+    const asking = new AutopilotRunsLink(a, () => [], { timeoutMs: 20 })
+    expect(await asking.ask()).toEqual([{ machine: 'Studio', runs: null }])
+    const question = (a.sent[0]!.payload as { id: string }).id
+    await expect(a.deliver('autopilot-runs', { id: question, runs: [{ epic: EPIC, origin: KEY }] }, 'b')).resolves.toBeUndefined()
+    expect(ASK_RUNS_TIMEOUT_MS).toBe(3000)
+  })
+
+  it('only the Machine asked answers its question', async () => {
+    const [a, b, c] = [new FakeLink('a', 'Laptop'), new FakeLink('b', 'Studio'), new FakeLink('c', 'Desk')]
+    link(a, b)
+    link(a, c, false)
+    const asking = new AutopilotRunsLink(a, () => [], { timeoutMs: 60_000 })
+    // B answers late, by hand; C, linked but not asked, answers B's question first.
+    const answers = asking.ask()
+    await new Promise((done) => setTimeout(done, 0))
+    const question = (a.sent[0]!.payload as { id: string }).id
+    await a.deliver('autopilot-runs', { id: question, runs: [{ epic: EPIC, origin: KEY }] }, 'c')
+    await a.deliver('autopilot-runs', { id: question, runs: [] }, 'b')
+    expect(await answers).toEqual([
+      { machine: 'Studio', runs: [] },
+      { machine: 'Desk', runs: null },
+    ])
+  })
+
+  it('a send that fails (the connection went between the list and the send) counts as unasked', async () => {
+    const [a, b] = [new FakeLink('a', 'Laptop'), new FakeLink('b', 'Studio')]
+    link(a, b)
+    a.sendMessage = () => {
+      throw new Error('gone')
+    }
+    const asking = new AutopilotRunsLink(a, () => [], { timeoutMs: 60_000 })
+    expect(await asking.ask()).toEqual([{ machine: 'Studio', runs: null }])
+  })
+
+  it('end to end with Autopilot: B is refused while A runs the Epic; A answers through runKeys', async () => {
+    const [a, b] = [new FakeLink('a', 'Studio'), new FakeLink('b', 'Laptop')]
+    link(a, b)
+    const sa = standIn({ origin: () => Promise.resolve(KEY) })
+    const sb = standIn({ origin: () => Promise.resolve(KEY) })
+    const linkA = new AutopilotRunsLink(a, () => sa.autopilot.runKeys())
+    const linkB = new AutopilotRunsLink(b, () => sb.autopilot.runKeys())
+    sa.deps.linkedRuns = () => linkA.ask()
+    sb.deps.linkedRuns = () => linkB.ask()
+    await sa.autopilot.start(PROJECT, EPIC)
+    await expect(sb.autopilot.start(PROJECT, EPIC)).rejects.toThrow(runningElsewhere(EPIC, 'Studio'))
+    await expect(sb.autopilot.start(PROJECT, EPIC, { override: true })).resolves.toMatchObject({ status: 'running' })
   })
 })

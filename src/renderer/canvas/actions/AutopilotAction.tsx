@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
-import { autopilotStatusLine, HARNESS_BEHIND_LABEL, harnessBehindTitle, type AutopilotState } from '../../../shared/ipc/autopilot'
+import { autopilotStatusLine, HARNESS_BEHIND_LABEL, harnessBehindTitle, type AutopilotState, type RunningElsewhereRefusal } from '../../../shared/ipc/autopilot'
 import { failureReason } from '../../../shared/ipc/channels'
 import { invoke, subscribe } from '../../ipc'
 import type { SlotProps } from '../badges'
@@ -41,6 +41,14 @@ import { hasRunWave, useRunWaveState } from './gates'
 // in main is newer than the Stable copy" stands under the button, right-aligned to it (the status
 // line is above), while a run goes on and when none does. Its hint counts the commits and names the
 // rebuild between runs.
+//
+// One Autopilot per Epic and origin across the Linked machines (worfy-link ticket 15, ADR-0053, Q13):
+// - While a run goes on and its Machine has Linked machines, the chip "on <Machine>" under the button
+//   says which Machine runs it; its hint names the Linked machines the start could not ask.
+// - A start refused because the Epic of this repository runs (or starts) on another Machine shows
+//   main's reason on the button, the chip "running on <Machine>", and "Start anyway" right of the
+//   button: the one way past, it starts with `override`, and the journal says so. The refusal stays
+//   until the next start of the Project or a run of it.
 
 export const order = 30
 
@@ -68,9 +76,21 @@ interface AutopilotStore {
   byProject: Readonly<Record<string, AutopilotState>>
   /** Projects whose stop has not answered yet, and which one. */
   pending: Readonly<Record<string, StopKind>>
+  /** By projectId: the last start refused for a run of its Epic on another Machine (worfy-link ticket 15). */
+  elsewhere: Readonly<Record<string, RunningElsewhereRefusal>>
 }
 
-const useAutopilotStore = create<AutopilotStore>(() => ({ byProject: {}, pending: {} }))
+const useAutopilotStore = create<AutopilotStore>(() => ({ byProject: {}, pending: {}, elsewhere: {} }))
+
+function setElsewhere(projectId: string, refusal: RunningElsewhereRefusal | null): void {
+  useAutopilotStore.setState(({ elsewhere }) => {
+    if (refusal === null && elsewhere[projectId] === undefined) return {}
+    const next = { ...elsewhere }
+    if (refusal === null) delete next[projectId]
+    else next[projectId] = refusal
+    return { elsewhere: next }
+  })
+}
 
 function setPending(projectId: string, kind: StopKind, on: boolean): void {
   useAutopilotStore.setState(({ pending }) => {
@@ -87,6 +107,8 @@ const asked = new Set<string>()
 let subscribed = false
 
 function take(state: AutopilotState): void {
+  // A run of the Project goes on: a refusal from before it is over.
+  if (state.status !== 'stopped') setElsewhere(state.projectId, null)
   useAutopilotStore.setState(({ byProject }) => {
     const known = byProject[state.projectId]
     if (known !== undefined && known.revision >= state.revision) return {}
@@ -120,13 +142,33 @@ function useAutopilot(projectId: string): AutopilotState | undefined {
   return useAutopilotStore((store) => store.byProject[projectId])
 }
 
-/** Starts a run; its first state is taken at once. Resolves to main's reason when refused. */
-async function start(projectId: string, epic: string): Promise<string | undefined> {
-  const result = await invoke('autopilot.start', { projectId, epic })
+/**
+ * Starts a run; its first state is taken at once. Resolves to main's reason when refused; a refusal
+ * for a run on another Machine is kept for "Start anyway". `override` is that button's start.
+ */
+async function start(projectId: string, epic: string, override = false): Promise<string | undefined> {
+  setElsewhere(projectId, null)
+  const result = await invoke('autopilot.start', override ? { projectId, epic, override } : { projectId, epic })
   if (!result.ok) return failureReason('autopilot.start', result.error)
+  if ('runningElsewhere' in result.value) {
+    setElsewhere(projectId, result.value.runningElsewhere)
+    return result.value.runningElsewhere.message
+  }
   take(result.value)
   return undefined
 }
+
+/** What the chip of the run's Machine says on hover; the Linked machines not asked, when any. */
+function machineTitle(state: AutopilotState, name: string): string {
+  const unasked = state.unasked ?? []
+  const asked = unasked.length > 0 ? `. Could not ask ${unasked.join(', ')} whether they run it` : ''
+  return `${name} runs Autopilot over ${state.epic ?? ''}${asked}`
+}
+
+/** The title of "Start anyway". */
+const startAnywayTitle = (epic: string, machine: string): string =>
+  `Start Autopilot over ${epic} here although ${machine} runs it: both runs take the same Tickets`
+
 
 /**
  * Stops the Project's run; the state main answers is taken at once. The graceful Stop answers as
@@ -162,7 +204,9 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
   // After a Force stop of this Epic, the Tickets it interrupted count as ready while still in work.
   const wave = useRunWaveState(projectId, epic.epic, tickets, true, mine && !running ? (state?.resumable ?? []) : [])
   const line = mine && state !== undefined ? autopilotStatusLine(state) : null
-  if (!hasRunWave(epic.epic, tickets) && !(mine && running) && line === null && pending === undefined) return null
+  const refusal = useAutopilotStore((store) => store.elsewhere[projectId])
+  const refused = refusal !== undefined && refusal.epic === epic.epic && !running ? refusal : undefined
+  if (!hasRunWave(epic.epic, tickets) && !(mine && running) && line === null && pending === undefined && refused === undefined) return null
 
   const button =
     pending !== undefined || (mine && stopping) ? (
@@ -184,6 +228,11 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
         run={() => start(projectId, epic.epic)}
       />
     )
+  // "Start anyway", right of the button, while a start of this Epic stands refused for a run elsewhere.
+  const anyway =
+    refused === undefined ? null : (
+      <ActionButton label="Start anyway" testId="action-autopilot-anyway" enabled={wave.enabled} title={wave.enabled ? startAnywayTitle(epic.epic, refused.machine) : wave.reason} run={() => start(projectId, epic.epic, true)} />
+    )
   // Force stop, behind "⋯" right of Stop, while this Epic's run goes on (stopping included).
   const more =
     mine && running ? (
@@ -195,17 +244,17 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
         items={[{ label: 'Force stop', title: forceStopTitle(epic.epic), testId: 'action-force-stop-autopilot', disabled: pending === 'force', run: () => stop(projectId, 'force') }]}
       />
     ) : null
-  const controls =
-    more === null ? (
-      button
-    ) : (
-      <div className="nodrag" style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
-        {button}
-        {more}
-      </div>
-    )
+  // One structure in every state: a button that moved to another parent would be made anew and lose
+  // the reason it shows (ActionButton keeps it), as when a refusal adds "Start anyway" beside it.
+  const controls = (
+    <div className="nodrag" style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
+      {button}
+      {anyway}
+      {more}
+    </div>
+  )
   const behind = state?.harnessBehind ?? null
-  if (line === null && behind === null) return controls
+  const ledBy = mine && running && state !== undefined ? (state.machine ?? null) : null
   // The status line goes above the button, out of the header's row: it takes no width from the
   // Epic's title, and runs left over the actions beside the button through the header's top margin
   // (56px header: the 20px button centred, 18px free above it). It stays inside the header: below
@@ -238,10 +287,24 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
           {line}
         </span>
       )}
-      {behind === null ? null : (
-        <span className="w-chip w-chip--open" data-testid="autopilot-harness-behind" title={harnessBehindTitle(behind)} style={{ position: 'absolute', right: 0, top: '100%' }}>
-          {HARNESS_BEHIND_LABEL}
-        </span>
+      {behind === null && ledBy === null && refused === undefined ? null : (
+        <div style={{ position: 'absolute', right: 0, top: '100%', display: 'flex', gap: 'var(--space-1)' }}>
+          {ledBy === null || state === undefined ? null : (
+            <span className="w-chip w-chip--working" data-testid="autopilot-machine" title={machineTitle(state, ledBy.name)}>
+              on {ledBy.name}
+            </span>
+          )}
+          {refused === undefined ? null : (
+            <span className="w-chip w-chip--blocked" data-testid="autopilot-elsewhere" title={refused.message}>
+              running on {refused.machine}
+            </span>
+          )}
+          {behind === null ? null : (
+            <span className="w-chip w-chip--open" data-testid="autopilot-harness-behind" title={harnessBehindTitle(behind)}>
+              {HARNESS_BEHIND_LABEL}
+            </span>
+          )}
+        </div>
       )}
     </div>
   )

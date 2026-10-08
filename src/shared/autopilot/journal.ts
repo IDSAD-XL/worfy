@@ -19,7 +19,16 @@
 //
 // Kinds and their fields:
 //
-//   run-started                      the run began; worfy writes it as the first line
+//   run-started    origin?,          the run began; worfy writes it as the first line. origin:
+//                  override?,        the key of remote `origin` of the Project's repository
+//                  unasked?          (`github.com/owner/repo`: no scheme, user or port, lower
+//                                    case, no `.git`), absent without one; override: `true` when
+//                                    the start went past a run of the same Epic and origin on
+//                                    another Machine ("Start anyway"), absent otherwise; unasked:
+//                                    the names of the Linked machines the start could not ask
+//                                    about their runs (not connected, or no answer within 3 s),
+//                                    absent when it asked them all (worfy-link ticket 15). Lines
+//                                    written before that ticket have none of the three
 //   harness-behind harness, main,    the Harness in worfy's main has changes in harness/ that the
 //                  commits           running build's Harness has not (worfy-harness ticket 21,
 //                                    ADR-0047): the Stable copy is due `pnpm install:stable` once
@@ -197,7 +206,7 @@ const event = <K extends JournalEventKind, F extends z.ZodRawShape>(kind: K, fie
   z.object({ ...common, kind: z.literal(kind), ...fields })
 
 export const journalEventSchema = z.discriminatedUnion('kind', [
-  event('run-started', {}),
+  event('run-started', { origin: text.optional(), override: z.literal(true).optional(), unasked: z.array(text).optional() }),
   event('harness-behind', { harness: text, main: text, commits: z.number().int().positive() }),
   event('wave-started', { ...wave, text: z.string().optional(), skipped: skipped.optional() }),
   event('narrow-round', { ticket: text, outcome: z.enum(NARROW_OUTCOMES), text: text.max(LAST_TEXT_MAX) }),

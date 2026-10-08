@@ -45,6 +45,17 @@
 // - A run does not start with a "Run wave" template that does not name the Wave's Tickets.
 // - One run per Project at most. On a development build (not packaged), a run over worfy's own
 //   repository is refused: its agents would rebuild the app the run lives in.
+// - One run per Epic and origin across this Machine and its Linked machines (worfy-link ticket 15,
+//   ADR-0053, Q13). A run is keyed by its Epic and the normalized address of remote `origin` of the
+//   Project's root (origin.ts): one repository on two Machines is two Projects (Q9). After its own
+//   checks, and before the Orchestrator goes unattended, a start looks at the other runs of this
+//   Machine and asks every Linked machine for its runs (src/main/link/autopilot-runs.ts, at most
+//   3 s); a run of the same key, or a start of it still under way, refuses it with
+//   RunningElsewhere, which names the Machine. The start is counted among this Machine's runs from
+//   before the question, so two starts of one key on two Machines at once may both be refused, but
+//   never both go. The only way past is explicit: `override` (the button's "Start anyway"), which
+//   run-started records. A Linked machine that is not connected or does not answer in time does not
+//   block; the run's state and run-started name it (`unasked`). A Project without origin asks no one.
 // - Whether the Harness in worfy's main is newer than this build's (worfy-harness ticket 21,
 //   harness-drift.ts) is part of the Project's state, with or without a run (`harnessBehind`). A
 //   run journals `harness-behind` right after `run-started` when it is, and again before a
@@ -86,6 +97,7 @@ import type { OrchestratorView } from '../../shared/ipc/orchestrator'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import { BASE_INTERVAL_MS } from '../github/prs'
+import type { RunStart } from './journal'
 import { LimitsWait, type LimitsWaitDeps } from './limits-wait'
 
 /** The run's Orchestrator Session, as far as the run needs it. */
@@ -123,6 +135,19 @@ const realClock: TasksClock = {
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 }
 
+/** A run as Linked machines are told about it: its Epic and the key of its origin (origin.ts). */
+export interface RunKey {
+  epic: string
+  origin: string
+}
+
+/** What one Linked machine answered (src/main/link/autopilot-runs.ts): its runs, or null when it could not be asked. */
+export interface LinkedRuns {
+  /** The Machine's name, as this Machine knows it. */
+  machine: string
+  runs: readonly RunKey[] | null
+}
+
 /** One open journal (journal.ts, RunJournal). */
 export interface RunJournalLike {
   readonly run: string
@@ -154,8 +179,11 @@ export interface AutopilotDeps {
    * Project's template cannot drive a run, before it starts (ADR-0033), or null.
    */
   waves: { autopilotWave(projectId: string, epic: string, resume: readonly number[]): Promise<AutopilotWaveResult>; autopilotRefusal(projectId: string): string | null }
-  /** Opens the run's journal; writes its `run-started` line. */
-  journal(start: { project: string; epic: string }): Promise<RunJournalLike>
+  /**
+   * Opens the run's journal; writes its `run-started` line, with the run's origin key, `override`
+   * when the start went past a run of another Machine, and the Linked machines it could not ask.
+   */
+  journal(start: RunStart): Promise<RunJournalLike>
   /** A new keep-awake for one run (power.ts, KeepAwake). */
   keepAwake(): { start(): void; stop(): void }
   /** Told every new state of any Project's run. */
@@ -189,7 +217,14 @@ export interface AutopilotDeps {
   prsClock?: TasksClock
   /** How long the last read of the PRs before `run-stopped` may take (default END_READ_MS). */
   endReadMs?: number
+  /** The key of the origin of the Project's root (origin.ts, readOriginKey), null without one. Without it no start asks. */
+  origin?(root: string): Promise<string | null>
+  /** Asks every Linked machine for its runs (src/main/link/autopilot-runs.ts); without it no Linked machine is asked. */
+  linkedRuns?(): Promise<readonly LinkedRuns[]>
+  /** This Machine as the link knows it, for the state of its runs; null while it has no Linked machines or the link does not run. */
+  machine?(): { id: string; name: string } | null
 }
+
 
 /**
  * How long the last read of the PRs before `run-stopped` may take; its answer after that is not
@@ -207,6 +242,27 @@ const inTurn = (state: SessionState): boolean => state === 'busy' || state === '
 
 /** What the start of a run is refused with while another run of the Project goes on. */
 export const alreadyRunning = (epic: string): string => `Autopilot is already running in this Project (Epic ${epic}): stop it first`
+
+/** What a start is refused with while a run of the same Epic and origin goes on elsewhere. */
+export const runningElsewhere = (epic: string, machine: string): string => `Autopilot is already running Epic ${epic} of this repository on ${machine}`
+
+/**
+ * The refusal of a start because a run of the same Epic and origin goes on, or starts, on another
+ * Machine (or in another Project of this one): `machine` names where. The IPC handler answers it as
+ * its own field (src/shared/ipc/autopilot.ts), so the button offers "Start anyway".
+ */
+export class RunningElsewhere extends Error {
+  constructor(
+    readonly epic: string,
+    readonly machine: string,
+  ) {
+    super(runningElsewhere(epic, machine))
+    this.name = 'RunningElsewhere'
+  }
+}
+
+/** What a start is refused with once the app quits while the start asked the Linked machines. */
+export const QUITTING_MESSAGE = 'worfy is quitting: Autopilot does not start'
 
 /** What a run over worfy's own repository is refused with on a development build. */
 export const SELF_PROJECT_MESSAGE =
@@ -276,6 +332,10 @@ class Run {
   stopSent = false
   /** After a Force stop: the Tickets of the Wave it interrupted (AutopilotState.resumable). */
   interrupted: number[] = []
+  /** The key of the Project's origin (origin.ts); null without one: Linked machines are not told about the run. */
+  origin: string | null = null
+  /** The Linked machines the start could not ask (AutopilotState.unasked). */
+  unasked: string[] = []
   /** The `commits` of the last `harness-behind` line of the run; null before any, or once not behind. */
   harnessCommits: number | null = null
   /** Every Ticket of the run's Waves so far: the PRs of their branches are read for the narrow round. */
@@ -342,8 +402,10 @@ class Run {
 /** The Autopilot runs of the app, one per Project at most. */
 export class Autopilot {
   private readonly runs = new Map<string, Run>()
-  /** Projects whose run is between the click and its first state. */
-  private readonly starting = new Set<string>()
+  /** Projects whose run is between the click and its first state, with the Epic and, once read, the origin key. */
+  private readonly starting = new Map<string, { epic: string; origin: string | null }>()
+  /** Set by stopAll(): a start still asking the Linked machines does not go. */
+  private quitting = false
   /** Stopped runs whose Orchestrator still waits for its background tasks; each one's app-quit. */
   private readonly lingering = new Set<() => Promise<void>>()
   /** The last stopped state of each Project, also after its run is gone. */
@@ -437,11 +499,12 @@ export class Autopilot {
    * development build, when the workflow cannot be read or has no such Epic, and while the
    * Orchestrator is in a turn. Answers the run's first state.
    */
-  async start(projectId: string, epic: string): Promise<AutopilotState> {
+  async start(projectId: string, epic: string, options: { override?: boolean } = {}): Promise<AutopilotState> {
     // Taken before the first await: two starts that arrive together do not both pass.
     const live = this.runs.get(projectId)
     if (this.starting.has(projectId) || live?.running === true) throw new Error(alreadyRunning(live?.epic ?? epic))
-    this.starting.add(projectId)
+    const starting = { epic, origin: null as string | null }
+    this.starting.set(projectId, starting)
     try {
       const root = this.deps.projectRoot(projectId)
       const refusal = (await this.deps.selfRefusal(root)) ?? this.deps.waves.autopilotRefusal(projectId)
@@ -449,8 +512,16 @@ export class Autopilot {
       const model = await this.deps.workflow(root)
       if (model.error !== null) throw new Error(`Cannot read the workflow: ${model.error.message}`)
       if (!model.epics.some((each) => each.epic === epic) && !model.tickets.some((each) => each.epic === epic)) throw new Error(`The Project has no Epic ${epic}`)
+      // Counted among this Machine's runs before anyone is asked: a Linked machine starting the same
+      // key meanwhile hears of this start (runKeys), as this one hears of its.
+      starting.origin = await this.originOf(projectId, root)
+      const override = options.override === true
+      const unasked = starting.origin === null || override ? [] : await this.checkElsewhere(projectId, epic, starting.origin)
+      if (this.quitting) throw new Error(QUITTING_MESSAGE)
 
       const run = new Run(projectId, epic, root)
+      run.origin = starting.origin
+      run.unasked = unasked
       // The Wave the last Force stop of this Epic interrupted goes along with the first Wave (worfy-week tickets 17, 18).
       const last = this.last.get(projectId)
       run.resume = last?.epic === epic ? [...last.resumable] : []
@@ -459,7 +530,13 @@ export class Autopilot {
       try {
         if (view === null || view.sessionId === null) throw new Error('The Orchestrator has no Session')
         run.session = this.deps.registry.get(view.sessionId)
-        run.journal = await this.deps.journal({ project: projectId, epic })
+        run.journal = await this.deps.journal({
+          project: projectId,
+          epic,
+          ...(run.origin === null ? {} : { origin: run.origin }),
+          ...(override ? { override: true as const } : {}),
+          ...(unasked.length > 0 ? { unasked } : {}),
+        })
         await this.journalHarness(run)
         run.awake = this.deps.keepAwake()
         run.awake.start()
@@ -485,6 +562,57 @@ export class Autopilot {
     } finally {
       this.starting.delete(projectId)
     }
+  }
+
+  /** The key of the Project's origin; a read that throws counts as none. */
+  private async originOf(projectId: string, root: string): Promise<string | null> {
+    if (this.deps.origin === undefined) return null
+    try {
+      return await this.deps.origin(root)
+    } catch (error) {
+      console.warn(`[autopilot] ${projectId}: could not read the origin of the repository`, error)
+      return null
+    }
+  }
+
+  /**
+   * Throws RunningElsewhere when another Project of this Machine, or a Linked machine, runs or
+   * starts `epic` of the same origin; answers the Linked machines that could not be asked.
+   */
+  private async checkElsewhere(projectId: string, epic: string, origin: string): Promise<string[]> {
+    for (const [other, key] of this.keys()) {
+      if (other === projectId || key.epic !== epic || key.origin !== origin) continue
+      const here = this.deps.machine?.()?.name
+      throw new RunningElsewhere(epic, here === undefined ? `this Machine (Project ${other})` : `${here} (this Machine, Project ${other})`)
+    }
+    if (this.deps.linkedRuns === undefined) return []
+    let answers: readonly LinkedRuns[]
+    try {
+      answers = await this.deps.linkedRuns()
+    } catch (error) {
+      console.warn(`[autopilot] ${projectId}: could not ask the Linked machines for their runs`, error)
+      return []
+    }
+    const hit = answers.find((answer) => answer.runs?.some((key) => key.epic === epic && key.origin === origin) === true)
+    if (hit !== undefined) throw new RunningElsewhere(epic, hit.machine)
+    return answers.filter((answer) => answer.runs === null).map((answer) => answer.machine)
+  }
+
+  /** Every run of this Machine with an origin, starting ones included, by Project. */
+  private keys(): [string, RunKey][] {
+    const keys: [string, RunKey][] = []
+    for (const [projectId, { epic, origin }] of this.starting) if (origin !== null) keys.push([projectId, { epic, origin }])
+    for (const run of this.runs.values()) if (run.running && run.origin !== null) keys.push([run.projectId, { epic: run.epic, origin: run.origin }])
+    return keys
+  }
+
+  /**
+   * What this Machine answers a Linked machine that asks for its runs (src/main/link/autopilot-runs.ts):
+   * the Epic and origin key of every run that goes on — waiting for the Limits and stopping included
+   * — and of every start under way whose origin is read. Runs without origin are left out.
+   */
+  runKeys(): RunKey[] {
+    return this.keys().map(([, key]) => key)
   }
 
   /**
@@ -523,6 +651,7 @@ export class Autopilot {
    * for their Orchestrator's background tasks journal them as killed and release keep-awake.
    */
   async stopAll(): Promise<void> {
+    this.quitting = true
     await Promise.all([
       ...[...this.runs.values()].map(async (run) => {
         run.rush()
@@ -1127,6 +1256,7 @@ export class Autopilot {
       stopping,
       ticketsInWork: stopping ? run.cycle.inWork.length : 0,
       harnessBehind: this.harness.get(run.projectId) ?? null,
+      ...(run.running ? { machine: this.deps.machine?.() ?? null, unasked: [...run.unasked] } : {}),
       revision: this.revision,
     }
   }
