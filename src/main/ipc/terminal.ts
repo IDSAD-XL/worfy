@@ -1,7 +1,8 @@
 // Handlers of the `terminal` domain (src/shared/ipc/terminal.ts): the shells of Terminal Nodes.
 //
 // A shell is started only for a Node of kind `terminal` that is in its Project's Layout, and
-// always in the Project's root: the renderer names the Node, never a folder or a program. A shell
+// always in the Project's root: the renderer names the Node, never a folder or a program (a command
+// to type comes only from the fixed list of src/shared/ipc/terminal.ts, TERMINAL_COMMANDS). A shell
 // ends when its Node is closed (terminal.close), when its Node leaves the Layout by any route,
 // when its Project leaves the list, when the window that opened it is destroyed, and when the app
 // quits; the quit waits until every shell has exited.
@@ -62,12 +63,12 @@ export function terminalHandlers(deps: TerminalDeps): HandlerModule {
   }
 
   return [
-    defineHandler(terminalOpen, async ({ projectId, nodeId, cols, rows, restart }, { event }) => {
+    defineHandler(terminalOpen, async ({ projectId, nodeId, cols, rows, restart, command }, { event }) => {
       const cwd = deps.projectRoot(projectId)
       if (!deps.isTerminalNode(projectId, nodeId)) throw new Error(`${nodeId} is not a Terminal Node of ${projectId}`)
       const key = terminalKey(projectId, nodeId)
       const window = event.sender as unknown as Window
-      const result = await deps.registry().open(key, { cwd, cols, rows, restart }, windowSink(window, projectId, nodeId))
+      const result = await deps.registry().open(key, { cwd, cols, rows, restart, command }, windowSink(window, projectId, nodeId))
       own(window, key)
       return result
     }),

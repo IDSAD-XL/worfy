@@ -15,7 +15,8 @@ import { defineHandler, type HandlerModule } from './index'
 
 let installer: HarnessInstaller | null = null
 
-function appInstaller(): HarnessInstaller {
+/** The app's one installer: the toolbar and the first-run screen (ticket 19) share it, so two installs never run at once. */
+export function appInstaller(): HarnessInstaller {
   if (installer !== null) return installer
   const env = process.env
   const runtime = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch }

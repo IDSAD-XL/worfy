@@ -1,0 +1,250 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { expect, test, type Locator, type Page } from '@playwright/test'
+import { launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { snapshotThemes } from './snapshots'
+
+// worfy-harness ticket 19: the first-run screen against the built app, in a sandbox. HOME, the
+// Claude home (WORFY_CLAUDE_HOME, so the Harness install is offered in this dev build) and worfy's
+// data folder are temporary; the shell is /bin/sh, and $HOME/.profile puts the stand-in tools of
+// test/fixtures/first-run-tools/ first on the PATH of the login shell, so every check and the
+// Terminal see them and nothing of the machine running the tests. The Harness installer runs the
+// stand-in `claude` (WORFY_CLAUDE), which keeps the plugin state in a file outside that home. The
+// agent is the fake one (launchApp), so the sign-in check gets a subscription login. The dialog of
+// each action is replaced in main: it records what it was shown and answers with the given button.
+
+const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+const TOOLS = join(repoRoot, 'test', 'fixtures', 'first-run-tools')
+const PROJECT = 'alpha-0000000a'
+/** The Claude Code version this build carries: the stand-in `claude --version` prints the same, so that check is ok. */
+const bundledClaude = (): string =>
+  (JSON.parse(readFileSync(join(repoRoot, 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'package.json'), 'utf8')) as { claudeCodeVersion: string }).claudeCodeVersion
+const bundledHarness = (): string => (JSON.parse(readFileSync(join(repoRoot, 'out', 'harness', '.claude-plugin', 'plugin.json'), 'utf8')) as { version: string }).version
+
+let scratch: string
+let home: string
+let claudeHome: string
+let dataDir: string
+let bin: string
+let state: string
+let log: string
+
+test.beforeEach(() => {
+  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-first-run-')))
+  home = join(scratch, 'home')
+  claudeHome = join(home, '.claude')
+  dataDir = join(scratch, 'data')
+  bin = join(scratch, 'bin')
+  state = join(scratch, 'state')
+  log = join(scratch, 'calls.log')
+  for (const dir of [claudeHome, dataDir, bin, state]) mkdirSync(dir, { recursive: true })
+})
+
+test.afterEach(async () => {
+  await removeDir(scratch)
+})
+
+/** The tools on the PATH and the stand-ins' settings, through $HOME/.profile as a login shell reads them. */
+function sandbox(options: { tools?: string[]; ghAccount?: string } = {}): void {
+  for (const name of options.tools ?? ['claude', 'gh', 'node', 'jq', 'git', 'npm', 'qmd']) symlinkSync(join(TOOLS, name), join(bin, name))
+  const variables: Record<string, string> = {
+    PATH: `${bin}:/usr/bin:/bin`,
+    FIRST_RUN_TOOLS_LOG: log,
+    FIRST_RUN_TOOLS_DIR: TOOLS,
+    FIRST_RUN_TOOLS_STATE: state,
+    FAKE_CLAUDE_VERSION: bundledClaude(),
+    FAKE_GH_ACCOUNT: options.ghAccount ?? 'alice',
+    FAKE_NPM_BIN: bin,
+    FAKE_NPM_PREFIX: join(scratch, 'npm-prefix'),
+    npm_config_prefix: join(scratch, 'npm-prefix'),
+    XDG_CACHE_HOME: join(scratch, 'cache'),
+    XDG_CONFIG_HOME: join(scratch, 'config'),
+  }
+  writeFileSync(join(home, '.profile'), Object.entries(variables).map(([key, value]) => `${key}='${value}'; export ${key}\n`).join(''))
+}
+
+function withProject(): void {
+  const root = join(scratch, 'alpha')
+  mkdirSync(root)
+  mkdirSync(join(dataDir, PROJECT), { recursive: true })
+  writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'alpha', path: root }], activeId: PROJECT }))
+}
+
+const launch = (): Promise<LaunchedApp> =>
+  launchApp({
+    env: {
+      WORFY_FIRST_RUN_AUTO: '1',
+      WORFY_DATA_DIR: dataDir,
+      WORFY_CLAUDE_HOME: claudeHome,
+      HOME: home,
+      SHELL: '/bin/sh',
+      WORFY_CLAUDE: join(TOOLS, 'claude'),
+      FIRST_RUN_TOOLS_STATE: state,
+      FIRST_RUN_TOOLS_LOG: log,
+    },
+  })
+
+const calls = (): string[] => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : [])
+
+interface ShownDialog {
+  message?: string
+  detail?: string
+  buttons?: string[]
+}
+
+/** Replaces the message box in main: it records its options and answers with `button` (0 — Confirm, 1 — Cancel). */
+async function answerDialogWith(launched: LaunchedApp, button: number): Promise<void> {
+  await launched.app.evaluate(({ dialog }, response) => {
+    const shown = ((globalThis as { shownDialogs?: unknown[] }).shownDialogs ??= [])
+    dialog.showMessageBox = ((...args: unknown[]) => {
+      shown.push(args.at(-1))
+      return Promise.resolve({ response, checkboxChecked: false })
+    }) as typeof dialog.showMessageBox
+  }, button)
+}
+const shownDialogs = (launched: LaunchedApp): Promise<ShownDialog[]> =>
+  launched.app.evaluate(() => ((globalThis as { shownDialogs?: unknown[] }).shownDialogs ?? []) as ShownDialog[])
+
+const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
+
+/** The screen, once its checks are in. */
+async function screen(window: Page): Promise<Locator> {
+  const dialog = window.getByTestId('first-run')
+  await expect(dialog).toBeVisible({ timeout: 30_000 })
+  await expect(dialog.locator('[data-check]')).toHaveCount(CHECK_IDS.length, { timeout: 30_000 })
+  await expect(dialog.getByTestId('first-run-summary')).not.toHaveText('Checking…', { timeout: 30_000 })
+  return dialog
+}
+const row = (dialog: Locator, id: string): Locator => dialog.locator(`[data-check="${id}"]`)
+
+/**
+ * Snapshots of the window in both themes, in test-results/snapshots/<name>/ (snapshots.ts), to
+ * compare with F-SPEC "First run"; the ticket keeps copies as .scratch/worfy-harness/evidence/19-*.png.
+ */
+async function keep(window: Page, name: string): Promise<void> {
+  await snapshotThemes(window, name)
+}
+
+test.describe('first-run screen', () => {
+  test('the first start shows every check; Install and Skip go through Confirm; the next start with everything ok shows no screen', async () => {
+    sandbox()
+    let launched = await launch()
+    try {
+      const dialog = await screen(launched.window)
+      expect(await dialog.locator('[data-check]').evaluateAll((rows) => rows.map((each) => each.getAttribute('data-check')))).toEqual(CHECK_IDS)
+      for (const id of ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'legacy-harness', 'qmd', 'qmd-collections']) {
+        await expect(row(dialog, id), id).toHaveAttribute('data-status', 'ok')
+      }
+      await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'fail')
+      await expect(row(dialog, 'qmd-models')).toHaveAttribute('data-status', 'warn')
+      // Nothing ran by itself: no install, no download.
+      expect(calls().filter((line) => /^claude plugin (marketplace|install|update)|^npm install|^qmd pull/.test(line))).toEqual([])
+      await keep(launched.window, 'first-run')
+
+      // Install → the dialog with Confirm → the Harness is installed and its row is ok.
+      await answerDialogWith(launched, 0)
+      await row(dialog, 'harness').getByRole('button', { name: 'Install' }).click()
+      await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'ok', { timeout: 30_000 })
+      await expect(row(dialog, 'harness')).toContainText(bundledHarness())
+      let shown = await shownDialogs(launched)
+      expect(shown).toHaveLength(1)
+      expect(shown[0]).toMatchObject({ buttons: ['Confirm', 'Cancel'], message: `Install the worfy Harness ${bundledHarness()}?` })
+      expect(shown[0]?.detail).toContain(join(claudeHome, 'worfy-harness', 'plugin'))
+      expect(calls()).toContain('claude plugin install worfy@worfy-harness --scope user')
+
+      // Download → the dialog names the size of the models; Cancel → nothing is downloaded.
+      await answerDialogWith(launched, 1)
+      await row(dialog, 'qmd-models').getByRole('button', { name: 'Download…' }).click()
+      await expect.poll(async () => (await shownDialogs(launched)).length).toBe(2)
+      shown = await shownDialogs(launched)
+      expect(shown[1]?.buttons).toEqual(['Confirm', 'Cancel'])
+      expect(shown[1]?.message).toMatch(/^Download the qmd models \(\d+\.\d GiB\)\?$/)
+      expect(shown[1]?.detail).toContain('qmd pull')
+      expect(shown[1]?.detail).toContain(join(scratch, 'cache', 'qmd', 'models'))
+      await expect(row(dialog, 'qmd-models')).toHaveAttribute('data-status', 'warn')
+      expect(calls().filter((line) => line.startsWith('qmd pull'))).toEqual([])
+
+      // Skip → Confirm → the models are "skipped".
+      await answerDialogWith(launched, 0)
+      await row(dialog, 'qmd-models').getByRole('button', { name: 'Skip…' }).click()
+      await expect(row(dialog, 'qmd-models')).toHaveAttribute('data-status', 'ok', { timeout: 30_000 })
+      await expect(row(dialog, 'qmd-models')).toContainText('skipped')
+      expect(readFileSync(join(claudeHome, 'worfy-harness', 'qmd-models'), 'utf8')).toBe('skipped\n')
+      await expect(dialog.getByTestId('first-run-summary')).toHaveText('Everything is ready')
+      await keep(launched.window, 'first-run-ready')
+
+      await dialog.getByRole('button', { name: 'Close' }).click()
+      await expect(dialog).toBeHidden()
+      expect(JSON.parse(readFileSync(join(dataDir, 'first-run.json'), 'utf8'))).toMatchObject({ failing: [] })
+    } finally {
+      await launched.close()
+    }
+
+    // The second start: every check ok and the mark there — main runs the checks and the screen stays shut.
+    const before = calls().length
+    launched = await launch()
+    try {
+      await expect(launched.window.getByTestId('app-shell')).toBeVisible()
+      await expect.poll(() => calls().slice(before).includes('qmd --version'), { timeout: 30_000 }).toBe(true)
+      const startup = await launched.window.evaluate(() =>
+        (globalThis as unknown as { worfy: { invoke(c: string, i?: unknown): Promise<{ ok: boolean; value: { show: boolean } }> } }).worfy.invoke('firstRun.startup'),
+      )
+      expect(startup).toMatchObject({ ok: true, value: { show: false } })
+      await expect(launched.window.getByTestId('first-run')).toHaveCount(0)
+    } finally {
+      await launched.close()
+    }
+  })
+
+  test('without a Project, the GitHub sign-in is a command to copy', async () => {
+    sandbox({ ghAccount: '' })
+    const launched = await launch()
+    try {
+      const dialog = await screen(launched.window)
+      const accounts = row(dialog, 'gh-auth')
+      await expect(accounts).toHaveAttribute('data-status', 'fail')
+      await expect(accounts.locator('code')).toHaveText('gh auth login')
+      await expect(accounts.getByRole('button', { name: 'Copy gh auth login' })).toBeVisible()
+      await expect(accounts.getByRole('button', { name: 'Sign in…' })).toHaveCount(0)
+      await expect(accounts).toContainText('No Project is connected yet')
+      await keep(launched.window, 'first-run-no-project')
+    } finally {
+      await launched.close()
+    }
+  })
+
+  test('with a Project, Sign in → Confirm opens a Terminal Node on its Canvas that runs gh auth login', async () => {
+    sandbox({ ghAccount: '' })
+    withProject()
+    const launched = await launch()
+    try {
+      const dialog = await screen(launched.window)
+      const accounts = row(dialog, 'gh-auth')
+      await expect(accounts).toHaveAttribute('data-status', 'fail')
+
+      // Cancel: no Terminal.
+      await answerDialogWith(launched, 1)
+      await accounts.getByRole('button', { name: 'Sign in…' }).click()
+      await expect.poll(async () => (await shownDialogs(launched)).length).toBe(1)
+      await expect(dialog).toBeVisible()
+      await expect(launched.window.getByTestId('terminal-node')).toHaveCount(0)
+
+      await answerDialogWith(launched, 0)
+      await accounts.getByRole('button', { name: 'Sign in…' }).click()
+      await expect(dialog).toBeHidden({ timeout: 15_000 })
+      const shown = await shownDialogs(launched)
+      expect(shown[1]?.detail).toContain('gh auth login')
+      expect(shown[1]?.detail).toContain('alpha')
+      const terminal = launched.window.getByTestId('terminal-node')
+      await expect(terminal).toHaveCount(1)
+      await expect(terminal.locator('.xterm-rows')).toContainText('fake gh: auth login started', { timeout: 15_000 })
+      expect(calls()).toContain('gh auth login')
+      // The screen is closed for good: the mark has the failing GitHub check, so the next start does not open it for that.
+      expect((JSON.parse(readFileSync(join(dataDir, 'first-run.json'), 'utf8')) as { failing: string[] }).failing).toContain('gh-auth')
+    } finally {
+      await launched.close()
+    }
+  })
+})

@@ -13,6 +13,12 @@
 // No shell outlives what owns it: close() sends SIGHUP, as a terminal emulator does when its
 // window closes, and SIGKILL after a grace period when the shell ignores it; closeAll() does that
 // for every terminal and resolves once all of them have exited.
+//
+// open() may carry a command (worfy-harness ticket 19: `gh auth login` from the first-run screen).
+// The shell that call starts gets it typed, with a newline, as the user would type it: after the
+// shell's first output (the profile's output or the prompt), or after COMMAND_DELAY_MS when it
+// prints nothing. Input typed before the prompt waits in the terminal for the shell to read it.
+// Attaching to a shell that already runs types nothing.
 import { basename } from 'node:path'
 import { spawn as spawnNodePty } from 'node-pty'
 import type { Env } from '../agent/env'
@@ -24,6 +30,8 @@ export const ROWS_MAX = 300
 /** Output kept per terminal for redrawing it, in UTF-16 code units (one per character of ASCII). */
 export const REPLAY_LIMIT = 256 * 1024
 export const KILL_GRACE_MS = 1000
+/** How long a new shell may stay silent before its command is typed anyway. */
+export const COMMAND_DELAY_MS = 1000
 
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, Math.round(value)))
 
@@ -104,7 +112,9 @@ export interface OpenRequest {
   cols: number
   rows: number
   /** Start a new shell even when the last one exited on its own. */
-  restart?: boolean
+  restart?: boolean | undefined
+  /** Typed into the shell with a newline once it has started; only when this call starts the shell. */
+  command?: string | undefined
 }
 
 export interface ShellExit {
@@ -144,6 +154,7 @@ export interface TerminalRegistryOptions {
   env: () => Promise<Env>
   spawn?: SpawnPty
   killGraceMs?: number
+  commandDelayMs?: number
 }
 
 function signalProcess(pid: number, signal: NodeJS.Signals): void {
@@ -161,10 +172,12 @@ export class TerminalRegistry {
   private readonly ended = new Map<string, Ended>()
   private readonly spawnPty: SpawnPty
   private readonly killGraceMs: number
+  private readonly commandDelayMs: number
 
   constructor(private readonly options: TerminalRegistryOptions) {
     this.spawnPty = options.spawn ?? ((file, args, spawnOptions) => spawnNodePty(file, args, spawnOptions))
     this.killGraceMs = options.killGraceMs ?? KILL_GRACE_MS
+    this.commandDelayMs = options.commandDelayMs ?? COMMAND_DELAY_MS
   }
 
   /** Running terminals, including those still exiting (not those kept as exited). */
@@ -222,6 +235,26 @@ export class TerminalRegistry {
     }
   }
 
+  /** Types `command` once: on the shell's first output, or after COMMAND_DELAY_MS of silence. */
+  private typeOnStart(key: string, terminal: Terminal, command: string, ended: () => boolean): () => void {
+    let typed = false
+    const type = () => {
+      if (typed) return
+      typed = true
+      clearTimeout(timer)
+      // The shell may be closing or gone by now: then there is nobody to type to.
+      if (terminal.closing || ended()) return
+      try {
+        terminal.pty.write(`${command}\n`)
+      } catch (error) {
+        console.warn(`[terminal] typing the command into ${key} failed`, error)
+      }
+    }
+    const timer = setTimeout(type, this.commandDelayMs)
+    void terminal.exited.then(() => clearTimeout(timer))
+    return type
+  }
+
   private async start(key: string, request: OpenRequest, sink: TerminalSink): Promise<Terminal> {
     const env = terminalEnv(await this.options.env(), request.cwd)
     const file = env.SHELL ?? '/bin/zsh'
@@ -236,12 +269,18 @@ export class TerminalRegistry {
       exited: new Promise((resolve) => (exitedResolve = resolve)),
       closing: false,
     }
+    let firstOutput: (() => void) | undefined
+    let ended = false
     pty.onData((data) => {
       terminal.buffer.push(data)
       terminal.sink.output(data, terminal.buffer.end)
+      // After the output went out: the command's echo comes after what the shell printed first.
+      firstOutput?.()
+      firstOutput = undefined
     })
     pty.onExit(({ exitCode, signal }) => {
       const exit: ShellExit = { exitCode, signal: signal === undefined || signal === 0 ? null : signal }
+      ended = true
       if (this.terminals.get(key) === terminal) {
         this.terminals.delete(key)
         // Ended by close: nothing to keep. Exited on its own: kept for the next open.
@@ -254,6 +293,7 @@ export class TerminalRegistry {
         console.warn(`[terminal] reporting the exit of ${key} failed`, error)
       }
     })
+    if (request.command !== undefined) firstOutput = this.typeOnStart(key, terminal, request.command, () => ended)
     return terminal
   }
 

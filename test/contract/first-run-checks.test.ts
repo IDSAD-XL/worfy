@@ -1,0 +1,449 @@
+// The first-run screen's checks and actions (src/main/first-run/, worfy-harness ticket 19). The tools
+// are the stand-ins of test/fixtures/first-run-tools/, linked into a temporary folder that is the only
+// one on the PATH of the "login shell" environment handed to the checks: a tool left out is not
+// installed. HOME, the Claude home, the Harness home and the Project folder are temporary too, and
+// the tools log their calls outside them, so a test can tell that the checks wrote nothing.
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { FirstRunActions, type Confirmation } from '../../src/main/first-run/actions'
+import { oldHarnessPresent, runChecks, type CheckDeps } from '../../src/main/first-run/checks'
+import { HarnessInstaller } from '../../src/main/harness/install'
+import { MODELS_ANSWER_FILE } from '../../src/main/harness/qmd'
+import type { CheckId, CheckStatus, FirstRunReport } from '../../src/shared/ipc/first-run'
+
+const REPO = join(import.meta.dirname, '..', '..')
+const TOOLS = join(REPO, 'test', 'fixtures', 'first-run-tools')
+/** The Claude Code version "this build" carries, as the checks are told. */
+const BUNDLED = '2.1.289'
+const BUNDLED_HARNESS = '1.2.0+abc1234'
+
+let root: string
+let bin: string
+let home: string
+let claudeHome: string
+let harnessHome: string
+let project: string
+let bundle: string
+let state: string
+let log: string
+
+beforeEach(() => {
+  root = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-first-run-')))
+  bin = join(root, 'bin')
+  home = join(root, 'home')
+  claudeHome = join(home, '.claude')
+  harnessHome = join(claudeHome, 'worfy-harness')
+  project = join(root, 'alpha')
+  bundle = join(root, 'bundle')
+  state = join(root, 'state')
+  log = join(root, 'calls.log')
+  for (const dir of [bin, claudeHome, project, join(bundle, '.claude-plugin'), state]) mkdirSync(dir, { recursive: true })
+  writeFileSync(join(bundle, '.claude-plugin', 'plugin.json'), `{\n  "name": "worfy",\n  "version": "${BUNDLED_HARNESS}"\n}\n`)
+  writeFileSync(join(project, 'README.md'), 'alpha\n')
+})
+
+afterEach(() => {
+  rmSync(root, { recursive: true, force: true })
+})
+
+/** Puts these stand-ins on the PATH. */
+function tools(...names: string[]): void {
+  for (const name of names) symlinkSync(join(TOOLS, name), join(bin, name))
+}
+const ALL_TOOLS = ['claude', 'gh', 'node', 'jq', 'git', 'npm']
+
+function loginEnv(extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    PATH: bin,
+    HOME: home,
+    FIRST_RUN_TOOLS_LOG: log,
+    FIRST_RUN_TOOLS_DIR: TOOLS,
+    FIRST_RUN_TOOLS_STATE: state,
+    FAKE_GH_ACCOUNT: 'alice',
+    FAKE_CLAUDE_VERSION: BUNDLED,
+    FAKE_NPM_BIN: bin,
+    FAKE_NPM_PREFIX: join(root, 'npm-prefix'),
+    ...extra,
+  }
+}
+
+const installer = (env: Record<string, string>): HarnessInstaller =>
+  new HarnessInstaller({ bundledDir: bundle, harnessHome, claude: join(TOOLS, 'claude'), env: { ...env, CLAUDE_CONFIG_DIR: claudeHome }, canInstall: true, claudeHome })
+
+function deps(env: Record<string, string>, overrides: Partial<CheckDeps> = {}): CheckDeps {
+  return {
+    env,
+    bundledClaudeCodeVersion: BUNDLED,
+    accountInfo: () => Promise.resolve({ email: 'alice@example.com', subscriptionType: 'max', tokenSource: 'claude.ai' }),
+    harness: () => installer(env).status(),
+    legacyHarness: () =>
+      oldHarnessPresent({ claudeHome, harnessHome, claudeJson: join(claudeHome, '.claude.json'), userHome: home, bridgeScript: null, offered: true, env }),
+    homes: { harnessHome, claudeHome },
+    projects: () => Promise.resolve([{ name: 'alpha', profile: null, collections: [] }]),
+    ...overrides,
+  }
+}
+
+const statuses = (report: { checks: readonly { id: CheckId; status: CheckStatus }[] }): Record<string, CheckStatus> =>
+  Object.fromEntries(report.checks.map((check) => [check.id, check.status]))
+const checkOf = (report: FirstRunReport, id: CheckId) => {
+  const found = report.checks.find((check) => check.id === id)
+  if (found === undefined) throw new Error(`no check ${id}`)
+  return found
+}
+const calls = (): string[] => {
+  try {
+    return readFileSync(log, 'utf8').trim().split('\n').filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
+/** The report of a run with every tool present and signed in: what each case below differs from. */
+async function baseline(): Promise<Record<string, CheckStatus>> {
+  const scratch = join(root, 'baseline-bin')
+  mkdirSync(scratch)
+  for (const name of ALL_TOOLS) symlinkSync(join(TOOLS, name), join(scratch, name))
+  const report = await runChecks(deps(loginEnv({ PATH: scratch, FIRST_RUN_TOOLS_LOG: join(root, 'baseline.log') })))
+  return statuses(report)
+}
+
+describe('first-run checks', () => {
+  it('lists every check of Q22 in its group', async () => {
+    tools(...ALL_TOOLS)
+    const report = await runChecks(deps(loginEnv()))
+    expect(report.checks.map((check) => [check.group, check.id])).toEqual([
+      ['Claude Code', 'claude-login'],
+      ['Claude Code', 'claude-version'],
+      ['Command-line tools', 'git'],
+      ['Command-line tools', 'gh'],
+      ['Command-line tools', 'node'],
+      ['Command-line tools', 'jq'],
+      ['GitHub', 'gh-auth'],
+      ['Harness', 'harness'],
+      ['Harness', 'legacy-harness'],
+      ['qmd', 'qmd'],
+      ['qmd', 'qmd-models'],
+      ['qmd', 'qmd-collections'],
+    ])
+    expect(statuses(report)).toMatchObject({ 'claude-login': 'ok', 'claude-version': 'ok', git: 'ok', gh: 'ok', node: 'ok', jq: 'ok', 'gh-auth': 'ok', 'legacy-harness': 'ok' })
+    expect(checkOf(report, 'gh-auth').detail).toContain('alice')
+  })
+
+  it('without jq: jq fails with `brew install jq`, nothing else changes', async () => {
+    const before = await baseline()
+    tools('claude', 'gh', 'node', 'git', 'npm')
+    const report = await runChecks(deps(loginEnv()))
+    const jq = checkOf(report, 'jq')
+    expect(jq.status).toBe('fail')
+    expect(jq.command).toBe('brew install jq')
+    expect(statuses(report)).toEqual({ ...before, jq: 'fail' })
+  })
+
+  it('with node 20: node fails with `brew install node`, nothing else changes', async () => {
+    const before = await baseline()
+    tools(...ALL_TOOLS)
+    const report = await runChecks(deps(loginEnv({ FAKE_NODE_VERSION: '20.11.1' })))
+    const node = checkOf(report, 'node')
+    expect(node.status).toBe('fail')
+    expect(node.detail).toContain('20.11.1')
+    expect(node.command).toBe('brew install node')
+    expect(statuses(report)).toEqual({ ...before, node: 'fail' })
+  })
+
+  it('with node 22 or newer: node is ok', async () => {
+    tools(...ALL_TOOLS)
+    for (const version of ['22.0.0', '24.3.1']) {
+      const report = await runChecks(deps(loginEnv({ FAKE_NODE_VERSION: version })))
+      expect(checkOf(report, 'node').status).toBe('ok')
+    }
+  })
+
+  it('with `claude --version` older than the bundled one: a warning with `claude update`, nothing else changes', async () => {
+    const before = await baseline()
+    tools(...ALL_TOOLS)
+    const report = await runChecks(deps(loginEnv({ FAKE_CLAUDE_VERSION: '2.1.100' })))
+    const version = checkOf(report, 'claude-version')
+    expect(version.status).toBe('warn')
+    expect(version.command).toBe('claude update')
+    expect(version.detail).toContain('2.1.100')
+    expect(version.detail).toContain(BUNDLED)
+    expect(statuses(report)).toEqual({ ...before, 'claude-version': 'warn' })
+  })
+
+  it('with the same or a newer `claude --version`: ok', async () => {
+    tools(...ALL_TOOLS)
+    for (const version of [BUNDLED, '2.1.290', '2.2.0', '3.0.0']) {
+      const report = await runChecks(deps(loginEnv({ FAKE_CLAUDE_VERSION: version })))
+      expect(checkOf(report, 'claude-version'), version).toMatchObject({ status: 'ok', command: null })
+    }
+  })
+
+  it('without `claude` on the PATH: a warning, nothing else changes', async () => {
+    const before = await baseline()
+    tools('gh', 'node', 'jq', 'git', 'npm')
+    const report = await runChecks(deps(loginEnv()))
+    expect(checkOf(report, 'claude-version').status).toBe('warn')
+    expect(statuses(report)).toEqual({ ...before, 'claude-version': 'warn' })
+  })
+
+  it('with gh signed in nowhere: GitHub accounts fails with the `gh auth login` action, nothing else changes', async () => {
+    const before = await baseline()
+    tools(...ALL_TOOLS)
+    const report = await runChecks(deps(loginEnv({ FAKE_GH_ACCOUNT: '' })))
+    const accounts = checkOf(report, 'gh-auth')
+    expect(accounts.status).toBe('fail')
+    expect(accounts.command).toBe('gh auth login')
+    expect(accounts.actions.map((action) => action.id)).toEqual(['gh-login'])
+    expect(statuses(report)).toEqual({ ...before, 'gh-auth': 'fail' })
+  })
+
+  it('without git or gh: each fails with its own `brew install`', async () => {
+    tools('claude', 'node', 'jq', 'npm')
+    const report = await runChecks(deps(loginEnv()))
+    expect(checkOf(report, 'git')).toMatchObject({ status: 'fail', command: 'brew install git' })
+    expect(checkOf(report, 'gh')).toMatchObject({ status: 'fail', command: 'brew install gh' })
+  })
+
+  it('without a Claude login: sign-in fails and says to run claude, then /login', async () => {
+    tools(...ALL_TOOLS)
+    const report = await runChecks(deps(loginEnv(), { accountInfo: () => Promise.resolve({ apiProvider: 'firstParty', tokenSource: 'none' }) }))
+    const login = checkOf(report, 'claude-login')
+    expect(login.status).toBe('fail')
+    expect(login.hint).toContain('/login')
+    expect(login.command).toBe('claude')
+  })
+
+  it('when Claude Code does not answer: sign-in fails with the error', async () => {
+    tools(...ALL_TOOLS)
+    const report = await runChecks(deps(loginEnv(), { accountInfo: () => Promise.reject(new Error('Claude Code exited with code 1')) }))
+    expect(checkOf(report, 'claude-login')).toMatchObject({ status: 'fail' })
+    expect(checkOf(report, 'claude-login').hint).toContain('Claude Code exited with code 1')
+  })
+
+  it('the Harness: not installed fails with Install, an older version warns with Update, this build is ok', async () => {
+    tools(...ALL_TOOLS)
+    const env = loginEnv()
+    let report = await runChecks(deps(env))
+    expect(checkOf(report, 'harness')).toMatchObject({ status: 'fail', actions: [{ id: 'harness-install', label: 'Install' }] })
+
+    mkdirSync(join(harnessHome, 'plugin', '.claude-plugin'), { recursive: true })
+    writeFileSync(join(harnessHome, 'plugin', '.claude-plugin', 'plugin.json'), '{ "name": "worfy", "version": "1.0.0+0000000" }\n')
+    writeFileSync(join(state, 'marketplace'), `${join(harnessHome, 'plugin')}\n`)
+    writeFileSync(join(state, 'plugin-version'), '1.0.0+0000000\n')
+    report = await runChecks(deps(env))
+    expect(checkOf(report, 'harness')).toMatchObject({ status: 'warn', actions: [{ id: 'harness-install', label: 'Update' }] })
+    expect(checkOf(report, 'harness').detail).toContain(BUNDLED_HARNESS)
+
+    writeFileSync(join(harnessHome, 'plugin', '.claude-plugin', 'plugin.json'), `{ "name": "worfy", "version": "${BUNDLED_HARNESS}" }\n`)
+    writeFileSync(join(state, 'plugin-version'), `${BUNDLED_HARNESS}\n`)
+    report = await runChecks(deps(env))
+    expect(checkOf(report, 'harness')).toMatchObject({ status: 'ok', actions: [] })
+  })
+
+  it('the old Harness in ~/.claude: a warning with the move form', async () => {
+    tools(...ALL_TOOLS)
+    mkdirSync(join(claudeHome, 'bin'), { recursive: true })
+    writeFileSync(join(claudeHome, 'bin', 'epic-status'), '#!/bin/sh\n')
+    const report = await runChecks(deps(loginEnv()))
+    expect(checkOf(report, 'legacy-harness')).toMatchObject({ status: 'warn', actions: [{ id: 'migration-form' }] })
+  })
+
+  it('qmd: missing warns with Install; the models wait for an answer with Download and Skip, and name the size', async () => {
+    tools(...ALL_TOOLS)
+    let report = await runChecks(deps(loginEnv()))
+    expect(checkOf(report, 'qmd')).toMatchObject({ status: 'warn', actions: [{ id: 'qmd-install' }] })
+    expect(checkOf(report, 'qmd-models')).toMatchObject({ status: 'warn', actions: [{ id: 'qmd-models-skip' }] })
+    expect(checkOf(report, 'qmd-models').detail).toContain('2.4 GiB')
+
+    tools('qmd')
+    report = await runChecks(deps(loginEnv()))
+    expect(checkOf(report, 'qmd')).toMatchObject({ status: 'ok' })
+    expect(checkOf(report, 'qmd-models').actions.map((action) => action.id)).toEqual(['qmd-models-download', 'qmd-models-skip'])
+
+    mkdirSync(harnessHome, { recursive: true })
+    writeFileSync(join(harnessHome, MODELS_ANSWER_FILE), 'skipped\n')
+    report = await runChecks(deps(loginEnv()))
+    expect(checkOf(report, 'qmd-models')).toMatchObject({ status: 'ok', detail: 'skipped' })
+  })
+
+  it('qmd collections: a Project whose Profile names none warns with Set up; none connected is ok', async () => {
+    tools(...ALL_TOOLS, 'qmd')
+    mkdirSync(join(harnessHome, 'plugin', 'bin'), { recursive: true })
+    writeFileSync(join(harnessHome, 'plugin', 'bin', 'qmd-collections'), '#!/bin/sh\n')
+    let report = await runChecks(deps(loginEnv(), { projects: () => Promise.resolve([{ name: 'alpha', profile: 'alpha', collections: [] }]) }))
+    expect(checkOf(report, 'qmd-collections')).toMatchObject({ status: 'warn', actions: [{ id: 'qmd-collections' }] })
+    expect(checkOf(report, 'qmd-collections').detail).toContain('alpha')
+    report = await runChecks(deps(loginEnv(), { projects: () => Promise.resolve([{ name: 'alpha', profile: 'alpha', collections: ['alpha-docs'] }]) }))
+    expect(checkOf(report, 'qmd-collections').status).toBe('ok')
+    report = await runChecks(deps(loginEnv(), { projects: () => Promise.resolve([]) }))
+    expect(checkOf(report, 'qmd-collections').status).toBe('ok')
+  })
+
+  it('write nothing: every file in HOME, the Claude home and the Project keeps its mtime, and no file comes or goes', async () => {
+    tools(...ALL_TOOLS, 'qmd')
+    // A plugin folder, so the Harness check runs `claude plugin list` too.
+    mkdirSync(join(harnessHome, 'plugin', '.claude-plugin'), { recursive: true })
+    writeFileSync(join(harnessHome, 'plugin', '.claude-plugin', 'plugin.json'), `{ "name": "worfy", "version": "${BUNDLED_HARNESS}" }\n`)
+    writeFileSync(join(claudeHome, 'settings.json'), '{}\n')
+    const snapshot = (): Record<string, number> => {
+      const out: Record<string, number> = {}
+      const walk = (dir: string): void => {
+        out[dir] = statSync(dir).mtimeMs
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const path = join(dir, entry.name)
+          if (entry.isDirectory()) walk(path)
+          else out[path] = statSync(path).mtimeMs
+        }
+      }
+      walk(home)
+      walk(project)
+      return out
+    }
+    const before = snapshot()
+    const env = loginEnv({ CLAUDE_CONFIG_DIR: claudeHome })
+    await runChecks(deps(env))
+    expect(snapshot()).toEqual(before)
+    // The checks did run the tools, and `claude plugin list` among them.
+    expect(calls()).toEqual(expect.arrayContaining(['claude --version', 'claude plugin list --json', 'gh auth status', 'node --version', 'jq --version', 'git --version', 'qmd --version']))
+  })
+})
+
+describe('first-run actions', () => {
+  function actions(env: Record<string, string>, answers: boolean[], shown: Confirmation[] = []): FirstRunActions {
+    return new FirstRunActions({
+      checks: () => runChecks(deps(env)),
+      confirm: (confirmation) => {
+        shown.push(confirmation)
+        return Promise.resolve(answers.shift() ?? false)
+      },
+      env: () => Promise.resolve(env),
+      homes: { harnessHome, claudeHome },
+      installHarness: (confirm) => installer(env).install(confirm),
+      projects: () => Promise.resolve([]),
+      binDir: join(harnessHome, 'plugin', 'bin'),
+    })
+  }
+
+  it('runs nothing without "Confirm": a declined qmd install does not call npm', async () => {
+    tools(...ALL_TOOLS)
+    const shown: Confirmation[] = []
+    const result = await actions(loginEnv(), [false], shown).run('qmd-install')
+    expect(result.outcome).toBe('declined')
+    expect(shown).toHaveLength(1)
+    expect(calls().filter((line) => line.startsWith('npm install'))).toEqual([])
+    expect(checkOf(result.report, 'qmd').status).toBe('warn')
+  })
+
+  it('names the command, the folder and the download before it runs, and runs the checks again after it', async () => {
+    tools(...ALL_TOOLS)
+    const shown: Confirmation[] = []
+    const result = await actions(loginEnv(), [true], shown).run('qmd-install')
+    expect(shown[0]?.detail).toContain('npm install -g @tobilu/qmd@2.8.3')
+    expect(shown[0]?.detail).toContain(join(root, 'npm-prefix'))
+    expect(shown[0]?.detail).toMatch(/download/i)
+    expect(result.outcome).toBe('done')
+    const log = calls()
+    const installed = log.indexOf('npm install -g @tobilu/qmd@2.8.3')
+    expect(installed).toBeGreaterThanOrEqual(0)
+    // The checks ran again after npm: qmd is found now.
+    expect(log.slice(installed + 1)).toContain('qmd --version')
+    expect(checkOf(result.report, 'qmd').status).toBe('ok')
+  })
+
+  it('a failed action makes its row fail with the error, until the next attempt', async () => {
+    tools(...ALL_TOOLS)
+    const env = loginEnv({ FAKE_NPM_FAIL: 'code EACCES: permission denied' })
+    const runner = actions(env, [true, true])
+    const result = await runner.run('qmd-install')
+    expect(result.outcome).toBe('failed')
+    expect(result.message).toContain('EACCES: permission denied')
+    expect(checkOf(result.report, 'qmd')).toMatchObject({ status: 'fail' })
+    expect(checkOf(result.report, 'qmd').hint).toContain('EACCES: permission denied')
+    // Checking again keeps the failure in sight.
+    expect(checkOf(await runner.report(), 'qmd').status).toBe('fail')
+    // The next attempt replaces it: with npm working again the row is ok.
+    delete env.FAKE_NPM_FAIL
+    const retried = await runner.run('qmd-install')
+    expect(retried.outcome).toBe('done')
+    expect(checkOf(retried.report, 'qmd').status).toBe('ok')
+  })
+
+  it('the models: the dialog names the size, the folder and `qmd pull`; Skip writes "skipped" only after Confirm', async () => {
+    tools(...ALL_TOOLS, 'qmd')
+    const shown: Confirmation[] = []
+    const runner = actions(loginEnv(), [false, false, true], shown)
+    expect((await runner.run('qmd-models-download')).outcome).toBe('declined')
+    expect(shown[0]?.message).toContain('2.4 GiB')
+    expect(shown[0]?.detail).toContain('qmd pull')
+    expect(shown[0]?.detail).toContain(join(home, '.cache', 'qmd', 'models'))
+    expect(calls().filter((line) => line.startsWith('qmd pull'))).toEqual([])
+
+    expect((await runner.run('qmd-models-skip')).outcome).toBe('declined')
+    expect(() => readFileSync(join(harnessHome, MODELS_ANSWER_FILE))).toThrow()
+    const skipped = await runner.run('qmd-models-skip')
+    expect(skipped.outcome).toBe('done')
+    expect(readFileSync(join(harnessHome, MODELS_ANSWER_FILE), 'utf8')).toBe('skipped\n')
+    expect(checkOf(skipped.report, 'qmd-models')).toMatchObject({ status: 'ok', detail: 'skipped' })
+  })
+
+  it('a failed `qmd pull` makes the models row fail with its stderr', async () => {
+    tools(...ALL_TOOLS, 'qmd')
+    const result = await actions(loginEnv({ FAKE_QMD_PULL_FAIL: 'pull: network down' }), [true]).run('qmd-models-download')
+    expect(result.outcome).toBe('failed')
+    expect(checkOf(result.report, 'qmd-models')).toMatchObject({ status: 'fail' })
+    expect(checkOf(result.report, 'qmd-models').hint).toContain('pull: network down')
+  })
+
+  it('the Harness: Install shows the installer plan with Confirm, then the row is ok', async () => {
+    tools(...ALL_TOOLS)
+    const shown: Confirmation[] = []
+    const result = await actions(loginEnv(), [true], shown).run('harness-install')
+    expect(shown[0]?.message).toBe(`Install the worfy Harness ${BUNDLED_HARNESS}?`)
+    expect(shown[0]?.detail).toContain(join(harnessHome, 'plugin'))
+    expect(shown[0]?.detail).toContain('claude plugin install worfy@worfy-harness --scope user')
+    expect(result.outcome).toBe('done')
+    expect(checkOf(result.report, 'harness').status).toBe('ok')
+  })
+
+  it('a declined Harness install writes nothing', async () => {
+    tools(...ALL_TOOLS)
+    const result = await actions(loginEnv(), [false]).run('harness-install')
+    expect(result.outcome).toBe('declined')
+    expect(readdirSync(claudeHome)).toEqual([])
+    expect(calls().filter((line) => line.startsWith('claude plugin'))).toEqual([])
+  })
+
+  it('gh-login: only confirmed by main, which names the Project and the command', async () => {
+    tools(...ALL_TOOLS)
+    const shown: Confirmation[] = []
+    const runner = actions(loginEnv({ FAKE_GH_ACCOUNT: '' }), [false, true], shown)
+    expect((await runner.run('gh-login', { projectName: 'alpha' })).outcome).toBe('declined')
+    const confirmed = await runner.run('gh-login', { projectName: 'alpha' })
+    expect(confirmed.outcome).toBe('confirmed')
+    expect(shown[1]?.detail).toContain('gh auth login')
+    expect(shown[1]?.detail).toContain('alpha')
+    // main itself never runs gh auth login: the Terminal Node does, in front of the user.
+    expect(calls().filter((line) => line.startsWith('gh auth login'))).toEqual([])
+  })
+
+  it('refuses a second action while one runs', async () => {
+    tools(...ALL_TOOLS)
+    let release: (answer: boolean) => void = () => undefined
+    const runner = new FirstRunActions({
+      checks: () => runChecks(deps(loginEnv())),
+      confirm: () => new Promise((resolve) => (release = resolve)),
+      env: () => Promise.resolve(loginEnv()),
+      homes: { harnessHome, claudeHome },
+      installHarness: (confirm) => installer(loginEnv()).install(confirm),
+      projects: () => Promise.resolve([]),
+      binDir: join(harnessHome, 'plugin', 'bin'),
+    })
+    const first = runner.run('qmd-models-skip')
+    await expect(runner.run('qmd-install')).rejects.toThrow(/another action/)
+    release(false)
+    expect((await first).outcome).toBe('declined')
+  })
+})
