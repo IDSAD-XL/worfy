@@ -8,3 +8,5 @@ test-results/
 playwright-report/
 # Probe files the discovery tests of older versions wrote into src/ (ADR-0036).
 ZzVitestProbe*
+# Results of `pnpm eval:harness`: reports and run transcripts stay local.
+harness/evals/results/
