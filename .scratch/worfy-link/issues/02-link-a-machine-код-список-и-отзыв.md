@@ -101,7 +101,7 @@ Source: решения владельца 2026-10-07: Q4 (доступ выкл�
 - [x] Там же: у свежей Machine переключатель доступа выключен. Включённый, он включён и после перезапуска worfy над той же папкой данных.
 - [x] Снимки в светлой и тёмной теме (helper `test/e2e/snapshots.ts`): «Link a machine» с кодом на B, с полем кода на A, секция с одной Linked machine. Цвета — существующие токены обеих тем (`src/renderer/theme/tokens.css`). Ссылка из «Итог» — `../evidence/02-link-a-machine.png`.
 - [ ] (вручную) dev-сборка и Stable copy на одном Mac находят друг друга по Bonjour, связываются по коду; отзыв с любой стороны работает. В «Итог» — был ли запрос Local Network и на каком шаге. Как проверить: окна обеих копий.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all gate.sh full` — exit 0.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all gate.sh full` — exit 0.
 
 ## Тесты
 
@@ -170,8 +170,9 @@ dev-сборке и Stable copy. Код в e2e берётся из DOM окна 
   типами). Сокет открывается только при первом объявлении или поиске. `multicast-dns` напрямую не взят: записи DNS-SD
   (PTR, SRV, TXT, A) и пробу имени пришлось бы писать самим.
 - **Info.plist (TN3179).** В `electron-builder.yml`, `mac.extendInfo`: `NSLocalNetworkUsageDescription` (текст запроса
-  Local Network) и `NSBonjourServices: [_worfy._tcp]`. Проверено чтением TN3179, не на устройстве: собранный `.app`
-  этим Ticket-ом не запускался.
+  Local Network) и `NSBonjourServices: [_worfy._tcp]`. Нужность — по TN3179, не на устройстве. Что ключи попали в
+  сборку, проверено: `plutil -extract` по `dist/mac-arm64/worfy.app/Contents/Info.plist` после `test:package` выдаёт
+  оба; `bonjour-service` и `multicast-dns` лежат в `app.asar`.
 - **Снимки** (обе темы, `snapshotThemes`): «Link a machine» с кодом на B — [../evidence/02-link-a-machine.png](../evidence/02-link-a-machine.png)
   (он же `02-link-a-machine-code-light.png`, тёмная — `02-link-a-machine-code-dark.png`); с полем кода на A —
   `02-link-a-machine-code-field-{light,dark}.png`; секция Machines с одной Linked machine — `02-machines-section-{light,dark}.png`.
@@ -196,7 +197,9 @@ dev-сборке и Stable copy. Код в e2e берётся из DOM окна 
   связи, а клиент без окна — соединение Linked machine (Ticket 08). `link.state` и остальные новые каналы не в
   `LINK_OPEN_CHANNELS`.
 
-Проверки: `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `test/e2e/linked-machines.spec.ts` — `4 passed`.
+Проверки: `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (147 файлов, 2832 test-а); `gate.sh fast` — exit 0,
+«зелено»; `GATE_SCOPE=all gate.sh full` — exit 0, «зелено (full): lint typecheck test test:e2e test:package»;
+`test/e2e/linked-machines.spec.ts` — `4 passed`.
 Mutation-проверка в своём worktree (вернул из копии): без повтора после обрыва, без немедленного соединения по Bonjour,
 с доступом «включён» по умолчанию, без фильтра Linked machine-ов, без удаления ушедшего, без пометки другой версии —
 test-ы краснеют все шесть.
