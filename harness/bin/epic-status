@@ -6,6 +6,9 @@
 # epic-status --json [--ref <ref>] — the same parse, machine-readable, one object per ticket.
 #   Without --ref the working tree is read; with --ref — the branch's tree. Walking branches and merging
 #   their truth is epic-board's job: here lives the reader of ONE tree and nothing more.
+#   Every ticket carries branch and repo — the values of its `Branch:` and `Repo:` lines (null without one):
+#   in Silent mode the branch name says nothing about the ticket, so the ticket names its branch.
+#   --ref in a Silent project (profile mode "silent") is exit 3: there the status does not live in branches.
 #
 # epic-status --root <dir> ... — the tickets root given explicitly (the directory of epics). Without it the root
 #   comes from `ticket root`: the profile's tickets.root field, otherwise <git top-level>/.scratch, as before.
@@ -97,7 +100,7 @@ function clean(x)  { gsub(/[\001-\037\177]/," ",x); return x }
 function esc(x)    { x=clean(x); gsub(/\\/,"\\\\",x); gsub(/"/,"\\\"",x); return x }
 function jstr(x)   { return "\"" esc(x) "\"" }
 
-function emit(  w,st,v,hd,cnt,arr,i,tok,n,okall,bn,bp) {
+function emit(  w,st,v,hd,cnt,arr,i,tok,n,okall,bn,bp,br,rp) {
   if (file == "" || !ok) { file=""; return }
   w = status; gsub(/\*/,"",w); sub(/^[ \t]+/,"",w); sub(/[ \t].*$/,"",w); gsub(/[.,;:()]/,"",w)
   if      (status == "") st="none"
@@ -132,10 +135,15 @@ function emit(  w,st,v,hd,cnt,arr,i,tok,n,okall,bn,bp) {
     }
   }
   if (mode == "json") {
-    printf "%s{\"epic\":%s,\"num\":%d,\"slug\":%s,\"title\":%s,\"statusRaw\":%s,\"state\":\"%s\",\"blockedRaw\":%s,\"blockedNums\":[%s],\"blockedParsed\":%s,\"ref\":%s}",
+    # Branch and Repo are one word each (a branch name, a repository folder name): bold markers and
+    # surrounding backticks are not part of the value.
+    br = branch; gsub(/\*|`/,"",br); sub(/^[ \t]+/,"",br); sub(/[ \t]+$/,"",br)
+    rp = repo;   gsub(/\*|`/,"",rp); sub(/^[ \t]+/,"",rp); sub(/[ \t]+$/,"",rp)
+    printf "%s{\"epic\":%s,\"num\":%d,\"slug\":%s,\"title\":%s,\"statusRaw\":%s,\"state\":\"%s\",\"blockedRaw\":%s,\"blockedNums\":[%s],\"blockedParsed\":%s,\"branch\":%s,\"repo\":%s,\"ref\":%s}",
       (nemit++ ? "," : ""), jstr(epic), num+0, jstr(slug), jstr(title),
       (status == "" ? "null" : jstr(status)), st,
-      (blocked == "" ? "null" : jstr(blocked)), (bp ? bn : ""), (bp ? "true" : "false"), jstr(ref)
+      (blocked == "" ? "null" : jstr(blocked)), (bp ? bn : ""), (bp ? "true" : "false"),
+      (br == "" ? "null" : jstr(br)), (rp == "" ? "null" : jstr(rp)), jstr(ref)
   } else {
     printf "%s\037%d\037%s\037%s\037%s\037%s\037%s\037%s\037%d\n", clean(epic), num+0, clean(slug), clean(title), clean(status), st, clean(blocked), bn, bp
   }
@@ -144,7 +152,7 @@ function emit(  w,st,v,hd,cnt,arr,i,tok,n,okall,bn,bp) {
 
 FNR==1 {
   emit()
-  file=FILENAME; title=""; status=""; blocked=""; fence=0
+  file=FILENAME; title=""; status=""; blocked=""; branch=""; repo=""; fence=0
   base=file; sub(/.*\//,"",base)
   epic=file; sub(/\/issues\/[^\/]*$/,"",epic); sub(/.*\//,"",epic)
   num=base;  sub(/-.*/,"",num)
@@ -161,6 +169,8 @@ FNR==1 {
   low=tolower(l)
   if      (low ~ /^\*?\*?status[ \t]*\*?\*?[ \t]*:/)     { v=l; sub(/^\*?\*?[^:]*:\*?\*?[ \t]*/,"",v); status=v }
   else if (low ~ /^\*?\*?blocked by[ \t]*\*?\*?[ \t]*:/) { v=l; sub(/^\*?\*?[^:]*:\*?\*?[ \t]*/,"",v); blocked=v }
+  else if (low ~ /^\*?\*?branch[ \t]*\*?\*?[ \t]*:/)     { v=l; sub(/^\*?\*?[^:]*:\*?\*?[ \t]*/,"",v); branch=v }
+  else if (low ~ /^\*?\*?repo[ \t]*\*?\*?[ \t]*:/)       { v=l; sub(/^\*?\*?[^:]*:\*?\*?[ \t]*/,"",v); repo=v }
 }
 END { emit() }
 AWK
@@ -266,6 +276,14 @@ json_dump() {  # <.scratch dir> <ref label>
 if [ "$JSON" = 1 ]; then
   src=$scratch
   if [ -n "$JSON_REF" ]; then
+    # Silent mode: the status is written straight into the Workflow folder and lives in no branch, so a
+    # branch's tree has nothing to say about it. The profile is the one ticket reads (next to this script).
+    # Not registered or no profile — Full mode, as before.
+    PROFILE_BIN="${CLAUDE_PROFILE_BIN:-$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" && pwd -P)/profile}"
+    if command -v node >/dev/null 2>&1 && [ "$("$PROFILE_BIN" --field _resolved.mode 2>/dev/null)" = silent ]; then
+      echo "epic-status: in Silent mode the status does not live in branches; without --ref the Workflow folder is read ($scratch)" >&2
+      exit 3
+    fi
     # A root outside git: the branch has nothing to show, and an empty answer would read as "the branch
     # has no tickets". These are different things — refusal.
     if [ -z "$scratch_git" ]; then

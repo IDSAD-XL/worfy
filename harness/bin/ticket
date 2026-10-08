@@ -3,7 +3,10 @@
 // so that the Status field stops being kept by hand in four different spellings.
 //
 //   ticket done  <epic> <NN> [--pr N]   Status: done — 2026-08-27, [PR #N](…)
-//   ticket claim <epic> <NN>            Status: claimed — 2026-08-27
+//   ticket claim <epic> <NN> [--branch B] [--repo R]
+//                                       Status: claimed — 2026-08-27; with --branch also the line
+//                                       `Branch: B`, with --repo the line `Repo: R` (a name from
+//                                       _resolved.repos of the profile — a project of several repositories)
 //   ticket open  <epic> <NN>            Status: open
 //   ticket block <epic> <NN> <reason>   Status: blocked — <reason>
 //   ticket show  <epic> <NN>            show the current line, do not touch the file
@@ -12,7 +15,9 @@
 // Tickets root (the directory holding <epic>/issues/): --root <dir>, otherwise
 // the tickets.root field of the project's profile (bin/profile next to this script), otherwise, as before,
 // <git top-level or the current directory>/.scratch. The path rules are in profiles/README.md
-// (the tickets.root field); epic-status and epic-board take the root from here too.
+// (the tickets.root field); epic-status and epic-board take the root from here too. In Silent mode
+// (profile mode "silent") a relative root — and the default .scratch — is taken from the Workflow
+// folder (_resolved.workflow_folder): the status lives there, one for every worktree, not in a branch.
 //
 // Epic and number can be written with a slash: ticket done disputes/03
 // The -n flag prints the future line and does not write it. Flags are recognised in any
@@ -33,8 +38,9 @@ const die = (msg) => {
     process.exit(1)
 }
 
-const USAGE = `usage: ticket <done|claim|open|block|show> <epic> <NN> [--pr N] [-n] [--root <dir>]
+const USAGE = `usage: ticket <done|claim|open|block|show> <epic> <NN> [--pr N] [--branch B] [--repo R] [-n] [--root <dir>]
        ticket root [--root <dir>]
+       ticket claim checkout-flow 05 --branch fix/lot-withdraw-button
        ticket done disputes/03 --pr 42
        ticket block disputes 04 "waits for ADR-0045"`
 
@@ -51,7 +57,13 @@ const argv = process.argv.slice(2)
 let dryRun = false
 let pr = null
 let rootArg = null
+let branchArg = null
+let repoArg = null
 const positional = []
+const valueOf = (flag, v) => {
+    if (v === undefined || v === "" || v.startsWith("-")) die(`${flag} needs a value`)
+    return v
+}
 for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === "-n") dryRun = true
@@ -66,6 +78,10 @@ for (let i = 0; i < argv.length; i++) {
         rootArg = a.slice(7)
         if (!rootArg) die("--root needs a directory")
     }
+    else if (a === "--branch") branchArg = valueOf("--branch", argv[++i])
+    else if (a.startsWith("--branch=")) branchArg = valueOf("--branch", a.slice(9))
+    else if (a === "--repo") repoArg = valueOf("--repo", argv[++i])
+    else if (a.startsWith("--repo=")) repoArg = valueOf("--repo", a.slice(7))
     else if (a.startsWith("-")) die(`unknown flag: ${a}\n${USAGE}`)
     else positional.push(a)
 }
@@ -93,15 +109,16 @@ function launchDir() {
     }
     return cwd
 }
+let prof = null // the profile as `profile --json` prints it; null — not registered (exit 3) or no profile script
 function ticketsRoot() {
     const top = git(["rev-parse", "--show-toplevel"])
     // For `ticket root` (epic-status calls it) — the logical directory, as epic-status
     // used before; for editing a ticket — process.cwd(), as ticket used before.
     const here = cmd === "root" ? launchDir() : process.cwd()
     // An explicit --root is taken from process.cwd() for every command: `ticket root --root ../x` (epic-status
-    // calls it) and `ticket claim --root ../x` must point to the same directory.
-    if (rootArg !== null) return path.resolve(process.cwd(), rootArg)
-    let prof = null
+    // calls it) and `ticket claim --root ../x` must point to the same directory. It needs no profile — unless
+    // --repo has to be checked against the project's repositories.
+    if (rootArg !== null && repoArg === null) return path.resolve(process.cwd(), rootArg)
     try {
         prof = JSON.parse(
             execFileSync(PROFILE, ["-C", here, "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }),
@@ -110,14 +127,21 @@ function ticketsRoot() {
         if (e.code === "ENOENT" || e.status === 3) prof = null
         else {
             const why = String(e.stderr || e.message || "").split("\n")[0].trim()
-            die(`project profile not read (${PROFILE}, exit ${e.status ?? e.code}): ${why}\ngive the tickets root explicitly: --root <dir>`)
+            if (rootArg !== null) prof = null // the root is given explicitly; the profile is only asked for the repositories
+            else die(`project profile not read (${PROFILE}, exit ${e.status ?? e.code}): ${why}\ngive the tickets root explicitly: --root <dir>`)
         }
     }
+    if (rootArg !== null) return path.resolve(process.cwd(), rootArg)
+    // Silent mode: the workflow files live in the Workflow folder, so a relative root (and the default
+    // .scratch) is taken from there, the same from every worktree and from the main checkout.
+    const silent = prof?._resolved?.mode === "silent" && typeof prof?._resolved?.workflow_folder === "string"
     const field = prof?.tickets?.root
-    if (typeof field !== "string" || !field.trim()) return path.join(top || here, ".scratch")
+    if (typeof field !== "string" || !field.trim())
+        return path.join(silent ? prof._resolved.workflow_folder : top || here, ".scratch")
     let r = field.trim()
     if (r === "~" || r.startsWith("~/")) r = path.join(os.homedir(), r.slice(1))
     if (path.isAbsolute(r)) return path.resolve(r)
+    if (silent) return path.resolve(prof._resolved.workflow_folder, r)
     // A relative one is taken from the root of the current working tree: tickets travel with the branch, and
     // a worktree has its own. Outside git — from the profile's common directory, otherwise from cwd.
     return path.resolve(top || prof?._resolved?.workspace || here, r)
@@ -205,6 +229,22 @@ const prLink = () => {
 
 if (cmd === "block" && !reason) die(`block needs a reason:\n${USAGE}`)
 if (pr !== null && cmd !== "done") die(`--pr goes only with done, not with ${cmd}`)
+if (branchArg !== null && cmd !== "claim") die(`--branch goes only with claim, not with ${cmd}`)
+if (repoArg !== null && cmd !== "claim") die(`--repo goes only with claim, not with ${cmd}`)
+// A branch name git would refuse would end up in the ticket and lead nowhere.
+if (branchArg !== null) {
+    try {
+        execFileSync("git", ["check-ref-format", "--branch", branchArg], { stdio: ["ignore", "ignore", "ignore"] })
+    } catch {
+        die(`--branch: "${branchArg}" is not a valid branch name`)
+    }
+}
+// The repository of the ticket is one of the project's repositories (_resolved.repos, ADR-0045: one ticket — one
+// repository). Without a profile (--root outside the registry) there is nothing to check against.
+if (repoArg !== null && Array.isArray(prof?._resolved?.repos) && prof._resolved.repos.length) {
+    const names = prof._resolved.repos.map((r) => r.name)
+    if (!names.includes(repoArg)) die(`--repo: "${repoArg}" is not a repository of the project (${names.join(", ")})`)
+}
 const value = {
     done: () => `done — ${today}${prLink()}`,
     claim: () => `claimed — ${today}`,
@@ -239,6 +279,29 @@ if (statusIdx !== -1) {
 console.log(`${path.relative(root, target)}:${at + 1}${viaLink ? `  (via link ${path.relative(root, file)})` : ""}`)
 if (before !== null) console.log(`  was: ${before.trim()}`)
 console.log(`  now: ${lines[at].trim()}`)
+
+// `Branch:` and `Repo:` — header lines next to Status (machine lines, English keys). An existing line keeps its
+// prefix (`**Branch:**` or `Branch:`) and gets the new value; a missing one goes right after the Status line,
+// in the Status line's spelling.
+const extra = [
+    ["Branch", branchArg],
+    ["Repo", repoArg],
+]
+for (const [key, val] of extra) {
+    if (val === null) continue
+    const bold = new RegExp(`^(\\*\\*${key}\\b[ \\t]*\\*{0,2}[ \\t]*:[ \\t]*\\*{0,2}[ \\t]*)(.*)$`, "i")
+    const plain = new RegExp(`^(${key}\\b[ \\t]*:[ \\t]*)(.*)$`, "i")
+    const idx = lines.reduce((last, l, i) => (bold.test(l) || plain.test(l) ? i : last), -1)
+    if (idx !== -1) {
+        const was = lines[idx]
+        lines[idx] = (was.match(bold) || was.match(plain))[1] + val
+        console.log(`  ${key.toLowerCase()}: ${was.trim()} -> ${lines[idx].trim()}`)
+    } else {
+        const line = lines[at].startsWith("**") ? `**${key}:** ${val}` : `${key}: ${val}`
+        lines.splice(at + 1, 0, line)
+        console.log(`  ${key.toLowerCase()}: ${line}`)
+    }
+}
 if (dryRun) {
     console.log("  (-n: file not touched)")
     process.exit(0)

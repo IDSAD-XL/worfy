@@ -1,0 +1,235 @@
+#!/usr/bin/env node
+// silent-check — looks for traces of the workflow in what a Silent project's repository and its PRs will
+// show to people: a commit message, a branch name, a PR title, body or comment, the added lines of a diff.
+//
+//   silent-check [-C <dir>] <text>...        the text given as arguments (joined with spaces)
+//   silent-check [-C <dir>] --file <path>    the text of a file; `--file -` — stdin
+//   silent-check [-C <dir>] --diff <rev>     the added lines and the added file names of `git diff <rev>`
+//   silent-check [-C <dir>] --cached         the same for the index (`git diff --cached`): what a commit takes
+//   silent-check [-C <dir>] --untracked      the names and lines of the untracked, not ignored files: what
+//                                            `git add -A` would take
+//   silent-check [-C <dir>]                  no input named — stdin
+// Several inputs may be given together; each finding names its input and line.
+//
+// What a trace is (profiles/README.md, "Silent mode"; worfy ADR-0042):
+//   - in Silent mode (profile mode "silent"): the name of an epic of the project (a directory of the tickets
+//     root), `<epic>/<NN>`, `ADR-<4 digits>`, `Ticket <number>` and `Ticket-<number>`, the path of the
+//     Workflow folder, `.scratch`, `HANDOFF`. In the added lines of a diff a bare epic name is not looked
+//     for: epics are often named by the code area they change (`deals`, `frontend`), and the code itself
+//     names that area; `<epic>/<NN>` and the rest still count there;
+//   - with `attribution: off`, in any mode: the Claude attribution lines (`Co-Authored-By: Claude`,
+//     `Generated with [Claude Code]`).
+//
+// Exit codes: 0 — clean, or nothing to check (a Full project with attribution on, a directory outside the
+// registered projects, a directory that is not one of the project's repositories — the common directory
+// above them or the Workflow folder, whose own history may name everything); 1 — traces found, one line each
+// on stdout; 2 — usage error, or the profile or the tickets root could not be read.
+//
+// The project is the one bin/profile finds from <dir> (default: the current directory); the tickets root is
+// the one bin/ticket prints from there (`ticket root`). silent-check only reads.
+"use strict"
+
+const fs = require("node:fs")
+const path = require("node:path")
+const { execFileSync } = require("node:child_process")
+
+const BIN = path.dirname(fs.realpathSync(__filename))
+const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(BIN, "profile")
+const TICKET = process.env.CLAUDE_TICKET_BIN || path.join(BIN, "ticket")
+
+const USAGE = `usage: silent-check [-C <dir>] [--file <path>|-] [--diff <rev>] [--cached] [--untracked] [<text>...]
+exit: 0 clean or nothing to check, 1 traces found, 2 usage or profile error`
+
+const die = (code, msg) => {
+    if (msg) process.stderr.write(`silent-check: ${msg}\n`)
+    process.exit(code)
+}
+
+// --- arguments -----------------------------------------------------------------
+let dir = process.cwd()
+const files = []
+const diffs = []
+const words = []
+const argv = process.argv.slice(2)
+for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    const next = () => {
+        const v = argv[++i]
+        if (v === undefined || v === "") die(2, `${a} needs a value\n${USAGE}`)
+        return v
+    }
+    if (a === "-C") dir = path.resolve(next())
+    else if (a === "--file") files.push(next())
+    else if (a === "--diff") diffs.push(["diff", next()])
+    else if (a === "--cached") diffs.push(["diff", "--cached"])
+    else if (a === "--untracked") diffs.push(["untracked"])
+    else if (a === "-h" || a === "--help") {
+        process.stdout.write(USAGE + "\n")
+        process.exit(0)
+    } else if (a === "--") {
+        words.push(...argv.slice(i + 1))
+        break
+    } else if (a.startsWith("-") && a !== "-") die(2, `unknown flag: ${a}\n${USAGE}`)
+    else words.push(a)
+}
+try {
+    if (!fs.statSync(dir).isDirectory()) die(2, `not a directory: ${dir}`)
+} catch {
+    die(2, `no such directory: ${dir}`)
+}
+
+// --- the project -----------------------------------------------------------------
+let prof
+try {
+    prof = JSON.parse(execFileSync(PROFILE, ["-C", dir, "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }))
+} catch (e) {
+    if (e.status === 3) {
+        process.stdout.write("silent-check: not a registered project — nothing to check\n")
+        process.exit(0)
+    }
+    die(2, `profile not read (exit ${e.status ?? e.code}): ${String(e.stderr || e.message).split("\n")[0]}`)
+}
+const R = prof._resolved || {}
+const silent = R.mode === "silent"
+const attributionOff = prof.attribution === "off"
+if (!silent && !attributionOff) {
+    process.stdout.write("silent-check: Full mode, attribution on — nothing to check\n")
+    process.exit(0)
+}
+// Commits and PRs happen in the project's repositories. A directory the profile matched only as the common
+// directory above them (gate_key null) is not one of them: the Workflow folder there keeps its own history.
+if (!R.gate_key) {
+    process.stdout.write("silent-check: not a repository of the project — nothing to check\n")
+    process.exit(0)
+}
+
+// --- what counts as a trace --------------------------------------------------------
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+const rules = [] // [kind, RegExp with the g flag, also in the added lines of a diff]
+if (silent) {
+    let root
+    try {
+        root = execFileSync(TICKET, ["root"], { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim()
+    } catch (e) {
+        die(2, `tickets root not read (exit ${e.status ?? e.code}): ${String(e.stderr || e.message).split("\n")[0]}`)
+    }
+    let epics = []
+    try {
+        epics = fs
+            .readdirSync(root, { withFileTypes: true })
+            .filter((d) => d.isDirectory() && !d.name.startsWith("."))
+            .map((d) => d.name)
+    } catch {
+        /* no tickets root yet — no epic names to look for */
+    }
+    // The longest name first: of `checkout` and `checkout-flow` the longer one is the finding.
+    epics.sort((a, b) => b.length - a.length)
+    const B = "(?<![\\p{L}\\p{N}_-])" // the name is a whole token: not a part of a longer word or slug
+    const E = "(?![\\p{L}\\p{N}_-])"
+    for (const ep of epics) rules.push(["epic/NN", new RegExp(`${B}${esc(ep)}/\\d+${E}`, "giu"), true])
+    for (const ep of epics) rules.push(["epic name", new RegExp(`${B}${esc(ep)}${E}`, "giu"), false])
+    rules.push(["ADR number", /(?<![\p{L}\p{N}_])ADR[-_ ]?\d{4}(?!\d)/giu, true])
+    rules.push(["ticket number", /(?<![\p{L}\p{N}_])(?:Tickets?|Тикет\p{L}*)[- ]#?\d+/giu, true])
+    const wf = R.workflow_folder
+    if (typeof wf === "string" && wf) {
+        const forms = new Set([wf.replace(/\/+$/, "")])
+        try {
+            forms.add(fs.realpathSync(wf))
+        } catch {}
+        const home = process.env.HOME
+        for (const f of [...forms]) if (home && f.startsWith(home + "/")) forms.add("~" + f.slice(home.length))
+        for (const f of forms) rules.push(["Workflow folder path", new RegExp(esc(f), "g"), true])
+    }
+    rules.push([".scratch", /\.scratch(?![\p{L}\p{N}_])/gu, true])
+    rules.push(["HANDOFF", /HANDOFF/g, true])
+}
+if (attributionOff) {
+    rules.push(["Claude attribution", /Co-Authored-By:[ \t]*Claude/gi, true])
+    rules.push(["Claude attribution", /Generated with \[?Claude Code/gi, true])
+}
+
+// --- inputs ----------------------------------------------------------------------------
+const inputs = [] // [label, [[line number or "file:line", text]], is the added lines of a diff]
+const asLines = (text) => text.split(/\r?\n/).map((t, i) => [i + 1, t])
+if (words.length) inputs.push(["text", asLines(words.join(" "))])
+for (const f of files) {
+    let text
+    try {
+        text = fs.readFileSync(f === "-" ? 0 : path.resolve(dir, f), "utf8")
+    } catch (e) {
+        die(2, `cannot read ${f}: ${e.message}`)
+    }
+    inputs.push([f === "-" ? "stdin" : f, asLines(text)])
+}
+const git = (args) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", maxBuffer: 1 << 28, stdio: ["ignore", "pipe", "pipe"] })
+for (const [what, rev] of diffs) {
+    if (what === "untracked") {
+        let list
+        try {
+            list = git(["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean)
+        } catch (e) {
+            die(2, `git ls-files failed: ${String(e.stderr || e.message).split("\n")[0]}`)
+        }
+        const lines = []
+        for (const f of list) {
+            try {
+                const p = path.join(dir, f)
+                if (fs.statSync(p).size > 1 << 20) continue
+                const text = fs.readFileSync(p, "utf8")
+                if (text.includes("\0")) continue // binary
+                text.split(/\r?\n/).forEach((t, i) => lines.push([`${f}:${i + 1}`, t]))
+            } catch {
+                /* gone or unreadable — nothing to check */
+            }
+        }
+        inputs.push(["untracked", lines, true])
+        inputs.push(["untracked file names", list.map((f) => [f, f]), true])
+        continue
+    }
+    const args = rev === "--cached" ? ["--cached"] : [rev]
+    let patch, names
+    try {
+        patch = git(["diff", "--no-color", "--no-ext-diff", "-U0", ...args])
+        names = git(["diff", "--name-only", "--diff-filter=ACR", ...args])
+    } catch (e) {
+        die(2, `git diff ${args.join(" ")} failed: ${String(e.stderr || e.message).split("\n")[0]}`)
+    }
+    // The added lines with their line numbers in the new file: `<file>:<line>`.
+    const added = []
+    let file = null
+    let n = 0
+    for (const l of patch.split("\n")) {
+        if (l.startsWith("+++ ")) file = l.slice(4).replace(/^b\//, "")
+        else if (l.startsWith("@@")) n = Number((l.match(/\+(\d+)/) || [0, 0])[1])
+        else if (l.startsWith("+")) added.push([`${file}:${n++}`, l.slice(1)])
+    }
+    const label = rev === "--cached" ? "index" : `diff ${rev}`
+    inputs.push([label, added, true])
+    inputs.push([`${label} file names`, names.split("\n").filter(Boolean).map((f) => [f, f]), true])
+}
+if (!inputs.length) inputs.push(["stdin", asLines(fs.readFileSync(0, "utf8"))])
+
+// --- search ------------------------------------------------------------------------------
+const found = []
+for (const [label, lines, isDiff] of inputs) {
+    for (const [where, text] of lines) {
+        const taken = [] // [start, end): a span already reported under a stronger rule
+        for (const [kind, re, inDiff] of rules) {
+            if (isDiff && !inDiff) continue
+            re.lastIndex = 0
+            for (const m of text.matchAll(re)) {
+                const s = m.index
+                const e = s + m[0].length
+                if (taken.some(([a, b]) => s < b && e > a)) continue
+                taken.push([s, e])
+                const where2 = typeof where === "number" ? `${label}:${where}` : `${label} ${where}`
+                found.push(`${where2}: ${kind} "${m[0]}"`)
+            }
+        }
+    }
+}
+if (found.length) {
+    process.stdout.write(found.join("\n") + "\n")
+    process.exit(1)
+}
+process.stdout.write(`silent-check: clean (${silent ? "Silent mode" : "attribution off"})\n`)

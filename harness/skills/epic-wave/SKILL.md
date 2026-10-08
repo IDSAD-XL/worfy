@@ -52,11 +52,20 @@ Two fields set the shape of the wave:
   starts when the previous ticket has passed the gate (section 3) and, with `pr-green-ci`, has been
   merged (section 4, items 1–2: the merge happens inside the per-ticket loop, while the production
   check and the documents happen once at the end). No worktrees are created.
-- `F workflow.finish` — `pr-green-ci`: PR, CI, merge, production; `local-green`: a ticket finishes
-  on locally green checks, there is no PR, and section 4 (merge) is skipped entirely except item 4
-  (documents). The skill merges nothing: with `single` each next ticket's branch is created from
-  the previous ticket's branch (the first from `F worktree.base`), and the documents commit lands on
-  the last ticket's branch; when and where to merge that chain is the user's call.
+- `F workflow.finish` — `pr-green-ci`: PR, CI, merge, production; `local-green`: there is no PR and
+  no production check; a ticket finishes when the local `gate full` is green and its branch is merged
+  locally into the main branch of its repository (section 4, "Local merge"). With `single` each next
+  ticket's branch is created from the main branch after the previous ticket's local merge.
+
+**Silent mode** — `F _resolved.mode` prints `silent`. The rules are in skill `/worfy:ship-ticket`,
+section 0: the workflow files live in the Workflow folder `F _resolved.workflow_folder`, and branches,
+commits, PRs and code comments carry no trace of the workflow. For the wave that means: the statuses go
+straight into the Workflow folder (`ticket` from any directory), a ticket's branch is the `Branch:` line
+of its file, there is no documents PR or documents commit in the repository (section 4, item 4), and in
+a project of several repositories each ticket works in the repository of its `Repo:` line (one ticket —
+one repository; paths — `F _resolved.repos`). Every brief, verdict and PR comment that reaches the
+repository or GitHub follows the same rule; the briefs to agents are not published and may name the
+ticket.
 
 Project pitfalls and what each `BLOCKED` reason of the preflight means are in the profile's
 `rules.md` (`"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --rules`); read it once, before the plan.
@@ -167,7 +176,9 @@ Ticket: <F tickets.path for NN>; spec: <F tickets.spec>
 Worktree: <F worktree.implementer>, <ветка> = <F tickets.branch>, <имя-тикета> = <NN>-<slug>;
         # <эпик>, <NN>, <slug> in the templates come from the ticket (worfy: branch <эпик>/<NN>, worktree <NN>)
         # with single: "main checkout <repo>, no worktree, branch <F tickets.branch>
-        #   from the base" (with local-green — from the previous wave ticket's branch)
+        #   from the base" (with local-green — from the main branch after the previous ticket's local merge)
+        # Silent mode: <ветка> is a branch named by the change (ship-ticket, step 2), recorded with
+        #   ticket claim <epic> <NN> --branch <ветка>; Repository: the repository of the ticket's Repo: line
 Base: <base line from the preflight>
 Files: <exact list>
 Numbers: ADR-<NNNN> — create <F numbering.adr.dir>/<NNNN>-<slug>.md, as a placeholder first;
@@ -253,8 +264,18 @@ git -C <implementer worktree> commit --allow-empty -m "gate: VERIFIED"     # or 
 git -C <implementer worktree> log --format=%s <base>..HEAD | grep -c '^gate: REJECTED'
 ```
 
+In Silent mode the branch gets no `gate:` commit (it would carry the review into the repository's
+history): the verdict is a line at the end of the ticket file in the Workflow folder, under its result
+section, in the same words:
+
+```bash
+f=$(ls "$(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/ticket" root)"/<epic>/issues/<NN>-*.md)
+printf '\n%s\n' "gate: VERIFIED — $(date +%F)" >>"$f"      # or "gate: REJECTED: <list>"
+grep -c '^gate: REJECTED' "$f"
+```
+
 These counts do not see the narrow round below: its verdicts start with `NARROW:` (with
-`local-green` — commits `gate: NARROW: …`). A `NARROW:` comment or commit means the ticket has had
+`local-green` — commits `gate: NARROW: …`, in Silent mode — such lines in the ticket file). A `NARROW:` comment or commit means the ticket has had
 its narrow round; the last `NARROW: VERIFIED` or `NARROW: REJECTED` is its verdict.
 
 `REJECTED` (except `REJECTED: gate 3 …` — see above) goes to the same implementer through
@@ -308,8 +329,15 @@ The gate is closed when every ticket of the wave has a verdict.
 
 ## 4. Merge by policy
 
-Items 1–3 — only with `pr-green-ci`; with `local-green` — "no merge: the project finishes on
-locally green checks", and straight to item 4.
+Items 1–3 — only with `pr-green-ci`; with `local-green` — the local merge below instead of them, then
+item 4.
+
+**Local merge** (`local-green`). Every `VERIFIED` ticket is merged into the main branch of its
+repository on this machine, one at a time, under the lock below: the implementer rebases its branch onto
+the main branch in its own worktree, `gate full` runs there with exit code 0 and the line
+`[gate] зелено (…)`, and the main branch is fast-forwarded to the branch — the steps and the block are in skill
+`/worfy:ship-ticket`, step 11; `MERGED=0` is the proof. A conflict in the rebase is handled like a
+`DIRTY` PR: back to the implementer, then the gate again. Nothing is pushed.
 
 Each step is status and merge as two commands; "no checks reported" is what `gh pr checks` prints
 on a conflict, not a value of `mergeStateStatus`:
@@ -377,7 +405,7 @@ staging password never goes into command arguments — only the way `F deploy.pr
 passes it.
 
 4. The documents PR — last, after production is verified (with `local-green` — a documents commit
-   after the last `VERIFIED`). `ticket` edits ticket files in the worktree where it
+   after the last local merge; in Silent mode — neither, see the end of this item). `ticket` edits ticket files in the worktree where it
    runs, so the wave's statuses and one state-file edit per wave go on its branch.
    The state file (`F docs.handoff`: `path`, `kind`, `check`) is a snapshot; its rules are in
    skill `/worfy:ship-ticket`, step 11. The wave rewrites only its own epic's lines: what is in
@@ -390,6 +418,19 @@ passes it.
    description, lessons that generalize go where `F lessons` says (with `local-green` the story
    goes into the documents commit message). Run `F docs.handoff.check`, if the profile sets it,
    before push. No `docs.handoff` — "the project has no state file".
+   In Silent mode `ticket` has already written the statuses into the Workflow folder, and the state
+   file, the result sections and the lessons are files there too: the repository gets no documents
+   PR and no documents commit. When the Workflow folder is a git repository of its own, the wave ends
+   with a local commit there, without push (the story of the wave is its message):
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1"; }
+W=$(F _resolved.workflow_folder)
+if [ "$(git -C "$W" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$W" && pwd -P)" ]; then
+  git -C "$W" add -A . && git -C "$W" commit -q -m "<epic>: wave of tickets <NN>, <NN> — statuses, state file"; echo "EXIT=$?"
+else echo "the Workflow folder is not a git repository of its own: the files are saved, nothing to commit"; fi
+```
+
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/ticket" done <epic> <NN> --pr <N>                  # for each merged ticket; with local-green — without --pr
@@ -405,7 +446,9 @@ become `DIRTY`. So check `mergeStateStatus` and rebase before the rework round a
 for CI, not after.
 
 **Cleanup after the merge.** Once a ticket's PR (and the wave's documents PR) is merged — at once
-`git worktree remove <worktree>` and `git branch -D <branch>`; the verifiers' worktrees too. A
+`git worktree remove <worktree>` and `git branch -D <branch>`; the verifiers' worktrees too. With
+`local-green` the same after the local merge (`git branch -d <branch>` — the branch is in the main
+branch by then). A
 worktree stays only for a ticket removed from the wave with an open PR. An old ticket branch in a
 live worktree is not litter but a false signal: worfy reads ticket status from worktree branches
 too, and `claimed` from a merged branch overrides `done` on main (worfy-daily, wave 6: "3 in work"
@@ -433,6 +476,28 @@ column shows a narrow round as "+ narrow"; a narrow round that ended in `NARROW:
 
 ## How to resume a wave
 
+In Silent mode the status is one, in the Workflow folder, and a ticket names its branch in the `Branch:`
+line: the wave is read from those lines, not from the `<epic>/*` branches. `<repo>` is the main
+checkout; a ticket with a `Repo:` line is looked up in that repository:
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1"; }
+(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/epic-status" --json) \
+  | jq -r '.tickets[] | select(.epic=="<epic>" and .state!="open") | [.num, .state, (.branch // "-"), (.repo // "-")] | @tsv' \
+  | while IFS=$'\t' read -r n st b r; do
+      d=<repo>; [ "$r" = - ] || d=$(F _resolved.repos | jq -r --arg r "$r" '.[] | select(.name==$r) | .path')
+      if [ "$b" = - ]; then w="no Branch: line"
+      elif git -C "$d" rev-parse --verify -q "refs/heads/$b" >/dev/null; then w="local branch"
+      elif git -C "$d" rev-parse --verify -q "refs/remotes/origin/$b" >/dev/null; then w="on origin only"
+      else w="no such branch"; fi
+      printf '%s\t%s\t%s\t%s\n' "$n" "$st" "$b" "$w"
+    done
+```
+
+With `pr-green-ci` the ticket's PR is `gh pr list --head <branch> --state all`; with `local-green` its
+verdicts are the `gate:` lines of its file. The rest of this section reads the same, with "the ticket's
+branch" meaning that branch. In Full mode:
+
 `ticket claim` runs in the implementer's worktree, and the status lives on its branch:
 `epic-status` on the local main branch does not see it. The state of the wave is read from
 branches, PRs and worktrees (branches — the `F tickets.branch` template with everything after
@@ -457,7 +522,8 @@ and with no such verdict yet the narrow round's gate is ahead. A merged PR while
 With `local-green` there is no PR, and the state is read from the `gate:` commits on the ticket's
 branch: no last `gate: VERIFIED` — run the gate (section 3); if it is red, the implementer has not
 finished — continue `/worfy:ship-ticket` on that branch up to a green step 6. `gate: VERIFIED`
-exists but `state` is not `done` — the documents commit is still ahead. Rework rounds — the number
+exists but `state` is not `done` — the local merge (section 4; `git merge-base --is-ancestor <branch>
+<main branch>` says whether it happened) or the documents commit is still ahead. Rework rounds — the number
 of `gate: REJECTED` commits. A `gate: NARROW:` commit means the narrow round has been given; the
 last `gate: NARROW: VERIFIED` or `gate: NARROW: REJECTED` is the ticket's verdict.
 

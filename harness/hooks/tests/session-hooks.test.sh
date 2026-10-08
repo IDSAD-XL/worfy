@@ -24,6 +24,8 @@ bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 
 T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
+. "$HARNESS/bin/tests/real-home.sh"
+home_before="$(real_home_snapshot "$HOME" "$T")"
 if [ -d "$HOME/.claude/profiles" ]; then
     cp -Rp "$HOME/.claude/profiles" "$T/profiles"
     rm -rf "$T"/profiles/*/state
@@ -167,6 +169,30 @@ CLAUDE_GATE_CONFIG="$T/syn3.json" CLAUDE_PROFILES_DIR="$T/sp" run "$END" "$T/syn
 c="$(CLAUDE_GATE_CONFIG="$T/syn3.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/p3" "$T/syn/p3" | ctx)"
 [[ "$c" == *"## Housekeeping"* && "$c" != *"remind rules"* ]] && ok "reminder-only profile: reminder without rules" \
     || bad "reminder-only profile: [$c]"
+
+# --- the workflow mode (worfy-harness ticket 22) -----------------------------------------------
+# Silent mode and attribution off are said in every session of the project, whatever session.inject_rules
+# says; a Full project with attribution on gets the same output as before (nothing, without inject_rules).
+mkdir -p "$T/syn/s1" "$T/syn/f1" "$T/syn/f2" "$T/sp/silent" "$T/sp/fullon" "$T/sp/fulloff" "$T/wf"
+for r in s1 f1 f2; do git -C "$T/syn/$r" init -q; done
+printf '{"schema":2,"name":"silent","mode":"silent","attribution":"off","workflow":{"folder":"%s"}}\n' "$T/wf" >"$T/sp/silent/profile.json"
+echo '{"schema":2,"name":"fullon","mode":"full","attribution":"on"}' >"$T/sp/fullon/profile.json"
+echo '{"schema":2,"name":"fulloff","mode":"full","attribution":"off"}' >"$T/sp/fulloff/profile.json"
+printf '{"repos":[{"key":"s","match":"%s","profile":"silent"},{"key":"f","match":"%s","profile":"fullon"},{"key":"o","match":"%s","profile":"fulloff"}]}\n' \
+    "$T/syn/s1" "$T/syn/f1" "$T/syn/f2" >"$T/syn4.json"
+c="$(CLAUDE_GATE_CONFIG="$T/syn4.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/s1" "$T/syn/s1" | ctx)"
+if [[ "$c" == *"## Workflow mode (profile silent)"* && "$c" == *"This project works in Silent mode"* && "$c" == *"Workflow folder $T/wf"* ]] \
+   && [[ "$c" == *"no epic names, ticket or ADR numbers"* && "$c" == *"Attribution is off for this project"* ]]; then
+    ok "silent + attribution off: the mode and attribution lines are mixed in without inject_rules"
+else bad "silent session context: [$c]"; fi
+out="$(CLAUDE_GATE_CONFIG="$T/syn4.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/f1" "$T/syn/f1")"; rc=$?
+[ "$rc" -eq 0 ] && [ -z "$out" ] && ok "full + attribution on: output as before (nothing)" || bad "full on: rc=$rc out=${out:0:200}"
+c="$(CLAUDE_GATE_CONFIG="$T/syn4.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/f2" "$T/syn/f2" | ctx)"
+[[ "$c" == *"Attribution is off"* && "$c" != *"Silent mode"* ]] && ok "full + attribution off: only the attribution line" || bad "full off: [$c]"
+
+home_after="$(real_home_snapshot "$HOME" "$T")"
+[ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" \
+    || bad "the real home changed: $(diff <(printf '%s\n' "$home_before") <(printf '%s\n' "$home_after") | head -5)"
 
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

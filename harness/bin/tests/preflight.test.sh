@@ -2,7 +2,9 @@
 # Tests of harness/bin/preflight outside Auction. Run: bash harness/bin/tests/preflight.test.sh;
 # exit code 0 — everything passed.
 #
-# The registry and profiles are temporary (CLAUDE_GATE_CONFIG, CLAUDE_PROFILES_DIR, bin/profile understands them).
+# The registry and profiles are temporary (CLAUDE_GATE_CONFIG, CLAUDE_PROFILES_DIR, bin/profile understands them),
+# and so are HOME, HARNESS_HOME and CLAUDE_CONFIG_DIR: the lock step (worktree-lock) writes under HARNESS_HOME,
+# which used to be the real ~/.claude/worfy-harness. The real one is compared with a snapshot at the end.
 # Behaviour on Auction is checked by comparison with earlier output, not here: it depends on
 # the live origin/main.
 set -u
@@ -15,6 +17,12 @@ PF="$BIN/preflight"
 export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
 T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
+. "$(dirname "$0")/real-home.sh"
+REAL_HOME="$HOME"
+home_before="$(real_home_snapshot "$REAL_HOME" "$T")"
+export HOME="$T/home" HARNESS_HOME="$T/hh" CLAUDE_CONFIG_DIR="$T/claude-config"
+mkdir -p "$HOME" "$HARNESS_HOME" "$CLAUDE_CONFIG_DIR"
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
@@ -115,10 +123,32 @@ out="$(cd "$T/m/bare" && CLAUDE_GATE_CONFIG="$T/m.json" CLAUDE_SESSION_ID= bash 
     && ok "worktree.base null, no origin/HEAD, no layout.repos -> origin/main (BLOCKED here)" \
     || bad "no hint for the base: exit $rc, out: ${out:0:500}"
 
+# 4d. Silent mode (worfy-harness ticket 22): the ADR numbers are counted from the files of the ADR directory in
+# the Workflow folder, not from git ls-tree of branches; a duplicate number there is BLOCKED, exit 1.
+mkdir -p "$T/wf/docs/adr" "$T/profiles/s"
+printf '{"schema":2,"name":"s","mode":"silent","workflow":{"folder":"%s"},"worktree":{"base":"origin/main"},"numbering":{"adr":{"dir":"docs/adr","check":null},"migrations":null}}\n' "$T/wf" \
+    >"$T/profiles/s/profile.json"
+: >"$T/profiles/s/rules.md"
+printf '{"repos":[{"key":"s","match":"%s","profile":"s","pm":"npm"}]}\n' "$T/reg" >"$T/s.json"
+touch "$T/wf/docs/adr/0001-a.md" "$T/wf/docs/adr/0007-b.md"
+mkdir -p "$T/reg/docs/adr" && touch "$T/reg/docs/adr/0042-in-repo.md"   # a decoy: Silent mode does not count the repository
+out="$(cd "$T/reg" && CLAUDE_GATE_CONFIG="$T/s.json" CLAUDE_SESSION_ID= bash "$PF" --no-fetch 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | tail -1)" = GO ] && [[ "$out" == *"ADR: Silent mode, highest 0007 in the Workflow folder ($T/wf/docs/adr) → next free 0008"* ]] \
+    && ok "silent: ADR numbers from the Workflow folder -> next free 0008, GO" || bad "silent ADR: exit $rc, out: ${out:0:600}"
+touch "$T/wf/docs/adr/0007-c.md"
+out="$(cd "$T/reg" && CLAUDE_GATE_CONFIG="$T/s.json" CLAUDE_SESSION_ID= bash "$PF" --no-fetch 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && [[ "$(printf '%s\n' "$out" | tail -1)" == "BLOCKED: duplicate ADR 0007 in the Workflow folder"* ]] \
+    && ok "silent: a duplicate ADR number in the Workflow folder -> BLOCKED, exit 1" || bad "silent ADR dup: exit $rc, out: ${out:0:600}"
+rm -rf "$T/reg/docs"
+
 # 5. A broken profile (invalid JSON) — exit 2, not GO.
 printf '{broken' >"$T/profiles/t/profile.json"
 err="$(cd "$T/reg" && bash "$PF" --no-fetch 2>&1 >/dev/null)"; rc=$?
 [ "$rc" -eq 2 ] && [[ "$err" == *"profile unreadable"* ]] && ok "broken profile -> exit 2" || bad "broken profile: exit $rc, err: ${err:0:200}"
+
+home_after="$(real_home_snapshot "$REAL_HOME" "$T")"
+[ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" \
+    || bad "the real home changed: $(diff <(printf '%s\n' "$home_before") <(printf '%s\n' "$home_after") | head -5)"
 
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

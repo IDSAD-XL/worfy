@@ -84,7 +84,12 @@ profile -C <directory> ... resolve as if run from <directory> (a relative one �
 `_resolved` (computed, not stored in the file): `name`, `dir` (the folder where the profile was
 found), `gate_key`, `repo_root`, `checkout` (the root of the current working tree), `in_worktree`
 (true if the checkout is not the main one), `workspace` (the common directory from step 4,
-otherwise `null`; with it `gate_key` and `repo_root` are `null`).
+otherwise `null`; with it `gate_key` and `repo_root` are `null`), `mode` (`full` or `silent`; schema 1
+is `full`), `workflow_folder` (the absolute path of the Workflow folder in both modes — section
+"Full mode and Silent mode"), `repos` (the project's repositories, `[{name, path, gate_key}]`: every
+registry entry that names this profile; `name` is the folder name of the repository, `path` its
+`match`, `gate_key` its `key`). In Silent mode the summary printed without flags has one more line,
+`mode: silent   workflow folder: <path>`; the Full mode summary is unchanged.
 
 Exit codes: `0` found; `2` usage error; `3` the directory is outside the registered projects, the
 entry has no `profile` field, or the profile file exists in neither place (a one-line message in
@@ -131,18 +136,19 @@ the way the project really runs them.
 | `modules` | `{deep, flat, skip, heavy}` \| null | what counts as a module: by default a directory right under `<пакет>/src`; `deep` — roots where a module is one level deeper; `flat` — packages that are one module as a whole; `skip` — directory names that form no modules; `heavy` — `{"<пакет>": N}`, no more than N modules of the package at once (the tests bring up their own database or stack) | overnight-fix-loop |
 | `tests.new_file` | `{"<пакет>": template}` \| null | where a module's new test file goes; placeholders `<имя>` (module name) and `<каталог модуля>` (module directory) | overnight-fix-loop |
 | `tests.globs` | strings \| null | test file name masks (`*.spec.ts`), for `grep --include` | overnight-fix-loop |
+| `workflow.folder` | absolute path \| null | the Workflow folder of a Silent mode project (section "Full mode and Silent mode"); `~/` is expanded, a relative path is a broken profile (exit 1). `null` or absent — the folder above the repositories for a project of several repositories, otherwise `$HARNESS_HOME/projects/<name>/workflow/`. Full mode ignores it: the Workflow folder is the root of the working tree. Written when the project is connected | profile (`_resolved.workflow_folder`), all skills and agents that write workflow files, qmd-collections |
 | `parallel` | `"worktrees"` \| `"single"` | `worktrees` — several implementers, each in its own worktree; `single` — one implementer, work in the main checkout, no worktree | all agents, epic-wave |
-| `worktree.root` | path \| null | where working trees are created | implementer, reviewer, orchestrator |
+| `worktree.root` | path \| null | where working trees are created. worfy and Auction keep `.claude/worktrees/` inside the repository; a project connected from E3 on gets `<HARNESS_HOME>/worktrees/<name>/` (outside the repository, so the project's test runner and linter never walk into it, and `.gitignore` needs no entry), and a ticket's tree is `<worktree.root><NN>` — the default value the connection writes, nothing more. `bin/profile`, `hooks/gate.sh` and `bin/worktree-lock` recognise such a tree by `git rev-parse --git-common-dir`; whether an implementer subagent can edit files in it is not verified (worfy-harness ticket 22, item 7, waits for the owner), so the skills still describe trees under `.claude/worktrees/` | implementer, reviewer, orchestrator |
 | `worktree.base` | string \| null | what to branch from (`origin/main`, `origin/master`). `null` — the Harness preflight takes `origin/<layout.repos.<repo>.default_branch>`, then the branch `origin/HEAD` points to, then `origin/main` | implementer, preflight |
 | `worktree.implementer` / `reviewer` | string | a ready `git worktree add` command with placeholders: `<ветка>` (branch, = `tickets.branch`), `<имя-тикета>` (ticket name, = `<NN>-<slug>`), `<эпик>` (epic), `<NN>`, `<slug>`, `<что-ревьюишь>` (what is reviewed). worfy names the tree by number only — `…/worktrees/<NN>` | implementer, reviewer, ship-ticket, epic-wave |
 | `tickets.root` | path \| null | root of the epics directory (`.scratch/`), with a trailing slash; the audit epic is created there. `bin/ticket`, `bin/epic-status` and `bin/epic-board` take the root from here too (path rules — below the table) | continuous-audit, ticket, epic-status, epic-board |
 | `tickets.path` | path template | where a ticket lies | implementer, epic-wave |
 | `tickets.trail_section` | string | the ticket section listing the files that may be edited | implementer |
 | `tickets.spec` | path template \| null | the epic spec, read together with the ticket | ship-ticket, epic-wave |
-| `tickets.branch` | template \| null | the ticket's branch name: `<эпик>/<NN>-<slug>` (auction) or `<эпик>/<NN>` (worfy — number only); epic-wave finds the wave's branches by it when resuming (everything after `<эпик>/` → `*`) | ship-ticket, epic-wave |
+| `tickets.branch` | template \| null | the ticket's branch name: `<эпик>/<NN>-<slug>` (auction) or `<эпик>/<NN>` (worfy — number only); epic-wave finds the wave's branches by it when resuming (everything after `<эпик>/` → `*`). Silent mode has no template (`null`): a branch is named by what it changes and is recorded in the ticket's `Branch:` line | ship-ticket, epic-wave |
 | `workflow.ticket_skill` | string \| null | the skill a ticket goes by | implementer |
 | `workflow.implementer_steps` | string | which steps of the skill the implementer does | implementer |
-| `workflow.finish` | `"pr-green-ci"` \| `"local-green"` | how far the implementer takes the work: a PR with green CI or locally green checks. With `local-green` ship-ticket and epic-wave open no PR and do not merge | implementer, ship-ticket, epic-wave |
+| `workflow.finish` | `"pr-green-ci"` \| `"local-green"` | how the ticket finishes: a PR with green CI, merged by `workflow.merge`; or `local-green` — no PR: the ticket closes when the local `gate full` is green and its branch is merged locally into the main branch of its repository (section "Local finish"), and `ticket done` goes without `--pr` | implementer, ship-ticket, epic-wave |
 | `workflow.merge` | `"orchestrator"` | who merges | implementer, epic-wave |
 | `numbering.adr` | `{dir, check}` \| null | the ADR directory and the check that numbers are unique | orchestrator, reviewer, ship-ticket, epic-wave |
 | `numbering.migrations` | `{generate, journal, order_key, check}` \| null | how migrations are created and what sets their order | implementer, reviewer, ship-ticket, epic-wave |
@@ -187,13 +193,18 @@ contract: they are substituted as written, not translated.
   Outside git — from `_resolved.workspace`, otherwise from the current directory;
 - `null`, no field, or the directory is not registered (exit 3 from `profile`) — as before profiles:
   `<git top-level or the current directory>/.scratch`;
+- **Silent mode** (`mode: "silent"`): a relative root is taken from the Workflow folder
+  (`_resolved.workflow_folder`), and `null` or no field means `<Workflow folder>/.scratch`. The root is
+  then the same from every worktree, from the main checkout and from the Workflow folder itself;
 - a broken registry or profile (exit 1) — refusal with exit 1, not a quiet fallback: the status
   would go into the wrong file;
 - the `--root <directory>` flag of `ticket` and `epic-status` overrides all of this; `ticket root`
   prints the resulting root.
 
 `epic-status --json --ref <branch>` reads the root from the git of the repository where it lies. A
-root outside git (Atakama) — exit 3 and the reason in stderr, not an empty answer. Tests:
+root outside git (Atakama) — exit 3 and the reason in stderr, not an empty answer. In Silent mode
+`--ref` is exit 3 with "in Silent mode the status does not live in branches": the status is written
+straight into the Workflow folder. Tests:
 `bash bin/tests/tickets-root.test.sh` from the plugin root; variables for tests —
 `CLAUDE_PROFILE_BIN` (what `ticket` reads the profile with), `CLAUDE_TICKET_BIN` (what `epic-status`
 takes the root from).
@@ -213,9 +224,17 @@ unset variable give a non-zero code and read as "not verified".
 Four scripts are constants of the Harness, the same for every project, and not facts of a project;
 they are not profile fields. They live in `${CLAUDE_PLUGIN_ROOT}/bin/`:
 
-- `ticket` — moves a ticket's status (`claim`, `block`, `done`);
+- `ticket` — moves a ticket's status (`claim`, `block`, `done`); `ticket claim <epic> <NN> --branch
+  <branch>` also writes the header line `Branch: <branch>`, and `--repo <name>` the line `Repo: <name>`
+  (a name from `_resolved.repos`, checked against it);
 - `epic-status` — the epic summary: `epic-status <epic>` — one line, `--json [--ref <branch>]` — all
-  epics as JSON; `--ref` with the tickets root outside git — exit 3 with the reason;
+  epics as JSON; `--ref` with the tickets root outside git, or in Silent mode, — exit 3 with the
+  reason. Every ticket in the JSON has `branch` and `repo` — the values of its `Branch:` and `Repo:`
+  lines, `null` without one (worfy reads them: worfy-harness ticket 23);
+- `silent-check` — looks for traces of the workflow in a text (`silent-check -C <dir> <text>`,
+  `--file <path|->`) or in the added lines and file names of a diff (`--diff <rev>`, `--cached`); the
+  rules are in section "Full mode and Silent mode". Exit 0 — clean or nothing to check, 1 — traces
+  found (one line each: where, what kind, the match), 2 — usage or profile error;
 - `preflight --epic <epic>` — the check before a ticket or a wave; it also prints the next free ADR
   and migration numbers, which are taken before the content. Contract: the last line of the output
   is `GO` or `BLOCKED: <reasons>`, exit code 1 on `BLOCKED`; the line `<base>: <sha> …` is the base
@@ -237,6 +256,97 @@ when there is none, with the token of `github.account`) and from the Workflow fo
 (`workflow.folder`, by default `$HARNESS_HOME/projects/<name>/workflow`); it writes `index.yml` (a
 dated copy of the old one next to it), the `qmd` field of `profile.json` and nothing in the project's
 repository.
+
+## Full mode and Silent mode
+
+`mode` decides where the **workflow files** live — tickets, epic specs, the state file, ADRs, the
+glossary, lessons, evidence screenshots (worfy ADR-0042). The folder they live in is the **Workflow
+folder**, `_resolved.workflow_folder`:
+
+- **Full mode** — the root of the current working tree: the files are in the repository and travel in
+  the branches, as worfy and Auction have always worked. Nothing below changes Full mode except
+  `attribution` and the local finish, which hold in both modes.
+- **Silent mode** — a folder outside the project's repositories: `workflow.folder`; without it the
+  folder above the repositories of a project of several repositories (Atakama keeps its `.scratch/` and
+  `HANDOFF.md` there), otherwise `$HARNESS_HOME/projects/<name>/workflow/`, which by default is a local
+  git repository for history only (no remote unless the user adds one). A project of several
+  repositories is always Silent (ADR-0045).
+
+The Workflow folder has the same layout in both modes, so one reader (worfy, ticket 23) reads both:
+
+```
+<Workflow folder>/
+  .scratch/<epic>/spec.md, map.md, issues/NN-slug.md, evidence/
+  HANDOFF.md        the state file (docs.handoff.path)
+  docs/adr/         ADRs (docs.adr_dir, numbering.adr.dir)
+  docs/lessons/     lessons with lessons: "repo:docs/lessons"
+  CONTEXT.md        the glossary (docs.context.path)
+```
+
+**Paths.** In Silent mode a relative path in `tickets.root`, `tickets.path`, `tickets.spec`,
+`docs.handoff.path`, `docs.adr_dir`, `numbering.adr.dir`, `docs.context.path` and `lessons:
+"repo:<path>"` is taken from the Workflow folder, not from the working tree; an absolute one or `~/…`
+stays as it is. `bin/profile` prints the fields as written; `bin/ticket`, `bin/epic-status`,
+`bin/epic-board` and `bin/preflight` apply the rule, and skills say "relative to
+`_resolved.workflow_folder`". In Full mode the rule is the old one.
+
+**What Silent mode changes:**
+
+- **Status.** `ticket claim|block|done` from any worktree writes into the ticket in the Workflow folder;
+  there is one status and no branch carries it. `epic-status --json --ref` is exit 3; `epic-board`
+  reads the folder alone, without branch marks.
+- **Ticket header.** `Branch: <branch>` — written by `ticket claim … --branch <branch>`: the branch name
+  says nothing about the ticket, so the ticket names its branch, and a wave resumes by these lines.
+  `Repo: <name>` — the ticket's repository in a project of several repositories (one ticket — one
+  repository); the name comes from `_resolved.repos`. Both are machine lines with English keys.
+- **Documents.** Skills and agents write workflow files only into the Workflow folder; the documents
+  in the repository are read-only. The exception is a ticket whose own goal is a document for the team
+  (a README of a feature), and its "what we do" section says so.
+- **ADR numbers.** `bin/preflight` counts them from the files of the ADR directory in the Workflow
+  folder (a duplicate number there — `BLOCKED`), not from `git ls-tree` of branches.
+- **Branches, commits, PRs.** A branch is named by what it changes (`fix/lot-withdraw-button`). Commit
+  messages, PR titles, descriptions and comments, and code comments describe the change itself. There
+  is no documents PR and no documents commit in the repository: what Full mode commits there is a local
+  commit in the Workflow folder when it is a git repository, without push. With `local-green` a review
+  verdict is a line in the ticket's result section in the Workflow folder, not an empty `gate:` commit.
+- **Traces.** A trace of the workflow is: an epic name of the project (a directory of the tickets
+  root), `<epic>/<NN>`, `ADR-<4 digits>`, `Ticket <number>` or `Ticket-<number>`, the Workflow folder
+  path, `.scratch`, `HANDOFF`. `bin/silent-check` finds them (in the added lines of a diff a bare epic
+  name is not looked for: code names its own areas, and epics are often named after them).
+  `hooks/guard.mjs` (PreToolUse, Bash) runs it from the command's directory and refuses: `git commit`
+  (`-m`, `-F`, the index, and the whole tree after `git add` in the same command), the branch name of
+  `git checkout -b`, `git switch -c`, `git branch <name>`, `git worktree add -b`, and `gh pr
+  create|edit|comment|review|merge` (`--title`, `--body`, `--body-file`, `--subject`). Commits in the
+  Workflow folder itself are not checked: it is not one of the project's repositories.
+- **Session context.** `hooks/session-start.sh` tells every session of a Silent project where the
+  Workflow folder is and that the repository gets no traces, whatever `session.inject_rules` says.
+
+**`attribution: off`** (any mode): commits and PRs of the project carry no Claude attribution lines
+(`Co-Authored-By: Claude …`, `Generated with [Claude Code]`). `hooks/session-start.sh` says so in every
+session of the project, and the guard refuses the commands above when their text carries such a line.
+`on` (the default) — as before.
+
+## Local finish
+
+With `workflow.finish: local-green` (a project without PR rights or without `origin`, ADR-0045) a
+ticket closes when the local `gate full` is green on its branch **and** the branch is merged locally
+into the main branch of its repository; `ticket done` goes without `--pr`. Before that change
+`local-green` merged nothing.
+
+How it is merged (skill `ship-ticket`, step 11; `epic-wave`, section 4):
+
+1. The ticket branch is rebased onto the main branch in its own worktree (`git rebase <main>`); the
+   main branch is `worktree.base` without `origin/`, and without it the branch of the main checkout.
+2. `gate full` runs on the rebased branch: that tree is exactly what the main branch becomes.
+3. The main branch is fast-forwarded to the ticket branch: `git merge --ff-only` in the worktree where
+   the main branch is checked out, or `git branch -f <main> <branch>` when it is checked out nowhere.
+   A branch that is not on top of the main branch is not merged ("NOT ON TOP"). `git merge-base
+   --is-ancestor <branch> <main>` — exit 0 — is the proof.
+4. Nothing is pushed: the merge is local.
+
+A conflict at step 1 is a stop for the merge, not a guess: `git rebase --abort`, the implementer
+resolves it in its own worktree (a migration is regenerated, not merged by hand), then step 2 again.
+Merges go one at a time, under the same lock as merges of PRs (skill `epic-wave`, section 4).
 
 ## Schema 1 (transition)
 
