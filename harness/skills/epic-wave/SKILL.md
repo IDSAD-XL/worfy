@@ -77,10 +77,12 @@ running a minimal one" and run `git -C <repo> fetch`, `git -C <repo> status --po
 the base the checkout is; the briefs' base is then `git log -1 --format='%h %s' <base>`. `gh pr list`
 with `files` is needed separately: files under `F numbering.adr.dir` in other PRs are taken numbers.
 
-The GitHub account is `F github.account`. If `gh auth status` shows a different account as
-active, do not switch the global account without the owner's permission: other sessions use it.
-Then every `gh` command and every `git` command against `origin` — the orchestrator's and the
-agents' (the brief's "GitHub:" line) — runs with `GH_TOKEN=$(gh auth token -u <F github.account>)`.
+The GitHub account is `F github.account`. `GH_TOKEN` of that account is set by the plugin's
+`SessionStart` hook (`hooks/gh-token-env.sh`) for every Bash command of the session and of its
+agents, the agents of workflow scripts included;
+do not switch the global account without the owner's permission: other sessions use it.
+If `gh` answers "Could not resolve to a Repository", compare `gh auth status` with
+`F github.account` and say so in the report.
 
 `epic-status --json` takes no epic name (`epic-status <epic> --json`
 prints the human-readable line) and returns `{ref, epics, tickets[]}` across all epics — hence the
@@ -173,8 +175,6 @@ Numbers: ADR-<NNNN> — create <F numbering.adr.dir>/<NNNN>-<slug>.md, as a plac
 Wave neighbours' files (do not touch): <NN>: <files>; <NN>: <files>
 Scratchpad: only your own subdirectory <scratchpad>/impl-<NN>/; do not run other agents' scripts from the scratchpad
 Write to ~/.claude: allowed | forbidden   # real Claude Code / Agent SDK writes transcripts to ~/.claude/projects
-GitHub: GH_TOKEN=$(gh auth token -u <F github.account>) in every gh command and every git command against origin
-        # the line only if the global gh account is someone else's (section 1)
 GUI checks: yours | not yours                  # "yours" — to at most one agent of the wave at a time
 ```
 
@@ -185,7 +185,7 @@ runners run once only, never in watch mode (vitest — `vitest run`): a watch pr
 and the agent hangs. Manual GUI checks (rules — skill `/worfy:ship-ticket`, step 6) — at most one
 agent at a time across the whole wave: the next agent gets "yours" in the "GUI checks" line only
 after the previous one has reported. The verifier's brief (section 3) carries the same
-"Scratchpad", "Write to ~/.claude" and "GitHub:" lines: the gate runs tests and `gh` too.
+"Scratchpad" and "Write to ~/.claude" lines: the gate runs tests and `gh` too.
 
 A question instead of a report (a disputed spec, a conflict that cannot be resolved mechanically,
 CI or a local check red after two attempts) is resolved by an answer through `SendMessage` to the
