@@ -16,6 +16,7 @@ import { attach, recheck, type AttachTarget } from '../agent/attachments'
 import { closeRefusal } from '../agent/resume'
 import type { EventSink, Session, SessionRegistry } from '../agent/session'
 import { toEveryWindow } from '../broadcast'
+import { insideProjects } from '../link/caller'
 import { projectForCwd } from '../mcp/canvas-server'
 import { projectStore } from '../projects/store'
 import { dataRoot } from '../storage/paths'
@@ -91,7 +92,12 @@ function configured(change: SettingsChange): string {
  * The handlers over a registry; tests pass their own registry with the fake agent. Every action a
  * person takes on a live Session is told to the registry's input observers first (noteInput).
  */
-export function agentHandlers(registry: () => SessionRegistry, attachments: AttachDeps = appAttachDeps, clients: Broadcast = toEveryWindow): HandlerModule {
+export function agentHandlers(
+  registry: () => SessionRegistry,
+  attachments: AttachDeps = appAttachDeps,
+  clients: Broadcast = toEveryWindow,
+  projects: () => readonly { readonly path: string }[] = () => projectStore().list(),
+): HandlerModule {
   const sink = everyClientSink(clients)
   // The messages of one Session reach it in the order they were sent, though checking the
   // attachments of one takes longer than checking another's.
@@ -104,9 +110,11 @@ export function agentHandlers(registry: () => SessionRegistry, attachments: Atta
     return { results }
   }
   return [
-    defineHandler(agentStart, async ({ cwd, resume }) => {
+    defineHandler(agentStart, async ({ cwd, resume }, { event }) => {
       await assertDirectory(cwd)
-      return { sessionId: registry().start(cwd, resume, sink).id }
+      // A Linked machine starts Claude Code inside the Projects of this Machine only (src/main/link/caller.ts).
+      const folder = insideProjects(event, cwd, projects, 'the folder')
+      return { sessionId: registry().start(folder, resume, sink).id }
     }),
     defineHandler(agentSend, ({ sessionId, text, attachments: attached }) => {
       const session = registry().get(sessionId)
@@ -124,7 +132,11 @@ export function agentHandlers(registry: () => SessionRegistry, attachments: Atta
       lastSend.set(session, sent)
       return sent
     }),
-    defineHandler(agentAttach, ({ sessionId, sources }) => attachAll(sessionId, sources)),
+    defineHandler(agentAttach, ({ sessionId, sources }, { event }) => {
+      // A file named by its path is read on this Machine: from a Linked machine, only inside its Projects.
+      const checked = sources.map((source) => (source.kind === 'path' ? { ...source, path: insideProjects(event, source.path, projects, 'the file') } : source))
+      return attachAll(sessionId, checked)
+    }),
     defineHandler(agentAttachPick, async ({ sessionId }, { event }) => {
       registry().get(sessionId)
       const paths = await attachments.pickFiles(event.sender)

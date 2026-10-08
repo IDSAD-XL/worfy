@@ -5,10 +5,10 @@ import { limitsStateSchema } from '../agent/limits'
 import { eventChannel, invokeChannel } from './channels'
 
 /** The Limits known now; the calling window then receives `limits.changed` until it is gone. */
-export const limitsOpen = invokeChannel('limits.open', z.void(), limitsStateSchema)
+export const limitsOpen = invokeChannel('limits.open', z.void(), limitsStateSchema, 'local')
 
 /** The whole new state after a change. */
-export const limitsChanged = eventChannel('limits.changed', limitsStateSchema)
+export const limitsChanged = eventChannel('limits.changed', limitsStateSchema, 'local')
 
 declare module './channels' {
   interface IpcContract {

@@ -35,6 +35,7 @@ export const actionsShipTicket = invokeChannel(
     /** What was sent. */
     text: z.string().min(1),
   }),
+  'project',
 )
 
 /**
@@ -51,6 +52,7 @@ export const actionsRunWave = invokeChannel(
     /** `queued`: the Orchestrator was busy, the text waits in its queue (ticket 19). */
     delivery: z.enum(['sent', 'queued']),
   }),
+  'project',
 )
 
 /**
@@ -66,10 +68,10 @@ const launchesSchema = z.object({
 })
 export type LaunchesSnapshot = z.infer<typeof launchesSchema>
 
-export const actionsLaunches = invokeChannel('actions.launches', z.object({ projectId }), launchesSchema)
+export const actionsLaunches = invokeChannel('actions.launches', z.object({ projectId }), launchesSchema, 'project')
 
 /** Sent to every window whenever a Project's launched Tickets change. */
-export const actionsLaunchesChanged = eventChannel('actions.launches.changed', launchesSchema)
+export const actionsLaunchesChanged = eventChannel('actions.launches.changed', launchesSchema, 'project')
 
 declare module './channels' {
   interface IpcContract {

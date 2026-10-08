@@ -1,9 +1,13 @@
+import { randomUUID } from 'node:crypto'
+import { z } from 'zod'
 import type { IpcMainInvokeEvent } from 'electron'
 import { describe, expect, it, vi } from 'vitest'
-import { appUrlMatcher, emit, handlerModules, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
-import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import { appUrlMatcher, defineHandler, emit, handlerModules, registerIpc, type HandlerModule, type IpcMainLike } from '../../src/main/ipc/index'
+import { createLinkIpc, LinkPeer } from '../../src/main/link/ipc-adapter'
+import { invokeChannel, IPC_CHANNEL_PREFIX, LINKED_MACHINE_ACCESS, type IpcResult } from '../../src/shared/ipc/channels'
+import { linkPing } from '../../src/shared/ipc/link'
 import { echoCalls } from './ipc-sample/main/sample'
-import { sampleTicked } from './ipc-sample/shared/sample'
+import { sampleEcho, sampleFail, sampleLeak, sampleTicked } from './ipc-sample/shared/sample'
 
 const APP_URL = 'file:///Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 
@@ -158,5 +162,157 @@ describe('events from main', () => {
     const send = vi.fn()
     expect(() => emit({ send }, sampleTicked, { n: 1.5 })).toThrow(/sample\.ticked/)
     expect(send).not.toHaveBeenCalled()
+  })
+})
+
+describe('the channel filter (worfy-link ticket 08)', () => {
+  // The sample domain carries every mark but `link`: sample.echo `project`, sample.leak `local`,
+  // sample.fail `desktop`; link.ping brings the `link` one. Each handler counts its calls.
+  const ran: string[] = []
+  const modules: Record<string, () => Promise<HandlerModule>> = {
+    './sample.ts': async () => [
+      defineHandler(sampleEcho, ({ text }) => {
+        ran.push(`sample.echo ${text}`)
+        return { echoed: text }
+      }),
+      defineHandler(sampleLeak, () => {
+        ran.push('sample.leak')
+        return { count: 1 }
+      }),
+      defineHandler(sampleFail, () => {
+        ran.push('sample.fail')
+      }),
+    ],
+    './link.ts': async () => [
+      defineHandler(linkPing, () => {
+        ran.push('link.ping')
+        return { id: MACHINE, name: 'beta', protocol: 1, build: '0.2.0+test' }
+      }),
+    ],
+  }
+  const MACHINE = randomUUID()
+
+  it('registerIpc with a filter registers only the channels it accepts; without one, every channel', async () => {
+    const linked = fakeIpcMain()
+    const names = await registerIpc(linked.ipc, { modules, isTrustedSender: () => true, channels: (channel) => LINKED_MACHINE_ACCESS.includes(channel.access) })
+    expect(names).toEqual(['link.ping', 'sample.echo'])
+    expect([...linked.handlers.keys()]).toEqual(['worfy:link.ping', 'worfy:sample.echo'])
+
+    const windows = fakeIpcMain()
+    expect(await registerIpc(windows.ipc, { modules, isTrustedSender: () => true })).toEqual(['link.ping', 'sample.echo', 'sample.leak', 'sample.fail'])
+  })
+
+  it('the link adapter answers a filtered or unknown channel "not open to Linked machines" before the input is parsed; the handler never runs', async () => {
+    ran.length = 0
+    const adapter = await createLinkIpc({ modules, isLinked: (id) => id === MACHINE })
+    expect(adapter.channels()).toEqual(['link.ping', 'sample.echo'])
+    const warnings: string[] = []
+    const peer = new LinkPeer({
+      machineId: MACHINE,
+      describe: () => `${MACHINE} (alpha)`,
+      push: () => undefined,
+      local: () => ({ id: MACHINE, name: 'beta', protocol: 1, build: '0.2.0+test' }),
+      warn: (message) => warnings.push(message),
+    })
+    peer.setAccess(true)
+    for (const [channel, input] of [
+      ['sample.fail', undefined],
+      ['sample.leak', { reply: { count: 1 } }],
+      // An input the schema would refuse: the refusal comes first all the same.
+      ['sample.fail', { not: 'void' }],
+      ['nobody.declares.this', undefined],
+    ] as const) {
+      expect(await adapter.call(peer, channel, input, 'beta'), channel).toEqual({ ok: false, error: `${channel}: not open to Linked machines` })
+    }
+    expect(ran).toEqual([])
+    // The refusals are logged with the channel and the Machine.
+    expect(warnings).toHaveLength(4)
+    expect(warnings[0]).toBe(`[link] "sample.fail" from Machine ${MACHINE} (alpha) refused: not open to Linked machines`)
+
+    expect(await adapter.call(peer, 'sample.echo', { text: 'hi' }, 'beta')).toEqual({ ok: true, value: { echoed: 'hi' } })
+    expect(await adapter.call(peer, 'link.ping', undefined, 'beta')).toMatchObject({ ok: true })
+    expect(ran).toEqual(['sample.echo hi', 'link.ping'])
+  })
+
+  it('with access off every call but a `link` one is refused "access is off"; the handler never runs', async () => {
+    ran.length = 0
+    const adapter = await createLinkIpc({ modules, isLinked: (id) => id === MACHINE })
+    const peer = new LinkPeer({ machineId: MACHINE, describe: () => MACHINE, push: () => undefined, local: () => ({ id: MACHINE, name: 'beta', protocol: 1, build: 'x' }), warn: () => undefined })
+    const off = { ok: false, error: 'Linked machines cannot work with the Projects of beta: access is off' }
+    expect(await adapter.call(peer, 'sample.echo', { text: 'hi' }, 'beta')).toEqual(off)
+    expect(await adapter.call(peer, 'sample.fail', undefined, 'beta')).toEqual(off)
+    expect(await adapter.call(peer, 'nobody.declares.this', undefined, 'beta')).toEqual(off)
+    expect(await adapter.call(peer, 'link.ping', undefined, 'beta')).toMatchObject({ ok: true })
+    // On, then off again: the `project` client is gone and the calls are refused once more.
+    peer.setAccess(true)
+    expect(await adapter.call(peer, 'sample.echo', { text: 'on' }, 'beta')).toEqual({ ok: true, value: { echoed: 'on' } })
+    peer.setAccess(false)
+    expect(await adapter.call(peer, 'sample.echo', { text: 'off' }, 'beta')).toEqual(off)
+    expect(ran).toEqual(['link.ping', 'sample.echo on'])
+  })
+
+  it('a call from a Machine that is not linked is refused by the trust check, even on an open channel', async () => {
+    ran.length = 0
+    const adapter = await createLinkIpc({ modules, isLinked: () => false })
+    const peer = new LinkPeer({ machineId: MACHINE, describe: () => MACHINE, push: () => undefined, local: () => ({ id: MACHINE, name: 'beta', protocol: 1, build: 'x' }), warn: () => undefined })
+    peer.setAccess(true)
+    const result = await adapter.call(peer, 'sample.echo', { text: 'hi' }, 'beta')
+    expect(!result.ok && result.error).toMatch(/untrusted/)
+    expect(ran).toEqual([])
+  })
+})
+
+describe('a channel name declared twice with two marks (round 2)', () => {
+  const MACHINE = randomUUID()
+  const peer = () => {
+    const made = new LinkPeer({ machineId: MACHINE, describe: () => MACHINE, push: () => undefined, local: () => ({ id: MACHINE, name: 'beta', protocol: 1, build: 'x' }), warn: () => undefined })
+    made.setAccess(true)
+    return made
+  }
+  // Test-only channels outside the contract: their handlers are built by hand, defineHandler takes contract channels only.
+
+  it('is not registered on the link adapter, though the definition in hand says `project`; the windows still get it', async () => {
+    const asProject = invokeChannel('sample.twice', z.void(), z.object({ ran: z.boolean() }), 'project')
+    invokeChannel('sample.twice', z.void(), z.object({ ran: z.boolean() }), 'local')
+    let ran = 0
+    const twice: Record<string, () => Promise<HandlerModule>> = {
+      './twice.ts': async () => [
+        {
+          channel: asProject,
+          handle: () => {
+            ran += 1
+            return { ran: true }
+          },
+        },
+      ],
+    }
+    const adapter = await createLinkIpc({ modules: twice, isLinked: (id) => id === MACHINE })
+    expect(adapter.channels()).toEqual([])
+    expect(await adapter.call(peer(), 'sample.twice', undefined, 'beta')).toEqual({ ok: false, error: 'sample.twice: not open to Linked machines' })
+    expect(ran).toBe(0)
+    const windows = fakeIpcMain()
+    expect(await registerIpc(windows.ipc, { modules: twice, isTrustedSender: () => true })).toEqual(['sample.twice'])
+  })
+
+  it('declared again with another mark after the adapter registered it: the call is refused, the handler never runs', async () => {
+    const first = invokeChannel('sample.later', z.void(), z.object({ ran: z.boolean() }), 'project')
+    let ran = 0
+    const later: Record<string, () => Promise<HandlerModule>> = {
+      './later.ts': async () => [
+        {
+          channel: first,
+          handle: () => {
+            ran += 1
+            return { ran: true }
+          },
+        },
+      ],
+    }
+    const adapter = await createLinkIpc({ modules: later, isLinked: (id) => id === MACHINE })
+    expect(adapter.channels()).toEqual(['sample.later'])
+    expect(await adapter.call(peer(), 'sample.later', undefined, 'beta')).toEqual({ ok: true, value: { ran: true } })
+    invokeChannel('sample.later', z.void(), z.object({ ran: z.boolean() }), 'local')
+    expect(await adapter.call(peer(), 'sample.later', undefined, 'beta')).toEqual({ ok: false, error: 'sample.later: not open to Linked machines' })
+    expect(ran).toBe(1)
   })
 })

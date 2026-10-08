@@ -120,6 +120,7 @@ export const checksGet = invokeChannel(
   'checks.get',
   z.object({ root: absolutePath, branches: z.array(ticketBranchSchema).max(500) }),
   checksSnapshotSchema,
+  'project',
 )
 
 declare module './channels' {

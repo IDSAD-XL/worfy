@@ -66,33 +66,36 @@ export const terminalOpen = invokeChannel(
     /** The exit of a shell that ended on its own and was not restarted; nothing runs then. */
     exited: z.object({ exitCode: z.number().int(), signal: z.number().int().nullable() }).nullable(),
   }),
+  'project',
 )
 
 /** Keys typed or pasted in the terminal. */
-export const terminalInput = invokeChannel('terminal.input', z.object({ ...terminalRef, data: z.string().min(1).max(1_000_000) }), z.void())
+export const terminalInput = invokeChannel('terminal.input', z.object({ ...terminalRef, data: z.string().min(1).max(1_000_000) }), z.void(), 'project')
 
 /** The size of the caller's view; the pty takes it only while the caller owns the size. */
-export const terminalResize = invokeChannel('terminal.resize', z.object({ ...terminalRef, cols: cells, rows: cells }), z.void())
+export const terminalResize = invokeChannel('terminal.resize', z.object({ ...terminalRef, cols: cells, rows: cells }), z.void(), 'project')
 
 /** A click in the caller's view: the caller owns the size from now on, and the pty takes this size. */
-export const terminalTakeSize = invokeChannel('terminal.takeSize', z.object({ ...terminalRef, cols: cells, rows: cells }), z.void())
+export const terminalTakeSize = invokeChannel('terminal.takeSize', z.object({ ...terminalRef, cols: cells, rows: cells }), z.void(), 'project')
 
 /** Ends the shell; closing a terminal that is not running is not an error. */
-export const terminalClose = invokeChannel('terminal.close', z.object(terminalRef), z.void())
+export const terminalClose = invokeChannel('terminal.close', z.object(terminalRef), z.void(), 'project')
 
 export const terminalOutput = eventChannel(
   'terminal.output',
   z.object({ ...terminalRef, data: z.string(), end: z.number().int().nonnegative() }),
+  'project',
 )
 
 /** The shell ended on its own (`exit`) or was ended by close. */
 export const terminalExit = eventChannel(
   'terminal.exit',
   z.object({ ...terminalRef, exitCode: z.number().int(), signal: z.number().int().nullable() }),
+  'project',
 )
 
 /** A new shell started for the terminal (Restart on some screen); a view showing the old exit opens again. */
-export const terminalStarted = eventChannel('terminal.started', z.object({ ...terminalRef, pid: z.number().int().positive() }))
+export const terminalStarted = eventChannel('terminal.started', z.object({ ...terminalRef, pid: z.number().int().positive() }), 'project')
 
 declare module './channels' {
   interface IpcContract {

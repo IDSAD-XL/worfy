@@ -10,10 +10,10 @@ export const viewStateSchema = z.object({
 })
 export type ViewState = z.output<typeof viewStateSchema>
 
-export const viewGet = invokeChannel('view.get', z.void(), viewStateSchema)
+export const viewGet = invokeChannel('view.get', z.void(), viewStateSchema, 'local')
 
 /** Sent to every window when an item of the View menu is switched. */
-export const viewChanged = eventChannel('view.changed', viewStateSchema)
+export const viewChanged = eventChannel('view.changed', viewStateSchema, 'local')
 
 declare module './channels' {
   interface IpcContract {

@@ -79,19 +79,19 @@ export type OrchestratorView = z.output<typeof orchestratorViewSchema>
  * view. Main also does this by itself whenever a Project becomes active; calling it again for a
  * running Orchestrator changes nothing.
  */
-export const orchestratorOpen = invokeChannel('orchestrator.open', z.object({ projectId }), orchestratorViewSchema)
+export const orchestratorOpen = invokeChannel('orchestrator.open', z.object({ projectId }), orchestratorViewSchema, 'project')
 
 /** The view of the Orchestrator behind a Node; null when main has none for it (yet). Starts nothing. */
-export const orchestratorView = invokeChannel('orchestrator.view', z.object({ nodeId }), z.object({ view: orchestratorViewSchema.nullable() }))
+export const orchestratorView = invokeChannel('orchestrator.view', z.object({ nodeId }), z.object({ view: orchestratorViewSchema.nullable() }), 'project')
 
 /**
  * "New conversation": the Orchestrator's current Session goes to the history and a new one becomes
  * the Project's Orchestrator. Refused while a turn runs. Answers the new view.
  */
-export const orchestratorNewConversation = invokeChannel('orchestrator.newConversation', z.object({ projectId }), orchestratorViewSchema)
+export const orchestratorNewConversation = invokeChannel('orchestrator.newConversation', z.object({ projectId }), orchestratorViewSchema, 'project')
 
 /** A view changed; sent to every window. */
-export const orchestratorChanged = eventChannel('orchestrator.changed', orchestratorViewSchema)
+export const orchestratorChanged = eventChannel('orchestrator.changed', orchestratorViewSchema, 'project')
 
 declare module './channels' {
   interface IpcContract {

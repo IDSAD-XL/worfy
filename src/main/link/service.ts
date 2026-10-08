@@ -30,6 +30,7 @@ import { join } from 'node:path'
 import type { WebSocket } from 'ws'
 import type { z } from 'zod'
 import type { IpcResult } from '../../shared/ipc/channels'
+import type { Client } from '../clients'
 import type { ModuleLoader } from '../ipc/index'
 import { dataRoot, type BuildKind } from '../storage/paths'
 import { normalizeAddress, type HostNames } from './checks'
@@ -38,7 +39,7 @@ import { CLOSE_REVOKED, CLOSE_UNLINKED, LinkConnection } from './connection'
 import { LinkConnections } from './connections'
 import { bonjourBackend, LinkDiscovery } from './discovery'
 import { loadIdentity, MACHINE_KEY, saveIdentity, type MachineIdentity } from './identity'
-import { createLinkIpc, LinkSender, type LinkIpcAdapter, type LocalMachine } from './ipc-adapter'
+import { createLinkIpc, LinkPeer, type LinkIpcAdapter, type LocalMachine } from './ipc-adapter'
 import {
   CONNECT_PATH,
   helloMessage,
@@ -123,6 +124,12 @@ export interface LinkServiceOptions {
   secrets?: SecretStore
   /** Handler modules for IPC over the link; every src/main/ipc/<domain>.ts by default. */
   ipcModules?: Record<string, ModuleLoader>
+  /**
+   * Adds the client of a connection with access on to main's clients (src/main/broadcast.ts), so
+   * broadcasts of `project` events reach the Linked machine (worfy-link ticket 08). Without it
+   * such a client hears only what the handlers of its own calls send it.
+   */
+  addClient?: (client: Client) => void
   pingIntervalMs?: number
   codeTtlMs?: number
   pairingStepTimeoutMs?: number
@@ -145,6 +152,8 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   private readonly pairingWindow: PairingWindow
   private readonly reasons = new Set<ListenReason>()
   private readonly connections = new Map<string, Set<LinkConnection>>()
+  /** The clients of every open connection (ipc-adapter.ts); they follow the access switch. */
+  private readonly peers = new Set<LinkPeer>()
   private readonly certificateChanged = new Set<string>()
   /** pair() calls running on this side; the 'pairing' reason holds while there is one. */
   private pairingsOut = 0
@@ -171,7 +180,11 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     this.store = new LinkedMachineStore(this.linkDir)
     this.warn = options.warn ?? ((message) => console.warn(message))
     this.settings = new LinkSettings(this.linkDir, this.warn)
-    this.settings.on('changed', (value) => this.emit('settings', value))
+    this.settings.on('changed', (value) => {
+      // Off: every connection's `project` client is destroyed now, and its subscriptions with it.
+      for (const peer of this.peers) peer.setAccess(value.projectsAccess)
+      this.emit('settings', value)
+    })
     this.hostname = options.hostname ?? osHostname
     this.interfaces = options.networkInterfaces ?? osNetworkInterfaces
     this.pairingWindow = new PairingWindow(options.now ?? Date.now, options.codeTtlMs ?? PAIRING_CODE_TTL_MS, () => this.emit('pairing-code'))
@@ -520,16 +533,26 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       ...(this.options.pingIntervalMs === undefined ? {} : { pingIntervalMs: this.options.pingIntervalMs }),
       warn: this.warn,
     })
-    const sender = new LinkSender(record.id, (channel, payload) => connection.send({ t: 'event', channel, payload }), () => this.localMachine())
+    const peer = new LinkPeer({
+      machineId: record.id,
+      describe: () => `${record.id} (${this.store.get(record.id)?.name ?? record.name})`,
+      push: (channel, payload) => connection.send({ t: 'event', channel, payload }),
+      local: () => this.localMachine(),
+      ...(this.options.addClient === undefined ? {} : { addClient: this.options.addClient }),
+      warn: this.warn,
+    })
+    this.peers.add(peer)
+    peer.setAccess(this.settings.get().projectsAccess)
     let set = this.connections.get(record.id)
     if (set === undefined) {
       set = new Set()
       this.connections.set(record.id, set)
     }
     set.add(connection)
-    connection.on('frame', (frame) => void this.onFrame(connection, sender, frame))
+    connection.on('frame', (frame) => void this.onFrame(connection, peer, frame))
     connection.once('close', () => {
-      sender.destroy()
+      this.peers.delete(peer)
+      peer.close()
       const current = this.connections.get(record.id)
       current?.delete(connection)
       if (current?.size === 0) this.connections.delete(record.id)
@@ -541,7 +564,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     return true
   }
 
-  private async onFrame(connection: LinkConnection, sender: LinkSender, frame: Frame): Promise<void> {
+  private async onFrame(connection: LinkConnection, peer: LinkPeer, frame: Frame): Promise<void> {
     // A Machine forgotten meanwhile gets nothing more from this side.
     if (this.store.get(connection.machineId) === undefined) {
       connection.close(CLOSE_UNLINKED, 'unlinked')
@@ -553,7 +576,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
         return
       case 'call': {
         const result = await this.ipcAdapter().then(
-          (adapter) => adapter.call(sender, frame.channel, frame.input),
+          (adapter) => adapter.call(peer, frame.channel, frame.input, this.identity.name),
           (error: unknown): IpcResult<unknown> => ({ ok: false, error: `${frame.channel}: IPC over the link is unavailable (${messageOf(error)})` }),
         )
         connection.send({ t: 'result', id: frame.id, result })
@@ -861,9 +884,12 @@ export function stopLinkOnQuit(app: QuitApp, stop: () => Promise<void> | undefin
 export async function startAppLink(options: { buildKind: BuildKind; buildVersion: string }): Promise<LinkService> {
   const environment = appLinkEnvironment()
   try {
+    // Imported here, not at the top: broadcast.ts reaches Electron, and the link tests run without it.
+    const { addClient } = await import('../broadcast')
     const service = await LinkService.start({
       dataDir: dataRoot(),
       ...options,
+      addClient,
       ...(environment.listenHost === undefined ? {} : { listenHost: environment.listenHost }),
     })
     appLinkValue = wireAppLink(service, { bonjour: environment.bonjour })

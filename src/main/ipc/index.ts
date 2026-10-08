@@ -47,9 +47,12 @@ export function defineHandler<C extends IpcContract[InvokeName]>(
   return { channel, handle } as InvokeHandler
 }
 
-/** The part of Electron's ipcMain this module uses; tests pass a fake. */
+/**
+ * The part of Electron's ipcMain this module uses; tests pass a fake. `definition` is the channel
+ * the listener answers: Electron's ipcMain ignores it, the link adapter reads its access mark.
+ */
 export interface IpcMainLike {
-  handle(channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown): void
+  handle(channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown, definition: InvokeChannel): void
 }
 
 /** Loads one handler module, as import.meta.glob returns it. */
@@ -102,6 +105,12 @@ export interface RegisterOptions {
    * it from the same renderer location the window loads (src/main/index.ts, rendererEntry()).
    */
   isTrustedSender: (url: string) => boolean
+  /**
+   * Which channels to register: every one by default (the app's windows). The link adapter passes
+   * the access marks a Linked machine may reach (src/main/link/ipc-adapter.ts); a channel left out
+   * has no listener there at all, so no call can reach its handler.
+   */
+  channels?: (channel: InvokeChannel) => boolean
 }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
@@ -156,8 +165,8 @@ function wrap(handler: InvokeHandler, isTrustedSender: (url: string) => boolean)
 }
 
 /**
- * Loads the handler modules and registers each handler on `ipc` under `worfy:<channel>`.
- * Returns the registered channel names. Throws on a malformed module or a channel handled twice:
+ * Loads the handler modules and registers each handler that `options.channels` accepts on `ipc`
+ * under `worfy:<channel>`. Returns the registered channel names. Throws on a malformed module or a channel handled twice:
  * both are programming errors that must stop the app at start, not surface later.
  */
 export async function registerIpc(ipc: IpcMainLike, options: RegisterOptions): Promise<string[]> {
@@ -179,8 +188,13 @@ export async function registerIpc(ipc: IpcMainLike, options: RegisterOptions): P
     if (names.includes(name)) throw new Error(`IPC channel ${name} is handled more than once`)
     names.push(name)
   }
-  for (const handler of handlers) ipc.handle(IPC_CHANNEL_PREFIX + handler.channel.name, wrap(handler, isTrustedSender))
-  return names
+  const registered: string[] = []
+  for (const handler of handlers) {
+    if (options.channels !== undefined && !options.channels(handler.channel)) continue
+    ipc.handle(IPC_CHANNEL_PREFIX + handler.channel.name, wrap(handler, isTrustedSender), handler.channel)
+    registered.push(handler.channel.name)
+  }
+  return registered
 }
 
 /** Where an event goes: a window's webContents, or a fake in tests. */

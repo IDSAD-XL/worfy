@@ -37,7 +37,7 @@ export const harnessStatusSchema = z.object({
 export type HarnessStatus = z.infer<typeof harnessStatusSchema>
 
 /** Reads the state; writes nothing. */
-export const harnessState = invokeChannel('harness.state', z.void(), harnessStatusSchema)
+export const harnessState = invokeChannel('harness.state', z.void(), harnessStatusSchema, 'local')
 
 /**
  * Installs or updates the Harness after the dialog in main: `declined` — the user said no and
@@ -47,6 +47,7 @@ export const harnessInstall = invokeChannel(
   'harness.install',
   z.void(),
   z.object({ outcome: z.enum(['done', 'declined', 'nothing-to-do']), status: harnessStatusSchema }),
+  'local',
 )
 
 declare module './channels' {

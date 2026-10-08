@@ -14,10 +14,10 @@ const projectId = z.string().min(1)
  * The saved camera of the Project's Canvas; while there is none, the `viewport` of the Project's
  * layout.json, so the first opening after an update shows the Canvas where it was.
  */
-export const viewportGet = invokeChannel('viewport.get', z.object({ projectId }), viewportSchema)
+export const viewportGet = invokeChannel('viewport.get', z.object({ projectId }), viewportSchema, 'local')
 
 /** Saves the camera of the Project's Canvas, as the screen has it when a pan or zoom ends. */
-export const viewportSet = invokeChannel('viewport.set', z.object({ projectId, viewport: viewportSchema }), z.void())
+export const viewportSet = invokeChannel('viewport.set', z.object({ projectId, viewport: viewportSchema }), z.void(), 'local')
 
 declare module './channels' {
   interface IpcContract {

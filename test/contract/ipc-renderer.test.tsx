@@ -8,8 +8,8 @@ import { eventChannel, invokeChannel, type IpcResult, type WorfyBridge } from '.
 import { createIpcClient } from '../../src/renderer/ipc'
 
 // Test-only channels, added the same way a domain file adds its own.
-export const clientEcho = invokeChannel('client.echo', z.object({ text: z.string() }), z.object({ echoed: z.string() }))
-export const clientTicked = eventChannel('client.ticked', z.object({ n: z.number() }))
+export const clientEcho = invokeChannel('client.echo', z.object({ text: z.string() }), z.object({ echoed: z.string() }), 'project')
+export const clientTicked = eventChannel('client.ticked', z.object({ n: z.number() }), 'project')
 
 declare module '../../src/shared/ipc/channels' {
   interface IpcContract {

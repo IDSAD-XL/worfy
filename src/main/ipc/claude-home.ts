@@ -11,6 +11,8 @@ import { ClaudeHomeRegistry, type ClaudeHomeWatch } from '../claude-home/registr
 import { SubagentReader, subagentTranscriptPath } from '../claude-home/subagents'
 import { readNewLines } from '../claude-home/tail'
 import { ClientHolders, clientOf, type Client, type ClientId } from '../clients'
+import { insideProjects } from '../link/caller'
+import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import {
   claudeHomeChanged,
@@ -127,39 +129,49 @@ export class ClaudeHomeSubscriptions {
   }
 }
 
-/** Builds the handler list over a registry; the default export uses the real Claude home. */
+/**
+ * Builds the handler list over a registry; the default export uses the real Claude home. A call
+ * from a Linked machine names a root inside a Project of `projects` (src/main/link/caller.ts).
+ */
 export function claudeHomeHandlers(
   registry: ClaudeHomeRegistry,
   subscriptions = new ClaudeHomeSubscriptions(registry),
   subagents = new SubagentReader(),
+  projects: () => readonly { readonly path: string }[] = () => projectStore().list(),
 ): HandlerModule {
   const notFound = { found: false, events: [], cursor: { offset: 0, fileId: null }, reset: false, more: false }
+  /** The resolved root, checked for a call from a Linked machine. */
+  const rootOf = (projectRoot: string, event: { readonly sender?: unknown }): string => {
+    const root = resolve(projectRoot)
+    insideProjects(event, root, projects, 'the Project root')
+    return root
+  }
   return [
     defineHandler(claudeHomeSessions, async ({ projectRoot }, { event }) => {
-      const root = resolve(projectRoot)
+      const root = rootOf(projectRoot, event)
       // Watch first, read second: a change made while the files are read still produces an event.
       const client = clientOf(event)
       if (client) await subscriptions.subscribe(client, root)
       return registry.sessions(root)
     }),
-    defineHandler(claudeHomeLive, async ({ projectRoot }) => ({ live: await registry.live(resolve(projectRoot)) })),
+    defineHandler(claudeHomeLive, async ({ projectRoot }, { event }) => ({ live: await registry.live(rootOf(projectRoot, event)) })),
     defineHandler(claudeHomeClose, async ({ projectRoot }, { event }) => {
       const client = clientOf(event)
       return { closed: client ? await subscriptions.unsubscribe(client.id, resolve(projectRoot)) : false }
     }),
-    defineHandler(claudeHomeTranscript, async ({ projectRoot, sessionId, cursor, maxBytes }) => {
-      const path = await registry.transcriptPath(resolve(projectRoot), sessionId)
+    defineHandler(claudeHomeTranscript, async ({ projectRoot, sessionId, cursor, maxBytes }, { event }) => {
+      const path = await registry.transcriptPath(rootOf(projectRoot, event), sessionId)
       if (path === null) return notFound
       const chunk = await readNewLines(path, cursor, maxBytes === undefined ? {} : { maxBytes })
       return { found: true, events: mainThreadEvents(parseTranscriptLines(chunk.lines)), cursor: chunk.cursor, reset: chunk.reset, more: chunk.more }
     }),
-    defineHandler(claudeHomeSubagents, async ({ projectRoot, sessionId }) => {
-      const path = await registry.transcriptPath(resolve(projectRoot), sessionId)
+    defineHandler(claudeHomeSubagents, async ({ projectRoot, sessionId }, { event }) => {
+      const path = await registry.transcriptPath(rootOf(projectRoot, event), sessionId)
       if (path === null) return { found: false, signals: [], files: [] }
       return { found: true, ...(await subagents.session(path)) }
     }),
-    defineHandler(claudeHomeSubagentTranscript, async ({ projectRoot, sessionId, agentId, cursor, maxBytes }) => {
-      const session = await registry.transcriptPath(resolve(projectRoot), sessionId)
+    defineHandler(claudeHomeSubagentTranscript, async ({ projectRoot, sessionId, agentId, cursor, maxBytes }, { event }) => {
+      const session = await registry.transcriptPath(rootOf(projectRoot, event), sessionId)
       const path = session === null ? null : await subagentTranscriptPath(session, agentId)
       if (path === null) return notFound
       const chunk = await readNewLines(path, cursor, maxBytes === undefined ? {} : { maxBytes })

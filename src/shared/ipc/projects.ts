@@ -28,9 +28,9 @@ export type ProjectsState = z.output<typeof projectsStateSchema>
 const projectId = z.object({ id: z.string().min(1) })
 
 /** Opens the system folder picker; null when the user cancels. */
-export const projectsPickFolder = invokeChannel('projects.pickFolder', z.void(), z.object({ path: z.string().nullable() }))
+export const projectsPickFolder = invokeChannel('projects.pickFolder', z.void(), z.object({ path: z.string().nullable() }), 'desktop')
 
-export const projectsList = invokeChannel('projects.list', z.void(), projectsStateSchema)
+export const projectsList = invokeChannel('projects.list', z.void(), projectsStateSchema, 'project')
 
 /**
  * Adds the git repository that contains `path` and makes it active. A subfolder or a linked
@@ -45,33 +45,35 @@ export const projectsAdd = invokeChannel(
     z.object({ status: z.literal('added'), project: projectViewSchema, notice: z.string().nullable(), state: projectsStateSchema }),
     z.object({ status: z.literal('rejected'), reason: z.string().min(1) }),
   ]),
+  'project',
 )
 
-export const projectsSelect = invokeChannel('projects.select', projectId, projectsStateSchema)
+export const projectsSelect = invokeChannel('projects.select', projectId, projectsStateSchema, 'local')
 
 /** Removes the Project from the list; its data folder stays. */
-export const projectsRemove = invokeChannel('projects.remove', projectId, projectsStateSchema)
+export const projectsRemove = invokeChannel('projects.remove', projectId, projectsStateSchema, 'project')
 
-export const projectsSettingsGet = invokeChannel('projects.settings.get', projectId, projectSettingsSchema)
+export const projectsSettingsGet = invokeChannel('projects.settings.get', projectId, projectSettingsSchema, 'project')
 
 /** Saves the settings; a template with an unknown placeholder fails the input schema. */
 export const projectsSettingsSet = invokeChannel(
   'projects.settings.set',
   z.object({ id: z.string().min(1), settings: projectSettingsSchema }),
   projectSettingsSchema,
+  'project',
 )
 
 /**
  * The default settings for the Harness found on the machine now (worfy-harness ticket 12): what
  * "Reset to default" puts into the fields. Main looks for the Harness on every call.
  */
-export const projectsSettingsDefaults = invokeChannel('projects.settings.defaults', z.void(), projectSettingsSchema)
+export const projectsSettingsDefaults = invokeChannel('projects.settings.defaults', z.void(), projectSettingsSchema, 'project')
 
 /** Sent to every window after a Project's settings were saved, so the action buttons (ticket 23) follow at once. */
-export const projectsSettingsChanged = eventChannel('projects.settings.changed', z.object({ id: z.string().min(1), settings: projectSettingsSchema }))
+export const projectsSettingsChanged = eventChannel('projects.settings.changed', z.object({ id: z.string().min(1), settings: projectSettingsSchema }), 'project')
 
 /** Sent to every window after any change of the list or of the active Project. */
-export const projectsChanged = eventChannel('projects.changed', projectsStateSchema)
+export const projectsChanged = eventChannel('projects.changed', projectsStateSchema, 'project')
 
 declare module './channels' {
   interface IpcContract {

@@ -6,6 +6,8 @@ import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import { agentEnv } from '../agent/env'
 import { GateReader, listWorktrees, type Worktree } from '../gate/state'
 import { accountAuth, ghRunner, PrTracker } from '../github/prs'
+import { insideProjects } from '../link/caller'
+import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { readGithubAccount } from '../workflow/profile'
 import { defineHandler, type HandlerModule } from './index'
@@ -25,8 +27,15 @@ export async function readChecks(service: ChecksService, root: string, branches:
   return { root, worktrees: gated, pulls: prs.pulls, gh: prs.gh }
 }
 
-export function checksHandlers(service: ChecksService): HandlerModule {
-  return [defineHandler(checksGet, ({ root, branches }) => readChecks(service, resolve(root), branches))]
+/** A call from a Linked machine names a root inside a Project of `projects` (src/main/link/caller.ts). */
+export function checksHandlers(service: ChecksService, projects: () => readonly { readonly path: string }[] = () => projectStore().list()): HandlerModule {
+  return [
+    defineHandler(checksGet, ({ root, branches }, { event }) => {
+      const resolved = resolve(root)
+      insideProjects(event, resolved, projects, 'the Project root')
+      return readChecks(service, resolved, branches)
+    }),
+  ]
 }
 
 export interface AppPrTrackerOptions {

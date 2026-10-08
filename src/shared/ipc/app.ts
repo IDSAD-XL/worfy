@@ -7,7 +7,7 @@ import { invokeChannel } from './channels'
  * build writes into its Harness copy. Without a copy (unit tests, `pnpm dev` before the first
  * build) — Electron's app.getVersion(), the package.json `version`.
  */
-export const appVersion = invokeChannel('app.version', z.void(), z.object({ version: z.string().min(1) }))
+export const appVersion = invokeChannel('app.version', z.void(), z.object({ version: z.string().min(1) }), 'local')
 
 declare module './channels' {
   interface IpcContract {

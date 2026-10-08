@@ -288,7 +288,8 @@ async function hubs() {
   const call = await ipcOver({
     './workflow.ts': () => import('../../src/main/ipc/workflow').then((module) => module.default),
     './docs.ts': () => import('../../src/main/ipc/docs').then((module) => module.default),
-    './claude-home.ts': async () => claudeHomeHandlers(registry, subscriptions),
+    // The fixture's Projects stand in the list: a client without a window works inside the listed Projects only.
+    './claude-home.ts': async () => claudeHomeHandlers(registry, subscriptions, undefined, () => [{ path: CLAUDE_HOME_PROJECT }, { path: '/Users/test/проект' }]),
     './bindings.ts': async () => bindingsHandlers(() => bindings, () => registry),
     './limits.ts': async () => limitsHandlers(() => limits),
   })

@@ -11,13 +11,13 @@ const projectRoot = z.object({ root: z.string().min(1).startsWith('/', 'root mus
  * Reads the Project's workflow model and starts sending `workflow.changed` to the calling window
  * until `workflow.close` (or until the window is gone).
  */
-export const workflowOpen = invokeChannel('workflow.open', projectRoot, workflowModelSchema)
+export const workflowOpen = invokeChannel('workflow.open', projectRoot, workflowModelSchema, 'project')
 
 /** Stops `workflow.changed` for this Project in the calling window. `closed` is false if it was not open. */
-export const workflowClose = invokeChannel('workflow.close', projectRoot, z.object({ closed: z.boolean() }))
+export const workflowClose = invokeChannel('workflow.close', projectRoot, z.object({ closed: z.boolean() }), 'project')
 
 /** Only the Epics and Tickets that changed since the previous read, plus removals. */
-export const workflowChanged = eventChannel('workflow.changed', workflowDeltaSchema)
+export const workflowChanged = eventChannel('workflow.changed', workflowDeltaSchema, 'project')
 
 declare module './channels' {
   interface IpcContract {

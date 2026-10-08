@@ -119,13 +119,13 @@ export const migrationResultSchema = z.discriminatedUnion('outcome', [
 export type MigrationResult = z.infer<typeof migrationResultSchema>
 
 /** Whether the toolbar offers the form: this run may move, and something of the old Harness is in ~/.claude. Runs no `claude`. */
-export const harnessMigrationOffer = invokeChannel('harnessMigration.offer', z.void(), z.object({ offered: z.boolean() }))
+export const harnessMigrationOffer = invokeChannel('harnessMigration.offer', z.void(), z.object({ offered: z.boolean() }), 'local')
 
 /** The rows of the form, read from disk; writes nothing. */
-export const harnessMigrationPlan = invokeChannel('harnessMigration.plan', z.void(), migrationPlanSchema)
+export const harnessMigrationPlan = invokeChannel('harnessMigration.plan', z.void(), migrationPlanSchema, 'local')
 
 /** Moves by the choices after the consent dialog in main. */
-export const harnessMigrationApply = invokeChannel('harnessMigration.apply', migrationSelectionSchema, migrationResultSchema)
+export const harnessMigrationApply = invokeChannel('harnessMigration.apply', migrationSelectionSchema, migrationResultSchema, 'local')
 
 declare module './channels' {
   interface IpcContract {
