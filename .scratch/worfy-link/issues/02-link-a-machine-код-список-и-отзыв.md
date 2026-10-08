@@ -227,12 +227,18 @@ changed»; адрес не запоминается после проверки;
   выходящим, и приложение выходило, не дождавшись `autopilot.stopAll()` — журнал прогона терял записи о выходе.
   `will-quit` Electron шлёт, только когда все `before-quit` отпустили выход, поэтому чужое ожидание связь не обрывает.
   В `will-quit` связь держит выход, пока её остановка не закончилась, на каждом `will-quit`: оболочки
-  (`src/main/ipc/terminal.ts`) тоже ждут там и сами зовут `app.quit()`. Ждёт не дольше 1.5 s. Вариант с общим
+  (`src/main/ipc/terminal.ts`) тоже ждут там и сами зовут `app.quit()`. Ждёт не дольше 1.5 s. Повторный `app.quit()`
+  идёт следующим ходом цикла событий (`setTimeout 0`), а не из microtask: пока Electron рассылает `will-quit`, он
+  считает приложение выходящим и `app.quit()` пропускает, а остановка без ожиданий заканчивается ещё внутри рассылки.
+  Первый вариант узкого круга звал `app.quit()` прямо из `.finally` — каждый выход в e2e висел 20 s, это поймал gate
+  full; проверено на собранном приложении скриптом Playwright (`before-quit`, `will-quit`, `app.quit`, снова
+  `before-quit`, `will-quit`, `quit`). Вариант с общим
   обработчиком `Promise.all(Autopilot, связь)` не взят: он требовал правки `src/main/ipc/autopilot.ts` вне следа.
   `src/main/ipc/autopilot.ts` не менялся. Test — `test/contract/link-connections.test.ts`, «stopping the link when worfy
   quits», на модели выхода Electron: Autopilot 300 ms и связь 20 ms (оба порядка регистрации), оболочки быстрее и
   медленнее связи, зависшая остановка, связь не запущена. Mutant с логикой fad10d4 (`before-quit` и `app.quit()`) —
-  3 test-а красные. Mutant «держать только первый `will-quit`» — 1 красный.
+  2 test-а красные. Mutant «держать только первый `will-quit`» — 1 красный. Mutant «`app.quit()` из microtask» —
+  1 красный (модель, как Electron, пропускает `app.quit()` во время рассылки `will-quit`).
 - не проверено: `stopLinkOnQuit(app)` в `src/main/index.ts` на настоящем выходе приложения — test-ом покрыта сама функция
   на модели выхода Electron и `stopLink` (goodbye, затем закрытие сокета). В e2e Bonjour выключен.
 - Ограничение (Ticket 01): если у отзывающей Machine после отзыва не осталось Linked machine-ов, её сервер закрывается.

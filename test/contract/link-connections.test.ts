@@ -460,13 +460,19 @@ describe('the windows with "Link a machine" open', () => {
 })
 
 /**
- * Electron's quit, as far as the quit handlers see it: app.quit() runs every `before-quit` handler;
- * when none prevented it, every `will-quit` handler; when none prevented that either, the app is
- * gone. A handler that prevented calls app.quit() again when its wait is over.
+ * Electron's quit, as far as the quit handlers see it (Browser::Quit and NotifyAndShutdown in
+ * Electron's browser.cc): app.quit() runs every `before-quit` handler; when none prevented it,
+ * every `will-quit` handler; when none prevented that either, the app is gone. A handler that
+ * prevented calls app.quit() again when its wait is over. While `will-quit` is being dispatched
+ * the app counts as quitting, and app.quit() does nothing: the microtasks the handlers queued run
+ * before Electron clears that, so the model clears it on the next timer turn.
  */
 class QuitModel {
   private readonly handlers: Record<'before-quit' | 'will-quit', ((event: { preventDefault(): void }) => void)[]> = { 'before-quit': [], 'will-quit': [] }
+  private quitting = false
   exitedAt: number | undefined
+  /** app.quit() calls Electron ignored. */
+  ignored = 0
 
   on(event: 'before-quit' | 'will-quit', listener: (event: { preventDefault(): void }) => void): this {
     this.handlers[event].push(listener)
@@ -475,12 +481,21 @@ class QuitModel {
 
   quit(): void {
     if (this.exitedAt !== undefined) return
-    for (const phase of ['before-quit', 'will-quit'] as const) {
-      let prevented = false
-      for (const listener of this.handlers[phase]) listener({ preventDefault: () => (prevented = true) })
-      if (prevented) return
+    if (this.quitting) {
+      this.ignored += 1
+      return
     }
-    this.exitedAt = Date.now()
+    let prevented = false
+    for (const listener of this.handlers['before-quit']) listener({ preventDefault: () => (prevented = true) })
+    if (prevented) return
+    this.quitting = true
+    prevented = false
+    for (const listener of this.handlers['will-quit']) listener({ preventDefault: () => (prevented = true) })
+    if (!prevented) {
+      this.exitedAt = Date.now()
+      return
+    }
+    setTimeout(() => (this.quitting = false), 0)
   }
 }
 
@@ -572,7 +587,9 @@ describe('stopping the link when worfy quits', () => {
     await vi.advanceTimersByTimeAsync(2_000)
     expect(shells.closedAt()).toBe(50)
     expect(link.stoppedAt()).toBe(200)
-    expect(app.exitedAt).toBe(200)
+    // The link's last app.quit() goes on the next timer turn.
+    expect(app.exitedAt).toBeGreaterThanOrEqual(200)
+    expect(app.exitedAt).toBeLessThan(210)
   })
 
   it('shells slower than the link keep the quit, the link does not cut them short', async () => {
@@ -586,12 +603,25 @@ describe('stopping the link when worfy quits', () => {
     expect(shells.closedAt()).toBe(100)
   })
 
+  it('a link stop with nothing to wait for still quits: app.quit() is not called inside the will-quit dispatch', async () => {
+    const app = new QuitModel()
+    // One-shot, as stopAppLink: the second call finds nothing to stop.
+    let running = true
+    stopLinkOnQuit(app, () => (running ? ((running = false), Promise.resolve()) : undefined), 1_500)
+    app.quit()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(app.ignored).toBe(0)
+    expect(app.exitedAt).toBeLessThan(10)
+  })
+
   it('a link stop that hangs holds the quit for the wait only; no link running holds nothing', async () => {
     const hung = new QuitModel()
-    stopLinkOnQuit(hung, () => new Promise<void>(() => undefined), 1_500)
+    let running = true
+    stopLinkOnQuit(hung, () => (running ? ((running = false), new Promise<void>(() => undefined)) : undefined), 1_500)
     hung.quit()
     await vi.advanceTimersByTimeAsync(5_000)
-    expect(hung.exitedAt).toBe(1_500)
+    expect(hung.exitedAt).toBeGreaterThanOrEqual(1_500)
+    expect(hung.exitedAt).toBeLessThan(1_510)
 
     const idle = new QuitModel()
     stopLinkOnQuit(idle, () => undefined, 1_500)

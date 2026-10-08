@@ -851,7 +851,9 @@ export function stopLinkOnQuit(app: QuitApp, stop: () => Promise<void> | undefin
     }
     if (done) return
     event.preventDefault()
-    void stopping.finally(() => app.quit())
+    // On a later turn of the event loop, never from a microtask: Electron ignores app.quit() until
+    // its `will-quit` dispatch has returned, and a stop with nothing to wait for settles before that.
+    void stopping.finally(() => setTimeout(() => app.quit(), 0))
   })
 }
 
