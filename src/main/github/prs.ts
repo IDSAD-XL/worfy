@@ -19,7 +19,7 @@
 // Nothing is written to GitHub, to the Project, to the gh config or to the Claude home.
 import { execFile } from 'node:child_process'
 import { z } from 'zod'
-import type { CiState, GhStatus, PullRequest } from '../../shared/ipc/checks'
+import { NARROW_TEXT_MAX, type CiState, type GhStatus, type NarrowState, type PullRequest } from '../../shared/ipc/checks'
 
 export const BASE_INTERVAL_MS = 60_000
 export const SEARCH_INTERVAL_MS = 5 * 60_000
@@ -159,9 +159,14 @@ export function ciOf(rollup: readonly z.infer<typeof checkSchema>[] | null | und
   return running ? 'running' : 'passing'
 }
 
-const VERDICT = /^(VERIFIED|REJECTED)\b/u
+// The narrow round's verdicts (worfy-harness ticket 20) carry the prefix `NARROW: `; the gate's
+// own verdict word follows it.
+const VERDICT = /^(?:NARROW:\s*)?(VERIFIED|REJECTED)\b/u
 
-/** The reviewer's verdict: the last comment whose first line starts with VERIFIED or REJECTED. */
+/**
+ * The reviewer's verdict: the last comment whose first line starts with VERIFIED or REJECTED, or
+ * with the narrow round's NARROW: VERIFIED or NARROW: REJECTED.
+ */
 export function verdictOf(comments: readonly { body: string }[] | null | undefined): 'VERIFIED' | 'REJECTED' | null {
   let verdict: 'VERIFIED' | 'REJECTED' | null = null
   for (const comment of comments ?? []) {
@@ -169,6 +174,41 @@ export function verdictOf(comments: readonly { body: string }[] | null | undefin
     if (match) verdict = match[1] as 'VERIFIED' | 'REJECTED'
   }
   return verdict
+}
+
+const NARROW = /^NARROW:(.*)$/u
+
+/** The first line kept to NARROW_TEXT_MAX UTF-16 units, without half of a surrogate pair at the cut. */
+function clipLine(line: string): string {
+  if (line.length <= NARROW_TEXT_MAX) return line
+  const cut = line.slice(0, NARROW_TEXT_MAX)
+  const last = cut.charCodeAt(cut.length - 1)
+  return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut
+}
+
+/**
+ * Every state of the narrow fix rounds of a PR, oldest first (worfy-harness ticket 20, ADR-0046):
+ * each comment whose first line starts with `NARROW:` — `NARROW: VERIFIED` is `verified`,
+ * `NARROW: REJECTED…` is `rejected`, anything else (`NARROW: <findings>`) is `started` — with that
+ * first line and the comment's `createdAt`. worfy reads only the prefix the /epic-wave skill writes
+ * its verdicts with; the findings are not parsed.
+ */
+export function narrowRoundsOf(comments: readonly { body: string; createdAt?: string | undefined }[] | null | undefined): NarrowState[] {
+  const states: NarrowState[] = []
+  for (const comment of comments ?? []) {
+    const line = firstLine(comment.body)
+    const match = NARROW.exec(line)
+    if (!match) continue
+    const rest = match[1]!.trim()
+    const outcome = /^VERIFIED\b/u.test(rest) ? 'verified' : /^REJECTED\b/u.test(rest) ? 'rejected' : 'started'
+    states.push({ outcome, text: clipLine(line), at: comment.createdAt ?? null })
+  }
+  return states
+}
+
+/** The last state of the narrow round of a PR, or null when it has had none. */
+export function narrowOf(comments: readonly { body: string; createdAt?: string | undefined }[] | null | undefined): NarrowState | null {
+  return narrowRoundsOf(comments).at(-1) ?? null
 }
 
 /** Parses the JSON of `gh pr list --json …`; entries that are not PRs are dropped one by one. */
@@ -180,7 +220,16 @@ export function parsePrList(stdout: string): PullRequest[] {
     const parsed = ghPullSchema.safeParse(item)
     if (!parsed.success) continue
     const pull = parsed.data
-    result.push({ number: pull.number, url: pull.url, state: pull.state, branch: pull.headRefName, ci: ciOf(pull.statusCheckRollup), verdict: verdictOf(pull.comments) })
+    const narrow = narrowRoundsOf(pull.comments)
+    result.push({
+      number: pull.number,
+      url: pull.url,
+      state: pull.state,
+      branch: pull.headRefName,
+      ci: ciOf(pull.statusCheckRollup),
+      verdict: verdictOf(pull.comments),
+      ...(narrow.length > 0 ? { narrow } : {}),
+    })
   }
   return result
 }

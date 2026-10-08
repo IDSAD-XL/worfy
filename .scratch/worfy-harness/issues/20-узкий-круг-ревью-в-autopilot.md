@@ -1,7 +1,7 @@
 # 20 — Autopilot делает один узкий круг ревью без владельца, если находки только med и low
 
 Type: task
-Status: open
+Status: claimed — 2026-10-08
 Blocked by: 16
 Source: решение владельца 2026-10-07, вопрос Q7 ([spec.md](../spec.md)); [ADR-0046](../../../docs/adr/0046-autopilot-narrow-round-without-owner.md) — узкий круг в Autopilot; [ADR-0024](../../../docs/adr/0024-autopilot-wave-end-and-keep-awake.md) — worfy не знает протокола skill-а; [ADR-0033](../../../docs/adr/0033-autopilot-names-wave-tickets.md) — остановка прогона с `blocked-tickets`; урок «Узкий круг исправления» в `docs/lessons/process.md:22-28`
 
@@ -94,26 +94,26 @@ ADR не нужен: правило — в ADR-0046. Способ узнать �
 
 ## Готово, когда
 
-- [ ] Contract test `test/contract/github-prs.test.ts`, `narrowOf`:
+- [x] Contract test `test/contract/github-prs.test.ts`, `narrowOf`:
   - `NARROW: [med] …` → `started`;
   - затем `NARROW: VERIFIED` → `verified`;
   - `NARROW: REJECTED: …` → `rejected`;
   - без `NARROW:` → `null`.
-- [ ] Тот же test, `verdictOf`: последний комментарий `NARROW: VERIFIED` → `VERIFIED`, `NARROW: REJECTED: …` → `REJECTED`.
-- [ ] Unit `test/unit/autopilot-journal.test.ts`:
+- [x] Тот же test, `verdictOf`: последний комментарий `NARROW: VERIFIED` → `VERIFIED`, `NARROW: REJECTED: …` → `REJECTED`.
+- [x] Unit `test/unit/autopilot-journal.test.ts`:
   - строка `narrow-round` с верными полями читается;
   - неверный `outcome` — строка пропущена и посчитана;
   - журнал без `narrow-round` читается как раньше.
-- [ ] Unit `test/unit/autopilot-run.test.ts`, читатель PR подменён:
+- [x] Unit `test/unit/autopilot-run.test.ts`, читатель PR подменён:
   - смена состояния PR Ticket-а Wave → строка `narrow-round`;
   - то же состояние при следующем чтении → строки нет;
   - Ticket не из Wave → строки нет;
   - сбой чтения PR → строки нет, прогон идёт.
-- [ ] e2e `test/e2e/autopilot.spec.ts`. Подменённый `gh` (`WORFY_GH`) отдаёт PR ветки Ticket-а 02 с комментариями `NARROW: [med] …` и `NARROW: REJECTED: …`; подменённый агент — новый скрипт `test/fixtures/agent-scripts/autopilot-narrow.jsonl`. В файле журнала прогона:
+- [x] e2e `test/e2e/autopilot.spec.ts`. Подменённый `gh` (`WORFY_GH`) отдаёт PR ветки Ticket-а 02 с комментариями `NARROW: [med] …` и `NARROW: REJECTED: …`; подменённый агент — новый скрипт `test/fixtures/agent-scripts/autopilot-narrow.jsonl`. В файле журнала прогона:
   - строки `narrow-round` `started` и `rejected` Ticket-а 02;
   - `run-stopped` с `blocked-tickets` и `["02"]`.
-- [ ] `grep -n 'NARROW' harness/skills/epic-wave/SKILL.md` — код 0, а `grep -n 'worfy-narrow\|WAVE DONE' harness/skills/epic-wave/SKILL.md` — код 1: правило есть, маркера для worfy нет.
-- [ ] e2e — локально, `gate full` на ветке после rebase: код 0 и строка вердикта «зелено». Команда — из `rules.md` Profile на момент взятия: после Ticket-а 16 `gate.sh` лежит в plugin.
+- [x] `grep -n 'NARROW' harness/skills/epic-wave/SKILL.md` — код 0, а `grep -n 'worfy-narrow\|WAVE DONE' harness/skills/epic-wave/SKILL.md` — код 1: правило есть, маркера для worfy нет.
+- [x] e2e — локально, `gate full` на ветке после rebase: код 0 и строка вердикта «зелено». Команда — из `rules.md` Profile на момент взятия: после Ticket-а 16 `gate.sh` лежит в plugin.
 
 ## Тесты
 
@@ -140,6 +140,8 @@ ADR не нужен: правило — в ADR-0046. Способ узнать �
 - `src/main/autopilot/run.ts`
 - `test/contract/github-prs.test.ts`
 - `test/unit/autopilot-journal.test.ts`
+- `test/contract/autopilot-journal.test.ts` — полный список видов строк
+- `harness/bin/tests/epic-wave-ship-ticket.test.sh` — одна строка в allowlist кириллицы для примера строки «Ждёт владельца»
 - `test/unit/autopilot-run.test.ts`
 - `test/e2e/autopilot.spec.ts`
 - `test/fixtures/agent-scripts/autopilot-narrow.jsonl` — новый
@@ -157,4 +159,42 @@ ADR не нужен: правило — в ADR-0046. Способ узнать �
 
 ## Итог
 
-Заполняется при закрытии.
+PR #144, ветка `worfy-harness/20`.
+
+- **Как падал первый test.** `test/contract/github-prs.test.ts`, случай «`REJECTED`, `REJECTED`, затем
+  `NARROW: VERIFIED`». На main `verdictOf` отдавал `REJECTED`: «AssertionError: expected 'REJECTED' to be
+  'VERIFIED'». Ticket 10 `NARROW:` не разбирал. Случаи `narrowOf` падали с «narrowOf is not a function».
+- **Как worfy узнаёт об узком круге** (в рамках ADR-0024). worfy читает вердикты `NARROW:` из комментариев
+  PR Ticket-ов своих Wave-ов. Читает через тот же `PrTracker`, что и бейджи PR: один на приложение,
+  `sharedPrTracker()` в `src/main/ipc/checks.ts`. gh по-прежнему вызывается не чаще раза в 60 с. Маркера в
+  ответе Orchestrator-а нет, нового протокола со skill-ом тоже нет. Прогон читает PR при `wave-started`,
+  раз в минуту, пока идёт, и ещё раз перед `run-stopped`. При Force stop и выходе из приложения
+  последнего чтения нет. Комментарии, сделанные до старта прогона (`createdAt` от gh раньше часов
+  worfy на старте), строк не дают: это прошлые прогоны и закрытые PR. Комментарий без `createdAt`
+  берётся — решено без владельца, подтвердить.
+- **Отступление: `narrowRoundsOf` вместо одного «последнего состояния»** — решено без владельца,
+  подтвердить.
+  - `narrowOf` сделана как в тикете: отдаёт последнее состояние, по ней contract test.
+  - Но PR несёт все состояния узкого круга (`narrowRoundsOf`). Прогон пишет каждое ещё не записанное
+    состояние, по порядку комментариев.
+  - Почему так. e2e тикета хочет две строки, `started` и `rejected`, из одного ответа gh, где уже лежат
+    оба комментария. По одному последнему состоянию вышла бы только `rejected`. Второе чтение gh
+    возможно не раньше чем через 60 с.
+  - Цена. В `PullRequest` появилось необязательное поле `narrow`: состояния с текстом и временем
+    комментария. Комментарии до старта прогона отсекаются по этому времени (круг доработки 1).
+- **Ограничение.** Комментарий `NARROW:`, оставленный меньше чем за минуту до конца прогона, может не
+  попасть в журнал: `PrTracker` отдаёт кэш, пока не прошёл его интервал. Так же теряется ответ gh,
+  который не успел за 1 с последнего чтения. Это записано в спецификации формата, в комментарии
+  `journal.ts`. На живом gh не проверено.
+- **Задержка `run-stopped`.** Последнее чтение PR перед `run-stopped` ждёт не больше `END_READ_MS` = 1 с
+  (`src/main/autopilot/run.ts`). Force stop и выход из приложения обрывают это ожидание сразу:
+  выход ждёт конца прогонов только 3 с. В первом круге ожидание было ничем не ограничено: gh делает
+  несколько вызовов, у каждого свой timeout. Ревью круга 1 это нашло. Покрыто unit test-ами
+  `test/unit/autopilot-run.test.ts` (медленный читатель PR против `stopAll`, Force stop и предела).
+- **SKILL.md.** Пример строки для «Ждёт владельца» по-русски («узкий круг листовому Ticket-у — решение
+  владельца») стоит рядом с английской формулировкой. Для него в allowlist кириллицы test-а
+  `harness/bin/tests/epic-wave-ship-ticket.test.sh` добавлена одна строка — с разрешения
+  orchestrator-а. Раздел «How to resume a wave» и подсказка у команд подсчёта кругов говорят, что
+  комментарий или коммит `NARROW:` значит «узкий круг уже был», а последний `NARROW: VERIFIED` или
+  `NARROW: REJECTED` — вердикт; для `pr-green-ci` и для `local-green`.
+- `test/contract/autopilot-journal.test.ts` добавлен в «Где в коде»: в нём полный список видов строк.

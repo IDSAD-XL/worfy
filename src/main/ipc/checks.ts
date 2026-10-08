@@ -75,4 +75,16 @@ function appPrs(): PrTracker {
   return appPrTracker({ claudeHome: claudeHome(), command: stub || undefined, env })
 }
 
-export default checksHandlers({ gate: new GateReader({ home: claudeHome() }), prs: appPrs() })
+let sharedPrs: PrTracker | undefined
+
+/**
+ * The app's one PR tracker: the PR badges and the Autopilot run's narrow-round reads
+ * (src/main/ipc/autopilot.ts, worfy-harness ticket 20) share it, so gh runs at most once per
+ * interval for both.
+ */
+export function sharedPrTracker(): PrTracker {
+  sharedPrs ??= appPrs()
+  return sharedPrs
+}
+
+export default checksHandlers({ gate: new GateReader({ home: claudeHome() }), prs: sharedPrTracker() })

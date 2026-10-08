@@ -7,7 +7,8 @@
 // most) until the run has written `run-stopped` with `app-quit`; that also cancels a Limits wait.
 // Asking a Project's state also asks again, at most once a minute, whether the Harness in its main
 // is newer than this build's (worfy-harness ticket 21, packaged builds only); a changed answer comes
-// as `autopilot.changed`.
+// as `autopilot.changed`. The run reads the PRs of its Wave Tickets for the narrow fix round
+// (worfy-harness ticket 20) through the app's one PR tracker, the PR badges' (checks.ts).
 import { execFile } from 'node:child_process'
 import { app } from 'electron'
 import { autopilotChanged, autopilotForceStop, autopilotStart, autopilotState, autopilotStop, type AutopilotState } from '../../shared/ipc/autopilot'
@@ -24,6 +25,7 @@ import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { readWorkflow } from '../workflow/reader'
 import { sharedLauncher } from './actions'
+import { sharedPrTracker } from './checks'
 import { defineHandler, emit, type HandlerModule } from './index'
 import { workflowHub } from './workflow'
 
@@ -85,6 +87,7 @@ export function sharedAutopilot(): Autopilot {
     journal: (start) => openRun(start),
     keepAwake: () => new KeepAwake(),
     harnessDrift: harnessDriftWatch({ packaged: app.isPackaged, harnessVersion: () => bundledHarnessVersion() }),
+    prs: sharedPrTracker(),
     onChange: (state: AutopilotState) => toEveryWindow((target) => emit(target, autopilotChanged, state)),
     limits: {
       state: () => appLimits().snapshot(),

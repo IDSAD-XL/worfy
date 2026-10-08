@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GateReader, type Worktree } from '../../src/main/gate/state'
-import { accountAuth, ciOf, ghRunner, parsePrList, PrTracker, verdictOf, type GhRunner } from '../../src/main/github/prs'
+import { accountAuth, ciOf, ghRunner, narrowOf, narrowRoundsOf, parsePrList, PrTracker, verdictOf, type GhRunner } from '../../src/main/github/prs'
 import { appPrTracker, checksHandlers } from '../../src/main/ipc/checks'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
@@ -89,12 +89,56 @@ describe('verdictOf', () => {
     expect(verdictOf([{ body: 'REJECTED (round 1, head abc1234)\n- src/a.ts:1 — x' }, { body: 'VERIFIED (round 2, head def5678)' }])).toBe('VERIFIED')
   })
 
+  it('reads the narrow round’s verdicts (worfy-harness ticket 20): NARROW: VERIFIED and NARROW: REJECTED count, NARROW: <findings> does not', () => {
+    expect(verdictOf([{ body: 'REJECTED: 2 findings' }, { body: 'REJECTED: 1 finding' }, { body: 'NARROW: VERIFIED' }])).toBe('VERIFIED')
+    expect(verdictOf([{ body: 'REJECTED: 1 finding' }, { body: 'NARROW: [med] src/a.ts:1 — x' }, { body: 'NARROW: REJECTED: src/a.ts:1 still open' }])).toBe('REJECTED')
+    expect(verdictOf([{ body: 'VERIFIED' }, { body: 'NARROW: [med] src/a.ts:1 — x' }])).toBe('VERIFIED')
+    expect(verdictOf([{ body: 'NARROW: VERIFIEDX' }])).toBeNull()
+    expect(verdictOf([{ body: 'see NARROW: VERIFIED' }])).toBeNull()
+  })
+
   it('does not take the word anywhere but at the start of the first line', () => {
     expect(verdictOf([{ body: 'Looks fine\nVERIFIED' }])).toBeNull()
     expect(verdictOf([{ body: 'not VERIFIED yet' }])).toBeNull()
     expect(verdictOf([{ body: 'VERIFIEDX' }])).toBeNull()
     expect(verdictOf([])).toBeNull()
     expect(verdictOf(null)).toBeNull()
+  })
+})
+
+describe('narrowOf (worfy-harness ticket 20)', () => {
+  it('is the last state of the narrow round: NARROW: <findings> started, then NARROW: VERIFIED or NARROW: REJECTED', () => {
+    const started = { body: 'NARROW: [med] src/a.ts:1 — x; [low] src/b.ts:2 — y\nsceptics: 2 of 3 stood' }
+    expect(narrowOf([{ body: 'REJECTED: 3 findings' }, started])).toEqual({ outcome: 'started', text: 'NARROW: [med] src/a.ts:1 — x; [low] src/b.ts:2 — y', at: null })
+    expect(narrowOf([started, { body: 'NARROW: VERIFIED' }])).toEqual({ outcome: 'verified', text: 'NARROW: VERIFIED', at: null })
+    expect(narrowOf([started, { body: '  NARROW: REJECTED: src/a.ts:1 still open\n- details' }, { body: 'thanks' }])).toEqual({ outcome: 'rejected', text: 'NARROW: REJECTED: src/a.ts:1 still open', at: null })
+  })
+
+  it('is null without a NARROW: comment, and takes the prefix only at the start of the first line', () => {
+    expect(narrowOf([{ body: 'REJECTED: 1 finding' }, { body: 'VERIFIED' }])).toBeNull()
+    expect(narrowOf([{ body: 'see NARROW: VERIFIED' }, { body: 'notes\nNARROW: REJECTED' }, { body: 'NARROWED: x' }])).toBeNull()
+    expect(narrowOf([])).toBeNull()
+    expect(narrowOf(null)).toBeNull()
+  })
+
+  it('keeps the first line as the journal keeps the last answer: at most 1000 characters', () => {
+    expect(narrowOf([{ body: `NARROW: ${'x'.repeat(2000)}` }])?.text).toHaveLength(1000)
+  })
+
+  it('narrowRoundsOf: every state of the narrow rounds, oldest first; parsePrList keeps them on the PR only when there are any', () => {
+    const comments = [
+      { body: 'REJECTED: 1', createdAt: '2026-10-08T01:00:00Z' },
+      { body: 'NARROW: [med] x', createdAt: '2026-10-08T02:00:00Z' },
+      { body: 'NARROW: REJECTED: x', createdAt: '2026-10-08T03:00:00Z' },
+    ]
+    // Each state carries the comment's createdAt: the run tells its own round from an earlier one by it.
+    expect(narrowRoundsOf(comments)).toEqual([
+      { outcome: 'started', text: 'NARROW: [med] x', at: '2026-10-08T02:00:00Z' },
+      { outcome: 'rejected', text: 'NARROW: REJECTED: x', at: '2026-10-08T03:00:00Z' },
+    ])
+    const [withNarrow, without] = parsePrList(JSON.stringify([pull(7, 'demo/07', { comments }), pull(8, 'demo/08', { comments: [{ body: 'VERIFIED' }] })]))
+    expect(withNarrow).toMatchObject({ number: 7, verdict: 'REJECTED', narrow: narrowRoundsOf(comments) })
+    expect(without).not.toHaveProperty('narrow')
   })
 })
 

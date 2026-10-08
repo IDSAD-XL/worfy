@@ -27,6 +27,7 @@ const everyKind: JournalEvent[] = [
   started,
   harnessBehind,
   waveStarted,
+  { ...base, at: at(2), kind: 'narrow-round', ticket: '02', outcome: 'started', text: 'NARROW: [med] src/a.ts:1 — x' },
   { ...base, at: at(2), kind: 'wave-finished', wave: 1, tickets: ['01', '02'] },
   { ...base, at: at(3), kind: 'limits-hit', window: 'five_hour', resetsAt: at(30) },
   { ...base, at: at(3), kind: 'waiting-until', until: at(31) },
@@ -56,6 +57,25 @@ describe('parseJournal', () => {
   it('reads harness-behind (worfy-harness ticket 21), and a journal without it as before', () => {
     expect(parseJournal(line(started) + line(harnessBehind) + line(waveStarted))).toEqual({ events: [started, harnessBehind, waveStarted], skipped: 0 })
     expect(parseJournal(line(started) + line(waveStarted) + line(stopped))).toEqual({ events: [started, waveStarted, stopped], skipped: 0 })
+  })
+
+  const narrowStarted: JournalEvent = { ...base, at: at(2), kind: 'narrow-round', ticket: '02', outcome: 'started', text: 'NARROW: [med] src/a.ts:1 — x' }
+  const narrowRejected: JournalEvent = { ...base, at: at(3), kind: 'narrow-round', ticket: '02', outcome: 'rejected', text: 'NARROW: REJECTED: src/a.ts:1 still open' }
+
+  it('reads narrow-round lines (worfy-harness ticket 20), and a journal without them as before', () => {
+    const verified: JournalEvent = { ...narrowStarted, ticket: '07', outcome: 'verified', text: 'NARROW: VERIFIED' }
+    expect(parseJournal(line(started) + line(waveStarted) + line(narrowStarted) + line(narrowRejected) + line(verified) + line(stopped))).toEqual({
+      events: [started, waveStarted, narrowStarted, narrowRejected, verified, stopped],
+      skipped: 0,
+    })
+    expect(parseJournal(line(started) + line(waveStarted) + line(stopped))).toEqual({ events: [started, waveStarted, stopped], skipped: 0 })
+  })
+
+  it('skips narrow-round with an unknown outcome, without a ticket or text, or with a text over 1000 characters, and counts it', () => {
+    const bad = [{ outcome: 'passed' }, { outcome: 'VERIFIED' }, { outcome: undefined }, { ticket: '' }, { ticket: 2 }, { text: '' }, { text: 'x'.repeat(LAST_TEXT_MAX + 1) }]
+    for (const fields of bad) {
+      expect(parseJournal(line(started) + line({ ...narrowStarted, ...fields }) + line(stopped)), JSON.stringify(fields)).toEqual({ events: [started, stopped], skipped: 1 })
+    }
   })
 
   it('skips harness-behind without a build version or ref, or with a count below 1', () => {

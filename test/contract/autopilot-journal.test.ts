@@ -64,6 +64,7 @@ const rawLines = (file: string): string[] => readFileSync(file, 'utf8').split('\
 const appended: JournalEventFields[] = [
   { kind: 'harness-behind', harness: '0.1.0+abcdef1', main: 'origin/main', commits: 2 },
   { kind: 'wave-started', wave: 1, tickets: ['01', '02'] },
+  { kind: 'narrow-round', ticket: '02', outcome: 'rejected', text: 'NARROW: REJECTED: src/a.ts:1 still open' },
   { kind: 'wave-finished', wave: 1, tickets: ['01', '02'] },
   { kind: 'limits-hit', window: 'five_hour', resetsAt: '2026-10-06T06:00:00.000Z' },
   { kind: 'waiting-until', until: '2026-10-06T06:01:00.000Z' },

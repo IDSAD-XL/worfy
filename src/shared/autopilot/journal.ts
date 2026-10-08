@@ -38,6 +38,29 @@
 //                                    done, [{"num": "15", "state": "blocked"}], state `blocked` or
 //                                    `none` (ticket 30, ADR-0033; lines written before it have
 //                                    neither field)
+//   narrow-round   ticket, outcome,  a Ticket of a Wave of the run went through a step of the
+//                  text              narrow fix round (worfy-harness ticket 20, ADR-0046), as a
+//                                    comment on its PR says: ticket: its number, as in tickets of
+//                                    wave-started; outcome: `started` (a comment `NARROW:
+//                                    <findings>`), `verified` (`NARROW: VERIFIED`) or `rejected`
+//                                    (`NARROW: REJECTED…`); text: the first line of that comment,
+//                                    at most 1000 characters. worfy reads the PRs of the Tickets of
+//                                    the run's Waves at most once a minute (the PR badges' read), so
+//                                    the line comes up to a minute or two after the comment, and a
+//                                    state seen for the first time is journaled with the states
+//                                    before it the run has not journaled yet, in comment order:
+//                                    `started` and `rejected` can arrive together. A pair of ticket
+//                                    and outcome is written once per run. Only comments made after
+//                                    the run started count (gh's `createdAt` against worfy's clock):
+//                                    those of an earlier run or a closed PR write no line; a
+//                                    comment gh gives no time for is taken. No PR, no line: a
+//                                    Ticket that finishes without a PR (`local-green`, the verdicts
+//                                    are commits then) and a run while gh is unavailable write
+//                                    none. The run reads once more before run-stopped and waits
+//                                    for that read 1 s at most, not at all on a Force stop or a
+//                                    quit; gh answers at most once a minute. So a comment made less
+//                                    than a minute before the end, or one gh is slow to give then,
+//                                    may be missing. Journals written before ticket 20 have none
 //   wave-finished  wave, tickets     wave and tickets as in wave-started
 //   limits-hit     window, resetsAt  a Session was refused by the Limits; window: `five_hour`,
 //                                    `seven_day`, … or null; resetsAt: ISO time or null
@@ -111,6 +134,7 @@ export const JOURNAL_EVENT_KINDS = [
   'run-started',
   'harness-behind',
   'wave-started',
+  'narrow-round',
   'wave-finished',
   'limits-hit',
   'waiting-until',
@@ -129,6 +153,10 @@ export type JournalEventKind = (typeof JOURNAL_EVENT_KINDS)[number]
 /** Who wrote a `human-input` line. */
 export const HUMAN_INPUT_SOURCES = ['worfy', 'observer'] as const
 export type HumanInputSource = (typeof HUMAN_INPUT_SOURCES)[number]
+
+/** The states of a narrow fix round a `narrow-round` line names. */
+export const NARROW_OUTCOMES = ['started', 'verified', 'rejected'] as const
+export type NarrowOutcome = (typeof NARROW_OUTCOMES)[number]
 
 const RUN_ID_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{6}$/
 /** Hex digits after the start time in a run id. */
@@ -172,6 +200,7 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
   event('run-started', {}),
   event('harness-behind', { harness: text, main: text, commits: z.number().int().positive() }),
   event('wave-started', { ...wave, text: z.string().optional(), skipped: skipped.optional() }),
+  event('narrow-round', { ticket: text, outcome: z.enum(NARROW_OUTCOMES), text: text.max(LAST_TEXT_MAX) }),
   event('wave-finished', wave),
   event('limits-hit', { window: z.string().min(1).nullable(), resetsAt: isoTime.nullable() }),
   event('waiting-until', { until: isoTime }),

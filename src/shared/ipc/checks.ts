@@ -55,6 +55,23 @@ export type WorktreeChecks = z.infer<typeof worktreeChecksSchema>
 export const ciStateSchema = z.enum(['passing', 'failing', 'running'])
 export type CiState = z.infer<typeof ciStateSchema>
 
+/** How much of the first line a narrow-round state keeps, as the run journal keeps an answer. */
+export const NARROW_TEXT_MAX = 1000
+
+/**
+ * One state of a narrow fix round (worfy-harness ticket 20, ADR-0046), read from a PR comment whose
+ * first line starts with `NARROW:` — `started` for `NARROW: <findings>`, `verified` for
+ * `NARROW: VERIFIED`, `rejected` for `NARROW: REJECTED…` — that first line, at most 1000
+ * characters, and when the comment was made (gh's `createdAt`), null when gh did not say. The
+ * findings are not parsed.
+ */
+export const narrowStateSchema = z.object({
+  outcome: z.enum(['started', 'verified', 'rejected']),
+  text: z.string().min(1).max(NARROW_TEXT_MAX),
+  at: z.string().nullable(),
+})
+export type NarrowState = z.infer<typeof narrowStateSchema>
+
 export const pullRequestSchema = z.object({
   number: z.number().int().positive(),
   url: z.string(),
@@ -62,8 +79,17 @@ export const pullRequestSchema = z.object({
   /** Head branch of the PR. */
   branch: z.string(),
   ci: ciStateSchema.nullable(),
-  /** The last comment whose first line is `VERIFIED` or `REJECTED`; null when there is none. */
+  /**
+   * The last comment whose first line is `VERIFIED` or `REJECTED`, or the narrow round's
+   * `NARROW: VERIFIED` or `NARROW: REJECTED`; null when there is none.
+   */
   verdict: z.enum(['VERIFIED', 'REJECTED']).nullable(),
+  /**
+   * The narrow round's comments of the PR, oldest first (worfy-harness ticket 20): its states as the
+   * /epic-wave skill writes them; absent when the PR has none. The renderer does not use it; the
+   * Autopilot run journals it.
+   */
+  narrow: z.array(narrowStateSchema).optional(),
 })
 export type PullRequest = z.infer<typeof pullRequestSchema>
 
