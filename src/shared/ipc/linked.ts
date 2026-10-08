@@ -13,7 +13,12 @@
 import { z } from 'zod'
 import { eventChannel, invokeChannel } from './channels'
 
-/** What a channel answered on the Linked machine, as `invoke` resolves on this one. */
+/**
+ * What a channel answered on the Linked machine, as `invoke` resolves on this one. `value` is typed
+ * loosely here because one channel carries every channel's answers; main has parsed it with the
+ * output schema of the channel called (src/main/link/remote-calls.ts) before it gets here, and the
+ * payload of `linked.event` with the payload schema of its channel.
+ */
 export const linkedResultSchema = z.union([z.object({ ok: z.literal(true), value: z.unknown() }), z.object({ ok: z.literal(false), error: z.string() })])
 
 const channelName = z.string().min(1).max(200)

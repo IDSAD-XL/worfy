@@ -57,10 +57,33 @@ export interface EventChannel<N extends string = string, P extends z.ZodType = z
 /** The mark of every channel declared so far in this JavaScript realm, by name. */
 const declaredAccess = new Map<string, ChannelAccess>()
 
-function declare(name: string, access: ChannelAccess): void {
+/**
+ * The definition of every channel declared so far, by name: the first one declared; null for a
+ * name declared twice with two marks or two kinds, which no definition speaks for.
+ */
+const declaredChannels = new Map<string, InvokeChannel | EventChannel | null>()
+
+function declare<C extends InvokeChannel | EventChannel>(channel: C): C {
+  const { name, access } = channel
   const before = declaredAccess.get(name)
   // A name declared twice with two marks counts as closed: neither declaration may open the other.
   declaredAccess.set(name, before === undefined || before === access ? access : 'local')
+  // The first declaration speaks for the name: a later one with the same mark and kind cannot swap
+  // its schema for another; one with another mark or kind closes the name.
+  const previous = declaredChannels.get(name)
+  if (previous === undefined) declaredChannels.set(name, channel)
+  else if (previous !== null && (previous.kind !== channel.kind || previous.access !== access)) declaredChannels.set(name, null)
+  return channel
+}
+
+/**
+ * The definition of a declared channel, for whoever gets a call's answer or an event by name alone
+ * and must hold it to the contract before passing it on (an answer or an event of a Linked machine,
+ * src/main/link/remote-calls.ts). Undefined for a name no loaded module declares, or one declared
+ * twice with two marks or kinds.
+ */
+export function definitionOf(name: string): InvokeChannel | EventChannel | undefined {
+  return declaredChannels.get(name) ?? undefined
 }
 
 /**
@@ -75,14 +98,12 @@ export function accessOf(name: string): ChannelAccess | undefined {
 
 /** The access mark is required: a channel declared without one does not compile. */
 export function invokeChannel<N extends string, I extends z.ZodType, O extends z.ZodType>(name: N, input: I, output: O, access: ChannelAccess): InvokeChannel<N, I, O> {
-  declare(name, access)
-  return { kind: 'invoke', name, input, output, access }
+  return declare({ kind: 'invoke', name, input, output, access })
 }
 
 /** The access mark is required: a channel declared without one does not compile. */
 export function eventChannel<N extends string, P extends z.ZodType>(name: N, payload: P, access: ChannelAccess): EventChannel<N, P> {
-  declare(name, access)
-  return { kind: 'event', name, payload, access }
+  return declare({ kind: 'event', name, payload, access })
 }
 
 /**

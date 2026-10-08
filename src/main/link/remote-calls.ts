@@ -5,6 +5,13 @@
 // the Linked machine applies its own checks of worfy-link ticket 08 — access on, `desktop` refused,
 // paths inside its Projects — on its side; nothing here goes around them.
 //
+// The contract holds both ways. What comes back from the Linked machine — the answer of a call and
+// every event — is parsed with the schema of the channel as this Machine declares it
+// (definitionOf, src/shared/ipc/channels.ts) before it goes on to a window, as main's own answers
+// (wrap) and events (emit, src/main/ipc/index.ts) are: an answer outside the schema becomes
+// {ok:false}, an event outside it is dropped with a warning that names the channel, never its
+// content. A Linked machine that is not what it should be cannot hand a window anything else.
+//
 // One connection per Machine. Both sides dial each other, so two connections to one Machine may
 // be open at once, and the Linked machine broadcasts its events over both. Calls go over one of
 // them, the "current" one, and only the events that come over it are passed on: what a call
@@ -23,7 +30,7 @@
 // Machine ids alone (src/shared/ipc/linked.ts).
 import { EventEmitter } from 'node:events'
 import { z } from 'zod'
-import { accessOf, type IpcResult } from '../../shared/ipc/channels'
+import { accessOf, definitionOf, type IpcResult } from '../../shared/ipc/channels'
 import type { LinkedMachineInfo } from '../../shared/ipc/linked'
 import type { LinkConnection } from './connection'
 import { defineLinkMessage } from './messages'
@@ -40,6 +47,11 @@ export function callsOnProjectMachine(channel: string): boolean {
 
 /** The refusal of ticket 08 while access is off (ipc-adapter.ts, accessOffRefusal). */
 const ACCESS_OFF = /^Linked machines cannot work with the Projects of .+: access is off$/
+
+/** How LinkConnection.call fails when the connection is gone (connection.ts). */
+const CONNECTION_LOST = /^(call \d+: the connection to the Linked machine closed|.+: the Linked machine is not connected)$/
+/** How LinkConnection.call fails when the answer does not come in time. */
+const NO_ANSWER = /^.+: the Linked machine did not answer in time$/
 
 /** "<Machine> is unreachable": what a call answers while no connection is open. */
 export const unreachable = (channel: string, machineName: string): string => `${channel}: ${machineName} is unreachable`
@@ -68,8 +80,15 @@ export class RemoteCalls extends EventEmitter<RemoteCallsEvents> {
   /** One counter for every Machine, so an epoch never comes back. */
   private epochs = 0
 
-  constructor(private readonly service: LinkService) {
+  private readonly warn: (message: string) => void
+
+  constructor(
+    private readonly service: LinkService,
+    /** Warnings for the worfy log, never with a payload; console.warn by default. */
+    options: { warn?: (message: string) => void } = {},
+  ) {
     super()
+    this.warn = options.warn ?? ((message) => console.warn(message))
     service.registerMessage(projectsAccessMessage, ({ on }, { machineId }) => this.setSharing(machineId, on ? 'yes' : 'no'))
     service.on('connected', ({ id }) => {
       this.follow(id)
@@ -84,9 +103,16 @@ export class RemoteCalls extends EventEmitter<RemoteCallsEvents> {
     })
     service.on('ipc-event', ({ machineId, channel, payload, connection }) => {
       if (connection !== this.current(machineId)) return
-      // This side's own marks decide too: a name it does not know, or a channel of its own, stays out.
-      if (accessOf(channel) !== 'project') return
-      this.emit('event', { machine: machineId, channel, payload })
+      // This side's own declaration decides: a name it does not know, or a channel of its own, stays
+      // out; the payload must fit the channel's schema, as emit() holds main's own events to it.
+      const definition = definitionOf(channel)
+      if (definition?.kind !== 'event' || definition.access !== 'project') return
+      const parsed = definition.payload.safeParse(payload)
+      if (!parsed.success) {
+        this.warn(`[link] Machine ${machineId} sent event ${JSON.stringify(channel)} outside its schema; dropped`)
+        return
+      }
+      this.emit('event', { machine: machineId, channel, payload: parsed.data })
     })
     // Connections opened before this object was made heard nothing of this Machine's switch.
     for (const machine of service.linkedMachines()) {
@@ -109,15 +135,31 @@ export class RemoteCalls extends EventEmitter<RemoteCallsEvents> {
    * IpcResult and never rejects. Only `project` and `desktop` channels go.
    */
   async call(machine: string, channel: string, input: unknown): Promise<IpcResult<unknown>> {
-    if (!callsOnProjectMachine(channel)) return { ok: false, error: `${channel}: a channel of this Machine; it is not called on a Linked machine` }
+    const definition = definitionOf(channel)
+    if (definition?.kind !== 'invoke' || !callsOnProjectMachine(channel)) {
+      return { ok: false, error: `${channel}: a channel of this Machine; it is not called on a Linked machine` }
+    }
     const record = this.service.linkedMachines().find((candidate) => candidate.id === machine)
     if (record === undefined) return { ok: false, error: `${channel}: Machine ${machine} is not linked` }
     const connection = this.current(machine)
     if (connection === undefined) return { ok: false, error: unreachable(channel, record.name) }
     const result = await connection.call(channel, input)
-    if (!result.ok && ACCESS_OFF.test(result.error)) this.setSharing(machine, 'no')
-    else if (result.ok) this.setSharing(machine, 'yes')
-    return result
+    if (!result.ok) {
+      if (ACCESS_OFF.test(result.error)) this.setSharing(machine, 'no')
+      // The connection's own words name no Machine and a call number (connection.ts); a window
+      // shows these, so they say which Machine is gone, the way a call with no connection does.
+      if (CONNECTION_LOST.test(result.error)) return { ok: false, error: unreachable(channel, record.name) }
+      if (NO_ANSWER.test(result.error)) return { ok: false, error: `${channel}: ${record.name} did not answer in time` }
+      return result
+    }
+    this.setSharing(machine, 'yes')
+    // The answer must fit the channel's output schema, as wrap() holds main's own answers to it.
+    const parsed = await definition.output.safeParseAsync(result.value)
+    if (!parsed.success) {
+      this.warn(`[link] Machine ${machine} answered ${JSON.stringify(channel)} outside its schema; refused`)
+      return { ok: false, error: `${channel}: ${record.name} answered outside the contract` }
+    }
+    return { ok: true, value: parsed.data }
   }
 
   private track(id: string): Tracked {
@@ -167,7 +209,7 @@ export class RemoteCalls extends EventEmitter<RemoteCallsEvents> {
       this.service.sendMessage(id, projectsAccessMessage, { on: this.service.settings.get().projectsAccess })
     } catch (error) {
       // Closed meanwhile: it hears it on the next connection.
-      console.warn(`[link] could not tell Machine ${id} whether this one shares its Projects: ${error instanceof Error ? error.message : String(error)}`)
+      this.warn(`[link] could not tell Machine ${id} whether this one shares its Projects: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 }

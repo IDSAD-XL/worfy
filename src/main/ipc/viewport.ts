@@ -9,13 +9,13 @@ import { defineHandler, type HandlerModule } from './index'
 
 const store = viewportStore()
 
-// A Project removed from the list takes its camera along.
+// A Project removed from the list takes its camera along (a Linked machine's Projects keep theirs).
 projectStore().onChange(() => store.prune())
 
 // Writes are debounced; what is still pending is written before the app exits.
 app.on('will-quit', () => store.flush())
 
 export default [
-  defineHandler(viewportGet, ({ projectId }) => store.get(projectId)),
-  defineHandler(viewportSet, ({ projectId, viewport }) => store.set(projectId, viewport)),
+  defineHandler(viewportGet, ({ projectId, machine }) => store.get(projectId, machine)),
+  defineHandler(viewportSet, ({ projectId, viewport, machine }) => store.set(projectId, viewport, machine)),
 ] satisfies HandlerModule

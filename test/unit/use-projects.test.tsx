@@ -267,6 +267,26 @@ describe('the Projects of Linked machines', () => {
     expect(url.searchParams.has('project')).toBe(false)
   })
 
+  it('the Sessions section words an unreachable Machine without the channel name, and leaves other reasons whole', async () => {
+    const { readableReason } = await import('../../src/renderer/ipc')
+    expect(readableReason('claudeHome.live: Mini (dev) is unreachable')).toBe('Mini (dev) is unreachable')
+    expect(readableReason('claudeHome.live: Mini did not answer in time')).toBe('Mini did not answer in time')
+    expect(readableReason('claudeHome.live failed: EACCES')).toBe('claudeHome.live failed: EACCES')
+  })
+
+  it("the palette's Switch to project in a window on M opens M's Project in this window, without projects.select", async () => {
+    const { calls } = await loadModules({ link: linkState([{ id: M, name: 'Mini' }]), linked: linkedState([{ id: M, sharing: 'yes' }]) }, M)
+    const { buildCommands } = await import('../../src/renderer/palette/commands')
+    const projects = listOf('m', 'm-one-00000001').projects
+    const commands = buildCommands({ project: projects[0], projects, view: 'canvas', model: undefined, layoutNodes: [], history: [], adrs: [], tagFilter: null, createItems: [] })
+    const command = commands.find((candidate) => candidate.id === 'project:m-two-00000002')
+    expect(await command?.run()).toBeUndefined()
+    expect(calls.filter(([channel]) => channel === 'projects.select')).toEqual([])
+    expect(calls).toContainEqual(['linked.open', { machine: M, projectId: 'm-two-00000002' }])
+    expect(new URL(window.location.href).searchParams.get('project')).toBe('m-two-00000002')
+    expect(load).not.toHaveBeenCalled()
+  })
+
   it('a window on M loads again when M comes back with another epoch, and not before', async () => {
     const { projects, fire } = await loadModules({ link: linkState([{ id: M, name: 'Mini' }]), linked: linkedState([{ id: M, sharing: 'yes', epoch: 4 }]) }, M)
     const hook = renderHook(() => projects.useLinked())

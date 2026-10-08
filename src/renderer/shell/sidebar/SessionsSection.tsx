@@ -5,7 +5,7 @@ import { applyLayoutOp, useLayout } from '../../canvas/useLayout'
 import { focusSessionNode } from '../../claude-home/focus'
 import { sessionNodeId, sessionRow, worfySessionIds, worfySessions } from '../../claude-home/session-nodes'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
-import { invoke } from '../../ipc'
+import { invoke, readableReason } from '../../ipc'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import { HistoryPopover } from '../../session/HistoryPopover'
 import { setView } from '../../session/navigation'
@@ -109,7 +109,7 @@ function Sessions({ project }: { project: ProjectView }) {
   }
 
   let body = null
-  if (error !== undefined) body = <p style={styles.message}>The Sessions could not be read: {error}</p>
+  if (error !== undefined) body = <p style={styles.message}>The Sessions could not be read: {readableReason(error)}</p>
   else if (live !== undefined && live.length > 0)
     body = (
       <ul style={styles.list}>

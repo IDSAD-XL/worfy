@@ -21,8 +21,8 @@ import { hasRunWave, hasShipTicket } from '../canvas/actions/gates'
 import { applyLayoutOp } from '../canvas/useLayout'
 import { createCanvasNode, focusCanvasNode, openAdr, requestTidyUp, setTagFilter, type TagFilter } from '../find/canvas-requests'
 import { kindLabel, nodeTitle, type Rankable } from '../find/search-index'
-import { invoke } from '../ipc'
-import { acceptProjectsState } from '../projects/useProjects'
+import { invoke, windowMachine } from '../ipc'
+import { openProject } from '../projects/useProjects'
 import { setView } from '../session/navigation'
 import { openFirstRun } from '../shell/first-run-store'
 import type { ShellView } from '../shell/Toolbar'
@@ -229,12 +229,12 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
       group: 'Project',
       title: `Switch to project ${other.name}`,
       detail: other.path,
-      // The same call as a click on the Project in the sidebar (shell/sidebar/ProjectsSection.tsx).
+      // The same as a click on the Project in the sidebar (shell/sidebar/ProjectsSection.tsx): a
+      // Project of the window's Machine, which in a window on a Linked machine is that Machine's
+      // (worfy-link ticket 09), not this one's active Project.
       run: async () => {
-        const result = await invoke('projects.select', { id: other.id })
-        if (!result.ok) return failureReason('projects.select', result.error)
-        acceptProjectsState(result.value)
-        return undefined
+        const failure = await openProject(windowMachine(), other.id)
+        return failure === undefined ? undefined : failureReason('projects.select', failure)
       },
     })
   }

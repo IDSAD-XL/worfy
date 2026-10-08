@@ -9,15 +9,18 @@ import { viewportSchema } from '../layout/types'
 import { invokeChannel } from './channels'
 
 const projectId = z.string().min(1)
+/** The Linked machine whose Project it is (worfy-link ticket 09); left out for a Project of this machine. */
+const machine = z.uuid().optional()
 
 /**
  * The saved camera of the Project's Canvas; while there is none, the `viewport` of the Project's
- * layout.json, so the first opening after an update shows the Canvas where it was.
+ * layout.json, so the first opening after an update shows the Canvas where it was. For a Project of
+ * a Linked machine (`machine`), null while there is none: its Layout is on that Machine.
  */
-export const viewportGet = invokeChannel('viewport.get', z.object({ projectId }), viewportSchema, 'local')
+export const viewportGet = invokeChannel('viewport.get', z.object({ projectId, machine }), viewportSchema.nullable(), 'local')
 
 /** Saves the camera of the Project's Canvas, as the screen has it when a pan or zoom ends. */
-export const viewportSet = invokeChannel('viewport.set', z.object({ projectId, viewport: viewportSchema }), z.void(), 'local')
+export const viewportSet = invokeChannel('viewport.set', z.object({ projectId, viewport: viewportSchema, machine }), z.void(), 'local')
 
 declare module './channels' {
   interface IpcContract {

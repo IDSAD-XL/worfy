@@ -160,6 +160,10 @@ Source: решения владельца 2026-10-07: Q2 (обе машины р
   `src/renderer/shell/ProjectSettings.tsx`, `test/contract/main-ipc-wiring.test.ts`,
   `test/contract/remote-calls.test.ts`, `test/contract/linked-ipc.test.ts`, `test/contract/projects-hold.test.ts`,
   `test/unit/project-holds.test.ts`
+- добавлены в доработке круга 1: `src/shared/ipc/channels.ts`, `src/renderer/palette/commands.ts`,
+  `src/shared/ipc/viewport.ts`, `src/main/ipc/viewport.ts`, `src/main/layout/viewports.ts`,
+  `src/renderer/canvas/Canvas.tsx`, `src/renderer/shell/sidebar/SessionsSection.tsx`, `src/renderer/shell/FirstRun.tsx` (тип `viewport.get`),
+  `test/contract/viewport-store.test.ts`, `test/unit/canvas.test.tsx`
 
 Модуль связи заводит Ticket 01: `src/main/link/remote-calls.ts` берёт у него соединение с Linked
 machine-ом и ничего в его файлах не правит. Каналы этого Ticket-а — в своём домене `linked`, а не в
@@ -253,9 +257,40 @@ machine-ом и ничего в его файлах не правит. Кана�
 Не проверено / известные ограничения:
 
 - Два настоящих Mac в LAN — test-ы гоняют два worfy на одном Mac по 127.0.0.1.
+
+Гейт Wave 4, круг 1: `REJECTED` (2 ревьюера — отчёт со снимками: VERIFIED с low; безопасность: 1 med) на e4d694e →
+доработка (единственный круг):
+
+1. **[med] Ответы и события Linked machine-а — по схеме канала.** В `src/shared/ipc/channels.ts` рядом с
+   `declaredAccess` — таблица «имя → определение» (`definitionOf`): первое объявление имени; повторное с той же
+   пометкой его не подменяет, с другой пометкой или видом — имя закрыто. `RemoteCalls` (`src/main/link/remote-calls.ts`)
+   разбирает ответ схемой `output` канала (не по схеме — `{ok:false}` «<канал>: <Machine> answered outside the
+   contract») и событие схемой `payload` (не по схеме — отброшено, warn с именем канала и Machine, без содержимого);
+   дальше идёт уже разобранное значение. Test-ы — `test/contract/remote-calls.test.ts` («drops an event outside its
+   schema…», «answers {ok:false} for an answer outside the output schema…», «definitionOf»); mutant-ы без разбора
+   события, без разбора ответа и «последнее объявление побеждает» — все три краснеют.
+2. **[low] Палитра** (`src/renderer/palette/commands.ts`): «Switch to project» зовёт `openProject(windowMachine(), id)`;
+   в окне на M — Project M в этом окне, без `projects.select`. Test — `test/unit/use-projects.test.tsx` («the
+   palette's Switch to project in a window on M…»); mutant `openProject(null, …)` краснеет.
+3. **[low] Камера Canvas** — ключ «Machine + Project id»: `viewport.get` / `viewport.set` принимают `machine`
+   (необязательный uuid), `viewports.json` хранит камеру Project-а M под `<id M>/<projectId>`; `prune()` чистит только
+   ключи своей машины; камеры, ещё не сохранённой для Project-а M, нет (`null`) — Canvas открывается по `viewport`
+   его Layout-а. `Canvas.tsx` передаёт `machine` окна. Test-ы — `test/contract/viewport-store.test.ts` (два новых),
+   `test/unit/canvas.test.tsx` («asks this machine for the camera of a Linked machine's Project under that
+   Machine»); mutant-ы: ключ без Machine, `prune` без исключения, Canvas без `machine` — краснеют.
+4. **[low] `test/contract/main-ipc-wiring.test.ts`** — строка `onAppLinkStart` та же, что у worfy-link/15; на момент
+   доработки `origin/main` не ушёл вперёд — при rebase после 15 остаётся одна строка.
+5. **[low] Сырая ошибка связи.** `RemoteCalls` заменяет слова соединения («call 63: the connection to the Linked
+   machine closed», «… is not connected», «… did not answer in time») на «<канал>: <Machine> is unreachable» /
+   «… did not answer in time»; секция Sessions показывает это без имени канала («The Sessions could not be read:
+   Mini is unreachable», `readableReason`). Test-ы — `remote-calls.test.ts` («names the Machine when the connection
+   drops…»), `use-projects.test.tsx` («the Sessions section words an unreachable Machine…»); mutant-ы краснеют.
+   Send, Run wave и Ship ticket, пока M недоступна, **не отключены**: это правка `SessionNode`, действий Canvas и
+   их gates вне следа; вызов и так отвечает понятной строкой. Долг.
+
+Долги (не дорабатывались, решение гейта):
+
 - Два окна A на одном Project-е M делят на M одного клиента связи: `docs.close` / `workflow.close` одного окна
   снимают подписку и второго; подписки окна, которое перезагрузилось, живут на M до закрытия связи.
-- Камера Canvas Project-а M хранится в своей машине по `projectId` (`viewport.*` — `local`): у Project-а M и своего
-  Project-а той же папки камера общая, а `viewport` store своей машины чистит id, которых нет в её списке.
-- Палитра команд (`src/renderer/palette/commands.ts:234`) в окне на M переключает Project через `projects.select`
-  своей машины — вне следа, вопрос оркестратору.
+- Адрес Card от M (Card-ы Linked machine-а) — Ticket 10.
+- Send, Run wave и Ship ticket не отключаются, пока M недоступна (пункт 5 выше).

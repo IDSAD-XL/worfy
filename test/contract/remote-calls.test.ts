@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { ClientRegistry, type Client } from '../../src/main/clients'
 import { defineHandler, emit, type HandlerModule } from '../../src/main/ipc/index'
 import { RemoteCalls, type RemoteEvent } from '../../src/main/link/remote-calls'
-import { eventChannel, invokeChannel } from '../../src/shared/ipc/channels'
+import { definitionOf, eventChannel, invokeChannel } from '../../src/shared/ipc/channels'
 import { LinkBench, type BenchMachine } from './link-bench'
 
 // Test-only channels of B, as a domain file declares them.
@@ -47,7 +47,7 @@ afterEach(async () => {
   reached.length = 0
 })
 
-async function linkedPair(): Promise<{ a: BenchMachine; b: BenchMachine; calls: RemoteCalls; callsOfB: RemoteCalls; bId: string; aId: string }> {
+async function linkedPair(warn?: (message: string) => void): Promise<{ a: BenchMachine; b: BenchMachine; calls: RemoteCalls; callsOfB: RemoteCalls; bId: string; aId: string }> {
   clientsOfB = new ClientRegistry(() => [])
   bench = new LinkBench({
     ipcModules: {
@@ -60,7 +60,7 @@ async function linkedPair(): Promise<{ a: BenchMachine; b: BenchMachine; calls: 
   const a = await bench.machine('alpha')
   const b = await bench.machine('beta')
   await bench.link(a, b)
-  return { a, b, calls: new RemoteCalls(a.service), callsOfB: new RemoteCalls(b.service), aId: a.service.machine.id, bId: b.service.machine.id }
+  return { a, b, calls: new RemoteCalls(a.service, warn === undefined ? {} : { warn }), callsOfB: new RemoteCalls(b.service), aId: a.service.machine.id, bId: b.service.machine.id }
 }
 
 /** Resolves once `calls` says what `check` waits for. */
@@ -116,6 +116,21 @@ describe('calls on a Linked machine', () => {
     expect(reached).toEqual([])
   })
 
+  it("names the Machine when the connection drops during a call or the answer is late, instead of the connection's own words", async () => {
+    const { a, b, calls, bId } = await linkedPair()
+    b.service.settings.set({ projectsAccess: true })
+    await a.service.connect(bId)
+    const connection = a.service.connectionTo(bId)
+    if (connection === undefined) throw new Error('not connected')
+    connection.call = () => Promise.resolve({ ok: false, error: 'call 63: the connection to the Linked machine closed' })
+    expect(await calls.call(bId, 'remote.echo', { text: 'x' })).toEqual({ ok: false, error: 'remote.echo: beta is unreachable' })
+    connection.call = () => Promise.resolve({ ok: false, error: 'remote.echo: the Linked machine did not answer in time' })
+    expect(await calls.call(bId, 'remote.echo', { text: 'x' })).toEqual({ ok: false, error: 'remote.echo: beta did not answer in time' })
+    // A refusal of the handler there is passed on as it is.
+    connection.call = () => Promise.resolve({ ok: false, error: 'remote.echo failed: no such file' })
+    expect(await calls.call(bId, 'remote.echo', { text: 'x' })).toEqual({ ok: false, error: 'remote.echo failed: no such file' })
+  })
+
   it('answers "<Machine> is unreachable" while no connection is open, and "not linked" for a Machine that is not', async () => {
     const { calls, bId } = await linkedPair()
     expect(await calls.call(bId, 'remote.echo', { text: 'x' })).toEqual({ ok: false, error: 'remote.echo: beta is unreachable' })
@@ -123,6 +138,22 @@ describe('calls on a Linked machine', () => {
       ok: false,
       error: 'remote.echo: Machine 9d0e9f13-8a7b-4c2d-b1e0-3f4a5b6c7d8e is not linked',
     })
+  })
+})
+
+describe('definitionOf', () => {
+  it('answers the first declaration of a name; a later one with the same mark cannot loosen it, one with another mark closes the name', () => {
+    const strict = invokeChannel('remote.twice', z.void(), z.object({ n: z.number() }), 'project')
+    invokeChannel('remote.twice', z.void(), z.unknown(), 'project')
+    expect(definitionOf('remote.twice')).toBe(strict)
+    invokeChannel('remote.clash', z.void(), z.void(), 'project')
+    eventChannel('remote.clash', z.void(), 'project')
+    expect(definitionOf('remote.clash')).toBeUndefined()
+    invokeChannel('remote.marks', z.void(), z.void(), 'project')
+    invokeChannel('remote.marks', z.void(), z.void(), 'local')
+    expect(definitionOf('remote.marks')).toBeUndefined()
+    expect(definitionOf('no.such.channel')).toBeUndefined()
+    expect(definitionOf('remote.echo')).toBe(remoteEcho)
   })
 })
 
@@ -155,6 +186,39 @@ describe('events of a Linked machine', () => {
     await tick(2)
     const second = await calls.call(bId, 'remote.echo', { text: 'x' })
     expect(first.ok && second.ok && (first.value as { by: string }).by !== (second.value as { by: string }).by).toBe(true)
+  })
+
+  it('drops an event outside its schema with a warning that names the channel and not the content, and passes on the parsed one', async () => {
+    const warnings: string[] = []
+    const { a, b, calls, bId, aId } = await linkedPair((message) => warnings.push(message))
+    b.service.settings.set({ projectsAccess: true })
+    await a.service.connect(bId)
+    const heard: RemoteEvent[] = []
+    calls.on('event', (event) => heard.push(event))
+    // A Machine that is not what it should be: frames written by hand, over the connection the calls use.
+    const raw = b.service.connectionTo(aId)
+    raw?.send({ t: 'event', channel: 'remote.ticked', payload: { n: 'SECRET-PAYLOAD' } })
+    raw?.send({ t: 'event', channel: 'remote.ticked', payload: { n: 5, extra: 'stripped' } })
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    expect(heard).toEqual([{ machine: bId, channel: 'remote.ticked', payload: { n: 5 } }])
+    expect(warnings).toEqual([`[link] Machine ${bId} sent event "remote.ticked" outside its schema; dropped`])
+    expect(warnings.join('\n')).not.toContain('SECRET-PAYLOAD')
+  })
+
+  it('answers {ok:false} for an answer outside the output schema, and passes on the parsed one', async () => {
+    const warnings: string[] = []
+    const { a, b, calls, bId } = await linkedPair((message) => warnings.push(message))
+    b.service.settings.set({ projectsAccess: true })
+    await a.service.connect(bId)
+    await until(calls, () => calls.machines()[0]?.sharing === 'yes')
+    const connection = a.service.connectionTo(bId)
+    if (connection === undefined) throw new Error('not connected')
+    // What a forged Machine answers.
+    connection.call = () => Promise.resolve({ ok: true, value: { echoed: 42, by: 'SECRET-ANSWER' } })
+    expect(await calls.call(bId, 'remote.echo', { text: 'x' })).toEqual({ ok: false, error: 'remote.echo: beta answered outside the contract' })
+    expect(warnings).toEqual([`[link] Machine ${bId} answered "remote.echo" outside its schema; refused`])
+    connection.call = () => Promise.resolve({ ok: true, value: { echoed: 'x', by: 'b', extra: 'stripped' } })
+    expect(await calls.call(bId, 'remote.echo', { text: 'x' })).toEqual({ ok: true, value: { echoed: 'x', by: 'b' } })
   })
 
   it("does not pass on B's broadcast of a channel this side does not call on a Linked machine", async () => {

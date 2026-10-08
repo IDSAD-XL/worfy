@@ -239,3 +239,38 @@ describe('viewport store: writes', () => {
     }
   })
 })
+
+describe('viewport store: Projects of Linked machines (worfy-link ticket 09)', () => {
+  const M = '0b7c4a52-3c1e-4f6e-9a4b-6d2f0c1e8a11'
+
+  it("keeps the camera of M's Project apart from this machine's Project with the same id, and has none before the first pan", async () => {
+    const { ViewportStore } = await import('../../src/main/layout/viewports')
+    const writes: ViewportsFile[] = []
+    const local = new ViewportStore({ file: viewportsFile(), projectIds: () => [ALPHA], fallback: () => SAVED_IN_LAYOUT, write: (_file, viewports) => writes.push(viewports) })
+    // M's Layout is on M: nothing to fall back on here.
+    expect(local.get(ALPHA, M)).toBeNull()
+    local.set(ALPHA, { x: 5, y: 5, zoom: 1 }, M)
+    local.set(ALPHA, { x: 7, y: 7, zoom: 0.5 })
+    expect(local.get(ALPHA, M)).toEqual({ x: 5, y: 5, zoom: 1 })
+    expect(local.get(ALPHA)).toEqual({ x: 7, y: 7, zoom: 0.5 })
+    // An id this machine does not list is fine for M: its list is not here.
+    local.set(BETA, { x: 1, y: 2, zoom: 1 }, M)
+    expect(local.get(BETA, M)).toEqual({ x: 1, y: 2, zoom: 1 })
+    expect(() => local.get(BETA)).toThrow(/No Project/)
+    local.flush()
+    expect(writes.at(-1)).toEqual({ [`${M}/${ALPHA}`]: { x: 5, y: 5, zoom: 1 }, [ALPHA]: { x: 7, y: 7, zoom: 0.5 }, [`${M}/${BETA}`]: { x: 1, y: 2, zoom: 1 } })
+  })
+
+  it("a change of this machine's list does not wipe the cameras of a Linked machine's Projects", async () => {
+    const { ViewportStore } = await import('../../src/main/layout/viewports')
+    let listed = [ALPHA]
+    const local = new ViewportStore({ file: viewportsFile(), projectIds: () => listed, fallback: () => SAVED_IN_LAYOUT, write: () => undefined })
+    local.set(ALPHA, { x: 5, y: 5, zoom: 1 }, M)
+    local.set(ALPHA, { x: 7, y: 7, zoom: 0.5 })
+    listed = []
+    local.prune()
+    expect(local.get(ALPHA, M)).toEqual({ x: 5, y: 5, zoom: 1 })
+    listed = [ALPHA]
+    expect(local.get(ALPHA)).toEqual(SAVED_IN_LAYOUT)
+  })
+})

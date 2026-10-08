@@ -199,3 +199,12 @@ export function invokeOn<K extends InvokeName>(machine: string | null, channel: 
 export function subscribeOn<K extends EventName>(machine: string | null, channel: K, handler: (payload: EventPayload<K>) => void): () => void {
   return clientOn(machine).subscribe(channel, handler)
 }
+
+/**
+ * The reason without the channel's name in front when a Linked machine cannot be reached
+ * ("claudeHome.live: Mini is unreachable" reads as "Mini is unreachable"; worfy-link ticket 09);
+ * any other reason as it is.
+ */
+export function readableReason(error: string): string {
+  return error.replace(/^[\w.]+: (?=.+ (is unreachable|did not answer in time)$)/, '')
+}
