@@ -429,8 +429,20 @@ test('A opens a Project of B: its Canvas, Node moves, Session, Terminal and Auto
     b = await launchApp({ env: bSetup.env })
     await expect(a.window.getByTestId('linked-machine-notice')).toHaveCount(0, { timeout: 60_000 })
     await expect(a.window.getByTestId('canvas')).toHaveAttribute('data-project-id', BETA)
-    await expect(a.window.locator('[data-testid="note-node"][data-node-id="note-b"]')).toContainText('A note of B')
-    await expect.poll(() => drawnAt(a.window, 'note-b')).toBe(moved)
+    // B's Layout again, with the Session Node A made and the Node where A left it. The camera is the
+    // one this window saved for B's Project (worfy-link ticket 09), so a Node may lie off screen:
+    // its place is read from B's Layout.
+    await expect(a.window.locator(`[data-testid="session-node"][data-node-id="${sessionNode}"]`)).toBeVisible()
+    const layoutOfB = await call<{ ok: boolean; value: { layout: { nodes: { id: string; x: number; y: number }[] } } }>(a.window, 'linked.invoke', {
+      machine: bId,
+      channel: 'layout.get',
+      input: { projectId: BETA },
+    })
+    const note = layoutOfB.value.layout.nodes.find((node) => node.id === 'note-b')
+    const [movedX, movedY] = (moved.match(/-?[\d.]+/g) ?? []).map(Number)
+    expect(note).toBeDefined()
+    expect(Math.abs((note?.x ?? NaN) - (movedX ?? NaN))).toBeLessThan(1)
+    expect(Math.abs((note?.y ?? NaN) - (movedY ?? NaN))).toBeLessThan(1)
   } finally {
     await a.close()
     await b?.close()

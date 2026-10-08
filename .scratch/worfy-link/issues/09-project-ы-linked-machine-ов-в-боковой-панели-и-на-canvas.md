@@ -277,7 +277,9 @@ machine-ом и ничего в его файлах не правит. Кана�
    ключи своей машины; камеры, ещё не сохранённой для Project-а M, нет (`null`) — Canvas открывается по `viewport`
    его Layout-а. `Canvas.tsx` передаёт `machine` окна. Test-ы — `test/contract/viewport-store.test.ts` (два новых),
    `test/unit/canvas.test.tsx` («asks this machine for the camera of a Linked machine's Project under that
-   Machine»); mutant-ы: ключ без Machine, `prune` без исключения, Canvas без `machine` — краснеют.
+   Machine»); mutant-ы: ключ без Machine, `prune` без исключения, Canvas без `machine` — краснеют. e2e «A opens a
+   Project of B…» теперь сверяет место Node после возвращения B по Layout-у B: окно открывается на своей сохранённой
+   камере, и Node может лежать вне экрана (до доработки камера Project-а M не сохранялась вовсе).
 4. **[low] `test/contract/main-ipc-wiring.test.ts`** — строка `onAppLinkStart` та же, что у worfy-link/15; на момент
    доработки `origin/main` не ушёл вперёд — при rebase после 15 остаётся одна строка.
 5. **[low] Сырая ошибка связи.** `RemoteCalls` заменяет слова соединения («call 63: the connection to the Linked
