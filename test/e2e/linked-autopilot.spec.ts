@@ -200,6 +200,7 @@ function frameOf(window: Page) {
     autopilot: frame.getByTestId('action-autopilot'),
     anyway: frame.getByTestId('action-autopilot-anyway'),
     stop: frame.getByTestId('action-stop-autopilot'),
+    title: frame.locator('header h2'),
     status: frame.getByTestId('autopilot-status'),
     machine: frame.getByTestId('autopilot-machine'),
     elsewhere: frame.getByTestId('autopilot-elsewhere'),
@@ -245,9 +246,18 @@ test('Autopilot over an Epic on A: B is refused for the same Epic of the same or
     // B, over its own clone of the same repository, is refused with A's name; nothing goes.
     const onB = frameOf(pair.b.window)
     await expect(onB.autopilot).toHaveAttribute('aria-disabled', 'false')
+    const titleBefore = (await onB.title.boundingBox())!.width
+    expect(titleBefore, 'the Epic title of the two-Ticket frame has room before the refusal').toBeGreaterThan(20)
     await onB.autopilot.click()
     const refusal = runningElsewhere(EPIC, 'Studio')
     await expect(onB.autopilot).toHaveAttribute('data-error', refusal)
+    // The refusal's chip and "Start anyway" stand under the buttons, inside the header: the Epic
+    // title keeps its width, and nothing covers it.
+    await expect(onB.anyway).toBeVisible()
+    const [title, anyway, header] = [(await onB.title.boundingBox())!, (await onB.anyway.boundingBox())!, (await onB.header.boundingBox())!]
+    expect(Math.abs(title.width - titleBefore), 'the Epic title keeps its width').toBeLessThanOrEqual(1)
+    expect(anyway.y + anyway.height, '"Start anyway" ends inside the header').toBeLessThanOrEqual(header.y + header.height + 0.5)
+    expect(anyway.x, '"Start anyway" is clear of the Epic title').toBeGreaterThanOrEqual(title.x + title.width)
     await expect(onB.elsewhere).toHaveText('running on Studio')
     await expect(onB.elsewhere).toHaveAttribute('title', refusal)
     await expect(onB.anyway).toHaveText('Start anyway')
@@ -267,6 +277,10 @@ test('Autopilot over an Epic on A: B is refused for the same Epic of the same or
     await onB.anyway.click()
     await expect(onB.status).toHaveText('Wave 1 · running')
     await expect(onB.machine).toHaveText('on Laptop')
+    // "Stop autopilot" is a button of its own: the Autopilot button's refusal does not carry over.
+    await expect(onB.stop).toHaveText('Stop autopilot')
+    await expect(onB.stop).not.toHaveAttribute('data-error')
+    await expect(onB.stop).toHaveAttribute('title', `Stop Autopilot over ${EPIC}: takes no new Tickets; the Tickets in work finish (merge or blocked)`)
     await expect(onB.anyway).toHaveCount(0)
     await expect(onB.elsewhere).toHaveCount(0)
     await expect.poll(() => messages(b.log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
@@ -294,6 +308,10 @@ test('Stop of A\'s run pressed at once on two screens: both show stopped, the jo
     const first = frameOf(pair.a.window)
     await first.autopilot.click()
     await expect(first.status).toHaveText('Wave 1 · running')
+    // B is refused while A's run goes on; its "Start anyway" stays for after the run.
+    const onB = frameOf(pair.b.window)
+    await onB.autopilot.click()
+    await expect(onB.autopilot).toHaveAttribute('data-error', runningElsewhere(EPIC, 'Studio'))
     // The second screen of A: the Project of A as another window shows it.
     const window = await openSecondWindow(pair.a, { size: { width: 1400, height: 900 } })
     const second = frameOf(window)
@@ -318,10 +336,11 @@ test('Stop of A\'s run pressed at once on two screens: both show stopped, the jo
     }
     expect(journalKinds(a.dataDir)).toEqual([['run-started', 'wave-started 1', 'run-stopping 1', 'run-stopped user-stop']])
     expect(messages(a.log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`, STOP_TEXT])
-    // With A's run over, B starts the Epic without a refusal.
-    const onB = frameOf(pair.b.window)
-    await onB.autopilot.click()
+    // With A's run over, "Start anyway" left on B asks again and starts a plain run: no override.
+    await expect(onB.anyway).toBeVisible()
+    await onB.anyway.click()
     await expect(onB.status).toHaveText('Wave 1 · running')
+    expect(journals(b.dataDir)[0]?.[0]).toMatchObject({ kind: 'run-started', origin: ORIGIN_KEY })
     expect(journals(b.dataDir)[0]?.[0]).not.toHaveProperty('override')
   } finally {
     await pair.close()

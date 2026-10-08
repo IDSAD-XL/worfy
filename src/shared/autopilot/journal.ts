@@ -24,7 +24,8 @@
 //                  unasked?          (`github.com/owner/repo`: no scheme, user or port, lower
 //                                    case, no `.git`), absent without one; override: `true` when
 //                                    the start went past a run of the same Epic and origin on
-//                                    another Machine ("Start anyway"), absent otherwise; unasked:
+//                                    another Machine ("Start anyway" while that run went on),
+//                                    absent otherwise; unasked:
 //                                    the names of the Linked machines the start could not ask
 //                                    about their runs (not connected, or no answer within 3 s),
 //                                    absent when it asked them all (worfy-link ticket 15). Lines

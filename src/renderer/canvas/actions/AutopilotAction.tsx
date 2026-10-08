@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { create } from 'zustand'
 import { autopilotStatusLine, HARNESS_BEHIND_LABEL, harnessBehindTitle, type AutopilotState, type RunningElsewhereRefusal } from '../../../shared/ipc/autopilot'
 import { failureReason } from '../../../shared/ipc/channels'
@@ -46,9 +46,13 @@ import { hasRunWave, useRunWaveState } from './gates'
 // - While a run goes on and its Machine has Linked machines, the chip "on <Machine>" under the button
 //   says which Machine runs it; its hint names the Linked machines the start could not ask.
 // - A start refused because the Epic of this repository runs (or starts) on another Machine shows
-//   main's reason on the button, the chip "running on <Machine>", and "Start anyway" right of the
-//   button: the one way past, it starts with `override`, and the journal says so. The refusal stays
-//   until the next start of the Project or a run of it.
+//   main's reason on the button, and under it the chip "running on <Machine>" with "Start anyway"
+//   beside it: out of the header's row, so they take no width from the Epic title. "Start anyway" is
+//   the one way past: it starts with `override`, main asks the Linked machines again, and the journal
+//   says `override` only when the start did go past a run (the other run may have ended since). The
+//   refusal stays until the next start of the Project or a run of it.
+// - Each button role has its own key: "Stop autopilot" after "Start anyway" is a new button, not
+//   the Autopilot button with its refusal still on.
 
 export const order = 30
 
@@ -169,6 +173,39 @@ function machineTitle(state: AutopilotState, name: string): string {
 const startAnywayTitle = (epic: string, machine: string): string =>
   `Start Autopilot over ${epic} here although ${machine} runs it: both runs take the same Tickets`
 
+/**
+ * "Start anyway": the shared action button, 18px tall to fit the chip row under the header's
+ * buttons (the 18px of the header below them). Inactive while its start is in flight; a refused
+ * start shows main's reason, as any action button.
+ */
+function StartAnyway({ enabled, title, run }: { enabled: boolean; title: string; run: () => Promise<string | undefined> }) {
+  const [running, setRunning] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const active = enabled && !running
+  return (
+    <button
+      type="button"
+      className="w-action nodrag"
+      style={{ height: 18, lineHeight: '16px' }}
+      aria-disabled={active ? 'false' : 'true'}
+      title={error ?? title}
+      data-testid="action-autopilot-anyway"
+      data-error={error ?? undefined}
+      onClick={() => {
+        if (!active) return
+        setRunning(true)
+        setError(null)
+        void run()
+          .then((failure) => setError(failure ?? null))
+          .finally(() => setRunning(false))
+      }}
+      onDoubleClick={(event) => event.stopPropagation()}
+    >
+      Start anyway
+    </button>
+  )
+}
+
 
 /**
  * Stops the Project's run; the state main answers is taken at once. The graceful Stop answers as
@@ -210,11 +247,12 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
 
   const button =
     pending !== undefined || (mine && stopping) ? (
-      <ActionButton label="Stopping…" testId="action-stop-autopilot" enabled={false} title={pending === 'force' ? STOPPING_TITLE : stoppingTitle(epic.epic)} run={noRun} />
+      <ActionButton key="action-stop-autopilot" label="Stopping…" testId="action-stop-autopilot" enabled={false} title={pending === 'force' ? STOPPING_TITLE : stoppingTitle(epic.epic)} run={noRun} />
     ) : mine && running ? (
-      <ActionButton label="Stop autopilot" testId="action-stop-autopilot" enabled title={stopTitle(epic.epic)} run={() => stop(projectId, 'stop')} />
+      <ActionButton key="action-stop-autopilot" label="Stop autopilot" testId="action-stop-autopilot" enabled title={stopTitle(epic.epic)} run={() => stop(projectId, 'stop')} />
     ) : (
       <ActionButton
+        key="action-autopilot"
         label="Autopilot"
         testId="action-autopilot"
         enabled={!running && wave.enabled}
@@ -228,11 +266,6 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
         run={() => start(projectId, epic.epic)}
       />
     )
-  // "Start anyway", right of the button, while a start of this Epic stands refused for a run elsewhere.
-  const anyway =
-    refused === undefined ? null : (
-      <ActionButton label="Start anyway" testId="action-autopilot-anyway" enabled={wave.enabled} title={wave.enabled ? startAnywayTitle(epic.epic, refused.machine) : wave.reason} run={() => start(projectId, epic.epic, true)} />
-    )
   // Force stop, behind "⋯" right of Stop, while this Epic's run goes on (stopping included).
   const more =
     mine && running ? (
@@ -245,11 +278,10 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
       />
     ) : null
   // One structure in every state: a button that moved to another parent would be made anew and lose
-  // the reason it shows (ActionButton keeps it), as when a refusal adds "Start anyway" beside it.
+  // the reason it shows (ActionButton keeps it), as when a refusal adds the chip row under it.
   const controls = (
     <div className="nodrag" style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
       {button}
-      {anyway}
       {more}
     </div>
   )
@@ -298,6 +330,9 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
             <span className="w-chip w-chip--blocked" data-testid="autopilot-elsewhere" title={refused.message}>
               running on {refused.machine}
             </span>
+          )}
+          {refused === undefined ? null : (
+            <StartAnyway enabled={wave.enabled} title={wave.enabled ? startAnywayTitle(epic.epic, refused.machine) : wave.reason} run={() => start(projectId, epic.epic, true)} />
           )}
           {behind === null ? null : (
             <span className="w-chip w-chip--open" data-testid="autopilot-harness-behind" title={harnessBehindTitle(behind)}>

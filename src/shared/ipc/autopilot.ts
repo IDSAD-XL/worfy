@@ -92,7 +92,8 @@ export type AutopilotStartAnswer = z.infer<typeof autopilotStartAnswerSchema>
  * ready Wave is sent. Refused while the Project has a run, while the Orchestrator is in a turn, and
  * on worfy's own repository in a development build. A run of the same Epic and origin on a Linked
  * machine (or in another Project of this Machine) answers `runningElsewhere` instead (worfy-link
- * ticket 15); `override` ("Start anyway") starts without asking.
+ * ticket 15); `override` ("Start anyway") starts anyway: it still asks, and the run journals the
+ * override only when it went past such a run.
  */
 export const autopilotStart = invokeChannel(
   'autopilot.start',

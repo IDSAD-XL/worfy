@@ -53,10 +53,10 @@ Source: решения владельца 2026-10-07: Q13 (второй Autopilo
 - [x] Unit `test/unit/autopilot-origin.test.ts` (новый): `git@github.com:IDSAD-XL/worfy.git`, `ssh://git@github.com/IDSAD-XL/worfy.git`, `https://user@GitHub.com/IDSAD-XL/worfy.git/` и `https://github.com/IDSAD-XL/worfy` дают один ключ. Другой owner или repo — другой ключ. Папка вне git и репозиторий без `origin` — null.
 - [x] Unit `test/unit/autopilot-run.test.ts`: Linked machine отвечает, что у неё идёт прогон того же Epic-а с тем же origin. `start` отклонён, отказ называет Machine, `setUnattended` не вызван, keep-awake не взят, журнал не открыт. Другой Epic или другой origin — старт идёт. С `override: true` старт идёт, и в `run-started` стоит `override: true`.
 - [x] Unit там же: две машины стартуют один ключ одновременно (ответ каждой приходит, пока у неё `starting`) — идёт не больше одного прогона.
-- [x] Unit там же — по ответам владельца: Linked machine не ответила за 3 s (вопрос 1); переключатель доступа выключен (вопрос 2); Project без origin (вопрос 3).
-- [x] Unit там же: два одновременных `stop` одного прогона — в журнале один `run-stopped`, `giveBackNow` вызван один раз, оба ответа — `stopped` с причиной `user-stop`. `stop` после конца прогона отвечает состоянием и не пишет в журнал. Если Ticket 18 Epic-а worfy-week влит — то же для `forceStop` и для пары Stop + Force stop.
+- [x] Unit там же — по ответам владельца: Linked machine не ответила за 3 s (вопрос 1); Project без origin (вопрос 3). Вопрос 2 (доступ выключен) — сделано иначе: служебное сообщение связи доступ не читает, поэтому проверка — в e2e, где доступ выключен на обеих машинах.
+- [x] Unit там же — сделано иначе, Ticket 18 Epic-а worfy-week влит: два одновременных graceful Stop отвечают `stopping`, STOP_TEXT уходит один раз, в журнале один `run-stopping` и один `run-stopped`, Orchestrator возвращается через `setUnattended(false)` один раз (`giveBackNow` graceful Stop не вызывает). Два Force stop — `giveBackNow` и halt по разу; Stop + Force stop — один `run-stopped`, `giveBackNow` один раз. Stop и Force stop после конца прогона отвечают состоянием и не пишут в журнал.
 - [x] e2e `test/e2e/linked-autopilot.spec.ts` (новый, локально в gate full): два worfy, связанные helper-ом Ticket-а 02 («Link a machine» и список Linked machine-ов). У каждого свой Project — клон одного fixture-репозитория с одним `origin`. Autopilot Epic-а на A (fake-агент, скрипт `orchestrator`) — на B кнопка Autopilot того же Epic-а отвечает отказом с именем Machine A (`data-error`). «Start anyway» на B стартует прогон.
-- [x] e2e там же: Stop прогона A нажат одновременно в окне A и в окне B (Project A, открытый на B). Оба экрана показывают `stopped`, в журнале прогона один `run-stopped`.
+- [ ] e2e там же: Stop прогона A нажат одновременно в окне A и в окне B (Project A, открытый на B). Не проверено: открыть Project A на B можно только после Ticket-а 09. Сделано вместо этого: два окна машины A одновременно шлют `autopilot.stop` через мост; оба показывают `stopped: user stop`, в журнале один `run-stopped`.
 - [x] `test/e2e/autopilot.spec.ts` зелёный без правок: машина без Linked machine-ов ведёт себя как раньше.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all gate.sh full` — зелёный.
 
@@ -83,6 +83,7 @@ Helper двух связанных worfy берётся из Ticket-а 02 как
 - `test/unit/autopilot-origin.test.ts` (новый)
 - `test/unit/autopilot-run.test.ts`
 - `test/e2e/linked-autopilot.spec.ts` (новый)
+- `docs/design/F-SPEC.md` (раздел Autopilot; дописан в круге доработки 1)
 
 При claim сюда дописывается файл служебных сообщений связи из Ticket-а 01. Его путь будет в «Итог» Ticket-а 01. Те же файлы Autopilot правит Ticket 18 Epic-а worfy-week: если его PR открыт, перед claim сверить пересечения.
 
@@ -118,9 +119,11 @@ union «первое состояние прогона» или `{ runningElsewh
 **Состояние и UI** — `AutopilotState` получил необязательные `machine` (машина, которая ведёт
 прогон; только пока прогон идёт и у машины есть Linked machine-ы) и `unasked`. Действие Autopilot
 (`AutopilotAction.tsx`): chip «on <Machine>» под кнопкой; при отказе — причина в `data-error`
-кнопки, chip «running on <Machine>» и кнопка «Start anyway» справа (шлёт `override: true`).
-Кнопки действия теперь всегда в одном контейнере: иначе кнопка при появлении «Start anyway»
-создавалась заново и теряла `data-error`.
+кнопки, а под ней chip «running on <Machine>» и кнопка «Start anyway» высотой 18px (шлёт
+`override: true`). Строка заголовка Epic-а не меняется. Кнопки действия всегда в одном контейнере,
+и у каждой роли кнопки свой `key`: кнопка Autopilot не пересоздаётся при отказе и хранит
+`data-error`, а «Stop autopilot» — новая кнопка, без чужого отказа. Описание — `docs/design/F-SPEC.md`,
+раздел Autopilot.
 
 Снимки, светлая и тёмная тема:
 - прогон ведёт эта машина — [светлая](../evidence/15-this-machine-light.png), [тёмная](../evidence/15-this-machine-dark.png);
@@ -174,5 +177,20 @@ renderer, открыт в этой же Wave). Поэтому Stop шлют од
 этой машине — нагрузка 5–7 от e2e соседних Ticket-ов не спадала; каждый упавший файл отдельно
 зелёный, файлы этого Ticket-а не падали ни разу.
 
-**Долг:** у узкой рамки Epic-а (два Ticket-а) «Start anyway» рядом с «Autopilot» и «Run wave»
-сжимает заголовок Epic-а до нуля (снимок 15-other-machine); полное имя — в подсказке.
+**Доработка, круг 1** (head до неё — 533bed1):
+1. После «Start anyway» кнопка «Stop autopilot» наследовала `data-error` кнопки Autopilot: React
+   переиспользовал тот же `ActionButton`. Теперь у каждой роли свой `key`. e2e проверяет, что у
+   «Stop autopilot» нет `data-error`; мутант без `key` краснит его.
+2. «Start anyway» уехала из строки заголовка в ряд chip-ов под кнопкой (18px). e2e меряет ширину
+   заголовка Epic-а на рамке из двух Ticket-ов до отказа и после: разница не больше 1px, «Start
+   anyway» внутри header и правее заголовка. Мутант с кнопкой в строке заголовка краснит его
+   (заголовок сжался на 66px). Снимки 15-*.png пересняты.
+3. `docs/design/F-SPEC.md`, раздел Autopilot: chip-ы «on <Machine>» и «running on <Machine>»,
+   «Start anyway», новое условие «Visible when». Файл дописан в «Где в коде».
+4. «Start anyway» больше не пишет лишний `override`: с `override: true` main всё равно спрашивает
+   Linked machine-ы, а `override: true` в `run-started` пишет только тогда, когда старт
+   действительно прошёл мимо чужого прогона. Если тот прогон кончился, старт обычный. Unit-test
+   «Start anyway once the other run has ended» краснеет на мутанте «override по флагу запроса»;
+   e2e второго test-а: отказ на B, конец прогона A, «Start anyway» на B — в журнале без `override`.
+5. Пункты «Готово, когда» переписаны под сделанное; e2e Stop с окна B оставлен `[ ]` с «не
+   проверено».

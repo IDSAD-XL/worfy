@@ -53,8 +53,9 @@
 //   3 s); a run of the same key, or a start of it still under way, refuses it with
 //   RunningElsewhere, which names the Machine. The start is counted among this Machine's runs from
 //   before the question, so two starts of one key on two Machines at once may both be refused, but
-//   never both go. The only way past is explicit: `override` (the button's "Start anyway"), which
-//   run-started records. A Linked machine that is not connected or does not answer in time does not
+//   never both go. The only way past is explicit: `override` (the button's "Start anyway"). It asks
+//   again too: run-started records `override` only when the start did go past another run; once
+//   that run has ended the start is a plain one. A Linked machine that is not connected or does not answer in time does not
 //   block; the run's state and run-started name it (`unasked`). A Project without origin asks no one.
 // - Whether the Harness in worfy's main is newer than this build's (worfy-harness ticket 21,
 //   harness-drift.ts) is part of the Project's state, with or without a run (`harnessBehind`). A
@@ -515,8 +516,11 @@ export class Autopilot {
       // Counted among this Machine's runs before anyone is asked: a Linked machine starting the same
       // key meanwhile hears of this start (runKeys), as this one hears of its.
       starting.origin = await this.originOf(projectId, root)
-      const override = options.override === true
-      const unasked = starting.origin === null || override ? [] : await this.checkElsewhere(projectId, epic, starting.origin)
+      const check = starting.origin === null ? { elsewhere: null, unasked: [] } : await this.checkElsewhere(projectId, epic, starting.origin)
+      if (check.elsewhere !== null && options.override !== true) throw check.elsewhere
+      // Asked again on "Start anyway" too: once the other run has ended, the start is a plain one.
+      const override = check.elsewhere !== null
+      const unasked = check.unasked
       if (this.quitting) throw new Error(QUITTING_MESSAGE)
 
       const run = new Run(projectId, epic, root)
@@ -576,26 +580,26 @@ export class Autopilot {
   }
 
   /**
-   * Throws RunningElsewhere when another Project of this Machine, or a Linked machine, runs or
-   * starts `epic` of the same origin; answers the Linked machines that could not be asked.
+   * Where else `epic` of the same origin runs or starts: another Project of this Machine, or a
+   * Linked machine (`elsewhere`, null when nowhere); and the Linked machines that could not be asked.
    */
-  private async checkElsewhere(projectId: string, epic: string, origin: string): Promise<string[]> {
+  private async checkElsewhere(projectId: string, epic: string, origin: string): Promise<{ elsewhere: RunningElsewhere | null; unasked: string[] }> {
     for (const [other, key] of this.keys()) {
       if (other === projectId || key.epic !== epic || key.origin !== origin) continue
       const here = this.deps.machine?.()?.name
-      throw new RunningElsewhere(epic, here === undefined ? `this Machine (Project ${other})` : `${here} (this Machine, Project ${other})`)
+      return { elsewhere: new RunningElsewhere(epic, here === undefined ? `this Machine (Project ${other})` : `${here} (this Machine, Project ${other})`), unasked: [] }
     }
-    if (this.deps.linkedRuns === undefined) return []
+    if (this.deps.linkedRuns === undefined) return { elsewhere: null, unasked: [] }
     let answers: readonly LinkedRuns[]
     try {
       answers = await this.deps.linkedRuns()
     } catch (error) {
       console.warn(`[autopilot] ${projectId}: could not ask the Linked machines for their runs`, error)
-      return []
+      return { elsewhere: null, unasked: [] }
     }
     const hit = answers.find((answer) => answer.runs?.some((key) => key.epic === epic && key.origin === origin) === true)
-    if (hit !== undefined) throw new RunningElsewhere(epic, hit.machine)
-    return answers.filter((answer) => answer.runs === null).map((answer) => answer.machine)
+    const unasked = answers.filter((answer) => answer.runs === null).map((answer) => answer.machine)
+    return { elsewhere: hit === undefined ? null : new RunningElsewhere(epic, hit.machine), unasked }
   }
 
   /** Every run of this Machine with an origin, starting ones included, by Project. */

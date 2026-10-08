@@ -1347,12 +1347,31 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', machine: HERE, unasked: [] })
   })
 
-  it('Start anyway (override): no question, the run goes, and run-started says override', async () => {
+  it('Start anyway (override) while the other run goes on: the run goes, and run-started says override', async () => {
     const { s, opened, asked } = linked(() => [{ machine: 'Studio', runs: [{ epic: EPIC, origin: KEY }] }])
     await s.autopilot.start(PROJECT, EPIC, { override: true })
-    expect(asked()).toBe(0)
+    expect(asked()).toBe(1)
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running' })
     expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, override: true }])
+  })
+
+  it('Start anyway once the other run has ended: asked again, a plain start, no override in run-started', async () => {
+    const { s, opened, asked } = linked(() => [
+      { machine: 'Studio', runs: [] },
+      { machine: 'Desk', runs: null },
+    ])
+    await s.autopilot.start(PROJECT, EPIC, { override: true })
+    expect(asked()).toBe(1)
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', unasked: ['Desk'] })
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, unasked: ['Desk'] }])
+  })
+
+  it('Start anyway past another Project of this Machine: the run goes with override', async () => {
+    const { s, opened } = linked(() => [])
+    s.deps.projectRoot = (projectId) => `/repo/${projectId}`
+    await s.autopilot.start(PROJECT, EPIC)
+    await s.autopilot.start('clone-00000001', EPIC, { override: true })
+    expect(opened.at(-1)).toEqual({ project: 'clone-00000001', epic: EPIC, origin: KEY, override: true })
   })
 
   it('another Project of this Machine over the same repository runs the Epic: refused, naming this Machine', async () => {
