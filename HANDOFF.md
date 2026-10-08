@@ -2,16 +2,16 @@
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3: Harness — правила, skills, agents и скрипты владельца — становится plugin-ом worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–15, `epic-status` — 15/27.
+- `worfy-harness` (E3: Harness — правила, skills, agents и скрипты владельца — становится plugin-ом worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–16, `epic-status` — 16/27.
 - Wave 6 `worfy-harness` закрыта: 14 — перенос старого Harness из `~/.claude` с резервной копией и откатом (PR #136), 15 — мост Limits в `.app` (PR #134). Autopilot владелец остановил мягким Stop.
-- `worfy-harness` 16 (переход машины владельца на plugin, шаг владельца, `blocked`) — сегодня ночью; все его блокеры `done`. Готовы по блокерам 21 и 27; остальные открытые Ticket-ы Epic-а ждут 16.
+- `worfy-harness` 16 сделан 2026-10-08: машина владельца на plugin `worfy` 0.2.0+77e4490 ([Ticket 16](.scratch/worfy-harness/issues/16-переход-машины-владельца-на-plugin.md)): откат и резервная копия — в «Итог». До Ticket-а 17 qmd в Session-ах нет.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 18. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`.
 - Работа над `worfy-week` 14 лежит только в локальной ветке `wip/worfy-week-14`, на GitHub её нет. Как вернуть Ticket — «Итог» Ticket-а 14.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети, 0/16) и `worfy-windows` (полный порт под Windows, 0/17) спроектированы: spec-и, ADR 0052–0056. Ждут закрытия E3.
 
 ## Ждёт владельца
 
-- `worfy-harness` 16 — сегодня ночью: Install Harness и форма «уберу / оставлю» в Stable copy, выбор `mode`, `language.docs`, `attribution` — [Ticket 16](.scratch/worfy-harness/issues/16-переход-машины-владельца-на-plugin.md), пункт «Шаг владельца».
+- `worfy-harness` 16: подтвердить `attribution: on` у Atakama (Silent mode); при первом `claude` в терминале — что Limits снова приходят в worfy — [Ticket 16](.scratch/worfy-harness/issues/16-переход-машины-владельца-на-plugin.md), «Не проверено».
 - Подтвердить решения, принятые без владельца (пометки «подтвердить» в «Итог» Ticket-ов): `worfy-week` 03–07, 09, 10, 12, 15, 17, 18; `worfy-harness` 01, 02, 04–09, 11–14.
 - Вопросы: `worfy-harness` 05 — как давать «Standing authorization» и переводить ли подписи блока статуса; 08 — смысл фразы `continuous-audit/SKILL.md:228-229`; `worfy-daily` 25 — MCP prompt в slash-меню; `worfy-week` 17 — relaunch после таймаута `halt`.
 - Личное в истории: `worfy-harness` 01 — коммиты PR #106 с UUID аккаунта (чистит только поддержка GitHub); 02 — пути `/Users/alexey/Work/…` в `harness/` и в истории импорта. Ответ — в «Итог» Ticket-ов.
@@ -24,9 +24,8 @@
 
 ## Риски и долги
 
-- До `worfy-harness` 16 машина работает на замороженном `~/.claude` (ADR-0047): правки `harness/` на живой Harness не действуют, worfy находит `legacy`, файл вердикта Gate не пишется (`worfy-harness` 09, 12).
-- После 16 каждый мерж, который трогает `harness/`, кончается `pnpm install:stable` вне прогона Autopilot (ADR-0047): без пересборки Stable copy влитый урок не действует.
-- После 16 Atakama пойдёт через полный предполёт Harness с `git fetch`. На живых репозиториях Atakama это не проверено, только на клонах (`worfy-harness` 11).
+- Каждый мерж, который трогает `harness/`, кончается `pnpm install:stable` вне прогона Autopilot (ADR-0047): без пересборки Stable copy влитый урок не действует.
+- Atakama пойдёт через полный предполёт Harness с `git fetch`. На живых репозиториях Atakama это не проверено, только на клонах (`worfy-harness` 11).
 - [med] С plugin-ом оживают долги про `gh`: Stop hook зовёт `gh` по имени, и `bin/gh` plugin-а подменит учётную запись (`worfy-harness` 01); `preflight` советует `gh auth switch` вместо `GH_TOKEN` (`worfy-week` 01).
 - [med] `harness/bin/tests/preflight.test.sh` не изолирует `HOME` и пишет замки в настоящий `~/.claude/worfy-harness/` (`worfy-harness` 11). Запускать его только с `HOME` и `HARNESS_HOME` во временном каталоге.
 - [med] Contract test-ы читают настоящий `~/.claude/settings.json`: если там `model: haiku`, падают 10 test-ов (`worfy-daily` 07 и 23).
@@ -38,9 +37,7 @@
 
 ## Дальше
 
-- До шага 16 — ручная проверка `worfy-harness` 12 на Stable copy: на машине с `legacy` Canvas Project-а worfy показывает Epic-и и бейджи Gate, как раньше.
-- Шаг 16 по [Ticket-у 16](.scratch/worfy-harness/issues/16-переход-машины-владельца-на-plugin.md): вне прогона `pnpm install:stable` из 95dbc82 или новее (Stable copy сейчас из 6f4602b: в ней нет 13–15 `worfy-harness`), снимок `~/.claude`, шаг владельца, проверки.
-- После 16 — Wave-ы `worfy-harness` на plugin-е по блокерам: 21 и 27 готовы уже сейчас, затем 17, 18, 20, 22 и дальше — spec, раздел «Волны».
+- Wave-ы `worfy-harness` на plugin-е по блокерам: 21 и 27, затем 17, 18, 20, 22 и дальше — spec, раздел «Волны». Если E3 встанет — `worfy-link` (владелец разрешил начать, пока E3 ждёт).
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
 - Ждут условия (проверит агент): упор в Limits (`worfy-daily` 05), наблюдатель касаний (`worfy-daily` 04), workflow-скрипт в Autopilot (`worfy-daily` 29, 17), бейджи у Ticket-а с открытым PR (`worfy-mvp` 17, `worfy-week` 01).
 - Неделя работы владельца из Stable copy (условие 4 E2 и цель `worfy-week`): каждый дефект и каждое вмешательство человека — Ticket `worfy-week`, следующий номер 19.

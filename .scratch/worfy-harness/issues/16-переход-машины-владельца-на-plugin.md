@@ -1,7 +1,7 @@
 # 16 — Шаг владельца: машина владельца переходит на plugin `worfy`
 
 Type: task
-Status: blocked — шаг владельца: переход машины на plugin
+Status: done — 2026-10-08
 Blocked by: 05, 09, 14, 15
 Source: решения владельца 2026-10-07, Q13, Q33, Q14, Q19, Q8, Q35 (пункт 3); [ADR-0047](../../../docs/adr/0047-harness-lessons-by-pr-early-owner-switch.md) (ранний переход машины владельца, `~/.claude` заморожен после импорта, откат одной командой, без пересборки во время Autopilot); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (plugin `worfy`, состояние машины в `~/.claude/worfy-harness/`); [ADR-0041](../../../docs/adr/0041-harness-rules-via-session-hooks.md) (правила Harness через hooks `SessionStart` и `SubagentStart`); [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (вердикт Gate JSON-файлом); [spec.md](../spec.md)
 
@@ -103,4 +103,32 @@ Ticket-ах 13, 14 и 15 (песочница). Здесь — проверки �
 
 ## Итог
 
-Заполняется при закрытии.
+**Переход сделан 2026-10-08 ~01:55 (MSK 04:55) Orchestrator-ом по разрешению владельца** («Я могу дать тебе разрешение нажать эту кнопку самостоятельно», 2026-10-08): владелец ушёл спать, шаг выполнен через порт управления Stable copy (CDP) и System Events для двух системных окон. Список «уберу / оставлю» сверен с решением Q19 до нажатия.
+
+**Подготовка.** Прогон Autopilot остановлен обычным Stop (graceful, Ticket 18 worfy-week) после мержа Ticket-а 14. `GATE_SCOPE=all gate.sh full` на main 77e4490 — `[gate] зелено (full)`, exit 0; `pnpm install:stable` — exit 0, Stable copy 77e4490.
+
+**Снимок до** (`~/.claude`): `git status --short` — `?? skills/synced/`; HEAD b5cb2e3; hooks в settings.json — session-start, worktree-lock claim/beat/release, gate.sh fast (TaskCompleted, TeammateIdle), stop.sh, qmd-refresh --quiet, session-end.sh, guard.mjs; statusLine — `/Users/alexey/Stuff/CanvasForAI/scripts/statusline-bridge.sh`; model `opus[1m]`, effortLevel `high`, env `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`; mcpServers — freecad, github, qmd, telegram.
+
+**Шаг.**
+- Install Harness: системное окно «Install the worfy Harness 0.2.0+77e4490?» → Install. `claude plugin list`: `worfy@worfy-harness` 0.2.0+77e4490, Scope user, enabled, читается из `~/.claude/worfy-harness/plugin`.
+- Форма переноса: группа файлов — 26 строк (23 уходят: 22 в `agents/`, `skills/`, `bin/`, `hooks/` и `profiles/README.md`; `bin/tests`, `bin/ТИКЕТЫ.md`, `hooks/tests` — остаются), группа hooks — 9 строк (десятая запись, `qmd-refresh --quiet`, — в группе qmd), statusLine → мост Stable copy, группа qmd уходит (Q15, Q19; до Ticket-а 17 qmd в Session-ах нет, поиск grep-ом), состояние Gate и worktree-sessions и Profile-ы atakama, auction, worfy → в Harness home; CLAUDE.md — 15 разделов уходят, «Standing authorization» остаётся. Поля Profile-ов: worfy — full, auction — full, atakama — silent; `language.docs` — ru у всех; `attribution` — on у всех (в истории Auction и Atakama строки атрибуции Claude уже есть; для Atakama — подтвердить владельцу).
+- Второе системное окно: «26 files and folders … 10 hook records … 15 sections … 6 Profiles and state folders» → Move.
+- Резервная копия: `/Users/alexey/.claude/worfy-harness/backup-2026-10-08-01-54-28`. Откат: `node /Users/alexey/.claude/worfy-harness/backup-2026-10-08-01-54-28/restore.mjs`. Коммит в git `~/.claude`: 41bdcd4 (38 files, 7145 deletions).
+
+**Проверки** (exit code у каждой — 0):
+- Ушло ровно (25 записей: 22 из группы файлов и 3 скрипта `bin/qmd-*` из группы qmd): `continuous-audit`, `epic-board`, `epic-status`, `epic-wave`, `gate-resolve.mjs`, `gate.sh`, `guard.mjs`, `implementer.md`, `overnight-fix-loop`, `preflight`, `profile`, `qmd`, `qmd-mcp`, `qmd-refresh`, `qmd-sync-main`, `retro`, `reviewer.md`, `scout.md`, `session-end.sh`, `session-start.sh`, `ship-ticket`, `stop.sh`, `ticket`, `tickets-to-tasks`, `worktree-lock`. Новых записей нет. `git -C ~/.claude status --short` — `?? skills/synced/`, как в снимке.
+- `jq` по settings.json: команд hooks в `~/.claude/hooks/` и `~/.claude/bin/` — нет; model, effortLevel, env — как в снимке; statusLine — `/Users/alexey/Applications/worfy-stable.app/Contents/Resources/statusline-bridge.sh`.
+- `.mcpServers.qmd` в `~/.claude.json` — `null`; остальные — freecad, github, telegram.
+- `claude plugin list --json`: `worfy@worfy-harness`, version 0.2.0+77e4490, enabled.
+- Новая Session (`claude -p … --output-format stream-json --verbose`): plugins — mattpocock-skills, figma, worfy, …; команды `worfy:` — continuous-audit, epic-wave, overnight-fix-loop, qmd, retro, ship-ticket, tickets-to-tasks.
+- `~/.claude/worfy-harness/plugin/bin/epic-status worfy-harness` в checkout-е worfy — строка Epic-а (15/27).
+- `GATE_SCOPE=all bash ~/.claude/worfy-harness/plugin/hooks/gate.sh fast` — `[gate] зелено (fast)`; файл вердикта `verdict-5c637d80.json` — `outcome: green`.
+- `profile --field mode`: CanvasForAI — full, Auction — full, Atakama-Browser-Server — silent.
+- `test -f …/restore.mjs` — 0.
+
+**Не проверено.**
+- «Stable copy показывает Epic-и Auction»: Auction не подключён в Stable copy как Project (окно показывает только Project worfy со всеми его Epic-ами). Писать в Auction нельзя; подключение — шаг владельца при желании.
+- Мост Limits из интерактивной Session терминала: `claude -p` statusLine не вызывает. Сам мост из `.app` проверен прямым запуском (exit 0, файл `statusline-limits.json` обновился); в файле пробные значения до первой настоящей Session в терминале.
+
+**Заметки.** В `~/.claude/worfy-harness/gate/state/` перенесены 8 старых маркеров: `red-worfy-44f904e2` (2026-10-07T19:36Z) и 7 `red-auction-*` от 2026-10-01. Их хеши не совпадают с живыми checkout-ами (worfy 048d88a0, дерево Orchestrator-а 5c637d80, test-654d80 f8781e09, Auction 7de8b409): это удалённые worktree, на работу не влияют. Session-ы, начатые до перехода (в том числе Session Orchestrator-а этой ночи), держат в памяти старые записи hooks, а их скрипты удалены: guard (PreToolUse), Gate на TaskCompleted/TeammateIdle и worktree-lock в них молча не работают до перезапуска. Session Orchestrator-а Autopilot поднимает заново при старте прогона — уже с plugin-ом.
+- Ручная проверка `worfy-harness` 12 «на машине с `legacy`» до перехода не сделана: машина перешла этой же ночью; ветку `legacy` покрывают test-ы Ticket-а 12.
