@@ -3,7 +3,7 @@
 // IpcContract is empty here on purpose. Each domain adds its channels in its own file,
 // src/shared/ipc/<domain>.ts, by declaration merging:
 //
-//   export const appVersion = invokeChannel('app.version', z.void(), z.object({ version: z.string() }))
+//   export const appVersion = invokeChannel('app.version', z.void(), z.object({ version: z.string() }), 'local')
 //   declare module './channels' {
 //     interface IpcContract {
 //       'app.version': typeof appVersion
@@ -18,12 +18,32 @@ import type { z } from 'zod'
 /** Every channel crosses Electron IPC under this prefix, so the bridge cannot reach other channels. */
 export const IPC_CHANNEL_PREFIX = 'worfy:'
 
+/**
+ * Whether a Linked machine may use a channel (worfy-link ticket 08; ADR-0052, point 6). Every
+ * channel carries one, in its own domain file:
+ * - `link` — a service channel of the link (`link.ping`); open to a Linked machine always, also
+ *   while access is off;
+ * - `project` — work with the Projects of this Machine; open to a Linked machine while "Linked
+ *   machines can work with my Projects" is on;
+ * - `desktop` — needs the desktop of the Project machine (a native dialog, the OS shell); never
+ *   open to a Linked machine;
+ * - `local` — the state of the screen's own machine (the active Project, the menu, notifications,
+ *   Limits, the link settings); never open to a Linked machine.
+ * A channel the link adapter does not know counts as closed.
+ */
+export const CHANNEL_ACCESS = ['link', 'project', 'desktop', 'local'] as const
+export type ChannelAccess = (typeof CHANNEL_ACCESS)[number]
+
+/** The marks a Linked machine may reach at all; which of them it reaches now depends on the switch. */
+export const LINKED_MACHINE_ACCESS: readonly ChannelAccess[] = ['link', 'project']
+
 /** A request-response channel: the renderer sends `input`, main answers with `output`. */
 export interface InvokeChannel<N extends string = string, I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodType> {
   readonly kind: 'invoke'
   readonly name: N
   readonly input: I
   readonly output: O
+  readonly access: ChannelAccess
 }
 
 /** A stream of events that main pushes to the renderer. */
@@ -31,14 +51,38 @@ export interface EventChannel<N extends string = string, P extends z.ZodType = z
   readonly kind: 'event'
   readonly name: N
   readonly payload: P
+  readonly access: ChannelAccess
 }
 
-export function invokeChannel<N extends string, I extends z.ZodType, O extends z.ZodType>(name: N, input: I, output: O): InvokeChannel<N, I, O> {
-  return { kind: 'invoke', name, input, output }
+/** The mark of every channel declared so far in this JavaScript realm, by name. */
+const declaredAccess = new Map<string, ChannelAccess>()
+
+function declare(name: string, access: ChannelAccess): void {
+  const before = declaredAccess.get(name)
+  // A name declared twice with two marks counts as closed: neither declaration may open the other.
+  declaredAccess.set(name, before === undefined || before === access ? access : 'local')
 }
 
-export function eventChannel<N extends string, P extends z.ZodType>(name: N, payload: P): EventChannel<N, P> {
-  return { kind: 'event', name, payload }
+/**
+ * The mark of a declared channel; undefined for a name no loaded module declares. Whoever sends
+ * an event by name alone (a client without a window, src/main/link/ipc-adapter.ts) reads it here,
+ * and treats undefined as closed. Every event main sends goes through emit() with the channel's
+ * definition, so its module is loaded by then.
+ */
+export function accessOf(name: string): ChannelAccess | undefined {
+  return declaredAccess.get(name)
+}
+
+/** The access mark is required: a channel declared without one does not compile. */
+export function invokeChannel<N extends string, I extends z.ZodType, O extends z.ZodType>(name: N, input: I, output: O, access: ChannelAccess): InvokeChannel<N, I, O> {
+  declare(name, access)
+  return { kind: 'invoke', name, input, output, access }
+}
+
+/** The access mark is required: a channel declared without one does not compile. */
+export function eventChannel<N extends string, P extends z.ZodType>(name: N, payload: P, access: ChannelAccess): EventChannel<N, P> {
+  declare(name, access)
+  return { kind: 'event', name, payload, access }
 }
 
 /**

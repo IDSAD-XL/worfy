@@ -73,10 +73,11 @@ export const firstRunStartup = invokeChannel(
     /** The checks, when main ran them to decide; null when it did not need to. */
     report: firstRunReportSchema.nullable(),
   }),
+  'local',
 )
 
 /** Runs every check again; writes nothing. */
-export const firstRunChecks = invokeChannel('firstRun.checks', z.void(), firstRunReportSchema)
+export const firstRunChecks = invokeChannel('firstRun.checks', z.void(), firstRunReportSchema, 'local')
 
 /**
  * One action: main shows the dialog naming the command, the folder and the download, and runs it
@@ -97,10 +98,11 @@ export const firstRunRun = invokeChannel(
     message: z.string().nullable(),
     report: firstRunReportSchema,
   }),
+  'local',
 )
 
 /** The screen was closed: main writes the mark, with the checks that failed at that moment. */
-export const firstRunClose = invokeChannel('firstRun.close', z.void(), z.void())
+export const firstRunClose = invokeChannel('firstRun.close', z.void(), z.void(), 'local')
 
 declare module './channels' {
   interface IpcContract {

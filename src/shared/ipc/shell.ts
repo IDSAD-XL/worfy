@@ -14,10 +14,11 @@ export const shellOpenInEditor = invokeChannel(
   z.object({ projectId: z.string().min(1), path: z.string().min(1).max(4096) }),
   /** The real path that was opened. */
   z.object({ path: z.string() }),
+  'desktop',
 )
 
 /** Opens an https:// address in the default browser; any other scheme is refused. */
-export const shellOpenExternal = invokeChannel('shell.openExternal', z.object({ url: z.string().min(1).max(8192) }), z.object({ url: z.string() }))
+export const shellOpenExternal = invokeChannel('shell.openExternal', z.object({ url: z.string().min(1).max(8192) }), z.object({ url: z.string() }), 'desktop')
 
 declare module './channels' {
   interface IpcContract {

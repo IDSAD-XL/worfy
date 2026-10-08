@@ -48,10 +48,10 @@ const project = z.object({ projectId: z.string().min(1) })
  * Reads the Project's documents and starts sending `docs.changed` to the calling window until
  * `docs.close` (or until the window is gone).
  */
-export const docsOpen = invokeChannel('docs.open', project, docsStateSchema)
+export const docsOpen = invokeChannel('docs.open', project, docsStateSchema, 'project')
 
 /** Stops `docs.changed` for this Project in the calling window. `closed` is false if it was not open. */
-export const docsClose = invokeChannel('docs.close', project, z.object({ closed: z.boolean() }))
+export const docsClose = invokeChannel('docs.close', project, z.object({ closed: z.boolean() }), 'project')
 
 /**
  * The text of HANDOFF.md or of docs/adr/NNNN-*.md. `path` is relative to the Project root or
@@ -62,10 +62,11 @@ export const docsRead = invokeChannel(
   'docs.read',
   z.object({ projectId: z.string().min(1), path: z.string().min(1).max(4096) }),
   z.object({ path: z.string(), text: z.string() }),
+  'project',
 )
 
 /** The whole state again, after a change of HANDOFF.md or of an ADR. */
-export const docsChanged = eventChannel('docs.changed', docsStateSchema)
+export const docsChanged = eventChannel('docs.changed', docsStateSchema, 'project')
 
 declare module './channels' {
   interface IpcContract {

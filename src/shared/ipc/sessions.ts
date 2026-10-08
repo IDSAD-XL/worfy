@@ -78,36 +78,37 @@ export const sessionNodeViewSchema = z.object({
 export type SessionNodeView = z.output<typeof sessionNodeViewSchema>
 
 /** A new live Session Node with a new Session in the Project's root. */
-export const sessionsNew = invokeChannel('sessions.new', z.object({ projectId }), sessionNodeViewSchema)
+export const sessionsNew = invokeChannel('sessions.new', z.object({ projectId }), sessionNodeViewSchema, 'project')
 
 /**
  * Starts the Session behind an existing worfy Session Node that runs none: its saved session,
  * resumed under the rule of Resume, or a new one when the Node has none yet. A Node that runs one
  * answers its view and changes nothing.
  */
-export const sessionsStart = invokeChannel('sessions.start', z.object({ projectId, nodeId }), sessionNodeViewSchema)
+export const sessionsStart = invokeChannel('sessions.start', z.object({ projectId, nodeId }), sessionNodeViewSchema, 'project')
 
 /**
  * Continues a finished Session on its Node: the Session Node that names it (a read-only one turns
  * live), or a new one. Refused, with the verdict's label, when the rule of Resume says no.
  */
-export const sessionsResume = invokeChannel('sessions.resume', z.object({ projectId, sessionId: sdkSessionId }), sessionNodeViewSchema)
+export const sessionsResume = invokeChannel('sessions.resume', z.object({ projectId, sessionId: sdkSessionId }), sessionNodeViewSchema, 'project')
 
 /** The verdict of Resume for each of the given Sessions of the Project. */
 export const sessionsResumable = invokeChannel(
   'sessions.resumable',
   z.object({ projectId, sessionIds: z.array(sdkSessionId).max(500) }),
   z.object({ verdicts: z.record(z.string(), resumeVerdictSchema) }),
+  'project',
 )
 
 /** The views of the Project's live Session Nodes, for a window that opens later. */
-export const sessionsViews = invokeChannel('sessions.views', z.object({ projectId }), z.object({ views: z.array(sessionNodeViewSchema) }))
+export const sessionsViews = invokeChannel('sessions.views', z.object({ projectId }), z.object({ views: z.array(sessionNodeViewSchema) }), 'project')
 
 /** Closes the Session behind a Node; refused while a turn runs (Interrupt it first). The Node stays. */
-export const sessionsClose = invokeChannel('sessions.close', z.object({ nodeId }), z.void())
+export const sessionsClose = invokeChannel('sessions.close', z.object({ nodeId }), z.void(), 'project')
 
 /** A view changed; sent to every window. A closed Session's last view has state `closed`. */
-export const sessionsChanged = eventChannel('sessions.changed', sessionNodeViewSchema)
+export const sessionsChanged = eventChannel('sessions.changed', sessionNodeViewSchema, 'project')
 
 declare module './channels' {
   interface IpcContract {

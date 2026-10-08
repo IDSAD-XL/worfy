@@ -29,10 +29,10 @@ export const cardInfoSchema = z.object({
 export type CardInfo = z.output<typeof cardInfoSchema>
 
 /** One Card of a Project. An unknown Project is refused; a Card without a folder comes back with exists: false. */
-export const cardsGet = invokeChannel('cards.get', z.object({ projectId, cardId: cardIdSchema }), cardInfoSchema)
+export const cardsGet = invokeChannel('cards.get', z.object({ projectId, cardId: cardIdSchema }), cardInfoSchema, 'project')
 
 /** Sent to every window after the files of a Card changed (written, removed, its folder created or deleted). */
-export const cardsChanged = eventChannel('cards.changed', cardInfoSchema)
+export const cardsChanged = eventChannel('cards.changed', cardInfoSchema, 'project')
 
 declare module './channels' {
   interface IpcContract {

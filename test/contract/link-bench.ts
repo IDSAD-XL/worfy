@@ -29,6 +29,8 @@ export interface BenchOptions {
   ipcModules?: Record<string, ModuleLoader>
   pingIntervalMs?: number
   pairingStepTimeoutMs?: number
+  /** Adds a connection's client with access on to main's clients (worfy-link ticket 08); none by default. */
+  addClient?: LinkServiceOptions['addClient']
 }
 
 export class LinkBench {
@@ -67,6 +69,7 @@ export class LinkBench {
       ipcModules: this.options.ipcModules ?? { './link.ts': () => import('../../src/main/ipc/link').then((module) => module.default) },
       ...(this.options.pingIntervalMs === undefined ? {} : { pingIntervalMs: this.options.pingIntervalMs }),
       ...(this.options.pairingStepTimeoutMs === undefined ? {} : { pairingStepTimeoutMs: this.options.pairingStepTimeoutMs }),
+      ...(this.options.addClient === undefined ? {} : { addClient: this.options.addClient }),
     }
   }
 

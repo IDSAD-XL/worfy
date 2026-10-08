@@ -11,13 +11,14 @@ import { invokeChannel } from './channels'
 const card = { projectId: z.string().min(1), cardId: cardIdSchema }
 
 /** The Card's data, or null when it has stored none. */
-export const cardApiDataGet = invokeChannel('cardApi.dataGet', z.object(card), z.object({ value: cardDataSchema }))
+export const cardApiDataGet = invokeChannel('cardApi.dataGet', z.object(card), z.object({ value: cardDataSchema }), 'project')
 
 /** Replaces the Card's data; `bytes` is the size of its compact JSON. */
 export const cardApiDataSet = invokeChannel(
   'cardApi.dataSet',
   z.object({ ...card, value: cardDataSchema }),
   z.object({ bytes: z.number().int().nonnegative() }),
+  'project',
 )
 
 /**
@@ -29,6 +30,7 @@ export const cardApiAsk = invokeChannel(
   'cardApi.ask',
   z.object({ ...card, text: askTextSchema }),
   z.object({ sent: z.boolean(), recipient: z.enum(['session', 'orchestrator']).nullable() }),
+  'desktop',
 )
 
 declare module './channels' {

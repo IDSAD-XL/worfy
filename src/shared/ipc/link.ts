@@ -1,8 +1,8 @@
 // The `link` domain (worfy-link tickets 01 and 02; ADR-0052): this Machine as the link knows it,
 // its Linked machines, "Link a machine" and the access switch. Handled in src/main/ipc/link.ts.
 //
-// Only `link.ping` is open to Linked machines (src/main/link/ipc-adapter.ts, LINK_OPEN_CHANNELS).
-// Every other channel here is for this Machine's own windows: `link.state` carries the pairing
+// Only `link.ping` is open to Linked machines (its mark `link`, src/shared/ipc/channels.ts). Every
+// other channel here is `local`, for this Machine's own windows: `link.state` carries the pairing
 // code, which only this Machine's screen may show. Tokens and certificate fingerprints never
 // appear in this contract.
 import { z } from 'zod'
@@ -16,7 +16,7 @@ export const linkMachineSchema = z.object({
   build: z.string().min(1),
 })
 
-export const linkPing = invokeChannel('link.ping', z.void(), linkMachineSchema)
+export const linkPing = invokeChannel('link.ping', z.void(), linkMachineSchema, 'link')
 
 // ---- an address typed by hand ------------------------------------------------------------------
 
@@ -126,13 +126,13 @@ export const linkStateSchema = z.object({
 })
 export type LinkState = z.output<typeof linkStateSchema>
 
-export const linkState = invokeChannel('link.state', z.void(), linkStateSchema)
+export const linkState = invokeChannel('link.state', z.void(), linkStateSchema, 'local')
 
 /** Opens "Link a machine" for the calling window: the server listens, a code is shown, Bonjour searches. */
-export const linkOpen = invokeChannel('link.open', z.void(), linkStateSchema)
+export const linkOpen = invokeChannel('link.open', z.void(), linkStateSchema, 'local')
 
 /** Closes "Link a machine" for the calling window; linking stays open while another window has it open. */
-export const linkClose = invokeChannel('link.close', z.void(), linkStateSchema)
+export const linkClose = invokeChannel('link.close', z.void(), linkStateSchema, 'local')
 
 /**
  * Links this Machine with the worfy at `address`, whose "Link a machine" shows `code`. A refusal —
@@ -146,16 +146,17 @@ export const linkPair = invokeChannel(
     z.object({ status: z.literal('linked'), machine: z.object({ id: z.uuid(), name: z.string().min(1) }), state: linkStateSchema }),
     z.object({ status: z.literal('failed'), reason: z.string().min(1), state: linkStateSchema }),
   ]),
+  'local',
 )
 
 /** Revokes Linked machine `id`; it loses the link at once when connected, else on its next connection. */
-export const linkRevoke = invokeChannel('link.revoke', z.object({ id: z.uuid() }), linkStateSchema)
+export const linkRevoke = invokeChannel('link.revoke', z.object({ id: z.uuid() }), linkStateSchema, 'local')
 
 /** Sets "Linked machines can work with my Projects". */
-export const linkSetAccess = invokeChannel('link.setAccess', z.object({ projectsAccess: z.boolean() }), linkStateSchema)
+export const linkSetAccess = invokeChannel('link.setAccess', z.object({ projectsAccess: z.boolean() }), linkStateSchema, 'local')
 
 /** Sent to this Machine's windows after any change of the state. */
-export const linkChanged = eventChannel('link.changed', linkStateSchema)
+export const linkChanged = eventChannel('link.changed', linkStateSchema, 'local')
 
 declare module './channels' {
   interface IpcContract {

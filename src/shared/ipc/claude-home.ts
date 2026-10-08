@@ -74,6 +74,7 @@ export const claudeHomeSessions = invokeChannel(
   'claudeHome.sessions',
   z.object({ projectRoot: absolutePath }),
   z.object({ live: z.array(liveSessionSchema), history: z.array(historySessionSchema) }),
+  'project',
 )
 
 /**
@@ -81,10 +82,10 @@ export const claudeHomeSessions = invokeChannel(
  * when the registry changed, and every few seconds while a Session is live, because a process
  * that died without removing its registry file changes no file. No subscription.
  */
-export const claudeHomeLive = invokeChannel('claudeHome.live', z.object({ projectRoot: absolutePath }), z.object({ live: z.array(liveSessionSchema) }))
+export const claudeHomeLive = invokeChannel('claudeHome.live', z.object({ projectRoot: absolutePath }), z.object({ live: z.array(liveSessionSchema) }), 'project')
 
 /** Stops `claudeHome.changed` for this Project in the calling window. `closed` is false if it was not subscribed. */
-export const claudeHomeClose = invokeChannel('claudeHome.close', z.object({ projectRoot: absolutePath }), z.object({ closed: z.boolean() }))
+export const claudeHomeClose = invokeChannel('claudeHome.close', z.object({ projectRoot: absolutePath }), z.object({ closed: z.boolean() }), 'project')
 
 /**
  * Events of a Session's transcript after `cursor` (from the start without one). They are the
@@ -112,6 +113,7 @@ export const claudeHomeTranscript = invokeChannel(
     reset: z.boolean(),
     more: z.boolean(),
   }),
+  'project',
 )
 
 /**
@@ -125,6 +127,7 @@ export const claudeHomeSubagents = invokeChannel(
   'claudeHome.subagents',
   z.object({ projectRoot: absolutePath, sessionId: sessionIdSchema }),
   z.object({ found: z.boolean(), signals: z.array(subagentSignalSchema), files: z.array(subagentFileSchema) }),
+  'project',
 )
 
 /**
@@ -135,6 +138,7 @@ export const claudeHomeSubagentTranscript = invokeChannel(
   'claudeHome.subagentTranscript',
   claudeHomeTranscript.input.extend({ agentId: agentIdSchema }),
   claudeHomeTranscript.output,
+  'project',
 )
 
 /**
@@ -144,6 +148,7 @@ export const claudeHomeSubagentTranscript = invokeChannel(
 export const claudeHomeChanged = eventChannel(
   'claudeHome.changed',
   z.object({ projectRoot: z.string(), sessions: z.boolean(), transcripts: z.array(z.string()) }),
+  'project',
 )
 
 declare module './channels' {

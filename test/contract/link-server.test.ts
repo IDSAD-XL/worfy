@@ -231,7 +231,7 @@ describe('IPC over the link', () => {
     await a.service.connect(bId)
     expect(await a.service.call(bId, 'link.ping')).toEqual({ ok: true, value: { id: bId, name: 'beta', protocol: 1, build: '0.2.0+bench' } })
     projectsCalls.count = 0
-    expect(await a.service.call(bId, 'projects.list')).toEqual({ ok: false, error: 'projects.list: not open to Linked machines' })
+    expect(await a.service.call(bId, 'projects.list')).toEqual({ ok: false, error: 'Linked machines cannot work with the Projects of beta: access is off' })
     expect(projectsCalls.count).toBe(0)
     // And the other way round, over the same connection.
     expect(await b.service.call(a.service.machine.id, 'link.ping')).toEqual({ ok: true, value: expect.objectContaining({ id: a.service.machine.id, name: 'alpha' }) })

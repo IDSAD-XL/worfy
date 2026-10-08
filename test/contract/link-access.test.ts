@@ -1,0 +1,496 @@
+// What a Linked machine may do with the Projects of this Machine (worfy-link ticket 08; ADR-0052,
+// point 6). Two Machines on the link bench (test/contract/link-bench.ts): A calls, B owns the
+// Project. B serves the real handler modules of its Projects, Layout, hubs and Terminal over a
+// mocked `electron`, a temporary WORFY_DATA_DIR and a temporary WORFY_CLAUDE_HOME; the connection's
+// client joins B's real clients (src/main/broadcast.ts).
+//
+// Never run here: a real Claude Code or Agent SDK (agent.start is a counting stand-in), a native
+// dialog or the OS shell (both mocked), the network beyond 127.0.0.1, Bonjour.
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import type { IpcMainInvokeEvent } from 'electron'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { SYSTEM_PATH } from '../../src/main/agent/env'
+import { addClient, clients } from '../../src/main/broadcast'
+import { ClaudeHomeRegistry } from '../../src/main/claude-home/registry'
+import { ClaudeHomeSubscriptions, claudeHomeHandlers } from '../../src/main/ipc/claude-home'
+import { bindingsHandlers } from '../../src/main/ipc/bindings'
+import { docsHub } from '../../src/main/ipc/docs'
+import { defineHandler, emit, registerIpc, type HandlerModule, type ModuleLoader } from '../../src/main/ipc/index'
+import { terminalHandlers } from '../../src/main/ipc/terminal'
+import { setViewState } from '../../src/main/ipc/view'
+import { workflowHub } from '../../src/main/ipc/workflow'
+import { BindingStore } from '../../src/main/layout/bindings'
+import { layoutStore } from '../../src/main/layout/store'
+import { LinkSender } from '../../src/main/link/ipc-adapter'
+import { projectStore } from '../../src/main/projects/store'
+import { TerminalRegistry } from '../../src/main/terminal/pty'
+import { agentStart } from '../../src/shared/ipc/agent'
+import { cardApiAsk } from '../../src/shared/ipc/card-api'
+import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import { limitsChanged } from '../../src/shared/ipc/limits'
+import { notifyOpen } from '../../src/shared/ipc/notify'
+import { trashList } from '../../src/shared/ipc/trash'
+import type { LayoutOpInput } from '../../src/shared/layout/types'
+import { LinkBench, type BenchMachine } from './link-bench'
+
+const env = await vi.hoisted(async () => {
+  // Before any module of main is imported: the workflow hub takes the Claude home at import.
+  const fs = await import('node:fs')
+  const os = await import('node:os')
+  const path = await import('node:path')
+  const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'worfy-link-access-')))
+  process.env.WORFY_DATA_DIR = path.join(scratch, 'data')
+  process.env.WORFY_CLAUDE_HOME = path.join(scratch, 'claude-home')
+  return { scratch }
+})
+
+const electron = vi.hoisted(() => ({
+  showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] as string[] })),
+  showMessageBox: vi.fn(async () => ({ response: 0, checkboxChecked: false })),
+  openPath: vi.fn(async () => ''),
+  openExternal: vi.fn(async () => undefined),
+}))
+
+vi.mock('electron', () => ({
+  app: { on: () => undefined, getVersion: () => '0.2.0', isPackaged: false, getAppPath: () => '/' },
+  BrowserWindow: { getAllWindows: () => [], fromWebContents: () => null },
+  dialog: { showOpenDialog: electron.showOpenDialog, showMessageBox: electron.showMessageBox },
+  shell: { openPath: electron.openPath, openExternal: electron.openExternal },
+}))
+
+const PROJECT = 'demo-0a1b2c3d'
+const OTHER = 'other-0a1b2c3e'
+const NODE = 'terminal-1'
+const CLAUDE_HOME_FIXTURE = join(import.meta.dirname, '..', 'fixtures', 'claude-home')
+const CLAUDE_HOME_PROJECT = '/Users/test/projects/demo'
+
+const dataDir = join(env.scratch, 'data')
+const repo = join(env.scratch, 'demo')
+const home = join(env.scratch, 'shell-home')
+
+function git(cwd: string, ...args: string[]): void {
+  const gitEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], { cwd, env: gitEnv })
+}
+
+mkdirSync(join(repo, '.scratch', 'demo', 'issues'), { recursive: true })
+mkdirSync(join(repo, 'docs', 'adr'), { recursive: true })
+writeFileSync(join(repo, '.scratch', 'demo', 'spec.md'), '# Demo epic\n\ntext\n')
+writeFileSync(join(repo, '.scratch', 'demo', 'issues', '01-first.md'), '# 01 — first\n\nStatus: open\n')
+writeFileSync(join(repo, 'HANDOFF.md'), '# Handoff\n')
+git(repo, 'init', '-q')
+git(repo, 'add', '.')
+git(repo, 'commit', '-q', '-m', 'init')
+mkdirSync(join(dataDir, PROJECT), { recursive: true })
+mkdirSync(join(dataDir, OTHER), { recursive: true })
+// The workflow reader asks the Harness's epic-status (src/main/workflow/reader.ts); this stand-in
+// answers with Ticket 01 of Epic `demo` in the state its file says.
+mkdirSync(join(env.scratch, 'claude-home', 'bin'), { recursive: true })
+writeFileSync(
+  join(env.scratch, 'claude-home', 'bin', 'epic-status'),
+  [
+    '#!/bin/sh',
+    "status=$(sed -n 's/^Status: //p' .scratch/demo/issues/01-first.md | tail -n 1)",
+    'case "$status" in blocked*) state=blocked ;; *) state=open ;; esac',
+    `printf '{"ref":"main","epics":[{"epic":"demo","hasSpec":true,"hasMap":false}],"tickets":[{"epic":"demo","num":1,"slug":"first","title":"01 first","statusRaw":"%s","state":"%s","blockedRaw":null,"blockedNums":[],"blockedParsed":true,"ref":"."}]}' "$status" "$state"`,
+    '',
+  ].join('\n'),
+  { mode: 0o755 },
+)
+mkdirSync(home, { recursive: true })
+writeFileSync(
+  join(dataDir, 'projects.json'),
+  JSON.stringify({ projects: [{ id: PROJECT, name: 'demo', path: repo }, { id: OTHER, name: 'other', path: join(env.scratch, 'other') }], activeId: PROJECT }),
+)
+const projectsFileBefore = readFileSync(join(dataDir, 'projects.json'), 'utf8')
+
+// ---- B's handlers ------------------------------------------------------------------------------
+
+/** The Terminal of B: real shells (/bin/sh with an empty HOME), one per Node. */
+const terminals = new TerminalRegistry({
+  env: () => Promise.resolve({ SHELL: '/bin/sh', PATH: SYSTEM_PATH, HOME: home, PS1: '$ ' }),
+  killGraceMs: 1000,
+})
+const claudeHome = new ClaudeHomeRegistry({ home: CLAUDE_HOME_FIXTURE, listWorktrees: async () => [], isAlive: async () => false })
+/** The change callbacks of the Claude home watchers: a test calls one to stand for a file change. */
+const claudeHomeWatchers: ((change: { sessions: boolean; transcripts: string[] }) => void)[] = []
+const watch = claudeHome.watch.bind(claudeHome)
+vi.spyOn(claudeHome, 'watch').mockImplementation((root, onChange, options) => {
+  claudeHomeWatchers.push(onChange)
+  return watch(root, onChange, options)
+})
+const claudeHomeSubscriptions = new ClaudeHomeSubscriptions(claudeHome, new Set())
+const bindings = new BindingStore((projectId) => join(dataDir, projectId))
+
+/** Stand-ins that count their calls: a Session that would start Claude, a dialog of a Card. */
+const calls = { agentStart: 0, trashList: 0 }
+/** Holds trash.list until the test lets it go: a call that is running when access goes off. */
+let holdTrashList: Promise<void> = Promise.resolve()
+
+const realModule =
+  (load: () => Promise<{ default: HandlerModule }>): ModuleLoader =>
+  () =>
+    load().then((module) => module.default)
+
+const modules: Record<string, ModuleLoader> = {
+  './link.ts': realModule(() => import('../../src/main/ipc/link')),
+  './projects.ts': realModule(() => import('../../src/main/ipc/projects')),
+  './layout.ts': realModule(() => import('../../src/main/ipc/layout')),
+  './view.ts': realModule(() => import('../../src/main/ipc/view')),
+  './shell.ts': realModule(() => import('../../src/main/ipc/shell')),
+  './workflow.ts': realModule(() => import('../../src/main/ipc/workflow')),
+  './docs.ts': realModule(() => import('../../src/main/ipc/docs')),
+  './claude-home.ts': async () => claudeHomeHandlers(claudeHome, claudeHomeSubscriptions),
+  './bindings.ts': async () => bindingsHandlers(() => bindings, () => claudeHome),
+  './terminal.ts': async () =>
+    terminalHandlers({
+      registry: () => terminals,
+      projectRoot: (projectId) => {
+        if (projectId !== PROJECT) throw new Error(`No Project with id ${projectId}`)
+        return repo
+      },
+      isTerminalNode: (projectId, nodeId) => projectId === PROJECT && nodeId === NODE,
+    }),
+  './stand-ins.ts': async () =>
+    [
+      defineHandler(agentStart, () => {
+        calls.agentStart += 1
+        throw new Error('the stand-in never starts a Session')
+      }),
+      // As src/main/ipc/card-api.ts does: a native dialog on the screen of the Project machine.
+      defineHandler(cardApiAsk, async () => {
+        await electron.showMessageBox()
+        return { sent: false, recipient: null }
+      }),
+      defineHandler(trashList, async () => {
+        calls.trashList += 1
+        await holdTrashList
+        return { entries: [] }
+      }),
+    ] satisfies HandlerModule,
+}
+
+// ---- the bench ---------------------------------------------------------------------------------
+
+interface Received {
+  channel: string
+  payload: unknown
+}
+
+let bench: LinkBench | undefined
+let a: BenchMachine
+let b: BenchMachine
+/** The IPC events A received over the connection from B. */
+let received: Received[]
+/** Every answer and event payload A saw, for the leak check. */
+let seen: string[]
+let bId: string
+
+beforeEach(async () => {
+  bench = new LinkBench({ ipcModules: modules, addClient })
+  a = await bench.machine('alpha')
+  b = await bench.machine('beta')
+  await bench.link(a, b)
+  bId = b.service.machine.id
+  received = []
+  seen = []
+  a.service.on('ipc-event', ({ machineId, channel, payload }) => {
+    if (machineId !== bId) return
+    received.push({ channel, payload })
+    seen.push(JSON.stringify(payload))
+  })
+  await a.service.connect(bId)
+  calls.agentStart = 0
+  calls.trashList = 0
+  claudeHomeWatchers.length = 0
+  for (const spy of Object.values(electron)) spy.mockClear()
+})
+
+afterEach(async () => {
+  const current = bench
+  bench = undefined
+  if (current === undefined) return
+  // No token and no pairing code in the console output, an answer or an event A got.
+  const leaks = current.leakedSecrets(seen)
+  await current.close()
+  await terminals.closeAll()
+  await workflowHub.closeAll()
+  await docsHub.closeAll()
+  await claudeHomeSubscriptions.closeAll()
+  expect(leaks).toEqual([])
+})
+
+afterAll(() => {
+  rmSync(env.scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+})
+
+/** A calls `channel` on B; the answer is kept for the leak check. */
+async function callB(channel: string, input?: unknown): Promise<IpcResult<unknown>> {
+  const result = await a.service.call(bId, channel, input)
+  seen.push(JSON.stringify(result))
+  return result
+}
+
+const accessOff = { ok: false, error: 'Linked machines cannot work with the Projects of beta: access is off' }
+const notOpen = (channel: string): IpcResult<unknown> => ({ ok: false, error: `${channel}: not open to Linked machines` })
+
+function setAccess(on: boolean): void {
+  b.service.settings.set({ projectsAccess: on })
+}
+
+/** B's clients made for the connection from A: "link:<A's id>/<n>". */
+function linkClientsOfB(): string[] {
+  return clients
+    .list()
+    .map((client) => String(client.id))
+    .filter((id) => id.startsWith(`link:${a.service.machine.id}/`))
+}
+
+/** Polls until `done` holds or five seconds pass. */
+async function until(done: () => boolean): Promise<void> {
+  const deadline = Date.now() + 5000
+  while (!done() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20))
+}
+
+const channelsReceived = (): string[] => received.map((event) => event.channel)
+const note = (id: string): LayoutOpInput => ({ op: 'create', node: { id, kind: 'note', x: 0, y: 0, w: 220, h: 120, data: { text: id } } }) as LayoutOpInput
+
+// ---- the tests ---------------------------------------------------------------------------------
+
+describe('access off (the default)', () => {
+  it('refuses projects.list with "access is off"; link.ping answers', async () => {
+    expect(b.service.settings.get().projectsAccess).toBe(false)
+    expect(await callB('projects.list')).toEqual(accessOff)
+    expect(await callB('link.ping')).toEqual({ ok: true, value: { id: bId, name: 'beta', protocol: 1, build: '0.2.0+bench' } })
+    // The connection has no client among B's clients: no broadcast of B reaches A.
+    expect(linkClientsOfB()).toEqual([])
+  })
+
+  it('refuses reading and writing alike, and what starts processes on B: no handler runs', async () => {
+    const before = layoutStore().get(PROJECT).layout.nodes.length
+    for (const [channel, input] of [
+      ['layout.get', { projectId: PROJECT }],
+      ['layout.apply', { projectId: PROJECT, op: note('off-1') }],
+      ['agent.start', { cwd: repo }],
+      ['terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24 }],
+      ['shell.openExternal', { url: 'https://example.com' }],
+      ['projects.pickFolder', undefined],
+      ['link.state', undefined],
+      ['link.setAccess', { projectsAccess: true }],
+      ['nobody.declares.this', undefined],
+    ] as const) {
+      expect(await callB(channel, input), channel).toEqual(accessOff)
+    }
+    expect(calls.agentStart).toBe(0)
+    expect(terminals.size).toBe(0)
+    expect(electron.openExternal).not.toHaveBeenCalled()
+    expect(electron.showOpenDialog).not.toHaveBeenCalled()
+    expect(layoutStore().get(PROJECT).layout.nodes.length).toBe(before)
+    // A Linked machine cannot switch access on for itself.
+    expect(b.service.settings.get().projectsAccess).toBe(false)
+  })
+})
+
+describe('access on', () => {
+  it('answers projects.list; layout.apply from A changes B\'s Layout, and A gets layout.changed', async () => {
+    setAccess(true)
+    const list = await callB('projects.list')
+    expect(list).toMatchObject({ ok: true, value: { projects: expect.arrayContaining([expect.objectContaining({ id: PROJECT })]) } })
+
+    expect(await callB('layout.apply', { projectId: PROJECT, op: note('from-a') })).toMatchObject({ ok: true })
+    expect(layoutStore().get(PROJECT).layout.nodes.map((node) => node.id)).toContain('from-a')
+    await until(() => channelsReceived().includes('layout.changed'))
+    const change = received.find((event) => event.channel === 'layout.changed')
+    expect(change?.payload).toMatchObject({ projectId: PROJECT, op: { op: 'create' } })
+  })
+
+  it('the connection joins B\'s clients as "link:<A>/<n>" when access goes on, leaves when it goes off, and comes back under a new id', async () => {
+    setAccess(true)
+    const first = linkClientsOfB()
+    expect(first).toHaveLength(1)
+    expect(first[0]).toMatch(new RegExp(`^link:${a.service.machine.id}/\\d+$`))
+    setAccess(false)
+    expect(linkClientsOfB()).toEqual([])
+    setAccess(true)
+    const second = linkClientsOfB()
+    expect(second).toHaveLength(1)
+    expect(second[0]).not.toBe(first[0])
+  })
+
+  it('still refuses the `desktop` and `local` channels: no dialog, no OS shell, the active Project stays', async () => {
+    setAccess(true)
+    expect(await callB('projects.pickFolder')).toEqual(notOpen('projects.pickFolder'))
+    expect(await callB('cardApi.ask', { projectId: PROJECT, cardId: 'card-1', text: 'hi?' })).toEqual(notOpen('cardApi.ask'))
+    expect(await callB('shell.openExternal', { url: 'https://example.com' })).toEqual(notOpen('shell.openExternal'))
+    expect(await callB('shell.openInEditor', { projectId: PROJECT, path: 'HANDOFF.md' })).toEqual(notOpen('shell.openInEditor'))
+    expect(electron.showOpenDialog).not.toHaveBeenCalled()
+    expect(electron.showMessageBox).not.toHaveBeenCalled()
+    expect(electron.openPath).not.toHaveBeenCalled()
+    expect(electron.openExternal).not.toHaveBeenCalled()
+
+    expect(await callB('projects.select', { id: OTHER })).toEqual(notOpen('projects.select'))
+    expect(projectStore().active()?.id).toBe(PROJECT)
+    expect(readFileSync(join(dataDir, 'projects.json'), 'utf8')).toBe(projectsFileBefore)
+
+    // The link's own state, linking and the switch stay with B's screen.
+    for (const channel of ['link.state', 'link.open', 'link.revoke', 'link.setAccess', 'view.get', 'app.version', 'notify.pending', 'limits.open']) {
+      expect(await callB(channel, channel === 'link.revoke' ? { id: a.service.machine.id } : channel === 'link.setAccess' ? { projectsAccess: false } : undefined), channel).toEqual(notOpen(channel))
+    }
+    expect(b.service.isLinked(a.service.machine.id)).toBe(true)
+    expect(b.service.settings.get().projectsAccess).toBe(true)
+  })
+
+  it('B\'s `local` events stay on B: view.changed reaches B\'s other clients, not the connection', async () => {
+    setAccess(true)
+    const watcher = { id: 'test:watcher', sent: [] as string[], send: (channel: string) => void watcher.sent.push(channel), isDestroyed: () => false, once: () => watcher }
+    addClient(watcher)
+    setViewState({ minimap: false })
+    for (const client of clients.list()) {
+      emit(client, notifyOpen, {})
+      emit(client, limitsChanged, { windows: {} })
+    }
+    // A `project` event after them: once it arrived, the earlier ones would have too.
+    expect(await callB('layout.apply', { projectId: PROJECT, op: note('after-view') })).toMatchObject({ ok: true })
+    await until(() => channelsReceived().includes('layout.changed'))
+    expect(watcher.sent).toContain(`${IPC_CHANNEL_PREFIX}view.changed`)
+    expect(channelsReceived()).toEqual(['layout.changed'])
+  })
+
+  it('handlers that read event.sender serve the connection: workflow, docs, claude-home, bindings and terminal answer ok, and A gets their events', async () => {
+    setAccess(true)
+    expect(await callB('workflow.open', { root: repo })).toMatchObject({ ok: true })
+    expect(await callB('docs.open', { projectId: PROJECT })).toMatchObject({ ok: true })
+    expect(await callB('claudeHome.sessions', { projectRoot: CLAUDE_HOME_PROJECT })).toMatchObject({ ok: true })
+    expect(await callB('bindings.get', { projectId: PROJECT })).toMatchObject({ ok: true })
+    const opened = await callB('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24 })
+    expect(opened).toMatchObject({ ok: true, value: { started: true } })
+    expect(workflowHub.roots).toEqual([repo])
+    expect(docsHub.projects).toEqual([PROJECT])
+    expect(claudeHomeSubscriptions.size).toBe(1)
+
+    writeFileSync(join(repo, '.scratch', 'demo', 'issues', '01-first.md'), '# 01 — first\n\nStatus: blocked\n')
+    writeFileSync(join(repo, 'HANDOFF.md'), '# Handoff\n\n- a line\n')
+    expect(await callB('bindings.set', { projectId: PROJECT, sessionId: 's1', agentId: null, target: { kind: 'ticket', epic: 'demo', num: 1 } })).toMatchObject({ ok: true })
+    claudeHomeWatchers[0]?.({ sessions: true, transcripts: [] })
+    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo link-$((40+2))\n' })).toEqual({ ok: true, value: undefined })
+
+    const outputOf = (): string =>
+      received
+        .filter((event) => event.channel === 'terminal.output')
+        .map((event) => (event.payload as { data: string }).data)
+        .join('')
+    const wanted = ['workflow.changed', 'docs.changed', 'bindings.changed', 'claudeHome.changed', 'terminal.output']
+    await until(() => wanted.every((channel) => channelsReceived().includes(channel)) && outputOf().includes('link-42'))
+    for (const channel of wanted) expect(channelsReceived(), channel).toContain(channel)
+    expect(outputOf()).toContain('link-42')
+  }, 20_000)
+})
+
+describe('switching access off', () => {
+  it('in the middle of a subscription: A stops getting terminal.output, the next terminal.input is refused, link.ping answers, the hubs let go', async () => {
+    setAccess(true)
+    // A window of B keeps the shell open after A leaves it.
+    const windowEvents: string[] = []
+    const window = {
+      id: 7,
+      send: (channel: string, payload: unknown) => {
+        if (channel === `${IPC_CHANNEL_PREFIX}terminal.output`) windowEvents.push((payload as { data: string }).data)
+      },
+      isDestroyed: () => false,
+      once: () => window,
+    }
+    const windowCall = await windowIpc()
+    expect(await windowCall('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24 }, window)).toMatchObject({ ok: true })
+    expect(await callB('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24 })).toMatchObject({ ok: true, value: { started: false } })
+    expect(await callB('workflow.open', { root: repo })).toMatchObject({ ok: true })
+    expect(await callB('docs.open', { projectId: PROJECT })).toMatchObject({ ok: true })
+    expect(await callB('claudeHome.sessions', { projectRoot: CLAUDE_HOME_PROJECT })).toMatchObject({ ok: true })
+
+    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo before-$((1+1))\n' })).toMatchObject({ ok: true })
+    const outputOfA = (): string =>
+      received
+        .filter((event) => event.channel === 'terminal.output')
+        .map((event) => (event.payload as { data: string }).data)
+        .join('')
+    await until(() => outputOfA().includes('before-2'))
+    expect(outputOfA()).toContain('before-2')
+
+    setAccess(false)
+    await until(() => workflowHub.roots.length === 0 && docsHub.projects.length === 0 && claudeHomeSubscriptions.size === 0)
+    expect(workflowHub.roots).toEqual([])
+    expect(docsHub.projects).toEqual([])
+    expect(claudeHomeSubscriptions.size).toBe(0)
+
+    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo sneaky\n' })).toEqual(accessOff)
+    expect(await windowCall('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo after-$((2+1))\n' }, window)).toMatchObject({ ok: true })
+    await until(() => windowEvents.join('').includes('after-3'))
+    expect(windowEvents.join('')).toContain('after-3')
+    // The shell kept running for B's window; nothing of it went to A, and A's input never reached it.
+    expect(outputOfA()).not.toContain('after-3')
+    expect(windowEvents.join('')).not.toContain('sneaky')
+    expect(await callB('link.ping')).toMatchObject({ ok: true })
+    // The connection stays: B still shows A online.
+    expect(b.service.isConnected(a.service.machine.id)).toBe(true)
+  }, 20_000)
+
+  it('lets a call that already runs finish; the next one is refused', async () => {
+    setAccess(true)
+    let release: () => void = () => undefined
+    holdTrashList = new Promise((resolve) => {
+      release = resolve
+    })
+    const running = callB('trash.list', { projectId: PROJECT })
+    await until(() => calls.trashList === 1)
+    setAccess(false)
+    release()
+    expect(await running).toEqual({ ok: true, value: { entries: [] } })
+    expect(await callB('trash.list', { projectId: PROJECT })).toEqual(accessOff)
+    expect(calls.trashList).toBe(1)
+  })
+})
+
+describe('the clients of a connection', () => {
+  it('pass on only events of their own mark; a name no module declares is not sent', () => {
+    const pushed: string[] = []
+    const local = () => ({ id: bId, name: 'beta', protocol: 1, build: 'x' })
+    const project = new LinkSender(a.service.machine.id, 'project', (channel) => pushed.push(`project ${channel}`), local)
+    const link = new LinkSender(a.service.machine.id, 'link', (channel) => pushed.push(`link ${channel}`), local)
+    for (const sender of [project, link]) {
+      for (const channel of ['layout.changed', 'terminal.output', 'view.changed', 'notify.open', 'limits.changed', 'link.changed', 'nobody.declares.this']) {
+        sender.send(IPC_CHANNEL_PREFIX + channel, {})
+      }
+    }
+    expect(pushed).toEqual(['project layout.changed', 'project terminal.output'])
+    project.destroy()
+    project.send(`${IPC_CHANNEL_PREFIX}layout.changed`, {})
+    expect(pushed).toHaveLength(2)
+  })
+
+  it('refusals are logged with the channel and the Machine, never with a token or a code', async () => {
+    expect(await callB('projects.list')).toEqual(accessOff)
+    setAccess(true)
+    expect(await callB('projects.pickFolder')).toEqual(notOpen('projects.pickFolder'))
+    const captured = bench?.captured.join('\n') ?? ''
+    expect(captured).toContain(`"projects.list" from Machine ${a.service.machine.id} (alpha) refused: access is off`)
+    expect(captured).toContain(`"projects.pickFolder" from Machine ${a.service.machine.id} (alpha) refused: not open to Linked machines`)
+    // The fingerprints of both Machines never reach A over a channel either.
+    const fingerprints = [...a.service.linkedMachines(), ...b.service.linkedMachines()].map((machine) => machine.fingerprint)
+    expect(fingerprints.every((fingerprint) => fingerprint.length > 0)).toBe(true)
+    for (const fingerprint of fingerprints) expect(seen.join('\n')).not.toContain(fingerprint)
+  })
+})
+
+/** B's own window over the same handler modules, as src/main/index.ts registers them on ipcMain. */
+async function windowIpc() {
+  type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
+  const handlers = new Map<string, Listener>()
+  await registerIpc({ handle: (channel, listener) => void handlers.set(channel, listener as Listener) }, { modules: { './terminal.ts': modules['./terminal.ts']! }, isTrustedSender: () => true })
+  return async (channel: string, input: unknown, sender: unknown): Promise<IpcResult<unknown>> => {
+    const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
+    if (!listener) throw new Error(`no handler for ${channel}`)
+    const event = { senderFrame: { url: 'app://worfy' }, sender } as unknown as IpcMainInvokeEvent
+    return (await listener(event, input)) as IpcResult<unknown>
+  }
+}

@@ -17,10 +17,10 @@ export const notifyOpenSchema = z.object({
 export type NotifyOpen = z.output<typeof notifyOpenSchema>
 
 /** Sent to the window a click on a notification raised: take the note with `notify.pending` now. */
-export const notifyOpen = eventChannel('notify.open', z.object({}))
+export const notifyOpen = eventChannel('notify.open', z.object({}), 'local')
 
 /** The note a click left for the window it opened, taken once; null when there is none. */
-export const notifyPending = invokeChannel('notify.pending', z.void(), z.object({ note: notifyOpenSchema.nullable() }))
+export const notifyPending = invokeChannel('notify.pending', z.void(), z.object({ note: notifyOpenSchema.nullable() }), 'local')
 
 declare module './channels' {
   interface IpcContract {
