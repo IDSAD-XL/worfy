@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "name": "auction",
+  "title": "Auction",
+  "language": {
+    "reports": "ru",
+    "team": "ru"
+  },
+  "commands": {
+    "verify": "pnpm verify"
+  },
+  "parallel": "worktrees",
+  "tickets": {
+    "root": ".scratch/",
+    "status_tool": "~/.claude/bin/ticket",
+    "epic_status": "~/.claude/bin/epic-status"
+  },
+  "workflow": {
+    "preflight": "~/.claude/bin/preflight --epic <эпик>",
+    "finish": "pr-green-ci"
+  },
+  "numbering": {
+    "reserve_with": "~/.claude/bin/preflight",
+    "migrations": {
+      "generate": "pnpm db:generate"
+    }
+  }
+}

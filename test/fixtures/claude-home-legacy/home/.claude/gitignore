@@ -1,0 +1,14 @@
+# Allowlist: version only the hand-written workflow, never transcripts, caches or credentials.
+/*
+!/.gitignore
+!/CLAUDE.md
+!/settings.json
+!/agents/
+!/skills/
+!/bin/
+!/hooks/
+!/profiles/
+!/gate/
+/gate/*
+!/gate/config.json
+/profiles/*/state/
