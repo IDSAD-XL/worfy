@@ -166,6 +166,7 @@ Contract на двух Machine — на стенде Ticket-а 01 (`test/contrac
 - `test/contract/ipc-renderer.test.tsx` — его test-овые каналы `client.*` тоже объявлены через `invokeChannel`/`eventChannel`
 - `test/contract/link-bench.ts` — опция `addClient` стенда
 - `test/contract/link-server.test.ts` — только ожидаемый текст отказа `projects.list` (теперь «access is off»)
+- `src/shared/ipc/viewport.ts` — домен Ticket-а 06, влитого раньше (ca7a3b9): `viewport.get`, `viewport.set` — `local`
 - Доработка после ревью (круг 1, согласовано с оркестратором): `src/main/link/caller.ts` (новый — кто вызвал и «внутри Project-ов»), `src/main/projects/store.ts`, `src/main/ipc/projects.ts`, `src/main/ipc/agent.ts`, `src/main/ipc/claude-home.ts`, `src/main/ipc/bindings.ts`, `src/main/ipc/workflow.ts`, `src/main/ipc/checks.ts`, `test/unit/link-caller.test.ts` (новый), `test/contract/clients.test.ts` (список Project-ов для корней fixture-а Claude home)
 
 Имена файлов связи — из плана Ticket-а 01; если в его «Итог» они другие, исполнитель правит список.
@@ -179,8 +180,9 @@ Contract на двух Machine — на стенде Ticket-а 01 (`test/contrac
 последний аргумент `ChannelAccess` = `link | project | desktop | local`; он лежит в объекте канала.
 Размечены все 115 каналов на момент работы (`link` — 1, `desktop` — 5, `local` — 24, `project` — 85),
 в том числе `terminal.takeSize`, `terminal.started` (Ticket 05) и каналы трёх доменов, которых не
-было в «Где в коде»: `firstRun.*`, `harness.*`, `harnessMigration.*` — все `local`. Каналов
-`viewport.*` Ticket-а 06 на базе ещё нет: кто вливается вторым, ставит им `local`.
+было в «Где в коде»: `firstRun.*`, `harness.*`, `harnessMigration.*` — все `local`. После rebase на
+Ticket 06 (ca7a3b9) — ещё `viewport.get` и `viewport.set`, `local`: камера Canvas — состояние машины
+экрана (ADR-0053, пункт 2); всего каналов 117, `local` — 26.
 
 **Канал без пометки роняет typecheck** (временная правка `src/shared/ipc/app.ts`, пометка убрана):
 

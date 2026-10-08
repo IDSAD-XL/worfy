@@ -86,7 +86,8 @@ describe('the initial marks', () => {
 
   it('local: the state of the screen machine, every other link channel, the Harness and the first run', () => {
     const local = marked('local')
-    for (const name of ['projects.select', 'view.get', 'view.changed', 'notify.pending', 'notify.open', 'limits.open', 'limits.changed', 'app.version']) {
+    // viewport.* (worfy-link ticket 06): the Canvas camera of the screen's own machine.
+    for (const name of ['projects.select', 'view.get', 'view.changed', 'notify.pending', 'notify.open', 'limits.open', 'limits.changed', 'app.version', 'viewport.get', 'viewport.set']) {
       expect(local, name).toContain(name)
     }
     // A Linked machine never switches access on, links or revokes machines for the owner.
