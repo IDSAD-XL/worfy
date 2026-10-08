@@ -10,10 +10,12 @@
 // takes what the move created in the Harness home away, and puts the qmd record back into
 // .claude.json at its old place.
 //
-// Nothing written after the move is lost (ADR-0047, ADR-0019): a path whose content is no longer what
+// What changed after the move is kept (ADR-0047, ADR-0019): a path whose content is no longer what
 // the move left there — a lesson /retro wrote into a moved Profile, a rules.md edit, a lock a live
-// Session made, settings.json changed by Claude Code — is moved into <backup>/after/ before the
-// backup's version takes its place. The same goes for the .git a move created in the Harness home.
+// Session made, settings.json changed by Claude Code — is copied into <backup>/after/ (after-2/, …
+// for a later run, so no run overwrites what an earlier one kept) before the backup's version takes
+// its place; so is the .git a move created in the Harness home. A finished restore marks the
+// manifest (restoredAt), and a second run changes nothing.
 // Every path of the manifest is checked first: inside the Claude home or the Harness home of the
 // manifest, or the restore stops before it changes anything.
 //
@@ -61,6 +63,8 @@ export interface Manifest {
   commits: { claudeHome: string | null; harnessHome: string | null }
   /** Whether the move ran `git init` in the Harness home (a restore then moves its .git into after/). */
   harnessGitInit: boolean
+  /** Set by a restore that finished: the next run of restore.mjs changes nothing. */
+  restoredAt?: string
 }
 
 /**
@@ -93,8 +97,8 @@ const SOURCE = String.raw`#!/usr/bin/env node
 //   node <this folder>/restore.mjs --keep-plugin restores and leaves the plugin as it is
 //
 // What the move took or changed is in this folder (claude/, manifest.json). What changed after the
-// move is not lost: it goes to after/ in this folder before the old version takes its place.
-// Exit code 0: restored.
+// move is not lost: it goes to after/ in this folder (after-2/, … for a later run) before the old
+// version takes its place. Once restored, a second run changes nothing. Exit code 0: restored.
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -140,9 +144,9 @@ function revert(dir, sha, log) {
   log('Could not revert ' + sha.slice(0, 8) + ' in ' + dir + ' (' + String(run.stderr || '').trim().split('\n')[0] + '); the files are restored from the backup anyway.')
 }
 
-// Copies a path into after/<area>/<rel> of the backup; with move, moves it there. Never deletes it.
-function keepAside(backupDir, area, rel, path, log, move) {
-  const target = join(backupDir, 'after', area, rel)
+// Copies a path into <afterDir>/<area>/<rel>; with move, moves it there. Never deletes it.
+function keepAside(afterDir, area, rel, path, log, move) {
+  const target = join(afterDir, area, rel)
   mkdirSync(dirname(target), { recursive: true })
   let moved = false
   if (move) {
@@ -180,6 +184,16 @@ export function restore(backupDir, options = {}) {
   const log = options.log || ((line) => process.stdout.write(line + '\n'))
   const manifest = JSON.parse(readFileSync(join(backupDir, 'manifest.json'), 'utf8'))
   const { claudeHome, harnessHome } = manifest
+  // Restored once already: a second run would take the restored files for changes and save them over
+  // what the first run kept, so it stops here.
+  if (manifest.restoredAt) {
+    log('Already restored at ' + manifest.restoredAt + ' from this backup: nothing to do.')
+    return
+  }
+  // Each run saves into its own folder (after/, then after-2/, …): one that stopped before it was
+  // marked restored never has what it kept overwritten by the next.
+  let afterDir = join(backupDir, 'after')
+  for (let n = 2; existsSync(afterDir); n += 1) afterDir = join(backupDir, 'after-' + n)
   const afterMove = manifest.afterMove || {}
   const createdHashes = manifest.createdHashes || {}
 
@@ -203,11 +217,11 @@ export function restore(backupDir, options = {}) {
   for (const { rel, target, source } of touched) {
     const expected = afterMove[rel] === 'pending' ? treeHash(source) : afterMove[rel]
     const current = treeHash(target)
-    if (current !== null && current !== expected) keepAside(backupDir, 'claude', rel, target, log, false)
+    if (current !== null && current !== expected) keepAside(afterDir, 'claude', rel, target, log, false)
   }
   for (const { rel, path } of created) {
     const current = treeHash(path)
-    if (current !== null && current !== createdHashes[rel]) keepAside(backupDir, 'harness', rel, path, log, false)
+    if (current !== null && current !== createdHashes[rel]) keepAside(afterDir, 'harness', rel, path, log, false)
   }
 
   revert(claudeHome, manifest.commits.claudeHome, log)
@@ -220,10 +234,10 @@ export function restore(backupDir, options = {}) {
     cpSync(source, target, { recursive: true, verbatimSymlinks: true })
   }
   for (const { path } of created) rmSync(path, { force: true })
-  if (manifest.harnessGitInit && existsSync(harnessGit)) keepAside(backupDir, 'harness-git', '.git', harnessGit, log, true)
+  if (manifest.harnessGitInit && existsSync(harnessGit)) keepAside(afterDir, 'harness-git', '.git', harnessGit, log, true)
   for (const { rel, path } of createdDirs) {
     if (!existsSync(path)) continue
-    for (const name of readdirSync(path)) keepAside(backupDir, 'harness', join(rel, name), join(path, name), log, true)
+    for (const name of readdirSync(path)) keepAside(afterDir, 'harness', join(rel, name), join(path, name), log, true)
     rmdirSync(path)
   }
 
@@ -241,6 +255,8 @@ export function restore(backupDir, options = {}) {
     }
     log('Put mcpServers.' + record.key + ' back into ' + path + '.')
   }
+  manifest.restoredAt = new Date().toISOString()
+  writeFileSync(join(backupDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
   log('Restored the old Harness in ' + claudeHome + ' from ' + backupDir + '.')
 }
 

@@ -742,6 +742,55 @@ describe('boundaries, races and what changed after the move', () => {
     expect(existsSync(join(projects, 'worfy'))).toBe(false)
   })
 
+  it('a second restore.mjs keeps what the first one saved in after/: it says the backup is restored and changes nothing', async () => {
+    expect((await applyMigration(selection(plan()), applyOptions())).outcome).toBe('done')
+    const settingsPath = join(sandbox.claudeHome, 'settings.json')
+    writeFileSync(settingsPath, `${JSON.stringify({ ...readJson(settingsPath), theme: 'light' }, null, 2)}\n`)
+    const saved = join(backupDir(), 'after', 'claude', 'settings.json')
+    expect(runRestore().status).toBe(0)
+    expect(readJson(saved).theme).toBe('light')
+    const before = treeOf(sandbox.root, everything)
+    const again = runRestore()
+    expect(again.status).toBe(0)
+    expect(again.stdout).toMatch(/^Already restored at .+ from this backup: nothing to do\./m)
+    expect(readJson(saved).theme).toBe('light')
+    expect(treeOf(sandbox.root, everything)).toEqual(before)
+  })
+
+  it('a failed move kept a change in after/, then the owner runs restore.mjs of that backup: the change is still there', async () => {
+    const settingsPath = join(sandbox.claudeHome, 'settings.json')
+    const result = await applyMigration(
+      selection(plan()),
+      applyOptions({
+        afterStep: (step) => {
+          if (step !== 'claude-md') return
+          writeFileSync(settingsPath, `${JSON.stringify({ ...readJson(settingsPath), theme: 'light' }, null, 2)}\n`)
+          throw new Error('injected after a live write')
+        },
+      }),
+    )
+    expect(result).toMatchObject({ outcome: 'failed', rolledBack: true, backupDir: backupDir() })
+    const saved = join(backupDir(), 'after', 'claude', 'settings.json')
+    expect(readJson(saved).theme).toBe('light')
+    const restored = runRestore()
+    expect(restored.status).toBe(0)
+    expect(readJson(saved).theme).toBe('light')
+  })
+
+  it('a restore that stopped before it was marked done: the next run saves into a new after-<n>/, never over after/', async () => {
+    expect((await applyMigration(selection(plan()), applyOptions())).outcome).toBe('done')
+    const settingsPath = join(sandbox.claudeHome, 'settings.json')
+    writeFileSync(settingsPath, `${JSON.stringify({ ...readJson(settingsPath), theme: 'light' }, null, 2)}\n`)
+    expect(runRestore().status).toBe(0)
+    // As if the first run had stopped before marking the backup restored.
+    const manifestPath = join(backupDir(), 'manifest.json')
+    const { restoredAt: _restoredAt, ...manifest } = readJson(manifestPath)
+    writeFileSync(manifestPath, JSON.stringify(manifest))
+    expect(runRestore().status).toBe(0)
+    expect(readJson(join(backupDir(), 'after', 'claude', 'settings.json')).theme).toBe('light')
+    expect(readJson(join(backupDir(), 'after-2', 'claude', 'settings.json')).theme).toBe('dark')
+  })
+
   it('restore.mjs and the move fingerprint files the same way', async () => {
     expect((await applyMigration(selection(plan()), applyOptions())).outcome).toBe('done')
     const script = (await import(/* @vite-ignore */ pathToFileURL(join(backupDir(), 'restore.mjs')).href)) as { treeHash: (path: string) => string | null }
