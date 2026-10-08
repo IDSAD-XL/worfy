@@ -1,9 +1,10 @@
-# Передача контекста — снимок на 2026-10-08 (UTC), main @ 87b0723
+# Передача контекста — снимок на 2026-10-08 (UTC), main @ 3625fef
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3: Harness — правила, skills, agents и скрипты владельца — становится plugin-ом worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–21, `epic-status` — 21/27; 27 — бесплатная часть влита, Ticket `blocked`.
-- Wave 9 `worfy-harness` закрыта: 18 — `GH_TOKEN` аккаунта Project-а ставит hook `SessionStart`, ручной префикс из skills и agents убран (PR #147); 19 — экран первого запуска, действия только после Confirm (PR #148). Wave 8: 17 — qmd в plugin-е (PR #145), 20 — узкий круг ревью в Autopilot (PR #144).
+- `worfy-harness` (E3: Harness — правила, skills, agents и скрипты владельца — становится plugin-ом worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–21, `epic-status` — 21/27; 27 — бесплатная часть влита, Ticket `blocked`; 22 — `blocked` гейтом, работа в открытом PR #150.
+- Wave 10 `worfy-harness`: 22 (Silent mode) выведен гейтом после узкого круга — локальный финиш local-green ещё теряет документы и перематывает main при упавшем коммите ([Ticket 22](.scratch/worfy-harness/issues/22-silent-mode-в-harness.md), «Итог»).
+- Wave 9: 18 — `GH_TOKEN` аккаунта Project-а ставит hook `SessionStart`, ручной префикс из skills и agents убран (PR #147); 19 — экран первого запуска, действия только после Confirm (PR #148). Wave 8: 17 — qmd в plugin-е (PR #145), 20 — узкий круг ревью в Autopilot (PR #144).
 - `worfy-harness` 16 сделан 2026-10-08: машина владельца на plugin `worfy` 0.2.0+77e4490 ([Ticket 16](.scratch/worfy-harness/issues/16-переход-машины-владельца-на-plugin.md)): откат и резервная копия — в «Итог». qmd в Session-ах нет, пока владелец не сделает шаги Ticket-а 17.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 18. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`.
 - Работа над `worfy-week` 14 лежит только в локальной ветке `wip/worfy-week-14`, на GitHub её нет. Как вернуть Ticket — «Итог» Ticket-а 14.
@@ -15,9 +16,10 @@
 - Подтвердить решения, принятые без владельца (пометки «подтвердить» в «Итог» Ticket-ов): `worfy-week` 03–07, 09, 10, 12, 15, 17, 18; `worfy-harness` 01, 02, 04–09, 11–14, 17, 19, 20, 27.
 - Вопросы: `worfy-harness` 05 — как давать «Standing authorization» и переводить ли подписи блока статуса; 08 — смысл фразы `continuous-audit/SKILL.md:228-229`; `worfy-daily` 25 — MCP prompt в slash-меню; `worfy-week` 17 — relaunch после таймаута `halt`.
 - `worfy-harness` 17: включить qmd — обновить plugin, записать согласие на модели, `qmd-collections worfy` и `auction` (у `auction` путь `update:` ведёт в удалённый `~/.claude/bin`) — [Ticket 17](.scratch/worfy-harness/issues/17-qmd-модели-и-коллекции-в-harness.md), «Итог».
+- `worfy-harness` 22: ещё один круг по двум находкам узкого круга или новый Ticket (за ним стоят 23–26); разрешить ли пробы `claude -p` с `--no-session-persistence` (пункт 7) — [Ticket 22](.scratch/worfy-harness/issues/22-silent-mode-в-harness.md), «Итог».
 - `worfy-harness` 27: как дать прогонам eval git (brew git, правка Harness или ждать Claude Code) и когда гонять полный набор — [Ticket 27](.scratch/worfy-harness/issues/27-eval-кейсы-harness-через-plugin-eval.md), «Итог».
 - Личное в истории: `worfy-harness` 01 — коммиты PR #106 с UUID аккаунта (чистит только поддержка GitHub); 02 — пути `/Users/alexey/Work/…` в `harness/` и в истории импорта. Ответ — в «Итог» Ticket-ов.
-- Мусор на машине: удалить ли 13 папок транскриптов spike-а `~/.claude/projects/*worfy-harness-probe*` (`worfy-harness` 01) и `~/.claude/worfy-harness/worktree-sessions/` (`worfy-harness` 11).
+- Мусор на машине: удалить ли 13 папок транскриптов spike-а `~/.claude/projects/*worfy-harness-probe*` (`worfy-harness` 01) `~/.claude/worfy-harness/worktree-sessions/` (`worfy-harness` 11) и пустую `~/.claude/projects/-private-tmp-worfy-harness-w10-impl-22-probe-t0/` (проба `worfy-harness` 22).
 - Реестр Gate и Profile worfy вне репозитория: в `root_if` записи `worfy` дописать `|^harness/|(^|/)HANDOFF\.md$` («Итог» `worfy-harness` 02); в Profile `docs.handoff.check` — `node scripts/check-handoff.mjs`, в `rules.md` убрать «скрипта проверки … пока нет».
 - Проверки только для владельца: знак worfy в Dock и Finder (`worfy-daily` 31), щелчок по баннеру с выключенным Focus (`worfy-mvp` 21), запрос разрешения на уведомления (`worfy-daily` 03), трекпад в Terminal (`worfy-daily` 13), fish (`worfy-mvp` 06).
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).
@@ -39,11 +41,12 @@
 
 ## Дальше
 
-- Wave-ы `worfy-harness` на plugin-е по блокерам: 22 и дальше; платная часть 27 — после ответа про git — spec, раздел «Волны». Если E3 встанет — `worfy-link` (владелец разрешил начать, пока E3 ждёт).
+- Wave-ы `worfy-harness` на plugin-е по блокерам: 22 ждёт решения владельца, за ним 23–26; платная часть 27 — после ответа про git — spec, раздел «Волны». Если E3 встанет — `worfy-link` (владелец разрешил начать, пока E3 ждёт).
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
 - Ждут условия (проверит агент): упор в Limits (`worfy-daily` 05), наблюдатель касаний (`worfy-daily` 04), workflow-скрипт в Autopilot (`worfy-daily` 29, 17), бейджи у Ticket-а с открытым PR (`worfy-mvp` 17, `worfy-week` 01).
 - Неделя работы владельца из Stable copy (условие 4 E2 и цель `worfy-week`): каждый дефект и каждое вмешательство человека — Ticket `worfy-week`, следующий номер 19.
-- Кандидаты в Ticket-ы: починка `epic-frame.spec.ts:721` (`worfy-week` 06), изоляция `preflight.test.sh` (`worfy-harness` 11), абсолютный путь к `gh` (`worfy-harness` 01), PATH с node в hook-е `gh-token-env.sh` (`worfy-harness` 18), панель выделения поверх шапки рамки (`worfy-week` 10).
+- Кандидаты в Ticket-ы: `done` только с влитой ветки в `src/main/workflow/reader.ts:321` (`worfy-harness` 22).
+- Ещё кандидаты: починка `epic-frame.spec.ts:721` (`worfy-week` 06), изоляция `preflight.test.sh` (`worfy-harness` 11), абсолютный путь к `gh` (`worfy-harness` 01), PATH с node в hook-е `gh-token-env.sh` (`worfy-harness` 18), панель выделения поверх шапки рамки (`worfy-week` 10).
 - После E3 — `worfy-link` (ведёт Session на Mac) и `worfy-windows` (Session на Windows-ПК) параллельно. PR Windows с общим кодом получают метку `needs-mac-gate`, их вливает Session на Mac (spec `worfy-windows`, Q30–Q33).
 - E4 (подпись Developer ID и нотаризация) — после `worfy-link` и `worfy-windows` и только при первом внешнем пользователе ([roadmap](docs/roadmap.md)).
 
