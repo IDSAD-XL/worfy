@@ -297,7 +297,8 @@ not block, the verdict carries it as a line (`VERIFIED; debt: …`), and the doc
 something new, and a ticket on the critical path blocks everything that depends on it.
 
 A second `REJECTED` takes the ticket out of the wave: a `blocked` row in the report table,
-`ticket block` in the documents PR (section 4, item 4). The exception is the **narrow fix round**:
+`ticket block` in the documents PR (section 4, item 4; with `local-green` — in the wave's documents
+commit described there). The exception is the **narrow fix round**:
 a ticket on the critical path — it has ≥3 transitively dependent tickets that are not `done` (by
 `blockedNums` from `epic-status --json`) — whose confirmed second-round findings are not
 high-severity. Sceptic agents confirm them — one `worfy:reviewer` agent per finding, tasked with
@@ -338,9 +339,10 @@ item 4.
 repository on this machine, one at a time, under the lock below. The steps, their doers and the block
 are in skill `/worfy:ship-ticket`, step 11: the implementer puts its branch on top of the main branch
 (the rebase is always the implementer's, in its own worktree — the orchestrator sends the branch back
-through `SendMessage`, like a `DIRTY` PR); the orchestrator commits the ticket's documents on the ticket
-branch (Full mode) and runs `gate full` there — exit code 0 and the line `[gate] зелено (…)`; then the
-main branch is fast-forwarded to the branch, `MERGED=0` is the proof. Nothing is pushed.
+through `SendMessage`, like a `DIRTY` PR); the orchestrator runs `gate full` there — exit code 0 and
+the line `[gate] зелено (…)`; only then, under the lock, the ticket's documents are committed on the
+ticket branch (Full mode) and the main branch is fast-forwarded to it in the same block, `MERGED=0` is
+the proof. A red gate leaves no documents commit. Nothing is pushed.
 
 Each step is status and merge as two commands; "no checks reported" is what `gh pr checks` prints
 on a conflict, not a value of `mergeStateStatus`:
@@ -409,14 +411,35 @@ passes it.
 
 4. The documents PR — last, after production is verified. `ticket` edits ticket files in the worktree
    where it runs, so the wave's statuses and one state-file edit per wave go on its branch.
-   With `local-green` there is no documents PR and no separate documents commit: each ticket's
-   `ticket done` and result section are one commit on **its own branch**, made by the orchestrator
-   before the fast-forward (`/worfy:ship-ticket`, step 11, step 2), and the wave's state-file edit
-   goes into that commit of the wave's last merged ticket — the fast-forward carries them into the
-   main branch. A ticket removed from the wave gets its `ticket block` in that same last commit. (Decided
-   without the owner, confirm: the alternative was a separate commit on the main branch under the
-   lock, which needs the main branch checked out somewhere and with `single` it is not.) In Silent
-   mode — neither, see the end of this item.
+   With `local-green` there is no documents PR: each ticket's `ticket done` and result section are
+   one commit on **its own branch**, made after its green `gate full`, under the lock, by the same
+   block that fast-forwards the main branch (`/worfy:ship-ticket`, step 11, step 3). The wave's
+   state-file edit and `ticket block` of the removed tickets ride in that commit of the wave's last
+   merged ticket — while the wave still has a `VERIFIED` ticket not yet merged. If it has none (the
+   last ticket was removed after the others had merged, or every ticket was removed), the wave's
+   documents are one commit on the main branch, under the lock: in the tree where the main branch is
+   checked out, or, when it is checked out nowhere (`single`), in a temporary worktree of the main
+   branch, removed afterwards. `<main branch>` is the `MAIN=` line of the merge block:
+
+```bash
+M=<main branch>
+W=$(git -C <repo> worktree list --porcelain | awk -v b="branch refs/heads/$M" '/^worktree /{w=substr($0,10)} $0==b{print w}')
+TMPW=''; if [ -z "$W" ]; then TMPW=$(mktemp -d)/main && git -C <repo> worktree add -q "$TMPW" "$M" && W=$TMPW; fi
+echo "TREE=$W"; echo "TEMPORARY=${TMPW:-no}"
+```
+
+   In `TREE`: `ticket block` for each removed ticket (run from `TREE`), the state file, the result
+   sections. Then, still under the lock:
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+W=<TREE>
+DOCS=(); for f in tickets.root docs.handoff.path; do p=$(F "$f"); [ -n "$p" ] && [ "$p" != null ] && DOCS+=("$p"); done
+git -C "$W" add -A -- "${DOCS[@]}" && git -C "$W" commit -q -m "<wave documents commit message>"; echo "EXIT=$?"
+```
+
+   and `git -C <repo> worktree remove <TREE>` when `TEMPORARY` was not `no`. (Decided without the
+   owner, confirm.) In Silent mode — neither, see the end of this item.
    The state file (`F docs.handoff`: `path`, `kind`, `check`) is a snapshot; its rules are in
    skill `/worfy:ship-ticket`, step 11. The wave rewrites only its own epic's lines: what is in
    progress and what waits for the owner. Do not add a block per wave; the details of the wave
@@ -534,7 +557,10 @@ branch: no last `gate: VERIFIED` — run the gate (section 3); if it is red, the
 finished — continue `/worfy:ship-ticket` on that branch up to a green step 6. `gate: VERIFIED`
 exists but `state` is not `done` — the documents commit on the ticket branch and the local merge are
 still ahead (section 4; `git merge-base --is-ancestor <branch> <main branch>` says whether the merge
-happened). Rework rounds — the number
+happened). `state` is `done` on the branch, but `git merge-base --is-ancestor <branch> <main branch>`
+gives 1 — the merge is still ahead and the ticket is not closed: the documents commit was made and the
+fast-forward did not follow (a session break, a failed merge); run the merge block again (`/worfy:ship-ticket`,
+step 11, step 3) — it does not commit the documents a second time. Rework rounds — the number
 of `gate: REJECTED` commits. A `gate: NARROW:` commit means the narrow round has been given; the
 last `gate: NARROW: VERIFIED` or `gate: NARROW: REJECTED` is the ticket's verdict.
 

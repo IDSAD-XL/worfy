@@ -305,6 +305,27 @@ Text-проверки пунктов 2–7 — в `harness/bin/tests/epic-wave-s
 замком `/tmp/worfy-e2e.lock` на cf3b74a — код 0, «[gate] зелено (full)». Долг, не доработан (перенесёт
 Orchestrator): guard пропускает `git push origin HEAD:<эпик>/05`, `git merge -m`, `git tag`, `$VAR`.
 
+**Узкий круг** (гейт, круг 2: REJECTED на 6738ee8; находки подтвердили скептики, комментарий `NARROW:`
+в PR #150).
+- A [med]. При `local-green` документы Ticket-а (`ticket done`, «Итог»; у последнего вливаемого
+  Ticket-а Wave — HANDOFF и `ticket block` снятых) коммитятся только после зелёного `gate full`.
+  Коммит делает тот же блок вливания, под замком: сначала проверка «ветка поверх основной», потом
+  коммит документов на ветке Ticket-а, сразу за ним fast-forward. Красный gate или `NOT ON TOP` не
+  оставляют коммита документов — `done` лежит незакоммиченным в дереве Ticket-а до следующей попытки.
+  Окно между коммитом и перемоткой (обрыв Session) закрывает правило возобновления в `epic-wave`:
+  «`done` на ветке, а `merge-base --is-ancestor <ветка> <основная>` даёт 1 — вливание ещё впереди,
+  Ticket не закрыт; повторить блок, второй раз документы он не коммитит». Test-ы — в
+  `silent-mode.test.sh`, раздел 5b. На mutant-е «коммит документов до проверки NOT ON TOP» ветка не
+  поверх main получила `done`, и test покраснел.
+- B [med]. Если в Wave не осталось невлитого `VERIFIED`-Ticket-а (последний снят, когда остальные
+  влиты, или сняты все), документы Wave идут одним коммитом в основную ветку под замком. Коммит
+  делается в дереве, где выписана основная ветка, а если она нигде не выписана (`single`) — во временном
+  worktree основной ветки, который потом убирают. Два блока — `epic-wave`, раздел 4, пункт 4. Строка
+  про `ticket block` в разделе 3 для `local-green` указывает на этот коммит. Решено без владельца,
+  подтвердить. Test-ы — в `silent-mode.test.sh`, раздел 5b (временное дерево и основной checkout).
+  На mutant-е без временного дерева test покраснел.
+Text-проверки A и B — `epic-wave-ship-ticket.test.sh`, раздел 7b: на текстах 6738ee8 — 9 красных.
+
 **Пункт 7 — не сделан, проба не проведена.** Обе пробы — 2026-10-08, cwd в scratchpad.
 1. `CLAUDE_CONFIG_DIR=/tmp/worfy-harness-w10/impl-22/probe/cfg claude -p "Reply with the single word
    PONG." --model haiku --max-budget-usd 0.2 --no-session-persistence` → exit 1, «Not logged in · Please

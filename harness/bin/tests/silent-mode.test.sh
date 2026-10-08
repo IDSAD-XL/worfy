@@ -176,7 +176,7 @@ for sh in bash zsh; do
     b="fix/finish-$sh"
     git -C "$R" worktree add -q -b "$b" "$T/wt-$sh" main 2>/dev/null
     echo "$sh" >"$T/wt-$sh/$sh.txt"; git -C "$T/wt-$sh" add -A && git -C "$T/wt-$sh" commit -q -m "add $sh"
-    code="${FIN//<repo>/$R}"; code="${code//<ticket branch>/$b}"
+    code="${FIN//<repo>/$R}"; code="${code//<ticket branch>/$b}"; code="${code//<ticket worktree>/$T/wt-$sh}"
     out="$(cd "$R" && CLAUDE_PLUGIN_ROOT="$HARNESS" $sh -c "$code" 2>&1)"
     if [[ "$out" == *"MERGED=0"* ]] && git -C "$R" merge-base --is-ancestor "$b" main && [ -f "$R/$sh.txt" ]; then
         ok "$sh: the local finish block fast-forwards main to the ticket branch"
@@ -185,7 +185,7 @@ done
 # A branch that is not on top of main is not merged.
 git -C "$R" worktree add -q -b fix/stale "$T/wt-stale" main~2 2>/dev/null
 echo s >"$T/wt-stale/s.txt"; git -C "$T/wt-stale" add -A && git -C "$T/wt-stale" commit -q -m stale
-code="${FIN//<repo>/$R}"; code="${code//<ticket branch>/fix/stale}"
+code="${FIN//<repo>/$R}"; code="${code//<ticket branch>/fix/stale}"; code="${code//<ticket worktree>/$T/wt-stale}"
 out="$(cd "$R" && CLAUDE_PLUGIN_ROOT="$HARNESS" bash -c "$code" 2>&1)"
 [[ "$out" == *"NOT ON TOP"* && "$out" == *"MERGED=1"* ]] && ! git -C "$R" merge-base --is-ancestor fix/stale main \
     && ok "a branch not on top of main is not merged (NOT ON TOP, MERGED=1)" || bad "stale branch: ${out:0:300}"
@@ -193,7 +193,7 @@ out="$(cd "$R" && CLAUDE_PLUGIN_ROOT="$HARNESS" bash -c "$code" 2>&1)"
 git -C "$R" checkout -q --detach
 git -C "$R" worktree add -q -b fix/detached "$T/wt-det" main 2>/dev/null
 echo d >"$T/wt-det/d.txt"; git -C "$T/wt-det" add -A && git -C "$T/wt-det" commit -q -m det
-code="${FIN//<repo>/$R}"; code="${code//<ticket branch>/fix/detached}"
+code="${FIN//<repo>/$R}"; code="${code//<ticket branch>/fix/detached}"; code="${code//<ticket worktree>/$T/wt-det}"
 out="$(cd "$R" && CLAUDE_PLUGIN_ROOT="$HARNESS" bash -c "$code" 2>&1)"
 [[ "$out" == *"MERGED=0"* ]] && git -C "$R" merge-base --is-ancestor fix/detached main \
     && ok "main checked out nowhere: the block moves main to the branch" || bad "detached main: ${out:0:300}"
@@ -205,7 +205,7 @@ P="$HARNESS_HOME/projects/sp/profile.json"; cp "$P" "$T/profile.saved"
 jq '.worktree.base = null' "$T/profile.saved" >"$P"
 single() { # <branch> → the block's output, run from the main checkout standing on <branch>
     git -C "$R" checkout -q -b "$1" main && echo "$1" >"$R/$(echo "$1" | tr / -).txt" && git -C "$R" add -A && git -C "$R" commit -q -m "add $1"
-    local code="${FIN//<repo>/$R}"; code="${code//<ticket branch>/$1}"
+    local code="${FIN//<repo>/$R}"; code="${code//<ticket branch>/$1}"; code="${code//<ticket worktree>/$R}"
     (cd "$R" && CLAUDE_PLUGIN_ROOT="$HARNESS" bash -c "$code" 2>&1)
 }
 git -C "$R" remote set-head origin main >/dev/null 2>&1
@@ -235,6 +235,65 @@ out="$(cd "$R" && "$BIN/ticket" done checkout-flow 05 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && grep -qx "Status: done — $(date -u +%F)" "$f" && ok "ticket done without --pr writes Status: done with no PR" \
     || bad "ticket done: exit $rc, out: ${out:0:200}"
 [ -z "$(git -C "$R" status --porcelain)" ] && ok "the repository has no workflow files after the run" || bad "repository dirty: $(git -C "$R" status --porcelain)"
+
+# --- 5b. Full mode + local-green: the ticket's documents ride the merge (narrow round) ------------------
+# The documents (ticket done, the result section) are prepared uncommitted in the ticket's worktree; the
+# merge block commits them only on a branch that is on top of main, and fast-forwards right after. A branch
+# that is not on top gets no documents commit, so no unmerged branch carries done.
+cat >"$HARNESS_HOME/projects/fp/profile.json" <<EOF
+{"schema":2,"name":"fp","mode":"full","attribution":"on","workflow":{"finish":"local-green"},
+ "worktree":{"base":"main"},"tickets":{"root":".scratch/"},"docs":{"handoff":{"path":"HANDOFF.md"}}}
+EOF
+mkdir -p "$FR/.scratch/ep/issues"
+for n in 01 02 03; do printf '# %s — t\n\nStatus: claimed\n' "$n" >"$FR/.scratch/ep/issues/$n-t.md"; done
+echo '# state' >"$FR/HANDOFF.md"; git -C "$FR" add -A && git -C "$FR" commit -q -m "tickets"
+fullrun() { # <branch> <worktree> → the merge block's output
+    local code="${FIN//<repo>/$FR}"; code="${code//<ticket branch>/$1}"; code="${code//<ticket worktree>/$2}"
+    code="${code//<documents commit message>/close ticket}"
+    (cd "$FR" && CLAUDE_PLUGIN_ROOT="$HARNESS" bash -c "$code" 2>&1)
+}
+git -C "$FR" worktree add -q -b ep/01 "$T/fw1" main 2>/dev/null
+echo c >"$T/fw1/c1.txt"; git -C "$T/fw1" add -A && git -C "$T/fw1" commit -q -m "code 01"
+(cd "$T/fw1" && "$BIN/ticket" done ep 01 >/dev/null && echo '- debt' >>HANDOFF.md)
+out="$(fullrun ep/01 "$T/fw1")"
+if [[ "$out" == *"MERGED=0"* && "$out" == *"MAIN=main"* ]] && grep -q '^Status: done' "$FR/.scratch/ep/issues/01-t.md" && grep -q -- '- debt' "$FR/HANDOFF.md" \
+   && [ "$(git -C "$FR" log -1 --format=%s main)" = "close ticket" ] && [ -z "$(git -C "$T/fw1" status --porcelain)" ]; then
+    ok "full + local-green: the documents are committed on the ticket branch and reach main with the fast-forward"
+else bad "full docs ride: ${out:0:300}; main: $(git -C "$FR" log -1 --format=%s main)"; fi
+git -C "$FR" worktree add -q -b ep/02 "$T/fw2" main~1 2>/dev/null
+echo c >"$T/fw2/c2.txt"; git -C "$T/fw2" add -A && git -C "$T/fw2" commit -q -m "code 02"
+(cd "$T/fw2" && "$BIN/ticket" done ep 02 >/dev/null)
+out="$(fullrun ep/02 "$T/fw2")"
+if [[ "$out" == *"NOT ON TOP"* && "$out" == *"MERGED=1"* ]] && [ "$(git -C "$T/fw2" log -1 --format=%s)" = "code 02" ] \
+   && [ "$(git -C "$FR" show ep/02:.scratch/ep/issues/02-t.md | grep -c '^Status: done')" = 0 ]; then
+    ok "full + local-green: a branch not on top gets no documents commit — no unmerged branch carries done"
+else bad "full not on top: ${out:0:300}; last commit: $(git -C "$T/fw2" log -1 --format=%s)"; fi
+
+# The wave's documents when no VERIFIED ticket is left to merge: a commit on main, in a temporary worktree
+# when main is checked out nowhere (the blocks of epic-wave, section 4, item 4).
+WOPEN="$(block "$SKILLS/epic-wave/SKILL.md" 'TEMPORARY=')"; WDOCS="$(block "$SKILLS/epic-wave/SKILL.md" 'wave documents commit message')"
+[ -n "$WOPEN" ] && [ -n "$WDOCS" ] || bad "the wave documents blocks are not in epic-wave/SKILL.md"
+wavedocs() { # <ticket to block> → output of both blocks around a ticket block
+    local o tree tmp code
+    code="${WOPEN//<repo>/$FR}"; code="${code//<main branch>/main}"
+    o="$(cd "$FR" && bash -c "$code" 2>&1)"; tree="${o#*TREE=}"; tree="${tree%%$'\n'*}"; tmp="${o#*TEMPORARY=}"
+    (cd "$tree" && "$BIN/ticket" block ep "$1" "removed from the wave" >/dev/null)
+    code="${WDOCS//<repo>/$FR}"; code="${code//<TREE>/$tree}"; code="${code//<wave documents commit message>/wave documents}"
+    o="$o"$'\n'"$(cd "$FR" && CLAUDE_PLUGIN_ROOT="$HARNESS" bash -c "$code" 2>&1)"
+    [ "$tmp" = no ] || git -C "$FR" worktree remove "$tree"
+    printf '%s' "$o"
+}
+git -C "$FR" checkout -q --detach
+out="$(wavedocs 03)"
+if [[ "$out" == *"EXIT=0"* && "$out" != *"TEMPORARY=no"* ]] && [ "$(git -C "$FR" log -1 --format=%s main)" = "wave documents" ] \
+   && git -C "$FR" show main:.scratch/ep/issues/03-t.md | grep -q '^Status: blocked — removed from the wave' \
+   && [ "$(git -C "$FR" worktree list | grep -c "/main ")" = 0 ]; then
+    ok "wave documents, main checked out nowhere: one commit on main in a temporary worktree, removed after"
+else bad "wave documents (temporary tree): ${out:0:400}"; fi
+git -C "$FR" checkout -q main
+out="$(wavedocs 02)"
+[[ "$out" == *"TREE=$FR"* && "$out" == *"TEMPORARY=no"* && "$out" == *"EXIT=0"* ]] && git -C "$FR" show main:.scratch/ep/issues/02-t.md | grep -q '^Status: blocked' \
+    && ok "wave documents, main checked out in the main checkout: the commit is made there" || bad "wave documents (main checkout): ${out:0:400}"
 
 # --- the real home -----------------------------------------------------------------------
 after="$(real_home_snapshot "$REAL_HOME" "$T")"

@@ -158,15 +158,28 @@ check "ship-ticket: single + local-green branches from the main branch after the
 check "ship-ticket: no branch from the previous ticket's branch" lacks "$ST" "previous ticket's branch"
 check "epic-wave: no branch from the previous ticket's branch" lacks "$EW" "previous wave ticket's branch"
 check "ship-ticket: the rebase is the implementer's" has "$ST" '1. **On top of the main branch — the implementer.**'
-check "ship-ticket: documents on the ticket branch before the fast-forward" has "$ST" '2. **The ticket'"'"'s documents — the orchestrator, on the ticket branch** (Full mode).'
+check "ship-ticket: documents on the ticket branch before the fast-forward" has "$ST" '3. **The documents and the merge — whoever `F workflow.merge` names (the orchestrator), in one go'
 check "ship-ticket: the main branch never from the checkout's HEAD" has "$ST" 'Never the branch the main checkout stands'
 check "epic-wave: the rebase is always the implementer's" has "$EW" 'the rebase is always the implementer'"'"'s, in its own worktree'
-check "epic-wave: local-green documents commit on the ticket's own branch" has "$EW" '`ticket done` and result section are one commit on **its own branch**'
+check "epic-wave: local-green documents commit on the ticket's own branch" has "$EW" 'one commit on **its own branch**, made after its green `gate full`, under the lock, by the same'
 check "epic-wave: single + local-green waits for the local merge (Shape)" has "$EW" 'with `local-green` locally (section 4, "Local merge",'
 check "epic-wave: single + local-green waits for the local merge (Dispatch)" has "$EW" 'merge (section 4, "Local merge", `MERGED=0`).'
 check "implementer: the rebase before the local merge is yours" has "$IM" 'when the orchestrator sends the branch back, rebase it onto the main branch in your own'
 check "implementer: numbering.adr.dir and lessons are taken from the Workflow folder" has "$IM" 'in `numbering.adr.dir` and in `lessons: "repo:<path>"` is'
 check "profiles README: the outside-repository worktree.root is not set until item 7" has "$PR" 'it is **not set** — the connection does not write it — until the owner answers'
+
+# 7b. Narrow round: the documents of a local-green ticket are committed only after a green gate, by the merge
+# block, on a branch that is on top; the resume rule knows `done` on an unmerged branch; a wave with no ticket
+# left to merge commits its documents on the main branch; ticket block of local-green goes there too.
+check "ship-ticket: the gate comes before the documents" has "$ST" 'A red gate stops here: no documents, no merge.'
+check "ship-ticket: the documents are committed inside the merge block" has "$ST" '# the documents: only now, on a branch that is on top — then the fast-forward at once'
+check "ship-ticket: no documents step before the gate" lacks "$ST" "2. **The ticket's documents — the orchestrator, on the ticket branch**"
+check "epic-wave: a red gate leaves no documents commit" has "$EW" 'A red gate leaves no documents commit.'
+check "epic-wave: resume — done on an unmerged branch is not closed" has "$EW" 'gives 1 — the merge is still ahead and the ticket is not closed'
+check "epic-wave: wave documents on main when nothing is left to merge" has "$EW" 'If it has none (the'
+check "epic-wave: the wave documents block" has "$EW" 'echo "TREE=$W"; echo "TEMPORARY=${TMPW:-no}"'
+check "epic-wave: ticket block of local-green in the wave's documents commit" has "$EW" "with \`local-green\` — in the wave's documents"
+check "profiles README: a red gate stops the finish before the documents" has "$PR" 'A red gate stops the finish: no documents commit, no merge.'
 
 # 8. Cyrillic only in allowed places: the old Autopilot forms, Gate verdict words, placeholders
 # of profile values, section names of Project documents and Russian examples.

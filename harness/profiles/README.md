@@ -342,15 +342,17 @@ with `parallel: single` that is the ticket branch itself.
    worktree (with `single` — the main checkout), conflicts resolved there (a migration is regenerated,
    not merged by hand), its checks run again. The orchestrator only checks `git merge-base
    --is-ancestor <main> <branch>` and sends the branch back when it is not on top.
-2. **The orchestrator**, Full mode: `ticket done` in the ticket's worktree, the ticket's result
-   section, and for the last ticket of a wave the state file — one commit on the ticket branch. The
-   fast-forward carries them into the main branch; there is no documents commit on the main branch.
-   Silent mode commits nothing in the repository: `ticket done` writes into the Workflow folder after
-   step 4.
-3. **The orchestrator**: `gate full` on the ticket branch — that tree is exactly what the main branch
-   becomes.
-4. **Whoever `workflow.merge` names** fast-forwards the main branch: `git merge --ff-only` in the
-   worktree where it is checked out, or `git branch -f <main> <branch>` when it is checked out nowhere.
+2. **The orchestrator**: `gate full` on the ticket branch — that code is exactly what the main branch
+   gets. A red gate stops the finish: no documents commit, no merge.
+3. **Whoever `workflow.merge` names** (the orchestrator), in one block under the lock: Full mode — the
+   ticket's documents (`ticket done`, its result section; for the wave's last merged ticket also the
+   state file and `ticket block` of removed tickets), prepared uncommitted in the ticket's worktree,
+   are committed on the ticket branch only after the on-top check, and the main branch is
+   fast-forwarded right after: `git merge --ff-only` in the worktree where it is checked out, or
+   `git branch -f <main> <branch>` when it is checked out nowhere. A wave with no `VERIFIED` ticket
+   left to merge commits its documents on the main branch under the lock (in a temporary worktree of
+   the main branch when it is checked out nowhere). Silent mode commits nothing in the repository:
+   `ticket done` writes into the Workflow folder after the merge.
    Refused: a branch that is not on top ("NOT ON TOP"), the ticket branch being the main branch itself
    ("SAME BRANCH"), no main branch found ("NO MAIN BRANCH"). `git merge-base --is-ancestor <branch>
    <main>` — exit 0 — is the proof. Nothing is pushed.

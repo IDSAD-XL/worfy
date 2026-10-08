@@ -369,20 +369,24 @@ doer:
    `single` — the main checkout), resolves conflicts there (a migration is regenerated with
    `F numbering.migrations.generate`, not merged by hand), runs its checks again and reports — as
    with a `DIRTY` PR.
-2. **The ticket's documents — the orchestrator, on the ticket branch** (Full mode). `ticket done`
-   runs in the ticket's worktree, the ticket's result section is written, and for the last ticket of
-   a wave the state file too; one commit on the ticket branch. The fast-forward then carries `done`
-   into the main branch; there is no separate documents commit on the main branch. In Silent mode
-   nothing is committed: `ticket done` writes into the Workflow folder after step 4.
-3. **The gate — the orchestrator.** `bash "${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh" full </dev/null; echo
-   "EXIT=$?"` in the ticket's worktree — `EXIT=0` and the line `[gate] зелено (…)`: this tree is
-   exactly what the main branch becomes.
-4. **The merge — whoever `F workflow.merge` names**, one merge at a time (the lock of
-   `/worfy:epic-wave`, section 4). `<repo>` is the repository's main checkout:
+2. **The gate — the orchestrator.** `bash "${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh" full </dev/null; echo
+   "EXIT=$?"` in the ticket's worktree — `EXIT=0` and the line `[gate] зелено (…)`: this code is
+   exactly what the main branch gets. A red gate stops here: no documents, no merge.
+3. **The documents and the merge — whoever `F workflow.merge` names (the orchestrator), in one go
+   under the lock** of `/worfy:epic-wave`, section 4, one merge at a time. Full mode: right before the
+   block, in the ticket's worktree, `ticket done` (without `--pr`), the ticket's result section, and —
+   when this is the wave's last merged ticket — the state file and `ticket block` of the tickets removed
+   from the wave; these edits stay uncommitted. The block commits them on the ticket branch only after
+   the branch has passed the on-top check, and fast-forwards the main branch right after, so a ticket
+   branch that never reached the main branch does not carry `done`. In Silent mode the block finds
+   nothing to commit (the documents are in the Workflow folder), and `ticket done` follows `MERGED=0`.
+   `<repo>` is the repository's main checkout, `<ticket worktree>` the ticket's tree (with `single` —
+   `<repo>` itself):
 
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
-B=<ticket branch>
+B=<ticket branch>; T=<ticket worktree>
+DOCS=(); for f in tickets.root docs.handoff.path; do p=$(F "$f"); [ -n "$p" ] && [ "$p" != null ] && DOCS+=("$p"); done
 M=$(F worktree.base); [ "$M" = null ] && M=
 [ -n "$M" ] || M=$(F layout.repos | jq -r --arg r "$(basename "$(cd <repo> && pwd -P)")" '.[$r].default_branch // empty' 2>/dev/null)
 [ -n "$M" ] || M=$(git -C <repo> symbolic-ref -q --short refs/remotes/origin/HEAD)
@@ -392,18 +396,25 @@ W=$(git -C <repo> worktree list --porcelain | awk -v b="branch refs/heads/$M" '/
 if [ -z "$M" ]; then echo "NO MAIN BRANCH: set worktree.base in the profile"
 elif [ "$M" = "$B" ]; then echo "SAME BRANCH: $B is the main branch itself, nothing to merge"
 elif ! git -C <repo> merge-base --is-ancestor "$M" "$B"; then echo "NOT ON TOP: back to the implementer — rebase $B onto $M"
-elif [ -n "$W" ]; then git -C "$W" merge --ff-only --quiet "$B"
-else git -C <repo> branch -f "$M" "$B"; fi
+else
+  # the documents: only now, on a branch that is on top — then the fast-forward at once
+  if [ "${#DOCS[@]}" -gt 0 ] && [ -n "$(git -C "$T" status --porcelain -- "${DOCS[@]}")" ]; then
+    git -C "$T" add -A -- "${DOCS[@]}" && git -C "$T" commit -q -m "<documents commit message>"
+  fi
+  if [ -n "$W" ]; then git -C "$W" merge --ff-only --quiet "$B"; else git -C <repo> branch -f "$M" "$B"; fi
+fi
 [ -n "$M" ] && [ "$M" != "$B" ] && git -C <repo> merge-base --is-ancestor "$B" "$M"; echo "MERGED=$?"     # 0 — the branch is in the main branch
+echo "MAIN=$M"
 ```
 
-`MERGED=0` is the proof; anything else — the ticket is not done. Nothing is pushed: the finish is
-local. With `single` the main checkout stays on the ticket branch; the next ticket's branch is
-created from the main branch. In Silent mode `ticket done` follows now; in Full mode it is already in
-the main branch (step 2). With `pr-green-ci`:
+`MERGED=0` is the proof; anything else — the ticket is not done, and on `NOT ON TOP` its documents
+stay uncommitted in its worktree until the next attempt. Nothing is pushed: the finish is local. With
+`single` the main checkout stays on the ticket branch; the next ticket's branch is created from the
+main branch. In Silent mode `ticket done` follows now; in Full mode it reached the main branch with
+the fast-forward. With `pr-green-ci`:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/ticket" done <epic> <NN> --pr <N>     # with local-green — without --pr (step 2 or 4 above)
+"${CLAUDE_PLUGIN_ROOT}/bin/ticket" done <epic> <NN> --pr <N>     # with local-green — without --pr (step 3 above)
 ```
 
 The state file is `F docs.handoff` (`path`, `kind`, `check`). No field — "the project has no state
