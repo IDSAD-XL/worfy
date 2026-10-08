@@ -253,6 +253,11 @@ lint typecheck test test:e2e test:package».
   мутанта выжили и показали лишний код — проверка `..` после несуществующего имени и проверка
   `LinkSender` в `isRemoteCall` (её покрывает строковый id) — код убран.
 
+Проверки доработки: rebase на origin/main ca7a3b9 (Ticket 06 влит), `pnpm lint && pnpm typecheck &&
+pnpm test` — EXIT=0 (151 файл, 2927 test-ов); gate fast — «зелено»; `GATE_SCOPE=all` gate full на
+88a74c1 — EXIT=0, «[gate] зелено (full): lint typecheck test test:e2e test:package»; CI PR 161 на
+88a74c1 — check pass.
+
 **Вопрос владельцу.** Выключение доступа отписывает клиента соединения, но не останавливает
 Session, Autopilot и очередь `agent.send`, которые Linked machine запустила раньше: Session
 принадлежит приложению (Ticket 04). spec.md (раздел «Доступ») говорит «отписывает», ADR-0052,
