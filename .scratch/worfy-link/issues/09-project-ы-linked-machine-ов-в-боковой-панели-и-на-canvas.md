@@ -229,6 +229,17 @@ machine-ом и ничего в его файлах не правит. Кана�
   строка над Canvas — `09-canvas-unreachable-{light,dark}.png`. «Спит» — Ticket 14, снимка нет. Цвета — роли
   `tokens.css` (`text-secondary`, `text-muted`, `surface-raised`, `border`, `blocked-text`, чип `ready`).
 
+Проверки:
+
+- `test/e2e/linked-machines.spec.ts` — `7 passed` (четыре test-а Ticket-а 02 и три этого). `GATE_SCOPE=all gate.sh full`
+  на 109c079: lint, typecheck, `test:e2e`, `test:package` — прошли; `test` — красный только по timeout-ам 5 s в
+  `test/contract/github-prs.test.ts` и `harness-qmd.test.ts` (известные нестабильные test-ы под нагрузкой; load
+  average 5–7 от соседних прогонов). Эти файлы отдельно — exit 0 (132 test-а); CI PR 169 — check pass.
+- Mutation testing в своём worktree (восстановление из копии): без отбора событий по текущей связи
+  (`remote-calls.test.ts` краснеет: событие дважды); `desktop` не на M (`ipc-renderer.test.tsx`); перезагрузка без
+  условия «делится» (`use-projects.test.tsx`); без подписки Orchestrator-ов и документов на держателей
+  (`projects-hold.test.ts`) — все краснеют.
+
 Решения (все — **решено без владельца, подтвердить**):
 
 - Окно показывает одну Machine и перезагружается при переходе на другую (пункт 1); Machine окна — в адресе окна.
