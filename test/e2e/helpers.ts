@@ -194,6 +194,37 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
   }
 }
 
+// ── A second window ─────────────────────────────────────────────────────────
+
+/** The preload of the built bundle, the one src/main/window.ts gives the app's window. */
+const builtPreload = join(repoRoot, 'out', 'preload', 'index.cjs')
+
+/**
+ * Opens a second window of the running app on the page of the first one, the way the app opens
+ * its own window (src/main/window.ts): the built preload, context isolation and the sandbox. The
+ * app has no command for it yet (no "New Window" menu item), so the window is made from main
+ * through app.evaluate. Its calls pass the IPC sender check like the first window's: both load
+ * the same out/renderer/index.html. Resolves with the new window once its page has loaded; built
+ * bundle only (`launchApp` without `executablePath`).
+ */
+export async function openSecondWindow(launched: Pick<LaunchedApp, 'app'>): Promise<Page> {
+  const opened = launched.app.waitForEvent('window')
+  await launched.app.evaluate(async ({ BrowserWindow }, preload) => {
+    const first = BrowserWindow.getAllWindows().find((each) => !each.isDestroyed())
+    if (!first) throw new Error('no window of the app is open')
+    const second = new BrowserWindow({
+      width: 1100,
+      height: 760,
+      show: true,
+      webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false },
+    })
+    await second.loadURL(first.webContents.getURL())
+  }, builtPreload)
+  const window = await opened
+  await window.waitForLoadState('domcontentloaded')
+  return window
+}
+
 // ── The Canvas at rest ──────────────────────────────────────────────────────
 
 /** The page's DOM, typed for this file: the e2e typecheck has no DOM library. */

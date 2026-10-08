@@ -1,6 +1,7 @@
-import { app, type WebContents } from 'electron'
+import { app } from 'electron'
 import { docsChanged, docsClose, docsOpen, docsRead, HANDOFF_HEIGHT, HANDOFF_KIND, HANDOFF_WIDTH } from '../../shared/ipc/docs'
 import type { LayoutNode } from '../../shared/layout/types'
+import { ClientHolders, clientOf, type Client } from '../clients'
 import { DocsHub, readDoc, type DocsSubscriber } from '../docs/watch'
 import { placeNewNode } from '../layout/place'
 import { layoutStore } from '../layout/store'
@@ -42,7 +43,7 @@ export function syncHandoffNode(projectId: string, exists: boolean): void {
   }
 }
 
-/** One hub for the app: one watcher per Project, shared by the windows that opened it and by main. */
+/** One hub for the app: one watcher per Project, shared by the clients that opened it and by main. */
 export const docsHub = new DocsHub({
   onState: ({ projectId, handoff }) => {
     try {
@@ -54,18 +55,17 @@ export const docsHub = new DocsHub({
   },
 })
 
-const subscribed = new WeakSet<WebContents>()
+/** The client holding each id leaves every Project when it is destroyed or another client takes its id. */
+const holders = new ClientHolders((id) => void docsHub.drop(id))
 
-/** The window that called, as a subscriber; it leaves every Project when it is destroyed. */
-function subscriberOf(sender: WebContents): DocsSubscriber {
-  if (!subscribed.has(sender)) {
-    subscribed.add(sender)
-    sender.once('destroyed', () => void docsHub.drop(sender.id))
-  }
+/** The client that called, as a subscriber. */
+function subscriberOf(client: Client | undefined): DocsSubscriber {
+  if (client === undefined) throw new Error('docs.open: the call came from no client')
+  if (!holders.hold(client)) throw new Error('docs.open: the client is gone')
   return {
-    id: sender.id,
+    id: client.id,
     send: (state) => {
-      if (!sender.isDestroyed()) emit(sender, docsChanged, state)
+      if (!client.isDestroyed()) emit(client, docsChanged, state)
     },
   }
 }
@@ -102,7 +102,10 @@ projectStore().onChange(keepActive)
 app.on('will-quit', () => void docsHub.closeAll())
 
 export default [
-  defineHandler(docsOpen, ({ projectId }, { event }) => docsHub.open(projectId, projectStore().get(projectId).path, subscriberOf(event.sender))),
-  defineHandler(docsClose, async ({ projectId }, { event }) => ({ closed: await docsHub.close(projectId, event.sender.id) })),
+  defineHandler(docsOpen, ({ projectId }, { event }) => docsHub.open(projectId, projectStore().get(projectId).path, subscriberOf(clientOf(event)))),
+  defineHandler(docsClose, async ({ projectId }, { event }) => {
+    const client = clientOf(event)
+    return { closed: client === undefined ? false : await docsHub.close(projectId, client.id) }
+  }),
   defineHandler(docsRead, ({ projectId, path }) => readDoc(projectStore().get(projectId).path, path)),
 ] satisfies HandlerModule

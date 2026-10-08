@@ -232,9 +232,12 @@ export class WorkflowWatcher {
   }
 }
 
-/** Something that receives `workflow.changed` events: a window's webContents in the app. */
+/**
+ * Something that receives `workflow.changed` events: a client of the app (src/main/clients.ts) or
+ * Autopilot's own subscriber. The id rule there keeps their ids apart.
+ */
 export interface WorkflowSubscriber {
-  readonly id: number
+  readonly id: number | string
   send(delta: WorkflowDelta): void
 }
 
@@ -243,7 +246,7 @@ export interface WorkflowSubscriber {
  * its last subscriber leaves.
  */
 export class WorkflowHub {
-  private readonly projects = new Map<string, { watcher: Promise<WorkflowWatcher>; subscribers: Map<number, WorkflowSubscriber> }>()
+  private readonly projects = new Map<string, { watcher: Promise<WorkflowWatcher>; subscribers: Map<number | string, WorkflowSubscriber> }>()
 
   constructor(private readonly options: Omit<WatchOptions, 'root' | 'onChange'>) {}
 
@@ -252,7 +255,7 @@ export class WorkflowHub {
     const key = resolve(root)
     let project = this.projects.get(key)
     if (!project) {
-      const subscribers = new Map<number, WorkflowSubscriber>()
+      const subscribers = new Map<number | string, WorkflowSubscriber>()
       const watcher = WorkflowWatcher.start({
         ...this.options,
         root: key,
@@ -269,7 +272,7 @@ export class WorkflowHub {
   }
 
   /** Stops `subscriber`'s interest in `root`; returns false when it was not subscribed. */
-  async close(root: string, subscriberId: number): Promise<boolean> {
+  async close(root: string, subscriberId: number | string): Promise<boolean> {
     const key = resolve(root)
     const project = this.projects.get(key)
     if (!project || !project.subscribers.delete(subscriberId)) return false
@@ -281,7 +284,7 @@ export class WorkflowHub {
   }
 
   /** Drops a subscriber from every Project, e.g. when its window is gone. */
-  async drop(subscriberId: number): Promise<void> {
+  async drop(subscriberId: number | string): Promise<void> {
     await Promise.all([...this.projects.keys()].map((root) => this.close(root, subscriberId)))
   }
 

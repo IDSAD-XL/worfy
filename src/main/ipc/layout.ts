@@ -1,16 +1,16 @@
-import { app, BrowserWindow } from 'electron'
+import { app } from 'electron'
 import { layoutApply, layoutChanged, layoutGet } from '../../shared/ipc/layout'
+import { toEveryWindow } from '../broadcast'
 import { layoutStore } from '../layout/store'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 const store = layoutStore()
 
-// Every window hears about every change, whoever made it: this window, another one, or a later
-// part of main (the MCP tools) calling the store directly.
+// Every client (src/main/clients.ts) hears about every change, whoever made it: this window,
+// another one, a client without a window, or a later part of main (the MCP tools) calling the
+// store directly.
 store.onChange(({ projectId, layout, revision }) => {
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (!window.isDestroyed()) emit(window.webContents, layoutChanged, { projectId, layout, revision })
-  }
+  toEveryWindow((client) => emit(client, layoutChanged, { projectId, layout, revision }))
 })
 
 // Writes are debounced; what is still pending is written before the app exits.
