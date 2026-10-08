@@ -50,6 +50,13 @@
 //   run journals `harness-behind` right after `run-started` when it is, and again before a
 //   `wave-started` when the count of commits has changed: a lesson merged during the run. The run
 //   itself goes on as it is; the Stable copy is rebuilt between runs (ADR-0047).
+// - The narrow fix round of a Ticket of the run's Waves (worfy-harness ticket 20, ADR-0046) goes to
+//   the journal as `narrow-round`, read from the comments of the Ticket's PR that the /epic-wave
+//   skill writes its verdicts with (`NARROW: …`): the run knows no protocol of the skill (ADR-0024),
+//   it reads what the PR badges read, through the same PrTracker (gh at most once a minute). It
+//   reads at each `wave-started`, then every minute while it runs, and once more before
+//   `run-stopped` (not on a Force stop or a quit, which do not wait). Each state of a Ticket is one
+//   line, once per run; a failed read writes nothing, and the run goes on.
 //
 // worfy still writes no Ticket status (ADR-0002): the agents do, through `ticket`.
 import { realpath } from 'node:fs/promises'
@@ -72,8 +79,11 @@ import {
   type CycleState,
 } from '../../shared/autopilot/cycle'
 import type { AutopilotState, HarnessBehind } from '../../shared/ipc/autopilot'
+import type { PullRequest } from '../../shared/ipc/checks'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
+import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import type { WorkflowModel } from '../../shared/workflow/types'
+import { BASE_INTERVAL_MS } from '../github/prs'
 import { LimitsWait, type LimitsWaitDeps } from './limits-wait'
 
 /** The run's Orchestrator Session, as far as the run needs it. */
@@ -165,6 +175,16 @@ export interface AutopilotDeps {
    * harness-drift.ts), or null; never throws. Without it no Project has the mark.
    */
   harnessDrift?(projectId: string, root: string): Promise<HarnessBehind | null>
+  /**
+   * The PRs of the Project's Ticket branches: the app's PrTracker, the one of the PR badges
+   * (src/main/ipc/checks.ts), so the run adds no gh call of its own. Read for the narrow fix round
+   * (worfy-harness ticket 20); without it the run journals no `narrow-round`.
+   */
+  prs?: { read(root: string, branches: readonly string[]): Promise<{ pulls: readonly PullRequest[] }> }
+  /** How often the run reads the PRs while it runs (default BASE_INTERVAL_MS, the tracker's own interval). */
+  prsEveryMs?: number
+  /** The clock of that read (default: the real timers). */
+  prsClock?: TasksClock
 }
 
 /** A task as the journal writes it. */
@@ -248,6 +268,12 @@ class Run {
   interrupted: number[] = []
   /** The `commits` of the last `harness-behind` line of the run; null before any, or once not behind. */
   harnessCommits: number | null = null
+  /** Every Ticket of the run's Waves so far: the PRs of their branches are read for the narrow round. */
+  readonly waveTickets = new Set<number>()
+  /** The `<ticket>:<outcome>` pairs journaled as `narrow-round`: each once per run. */
+  readonly narrowJournaled = new Set<string>()
+  /** The next read of the PRs; null before the first Wave and once the run stops. */
+  prsTimer: unknown = null
   /** Settles once the run has stopped and cleaned up. */
   readonly ended: Promise<void>
   finish!: () => void
@@ -631,6 +657,8 @@ export class Autopilot {
             tickets: effect.tickets.map(ticketNumber),
             ...(sent === null ? {} : { text: sent.text, skipped: sent.skipped.map((each) => ({ num: ticketNumber(each.num), state: each.state })) }),
           })
+          for (const num of effect.tickets) run.waveTickets.add(num)
+          this.pollPrs(run)
           break
         }
         case 'wave-finished':
@@ -840,6 +868,9 @@ export class Autopilot {
    * `blocked-tickets` the Tickets it stopped on.
    */
   private async end(run: Run, reason: AutopilotStopReason, tickets?: number[]): Promise<void> {
+    // The narrow round's last states before the end: a Ticket blocked on `NARROW: REJECTED` is
+    // journaled ahead of the run-stopped that names it. A Force stop and a quit do not wait for gh.
+    if (reason !== 'user-force-stop' && reason !== 'app-quit') await this.journalNarrow(run, await this.readPrs(run))
     const live = this.liveTasks(run)
     const lastText = reason === 'no-progress' || reason === 'no-ready-wave' || reason === 'blocked-tickets' ? run.lastText : null
     await this.write(run, {
@@ -959,8 +990,60 @@ export class Autopilot {
     }
   }
 
-  /** Clears the settle, tasks and Limits timers of the run. */
+  /**
+   * Reads the PRs of the Tickets of the run's Waves now, in the background, journals what is new
+   * in the run's order, and reads again after prsEveryMs. The tracker runs gh at most once per its
+   * own interval, however often it is asked.
+   */
+  private pollPrs(run: Run): void {
+    if (this.deps.prs === undefined || run.done || run.cycle.phase === 'stopped') return
+    const clock = this.deps.prsClock ?? realClock
+    if (run.prsTimer !== null) clock.clearTimeout(run.prsTimer)
+    const timer = clock.setTimeout(() => {
+      if (run.prsTimer !== timer) return
+      run.prsTimer = null
+      this.pollPrs(run)
+    }, this.deps.prsEveryMs ?? BASE_INTERVAL_MS)
+    run.prsTimer = timer
+    void this.readPrs(run).then((pulls) => run.enqueue(() => this.journalNarrow(run, pulls)))
+  }
+
+  /** The PRs of the branches of the Tickets of the run's Waves; none when there is no reader or it fails. */
+  private async readPrs(run: Run): Promise<readonly PullRequest[]> {
+    const prs = this.deps.prs
+    if (prs === undefined || run.waveTickets.size === 0) return []
+    const branches = [...run.waveTickets].map((num) => `${run.epic}/${ticketNumber(num)}`)
+    try {
+      return (await prs.read(run.root, branches)).pulls
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: could not read the pull requests`, error)
+      return []
+    }
+  }
+
+  /**
+   * One `narrow-round` line for each narrow-round state on the PRs of the run's Wave Tickets not
+   * journaled yet in this run, in comment order (worfy-harness ticket 20). Nothing once the run is
+   * done: a read that answers after run-stopped writes nothing.
+   */
+  private async journalNarrow(run: Run, pulls: readonly PullRequest[]): Promise<void> {
+    if (run.done) return
+    for (const pull of [...pulls].sort((a, b) => a.number - b.number)) {
+      const ref = parseTicketBranch(pull.branch)
+      if (ref === null || ref.epic !== run.epic || !run.waveTickets.has(ref.num)) continue
+      for (const state of pull.narrow ?? []) {
+        const key = `${ref.num}:${state.outcome}`
+        if (run.narrowJournaled.has(key)) continue
+        run.narrowJournaled.add(key)
+        await this.write(run, { kind: 'narrow-round', ticket: ticketNumber(ref.num), outcome: state.outcome, text: state.text })
+      }
+    }
+  }
+
+  /** Clears the settle, tasks, PR and Limits timers of the run. */
   private stopTimers(run: Run): void {
+    if (run.prsTimer !== null) (this.deps.prsClock ?? realClock).clearTimeout(run.prsTimer)
+    run.prsTimer = null
     if (run.settleTimer !== null) clearTimeout(run.settleTimer)
     run.settleTimer = null
     if (run.tasksTimer !== null) (this.deps.tasksClock ?? realClock).clearTimeout(run.tasksTimer)

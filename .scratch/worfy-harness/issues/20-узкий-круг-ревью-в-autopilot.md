@@ -1,7 +1,7 @@
 # 20 — Autopilot делает один узкий круг ревью без владельца, если находки только med и low
 
 Type: task
-Status: open
+Status: claimed — 2026-10-08
 Blocked by: 16
 Source: решение владельца 2026-10-07, вопрос Q7 ([spec.md](../spec.md)); [ADR-0046](../../../docs/adr/0046-autopilot-narrow-round-without-owner.md) — узкий круг в Autopilot; [ADR-0024](../../../docs/adr/0024-autopilot-wave-end-and-keep-awake.md) — worfy не знает протокола skill-а; [ADR-0033](../../../docs/adr/0033-autopilot-names-wave-tickets.md) — остановка прогона с `blocked-tickets`; урок «Узкий круг исправления» в `docs/lessons/process.md:22-28`
 
@@ -140,6 +140,7 @@ ADR не нужен: правило — в ADR-0046. Способ узнать �
 - `src/main/autopilot/run.ts`
 - `test/contract/github-prs.test.ts`
 - `test/unit/autopilot-journal.test.ts`
+- `test/contract/autopilot-journal.test.ts` — полный список видов строк
 - `test/unit/autopilot-run.test.ts`
 - `test/e2e/autopilot.spec.ts`
 - `test/fixtures/agent-scripts/autopilot-narrow.jsonl` — новый

@@ -541,3 +541,71 @@ test('Force stop during the Wave\'s turn: the button says Stopping… until the 
     await launched.close()
   }
 })
+
+test('the narrow fix round of a Wave Ticket goes to the run journal from the comments on its PR; the run stops on the Ticket blocked after NARROW: REJECTED', async () => {
+  // worfy-harness ticket 20, ADR-0046. The stub gh (test/fixtures/gh, GH_STUB_DIR) answers a PR of
+  // demo/02 whose comments carry the narrow round as /epic-wave writes it, and one of demo/03, not
+  // a Ticket of the Wave. The fake agent plays autopilot-narrow: the Wave's turn holds until the
+  // test has marked 01 done and 02 blocked in epic-status, as the Orchestrator would.
+  const { dataDir, claudeHome, log, repo, statusBefore } = prepare()
+  const gh = join(scratch, 'gh')
+  mkdirSync(gh, { recursive: true })
+  const pr = (number: number, branch: string, comments: string[]) => ({
+    number,
+    headRefName: branch,
+    state: 'OPEN',
+    url: `https://github.com/o/demo/pull/${number}`,
+    statusCheckRollup: [],
+    comments: comments.map((body) => ({ body })),
+  })
+  writeFileSync(
+    join(gh, 'prs.json'),
+    JSON.stringify([
+      pr(12, 'demo/03', ['NARROW: [low] src/f3.ts:1 — not of the Wave']),
+      pr(11, 'demo/02', ['REJECTED: src/f2.ts:1 — x', 'REJECTED: src/f2.ts:1 — x again', 'NARROW: [med] src/f2.ts:1 — x\nsceptics: 1 of 1 stood', 'NARROW: REJECTED: src/f2.ts:1 still open']),
+    ]),
+  )
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'autopilot-narrow', WORFY_AGENT_LOG: log, GH_STUB_DIR: gh }
+  const launched = await launchApp({ env })
+  try {
+    const { window, app } = launched
+    const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
+    const status = frame.getByTestId('autopilot-status')
+    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+
+    await frame.getByTestId('action-autopilot').click()
+    await expect.poll(() => messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
+    // Read at wave-started: both states of the round, in comment order; nothing of demo/03.
+    await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'narrow-round', 'narrow-round'])
+
+    // The Orchestrator merges 01 and blocks 02, then ends its turn: nothing is ready, 02 waits.
+    const answer = join(claudeHome, 'epic-status.json')
+    const model = JSON.parse(readFileSync(answer, 'utf8')) as { tickets: { num: number; statusRaw: string; state: string }[] }
+    for (const ticket of model.tickets) {
+      if (ticket.num === 1) Object.assign(ticket, { statusRaw: 'done', state: 'done' })
+      if (ticket.num === 2) Object.assign(ticket, { statusRaw: 'blocked', state: 'blocked' })
+    }
+    writeFileSync(answer, JSON.stringify(model))
+    await app.evaluate(() => (globalThis as unknown as { worfyFakeRelease: (name: string) => void }).worfyFakeRelease('turn'))
+    await expect(status).toHaveText(/^stopped/)
+
+    await expect
+      .poll(() => journalKinds(dataDir))
+      .toEqual(['run-started', 'wave-started 1', 'narrow-round', 'narrow-round', 'wave-finished 1', 'run-stopped blocked-tickets'])
+    const [file] = readdirSync(join(dataDir, 'autopilot'))
+    const lines = readFileSync(join(dataDir, 'autopilot', file!), 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+    expect(lines.filter((line) => line.kind === 'narrow-round').map(({ ticket, outcome, text }) => ({ ticket, outcome, text }))).toEqual([
+      { ticket: '02', outcome: 'started', text: 'NARROW: [med] src/f2.ts:1 — x' },
+      { ticket: '02', outcome: 'rejected', text: 'NARROW: REJECTED: src/f2.ts:1 still open' },
+    ])
+    expect(lines.at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'blocked-tickets', tickets: ['02'] })
+    expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
+    // worfy wrote nothing into the repository.
+    expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
+  } finally {
+    await launched.close()
+  }
+})

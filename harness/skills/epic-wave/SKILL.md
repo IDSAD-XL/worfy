@@ -282,6 +282,22 @@ or `NARROW: REJECTED: …`; `NARROW: REJECTED` takes the ticket out of the wave.
 a narrow round only by the owner's decision. How many tickets stand behind the removed one is
 counted from tickets actually removed from the wave, not from those skipped in it as already
 merged.
+
+**The narrow round without a human** (worfy Autopilot: the wave came as "tickets NN, NN of epic X",
+and a question to the owner is declined automatically). Nobody answers, so for a ticket on the
+critical path with a second `REJECTED` the rule decides, without a question and without waiting:
+- every finding that stood against the sceptics is medium or low, none high — the ticket gets
+  exactly one narrow round on those findings;
+- otherwise the ticket gets `ticket block` with the reason and a `blocked` row in the report. That
+  is the case when a high-severity finding stood (no narrow round), when the narrow round ended in
+  `NARROW: REJECTED`, and when the same ticket would need a second narrow round.
+
+A leaf ticket gets no narrow round in Autopilot: `ticket block`, a `blocked` row, and a line in the
+state file's list of what waits for the owner: "narrow round for a leaf ticket — the owner's
+decision" (in the docs' language). The
+critical path, the sceptics, the three grounds of the narrow round's `REJECTED` and the `NARROW: …`
+verdicts recorded as above do not change. Send worfy nothing besides them: its run journal reads
+the `NARROW:` verdicts from the PR comments. A session with a human keeps the rule above as it is.
 The gate is closed when every ticket of the wave has a verdict.
 
 ## 4. Merge by policy
@@ -403,8 +419,11 @@ the verifier's answer yourself before quoting it.
 |---|---|---|---|---|
 | 07 | #341 | REJECTED → VERIFIED | 1 round | 1a2b3c4 |
 | 09 | — | REJECTED ×2 | blocked | — |
+| 11 | #344 | REJECTED ×2 → NARROW: VERIFIED | 1 round + narrow | 5e6f7a8 |
 
-The "PR" and "Production" columns are "—" with `local-green` and without `deploy`.
+The "PR" and "Production" columns are "—" with `local-green` and without `deploy`. The "Rework"
+column shows a narrow round as "+ narrow"; a narrow round that ended in `NARROW: REJECTED` is a
+`blocked` row.
 
 ## How to resume a wave
 
