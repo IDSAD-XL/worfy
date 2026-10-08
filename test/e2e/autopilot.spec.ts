@@ -545,24 +545,28 @@ test('Force stop during the Wave\'s turn: the button says Stopping… until the 
 test('the narrow fix round of a Wave Ticket goes to the run journal from the comments on its PR; the run stops on the Ticket blocked after NARROW: REJECTED', async () => {
   // worfy-harness ticket 20, ADR-0046. The stub gh (test/fixtures/gh, GH_STUB_DIR) answers a PR of
   // demo/02 whose comments carry the narrow round as /epic-wave writes it, and one of demo/03, not
-  // a Ticket of the Wave. The fake agent plays autopilot-narrow: the Wave's turn holds until the
-  // test has marked 01 done and 02 blocked in epic-status, as the Orchestrator would.
+  // a Ticket of the Wave. The comments of the round are dated after the run's start; a NARROW:
+  // VERIFIED of an earlier run, dated before it, is not this run's. The fake agent plays
+  // autopilot-narrow: the Wave's turn holds until the test has marked 01 done and 02 blocked in
+  // epic-status, as the Orchestrator would.
   const { dataDir, claudeHome, log, repo, statusBefore } = prepare()
   const gh = join(scratch, 'gh')
   mkdirSync(gh, { recursive: true })
+  const during = new Date(Date.now() + 10 * 60_000).toISOString()
+  const earlier = '2026-01-01T00:00:00Z'
   const pr = (number: number, branch: string, comments: string[]) => ({
     number,
     headRefName: branch,
     state: 'OPEN',
     url: `https://github.com/o/demo/pull/${number}`,
     statusCheckRollup: [],
-    comments: comments.map((body) => ({ body })),
+    comments: comments.map((body) => ({ body, createdAt: body.startsWith('NARROW: VERIFIED') ? earlier : during })),
   })
   writeFileSync(
     join(gh, 'prs.json'),
     JSON.stringify([
       pr(12, 'demo/03', ['NARROW: [low] src/f3.ts:1 — not of the Wave']),
-      pr(11, 'demo/02', ['REJECTED: src/f2.ts:1 — x', 'REJECTED: src/f2.ts:1 — x again', 'NARROW: [med] src/f2.ts:1 — x\nsceptics: 1 of 1 stood', 'NARROW: REJECTED: src/f2.ts:1 still open']),
+      pr(11, 'demo/02', ['NARROW: VERIFIED (an earlier run)', 'REJECTED: src/f2.ts:1 — x', 'REJECTED: src/f2.ts:1 — x again', 'NARROW: [med] src/f2.ts:1 — x\nsceptics: 1 of 1 stood', 'NARROW: REJECTED: src/f2.ts:1 still open']),
     ]),
   )
   const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'autopilot-narrow', WORFY_AGENT_LOG: log, GH_STUB_DIR: gh }

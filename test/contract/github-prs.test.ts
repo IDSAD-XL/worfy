@@ -109,9 +109,9 @@ describe('verdictOf', () => {
 describe('narrowOf (worfy-harness ticket 20)', () => {
   it('is the last state of the narrow round: NARROW: <findings> started, then NARROW: VERIFIED or NARROW: REJECTED', () => {
     const started = { body: 'NARROW: [med] src/a.ts:1 — x; [low] src/b.ts:2 — y\nsceptics: 2 of 3 stood' }
-    expect(narrowOf([{ body: 'REJECTED: 3 findings' }, started])).toEqual({ outcome: 'started', text: 'NARROW: [med] src/a.ts:1 — x; [low] src/b.ts:2 — y' })
-    expect(narrowOf([started, { body: 'NARROW: VERIFIED' }])).toEqual({ outcome: 'verified', text: 'NARROW: VERIFIED' })
-    expect(narrowOf([started, { body: '  NARROW: REJECTED: src/a.ts:1 still open\n- details' }, { body: 'thanks' }])).toEqual({ outcome: 'rejected', text: 'NARROW: REJECTED: src/a.ts:1 still open' })
+    expect(narrowOf([{ body: 'REJECTED: 3 findings' }, started])).toEqual({ outcome: 'started', text: 'NARROW: [med] src/a.ts:1 — x; [low] src/b.ts:2 — y', at: null })
+    expect(narrowOf([started, { body: 'NARROW: VERIFIED' }])).toEqual({ outcome: 'verified', text: 'NARROW: VERIFIED', at: null })
+    expect(narrowOf([started, { body: '  NARROW: REJECTED: src/a.ts:1 still open\n- details' }, { body: 'thanks' }])).toEqual({ outcome: 'rejected', text: 'NARROW: REJECTED: src/a.ts:1 still open', at: null })
   })
 
   it('is null without a NARROW: comment, and takes the prefix only at the start of the first line', () => {
@@ -126,10 +126,15 @@ describe('narrowOf (worfy-harness ticket 20)', () => {
   })
 
   it('narrowRoundsOf: every state of the narrow rounds, oldest first; parsePrList keeps them on the PR only when there are any', () => {
-    const comments = [{ body: 'REJECTED: 1' }, { body: 'NARROW: [med] x' }, { body: 'NARROW: REJECTED: x' }]
+    const comments = [
+      { body: 'REJECTED: 1', createdAt: '2026-10-08T01:00:00Z' },
+      { body: 'NARROW: [med] x', createdAt: '2026-10-08T02:00:00Z' },
+      { body: 'NARROW: REJECTED: x', createdAt: '2026-10-08T03:00:00Z' },
+    ]
+    // Each state carries the comment's createdAt: the run tells its own round from an earlier one by it.
     expect(narrowRoundsOf(comments)).toEqual([
-      { outcome: 'started', text: 'NARROW: [med] x' },
-      { outcome: 'rejected', text: 'NARROW: REJECTED: x' },
+      { outcome: 'started', text: 'NARROW: [med] x', at: '2026-10-08T02:00:00Z' },
+      { outcome: 'rejected', text: 'NARROW: REJECTED: x', at: '2026-10-08T03:00:00Z' },
     ])
     const [withNarrow, without] = parsePrList(JSON.stringify([pull(7, 'demo/07', { comments }), pull(8, 'demo/08', { comments: [{ body: 'VERIFIED' }] })]))
     expect(withNarrow).toMatchObject({ number: 7, verdict: 'REJECTED', narrow: narrowRoundsOf(comments) })

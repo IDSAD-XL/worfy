@@ -50,15 +50,17 @@
 //                                    state seen for the first time is journaled with the states
 //                                    before it the run has not journaled yet, in comment order:
 //                                    `started` and `rejected` can arrive together. A pair of ticket
-//                                    and outcome is written once per run; the first read of a run
-//                                    also journals the narrow-round comments already on the PR.
-//                                    No PR, no line: a Ticket that finishes without a PR
-//                                    (`local-green`, the verdicts are commits then) and a run
-//                                    while gh is unavailable write none. The run reads once more
-//                                    before run-stopped (not on a Force stop or a quit), but gh
-//                                    answers at most once a minute: a comment made less than a
-//                                    minute before the end may be missing. Journals written
-//                                    before ticket 20 have none
+//                                    and outcome is written once per run. Only comments made after
+//                                    the run started count (gh's `createdAt` against worfy's clock):
+//                                    those of an earlier run or a closed PR write no line; a
+//                                    comment gh gives no time for is taken. No PR, no line: a
+//                                    Ticket that finishes without a PR (`local-green`, the verdicts
+//                                    are commits then) and a run while gh is unavailable write
+//                                    none. The run reads once more before run-stopped and waits
+//                                    for that read 1 s at most, not at all on a Force stop or a
+//                                    quit; gh answers at most once a minute. So a comment made less
+//                                    than a minute before the end, or one gh is slow to give then,
+//                                    may be missing. Journals written before ticket 20 have none
 //   wave-finished  wave, tickets     wave and tickets as in wave-started
 //   limits-hit     window, resetsAt  a Session was refused by the Limits; window: `five_hour`,
 //                                    `seven_day`, … or null; resetsAt: ISO time or null

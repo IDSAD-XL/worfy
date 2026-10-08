@@ -55,8 +55,10 @@
 //   skill writes its verdicts with (`NARROW: …`): the run knows no protocol of the skill (ADR-0024),
 //   it reads what the PR badges read, through the same PrTracker (gh at most once a minute). It
 //   reads at each `wave-started`, then every minute while it runs, and once more before
-//   `run-stopped` (not on a Force stop or a quit, which do not wait). Each state of a Ticket is one
-//   line, once per run; a failed read writes nothing, and the run goes on.
+//   `run-stopped`: that last read waits END_READ_MS at most, and not at all once a Force stop or the
+//   app's quit has come (they do not wait for gh). Each state of a Ticket is one line, once per run;
+//   a comment made before the run started is not journaled; a failed read writes nothing, and the
+//   run goes on.
 //
 // worfy still writes no Ticket status (ADR-0002): the agents do, through `ticket`.
 import { realpath } from 'node:fs/promises'
@@ -183,9 +185,17 @@ export interface AutopilotDeps {
   prs?: { read(root: string, branches: readonly string[]): Promise<{ pulls: readonly PullRequest[] }> }
   /** How often the run reads the PRs while it runs (default BASE_INTERVAL_MS, the tracker's own interval). */
   prsEveryMs?: number
-  /** The clock of that read (default: the real timers). */
+  /** The clock of that read and of the last read's limit (default: the real timers). */
   prsClock?: TasksClock
+  /** How long the last read of the PRs before `run-stopped` may take (default END_READ_MS). */
+  endReadMs?: number
 }
+
+/**
+ * How long the last read of the PRs before `run-stopped` may take; its answer after that is not
+ * journaled. Well under the 3 s the app's quit waits for the runs' end (src/main/ipc/autopilot.ts).
+ */
+export const END_READ_MS = 1000
 
 /** A task as the journal writes it. */
 const journalTasks = (tasks: readonly BackgroundTask[]) => tasks.map((task) => ({ id: task.taskId, type: task.taskType, description: task.description }))
@@ -274,6 +284,13 @@ class Run {
   readonly narrowJournaled = new Set<string>()
   /** The next read of the PRs; null before the first Wave and once the run stops. */
   prsTimer: unknown = null
+  /** When the run started (ms): narrow-round comments made before it are not this run's. */
+  readonly startedAt = Date.now()
+  /** Set once a Force stop or the app's quit has come: the end does not wait for gh any more. */
+  rushed = false
+  /** Settles when `rushed` is set. */
+  readonly rushing: Promise<void>
+  private rushDone!: () => void
   /** Settles once the run has stopped and cleaned up. */
   readonly ended: Promise<void>
   finish!: () => void
@@ -284,6 +301,9 @@ class Run {
     readonly root: string,
   ) {
     this.cycle = initialCycle(epic)
+    this.rushing = new Promise((done) => {
+      this.rushDone = done
+    })
     this.ended = new Promise((done) => {
       this.finish = done
     })
@@ -298,6 +318,12 @@ class Run {
    */
   get running(): boolean {
     return !this.done
+  }
+
+  /** A Force stop or the app's quit has come: an end waiting for gh goes on without it. */
+  rush(): void {
+    this.rushed = true
+    this.rushDone()
   }
 
   /** Whether the turn `turn` can end the current Wave: the Wave's own turn, or a later one. */
@@ -485,6 +511,8 @@ export class Autopilot {
   async forceStop(projectId: string): Promise<AutopilotState> {
     const run = this.runs.get(projectId)
     if (run === undefined) return this.state(projectId)
+    // Before its step waits in the run's order: an end that waits for gh there goes on now.
+    run.rush()
     await run.enqueue(() => this.feed(run, { type: 'stop', reason: 'user-force-stop' }))
     await run.ended
     return this.state(projectId)
@@ -497,6 +525,7 @@ export class Autopilot {
   async stopAll(): Promise<void> {
     await Promise.all([
       ...[...this.runs.values()].map(async (run) => {
+        run.rush()
         await run.enqueue(() => this.feed(run, { type: 'stop', reason: 'app-quit' }))
         await run.ended
       }),
@@ -870,7 +899,7 @@ export class Autopilot {
   private async end(run: Run, reason: AutopilotStopReason, tickets?: number[]): Promise<void> {
     // The narrow round's last states before the end: a Ticket blocked on `NARROW: REJECTED` is
     // journaled ahead of the run-stopped that names it. A Force stop and a quit do not wait for gh.
-    if (reason !== 'user-force-stop' && reason !== 'app-quit') await this.journalNarrow(run, await this.readPrs(run))
+    if (reason !== 'user-force-stop' && reason !== 'app-quit') await this.journalNarrow(run, await this.lastPrs(run))
     const live = this.liveTasks(run)
     const lastText = reason === 'no-progress' || reason === 'no-ready-wave' || reason === 'blocked-tickets' ? run.lastText : null
     await this.write(run, {
@@ -1022,9 +1051,29 @@ export class Autopilot {
   }
 
   /**
+   * The read before `run-stopped`: END_READ_MS at most, and over as soon as a Force stop or the app's
+   * quit comes (Run.rush); none when one has come already. An answer after that is dropped.
+   */
+  private async lastPrs(run: Run): Promise<readonly PullRequest[]> {
+    if (run.rushed) return []
+    const clock = this.deps.prsClock ?? realClock
+    let timer: unknown = null
+    const limit = new Promise<readonly PullRequest[]>((done) => {
+      timer = clock.setTimeout(() => done([]), this.deps.endReadMs ?? END_READ_MS)
+    })
+    try {
+      return await Promise.race([this.readPrs(run), limit, run.rushing.then(() => [])])
+    } finally {
+      clock.clearTimeout(timer)
+    }
+  }
+
+  /**
    * One `narrow-round` line for each narrow-round state on the PRs of the run's Wave Tickets not
-   * journaled yet in this run, in comment order (worfy-harness ticket 20). Nothing once the run is
-   * done: a read that answers after run-stopped writes nothing.
+   * journaled yet in this run, in comment order (worfy-harness ticket 20). A comment made before the
+   * run started (gh's `createdAt`) belongs to an earlier run or a closed PR and is skipped; one whose
+   * time gh did not give is taken. Nothing once the run is done: a read that answers after
+   * run-stopped writes nothing.
    */
   private async journalNarrow(run: Run, pulls: readonly PullRequest[]): Promise<void> {
     if (run.done) return
@@ -1032,6 +1081,7 @@ export class Autopilot {
       const ref = parseTicketBranch(pull.branch)
       if (ref === null || ref.epic !== run.epic || !run.waveTickets.has(ref.num)) continue
       for (const state of pull.narrow ?? []) {
+        if (state.at !== null && Date.parse(state.at) < run.startedAt) continue
         const key = `${ref.num}:${state.outcome}`
         if (run.narrowJournaled.has(key)) continue
         run.narrowJournaled.add(key)

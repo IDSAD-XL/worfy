@@ -253,6 +253,10 @@ git -C <implementer worktree> commit --allow-empty -m "gate: VERIFIED"     # or 
 git -C <implementer worktree> log --format=%s <base>..HEAD | grep -c '^gate: REJECTED'
 ```
 
+These counts do not see the narrow round below: its verdicts start with `NARROW:` (with
+`local-green` — commits `gate: NARROW: …`). A `NARROW:` comment or commit means the ticket has had
+its narrow round; the last `NARROW: VERIFIED` or `NARROW: REJECTED` is its verdict.
+
 `REJECTED` (except `REJECTED: gate 3 …` — see above) goes to the same implementer through
 `SendMessage` with that list — exactly one rework round (the exception is the narrow round below),
 then the gate again. The same message reminds the implementer: cover every new behaviour of the
@@ -283,8 +287,9 @@ a narrow round only by the owner's decision. How many tickets stand behind the r
 counted from tickets actually removed from the wave, not from those skipped in it as already
 merged.
 
-**The narrow round without a human** (worfy Autopilot: the wave came as "tickets NN, NN of epic X",
-and a question to the owner is declined automatically). Nobody answers, so for a ticket on the
+**The narrow round without a human** (worfy Autopilot). What decides is that a question to the
+owner is declined automatically (see section 2); the wave then usually came as "tickets NN, NN of
+epic X" or its older form "Ticket-ы NN, NN эпика X". Nobody answers, so for a ticket on the
 critical path with a second `REJECTED` the rule decides, without a question and without waiting:
 - every finding that stood against the sceptics is medium or low, none high — the ticket gets
   exactly one narrow round on those findings;
@@ -294,10 +299,11 @@ critical path with a second `REJECTED` the rule decides, without a question and 
 
 A leaf ticket gets no narrow round in Autopilot: `ticket block`, a `blocked` row, and a line in the
 state file's list of what waits for the owner: "narrow round for a leaf ticket — the owner's
-decision" (in the docs' language). The
+decision" (in the docs' language; worfy: «узкий круг листовому Ticket-у — решение владельца»). The
 critical path, the sceptics, the three grounds of the narrow round's `REJECTED` and the `NARROW: …`
-verdicts recorded as above do not change. Send worfy nothing besides them: its run journal reads
-the `NARROW:` verdicts from the PR comments. A session with a human keeps the rule above as it is.
+verdicts recorded as above do not change. There is no marker for worfy besides the `NARROW:`
+verdicts: its run journal reads them from the PR comments. A session with a human keeps the rule
+above as it is.
 The gate is closed when every ticket of the wave has a verdict.
 
 ## 4. Merge by policy
@@ -443,13 +449,16 @@ ls <F worktree.root>                            # parallel: worktrees only
 A ticket with `state: "work"` and no worktree (with `single` — no commits on its branch) — the
 implementer never started: dispatch it again. A worktree without a PR — the implementer stopped
 before step 8: continue `/worfy:ship-ticket` in that worktree. An open PR — the ticket waits for
-the gate (section 3); count rework rounds by the PR comments. A merged PR while `state` is not
+the gate (section 3); count rework rounds by the PR comments. A `NARROW:` comment means the narrow
+round has been given; the last `NARROW: VERIFIED` or `NARROW: REJECTED` is the ticket's verdict,
+and with no such verdict yet the narrow round's gate is ahead. A merged PR while `state` is not
 `done` — the documents PR is still ahead (section 4, item 4).
 
 With `local-green` there is no PR, and the state is read from the `gate:` commits on the ticket's
 branch: no last `gate: VERIFIED` — run the gate (section 3); if it is red, the implementer has not
 finished — continue `/worfy:ship-ticket` on that branch up to a green step 6. `gate: VERIFIED`
 exists but `state` is not `done` — the documents commit is still ahead. Rework rounds — the number
-of `gate: REJECTED` commits.
+of `gate: REJECTED` commits. A `gate: NARROW:` commit means the narrow round has been given; the
+last `gate: NARROW: VERIFIED` or `gate: NARROW: REJECTED` is the ticket's verdict.
 
 Then — from section 1: the preflight is idempotent.

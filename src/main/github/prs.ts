@@ -190,10 +190,10 @@ function clipLine(line: string): string {
  * Every state of the narrow fix rounds of a PR, oldest first (worfy-harness ticket 20, ADR-0046):
  * each comment whose first line starts with `NARROW:` — `NARROW: VERIFIED` is `verified`,
  * `NARROW: REJECTED…` is `rejected`, anything else (`NARROW: <findings>`) is `started` — with that
- * first line. worfy reads only the prefix the /epic-wave skill writes its verdicts with; the
- * findings are not parsed.
+ * first line and the comment's `createdAt`. worfy reads only the prefix the /epic-wave skill writes
+ * its verdicts with; the findings are not parsed.
  */
-export function narrowRoundsOf(comments: readonly { body: string }[] | null | undefined): NarrowState[] {
+export function narrowRoundsOf(comments: readonly { body: string; createdAt?: string | undefined }[] | null | undefined): NarrowState[] {
   const states: NarrowState[] = []
   for (const comment of comments ?? []) {
     const line = firstLine(comment.body)
@@ -201,13 +201,13 @@ export function narrowRoundsOf(comments: readonly { body: string }[] | null | un
     if (!match) continue
     const rest = match[1]!.trim()
     const outcome = /^VERIFIED\b/u.test(rest) ? 'verified' : /^REJECTED\b/u.test(rest) ? 'rejected' : 'started'
-    states.push({ outcome, text: clipLine(line) })
+    states.push({ outcome, text: clipLine(line), at: comment.createdAt ?? null })
   }
   return states
 }
 
 /** The last state of the narrow round of a PR, or null when it has had none. */
-export function narrowOf(comments: readonly { body: string }[] | null | undefined): NarrowState | null {
+export function narrowOf(comments: readonly { body: string; createdAt?: string | undefined }[] | null | undefined): NarrowState | null {
   return narrowRoundsOf(comments).at(-1) ?? null
 }
 

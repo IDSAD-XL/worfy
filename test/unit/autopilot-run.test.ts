@@ -997,8 +997,10 @@ describe('the narrow fix round from the PR comments (worfy-harness ticket 20)', 
     verdict: null,
     ...(narrow === undefined ? {} : { narrow }),
   })
-  const STARTED = { outcome: 'started' as const, text: 'NARROW: [med] src/a.ts:1 — x' }
-  const REJECTED = { outcome: 'rejected' as const, text: 'NARROW: REJECTED: src/a.ts:1 still open' }
+  // Comments made during the run: an hour after now (the run starts in the test, after this line).
+  const during = new Date(Date.now() + 3_600_000).toISOString()
+  const STARTED = { outcome: 'started' as const, text: 'NARROW: [med] src/a.ts:1 — x', at: during }
+  const REJECTED = { outcome: 'rejected' as const, text: 'NARROW: REJECTED: src/a.ts:1 still open', at: during }
 
   /**
    * A stand-in whose PR reader answers `reader.pulls` (or throws `reader.error`) and records the
@@ -1090,7 +1092,7 @@ describe('the narrow fix round from the PR comments (worfy-harness ticket 20)', 
     await settle()
     expect(kinds(s).map(([kind]) => kind)).toEqual(['wave-started', 'wave-finished', 'wave-started'])
     expect(reader.reads.at(-1)).toEqual(['demo/01', 'demo/02', 'demo/03'])
-    reader.pulls = [pr(5, 'demo/02', [STARTED, { outcome: 'verified', text: 'NARROW: VERIFIED' }])]
+    reader.pulls = [pr(5, 'demo/02', [STARTED, { outcome: 'verified', text: 'NARROW: VERIFIED', at: during }])]
     await tick()
     expect(outcomes(s)).toEqual(['started', 'verified'])
   })
@@ -1160,6 +1162,95 @@ describe('the narrow fix round from the PR comments (worfy-harness ticket 20)', 
     await settle()
     expect(narrowLines(s)).toEqual([])
     expect(kinds(s).at(-1)).toEqual(['orchestrator-returned', null])
+  })
+
+  it('a comment made before the run started (an earlier run, a closed PR) writes no line; one without a time is taken', async () => {
+    const before = '2026-01-01T00:00:00Z'
+    const { s } = reading([
+      pr(4, 'demo/01', [{ ...STARTED, at: before }, { ...REJECTED, at: before }]),
+      pr(5, 'demo/02', [{ ...STARTED, at: before }, { outcome: 'verified', text: 'NARROW: VERIFIED', at: null }]),
+    ])
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(narrowLines(s)).toEqual([{ kind: 'narrow-round', ticket: '02', outcome: 'verified', text: 'NARROW: VERIFIED' }])
+  })
+
+  /** Ticket 01 done and 02 blocked, as the Orchestrator leaves them: the Wave's end stops the run with blocked-tickets. */
+  const blockTwo = (s: StandIn): void => {
+    done(s, 1)
+    s.tickets = s.tickets.map((each) => (each.num === 2 ? { ...each, state: 'blocked' as const } : each))
+  }
+
+  /** A reader whose first read (at wave-started) answers at once and whose later reads wait for `answer()`. */
+  function slowAfterFirst() {
+    const slow = { reads: 0, answer: null as (() => void) | null }
+    const read = (): Promise<{ pulls: PullRequest[] }> => {
+      slow.reads += 1
+      if (slow.reads === 1) return Promise.resolve({ pulls: [] })
+      return new Promise((resolve) => {
+        slow.answer = () => resolve({ pulls: [pr(5, 'demo/02', [STARTED, REJECTED])] })
+      })
+    }
+    return { slow, read }
+  }
+
+  /** Fails when `promise` has not settled within `ms` of real time. */
+  const within = <T>(promise: Promise<T>, ms: number): Promise<T> =>
+    Promise.race([promise, new Promise<never>((_done, fail) => setTimeout(() => fail(new Error(`not settled within ${ms} ms`)), ms))])
+
+  it('the app\'s quit does not wait for gh: stopAll during the last read ends the run at once, and the late answer writes nothing', async () => {
+    const { slow, read } = slowAfterFirst()
+    // A limit far longer than the 3 s the quit waits: only the quit itself may cut the read short.
+    const s = standIn({ prs: { read }, endReadMs: 60_000 })
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    blockTwo(s)
+    s.emit(result())
+    await settle()
+    // The end waits for its read: run-stopped is not written yet.
+    expect(slow.reads).toBe(2)
+    expect(kinds(s).map(([kind]) => kind)).toEqual(['wave-started', 'wave-finished'])
+    await within(s.autopilot.stopAll(), 500)
+    expect(kinds(s).at(-1)).toEqual(['run-stopped', 'blocked-tickets'])
+    slow.answer!()
+    await settle()
+    expect(narrowLines(s)).toEqual([])
+  })
+
+  it('Force stop during the last read does not wait for gh: the run ends at once with its own reason', async () => {
+    const { slow, read } = slowAfterFirst()
+    const s = standIn({ prs: { read }, endReadMs: 60_000 })
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    blockTwo(s)
+    s.emit(result())
+    await settle()
+    expect(slow.reads).toBe(2)
+    const state = await within(s.autopilot.forceStop(PROJECT), 500)
+    expect(state).toMatchObject({ status: 'stopped', reason: 'blocked-tickets' })
+    expect(kinds(s).at(-1)).toEqual(['run-stopped', 'blocked-tickets'])
+    slow.answer!()
+    await settle()
+    expect(narrowLines(s)).toEqual([])
+  })
+
+  it('the last read waits endReadMs at most: then run-stopped goes without its answer', async () => {
+    const { s, tick } = reading([])
+    const { slow, read } = slowAfterFirst()
+    s.deps.prs = { read }
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    blockTwo(s)
+    s.emit(result())
+    await settle()
+    expect(slow.reads).toBe(2)
+    expect(kinds(s).map(([kind]) => kind)).toEqual(['wave-started', 'wave-finished'])
+    // The limit's timer (and the every-minute read's, cleared at the end) fire.
+    await tick()
+    expect(kinds(s).at(-1)).toEqual(['run-stopped', 'blocked-tickets'])
+    slow.answer!()
+    await settle()
+    expect(narrowLines(s)).toEqual([])
   })
 
   it('without a PR reader: no read, no line, as before', async () => {
