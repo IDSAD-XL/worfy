@@ -1,7 +1,7 @@
 # 02 — «Link a machine»: поиск по Bonjour или адресу, код на экране, список Linked machine-ов, отзыв, переключатель доступа
 
 Type: task
-Status: open
+Status: claimed — 2026-10-08
 Blocked by: 01
 Source: решения владельца 2026-10-07: Q4 (доступ выключен по умолчанию, код связи, токен устройства, отзыв), Q7 (host и client — роли соединения), Q10 (слева Project-ы всех Linked machine по Machine с состоянием «в сети», «спит», «недоступна»), Q11 («Link a machine»: Bonjour или адрес, код из 6 цифр, переключатель доступа по умолчанию выключен, отзыв с любой стороны) и Q12 (первая проверка — dev-сборка и Stable copy на одном Mac) ([spec.md](../spec.md), «Готово, когда» Epic-а, пункты 1 и 5); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md) (пункты 4, 6, 9; последствие про запрос Local Network)
 
@@ -91,17 +91,17 @@ Source: решения владельца 2026-10-07: Q4 (доступ выкл�
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/link-discovery.test.ts` (mDNS подменён): своя Machine и уже связанные в списке найденных не показываются; worfy с другой версией протокола показан с пометкой; ушедший из сети пропадает из списка.
-- [ ] Unit там же: разбор адреса, введённого руками (`host:port`, `[::1]:port`, без порта, мусор).
-- [ ] Contract `test/contract/link-connections.test.ts` (стенд Ticket-а 01): обрыв соединения — «недоступна»; сервер B вернулся — «в сети» без действий пользователя.
-- [ ] Там же: отзыв с A и отзыв с B — у обеих сторон списки пусты, соединение закрыто.
-- [ ] Там же: переключатель доступа у свежей папки данных выключен, переживает перезапуск сервиса над той же папкой, его смена шлёт событие.
-- [ ] e2e `test/e2e/linked-machines.spec.ts` (локально, в gate full; Bonjour выключен, адрес `127.0.0.1:<порт>` из окна B): два worfy открывают «Link a machine»; на A введён адрес B, код из окна B (по `data-testid`) — на A. У обоих в секции — другая Machine «в сети».
-- [ ] Там же: неверный код — сообщение на A, код на B сменился, связи нет. Отзыв с A — строка пропала у обоих не позже чем через 5 s; связать заново по коду удаётся. Отзыв с B — то же.
-- [ ] Там же: у свежей Machine переключатель доступа выключен. Включённый, он включён и после перезапуска worfy над той же папкой данных.
-- [ ] Снимки в светлой и тёмной теме (helper `test/e2e/snapshots.ts`): «Link a machine» с кодом на B, с полем кода на A, секция с одной Linked machine. Цвета — существующие токены обеих тем (`src/renderer/theme/tokens.css`). Ссылка из «Итог» — `../evidence/02-link-a-machine.png`.
+- [x] Unit `test/unit/link-discovery.test.ts` (mDNS подменён): своя Machine и уже связанные в списке найденных не показываются; worfy с другой версией протокола показан с пометкой; ушедший из сети пропадает из списка.
+- [x] Unit там же: разбор адреса, введённого руками (`host:port`, `[::1]:port`, без порта, мусор).
+- [x] Contract `test/contract/link-connections.test.ts` (стенд Ticket-а 01): обрыв соединения — «недоступна»; сервер B вернулся — «в сети» без действий пользователя.
+- [x] Там же: отзыв с A и отзыв с B — у обеих сторон списки пусты, соединение закрыто.
+- [x] Там же: переключатель доступа у свежей папки данных выключен, переживает перезапуск сервиса над той же папкой, его смена шлёт событие.
+- [x] e2e `test/e2e/linked-machines.spec.ts` (локально, в gate full; Bonjour выключен, адрес `127.0.0.1:<порт>` из окна B): два worfy открывают «Link a machine»; на A введён адрес B, код из окна B (по `data-testid`) — на A. У обоих в секции — другая Machine «в сети».
+- [x] Там же: неверный код — сообщение на A, код на B сменился, связи нет. Отзыв с A — строка пропала у обоих не позже чем через 5 s; связать заново по коду удаётся. Отзыв с B — то же.
+- [x] Там же: у свежей Machine переключатель доступа выключен. Включённый, он включён и после перезапуска worfy над той же папкой данных.
+- [x] Снимки в светлой и тёмной теме (helper `test/e2e/snapshots.ts`): «Link a machine» с кодом на B, с полем кода на A, секция с одной Linked machine. Цвета — существующие токены обеих тем (`src/renderer/theme/tokens.css`). Ссылка из «Итог» — `../evidence/02-link-a-machine.png`.
 - [ ] (вручную) dev-сборка и Stable copy на одном Mac находят друг друга по Bonjour, связываются по коду; отзыв с любой стороны работает. В «Итог» — был ли запрос Local Network и на каком шаге. Как проверить: окна обеих копий.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all gate.sh full` — exit 0.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all gate.sh full` — exit 0.
 
 ## Тесты
 
@@ -135,6 +135,8 @@ dev-сборке и Stable copy. Код в e2e берётся из DOM окна 
 - `test/contract/link-connections.test.ts` (новый)
 - `test/e2e/linked-machines.spec.ts` (новый)
 - `test/e2e/helpers.ts`
+- `src/main/index.ts` (круг доработки 1, узкий круг: остановка связи на выходе, `stopLinkOnQuit`; в следах соседей по волне его нет)
+- `test/contract/main-ipc-wiring.test.ts` (узкий круг: одна строка — `stopLinkOnQuit` в подмене `link/service`)
 
 `Sidebar.tsx` и `ProjectsSection.tsx` этот Ticket не меняет: секция — новый файл. Файлы папки связи
 и их имена — как в «Итог» Ticket-а 01; если они там другие, список выше правится при claim.
@@ -143,4 +145,102 @@ dev-сборке и Stable copy. Код в e2e берётся из DOM окна 
 
 ## Итог
 
-Заполняется при закрытии.
+Сделано в ветке `worfy-link/02`.
+
+- **Первый test падал так.** `test/e2e/linked-machines.spec.ts` и новый `test/e2e/helpers.ts` поверх сборки `origin/main`
+  (487f043): `4 failed`. Первый test — `waiting for getByTestId('machines-section')` (секции нет), второй и третий —
+  `locator.click: Timeout 30000ms exceeded … waiting for getByTestId('link-machine-button')` (нет кнопки «Link a
+  machine…»), четвёртый — `No handler registered for 'worfy:link.state'`.
+- **Файлы.** IPC: `src/shared/ipc/link.ts` (каналы `link.state`, `link.open`, `link.close`, `link.pair`, `link.revoke`,
+  `link.setAccess`, событие `link.changed`; разбор адреса `parseLinkAddress`), `src/main/ipc/link.ts`. Main:
+  `src/main/link/discovery.ts` (Bonjour), `connections.ts` (переподключение), `settings.ts` (переключатель доступа),
+  `service.ts` (настройки, `addresses()`, `noteAddress()`, `isLinked()`, `isStopped`, отказ связать Machine саму с собой;
+  внизу — сборка приложения: `appLink()`, `wireAppLink()`, `onAppLinkStart()`, `stopLink()`, `stopAppLink()`).
+  `src/main/index.ts` — остановка связи на выходе, `stopLinkOnQuit(app)` (круг доработки 1, узкий круг). Renderer:
+  `src/renderer/machines/useMachines.ts`, `LinkMachineDialog.tsx`, `src/renderer/shell/sidebar/MachinesSection.tsx`.
+  Вне первоначального «Где в коде» — `src/main/index.ts` и одна строка подмены в `test/contract/main-ipc-wiring.test.ts`
+  (добавлены в список).
+- **Новый файл папки данных:** `link/settings.json` — `{ "version": 1, "projectsAccess": false|true }`. Нет файла или он
+  не читается — доступ выключен.
+- **Переменные окружения.** `WORFY_LINK_HOST` — единственный адрес, который слушает сервер связи (без неё — `::`, затем
+  `0.0.0.0`, как в Ticket-е 01). `WORFY_LINK_BONJOUR=0` (`false`, `off`) — Bonjour выключен. `launchApp` ставит обе
+  (`127.0.0.1` и `0`) каждому e2e: брандмауэр macOS не спрашивает про входящие соединения, запроса Local Network нет.
+- **Helper двух связанных worfy** (для Ticket-ов 09, 13, 14, 15) — `test/e2e/helpers.ts`: `launchLinkedPair()` отдаёт
+  `{ a, b, aId, bId, close }`; рядом `linkThroughUi(a, b)`, `openLinkDialog`, `chooseByAddress`, `shownCode`,
+  `machineIdOf`.
+- **Библиотека Bonjour — `bonjour-service` 1.4.4** (MIT; чистый JS над UDP multicast, без нативной сборки, тот же код
+  пойдёт на Windows). Тянет `multicast-dns` 7.2.5, `dns-packet` 5.6.1, `@leichtgewicht/ip-codec` 2.0.5, `thunky` 1.1.0,
+  `fast-deep-equal` 3.1.3 — все MIT. На диске в `node_modules` — около 450 КБ (`du -sk` по каждому пакету, с картами и
+  типами). Сокет открывается только при первом объявлении или поиске. `multicast-dns` напрямую не взят: записи DNS-SD
+  (PTR, SRV, TXT, A) и пробу имени пришлось бы писать самим.
+- **Info.plist (TN3179).** В `electron-builder.yml`, `mac.extendInfo`: `NSLocalNetworkUsageDescription` (текст запроса
+  Local Network) и `NSBonjourServices: [_worfy._tcp]`. Нужность — по TN3179, не на устройстве. Что ключи попали в
+  сборку, проверено: `plutil -extract` по `dist/mac-arm64/worfy.app/Contents/Info.plist` после `test:package` выдаёт
+  оба; `bonjour-service` и `multicast-dns` лежат в `app.asar`.
+- **Снимки** (обе темы, `snapshotThemes`): «Link a machine» с кодом на B — [../evidence/02-link-a-machine.png](../evidence/02-link-a-machine.png)
+  (он же `02-link-a-machine-code-light.png`, тёмная — `02-link-a-machine-code-dark.png`); с полем кода на A —
+  `02-link-a-machine-code-field-{light,dark}.png`; секция Machines с одной Linked machine — `02-machines-section-{light,dark}.png`.
+  Цвета — только роли из `tokens.css` (`surface`, `surface-raised`, `border`, `border-strong`, `text*`, `primary`,
+  `segment-track`, `blocked-text`, чипы `ready`/`blocked`).
+
+Решения (все — **решено без владельца, подтвердить**):
+
+- **Секция Machines — `order` 15**, между Projects и Epics. Строка: имя, чип «Online» (`ready`), «Unavailable» (нейтральный:
+  `surface-raised`, `border`, `text-muted`) или «Certificate changed» (`blocked`, подсказка «Revoke it, then link it
+  again»). «Revoke» — в контекстном меню строки, без подтверждения. Под списком — «Link a machine…» и переключатель.
+- **Окно одно на обе роли.** Каждая сторона показывает свой код и свой адрес; на любой из них выбирают другую (из найденных
+  или по адресу) и вводят её код. Имя A на B показывается в сообщении об успехе («Linked with A»), а не рядом с кодом:
+  до ввода кода B имени A не знает.
+- **Тип сервиса `_worfy._tcp`**, TXT: `id`, `proto`, `name`; имя экземпляра — `<имя Machine> (<первые 8 знаков id>)`:
+  у двух worfy на одном Mac имена Machine совпадают.
+- **Поиск по Bonjour** — пока открыт «Link a machine» и пока хотя бы одна Linked machine недоступна. Объявление — пока
+  сервер слушает; при выходе worfy шлёт goodbye (до 1.5 s), и другие worfy убирают её из списка сразу, а не через TTL.
+- **Объявление по Bonjour — заявка, не доказательство** (круг доработки 1): объявить любой id с любого адреса может кто
+  угодно в сети. Берутся только адреса локальной сети (`checks.ts`) или имя `*.local`; хранится не больше 64 объявлений;
+  два адреса у одного id показываются оба, с пометкой «Two addresses»; Linked machine, найденная по Bonjour, — не чаще
+  раза в 10 s. По такому адресу Machine звонит один раз и только если соединения нет ни в одну сторону. Адрес
+  запоминается, только когда там ответил запомненный сертификат. Чужой сертификат там — «недоступна» с причиной в
+  подсказке; запись и пометка «certificate changed» не меняются, пауза между повторами не растёт.
+- **Переподключение:** обе стороны соединяются друг с другом сами; пауза после обрыва или неудачи 1, 1, 2, 4, 8, 16 s,
+  затем 30 s; «в сети», пока открыто хоть одно соединение (входящее или исходящее).
+- **Имя Machine в строке:** хвост в скобках («(dev)») не обрезается, многоточие — в имени перед ним.
+- **`link.changed` — только окнам этой Machine** (`BrowserWindow`), не всем клиентам `broadcast.ts`: в состоянии код
+  связи, а клиент без окна — соединение Linked machine (Ticket 08). `link.state` и остальные новые каналы не в
+  `LINK_OPEN_CHANNELS`.
+
+Проверки: `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (147 файлов, 2832 test-а); `gate.sh fast` — exit 0,
+«зелено»; `GATE_SCOPE=all gate.sh full` — exit 0, «зелено (full): lint typecheck test test:e2e test:package»;
+`test/e2e/linked-machines.spec.ts` — `4 passed`.
+Mutation-проверка в своём worktree (вернул из копии): без повтора после обрыва, без немедленного соединения по Bonjour,
+с доступом «включён» по умолчанию, без фильтра Linked machine-ов, без удаления ушедшего, без пометки другой версии —
+test-ы краснеют все шесть. Круг доработки 1 — ещё 11: чужой сертификат по адресу из Bonjour ставит «certificate
+changed»; адрес не запоминается после проверки; неудача по объявлению удлиняет паузу; пауза всегда первая
+(`delayFor(1)`); без фильтра адресов локальной сети; без предела 64; без пометки конфликта; без ограничения частоты
+`seen`; сокет закрыт до goodbye; `stopLink` без остановки Bonjour; слушатель `destroyed` на каждое открытие — все
+краснеют.
+
+- не проверено: dev-сборка и Stable copy на одном Mac по Bonjour, связывание по коду и отзыв с любой стороны; был ли
+  запрос Local Network и на каком шаге. Бриф запрещает системные окна на машине владельца и пересборку Stable copy;
+  проверять — окнами обеих копий.
+- **Остановка связи на выходе — в `will-quit`, не в `before-quit`** (узкий круг; **решено без владельца, подтвердить**).
+  В круге 1 связь держала `before-quit` и сама звала `app.quit()`: на втором `before-quit` Autopilot уже считал себя
+  выходящим, и приложение выходило, не дождавшись `autopilot.stopAll()` — журнал прогона терял записи о выходе.
+  `will-quit` Electron шлёт, только когда все `before-quit` отпустили выход, поэтому чужое ожидание связь не обрывает.
+  В `will-quit` связь держит выход, пока её остановка не закончилась, на каждом `will-quit`: оболочки
+  (`src/main/ipc/terminal.ts`) тоже ждут там и сами зовут `app.quit()`. Ждёт не дольше 1.5 s. Повторный `app.quit()`
+  идёт следующим ходом цикла событий (`setTimeout 0`), а не из microtask: пока Electron рассылает `will-quit`, он
+  считает приложение выходящим и `app.quit()` пропускает, а остановка без ожиданий заканчивается ещё внутри рассылки.
+  Первый вариант узкого круга звал `app.quit()` прямо из `.finally` — каждый выход в e2e висел 20 s, это поймал gate
+  full; проверено на собранном приложении скриптом Playwright (`before-quit`, `will-quit`, `app.quit`, снова
+  `before-quit`, `will-quit`, `quit`). Вариант с общим
+  обработчиком `Promise.all(Autopilot, связь)` не взят: он требовал правки `src/main/ipc/autopilot.ts` вне следа.
+  `src/main/ipc/autopilot.ts` не менялся. Test — `test/contract/link-connections.test.ts`, «stopping the link when worfy
+  quits», на модели выхода Electron: Autopilot 300 ms и связь 20 ms (оба порядка регистрации), оболочки быстрее и
+  медленнее связи, зависшая остановка, связь не запущена. Mutant с логикой fad10d4 (`before-quit` и `app.quit()`) —
+  2 test-а красные. Mutant «держать только первый `will-quit`» — 1 красный. Mutant «`app.quit()` из microtask» —
+  1 красный (модель, как Electron, пропускает `app.quit()` во время рассылки `will-quit`).
+- не проверено: `stopLinkOnQuit(app)` в `src/main/index.ts` на настоящем выходе приложения — test-ом покрыта сама функция
+  на модели выхода Electron и `stopLink` (goodbye, затем закрытие сокета). В e2e Bonjour выключен.
+- Ограничение (Ticket 01): если у отзывающей Machine после отзыва не осталось Linked machine-ов, её сервер закрывается.
+  Отозванная сторона, которая в этот момент не была на связи, видит её «Unavailable», пока не отзовёт сама: отказа 401
+  ей получить не от кого. При открытом соединении отзыв доходит сразу (test-ы с двух сторон).

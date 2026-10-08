@@ -17,6 +17,13 @@
 //
 // Logs (ADR-0052, point 10): no pairing code and no token reaches console.*, an error text, an IPC
 // answer or a worfy journal. Messages name a Machine by its id and name.
+//
+// The app's link (bottom of this file, worfy-link ticket 02) adds what a running worfy needs around
+// the service: the connections kept to every Linked machine (connections.ts) and Bonjour
+// (discovery.ts). Two environment variables shape it: WORFY_LINK_HOST is the one address the server
+// listens on (e2e tests set 127.0.0.1, so the macOS firewall never asks about incoming
+// connections), and WORFY_LINK_BONJOUR=0 turns Bonjour off (e2e tests, so macOS never asks for
+// the Local Network permission during a run).
 import { EventEmitter } from 'node:events'
 import { hostname as osHostname, networkInterfaces as osNetworkInterfaces } from 'node:os'
 import { join } from 'node:path'
@@ -28,6 +35,8 @@ import { dataRoot, type BuildKind } from '../storage/paths'
 import { normalizeAddress, type HostNames } from './checks'
 import { LinkConnectError, openLinkSocket } from './client'
 import { CLOSE_REVOKED, CLOSE_UNLINKED, LinkConnection } from './connection'
+import { LinkConnections } from './connections'
+import { bonjourBackend, LinkDiscovery } from './discovery'
 import { loadIdentity, MACHINE_KEY, saveIdentity, type MachineIdentity } from './identity'
 import { createLinkIpc, LinkSender, type LinkIpcAdapter, type LocalMachine } from './ipc-adapter'
 import {
@@ -53,6 +62,7 @@ import {
 } from './pairing'
 import { FileSecretStore, type SecretStore } from './secrets'
 import { startLinkServer, UNAUTHORIZED, type Admission, type LinkServer, type Refusal } from './server'
+import { LinkSettings, type LinkSettingsValue } from './settings'
 import { LinkedMachineStore, outgoingTokenKey, tokenHash, type LinkedMachineRecord } from './store'
 
 /** Why the server listens. */
@@ -94,6 +104,8 @@ export interface LinkServiceEvents {
   'certificate-changed': [{ id: string; name: string }]
   /** An IPC event pushed by a Linked machine (worfy-link ticket 08 routes them). */
   'ipc-event': [{ machineId: string; channel: string; payload: unknown }]
+  /** The link settings changed (settings.ts). */
+  settings: [LinkSettingsValue]
 }
 
 export interface LinkServiceOptions {
@@ -127,6 +139,8 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   private readonly linkDir: string
   private readonly secrets: SecretStore
   private readonly store: LinkedMachineStore
+  /** The link settings of this Machine, kept in <dataDir>/link/settings.json. */
+  readonly settings: LinkSettings
   private readonly messages = new MessageRegistry()
   private readonly pairingWindow: PairingWindow
   private readonly reasons = new Set<ListenReason>()
@@ -156,6 +170,8 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     this.secrets = secrets
     this.store = new LinkedMachineStore(this.linkDir)
     this.warn = options.warn ?? ((message) => console.warn(message))
+    this.settings = new LinkSettings(this.linkDir, this.warn)
+    this.settings.on('changed', (value) => this.emit('settings', value))
     this.hostname = options.hostname ?? osHostname
     this.interfaces = options.networkInterfaces ?? osNetworkInterfaces
     this.pairingWindow = new PairingWindow(options.now ?? Date.now, options.codeTtlMs ?? PAIRING_CODE_TTL_MS, () => this.emit('pairing-code'))
@@ -195,6 +211,37 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
 
   linkedMachines(): LinkedMachineInfo[] {
     return this.store.list().map((record) => this.info(record))
+  }
+
+  isLinked(machineId: string): boolean {
+    return this.store.get(machineId) !== undefined
+  }
+
+  /** Whether stop() has run: the service connects and listens no more. */
+  get isStopped(): boolean {
+    return this.stopped
+  }
+
+  /**
+   * Addresses another worfy may type to reach this one, `host:port` (IPv6 in brackets): the listen
+   * address when it is a single one, else every non-internal address of the machine. Empty while
+   * the server does not listen.
+   */
+  addresses(): string[] {
+    const port = this.server?.port
+    if (port === undefined) return []
+    const host = this.options.listenHost
+    if (host !== undefined && host !== ALL_INTERFACES && host !== '0.0.0.0') return [host.includes(':') ? `[${host}]:${port}` : `${host}:${port}`]
+    const v4: string[] = []
+    const v6: string[] = []
+    for (const entries of Object.values(this.interfaces())) {
+      for (const entry of entries ?? []) {
+        if (entry.internal) continue
+        if (entry.family === 'IPv4') v4.push(`${entry.address}:${port}`)
+        else if (!/^fe[89ab]/i.test(entry.address)) v6.push(`[${entry.address}]:${port}`)
+      }
+    }
+    return [...new Set([...v4, ...v6])]
   }
 
   // ---- "Link a machine" on this side (B) -------------------------------------------------------
@@ -273,20 +320,28 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   // ---- connections -----------------------------------------------------------------------------
 
   /**
-   * Connects to Linked machine `machineId` (once per call; reconnecting is ticket 02's). A 401 from
-   * a Machine whose certificate checked out means it has forgotten this one: this side forgets it
-   * too. Another certificate marks it "certificate changed".
+   * Connects to Linked machine `machineId` (once per call; connections.ts retries). A 401 from a
+   * Machine whose certificate checked out means it has forgotten this one: this side forgets it
+   * too. Another certificate at the remembered address marks it "certificate changed".
+   *
+   * `via` is an address someone else claims for it — a Bonjour announcement (connections.ts), which
+   * anyone in the network can send with any Machine id. It is tried once and proves nothing until
+   * the certificate there is the remembered one: only then is the address kept (after the
+   * connection opened). Another certificate there means "not that Machine": an error, with neither
+   * the record nor the "certificate changed" mark touched. No token is sent before that check
+   * (client.ts).
    */
-  async connect(machineId: string): Promise<void> {
+  async connect(machineId: string, via?: { host: string; port: number }): Promise<void> {
     const record = this.store.get(machineId)
     if (record === undefined) throw new Error(`Machine ${machineId} is not linked`)
     const token = this.secrets.get(record.outgoingTokenKey)
     if (token === undefined) throw new Error(`the token for Machine ${record.id} (${record.name}) is missing; link it again`)
+    const target = via ?? { host: record.address, port: record.port }
     let opened: Awaited<ReturnType<typeof openLinkSocket>>
     try {
       opened = await openLinkSocket({
-        host: record.address,
-        port: record.port,
+        host: target.host,
+        port: target.port,
         path: CONNECT_PATH,
         key: this.machineKey(),
         certificate: this.identity.certificate,
@@ -294,6 +349,9 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
         token,
       })
     } catch (error) {
+      if (via !== undefined && error instanceof LinkConnectError && error.kind === 'certificate-changed') {
+        throw new LinkConnectError('refused', `the worfy announced at ${target.host}:${target.port} is not Machine ${record.id} (${record.name}): another certificate; nothing was changed`)
+      }
       if (error instanceof LinkConnectError && error.kind === 'certificate-changed') {
         this.certificateChanged.add(record.id)
         this.emit('certificate-changed', { id: record.id, name: record.name })
@@ -310,6 +368,8 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       throw new Error(`Machine ${record.id} (${record.name}) was linked again while connecting; connect again`)
     }
     if (!this.attach(opened.ws, current ?? record, 'out')) throw new Error(`Machine ${record.id} (${record.name}) was unlinked while connecting`)
+    // The remembered certificate answered there: from now on it is where this Machine is.
+    if (via !== undefined) this.store.touch(record.id, { address: normalizeAddress(via.host), port: via.port })
   }
 
   /** Calls an IPC channel on Linked machine `machineId` over an open connection. */
@@ -401,6 +461,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
    * record (and the trust) of a Machine linked before. Such a Machine is revoked first, then linked.
    */
   private checkPeerId(peerId: string, fingerprint: string): void {
+    if (peerId === this.identity.id) throw new PairingError('that address is this Machine; type the address of the other worfy; nothing was linked')
     const existing = this.store.get(peerId)
     if (existing !== undefined && existing.fingerprint !== fingerprint) {
       throw new PairingError(
@@ -646,29 +707,172 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   }
 }
 
-// ---- the app's service ---------------------------------------------------------------------------
+// ---- the app's link ------------------------------------------------------------------------------
 
-let appService: LinkService | undefined
+/** The app's link: the service and what keeps it connected and findable. */
+export interface AppLink {
+  service: LinkService
+  connections: LinkConnections
+  /** Null when Bonjour is off (WORFY_LINK_BONJOUR=0). */
+  discovery: LinkDiscovery | null
+}
+
+let appLinkValue: AppLink | undefined
 let appProblem: string | undefined
+const appLinkListeners = new Set<() => void>()
 
 /** The app's link service; undefined before its start finished, or when it failed. */
 export function appLinkService(): LinkService | undefined {
-  return appService
+  return appLinkValue?.service
 }
 
-/** Why the app's link service is not running, for the UI of ticket 02; undefined when it runs. */
+/** The app's link with its connections and Bonjour; undefined before its start finished, or when it failed. */
+export function appLink(): AppLink | undefined {
+  return appLinkValue
+}
+
+/** Why the app's link service is not running, for the UI; undefined when it runs. */
 export function appLinkProblem(): string | undefined {
   return appProblem
 }
 
-/** Starts the app's link service over worfy's data folder (src/main/index.ts, after registerIpc). */
-export async function startAppLink(options: { buildKind: BuildKind; buildVersion: string }): Promise<LinkService> {
+/** Calls `listener` when the app's link has started or failed to; returns the unsubscribe. */
+export function onAppLinkStart(listener: () => void): () => void {
+  appLinkListeners.add(listener)
+  return () => appLinkListeners.delete(listener)
+}
+
+function announceAppLink(): void {
+  for (const listener of appLinkListeners) {
+    try {
+      listener()
+    } catch (error) {
+      console.warn(`[link] a listener of the link start failed: ${messageOf(error)}`)
+    }
+  }
+}
+
+/** Reads WORFY_LINK_HOST and WORFY_LINK_BONJOUR (see the top of this file). */
+export function appLinkEnvironment(env: NodeJS.ProcessEnv = process.env): { listenHost?: string; bonjour: boolean } {
+  const host = env.WORFY_LINK_HOST?.trim()
+  const bonjour = env.WORFY_LINK_BONJOUR?.trim()
+  return { ...(host ? { listenHost: host } : {}), bonjour: bonjour !== '0' && bonjour !== 'false' && bonjour !== 'off' }
+}
+
+/** Wires the connections and Bonjour around a started service. */
+export function wireAppLink(service: LinkService, options: { bonjour: boolean; discovery?: LinkDiscovery }): AppLink {
+  const connections = new LinkConnections(service)
+  const discovery =
+    options.discovery ??
+    (options.bonjour
+      ? new LinkDiscovery({
+          backend: bonjourBackend(),
+          self: () => service.machine,
+          isLinked: (id) => service.isLinked(id),
+          protocol: LINK_PROTOCOL_VERSION,
+        })
+      : null)
+  if (discovery !== null) {
+    // Announced while the server listens, on its port.
+    const followServer = (): void => {
+      const { listening, port } = service.status()
+      discovery.advertise(listening ? port : null)
+    }
+    service.on('status', followServer)
+    followServer()
+    discovery.on('seen', (machine) => connections.seen(machine.id, machine.host, machine.port))
+    // Searched for while a Linked machine is unavailable: a new address reconnects at once.
+    const followConnections = (): void => discovery.browse('reconnect', connections.anyUnavailable())
+    connections.on('changed', followConnections)
+    followConnections()
+  }
+  connections.start()
+  return { service, connections, discovery }
+}
+
+/**
+ * Stops a link for good: no more dials, Bonjour sends its goodbye (other worfy drop this one from
+ * their list now, not when the announcement's TTL runs out) and closes its socket, and the service
+ * closes its connections and the server. The order matters: dials stop first, so none starts
+ * against a service being stopped.
+ */
+export async function stopLink(link: AppLink): Promise<void> {
+  link.connections.stop()
   try {
-    appService = await LinkService.start({ dataDir: dataRoot(), ...options })
+    await link.discovery?.stop()
+  } finally {
+    await link.service.stop()
+  }
+}
+
+/** Stops the app's link on quit (src/main/index.ts, before-quit); undefined when it is not running. */
+export function stopAppLink(): Promise<void> | undefined {
+  const link = appLinkValue
+  if (link === undefined) return undefined
+  appLinkValue = undefined
+  return stopLink(link)
+}
+
+/** The part of Electron's `app` stopLinkOnQuit uses; the contract test passes a model of Electron's quit. */
+export interface QuitApp {
+  on(event: 'will-quit', listener: (event: { preventDefault(): void }) => void): unknown
+  quit(): void
+}
+
+/** How long quitting waits for the link to say goodbye on Bonjour and close its connections. */
+export const LINK_QUIT_WAIT_MS = 1500
+
+/**
+ * Stops the app's link when worfy quits (src/main/index.ts), so Bonjour's goodbye goes out (other
+ * worfy drop this one from "Link a machine" at once, not after the announcement's TTL of 8 hours)
+ * and the Linked machines see the connections close.
+ *
+ * In `will-quit`, not `before-quit`: Electron fires `will-quit` only once every `before-quit`
+ * handler has let the quit through, so the link never quits over another part's wait — Autopilot
+ * holds `before-quit` until its runs have stopped and their journal is written
+ * (src/main/ipc/autopilot.ts), and a later app.quit() from here would find its handler already
+ * done and quit under it. In `will-quit` the link holds the quit while its stop is pending — on
+ * every `will-quit`, not only the first: another part waiting there (the shells,
+ * src/main/ipc/terminal.ts) may quit again before the link is done. At most `waitMs`.
+ */
+export function stopLinkOnQuit(app: QuitApp, stop: () => Promise<void> | undefined = stopAppLink, waitMs = LINK_QUIT_WAIT_MS): void {
+  let stopping: Promise<void> | undefined
+  let done = false
+  app.on('will-quit', (event) => {
+    if (stopping === undefined) {
+      const started = stop()
+      if (started === undefined) return
+      const waited = new Promise<void>((resolve) => setTimeout(resolve, waitMs))
+      stopping = Promise.race([started, waited])
+        .catch((error: unknown) => console.warn(`[link] could not stop the link on quit: ${messageOf(error)}`))
+        .finally(() => {
+          done = true
+        })
+    }
+    if (done) return
+    event.preventDefault()
+    // On a later turn of the event loop, never from a microtask: Electron ignores app.quit() until
+    // its `will-quit` dispatch has returned, and a stop with nothing to wait for settles before that.
+    void stopping.finally(() => setTimeout(() => app.quit(), 0))
+  })
+}
+
+/** Starts the app's link over worfy's data folder (src/main/index.ts, after registerIpc). */
+export async function startAppLink(options: { buildKind: BuildKind; buildVersion: string }): Promise<LinkService> {
+  const environment = appLinkEnvironment()
+  try {
+    const service = await LinkService.start({
+      dataDir: dataRoot(),
+      ...options,
+      ...(environment.listenHost === undefined ? {} : { listenHost: environment.listenHost }),
+    })
+    appLinkValue = wireAppLink(service, { bonjour: environment.bonjour })
     appProblem = undefined
-    return appService
+    return service
   } catch (error) {
     appProblem = `the link service could not start: ${messageOf(error)}`
     throw error
+  } finally {
+    announceAppLink()
   }
 }

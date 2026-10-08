@@ -36,6 +36,7 @@ vi.mock('../../src/main/link/service', () => ({
   startAppLink: link.startAppLink,
   appLinkService: () => undefined,
   appLinkProblem: () => 'the link service is replaced in this test',
+  stopLinkOnQuit: vi.fn(),
 }))
 
 /** The menus set as the app menu (a plain list: mock call records are cleared between tests). */

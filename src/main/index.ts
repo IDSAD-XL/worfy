@@ -7,7 +7,7 @@ import { installDevDockIcon } from './dock-icon'
 import { bundledHarnessVersion } from './harness/bundled'
 import { liveSessionListeners } from './ipc/claude-home'
 import { appUrlMatcher, registerIpc } from './ipc/index'
-import { startAppLink } from './link/service'
+import { startAppLink, stopLinkOnQuit } from './link/service'
 import { installAppMenu } from './menu'
 import { installNotifications } from './notify'
 import { checkDataFolder, inStep, reportStartupFailure } from './startup-failure'
@@ -40,6 +40,9 @@ if (dataFolderUsable()) {
  * Starts the link service in the background. A failure — a port that cannot be taken, a key that
  * cannot be read — never stops worfy: it is a warning in the log, and appLinkProblem() keeps it for
  * the UI of worfy-link ticket 02.
+ *
+ * Quitting stops it (worfy-link ticket 02) in `will-quit`, after every `before-quit` wait (the
+ * Autopilot's included) is over: stopLinkOnQuit.
  */
 function startLink(): void {
   const warn = (error: unknown): void => console.warn(`[link] the link service did not start: ${error instanceof Error ? error.message : String(error)}`)
@@ -48,6 +51,7 @@ function startLink(): void {
   } catch (error) {
     warn(error)
   }
+  stopLinkOnQuit(app)
 }
 
 /** Whether the data folder is usable; when it is not, the start is reported as failed. */
