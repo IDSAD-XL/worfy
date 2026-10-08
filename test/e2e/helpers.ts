@@ -133,6 +133,12 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
     // The first-run screen (worfy-harness ticket 19) does not open by itself: it would cover the
     // window of every test. test/e2e/first-run.spec.ts turns it back on with WORFY_FIRST_RUN_AUTO=1.
     WORFY_FIRST_RUN_AUTO: '0',
+    // The link server (worfy-link) listens on loopback only, so the macOS firewall never asks about
+    // incoming connections, and Bonjour is off, so macOS never asks for the Local Network
+    // permission: either prompt would stop a run. Linked worfy in a test reach each other at
+    // 127.0.0.1:<port> (launchLinkedPair below).
+    WORFY_LINK_HOST: '127.0.0.1',
+    WORFY_LINK_BONJOUR: '0',
     ...options.env,
   })
 
@@ -415,5 +421,111 @@ export default class FailureArtifactsReporter implements Reporter {
 
   printsToStdio(): boolean {
     return false
+  }
+}
+
+// ── Two linked worfy ────────────────────────────────────────────────────────
+
+/** The bridge of the page, typed for this file: the e2e typecheck has no DOM library. */
+interface PageBridge {
+  worfy: { invoke(channel: string, input?: unknown): Promise<{ ok: true; value: unknown } | { ok: false; error: string }> }
+}
+
+/** The id of the Machine of the worfy whose window this is (link.state). */
+export async function machineIdOf(window: Page): Promise<string> {
+  let id: string | null = null
+  await expect
+    .poll(async () => {
+      const result = await window.evaluate(() => (globalThis as unknown as PageBridge).worfy.invoke('link.state'))
+      id = result.ok ? ((result.value as { machine: { id: string } | null }).machine?.id ?? null) : null
+      return id
+    })
+    .not.toBeNull()
+  if (id === null) throw new Error('the link service of this worfy did not start')
+  return id
+}
+
+/** Opens "Link a machine" from the Machines section of the sidebar. */
+export async function openLinkDialog(window: Page): Promise<Locator> {
+  await window.getByTestId('link-machine-button').click()
+  const dialog = window.getByTestId('link-machine-dialog')
+  await expect(dialog).toBeVisible()
+  return dialog
+}
+
+/** The code "Link a machine" shows on this window now. */
+export async function shownCode(window: Page): Promise<string> {
+  const code = window.getByTestId('link-code')
+  await expect(code).toHaveText(/^\d{6}$/)
+  return (await code.textContent())?.trim() ?? ''
+}
+
+/** On `a`, with "Link a machine" open on both: types the address `b` shows, then goes to the code field. */
+export async function chooseByAddress(a: Page, b: Page): Promise<void> {
+  const address = b.getByTestId('link-own-address').first()
+  await expect(address).toHaveText(/^127\.0\.0\.1:\d+$/)
+  await a.getByTestId('link-address-input').fill((await address.textContent()) ?? '')
+  await a.getByRole('button', { name: 'Next' }).click()
+  await expect(a.getByTestId('link-code-input')).toBeVisible()
+}
+
+/**
+ * Links two running worfy through the UI, as a person does: "Link a machine" on both, the address
+ * of `b` and the code `b` shows typed on `a`. Waits until both show the success, closes both
+ * dialogs and waits until each lists the other as online.
+ */
+export async function linkThroughUi(a: Page, b: Page): Promise<void> {
+  await openLinkDialog(a)
+  await openLinkDialog(b)
+  await chooseByAddress(a, b)
+  await a.getByTestId('link-code-input').fill(await shownCode(b))
+  await a.getByRole('button', { name: 'Link', exact: true }).click()
+  await expect(a.getByTestId('link-success')).toBeVisible()
+  await expect(b.getByTestId('link-success')).toBeVisible()
+  for (const window of [a, b]) {
+    await window.getByTestId('link-machine-dialog').getByRole('button', { name: 'Done' }).click()
+    await expect(window.getByTestId('link-machine-dialog')).toHaveCount(0)
+  }
+  const [aId, bId] = [await machineIdOf(a), await machineIdOf(b)]
+  await expect(a.locator(`[data-testid="machine-row"][data-machine-id="${bId}"]`)).toHaveAttribute('data-state', 'online')
+  await expect(b.locator(`[data-testid="machine-row"][data-machine-id="${aId}"]`)).toHaveAttribute('data-state', 'online')
+}
+
+export interface LinkedPair {
+  a: LaunchedApp
+  b: LaunchedApp
+  /** The Machine id of `a` and of `b`. */
+  aId: string
+  bId: string
+  /** Closes both worfy. */
+  close: () => Promise<void>
+}
+
+/**
+ * Two worfy linked with each other (worfy-link tickets 02, 09, 13, 14, 15): each its own data
+ * folder and Machine, linked through "Link a machine" by the address 127.0.0.1:<port> of `b` and
+ * the code `b` shows. Bonjour is off (launchApp). Both are online for each other when it resolves.
+ */
+export async function launchLinkedPair(options: { a?: LaunchOptions; b?: LaunchOptions } = {}): Promise<LinkedPair> {
+  const a = await launchApp(options.a)
+  let b: LaunchedApp | undefined
+  try {
+    b = await launchApp(options.b)
+    await linkThroughUi(a.window, b.window)
+    const second = b
+    return {
+      a,
+      b: second,
+      aId: await machineIdOf(a.window),
+      bId: await machineIdOf(second.window),
+      close: async () => {
+        await a.close()
+        await second.close()
+      },
+    }
+  } catch (error) {
+    await a.close()
+    await b?.close()
+    throw error
   }
 }

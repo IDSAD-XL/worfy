@@ -1,7 +1,7 @@
 # 02 — «Link a machine»: поиск по Bonjour или адресу, код на экране, список Linked machine-ов, отзыв, переключатель доступа
 
 Type: task
-Status: open
+Status: claimed — 2026-10-08
 Blocked by: 01
 Source: решения владельца 2026-10-07: Q4 (доступ выключен по умолчанию, код связи, токен устройства, отзыв), Q7 (host и client — роли соединения), Q10 (слева Project-ы всех Linked machine по Machine с состоянием «в сети», «спит», «недоступна»), Q11 («Link a machine»: Bonjour или адрес, код из 6 цифр, переключатель доступа по умолчанию выключен, отзыв с любой стороны) и Q12 (первая проверка — dev-сборка и Stable copy на одном Mac) ([spec.md](../spec.md), «Готово, когда» Epic-а, пункты 1 и 5); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md) (пункты 4, 6, 9; последствие про запрос Local Network)
 
@@ -91,15 +91,15 @@ Source: решения владельца 2026-10-07: Q4 (доступ выкл�
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/link-discovery.test.ts` (mDNS подменён): своя Machine и уже связанные в списке найденных не показываются; worfy с другой версией протокола показан с пометкой; ушедший из сети пропадает из списка.
-- [ ] Unit там же: разбор адреса, введённого руками (`host:port`, `[::1]:port`, без порта, мусор).
-- [ ] Contract `test/contract/link-connections.test.ts` (стенд Ticket-а 01): обрыв соединения — «недоступна»; сервер B вернулся — «в сети» без действий пользователя.
-- [ ] Там же: отзыв с A и отзыв с B — у обеих сторон списки пусты, соединение закрыто.
-- [ ] Там же: переключатель доступа у свежей папки данных выключен, переживает перезапуск сервиса над той же папкой, его смена шлёт событие.
-- [ ] e2e `test/e2e/linked-machines.spec.ts` (локально, в gate full; Bonjour выключен, адрес `127.0.0.1:<порт>` из окна B): два worfy открывают «Link a machine»; на A введён адрес B, код из окна B (по `data-testid`) — на A. У обоих в секции — другая Machine «в сети».
-- [ ] Там же: неверный код — сообщение на A, код на B сменился, связи нет. Отзыв с A — строка пропала у обоих не позже чем через 5 s; связать заново по коду удаётся. Отзыв с B — то же.
-- [ ] Там же: у свежей Machine переключатель доступа выключен. Включённый, он включён и после перезапуска worfy над той же папкой данных.
-- [ ] Снимки в светлой и тёмной теме (helper `test/e2e/snapshots.ts`): «Link a machine» с кодом на B, с полем кода на A, секция с одной Linked machine. Цвета — существующие токены обеих тем (`src/renderer/theme/tokens.css`). Ссылка из «Итог» — `../evidence/02-link-a-machine.png`.
+- [x] Unit `test/unit/link-discovery.test.ts` (mDNS подменён): своя Machine и уже связанные в списке найденных не показываются; worfy с другой версией протокола показан с пометкой; ушедший из сети пропадает из списка.
+- [x] Unit там же: разбор адреса, введённого руками (`host:port`, `[::1]:port`, без порта, мусор).
+- [x] Contract `test/contract/link-connections.test.ts` (стенд Ticket-а 01): обрыв соединения — «недоступна»; сервер B вернулся — «в сети» без действий пользователя.
+- [x] Там же: отзыв с A и отзыв с B — у обеих сторон списки пусты, соединение закрыто.
+- [x] Там же: переключатель доступа у свежей папки данных выключен, переживает перезапуск сервиса над той же папкой, его смена шлёт событие.
+- [x] e2e `test/e2e/linked-machines.spec.ts` (локально, в gate full; Bonjour выключен, адрес `127.0.0.1:<порт>` из окна B): два worfy открывают «Link a machine»; на A введён адрес B, код из окна B (по `data-testid`) — на A. У обоих в секции — другая Machine «в сети».
+- [x] Там же: неверный код — сообщение на A, код на B сменился, связи нет. Отзыв с A — строка пропала у обоих не позже чем через 5 s; связать заново по коду удаётся. Отзыв с B — то же.
+- [x] Там же: у свежей Machine переключатель доступа выключен. Включённый, он включён и после перезапуска worfy над той же папкой данных.
+- [x] Снимки в светлой и тёмной теме (helper `test/e2e/snapshots.ts`): «Link a machine» с кодом на B, с полем кода на A, секция с одной Linked machine. Цвета — существующие токены обеих тем (`src/renderer/theme/tokens.css`). Ссылка из «Итог» — `../evidence/02-link-a-machine.png`.
 - [ ] (вручную) dev-сборка и Stable copy на одном Mac находят друг друга по Bonjour, связываются по коду; отзыв с любой стороны работает. В «Итог» — был ли запрос Local Network и на каком шаге. Как проверить: окна обеих копий.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all gate.sh full` — exit 0.
 
@@ -143,4 +143,67 @@ dev-сборке и Stable copy. Код в e2e берётся из DOM окна 
 
 ## Итог
 
-Заполняется при закрытии.
+Сделано в ветке `worfy-link/02`.
+
+- **Первый test падал так.** `test/e2e/linked-machines.spec.ts` и новый `test/e2e/helpers.ts` поверх сборки `origin/main`
+  (487f043): `4 failed`. Первый test — `waiting for getByTestId('machines-section')` (секции нет), второй и третий —
+  `locator.click: Timeout 30000ms exceeded … waiting for getByTestId('link-machine-button')` (нет кнопки «Link a
+  machine…»), четвёртый — `No handler registered for 'worfy:link.state'`.
+- **Файлы.** IPC: `src/shared/ipc/link.ts` (каналы `link.state`, `link.open`, `link.close`, `link.pair`, `link.revoke`,
+  `link.setAccess`, событие `link.changed`; разбор адреса `parseLinkAddress`), `src/main/ipc/link.ts`. Main:
+  `src/main/link/discovery.ts` (Bonjour), `connections.ts` (переподключение), `settings.ts` (переключатель доступа),
+  `service.ts` (настройки, `addresses()`, `noteAddress()`, `isLinked()`, `isStopped`, отказ связать Machine саму с собой;
+  внизу — сборка приложения: `appLink()`, `wireAppLink()`, `onAppLinkStart()`). Renderer:
+  `src/renderer/machines/useMachines.ts`, `LinkMachineDialog.tsx`, `src/renderer/shell/sidebar/MachinesSection.tsx`.
+  Файлов вне «Где в коде» нет.
+- **Новый файл папки данных:** `link/settings.json` — `{ "version": 1, "projectsAccess": false|true }`. Нет файла или он
+  не читается — доступ выключен.
+- **Переменные окружения.** `WORFY_LINK_HOST` — единственный адрес, который слушает сервер связи (без неё — `::`, затем
+  `0.0.0.0`, как в Ticket-е 01). `WORFY_LINK_BONJOUR=0` (`false`, `off`) — Bonjour выключен. `launchApp` ставит обе
+  (`127.0.0.1` и `0`) каждому e2e: брандмауэр macOS не спрашивает про входящие соединения, запроса Local Network нет.
+- **Helper двух связанных worfy** (для Ticket-ов 09, 13, 14, 15) — `test/e2e/helpers.ts`: `launchLinkedPair()` отдаёт
+  `{ a, b, aId, bId, close }`; рядом `linkThroughUi(a, b)`, `openLinkDialog`, `chooseByAddress`, `shownCode`,
+  `machineIdOf`.
+- **Библиотека Bonjour — `bonjour-service` 1.4.4** (MIT; чистый JS над UDP multicast, без нативной сборки, тот же код
+  пойдёт на Windows). Тянет `multicast-dns` 7.2.5, `dns-packet` 5.6.1, `@leichtgewicht/ip-codec` 2.0.5, `thunky` 1.1.0,
+  `fast-deep-equal` 3.1.3 — все MIT. На диске в `node_modules` — около 450 КБ (`du -sk` по каждому пакету, с картами и
+  типами). Сокет открывается только при первом объявлении или поиске. `multicast-dns` напрямую не взят: записи DNS-SD
+  (PTR, SRV, TXT, A) и пробу имени пришлось бы писать самим.
+- **Info.plist (TN3179).** В `electron-builder.yml`, `mac.extendInfo`: `NSLocalNetworkUsageDescription` (текст запроса
+  Local Network) и `NSBonjourServices: [_worfy._tcp]`. Проверено чтением TN3179, не на устройстве: собранный `.app`
+  этим Ticket-ом не запускался.
+- **Снимки** (обе темы, `snapshotThemes`): «Link a machine» с кодом на B — [../evidence/02-link-a-machine.png](../evidence/02-link-a-machine.png)
+  (он же `02-link-a-machine-code-light.png`, тёмная — `02-link-a-machine-code-dark.png`); с полем кода на A —
+  `02-link-a-machine-code-field-{light,dark}.png`; секция Machines с одной Linked machine — `02-machines-section-{light,dark}.png`.
+  Цвета — только роли из `tokens.css` (`surface`, `surface-raised`, `border`, `border-strong`, `text*`, `primary`,
+  `segment-track`, `blocked-text`, чипы `ready`/`blocked`).
+
+Решения (все — **решено без владельца, подтвердить**):
+
+- **Секция Machines — `order` 15**, между Projects и Epics. Строка: имя, чип «Online» (`ready`), «Unavailable» (нейтральный:
+  `surface-raised`, `border`, `text-muted`) или «Certificate changed» (`blocked`, подсказка «Revoke it, then link it
+  again»). «Revoke» — в контекстном меню строки, без подтверждения. Под списком — «Link a machine…» и переключатель.
+- **Окно одно на обе роли.** Каждая сторона показывает свой код и свой адрес; на любой из них выбирают другую (из найденных
+  или по адресу) и вводят её код. Имя A на B показывается в сообщении об успехе («Linked with A»), а не рядом с кодом:
+  до ввода кода B имени A не знает.
+- **Тип сервиса `_worfy._tcp`**, TXT: `id`, `proto`, `name`; имя экземпляра — `<имя Machine> (<первые 8 знаков id>)`:
+  у двух worfy на одном Mac имена Machine совпадают.
+- **Поиск по Bonjour** — пока открыт «Link a machine» и пока хотя бы одна Linked machine недоступна; найденная Linked
+  machine с новым адресом — адрес запоминается, соединение сразу. Объявление — пока сервер слушает.
+- **Переподключение:** обе стороны соединяются друг с другом сами; пауза после неудачи 1 → 2 → 4 … → 30 s; «в сети», пока
+  открыто хоть одно соединение (входящее или исходящее).
+- **`link.changed` — только окнам этой Machine** (`BrowserWindow`), не всем клиентам `broadcast.ts`: в состоянии код
+  связи, а клиент без окна — соединение Linked machine (Ticket 08). `link.state` и остальные новые каналы не в
+  `LINK_OPEN_CHANNELS`.
+
+Проверки: `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `test/e2e/linked-machines.spec.ts` — `4 passed`.
+Mutation-проверка в своём worktree (вернул из копии): без повтора после обрыва, без немедленного соединения по Bonjour,
+с доступом «включён» по умолчанию, без фильтра Linked machine-ов, без удаления ушедшего, без пометки другой версии —
+test-ы краснеют все шесть.
+
+- не проверено: dev-сборка и Stable copy на одном Mac по Bonjour, связывание по коду и отзыв с любой стороны; был ли
+  запрос Local Network и на каком шаге. Бриф запрещает системные окна на машине владельца и пересборку Stable copy;
+  проверять — окнами обеих копий.
+- Ограничение (Ticket 01): если у отзывающей Machine после отзыва не осталось Linked machine-ов, её сервер закрывается.
+  Отозванная сторона, которая в этот момент не была на связи, видит её «Unavailable», пока не отзовёт сама: отказа 401
+  ей получить не от кого. При открытом соединении отзыв доходит сразу (test-ы с двух сторон).

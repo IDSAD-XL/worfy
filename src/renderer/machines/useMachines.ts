@@ -1,0 +1,71 @@
+// The renderer's copy of the link state (worfy-link ticket 02): this Machine, its Linked machines,
+// "Link a machine" and the access switch. Main owns all of it (src/main/ipc/link.ts); this module
+// keeps the latest state main sent, for the Machines section of the sidebar and the "Link a machine"
+// dialog. One subscription and one state call serve them all.
+import { useEffect } from 'react'
+import { create } from 'zustand'
+import type { LinkState } from '../../shared/ipc/link'
+import { invoke, subscribe } from '../ipc'
+
+interface MachinesStore {
+  state: LinkState | undefined
+}
+
+const useMachinesStore = create<MachinesStore>(() => ({ state: undefined }))
+
+/**
+ * Takes a state from main unless a newer one is already here. Broadcasts and call answers can
+ * arrive out of order; an equal revision is taken, since it may carry a fresher code.
+ */
+export function acceptLinkState(state: LinkState): void {
+  const current = useMachinesStore.getState().state
+  if (!current || state.revision >= current.revision) useMachinesStore.setState({ state })
+}
+
+/** Asks main for the state again. */
+export async function refreshLinkState(): Promise<void> {
+  const result = await invoke('link.state')
+  if (result.ok) acceptLinkState(result.value)
+  else console.error('link.state failed:', result.error)
+}
+
+let started = false
+
+function start(): void {
+  if (started) return
+  started = true
+  try {
+    subscribe('link.changed', acceptLinkState)
+  } catch (error) {
+    // No bridge (the preload did not run): show what the state call returns, as other views do.
+    console.error('link.changed: cannot subscribe', error)
+  }
+  void refreshLinkState()
+}
+
+/** The link state; undefined until main has answered once. */
+export function useMachines(): LinkState | undefined {
+  useEffect(start, [])
+  return useMachinesStore((store) => store.state)
+}
+
+/** Calls a link channel that answers with the state, and takes the state; the error text otherwise. */
+async function change(call: Promise<{ ok: true; value: LinkState } | { ok: false; error: string }>): Promise<string | undefined> {
+  const result = await call
+  if (!result.ok) return result.error
+  acceptLinkState(result.value)
+  return undefined
+}
+
+export const openLinking = (): Promise<string | undefined> => change(invoke('link.open'))
+export const closeLinking = (): Promise<string | undefined> => change(invoke('link.close'))
+export const revokeMachine = (id: string): Promise<string | undefined> => change(invoke('link.revoke', { id }))
+export const setProjectsAccess = (projectsAccess: boolean): Promise<string | undefined> => change(invoke('link.setAccess', { projectsAccess }))
+
+/** Links with the worfy at `address`; the reason when it did not link. */
+export async function pairWith(address: string, code: string): Promise<{ linked: { id: string; name: string } } | { reason: string }> {
+  const result = await invoke('link.pair', { address, code })
+  if (!result.ok) return { reason: result.error }
+  acceptLinkState(result.value.state)
+  return result.value.status === 'linked' ? { linked: result.value.machine } : { reason: result.value.reason }
+}

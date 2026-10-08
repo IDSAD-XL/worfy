@@ -48,5 +48,12 @@ mac:
   identity: '-' # ad-hoc signature: no certificate, no notarization
   hardenedRuntime: false
   notarize: false
+  # "Link a machine" (worfy-link ticket 02) announces and searches `_worfy._tcp` by Bonjour; macOS 15
+  # and later ask for the Local Network permission the first time (Apple TN3179). The description
+  # is the text of that prompt; the service type is declared as TN3179 asks of a Bonjour client.
+  extendInfo:
+    NSLocalNetworkUsageDescription: worfy looks for worfy on your other computers in the local network and connects to the ones you link with Link a machine.
+    NSBonjourServices:
+      - _worfy._tcp
 
 publish: null
