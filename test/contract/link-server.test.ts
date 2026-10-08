@@ -237,6 +237,25 @@ describe('IPC over the link', () => {
   })
 })
 
+describe('IPC handler modules', () => {
+  it('are loaded at the first call over the link, not at the start of the service', async () => {
+    const loads = { count: 0 }
+    newBench({
+      ipcModules: {
+        './link.ts': () => {
+          loads.count += 1
+          return import('../../src/main/ipc/link').then((module) => module.default)
+        },
+      },
+    })
+    const { a, b } = await linkedPair()
+    expect(loads.count).toBe(0)
+    await a.service.connect(b.service.machine.id)
+    expect((await a.service.call(b.service.machine.id, 'link.ping')).ok).toBe(true)
+    expect(loads.count).toBe(1)
+  })
+})
+
 describe('revoking', () => {
   it('closes the other side\'s connection within a second; it gets `revoked`, forgets this one, and its next entry is a 401', async () => {
     newBench()

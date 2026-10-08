@@ -94,9 +94,6 @@ function start(): void {
       // ELECTRON_RENDERER_URL is not an http(s) URL fails here, named as the dev server load it is.
       const isAppUrl = inStep('loadURL', () => appUrlMatcher(rendererEntry()))
       await inStep('registerIpc', () => registerIpc(ipcMain, { isTrustedSender: isAppUrl }))
-      // The link with other Machines (worfy-link ticket 01), after the handlers it serves over the
-      // network. Not a startup step: worfy runs without it (startLink).
-      startLink()
       // Navigation, new windows and permissions for every page, the window and its Cards alike.
       inStep('installWebPolicy', () => installWebPolicy(isAppUrl))
       inStep('installCardRuntime', () => installCardRuntime((host) => cardStore().locate(host)))
@@ -108,6 +105,10 @@ function start(): void {
       // loadFile, and only for this first window; windows opened later only log such a failure.
       inStep('createMainWindow', () => createMainWindow({ firstOfStart: true }))
       started = true
+      // The link with other Machines (worfy-link ticket 01), after the handlers it serves over the
+      // network, and only once the start has succeeded: a start that failed opens nothing to the
+      // network. Not a startup step: worfy runs without it (startLink).
+      startLink()
 
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) createMainWindow()

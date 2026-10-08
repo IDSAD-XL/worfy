@@ -295,6 +295,11 @@ B. Перехват `console.*` ставится в `link-bench.ts`, чтобы 
 - **Имя `.local` для Host:** первая метка `os.hostname()` + `.local`. На macOS `os.hostname()` = `Alexeys-MacBook-Pro.local`,
   `scutil --get LocalHostName` = `Alexeys-MacBook-Pro` — совпадает. **Не проверено на Windows** (там `os.hostname()` —
   имя NetBIOS без домена; правило даёт `<имя>.local`).
+- **Старт в `src/main/index.ts`** — после `registerIpc` и после первого окна: старт, который упал, ничего не открывает в
+  сеть. Handler-ы IPC для связи регистрируются на адаптере при первом вызове по связи, не при старте сервиса: worfy без
+  Linked machine-ов их второй раз не загружает. (Первый CI-run ветки упал на `test/contract/startup-failure.test.ts`:
+  фоновый старт связи из одного test-а грузил модули handler-ов, пока следующий test сбрасывал реестр модулей; второй
+  run на том же коде прошёл. После правки фоновой загрузки модулей нет.)
 - **Когда слушает:** причины `linked`, `linking` (`openLinking`/`closeLinking` — для Ticket-а 02) и `pairing` — пока эта
   Machine сама связывается с другой (B запоминает порт A, ему нужен работающий порт).
 - **Ping** каждые 15 s; нет pong до следующего ping — соединение рвётся, событие `disconnected`.

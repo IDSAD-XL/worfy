@@ -73,12 +73,13 @@ async function call(frameUrl: string): Promise<IpcResult<unknown>> {
 
 const startup: {
   linkStarts: unknown[]
+  linkAfterWindow: boolean
   schemes: unknown[]
   served: unknown[]
   servedBeforeWindow: boolean
   policies: ((url: string) => boolean)[]
   policyBeforeWindow: boolean
-} = { linkStarts: [], schemes: [], served: [], servedBeforeWindow: false, policies: [], policyBeforeWindow: false }
+} = { linkStarts: [], linkAfterWindow: false, schemes: [], served: [], servedBeforeWindow: false, policies: [], policyBeforeWindow: false }
 
 // The mocked app is packaged, so src/main/harness/bundled.ts looks for the Harness copy of the build
 // in <process.resourcesPath>/harness: a temporary folder the tests fill or leave empty.
@@ -112,6 +113,8 @@ beforeAll(async () => {
   startup.servedBeforeWindow =
     (electron.protocol.handle.mock.invocationCallOrder[0] ?? Infinity) < (electron.createMainWindow.mock.invocationCallOrder[0] ?? -Infinity)
   startup.linkStarts = link.startAppLink.mock.calls.map((args) => args[0])
+  startup.linkAfterWindow =
+    (link.startAppLink.mock.invocationCallOrder[0] ?? -Infinity) > (electron.createMainWindow.mock.invocationCallOrder[0] ?? Infinity)
   startup.policies = electron.installWebPolicy.mock.calls.map((args) => args[0] as (url: string) => boolean)
   startup.policyBeforeWindow =
     (electron.installWebPolicy.mock.invocationCallOrder[0] ?? Infinity) < (electron.createMainWindow.mock.invocationCallOrder[0] ?? -Infinity)
@@ -181,8 +184,10 @@ describe('web policy wiring in src/main/index.ts', () => {
 })
 
 describe('link service wiring in src/main/index.ts', () => {
-  it('starts the link service once, after the IPC handlers, with the build kind and version', () => {
+  it('starts the link service once, after the IPC handlers and the first window, with the build kind and version', () => {
     expect(startup.linkStarts).toEqual([{ buildKind: 'packaged', buildVersion: '1.2.3' }])
+    // Only a start that succeeded opens anything to the network.
+    expect(startup.linkAfterWindow).toBe(true)
     expect(link.handlersAtStart).toHaveLength(1)
     expect(link.handlersAtStart[0]).toBe(electron.handlers.size)
     expect(electron.handlers.has(`${IPC_CHANNEL_PREFIX}link.ping`)).toBe(true)

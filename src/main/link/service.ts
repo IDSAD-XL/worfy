@@ -137,6 +137,8 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   /** WebSockets of pairing attempts this side answers; stop() cuts them. */
   private readonly pairingSockets = new Set<WebSocket>()
   private server: LinkServer | null = null
+  /** The IPC adapter, made at the first call over the link: a worfy without Linked machines never loads it. */
+  private ipc: Promise<LinkIpcAdapter> | undefined
   private listenChain: Promise<void> = Promise.resolve()
   private problem: string | null = null
   private stopped = false
@@ -148,7 +150,6 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     private readonly options: LinkServiceOptions,
     private identity: MachineIdentity,
     secrets: SecretStore,
-    private readonly ipc: LinkIpcAdapter,
   ) {
     super()
     this.linkDir = join(options.dataDir, 'link')
@@ -168,14 +169,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     const secrets = options.secrets ?? new FileSecretStore(join(linkDir, 'secrets.json'))
     const warn = options.warn ?? ((message: string) => console.warn(message))
     const identity = await loadIdentity({ linkDir, secrets, hostname: (options.hostname ?? osHostname)(), buildKind: options.buildKind, warn })
-    // The adapter's trust check asks the service, which needs the adapter: tied through this box.
-    const box: { service?: LinkService } = {}
-    const ipc = await createLinkIpc({
-      ...(options.ipcModules === undefined ? {} : { modules: options.ipcModules }),
-      isLinked: (machineId) => box.service?.store.get(machineId) !== undefined,
-    })
-    const service = new LinkService(options, identity, secrets, ipc)
-    box.service = service
+    const service = new LinkService(options, identity, secrets)
     service.updateReasons()
     await service.listenChain
     return service
@@ -470,7 +464,10 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
         await this.messages.dispatch(frame.name, frame.payload, { machineId: connection.machineId }, this.warn)
         return
       case 'call': {
-        const result = await this.ipc.call(sender, frame.channel, frame.input)
+        const result = await this.ipcAdapter().then(
+          (adapter) => adapter.call(sender, frame.channel, frame.input),
+          (error: unknown): IpcResult<unknown> => ({ ok: false, error: `${frame.channel}: IPC over the link is unavailable (${messageOf(error)})` }),
+        )
         connection.send({ t: 'result', id: frame.id, result })
         return
       }
@@ -489,6 +486,15 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       return
     }
     this.store.touch(machineId, { name: hello.name, ...(hello.port === null ? {} : { port: hello.port }) })
+  }
+
+  /** The IPC handlers for calls over the link, registered on first use; a failure stays and answers every call. */
+  private ipcAdapter(): Promise<LinkIpcAdapter> {
+    this.ipc ??= createLinkIpc({
+      ...(this.options.ipcModules === undefined ? {} : { modules: this.options.ipcModules }),
+      isLinked: (machineId) => this.store.get(machineId) !== undefined,
+    })
+    return this.ipc
   }
 
   /** The server's endpoint checks after the common ones (server.ts). */
