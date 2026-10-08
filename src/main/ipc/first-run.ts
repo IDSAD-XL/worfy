@@ -20,7 +20,7 @@ import { queryFactoryFromEnv } from '../agent/app-registry'
 import { agentEnv } from '../agent/env'
 import type { AccountInfoLike } from '../agent/session'
 import { FirstRunActions, type Confirmation } from '../first-run/actions'
-import { oldHarnessPresent, runChecks, type Env, type ProjectProfile } from '../first-run/checks'
+import { ACCOUNT_TIMEOUT_MS, askAccount, oldHarnessPresent, runChecks, type Env, type ProjectProfile } from '../first-run/checks'
 import { projectStore } from '../projects/store'
 import { claudeHome, dataRoot, harnessHome } from '../storage/paths'
 import { profileRunner } from '../workflow/profile'
@@ -44,23 +44,21 @@ const silence = (): AsyncIterable<never> => ({ [Symbol.asyncIterator]: () => ({ 
 
 /**
  * accountInfo() of a Claude Code process started the way a Session starts it (the fake agent under
- * WORFY_AGENT=fake), in the home folder, with no prompt; the process is closed after the answer.
+ * WORFY_AGENT=fake), in the home folder, with no prompt; the process is closed after the answer,
+ * the error or ACCOUNT_TIMEOUT_MS (askAccount).
  */
-async function accountInfo(env: Env): Promise<AccountInfoLike> {
-  const query = await queryFactoryFromEnv()({
-    prompt: silence(),
-    cwd: env.HOME ?? homedir(),
-    resume: undefined,
-    stderr: () => undefined,
-    settings: { ...DEFAULT_SETTINGS, permissionMode: 'default' },
-    canUseTool: () => Promise.resolve({ behavior: 'deny', message: 'the first-run check runs no tools' }),
-    unattended: false,
-  })
-  try {
-    return await query.accountInfo()
-  } finally {
-    query.close()
-  }
+function accountInfo(env: Env): Promise<AccountInfoLike> {
+  const open = () =>
+    queryFactoryFromEnv()({
+      prompt: silence(),
+      cwd: env.HOME ?? homedir(),
+      resume: undefined,
+      stderr: () => undefined,
+      settings: { ...DEFAULT_SETTINGS, permissionMode: 'default' },
+      canUseTool: () => Promise.resolve({ behavior: 'deny', message: 'the first-run check runs no tools' }),
+      unattended: false,
+    })
+  return askAccount(open, ACCOUNT_TIMEOUT_MS)
 }
 
 /** The connected Projects with their Profile's name and qmd collections, through `bin/profile`. */

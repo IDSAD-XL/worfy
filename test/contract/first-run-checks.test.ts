@@ -3,12 +3,12 @@
 // one on the PATH of the "login shell" environment handed to the checks: a tool left out is not
 // installed. HOME, the Claude home, the Harness home and the Project folder are temporary too, and
 // the tools log their calls outside them, so a test can tell that the checks wrote nothing.
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FirstRunActions, type Confirmation } from '../../src/main/first-run/actions'
-import { oldHarnessPresent, runChecks, type CheckDeps } from '../../src/main/first-run/checks'
+import { askAccount, oldHarnessPresent, runChecks, type AccountQuery, type CheckDeps, type ProjectProfile } from '../../src/main/first-run/checks'
 import { HarnessInstaller } from '../../src/main/harness/install'
 import { MODELS_ANSWER_FILE } from '../../src/main/harness/qmd'
 import type { CheckId, CheckStatus, FirstRunReport } from '../../src/shared/ipc/first-run'
@@ -312,7 +312,7 @@ describe('first-run checks', () => {
 })
 
 describe('first-run actions', () => {
-  function actions(env: Record<string, string>, answers: boolean[], shown: Confirmation[] = []): FirstRunActions {
+  function actions(env: Record<string, string>, answers: boolean[], shown: Confirmation[] = [], projects: ProjectProfile[] = []): FirstRunActions {
     return new FirstRunActions({
       checks: () => runChecks(deps(env)),
       confirm: (confirmation) => {
@@ -322,10 +322,64 @@ describe('first-run actions', () => {
       env: () => Promise.resolve(env),
       homes: { harnessHome, claudeHome },
       installHarness: (confirm) => installer(env).install(confirm),
-      projects: () => Promise.resolve([]),
+      projects: () => Promise.resolve(projects),
       binDir: join(harnessHome, 'plugin', 'bin'),
     })
   }
+
+  /** A stand-in for the Harness script bin/qmd-collections: logs its call and HARNESS_HOME; FAKE_COLLECTIONS_FAIL makes it fail. */
+  function collectionsScript(): string {
+    const dir = join(harnessHome, 'plugin', 'bin')
+    mkdirSync(dir, { recursive: true })
+    const script = join(dir, 'qmd-collections')
+    writeFileSync(
+      script,
+      [
+        '#!/bin/sh',
+        'printf \'qmd-collections %s home=%s\\n\' "$*" "$HARNESS_HOME" >>"$FIRST_RUN_TOOLS_LOG"',
+        'if [ -n "$FAKE_COLLECTIONS_FAIL" ]; then printf \'%s\\n\' "$FAKE_COLLECTIONS_FAIL" >&2; exit 1; fi',
+        "printf 'qmd-collections: alpha-docs, alpha-tickets, alpha-memory\\n'",
+        '',
+      ].join('\n'),
+    )
+    chmodSync(script, 0o755)
+    return script
+  }
+  const ALPHA: ProjectProfile = { name: 'alpha', profile: 'alpha', collections: [] }
+
+  it('qmd collections: Cancel does not run the script; the dialog names it, the Project and the index', async () => {
+    tools(...ALL_TOOLS, 'qmd')
+    const script = collectionsScript()
+    const shown: Confirmation[] = []
+    const result = await actions(loginEnv(), [false], shown, [ALPHA]).run('qmd-collections')
+    expect(result.outcome).toBe('declined')
+    expect(shown).toHaveLength(1)
+    expect(shown[0]?.message).toContain('alpha')
+    expect(shown[0]?.detail).toContain(`${script} alpha`)
+    expect(shown[0]?.detail).toContain('index.yml')
+    expect(calls().filter((line) => line.startsWith('qmd-collections'))).toEqual([])
+  })
+
+  it('qmd collections: Confirm runs the script for each Project without collections, then the checks run again', async () => {
+    tools(...ALL_TOOLS, 'qmd')
+    collectionsScript()
+    const result = await actions(loginEnv(), [true], [], [ALPHA, { name: 'beta', profile: 'beta', collections: ['beta-docs'] }]).run('qmd-collections')
+    expect(result.outcome).toBe('done')
+    const log = calls()
+    const ran = log.filter((line) => line.startsWith('qmd-collections'))
+    expect(ran).toEqual([`qmd-collections alpha home=${harnessHome}`])
+    // The checks ran again after the script.
+    expect(log.slice(log.indexOf(ran[0] ?? '') + 1)).toEqual(expect.arrayContaining(['node --version', 'qmd --version']))
+  })
+
+  it('qmd collections: a failing script makes the row fail with its output', async () => {
+    tools(...ALL_TOOLS, 'qmd')
+    collectionsScript()
+    const result = await actions(loginEnv({ FAKE_COLLECTIONS_FAIL: 'qmd-collections: index.yml is not writable' }), [true], [], [ALPHA]).run('qmd-collections')
+    expect(result.outcome).toBe('failed')
+    expect(checkOf(result.report, 'qmd-collections').status).toBe('fail')
+    expect(checkOf(result.report, 'qmd-collections').hint).toContain('index.yml is not writable')
+  })
 
   it('runs nothing without "Confirm": a declined qmd install does not call npm', async () => {
     tools(...ALL_TOOLS)
@@ -445,5 +499,73 @@ describe('first-run actions', () => {
     await expect(runner.run('qmd-install')).rejects.toThrow(/another action/)
     release(false)
     expect((await first).outcome).toBe('declined')
+  })
+})
+
+describe('askAccount: the Claude Code query of the sign-in check', () => {
+  const SIGNED_IN = { subscriptionType: 'max', email: 'alice@example.com' }
+  /** A query whose answer the test gives when it wants; counts its closes. */
+  function query(): AccountQuery & { closes: number; answer: (info: typeof SIGNED_IN) => void; fail: (error: Error) => void } {
+    let resolve: (info: typeof SIGNED_IN) => void = () => undefined
+    let reject: (error: Error) => void = () => undefined
+    const answered = new Promise<typeof SIGNED_IN>((yes, no) => {
+      resolve = yes
+      reject = no
+    })
+    const handle = {
+      closes: 0,
+      accountInfo: () => answered,
+      close: () => {
+        handle.closes += 1
+      },
+      answer: (info: typeof SIGNED_IN) => resolve(info),
+      fail: (error: Error) => reject(error),
+    }
+    return handle
+  }
+  const tick = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  it('answers and closes the query once', async () => {
+    const q = query()
+    const asked = askAccount(() => Promise.resolve(q), 1000)
+    q.answer(SIGNED_IN)
+    expect(await asked).toEqual(SIGNED_IN)
+    expect(q.closes).toBe(1)
+  })
+
+  it('a query that never answers is closed at the timeout, once; its late answer changes nothing', async () => {
+    const q = query()
+    await expect(askAccount(() => Promise.resolve(q), 30)).rejects.toThrow(/did not answer within/)
+    expect(q.closes).toBe(1)
+    q.answer(SIGNED_IN)
+    await tick(10)
+    expect(q.closes).toBe(1)
+  })
+
+  it('a late error after the timeout goes nowhere, and the query is not closed twice', async () => {
+    const q = query()
+    await expect(askAccount(() => Promise.resolve(q), 30)).rejects.toThrow(/did not answer within/)
+    q.fail(new Error('Claude Code exited'))
+    await tick(10)
+    expect(q.closes).toBe(1)
+  })
+
+  it('an error of accountInfo() rejects with it and closes the query once', async () => {
+    const q = query()
+    const asked = askAccount(() => Promise.resolve(q), 1000)
+    q.fail(new Error('Claude Code exited with code 1'))
+    await expect(asked).rejects.toThrow('Claude Code exited with code 1')
+    expect(q.closes).toBe(1)
+  })
+
+  it('a query that starts only after the timeout is closed as soon as it is there', async () => {
+    const q = query()
+    let started: (handle: AccountQuery) => void = () => undefined
+    const asked = askAccount(() => new Promise<AccountQuery>((resolve) => (started = resolve)), 30)
+    await expect(asked).rejects.toThrow(/did not answer within/)
+    expect(q.closes).toBe(0)
+    started(q)
+    await tick(10)
+    expect(q.closes).toBe(1)
   })
 })

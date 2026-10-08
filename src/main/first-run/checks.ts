@@ -58,7 +58,10 @@ export interface CheckDeps {
 }
 
 const TOOL_TIMEOUT_MS = 15_000
-const ACCOUNT_TIMEOUT_MS = 60_000
+/** How long the Claude Code process of the sign-in check may take to answer; then it is closed (askAccount). */
+export const ACCOUNT_TIMEOUT_MS = 60_000
+/** The check's own limit on accountInfo(), a little later than askAccount's, so the process is closed first. */
+const SIGN_IN_GUARD_MS = ACCOUNT_TIMEOUT_MS + 5_000
 const MAX_OUTPUT = 256 * 1024
 
 interface ToolRun {
@@ -143,10 +146,61 @@ function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
 }
 
+/** The part of a Claude Code query the sign-in check uses. */
+export interface AccountQuery {
+  accountInfo(): Promise<AccountInfoLike>
+  close(): void
+}
+
+/**
+ * accountInfo() of a query that `open` starts, within `timeoutMs`. The query is closed exactly once,
+ * whatever comes first: the answer, an error, or the timeout — a query that opens or answers after
+ * the timeout is closed then, and its late answer or error goes nowhere.
+ */
+export async function askAccount(open: () => Promise<AccountQuery>, timeoutMs: number): Promise<AccountInfoLike> {
+  let query: AccountQuery | null = null
+  let closed = false
+  let timedOut = false
+  const close = (): void => {
+    if (closed || query === null) return
+    closed = true
+    try {
+      query.close()
+    } catch (error) {
+      console.warn('[first-run] closing the sign-in query failed', error)
+    }
+  }
+  let timer: NodeJS.Timeout | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true
+      close()
+      reject(new Error(`Claude Code did not answer within ${Math.round(timeoutMs / 1000)} s`))
+    }, timeoutMs)
+  })
+  const ask = (async () => {
+    const opened = await open()
+    query = opened
+    if (timedOut) {
+      close()
+      throw new Error('opened after the timeout')
+    }
+    return opened.accountInfo()
+  })()
+  // After the timeout nobody waits for the answer: its rejection must not go unhandled.
+  ask.catch(() => undefined)
+  try {
+    return await Promise.race([ask, timeout])
+  } finally {
+    clearTimeout(timer)
+    close()
+  }
+}
+
 async function signIn(deps: CheckDeps): Promise<Row> {
   let account: AccountInfoLike
   try {
-    account = await withTimeout(deps.accountInfo(), deps.accountTimeoutMs ?? ACCOUNT_TIMEOUT_MS, 'Claude Code')
+    account = await withTimeout(deps.accountInfo(), deps.accountTimeoutMs ?? SIGN_IN_GUARD_MS, 'Claude Code')
   } catch (error) {
     return row('fail', 'Claude Code did not answer', `Could not ask Claude Code: ${error instanceof Error ? error.message : String(error)}`)
   }

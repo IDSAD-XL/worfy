@@ -48,7 +48,7 @@ const styles = {
   header: { display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', padding: 'var(--space-4) var(--space-4) var(--space-3)', borderBottom: '1px solid var(--border)' },
   headerText: { flex: 1, minWidth: 0 },
   title: { margin: '0 0 var(--space-1)', fontSize: 'var(--text-20)', fontWeight: 600 },
-  subtitle: { margin: 0, color: 'var(--text-secondary)', fontSize: 'var(--text-12)' },
+  subtitle: { margin: 0, color: 'var(--text-secondary)', fontSize: 'var(--text-12)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   body: { overflowY: 'auto', padding: '0 var(--space-4) var(--space-2)', flex: 1 },
   group: { margin: 'var(--space-3) 0 0' },
   groupTitle: { margin: '0 0 var(--space-1)', color: 'var(--text-muted)', fontSize: 'var(--text-11)', fontWeight: 600 },
@@ -259,7 +259,7 @@ export function FirstRun() {
               <h2 id={titleId} style={styles.title}>
                 First run
               </h2>
-              <p style={styles.subtitle}>worfy checks what it and the Harness need on this Mac. Nothing is installed or changed until you confirm it.</p>
+              <p style={styles.subtitle} data-testid="first-run-subtitle">worfy checks this Mac for itself and the Harness. Nothing changes until you confirm it.</p>
             </div>
             {summary !== '' ? (
               <span className="w-chip" data-testid="first-run-summary" style={{ ...(checking ? CHIP_STYLE.running : failed > 0 ? CHIP_STYLE.fail : warned > 0 ? CHIP_STYLE.warn : CHIP_STYLE.ok), borderWidth: 1, borderStyle: 'solid' }}>

@@ -139,6 +139,15 @@ test.describe('first-run screen', () => {
       }
       await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'fail')
       await expect(row(dialog, 'qmd-models')).toHaveAttribute('data-status', 'warn')
+      // The line under the title is one line next to the summary chip, and nothing of it is cut (F-SPEC "First run").
+      const subtitle = dialog.getByTestId('first-run-subtitle')
+      // The e2e typecheck has no DOM library: the page's getComputedStyle is reached through globalThis.
+      const box = await subtitle.evaluate((element) => {
+        const style = (globalThis as unknown as { getComputedStyle(e: unknown): { lineHeight: string; fontSize: string } }).getComputedStyle(element)
+        return { height: element.getBoundingClientRect().height, line: parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.3, scroll: element.scrollWidth, width: element.clientWidth }
+      })
+      expect(box.height).toBeLessThan(box.line * 1.5)
+      expect(box.scroll).toBeLessThanOrEqual(box.width)
       // Nothing ran by itself: no install, no download.
       expect(calls().filter((line) => /^claude plugin (marketplace|install|update)|^npm install|^qmd pull/.test(line))).toEqual([])
       await keep(launched.window, 'first-run')
