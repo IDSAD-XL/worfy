@@ -49,9 +49,10 @@ Two fields set the shape of the wave:
 
 - `F parallel` — `worktrees`: implementers run in parallel, each in its own worktree; `single`:
   the wave's tickets go **one at a time** in the main checkout `<repo>` — the next implementer
-  starts when the previous ticket has passed the gate (section 3) and, with `pr-green-ci`, has been
-  merged (section 4, items 1–2: the merge happens inside the per-ticket loop, while the production
-  check and the documents happen once at the end). No worktrees are created.
+  starts when the previous ticket has passed the gate (section 3) and has been merged — with
+  `pr-green-ci` its PR (section 4, items 1–2), with `local-green` locally (section 4, "Local merge",
+  `MERGED=0`). The merge happens inside the per-ticket loop, while the production check and the
+  documents happen once at the end. No worktrees are created.
 - `F workflow.finish` — `pr-green-ci`: PR, CI, merge, production; `local-green`: there is no PR and
   no production check; a ticket finishes when the local `gate full` is green and its branch is merged
   locally into the main branch of its repository (section 4, "Local merge"). With `single` each next
@@ -166,8 +167,9 @@ orchestrator. The order of work and the report format are set in the agent defin
 does not repeat them.
 
 - `parallel: worktrees` — one agent per ticket, all in one message.
-- `parallel: single` — one agent at a time; the next one after the gate (section 3) and, with
-  `pr-green-ci`, the merge (section 4, items 1–2) of the previous one.
+- `parallel: single` — one agent at a time; the next one after the gate (section 3) and the merge of
+  the previous one: with `pr-green-ci` its PR (section 4, items 1–2), with `local-green` the local
+  merge (section 4, "Local merge", `MERGED=0`).
 
 ```
 Goal: <one sentence from the ticket>
@@ -333,11 +335,12 @@ Items 1–3 — only with `pr-green-ci`; with `local-green` — the local merge 
 item 4.
 
 **Local merge** (`local-green`). Every `VERIFIED` ticket is merged into the main branch of its
-repository on this machine, one at a time, under the lock below: the implementer rebases its branch onto
-the main branch in its own worktree, `gate full` runs there with exit code 0 and the line
-`[gate] зелено (…)`, and the main branch is fast-forwarded to the branch — the steps and the block are in skill
-`/worfy:ship-ticket`, step 11; `MERGED=0` is the proof. A conflict in the rebase is handled like a
-`DIRTY` PR: back to the implementer, then the gate again. Nothing is pushed.
+repository on this machine, one at a time, under the lock below. The steps, their doers and the block
+are in skill `/worfy:ship-ticket`, step 11: the implementer puts its branch on top of the main branch
+(the rebase is always the implementer's, in its own worktree — the orchestrator sends the branch back
+through `SendMessage`, like a `DIRTY` PR); the orchestrator commits the ticket's documents on the ticket
+branch (Full mode) and runs `gate full` there — exit code 0 and the line `[gate] зелено (…)`; then the
+main branch is fast-forwarded to the branch, `MERGED=0` is the proof. Nothing is pushed.
 
 Each step is status and merge as two commands; "no checks reported" is what `gh pr checks` prints
 on a conflict, not a value of `mergeStateStatus`:
@@ -404,9 +407,16 @@ The expectation is `F deploy.production_expect`: a non-zero `EXIT`, an empty `co
 staging password never goes into command arguments — only the way `F deploy.production_check`
 passes it.
 
-4. The documents PR — last, after production is verified (with `local-green` — a documents commit
-   after the last local merge; in Silent mode — neither, see the end of this item). `ticket` edits ticket files in the worktree where it
-   runs, so the wave's statuses and one state-file edit per wave go on its branch.
+4. The documents PR — last, after production is verified. `ticket` edits ticket files in the worktree
+   where it runs, so the wave's statuses and one state-file edit per wave go on its branch.
+   With `local-green` there is no documents PR and no separate documents commit: each ticket's
+   `ticket done` and result section are one commit on **its own branch**, made by the orchestrator
+   before the fast-forward (`/worfy:ship-ticket`, step 11, step 2), and the wave's state-file edit
+   goes into that commit of the wave's last merged ticket — the fast-forward carries them into the
+   main branch. A ticket removed from the wave gets its `ticket block` in that same last commit. (Decided
+   without the owner, confirm: the alternative was a separate commit on the main branch under the
+   lock, which needs the main branch checked out somewhere and with `single` it is not.) In Silent
+   mode — neither, see the end of this item.
    The state file (`F docs.handoff`: `path`, `kind`, `check`) is a snapshot; its rules are in
    skill `/worfy:ship-ticket`, step 11. The wave rewrites only its own epic's lines: what is in
    progress and what waits for the owner. Do not add a block per wave; the details of the wave
@@ -447,8 +457,8 @@ for CI, not after.
 
 **Cleanup after the merge.** Once a ticket's PR (and the wave's documents PR) is merged — at once
 `git worktree remove <worktree>` and `git branch -D <branch>`; the verifiers' worktrees too. With
-`local-green` the same after the local merge (`git branch -d <branch>` — the branch is in the main
-branch by then). A
+`local-green` the same after `MERGED=0` (`git branch -d <branch>` — the branch, with its documents
+commit, is in the main branch by then). A
 worktree stays only for a ticket removed from the wave with an open PR. An old ticket branch in a
 live worktree is not litter but a false signal: worfy reads ticket status from worktree branches
 too, and `claimed` from a merged branch overrides `done` on main (worfy-daily, wave 6: "3 in work"
@@ -522,8 +532,9 @@ and with no such verdict yet the narrow round's gate is ahead. A merged PR while
 With `local-green` there is no PR, and the state is read from the `gate:` commits on the ticket's
 branch: no last `gate: VERIFIED` — run the gate (section 3); if it is red, the implementer has not
 finished — continue `/worfy:ship-ticket` on that branch up to a green step 6. `gate: VERIFIED`
-exists but `state` is not `done` — the local merge (section 4; `git merge-base --is-ancestor <branch>
-<main branch>` says whether it happened) or the documents commit is still ahead. Rework rounds — the number
+exists but `state` is not `done` — the documents commit on the ticket branch and the local merge are
+still ahead (section 4; `git merge-base --is-ancestor <branch> <main branch>` says whether the merge
+happened). Rework rounds — the number
 of `gate: REJECTED` commits. A `gate: NARROW:` commit means the narrow round has been given; the
 last `gate: NARROW: VERIFIED` or `gate: NARROW: REJECTED` is the ticket's verdict.
 

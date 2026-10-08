@@ -138,7 +138,7 @@ the way the project really runs them.
 | `tests.globs` | strings \| null | test file name masks (`*.spec.ts`), for `grep --include` | overnight-fix-loop |
 | `workflow.folder` | absolute path \| null | the Workflow folder of a Silent mode project (section "Full mode and Silent mode"); `~/` is expanded, a relative path is a broken profile (exit 1). `null` or absent — the folder above the repositories for a project of several repositories, otherwise `$HARNESS_HOME/projects/<name>/workflow/`. Full mode ignores it: the Workflow folder is the root of the working tree. Written when the project is connected | profile (`_resolved.workflow_folder`), all skills and agents that write workflow files, qmd-collections |
 | `parallel` | `"worktrees"` \| `"single"` | `worktrees` — several implementers, each in its own worktree; `single` — one implementer, work in the main checkout, no worktree | all agents, epic-wave |
-| `worktree.root` | path \| null | where working trees are created. worfy and Auction keep `.claude/worktrees/` inside the repository; a project connected from E3 on gets `<HARNESS_HOME>/worktrees/<name>/` (outside the repository, so the project's test runner and linter never walk into it, and `.gitignore` needs no entry), and a ticket's tree is `<worktree.root><NN>` — the default value the connection writes, nothing more. `bin/profile`, `hooks/gate.sh` and `bin/worktree-lock` recognise such a tree by `git rev-parse --git-common-dir`; whether an implementer subagent can edit files in it is not verified (worfy-harness ticket 22, item 7, waits for the owner), so the skills still describe trees under `.claude/worktrees/` | implementer, reviewer, orchestrator |
+| `worktree.root` | path \| null | where working trees are created. worfy and Auction keep `.claude/worktrees/` inside the repository. The planned default for projects connected from E3 on is `<HARNESS_HOME>/worktrees/<name>/` (outside the repository, so the project's test runner and linter never walk into it, and `.gitignore` needs no entry), with a ticket's tree at `<worktree.root><NN>`; it is **not set** — the connection does not write it — until the owner answers worfy-harness ticket 22, item 7: whether an implementer subagent can edit files in a tree outside the repository is not verified. Until then `worktree.root` lies under `.claude/worktrees/` of the repository, as skill `ship-ticket` requires. `bin/profile`, `hooks/gate.sh` and `bin/worktree-lock` already recognise a tree outside the repository by `git rev-parse --git-common-dir` | implementer, reviewer, orchestrator |
 | `worktree.base` | string \| null | what to branch from (`origin/main`, `origin/master`). `null` — the Harness preflight takes `origin/<layout.repos.<repo>.default_branch>`, then the branch `origin/HEAD` points to, then `origin/main` | implementer, preflight |
 | `worktree.implementer` / `reviewer` | string | a ready `git worktree add` command with placeholders: `<ветка>` (branch, = `tickets.branch`), `<имя-тикета>` (ticket name, = `<NN>-<slug>`), `<эпик>` (epic), `<NN>`, `<slug>`, `<что-ревьюишь>` (what is reviewed). worfy names the tree by number only — `…/worktrees/<NN>` | implementer, reviewer, ship-ticket, epic-wave |
 | `tickets.root` | path \| null | root of the epics directory (`.scratch/`), with a trailing slash; the audit epic is created there. `bin/ticket`, `bin/epic-status` and `bin/epic-board` take the root from here too (path rules — below the table) | continuous-audit, ticket, epic-status, epic-board |
@@ -333,19 +333,28 @@ ticket closes when the local `gate full` is green on its branch **and** the bran
 into the main branch of its repository; `ticket done` goes without `--pr`. Before that change
 `local-green` merged nothing.
 
-How it is merged (skill `ship-ticket`, step 11; `epic-wave`, section 4):
+How it is merged (skill `ship-ticket`, step 11; `epic-wave`, section 4). The main branch is
+`worktree.base` without `origin/`; without it — `layout.repos.<repo>.default_branch`, then the branch
+`origin/HEAD` points to, then a local `main` or `master`. Never the branch the main checkout stands on:
+with `parallel: single` that is the ticket branch itself.
 
-1. The ticket branch is rebased onto the main branch in its own worktree (`git rebase <main>`); the
-   main branch is `worktree.base` without `origin/`, and without it the branch of the main checkout.
-2. `gate full` runs on the rebased branch: that tree is exactly what the main branch becomes.
-3. The main branch is fast-forwarded to the ticket branch: `git merge --ff-only` in the worktree where
-   the main branch is checked out, or `git branch -f <main> <branch>` when it is checked out nowhere.
-   A branch that is not on top of the main branch is not merged ("NOT ON TOP"). `git merge-base
-   --is-ancestor <branch> <main>` — exit 0 — is the proof.
-4. Nothing is pushed: the merge is local.
+1. **The implementer** puts the ticket branch on top of the main branch: `git rebase <main>` in its own
+   worktree (with `single` — the main checkout), conflicts resolved there (a migration is regenerated,
+   not merged by hand), its checks run again. The orchestrator only checks `git merge-base
+   --is-ancestor <main> <branch>` and sends the branch back when it is not on top.
+2. **The orchestrator**, Full mode: `ticket done` in the ticket's worktree, the ticket's result
+   section, and for the last ticket of a wave the state file — one commit on the ticket branch. The
+   fast-forward carries them into the main branch; there is no documents commit on the main branch.
+   Silent mode commits nothing in the repository: `ticket done` writes into the Workflow folder after
+   step 4.
+3. **The orchestrator**: `gate full` on the ticket branch — that tree is exactly what the main branch
+   becomes.
+4. **Whoever `workflow.merge` names** fast-forwards the main branch: `git merge --ff-only` in the
+   worktree where it is checked out, or `git branch -f <main> <branch>` when it is checked out nowhere.
+   Refused: a branch that is not on top ("NOT ON TOP"), the ticket branch being the main branch itself
+   ("SAME BRANCH"), no main branch found ("NO MAIN BRANCH"). `git merge-base --is-ancestor <branch>
+   <main>` — exit 0 — is the proof. Nothing is pushed.
 
-A conflict at step 1 is a stop for the merge, not a guess: `git rebase --abort`, the implementer
-resolves it in its own worktree (a migration is regenerated, not merged by hand), then step 2 again.
 Merges go one at a time, under the same lock as merges of PRs (skill `epic-wave`, section 4).
 
 ## Schema 1 (transition)

@@ -198,6 +198,39 @@ out="$(cd "$R" && CLAUDE_PLUGIN_ROOT="$HARNESS" bash -c "$code" 2>&1)"
 [[ "$out" == *"MERGED=0"* ]] && git -C "$R" merge-base --is-ancestor fix/detached main \
     && ok "main checked out nowhere: the block moves main to the branch" || bad "detached main: ${out:0:300}"
 git -C "$R" checkout -q main
+# parallel: single (the main checkout is on the ticket branch) and no worktree.base — Atakama's settings. The main
+# branch is not the checkout's HEAD: from origin/HEAD, without it from the local main; the ticket branch itself
+# as the main branch is refused.
+P="$HARNESS_HOME/projects/sp/profile.json"; cp "$P" "$T/profile.saved"
+jq '.worktree.base = null' "$T/profile.saved" >"$P"
+single() { # <branch> → the block's output, run from the main checkout standing on <branch>
+    git -C "$R" checkout -q -b "$1" main && echo "$1" >"$R/$(echo "$1" | tr / -).txt" && git -C "$R" add -A && git -C "$R" commit -q -m "add $1"
+    local code="${FIN//<repo>/$R}"; code="${code//<ticket branch>/$1}"
+    (cd "$R" && CLAUDE_PLUGIN_ROOT="$HARNESS" bash -c "$code" 2>&1)
+}
+git -C "$R" remote set-head origin main >/dev/null 2>&1
+out="$(single fix/single)"
+[[ "$out" == *"MERGED=0"* ]] && git -C "$R" merge-base --is-ancestor fix/single main && [ "$(git -C "$R" branch --show-current)" = fix/single ] \
+    && ok "single, worktree.base null: main comes from origin/HEAD, not from the checkout's HEAD, and is fast-forwarded" \
+    || bad "single + base null (origin/HEAD): ${out:0:300}; main has fix/single: $(git -C "$R" merge-base --is-ancestor fix/single main && echo yes || echo no)"
+git -C "$R" checkout -q main
+git -C "$R" remote set-head origin -d >/dev/null 2>&1; git -C "$R" config remote.origin.followRemoteHEAD never
+out="$(single fix/single2)"
+[[ "$out" == *"MERGED=0"* ]] && git -C "$R" merge-base --is-ancestor fix/single2 main \
+    && ok "single, worktree.base null, no origin/HEAD: the local main is the main branch" || bad "single + base null (no origin/HEAD): ${out:0:300}"
+git -C "$R" checkout -q main
+git -C "$R" branch trunk main
+jq '.worktree.base = null | .layout.repos = {"repo": {"default_branch": "trunk"}}' "$T/profile.saved" >"$P"
+main_before="$(git -C "$R" rev-parse main)"
+out="$(single fix/single3)"
+[[ "$out" == *"MERGED=0"* ]] && git -C "$R" merge-base --is-ancestor fix/single3 trunk && [ "$(git -C "$R" rev-parse main)" = "$main_before" ] \
+    && ok "worktree.base null: default_branch of layout.repos comes before origin/HEAD and main" || bad "layout.repos default_branch: ${out:0:300}"
+git -C "$R" checkout -q main
+jq '.worktree.base = "fix/same"' "$T/profile.saved" >"$P"
+out="$(single fix/same)"
+[[ "$out" == *"SAME BRANCH"* && "$out" == *"MERGED=1"* ]] && ok "the ticket branch as the main branch is refused (SAME BRANCH, MERGED=1)" || bad "M == B: ${out:0:300}"
+git -C "$R" checkout -q main
+cp "$T/profile.saved" "$P"
 out="$(cd "$R" && "$BIN/ticket" done checkout-flow 05 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && grep -qx "Status: done — $(date -u +%F)" "$f" && ok "ticket done without --pr writes Status: done with no PR" \
     || bad "ticket done: exit $rc, out: ${out:0:200}"

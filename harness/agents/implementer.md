@@ -89,7 +89,8 @@ everyone.
   "Full mode and Silent mode"). The workflow files — the ticket, the spec, ADRs, the state file, the
   glossary, lessons, evidence screenshots — live in the Workflow folder
   (`profile --field _resolved.workflow_folder`), not in the repository: a relative path in the
-  profile's `tickets` and `docs` fields is taken from that folder. Read the ticket there and write its
+  profile's `tickets` and `docs` fields, in `numbering.adr.dir` and in `lessons: "repo:<path>"` is
+  taken from that folder. Read the ticket there and write its
   result section there; never put a workflow file into the repository's index, and the repository's
   own documents are read-only unless the ticket's goal is a document for the team. The branch is the
   one the brief names — named by the change, not by the ticket; `ticket claim <epic> <NN> --branch
@@ -143,9 +144,10 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
    with `DIRTY` CI does not start — rebase onto the base. Wait for CI with one long `gh run watch`
    command (the block is in skill `/worfy:ship-ticket`, step 8; Bash timeout 600000, if it did not
    finish — repeat it), not by frequent polling: your turns are limited. The result — `gh pr checks <N>`
-   without a pipe. `"local-green"` — do not open a PR; you finish at step 5. The local merge into the
-   main branch is the orchestrator's (skill `/worfy:ship-ticket`, step 11); if it sends the branch
-   back with a rebase conflict, rebase onto the main branch in your own tree and run step 5 again.
+   without a pipe. `"local-green"` — do not open a PR; you finish at step 5. Before the local merge the
+   branch must be on top of the main branch (skill `/worfy:ship-ticket`, step 11): that rebase is
+   yours — when the orchestrator sends the branch back, rebase it onto the main branch in your own
+   tree, resolve conflicts there and run step 5 again. The merge itself is the orchestrator's.
 
 **A rework round** (the orchestrator returned `REJECTED` with a list of findings) is new code just
 like the first round: rework rounds have introduced defects themselves. Fix exactly what is on the

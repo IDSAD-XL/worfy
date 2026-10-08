@@ -215,6 +215,7 @@ E3 её нет).
 - `harness/hooks/tests/session-hooks.test.sh` — из ~/.claude/hooks/tests/session-hooks.test.sh
 - `harness/bin/tests/real-home.sh` — новый (добавлен исполнителем): общий снимок настоящих `~/.claude` и
   `~/.claude/worfy-harness` для test-ов этого следа (пункт «Все test-ы пишут только во временные папки»)
+- `harness/bin/tests/epic-wave-ship-ticket.test.sh` — добавлен исполнителем (text-test skills, круг доработки 1)
 - `harness/bin/tests/harness-home.test.sh` — добавлен исполнителем: сравнивает JSON `epic-status --json`
   побайтно, а у Ticket-а появились поля `branch` и `repo`
 
@@ -269,10 +270,37 @@ E3 её нет).
 - Пункт 9. Локальный финиш: rebase ветки на основную ветку в её worktree → `gate full` на этой ветке →
   fast-forward основной ветки (`git merge --ff-only` в дереве, где она выписана, или `git branch -f`,
   если она нигде не выписана) → `git merge-base --is-ancestor` как доказательство; без push. Ветка не
-  поверх основной — `NOT ON TOP`, не вливается. Конфликт rebase — `git rebase --abort`, исполнитель
-  решает его в своём дереве, как у `DIRTY` PR. Блок — `ship-ticket`, шаг 11; `epic-wave`, раздел 4,
+  поверх основной — `NOT ON TOP`, не вливается. Блок — `ship-ticket`, шаг 11; `epic-wave`, раздел 4,
   «Local merge». При `single` следующая ветка Wave — от основной ветки после вливания (раньше —
   цепочка от предыдущей ветки).
+
+**Круг доработки 1** (гейт REJECTED на 3105907, список — в комментарии PR #150).
+1. [high] Основная ветка при локальном финише больше не берётся из `HEAD` основного checkout-а: при
+   `single` он стоит на ветке Ticket-а, и блок печатал `MERGED=0`, ничего не влив (настройка Atakama:
+   `single`, `local-green`, `worktree.base: null`). Теперь порядок: `worktree.base` без `origin/` →
+   `layout.repos.<репозиторий>.default_branch` → `origin/HEAD` → локальные `main`/`master`. Если основная
+   ветка — сама ветка Ticket-а, блок отказывает (`SAME BRANCH`, `MERGED=1`); если основная ветка не
+   найдена — `NO MAIN BRANCH`. Новые случаи в `silent-mode.test.sh` (single + base null с `origin/HEAD`
+   и без него; `layout.repos`; `SAME BRANCH`): на старом блоке три первых были красными (`MERGED=0`,
+   main без ветки Ticket-а).
+2. [med] `ship-ticket`, шаг 2: при `single` + `local-green` ветка — от основной ветки после локального
+   вливания предыдущего Ticket-а, как в `epic-wave`.
+3. [med] Где коммит документов при `local-green`: Orchestrator делает `ticket done`, «Итог» Ticket-а, а у
+   последнего Ticket-а Wave ещё и HANDOFF (и `ticket block` снятых) одним коммитом **на ветке Ticket-а**
+   до `gate full` и перемотки; перемотка несёт их в main. Отдельного коммита документов в main нет.
+   Решено без владельца, подтвердить: другой вариант — отдельный коммит в main под замком; для него
+   main должен быть где-то выписан, а при `single` он не выписан.
+4. [low] `epic-wave`: при `single` + `local-green` следующий implementer ждёт локального вливания
+   (`MERGED=0`), а не только gate.
+5. [low] Rebase перед локальным вливанием всегда делает implementer в своём дереве: Orchestrator
+   только проверяет `merge-base --is-ancestor` и возвращает ветку через `SendMessage`. Так написано в
+   `ship-ticket` (шаг 11), в `epic-wave` («Local merge») и в `implementer.md`.
+6. [low] `implementer.md`: от Workflow folder считаются и `numbering.adr.dir`, и `lessons: "repo:<путь>"`.
+7. [low] `profiles/README.md`: `<HARNESS_HOME>/worktrees/<name>/` — задуманное значение по умолчанию;
+   его не ставят, пока владелец не ответит по пункту 7, а `worktree.root` до тех пор лежит под
+   `.claude/worktrees/`.
+Text-проверки пунктов 2–7 — в `harness/bin/tests/epic-wave-ship-ticket.test.sh` (раздел 7a). На
+текстах до доработки (3105907) они дают 12 красных.
 
 **Пункт 7 — не сделан, проба не проведена.** Обе пробы — 2026-10-08, cwd в scratchpad.
 1. `CLAUDE_CONFIG_DIR=/tmp/worfy-harness-w10/impl-22/probe/cfg claude -p "Reply with the single word

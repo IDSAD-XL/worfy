@@ -149,6 +149,25 @@ check "ship-ticket: a closed epic is one line" has "$ST" 'A closed epic is one l
 check "ship-ticket: docs.handoff.check before push" has "$ST" '`F docs.handoff.check` checks the form — run it before push, if the profile sets it'
 check "ship-ticket: no debts section in the state file" lacks "$ST" "state file's debts"
 
+# 7a. The local finish of local-green (worfy-harness ticket 22, rework round 1): one doer of the rebase (the
+# implementer), the documents committed on the ticket branch before the fast-forward, and with single the next
+# ticket waits for the local merge and starts from the main branch, not from the previous ticket's branch.
+IM="${IMPLEMENTER_FILE:-$HARNESS/agents/implementer.md}"
+PR="${PROFILES_README_FILE:-$HARNESS/profiles/README.md}"
+check "ship-ticket: single + local-green branches from the main branch after the local merge" has "$ST" 'with `local-green` — from the main branch after the'
+check "ship-ticket: no branch from the previous ticket's branch" lacks "$ST" "previous ticket's branch"
+check "epic-wave: no branch from the previous ticket's branch" lacks "$EW" "previous wave ticket's branch"
+check "ship-ticket: the rebase is the implementer's" has "$ST" '1. **On top of the main branch — the implementer.**'
+check "ship-ticket: documents on the ticket branch before the fast-forward" has "$ST" '2. **The ticket'"'"'s documents — the orchestrator, on the ticket branch** (Full mode).'
+check "ship-ticket: the main branch never from the checkout's HEAD" has "$ST" 'Never the branch the main checkout stands'
+check "epic-wave: the rebase is always the implementer's" has "$EW" 'the rebase is always the implementer'"'"'s, in its own worktree'
+check "epic-wave: local-green documents commit on the ticket's own branch" has "$EW" '`ticket done` and result section are one commit on **its own branch**'
+check "epic-wave: single + local-green waits for the local merge (Shape)" has "$EW" 'with `local-green` locally (section 4, "Local merge",'
+check "epic-wave: single + local-green waits for the local merge (Dispatch)" has "$EW" 'merge (section 4, "Local merge", `MERGED=0`).'
+check "implementer: the rebase before the local merge is yours" has "$IM" 'when the orchestrator sends the branch back, rebase it onto the main branch in your own'
+check "implementer: numbering.adr.dir and lessons are taken from the Workflow folder" has "$IM" 'in `numbering.adr.dir` and in `lessons: "repo:<path>"` is'
+check "profiles README: the outside-repository worktree.root is not set until item 7" has "$PR" 'it is **not set** — the connection does not write it — until the owner answers'
+
 # 8. Cyrillic only in allowed places: the old Autopilot forms, Gate verdict words, placeholders
 # of profile values, section names of Project documents and Russian examples.
 ALLOWED=(

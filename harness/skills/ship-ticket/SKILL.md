@@ -151,8 +151,8 @@ an agent, `EnterWorktree` accepts only worktrees under `.claude/worktrees/` of t
 — `F worktree.root` must lie there. Edits that go around it through python or sed in Bash are not a
 way out.
 **`parallel: single`.** No worktree: work in the main checkout, one ticket at a time, on the branch
-`F tickets.branch` created from `F worktree.base` (with `local-green` inside a wave — from the
-previous ticket's branch, see `/worfy:epic-wave`).
+`F tickets.branch` created from `F worktree.base` (with `local-green` — from the main branch after the
+previous ticket's local merge, step 11; see `/worfy:epic-wave`).
 
 ## 3. Take numbers before the content
 
@@ -357,33 +357,53 @@ not count as verified.
 
 **Local finish** — only with `local-green` (contract: `profiles/README.md`, "Local finish"). The
 ticket closes when its branch is merged locally into the main branch of its repository and the local
-`gate full` is green on exactly what is merged. In order:
+`gate full` is green on exactly what is merged. The main branch is `F worktree.base` without
+`origin/`; without it — `default_branch` of this repository in `F layout.repos`, then the branch
+`origin/HEAD` points to, then a local `main` or `master`. Never the branch the main checkout stands
+on: with `single` that is the ticket branch itself. The steps go in this order, and each has one
+doer:
 
-1. In the ticket's worktree (with `single` — the main checkout on the ticket branch): `git rebase
-   <main branch>`. A conflict — `git rebase --abort`; the implementer resolves it in its own worktree
-   (a migration is regenerated with `F numbering.migrations.generate`, not merged by hand), as with a
-   PR.
-2. `bash "${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh" full </dev/null; echo "EXIT=$?"` in that worktree —
-   `EXIT=0` and the line `[gate] зелено (…)`. The rebased branch is the tree the main branch becomes.
-3. The merge — a fast-forward of the main branch; whoever `F workflow.merge` names does it, one merge
-   at a time (the lock of `/worfy:epic-wave`, section 4). `<repo>` is the repository's main checkout:
+1. **On top of the main branch — the implementer.** If the branch is not on top of the main branch
+   (`git merge-base --is-ancestor <main branch> <ticket branch>` — exit 1), the orchestrator sends
+   the ticket back through `SendMessage`; the implementer rebases it in its own worktree (with
+   `single` — the main checkout), resolves conflicts there (a migration is regenerated with
+   `F numbering.migrations.generate`, not merged by hand), runs its checks again and reports — as
+   with a `DIRTY` PR.
+2. **The ticket's documents — the orchestrator, on the ticket branch** (Full mode). `ticket done`
+   runs in the ticket's worktree, the ticket's result section is written, and for the last ticket of
+   a wave the state file too; one commit on the ticket branch. The fast-forward then carries `done`
+   into the main branch; there is no separate documents commit on the main branch. In Silent mode
+   nothing is committed: `ticket done` writes into the Workflow folder after step 4.
+3. **The gate — the orchestrator.** `bash "${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh" full </dev/null; echo
+   "EXIT=$?"` in the ticket's worktree — `EXIT=0` and the line `[gate] зелено (…)`: this tree is
+   exactly what the main branch becomes.
+4. **The merge — whoever `F workflow.merge` names**, one merge at a time (the lock of
+   `/worfy:epic-wave`, section 4). `<repo>` is the repository's main checkout:
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1"; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
 B=<ticket branch>
-M=$(F worktree.base) && [ "$M" != null ] && M=${M#origin/} || M=$(git -C <repo> symbolic-ref --short HEAD)
+M=$(F worktree.base); [ "$M" = null ] && M=
+[ -n "$M" ] || M=$(F layout.repos | jq -r --arg r "$(basename "$(cd <repo> && pwd -P)")" '.[$r].default_branch // empty' 2>/dev/null)
+[ -n "$M" ] || M=$(git -C <repo> symbolic-ref -q --short refs/remotes/origin/HEAD)
+[ -n "$M" ] || for c in main master; do git -C <repo> rev-parse -q --verify "refs/heads/$c" >/dev/null && { M=$c; break; }; done
+M=${M#origin/}
 W=$(git -C <repo> worktree list --porcelain | awk -v b="branch refs/heads/$M" '/^worktree /{w=substr($0,10)} $0==b{print w}')
-if ! git -C <repo> merge-base --is-ancestor "$M" "$B"; then echo "NOT ON TOP: rebase $B onto $M, gate full again"
+if [ -z "$M" ]; then echo "NO MAIN BRANCH: set worktree.base in the profile"
+elif [ "$M" = "$B" ]; then echo "SAME BRANCH: $B is the main branch itself, nothing to merge"
+elif ! git -C <repo> merge-base --is-ancestor "$M" "$B"; then echo "NOT ON TOP: back to the implementer — rebase $B onto $M"
 elif [ -n "$W" ]; then git -C "$W" merge --ff-only --quiet "$B"
 else git -C <repo> branch -f "$M" "$B"; fi
-git -C <repo> merge-base --is-ancestor "$B" "$M"; echo "MERGED=$?"     # 0 — the branch is in the main branch
+[ -n "$M" ] && [ "$M" != "$B" ] && git -C <repo> merge-base --is-ancestor "$B" "$M"; echo "MERGED=$?"     # 0 — the branch is in the main branch
 ```
 
 `MERGED=0` is the proof; anything else — the ticket is not done. Nothing is pushed: the finish is
-local. Then:
+local. With `single` the main checkout stays on the ticket branch; the next ticket's branch is
+created from the main branch. In Silent mode `ticket done` follows now; in Full mode it is already in
+the main branch (step 2). With `pr-green-ci`:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/ticket" done <epic> <NN> --pr <N>     # with local-green — without --pr
+"${CLAUDE_PLUGIN_ROOT}/bin/ticket" done <epic> <NN> --pr <N>     # with local-green — without --pr (step 2 or 4 above)
 ```
 
 The state file is `F docs.handoff` (`path`, `kind`, `check`). No field — "the project has no state
