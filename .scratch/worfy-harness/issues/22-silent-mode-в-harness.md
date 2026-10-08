@@ -1,7 +1,7 @@
 # 22 — Silent mode в Harness: файлы workflow в Workflow folder, без следов в ветках, коммитах и PR
 
 Type: task
-Status: blocked — gate: узкий круг REJECTED — локальный финиш local-green (ship-ticket, шаг 11) оставляет незакоммиченные документы при NOT ON TOP и перематывает main при упавшем коммите документов; PR #150 открыт, пункт 7 ждёт ответа владельца про живые пробы claude -p
+Status: open
 Blocked by: 16
 Source: решения владельца 2026-10-07, Q11' (б), Q17, Q23–Q30; [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) (Profile на машине, Full mode и Silent mode, Workflow folder, worktree вне репозитория, `attribution`; заменяет ADR-0020); [ADR-0045](../../../docs/adr/0045-one-ticket-one-repository.md) (один Ticket — один репозиторий, Project над несколькими репозиториями — всегда Silent mode, финиш без прав — локальный); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (состояние Harness на машине — `~/.claude/worfy-harness/`); [spec.md](../spec.md)
 
@@ -245,3 +245,7 @@ Wave 10 (2026-10-08): Ticket выведен из Wave гейтом, `blocked`. �
   `$VAR`; `src/main/workflow/reader.ts:321` читает `done` с невлитой ветки как закрытый.
 - Решено без владельца, подтвердить: документы тикета при local-green — коммитом на его ветке после зелёного gate
   full перед перемоткой; документы волны без невлитого тикета — коммитом в main под замком (временный worktree).
+
+**Решение владельца 2026-10-08** (после блока узким кругом): «1 разрешаю, делай ещё круг».
+- Живые пробы `claude -p` (пункт 7) разрешены, хотя они пишут в `~/.claude/projects/<cwd>/`. Пробы — во временной папке и с `--no-session-persistence`, где это возможно; что записалось — перечислить в «Итог».
+- Ещё один полный круг доработки по двум находкам [med] узкого круга: (1) при NOT ON TOP подготовленные документы остаются незакоммиченными в worktree, где implementer делает rebase; (2) результат коммита документов не проверяется, main перематывается и печатается `MERGED=0`. Плюс три [low] того же круга. Работа — в ветке PR #150 (`worfy-harness/22`, worktree `.claude/worktrees/h22`).
