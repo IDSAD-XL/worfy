@@ -116,8 +116,11 @@ Rules of evidence:
 - Write to the Claude configuration directory only if the brief says `Write to ~/.claude: allowed`.
   For example, a test with a real Claude Code or Agent SDK writes transcripts to `~/.claude/projects`.
   If the brief is silent, do not write there and do not run such a test; say so in the "could not
-  verify" line. If the brief gives a `GitHub:` line — run every `gh` command and every `git` command
-  against `origin` with that `GH_TOKEN`; do not switch the global `gh` account.
+  verify" line.
+- `GH_TOKEN` of the profile's `github.account` is set by the plugin's `SessionStart` hook for every
+  Bash command, yours included; do not switch the global `gh` account. If `gh` answers
+  "Could not resolve to a Repository", compare `gh auth status` with `github.account` and say so in
+  the answer.
 
 Answer format — no more than 30 lines:
 - `path:line: [high|med|low] <defect>; scenario: <which input or state gives which wrong

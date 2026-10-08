@@ -1,5 +1,5 @@
 {
-  "description": "worfy Harness hooks: rules for sessions and subagents, the quality gate, worktree locks, session bookkeeping, the Bash guard and the qmd index refresh",
+  "description": "worfy Harness hooks: rules for sessions and subagents, the quality gate, worktree locks, session bookkeeping, GH_TOKEN of the project's GitHub account, the Bash guard and the qmd index refresh",
   "hooks": {
     "SessionStart": [
       {
@@ -26,6 +26,15 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\"",
             "timeout": 15
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/gh-token-env.sh\"",
+            "timeout": 10
           }
         ]
       },

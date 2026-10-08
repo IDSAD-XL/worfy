@@ -254,6 +254,7 @@ SessionStart||$R/hooks/session-start.sh"|15
 SessionStart||$R/bin/worktree-lock" claim|10
 SessionStart||$R/hooks/inject-rules.sh" orchestrator|10
 SessionStart||$R/hooks/inject-rules.sh" common|10
+SessionStart||$R/hooks/gh-token-env.sh"|10
 SubagentStart||$R/hooks/inject-rules.sh" common|10
 TaskCompleted||$R/hooks/gate.sh" fast|900
 TeammateIdle||$R/hooks/gate.sh" fast|900

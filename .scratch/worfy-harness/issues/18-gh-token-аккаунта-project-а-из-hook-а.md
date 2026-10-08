@@ -1,7 +1,7 @@
 # 18 — `GH_TOKEN` аккаунта Project-а выдаёт hook `SessionStart`, skills без ручного `export`
 
 Type: task
-Status: open
+Status: claimed — 2026-10-08
 Blocked by: 01, 16
 Source: решение владельца 2026-10-07, вопрос Q21 ([spec.md](../spec.md)); ADR-0048 (будет `docs/adr/0048-harness-plugin-spike-results.md`) — итог spike Ticket-а 01 (работает ли `GH_TOKEN` через `CLAUDE_ENV_FILE`; файл заводит Ticket 01); [ADR-0041](../../../docs/adr/0041-harness-rules-via-session-hooks.md) — hooks plugin `SessionStart`
 
@@ -89,18 +89,18 @@ ADR не нужен: выбор между А и Б записан в ADR-0048.
 
 ## Готово, когда
 
-- [ ] `harness/hooks/tests/gh-token-env.test.sh`. Подменены `gh` (на `auth token -u` печатает метку `gho_TESTSENTINEL`) и `profile`. С аккаунтом `IDSAD-XL`:
+- [x] `harness/hooks/tests/gh-token-env.test.sh`. Подменены `gh` (на `auth token -u` печатает метку `gho_TESTSENTINEL`) и `profile`. С аккаунтом `IDSAD-XL`:
   - код 0;
   - в `$CLAUDE_ENV_FILE` ровно одна новая строка `export GH_TOKEN="$(gh auth token -u IDSAD-XL 2>/dev/null)"`;
   - `bash -c 'source "$F"; printf %s "$GH_TOKEN"'` печатает метку.
-- [ ] Тот же test, тихие случаи — файл окружения не изменился, код 0: `profile` с кодом 3, с кодом 4, `null`, нет `$CLAUDE_ENV_FILE`, нет `profile`.
-- [ ] Тот же test: аккаунт без входа в `gh`. Файл не изменился. В stdout JSON с `additionalContext`, где названы аккаунт и `gh auth login`. Код 0.
-- [ ] Тот же test: аккаунт `x; touch pwned` (не логин GitHub). Ничего не записано, файла `pwned` нет, код 0.
-- [ ] Тот же test, во всех случаях:
+- [x] Тот же test, тихие случаи — файл окружения не изменился, код 0: `profile` с кодом 3, с кодом 4, `null`, нет `$CLAUDE_ENV_FILE`, нет `profile`.
+- [x] Тот же test: аккаунт без входа в `gh`. Файл не изменился. В stdout JSON с `additionalContext`, где названы аккаунт и `gh auth login`. Код 0.
+- [x] Тот же test: аккаунт `x; touch pwned` (не логин GitHub). Ничего не записано, файла `pwned` нет, код 0.
+- [x] Тот же test, во всех случаях:
   - метки нет ни в файле окружения, ни в stdout, ни в stderr;
   - в журнале подменённого `gh` нет `auth switch` и `auth login`.
-- [ ] `jq` по `harness/hooks/hooks.json` находит под `SessionStart` команду `${CLAUDE_PLUGIN_ROOT}/hooks/gh-token-env.sh`, код 0. Проверка — в том же test-е.
-- [ ] Вариант А: `grep -rnE 'gh auth token -u' harness/skills harness/agents` — код 1. В варианте Б — совпадения только в абзацах для терминала, их список — в «Итог».
+- [x] `jq` по `harness/hooks/hooks.json` находит под `SessionStart` команду `${CLAUDE_PLUGIN_ROOT}/hooks/gh-token-env.sh`, код 0. Проверка — в том же test-е.
+- [x] Вариант А: `grep -rnE 'gh auth token -u' harness/skills harness/agents` — код 1. В варианте Б — совпадения только в абзацах для терминала, их список — в «Итог».
 - [ ] Только вариант Б: `test/unit/agent-query-factory.test.ts`:
   - Session в Project-е с аккаунтом получает в env `GH_TOKEN` от подменённого `gh auth token`;
   - без аккаунта — без `GH_TOKEN`;
@@ -152,4 +152,43 @@ hook-а нет, файл окружения пуст, test красный. Ка�
 
 ## Итог
 
-Заполняется при закрытии.
+**Сделан вариант А.** ADR-0048, вопрос 2: строка `export GH_TOKEN="$(gh auth token -u <account>)"` в
+`CLAUDE_ENV_FILE` исполняется перед каждой командой Bash — в главной Session, у Subagent-а
+`general-purpose` и у агента workflow-скрипта, в SDK и в терминале. Запасной путь (пункт 5) не нужен,
+`src/main/agent/app-registry.ts` и `test/unit/agent-query-factory.test.ts` не тронуты; пункт «Только
+вариант Б» не относится.
+
+- **Hook** `harness/hooks/gh-token-env.sh`, в `harness/hooks/hooks.json` под `SessionStart` (timeout 10).
+  - Project — по `cwd` из JSON hook-а, иначе `$PWD`; аккаунт — `profile --field github.account`.
+  - Проверка логина — то же правило, что `GITHUB_LOGIN` в `src/main/workflow/profile.ts`.
+  - `gh auth token -u` в hook-е — только ради кода выхода, вывод выброшен; `GH_TOKEN`/`GITHUB_TOKEN`
+    окружения hook-а на проверку не влияют (`env -u`).
+  - Сверх тикета: строка не дописывается второй раз (повторный `SessionStart` при resume и `/clear`);
+    файл без перевода строки в конце не склеивает `export` с последней строкой.
+  - `gh` не установлен — как «нет входа»: строки нет, одна строка `additionalContext`, код 0.
+- **Пункт 2 (Subagent-ы).** По ADR-0048 переменная доходит до всех видов Subagent-ов, поэтому
+  строка «GitHub:» убрана из брифа epic-wave совсем (и из брифа verifier-а); исключений нет.
+- **Пункт 3.** Абзацы в `harness/skills/epic-wave/SKILL.md`, `ship-ticket/SKILL.md`,
+  `overnight-fix-loop/SKILL.md` (`export GH_TOKEN=…` перед `git push` убран), `harness/agents/implementer.md`,
+  `reviewer.md` заменены одной фразой: `GH_TOKEN` ставит hook `SessionStart`; глобальный аккаунт не
+  переключать (в skills — с прежним «без разрешения владельца: им пользуются другие Session-ы»); ответ
+  «Could not resolve to a Repository» — сверить `gh auth status` с `github.account` и сказать в отчёте.
+  Строка `github.account` в `harness/profiles/README.md` описывает hook.
+  `grep -rnE 'gh auth token -u' harness/skills harness/agents` — код 1.
+- **Text test-ы** поправлены под новый текст: `harness/bin/tests/agents-text.test.sh` (вместо метки
+  «GitHub:» — правило про hook и про «Could not resolve…», нет `gh auth token -u`),
+  `harness/bin/tests/epic-wave-ship-ticket.test.sh` (метки «GitHub:» в брифе нет),
+  `harness/hooks/tests/rules-hooks.test.sh` (ожидаемый список hooks).
+- **Как падал первый test.** `bash harness/hooks/tests/gh-token-env.test.sh` до hook-а: exit 1,
+  `passed 73, failed 30` — «hook missing», «account with login: exit 127», «new lines: []».
+  После — exit 0, `passed 103, failed 0`. Мутанты hook-а (без проверки логина; вывод
+  `gh auth token` не выброшен; без защиты от второй строки; без `additionalContext` при отсутствии
+  входа) — каждый краснит test.
+- **Проверка с настоящим `gh` без Claude Code** (машина владельца, активный аккаунт
+  Oleksii-O-Atakama): hook с `CLAUDE_ENV_FILE` во временном файле и `cwd` репозитория worfy — код 0, в
+  файле одна строка `export GH_TOKEN="$(gh auth token -u IDSAD-XL 2>/dev/null)"`;
+  `bash -c 'source <файл>; gh api user --jq .login'` — `IDSAD-XL`, в том числе при заданном
+  `GH_TOKEN=dummy-user-token`.
+- **Не проверено: ручной пункт** (после влития и `pnpm install:stable`, две Session — `claude` из
+  терминала и Session worfy). Агент не пересобирает Stable copy и не запускает настоящий Claude Code;
+  пункт ждёт владельца.

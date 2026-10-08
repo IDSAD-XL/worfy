@@ -94,10 +94,10 @@ everyone.
   Running a real Claude Code or Agent SDK (in a test, in a manual check) writes transcripts to
   `~/.claude/projects` — that is a write too. If the brief is silent, ask the orchestrator rather
   than deciding yourself.
-- If the global `gh` is switched to another account (the brief gives a `GitHub:` line, or
-  `gh auth status` shows an account other than `github.account`), run every `gh` command and every
-  `git` command against `origin` with `GH_TOKEN=$(gh auth token -u <github.account>)`. Do not switch
-  the global account.
+- `GH_TOKEN` of the profile's `github.account` is set by the plugin's `SessionStart` hook for
+  every Bash command, yours included; do not switch the global `gh` account. If `gh` answers
+  "Could not resolve to a Repository", compare `gh auth status` with `github.account` and say so in
+  the report.
 - For "why was this decided" and "have we hit this before", ask `qmd` across the whole index: the
   profile's `qmd.collections` is a hint where to expect the answer, not a filter for the
   `collections` parameter. The `qmd` index is a snapshot from the start of the session, so check what

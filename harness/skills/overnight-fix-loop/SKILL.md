@@ -238,13 +238,14 @@ looked at. The implementer first compares `git rev-parse HEAD` with that SHA: no
 answer the orchestrator (the review saw different code).
 
 ```bash
-export GH_TOKEN=$(gh auth token -u <F github.account>)   # do not switch the global gh account
 git push -u origin overnight/<date>-<имя>
 gh pr create --base overnight/<date> --title "overnight(<имя>): <what was hardened>" \
   --body-file <scratchpad>/overnight/<имя>/PR.md
 ```
 
-No `github.account` — `gh auth status` is only printed, no switching.
+`GH_TOKEN` of `F github.account` is set by the plugin's `SessionStart` hook (`hooks/gh-token-env.sh`) for every
+Bash command of the session and of its agents; do not switch the global `gh` account. If `gh` answers "Could not
+resolve to a Repository", compare `gh auth status` with `F github.account` and say so in the answer.
 In the body: the tests as a list, "mutations: before X of N → after Y of N", the gate exit code, the 1f reviewer's verdict.
 The implementer returns the PR number and stops there: the merge is the orchestrator's step.
 

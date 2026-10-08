@@ -99,7 +99,12 @@ for a in implementer reviewer; do
     grep -E '^- ' "$AGENTS/$a.md" | grep -qF -- "$WRITE_RULE" \
         && ok "$a: general rule: write to ~/.claude only when the brief allows it" \
         || bad "$a: no general rule '$WRITE_RULE' at the start of a list item"
-    has "$a" '`GitHub:`' && ok "$a: brief label 'GitHub:'" || bad "$a: no brief label 'GitHub:'"
+    # GH_TOKEN comes from the plugin's SessionStart hook (worfy-harness ticket 18), not from the brief.
+    has "$a" 'is set by the plugin'"'"'s `SessionStart` hook' && has "$a" '"Could not resolve to a Repository", compare `gh auth status` with `github.account`' \
+        && ok "$a: GH_TOKEN from the SessionStart hook, 'Could not resolve' check kept" \
+        || bad "$a: no rule about GH_TOKEN from the SessionStart hook"
+    has "$a" 'gh auth token -u' && bad "$a: still has the manual GH_TOKEN=\$(gh auth token -u …) prefix" \
+        || ok "$a: no manual gh auth token prefix"
 done
 # The qmd server of the plugin (harness/.mcp.json, worfy-harness ticket 17): its tools are mcp__plugin_worfy_qmd__*.
 TOOLS='tools: Read, Grep, Glob, Bash, mcp__plugin_worfy_qmd__query, mcp__plugin_worfy_qmd__get, mcp__plugin_worfy_qmd__multi_get, mcp__plugin_worfy_qmd__status'
