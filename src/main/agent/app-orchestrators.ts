@@ -4,9 +4,10 @@
 // startOrchestrators() once; the `orchestrator` IPC handlers only use sharedOrchestrators().
 //
 // Orchestrators run in the app's registry (app-registry.ts), so `agent.send`, `agent.interrupt`
-// and `agent.close` reach them too. Unlike the Sessions of `agent.start`, an Orchestrator belongs
-// to the app rather than to a window: its events and views go to every window, and closing a
-// window does not stop it. It stops when the app quits, with every other Session.
+// and `agent.close` reach them too. Like every Session of the app (the Sessions of `agent.start`
+// and of Session Nodes too, ADR-0053 point 4), an Orchestrator belongs to the app rather than to a
+// window: its events and views go to every client of the app, and closing a window does not stop
+// it. It stops when the app quits, with every other Session.
 import { app } from 'electron'
 import { agentEvent } from '../../shared/ipc/agent'
 import { orchestratorChanged } from '../../shared/ipc/orchestrator'

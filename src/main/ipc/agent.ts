@@ -1,6 +1,8 @@
-// Handlers of the `agent` domain (src/shared/ipc/agent.ts). Events of a Session go to the window
-// that started it, and the Session closes when that window is destroyed: on macOS the app outlives
-// its windows, and a Session nobody can see would keep Claude Code running. The app's registry and
+// Handlers of the `agent` domain (src/shared/ipc/agent.ts). A Session started by `agent.start`
+// belongs to the app, not to the window that asked for it (ADR-0053, point 4), like the Sessions of
+// Session Nodes and the Orchestrator: its events go to every client of the app (src/main/broadcast.ts),
+// and closing a window or dropping a connection does not close it. It closes on `agent.close` or
+// when worfy quits (closeAll on will-quit, src/main/agent/app-registry.ts). The app's registry and
 // how it starts Claude Code (or the fake agent) live in src/main/agent/app-registry.ts.
 //
 // Attachments (ticket 20) are checked here: agent.attach and agent.attachPick make them (copies of
@@ -13,6 +15,7 @@ import { sharedRegistry } from '../agent/app-registry'
 import { attach, recheck, type AttachTarget } from '../agent/attachments'
 import { closeRefusal } from '../agent/resume'
 import type { EventSink, Session, SessionRegistry } from '../agent/session'
+import { toEveryWindow } from '../broadcast'
 import { projectForCwd } from '../mcp/canvas-server'
 import { projectStore } from '../projects/store'
 import { dataRoot } from '../storage/paths'
@@ -37,44 +40,12 @@ import { MAX_ATTACHMENTS, tooManyAttachments, type Attachment } from '../../shar
 import type { SettingsChange } from '../../shared/agent/settings'
 import { defineHandler, emit, type EventTarget, type HandlerModule } from './index'
 
-/** Sends a Session's events to a window, as long as the window is alive. */
-export function windowSink(target: EventTarget & Partial<Pick<WebContents, 'isDestroyed'>>): EventSink {
-  return (sessionId, event) => {
-    if (target.isDestroyed?.() === true) return
-    emit(target, agentEvent, { sessionId, event })
-  }
-}
+/** Sends one event to every client of the app; tests pass their own clients. */
+export type Broadcast = (send: (target: EventTarget) => void) => void
 
-/** A window's webContents as far as Session ownership needs it. */
-export interface SessionOwner {
-  once(event: 'destroyed', listener: () => void): unknown
-}
-
-/** Closes each window's Sessions when the window is destroyed; one listener per window. */
-function ownership(): (owner: SessionOwner, session: Session) => void {
-  const owned = new WeakMap<SessionOwner, Set<Session>>()
-  return (owner, session) => {
-    let sessions = owned.get(owner)
-    if (sessions === undefined) {
-      const forOwner = new Set<Session>()
-      owned.set(owner, forOwner)
-      owner.once('destroyed', () => {
-        owned.delete(owner)
-        for (const each of forOwner) {
-          try {
-            each.close()
-          } catch (error) {
-            // One Session failing to report its close must not keep the others running.
-            console.warn(`[agent] closing ${each.id} with its window failed`, error)
-          }
-        }
-      })
-      sessions = forOwner
-    }
-    // Sessions closed by agent.close are dropped here rather than kept until the window goes.
-    for (const each of sessions) if (each.state === 'closed') sessions.delete(each)
-    sessions.add(session)
-  }
+/** A Session's events, each sent to every client `clients` reaches. */
+export function everyClientSink(clients: Broadcast): EventSink {
+  return (sessionId, event) => clients((target) => emit(target, agentEvent, { sessionId, event }))
 }
 
 async function assertDirectory(path: string): Promise<void> {
@@ -120,8 +91,8 @@ function configured(change: SettingsChange): string {
  * The handlers over a registry; tests pass their own registry with the fake agent. Every action a
  * person takes on a live Session is told to the registry's input observers first (noteInput).
  */
-export function agentHandlers(registry: () => SessionRegistry, attachments: AttachDeps = appAttachDeps): HandlerModule {
-  const own = ownership()
+export function agentHandlers(registry: () => SessionRegistry, attachments: AttachDeps = appAttachDeps, clients: Broadcast = toEveryWindow): HandlerModule {
+  const sink = everyClientSink(clients)
   // The messages of one Session reach it in the order they were sent, though checking the
   // attachments of one takes longer than checking another's.
   const lastSend = new WeakMap<Session, Promise<unknown>>()
@@ -133,11 +104,9 @@ export function agentHandlers(registry: () => SessionRegistry, attachments: Atta
     return { results }
   }
   return [
-    defineHandler(agentStart, async ({ cwd, resume }, { event }) => {
+    defineHandler(agentStart, async ({ cwd, resume }) => {
       await assertDirectory(cwd)
-      const session = registry().start(cwd, resume, windowSink(event.sender))
-      own(event.sender, session)
-      return { sessionId: session.id }
+      return { sessionId: registry().start(cwd, resume, sink).id }
     }),
     defineHandler(agentSend, ({ sessionId, text, attachments: attached }) => {
       const session = registry().get(sessionId)
@@ -176,7 +145,7 @@ export function agentHandlers(registry: () => SessionRegistry, attachments: Atta
     defineHandler(agentClose, ({ sessionId }) => {
       const session = registry().get(sessionId)
       registry().noteInput(sessionId, 'closed the Session')
-      // A turn is interrupted first (ticket 18); closing with the window or the app is not refused.
+      // A turn is interrupted first (ticket 18); closing with the app is not refused.
       const refusal = closeRefusal(session.state)
       if (refusal !== null) throw new Error(refusal)
       session.close()

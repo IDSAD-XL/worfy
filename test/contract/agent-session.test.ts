@@ -9,7 +9,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { fakeQueryFactory } from '../../src/main/agent/fake-query'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
-import { agentHandlers, windowSink } from '../../src/main/ipc/agent'
+import { agentHandlers, everyClientSink } from '../../src/main/ipc/agent'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import type { AgentEvent, AgentEventEnvelope } from '../../src/shared/agent/events'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
@@ -49,26 +49,35 @@ async function harness(script: string | ((request: QueryRequest) => string), reg
   })
   const handlers = new Map<string, Listener>()
   const ipc: IpcMainLike = { handle: (channel, listener) => handlers.set(channel, listener) }
-  await registerIpc(ipc, { modules: { './agent.ts': () => Promise.resolve(agentHandlers(() => registry)) }, isTrustedSender: (url) => url === APP_URL })
+  /** The app's clients, as src/main/broadcast.ts sends to them: every window that is not destroyed. */
+  const windows = new Set<ReturnType<typeof makeWindow>>()
+  const everyWindow = (send: (target: ReturnType<typeof makeWindow>) => void) => {
+    for (const window of windows) if (!window.isDestroyed()) send(window)
+  }
+  await registerIpc(ipc, { modules: { './agent.ts': () => Promise.resolve(agentHandlers(() => registry, undefined, everyWindow)) }, isTrustedSender: (url) => url === APP_URL })
 
-  const received: AgentEventEnvelope[] = []
-  /** A window's webContents: it gets events and can be destroyed. */
+  /** A window's webContents: one of the app's clients; it gets events and can be destroyed. */
   const makeWindow = () => {
     const window = Object.assign(new EventEmitter(), {
       destroyed: false,
+      /** The events this window got, in order. */
+      got: [] as AgentEventEnvelope[],
       isDestroyed: () => window.destroyed,
       send: (channel: string, payload: unknown) => {
         expect(channel).toBe(`${IPC_CHANNEL_PREFIX}agent.event`)
-        received.push(payload as AgentEventEnvelope)
+        window.got.push(payload as AgentEventEnvelope)
       },
       destroy: () => {
         window.destroyed = true
         window.emit('destroyed')
       },
     })
+    windows.add(window)
     return window
   }
   const sender = makeWindow()
+  /** What the first window got: every event of every Session goes to it as to every other window. */
+  const received = sender.got
   const call = async (channel: string, input?: unknown, from: ReturnType<typeof makeWindow> = sender): Promise<IpcResult<unknown>> => {
     const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
     if (!listener) throw new Error(`no handler for ${channel}`)
@@ -340,40 +349,39 @@ describe('agent channels on the fake agent', () => {
     expect((await h.call('agent.start', { cwd, resume: 'sdk-x' })).ok).toBe(true)
   })
 
-  it('closing a window closes the Sessions it started and stops their Claude Code; other windows keep theirs', async () => {
+  it('closing the window that started a Session does not close it: its Claude Code runs on, and another window writes to it', async () => {
     const h = await harness('turn')
-    const other = h.makeWindow()
-    const mine = await h.start()
-    const theirs = (await h.ok<{ sessionId: string }>('agent.start', { cwd }, other)).sessionId
-    await vi.waitFor(() => expect([h.states([mine]).at(-1), h.states([theirs]).at(-1)]).toEqual(['idle', 'idle']))
-    expect(h.closes).toHaveLength(2)
+    const starter = h.makeWindow()
+    const id = (await h.ok<{ sessionId: string }>('agent.start', { cwd }, starter)).sessionId
+    await vi.waitFor(() => expect(h.states([id]).at(-1)).toBe('idle'))
+    expect(h.closes).toHaveLength(1)
 
-    other.destroy()
-    expect(await h.ok('agent.list')).toStrictEqual([{ sessionId: mine, cwd, state: 'idle' }])
-    expect((await h.call('agent.send', { sessionId: theirs, text: 'anyone?' })).ok).toBe(false)
-    // Its Claude Code is stopped; the other window's is not.
-    expect(h.closes[1]).toHaveBeenCalledOnce()
+    starter.destroy()
+    // ADR-0053, point 4: the Session belongs to the app, not to the window that asked for it.
+    expect(await h.ok('agent.list')).toStrictEqual([{ sessionId: id, cwd, state: 'idle' }])
     expect(h.closes[0]).not.toHaveBeenCalled()
-    await h.ok('agent.send', { sessionId: mine, text: 'hello' })
-    await vi.waitFor(() => expect(ofType(h.eventsOf([mine]), 'result')).toHaveLength(1))
+    await h.ok('agent.send', { sessionId: id, text: 'still there?' }, h.sender)
+    await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'result')).toHaveLength(1))
+    expect(h.states([id])).not.toContain('closed')
+    // It closes on agent.close, from any window.
+    await h.ok('agent.close', { sessionId: id }, h.sender)
+    expect(h.closes[0]).toHaveBeenCalledOnce()
+    expect(await h.ok('agent.list')).toEqual([])
   })
 
-  it('a window that throws on send while it is destroyed still gets all its Sessions closed', async () => {
+  it('every client of the broadcast gets the events of a Session from agent.start, not only the window that started it', async () => {
     const h = await harness('turn')
-    const window = h.makeWindow()
-    // Electron may not report isDestroyed() yet inside 'destroyed'; send then throws.
-    window.isDestroyed = () => false
-    const send = window.send
-    window.send = (channel, payload) => {
-      if (window.destroyed) throw new Error('Object has been destroyed')
-      send(channel, payload)
-    }
-    await h.ok('agent.start', { cwd }, window)
-    await h.ok('agent.start', { cwd }, window)
-    await vi.waitFor(() => expect(h.closes).toHaveLength(2))
-    window.destroy()
-    expect(await h.ok('agent.list')).toEqual([])
-    for (const close of h.closes) expect(close).toHaveBeenCalledOnce()
+    const starter = h.makeWindow()
+    const other = h.makeWindow()
+    const id = (await h.ok<{ sessionId: string }>('agent.start', { cwd }, starter)).sessionId
+    await h.ok('agent.send', { sessionId: id, text: 'hello' }, starter)
+    await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'result')).toHaveLength(1))
+    await vi.waitFor(() => expect(h.states([id]).at(-1)).toBe('idle'))
+    // One and the same stream, in the same order, for the window that started it and the ones that did not.
+    expect(starter.got.length).toBeGreaterThan(0)
+    expect(other.got).toStrictEqual(starter.got)
+    expect(h.sender.got).toStrictEqual(starter.got)
+    expect(starter.got.map((each) => each.event.type)).toContain('result')
   })
 
   it('an unknown SDK message becomes an unknown event and the turn goes on', async () => {
@@ -427,21 +435,15 @@ describe('agent channel inputs', () => {
 describe('agent.event payloads', () => {
   it('sends the parsed envelope: undeclared keys are stripped', () => {
     const sent: unknown[] = []
-    const sink = windowSink({ send: (_channel, payload) => sent.push(payload) })
+    const sink = everyClientSink((send) => send({ send: (_channel, payload) => sent.push(payload) }))
     sink('s1', { type: 'state', state: 'idle', error: null, debug: 'leak' } as AgentEvent)
     expect(sent).toStrictEqual([{ sessionId: 's1', event: { type: 'state', state: 'idle', error: null } }])
   })
 
   it('refuses to send an event outside the contract', () => {
     const sent: unknown[] = []
-    const sink = windowSink({ send: (_channel, payload) => sent.push(payload) })
+    const sink = everyClientSink((send) => send({ send: (_channel, payload) => sent.push(payload) }))
     expect(() => sink('s1', { type: 'state', state: 'sleeping', error: null } as unknown as AgentEvent)).toThrow(/invalid event payload/)
     expect(sent).toEqual([])
-  })
-
-  it('sends nothing to a window that is gone', () => {
-    const send = vi.fn()
-    windowSink({ send, isDestroyed: () => true })('s1', { type: 'state', state: 'idle', error: null })
-    expect(send).not.toHaveBeenCalled()
   })
 })

@@ -1,7 +1,7 @@
 # 04 — Session живёт на Machine Project-а и не зависит от окна
 
 Type: task
-Status: open
+Status: claimed — 2026-10-08
 Blocked by: 03
 Source: решения владельца 2026-10-07: Q14 (Session, запущенная с другой Machine, живёт на Machine Project-а и не закрывается с окном) и Q2 (обе Machine работают одновременно, общее состояние живое) ([spec.md](../spec.md), «Готово, когда» Epic-а, пункты 2 и 3); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) (пункт 4 — Session живёт на Machine Project-а; последствие про `agent.start`)
 
@@ -76,15 +76,15 @@ Source: решения владельца 2026-10-07: Q14 (Session, запуще
 
 ## Готово, когда
 
-- [ ] Contract `test/contract/agent-session.test.ts`: закрытие окна, начавшего Session через `agent.start`, её не закрывает — Session в `agent.list`, её Claude Code не остановлен (`close` не вызван), из другого окна `agent.send` проходит и даёт `result`. Заменяет test-ы `:343` и `:361`.
-- [ ] Там же: события Session из `agent.start` получает каждый клиент рассылки, а не только начавшее окно (два подставных получателя видят один и тот же поток).
-- [ ] e2e `test/e2e/session-two-windows.spec.ts` (локально, в gate full; fake-агент): «New session» в окне 1, второе окно открыто helper-ом Ticket-а 03. Сообщение из окна 1 — ответ виден в Session Node обоих окон (`session-node-answer`).
-- [ ] Там же: окно 1 закрыто — Session Node в окне 2 не `finished` (`session-node-status`); сообщение из окна 2 даёт ответ.
-- [ ] Там же: Session, продолженная (Resume) поверх файла транскрипта из fixture в окне 1, во втором окне показывает прошлые ходы один раз и после них новый живой ход из окна 1 — тоже один раз (`transcript-prompt` в Session view).
-- [ ] Там же: два сообщения из двух окон во время хода (сценарий fake-агента с долгим ходом из `test/fixtures/agent-scripts/`; подходящего нет — новый) — оба окна показывают одну очередь, а после хода — оба prompt-а в порядке отправки, без смешения текста.
-- [ ] `test/e2e/agent.spec.ts` и `test/e2e/limits.spec.ts` зелёные без правок.
-- [ ] `grep -n "windowSink\|ownership" src/main` пуст (вывод — в «Итог»).
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all gate.sh full` — exit 0.
+- [x] Contract `test/contract/agent-session.test.ts`: закрытие окна, начавшего Session через `agent.start`, её не закрывает — Session в `agent.list`, её Claude Code не остановлен (`close` не вызван), из другого окна `agent.send` проходит и даёт `result`. Заменяет test-ы `:343` и `:361`.
+- [x] Там же: события Session из `agent.start` получает каждый клиент рассылки, а не только начавшее окно (два подставных получателя видят один и тот же поток).
+- [x] e2e `test/e2e/session-two-windows.spec.ts` (локально, в gate full; fake-агент): «New session» в окне 1, второе окно открыто helper-ом Ticket-а 03. Сообщение из окна 1 — ответ виден в Session Node обоих окон (`session-node-answer`).
+- [x] Там же: окно 1 закрыто — Session Node в окне 2 не `finished` (`session-node-status`); сообщение из окна 2 даёт ответ.
+- [x] Там же: Session, продолженная (Resume) поверх файла транскрипта из fixture в окне 1, во втором окне показывает прошлые ходы один раз и после них новый живой ход из окна 1 — тоже один раз (`transcript-prompt` в Session view).
+- [x] Там же: два сообщения из двух окон во время хода (сценарий fake-агента с долгим ходом из `test/fixtures/agent-scripts/`; подходящего нет — новый) — оба окна показывают одну очередь, а после хода — оба prompt-а в порядке отправки, без смешения текста.
+- [x] `test/e2e/agent.spec.ts` и `test/e2e/limits.spec.ts` зелёные без правок.
+- [x] `grep -n "windowSink\|ownership" src/main` пуст (вывод — в «Итог»).
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all gate.sh full` — exit 0.
 
 ## Тесты
 
@@ -107,6 +107,9 @@ fake-агент транскрипт не пишет. Селекторы Session
 - `src/main/agent/app-orchestrators.ts`
 - `test/contract/agent-session.test.ts`
 - `test/e2e/session-two-windows.spec.ts` (новый)
+- `test/contract/agent-attachments.test.ts`, `test/contract/agent-controls.test.ts`,
+  `test/contract/permissions.test.ts` — по одной строке в стенде: рассылка в их поддельное окно
+  (добавлено при реализации с согласия оркестратора 2026-10-08)
 
 `src/main/agent/app-orchestrators.ts` — только комментарий `:6-9`. `src/main/agent/app-node-sessions.ts`
 и `src/main/agent/queue.ts` — образец и чтение, не правка. `src/renderer/session/store.ts` — только
@@ -115,4 +118,47 @@ fake-агент транскрипт не пишет. Селекторы Session
 
 ## Итог
 
-Заполняется при закрытии.
+- **Владелец Session из `agent.start` — приложение** (ADR-0053, пункт 4). `src/main/ipc/agent.ts`:
+  `windowSink`, `SessionOwner` и `ownership()` убраны. Третий параметр `agentHandlers` —
+  рассылка `clients: Broadcast` (форма `toEveryWindow`, по умолчанию она же); `everyClientSink(clients)`
+  шлёт каждое событие Session (`agent.event`, с разбором payload в `emit`) каждому клиенту реестра
+  Ticket-а 03. Session закрывается только `agent.close` или `closeAll` на `will-quit`
+  (`app-registry.ts`). Шапка `agent.ts` и комментарий `app-orchestrators.ts:6-9` говорят новое
+  правило со ссылкой на ADR-0053.
+- **Форма параметра** — `(send: (target) => void) => void`, как `toEveryWindow`, а не `EventSink`, как
+  `broadcast` в `app-node-sessions.ts`: так разбор payload остаётся в `agent.ts` и проверяется
+  contract test-ом напрямую. *Решено без владельца, подтвердить.*
+- **Изменилось поведение:** событие вне контракта при рассылке через `toEveryWindow` больше не
+  бросает исключение в Session — `ClientRegistry.broadcast` ловит его на каждом клиенте и пишет в
+  `console.warn` (так же уже работают Session-ы Session Node-ов и Orchestrator). `agent.start`
+  больше не читает `event.sender`.
+- **Как падал первый test.** `closing the window that started a Session does not close it…` против
+  `agent.ts` из main: `expected undefined to be 'idle'` (события шли только окну, начавшему Session).
+  Против мутанта, который вернул только закрытие на `destroyed` окна: `expected [] to strictly equal
+  [ { …(3) } ]` — `agent.list` пуст, Session закрыта. e2e `a Session of agent.start sends its events to
+  every window…` против `agent.ts` из main: окно 2 не услышало `result` (`Received array: []`).
+- **Test-ы.** Contract (`test/contract/agent-session.test.ts`): test-ы `:343` и `:361` (закрытие с
+  окном) заменены двумя — Session переживает закрытие начавшего окна (в `agent.list`, `close()` её
+  Claude Code не вызван, `agent.send` из другого окна даёт `result`, `agent.close` закрывает) и
+  два подставных получателя рассылки видят один и тот же поток. Test-ы payload переписаны на
+  `everyClientSink`; test «ничего не шлёт уничтоженному окну» удалён — это делает реестр
+  (`ClientRegistry.list`, Ticket 03). e2e `test/e2e/session-two-windows.spec.ts`, 4 test-а:
+  `agent.start` в двух окнах и после закрытия окна 1; «New session» — ответ в Session Node обоих
+  окон, окно 1 закрыто — Session в окне 2 `idle`, сообщение из окна 2 даёт ответ; Resume поверх
+  транскрипта из fixture — окно 2 показывает прошлые ходы и живой ход из окна 1 по одному разу, и
+  после дописи хода в транскрипт тоже; очередь из двух окон.
+- **Очередь.** Подходящий сценарий нашёлся — `session-view.jsonl` (ход 2 держится до interrupt),
+  нового fixture нет. Ход прерывается, очередь держится, «Send queued» из окна 2 отправляет оба
+  сообщения в порядке прихода; оба окна показывают одну очередь и одни prompt-ы. Самостоятельно
+  кончающегося долгого хода у fake-агента нет (`wait_release` из e2e не отпустить), поэтому ход
+  кончается прерыванием.
+- **Стык прошлого и живого** во втором окне без разрыва и повторов — `src/renderer/session/store.ts`
+  не правился.
+- `grep -n "windowSink\|ownership" src/main` — пусто (exit 1).
+- Проверки: `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (145 файлов, 2789 test-ов);
+  `gate.sh fast` — exit 0, `[gate] зелено (fast)`; `GATE_SCOPE=all gate.sh full` — exit 0,
+  `[gate] зелено (full): lint typecheck test test:e2e test:package`. `test/e2e/agent.spec.ts` и
+  `test/e2e/limits.spec.ts` зелёные без правок.
+- Вне следа: `test/contract/agent-attachments.test.ts`, `agent-controls.test.ts`,
+  `permissions.test.ts` получали события через окно-отправителя; в стенд каждого добавлена
+  рассылка в их поддельное окно, сами test-ы не менялись (согласовано с оркестратором).
