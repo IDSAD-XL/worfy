@@ -1,4 +1,4 @@
-# Передача контекста — снимок на 2026-10-08 (UTC), main @ a8cd1a2
+# Передача контекста — снимок на 2026-10-08 (UTC), main @ d0a0ba2
 
 ## Сейчас в работе
 
@@ -8,13 +8,15 @@
 - `worfy-harness` 16 сделан 2026-10-08: машина владельца на plugin `worfy` 0.2.0+77e4490 ([Ticket 16](.scratch/worfy-harness/issues/16-переход-машины-владельца-на-plugin.md)): откат и резервная копия — в «Итог». qmd в Session-ах нет, пока владелец не сделает шаги Ticket-а 17.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 18. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`.
 - Работа над `worfy-week` 14 лежит только в локальной ветке `wip/worfy-week-14`, на GitHub её нет. Как вернуть Ticket — «Итог» Ticket-а 14.
-- `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт владельца: Wave 1 — 01 (сервер связи: TLS, pairing по коду, токены; PR #154) и 03 (реестр клиентов вместо окон; PR #153), `epic-status` — 2/16.
+- `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт владельца: влиты 01–05 и 07, `epic-status` — 6/16.
+- `worfy-link` Wave 2: 02 «Link a machine» (PR #158, после узкого круга), 04 Session не зависит от окна (PR #156), 05 Terminal на несколько экранов (PR #159), 07 ⌘Z только своих правок (PR #157).
 - `worfy-windows` (полный порт под Windows, 0/17) спроектирован: spec, ADR 0054–0056. Ждёт закрытия E3.
 
 ## Ждёт владельца
 
 - `worfy-harness` 16: подтвердить `attribution: on` у Atakama (Silent mode); при первом `claude` в терминале — что Limits снова приходят в worfy — [Ticket 16](.scratch/worfy-harness/issues/16-переход-машины-владельца-на-plugin.md), «Не проверено».
-- Подтвердить решения, принятые без владельца (пометки «подтвердить» в «Итог» Ticket-ов): `worfy-week` 03–07, 09, 10, 12, 15, 17, 18; `worfy-harness` 01, 02, 04–09, 11–14, 17, 19, 20, 27; `worfy-link` 01, 03.
+- Подтвердить решения, принятые без владельца (пометки «подтвердить» в «Итог» Ticket-ов): `worfy-week` 03–07, 09, 10, 12, 15, 17, 18; `worfy-harness` 01, 02, 04–09, 11–14, 17, 19, 20, 27; `worfy-link` 01–05.
+- `worfy-link` 02: вручную — dev-сборка и Stable copy находят друг друга по Bonjour и связываются по коду; появился ли запрос Local Network и на каком шаге — [Ticket 02](.scratch/worfy-link/issues/02-link-a-machine-код-список-и-отзыв.md), «Итог».
 - Вопросы: `worfy-harness` 05 — как давать «Standing authorization» и переводить ли подписи блока статуса; 08 — смысл фразы `continuous-audit/SKILL.md:228-229`; `worfy-daily` 25 — MCP prompt в slash-меню; `worfy-week` 17 — relaunch после таймаута `halt`.
 - `worfy-harness` 17: включить qmd — обновить plugin, записать согласие на модели, `qmd-collections worfy` и `auction` (у `auction` путь `update:` ведёт в удалённый `~/.claude/bin`) — [Ticket 17](.scratch/worfy-harness/issues/17-qmd-модели-и-коллекции-в-harness.md), «Итог».
 - `worfy-harness` 22: ещё один круг по двум находкам узкого круга или новый Ticket (за ним стоят 23–26); разрешить ли пробы `claude -p` с `--no-session-persistence` (пункт 7) — [Ticket 22](.scratch/worfy-harness/issues/22-silent-mode-в-harness.md), «Итог».
