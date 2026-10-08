@@ -185,7 +185,7 @@ Source: решения владельца 2026-10-07: Q4 (доступ выкл�
 - [x] Unit `test/unit/link-checks.test.ts`: адрес локальной сети (по каждому диапазону, `::ffff:` сводится к IPv4, публичный адрес — отказ); allowlist `Host` (с портом и без, IPv6 в скобках, чужое имя, чужой порт).
 - [x] `test/contract/main-ipc-wiring.test.ts`: старт worfy с подменённым `electron` поднимает сервис связи; сервис, бросающий при старте, не останавливает старт — окно создаётся.
 - [x] Команда на Mac: worfy над пустой папкой (`WORFY_DATA_DIR=$(mktemp -d) pnpm dev`) — `lsof -nP -iTCP -sTCP:LISTEN -a -p <pid main>` пуст. Вывод — в «Итог»; если он не пуст — там же, чей это сокет.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (CI на Linux гоняет новые test-ы тоже); `GATE_SCOPE=all gate.sh full` — exit 0.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (CI на Linux гоняет новые test-ы тоже); `GATE_SCOPE=all gate.sh full` — exit 0.
 
 ## Тесты
 
@@ -304,6 +304,8 @@ B. Перехват `console.*` ставится в `link-bench.ts`, чтобы 
 Проверки:
 
 - `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (144 файла, 2762 test-а); gate fast — exit 0, «[gate] зелено (fast)».
+- `GATE_SCOPE=all gate.sh full` на коммите 2c4bf31 — exit 0, «[gate] зелено (full): worfy/.:lint worfy/.:typecheck
+  worfy/.:test worfy/.:test:e2e worfy/.:test:package».
 - Мутации (по одной, в своём worktree, восстановление из копии) — каждую ловит test: снятие проверки Origin, Host,
   совпадения сертификата клиента, списка открытых каналов, сверки отпечатка в клиенте, отпечатков в transcript SPAKE2,
   сжигания кода, срока кода, сообщения `revoked`, разбора payload по схеме, «нет причин — не слушать», прав 0600,
