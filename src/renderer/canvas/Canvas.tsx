@@ -51,7 +51,8 @@ import { dropNodes, edgeSources, edgesOf, edgeTypes, nodeSources, overlays, type
 import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
 import { UnknownNode } from './UnknownNode'
 import { applyRecorded, type Group, type LayoutChannel, type RecordOptions } from './history'
-import { applyLayoutOp, currentLayout, LayoutOpsContext, useLayout, type LayoutOps } from './useLayout'
+import { screenId } from './screen'
+import { currentLayout, LayoutOpsContext, sendLayoutOp, useLayout, type LayoutOps } from './useLayout'
 // Every Node type is drawn inside the chrome (tags, the pinned frame); pinned Nodes are placed
 // anew for every viewport (ticket 29).
 import { withNodeChrome } from './withNodeChrome'
@@ -222,16 +223,18 @@ function Flow({ projectId, state }: FlowProps) {
 
   const ops: LayoutOps = useMemo(() => {
     const channel: LayoutChannel = {
+      // With this screen's id: another screen's undo history then knows the change is not its own
+      // (history.ts, worfy-link ticket 07).
       send: (op) =>
-        applyLayoutOp(projectId, op).then((error) => {
+        sendLayoutOp(projectId, op, screenId()).then((answer) => {
           // Refused: put the Nodes back where main has them.
-          if (error !== undefined) {
+          if (typeof answer === 'string') {
             const { layout, derived } = latest.current
             setNodes((current) => toFlowNodes(layout.nodes, derived.nodes, current.map((node) => ({ ...node, dragging: false, resizing: false }))))
           }
-          return error
+          return answer
         }),
-      // main's latest answer, which applyLayoutOp() stores before it resolves: the next operation of
+      // main's latest answer, which sendLayoutOp() stores before it resolves: the next operation of
       // a gesture, and an undo, see what the previous one did.
       layout: () => currentLayout(projectId) ?? latest.current.layout,
     }

@@ -47,7 +47,8 @@ type StoredEntry = z.output<typeof storedEntrySchema>
 /** The part of the Layout store the trash uses. */
 export interface TrashLayout {
   get(projectId: string): LayoutState
-  apply(projectId: string, op: { op: 'remove'; id: string } | { op: 'create'; node: LayoutNode }): LayoutState
+  /** `screen`: the screen whose gesture or undo this is, handed on in `layout.changed`; null without one. */
+  apply(projectId: string, op: { op: 'remove'; id: string } | { op: 'create'; node: LayoutNode }, screen: string | null): LayoutState
 }
 
 export interface TrashDeps {
@@ -120,9 +121,9 @@ export class TrashStore {
   /**
    * Moves a Node to the trash: for a Card that no other Node shows, its folder and its data too;
    * then removes the Node from the Layout. Throws, having moved nothing, for a Node the user may
-   * not delete.
+   * not delete. `screen` is the screen that asked, carried by the Layout change.
    */
-  put(projectId: string, nodeId: string): TrashEntry {
+  put(projectId: string, nodeId: string, screen: string | null = null): TrashEntry {
     const { layout } = this.deps.layout.get(projectId)
     const node = layout.nodes.find((each) => each.id === nodeId)
     if (!node) throw new Error(`The Layout has no Node with id ${nodeId}`)
@@ -154,7 +155,7 @@ export class TrashStore {
       }
       const entry: StoredEntry = { trashedAt, node, card }
       writeJsonFile(join(dir, ENTRY_FILE), storedEntrySchema, entry)
-      this.deps.layout.apply(projectId, { op: 'remove', id: nodeId })
+      this.deps.layout.apply(projectId, { op: 'remove', id: nodeId }, screen)
       return summaryOf(label, entry)
     } catch (error) {
       // Put back what moved, newest first, and drop the half-made entry.
@@ -167,9 +168,9 @@ export class TrashStore {
   /**
    * Puts an entry back: the Card's folder and data, then the Node with its old id and fields; the
    * entry folder is deleted. Throws, having changed nothing, when the Node id is in the Layout
-   * again or a Card with the same id was written meanwhile.
+   * again or a Card with the same id was written meanwhile. `screen` as for put().
    */
-  restore(projectId: string, label: string): TrashEntry {
+  restore(projectId: string, label: string, screen: string | null = null): TrashEntry {
     const dir = this.entryDir(projectId, label)
     const entry = readJsonFile(join(dir, ENTRY_FILE), storedEntrySchema)
     if (!entry) throw new Error(`The trash has no entry ${label}`)
@@ -193,7 +194,7 @@ export class TrashStore {
         renameSync(move.from, move.to)
         done.push(move)
       }
-      this.deps.layout.apply(projectId, { op: 'create', node })
+      this.deps.layout.apply(projectId, { op: 'create', node }, screen)
     } catch (error) {
       for (const { from, to } of done.reverse()) renameSync(to, from)
       throw error

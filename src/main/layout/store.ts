@@ -29,6 +29,11 @@ export const LAYOUT_FILE = 'layout.json'
 export interface LayoutChange extends LayoutState {
   /** The operation that made this change, after parsing. */
   op: LayoutOp
+  /**
+   * The screen that sent the operation (src/renderer/canvas/screen.ts), null when it came without
+   * one: main itself, an agent, an automatic writer of the renderer (worfy-link ticket 07).
+   */
+  screen: string | null
 }
 
 export interface LayoutStoreOptions {
@@ -190,9 +195,10 @@ export class LayoutStore {
 
   /**
    * Parses `op`, applies it and schedules the write. Keys the schema does not declare are
-   * dropped; an invalid or refused operation throws and changes nothing.
+   * dropped; an invalid or refused operation throws and changes nothing. `screen` is the screen
+   * that sent it, handed on to the listeners; null for a change made without one.
    */
-  apply(projectId: string, op: LayoutOpInput): LayoutState {
+  apply(projectId: string, op: LayoutOpInput, screen: string | null = null): LayoutState {
     const parsed = layoutOpSchema.safeParse(op)
     if (!parsed.success) throw new Error(`invalid layout operation\n${z.prettifyError(parsed.error)}`)
     const entry = this.entry(projectId)
@@ -204,7 +210,7 @@ export class LayoutStore {
     const state = { projectId, layout: entry.layout, revision: entry.revision }
     for (const listener of this.listeners) {
       try {
-        listener({ ...state, op: parsed.data })
+        listener({ ...state, op: parsed.data, screen })
       } catch (error) {
         console.error('[layout] a change listener threw', error)
       }

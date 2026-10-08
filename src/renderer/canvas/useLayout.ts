@@ -3,9 +3,10 @@
 // serves every Canvas.
 import { createContext, useContext, useEffect, useState } from 'react'
 import { create } from 'zustand'
+import type { LayoutChangeEvent } from '../../shared/ipc/layout'
 import type { Layout, LayoutOpInput, LayoutState } from '../../shared/layout/types'
 import { invoke, subscribe } from '../ipc'
-import type { Group, RecordOptions } from './history'
+import { noteLayoutChange, type Group, type RecordOptions, type SendAnswer } from './history'
 
 interface LayoutsStore {
   byProject: Readonly<Record<string, LayoutState>>
@@ -23,13 +24,22 @@ export function acceptLayoutState(state: LayoutState): void {
   useLayoutsStore.setState(({ byProject }) => ({ byProject: { ...byProject, [state.projectId]: state } }))
 }
 
+/**
+ * What the renderer does with every `layout.changed`: the undo history hears who made the change
+ * (history.ts, worfy-link ticket 07), then the Layout is taken unless a newer one is here.
+ */
+export function acceptLayoutChange(change: LayoutChangeEvent): void {
+  noteLayoutChange(change)
+  acceptLayoutState({ projectId: change.projectId, layout: change.layout, revision: change.revision })
+}
+
 let subscribed = false
 
 function ensureSubscribed(): void {
   if (subscribed) return
   subscribed = true
   try {
-    subscribe('layout.changed', acceptLayoutState)
+    subscribe('layout.changed', acceptLayoutChange)
   } catch (error) {
     console.error('layout.changed: cannot subscribe', error)
   }
@@ -67,10 +77,19 @@ export function useLayout(projectId: string): UseLayout {
 
 /** Sends one operation; resolves to the error text when main refused it. */
 export async function applyLayoutOp(projectId: string, op: LayoutOpInput): Promise<string | undefined> {
-  const result = await invoke('layout.apply', { projectId, op })
+  const answer = await sendLayoutOp(projectId, op)
+  return typeof answer === 'string' ? answer : undefined
+}
+
+/**
+ * Sends one operation, with the screen it comes from when it is a recorded gesture or its undo
+ * (screen.ts); resolves to the error text when main refused it, else to the Layout's revision after it.
+ */
+export async function sendLayoutOp(projectId: string, op: LayoutOpInput, screen?: string): Promise<SendAnswer> {
+  const result = await invoke('layout.apply', screen === undefined ? { projectId, op } : { projectId, op, screen })
   if (result.ok) {
     acceptLayoutState(result.value)
-    return undefined
+    return { revision: result.value.revision }
   }
   console.error(`layout.apply ${op.op} failed:`, result.error)
   return result.error

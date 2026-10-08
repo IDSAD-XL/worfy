@@ -1,9 +1,10 @@
 // Undo and redo of the Layout (src/renderer/canvas/history.ts, ticket 30) against main's own Layout
 // store: every operation and every inverse goes through LayoutStore.apply, the code that applies
 // them in the app, so an inverse that main would read differently fails here.
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { applyRecorded, deleteToTrash, grouped, History, historyOf, HISTORY_DEPTH, inverseOf, resetHistories, trashRecorded, type Group, type LayoutChannel, type Send, type TrashClient } from '../../src/renderer/canvas/history'
-import { LayoutStore } from '../../src/main/layout/store'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { applyRecorded, deleteToTrash, grouped, History, historyOf, HISTORY_DEPTH, inverseOf, resetHistories, skippedNotice, SKIPPED_NOTICE_MS, trashRecorded, type Group, type LayoutChannel, type Send, type StepOutcome, type TrashClient } from '../../src/renderer/canvas/history'
+import { screenId } from '../../src/renderer/canvas/screen'
+import { LayoutStore, type LayoutChange } from '../../src/main/layout/store'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { TrashEntry } from '../../src/shared/ipc/trash'
 import { layoutNodeSchema, type Layout, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../src/shared/layout/types'
@@ -214,6 +215,8 @@ describe('history: inverse operations', () => {
 /** The parts of src/renderer/canvas/useLayout.ts this file uses. */
 interface UseLayoutModule {
   acceptLayoutState(state: LayoutState): void
+  /** What the renderer subscribes to `layout.changed`. */
+  acceptLayoutChange(change: LayoutChange): void
   applyLayoutOp(projectId: string, op: LayoutOpInput): Promise<string | undefined>
   currentLayout(projectId: string): Layout | undefined
 }
@@ -390,7 +393,7 @@ describe('history: one gesture, one step', () => {
       await applyRecorded(PROJECT, { op: 'move', id: 'b', x: 20, y: 0 }, slow, group)
     })
     await first
-    let undone: boolean | undefined
+    let undone: StepOutcome | undefined
     const undo = history().undo().then((result) => (undone = result))
     // The undo does not touch the half-done gesture: `a` stays where the gesture put it.
     for (let turn = 0; turn < 20; turn += 1) await Promise.resolve()
@@ -553,5 +556,246 @@ describe('history: deleting to the trash', () => {
     }
     expect(await trashRecorded(PROJECT, 'orch', trash)).toBe('locked')
     expect(history().canUndo).toBe(false)
+  })
+})
+
+// worfy-link ticket 07 (ADR-0053, point 3): ⌘Z undoes only this screen's own changes. A step whose
+// Node another screen (a second window, a Linked machine) changed since is skipped with a notice.
+// Every change main applies reaches the renderer's `layout.changed` handler, as main broadcasts it.
+describe('history: changes made on another screen', () => {
+  const SCREENS = 'screens-0a1b2c3d'
+  const OTHER = 'another-screen'
+  let sends: LayoutOpInput[]
+
+  const here = () => store.get(SCREENS).layout
+  const at = (id: string): LayoutNode | undefined => here().nodes.find((node) => node.id === id)
+  /** This screen's Canvas: the operation goes to main with this screen's id; main answers with the revision. */
+  const mine: LayoutChannel = {
+    send: (op) => {
+      sends.push(op)
+      try {
+        return Promise.resolve({ revision: store.apply(SCREENS, op, screenId()).revision })
+      } catch (error) {
+        return Promise.resolve(error instanceof Error ? error.message : String(error))
+      }
+    },
+    layout: () => here(),
+  }
+  const gesture = (op: LayoutOpInput, group?: Group) => applyRecorded(SCREENS, op, mine, group)
+  /** Another window or a Linked machine changes the Layout. */
+  const other = (op: LayoutOpInput) => store.apply(SCREENS, op, OTHER)
+  const steps = () => historyOf(SCREENS)
+  const place = (id: string) => {
+    const node = at(id)
+    return node && { x: node.x, y: node.y }
+  }
+  const make = (id: string, x: number, y = 0) => store.apply(SCREENS, { op: 'create', node: { id, kind: 'note', x, y, w: 220, h: 120, data: { text: id } } })
+  /** A trash in main, as src/main/ipc/trash.ts is: the Node's removal and return carry the screen. */
+  const kept = new Map<string, LayoutNode>()
+  let labels = 0
+  const trash: TrashClient = {
+    put: (projectId, nodeId) => {
+      const node = store.get(projectId).layout.nodes.find((each) => each.id === nodeId)
+      if (node === undefined) return Promise.resolve({ ok: false, error: `no ${nodeId}` })
+      store.apply(projectId, { op: 'remove', id: nodeId }, screenId())
+      labels += 1
+      const label = `${labels}-${nodeId.padStart(8, '0')}`
+      kept.set(label, node)
+      return Promise.resolve({ ok: true, value: { label, trashedAt: 1, nodeId, kind: node.kind, title: null, hasFiles: false } })
+    },
+    restore: (projectId, label) => {
+      const node = kept.get(label)
+      if (node === undefined) return Promise.resolve({ ok: false, error: `no ${label}` })
+      store.apply(projectId, { op: 'create', node }, screenId())
+      return Promise.resolve({ ok: true, value: { label, trashedAt: 1, nodeId: node.id, kind: node.kind, title: null, hasFiles: false } })
+    },
+  }
+
+  beforeEach(async () => {
+    sends = []
+    kept.clear()
+    const { acceptLayoutChange } = await useLayoutModule()
+    // main's broadcast: every change, whoever made it, with its screen and operation.
+    store.onChange((change) => acceptLayoutChange(change))
+  })
+
+  it('a move of N that another screen moved since is skipped: nothing is sent, the notice is up, the next ⌘Z undoes the step before', async () => {
+    make('m', 0)
+    make('n', 400)
+    await gesture({ op: 'move', id: 'm', x: 0, y: 300 })
+    await gesture({ op: 'move', id: 'n', x: 400, y: 300 })
+    other({ op: 'move', id: 'n', x: 900, y: 900 })
+    sends = []
+
+    expect(await steps().undo()).toBe('skipped')
+    expect(sends).toEqual([])
+    expect(place('n')).toEqual({ x: 900, y: 900 })
+    expect(skippedNotice.getState().notice).toMatchObject({ projectId: SCREENS, direction: 'undo' })
+
+    expect(await steps().undo()).toBe(true)
+    expect(place('m')).toEqual({ x: 0, y: 0 })
+    expect(place('n')).toEqual({ x: 900, y: 900 })
+    expect(steps().canUndo).toBe(false)
+    // The skipped step is gone: ⇧⌘Z redoes the move of `m` only.
+    expect(await steps().redo()).toBe(true)
+    expect(place('m')).toEqual({ x: 0, y: 300 })
+    expect(steps().canRedo).toBe(false)
+  })
+
+  it('the notice goes away by itself after a few seconds', async () => {
+    make('n', 0)
+    await gesture({ op: 'move', id: 'n', x: 0, y: 300 })
+    other({ op: 'move', id: 'n', x: 500, y: 500 })
+    vi.useFakeTimers()
+    try {
+      expect(await steps().undo()).toBe('skipped')
+      expect(skippedNotice.getState().notice).not.toBeNull()
+      vi.advanceTimersByTime(SKIPPED_NOTICE_MS - 1)
+      expect(skippedNotice.getState().notice).not.toBeNull()
+      vi.advanceTimersByTime(1)
+      expect(skippedNotice.getState().notice).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('another screen tagging N leaves the move of N undoable', async () => {
+    make('n', 0)
+    await gesture({ op: 'move', id: 'n', x: 0, y: 300 })
+    other({ op: 'tag', id: 'n', add: ['theirs'] })
+    expect(await steps().undo()).toBe(true)
+    expect(place('n')).toEqual({ x: 0, y: 0 })
+    expect(at('n')?.tags).toEqual(['theirs'])
+    expect(skippedNotice.getState().notice).toBeNull()
+  })
+
+  it('a change of N without a screen (main, an agent, an automatic writer) leaves the step as it was before', async () => {
+    make('n', 0)
+    await gesture({ op: 'move', id: 'n', x: 0, y: 300 })
+    store.apply(SCREENS, { op: 'move', id: 'n', x: 700, y: 700 })
+    expect(await steps().undo()).toBe(true)
+    expect(place('n')).toEqual({ x: 0, y: 0 })
+  })
+
+  it('a change of N this screen made without a step leaves the step undoable', async () => {
+    make('n', 0)
+    await gesture({ op: 'move', id: 'n', x: 0, y: 300 })
+    store.apply(SCREENS, { op: 'move', id: 'n', x: 700, y: 700 }, screenId())
+    expect(await steps().undo()).toBe(true)
+    expect(place('n')).toEqual({ x: 0, y: 0 })
+  })
+
+  it('a moveMany of three Nodes is skipped whole when another screen moved one of them; none moves', async () => {
+    make('a', 0)
+    make('b', 300)
+    make('c', 600)
+    await gesture({ op: 'moveMany', moves: [{ id: 'a', x: 0, y: 400 }, { id: 'b', x: 300, y: 400 }, { id: 'c', x: 600, y: 400 }] })
+    other({ op: 'move', id: 'b', x: 300, y: 900 })
+    sends = []
+    expect(await steps().undo()).toBe('skipped')
+    expect(sends).toEqual([])
+    expect([place('a'), place('b'), place('c')]).toEqual([{ x: 0, y: 400 }, { x: 300, y: 900 }, { x: 600, y: 400 }])
+    expect(steps().canUndo).toBe(false)
+  })
+
+  it('a gesture of several parts is skipped whole when one part is out of date', async () => {
+    make('a', 0)
+    make('b', 300)
+    await grouped(async (group) => {
+      await gesture({ op: 'move', id: 'a', x: 0, y: 400 }, group)
+      await gesture({ op: 'tag', id: 'b', add: ['mine'] }, group)
+    })
+    other({ op: 'tag', id: 'b', remove: ['mine'], add: ['theirs'] })
+    sends = []
+    expect(await steps().undo()).toBe('skipped')
+    expect(sends).toEqual([])
+    expect(place('a')).toEqual({ x: 0, y: 400 })
+  })
+
+  it("another screen's removal of N makes any step of N out of date", async () => {
+    make('n', 0)
+    await gesture({ op: 'hide', id: 'n', hidden: true })
+    other({ op: 'remove', id: 'n' })
+    sends = []
+    expect(await steps().undo()).toBe('skipped')
+    expect(sends).toEqual([])
+  })
+
+  it('the same for ⇧⌘Z: an undone move of N that another screen moved since is not redone', async () => {
+    make('n', 0)
+    await gesture({ op: 'move', id: 'n', x: 0, y: 300 })
+    expect(await steps().undo()).toBe(true)
+    other({ op: 'move', id: 'n', x: 800, y: 0 })
+    sends = []
+    expect(await steps().redo()).toBe('skipped')
+    expect(sends).toEqual([])
+    expect(place('n')).toEqual({ x: 800, y: 0 })
+    expect(skippedNotice.getState().notice).toMatchObject({ projectId: SCREENS, direction: 'redo' })
+    expect(steps().canRedo).toBe(false)
+  })
+
+  it("⇧⌘Z after another screen's removal of N: the undone step is not redone", async () => {
+    make('n', 0)
+    await gesture({ op: 'tag', id: 'n', add: ['mine'] })
+    expect(await steps().undo()).toBe(true)
+    other({ op: 'remove', id: 'n' })
+    expect(await steps().redo()).toBe('skipped')
+  })
+
+  it("another screen's change that reaches this one before main's answer to the step still makes it out of date", async () => {
+    make('n', 0)
+    // main applies the move, then the other screen's move, and only then does its answer arrive.
+    const late: LayoutChannel = {
+      send: (op) => {
+        const revision = store.apply(SCREENS, op, screenId()).revision
+        other({ op: 'move', id: 'n', x: 600, y: 600 })
+        return Promise.resolve({ revision })
+      },
+      layout: () => here(),
+    }
+    await applyRecorded(SCREENS, { op: 'move', id: 'n', x: 0, y: 300 }, late)
+    expect(await steps().undo()).toBe('skipped')
+    expect(place('n')).toEqual({ x: 600, y: 600 })
+  })
+
+  it("another screen's change that main applied before this screen's undo does not stop the redo, even when it arrives late", async () => {
+    const { acceptLayoutChange } = await useLayoutModule()
+    make('n', 0)
+    await gesture({ op: 'move', id: 'n', x: 0, y: 300 })
+    const before = store.get(SCREENS).revision
+    expect(await steps().undo()).toBe(true)
+    // Another screen's change no later than the undo, forwarded late (as a Linked machine may).
+    acceptLayoutChange({ ...store.get(SCREENS), revision: before + 1, screen: OTHER, op: { op: 'move', id: 'n', x: 5, y: 5 } })
+    expect(await steps().redo()).toBe(true)
+    expect(place('n')).toEqual({ x: 0, y: 300 })
+  })
+
+  it("another screen's change made before the step does not make it out of date", async () => {
+    make('n', 0)
+    other({ op: 'move', id: 'n', x: 0, y: 100 })
+    await gesture({ op: 'move', id: 'n', x: 0, y: 300 })
+    expect(await steps().undo()).toBe(true)
+    expect(place('n')).toEqual({ x: 0, y: 100 })
+  })
+
+  it('a deleted Node that another screen changed after ⌘Z brought it back is not deleted again by ⇧⌘Z', async () => {
+    make('n', 0)
+    expect(await trashRecorded(SCREENS, 'n', trash)).toBeUndefined()
+    expect(await steps().undo()).toBe(true)
+    expect(at('n')).toBeDefined()
+    other({ op: 'move', id: 'n', x: 500, y: 0 })
+    expect(await steps().redo()).toBe('skipped')
+    expect(place('n')).toEqual({ x: 500, y: 0 })
+  })
+
+  it('deleting to the trash and bringing back without another screen work as before', async () => {
+    make('a', 0)
+    make('b', 300)
+    expect(await deleteToTrash(SCREENS, [at('a')!, at('b')!], trash)).toEqual([])
+    other({ op: 'create', node: { id: 'elsewhere', kind: 'note', x: 900, y: 900, w: 220, h: 120 } })
+    expect(await steps().undo()).toBe(true)
+    expect([at('a'), at('b')].every((node) => node !== undefined)).toBe(true)
+    expect(await steps().redo()).toBe(true)
+    expect([at('a'), at('b')]).toEqual([undefined, undefined])
   })
 })

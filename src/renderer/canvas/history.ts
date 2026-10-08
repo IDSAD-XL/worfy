@@ -17,15 +17,34 @@
 // given to the selection) are one step when they are recorded into the Group that grouped() gives.
 // Such a step takes its place in the history when its first operation is recorded, not when the
 // gesture ends: a gesture that waits on main keeps its place below a gesture that started later.
+//
+// ⌘Z undoes only this screen's changes (worfy-link ticket 07, ADR-0053): a window of worfy, here or
+// on a Linked machine, is a screen with its own history. Each step remembers the Nodes it changes,
+// which side of them (place and size, visibility, data keys, tags, existence) and the Layout's
+// revision after it. A `layout.changed` from another screen (screen.ts) with a later revision that
+// changes the same side of the same Node puts the step out of date; ⌘Z on such a step drops it
+// without sending anything and raises the notice (overlays/UndoSkipped.tsx). Changes without a
+// screen — main, agents, the automatic writers — leave steps alone, as before.
+import { createStore } from 'zustand/vanilla'
 import type { Layout, LayoutNode, LayoutOpInput } from '../../shared/layout/types'
 import { trashRefusal, type TrashEntry } from '../../shared/ipc/trash'
 import { invoke } from '../ipc'
+import { screenId } from './screen'
 
 /** How many steps can be undone. */
 export const HISTORY_DEPTH = 40
 
-/** Resolves to the reason main refused it, or undefined when it was applied. */
-export type Send = (op: LayoutOpInput) => Promise<string | undefined>
+/**
+ * main's answer to one operation: the reason it refused it, or, when it applied it, the revision of
+ * the Layout after it — or undefined when the channel does not tell the revision.
+ */
+export type SendAnswer = string | { revision: number } | undefined
+
+/** Resolves to the reason main refused it, or to what it applied (SendAnswer). */
+export type Send = (op: LayoutOpInput) => Promise<SendAnswer>
+
+const refusalOf = (answer: SendAnswer): string | undefined => (typeof answer === 'string' ? answer : undefined)
+const revisionOf = (answer: SendAnswer): number | undefined => (typeof answer === 'object' ? answer.revision : undefined)
 
 /** One step of the history: both directions resolve to the reason they were refused, or undefined. */
 export interface HistoryStep {
@@ -36,7 +55,14 @@ export interface HistoryStep {
    * and complete when the gesture is over; a step without it is complete when pushed.
    */
   readonly complete?: Promise<void>
+  /** True when another screen changed what this step changes since it was last done or undone. */
+  stale?(): boolean
+  /** The step leaves the history for good; it stops following the changes of other screens. */
+  drop?(): void
 }
+
+/** What undo() and redo() did: true — done; false — nothing to do or main refused; 'skipped' — out of date. */
+export type StepOutcome = boolean | 'skipped'
 
 export class History {
   private past: HistoryStep[] = []
@@ -44,7 +70,11 @@ export class History {
   /** Undo and redo run one at a time, in the order they were asked for. */
   private queue: Promise<unknown> = Promise.resolve()
 
-  constructor(private readonly depth: number = HISTORY_DEPTH) {}
+  /** `skipped` hears of every step dropped as out of date, with the direction asked for. */
+  constructor(
+    private readonly depth: number = HISTORY_DEPTH,
+    private readonly skipped: (direction: Direction) => void = () => undefined,
+  ) {}
 
   get canUndo(): boolean {
     return this.past.length > 0
@@ -61,38 +91,43 @@ export class History {
 
   push(step: HistoryStep): void {
     this.past.push(step)
-    if (this.past.length > this.depth) this.past.splice(0, this.past.length - this.depth)
-    this.future = []
+    if (this.past.length > this.depth) dropAll(this.past.splice(0, this.past.length - this.depth))
+    this.dropRedo()
   }
 
   /** A change was made that belongs to a step already in the history: what was undone can no longer be redone. */
   dropRedo(): void {
+    dropAll(this.future)
     this.future = []
   }
 
   /**
    * Undoes the latest step. Resolves to false when there was nothing to undo or main refused the
-   * inverse (the Node is gone, an agent removed it): such a step is dropped, not retried.
+   * inverse (the Node is gone, an agent removed it): such a step is dropped, not retried. Resolves
+   * to 'skipped' when another screen changed the step's Nodes since (worfy-link ticket 07): the step
+   * is dropped whole, nothing is sent, and the notice goes up; the next ⌘Z undoes the step below.
    *
    * When the latest step is a gesture still waiting on main, the undo waits for the gesture to be
    * over and then undoes all of it. Undoing only the operations recorded so far would let the rest
    * land afterwards and leave the Node where it never was, neither before nor after the gesture.
    */
-  undo(): Promise<boolean> {
+  undo(): Promise<StepOutcome> {
     return this.run(() => this.past, 'undo', (step) => this.future.push(step))
   }
 
-  /** Redoes the latest undone step; false when there was none or main refused it. */
-  redo(): Promise<boolean> {
+  /** Redoes the latest undone step; false when there was none or main refused it, 'skipped' as for undo(). */
+  redo(): Promise<StepOutcome> {
     return this.run(() => this.future, 'redo', (step) => this.past.push(step))
   }
 
   clear(): void {
+    dropAll(this.past)
+    dropAll(this.future)
     this.past = []
     this.future = []
   }
 
-  private run(stack: () => HistoryStep[], direction: 'undo' | 'redo', done: (step: HistoryStep) => void): Promise<boolean> {
+  private run(stack: () => HistoryStep[], direction: Direction, done: (step: HistoryStep) => void): Promise<StepOutcome> {
     const next = this.queue.then(async () => {
       // Wait until the latest step is complete; another gesture may take the top meanwhile.
       for (let top = stack().at(-1); top?.complete !== undefined; ) {
@@ -103,9 +138,15 @@ export class History {
       }
       const step = stack().pop()
       if (step === undefined) return false
+      if (step.stale?.() === true) {
+        step.drop?.()
+        this.skipped(direction)
+        return 'skipped'
+      }
       const error = await step[direction]()
       if (error !== undefined) {
         console.error(`${direction} was refused:`, error)
+        step.drop?.()
         return false
       }
       done(step)
@@ -116,21 +157,236 @@ export class History {
   }
 }
 
+type Direction = 'undo' | 'redo'
+
+const dropAll = (steps: readonly HistoryStep[]): void => {
+  for (const step of steps) step.drop?.()
+}
+
 const histories = new Map<string, History>()
 
 /** The history of a Project's Canvas, made on first use. */
 export function historyOf(projectId: string): History {
   let history = histories.get(projectId)
   if (history === undefined) {
-    history = new History()
+    history = new History(HISTORY_DEPTH, (direction) => showSkipped(projectId, direction))
     histories.set(projectId, history)
   }
   return history
 }
 
-/** Forgets every Project's history; tests start from a clean one. */
+/** Forgets every Project's history, what other screens changed and the notice; tests start from a clean one. */
 export function resetHistories(): void {
   histories.clear()
+  watches.clear()
+  hideSkipped()
+}
+
+// ── Changes made on another screen (worfy-link ticket 07) ────────────────────────────────────────
+
+/** How long the notice of a skipped step stays up. */
+export const SKIPPED_NOTICE_MS = 4000
+
+/** The notice that ⌘Z or ⇧⌘Z skipped a step another screen had changed since. */
+export interface SkippedNotice {
+  projectId: string
+  direction: Direction
+  /** Grows with every skip, so the same notice raised twice is shown afresh. */
+  count: number
+}
+
+/** The notice of the latest skipped step, null when none is up. overlays/UndoSkipped.tsx shows it. */
+export const skippedNotice = createStore<{ notice: SkippedNotice | null }>(() => ({ notice: null }))
+
+let noticeTimer: ReturnType<typeof setTimeout> | undefined
+let noticeCount = 0
+
+function showSkipped(projectId: string, direction: Direction): void {
+  if (noticeTimer !== undefined) clearTimeout(noticeTimer)
+  noticeCount += 1
+  skippedNotice.setState({ notice: { projectId, direction, count: noticeCount } })
+  noticeTimer = setTimeout(hideSkipped, SKIPPED_NOTICE_MS)
+}
+
+/** Takes the notice down. */
+export function hideSkipped(): void {
+  if (noticeTimer !== undefined) clearTimeout(noticeTimer)
+  noticeTimer = undefined
+  skippedNotice.setState({ notice: null })
+}
+
+/**
+ * A side of a Node an operation changes: its place and size (`move`, `moveMany`, `resize`, `pin`),
+ * its visibility (`hide`), one key of its data (`patchData`), its tags (`tag`) or its existence
+ * (`create`, `remove`, the trash). Existence meets every side: a Node removed or brought back is
+ * changed whole.
+ */
+type Side = 'place' | 'visibility' | 'tags' | 'existence' | `data:${string}`
+
+/** The sides of each Node an operation changes, by Node id. */
+export type Footprint = ReadonlyMap<string, ReadonlySet<Side>>
+
+/** What `op` changes, Node by Node; nothing for the viewport or a `create` without an id. */
+export function footprintOf(op: LayoutOpInput): Footprint {
+  const one = (id: string, ...sides: Side[]): Footprint => new Map([[id, new Set(sides)]])
+  switch (op.op) {
+    case 'setViewport':
+      return new Map()
+    case 'create':
+      return op.node.id === undefined ? new Map() : one(op.node.id, 'existence')
+    case 'remove':
+      return one(op.id, 'existence')
+    case 'move':
+    case 'resize':
+    case 'pin':
+      return one(op.id, 'place')
+    case 'moveMany':
+      return new Map(op.moves.map(({ id }) => [id, new Set<Side>(['place'])]))
+    case 'hide':
+      return one(op.id, 'visibility')
+    case 'tag':
+      return one(op.id, 'tags')
+    case 'patchData':
+      return one(op.id, ...Object.keys(op.data).map((key): Side => `data:${key}`))
+  }
+}
+
+/** True when the two change a common side of a common Node. */
+function overlaps(a: Footprint, b: Footprint): boolean {
+  for (const [id, sides] of a) {
+    const theirs = b.get(id)
+    if (theirs === undefined) continue
+    if (sides.has('existence') || theirs.has('existence')) return true
+    for (const side of sides) if (theirs.has(side)) return true
+  }
+  return false
+}
+
+/** One change of the Layout as `layout.changed` tells it. */
+export interface LayoutChangeNote {
+  projectId: string
+  revision: number
+  /** The screen that sent the operation; null without one (main, an agent, an automatic writer). */
+  screen: string | null
+  op: LayoutOpInput
+}
+
+interface Seen {
+  revision: number
+  /** True for this screen's own change. */
+  own: boolean
+  footprint: Footprint
+}
+
+/** How many of a Project's latest changes made with a screen are kept to compare later steps with. */
+const SEEN_KEPT = 200
+
+/**
+ * The changes of one Project's Layout made with a screen, as they arrive, and the marks of the
+ * steps that follow them. The latest few are kept: main's answer to a step can arrive after the
+ * broadcast of another screen's change that main applied later.
+ */
+class Watch {
+  readonly seen: Seen[] = []
+  readonly marks = new Set<Mark>()
+
+  note(change: Seen): void {
+    this.seen.push(change)
+    if (this.seen.length > SEEN_KEPT) this.seen.splice(0, this.seen.length - SEEN_KEPT)
+    if (!change.own) for (const mark of this.marks) mark.see(change)
+  }
+
+  /** The revision of the latest change here; undefined before any. */
+  latest(): number | undefined {
+    return this.seen.at(-1)?.revision
+  }
+
+  /**
+   * The revision of this screen's latest change of `footprint` later than `after` — the change a
+   * trash call just made, which main broadcasts before it answers; undefined when it is not here.
+   */
+  ownRevision(footprint: Footprint, after: number | undefined): number | undefined {
+    for (let index = this.seen.length - 1; index >= 0; index -= 1) {
+      const change = this.seen[index]!
+      if (after !== undefined && change.revision <= after) return undefined
+      if (change.own && overlaps(change.footprint, footprint)) return change.revision
+    }
+    return undefined
+  }
+}
+
+const watches = new Map<string, Watch>()
+
+function watchOf(projectId: string): Watch {
+  let watch = watches.get(projectId)
+  if (watch === undefined) {
+    watch = new Watch()
+    watches.set(projectId, watch)
+  }
+  return watch
+}
+
+/**
+ * What one part of a step changed and whether another screen has changed it since. `revision` is
+ * the Layout's revision after the part was last done or undone; undefined when the channel did not
+ * tell it, and then every change of another screen that arrives from now on counts.
+ */
+class Mark {
+  private out = false
+
+  constructor(
+    private readonly watch: Watch,
+    private readonly footprint: Footprint,
+    private revision: number | undefined,
+  ) {
+    watch.marks.add(this)
+    this.catchUp()
+  }
+
+  get stale(): boolean {
+    return this.out
+  }
+
+  see(change: Seen): void {
+    if (this.out || (this.revision !== undefined && change.revision <= this.revision)) return
+    if (overlaps(this.footprint, change.footprint)) this.out = true
+  }
+
+  /** The part was undone or redone: the Layout's revision after that, if known. */
+  moved(revision: number | undefined): void {
+    this.revision = revision
+    this.catchUp()
+  }
+
+  drop(): void {
+    this.watch.marks.delete(this)
+  }
+
+  /** Another screen's changes that arrived before main's answer and came after it. */
+  private catchUp(): void {
+    if (this.revision === undefined) return
+    for (const change of this.watch.seen) if (!change.own) this.see(change)
+  }
+}
+
+/**
+ * Hears every `layout.changed` (useLayout.ts subscribes it): a change another screen made puts the
+ * steps it meets out of date. A change without a screen is not followed.
+ */
+export function noteLayoutChange(change: LayoutChangeNote): void {
+  if (change.screen === null) return
+  watchOf(change.projectId).note({ revision: change.revision, own: change.screen === screenId(), footprint: footprintOf(change.op) })
+}
+
+/** The step's undo and redo, with its mark keeping track of other screens' changes. */
+function marked(mark: Mark, step: { undo(): Promise<SendAnswer>; redo(): Promise<SendAnswer> }): HistoryStep {
+  const run = async (direction: Direction): Promise<string | undefined> => {
+    const answer = await step[direction]()
+    const refusal = refusalOf(answer)
+    if (refusal === undefined) mark.moved(revisionOf(answer))
+    return refusal
+  }
+  return { undo: () => run('undo'), redo: () => run('redo'), stale: () => mark.stale, drop: () => mark.drop() }
 }
 
 const nodeOf = (layout: Layout, id: string): LayoutNode | undefined => layout.nodes.find((node) => node.id === id)
@@ -235,7 +491,8 @@ export class Group {
 
 /**
  * Several steps that are undone and redone as one: undone newest first, redone in order. The list is
- * read when the step runs, so the parts a gesture records later belong to it.
+ * read when the step runs, so the parts a gesture records later belong to it. It is out of date when
+ * one of its parts is: a gesture is skipped whole.
  */
 function combine(steps: readonly HistoryStep[]): HistoryStep {
   const each = async (list: readonly HistoryStep[], direction: 'undo' | 'redo'): Promise<string | undefined> => {
@@ -250,6 +507,8 @@ function combine(steps: readonly HistoryStep[]): HistoryStep {
   return {
     undo: () => each([...steps].reverse(), 'undo'),
     redo: () => each(steps, 'redo'),
+    stale: () => steps.some((step) => step.stale?.() === true),
+    drop: () => dropAll(steps),
   }
 }
 
@@ -298,7 +557,7 @@ type NodeInput = Extract<LayoutOpInput, { op: 'create' }>['node']
  * taken away, read from the Layout at that moment: the text typed into a note after it was created
  * (patchData, not a step of its own) comes back with it.
  */
-function takeAndBring(id: string, first: NodeInput, channel: LayoutChannel): { take(): Promise<string | undefined>; bring(): Promise<string | undefined> } {
+function takeAndBring(id: string, first: NodeInput, channel: LayoutChannel): { take(): Promise<SendAnswer>; bring(): Promise<SendAnswer> } {
   let kept: NodeInput = first
   return {
     take() {
@@ -318,19 +577,20 @@ function takeAndBring(id: string, first: NodeInput, channel: LayoutChannel): { t
 export async function applyRecorded(projectId: string, op: LayoutOpInput, channel: LayoutChannel, group?: Group, options?: RecordOptions): Promise<string | undefined> {
   const sent: LayoutOpInput = op.op === 'create' && op.node.id === undefined ? { ...op, node: { ...op.node, id: newNodeId() } } : op
   const inverse = inverseOf(channel.layout(), sent, options)
-  const error = await channel.send(sent)
+  const answer = await channel.send(sent)
+  const error = refusalOf(answer)
   if (error !== undefined || inverse === undefined) return error
-  let step: HistoryStep
+  let both: { undo(): Promise<SendAnswer>; redo(): Promise<SendAnswer> }
   if (sent.op === 'create' && inverse.op === 'remove') {
     const node = takeAndBring(inverse.id, sent.node, channel)
-    step = { undo: node.take, redo: node.bring }
+    both = { undo: node.take, redo: node.bring }
   } else if (sent.op === 'remove' && inverse.op === 'create') {
     const node = takeAndBring(sent.id, inverse.node, channel)
-    step = { undo: node.bring, redo: node.take }
+    both = { undo: node.bring, redo: node.take }
   } else {
-    step = { undo: () => channel.send(inverse), redo: () => channel.send(sent) }
+    both = { undo: () => channel.send(inverse), redo: () => channel.send(sent) }
   }
-  record(projectId, step, group)
+  record(projectId, marked(new Mark(watchOf(projectId), footprintOf(sent), revisionOf(answer)), both), group)
   return undefined
 }
 
@@ -340,31 +600,50 @@ export interface TrashClient {
   restore(projectId: string, label: string): Promise<{ ok: true; value: TrashEntry } | { ok: false; error: string }>
 }
 
+/** Deleting and restoring as the Canvas's gestures and their undo do it: with this screen's id. */
 export const ipcTrash: TrashClient = {
-  put: (projectId, nodeId) => invoke('trash.put', { projectId, nodeId }),
-  restore: (projectId, label) => invoke('trash.restore', { projectId, label }),
+  put: (projectId, nodeId) => invoke('trash.put', { projectId, nodeId, screen: screenId() }),
+  restore: (projectId, label) => invoke('trash.restore', { projectId, label, screen: screenId() }),
 }
 
 /**
  * Deletes a Node to the trash and records the step: undo restores the entry, redo deletes the Node
  * again (into a new entry). Resolves to the reason main refused, or undefined.
+ *
+ * The trash's answer has no revision. main broadcasts the Layout change before it answers, so the
+ * revision of a call is that of this screen's change of the Node that arrived meanwhile
+ * (Watch.ownRevision); unknown when none did.
  */
 export async function trashRecorded(projectId: string, nodeId: string, trash: TrashClient = ipcTrash, group?: Group): Promise<string | undefined> {
+  const watch = watchOf(projectId)
+  const footprint: Footprint = new Map([[nodeId, new Set<Side>(['existence'])]])
+  const answerSince = (since: number | undefined): SendAnswer => {
+    const revision = watch.ownRevision(footprint, since)
+    return revision === undefined ? undefined : { revision }
+  }
+  const since = watch.latest()
   const first = await trash.put(projectId, nodeId)
   if (!first.ok) return first.error
   let label = first.value.label
-  record(projectId, {
-    undo: async () => {
-      const result = await trash.restore(projectId, label)
-      return result.ok ? undefined : result.error
-    },
-    redo: async () => {
-      const result = await trash.put(projectId, nodeId)
-      if (!result.ok) return result.error
-      label = result.value.label
-      return undefined
-    },
-  }, group)
+  const mark = new Mark(watch, footprint, revisionOf(answerSince(since)))
+  record(
+    projectId,
+    marked(mark, {
+      undo: async () => {
+        const since = watch.latest()
+        const result = await trash.restore(projectId, label)
+        return result.ok ? answerSince(since) : result.error
+      },
+      redo: async () => {
+        const since = watch.latest()
+        const result = await trash.put(projectId, nodeId)
+        if (!result.ok) return result.error
+        label = result.value.label
+        return answerSince(since)
+      },
+    }),
+    group,
+  )
   return undefined
 }
 

@@ -9,7 +9,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { layoutSchema, type Layout, type LayoutOpInput, type LayoutState } from '../../src/shared/layout/types'
-import type { LayoutStore } from '../../src/main/layout/store'
+import type { LayoutChange, LayoutStore } from '../../src/main/layout/store'
 import { freePlace, freeShift } from '../../src/shared/layout/free-place'
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
@@ -32,6 +32,9 @@ vi.mock('electron', () => ({
   dialog: { showOpenDialog: vi.fn() },
 }))
 
+// The trash's handlers (worfy-link ticket 07) ask which Node runs a Session; none does here.
+vi.mock('../../src/main/agent/app-node-sessions', () => ({ sharedNodeSessions: () => ({ list: () => [] }) }))
+
 type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
 
 let scratch: string
@@ -40,8 +43,11 @@ let repo: string
 let handlers: Map<string, Listener>
 let store: LayoutStore
 
-/** Loads src/main/ipc/layout.ts afresh, as an app start does, over the current data dir. */
-async function start(): Promise<void> {
+/**
+ * Loads src/main/ipc/layout.ts afresh, as an app start does, over the current data dir; with
+ * `trash`, src/main/ipc/trash.ts too.
+ */
+async function start(trash = false): Promise<void> {
   vi.resetModules()
   electron.quitListeners.length = 0
   process.env.WORFY_DATA_DIR = dataDir
@@ -50,7 +56,10 @@ async function start(): Promise<void> {
   await registerIpc(
     { handle: (channel, listener) => handlers.set(channel, listener as Listener) },
     {
-      modules: { './layout.ts': () => import('../../src/main/ipc/layout').then((module) => module.default) },
+      modules: {
+        './layout.ts': () => import('../../src/main/ipc/layout').then((module) => module.default),
+        ...(trash ? { './trash.ts': () => import('../../src/main/ipc/trash').then((module) => module.default) } : {}),
+      },
       isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }),
     },
   )
@@ -680,5 +689,59 @@ describe('layout store: Nodes never overlap (ADR-0038)', () => {
     } finally {
       info.mockRestore()
     }
+  })
+})
+
+// worfy-link ticket 07: a change carries the screen that sent it, so a screen's ⌘Z can tell its own
+// changes from another screen's (src/renderer/canvas/history.ts).
+describe('layout store: the screen a change comes from', () => {
+  const SCREEN = 'screen-a'
+  const changed = () => electron.sent.filter((message) => message.channel === `${IPC_CHANNEL_PREFIX}layout.changed`).map((message) => message.payload as LayoutChange)
+
+  it('apply with a screen puts it into the LayoutChange; without one the screen is null', async () => {
+    const changes: LayoutChange[] = []
+    store.onChange((change) => changes.push(change))
+    await applied(note('n1'))
+    await value('layout.apply', { projectId: PROJECT, op: { op: 'move', id: 'n1', x: 400, y: 0 }, screen: SCREEN })
+    store.apply(PROJECT, { op: 'move', id: 'n1', x: 800, y: 0 })
+    expect(changes.map(({ screen, op, revision }) => ({ screen, op: op.op, revision }))).toEqual([
+      { screen: null, op: 'create', revision: 1 },
+      { screen: SCREEN, op: 'move', revision: 2 },
+      { screen: null, op: 'move', revision: 3 },
+    ])
+  })
+
+  it('layout.changed carries the screen and the operation', async () => {
+    await applied(note('n1'))
+    await value('layout.apply', { projectId: PROJECT, op: { op: 'tag', id: 'n1', add: ['x'] }, screen: SCREEN })
+    const [created, tagged] = changed()
+    expect(created).toMatchObject({ projectId: PROJECT, revision: 1, screen: null, op: { op: 'create', node: { id: 'n1', kind: 'note' } } })
+    expect(tagged).toMatchObject({ projectId: PROJECT, revision: 2, screen: SCREEN, op: { op: 'tag', id: 'n1', add: ['x'], remove: [] } })
+    expect(tagged?.layout).toEqual(store.get(PROJECT).layout)
+  })
+
+  it('an invalid screen is refused and changes nothing', async () => {
+    await applied(note('n1'))
+    for (const screen of ['', 'x'.repeat(101), 7]) {
+      expect(await call('layout.apply', { projectId: PROJECT, op: { op: 'move', id: 'n1', x: 1, y: 1 }, screen })).toMatchObject({ ok: false })
+    }
+    expect(store.get(PROJECT).revision).toBe(1)
+  })
+
+  it('trash.put and trash.restore with a screen give a layout.changed with it; without one, null', async () => {
+    await start(true)
+    await applied(note('n1'))
+    await applied(note('n2', { x: 400 }))
+    electron.sent.length = 0
+    const put = await call('trash.put', { projectId: PROJECT, nodeId: 'n1', screen: SCREEN })
+    expect(put.ok).toBe(true)
+    const label = (put as { value: { label: string } }).value.label
+    expect(await call('trash.restore', { projectId: PROJECT, label, screen: SCREEN })).toMatchObject({ ok: true })
+    expect(await call('trash.put', { projectId: PROJECT, nodeId: 'n2' })).toMatchObject({ ok: true })
+    expect(changed().map(({ screen, op }) => ({ screen, op: op.op }))).toEqual([
+      { screen: SCREEN, op: 'remove' },
+      { screen: SCREEN, op: 'create' },
+      { screen: null, op: 'remove' },
+    ])
   })
 })
