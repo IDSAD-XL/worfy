@@ -434,6 +434,24 @@ describe('notify.pending at the IPC boundary', () => {
     expect(h.pending.take('link:machine-b')).toBeNull()
   })
 
+  it('a late destroyed of an old client keeps the note of a new client with its id', async () => {
+    const h = await harness()
+    const old = windowless('link:machine-b')
+    h.pending.holdFor(old.client, { sessionId: 's1', projectRoot: null })
+    // The old connection closed, its destroyed is on the way; a new one comes under the same id.
+    const fresh = windowless('link:machine-b')
+    h.pending.holdFor(fresh.client, { sessionId: 's2', projectRoot: null })
+    // A late note for the old client, already destroyed, is not kept and takes nothing back.
+    old.client.isDestroyed = () => true
+    h.pending.holdFor(old.client, { sessionId: 'late', projectRoot: null })
+    old.destroy()
+    expect(await h.callFrom(fresh.client)).toEqual({ ok: true, value: { note: { sessionId: 's2', projectRoot: null } } })
+    // The new client's own destroyed still drops its note.
+    h.pending.holdFor(fresh.client, { sessionId: 's3', projectRoot: null })
+    fresh.destroy()
+    expect(h.pending.take('link:machine-b')).toBeNull()
+  })
+
   it('answers no note to a call without a client', async () => {
     const h = await harness()
     h.pending.hold(4, { sessionId: 's1', projectRoot: null })

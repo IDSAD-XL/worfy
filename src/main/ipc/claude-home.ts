@@ -10,7 +10,7 @@ import { resolve } from 'node:path'
 import { ClaudeHomeRegistry, type ClaudeHomeWatch } from '../claude-home/registry'
 import { SubagentReader, subagentTranscriptPath } from '../claude-home/subagents'
 import { readNewLines } from '../claude-home/tail'
-import { clientOf, type Client, type ClientId } from '../clients'
+import { ClientHolders, clientOf, type Client, type ClientId } from '../clients'
 import { claudeHome } from '../storage/paths'
 import {
   claudeHomeChanged,
@@ -37,7 +37,8 @@ export const liveSessionListeners = new Set<LiveSessionsListener>()
 /** Keeps one watcher per (client, Project) and forwards its changes to that client. */
 export class ClaudeHomeSubscriptions {
   private readonly watches = new Map<string, Promise<ClaudeHomeWatch | undefined>>()
-  private readonly subscribers = new Set<ClientId>()
+  /** The client holding each id leaves its watchers when it is destroyed or another client takes its id. */
+  private readonly holders = new ClientHolders((id) => void this.unsubscribeAll(id))
 
   constructor(
     private readonly registry: ClaudeHomeRegistry,
@@ -63,15 +64,13 @@ export class ClaudeHomeSubscriptions {
 
   /** Starts watching `projectRoot` for `subscriber` unless it already does or the client is gone. */
   async subscribe(subscriber: Subscriber, projectRoot: string): Promise<void> {
-    // A destroyed webContents never emits 'destroyed' again: its watcher would never be closed.
-    if (subscriber.isDestroyed()) return
+    // First: a new client under an old one's id takes the id over, ending the old one's watchers.
+    // A destroyed client is not held: it never emits 'destroyed' again, its watcher would never be
+    // closed, and a late call of an old client must not take the id back from a new one.
+    if (!this.holders.hold(subscriber)) return
     const key = `${subscriber.id}\0${projectRoot}`
     if (!this.watches.has(key)) {
-      if (!this.subscribers.has(subscriber.id)) {
-        this.subscribers.add(subscriber.id)
-        subscriber.once('destroyed', () => void this.unsubscribeAll(subscriber.id))
-      }
-      const started = this.registry
+      const started: Promise<ClaudeHomeWatch | undefined> = this.registry
         .watch(projectRoot, (change) => {
           if (change.sessions) this.reportLive(projectRoot)
           if (subscriber.isDestroyed()) return
@@ -88,7 +87,8 @@ export class ClaudeHomeSubscriptions {
         })
         .catch((error: unknown) => {
           console.error(`[claude-home] could not watch ${projectRoot}`, error)
-          this.watches.delete(key)
+          // Only this watcher's entry: the key may hold a later subscription by now.
+          if (this.watches.get(key) === started) this.watches.delete(key)
           return undefined
         })
       this.watches.set(key, started)
@@ -112,7 +112,6 @@ export class ClaudeHomeSubscriptions {
   }
 
   async unsubscribeAll(subscriberId: ClientId): Promise<void> {
-    this.subscribers.delete(subscriberId)
     const prefix = `${subscriberId}\0`
     const closing: Promise<void>[] = []
     for (const [key, watch] of this.watches) {
@@ -124,7 +123,7 @@ export class ClaudeHomeSubscriptions {
   }
 
   async closeAll(): Promise<void> {
-    await Promise.all([...this.subscribers].map((id) => this.unsubscribeAll(id)))
+    await Promise.all(this.holders.ids().map((id) => this.unsubscribeAll(id)))
   }
 }
 

@@ -246,67 +246,78 @@ describe('the id of a client', () => {
   })
 })
 
+/** The five hubs over their real IPC modules, with the stores counting who listens to them. */
+async function hubs() {
+  const { workflowHub } = await import('../../src/main/ipc/workflow')
+  const { docsHub } = await import('../../src/main/ipc/docs')
+  const { ClaudeHomeRegistry } = await import('../../src/main/claude-home/registry')
+  const { ClaudeHomeSubscriptions, claudeHomeHandlers } = await import('../../src/main/ipc/claude-home')
+  const { BindingStore } = await import('../../src/main/layout/bindings')
+  const { bindingsHandlers } = await import('../../src/main/ipc/bindings')
+  const { LimitsTracker } = await import('../../src/main/agent/limits')
+  const { limitsHandlers } = await import('../../src/main/ipc/limits')
+  cleanups.push(() => workflowHub.closeAll(), () => docsHub.closeAll())
+
+  const registry = new ClaudeHomeRegistry({ home: CLAUDE_HOME_FIXTURE, listWorktrees: async () => [], isAlive: async () => false })
+  const watches = vi.spyOn(registry, 'watch')
+  const subscriptions = new ClaudeHomeSubscriptions(registry, new Set())
+  cleanups.push(() => subscriptions.closeAll())
+
+  const listening = { bindings: 0, limits: 0 }
+  const bindings = new BindingStore((projectId) => join(dataDir, projectId))
+  const bindingsOnChange = bindings.onChange.bind(bindings)
+  vi.spyOn(bindings, 'onChange').mockImplementation((listener) => {
+    listening.bindings += 1
+    const off = bindingsOnChange(listener)
+    return () => {
+      listening.bindings -= 1
+      off()
+    }
+  })
+  const limits = new LimitsTracker({ dataDir, now: () => 0 })
+  const limitsSubscribe = limits.subscribe.bind(limits)
+  vi.spyOn(limits, 'subscribe').mockImplementation((listener) => {
+    listening.limits += 1
+    const off = limitsSubscribe(listener)
+    return () => {
+      listening.limits -= 1
+      off()
+    }
+  })
+
+  const call = await ipcOver({
+    './workflow.ts': () => import('../../src/main/ipc/workflow').then((module) => module.default),
+    './docs.ts': () => import('../../src/main/ipc/docs').then((module) => module.default),
+    './claude-home.ts': async () => claudeHomeHandlers(registry, subscriptions),
+    './bindings.ts': async () => bindingsHandlers(() => bindings, () => registry),
+    './limits.ts': async () => limitsHandlers(() => limits),
+  })
+  /** Subscribes `client` to all five hubs. */
+  const subscribe = async (client: unknown, root = repo, projectId = PROJECT): Promise<void> => {
+    expect((await call('workflow.open', { root }, client)).ok).toBe(true)
+    expect((await call('docs.open', { projectId }, client)).ok).toBe(true)
+    expect((await call('claudeHome.sessions', { projectRoot: CLAUDE_HOME_PROJECT }, client)).ok).toBe(true)
+    expect((await call('bindings.get', { projectId }, client)).ok).toBe(true)
+    expect((await call('limits.open', undefined, client)).ok).toBe(true)
+  }
+  return { workflowHub, docsHub, subscriptions, watches, bindings, listening, subscribe, call }
+}
+
+/** A Project of the Claude home fixture (test/fixtures/claude-home). */
+const CLAUDE_HOME_PROJECT = '/Users/test/projects/demo'
+
 describe('the hubs keep a client without a window until it is destroyed', () => {
   it('workflow, docs, claude-home, bindings and limits subscribe it, and let go of it on destroyed', async () => {
-    const { workflowHub } = await import('../../src/main/ipc/workflow')
-    const { docsHub } = await import('../../src/main/ipc/docs')
-    const { ClaudeHomeRegistry } = await import('../../src/main/claude-home/registry')
-    const { ClaudeHomeSubscriptions, claudeHomeHandlers } = await import('../../src/main/ipc/claude-home')
-    const { BindingStore } = await import('../../src/main/layout/bindings')
-    const { bindingsHandlers } = await import('../../src/main/ipc/bindings')
-    const { LimitsTracker } = await import('../../src/main/agent/limits')
-    const { limitsHandlers } = await import('../../src/main/ipc/limits')
-    cleanups.push(() => workflowHub.closeAll(), () => docsHub.closeAll())
-
-    const registry = new ClaudeHomeRegistry({ home: CLAUDE_HOME_FIXTURE, listWorktrees: async () => [], isAlive: async () => false })
-    const subscriptions = new ClaudeHomeSubscriptions(registry, new Set())
-    cleanups.push(() => subscriptions.closeAll())
-
-    // The stores count who listens to them.
-    const bindings = new BindingStore((projectId) => join(dataDir, projectId))
-    let bindingListeners = 0
-    const bindingsOnChange = bindings.onChange.bind(bindings)
-    vi.spyOn(bindings, 'onChange').mockImplementation((listener) => {
-      bindingListeners += 1
-      const off = bindingsOnChange(listener)
-      return () => {
-        bindingListeners -= 1
-        off()
-      }
-    })
-    const limits = new LimitsTracker({ dataDir, now: () => 0 })
-    let limitsListeners = 0
-    const limitsSubscribe = limits.subscribe.bind(limits)
-    vi.spyOn(limits, 'subscribe').mockImplementation((listener) => {
-      limitsListeners += 1
-      const off = limitsSubscribe(listener)
-      return () => {
-        limitsListeners -= 1
-        off()
-      }
-    })
-
-    const call = await ipcOver({
-      './workflow.ts': () => import('../../src/main/ipc/workflow').then((module) => module.default),
-      './docs.ts': () => import('../../src/main/ipc/docs').then((module) => module.default),
-      './claude-home.ts': async () => claudeHomeHandlers(registry, subscriptions),
-      './bindings.ts': async () => bindingsHandlers(() => bindings, () => registry),
-      './limits.ts': async () => limitsHandlers(() => limits),
-    })
+    const { workflowHub, docsHub, subscriptions, bindings, listening, subscribe } = await hubs()
     const linked = fakeClient('link:machine-b')
     const { addClient } = await import('../../src/main/broadcast')
     addClient(linked.client)
 
-    expect((await call('workflow.open', { root: repo }, linked.client)).ok).toBe(true)
-    expect((await call('docs.open', { projectId: PROJECT }, linked.client)).ok).toBe(true)
-    expect((await call('claudeHome.sessions', { projectRoot: '/Users/test/projects/demo' }, linked.client)).ok).toBe(true)
-    expect((await call('bindings.get', { projectId: PROJECT }, linked.client)).ok).toBe(true)
-    expect((await call('limits.open', undefined, linked.client)).ok).toBe(true)
+    await subscribe(linked.client)
     expect(workflowHub.roots).toEqual([repo])
     expect(docsHub.projects).toEqual([PROJECT])
     expect(subscriptions.size).toBe(1)
-    expect(bindingListeners).toBe(1)
-    expect(limitsListeners).toBe(1)
+    expect(listening).toEqual({ bindings: 1, limits: 1 })
     // A change reaches the subscribed client.
     bindings.set(PROJECT, { sessionId: 's1', agentId: null }, { kind: 'ticket', epic: 'demo', num: 1 })
     expect(channelsOf(linked.sent)).toContain('worfy:bindings.changed')
@@ -316,11 +327,91 @@ describe('the hubs keep a client without a window until it is destroyed', () => 
     expect(workflowHub.roots).toEqual([])
     expect(docsHub.projects).toEqual([])
     expect(subscriptions.size).toBe(0)
-    expect(bindingListeners).toBe(0)
-    expect(limitsListeners).toBe(0)
+    expect(listening).toEqual({ bindings: 0, limits: 0 })
     // Nothing reaches it any more.
     const before = linked.sent.length
     bindings.set(PROJECT, { sessionId: 's1', agentId: null }, { kind: 'ticket', epic: 'demo', num: 2 })
     expect(linked.sent).toHaveLength(before)
+  })
+
+  it('a late destroyed of an old client leaves the subscriptions of a new client with its id', async () => {
+    // A second Project, for what only the old client opened.
+    const other = join(scratch, 'other')
+    mkdirSync(other)
+    git(other, 'init', '-q')
+    const OTHER = 'other-0a1b2c3d'
+    mkdirSync(join(dataDir, OTHER))
+    writeFileSync(
+      join(dataDir, 'projects.json'),
+      JSON.stringify({ projects: [{ id: PROJECT, name: 'demo', path: repo }, { id: OTHER, name: 'other', path: other }], activeId: PROJECT }),
+    )
+    const { workflowHub, docsHub, subscriptions, watches, bindings, listening, subscribe, call } = await hubs()
+
+    const old = fakeClient('link:machine-b')
+    await subscribe(old.client, other, OTHER)
+    // The old connection closed; its destroyed is still on the way when a new one comes under the same id.
+    old.client.isDestroyed = () => true
+    const fresh = fakeClient('link:machine-b')
+    await subscribe(fresh.client)
+    // The new client took the id over: what only the old one opened is closed already.
+    expect(workflowHub.roots).toEqual([repo])
+    expect(docsHub.projects).toEqual([PROJECT])
+    // Each client got a claude-home watcher of its own; the old one's is closed.
+    expect(watches).toHaveBeenCalledTimes(2)
+    expect(subscriptions.size).toBe(1)
+
+    // A late call of the old client subscribes nothing and takes nothing back.
+    expect(await call('workflow.open', { root: other }, old.client)).toMatchObject({ ok: false, error: expect.stringMatching(/the client is gone/) })
+    expect(await call('docs.open', { projectId: OTHER }, old.client)).toMatchObject({ ok: false, error: expect.stringMatching(/the client is gone/) })
+    expect((await call('claudeHome.sessions', { projectRoot: CLAUDE_HOME_PROJECT }, old.client)).ok).toBe(true)
+    expect((await call('claudeHome.sessions', { projectRoot: '/Users/test/проект' }, old.client)).ok).toBe(true)
+    expect(watches).toHaveBeenCalledTimes(2)
+    expect(workflowHub.roots).toEqual([repo])
+    expect(docsHub.projects).toEqual([PROJECT])
+    expect(subscriptions.size).toBe(1)
+
+    old.destroy()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(workflowHub.roots).toEqual([repo])
+    expect(docsHub.projects).toEqual([PROJECT])
+    expect(subscriptions.size).toBe(1)
+    expect(listening).toEqual({ bindings: 1, limits: 1 })
+    bindings.set(PROJECT, { sessionId: 's1', agentId: null }, { kind: 'ticket', epic: 'demo', num: 1 })
+    expect(channelsOf(fresh.sent)).toContain('worfy:bindings.changed')
+
+    // The new client's own destroyed still ends everything.
+    fresh.destroy()
+    await until(() => workflowHub.roots.length === 0 && docsHub.projects.length === 0 && subscriptions.size === 0)
+    expect(workflowHub.roots).toEqual([])
+    expect(docsHub.projects).toEqual([])
+    expect(subscriptions.size).toBe(0)
+    expect(listening).toEqual({ bindings: 0, limits: 0 })
+  })
+
+  it('claude-home: a watcher of an old client that fails late does not take away the watcher of the new client', async () => {
+    const { ClaudeHomeRegistry } = await import('../../src/main/claude-home/registry')
+    const { ClaudeHomeSubscriptions } = await import('../../src/main/ipc/claude-home')
+    const registry = new ClaudeHomeRegistry({ home: CLAUDE_HOME_FIXTURE, listWorktrees: async () => [], isAlive: async () => false })
+    const subscriptions = new ClaudeHomeSubscriptions(registry, new Set())
+    cleanups.push(() => subscriptions.closeAll())
+    let fail: (error: Error) => void = () => undefined
+    vi.spyOn(registry, 'watch').mockImplementationOnce(() => new Promise((_resolve, reject) => (fail = reject)))
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    cleanups.push(() => error.mockRestore())
+
+    const old = fakeClient('link:machine-b')
+    const starting = subscriptions.subscribe(old.client, CLAUDE_HOME_PROJECT)
+    old.client.isDestroyed = () => true
+    const fresh = fakeClient('link:machine-b')
+    await subscriptions.subscribe(fresh.client, CLAUDE_HOME_PROJECT)
+    expect(subscriptions.size).toBe(1)
+    // The old client's watcher fails only now, under the key the new client's watcher holds.
+    fail(new Error('cannot watch'))
+    await starting
+    expect(error).toHaveBeenCalledTimes(1)
+    expect(subscriptions.size).toBe(1)
+    fresh.destroy()
+    await until(() => subscriptions.size === 0)
+    expect(subscriptions.size).toBe(0)
   })
 })

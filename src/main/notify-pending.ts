@@ -6,15 +6,15 @@
 // Notes are kept by client id (src/main/clients.ts): a window's webContents id, or the id of a
 // client without a window.
 import type { NotifyOpen } from '../shared/ipc/notify'
-import type { Client, ClientId } from './clients'
+import { ClientHolders, type Client, type ClientId } from './clients'
 
 export const PENDING_OPEN_MS = 30_000
 
 export class PendingOpens {
   /** The latest note of each client, by its id. */
   private readonly notes = new Map<ClientId, { note: NotifyOpen; at: number }>()
-  /** Clients whose `destroyed` already drops their note. */
-  private readonly watched = new Set<ClientId>()
+  /** The client holding each id; its `destroyed` drops its note, a late one of an old client does not. */
+  private readonly holders = new ClientHolders((id) => this.drop(id))
 
   constructor(private readonly now: () => number = Date.now) {}
 
@@ -23,16 +23,9 @@ export class PendingOpens {
     this.notes.set(clientId, { note: { sessionId: note.sessionId, projectRoot: note.projectRoot }, at: this.now() })
   }
 
-  /** Keeps `note` for `client` and forgets it when the client is destroyed. */
-  holdFor(client: Pick<Client, 'id' | 'once'>, note: NotifyOpen): void {
-    const id = client.id
-    this.hold(id, note)
-    if (this.watched.has(id)) return
-    this.watched.add(id)
-    client.once('destroyed', () => {
-      this.watched.delete(id)
-      this.drop(id)
-    })
+  /** Keeps `note` for `client` and forgets it when the client is destroyed; nothing for a client already destroyed. */
+  holdFor(client: Pick<Client, 'id' | 'once' | 'isDestroyed'>, note: NotifyOpen): void {
+    if (this.holders.hold(client)) this.hold(client.id, note)
   }
 
   /** The client's note, once: null when there is none or it is older than PENDING_OPEN_MS. */

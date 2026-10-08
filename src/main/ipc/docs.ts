@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { docsChanged, docsClose, docsOpen, docsRead, HANDOFF_HEIGHT, HANDOFF_KIND, HANDOFF_WIDTH } from '../../shared/ipc/docs'
 import type { LayoutNode } from '../../shared/layout/types'
-import { clientOf, type Client } from '../clients'
+import { ClientHolders, clientOf, type Client } from '../clients'
 import { DocsHub, readDoc, type DocsSubscriber } from '../docs/watch'
 import { placeNewNode } from '../layout/place'
 import { layoutStore } from '../layout/store'
@@ -55,15 +55,13 @@ export const docsHub = new DocsHub({
   },
 })
 
-const subscribed = new WeakSet<Client>()
+/** The client holding each id leaves every Project when it is destroyed or another client takes its id. */
+const holders = new ClientHolders((id) => void docsHub.drop(id))
 
-/** The client that called, as a subscriber; it leaves every Project when it is destroyed. */
+/** The client that called, as a subscriber. */
 function subscriberOf(client: Client | undefined): DocsSubscriber {
   if (client === undefined) throw new Error('docs.open: the call came from no client')
-  if (!subscribed.has(client)) {
-    subscribed.add(client)
-    client.once('destroyed', () => void docsHub.drop(client.id))
-  }
+  if (!holders.hold(client)) throw new Error('docs.open: the client is gone')
   return {
     id: client.id,
     send: (state) => {

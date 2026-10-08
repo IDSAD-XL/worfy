@@ -38,6 +38,48 @@ export function clientOf(event: { readonly sender?: unknown }): Client | undefin
   return (event.sender ?? undefined) as Client | undefined
 }
 
+/**
+ * Which client object holds each id in one hub. A client without a window may come back under the
+ * id of an old one whose `destroyed` has not arrived yet (the old connection is closed, its event is
+ * on the way); the old one's late `destroyed` must not end the new one's subscriptions.
+ *
+ * `leave(id)` ends every subscription the hub keeps under an id. It runs on the holder's own
+ * `destroyed`, and when another client object takes the id over: what is under the id then belongs
+ * to the old object. Call `hold` before subscribing; `leave` must remove the subscriptions before it
+ * returns (closing them may finish later). A window's webContents id is never reused, so a window
+ * is held from its first subscription to its `destroyed`, with one listener.
+ */
+export class ClientHolders {
+  private readonly holders = new Map<ClientId, Pick<Client, 'id' | 'once' | 'isDestroyed'>>()
+
+  constructor(private readonly leave: (id: ClientId) => void) {}
+
+  /**
+   * Makes `client` the holder of its id, once per client object. False for a client already
+   * destroyed — a late call of an old client must not take the id back from a new one — and then
+   * the caller does not subscribe it.
+   */
+  hold(client: Pick<Client, 'id' | 'once' | 'isDestroyed'>): boolean {
+    if (client.isDestroyed()) return false
+    const id = client.id
+    const held = this.holders.get(id)
+    if (held === client) return true
+    if (held !== undefined) this.leave(id)
+    this.holders.set(id, client)
+    client.once('destroyed', () => {
+      if (this.holders.get(id) !== client) return
+      this.holders.delete(id)
+      this.leave(id)
+    })
+    return true
+  }
+
+  /** The ids held now. */
+  ids(): ClientId[] {
+    return [...this.holders.keys()]
+  }
+}
+
 /** The clients of the app: the open windows, then the clients without a window. */
 export class ClientRegistry {
   private readonly windowless = new Map<string, Client>()
