@@ -1,5 +1,5 @@
-import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process'
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -188,6 +188,57 @@ function expectHarnessCopy(copy: string): string {
   expect(existsSync(join(copy, 'bin', 'tests'))).toBe(false)
   expect(existsSync(join(copy, 'hooks', 'tests'))).toBe(false)
   return version as string
+}
+
+/** git in `cwd` without the GIT_* of a hook that may run the tests, with an author of its own. */
+function gitIn(cwd: string, ...args: string[]): string {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+  return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd, env, encoding: 'utf8' }).trim()
+}
+
+const HARNESS_EPIC = 'demo'
+
+/**
+ * A `git clone --shared` of this repository at the build commit `sha`, whose origin/main is the
+ * build commit itself (`lesson: false`) or a commit in harness/ on top of it (`lesson: true`),
+ * with an Epic for the Canvas next to it (untracked: the comparison looks at commits only).
+ */
+function harnessClone(dir: string, sha: string, lesson: boolean): string {
+  const clone = join(dir, lesson ? 'worfy-behind' : 'worfy-current')
+  gitIn(dir, 'clone', '-q', '--shared', '--no-checkout', repoRoot, clone)
+  gitIn(clone, 'checkout', '-q', '--detach', sha)
+  let main = sha
+  if (lesson) {
+    writeFileSync(join(clone, 'harness', 'LESSON.md'), 'a lesson merged during the run\n')
+    gitIn(clone, 'add', 'harness/LESSON.md')
+    gitIn(clone, 'commit', '-q', '-m', 'harness: a lesson')
+    main = gitIn(clone, 'rev-parse', 'HEAD')
+    gitIn(clone, 'checkout', '-q', '--detach', sha)
+  }
+  gitIn(clone, 'update-ref', 'refs/remotes/origin/main', main)
+  const issues = join(clone, '.scratch', HARNESS_EPIC, 'issues')
+  mkdirSync(issues, { recursive: true })
+  writeFileSync(join(clone, '.scratch', HARNESS_EPIC, 'spec.md'), '# Demo epic\n')
+  writeFileSync(join(issues, '01-ticket-1.md'), ['# 01 — Ticket 1', '', 'Type: task', 'Status: open', 'Blocked by: —', '', '## Где в коде', '', '- `src/f1.ts`', ''].join('\n'))
+  return clone
+}
+
+/** A Claude home whose epic-status answers the Epic `demo` with one open Ticket, whatever the Project. */
+function epicStatusHome(dir: string): string {
+  const home = join(dir, 'claude-home')
+  mkdirSync(join(home, 'bin'), { recursive: true })
+  const answer = join(home, 'epic-status.json')
+  writeFileSync(
+    answer,
+    JSON.stringify({
+      ref: 'main',
+      epics: [{ epic: HARNESS_EPIC, hasSpec: true, hasMap: false }],
+      tickets: [{ epic: HARNESS_EPIC, num: 1, slug: 'ticket-1', title: '01 — Ticket 1', statusRaw: 'open', state: 'open', blockedRaw: '—', blockedNums: [], blockedParsed: true }],
+    }),
+  )
+  writeFileSync(join(home, 'bin', 'epic-status'), `#!/bin/sh\ncat '${answer}'\n`)
+  chmodSync(join(home, 'bin', 'epic-status'), 0o755)
+  return home
 }
 
 test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () => {
@@ -403,6 +454,82 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
       expect(readdirSync(join(home, 'Library', 'Application Support'))).toEqual(['worfy'])
     } finally {
       await removeDir(home)
+    }
+  })
+  // worfy-harness ticket 21 (ADR-0047): a Project that is a clone of worfy, whose origin/main has
+  // a commit in harness/ after the commit this copy was built from, shows the chip on the Epic's
+  // Autopilot action; a clone whose origin/main is the build commit does not. Nothing is fetched:
+  // the clones' refs are as the test set them.
+  test('the Autopilot action shows "Harness in main is newer than the Stable copy" when origin/main has a lesson in harness/ after the build', async () => {
+    const version = readJson(join(stableApp, 'Contents', 'Resources', 'harness', '.claude-plugin', 'plugin.json')).version as string
+    const sha = /\+([0-9a-f]+)/.exec(version)?.[1]
+    expect(sha, version).toBeDefined()
+    const dir = realpathSync(await mkdtemp(join(tmpdir(), 'worfy-harness-behind-')))
+    try {
+      const behind = harnessClone(dir, sha!, true)
+      const current = harnessClone(dir, sha!, false)
+      const refsBefore = [gitIn(behind, 'for-each-ref'), gitIn(current, 'for-each-ref')]
+      const dataDir = join(dir, 'data')
+      const ids = { behind: 'worfy-behind-0000b021', current: 'worfy-current-0000c021' }
+      for (const id of Object.values(ids)) {
+        mkdirSync(join(dataDir, id), { recursive: true })
+        writeFileSync(join(dataDir, id, 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 20, y: 20, zoom: 0.8 } }))
+      }
+      writeFileSync(
+        join(dataDir, 'projects.json'),
+        JSON.stringify({
+          projects: [
+            { id: ids.behind, name: 'worfy-behind', path: behind },
+            { id: ids.current, name: 'worfy-current', path: current },
+          ],
+          activeId: ids.behind,
+        }),
+      )
+      const launched = await launchApp({ executablePath: executableOf(stableApp), env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: epicStatusHome(dir) } })
+      try {
+        const { window } = launched
+        await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
+        const frame = window.locator(`[data-testid="epic-frame"][data-epic="${HARNESS_EPIC}"]`)
+        const chip = frame.getByTestId('autopilot-harness-behind')
+        await expect(frame.getByTestId('action-autopilot')).toBeVisible({ timeout: 20_000 })
+        await expect(chip).toBeVisible({ timeout: 20_000 })
+        await expect(chip).toHaveText('Harness in main is newer than the Stable copy')
+        await expect(chip).toHaveAttribute('title', `origin/main has 1 commit in harness/ that this build (${version}) has not. Rebuild the Stable copy with pnpm install:stable between runs`)
+        // Whole, inside the header, and over none of its buttons or the Epic's title.
+        const header = frame.locator('header')
+        const [box, room] = [(await chip.boundingBox())!, (await header.boundingBox())!]
+        expect(box.y).toBeGreaterThanOrEqual(room.y)
+        expect(box.y + box.height).toBeLessThanOrEqual(room.y + room.height + 0.5)
+        expect(box.x).toBeGreaterThanOrEqual(room.x)
+        expect(box.x + box.width).toBeLessThanOrEqual(room.x + room.width)
+        expect(await chip.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+        for (const other of [header.locator('h2'), ...(await header.locator('button').all())]) {
+          const at = await other.boundingBox()
+          if (at !== null) expect(box.x < at.x + at.width && at.x < box.x + box.width && box.y < at.y + at.height && at.y < box.y + box.height).toBe(false)
+        }
+        await expect(frame.getByTestId('action-autopilot')).toBeInViewport()
+        await header.screenshot({ path: test.info().outputPath('harness-behind-header.png') })
+
+        // The clone whose origin/main is the build commit: no chip, and main says null.
+        type Bridge = { invoke(channel: string, input?: unknown): Promise<{ ok: boolean; value?: unknown }> }
+        const call = (channel: string, input: unknown) => window.evaluate(([name, value]) => (globalThis as unknown as { worfy: Bridge }).worfy.invoke(name as string, value), [channel, input] as const)
+        expect(await call('projects.select', { id: ids.current })).toMatchObject({ ok: true })
+        await expect(frame.getByTestId('action-autopilot')).toBeVisible({ timeout: 20_000 })
+        // The comparison answers through autopilot.changed once git has: give it the time the
+        // chip above took, several times over, before saying it is not there.
+        await window.waitForTimeout(3000)
+        await expect(chip).toHaveCount(0)
+        expect(await call('autopilot.state', { projectId: ids.current })).toMatchObject({ ok: true, value: { harnessBehind: null } })
+        expect(await call('autopilot.state', { projectId: ids.behind })).toMatchObject({ ok: true, value: { harnessBehind: { harness: version, main: 'origin/main', commits: 1 } } })
+      } finally {
+        await launched.close()
+      }
+      // Read only: the clones' refs are as the test left them, and nothing was fetched.
+      expect([gitIn(behind, 'for-each-ref'), gitIn(current, 'for-each-ref')]).toEqual(refsBefore)
+      expect(existsSync(join(behind, '.git', 'FETCH_HEAD'))).toBe(false)
+      expect(existsSync(join(current, '.git', 'FETCH_HEAD'))).toBe(false)
+    } finally {
+      await removeDir(dir)
     }
   })
 })

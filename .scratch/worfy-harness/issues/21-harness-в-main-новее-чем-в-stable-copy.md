@@ -1,7 +1,7 @@
 # 21 — Пометка «Harness в main новее, чем в Stable copy» в worfy и в журнале прогона Autopilot
 
 Type: task
-Status: open
+Status: claimed — 2026-10-08
 Blocked by: 12
 Source: решения владельца 2026-10-07, Q14 и Q12; [ADR-0047](../../../docs/adr/0047-harness-lessons-by-pr-early-owner-switch.md) (развитие Harness: урок — PR в `harness/`, во время Autopilot Stable copy не пересобирается); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (доставка Harness, версия `<semver>+<SHA>`); [spec.md](../spec.md)
 
@@ -75,13 +75,13 @@ ADR не нужен: решение уже принято в ADR-0047.
 
 ## Готово, когда
 
-- [ ] Contract test `test/contract/harness-drift.test.ts` на временном git-репозитории с `harness/.claude-plugin/plugin.json` (`"name": "worfy"`): коммит в `harness/` после SHA сборки — «новее», `commits: 1`; коммит только вне `harness/` — «не новее»; SHA, которого нет в репозитории, — «не знаю»; версия без `+<SHA>` — «не знаю»; репозиторий без `harness/.claude-plugin/plugin.json` — пометки нет.
-- [ ] Тот же test: после проверки у репозитория те же refs (`git for-each-ref`), тот же `git status --porcelain`, нет `FETCH_HEAD`; подменённый `git` не получает `fetch`.
-- [ ] Unit test `test/unit/autopilot-run.test.ts`: при отставании строка `harness-behind` идёт сразу после `run-started`; урок, влитый между Wave-ами, даёт новую строку перед следующим `wave-started`; без отставания и в dev-сборке строки нет.
-- [ ] Unit test `test/unit/autopilot-journal.test.ts`: строка `harness-behind` проходит схему; журнал без неё читается как раньше.
-- [ ] Unit test `test/unit/canvas-actions.test.tsx`: при `harnessBehind` действие Autopilot показывает chip `autopilot-harness-behind`, его `title` называет число коммитов и `pnpm install:stable`; при `null` chip-а нет.
-- [ ] e2e `@packaged` в `test/e2e/packaged.spec.ts`: установленная копия; Project — `git clone --shared` репозитория worfy во временную папку, где `origin/main` указывает на коммит в `harness/` поверх коммита сборки, — chip виден; клон, где `origin/main` — сам коммит сборки, — chip-а нет. Идёт в `pnpm test:package`, то есть в локальном `gate full`.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0; локальный `gate full` под замком `/tmp/worfy-e2e.lock` (правила Profile worfy) — код 0 и вердикт «зелено».
+- [x] Contract test `test/contract/harness-drift.test.ts` на временном git-репозитории с `harness/.claude-plugin/plugin.json` (`"name": "worfy"`): коммит в `harness/` после SHA сборки — «новее», `commits: 1`; коммит только вне `harness/` — «не новее»; SHA, которого нет в репозитории, — «не знаю»; версия без `+<SHA>` — «не знаю»; репозиторий без `harness/.claude-plugin/plugin.json` — пометки нет.
+- [x] Тот же test: после проверки у репозитория те же refs (`git for-each-ref`), тот же `git status --porcelain`, нет `FETCH_HEAD`; подменённый `git` не получает `fetch`.
+- [x] Unit test `test/unit/autopilot-run.test.ts`: при отставании строка `harness-behind` идёт сразу после `run-started`; урок, влитый между Wave-ами, даёт новую строку перед следующим `wave-started`; без отставания и в dev-сборке строки нет.
+- [x] Unit test `test/unit/autopilot-journal.test.ts`: строка `harness-behind` проходит схему; журнал без неё читается как раньше.
+- [x] Unit test `test/unit/canvas-actions.test.tsx`: при `harnessBehind` действие Autopilot показывает chip `autopilot-harness-behind`, его `title` называет число коммитов и `pnpm install:stable`; при `null` chip-а нет.
+- [x] e2e `@packaged` в `test/e2e/packaged.spec.ts`: установленная копия; Project — `git clone --shared` репозитория worfy во временную папку, где `origin/main` указывает на коммит в `harness/` поверх коммита сборки, — chip виден; клон, где `origin/main` — сам коммит сборки, — chip-а нет. Идёт в `pnpm test:package`, то есть в локальном `gate full`.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0; локальный `gate full` под замком `/tmp/worfy-e2e.lock` (правила Profile worfy) — код 0 и вердикт «зелено».
 - [ ] (вручную) Stable copy, собранная до влития PR в `harness/`: после влития на рамке Epic-а worfy виден chip; после `pnpm install:stable` и перезапуска копии chip-а нет. Как проверить: окно приложения.
 
 Ручной пункт агент проверяет, только если может посмотреть окно Stable copy. Если не может —
@@ -113,6 +113,8 @@ SHA сборки». На нынешнем main модуля `harness-drift.ts` �
 - `test/unit/autopilot-journal.test.ts`
 - `test/unit/canvas-actions.test.tsx`
 - `test/e2e/packaged.spec.ts`
+- `test/contract/autopilot-journal.test.ts` — добавлено при реализации: список всех видов строк журнала получил `harness-behind`
+- `test/contract/autopilot.test.ts`, `test/contract/autopilot-limits.test.ts` — добавлено при реализации: в состоянии Autopilot новое обязательное поле `harnessBehind`; `autopilot.state` заново спрашивает сравнение
 
 `run.ts` получает сравнение зависимостью в опциях Autopilot, `ipc/autopilot.ts` её подставляет.
 Версию сборки модуль читает тем же способом, что показ версии Ticket-а 04; если для этого нужен
@@ -120,4 +122,28 @@ SHA сборки». На нынешнем main модуля `harness-drift.ts` �
 
 ## Итог
 
-Заполняется при закрытии.
+- Сравнение — `src/main/autopilot/harness-drift.ts`: `checkHarnessDrift` (только `git cat-file`, `rev-parse`,
+  `rev-list`; без `fetch`) и `harnessDriftWatch` (раз в 60 с на Project, только packaged-сборка, причина
+  «пометки нет» — в лог один раз на Project и причину). Версия сборки — `bundledHarnessVersion()`
+  (`src/main/harness/bundled.ts`), тот же способ, что показ версии Ticket-а 04. Сборка с `.dirty`
+  сравнивается от своего коммита.
+- Состояние Autopilot получило `harnessBehind`; оно хранится на Project и без прогона. `autopilot.state`
+  заново спрашивает сравнение (не чаще раза в 60 с) и отвечает сразу, новое значение приходит через
+  `autopilot.changed`. Без прогона chip обновляется, когда окно спрашивает состояние (запуск приложения,
+  открытие Project-а); во время прогона — перед каждым `wave-started`.
+- Журнал: вид `harness-behind` (`harness`, `main`, `commits`) — сразу после `run-started` и перед
+  `wave-started`, если число изменилось.
+- Chip стоит под кнопкой Autopilot, вне ряда заголовка (как строка состояния над кнопкой): в первом
+  варианте он стоял в ряду слева от кнопки и на узкой рамке выталкивал кнопку за край — e2e это поймал,
+  теперь e2e проверяет, что chip целиком в заголовке и не накрывает кнопки и заголовок Epic-а. Снимок —
+  [../evidence/21-chip-harness-behind.png](../evidence/21-chip-harness-behind.png) (светлая тема).
+- Раздел Autopilot в `docs/design/F-SPEC.md` уже есть (Ticket 03 закрыт) — строка о chip-е добавлена.
+- Первый test падал на импорте: `Cannot find module '../../src/main/autopilot/harness-drift'`.
+- След расширен: `test/contract/autopilot-journal.test.ts` (полный список видов строк),
+  `test/contract/autopilot.test.ts` и `test/contract/autopilot-limits.test.ts` (новое обязательное поле
+  состояния; `autopilot.state` вызывает сравнение).
+- Проверки: `pnpm lint && pnpm typecheck && pnpm test` — код 0; `GATE_SCOPE=all gate.sh full` под замком
+  `/tmp/worfy-e2e.lock` — код 0, «[gate] зелено (full)» с `test:e2e` и `test:package`.
+- [ ] (вручную) не проверено: пункт требует пересобрать Stable copy (`pnpm install:stable`), а пересборка
+  и замена `~/Applications/worfy-stable.app` агенту запрещены. Тот же сценарий на установленной во временную
+  папку копии проверяет e2e `@packaged` в `test/e2e/packaged.spec.ts`.

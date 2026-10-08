@@ -803,7 +803,7 @@ async function ipcOver(modules: Record<string, () => Promise<unknown>>): Promise
 const agentIpc = (registry: SessionRegistry) => ipcOver({ './agent.ts': async () => agentHandlers(() => registry) })
 
 describe('the autopilot channels', () => {
-  const state = (overrides: Partial<AutopilotState> = {}): AutopilotState => ({ projectId: 'p', epic: 'e', status: 'running', wave: 1, backgroundTasks: 0, resumesAt: null, reason: null, message: null, resumable: [], stopping: false, ticketsInWork: 0, revision: 3, ...overrides })
+  const state = (overrides: Partial<AutopilotState> = {}): AutopilotState => ({ projectId: 'p', epic: 'e', status: 'running', wave: 1, backgroundTasks: 0, resumesAt: null, reason: null, message: null, resumable: [], stopping: false, ticketsInWork: 0, harnessBehind: null, revision: 3, ...overrides })
 
   async function register() {
     const calls: unknown[][] = []
@@ -864,6 +864,33 @@ describe('the autopilot channels', () => {
     expect(calls).toEqual([['forceStop', 'p']])
     expect((await invoke('autopilot.forceStop', { projectId: '' })).ok).toBe(false)
     expect(calls).toHaveLength(1)
+  })
+
+  it('autopilot.state asks again whether the Harness in main is newer, and answers without waiting for git (worfy-harness ticket 21)', async () => {
+    const calls: unknown[][] = []
+    let finish: () => void = () => undefined
+    const autopilot = {
+      state: (projectId: string) => {
+        calls.push(['state', projectId])
+        return state({ harnessBehind: { harness: '0.1.0+abcdef1', main: 'origin/main', commits: 2 } })
+      },
+      refreshHarness: (projectId: string) => {
+        calls.push(['refreshHarness', projectId])
+        return new Promise<void>((done) => {
+          finish = done
+        })
+      },
+    }
+    const invoke = await ipcOver({ './autopilot.ts': async () => autopilotHandlers(() => autopilot as never) })
+    expect(await invoke('autopilot.state', { projectId: 'p' })).toEqual({ ok: true, value: state({ harnessBehind: { harness: '0.1.0+abcdef1', main: 'origin/main', commits: 2 } }) })
+    expect(calls).toEqual([
+      ['refreshHarness', 'p'],
+      ['state', 'p'],
+    ])
+    finish()
+    // A mark outside the contract does not reach the renderer.
+    autopilot.state = () => state({ harnessBehind: { harness: '0.1.0+abcdef1', main: 'origin/main', commits: 0 } })
+    expect((await invoke('autopilot.state', { projectId: 'p' })).ok).toBe(false)
   })
 
   it('an answer outside the contract does not reach the renderer', async () => {

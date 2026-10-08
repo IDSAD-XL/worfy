@@ -20,6 +20,18 @@
 // Kinds and their fields:
 //
 //   run-started                      the run began; worfy writes it as the first line
+//   harness-behind harness, main,    the Harness in worfy's main has changes in harness/ that the
+//                  commits           running build's Harness has not (worfy-harness ticket 21,
+//                                    ADR-0047): the Stable copy is due `pnpm install:stable` once
+//                                    the run is over. harness: the build version,
+//                                    `<semver>+<SHA>`; main: the ref compared with, `origin/main`
+//                                    or `main`; commits: how many commits of main change harness/
+//                                    after the build commit, from 1. Written right after
+//                                    run-started when the Harness is behind, and before a
+//                                    wave-started when the count has changed since (a lesson
+//                                    merged during the run). Only packaged builds over worfy's own
+//                                    repository write it; journals written before ticket 21 have
+//                                    none
 //   wave-started   wave, tickets,    wave: number from 1; tickets: Ticket numbers, ["01", "02"];
 //                  text?, skipped?   text: the text the Orchestrator got; skipped: Tickets left
 //                                    out because they are not open though their blockers are all
@@ -97,6 +109,7 @@ import { z } from 'zod'
 /** Every kind of event, in the order a run usually meets them. */
 export const JOURNAL_EVENT_KINDS = [
   'run-started',
+  'harness-behind',
   'wave-started',
   'wave-finished',
   'limits-hit',
@@ -157,6 +170,7 @@ const event = <K extends JournalEventKind, F extends z.ZodRawShape>(kind: K, fie
 
 export const journalEventSchema = z.discriminatedUnion('kind', [
   event('run-started', {}),
+  event('harness-behind', { harness: text, main: text, commits: z.number().int().positive() }),
   event('wave-started', { ...wave, text: z.string().optional(), skipped: skipped.optional() }),
   event('wave-finished', wave),
   event('limits-hit', { window: z.string().min(1).nullable(), resetsAt: isoTime.nullable() }),

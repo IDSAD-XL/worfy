@@ -5,16 +5,21 @@
 // (Orchestrators.giveBackNow, worfy-week ticket 17). A run's
 // changes go to every window. When the app quits during a run, the quit waits (a few seconds at
 // most) until the run has written `run-stopped` with `app-quit`; that also cancels a Limits wait.
+// Asking a Project's state also asks again, at most once a minute, whether the Harness in its main
+// is newer than this build's (worfy-harness ticket 21, packaged builds only); a changed answer comes
+// as `autopilot.changed`.
 import { execFile } from 'node:child_process'
 import { app } from 'electron'
 import { autopilotChanged, autopilotForceStop, autopilotStart, autopilotState, autopilotStop, type AutopilotState } from '../../shared/ipc/autopilot'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
 import { appLimits, observeSessionLimits } from '../agent/limits'
+import { harnessDriftWatch } from '../autopilot/harness-drift'
 import { openRun } from '../autopilot/journal'
 import { KeepAwake } from '../autopilot/power'
 import { Autopilot, selfProjectRefusal } from '../autopilot/run'
 import { toEveryWindow } from '../broadcast'
+import { bundledHarnessVersion } from '../harness/bundled'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { readWorkflow } from '../workflow/reader'
@@ -23,12 +28,17 @@ import { defineHandler, emit, type HandlerModule } from './index'
 import { workflowHub } from './workflow'
 
 /** The handlers over an Autopilot; tests pass their own. */
-export function autopilotHandlers(autopilot: () => Pick<Autopilot, 'start' | 'stop' | 'forceStop' | 'state'>): HandlerModule {
+export function autopilotHandlers(autopilot: () => Pick<Autopilot, 'start' | 'stop' | 'forceStop' | 'state'> & Partial<Pick<Autopilot, 'refreshHarness'>>): HandlerModule {
   return [
     defineHandler(autopilotStart, ({ projectId, epic }) => autopilot().start(projectId, epic)),
     defineHandler(autopilotStop, ({ projectId }) => autopilot().stop(projectId)),
     defineHandler(autopilotForceStop, ({ projectId }) => autopilot().forceStop(projectId)),
-    defineHandler(autopilotState, ({ projectId }) => autopilot().state(projectId)),
+    defineHandler(autopilotState, ({ projectId }) => {
+      const current = autopilot()
+      // The state answers at once; git answers later, through autopilot.changed.
+      void current.refreshHarness?.(projectId)?.catch((error: unknown) => console.warn(`[autopilot] ${projectId}: could not compare the Harness with main`, error))
+      return current.state(projectId)
+    }),
   ]
 }
 
@@ -74,6 +84,7 @@ export function sharedAutopilot(): Autopilot {
     waves: { autopilotWave: (projectId, epic, resume) => sharedLauncher().autopilotWave(projectId, epic, resume), autopilotRefusal: (projectId) => sharedLauncher().autopilotRefusal(projectId) },
     journal: (start) => openRun(start),
     keepAwake: () => new KeepAwake(),
+    harnessDrift: harnessDriftWatch({ packaged: app.isPackaged, harnessVersion: () => bundledHarnessVersion() }),
     onChange: (state: AutopilotState) => toEveryWindow((target) => emit(target, autopilotChanged, state)),
     limits: {
       state: () => appLimits().snapshot(),

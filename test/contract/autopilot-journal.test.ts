@@ -62,6 +62,7 @@ const rawLines = (file: string): string[] => readFileSync(file, 'utf8').split('\
 
 /** One event of every kind after run-started, as Autopilot will append them. */
 const appended: JournalEventFields[] = [
+  { kind: 'harness-behind', harness: '0.1.0+abcdef1', main: 'origin/main', commits: 2 },
   { kind: 'wave-started', wave: 1, tickets: ['01', '02'] },
   { kind: 'wave-finished', wave: 1, tickets: ['01', '02'] },
   { kind: 'limits-hit', window: 'five_hour', resetsAt: '2026-10-06T06:00:00.000Z' },
