@@ -1,7 +1,7 @@
 # 18 — `GH_TOKEN` аккаунта Project-а выдаёт hook `SessionStart`, skills без ручного `export`
 
 Type: task
-Status: claimed — 2026-10-08
+Status: done — 2026-10-08, [PR #147](https://github.com/IDSAD-XL/worfy/pull/147)
 Blocked by: 01, 16
 Source: решение владельца 2026-10-07, вопрос Q21 ([spec.md](../spec.md)); ADR-0048 (будет `docs/adr/0048-harness-plugin-spike-results.md`) — итог spike Ticket-а 01 (работает ли `GH_TOKEN` через `CLAUDE_ENV_FILE`; файл заводит Ticket 01); [ADR-0041](../../../docs/adr/0041-harness-rules-via-session-hooks.md) — hooks plugin `SessionStart`
 
@@ -105,7 +105,7 @@ ADR не нужен: выбор между А и Б записан в ADR-0048.
   - Session в Project-е с аккаунтом получает в env `GH_TOKEN` от подменённого `gh auth token`;
   - без аккаунта — без `GH_TOKEN`;
   - при сбое — без `GH_TOKEN`, строка лога без значения токена.
-- [ ] test-ы hooks идут в CI worfy на Linux вместе с остальными (Ticket 02). CI PR-а зелёный.
+- [x] test-ы hooks идут в CI worfy на Linux вместе с остальными (Ticket 02). CI PR-а зелёный.
 - [ ] (вручную, после влития и `pnpm install:stable`, машина владельца уже на plugin) `gh auth status` показывает активным Oleksii-O-Atakama. При этом `gh api user --jq .login` даёт `IDSAD-XL` в двух местах:
   - в Session `claude` из терминала в `/Users/alexey/Stuff/CanvasForAI`;
   - в Session worfy Project-а worfy.
@@ -192,3 +192,18 @@ hook-а нет, файл окружения пуст, test красный. Ка�
 - **Не проверено: ручной пункт** (после влития и `pnpm install:stable`, две Session — `claude` из
   терминала и Session worfy). Агент не пересобирает Stable copy и не запускает настоящий Claude Code;
   пункт ждёт владельца.
+
+Гейт волны 9: `VERIFIED` с первого круга (PR #147, влит `650e054`) — два ревьюера: отчёт исполнителя и смысл
+текстов skills и agents. Урок `docs/lessons/ci-merge.md` («Чужой глобальный аккаунт `gh`») переписан в
+документном PR волны. Долги ревьюеров (не блокируют):
+- [low] `harness/hooks/gh-token-env.sh:23-37` — нет блока PATH (nvm, `/opt/homebrew/bin`), как в
+  `session-start.sh:28-34`. С голым PATH `bin/profile` без node не стартует, hook выходит с кодом 0 молча:
+  ни `GH_TOKEN`, ни `additionalContext`, а ручного запасного пути в agents больше нет. На машине владельца
+  у hooks PATH с node, поэтому сейчас не проявляется.
+- [low] `harness/hooks/tests/gh-token-env.test.sh:109-114` — случай 1c не ловит удаление
+  `env -u GH_TOKEN -u GITHUB_TOKEN` (`gh-token-env.sh:56`): подменённый `gh` не смотрит на `GH_TOKEN`.
+- [low] `harness/bin/preflight:205` — подсказка `GH_WARN` советует `gh auth switch` (было и до Ticket-а).
+- [low] `harness/skills/overnight-fix-loop/SKILL.md:246-248` — пропал случай «в Profile нет `github.account`»
+  (теперь он только в `profiles/README.md:150`).
+- [low] implementer.md, reviewer.md и три skills — подсказка про чужой аккаунт названа только для ошибки `gh`,
+  не для `git push` с `Repository not found` / `Permission denied`.

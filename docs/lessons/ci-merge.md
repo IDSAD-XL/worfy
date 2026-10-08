@@ -22,12 +22,16 @@ GitHub не создаёт run `pull_request`, пока у PR `mergeStateStatus:
 параллельных Wave-ов гонятся: push второго отклоняется, а открытые PR становятся DIRTY.
 Источник: ночной прогон worfy-mvp 2026-10-05/06.
 
-## Чужой глобальный аккаунт `gh` — токен в каждой команде
+## Чужой глобальный аккаунт `gh` — токен аккаунта Project-а, глобальный аккаунт не переключать
 
-Если глобальный `gh` переключён на другой аккаунт, каждая команда `gh` и `git` по `origin` идёт с
-`GH_TOKEN=$(gh auth token -u IDSAD-XL)` (поле `github.account` Profile-а). Глобальный аккаунт без
-разрешения владельца не переключать: им пользуются другие Session-ы.
-Источник: ночной прогон worfy-mvp 2026-10-05/06.
+Если глобальный `gh` переключён на другой аккаунт, команды `gh` и `git` по `origin` должны идти от
+аккаунта Project-а (поле `github.account` Profile-а). С plugin `worfy` `GH_TOKEN` этого аккаунта
+ставит hook `SessionStart` (`harness/hooks/gh-token-env.sh`, `worfy-harness` 18); ручной префикс
+`GH_TOKEN=$(gh auth token -u <аккаунт>)` нужен только в Session без plugin-а. Ответ «Could not resolve
+to a Repository» или `Repository not found` при `git push` — сверить `gh auth status` с
+`github.account`. Глобальный аккаунт без разрешения владельца не переключать: им пользуются другие
+Session-ы.
+Источник: ночной прогон worfy-mvp 2026-10-05/06; `worfy-harness` 18 (2026-10-08).
 
 ## «(кэш)» в строке `[gate]` — test-ы не перезапускались; перед мержем это годится, только если rebase ничего не сдвинул
 
