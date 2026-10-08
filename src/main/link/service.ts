@@ -19,8 +19,9 @@
 // answer or a worfy journal. Messages name a Machine by its id and name.
 //
 // The app's link (bottom of this file, worfy-link ticket 02) adds what a running worfy needs around
-// the service: the connections kept to every Linked machine (connections.ts) and Bonjour
-// (discovery.ts). Two environment variables shape it: WORFY_LINK_HOST is the one address the server
+// the service: the connections kept to every Linked machine (connections.ts), Bonjour
+// (discovery.ts), and (worfy-link ticket 14) "going to sleep" (sleep-notice.ts) and the keep-awake
+// while Linked machines are connected (keep-awake.ts). Two environment variables shape it: WORFY_LINK_HOST is the one address the server
 // listens on (e2e tests set 127.0.0.1, so the macOS firewall never asks about incoming
 // connections), and WORFY_LINK_BONJOUR=0 turns Bonjour off (e2e tests, so macOS never asks for
 // the Local Network permission during a run).
@@ -64,6 +65,7 @@ import {
 import { FileSecretStore, type SecretStore } from './secrets'
 import { startLinkServer, UNAUTHORIZED, type Admission, type LinkServer, type Refusal } from './server'
 import { LinkSettings, type LinkSettingsValue } from './settings'
+import { SleepNotice, type PowerEvents } from './sleep-notice'
 import { LinkedMachineStore, outgoingTokenKey, tokenHash, type LinkedMachineRecord } from './store'
 
 /** Why the server listens. */
@@ -738,6 +740,10 @@ export interface AppLink {
   connections: LinkConnections
   /** Null when Bonjour is off (WORFY_LINK_BONJOUR=0). */
   discovery: LinkDiscovery | null
+  /** "Going to sleep" to and from the Linked machines, and which of them sleep. */
+  sleep: SleepNotice
+  /** The blocker held while Linked machines are connected; null where none is made (tests). */
+  keepAwake: { stop(): void } | null
 }
 
 let appLinkValue: AppLink | undefined
@@ -782,8 +788,19 @@ export function appLinkEnvironment(env: NodeJS.ProcessEnv = process.env): { list
   return { ...(host ? { listenHost: host } : {}), bonjour: bonjour !== '0' && bonjour !== 'false' && bonjour !== 'off' }
 }
 
-/** Wires the connections and Bonjour around a started service. */
-export function wireAppLink(service: LinkService, options: { bonjour: boolean; discovery?: LinkDiscovery }): AppLink {
+export interface WireAppLinkOptions {
+  bonjour: boolean
+  discovery?: LinkDiscovery
+  /** Electron's powerMonitor: `suspend` and `resume` are told to the Linked machines. */
+  power?: PowerEvents
+  /** Makes the keep-awake over the service (keep-awake.ts); the app passes it, tests may not. */
+  keepAwake?: (service: LinkService) => { stop(): void }
+}
+
+/** Wires the connections, Bonjour, "going to sleep" and the keep-awake around a started service. */
+export function wireAppLink(service: LinkService, options: WireAppLinkOptions): AppLink {
+  const sleep = new SleepNotice(service, options.power === undefined ? {} : { power: options.power })
+  const keepAwake = options.keepAwake?.(service) ?? null
   const connections = new LinkConnections(service)
   const discovery =
     options.discovery ??
@@ -810,7 +827,7 @@ export function wireAppLink(service: LinkService, options: { bonjour: boolean; d
     followConnections()
   }
   connections.start()
-  return { service, connections, discovery }
+  return { service, connections, discovery, sleep, keepAwake }
 }
 
 /**
@@ -821,6 +838,8 @@ export function wireAppLink(service: LinkService, options: { bonjour: boolean; d
  */
 export async function stopLink(link: AppLink): Promise<void> {
   link.connections.stop()
+  link.sleep.stop()
+  link.keepAwake?.stop()
   try {
     await link.discovery?.stop()
   } finally {
@@ -884,15 +903,16 @@ export function stopLinkOnQuit(app: QuitApp, stop: () => Promise<void> | undefin
 export async function startAppLink(options: { buildKind: BuildKind; buildVersion: string }): Promise<LinkService> {
   const environment = appLinkEnvironment()
   try {
-    // Imported here, not at the top: broadcast.ts reaches Electron, and the link tests run without it.
-    const { addClient } = await import('../broadcast')
+    // Imported here, not at the top: broadcast.ts and keep-awake.ts reach Electron, and the link
+    // tests run without it.
+    const [{ addClient }, { powerMonitor }, { LinkKeepAwake }] = await Promise.all([import('../broadcast'), import('electron'), import('./keep-awake')])
     const service = await LinkService.start({
       dataDir: dataRoot(),
       ...options,
       addClient,
       ...(environment.listenHost === undefined ? {} : { listenHost: environment.listenHost }),
     })
-    appLinkValue = wireAppLink(service, { bonjour: environment.bonjour })
+    appLinkValue = wireAppLink(service, { bonjour: environment.bonjour, power: powerMonitor, keepAwake: (followed) => new LinkKeepAwake(followed) })
     appProblem = undefined
     return service
   } catch (error) {

@@ -1,7 +1,7 @@
 # 14 — Machine Project-а не засыпает, пока подключены Linked machine-ы; статус «спит»
 
 Type: task
-Status: blocked — VERIFIED (PR #167), не влит: gate full красный только по таймаутам 5000 мс contract-test-ов вне диффа (workflow-*, harness-qmd), и на тихой машине; ждёт решения владельца
+Status: claimed — 2026-10-08
 Blocked by: 02
 Source: решения владельца 2026-10-07: Q5 (пока подключена Linked machine, Machine Project-а не засыпает; переключатель) и Q17 (уснувшая Machine — статус «спит», Wake-on-LAN позже) ([spec.md](../spec.md)); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md)
 

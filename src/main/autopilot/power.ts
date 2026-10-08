@@ -10,14 +10,21 @@
 // The blocker is released when the run ends and also when the app quits: the `will-quit`
 // subscription lives here, as the registry's does (src/main/agent/app-registry.ts), so a run that
 // never got to stop does not leak its blocker. Each run holds its own blocker.
+//
+// The type is a parameter (worfy-link ticket 14): the link's keep-awake (src/main/link/keep-awake.ts)
+// holds a 'prevent-app-suspension' blocker of its own while Linked machines are connected. The
+// default stays 'prevent-display-sleep', so an Autopilot run keeps what it had.
 import { app, powerSaveBlocker } from 'electron'
 
 export const KEEP_AWAKE_TYPE = 'prevent-display-sleep'
 
+/** The two kinds of Electron's powerSaveBlocker. */
+export type KeepAwakeType = 'prevent-display-sleep' | 'prevent-app-suspension'
+
 /** The parts of Electron keep-awake uses; tests pass their own. */
 export interface PowerDeps {
   blocker: {
-    start(type: typeof KEEP_AWAKE_TYPE): number
+    start(type: KeepAwakeType): number
     stop(id: number): unknown
     isStarted(id: number): boolean
   }
@@ -37,21 +44,24 @@ export function electronPowerDeps(): PowerDeps {
   }
 }
 
-/** One run's keep-awake: start() once, stop() as often as the run likes. */
+/** One holder's keep-awake (a run, the link): start() once, stop() as often as it likes. */
 export class KeepAwake {
   private id: number | null = null
   private unsubscribe: (() => void) | null = null
 
-  constructor(private readonly deps: PowerDeps = electronPowerDeps()) {}
+  constructor(
+    private readonly deps: PowerDeps = electronPowerDeps(),
+    private readonly type: KeepAwakeType = KEEP_AWAKE_TYPE,
+  ) {}
 
-  /** Whether this run holds a blocker now. */
+  /** Whether this holder has a blocker now. */
   get held(): boolean {
     return this.id !== null
   }
 
   start(): void {
     if (this.id !== null) return
-    this.id = this.deps.blocker.start(KEEP_AWAKE_TYPE)
+    this.id = this.deps.blocker.start(this.type)
     this.unsubscribe = this.deps.onQuit(() => this.stop())
   }
 

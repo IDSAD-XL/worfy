@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { LinkedMachineView } from '../../../shared/ipc/link'
 import { LinkMachineDialog } from '../../machines/LinkMachineDialog'
-import { revokeMachine, setProjectsAccess, useMachines } from '../../machines/useMachines'
+import { revokeMachine, setKeepAwake, setProjectsAccess, useMachines } from '../../machines/useMachines'
 import { ListRow, StatusChip } from '../../theme/primitives'
 
 /** Between Projects (10) and Epics (20): the Machines the Projects will be grouped by (worfy-link ticket 09). */
 export const order = 15
 
 const ACCESS_LABEL = 'Linked machines can work with my Projects'
+const KEEP_AWAKE_LABEL = 'Keep this computer awake while linked machines are connected'
 
 const styles = {
   header: { display: 'flex', alignItems: 'center', height: 24, padding: '0 4px 0 8px' },
@@ -95,7 +96,7 @@ function MachineState({ machine }: { machine: LinkedMachineView }) {
   if (machine.state === 'online') return <StatusChip status="ready" label="Online" />
   return (
     <span className="w-chip" style={styles.unavailable}>
-      Unavailable
+      {machine.state === 'sleeping' ? 'Sleeping' : 'Unavailable'}
     </span>
   )
 }
@@ -105,7 +106,38 @@ const rowTitle = (machine: LinkedMachineView): string =>
     ? `${machine.name} answered with another certificate. Revoke it, then link it again with Link a machine`
     : machine.state === 'online'
       ? `${machine.name} is connected`
-      : `${machine.name} cannot be reached; worfy keeps trying`
+      : machine.state === 'sleeping'
+        ? `${machine.name} went to sleep; worfy reconnects when it wakes`
+        : `${machine.name} cannot be reached; worfy keeps trying`
+
+interface SwitchProps {
+  label: string
+  testId: string
+  checked: boolean
+  disabled: boolean
+  onToggle: () => void
+}
+
+/** A switch of the section, its label to the right. */
+function SectionSwitch({ label, testId, checked, disabled, onToggle }: SwitchProps) {
+  return (
+    <label style={styles.switchRow}>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        data-testid={testId}
+        disabled={disabled}
+        style={{ ...styles.track, background: checked ? 'var(--primary)' : 'var(--segment-track)', borderColor: checked ? 'var(--primary)' : 'var(--border-strong)' }}
+        onClick={onToggle}
+      >
+        <span aria-hidden="true" style={{ ...styles.thumb, left: checked ? 11 : 1 }} />
+      </button>
+      <span>{label}</span>
+    </label>
+  )
+}
 
 interface MenuProps {
   machine: LinkedMachineView
@@ -156,8 +188,9 @@ function MachineMenu({ machine, x, y, onRevoke, onClose }: MenuProps) {
 
 /**
  * The "Machines" section (worfy-link ticket 02): the Linked machines with their state, revoked from
- * a row's context menu; "Link a machine…" and the switch "Linked machines can work with my
- * Projects" under the list. With no Linked machine, only the button and the switch.
+ * a row's context menu; "Link a machine…" and the switches "Linked machines can work with my
+ * Projects" and (worfy-link ticket 14) "Keep this computer awake while linked machines are
+ * connected" under the list. With no Linked machine, only the button and the switches.
  */
 export default function MachinesSection() {
   const state = useMachines()
@@ -165,6 +198,8 @@ export default function MachinesSection() {
   const [menu, setMenu] = useState<{ machine: LinkedMachineView; x: number; y: number }>()
   const [error, setError] = useState<string>()
   const access = state?.projectsAccess ?? false
+  const keepAwake = state?.keepAwake ?? false
+  const noMachine = state?.machine == null
 
   const run = async (work: Promise<string | undefined>): Promise<void> => {
     setError(await work)
@@ -206,21 +241,8 @@ export default function MachinesSection() {
         <button type="button" style={styles.linkButton} data-testid="link-machine-button" onClick={() => setDialogOpen(true)}>
           Link a machine…
         </button>
-        <label style={styles.switchRow}>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={access}
-            aria-label={ACCESS_LABEL}
-            data-testid="link-access-switch"
-            disabled={state?.machine == null}
-            style={{ ...styles.track, background: access ? 'var(--primary)' : 'var(--segment-track)', borderColor: access ? 'var(--primary)' : 'var(--border-strong)' }}
-            onClick={() => void run(setProjectsAccess(!access))}
-          >
-            <span aria-hidden="true" style={{ ...styles.thumb, left: access ? 11 : 1 }} />
-          </button>
-          <span>{ACCESS_LABEL}</span>
-        </label>
+        <SectionSwitch label={ACCESS_LABEL} testId="link-access-switch" checked={access} disabled={noMachine} onToggle={() => void run(setProjectsAccess(!access))} />
+        <SectionSwitch label={KEEP_AWAKE_LABEL} testId="link-keep-awake-switch" checked={keepAwake} disabled={noMachine} onToggle={() => void run(setKeepAwake(!keepAwake))} />
       </div>
 
       {menu ? (

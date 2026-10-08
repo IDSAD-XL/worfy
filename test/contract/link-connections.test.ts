@@ -147,24 +147,24 @@ describe('the access switch "Linked machines can work with my Projects"', () => 
   it('is off for a fresh data folder, survives a restart over the same folder, and its change is announced', async () => {
     const a = await bench.machine('a')
     const file = join(a.dataDir, 'link', 'settings.json')
-    expect(a.service.settings.get()).toEqual({ projectsAccess: false })
+    expect(a.service.settings.get()).toEqual({ projectsAccess: false, keepAwake: true })
     expect(existsSync(file)).toBe(false)
 
     const events: unknown[] = []
     a.service.on('settings', (value) => events.push(value))
     a.service.settings.set({ projectsAccess: true })
     a.service.settings.set({ projectsAccess: true })
-    expect(events).toEqual([{ projectsAccess: true }])
-    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ version: 1, projectsAccess: true })
+    expect(events).toEqual([{ projectsAccess: true, keepAwake: true }])
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ version: 1, projectsAccess: true, keepAwake: true })
 
     await bench.restart(a)
-    expect(a.service.settings.get()).toEqual({ projectsAccess: true })
+    expect(a.service.settings.get()).toEqual({ projectsAccess: true, keepAwake: true })
     const after: unknown[] = []
     a.service.on('settings', (value) => after.push(value))
     a.service.settings.set({ projectsAccess: false })
-    expect(after).toEqual([{ projectsAccess: false }])
+    expect(after).toEqual([{ projectsAccess: false, keepAwake: true }])
     await bench.restart(a)
-    expect(a.service.settings.get()).toEqual({ projectsAccess: false })
+    expect(a.service.settings.get()).toEqual({ projectsAccess: false, keepAwake: true })
   })
 
   it('stays off when its file cannot be read', async () => {
@@ -173,7 +173,7 @@ describe('the access switch "Linked machines can work with my Projects"', () => 
     const file = join(a.dataDir, 'link', 'settings.json')
     writeFileSync(file, '{ not json')
     await bench.restart(a)
-    expect(a.service.settings.get()).toEqual({ projectsAccess: false })
+    expect(a.service.settings.get()).toEqual({ projectsAccess: false, keepAwake: true })
   })
 })
 
