@@ -301,6 +301,9 @@ E3 её нет).
    `.claude/worktrees/`.
 Text-проверки пунктов 2–7 — в `harness/bin/tests/epic-wave-ship-ticket.test.sh` (раздел 7a). На
 текстах до доработки (3105907) они дают 12 красных.
+Проверки круга: все `harness/{bin,hooks}/tests/*.test.sh` под пустым HOME — код 0; `gate.sh full` под
+замком `/tmp/worfy-e2e.lock` на cf3b74a — код 0, «[gate] зелено (full)». Долг, не доработан (перенесёт
+Orchestrator): guard пропускает `git push origin HEAD:<эпик>/05`, `git merge -m`, `git tag`, `$VAR`.
 
 **Пункт 7 — не сделан, проба не проведена.** Обе пробы — 2026-10-08, cwd в scratchpad.
 1. `CLAUDE_CONFIG_DIR=/tmp/worfy-harness-w10/impl-22/probe/cfg claude -p "Reply with the single word
