@@ -1,7 +1,7 @@
 # 14 — Перенос: старые файлы Harness уходят из `~/.claude` по форме «уберу / оставлю», с резервной копией и откатом
 
 Type: task
-Status: claimed — 2026-10-07
+Status: done — 2026-10-08, [PR #136](https://github.com/IDSAD-XL/worfy/pull/136)
 Blocked by: 11, 13
 Source: решения владельца 2026-10-07, Q19, Q13, Q33, Q4, Q9, Q11, Q11', Q15, Q17, Q24, Q25, Q28, Q8; [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (состояние машины в `~/.claude/worfy-harness/`, worfy пишет в `~/.claude` только установщиком и переносом); [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) (Profile целиком на машине, Full mode и Silent mode, `attribution`); [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md) (qmd — часть Harness, запись qmd в `~/.claude.json` убирается при переносе); [ADR-0047](../../../docs/adr/0047-harness-lessons-by-pr-early-owner-switch.md) (ранний переход машины владельца, откат одной командой); [spec.md](../spec.md)
 
@@ -307,3 +307,29 @@ hooks, `statusLine` и личными ключами, `.claude.json` с `qmd` и
   [светлая](../evidence/14-form-claude-md-light.png), [тёмная](../evidence/14-form-claude-md-dark.png); diff
   Profile-а — [светлая](../evidence/14-form-profiles-light.png), [тёмная](../evidence/14-form-profiles-dark.png);
   после Move — [светлая](../evidence/14-done-light.png), [тёмная](../evidence/14-done-dark.png).
+
+**Влито.** [PR #136](https://github.com/IDSAD-XL/worfy/pull/136) → squash-коммит `95dbc82` в `main`. Ревью —
+три круга:
+- REJECTED, первый круг, два ревьюера: 4 [med] — непокрытые test-ами проверки границ путей (`under()`,
+  `within()`), `restore.mjs` удалял созданное переносом без копии, раздел `CLAUDE.md` захватывал текст под
+  `#` и `####`, `mode` из формы не проверялся; и [low] — пометки «Workflow» и «Standing authorization»,
+  пути `~/.claude/agents/…` в `rules.md`, удаление `gate/state` целиком, symlink-и трёх файлов, IPC dev-сборки
+  без test-а.
+- REJECTED, второй круг: все семь пунктов исправлены, но доработка внесла дефект — повторный запуск
+  `restore.mjs` затирал отложенное в `<копия>/after/` (первый запуск сохранил правку, второй заменил её
+  копией). Скептик подтвердил: маркера законченного отката не было.
+- Узкий круг только по этому дефекту: маркер `restoredAt` в манифесте, отдельная папка на каждый
+  незаконченный запуск (`after/`, `after-2/`, …). NARROW: VERIFIED на `2f3ffdc`.
+
+Перед мержем: rebase на `2da3968`, `GATE_SCOPE=all gate.sh full` — код 0, CI зелёный. Первый `gate full`
+мержа упал на нестабильном `test/e2e/epic-frame.spec.ts:721`.
+
+**Долг.** Из комментариев REJECTED второго круга и NARROW: VERIFIED в PR #136:
+- [low] Нет test-а, где `restore.mjs` по-настоящему падает посередине и маркер `restoredAt` не записан:
+  test убирает маркер руками, поэтому перенос записи маркера в начало отката test не поймает.
+- [low] `src/main/harness/migrate/profiles.ts:50` — `\b` у `agents/`: путь к личному агенту
+  `scout-extra.md` переписался бы на агента plugin-а.
+- [low] Окно в миллисекунды между чтением и записью `settings.json` и `.claude.json`: правка Claude Code в
+  это окно теряется, копии нет (абзац «Гонки с живой Session»).
+- [low] `ADR-0049:44` говорит «`bin/epic-status` в первую очередь», перенос удаляет его последним. Нужен
+  новый ADR-уточнение (ADR неизменяем).
