@@ -7,7 +7,7 @@ Source: [roadmap.md](../../docs/roadmap.md), раздел E3; [CONTEXT.md](../..
 [0021](../../docs/adr/0021-mcp-servers-allowlist-in-profile.md) (в силе),
 [0020](../../docs/adr/0020-profile-shared-and-personal-parts.md) (заменён ADR-0042), ADR 0040–0047 этого
 Epic-а; HANDOFF 2026-10-07; Epic [worfy-week](../worfy-week/spec.md) — формат и соглашения.
-Ticket-ы: Epic `worfy-harness`, 26 Ticket-ов, нумерация с `01`. Шапка — тот же диалект, что у
+Ticket-ы: Epic `worfy-harness`, 27 Ticket-ов, нумерация с `01`. Шапка — тот же диалект, что у
 worfy-week (`Type:` / `Status:` / `Blocked by:` / `Source:`), чтобы её читали `epic-status`, `ticket`
 и вычисление Wave в worfy (`src/shared/workflow/waves.ts`).
 
@@ -197,7 +197,7 @@ Session проектирования E3, 2026-10-07. Номер вопроса �
 - **Подпись Developer ID и нотаризация** — E4.
 - **Личные skills, MCP-серверы и память пользователя.** Они не входят в Harness; worfy их не ставит и
   не переносит. Исключение — qmd (ADR-0043).
-- **Долги из HANDOFF, раздел «Риски и долги»**, в 26 Ticket-ов не вошли.
+- **Долги из HANDOFF, раздел «Риски и долги»**, в 27 Ticket-ов не вошли.
 
 ## Риски и открытые технические вопросы
 
@@ -306,6 +306,9 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 24 | `src/main/projects/connect.ts`, `src/main/ipc/projects.ts`, `src/shared/ipc/projects.ts`, `src/main/agent/options.ts`, `src/renderer/projects/ConnectProject.tsx`, `src/renderer/shell/sidebar/ProjectsSection.tsx`, `src/renderer/canvas/overlays/FirstEpic.tsx`, `harness/skills/connect-project/SKILL.md`, `harness/bin/project-connect`, `harness/bin/tests/project-connect.test.sh`, `harness/profiles/draft.schema.json`, `harness/profiles/README.md`, `test/contract/projects-connect.test.ts`, `test/e2e/projects-connect.spec.ts`, `test/e2e/projects.spec.ts`, `test/unit/first-epic.test.tsx`, `test/fixtures/agent-scripts/profile-draft.jsonl` | 11 |
 | 25 | `src/main/github/accounts.ts`, `src/main/projects/connect.ts`, `src/main/ipc/projects.ts`, `src/shared/ipc/projects.ts`, `src/renderer/projects/ConnectProject.tsx`, `test/fixtures/gh/gh-stub.mjs`, `test/contract/github-accounts.test.ts`, `test/contract/projects-connect.test.ts`, `test/e2e/projects-connect.spec.ts` | 12 |
 | 26 | `scripts/e3-sandbox.sh`, `scripts/e3-owner-check.sh`, `test/acceptance/e3.spec.ts`, `test/acceptance/fixtures/silent-repo/`, `test/acceptance/fixtures/silent-epic/`, `playwright.acceptance.config.ts`, `package.json`, `vitest.config.ts`, `tsconfig.test.node.json` | 13 |
+| 27 | `harness/evals/`, `scripts/eval-harness.mjs`, `package.json`, `.gitignore`, `electron.vite.config.ts`, `test/contract/harness-evals.test.ts`, `harness/README.md` | 4 |
+
+Ticket 27 (eval-кейсы Harness через `claude plugin eval`) добавлен при пересмотре E3 владельцем 2026-10-08: вопрос 34, вариант б, и вопрос 35 — «Готово, когда» E3 не меняется. Номера — из Session «Несколько машин и порт под Windows» (продолжают Q30–Q33 spec-а `worfy-windows`); это не Q34 и Q35 этого spec-а (проверка перевода и приёмка E3). Ждёт 05, 06, 07 и 11 — по блокерам Wave 4; общих файлов с 12 и с идущим 14 нет. Приёмка E3 (Ticket 26) его не ждёт.
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave. Ticket 16 — шаг
@@ -317,7 +320,9 @@ Ticket-ов одной Wave общий файл, Ticket с большим ном
   07 — agents, 08 — остальные skills, `bin/` и скрипты `hooks/`.
 - **Wave 3 — 09 и 11.** 09 ждёт 08, 11 — 06, 07 и 08. Общих файлов нет: 09 — `gate.sh` и чтение
   вердикта в worfy, 11 — `profile`, `preflight`, контракт Profile и строки skills с полями-путями.
-- **Wave 4 — 12.** Ждёт 04 и 10, по блокерам — Wave 3; сдвинут (ниже).
+- **Wave 4 — 12 и 27.** 12 ждёт 04 и 10, по блокерам — Wave 3; сдвинут (ниже). 27 ждёт 05, 06, 07 и 11.
+  Общих файлов нет: 12 — поиск Harness и пути в коде worfy, 27 — `harness/evals/`, скрипт запуска и
+  исключение `evals` из копии сборки.
 - **Wave 5 — 13.** Ждёт 04 и 12.
 - **Wave 6 — 14 и 15.** 14 ждёт 11 и 13, 15 — 13. Общих файлов нет: `electron-builder.yml` и
   `test/e2e/packaged.spec.ts` — только у 15, `HarnessStatus.tsx` — только у 14.
@@ -332,7 +337,8 @@ Ticket-ов одной Wave общий файл, Ticket с большим ном
 - **Wave 11 — 23 и 24.** 23 ждёт 22, 24 — 19 и 22. Общих файлов нет: `src/main/projects/store.ts` и
   `test/contract/projects.test.ts` — только у 23.
 - **Wave 12 — 25.** Ждёт 24.
-- **Wave 13 — 26.** Ждёт все остальные Ticket-ы.
+- **Wave 13 — 26.** Ждёт все остальные Ticket-ы, кроме 27: «Готово, когда» E3 без него (вопрос 35
+  пересмотра E3, 2026-10-08).
 
 Сдвиги из-за общих файлов:
 

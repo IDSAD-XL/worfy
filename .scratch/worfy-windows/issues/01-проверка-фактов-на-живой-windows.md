@@ -7,7 +7,7 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
 
 ## Что происходит
 
-- Ticket-ы 02–16 этого Epic-а написаны на Mac. На Windows ничего не запускалось. Ниже — факты, на
+- Ticket-ы 02–17 этого Epic-а написаны на Mac. На Windows ничего не запускалось. Ниже — факты, на
   которых они стоят и которые никто не проверял.
 - **Имя папки транскриптов.** worfy ищет транскрипты Session-ов в папке
   `<Claude home>/projects/<имя>`. Имя считает `projectDirName`
@@ -136,7 +136,7 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
    - как перед Wave Session смотрит открытые PR Epic-а worfy-link и их файлы (`gh pr list` и
      `gh pr view --json files`), пока это не делает skill `epic-wave` (Ticket 07). Мерж в main — по
      очереди (Q12, ADR-0056).
-6. **Правка Ticket-ов 02–16** по фактам: срез (что входит и что нет), `Blocked by` (только номера
+6. **Правка Ticket-ов 02–17** по фактам: срез (что входит и что нет), `Blocked by` (только номера
    этого Epic-а), file:line, «Готово, когда». Каждая правка ссылается на раздел evidence. Если факт
    снимает работу Ticket-а целиком, Ticket не удаляется: в «Что происходит» встаёт факт со ссылкой, а
    решение о закрытии уходит владельцу.
@@ -150,20 +150,20 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
 - [ ] В evidence — опись скриптов `harness/bin` и `harness/hooks` на main после закрытия E3, с выводом команды описи. Каждый скрипт на bash и zsh приписан ровно к одному из Ticket-ов 03, 04, 05, 06 или 15.
 - [ ] В evidence — раздел «Как ведётся Epic, пока Harness не на Node»: установка Harness и Profile на ПК, команды для статуса Ticket-а, для epic-status, проверка вместо Gate, просмотр открытых PR worfy-link.
 - [ ] Smart App Control: состояние в evidence. Если он включён — вопрос о подписи задан владельцу, ответ записан в evidence и в Ticket 12.
-- [ ] Ticket-ы 02–16 правлены по фактам, каждая правка ссылается на раздел evidence. `bash harness/bin/epic-status --json > "$TMP/es.json"; echo $?` печатает 0. `--json` стоит до имени Epic-а: после имени печатается строка этапа, а не JSON; вывод — Ticket-ы всех Epic-ов репозитория. Отбор — на node, потому что `jq` в Git Bash может не быть (это проверяет этот же Ticket): `node -e "const t=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).tickets.filter(x=>x.epic==='worfy-windows'); console.log(t.length, t.every(x=>x.blockedParsed), t.every(x=>x.blockedNums.every(n=>n>=1&&n<=16)))" "$TMP/es.json"` печатает `16 true true`: 16 Ticket-ов Epic-а `worfy-windows`, у каждого `blockedParsed: true`, в `blockedNums` только номера 1–16.
+- [ ] Ticket-ы 02–17 правлены по фактам, каждая правка ссылается на раздел evidence. `bash harness/bin/epic-status --json > "$TMP/es.json"; echo $?` печатает 0. `--json` стоит до имени Epic-а: после имени печатается строка этапа, а не JSON; вывод — Ticket-ы всех Epic-ов репозитория. Отбор — на node, потому что `jq` в Git Bash может не быть (это проверяет этот же Ticket): `node -e "const t=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).tickets.filter(x=>x.epic==='worfy-windows'); console.log(t.length, t.every(x=>x.blockedParsed), t.every(x=>x.blockedNums.every(n=>n>=1&&n<=17)))" "$TMP/es.json"` печатает `17 true true`: 17 Ticket-ов Epic-а `worfy-windows`, у каждого `blockedParsed: true`, в `blockedNums` только номера 1–17.
 - [ ] `git diff --name-only origin/main...HEAD` в PR печатает только файлы под `.scratch/worfy-windows`.
 
 ## Тесты
 
 Код не меняется, test-ов нет. Каждый факт в evidence стоит на выводе команды, снятом на ПК
-владельца. Ревьюер сверяет: у каждого раздела есть команда и вывод; каждая правка Ticket-ов 02–16
+владельца. Ревьюер сверяет: у каждого раздела есть команда и вывод; каждая правка Ticket-ов 02–17
 ссылается на раздел evidence; вывод из факта следует, а не дописан.
 
 ## Где в коде
 
 - `.scratch/worfy-windows/evidence/01-факты-windows.md` (новый)
 
-Правятся Ticket-ы 02–16 этого Epic-а в папке .scratch/worfy-windows/issues. Только читаются:
+Правятся Ticket-ы 02–17 этого Epic-а в папке .scratch/worfy-windows/issues. Только читаются:
 package.json, harness/hooks/hooks.json, скрипты в harness/bin и harness/hooks,
 src/main/claude-home/registry.ts, src/main/gate/state.ts, test/contract/harness-scripts.test.ts. С
 Ticket-ами других Epic-ов общих файлов нет.

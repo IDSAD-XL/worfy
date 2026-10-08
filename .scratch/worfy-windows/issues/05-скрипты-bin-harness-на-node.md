@@ -114,7 +114,7 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 ## Готово, когда
 
 - [ ] `harness/bin/tests/epic-status.test.sh` (новый) зелёный на bash-версии из `origin/main` — до переписывания — и на Node-версии. Его случаи — в «Тесты».
-- [ ] Сверка на живых данных, Mac, worktree worfy: старая версия из `git show origin/main:harness/bin/epic-status`, запущенная `bash` с `CLAUDE_TICKET_BIN=harness/bin/ticket`, и новая дают одинаковый вывод (`diff` пуст) для `--json`, для `--json --ref origin/main`, для строк без аргументов и для `epic-status worfy-windows`.
+- [ ] Сверка на живых данных, Mac, worktree worfy: старая версия из `git show origin/main:harness/bin/epic-status`, запущенная `bash` с `CLAUDE_TICKET_BIN=harness/bin/ticket`, и новая дают одинаковый вывод (`diff` пуст) для `--json`, для `--json --ref origin/main`, для строк без аргументов и для `epic-status worfy-windows` (через раздел Mac checks PR, Q33).
 - [ ] `head -1 harness/bin/epic-status` — `#!/usr/bin/env node`; `grep -n 'process.env.HOME' harness/bin/profile harness/bin/worktree-lock` — exit 1.
 - [ ] `harness-home.test.sh`, новый случай: копия `harness/` со снятым битом исполнения у всех файлов `bin` (`chmod -x`). В ней `node <копия>/bin/ticket root`, `node <копия>/bin/epic-status --json` и `node <копия>/bin/epic-board --no-open --out …` — exit 0. Так на Mac проверяется, что соседи зовутся не по shebang. На нынешнем main случай красный.
 - [ ] `bash harness/bin/tests/<файл>` для `profile.test.sh`, `tickets-root.test.sh`, `harness-home.test.sh` и `epic-status.test.sh` — exit 0 на Mac; в `pnpm test` (`test/contract/harness-scripts.test.ts`) — зелёные.
@@ -122,7 +122,7 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 - [ ] `test/contract/workflow-reader.test.ts`, новый случай: в `process.env` нет node, в окружении, переданном runner-у, есть — Epic-и и Ticket-ы читаются. На нынешнем main он красный.
 - [ ] `test/contract/workflow-reader.test.ts`: нет файла `epic-status` — `not-found` с обоими путями (прежний случай `:339`); нет `node` в PATH окружения — `not-found` с текстом про node. `test/contract/workflow-profile.test.ts`: нет файла `profile` — отказ, а не exit 1.
 - [ ] Windows-ПК, dev-сборка: Canvas Project-а worfy показывает рамки Epic-ов с Ticket-ами; снимок — `../evidence/05-epic-и-на-windows.png`. На Windows-ПК `node harness/bin/epic-board` открывает страницу в браузере по умолчанию.
-- [ ] Mac: gate full зелёный (`lint`, `typecheck`, `test`, `test:e2e`, `test:package`) (по правилу needs-mac-gate: проверяет и вливает Session на Mac). Упакованная сборка (`pnpm package`), запущенная с окружением launchd (`env -i`, как в skill `ship-ticket`, раздел 6), показывает рамки Epic-ов Project-а worfy: в PATH launchd node нет, в окружении агента — есть.
+- [ ] Mac: gate full зелёный (`lint`, `typecheck`, `test`, `test:e2e`, `test:package`) (по правилу needs-mac-gate: проверяет и вливает Session на Mac). Упакованная сборка (`pnpm package`), запущенная с окружением launchd (`env -i`, как в skill `ship-ticket`, раздел 6), показывает рамки Epic-ов Project-а worfy: в PATH launchd node нет, в окружении агента — есть (через раздел Mac checks PR, Q33).
 
 ## Тесты
 

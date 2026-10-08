@@ -117,7 +117,7 @@ Harness (Ticket 13); `@packaged` e2e на Windows (Ticket 14); шаг для Win
 - [ ] Contract `test/contract/make-icons.test.ts`, на любой системе: `build/icon.ico` — заголовок
   ICO и семь записей 16, 24, 32, 48, 64, 128, 256 px; sha256 файла совпадает с `build/icons.json`.
   На Mac запуск скрипта пишет `icon.icns`, `icon.ico`, `icon.png` и `icons.json` и ничего больше
-  (`:192-196`).
+  (`:192-196`; на Mac — через раздел Mac checks PR, Q33).
 - [ ] Unit `test/unit/install-stable.test.ts` (новый): цель по умолчанию и путь `<target>.json` для
   `darwin` и `win32`; Windows-цель, равная папке установщика, отвергается; Mac-цель без `.app`
   отвергается; запущенная копия находится в фикстуре списка процессов обеих систем.
@@ -125,7 +125,7 @@ Harness (Ticket 13); `@packaged` e2e на Windows (Ticket 14); шаг для Win
   в worktree репозитория, упакованная — нет; зелёный на Mac и на Windows-ПК.
 - [ ] Mac: блок «with a stand-in app» в `test/e2e/packaged.spec.ts` (теперь про
   `scripts/install-stable.mjs`) зелёный в gate full; `pnpm test:package` — exit 0;
-  `pnpm install:stable "$(mktemp -d)/worfy.app"` — exit 0, `worfy.json` рядом с прежними полями;
+  `pnpm install:stable "$(mktemp -d)/worfy.app"` — exit 0, `worfy.json` рядом с прежними полями (через раздел Mac checks PR, Q33);
   gate full на Mac зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
 - [ ] Windows-ПК: `pnpm package` — exit 0; в `dist\` есть установщик `.exe` и
   `dist\win-unpacked\worfy.exe`;
