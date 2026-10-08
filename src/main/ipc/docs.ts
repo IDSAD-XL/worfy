@@ -5,6 +5,7 @@ import { ClientHolders, clientOf, type Client } from '../clients'
 import { DocsHub, readDoc, type DocsSubscriber } from '../docs/watch'
 import { placeNewNode } from '../layout/place'
 import { layoutStore } from '../layout/store'
+import { projectHolds } from '../projects/holds'
 import { projectStore } from '../projects/store'
 import { defineHandler, emit, type HandlerModule } from './index'
 
@@ -96,9 +97,41 @@ function keepActive(): void {
   }
 }
 
+// The Projects screens of Linked machines show (worfy-link ticket 09) are kept open the same way,
+// under a subscriber of their own: one of them may be the active Project as well.
+const HELD = 'held'
+const heldSubscriber: DocsSubscriber = { id: HELD, send: () => undefined }
+const keptHeld = new Set<string>()
+
+/** Opens the documents of every held Project not open yet, and closes those no screen holds any more. */
+export function keepHeld(): void {
+  const held = projectHolds().projectIds()
+  for (const projectId of [...keptHeld]) {
+    if (held.has(projectId)) continue
+    keptHeld.delete(projectId)
+    void docsHub.close(projectId, HELD)
+  }
+  for (const projectId of held) {
+    if (keptHeld.has(projectId)) continue
+    let path: string
+    try {
+      path = projectStore().get(projectId).path
+    } catch (error) {
+      console.warn(`[docs] could not keep the documents of the held Project ${projectId}`, error)
+      continue
+    }
+    keptHeld.add(projectId)
+    docsHub.open(projectId, path, heldSubscriber).catch((error: unknown) => {
+      console.error(`[docs] could not watch the documents of ${projectId}`, error)
+      keptHeld.delete(projectId)
+    })
+  }
+}
+
 // Subscribing reads nothing: the Project list is read once a window exists.
 app.on('browser-window-created', keepActive)
 projectStore().onChange(keepActive)
+projectHolds().onChange(keepHeld)
 app.on('will-quit', () => void docsHub.closeAll())
 
 export default [

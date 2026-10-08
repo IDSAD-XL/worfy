@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { ProjectView } from '../../../shared/ipc/projects'
-import { invoke } from '../../ipc'
-import { acceptProjectsState, useProjects } from '../../projects/useProjects'
-import { ListRow } from '../../theme/primitives'
+import { invokeOn, windowMachine } from '../../ipc'
+import { useMachines } from '../../machines/useMachines'
+import { acceptMachineProjects, openProject, useProjectGroups, useProjects, type ProjectGroup } from '../../projects/useProjects'
+import { ListRow, StatusChip } from '../../theme/primitives'
 import { ProjectSettings } from '../ProjectSettings'
+import { MachineName } from './MachinesSection'
 
 /** First section of the sidebar (design F). */
 export const order = 10
@@ -26,6 +28,10 @@ const styles = {
   message: { margin: '2px 8px 4px', fontSize: 'var(--text-12)', lineHeight: '16px', overflowWrap: 'anywhere' },
   empty: { margin: '2px 8px', fontSize: 'var(--text-12)', color: 'var(--text-muted)' },
   list: { margin: 0, padding: 0, listStyle: 'none' },
+  group: { marginTop: 'var(--space-1)' },
+  groupHeader: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minHeight: 22, padding: '0 8px', fontSize: 'var(--text-12)', color: 'var(--text-secondary)' },
+  groupName: { flex: 1, minWidth: 0, display: 'flex' },
+  unavailable: { border: '1px solid var(--border)', background: 'var(--surface-raised)', color: 'var(--text-muted)' },
   menu: {
     position: 'fixed',
     zIndex: 90,
@@ -104,37 +110,108 @@ function ProjectMenu({ x, y, onSettings, onRemove, onClose }: MenuProps) {
   )
 }
 
+/** The state of a Machine in words, always with its colour (F-SPEC: a status colour never stands alone). */
+function GroupState({ group }: { group: ProjectGroup }) {
+  if (group.state === 'this') return null
+  if (group.state === 'online') return <StatusChip status="ready" label="Online" />
+  return (
+    <span className="w-chip" style={styles.unavailable}>
+      Unavailable
+    </span>
+  )
+}
+
+interface RowsProps {
+  group: Pick<ProjectGroup, 'machine' | 'projects' | 'selectedId'>
+  onSelect: (project: ProjectView) => void
+  onMenu: (project: ProjectView, x: number, y: number) => void
+}
+
+/** The Project rows of one Machine. */
+function ProjectRows({ group, onSelect, onMenu }: RowsProps) {
+  return (
+    <ul style={styles.list} aria-label={group.machine === null ? 'Projects' : 'Projects of the Machine'}>
+      {group.projects.map((project) => (
+        <li
+          key={project.id}
+          data-testid="project-row"
+          data-project-id={project.id}
+          data-machine-id={group.machine ?? undefined}
+          title={project.path}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            onMenu(project, event.clientX, event.clientY)
+          }}
+        >
+          <ListRow
+            label={<span style={{ fontWeight: 600 }}>{project.name}</span>}
+            icon={folderIcon}
+            trailing={<span className="w-mono">{project.branch ?? '—'}</span>}
+            selected={project.id === group.selectedId}
+            onSelect={() => onSelect(project)}
+          />
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 /**
- * The "Projects" section: every Project (one git repository each), the active one highlighted,
- * its branch on the right. "Add project" opens the system folder picker; the context menu of a
- * row opens its settings or removes it from the list (its data folder stays).
+ * The "Projects" section: every Project (one git repository each), the one the window shows
+ * highlighted, its branch on the right. With Linked machines (worfy-link ticket 09) the Projects
+ * are grouped by Machine — this one first, then the Linked machines by name, each with its state —
+ * and a click on a Project of another Machine opens the window on that Machine. "Add project"
+ * opens the system folder picker of this Machine; the context menu of a row opens its settings or
+ * removes it from the list (its data folder stays), on the row's Machine.
  */
 export default function ProjectsSection() {
   const state = useProjects()
+  const link = useMachines()
+  const groups = useProjectGroups(link)
   const [message, setMessage] = useState<Message>()
-  const [menu, setMenu] = useState<{ project: ProjectView; x: number; y: number }>()
-  const [settingsFor, setSettingsFor] = useState<ProjectView>()
+  const [menu, setMenu] = useState<{ machine: string | null; project: ProjectView; x: number; y: number }>()
+  const [settingsFor, setSettingsFor] = useState<{ machine: string | null; project: ProjectView }>()
 
   const fail = (error: string): void => setMessage({ kind: 'error', text: error })
 
+  // A Project is added on this Machine (a Linked machine's — worfy-link ticket 11).
   const addProject = async (): Promise<void> => {
     setMessage(undefined)
-    const picked = await invoke('projects.pickFolder')
+    const picked = await invokeOn(null, 'projects.pickFolder')
     if (!picked.ok) return fail(picked.error)
     if (picked.value.path === null) return
-    const added = await invoke('projects.add', { path: picked.value.path })
+    const added = await invokeOn(null, 'projects.add', { path: picked.value.path })
     if (!added.ok) return fail(added.error)
     if (added.value.status === 'rejected') return fail(added.value.reason)
-    acceptProjectsState(added.value.state)
+    acceptMachineProjects(null, added.value.state)
     if (added.value.notice) setMessage({ kind: 'notice', text: added.value.notice })
+    // Added here, it is this Machine's active Project: a window on a Linked machine comes back to show it.
+    if (windowMachine() !== null) {
+      const failure = await openProject(null, added.value.project.id)
+      if (failure !== undefined) fail(failure)
+    }
   }
 
-  const change = async (channel: 'projects.select' | 'projects.remove', id: string): Promise<void> => {
+  const select = async (machine: string | null, project: ProjectView): Promise<void> => {
     setMessage(undefined)
-    const result = await invoke(channel, { id })
-    if (result.ok) acceptProjectsState(result.value)
+    const failure = await openProject(machine, project.id)
+    if (failure !== undefined) fail(failure)
+  }
+
+  const remove = async (machine: string | null, project: ProjectView): Promise<void> => {
+    setMessage(undefined)
+    const result = await invokeOn(machine, 'projects.remove', { id: project.id })
+    if (result.ok) acceptMachineProjects(machine, result.value)
     else fail(result.error)
   }
+
+  const rowsOf = (group: Pick<ProjectGroup, 'machine' | 'projects' | 'selectedId'>) => (
+    <ProjectRows
+      group={group}
+      onSelect={(project) => void select(group.machine, project)}
+      onMenu={(project, x, y) => setMenu({ machine: group.machine, project, x, y })}
+    />
+  )
 
   return (
     <section aria-labelledby="sidebar-projects-heading">
@@ -159,30 +236,42 @@ export default function ProjectsSection() {
         </p>
       ) : null}
 
-      {state && state.projects.length === 0 ? <p style={styles.empty}>No projects yet</p> : null}
-
-      <ul style={styles.list} aria-label="Projects">
-        {state?.projects.map((project) => (
-          <li
-            key={project.id}
-            data-testid="project-row"
-            data-project-id={project.id}
-            title={project.path}
-            onContextMenu={(event) => {
-              event.preventDefault()
-              setMenu({ project, x: event.clientX, y: event.clientY })
-            }}
+      {groups === null ? (
+        <>
+          {state && state.projects.length === 0 ? <p style={styles.empty}>No projects yet</p> : null}
+          {rowsOf({ machine: null, projects: state?.projects ?? [], selectedId: state?.activeId ?? null })}
+        </>
+      ) : (
+        groups.map((group) => (
+          <div
+            key={group.machine ?? ''}
+            style={styles.group}
+            data-testid="machine-group"
+            data-machine-id={group.machine ?? undefined}
+            data-state={group.state}
+            data-sharing={group.sharing ? 'yes' : 'no'}
           >
-            <ListRow
-              label={<span style={{ fontWeight: 600 }}>{project.name}</span>}
-              icon={folderIcon}
-              trailing={<span className="w-mono">{project.branch ?? '—'}</span>}
-              selected={project.id === state.activeId}
-              onSelect={() => void change('projects.select', project.id)}
-            />
-          </li>
-        ))}
-      </ul>
+            <div style={styles.groupHeader}>
+              <span style={styles.groupName}>
+                <MachineName name={group.name} />
+              </span>
+              <GroupState group={group} />
+            </div>
+            {!group.sharing ? (
+              <p style={styles.empty} data-testid="machine-not-sharing">
+                {group.name} doesn&apos;t share its Projects
+              </p>
+            ) : group.error !== null ? (
+              <p role="alert" style={{ ...styles.message, color: 'var(--blocked-text)' }}>
+                {group.error}
+              </p>
+            ) : group.state !== 'unavailable' && group.projects.length === 0 ? (
+              <p style={styles.empty}>No projects yet</p>
+            ) : null}
+            {rowsOf(group)}
+          </div>
+        ))
+      )}
 
       {menu ? (
         <ProjectMenu
@@ -190,17 +279,17 @@ export default function ProjectsSection() {
           y={menu.y}
           onClose={() => setMenu(undefined)}
           onSettings={() => {
-            setSettingsFor(menu.project)
+            setSettingsFor({ machine: menu.machine, project: menu.project })
             setMenu(undefined)
           }}
           onRemove={() => {
             setMenu(undefined)
-            void change('projects.remove', menu.project.id)
+            void remove(menu.machine, menu.project)
           }}
         />
       ) : null}
 
-      {settingsFor ? <ProjectSettings project={settingsFor} onClose={() => setSettingsFor(undefined)} /> : null}
+      {settingsFor ? <ProjectSettings project={settingsFor.project} machine={settingsFor.machine} onClose={() => setSettingsFor(undefined)} /> : null}
     </section>
   )
 }

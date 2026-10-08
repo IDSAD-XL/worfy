@@ -69,6 +69,20 @@ export const projectsSettingsSet = invokeChannel(
  */
 export const projectsSettingsDefaults = invokeChannel('projects.settings.defaults', z.void(), projectSettingsSchema, 'project')
 
+/**
+ * A screen of a Linked machine shows Project `projectId` of this Machine (null: none any more;
+ * worfy-link ticket 09). `screen` names the screen among those of the calling client. While some
+ * screen shows a Project, this Machine keeps its Orchestrator and its documents open, as it does
+ * for its active Project; a client that leaves (its connection closed, access switched off) lets
+ * go of all its screens. The active Project of this Machine does not change.
+ */
+export const projectsHold = invokeChannel(
+  'projects.hold',
+  z.object({ screen: z.string().min(1).max(100), projectId: z.string().min(1).nullable() }),
+  z.object({ projectId: z.string().nullable() }),
+  'project',
+)
+
 /** Sent to every window after a Project's settings were saved, so the action buttons (ticket 23) follow at once. */
 export const projectsSettingsChanged = eventChannel('projects.settings.changed', z.object({ id: z.string().min(1), settings: projectSettingsSchema }), 'project')
 
@@ -85,6 +99,7 @@ declare module './channels' {
     'projects.settings.get': typeof projectsSettingsGet
     'projects.settings.set': typeof projectsSettingsSet
     'projects.settings.defaults': typeof projectsSettingsDefaults
+    'projects.hold': typeof projectsHold
     'projects.changed': typeof projectsChanged
     'projects.settings.changed': typeof projectsSettingsChanged
   }

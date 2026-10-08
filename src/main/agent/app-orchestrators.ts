@@ -15,6 +15,7 @@ import { toEveryWindow } from '../broadcast'
 import { ClaudeHomeRegistry } from '../claude-home/registry'
 import { emit } from '../ipc/index'
 import { layoutStore } from '../layout/store'
+import { projectHolds } from '../projects/holds'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { sharedRegistry } from './app-registry'
@@ -59,6 +60,22 @@ function openActive(): void {
   }
 }
 
+/**
+ * Opens the Orchestrator of every Project a screen of a Linked machine shows (worfy-link ticket
+ * 09, projects/holds.ts), as for the active Project. Opening one that is open does nothing.
+ */
+function openHeld(): void {
+  for (const projectId of projectHolds().projectIds()) {
+    try {
+      sharedOrchestrators()
+        .open(projectId)
+        .catch((error: unknown) => console.error(`[orchestrator] could not open the Orchestrator of ${projectId}`, error))
+    } catch (error) {
+      console.error(`[orchestrator] could not open the Orchestrator of the held Project ${projectId}`, error)
+    }
+  }
+}
+
 let started = false
 
 /**
@@ -69,6 +86,7 @@ export function startOrchestrators(): void {
   if (started) return
   started = true
   app.on('browser-window-created', openActive)
+  projectHolds().onChange(openHeld)
   projectStore().onChange(({ activeId, previousActiveId }) => {
     if (activeId !== previousActiveId) openActive()
     shared?.retain(new Set(projectStore().list().map((project) => project.id)))
