@@ -325,6 +325,10 @@ Orchestrator): guard пропускает `git push origin HEAD:<эпик>/05`, 
   подтвердить. Test-ы — в `silent-mode.test.sh`, раздел 5b (временное дерево и основной checkout).
   На mutant-е без временного дерева test покраснел.
 Text-проверки A и B — `epic-wave-ship-ticket.test.sh`, раздел 7b: на текстах 6738ee8 — 9 красных.
+Проверки узкого круга: все `harness/{bin,hooks}/tests/*.test.sh` под пустым HOME — код 0. `gate.sh full`
+под замком на 888791c: первый прогон — код 2, упал известный нестабильный
+`test/e2e/epic-frame.spec.ts:721` (код приложения круг не меняет); повтор — код 0, «[gate] зелено (full)».
+Долги, не доработаны: `origin/HEAD` в test-е, `branch -d` при `single`, комментарий в `epic-wave` :446.
 
 **Пункт 7 — не сделан, проба не проведена.** Обе пробы — 2026-10-08, cwd в scratchpad.
 1. `CLAUDE_CONFIG_DIR=/tmp/worfy-harness-w10/impl-22/probe/cfg claude -p "Reply with the single word
