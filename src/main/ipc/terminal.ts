@@ -4,32 +4,49 @@
 // always in the Project's root: the renderer names the Node, never a folder or a program (a command
 // to type comes only from the fixed list of src/shared/ipc/terminal.ts, TERMINAL_COMMANDS). A shell
 // ends when its Node is closed (terminal.close), when its Node leaves the Layout by any route,
-// when its Project leaves the list, when the window that opened it is destroyed, and when the app
-// quits; the quit waits until every shell has exited.
-import { app, type WebContents } from 'electron'
+// when its Project leaves the list, when the last client that opened it is destroyed, and when the
+// app quits; the quit waits until every shell has exited.
+//
+// Every client that opened a shell (a window, or later a Linked machine's connection; the clients
+// of src/main/clients.ts) gets its output, its exit and the start of a new shell. Which client's
+// size the pty has is decided in the registry (src/main/terminal/pty.ts): the one that typed or
+// clicked last (worfy-link ticket 05, ADR-0053).
+import { app } from 'electron'
 import { agentEnv } from '../agent/env'
+import { clientOf, type Client } from '../clients'
 import { layoutStore, type LayoutChange } from '../layout/store'
 import { projectStore } from '../projects/store'
 import { TerminalRegistry, type TerminalSink } from '../terminal/pty'
-import { TERMINAL_NODE_KIND, terminalClose, terminalExit, terminalInput, terminalOpen, terminalOutput, terminalResize } from '../../shared/ipc/terminal'
-import { defineHandler, emit, type EventTarget, type HandlerModule } from './index'
+import {
+  TERMINAL_NODE_KIND,
+  terminalClose,
+  terminalExit,
+  terminalInput,
+  terminalOpen,
+  terminalOutput,
+  terminalResize,
+  terminalStarted,
+  terminalTakeSize,
+} from '../../shared/ipc/terminal'
+import { defineHandler, emit, type HandlerModule } from './index'
 
 /** One shell per Terminal Node of a Project. */
 export function terminalKey(projectId: string, nodeId: string): string {
   return JSON.stringify([projectId, nodeId])
 }
 
-type Window = EventTarget & Partial<Pick<WebContents, 'isDestroyed'>> & { once(event: 'destroyed', listener: () => void): unknown }
-
-/** Sends a terminal's output and exit to a window, as long as the window is alive. */
-function windowSink(target: Window, projectId: string, nodeId: string): TerminalSink {
-  const alive = () => target.isDestroyed?.() !== true
+/** Sends a terminal's output, exit and new start to a client, as long as the client is alive. */
+function clientSink(client: Client, projectId: string, nodeId: string): TerminalSink {
+  const alive = () => !client.isDestroyed()
   return {
     output: (data, end) => {
-      if (alive()) emit(target, terminalOutput, { projectId, nodeId, data, end })
+      if (alive()) emit(client, terminalOutput, { projectId, nodeId, data, end })
     },
     exit: (exitCode, signal) => {
-      if (alive()) emit(target, terminalExit, { projectId, nodeId, exitCode, signal })
+      if (alive()) emit(client, terminalExit, { projectId, nodeId, exitCode, signal })
+    },
+    started: (pid) => {
+      if (alive()) emit(client, terminalStarted, { projectId, nodeId, pid })
     },
   }
 }
@@ -44,39 +61,41 @@ export interface TerminalDeps {
 
 /** The handlers over a registry; tests pass their own registry, Projects and Layout. */
 export function terminalHandlers(deps: TerminalDeps): HandlerModule {
-  /** The window each terminal reports to: the one that opened it last. */
-  const owners = new Map<string, Window>()
-  const watched = new WeakSet<Window>()
-
-  const own = (window: Window, key: string): void => {
-    owners.set(key, window)
-    if (watched.has(window)) return
-    watched.add(window)
-    window.once('destroyed', () => {
-      const keys = [...owners].flatMap(([each, owner]) => (owner === window ? [each] : []))
-      for (const each of keys) owners.delete(each)
-      void deps
-        .registry()
-        .closeWhere((key) => keys.includes(key))
-        .catch((error: unknown) => console.warn('[terminal] closing the terminals of a closed window failed', error))
-    })
+  const watched = new WeakSet<Client>()
+  const leave = (client: Client): void =>
+    void deps
+      .registry()
+      .leave(client)
+      .catch((error: unknown) => console.warn('[terminal] closing the terminals of a closed client failed', error))
+  /** A client leaves every terminal it opened when it is destroyed; one listener per client. */
+  const watch = (client: Client): void => {
+    if (watched.has(client)) return
+    watched.add(client)
+    client.once('destroyed', () => leave(client))
   }
 
   return [
     defineHandler(terminalOpen, async ({ projectId, nodeId, cols, rows, restart, command }, { event }) => {
+      const client = clientOf(event)
+      if (client === undefined) throw new Error('terminal.open needs the client that calls it')
+      // A destroyed client would never leave: its `destroyed` has already come.
+      if (client.isDestroyed()) throw new Error('the client is gone')
       const cwd = deps.projectRoot(projectId)
       if (!deps.isTerminalNode(projectId, nodeId)) throw new Error(`${nodeId} is not a Terminal Node of ${projectId}`)
-      const key = terminalKey(projectId, nodeId)
-      const window = event.sender as unknown as Window
-      const result = await deps.registry().open(key, { cwd, cols, rows, restart, command }, windowSink(window, projectId, nodeId))
-      own(window, key)
+      watch(client)
+      const result = await deps.registry().open(terminalKey(projectId, nodeId), { cwd, cols, rows, restart, command }, client, clientSink(client, projectId, nodeId))
+      // Destroyed while the shell was starting: its `destroyed` may have come before it subscribed.
+      if (client.isDestroyed()) leave(client)
       return result
     }),
-    defineHandler(terminalInput, ({ projectId, nodeId, data }) => {
-      deps.registry().write(terminalKey(projectId, nodeId), data)
+    defineHandler(terminalInput, ({ projectId, nodeId, data }, { event }) => {
+      deps.registry().write(terminalKey(projectId, nodeId), data, clientOf(event))
     }),
-    defineHandler(terminalResize, ({ projectId, nodeId, cols, rows }) => {
-      deps.registry().resize(terminalKey(projectId, nodeId), cols, rows)
+    defineHandler(terminalResize, ({ projectId, nodeId, cols, rows }, { event }) => {
+      deps.registry().resize(terminalKey(projectId, nodeId), cols, rows, clientOf(event))
+    }),
+    defineHandler(terminalTakeSize, ({ projectId, nodeId, cols, rows }, { event }) => {
+      deps.registry().takeSize(terminalKey(projectId, nodeId), cols, rows, clientOf(event))
     }),
     defineHandler(terminalClose, async ({ projectId, nodeId }) => {
       await deps.registry().close(terminalKey(projectId, nodeId))

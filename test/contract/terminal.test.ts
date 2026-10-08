@@ -5,12 +5,13 @@ import { EventEmitter } from 'node:events'
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { monitorEventLoopDelay, performance } from 'node:perf_hooks'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SYSTEM_PATH } from '../../src/main/agent/env'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { closeRemovedNode, closeRemovedProjects, terminalHandlers, terminalKey, wireRegistry } from '../../src/main/ipc/terminal'
-import { clampSize, ReplayBuffer, REPLAY_LIMIT, terminalEnv, TerminalRegistry, type PtyProcess, type TerminalSink } from '../../src/main/terminal/pty'
+import { clampSize, ReplayBuffer, REPLAY_LIMIT, terminalEnv, TerminalRegistry, type PtyProcess, type SpawnPty, type TerminalSink } from '../../src/main/terminal/pty'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
@@ -42,6 +43,12 @@ interface Exit {
   exitCode: number
   signal: number | null
 }
+interface Started {
+  projectId: string
+  nodeId: string
+  pid: number
+}
+type Window = ReturnType<Awaited<ReturnType<typeof harness>>['makeWindow']>
 
 let root: string
 let home: string
@@ -69,11 +76,12 @@ function alive(pid: number): boolean {
   }
 }
 
-async function harness(options: { killGraceMs?: number; nodes?: string[] } = {}) {
+async function harness(options: { killGraceMs?: number; nodes?: string[]; spawn?: SpawnPty } = {}) {
   const registry = new TerminalRegistry({
     // /bin/sh with an empty HOME: no rc file of the machine running the tests takes part.
     env: () => Promise.resolve({ SHELL: '/bin/sh', PATH: SYSTEM_PATH, HOME: home, PS1: '$ ', PWD: '/somewhere/else', SHLVL: '3' }),
     killGraceMs: options.killGraceMs ?? 1000,
+    ...(options.spawn === undefined ? {} : { spawn: options.spawn }),
   })
   registries.push(registry)
   const nodes = new Set(options.nodes ?? [NODE])
@@ -91,15 +99,26 @@ async function harness(options: { killGraceMs?: number; nodes?: string[] } = {})
     isTrustedSender: (url) => url === APP_URL,
   })
 
+  // What every window got, and what each window got on its own (`window.outputs` and the rest).
   const outputs: Output[] = []
   const exits: Exit[] = []
+  let windows = 0
   const makeWindow = () => {
     const window = Object.assign(new EventEmitter(), {
+      id: ++windows,
       destroyed: false,
+      outputs: [] as Output[],
+      exits: [] as Exit[],
+      starts: [] as Started[],
       isDestroyed: () => window.destroyed,
       send: (channel: string, payload: unknown) => {
-        if (channel === `${IPC_CHANNEL_PREFIX}terminal.output`) outputs.push(payload as Output)
-        else if (channel === `${IPC_CHANNEL_PREFIX}terminal.exit`) exits.push(payload as Exit)
+        if (channel === `${IPC_CHANNEL_PREFIX}terminal.output`) {
+          outputs.push(payload as Output)
+          window.outputs.push(payload as Output)
+        } else if (channel === `${IPC_CHANNEL_PREFIX}terminal.exit`) {
+          exits.push(payload as Exit)
+          window.exits.push(payload as Exit)
+        } else if (channel === `${IPC_CHANNEL_PREFIX}terminal.started`) window.starts.push(payload as Started)
         else throw new Error(`unexpected event ${channel}`)
       },
       destroy: () => {
@@ -128,10 +147,10 @@ async function harness(options: { killGraceMs?: number; nodes?: string[] } = {})
       .join('')
   const open = (nodeId = NODE, size: { cols: number; rows: number; restart?: boolean; command?: string } = { cols: 80, rows: 24 }, from?: ReturnType<typeof makeWindow>) =>
     ok<OpenResult>('terminal.open', { projectId: PROJECT, nodeId, ...size }, from)
-  const type = (data: string, nodeId = NODE) => ok('terminal.input', { projectId: PROJECT, nodeId, data })
+  const type = (data: string, nodeId = NODE, from?: ReturnType<typeof makeWindow>) => ok('terminal.input', { projectId: PROJECT, nodeId, data }, from)
   /** Runs a command and waits for the line its output starts with. */
-  const run = async (command: string, expected: RegExp, nodeId = NODE) => {
-    await type(`${command}\r`, nodeId)
+  const run = async (command: string, expected: RegExp, nodeId = NODE, from?: ReturnType<typeof makeWindow>) => {
+    await type(`${command}\r`, nodeId, from)
     await vi.waitFor(() => expect(text(nodeId)).toMatch(expected), { timeout: 5000 })
   }
   return { registry, call, ok, open, type, run, text, outputs, exits, sender, makeWindow, nodes, projectRoot }
@@ -208,7 +227,7 @@ describe('terminal channels on a real pty', () => {
     expect(second.exited).toBeNull()
   })
 
-  it('the window that opened a terminal going away ends its shell', async () => {
+  it('the only client that opened a terminal going away ends its shell (the last subscriber left)', async () => {
     const h = await harness({ nodes: [NODE, 'node-2'] })
     const window = h.makeWindow()
     const { pid } = await h.open(NODE, { cols: 80, rows: 24 }, window)
@@ -314,6 +333,297 @@ describe('terminal channels on a real pty', () => {
   })
 })
 
+/** The text of the output a window got for a Node, and the check that its `end`s run without a gap. */
+function received(window: Window, nodeId = NODE): string {
+  return window.outputs
+    .filter((o) => o.nodeId === nodeId)
+    .map((o) => o.data)
+    .join('')
+}
+
+describe('one Terminal on several screens (worfy-link ticket 05, ADR-0053)', () => {
+  it('two clients that opened one Terminal both get every chunk with the same end; the second open does not take the output from the first', async () => {
+    const h = await harness()
+    const a = h.makeWindow()
+    const b = h.makeWindow()
+    const first = await h.open(NODE, { cols: 80, rows: 24 }, a)
+    const second = await h.open(NODE, { cols: 80, rows: 24 }, b)
+    expect(second).toMatchObject({ pid: first.pid, started: false })
+
+    await h.run('echo two""-screens', /two-screens\r?\n/, NODE, a)
+    await vi.waitFor(() => expect(received(a)).toMatch(/two-screens\r?\n/), { timeout: 2000 })
+    await vi.waitFor(() => expect(received(b)).toMatch(/two-screens\r?\n/), { timeout: 2000 })
+
+    // B got every chunk printed after it attached, with the end A got for the same chunk.
+    const afterAttach = a.outputs.filter((o) => o.end > second.end)
+    expect(b.outputs).toEqual(afterAttach)
+    expect(afterAttach.length).toBeGreaterThan(0)
+  })
+
+  it('a client that attaches to a running shell gets the replay and its end; the chunks after it do not repeat the replay', async () => {
+    const h = await harness()
+    const a = h.makeWindow()
+    await h.open(NODE, { cols: 80, rows: 24 }, a)
+    await h.run('echo be""fore', /before\r?\n/, NODE, a)
+
+    const b = h.makeWindow()
+    const attached = await h.open(NODE, { cols: 80, rows: 24 }, b)
+    expect(attached.replay).toBe(received(a))
+    expect(attached.end).toBe(a.outputs.at(-1)?.end)
+
+    await h.run('echo af""ter', /after\r?\n/, NODE, b)
+    await vi.waitFor(() => expect(received(b)).toMatch(/after\r?\n/), { timeout: 5000 })
+    // The live chunks start where the replay ended: replay + chunks is the whole output, once.
+    expect(b.outputs[0]?.end).toBe(attached.end + (b.outputs[0]?.data.length ?? 0))
+    expect(attached.replay + received(b)).toBe(received(a))
+    expect(received(b)).not.toContain('before')
+  })
+
+  it('one of two clients destroyed: the shell lives on and the other gets its output; the last one destroyed: the shell is closed, not kept as exited', async () => {
+    const h = await harness()
+    const a = h.makeWindow()
+    const b = h.makeWindow()
+    const { pid } = await h.open(NODE, { cols: 80, rows: 24 }, a)
+    await h.open(NODE, { cols: 80, rows: 24 }, b)
+
+    // B opened last, so it is the one that took the output before: it goes first.
+    b.destroy()
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(alive(pid)).toBe(true)
+    await h.run('echo still""-here', /still-here\r?\n/, NODE, a)
+    await vi.waitFor(() => expect(received(a)).toMatch(/still-here\r?\n/), { timeout: 2000 })
+    expect(received(b)).not.toContain('still-here')
+
+    a.destroy()
+    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5000 })
+    await vi.waitFor(() => expect(h.registry.has(terminalKey(PROJECT, NODE))).toBe(false))
+    expect(h.registry.hasExited(terminalKey(PROJECT, NODE))).toBe(false)
+  })
+
+  it('a client destroyed before its open is handled starts nothing; one destroyed while its open is on the way does not keep the shell running', async () => {
+    const h = await harness()
+    const gone = h.makeWindow()
+    gone.destroy()
+    const refused = await h.call('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24 }, gone)
+    expect(!refused.ok && refused.error).toMatch(/client is gone/)
+    expect(h.registry.size).toBe(0)
+
+    // Destroyed after the handler checked it, while the shell starts.
+    const a = h.makeWindow()
+    h.projectRoot.mockImplementationOnce(() => {
+      a.destroy()
+      return root
+    })
+    const { pid } = await h.open(NODE, { cols: 80, rows: 24 }, a)
+    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5000 })
+    await vi.waitFor(() => expect(h.registry.size).toBe(0))
+    expect(h.registry.hasExited(terminalKey(PROJECT, NODE))).toBe(false)
+  })
+
+  it('Restart from A: B gets terminal.started with the new pid, and an open from B attaches to the new shell', async () => {
+    const h = await harness()
+    const a = h.makeWindow()
+    const b = h.makeWindow()
+    const { pid } = await h.open(NODE, { cols: 80, rows: 24 }, a)
+    await h.open(NODE, { cols: 80, rows: 24 }, b)
+    await h.type('exit 3\r', NODE, a)
+    await vi.waitFor(() => expect(b.exits).toEqual([{ projectId: PROJECT, nodeId: NODE, exitCode: 3, signal: null }]), { timeout: 5000 })
+    expect(a.exits).toEqual(b.exits)
+
+    const again = await h.open(NODE, { cols: 80, rows: 24, restart: true }, a)
+    expect(again.started).toBe(true)
+    expect(again.pid).not.toBe(pid)
+    expect(b.starts).toEqual([{ projectId: PROJECT, nodeId: NODE, pid: again.pid }])
+
+    const back = await h.open(NODE, { cols: 80, rows: 24 }, b)
+    expect(back).toMatchObject({ pid: again.pid, started: false, exited: null })
+    await h.run('echo new""-shell', /new-shell\r?\n/, NODE, b)
+    await vi.waitFor(() => expect(received(a)).toMatch(/new-shell\r?\n/), { timeout: 5000 })
+  })
+})
+
+describe('the output of one Terminal on one and on two screens, measured (worfy-link ticket 05)', () => {
+  // The numbers are always printed; WORFY_PERF=1 checks them, as test/e2e/epic-frame.spec.ts does.
+  const enforce = process.env.WORFY_PERF === '1'
+  const BYTES = 10_000_000
+
+  /** The last few chunks a window got: cheap to look at while 10 MB come in. */
+  const tail = (window: Window) =>
+    window.outputs
+      .slice(-5)
+      .map((o) => o.data)
+      .join('')
+
+  async function measure(screens: number) {
+    const h = await harness()
+    const windows = Array.from({ length: screens }, () => h.makeWindow())
+    for (const window of windows) await h.open(NODE, { cols: 80, rows: 24 }, window)
+    const [typing] = windows
+    if (typing === undefined) throw new Error('no window')
+    await h.run('echo rea""dy', /ready\r?\n/, NODE, typing)
+    const before = windows.map((window) => window.outputs.length)
+    const loop = monitorEventLoopDelay({ resolution: 10 })
+    loop.enable()
+    const started = performance.now()
+    await h.type(`head -c ${BYTES} /dev/zero | tr '\\0' a; echo; echo DONE""-MARK\r`, NODE, typing)
+    await vi.waitFor(
+      () => {
+        for (const window of windows) expect(tail(window)).toMatch(/DONE-MARK/)
+      },
+      { timeout: 60_000, interval: 10 },
+    )
+    const ms = Math.round(performance.now() - started)
+    loop.disable()
+    const got = windows.map((window, index) => window.outputs.slice(before[index]))
+    const events = got[0]?.length ?? 0
+    const bytes = (got[0] ?? []).reduce((sum, o) => sum + o.data.length, 0)
+    expect(bytes).toBeGreaterThanOrEqual(BYTES)
+    // Every screen got the same chunks, with the same ends.
+    for (const each of got) expect(each.map((o) => o.end)).toEqual(got[0]?.map((o) => o.end))
+    const p99 = Math.round(loop.percentile(99) / 1e6)
+    const max = Math.round(loop.max / 1e6)
+    await h.registry.closeAll()
+    return { ms, events, bytes, p99, max }
+  }
+
+  it('10 MB of output: the number of terminal.output events, the time to the last byte and the p99 delay of the event loop', { timeout: 180_000 }, async () => {
+    const one = await measure(1)
+    const two = await measure(2)
+    for (const [name, m] of [
+      ['one screen', one],
+      ['two screens', two],
+    ] as const) {
+      console.log(`terminal 10 MB, ${name}: ${m.events} terminal.output events per screen, ${m.bytes} characters, last byte after ${m.ms} ms, event loop delay p99 ${m.p99} ms, max ${m.max} ms`)
+    }
+    // Merging chunks is needed only when two screens are more than twice as slow as one, or the event
+    // loop of main waits more than 100 ms at p99 (worfy-link ticket 05, «Что делаем», point 7).
+    if (enforce) {
+      expect(two.ms).toBeLessThanOrEqual(2 * one.ms)
+      expect(two.p99).toBeLessThanOrEqual(100)
+    }
+  })
+})
+
+/** A pty that records its resizes and writes in one list, in the order they came. */
+class SizePty implements PtyProcess {
+  static all: SizePty[] = []
+  // No process has this pid: closing the registry signals it, and the signal must reach nobody.
+  readonly pid = 999_999_999
+  readonly calls: (['resize', number, number] | ['write', string])[] = []
+  readonly resize = vi.fn((cols: number, rows: number) => {
+    this.calls.push(['resize', cols, rows])
+    this.size = { cols, rows }
+  })
+  private exit: ((event: { exitCode: number; signal?: number }) => void)[] = []
+  private ended = false
+  constructor(public size: { cols: number; rows: number }) {
+    SizePty.all.push(this)
+  }
+  onData(): void {}
+  onExit(listener: (event: { exitCode: number; signal?: number }) => void): void {
+    this.exit.push(listener)
+  }
+  write(data: string): void {
+    this.calls.push(['write', data])
+  }
+  /** Ends the stand-in shell, once: SIGHUP from close() reaches no process here. */
+  kill(): void {
+    if (this.ended) return
+    this.ended = true
+    for (const listener of this.exit) listener({ exitCode: 0 })
+  }
+}
+
+describe('the size of a Terminal on several screens: the screen that typed or clicked last (Q14)', () => {
+  const spawn: SpawnPty = (_file, _args, { cols, rows }) => new SizePty({ cols, rows })
+  const ref = { projectId: PROJECT, nodeId: NODE }
+  // Before the registries are closed: a stand-in shell exits only when killed.
+  afterEach(() => SizePty.all.splice(0).forEach((pty) => pty.kill()))
+
+  it('typing, clicking, resizing and opening from different clients, and the owner going away', async () => {
+    // The pty never exits on SIGHUP here: close it through kill at the end.
+    const h = await harness({ spawn })
+    const a = h.makeWindow()
+    const b = h.makeWindow()
+    const c = h.makeWindow()
+    await h.open(NODE, { cols: 80, rows: 24 }, a)
+    const pty = SizePty.all[0]
+    if (pty === undefined) throw new Error('no pty')
+    expect(pty.size).toEqual({ cols: 80, rows: 24 })
+
+    // B attaches with its own size: A sized the pty, B's size is only remembered.
+    await h.open(NODE, { cols: 100, rows: 30 }, b)
+    expect(pty.size).toEqual({ cols: 80, rows: 24 })
+
+    // A types: the pty keeps A's size.
+    await h.type('a', NODE, a)
+    expect(pty.size).toEqual({ cols: 80, rows: 24 })
+
+    // A resize from B, who does not own the size, is only remembered.
+    await h.ok('terminal.resize', { ...ref, cols: 120, rows: 40 }, b)
+    expect(pty.size).toEqual({ cols: 80, rows: 24 })
+
+    // B types: the pty takes B's last size before the keys are written.
+    pty.calls.length = 0
+    await h.type('b', NODE, b)
+    expect(pty.calls).toEqual([
+      ['resize', 120, 40],
+      ['write', 'b'],
+    ])
+
+    // A resize from the owner applies at once.
+    await h.ok('terminal.resize', { ...ref, cols: 110, rows: 35 }, b)
+    expect(pty.size).toEqual({ cols: 110, rows: 35 })
+
+    // A click in A's terminal: the pty takes A's size.
+    await h.ok('terminal.takeSize', { ...ref, cols: 81, rows: 25 }, a)
+    expect(pty.size).toEqual({ cols: 81, rows: 25 })
+
+    // Typing again from the owner with the size it has: no resize.
+    pty.calls.length = 0
+    await h.type('x', NODE, a)
+    expect(pty.calls).toEqual([['write', 'x']])
+
+    // A third client opening does not change the size.
+    await h.open(NODE, { cols: 60, rows: 20 }, c)
+    expect(pty.size).toEqual({ cols: 81, rows: 25 })
+
+    // The owner goes: the size goes to the client that typed last (B), not to C, whose size came later.
+    a.destroy()
+    await vi.waitFor(() => expect(pty.size).toEqual({ cols: 110, rows: 35 }))
+
+    // B goes too: C, which never typed, sent its size last.
+    b.destroy()
+    await vi.waitFor(() => expect(pty.size).toEqual({ cols: 60, rows: 20 }))
+  })
+
+  it('without another owner an open sizes the pty, as with one window (a reload of the same window)', async () => {
+    const h = await harness({ spawn })
+    const a = h.makeWindow()
+    await h.open(NODE, { cols: 80, rows: 24 }, a)
+    const pty = SizePty.all[0]
+    if (pty === undefined) throw new Error('no pty')
+    await h.open(NODE, { cols: 90, rows: 30 }, a)
+    expect(pty.size).toEqual({ cols: 90, rows: 30 })
+    await h.ok('terminal.resize', { ...ref, cols: 3, rows: 1 }, a)
+    expect(pty.size).toEqual({ cols: 20, rows: 5 })
+  })
+
+  it('takeSize to a terminal that is not running is refused, and from a client that did not open it does nothing', async () => {
+    const h = await harness({ spawn })
+    const refused = await h.call('terminal.takeSize', { ...ref, cols: 80, rows: 24 })
+    expect(!refused.ok && refused.error).toMatch(/not running/)
+
+    const a = h.makeWindow()
+    await h.open(NODE, { cols: 80, rows: 24 }, a)
+    const pty = SizePty.all[0]
+    if (pty === undefined) throw new Error('no pty')
+    await h.ok('terminal.takeSize', { ...ref, cols: 99, rows: 33 }, h.makeWindow())
+    await h.ok('terminal.resize', { ...ref, cols: 99, rows: 33 }, h.makeWindow())
+    expect(pty.size).toEqual({ cols: 80, rows: 24 })
+  })
+})
+
 /** The Layout, the Projects and the app as wireRegistry sees them, driven by the test. */
 function wiring(projectIds: string[]) {
   const layoutListeners: ((change: { projectId: string; op: { op: 'remove'; id: string } | { op: 'move'; id: string; x: number; y: number } }) => void)[] = []
@@ -403,7 +713,7 @@ describe('the command typed into a new shell, on a stand-in pty', () => {
       for (const listener of this.exit) listener({ exitCode })
     }
   }
-  const sink: TerminalSink = { output: () => undefined, exit: () => undefined }
+  const sink: TerminalSink = { output: () => undefined, exit: () => undefined, started: () => undefined }
   const request = { cwd: '/tmp', cols: 80, rows: 24 }
   const registry = (commandDelayMs = 60_000) =>
     new TerminalRegistry({ env: () => Promise.resolve({ SHELL: '/bin/sh' }), spawn: () => new FakePty(), commandDelayMs, killGraceMs: 10 })
@@ -414,7 +724,7 @@ describe('the command typed into a new shell, on a stand-in pty', () => {
 
   it('types the command and a newline after the first output, once', async () => {
     const r = registry()
-    await r.open('k', { ...request, command: 'gh auth login' }, sink)
+    await r.open('k', { ...request, command: 'gh auth login' }, sink, sink)
     expect(pty().writes).toEqual([])
     pty().print('$ ')
     expect(pty().writes).toEqual(['gh auth login\n'])
@@ -424,7 +734,7 @@ describe('the command typed into a new shell, on a stand-in pty', () => {
 
   it('types it after the delay when the shell prints nothing', async () => {
     const r = registry(20)
-    await r.open('k', { ...request, command: 'gh auth login' }, sink)
+    await r.open('k', { ...request, command: 'gh auth login' }, sink, sink)
     await vi.waitFor(() => expect(pty().writes).toEqual(['gh auth login\n']))
     pty().print('$ ')
     expect(pty().writes).toEqual(['gh auth login\n'])
@@ -432,7 +742,7 @@ describe('the command typed into a new shell, on a stand-in pty', () => {
 
   it('without a command types nothing, as before', async () => {
     const r = registry(20)
-    await r.open('k', request, sink)
+    await r.open('k', request, sink, sink)
     pty().print('$ ')
     await new Promise((resolve) => setTimeout(resolve, 60))
     expect(pty().writes).toEqual([])
@@ -440,9 +750,9 @@ describe('the command typed into a new shell, on a stand-in pty', () => {
 
   it('attaching to a running shell with a command types nothing into it', async () => {
     const r = registry()
-    await r.open('k', request, sink)
+    await r.open('k', request, sink, sink)
     pty().print('$ ')
-    const attached = await r.open('k', { ...request, command: 'gh auth login' }, sink)
+    const attached = await r.open('k', { ...request, command: 'gh auth login' }, sink, sink)
     expect(attached.started).toBe(false)
     pty().print('$ ')
     expect(pty().writes).toEqual([])
@@ -450,7 +760,7 @@ describe('the command typed into a new shell, on a stand-in pty', () => {
 
   it('a shell that exits before its first output gets nothing typed', async () => {
     const r = registry(20)
-    await r.open('k', { ...request, command: 'gh auth login' }, sink)
+    await r.open('k', { ...request, command: 'gh auth login' }, sink, sink)
     const first = pty()
     first.end(1)
     await new Promise((resolve) => setTimeout(resolve, 60))
