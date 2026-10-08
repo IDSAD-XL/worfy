@@ -20,9 +20,12 @@ const stopped: JournalEvent = { ...base, at: at(9), kind: 'run-stopped', reason:
 
 const line = (value: unknown): string => `${JSON.stringify(value)}\n`
 
+const harnessBehind: JournalEvent = { ...base, at: at(0), kind: 'harness-behind', harness: '0.1.0+abcdef1', main: 'origin/main', commits: 2 }
+
 /** One valid event of every kind, in the order of JOURNAL_EVENT_KINDS. */
 const everyKind: JournalEvent[] = [
   started,
+  harnessBehind,
   waveStarted,
   { ...base, at: at(2), kind: 'wave-finished', wave: 1, tickets: ['01', '02'] },
   { ...base, at: at(3), kind: 'limits-hit', window: 'five_hour', resetsAt: at(30) },
@@ -48,6 +51,18 @@ describe('parseJournal', () => {
     expect(everyKind.map((event) => event.kind)).toEqual([...JOURNAL_EVENT_KINDS])
     const text = everyKind.map((event) => formatJournalLine(event)).join('')
     expect(parseJournal(text)).toEqual({ events: everyKind, skipped: 0 })
+  })
+
+  it('reads harness-behind (worfy-harness ticket 21), and a journal without it as before', () => {
+    expect(parseJournal(line(started) + line(harnessBehind) + line(waveStarted))).toEqual({ events: [started, harnessBehind, waveStarted], skipped: 0 })
+    expect(parseJournal(line(started) + line(waveStarted) + line(stopped))).toEqual({ events: [started, waveStarted, stopped], skipped: 0 })
+  })
+
+  it('skips harness-behind without a build version or ref, or with a count below 1', () => {
+    const bad = [{ harness: '' }, { main: undefined }, { commits: 0 }, { commits: 1.5 }, { commits: '2' }]
+    for (const fields of bad) {
+      expect(parseJournal(line(started) + line({ ...harnessBehind, ...fields })), JSON.stringify(fields)).toEqual({ events: [started], skipped: 1 })
+    }
   })
 
   it('skips a line of an unknown kind and counts it, keeping the lines around it', () => {

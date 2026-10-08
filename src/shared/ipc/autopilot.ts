@@ -9,6 +9,16 @@ import { eventChannel, invokeChannel } from './channels'
 const projectId = z.string().min(1)
 
 /**
+ * The Harness in the main branch of worfy's own repository has changes in harness/ that this
+ * build's Harness copy has not (worfy-harness ticket 21, ADR-0047): the Stable copy is due a
+ * rebuild, `pnpm install:stable` between runs. `harness` is the build version (`<semver>+<SHA>`),
+ * `main` the ref it was compared with (`origin/main`, or `main` without one), `commits` how many
+ * commits of `main` change harness/ after the build commit.
+ */
+export const harnessBehindSchema = z.object({ harness: z.string().min(1), main: z.string().min(1), commits: z.number().int().positive() })
+export type HarnessBehind = z.infer<typeof harnessBehindSchema>
+
+/**
  * The Project's run: `running`; `waiting` for the Limits to reset (worfy-daily ticket 05), until
  * `resumesAt`; or `stopped` with the reason of the last run (null before any). `wave` counts the
  * Waves the run has sent, from 1. `message` is what went wrong, in words, when a Session failed, a
@@ -44,6 +54,12 @@ export const autopilotStateSchema = z.object({
   stopping: z.boolean(),
   /** While `stopping`: how many Tickets of the current Wave are in work; 0 otherwise. */
   ticketsInWork: z.number().int().nonnegative(),
+  /**
+   * The Harness in worfy's main is newer than this build's (packaged builds over worfy's own
+   * repository only, src/main/autopilot/harness-drift.ts); null otherwise, and when it cannot be
+   * told. Kept whether a run goes on or not.
+   */
+  harnessBehind: harnessBehindSchema.nullable(),
   revision: z.number().int().nonnegative(),
 })
 export type AutopilotState = z.infer<typeof autopilotStateSchema>
@@ -108,6 +124,15 @@ export function autopilotStatusLine(
   }
   if (state.reason === null) return null
   return `stopped: ${state.reason.replaceAll('-', ' ')}`
+}
+
+/** The chip of the Autopilot action while the Harness in main is newer than this build's (worfy-harness ticket 21). */
+export const HARNESS_BEHIND_LABEL = 'Harness in main is newer than the Stable copy'
+
+/** The hint of that chip: how far behind, and how to catch up. */
+export function harnessBehindTitle(behind: HarnessBehind): string {
+  const commits = `${behind.commits} ${behind.commits === 1 ? 'commit' : 'commits'}`
+  return `${behind.main} has ${commits} in harness/ that this build (${behind.harness}) has not. Rebuild the Stable copy with pnpm install:stable between runs`
 }
 
 declare module './channels' {

@@ -5,11 +5,12 @@
 // the test gives it.
 import { afterEach, describe, expect, it } from 'vitest'
 import type { AutopilotWaveResult } from '../../src/main/actions/launch'
+import { harnessDriftWatch } from '../../src/main/autopilot/harness-drift'
 import { Autopilot, STOP_TEXT, type AutopilotDeps, type RunSession } from '../../src/main/autopilot/run'
 import type { BackgroundTask } from '../../src/shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../src/shared/agent/events'
 import type { JournalEventFields } from '../../src/shared/autopilot/journal'
-import type { AutopilotState } from '../../src/shared/ipc/autopilot'
+import type { AutopilotState, HarnessBehind } from '../../src/shared/ipc/autopilot'
 import type { OrchestratorView } from '../../src/shared/ipc/orchestrator'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { readyWave } from '../../src/shared/workflow/waves'
@@ -874,6 +875,115 @@ describe('the click on Stop is noted at once: no Wave goes after it (worfy-week 
       ...('tickets' in line && line.tickets !== undefined && line.kind === 'run-stopping' ? { tickets: line.tickets } : {}),
       ...('inWork' in line ? { inWork: line.inWork } : {}),
     }))
+})
+
+describe('the Harness in main is newer than this build (worfy-harness ticket 21)', () => {
+  const behind = (commits: number): HarnessBehind => ({ harness: '0.1.0+abcdef1', main: 'origin/main', commits })
+
+  /** A stand-in whose harnessDrift answers `answer.value`, read on every call, and counts the calls. */
+  function drifting(initial: HarnessBehind | null) {
+    const answer = { value: initial, calls: 0 }
+    const states: AutopilotState[] = []
+    const s = standIn({
+      harnessDrift: (projectId, root) => {
+        answer.calls += 1
+        expect([projectId, root]).toEqual([PROJECT, '/repo'])
+        return Promise.resolve(answer.value)
+      },
+      onChange: (state) => void states.push(state),
+    })
+    return { s, answer, states }
+  }
+
+  it('journals harness-behind right after run-started, and the state carries it', async () => {
+    const { s } = drifting(behind(2))
+    expect((await s.autopilot.start(PROJECT, EPIC)).harnessBehind).toEqual(behind(2))
+    await settle()
+    // The stand-in's journal gets the lines after run-started, which openRun writes.
+    expect(s.journal[0]).toEqual({ kind: 'harness-behind', harness: '0.1.0+abcdef1', main: 'origin/main', commits: 2 })
+    expect(kinds(s)).toEqual([
+      ['harness-behind', null],
+      ['wave-started', 1],
+    ])
+    expect(s.autopilot.state(PROJECT).harnessBehind).toEqual(behind(2))
+  })
+
+  it('a lesson merged between Waves: a new line right before the next wave-started; the same count writes none', async () => {
+    const { s, answer } = drifting(behind(1))
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    answer.value = behind(2)
+    done(s, 1, 2)
+    s.emit(result())
+    await settle()
+    expect(kinds(s)).toEqual([
+      ['harness-behind', null],
+      ['wave-started', 1],
+      ['wave-finished', 1],
+      ['harness-behind', null],
+      ['wave-started', 2],
+    ])
+    expect(s.journal[3]).toMatchObject({ kind: 'harness-behind', commits: 2 })
+    expect(s.autopilot.state(PROJECT).harnessBehind).toEqual(behind(2))
+    // Asked before each wave-started, not only at the start.
+    expect(answer.calls).toBe(3)
+  })
+
+  it('behind only from the second Wave on: the first line comes before that wave-started', async () => {
+    const { s, answer } = drifting(null)
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    answer.value = behind(1)
+    done(s, 1, 2)
+    s.emit(result())
+    await settle()
+    expect(kinds(s).map(([kind]) => kind)).toEqual(['wave-started', 'wave-finished', 'harness-behind', 'wave-started'])
+  })
+
+  it('not behind: no line, and the state says null', async () => {
+    const { s } = drifting(null)
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(kinds(s)).toEqual([['wave-started', 1]])
+    expect(s.autopilot.state(PROJECT).harnessBehind).toBeNull()
+  })
+
+  it('a development build: no line and no mark, though git would say behind', async () => {
+    const check = () => Promise.resolve({ kind: 'newer' as const, harness: '0.1.0+abcdef1', main: 'origin/main', commits: 2 })
+    const s = standIn({ harnessDrift: harnessDriftWatch({ packaged: false, harnessVersion: () => '0.1.0+abcdef1', check }) })
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(kinds(s)).toEqual([['wave-started', 1]])
+    expect(s.autopilot.state(PROJECT).harnessBehind).toBeNull()
+  })
+
+  it('without a run: refreshHarness puts the mark into the state and sends it once; it stays after a run ends', async () => {
+    const { s, answer, states } = drifting(behind(1))
+    expect(s.autopilot.state(PROJECT).harnessBehind).toBeNull()
+    await s.autopilot.refreshHarness(PROJECT)
+    expect(states.map((state) => state.harnessBehind)).toEqual([behind(1)])
+    expect(s.autopilot.state(PROJECT).harnessBehind).toEqual(behind(1))
+    // The same answer again sends nothing.
+    await s.autopilot.refreshHarness(PROJECT)
+    expect(states).toHaveLength(1)
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    await s.autopilot.forceStop(PROJECT)
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-force-stop', harnessBehind: behind(1) })
+    // Caught up after a rebuild: the stopped state drops the mark.
+    answer.value = null
+    await s.autopilot.refreshHarness(PROJECT)
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-force-stop', harnessBehind: null })
+    expect(states.at(-1)?.harnessBehind).toBeNull()
+  })
+
+  it('a harnessDrift that throws is no mark, and the run goes on', async () => {
+    const s = standIn({ harnessDrift: () => Promise.reject(new Error('git is gone')) })
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(kinds(s)).toEqual([['wave-started', 1]])
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', harnessBehind: null })
+  })
 })
 
 describe('a Session that fails while the run opens its workflow watch', () => {

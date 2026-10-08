@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
-import { autopilotStatusLine, type AutopilotState } from '../../../shared/ipc/autopilot'
+import { autopilotStatusLine, HARNESS_BEHIND_LABEL, harnessBehindTitle, type AutopilotState } from '../../../shared/ipc/autopilot'
 import { failureReason } from '../../../shared/ipc/channels'
 import { invoke, subscribe } from '../../ipc'
 import type { SlotProps } from '../badges'
@@ -35,6 +35,11 @@ import { hasRunWave, useRunWaveState } from './gates'
 // A run keeps the display on from its start to its end (ticket 32, ADR-0034): the hints of the
 // "Autopilot" button and of the status line while running or waiting say so. The visible line does
 // not: 220px is already taken by its longest lines.
+//
+// When the Harness in worfy's main is newer than the Harness of this build (worfy-harness ticket 21,
+// `harnessBehind` of the state; packaged builds over worfy's own repository only), the chip "Harness
+// in main is newer than the Stable copy" stands left of the button, under the status line, while a
+// run goes on and when none does. Its hint counts the commits and names the rebuild between runs.
 
 export const order = 30
 
@@ -189,11 +194,19 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
         items={[{ label: 'Force stop', title: forceStopTitle(epic.epic), testId: 'action-force-stop-autopilot', disabled: pending === 'force', run: () => stop(projectId, 'force') }]}
       />
     ) : null
+  const behind = state?.harnessBehind ?? null
+  const chip =
+    behind === null ? null : (
+      <span className="w-chip w-chip--open" data-testid="autopilot-harness-behind" title={harnessBehindTitle(behind)}>
+        {HARNESS_BEHIND_LABEL}
+      </span>
+    )
   const controls =
-    more === null ? (
+    more === null && chip === null ? (
       button
     ) : (
       <div className="nodrag" style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
+        {chip}
         {button}
         {more}
       </div>

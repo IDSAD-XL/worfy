@@ -47,7 +47,7 @@ let forceStopAnswer: Promise<IpcResult<unknown>> | null
 beforeEach(() => {
   vi.resetModules()
   calls = []
-  autopilot = { projectId: PROJECT, epic: null, status: 'stopped', wave: 0, backgroundTasks: 0, resumesAt: null, reason: null, message: null, resumable: [], stopping: false, ticketsInWork: 0, revision: 1 }
+  autopilot = { projectId: PROJECT, epic: null, status: 'stopped', wave: 0, backgroundTasks: 0, resumesAt: null, reason: null, message: null, resumable: [], stopping: false, ticketsInWork: 0, harnessBehind: null, revision: 1 }
   stopAnswer = null
   forceStopAnswer = null
   listeners = new Map()
@@ -267,6 +267,45 @@ describe('Autopilot (ticket 30, ADR-0033)', () => {
     const autopilot = await screen.findByRole('button', { name: 'Autopilot' })
     await vi.waitFor(() => expect(autopilot.getAttribute('aria-disabled')).toBe('false'))
     expect(autopilot.getAttribute('title')).toBe('Run the Waves of demo one after another, without a person. The display stays on until the run ends')
+  })
+})
+
+describe('the Harness in main is newer than the Stable copy (worfy-harness ticket 21)', () => {
+  const behind = { harness: '0.1.0+abcdef1', main: 'origin/main', commits: 3 }
+
+  it.each<[string, Partial<AutopilotState>]>([
+    ['before any run', {}],
+    ['while the run goes on', { epic: 'demo', status: 'running', wave: 1 }],
+    ['after the run stopped', { epic: 'demo', status: 'stopped', wave: 1, reason: 'no-ready-wave' }],
+  ])('shows the chip %s, its title counting the commits and naming pnpm install:stable', async (_name, state) => {
+    autopilot = { ...autopilot, ...state, harnessBehind: behind }
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    render(<AutopilotAction subject={epicSubject()} />)
+    const chip = await screen.findByTestId('autopilot-harness-behind')
+    expect(chip.textContent).toBe('Harness in main is newer than the Stable copy')
+    expect(chip.className).toBe('w-chip w-chip--open')
+    expect(chip.getAttribute('title')).toBe('origin/main has 3 commits in harness/ that this build (0.1.0+abcdef1) has not. Rebuild the Stable copy with pnpm install:stable between runs')
+  })
+
+  it('says "1 commit" for one', async () => {
+    autopilot = { ...autopilot, harnessBehind: { ...behind, commits: 1, main: 'main' } }
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    render(<AutopilotAction subject={epicSubject()} />)
+    expect((await screen.findByTestId('autopilot-harness-behind')).getAttribute('title')).toMatch(/^main has 1 commit in harness\/ /)
+  })
+
+  it('has no chip with harnessBehind null, and drops it when a later state says null', async () => {
+    autopilot = { ...autopilot, harnessBehind: null }
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    render(<AutopilotAction subject={epicSubject()} />)
+    await screen.findByRole('button', { name: 'Autopilot' })
+    await vi.waitFor(() => expect(calls.some((call) => call.channel === 'autopilot.state')).toBe(true))
+    expect(screen.queryByTestId('autopilot-harness-behind')).toBeNull()
+    // The answer of git comes later, by autopilot.changed.
+    act(() => listeners.get('autopilot.changed')?.({ ...autopilot, harnessBehind: behind, revision: 7 }))
+    await screen.findByTestId('autopilot-harness-behind')
+    act(() => listeners.get('autopilot.changed')?.({ ...autopilot, harnessBehind: null, revision: 8 }))
+    await vi.waitFor(() => expect(screen.queryByTestId('autopilot-harness-behind')).toBeNull())
   })
 })
 

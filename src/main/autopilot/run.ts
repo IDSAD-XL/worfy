@@ -45,6 +45,11 @@
 // - A run does not start with a "Run wave" template that does not name the Wave's Tickets.
 // - One run per Project at most. On a development build (not packaged), a run over worfy's own
 //   repository is refused: its agents would rebuild the app the run lives in.
+// - Whether the Harness in worfy's main is newer than this build's (worfy-harness ticket 21,
+//   harness-drift.ts) is part of the Project's state, with or without a run (`harnessBehind`). A
+//   run journals `harness-behind` right after `run-started` when it is, and again before a
+//   `wave-started` when the count of commits has changed: a lesson merged during the run. The run
+//   itself goes on as it is; the Stable copy is rebuilt between runs (ADR-0047).
 //
 // worfy still writes no Ticket status (ADR-0002): the agents do, through `ticket`.
 import { realpath } from 'node:fs/promises'
@@ -66,7 +71,7 @@ import {
   type CycleEvent,
   type CycleState,
 } from '../../shared/autopilot/cycle'
-import type { AutopilotState } from '../../shared/ipc/autopilot'
+import type { AutopilotState, HarnessBehind } from '../../shared/ipc/autopilot'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import { LimitsWait, type LimitsWaitDeps } from './limits-wait'
@@ -155,6 +160,11 @@ export interface AutopilotDeps {
   tasksClock?: TasksClock
   /** How long Stop waits for the interrupted turn before the Orchestrator's process is closed (default HALT_TURN_MS of session.ts). */
   haltTurnMs?: number
+  /**
+   * Whether the Harness in the Project's main is newer than this build's (harnessDriftWatch of
+   * harness-drift.ts), or null; never throws. Without it no Project has the mark.
+   */
+  harnessDrift?(projectId: string, root: string): Promise<HarnessBehind | null>
 }
 
 /** A task as the journal writes it. */
@@ -236,6 +246,8 @@ class Run {
   stopSent = false
   /** After a Force stop: the Tickets of the Wave it interrupted (AutopilotState.resumable). */
   interrupted: number[] = []
+  /** The `commits` of the last `harness-behind` line of the run; null before any, or once not behind. */
+  harnessCommits: number | null = null
   /** Settles once the run has stopped and cleaned up. */
   readonly ended: Promise<void>
   finish!: () => void
@@ -284,6 +296,8 @@ export class Autopilot {
   private readonly lingering = new Set<() => Promise<void>>()
   /** The last stopped state of each Project, also after its run is gone. */
   private readonly last = new Map<string, AutopilotState>()
+  /** The last answer of deps.harnessDrift for each Project (AutopilotState.harnessBehind). */
+  private readonly harness = new Map<string, HarnessBehind | null>()
   private revision = 0
 
   constructor(private readonly deps: AutopilotDeps) {}
@@ -291,24 +305,74 @@ export class Autopilot {
   /** The Project's run as it is now. */
   state(projectId: string): AutopilotState {
     const run = this.runs.get(projectId)
-    if (run === undefined)
-      return (
-        this.last.get(projectId) ?? {
-          projectId,
-          epic: null,
-          status: 'stopped',
-          wave: 0,
-          backgroundTasks: 0,
-          resumesAt: null,
-          reason: null,
-          message: null,
-          resumable: [],
-          stopping: false,
-          ticketsInWork: 0,
-          revision: this.revision,
-        }
-      )
+    if (run === undefined) {
+      const harnessBehind = this.harness.get(projectId) ?? null
+      const last = this.last.get(projectId)
+      if (last !== undefined) return { ...last, harnessBehind }
+      return {
+        projectId,
+        epic: null,
+        status: 'stopped',
+        wave: 0,
+        backgroundTasks: 0,
+        resumesAt: null,
+        reason: null,
+        message: null,
+        resumable: [],
+        stopping: false,
+        ticketsInWork: 0,
+        harnessBehind,
+        revision: this.revision,
+      }
+    }
     return this.snapshot(run)
+  }
+
+  /**
+   * Asks again whether the Harness in the Project's main is newer than this build's; a changed
+   * answer goes out as a new state. The answer is kept apart from any run, so it shows before the
+   * first run and after the last one too.
+   */
+  async refreshHarness(projectId: string): Promise<void> {
+    let root: string
+    try {
+      root = this.deps.projectRoot(projectId)
+    } catch {
+      return
+    }
+    if (await this.checkHarness(projectId, root)) this.publish(projectId)
+  }
+
+  /** deps.harnessDrift for the Project, kept; true when the answer differs from the one before. */
+  private async checkHarness(projectId: string, root: string): Promise<boolean> {
+    if (this.deps.harnessDrift === undefined) return false
+    let behind: HarnessBehind | null
+    try {
+      behind = await this.deps.harnessDrift(projectId, root)
+    } catch (error) {
+      console.warn(`[autopilot] ${projectId}: could not compare the Harness with main`, error)
+      behind = null
+    }
+    const before = this.harness.get(projectId) ?? null
+    this.harness.set(projectId, behind)
+    return JSON.stringify(before) !== JSON.stringify(behind)
+  }
+
+  /**
+   * The run's `harness-behind` line: written when the Harness is behind and the count differs from
+   * the run's last such line — right after `run-started`, then before a `wave-started`.
+   */
+  private async journalHarness(run: Run): Promise<void> {
+    await this.checkHarness(run.projectId, run.root)
+    const behind = this.harness.get(run.projectId) ?? null
+    if (behind === null) {
+      // Not behind any more (main was reset): a later lag is a change again.
+      run.harnessCommits = null
+      return
+    }
+    if (behind.commits === run.harnessCommits) return
+    run.harnessCommits = behind.commits
+    await this.write(run, { kind: 'harness-behind', harness: behind.harness, main: behind.main, commits: behind.commits })
   }
 
   /** Whether a run of the Project goes on (or is starting). */
@@ -344,6 +408,7 @@ export class Autopilot {
         if (view === null || view.sessionId === null) throw new Error('The Orchestrator has no Session')
         run.session = this.deps.registry.get(view.sessionId)
         run.journal = await this.deps.journal({ project: projectId, epic })
+        await this.journalHarness(run)
         run.awake = this.deps.keepAwake()
         run.awake.start()
         this.subscribe(run)
@@ -559,6 +624,7 @@ export class Autopilot {
           break
         case 'wave-started': {
           const sent = run.sent
+          await this.journalHarness(run)
           await this.write(run, {
             kind: 'wave-started',
             wave: effect.wave,
@@ -927,6 +993,7 @@ export class Autopilot {
       resumable: run.done && run.cycle.reason === 'user-force-stop' ? [...run.interrupted] : [],
       stopping,
       ticketsInWork: stopping ? run.cycle.inWork.length : 0,
+      harnessBehind: this.harness.get(run.projectId) ?? null,
       revision: this.revision,
     }
   }

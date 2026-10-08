@@ -592,7 +592,7 @@ describe('wallTimer', () => {
 })
 
 describe('the waiting state on autopilot.changed', () => {
-  const waiting: AutopilotState = { projectId: 'p', epic: 'e', status: 'waiting', wave: 2, backgroundTasks: 0, resumesAt: RESET_MS + RESUME_MARGIN_MS, reason: null, message: null, resumable: [], stopping: false, ticketsInWork: 0, revision: 4 }
+  const waiting: AutopilotState = { projectId: 'p', epic: 'e', status: 'waiting', wave: 2, backgroundTasks: 0, resumesAt: RESET_MS + RESUME_MARGIN_MS, reason: null, message: null, resumable: [], stopping: false, ticketsInWork: 0, harnessBehind: null, revision: 4 }
 
   it('sends the state and its resume time, without keys outside the contract', () => {
     const sent: unknown[] = []

@@ -1,7 +1,7 @@
 # 21 — Пометка «Harness в main новее, чем в Stable copy» в worfy и в журнале прогона Autopilot
 
 Type: task
-Status: open
+Status: claimed — 2026-10-08
 Blocked by: 12
 Source: решения владельца 2026-10-07, Q14 и Q12; [ADR-0047](../../../docs/adr/0047-harness-lessons-by-pr-early-owner-switch.md) (развитие Harness: урок — PR в `harness/`, во время Autopilot Stable copy не пересобирается); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (доставка Harness, версия `<semver>+<SHA>`); [spec.md](../spec.md)
 
@@ -113,6 +113,8 @@ SHA сборки». На нынешнем main модуля `harness-drift.ts` �
 - `test/unit/autopilot-journal.test.ts`
 - `test/unit/canvas-actions.test.tsx`
 - `test/e2e/packaged.spec.ts`
+- `test/contract/autopilot-journal.test.ts` — добавлено при реализации: список всех видов строк журнала получил `harness-behind`
+- `test/contract/autopilot.test.ts`, `test/contract/autopilot-limits.test.ts` — добавлено при реализации: в состоянии Autopilot новое обязательное поле `harnessBehind`; `autopilot.state` заново спрашивает сравнение
 
 `run.ts` получает сравнение зависимостью в опциях Autopilot, `ipc/autopilot.ts` её подставляет.
 Версию сборки модуль читает тем же способом, что показ версии Ticket-а 04; если для этого нужен
