@@ -156,6 +156,10 @@ Source: решения владельца 2026-10-07: Q2 (обе машины р
 - `test/contract/ipc-renderer.test.tsx`
 - `test/unit/use-projects.test.tsx`
 - `test/e2e/linked-machines.spec.ts`
+- добавлены при работе (см. «Итог»): `src/main/projects/holds.ts`, `src/main/link/service.ts`,
+  `src/renderer/shell/ProjectSettings.tsx`, `test/contract/main-ipc-wiring.test.ts`,
+  `test/contract/remote-calls.test.ts`, `test/contract/linked-ipc.test.ts`, `test/contract/projects-hold.test.ts`,
+  `test/unit/project-holds.test.ts`
 
 Модуль связи заводит Ticket 01: `src/main/link/remote-calls.ts` берёт у него соединение с Linked
 machine-ом и ничего в его файлах не правит. Каналы этого Ticket-а — в своём домене `linked`, а не в
@@ -167,4 +171,80 @@ machine-ом и ничего в его файлах не правит. Кана�
 
 ## Итог
 
-Заполняется при закрытии.
+Сделано в ветке `worfy-link/09`.
+
+- **Первый test падал так.** Новые test-ы `test/contract/ipc-renderer.test.tsx` поверх `src/renderer/ipc.ts` из
+  `origin/main` (27f12f6): `7 failed | 9 passed`. Главный — «sends layout.get of a window on M to its own main»:
+  `expected [ [ 'layout.get', …(1) ] ] to deeply equal [ [ 'linked.invoke', { …(3) } ] ]` — вызов уходил в preload
+  своей машины как `layout.get`; остальные — `renderer.invokeOn is not a function`, `routeOf is not a function`.
+- **Как окно узнаёт свою Machine** — параметр адреса окна: `?machine=<id Linked machine-а>&project=<projectId>`
+  (`windowMachine()`, `src/renderer/ipc.ts`). Проверка «вызов из кадра worfy» не менялась: `appUrlMatcher`
+  (`src/main/ipc/index.ts`) и раньше не смотрел на query, а для dev-сервера сравнивает origin. Переход на другую
+  Machine — `location.assign` (перезагрузка); Project той же Linked machine-ы — `history.replaceState` без
+  перезагрузки; View ▸ Reload оставляет окно на той же Machine.
+- **Маршрут.** `src/renderer/ipc.ts` загружает все `src/shared/ipc/*.ts` (`import.meta.glob`, eager) и берёт
+  пометку канала из `accessOf` (`src/shared/ipc/channels.ts`); второго списка нет. В окне на M: `project` и
+  `desktop` → `linked.invoke {machine, channel, input}` в свой main, события — один `linked.event` на preload,
+  разбор по Machine и каналу; `local`, `link` и неизвестное имя — в preload своей машины. `invokeOn(machine | null, …)`
+  и `subscribeOn(…)` — явный вызов на Machine (null — своя) из окна любой машины.
+- **Каналы (новый домен `linked`, `src/shared/ipc/linked.ts`, все `local` — самая закрытая пометка: Linked
+  machine их не зовёт и не слышит):** `linked.invoke`, `linked.event`, `linked.state`, `linked.changed`,
+  `linked.open`. В домене `projects` — `projects.hold {screen, projectId | null}` с пометкой `project` («экран
+  открыл Project»: её зовёт Linked machine).
+- **Main, вызовы на Linked machine** — `src/main/link/remote-calls.ts`: `RemoteCalls` (один на link service) и
+  `callOn(machine, channel, input)` для других модулей main (Ticket 10). Идут только каналы `project` и
+  `desktop`; пометки, доступ и проверка путей Ticket-а 08 работают на стороне Machine Project-а, как были.
+- **Две связи с одной Machine.** Обе стороны звонят друг другу, и Linked machine рассылает события по обеим:
+  без отбора событие Session (`agent.event`) приходило бы в окно дважды. Вызовы идут по одной «текущей» связи,
+  и в окна идут только события, пришедшие по ней. Для этого в `src/main/link/service.ts` (файл Ticket-а 01, сверх
+  следа) — две добавки без смены поведения: событие `ipc-event` несёт `connection`, метод `connectionTo(id)`.
+- **«Делится ли Machine Project-ами»** — служебное сообщение связи `projects-access {on}` (точка расширения
+  Ticket-а 01): Machine шлёт его при каждом открытии связи и при смене переключателя. Запасной путь — отказ
+  «access is off» на вызове. `epoch` Machine (в `linked.state`) меняется, когда вызовы пошли по другой связи или
+  доступ снова включили: подписки, сделанные через старую связь, пропали, и окно на M перезагружается само (если
+  M в сети и делится Project-ами).
+- **Боковая панель.** Без Linked machine-ов — список прежний, без групп. С ними — группы: своя Machine первой,
+  затем Linked machine-ы по имени; у группы имя и «Online» / «Unavailable» (как в секции Machines);
+  не делится — без Project-ов, строка «<Machine> doesn't share its Projects». «Project settings…» и «Remove from
+  list» строки Linked machine-а идут на её Machine (`ProjectSettings` получил `machine`). «Add project» — на своей
+  машине; в окне на M после добавления окно возвращается на свою машину (Project стал активным там).
+- **Активный Project.** В окне на M `activeProject(useProjects())` — Project этого окна (из адреса), список — M;
+  `projects.select` не зовётся, активный Project M не меняется. Окно сообщает M, что показывает Project
+  (`linked.open` → `projects.hold`, экран — id окна); main своей машины отпускает его при закрытии окна и при
+  загрузке другой страницы. M держит Orchestrator и документы Project-а, пока его держит хоть один экран;
+  клиент, ушедший из реестра (связь закрылась, доступ выключили), отпускает всё (`src/main/projects/holds.ts`).
+- **Toolbar** — «<Project> · <Machine>»; над Canvas окна на M — строка «<Machine> is unreachable» /
+  «<Machine> stopped sharing its Projects» / «<Machine> is no longer linked to this Machine».
+- **Вне следа (добавлены в список):** `src/main/projects/holds.ts` (новый; держатели Project-ов, без Electron —
+  его берут и `docs.ts`, и `app-orchestrators.ts`), `src/main/link/service.ts` (две добавки выше),
+  `src/renderer/shell/ProjectSettings.tsx` (параметр `machine`), `test/contract/main-ipc-wiring.test.ts` (одна
+  строка подмены `onAppLinkStart`, как у Ticket-а 02). Новые test-ы: `test/contract/remote-calls.test.ts`,
+  `test/contract/linked-ipc.test.ts`, `test/contract/projects-hold.test.ts`, `test/unit/project-holds.test.ts`.
+  `src/main/window.ts` не понадобился.
+- **Снимки** (обе темы, `snapshotThemes`; в репозиторий копирует запуск с `WORFY_EVIDENCE=1`, обычный прогон —
+  нет): боковая панель A с Project-ами B «в сети» — [../evidence/09-sidebar-online-light.png](../evidence/09-sidebar-online-light.png),
+  [тёмная](../evidence/09-sidebar-online-dark.png); B не делится — `09-sidebar-not-shared-{light,dark}.png`; B
+  закрыт — `09-sidebar-unavailable-{light,dark}.png`; Canvas Project-а B в окне A —
+  [../evidence/09-canvas-of-b-light.png](../evidence/09-canvas-of-b-light.png), `09-canvas-of-b-dark.png`; B закрыт,
+  строка над Canvas — `09-canvas-unreachable-{light,dark}.png`. «Спит» — Ticket 14, снимка нет. Цвета — роли
+  `tokens.css` (`text-secondary`, `text-muted`, `surface-raised`, `border`, `blocked-text`, чип `ready`).
+
+Решения (все — **решено без владельца, подтвердить**):
+
+- Окно показывает одну Machine и перезагружается при переходе на другую (пункт 1); Machine окна — в адресе окна.
+- Каналы `linked.*` — `local`; «экран открыл Project» — `projects.hold` (`project`), экран — id окна своей машины.
+- Делится ли Linked machine Project-ами, окно узнаёт из нового служебного сообщения `projects-access` (а не только
+  по отказу): иначе после включения доступа на M окну A не от кого узнать, что пора перезагрузиться.
+- `linked.event` и `linked.changed` идут во все окна своей машины, отбор по Machine — в renderer.
+- Группа «Unavailable» — без Project-ов (список недоступной Machine не прочитать); у своей Machine чипа нет.
+- «Add project» в окне на M добавляет на своей машине и возвращает окно на неё.
+
+Не проверено / известные ограничения:
+
+- Два настоящих Mac в LAN — test-ы гоняют два worfy на одном Mac по 127.0.0.1.
+- Два окна A на одном Project-е M делят на M одного клиента связи: `docs.close` / `workflow.close` одного окна
+  снимают подписку и второго; подписки окна, которое перезагрузилось, живут на M до закрытия связи.
+- Камера Canvas Project-а M хранится в своей машине по `projectId` (`viewport.*` — `local`): у Project-а M и своего
+  Project-а той же папки камера общая, а `viewport` store своей машины чистит id, которых нет в её списке.
+- Палитра команд (`src/renderer/palette/commands.ts:234`) в окне на M переключает Project через `projects.select`
+  своей машины — вне следа, вопрос оркестратору.
