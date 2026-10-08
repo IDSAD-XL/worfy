@@ -813,6 +813,48 @@ export function stopAppLink(): Promise<void> | undefined {
   return stopLink(link)
 }
 
+/** The part of Electron's `app` stopLinkOnQuit uses; the contract test passes a model of Electron's quit. */
+export interface QuitApp {
+  on(event: 'will-quit', listener: (event: { preventDefault(): void }) => void): unknown
+  quit(): void
+}
+
+/** How long quitting waits for the link to say goodbye on Bonjour and close its connections. */
+export const LINK_QUIT_WAIT_MS = 1500
+
+/**
+ * Stops the app's link when worfy quits (src/main/index.ts), so Bonjour's goodbye goes out (other
+ * worfy drop this one from "Link a machine" at once, not after the announcement's TTL of 8 hours)
+ * and the Linked machines see the connections close.
+ *
+ * In `will-quit`, not `before-quit`: Electron fires `will-quit` only once every `before-quit`
+ * handler has let the quit through, so the link never quits over another part's wait — Autopilot
+ * holds `before-quit` until its runs have stopped and their journal is written
+ * (src/main/ipc/autopilot.ts), and a later app.quit() from here would find its handler already
+ * done and quit under it. In `will-quit` the link holds the quit while its stop is pending — on
+ * every `will-quit`, not only the first: another part waiting there (the shells,
+ * src/main/ipc/terminal.ts) may quit again before the link is done. At most `waitMs`.
+ */
+export function stopLinkOnQuit(app: QuitApp, stop: () => Promise<void> | undefined = stopAppLink, waitMs = LINK_QUIT_WAIT_MS): void {
+  let stopping: Promise<void> | undefined
+  let done = false
+  app.on('will-quit', (event) => {
+    if (stopping === undefined) {
+      const started = stop()
+      if (started === undefined) return
+      const waited = new Promise<void>((resolve) => setTimeout(resolve, waitMs))
+      stopping = Promise.race([started, waited])
+        .catch((error: unknown) => console.warn(`[link] could not stop the link on quit: ${messageOf(error)}`))
+        .finally(() => {
+          done = true
+        })
+    }
+    if (done) return
+    event.preventDefault()
+    void stopping.finally(() => app.quit())
+  })
+}
+
 /** Starts the app's link over worfy's data folder (src/main/index.ts, after registerIpc). */
 export async function startAppLink(options: { buildKind: BuildKind; buildVersion: string }): Promise<LinkService> {
   const environment = appLinkEnvironment()

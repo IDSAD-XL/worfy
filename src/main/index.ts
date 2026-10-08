@@ -7,7 +7,7 @@ import { installDevDockIcon } from './dock-icon'
 import { bundledHarnessVersion } from './harness/bundled'
 import { liveSessionListeners } from './ipc/claude-home'
 import { appUrlMatcher, registerIpc } from './ipc/index'
-import { startAppLink, stopAppLink } from './link/service'
+import { startAppLink, stopLinkOnQuit } from './link/service'
 import { installAppMenu } from './menu'
 import { installNotifications } from './notify'
 import { checkDataFolder, inStep, reportStartupFailure } from './startup-failure'
@@ -36,17 +36,13 @@ if (dataFolderUsable()) {
   }
 }
 
-/** How long quitting waits for the link to say goodbye on Bonjour and close its connections. */
-const LINK_QUIT_WAIT_MS = 1500
-
 /**
  * Starts the link service in the background. A failure — a port that cannot be taken, a key that
  * cannot be read — never stops worfy: it is a warning in the log, and appLinkProblem() keeps it for
  * the UI of worfy-link ticket 02.
  *
- * Quitting stops it first (worfy-link ticket 02): Bonjour's goodbye goes out, so other worfy drop
- * this one from "Link a machine" at once instead of after the announcement's TTL (8 hours), and
- * the Linked machines see the connections close. At most LINK_QUIT_WAIT_MS, then quit again.
+ * Quitting stops it (worfy-link ticket 02) in `will-quit`, after every `before-quit` wait (the
+ * Autopilot's included) is over: stopLinkOnQuit.
  */
 function startLink(): void {
   const warn = (error: unknown): void => console.warn(`[link] the link service did not start: ${error instanceof Error ? error.message : String(error)}`)
@@ -55,15 +51,7 @@ function startLink(): void {
   } catch (error) {
     warn(error)
   }
-  app.on('before-quit', (event) => {
-    const stopping = stopAppLink()
-    if (stopping === undefined) return
-    event.preventDefault()
-    const waited = new Promise<void>((done) => setTimeout(done, LINK_QUIT_WAIT_MS))
-    void Promise.race([stopping, waited])
-      .catch((error: unknown) => console.warn(`[link] could not stop the link on quit: ${error instanceof Error ? error.message : String(error)}`))
-      .finally(() => app.quit())
-  })
+  stopLinkOnQuit(app)
 }
 
 /** Whether the data folder is usable; when it is not, the start is reported as failed. */

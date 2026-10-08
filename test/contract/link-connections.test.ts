@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LinkingWindows } from '../../src/main/ipc/link'
 import { LinkConnections } from '../../src/main/link/connections'
 import { LinkDiscovery, type MdnsBackend } from '../../src/main/link/discovery'
-import { stopLink, wireAppLink, type LinkService } from '../../src/main/link/service'
+import { stopLink, stopLinkOnQuit, wireAppLink, type LinkService } from '../../src/main/link/service'
 import { LinkBench, type BenchMachine } from './link-bench'
 
 let bench: LinkBench
@@ -456,5 +456,147 @@ describe('the windows with "Link a machine" open', () => {
     first.destroy()
     expect(gone).not.toHaveBeenCalled()
     expect(windows.close(second.id)).toBe(true)
+  })
+})
+
+/**
+ * Electron's quit, as far as the quit handlers see it: app.quit() runs every `before-quit` handler;
+ * when none prevented it, every `will-quit` handler; when none prevented that either, the app is
+ * gone. A handler that prevented calls app.quit() again when its wait is over.
+ */
+class QuitModel {
+  private readonly handlers: Record<'before-quit' | 'will-quit', ((event: { preventDefault(): void }) => void)[]> = { 'before-quit': [], 'will-quit': [] }
+  exitedAt: number | undefined
+
+  on(event: 'before-quit' | 'will-quit', listener: (event: { preventDefault(): void }) => void): this {
+    this.handlers[event].push(listener)
+    return this
+  }
+
+  quit(): void {
+    if (this.exitedAt !== undefined) return
+    for (const phase of ['before-quit', 'will-quit'] as const) {
+      let prevented = false
+      for (const listener of this.handlers[phase]) listener({ preventDefault: () => (prevented = true) })
+      if (prevented) return
+    }
+    this.exitedAt = Date.now()
+  }
+}
+
+const after = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** The Autopilot's quit handler (src/main/ipc/autopilot.ts): holds `before-quit` once, until its runs stopped. */
+function autopilotOnQuit(app: QuitModel, stopMs: number): { stoppedAt: () => number | undefined } {
+  let quitting = false
+  let stoppedAt: number | undefined
+  app.on('before-quit', (event) => {
+    if (quitting) return
+    quitting = true
+    event.preventDefault()
+    void after(stopMs).then(() => {
+      stoppedAt = Date.now()
+      app.quit()
+    })
+  })
+  return { stoppedAt: () => stoppedAt }
+}
+
+/** The shells' quit handler (src/main/ipc/terminal.ts): holds `will-quit` while a shell is left. */
+function shellsOnQuit(app: QuitModel, exitMs: number): { closedAt: () => number | undefined } {
+  let left = 1
+  let closedAt: number | undefined
+  const closing = after(exitMs).then(() => {
+    left = 0
+    closedAt = Date.now()
+  })
+  app.on('will-quit', (event) => {
+    if (left === 0) return
+    event.preventDefault()
+    void closing.finally(() => app.quit())
+  })
+  return { closedAt: () => closedAt }
+}
+
+/** A link whose stop takes `ms`; the second call finds nothing to stop, as stopAppLink does. */
+function linkStop(ms: number): { stop: () => Promise<void> | undefined; stoppedAt: () => number | undefined } {
+  let running = true
+  let stoppedAt: number | undefined
+  return {
+    stop: () => {
+      if (!running) return undefined
+      running = false
+      return after(ms).then(() => {
+        stoppedAt = Date.now()
+      })
+    },
+    stoppedAt: () => stoppedAt,
+  }
+}
+
+describe('stopping the link when worfy quits', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ now: 0 })
+  })
+
+  it('waits for the Autopilot that stops longer than the link: the app quits only after both', async () => {
+    const app = new QuitModel()
+    const autopilot = autopilotOnQuit(app, 300)
+    const link = linkStop(20)
+    stopLinkOnQuit(app, link.stop, 1_500)
+    app.quit()
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(autopilot.stoppedAt()).toBe(300)
+    expect(link.stoppedAt()).toBeDefined()
+    expect(app.exitedAt).toBeGreaterThanOrEqual(300)
+    expect(app.exitedAt).toBeGreaterThanOrEqual(link.stoppedAt() ?? Infinity)
+  })
+
+  it('the same with the link handler registered first', async () => {
+    const app = new QuitModel()
+    const link = linkStop(20)
+    stopLinkOnQuit(app, link.stop, 1_500)
+    const autopilot = autopilotOnQuit(app, 300)
+    app.quit()
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(app.exitedAt).toBeGreaterThanOrEqual(autopilot.stoppedAt() ?? Infinity)
+    expect(app.exitedAt).toBeGreaterThanOrEqual(link.stoppedAt() ?? Infinity)
+  })
+
+  it('a link slower than the shells still holds the quit after the shells quit again', async () => {
+    const app = new QuitModel()
+    const shells = shellsOnQuit(app, 50)
+    const link = linkStop(200)
+    stopLinkOnQuit(app, link.stop, 1_500)
+    app.quit()
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(shells.closedAt()).toBe(50)
+    expect(link.stoppedAt()).toBe(200)
+    expect(app.exitedAt).toBe(200)
+  })
+
+  it('shells slower than the link keep the quit, the link does not cut them short', async () => {
+    const app = new QuitModel()
+    const link = linkStop(20)
+    stopLinkOnQuit(app, link.stop, 1_500)
+    const shells = shellsOnQuit(app, 100)
+    app.quit()
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(app.exitedAt).toBe(100)
+    expect(shells.closedAt()).toBe(100)
+  })
+
+  it('a link stop that hangs holds the quit for the wait only; no link running holds nothing', async () => {
+    const hung = new QuitModel()
+    stopLinkOnQuit(hung, () => new Promise<void>(() => undefined), 1_500)
+    hung.quit()
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(hung.exitedAt).toBe(1_500)
+
+    const idle = new QuitModel()
+    stopLinkOnQuit(idle, () => undefined, 1_500)
+    const now = Date.now()
+    idle.quit()
+    expect(idle.exitedAt).toBe(now)
   })
 })

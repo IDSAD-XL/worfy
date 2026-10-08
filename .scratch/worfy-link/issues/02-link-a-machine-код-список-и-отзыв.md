@@ -135,7 +135,8 @@ dev-сборке и Stable copy. Код в e2e берётся из DOM окна 
 - `test/contract/link-connections.test.ts` (новый)
 - `test/e2e/linked-machines.spec.ts` (новый)
 - `test/e2e/helpers.ts`
-- `src/main/index.ts` (круг доработки 1: остановка связи на `before-quit`; в следах соседей по волне его нет)
+- `src/main/index.ts` (круг доработки 1, узкий круг: остановка связи на выходе, `stopLinkOnQuit`; в следах соседей по волне его нет)
+- `test/contract/main-ipc-wiring.test.ts` (узкий круг: одна строка — `stopLinkOnQuit` в подмене `link/service`)
 
 `Sidebar.tsx` и `ProjectsSection.tsx` этот Ticket не меняет: секция — новый файл. Файлы папки связи
 и их имена — как в «Итог» Ticket-а 01; если они там другие, список выше правится при claim.
@@ -155,9 +156,10 @@ dev-сборке и Stable copy. Код в e2e берётся из DOM окна 
   `src/main/link/discovery.ts` (Bonjour), `connections.ts` (переподключение), `settings.ts` (переключатель доступа),
   `service.ts` (настройки, `addresses()`, `noteAddress()`, `isLinked()`, `isStopped`, отказ связать Machine саму с собой;
   внизу — сборка приложения: `appLink()`, `wireAppLink()`, `onAppLinkStart()`, `stopLink()`, `stopAppLink()`).
-  `src/main/index.ts` — остановка связи на `before-quit` (круг доработки 1). Renderer:
+  `src/main/index.ts` — остановка связи на выходе, `stopLinkOnQuit(app)` (круг доработки 1, узкий круг). Renderer:
   `src/renderer/machines/useMachines.ts`, `LinkMachineDialog.tsx`, `src/renderer/shell/sidebar/MachinesSection.tsx`.
-  Вне первоначального «Где в коде» — только `src/main/index.ts` (добавлен в список).
+  Вне первоначального «Где в коде» — `src/main/index.ts` и одна строка подмены в `test/contract/main-ipc-wiring.test.ts`
+  (добавлены в список).
 - **Новый файл папки данных:** `link/settings.json` — `{ "version": 1, "projectsAccess": false|true }`. Нет файла или он
   не читается — доступ выключен.
 - **Переменные окружения.** `WORFY_LINK_HOST` — единственный адрес, который слушает сервер связи (без неё — `::`, затем
@@ -220,8 +222,19 @@ changed»; адрес не запоминается после проверки;
 - не проверено: dev-сборка и Stable copy на одном Mac по Bonjour, связывание по коду и отзыв с любой стороны; был ли
   запрос Local Network и на каком шаге. Бриф запрещает системные окна на машине владельца и пересборку Stable copy;
   проверять — окнами обеих копий.
-- не проверено: сам обработчик `before-quit` в `src/main/index.ts` — test-ом покрыт `stopLink` (goodbye, затем
-  закрытие сокета, остановка соединений и сервиса), а вызов на выходе приложения — нет: в e2e Bonjour выключен.
+- **Остановка связи на выходе — в `will-quit`, не в `before-quit`** (узкий круг; **решено без владельца, подтвердить**).
+  В круге 1 связь держала `before-quit` и сама звала `app.quit()`: на втором `before-quit` Autopilot уже считал себя
+  выходящим, и приложение выходило, не дождавшись `autopilot.stopAll()` — журнал прогона терял записи о выходе.
+  `will-quit` Electron шлёт, только когда все `before-quit` отпустили выход, поэтому чужое ожидание связь не обрывает.
+  В `will-quit` связь держит выход, пока её остановка не закончилась, на каждом `will-quit`: оболочки
+  (`src/main/ipc/terminal.ts`) тоже ждут там и сами зовут `app.quit()`. Ждёт не дольше 1.5 s. Вариант с общим
+  обработчиком `Promise.all(Autopilot, связь)` не взят: он требовал правки `src/main/ipc/autopilot.ts` вне следа.
+  `src/main/ipc/autopilot.ts` не менялся. Test — `test/contract/link-connections.test.ts`, «stopping the link when worfy
+  quits», на модели выхода Electron: Autopilot 300 ms и связь 20 ms (оба порядка регистрации), оболочки быстрее и
+  медленнее связи, зависшая остановка, связь не запущена. Mutant с логикой fad10d4 (`before-quit` и `app.quit()`) —
+  3 test-а красные. Mutant «держать только первый `will-quit`» — 1 красный.
+- не проверено: `stopLinkOnQuit(app)` в `src/main/index.ts` на настоящем выходе приложения — test-ом покрыта сама функция
+  на модели выхода Electron и `stopLink` (goodbye, затем закрытие сокета). В e2e Bonjour выключен.
 - Ограничение (Ticket 01): если у отзывающей Machine после отзыва не осталось Linked machine-ов, её сервер закрывается.
   Отозванная сторона, которая в этот момент не была на связи, видит её «Unavailable», пока не отзовёт сама: отказа 401
   ей получить не от кого. При открытом соединении отзыв доходит сразу (test-ы с двух сторон).
