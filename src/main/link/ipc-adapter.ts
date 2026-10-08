@@ -197,7 +197,9 @@ export class LinkIpcAdapter implements IpcMainLike {
    * access on (else "access is off"), then a registered `project` channel (else "not open").
    */
   async call(peer: LinkPeer, channel: string, input: unknown, machineName: string): Promise<IpcResult<unknown>> {
-    const entry = this.listeners.get(IPC_CHANNEL_PREFIX + channel)
+    const registered = this.listeners.get(IPC_CHANNEL_PREFIX + channel)
+    // A name declared again with another mark since it was registered counts as closed (channels.ts).
+    const entry = registered !== undefined && accessOf(channel) === registered.access ? registered : undefined
     let sender: LinkSender | null
     if (entry?.access === 'link') {
       sender = peer.link
@@ -225,7 +227,9 @@ export async function createLinkIpc(options: { modules?: Record<string, ModuleLo
   const adapter = new LinkIpcAdapter()
   await registerIpc(adapter, {
     ...(options.modules === undefined ? {} : { modules: options.modules }),
-    channels: (channel) => LINKED_MACHINE_ACCESS.includes(channel.access),
+    // The mark of the definition, and the one every declaration of the name agrees on (channels.ts):
+    // a name declared twice with two marks is not registered.
+    channels: (channel) => LINKED_MACHINE_ACCESS.includes(channel.access) && accessOf(channel.name) === channel.access,
     isTrustedSender: (url) => {
       if (!URL.canParse(url)) return false
       const parsed = new URL(url)

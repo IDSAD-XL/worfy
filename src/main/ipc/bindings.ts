@@ -9,15 +9,25 @@ import { bindingsChanged, bindingsGet, bindingsRemove, bindingsSet, bindingsSign
 import { BindingSignalReader } from '../claude-home/binding-signals'
 import { ClaudeHomeRegistry } from '../claude-home/registry'
 import { clientOf, type Client } from '../clients'
+import { insideProjects } from '../link/caller'
 import { bindingStore, type BindingStore } from '../layout/bindings'
+import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 /** Finds a Session's transcript among a Project's folders; the app's registry, or a fake in tests. */
 export type TranscriptFinder = Pick<ClaudeHomeRegistry, 'transcriptPath'>
 
-/** The handlers over a store, a transcript finder and a reader; tests pass their own. */
-export function bindingsHandlers(store: () => BindingStore, transcripts: () => TranscriptFinder, reader = new BindingSignalReader()): HandlerModule {
+/**
+ * The handlers over a store, a transcript finder and a reader; tests pass their own. A call from a
+ * Linked machine names a root inside a Project of `projects` (src/main/link/caller.ts).
+ */
+export function bindingsHandlers(
+  store: () => BindingStore,
+  transcripts: () => TranscriptFinder,
+  reader = new BindingSignalReader(),
+  projects: () => readonly { readonly path: string }[] = () => projectStore().list(),
+): HandlerModule {
   const subscribed = new WeakSet<Client>()
   const subscribe = (client: Client | undefined): void => {
     if (client === undefined || subscribed.has(client) || client.isDestroyed()) return
@@ -37,8 +47,10 @@ export function bindingsHandlers(store: () => BindingStore, transcripts: () => T
     }),
     defineHandler(bindingsSet, ({ projectId, sessionId, agentId, target }) => store().set(projectId, { sessionId, agentId }, target)),
     defineHandler(bindingsRemove, ({ projectId, sessionId, agentId }) => store().remove(projectId, { sessionId, agentId })),
-    defineHandler(bindingsSignals, async ({ projectRoot, sessionId }) => {
-      const path = await transcripts().transcriptPath(resolve(projectRoot), sessionId)
+    defineHandler(bindingsSignals, async ({ projectRoot, sessionId }, { event }) => {
+      const root = resolve(projectRoot)
+      insideProjects(event, root, projects, 'the Project root')
+      const path = await transcripts().transcriptPath(root, sessionId)
       if (path === null) return { found: false, session: EMPTY_AGENT_SIGNALS, subagents: [] }
       return { found: true, ...(await reader.session(path)) }
     }),

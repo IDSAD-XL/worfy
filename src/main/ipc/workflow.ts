@@ -1,5 +1,7 @@
 import { workflowChanged, workflowClose, workflowOpen } from '../../shared/ipc/workflow'
 import { ClientHolders, clientOf, type Client } from '../clients'
+import { insideProjects } from '../link/caller'
+import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { WorkflowHub, type WorkflowSubscriber } from '../workflow/watch'
 import { defineHandler, emit, type HandlerModule } from './index'
@@ -23,7 +25,11 @@ function subscriberOf(client: Client | undefined): WorkflowSubscriber {
 }
 
 export default [
-  defineHandler(workflowOpen, ({ root }, { event }) => workflowHub.open(root, subscriberOf(clientOf(event)))),
+  defineHandler(workflowOpen, ({ root }, { event }) => {
+    // A Linked machine opens the Projects of the list only (src/main/link/caller.ts).
+    insideProjects(event, root, () => projectStore().list(), 'the Project root')
+    return workflowHub.open(root, subscriberOf(clientOf(event)))
+  }),
   defineHandler(workflowClose, async ({ root }, { event }) => {
     const client = clientOf(event)
     return { closed: client === undefined ? false : await workflowHub.close(root, client.id) }

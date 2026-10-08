@@ -14,6 +14,7 @@ import {
 import { defaultProjectSettings } from '../../shared/projects/action-templates'
 import { toEveryWindow } from '../broadcast'
 import { currentHarness } from '../harness/locate'
+import { isRemoteCall } from '../link/caller'
 import { readProjectSettings, writeProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
 import { defineHandler, emit, type HandlerModule } from './index'
@@ -47,8 +48,10 @@ export default [
 
   defineHandler(projectsList, () => store.state()),
 
-  defineHandler(projectsAdd, async ({ path }) => {
-    const result = await store.add(path)
+  // A Linked machine adds and removes Projects without switching the active one: that is the state
+  // of this Machine's screens (projects.select is not open to it at all).
+  defineHandler(projectsAdd, async ({ path }, { event }) => {
+    const result = await store.add(path, { keepActive: isRemoteCall(event) })
     if (result.status === 'rejected') return result
     const state = await store.state()
     const project = state.projects.find((item) => item.id === result.project.id)
@@ -61,8 +64,8 @@ export default [
     return store.state()
   }),
 
-  defineHandler(projectsRemove, ({ id }) => {
-    store.remove(id)
+  defineHandler(projectsRemove, ({ id }, { event }) => {
+    store.remove(id, { keepActive: isRemoteCall(event) })
     return store.state()
   }),
 

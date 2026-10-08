@@ -7,13 +7,16 @@
 // Never run here: a real Claude Code or Agent SDK (agent.start is a counting stand-in), a native
 // dialog or the OS shell (both mocked), the network beyond 127.0.0.1, Bonjour.
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SYSTEM_PATH } from '../../src/main/agent/env'
+import type { SessionRegistry } from '../../src/main/agent/session'
 import { addClient, clients } from '../../src/main/broadcast'
 import { ClaudeHomeRegistry } from '../../src/main/claude-home/registry'
+import { agentHandlers } from '../../src/main/ipc/agent'
+import { checksHandlers, type ChecksService } from '../../src/main/ipc/checks'
 import { ClaudeHomeSubscriptions, claudeHomeHandlers } from '../../src/main/ipc/claude-home'
 import { bindingsHandlers } from '../../src/main/ipc/bindings'
 import { docsHub } from '../../src/main/ipc/docs'
@@ -26,7 +29,6 @@ import { layoutStore } from '../../src/main/layout/store'
 import { LinkSender } from '../../src/main/link/ipc-adapter'
 import { projectStore } from '../../src/main/projects/store'
 import { TerminalRegistry } from '../../src/main/terminal/pty'
-import { agentStart } from '../../src/shared/ipc/agent'
 import { cardApiAsk } from '../../src/shared/ipc/card-api'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { limitsChanged } from '../../src/shared/ipc/limits'
@@ -64,11 +66,15 @@ const PROJECT = 'demo-0a1b2c3d'
 const OTHER = 'other-0a1b2c3e'
 const NODE = 'terminal-1'
 const CLAUDE_HOME_FIXTURE = join(import.meta.dirname, '..', 'fixtures', 'claude-home')
-const CLAUDE_HOME_PROJECT = '/Users/test/projects/demo'
 
 const dataDir = join(env.scratch, 'data')
 const repo = join(env.scratch, 'demo')
 const home = join(env.scratch, 'shell-home')
+/** A folder outside every Project of B, with a file a Linked machine must not read. */
+const outside = join(env.scratch, 'outside')
+/** A second repository, not in B's list: what projects.add brings in. */
+const second = join(env.scratch, 'second')
+const attachmentsDir = join(env.scratch, 'attachments')
 
 function git(cwd: string, ...args: string[]): void {
   const gitEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
@@ -83,6 +89,15 @@ writeFileSync(join(repo, 'HANDOFF.md'), '# Handoff\n')
 git(repo, 'init', '-q')
 git(repo, 'add', '.')
 git(repo, 'commit', '-q', '-m', 'init')
+mkdirSync(outside, { recursive: true })
+writeFileSync(join(outside, 'secret.txt'), 'not a Project file')
+// Inside the Project, a symbolic link that leads out of it.
+symlinkSync(outside, join(repo, 'out-link'))
+mkdirSync(join(second, 'src'), { recursive: true })
+writeFileSync(join(second, 'README.md'), 'second')
+git(second, 'init', '-q')
+git(second, 'add', '.')
+git(second, 'commit', '-q', '-m', 'init')
 mkdirSync(join(dataDir, PROJECT), { recursive: true })
 mkdirSync(join(dataDir, OTHER), { recursive: true })
 // The workflow reader asks the Harness's epic-status (src/main/workflow/reader.ts); this stand-in
@@ -126,6 +141,30 @@ const bindings = new BindingStore((projectId) => join(dataDir, projectId))
 
 /** Stand-ins that count their calls: a Session that would start Claude, a dialog of a Card. */
 const calls = { agentStart: 0, trashList: 0 }
+/** The folders the stand-in Session registry was asked to start Claude Code in. */
+const startedIn: string[] = []
+/** A Session registry that starts nothing: the real agent handlers run over it. */
+const sessions = new Map<string, { cwd: string }>()
+const fakeSessions = {
+  start: (cwd: string) => {
+    calls.agentStart += 1
+    startedIn.push(cwd)
+    const id = `session-${calls.agentStart}`
+    sessions.set(id, { cwd })
+    return { id }
+  },
+  get: (id: string) => {
+    const session = sessions.get(id)
+    if (session === undefined) throw new Error(`No Session ${id}`)
+    return session
+  },
+} as unknown as SessionRegistry
+/** The checks of a Project without gate or GitHub: what the guard lets through answers empty. */
+const fakeChecks: ChecksService = {
+  gate: { read: async () => [] } as unknown as ChecksService['gate'],
+  prs: { read: async () => ({ pulls: [], gh: { available: false, error: null, intervalMs: 60_000 } }) } as unknown as ChecksService['prs'],
+  worktrees: async () => [],
+}
 /** Holds trash.list until the test lets it go: a call that is running when access goes off. */
 let holdTrashList: Promise<void> = Promise.resolve()
 
@@ -153,12 +192,15 @@ const modules: Record<string, ModuleLoader> = {
       },
       isTerminalNode: (projectId, nodeId) => projectId === PROJECT && nodeId === NODE,
     }),
+  './agent.ts': async () =>
+    agentHandlers(
+      () => fakeSessions,
+      { target: (cwd) => ({ projectRoot: repo, cwd, attachmentsDir }), pickFiles: async () => [] },
+      () => undefined,
+    ),
+  './checks.ts': async () => checksHandlers(fakeChecks),
   './stand-ins.ts': async () =>
     [
-      defineHandler(agentStart, () => {
-        calls.agentStart += 1
-        throw new Error('the stand-in never starts a Session')
-      }),
       // As src/main/ipc/card-api.ts does: a native dialog on the screen of the Project machine.
       defineHandler(cardApiAsk, async () => {
         await electron.showMessageBox()
@@ -203,6 +245,7 @@ beforeEach(async () => {
   })
   await a.service.connect(bId)
   calls.agentStart = 0
+  startedIn.length = 0
   calls.trashList = 0
   claudeHomeWatchers.length = 0
   for (const spy of Object.values(electron)) spy.mockClear()
@@ -362,7 +405,7 @@ describe('access on', () => {
     setAccess(true)
     expect(await callB('workflow.open', { root: repo })).toMatchObject({ ok: true })
     expect(await callB('docs.open', { projectId: PROJECT })).toMatchObject({ ok: true })
-    expect(await callB('claudeHome.sessions', { projectRoot: CLAUDE_HOME_PROJECT })).toMatchObject({ ok: true })
+    expect(await callB('claudeHome.sessions', { projectRoot: repo })).toMatchObject({ ok: true })
     expect(await callB('bindings.get', { projectId: PROJECT })).toMatchObject({ ok: true })
     const opened = await callB('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24 })
     expect(opened).toMatchObject({ ok: true, value: { started: true } })
@@ -406,7 +449,7 @@ describe('switching access off', () => {
     expect(await callB('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24 })).toMatchObject({ ok: true, value: { started: false } })
     expect(await callB('workflow.open', { root: repo })).toMatchObject({ ok: true })
     expect(await callB('docs.open', { projectId: PROJECT })).toMatchObject({ ok: true })
-    expect(await callB('claudeHome.sessions', { projectRoot: CLAUDE_HOME_PROJECT })).toMatchObject({ ok: true })
+    expect(await callB('claudeHome.sessions', { projectRoot: repo })).toMatchObject({ ok: true })
 
     expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo before-$((1+1))\n' })).toMatchObject({ ok: true })
     const outputOfA = (): string =>
@@ -482,11 +525,123 @@ describe('the clients of a connection', () => {
   })
 })
 
+describe('round 2: a Linked machine works inside the Projects of the list only', () => {
+  /** A window of B: its webContents id is a number. */
+  const window = { id: 7, send: () => undefined, isDestroyed: () => false, once: () => window }
+  const outsideRefusal = /is outside the Projects of this Machine; a Linked machine works only inside them/
+
+  it('agent.start in a folder outside every Project, or through a link out of one, is refused; inside it starts in the real folder', async () => {
+    setAccess(true)
+    for (const cwd of ['/', env.scratch, outside, join(repo, 'out-link'), `${repo}/../outside`]) {
+      const result = await callB('agent.start', { cwd })
+      expect(result.ok, cwd).toBe(false)
+      expect(!result.ok && result.error, cwd).toMatch(outsideRefusal)
+    }
+    expect(calls.agentStart).toBe(0)
+    expect(await callB('agent.start', { cwd: `${repo}/.scratch/../.scratch` })).toMatchObject({ ok: true })
+    expect(startedIn).toEqual([join(repo, '.scratch')])
+
+    // B's own window starts a Session wherever it likes, as before.
+    const windowCall = await windowIpc(['./agent.ts'])
+    expect(await windowCall('agent.start', { cwd: outside }, window)).toMatchObject({ ok: true })
+    expect(startedIn).toEqual([join(repo, '.scratch'), outside])
+  })
+
+  it('agent.attach by path reads nothing outside the Projects for A; inside it attaches; B\'s window attaches as before', async () => {
+    setAccess(true)
+    const started = await callB('agent.start', { cwd: repo })
+    const sessionId = (started as { ok: true; value: { sessionId: string } }).value.sessionId
+    for (const path of [join(outside, 'secret.txt'), join(repo, 'out-link', 'secret.txt'), `${repo}/../outside/secret.txt`]) {
+      const result = await callB('agent.attach', { sessionId, sources: [{ kind: 'path', path }] })
+      expect(result.ok, path).toBe(false)
+      expect(!result.ok && result.error, path).toMatch(outsideRefusal)
+    }
+    // Nothing was copied for the refused files.
+    expect(() => readFileSync(join(attachmentsDir, 'secret.txt'))).toThrow()
+    expect(seen.join('\n')).not.toContain('not a Project file')
+
+    expect(await callB('agent.attach', { sessionId, sources: [{ kind: 'path', path: join(repo, 'HANDOFF.md') }] })).toMatchObject({
+      ok: true,
+      value: { results: [{ ok: true, attachment: { kind: 'file', name: 'HANDOFF.md', copied: false } }] },
+    })
+
+    const windowCall = await windowIpc(['./agent.ts'])
+    expect(await windowCall('agent.attach', { sessionId, sources: [{ kind: 'path', path: join(outside, 'secret.txt') }] }, window)).toMatchObject({
+      ok: true,
+      value: { results: [{ ok: true, attachment: { kind: 'file', name: 'secret.txt', copied: true } }] },
+    })
+  })
+
+  it('a root outside the Projects is refused for A on workflow, claude-home, bindings and checks; inside it answers; B\'s window as before', async () => {
+    setAccess(true)
+    const sessionId = '77777777-7777-4777-8777-777777777777'
+    for (const [channel, input] of [
+      ['workflow.open', { root: '/' }],
+      ['workflow.open', { root: outside }],
+      ['workflow.open', { root: join(repo, 'out-link') }],
+      ['claudeHome.sessions', { projectRoot: '/' }],
+      ['claudeHome.live', { projectRoot: env.scratch }],
+      ['claudeHome.transcript', { projectRoot: '/', sessionId }],
+      ['claudeHome.subagents', { projectRoot: outside, sessionId }],
+      ['claudeHome.subagentTranscript', { projectRoot: '/', sessionId, agentId: 'a1' }],
+      ['bindings.signals', { projectRoot: '/', sessionId }],
+      ['checks.get', { root: '/', branches: [] }],
+    ] as const) {
+      const result = await callB(channel, input)
+      expect(result.ok, `${channel} ${JSON.stringify(input)}`).toBe(false)
+      expect(!result.ok && result.error, channel).toMatch(outsideRefusal)
+    }
+    expect(workflowHub.roots).toEqual([])
+    expect(claudeHomeSubscriptions.size).toBe(0)
+
+    expect(await callB('claudeHome.live', { projectRoot: repo })).toMatchObject({ ok: true })
+    expect(await callB('bindings.signals', { projectRoot: repo, sessionId })).toMatchObject({ ok: true, value: { found: false } })
+    expect(await callB('checks.get', { root: repo, branches: [] })).toMatchObject({ ok: true, value: { root: repo } })
+
+    const windowCall = await windowIpc(['./claude-home.ts', './bindings.ts', './checks.ts'])
+    expect(await windowCall('claudeHome.live', { projectRoot: outside }, window)).toMatchObject({ ok: true })
+    expect(await windowCall('bindings.signals', { projectRoot: '/', sessionId }, window)).toMatchObject({ ok: true })
+    expect(await windowCall('checks.get', { root: outside, branches: [] }, window)).toMatchObject({ ok: true, value: { root: outside } })
+  })
+
+  it('projects.add and projects.remove from A leave B\'s active Project as it is; the active one is not removed; B\'s window switches as before', async () => {
+    setAccess(true)
+    const activeInFile = (): unknown => (JSON.parse(readFileSync(join(dataDir, 'projects.json'), 'utf8')) as { activeId: unknown }).activeId
+    expect(projectStore().active()?.id).toBe(PROJECT)
+
+    const added = await callB('projects.add', { path: second })
+    expect(added).toMatchObject({ ok: true, value: { status: 'added' } })
+    const secondId = (added as { ok: true; value: { project: { id: string } } }).value.project.id
+    expect(projectStore().list().map((project) => project.id)).toContain(secondId)
+    expect(projectStore().active()?.id).toBe(PROJECT)
+    expect(activeInFile()).toBe(PROJECT)
+    // Again, from a subfolder: the Project is already listed, and it is still not made active.
+    expect(await callB('projects.add', { path: join(second, 'src') })).toMatchObject({ ok: true, value: { status: 'added' } })
+    expect(activeInFile()).toBe(PROJECT)
+
+    const removeActive = await callB('projects.remove', { id: PROJECT })
+    expect(removeActive.ok).toBe(false)
+    expect(!removeActive.ok && removeActive.error).toMatch(/is the active Project of this Machine/)
+    expect(projectStore().find(PROJECT)).toBeDefined()
+    expect(await callB('projects.remove', { id: secondId })).toMatchObject({ ok: true })
+    expect(projectStore().find(secondId)).toBeUndefined()
+    expect(activeInFile()).toBe(PROJECT)
+
+    // B's own window: adding makes the Project active, removing the active one moves on.
+    const windowCall = await windowIpc(['./projects.ts'])
+    expect(await windowCall('projects.add', { path: second }, window)).toMatchObject({ ok: true, value: { status: 'added' } })
+    expect(activeInFile()).toBe(secondId)
+    expect(await windowCall('projects.remove', { id: secondId }, window)).toMatchObject({ ok: true })
+    expect(activeInFile()).toBe(PROJECT)
+  })
+})
+
 /** B's own window over the same handler modules, as src/main/index.ts registers them on ipcMain. */
-async function windowIpc() {
+async function windowIpc(names: readonly string[] = ['./terminal.ts']) {
   type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
   const handlers = new Map<string, Listener>()
-  await registerIpc({ handle: (channel, listener) => void handlers.set(channel, listener as Listener) }, { modules: { './terminal.ts': modules['./terminal.ts']! }, isTrustedSender: () => true })
+  const chosen = Object.fromEntries(names.map((name) => [name, modules[name]!]))
+  await registerIpc({ handle: (channel, listener) => void handlers.set(channel, listener as Listener) }, { modules: chosen, isTrustedSender: () => true })
   return async (channel: string, input: unknown, sender: unknown): Promise<IpcResult<unknown>> => {
     const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
     if (!listener) throw new Error(`no handler for ${channel}`)

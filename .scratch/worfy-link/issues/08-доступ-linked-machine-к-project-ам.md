@@ -166,6 +166,7 @@ Contract на двух Machine — на стенде Ticket-а 01 (`test/contrac
 - `test/contract/ipc-renderer.test.tsx` — его test-овые каналы `client.*` тоже объявлены через `invokeChannel`/`eventChannel`
 - `test/contract/link-bench.ts` — опция `addClient` стенда
 - `test/contract/link-server.test.ts` — только ожидаемый текст отказа `projects.list` (теперь «access is off»)
+- Доработка после ревью (круг 1, согласовано с оркестратором): `src/main/link/caller.ts` (новый — кто вызвал и «внутри Project-ов»), `src/main/projects/store.ts`, `src/main/ipc/projects.ts`, `src/main/ipc/agent.ts`, `src/main/ipc/claude-home.ts`, `src/main/ipc/bindings.ts`, `src/main/ipc/workflow.ts`, `src/main/ipc/checks.ts`, `test/unit/link-caller.test.ts` (новый), `test/contract/clients.test.ts` (список Project-ов для корней fixture-а Claude home)
 
 Имена файлов связи — из плана Ticket-а 01; если в его «Итог» они другие, исполнитель правит список.
 Общий файл с Ticket-ом 01 — index.ts в src/main/ipc (вариант проверки доверия «б» Ticket-а 01). Доменные файлы, которые Ticket-ы 05–07 добавят до
@@ -227,6 +228,34 @@ Machine на стенде Ticket-а 01, реальные handler-ы Project-ов
 gate fast — «зелено»; `GATE_SCOPE=all` gate full на commit d74d102 — EXIT=0, «[gate] зелено (full):
 lint typecheck test test:e2e test:package».
 
+**Доработка после ревью, круг 1** (head до неё — ace643c). ADR-0052, пункт 6 даёт Linked machine
+«в Project-ах всё» — в Project-ах из списка, а не на всём диске:
+- Кто вызвал — `src/main/link/caller.ts`: отправитель со строковым id (клиент без окна, в том числе
+  клиент соединения `link:<machineId>/<n>`) — вызов не с экрана этой машины; окно (числовой id
+  webContents) работает как раньше.
+- «Внутри Project-а» — по realpath (`realpathSync.native`: на macOS ещё и регистр букв с диска):
+  `..`, символическая ссылка из Project-а наружу, папка-сосед с тем же префиксом (`Repo-evil`) —
+  снаружи. Несуществующий путь судится по ближайшей существующей папке; ссылка в никуда — снаружи.
+  Handler дальше работает с проверенным реальным путём (`agent.start`, `agent.attach`).
+- `projects.add` с Linked machine не делает Project активным (и уже добавленный тоже);
+  `projects.remove` с Linked machine не удаляет активный Project (отказ «… is the active Project of
+  this Machine»), неактивный удаляет без смены `activeId`. Окно — как раньше.
+- `agent.start` (cwd), `agent.attach` (`kind: 'path'`), `workflow.open`, `claudeHome.sessions`,
+  `.live`, `.transcript`, `.subagents`, `.subagentTranscript`, `bindings.signals`, `checks.get`:
+  путь вне Project-ов из списка с Linked machine — отказ «… is outside the Projects of this Machine».
+- Канал, объявленный дважды с разными пометками, на адаптере не регистрируется
+  (`accessOf(name) === channel.access`), а объявленный заново после регистрации — отклоняется при
+  вызове.
+- Test-ы: `test/unit/link-caller.test.ts`, `test/contract/link-access.test.ts` (раздел «round 2»),
+  `test/contract/ipc.test.ts` (раздел «declared twice»). Мутантов 16, каждый краснит test; два
+  мутанта выжили и показали лишний код — проверка `..` после несуществующего имени и проверка
+  `LinkSender` в `isRemoteCall` (её покрывает строковый id) — код убран.
+
+**Вопрос владельцу.** Выключение доступа отписывает клиента соединения, но не останавливает
+Session, Autopilot и очередь `agent.send`, которые Linked machine запустила раньше: Session
+принадлежит приложению (Ticket 04). spec.md (раздел «Доступ») говорит «отписывает», ADR-0052,
+пункт 6 — «ничего в них не запускает». Останавливать ли запущенное с Linked machine при выключении?
+
 **Решено без владельца, подтвердить:**
 - `firstRun.*`, `harness.*`, `harnessMigration.*` — `local` (настройка своей машины; в `harness.install`,
   `harnessMigration.apply`, `firstRun.run` — нативные диалоги).
@@ -236,3 +265,4 @@ lint typecheck test test:e2e test:package».
   machine может в Project-ах всё, кроме `desktop`; выключен — ни читать, ни писать.
 - С включённым переключателем Linked machine может `projects.add` любую папку git-репозитория
   машины Project-а и открыть в ней Terminal (`project` по разметке Ticket-а).
+- `projects.remove` активного Project-а с Linked machine — отказ (а не смена или сброс `activeId`).

@@ -216,20 +216,24 @@ export class ProjectStore {
     return { ok: true, root, notice }
   }
 
-  /** Adds the repository that contains `folder` (or selects it, if it is already listed). */
-  async add(folder: string): Promise<AddResult> {
+  /**
+   * Adds the repository that contains `folder` and makes it active (or selects it, if it is already
+   * listed). With `keepActive` the active Project stays as it is: an add from a Linked machine does
+   * not switch the screens of this Machine (worfy-link ticket 08).
+   */
+  async add(folder: string, options: { keepActive?: boolean } = {}): Promise<AddResult> {
     const resolved = await this.resolve(folder)
     if (!resolved.ok) return { status: 'rejected', reason: resolved.reason }
 
     const id = projectId(resolved.root)
     // The git calls above awaited; re-read the list now, so a concurrent change is not lost.
-    const { projects } = this.data()
+    const { projects, activeId } = this.data()
     const existing = projects.find((project) => project.id === id)
     const project = existing ?? { id, name: basename(resolved.root) || resolved.root, path: resolved.root }
 
     mkdirSync(this.dataDir(id), { recursive: true })
     ensureProjectSettings(this.dataDir(id))
-    this.commit({ projects: existing ? projects : [...projects, project], activeId: id })
+    this.commit({ projects: existing ? projects : [...projects, project], activeId: options.keepActive === true ? activeId : id })
 
     const notice = resolved.notice ?? (existing ? `${project.name} is already in the list.` : null)
     return { status: 'added', project, notice }
@@ -240,10 +244,15 @@ export class ProjectStore {
     this.commit({ ...this.data(), activeId: id })
   }
 
-  /** Removes the Project from the list; its data folder is kept. */
-  remove(id: string): void {
+  /**
+   * Removes the Project from the list; its data folder is kept. With `keepActive` the active
+   * Project may not be removed (a Linked machine does not switch the screens of this Machine,
+   * worfy-link ticket 08): that throws, and nothing changes.
+   */
+  remove(id: string, options: { keepActive?: boolean } = {}): void {
     this.get(id)
     const { projects, activeId } = this.data()
+    if (options.keepActive === true && activeId === id) throw new Error(`${this.get(id).name} is the active Project of this Machine; only its own screen removes it`)
     const rest = projects.filter((project) => project.id !== id)
     this.commit({ projects: rest, activeId: activeId === id ? (rest[0]?.id ?? null) : activeId })
   }
