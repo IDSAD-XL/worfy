@@ -330,8 +330,9 @@ B. Перехват `console.*` ставится в `link-bench.ts`, чтобы 
 
 Проверки:
 
-- `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (144 файла, 2762 test-а); gate fast — exit 0, «[gate] зелено (fast)».
-- `GATE_SCOPE=all gate.sh full` на коммитах 2c4bf31 и 1faf32f — exit 0, «[gate] зелено (full): worfy/.:lint worfy/.:typecheck
+- `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (после круга 2: 145 файлов, 2790 test-ов); gate fast — exit 0,
+  «[gate] зелено (fast)».
+- `GATE_SCOPE=all gate.sh full` на коммитах 2c4bf31, 1faf32f и cf252e2 (круг 2, после rebase на 6d7947b) — exit 0, «[gate] зелено (full): worfy/.:lint worfy/.:typecheck
   worfy/.:test worfy/.:test:e2e worfy/.:test:package».
 - Мутации (по одной, в своём worktree, восстановление из копии) — каждую ловит test: снятие проверки Origin, Host,
   совпадения сертификата клиента, списка открытых каналов, сверки отпечатка в клиенте, отпечатков в transcript SPAKE2,
