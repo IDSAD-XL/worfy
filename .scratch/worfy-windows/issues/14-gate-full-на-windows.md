@@ -108,7 +108,7 @@ Harness (Ticket 05); test-ы qmd (Ticket 15); Windows-раннер на PR (Q23 
 ## Готово, когда
 
 - [ ] На ПК владельца `pnpm test` — код 0. Каждый пропуск на `win32` — с комментарием о причине; список — в Итог.
-- [ ] На Mac ни один из пяти test-ов только для macOS не пропущен: `pnpm test --reporter=verbose` показывает их пройденными.
+- [ ] На Mac ни один из пяти test-ов только для macOS не пропущен: `pnpm test --reporter=verbose` показывает их пройденными (через раздел Mac checks PR, Q33).
 - [ ] `grep -rnE "Meta\+|'Meta'" test/e2e` — пусто (код 1); на Mac `pnpm test:e2e` — код 0.
 - [ ] На ПК владельца `pnpm build && pnpm exec playwright test test/e2e/terminal.spec.ts --grep-invert @packaged` — код 0: PowerShell по умолчанию, один случай в Git Bash; после закрытия Node и выхода из worfy у main-процесса worfy нет дочерних оболочек.
 - [ ] На ПК владельца `pnpm test:package` — код 0: test-ы `@packaged` запустили `dist/win-unpacked/worfy.exe`, Terminal в собранном приложении работает.
