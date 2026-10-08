@@ -4,8 +4,10 @@ import { sharedRegistry } from './agent/app-registry'
 import { installCardRuntime, registerCardScheme } from './cards/protocol'
 import { cardStore } from './cards/store'
 import { installDevDockIcon } from './dock-icon'
+import { bundledHarnessVersion } from './harness/bundled'
 import { liveSessionListeners } from './ipc/claude-home'
 import { appUrlMatcher, registerIpc } from './ipc/index'
+import { startAppLink } from './link/service'
 import { installAppMenu } from './menu'
 import { installNotifications } from './notify'
 import { checkDataFolder, inStep, reportStartupFailure } from './startup-failure'
@@ -31,6 +33,20 @@ if (dataFolderUsable()) {
   } else {
     console.error(`[worfy] another worfy already runs over ${app.getPath('userData')}; quitting`)
     app.quit()
+  }
+}
+
+/**
+ * Starts the link service in the background. A failure — a port that cannot be taken, a key that
+ * cannot be read — never stops worfy: it is a warning in the log, and appLinkProblem() keeps it for
+ * the UI of worfy-link ticket 02.
+ */
+function startLink(): void {
+  const warn = (error: unknown): void => console.warn(`[link] the link service did not start: ${error instanceof Error ? error.message : String(error)}`)
+  try {
+    startAppLink({ buildKind: app.isPackaged ? 'packaged' : 'dev', buildVersion: bundledHarnessVersion() ?? app.getVersion() }).catch(warn)
+  } catch (error) {
+    warn(error)
   }
 }
 
@@ -89,6 +105,10 @@ function start(): void {
       // loadFile, and only for this first window; windows opened later only log such a failure.
       inStep('createMainWindow', () => createMainWindow({ firstOfStart: true }))
       started = true
+      // The link with other Machines (worfy-link ticket 01), after the handlers it serves over the
+      // network, and only once the start has succeeded: a start that failed opens nothing to the
+      // network. Not a startup step: worfy runs without it (startLink).
+      startLink()
 
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
