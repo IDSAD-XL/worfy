@@ -1,7 +1,7 @@
 # 01 — Сервер связи Machine-ов: TLS, pairing по 6-значному коду, запомненный сертификат, выключатель
 
 Type: task
-Status: claimed — 2026-10-08
+Status: done — 2026-10-08, [PR #154](https://github.com/IDSAD-XL/worfy/pull/154)
 Blocked by: —
 Source: решения владельца 2026-10-07: Q4 (доступ выключен по умолчанию, код связи, токен устройства, TLS, только LAN, проверка Origin/Host), Q7 (host и client — роли соединения, каждый worfy бывает и тем, и другим), Q9 (термины Machine и Linked machine; у Project ровно одна Machine) и Q11 («Link a machine», код из 6 цифр, двусторонняя связь, TLS с запомненным сертификатом, отзыв с любой стороны) ([spec.md](../spec.md), «Готово, когда» Epic-а, пункты 1 и 5); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md) (Machine и Linked machine, связь по коду, TLS с запомненным сертификатом, только LAN, проверка Host/Origin, отзыв, токены не в логах); [ADR-0006](../../../docs/adr/0006-ipc-contract-by-declaration-merging.md) (домен IPC — два своих файла); [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md) (своё состояние worfy — в папке данных)
 
@@ -359,3 +359,15 @@ B. Перехват `console.*` ставится в `link-bench.ts`, чтобы 
   сервер. Мутации каждой правки круга 2 (13 штук, копии в scratchpad) — все ловятся test-ами.
 - **Не проверено:** связь двух настоящих компьютеров в LAN и запрос Local Network на macOS 15+ (Ticket 02, 16); окно
   брандмауэра macOS (test-ы слушают только `127.0.0.1`, e2e на свежей папке не слушает); Windows целиком.
+
+Гейт Wave 1: `REJECTED` (2 ревьюера — отчёт и безопасность: 1 med — test отзыва не доказывал, что A сама
+закрывает соединение; 6 low — LAN-проверка после TLS, нет `maxPayload`, `closeLinking` не прерывал попытку, id из
+hello ни к чему не привязан, повторное связывание не закрывало старые соединения, лицензии зависимостей) →
+доработка `608982d..422c7a9` → `VERIFIED` во втором круге (PR #154, влит `a8cd1a2`). Долги ревьюера (не блокируют):
+- [low] `src/main/link/pairing.ts:412` — hello B (имя, build, порт) уходит в pake2, до подтверждения ключа A:
+  любой в LAN при открытом «Link a machine» узнаёт их, послав pake1 без кода. Оставить в pake2 только id.
+- [low] `src/main/link/service.ts:252`, `:559` — `checkPeerId` не повторяется в `commitLink`: два одновременных
+  связывания с одним id и разными сертификатами — второе перезапишет (нужны два кода).
+- [low] `src/main/link/messages.ts:22` — ответ IPC больше 16 MiB рвёт всё соединение (1009) без ошибки на вызове.
+- [low] `src/main/link/service.ts:213` → `:569-570` — закрытие «Link a machine» пользователем даёт событие
+  `pairing-failed` и warn; UI Ticket-а 02 не должен показывать это как ошибку.
