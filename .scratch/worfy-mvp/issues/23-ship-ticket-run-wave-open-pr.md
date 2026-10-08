@@ -165,3 +165,9 @@ LaunchServices с окружением launchd, настоящий Claude Code �
   0.6 линия и оба Node-а не помещаются на экран.
 - Снимки: `29-01-project-settings.png`, `29-03-after-ship.png`, `29-04-node-line-ticket.png`,
   `29-06-after-close.png`, `29-12-after-cleanup.png`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] границы модулей: `broadcast()` в `src/main/ipc/actions.ts:27` повторяет цикл общей `toEveryWindow`
+  (`src/main/broadcast.ts:6`), но без try/catch на каждое окно и без проверки `webContents.isDestroyed()`:
+  сбой отправки в одно окно оборвёт рассылку остальным. `worfy-link` 04 трогает рассылку — пригодится.

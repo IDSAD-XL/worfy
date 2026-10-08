@@ -109,3 +109,9 @@ test пишет сам во временный каталог (`WORFY_AGENT_SCRI
 - Снимки: Session view — [33-orchestrator-session-view.png](../../worfy-mvp/evidence/33-orchestrator-session-view.png), блок
   на Node-е — [33-orchestrator-node-block.png](../../worfy-mvp/evidence/33-orchestrator-node-block.png). Остальное — в
   scratchpad Session Orchestrator-а: `M8-before-dblclick.png`, `M8-node-window.png`, `M8-block.json`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] `src/renderer/canvas/nodes/OrchestratorNode.tsx:107-108` — при минимальном размере Node-а 240×120
+  строка «— Жду:» видна наполовину; `:65` — строка блока режется многоточием, в Node 360×200 входит
+  около 46 знаков.

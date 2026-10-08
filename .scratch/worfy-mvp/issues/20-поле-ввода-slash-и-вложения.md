@@ -138,3 +138,11 @@ LaunchServices с окружением launchd, настоящий Claude Code �
 - `git status --porcelain` основного checkout пуст до и после.
 - Снимки: `21-02-slash-before-turn.png`, `21-03-ship-before-turn.png`, `21-05-ship-after-turn.png`,
   `21-06-epic-after-turn.png`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] корректность: `agent.attachPick` режет выбранные через «+» файлы до 20 (`MAX_ATTACHMENTS`,
+  `src/main/ipc/agent.ts:150`), не считая chip-ов, которые уже лежат в поле. Renderer потом оставляет
+  только то, что влезает (`src/renderer/session/MessageInput.tsx:164-166`). Копии отброшенных файлов вне
+  Project остаются в `attachments/`, а эту папку никто не чистит. Слова «файлы сверх 20 не копируются»
+  верны только для пустого поля.

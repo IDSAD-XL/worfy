@@ -200,3 +200,16 @@ origin/main». Исправлено выбором базы: `layout.repos` → 
   Идея правки: брать `origin/HEAD`, только если есть такая же локальная ветка, иначе предупреждать.
 - Решения без владельца — порядок выбора базы (`layout.repos` раньше `origin/HEAD`) и правка
   `implementer.md:23` вне следа — в HANDOFF, «Ждёт владельца».
+
+### Долги из HANDOFF (2026-10-08)
+
+- [med] `harness/bin/tests/preflight.test.sh` не ставит `HOME` и `HARNESS_HOME` во временный каталог (сам
+  создаёт только каталог `mktemp`, `:16`). Запущенный с настоящим `HOME`, он через `worktree-lock` пишет
+  замки в настоящий `~/.claude/worfy-harness/worktree-sessions/`. Так 2026-10-07 в 19:01–19:02 появились
+  17 файлов: 16 от временных каталогов test-ов (`private-var-folders-…-T-tmp-…`), один от уже удалённого
+  worktree `h11`. Это нарушение запрета писать в `~/.claude`; его не поймали ни исполнитель, ни ревьюер.
+  Правка: test сам ставит `HOME` и `HARNESS_HOME` в `mktemp -d`, не полагаясь на вызов
+  `HOME=$(mktemp -d) bash …`. Кандидат в Ticket.
+- Вопрос владельцу: удалить ли `~/.claude/worfy-harness/worktree-sessions/`. Других файлов в
+  `~/.claude/worfy-harness/` 2026-10-07 не было; агенты папку не трогали. После перехода на plugin
+  (Ticket 16) это живая папка `HARNESS_HOME`, и мусорные замки окажутся в ней.

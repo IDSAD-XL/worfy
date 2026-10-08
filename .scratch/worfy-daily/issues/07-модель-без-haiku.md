@@ -89,7 +89,7 @@ Claude Code `claude-opus-5-5`, а не на `opus[1m]` из `settings.json`: wor
 - **Не менялись.** `options.ts` (его в той же Wave правит Ticket 06), `Pickers.tsx` и `fake-query.ts`: список фильтрует main, а в `FAKE_MODELS` строка haiku без effort уже была.
 - **Test-ы.** `test/contract/agent-controls.test.ts` — список без haiku, правило `modelOptions`, запасной список, сохранённая haiku, `null` по умолчанию при разных `settings.json`, haiku во временном `WORFY_CLAUDE_HOME` даёт `sonnet` в запросе к fake-query при неизменном дереве (байты и mtime), повторное чтение на каждый процесс, нечитаемая модель пользователя, отказ `configure`. `test/e2e/session-controls.spec.ts` — picker без haiku, новый Orchestrator с `model: null`, Orchestrator на haiku стартует на модели по умолчанию, снимки Pickers в двух темах. Мутанты каждого правила в `session.ts` роняют contract test-ы; без правил краснеют оба e2e.
 - **Проверено 2026-10-07.** Живая проверка модели Subagent-а — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
-- **Долги** — в `HANDOFF.md`: `readUserModel()` по умолчанию читает настоящий `~/.claude/settings.json` (с haiku там падают 10 contract test-ов); подстановка `sonnet` сохраняет effort, которого у sonnet может не быть.
+- **Долги** — подраздел «Долги из HANDOFF (2026-10-08)» в конце «Итог».
 
 ### Ручная проверка 2026-10-07
 
@@ -123,3 +123,12 @@ Orchestrator пока не запускает workflow-скрипты.
 - Снимки: дерево workflow-скрипта во время работы — [17-workflow-agents-session.png](../../worfy-daily/evidence/17-workflow-agents-session.png). Остальное — в scratchpad Session
   Orchestrator-а: `M18-context.png`, `M18-canvas-workflow.png`, `M18-canvas-workflow-done.png`,
   `M18-picker-menu.png`, `M18-session-sonnet.png`, `M18-after-close.png`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [med] test-ы: `readUserModel()` (`src/main/claude-home/user-model.ts:13`, вызов по умолчанию в
+  `src/main/agent/session.ts:253` и `:665`) читает настоящий `~/.claude/settings.json`. Если там `model` —
+  haiku, падают 10 contract test-ов (agent-controls, orchestrator, node-sessions). Исправление:
+  `WORFY_CLAUDE_HOME` на пустой временный каталог в setup vitest (`test/setup-dom.ts` его пока не задаёт).
+  Тот же корень у долга `worfy-daily` 23 (contract test-ы читают настоящий `settings.json`).
+- [low] Подстановка `sonnet` вместо haiku сохраняет effort, которого у sonnet может не быть.

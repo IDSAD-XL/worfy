@@ -70,3 +70,11 @@ main), а Orchestrator получил «волна 6 эпика worfy-daily» �
 прогоном стабильную копию пересобирают из main с исправлениями: копию прогона 4 собрали из a0dd930
 за три минуты до старта. Журналы — `~/Library/Application Support/worfy/autopilot/*.jsonl`.
 Источник: прогоны Autopilot 1–4, 2026-10-06; worfy-daily/29, /30, /32.
+
+## Status `blocked` — только у невлитого Ticket-а и его зависимых
+
+`blocked` ставится Ticket-у, который не влили, и Ticket-ам, которые от него зависят. Когда блокер
+влит, зависимые возвращают в работу: `~/.claude/bin/ticket open <epic> NN`. Иначе worfy и Autopilot не
+отдают их в Wave, хотя всё для них готово. Исключение — Ticket «шаг владельца» (например
+`worfy-harness` 16): он `blocked` с самого начала, чтобы Autopilot его не взял.
+Источник: worfy-daily Wave 2 (коммит 9725c49); правило жило в `HANDOFF.md` до 2026-10-08.

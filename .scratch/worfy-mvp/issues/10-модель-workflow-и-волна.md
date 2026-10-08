@@ -221,3 +221,10 @@ worfy не разбирает формат Тикетов сам. Единств
   глазами не видно, хотя текст в DOM сменился. Node-ы Orchestrator и HANDOFF в свежем Project-е лежат
   поверх рамок Epic-ов. Оба дефекта — в HANDOFF, «Риски и долги».
 - Снимки: `11-r2-03-auction-added.png`, `11-r2-05-ticket-node.png`, `11-r2-06-node-with-marker.png`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] Комментарий к `WorkflowWatcher.start` (`src/main/workflow/watch.ts:62-64`) и «Итог» выше
+  утверждают, что `current` уже содержит правку, сохранённую во время первого чтения. Цикл на строке 75
+  ждёт только `running`, а не отложенный debounce-таймер, так что такая правка может прийти позже, через
+  `workflow.changed`.

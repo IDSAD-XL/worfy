@@ -87,3 +87,9 @@ xterm.js. В `src/renderer/canvas/nodes/TerminalNode.tsx` её никто не �
 - Вердикт: проверено мышью ОС; трекпад — за владельцем.
 - Снимки (в scratchpad Session Orchestrator-а, в репозиторий не положены): `M4-menu.png`,
   `M4-48.png`, `M4-50.png`, `M4-149.png`, `M4-150.png` и увеличенные `-zoom` к каждому.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] `src/renderer/canvas/nodes/TerminalNode.tsx:171` — проверка `isLastView` после `terminal.open` без
+  test-а.
+- [low] Restart в focus mode оставляет копию на Canvas в состоянии «exited» (так было и до Ticket-а).

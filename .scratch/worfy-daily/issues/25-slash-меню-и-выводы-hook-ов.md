@@ -139,3 +139,11 @@ alias чужой строки), `test/contract/transcript-parse.test.ts` (раз
 - Вердикт: plugin skill — проверено; MCP prompt — не проверено, пункт остаётся `[ ]`.
 - Снимки (в scratchpad Session Orchestrator-а, в репозиторий не положены): `M11-before.png`,
   `M11-menu-open.png`, `M11-menu-filtered.png`, `M11-composed.png`, `M11-skill-run.png`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] `src/renderer/session/Transcript.tsx:149-157` и `:343` — ошибки hook-ов заданы перечнем:
+  неизвестный будущий исход получит галочку.
+- [low] `src/shared/transcript/parse.ts:203-218` — SessionStart hook с `additionalContext` даёт две строки.
+- [low] `src/renderer/session/session.css:732-738` — колонка имени slash-меню 160 px обрезает длинные
+  MCP-имена, `title` нет.

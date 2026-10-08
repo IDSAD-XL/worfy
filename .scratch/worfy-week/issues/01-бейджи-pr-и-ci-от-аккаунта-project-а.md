@@ -201,3 +201,11 @@ worfy (CanvasForAI).
   Остальное — в scratchpad Session Orchestrator-а: `M19-frames.png`, `M19-frame-week.png`,
   `M19-badge-zoom-week01-02.png`, `M19-frame-daily-0.png`, `M19-frame-daily-6.png`,
   `M19-frame-daily-12.png`, `M19-after-restore.png`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] Harness, не код worfy: `preflight` без `GH_TOKEN` советует `gh auth switch --user <владелец remote>`
+  (было `~/.claude/bin/preflight:195`, теперь `harness/bin/preflight:205`). Это противоречит правилу
+  «глобальный `gh` не переключать» (ADR-0020, этот Ticket). Совет должен быть
+  `GH_TOKEN=$(gh auth token -u <аккаунт>)` для команды. Найдено в Ticket-ах 01 и 02; Harness теперь в
+  репозитории, править `harness/bin/preflight`.

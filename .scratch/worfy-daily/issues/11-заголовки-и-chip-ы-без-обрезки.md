@@ -227,3 +227,9 @@ Auction и worfy: длинные имена Epic, Epic без Tickets, заго�
 - Улики (в scratchpad Session Orchestrator-а, в репозиторий не положены): `M7-stack-light-dark.png`,
   `M7-ticket40-light-dark.png`, `M7-trash-overlay.png`, `M7-pair-after-worfy.png`, таблица
   `M7-fspec-table.md`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] `test/e2e/checks-badges.spec.ts:264` — порог 12 px пропускает вердикт, сжатый до «значок + …».
+- [low] `src/renderer/canvas/nodes/TicketNode.tsx:18-20` — литералы 204 и 160 дублируют `TICKET_WIDTH` и
+  `TICKET_HEIGHT` (`src/renderer/canvas/epic-layout.ts:17`, `:29`).

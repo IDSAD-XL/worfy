@@ -236,7 +236,7 @@ high-severity finding.
 brief gives the first round's findings and the diff of the rework only. Only these block: (a) a
 first-round finding that is neither fixed nor refuted; (b) a defect introduced by the rework's
 changes; (c) a new high-severity defect. Everything else new is `[low] debt: …`: it does not block
-and goes to the state file's debts (step 11). Without this rule fresh reviewers always find
+and goes to the ticket's result section (step 11). Without this rule fresh reviewers always find
 something new, and tickets on the critical path get stuck together with their dependents. The
 narrow fix round for such a ticket — skill `/worfy:epic-wave`, section 3.
 
@@ -319,13 +319,23 @@ not count as verified.
 ```
 
 The state file is `F docs.handoff` (`path`, `kind`, `check`). No field — "the project has no state
-file, nothing to update". If it exists, it is the only state file — a snapshot, not a log: at a
-phase boundary it is **rewritten**, not appended to. Each item is either still true (update it), or
-moves to its place — a lesson where `F lessons` says (`repo:<path>` — into the repository,
-`profile` — into the profile's `lessons/`), the story of what was done into the PR description
-(with `local-green` — into the commit message) and the ticket, the owner's answer into an ADR or
-the ticket — or is deleted. `F docs.handoff.check` checks the form — run it before push; what
-exactly it requires — `rules.md`. Do not touch ADRs: they are immutable.
+file, nothing to update". If it exists, it is the only state file — a snapshot for whoever picks
+the work up next, not a log: at a phase boundary it is **rewritten**, not appended to. Rewrite only
+the lines of your own epic; do not add a block per ticket or per wave. Each item is either still
+true (update it), or moves to its place — a lesson where `F lessons` says (`repo:<path>` — into the
+repository, `profile` — into the profile's `lessons/`), the story of what was done into the PR
+description (with `local-green` — into the commit message) and the ticket's result section, the
+owner's answer into an ADR or the ticket — or is deleted.
+
+- Low-severity debts from review stay in the ticket's result section; the state file holds one
+  line that links there.
+- What waits for the owner: one line per item, with a link to its ticket. An item this PR
+  finishes is deleted in this PR. An item waiting longer than two weeks becomes a ticket for the
+  owner's step and leaves the state file. Keep the list to about ten items.
+- A closed epic is one line among the pointers to where the rest lives.
+
+`F docs.handoff.check` checks the form — run it before push, if the profile sets it; what exactly
+it requires — `rules.md`. Do not touch ADRs: they are immutable.
 
 ## When to stop
 

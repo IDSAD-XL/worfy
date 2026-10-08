@@ -200,3 +200,9 @@ PR: https://github.com/IDSAD-XL/worfy/pull/1 (ветка `worfy-mvp/01`).
   `pnpm test:e2e` код 1 (`Received: …/Library/Application Support/Electron`), после отката — 0.
 - `test/unit/paths.test.ts`: для `WORFY_CLAUDE_HOME` добавлены пустое и относительное значения.
   Мутант `override !== undefined` в `claudeHome` теперь даёт красный `pnpm test`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- Gate по умолчанию (`fast` с сужением по диффу) не видит `scripts/` и `test/fixtures/`: зелёный вердикт по
+  ним даёт только `GATE_SCOPE=all`. Правка — в реестре Gate (вне репозитория: `~/.claude/gate/config.json`,
+  после переноса Harness — `$HARNESS_HOME/gate/config.json`, `harness/hooks/gate.sh:56`) или в самом gate.

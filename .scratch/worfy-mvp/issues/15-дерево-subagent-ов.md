@@ -163,3 +163,11 @@ LaunchServices с окружением launchd, настоящий Claude Code �
 - Снимки: `28-03-canvas-running.png`, `28-04-canvas-2done.png`, `28-05-canvas-expanded.png`,
   `28-06-session-view-subagents.png`, `28-07-subagent-transcript-row.png`,
   `28-08-subagent-transcript-node-button.png`.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [low] Корректность: `summaryLine` в `src/shared/transcript/subagents.ts` снимал выделение `__x__` в
+  любом месте строки и портил имена вида `__init__` в итоге Subagent-а. Меняется только показанный текст;
+  поиск вердикта `VERIFIED`/`REJECTED` не задет. `worfy-week` 12 сузил правило до границ слова, как в
+  CommonMark (`subagents.ts:404`): `mcp__qmd__get` теперь цел, а отдельное `__init__` по-прежнему
+  показывается как «init».

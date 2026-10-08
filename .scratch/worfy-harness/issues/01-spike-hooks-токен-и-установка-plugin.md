@@ -241,3 +241,12 @@ contract test-ам Ticket-а 12; test-ы, которые их читают, пи
   (`accountUuid`, `organizationUuid`) успели попасть на GitHub. После force-push они могут оставаться
   доступными по sha из ленты PR #106. Полностью их убирает только поддержка GitHub — решает владелец.
 - `scripts/spikes/harness-plugin/probe.ts`: повторный `--rescrub` обрезает уже обрезанные строки.
+
+### Долги из HANDOFF (2026-10-08)
+
+- [med] Stop hook пользователя зовёт `gh` из PATH Session-а: credential helper git вызывает
+  `gh auth token --user …` по имени (`~/.claude/bin/qmd-refresh:151`, `qmd-sync-main:78`; в репозитории —
+  `harness/bin/qmd-refresh:152`, `harness/bin/qmd-sync-main:83`). Во время spike-а подменённый `gh` plugin-а
+  отдал фальшивый токен, и тот ушёл паролем в `git fetch`. Та же схема заложена в строку файла окружения
+  ADR-0048, поэтому plugin со своим `bin/gh` подменит учётную запись. Исправление — абсолютный путь к `gh`.
+  Кандидат в Ticket; оживает с переходом машины владельца на plugin (Ticket 16).

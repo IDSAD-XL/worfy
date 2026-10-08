@@ -196,3 +196,9 @@ Source: [F-SPEC.md](../../../docs/design/F-SPEC.md), разделы «Typography
   светлой.
 - Вердикт: смена темы через «Системные настройки» — проверено. Снимки `theme-check/0-Dark.png`,
   `1-Light.png`, `2-Dark.png` — в scratchpad сессии оркестратора, в репозиторий не положены.
+
+### Долги из HANDOFF (2026-10-08)
+
+- Дизайн: выбран вариант F «Native frame, Graphite instrument» (светлая и тёмная тема) —
+  `docs/design/F-SPEC.md` и макеты `F-*.dc.html` рядом. Все варианты A–F — артефакт
+  https://claude.ai/artifact/K1CotzYYUeuVK8M5ajC4uW (в репозитории этой ссылки больше нигде нет).

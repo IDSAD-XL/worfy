@@ -88,7 +88,8 @@ ADR не нужен.
   карточка `4px 4px` цвета `--done-bg` с рамкой `--border` плюс `--shadow-node`; Ticket и Note — `--shadow-node`
   плюс `0 0 0 1px` цвета `--accent`. В светлой `--shadow-node` — прежние две мягкие тени, в тёмной — прозрачный слой.
 - `test/e2e/theme.spec.ts` (с разрешения оркестратора): «dark: a Node has no shadow» ждёт
-  `rgba(0, 0, 0, 0) 0px 0px 0px 0px` вместо `none` — тени по-прежнему не видно.
+  `rgba(0, 0, 0, 0) 0px 0px 0px 0px` вместо `none` — тени по-прежнему не видно. Файл вне списка файлов
+  Ticket-а. **Решено без владельца, подтвердить.**
 
 **Что изменилось вне трёх правил.** Остальные места с этими токенами (`focus.css`, `trash.css`,
 `selection-toolbar.css`, `minimap.css`, `session.css`, `primitives.css`, inline-стили панелей) ставят токен одним
