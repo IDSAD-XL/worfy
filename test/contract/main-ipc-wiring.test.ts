@@ -22,6 +22,22 @@ const electron = vi.hoisted(() => {
   }
 })
 
+/**
+ * The link service (src/main/link/service.ts) is replaced: the test checks that the start calls it
+ * and survives its failure, not the service itself (test/contract/link-*.test.ts do that).
+ */
+const link = vi.hoisted(() => ({
+  startAppLink: vi.fn<(options: unknown) => Promise<unknown>>(() => Promise.resolve({})),
+  /** How many IPC channels were registered when the link service was started. */
+  handlersAtStart: [] as number[],
+}))
+
+vi.mock('../../src/main/link/service', () => ({
+  startAppLink: link.startAppLink,
+  appLinkService: () => undefined,
+  appLinkProblem: () => 'the link service is replaced in this test',
+}))
+
 /** The menus set as the app menu (a plain list: mock call records are cleared between tests). */
 const appMenus = vi.hoisted((): unknown[] => [])
 
@@ -56,12 +72,13 @@ async function call(frameUrl: string): Promise<IpcResult<unknown>> {
 }
 
 const startup: {
+  linkStarts: unknown[]
   schemes: unknown[]
   served: unknown[]
   servedBeforeWindow: boolean
   policies: ((url: string) => boolean)[]
   policyBeforeWindow: boolean
-} = { schemes: [], served: [], servedBeforeWindow: false, policies: [], policyBeforeWindow: false }
+} = { linkStarts: [], schemes: [], served: [], servedBeforeWindow: false, policies: [], policyBeforeWindow: false }
 
 // The mocked app is packaged, so src/main/harness/bundled.ts looks for the Harness copy of the build
 // in <process.resourcesPath>/harness: a temporary folder the tests fill or leave empty.
@@ -82,6 +99,10 @@ afterAll(() => {
 
 beforeAll(async () => {
   Object.defineProperty(process, 'resourcesPath', { value: resources, configurable: true, writable: true })
+  link.startAppLink.mockImplementation(() => {
+    link.handlersAtStart.push(electron.handlers.size)
+    return Promise.resolve({})
+  })
   await import('../../src/main/index')
   // registerIpc runs inside whenReady().then(...); the window is created right after it.
   await vi.waitFor(() => expect(electron.createMainWindow).toHaveBeenCalled())
@@ -90,6 +111,7 @@ beforeAll(async () => {
   startup.served = electron.protocol.handle.mock.calls.map((args) => args[0])
   startup.servedBeforeWindow =
     (electron.protocol.handle.mock.invocationCallOrder[0] ?? Infinity) < (electron.createMainWindow.mock.invocationCallOrder[0] ?? -Infinity)
+  startup.linkStarts = link.startAppLink.mock.calls.map((args) => args[0])
   startup.policies = electron.installWebPolicy.mock.calls.map((args) => args[0] as (url: string) => boolean)
   startup.policyBeforeWindow =
     (electron.installWebPolicy.mock.invocationCallOrder[0] ?? Infinity) < (electron.createMainWindow.mock.invocationCallOrder[0] ?? -Infinity)
@@ -155,5 +177,42 @@ describe('web policy wiring in src/main/index.ts', () => {
     expect(isAppUrl?.(`file://${INDEX_HTML}`)).toBe(true)
     expect(isAppUrl?.('worfy-card://c1.0a1b2c3d/index.html')).toBe(false)
     expect(isAppUrl?.('https://example.com/')).toBe(false)
+  })
+})
+
+describe('link service wiring in src/main/index.ts', () => {
+  it('starts the link service once, after the IPC handlers, with the build kind and version', () => {
+    expect(startup.linkStarts).toEqual([{ buildKind: 'packaged', buildVersion: '1.2.3' }])
+    expect(link.handlersAtStart).toHaveLength(1)
+    expect(link.handlersAtStart[0]).toBe(electron.handlers.size)
+    expect(electron.handlers.has(`${IPC_CHANNEL_PREFIX}link.ping`)).toBe(true)
+  })
+
+  // Runs last: it imports src/main/index.ts a second time, over a temporary data folder.
+  it.each([
+    ['throws', (): Promise<unknown> => {
+      throw new Error('port taken')
+    }],
+    ['rejects', (): Promise<unknown> => Promise.reject(new Error('key unreadable'))],
+  ])('creates the window when the link service %s at start', async (_how, failing) => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'worfy-wiring-data-'))
+    const previous = process.env.WORFY_DATA_DIR
+    process.env.WORFY_DATA_DIR = dataDir
+    const warnings = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      electron.createMainWindow.mockClear()
+      link.startAppLink.mockReset()
+      link.startAppLink.mockImplementation(failing)
+      vi.resetModules()
+      await import('../../src/main/index')
+      await vi.waitFor(() => expect(electron.createMainWindow).toHaveBeenCalled())
+      expect(link.startAppLink).toHaveBeenCalledTimes(1)
+      await vi.waitFor(() => expect(warnings.mock.calls.some(([message]) => String(message).includes('[link] the link service did not start'))).toBe(true))
+    } finally {
+      warnings.mockRestore()
+      if (previous === undefined) delete process.env.WORFY_DATA_DIR
+      else process.env.WORFY_DATA_DIR = previous
+      rmSync(dataDir, { recursive: true, force: true })
+    }
   })
 })
