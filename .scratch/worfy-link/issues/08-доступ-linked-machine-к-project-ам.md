@@ -118,7 +118,7 @@ Source: решения владельца 2026-10-07: Q3 (с другой маш
 - [x] Handler-ы с `event.sender` через соединение: `workflow.open`, `docs.open`, `claudeHome.sessions`, `bindings.get`, `terminal.open` отвечают `ok`, и соединение получает их события.
 - [x] Выключение посреди подписки: Linked machine перестаёт получать `terminal.output` открытого Terminal-а, следующий `terminal.input` отклонён, `link.ping` отвечает.
 - [x] В перехваченном `console` test-ов нет значений токена и кода связи.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально (команда — `rules.md` Profile-а worfy) — exit 0.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально (команда — `rules.md` Profile-а worfy) — exit 0.
 
 ## Тесты
 
@@ -222,6 +222,10 @@ Machine на стенде Ticket-а 01, реальные handler-ы Project-ов
 смену переключателя, переключатель «включён» при подключении, лог отказа, клиент не в реестре,
 порядок отказов; пометки `shell.openExternal`, `link.setAccess`, `view.changed`, `projects.select`
 переведены в `project`; пометка `agent.start` убрана через `as`.
+
+**Проверки.** `pnpm lint && pnpm typecheck && pnpm test` — EXIT=0 (149 файлов, 2903 test-а);
+gate fast — «зелено»; `GATE_SCOPE=all` gate full на commit d74d102 — EXIT=0, «[gate] зелено (full):
+lint typecheck test test:e2e test:package».
 
 **Решено без владельца, подтвердить:**
 - `firstRun.*`, `harness.*`, `harnessMigration.*` — `local` (настройка своей машины; в `harness.install`,
