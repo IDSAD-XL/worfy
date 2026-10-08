@@ -323,4 +323,10 @@ Session-ы, — поиск файлов, где упомянута времен�
 проверки, падавшие на настоящем HOME после переноса Profile-ов в `~/.claude/worfy-harness/projects/`
 (`profile.test.sh`: auction `--dir`; `skill-blocks.test.sh`: два случая atakama).
 
+**Проверки.** `pnpm lint && pnpm typecheck && pnpm test` — код 0 (141 файл, 2685 test-ов). `GATE_SCOPE=all
+gate.sh fast` — код 0, «[gate] зелено (fast)». `gate.sh full` под замком `/tmp/worfy-e2e.lock` на
+коммите 1c055c7 — код 0, «[gate] зелено (full): … test:e2e … test:package». Первый прогон full до
+коммита упал на `test/e2e/packaged.spec.ts:700` (`git diff --quiet -- harness`: правки ещё не были
+закоммичены) — это не дефект.
+
 **Не сделано здесь.** Ревьюер с линзой «смысл сохранён» (Q34) — за Orchestrator-ом.
