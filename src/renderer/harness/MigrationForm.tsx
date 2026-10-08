@@ -275,7 +275,11 @@ function Outcome({ result }: { result: MigrationResult }) {
       return (
         <p role="alert" style={styles.warning} data-testid="migration-error">
           The step “{result.step}” failed: {result.reason}.{' '}
-          {result.rolledBack ? 'The move was undone; ~/.claude is as it was.' : `Undoing it failed too (${result.rollbackError ?? ''}); the backup is in ${result.backupDir ?? '?'}.`}
+          {result.rolledBack
+            ? result.backupDir === null
+              ? 'The move was undone; ~/.claude is as it was.'
+              : `The move was undone. Files changed while it ran are kept in ${result.backupDir}/after/.`
+            : `Undoing it failed too (${result.rollbackError ?? ''}); the backup is in ${result.backupDir ?? '?'}.`}
         </p>
       )
   }
@@ -297,7 +301,11 @@ export function MigrationFormView({ plan, busy, result, onMove, onClose }: Migra
   const choose = (id: string) => (choice: MigrationChoice) => setChoices((current) => ({ ...current, [id]: choice }))
   const done = result?.outcome === 'done'
   const sections = plan.claudeMd?.sections ?? []
-  const claudeMdDiff: DiffLine[] = sections.flatMap((section) => section.text.split('\n').map((text) => ({ kind: choices[section.id] === 'remove' ? ('-' as const) : (' ' as const), text })))
+  // The whole file: lines of a removed section are marked, everything else (text outside sections included) stays.
+  const claudeMdDiff: DiffLine[] = (plan.claudeMd?.text.split('\n') ?? []).map((text, index) => ({
+    kind: sections.some((section) => choices[section.id] === 'remove' && index >= section.start && index < section.end) ? '-' : ' ',
+    text,
+  }))
 
   return (
     <div

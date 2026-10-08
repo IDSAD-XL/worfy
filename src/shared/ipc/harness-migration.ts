@@ -35,8 +35,8 @@ export const migrationRowSchema = z.object({
 })
 export type MigrationRow = z.infer<typeof migrationRowSchema>
 
-/** One `##` or `###` section of CLAUDE.md with its text, heading line included. */
-export const claudeMdSectionSchema = migrationRowSchema.extend({ text: z.string() })
+/** One `##` or `###` section of CLAUDE.md: its text, heading line included, and its lines [start, end) in the file. */
+export const claudeMdSectionSchema = migrationRowSchema.extend({ text: z.string(), start: z.number().int().min(0), end: z.number().int().min(0) })
 export type ClaudeMdSection = z.infer<typeof claudeMdSectionSchema>
 
 export const profileModeSchema = z.enum(['full', 'silent'])
@@ -80,7 +80,8 @@ export const migrationPlanSchema = z.object({
   /** Claude Code's .claude.json, where the qmd record is. */
   claudeJson: z.string(),
   rows: z.array(migrationRowSchema),
-  claudeMd: z.object({ path: z.string(), sections: z.array(claudeMdSectionSchema) }).nullable(),
+  /** CLAUDE.md whole (for the diff) and its sections; text outside every section always stays. */
+  claudeMd: z.object({ path: z.string(), text: z.string(), sections: z.array(claudeMdSectionSchema) }).nullable(),
   profiles: z.array(migrationProfileSchema),
   /** Shown above the rows (Claude Code sessions already running keep the old hooks). */
   warnings: z.array(z.string()),

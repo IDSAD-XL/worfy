@@ -33,9 +33,11 @@ const plan = (extra: Partial<MigrationPlan> = {}): MigrationPlan => ({
   ],
   claudeMd: {
     path: '~/.claude/CLAUDE.md',
+    // An H1 between the two sections belongs to neither and always stays.
+    text: '### Quota\n\nTwo counters.\n\n# Personal\n\n## My machine\n\nMine.',
     sections: [
-      { id: 'claude-md:0:Quota', group: 'claude-md', label: 'Quota', detail: null, choices: ['remove', 'keep'], defaultChoice: 'remove', note: null, text: '### Quota\n\nTwo counters.\n' },
-      { id: 'claude-md:1:My machine', group: 'claude-md', label: 'My machine', detail: null, choices: ['remove', 'keep'], defaultChoice: 'keep', note: null, text: '## My machine\n\nMine.' },
+      { id: 'claude-md:0:Quota', group: 'claude-md', label: 'Quota', detail: null, choices: ['remove', 'keep'], defaultChoice: 'remove', note: null, text: '### Quota\n\nTwo counters.\n', start: 0, end: 4 },
+      { id: 'claude-md:1:My machine', group: 'claude-md', label: 'My machine', detail: null, choices: ['remove', 'keep'], defaultChoice: 'keep', note: null, text: '## My machine\n\nMine.', start: 6, end: 9 },
     ],
   },
   profiles: [
@@ -120,16 +122,20 @@ describe('MigrationFormView', () => {
     })
   })
 
-  it('CLAUDE.md as a diff: the lines of a removed section are marked, a kept one is not; switching changes the diff', () => {
+  it('CLAUDE.md as a diff of the whole file: the lines of a removed section are marked, a kept one and text outside sections are not; switching changes the diff', () => {
     renderForm()
     const diff = (): { removed: string[]; same: string[] } => {
       const lines = Array.from(screen.getByTestId('claude-md-diff').querySelectorAll<HTMLElement>('[data-diff]'))
       return { removed: lines.filter((line) => line.dataset.diff === 'removed').map((line) => line.textContent ?? ''), same: lines.filter((line) => line.dataset.diff === 'same').map((line) => line.textContent ?? '') }
     }
     expect(diff().removed).toEqual(['- ### Quota', '- ', '- Two counters.', '- '])
-    expect(diff().same).toEqual(['  ## My machine', '  ', '  Mine.'])
+    expect(diff().same).toEqual(['  # Personal', '  ', '  ## My machine', '  ', '  Mine.'])
     fireEvent.click(within(rowOf('claude-md:0:Quota')).getByRole('button', { name: 'Keep' }))
     expect(diff().removed).toEqual([])
+    // Removing every section still keeps the text outside them.
+    fireEvent.click(within(rowOf('claude-md:0:Quota')).getByRole('button', { name: 'Remove' }))
+    fireEvent.click(within(rowOf('claude-md:1:My machine')).getByRole('button', { name: 'Remove' }))
+    expect(diff().same).toEqual(['  # Personal', '  '])
   })
 
   it('a Profile: the diff of profile.json and rules.md follows the fields the owner sets, and Move sends them', () => {
@@ -172,6 +178,11 @@ describe('MigrationFormView', () => {
   it('a failed step is named, with whether the move was undone', () => {
     renderForm({ result: { outcome: 'failed', step: 'settings', reason: 'EACCES', rolledBack: true, rollbackError: null, backupDir: null } })
     expect(screen.getByTestId('migration-error').textContent).toBe('The step “settings” failed: EACCES. The move was undone; ~/.claude is as it was.')
+  })
+
+  it('an undone move that kept files changed while it ran names where they are', () => {
+    renderForm({ result: { outcome: 'failed', step: 'claude-md', reason: 'boom', rolledBack: true, rollbackError: null, backupDir: '/h/backup-1' } })
+    expect(screen.getByTestId('migration-error').textContent).toBe('The step “claude-md” failed: boom. The move was undone. Files changed while it ran are kept in /h/backup-1/after/.')
   })
 })
 

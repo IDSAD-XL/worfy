@@ -49,6 +49,19 @@ export const IMPORTED_CLAUDE_MD_HEADINGS = [
   'Context hygiene',
 ] as const
 
+/**
+ * Imported sections the plugin carries without a heading of the same name: the intro of
+ * "Workflow: orchestrator + subagents" opens the plugin's orchestrator rules (ticket 05).
+ */
+const CARRIED_BY_INTRO: Readonly<Record<string, string>> = {
+  'Workflow: orchestrator + subagents': join('hooks', 'rules', 'orchestrator.md'),
+}
+/** Imported sections that stay personal, with why (ticket 05: the plugin does not consent for the user). */
+const PERSONAL_RULES: Readonly<Record<string, string>> = {
+  'Standing authorization':
+    "the user's own consent to spawn subagents without asking: the plugin does not give it on the user's behalf, so it stays in the personal CLAUDE.md",
+}
+
 export const QMD_WARNING =
   'The installed plugin does not register qmd yet: until it does, Claude Code sessions have no qmd, and agents search with grep over the qmd.fallback_grep of the Profile.'
 export const RUNNING_SESSIONS_WARNING =
@@ -177,10 +190,14 @@ function shown(path: string): string {
 
 const quoteIfNeeded = (path: string): string => (/^[\w./+@-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`)
 
-/** The `##` and `###` sections of a markdown text: the line each starts at; fenced code is skipped. */
+/**
+ * The `##` and `###` sections of a markdown text: the line each starts at, and the line it ends
+ * before — the next heading of any level (`#` to `######`), so an H1 or an H4 after a section, and
+ * what follows it, never belong to that section. Fenced code is skipped.
+ */
 export function markdownSections(text: string): { heading: string; start: number; end: number }[] {
   const lines = text.split('\n')
-  const starts: { heading: string; start: number }[] = []
+  const headings: { heading: string; level: number; start: number }[] = []
   let fence: string | null = null
   lines.forEach((line, index) => {
     const marker = /^\s*(```+|~~~+)/.exec(line)?.[1]
@@ -190,10 +207,12 @@ export function markdownSections(text: string): { heading: string; start: number
       return
     }
     if (fence !== null) return
-    const heading = /^#{2,3}\s+(.+?)\s*#*\s*$/.exec(line)?.[1]
-    if (heading !== undefined) starts.push({ heading, start: index })
+    const match = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line)
+    if (match !== null) headings.push({ heading: match[2] ?? '', level: match[1]?.length ?? 0, start: index })
   })
-  return starts.map((section, i) => ({ ...section, end: starts[i + 1]?.start ?? lines.length }))
+  return headings.flatMap((section, i) =>
+    section.level === 2 || section.level === 3 ? [{ heading: section.heading, start: section.start, end: headings[i + 1]?.start ?? lines.length }] : [],
+  )
 }
 
 /** The `##`/`###` headings of the plugin's rules (hooks/rules/*.md): what the plugin now says itself. */
@@ -298,7 +317,9 @@ export function buildPlan(options: PlanOptions): BuiltPlan {
     const lines = claudeMdText.split('\n')
     const sections: ClaudeMdSection[] = markdownSections(claudeMdText).map(({ heading, start, end }, index) => {
       const imported = (IMPORTED_CLAUDE_MD_HEADINGS as readonly string[]).includes(heading)
-      const carried = imported && pluginHeadings.has(heading)
+      const personal = PERSONAL_RULES[heading]
+      const intro = CARRIED_BY_INTRO[heading]
+      const carried = imported && personal === undefined && (pluginHeadings.has(heading) || (intro !== undefined && existsSync(join(pluginDir, intro))))
       const id = `claude-md:${index}:${heading}`
       const value = {
         ...row({
@@ -307,14 +328,16 @@ export function buildPlan(options: PlanOptions): BuiltPlan {
           label: heading,
           removable: true,
           defaultChoice: carried ? 'remove' : 'keep',
-          note: imported && !carried ? "a rule of the old Harness that the plugin's rules do not carry: stays by default" : null,
+          note: personal ?? (imported && !carried ? "a rule of the old Harness that the plugin's rules do not carry: stays by default" : null),
         }),
         text: lines.slice(start, end).join('\n'),
+        start,
+        end,
       }
       operations.set(id, { kind: 'claude-md', start, end })
       return value
     })
-    claudeMd = { path: shown(claudeMdPath), sections }
+    claudeMd = { path: shown(claudeMdPath), text: claudeMdText, sections }
   }
 
   // settings.json: hook records that run a file of the first group, and the status line.

@@ -26,6 +26,10 @@ export const HARNESS_PATH_FIELDS: readonly (readonly [group: string, field: stri
   ['numbering', 'reserve_with'],
 ]
 
+/** The agents and skills of the old Harness (Q19), the ones the plugin carries. */
+const HARNESS_AGENT_NAMES = ['implementer', 'reviewer', 'scout']
+const HARNESS_SKILL_NAMES = ['epic-wave', 'ship-ticket', 'retro', 'qmd', 'overnight-fix-loop', 'continuous-audit', 'tickets-to-tasks']
+
 /** Folders of a Profile carried over as they are. */
 const CARRIED = ['bin', 'lessons', 'state', 'epics']
 
@@ -33,7 +37,7 @@ const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\
 
 /**
  * Rewrites the paths that lead into what the move takes out of ~/.claude (ticket 14, item 3):
- * `bin/` and `hooks/` → the plugin, `gate/` → <harnessHome>/gate/, `profiles/README.md` → the
+ * `bin/`, `hooks/` and the Harness's `agents/` and `skills/` → the plugin, `gate/` → <harnessHome>/gate/, `profiles/README.md` → the
  * plugin's contract, `profiles/` → <harnessHome>/projects/. The Claude home may be written as `~`,
  * `$HOME`, `${HOME}` or as its absolute path; the result keeps the form it found when the Harness
  * home is the default one inside the Claude home, and takes the Harness home's absolute path otherwise.
@@ -41,7 +45,11 @@ const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\
 export function rewriteHarnessPaths(text: string, { claudeHome, harnessHome }: Homes): string {
   const standard = resolve(harnessHome) === join(resolve(claudeHome), 'worfy-harness')
   const prefixes = ['~/.claude/', '$HOME/.claude/', '${HOME}/.claude/', `${resolve(claudeHome)}/`]
-  const pattern = new RegExp(`(${prefixes.map(escape).join('|')})(bin/|hooks/|gate/|profiles/README\\.md|profiles/)`, 'g')
+  // agents/ and skills/ only where they name the Harness's own (or the brace list of its agents):
+  // personal skills stay in ~/.claude.
+  const agents = `agents/(?=\\{|(?:${HARNESS_AGENT_NAMES.map(escape).join('|')})\\b)`
+  const skills = `skills/(?=(?:${HARNESS_SKILL_NAMES.map(escape).join('|')})(?![\\w-]))`
+  const pattern = new RegExp(`(${prefixes.map(escape).join('|')})(bin/|hooks/|gate/|profiles/README\\.md|profiles/|${agents}|${skills})`, 'g')
   return text.replace(pattern, (_match, prefix: string, rest: string) => {
     const home = standard ? `${prefix}worfy-harness/` : `${resolve(harnessHome)}/`
     switch (rest) {
@@ -51,6 +59,10 @@ export function rewriteHarnessPaths(text: string, { claudeHome, harnessHome }: H
         return `${home}plugin/hooks/`
       case 'gate/':
         return `${home}gate/`
+      case 'agents/':
+        return `${home}plugin/agents/`
+      case 'skills/':
+        return `${home}plugin/skills/`
       case 'profiles/README.md':
         return `${home}plugin/profiles/README.md`
       default:

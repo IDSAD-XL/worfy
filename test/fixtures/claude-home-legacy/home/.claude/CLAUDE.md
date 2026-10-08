@@ -38,6 +38,10 @@ Single-file edits (fixture).
 
 Two counters (fixture).
 
+#### My quota note
+
+my-quota-line: an H4 under a Harness section is not part of it (fixture).
+
 ### Long output: filter first, delegate second
 
 Pipe through tail (fixture).
@@ -66,6 +70,10 @@ Every turn ends with a status block (fixture):
 ### Context hygiene
 
 Quote the minimal fragment (fixture).
+
+# Personal
+
+my-secret-line: an H1 after a Harness section is not part of it (fixture).
 
 ## My machine
 
