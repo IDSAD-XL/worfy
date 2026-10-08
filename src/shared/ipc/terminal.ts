@@ -6,8 +6,16 @@
 // far; later output arrives on `terminal.output`. Each chunk carries `end`, the length of all
 // output so far, and the answer to open carries the `end` of its replay, so a client drops what
 // it already has. A shell that exited on its own stays exited: open answers with its exit and
-// output, and starts a new shell only when asked to (`restart`). The shell runs until `terminal.close`, the removal of its Node from the
-// Layout, the window going away or the app quitting.
+// output, and starts a new shell only when asked to (`restart`); every client that opened the
+// terminal hears of the new shell on `terminal.started` and opens again. The shell runs until
+// `terminal.close`, the removal of its Node from the Layout, the last client that opened it going
+// away or the app quitting.
+//
+// Several screens (worfy-link ticket 05, ADR-0053): every client that opened a terminal gets every
+// chunk, with the same `end`, and may type into it. The pty has one size: the size of the client
+// that typed or clicked in it last (`terminal.input`, `terminal.takeSize`). `terminal.resize` from
+// that client applies at once; from another client it is remembered until that client types or
+// clicks.
 //
 // `terminal.open` may name a command (worfy-harness ticket 19): main types it into the shell it
 // starts, once the shell has started. Only the commands of TERMINAL_COMMANDS are accepted, so the
@@ -63,7 +71,11 @@ export const terminalOpen = invokeChannel(
 /** Keys typed or pasted in the terminal. */
 export const terminalInput = invokeChannel('terminal.input', z.object({ ...terminalRef, data: z.string().min(1).max(1_000_000) }), z.void())
 
+/** The size of the caller's view; the pty takes it only while the caller owns the size. */
 export const terminalResize = invokeChannel('terminal.resize', z.object({ ...terminalRef, cols: cells, rows: cells }), z.void())
+
+/** A click in the caller's view: the caller owns the size from now on, and the pty takes this size. */
+export const terminalTakeSize = invokeChannel('terminal.takeSize', z.object({ ...terminalRef, cols: cells, rows: cells }), z.void())
 
 /** Ends the shell; closing a terminal that is not running is not an error. */
 export const terminalClose = invokeChannel('terminal.close', z.object(terminalRef), z.void())
@@ -79,13 +91,18 @@ export const terminalExit = eventChannel(
   z.object({ ...terminalRef, exitCode: z.number().int(), signal: z.number().int().nullable() }),
 )
 
+/** A new shell started for the terminal (Restart on some screen); a view showing the old exit opens again. */
+export const terminalStarted = eventChannel('terminal.started', z.object({ ...terminalRef, pid: z.number().int().positive() }))
+
 declare module './channels' {
   interface IpcContract {
     'terminal.open': typeof terminalOpen
     'terminal.input': typeof terminalInput
     'terminal.resize': typeof terminalResize
+    'terminal.takeSize': typeof terminalTakeSize
     'terminal.close': typeof terminalClose
     'terminal.output': typeof terminalOutput
     'terminal.exit': typeof terminalExit
+    'terminal.started': typeof terminalStarted
   }
 }

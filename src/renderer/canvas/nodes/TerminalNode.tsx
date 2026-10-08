@@ -26,6 +26,13 @@ import { addView, isLastView, type ShellView } from './terminal-views'
 // view mounted before it fits itself and sets the size again (terminal-views.ts). So leaving focus
 // mode gives the shell back the size of the Canvas Node, whose box did not change meanwhile.
 //
+// One shell can be open on several screens (worfy-link ticket 05, ADR-0053): every window that
+// opened it gets its output and may type into it. The pty's size belongs to the screen that typed
+// or clicked in the terminal last: main resizes the pty on input, and a click in the terminal sends
+// `terminal.takeSize` from the view that sets the size in its window. Restart on one screen starts
+// a new shell for all: main announces it (`terminal.started`), and a view showing the old exit
+// opens again.
+//
 // The Canvas draws its Nodes inside a CSS transform: scale(zoom), which xterm.js does not account
 // for when it maps the mouse to cells; terminal-mouse.ts corrects the mouse events it reads.
 
@@ -68,8 +75,9 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
   const projectId = activeProject(useProjects())?.id
   const host = useRef<HTMLDivElement>(null)
   const [status, setStatus] = useState<Status>({ state: 'starting' })
-  // Bumped by Restart: a new run of the effect opens a new shell.
-  const [run, setRun] = useState(0)
+  // Bumped by Restart (a new run of the effect opens a new shell) and by a shell started on another
+  // screen or in another view (a new run attaches to it).
+  const [run, setRun] = useState({ count: 0, restart: false })
 
   useEffect(() => {
     const element = host.current
@@ -90,6 +98,8 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
 
     let active = true
     let attached = false
+    // Until terminal.open answers; output that comes meanwhile waits in `queued`.
+    let opening = true
     // How much of the shell's output this view has written: main numbers every chunk by the
     // length of all output up to its end, so a chunk that the replay already holds is skipped.
     let written = 0
@@ -104,12 +114,19 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     const offOutput = subscribe('terminal.output', (payload) => {
       if (payload.projectId !== projectId || payload.nodeId !== id) return
       if (attached) write(payload.data, payload.end)
-      else queued.push(payload)
+      else if (opening) queued.push(payload)
     })
     const offExit = subscribe('terminal.exit', (payload) => {
       if (payload.projectId !== projectId || payload.nodeId !== id) return
       attached = false
       setStatus((current) => ({ state: 'exited', shell: current.state === 'running' ? current.shell : '', exitCode: payload.exitCode }))
+    })
+    // A new shell started elsewhere (Restart on another screen, or in the other view of focus mode):
+    // a view that shows the exit opens again, with a new terminal whose count of written output
+    // starts from zero. A view still opening gets the new shell from its own open.
+    const offStarted = subscribe('terminal.started', (payload) => {
+      if (payload.projectId !== projectId || payload.nodeId !== id) return
+      if (active && !opening && !attached) setRun((current) => ({ count: current.count + 1, restart: false }))
     })
 
     const typed = terminal.onData((keys) => {
@@ -141,6 +158,13 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     const screen = element.querySelector<HTMLElement>('.xterm-screen')
     const stopUnscaling = screen === null ? () => undefined : unscaleMouse(element, screen)
 
+    // A click in the terminal gives the pty this screen's size (Q14). Captured before xterm.js
+    // handles the press; only the view that sets the size in this window sends it.
+    const onPress = () => {
+      if (attached && isLastView(key, view)) void invoke('terminal.takeSize', { ...ref, cols: terminal.cols, rows: terminal.rows })
+    }
+    element.addEventListener('mousedown', onPress, true)
+
     // The appearance follows the system; the terminal colors follow the tokens.
     const scheme = window.matchMedia('(prefers-color-scheme: dark)')
     const onScheme = () => {
@@ -151,8 +175,9 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     const size = fittedSize(element, fit) ?? SIZE_BEFORE_LAYOUT
     // The first run of the effect attaches, or shows a shell that already exited; a run started by
     // Restart asks main for a new shell.
-    void invoke('terminal.open', { ...ref, ...size, restart: run > 0 }).then((result) => {
+    void invoke('terminal.open', { ...ref, ...size, restart: run.restart }).then((result) => {
       if (!active) return
+      opening = false
       if (!result.ok) {
         setStatus({ state: 'failed', message: result.error })
         return
@@ -161,6 +186,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       if (replay !== '') terminal.write(replay)
       written = end
       if (exited !== null) {
+        queued.length = 0
         setStatus({ state: 'exited', shell, exitCode: exited.exitCode })
         return
       }
@@ -177,6 +203,8 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       attached = false
       offOutput()
       offExit()
+      offStarted()
+      element.removeEventListener('mousedown', onPress, true)
       typed.dispose()
       resized.dispose()
       observer.disconnect()
@@ -221,7 +249,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
         {status.state === 'exited' ? (
           <>
             <span className={`w-terminal__exit${status.exitCode === 0 ? ' w-terminal__exit--ok' : ''}`}>exit {status.exitCode}</span>
-            <button type="button" className="w-terminal__button nodrag" onClick={() => setRun((count) => count + 1)}>
+            <button type="button" className="w-terminal__button nodrag" onClick={() => setRun((current) => ({ count: current.count + 1, restart: true }))}>
               Restart
             </button>
           </>

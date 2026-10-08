@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp, repoRoot, type LaunchOptions } from './helpers'
+import { launchApp, openSecondWindow, repoRoot, type LaunchedApp, type LaunchOptions } from './helpers'
 
 // The Terminal Node against the built app: "New terminal" in the Canvas context menu starts the
 // user's shell in the Project root on a real pty; the Node's size is the pty's size; the output
@@ -493,6 +493,150 @@ test('a shell that exited stays exited across a reload of the window; Restart st
     expect(restarted).not.toBe(pid)
     expect(alive(restarted)).toBe(true)
     await expectPwdIsRoot(window, reloaded)
+  } finally {
+    await launched.close()
+  }
+})
+
+/** The terminal colors of design F (docs/design/F-SPEC.md, color table): background, text. */
+const TERMINAL_COLORS = { light: ['rgb(29, 29, 31)', 'rgb(229, 229, 234)'], dark: ['rgb(11, 10, 9)', 'rgb(236, 232, 225)'] } as const
+
+/** Screenshots of a window in the light and the dark appearance, the terminal's colors checked; then the system's appearance again. */
+async function snapshots(window: Page, node: Locator, name: string): Promise<void> {
+  for (const scheme of ['light', 'dark'] as const) {
+    await window.emulateMedia({ colorScheme: scheme })
+    const colors = () =>
+      node.locator('.xterm-screen').evaluate((screen) => {
+        const { getComputedStyle } = globalThis as unknown as { getComputedStyle(e: unknown): { backgroundColor: string; color: string } }
+        const { parentElement, querySelector } = screen as unknown as { parentElement: unknown; querySelector(s: string): unknown }
+        return [getComputedStyle(parentElement).backgroundColor, getComputedStyle(querySelector.call(screen, '.xterm-rows')).color]
+      })
+    await expect.poll(colors).toEqual([...TERMINAL_COLORS[scheme]])
+    await window.screenshot({ path: test.info().outputPath(`${name}-${scheme}.png`) })
+  }
+  await window.emulateMedia({ colorScheme: null })
+}
+
+/** The number of rows a terminal view draws: the size of that view. */
+async function rowsOf(node: Locator): Promise<number> {
+  return node.locator('.xterm-rows > div').count()
+}
+
+/** Size of the output the measurement prints, as in test/contract/terminal.test.ts. */
+const MEASURED_BYTES = 10_000_000
+
+/**
+ * Prints 10 MB into the terminal from `window` and answers the time until every view in `views`
+ * shows the marker printed after it.
+ */
+async function timeToMarker(window: Page, node: Locator, views: Locator[], tag: string): Promise<number> {
+  const marker = new RegExp(`^${tag}-DONE$`, 'm')
+  await node.getByTestId('terminal-screen').click()
+  await window.keyboard.type(`head -c ${MEASURED_BYTES} /dev/zero | tr '\\0' a; echo; echo "${tag}-""DONE"`)
+  const started = Date.now()
+  await window.keyboard.press('Enter')
+  const seen = await Promise.all(
+    views.map(async (view) => {
+      await expect.poll(() => screenText(view), { timeout: 60_000, intervals: [50] }).toMatch(marker)
+      return Date.now()
+    }),
+  )
+  return Math.max(...seen) - started
+}
+
+/** The second window, whose size the test sets: the newest window of the app. */
+async function setNewestWindowSize(launched: LaunchedApp, width: number, height: number): Promise<void> {
+  await launched.app.evaluate(
+    ({ BrowserWindow }, size) => {
+      const newest = BrowserWindow.getAllWindows().reduce((a, b) => (a.id > b.id ? a : b))
+      newest.setSize(size.width, size.height)
+    },
+    { width, height },
+  )
+}
+
+test('one Terminal on two windows: both show the output, the second gets the replay, the pty has the size of the window that typed or clicked last; Restart and closing a window', async () => {
+  test.setTimeout(240_000)
+  const enforce = process.env.WORFY_PERF === '1'
+  const launched = await launch()
+  try {
+    const { window } = launched
+    const node = await newTerminal(window)
+    const pid = await pidOf(node)
+
+    // The output with one window, measured before the second window opens.
+    const oneWindowMs = await timeToMarker(window, node, [node], 'one')
+    await run(window, node, 'clear; echo be""fore-second', /^before-second$/m)
+
+    // The second window, of another size, opened after the output: it attaches and shows the replay.
+    const second = await openSecondWindow(launched)
+    await setNewestWindowSize(launched, 980, 700)
+    const onCanvas2 = second.locator('.react-flow__node').getByTestId('terminal-node')
+    await expect(onCanvas2).toHaveAttribute('data-state', 'running')
+    expect(await pidOf(onCanvas2)).toBe(pid)
+    await expect.poll(() => screenText(onCanvas2)).toMatch(/^before-second$/m)
+
+    // Output typed in window 1 shows in window 2.
+    await run(window, node, 'echo from""-one', /^from-one$/m)
+    await expect.poll(() => screenText(onCanvas2)).toMatch(/^from-one$/m)
+
+    // Window 2 shows the terminal in focus mode: its view fills the window, so it has another size.
+    await second.locator('.react-flow__node .w-terminal__header').click()
+    await second.keyboard.press('Meta+Enter')
+    const tile = second.getByTestId('focus-mode').getByTestId('focus-tile').getByTestId('terminal-node')
+    await expect(tile).toHaveAttribute('data-state', 'running')
+    await expect.poll(() => screenText(tile)).toMatch(/^from-one$/m)
+
+    // The size follows the window that typed (and clicked) last.
+    const sizeOne = await printSize(window, node, 'w1')
+    expect(sizeOne.rows).toBe(await rowsOf(node))
+    const sizeTwo = await printSize(second, tile, 'w2')
+    expect(sizeTwo.rows).toBe(await rowsOf(tile))
+    expect(sizeTwo.cols).toBeGreaterThan(sizeOne.cols)
+    expect(await printSize(window, node, 'w1again')).toEqual(sizeOne)
+    // A click alone takes the size: window 2 types a command that reads the size two seconds later,
+    // and window 1 is clicked meanwhile, without typing.
+    expect(await printSize(second, tile, 'w2again')).toEqual(sizeTwo)
+    await tile.getByTestId('terminal-screen').click()
+    await second.keyboard.type('sleep 2; echo "late-size=$(tput cols)x$(tput lines)"')
+    await second.keyboard.press('Enter')
+    await node.getByTestId('terminal-screen').click()
+    await expect.poll(() => screenText(tile), { timeout: 10_000 }).toMatch(/^late-size=\d+x\d+$/m)
+    const late = /^late-size=(\d+)x(\d+)$/m.exec(await screenText(tile)) ?? []
+    expect({ cols: Number(late[1]), rows: Number(late[2]) }).toEqual(sizeOne)
+    // Window 2 sees the output laid out for window 1 until it types or clicks: Q14, no hint.
+    await snapshots(window, node, 'two-windows-1')
+    await snapshots(second, tile, 'two-windows-2')
+
+    // The output with two windows: the time until both show the marker.
+    const twoWindowsMs = await timeToMarker(window, node, [node, tile], 'two')
+    console.log(`terminal 10 MB in the renderer: one window ${oneWindowMs} ms, two windows ${twoWindowsMs} ms`)
+    test.info().annotations.push({ type: 'perf', description: `terminal10MB oneWindow=${oneWindowMs}ms twoWindows=${twoWindowsMs}ms` })
+    if (enforce) expect(twoWindowsMs).toBeLessThanOrEqual(2 * oneWindowMs)
+
+    // The shell exits in window 1; Restart there starts a new shell, and window 2 shows it running.
+    await node.getByTestId('terminal-screen').click()
+    await window.keyboard.type('exit 3')
+    await window.keyboard.press('Enter')
+    await expect(node).toHaveAttribute('data-state', 'exited')
+    await expect(tile).toHaveAttribute('data-state', 'exited')
+    await node.getByRole('button', { name: 'Restart' }).click()
+    await expect(node).toHaveAttribute('data-state', 'running')
+    const restarted = await pidOf(node)
+    expect(restarted).not.toBe(pid)
+    await expect(tile).toHaveAttribute('data-state', 'running')
+    expect(await pidOf(tile)).toBe(restarted)
+    await expect(onCanvas2).toHaveAttribute('data-state', 'running')
+    await run(second, tile, 'echo after""-restart', /^after-restart$/m)
+    await expect.poll(() => screenText(node)).toMatch(/^after-restart$/m)
+
+    // Window 1 closes: the shell lives on in window 2.
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().reduce((a, b) => (a.id < b.id ? a : b)).close())
+    await expect.poll(() => launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    expect(alive(restarted)).toBe(true)
+    expect(await pidOf(tile)).toBe(restarted)
+    await run(second, tile, 'echo still""-here', /^still-here$/m)
   } finally {
     await launched.close()
   }
