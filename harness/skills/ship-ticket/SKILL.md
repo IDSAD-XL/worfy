@@ -147,9 +147,13 @@ in the templates come from the ticket; root `F worktree.root`, base `F worktree.
 is shared with other sessions, and the last write wins. Right after `git worktree add` —
 `EnterWorktree` with the `path` of that worktree: the PreToolUse check on Edit and Write lets edits
 only into the session's worktree, and the agent was started from the orchestrator's worktree. For
-an agent, `EnterWorktree` accepts only worktrees under `.claude/worktrees/` of the same repository
-— `F worktree.root` must lie there. Edits that go around it through python or sed in Bash are not a
-way out.
+an agent, `EnterWorktree` accepts only worktrees under `.claude/worktrees/` of the same repository.
+When `F worktree.root` lies outside the repository (`<HARNESS_HOME>/worktrees/<project>/`), the
+implementer does not create its tree: the orchestrator starts it with `isolation: "worktree"`, the
+plugin's `WorktreeCreate` hook (`hooks/worktree-create.sh`) runs `F worktree.implementer` with
+`<NN>` = Claude Code's agent name and `<ветка>` = `worktree-<that name>`, and the agent starts pinned to
+that tree. Its first step there: `git branch -m <ветка>` (the ticket's branch). Edits that go around
+it through python or sed in Bash are not a way out.
 **`parallel: single`.** No worktree: work in the main checkout, one ticket at a time, on the branch
 `F tickets.branch` created from `F worktree.base` (with `local-green` — from the main branch after the
 previous ticket's local merge, step 11; see `/worfy:epic-wave`).
@@ -373,20 +377,26 @@ doer:
    "EXIT=$?"` in the ticket's worktree — `EXIT=0` and the line `[gate] зелено (…)`: this code is
    exactly what the main branch gets. A red gate stops here: no documents, no merge.
 3. **The documents and the merge — whoever `F workflow.merge` names (the orchestrator), in one go
-   under the lock** of `/worfy:epic-wave`, section 4, one merge at a time. Full mode: right before the
+   under the lock** of `/worfy:epic-wave`, section 4, one merge at a time. Full mode: first, under the
+   lock, `git -C <repo> merge-base --is-ancestor <main branch> <ticket branch>` — exit 1 sends the
+   branch back to the implementer (step 1) before any document is written. Exit 0 — right before the
    block, in the ticket's worktree, `ticket done` (without `--pr`), the ticket's result section, and —
    when this is the wave's last merged ticket — the state file and `ticket block` of the tickets removed
    from the wave; these edits stay uncommitted. The block commits them on the ticket branch only after
    the branch has passed the on-top check, and fast-forwards the main branch right after, so a ticket
-   branch that never reached the main branch does not carry `done`. In Silent mode the block finds
-   nothing to commit (the documents are in the Workflow folder), and `ticket done` follows `MERGED=0`.
-   `<repo>` is the repository's main checkout, `<ticket worktree>` the ticket's tree (with `single` —
-   `<repo>` itself):
+   branch that never reached the main branch does not carry `done`. It commits only this epic's
+   folder of the tickets root and the state file (`git commit -- <those paths>`): other changes of the
+   tree and anything already staged stay out. In Silent mode the block finds nothing to commit (the
+   documents are in the Workflow folder), and `ticket done` follows `MERGED=0`. `<repo>` is the
+   repository's main checkout, `<ticket worktree>` the ticket's tree (with `single` — `<repo>` itself):
 
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
-B=<ticket branch>; T=<ticket worktree>
-DOCS=(); for f in tickets.root docs.handoff.path; do p=$(F "$f"); [ -n "$p" ] && [ "$p" != null ] && DOCS+=("$p"); done
+B=<ticket branch>; T=<ticket worktree>; E=<epic>; DOCS_FAILED=
+# the documents: this epic's folder and the state file — nothing else of the tree
+DOCS=(); r=$(F tickets.root); h=$(F docs.handoff.path)
+[ -n "$r" ] && [ "$r" != null ] && [ -e "$T/${r%/}/$E" ] && DOCS+=("${r%/}/$E")
+[ -n "$h" ] && [ "$h" != null ] && [ -e "$T/$h" ] && DOCS+=("$h")
 M=$(F worktree.base); [ "$M" = null ] && M=
 [ -n "$M" ] || M=$(F layout.repos | jq -r --arg r "$(basename "$(cd <repo> && pwd -P)")" '.[$r].default_branch // empty' 2>/dev/null)
 [ -n "$M" ] || M=$(git -C <repo> symbolic-ref -q --short refs/remotes/origin/HEAD)
@@ -396,19 +406,35 @@ W=$(git -C <repo> worktree list --porcelain | awk -v b="branch refs/heads/$M" '/
 if [ -z "$M" ]; then echo "NO MAIN BRANCH: set worktree.base in the profile"
 elif [ "$M" = "$B" ]; then echo "SAME BRANCH: $B is the main branch itself, nothing to merge"
 elif ! git -C <repo> merge-base --is-ancestor "$M" "$B"; then echo "NOT ON TOP: back to the implementer — rebase $B onto $M"
+  # the prepared documents go back to the branch's state: the rebase needs a clean tree, and no commit carries done
+  [ "${#DOCS[@]}" -gt 0 ] && git -C "$T" restore -q --source=HEAD --staged --worktree -- "${DOCS[@]}" \
+    && echo "DOCS ROLLED BACK in $T: prepare them again after the rebase"
 else
   # the documents: only now, on a branch that is on top — then the fast-forward at once
   if [ "${#DOCS[@]}" -gt 0 ] && [ -n "$(git -C "$T" status --porcelain -- "${DOCS[@]}")" ]; then
-    git -C "$T" add -A -- "${DOCS[@]}" && git -C "$T" commit -q -m "<documents commit message>"
+    git -C "$T" add -A -- "${DOCS[@]}" && git -C "$T" commit -q -m "<documents commit message>" -- "${DOCS[@]}" \
+      || { DOCS_FAILED=1; echo "DOCS COMMIT FAILED in $T: $M not moved — fix the cause (hook, signing, user.email), run the block again"; }
   fi
-  if [ -n "$W" ]; then git -C "$W" merge --ff-only --quiet "$B"; else git -C <repo> branch -f "$M" "$B"; fi
+  if [ -n "${DOCS_FAILED:-}" ]; then :
+  elif [ -n "$W" ]; then git -C "$W" merge --ff-only --quiet "$B"; else git -C <repo> branch -f "$M" "$B"; fi
 fi
-[ -n "$M" ] && [ "$M" != "$B" ] && git -C <repo> merge-base --is-ancestor "$B" "$M"; echo "MERGED=$?"     # 0 — the branch is in the main branch
+[ -z "${DOCS_FAILED:-}" ] && [ -n "$M" ] && [ "$M" != "$B" ] && git -C <repo> merge-base --is-ancestor "$B" "$M"; echo "MERGED=$?"     # 0 — the branch is in the main branch
 echo "MAIN=$M"
 ```
 
-`MERGED=0` is the proof; anything else — the ticket is not done, and on `NOT ON TOP` its documents
-stay uncommitted in its worktree until the next attempt. Nothing is pushed: the finish is local. With
+`MERGED=0` is the proof; anything else — the ticket is not done:
+- `NOT ON TOP` — the block also rolls the prepared documents back to the branch's state
+  (`DOCS ROLLED BACK`): the implementer's rebase needs a clean tree, and the branch must not get `done`.
+  After the rebase and a green `gate full` the documents are prepared again.
+- `DOCS COMMIT FAILED` (a commit hook, signing, no `user.email`) — the main branch is not moved and
+  `MERGED=1`; the documents stay staged in the ticket's worktree. Fix the cause and run the block
+  again.
+- A break between the documents commit and the fast-forward, or a fast-forward that failed: the
+  branch carries `done` but is not in the main branch. Run the block again — the documents are
+  already committed, so it commits nothing a second time and only fast-forwards. A second run after
+  `MERGED=0` changes nothing and prints `MERGED=0` again.
+
+Nothing is pushed: the finish is local. With
 `single` the main checkout stays on the ticket branch; the next ticket's branch is created from the
 main branch. In Silent mode `ticket done` follows now; in Full mode it reached the main branch with
 the fast-forward. With `pr-green-ci`:

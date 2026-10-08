@@ -8,7 +8,8 @@
 #   - bin/silent-check finds every kind of trace, passes clean text and a clean diff, checks nothing
 #     in a Full project;
 #   - a worktree outside the repository (<HARNESS_HOME>/worktrees/<project>/05) is recognised by
-#     profile, gate.sh and worktree-lock;
+#     profile, gate.sh and worktree-lock; hooks/worktree-create.sh (WorktreeCreate) puts a subagent's
+#     tree there with the profile's worktree.implementer template;
 #   - the local finish of local-green (the block cut out of the ship-ticket skill) merges the ticket
 #     branch into main of a temporary repository.
 # Run: bash harness/bin/tests/silent-mode.test.sh; exit code 0 means everything passed.
@@ -165,6 +166,34 @@ printf '{"session_id":"s-22","cwd":"%s"}' "$WT" | "$BIN/worktree-lock" claim >/d
 grep -lq "s-22" "$HARNESS_HOME"/worktree-sessions/*.json 2>/dev/null \
     && ok "worktree-lock claim in the outside tree writes the lock into HARNESS_HOME" || bad "worktree-lock: $(ls "$HARNESS_HOME" 2>&1)"
 
+# --- 4b. Item 7: the WorktreeCreate hook puts a subagent's tree under worktree.root outside the repository -----
+# Claude Code runs hooks/worktree-create.sh for a subagent with isolation "worktree" and pins the subagent to the
+# path it prints (live probes, ticket 22 result). For sp the hook runs the profile's worktree.implementer
+# template — root outside the repository; for a project without such a root it does what Claude Code does itself.
+WTC="$HOOKS/worktree-create.sh"
+wtc() { printf '{"name":"%s","cwd":"%s","hook_event_name":"WorktreeCreate"}' "$1" "$2" | "$WTC" 2>"$T/wtc.err"; }
+out="$(wtc agent-a1 "$R")"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$out" = "$HARNESS_HOME/worktrees/sp/agent-a1" ] && [ "$(git -C "$out" rev-parse --abbrev-ref HEAD 2>/dev/null)" = worktree-agent-a1 ] \
+   && [ "$(git -C "$out" rev-parse --path-format=absolute --git-common-dir)" = "$R/.git" ]; then
+    ok "WorktreeCreate, root outside the repository: the worktree.implementer template adds <root><name>, the hook prints it"
+else bad "WorktreeCreate outside: exit $rc, out: $out, err: $(head -c 300 "$T/wtc.err")"; fi
+git -C "$out" branch -m worktree-agent-a1 fix/agent-a1 2>/dev/null
+[ "$("$BIN/profile" -C "$out" --name 2>&1)" = sp ] && [ "$(git -C "$out" rev-parse --abbrev-ref HEAD)" = fix/agent-a1 ] && [ -z "$(git -C "$R" status --porcelain)" ] \
+    && ok "the hook's tree: the same profile, the implementer renames the branch, the repository stays clean" || bad "hook tree: $(git -C "$out" rev-parse --abbrev-ref HEAD)"
+out="$(wtc agent-a1 "$R")"; rc=$?
+[ "$rc" -ne 0 ] && [ -z "$out" ] && ok "WorktreeCreate: the template fails (the tree exists) — exit $rc, no path" || bad "WorktreeCreate repeat: exit $rc, out: $out"
+out="$(wtc ../escape "$R")"; rc=$?
+[ "$rc" -ne 0 ] && [ -z "$out" ] && [ ! -e "$HARNESS_HOME/worktrees/escape" ] && ok "WorktreeCreate: a name with .. is refused" || bad "WorktreeCreate ../: exit $rc, out: $out"
+out="$(wtc agent-b1 "$FR")"; rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "$FR/.claude/worktrees/agent-b1" ] && [ "$(git -C "$out" rev-parse --abbrev-ref HEAD 2>/dev/null)" = worktree-agent-b1 ] \
+    && ok "WorktreeCreate, no outside root (Full project fp): <repository>/.claude/worktrees/<name> on worktree-<name>, as Claude Code itself" \
+    || bad "WorktreeCreate default: exit $rc, out: $out, err: $(head -c 300 "$T/wtc.err")"
+git -C "$FR" worktree remove --force "$FR/.claude/worktrees/agent-b1" && git -C "$FR" branch -q -D worktree-agent-b1
+out="$(wtc agent-c1 "$T")"; rc=$?
+[ "$rc" -ne 0 ] && [ -z "$out" ] && ok "WorktreeCreate outside git: exit $rc, no path" || bad "WorktreeCreate outside git: exit $rc, out: $out"
+jq -e '.hooks.WorktreeCreate[0].hooks[0].command == "\"${CLAUDE_PLUGIN_ROOT}/hooks/worktree-create.sh\""' "$HOOKS/hooks.json" >/dev/null \
+    && ok "hooks.json: WorktreeCreate runs hooks/worktree-create.sh" || bad "hooks.json: no WorktreeCreate hook"
+
 # --- 5. The local finish (local-green): the block of ship-ticket, step 11 ----------------------
 # The block is cut out of the skill and run under bash and under zsh; each run merges its own branch.
 block() { # $1 skill file, $2 a string that identifies the ```bash block
@@ -172,6 +201,7 @@ block() { # $1 skill file, $2 a string that identifies the ```bash block
 }
 FIN="$(block "$SKILLS/ship-ticket/SKILL.md" 'MERGED=')"
 [ -n "$FIN" ] || bad "the local finish block (MERGED=) is not in ship-ticket/SKILL.md"
+FIN="${FIN//<epic>/ep}"        # the epic of the Full project fp below; sp's repository has no such folder
 for sh in bash zsh; do
     b="fix/finish-$sh"
     git -C "$R" worktree add -q -b "$b" "$T/wt-$sh" main 2>/dev/null
@@ -245,7 +275,7 @@ cat >"$HARNESS_HOME/projects/fp/profile.json" <<EOF
  "worktree":{"base":"main"},"tickets":{"root":".scratch/"},"docs":{"handoff":{"path":"HANDOFF.md"}}}
 EOF
 mkdir -p "$FR/.scratch/ep/issues"
-for n in 01 02 03; do printf '# %s — t\n\nStatus: claimed\n' "$n" >"$FR/.scratch/ep/issues/$n-t.md"; done
+for n in 01 02 03 04 05 06; do printf '# %s — t\n\nStatus: claimed\n' "$n" >"$FR/.scratch/ep/issues/$n-t.md"; done
 echo '# state' >"$FR/HANDOFF.md"; git -C "$FR" add -A && git -C "$FR" commit -q -m "tickets"
 fullrun() { # <branch> <worktree> → the merge block's output
     local code="${FIN//<repo>/$FR}"; code="${code//<ticket branch>/$1}"; code="${code//<ticket worktree>/$2}"
@@ -268,22 +298,100 @@ if [[ "$out" == *"NOT ON TOP"* && "$out" == *"MERGED=1"* ]] && [ "$(git -C "$T/f
    && [ "$(git -C "$FR" show ep/02:.scratch/ep/issues/02-t.md | grep -c '^Status: done')" = 0 ]; then
     ok "full + local-green: a branch not on top gets no documents commit — no unmerged branch carries done"
 else bad "full not on top: ${out:0:300}; last commit: $(git -C "$T/fw2" log -1 --format=%s)"; fi
+# Owner round, finding 1: NOT ON TOP rolls the prepared documents back, so the implementer's rebase in that
+# tree works and nothing puts done on the unmerged branch.
+if [[ "$out" == *"DOCS ROLLED BACK"* ]] && [ -z "$(git -C "$T/fw2" status --porcelain)" ] && git -C "$T/fw2" rebase -q main >/dev/null 2>&1 \
+   && [ "$(git -C "$T/fw2" show HEAD:.scratch/ep/issues/02-t.md | grep -c '^Status: done')" = 0 ]; then
+    ok "full + local-green: NOT ON TOP rolls the documents back — the tree is clean, the rebase works, no done on the branch"
+else bad "not on top rollback: ${out:0:300}; status: $(git -C "$T/fw2" status --porcelain | head -3)"; git -C "$T/fw2" rebase --abort >/dev/null 2>&1; fi
+
+# Owner round, findings 2 and 3: a failing documents commit (a commit hook, signing) moves nothing and says so;
+# the documents commit takes only the epic's folder and the state file, not what is already staged.
+git -C "$FR" worktree add -q -b ep/04 "$T/fw4" main 2>/dev/null
+echo c >"$T/fw4/c4.txt"; git -C "$T/fw4" add -A && git -C "$T/fw4" commit -q -m "code 04"
+(cd "$T/fw4" && "$BIN/ticket" done ep 04 >/dev/null && echo '- debt 04' >>HANDOFF.md)
+echo x >"$T/fw4/extra.ts"; git -C "$T/fw4" add extra.ts
+mkdir -p "$T/fw4/.scratch/other"; echo o >"$T/fw4/.scratch/other/o.md"
+mkdir -p "$T/hooks-fail"; printf '#!/bin/sh\necho "pre-commit: refused" >&2\nexit 1\n' >"$T/hooks-fail/pre-commit"; chmod +x "$T/hooks-fail/pre-commit"
+main_before="$(git -C "$FR" rev-parse main)"; b_before="$(git -C "$FR" rev-parse ep/04)"
+git -C "$FR" config core.hooksPath "$T/hooks-fail"
+out="$(fullrun ep/04 "$T/fw4")"
+git -C "$FR" config --unset core.hooksPath
+if [[ "$out" == *"DOCS COMMIT FAILED"* && "$out" == *"MERGED=1"* && "$out" != *"MERGED=0"* ]] && [ "$(git -C "$FR" rev-parse main)" = "$main_before" ] \
+   && [ "$(git -C "$FR" rev-parse ep/04)" = "$b_before" ]; then
+    ok "full + local-green: a commit hook refuses the documents commit — main not moved, DOCS COMMIT FAILED, MERGED=1"
+else bad "failing documents commit (hook): ${out:0:300}; main moved: $([ "$(git -C "$FR" rev-parse main)" = "$main_before" ] && echo no || echo yes)"; fi
+printf '#!/bin/sh\nexit 1\n' >"$T/gpg-fail"; chmod +x "$T/gpg-fail"
+git -C "$FR" config commit.gpgsign true; git -C "$FR" config gpg.program "$T/gpg-fail"
+out="$(fullrun ep/04 "$T/fw4")"
+git -C "$FR" config --unset commit.gpgsign; git -C "$FR" config --unset gpg.program
+[[ "$out" == *"DOCS COMMIT FAILED"* && "$out" == *"MERGED=1"* ]] && [ "$(git -C "$FR" rev-parse main)" = "$main_before" ] \
+    && ok "full + local-green: signing fails — main not moved, MERGED=1; a second failing run is the same" || bad "failing documents commit (signing): ${out:0:300}"
+out="$(fullrun ep/04 "$T/fw4")"
+names="$(git -C "$FR" show --name-only --format= ep/04)"
+if [[ "$out" == *"MERGED=0"* ]] && [ "$(git -C "$FR" log -1 --format=%s main)" = "close ticket" ] && [ "$(git -C "$FR" rev-list --count "$b_before..main")" = 1 ] \
+   && grep -q '^Status: done' "$FR/.scratch/ep/issues/04-t.md" && [[ "$names" != *extra.ts* && "$names" != *other/o.md* ]] \
+   && [ "$(git -C "$T/fw4" diff --cached --name-only)" = extra.ts ] && [ -f "$T/fw4/.scratch/other/o.md" ]; then
+    ok "full + local-green: the cause fixed, the block again — one documents commit, only the epic's folder and the state file"
+else bad "documents commit after the fix: ${out:0:300}; commit files: $(echo $names)"; fi
+git -C "$T/fw4" reset -q extra.ts
+
+# A break between the documents commit and the fast-forward (here: the fast-forward fails on a local change in
+# the main checkout), then the block again: no second documents commit; a third run changes nothing.
+git -C "$FR" worktree add -q -b ep/05 "$T/fw5" main 2>/dev/null
+echo c >"$T/fw5/c5.txt"; git -C "$T/fw5" add -A && git -C "$T/fw5" commit -q -m "code 05"
+(cd "$T/fw5" && "$BIN/ticket" done ep 05 >/dev/null)
+echo local >>"$FR/.scratch/ep/issues/05-t.md"
+out="$(fullrun ep/05 "$T/fw5")"
+first_head="$(git -C "$FR" rev-parse ep/05)"
+[[ "$out" == *"MERGED=1"* ]] && [ "$(git -C "$FR" log -1 --format=%s ep/05)" = "close ticket" ] && ! git -C "$FR" merge-base --is-ancestor ep/05 main \
+    && ok "a fast-forward that fails after the documents commit: MERGED=1, the branch carries done, main does not" || bad "break after the documents commit: ${out:0:300}"
+git -C "$FR" checkout -q -- .scratch/ep/issues/05-t.md
+out="$(fullrun ep/05 "$T/fw5")"
+[[ "$out" == *"MERGED=0"* ]] && [ "$(git -C "$FR" rev-parse ep/05)" = "$first_head" ] && [ "$(git -C "$FR" rev-parse main)" = "$first_head" ] \
+    && ok "the block again after the break: no second documents commit, main fast-forwarded" || bad "second run after the break: ${out:0:300}"
+out="$(fullrun ep/05 "$T/fw5")"
+[[ "$out" == *"MERGED=0"* ]] && [ "$(git -C "$FR" rev-parse main)" = "$first_head" ] \
+    && ok "a third run after MERGED=0 changes nothing" || bad "third run: ${out:0:300}"
 
 # The wave's documents when no VERIFIED ticket is left to merge: a commit on main, in a temporary worktree
 # when main is checked out nowhere (the blocks of epic-wave, section 4, item 4).
 WOPEN="$(block "$SKILLS/epic-wave/SKILL.md" 'TEMPORARY=')"; WDOCS="$(block "$SKILLS/epic-wave/SKILL.md" 'wave documents commit message')"
 [ -n "$WOPEN" ] && [ -n "$WDOCS" ] || bad "the wave documents blocks are not in epic-wave/SKILL.md"
+wopen() { # → TREE= and TEMPORARY= of the first block
+    local code="${WOPEN//<repo>/$FR}"; code="${code//<main branch>/main}"
+    (cd "$FR" && bash -c "$code" 2>&1)
+}
+wcommit() { # <tree> <temporary> → the commit block's output
+    local code="${WDOCS//<repo>/$FR}"; code="${code//<TREE>/$1}"; code="${code//<TEMPORARY>/$2}"; code="${code//<epic>/ep}"
+    code="${code//<wave documents commit message>/wave documents}"
+    (cd "$FR" && CLAUDE_PLUGIN_ROOT="$HARNESS" bash -c "$code" 2>&1)
+}
+line() { local v="${1#*$2=}"; printf '%s' "${v%%$'\n'*}"; } # <output> <KEY> → the value of KEY=
 wavedocs() { # <ticket to block> → output of both blocks around a ticket block
-    local o tree tmp code
-    code="${WOPEN//<repo>/$FR}"; code="${code//<main branch>/main}"
-    o="$(cd "$FR" && bash -c "$code" 2>&1)"; tree="${o#*TREE=}"; tree="${tree%%$'\n'*}"; tmp="${o#*TEMPORARY=}"
+    local o tree tmp
+    o="$(wopen)"; tree="$(line "$o" TREE)"; tmp="$(line "$o" TEMPORARY)"
     (cd "$tree" && "$BIN/ticket" block ep "$1" "removed from the wave" >/dev/null)
-    code="${WDOCS//<repo>/$FR}"; code="${code//<TREE>/$tree}"; code="${code//<wave documents commit message>/wave documents}"
-    o="$o"$'\n'"$(cd "$FR" && CLAUDE_PLUGIN_ROOT="$HARNESS" bash -c "$code" 2>&1)"
-    [ "$tmp" = no ] || git -C "$FR" worktree remove "$tree"
-    printf '%s' "$o"
+    printf '%s\n%s' "$o" "$(wcommit "$tree" "$tmp")"
 }
 git -C "$FR" checkout -q --detach
+# Owner round, finding 4: a failing commit in the temporary worktree still removes it.
+main_before="$(git -C "$FR" rev-parse main)"
+git -C "$FR" config core.hooksPath "$T/hooks-fail"
+out="$(wavedocs 06)"
+git -C "$FR" config --unset core.hooksPath
+tmpw="$(line "$out" TEMPORARY)"
+if [[ "$out" == *"WAVE DOCS COMMIT FAILED"* && "$out" != *"EXIT=0"* && "$tmpw" != no ]] && [ ! -e "$tmpw" ] \
+   && [ "$(git -C "$FR" worktree list --porcelain | grep -c "^branch refs/heads/main$")" = 0 ] && [ "$(git -C "$FR" rev-parse main)" = "$main_before" ]; then
+    ok "wave documents: a failing commit in the temporary worktree — WAVE DOCS COMMIT FAILED, the tree removed, main not moved"
+else bad "wave documents, failing commit: ${out:0:400}; trees: $(git -C "$FR" worktree list | tr '\n' ' ')"; fi
+# A break after the first block: the temporary tree is left; the next first block finds it as temporary.
+o1="$(wopen)"; o2="$(wopen)"
+if [ "$(line "$o1" TEMPORARY)" != no ] && [ "$(line "$o2" TEMPORARY)" = "$(line "$o1" TEMPORARY)" ] && [ "$(line "$o2" TREE)" = "$(line "$o1" TREE)" ]; then
+    ok "wave documents: a temporary tree left by a break is found again as temporary, not as the main checkout"
+else bad "wave documents after a break: first: ${o1:0:200}; second: ${o2:0:200}"; fi
+out="$(wcommit "$(line "$o2" TREE)" "$(line "$o2" TEMPORARY)")"
+[[ "$out" == *"EXIT=0"* ]] && [ ! -e "$(line "$o2" TREE)" ] && ok "wave documents: nothing to commit — EXIT=0, the temporary tree removed" || bad "wave documents, empty run: ${out:0:300}"
 out="$(wavedocs 03)"
 if [[ "$out" == *"EXIT=0"* && "$out" != *"TEMPORARY=no"* ]] && [ "$(git -C "$FR" log -1 --format=%s main)" = "wave documents" ] \
    && git -C "$FR" show main:.scratch/ep/issues/03-t.md | grep -q '^Status: blocked — removed from the wave' \
@@ -291,7 +399,15 @@ if [[ "$out" == *"EXIT=0"* && "$out" != *"TEMPORARY=no"* ]] && [ "$(git -C "$FR"
     ok "wave documents, main checked out nowhere: one commit on main in a temporary worktree, removed after"
 else bad "wave documents (temporary tree): ${out:0:400}"; fi
 git -C "$FR" checkout -q main
+# Owner round, finding 5: in the main checkout the commit takes only the epic's folder and the state file.
+mkdir -p "$FR/.scratch/other"; echo o >"$FR/.scratch/other/x.md"; echo y >"$FR/code2.ts"; git -C "$FR" add code2.ts
 out="$(wavedocs 02)"
+names="$(git -C "$FR" show --name-only --format= main)"
+[ "$names" = .scratch/ep/issues/02-t.md ] && [ "$(git -C "$FR" diff --cached --name-only)" = code2.ts ] \
+    && [ "$(git -C "$FR" status --porcelain -- .scratch/other)" = "?? .scratch/other/" ] \
+    && ok "wave documents in the main checkout: only the epic's folder — another epic's file and a staged code file stay out" \
+    || bad "wave documents scope: commit files: $(echo $names); staged: $(git -C "$FR" diff --cached --name-only)"
+git -C "$FR" reset -q code2.ts
 [[ "$out" == *"TREE=$FR"* && "$out" == *"TEMPORARY=no"* && "$out" == *"EXIT=0"* ]] && git -C "$FR" show main:.scratch/ep/issues/02-t.md | grep -q '^Status: blocked' \
     && ok "wave documents, main checked out in the main checkout: the commit is made there" || bad "wave documents (main checkout): ${out:0:400}"
 

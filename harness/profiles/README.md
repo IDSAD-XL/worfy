@@ -138,7 +138,7 @@ the way the project really runs them.
 | `tests.globs` | strings \| null | test file name masks (`*.spec.ts`), for `grep --include` | overnight-fix-loop |
 | `workflow.folder` | absolute path \| null | the Workflow folder of a Silent mode project (section "Full mode and Silent mode"); `~/` is expanded, a relative path is a broken profile (exit 1). `null` or absent — the folder above the repositories for a project of several repositories, otherwise `$HARNESS_HOME/projects/<name>/workflow/`. Full mode ignores it: the Workflow folder is the root of the working tree. Written when the project is connected | profile (`_resolved.workflow_folder`), all skills and agents that write workflow files, qmd-collections |
 | `parallel` | `"worktrees"` \| `"single"` | `worktrees` — several implementers, each in its own worktree; `single` — one implementer, work in the main checkout, no worktree | all agents, epic-wave |
-| `worktree.root` | path \| null | where working trees are created. worfy and Auction keep `.claude/worktrees/` inside the repository. The planned default for projects connected from E3 on is `<HARNESS_HOME>/worktrees/<name>/` (outside the repository, so the project's test runner and linter never walk into it, and `.gitignore` needs no entry), with a ticket's tree at `<worktree.root><NN>`; it is **not set** — the connection does not write it — until the owner answers worfy-harness ticket 22, item 7: whether an implementer subagent can edit files in a tree outside the repository is not verified. Until then `worktree.root` lies under `.claude/worktrees/` of the repository, as skill `ship-ticket` requires. `bin/profile`, `hooks/gate.sh` and `bin/worktree-lock` already recognise a tree outside the repository by `git rev-parse --git-common-dir` | implementer, reviewer, orchestrator |
+| `worktree.root` | path \| null | where working trees are created. worfy and Auction keep `.claude/worktrees/` inside the repository. The planned default for projects connected from E3 on is `<HARNESS_HOME>/worktrees/<name>/` (outside the repository, so the project's test runner and linter never walk into it, and `.gitignore` needs no entry), with a ticket's tree at `<worktree.root><NN>`. An implementer subagent reaches such a tree only through `isolation: "worktree"` and the plugin's `WorktreeCreate` hook (`hooks/worktree-create.sh`; live probes of worfy-harness ticket 22, item 7): the hook runs `worktree.implementer` with `<NN>` = Claude Code's agent name (`agent-<id>`, not the ticket number) and `<ветка>` = `worktree-<that name>`, and the implementer renames the branch; `EnterWorktree` refuses a tree outside `.claude/worktrees/`. For a root inside the repository the hook does what Claude Code does without it (`.claude/worktrees/<name>`, branch `worktree-<name>`). `bin/profile`, `hooks/gate.sh` and `bin/worktree-lock` recognise a tree outside the repository by `git rev-parse --git-common-dir` | implementer, reviewer, orchestrator |
 | `worktree.base` | string \| null | what to branch from (`origin/main`, `origin/master`). `null` — the Harness preflight takes `origin/<layout.repos.<repo>.default_branch>`, then the branch `origin/HEAD` points to, then `origin/main` | implementer, preflight |
 | `worktree.implementer` / `reviewer` | string | a ready `git worktree add` command with placeholders: `<ветка>` (branch, = `tickets.branch`), `<имя-тикета>` (ticket name, = `<NN>-<slug>`), `<эпик>` (epic), `<NN>`, `<slug>`, `<что-ревьюишь>` (what is reviewed). worfy names the tree by number only — `…/worktrees/<NN>` | implementer, reviewer, ship-ticket, epic-wave |
 | `tickets.root` | path \| null | root of the epics directory (`.scratch/`), with a trailing slash; the audit epic is created there. `bin/ticket`, `bin/epic-status` and `bin/epic-board` take the root from here too (path rules — below the table) | continuous-audit, ticket, epic-status, epic-board |
@@ -353,9 +353,14 @@ with `parallel: single` that is the ticket branch itself.
    left to merge commits its documents on the main branch under the lock (in a temporary worktree of
    the main branch when it is checked out nowhere). Silent mode commits nothing in the repository:
    `ticket done` writes into the Workflow folder after the merge.
-   Refused: a branch that is not on top ("NOT ON TOP"), the ticket branch being the main branch itself
-   ("SAME BRANCH"), no main branch found ("NO MAIN BRANCH"). `git merge-base --is-ancestor <branch>
-   <main>` — exit 0 — is the proof. Nothing is pushed.
+   Refused: a branch that is not on top ("NOT ON TOP"; the block also rolls the prepared documents back
+   in the ticket's worktree, so the implementer's rebase there starts from a clean tree), the ticket
+   branch being the main branch itself ("SAME BRANCH"), no main branch found ("NO MAIN BRANCH"). A
+   documents commit that fails (a commit hook, signing) moves nothing: "DOCS COMMIT FAILED" and
+   `MERGED=1`. A documents commit takes only the epic's folder of the tickets root and the state file
+   (`git commit -- <paths>`), never the rest of the index. Running the block again is safe: committed
+   documents are not committed twice. `git merge-base --is-ancestor <branch> <main>` — exit 0 — is the
+   proof. Nothing is pushed.
 
 Merges go one at a time, under the same lock as merges of PRs (skill `epic-wave`, section 4).
 

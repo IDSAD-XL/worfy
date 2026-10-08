@@ -166,7 +166,12 @@ finish `F workflow.finish` (a PR with green CI, or locally green checks); the me
 orchestrator. The order of work and the report format are set in the agent definition; the brief
 does not repeat them.
 
-- `parallel: worktrees` — one agent per ticket, all in one message.
+- `parallel: worktrees` — one agent per ticket, all in one message. When `F worktree.root` lies outside
+  the repository (`<HARNESS_HOME>/worktrees/<project>/`), start each implementer with
+  `isolation: "worktree"`: the plugin's `WorktreeCreate` hook (`hooks/worktree-create.sh`) creates its
+  tree there with `F worktree.implementer` and Claude Code pins the agent to it; the brief's line
+  `Worktree:` then reads "created for you by isolation: worktree, rename its branch to <ветка>".
+  `EnterWorktree` does not reach such a tree (worfy-harness ticket 22, item 7).
 - `parallel: single` — one agent at a time; the next one after the gate (section 3) and the merge of
   the previous one: with `pr-green-ci` its PR (section 4, items 1–2), with `local-green` the local
   merge (section 4, "Local merge", `MERGED=0`).
@@ -419,27 +424,42 @@ passes it.
    last ticket was removed after the others had merged, or every ticket was removed), the wave's
    documents are one commit on the main branch, under the lock: in the tree where the main branch is
    checked out, or, when it is checked out nowhere (`single`), in a temporary worktree of the main
-   branch, removed afterwards. `<main branch>` is the `MAIN=` line of the merge block:
+   branch, removed afterwards. `<main branch>` is the `MAIN=` line of the merge block. The temporary
+   worktree has a fixed path in the repository's git directory, so a tree left by a session break is
+   found and reused instead of being taken for the main checkout:
 
 ```bash
 M=<main branch>
+TMPW="$(git -C <repo> rev-parse --path-format=absolute --git-common-dir)/worfy-wave-docs"
+git -C <repo> worktree prune
 W=$(git -C <repo> worktree list --porcelain | awk -v b="branch refs/heads/$M" '/^worktree /{w=substr($0,10)} $0==b{print w}')
-TMPW=''; if [ -z "$W" ]; then TMPW=$(mktemp -d)/main && git -C <repo> worktree add -q "$TMPW" "$M" && W=$TMPW; fi
-echo "TREE=$W"; echo "TEMPORARY=${TMPW:-no}"
+if [ -z "$W" ]; then git -C <repo> worktree add -q "$TMPW" "$M" && W=$TMPW; fi
+[ "$W" = "$TMPW" ] || TMPW=no
+echo "TREE=$W"; echo "TEMPORARY=$TMPW"
 ```
 
    In `TREE`: `ticket block` for each removed ticket (run from `TREE`), the state file, the result
-   sections. Then, still under the lock:
+   sections. Then, still under the lock — the block commits only this epic's folder of the tickets
+   root and the state file, and removes the temporary worktree whether the commit worked or not:
 
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
-W=<TREE>
-DOCS=(); for f in tickets.root docs.handoff.path; do p=$(F "$f"); [ -n "$p" ] && [ "$p" != null ] && DOCS+=("$p"); done
-git -C "$W" add -A -- "${DOCS[@]}" && git -C "$W" commit -q -m "<wave documents commit message>"; echo "EXIT=$?"
+W=<TREE>; TMPW=<TEMPORARY>; E=<epic>; rc=0
+DOCS=(); r=$(F tickets.root); h=$(F docs.handoff.path)
+[ -n "$r" ] && [ "$r" != null ] && [ -e "$W/${r%/}/$E" ] && DOCS+=("${r%/}/$E")
+[ -n "$h" ] && [ "$h" != null ] && [ -e "$W/$h" ] && DOCS+=("$h")
+if [ "${#DOCS[@]}" -gt 0 ] && [ -n "$(git -C "$W" status --porcelain -- "${DOCS[@]}")" ]; then
+  git -C "$W" add -A -- "${DOCS[@]}" && git -C "$W" commit -q -m "<wave documents commit message>" -- "${DOCS[@]}"; rc=$?
+fi
+[ "$rc" -eq 0 ] || echo "WAVE DOCS COMMIT FAILED: fix the cause (hook, signing, user.email), then both blocks again"
+[ "$TMPW" = no ] || git -C <repo> worktree remove --force "$TMPW"
+echo "EXIT=$rc"
 ```
 
-   and `git -C <repo> worktree remove <TREE>` when `TEMPORARY` was not `no`. (Decided without the
-   owner, confirm.) In Silent mode — neither, see the end of this item.
+   `EXIT=0` — the documents are on the main branch (or there was nothing to commit: a second run).
+   `WAVE DOCS COMMIT FAILED` in a temporary worktree discards the prepared documents with the tree:
+   prepare them again in the next `TREE`; in the main checkout they stay staged there. (Decided
+   without the owner, confirm.) In Silent mode — neither, see the end of this item.
    The state file (`F docs.handoff`: `path`, `kind`, `check`) is a snapshot; its rules are in
    skill `/worfy:ship-ticket`, step 11. The wave rewrites only its own epic's lines: what is in
    progress and what waits for the owner. Do not add a block per wave; the details of the wave
