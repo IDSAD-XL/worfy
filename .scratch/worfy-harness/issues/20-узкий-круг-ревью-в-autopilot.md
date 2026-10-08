@@ -1,7 +1,7 @@
 # 20 — Autopilot делает один узкий круг ревью без владельца, если находки только med и low
 
 Type: task
-Status: claimed — 2026-10-08
+Status: done — 2026-10-08, [PR #144](https://github.com/IDSAD-XL/worfy/pull/144)
 Blocked by: 16
 Source: решение владельца 2026-10-07, вопрос Q7 ([spec.md](../spec.md)); [ADR-0046](../../../docs/adr/0046-autopilot-narrow-round-without-owner.md) — узкий круг в Autopilot; [ADR-0024](../../../docs/adr/0024-autopilot-wave-end-and-keep-awake.md) — worfy не знает протокола skill-а; [ADR-0033](../../../docs/adr/0033-autopilot-names-wave-tickets.md) — остановка прогона с `blocked-tickets`; урок «Узкий круг исправления» в `docs/lessons/process.md:22-28`
 
@@ -198,3 +198,14 @@ PR #144, ветка `worfy-harness/20`.
   комментарий или коммит `NARROW:` значит «узкий круг уже был», а последний `NARROW: VERIFIED` или
   `NARROW: REJECTED` — вердикт; для `pr-green-ci` и для `local-green`.
 - `test/contract/autopilot-journal.test.ts` добавлен в «Где в коде»: в нём полный список видов строк.
+
+Гейт волны 8: `REJECTED` (2 med, 5 low: ожидание `gh` перед `run-stopped` против 3 с выхода из приложения; счётчик
+кругов в «How to resume a wave» не видел `NARROW:`; граница «до 30 с»; старые `NARROW:` в журнале нового прогона;
+три правки текста) → доработка `7aeecba..47d23f4` → `VERIFIED` во втором круге (PR #144, влит `50b6c0d`). Выход за
+след — одна строка `ALLOWED` в `harness/bin/tests/epic-wave-ship-ticket.test.sh` — разрешил оркестратор. Долги
+ревьюера (не блокируют):
+- [low] `src/main/autopilot/run.ts:1084` — старт прогона по часам Mac, `createdAt` — по часам GitHub, запаса нет:
+  если часы Mac спешат, `NARROW:` из первых секунд прогона молча не попадёт в журнал.
+- [low] `src/main/autopilot/run.ts:921-922` против `:534` — `stopAll` берёт список прогонов с фоновыми задачами в
+  момент вызова; обычный конец прогона, застигнутый выходом на последнем чтении, встаёт в список позже, и строки
+  `tasks-killed app-quit` для живых фоновых задач не будет (было и до Ticket-а).

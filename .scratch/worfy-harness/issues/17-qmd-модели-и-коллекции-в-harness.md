@@ -1,7 +1,7 @@
 # 17 — qmd ставится вместе с Harness: npm, модели с согласия, коллекции по Profile
 
 Type: task
-Status: claimed — 2026-10-08
+Status: done — 2026-10-08, [PR #145](https://github.com/IDSAD-XL/worfy/pull/145)
 Blocked by: 16
 Source: решения владельца 2026-10-07, вопросы Q5, Q15 и Q16 ([spec.md](../spec.md)); [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md) — qmd часть Harness; [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) — папка plugin и состояние машины в `~/.claude/worfy-harness/`; ADR-0048 (будет `docs/adr/0048-harness-plugin-spike-results.md`) — итог spike Ticket-а 01 (имя MCP-сервера plugin в `allowedMcpServers`; файл заводит Ticket 01)
 
@@ -294,3 +294,13 @@ test-ы `harness/bin/tests/` идут в CI worfy на Linux (Ticket 02). `qmd-m
   4. `~/.claude/worfy-harness/plugin/bin/qmd-collections auction` — путь `update:` коллекций `auction` и
      `tickets` с `/Users/alexey/.claude/bin/qmd-sync-main` (после Ticket-а 16 его нет) на plugin, копия
      `index.yml` рядом.
+
+Гейт волны 8: `VERIFIED` с первого круга (PR #145, влит `282a7c9`). Выход за след — `src/main/agent/options.ts`
+(регистрация серверов plugin-а под `plugin_worfy_<name>` по ADR-0048 п.4) — разрешил оркестратор, «решено без
+владельца, подтвердить». Долги ревьюера (не блокируют):
+- [low] `harness/bin/tests/qmd-collections.test.sh:51` — `collect()` не очищает `QMD_INDEX_YML`, `QMD_CONFIG_DIR`,
+  `XDG_CONFIG_HOME` (их первыми читает `harness/bin/qmd-collections:57-59`). Запуск test-а напрямую с одной из них
+  в окружении пишет тестовые коллекции в настоящий `index.yml`. CI не задет: обёртка
+  `test/contract/harness-scripts.test.ts:50` даёт минимальное окружение.
+- [low] `harness/bin/tests/qmd-collections.test.sh:15` — `BIN` через `pwd`, не `pwd -P`: под путём-ссылкой
+  (`/tmp` → `/private/tmp`) проверка «full: index.yml» краснеет на верном коде.
