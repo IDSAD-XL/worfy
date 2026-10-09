@@ -6,6 +6,7 @@ import { rankItems } from '../../src/renderer/find/search-index'
 import { useCanvasRequests } from '../../src/renderer/find/canvas-requests'
 import { setView, useNavigation } from '../../src/renderer/session/navigation'
 import { useFirstRun } from '../../src/renderer/shell/first-run-store'
+import { useSettingsWindow } from '../../src/renderer/settings/settings-window'
 
 function ticket(num: number, state: Ticket['state'], blockedNums: number[] = []): Ticket {
   return {
@@ -111,8 +112,19 @@ describe('palette commands', () => {
     expect(useCanvasRequests.getState().tidy).toMatchObject({ projectId: 'p1', seq: 2 })
   })
 
-  it('without a Project keeps only the views, the first-run checks and the Projects', () => {
-    expect(ids(context({ project: undefined, model: undefined, layoutNodes: [], adrs: [], createItems: [] }))).toEqual(['view:canvas', 'view:session', 'first-run', 'project:p1', 'project:p2'])
+  it('without a Project keeps only the views, the first-run checks, Settings and the Projects', () => {
+    expect(ids(context({ project: undefined, model: undefined, layoutNodes: [], adrs: [], createItems: [] }))).toEqual(['view:canvas', 'view:session', 'first-run', 'settings', 'project:p1', 'project:p2'])
+  })
+
+  it('has Settings… in the View group, with or without a Project, and running it opens the Settings window (worfy-ui/02)', async () => {
+    for (const project of [context().project, undefined]) {
+      useSettingsWindow.setState({ open: false, section: null })
+      const command = buildCommands(context({ project })).find((each) => each.id === 'settings')
+      expect(command).toMatchObject({ group: 'View', title: 'Settings…' })
+      expect(rankItems(buildCommands(context({ project })), 'settings')[0]?.id).toBe('settings')
+      expect(await command!.run()).toBeUndefined()
+      expect(useSettingsWindow.getState()).toEqual({ open: true, section: null })
+    }
   })
 
   it('has First-run checks in the View group, with or without a Project, and running it opens the screen (worfy-harness/19)', async () => {

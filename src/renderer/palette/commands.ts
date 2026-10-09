@@ -24,6 +24,7 @@ import { kindLabel, nodeTitle, type Rankable } from '../find/search-index'
 import { invoke, windowMachine } from '../ipc'
 import { openProject } from '../projects/useProjects'
 import { setView } from '../session/navigation'
+import { openSettings } from '../settings/settings-window'
 import { openFirstRun } from '../shell/first-run-store'
 import type { ShellView } from '../shell/Toolbar'
 
@@ -190,6 +191,18 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
     keys: ['first run', 'setup', 'checks'],
     run: () => {
       openFirstRun()
+      return undefined
+    },
+  })
+  // The Settings window (worfy-ui ticket 2): always here, with or without a Project.
+  commands.push({
+    id: 'settings',
+    group: 'View',
+    title: 'Settings…',
+    detail: 'General and the other sections',
+    keys: ['settings', 'preferences', 'options'],
+    run: () => {
+      openSettings()
       return undefined
     },
   })

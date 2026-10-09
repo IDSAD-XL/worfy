@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { SettingsDialog } from '../settings/SettingsDialog'
 import { FirstRun } from './FirstRun'
 import { Sidebar } from './Sidebar'
 import { Toolbar, type ShellView, type ToolbarProject } from './Toolbar'
@@ -52,6 +53,8 @@ export function AppShell({ project, canvas, session, view: controlledView, onVie
       </div>
       {/* The first-run screen (worfy-harness ticket 19): over the window when open; it asks main at start whether to open. */}
       <FirstRun />
+      {/* The Settings window (worfy-ui ticket 2): over everything when open; the menu's "Settings…" and the palette open it. */}
+      <SettingsDialog />
     </div>
   )
 }
