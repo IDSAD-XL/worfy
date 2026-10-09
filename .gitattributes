@@ -1,0 +1,16 @@
+# LF in the working tree on every system for the files whose bytes are a contract
+# (worfy-windows ticket 02). Git for Windows defaults to core.autocrlf=true and would check them
+# out with CRLF: a script read by bash or zsh on another system would see `\r`, and the hashes of
+# build/brand/*.svg in build/icons.json would not match. The index is LF already.
+# Other text files keep the checkout settings of each machine.
+
+# Scripts: the Harness CLI (no extension), shell and Node scripts, everything under scripts/.
+# harness/hooks/ whole: hooks.json and the rules that inject-rules hands to a session as they are.
+harness/bin/* text=auto eol=lf
+harness/hooks/** text=auto eol=lf
+*.sh text eol=lf
+*.mjs text eol=lf
+scripts/** text=auto eol=lf
+
+# The brand sources of the app icon: build/icons.json records their sha256.
+build/brand/*.svg text eol=lf

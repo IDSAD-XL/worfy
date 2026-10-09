@@ -2,6 +2,16 @@
 
 Personal infinite canvas where Claude agents build small apps (cards) while you chat with them. macOS, single local user.
 
+## Development on Windows
+
+The Windows port is in progress (epic `worfy-windows`). To work on the repository on Windows 10 21H2+ or 11, x64, install:
+
+- Git for Windows (`winget install Git.Git`): Claude Code and the Harness use its Git Bash;
+- Node.js 22 or newer (`winget install OpenJS.NodeJS.LTS`);
+- pnpm of the version in `packageManager` of `package.json`: `npm install -g pnpm@<version>`.
+
+Visual Studio Build Tools are not needed: on Windows `pnpm install` does not rebuild node-pty, Electron loads the prebuilt win32-x64 binary that ships with it (`scripts/postinstall.mjs`). Then `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck` and `pnpm test` run as on the Mac; the test suite is not green on Windows yet. `pnpm dev` has not been checked on Windows with these changes.
+
 ## Stable copy
 
 Autopilot over worfy itself runs only on a stable copy of `worfy.app` outside the repository, never on a dev build: agents rebuild and test the dev build in their worktrees while Autopilot runs, and `pnpm package` replaces `dist/` on every build.
