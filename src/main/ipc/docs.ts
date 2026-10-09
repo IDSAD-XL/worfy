@@ -7,6 +7,7 @@ import { placeNewNode } from '../layout/place'
 import { layoutStore } from '../layout/store'
 import { projectHolds } from '../projects/holds'
 import { projectStore } from '../projects/store'
+import { projectLayouts } from '../workflow/folder'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 // The `docs` channels (src/shared/ipc/docs.ts) and the HANDOFF Node.
@@ -15,6 +16,15 @@ import { defineHandler, emit, type HandlerModule } from './index'
 // resized, not removed) the first time the Project is seen with a HANDOFF.md. While the file is
 // gone the Node is hidden, and shown again when the file comes back; a Node the user hid stays
 // hidden. Its text is never copied into the Layout: the Node reads it through `docs.read`.
+//
+// The documents are those of the Project's Workflow folder (ADR-0042): the Project root in Full
+// mode, the Workflow folder outside the repository in Silent mode (src/main/workflow/folder.ts).
+
+/** Where the Project at `path` keeps HANDOFF.md and docs/adr. */
+export async function docsRoot(path: string): Promise<string> {
+  const layout = await projectLayouts().get(path)
+  return layout.mode === 'silent' ? layout.workflowFolder : path
+}
 
 /** Where a new HANDOFF Node goes: the same rule as the Orchestrator Node (src/main/layout/place.ts). */
 export function handoffPlace(nodes: readonly LayoutNode[]): { x: number; y: number } {
@@ -90,10 +100,12 @@ function keepActive(): void {
   if (kept !== null) void docsHub.close(kept, MAIN)
   kept = next
   if (active) {
-    docsHub.open(active.id, active.path, mainSubscriber).catch((error: unknown) => {
-      console.error(`[docs] could not watch the documents of ${active.id}`, error)
-      if (kept === active.id) kept = null
-    })
+    docsRoot(active.path)
+      .then((root) => (kept === active.id ? docsHub.open(active.id, root, mainSubscriber) : undefined))
+      .catch((error: unknown) => {
+        console.error(`[docs] could not watch the documents of ${active.id}`, error)
+        if (kept === active.id) kept = null
+      })
   }
 }
 
@@ -121,10 +133,12 @@ export function keepHeld(): void {
       continue
     }
     keptHeld.add(projectId)
-    docsHub.open(projectId, path, heldSubscriber).catch((error: unknown) => {
-      console.error(`[docs] could not watch the documents of ${projectId}`, error)
-      keptHeld.delete(projectId)
-    })
+    docsRoot(path)
+      .then((root) => (keptHeld.has(projectId) ? docsHub.open(projectId, root, heldSubscriber) : undefined))
+      .catch((error: unknown) => {
+        console.error(`[docs] could not watch the documents of ${projectId}`, error)
+        keptHeld.delete(projectId)
+      })
   }
 }
 
@@ -135,10 +149,13 @@ projectHolds().onChange(keepHeld)
 app.on('will-quit', () => void docsHub.closeAll())
 
 export default [
-  defineHandler(docsOpen, ({ projectId }, { event }) => docsHub.open(projectId, projectStore().get(projectId).path, subscriberOf(clientOf(event)))),
+  defineHandler(docsOpen, async ({ projectId }, { event }) => {
+    const subscriber = subscriberOf(clientOf(event))
+    return docsHub.open(projectId, await docsRoot(projectStore().get(projectId).path), subscriber)
+  }),
   defineHandler(docsClose, async ({ projectId }, { event }) => {
     const client = clientOf(event)
     return { closed: client === undefined ? false : await docsHub.close(projectId, client.id) }
   }),
-  defineHandler(docsRead, ({ projectId, path }) => readDoc(projectStore().get(projectId).path, path)),
+  defineHandler(docsRead, async ({ projectId, path }) => readDoc(await docsRoot(projectStore().get(projectId).path), path)),
 ] satisfies HandlerModule

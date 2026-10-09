@@ -3,9 +3,12 @@
 // The only reader of the Ticket format is `epic-status --json` of the Harness found on the machine
 // (src/main/harness/locate.ts: the plugin's bin/ or `<claude home>/bin`). worfy adds the
 // two things that script does not carry: the files listed under each Ticket's "Где в коде"
-// section and the Epic's title (the H1 of spec.md). A Ticket claimed in a worktree branch is
-// shown with the branch's status: `epic-status --json --ref <branch>` reads that branch. A branch
-// never undoes blocked or done of the checkout, and its open is its base's (ADR-0033).
+// section and the Epic's title (the H1 of spec.md), both read from the Tickets root the Harness
+// names (src/main/workflow/folder.ts: `<root>/.scratch` in Full mode, the Workflow folder in Silent
+// mode). In Full mode a Ticket claimed in a worktree branch is shown with the branch's status:
+// `epic-status --json --ref <branch>` reads that branch. A branch never undoes blocked or done of
+// the checkout, and its open is its base's (ADR-0033). In Silent mode the status lives in the
+// Workflow folder only (ADR-0042): no branch is read.
 //
 // Nothing here writes: processes are run with the Project as cwd, files are only read.
 import { execFile } from 'node:child_process'
@@ -13,6 +16,7 @@ import { readdir, readFile, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import { harnessHomes, locateHarness, notFoundPaths, scriptEnv, type HarnessLocation } from '../harness/locate'
+import { readProjectLayout, type ProjectLayout } from './folder'
 import {
   epicStatusSchema,
   ticketKey,
@@ -33,6 +37,8 @@ export interface ReaderOptions {
   claudeHome: string
   /** How many branch snapshots run at once (default 4). */
   concurrency?: number
+  /** Where the workflow lives; read from the Harness (src/main/workflow/folder.ts) when absent. */
+  layout?: ProjectLayout
 }
 
 /** A worktree whose branch names a Ticket. */
@@ -176,9 +182,12 @@ function issueKey(file: string): string | null {
 
 const readText = (path: string): Promise<string | null> => readFile(path, 'utf8').catch(() => null)
 
-/** Adds the "Где в коде" files and the Epic titles to a snapshot of the checkout. */
-export async function enrichSnapshot(root: string, snapshot: EpicStatusSnapshot): Promise<CheckoutModel> {
-  const scratch = join(root, '.scratch')
+/**
+ * Adds the "Где в коде" files and the Epic titles to a snapshot of the checkout, read from
+ * `ticketsRoot` (the folder with `<epic>/spec.md` and `<epic>/issues/`).
+ */
+export async function enrichSnapshot(root: string, snapshot: EpicStatusSnapshot, ticketsRoot: string = join(root, '.scratch')): Promise<CheckoutModel> {
+  const scratch = ticketsRoot
 
   const epics = await Promise.all(
     snapshot.epics.map(async (epic) => {
@@ -215,11 +224,11 @@ const errorOf = (error: unknown): WorkflowError =>
   error instanceof EpicStatusError ? error.workflowError : { code: 'failed', message: error instanceof Error ? error.message : String(error) }
 
 /** Reads the Project's checkout. A missing or broken script gives an empty model with the reason. */
-export async function readCheckout(root: string, run: EpicStatusRunner): Promise<CheckoutModel> {
+export async function readCheckout(root: string, run: EpicStatusRunner, ticketsRoot?: string): Promise<CheckoutModel> {
   const isDir = await stat(root).then((s) => s.isDirectory()).catch(() => false)
   if (!isDir) return { root, epics: [], tickets: [], error: { code: 'failed', message: `Project folder not found: ${root}` } }
   try {
-    return await enrichSnapshot(root, parseEpicStatus(await run(root, null)))
+    return await enrichSnapshot(root, parseEpicStatus(await run(root, null)), ticketsRoot)
   } catch (error) {
     return { root, epics: [], tickets: [], error: errorOf(error) }
   }
@@ -342,15 +351,17 @@ export function applyBranches(checkout: CheckoutModel, branches: BranchCache): W
   return { ...checkout, tickets, branchErrors }
 }
 
-/** One full read: the checkout, then every Ticket worktree branch. Never throws. */
+/** One full read: the checkout, then, in Full mode, every Ticket worktree branch. Never throws. */
 export async function readWorkflow(
   options: ReaderOptions,
   run: EpicStatusRunner = epicStatusRunner(options.claudeHome),
   previous: BranchCache = new Map(),
 ): Promise<{ model: WorkflowModel; checkout: CheckoutModel; branches: BranchCache }> {
   const root = resolve(options.root)
-  const checkout = await readCheckout(root, run)
-  if (checkout.error) return { model: { ...checkout, branchErrors: [] }, checkout, branches: new Map() }
+  const layout = options.layout ?? (await readProjectLayout({ root, claudeHome: options.claudeHome }))
+  const checkout = await readCheckout(root, run, layout.ticketsRoot)
+  // Silent mode: no `--ref` (the Harness answers it with exit code 3), no status from branches.
+  if (checkout.error || layout.mode === 'silent') return { model: { ...checkout, branchErrors: [] }, checkout, branches: new Map() }
   const branches = await readBranches(root, checkout, await ticketWorktrees(root), previous, run, options.concurrency)
   return { model: applyBranches(checkout, branches), checkout, branches }
 }

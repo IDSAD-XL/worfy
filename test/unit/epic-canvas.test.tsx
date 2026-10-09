@@ -1,9 +1,10 @@
 // The pieces between the workflow model and the Canvas: the delta applied in the renderer, the
 // Epic node source (what it builds and what it keeps from the Layout), and the blocking arrows.
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import { ReactFlowProvider, type EdgeProps } from '@xyflow/react'
 import ELK from 'elkjs/lib/elk.bundled.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { Layout, LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 import type { Epic, Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import RoutedEdge from '../../src/renderer/canvas/edge-types/RoutedEdge'
@@ -790,6 +791,70 @@ describe('ready Tickets', () => {
     )
     expect(screen.queryByTestId('ready-wave')).toBeNull()
     expect(screen.getByText(/Ready wave ·/).textContent).toBe('Ready wave · 2')
+  })
+})
+
+describe('the repository chip of a Ticket (worfy-harness ticket 23)', () => {
+  let reposCalls: string[]
+  /** A bridge whose checks.repos names `repos` for every root; everything else answers empty. */
+  const bridgeWith = (repos: { name: string; path: string }[]) => {
+    reposCalls = []
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      invoke: (channel: string, input: unknown) => {
+        if (channel === 'checks.repos') {
+          reposCalls.push((input as { root: string }).root)
+          return Promise.resolve({ ok: true, value: { mode: 'silent', repos } })
+        }
+        return Promise.resolve({ ok: false, error: 'not in this test' })
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+  }
+  afterEach(() => {
+    delete (globalThis as { worfy?: WorfyBridge }).worfy
+  })
+
+  const renderTickets = (root: string, tickets: Ticket[]) => {
+    const nodes = buildEpicNodes(freshProject(), root, { ...model(tickets, ['a']), root }, layoutWith(), {})
+    return render(
+      <ReactFlowProvider>
+        {nodes
+          .filter((node) => node.type === 'ticket')
+          .map((node) => (
+            <TicketNode key={node.id} {...({ id: node.id, data: node.data, selected: false } as unknown as CanvasNodeProps)} />
+          ))}
+      </ReactFlowProvider>,
+    )
+  }
+  const chipOf = (num: number) => screen.getAllByTestId('ticket-node').find((node) => node.dataset.ticket === String(num))!.querySelector<HTMLElement>('[data-testid="ticket-repo"]')
+
+  it('in a Project over two repositories, names each Ticket\'s repository, and says "no repo" for a Ticket without Repo:', async () => {
+    bridgeWith([
+      { name: 'api', path: '/ws-two/api' },
+      { name: 'web-frontend-long-name', path: '/ws-two/web' },
+    ])
+    renderTickets('/ws-two', [ticket('a', 1, { repo: 'api' }), ticket('a', 2, { repo: 'web-frontend-long-name' }), ticket('a', 3, { repo: null }), ticket('a', 4)])
+    await vi.waitFor(() => expect(chipOf(1)).not.toBeNull())
+    expect(chipOf(1)!.textContent).toBe('api')
+    expect(chipOf(1)!.title).toBe('repository api')
+    expect(chipOf(2)!.textContent).toBe('web-frontend-long-name')
+    expect(chipOf(2)!.title).toBe('repository web-frontend-long-name')
+    for (const num of [3, 4]) {
+      expect(chipOf(num)!.textContent).toBe('no repo')
+      expect(chipOf(num)!.dataset.repo).toBeUndefined()
+    }
+    // One question per Project, however many Tickets it has.
+    expect(reposCalls).toEqual(['/ws-two'])
+  })
+
+  it('in a Project with one repository there is no chip', async () => {
+    bridgeWith([{ name: 'single', path: '/ws-one' }])
+    renderTickets('/ws-one', [ticket('a', 1, { repo: 'single' }), ticket('a', 2)])
+    await vi.waitFor(() => expect(reposCalls).toEqual(['/ws-one']))
+    await act(async () => await Promise.resolve())
+    expect(screen.queryAllByTestId('ticket-repo')).toEqual([])
+    expect(screen.getAllByTestId('ticket-node')).toHaveLength(2)
   })
 })
 

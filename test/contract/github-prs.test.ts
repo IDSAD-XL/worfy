@@ -5,10 +5,12 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GateReader, type Worktree } from '../../src/main/gate/state'
 import { accountAuth, ciOf, ghRunner, narrowOf, narrowRoundsOf, parsePrList, PrTracker, verdictOf, type GhRunner } from '../../src/main/github/prs'
-import { appPrTracker, checksHandlers } from '../../src/main/ipc/checks'
+import { appPrTracker, checksHandlers, type ChecksScope } from '../../src/main/ipc/checks'
+import { fullLayout, type ProjectLayout } from '../../src/main/workflow/folder'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { pullOfTicket, type ChecksSnapshot } from '../../src/shared/ipc/checks'
+import { pullOfTicket, worktreeOfTicket, type ChecksSnapshot } from '../../src/shared/ipc/checks'
+import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 
 // Pull requests and CI from `gh` (ticket 17), against test/fixtures/gh/gh: a stub that records
 // its arguments and answers from a prs.json. Nothing here reaches GitHub.
@@ -26,6 +28,13 @@ async function tempDir(): Promise<string> {
   temps.push(dir)
   return dir
 }
+
+/**
+ * The Projects of the tests that are not about which roots `checks.get` takes: every temporary
+ * folder, its `project` folder (accountWorld) and `/r`, each a Full-mode Project of one repository.
+ */
+const anyProject = (): { path: string }[] => [...temps, ...temps.map((dir) => join(dir, 'project')), '/r'].map((path) => ({ path }))
+const fullScope: ChecksScope = { layout: async (root) => fullLayout(root), model: async () => null }
 
 interface GhPull {
   number: number
@@ -363,7 +372,7 @@ describe('PrTracker over the gh stub', () => {
 async function ipcOver(run: GhRunner, home: string, worktrees: (root: string) => Worktree[] = (root) => [{ path: root, branch: 'main' }]) {
   const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>()
   const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
-  const module = checksHandlers({ gate: new GateReader({ home }), prs: new PrTracker({ run }), worktrees: async (root) => worktrees(root) })
+  const module = checksHandlers({ gate: new GateReader({ home }), prs: new PrTracker({ run }), worktrees: async (root) => worktrees(root) }, anyProject, fullScope)
   await registerIpc(ipc, { modules: { './checks.ts': async () => module }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
   return async (input: unknown): Promise<IpcResult<unknown>> => {
     const listener = handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!
@@ -444,7 +453,7 @@ describe('checks.get', () => {
       gate: { read: async (_root: string, worktrees: { path: string; branch: string | null }[]) => worktrees.map((each) => ({ ...each, gate: { outcome: 'green', source: 'marker', at: null, file: '/secret' } })) } as unknown as GateReader,
       prs: { read: async () => ({ pulls: [], gh: { available: true, error: null, intervalMs: 60_000, token: 't' } }) } as unknown as PrTracker,
       worktrees: async (root) => [{ path: root, branch: 'main', head: 'abc' } as { path: string; branch: string }],
-    })
+    }, anyProject, fullScope)
     await registerIpc(ipc, { modules: { './checks.ts': async () => leaky }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
     const result = (await handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!({ senderFrame: { url: `file://${INDEX_HTML}` } } as unknown as IpcMainInvokeEvent, { root: '/r', branches: [] })) as IpcResult<ChecksSnapshot>
     expect(result).toEqual({
@@ -657,7 +666,7 @@ describe("gh with the Project's GitHub account", () => {
     const home = await tempDir()
     const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>()
     const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
-    const module = checksHandlers({ gate: new GateReader({ home }), prs: world.tracker(), worktrees: async (root) => [{ path: root, branch: 'demo/01' }] })
+    const module = checksHandlers({ gate: new GateReader({ home }), prs: world.tracker(), worktrees: async (root) => [{ path: root, branch: 'demo/01' }] }, anyProject, fullScope)
     await registerIpc(ipc, { modules: { './checks.ts': async () => module }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
     const call = (input: unknown) => handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!({ senderFrame: { url: `file://${INDEX_HTML}` } } as unknown as IpcMainInvokeEvent, input)
     const good = (await call({ root: world.root, branches: ['demo/02'] })) as IpcResult<ChecksSnapshot>
@@ -683,7 +692,7 @@ describe("gh with the Project's GitHub account", () => {
     const home = await tempDir()
     const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>()
     const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
-    const module = checksHandlers({ gate: new GateReader({ home }), prs: world.tracker(), worktrees: async (root) => [{ path: root, branch: 'demo/01' }] })
+    const module = checksHandlers({ gate: new GateReader({ home }), prs: world.tracker(), worktrees: async (root) => [{ path: root, branch: 'demo/01' }] }, anyProject, fullScope)
     await registerIpc(ipc, { modules: { './checks.ts': async () => module }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
     const result = (await handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!({ senderFrame: { url: `file://${INDEX_HTML}` } } as unknown as IpcMainInvokeEvent, { root: world.root, branches: [] })) as IpcResult<ChecksSnapshot>
     expect(result.ok).toBe(true)
@@ -701,6 +710,10 @@ describe("gh with the Project's GitHub account", () => {
     for (const [name, value] of Object.entries(world.env)) if (name !== 'PATH' && name !== 'HOME') vi.stubEnv(name, value)
     vi.stubEnv('WORFY_GH', world.command)
     vi.stubEnv('WORFY_CLAUDE_HOME', world.home)
+    // The app's handler takes only a Project root or one of its repositories: world.root is the one Project.
+    const data = await tempDir()
+    await writeFile(join(data, 'projects.json'), JSON.stringify({ projects: [{ id: 'project-00000001', name: 'project', path: world.root }], activeId: null }))
+    vi.stubEnv('WORFY_DATA_DIR', data)
     const printed: string[] = []
     const spies = (['log', 'warn', 'error', 'info'] as const).map((method) => vi.spyOn(console, method).mockImplementation((...args: unknown[]) => void printed.push(args.map(String).join(' '))))
     try {
@@ -718,5 +731,175 @@ describe("gh with the Project's GitHub account", () => {
     }
     expect((await world.calls()).filter((call) => call.args[0] === 'pr')).toEqual([{ token: TOKEN, args: LIST }])
     expect(printed.join('\n')).not.toContain(TOKEN)
+  })
+})
+
+// ── a Project over several repositories, Silent mode (worfy-harness ticket 23) ──
+//
+// Project `atakama` is a folder above repositories `api` and `web` (ADR-0045). Its Tickets name
+// their branch (`Branch:`, not `<epic>/<NN>`) and their repository (`Repo:`). gh answers by the
+// folder it runs in: each repository has its own PRs.
+
+const silentTicket = (num: number, branch: string | null, repo: string | null): Ticket => ({
+  epic: 'atakama',
+  num,
+  slug: `t${num}`,
+  title: `Ticket ${num}`,
+  statusRaw: 'claimed',
+  state: 'work',
+  blockedRaw: null,
+  blockedNums: [],
+  blockedParsed: true,
+  files: [],
+  filesListed: true,
+  fromBranch: null,
+  branch,
+  repo,
+})
+
+async function severalRepos() {
+  const workspace = await tempDir()
+  const api = join(workspace, 'api')
+  const web = join(workspace, 'web')
+  const elsewhere = await tempDir()
+  await mkdir(api)
+  await mkdir(web)
+  const tickets = [silentTicket(5, 'fix/x', 'api'), silentTicket(6, 'fix/y', 'web'), silentTicket(7, null, null)]
+  const model: WorkflowModel = { root: workspace, epics: [{ epic: 'atakama', hasSpec: true, hasMap: false, title: 'Atakama' }], tickets, error: null, branchErrors: [] }
+  const layout: ProjectLayout = {
+    root: workspace,
+    mode: 'silent',
+    workflowFolder: workspace,
+    ticketsRoot: join(workspace, '.scratch'),
+    repos: [
+      { name: 'api', path: api },
+      { name: 'web', path: web },
+    ],
+    workspace,
+    reason: null,
+  }
+  const modelsAsked: string[] = []
+  const scope: ChecksScope = {
+    layout: async (root) => (root === workspace ? layout : fullLayout(root)),
+    model: async (root) => {
+      modelsAsked.push(root)
+      return root === workspace ? model : null
+    },
+  }
+  const prsOf: Record<string, GhPull[]> = { [api]: [pull(11, 'fix/x'), pull(12, 'atakama/07')], [web]: [pull(21, 'fix/y'), pull(22, 'atakama/05')] }
+  const ghCwds: string[] = []
+  const run: GhRunner = (args, cwd) => {
+    ghCwds.push(cwd)
+    const prs = prsOf[cwd] ?? []
+    const head = args.includes('--head') ? args[args.indexOf('--head') + 1] : null
+    return Promise.resolve(JSON.stringify(head === null ? prs : prs.filter((each) => each.headRefName === head)))
+  }
+  const home = await tempDir()
+  const worktreeX = join(home, 'worfy-harness', 'worktrees', 'atakama', '05')
+  const module = checksHandlers(
+    {
+      gate: new GateReader({ home }),
+      prs: new PrTracker({ run }),
+      worktrees: async (root) => (root === api ? [{ path: api, branch: 'main' }, { path: worktreeX, branch: 'fix/x' }] : [{ path: root, branch: 'main' }]),
+    },
+    () => [{ path: workspace }],
+    scope,
+  )
+  const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>()
+  await registerIpc({ handle: (channel, listener) => void handlers.set(channel, listener) }, { modules: { './checks.ts': async () => module }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
+  const call = async (channel: string, input: unknown): Promise<IpcResult<unknown>> =>
+    (await handlers.get(`${IPC_CHANNEL_PREFIX}${channel}`)!({ senderFrame: { url: `file://${INDEX_HTML}` } } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
+  return { workspace, api, web, elsewhere, tickets, worktreeX, ghCwds, modelsAsked, call }
+}
+
+describe('checks in a Project over several repositories and in Silent mode (worfy-harness ticket 23)', () => {
+  it('a Ticket with branch fix/x finds its PR, CI and worktree by that branch', () => {
+    const ticket = { epic: 'atakama', num: 5, branch: 'fix/x' }
+    const snapshot: ChecksSnapshot = {
+      root: '/r',
+      worktrees: [
+        { path: '/r', branch: 'main', gate: { outcome: 'none', source: 'none', at: null } },
+        { path: '/h/worktrees/atakama/09', branch: 'fix/x', gate: { outcome: 'green', source: 'marker', at: null } },
+      ],
+      pulls: [{ number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', branch: 'fix/x', ci: 'passing', verdict: null }],
+      gh: { available: true, error: null, intervalMs: 60_000 },
+    }
+    expect(pullOfTicket(snapshot, ticket)?.number).toBe(3)
+    expect(pullOfTicket(snapshot, { epic: 'atakama', num: 5 })).toBeNull()
+    expect(worktreeOfTicket(snapshot, ticket, [ticket])?.path).toBe('/h/worktrees/atakama/09')
+    // Ticket 09 by the folder number: the folder's branch is Ticket 05's, so it is not 09's tree.
+    const nine = { epic: 'atakama', num: 9, branch: null }
+    expect(worktreeOfTicket(snapshot, nine, [ticket, nine])).toBeNull()
+    // The tree outside the repository is found by its folder when its branch names no Ticket.
+    const unnamed: ChecksSnapshot = { ...snapshot, worktrees: [{ path: '/h/worktrees/atakama/09', branch: 'wip', gate: { outcome: 'red', source: 'marker', at: null } }] }
+    expect(worktreeOfTicket(unnamed, nine, [ticket, nine])?.gate.outcome).toBe('red')
+  })
+
+  it('each repository is asked on its own: Tickets of different repositories do not take each other\'s PRs', async () => {
+    const world = await severalRepos()
+    const [t5, t6] = world.tickets
+    const api = (await world.call('checks.get', { root: world.api, branches: ['fix/x'] })) as IpcResult<ChecksSnapshot>
+    const web = (await world.call('checks.get', { root: world.web, branches: ['fix/y'] })) as IpcResult<ChecksSnapshot>
+    if (!api.ok || !web.ok) throw new Error(`refused: ${JSON.stringify([api, web])}`)
+    expect(pullOfTicket(api.value, t5!)?.number).toBe(11)
+    expect(pullOfTicket(web.value, t6!)?.number).toBe(21)
+    // Ticket 06 is web's: api's snapshot has nothing of it. Ticket 05 is api's: its PR is #11 there,
+    // though web has a PR on atakama/05 (#22) — the renderer never looks for Ticket 05 in web's snapshot.
+    expect(pullOfTicket(api.value, t6!)).toBeNull()
+    expect(api.value.pulls.map((each) => each.number)).not.toContain(22)
+    expect(worktreeOfTicket(api.value, t5!, world.tickets)?.path).toBe(world.worktreeX)
+    expect(new Set(world.ghCwds)).toEqual(new Set([world.api, world.web]))
+    expect(world.modelsAsked.every((root) => root === world.workspace)).toBe(true)
+  })
+
+  it('looks up the PR of a worktree on a branch the model names, though the renderer did not ask for it', async () => {
+    const world = await severalRepos()
+    const result = (await world.call('checks.get', { root: world.api, branches: [] })) as IpcResult<ChecksSnapshot>
+    expect(result.ok && result.value.pulls.map((each) => each.branch).sort()).toEqual(['atakama/07', 'fix/x'])
+  })
+
+  it('refuses a root that is neither the Project root nor one of its repositories, without running gh or git', async () => {
+    const world = await severalRepos()
+    for (const root of [world.elsewhere, join(world.api, 'src'), '/']) {
+      const result = await world.call('checks.get', { root, branches: [] })
+      expect(result.ok, root).toBe(false)
+      expect(!result.ok && result.error).toMatch(/neither the root of a Project nor one of its repositories/)
+    }
+    expect(world.ghCwds).toEqual([])
+    expect((await world.call('checks.get', { root: world.workspace, branches: [] })).ok).toBe(true)
+  })
+
+  it('refuses a branch the model does not name as a Ticket branch of that repository; <epic>/<NN> passes as before', async () => {
+    const world = await severalRepos()
+    for (const [root, branch] of [
+      [world.api, 'fix/z'],
+      [world.api, 'fix/y'],
+      [world.web, 'fix/x'],
+      [world.api, 'main'],
+    ] as const) {
+      const result = await world.call('checks.get', { root, branches: [branch] })
+      expect(result.ok, `${root} ${branch}`).toBe(false)
+      expect(!result.ok && result.error).toMatch(/is not the branch of a Ticket of this Project/)
+    }
+    expect(world.ghCwds).toEqual([])
+    expect((await world.call('checks.get', { root: world.web, branches: ['fix/y', 'atakama/05'] })).ok).toBe(true)
+    // Still refused by the schema: a dash first, whitespace, more than 200 characters.
+    for (const branch of ['-x', 'fix/x --web', 'a'.repeat(201)]) expect((await world.call('checks.get', { root: world.api, branches: [branch] })).ok, branch).toBe(false)
+  })
+
+  it('checks.repos names the mode and the repositories of a Project root, and refuses anything else', async () => {
+    const world = await severalRepos()
+    expect(await world.call('checks.repos', { root: world.workspace, extra: 1 })).toEqual({
+      ok: true,
+      value: {
+        mode: 'silent',
+        repos: [
+          { name: 'api', path: world.api },
+          { name: 'web', path: world.web },
+        ],
+      },
+    })
+    for (const root of [world.api, world.elsewhere]) expect((await world.call('checks.repos', { root })).ok, root).toBe(false)
+    expect((await world.call('checks.repos', { root: 'relative' })).ok).toBe(false)
   })
 })

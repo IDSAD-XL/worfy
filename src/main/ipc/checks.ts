@@ -1,16 +1,25 @@
-// Handlers of the `checks` domain (src/shared/ipc/checks.ts): the gate state of a Project's
+// Handlers of the `checks` domain (src/shared/ipc/checks.ts): the gate state of a repository's
 // worktrees and the pull requests of its Ticket branches. Read-only (ADR-0002, ADR-0005).
+//
+// A Project over several repositories (ADR-0045) gets its checks one repository at a time: the
+// renderer asks `checks.repos` for them and `checks.get` for each. `git` and `gh` run only in a
+// Project root or in one of its repositories, and `gh` looks up only `<epic>/<NN>` branches and the
+// branches the workflow model names for that repository's Tickets (`Branch:`, Silent mode).
+import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { checksGet, type ChecksSnapshot } from '../../shared/ipc/checks'
+import { checksGet, checksRepos, type ChecksSnapshot, type ProjectRepos } from '../../shared/ipc/checks'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
+import type { WorkflowModel } from '../../shared/workflow/types'
 import { agentEnv } from '../agent/env'
 import { GateReader, listWorktrees, type Worktree } from '../gate/state'
 import { accountAuth, ghRunner, PrTracker } from '../github/prs'
 import { insideProjects } from '../link/caller'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
+import { projectLayouts, type ProjectLayout, type ProjectRepo } from '../workflow/folder'
 import { readGithubAccount } from '../workflow/profile'
 import { defineHandler, type HandlerModule } from './index'
+import { workflowHub } from './workflow'
 
 export interface ChecksService {
   gate: GateReader
@@ -19,21 +28,88 @@ export interface ChecksService {
   worktrees?: (root: string) => Promise<Worktree[]>
 }
 
-/** Gate state of each worktree and the PRs of the Ticket branches: requested ones plus those of worktrees. */
-export async function readChecks(service: ChecksService, root: string, branches: readonly string[]): Promise<ChecksSnapshot> {
+/**
+ * Gate state of each worktree and the PRs of the Ticket branches: requested ones plus those of
+ * worktrees whose branch is a Ticket's — `<epic>/<NN>`, or one `isTicketBranch` names.
+ */
+export async function readChecks(service: ChecksService, root: string, branches: readonly string[], isTicketBranch: (branch: string) => boolean = () => false): Promise<ChecksSnapshot> {
   const worktrees = await (service.worktrees ?? listWorktrees)(root)
-  const worktreeBranches = worktrees.flatMap((worktree) => (worktree.branch !== null && parseTicketBranch(worktree.branch) ? [worktree.branch] : []))
+  const worktreeBranches = worktrees.flatMap((worktree) => (worktree.branch !== null && (parseTicketBranch(worktree.branch) || isTicketBranch(worktree.branch)) ? [worktree.branch] : []))
   const [gated, prs] = await Promise.all([service.gate.read(root, worktrees), service.prs.read(root, [...new Set([...branches, ...worktreeBranches])])])
   return { root, worktrees: gated, pulls: prs.pulls, gh: prs.gh }
 }
 
-/** A call from a Linked machine names a root inside a Project of `projects` (src/main/link/caller.ts). */
-export function checksHandlers(service: ChecksService, projects: () => readonly { readonly path: string }[] = () => projectStore().list()): HandlerModule {
+/** What main asks about a Project to know where its checks may run. */
+export interface ChecksScope {
+  /** Where the workflow of the Project at `root` lives, its repositories included. */
+  layout(root: string): Promise<ProjectLayout>
+  /** The workflow model of the Project at `root` when it is being watched; null otherwise. */
+  model(root: string): Promise<WorkflowModel | null>
+}
+
+/** The app's: the shared layout cache and the models of the workflow hub. */
+export const appChecksScope: ChecksScope = {
+  layout: (root) => projectLayouts().get(root),
+  model: (root) => workflowHub.model(root),
+}
+
+const realOrSelf = (path: string): string => {
+  try {
+    return realpathSync.native(path)
+  } catch {
+    return path
+  }
+}
+
+/** The same folder, by its path as given or by its real path. */
+const sameFolder = (a: string, b: string): boolean => resolve(a) === resolve(b) || realOrSelf(a) === realOrSelf(b)
+
+/** The Project whose root `root` is, or whose repository it is; null when it is neither for any Project. */
+async function targetOf(root: string, projects: readonly { readonly path: string }[], scope: ChecksScope): Promise<{ project: string; repo: ProjectRepo | null; layout: ProjectLayout | null } | null> {
+  const own = projects.find((project) => sameFolder(project.path, root))
+  if (own) return { project: own.path, repo: null, layout: null }
+  for (const project of projects) {
+    const layout = await scope.layout(project.path)
+    const repo = layout.repos.find((each) => sameFolder(each.path, root))
+    if (repo) return { project: project.path, repo, layout }
+  }
+  return null
+}
+
+/**
+ * The branches the model names for Tickets checked in this root: every Ticket's in a Project of one
+ * repository, only those of `repo`'s Tickets in a Project over several.
+ */
+function namedBranches(model: WorkflowModel | null, repo: ProjectRepo | null, layout: ProjectLayout | null): Set<string> {
+  const several = layout !== null && layout.repos.length > 1
+  return new Set((model?.tickets ?? []).flatMap((ticket) => (ticket.branch && (!several || ticket.repo === repo?.name) ? [ticket.branch] : [])))
+}
+
+/**
+ * A call from a Linked machine names a root inside a Project of `projects` (src/main/link/caller.ts);
+ * any call names a Project root or one of its repositories, and branches of its Tickets.
+ */
+export function checksHandlers(
+  service: ChecksService,
+  projects: () => readonly { readonly path: string }[] = () => projectStore().list(),
+  scope: ChecksScope = appChecksScope,
+): HandlerModule {
   return [
-    defineHandler(checksGet, ({ root, branches }, { event }) => {
-      const resolved = resolve(root)
-      insideProjects(event, resolved, projects, 'the Project root')
-      return readChecks(service, resolved, branches)
+    defineHandler(checksGet, async ({ root, branches }, { event }) => {
+      const resolved = insideProjects(event, resolve(root), projects, 'the Project root')
+      const target = await targetOf(resolved, projects(), scope)
+      if (target === null) throw new Error(`${root} is neither the root of a Project nor one of its repositories`)
+      const named = namedBranches(await scope.model(target.project), target.repo, target.layout)
+      const foreign = branches.find((branch) => parseTicketBranch(branch) === null && !named.has(branch))
+      if (foreign !== undefined) throw new Error(`${foreign} is not the branch of a Ticket of this Project`)
+      return readChecks(service, resolved, branches, (branch) => named.has(branch))
+    }),
+    defineHandler(checksRepos, async ({ root }, { event }): Promise<ProjectRepos> => {
+      const resolved = insideProjects(event, resolve(root), projects, 'the Project root')
+      const project = projects().find((each) => sameFolder(each.path, resolved))
+      if (!project) throw new Error(`${root} is not the root of a Project`)
+      const layout = await scope.layout(project.path)
+      return { mode: layout.mode, repos: layout.repos.map(({ name, path }) => ({ name, path })) }
     }),
   ]
 }
