@@ -64,6 +64,48 @@ describe('redactSecrets', () => {
     expect(redacted).toBe(`${'echo start; '.repeat(20)}deploy --key ${REDACTED} --other ${REDACTED} && ${'ls -la; '.repeat(20)}`)
   })
 
+  // The password of -u/--user (httpie -a/--auth) goes in every form a curl, wget or http call takes.
+  it.each([
+    ['curl -u admin:hunter2 https://x', `curl -u admin:${REDACTED} https://x`],
+    ['sudo curl -u admin:hunter2 https://x', `sudo curl -u admin:${REDACTED} https://x`],
+    ['env X=1 curl -u admin:hunter2 https://x', `env X=1 curl -u admin:${REDACTED} https://x`],
+    ['command curl -u admin:hunter2 https://x', `command curl -u admin:${REDACTED} https://x`],
+    ['cat list | curl -u admin:hunter2 -d @- https://x', `cat list | curl -u admin:${REDACTED} -d @- https://x`],
+    ['cat urls | xargs curl -u admin:hunter2', `cat urls | xargs curl -u admin:${REDACTED}`],
+    ['make && curl -u admin:hunter2 https://x', `make && curl -u admin:${REDACTED} https://x`],
+    ['ls;curl -u admin:hunter2 https://x', `ls;curl -u admin:${REDACTED} https://x`],
+    ['echo $(curl -u admin:hunter2 https://x)', `echo $(curl -u admin:${REDACTED} https://x)`],
+    ['/usr/bin/curl -u admin:hunter2 https://x', `/usr/bin/curl -u admin:${REDACTED} https://x`],
+    ['./curl -u admin:hunter2 https://x', `./curl -u admin:${REDACTED} https://x`],
+    ['~/bin/wget --user=admin:hunter2 https://x', `~/bin/wget --user=admin:${REDACTED} https://x`],
+    ['bash -c "curl -u admin:hunter2 https://x"', `bash -c "curl -u admin:${REDACTED} https://x"`],
+    ["sh -c 'curl --user admin:hunter2 https://x'", `sh -c 'curl --user admin:${REDACTED} https://x'`],
+    ['echo `curl -u admin:hunter2 https://x`', `echo \`curl -u admin:${REDACTED} https://x\``],
+    ['curl -H "Content-Type: application/json; charset=utf-8" -u admin:hunter2 https://x', `curl -H "Content-Type: application/json; charset=utf-8" -u admin:${REDACTED} https://x`],
+    ['curl "https://x.io/a?b=1&c=2" -u admin:hunter2', `curl "https://x.io/a?b=1&c=2" -u admin:${REDACTED}`],
+    ["curl -H 'X-A: 1|2' -u admin:hunter2 https://x", `curl -H 'X-A: 1|2' -u admin:${REDACTED} https://x`],
+    ['https -a admin:hunter2 api.local/me', `https -a admin:${REDACTED} api.local/me`],
+    ['http --auth=admin:hunter2 api.local/me', `http --auth=admin:${REDACTED} api.local/me`],
+  ])('replaces the -u password in %s', (input, expected) => {
+    expect(redactSecrets(input)).toBe(expected)
+  })
+
+  it.each([
+    'docker run -u 1000:1000 img',
+    'docker exec --user root:root c sh',
+    'podman run --user=nobody:nogroup img',
+    'sort -u a:b',
+    'docker run --name my-curl -u 1000:1000 img',
+    'docker run -e URL=https://x.io/curl -u 1000:1000 img',
+    'curl https://x ; docker run -u 1000:1000 img',
+    'curl https://x && docker run -u 1000:1000 img',
+    'curl https://x | sort -u a:b',
+    'curl https://x\ndocker run -u 1000:1000 img',
+    'bash -c "curl https://x; docker run -u 1000:1000 img"',
+  ])('leaves -u of other commands in %s', (command) => {
+    expect(redactSecrets(command)).toBe(command)
+  })
+
   it('replaces a bare Basic credential, base64 with a digit or padding, or base64 of user:password', () => {
     expect(redactSecrets('Basic dXNlcjpwYXNzd29yZA==')).toBe(`Basic ${REDACTED}`)
     expect(redactSecrets(`header Basic ${btoa('abc:defgh')} sent`)).toBe(`header Basic ${REDACTED} sent`)

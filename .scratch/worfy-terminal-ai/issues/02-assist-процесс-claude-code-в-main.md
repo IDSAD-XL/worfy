@@ -301,4 +301,13 @@ Source: решения владельца 2026-10-09: пункт 5 (один о�
      `Basic authentication failed`, `## Basic Requirements` не тронуты; голый `Basic dXNlcjpwYXNzd29yZA==` закрыт.
   - Mutation testing раунда: 8 мутантов (`/tmp/worfy-terminal-ai-w1/impl-02/mut/run3.sh`), все роняют
     unit test, в том числе мутант, который убирает правило `Basic`.
+- **Раунд по решению владельца 2026-10-10** (комментарии PR #205 6090798859 и 6090844527; база — 2804fdb
+  после rebase): пароль `-u`/`--user` (и `-a`/`--auth` у httpie) у `curl`, `wget`, `http`, `https`
+  снова закрывается во всех формах. Команда может идти с путём (`/usr/bin/curl`, `./curl`, `~/bin/wget`)
+  и после кавычки, обратной кавычки или `$(`. Между командой и опцией `;`, `&`, `|` внутри кавычек
+  (`-H "Content-Type: a; b"`, `"https://x?a=1&b=2"`) команду не обрывают; вне кавычек обрывают. Без
+  изменений остаются `docker run -u 1000:1000`, `docker exec --user root:root`,
+  `podman run --user=nobody:nogroup`, `sort -u a:b`, `docker run --name my-curl -u …`,
+  `URL=https://x.io/curl -u …`, а также docker после `curl … ;`, `&&`, `|` или новой строки.
+  Mutation testing: 6 мутантов правила (`/tmp/worfy-terminal-ai-w1/impl-02/mut/run4.sh`) — все красные.
 - **UI не менялся** (окно Settings — Ticket 08), снимков нет.

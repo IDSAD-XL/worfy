@@ -67,10 +67,16 @@ const ASSIGNMENT = /(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"|'[^']*'|[
 const SECRET_OPTION = /(--(?:password|passwd|token|secret|api-key|apikey)(?:=|\s+))("[^"]*"|'[^']*'|[^\s'"]+)/gi
 /**
  * `curl -u user:password`, `wget --user user:password`, httpie's `http -a user:password`: the part
- * after the first colon goes. Only after those commands: `docker run -u 1000:1000` or `sort -u a:b`
- * carry no password.
+ * after the first colon goes. Only in the arguments of those commands, so `docker run -u 1000:1000`
+ * or `sort -u a:b` keep theirs:
+ * - the command word starts the line or follows a space, `;`, `&`, `|`, `(` (also `$(`), a quote or a
+ *   backtick (`bash -c "curl …"`, `` `curl …` ``), and may carry a path (`/usr/bin/curl`, `./curl`);
+ *   not `my-curl` or `https://x.io/curl`;
+ * - between the command and the option: arguments up to a `;`, `&`, `|` or line end that ends the
+ *   command; one inside quotes (`-H "Content-Type: a; b"`, `"https://x?a=1&b=2"`) does not.
  */
-const USER_OPTION = /((?<![^\s;&|(])(?:curl|wget|https?)(?=\s)[^\n|;&]*?\s(?:-u|--user|-a|--auth)(?:=|\s+))(["']?)([^\s:'"]+):([^\s'"]+)\2/g
+const USER_OPTION =
+  /((?<![^\s;&|("'`])(?:[A-Za-z0-9_.~/-]*\/)?(?:curl|wget|https?)(?=\s)(?:"[^"\n]*"|'[^'\n]*'|[^\n;&|"'])*?\s(?:-u|--user|-a|--auth)(?:=|\s+))(["']?)([^\s:'"]+):([^\s'"]+)\2/g
 /** `mysql -pSecret` (and mysqldump, mysqladmin, mariadb): the password glued to `-p`. */
 const MYSQL_PASSWORD = /(\b(?:mysql|mysqldump|mysqladmin|mariadb|mariadb-dump)\b[^\n|;&]*?\s-p)([^\s'"]+)/g
 
