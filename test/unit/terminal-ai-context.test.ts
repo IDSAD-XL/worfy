@@ -1,7 +1,7 @@
 // The context of a Terminal AI request (src/shared/terminal-ai/context.ts): what goes to the model,
 // trimmed and redacted, and the text built from it.
 import { describe, expect, it } from 'vitest'
-import { MAX_COMMANDS, MAX_OUTPUT_LINES, contextText, prepareContext, terminalAiInputSchema, type TerminalAiInput } from '../../src/shared/terminal-ai/context'
+import { MAX_COMMANDS, MAX_FIELD_CHARS, MAX_OUTPUT_LINES, MAX_OUTPUT_LINE_CHARS, contextText, prepareContext, terminalAiInputSchema, type TerminalAiInput } from '../../src/shared/terminal-ai/context'
 import { REDACTED } from '../../src/shared/terminal-ai/redact'
 import { TERMINAL_AI_FEATURES } from '../../src/shared/terminal-ai/settings'
 
@@ -67,6 +67,27 @@ describe('prepareContext', () => {
     const text = contextText('fix', context)
     expect(text).not.toContain(TOKEN)
     expect(text).not.toContain('hunter2')
+  })
+
+  it('redacts before it cuts: a token across the 2000-character cut leaves no part of itself', () => {
+    // The token starts 10 characters before the cut: cut first, its head `ghp_Ab12Ab` would be
+    // too short for any pattern and would go out.
+    const line = `${'x'.repeat(MAX_FIELD_CHARS - 10)} ${TOKEN} tail`
+    const context = prepareContext('fix', input({ line, request: line, commands: [line] }))
+    for (const value of [context.line, context.request ?? '', context.commands[0] ?? '']) {
+      expect(value).toHaveLength(MAX_FIELD_CHARS)
+      expect(value).not.toContain('ghp_')
+      expect(value.endsWith(REDACTED.slice(0, 9))).toBe(true)
+    }
+  })
+
+  it('cuts every line of the Fix output tail, after redaction', () => {
+    const long = `${'y'.repeat(MAX_OUTPUT_LINE_CHARS - 5)} ${TOKEN} and more`
+    const context = prepareContext('fix', input({ output: ['short', long, 'z'.repeat(10 * MAX_OUTPUT_LINE_CHARS)] }))
+    expect(context.output?.[0]).toBe('short')
+    expect(context.output?.[1]).toHaveLength(MAX_OUTPUT_LINE_CHARS)
+    expect(context.output?.[1]).not.toContain('ghp_')
+    expect(context.output?.[2]).toBe('z'.repeat(MAX_OUTPUT_LINE_CHARS))
   })
 
   it('takes the branch main found when the shell did not send one', () => {

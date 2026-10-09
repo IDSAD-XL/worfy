@@ -17,6 +17,8 @@ export const MAX_COMMANDS = 20
 export const MAX_OUTPUT_LINES = 50
 /** A field longer than this is cut: no command line is that long, a pasted file is not context. */
 export const MAX_FIELD_CHARS = 2000
+/** A line of the Fix output tail longer than this is cut. */
+export const MAX_OUTPUT_LINE_CHARS = 500
 
 /** What the shell knows when a request is made (the socket of Ticket 03 sends it). */
 export const terminalAiInputSchema = z.object({
@@ -56,13 +58,30 @@ export interface TerminalAiContext {
 /** A line the user kept out of the history by starting it with a space. */
 export const isPrivateLine = (text: string): boolean => /^[ \t]/.test(text)
 
-const field = (text: string): string => redactSecrets(text.length > MAX_FIELD_CHARS ? text.slice(0, MAX_FIELD_CHARS) : text)
+/**
+ * `text` redacted, then cut to `max`. Redaction comes first, so a secret across the cut is replaced
+ * whole instead of leaving its head in the text. What goes into redaction is cut at four times `max`
+ * only to bound its work: a secret across that cut lies past `max` and is dropped anyway.
+ */
+function redactThenCut(text: string, max: number): string {
+  const redacted = redactSecrets(text.length > 4 * max ? text.slice(0, 4 * max) : text)
+  return redacted.length > max ? redacted.slice(0, max) : redacted
+}
+
+const field = (text: string): string => redactThenCut(text, MAX_FIELD_CHARS)
+
+/** The Fix output tail: the last lines, redacted as one text (a key block spans lines), each line cut. */
+function outputTail(lines: readonly string[]): string[] {
+  const tail = lines.slice(-MAX_OUTPUT_LINES).map((line) => (line.length > 4 * MAX_OUTPUT_LINE_CHARS ? line.slice(0, 4 * MAX_OUTPUT_LINE_CHARS) : line))
+  return redactSecrets(tail.join('\n'))
+    .split('\n')
+    .map((line) => (line.length > MAX_OUTPUT_LINE_CHARS ? line.slice(0, MAX_OUTPUT_LINE_CHARS) : line))
+}
 
 /** The context of `feature` out of what the shell knows; `branch` is the one main found. */
 export function prepareContext(feature: TerminalAiFeature, input: TerminalAiInput, branch: string | null = input.branch ?? null): TerminalAiContext {
   const commands = input.commands.filter((command) => command.trim() !== '' && !isPrivateLine(command)).slice(-MAX_COMMANDS)
-  // Redaction runs over the whole tail, so a secret that spans lines (a key block) goes as a whole.
-  const output = feature === 'fix' && input.output !== undefined ? redactSecrets(input.output.slice(-MAX_OUTPUT_LINES).join('\n')).split('\n') : null
+  const output = feature === 'fix' && input.output !== undefined ? outputTail(input.output) : null
   return {
     line: isPrivateLine(input.line) ? '' : field(input.line),
     request: input.request === undefined ? null : field(input.request),

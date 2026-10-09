@@ -11,6 +11,9 @@ const GITHUB_CLASSIC = `ghp_${repeat('a1B2', 9)}`
 const GITHUB_FINE = `github_pat_${repeat('11ABCD', 4)}_${repeat('xY9', 10)}`
 const ANTHROPIC = `sk-ant-api03-${repeat('Zq7_', 10)}`
 const SLACK = `xoxb-${'1234567890'}-${'abcdefghij'}`
+const STRIPE = `sk_live_${'4eC39HqLyjWDarjtT1zdp7dc'}`
+const STRIPE_RESTRICTED = `rk_live_${'51HxYzAbCdEf0123456789'}`
+const GOOGLE = `AIza${'SyD-9tSrke72PouQMnMX-a7eZSW0jkFMBWY'}`
 const JWT = `eyJ${'hbGciOiJIUzI1NiJ9'}.eyJ${'zdWIiOiIxIn0'}.${'sflKxwRJSMeKKF2QT4fwpMeJf36P'}`
 
 describe('redactSecrets', () => {
@@ -30,6 +33,17 @@ describe('redactSecrets', () => {
     ['a password in a URL', 'psql postgres://admin:hunter2@db.local:5432/app', `psql postgres://admin:${REDACTED}@db.local:5432/app`],
     ['a --password option', 'mysql --password hunter2 -u root', `mysql --password ${REDACTED} -u root`],
     ['a --token= option', 'vault login --token=s.abcdef', `vault login --token=${REDACTED}`],
+    ['a curl -u password', 'curl -u admin:hunter2 https://x.dev', `curl -u admin:${REDACTED} https://x.dev`],
+    ['a curl --user= password in quotes', `curl --user='admin:hunter2' https://x.dev`, `curl --user='admin:${REDACTED}' https://x.dev`],
+    ['a mysql -p password', 'mysql -u root -pSecret db', `mysql -u root -p${REDACTED} db`],
+    ['a mysqldump -p password', 'mysqldump -h db.local -ps3cr3t app > dump.sql', `mysqldump -h db.local -p${REDACTED} app > dump.sql`],
+    ['an Authorization: Basic header', 'curl -H "Authorization: Basic dXNlcjpwYXNzd29yZA==" https://x.dev', `curl -H "Authorization: Basic ${REDACTED}" https://x.dev`],
+    ['an Authorization: token header', 'curl -H "Authorization: token abc123def456" https://api.github.com', `curl -H "Authorization: token ${REDACTED}" https://api.github.com`],
+    ['an npm _authToken', 'npm config set //registry.npmjs.org/:_authToken=npm_abcdef123456', `npm config set //registry.npmjs.org/:_authToken=${REDACTED}`],
+    ['an APIKEY variable', 'APIKEY=abc123 ./deploy.sh', `APIKEY=${REDACTED} ./deploy.sh`],
+    ['a Stripe secret key', `stripe charges list --api ${STRIPE}`, `stripe charges list --api ${REDACTED}`],
+    ['a Stripe restricted key', `export K=${STRIPE_RESTRICTED}`, `export K=${REDACTED}`],
+    ['a Google API key', `curl "https://maps.googleapis.com/x?key=${GOOGLE}"`, `curl "https://maps.googleapis.com/x?key=${REDACTED}"`],
   ])('replaces %s', (_name, input, expected) => {
     expect(redactSecrets(input)).toBe(expected)
   })
@@ -47,7 +61,24 @@ describe('redactSecrets', () => {
     expect(redactSecrets(output)).toBe(['cat id_ed25519', REDACTED, 'done'].join('\n'))
   })
 
-  it.each(['git status', 'export PATH=/usr/bin', 'ls -la', 'git log --oneline -n 5', 'npm run task-runner', 'KEYBOARD=us setxkbmap', 'curl https://example.com/path?q=1', 'ssh git@github.com', 'echo $GITHUB_TOKEN'])(
+  it.each([
+    'git status',
+    'export PATH=/usr/bin',
+    'ls -la',
+    'git log --oneline -n 5',
+    'npm run task-runner',
+    'KEYBOARD=us setxkbmap',
+    'curl https://example.com/path?q=1',
+    'ssh git@github.com',
+    'echo $GITHUB_TOKEN',
+    'git checkout feature/sk-learn-upgrade-for-models',
+    'pip install sk-learn-upgrade-for-models',
+    'git push -u origin main',
+    'mkdir -p build/out',
+    'mysql -p',
+    'sort -u names.txt',
+    'MONKEY=1 make',
+  ])(
     'leaves %s as it is',
     (command) => {
       expect(redactSecrets(command)).toBe(command)

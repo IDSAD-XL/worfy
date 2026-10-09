@@ -309,8 +309,10 @@ describe('the assist process', () => {
   it('logs the process and the model, never the request, the context or the answer', async () => {
     const { service, sdk, log } = world()
     const { answer } = await start(service, 'suggest', { line: 'git sta', cwd: '/Users/me/secret-project' })
+    sdk.claimedSpare.query?.push({ type: 'system', subtype: 'hook_started', hook_id: 'h1', hook_name: 'builtin-a:remind', hook_event: 'UserPromptSubmit' })
     sdk.claimedSpare.query?.answer('git stash')
     await answer
+    expect(log).toContain('[terminal-ai] assist process ran a hook: UserPromptSubmit builtin-a:remind')
     expect(log).toContain('[terminal-ai] suggest: model haiku')
     expect(log).toContain('[terminal-ai] assist process: Claude Code 2.1.289, apiKeySource none, model claude-haiku-4-5, plugins: builtin-a; hooks: not reported by init')
     const text = log.join('\n')
@@ -573,6 +575,128 @@ describe('Limits and refusals', () => {
   })
 })
 
+// ---- races and shutdown ----------------------------------------------------------------------------
+
+describe('races and shutdown', () => {
+  it('drops a spare that dies while parked: the state turns idle and the next request starts a new process', async () => {
+    const { service, sdk } = world()
+    const { answer: first } = await start(service, 'next', { line: '' })
+    sdk.claimedSpare.query?.answer('ls')
+    await first
+    await settle()
+    const parked = sdk.spares[1]
+    expect(service.state().process).toBe('warm')
+    parked?.close() // the parked process dies on its own
+    await settle()
+    expect(service.state().process).toBe('idle')
+
+    const { answer: second } = await start(service, 'suggest')
+    expect(sdk.spares).toHaveLength(3)
+    expect(sdk.claimedSpare).toBe(sdk.spares[2])
+    sdk.claimedSpare.query?.answer('git status')
+    expect(await second).toMatchObject({ ok: true, command: 'git status' })
+  })
+
+  it('re-checks the Limits after the queue: a Fix waiting behind a Fix that brought rejected does not reach the SDK', async () => {
+    const { service, sdk } = world()
+    const { answer: first } = await start(service, 'fix', { exitCode: 1 })
+    const { answer: second } = await start(service, 'fix', { exitCode: 2 })
+    sdk.claimedSpare.query?.push({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', rateLimitType: 'five_hour', resetsAt: NOW / 1000 + 600 } })
+    sdk.claimedSpare.query?.answer('make')
+    expect(await first).toMatchObject({ ok: true, command: 'make' })
+    expect(await second).toEqual({ ok: false, reason: 'limits', until: NOW + 600_000 })
+    await settle()
+    expect(sdk.spares.filter((spare) => spare.query !== null)).toHaveLength(1)
+    expect(sdk.queries).toHaveLength(0)
+  })
+
+  it('re-checks the Settings after the queue: a Fix turned off while it waits does not reach the SDK', async () => {
+    const { service, sdk } = world()
+    const { answer: first } = await start(service, 'fix', { exitCode: 1 })
+    const { answer: second } = await start(service, 'fix', { exitCode: 2 })
+    service.setSettings({ fix: false })
+    sdk.claimedSpare.query?.answer('make')
+    await first
+    expect(await second).toEqual({ ok: false, reason: 'off' })
+    await settle()
+    expect(sdk.spares.filter((spare) => spare.query !== null)).toHaveLength(1)
+  })
+
+  it('keeps the spare a cancelled Suggestion was waiting for, and closes it after 10 idle minutes', async () => {
+    const { service, sdk } = world()
+    sdk.hold = true
+    const controller = new AbortController()
+    const answer = service.request('suggest', input(), controller.signal)
+    await settle()
+    controller.abort()
+    expect(await answer).toEqual({ ok: false, reason: 'cancelled' })
+    sdk.release()
+    await settle()
+    expect(sdk.spares).toHaveLength(1)
+    const spare = sdk.spares[0]
+    expect(spare?.query).toBeNull()
+    expect(spare?.closed).toBe(false)
+    expect(service.state().process).toBe('warm')
+    await vi.advanceTimersByTimeAsync(IDLE_MS)
+    expect(spare?.closed).toBe(true)
+    expect(service.state().process).toBe('idle')
+  })
+
+  it('starts nothing for a caller that already gave up', async () => {
+    const { service, sdk } = world()
+    const controller = new AbortController()
+    controller.abort()
+    for (const feature of ['suggest', 'fix'] as const) expect(await service.request(feature, input(), controller.signal)).toEqual({ ok: false, reason: 'cancelled' })
+    await settle()
+    expect(sdk.spares).toHaveLength(0)
+  })
+
+  it('stops before claim() when the caller gives up while the git branch is read', async () => {
+    let giveBranch: (branch: string | null) => void = () => undefined
+    const { service, sdk } = world(new FakeSdk(), () => new Promise((resolve) => (giveBranch = resolve)))
+    const controller = new AbortController()
+    const answer = service.request('request', input({ request: 'x', branch: undefined }), controller.signal)
+    await settle()
+    const spare = sdk.spares[0]
+    expect(spare?.query).toBeNull() // taken, waiting for the branch
+    controller.abort()
+    giveBranch('main')
+    expect(await answer).toEqual({ ok: false, reason: 'cancelled' })
+    expect(spare?.query).toBeNull()
+    expect(spare?.closed).toBe(true)
+    expect(sdk.queries).toHaveLength(0)
+  })
+
+  it('closes the parked spare on dispose()', async () => {
+    const { service, sdk } = world()
+    const { answer } = await start(service, 'next', { line: '' })
+    sdk.claimedSpare.query?.answer('ls')
+    await answer
+    await settle()
+    const parked = sdk.spares[1]
+    expect(parked?.closed).toBe(false)
+    service.dispose()
+    expect(parked?.closed).toBe(true)
+    expect(await service.request('fix', input())).toEqual({ ok: false, reason: 'cancelled' })
+    await settle()
+    expect(sdk.spares).toHaveLength(2)
+  })
+
+  it('closes a process that finishes starting after dispose(), and the request in flight', async () => {
+    const { service, sdk } = world()
+    sdk.hold = true
+    const answer = service.request('fix', input({ exitCode: 1 }))
+    await settle()
+    service.dispose()
+    expect(await answer).toEqual({ ok: false, reason: 'cancelled' })
+    sdk.release()
+    await settle()
+    expect(sdk.spares).toHaveLength(1)
+    expect(sdk.spares[0]?.closed).toBe(true)
+    expect(sdk.spares[0]?.query).toBeNull()
+  })
+})
+
 // ---- WORFY_AGENT=fake and the real backend under vitest ---------------------------------------------
 
 describe('the fake backend and the real one', () => {
@@ -678,7 +802,7 @@ class FakeWindow {
 
 type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
 
-async function registered(service: AssistService): Promise<(channel: string, input: unknown, window?: FakeWindow) => Promise<IpcResult<unknown>>> {
+async function registered(service: Pick<AssistService, 'state' | 'setSettings' | 'subscribe'>): Promise<(channel: string, input: unknown, window?: FakeWindow) => Promise<IpcResult<unknown>>> {
   const handlers = new Map<string, Listener>()
   await registerIpc(
     { handle: (channel, listener) => handlers.set(channel, listener as Listener) },
@@ -730,6 +854,30 @@ describe('terminalAi channels', () => {
     const count = window.sent.length
     service.setSettings({ commandRequest: true })
     expect(window.sent).toHaveLength(count)
+  })
+
+  it('removes the subscription of a window when the window is destroyed', async () => {
+    const { service } = world()
+    const unsubscribed = vi.fn()
+    const subscribe = vi.fn((listener: (state: TerminalAiState) => void) => {
+      const off = service.subscribe(listener)
+      return () => {
+        unsubscribed()
+        return off()
+      }
+    })
+    const call = await registered({ state: () => service.state(), setSettings: (patch) => service.setSettings(patch), subscribe })
+    const window = new FakeWindow()
+    await call('terminalAi.state', undefined, window)
+    await call('terminalAi.setSettings', { fix: false }, window)
+    expect(subscribe).toHaveBeenCalledTimes(1)
+    expect(unsubscribed).not.toHaveBeenCalled()
+    window.destroy()
+    expect(unsubscribed).toHaveBeenCalledTimes(1)
+    // Another window gets a subscription of its own.
+    const other = new FakeWindow()
+    await call('terminalAi.state', undefined, other)
+    expect(subscribe).toHaveBeenCalledTimes(2)
   })
 
   it('marks every terminalAi channel local: a Linked machine never reaches them', () => {

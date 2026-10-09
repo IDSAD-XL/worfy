@@ -260,4 +260,29 @@ Source: решения владельца 2026-10-09: пункт 5 (один о�
   ли hooks у встроенных plugin-ов, держит ли `query()`-повтор опцию `effort` — Ticket 09 (запросы к
   модели только у владельца).
 - **Проверки.** `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (174 файла, 3365 test-ов). `GATE_SCOPE=all` gate full под замком `/tmp/worfy-e2e.lock` на коммите da46eb4 — exit 0, `[gate] зелено (full): lint typecheck test test:e2e test:package`. CI PR #205 (`check`) — pass.
+- **Доработка после ревью, раунд 1** (комментарий PR #205 6090095036; база раунда — 34fe085 после rebase):
+  1. `prewarmOptions()` ставит `includeHookEvents: true`: без него SDK шлёт `hook_started` только для
+     SessionStart и Setup, и hook на UserPromptSubmit прошёл бы мимо лога. Закреплено в unit test опций и
+     в contract test (строка лога на `hook_started`).
+  2. Test-ы: запасной процесс умер в простое — состояние `idle`, следующий запрос стартует новый процесс;
+     Fix в очереди за Fix-ом, который принёс `rejected`, — отказ `limits`, в SDK ничего; Fix, выключенный
+     в Settings, пока ждал, — отказ `off`; отменённый во время прогрева Suggestion оставляет процесс в
+     слоте, и тот закрывается через 10 минут простоя; `dispose()` закрывает запасной процесс, запрос в
+     полёте и процесс, который достартовал после `dispose()`; окно, которое закрылось, снимает подписку.
+  3. Запрос с уже отменённым `signal` ничего не стартует (новая проверка в начале `request()`); отмена во
+     время чтения ветки git останавливает запрос до `claim()` — test.
+  4. Redaction: `curl -u user:pass` и `--user`, `mysql -pSecret` (mysql, mysqldump, mysqladmin, mariadb),
+     `Authorization: Basic|token|…`, `Basic <base64>`, npm `:_authToken=` (имя на `TOKEN` без `_`),
+     `APIKEY=`/`ACCESSKEY=`, Stripe `sk_live_`/`rk_live_` (и `_test_`), Google `AIza…`. `sk-…` — только
+     целый токен (не после `/`, `.`, `-`), от 16 символов после `sk-` и с цифрой: ветка
+     `feature/sk-learn-upgrade-for-models` не тронута. Не тронуты и `git push -u origin main`,
+     `mkdir -p`, `mysql -p` без значения, `sort -u`, `MONKEY=1`.
+  5. Контекст: сначала redaction, потом обрезка до 2000 символов (на вход redaction — не больше 8000, это
+     только ограничение работы: секрет на той границе всё равно за 2000-м символом). Строки хвоста
+     вывода Fix режутся до 500 символов (`MAX_OUTPUT_LINE_CHARS`), тоже после redaction.
+  - Mutation testing раунда: 18 мутантов (по одному на каждую новую проверку и каждый новый шаблон
+    redaction) — все роняют test (`/tmp/worfy-terminal-ai-w1/impl-02/mut/run2.sh`).
+  - Гонка, оставленная как есть: запасной процесс умер, а запрос взял его раньше, чем пришёл `exited`, —
+    `claim()` бросает, Suggestion и Next command получают отказ `not-claimed`, Fix и Command request
+    повторяются через `query()` (test «retries a Fix … spare exits between being taken and the claim»).
 - **UI не менялся** (окно Settings — Ticket 08), снимков нет.

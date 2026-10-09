@@ -22,6 +22,7 @@ describe('prewarmOptions', () => {
       maxTurns: 1,
       persistSession: false,
       includePartialMessages: true,
+      includeHookEvents: true,
       systemPrompt: ASSIST_SYSTEM_PROMPT,
     })
   })

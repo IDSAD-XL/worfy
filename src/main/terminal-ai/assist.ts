@@ -382,7 +382,8 @@ export class AssistService {
 
   /** Asks the assist process for `feature`: a command, or a refusal with its reason. Never throws. */
   async request(feature: TerminalAiFeature, input: TerminalAiInput, signal?: AbortSignal): Promise<AssistAnswer> {
-    if (this.disposed) return { ok: false, reason: 'cancelled' }
+    // A caller that already gave up starts nothing: no process, no prompt.
+    if (this.disposed || signal?.aborted) return { ok: false, reason: 'cancelled' }
     const early = this.refusalBefore(feature, input)
     if (early !== null) return early
 
@@ -578,7 +579,7 @@ export class AssistService {
     }
   }
 
-  /** The process's own line in the log: its system/init, and every hook that runs in it. */
+  /** The process's own line in the log: its system/init, and every hook that runs in it (hook_started, sent for every hook event by includeHookEvents, options.ts). */
   private observeSystem(message: unknown): void {
     const m = record(message)
     if (m?.type !== 'system') return

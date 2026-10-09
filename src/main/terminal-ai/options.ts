@@ -68,6 +68,9 @@ export function prewarmOptions(input: PrewarmOptionsInput): Options {
     maxTurns: 1,
     persistSession: false,
     includePartialMessages: true,
+    // Every hook that runs in the process sends hook_started (not only SessionStart and Setup), so the
+    // log names each hook of the built-in plugins that sees a request (ADR-0058, point 1).
+    includeHookEvents: true,
     systemPrompt: ASSIST_SYSTEM_PROMPT,
     env,
     ...(executable === undefined ? {} : { pathToClaudeCodeExecutable: executable }),
