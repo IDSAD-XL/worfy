@@ -1,7 +1,8 @@
 # 25 — Аккаунт GitHub Project-а при подключении: выбор из `gh auth status`, `gh auth login` в Terminal, запись в Profile
 
 Type: task
-Status: open
+Status: claimed — 2026-10-09
+Branch: worfy-harness/25
 Blocked by: 24
 Source: решения владельца 2026-10-07, вопросы Q11', Q21, Q22, Q30; [spec.md](../spec.md); [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) — Profile целиком на машине; [ADR-0045](../../../docs/adr/0045-one-ticket-one-repository.md) — нет прав на `origin` — локальный финиш; Ticket 01 Epic-а `worfy-week` — аккаунт из Profile для своих вызовов `gh` worfy; [docs/roadmap.md](../../../docs/roadmap.md), раздел E3
 
@@ -143,4 +144,106 @@ ADR не нужен: решения — ADR-0042 (Profile на машине) и 
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-harness/25`, worktree `.claude/worktrees/h25`. PR — в описании ветки (номер ставит оркестратор в
+статус).
+
+**Первый test.** `test/contract/projects-connect.test.ts`, случай «после шага аккаунта в черновике выбранный
+аккаунт и финиш по его правам; Connect пишет оба». На базе 29e9d4c упал: `TypeError: run.connector.accounts is
+not a function` (3 случая) — шага аккаунта не было, `applyChoices` Ticket-а 24 ставил `github.account: null`.
+
+**Что сделано.**
+- Пункт 1. `src/main/github/accounts.ts` (новый), `readGithubAccounts`: `origin` каждого репозитория папки
+  (`git remote get-url origin`), один вызов `gh auth status --json hosts` (без `--show-token`), аккаунты хостов
+  `origin`: login, `active`, `state`. Remote на GitHub — хост `github.com` или хост, для которого у gh есть
+  аккаунты (GitHub Enterprise). Нет `origin` или он не на GitHub — `no-origin` («No GitHub origin…»). У
+  `multi-repo` — хосты всех репозиториев; репозитории без GitHub-`origin` пропускаются и показаны строкой
+  «without a GitHub origin: …».
+- Пункт 2. Права: токен — через `accountAuth` (`src/main/github/prs.ts`, без правок) командой
+  `gh auth token -u <login>`, затем `gh api repos/<owner>/<repo> --jq .permissions.push --hostname <host>` с
+  `GH_TOKEN`. Только `true` — права; `false`, 403, 404 и любой сбой — нет, финиш `local-green` и причина
+  «<login> has no write access to <owner>/<repo>[, …]: Tickets will close with the local finish.» (у
+  403/404 — с ответом gh в скобках). У `multi-repo` `pr-green-ci` — только с правами везде.
+- Пункт 3. Выбор по умолчанию — активный аккаунт с правами, иначе первый с правами, иначе ничего (= «No
+  account»). Повторное чтение («Check again», конец входа) снова берёт выбор по умолчанию, пока человек не
+  выбрал сам; его выбор держится, пока аккаунт есть в списке.
+- Пункт 4. «Sign in with gh» — `gh auth login` в псевдо-терминале **внутри диалога**
+  (`src/renderer/projects/GithubAccount.tsx`, `SignInTerminal`). Почему не путь Ticket-а 19: он ставит Terminal
+  Node на Canvas активного Project-а и печатает команду в shell, а у подключаемого Project-а Canvas-а ещё нет
+  (без Project-а Ticket 19 вообще не даёт кнопки). Процесс — сам gh: `/bin/sh -c 'exec "$0" auth login' <gh>`
+  (`signInCommand`), gh — тот же, что у worfy (`gh` из PATH login shell или `WORFY_GH`), так что выход процесса
+  и есть конец входа, и шаг перечитывает аккаунты. Реестр — тот же `TerminalRegistry` Terminal Node-ов
+  (`signInRegistry`; replay, размер, SIGHUP/SIGKILL при закрытии). worfy в терминал ничего не печатает; вход
+  кончается «Stop»/«Close», закрытием окна и выходом из приложения. Файлы Ticket-а 19 не правились.
+- Пункт 5. Выбор идёт в черновик (`withGithubAccount`, `githubChoice` в `src/shared/ipc/projects.ts`):
+  `github.account` и `workflow.finish`; запись — тем же `bin/project-connect` при «Connect». «Connect» ждёт
+  чтения аккаунтов. Поле «Finish» формы остаётся редактируемым.
+- Пункты 6–7. Команды gh шага — только `auth status --json hosts`, `auth token -u`, `api repos/…`; вход —
+  только по щелчку, в терминале диалога. Токен живёт в окружении одного дочернего `gh api`: его нет в ответе
+  IPC, причинах, черновике, консоли и логе gh (contract test).
+- Пункт 8. Нет gh (ENOENT) — `no-gh`: «gh not found (…): install it with brew install gh; the first-run screen
+  checks it.» и кнопка «First-run checks…» вместо «Sign in with gh»; подключение — без аккаунта, `local-green`.
+  Другой сбой gh — `failed` с причиной и «Check again», тоже без аккаунта.
+- Ticket 19 читает `gh auth status` текстом (`ghAccounts` в `src/main/first-run/checks.ts`: только «host:
+  login», без `active` и `state`) — этот Ticket его не взял, чтение JSON — новое в `accounts.ts`.
+- Каналы IPC — все `local`: `projects.connect.accounts`, `projects.connect.signIn`, `…signInInput`,
+  `…signInResize`, `…signInClose`, события `…signInOutput`, `…signInExit`.
+- Подменённый gh (`test/fixtures/gh/gh-stub.mjs`) понимает `auth status --json hosts [--hostname]`,
+  `auth token -u`, `api repos/<o>/<r>` (по `GH_TOKEN` → login: `true`/`false`/HTTP-код, по умолчанию 404) и
+  `auth login` (ждёт Enter, добавляет аккаунт из `login.json`, делает его активным); файл `fail` в
+  `GH_STUB_DIR` — сбой во время работы приложения. Остальное (`auth switch`, `auth logout`, `config`) — код 2.
+- Вне следа: `src/renderer/projects/GithubAccount.tsx` (новый; правка диалога — 15 строк в
+  `ConnectProject.tsx`), `test/contract/gh-world.ts` (новый: файлы подменённого gh для contract test-ов),
+  `test/unit/connect-project.test.tsx` (3 новых случая; `toForm` ждёт ответа шага аккаунта).
+
+**Test-ы.**
+- `test/contract/github-accounts.test.ts` (новый) — 20 случаев: аккаунты хоста `origin` и активный, хост без
+  аккаунтов — пустой список; разбор вывода gh 2.97 и URL remote; `true` → `pr-green-ci`, `false`/403/404 →
+  `local-green` с причиной; без `origin` gh не запускается; `origin` не на GitHub; `multi-repo` с одним
+  репозиторием без прав и одним без `origin`; три правила выбора по умолчанию; аккаунт без токена; нет gh; сбой
+  gh; журнал команд (`GH_STUB_LOG`) — только разрешённые, без login/switch/logout/config/`--show-token`;
+  подменённый gh отказывает в switch/logout/config; токена нет в ответе по схеме канала, черновике, консоли,
+  логе gh; `signInCommand`; `gh auth login` в настоящем pty (ждёт Enter, выход 0, новый аккаунт активен) и
+  закрытие ждущего входа.
+- `test/contract/projects-connect.test.ts` — 3 новых: выбранный аккаунт и финиш в черновике, запись настоящим
+  `project-connect`, `profile --field github.account` и `workflow.finish`; выбор по умолчанию и «No account»;
+  без `origin`.
+- `test/unit/connect-project.test.tsx` — 3 новых: выбор по умолчанию и выбор человека в проверяемом и
+  записываемом черновике; «Connect» ждёт аккаунтов; нет gh.
+- `test/e2e/projects-connect.spec.ts` — 2 новых сценария: два аккаунта, выбран активный с правами; «Sign in
+  with gh» → в терминале диалога запущен `gh auth login` подменённого gh (в его логе `auth login`), Enter →
+  выход → третий аккаунт в списке; выбор второго → «Connect» → в песочнице `bin/profile -C … --field
+  github.account` печатает `bob` (код 0), `workflow.finish` — `local-green`; сбой gh → причина, затем «Check
+  again» → пустой список.
+- Mutant-ы (в своём worktree, восстановлены из копии), все красные: права всегда `true`; без предпочтения
+  активного аккаунта; токен в причине; команда входа без `exec` и с другим хвостом; `githubChoice` всегда
+  `pr-green-ci`; «Connect» не ждёт аккаунтов; выбор не идёт в черновик; любой хост — GitHub.
+
+**Снимки** (Playwright, своя сборка): [список](../evidence/25-account-list-light.png) /
+[тёмная](../evidence/25-account-list-dark.png), [пусто](../evidence/25-account-empty-light.png) /
+[тёмная](../evidence/25-account-empty-dark.png), [вход в терминале](../evidence/25-account-signin-light.png) /
+[тёмная](../evidence/25-account-signin-dark.png), [ошибка gh](../evidence/25-account-error-light.png) /
+[тёмная](../evidence/25-account-error-dark.png) (фокус на самом диалоге, не на кнопке).
+
+**Решено без владельца, подтвердить.**
+- Вход — в терминале внутри диалога, процесс — сам gh, а не Terminal Node и не shell (причина — в пункте 4).
+- Один `gh auth status --json hosts` без `--hostname`: так виден и хост GitHub Enterprise, и «не GitHub» без
+  второго вызова.
+- «No account» и любой шаг без аккаунтов дают `local-green`: права никто не проверял.
+- Шаг — раздел «GitHub account» в начале формы (шаг «Review»), без нового пункта в списке шагов: правка
+  диалога компактная, рядом идёт worfy-link 11.
+- Сбой gh (не ENOENT) — как «нет аккаунта», с «Check again».
+
+**Gate.** `GATE_SCOPE=all gate.sh full` под замком `/tmp/worfy-e2e.lock`: первый прогон — код 2, красный
+e2e нового сценария: gate отдаёт test-ам `CLAUDE_GATE_CONFIG` (реестр машины), и `bin/profile` в test-е читал
+его вместо песочницы (только чтение; реестр машины не изменился). Test теперь убирает `CLAUDE_GATE_*` из
+окружения, как contract test-ы; второй прогон на df670a7 — код 0, «[gate] зелено (full): lint typecheck test
+test:e2e test:package».
+
+**Не проверено.**
+- не проверено: ручной пункт со Stable copy после влития (аккаунты машины, IDSAD-XL → `pr-green-ci`,
+  Oleksii-O-Atakama → `local-green`) — GUI-проверки и настоящий gh не мои по брифу.
+- не проверено: настоящий `gh auth login` в терминале диалога — по правилу владельца запускался только
+  подменённый gh; форма вывода `gh auth status --json hosts` взята из текста Ticket-а и `gh auth status --help`
+  (`.hosts | add`), настоящий вывод не читался.
+- не проверено: аккаунты GitHub Enterprise — `auth token` и `api` получают `--hostname`, test-ы только на
+  `github.com`.
