@@ -12,7 +12,7 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
   события, когда процесс окна или вспомогательный процесс (GPU, utility) завершился аварийно. Сейчас
   окно просто становится пустым.
 - **Лога-файла у main process нет.** Main process пишет через `console.warn` и `console.error`
-  (например, `src/main/index.ts:34`, `:48`, `src/main/startup-failure.ts:117`). Stable copy (копия
+  (например, `src/main/index.ts:35`, `:49`, `src/main/startup-failure.ts:117`). Stable copy (копия
   `worfy.app` вне репозитория, на которой идёт Autopilot) запускается через `open -a`, и её
   stdout/stderr никто не читает. Запись о падении должна лечь в файл в папке данных (`dataRoot()`,
   `src/main/storage/paths.ts`).
@@ -25,7 +25,7 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
   стеки всех потоков процесса без остановки. JS-кадров в нём нет, только нативные. Этого хватает,
   чтобы отличить ожидание I/O от занятого цикла.
 
-## Что сделать
+## Что делаем
 
 Ticket можно разделить на два независимых PR. Части не делят файлы.
 
@@ -40,16 +40,30 @@ Ticket можно разделить на два независимых PR. Ча
 **Часть Б — снимок стека при таймауте.**
 1. Новый скрипт `scripts/hang-sample.mjs <pid> [секунды]`. `<pid>` — main process Stable copy (тот
    точный pid, что получен при запуске). `Runtime.evaluate` исполняется не в нём, а в процессе
-   renderer (`worfy-stable Helper (Renderer)`), дочернем процессе main. Поэтому скрипт снимает стеки
-   main process и всех его дочерних процессов (`pgrep -P <pid>`): renderer, GPU, utility.
-   - Проверяет, что pid и каждый дочерний процесс принадлежат `worfy-stable.app` (путь из
-     `ps -o comm=` лежит внутри бандла).
-   - Для каждого процесса запускает `sample <pid> <секунды> -file <файл>`, все параллельно, и печатает
-     пути к файлам. Файлы — в `<data root>/logs/hang-<время>-<pid>.txt`; имя процесса — в первой
-     строке файла `sample`.
+   renderer, дочернем процессе main. Поэтому скрипт снимает стеки main process и его дочерних
+   процессов из того же бандла.
+   - **Проверка pid.** Путь main process (`ps -o comm= -p <pid>`) — `<бандл>.app/Contents/MacOS/worfy`:
+     имя исполняемого файла задаёт `productName: worfy` (`electron-builder.yml:4`). Бандл — любой
+     `.app`: `pnpm install:stable` принимает любой путь, по умолчанию
+     `~/Applications/worfy-stable.app` (`README.md`, раздел «Stable copy»). Имя бандла в скрипте не
+     прописывается. Другой pid — отказ с ненулевым кодом.
+   - **Какие дочерние процессы.** Из `pgrep -P <pid>` скрипт берёт те, чей путь лежит внутри того же
+     бандла:
+     - helper-ы Electron в `<бандл>/Contents/Frameworks/`: `worfy Helper (Renderer)` (окна),
+       `worfy Helper (GPU)`, `worfy Helper` (utility-процессы, например network service);
+     - `claude` Agent SDK — `<бандл>/Contents/Resources/app.asar.unpacked/…`
+       (`src/main/agent/options.ts:75`).
+   - **Дочерние процессы вне бандла — не отказ.** Это shell-ы Terminal (node-pty,
+     `src/main/terminal/pty.ts:355`), `git` и `gh` через `execFile`. Скрипт их не снимает и печатает
+     строкой `skipped: <pid> <путь>`.
+   - Для каждого выбранного процесса запускает `sample <pid> <секунды> -file <файл>`, все
+     параллельно, и печатает пути к файлам. Файлы — в `<data root>/logs/hang-<время>-<pid>.txt`; имя
+     процесса — в первой строке файла `sample`.
    - Код выхода — 0, если все `sample` вернули 0; иначе первый ненулевой код.
 2. В `README.md`, раздел «Stable copy», — абзац: при таймауте шага по CDP запустить скрипт на pid
    main process и приложить файлы как evidence (доказательство в отчёте), потом завершить процесс.
+   Если в файле main process есть `NSPersistentUIRestorer` и `NSAlert runModal`, это окно macOS
+   «восстановить окна?» — урок в `docs/lessons/agents.md`.
 3. Шаг владельца, не в PR: дописать тот же шаг в личную заметку о CDP Autopilot.
 
 Не проверенные альтернативы — для «Итог», если `sample` не хватит: `spindump <pid>` (нужен sudo);
@@ -67,8 +81,10 @@ Ticket можно разделить на два независимых PR. Ча
   (запуск с `--remote-debugging-port`) или вызовом `webContents.forcefullyCrashRenderer()` из main →
   в `process-gone.jsonl` есть строка. Способ и вывод — в «Итог».
 - [ ] Часть Б. Ручной прогон `node scripts/hang-sample.mjs <pid main process>` на запущенной Stable
-  copy → файлы с потоками main process и дочерних процессов, среди них файл renderer-а; на чужом pid —
-  отказ с ненулевым кодом. Вывод и коды — в «Итог».
+  copy с открытым Terminal в worfy → файлы с потоками main process и helper-ов, среди них файл
+  `worfy Helper (Renderer)`; shell Terminal — строка `skipped:`, код выхода 0. На pid, который не
+  main process упакованного worfy (например, pid того shell-а), — отказ с ненулевым кодом. Вывод и
+  коды — в «Итог».
 - [ ] `gate.sh fast` — код 0 и строка `[gate] зелено (fast)`.
 
 ## Где в коде
@@ -94,3 +110,7 @@ Ticket можно разделить на два независимых PR. Ча
   приложении с hardened runtime может потребоваться sudo. Stable copy подписана ad-hoc — проверить.
 - **Открытый вопрос:** лог `process-gone.jsonl` растёт без предела. Обрезать по размеру или оставить
   как есть, пока событий единицы. Решает исполнитель, итог — в «Итог».
+
+## Итог
+
+Заполняется при закрытии.

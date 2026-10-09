@@ -27,7 +27,7 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
   verifier-а (`harness/skills/epic-wave/SKILL.md:256`). Отклонённые находки нигде не видны. Владелец
   не может проверить, что отбросили и почему.
 
-## Что сделать
+## Что делаем
 
 1. **В `reviewer.md` — новый абзац о проверках** (по-английски, как весь файл):
    - поломка локальной сборки: переменные окружения, место чтения секретов, порты, новый обязательный
@@ -62,8 +62,14 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
 - [ ] `harness/bin/tests/epic-wave-ship-ticket.test.sh`: в обоих skills есть `Act on`, `Consider`,
   `Noted`, `Dismissed` и правило «не больше 5» — код 0.
 - [ ] Ручная проверка на одном diff-е с намеренно удалённой проверкой и описанием в Ticket-е: reviewer
-  не делает из неё находку. Вывод — в «Итог». Eval-кейс в `harness/evals/` — желательно; его платный
-  прогон ждёт Ticket 27 Epic-а worfy-harness (eval-кейсы через `claude plugin eval`).
+  не делает из неё находку. Вывод — в «Итог». Eval-кейс `harness/evals/reviewer-intended-breakage/` —
+  желательно; его платный прогон ждёт Ticket 27 Epic-а worfy-harness (eval-кейсы через
+  `claude plugin eval`). Если кейс есть — его имя в `CASES` `test/contract/harness-evals.test.ts`
+  (`:18-27`) и новое число в названии test-а «holds exactly the eight cases» (`:82`); `pnpm test` —
+  код 0.
+- [ ] Источник назван (spec, «Решения владельца», пункт 1). У каждого правила из Thermos и pstack в
+  `reviewer.md` и в двух skills — строка `Source:` с проектом, путём к файлу и SHA коммита.
+  Дословно взятый текст — ещё и пометка MIT со строкой copyright владельца источника.
 - [ ] `gate.sh fast` — код 0 и строка `[gate] зелено (fast)`.
 
 ## Где в коде
@@ -73,6 +79,8 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
 - `harness/skills/epic-wave/SKILL.md` — раздел 3, вердикт verifier-а
 - `harness/bin/tests/agents-text.test.sh`
 - `harness/bin/tests/epic-wave-ship-ticket.test.sh`
+- `harness/evals/reviewer-intended-breakage/` — новый, желательно
+- `test/contract/harness-evals.test.ts` — имя кейса в `CASES`, только вместе с eval-кейсом
 
 ## Вне скоупа
 
@@ -88,3 +96,7 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
   записать в «Итог».
 - **Открытый вопрос:** нужен ли verifier-у Wave отдельный бриф о четырёх группах, или их достаточно в
   отчёте Orchestrator-а. Решает исполнитель.
+
+## Итог
+
+Заполняется при закрытии.
