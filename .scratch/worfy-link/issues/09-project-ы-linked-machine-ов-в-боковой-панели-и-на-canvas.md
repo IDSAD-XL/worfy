@@ -290,6 +290,12 @@ machine-ом и ничего в его файлах не правит. Кана�
    Send, Run wave и Ship ticket, пока M недоступна, **не отключены**: это правка `SessionNode`, действий Canvas и
    их gates вне следа; вызов и так отвечает понятной строкой. Долг.
 
+Проверки доработки (head e50548f, `origin/main` не ушёл вперёд — 27f12f6, rebase не понадобился):
+`GATE_SCOPE=all gate.sh full` — lint, typecheck, `test:e2e` (165 test-ов), `test:package` прошли; `test` красный только
+по timeout-ам 5 s в contract-файлах `github-prs`, `harness-qmd` и других, что зовут внешние процессы (load average 5–7);
+`github-prs.test.ts` и `harness-qmd.test.ts` отдельно — exit 0 (76 test-ов). `test/e2e/linked-machines.spec.ts
+--repeat-each 3` — 21 passed. CI PR 169 на e50548f — check pass. Вёрстка не менялась — снимки прежние.
+
 Долги (не дорабатывались, решение гейта):
 
 - Два окна A на одном Project-е M делят на M одного клиента связи: `docs.close` / `workflow.close` одного окна
