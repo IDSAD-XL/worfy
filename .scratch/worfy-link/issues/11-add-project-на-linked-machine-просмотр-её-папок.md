@@ -1,7 +1,7 @@
 # 11 — «Add Project» на Linked machine: выбор Machine и просмотр её папок
 
 Type: task
-Status: blocked — ждёт worfy-harness 24 (диалог «Connect project», PR #176): Ticket строится поверх его итога; Blocked by не умеет ссылаться на другой Epic
+Status: open
 Blocked by: 09
 Source: решения владельца 2026-10-07: Q3 (с другой машины можно всё, кроме действий, которым нужен рабочий стол машины Project-а), Q9 (у Project ровно одна Machine; один репозиторий на двух Machine — два Project-а), Q10 («Add Project» — выбор Machine, затем папка через просмотр её файлов внутри worfy), Q14 (системные диалоги — в UI машины, откуда вызваны; просмотр папок машины Project-а); [spec.md](../spec.md); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md) — Machine, Linked machine, «Add Project» спрашивает Machine, потом папку; [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — системные действия в UI вызвавшей машины; [Ticket 24 Epic-а worfy-harness](../../worfy-harness/issues/24-подключение-project-а.md) — подключение Project-а по шагам
 
