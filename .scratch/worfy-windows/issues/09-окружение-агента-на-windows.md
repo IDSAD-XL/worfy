@@ -1,7 +1,7 @@
 # 09 — Окружение агента на Windows: PATH без login shell, Git Bash для Claude Code, claude.exe
 
 Type: task
-Status: open
+Status: done — 2026-10-09, [PR #194](https://github.com/IDSAD-XL/worfy/pull/194)
 Blocked by: 02
 Source: решения владельца 2026-10-07: Q1 (полный порт worfy под Windows), Q18 (Git for Windows обязателен), Q24 (Windows 10 21H2+ и 11, только x64) ([spec.md](../spec.md)); [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port» (пункты 3 и 4; «Что меняется в прежних ADR» — ADR-0007); [ADR-0007](../../../docs/adr/0007-claude-code-launch-environment.md) (окружение Claude Code — login shell); [ADR-0008](../../../docs/adr/0008-claude-code-native-binary-path.md) (нативный бинарник из пакета SDK)
 
