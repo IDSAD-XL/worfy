@@ -210,6 +210,11 @@ Epic-а из spec.md в Workflow folder». На нынешнем main `enrichSna
 - Долг Ticket-а 22 (`src/main/workflow/reader.ts:321` читает `done` с невлитой ветки как закрытый) не
   исправлен: это правило ADR-0033 («ветка перекрывает checkout, кроме `blocked`/`done` checkout-а»), его
   изменение — отдельное решение; в Silent mode ветки не читаются вовсе, там долга нет.
+- Проверки: `pnpm lint && pnpm typecheck && pnpm test` — код 0 (157 файлов, 3060 test-ов); gate fast — код 0,
+  «зелено»; `GATE_SCOPE=all gate.sh full` под замком `/tmp/worfy-e2e.lock` — код 0, «зелено (full)» (третий
+  прогон: в первом упали оба test-а `silent-project.spec.ts`, во втором — 25 test-ов `agent…card-runtime`,
+  оба раза при параллельных прогонах e2e других агентов: замок снимался как «старше 30 минут» у
+  ещё работавшего владельца; отдельно `silent-project.spec.ts` проходил).
 - Не проверено: ручной пункт — Project Atakama в Stable copy (окно Stable copy агенту недоступно,
   `/Users/alexey/Work/*` не читались). Двойной клик по Ticket-у Silent Project-а открывает путь
   `.scratch/…` относительно корня Project-а (`ticketFile` в `src/renderer/canvas/epic-layout.ts`, вне
