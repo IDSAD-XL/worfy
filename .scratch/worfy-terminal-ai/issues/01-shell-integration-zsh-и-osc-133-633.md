@@ -1,7 +1,7 @@
 # 01 — Shell integration для zsh: свой ZDOTDIR worfy, OSC 633 с nonce, история пользователя, состояние Terminal-а в main
 
 Type: task
-Status: claimed — 2026-10-09
+Status: done — 2026-10-09, [PR #204](https://github.com/IDSAD-XL/worfy/pull/204)
 Branch: worfy-terminal-ai/01
 Blocked by: —
 Source: решения владельца 2026-10-09: пункт 4 (гибрид, сначала zsh; контекст через OSC 133/633, подключение как в VS Code — `ZDOTDIR` на свою временную папку, `~/.zshrc` не меняется, только в Terminal-ах worfy), пункт 3 (не спрашивать модель во время команды и на альтернативном экране, строки с пробелом в начале пропускать, OSC от программ не верить — nonce), пункт 1(a) (Suggestion сначала из истории команд) ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md) — процесс Terminal AI; [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — Terminal на нескольких экранах
@@ -248,3 +248,11 @@ PR #204, ветка `worfy-terminal-ai/01`.
 - *CI Ubuntu:* глобальный `compinit` `/etc/zsh/zshrc` на runner-е находит небезопасные папки в
   `fpath` и ждёт клавишу (и без worfy). Contract-test ставит `skip_global_compinit=1` — переключатель,
   описанный в том же файле Ubuntu.
+
+### Gate оркестратора (2026-10-10)
+
+- Круг 1 — `REJECTED` ([комментарий в PR #204](https://github.com/IDSAD-XL/worfy/pull/204#issuecomment-6090208329)): [med] `ZDOTDIR=$HOME` во время `.zshenv` пользователя ломал XDG-форму `: ${ZDOTDIR:=$HOME/zdot}`; [low] `allexport` экспортировал nonce; [low] ESC внутри CSI проглатывал D; [low] C1 не экранировались; [low] квадратичный разбор незакрытого OSC.
+- Круг 2 — `VERIFIED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/204#issuecomment-6090601824)), доработка `f2e4348..8c4fc7b`: zsh с worfy и без сравнён в 16 вариантах ZDOTDIR/`.zshenv` — совпадение полное; differential fuzz с разборщиком xterm.js 6.0.0 на 200 тыс. потоков — 0 расхождений. Долги:
+  - [low] при `builtin source` `$0` в файле пользователя — путь файла, без worfy — `-zsh` (`zshrc.zsh:14` и соседи); было с круга 1.
+  - [low] `src/main/terminal/osc.ts:119` — xterm.js обрывает OSC на любом C1, кроме U+009C, а `OSC_STOP` и `OscCutScanner` — нет; replay может отрезать больше после чужого OSC.
+- Мерж: ветка уже на `6691aee`, `GATE_SCOPE=all gate full` — код 0 (результат из кэша Gate для того же коммита `8c4fc7b`, прогнанного исполнителем под замком), CI зелёный, CLEAN, влит `56a9bb4`.
