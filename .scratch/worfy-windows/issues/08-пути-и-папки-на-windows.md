@@ -121,14 +121,14 @@ Source: решения владельца 2026-10-07: Q1 (полный порт)
 
 ## Готово, когда
 
-- [ ] `test/unit/paths.test.ts`: для `darwin` пути прежние (старые случаи не менялись); для `win32` с `APPDATA=C:\Users\u\AppData\Roaming` — `…\worfy` и `…\worfy-dev`; без `APPDATA` — `<homedir>\AppData\Roaming\…`; `WORFY_DATA_DIR` побеждает.
-- [ ] `test/unit/platform-paths.test.ts` (новый): абсолютные — `/a`, `C:\a`, `C:/a`, `c:\a`, `\\server\share\a`; не абсолютные — `a/b`, `a\b`, `C:a`, пустая строка; путь с `\0` — отказ. Схема IPC из `src/shared/paths.ts` принимает и отвергает то же.
-- [ ] `test/contract/card-last-editor.test.ts`: `Write` с `file_path` `C:\p\data\cards\abc\index.html` при `cardsDir` `C:\p\data\cards` — Card `abc`; относительный `cards\abc\x.md` при cwd `C:\p\data` — `abc`; `c:\P\DATA\cards\abc\x.md` — `abc`. Прежние случаи POSIX не менялись.
-- [ ] `test/unit/markdown.test.tsx`: ссылки `C:\docs\a.md` и `C:/docs/a.md` — файл с абсолютным путём; относительные ссылки — как прежде.
-- [ ] `test/unit/binding.test.ts` и `test/unit/ticket-ref.test.ts`: cwd `C:\r\.claude\worktrees\05` — Ticket 05 по папке; задача Subagent-а с `.scratch\worfy-windows\issues\05-x.md` — Ticket 05 Epic-а `worfy-windows`. Прежние случаи не менялись.
-- [ ] `test/contract/claude-home-subagents.test.ts`: id Session из пути транскрипта с `\` — имя файла без `.jsonl`.
-- [ ] `test/contract/claude-home-registry.test.ts`: `projectDirName` пути Windows — имя из evidence Ticket-а 01, раздел 12 (`C:\a\b` → `C--a-b`); время старта процесса в формате Windows с подменённой командой даёт `alive`, `gone` и `unknown`.
-- [ ] `test/contract/statusline-bridge.test.ts`: все прежние случаи проходят против `node scripts/statusline-bridge.mjs` и против входа `.sh`, если он остался. Новые: PATH без `jq` — файл всё равно пишется; выбор папок для `win32` — `%APPDATA%\worfy` и `worfy-dev`.
+- [x] `test/unit/paths.test.ts`: для `darwin` пути прежние (старые случаи не менялись); для `win32` с `APPDATA=C:\Users\u\AppData\Roaming` — `…\worfy` и `…\worfy-dev`; без `APPDATA` — `<homedir>\AppData\Roaming\…`; `WORFY_DATA_DIR` побеждает.
+- [x] `test/unit/platform-paths.test.ts` (новый): абсолютные — `/a`, `C:\a`, `C:/a`, `c:\a`, `\\server\share\a`; не абсолютные — `a/b`, `a\b`, `C:a`, пустая строка; путь с `\0` — отказ. Схема IPC из `src/shared/paths.ts` принимает и отвергает то же.
+- [x] `test/contract/card-last-editor.test.ts`: `Write` с `file_path` `C:\p\data\cards\abc\index.html` при `cardsDir` `C:\p\data\cards` — Card `abc`; относительный `cards\abc\x.md` при cwd `C:\p\data` — `abc`; `c:\P\DATA\cards\abc\x.md` — `abc`. Прежние случаи POSIX не менялись.
+- [x] `test/unit/markdown.test.tsx`: ссылки `C:\docs\a.md` и `C:/docs/a.md` — файл с абсолютным путём; относительные ссылки — как прежде.
+- [x] `test/unit/binding.test.ts` и `test/unit/ticket-ref.test.ts`: cwd `C:\r\.claude\worktrees\05` — Ticket 05 по папке; задача Subagent-а с `.scratch\worfy-windows\issues\05-x.md` — Ticket 05 Epic-а `worfy-windows`. Прежние случаи не менялись.
+- [x] `test/contract/claude-home-subagents.test.ts`: id Session из пути транскрипта с `\` — имя файла без `.jsonl`.
+- [x] `test/contract/claude-home-registry.test.ts`: `projectDirName` пути Windows — имя из evidence Ticket-а 01, раздел 12 (`C:\a\b` → `C--a-b`); время старта процесса в формате Windows с подменённой командой даёт `alive`, `gone` и `unknown`.
+- [x] `test/contract/statusline-bridge.test.ts`: все прежние случаи проходят против `node scripts/statusline-bridge.mjs` и против входа `.sh`, если он остался. Новые: PATH без `jq` — файл всё равно пишется; выбор папок для `win32` — `%APPDATA%\worfy` и `worfy-dev`.
 - [ ] `@packaged` test в `test/e2e/packaged.spec.ts` (локально, `test:package` в gate full): в `.app` рядом с `Contents/Resources/statusline-bridge.sh` лежит `statusline-bridge.mjs`. Команда прежнего вида `<.app>/Contents/Resources/statusline-bridge.sh '<cmd>'` с образцом JSON пишет файл и пропускает вывод команды.
 - [ ] Windows-ПК, dev-сборка: список Session-ов Project-а worfy показывает транскрипты из `%USERPROFILE%\.claude\projects`. `claude`, запущенный в PowerShell в worktree worfy и в его подпапке, виден как живая Session. Session в `.claude\worktrees\NN` привязана к Ticket-у NN. Снимок — `../evidence/08-session-ы-на-windows.png`.
 - [ ] Windows-ПК: образец JSON строки состояния, поданный в `node scripts\statusline-bridge.mjs`, пишет `%APPDATA%\worfy-dev\statusline-limits.json`, и dev-сборка показывает полосы Limits. Если владелец сам ставит `statusLine` с мостом — Limits приходят из терминала. Данные dev-сборки лежат в `%APPDATA%\worfy-dev`.
@@ -185,4 +185,80 @@ Windows (Ticket 12).
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-windows/08`, от main `f95b7e7`. Сделано на Windows-ПК владельца, Session Claude Code.
+
+- **Папка данных** (`src/main/storage/paths.ts`): `dataRoot(env, kind, platform)`. Windows —
+  `%APPDATA%\worfy` и `%APPDATA%\worfy-dev`; без `APPDATA` или с не абсолютным —
+  `<homedir>\AppData\Roaming\…`. macOS и прочие системы — прежний `~/Library/Application Support/…`.
+  `WORFY_DATA_DIR` побеждает везде. Выбран `%APPDATA%` (Roaming), как `app.getPath('appData')` на
+  Windows; `claudeHome()` не менялся. Старые случаи `test/unit/paths.test.ts`, где путь по умолчанию
+  зависел от платформы, теперь передают `'darwin'` явно; шесть случаев с литералом `/tmp/…` через
+  `resolve` падают на Windows и на main — это Ticket 14.
+- **Абсолютный путь — `src/shared/paths.ts`** (`isAbsolutePath`, `absolutePathSchema`,
+  `lastPathSegment`): `/…`, `C:\…`, `C:/…`, UNC `\\server\share…`; не абсолютные — `a\b`, `C:a`, `\a`,
+  пустая строка; путь с NUL — отказ. Кроме `claude-home.ts` и `bindings.ts` её берут ещё четыре места,
+  которых не было в списке тикета, с той же проверкой `startsWith('/')`: `src/shared/ipc/agent.ts`
+  (`cwd` у `agent.start` — без этого агент не стартует в `C:\…`), `src/shared/ipc/workflow.ts`,
+  `src/shared/agent/attachments.ts`, `src/main/workflow/profile.ts`. `src/shared/ipc/checks.ts`
+  оставлен Ticket-у 03. `cards.file` не тронут: там путь из адреса Card, не путь на диске.
+- **Автор правки Card** (`last-editor.ts`): путь Windows — `\` и `/` один разделитель, буква диска
+  заглавная, сравнение без учёта регистра; путь POSIX — как был.
+- **Ссылки markdown** (`links.ts`): `C:\…`, `C:/…`, `\\server\share\…` — файл с абсолютным путём (а не
+  схема `c:`); `\` в относительной ссылке — разделитель; корень диска — ничего.
+- **`/` и `\` в `~/.claude` и в Binding:** id Session — `transcriptSessionId` (`subagents.ts`, его
+  берёт и `binding-signals.ts`); `worktreeFolderOf` и `parseWorktreeFolder` читают путь с `\` как с
+  `/`, поэтому `detail` Binding-а одинаков на обеих системах (`.claude/worktrees/05`); путь Ticket-а
+  в задаче Subagent-а и `ticket claim` после пути с `\`; имя workflow-скрипта и папка прогона в
+  `Transcript dir:` с `\`.
+- **Session внутри Project-а** (`registry.ts`): `isInsidePath(path, root, platform)` — правила
+  `path.win32` на Windows (разделитель `\`, без учёта регистра), `path.posix` на остальных.
+- **Имя папки транскриптов** не менялось; test-ы фиксируют три имени из evidence Ticket-а 01, раздел 12.
+- **Живые Session-ы на Windows** (`processState`): время старта — `Get-Process -Id <все pid>`,
+  `StartTime.ToFileTimeUtc()`, одним вызовом Windows PowerShell на все pid, спрошенные в пределах
+  25 мс (`batchedProcessStarts`). Проверено на ПК (exit 0): для Session 20488 `Get-Process` дал
+  `134359927685768597` — ровно `procStart`; `Get-CimInstance Win32_Process` (`CreationDate`) дал
+  `…590` — теряет последнюю цифру (100 нс) и вдвое медленнее (1181 мс против 642), поэтому не он.
+  Сравнение — строки FILETIME; нет pid в ответе — `gone`, время не прочитать — `unknown`, PowerShell
+  упал — `unknown`. Запуск PowerShell — общая `powershellScriptCommand` из `src/main/agent/env.ts`.
+- **Мост Limits на Node** — `scripts/statusline-bridge.mjs`: тот же контракт, `jq` не нужен,
+  `limitsFolders` и `commandRunner` экспортируются. Команда пользователя — `sh -c` на macOS и Linux;
+  на Windows — Git Bash (`CLAUDE_CODE_GIT_BASH_PATH`, рядом с `git.exe`, `%ProgramFiles%\Git`,
+  `%LOCALAPPDATA%\Programs\Git`, ничего под `%SystemRoot%`), без него — оболочка Node по умолчанию.
+  Оболочку `statusLine` на Windows живым прогоном не проверял: в бинарнике Claude Code 2.1.233 его
+  агент настройки строки состояния пишет про Windows «the command is executed through Git Bash»
+  (`grep` по `claude.exe`, при найденном Git Bash).
+- **Уже записанная команда на Mac:** `statusline-bridge.sh` остался на прежнем пути тонким входом:
+  есть `node` и рядом `.mjs` — `exec node …/statusline-bridge.mjs "$@"`; нет — только отдаёт stdin
+  команде пользователя (`exec sh -c "$1"`), без Limits. `electron-builder.yml` кладёт `.mjs` в
+  `Resources` рядом с `.sh`. Проверено под Git Bash на ПК: код выхода команды доходит (4), файл
+  пишется; без `node` команда получает stdin.
+- **Как test-ы падали до правки:** `platform-paths.test.ts` — модуля нет (exit 1);
+  `paths.test.ts` — оба новых случая `win32` (`dataRoot` не знал платформы);
+  `card-last-editor.test.ts` — 3 новых случая Windows (и 4 старых, которые на ПК падали и на main);
+  `markdown.test.tsx` — 6; `binding.test.ts` и `ticket-ref.test.ts` — 4; `subagents.test.ts` — 1.
+- **Мутанты** (на Windows, по одному, 11 затронутых test-файлов, счёт — новые падения против того же
+  набора без мутантов): все 32 красные. Абсолютный путь: `C:` без разделителя, без UNC, без отказа
+  на NUL, `lastPathSegment` только по `/`; `dataRoot` без ветки Windows, `APPDATA` без проверки;
+  автор правки Card: регистр, разделитель, буква диска; ссылки: без ветки Windows, `\` в
+  относительной; Binding: папка worktree, `parseWorktreeFolder`, путь Ticket-а, `claim`; имя
+  workflow-скрипта, папка прогона, id Session; `isInsidePath`: регистр, `posix` вместо `win32`;
+  `processState`: без ветки Windows, нет pid → `unknown`, `?` → `alive`, без сбора pid в один
+  вызов, `ToFileTime` вместо `ToFileTimeUtc`; мост: папки Windows, `USERPROFILE`, WSL-овский
+  `bash.exe`, `sh` на Windows, массив вместо объекта `rate_limits`; читатель реестра Ticket-а 09:
+  последняя строка CLIXML, `SystemRoot` вида `\Windows`.
+- **Проверки на Windows-ПК** (на `56b7a1a` + Итог): `pnpm install --frozen-lockfile` — 0, `pnpm lint` —
+  0, `pnpm typecheck` — 0. `pnpm test` — 1: `48 failed | 122 passed (170)` файлов, `591 failed | 2737
+  passed | 16 skipped (3344)` test-ов; против main `f95b7e7` (`53 | 116`, `709 | 2560 | 16 (3285)`)
+  по именам test-ов — 119 падений ушло (`agent-controls` 37, `agent-attachments` 25,
+  `agent-session` 20, `permissions` 15 — их держала проверка `cwd` у `agent.start`; ещё
+  `statusline-bridge` 8, `card-last-editor` 4, `claude-home-registry` 3 и другие), одно новое —
+  `check-handoff` «passes exactly 15360 bytes», timeout 5000 мс под нагрузкой; отдельно файл —
+  exit 0, `11 passed`.
+- **Данные dev-сборки на ПК:** прежние запуски писали в `C:\Users\Alexey\Library\Application
+  Support\worfy` и `…\worfy-dev` (путь macOS). Новая dev-сборка начинает в `%APPDATA%\worfy-dev` с
+  чистого листа; переноса нет — сборок под Windows ещё не выпускали. Старые папки не тронуты.
+- **Не проверено (нужен владелец):** список Session-ов в dev-сборке со снимком
+  `../evidence/08-session-ы-на-windows.png`; полосы Limits в dev-сборке после записи моста в
+  `%APPDATA%\worfy-dev` (папки ещё нет — появится при первом запуске dev-сборки); живой прогон
+  `statusLine` с мостом на Windows.
+- **Долги Ticket-а 09** из последнего комментария PR #194 — в Итоге Ticket-а 09.
