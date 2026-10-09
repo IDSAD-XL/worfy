@@ -65,11 +65,16 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
   не делает из неё находку. Вывод — в «Итог». Eval-кейс `harness/evals/reviewer-intended-breakage/` —
   желательно; его платный прогон ждёт Ticket 27 Epic-а worfy-harness (eval-кейсы через
   `claude plugin eval`). Если кейс есть — его имя в `CASES` `test/contract/harness-evals.test.ts`
-  (`:18-27`) и новое число в названии test-а «holds exactly the eight cases» (`:82`); `pnpm test` —
-  код 0.
+  (`:18-27`) и новое число в названии test-а «holds exactly the eight cases» (`:82`). Кейс проходит и
+  проверки, которые тот же файл делает для каждого кейса из `CASES` (`:92-127`): тег в `prompt.md` —
+  `[main]` или `[gui]`; в `case.yaml` — `schema_version: 1.1`, `name` по имени папки и существующий
+  `scaffold_script`; не меньше двух grader-ов, среди них `tool_used`; scaffold с кодом 0 создаёт `.git`
+  и `.claude/worfy-harness/projects/demo/profile.json` во временном HOME, а
+  `bin/profile -C <fixture> --name` печатает `demo`. `pnpm test` — код 0.
 - [ ] Источник назван (spec, «Решения владельца», пункт 1). У каждого правила из Thermos и pstack в
   `reviewer.md` и в двух skills — строка `Source:` с проектом, путём к файлу и SHA коммита.
-  Дословно взятый текст — ещё и пометка MIT со строкой copyright владельца источника.
+  Дословно взятый текст — ещё и пометка MIT: строка copyright владельца источника
+  и полный текст лицензии из его `LICENSE` на том же коммите.
 - [ ] `gate.sh fast` — код 0 и строка `[gate] зелено (fast)`.
 
 ## Где в коде
@@ -80,7 +85,7 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
 - `harness/bin/tests/agents-text.test.sh`
 - `harness/bin/tests/epic-wave-ship-ticket.test.sh`
 - `harness/evals/reviewer-intended-breakage/` — новый, желательно
-- `test/contract/harness-evals.test.ts` — имя кейса в `CASES`, только вместе с eval-кейсом
+- `test/contract/harness-evals.test.ts` — имя кейса в списке CASES, только вместе с eval-кейсом
 
 ## Вне скоупа
 

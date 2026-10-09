@@ -60,18 +60,33 @@ Epic готов, когда:
   `~/.claude/worfy-harness/projects/worfy/profile.json`. Сейчас там `корректность`, `границы модулей`,
   `тесты`. Описаний линз в репозитории нет: reviewer получает только название. Правка Profile — шаг
   владельца на его машине, в PR её нет. В PR идёт описание линзы.
-- **Где работают линзы.** Lens reviewers (по одному reviewer-у на линзу) запускает только
-  ship-ticket, шаг 7. Линзы по умолчанию — поле Profile `review.ticket_lenses`, без него — две или три
-  из `review.lenses` по теме изменения (`harness/profiles/README.md`, строки этих полей). В Wave
-  Implementer идёт по шагам 1–8 Profile без шага 7. Diff в Wave проверяет один verifier (reviewer с
-  линзой «отчёт Implementer-а», `harness/skills/epic-wave/SKILL.md`, раздел 3). Линзы Profile в Wave
-  не запускаются — ни три нынешние, ни новая.
-  - Ticket 01 меняет оба места: четыре группы находок — в ship-ticket, шаг 7, и в epic-wave, раздел 3.
-  - Ticket 02 skills не меняет. Линзу «упрощение» включает правка Profile — шаг владельца. В
-    `review.ticket_lenses` по контракту «две или три» линзы, а у worfy их уже три. Владелец либо
-    заменяет одну из них, либо убирает поле, и тогда линзы по теме изменения выбирает Orchestrator.
-  - В Wave линза «упрощение» работает только через режим расширенного ревью Ticket-а 07 — перед
-    рискованным merge.
+- **Где работают линзы.** Reviewer-а с линзой из Profile (по одному reviewer-у на линзу) запускают
+  два места.
+  - **ship-ticket, шаг 7** (`harness/skills/ship-ticket/SKILL.md`, раздел 7, строки 245-246). Линзы по
+    умолчанию — поле Profile `review.ticket_lenses`. Без поля ship-ticket берёт две или три из
+    `review.lenses` по теме изменения. Контракт полей — `harness/profiles/README.md`, строки
+    `review.lenses` и `review.ticket_lenses`.
+  - **Правило Orchestrator-а, Phase 2 — ревью перед отчётом**
+    (`harness/hooks/rules/orchestrator.md:105-111`; hook SessionStart добавляет это правило в каждую
+    Session). Перед каждым отчётом пользователю
+    Orchestrator запускает `worfy:reviewer` на diff с одной линзой из `review.lenses`, на большом
+    изменении — несколько параллельно. Какую линзу дать, выбирает Orchestrator. Правило действует в
+    любой Session, в том числе в Session Wave.
+
+  В Wave Implementer идёт по шагам 1–8 Profile без шага 7. Gate Wave проверяет diff одним verifier-ом
+  (reviewer с линзой «отчёт Implementer-а», `harness/skills/epic-wave/SKILL.md`, раздел 3), линз
+  Profile в Gate нет. Сейчас в Wave линза Profile может работать только в Phase 2, когда
+  Orchestrator её выберет.
+  - Ticket 01 вводит четыре группы находок в двух skills: ship-ticket, шаг 7, и epic-wave, раздел 3
+    (вердикт verifier-а). Правило Phase 2 он не меняет.
+  - Ticket 02 skills не меняет. Линзу «упрощение» включает правка Profile — шаг владельца. После неё
+    в `review.lenses` линза доступна Orchestrator-у в Phase 2. Чтобы ship-ticket запускал её на каждом
+    Ticket-е, она нужна и в `review.ticket_lenses`. Там по контракту «две или три» линзы, а у worfy их
+    уже три. Значит, владелец заменяет одну из них. Убрать поле этой цели не даёт: без него
+    ship-ticket сам выбирает линзы по теме изменения, и «упрощение» идёт, только когда её выбрали.
+  - Ticket 07 добавляет третье место: режим расширенного ревью перед рискованным merge (epic-wave,
+    раздел 4) с линзами «корректность» и «упрощение». Помимо Phase 2, в Wave линза «упрощение»
+    работает только там.
 - **Уровни находок** остаются `high` / `med` / `low`. Четыре группы Ticket-а 01 — это способ, которым
   Orchestrator показывает находки. Это не новая шкала.
 
@@ -86,8 +101,10 @@ Epic готов, когда:
 1. Внешние plugin-ы не ставим. Берём идеи и формулировки, как в исследовании (раздел «Что не
    берём и почему», пункт «Как заимствуем»):
    - правило, переписанное своими словами, называет источник: проект, путь к файлу и SHA коммита;
-   - дословно взятый текст несёт ещё и пометку MIT: строку copyright владельца источника и SHA
-     коммита, с которого текст взят. Ссылка — на этот коммит, а не на `main`;
+   - дословно взятый текст несёт ещё и пометку MIT. Лицензия MIT требует сохранять в копии и строку
+     copyright, и сам текст разрешения («permission notice»). Поэтому пометка — строка copyright
+     владельца источника, SHA коммита, с которого текст взят, и полный текст лицензии из файла
+     `LICENSE` источника на том же коммите. Ссылка — на этот коммит, а не на `main`;
    - строка источника (`Source: <проект>, <путь>, <SHA>`) и пометка MIT стоят в том же файле
      `harness/`, в конце раздела с заимствованным текстом, по-английски.
 
@@ -112,7 +129,7 @@ Epic готов, когда:
 - Skill `verify-worfy`, который управляет приложением по CDP (идея из pstack).
 - Несколько параллельных реализаций одного Ticket-а (`arena` из pstack).
 - Карта кода в контексте Subagent-а (из ponytail).
-- Запуск линз Profile в каждой Wave (epic-wave, раздел 3): сейчас там только verifier.
+- Запуск линз Profile в Gate каждой Wave (epic-wave, раздел 3): сейчас там только verifier.
 
 ## Риски
 
@@ -125,10 +142,18 @@ Epic готов, когда:
 
 ## Порядок относительно worfy-windows и worfy-harness
 
-Открытые Ticket-ы двух других Epic-ов правят те же файлы, что и этот Epic. Список ниже — все
-пересечения на 2026-10-09: разделы «Где в коде» всех открытых Ticket-ов сверены с Ticket-ами этого
-Epic-а тем же правилом, что `filesOverlap` (`src/shared/workflow/waves.ts:145`). Перед каждой Wave
-сверка идёт заново, по открытым PR (раздел «Соглашения для Ticket-ов этого Epic-а»).
+Открытые Ticket-ы двух других Epic-ов правят те же файлы, что и этот Epic. Список ниже — пересечения
+по файлам Ticket-ов в main на 2026-10-09: разделы «Где в коде» всех открытых Ticket-ов сверены с
+Ticket-ами этого Epic-а тем же правилом, что `filesOverlap` (`src/shared/workflow/waves.ts:145`).
+Открытые PR в этом списке не учтены: PR меняет и файлы, которых нет в «Где в коде» его Ticket-а.
+Поэтому перед каждой Wave файлы открытых PR сверяются заново (`gh pr list`, раздел «Соглашения для
+Ticket-ов этого Epic-а»).
+
+Пример на 2026-10-09 — открытый PR #200 (worfy-windows/08, пути и папки на Windows). У Ticket-а
+worfy-windows/08 в «Где в коде» нет `src/main/index.ts`, а PR его меняет — и это файл Ticket-а 05.
+Ещё PR меняет `electron-builder.yml`, `src/main/agent/options.ts` и `src/main/storage/paths.ts`, на
+которые ссылается Ticket 05. Пока #200 открыт, 05 в Wave не берётся. После мержа #200 ссылки на
+строки в Ticket-е 05 сверяются с main заново.
 
 Epic [worfy-windows](../worfy-windows/spec.md) (порт worfy и Harness на Windows):
 
@@ -145,8 +170,10 @@ Epic [worfy-windows](../worfy-windows/spec.md) (порт worfy и Harness на W
   `harness/skills/epic-wave/SKILL.md`, `harness/skills/ship-ticket/SKILL.md`,
   `harness/bin/tests/epic-wave-ship-ticket.test.sh`, `harness/profiles/README.md`;
 - [11](../worfy-windows/issues/11-окно-меню-уведомления-и-ctrl-на-windows.md) (окно, меню,
-  уведомления и Ctrl на Windows) — `src/main/index.ts`, общий с 05. Его блокер (worfy-windows/02) уже
-  влит, поэтому 11 может идти одновременно с Wave 1 этого Epic-а;
+  уведомления и Ctrl на Windows) — `src/main/index.ts`, общий с 05. Внимание: блокер 11
+  (worfy-windows/02) уже влит, и Session на Windows может взять 11 в то же время, когда здесь идёт
+  Wave 1. Это не разрешение вести их параллельно. Если PR 11 открыт перед Wave, 05 ждёт его мержа;
+  если первым открыт PR 05, 11 ждёт по тому же правилу на стороне Windows (ADR-0056, пункт 5);
 - [12](../worfy-windows/issues/12-сборка-nsis-и-stable-copy-на-windows.md) (сборка NSIS и Stable copy
   на Windows) — `README.md`, тот же раздел «Stable copy», что правит 05, часть Б;
 - [13](../worfy-windows/issues/13-первый-запуск-на-windows.md) (первый запуск на Windows) —
@@ -167,15 +194,26 @@ Epic [worfy-harness](../worfy-harness/spec.md) (E3, Harness как plugin):
 Вычисление Wave (`src/shared/workflow/waves.ts`) смотрит на Ticket-ы одного Epic-а. Общие файлы двух
 Epic-ов оно не видит. Поэтому Ticket этого Epic-а и Ticket другого Epic-а с общим файлом не идут
 параллельно. Правило: тот Ticket, который вливается в main вторым, делает rebase на main и заново
-прогоняет свои проверки:
+проходит все проверки перед мержем (ADR-0056, пункт 6):
 
-- Ticket-ы текстов и скриптов Harness (01–04, 06, 07) — test-ы из своего «Где в коде»
-  (`agents-text.test.sh`, `epic-wave-ship-ticket.test.sh`, `rules-hooks.test.sh` и новые
-  `.test.sh`), и contract test-ы, которые он правит (`harness-evals.test.ts`,
-  `harness-migrate.test.ts`), через `pnpm test`;
-- Ticket 05 (код worfy) — typecheck, unit и e2e test-ы: `GATE_SCOPE=all` gate full на ветке после
-  rebase, под замком `/tmp/worfy-e2e.lock`. Раздел «Stable copy» в `README.md` после rebase
-  сверяется глазами: test-ов у него нет.
+- **Любой Ticket этого Epic-а — CI на Linux после push и на Mac `GATE_SCOPE=all gate.sh full`** на
+  ветке после rebase, под замком `/tmp/worfy-e2e.lock`, код 0 и строка `[gate] зелено`. Так требует
+  `rules.md` Profile-а worfy (`~/.claude/worfy-harness/projects/worfy/rules.md`, вне git): gate full
+  — перед мержем любого PR с кодом. Документами там считаются только `*.md` в корне, `docs/` и
+  `.scratch/`, поэтому PR с правкой `harness/` — тоже PR с кодом. gate full — это lint, typecheck,
+  `pnpm test`, e2e и `test:package`:
+  - `pnpm test` прогоняет все `.test.sh` из `harness/bin/tests/` и `harness/hooks/tests/`
+    (`test/contract/harness-scripts.test.ts`) и contract test-ы, которые правят Ticket-ы
+    (`harness-evals.test.ts`, `harness-migrate.test.ts`);
+  - e2e и `test:package` сверяют, что скрипты `bin/` и `hooks/` копии Harness в сборке и в `.app`
+    исполняемые, как в `harness/` (`test/e2e/packaged.spec.ts`, функция `expectHarnessCopy`), — это
+    прямо про скрипты 03, 04 и 06.
+- **Платформенные PR (03, 04, 05, 06) — ещё и gate full на Windows-ПК после rebase** (ADR-0056,
+  пункт 6; список — пункт «Платформенные PR» в «Соглашениях»). Правило worfy-windows «gate full на
+  Windows после rebase не повторяется» (Q31) касается только PR Session на Windows, которые вливает
+  Session на Mac. К PR этого Epic-а оно не относится.
+- Ticket 05: раздел «Stable copy» в `README.md` после rebase ещё сверяется глазами: test-ов у него
+  нет.
 
 Про Gate на Node — отдельное правило в Ticket-е 03, раздел «Риски».
 
@@ -183,11 +221,14 @@ Epic-ов оно не видит. Поэтому Ticket этого Epic-а и Ti
 
 Как в [worfy-harness](../worfy-harness/spec.md), раздел «Соглашения для Ticket-ов этого Epic-а»:
 сначала падающий test, только чтение чужих файлов, ручные пункты «(вручную)», Autopilot над worfy —
-только на Stable copy, `GH_TOKEN=$(gh auth token -u IDSAD-XL)` вместо `gh auth switch`. Отличия:
+только на Stable copy, без `gh auth switch`. Аккаунт `gh` ручным префиксом не задаётся: hook
+plugin-а `harness/hooks/gh-token-env.sh` (SessionStart) ставит `GH_TOKEN` аккаунта из поля Profile
+`github.account` (у worfy — `IDSAD-XL`) для каждой команды Bash Session и её агентов. Отличия:
 
 - **Кто ведёт** — Session на Mac владельца: Orchestrator в worfy или Autopilot Stable copy (команда
-  `/worfy:epic-wave tickets NN, NN of epic worfy-review`). Gate full — на Mac. Session на Windows-ПК
-  ведёт `worfy-windows` и Ticket-ы этого Epic-а не берёт. Прямого канала между Session-ами нет: всё о
+  `/worfy:epic-wave tickets NN, NN of epic worfy-review`). Gate full Ticket-ов — на Mac, у
+  платформенных PR — ещё и на Windows-ПК (пункт «Платформенные PR»). Session на Windows-ПК ведёт
+  `worfy-windows` и Ticket-ы этого Epic-а не берёт. Прямого канала между Session-ами нет: всё о
   второй Session читается из репозитория — Status Ticket-ов, открытые PR и их файлы, main,
   `HANDOFF.md` (ADR-0056, пункт 4).
 - **Ветки** — `worfy-review/<NN>` (поле Profile `tickets.branch` = `<эпик>/<NN>`); worktree —
@@ -195,35 +236,53 @@ Epic-ов оно не видит. Поэтому Ticket этого Epic-а и Ti
 - **ADR.** Ticket-ам этого Epic-а новый ADR не нужен. Если понадобится, номер выдаёт Orchestrator в
   момент взятия: следующий свободный (`HANDOFF.md`, «Где остальное»). Принятые ADR не правятся.
 - **Перед каждой Wave — две проверки, в этом порядке.**
-  1. PR Session на Windows с меткой `needs-mac-gate` — как в [worfy-link](../worfy-link/spec.md),
-     раздел «Соглашения для Ticket-ов этого Epic-а», пункт «Перед каждой Wave — PR с меткой
-     `needs-mac-gate`».
-  2. Открытые PR других Epic-ов (ADR-0056, пункт 5): `gh pr list --state open --json
-     number,headRefName,files`. Их файлы сравниваются с «Где в коде» Ticket-ов Wave тем же
-     правилом, что внутри Wave. Ticket с общим файлом ждёт мержа того PR. Пересечение и отложенный
-     Ticket — в отчёте Wave. Список раздела «Порядок относительно worfy-windows и worfy-harness» —
-     подсказка, он не заменяет эту сверку.
+  1. Любой открытый PR Session на Windows — ветка `worfy-windows/*`, с меткой или без:
+     `gh pr list --state open --json number,headRefName,labels,files`. Правило worfy-windows (spec,
+     «Соглашения для Ticket-ов этого Epic-а», пункт «Метка needs-mac-gate») выбирает эти PR по метке
+     `needs-mac-gate`. Но на 2026-10-09 такой метки в репозитории нет (`gh label list`), а PR #200
+     (worfy-windows/08) открыт без неё. Поэтому выборка — по ветке. PR, который трогает общий код,
+     Session на Mac проходит по шагам того пункта: rebase, gate full на Mac, отчёт в PR, мерж.
+  2. Открытые PR других Epic-ов (ADR-0056, пункт 5) — тот же `gh pr list`. Их файлы сравниваются с
+     «Где в коде» Ticket-ов Wave тем же правилом, что внутри Wave. Ticket с общим файлом ждёт мержа
+     того PR. Пересечение и отложенный Ticket — в отчёте Wave. Список раздела «Порядок относительно
+     worfy-windows и worfy-harness» — подсказка, он не заменяет эту сверку.
 - **Мерж в main — по очереди** (ADR-0056, пункт 6). За раз вливается один PR. Второй перед мержем
-  обновляется от свежего main и проверяется заново — по правилу раздела «Порядок относительно
-  worfy-windows и worfy-harness».
-- **Платформенные PR** (ADR-0056, пункт 2). Ticket-ы 03, 04 и 06 меняют скрипты Harness:
-  `harness/hooks/gate.sh`, новые `harness/bin/shortcut-ledger` и `harness/bin/decision-log`. Их PR
-  мержатся только после gate full на Windows-ПК владельца. Строка вердикта Gate и код выхода — в
-  отчёт Ticket-а; «не удалось проверить» — не зелено. Прогон делает Session на Windows-ПК, просьба
-  о нём — комментарием в PR. Переходные исключения (Gate ещё не на Node, test-ы ещё не починены под
-  Windows) — ADR-0056, «Последствия».
+  обновляется от свежего main и проверяется заново: CI на Linux и gate full на Mac, а для
+  платформенного PR — ещё и gate full на Windows-ПК. Подробно — правило раздела «Порядок
+  относительно worfy-windows и worfy-harness».
+- **Платформенные PR** (ADR-0056, пункт 2: PR, который трогает код с ветками по платформе, скрипты
+  Harness или упаковку) — Ticket-ы 03, 04, 05 и 06:
+  - 03, 04 и 06 меняют скрипты Harness: `harness/hooks/gate.sh`, новые `harness/bin/shortcut-ledger`
+    и `harness/bin/decision-log`;
+  - 05 меняет `src/main/index.ts`, а там ветка по платформе (`process.platform !== 'darwin'`,
+    `:130`). Обработчики падений части А работают и на Windows.
+
+  01, 02 и 07 меняют тексты агентов и skills, test-ы и contract test-ы. Bash-test-ы — не скрипты
+  Harness (ADR-0055: скрипты — на Node, bash только в test-ах). Скриптов Harness, кода с ветками по
+  платформе и упаковки эти Ticket-ы не трогают, и под пункт 2 не подпадают.
+
+  Платформенные PR мержатся только после gate full на Windows-ПК владельца — сверх gate full на
+  Mac. Строка вердикта Gate и код выхода — в отчёт Ticket-а; «не удалось проверить» — не зелено.
+  Прогон делает Session на Windows-ПК, просьба о нём — комментарием в PR. Переходные исключения
+  (Gate ещё не на Node, test-ы ещё не починены под Windows) — ADR-0056, «Последствия».
 - **Gate.** Пункт «`gate.sh fast` — код 0 и строка `[gate] зелено (fast)`» в «Готово, когда» — это Gate
   fast той версии, что в main: после worfy-windows/03 — `gate.mjs`. Ticket, который меняет только
   `harness/`, гоняет Gate с `GATE_SCOPE=all`: в реестре Gate у worfy нет `^harness/`, и Gate fast
   по такому diff-у пишет «ничего не прогналось» (`HANDOFF.md`, «Ждёт владельца» и «Риски и долги»).
-- **CI** — только Linux: lint, typecheck, unit и contract test-ы. e2e и `.app` (Ticket 05)
-  проверяются локально перед мержем: `GATE_SCOPE=all gate.sh full` на ветке, под замком
-  `/tmp/worfy-e2e.lock` (команда — `rules.md` Profile-а worfy).
+- **CI** — только Linux: lint, typecheck, unit и contract test-ы. e2e и `.app` проверяются
+  локально перед мержем каждого Ticket-а этого Epic-а, не только 05: `GATE_SCOPE=all gate.sh full`
+  на ветке после rebase, под замком `/tmp/worfy-e2e.lock`, код 0 и строка `[gate] зелено` (команда
+  и правило — `rules.md` Profile-а worfy, «перед мержем любого PR с кодом»).
 - **После мержа в `harness/`** — `pnpm install:stable` вне прогона Autopilot (ADR-0047). Без этого
   правка не действует на Harness, которым работает Autopilot.
 - **Язык.** Текст Harness — английский (ADR-0044), в том числе новые пометки и строки в skills.
-  Кириллица в `harness/` — только из списков `ALLOWED` test-ов текстов. Документы Project-а —
-  русские, термины — из `CONTEXT.md`.
+  Кириллицу ограничивают четыре test-а: `agents-text.test.sh` (агенты), `epic-wave-ship-ticket.test.sh`
+  (skills epic-wave и ship-ticket), `rules-hooks.test.sh` (правила hooks) и `harness-home.test.sh`
+  (свой список файлов `FILES`: скрипты `bin/` и `hooks/`, в том числе `gate.sh`, и часть skills). В
+  файлах, которые они проверяют, кириллица — только из их списков разрешённых строк (`ALLOWED`).
+  Остальные файлы `harness/` на кириллицу не проверяются; новый текст и в них пишется
+  по-английски. Новая кириллическая строка в проверяемом файле — новая запись в `ALLOWED` того
+  test-а. Документы Project-а — русские, термины — из `CONTEXT.md`.
 - **Заимствования** — раздел «Решения владельца», пункт 1: источник с SHA коммита у каждого
   заимствованного правила, пометка MIT у дословного текста.
 
@@ -240,7 +299,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 02 | `harness/agents/reviewer.md`, `harness/profiles/README.md`, `harness/bin/tests/agents-text.test.sh`, `harness/evals/reviewer-simplification/`, `test/contract/harness-evals.test.ts` | 2 |
 | 03 | `harness/hooks/gate.sh`, `harness/hooks/gate.mjs`, `harness/hooks/tests/gate-file-size.test.sh` | 1 |
 | 04 | `harness/agents/implementer.md`, `harness/skills/ship-ticket/SKILL.md`, `harness/bin/tests/agents-text.test.sh`, `harness/bin/tests/epic-wave-ship-ticket.test.sh`, `harness/bin/shortcut-ledger`, `harness/bin/tests/shortcut-ledger.test.sh` | 3 |
-| 05 | `src/main/index.ts`, `src/main/diagnostics/process-gone.ts`, `test/unit/process-gone.test.ts`, `scripts/hang-sample.mjs`, `README.md` | 1 |
+| 05 | `src/main/index.ts`, `src/main/startup-failure.ts`, `src/main/diagnostics/process-gone.ts`, `test/unit/process-gone.test.ts`, `scripts/hang-sample.mjs`, `README.md` | 1 |
 | 06 | `harness/bin/decision-log`, `harness/bin/tests/decision-log.test.sh`, `harness/skills/epic-wave/SKILL.md`, `harness/hooks/rules/orchestrator.md`, `harness/hooks/tests/rules-hooks.test.sh` | 2 |
 | 07 | `harness/skills/max-review/SKILL.md`, `harness/skills/epic-wave/SKILL.md`, `harness/README.md`, `harness/bin/tests/max-review.test.sh`, `test/contract/harness-migrate.test.ts` | 3 |
 
@@ -249,10 +308,10 @@ Ticket-ов одной Wave общий файл, Ticket с большим ном
 
 - **Wave 1 — 01, 03 и 05.** Блокеров нет. Общих файлов нет: 01 — тексты reviewer-а и двух skills и
   свой eval-кейс, 03 — Gate (`gate.sh` или `gate.mjs`), 05 — код worfy и скрипт для Stable copy.
-- **Wave 2 — 02 и 06.** 02 ждёт 01: общие `harness/agents/reviewer.md` и
-  `test/contract/harness-evals.test.ts`. 06 блокеров не имеет, но делит с 01
-  `harness/skills/epic-wave/SKILL.md` и поэтому сдвинут из Wave 1. Между собой 02 и 06 файлов не
-  делят.
+- **Wave 2 — 02 и 06.** 02 ждёт 01: общие `harness/agents/reviewer.md`,
+  `harness/bin/tests/agents-text.test.sh` и `test/contract/harness-evals.test.ts`. 06 блокеров не
+  имеет, но делит с 01 `harness/skills/epic-wave/SKILL.md` и поэтому сдвинут из Wave 1. Между собой
+  02 и 06 файлов не делят.
 - **Wave 3 — 04 и 07.** 04 ждёт 02: оба правят `harness/bin/tests/agents-text.test.sh`, и формат
   комментария `shortcut: <предел>, <когда переделать>` первым записывает Ticket 02 — в фильтре линзы
   в `reviewer.md`. Ticket 04 переносит тот же формат в `implementer.md`. 07 ждёт 01 и 02. Общих

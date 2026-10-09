@@ -34,7 +34,10 @@ Ticket можно разделить на два независимых PR. Ча
    `render-process-gone` и `child-process-gone`. Каждое событие — одна JSON-строка в
    `<dataRoot()>/logs/process-gone.jsonl`: время, вид процесса, `reason`, `exitCode`, для окна — его
    URL. Запись дописывается в конец файла. Ошибка записи не роняет worfy, а уходит в `console.error`.
-2. Подключение в `src/main/index.ts` рядом с другими `inStep(…)`.
+2. Подключение в `src/main/index.ts` рядом с другими `inStep(…)`. `inStep` принимает только имя
+   шага из закрытого union `StartupStep` (`src/main/startup-failure.ts:11-21`), и у каждого шага
+   есть запись в таблице `STEPS` (`:34`). Поэтому новый шаг (например, `installProcessGone`) — это и
+   правка `src/main/startup-failure.ts`: имя в union и запись в `STEPS`.
 3. Перезапуск окна после падения не делаем: только запись.
 
 **Часть Б — снимок стека при таймауте.**
@@ -49,8 +52,13 @@ Ticket можно разделить на два независимых PR. Ча
      прописывается. Другой pid — отказ с ненулевым кодом.
    - **Какие дочерние процессы.** Из `pgrep -P <pid>` скрипт берёт те, чей путь лежит внутри того же
      бандла:
-     - helper-ы Electron в `<бандл>/Contents/Frameworks/`: `worfy Helper (Renderer)` (окна),
-       `worfy Helper (GPU)`, `worfy Helper` (utility-процессы, например network service);
+     - helper-ы Electron в `<бандл>/Contents/Frameworks/`: `worfy Helper (Renderer)` — окна
+       (`--type=renderer`); `worfy Helper` — GPU-процесс (`--type=gpu-process`) и utility-процессы,
+       например network service (`--type=utility`). Бандлы `worfy Helper (GPU).app` и
+       `worfy Helper (Plugin).app` в `Frameworks/` есть, но процессов под этими именами нет: на
+       запущенной Stable copy (Electron 44.5.1) GPU-процесс идёт как `worfy Helper`
+       (`ps -axo pid,comm,args`, 2026-10-09). Вид процесса берётся из аргумента `--type=`, а не из
+       имени;
      - `claude` Agent SDK — `<бандл>/Contents/Resources/app.asar.unpacked/…`
        (`src/main/agent/options.ts:75`).
    - **Дочерние процессы вне бандла — не отказ.** Это shell-ы Terminal (node-pty,
@@ -90,6 +98,7 @@ Ticket можно разделить на два независимых PR. Ча
 ## Где в коде
 
 - `src/main/index.ts`
+- `src/main/startup-failure.ts` — новый шаг в union StartupStep и в таблице STEPS
 - `src/main/diagnostics/process-gone.ts` — новый
 - `test/unit/process-gone.test.ts` — новый
 - `scripts/hang-sample.mjs` — новый

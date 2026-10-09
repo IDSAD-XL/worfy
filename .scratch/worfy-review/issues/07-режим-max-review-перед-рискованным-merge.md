@@ -12,8 +12,12 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
   `worfy:reviewer` на находку, задача — опровергнуть) работают только в узком круге доработки
   (`:305-314`): у Ticket-а на критическом пути (≥3 зависимых Ticket-а не в `done`) второй круг дал
   подтверждённые находки не уровня `high`. У Ticket-а без зависимых узкий круг — только по решению
-  владельца. В остальных случаях находки второго круга никто отдельно не перепроверяет. Lens
-  reviewers по линзам Profile запускает только ship-ticket, шаг 7.
+  владельца. В остальных случаях находки второго круга никто отдельно не перепроверяет.
+- **Линзы Profile работают в двух местах** (spec, «Как устроено», пункт «Где работают линзы»):
+  ship-ticket, шаг 7, и правило Orchestrator-а Phase 2 — ревью перед каждым отчётом
+  (`harness/hooks/rules/orchestrator.md:105-111`). В Gate Wave их нет. В Phase 2 линзу выбирает
+  Orchestrator, и ревью идёт по diff-у, о котором он отчитывается, а не по всей ветке Ticket-а перед
+  merge.
 - **Для рискованного merge этого мало.** Пример — ветка, которая трогает Gate, Autopilot или формат
   файлов, которые читает worfy. Ошибка там бьёт по всем следующим Wave.
 - **Все reviewer-ы идут на одной модели.** В `harness/agents/reviewer.md` стоит `model: inherit`.
@@ -62,7 +66,11 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
      `epic-wave-ship-ticket.test.sh`, а этот test в той же Wave 3 правит Ticket 04.
    - `MAX-REVIEW: VERIFIED` — merge в обычном порядке раздела 4.
    - Возобновление после перерыва: у Ticket-а с пометкой о риске нет `MAX-REVIEW:` — max-review до
-     merge; иначе вердиктом считается последний `MAX-REVIEW: …`.
+     merge; иначе вердиктом считается последний `MAX-REVIEW: …`. Это правило пишется и в раздел
+     epic-wave «How to resume a wave» — рядом со строками о `NARROW:`, для PR и для `local-green`.
+     С `local-green` тот раздел читает состояние Ticket-а по commit-ам `gate:` на его ветке («no
+     last `gate: VERIFIED` — run the gate»). Commit `gate: MAX-REVIEW: …` после `gate: VERIFIED` не
+     должен запускать Gate заново.
    - По просьбе владельца вне Wave вердикт тоже пишется с префиксом (если PR есть — комментарием) и
      ничего не блокирует: решает владелец.
 5. **Стоимость в тексте skill-а:** режим стоит в 2–4 раза больше обычного ревью. Без пометки и без
@@ -81,6 +89,7 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
   - в epic-wave, раздел 4, есть вызов `/worfy:max-review` для Ticket-а с пометкой о риске;
   - в skill-е и в epic-wave, раздел 4, — префикс `MAX-REVIEW:`, три места записи вердикта и правило
     «`MAX-REVIEW: REJECTED` → `ticket block`, без круга доработки»;
+  - в разделе epic-wave «How to resume a wave» — правило о `MAX-REVIEW:`;
   - кириллица — только в разрешённых строках (названия линз из Profile).
   Код 0. Сначала test красный: skill-а нет.
 - [ ] `test/contract/harness-migrate.test.ts` — код 0 (`pnpm test`): в списке `:241` есть
@@ -92,16 +101,17 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
   время прогона — в «Итог». Это и есть замер стоимости.
 - [ ] Источник назван (spec, «Решения владельца», пункт 1). В `max-review/SKILL.md` — строки `Source:`
   для Thermos и pstack (`interrogate`) с путём к файлу и SHA коммита. Дословно взятый текст — ещё и
-  пометка MIT со строкой copyright владельца источника.
+  пометка MIT: строка copyright владельца источника и полный
+  текст лицензии из его `LICENSE` на том же коммите.
 - [ ] `gate.sh fast` — код 0 и строка `[gate] зелено (fast)`.
 
 ## Где в коде
 
 - `harness/skills/max-review/SKILL.md` — новый
-- `harness/skills/epic-wave/SKILL.md` — раздел 4
+- `harness/skills/epic-wave/SKILL.md` — раздел 4 и раздел «How to resume a wave»
 - `harness/README.md` — таблица skills
 - `harness/bin/tests/max-review.test.sh` — новый
-- `test/contract/harness-migrate.test.ts` — строка `:241`, список skills
+- `test/contract/harness-migrate.test.ts` — строка 241, список skills
 
 ## Вне скоупа
 
@@ -123,7 +133,8 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
   исполнитель по замеру.
 - **Общий файл с worfy-windows/13 и 17.** 13 правит `harness-migrate.test.ts`, а 17 добавляет skill
   `gate-queue` и тоже упирается в строку `:241`. Кто вливается вторым — rebase, обе папки в списке и
-  `pnpm test` заново (spec, раздел «Порядок относительно worfy-windows и worfy-harness»).
+  все проверки заново: CI на Linux и `GATE_SCOPE=all` gate full на Mac, в нём и `pnpm test` (spec,
+  раздел «Порядок относительно worfy-windows и worfy-harness»).
 
 ## Итог
 
