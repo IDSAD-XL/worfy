@@ -1,13 +1,11 @@
-# Передача контекста — снимок на 2026-10-09 (UTC), main @ 4f40926
+# Передача контекста — снимок на 2026-10-09 (UTC), main @ df8e870
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3: Harness — правила, skills, agents и скрипты владельца — становится plugin-ом worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–23, `epic-status` — 23/27; 27 — бесплатная часть влита, Ticket `blocked`.
-- `worfy-harness` 23 (worfy читает Workflow folder Silent Project-а; Project над несколькими репозиториями — Gate, PR, CI по строке `Repo:`) влит 2026-10-09 (PR #178, follow-up #181 — 15 s первого ожидания в `silent-project.spec.ts`).
+- `worfy-harness` (E3: Harness — правила, skills, agents и скрипты владельца — становится plugin-ом worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–23 (23 — PR #178, #181), `epic-status` — 23/27; 27 — бесплатная часть влита, Ticket `blocked`.
 - `worfy-harness` 24 (подключение Project-а: форма «Connect project», `bin/project-connect`) — `blocked` гейтом, работа в открытом PR #176: во втором круге новые high в списке читающих команд Bash Session-а черновика.
-- `worfy-harness` 16 сделан 2026-10-08: машина владельца на plugin `worfy` 0.2.0+77e4490 ([Ticket 16](.scratch/worfy-harness/issues/16-переход-машины-владельца-на-plugin.md)): откат и резервная копия — в «Итог». qmd в Session-ах нет, пока владелец не сделает шаги Ticket-а 17.
-- `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 18. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`.
-- Работа над `worfy-week` 14 лежит только в локальной ветке `wip/worfy-week-14`, на GitHub её нет. Как вернуть Ticket — «Итог» Ticket-а 14.
+- `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 18. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`; работа — только в локальной ветке `wip/worfy-week-14` («Итог» Ticket-а 14).
+- Stable copy и plugin `worfy` — сборка `df8e870` (2026-10-09). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–10, 12–15, `epic-status` — 14/16; Wave 5 — 10, 12, 13 (PR #183–#185). 11 `blocked` до мержа `worfy-harness` 24 (его диалог «Connect project»), потом — в open.
 - `worfy-windows` (полный порт под Windows; spec, ADR 0054–0056): влиты 01 (PR #172, факты с Windows-ПК) и 02 (PR #177: `.gitattributes`, `postinstall` и `pnpm test` без POSIX-синтаксиса). Следом 08, 09, 11 (Session на Windows-ПК; gate full — на Mac); 03–07 ждут закрытия E3.
 
@@ -30,7 +28,8 @@
 - `worfy-harness` 26 (приёмка E3): один `/login` в песочнице (он же откроет `claude plugin validate` и живые проверки 05–08) и второй пользователь macOS — [Ticket 26](.scratch/worfy-harness/issues/26-приёмка-e3.md).
 - `worfy-windows` 01: jq на чистой Windows (в Git for Windows его нет, first-run требует) и symlink-test-ы без Developer Mode — skip на win32 или Developer Mode — [Ticket 01](.scratch/worfy-windows/issues/01-проверка-фактов-на-живой-windows.md), «Итог».
 - `worfy-windows` 02: снимок окна `pnpm dev` на Windows-ПК; 16 падений `harness-evals` от CRLF во front matter — LF и для `harness/evals/**` или `\r?\n` в test-е (Ticket 14) — [Ticket 02](.scratch/worfy-windows/issues/02-репозиторий-ставится-и-запускается-на-windows.md), «Итог».
-- Mac, 2026-10-09: `defaults write com.github.Electron ApplePersistenceIgnoreState -bool YES` — снял модальное окно macOS «восстановить окна?», из-за которого все e2e падали в `firstWindow` (PR #179); оставить или `defaults delete com.github.Electron ApplePersistenceIgnoreState`.
+- Mac: `defaults write com.github.Electron ApplePersistenceIgnoreState -bool YES` (2026-10-09, PR #179) — оставить или `defaults delete com.github.Electron ApplePersistenceIgnoreState`.
+- Замок e2e в `rules.md` Profile-а worfy: держащий делает `touch` раз в 5 минут (риск ниже) — дописать в правило.
 
 ## Риски и долги
 
@@ -44,12 +43,12 @@
 - Gate `fast` с сужением по диффу не видит `scripts/` и `test/fixtures/` (`worfy-mvp` 01). Перед мержем — `GATE_SCOPE=all gate.sh full` на ветке: e2e и `.app` идут только локально ([ci-merge.md](docs/lessons/ci-merge.md)).
 - Замок `/tmp/worfy-e2e.lock` брошен через 30 минут, а `gate full` под нагрузкой идёт ~35: живой замок снимали, e2e падали. Держащий его делает `touch` раз в 5 минут; `rules.md` не менялся.
 - Contract test-ы с дочерними процессами (`github-prs`, `harness-qmd`, `workflow-reader`, `docs`) при load 6–8 не укладываются в 15 s: gate fast параллельных исполнителей краснел.
-- Ночной прогон: заблокированный экран Mac и параллельные e2e дают ложный таймаут первого окна. На ночь Mac разблокирован, крышка открыта ([agents.md](docs/lessons/agents.md)).
+- Ложный таймаут первого окна в e2e: заблокированный экран, параллельные e2e, окно macOS «восстановить окна?» (с PR #179 test-ы его отключают) — [agents.md](docs/lessons/agents.md).
 - Долги low — в «Итог» Ticket-ов (абзацы «Долг» и подраздел «Долги из HANDOFF (2026-10-08)»), разбор — шаг документов при закрытии Epic-а.
 
 ## Дальше
 
-- Wave-ы `worfy-harness` на plugin-е по блокерам: 24 — после решения владельца, 25, 26; платная часть 27 — после ответа про git — spec, раздел «Волны». Если E3 встанет — `worfy-link` (владелец разрешил начать, пока E3 ждёт).
+- `worfy-harness` 24 — после решения владельца, следом 25 и `worfy-link` 11; приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot. Платная часть 27 — после ответа про git.
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
 - Ждут условия (проверит агент): упор в Limits (`worfy-daily` 05), наблюдатель касаний (`worfy-daily` 04), workflow-скрипт в Autopilot (`worfy-daily` 29, 17), бейджи у Ticket-а с открытым PR (`worfy-mvp` 17, `worfy-week` 01).
 - Неделя работы владельца из Stable copy (условие 4 E2 и цель `worfy-week`): каждый дефект и каждое вмешательство человека — Ticket `worfy-week`, следующий номер 19.
