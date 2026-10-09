@@ -10,8 +10,8 @@
 //
 // Windows has no login shell (ADR-0057, worfy-windows ticket 09). The environment is built as a new
 // sign-in builds it, not taken from worfy's process: the persistent variables of the machine and
-// the user from the registry (`reg query`, REG_EXPAND_SZ expanded, Path = machine Path + user
-// Path), on top of a short list of session variables Windows sets at sign-in (SystemRoot,
+// the user from the registry (read through Windows PowerShell, REG_EXPAND_SZ expanded, Path =
+// machine Path + user Path), on top of a short list of session variables Windows sets at sign-in (SystemRoot,
 // USERPROFILE, APPDATA …), taken from the process. Nothing else of whoever started worfy — a
 // parent Claude Code session's CLAUDECODE or GH_TOKEN, WORFY_* — reaches Claude Code, as the
 // minimal start of the login shell ensures on the Mac. The API keys are removed as on the Mac.
@@ -123,9 +123,12 @@ export async function captureLoginShellEnv(options: CaptureOptions = {}): Promis
 /** The persistent environment of Windows: the user's and the machine's. */
 export const PERSISTENT_ENV_KEYS = ['HKCU\\Environment', 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment'] as const
 
-/** stdout of `reg query <key>`; rejects when reg fails. */
-export type RegQuery = (key: string) => Promise<string>
+/** The REG_SZ and REG_EXPAND_SZ values of a registry key, not expanded; rejects when the key cannot be read. */
+export type RegRead = (key: string) => Promise<RegValue[]>
 export type FileExists = (path: string) => boolean
+
+/** Windows keeps one variable to 32,767 characters; a longer expansion stays as written. */
+export const MAX_VAR_LENGTH = 32_767
 
 /** Variable names on Windows are case-insensitive: the value of `name` under any case. */
 function getVar(env: SourceEnv, name: string): string | undefined {
@@ -135,14 +138,18 @@ function getVar(env: SourceEnv, name: string): string | undefined {
 }
 
 /**
- * Session variables Windows sets at sign-in and keeps outside the Environment keys of the registry
- * (HKCU\Volatile Environment, the system itself). They are taken from worfy's process; nothing else is.
+ * The variables Windows sets for a session, taken from worfy's process; nothing else of it is. Most
+ * live outside the Environment keys of the registry (HKCU\Volatile Environment, the system itself).
+ * Some — ComSpec, PATHEXT, TEMP, windir … — are normally values of the machine's key too: the
+ * registry value wins, and the copy from the process stays only when the registry lacks the name,
+ * or in the fallback.
  */
 export const WINDOWS_SESSION_VARS = [
   'SystemRoot', 'SystemDrive', 'windir', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP',
   'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'HOMESHARE', 'APPDATA', 'LOCALAPPDATA', 'ProgramData',
-  'LOGONSERVER', 'USERDOMAIN_ROAMINGPROFILE', 'SESSIONNAME', 'CLIENTNAME',
-  'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432',
+  'LOGONSERVER', 'USERDOMAIN_ROAMINGPROFILE', 'USERDNSDOMAIN', 'SESSIONNAME', 'CLIENTNAME',
+  'ProgramFiles', 'ProgramFiles(x86)', 'ProgramFiles(Arm)', 'ProgramW6432',
+  'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramFiles(Arm)', 'CommonProgramW6432',
   'PUBLIC', 'ALLUSERSPROFILE', 'COMPUTERNAME', 'USERNAME', 'USERDOMAIN', 'OS',
   'PROCESSOR_ARCHITECTURE', 'PROCESSOR_IDENTIFIER', 'PROCESSOR_LEVEL', 'PROCESSOR_REVISION', 'NUMBER_OF_PROCESSORS',
 ] as const
@@ -153,14 +160,50 @@ export interface RegValue {
   value: string
 }
 
-/** The values in the output of `reg query <key>`: lines `    <name>    REG_<type>    <value>`. */
-export function parseRegQuery(output: string): RegValue[] {
+/**
+ * A Windows PowerShell script that prints the REG_SZ and REG_EXPAND_SZ values of `key`, not
+ * expanded, one per line: `<String|ExpandString> <name> <value>`, name and value in base64 of UTF-8,
+ * so the output is ASCII whatever the console's code page. `reg query` is not used: it writes to a
+ * pipe in the OEM code page, so C:\Users\Алексей came out garbled and characters outside that code
+ * page as `?`, with no error (review of PR #194, round 4).
+ */
+export function registryScript(key: string): string {
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    "$ProgressPreference = 'SilentlyContinue'",
+    `$key = Get-Item -LiteralPath 'Registry::${key.replace(/'/g, "''")}'`,
+    '$b64 = { param($s) [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$s)) }',
+    'foreach ($name in $key.GetValueNames()) {',
+    "  if ($name -eq '') { continue }",
+    '  $kind = $key.GetValueKind($name).ToString()',
+    "  if ($kind -ne 'String' -and $kind -ne 'ExpandString') { continue }",
+    "  $value = $key.GetValue($name, '', 'DoNotExpandEnvironmentNames')",
+    '  "$kind $(& $b64 $name) $(& $b64 $value)"',
+    '}',
+  ].join('\n')
+}
+
+/** The values in the output of registryScript; other lines are skipped. */
+export function parseRegistryValues(output: string): RegValue[] {
   const values: RegValue[] = []
+  const text = (base64: string | undefined): string => Buffer.from(base64 ?? '', 'base64').toString('utf8')
   for (const line of output.split(/\r?\n/)) {
-    const match = /^ {4}(.+?) {4}(REG_[A-Z_]+)(?: {4}(.*))?$/.exec(line)
-    if (match) values.push({ name: match[1]!, type: match[2]!, value: match[3] ?? '' })
+    const match = /^(String|ExpandString) ([A-Za-z0-9+/]+=*)(?: ([A-Za-z0-9+/]*=*))? *$/.exec(line)
+    if (match) values.push({ name: text(match[2]), type: match[1] === 'String' ? 'REG_SZ' : 'REG_EXPAND_SZ', value: text(match[3]) })
   }
   return values
+}
+
+/** Reads a key through Windows PowerShell of `systemRoot`, started by its absolute path. */
+export function powershellRegRead(systemRoot: string): RegRead {
+  const powershell = win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+  return (key) =>
+    new Promise((resolve, reject) => {
+      const script = Buffer.from(registryScript(key), 'utf16le').toString('base64')
+      execFile(powershell, ['-NoProfile', '-NonInteractive', '-EncodedCommand', script], { encoding: 'utf8', timeout: SHELL_TIMEOUT_MS, windowsHide: true }, (error, stdout) =>
+        error ? reject(new Error(`${powershell} could not read ${key}: ${error.code ?? error.signal ?? 'failed'}`)) : resolve(parseRegistryValues(stdout)),
+      )
+    })
 }
 
 /** Sets `key` in `env`, replacing a key that differs only in case. */
@@ -174,8 +217,9 @@ function setVar(env: Env, key: string, value: string): void {
  * REG_EXPAND_SZ waits until every variable it names is final — not itself waiting in this key — and
  * then each `%NAME%` gets the value NAME has in `env`, once: the text put in is not scanned again.
  * So a forward reference within the key works, and a reference to the value's own name gets the value
- * from before this key (the machine's, for the user's key). An unknown name stays as written, and so
- * does a reference within a cycle.
+ * from before this key: the machine's for the user's key, or the session's when there is none. An
+ * unknown name stays as written, and so does a reference within a cycle. A value that would grow
+ * past MAX_VAR_LENGTH stays as written.
  */
 function putKey(values: RegValue[], env: Env): void {
   const waiting = new Map<string, RegValue>()
@@ -186,8 +230,16 @@ function putKey(values: RegValue[], env: Env): void {
     } else if (entry.type === 'REG_EXPAND_SZ') waiting.set(entry.name.toUpperCase(), entry)
   }
   const blockedBy = (self: string, name: string): boolean => name.toUpperCase() !== self && waiting.has(name.toUpperCase())
-  const expand = (self: string, value: string): string =>
-    value.replace(/%([^%;]+)%/g, (whole, name: string) => (blockedBy(self, name) ? whole : (getVar(env, name) ?? whole)))
+  const expand = (self: string, value: string): string => {
+    // The length is counted while expanding, so a value that doubles at every step stops early.
+    let length = value.length
+    const expanded = value.replace(/%([^%;]+)%/g, (whole, name: string) => {
+      const found = blockedBy(self, name) ? whole : (getVar(env, name) ?? whole)
+      length += found.length - whole.length
+      return length > MAX_VAR_LENGTH ? '' : found
+    })
+    return length > MAX_VAR_LENGTH ? value : expanded
+  }
   let progress = true
   while (progress) {
     progress = false
@@ -260,17 +312,11 @@ export function findGitBash(env: SourceEnv, exists: FileExists = fileOrAlias): s
   return null
 }
 
-const execRegQuery: RegQuery = (key) =>
-  new Promise((resolve, reject) => {
-    execFile('reg', ['query', key], { encoding: 'utf8', timeout: SHELL_TIMEOUT_MS, windowsHide: true }, (error, stdout) =>
-      error ? reject(error) : resolve(stdout),
-    )
-  })
-
 export interface WindowsEnvOptions {
   /** worfy's own environment; process.env by default. */
   source?: SourceEnv
-  regQuery?: RegQuery
+  /** The registry reader; powershellRegRead of %SystemRoot% by default. */
+  readKey?: RegRead
   exists?: FileExists
 }
 
@@ -279,39 +325,43 @@ export interface WindowsEnvOptions {
  *   1. the session variables of WINDOWS_SESSION_VARS, from `source`;
  *   2. the machine's persistent variables, final, and then the user's on top (putKey): REG_EXPAND_SZ
  *      gets the final values of the variables it names; Path is the machine Path followed by the
- *      user Path;
+ *      user Path, and no Path when both are missing or empty;
  *   3. without ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN (any case), as on the Mac;
  *   4. Git Bash in CLAUDE_CODE_GIT_BASH_PATH unless the user has an own one.
- * When `reg query` fails the result is the session variables and the Path of `source` (`fallback`),
- * and `error` says why; without Git Bash `error` says the agent has no Bash tool.
+ * When the registry cannot be read the result is exactly the session variables and the Path of
+ * `source` (`fallback`), and `error` says why; without Git Bash `error` says the agent has no Bash tool.
  */
 export async function captureWindowsEnv(options: WindowsEnvOptions = {}): Promise<CapturedEnv> {
   const source = options.source ?? process.env
   const errors: string[] = []
-  const env: Env = {}
+  let env: Env = {}
   for (const key of WINDOWS_SESSION_VARS) {
     const value = getVar(source, key)
     if (value !== undefined) env[key] = value
   }
   let from: CapturedEnv['from'] = 'registry'
   try {
+    const readKey = options.readKey ?? powershellRegRead(getVar(source, 'SystemRoot') ?? 'C:\\Windows')
     // PERSISTENT_ENV_KEYS: the user's key first, the machine's second.
-    const [user, machine] = await Promise.all(PERSISTENT_ENV_KEYS.map((key) => (options.regQuery ?? execRegQuery)(key)))
+    const [userValues, machineValues] = await Promise.all(PERSISTENT_ENV_KEYS.map((key) => readKey(key)))
+    // Built apart and taken only when complete, so a fallback carries nothing of the registry.
+    const registry: Env = { ...env }
     // As Windows does: the machine's key is final before the user's is read, so `%PATHEXT%` in the
     // user's PATHEXT is the machine's value. Path alone is not replaced: the user's goes after it.
-    const machineValues = parseRegQuery(machine!)
-    const userValues = parseRegQuery(user!)
     const hasPath = (values: RegValue[]): boolean => values.some(({ name, type }) => name.toUpperCase() === 'PATH' && /^REG_(EXPAND_)?SZ$/.test(type))
-    putKey(machineValues, env)
-    const machinePath = hasPath(machineValues) ? getVar(env, 'PATH') : undefined
-    putKey(userValues, env)
-    const userPath = hasPath(userValues) ? getVar(env, 'PATH') : undefined
-    setVar(env, 'Path', [machinePath, userPath].filter((part) => part !== undefined && part !== '').join(';'))
+    putKey(machineValues!, registry)
+    const machinePath = hasPath(machineValues!) ? getVar(registry, 'PATH') : undefined
+    putKey(userValues!, registry)
+    const userPath = hasPath(userValues!) ? getVar(registry, 'PATH') : undefined
+    const path = [machinePath, userPath].filter((part) => part !== undefined && part !== '')
+    setVar(registry, 'Path', path.join(';'))
+    if (path.length === 0) delete registry.Path
+    env = registry
   } catch (error) {
     from = 'fallback'
     const path = getVar(source, 'PATH')
     if (path !== undefined) setVar(env, 'Path', path)
-    errors.push(`reg query failed, only the session variables and the Path of worfy's process are used: ${error instanceof Error ? error.message : String(error)}`)
+    errors.push(`the registry could not be read, only the session variables and the Path of worfy's process are used: ${error instanceof Error ? error.message : String(error)}`)
   }
   for (const key of Object.keys(env)) if ((API_KEY_VARS as readonly string[]).includes(key.toUpperCase())) delete env[key]
   if (getVar(env, 'CLAUDE_CODE_GIT_BASH_PATH') === undefined) {

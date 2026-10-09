@@ -196,6 +196,19 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
     `PATHEXT=%PATHEXT%;.PY` давал `%PATHEXT%;.PY;.PY;.PY;.PY`). На ПК владельца в реестре таких
     ссылок нет (в `Path` только `%SystemRoot%` и `%USERPROFILE%`, `PATHEXT` и `PSModulePath` только у
     машины), поэтому здесь ни одна ошибка не проявлялась.
+  - Чтение реестра (четвёртое ревью): `reg query` заменён на Windows PowerShell по абсолютному пути
+    (`powershellRegRead`, `registryScript`, `parseRegistryValues`): `GetValue(…,
+    'DoNotExpandEnvironmentNames')`, имя и значение в base64 от UTF-8. Проверено на ПК временным
+    ключом `HKCU\Software\worfy-probe` (создан и удалён, `reg query` после удаления — exit 1): значение
+    `C:\Users\Алексей\日本\😀\%USERPROFILE%` через `reg query` как UTF-8 читается как
+    `C:\Users\����ᥩ\??\??\%USERPROFILE%`, как CP866 — `C:\Users\Алексей\??\??\%USERPROFILE%`
+    (`chcp` — 866), через PowerShell — без потерь. Точка подмены для test-ов — `readKey` (значения
+    ключа уже разобранными), вместо `regQuery`.
+  - Там же: предел 32 767 символов на значение (длиннее — остаётся как есть), запасное окружение без
+    частей реестра (реестр собирается отдельно), без пустого `Path`, в `WINDOWS_SESSION_VARS` —
+    `USERDNSDOMAIN`, `ProgramFiles(Arm)`, `CommonProgramFiles(Arm)`.
+  - **Долг:** пользовательское значение `P2=%Path%` получает только `Path` пользователя, а итоговый
+    `Path` — машины и пользователя. Как поступает сама Windows, не проверено; случай редкий.
   - Переменные входа из `HKCU\Volatile Environment` (`LOGONSERVER`, `HOMESHARE`,
     `USERDOMAIN_ROAMINGPROFILE`, `SESSIONNAME`, `CLIENTNAME`) — тоже в `WINDOWS_SESSION_VARS`.
   - Первый вариант (окружение процесса минус `CLAUDE*`/`ANTHROPIC_*`) отвергнут на ревью PR #194:
@@ -223,10 +236,16 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
   раскрытия — 2; повторное сканирование подставленного текста — 1; раскрытие `REG_SZ` — 1; ключ
   пользователя раньше машины — 7; `Path` пользователя заменяет машинный — 4; без значений из цикла —
   1. Новая таблица на коде `442c871` — 5 красных из 9 строк (PATHEXT, PSModulePath, `REG_SZ`, цикл,
-  машинный ключ не видит пользовательскую переменную).
+  машинный ключ не видит пользовательскую переменную). После четвёртого ревью — 21 мутант, все
+  красные: 8 прежних и 13 новых (пункты a–f ревью — регистр ключа API, регистр в `setVar`, регистр в
+  ссылке вперёд, пустой `Path` пользователя, остаток цикла без раскрытия, `;` в имени; без предела
+  длины, `>=` вместо `>`, запасное окружение с частью реестра, пустой `Path`, base64 как latin1, чтение
+  с раскрытием, без `USERDNSDOMAIN`).
 - **Test-ы на Windows-ПК:** `pnpm test test/unit/agent-env.test.ts test/unit/agent-executable.test.ts
-  test/unit/agent-query-factory.test.ts` — exit 0 (после третьего ревью `agent-env.test.ts` — `37
-  passed | 4 skipped (41)`; после второго ревью `agent-env.test.ts` — `30
+  test/unit/agent-query-factory.test.ts` — exit 0 (после четвёртого ревью `agent-env.test.ts` — `50
+  passed | 4 skipped (54)`, с test-ами читателя реестра на временном ключе
+  `HKCU\Software\worfy-test-registry-reader`; после третьего — `37 passed | 4 skipped (41)`; после
+  второго ревью `agent-env.test.ts` — `30
   passed | 4 skipped (34)`: добавлены случай порядка раскрытия и случай с настоящим реестром и
   подложенными `CLAUDECODE`, `GH_TOKEN`, `ANTHROPIC_API_KEY` в окружение процесса; test псевдонима
   MSIX без псевдонима — `ctx.skip()`), до него — `Tests 50 passed | 4 skipped (54)`; пропущены

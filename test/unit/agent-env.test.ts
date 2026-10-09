@@ -5,7 +5,7 @@
 // captureAgentEnv take the platform, worfy's environment, the answer of `reg query` and the file
 // checks as parameters, so they run on the Mac and on Linux CI; the last case runs the real
 // agentEnv() on Windows only.
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, lstatSync } from 'node:fs'
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -20,13 +20,17 @@ import {
   findGitBash,
   findOnPath,
   parseEnvDump,
-  parseRegQuery,
+  MAX_VAR_LENGTH,
+  parseRegistryValues,
   PERSISTENT_ENV_KEYS,
+  powershellRegRead,
+  registryScript,
   shellBaseEnv,
   SYSTEM_PATH,
   withoutApiKeys,
   WINDOWS_SESSION_VARS,
   type CapturedEnv,
+  type RegValue,
 } from '../../src/main/agent/env'
 
 let home: string
@@ -155,40 +159,39 @@ const parentEnv: Record<string, string> = {
   WORFY_DATA_DIR: 'C:\\parent\\data',
 }
 
-/** `reg query` of the two keys: the machine's Path and the user's own variables (setx). */
-const regAnswers: Record<string, string> = {
-  [PERSISTENT_ENV_KEYS[1]]: [
-    '',
-    'HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment',
-    '    ComSpec    REG_EXPAND_SZ    %SystemRoot%\\system32\\cmd.exe',
-    '    NUMBER_OF_PROCESSORS    REG_SZ    16',
-    `    Path    REG_EXPAND_SZ    %SystemRoot%\\system32;%SystemRoot%;${GIT}\\cmd;C:\\Program Files\\nodejs`,
-    '    TEMP    REG_EXPAND_SZ    %SystemRoot%\\TEMP',
-    '    DriverData    REG_SZ    C:\\Windows\\System32\\Drivers\\DriverData',
-    '    SomeFlag    REG_DWORD    0x1',
-    '',
-  ].join('\r\n'),
-  [PERSISTENT_ENV_KEYS[0]]: [
-    '',
-    'HKEY_CURRENT_USER\\Environment',
-    '    Path    REG_EXPAND_SZ    %USERPROFILE%\\bin;%LOCALAPPDATA%\\Programs\\tool',
-    '    TEMP    REG_EXPAND_SZ    %USERPROFILE%\\AppData\\Local\\Temp',
-    '    ANTHROPIC_MODEL    REG_SZ    opus',
-    '    ANTHROPIC_API_KEY    REG_SZ    set-with-setx',
-    '    NVM_HOME    REG_EXPAND_SZ    %APPDATA%\\nvm',
-    '    UNKNOWN_REF    REG_EXPAND_SZ    %NOT_SET%\\x',
-    '    EMPTY    REG_SZ',
-    '',
-  ].join('\r\n'),
+const SZ = 'REG_SZ'
+const EXPAND = 'REG_EXPAND_SZ'
+/** The values of one registry key, as the reader returns them: [name, type, value]. */
+const key = (...values: [string, string, string][]): RegValue[] => values.map(([name, type, value]) => ({ name, type, value }))
+
+/** The two keys: the machine's Path and the user's own variables (setx). */
+const regAnswers: Record<string, RegValue[]> = {
+  [PERSISTENT_ENV_KEYS[1]]: key(
+    ['ComSpec', EXPAND, '%SystemRoot%\\system32\\cmd.exe'],
+    ['NUMBER_OF_PROCESSORS', SZ, '16'],
+    ['Path', EXPAND, `%SystemRoot%\\system32;%SystemRoot%;${GIT}\\cmd;C:\\Program Files\\nodejs`],
+    ['TEMP', EXPAND, '%SystemRoot%\\TEMP'],
+    ['DriverData', SZ, 'C:\\Windows\\System32\\Drivers\\DriverData'],
+    ['SomeFlag', 'REG_DWORD', '1'],
+  ),
+  [PERSISTENT_ENV_KEYS[0]]: key(
+    ['Path', EXPAND, '%USERPROFILE%\\bin;%LOCALAPPDATA%\\Programs\\tool'],
+    ['TEMP', EXPAND, '%USERPROFILE%\\AppData\\Local\\Temp'],
+    ['ANTHROPIC_MODEL', SZ, 'opus'],
+    ['ANTHROPIC_API_KEY', SZ, 'set-with-setx'],
+    ['NVM_HOME', EXPAND, '%APPDATA%\\nvm'],
+    ['UNKNOWN_REF', EXPAND, '%NOT_SET%\\x'],
+    ['EMPTY', SZ, ''],
+  ),
 }
-const regQuery = async (key: string): Promise<string> => regAnswers[key] ?? Promise.reject(new Error(`no ${key}`))
+const readKey = async (name: string): Promise<RegValue[]> => regAnswers[name] ?? Promise.reject(new Error(`no ${name}`))
 const files = (...present: string[]) => (path: string): boolean => present.some((file) => file.toLowerCase() === path.toLowerCase())
 
 const capture = (options: Partial<Parameters<typeof captureAgentEnv>[0]> = {}): Promise<CapturedEnv> =>
   captureAgentEnv({
     platform: 'win32',
     source: parentEnv,
-    regQuery,
+    readKey,
     exists: files(`${GIT}\\cmd\\git.exe`, BASH),
     captureShell: () => Promise.reject(new Error('the login shell must not run on Windows')),
     ...options,
@@ -214,7 +217,7 @@ describe('captureAgentEnv on win32', () => {
   it('takes the session variables Windows sets at sign-in from the process', async () => {
     const { env } = await capture()
     expect(env).toMatchObject({ SystemRoot: 'C:\\Windows', USERPROFILE: 'C:\\Users\\u', APPDATA: 'C:\\Users\\u\\AppData\\Roaming', USERNAME: 'u' })
-    expect(WINDOWS_SESSION_VARS).toContain('LOCALAPPDATA')
+    expect(WINDOWS_SESSION_VARS).toEqual(expect.arrayContaining(['LOCALAPPDATA', 'USERDNSDOMAIN', 'ProgramFiles(Arm)', 'CommonProgramFiles(Arm)', 'ProgramW6432', 'CommonProgramW6432']))
   })
 
   it("takes the user's persistent variables, the user's over the machine's, REG_EXPAND_SZ expanded", async () => {
@@ -228,16 +231,20 @@ describe('captureAgentEnv on win32', () => {
     expect(env).not.toHaveProperty('SomeFlag')
   })
 
-  // `reg query` lines of one key: [name, type, value].
-  const key = (...values: [string, string, string][]): string => values.map(([name, type, value]) => `    ${name}    ${type}    ${value}`).join('\r\n')
-  const SZ = 'REG_SZ'
-  const EXPAND = 'REG_EXPAND_SZ'
-  it.each<{ name: string; machine: string; user: string; source?: Record<string, string>; expected: Record<string, string> }>([
+  // V0 = xx, Vi = %V(i-1)%%V(i-1)%: V13 has 16,384 characters, V14 would have 32,768.
+  const doubling = key(['V0', SZ, 'xx'], ...Array.from({ length: 24 }, (_, i): [string, string, string] => [`V${i + 1}`, EXPAND, `%V${i}%%V${i}%`]))
+  it.each<{ name: string; machine: RegValue[]; user: RegValue[]; source?: Record<string, string>; expected: Record<string, string>; absent?: string[] }>([
     {
       name: 'nvm-windows: Path names NVM_HOME and NVM_SYMLINK, which come after it in the key',
       machine: key(['Path', EXPAND, '%SystemRoot%\\system32;%NVM_HOME%;%NVM_SYMLINK%'], ['NVM_HOME', EXPAND, '%APPDATA%\\nvm'], ['NVM_SYMLINK', SZ, 'C:\\Program Files\\nodejs']),
-      user: '',
+      user: key(),
       expected: { Path: 'C:\\Windows\\system32;C:\\Users\\u\\AppData\\Roaming\\nvm;C:\\Program Files\\nodejs' },
+    },
+    {
+      name: 'a forward reference in another case: %nvm_home% before NVM_HOME',
+      machine: key(['Path', EXPAND, '%nvm_home%'], ['NVM_HOME', EXPAND, '%APPDATA%\\nvm']),
+      user: key(),
+      expected: { Path: 'C:\\Users\\u\\AppData\\Roaming\\nvm' },
     },
     {
       name: "nvm-windows for one user: the user's Path names NVM_HOME, set after it in the user's key",
@@ -253,7 +260,7 @@ describe('captureAgentEnv on win32', () => {
     },
     {
       name: 'a chain: Path → TOOLS → BASE → USERPROFILE of the session, each listed before what it names',
-      machine: '',
+      machine: key(),
       user: key(['Path', EXPAND, '%TOOLS%\\bin'], ['TOOLS', EXPAND, '%BASE%\\tools'], ['BASE', EXPAND, '%USERPROFILE%\\base']),
       expected: { Path: 'C:\\Users\\u\\base\\tools\\bin', TOOLS: 'C:\\Users\\u\\base\\tools', BASE: 'C:\\Users\\u\\base' },
     },
@@ -272,7 +279,7 @@ describe('captureAgentEnv on win32', () => {
     },
     {
       name: 'REG_SZ stays literal, and so does the text it brings into a REG_EXPAND_SZ value',
-      machine: '',
+      machine: key(),
       user: key(['USES', EXPAND, '[%LIT%]'], ['LIT', SZ, '50%USERPROFILE%done']),
       expected: { LIT: '50%USERPROFILE%done', USES: '[50%USERPROFILE%done]' },
     },
@@ -283,15 +290,64 @@ describe('captureAgentEnv on win32', () => {
       expected: { Path: 'C:\\m;C:\\u', TEMP: 'C:\\Users\\u\\Temp', EDITOR: 'code' },
     },
     {
-      name: 'an unknown name and a cycle stay as written; a name matches in any case',
-      machine: '',
-      user: key(['UNKNOWN_REF', EXPAND, '%NOT_SET%\\x'], ['A', EXPAND, '%B%a'], ['B', EXPAND, '%A%b'], ['LOWER', EXPAND, '%systemroot%\\x']),
-      expected: { UNKNOWN_REF: '%NOT_SET%\\x', A: '%B%a', B: '%A%b', LOWER: 'C:\\Windows\\x' },
+      name: "the machine's Path and the user's PATH make one Path",
+      machine: key(['Path', SZ, 'C:\\m']),
+      user: key(['PATH', SZ, 'C:\\u']),
+      expected: { Path: 'C:\\m;C:\\u' },
     },
-  ])('expands as a sign-in does: $name', async ({ machine, user, source, expected }) => {
-    const answers: Record<string, string> = { [PERSISTENT_ENV_KEYS[1]]: machine, [PERSISTENT_ENV_KEYS[0]]: user }
-    const { env } = await capture({ source: { ...parentEnv, ...source }, regQuery: async (name) => answers[name]! })
+    {
+      name: "an empty user Path adds no ';'",
+      machine: key(['Path', SZ, 'C:\\m']),
+      user: key(['Path', SZ, '']),
+      expected: { Path: 'C:\\m' },
+    },
+    {
+      name: 'no Path in either key, or both empty: no Path at all',
+      machine: key(['OTHER', SZ, 'x']),
+      user: key(['Path', SZ, '']),
+      expected: { OTHER: 'x' },
+      absent: ['PATH'],
+    },
+    {
+      name: 'an API key set in the registry in lower case is removed',
+      machine: key(),
+      user: key(['anthropic_api_key', SZ, 'from-setx'], ['Anthropic_Auth_Token', EXPAND, 'from-setx']),
+      expected: {},
+      absent: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
+    },
+    {
+      name: 'an unknown name and a cycle stay as written, the rest of a value in a cycle is expanded; a name matches in any case',
+      machine: key(),
+      user: key(['UNKNOWN_REF', EXPAND, '%NOT_SET%\\x'], ['A', EXPAND, '%B%a'], ['B', EXPAND, '%A%b'], ['C', EXPAND, '%A%\\c;%SystemRoot%'], ['LOWER', EXPAND, '%systemroot%\\x']),
+      expected: { UNKNOWN_REF: '%NOT_SET%\\x', A: '%B%a', B: '%A%b', C: '%A%\\c;C:\\Windows', LOWER: 'C:\\Windows\\x' },
+    },
+    {
+      name: "a name holds no ';': %P;% is no reference, %Q% after it is",
+      machine: key(),
+      user: key(['Q', SZ, 'q'], ['X', EXPAND, '%P;%Q%']),
+      expected: { X: '%P;q' },
+    },
+    {
+      name: 'a value longer than 32,767 characters stays as written; one of exactly 32,767 is expanded',
+      machine: key(['BIG', SZ, 'x'.repeat(20_000)], ['DOUBLE', EXPAND, '%BIG%%BIG%'], ['EXACT', EXPAND, `%BIG%${'y'.repeat(12_767)}`]),
+      user: key(),
+      expected: { DOUBLE: '%BIG%%BIG%', EXACT: `${'x'.repeat(20_000)}${'y'.repeat(12_767)}` },
+    },
+    {
+      name: 'a value that doubles at every step stops at 32,767 characters',
+      machine: doubling,
+      user: key(),
+      // V14 stays as written; the values after it take that text in, not scanned again.
+      expected: { V13: 'x'.repeat(16_384), V14: '%V13%%V13%', V24: '%V13%'.repeat(2_048) },
+    },
+  ])('expands as a sign-in does: $name', async ({ machine, user, source, expected, absent }) => {
+    const answers: Record<string, RegValue[]> = { [PERSISTENT_ENV_KEYS[1]]: machine, [PERSISTENT_ENV_KEYS[0]]: user }
+    const { env } = await capture({ source: { ...parentEnv, ...source }, readKey: async (name) => answers[name]! })
     expect(env).toMatchObject(expected)
+    const names = Object.keys(env).map((name) => name.toUpperCase())
+    expect(new Set(names).size).toBe(names.length)
+    for (const name of absent ?? []) expect(names).not.toContain(name)
+    expect(MAX_VAR_LENGTH).toBe(32_767)
   })
 
   it('builds Path from the machine Path and then the user Path, under one key', async () => {
@@ -308,14 +364,23 @@ describe('captureAgentEnv on win32', () => {
     expect(JSON.stringify(env)).not.toMatch(/set-with-setx|"key"|token/)
   })
 
-  it('without an answer from reg query falls back to the session variables and the Path of the process, and says why', async () => {
-    const { env, from, error } = await capture({ regQuery: () => Promise.reject(new Error('reg is missing')) })
+  it('without an answer from the registry falls back to the session variables and the Path of the process, and says why', async () => {
+    const { env, from, error } = await capture({ readKey: () => Promise.reject(new Error('powershell is missing')) })
     expect(from).toBe('fallback')
     expect(env.Path).toBe(parentEnv.Path)
     expect(env).not.toHaveProperty('GH_TOKEN')
     expect(env).not.toHaveProperty('CLAUDECODE')
-    expect(error).toMatch(/reg query failed/)
-    expect(error).toMatch(/reg is missing/)
+    expect(error).toMatch(/the registry could not be read/)
+    expect(error).toMatch(/powershell is missing/)
+  })
+
+  it('a failure while the registry is applied leaves nothing of it in the fallback', async () => {
+    const broken = { type: 'REG_SZ', value: 'x', get name(): string { throw new Error('broken value') } }
+    const { env, from, error } = await capture({ readKey: async (name) => (name === PERSISTENT_ENV_KEYS[0] ? [broken] : regAnswers[name]!) })
+    expect(from).toBe('fallback')
+    expect(error).toMatch(/broken value/)
+    const session = Object.fromEntries(WINDOWS_SESSION_VARS.flatMap((name) => (parentEnv[name] === undefined ? [] : [[name, parentEnv[name]]])))
+    expect(env).toEqual({ ...session, Path: parentEnv.Path, CLAUDE_CODE_GIT_BASH_PATH: BASH })
   })
 
   it('points Claude Code at Git Bash', async () => {
@@ -326,7 +391,7 @@ describe('captureAgentEnv on win32', () => {
   it("keeps the user's own CLAUDE_CODE_GIT_BASH_PATH from the registry", async () => {
     const own = 'D:\\tools\\git\\bin\\bash.exe'
     const { env } = await capture({
-      regQuery: async (key) => (key === PERSISTENT_ENV_KEYS[0] ? `${regAnswers[key]}    CLAUDE_CODE_GIT_BASH_PATH    REG_SZ    ${own}\r\n` : regAnswers[key]!),
+      readKey: async (name) => (name === PERSISTENT_ENV_KEYS[0] ? [...regAnswers[name]!, ...key(['CLAUDE_CODE_GIT_BASH_PATH', SZ, own])] : regAnswers[name]!),
     })
     expect(env.CLAUDE_CODE_GIT_BASH_PATH).toBe(own)
   })
@@ -342,10 +407,10 @@ describe('captureAgentEnv elsewhere', () => {
   it.each(['darwin', 'linux'] as const)('on %s takes the login shell environment, as before', async (platform) => {
     const shellResult: CapturedEnv = { env: { PATH: '/usr/bin' }, from: 'login-shell', error: null }
     const captureShell = vi.fn(async () => shellResult)
-    const regQuery = vi.fn()
-    expect(await captureAgentEnv({ platform, source: parentEnv, captureShell, regQuery })).toBe(shellResult)
+    const readKey = vi.fn()
+    expect(await captureAgentEnv({ platform, source: parentEnv, captureShell, readKey })).toBe(shellResult)
     expect(captureShell).toHaveBeenCalledOnce()
-    expect(regQuery).not.toHaveBeenCalled()
+    expect(readKey).not.toHaveBeenCalled()
   })
 })
 
@@ -380,7 +445,7 @@ describe('findGitBash', () => {
   })
 })
 
-describe('findOnPath and the reg query reader', () => {
+describe('findOnPath and the registry reader', () => {
   it('finds <name>.exe on the Path, whatever the case of the key, first match first', () => {
     const exists = files('C:\\a\\node.exe', 'C:\\b\\node.exe')
     expect(findOnPath('node', { PATH: 'C:\\x;C:\\a;C:\\b' }, exists)).toBe('C:\\a\\node.exe')
@@ -388,17 +453,57 @@ describe('findOnPath and the reg query reader', () => {
     expect(findOnPath('pwsh', { Path: 'C:\\a' }, exists)).toBeNull()
   })
 
-  it('reads name, type and value of reg query, not the key line', () => {
-    expect(parseRegQuery(regAnswers[PERSISTENT_ENV_KEYS[0]]!).slice(0, 3)).toEqual([
-      { name: 'Path', type: 'REG_EXPAND_SZ', value: '%USERPROFILE%\\bin;%LOCALAPPDATA%\\Programs\\tool' },
-      { name: 'TEMP', type: 'REG_EXPAND_SZ', value: '%USERPROFILE%\\AppData\\Local\\Temp' },
+  const b64 = (text: string): string => Buffer.from(text, 'utf8').toString('base64')
+
+  it('reads the lines of the registry script: name and value in base64 of UTF-8, REG_EXPAND_SZ not expanded', () => {
+    const value = 'C:\\Users\\Алексей\\日本\\😀;%USERPROFILE%\\bin'
+    expect(parseRegistryValues(`ExpandString ${b64('Path')} ${b64(value)}\r\nString ${b64('ANTHROPIC_MODEL')} ${b64('opus')}\r\n`)).toEqual([
+      { name: 'Path', type: 'REG_EXPAND_SZ', value },
       { name: 'ANTHROPIC_MODEL', type: 'REG_SZ', value: 'opus' },
     ])
-    expect(parseRegQuery('    EMPTY    REG_SZ')).toEqual([{ name: 'EMPTY', type: 'REG_SZ', value: '' }])
+  })
+
+  it('reads an empty value, an empty key, and skips any other line', () => {
+    expect(parseRegistryValues(`String ${b64('EMPTY')} \r\n`)).toEqual([{ name: 'EMPTY', type: 'REG_SZ', value: '' }])
+    expect(parseRegistryValues(`String ${b64('EMPTY')}`)).toEqual([{ name: 'EMPTY', type: 'REG_SZ', value: '' }])
+    expect(parseRegistryValues('')).toEqual([])
+    expect(parseRegistryValues(`#< CLIXML\r\nDWord ${b64('Flag')} ${b64('1')}\r\nwarning: something\r\n`)).toEqual([])
+  })
+
+  it('the registry script names the key literally, reads values unexpanded, and prints only String and ExpandString', () => {
+    const script = registryScript("HKCU\\Software\\it's")
+    expect(script).toContain("Get-Item -LiteralPath 'Registry::HKCU\\Software\\it''s'")
+    expect(script).toContain("'DoNotExpandEnvironmentNames'")
+    expect(script).toContain("$kind -ne 'String' -and $kind -ne 'ExpandString'")
   })
 })
 
-describe.runIf(process.platform === 'win32')('agentEnv on this Windows machine', () => {
+// Each test starts Windows PowerShell: about half a second alone, several under the load of the whole run.
+describe.runIf(process.platform === 'win32')('the registry reader on this Windows machine', { timeout: 30_000 }, () => {
+  // A scratch key of the test only; Environment is never written.
+  const SCRATCH = 'HKCU\\Software\\worfy-test-registry-reader'
+  afterEach(() => {
+    spawnSync('reg', ['delete', 'HKCU\\Software\\worfy-test-registry-reader', '/f'], { stdio: 'ignore' })
+  })
+
+  it('reads Cyrillic, CJK and emoji without loss and REG_EXPAND_SZ unexpanded, where reg query garbles them', async () => {
+    const value = 'C:\\Users\\Алексей\\日本\\😀\\%USERPROFILE%'
+    execFileSync('reg', ['add', SCRATCH, '/v', 'T', '/t', 'REG_EXPAND_SZ', '/d', value, '/f'], { stdio: 'ignore' })
+    execFileSync('reg', ['add', SCRATCH, '/v', 'E', '/t', 'REG_SZ', '/d', '', '/f'], { stdio: 'ignore' })
+    execFileSync('reg', ['add', SCRATCH, '/v', 'D', '/t', 'REG_DWORD', '/d', '1', '/f'], { stdio: 'ignore' })
+    const values = await powershellRegRead(process.env.SystemRoot ?? 'C:\\Windows')(SCRATCH)
+    expect(values).toEqual(expect.arrayContaining([{ name: 'T', type: 'REG_EXPAND_SZ', value }, { name: 'E', type: 'REG_SZ', value: '' }]))
+    expect(values).toHaveLength(2)
+    expect(execFileSync('reg', ['query', SCRATCH], { encoding: 'utf8' })).not.toContain(value) // the reason reg query is not used
+  })
+
+  it('rejects for a key that does not exist', async () => {
+    execFileSync('reg', ['add', SCRATCH, '/f'], { stdio: 'ignore' })
+    await expect(powershellRegRead(process.env.SystemRoot ?? 'C:\\Windows')(`${SCRATCH}\\missing`)).rejects.toThrow(/could not read/)
+  })
+})
+
+describe.runIf(process.platform === 'win32')('agentEnv on this Windows machine', { timeout: 30_000 }, () => {
   it('finds git, node and gh, points CLAUDE_CODE_GIT_BASH_PATH at a Git Bash outside System32, and carries no parent session', async () => {
     const { env, from, error } = await agentEnv()
     expect(from).toBe('registry')
