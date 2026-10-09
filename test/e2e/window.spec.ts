@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { launchApp, repoRoot } from './helpers'
+import { launchApp, NO_WINDOW_RESTORE, repoRoot } from './helpers'
 
 // Electron helper processes may still hold files in a directory for a moment after the app exits.
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -28,7 +28,7 @@ test('a data folder that is a file stops the start with exit code 1 and names th
     WORFY_STARTUP_DIALOG: 'off',
   })
   const electron = createRequire(import.meta.url)('electron') as string
-  const child = spawn(electron, [repoRoot], { cwd: repoRoot, env, stdio: ['ignore', 'ignore', 'pipe'] })
+  const child = spawn(electron, [repoRoot, ...NO_WINDOW_RESTORE], { cwd: repoRoot, env, stdio: ['ignore', 'ignore', 'pipe'] })
   let stderr = ''
   child.stderr.setEncoding('utf8')
   child.stderr.on('data', (chunk: string) => {
@@ -122,7 +122,7 @@ for (const [mode, rejection] of [
       E2E_INTERRUPT: mode,
     })
     const electron = createRequire(import.meta.url)('electron') as string
-    const child = spawn(electron, ['-r', hook, repoRoot], { cwd: repoRoot, env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(electron, ['-r', hook, repoRoot, ...NO_WINDOW_RESTORE], { cwd: repoRoot, env, stdio: ['ignore', 'pipe', 'pipe'] })
     let output = ''
     for (const stream of [child.stdout, child.stderr]) {
       stream.setEncoding('utf8')
