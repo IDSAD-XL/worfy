@@ -56,6 +56,14 @@ Source: решения владельца 2026-10-09: пункт 1(c) (стро�
      `insert` в shell этого Terminal-а.
    - Ответ пришёл — панель закрывается, фокус возвращается в Terminal.
    - `busy` — панель пишет «Terminal is busy» и не шлёт. Отказ по Limits — текст в панели.
+   - **Реестр сочетаний** `src/shared/shortcuts.ts` — Ticket 11 Epic-а
+     [worfy-ui](../../worfy-ui/issues/11-реестр-сочетаний-и-окно-keyboard-shortcuts.md). Решается в
+     момент мержа: перед мержем этот Ticket перебазируется на свежий main; если Ticket 11 `worfy-ui`
+     уже там, этот вносит ⌘I в реестр в том же PR. Кто вливается последним, тот отвечает за запись.
+     Запись — только для Mac (на Windows записи нет — Ctrl+I остаётся Tab-ом оболочки), область —
+     Terminal Node с интеграцией zsh; проверка в `TerminalNode.tsx` — через `matches` реестра
+     (`src/renderer/shortcuts/match.ts`). То же правило — в Ticket-е 11 `worfy-ui` (spec, примечание
+     docs-PR `worfy-ui` после «Решено без владельца»).
 4. **Каналы** — `src/shared/ipc/terminal-ai-request.ts`, `src/main/ipc/terminal-ai-request.ts`
    (новые), пометка `project`: панель работает с Terminal-ом Project-а, рабочий стол ей не нужен. С
    экрана Linked machine-а при включённом доступе она работает так же, как строка `# …`, и тратит
@@ -92,11 +100,13 @@ PowerShell, позже.
 - `src/renderer/canvas/nodes/TerminalNode.tsx`
 - `src/renderer/canvas/nodes/TerminalNode.css`
 - `src/renderer/canvas/nodes/TerminalAiRequest.tsx` (новый)
+- `src/shared/shortcuts.ts` (только если к мержу Ticket 11 worfy-ui уже в main: запись ⌘I)
 - `test/contract/terminal-ai-request.test.ts` (новый)
 - `test/unit/terminal-ai-request.test.tsx` (новый)
 - `test/e2e/terminal-ai-request.spec.ts` (новый)
 
-Только чтение: `src/renderer/platform.ts` Ticket-а 11 `worfy-windows`, если он к claim влит.
+Только чтение: `src/renderer/platform.ts` Ticket-а 11 `worfy-windows` и `src/renderer/shortcuts/match.ts`
+Ticket-а 11 `worfy-ui`, если они к claim влиты.
 
 ## Итог
 

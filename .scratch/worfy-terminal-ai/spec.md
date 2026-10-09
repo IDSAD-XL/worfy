@@ -111,9 +111,9 @@ Epic готов, когда:
     Project-а. С экрана Linked machine-а при включённом доступе они работают, как строка `# …`; модель
     спрашивает Machine, которой принадлежит Terminal, на своей подписке и со своими ограничениями по
     Limits (решение владельца 8(a)).
-- **Settings → «Terminal AI»** (решение 2, Ticket 08). Окно Settings делает Epic `worfy-ui`. На
-  2026-10-09 его spec нет ни в main, ни в открытом PR. Ticket 08 ждёт Ticket окна Settings этого
-  Epic-а. До него переключатели хранятся (Ticket 02) и действуют, но окна для них нет. По умолчанию
+- **Settings → «Terminal AI»** (решение 2, Ticket 08). Окно Settings делает Ticket 02 Epic-а
+  [worfy-ui](../worfy-ui/spec.md), общий Select для выбора модели — его Ticket 08. Ticket 08 этого Epic-а
+  ждёт оба. До них переключатели хранятся (Ticket 02) и действуют, но окна для них нет. По умолчанию
   Terminal AI включён — все четыре функции (решение 8(b)).
 - **test-ы без подписки** (решение 7). Unit- и contract-test-ы подставляют поддельный SDK. e2e идут с
   `WORFY_AGENT=fake` (`test/e2e/helpers.ts:139`): assist-процесс тогда — fake с ответами из файла, как
@@ -134,7 +134,8 @@ Epic готов, когда:
    - 05: Next command.
    - 06: Command request — строка `# …` и панель Cmd+I.
    - 07: Fix.
-   - 08: раздел «Terminal AI» окна Settings — когда окно Settings `worfy-ui` влито.
+   - 08: раздел «Terminal AI» окна Settings — когда влиты окно Settings и Select `worfy-ui` (его
+     Ticket-ы 02 и 08).
 4. **Приёмка** — 09: пять пунктов «Готово, когда», live-проверка владельца на подписке.
 
 ## Решения владельца
@@ -233,6 +234,17 @@ Epic готов, когда:
     служебные последовательности окружения, но не A–D; без nonce на D программа могла бы подделать
     конец команды (Ticket 01).
 
+**Добавлено docs-PR `worfy-ui` (2026-10-09)** — правила порядка между Epic-ами, а не решения владельца:
+
+- Ticket 08 ждёт не только окно Settings (Ticket 02 `worfy-ui`), но и общий Select (Ticket 08
+  `worfy-ui`): им выбирается модель Next command.
+- ⌘I в реестре сочетаний `src/shared/shortcuts.ts` (Ticket 11 `worfy-ui`). Решается в момент мержа:
+  перед мержем Ticket 06 этого Epic-а или Ticket 11 `worfy-ui` перебазируется на свежий main; если
+  другой уже там, этот вносит запись в том же PR. Кто вливается последним, тот отвечает за запись.
+  Запись — только для Mac (на Windows записи нет: Ctrl+I остаётся Tab-ом оболочки), область —
+  Terminal Node с интеграцией zsh, проверка в `TerminalNode.tsx` — через `matches` реестра. То же
+  правило записано в Ticket-е 11 `worfy-ui`.
+
 ## Не в этом Epic-е
 
 - **bash и fish** — позже (решение 4). В Terminal-е на другом shell-е Terminal AI не работает,
@@ -245,7 +257,8 @@ Epic готов, когда:
 - **Terminal AI внутри ssh, tmux и вложенного shell-а** — там нет скриптов worfy.
 - **Terminal «Sign in with gh»** (`src/main/github/accounts.ts:219-224`) — без Terminal AI: там не
   shell.
-- **Окно Settings** — Epic `worfy-ui`; здесь только раздел «Terminal AI».
+- **Окно Settings и Select** — Ticket-ы 02 и 08 Epic-а [worfy-ui](../worfy-ui/spec.md); здесь только
+  раздел «Terminal AI».
 
 ## Риски и открытые технические вопросы
 
@@ -289,8 +302,9 @@ Epic готов, когда:
     истории приходит и из `~/.zsh_history` владельца, а команды e2e туда дописываются. Команды в e2e
     — с уникальной меткой, чтобы история владельца не дала другой Suggestion. contract-test-ы ставят `HOME`
     во временную папку.
-11. **Файлы Ticket-а 08 неизвестны.** Окно Settings и способ подключить раздел задаёт `worfy-ui`.
-    Ticket 08 дописывает «Где в коде» при claim. От этого Wave 3 может сдвинуться.
+11. **Раздел Ticket-а 08 подключается файлом.** Окно Settings Ticket-а 02 `worfy-ui` само находит
+    `src/renderer/settings/TerminalAiSection.tsx` с экспортами `order` и `title`; файлы окна Ticket 08
+    не правит. Выбор модели — `Select` Ticket-а 08 `worfy-ui`.
 12. **Общие файлы с другими Epic-ами** — раздел «Соглашения», пункт «Перед каждой Wave».
 13. **Решения без владельца** — раздел выше; Ticket-ы делают по нему до ответа владельца.
 14. **`epic-status` показывает этап `/implement` с первого дня:** Ticket-ы в `blocked` (08, 09) он
@@ -305,7 +319,7 @@ Epic готов, когда:
 темах, Autopilot над worfy — только на Stable copy, мерж по очереди. Отличия:
 
 - **Кто ведёт** — Session на Mac владельца, параллельно с Epic-ом `worfy-ui` (решение 7).
-- **Ticket-ы в `blocked`.** 08 — до окна Settings `worfy-ui`: когда Ticket окна влит, Orchestrator
+- **Ticket-ы в `blocked`.** 08 — до Ticket-ов 02 и 08 `worfy-ui`: когда оба влиты, Orchestrator
   ставит 08 `Status: open`. 09 — шаги владельца: Autopilot его не берёт, `Status: open` ставит
   Orchestrator по слову владельца, когда 01–08 влиты.
 - **Ветки** — `worfy-terminal-ai/<NN>`; worktree — `.claude/worktrees/<NN>`.
@@ -350,11 +364,13 @@ Epic готов, когда:
     `src/main/claude-home/registry.ts`. Ticket 02 их только читает (`agentEnv`, `appLimits`,
     `claudeExecutablePath`, тип `LimitsState`, `dataRoot`, правило `cwd` Session-а): общих файлов в
     «Где в коде» нет. 02 перечитывает их на свежем main при claim.
-  - Epic `worfy-ui` (spec не влит): Ticket 08 ждёт его окно Settings. Если `worfy-ui` правит
-    `src/renderer/canvas/nodes/TerminalNode.tsx` или `TerminalNode.css` — сверка перед Wave 3 и 4
-    (Ticket-ы 06, 07).
-  - PR #197 (Epic `worfy-review`, документы) и PR #201 (`test/e2e/epic-frame.spec.ts`) с Ticket-ами
-    этого Epic-а файлов не делят.
+  - Epic [worfy-ui](../worfy-ui/spec.md): Ticket 08 ждёт его Ticket-ы 02 (окно Settings) и 08 (Select).
+    Его Ticket 11 (реестр сочетаний) правит `src/renderer/canvas/nodes/TerminalNode.tsx` и
+    `TerminalAiRequest.tsx`, если Ticket 06 этого Epic-а к его мержу уже в main (примечание docs-PR
+    `worfy-ui` после «Решено без владельца», ⌘I в реестре): сверка перед Wave 3 и 4 (Ticket-ы 06,
+    07).
+  - PR #197 (Epic `worfy-review`, документы) и PR #201 (`test/e2e/epic-frame.spec.ts`) влиты; общих
+    файлов с Ticket-ами этого Epic-а у них не было.
 - **CI** — только Linux: lint, typecheck, unit и contract test-ы. e2e и `.app` — локально перед
   мержем: `GATE_SCOPE=all gate.sh full` на ветке (команда — `rules.md` Profile-а worfy).
 - **Ручные проверки на подписке** — только в Ticket-е 09. В остальных Ticket-ах ручные пункты идут на
@@ -374,7 +390,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 03 | `src/main/terminal-ai/socket.ts`, `src/main/terminal-ai/protocol.ts`, `src/main/terminal-ai/shell-link.ts`, `src/main/terminal/shell-integration.ts`, `src/main/terminal/zsh/rc.d/10-assist.zsh`, `test/unit/terminal-ai-protocol.test.ts`, `test/contract/terminal-ai-zle.test.ts`, `test/e2e/terminal-ai-history.spec.ts` | 2 |
 | 04 | `src/main/terminal-ai/features/suggest.ts`, `src/main/terminal/zsh/rc.d/20-suggest-ai.zsh`, `test/contract/terminal-ai-suggest.test.ts`, `test/e2e/terminal-ai-suggest.spec.ts` | 3 |
 | 05 | `src/main/terminal-ai/features/next-command.ts`, `src/main/terminal/zsh/rc.d/30-next-command.zsh`, `test/contract/terminal-ai-next-command.test.ts`, `test/e2e/terminal-ai-next-command.spec.ts` | 3 |
-| 06 | `src/main/terminal-ai/features/command-request.ts`, `src/main/terminal/zsh/rc.d/40-command-request.zsh`, `src/shared/ipc/terminal-ai-request.ts`, `src/main/ipc/terminal-ai-request.ts`, `src/renderer/canvas/nodes/TerminalNode.tsx`, `src/renderer/canvas/nodes/TerminalNode.css`, `src/renderer/canvas/nodes/TerminalAiRequest.tsx`, `test/contract/terminal-ai-request.test.ts`, `test/unit/terminal-ai-request.test.tsx`, `test/e2e/terminal-ai-request.spec.ts` | 3 |
+| 06 | `src/main/terminal-ai/features/command-request.ts`, `src/main/terminal/zsh/rc.d/40-command-request.zsh`, `src/shared/ipc/terminal-ai-request.ts`, `src/main/ipc/terminal-ai-request.ts`, `src/renderer/canvas/nodes/TerminalNode.tsx`, `src/renderer/canvas/nodes/TerminalNode.css`, `src/renderer/canvas/nodes/TerminalAiRequest.tsx`, `src/shared/shortcuts.ts`, `test/contract/terminal-ai-request.test.ts`, `test/unit/terminal-ai-request.test.tsx`, `test/e2e/terminal-ai-request.spec.ts` | 3 |
 | 07 | `src/main/terminal-ai/fix.ts`, `src/shared/terminal-ai/output-tail.ts`, `src/shared/ipc/terminal-ai-fix.ts`, `src/main/ipc/terminal-ai-fix.ts`, `src/renderer/canvas/nodes/TerminalNode.tsx`, `src/renderer/canvas/nodes/TerminalNode.css`, `test/unit/terminal-ai-output-tail.test.ts`, `test/unit/terminal-ai-fix-button.test.tsx`, `test/contract/terminal-ai-fix.test.ts`, `test/e2e/terminal-ai-fix.spec.ts` | 4 |
 | 08 | `src/renderer/settings/TerminalAiSection.tsx`, `test/unit/terminal-ai-settings.test.tsx`, `test/e2e/terminal-ai-settings.spec.ts` | 3 |
 | 09 | `.scratch/worfy-terminal-ai/spec.md`, `.scratch/worfy-terminal-ai/evidence/09-live-проверка.md` | 5 |
@@ -388,7 +404,7 @@ Ticket-ов одной Wave общий файл, Ticket с большим ном
 - **Wave 2 — 03, один.** Ждёт 01 и 02.
 - **Wave 3 — 04, 05, 06 и 08.** Все ждут 02 и 03. Общих файлов нет: у 04–06 свои `rc.d/*.zsh`,
   `features/*.ts` и test-ы; 06 ещё панель в `TerminalNode.tsx` и домен IPC `terminal-ai-request`; 08 —
-  раздел окна Settings. 08 при этом `blocked` до окна Settings `worfy-ui`: не влито к Wave 3 — 08
+  раздел окна Settings. 08 при этом `blocked` до Ticket-ов 02 и 08 `worfy-ui`: не влиты к Wave 3 — 08
   уходит в более позднюю Wave.
 - **Wave 4 — 07, один.** Ждёт 02 и 03; по блокерам — Wave 3, сдвинут (ниже).
 - **Wave 5 — 09, один.** Ждёт все остальные Ticket-ы. Лежит в `blocked`: Autopilot его не берёт,

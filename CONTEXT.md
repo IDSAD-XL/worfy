@@ -74,7 +74,7 @@ _Avoid_: kit, обвязка, тулинг
 
 **Profile**:
 Описание Project для Harness: как проверять изменения, где лежат Ticket-ы, как называются ветки и worktree, по каким линзам ревьюить, какие MCP-серверы доступны агентам Project, от какого аккаунта GitHub работать, в каком режиме — Full mode или Silent mode — идёт работа. Profile целиком лежит на Machine пользователя; в репозитории Project его нет.
-_Avoid_: профиль, конфиг проекта, settings
+_Avoid_: профиль, конфиг проекта, settings (Settings — настройки самого worfy, «Project settings…» — окно одного Project-а в worfy; ни то, ни другое не Profile)
 
 **Full mode**:
 Режим Project, в котором файлы workflow — Ticket-ы, spec Epic-а, HANDOFF, ADR, уроки — лежат в репозитории Project вместе с кодом и видны всем, кто с ним работает.
@@ -113,6 +113,12 @@ _Avoid_: job; «task» и «задача» без «background»
 **Binding**:
 Связь Session или Subagent с Ticket либо Epic, над которым он работает. Определяется по сигналам из работы агента или задаётся пользователем вручную.
 _Avoid_: привязка, assignment, линк
+
+## App
+
+**Settings**:
+Настройки самого worfy на этой Machine — масштаб интерфейса, доступ Linked machine-ов, Terminal AI и другие функции worfy — и окно Settings (Cmd/Ctrl+, или «Settings…» в меню), где они меняются; там же для справки — проверки Health и список сочетаний клавиш. Это собственное состояние worfy на Machine ([ADR-0005](docs/adr/0005-worfy-own-state-inventory.md)): в репозиторий Project-а и в Profile Settings не попадают и действуют во всех Project-ах этой Machine. Это не Profile — описание Project-а для Harness, — и не «Project settings…» — окно одного Project-а в worfy с его шаблонами действий.
+_Avoid_: настройки (без уточнения чьи), preferences, конфиг, Profile или Project settings (как синоним)
 
 ## Machines
 
