@@ -28,9 +28,18 @@
 // shell's first output (the profile's output or the prompt), or after COMMAND_DELAY_MS when it
 // prints nothing. Input typed before the prompt waits in the terminal for the shell to read it.
 // Attaching to a shell that already runs types nothing.
+//
+// A registry made with `integration` (the Terminal Nodes', not "Sign in with gh") starts zsh with
+// worfy's shell integration (shell-integration.ts, worfy-terminal-ai ticket 01): its ZDOTDIR is
+// worfy's folder, and the OSC 633 sequences it prints with its nonce tell main where the prompt
+// is, which command runs, in which folder and how it ended (osc.ts). That state is kept per
+// Terminal (shellState) and its changes go to onShellEvent's listeners. Another shell, or zsh in a
+// registry without `integration`, runs as before.
 import { basename } from 'node:path'
 import { spawn as spawnNodePty } from 'node-pty'
 import type { Env } from '../agent/env'
+import { OscCutScanner, ShellTracker, type ShellEvent, type ShellState } from './osc'
+import { integrationEnv, isZsh, newNonce, type ShellIntegration } from './shell-integration'
 
 export const COLS_MIN = 20
 export const COLS_MAX = 500
@@ -64,11 +73,17 @@ export function terminalEnv(base: Readonly<Env>, cwd: string): Env {
   return env
 }
 
-/** The last REPLAY_LIMIT units of a stream, and the length of the whole stream. */
+/**
+ * The last REPLAY_LIMIT units of a stream, and the length of the whole stream. When the start of
+ * what is kept falls inside an OSC sequence, the start is cut further, to the end of that sequence:
+ * a new screen would print its tail (with the nonce of the shell) as text.
+ */
 export class ReplayBuffer {
   private chunks: string[] = []
   private kept = 0
   private total = 0
+  /** Follows the part of the stream already dropped. */
+  private readonly dropped = new OscCutScanner()
 
   get end(): number {
     return this.total
@@ -80,15 +95,24 @@ export class ReplayBuffer {
     this.total += data.length
     while (this.kept > REPLAY_LIMIT && this.chunks.length > 0) {
       const first = this.chunks[0] ?? ''
-      const excess = this.kept - REPLAY_LIMIT
-      if (first.length <= excess) {
-        this.chunks.shift()
-        this.kept -= first.length
-      } else {
-        this.chunks[0] = first.slice(excess)
-        this.kept -= excess
-      }
+      this.dropFirst(Math.min(first.length, this.kept - REPLAY_LIMIT))
     }
+    // The start fell inside a sequence: drop on to its end, or all of it while the end has not come.
+    while (this.dropped.inside && this.chunks.length > 0) this.removeFirst(this.dropped.skip(this.chunks[0] ?? ''))
+  }
+
+  /** Drops `count` units from the start of the first chunk, reading them. */
+  private dropFirst(count: number): void {
+    const first = this.chunks[0] ?? ''
+    this.dropped.read(count >= first.length ? first : first.slice(0, count))
+    this.removeFirst(count)
+  }
+
+  private removeFirst(count: number): void {
+    const first = this.chunks[0] ?? ''
+    if (count >= first.length) this.chunks.shift()
+    else this.chunks[0] = first.slice(count)
+    this.kept -= Math.min(count, first.length)
   }
 
   text(): string {
@@ -183,6 +207,8 @@ interface Terminal {
   pty: PtyProcess
   shell: string
   buffer: ReplayBuffer
+  /** The state read out of the output of a shell with the integration; null without it. */
+  tracker: ShellTracker | null
   /** The size the pty has now. */
   size: Size
   exited: Promise<void>
@@ -195,7 +221,12 @@ export interface TerminalRegistryOptions {
   spawn?: SpawnPty
   killGraceMs?: number
   commandDelayMs?: number
+  /** worfy's ZDOTDIR folder: zsh starts with the shell integration. Only the Terminal Nodes' registry has it. */
+  integration?: ShellIntegration
 }
+
+/** Hears the shell integration events of every Terminal of a registry. */
+export type ShellEventListener = (key: string, event: ShellEvent) => void
 
 /** Whether `a` should own the size rather than `b`: it typed or clicked later, or, when neither did, its size came later. */
 function later(a: Subscriber, b: Subscriber): boolean {
@@ -222,6 +253,7 @@ export class TerminalRegistry {
   private readonly spawnPty: SpawnPty
   private readonly killGraceMs: number
   private readonly commandDelayMs: number
+  private readonly shellListeners = new Set<ShellEventListener>()
 
   constructor(private readonly options: TerminalRegistryOptions) {
     this.spawnPty = options.spawn ?? ((file, args, spawnOptions) => spawnNodePty(file, args, spawnOptions))
@@ -240,6 +272,22 @@ export class TerminalRegistry {
 
   keys(): string[] {
     return [...new Set([...this.terminals.keys(), ...this.starting.keys()])]
+  }
+
+  /**
+   * What the shell integration knows of the running shell of `key`: its folder, whether it waits
+   * for input or runs a command, the alternate screen, the last exit code, the last commands and
+   * the output of the last one. Null when nothing runs or the shell has no integration.
+   */
+  shellState(key: string): ShellState | null {
+    const terminal = this.terminals.get(key)
+    return terminal === undefined || terminal.closing || terminal.tracker === null ? null : terminal.tracker.state
+  }
+
+  /** `listener` hears "prompt shown", "command started" and "command finished" of every Terminal; answers how to stop. */
+  onShellEvent(listener: ShellEventListener): () => void {
+    this.shellListeners.add(listener)
+    return () => this.shellListeners.delete(listener)
   }
 
   /** True when the shell of `key` exited on its own and is kept as exited. */
@@ -349,8 +397,20 @@ export class TerminalRegistry {
   }
 
   private async start(key: string, request: OpenRequest): Promise<Terminal> {
-    const env = terminalEnv(await this.options.env(), request.cwd)
+    let env = terminalEnv(await this.options.env(), request.cwd)
     const file = env.SHELL ?? '/bin/zsh'
+    let tracker: ShellTracker | null = null
+    const { integration } = this.options
+    if (integration !== undefined && isZsh(file)) {
+      try {
+        const nonce = newNonce()
+        env = integrationEnv(env, await integration.prepare(), nonce)
+        tracker = new ShellTracker(nonce, { limit: REPLAY_LIMIT })
+      } catch (error) {
+        // Without its folder the shell still starts, as it did before the integration.
+        console.warn(`[terminal] the shell integration of ${key} could not be prepared`, error)
+      }
+    }
     const { cols, rows } = clampSize(request.cols, request.rows)
     const pty = this.spawnPty(file, ['-l'], { name: 'xterm-256color', cols, rows, cwd: request.cwd, env })
     let exitedResolve: () => void = () => undefined
@@ -358,6 +418,7 @@ export class TerminalRegistry {
       pty,
       shell: basename(file),
       buffer: new ReplayBuffer(),
+      tracker,
       size: { cols, rows },
       exited: new Promise((resolve) => (exitedResolve = resolve)),
       closing: false,
@@ -368,6 +429,7 @@ export class TerminalRegistry {
       terminal.buffer.push(data)
       const { end } = terminal.buffer
       this.broadcast(key, 'sending the output', (each) => each.output(data, end))
+      if (tracker !== null) for (const event of tracker.feed(data)) this.announce(key, event)
       // After the output went out: the command's echo comes after what the shell printed first.
       firstOutput?.()
       firstOutput = undefined
@@ -385,6 +447,17 @@ export class TerminalRegistry {
     })
     if (request.command !== undefined) firstOutput = this.typeOnStart(key, terminal, request.command, () => ended)
     return terminal
+  }
+
+  /** Sends one shell integration event to every listener; one that fails does not stop the others. */
+  private announce(key: string, event: ShellEvent): void {
+    for (const listener of [...this.shellListeners]) {
+      try {
+        listener(key, event)
+      } catch (error) {
+        console.warn(`[terminal] a listener of the shell events of ${key} failed`, error)
+      }
+    }
   }
 
   private running(key: string): Terminal {

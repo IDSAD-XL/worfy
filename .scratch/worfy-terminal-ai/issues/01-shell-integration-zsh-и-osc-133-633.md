@@ -1,7 +1,8 @@
 # 01 — Shell integration для zsh: свой ZDOTDIR worfy, OSC 633 с nonce, история пользователя, состояние Terminal-а в main
 
 Type: task
-Status: open
+Status: claimed — 2026-10-09
+Branch: worfy-terminal-ai/01
 Blocked by: —
 Source: решения владельца 2026-10-09: пункт 4 (гибрид, сначала zsh; контекст через OSC 133/633, подключение как в VS Code — `ZDOTDIR` на свою временную папку, `~/.zshrc` не меняется, только в Terminal-ах worfy), пункт 3 (не спрашивать модель во время команды и на альтернативном экране, строки с пробелом в начале пропускать, OSC от программ не верить — nonce), пункт 1(a) (Suggestion сначала из истории команд) ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md) — процесс Terminal AI; [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — Terminal на нескольких экранах
 
