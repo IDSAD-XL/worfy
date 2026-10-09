@@ -1,7 +1,7 @@
 # worfy-ui: интерфейс и настройки
 
 Status: по решениям владельца 2026-10-09 (девять пунктов раздела «Решения владельца»); выбор этого
-docs-PR сверх них помечен «подтвердить», «Готово, когда» — предложение docs-PR, подтвердить
+docs-PR сверх них и «Готово, когда» подтверждены владельцем 2026-10-09
 Source: просьбы владельца по интерфейсу 2026-10-09; [roadmap.md](../../docs/roadmap.md), раздел
 «worfy-ui — интерфейс и настройки»; [CONTEXT.md](../../CONTEXT.md), термин Settings; ADR
 [0005](../../docs/adr/0005-worfy-own-state-inventory.md) (своё состояние worfy — в его папке данных),
@@ -23,7 +23,7 @@ Ticket-ы: Epic `worfy-ui`, 12 Ticket-ов, нумерация с `01`. Шапк
 перечислены. Epic даёт worfy окно Settings и собирает в нём то, что относится к приложению, а не к
 Project-у.
 
-Epic готов, когда (предложение docs-PR, подтвердить):
+Epic готов, когда (подтверждено владельцем 2026-10-09):
 
 1. Окно Settings открывается по Cmd/Ctrl+, и пунктом «Settings…» в меню. В нём разделы General,
    Health, Shortcuts и Machines; раздел другого Epic-а подключается своим файлом.
@@ -72,7 +72,8 @@ worfy-windows; проверка на Windows — после приёмки то�
   `src/shared/ipc/menu.ts`, канал `local`): `settings` (Ticket 02), `toggleSidebar` (Ticket 10),
   `shortcuts` (Ticket 11). Окно берётся из аргумента обработчика (`click(menuItem, window)`), без него
   — окно в фокусе. e2e зовут пункт через helper `clickMenuItem` (`test/e2e/menu.ts`, Ticket 02),
-  который передаёт окно: `item.click()` без окна в фоновом прогоне e2e не нашёл бы окна в фокусе.
+  который передаёт окно: при `item.click()` без окна обработчик зависел бы от фокуса, а фокус окна в
+  прогоне e2e не гарантирован.
   Ускоритель меню (`CmdOrCtrl+…`) Electron сам переводит в Ctrl на Windows.
 - **Масштаб** (Ticket 03). Zoom всего окна — `webContents.setZoomFactor`, от 0.8 до 1.5 шагом 0.1.
   Растёт всё сразу: текст, Canvas, Terminal (его `fontSize: 12` задан в
@@ -85,7 +86,7 @@ worfy-windows; проверка на Windows — после приёмки то�
 - **Боковая панель** (Ticket-ы 04 и 05). Общая рамка секции `src/renderer/shell/SidebarSection.tsx`:
   заголовок со стрелкой сворачивает секцию, свёрнутость — в `sidebar.collapsed`. Списки
   прокручиваются сами: от 3 до 15 строк своей секции — 28 px у большинства (`--row-height`,
-  `src/renderer/theme/tokens.css:31`), около 47 px у Epics. Свободная высота делится между
+  `src/renderer/theme/tokens.css:31`), около 48 px у Epics (две строки текста). Свободная высота делится между
   развёрнутыми секциями; когда её не хватает, прокручивается колонка целиком. Сейчас прокручивается только колонка
   (`src/renderer/shell/shell.css:25-32`), а свой предел есть лишь у списка ADR — 240 px
   (`src/renderer/shell/sidebar/AdrSection.tsx:18`).
@@ -106,7 +107,7 @@ worfy-windows; проверка на Windows — после приёмки то�
   (`:69`, `:85`, `:104`). Esc в открытом списке Select забирает себе. Список — выше всех диалогов,
   в том числе окна Settings. Effort в composer-е — ползунок по уровням выбранной модели. Пикеры
   остаются под полем ввода; от макета, где они в шапке Session
-  (`docs/design/F-session-dark.dc.html:170-179`), берётся вид кнопок.
+  (`docs/design/F-session-dark.dc.html:170`, кнопки и chip — `:178-183`), берётся вид кнопок.
 - **Палитра** (Ticket 07). Группы — после ранжирования: `rankItems` сортирует по весу
   (`src/renderer/find/search-index.ts:77-86`), и строки одной группы при вводе расходятся. Группа
   стоит по своей лучшей строке, внутри группы — порядок по весу.
@@ -114,7 +115,8 @@ worfy-windows; проверка на Windows — после приёмки то�
   обработчиков renderer, подписей, ускорителей меню и окна Keyboard shortcuts. Проверка события и
   подпись своей системы — через `src/renderer/platform.ts` Ticket-а 11 worfy-windows. ⌘I Ticket-а 06
   `worfy-terminal-ai` (только Mac, только Terminal с интеграцией zsh) вносит в реестр тот из двух
-  Ticket-ов, что вливается вторым; правило записано у обоих.
+  Ticket-ов, что вливается последним: перед мержем он перебазируется на свежий main и, если другой
+  уже там, вносит запись в том же PR. Правило записано у обоих.
 - **Окно на Project-е Linked machine-а** показывает Settings своей Machine: каналы `local` идут на
   свою машину (`src/renderer/ipc.ts:5-11`).
 - **ADR не заводится.** Признаки ADR — решение трудно отменить, оно неожиданно и в нём был настоящий
@@ -170,7 +172,7 @@ worfy-windows; проверка на Windows — после приёмки то�
    ⌘= / ⌘− остаются масштабом Canvas; масштаб помнится (Ticket 03).
 4. **Composer.** Effort — ползунок, как в приложении Claude Code, с уровнями выбранной модели. Model
    и Permission mode — стилизованные списки. Один общий компонент Select/Menu (стрелки, Enter, Esc,
-   набор букв, ARIA) заменяет каждый native `<select>` в renderer. Вид кнопок — макет
+   набор букв, ARIA) заменяет каждый native `<select>` в renderer. Макет —
    `docs/design/F-session-dark.dc.html:177-179` (Ticket-ы 08, 09).
 5. **Палитра «Search or run…»** — разделители с именами групп между группами; группировка после
    ранжирования: группы по своей лучшей строке, строки внутри — по весу (Ticket 07).
@@ -186,7 +188,7 @@ worfy-windows; проверка на Windows — после приёмки то�
 9. **Списки боковой панели растут с окном**: делят свободную высоту, у каждого минимум около 3
    строк и максимум около 15; короткий список занимает только свою высоту (Ticket 04).
 
-Решено в этом docs-PR, подтвердить у владельца (Ticket-ы повторяют пункт у себя):
+Решено в этом docs-PR, подтверждено владельцем 2026-10-09 (Ticket-ы повторяют пункт у себя):
 
 - «Готово, когда» Epic-а — шесть пунктов раздела «Цель».
 - «Settings…» на Windows — первый пункт меню File; на macOS — в меню приложения после «About»
@@ -210,8 +212,8 @@ worfy-windows; проверка на Windows — после приёмки то�
 - Режим фокуса закрывается, когда боковая панель или палитра меняют главную область: Session,
   другой Project, запрос к Canvas (Ticket 10).
 - Группы окна Keyboard shortcuts — Window, Canvas, Focus mode, Find, Session, Terminal (Ticket 11).
-- На Windows Ctrl+B и Ctrl+/ в Terminal Node остаются у оболочки, если ускоритель меню отнимает их у
-  xterm, — отступление от решения 8 «везде» (Ticket 11, риск 5).
+- Внутри Terminal на Windows Ctrl+B и Ctrl+/ остаются у оболочки; на Mac ⌘B и ⌘/ работают везде,
+  в том числе в Terminal (Ticket 11, риск 5). Это уточняет решение 8 «везде».
 
 ## Не в этом Epic-е
 
@@ -260,7 +262,7 @@ worfy-windows; проверка на Windows — после приёмки то�
   `test/unit/shell.test.tsx` — с Ticket-ом 10; `commands.ts` и `CommandPalette.tsx` — с Ticket-ом 11.
 - **worfy-link 16** (приёмка; `open`). Его `test/e2e/linked-machines.spec.ts` правит Ticket 05; он же
   правит шаги приёмки, которые смотрят переключатели и секцию Machines
-  (`.scratch/worfy-link/issues/16-приёмка-epic-а-worfy-link.md:37-38`, `:55`, `:60`, `:70`, `:76`).
+  (`.scratch/worfy-link/issues/16-приёмка-epic-а-worfy-link.md:37-38`, `:55`, `:60`, `:71`, `:76`).
   Приёмка `worfy-link` идёт с владельцем; если она в работе — Ticket 05 ждёт её конца.
 - **worfy-terminal-ai 08** (раздел Settings → «Terminal AI»; `blocked`) ждёт Ticket-ы 02 (окно
   Settings) и 08 (Select) этого Epic-а — так и записано в его Status. Файл раздела
@@ -268,9 +270,12 @@ worfy-windows; проверка на Windows — после приёмки то�
   выбор модели Next command — `Select` в `SettingRow`. Общих файлов в «Где в коде» нет.
 - **worfy-terminal-ai 06 и 07** (⌘I и Fix в Terminal Node; `open`). ⌘I вносит в реестр
   `src/shared/shortcuts.ts` тот из Ticket-ов 06 `worfy-terminal-ai` и 11 этого Epic-а, что вливается
-  вторым; правило записано у обоих. Если вторым идёт Ticket 11, он правит
+  последним: перед мержем он перебазируется на свежий main и, если другой уже там, вносит запись в том
+  же PR. Правило записано у обоих. Если последним идёт Ticket 11, он правит
   `src/renderer/canvas/nodes/TerminalNode.tsx` и `TerminalAiRequest.tsx` — общие файлы с 06 и 07, их
   видит сверка.
+- **worfy-harness 26** (приёмка E3; `open`): `tsconfig.test.node.json` — с Ticket-ом 05 (оба
+  дописывают `include`); кто вливается вторым, перебазируется и сохраняет обе строки.
 - **Открытые PR** #200, #204 и #205 общих файлов с «Где в коде» этого Epic-а не имеют.
 
 ## Риски и открытые технические вопросы
@@ -278,7 +283,8 @@ worfy-windows; проверка на Windows — после приёмки то�
 1. **Ускорители меню в e2e не нажать.** Playwright шлёт клавиши в страницу, а не в меню Electron.
    e2e зовут пункт меню по id. Прежние e2e делают это без окна — `item.click()`
    (`test/e2e/pin-tags.spec.ts:99-103`): Show Minimap шлёт всем окнам, и окно ему не нужно. Новым
-   пунктам окно нужно, а `BrowserWindow.getFocusedWindow()` в фоновом прогоне — `null`, поэтому
+   пунктам окно нужно, а фокус окна в прогоне e2e не гарантирован (`test/e2e/linked-notify.spec.ts:79-88`
+   сам снимает его со всех окон), поэтому
    helper `clickMenuItem` (`test/e2e/menu.ts`, Ticket 02) передаёт окно вторым аргументом, как
    настоящий клик (`click(event, focusedWindow, focusedWebContents)`). Сами Cmd/Ctrl+, ⌥⌘=,
    Cmd/Ctrl+B, Cmd/Ctrl+/ проверяет человек — ручные пункты Ticket-ов и Ticket 12.
@@ -292,17 +298,17 @@ worfy-windows; проверка на Windows — после приёмки то�
 4. **Ctrl+Alt на Windows — это AltGr.** На части раскладок (например, немецкой) AltGr+0 печатает
    «}». Отнимет ли ускоритель `CmdOrCtrl+Alt+0` этот символ у поля ввода — не проверено. Проверка —
    Windows-часть Ticket-а 12.
-5. **Ctrl+B и Ctrl+/ в Terminal на Windows.** Это клавиши оболочки (Ctrl+B — префикс tmux). Отдаёт
-   ли их xterm ускорителю меню — не проверено; тот же вопрос worfy-windows 11 решает для Ctrl+Z и
-   Ctrl+C (его «Что делаем», пункт 4). Ответ — из «Итог» worfy-windows 11; если меню их отнимает,
-   Ticket 11 этого Epic-а ставит этим пунктам на Windows `registerAccelerator: false` и ловит
-   клавиши в renderer вне Terminal Node. Тогда в Terminal на Windows они остаются у оболочки — это
-   отступление от решения 8, оно в списке «подтвердить».
+5. **Ctrl+B и Ctrl+/ в Terminal на Windows.** Это клавиши оболочки (Ctrl+B — префикс tmux).
+   Владелец решил 2026-10-09: внутри Terminal на Windows они остаются у оболочки, на Mac ⌘B и ⌘/
+   работают везде. Открыто только «как»: отдаёт ли xterm эти клавиши ускорителю меню — не проверено;
+   тот же вопрос worfy-windows 11 решает для Ctrl+Z и Ctrl+C (его «Что делаем», пункт 4). Ответ — из
+   «Итог» worfy-windows 11; если меню их отнимает, Ticket 11 этого Epic-а ставит этим пунктам на
+   Windows `registerAccelerator: false` и ловит клавиши в renderer вне Terminal Node.
 6. **e2e `worfy-link` зависят от переключателей в боковой панели**: семь файлов, список — Ticket 05.
    Переносить переключатели и править e2e — один Ticket, чтобы main не краснел между ними.
 7. **Режим фокуса внутри главной области.** Слой перестаёт закрывать всё окно; e2e это проверяет
    (`test/e2e/focus.spec.ts:117-122`). Клик в боковой панели при открытом режиме фокуса — новое
-   состояние; правило — Ticket 10 (подтвердить). Слой с `z-index: 1000` закрыл бы диалоги и меню
+   состояние; правило — Ticket 10 (подтверждено владельцем 2026-10-09). Слой с `z-index: 1000` закрыл бы диалоги и меню
    приложения — Ticket 10 даёт главной области свой stacking context.
 8. **Ticket 11 ждёт другую Session.** worfy-windows 11 ведёт Session на Windows-ПК. Пока он не влит,
    Ticket 11 и приёмка 12 стоят; остальные Ticket-ы Epic-а от него не зависят.
@@ -313,7 +319,7 @@ worfy-windows; проверка на Windows — после приёмки то�
    Перед мержем — gate full на Windows-ПК (раздел «Соглашения»).
 10. **Файлы, которые Ticket-ы допишут при claim.** Фикстуры e2e с длинными списками (Ticket 04) —
     по образцу соседних spec-файлов. Ticket 11 правит файлы Terminal Node, только если Ticket 06
-    `worfy-terminal-ai` к его claim влит. От этого план Wave-ов может сдвинуться.
+    `worfy-terminal-ai` к его мержу уже в main. От этого план Wave-ов может сдвинуться.
 11. **Системная лупа macOS.** Если в системных настройках включено «Use keyboard shortcuts to zoom»,
     ⌥⌘= и ⌥⌘− забирает лупа macOS, и пункты Bigger и Smaller по клавишам не срабатывают; кликом и
     ползунком масштаб меняется. Сочетание выбрал владелец (решение 3); ручные пункты Ticket-ов 03 и
@@ -386,7 +392,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 02 | `src/shared/ipc/menu.ts`, `src/main/menu.ts`, `src/renderer/settings/SettingsDialog.tsx`, `src/renderer/settings/settings-window.ts`, `src/renderer/settings/sections.ts`, `src/renderer/settings/controls.tsx`, `src/renderer/settings/settings.css`, `src/renderer/settings/GeneralSection.tsx`, `src/renderer/shell/AppShell.tsx`, `src/renderer/palette/commands.ts`, `test/unit/settings-dialog.test.tsx`, `test/unit/palette-commands.test.tsx`, `test/contract/view-menu.test.ts`, `test/e2e/settings.spec.ts`, `test/e2e/menu.ts` | 1 |
 | 03 | `src/main/settings/interface-scale.ts`, `src/main/window.ts`, `src/main/menu.ts`, `src/renderer/settings/interface-scale.ts`, `src/renderer/settings/GeneralSection.tsx`, `src/renderer/shell/AppShell.tsx`, `src/renderer/shell/shell.css`, `src/renderer/focus/focus.css`, `src/renderer/focus/FocusMode.tsx`, `test/unit/interface-scale.test.tsx`, `test/contract/view-menu.test.ts`, `test/e2e/interface-scale.spec.ts` | 2 |
 | 04 | `src/renderer/shell/SidebarSection.tsx`, `src/renderer/shell/Sidebar.tsx`, `src/renderer/shell/sidebar-section.css`, `src/renderer/shell/sidebar/ProjectsSection.tsx`, `src/renderer/shell/sidebar/MachinesSection.tsx`, `src/renderer/shell/sidebar/EpicsSection.tsx`, `src/renderer/shell/sidebar/SessionsSection.tsx`, `src/renderer/shell/sidebar/AdrSection.tsx`, `test/unit/sidebar-section.test.tsx`, `test/e2e/sidebar-sections.spec.ts` | 2 |
-| 05 | `src/renderer/shell/sidebar/MachinesSection.tsx`, `src/renderer/machines/machines-dot.ts`, `src/renderer/machines/machines.css`, `src/renderer/settings/MachinesSection.tsx`, `test/unit/machines-dot.test.ts`, `test/unit/machines-section.test.tsx`, `test/e2e/helpers.ts`, `test/e2e/linked-machines.spec.ts`, `test/e2e/linked-sleep.spec.ts`, `test/e2e/linked-add-project.spec.ts`, `test/e2e/linked-cards.spec.ts`, `test/e2e/linked-notify.spec.ts`, `test/e2e/linked-system-actions.spec.ts`, `.scratch/worfy-link/issues/16-приёмка-epic-а-worfy-link.md` | 3 |
+| 05 | `src/renderer/shell/sidebar/MachinesSection.tsx`, `src/renderer/machines/machines-dot.ts`, `src/renderer/machines/machines.css`, `tsconfig.test.node.json`, `src/renderer/settings/MachinesSection.tsx`, `test/unit/machines-dot.test.ts`, `test/unit/machines-section.test.tsx`, `test/e2e/helpers.ts`, `test/e2e/linked-machines.spec.ts`, `test/e2e/linked-sleep.spec.ts`, `test/e2e/linked-add-project.spec.ts`, `test/e2e/linked-cards.spec.ts`, `test/e2e/linked-notify.spec.ts`, `test/e2e/linked-system-actions.spec.ts`, `.scratch/worfy-link/issues/16-приёмка-epic-а-worfy-link.md` | 3 |
 | 06 | `src/renderer/shell/FirstRun.tsx`, `src/renderer/shell/FirstRunChecks.tsx`, `src/renderer/settings/HealthSection.tsx`, `test/unit/settings-health.test.tsx`, `test/e2e/settings-health.spec.ts` | 2 |
 | 07 | `src/renderer/palette/CommandPalette.tsx`, `src/renderer/palette/groups.ts`, `test/unit/palette-groups.test.tsx`, `test/e2e/palette-groups.spec.ts` | 1 |
 | 08 | `src/renderer/theme/Select.tsx`, `src/renderer/theme/select.css`, `src/renderer/projects/ConnectProject.tsx`, `src/renderer/harness/MigrationForm.tsx`, `test/unit/select.test.tsx`, `test/unit/harness-migration-form.test.tsx`, `test/e2e/projects-connect.spec.ts`, `test/e2e/select.spec.ts` | 1 |
@@ -407,10 +413,10 @@ Ticket-ов одной Wave общий файл, Ticket с большим ном
   zoom окна, `src/main/window.ts`, `src/main/menu.ts`, `AppShell.tsx`, `shell.css`, `focus.css`,
   `FocusMode.tsx`, `GeneralSection.tsx`; 04 — рамка и пять секций боковой панели, свой
   `sidebar-section.css` (`shell.css` не трогает); 06 — `FirstRun.tsx` и раздел Health; 09 — composer.
-- **Wave 3 — 05 и 10.** 05 ждёт 02 и 04; 10 — 01, 02 и 04. Общих файлов нет: 05 — Machines в
+- **Wave 3 — 05 и 10.** 05 ждёт 02 и 04; 10 — 01, 02, 03 и 04. Общих файлов нет: 05 — Machines в
   боковой панели и в Settings, e2e `worfy-link`, шаги приёмки `worfy-link` 16; 10 — режим фокуса,
   `AppShell.tsx`, `Toolbar.tsx`, `shell.css`, `src/main/menu.ts`, `epics.ts`.
-- **Wave 4 — 11, один.** Ждёт 02, 03 и 10, а по Status — мерж Ticket-а 11 worfy-windows.
+- **Wave 4 — 11, один.** Ждёт 02, 03, 07 и 10, а по Status — мерж Ticket-а 11 worfy-windows.
 - **Wave 5 — 12, один.** Ждёт все остальные Ticket-ы; в нём шаги владельца, Autopilot его не берёт.
 
 Сдвигов из-за общих файлов нет. Общие файлы между Wave-ами есть, и порядок их держат блокеры:

@@ -3,7 +3,7 @@
 Type: task
 Status: open
 Blocked by: —
-Source: решение владельца 2026-10-09: 4 (один общий стилизованный компонент Select/Menu — стрелки, Enter, Esc, набор букв, ARIA — заменяет каждый native `<select>` в renderer; вид кнопок — макет `docs/design/F-session-dark.dc.html:177-179`) ([spec.md](../spec.md), «Как устроено», «Select»); [worfy-terminal-ai 08](../../worfy-terminal-ai/issues/08-settings-terminal-ai.md) — выбор модели Next command в Settings → «Terminal AI» ждёт этот Ticket
+Source: решение владельца 2026-10-09: 4 (один общий стилизованный компонент Select/Menu — стрелки, Enter, Esc, набор букв, ARIA — заменяет каждый native `<select>` в renderer; макет — `docs/design/F-session-dark.dc.html:177-179`) ([spec.md](../spec.md), «Как устроено», «Select»); [worfy-terminal-ai 08](../../worfy-terminal-ai/issues/08-settings-terminal-ai.md) — выбор модели Next command в Settings → «Terminal AI» ждёт этот Ticket
 
 ## Что происходит
 
@@ -22,7 +22,7 @@ Source: решение владельца 2026-10-09: 4 (один общий с�
 - Вид меню в F-SPEC — меню Autopilot (`docs/design/F-SPEC.md:51`): поверхность, рамка 1 px, радиус
   10 px, тень Node-а, отступ 4 px, ширина от 180 px, строки общего вида (13 px).
 - Макет Session (`docs/design/F-session-dark.dc.html:170` — шапка Session) рисует Model и Effort
-  кнопками с подписью-префиксом и шевроном (`:177-178`), а не системным списком. Вид кнопки
+  кнопками с подписью-префиксом и шевроном (`:178-179`), а не системным списком. Вид кнопки
   берётся оттуда.
 - Диалоги, где стоят эти `<select>`, закрываются по Esc в своём `onKeyDown` и `defaultPrevented` не
   смотрят: `ConnectProject.tsx:779`, `MigrationForm.tsx:318`. Native-список забирал Esc сам; кнопка
@@ -68,7 +68,7 @@ Source: решение владельца 2026-10-09: 4 (один общий с�
 4. Пользователи Select-а после этого Ticket-а: composer (Ticket 09), выбор модели Next command в
    разделе «Terminal AI» (Ticket 08 `worfy-terminal-ai`, `SettingRow` Ticket-а 02).
 
-Решено в Ticket-е, подтвердить у владельца: свои меню worfy (меню Canvas, Autopilot, контекстные,
+Решено в Ticket-е, подтверждено владельцем 2026-10-09: свои меню worfy (меню Canvas, Autopilot, контекстные,
 Binding, Slash) на Select не переводятся.
 
 **Не входит:** composer — Ticket 09; свои меню worfy; поле с вводом и поиском (combobox с текстом).

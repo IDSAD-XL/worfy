@@ -1,9 +1,9 @@
 # 12 — Приёмка Epic-а worfy-ui по «Готово, когда»
 
 Type: task
-Status: blocked — в Ticket-е шаги владельца: ручные проверки ускорителей меню на Stable copy, просмотр снимков и ответы на пункты «подтвердить»; Autopilot его не берёт. Orchestrator ставит `open`, когда 01–11 влиты и владелец за Mac-ом
+Status: blocked — в Ticket-е шаги владельца: ручные проверки ускорителей меню на Stable copy и просмотр снимков; Autopilot его не берёт. Orchestrator ставит `open`, когда 01–11 влиты и владелец за Mac-ом
 Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11
-Source: «Готово, когда» Epic-а worfy-ui ([spec.md](../spec.md), «Цель»; предложение docs-PR, подтвердить); решения владельца 2026-10-09, 1–9 ([spec.md](../spec.md), «Решения владельца»); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) (проверка на Windows-ПК); [roadmap.md](../../../docs/roadmap.md), раздел «worfy-ui — интерфейс и настройки»
+Source: «Готово, когда» Epic-а worfy-ui ([spec.md](../spec.md), «Цель»; подтверждено владельцем 2026-10-09); решения владельца 2026-10-09, 1–9 ([spec.md](../spec.md), «Решения владельца»); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) (проверка на Windows-ПК); [roadmap.md](../../../docs/roadmap.md), раздел «worfy-ui — интерфейс и настройки»
 
 ## Что происходит
 
@@ -28,7 +28,7 @@ Source: «Готово, когда» Epic-а worfy-ui ([spec.md](../spec.md), «
    фокуса с боковой панелью, спрятать её в режиме фокуса, палитра с группами, Select модели,
    ползунок effort, окно Keyboard shortcuts; перезапуск над той же папкой — масштаб, свёрнутость и
    видимость панели на месте. Каждый шаг — снимок в светлой и тёмной теме; копии — в
-   `../evidence/12-*.png`, их список и ответы владельца — `../evidence/12-приёмка.md`. Снимки — только
+   `../evidence/12-*.png`, их список и замечания владельца — `../evidence/12-приёмка.md`. Снимки — только
    с окон `launchApp`: живую Stable copy и окно владельца не снимать.
 2. **F-SPEC** — разделы «Settings», «Sidebar sections», «Select» и «Keyboard shortcuts» в
    `docs/design/F-SPEC.md` по «Итог» Ticket-ов 02–11 и снимкам пункта 1. Язык F-SPEC — английский,
@@ -40,7 +40,7 @@ Source: «Готово, когда» Epic-а worfy-ui ([spec.md](../spec.md), «
 5. Mac пройден, а Epic worfy-windows ещё не принят — Ticket снова `blocked` с причиной «ждёт Epic
    worfy-windows». После его приёмки — проверки на Windows-ПК.
 6. В `.scratch/worfy-ui/spec.md` отмечаются пункты «Готово, когда» Epic-а со ссылкой на «Итог» этого
-   Ticket-а; решения «подтвердить» — с ответом владельца.
+   Ticket-а.
 
 **Не входит:** новые функции.
 
@@ -64,16 +64,16 @@ Source: «Готово, когда» Epic-а worfy-ui ([spec.md](../spec.md), «
 - [ ] (вручную, владелец) пульсация точки Machines при связанной Linked machine заметна и не
   отвлекает; с «Reduce motion» в системных настройках macOS — точка без пульсации. Как проверить:
   окно worfy.
-- [ ] Владелец посмотрел снимки `../evidence/12-*.png` и ответил на пункты «подтвердить» spec-а;
-  ответы — в spec и в «Итог».
+- [ ] Владелец посмотрел снимки `../evidence/12-*.png` и его замечания записаны в
+  `../evidence/12-приёмка.md` и в «Итог».
 
 **Windows: после приёмки Epic-а worfy-windows.**
 
 - [ ] (вручную) Windows-ПК: Ctrl+, Ctrl+Alt+= / Ctrl+Alt+- / Ctrl+Alt+0, Ctrl+B, Ctrl+/ работают;
   подписи в окне Keyboard shortcuts и в меню — с Ctrl.
-- [ ] (вручную) Windows-ПК: Ctrl+B и Ctrl+/ в Terminal Node ведут себя, как решил Ticket 11 по риску 5
-  (по его «Итог» и ответу владельца); в поле ввода Session AltGr-символы раскладки печатаются (spec,
-  риск 4).
+- [ ] (вручную) Windows-ПК: внутри Terminal Node Ctrl+B и Ctrl+/ уходят в оболочку, вне Terminal —
+  прячут панель и открывают окно сочетаний (решение владельца, spec, риск 5); в поле ввода Session
+  AltGr-символы раскладки печатаются (spec, риск 4).
 - [ ] Windows-ПК: gate full — строка вердикта и код выхода в «Итог».
 
 ## Тесты

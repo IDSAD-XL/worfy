@@ -46,9 +46,12 @@ Source: решения владельца 2026-10-09: 1 (Machines свёрнут
 
   `test/e2e/linked-autopilot.spec.ts:16` упоминает доступ только в комментарии.
 - Приёмка worfy-link — Ticket 16, `open` на 2026-10-09. Его шаги смотрят список Linked machine-ов
-  (`.scratch/worfy-link/issues/16-приёмка-epic-а-worfy-link.md:37-38`, `:76`), начинаются с «Link a
-  machine…» (`:70`) и включают доступ (`:55`, `:60`); сквозной e2e — `linked-machines.spec.ts`
-  (`:66`).
+  (`.scratch/worfy-link/issues/16-приёмка-epic-а-worfy-link.md:37-38`, `:76`), связывают Mac и
+  Windows по коду через «Link a machine…» из секции Machines (`:71`) и включают доступ (`:55`,
+  `:60`); сквозной e2e — `linked-machines.spec.ts` (`:66`).
+- Чистые функции renderer-а test-ы в среде node импортируют по списку: `tsconfig.test.node.json`
+  включает их поимённо (например, `src/renderer/find/search-index.ts`); без этого `pnpm typecheck`
+  не проходит.
 - F-SPEC велит показывать цвет статуса с подписью или иконкой (`docs/design/F-SPEC.md:40`).
 
 ## Что делаем
@@ -63,7 +66,9 @@ Source: решения владельца 2026-10-09: 1 (Machines свёрнут
      online», «Certificate changed — link the machine again»;
    - `prefers-reduced-motion: reduce` — без пульсации.
 
-   Расчёт — чистая функция `machinesDot(linked)` в `src/renderer/machines/machines-dot.ts` (новый).
+   Расчёт — чистая функция `machinesDot(linked)` в `src/renderer/machines/machines-dot.ts` (новый);
+   файл добавляется в `include` `tsconfig.test.node.json`, как другие чистые функции renderer-а, и
+   его unit-test идёт в среде node.
    Вид — `src/renderer/machines/machines.css` (новый): 6 px, как `.w-chip__dot`; пульсация — кольцо
    того же цвета, которое расходится и гаснет, раз в 2 s.
 2. **Machines свёрнута по умолчанию** — `defaultCollapsed` рамки Ticket-а 04. Пользователь
@@ -75,9 +80,10 @@ Source: решения владельца 2026-10-09: 1 (Machines свёрнут
    стили удаляются.
 4. **e2e.** В `test/e2e/helpers.ts`:
    - перед «Link a machine…» секция Machines разворачивается;
-   - новые helper-ы `setProjectsAccess(window, on)` и `setKeepAwake(window, on)` — открывают
-     Settings → Machines через `clickMenuItem` (`test/e2e/menu.ts` Ticket-а 02) и щёлкают
-     переключатель.
+   - новые helper-ы `setProjectsAccess(launched, on)` и `setKeepAwake(launched, on)` берут
+     `LaunchedApp` (`app` и `window`, `test/e2e/helpers.ts:35-37`): открывают Settings → Machines через
+     `clickMenuItem(launched.app, …)` (`test/e2e/menu.ts` Ticket-а 02) и щёлкают переключатель в
+     `launched.window`.
 
    Spec-файлы из «Что происходит» переходят на них. Перед отзывом правым кликом, `boundingBox`
    строки и снимком секции (`linked-machines.spec.ts:20-23`, `:61-65`, `:66`) секция
@@ -86,13 +92,13 @@ Source: решения владельца 2026-10-09: 1 (Machines свёрнут
    - `:37-38` — список Linked machine-ов смотрят в развёрнутой секции Machines, связь видна и по
      зелёной точке;
    - `:55` и `:60` — переключатель доступа — в Settings → Machines;
-   - `:70` — «Link a machine…» — в развёрнутой секции Machines;
+   - `:71` — связь Mac и Windows: «Link a machine…» — в развёрнутой секции Machines;
    - `:76` — состояние «спит» — в развёрнутой секции.
 
    Уже `done` — правки нет, запись об этом в «Итог». Если приёмка в работе — Ticket ждёт её конца
    (spec, «Пересечения»).
 
-Решено в Ticket-е, подтвердить у владельца: янтарная точка важнее зелёной; тексты tooltip-а; у точки
+Решено в Ticket-е, подтверждено владельцем 2026-10-09: янтарная точка важнее зелёной; тексты tooltip-а; у точки
 нет видимой подписи — только tooltip и `aria-label`, это отступление от правила F-SPEC
 (`F-SPEC.md:40`) по просьбе владельца, и Ticket 12 записывает его в F-SPEC.
 
@@ -133,6 +139,7 @@ Source: решения владельца 2026-10-09: 1 (Machines свёрнут
 - `src/renderer/shell/sidebar/MachinesSection.tsx`
 - `src/renderer/machines/machines-dot.ts` (новый)
 - `src/renderer/machines/machines.css` (новый)
+- `tsconfig.test.node.json`
 - `src/renderer/settings/MachinesSection.tsx` (новый)
 - `test/unit/machines-dot.test.ts` (новый)
 - `test/unit/machines-section.test.tsx` (новый)

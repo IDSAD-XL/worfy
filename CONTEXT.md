@@ -117,7 +117,7 @@ _Avoid_: привязка, assignment, линк
 ## App
 
 **Settings**:
-Настройки самого worfy на этой Machine и окно, где они меняются (Cmd/Ctrl+, или «Settings…» в меню): масштаб интерфейса, проверки Health, сочетания клавиш, доступ Linked machine-ов, Terminal AI и другие функции worfy. Это собственное состояние worfy на Machine ([ADR-0005](docs/adr/0005-worfy-own-state-inventory.md)): в репозиторий Project-а и в Profile Settings не попадают и действуют во всех Project-ах этой Machine. Это не Profile — описание Project-а для Harness, — и не «Project settings…» — окно одного Project-а в worfy с его шаблонами действий.
+Настройки самого worfy на этой Machine — масштаб интерфейса, доступ Linked machine-ов, Terminal AI и другие функции worfy — и окно Settings (Cmd/Ctrl+, или «Settings…» в меню), где они меняются; там же для справки — проверки Health и список сочетаний клавиш. Это собственное состояние worfy на Machine ([ADR-0005](docs/adr/0005-worfy-own-state-inventory.md)): в репозиторий Project-а и в Profile Settings не попадают и действуют во всех Project-ах этой Machine. Это не Profile — описание Project-а для Harness, — и не «Project settings…» — окно одного Project-а в worfy с его шаблонами действий.
 _Avoid_: настройки (без уточнения чьи), preferences, конфиг, Profile или Project settings (как синоним)
 
 ## Machines

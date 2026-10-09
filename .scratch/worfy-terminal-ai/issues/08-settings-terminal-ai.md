@@ -13,7 +13,7 @@ Source: решения владельца 2026-10-09: пункт 2 (всё вы�
   (`src/renderer/settings/controls.tsx`). Выбор из списка — общий `Select` Ticket-а 08 `worfy-ui`
   (`src/renderer/theme/Select.tsx`): native `<select>` в renderer после `worfy-ui` нет (его решение
   владельца 4). `Blocked by` держит только Ticket-ы своего Epic-а, поэтому ожидание — в `Status`.
-- После Ticket-а 02 Settings Terminal AI хранятся в `<WORFY_DATA_DIR>/terminal-ai.json`, схема —
+- После Ticket-а 02 этого Epic-а Settings Terminal AI хранятся в `<WORFY_DATA_DIR>/terminal-ai.json`, схема —
   `src/shared/terminal-ai/settings.ts`. Каналы `terminalAi.state`, `terminalAi.setSettings` и событие
   `terminalAi.changed` — `local`: Settings и состояние — машины экрана, как Limits. Выключенная функция
   сразу перестаёт спрашивать модель.
@@ -21,7 +21,7 @@ Source: решения владельца 2026-10-09: пункт 2 (всё вы�
   e2e этого Ticket-а проверяет серый текст из истории.
 - Ticket 06 (строка `# …`) — не блокер. Если он к claim влит, e2e проверяет и её; если нет — эта
   проверка остаётся приёмке (Ticket 09).
-- Переключатели (Ticket 02, пункт 7): «Terminal AI»; «Suggestion»; «Ask Claude when history has
+- Переключатели (Ticket 02 этого Epic-а, пункт 7): «Terminal AI»; «Suggestion»; «Ask Claude when history has
   nothing»; «Next command» и его модель; «Command request»; «Fix». По умолчанию всё включено (решение
   владельца 8(b)), модель Next command — Sonnet.
 - Terminal AI работает только в Terminal-ах на zsh (решение 4).
@@ -30,7 +30,7 @@ Source: решения владельца 2026-10-09: пункт 2 (всё вы�
 ## Что делаем
 
 1. Раздел «Terminal AI» окна Settings `worfy-ui` — `src/renderer/settings/TerminalAiSection.tsx`,
-   `order` 50, `title` «Terminal AI»: переключатели Ticket-а 02 — `SettingSwitch`, выбор модели Next
+   `order` 50, `title` «Terminal AI»: переключатели Ticket-а 02 этого Epic-а — `SettingSwitch`, выбор модели Next
    command (Sonnet или Haiku) — `Select` Ticket-а 08 `worfy-ui` в `SettingRow`. Подчинённые
    переключатели неактивны, когда выключен «Terminal AI» или их функция.
 2. Строка состояния по `terminalAi.state`: у функции, выключенной по Limits, — «Paused by Limits

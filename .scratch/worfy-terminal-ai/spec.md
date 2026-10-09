@@ -216,7 +216,7 @@ Epic готов, когда:
    функции работают (Ticket 03). У владельца этого plugin-а нет.
 8. **Settings «Suggestion»** выключает и Suggestion из истории, а не только модель. Отдельный
    переключатель «Ask Claude when history has nothing» выключает только модель.
-9. **Ticket-ы 08 и 09 — `Status: blocked`.** 08 ждёт Ticket-ы 02 и 08 `worfy-ui`: `Blocked by` держит
+9. **Ticket-ы 08 и 09 — `Status: blocked`.** 08 ждёт окно Settings `worfy-ui`: `Blocked by` держит
    только Ticket-ы своего Epic-а, поэтому ожидание записано в `Status`. 09 — шаги владельца на
    подписке, Autopilot его брать не должен (как Ticket 16 Epic-а `worfy-harness`).
 10. **Устаревшие Limits.** Окно, чьё время сброса прошло, не считается. Окно без времени сброса —
@@ -229,14 +229,21 @@ Epic готов, когда:
     Вся строка снимает зависимость от формулировки prompt-а (Ticket 04).
 12. **Панель Cmd+I — только у Terminal-а с интеграцией zsh.** В остальных Terminal-ах Cmd+I и Ctrl+I
     уходят в shell: в терминале Ctrl+I — это Tab. Поэтому Ticket 06 не ждёт Ticket 11 `worfy-windows`:
-    Ctrl-ветка нужна, только когда Terminal AI появится на Windows. ⌘I в реестре сочетаний
-    `src/shared/shortcuts.ts` (Ticket 11 `worfy-ui`): кто из Ticket-а 06 этого Epic-а и Ticket-а 11
-    `worfy-ui` вливается вторым, тот вносит запись — только для Mac (на Windows записи нет, Ctrl+I
-    остаётся Tab-ом оболочки), область — Terminal Node с интеграцией zsh, проверка в `TerminalNode.tsx`
-    — через `matches` реестра. То же правило записано в Ticket-е 11 `worfy-ui`.
+    Ctrl-ветка нужна, только когда Terminal AI появится на Windows.
 13. **OSC 633 с nonce в каждой последовательности, OSC 133 не принимается.** У VS Code nonce несут E и
     служебные последовательности окружения, но не A–D; без nonce на D программа могла бы подделать
     конец команды (Ticket 01).
+
+**Добавлено docs-PR `worfy-ui` (2026-10-09)** — правила порядка между Epic-ами, а не решения владельца:
+
+- Ticket 08 ждёт не только окно Settings (Ticket 02 `worfy-ui`), но и общий Select (Ticket 08
+  `worfy-ui`): им выбирается модель Next command.
+- ⌘I в реестре сочетаний `src/shared/shortcuts.ts` (Ticket 11 `worfy-ui`). Решается в момент мержа:
+  перед мержем Ticket 06 этого Epic-а или Ticket 11 `worfy-ui` перебазируется на свежий main; если
+  другой уже там, этот вносит запись в том же PR. Кто вливается последним, тот отвечает за запись.
+  Запись — только для Mac (на Windows записи нет: Ctrl+I остаётся Tab-ом оболочки), область —
+  Terminal Node с интеграцией zsh, проверка в `TerminalNode.tsx` — через `matches` реестра. То же
+  правило записано в Ticket-е 11 `worfy-ui`.
 
 ## Не в этом Epic-е
 
@@ -359,10 +366,11 @@ Epic готов, когда:
     «Где в коде» нет. 02 перечитывает их на свежем main при claim.
   - Epic [worfy-ui](../worfy-ui/spec.md): Ticket 08 ждёт его Ticket-ы 02 (окно Settings) и 08 (Select).
     Его Ticket 11 (реестр сочетаний) правит `src/renderer/canvas/nodes/TerminalNode.tsx` и
-    `TerminalAiRequest.tsx`, если Ticket 06 этого Epic-а к его claim влит (решение 12, ⌘I в реестре):
-    сверка перед Wave 3 и 4 (Ticket-ы 06, 07).
-  - PR #197 (Epic `worfy-review`, документы) и PR #201 (`test/e2e/epic-frame.spec.ts`) с Ticket-ами
-    этого Epic-а файлов не делят.
+    `TerminalAiRequest.tsx`, если Ticket 06 этого Epic-а к его мержу уже в main (примечание docs-PR
+    `worfy-ui` после «Решено без владельца», ⌘I в реестре): сверка перед Wave 3 и 4 (Ticket-ы 06,
+    07).
+  - PR #197 (Epic `worfy-review`, документы) и PR #201 (`test/e2e/epic-frame.spec.ts`) влиты; общих
+    файлов с Ticket-ами этого Epic-а у них не было.
 - **CI** — только Linux: lint, typecheck, unit и contract test-ы. e2e и `.app` — локально перед
   мержем: `GATE_SCOPE=all gate.sh full` на ветке (команда — `rules.md` Profile-а worfy).
 - **Ручные проверки на подписке** — только в Ticket-е 09. В остальных Ticket-ах ручные пункты идут на

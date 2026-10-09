@@ -25,9 +25,10 @@ Source: решение владельца 2026-10-09: 2 (Settings — модал
   (`src/main/menu.ts:29`, `:38`) → `view.changed` всем окнам (`src/main/ipc/view.ts:15-18`). e2e
   нажимает пункт меню по id без аргументов — `item.click()` (`test/e2e/pin-tags.spec.ts:99-103`),
   потому что Playwright не нажимает ускорители меню. Electron зовёт обработчик пункта как
-  `click(menuItem, focusedWindow, event)`; при `item.click()` без аргументов окна нет, а
-  `BrowserWindow.getFocusedWindow()` в фоновом прогоне e2e — `null`. Minimap это не мешает: он шлёт
-  всем окнам.
+  `click(menuItem, focusedWindow, event)`; при `item.click()` без аргументов окна нет, и остаётся
+  окно в фокусе, а фокус в прогоне e2e не гарантирован: `test/e2e/linked-notify.spec.ts:79-88` сам
+  снимает фокус со всех окон и ждёт, пока `BrowserWindow.getFocusedWindow()` вернёт `null`. Minimap
+  это не мешает: он шлёт всем окнам.
 - Диалоги worfy — порталы в `document.body` с `z-index` от 90 до 101 (First run — `FirstRun.tsx:32`,
   палитра — `src/renderer/palette/CommandPalette.tsx:27`, `:43`). Режим фокуса закрывается по Esc, который
   дошёл до `window` без `preventDefault` (`src/renderer/focus/FocusMode.tsx:232-238`).
@@ -86,7 +87,7 @@ Source: решение владельца 2026-10-09: 2 (Settings — модал
 6. Окно на Project-е Linked machine-а показывает Settings своей Machine: каналы `local` идут на
    свою машину (`src/renderer/ipc.ts:5-11`).
 
-Решено в Ticket-е, подтвердить у владельца: «Settings…» на Windows — первый пункт File; General до
+Решено в Ticket-е, подтверждено владельцем 2026-10-09: «Settings…» на Windows — первый пункт File; General до
 Ticket-а 03 показывает версию; «Settings…» есть и в палитре.
 
 **Не входит:** содержимое разделов — масштаб (Ticket 03), Machines (05), Health (06), Shortcuts

@@ -2,7 +2,7 @@
 
 Type: task
 Status: blocked — ждёт мержа Ticket-а 11 Epic-а worfy-windows (Ctrl вместо ⌘ на Windows: `src/renderer/platform.ts` с `isPrimary`, `isOtherModifier` и подписями своей системы); оба Ticket-а правят одни и те же обработчики клавиш. После его мержа Orchestrator ставит этому Ticket-у `open`
-Blocked by: 02, 03, 10
+Blocked by: 02, 03, 07, 10
 Source: решения владельца 2026-10-09: 6 (Ctrl на Windows — в Ticket-е 11 worfy-windows, здесь не повторяется), 7 (центральный реестр сочетаний — один источник для подписей обработчиков и для окна; окно с подписями своей системы открывают Cmd/Ctrl+/, «?» вне текстового поля, пункт палитры «Keyboard shortcuts» и Settings → Shortcuts; Ticket реестра ждёт worfy-windows 11), 8 (Cmd/Ctrl+B — везде) ([spec.md](../spec.md), «Как устроено», «Сочетания клавиш»; «Пересечения», worfy-windows 11 и worfy-terminal-ai 06; риски 5 и 8); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), пункт 2 (платформенный PR); [worfy-windows 11](../../worfy-windows/issues/11-окно-меню-уведомления-и-ctrl-на-windows.md); [worfy-terminal-ai 06](../../worfy-terminal-ai/issues/06-command-request.md) (⌘I в Terminal-е)
 
 ## Что происходит
@@ -37,7 +37,8 @@ Source: решения владельца 2026-10-09: 6 (Ctrl на Windows — �
 - После Ticket-ов 02, 03 и 10 этого Epic-а — ускорители меню (`src/main/menu.ts`): «Settings…»
   `CmdOrCtrl+,`; «Bigger», «Smaller», «Actual size» — `CmdOrCtrl+Alt+=`, `-`, `0`; «Toggle Sidebar»
   `CmdOrCtrl+B`; кнопки «Hide sidebar» в toolbar и полосе режима фокуса; helper e2e `clickMenuItem`
-  (`test/e2e/menu.ts`).
+  (`test/e2e/menu.ts`). После Ticket-а 07 палитра рисует группы — `CommandPalette.tsx` общий, поэтому
+  07 — блокер.
 - Ticket 06 worfy-terminal-ai (открыт) вводит ⌘I — панель Command request — только в Terminal-е с
   интеграцией zsh и только на Mac: Ctrl+I в терминале — Tab, он остаётся у оболочки, Ctrl-ветки
   нет. Клавишу ловит `attachCustomKeyEventHandler` в `src/renderer/canvas/nodes/TerminalNode.tsx`,
@@ -75,20 +76,22 @@ Source: решения владельца 2026-10-09: 6 (Ctrl на Windows — �
      `title` «Shortcuts»): тот же список внутри окна Settings.
 
    Окно смонтировано в `src/renderer/shell/AppShell.tsx`.
-5. **Ctrl+B и Ctrl+/ в Terminal на Windows** (spec, риск 5). Ответ — из «Итог» worfy-windows 11:
-   отнимают ли ускорители меню клавиши у xterm. Отнимают — у этих пунктов на Windows
-   `registerAccelerator: false`, а сочетание ловит renderer по реестру вне Terminal Node: в Terminal
-   Ctrl+B и Ctrl+/ остаются у оболочки. Это отступление от решения 8 («везде») — в списке
-   «подтвердить» spec-а.
-6. **⌘I Ticket-а 06 worfy-terminal-ai.** Правило записано одинаково у обоих Ticket-ов: кто из них
-   вливается вторым, тот вносит ⌘I в реестр. Запись — только для Mac (на Windows записи нет: Ctrl+I
-   — Tab оболочки), область — Terminal Node с интеграцией zsh, группа Terminal; проверка в
-   `TerminalNode.tsx` — через `matches`. Ticket 06 к claim влит — этот Ticket правит `TerminalNode.tsx`
-   и `TerminalAiRequest.tsx` (подпись ⌘I); не влит — эти файлы не трогает, запись внесёт Ticket 06.
+5. **Ctrl+B и Ctrl+/ в Terminal на Windows** (spec, риск 5). Решение владельца 2026-10-09: внутри
+   Terminal на Windows они остаются у оболочки; на Mac ⌘B и ⌘/ работают везде, в том числе в
+   Terminal. Как это сделать — из «Итог» worfy-windows 11: отнимают ли ускорители меню клавиши у
+   xterm. Отнимают — у этих пунктов на Windows `registerAccelerator: false`, а сочетание ловит
+   renderer по реестру вне Terminal Node; не отнимают — правка не нужна, test это подтверждает.
+6. **⌘I Ticket-а 06 worfy-terminal-ai.** Правило записано одинаково у обоих Ticket-ов и решается в
+   момент мержа, а не claim: перед мержем Ticket перебазируется на свежий main; если другой Ticket
+   уже в main, этот вносит ⌘I в реестр в том же PR. Кто вливается последним, тот и отвечает за
+   запись. Запись — только для Mac (на Windows записи нет: Ctrl+I — Tab оболочки), область —
+   Terminal Node с интеграцией zsh, группа Terminal; проверка в `TerminalNode.tsx` — через
+   `matches`. Ticket 06 к мержу этого Ticket-а уже в main — этот Ticket правит `TerminalNode.tsx` и
+   `TerminalAiRequest.tsx` (подпись ⌘I); нет — эти файлы не трогает, запись внесёт Ticket 06.
 
-Решено в Ticket-е, подтвердить у владельца: Cmd/Ctrl+/ — пункт нового меню Help ▸ «Keyboard
-Shortcuts»; группы окна — Window, Canvas, Focus mode, Find, Session, Terminal; на Windows Ctrl+B и
-Ctrl+/ в Terminal Node — у оболочки (пункт 5).
+Решено в Ticket-е, подтверждено владельцем 2026-10-09: Cmd/Ctrl+/ — пункт нового меню Help ▸
+«Keyboard Shortcuts»; группы окна — Window, Canvas, Focus mode, Find, Session, Terminal; внутри
+Terminal на Windows Ctrl+B и Ctrl+/ — у оболочки, на Mac ⌘B и ⌘/ — везде (пункт 5).
 
 **Не входит:** Ctrl вместо ⌘ на Windows (worfy-windows 11); смена сочетаний пользователем; e2e
 с `Meta+…` (Ticket 14 worfy-windows); Ctrl+I на Windows (позже, вместе с Terminal AI для
@@ -151,8 +154,8 @@ PowerShell).
 - `src/renderer/focus/FocusMode.tsx`
 - `src/renderer/session/MessageInput.tsx`
 - `src/renderer/session/SlashMenu.tsx`
-- `src/renderer/canvas/nodes/TerminalNode.tsx` (только если к claim влит Ticket 06 worfy-terminal-ai)
-- `src/renderer/canvas/nodes/TerminalAiRequest.tsx` (создаёт Ticket 06 worfy-terminal-ai; правится, только если он влит)
+- `src/renderer/canvas/nodes/TerminalNode.tsx` (только если к мержу Ticket 06 worfy-terminal-ai уже в main)
+- `src/renderer/canvas/nodes/TerminalAiRequest.tsx` (создаёт Ticket 06 worfy-terminal-ai; правится, только если он к мержу уже в main)
 - `test/unit/shortcuts.test.tsx` (новый)
 - `test/unit/shortcuts-overlay.test.tsx` (новый)
 - `test/contract/view-menu.test.ts`
