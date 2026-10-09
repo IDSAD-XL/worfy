@@ -2,7 +2,7 @@
 
 Status: принята владельцем 2026-10-06; раздел E3 переписан по решениям владельца 2026-10-07; разделы
 `worfy-link` и `worfy-windows` добавлены по решениям владельца 2026-10-07, их «Готово, когда»
-подтверждены 2026-10-08.
+подтверждены 2026-10-08; раздел `worfy-review` добавлен по решению владельца 2026-10-09.
 Source: итог проектирования 2026-10-06; [CONTEXT.md](../CONTEXT.md); ADR
 [0017](adr/0017-english-canonical-terms.md)–[0021](adr/0021-mcp-servers-allowlist-in-profile.md), 0040–0047 (E3);
 0052–0056 (`worfy-link` и `worfy-windows`).
@@ -236,6 +236,25 @@ Project-а в имя папки так же, как worfy ожидает на Ma
 для `.claude/worktrees/…/node_modules`.
 
 **Не в `worfy-windows`:** Windows на arm64; подпись установщика — в E4.
+
+## worfy-review — ревью и минимальные изменения в Harness
+
+Заведён 2026-10-09 по решению владельца: взять в Harness приёмы трёх внешних проектов — ponytail
+(prompt «минимальное изменение»), pstack (набор skills Lauren Tan для Cursor) и Thermos («thermo
+nuclear code review» из `cursor/plugins`). Plugin-ы целиком не ставятся, берутся идеи и формулировки.
+Разбор — [исследование 2026-10-09](research/2026-10-09-ponytail-pstack-thermos.md). Epic
+`worfy-review`, Ticket-ы — в [.scratch/worfy-review/](../.scratch/worfy-review/spec.md).
+
+**Цель.** Reviewer-ы ловят больше реальных дефектов и лишнего кода, а не больше шума; implementer
+пишет минимальное изменение; зависание Electron-приложения оставляет stack trace как evidence.
+
+**Темы:** проверки correctness из Thermos и сортировка находок по группам; линза «упрощение»;
+предупреждение gate о файле больше 1000 строк; лестница минимального изменения и комментарии
+`shortcut:`; диагностика зависаний Electron; журнал решений для Autopilot; режим max review по
+запросу или по пометке риска у Ticket-а.
+
+**Порядок.** Не блокирует E3 и `worfy-link`. Правки `harness/` действуют после `pnpm install:stable`
+(ADR-0047: Harness ставится из Stable copy), линзы живут в Profile вне репозитория.
 
 ## E4 — Для других людей
 
