@@ -1,7 +1,7 @@
 # 25 — Аккаунт GitHub Project-а при подключении: выбор из `gh auth status`, `gh auth login` в Terminal, запись в Profile
 
 Type: task
-Status: claimed — 2026-10-09
+Status: done — 2026-10-09, [PR #191](https://github.com/IDSAD-XL/worfy/pull/191)
 Branch: worfy-harness/25
 Blocked by: 24
 Source: решения владельца 2026-10-07, вопросы Q11', Q21, Q22, Q30; [spec.md](../spec.md); [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) — Profile целиком на машине; [ADR-0045](../../../docs/adr/0045-one-ticket-one-repository.md) — нет прав на `origin` — локальный финиш; Ticket 01 Epic-а `worfy-week` — аккаунт из Profile для своих вызовов `gh` worfy; [docs/roadmap.md](../../../docs/roadmap.md), раздел E3
@@ -255,3 +255,10 @@ test:e2e test:package».
   активного. Исправление — `GH_ENTERPRISE_TOKEN` вместе с `GH_HOST` для хостов кроме `github.com`.
 - [low] `src/main/github/accounts.ts:145-150` — remote через SSH-алиас (`git@github-work:acme/shop.git`)
   читается как «No GitHub origin»: `local-green` без выбора аккаунта.
+
+### Gate оркестратора (2026-10-09)
+
+- Круг 1 — `VERIFIED` ([комментарий в PR #191](https://github.com/IDSAD-XL/worfy/pull/191#issuecomment-6081331466)). Все проверки — на заглушке gh; настоящий gh машины не запускался (правило владельца).
+- [med] из вердикта — пометку `local` каналов `projects.connect.signIn*` не закреплял ни один test (подмена на `project` оставляла 88 из 88 зелёными). Исправлено до мержа: `test/unit/link-access.test.ts` — «local: connecting a Project — the draft, the GitHub account and the gh sign-in» перечисляет все 13 каналов `projects.connect.*` и краснеет на этой подмене (код 1).
+- [low] долги — строками выше в «Итог» (GitHub Enterprise: `GH_ENTERPRISE_TOKEN`; remote через SSH-алиас).
+- Мерж: rebase на `a84d551`, `GATE_SCOPE=all gate full` — код 0 с первого прогона, CI зелёный, CLEAN, влит `9f76dcc`.
