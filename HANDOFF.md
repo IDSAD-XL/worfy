@@ -33,7 +33,7 @@
 - [med] С plugin-ом оживают долги про `gh`: Stop hook зовёт `gh` по имени, и `bin/gh` plugin-а подменит учётную запись (`worfy-harness` 01); `preflight` советует `gh auth switch` вместо `GH_TOKEN` (`worfy-week` 01).
 - [med] `harness/bin/tests/preflight.test.sh` не изолирует `HOME` и пишет замки в настоящий `~/.claude/worfy-harness/` (`worfy-harness` 11). Запускать его только с `HOME` и `HARNESS_HOME` во временном каталоге.
 - [med] Contract test-ы читают настоящий `~/.claude/settings.json`: если там `model: haiku`, падают 10 test-ов (`worfy-daily` 07 и 23).
-- Нестабильные e2e роняют `gate full` и уже останавливали мержи: `binding.spec.ts:272` (узел Ticket-а 12 не виден за 5 s под нагрузкой, 2026-10-09; отдельно 3 из 3). Сводка нестабильных test-ов — «Итог» `worfy-week` 06.
+- Нестабильные e2e роняют `gate full` (2026-10-09): `binding.spec.ts:272` (узел Ticket-а 12 не виден за 5 s под нагрузкой; отдельно 3 из 3), `autopilot.spec.ts:485` («Force stop during the Wave's turn»: app не закрылся за quit timeout; один раз в gate PR #201). Сводка — «Итог» `worfy-week` 06.
 - Пока не сделан пункт о реестре Gate и Profile, Gate `fast` и CI не проверяют PR, где изменён только `HANDOFF.md`: перед его push — `node scripts/check-handoff.mjs`. PR только в `harness/` гоняют Gate с `GATE_SCOPE=all`.
 - Gate `fast` с сужением по диффу не видит `scripts/` и `test/fixtures/` (`worfy-mvp` 01). Перед мержем — `GATE_SCOPE=all gate.sh full` на ветке: e2e и `.app` идут только локально ([ci-merge.md](docs/lessons/ci-merge.md)).
 - Contract test-ы с дочерними процессами (`github-prs`, `harness-qmd`, `workflow-reader`, `docs`) при load 6–8 не укладываются в 15 s: gate fast параллельных исполнителей краснел.

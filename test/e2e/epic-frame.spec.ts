@@ -712,9 +712,12 @@ interface Box {
 /** The page, typed for the reading below: the e2e typecheck has no DOM library. */
 interface RowsPage {
   requestAnimationFrame(callback: (now: number) => void): number
+  setTimeout(callback: () => void, ms: number): number
+  clearTimeout(id: number): void
   performance: { now(): number }
 }
 interface RowsElement {
+  isConnected: boolean
   getBoundingClientRect(): Box
   querySelectorAll(selector: string): ArrayLike<RowsElement>
 }
@@ -724,11 +727,16 @@ interface RowsElement {
  * stayed the same for two frames in a row. One reading, not one per element: ELK's answer can move
  * the Node between two separate reads, and a row read after the move then lies outside the Node
  * read before it (worfy-week ticket 06).
+ *
+ * Fails, rather than returning zeros that would make every row check pass, when the Node's element
+ * left the page (React replaced it during the wait) or has no box (hidden, or zero size). A timer
+ * ends the wait even if animation frames stop coming, so a stalled page fails with a message
+ * instead of hanging until the test timeout.
  */
 async function ticketRows(ticket: Locator): Promise<{ card: Box; rows: Box[] }> {
   const read = await ticket.evaluate(
     (node, ms) =>
-      new Promise<{ ok: boolean; card: Box; rows: Box[] }>((done) => {
+      new Promise<{ failure: string | null; card: Box; rows: Box[] }>((done) => {
         const page = globalThis as unknown as RowsPage
         const card = node as unknown as RowsElement
         const plain = (element: RowsElement): Box => {
@@ -736,22 +744,42 @@ async function ticketRows(ticket: Locator): Promise<{ card: Box; rows: Box[] }> 
           return { x, y, width, height }
         }
         const measure = () => ({ card: plain(card), rows: Array.from(card.querySelectorAll(':scope > :not(.react-flow__handle)'), plain) })
+        let settled = false
+        let safety = 0
+        let frames = 0
+        // Only the first outcome counts: the animation frame loop and the safety timer both end here.
+        const finish = (failure: string | null, reading: { card: Box; rows: Box[] }): void => {
+          if (settled) return
+          settled = true
+          page.clearTimeout(safety)
+          done({ failure, ...reading })
+        }
         const until = page.performance.now() + ms
         let last: string | null = null
         const tick = (now: number): void => {
+          if (settled) return
+          frames += 1
           const current = measure()
+          if (!card.isConnected) return finish('the Ticket Node element left the page (React replaced it) while its rows were being read', current)
           const signature = JSON.stringify(current)
-          if (signature === last) return done({ ok: true, ...current })
-          if (now > until) return done({ ok: false, ...current })
+          if (signature === last) {
+            if (current.card.width === 0 || current.card.height === 0) return finish('the Ticket Node has no box (hidden, or zero width or height)', current)
+            return finish(null, current)
+          }
+          if (now > until) return finish(`the Ticket Node kept moving for ${ms} ms`, current)
           last = signature
           page.requestAnimationFrame(tick)
         }
+        safety = page.setTimeout(
+          () => finish(`no settled reading within ${ms + 1_000} ms: animation frames stopped after ${frames} frame(s)`, measure()),
+          ms + 1_000,
+        )
         page.requestAnimationFrame(tick)
       }),
     10_000,
   )
-  if (!read.ok) throw new Error(`the Ticket Node kept moving for 10 000 ms; last reading: ${JSON.stringify({ card: read.card, rows: read.rows })}`)
-  return read
+  if (read.failure !== null) throw new Error(`${read.failure}; last reading: ${JSON.stringify({ card: read.card, rows: read.rows })}`)
+  return { card: read.card, rows: read.rows }
 }
 
 /** Every row of the Ticket Node ends inside it: nothing is cut by its bottom or right edge. */
