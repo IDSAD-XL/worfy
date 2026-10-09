@@ -275,4 +275,30 @@ Windows (Ticket 12).
     Harness нет модели Epic-ов (панель Epics: «epic-status not found»), так что Binding к Ticket-у
     не из чего строить; покрыто test-ами `binding.test.ts` и `ticket-ref.test.ts`. Живой прогон
     `statusLine` с мостом — тоже нет (`statusLine` ставит владелец).
+- **Первый круг ревью PR #200:**
+  - вход `statusline-bridge.sh` переписан. Прежний «тонкий вход» гасил строку пользователя при
+    `node`, который падает (shim asdf/mise без версии — 126, старый Node — SyntaxError), а без `node`
+    переставал писать Limits, хотя старый мост писал их через `/usr/bin/jq` (он есть в macOS 15+). Теперь
+    вход читает stdin один раз, байт в байт; пробует `node statusline-bridge.mjs` только для Limits
+    (вывод и код не смотрит); без `node` или при его падении пишет Limits прежним путём через `jq`;
+    команду пользователя всегда запускает сам и выходит с её кодом. Test-ы входа без `node`, с
+    падающим и со «старым» `node`-стабом и на stdin байт в байт идут там, где есть `/bin/sh` (на Mac).
+    На ПК тот же сценарий прогнан вручную в Git Bash (`jq` — стаб на Node): новый вход — все три
+    случая exit 3, строка пользователя, пустой stderr, Limits записаны; вход из `693f4d7` — без `node`
+    Limits нет, с падающим и старым `node` — exit 126 и 1, строки нет;
+  - ссылки `C:\…` в markdown не открывались: `urlTransform` `react-markdown` по умолчанию обнулял их,
+    а парсер отдаёт `\` закодированным (`C:%5CUsers…`). `Markdown.tsx` пропускает мимо
+    `defaultUrlTransform` только абсолютные пути Windows (`isWindowsPathLink`, после раскодирования);
+    test-ы через `<Markdown>` (до правки — красные);
+  - одно правило `APPDATA` у `dataRoot` и моста — `isWindowsAbsolutePath` (`C:\…`, `C:/…`, UNC; не
+    `/x`, `\x`, `C:x`); test сверяет мост с `dataRoot` на восьми значениях;
+  - `last-editor`: путь Git Bash `/c/…` против папки Card-ов Windows — диск C:; `\x` — корень диска
+    cwd; `C:x` — в cwd на том же диске, иначе null; test-ы POSIX-веток;
+  - время старта процесса кэшируется по pid на 30 с (`PROCESS_START_CACHE_MS`): опрос идёт раз в 2 с,
+    и PowerShell запускался бы каждый раз. `?`, pid без ответа и упавшее чтение не кэшируются.
+    Риск — pid, занятый новым процессом в эти 30 с при оставшемся файле умершей Session;
+  - test текста скрипта PowerShell и `SystemRoot` в `readWindowsProcessStarts`;
+  - **долги:** `isInsidePath` на Windows сравнивает через `toLowerCase`, шире, чем NTFS (косметика);
+    нет test-а, что `inProject` передаёт платформу в `isInsidePath`; `claimIn` не видит формы команды
+    в кавычках, как её пишет skill (было и до этого PR).
 - **Долги Ticket-а 09** из последнего комментария PR #194 — в Итоге Ticket-а 09.

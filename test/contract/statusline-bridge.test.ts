@@ -234,7 +234,7 @@ describe('statusline-bridge.mjs: folders and shell by platform', () => {
 
   it('takes APPDATA by the same rule as dataRoot(), so the Limits land where worfy reads them', async () => {
     const { limitsFolders } = await bridge()
-    for (const APPDATA of ['C:\\Users\\u\\AppData\\Roaming', 'C:/Users/u/AppData/Roaming', '\\\\srv\\share\\roaming', '/x', '\\x', 'C:x', 'Roaming', '']) {
+    for (const APPDATA of ['C:\\Users\\u\\AppData\\Roaming', 'C:/Users/u/AppData/Roaming', '\\\\srv\\share\\roaming', '//srv/share/roaming', '/x', '\\x', 'C:x', 'Roaming', '']) {
       const env = { APPDATA, USERPROFILE: homedir() }
       expect(limitsFolders(env, 'win32', homedir()), APPDATA).toEqual([dataRoot(env, 'packaged', 'win32'), dataRoot(env, 'dev', 'win32')])
     }
