@@ -2,7 +2,7 @@
 // registerIpc (the same wrapper the app uses) over a mocked `electron`, against real git
 // repositories in a temporary folder and a temporary WORFY_DATA_DIR.
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -504,5 +504,179 @@ describe('projects.pickFolder', () => {
     expect(await value('projects.pickFolder')).toStrictEqual({ path: '/Users/me/code/auction' })
     electron.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] })
     expect(await value('projects.pickFolder')).toStrictEqual({ path: null })
+  })
+})
+
+// ── worfy-link ticket 11: "Add project" on a Linked machine ───────────────────────────────────
+
+/** The id of the Linked machine whose calls come through the link adapter below. */
+const LINKED = '44444444-4444-4444-8444-444444444444'
+
+/**
+ * Calls from Linked machine LINKED as the link adapter of worfy-link ticket 01 makes them: the same
+ * handler module registered on a LinkIpcAdapter, a LinkPeer with access on or off.
+ */
+async function linkedCaller(access: boolean): Promise<(channel: string, input?: unknown) => Promise<IpcResult<unknown>>> {
+  const { createLinkIpc, LinkPeer } = await import('../../src/main/link/ipc-adapter')
+  const adapter = await createLinkIpc({
+    modules: { './projects.ts': () => import('../../src/main/ipc/projects').then((module) => module.default) },
+    isLinked: (id) => id === LINKED,
+  })
+  const peer = new LinkPeer({ machineId: LINKED, describe: () => LINKED, push: () => undefined, local: () => ({ id: 'beta', name: 'Beta', protocol: 1, build: 'x' }), warn: () => undefined })
+  peer.setAccess(access)
+  return (channel, input) => adapter.call(peer, channel, input, 'Beta')
+}
+
+/** projects.json as main keeps it. */
+const projectsFile = (): { projects: { id: string; path: string }[]; activeId: string | null } =>
+  JSON.parse(readFileSync(join(dataDir, 'projects.json'), 'utf8')) as { projects: { id: string; path: string }[]; activeId: string | null }
+
+interface Browsed {
+  ok: boolean
+  path: string
+  parent: string | null
+  folders?: { name: string; path: string; hidden: boolean; gitRepo: boolean }[]
+  truncated?: boolean
+  reason?: string
+}
+
+describe('projects.browse', () => {
+  it('lists only the folders of a folder, by name: a link to a folder too, files and links to files not; parent, hidden and gitRepo', async () => {
+    const root = join(scratch, 'browse')
+    mkdirSync(join(root, 'beta', '.git'), { recursive: true })
+    mkdirSync(join(root, 'alpha'), { recursive: true })
+    mkdirSync(join(root, '.config'), { recursive: true })
+    // A linked worktree: `.git` is a file.
+    mkdirSync(join(root, 'delta'), { recursive: true })
+    writeFileSync(join(root, 'delta', '.git'), 'gitdir: /elsewhere/.git/worktrees/delta\n')
+    mkdirSync(join(scratch, 'target'), { recursive: true })
+    symlinkSync(join(scratch, 'target'), join(root, 'gamma'))
+    writeFileSync(join(root, 'notes.txt'), 'a file')
+    symlinkSync(join(root, 'notes.txt'), join(root, 'file-link'))
+    symlinkSync(join(scratch, 'nowhere'), join(root, 'broken-link'))
+
+    const answer = await value<Browsed>('projects.browse', { path: root })
+    expect(answer).toStrictEqual({
+      ok: true,
+      path: root,
+      parent: scratch,
+      truncated: false,
+      folders: [
+        { name: '.config', path: join(root, '.config'), hidden: true, gitRepo: false },
+        { name: 'alpha', path: join(root, 'alpha'), hidden: false, gitRepo: false },
+        { name: 'beta', path: join(root, 'beta'), hidden: false, gitRepo: true },
+        { name: 'delta', path: join(root, 'delta'), hidden: false, gitRepo: true },
+        { name: 'gamma', path: join(root, 'gamma'), hidden: false, gitRepo: false },
+      ],
+    })
+    // A path with `..` is answered in its plain form.
+    expect((await value<Browsed>('projects.browse', { path: join(root, 'alpha', '..') })).path).toBe(root)
+  })
+
+  it('the parent of a root is null, on this OS and on Windows', async () => {
+    const { parentOf } = await import('../../src/main/projects/browse')
+    const { posix, win32 } = await import('node:path')
+    expect(parentOf('/', posix)).toBeNull()
+    expect(parentOf('/Users', posix)).toBe('/')
+    expect(parentOf('C:\\', win32)).toBeNull()
+    expect(parentOf('C:\\Users\\me', win32)).toBe('C:\\Users')
+  })
+
+  it('more than 2000 folders: the first 2000 by name and truncated', async () => {
+    const root = join(scratch, 'many')
+    for (let index = 0; index < 2001; index += 1) mkdirSync(join(root, `f${String(index).padStart(4, '0')}`), { recursive: true })
+    const answer = await value<Browsed>('projects.browse', { path: root })
+    expect(answer.folders).toHaveLength(2000)
+    expect(answer.truncated).toBe(true)
+    expect(answer.folders?.[0]?.name).toBe('f0000')
+    expect(answer.folders?.at(-1)?.name).toBe('f1999')
+  })
+
+  it('a folder that cannot be read is answered with ok:false, the reason and its parent; a missing one too', async () => {
+    const locked = join(scratch, 'locked')
+    mkdirSync(join(locked, 'inside'), { recursive: true })
+    chmodSync(locked, 0o000)
+    try {
+      expect(await value<Browsed>('projects.browse', { path: locked })).toStrictEqual({ ok: false, path: locked, parent: scratch, reason: `No permission to read ${locked}` })
+    } finally {
+      chmodSync(locked, 0o755)
+    }
+    expect(await value<Browsed>('projects.browse', { path: join(scratch, 'missing') })).toStrictEqual({
+      ok: false,
+      path: join(scratch, 'missing'),
+      parent: scratch,
+      reason: `${join(scratch, 'missing')} does not exist`,
+    })
+  })
+
+  it('null starts in the home folder (the whole disk is open, the start is home: decided without the owner)', async () => {
+    const home = join(scratch, 'home')
+    mkdirSync(join(home, 'code'), { recursive: true })
+    vi.stubEnv('HOME', home)
+    const answer = await value<Browsed>('projects.browse', { path: null })
+    expect(answer).toMatchObject({ ok: true, path: home, parent: scratch })
+    expect(answer.folders?.map((folder) => folder.name)).toEqual(['code'])
+  })
+
+  it('refuses a relative path; writes nothing', async () => {
+    const result = await call('projects.browse', { path: 'code/shop' })
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.error).toMatch(/not an absolute path/)
+    expect(existsSync(join(dataDir, 'projects.json'))).toBe(false)
+  })
+})
+
+describe('from a Linked machine (the link adapter)', () => {
+  it('projects.browse answers while access is on and is refused while it is off', async () => {
+    const root = join(scratch, 'browse')
+    mkdirSync(join(root, 'shop'), { recursive: true })
+    const on = await linkedCaller(true)
+    const answered = await on('projects.browse', { path: root })
+    expect(answered.ok && (answered.value as Browsed).folders?.map((folder) => folder.name)).toEqual(['shop'])
+    const off = await linkedCaller(false)
+    expect(await off('projects.browse', { path: root })).toStrictEqual({ ok: false, error: 'Linked machines cannot work with the Projects of Beta: access is off' })
+  })
+
+  it('projects.pickFolder is refused with access on and off; the dialog never opens', async () => {
+    for (const access of [true, false]) {
+      const result = await (await linkedCaller(access))('projects.pickFolder', { purpose: 'project' })
+      expect(result.ok).toBe(false)
+    }
+    expect(electron.showOpenDialog).not.toHaveBeenCalled()
+  })
+
+  it('projects.add from a Linked machine keeps activeId in projects.json; from this Machine\'s window it becomes active as before', async () => {
+    const mine = (await addOk(makeRepo('auction'))).project
+    const linked = await linkedCaller(true)
+    const remote = makeRepo('shop')
+    const result = await linked('projects.add', { path: remote })
+    expect(result.ok && (result.value as Added).status).toBe('added')
+    expect(projectsFile().activeId).toBe(mine.id)
+    expect(projectsFile().projects.map((project) => project.path)).toEqual([mine.path, remote])
+    // The same folder added from this Machine's window becomes active.
+    const local = await addOk(remote)
+    expect(projectsFile().activeId).toBe(local.project.id)
+  })
+
+  it('projects.connect.inspect of a folder the Harness knows adds it without switching the active Project for a Linked machine', async () => {
+    // No login shell of the person running the test: the scripts' environment comes from /bin/sh with an empty HOME.
+    const home = join(scratch, 'home')
+    mkdirSync(home)
+    vi.stubEnv('HOME', home)
+    vi.stubEnv('SHELL', '/bin/sh')
+    await start()
+    stubProfile({ code: 0, workspace: null })
+    const mine = (await addOk(makeRepo('auction'))).project
+    const remote = makeRepo('shop')
+    const linked = await linkedCaller(true)
+    const result = await linked('projects.connect.inspect', { path: remote })
+    expect(result.ok && (result.value as { status: string }).status).toBe('added')
+    expect(projectsFile().activeId).toBe(mine.id)
+    expect(projectsFile().projects.map((project) => project.path)).toContain(remote)
+    // From this Machine's window the known folder becomes active, as before.
+    const other = makeRepo('cart')
+    const local = await value<{ status: string; project: View }>('projects.connect.inspect', { path: other })
+    expect(local.status).toBe('added')
+    expect(projectsFile().activeId).toBe(local.project.id)
   })
 })

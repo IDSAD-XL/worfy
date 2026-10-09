@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, dialog } from 'electron'
 import {
   projectsAdd,
+  projectsBrowse,
   projectsChanged,
   projectsConnectAccounts,
   projectsConnectActivity,
@@ -41,6 +42,7 @@ import { ghRunner } from '../github/prs'
 import { bundledHarnessDir } from '../harness/bundled'
 import { currentHarness, harnessHomes, locateHarness, scriptEnv } from '../harness/locate'
 import { isRemoteCall } from '../link/caller'
+import { browseFolder } from '../projects/browse'
 import { ProjectConnector, type ConnectScript, type DraftQueryFactory } from '../projects/connect'
 import { projectHolds } from '../projects/holds'
 import { readProjectSettings, writeProjectSettings } from '../projects/settings'
@@ -145,8 +147,8 @@ function connector(): ProjectConnector {
     query: draftQueryFromEnv(),
     draftSchema: () => JSON.parse(readFileSync(join(bundledHarnessDir(), 'profiles', 'draft.schema.json'), 'utf8')) as Record<string, unknown>,
     reportsLanguage: systemLanguage,
-    add: async (root) => {
-      const added = await store.add(root)
+    add: async (root, options) => {
+      const added = await store.add(root, options)
       return added.status === 'added' ? { status: 'added', projectId: added.project.id, notice: added.notice } : added
     },
   })
@@ -231,6 +233,10 @@ export default [
 
   defineHandler(projectsList, () => store.state()),
 
+  // The folders of a folder of this Machine (worfy-link ticket 11): "Add project" of a Linked
+  // machine's screen picks a folder here this way. The whole disk, from the home folder; reads names only.
+  defineHandler(projectsBrowse, ({ path }) => browseFolder(path)),
+
   // A Linked machine adds and removes Projects without switching the active one: that is the state
   // of this Machine's screens (projects.select is not open to it at all).
   defineHandler(projectsAdd, async ({ path }, { event }) => {
@@ -242,13 +248,14 @@ export default [
     return { status: 'added' as const, project, notice: result.notice, state }
   }),
 
-  // Connecting a Project: only this Machine's own screens (`local`).
-  defineHandler(projectsConnectInspect, async ({ path }) => {
+  // Connecting a Project: this Machine's screens, and a Linked machine while access is on
+  // (worfy-link ticket 11). A folder a Linked machine adds does not become the active Project here.
+  defineHandler(projectsConnectInspect, async ({ path }, { event }) => {
     const inspected = await connector().inspect(path)
     if (inspected.status === 'rejected') return inspected
     if (inspected.status === 'new') return { status: 'new' as const, folder: inspected.folder, harnessHome: harnessHome() }
     // The Harness knows the folder: it goes into the list as projects.add puts it, with its notices.
-    const added = await store.add(path)
+    const added = await store.add(path, { keepActive: isRemoteCall(event) })
     if (added.status === 'rejected') return added
     return addedView(added.project.id, added.notice)
   }),
@@ -261,8 +268,8 @@ export default [
 
   defineHandler(projectsConnectCheck, async ({ draft }) => ({ issues: await connector().check(draft) })),
 
-  defineHandler(projectsConnectWrite, async ({ root, draft }) => {
-    const written = await connector().write(root, draft)
+  defineHandler(projectsConnectWrite, async ({ root, draft }, { event }) => {
+    const written = await connector().write(root, draft, { keepActive: isRemoteCall(event) })
     if (written.status !== 'added') return written
     return addedView(written.projectId, written.notice)
   }),

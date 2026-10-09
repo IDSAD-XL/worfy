@@ -100,27 +100,40 @@ describe('the initial marks', () => {
     }
   })
 
-  it('local: connecting a Project — the draft, the GitHub account and the gh sign-in (worfy-harness tickets 24, 25)', () => {
-    const local = marked('local')
+  // worfy-link ticket 11: "Add project" on a Linked machine runs every step of the connection on
+  // that Machine, so the steps are `project` — open to a Linked machine only while access is on, and
+  // the narrowest mark that lets them go there. The gh sign-in types into a terminal of the Machine
+  // whose screen shows it: it stays `local`, so a Linked machine never signs gh in on this one.
+  const connectSteps = [
+    'projects.connect.inspect',
+    'projects.connect.draft',
+    'projects.connect.stop',
+    'projects.connect.check',
+    'projects.connect.write',
+    'projects.connect.activity',
+    'projects.connect.accounts',
+  ]
+  const signIn = [
+    'projects.connect.signIn',
+    'projects.connect.signInInput',
+    'projects.connect.signInResize',
+    'projects.connect.signInClose',
+    'projects.connect.signInOutput',
+    'projects.connect.signInExit',
+  ]
+
+  it('connecting a Project (worfy-harness tickets 24, 25): the steps and the GitHub accounts are `project`, the gh sign-in `local` (worfy-link ticket 11)', () => {
     const connect = channels.map((channel) => channel.name).filter((name) => name.startsWith('projects.connect.'))
-    // Named, so a channel that disappears or is renamed fails here too.
-    const expected = [
-      'projects.connect.inspect',
-      'projects.connect.draft',
-      'projects.connect.stop',
-      'projects.connect.check',
-      'projects.connect.write',
-      'projects.connect.activity',
-      'projects.connect.accounts',
-      'projects.connect.signIn',
-      'projects.connect.signInInput',
-      'projects.connect.signInResize',
-      'projects.connect.signInClose',
-      'projects.connect.signInOutput',
-      'projects.connect.signInExit',
-    ]
-    expect(connect.sort()).toEqual([...expected].sort())
-    for (const name of connect) expect(local, name).toContain(name)
+    // Named, so a channel that disappears, is renamed or is added without a decision fails here too.
+    expect(connect.sort()).toEqual([...connectSteps, ...signIn].sort())
+    const project = marked('project')
+    for (const name of connectSteps) expect(project, name).toContain(name)
+    const local = marked('local')
+    for (const name of signIn) expect(local, name).toContain(name)
+  })
+
+  it('projects.browse is `project`: the folders of a Linked machine, only while access is on (worfy-link ticket 11)', () => {
+    expect(marked('project')).toContain('projects.browse')
   })
 
   it('no channel of the shell domain, and no dialog, is open to a Linked machine', () => {
