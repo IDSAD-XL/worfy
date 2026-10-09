@@ -156,10 +156,21 @@ Source: решения владельца 2026-10-07: Q3 (с другой маш
 - **Адрес и origin.** Card Linked machine-а M — `worfy-card://<card id>.<project label>.<machine label>/<путь>`.
   `parseCardUrl` (`src/main/cards/protocol.ts`) и `cardOriginOf` (`src/shared/cards/bridge.ts`) принимают обе формы;
   `machineLabel` в ответе есть только у формы M. `allowFrameNavigation` сравнивает весь host. CSP окна не менялась.
-- **Machine label** — FNV-1a (32 бита) от UTF-8 байтов id Machine, 8 hex (`machineLabel`, `src/shared/cards/bridge.ts`).
-  Не sha256: окно считает label синхронно, пока рисует Card, а Web Crypto в renderer-е только асинхронный.
-  Label различает Linked machine-ы одной Machine и ничего не охраняет; два Linked machine-а с одним label — 404.
-  **Решено без владельца, подтвердить.**
+- **`document.domain` (review, раунд 1).** Card одного Project-а M делят сайт `<project label>.<machine label>`, но
+  встретиться на нём через `document.domain` не могут: iframe с атрибутом `sandbox` (`CARD_SANDBOX`, `CardNode.tsx`)
+  не может его ставить вовсе, какие бы allow-ключи у него ни были. Это проверяет e2e `linked-cards.spec.ts`: обе Card
+  B получают `SecurityError … sandboxed`, соседний кадр недоступен. Mutation testing: без `sandbox` у кадра test
+  красный; адрес из двух частей host-а (`<project label>-<machine label>`) этот test не различает — откат к форме
+  тикета. Заголовок `Origin-Agent-Cluster: ?1`, предложенный review, не поставлен: в Electron 44 окно, загрузившее
+  кадр с ним, закрывается (e2e card-runtime и card-api красные: «Target page … has been closed»).
+- **Machine label** — id Machine (UUID) без дефисов, в нижнем регистре: 32 hex (`machineLabel`,
+  `src/shared/cards/bridge.ts`), а не 8 hex, как предлагал тикет. Id у Linked machine-ов разные, поэтому label не
+  совпадёт ни у каких двух, какой бы id Machine себе ни выбрала; хэш на 8 hex такой подбор допускал (review, раунд 1).
+  Id не секрет: renderer и так знает id Machine-ов. **Решено без владельца, подтвердить.**
+- **Долг: хранилище Card M после отзыва.** `localStorage` и прочее хранилище origin-ов Card M остаётся в профиле
+  Electron и после отзыва связи; при новой связи с той же Machine (тот же id) Card увидит его снова. Чужой Machine
+  оно недоступно: label — её собственный id. Чистить при отзыве — `session.clearData` с перечнем origin-ов, а перечня
+  Card M у этой машины нет; не сделано.
 - **Кто строит адрес.** `CardNode` в окне на M переписывает `url` от M через `linkedCardUrl`; адрес M без label в
   iframe не попадает (не адрес Card — Node пишет об этом вместо кадра).
 - **Второй источник файлов** — `src/main/cards/remote.ts` (`appLinkedCardSource`; `installCardRuntime` берёт его сам,
@@ -169,7 +180,8 @@ Source: решения владельца 2026-10-07: Q3 (с другой маш
   расширению (расширение не из списка — 404). Ответы: нет Linked machine-а с label или нет файла — 404; не GET/HEAD —
   405; больше 20 МБ (`CARD_FILE_LIMIT_BYTES` = `FILE_COPY_LIMIT_BYTES`) — 413; M недоступна — 502. Всё с теми же
   заголовками.
-- **Файл кусками по 4 МБ** (`CARD_FILE_CHUNK_BYTES`). Предпосылка тикета «байты base64 одним ответом» не сходится с
+- **Файл кусками по 4 МБ** (`CARD_FILE_CHUNK_BYTES`). Каждый кусок несёт размер и mtime файла; если они или расширение
+  разошлись между кусками (файл переписан, даже того же размера), файл читается заново. Предпосылка тикета «байты base64 одним ответом» не сходится с
   пределом одного сообщения связи: `LINK_MAX_PAYLOAD` = 16 МБ (`src/main/link/messages.ts`), а 20 МБ в base64 — около
   27 МБ, и такое сообщение закрыло бы всё соединение. Куски держат предел 20 МБ без правки модуля связи; цена — до
   шести вызовов на большой файл. Файл, изменившийся между кусками, читается заново один раз. **Решено без владельца,
@@ -179,7 +191,8 @@ Source: решения владельца 2026-10-07: Q3 (с другой маш
   `dialog.showMessageBox` на окне, которое спросило, с прежними кнопками и текстом (`confirmCardMessage`,
   `src/main/ipc/card-api.ts`). Получатель без человека — отказ и `refused_dialog` в askPrepare, до диалога. Ждущий
   вопрос снимается после askFinish, при `destroyed` клиента, который спросил (окно или клиент связи), и через 10 минут
-  (`ASK_WAIT_MS`). askFinish принимает только тот же клиент и тот же Project. Окно после «Cancel» или сбоя диалога
+  (`ASK_WAIT_MS`). askFinish принимает только тот же клиент и тот же Project; перед отправкой askFinish ещё раз
+  проверяет, не стал ли получатель Session без человека (диалог мог быть открыт минуты). Окно после «Cancel» или сбоя диалога
   само зовёт `askFinish(send: false)`, поэтому Card может спросить сразу снова. `window.worfy` и
   `CardBridgeBackend.ask` не менялись.
 - **Test-ы вне следа.** Уход `cardApi.ask` потребовал правок `test/unit/link-access.test.ts` (список `desktop`) и
@@ -188,7 +201,13 @@ Source: решения владельца 2026-10-07: Q3 (с другой маш
   `test/contract/card-api.test.ts`; e2e: `test/e2e/card-api.spec.ts` (свой Project, без правок — зелёный на новом
   пути), `test/e2e/linked-cards.spec.ts` (новый). Mutation testing: `cardApi.confirm` с пометкой `project` — e2e
   красный; без снятия вопроса по `destroyed` и по сроку — contract красный; без сравнения machine label в
-  `allowFrameNavigation` — contract красный.
+  `allowFrameNavigation` — contract красный. Раунд 2: без сравнения mtime между кусками, без повторной проверки
+  получателя в askFinish, с label из 8 знаков id вместо 32 — contract красный; без `sandbox` у кадра — e2e красный.
+- **Первый кадр Card B в окне A (review, раунд 1: один красный прогон из четырёх при load ~7).** Причину паузы
+  воспроизвести не удалось: в 5 прогонах трёх spec-ов подряд (`linked-cards`, `card-api`, `card-runtime`, load ~5)
+  кадр готов за 0,02–0,04 s после появления iframe и около 0,2 s после клика. Первый кадр Card B ждёт явно 15 s, как
+  `epic-frame.spec.ts`: путь идёт через два приложения и связь. Если кадр не готов, ошибка test-а называет адрес кадра
+  и ответ протокола на него из main A (404 или 502 видны сразу, а не как пустой кадр).
 - **Снимки** (A показывает Project B; светлая и тёмная тема): Card B в окне A —
   [светлая](../evidence/10-card-of-linked-machine-light.png), [тёмная](../evidence/10-card-of-linked-machine-dark.png);
   после «Send» из Card B — [светлая](../evidence/10-card-of-linked-machine-sent-light.png),

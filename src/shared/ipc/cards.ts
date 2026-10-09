@@ -51,6 +51,11 @@ export const cardFileAnswerSchema = z.discriminatedUnion('status', [
     extension: z.string().regex(/^\.[a-z0-9]{1,8}$/),
     /** The whole file's size in bytes. */
     size: z.number().int().nonnegative(),
+    /**
+     * When the file was last written (its mtime, with the fraction of a millisecond the disk keeps):
+     * the pieces of one read must all have the same, or the file changed in between.
+     */
+    mtimeMs: z.number().nonnegative(),
     /** The bytes asked for, from `offset` on, as base64. */
     base64: z.string().max(Math.ceil(CARD_FILE_CHUNK_BYTES / 3) * 4),
   }),

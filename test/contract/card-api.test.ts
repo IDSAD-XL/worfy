@@ -187,6 +187,26 @@ describe('askPrepare → askFinish on the Machine of the Project', () => {
     expect(ASK_WAIT_MS).toBe(10 * 60_000)
   })
 
+  it('"Send" checks the recipient again: one that turned unattended while the dialog was open gets nothing', async () => {
+    const session = await startSession(false)
+    let unattendedNow = false
+    const refused: string[] = []
+    const ask = cardAsk(session.id, {
+      refuse: (question) => {
+        if (!unattendedNow) return
+        refused.push(question.cardId)
+        throw new Error(NO_HUMAN_MESSAGE)
+      },
+    })
+    const prepared = await ask.prepare('demo', 'card-1', 'ship it')
+    unattendedNow = true
+    expect(() => ask.finish('demo', prepared.askId, true)).toThrow(NO_HUMAN_MESSAGE)
+    expect(refused).toEqual(['card-1'])
+    expect(ask.pending).toBe(0)
+    await new Promise((done) => setTimeout(done, 50))
+    expect(prompts()).toEqual([])
+  })
+
   it('an unattended recipient: refused, `refused_dialog` sent, no dialog, nothing waits', async () => {
     const session = await startSession(true)
     const ask = cardAsk(session.id)

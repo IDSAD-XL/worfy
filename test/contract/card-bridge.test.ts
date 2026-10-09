@@ -42,6 +42,8 @@ vi.mock('electron', () => ({ protocol: {} }))
 const PROJECT = 'demo-0a1b2c3d'
 const ORIGIN = 'worfy-card://c1.0a1b2c3d'
 const OTHER_ORIGIN = 'worfy-card://c2.0a1b2c3d'
+/** The machine label of a Linked machine: its id without dashes. */
+const M = '3f2504e04f8941d39a0c0305e82c3301'
 
 let scratch: string
 
@@ -186,42 +188,36 @@ describe('card bridge protocol: the operations', () => {
   })
 
   it('finds the origin of a Card of a Linked machine, with its machine label; never the origin of the own Card', () => {
-    const linked = cardOriginOf('worfy-card://c1.0a1b2c3d.89abcdef/index.html')
-    expect(linked).toEqual({ origin: `${ORIGIN}.89abcdef`, cardId: 'c1', machineLabel: '89abcdef' })
-    expect(cardOriginOf('worfy-card://c1.0a1b2c3d.89abcdef')).toEqual(linked)
+    const linked = cardOriginOf(`worfy-card://c1.0a1b2c3d.${M}/index.html`)
+    expect(linked).toEqual({ origin: `${ORIGIN}.${M}`, cardId: 'c1', machineLabel: M })
+    expect(cardOriginOf(`worfy-card://c1.0a1b2c3d.${M}`)).toEqual(linked)
     expect(linked?.origin).not.toBe(cardOriginOf(`${ORIGIN}/index.html`)?.origin)
     expect(cardOriginOf(`${ORIGIN}/index.html`)).not.toHaveProperty('machineLabel')
-    for (const url of ['worfy-card://c1.0a1b2c3d.89abcdef.00000000/', 'worfy-card://c1.0a1b2c3d.89abcdeg/', 'worfy-card://c1.0a1b2c3d.89ab/', 'worfy-card://c1.0a1b2c3d./']) {
+    for (const url of [`worfy-card://c1.0a1b2c3d.${M}.00000000/`, `worfy-card://c1.0a1b2c3d.${M.slice(0, 31)}g/`, 'worfy-card://c1.0a1b2c3d.89abcdef/', `worfy-card://c1.0a1b2c3d-${M}/`, 'worfy-card://c1.0a1b2c3d./']) {
       expect(cardOriginOf(url), url).toBeNull()
     }
   })
 
-  it('machineLabel: 8 hex characters, the same for one id, different for different ids', () => {
-    const one = '3f2504e0-4f89-41d3-9a0c-0305e82c3301'
-    const other = '3f2504e0-4f89-41d3-9a0c-0305e82c3302'
-    expect(machineLabel(one)).toMatch(/^[0-9a-f]{8}$/)
-    expect(machineLabel(one)).toBe(machineLabel(one))
-    expect(machineLabel(other)).not.toBe(machineLabel(one))
-    // FNV-1a over the UTF-8 bytes: pinned, since the window and main must agree on it.
-    expect(machineLabel('')).toBe('811c9dc5')
-    expect(machineLabel('a')).toBe('e40c292c')
+  it('machineLabel: the Machine id without dashes, lower case; two ids never share it; not a UUID — none', () => {
+    expect(machineLabel('3F2504E0-4F89-41D3-9A0C-0305E82C3301')).toBe('3f2504e04f8941d39a0c0305e82c3301')
+    expect(machineLabel('3f2504e0-4f89-41d3-9a0c-0305e82c3302')).toBe('3f2504e04f8941d39a0c0305e82c3302')
+    for (const id of ['', 'm-1', '3f2504e04f8941d39a0c0305e82c3301', '3f2504e0-4f89-41d3-9a0c-0305e82c330', '../3f2504e0-4f89-41d3-9a0c-0305e82c3301']) {
+      expect(machineLabel(id), id).toBeNull()
+    }
   })
 
   it('linkedCardUrl turns the address a Linked machine gives into the form with its machine label, and nothing else', () => {
-    expect(linkedCardUrl(`${ORIGIN}/index.html`, '89abcdef')).toBe(`${ORIGIN}.89abcdef/index.html`)
-    expect(linkedCardUrl(`${ORIGIN}/js/app.js?x=1`, '89abcdef')).toBe(`${ORIGIN}.89abcdef/js/app.js?x=1`)
-    expect(linkedCardUrl(ORIGIN, '89abcdef')).toBe(`${ORIGIN}.89abcdef`)
+    expect(linkedCardUrl(`${ORIGIN}/index.html`, M)).toBe(`${ORIGIN}.${M}/index.html`)
+    expect(linkedCardUrl(`${ORIGIN}/js/app.js?x=1`, M)).toBe(`${ORIGIN}.${M}/js/app.js?x=1`)
+    expect(linkedCardUrl(ORIGIN, M)).toBe(`${ORIGIN}.${M}`)
     // Already a Linked machine's form, not a Card address, or not a machine label: none.
-    expect(linkedCardUrl(`${ORIGIN}.01234567/index.html`, '89abcdef')).toBeNull()
-    expect(linkedCardUrl('https://c1.0a1b2c3d/index.html', '89abcdef')).toBeNull()
-    expect(linkedCardUrl('file:///etc/hosts', '89abcdef')).toBeNull()
-    expect(linkedCardUrl(`${ORIGIN}/index.html`, 'machine')).toBeNull()
+    expect(linkedCardUrl(`${ORIGIN}.${M}/index.html`, M)).toBeNull()
+    expect(linkedCardUrl('https://c1.0a1b2c3d/index.html', M)).toBeNull()
+    expect(linkedCardUrl('file:///etc/hosts', M)).toBeNull()
+    expect(linkedCardUrl(`${ORIGIN}/index.html`, '89abcdef')).toBeNull()
+    expect(linkedCardUrl(`${ORIGIN}/index.html`, null)).toBeNull()
     // What comes out is read back as the Card of that Linked machine.
-    expect(cardOriginOf(linkedCardUrl(`${ORIGIN}/index.html`, machineLabel('m-1')) ?? '')).toEqual({
-      origin: `${ORIGIN}.${machineLabel('m-1')}`,
-      cardId: 'c1',
-      machineLabel: machineLabel('m-1'),
-    })
+    expect(cardOriginOf(linkedCardUrl(`${ORIGIN}/index.html`, M) ?? '')).toEqual({ origin: `${ORIGIN}.${M}`, cardId: 'c1', machineLabel: M })
   })
 })
 

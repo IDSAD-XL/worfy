@@ -45,8 +45,9 @@ export interface CardAskDeps {
   /** The Card's <title>, or null. Throws for an unknown Project. */
   cardTitle(projectId: string, cardId: string): Promise<string | null>
   /**
-   * Called before a question waits: throws when no one could answer the dialog for the recipient
-   * (an unattended Session), after telling the Session's subscribers.
+   * Called before a question waits, and again before a confirmed message is sent: throws when no
+   * one could answer the dialog for the recipient (an unattended Session), after telling the
+   * Session's subscribers.
    */
   refuseUnattended(question: AskQuestion): void
   /** Sends a user message to a live Session. */
@@ -165,6 +166,9 @@ export class CardAsk {
     }
     this.drop(askId)
     if (!send) return { sent: false, recipient: null }
+    // The dialog may have been open for minutes: a recipient that turned unattended meanwhile is
+    // refused now as it would have been at prepare(), and nothing is sent.
+    this.deps.refuseUnattended(waiting.question)
     this.deps.send(waiting.question.recipient.sessionId, waiting.question.message)
     return { sent: true, recipient: waiting.question.recipient.kind }
   }

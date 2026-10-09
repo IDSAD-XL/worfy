@@ -85,9 +85,34 @@ async function setSharing(window: Page, on: boolean): Promise<void> {
 const group = (window: Page, selector: string) => window.locator(`[data-testid="machine-group"]${selector}`)
 const projectButton = (window: Page, groupSelector: string) => group(window, groupSelector).locator(`[data-testid="project-row"][data-project-id="${SHARED}"]`).getByRole('button')
 
-/** The frame of Card `cardId` whose address starts with `origin`, once its page ran its script. */
-async function cardFrame(window: Page, cardId: string, origin: string): Promise<Frame> {
-  await expect(window.frameLocator(`[data-card-id="${cardId}"] iframe`).locator('body[data-ready="yes"]')).toHaveCount(1)
+/**
+ * How long the first frame of a Card of B may take in A's window. It crosses two running worfy:
+ * A's window loads again on B, reads B's Projects, Layout and Card over the link, then A's protocol
+ * asks B for the file with cards.file. At rest that is about 0.2 s from the click (5 runs of the
+ * three Card specs together); the 5 s default was missed once with several Electron apps of other
+ * worktrees running at load ~7. Like epic-frame.spec.ts, the first frame gets 15 s.
+ */
+const FIRST_FRAME_MS = 15_000
+
+/**
+ * The frame of Card `cardId` whose address starts with `origin`, once its page ran its script.
+ * When it does not get there, the error says what the frame got: its address and, from A's main,
+ * the protocol's answer to that address (a 404 or 502 shows up here, not as an empty frame).
+ */
+async function cardFrame(launched: LaunchedApp, cardId: string, origin: string, timeout = 5_000): Promise<Frame> {
+  const { window, app } = launched
+  try {
+    await expect(window.frameLocator(`[data-card-id="${cardId}"] iframe`).locator('body[data-ready="yes"]')).toHaveCount(1, { timeout })
+  } catch (error) {
+    const src = (await window.locator(`[data-card-id="${cardId}"] iframe`).getAttribute('src').catch(() => null)) ?? ''
+    const answer = src.startsWith('worfy-card://')
+      ? await app.evaluate(async ({ net }, url) => {
+          const response = await net.fetch(url)
+          return `${response.status} ${(await response.text()).slice(0, 120)}`
+        }, src).catch((reason: unknown) => `fetch failed: ${String(reason)}`)
+      : 'no Card address'
+    throw new Error(`Card ${cardId} at ${src || 'no frame'} did not get ready; the protocol answers: ${answer}`, { cause: error })
+  }
   let found: Frame | undefined
   await expect.poll(() => (found = window.frames().find((candidate) => candidate.url().startsWith(`${origin}/`))) !== undefined).toBe(true)
   if (found === undefined) throw new Error(`no frame at ${origin}`)
@@ -143,6 +168,14 @@ const fetchScript = (ownCardOfA: string, otherCardOfB: string) => `(async () => 
   }
 })()`
 
+/**
+ * Widens the frame's document.domain to its host without the card id — the site two Cards of one
+ * Project of a Linked machine share — and answers 'set' or the error.
+ */
+const WIDEN_DOMAIN_SCRIPT = `(() => {
+  try { document.domain = location.hostname.split('.').slice(1).join('.'); return 'set' } catch (error) { return error.name + ': ' + error.message }
+})()`
+
 const navigateScript = (url: string) => `location.href = ${JSON.stringify(url)}`
 
 const showStatus = (frame: Frame, text: string) => frame.evaluate(`document.getElementById('status').textContent = ${JSON.stringify(text)}`)
@@ -162,7 +195,7 @@ test('A shows the Card of B from B, its own Card as before; a file change on B r
     const ownOrigin = `worfy-card://c1.${LABEL}`
 
     // A's own Project: its own Card, at the address it always had.
-    const ownCard = await cardFrame(a.window, 'c1', ownOrigin)
+    const ownCard = await cardFrame(a, 'c1', ownOrigin)
     expect(await ownCard.evaluate("document.getElementById('title').textContent")).toBe('Card of A')
     expect(await ownCard.evaluate('location.origin')).toBe(ownOrigin)
     await ownCard.evaluate("localStorage.setItem('who', 'A')")
@@ -171,10 +204,10 @@ test('A shows the Card of B from B, its own Card as before; a file change on B r
     await projectButton(a.window, `[data-machine-id="${bId}"]`).click()
     await expect(a.window).toHaveURL(new RegExp(`[?&]machine=${bId}`))
     const frameSrc = await a.window.locator('[data-card-id="c1"] iframe').getAttribute('src')
-    const linkedOrigin = /^(worfy-card:\/\/c1\.0000005c\.[0-9a-f]{8})\/index\.html$/.exec(frameSrc ?? '')?.[1]
+    const linkedOrigin = /^(worfy-card:\/\/c1\.0000005c\.[0-9a-f]{32})\/index\.html$/.exec(frameSrc ?? '')?.[1]
     expect(linkedOrigin, frameSrc ?? 'no src').toBeDefined()
     if (linkedOrigin === undefined) return
-    let cardOfB = await cardFrame(a.window, 'c1', linkedOrigin)
+    let cardOfB = await cardFrame(a, 'c1', linkedOrigin, FIRST_FRAME_MS)
     expect(await cardOfB.evaluate("document.getElementById('title').textContent")).toBe('Card of B')
     await expect(a.window.locator('[data-card-id="c1"]').getByTestId('card-title')).toHaveText('Card of B')
     expect(await cardOfB.evaluate('location.origin')).toBe(linkedOrigin)
@@ -191,7 +224,7 @@ test('A shows the Card of B from B, its own Card as before; a file change on B r
     await writeFile(join(bData, SHARED, 'cards', 'c1', 'index.html'), cardHtml('Card of B v2'))
     await expect(a.window.frameLocator('[data-card-id="c1"] iframe').locator('#title')).toHaveText('Card of B v2', { timeout: 1_000 })
     expect(Date.now() - started).toBeLessThanOrEqual(1_000)
-    cardOfB = await cardFrame(a.window, 'c1', linkedOrigin)
+    cardOfB = await cardFrame(a, 'c1', linkedOrigin)
 
     // session.ask from the Card of B in A's window: the dialog on A once, never on B; "Cancel" sends
     // nothing, "Send" reaches the Orchestrator of B.
@@ -223,6 +256,13 @@ test('A shows the Card of B from B, its own Card as before; a file change on B r
     expect(reach.siblings.every((result) => result === 'SecurityError')).toBe(true)
     const otherOfB = `worfy-card://c2.${LABEL}${linkedOrigin.slice(`worfy-card://c1.${LABEL}`.length)}/index.html`
     expect(await cardOfB.evaluate(fetchScript(`${ownOrigin}/index.html`, otherOfB))).toEqual({ ownCardOfA: 'TypeError', otherCardOfB: 'TypeError', file: 'TypeError' })
+    // Both Cards of B share the site <project label>.<machine label> and try to meet there through
+    // document.domain: a sandboxed iframe may not set it, so both are refused and they stay apart.
+    const otherFrame = await cardFrame(a, 'c2', otherOfB.slice(0, -'/index.html'.length))
+    for (const frame of [otherFrame, cardOfB]) expect(await frame.evaluate(WIDEN_DOMAIN_SCRIPT)).toMatch(/^SecurityError: .*sandboxed/)
+    const afterWidening = (await cardOfB.evaluate(REACH_SCRIPT)) as { siblings: string[] }
+    expect(afterWidening.siblings.every((result) => result === 'SecurityError')).toBe(true)
+
     // Navigating to the own Card of A or to another Card of B: main stops it, the Card stays.
     for (const target of [`${ownOrigin}/index.html`, otherOfB]) {
       await cardOfB.evaluate(navigateScript(target))
@@ -236,7 +276,7 @@ test('A shows the Card of B from B, its own Card as before; a file change on B r
     // Back to A's own Project: its own Card again, from A, with its own storage.
     await projectButton(a.window, '[data-state="this"]').click()
     await expect(a.window).not.toHaveURL(/[?&]machine=/)
-    const ownAgain = await cardFrame(a.window, 'c1', ownOrigin)
+    const ownAgain = await cardFrame(a, 'c1', ownOrigin)
     expect(await ownAgain.evaluate("document.getElementById('title').textContent")).toBe('Card of A')
     expect(await ownAgain.evaluate("localStorage.getItem('who')")).toBe('A')
   } finally {

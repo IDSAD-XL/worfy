@@ -21,7 +21,10 @@ export interface LinkedCardDeps {
   call(machine: string, channel: string, input: unknown): Promise<IpcResult<unknown>>
 }
 
-/** A file whose size or type changed between two pieces is not glued together: it is read again from the start, at most this often. */
+/**
+ * A file whose size, type or mtime changed between two pieces is not glued together: it is read
+ * again from the start, at most this often.
+ */
 const READ_ATTEMPTS = 2
 
 /** The second source over `deps`; protocol.ts's createCardHandler takes it. */
@@ -29,7 +32,7 @@ export function createLinkedCardSource(deps: LinkedCardDeps): LinkedCardSource {
   return async (request) => {
     const matches = (await deps.machines()).filter((machine) => machineLabel(machine.id) === request.machineLabel)
     const [machine] = matches
-    // None, or two Linked machines whose labels collide: no telling whose Card it is.
+    // None; two would mean two Linked machines with one id, which the link does not allow.
     if (matches.length !== 1 || machine === undefined) return { status: 'unknown-machine' }
     for (let attempt = 0; attempt < READ_ATTEMPTS; attempt += 1) {
       const file = await readFrom(deps, machine.id, request)
@@ -43,7 +46,7 @@ export function createLinkedCardSource(deps: LinkedCardDeps): LinkedCardSource {
 async function readFrom(deps: LinkedCardDeps, machine: string, request: LinkedCardRequest): Promise<LinkedCardFile | 'changed'> {
   const chunks: Uint8Array[] = []
   let received = 0
-  let first: { extension: string; size: number } | undefined
+  let first: { extension: string; size: number; mtimeMs: number } | undefined
   for (;;) {
     const length = request.head ? 0 : CARD_FILE_CHUNK_BYTES
     const input = { projectLabel: request.projectLabel, cardId: request.cardId, path: request.pathname, offset: received, length }
@@ -55,8 +58,9 @@ async function readFrom(deps: LinkedCardDeps, machine: string, request: LinkedCa
     if (piece.status === 'too-large') return { status: 'too-large' }
     if (piece.status === 'missing') return first === undefined ? { status: 'missing' } : 'changed'
     if (piece.size > CARD_FILE_LIMIT_BYTES) return { status: 'too-large' }
-    if (first === undefined) first = { extension: piece.extension, size: piece.size }
-    else if (piece.size !== first.size || piece.extension !== first.extension) return 'changed'
+    if (first === undefined) first = { extension: piece.extension, size: piece.size, mtimeMs: piece.mtimeMs }
+    // Rewritten with the same size between two pieces: only the mtime tells.
+    else if (piece.size !== first.size || piece.extension !== first.extension || piece.mtimeMs !== first.mtimeMs) return 'changed'
     const bytes = Buffer.from(piece.base64, 'base64')
     if (bytes.byteLength > CARD_FILE_CHUNK_BYTES || received + bytes.byteLength > first.size) return 'changed'
     chunks.push(bytes)

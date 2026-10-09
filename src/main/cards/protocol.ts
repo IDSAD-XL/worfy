@@ -23,7 +23,11 @@
 // A Card of a Linked machine M (worfy-link ticket 10; ADR-0052, ADR-0053) is shown in a window of
 // this Machine at worfy-card://<card id>.<project label>.<machine label>/<path>, where the machine
 // label names M (machineLabel, src/shared/cards/bridge.ts). Its origin is not the origin of any Card
-// of this Machine, even one with the same card id and project label. Its files come from M through
+// of this Machine, even one with the same card id and project label. The Cards of one Project of M
+// share the site <project label>.<machine label>, but they cannot meet there through
+// `document.domain`: a sandboxed iframe (CARD_SANDBOX, CardNode.tsx) may not set it at all, whatever
+// its allow- keywords. (The header Origin-Agent-Cluster, which would forbid it too, makes Electron
+// 44 close the window that loads such a frame.) Its files come from M through
 // the second source of the handler (src/main/cards/remote.ts): M finds and checks the file
 // (readCardFileChunk below, on M) and sends its bytes; this Machine's main puts its own runtime into
 // the HTML, since the runtime must match the bridge of the window that shows the Card.
@@ -308,13 +312,13 @@ export async function readCardFileChunk(cardsDir: string | null, cardId: string,
     return { status: 'missing' }
   }
   try {
-    const { size } = await handle.stat()
+    const { size, mtimeMs } = await handle.stat()
     if (size > CARD_FILE_LIMIT_BYTES) return { status: 'too-large', size }
     const start = Math.min(offset, size)
     const wanted = Math.min(length, CARD_FILE_CHUNK_BYTES, size - start)
     const buffer = Buffer.alloc(wanted)
     const { bytesRead } = wanted === 0 ? { bytesRead: 0 } : await handle.read(buffer, 0, wanted, start)
-    return { status: 'file', extension: extname(file).toLowerCase(), size, base64: buffer.subarray(0, bytesRead).toString('base64') }
+    return { status: 'file', extension: extname(file).toLowerCase(), size, mtimeMs, base64: buffer.subarray(0, bytesRead).toString('base64') }
   } catch {
     return { status: 'missing' }
   } finally {

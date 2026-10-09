@@ -215,16 +215,16 @@ describe('Card addresses', () => {
   })
 
   it('reads the machine label of a Card of a Linked machine: <card id>.<project label>.<machine label>', () => {
-    expect(parseCardUrl(`${CARD_SCHEME}://c1.0123abcd.89abcdef/index.html`)).toEqual({
+    expect(parseCardUrl(`${CARD_SCHEME}://c1.0123abcd.0123456789abcdef0123456789abcdef/index.html`)).toEqual({
       cardId: 'c1',
       projectLabel: '0123abcd',
-      machineLabel: '89abcdef',
+      machineLabel: '0123456789abcdef0123456789abcdef',
       pathname: '/index.html',
     })
     // The own form has no machine label at all.
     expect(parseCardUrl(`${BASE}/index.html`)?.machineLabel).toBeUndefined()
-    // The machine label is 8 hex characters like the project label; four parts are no address.
-    for (const host of [`c1.${LABEL}.machine`, `c1.${LABEL}.89ABCDEG`, `c1.${LABEL}.89abcdef.00000000`, `c1.${LABEL}.`]) {
+    // The machine label is 32 hex characters (a Machine id without dashes); four parts are no address.
+    for (const host of [`c1.${LABEL}.machine`, `c1.${LABEL}.89abcdef`, `c1.${LABEL}.${'0123456789abcdef0123456789abcdef'.slice(0, 31)}g`, `c1.${LABEL}.0123456789abcdef0123456789abcdef.00000000`, `c1.${LABEL}-0123456789abcdef0123456789abcdef`, `c1.${LABEL}.`]) {
       expect(parseCardUrl(`${CARD_SCHEME}://${host}/index.html`), host).toBeNull()
     }
   })
@@ -244,7 +244,8 @@ describe('Card addresses', () => {
 
 /** Linked machine M: its own data folder, with Card c1 of a Project that has this Project's label. */
 const MACHINE_M = '3f2504e0-4f89-41d3-9a0c-0305e82c3301'
-const M_BASE = `${BASE}.${machineLabel(MACHINE_M)}`
+const M_LABEL = machineLabel(MACHINE_M) ?? ''
+const M_BASE = `${BASE}.${M_LABEL}`
 
 describe('worfy-card:// serves a Card of a Linked machine from its second source', () => {
   let storeOfM: CardStore
@@ -328,7 +329,7 @@ describe('worfy-card:// serves a Card of a Linked machine from its second source
   })
 
   it('an unknown machine label, no file on M and a method other than GET or HEAD: 404 and 405 with the same headers', async () => {
-    const unknown = await linkedHandle({ url: `${BASE}.${machineLabel('nobody')}/index.html`, method: 'GET' })
+    const unknown = await linkedHandle({ url: `${BASE}.${'0'.repeat(32)}/index.html`, method: 'GET' })
     expect(unknown.status).toBe(404)
     expectCardHeaders(unknown, 'unknown machine')
     expect(calls).toEqual([])
@@ -338,7 +339,7 @@ describe('worfy-card:// serves a Card of a Linked machine from its second source
       expect(missing.status, path).toBe(404)
       expectCardHeaders(missing, path)
     }
-    const other = await linkedHandle({ url: `${CARD_SCHEME}://c1.ffffffff.${machineLabel(MACHINE_M)}/index.html`, method: 'GET' })
+    const other = await linkedHandle({ url: `${CARD_SCHEME}://c1.ffffffff.${M_LABEL}/index.html`, method: 'GET' })
     expect(other.status).toBe(404)
 
     const post = await linkedHandle({ url: `${M_BASE}/index.html`, method: 'POST' })
@@ -379,6 +380,33 @@ describe('worfy-card:// serves a Card of a Linked machine from its second source
     expect(calls.map((each) => each.input.offset)).toEqual([0, CARD_FILE_CHUNK_BYTES, CARD_FILE_CHUNK_BYTES * 2])
   })
 
+  it('a file rewritten with the same size between two pieces is read again from the start, not spliced', async () => {
+    // M as a script: the first read sees the old file in its first piece, the new one in the second.
+    const old = Buffer.from('aaaaabbbbb')
+    const fresh = Buffer.from('cccccddddd')
+    const answers = [
+      { file: old, mtimeMs: 1000.5, offset: 0 },
+      { file: fresh, mtimeMs: 2000.25, offset: 5 },
+      { file: fresh, mtimeMs: 2000.25, offset: 0 },
+      { file: fresh, mtimeMs: 2000.25, offset: 5 },
+    ]
+    const offsets: number[] = []
+    const source = createLinkedCardSource({
+      machines: () => Promise.resolve([{ id: MACHINE_M }]),
+      call: (_machine, _channel, input) => {
+        const { offset } = cardsFile.input.parse(input)
+        offsets.push(offset)
+        const next = answers.shift()
+        if (next === undefined || next.offset !== offset) return Promise.resolve({ ok: false, error: `unexpected offset ${offset}` })
+        const value = { status: 'file', extension: '.txt', size: 10, mtimeMs: next.mtimeMs, base64: next.file.subarray(offset, offset + 5).toString('base64') }
+        return Promise.resolve({ ok: true, value })
+      },
+    })
+    const file = await source({ machineLabel: M_LABEL, projectLabel: LABEL, cardId: 'c1', pathname: '/notes.txt', head: false })
+    expect(file.status === 'file' && Buffer.from(file.bytes).toString()).toBe('cccccddddd')
+    expect(offsets).toEqual([0, 5, 0, 5])
+  })
+
   it('M unreachable: 502 with the same headers; an extension M has no business sending: 404', async () => {
     reachable = false
     const response = await linkedHandle({ url: `${M_BASE}/index.html`, method: 'GET' })
@@ -400,6 +428,7 @@ describe('cards.file on the Machine of the Project: nothing outside the Card fol
       status: 'file',
       extension: '.html',
       size: Buffer.byteLength('<!doctype html><title>Clock</title><script src="js/app.js"></script>'),
+      mtimeMs: expect.any(Number) as number,
       base64: Buffer.from('<!doctype html><title>Clock</title><script src="js/app.js"></script>').toString('base64'),
     })
     expect(cardsFile.output.safeParse(answer).success).toBe(true)
@@ -440,12 +469,12 @@ describe('main lets a Card frame navigate only within its own origin', () => {
     ['the window loads its renderer', { isMainFrame: true, frameUrl: '', targetUrl: 'file:///app/index.html' }, true],
     ['an iframe that is not a Card navigates', { isMainFrame: false, frameUrl: 'https://a.example/', targetUrl: 'https://b.example/' }, true],
     // A Card of Linked machine M (worfy-link ticket 10): the whole host, machine label included.
-    ['the Node loads a Card of a Linked machine', { isMainFrame: false, frameUrl: '', targetUrl: `${BASE}.89abcdef/index.html` }, true],
-    ['a Card of a Linked machine goes to another of its own files', { isMainFrame: false, frameUrl: `${BASE}.89abcdef/index.html`, targetUrl: `${BASE}.89abcdef/page.html` }, true],
-    ['a Card of a Linked machine goes to the own Card with the same ids', { isMainFrame: false, frameUrl: `${BASE}.89abcdef/index.html`, targetUrl: card }, false],
-    ['the own Card goes to the Card of a Linked machine with the same ids', { isMainFrame: false, frameUrl: card, targetUrl: `${BASE}.89abcdef/index.html` }, false],
-    ['a Card of a Linked machine goes to the same Card of another Linked machine', { isMainFrame: false, frameUrl: `${BASE}.89abcdef/index.html`, targetUrl: `${BASE}.01234567/index.html` }, false],
-    ['the window goes to a Card of a Linked machine', { isMainFrame: true, frameUrl: 'file:///app/index.html', targetUrl: `${BASE}.89abcdef/index.html` }, false],
+    ['the Node loads a Card of a Linked machine', { isMainFrame: false, frameUrl: '', targetUrl: `${BASE}.3f2504e04f8941d39a0c0305e82c3301/index.html` }, true],
+    ['a Card of a Linked machine goes to another of its own files', { isMainFrame: false, frameUrl: `${BASE}.3f2504e04f8941d39a0c0305e82c3301/index.html`, targetUrl: `${BASE}.3f2504e04f8941d39a0c0305e82c3301/page.html` }, true],
+    ['a Card of a Linked machine goes to the own Card with the same ids', { isMainFrame: false, frameUrl: `${BASE}.3f2504e04f8941d39a0c0305e82c3301/index.html`, targetUrl: card }, false],
+    ['the own Card goes to the Card of a Linked machine with the same ids', { isMainFrame: false, frameUrl: card, targetUrl: `${BASE}.3f2504e04f8941d39a0c0305e82c3301/index.html` }, false],
+    ['a Card of a Linked machine goes to the same Card of another Linked machine', { isMainFrame: false, frameUrl: `${BASE}.3f2504e04f8941d39a0c0305e82c3301/index.html`, targetUrl: `${BASE}.0123456789abcdef0123456789abcdef/index.html` }, false],
+    ['the window goes to a Card of a Linked machine', { isMainFrame: true, frameUrl: 'file:///app/index.html', targetUrl: `${BASE}.3f2504e04f8941d39a0c0305e82c3301/index.html` }, false],
   ]
   for (const [name, navigation, allowed] of cases) {
     it(`${allowed ? 'allows' : 'stops'}: ${name}`, () => {

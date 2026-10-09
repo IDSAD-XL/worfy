@@ -181,25 +181,22 @@ export const workflowEvent = (snapshot: WorkflowSnapshot) => ({ type: 'worfy.eve
 
 // ── addresses ────────────────────────────────────────────────────────────────
 
-/** A machine label: 8 hex characters, the last part of the host of a Card of a Linked machine. */
-export const MACHINE_LABEL_PATTERN = /^[0-9a-f]{8}$/
+/** A machine label: 32 hex characters, the last part of the host of a Card of a Linked machine. */
+export const MACHINE_LABEL_PATTERN = /^[0-9a-f]{32}$/
+
+const MACHINE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
- * The machine label of Machine `machineId` (worfy-link ticket 10): the FNV-1a hash (32 bits) of the
- * id's UTF-8 bytes, as 8 hex characters. The window and main both compute it, the window
- * synchronously while it draws a Card, so it is a plain hash rather than one of Web Crypto's. It
- * only tells the Linked machines of one Machine apart; it guards nothing.
+ * The machine label of Machine `machineId` (worfy-link ticket 10): the id itself, a UUID, without
+ * its dashes and in lower case — 32 hex characters, one DNS label. Not a hash: two Linked machines
+ * have two ids, so they never share a label and with it the origin (and the storage) of their
+ * Cards, whatever id a Machine picks for itself. null for an id that is not a UUID.
  */
-export function machineLabel(machineId: string): string {
-  let hash = 0x811c9dc5
-  for (const byte of new TextEncoder().encode(machineId)) {
-    hash ^= byte
-    hash = Math.imul(hash, 0x01000193) >>> 0
-  }
-  return hash.toString(16).padStart(8, '0')
+export function machineLabel(machineId: string): string | null {
+  return MACHINE_ID.test(machineId) ? machineId.replaceAll('-', '').toLowerCase() : null
 }
 
-const CARD_ADDRESS = /^worfy-card:\/\/([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.([0-9a-f]{8})(?:\.([0-9a-f]{8}))?(?=\/|$)/
+const CARD_ADDRESS = /^worfy-card:\/\/([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.([0-9a-f]{8})(?:\.([0-9a-f]{32}))?(?=\/|$)/
 
 /**
  * The origin of a Card's frame from its address (ADR-0012): `worfy-card://<card id>.<project
@@ -221,8 +218,8 @@ export function cardOriginOf(url: string): { origin: string; cardId: string; mac
  * not the address of a Card of M's own (a form a window must not put into a frame) or the label is
  * not one.
  */
-export function linkedCardUrl(url: string, label: string): string | null {
+export function linkedCardUrl(url: string, label: string | null): string | null {
   const address = cardOriginOf(url)
-  if (address === null || address.machineLabel !== undefined || !MACHINE_LABEL_PATTERN.test(label)) return null
+  if (address === null || address.machineLabel !== undefined || label === null || !MACHINE_LABEL_PATTERN.test(label)) return null
   return `${address.origin}.${label}${url.slice(address.origin.length)}`
 }
