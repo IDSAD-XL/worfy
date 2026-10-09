@@ -144,8 +144,7 @@ ADR не нужен: решения — ADR-0042 (Profile на машине) и 
 
 ## Итог
 
-Ветка `worfy-harness/25`, worktree `.claude/worktrees/h25`. PR — в описании ветки (номер ставит оркестратор в
-статус).
+Ветка `worfy-harness/25`, worktree `.claude/worktrees/h25`. [PR #191](https://github.com/IDSAD-XL/worfy/pull/191).
 
 **Первый test.** `test/contract/projects-connect.test.ts`, случай «после шага аккаунта в черновике выбранный
 аккаунт и финиш по его правам; Connect пишет оба». На базе 29e9d4c упал: `TypeError: run.connector.accounts is
