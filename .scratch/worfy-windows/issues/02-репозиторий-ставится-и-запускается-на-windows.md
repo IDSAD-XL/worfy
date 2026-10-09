@@ -109,7 +109,7 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
 - [ ] Mac: `git add --renormalize . && git status --porcelain` пуст — `.gitattributes` не меняет ни одного файла индекса (через раздел Mac checks PR, Q33).
 - [x] Windows-ПК: `pnpm install --frozen-lockfile` — exit 0 в Session Claude Code (там `NoDefaultCurrentDirectoryInExePath=1`, evidence Ticket-а 01, раздел 20) и без пересборки node-pty; после него `git status --porcelain` пуст.
 - [x] Windows-ПК: node-pty грузится в Electron — `pnpm exec electron -e "require('node-pty')"` при `ELECTRON_RUN_AS_NODE=1` — exit 0.
-- [ ] Windows-ПК: `pnpm dev` открывает окно worfy; снимок — `../evidence/02-pnpm-dev.png`.
+- [x] Windows-ПК: `pnpm dev` открывает окно worfy; снимок — `../evidence/02-pnpm-dev.png` (снял владелец после мержа, evidence Ticket-а 01, раздел 27).
 - [x] Windows-ПК: `pnpm lint` и `pnpm typecheck` — exit 0.
 - [x] Windows-ПК: `pnpm test` стартует и печатает итог vitest; exit code и список упавших файлов с причиной — в Итог.
 - [x] Если появился `scripts/postinstall.mjs` — `test/contract/postinstall.test.ts` зелёный: на `darwin` скрипт зовёт `electron-rebuild --only node-pty`, на `win32` — нет.

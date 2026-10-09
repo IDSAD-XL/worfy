@@ -10,7 +10,9 @@ The Windows port is in progress (epic `worfy-windows`). To work on the repositor
 - Node.js 22 or newer (`winget install OpenJS.NodeJS.LTS`);
 - pnpm of the version in `packageManager` of `package.json`: `npm install -g pnpm@<version>`.
 
-Visual Studio Build Tools are not needed: on Windows `pnpm install` does not rebuild node-pty, Electron loads the prebuilt win32-x64 binary that ships with it (`scripts/postinstall.mjs`). Then `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck` and `pnpm test` run as on the Mac; the test suite is not green on Windows yet. `pnpm dev` has not been checked on Windows with these changes.
+Turn on Developer Mode (Settings → System → For developers): several tests create symbolic links, and without it Windows refuses them to a user without administrator rights.
+
+Visual Studio Build Tools are not needed: on Windows `pnpm install` does not rebuild node-pty, Electron loads the prebuilt win32-x64 binary that ships with it (`scripts/postinstall.mjs`). Then `pnpm install --frozen-lockfile`, `pnpm dev`, `pnpm lint`, `pnpm typecheck` and `pnpm test` run as on the Mac; the test suite is not green on Windows yet.
 
 ## Stable copy
 

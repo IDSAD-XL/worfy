@@ -16,7 +16,10 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
   test-ы своих срезов. Что к началу этого Ticket-а ещё красное — его. Общие причины в списке:
   - symlink без режима разработчика — `EPERM` (7 файлов: `first-run-checks`, `shell`, `link-access`,
     `link-caller`, `canvas`, `session-rail-discovery`, `shell-discovery`; evidence, раздел 22).
-    Режим разработчика на ПК выключен, прав администратора у Session нет;
+    2026-10-09 владелец включил режим разработчика (раздел 27): `EPERM … symlink` больше нет,
+    `canvas`, `session-rail-discovery` и `shell-discovery` зелёные; в остальных четырёх — 32
+    падения других причин, из них 11 — `EPERM` у `rmSync` временной папки по пути `\\?\…`
+    (`shell.test.ts:93`, `link-access.test.ts:269`);
   - проверка доверенного frame: `call rejected, it came from an untrusted frame
     (file:///Applications/worfy.app/…)` — `claude-home-subagents`, `docs`, `layout-store`,
     `projects`, `trash`;
@@ -25,7 +28,9 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
   - `harness-evals` — 41 упавший, по причинам: 16 — CRLF во front matter (`frontMatter` ищет
     `^---\n`); 8 — scaffold через `bash` из PATH, а это WSL, который на ПК не стартует; 9 —
     проверки фикстуры, которую строит тот же scaffold; 8 — `pnpm eval:harness` со stub `claude`
-    (`spawnSync …\claude ENOENT`) (evidence Ticket-а 01, раздел 17);
+    (`spawnSync …\claude ENOENT`) (evidence Ticket-а 01, раздел 17). Решение владельца 2026-10-09
+    (раздел 27): CRLF-случай чинит test — `\r?\n` в `frontMatter`, а не LF для `harness/evals/**`:
+    test читает файл в том виде, в каком git отдаёт его на машине;
   - прочее: `link-server` (код закрытия WebSocket 1006 вместо 1009), `epic-layout` (тайм-аут 5 s),
     `json-file`, `build-version` (`EPERM … \\?\C:\…`).
 - Пять test-ов идут только на macOS (`skipIf(process.platform !== 'darwin')`):
@@ -79,9 +84,9 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
 1. **Unit- и contract-test-ы на Windows.** Каждый test из списка evidence Ticket-а 01 (раздел 17) и
    Итог-а Ticket-а 02, который к началу ещё красный, — починить (test или код). Если смысл test-а на
    Windows не держится — пропуск на `win32` с комментарием: почему и какой Ticket его снимет. Test-ы
-   с symlink: либо пропуск на `win32` без режима разработчика (причина — в комментарии), либо
-   требование включить режим разработчика — выбор и причина в Итог, решение подтвердить у
-   владельца. Итоговый список пропусков — в Итог.
+   с symlink на `win32` не пропускаются: владелец включил режим разработчика и выбрал его как
+   требование к машине разработчика на Windows (evidence Ticket-а 01, раздел 27); раздел «Development
+   on Windows» в `README.md` его называет. Итоговый список пропусков — в Итог.
 2. **Пять test-ов только для macOS** — решение по каждому. Где смысл держится (inode на NTFS,
    пауза 300 ms у чтения workflow), test идёт и на Windows. Где нет (`/bin/zsh`, `sips`) — пропуск
    остаётся, комментарий называет причину для Windows. Комментарии «worfy runs on macOS only»
