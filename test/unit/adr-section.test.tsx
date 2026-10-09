@@ -31,12 +31,18 @@ vi.mock('../../src/renderer/docs/useDocs', () => ({
 
 vi.mock('../../src/renderer/markdown/Markdown', () => ({ Markdown: ({ text }: { text: string }) => <p>{text}</p> }))
 
-vi.mock('../../src/renderer/ipc', () => ({ invoke: vi.fn(() => Promise.resolve({ ok: true, value: undefined })) }))
+// The window's Machine: null — this Machine; an id — a window on that Linked machine (worfy-link ticket 12).
+const shown: { machine: string | null } = { machine: null }
+const invoke = vi.hoisted(() => vi.fn<(channel: string, input?: unknown) => Promise<{ ok: true; value: undefined }>>(() => Promise.resolve({ ok: true, value: undefined })))
+vi.mock('../../src/renderer/ipc', () => ({ invoke, windowMachine: () => shown.machine }))
+vi.mock('../../src/renderer/machines/useMachines', () => ({ useMachines: () => ({ linked: [{ id: 'machine-m', name: 'Mini' }] }) }))
 
 const project = (id: string) => ({ id, name: id, path: `/repo/${id}`, branch: 'main' })
 const panelPath = () => screen.queryByTestId('adr-panel')?.getAttribute('data-path') ?? null
 
 beforeEach(() => {
+  shown.machine = null
+  invoke.mockClear()
   projects.state = { projects: [project('p1'), project('p2')], activeId: 'p1', revision: 1 }
   useCanvasRequests.setState({ adr: null, adrHandled: 0 })
 })
@@ -83,5 +89,30 @@ describe('ADR section, opened from the palette', () => {
     act(() => openAdr('p2', 'docs/adr/0001-a.md'))
     expect(panelPath()).toBe('docs/adr/0002-b.md')
     expect(useCanvasRequests.getState().adrHandled).toBe(2)
+  })
+})
+
+// worfy-link ticket 12: the ADR file lies on the Project's Machine. "Open in Editor" in a window on
+// a Linked machine shows "File is on <Machine>" instead of calling shell.openInEditor.
+describe('ADR panel: Open in Editor', () => {
+  const openInEditor = async () => {
+    render(<AdrSection />)
+    act(() => openAdr('p1', 'docs/adr/0001-a.md'))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Open in Editor' }))
+    })
+  }
+
+  it('in a window on this Machine calls shell.openInEditor with the ADR path, and shows no hint', async () => {
+    await openInEditor()
+    expect(invoke).toHaveBeenCalledWith('shell.openInEditor', { projectId: 'p1', path: 'docs/adr/0001-a.md' })
+    expect(screen.queryByTestId('file-elsewhere')).toBeNull()
+  })
+
+  it('in a window on a Linked machine shows "File is on Mini" and calls nothing', async () => {
+    shown.machine = 'machine-m'
+    await openInEditor()
+    expect(screen.getByTestId('adr-panel').querySelector('[data-testid="file-elsewhere"]')?.textContent).toBe('File is on Mini')
+    expect(invoke).not.toHaveBeenCalled()
   })
 })

@@ -81,13 +81,14 @@ describe('the initial marks', () => {
   })
 
   it('desktop: the actions that need the desktop of the Project machine (a dialog, the OS shell)', () => {
-    expect(marked('desktop')).toEqual(['agent.attachPick', 'cardApi.ask', 'projects.pickFolder', 'shell.openExternal', 'shell.openInEditor'])
+    // shell.openExternal is `local` since worfy-link ticket 12: a link opens on the screen's machine.
+    expect(marked('desktop')).toEqual(['agent.attachPick', 'cardApi.ask', 'projects.pickFolder', 'shell.openInEditor'])
   })
 
   it('local: the state of the screen machine, every other link channel, the Harness and the first run', () => {
     const local = marked('local')
     // viewport.* (worfy-link ticket 06): the Canvas camera of the screen's own machine.
-    for (const name of ['projects.select', 'view.get', 'view.changed', 'notify.pending', 'notify.open', 'limits.open', 'limits.changed', 'app.version', 'viewport.get', 'viewport.set']) {
+    for (const name of ['projects.select', 'view.get', 'view.changed', 'notify.pending', 'notify.open', 'limits.open', 'limits.changed', 'app.version', 'viewport.get', 'viewport.set', 'shell.openExternal']) {
       expect(local, name).toContain(name)
     }
     // A Linked machine never switches access on, links or revokes machines for the owner.
@@ -101,7 +102,8 @@ describe('the initial marks', () => {
 
   it('no channel of the shell domain, and no dialog, is open to a Linked machine', () => {
     for (const channel of channels) {
-      if (channel.name.startsWith('shell.')) expect(channel.access, channel.name).toBe('desktop')
+      // `desktop` or `local` (shell.openExternal, worfy-link ticket 12): both are closed to a Linked machine.
+      if (channel.name.startsWith('shell.')) expect(['desktop', 'local'], channel.name).toContain(channel.access)
     }
   })
 

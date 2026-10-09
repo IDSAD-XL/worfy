@@ -2,6 +2,7 @@ import { memo } from 'react'
 import { Handle, Position } from '@xyflow/react'
 import type { Ticket } from '../../../shared/workflow/types'
 import { invoke } from '../../ipc'
+import { useFileElsewhere } from '../../machines/useFileElsewhere'
 import { StatusChip } from '../../theme/primitives'
 import { actions, badges, type SlotSubject } from '../badges'
 import { useProjectRepos } from '../badges/use-checks'
@@ -12,7 +13,9 @@ import '../epic-frame.css'
 
 // One Ticket inside its Epic frame: number, title, a state chip, what blocks it, and the two
 // slots for badges (ticket 17) and actions (ticket 23). A double click opens the Ticket file in
-// the default editor through `shell.openInEditor`. The Node comes from sources/epics.ts. A row that
+// the default editor through `shell.openInEditor`; in a window on a Linked machine it shows "File is
+// on <Machine>" in place of the blockers line instead (worfy-link ticket 12). The Node comes from
+// sources/epics.ts. A row that
 // may be cut — the title past its line limit, the blockers line, the blocked reason — carries its
 // whole text in its tooltip. In a Project over several repositories (ADR-0045) a chip next to the
 // number names the Ticket's repository (its `Repo:` line), or says it has none.
@@ -109,7 +112,14 @@ function TicketNode({ data }: CanvasNodeProps) {
   const stateLabel = ticket.state === 'work' ? 'claimed' : ticket.state === 'none' ? 'no status' : ticket.state
   const title = ticketTitle(ticket)
 
+  const file = useFileElsewhere({ className: 'w-ticket__meta' })
+
   const open = () => {
+    // In a window on a Linked machine the Ticket file lies there: the hint instead of its editor.
+    if (file.elsewhere) {
+      file.show()
+      return
+    }
     void invoke('shell.openInEditor', { projectId, path: ticketFile(root, ticket) }).then((result) => {
       if (!result.ok) console.error(`shell.openInEditor ${ticket.epic}/${ticket.num} failed:`, result.error)
     })
@@ -143,7 +153,9 @@ function TicketNode({ data }: CanvasNodeProps) {
       <div className="w-ticket__title" title={title}>
         {title}
       </div>
-      {reason ? (
+      {file.hint !== null ? (
+        file.hint
+      ) : reason ? (
         <div className="w-ticket__reason" title={reason}>
           {reason}
         </div>

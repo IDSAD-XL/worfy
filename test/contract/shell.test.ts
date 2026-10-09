@@ -171,3 +171,16 @@ describe('shell.openExternal', () => {
     expect(electron.openExternal).not.toHaveBeenCalled()
   })
 })
+
+// The access marks (worfy-link ticket 12; ADR-0053, Q14): a link opens on the Machine where it was
+// clicked, so `shell.openExternal` is `local` — a window on Linked machine M calls its own main,
+// and M never opens an address for a Linked machine. A file of a Project opens only on the
+// Project's Machine and never for a Linked machine (`desktop`): a window on M shows the hint
+// "File is on <M>" instead (owner's decision pending, option (c) of the ticket).
+describe('the access marks of the shell channels', () => {
+  it('shell.openExternal is local, shell.openInEditor is desktop', async () => {
+    const { shellOpenExternal, shellOpenInEditor } = await import('../../src/shared/ipc/shell')
+    expect(shellOpenExternal.access).toBe('local')
+    expect(shellOpenInEditor.access).toBe('desktop')
+  })
+})
