@@ -148,4 +148,49 @@ Source: решения владельца 2026-10-07: Q3 (с другой маш
 
 ## Итог
 
-Заполняется при закрытии.
+Сделано в ветке `worfy-link/10`.
+
+- **Первый test падал так.** `test/contract/card-protocol.test.ts`, «reads the machine label of a Card of a Linked
+  machine» на `origin/main` (c51edce): `AssertionError: expected null to deeply equal { cardId: 'c1', …(3) }` —
+  `parseCardUrl('worfy-card://c1.0123abcd.89abcdef/index.html')` отклонял host из трёх частей.
+- **Адрес и origin.** Card Linked machine-а M — `worfy-card://<card id>.<project label>.<machine label>/<путь>`.
+  `parseCardUrl` (`src/main/cards/protocol.ts`) и `cardOriginOf` (`src/shared/cards/bridge.ts`) принимают обе формы;
+  `machineLabel` в ответе есть только у формы M. `allowFrameNavigation` сравнивает весь host. CSP окна не менялась.
+- **Machine label** — FNV-1a (32 бита) от UTF-8 байтов id Machine, 8 hex (`machineLabel`, `src/shared/cards/bridge.ts`).
+  Не sha256: окно считает label синхронно, пока рисует Card, а Web Crypto в renderer-е только асинхронный.
+  Label различает Linked machine-ы одной Machine и ничего не охраняет; два Linked machine-а с одним label — 404.
+  **Решено без владельца, подтвердить.**
+- **Кто строит адрес.** `CardNode` в окне на M переписывает `url` от M через `linkedCardUrl`; адрес M без label в
+  iframe не попадает (не адрес Card — Node пишет об этом вместо кадра).
+- **Второй источник файлов** — `src/main/cards/remote.ts` (`appLinkedCardSource`; `installCardRuntime` берёт его сам,
+  `src/main/index.ts` не менялся). Новый канал `cards.file {projectLabel, cardId, path, offset, length}` (`project`):
+  M находит папку (`store.locate`) и проверяет путь (`resolveCardFile`), отвечает расширением, размером и байтами
+  base64 — HTML без runtime. Свой main ставит свой runtime, заголовки `CARD_HEADERS` и Content-Type выбирает сам по
+  расширению (расширение не из списка — 404). Ответы: нет Linked machine-а с label или нет файла — 404; не GET/HEAD —
+  405; больше 20 МБ (`CARD_FILE_LIMIT_BYTES` = `FILE_COPY_LIMIT_BYTES`) — 413; M недоступна — 502. Всё с теми же
+  заголовками.
+- **Файл кусками по 4 МБ** (`CARD_FILE_CHUNK_BYTES`). Предпосылка тикета «байты base64 одним ответом» не сходится с
+  пределом одного сообщения связи: `LINK_MAX_PAYLOAD` = 16 МБ (`src/main/link/messages.ts`), а 20 МБ в base64 — около
+  27 МБ, и такое сообщение закрыло бы всё соединение. Куски держат предел 20 МБ без правки модуля связи; цена — до
+  шести вызовов на большой файл. Файл, изменившийся между кусками, читается заново один раз. **Решено без владельца,
+  подтвердить.**
+- **`session.ask` — три канала вместо `cardApi.ask`.** `cardApi.askPrepare` и `cardApi.askFinish` (`project`) — на
+  машине Project-а (`CardAsk.prepare`/`finish`, `src/main/cards/ask.ts`); `cardApi.confirm` (`local`) —
+  `dialog.showMessageBox` на окне, которое спросило, с прежними кнопками и текстом (`confirmCardMessage`,
+  `src/main/ipc/card-api.ts`). Получатель без человека — отказ и `refused_dialog` в askPrepare, до диалога. Ждущий
+  вопрос снимается после askFinish, при `destroyed` клиента, который спросил (окно или клиент связи), и через 10 минут
+  (`ASK_WAIT_MS`). askFinish принимает только тот же клиент и тот же Project. Окно после «Cancel» или сбоя диалога
+  само зовёт `askFinish(send: false)`, поэтому Card может спросить сразу снова. `window.worfy` и
+  `CardBridgeBackend.ask` не менялись.
+- **Test-ы вне следа.** Уход `cardApi.ask` потребовал правок `test/unit/link-access.test.ts` (список `desktop`) и
+  `test/contract/link-access.test.ts` (заглушка диалога и отказ теперь на `cardApi.confirm`, `local`).
+- **Проверки.** contract: `test/contract/card-protocol.test.ts`, `test/contract/card-bridge.test.ts`,
+  `test/contract/card-api.test.ts`; e2e: `test/e2e/card-api.spec.ts` (свой Project, без правок — зелёный на новом
+  пути), `test/e2e/linked-cards.spec.ts` (новый). Mutation testing: `cardApi.confirm` с пометкой `project` — e2e
+  красный; без снятия вопроса по `destroyed` и по сроку — contract красный; без сравнения machine label в
+  `allowFrameNavigation` — contract красный.
+- **Снимки** (A показывает Project B; светлая и тёмная тема): Card B в окне A —
+  [светлая](../evidence/10-card-of-linked-machine-light.png), [тёмная](../evidence/10-card-of-linked-machine-dark.png);
+  после «Send» из Card B — [светлая](../evidence/10-card-of-linked-machine-sent-light.png),
+  [тёмная](../evidence/10-card-of-linked-machine-sent-dark.png). Сам диалог — системный `NSAlert`: Playwright снимает
+  только страницу, поэтому его текст и кнопки проверены через подменённый `dialog.showMessageBox`, а не снимком.
