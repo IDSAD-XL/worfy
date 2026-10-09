@@ -1,5 +1,5 @@
-// The `link` domain (worfy-link tickets 01 and 02; ADR-0052): this Machine as the link knows it,
-// its Linked machines, "Link a machine" and the access switch. Handled in src/main/ipc/link.ts.
+// The `link` domain (worfy-link tickets 01, 02 and 14; ADR-0052): this Machine as the link knows it,
+// its Linked machines, "Link a machine", the access switch and the keep-awake switch. Handled in src/main/ipc/link.ts.
 //
 // Only `link.ping` is open to Linked machines (its mark `link`, src/shared/ipc/channels.ts). Every
 // other channel here is `local`, for this Machine's own windows: `link.state` carries the pairing
@@ -72,11 +72,15 @@ export function formatLinkAddress({ host, port }: LinkAddress): string {
 
 // ---- the state the UI shows ----------------------------------------------------------------------
 
-/** A Linked machine as the sidebar shows it ("sleeping" comes with worfy-link ticket 14). */
+/** A Linked machine as the sidebar shows it. */
 export const linkedMachineViewSchema = z.object({
   id: z.uuid(),
   name: z.string().min(1),
-  state: z.enum(['online', 'unavailable']),
+  /**
+   * `sleeping` (worfy-link ticket 14): it said it was going to sleep, and no connection to it has
+   * opened since; `unavailable`: no connection, without such a message.
+   */
+  state: z.enum(['online', 'unavailable', 'sleeping']),
   /** The last connection met another certificate: the Machine has to be linked again. */
   certificateChanged: z.boolean(),
 })
@@ -123,6 +127,8 @@ export const linkStateSchema = z.object({
   discovered: z.array(discoveredMachineSchema),
   /** "Linked machines can work with my Projects"; off by default (ADR-0052, point 6). */
   projectsAccess: z.boolean(),
+  /** "Keep this computer awake while linked machines are connected"; on by default (worfy-link ticket 14). */
+  keepAwake: z.boolean(),
 })
 export type LinkState = z.output<typeof linkStateSchema>
 
@@ -155,6 +161,9 @@ export const linkRevoke = invokeChannel('link.revoke', z.object({ id: z.uuid() }
 /** Sets "Linked machines can work with my Projects". */
 export const linkSetAccess = invokeChannel('link.setAccess', z.object({ projectsAccess: z.boolean() }), linkStateSchema, 'local')
 
+/** Sets "Keep this computer awake while linked machines are connected". */
+export const linkSetKeepAwake = invokeChannel('link.setKeepAwake', z.object({ keepAwake: z.boolean() }), linkStateSchema, 'local')
+
 /** Sent to this Machine's windows after any change of the state. */
 export const linkChanged = eventChannel('link.changed', linkStateSchema, 'local')
 
@@ -167,6 +176,7 @@ declare module './channels' {
     'link.pair': typeof linkPair
     'link.revoke': typeof linkRevoke
     'link.setAccess': typeof linkSetAccess
+    'link.setKeepAwake': typeof linkSetKeepAwake
     'link.changed': typeof linkChanged
   }
 }

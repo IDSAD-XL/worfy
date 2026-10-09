@@ -1,6 +1,6 @@
-// The `link` domain's handlers (worfy-link tickets 01 and 02; ADR-0052): `link.ping` for windows and
-// Linked machines, and for this Machine's windows the state of the link, "Link a machine", linking,
-// revoking and the access switch.
+// The `link` domain's handlers (worfy-link tickets 01, 02 and 14; ADR-0052): `link.ping` for windows
+// and Linked machines, and for this Machine's windows the state of the link, "Link a machine",
+// linking, revoking, the access switch and the keep-awake switch.
 //
 // The state is built anew on every call and every change, from the app's link (service.ts,
 // appLink): nothing here keeps a copy of the Linked machines. What only the UI has is kept here:
@@ -22,6 +22,7 @@ import {
   linkPing,
   linkRevoke,
   linkSetAccess,
+  linkSetKeepAwake,
   linkState,
   parseLinkAddress,
   type LinkState,
@@ -116,6 +117,7 @@ function follow(): void {
   })
   connections.on('changed', changed)
   discovery?.on('changed', changed)
+  link.sleep.on('changed', changed)
 }
 
 /** Something changed: one broadcast per turn of the event loop, however many changes came. */
@@ -165,9 +167,10 @@ function buildState(): LinkState {
       linked: [],
       discovered: [],
       projectsAccess: false,
+      keepAwake: false,
     }
   }
-  const { service, discovery } = link
+  const { service, discovery, sleep } = link
   const status = service.status()
   const pairing = openers.size > 0 ? service.pairingCode() : null
   scheduleExpiry(pairing?.expiresAt ?? null)
@@ -188,11 +191,12 @@ function buildState(): LinkState {
     linked: service.linkedMachines().map((machine) => ({
       id: machine.id,
       name: machine.name,
-      state: machine.connected ? ('online' as const) : ('unavailable' as const),
+      state: sleep.stateOf(machine),
       certificateChanged: machine.certificateChanged,
     })),
     discovered: discovery === null || openers.size === 0 ? [] : discovery.list(),
     projectsAccess: service.settings.get().projectsAccess,
+    keepAwake: service.settings.get().keepAwake,
   }
 }
 
@@ -264,6 +268,12 @@ export default [
   defineHandler(linkSetAccess, ({ projectsAccess }) => {
     const { service } = requireLink()
     service.settings.set({ projectsAccess })
+    return buildState()
+  }),
+
+  defineHandler(linkSetKeepAwake, ({ keepAwake }) => {
+    const { service } = requireLink()
+    service.settings.set({ keepAwake })
     return buildState()
   }),
 ] satisfies HandlerModule
