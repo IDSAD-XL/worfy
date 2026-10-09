@@ -1,7 +1,7 @@
 # 23 — worfy читает Workflow folder Silent Project-а; Project над несколькими репозиториями: репозиторий на Node Ticket-а, Gate, PR и CI по нему
 
 Type: task
-Status: claimed — 2026-10-09
+Status: done — 2026-10-09, [PR #178](https://github.com/IDSAD-XL/worfy/pull/178)
 Branch: worfy-harness/23
 Blocked by: 22
 Source: решения владельца 2026-10-07, Q27, Q29, Q24, Q17; [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) (Full mode и Silent mode, Workflow folder, статус в Silent только в Workflow folder); [ADR-0045](../../../docs/adr/0045-one-ticket-one-repository.md) (один Ticket — один репозиторий, Project над несколькими репозиториями — Silent mode); [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md) (worfy — вид над workflow, только чтение); [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md) (worfy ничего не пишет в репозитории Project-ов); [spec.md](../spec.md)
@@ -220,3 +220,12 @@ Epic-а из spec.md в Workflow folder». На нынешнем main `enrichSna
   `.scratch/…` относительно корня Project-а (`ticketFile` в `src/renderer/canvas/epic-layout.ts`, вне
   следа) — файла там нет. Бейдж Gate на Session в Project-е над несколькими репозиториями по-прежнему
   спрашивает корень Project-а (папку вне git) — Gate Session-а в таком Project-е не показывается.
+
+### Gate оркестратора (2026-10-09)
+
+- Круг 1 — `VERIFIED` ([комментарий в PR #178](https://github.com/IDSAD-XL/worfy/pull/178#issuecomment-6074833751)), с долгами:
+  - [med] `src/main/ipc/checks.ts:69-70`, `:102-104` — `targetOf` ищет папку сначала среди корней Project-ов, потом среди репозиториев. Если репозиторий Project-а над несколькими репозиториями добавлен ещё и отдельным Project-ом (его workflow не открыт), `checks.get` по этому репозиторию с веткой из строки `Branch:` (`fix/x`) отказывает, и у Ticket-ов нет бейджей Gate, PR, CI; renderer ключует снимки по пути (`use-checks.ts:166-176`), два Project-а делят ключ. Исправление: передавать в `checks.get` корень спрашивающего Project-а.
+  - [low] `test/contract/github-prs.test.ts:861-868` — test «without running gh or git» записывает только вызовы `gh`, не `git` (runner `worktrees`).
+  - [low] ссылка в «Итог» на `reader.ts:321` взята с базы; на ветке `branchOverrides` — `:329`.
+  - [low] `docs/design/F-SPEC.md` не описывает плашку репозитория на Node Ticket-а.
+- Мерж: rebase на `f516c56`, `GATE_SCOPE=all gate full` — код 0 со второго прогона: в первом оба test-а `silent-project.spec.ts` не дождались рамки Epic-а за 5 s (load average 4.9). Исправлено отдельным PR #181: первое ожидание — 15 s. CI зелёный, CLEAN, влит `e42f732`.
