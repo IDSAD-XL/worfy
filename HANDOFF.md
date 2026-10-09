@@ -1,4 +1,4 @@
-# Передача контекста — снимок на 2026-10-09 (UTC), main @ 4ecf3f0
+# Передача контекста — снимок на 2026-10-09 (UTC), main @ 4f40926
 
 ## Сейчас в работе
 
@@ -8,7 +8,7 @@
 - `worfy-harness` 16 сделан 2026-10-08: машина владельца на plugin `worfy` 0.2.0+77e4490 ([Ticket 16](.scratch/worfy-harness/issues/16-переход-машины-владельца-на-plugin.md)): откат и резервная копия — в «Итог». qmd в Session-ах нет, пока владелец не сделает шаги Ticket-а 17.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 18. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`.
 - Работа над `worfy-week` 14 лежит только в локальной ветке `wip/worfy-week-14`, на GitHub её нет. Как вернуть Ticket — «Итог» Ticket-а 14.
-- `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт владельца: влиты 01–10, 12–15, `epic-status` — 14/16; Wave 5 — 10, 12, 13 (PR #183–#185). 11 ждёт `worfy-harness` 24: строится на его диалоге «Connect project».
+- `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–10, 12–15, `epic-status` — 14/16; Wave 5 — 10, 12, 13 (PR #183–#185). 11 `blocked` до мержа `worfy-harness` 24 (его диалог «Connect project»), потом — в open.
 - `worfy-windows` (полный порт под Windows; spec, ADR 0054–0056): влиты 01 (PR #172, факты с Windows-ПК) и 02 (PR #177: `.gitattributes`, `postinstall` и `pnpm test` без POSIX-синтаксиса). Следом 08, 09, 11 (Session на Windows-ПК; gate full — на Mac); 03–07 ждут закрытия E3.
 
 ## Ждёт владельца
