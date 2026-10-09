@@ -19,9 +19,19 @@
 #
 # Without an argument it prints nothing. It writes nothing but that one file per folder, only into
 # a folder that exists (worfy has run), and never fails the status line.
+#
+# The .mjs is looked up only next to this file. Run by bare name (`sh statusline-bridge.sh`, found on
+# PATH), `$0` has no `/`: its folder is where PATH finds it, never the current folder, which is the
+# user's project; when that is not an absolute path, node is skipped and jq writes the Limits.
 case $0 in
   */*) here=${0%/*} ;;
-  *) here=. ;;
+  *)
+    here=$(command -v -- "$0" 2>/dev/null)
+    case $here in
+      /*) here=${here%/*} ;;
+      *) here= ;;
+    esac
+    ;;
 esac
 
 # stdin as it is, trailing newlines included.
@@ -31,7 +41,7 @@ input=${input%x}
 # Only a `written` from the script counts: a `node` that exits 0 without running it (a stub, a shim
 # that prints a hint) or a script that wrote nothing leaves the Limits to jq.
 limits_by_node() {
-  command -v node >/dev/null 2>&1 && [ -f "$here/statusline-bridge.mjs" ] || return 1
+  [ -n "$here" ] && command -v node >/dev/null 2>&1 && [ -f "$here/statusline-bridge.mjs" ] || return 1
   [ "$(printf '%s' "$input" | node "$here/statusline-bridge.mjs" --worfy-limits-only 2>/dev/null)" = written ]
 }
 

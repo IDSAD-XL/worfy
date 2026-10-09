@@ -48,7 +48,7 @@ function windowsPath(path: string): string | null {
   const root = WINDOWS_ROOT.exec(path)
   if (!root) return null
   if (root[1] === undefined) return ''
-  const head = root[1] !== undefined ? `${root[1].toUpperCase()}:` : `\\\\${root[2]}\\${root[3]}`
+  const head = `${root[1].toUpperCase()}:`
   const out: string[] = []
   for (const segment of path.slice(root[0].length).split(/[\\/]/)) {
     if (segment === '' || segment === '.') continue
@@ -88,7 +88,8 @@ export function classifyLink(href: string | undefined, baseDir = ''): LinkTarget
     }
   }
   const path = decode(value.replace(/[?#].*$/, ''))
-  if (path === '') return { kind: 'none' }
+  // `/\\host\share` and `\/host/share`: Windows reads two leading separators of either kind as UNC.
+  if (path === '' || /^[\\/]{2}/.test(path)) return { kind: 'none' }
   const joined = path.startsWith('/') || baseDir === '' ? path : `${baseDir}/${path}`
   const normalised = normalise(joined)
   return normalised === '' || normalised === '/' ? { kind: 'none' } : { kind: 'file', path: normalised }

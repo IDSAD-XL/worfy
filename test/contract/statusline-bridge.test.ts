@@ -168,6 +168,10 @@ describe('statusline-bridge scripts', () => {
     rmSync(join(dataDir, 'statusline-limits.json'))
     expect(run('mjs', `  ${JSON.stringify({ ...STATUS, note: 'a } and a " inside' })} junk`)).toMatchObject({ status: 0 })
     expect(written()).toEqual(RATE_LIMITS)
+    // Arrays nest like objects, brackets inside strings do not (review round 3).
+    rmSync(join(dataDir, 'statusline-limits.json'))
+    expect(run('mjs', `${JSON.stringify({ tags: [1, [2, { a: '] }' }]], ...STATUS, after: [] })} ] junk`)).toMatchObject({ status: 0 })
+    expect(written()).toEqual(RATE_LIMITS)
   })
 
   it(`with ${'--worfy-limits-only'} prints written when it wrote the file, and exits 2 with nothing when it did not`, () => {
@@ -248,6 +252,31 @@ describe.skipIf(WINDOWS)('statusline-bridge.sh without a working node', () => {
     const result = spawnSync('/bin/sh', [SH, userLine], { input: JSON.stringify(STATUS), encoding: 'utf8', env: { PATH: binDir(null, false), HOME: home, WORFY_DATA_DIR: dataDir } })
     expect(result).toMatchObject({ status: 3, stdout: '"display_name":"Haiku 4.5"\n', stderr: '' })
     expect(readdirSync(dataDir)).toEqual([])
+  })
+
+  // Review round 3 of PR #200: run by bare name, `$0` has no `/`, and the entry took `.` for its own
+  // folder, so a statusline-bridge.mjs in Claude Code's cwd (the user's project) ran instead.
+  it('run by bare name through PATH, runs the .mjs next to it and never one in the current folder', () => {
+    const app = join(scratch, 'app')
+    mkdirSync(app)
+    writeFileSync(join(app, 'statusline-bridge.sh'), readFileSync(SH), { mode: 0o755 })
+    writeFileSync(join(app, 'statusline-bridge.mjs'), readFileSync(MJS))
+    const project = join(scratch, 'project')
+    mkdirSync(project)
+    const decoy = `import { writeFileSync } from 'node:fs'\nwriteFileSync(${JSON.stringify(join(scratch, 'decoy-ran'))}, '')\nconsole.log('written')\n`
+    writeFileSync(join(project, 'statusline-bridge.mjs'), decoy)
+    // No jq: the Limits can only come from the .mjs in the app folder.
+    const path = `${binDir('real', false)}:${app}`
+    const result = spawnSync('/bin/sh', ['-c', 'statusline-bridge.sh "$1"', 'sh', 'cat >/dev/null; echo ok'], { cwd: project, input: JSON.stringify(STATUS), encoding: 'utf8', env: { PATH: path, HOME: home, WORFY_DATA_DIR: dataDir } })
+    expect(result).toMatchObject({ status: 0, stdout: 'ok\n' })
+    expect(existsSync(join(scratch, 'decoy-ran'))).toBe(false)
+    expect(written()).toEqual(RATE_LIMITS)
+    // `sh statusline-bridge.sh`, where sh looks the script up on PATH (bash does), gives `$0` no `/` at all.
+    rmSync(join(dataDir, 'statusline-limits.json'))
+    const bare = spawnSync('/bin/sh', ['statusline-bridge.sh', 'cat >/dev/null; echo ok'], { cwd: project, input: JSON.stringify(STATUS), encoding: 'utf8', env: { PATH: path, HOME: home, WORFY_DATA_DIR: dataDir } })
+    expect(existsSync(join(scratch, 'decoy-ran'))).toBe(false)
+    // A sh that does not look scripts up on PATH (dash) cannot open it at all.
+    if (bare.status === 0) expect(written()).toEqual(RATE_LIMITS)
   })
 
   it('gives the user command stdin byte for byte, trailing newlines included', () => {

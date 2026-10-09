@@ -3,8 +3,10 @@
 // A link to \\host\share made main call realpath on it before the inside check, and Windows
 // contacted that host with the user's NTLM credentials. The real-repository cases are in
 // test/contract/shell.test.ts.
-import { posix, win32 } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, posix, win32 } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ shell: { openPath: vi.fn(), openExternal: vi.fn() } }))
 
@@ -15,12 +17,34 @@ describe('resolveProjectFile by the text of a path', () => {
     const resolveProjectFile = await load()
     const real = vi.fn(async (path: string): Promise<string | null> => path)
     const options = { real, paths: win32 }
-    for (const path of ['\\\\attacker\\share\\f.md', '//attacker/share/f.md', '\\\\?\\C:\\elsewhere\\f.md', '\\\\.\\pipe\\x', 'D:\\other\\f.md', '..\\outside\\f.md']) {
+    for (const path of ['\\\\attacker\\share\\f.md', '//attacker/share/f.md', '/\\attacker\\share\\f.md', '\\\\?\\C:\\elsewhere\\f.md', '\\\\.\\pipe\\x', '\\\\?\\UNC\\attacker\\share\\f.md']) {
       real.mockClear()
       await expect(resolveProjectFile('C:\\p\\repo', path, ['C:\\p\\wt'], options), path).rejects.toThrow(/outside the Project/)
       // Only the Project's own folders reached realpath.
       expect(real.mock.calls.map(([called]) => called)).toEqual(['C:\\p\\repo', 'C:\\p\\wt'])
     }
+  })
+
+  // Review round 3 of PR #200: only a UNC or device path is decided by its text. Any other path is
+  // resolved first and checked against the real folders, as on f95b7e7.
+  it('resolves any other path before the inside check, and still refuses one outside (Windows rules)', async () => {
+    const resolveProjectFile = await load()
+    const real = vi.fn(async (path: string): Promise<string | null> => path)
+    for (const path of ['D:\\other\\f.md', '..\\outside\\f.md']) {
+      real.mockClear()
+      await expect(resolveProjectFile('C:\\p\\repo', path, [], { real, paths: win32 }), path).rejects.toThrow(/outside the Project/)
+      expect(real.mock.calls.map(([called]) => called)).toEqual(['C:\\p\\repo', win32.resolve('C:\\p\\repo', path)])
+    }
+  })
+
+  it('opens a file of the Project named through another alias of its root, or in another letter case (macOS rules)', async () => {
+    const resolveProjectFile = await load()
+    // /alias is a symlink to /real; the volume ignores case, so /real/repo/STUFF is /real/repo/Stuff.
+    const real = async (path: string): Promise<string | null> => path.replace(/^\/alias\//, '/real/').replace(/\/stuff\//i, '/Stuff/')
+    expect(await resolveProjectFile('/real/repo', '/alias/repo/a.md', [], { real, paths: posix })).toBe('/real/repo/a.md')
+    expect(await resolveProjectFile('/alias/repo', '/real/repo/a.md', [], { real, paths: posix })).toBe('/real/repo/a.md')
+    expect(await resolveProjectFile('/real/repo/Stuff', '/real/repo/stuff/a.md', [], { real, paths: posix })).toBe('/real/repo/Stuff/a.md')
+    await expect(resolveProjectFile('/real/repo', '/alias/other/a.md', [], { real, paths: posix })).rejects.toThrow(/outside the Project/)
   })
 
   it('opens a path inside the root or a worktree, in any case of the letters, on Windows', async () => {
@@ -44,5 +68,38 @@ describe('resolveProjectFile by the text of a path', () => {
     expect(await resolveProjectFile('/link/repo', '/real/repo/a.md', [], { real, paths: posix })).toBe('/real/repo/a.md')
     await expect(resolveProjectFile('/link/repo', '/real/other/a.md', [], { real, paths: posix })).rejects.toThrow(/outside the Project/)
     await expect(resolveProjectFile('/link/repo', 'missing.md', [], { real, paths: posix })).rejects.toThrow(/does not exist/)
+  })
+})
+
+// The same on the real file system of the machine: a symlink to the Project root, and the letter
+// case of a case-insensitive volume (APFS by default, NTFS).
+describe('resolveProjectFile on this file system', () => {
+  let scratch: string
+  let repo: string
+
+  beforeEach(() => {
+    scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-resolve-')))
+    repo = join(scratch, 'Stuff', 'repo')
+    mkdirSync(repo, { recursive: true })
+    writeFileSync(join(repo, 'a.md'), '# a\n')
+  })
+
+  afterEach(() => {
+    rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  })
+
+  it.skipIf(process.platform === 'win32')('opens a file named through a symlink alias of the Project root', async () => {
+    const resolveProjectFile = await load()
+    const alias = join(scratch, 'alias')
+    symlinkSync(repo, alias)
+    expect(await resolveProjectFile(repo, join(alias, 'a.md'), [])).toBe(join(repo, 'a.md'))
+    expect(await resolveProjectFile(alias, join(repo, 'a.md'), [])).toBe(join(repo, 'a.md'))
+  })
+
+  it('opens a file named in another letter case on a case-insensitive volume', async (context) => {
+    const resolveProjectFile = await load()
+    const other = join(scratch, 'stuff', 'repo', 'a.md')
+    if (!existsSync(other)) context.skip()
+    expect(await resolveProjectFile(repo, other, [])).toBe(realpathSync.native(other))
   })
 })

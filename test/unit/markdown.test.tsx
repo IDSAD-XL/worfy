@@ -125,6 +125,7 @@ describe('Markdown: links', () => {
     '[f](//attacker/share/f.md)',
     '[f](\\\\\\\\?\\C:\\x\\f.md)',
     '[f](\\\\\\\\.\\pipe\\x)',
+    '[f](/\\\\\\\\attacker\\share\\f.md)',
   ])('opens nothing for a UNC or device path: %s', (text) => {
     render(<Markdown text={text} projectId="alpha" />)
     fireEvent.click(screen.getByText('f'))
@@ -183,7 +184,22 @@ describe('classifyLink', () => {
     expect(classifyLink(href, 'docs')).toEqual({ kind: 'file', path })
   })
 
-  it.each(['\\\\server\\share\\a.md', '%5C%5Cserver%5Cshare%5Ca.md', '\\\\?\\C:\\x\\a.md', '\\\\.\\pipe\\x', '//server/share/a.md'])('%s, a UNC or device path, opens nothing', (href) => {
+  it.each([
+    '\\\\server\\share\\a.md',
+    '%5C%5Cserver%5Cshare%5Ca.md',
+    '\\\\?\\C:\\x\\a.md',
+    '\\\\.\\pipe\\x',
+    '//server/share/a.md',
+    // Review round 3 of PR #200: the device prefix reaches windowsPath only with `?` encoded; a raw
+    // `?` is cut as a query string first.
+    '\\\\%3F\\C:\\x\\a.md',
+    '%5C%5C%3F%5CC:%5Cx%5Ca.md',
+    // A path that Windows reads as UNC, though it starts with `/`.
+    '/\\\\server\\share\\a.md',
+    '/%5Cserver%5Cshare%5Ca.md',
+    '%2F%2Fserver%2Fshare%2Fa.md',
+    '\\/server/share/a.md',
+  ])('%s, a UNC or device path, opens nothing', (href) => {
     expect(classifyLink(href, 'docs')).toEqual({ kind: 'none' })
   })
 

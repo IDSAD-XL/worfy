@@ -43,12 +43,12 @@ export interface ResolveOptions {
 
 /**
  * The real path of `path` when it lies inside the Project root or one of its worktrees; throws
- * otherwise. First by the text alone, against the folders as written and as real paths: a path
- * outside is refused before any file system call on it, so a link to `\\host\share\…` never makes
- * Windows contact that host and hand it the user's NTLM credentials (review of worfy-windows ticket
- * 08). Then symlinks are resolved on both sides, so `../` and a link that points out of the Project
- * are refused, and a file that does not exist is refused too. A Project on a share is opened on that
- * share as before: its own folders are the bases.
+ * otherwise. Symlinks are resolved on both sides, so `../` and a link that points out of the Project
+ * are refused, and a file that does not exist is refused too. A UNC or device path on Windows
+ * (`\\host\share\…`, `//host/…`, `\\?\…`, `\\.\…`) is first checked by its text alone, against the
+ * folders as written and as real paths, and one outside is refused before any file system call on
+ * it: realpath on it would make Windows contact that host and hand it the user's NTLM credentials
+ * (review of worfy-windows ticket 08). A Project on a share is opened on that share as before.
  */
 export async function resolveProjectFile(root: string, path: string, worktrees: readonly string[], options: ResolveOptions = {}): Promise<string> {
   const real = options.real ?? realOrNull
@@ -56,7 +56,9 @@ export async function resolveProjectFile(root: string, path: string, worktrees: 
   const folders = [root, ...worktrees].map((folder) => paths.resolve(folder))
   const bases = (await Promise.all(folders.map(real))).filter((base): base is string => base !== null)
   const candidate = paths.resolve(root, path)
-  if (![...folders, ...bases].some((base) => isInside(base, candidate, paths))) throw new Error(`${path} is outside the Project and its worktrees`)
+  // path.win32.resolve gives every UNC and device form a leading `\\`.
+  const remote = paths.sep === '\\' && candidate.startsWith('\\\\')
+  if (remote && ![...folders, ...bases].some((base) => isInside(base, candidate, paths))) throw new Error(`${path} is outside the Project and its worktrees`)
   const target = await real(candidate)
   if (target === null) throw new Error(`${path} does not exist`)
   if (!bases.some((base) => isInside(base, target, paths))) throw new Error(`${path} is outside the Project and its worktrees`)
