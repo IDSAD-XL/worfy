@@ -41,13 +41,13 @@ Source: решения владельца 2026-10-07: Q16 (уведомлени�
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/notify.test.ts`: на машине Project-а при фокусе её окна `result` Session не показан, но заметка ушла в соединение подключённой Linked machine. Без фокуса — показан и ушёл туда же. Правила «10 s на Session» и «придержанное не считается» держатся на каждой машине своим счётом.
-- [ ] Unit `test/unit/link-notify.test.ts` (новый): две Machine с двумя папками данных в одном процессе vitest (стенд Ticket-а 01). `result` и `permission_request` Session Project-а машины A показаны на B с теми же title и body. При выключенном переключателе доступа на A или без соединения B ничего не получает. B с фокусом своего окна не показывает, A при этом показывает. Переподключившаяся B старых заметок не получает.
-- [ ] Unit там же: клик на B кладёт заметку с Machine A в `PendingOpens` клиента B. `notify.pending` отдаёт её этому клиенту один раз. `open` машины A не вызван.
-- [ ] Unit `test/unit/permission-card.test.tsx` (там уже проверяется `notificationTarget`, `:180-192`): заметка с Machine A находит Session Node Project-а A на B. Заметка с той же `sessionId` без Machine находит локальную Session.
-- [ ] e2e `test/e2e/linked-notify.spec.ts` (новый, локально в gate full): два worfy, связанные helper-ом Ticket-а 02, окна обоих без фокуса. Ход fake-агента в Session Project-а A кончается — уведомление записано на обоих. Клик на B открывает эту Session на Canvas Project-а A в окне B (`data-testid` открытой Session).
-- [ ] Одна машина без Linked machine-ов ведёт себя как раньше: прежние test-ы `test/unit/notify.test.ts` зелёные без правки ожиданий.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all gate.sh full` — зелёный.
+- [x] Unit `test/unit/notify.test.ts`: на машине Project-а при фокусе её окна `result` Session не показан, но заметка ушла в соединение подключённой Linked machine. Без фокуса — показан и ушёл туда же. Правила «10 s на Session» и «придержанное не считается» держатся на каждой машине своим счётом.
+- [x] Unit `test/unit/link-notify.test.ts` (новый): две Machine с двумя папками данных в одном процессе vitest (стенд Ticket-а 01). `result` и `permission_request` Session Project-а машины A показаны на B с теми же title и body. При выключенном переключателе доступа на A или без соединения B ничего не получает. B с фокусом своего окна не показывает, A при этом показывает. Переподключившаяся B старых заметок не получает.
+- [x] Unit там же: клик на B кладёт заметку с Machine A в `PendingOpens` клиента B. `notify.pending` отдаёт её этому клиенту один раз. `open` машины A не вызван.
+- [x] Unit `test/unit/permission-card.test.tsx` (там уже проверяется `notificationTarget`, `:180-192`): заметка с Machine A находит Session Node Project-а A на B. Заметка с той же `sessionId` без Machine находит локальную Session.
+- [x] e2e `test/e2e/linked-notify.spec.ts` (новый, локально в gate full): два worfy, связанные helper-ом Ticket-а 02, окна обоих без фокуса. Ход fake-агента в Session Project-а A кончается — уведомление записано на обоих. Клик на B открывает эту Session на Canvas Project-а A в окне B (`data-testid` открытой Session).
+- [x] Одна машина без Linked machine-ов ведёт себя как раньше: прежние test-ы `test/unit/notify.test.ts` зелёные без правки ожиданий.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all gate.sh full` — зелёный.
 
 Ручная проверка на dev-сборке и Stable copy — в Ticket-е 16 (приёмка Epic-а), пункт 4.
 
@@ -128,6 +128,12 @@ Helper двух связанных worfy берётся из Ticket-а 02 как
   spec-файле. Подмена `Notification.prototype.show` через `app.evaluate` сработала, переменная для test-ов
   не понадобилась. Фокус снимается `BrowserWindow.blur()`, test ждёт `getFocusedWindow() === null`.
   Клик — `emit('click')` записанного экземпляра.
+
+- **Проверки.** `pnpm lint && pnpm typecheck && pnpm test` и `GATE_SCOPE=all gate.sh full` — зелёные (full: lint,
+  typecheck, test, test:e2e, test:package). CI PR #183 — `check` pass. `gate.sh fast` дважды дал красный test
+  из-за `Test timed out in 15000ms` в `test/contract/harness-qmd.test.ts`, `docs.test.ts`, `github-prs.test.ts`,
+  `workflow-reader.test.ts`. Эти test-ы не касаются уведомлений. Машина в это время была нагружена (load
+  average 6–7: test-ы других агентов волны). Отдельно эти четыре файла зелёные (141 test).
 
 Решения (все — **решено без владельца, подтвердить**):
 
