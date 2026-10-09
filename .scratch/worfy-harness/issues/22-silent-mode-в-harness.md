@@ -531,3 +531,11 @@ Session-ов; в этот список попадают и записи живы
   hook сняты. На текстах `4291c1e` (файлы через `EPIC_WAVE_FILE`, `SHIP_TICKET_FILE`, `IMPLEMENTER_FILE`,
   `PROFILES_README_FILE`, `WORKTREE_CREATE_FILE`) — 16 красных из 135; проверка порядка в `implementer.md` красная,
   когда исключение стоит после правила «create a working tree».
+
+**Проверки круга** (ветка после rebase на `origin/main` `4fb466a` — там уже PR владельца #171: contract test-ы со
+своим таймаутом 15 с). Все `harness/{bin,hooks}/tests/*.test.sh` под пустым HOME — код 0 (`silent-mode.test.sh` —
+67, `epic-wave-ship-ticket.test.sh` — 135, `rules-hooks.test.sh` — 141). `gate.sh fast` — код 0, «зелено»;
+`gate.sh full` под замком `/tmp/worfy-e2e.lock` — код 0, «зелено (full): lint typecheck test test:e2e
+test:package». Отдельный `pnpm lint && pnpm typecheck && pnpm test` под нагрузкой машины (load average 5–7) — код 1:
+2 таймаута 15 000 мс (`github-prs`, `harness-qmd`); до PR #171, на `fed7879`, `gate.sh full` был красным только на
+таймаутах тех же contract test-ов. Записи в `~/.claude` в этом круге не было: проб `claude -p` нет.
