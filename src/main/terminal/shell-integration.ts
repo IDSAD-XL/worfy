@@ -17,7 +17,7 @@
 import { randomBytes } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { lstat, mkdir, mkdtemp, rename, writeFile } from 'node:fs/promises'
-import { homedir, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import type { Env } from '../agent/env'
 
@@ -76,13 +76,17 @@ export function newNonce(): string {
 }
 
 /**
- * The environment of a zsh with the integration: ZDOTDIR is worfy's folder; the user's own ZDOTDIR
- * (or HOME) and the nonce go in WORFY_USER_ZDOTDIR and WORFY_SHELL_NONCE, which the script takes
- * out of the environment before anything else runs.
+ * The environment of a zsh with the integration: ZDOTDIR is worfy's folder; the user's own ZDOTDIR,
+ * when their environment has one, and the nonce go in WORFY_USER_ZDOTDIR and WORFY_SHELL_NONCE,
+ * which the script takes out of the environment before anything else runs. Without
+ * WORFY_USER_ZDOTDIR the script reads the user's files from HOME and leaves ZDOTDIR unset while
+ * they run, as zsh without worfy would.
  */
 export function integrationEnv(env: Readonly<Env>, dir: string, nonce: string): Env {
-  const userZdotdir = env.ZDOTDIR !== undefined && env.ZDOTDIR !== '' ? env.ZDOTDIR : (env.HOME ?? homedir())
-  return { ...env, ZDOTDIR: dir, WORFY_USER_ZDOTDIR: userZdotdir, WORFY_SHELL_NONCE: nonce }
+  const out: Env = { ...env, ZDOTDIR: dir, WORFY_SHELL_NONCE: nonce }
+  delete out.WORFY_USER_ZDOTDIR
+  if (env.ZDOTDIR !== undefined && env.ZDOTDIR !== '') out.WORFY_USER_ZDOTDIR = env.ZDOTDIR
+  return out
 }
 
 /** The folder where worfy's folder is made: os.tmpdir(), or /tmp when the socket path would not fit. */

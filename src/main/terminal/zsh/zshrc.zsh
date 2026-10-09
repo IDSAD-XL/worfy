@@ -10,10 +10,9 @@ if [[ -z $HISTFILE || $HISTFILE == "$__worfy_dir"/* ]]; then
 fi
 
 if [[ -f $__worfy_user_zdotdir/.zshrc && $__worfy_user_zdotdir != "$__worfy_dir" ]]; then
-  ZDOTDIR=$__worfy_user_zdotdir
-  builtin source "$ZDOTDIR/.zshrc"
-  __worfy_user_zdotdir=${ZDOTDIR:-$HOME}
-  ZDOTDIR=$__worfy_dir
+  __worfy_zdotdir_user
+  builtin source "${ZDOTDIR:-$HOME}/.zshrc"
+  __worfy_zdotdir_worfy
 fi
 
 # Without the nonce this is not a shell worfy started (say, a zsh run from the user's .zshrc while
@@ -34,12 +33,16 @@ if [[ -n $__worfy_nonce && -f $__worfy_dir/integration.zsh ]]; then
   (( ${+functions[__worfy_precmd_last]} )) && __worfy_precmd_last
 fi
 
+# `setopt allexport` in the user's .zshrc would export every variable assigned after it at the top
+# level; none of worfy's (the nonce is in some) goes to the programs of the Terminal.
+() {
+  builtin emulate -L zsh
+  builtin local name
+  for name in ${(k)parameters[(I)__worfy_*]}; do
+    builtin typeset -g +x $name
+  done
+}
+
 # A shell that is not a login shell gets the user's ZDOTDIR back here; a login shell, as a
 # Terminal's is, in worfy's .zlogin. Either way a zsh started from the Terminal runs without worfy.
-if [[ ! -o login ]]; then
-  if [[ $__worfy_user_zdotdir == "$HOME" ]]; then
-    builtin unset ZDOTDIR
-  else
-    ZDOTDIR=$__worfy_user_zdotdir
-  fi
-fi
+[[ -o login ]] || __worfy_zdotdir_user

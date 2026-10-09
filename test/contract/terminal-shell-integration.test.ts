@@ -50,6 +50,26 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
+/** What the same zsh with the same HOME prints without worfy: a login, interactive shell running `command`. */
+function withoutWorfy(command: string): string {
+  return execFileSync(ZSH, ['-l', '-i', '-c', command], {
+    env: { ...QUIET_ZSH, PATH: SYSTEM_PATH, HOME: home, TERM: 'xterm-256color', TERM_PROGRAM: 'worfy', LANG: 'en_US.UTF-8' },
+    encoding: 'utf8',
+  })
+}
+
+/** The nonce of the Terminal's shell, from the first A it printed. */
+function nonceIn(text: string): string {
+  // eslint-disable-next-line no-control-regex -- the sequence starts with ESC.
+  const nonce = /\x1b\]633;A;([0-9a-f]{32})\x07/.exec(text)?.[1]
+  if (nonce === undefined) throw new Error('no A sequence in the output')
+  return nonce
+}
+
+/** The output as xterm.js shows it: OSC sequences end on BEL, ESC \\ or U+009C and are not shown. */
+// eslint-disable-next-line no-control-regex -- the sequences are made of control characters.
+const shown = (text: string) => text.replace(/\x1b\][^\x07\x1b\x9c]*(?:\x07|\x1b\\|\x9c)/g, '')
+
 /** The user's startup files, in HOME or in a folder under it. */
 async function userFiles(files: Record<string, string>, folder = home): Promise<void> {
   await mkdir(folder, { recursive: true })
@@ -188,6 +208,32 @@ describe("worfy's ZDOTDIR reads the user's startup files", () => {
   })
 })
 
+describe("the user's ZDOTDIR while their files run", () => {
+  it('a .zshenv that sets ZDOTDIR only when it is unset (the XDG form) reads the same .zshrc and ends with the same ZDOTDIR as without worfy', async () => {
+    await userFiles({ '.zshenv': ': ${ZDOTDIR:=$HOME/zdot}; export ZDOTDIR' })
+    await userFiles({ '.zshrc': 'ZRC=loaded' }, join(home, 'zdot'))
+    const print = 'print -r -- "ZRC=[$ZRC] ZDOTDIR=[$ZDOTDIR] exported=[${(t)ZDOTDIR}]"'
+    const expected = /ZRC=.*/.exec(withoutWorfy(print))?.[0]
+    expect(expected).toBe(`ZRC=[loaded] ZDOTDIR=[${join(home, 'zdot')}] exported=[scalar-export]`)
+    const { open } = await start()
+    const t = await open()
+    await t.prompt()
+    await t.run(print)
+    expect(t.state()?.lastOutput).toContain(`${expected}\r`)
+  })
+
+  it('a ZDOTDIR the user has in the environment is theirs while their .zshenv runs', async () => {
+    const zdot = join(home, 'zdot')
+    await userFiles({ '.zshrc': 'ZRC=loaded' }, zdot)
+    await userFiles({ '.zshenv': 'ZENV="zdotdir in zshenv: $ZDOTDIR"' }, zdot)
+    const { open } = await start({ env: { ZDOTDIR: zdot } })
+    const t = await open()
+    await t.prompt()
+    await t.run('print -r -- "$ZENV|$ZRC|$ZDOTDIR"')
+    expect(t.state()?.lastOutput).toContain(`zdotdir in zshenv: ${zdot}|loaded|${zdot}\r`)
+  })
+})
+
 describe('the history stays the user\'s', () => {
   it('a line of $HOME/.zsh_history is there in a new Terminal, and a typed command goes back to it, not to worfy\'s folder', async () => {
     await writeFile(join(home, '.zsh_history'), 'echo from-the-past\n')
@@ -218,10 +264,7 @@ describe('the history stays the user\'s', () => {
   it('a HISTFILE of the user\'s .zshenv ends where it would without worfy', async () => {
     await userFiles({ '.zshenv': 'HISTFILE=$HOME/envhist' })
     // The same zsh with the same HOME, without worfy's ZDOTDIR.
-    const without = execFileSync(ZSH, ['-l', '-i', '-c', 'print -r -- "hf:$HISTFILE"'], {
-      env: { ...QUIET_ZSH, PATH: SYSTEM_PATH, HOME: home, TERM: 'xterm-256color', TERM_PROGRAM: 'worfy', LANG: 'en_US.UTF-8' },
-      encoding: 'utf8',
-    })
+    const without = withoutWorfy('print -r -- "hf:$HISTFILE"')
     const expected = /hf:(.*)/.exec(without)?.[1]
     const { open } = await start()
     const t = await open()
@@ -313,6 +356,43 @@ describe('the state of the Terminal, from the sequences with the nonce', () => {
     expect(secret).toEqual({ type: 'command-finished', command: null, exitCode: 0 })
     expect(t.state()?.commands).toEqual(['less long.txt'])
     expect(t.events().some((event) => event.type === 'command-started' && event.command?.includes('secret') === true)).toBe(false)
+  })
+
+  it('`setopt allexport` in the user\'s .zshrc exports nothing of worfy\'s: the nonce is not in the environment', async () => {
+    await userFiles({ '.zshrc': 'setopt allexport' })
+    const { open } = await start()
+    const t = await open()
+    await t.prompt()
+    await t.run('env')
+    const nonce = nonceIn(t.text())
+    const env = t.state()?.lastOutput ?? ''
+    expect(env).toMatch(/HOME=/)
+    expect(env).not.toContain(nonce)
+    expect(env).not.toMatch(/__worfy_/)
+  })
+
+  it('output that ends in a broken ESC [ does not swallow the D after it (prompt_sp off)', async () => {
+    await userFiles({ '.zshrc': 'unsetopt prompt_sp' })
+    const { open } = await start()
+    const t = await open()
+    await t.prompt()
+    const done = await t.run("printf 'x\\e['")
+    expect(done).toEqual({ type: 'command-finished', command: "printf 'x\\e['", exitCode: 0 })
+    expect(t.state()).toMatchObject({ commandRunning: false, awaitingInput: true })
+  })
+
+  it('a folder and a command with U+009C: the screen shows no tail of a sequence, main reads them exactly', async () => {
+    const folder = 'c1\u009cdir'
+    await mkdir(join(root, folder))
+    const { open } = await start()
+    const t = await open()
+    await t.prompt()
+    await t.run('cd c1*dir')
+    expect(t.state()?.cwd).toBe(join(root, folder))
+    await t.run(': c1\u009cx')
+    expect(t.state()?.commands).toContain(': c1\u009cx')
+    // Not escaped, U+009C would end the sequence in xterm.js, and `b;<nonce>` would be printed.
+    expect(shown(t.text())).not.toContain(nonceIn(t.text()))
   })
 
   it('a PS1 rebuilt in a precmd hook (as prompt frameworks do) still gets A and B on every prompt, once', async () => {

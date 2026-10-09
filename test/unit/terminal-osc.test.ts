@@ -23,8 +23,10 @@ const session = [
   'ls\r\n',
   E('ls'),
   C,
-  'file-1\r\nfile-2\r\n',
+  // A program's own OSC (a window title) and a CSI aborted by ESC are output too.
+  'file-1\r\n\x1b]0;title\x07\x1b[1\x1b[0mfile-2\r\n',
   D(0),
+  osc(`P;Cwd=${encodeValue('/work/a\u009cb')}`, '\x1b\\'),
   P('/work/sub'),
   A,
   '%~ ',
@@ -107,6 +109,9 @@ describe('ShellTracker: the sequences of its own shell', () => {
 
   it('encodes as the zsh script does: \\ to \\\\, ; and codes 0x20 and below to \\xHH', () => {
     expect(encodeValue('a b;c\\d\n\x1b')).toBe('a\\x20b\\x3bc\\\\d\\x0a\\x1b')
+    // C1 controls too: xterm.js ends an OSC on U+009C.
+    expect(encodeValue('a\u0080b\u009cc\u009fd\u00a0e')).toBe('a\\x80b\\x9cc\\x9fd\u00a0e')
+    expect(decodeValue('a\\x9cb')).toBe('a\u009cb')
     expect(decodeValue('a\\x20b\\x3bc\\\\d\\x0A\\x1B')).toBe('a b;c\\d\n\x1b')
     // A backslash that escapes nothing stays as it is.
     expect(decodeValue('a\\qb\\x2')).toBe('a\\qb\\x2')
@@ -136,7 +141,7 @@ describe('ShellTracker: the sequences of its own shell', () => {
 
   it('the output of the last finished command is the text between C and D', () => {
     const whole = feedAll([session])
-    expect(whole.tracker.state.lastOutput).toBe('file-1\r\nfile-2\r\n')
+    expect(whole.tracker.state.lastOutput).toBe('file-1\r\n\x1b]0;title\x07\x1b[1\x1b[0mfile-2\r\n')
     // A forged sequence inside the output is output, not a boundary.
     const tracker = new ShellTracker(NONCE)
     tracker.feed(`${C}one\x1b]633;D;0\x07two${D(0)}`)
@@ -180,6 +185,55 @@ describe('ShellTracker: the sequences of its own shell', () => {
   })
 })
 
+describe('ShellTracker: sequences that end early or never', () => {
+  it('a CSI aborted by ESC does not swallow the D after it (output ending in a broken ESC [)', () => {
+    const tracker = new ShellTracker(NONCE)
+    const events = tracker.feed(`${E('printf x')}${C}x\x1b[${D(0)}${P('/after')}`)
+    expect(events).toEqual([
+      { type: 'command-started', command: 'printf x' },
+      { type: 'command-finished', command: 'printf x', exitCode: 0 },
+    ])
+    expect(tracker.state).toMatchObject({ commandRunning: false, cwd: '/after', lastOutput: 'x\x1b[' })
+    // The same with the cut right after the broken CSI.
+    const cut = new ShellTracker(NONCE)
+    cut.feed(`${C}x\x1b[`)
+    expect(cut.feed(D(0))).toEqual([{ type: 'command-finished', command: null, exitCode: 0 }])
+  })
+
+  it('CAN and SUB abort a CSI; other C0 controls inside it do not', () => {
+    const tracker = new ShellTracker(NONCE)
+    tracker.feed('\x1b[?10\x1849h')
+    expect(tracker.state.altScreen).toBe(false)
+    tracker.feed('\x1b[?1049\x1ah')
+    expect(tracker.state.altScreen).toBe(false)
+    tracker.feed('\x1b[?10\r49h')
+    expect(tracker.state.altScreen).toBe(true)
+  })
+
+  it('U+009C (ST) ends an OSC, as in xterm.js; a folder with U+009C in its name is decoded exactly', () => {
+    const tracker = new ShellTracker(NONCE)
+    tracker.feed(`\x1b]0;title\u009c${P('/a\u009cb')}`)
+    expect(tracker.state.cwd).toBe('/a\u009cb')
+    // Raw (not escaped), U+009C would end worfy's sequence too: the rest is not a sequence.
+    const raw = new ShellTracker(NONCE)
+    raw.feed(`\x1b]633;P;Cwd=/a\u009cb;${NONCE}\x07`)
+    expect(raw.state.cwd).toBeNull()
+  })
+
+  it('an OSC that comes one character at a time is read in linear time', () => {
+    const tracker = new ShellTracker(NONCE)
+    const command = 'x'.repeat(200_000)
+    const started = performance.now()
+    for (const char of `\x1b]633;E;${command};${NONCE}`) tracker.feed(char)
+    tracker.feed('\x07')
+    const ms = performance.now() - started
+    tracker.feed(C)
+    expect(tracker.state.commands).toEqual([command])
+    // Read again with every chunk, 200 000 characters take seconds; once, tens of milliseconds.
+    expect(ms).toBeLessThan(1000)
+  })
+})
+
 describe('ReplayBuffer: a cut inside a sequence', () => {
   it('a replay whose start fell inside an OSC 633 starts after the end of that sequence', () => {
     const buffer = new ReplayBuffer()
@@ -210,6 +264,13 @@ describe('ReplayBuffer: a cut inside a sequence', () => {
     buffer.push(`${A}$ ${B}${'a'.repeat(REPLAY_LIMIT)}`)
     buffer.push('bcd')
     expect(buffer.text()).toBe(`${'a'.repeat(REPLAY_LIMIT - 3)}bcd`)
+  })
+
+  it('U+009C ends the sequence for the cut as well', () => {
+    const buffer = new ReplayBuffer()
+    buffer.push('\x1b]0;title\u009c')
+    buffer.push('z'.repeat(REPLAY_LIMIT - 3))
+    expect(buffer.text()).toBe('z'.repeat(REPLAY_LIMIT - 3))
   })
 
   it('a sequence whose end has not come yet is dropped as it arrives', () => {

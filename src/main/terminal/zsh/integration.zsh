@@ -14,6 +14,8 @@
 
 builtin autoload -Uz add-zsh-hook
 
+# Not exported even under the user's `setopt allexport`: zshrc.zsh takes the export off every
+# __worfy_ variable once this file and rc.d/ are read.
 __worfy_executed=0
 __worfy_prompt_start=$'%{\e]633;A;'"$__worfy_nonce"$'\a%}'
 __worfy_prompt_end=$'%{\e]633;B;'"$__worfy_nonce"$'\a%}'
@@ -23,18 +25,25 @@ __worfy_osc() {
   builtin printf '\e]633;%s;%s\a' "$1" "$__worfy_nonce"
 }
 
-# Escapes $1 into __worfy_escaped: \ to \\, ; and codes 0x20 and below to \xHH. Bytes, not
-# characters: the bytes of a non-ASCII character pass as they are.
+# Escapes $1 into __worfy_escaped: \ to \\, ; and codes 0x20 and below to \xHH, and so the C1
+# controls U+0080–U+009F (xterm.js ends an OSC on U+009C). Bytes, not characters: the bytes of any
+# other non-ASCII character pass as they are; a C1 control is the UTF-8 pair C2 80–C2 9F.
 __worfy_escape() {
   builtin emulate -L zsh -o extended_glob
-  builtin local LC_ALL=C out=${1//\\/\\\\} char
+  builtin local LC_ALL=C out=${1//\\/\\\\} char code
   out=${out//;/\\x3b}
   out=${out// /\\x20}
   while [[ $out == (#b)*([[:cntrl:]])* ]]; do
     char=$match[1]
     out=${out//$char/\\x${(l:2::0:)$(( [##16] #char ))}}
   done
-  typeset -g __worfy_escaped=$out
+  if [[ $out == *$'\xc2'* ]]; then
+    for (( code = 0x80; code <= 0x9f; code++ )); do
+      char=${(#)code}
+      out=${out//$'\xc2'$char/\\x${(l:2::0:)$(( [##16] code ))}}
+    done
+  fi
+  builtin typeset -g __worfy_escaped=$out
 }
 
 # Puts A at the start of PS1 and B at its end, unless they are there: worfy's preexec takes them

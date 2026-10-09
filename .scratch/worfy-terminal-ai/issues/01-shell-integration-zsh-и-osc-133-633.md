@@ -189,8 +189,9 @@ PR #204, ветка `worfy-terminal-ai/01`.
   `src/main/ipc/terminal.ts`. Для Ticket-а 03: `socketPath(dir)`, файл `SOCKET_FILE = 'assist.sock'`.
 - **Включение** — опция `integration` у `TerminalRegistry` и `isZsh(<запускаемый файл>)`
   (`basename` — `zsh` или `zsh-5.9`). Её ставит только registry Terminal Node-ов; у «Sign in with
-  gh» её нет. Окружение: `ZDOTDIR`, `WORFY_USER_ZDOTDIR` (`ZDOTDIR` пользователя или `HOME`),
-  `WORFY_SHELL_NONCE` (16 случайных байт hex, новый на каждый shell).
+  gh» её нет. Окружение: `ZDOTDIR`, `WORFY_USER_ZDOTDIR` (только если в окружении пользователя есть
+  `ZDOTDIR`; иначе скрипт берёт `HOME`), `WORFY_SHELL_NONCE` (16 случайных байт hex, новый на
+  каждый shell).
 - **Состояние и события.** `ShellTracker` (`osc.ts`) — папка, `awaitingInput` (после B),
   `commandRunning` (C…D), `altScreen`, `exitCode`, до 20 команд, `lastOutput` (C…D, последние
   `REPLAY_LIMIT` символов). `TerminalRegistry.shellState(key)` и `onShellEvent(listener)`; события
@@ -212,6 +213,21 @@ PR #204, ветка `worfy-terminal-ai/01`.
 - **Не сделано мной:** ручная проверка на zsh владельца (`pnpm dev`, nvm, стрелка вверх,
   `~/.zsh_history`, `shasum ~/.zshrc`) и снимки `01-terminal-*.png` — GUI-проверки по брифу не мои.
   Видимого изменения не ожидается: prompt тот же, A и B — невидимые вставки.
+
+- **Доработка после ревью (раунд 1).**
+  - Пока идёт файл пользователя, `ZDOTDIR` в точности такой, как без worfy: значение пользователя
+    (с `export` или без) или не задан. Форма XDG `: ${ZDOTDIR:=$HOME/zdot}; export ZDOTDIR` в
+    `.zshenv` читает тот же `.zshrc` и оставляет тот же `ZDOTDIR`, что zsh без worfy. Поэтому
+    `WORFY_USER_ZDOTDIR` передаётся, только если `ZDOTDIR` у пользователя есть (тикет говорил «или
+    `HOME`»).
+  - `setopt allexport` в `.zshrc` пользователя: `.zshrc` worfy снимает `export` со всех
+    переменных `__worfy_*`, nonce в `env` не попадает.
+  - ESC, CAN и SUB внутри CSI обрывают её, как в xterm; ESC начинает новую последовательность.
+    Вывод, кончающийся на `\e[`, больше не съедает D.
+  - C1 (U+0080–U+009F) экранируются в E и P как `\xHH`; U+009C (ST) заканчивает OSC и в разборе
+    main, и в срезе replay — как в xterm.js.
+  - Незакрытая OSC, приходящая по символу, читается один раз: 200 000 символов — меньше секунды
+    (было бы около 72 s при повторном чтении с начала, проверено мутантом).
 
 Решено без владельца (рекомендованный вариант), подтвердить:
 

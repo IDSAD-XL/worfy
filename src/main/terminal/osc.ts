@@ -31,17 +31,20 @@ const BEL = '\x07'
 /** CAN and SUB abort a sequence in xterm. */
 const CAN = '\x18'
 const SUB = '\x1a'
+/** ST as one C1 character: xterm.js ends an OSC on it too. */
+const ST_C1 = '\x9c'
 
 /**
  * Escapes a value of a sequence as the zsh script does and VS Code's documentation asks: `\` to
- * `\\`, `;` and every code 0x20 and below to `\xHH`.
+ * `\\`, `;` and every code 0x20 and below to `\xHH`; so are the C1 controls U+0080–U+009F, since
+ * xterm.js ends an OSC on U+009C (ST) and would print the rest of it as text.
  */
 export function encodeValue(value: string): string {
   let out = ''
   for (const char of value) {
     const code = char.codePointAt(0) ?? 0
     if (char === '\\') out += '\\\\'
-    else if (char === ';' || code <= 0x20) out += `\\x${code.toString(16).padStart(2, '0')}`
+    else if (char === ';' || code <= 0x20 || (code >= 0x80 && code <= 0x9f)) out += `\\x${code.toString(16).padStart(2, '0')}`
     else out += char
   }
   return out
@@ -109,36 +112,46 @@ type OscEnd =
   | { kind: 'done'; bodyEnd: number; next: number }
   /** Aborted by an ESC that does not start ST, or by CAN/SUB; scanning resumes at `next`. */
   | { kind: 'aborted'; next: number }
-  /** Its end has not come yet. */
-  | { kind: 'open' }
+  /** Its end has not come yet; `escAtEnd`: the text ends with an ESC that may start ST. */
+  | { kind: 'open'; escAtEnd: boolean }
 
-// eslint-disable-next-line no-control-regex -- BEL, ESC, CAN and SUB are what ends an OSC.
-const OSC_STOP = /[\x07\x1b\x18\x1a]/g
+// eslint-disable-next-line no-control-regex -- BEL, ESC, CAN, SUB and the C1 ST are what ends an OSC.
+const OSC_STOP = /[\x07\x1b\x18\x1a\x9c]/g
 
 function findOscEnd(text: string, bodyStart: number): OscEnd {
   OSC_STOP.lastIndex = bodyStart
   const match = OSC_STOP.exec(text)
-  if (match === null) return { kind: 'open' }
+  if (match === null) return { kind: 'open', escAtEnd: false }
   const at = match.index
   const stop = text[at]
-  if (stop === BEL) return { kind: 'done', bodyEnd: at, next: at + 1 }
+  if (stop === BEL || stop === ST_C1) return { kind: 'done', bodyEnd: at, next: at + 1 }
   if (stop === CAN || stop === SUB) return { kind: 'aborted', next: at + 1 }
   // ESC: ST when a backslash follows; else the OSC is aborted and the ESC starts something new.
   const after = text[at + 1]
-  if (after === undefined) return { kind: 'open' }
+  if (after === undefined) return { kind: 'open', escAtEnd: true }
   if (after === '\\') return { kind: 'done', bodyEnd: at, next: at + 2 }
   return { kind: 'aborted', next: at }
 }
 
-/** The end of a CSI that starts at `start` (its ESC): the index of its final byte, or -1 when it has not come. */
-function findCsiEnd(text: string, start: number): number {
+/** Where a CSI that starts at `start` (its ESC) ends, or why it does not. */
+type CsiEnd =
+  /** Its final byte is text[final]. */
+  | { kind: 'done'; final: number }
+  /** Aborted, as xterm aborts it: by ESC (which starts something new) or by CAN/SUB; scanning resumes at `next`. */
+  | { kind: 'aborted'; next: number }
+  | { kind: 'open' }
+
+function findCsiEnd(text: string, start: number): CsiEnd {
   for (let at = start + 2; at < text.length; at++) {
     const code = text.charCodeAt(at)
-    // Parameter bytes 0x30–0x3F and intermediate bytes 0x20–0x2F; the final byte is 0x40–0x7E.
-    if (code >= 0x20 && code <= 0x3f) continue
-    return at
+    if (code === 0x1b) return { kind: 'aborted', next: at }
+    if (code === 0x18 || code === 0x1a) return { kind: 'aborted', next: at + 1 }
+    // Other C0 controls are executed inside a CSI without ending it. Parameter bytes are 0x30–0x3F
+    // and intermediate bytes 0x20–0x2F; the final byte is 0x40–0x7E.
+    if (code <= 0x3f) continue
+    return { kind: 'done', final: at }
   }
-  return -1
+  return { kind: 'open' }
 }
 
 const ALT_SCREEN_MODES = new Set(['1049', '1047', '47'])
@@ -153,8 +166,13 @@ type Signal =
 /** The state of one shell, read out of its output; `nonce` is the one the shell was started with. */
 export class ShellTracker {
   private readonly limit: number
-  /** The start of a sequence cut at the end of the last chunk. */
+  /** The start of a short sequence (a lone ESC, a CSI) cut at the end of the last chunk. */
   private carry = ''
+  /**
+   * An OSC whose end has not come yet: its text so far (from its ESC), kept in parts so that one
+   * arriving a character at a time is read once, not again with every chunk.
+   */
+  private open: { parts: string[]; length: number; escAtEnd: boolean } | null = null
   private cwd: string | null = null
   private awaitingInput = false
   private commandRunning = false
@@ -190,11 +208,18 @@ export class ShellTracker {
   /** Reads one chunk of output; answers the events it brought, in order. */
   feed(chunk: string): ShellEvent[] {
     const events: ShellEvent[] = []
-    let text = this.carry + chunk
-    this.carry = ''
-    /** Where the command output not yet kept starts. */
-    let outputFrom = 0
+    let text = chunk
     let at = 0
+    if (this.open !== null) {
+      const resumed = this.resumeOsc(chunk, events)
+      if (resumed === null) return events
+      ;({ text, at } = resumed)
+    } else if (this.carry !== '') {
+      text = this.carry + chunk
+      this.carry = ''
+    }
+    /** Where the command output not yet kept starts. */
+    let outputFrom = at
     for (;;) {
       const esc = text.indexOf(ESC, at)
       if (esc === -1) break
@@ -206,8 +231,30 @@ export class ShellTracker {
       if (kind === ']') {
         const end = findOscEnd(text, esc + 2)
         if (end.kind === 'open') {
-          // A sequence longer than the limit is not one of worfy's: read on as text.
-          if (text.length - esc > this.limit) {
+          this.output?.push(text.slice(outputFrom, esc))
+          const part = end.escAtEnd ? text.slice(esc, -1) : text.slice(esc)
+          this.open = { parts: [part], length: part.length, escAtEnd: end.escAtEnd }
+          this.dropIfTooLong()
+          return events
+        }
+        if (end.kind === 'aborted') {
+          at = end.next
+          continue
+        }
+        const signal = this.signal(text.slice(esc + 2, end.bodyEnd))
+        at = end.next
+        if (signal === undefined) continue
+        // A sequence of worfy's is a boundary of the command output: the output runs from C to D.
+        this.output?.push(text.slice(outputFrom, esc))
+        outputFrom = at
+        const event = this.apply(signal)
+        if (event !== undefined) events.push(event)
+        continue
+      }
+      if (kind === '[') {
+        const end = findCsiEnd(text, esc)
+        if (end.kind === 'open') {
+          if (text.length - esc > 64) {
             at = esc + 2
             continue
           }
@@ -218,34 +265,70 @@ export class ShellTracker {
           at = end.next
           continue
         }
-        const signal = this.signal(text.slice(esc + 2, end.bodyEnd))
-        at = end.next
-        if (signal === undefined) continue
-        // A sequence of worfy's is a boundary of the command output: the output runs from C to D.
-        if (this.output !== null) this.output.push(text.slice(outputFrom, esc))
-        outputFrom = at
-        const event = this.apply(signal)
-        if (event !== undefined) events.push(event)
-        continue
-      }
-      if (kind === '[') {
-        const final = findCsiEnd(text, esc)
-        if (final === -1) {
-          if (text.length - esc > 64) {
-            at = esc + 2
-            continue
-          }
-          text = this.keepCut(text, esc)
-          break
-        }
-        this.csi(text.slice(esc + 2, final), text[final] ?? '')
-        at = final + 1
+        this.csi(text.slice(esc + 2, end.final), text[end.final] ?? '')
+        at = end.final + 1
         continue
       }
       at = esc + 1
     }
-    if (this.output !== null) this.output.push(text.slice(outputFrom))
+    this.output?.push(text.slice(outputFrom))
     return events
+  }
+
+  /**
+   * Reads on in the OSC still open: answers null while it stays open, else the text to read on and
+   * where; its event, if it is one of the shell's, goes to `events`.
+   */
+  private resumeOsc(text: string, events: ShellEvent[]): { text: string; at: number } | null {
+    const open = this.open
+    if (open === null || text === '') return null
+    if (open.escAtEnd) {
+      open.escAtEnd = false
+      if (text[0] === '\\') return this.closeOsc(open.parts.join(''), ESC + '\\', text, 1, events)
+      // The ESC did not start ST: the OSC is aborted, and the ESC starts something new.
+      this.dropOsc(open.parts.join(''))
+      return { text: ESC + text, at: 0 }
+    }
+    const end = findOscEnd(text, 0)
+    if (end.kind === 'open') {
+      const part = end.escAtEnd ? text.slice(0, -1) : text
+      open.parts.push(part)
+      open.length += part.length
+      open.escAtEnd = end.escAtEnd
+      this.dropIfTooLong()
+      return null
+    }
+    if (end.kind === 'aborted') {
+      this.dropOsc(open.parts.join('') + text.slice(0, end.next))
+      return { text, at: end.next }
+    }
+    return this.closeOsc(open.parts.join('') + text.slice(0, end.bodyEnd), text.slice(end.bodyEnd, end.next), text, end.next, events)
+  }
+
+  /** The open OSC ended: `raw` is it from its ESC to its body's end, `terminator` what ended it. */
+  private closeOsc(raw: string, terminator: string, text: string, next: number, events: ShellEvent[]): { text: string; at: number } {
+    this.open = null
+    const signal = this.signal(raw.slice(2))
+    if (signal === undefined) this.output?.push(raw + terminator)
+    else {
+      const event = this.apply(signal)
+      if (event !== undefined) events.push(event)
+    }
+    return { text, at: next }
+  }
+
+  /** The open OSC is not one of the shell's: what it held is output. */
+  private dropOsc(raw: string): void {
+    this.open = null
+    this.output?.push(raw)
+  }
+
+  /** An OSC longer than the limit is not one of worfy's: read on as text. */
+  private dropIfTooLong(): void {
+    const open = this.open
+    if (open === null || open.length <= this.limit) return
+    this.dropOsc(open.parts.join(''))
+    if (open.escAtEnd) this.carry = ESC
   }
 
   /** Keeps the cut sequence that starts at `start` for the next chunk; answers the text before it. */
@@ -322,7 +405,10 @@ export class ShellTracker {
     }
   }
 
-  private csi(params: string, final: string): void {
+  private csi(raw: string, final: string): void {
+    // C0 controls inside a CSI are executed by the terminal, not collected as parameters.
+    // eslint-disable-next-line no-control-regex -- exactly those controls are dropped.
+    const params = raw.replace(/[\x00-\x1f]/g, '')
     if ((final !== 'h' && final !== 'l') || !params.startsWith('?')) return
     if (params.slice(1).split(';').some((mode) => ALT_SCREEN_MODES.has(mode))) this.altScreen = final === 'h'
   }
