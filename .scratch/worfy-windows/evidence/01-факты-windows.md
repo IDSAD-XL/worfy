@@ -712,10 +712,11 @@ node-pty его запускает (раздел 09). Поиск «файл ес
 - три папки в `%USERPROFILE%\.claude\projects` (раздел 12) — удалены после сверки, с согласия
   владельца; `C:\a\b` осталась: удаление в корне `C:` заблокировано защитой Session, её удаляет
   владелец;
-- `%USERPROFILE%\.claude\projects\C--Users-Alexey-AppData-Local-Temp-worfy-01-hook-cwd` и
-  `%USERPROFILE%\.claude\session-env\<id>` — от проб hooks (раздел 13), Claude Code создаёт их и при
-  `--no-session-persistence`;
-- `C:\Users\Alexey\.cache\qmd` — пустая папка от первого `qmd status` (раздел 15);
+- `%USERPROFILE%\.claude\projects\C--Users-Alexey-AppData-Local-Temp-worfy-01-hook-cwd` и две папки
+  `%USERPROFILE%\.claude\session-env\<id>` (`ea64eef0-…`, `7ad1a86e-…`) — от проб hooks (раздел 13);
+  Claude Code создаёт их и при `--no-session-persistence`. Удалены с согласия владельца;
+- `C:\Users\Alexey\.cache\qmd` — пустая папка от первого `qmd status` (раздел 15); удалена, сама
+  `.cache` была и раньше;
 - worktree `C:\Users\Alexey\worfy\.claude\worktrees\windows-long-path-probe-0123456789abcdefg` и
   ветка `probe/windows-long-path-probe-0123456789abcdefg` в клоне (раздел 11) — удалены;
 - PowerShell 7.6.6 (winget) и pnpm 11.22.0 в node 22.13.0 (nvm); node 22.13.0 активен в nvm.
