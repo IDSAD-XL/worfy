@@ -702,12 +702,91 @@ async function expectWhole(locator: Locator, what: string): Promise<void> {
   expect(overflows(f), `${what} has no hidden overflow: ${JSON.stringify(f)}`).toBe(false)
 }
 
+interface Box {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** The page, typed for the reading below: the e2e typecheck has no DOM library. */
+interface RowsPage {
+  requestAnimationFrame(callback: (now: number) => void): number
+  setTimeout(callback: () => void, ms: number): number
+  clearTimeout(id: number): void
+  performance: { now(): number }
+}
+interface RowsElement {
+  isConnected: boolean
+  getBoundingClientRect(): Box
+  querySelectorAll(selector: string): ArrayLike<RowsElement>
+}
+
+/**
+ * The Ticket Node's box and its rows' boxes, all read in one animation frame, once they have
+ * stayed the same for two frames in a row. One reading, not one per element: ELK's answer can move
+ * the Node between two separate reads, and a row read after the move then lies outside the Node
+ * read before it (worfy-week ticket 06).
+ *
+ * Fails, rather than returning zeros that would make every row check pass, when the Node's element
+ * left the page (React replaced it during the wait) or has no box (hidden, or zero size). A timer
+ * ends the wait even if animation frames stop coming, so a stalled page fails with a message
+ * instead of hanging until the test timeout.
+ */
+async function ticketRows(ticket: Locator): Promise<{ card: Box; rows: Box[] }> {
+  const read = await ticket.evaluate(
+    (node, ms) =>
+      new Promise<{ failure: string | null; card: Box; rows: Box[] }>((done) => {
+        const page = globalThis as unknown as RowsPage
+        const card = node as unknown as RowsElement
+        const plain = (element: RowsElement): Box => {
+          const { x, y, width, height } = element.getBoundingClientRect()
+          return { x, y, width, height }
+        }
+        const measure = () => ({ card: plain(card), rows: Array.from(card.querySelectorAll(':scope > :not(.react-flow__handle)'), plain) })
+        let settled = false
+        let safety = 0
+        let frames = 0
+        // Only the first outcome counts: the animation frame loop and the safety timer both end here.
+        const finish = (failure: string | null, reading: { card: Box; rows: Box[] }): void => {
+          if (settled) return
+          settled = true
+          page.clearTimeout(safety)
+          done({ failure, ...reading })
+        }
+        const until = page.performance.now() + ms
+        let last: string | null = null
+        const tick = (now: number): void => {
+          if (settled) return
+          frames += 1
+          const current = measure()
+          if (!card.isConnected) return finish('the Ticket Node element left the page (React replaced it) while its rows were being read', current)
+          const signature = JSON.stringify(current)
+          if (signature === last) {
+            if (current.card.width === 0 || current.card.height === 0) return finish('the Ticket Node has no box (hidden, or zero width or height)', current)
+            return finish(null, current)
+          }
+          if (now > until) return finish(`the Ticket Node kept moving for ${ms} ms`, current)
+          last = signature
+          page.requestAnimationFrame(tick)
+        }
+        safety = page.setTimeout(
+          () => finish(`no settled reading within ${ms + 1_000} ms: animation frames stopped after ${frames} frame(s)`, measure()),
+          ms + 1_000,
+        )
+        page.requestAnimationFrame(tick)
+      }),
+    10_000,
+  )
+  if (read.failure !== null) throw new Error(`${read.failure}; last reading: ${JSON.stringify({ card: read.card, rows: read.rows })}`)
+  return { card: read.card, rows: read.rows }
+}
+
 /** Every row of the Ticket Node ends inside it: nothing is cut by its bottom or right edge. */
 async function expectRowsInside(ticket: Locator, what: string): Promise<void> {
-  const card = await box(ticket)
-  for (const row of await ticket.locator(':scope > :not(.react-flow__handle)').all()) {
-    const b = await row.boundingBox()
-    if (!b || b.height === 0) continue
+  const { card, rows } = await ticketRows(ticket)
+  for (const b of rows) {
+    if (b.height === 0) continue
     expect(b.y + b.height, `${what}: a row ends inside the Ticket Node`).toBeLessThanOrEqual(card.y + card.height + 0.5)
     expect(b.x + b.width, `${what}: a row ends inside the Ticket Node`).toBeLessThanOrEqual(card.x + card.width + 0.5)
   }
