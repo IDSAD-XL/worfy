@@ -6,7 +6,7 @@
 // checks as parameters, so they run on the Mac and on Linux CI; the last case runs the real
 // agentEnv() on Windows only.
 import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, lstatSync } from 'node:fs'
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
@@ -17,15 +17,16 @@ import {
   captureLoginShellEnv,
   ENV_END_MARKER,
   ENV_START_MARKER,
+  expandVars,
   findGitBash,
   findOnPath,
-  isParentSessionVar,
   parseEnvDump,
   parseRegQuery,
   PERSISTENT_ENV_KEYS,
   shellBaseEnv,
   SYSTEM_PATH,
   withoutApiKeys,
+  WINDOWS_SESSION_VARS,
   type CapturedEnv,
 } from '../../src/main/agent/env'
 
@@ -131,27 +132,55 @@ describe('environment helpers', () => {
 const GIT = 'C:\\Program Files\\Git'
 const BASH = `${GIT}\\bin\\bash.exe`
 
-/** worfy's environment as a parent Claude Code session leaves it (evidence of ticket 01, section 20). */
+/**
+ * worfy's process as a parent Claude Code session leaves it when worfy runs from its Bash tool
+ * (evidence of ticket 01, sections 13 and 20), with secrets of whoever started worfy.
+ */
 const parentEnv: Record<string, string> = {
-  Path: `C:\\Windows\\System32;${GIT}\\cmd;C:\\Program Files\\nodejs;C:\\Program Files\\GitHub CLI`,
+  Path: `C:\\parent\\only;${GIT}\\mingw64\\bin;C:\\Windows\\System32`,
   SystemRoot: 'C:\\Windows',
   USERPROFILE: 'C:\\Users\\u',
   ProgramFiles: 'C:\\Program Files',
   LOCALAPPDATA: 'C:\\Users\\u\\AppData\\Local',
+  APPDATA: 'C:\\Users\\u\\AppData\\Roaming',
+  USERNAME: 'u',
+  TEMP: 'C:\\parent\\temp',
   ANTHROPIC_API_KEY: 'key',
   anthropic_auth_token: 'token',
   ANTHROPIC_BASE_URL: 'http://proxy',
-  ANTHROPIC_MODEL: 'opus',
   CLAUDECODE: '1',
   CLAUDE_CODE_SESSION_ID: 'parent-session',
-  CLAUDE_CODE_ENTRYPOINT: 'claude-desktop',
   NoDefaultCurrentDirectoryInExePath: '1',
+  GH_TOKEN: 'gho_parent',
+  GITHUB_TOKEN: 'ghp_parent',
+  WORFY_DATA_DIR: 'C:\\parent\\data',
 }
 
-/** `reg query` of the two persistent keys: the user set ANTHROPIC_MODEL with setx. */
+/** `reg query` of the two keys: the machine's Path and the user's own variables (setx). */
 const regAnswers: Record<string, string> = {
-  [PERSISTENT_ENV_KEYS[0]]: '\r\nHKEY_CURRENT_USER\\Environment\r\n    Path    REG_EXPAND_SZ    %USERPROFILE%\\bin\r\n    ANTHROPIC_MODEL    REG_SZ    opus\r\n    TEMP    REG_EXPAND_SZ    %USERPROFILE%\\AppData\\Local\\Temp\r\n\r\n',
-  [PERSISTENT_ENV_KEYS[1]]: '\r\nHKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment\r\n    ComSpec    REG_EXPAND_SZ    %SystemRoot%\\system32\\cmd.exe\r\n    Path    REG_EXPAND_SZ    C:\\Windows\\system32\r\n\r\n',
+  [PERSISTENT_ENV_KEYS[1]]: [
+    '',
+    'HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment',
+    '    ComSpec    REG_EXPAND_SZ    %SystemRoot%\\system32\\cmd.exe',
+    '    NUMBER_OF_PROCESSORS    REG_SZ    16',
+    `    Path    REG_EXPAND_SZ    %SystemRoot%\\system32;%SystemRoot%;${GIT}\\cmd;C:\\Program Files\\nodejs`,
+    '    TEMP    REG_EXPAND_SZ    %SystemRoot%\\TEMP',
+    '    DriverData    REG_SZ    C:\\Windows\\System32\\Drivers\\DriverData',
+    '    SomeFlag    REG_DWORD    0x1',
+    '',
+  ].join('\r\n'),
+  [PERSISTENT_ENV_KEYS[0]]: [
+    '',
+    'HKEY_CURRENT_USER\\Environment',
+    '    Path    REG_EXPAND_SZ    %USERPROFILE%\\bin;%LOCALAPPDATA%\\Programs\\tool',
+    '    TEMP    REG_EXPAND_SZ    %USERPROFILE%\\AppData\\Local\\Temp',
+    '    ANTHROPIC_MODEL    REG_SZ    opus',
+    '    ANTHROPIC_API_KEY    REG_SZ    set-with-setx',
+    '    NVM_HOME    REG_EXPAND_SZ    %APPDATA%\\nvm',
+    '    UNKNOWN_REF    REG_EXPAND_SZ    %NOT_SET%\\x',
+    '    EMPTY    REG_SZ',
+    '',
+  ].join('\r\n'),
 }
 const regQuery = async (key: string): Promise<string> => regAnswers[key] ?? Promise.reject(new Error(`no ${key}`))
 const files = (...present: string[]) => (path: string): boolean => present.some((file) => file.toLowerCase() === path.toLowerCase())
@@ -167,44 +196,60 @@ const capture = (options: Partial<Parameters<typeof captureAgentEnv>[0]> = {}): 
   })
 
 describe('captureAgentEnv on win32', () => {
-  it('runs no login shell and starts from worfy\'s own environment', async () => {
+  it('runs no login shell and builds the environment from the registry', async () => {
     const captureShell = vi.fn()
     const result = await capture({ captureShell })
     expect(captureShell).not.toHaveBeenCalled()
-    expect(result.from).toBe('process')
-    expect(result.env.SystemRoot).toBe('C:\\Windows')
-    expect(result.env.USERPROFILE).toBe('C:\\Users\\u')
+    expect(result.from).toBe('registry')
+    expect(result.error).toBeNull()
   })
 
-  it('removes the API keys, whatever their case', async () => {
+  it("keeps nothing of worfy's process outside the session variables: no tokens, no parent session", async () => {
     const { env } = await capture()
-    expect(env).not.toHaveProperty('ANTHROPIC_API_KEY')
-    expect(env).not.toHaveProperty('anthropic_auth_token')
-    expect(JSON.stringify(env)).not.toContain('token')
-  })
-
-  it('removes the variables of the parent session that are not in the persistent environment', async () => {
-    const { env, error } = await capture()
-    for (const key of ['CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CODE_ENTRYPOINT', 'ANTHROPIC_BASE_URL', 'NoDefaultCurrentDirectoryInExePath']) {
+    for (const key of ['GH_TOKEN', 'GITHUB_TOKEN', 'WORFY_DATA_DIR', 'CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'ANTHROPIC_BASE_URL', 'NoDefaultCurrentDirectoryInExePath']) {
       expect(env).not.toHaveProperty(key)
     }
-    // Set by the user (setx), so it reaches Claude Code — as an export from an rc file does on the Mac.
+    expect(JSON.stringify(env)).not.toMatch(/gho_parent|ghp_parent|parent-session|C:\\\\parent/)
+  })
+
+  it('takes the session variables Windows sets at sign-in from the process', async () => {
+    const { env } = await capture()
+    expect(env).toMatchObject({ SystemRoot: 'C:\\Windows', USERPROFILE: 'C:\\Users\\u', APPDATA: 'C:\\Users\\u\\AppData\\Roaming', USERNAME: 'u' })
+    expect(WINDOWS_SESSION_VARS).toContain('LOCALAPPDATA')
+  })
+
+  it("takes the user's persistent variables, the user's over the machine's, REG_EXPAND_SZ expanded", async () => {
+    const { env } = await capture()
     expect(env.ANTHROPIC_MODEL).toBe('opus')
-    expect(error).toBeNull()
+    expect(env.ComSpec).toBe('C:\\Windows\\system32\\cmd.exe')
+    expect(env.TEMP).toBe('C:\\Users\\u\\AppData\\Local\\Temp')
+    expect(env.NVM_HOME).toBe('C:\\Users\\u\\AppData\\Roaming\\nvm')
+    expect(env.UNKNOWN_REF).toBe('%NOT_SET%\\x')
+    expect(env.EMPTY).toBe('')
+    expect(env).not.toHaveProperty('SomeFlag')
   })
 
-  it('keeps one key for the path, with its value unchanged', async () => {
-    const { env } = await capture({ source: { ...parentEnv, PATH: 'C:\\second' } })
-    const pathKeys = Object.keys(env).filter((key) => key.toUpperCase() === 'PATH')
-    expect(pathKeys).toEqual(['Path'])
+  it('builds Path from the machine Path and then the user Path, under one key', async () => {
+    const { env } = await capture()
+    expect(Object.keys(env).filter((key) => key.toUpperCase() === 'PATH')).toEqual(['Path'])
+    expect(env.Path).toBe(
+      `C:\\Windows\\system32;C:\\Windows;${GIT}\\cmd;C:\\Program Files\\nodejs;C:\\Users\\u\\bin;C:\\Users\\u\\AppData\\Local\\Programs\\tool`,
+    )
+  })
+
+  it('removes the API keys, from the process and from the registry, whatever their case', async () => {
+    const { env } = await capture()
+    for (const key of Object.keys(env)) expect(['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']).not.toContain(key.toUpperCase())
+    expect(JSON.stringify(env)).not.toMatch(/set-with-setx|"key"|token/)
+  })
+
+  it('without an answer from reg query falls back to the session variables and the Path of the process, and says why', async () => {
+    const { env, from, error } = await capture({ regQuery: () => Promise.reject(new Error('reg is missing')) })
+    expect(from).toBe('fallback')
     expect(env.Path).toBe(parentEnv.Path)
-  })
-
-  it('without an answer from reg query removes every CLAUDE* and ANTHROPIC_* variable and says why', async () => {
-    const { env, error } = await capture({ regQuery: () => Promise.reject(new Error('reg is missing')) })
-    expect(Object.keys(env).filter((key) => isParentSessionVar(key) && key !== 'CLAUDE_CODE_GIT_BASH_PATH')).toEqual([])
-    expect(env).not.toHaveProperty('ANTHROPIC_MODEL')
-    expect(error).toMatch(/reg query/)
+    expect(env).not.toHaveProperty('GH_TOKEN')
+    expect(env).not.toHaveProperty('CLAUDECODE')
+    expect(error).toMatch(/reg query failed/)
     expect(error).toMatch(/reg is missing/)
   })
 
@@ -213,10 +258,9 @@ describe('captureAgentEnv on win32', () => {
     expect(env.CLAUDE_CODE_GIT_BASH_PATH).toBe(BASH)
   })
 
-  it("keeps the user's own CLAUDE_CODE_GIT_BASH_PATH", async () => {
+  it("keeps the user's own CLAUDE_CODE_GIT_BASH_PATH from the registry", async () => {
     const own = 'D:\\tools\\git\\bin\\bash.exe'
     const { env } = await capture({
-      source: { ...parentEnv, CLAUDE_CODE_GIT_BASH_PATH: own },
       regQuery: async (key) => (key === PERSISTENT_ENV_KEYS[0] ? `${regAnswers[key]}    CLAUDE_CODE_GIT_BASH_PATH    REG_SZ    ${own}\r\n` : regAnswers[key]!),
     })
     expect(env.CLAUDE_CODE_GIT_BASH_PATH).toBe(own)
@@ -258,9 +302,15 @@ describe('findGitBash', () => {
     expect(findGitBash(env('C:\\Windows\\System32'), files(userGit))).toBe(userGit)
   })
 
-  it('never takes the WSL launcher C:\\Windows\\System32\\bash.exe', () => {
-    expect(findGitBash(env('C:\\Windows\\System32'), files('C:\\Windows\\System32\\bash.exe'))).toBeNull()
-    // A git.exe under the Windows folder would make <SystemRoot>\bin\bash.exe the candidate: refused too.
+  it('takes Git Bash, not the WSL launcher that comes first on the Path', () => {
+    // As on the owner's PC: C:\Windows\System32 (with bash.exe of WSL) before Git's cmd.
+    const wsl = 'C:\\Windows\\System32\\bash.exe'
+    expect(findGitBash(env(`C:\\Windows\\System32;${GIT}\\cmd`), files(wsl, `${GIT}\\cmd\\git.exe`, BASH))).toBe(BASH)
+    expect(findGitBash(env('C:\\Windows\\System32'), files(wsl))).toBeNull()
+  })
+
+  it('refuses a candidate under the Windows folder', () => {
+    // A git.exe under the Windows folder would make <SystemRoot>\bin\bash.exe the candidate.
     expect(findGitBash(env('C:\\Windows\\cmd'), files('C:\\Windows\\cmd\\git.exe', 'C:\\Windows\\bin\\bash.exe'))).toBeNull()
   })
 })
@@ -273,22 +323,25 @@ describe('findOnPath and the reg query reader', () => {
     expect(findOnPath('pwsh', { Path: 'C:\\a' }, exists)).toBeNull()
   })
 
-  it('reads the value names of reg query, not the key line or the types', () => {
-    expect(parseRegQuery(regAnswers[PERSISTENT_ENV_KEYS[0]]!)).toEqual(['Path', 'ANTHROPIC_MODEL', 'TEMP'])
+  it('reads name, type and value of reg query, not the key line', () => {
+    expect(parseRegQuery(regAnswers[PERSISTENT_ENV_KEYS[0]]!).slice(0, 3)).toEqual([
+      { name: 'Path', type: 'REG_EXPAND_SZ', value: '%USERPROFILE%\\bin;%LOCALAPPDATA%\\Programs\\tool' },
+      { name: 'TEMP', type: 'REG_EXPAND_SZ', value: '%USERPROFILE%\\AppData\\Local\\Temp' },
+      { name: 'ANTHROPIC_MODEL', type: 'REG_SZ', value: 'opus' },
+    ])
+    expect(parseRegQuery('    EMPTY    REG_SZ')).toEqual([{ name: 'EMPTY', type: 'REG_SZ', value: '' }])
   })
 
-  it('counts CLAUDE*, ANTHROPIC_* and NoDefaultCurrentDirectoryInExePath as variables of a parent session', () => {
-    for (const name of ['CLAUDECODE', 'claude_code_session_id', 'ANTHROPIC_BASE_URL', 'NODEFAULTCURRENTDIRECTORYINEXEPATH']) {
-      expect(isParentSessionVar(name)).toBe(true)
-    }
-    for (const name of ['Path', 'ANTHROPICX', 'USERPROFILE']) expect(isParentSessionVar(name)).toBe(false)
+  it('expands %NAME% in any case and leaves an unknown one', () => {
+    expect(expandVars('%systemroot%\\x;%NOPE%', { SystemRoot: 'C:\\Windows' })).toBe('C:\\Windows\\x;%NOPE%')
   })
 })
 
 describe.runIf(process.platform === 'win32')('agentEnv on this Windows machine', () => {
-  it('finds git, node and gh, and points CLAUDE_CODE_GIT_BASH_PATH at a Git Bash outside System32', async () => {
-    const { env, from } = await agentEnv()
-    expect(from).toBe('process')
+  it('finds git, node and gh, points CLAUDE_CODE_GIT_BASH_PATH at a Git Bash outside System32, and carries no parent session', async () => {
+    const { env, from, error } = await agentEnv()
+    expect(from).toBe('registry')
+    expect(error).toBeNull()
     for (const tool of ['git', 'node', 'gh']) {
       const found = execFileSync('where.exe', [tool], { env, encoding: 'utf8' })
       expect(found.trim()).not.toBe('')
@@ -296,5 +349,22 @@ describe.runIf(process.platform === 'win32')('agentEnv on this Windows machine',
     const bash = env.CLAUDE_CODE_GIT_BASH_PATH ?? ''
     expect(existsSync(bash)).toBe(true)
     expect(bash.toLowerCase()).not.toContain('\\system32\\')
+    // The tests themselves run inside a Claude Code session on this machine, so these are in process.env.
+    for (const key of Object.keys(env)) {
+      expect(key.toUpperCase()).not.toMatch(/^(CLAUDECODE|CLAUDE_CODE_SESSION_ID|NODEFAULTCURRENTDIRECTORYINEXEPATH|GH_TOKEN|ANTHROPIC_API_KEY)$/)
+    }
+  })
+
+  it('findOnPath sees the app execution alias of pwsh from MSIX, when one is installed', () => {
+    const alias = win32.join(process.env.LOCALAPPDATA ?? '', 'Microsoft', 'WindowsApps', 'pwsh.exe')
+    let isAlias = false
+    try {
+      isAlias = lstatSync(alias).isSymbolicLink()
+    } catch {
+      isAlias = false
+    }
+    if (!isAlias) return // no MSIX pwsh on this machine: nothing to check
+    expect(existsSync(alias)).toBe(false) // the reason findOnPath has its own check (evidence of ticket 01, section 25)
+    expect(findOnPath('pwsh', { Path: win32.dirname(alias) })).toBe(alias)
   })
 })

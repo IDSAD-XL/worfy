@@ -8,6 +8,7 @@
 // to the preset. Claude Code runs as the native binary of the SDK's platform package
 // (ADR-0008): in `pnpm dev` the SDK finds it itself; in the packaged app its own lookup points
 // inside app.asar, where nothing can be spawned, so the path into app.asar.unpacked is explicit.
+// On Windows that binary is claude.exe of the win32 package (ADR-0057).
 // Outside bypassPermissions Claude Code asks the Session's permission gate before a tool
 // (canUseTool, ticket 21, src/main/agent/permissions.ts). An unattended Session (Autopilot,
 // worfy-daily ticket 02, src/main/agent/session-settings.ts) starts in bypassPermissions whatever

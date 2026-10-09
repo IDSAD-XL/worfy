@@ -8,13 +8,15 @@
 // From the shell's environment only ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN are removed: with
 // them Claude Code would log in by key instead of the user's subscription.
 //
-// Windows has no login shell (ADR-0057, worfy-windows ticket 09). The environment is worfy's own,
-// which already carries the user's Path, without the API keys and without the variables a parent
-// Claude Code session leaves when worfy runs from its Bash tool (CLAUDECODE, CLAUDE_CODE_*,
-// ANTHROPIC_BASE_URL, NoDefaultCurrentDirectoryInExePath …). Such a variable stays when the user
-// set it persistently (HKCU or HKLM Environment, read with `reg query`), as an export from an rc
-// file reaches Claude Code on the Mac. Claude Code gets Git Bash for its Bash tool through
-// CLAUDE_CODE_GIT_BASH_PATH; `bash.exe` from Path may be the WSL launcher.
+// Windows has no login shell (ADR-0057, worfy-windows ticket 09). The environment is built as a new
+// sign-in builds it, not taken from worfy's process: the persistent variables of the machine and
+// the user from the registry (`reg query`, REG_EXPAND_SZ expanded, Path = machine Path + user
+// Path), on top of a short list of session variables Windows sets at sign-in (SystemRoot,
+// USERPROFILE, APPDATA …), taken from the process. Nothing else of whoever started worfy — a
+// parent Claude Code session's CLAUDECODE or GH_TOKEN, WORFY_* — reaches Claude Code, as the
+// minimal start of the login shell ensures on the Mac. The API keys are removed as on the Mac.
+// Claude Code gets Git Bash for its Bash tool through CLAUDE_CODE_GIT_BASH_PATH; `bash.exe` from
+// Path may be the WSL launcher.
 import { execFile } from 'node:child_process'
 import { existsSync, lstatSync } from 'node:fs'
 import { win32 } from 'node:path'
@@ -78,11 +80,11 @@ export interface CaptureOptions {
 export interface CapturedEnv {
   env: Env
   /**
-   * How it was obtained: from the shell, the minimal fallback when the shell failed, or (Windows)
-   * worfy's own process environment.
+   * How it was obtained: from the login shell, from the registry of Windows (ADR-0057), or the
+   * minimal fallback when either failed.
    */
-  from: 'login-shell' | 'fallback' | 'process'
-  /** Why the shell was not used (`fallback`), or what is missing on Windows (`process`); else null. */
+  from: 'login-shell' | 'registry' | 'fallback'
+  /** Why the fallback was used, or what is missing on Windows (Git Bash); else null. */
   error: string | null
 }
 
@@ -134,20 +136,43 @@ function getVar(env: SourceEnv, name: string): string | undefined {
   return undefined
 }
 
-/** A variable a parent Claude Code session may leave in worfy's environment. */
-export function isParentSessionVar(name: string): boolean {
-  const upper = name.toUpperCase()
-  return upper.startsWith('CLAUDE') || upper.startsWith('ANTHROPIC_') || upper === 'NODEFAULTCURRENTDIRECTORYINEXEPATH'
+/**
+ * Session variables Windows sets at sign-in and keeps outside the Environment keys of the registry
+ * (Volatile Environment, the system itself). They are taken from worfy's process; nothing else is.
+ */
+export const WINDOWS_SESSION_VARS = [
+  'SystemRoot', 'SystemDrive', 'windir', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP',
+  'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA', 'LOCALAPPDATA', 'ProgramData',
+  'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432',
+  'PUBLIC', 'ALLUSERSPROFILE', 'COMPUTERNAME', 'USERNAME', 'USERDOMAIN', 'OS',
+  'PROCESSOR_ARCHITECTURE', 'PROCESSOR_IDENTIFIER', 'PROCESSOR_LEVEL', 'PROCESSOR_REVISION', 'NUMBER_OF_PROCESSORS',
+] as const
+
+export interface RegValue {
+  name: string
+  type: string
+  value: string
 }
 
-/** The value names in the output of `reg query <key>`: lines `    <name>    REG_<type>    <value>`. */
-export function parseRegQuery(output: string): string[] {
-  const names: string[] = []
+/** The values in the output of `reg query <key>`: lines `    <name>    REG_<type>    <value>`. */
+export function parseRegQuery(output: string): RegValue[] {
+  const values: RegValue[] = []
   for (const line of output.split(/\r?\n/)) {
-    const match = /^ {4}(.+?) {4}REG_[A-Z_]+(?: {4}|$)/.exec(line)
-    if (match) names.push(match[1]!)
+    const match = /^ {4}(.+?) {4}(REG_[A-Z_]+)(?: {4}(.*))?$/.exec(line)
+    if (match) values.push({ name: match[1]!, type: match[2]!, value: match[3] ?? '' })
   }
-  return names
+  return values
+}
+
+/** `%NAME%` replaced by the value of NAME in `env` (any case); an unknown name stays as it is. */
+export function expandVars(value: string, env: SourceEnv): string {
+  return value.replace(/%([^%;]+)%/g, (whole, name: string) => getVar(env, name) ?? whole)
+}
+
+/** Sets `key` in `env`, replacing a key that differs only in case. */
+function setVar(env: Env, key: string, value: string): void {
+  for (const existing of Object.keys(env)) if (existing.toUpperCase() === key.toUpperCase()) delete env[existing]
+  env[key] = value
 }
 
 /**
@@ -220,37 +245,50 @@ export interface WindowsEnvOptions {
 }
 
 /**
- * The agent environment on Windows: `source` without the API keys (any case) and without the
- * variables of a parent session that are not persistent; one key for the path; Git Bash in
- * CLAUDE_CODE_GIT_BASH_PATH unless the user has an own one. When `reg query` fails, every such
- * variable goes and `error` says why; without Git Bash `error` says the agent has no Bash tool.
+ * The agent environment on Windows, built as a new sign-in builds it:
+ *   1. the session variables of WINDOWS_SESSION_VARS, from `source`;
+ *   2. the machine's persistent variables, then the user's (the user's win), REG_EXPAND_SZ expanded
+ *      against what is set so far; Path is the machine Path followed by the user Path;
+ *   3. without ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN (any case), as on the Mac;
+ *   4. Git Bash in CLAUDE_CODE_GIT_BASH_PATH unless the user has an own one.
+ * When `reg query` fails the result is the session variables and the Path of `source` (`fallback`),
+ * and `error` says why; without Git Bash `error` says the agent has no Bash tool.
  */
 export async function captureWindowsEnv(options: WindowsEnvOptions = {}): Promise<CapturedEnv> {
   const source = options.source ?? process.env
   const errors: string[] = []
-  let persistent: Set<string> | null = null
-  try {
-    const answers = await Promise.all(PERSISTENT_ENV_KEYS.map((key) => (options.regQuery ?? execRegQuery)(key)))
-    persistent = new Set(answers.flatMap(parseRegQuery).map((name) => name.toUpperCase()))
-  } catch (error) {
-    errors.push(`reg query failed, every CLAUDE* and ANTHROPIC_* variable is removed: ${error instanceof Error ? error.message : String(error)}`)
-  }
-  const apiKeys = new Set<string>(API_KEY_VARS)
   const env: Env = {}
-  const seen = new Set<string>()
-  for (const [key, value] of Object.entries(source)) {
-    const upper = key.toUpperCase()
-    if (value === undefined || seen.has(upper) || apiKeys.has(upper)) continue
-    if (isParentSessionVar(key) && !persistent?.has(upper)) continue
-    seen.add(upper)
-    env[key] = value
+  for (const key of WINDOWS_SESSION_VARS) {
+    const value = getVar(source, key)
+    if (value !== undefined) env[key] = value
   }
+  let from: CapturedEnv['from'] = 'registry'
+  try {
+    // PERSISTENT_ENV_KEYS: the user's key first, the machine's second.
+    const [user, machine] = await Promise.all(PERSISTENT_ENV_KEYS.map((key) => (options.regQuery ?? execRegQuery)(key)))
+    const paths: string[] = []
+    for (const values of [parseRegQuery(machine!), parseRegQuery(user!)]) {
+      for (const { name, type, value } of values) {
+        if (type !== 'REG_SZ' && type !== 'REG_EXPAND_SZ') continue
+        const expanded = type === 'REG_EXPAND_SZ' ? expandVars(value, env) : value
+        if (name.toUpperCase() === 'PATH') paths.push(expanded)
+        else setVar(env, name, expanded)
+      }
+    }
+    setVar(env, 'Path', paths.filter((path) => path !== '').join(';'))
+  } catch (error) {
+    from = 'fallback'
+    const path = getVar(source, 'PATH')
+    if (path !== undefined) setVar(env, 'Path', path)
+    errors.push(`reg query failed, only the session variables and the Path of worfy's process are used: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  for (const key of Object.keys(env)) if ((API_KEY_VARS as readonly string[]).includes(key.toUpperCase())) delete env[key]
   if (getVar(env, 'CLAUDE_CODE_GIT_BASH_PATH') === undefined) {
     const bash = findGitBash(env, options.exists)
     if (bash) env.CLAUDE_CODE_GIT_BASH_PATH = bash
     else errors.push('Git Bash not found: the agent has no Bash tool')
   }
-  return { env, from: 'process', error: errors.length > 0 ? errors.join('; ') : null }
+  return { env, from, error: errors.length > 0 ? errors.join('; ') : null }
 }
 
 export interface AgentEnvOptions extends WindowsEnvOptions {
@@ -270,7 +308,7 @@ let captured: Promise<CapturedEnv> | null = null
 /** The agent environment, captured once per app run on first use. */
 export function agentEnv(): Promise<CapturedEnv> {
   captured ??= captureAgentEnv().then((result) => {
-    if (result.error) console.warn(`[agent] ${result.from === 'process' ? 'agent environment' : 'using the minimal environment'}: ${result.error}`)
+    if (result.error) console.warn(`[agent] ${result.from === 'fallback' ? 'using the minimal environment' : 'agent environment'}: ${result.error}`)
     return result
   })
   return captured
