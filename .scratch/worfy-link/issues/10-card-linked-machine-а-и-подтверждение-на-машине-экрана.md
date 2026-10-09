@@ -1,7 +1,7 @@
 # 10 — Card Linked machine-а через worfy-card:// своей Machine; подтверждение там, где Card открыта
 
 Type: task
-Status: claimed — 2026-10-09
+Status: done — 2026-10-09, [PR #184](https://github.com/IDSAD-XL/worfy/pull/184)
 Branch: worfy-link/10
 Blocked by: 09
 Source: решения владельца 2026-10-07: Q3 (с другой машины можно всё, кроме действий, которым нужен рабочий стол машины Project-а), Q9 (один репозиторий на двух Machine — два Project-а), Q14 (системные диалоги — в UI машины, откуда вызваны; подтверждение Card — где она открыта); [spec.md](../spec.md); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md) — Machine и Linked machine; [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — несколько экранов на одном Project-е, диалоги на машине экрана; [ADR-0012](../../../docs/adr/0012-card-origin-worfy-card-scheme.md) — Card на своём origin схемы `worfy-card://`
@@ -213,3 +213,12 @@ Source: решения владельца 2026-10-07: Q3 (с другой маш
   после «Send» из Card B — [светлая](../evidence/10-card-of-linked-machine-sent-light.png),
   [тёмная](../evidence/10-card-of-linked-machine-sent-dark.png). Сам диалог — системный `NSAlert`: Playwright снимает
   только страницу, поэтому его текст и кнопки проверены через подменённый `dialog.showMessageBox`, а не снимком.
+
+### Gate оркестратора (2026-10-09)
+
+- Круг 1 — `REJECTED` ([комментарий в PR #184](https://github.com/IDSAD-XL/worfy/pull/184#issuecomment-6076474121)): [med] нестабильный `test/e2e/linked-cards.spec.ts` (три spec Card подряд при load ~7 — кадр Card B пуст 5 s, 1 красный из 4); [low] склейка кусков при перезаписи файла с тем же размером; [low] общий «сайт» Card одного Project-а M через `document.domain`; [low] 32-битная метка машины и localStorage после отвязки; [low] повторная проверка «получатель без человека» в `finish`.
+- Круг 2 — `VERIFIED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/184#issuecomment-6077125692)), доработка `e01ec2a..b76c086`: явное ожидание первого кадра 15 s с диагностикой (три spec вместе — 3 из 3 зелёные у ревьюера, 5 из 5 у исполнителя); `mtimeMs` в каждом куске; метка машины — UUID Machine; повторная проверка в `finish`. Находка про `document.domain` опровергнута проверяемым фактом: кадр Card всегда с `sandbox` (`CardNode.tsx:34`), без него `linked-cards.spec.ts:262` красный. Долги:
+  - [low] код Card машины B в окне A видит UUID B в `location.origin` и может отправить его по https; id и так объявлен в TXT-записи Bonjour и не является учётными данными. Исправление при нужде — ключевой hash id.
+  - [low] `src/main/cards/protocol.ts:315-321` — `stat` до `read` внутри куска: перезапись файла после `stat` последнего куска даёт склейку с тем же `mtimeMs`. Исправление: сравнивать `mtimeMs` и после чтения.
+  - [low] хранилище origin-ов Card Linked machine не чистится при отвязке.
+- Мерж: ветка уже на `741fad5`, `GATE_SCOPE=all gate full` — код 0 (результат из кэша Gate для того же коммита `b76c086`, прогнанного исполнителем под замком), CI зелёный, CLEAN, влит `4ecf3f0`.
