@@ -7,7 +7,7 @@
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 18. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`; работа — только в локальной ветке `wip/worfy-week-14` («Итог» Ticket-а 14).
 - Stable copy и plugin `worfy` — сборка `df8e870` (2026-10-09). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–10, 12–15, `epic-status` — 14/16; Wave 5 — 10, 12, 13 (PR #183–#185). 11 снова open: диалог «Connect project» влит.
-- `worfy-windows` (полный порт под Windows; spec, ADR 0054–0056): влиты 01 (PR #172, факты с Windows-ПК) и 02 (PR #177: `.gitattributes`, `postinstall` и `pnpm test` без POSIX-синтаксиса). Следом 08, 09, 11 (Session на Windows-ПК; gate full — на Mac); 03–07 ждут закрытия E3.
+- `worfy-windows` (полный порт под Windows; spec, ADR 0054–0056): влиты 01 и 02 (PR #172, #177), ответы владельца — PR #192. Session на Windows-ПК ведёт 09, затем 08 и 11; gate full — на Mac. 03–07 ждут закрытия E3.
 
 ## Ждёт владельца
 
@@ -25,8 +25,6 @@
 - Проверки только для владельца: знак worfy в Dock и Finder (`worfy-daily` 31), щелчок по баннеру с выключенным Focus (`worfy-mvp` 21), запрос разрешения на уведомления (`worfy-daily` 03), трекпад в Terminal (`worfy-daily` 13), fish (`worfy-mvp` 06).
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).
 - `worfy-harness` 26 (приёмка E3): один `/login` в песочнице (он же откроет `claude plugin validate` и живые проверки 05–08) и второй пользователь macOS — [Ticket 26](.scratch/worfy-harness/issues/26-приёмка-e3.md).
-- `worfy-windows` 01: jq на чистой Windows (в Git for Windows его нет, first-run требует) и symlink-test-ы без Developer Mode — skip на win32 или Developer Mode — [Ticket 01](.scratch/worfy-windows/issues/01-проверка-фактов-на-живой-windows.md), «Итог».
-- `worfy-windows` 02: снимок окна `pnpm dev` на Windows-ПК; 16 падений `harness-evals` от CRLF во front matter — LF и для `harness/evals/**` или `\r?\n` в test-е (Ticket 14) — [Ticket 02](.scratch/worfy-windows/issues/02-репозиторий-ставится-и-запускается-на-windows.md), «Итог».
 
 ## Риски и долги
 
