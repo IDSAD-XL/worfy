@@ -6,6 +6,13 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp, type LaunchedApp } from './helpers'
 
+/**
+ * A `bin/profile` stub that knows every folder: `--json` exits 0, a `--field` is absent (exit 4).
+ * "Add project" then puts a repository into the list at once, without the dialog that connects a
+ * new one (worfy-harness ticket 24).
+ */
+const KNOWS_ALL = `#!/bin/sh\ncase "$*" in *--json*) echo '{"name":"stub","_resolved":{"workspace":null}}' ;; *) exit 4 ;; esac\n`
+
 // worfy's own Sessions (worfy-daily ticket 24) against the built app, on the fake agent. With
 // WORFY_AGENT_REGISTRY=1 the fake agent writes its entry to <WORFY_CLAUDE_HOME>/sessions as soon as
 // it starts, before system/init, with `entrypoint: "sdk-ts"` — as Claude Code does. worfy gives a
@@ -191,6 +198,8 @@ test('a new Project gets one Orchestrator Node and no read-only twin of its Sess
     const { app, window } = launched
     await expect(window.getByTestId('orchestrator-node').getByTestId('orchestrator-state')).toHaveText('idle')
     const beta = gitRepo(join(scratch, 'beta'))
+    mkdirSync(join(claudeHome, 'bin'), { recursive: true })
+    writeFileSync(join(claudeHome, 'bin', 'profile'), KNOWS_ALL, { mode: 0o755 })
     await app.evaluate(({ dialog }, path) => {
       dialog.showOpenDialog = (() => Promise.resolve({ canceled: false, filePaths: [path] })) as typeof dialog.showOpenDialog
     }, beta)

@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Draft of a project connection",
+  "description": "What skill connect-project proposes and bin/project-connect writes: the profile (profile.json, schema 2, fields as in profiles/README.md), the text of rules.md, and the gate registry entries, one per repository. worfy passes this schema to the draft Session as its structured output (outputFormat json_schema); bin/project-connect checks a draft against it before anything else.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["profile", "rules", "gate"],
+  "properties": {
+    "profile": {
+      "type": "object",
+      "description": "profile.json, schema 2. Fields the project does not have are null.",
+      "required": [
+        "schema",
+        "name",
+        "title",
+        "mode",
+        "language",
+        "attribution",
+        "layout",
+        "stack",
+        "commands",
+        "parallel",
+        "worktree",
+        "tickets",
+        "workflow",
+        "numbering",
+        "deploy",
+        "github",
+        "docs",
+        "lessons",
+        "mcp",
+        "review"
+      ],
+      "properties": {
+        "schema": { "enum": [2] },
+        "name": { "type": "string", "minLength": 1, "description": "The profile name: the folder $HARNESS_HOME/projects/<name>/ and the profile field of every gate entry." },
+        "title": { "type": "string", "minLength": 1 },
+        "mode": { "enum": ["full", "silent"] },
+        "language": {
+          "type": "object",
+          "required": ["reports", "team", "docs"],
+          "properties": {
+            "reports": { "enum": ["ru", "en"] },
+            "team": { "enum": ["ru", "en"] },
+            "docs": { "enum": ["ru", "en"] }
+          }
+        },
+        "attribution": { "enum": ["on", "off"] },
+        "layout": {
+          "type": "object",
+          "required": ["summary", "packages", "repos"],
+          "properties": {
+            "summary": { "type": "string" },
+            "packages": { "type": "array", "items": { "type": "string" } },
+            "repos": { "type": ["object", "null"] }
+          }
+        },
+        "stack": { "type": "array", "items": { "type": "string" } },
+        "commands": {
+          "type": "object",
+          "required": ["install", "lint", "typecheck", "test", "test_one", "contract", "e2e", "build", "verify", "prepare_tree", "requires"],
+          "properties": {
+            "install": { "type": ["string", "null"] },
+            "lint": { "type": ["string", "null"] },
+            "typecheck": { "type": ["string", "null"] },
+            "test": { "type": ["string", "null"] },
+            "test_one": { "type": ["string", "null"] },
+            "contract": { "type": ["string", "null"] },
+            "e2e": { "type": ["string", "null"] },
+            "build": { "type": ["string", "null"] },
+            "verify": { "type": ["string", "null"] },
+            "prepare_tree": { "type": ["string", "null"] },
+            "requires": { "type": "array", "items": { "type": "string" } },
+            "package": { "type": ["object", "null"] }
+          }
+        },
+        "parallel": { "enum": ["worktrees", "single"] },
+        "worktree": {
+          "type": "object",
+          "required": ["root", "base", "implementer", "reviewer"],
+          "properties": {
+            "root": { "type": ["string", "null"] },
+            "base": { "type": ["string", "null"] },
+            "implementer": { "type": ["string", "null"] },
+            "reviewer": { "type": ["string", "null"] }
+          }
+        },
+        "tickets": {
+          "type": "object",
+          "required": ["root", "path", "trail_section", "spec", "branch"],
+          "properties": {
+            "root": { "type": ["string", "null"] },
+            "path": { "type": ["string", "null"] },
+            "trail_section": { "type": ["string", "null"] },
+            "spec": { "type": ["string", "null"] },
+            "branch": { "type": ["string", "null"] }
+          }
+        },
+        "workflow": {
+          "type": "object",
+          "required": ["folder", "ticket_skill", "implementer_steps", "finish", "merge"],
+          "properties": {
+            "folder": { "type": ["string", "null"], "description": "The Workflow folder of a Silent mode project (absolute); null in Full mode, and null in Silent mode for the default $HARNESS_HOME/projects/<name>/workflow/." },
+            "ticket_skill": { "type": ["string", "null"] },
+            "implementer_steps": { "type": ["string", "null"] },
+            "finish": { "enum": ["pr-green-ci", "local-green"] },
+            "merge": { "type": ["string", "null"] }
+          }
+        },
+        "numbering": { "type": ["object", "null"] },
+        "deploy": { "type": ["object", "null"] },
+        "github": {
+          "type": "object",
+          "required": ["account"],
+          "properties": { "account": { "type": ["string", "null"] } }
+        },
+        "docs": { "type": ["object", "null"] },
+        "lessons": { "type": "string" },
+        "mcp": {
+          "type": "object",
+          "required": ["allowed"],
+          "properties": { "allowed": { "type": "array", "items": { "type": "string" } } }
+        },
+        "review": {
+          "type": "object",
+          "required": ["lenses", "ticket_lenses"],
+          "properties": {
+            "lenses": { "type": "array", "items": { "type": "string" } },
+            "ticket_lenses": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "rules": {
+      "type": "string",
+      "description": "rules.md: prose for agents, ending with a sources section (## Sources, or ## Источники in Russian)."
+    },
+    "gate": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Entries of the gate registry ($HARNESS_HOME/gate/config.json), one per repository; every entry names the profile.",
+      "items": {
+        "type": "object",
+        "required": ["key", "match", "profile", "pm", "root", "workspace"],
+        "properties": {
+          "key": { "type": "string", "minLength": 1 },
+          "match": { "type": "string", "minLength": 1, "description": "The absolute path of the repository root." },
+          "profile": { "type": "string", "minLength": 1 },
+          "pm": { "type": ["string", "null"] },
+          "root": {
+            "type": "object",
+            "required": ["fast", "full"],
+            "properties": {
+              "fast": { "type": "array", "items": { "type": "string" } },
+              "full": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "workspace": { "type": "object" },
+          "root_if": { "type": "string" },
+          "_note": { "type": "string" }
+        }
+      }
+    }
+  }
+}

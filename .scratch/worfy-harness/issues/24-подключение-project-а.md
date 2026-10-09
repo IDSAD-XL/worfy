@@ -1,7 +1,7 @@
 # 24 — Подключение Project-а: папка, режим, черновик Profile, форма, запись на машину и регистрация в Gate
 
 Type: task
-Status: blocked — gate round 2 REJECTED (PR #176): new high — readOnlyCommand lets git ls-remote --upload-pack and sort -o through; owner decision
+Status: claimed — 2026-10-09
 Blocked by: 19, 22
 Source: решения владельца 2026-10-07, вопросы Q10, Q11', Q16, Q17, Q23–Q29; [spec.md](../spec.md); [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) — Profile целиком на машине, Full mode и Silent mode, Workflow folder, worktree новых Project-ов вне репозитория; [ADR-0045](../../../docs/adr/0045-one-ticket-one-repository.md) — Project над несколькими репозиториями всегда в Silent mode; [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) — состояние Harness в `~/.claude/worfy-harness/`; [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md) — коллекции qmd по Profile; [ADR-0018](../../../docs/adr/0018-project-is-a-workflow-folder.md) — Project — папка с workflow; [docs/roadmap.md](../../../docs/roadmap.md), раздел E3
 
@@ -242,15 +242,128 @@ Ticket-ами Wave. Ticket 25 продолжает те же файлы подк
 
 ## Итог
 
-`blocked` 2026-10-09 гейтом: работа — в открытом PR #176 (ветка `worfy-harness/24`, worktree `.claude/worktrees/h24`); полный «Итог» исполнителя — в файле Ticket-а на этой ветке.
+Ветка `worfy-harness/24`, worktree `.claude/worktrees/h24`. PR #176. Три круга: первый круг, доработка
+по ревью (`pre-rework-sha` 7312508), круг владельца 2026-10-09 (`pre-owner-round-sha` 0f5df32,
+решение — PR #176 issuecomment-6079208406).
 
-- Отклонение от текста Ticket-а, решено без владельца, подтвердить: подключение пишет `worktree.root` под `<repo>/.claude/worktrees/` (для папки над несколькими репозиториями — `null`), а не `<HARNESS_HOME>/worktrees/<project>/`: hook `WorktreeCreate` после Ticket-а 22 не регистрируется. Корень вне репозитория — следующий шаг.
-- Круг 1 — `REJECTED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/176#issuecomment-6074571476)): [med] у шага qmd в `harness/bin/project-connect` нет отката; [med] `readOnlyCommand` в `src/main/projects/connect.ts` пропускал пишущие команды (`ls & touch x`, `uniq in out`, `rg --pre`, `git -c`), Session черновика читала `.claude/settings.json` подключаемого репозитория; три [low] формы «Connect project». Доработка все пять исправила.
-- Круг 2 — `REJECTED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/176#issuecomment-6075059618)), доработка `7312508..69be853`:
-  - [high], новое — `git ls-remote --upload-pack="touch /tmp/pwn" .` проходит `readOnlyCommand` (`connect.ts:239`) и запускает любую команду; воспроизведено во временном репозитории. Было и до доработки.
-  - [high], новое — `sort -uo <файл>`, `sort -oout`, `sort --outp=out` проходят (`connect.ts:214`) и пишут любой файл; так же `tree -o…` (не запускалось). Было и до доработки.
-  - [high] снимки `24-connect-form-error-{light,dark}.png` приведены как доказательство рамки поля с ошибкой, но поле на них в фокусе, и рамку закрывает outline. Код верен.
-  - [med] внесено доработкой — `harness/bin/project-connect:362`: при ненулевом коде `qmd-collections` после записи `index.yml` (сбой `qmd update`, занятый `refresh.lock`) `profile.json` откатывается к коммиту, коллекции в `index.yml` остаются, поля `qmd` в профиле нет.
-  - [low] debt: `ConnectProject.tsx:432` — после сбоя записи и сбоя проверки в подвале остаётся старая ошибка записи.
-- Ждёт владельца: новые high после второго круга выводят Ticket из волны. Варианты: (а) короткий круг в той же ветке только по находкам круга 2 — список читающих команд сузить до команд без опций, пишущих файлы или запускающих программы (убрать `ls-remote`, отказывать любому флагу `sort`/`tree` с `o` и префиксам `--o…`), `blur()` перед снимком, коммит поля `qmd` при сбое только `qmd update`; (б) отказаться от Bash в Session черновика — только Read/Glob/Grep. Рекомендация — (б): список разрешённых команд с опциями дважды оказался неполным.
-- Не проверено: сохраняет ли настоящий Claude Code `allowManagedPermissionRulesOnly` из `managedSettings` SDK; ручной пункт в Stable copy; Project над несколькими репозиториями в списке после записи (до Ticket-а 23 — подменой хранилища; Ticket 23 теперь влит).
+**Первый test.** `test/contract/projects-connect.test.ts`, случай «папка над двумя репозиториями — вид
+`multi-repo` и оба репозитория». На базе 08e8256 упал при загрузке: `Cannot find module
+'../../src/main/projects/connect'` — способа узнать вид такой папки не было; единственный путь,
+`ProjectStore.add`, отвечал «is not a git repository».
+
+**Что сделано.**
+- Пункт 1. `src/main/projects/connect.ts`, `inspectFolder`: git-репозиторий (подпапка и linked worktree —
+  к корню, с пояснением), папка над двумя и более репозиториями (`multi-repo`, список по имени), иначе
+  отказ с причиной (без репозиториев; с одним — «выберите сам репозиторий»). Только `git rev-parse`.
+  `profileKnows`: `profile -C <папка> --json` код 0 (для `multi-repo` — ещё `_resolved.workspace`) —
+  папка сразу идёт в список через `ProjectStore.add`, без черновика. `ProjectStore` не менялся.
+- Пункт 2. Диалог `src/renderer/projects/ConnectProject.tsx`: Silent по умолчанию; у `multi-repo`
+  Full недоступен с причиной рядом; Workflow folder — по умолчанию
+  `<HARNESS_HOME>/projects/<name>/workflow/` (у `multi-repo` — сама папка), «Choose…» /
+  «Use default». main отказывает Full для `multi-repo` и в черновике, и при записи.
+- Пункт 3. `harnessBlocker` по тому же состоянию установщика, что у экрана первого запуска
+  (`appInstaller().status()`): не установлен / другая версия / выключен / ошибка — Session не
+  запускается, диалог называет причину и даёт кнопку «First-run checks…», которая закрывает диалог и
+  открывает экран первого запуска.
+- Пункт 4. **Session черновика без Bash** (решение владельца, вариант (б)). Сначала
+  `bin/project-connect --facts <папка>` вне агента читает то, что раньше давала бы команда: вид папки и
+  по каждому репозиторию текущую и основную ветку, есть ли коммиты, remotes (без логина и пароля в URL)
+  и `origin`. worfy кладёт этот JSON данными в первое сообщение после
+  `/worfy:connect-project <папка> <mode> --draft-only`. Session: cwd = папка, `outputFormat` со схемой
+  `harness/profiles/draft.schema.json`, `allowedTools` — `Read`, `Glob`, `Grep`; `disallowedTools` —
+  `Bash`, `BashOutput`, `KillShell`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `WebFetch`,
+  `WebSearch`, `Task`, `Agent`; `canUseTool` пропускает только `Read`, `Glob`, `Grep` и
+  `StructuredOutput`, остальное — отказ. Session читает только настройки пользователя
+  (`settingSources: ['user']`) и просит у уровня политики `allowManagedPermissionRulesOnly`
+  (`src/main/agent/options.ts`, `draftSessionOptions`). Stop работает и пока читаются факты.
+  Ответ сначала проверяется `project-connect --schema-only` (не по схеме — ошибка со списком полей,
+  ничего не записано), потом worfy ставит своё (`applyChoices`: `mode`, `workflow.folder`,
+  `worktree.root`, `language.reports` из `app.getLocale()`, `github.account: null`, имя Profile в
+  записях Gate) и спрашивает `--check`. Skill `harness/skills/connect-project/SKILL.md` (англ.): только
+  Read/Glob/Grep, ветки и remotes — из фактов; в терминале без блока фактов — попросить пользователя
+  выполнить `project-connect --facts` и вставить вывод.
+- Пункт 5. Форма: имя, `commands.*`, Gate `fast`/`full` по каждой записи, `tickets.branch`,
+  `workflow.finish`, `review.lenses`, `mcp.allowed`, три языка, `attribution`, `rules.md`; режим и Workflow
+  folder только показаны; остальное — JSON только для чтения. Каждая правка через 350 мс идёт в
+  `project-connect --check`; ошибка — под своим полем (граница цвета blocked; фокус — `outline` цвета
+  accent), ошибки без поля — списком сверху; «Connect» недоступна при ошибках и пока проверка не
+  прошла (сбой проверки держит её недоступной); правка снимает старую ошибку записи.
+- Пункт 6. `harness/bin/project-connect` (node): `--facts`, `--check`, `--schema-only`, запись
+  `profile.json` и `rules.md`, записи в `gate/config.json`, Workflow folder по умолчанию с `git init`
+  (выбранная — как есть, но не внутри репозиториев), один коммит в git `HARNESS_HOME` (`git init` и
+  `.gitignore` Harness home, если его нет), откат при сбое, коды 0/1/2, вывод JSON. qmd-коллекции —
+  только после коммита: `bin/qmd-collections` при `qmd` и `qmd-models` = `downloaded` (иначе пропуск с
+  причиной), поле `qmd` в `profile.json` входит в тот же коммит (`--amend`). Сбой qmd подключение не
+  отменяет: если `index.yml` уже записан (упал `qmd update`), поле `qmd` остаётся и коммитится, в выводе —
+  только «qmd update failed»; если `index.yml` не тронут — `profile.json` возвращается к коммиту. После
+  кода 0 worfy проверяет `profile -C`, добавляет папку в список (настоящий `ProjectStore`; папку вне git
+  он берёт после Ticket-а 23) и делает её активной. Раздел «New project» `harness/profiles/README.md` —
+  скрипт вместо четырёх ручных шагов.
+- **Worktree** (решение владельца). `worktree.root` — `<репозиторий>/.claude/worktrees/` (у `multi-repo`
+  — `null`). У Silent Project-а `project-connect` дописывает `.claude/worktrees/` в `.git/info/exclude`
+  каждого репозитория (общий git dir, так что и для linked worktree), один раз, без дублей; в
+  `.gitignore` и отслеживаемые файлы — ничего. Откат при сбое возвращает файл как был. Worktree вне
+  репозитория в этот Ticket не входят.
+- Пункт 7. Overlay `src/renderer/canvas/overlays/FirstEpic.tsx`: «No epics yet», одна фраза, «Plan
+  first epic» → `orchestrator.open` и Session view Orchestrator-а, текст не отправляется.
+- Каналы IPC: `projects.connect.inspect|draft|stop|check|write` и событие `projects.connect.activity` —
+  все `local` (Linked machine не подключает Project-ы); `projects.pickFolder` получил необязательный
+  `purpose` (папка Project-а или Workflow folder).
+- Вне следа: `test/contract/harness-migrate.test.ts:240` сравнивал `harness/skills/` ровно со списком
+  skill-ов старого Harness; новый `connect-project` есть только у plugin-а — добавлен в ожидание.
+  `test/e2e/own-sessions.spec.ts`, `test/e2e/toolbar.spec.ts`, `test/e2e/two-windows.spec.ts` добавляют
+  репозиторий через «Add project» — каждый кладёт подменённый `bin/profile` (`--json` — код 0,
+  `--field` — код 4) в `<Claude home>/bin`, как `projects.spec.ts`. `test/unit/connect-project.test.tsx`
+  и `src/renderer/projects/connect-project.css` — новые.
+
+**Test-ы.**
+- `test/contract/projects-connect.test.ts` — 18 случаев: виды папки; известная папка (Session не
+  вызвана); три отказа Harness; параметры Session черновика (только Read/Glob/Grep, Bash в
+  `disallowedTools`) и первое сообщение с фактами (fake-агент `profile-draft.jsonl`); `canUseTool`
+  отказывает Bash и всему, кроме Read/Glob/Grep/StructuredOutput; сбой фактов — Session не запускается;
+  Stop во время фактов; черновик не по схеме; Stop Session; опции `draftSessionOptions`; форма и запись
+  настоящими `bin/project-connect` и `bin/profile` в песочнице; `multi-repo` до конца через настоящий
+  `ProjectStore`: до записи — отказ, после — в списке и активен, `.git/info/exclude` обоих репозиториев.
+- `harness/bin/tests/project-connect.test.sh` — 98 проверок: `--facts` (remotes без пароля,
+  `origin/HEAD`, подпапка, репозиторий без remotes, `multi-repo`, отказ, ничего не пишет), запись,
+  `--check`, отказы, откат на каждом шаге (и `.git/info/exclude`), `.git/info/exclude` (один раз, уже
+  была строка, linked worktree, Full — не трогает, `git status` не видит дерево Ticket-а), один коммит,
+  qmd после коммита, сбой `qmd update` после записи `index.yml`.
+- `test/unit/first-epic.test.tsx` — 5 случаев; `test/unit/connect-project.test.tsx` — 4.
+- `test/e2e/projects-connect.spec.ts` — 2 сценария; `test/e2e/projects.spec.ts` — отказ шага 1 из
+  диалога, репозитории через подменённый `bin/profile`, повторное добавление — «is already in the list».
+- Mutant-ы (в своём worktree, восстановлены из копии), все красные: без шага exclude, без проверки
+  дубля, `--git-dir` вместо общего, без очистки пароля в URL, без ветки «index.yml записан», без отката
+  exclude, Bash в `DRAFT_TOOLS`, без Bash в `disallowedTools`, `canUseTool` пускает всё, без проверки Stop
+  после фактов, без снятия ошибки записи; прошлых кругов — без отката, без проверки Harness, без Workflow
+  folder `multi-repo`, qmd до коммита, без `--amend`, `settingSources` по умолчанию, shorthand `border`,
+  без цвета ошибки, «Connect» без `checkError`.
+
+**Снимки** (Playwright, своя сборка; форма с ошибкой — поле без фокуса):
+[Silent](../evidence/24-connect-silent-light.png) / [тёмная](../evidence/24-connect-silent-dark.png),
+[Full](../evidence/24-connect-full-light.png) / [тёмная](../evidence/24-connect-full-dark.png),
+[форма с ошибкой](../evidence/24-connect-form-error-light.png) /
+[тёмная](../evidence/24-connect-form-error-dark.png), [форма](../evidence/24-connect-form-light.png) /
+[тёмная](../evidence/24-connect-form-dark.png), [Harness не установлен](../evidence/24-connect-harness-light.png) /
+[тёмная](../evidence/24-connect-harness-dark.png), [No epics yet](../evidence/24-first-epic-light.png) /
+[тёмная](../evidence/24-first-epic-dark.png).
+
+**Решено без владельца, подтвердить.**
+- Шаг 3 при отказе не открывает экран первого запуска сам, а даёт кнопку «First-run checks…» (экран
+  перекрыл бы причину).
+- Default Workflow folder исключён из истории Harness home строкой `/projects/*/workflow/` в
+  `.gitignore` (у него свой git). У существующего `.gitignore` строку дописывает `project-connect` в
+  том же коммите.
+- Одна запись Gate на репозиторий получает имя Profile-а: при переименовании в форме ключ единственной
+  записи меняется вместе с именем.
+
+**Не проверено.**
+- не проверено: ручной пункт со Stable copy (настоящая Session пишет черновик) — GUI-проверки не мои по
+  брифу; настоящий Claude Code не запускался.
+- не проверено: что `outputFormat` вместе со streaming input отдаёт `structured_output` у настоящего
+  SDK 0.3.289, и что инструмент ответа называется `StructuredOutput` и проходит `canUseTool` — по
+  `sdk.d.ts` и fake-агенту. Если имя другое, `canUseTool` откажет ему, и черновик не придёт (ошибка в
+  диалоге, ничего не записано).
+- не проверено: что настоящий Claude Code оставляет ключ `allowManagedPermissionRulesOnly` из
+  `managedSettings` SDK. Без него allow-правила пользователя могут пропустить `Read`/`Glob`/`Grep` мимо
+  `canUseTool` — других инструментов у Session нет (`disallowedTools`), так что это ничего не открывает.
