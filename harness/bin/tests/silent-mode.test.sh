@@ -8,8 +8,8 @@
 #   - bin/silent-check finds every kind of trace, passes clean text and a clean diff, checks nothing
 #     in a Full project;
 #   - a worktree outside the repository (<HARNESS_HOME>/worktrees/<project>/05) is recognised by
-#     profile, gate.sh and worktree-lock; hooks/worktree-create.sh (WorktreeCreate) puts a subagent's
-#     tree there with the profile's worktree.implementer template;
+#     profile, gate.sh and worktree-lock; hooks/worktree-create.sh, kept unregistered for ticket 24, puts
+#     a tree there with the profile's worktree.implementer template, and hooks.json does not register it;
 #   - the local finish of local-green (the block cut out of the ship-ticket skill) merges the ticket
 #     branch into main of a temporary repository.
 # Run: bash harness/bin/tests/silent-mode.test.sh; exit code 0 means everything passed.
@@ -166,10 +166,11 @@ printf '{"session_id":"s-22","cwd":"%s"}' "$WT" | "$BIN/worktree-lock" claim >/d
 grep -lq "s-22" "$HARNESS_HOME"/worktree-sessions/*.json 2>/dev/null \
     && ok "worktree-lock claim in the outside tree writes the lock into HARNESS_HOME" || bad "worktree-lock: $(ls "$HARNESS_HOME" 2>&1)"
 
-# --- 4b. Item 7: the WorktreeCreate hook puts a subagent's tree under worktree.root outside the repository -----
-# Claude Code runs hooks/worktree-create.sh for a subagent with isolation "worktree" and pins the subagent to the
-# path it prints (live probes, ticket 22 result). For sp the hook runs the profile's worktree.implementer
-# template — root outside the repository; for a project without such a root it does what Claude Code does itself.
+# --- 4b. Item 7: hooks/worktree-create.sh, a WorktreeCreate hook kept for ticket 24 and NOT registered -----
+# Owner decision 2026-10-09: hooks.json does not register it, so Claude Code's own worktree creation is untouched.
+# The script itself is tested here as a unit: for sp it runs the profile's worktree.implementer template (root
+# outside the repository); otherwise it adds <repository>/.claude/worktrees/<name>. The live probes of item 7 ran
+# another script through --settings, not this one through the plugin (ticket 22 result).
 WTC="$HOOKS/worktree-create.sh"
 wtc() { printf '{"name":"%s","cwd":"%s","hook_event_name":"WorktreeCreate"}' "$1" "$2" | "$WTC" 2>"$T/wtc.err"; }
 out="$(wtc agent-a1 "$R")"; rc=$?
@@ -191,8 +192,9 @@ out="$(wtc agent-b1 "$FR")"; rc=$?
 git -C "$FR" worktree remove --force "$FR/.claude/worktrees/agent-b1" && git -C "$FR" branch -q -D worktree-agent-b1
 out="$(wtc agent-c1 "$T")"; rc=$?
 [ "$rc" -ne 0 ] && [ -z "$out" ] && ok "WorktreeCreate outside git: exit $rc, no path" || bad "WorktreeCreate outside git: exit $rc, out: $out"
-jq -e '.hooks.WorktreeCreate[0].hooks[0].command == "\"${CLAUDE_PLUGIN_ROOT}/hooks/worktree-create.sh\""' "$HOOKS/hooks.json" >/dev/null \
-    && ok "hooks.json: WorktreeCreate runs hooks/worktree-create.sh" || bad "hooks.json: no WorktreeCreate hook"
+jq -e '.hooks | type == "object" and (has("WorktreeCreate") | not) and ([.. | strings | select(contains("worktree-create"))] == [])' "$HOOKS/hooks.json" >/dev/null \
+    && ok "hooks.json registers no WorktreeCreate hook and never runs worktree-create.sh (until ticket 24)" \
+    || bad "hooks.json registers WorktreeCreate or worktree-create.sh: $(jq -c '.hooks.WorktreeCreate' "$HOOKS/hooks.json" 2>&1)"
 
 # --- 5. The local finish (local-green): the block of ship-ticket, step 11 ----------------------
 # The block is cut out of the skill and run under bash and under zsh; each run merges its own branch.
@@ -335,6 +337,24 @@ if [[ "$out" == *"MERGED=0"* ]] && [ "$(git -C "$FR" log -1 --format=%s main)" =
     ok "full + local-green: the cause fixed, the block again — one documents commit, only the epic's folder and the state file"
 else bad "documents commit after the fix: ${out:0:300}; commit files: $(echo $names)"; fi
 git -C "$T/fw4" reset -q extra.ts
+
+# Short round 2026-10-09: DOCS COMMIT FAILED leaves the documents staged; if main moves before the next run, NOT ON
+# TOP must roll back the index too (--staged), or the tree stays dirty and the implementer's rebase cannot start.
+git -C "$FR" worktree add -q -b ep/06 "$T/fw6" main 2>/dev/null
+echo c >"$T/fw6/c6.txt"; git -C "$T/fw6" add -A && git -C "$T/fw6" commit -q -m "code 06"
+(cd "$T/fw6" && "$BIN/ticket" done ep 06 >/dev/null && echo '- debt 06' >>HANDOFF.md)
+git -C "$FR" config core.hooksPath "$T/hooks-fail"
+out1="$(fullrun ep/06 "$T/fw6")"
+git -C "$FR" config --unset core.hooksPath
+staged1="$(git -C "$T/fw6" diff --cached --name-only | tr '\n' ' ')"
+echo m >"$FR/m6.txt"; git -C "$FR" add m6.txt && git -C "$FR" commit -q -m "main moves" -- m6.txt
+out="$(fullrun ep/06 "$T/fw6")"
+if [[ "$out1" == *"DOCS COMMIT FAILED"* && "$staged1" == *HANDOFF.md* && "$out" == *"NOT ON TOP"* && "$out" == *"DOCS ROLLED BACK"* && "$out" == *"MERGED=1"* ]] \
+   && [ -z "$(git -C "$T/fw6" status --porcelain)" ] && git -C "$T/fw6" rebase -q main >/dev/null 2>&1 \
+   && [ "$(git -C "$T/fw6" show HEAD:.scratch/ep/issues/06-t.md | grep -c '^Status: done')" = 0 ]; then
+    ok "full + local-green: DOCS COMMIT FAILED, then NOT ON TOP — the staged documents are rolled back too, the rebase works"
+else bad "failed documents commit, then not on top: ${out1:0:200} / ${out:0:300}; staged before: $staged1; status: $(git -C "$T/fw6" status --porcelain | head -3)"
+    git -C "$T/fw6" rebase --abort >/dev/null 2>&1; fi
 
 # A break between the documents commit and the fast-forward (here: the fast-forward fails on a local change in
 # the main checkout), then the block again: no second documents commit; a third run changes nothing.

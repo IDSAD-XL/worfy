@@ -40,16 +40,14 @@ and stop.
 ## Where to work
 
 **`parallel: "worktrees"`** — there are several implementers, each with its own tree.
+- **`worktree.root` outside the repository** (`<HARNESS_HOME>/worktrees/<project>/`) — not supported
+  until worfy-harness ticket 24: `EnterWorktree` does not reach such a tree, and the plugin registers no
+  hook that would put you there. It is a false premise of the brief (see "Boundaries").
 - **First of all, create a working tree FOR YOURSELF and work only in it** — with the profile command
   `worktree.implementer` (root `worktree.root`, base `worktree.base`) — and enter it right away:
   `EnterWorktree` with the `path` of that tree. The PreToolUse check on Edit and Write lets edits
   through only inside the session's tree; without entering it your edits are refused, and getting
   around that with python or sed in Bash is not a way out.
-  **`worktree.root` outside the repository** (`<HARNESS_HOME>/worktrees/<project>/`): `EnterWorktree`
-  does not reach such a tree. The orchestrator starts you with `isolation: "worktree"`, and you are
-  already in your tree — created by the plugin's `WorktreeCreate` hook from `worktree.implementer`, on
-  the branch `worktree-<agent name>`. Do not create another one: rename the branch to the ticket's
-  branch (`git branch -m <ветка>`) and work there. `pwd` at the start shows it.
   The directory you were launched in is the tree of the orchestrator or of a neighbouring agent, not
   yours: someone else's branch is already checked out there, and someone else's uncommitted edit may
   be lying there, which you would overwrite. `worktree-lock status` is no proof on this question — it

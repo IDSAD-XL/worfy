@@ -166,12 +166,11 @@ finish `F workflow.finish` (a PR with green CI, or locally green checks); the me
 orchestrator. The order of work and the report format are set in the agent definition; the brief
 does not repeat them.
 
-- `parallel: worktrees` — one agent per ticket, all in one message. When `F worktree.root` lies outside
-  the repository (`<HARNESS_HOME>/worktrees/<project>/`), start each implementer with
-  `isolation: "worktree"`: the plugin's `WorktreeCreate` hook (`hooks/worktree-create.sh`) creates its
-  tree there with `F worktree.implementer` and Claude Code pins the agent to it; the brief's line
-  `Worktree:` then reads "created for you by isolation: worktree, rename its branch to <ветка>".
-  `EnterWorktree` does not reach such a tree (worfy-harness ticket 22, item 7).
+- `parallel: worktrees` — one agent per ticket, all in one message. `F worktree.root` must lie under
+  `.claude/worktrees/` of the repository: an implementer subagent edits only in a tree it entered with
+  `EnterWorktree`, and that tool reaches nothing else. A root outside the repository
+  (`<HARNESS_HOME>/worktrees/<project>/`) is not supported until worfy-harness ticket 24. The plugin registers no `WorktreeCreate` hook (`hooks/worktree-create.sh`
+  is an unregistered draft for ticket 24, never probed through the plugin).
 - `parallel: single` — one agent at a time; the next one after the gate (section 3) and the merge of
   the previous one: with `pr-green-ci` its PR (section 4, items 1–2), with `local-green` the local
   merge (section 4, "Local merge", `MERGED=0`).

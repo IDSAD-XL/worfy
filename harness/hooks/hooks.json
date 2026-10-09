@@ -1,5 +1,5 @@
 {
-  "description": "worfy Harness hooks: rules for sessions and subagents, the quality gate, worktree locks, session bookkeeping, GH_TOKEN of the project's GitHub account, the Bash guard, the qmd index refresh and where subagent worktrees are created",
+  "description": "worfy Harness hooks: rules for sessions and subagents, the quality gate, worktree locks, session bookkeeping, GH_TOKEN of the project's GitHub account, the Bash guard and the qmd index refresh",
   "hooks": {
     "SessionStart": [
       {
@@ -138,17 +138,6 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/guard.mjs\"",
             "timeout": 10
-          }
-        ]
-      }
-    ],
-    "WorktreeCreate": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/worktree-create.sh\"",
-            "timeout": 60
           }
         ]
       }

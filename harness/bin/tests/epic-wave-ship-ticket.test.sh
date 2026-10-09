@@ -166,7 +166,10 @@ check "epic-wave: single + local-green waits for the local merge (Shape)" has "$
 check "epic-wave: single + local-green waits for the local merge (Dispatch)" has "$EW" 'merge (section 4, "Local merge", `MERGED=0`).'
 check "implementer: the rebase before the local merge is yours" has "$IM" 'when the orchestrator sends the branch back, rebase it onto the main branch in your own'
 check "implementer: numbering.adr.dir and lessons are taken from the Workflow folder" has "$IM" 'in `numbering.adr.dir` and in `lessons: "repo:<path>"` is'
-check "profiles README: the outside-repository worktree.root is reached through the WorktreeCreate hook (item 7)" has "$PR" 'An implementer subagent reaches such a tree only through `isolation: "worktree"` and the plugin'"'"'s `WorktreeCreate` hook'
+check "profiles README: an outside worktree.root is not supported until ticket 24" has "$PR" 'and not supported until worfy-harness ticket 24: an implementer subagent edits only in a tree under'
+check "profiles README: no claim that the hook is reached by a subagent" lacks "$PR" 'An implementer subagent reaches such a tree only through'
+check "profiles README: no claim that the hook does what Claude Code does" lacks "$PR" 'For a root inside the repository the hook does what Claude Code does'
+check "profiles README: the hook is an unregistered draft, never probed through the plugin" has "$PR" '`hooks/worktree-create.sh` is an unregistered draft, never probed through the plugin'
 check "profiles README: no 'not set until the owner answers' for worktree.root" lacks "$PR" 'until the owner answers worfy-harness ticket 22, item 7'
 
 # 7b. Narrow round: the documents of a local-green ticket are committed only after a green gate, by the merge
@@ -196,10 +199,21 @@ check "ship-ticket: a second run after a break commits nothing twice" has "$ST" 
 check "epic-wave: the wave documents commit takes only its paths" has "$EW" 'commit -q -m "<wave documents commit message>" -- "${DOCS[@]}"; rc=$?'
 check "epic-wave: no add -A of the whole tickets root" lacks "$EW" 'for f in tickets.root docs.handoff.path; do p=$(F "$f")'
 check "epic-wave: the temporary worktree is removed with --force" has "$EW" 'git -C <repo> worktree remove --force "$TMPW"'
-check "ship-ticket: an outside worktree.root goes through isolation: worktree (item 7)" has "$ST" 'the orchestrator starts it with `isolation: "worktree"`, the'
-check "ship-ticket: no 'F worktree.root must lie there'" lacks "$ST" '`F worktree.root` must lie there'
-check "epic-wave: implementers of an outside worktree.root start with isolation: worktree" has "$EW" 'the repository (`<HARNESS_HOME>/worktrees/<project>/`), start each implementer with'
-check "implementer: an outside worktree.root — rename the branch in the tree you are in" has "$IM" 'branch (`git branch -m <ветка>`) and work there.'
+# Short round 2026-10-09 (owner decision on PR #150): WorktreeCreate is not registered; a worktree.root outside the
+# repository is not supported until ticket 24, and no text calls the plugin path checked.
+check "ship-ticket: F worktree.root must lie under .claude/worktrees/ again" has "$ST" '`F worktree.root` must lie there'
+check "ship-ticket: an outside root is not supported until ticket 24" has "$ST" 'is not supported until worfy-harness ticket 24: the plugin registers no `WorktreeCreate` hook'
+check "ship-ticket: no isolation: worktree path for an outside root" lacks "$ST" 'the orchestrator starts it with `isolation: "worktree"`'
+check "epic-wave: an outside root is not supported until ticket 24" has "$EW" 'is not supported until worfy-harness ticket 24. The plugin registers'
+check "epic-wave: no isolation: worktree for implementers" lacks "$EW" 'start each implementer with'
+check "implementer: an outside root is a false premise until ticket 24" has "$IM" 'hook that would put you there. It is a false premise of the brief'
+check "implementer: no rename of a hook-made branch" lacks "$IM" 'git branch -m <ветка>'
+check "implementer: the outside-root exception comes before the create-a-tree rule" eval '[ "$(grep -n -m1 -F "**\`worktree.root\` outside the repository**" "$IM" | cut -d: -f1)" -lt "$(grep -n -m1 -F "**First of all, create a working tree" "$IM" | cut -d: -f1)" ]'
+WC="${WORKTREE_CREATE_FILE:-$HARNESS/hooks/worktree-create.sh}"
+check "worktree-create.sh says it is not registered" has "$WC" '# NOT REGISTERED. hooks.json does not run this script'
+check "worktree-create.sh says the plugin path was never probed" has "$WC" 'this script through the plugin'"'"'s hooks.json was never probed'
+check "ship-ticket: <main branch> before the block is found in the block's order" has "$ST" 'the same order as the lines `M=` of the block below'
+check "ship-ticket: NO MAIN BRANCH / SAME BRANCH say what happens to the prepared documents" has "$ST" '`NO MAIN BRANCH` or `SAME BRANCH` (`MERGED=1`) — a profile problem'
 check "epic-wave: the temporary worktree has a fixed path" has "$EW" 'rev-parse --path-format=absolute --git-common-dir)/worfy-wave-docs"'
 
 # 8. Cyrillic only in allowed places: the old Autopilot forms, Gate verdict words, placeholders

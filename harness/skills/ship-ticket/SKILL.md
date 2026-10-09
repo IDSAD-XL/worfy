@@ -147,13 +147,11 @@ in the templates come from the ticket; root `F worktree.root`, base `F worktree.
 is shared with other sessions, and the last write wins. Right after `git worktree add` —
 `EnterWorktree` with the `path` of that worktree: the PreToolUse check on Edit and Write lets edits
 only into the session's worktree, and the agent was started from the orchestrator's worktree. For
-an agent, `EnterWorktree` accepts only worktrees under `.claude/worktrees/` of the same repository.
-When `F worktree.root` lies outside the repository (`<HARNESS_HOME>/worktrees/<project>/`), the
-implementer does not create its tree: the orchestrator starts it with `isolation: "worktree"`, the
-plugin's `WorktreeCreate` hook (`hooks/worktree-create.sh`) runs `F worktree.implementer` with
-`<NN>` = Claude Code's agent name and `<ветка>` = `worktree-<that name>`, and the agent starts pinned to
-that tree. Its first step there: `git branch -m <ветка>` (the ticket's branch). Edits that go around
-it through python or sed in Bash are not a way out.
+an agent, `EnterWorktree` accepts only worktrees under `.claude/worktrees/` of the same repository
+— `F worktree.root` must lie there. A root outside the repository (`<HARNESS_HOME>/worktrees/<project>/`)
+is not supported until worfy-harness ticket 24: the plugin registers no `WorktreeCreate` hook, and
+`hooks/worktree-create.sh` is an unregistered draft that was never probed through the plugin. Edits
+that go around it through python or sed in Bash are not a way out.
 **`parallel: single`.** No worktree: work in the main checkout, one ticket at a time, on the branch
 `F tickets.branch` created from `F worktree.base` (with `local-green` — from the main branch after the
 previous ticket's local merge, step 11; see `/worfy:epic-wave`).
@@ -378,7 +376,8 @@ doer:
    exactly what the main branch gets. A red gate stops here: no documents, no merge.
 3. **The documents and the merge — whoever `F workflow.merge` names (the orchestrator), in one go
    under the lock** of `/worfy:epic-wave`, section 4, one merge at a time. Full mode: first, under the
-   lock, `git -C <repo> merge-base --is-ancestor <main branch> <ticket branch>` — exit 1 sends the
+   lock, `git -C <repo> merge-base --is-ancestor <main branch> <ticket branch>`, where `<main branch>` is
+   found in the order given above — the same order as the lines `M=` of the block below — exit 1 sends the
    branch back to the implementer (step 1) before any document is written. Exit 0 — right before the
    block, in the ticket's worktree, `ticket done` (without `--pr`), the ticket's result section, and —
    when this is the wave's last merged ticket — the state file and `ticket block` of the tickets removed
@@ -429,6 +428,11 @@ echo "MAIN=$M"
 - `DOCS COMMIT FAILED` (a commit hook, signing, no `user.email`) — the main branch is not moved and
   `MERGED=1`; the documents stay staged in the ticket's worktree. Fix the cause and run the block
   again.
+- `NO MAIN BRANCH` or `SAME BRANCH` (`MERGED=1`) — a profile problem, not the ticket's: the block
+  commits, merges and rolls back nothing, so the prepared documents stay uncommitted in the ticket's
+  worktree. Fix the profile (`F worktree.base`) and run the block again; if the ticket will not be
+  merged now, roll them back by hand with the same `git -C "$T" restore -q --source=HEAD --staged
+  --worktree -- <documents>` as in `NOT ON TOP`, so no commit of the branch carries `done`.
 - A break between the documents commit and the fast-forward, or a fast-forward that failed: the
   branch carries `done` but is not in the main branch. Run the block again — the documents are
   already committed, so it commits nothing a second time and only fast-forwards. A second run after
