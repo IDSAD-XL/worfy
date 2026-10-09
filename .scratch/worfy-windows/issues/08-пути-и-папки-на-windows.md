@@ -23,8 +23,9 @@ Source: решения владельца 2026-10-07: Q1 (полный порт)
   - `src/shared/ipc/claude-home.ts:13`, `src/shared/ipc/bindings.ts:18` — схема zod «absolute POSIX
     path» для IPC. Путь `C:\…` она отвергает.
   - `src/shared/cards/last-editor.ts:29-30`, `:32`, `:47` — автор правки Card по
-    `tool_input.file_path`. Claude Code на Windows отдаёт `file_path` с `\` (бриф фактов, §1):
-    `normalizePath` вернёт null, и автор правки не найдётся.
+    `tool_input.file_path`. Claude Code на Windows отдаёт `file_path` с `\`: на ПК у `Write` —
+    `C:\\Users\\…\\probe-written.txt` (evidence Ticket-а 01, раздел 13). `normalizePath` вернёт null, и
+    автор правки не найдётся; `test/contract/card-last-editor.test.ts` на ПК — 4 упавших (раздел 17).
   - `src/renderer/markdown/links.ts:16`, `:18`, `:53` — ссылка `C:\…` в markdown читается как путь
     относительно документа.
 - **Другие места, где разделитель — только `/`** (в бриф не попали, найдены grep-ом):
@@ -42,12 +43,17 @@ Source: решения владельца 2026-10-07: Q1 (полный порт)
   Пути `import.meta.glob` (`src/renderer/shell/registry.ts:27`, `src/renderer/canvas/extensions.ts:64`,
   `:183`) всегда с `/` — их не трогаем.
 - **Имя папки транскриптов.** `projectDirName()` (`registry.ts:42-47`) заменяет всё вне `[A-Za-z0-9]`
-  на `-` (`:44`): `C:\a\b` → `C--a-b`. Так ли кодирует путь Claude Code на Windows, проверяет
-  Ticket 01.
+  на `-` (`:44`): `C:\a\b` → `C--a-b`. Claude Code 2.1.233 на Windows кодирует путь так же: `C:\a\b` →
+  `C--a-b`, путь с пробелом и с кириллицей — тоже по этому правилу (evidence Ticket-а 01, раздел 12).
 - **Живые Session-ы.** `processState()` (`registry.ts:106-126`) сверяет время старта процесса
   командой `ps -p <pid> -o lstart=` (`:116`) с `procStart` из `sessions/<pid>.json`. На Windows такой
-  команды нет: ответ `unknown`, `processAlive()` — false, и живые Session-ы не видны. Что Claude Code
-  пишет в `procStart` на Windows, не установлено.
+  команды нет: ответ `unknown`, `processAlive()` — false, и живые Session-ы не видны. На Windows Claude
+  Code пишет в `procStart` время старта процесса как FILETIME — число 100-нс интервалов от
+  1601-01-01, например `134359831229530706`; оно ровно равно `CreationDate` из
+  `Get-CimInstance Win32_Process` (evidence, раздел 23).
+- **На ПК сейчас** `test/contract/claude-home-registry.test.ts` — 39 упавших,
+  `claude-home-subagents.test.ts` — 29, `test/unit/paths.test.ts` — 6 (`'C:\tmp\worfy-data'` вместо
+  `'/tmp/worfy-data'`), `statusline-bridge.test.ts` — 8 (evidence, раздел 17).
 - **Мост Limits** — `scripts/statusline-bridge.sh` (`#!/bin/sh`). Он копирует `rate_limits` из JSON
   строки состояния (`statusLine`) Claude Code в `statusline-limits.json` обеих папок данных — путями
   macOS (`:39-40`). Нужен `jq` (`:33`). Команду пользователя он зовёт через `sh -c "$1"` (`:46`).
@@ -86,23 +92,20 @@ Source: решения владельца 2026-10-07: Q1 (полный порт)
    - `registry.ts:68` — сравнение после `resolve` обоих путей, через `path.sep`;
    - регулярные выражения `resolve.ts:153`, `ticket-ref.ts:23`, `signals.ts:37` и
      `transcript/subagents.ts:180` принимают `[\\/]`.
-4. **Имя папки транскриптов** (`registry.ts:44`) — по факту Ticket-а 01. Если Claude Code
-   кодирует `C:\a\b` не как `C--a-b`, функция повторяет его правило.
-5. **Живые Session-ы на Windows** (`registry.ts:116`).
-   - Сначала — живой `%USERPROFILE%\.claude\sessions\<pid>.json` на Windows-ПК: есть ли `procStart`
-     и в каком виде.
-   - Затем — время старта процесса без `ps`. Например, `Get-CimInstance Win32_Process` (поле
-     `CreationDate`), одним вызовом на все pid. Правило прежнее: команда не ответила — `unknown`.
-   - Если `procStart` на Windows нет, остаётся проверка `process.kill(pid, 0)` — она уже есть
-     (`registry.ts:108-113`).
-   - Формат и способ — в Итог.
+4. **Имя папки транскриптов** (`registry.ts:44`) не меняется: Claude Code на Windows кодирует путь
+   тем же правилом (evidence Ticket-а 01, раздел 12). Test-ы фиксируют `C:\a\b` → `C--a-b`.
+5. **Живые Session-ы на Windows** (`registry.ts:116`). `procStart` на Windows — FILETIME (evidence
+   Ticket-а 01, раздел 23). Время старта процесса без `ps` — `Get-CimInstance Win32_Process`, поле
+   `CreationDate`, одним вызовом на все pid; сравнение — в одной единице (FILETIME или миллисекунды).
+   Правило прежнее: команда не ответила — `unknown`. Способ — в Итог.
 6. **Мост Limits на Node** (Q19). `scripts/statusline-bridge.mjs` (новый) держит прежний контракт:
    - копирует объект `rate_limits` в `statusline-limits.json`: в `WORFY_DATA_DIR` или в те папки
      данных своей системы по умолчанию, что существуют (Windows — `%APPDATA%\worfy` и `worfy-dev`);
    - пишет рядом и переименовывает; `jq` не нужен; строку состояния не роняет;
    - отдаёт stdin команде пользователя из аргумента и пропускает её вывод и код выхода. На Mac
      команда идёт через `sh -c`, как сейчас. На Windows — той же оболочкой, которой Claude Code
-     запускает `statusLine` (Git Bash или cmd — не установлено, проверить на ПК);
+     запускает `statusLine`. Команды hooks Claude Code на ПК исполняет в Git Bash (evidence Ticket-а
+     01, раздел 13); для `statusLine` не проверено — проверить на ПК;
    - выбор папок — экспортируемая функция; unit-test проверяет её для `win32` на Mac.
 7. **Уже записанная команда на Mac** — решает этот Ticket и пишет в Итог. Условие: после обновления
    `.app` команда, которую записал перенос E3 (`<…>/Contents/Resources/statusline-bridge.sh '<cmd>'`),
@@ -124,7 +127,7 @@ Source: решения владельца 2026-10-07: Q1 (полный порт)
 - [ ] `test/unit/markdown.test.tsx`: ссылки `C:\docs\a.md` и `C:/docs/a.md` — файл с абсолютным путём; относительные ссылки — как прежде.
 - [ ] `test/unit/binding.test.ts` и `test/unit/ticket-ref.test.ts`: cwd `C:\r\.claude\worktrees\05` — Ticket 05 по папке; задача Subagent-а с `.scratch\worfy-windows\issues\05-x.md` — Ticket 05 Epic-а `worfy-windows`. Прежние случаи не менялись.
 - [ ] `test/contract/claude-home-subagents.test.ts`: id Session из пути транскрипта с `\` — имя файла без `.jsonl`.
-- [ ] `test/contract/claude-home-registry.test.ts`: `projectDirName` пути Windows — имя из evidence Ticket-а 01; время старта процесса в формате Windows с подменённой командой даёт `alive`, `gone` и `unknown`.
+- [ ] `test/contract/claude-home-registry.test.ts`: `projectDirName` пути Windows — имя из evidence Ticket-а 01, раздел 12 (`C:\a\b` → `C--a-b`); время старта процесса в формате Windows с подменённой командой даёт `alive`, `gone` и `unknown`.
 - [ ] `test/contract/statusline-bridge.test.ts`: все прежние случаи проходят против `node scripts/statusline-bridge.mjs` и против входа `.sh`, если он остался. Новые: PATH без `jq` — файл всё равно пишется; выбор папок для `win32` — `%APPDATA%\worfy` и `worfy-dev`.
 - [ ] `@packaged` test в `test/e2e/packaged.spec.ts` (локально, `test:package` в gate full): в `.app` рядом с `Contents/Resources/statusline-bridge.sh` лежит `statusline-bridge.mjs`. Команда прежнего вида `<.app>/Contents/Resources/statusline-bridge.sh '<cmd>'` с образцом JSON пишет файл и пропускает вывод команды.
 - [ ] Windows-ПК, dev-сборка: список Session-ов Project-а worfy показывает транскрипты из `%USERPROFILE%\.claude\projects`. `claude`, запущенный в PowerShell в worktree worfy и в его подпапке, виден как живая Session. Session в `.claude\worktrees\NN` привязана к Ticket-у NN. Снимок — `../evidence/08-session-ы-на-windows.png`.

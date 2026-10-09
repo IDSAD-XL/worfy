@@ -10,15 +10,28 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 Skills Harness — тексты, по которым агент работает. Их блоки команд агент выполняет Bash tool-ом:
 на Mac это zsh, на Windows — Git Bash, то есть bash с GNU coreutils (ADR-0055).
 
+**Строки ниже — на 4f983ef.** PR #150 (E3 Ticket 22, `3837558`) переписал `epic-wave`, `ship-ticket`,
+`continuous-audit` и `harness/agents/implementer.md` (Silent mode, ветка по смыслу, rebase перед
+локальным мержем). Те же места на main `08e8256` (evidence Ticket-а 01, раздел 18): `stat -f %m` —
+`epic-wave/SKILL.md:383` (замок — `:375`, раздел 4 — `:337`); `date -v-14d` —
+`continuous-audit/SKILL.md:133`, `live-tickets.jsonl` — `:135`; `gh pr list --state open --json
+number,headRefName,mergeStateStatus,files` — `epic-wave/SKILL.md:79`; `mergeStateStatus` раздела 4 —
+`:355`; ручные проверки GUI — `ship-ticket/SKILL.md:219-234` (раздел 6 — `:192`). Новых команд BSD и
+macOS PR #150 не добавил: `grep -rnE 'stat -f|date -v' harness/skills` — те же две строки,
+`grep -rnE 'stat -f|date -v|open -|ps -o|screencapture|osascript' harness/agents harness/hooks/rules`
+пуст. Перед началом перечитать три skill-а на свежем main.
+
 - **Замок на главной ветке** (`harness/skills/epic-wave/SKILL.md:316-334`). Блок `:321-330` берёт
   время изменения папки замка командой BSD `stat -f %m "$L"` (`:324`). В GNU `stat` ключ `-f` —
   сведения о файловой системе, а `%m` читается как имя файла. Команда кончается ошибкой, и
   `|| continue` уходит на следующий круг без `sleep`. Цикл крутится вхолостую, а замок старше 90
-  минут не снимается. Вывод — по разбору команды; на Windows блок не запускался.
+  минут не снимается. На ПК в Git Bash `stat -f %m <файл>` — EXIT=1, `stat: cannot read file system
+  information for '%m'` (evidence Ticket-а 01, раздел 05); сам блок не запускался.
 - **Ветки за 14 дней** (`harness/skills/continuous-audit/SKILL.md:121-126`). `date -v-14d +%s`
-  (`:123`) GNU `date` не знает. awk получает пустой порог, и фильтр по дате, похоже, пропускает все
-  ветки. Блок пишет в `$TMPDIR/live-tickets.jsonl` (`:125`); задан ли `TMPDIR` в Bash tool на
-  Windows, не установлено.
+  (`:123`) GNU `date` не знает: на ПК — `date: unknown option -- v`, EXIT=1; `date -d '-14 days'`
+  работает (evidence, раздел 05). awk получает пустой порог, и фильтр по дате, похоже, пропускает
+  все ветки. Блок пишет в `$TMPDIR/live-tickets.jsonl` (`:125`); в Bash tool на ПК `TMPDIR` задан —
+  `/c/Users/Alexey/AppData/Local/Temp` (раздел 05).
 - **Ручные проверки GUI** (`harness/skills/ship-ticket/SKILL.md:180-198`, раздел 6) — только для
   macOS: разрешения Screen Recording и Accessibility (`:181`), `screencapture` (`:186`), запуск «как
   из Finder» через `env -i` с окружением launchd вместо `open` (`:190-194`), `open -b` и проверка
@@ -56,7 +69,10 @@ Skills Harness — тексты, по которым агент работает
     (`:42`, `:53`, `:68`, `:85`). zsh в Git Bash нет (ADR-0055), поэтому на Windows test падает на
     случаях zsh.
   - Оба test-а используют perl (`epic-wave-ship-ticket.test.sh:34`, `:145`). На Windows test-ы идут
-    в Git Bash с `jq` и perl (ADR-0055, пункт 4); есть ли perl в Git Bash, проверяет Ticket 01.
+    в Git Bash с `jq` и perl (ADR-0055, пункт 4). В Git Bash ПК perl есть, `jq` и zsh — нет
+    (evidence Ticket-а 01, раздел 05).
+- **`gh --jq` без внешнего `jq`** на ПК работает: `gh pr list --json number,headRefName,files --jq
+  '…'` в Git Bash — EXIT=0 (evidence, раздел 19). На нём стоят блоки пункта 4.
 
 ## Что делаем
 
@@ -69,8 +85,10 @@ Skills Harness — тексты, по которым агент работает
    по-английски для Windows:
    - снимки — только Playwright своей сборки, как на Mac; что Windows спрашивает при снимке экрана и
      управлении, проверить на Windows-ПК и записать в абзац;
-   - запуск «как из меню Пуск», без окружения агента (`CLAUDECODE`, `CLAUDE_CODE_*`, PATH агента).
-     Кандидат — `explorer.exe <путь к worfy.exe>`; выбрать и проверить на Windows-ПК;
+   - запуск «как из меню Пуск», без окружения агента (`CLAUDECODE`, `CLAUDE_CODE_*`, PATH агента и
+     `NoDefaultCurrentDirectoryInExePath=1`, который Claude Code задаёт своим процессам — evidence
+     Ticket-а 01, раздел 20). Кандидат — `explorer.exe <путь к worfy.exe>`; выбрать и проверить на
+     Windows-ПК;
    - путь процесса — `powershell -NoProfile -Command "(Get-Process -Id <pid>).Path"` вместо `ps -o
      comm= -p <pid>`: на машине могут стоять несколько сборок с одним app id;
    - для worfy: установщик и путь Stable copy на Windows — по `CONTEXT.md` (Ticket 12).
@@ -177,8 +195,8 @@ Skills Harness — тексты, по которым агент работает
 - `jq` в текстах skills остаётся: на Windows его ставят отдельно, `winget install jqlang.jq`
   (ADR-0055, «Последствия»).
 - Имя Gate в skills (Ticket 03).
-- Явный `node` вместо вызова по shebang в skills и agents. Он нужен, только если Ticket 01 покажет,
-  что в Git Bash shebang не работает (ADR-0055, пункт 2). Этот срез тогда добавляет Ticket 01.
+- Явный `node` вместо вызова по shebang в skills и agents. Он не нужен: в Git Bash shebang работает —
+  в Bash tool и в hooks (evidence Ticket-а 01, разделы 13 и 19; ADR-0055, пункт 2).
 - Правило «платформенный PR — после gate full на Windows-ПК» (ADR-0056, пункт 2) в текст skills не
   входит.
 - Команда `/worfy:gate-queue`, действие «Process gate queue» и уведомление worfy о PR, который ждёт

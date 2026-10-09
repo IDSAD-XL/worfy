@@ -18,14 +18,20 @@ Source: решения владельца 2026-10-07: Q22 (неподписан�
   `prebuilds/win32-x64` есть `conpty.node` и `pty.node`. `npmRebuild: false` (`:27`).
 - `supportedArchitectures` не задан ни в `package.json`, ни в `pnpm-workspace.yaml`. На Mac pnpm не
   ставит `claude-agent-sdk-win32-x64`, поэтому сборка под Windows на Mac не положит `claude.exe`
-  (ADR-0054). На Windows-ПК pnpm ставит пакет своей системы сам (ADR-0054, пункт 5).
+  (ADR-0054). На Windows-ПК pnpm ставит пакет своей системы сам: на ПК владельца —
+  `@anthropic-ai/claude-agent-sdk-win32-x64@0.3.289` с `claude.exe` (evidence Ticket-а 01, раздел 14).
+- node-pty из `prebuilds/win32-x64` грузится в Electron 44.5.1 без пересборки (evidence, раздел 09):
+  `npmRebuild: false` для Windows подходит.
 - **Иконки.** `scripts/make-icons.mjs` рисует PNG через `sips` и пакует `icon.icns` через
   `iconutil` — только macOS (`:101`). Пишет `build/icon.icns`, `build/icon.png` (1024 px) и
   `build/icons.json` с sha256 (`:118-124`). 16 и 32 px — из `build/brand/mark.svg`, от 64 px — из
   `build/brand/icon.svg` (`:26-39`, Ticket 31 Epic-а `worfy-mvp`). `.ico` нет.
   `test/contract/make-icons.test.ts:159-174` сверяет закоммиченные файлы на любой системе; `:176` и
   дальше запускает скрипт, только на macOS (один из пяти test-ов `skipIf(platform !== 'darwin')`,
-  их разбирает Ticket 14).
+  их разбирает Ticket 14). На ПК этот test красный: sha256 `build/brand/icon.svg` и `mark.svg` в
+  рабочем дереве (CRLF, `core.autocrlf=true`) не совпадают с `build/icons.json` (evidence Ticket-а 01,
+  разделы 03 и 17). LF для `build/brand/*.svg` задаёт `.gitattributes` Ticket-а 02 (его пункт 1);
+  к началу этого Ticket-а случай sha256 зелёный.
 - **Stable copy** (собранная копия worfy вне репозитория, из которой Autopilot ведёт Wave-ы самого
   worfy) ставит `scripts/install-stable.sh` — bash, только `.app`:
   - цель по умолчанию — `~/Applications/worfy-stable.app` (`:25`), цель обязана кончаться на `.app`
@@ -36,8 +42,8 @@ Source: решения владельца 2026-10-07: Q22 (неподписан�
     `Contents/Info.plist` (`:71`);
   - рядом с копией — `<target>.json` с полями `commit`, `dirty`, `builtAt`, `installedAt`, `source`
     (`:91-99`).
-- Вызов — `pnpm install:stable` (`package.json:19`) запускает `.sh` напрямую. Через какую оболочку
-  pnpm на ПК исполняет скрипты — evidence Ticket-а 01; `.sh` без bash не запустится.
+- Вызов — `pnpm install:stable` (`package.json:19`) запускает `.sh` напрямую. pnpm на ПК исполняет
+  скрипты через cmd.exe (evidence Ticket-а 01, раздел 10); `.sh` без bash не запустится.
 - `test/e2e/packaged.spec.ts` зовёт скрипт через `bash` (`:18`, `:36-40`, `runScript` `:125-127`).
   Блок «with a stand-in app» (`:507` и дальше) идёт в gate full на Mac, блоки `@packaged` — в
   `pnpm test:package`. Test `:518-528` подменяет `HOME` и ждёт копию в `<HOME>/Applications`.
@@ -45,15 +51,18 @@ Source: решения владельца 2026-10-07: Q22 (неподписан�
   отказывает только не упакованной сборке (`:174`). Установленный worfy и Stable copy — упакованные,
   им отказа нет. Пути сравниваются после `realpath` (`canonical`, `:154-160`). Общая папка git —
   `git rev-parse --path-format=absolute --git-common-dir` (`gitCommonDir`,
-  `src/main/ipc/autopilot.ts:33-38`, не экспортирована); на Windows git печатает путь с `/`. Как он
-  сравнится с `realpath` от пути `C:\…`, не проверялось. `test/contract/autopilot.test.ts:708-730`
+  `src/main/ipc/autopilot.ts:33-38`, не экспортирована); на Windows git печатает путь с `/`: в
+  worktree на ПК — `C:/Users/Alexey/worfy/.git` (evidence Ticket-а 01, раздел 06). Как он сравнится с
+  `realpath` от пути `C:\…`, не проверялось. `test/contract/autopilot.test.ts:708-730`
   подменяет `gitCommonDir`, настоящий git не зовёт.
 - **SmartScreen.** Неподписанный установщик: «Windows protected your PC» → More info → Run anyway.
-  Smart App Control на Windows 11 неподписанное блокирует (ADR-0054, пункт 5). Включён ли он на ПК —
-  evidence Ticket-а 01.
-- E3 (`worfy-harness`) ещё открыт. Его Ticket-ы 13, 15 и 21 меняют `electron-builder.yml` и
-  `scripts/install-stable.sh` (Harness и мост Limits в ресурсах сборки, чтение `<target>.json`).
-  Строки выше — main 4f983ef. Перед началом перечитать оба файла и `package.json` на свежем main.
+  Smart App Control на Windows 11 неподписанное блокирует (ADR-0054, пункт 5). На ПК владельца он
+  выключен: `VerifiedAndReputablePolicyState = 0` (evidence Ticket-а 01, раздел 02); сверка в окне
+  Windows Security — за владельцем.
+- После 4f983ef `electron-builder.yml` меняли E3 Ticket 15 (#134, мост Limits в ресурсах сборки) и
+  worfy-link Ticket 02 (#158); `scripts/install-stable.sh` не менялся; `package.json` — четыре коммита,
+  строки сдвинулись (evidence Ticket-а 01, раздел 24). Строки выше — main 4f983ef. Перед началом
+  перечитать оба файла и `package.json` на свежем main.
 
 ## Что делаем
 
@@ -105,8 +114,9 @@ Source: решения владельца 2026-10-07: Q22 (неподписан�
    настоящий git: временный репозиторий и worktree; dev-сборка отказывает и в checkout, и в
    worktree, упакованная — нет. На Windows-ПК он проверяет пути `C:/…` от git против `realpath`.
    `selfProjectRefusal` правится, только если test покажет расхождение.
-6. **Smart App Control.** Если по evidence Ticket-а 01 он включён и установщик не запускается —
-   Status `blocked`, вопрос подписи уходит владельцу сразу (Q22).
+6. **Smart App Control.** По evidence Ticket-а 01 (раздел 02) на ПК он выключен. Если к сборке он
+   окажется включён и установщик не запустится — Status `blocked`, вопрос подписи уходит владельцу
+   сразу (Q22).
 
 **Не входит:** подпись и репутация SmartScreen (E4); arm64 (Q24); первый запуск и установка
 Harness (Ticket 13); `@packaged` e2e на Windows (Ticket 14); шаг для Windows в skill `ship-ticket`

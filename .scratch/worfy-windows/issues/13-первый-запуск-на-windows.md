@@ -8,9 +8,13 @@ Source: решения владельца 2026-10-07: Q18 (Git for Windows об�
 ## Что происходит
 
 - Экран первого запуска и установщик Harness приносит E3 (`worfy-harness`, Harness как часть
-  worfy). На 4f983ef их кода ещё нет: Ticket-ы E3 13, 14, 15 и 19 открыты. Пути ниже взяты из их
-  планов. После закрытия E3 Ticket 01 (проверка фактов на живой Windows) сверяет этот раздел с кодом
-  и правит его.
+  worfy). На 4f983ef их кода ещё не было; на main `08e8256` E3 Ticket-ы 13, 14, 15 и 19 влиты, и все
+  файлы из «Где в коде» есть: `src/main/first-run/checks.ts`, `actions.ts`,
+  `src/shared/ipc/first-run.ts`, `src/main/harness/install.ts`, `migrate/plan.ts`, `migrate/apply.ts`,
+  `src/renderer/shell/FirstRun.tsx` (evidence Ticket-а 01, раздел 24). В `checks.ts` — проверка
+  `jq` (`:132`) и подсказка `brew install ${name}` (`:237`). Описание ниже — по планам E3; строки
+  перечитать на свежем main.
+- На ПК владельца `pnpm dev` открывает окно на экране First run (evidence, раздел 17).
   - Экран первого запуска (E3 Ticket 19, `src/main/first-run/checks.ts`) проверяет `git`, `gh`,
     `node` ≥ 22 и `jq` в окружении login shell. Чего нет — `fail` с подсказкой
     `brew install <что нет>`. Проверка отдаёт `ok`, `warn` или `fail`. Действие идёт только после
@@ -42,7 +46,10 @@ Source: решения владельца 2026-10-07: Q18 (Git for Windows об�
     запуск WSL, а не Git Bash. Как worfy находит Git Bash для Session-ов, решает Ticket 09.
   - `powershell.exe` (Windows PowerShell) есть в каждой Windows 10 и 11. `pwsh.exe` есть, только
     если поставлен PowerShell 7. Какую оболочку берёт Terminal, решает Ticket 10 (Terminal на
-    PowerShell).
+    PowerShell). `winget install Microsoft.PowerShell` на ПК поставил MSIX: в `Path` — псевдоним
+    `WindowsApps\pwsh.exe`, который `fs.existsSync` не видит (evidence Ticket-а 01, разделы 16 и 25).
+  - Без `CLAUDE_CODE_GIT_BASH_PATH` Claude Code 2.1.233 на ПК сам нашёл Git Bash, хотя первым
+    `bash` в PATH стоит WSL (evidence, разделы 04 и 13).
   - Windows 10 21H2 — build 19044. `os.release()` на Windows отдаёт `10.0.<build>`, у Windows 11
     build от 22000.
   - Идентификаторы winget: `Git.Git`, `OpenJS.NodeJS.LTS`, `GitHub.cli`, `jqlang.jq`,
@@ -53,8 +60,13 @@ Source: решения владельца 2026-10-07: Q18 (Git for Windows об�
     `claude.exe`, а `claude` из npm — это `claude.cmd`.
   - `jq` агенты зовут прямо из skills в Git Bash (`harness/skills/epic-wave/SKILL.md:68`, `:413`,
     `harness/skills/continuous-audit/SKILL.md:125`). Hooks на Node (Ticket 04) `jq` не зовут, а skills
-    зовут его и после порта. Есть ли `jq` в Git Bash, проверяет Ticket 01. В «Готово, когда»
-    Epic-а чистая Windows названа «с Git for Windows, node и gh», без `jq`.
+    зовут его и после порта. В Git Bash ПК владельца (Git for Windows 2.45.1) `jq` нет (evidence
+    Ticket-а 01, раздел 05). В «Готово, когда» Epic-а чистая Windows названа «с Git for Windows,
+    node и gh», без `jq` — вопрос владельцу задан в отчёте PR Ticket-а 01.
+  - Hooks plugin-а на ПК срабатывают (песочница `claude -p --plugin-dir`, evidence, раздел 13);
+    `plugin marketplace add` с путём `C:\…` не проверялся. Contract
+    `test/contract/harness-install.test.ts` на ПК — 11 упавших: `step: "marketplace add"`,
+    `Claude Code not found at …\stub\claude (ENOENT)` — подменённый `claude` без `.exe` (раздел 17).
 - На чистой Windows старого Harness в `%USERPROFILE%\.claude` нет. Форме переноса E3 там нечего
   показать, и `statusLine` записать некому. Тогда Limits из терминала в worfy не приходят.
 
@@ -106,10 +118,10 @@ Source: решения владельца 2026-10-07: Q18 (Git for Windows об�
    - В какой оболочке Claude Code на Windows исполняет `statusLine.command`, не установлено. Путь с
      `/` в двойных кавычках `node` понимает и в Git Bash, и в cmd.exe, и в PowerShell. Как
      экранировать аргумент, исполнитель проверяет в этой оболочке и пишет в Итог.
-4. **jq.** Проверка `jq` на Windows остаётся: его зовут skills. Если Ticket 01 нашёл, что в Git Bash
-   `jq` нет, на чистой Windows экран покажет `fail` с `winget install jqlang.jq`. Это расходится с
-   «Готово, когда» Epic-а (там только Git for Windows, node и gh). Если Ticket 01 этот вопрос
-   владельцу не задал — вопрос в Итог.
+4. **jq.** Проверка `jq` на Windows остаётся: его зовут skills. В Git Bash `jq` нет (evidence
+   Ticket-а 01, раздел 05), и на чистой Windows экран покажет `fail` с `winget install jqlang.jq`.
+   Это расходится с «Готово, когда» Epic-а (там только Git for Windows, node и gh). Вопрос владельцу
+   задан в отчёте PR Ticket-а 01; его ответ — в Итог. Нет ответа к началу Ticket-а — вопрос в Итог.
 
 **Не входит:** qmd (Ticket 15); проверка на чистой машине (Ticket 16); Git Bash для Session-ов и
 `claude.exe` (Ticket 09); Terminal на PowerShell (Ticket 10); установщик NSIS и Stable copy
@@ -156,7 +168,8 @@ Source: решения владельца 2026-10-07: Q18 (Git for Windows об�
 - `test/contract/harness-install.test.ts`
 - `test/contract/harness-migrate.test.ts`
 
-Пути — из планов E3. Если E3 положил код в другие файлы, Ticket 01 правит этот раздел.
+Пути — из планов E3; на main `08e8256` все эти файлы, кроме новых test-ов, есть (evidence Ticket-а
+01, раздел 24).
 
 Только чтение: `src/main/agent/env.ts` (поиск Git Bash, Ticket 09), `src/main/agent/options.ts`
 (`claudeExecutablePath`, Ticket 09), `src/main/terminal/pty.ts` (выбор PowerShell, Ticket 10),

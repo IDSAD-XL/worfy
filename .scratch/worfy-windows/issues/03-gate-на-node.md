@@ -8,7 +8,8 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 ## Что происходит
 
 - **Gate сейчас** — `harness/hooks/gate.sh`, 465 строк bash. Его зовут hooks `TaskCompleted` и
-  `TeammateIdle` (`harness/hooks/hooks.json:58`, `:69`), а агенты и skills — командой
+  `TeammateIdle` (`harness/hooks/hooks.json:67`, `:78` на main `08e8256`; evidence Ticket-а 01,
+  раздел 18), а агенты и skills — командой
   `bash "${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh" fast`. Gate:
   - выбирает пакеты по diff от merge-base с origin/main (`gate.sh:246-290`);
   - запускает скрипты профиля `fast` или `full` из записи реестра Gate (`gate/config.json`, поля
@@ -21,13 +22,18 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
     кэш зелёных прогонов и файл вердикта `verdict-<tag>.json` (формат — шапка `gate.sh:31-47`).
 - **Что в `gate.sh` не работает на Windows:**
   - PATH зашит под Mac: nvm, `/opt/homebrew/bin`, `~/.local/share/pnpm` (`:95-102`);
-  - `shasum` считает тег worktree (`:113`) и отпечатки кэша (`:305`, `:306`, `:390`). Есть ли
-    `shasum` в Git Bash — evidence Ticket-а 01, раздел 5;
+  - `shasum` считает тег worktree (`:113`) и отпечатки кэша (`:305`, `:306`, `:390`). В Git Bash
+    ПК владельца `shasum` есть в PATH Bash tool (`/usr/bin/core_perl/shasum`), а в PATH node-процесса
+    hook-а `core_perl` нет (для bash-hook-а не проверено); `jq` — нет (evidence Ticket-а 01,
+    раздел 05);
   - путь репозитория для реестра (`canon`, `:112`) берётся через `cd … && pwd`. В Git Bash `pwd`
-    печатает `/c/Users/…`. Node на Windows такого пути не понимает, и `gate-resolve.mjs --which`
-    (`:196`) не найдёт Project;
+    печатает `/c/Users/…` (evidence, раздел 06). Node на Windows такого пути не понимает, и
+    `gate-resolve.mjs --which` (`:196`) не найдёт Project;
   - признаки «окружение недоступно» (`:324-326`) — сообщения bash, например `command not found`.
-    cmd.exe пишет `is not recognized as an internal or external command`;
+    cmd.exe пишет `is not recognized as an internal or external command` (так на ПК, evidence,
+    разделы 08 и 10);
+  - на ПК `bash harness/hooks/gate.sh` без реестра Gate — EXIT=3, `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ:
+    резолвер gate-resolve.mjs завершился с кодом 4` (evidence, раздел 18);
   - менеджер пакетов на Windows — `pnpm.cmd`. Node с апреля 2024 года (CVE-2024-27980) не запускает
     `.cmd` и `.bat` без `shell: true`. Это касается Gate на Node.
 - **`harness/hooks/gate-resolve.mjs`** (Node) берёт домашнюю папку из `HOME` (`:28`). Путь Project-а
@@ -37,8 +43,10 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
   - тег worktree — первые 8 hex SHA-1 пути (`gateTag`, `:40`). worfy хеширует путь от
     `realpath.native` (`:457`, `:460`), а Gate и `stop.sh` — вывод `git rev-parse --show-toplevel`
     (`gate.sh:105`, `:113`; `harness/hooks/stop.sh:36`, `:73`). На Mac строки совпадают. На Windows
-    `realpath.native` даёт `C:\…`; что печатает git — evidence Ticket-а 01, раздел 6. Если написания
-    разные, теги разойдутся, и worfy не найдёт ни маркер, ни файл вердикта;
+    `realpath.native` даёт `C:\…`, а git и в PowerShell, и в Git Bash печатает `C:/Users/Alexey/worfy`
+    — буква диска заглавная, разделитель `/`; в worktree `--git-common-dir` — абсолютный
+    `C:/…/.git` (evidence Ticket-а 01, раздел 06). Написания расходятся разделителем: теги
+    разойдутся, и worfy не найдёт ни маркер, ни файл вердикта;
   - ключ реестра: `match` сравнивается с корнем через `/` (`gateKey`, `:82`). Поле `worktree` файла
     вердикта сравнивается с путём worktree как строка (`:150`);
   - вызов Gate в транскрипте узнаётся по слову `gate.sh` (`GATE_SH`, `:180`; отбор строк — `:345`).
@@ -58,11 +66,17 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
   `harness/bin/tests/agents-text.test.sh:46-47`, `epic-wave-ship-ticket.test.sh:51`,
   `harness-home.test.sh` (`:80`, `:105`, `:170`, `:192`, `:199-201`, `:242`);
   `test/unit/gate-state.test.ts:94-97` (читает исходник `gate.sh`, чтобы узнать слова вердикта);
-  `test/contract/harness-plugin.test.ts:68`; `test/e2e/packaged.spec.ts:173`. Ссылки, которые
-  добавит E3 (worfy-harness), — в описи Ticket-а 01.
+  `test/contract/harness-plugin.test.ts:68`; `test/e2e/packaged.spec.ts:173`. Строки — на
+  `4f983ef`; опись скриптов Harness на main `08e8256` — evidence Ticket-а 01, раздел 18. Перед
+  началом повторить `git grep -n 'gate\.sh'` на свежем main: E3 ещё открыт.
 - **Изоляция test-ов.** `test/contract/harness-scripts.test.ts:50-62` гоняет test-ы Harness с `HOME`
-  во временной папке. Node `os.homedir()` на Mac читает `HOME`, а на Windows — `USERPROFILE`. Без
-  `USERPROFILE` скрипт на Node в test-е на Windows возьмёт настоящую папку пользователя.
+  во временной папке. Node `os.homedir()` на Mac читает `HOME`, а на Windows — `USERPROFILE`: на ПК
+  `os.homedir()` — `C:\Users\Alexey` и в PowerShell (там `HOME` нет), и в Git Bash, и в hook-е
+  (evidence Ticket-а 01, раздел 07). Без `USERPROFILE` скрипт на Node в test-е на Windows возьмёт
+  настоящую папку пользователя.
+- **Test-ы Gate на ПК сейчас.** `test/unit/gate-state.test.ts` — 12 упавших, `spawnSync /bin/sh
+  ENOENT`; `harness-scripts.test.ts` — `bash is not installed`: `sh` нет в PATH процесса (evidence,
+  разделы 04 и 17).
 
 ## Что делаем
 
@@ -88,8 +102,8 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 3. **Тег и пути.** SHA-1 считает `node:crypto`, а не `shasum`. Тег — от пути в написании
    `git rev-parse --show-toplevel`, как сейчас. Путь для реестра — от `git rev-parse --git-common-dir`
    средствами Node, без `pwd`. worfy (`gateTag`) на Windows приводит путь к тому же написанию перед
-   хешем: разделитель и регистр буквы диска — по evidence Ticket-а 01, раздел 6. На Mac тег не
-   меняется.
+   хешем: git печатает `C:/…` — `\` заменяется на `/`, буква диска заглавная (evidence Ticket-а 01,
+   раздел 06). На Mac тег не меняется.
 4. **Запуск скриптов профиля на Windows.** Ticket выбирает способ запустить `pnpm.cmd`: через cmd.exe
    (`shell: true`) с экранированием имён пакетов и скриптов или без оболочки. Способ и причина — в
    Итог. Признаки «окружение недоступно» получают и сообщение cmd.exe
@@ -98,8 +112,10 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
    С командой `node …` node должен быть в PATH процесса Claude Code ещё до запуска скрипта; сейчас
    `gate.sh` дописывает nvm и `/opt/homebrew/bin` сам (`:95-102`). Ticket проверяет три случая:
    Session, которую запустил worfy (PATH из login shell, `src/main/agent/env.ts`); Claude Code из
-   терминала на Mac; Claude Code на Windows-ПК (установщик node кладёт его в PATH системы). Если в
-   каком-то из них node в PATH нет, Ticket выбирает способ без bash вне test-ов и пишет его в Итог.
+   терминала на Mac; Claude Code на Windows-ПК. Третий случай на ПК владельца проверен: hook
+   `node "${CLAUDE_PLUGIN_ROOT}/…"` нашёл `C:\Program Files\nodejs\node.exe` (там symlink nvm-windows;
+   evidence Ticket-а 01, раздел 13). Если в каком-то из случаев node в PATH нет, Ticket выбирает
+   способ без bash вне test-ов и пишет его в Итог.
    - Без node Gate не запустится: hook упадёт с кодом 127, Claude Code покажет ошибку, которая не
      блокирует. Вердикта нет — worfy показывает исход `none`, как у worktree без прогонов. Наличие
      node ≥22 проверяет экран первого запуска (Ticket 13).
@@ -115,7 +131,7 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
    подменяет `HOME`, задаёт тем же путём и `USERPROFILE`: `harness-scripts.test.ts` и test-ы Gate.
    Ни один test не пишет в настоящую папку пользователя ни на Mac, ни на Windows.
 8. **Новое имя во всех ссылках, одним PR** — список в «Что происходит».
-   - `hooks.json:58`, `:69` — `node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast`, как велит ADR-0055
+   - `hooks.json:67`, `:78` — `node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast`, как велит ADR-0055
      (пункт 2). Остальные hooks к той же форме приводит Ticket 04.
    - Skills, agents и правила: `node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo
      "EXIT=$?"`. Bash tool исполняет это и на Mac, и в Git Bash.
@@ -139,7 +155,7 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 - [ ] `bash harness/hooks/tests/gate-verdict.test.sh` — код 0 на Mac и в Git Bash на Windows-ПК. Test зовёт `node "$HOOKS/gate.mjs"`. Ожидания строк `[gate] …`, кодов выхода и полей `verdict-<tag>.json` — прежние; убран только случай «нет node».
 - [ ] `bash harness/hooks/tests/gate-notverified.test.sh` и `bash harness/hooks/tests/gate-unregistered.test.sh` — код 0 на Mac. Они гоняют и `stop.sh`; в Git Bash это пункт «Готово, когда» Ticket-а 04.
 - [ ] `rules-hooks.test.sh`, `agents-text.test.sh`, `epic-wave-ship-ticket.test.sh`, `harness-home.test.sh` — код 0 на Mac.
-- [ ] Unit `test/unit/gate-state.test.ts`: `gateTag` даёт один тег для `C:\a\b` и написания git из evidence Ticket-а 01, а для пути Mac — прежний тег; `gateRunDir` узнаёт `node "C:\Users\x\plugin\hooks\gate.mjs" fast`, `cd /c/x && node ./hooks/gate.mjs full` и старое `bash ~/.claude/hooks/gate.sh fast`; `gateKey` находит запись реестра с `match` `C:\Users\x\worfy` для корня `C:/Users/x/worfy` и для worktree под ним; файл вердикта с `worktree` в написании git принят для того же worktree в написании `realpath.native`; test слов вердикта (`:94-97`) читает `gate.mjs`.
+- [ ] Unit `test/unit/gate-state.test.ts`: `gateTag` даёт один тег для `C:\a\b` и `C:/a/b` (написание git, evidence Ticket-а 01, раздел 06), а для пути Mac — прежний тег; `gateRunDir` узнаёт `node "C:\Users\x\plugin\hooks\gate.mjs" fast`, `cd /c/x && node ./hooks/gate.mjs full` и старое `bash ~/.claude/hooks/gate.sh fast`; `gateKey` находит запись реестра с `match` `C:\Users\x\worfy` для корня `C:/Users/x/worfy` и для worktree под ним; файл вердикта с `worktree` в написании git принят для того же worktree в написании `realpath.native`; test слов вердикта (`:94-97`) читает `gate.mjs`.
 - [ ] Unit: схема канала `checks` принимает `C:\a`, `C:/a` и `\\srv\share\a` и отвергает `a\b` и `C:a`.
 - [ ] `git grep -n 'gate\.sh' -- harness` пуст. В `src` имя `gate.sh` осталось только в распознавании старых вызовов (`src/main/gate/state.ts`).
 - [ ] Windows-ПК, Session Claude Code в worktree worfy: `node "<папка plugin>/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"`, затем то же с `full`. Оба прогона идут до конца: каждый скрипт профиля запущен, строка `[gate] …` и код соответствуют исходам скриптов, в выводе нет `command not found` и `is not recognized`. Красный исход из-за test-ов, которые чинит Ticket 14, ожидаем. Имя появившегося `verdict-<tag>.json` совпадает с тегом, который даёт `gateTag` worfy для этого worktree. Вывод — в Итог.
