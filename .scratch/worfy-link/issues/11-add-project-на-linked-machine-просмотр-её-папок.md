@@ -1,7 +1,7 @@
 # 11 — «Add Project» на Linked machine: выбор Machine и просмотр её папок
 
 Type: task
-Status: claimed — 2026-10-09
+Status: done — 2026-10-09, [PR #196](https://github.com/IDSAD-XL/worfy/pull/196)
 Branch: worfy-link/11
 Blocked by: 09
 Source: решения владельца 2026-10-07: Q3 (с другой машины можно всё, кроме действий, которым нужен рабочий стол машины Project-а), Q9 (у Project ровно одна Machine; один репозиторий на двух Machine — два Project-а), Q10 («Add Project» — выбор Machine, затем папка через просмотр её файлов внутри worfy), Q14 (системные диалоги — в UI машины, откуда вызваны; просмотр папок машины Project-а); [spec.md](../spec.md); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md) — Machine, Linked machine, «Add Project» спрашивает Machine, потом папку; [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — системные действия в UI вызвавшей машины; [Ticket 24 Epic-а worfy-harness](../../worfy-harness/issues/24-подключение-project-а.md) — подключение Project-а по шагам
@@ -214,3 +214,10 @@ for a Linked machine». В `ProjectConnector.write` подставлен `keepAc
 [FolderBrowser](../evidence/11-folder-browser-light.png) ([тёмная](../evidence/11-folder-browser-dark.png)),
 [скрытые папки](../evidence/11-folder-browser-hidden-light.png) ([тёмная](../evidence/11-folder-browser-hidden-dark.png)),
 [папка без доступа](../evidence/11-folder-browser-denied-light.png) ([тёмная](../evidence/11-folder-browser-denied-dark.png)).
+
+### Gate оркестратора (2026-10-09)
+
+- Круг 1 — `VERIFIED` ([комментарий в PR #196](https://github.com/IDSAD-XL/worfy/pull/196#issuecomment-6082731698)). Ревьюер проверил доступ через настоящий link-адаптер: при выключенном доступе `projects.connect.*` (кроме входа в gh) и `projects.browse` отказывают; `signIn*`, `pickFolder`, `select` закрыты для Linked machine всегда. Долги:
+  - [low] `src/main/ipc/projects.ts:262` — Session черновика не привязана к клиенту связи: если связь с B оборвалась посреди черновика, «Stop» с A не доходит, черновик на B (только чтение) доходит до конца на токенах Claude Code машины B. Исправление: по `destroyed` клиента останавливать его черновики, как `watchSignIn` для входа в gh.
+  - [low] вопрос, не воспроизведён: `src/main/projects/browse.ts:78` — `stat` symlink-ов и `lstat` `.git` без таймаута; ссылка на мёртвый сетевой диск может задержать ответ до таймаута вызова связи.
+- Мерж: ветка уже на `bef0a85`, `GATE_SCOPE=all gate full` — код 0 (результат из кэша Gate для того же коммита `603f5ac`, прогнанного исполнителем под замком), CI зелёный, CLEAN, влит `49cc7cf`.
