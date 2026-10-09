@@ -357,12 +357,13 @@ describe.runIf(process.platform === 'win32')('agentEnv on this Windows machine',
 
   it('findOnPath sees the app execution alias of pwsh from MSIX, when one is installed', () => {
     const alias = win32.join(process.env.LOCALAPPDATA ?? '', 'Microsoft', 'WindowsApps', 'pwsh.exe')
-    let isAlias = false
-    try {
-      isAlias = lstatSync(alias).isSymbolicLink()
-    } catch {
-      isAlias = false
-    }
+    const isAlias = (() => {
+      try {
+        return lstatSync(alias).isSymbolicLink()
+      } catch {
+        return false
+      }
+    })()
     if (!isAlias) return // no MSIX pwsh on this machine: nothing to check
     expect(existsSync(alias)).toBe(false) // the reason findOnPath has its own check (evidence of ticket 01, section 25)
     expect(findOnPath('pwsh', { Path: win32.dirname(alias) })).toBe(alias)
