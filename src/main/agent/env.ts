@@ -163,15 +163,44 @@ export function parseRegQuery(output: string): RegValue[] {
   return values
 }
 
-/** `%NAME%` replaced by the value of NAME in `env` (any case); an unknown name stays as it is. */
-export function expandVars(value: string, env: SourceEnv): string {
-  return value.replace(/%([^%;]+)%/g, (whole, name: string) => getVar(env, name) ?? whole)
-}
-
 /** Sets `key` in `env`, replacing a key that differs only in case. */
 function setVar(env: Env, key: string, value: string): void {
   for (const existing of Object.keys(env)) if (existing.toUpperCase() === key.toUpperCase()) delete env[existing]
   env[key] = value
+}
+
+/**
+ * The values of one Environment key put into `env`, as a sign-in does. REG_SZ goes in as it is.
+ * REG_EXPAND_SZ waits until every variable it names is final — not itself waiting in this key — and
+ * then each `%NAME%` gets the value NAME has in `env`, once: the text put in is not scanned again.
+ * So a forward reference within the key works, and a reference to the value's own name gets the value
+ * from before this key (the machine's, for the user's key). An unknown name stays as written, and so
+ * does a reference within a cycle.
+ */
+function putKey(values: RegValue[], env: Env): void {
+  const waiting = new Map<string, RegValue>()
+  for (const entry of values) {
+    if (entry.type === 'REG_SZ') {
+      waiting.delete(entry.name.toUpperCase())
+      setVar(env, entry.name, entry.value)
+    } else if (entry.type === 'REG_EXPAND_SZ') waiting.set(entry.name.toUpperCase(), entry)
+  }
+  const blockedBy = (self: string, name: string): boolean => name.toUpperCase() !== self && waiting.has(name.toUpperCase())
+  const expand = (self: string, value: string): string =>
+    value.replace(/%([^%;]+)%/g, (whole, name: string) => (blockedBy(self, name) ? whole : (getVar(env, name) ?? whole)))
+  let progress = true
+  while (progress) {
+    progress = false
+    for (const [self, entry] of waiting) {
+      if ([...entry.value.matchAll(/%([^%;]+)%/g)].some((match) => blockedBy(self, match[1]!))) continue
+      setVar(env, entry.name, expand(self, entry.value))
+      waiting.delete(self)
+      progress = true
+    }
+  }
+  // What is left waits on a cycle: those references stay as written.
+  const left = [...waiting].map(([self, entry]) => [entry.name, expand(self, entry.value)] as const)
+  for (const [name, value] of left) setVar(env, name, value)
 }
 
 /**
@@ -248,8 +277,9 @@ export interface WindowsEnvOptions {
 /**
  * The agent environment on Windows, built as a new sign-in builds it:
  *   1. the session variables of WINDOWS_SESSION_VARS, from `source`;
- *   2. the machine's persistent variables, then the user's (the user's win), REG_EXPAND_SZ expanded
- *      against what is set so far; Path is the machine Path followed by the user Path;
+ *   2. the machine's persistent variables, final, and then the user's on top (putKey): REG_EXPAND_SZ
+ *      gets the final values of the variables it names; Path is the machine Path followed by the
+ *      user Path;
  *   3. without ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN (any case), as on the Mac;
  *   4. Git Bash in CLAUDE_CODE_GIT_BASH_PATH unless the user has an own one.
  * When `reg query` fails the result is the session variables and the Path of `source` (`fallback`),
@@ -267,25 +297,16 @@ export async function captureWindowsEnv(options: WindowsEnvOptions = {}): Promis
   try {
     // PERSISTENT_ENV_KEYS: the user's key first, the machine's second.
     const [user, machine] = await Promise.all(PERSISTENT_ENV_KEYS.map((key) => (options.regQuery ?? execRegQuery)(key)))
-    // As Windows does: first all raw values of both keys (the user's over the machine's), then the
-    // expansion against the whole set — so `%NVM_HOME%` in Path finds NVM_HOME listed after Path or
-    // set only for the user. Two passes resolve a reference to a variable that is itself expanded.
-    const raw = new Map<string, { name: string; expand: boolean; value: string }>()
-    const paths: { expand: boolean; value: string }[] = []
-    for (const values of [parseRegQuery(machine!), parseRegQuery(user!)]) {
-      for (const { name, type, value } of values) {
-        if (type !== 'REG_SZ' && type !== 'REG_EXPAND_SZ') continue
-        const entry = { name, expand: type === 'REG_EXPAND_SZ', value }
-        if (name.toUpperCase() === 'PATH') paths.push(entry)
-        else raw.set(name.toUpperCase(), entry)
-      }
-    }
-    for (const { name, value } of raw.values()) setVar(env, name, value)
-    for (let pass = 0; pass < 2; pass += 1) {
-      for (const { name, expand } of raw.values()) if (expand) setVar(env, name, expandVars(getVar(env, name)!, env))
-    }
-    const path = paths.map(({ expand, value }) => (expand ? expandVars(value, env) : value)).filter((part) => part !== '')
-    setVar(env, 'Path', path.join(';'))
+    // As Windows does: the machine's key is final before the user's is read, so `%PATHEXT%` in the
+    // user's PATHEXT is the machine's value. Path alone is not replaced: the user's goes after it.
+    const machineValues = parseRegQuery(machine!)
+    const userValues = parseRegQuery(user!)
+    const hasPath = (values: RegValue[]): boolean => values.some(({ name, type }) => name.toUpperCase() === 'PATH' && /^REG_(EXPAND_)?SZ$/.test(type))
+    putKey(machineValues, env)
+    const machinePath = hasPath(machineValues) ? getVar(env, 'PATH') : undefined
+    putKey(userValues, env)
+    const userPath = hasPath(userValues) ? getVar(env, 'PATH') : undefined
+    setVar(env, 'Path', [machinePath, userPath].filter((part) => part !== undefined && part !== '').join(';'))
   } catch (error) {
     from = 'fallback'
     const path = getVar(source, 'PATH')
@@ -307,7 +328,10 @@ export interface AgentEnvOptions extends WindowsEnvOptions {
   captureShell?: () => Promise<CapturedEnv>
 }
 
-/** The agent environment of this platform: the login shell on macOS and Linux, the process on Windows. */
+/**
+ * The agent environment of this platform: the login shell on macOS and Linux; on Windows, the
+ * session variables and the registry, as a new sign-in builds it.
+ */
 export function captureAgentEnv(options: AgentEnvOptions = {}): Promise<CapturedEnv> {
   if ((options.platform ?? process.platform) === 'win32') return captureWindowsEnv(options)
   return (options.captureShell ?? (() => captureLoginShellEnv({ source: options.source })))()

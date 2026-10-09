@@ -17,7 +17,6 @@ import {
   captureLoginShellEnv,
   ENV_END_MARKER,
   ENV_START_MARKER,
-  expandVars,
   findGitBash,
   findOnPath,
   parseEnvDump,
@@ -229,23 +228,70 @@ describe('captureAgentEnv on win32', () => {
     expect(env).not.toHaveProperty('SomeFlag')
   })
 
-  it('expands against the whole set: a variable listed after Path, or set only for the user, and a chain', async () => {
-    // nvm-windows: Path holds %NVM_HOME%;%NVM_SYMLINK%, and NVM_HOME comes after Path in the key.
-    const answers: Record<string, string> = {
-      [PERSISTENT_ENV_KEYS[1]]: [
-        '    Path    REG_EXPAND_SZ    %SystemRoot%\\system32;%NVM_HOME%;%NVM_SYMLINK%',
-        '    NVM_SYMLINK    REG_SZ    C:\\Program Files\\nodejs',
-      ].join('\r\n'),
-      [PERSISTENT_ENV_KEYS[0]]: [
-        '    Path    REG_EXPAND_SZ    %TOOLS%\\bin',
-        '    TOOLS    REG_EXPAND_SZ    %BASE%\\tools',
-        '    BASE    REG_EXPAND_SZ    %USERPROFILE%\\base',
-        '    NVM_HOME    REG_EXPAND_SZ    %APPDATA%\\nvm',
-      ].join('\r\n'),
-    }
-    const { env } = await capture({ regQuery: async (key) => answers[key]! })
-    expect(env.Path).toBe('C:\\Windows\\system32;C:\\Users\\u\\AppData\\Roaming\\nvm;C:\\Program Files\\nodejs;C:\\Users\\u\\base\\tools\\bin')
-    expect(env.TOOLS).toBe('C:\\Users\\u\\base\\tools')
+  // `reg query` lines of one key: [name, type, value].
+  const key = (...values: [string, string, string][]): string => values.map(([name, type, value]) => `    ${name}    ${type}    ${value}`).join('\r\n')
+  const SZ = 'REG_SZ'
+  const EXPAND = 'REG_EXPAND_SZ'
+  it.each<{ name: string; machine: string; user: string; source?: Record<string, string>; expected: Record<string, string> }>([
+    {
+      name: 'nvm-windows: Path names NVM_HOME and NVM_SYMLINK, which come after it in the key',
+      machine: key(['Path', EXPAND, '%SystemRoot%\\system32;%NVM_HOME%;%NVM_SYMLINK%'], ['NVM_HOME', EXPAND, '%APPDATA%\\nvm'], ['NVM_SYMLINK', SZ, 'C:\\Program Files\\nodejs']),
+      user: '',
+      expected: { Path: 'C:\\Windows\\system32;C:\\Users\\u\\AppData\\Roaming\\nvm;C:\\Program Files\\nodejs' },
+    },
+    {
+      name: "nvm-windows for one user: the user's Path names NVM_HOME, set after it in the user's key",
+      machine: key(['Path', EXPAND, '%SystemRoot%\\system32']),
+      user: key(['Path', EXPAND, '%NVM_HOME%;%NVM_SYMLINK%'], ['NVM_HOME', EXPAND, '%APPDATA%\\nvm'], ['NVM_SYMLINK', SZ, 'C:\\Program Files\\nodejs']),
+      expected: { Path: 'C:\\Windows\\system32;C:\\Users\\u\\AppData\\Roaming\\nvm;C:\\Program Files\\nodejs' },
+    },
+    {
+      name: "the machine's key is final before the user's is read: it does not see a variable set only for the user",
+      machine: key(['Path', EXPAND, '%SystemRoot%\\system32;%NVM_HOME%']),
+      user: key(['NVM_HOME', EXPAND, '%APPDATA%\\nvm']),
+      expected: { Path: 'C:\\Windows\\system32;%NVM_HOME%', NVM_HOME: 'C:\\Users\\u\\AppData\\Roaming\\nvm' },
+    },
+    {
+      name: 'a chain: Path → TOOLS → BASE → USERPROFILE of the session, each listed before what it names',
+      machine: '',
+      user: key(['Path', EXPAND, '%TOOLS%\\bin'], ['TOOLS', EXPAND, '%BASE%\\tools'], ['BASE', EXPAND, '%USERPROFILE%\\base']),
+      expected: { Path: 'C:\\Users\\u\\base\\tools\\bin', TOOLS: 'C:\\Users\\u\\base\\tools', BASE: 'C:\\Users\\u\\base' },
+    },
+    {
+      name: "the user's PATHEXT extends the machine's: %PATHEXT% is the machine's value",
+      source: { PATHEXT: '.COM;.EXE;.BAT;.CMD;.PY' },
+      machine: key(['PATHEXT', SZ, '.COM;.EXE;.BAT;.CMD']),
+      user: key(['PATHEXT', EXPAND, '%PATHEXT%;.PY']),
+      expected: { PATHEXT: '.COM;.EXE;.BAT;.CMD;.PY' },
+    },
+    {
+      name: "the user's PSModulePath extends the machine's, itself expanded",
+      machine: key(['PSModulePath', EXPAND, '%ProgramFiles%\\WindowsPowerShell\\Modules;%SystemRoot%\\system32\\WindowsPowerShell\\v1.0\\Modules']),
+      user: key(['PSModulePath', EXPAND, '%PSModulePath%;%USERPROFILE%\\Modules']),
+      expected: { PSModulePath: 'C:\\Program Files\\WindowsPowerShell\\Modules;C:\\Windows\\system32\\WindowsPowerShell\\v1.0\\Modules;C:\\Users\\u\\Modules' },
+    },
+    {
+      name: 'REG_SZ stays literal, and so does the text it brings into a REG_EXPAND_SZ value',
+      machine: '',
+      user: key(['USES', EXPAND, '[%LIT%]'], ['LIT', SZ, '50%USERPROFILE%done']),
+      expected: { LIT: '50%USERPROFILE%done', USES: '[50%USERPROFILE%done]' },
+    },
+    {
+      name: "the user's value replaces the machine's for any variable but Path, which goes after the machine's",
+      machine: key(['Path', SZ, 'C:\\m'], ['TEMP', EXPAND, '%SystemRoot%\\TEMP'], ['EDITOR', SZ, 'notepad']),
+      user: key(['Path', SZ, 'C:\\u'], ['TEMP', EXPAND, '%USERPROFILE%\\Temp'], ['EDITOR', SZ, 'code']),
+      expected: { Path: 'C:\\m;C:\\u', TEMP: 'C:\\Users\\u\\Temp', EDITOR: 'code' },
+    },
+    {
+      name: 'an unknown name and a cycle stay as written; a name matches in any case',
+      machine: '',
+      user: key(['UNKNOWN_REF', EXPAND, '%NOT_SET%\\x'], ['A', EXPAND, '%B%a'], ['B', EXPAND, '%A%b'], ['LOWER', EXPAND, '%systemroot%\\x']),
+      expected: { UNKNOWN_REF: '%NOT_SET%\\x', A: '%B%a', B: '%A%b', LOWER: 'C:\\Windows\\x' },
+    },
+  ])('expands as a sign-in does: $name', async ({ machine, user, source, expected }) => {
+    const answers: Record<string, string> = { [PERSISTENT_ENV_KEYS[1]]: machine, [PERSISTENT_ENV_KEYS[0]]: user }
+    const { env } = await capture({ source: { ...parentEnv, ...source }, regQuery: async (name) => answers[name]! })
+    expect(env).toMatchObject(expected)
   })
 
   it('builds Path from the machine Path and then the user Path, under one key', async () => {
@@ -349,10 +395,6 @@ describe('findOnPath and the reg query reader', () => {
       { name: 'ANTHROPIC_MODEL', type: 'REG_SZ', value: 'opus' },
     ])
     expect(parseRegQuery('    EMPTY    REG_SZ')).toEqual([{ name: 'EMPTY', type: 'REG_SZ', value: '' }])
-  })
-
-  it('expands %NAME% in any case and leaves an unknown one', () => {
-    expect(expandVars('%systemroot%\\x;%NOPE%', { SystemRoot: 'C:\\Windows' })).toBe('C:\\Windows\\x;%NOPE%')
   })
 })
 
