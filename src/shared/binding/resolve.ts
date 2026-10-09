@@ -8,9 +8,11 @@
 //                 Ticket, "Run wave" the Orchestrator to its Epic (ticket 23; bindings.json too);
 //   3. claim     — the last Bash command `ticket claim <epic> <NN>` (or `<epic>/<NN>`) the agent ran;
 //   4. skill     — `/epic-wave <epic>` as the last skill call: to its Epic;
-//   5. branch    — its git branch `<epic>/<NN>[-<slug>]`, else its cwd inside
-//      worktree      `.claude/worktrees/<NN>[-<slug>]` (ticket-ref.ts, ticket 10); a folder does not
-//                 carry the Epic, so it binds only when the workflow model says which Epic it is;
+//   5. branch    — its git branch: one the workflow model names as a Ticket's (`Branch:`, Silent
+//      worktree      mode, worfy-harness ticket 23), else `<epic>/<NN>[-<slug>]`; else its cwd inside
+//                 `.claude/worktrees/<NN>[-<slug>]` or `<Harness home>/worktrees/<project>/<NN>`
+//                 (ticket-ref.ts, ticket 10); a folder does not carry the Epic, so it binds only
+//                 when the workflow model says which Epic it is;
 //   6. skill     — `/ship-ticket` as the last skill call: to its Ticket;
 //   7. task      — for a Subagent only: the path `.scratch/<epic>/issues/<NN>-…` in its task.
 //
@@ -81,7 +83,8 @@ export interface Binding {
 /** What the workflow model says about the Project's Epics and Tickets, as far as a Binding needs it. */
 export interface BindingWorkflow {
   epics: readonly string[]
-  tickets: readonly { epic: string; num: number; state: string }[]
+  /** `branch`: the Ticket's `Branch:` line, when it has one. */
+  tickets: readonly { epic: string; num: number; state: string; branch?: string | null | undefined }[]
 }
 
 export interface BindingInput {
@@ -105,7 +108,7 @@ export interface BindingRule {
 /** The workflow model as a Binding needs it; undefined while there is none or it failed. */
 export function bindingWorkflowOf(model: WorkflowModel | undefined): BindingWorkflow | undefined {
   if (model === undefined || model.error !== null) return undefined
-  return { epics: model.epics.map((epic) => epic.epic), tickets: model.tickets.map(({ epic, num, state }) => ({ epic, num, state })) }
+  return { epics: model.epics.map((epic) => epic.epic), tickets: model.tickets.map(({ epic, num, state, branch }) => ({ epic, num, state, branch: branch ?? null })) }
 }
 
 /** True when the Project has the target, or when that cannot be known. */
@@ -148,10 +151,23 @@ function epicInArgs(args: string, workflow: BindingWorkflow | undefined): Bindin
   return epic === undefined ? null : { kind: 'epic', epic }
 }
 
-/** `<anything>/.claude/worktrees/<NN>[-<slug>]/<anything>` → `.claude/worktrees/<NN>[-<slug>]`. */
+/**
+ * `<anything>/.claude/worktrees/<NN>[-<slug>]/<anything>` → `.claude/worktrees/<NN>[-<slug>]`;
+ * `<Harness home>/worktrees/<project>/<NN>[-<slug>]/<anything>` → `worktrees/<project>/<NN>[-<slug>]`.
+ */
 function worktreeFolderOf(cwd: string): string | null {
-  const match = /(?:^|\/)(\.claude\/worktrees\/[^/]+)/u.exec(cwd)
-  return match?.[1] ?? null
+  const inRepo = /(?:^|\/)(\.claude\/worktrees\/[^/]+)/u.exec(cwd)?.[1]
+  if (inRepo !== undefined && parseWorktreeFolder(inRepo) !== null) return inRepo
+  const outside = /(?:^|\/)(worktrees\/[^/.][^/]*\/\d+(?:-[^/]+)?)(?:\/|$)/u.exec(cwd)?.[1]
+  return outside ?? inRepo ?? null
+}
+
+/** The one Ticket whose `Branch:` line is `branch`; null when none or several are. */
+function ticketByBranch(branch: string, workflow: BindingWorkflow | undefined): BindingTarget | null {
+  if (workflow === undefined) return null
+  const name = branch.replace(/^refs\/heads\//u, '')
+  const matches = workflow.tickets.filter((each) => each.branch === name)
+  return matches.length === 1 ? ticket(matches[0]!.epic, matches[0]!.num) : null
 }
 
 const manualRule: BindingRule = {
@@ -177,6 +193,8 @@ const claimRule: BindingRule = {
 const branchRule: BindingRule = {
   name: 'branch-or-worktree',
   resolve({ signals }, workflow) {
+    const named = signals?.gitBranch ? ticketByBranch(signals.gitBranch, workflow) : null
+    if (named) return { target: named, source: 'branch', detail: signals!.gitBranch!.replace(/^refs\/heads\//u, '') }
     const branch = signals?.gitBranch ? parseTicketBranch(signals.gitBranch) : null
     if (branch) {
       const target = ticket(branch.epic, branch.num)

@@ -4,7 +4,7 @@
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
-import type { ChecksSnapshot } from '../../src/shared/ipc/checks'
+import type { ChecksSnapshot, ProjectRepos } from '../../src/shared/ipc/checks'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 
 const ROOT = '/Users/test/projects/demo'
@@ -32,11 +32,17 @@ const MODEL: WorkflowModel = { root: ROOT, epics: [{ epic: 'demo', hasSpec: true
 let model: WorkflowModel = MODEL
 
 let snapshot: ChecksSnapshot
+/** What checks.get answers for a folder other than ROOT; ROOT gets `snapshot`. */
+let snapshotsByRoot: Record<string, ChecksSnapshot>
+/** What checks.repos answers: one repository unless a test says otherwise. */
+let repos: ProjectRepos
 let checksCalls: unknown[]
 let focused: boolean
 
 beforeEach(() => {
   model = MODEL
+  snapshotsByRoot = {}
+  repos = { mode: 'full', repos: [{ name: 'demo', path: ROOT }] }
   vi.resetModules()
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   checksCalls = []
@@ -55,8 +61,10 @@ beforeEach(() => {
     invoke: (channel: string, input: unknown) => {
       if (channel === 'checks.get') {
         checksCalls.push(input)
-        return Promise.resolve({ ok: true, value: snapshot })
+        const root = (input as { root: string }).root
+        return Promise.resolve({ ok: true, value: snapshotsByRoot[root] ?? snapshot })
       }
+      if (channel === 'checks.repos') return Promise.resolve({ ok: true, value: repos })
       if (channel === 'workflow.open') return Promise.resolve({ ok: true, value: model })
       if (channel === 'claudeHome.sessions')
         return Promise.resolve({
@@ -164,6 +172,74 @@ describe('ChecksBadges by worktree folder', () => {
   })
 })
 
+describe('ChecksBadges in a Project over two repositories (worfy-harness ticket 23)', () => {
+  const API = '/Users/test/projects/atakama/api'
+  const WEB = '/Users/test/projects/atakama/web'
+  const inRepo = (num: number, repo: string | null, branch: string | null): Ticket => ({ ...ticket(num, 'work'), epic: 'atakama', branch, repo })
+  const silentTickets = [inRepo(5, 'api', 'fix/x'), inRepo(6, 'web', 'fix/y'), inRepo(7, null, 'fix/z')]
+  const pullOn = (number: number, branch: string): ChecksSnapshot['pulls'][number] => ({ number, url: `https://github.com/o/r/pull/${number}`, state: 'OPEN', branch, ci: 'passing', verdict: null })
+  const snap = (root: string, pulls: ChecksSnapshot['pulls']): ChecksSnapshot => ({ root, worktrees: [{ path: root, branch: 'main', gate: { outcome: 'green', source: 'marker', at: null } }], pulls, gh: { available: true, error: null, intervalMs: 60_000 } })
+  const subject = (num: number) => ({ kind: 'ticket' as const, projectId: 'p', root: ROOT, ticket: silentTickets.find((each) => each.num === num)! })
+
+  beforeEach(() => {
+    model = { ...MODEL, epics: [{ epic: 'atakama', hasSpec: true, hasMap: false, title: 'Atakama' }], tickets: silentTickets }
+    repos = {
+      mode: 'silent',
+      repos: [
+        { name: 'api', path: API },
+        { name: 'web', path: WEB },
+      ],
+    }
+    // Both repositories have a PR on each branch: a Ticket must take only its own repository's.
+    snapshotsByRoot = { [API]: snap(API, [pullOn(11, 'fix/x'), pullOn(12, 'fix/y')]), [WEB]: snap(WEB, [pullOn(21, 'fix/y'), pullOn(22, 'fix/x')]) }
+    snapshot = snap(ROOT, [pullOn(99, 'fix/x'), pullOn(98, 'fix/y'), pullOn(97, 'fix/z')])
+  })
+
+  it('takes each Ticket\'s badges from the snapshot of its repository, asked with that repository\'s branches only', async () => {
+    const { default: ChecksBadges } = await load()
+    render(
+      <>
+        <div data-testid="t5">
+          <ChecksBadges subject={subject(5)} />
+        </div>
+        <div data-testid="t6">
+          <ChecksBadges subject={subject(6)} />
+        </div>
+      </>,
+    )
+    await vi.waitFor(() => expect(screen.getByTestId('t5').querySelector('[data-testid="checks-pr"]')?.textContent).toBe('PR #11'))
+    await vi.waitFor(() => expect(screen.getByTestId('t6').querySelector('[data-testid="checks-pr"]')?.textContent).toBe('PR #21'))
+    const asked = checksCalls as { root: string; branches: string[] }[]
+    expect(new Set(asked.map((each) => each.root))).toEqual(new Set([API, WEB]))
+    for (const each of asked) expect(each.branches).toEqual(each.root === API ? ['fix/x'] : ['fix/y'])
+  })
+
+  it('a Ticket without a repository has no badges, and nothing is asked for it', async () => {
+    const { default: ChecksBadges } = await load()
+    render(
+      <>
+        <div data-testid="t7">
+          <ChecksBadges subject={subject(7)} />
+        </div>
+        <div data-testid="t5">
+          <ChecksBadges subject={subject(5)} />
+        </div>
+      </>,
+    )
+    await vi.waitFor(() => expect(screen.getByTestId('t5').querySelector('[data-testid="checks-pr"]')).not.toBeNull())
+    expect(screen.getByTestId('t7').textContent).toBe('')
+    expect((checksCalls as { root: string }[]).map((each) => each.root)).not.toContain(ROOT)
+  })
+
+  it('with one repository the Project root is asked, as before', async () => {
+    repos = { mode: 'silent', repos: [{ name: 'api', path: API }] }
+    const { default: ChecksBadges } = await load()
+    render(<ChecksBadges subject={subject(7)} />)
+    expect((await screen.findByTestId('checks-pr')).textContent).toBe('PR #97')
+    expect(new Set((checksCalls as { root: string }[]).map((each) => each.root))).toEqual(new Set([ROOT]))
+  })
+})
+
 describe('ChecksBadges on a Session', () => {
   it('shows the gate of the worktree the Session runs in', async () => {
     const { default: ChecksBadges } = await load()
@@ -230,6 +306,15 @@ describe('branchesInWork', () => {
     const { checksGet } = await import('../../src/shared/ipc/checks')
     const branches = branchesInWork([inEpic('аудит', 3, 'work'), inEpic('Q4 work', 5, 'work'), ticket(8, 'work')])
     expect(branches).toEqual(['demo/08'])
+    expect(checksGet.input.safeParse({ root: ROOT, branches }).success).toBe(true)
+  })
+
+  it('takes the branch a Ticket\'s Branch: line names (Silent mode), but not one checks.get would refuse', async () => {
+    const { branchesInWork } = await import('../../src/renderer/canvas/badges/use-checks')
+    const { checksGet } = await import('../../src/shared/ipc/checks')
+    const named = (num: number, branch: string, state: Ticket['state'] = 'work'): Ticket => ({ ...ticket(num, state), branch })
+    const branches = branchesInWork([named(5, 'fix/x'), named(6, 'аудит/ветка'), named(7, 'fix y'), named(8, '-x'), named(9, 'fix/open', 'open'), { ...inEpic('аудит', 3, 'work'), branch: null }])
+    expect(branches).toEqual(['fix/x', 'аудит/ветка'])
     expect(checksGet.input.safeParse({ root: ROOT, branches }).success).toBe(true)
   })
 })

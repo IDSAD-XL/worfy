@@ -83,7 +83,9 @@ test('Projects: add, switch, edit settings, restart, remove — and the reposito
 
     // A folder outside any git repository is refused with a message.
     await addProject(first, plain)
-    await expect(window.getByTestId('projects-error')).toHaveText(`${plain} is not a git repository. Choose the folder of a git repository.`)
+    await expect(window.getByTestId('projects-error')).toHaveText(
+      `${plain} is not a git repository. Choose the folder of a git repository; a Project over several repositories is connected in the Harness first.`,
+    )
     await expect(window.getByTestId('project-row')).toHaveCount(0)
 
     // A subfolder becomes its repository root, and the user is told so.

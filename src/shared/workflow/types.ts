@@ -1,7 +1,7 @@
 // The workflow model of a Project: its Epics and Tickets as `epic-status --json` reports them,
 // plus the two things that script does not carry: the files listed under a Ticket's
 // "Где в коде" section and the Epic's title from spec.md (ADR-0002: worfy reads the workflow,
-// it never owns it).
+// it never owns it). In Silent mode both come from the Workflow folder (ADR-0042).
 import { z } from 'zod'
 
 /** Ticket state as epic-status classifies the raw `Status:` value. */
@@ -26,6 +26,14 @@ export const epicStatusTicketSchema = z.object({
   blockedRaw: z.string().nullable(),
   blockedNums: z.array(z.number().int().nonnegative()),
   blockedParsed: z.boolean(),
+  /**
+   * The Ticket's `Branch:` line (worfy-harness ticket 22): the branch it is worked in. In Silent mode
+   * the branch is named by the change, so only this line ties it to the Ticket; null or absent
+   * without the line, absent from a Harness before Silent mode.
+   */
+  branch: z.string().nullable().optional(),
+  /** The Ticket's `Repo:` line: the repository of a Project over several repositories (ADR-0045). */
+  repo: z.string().nullable().optional(),
 })
 
 /** The whole answer of `epic-status --json [--ref <branch>]`. Unknown keys are dropped. */
@@ -67,7 +75,7 @@ export const branchErrorSchema = z.object({ branch: z.string(), message: z.strin
 export type BranchError = z.infer<typeof branchErrorSchema>
 
 export const workflowModelSchema = z.object({
-  /** Absolute path of the Project's repository root. */
+  /** Absolute path of the Project root: its repository, or the folder above its repositories (ADR-0045). */
   root: z.string(),
   epics: z.array(epicSchema),
   tickets: z.array(ticketSchema),

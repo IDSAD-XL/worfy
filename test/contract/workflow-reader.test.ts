@@ -3,7 +3,7 @@
 // script does for these tests' simple files: from the working tree, or from a branch for `--ref`.
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -31,11 +31,13 @@ let files
 if (ref) {
   files = git('ls-tree', '-r', '--name-only', ref, '--', '.scratch').split('\n').filter(Boolean).map((p) => [p, () => git('show', ref + ':' + p)])
 } else {
+  // STUB_SCRATCH: the tickets root of a Silent Project, outside the repository (its Workflow folder).
+  const scratch = process.env.STUB_SCRATCH || '.scratch'
   files = []
-  if (existsSync('.scratch')) for (const epic of readdirSync('.scratch')) {
-    for (const f of ['spec.md', 'map.md']) if (existsSync(join('.scratch', epic, f))) files.push([join('.scratch', epic, f), () => ''])
-    const dir = join('.scratch', epic, 'issues')
-    if (existsSync(dir)) for (const f of readdirSync(dir)) files.push([join(dir, f), () => readFileSync(join(dir, f), 'utf8')])
+  if (existsSync(scratch)) for (const epic of readdirSync(scratch)) {
+    for (const f of ['spec.md', 'map.md']) if (existsSync(join(scratch, epic, f))) files.push([join('.scratch', epic, f), () => ''])
+    const dir = join(scratch, epic, 'issues')
+    if (existsSync(dir)) for (const f of readdirSync(dir)) files.push([join('.scratch', epic, 'issues', f), () => readFileSync(join(dir, f), 'utf8')])
   }
 }
 const epics = new Map()
@@ -55,8 +57,11 @@ for (const [path, read] of files) {
   const word = (status ?? '').split(/\s/)[0]
   const state = status === null ? 'none' : /^done$/i.test(word) ? 'done' : /^claimed$/i.test(word) ? 'work' : /^blocked$/i.test(word) ? 'blocked' : 'open'
   const nums = blocked && !/^[—-]$/.test(blocked.trim()) ? blocked.split(',').map((s) => Number(s.trim())) : []
+  // Branch: and Repo: as the Harness of Silent mode gives them; only when the Ticket has the line.
+  const lines = {}
+  for (const [key, name] of [['branch', 'Branch'], ['repo', 'Repo']]) { const v = last(name); if (v !== null) lines[key] = v }
   tickets.push({ epic, num: Number(m[1]), slug: m[2], title: (text.split('\n')[0] || '').replace(/^#\s*/, ''), statusRaw: status, state,
-    blockedRaw: blocked, blockedNums: nums, blockedParsed: nums.every((n) => !Number.isNaN(n)), ref: ref ?? '.', secret: 'not-for-the-renderer' })
+    blockedRaw: blocked, blockedNums: nums, blockedParsed: nums.every((n) => !Number.isNaN(n)), ...lines, ref: ref ?? '.', secret: 'not-for-the-renderer' })
 }
 if (process.env.STUB_MODE === 'fail') { process.stderr.write('stub broke on purpose\n'); process.exit(3) }
 if (process.env.STUB_MODE === 'garbage') { process.stdout.write('not json at all'); process.exit(0) }
@@ -185,6 +190,7 @@ beforeEach(() => {
   cleanups = []
   delete process.env.STUB_MODE
   delete process.env.STUB_DELAY_MS
+  delete process.env.STUB_SCRATCH
 })
 
 afterEach(async () => {
@@ -454,6 +460,142 @@ describe('workflow reader', () => {
     expect(git(repo, 'status', '--porcelain', '--untracked-files=all')).toBe(statusBefore)
     // The Claude home that bin/epic-status runs from is read-only for worfy too (ADR 0005).
     expect(treeState(home)).toEqual(homeBefore)
+  })
+})
+
+// ── Silent mode and a Harness without it (worfy-harness ticket 23) ───────────
+
+/**
+ * Stub `bin/profile` and `bin/ticket` next to bin/epic-status. `profile --json` prints `json` with
+ * exit code `code`; `ticket root` prints `ticketsRoot` (exit 1 when it is null). Each run is logged
+ * to `harness-calls.log` next to the Claude home, so the home itself stays as it was.
+ */
+function stubHarness(home: string, profile: { code: number; json: unknown }, ticketsRoot: string | null): string {
+  const log = join(home, '..', 'harness-calls.log')
+  writeFileSync(log, '')
+  const answer = join(home, 'profile.json')
+  writeFileSync(answer, typeof profile.json === 'string' ? profile.json : JSON.stringify(profile.json))
+  const profileScript = join(home, 'bin', 'profile')
+  writeFileSync(profileScript, `#!/bin/sh\necho "profile $*" >> '${log}'\ncat '${answer}'\nexit ${profile.code}\n`)
+  chmodSync(profileScript, 0o755)
+  const ticketScript = join(home, 'bin', 'ticket')
+  writeFileSync(ticketScript, `#!/bin/sh\necho "ticket $* in $(pwd -P)" >> '${log}'\n${ticketsRoot === null ? 'exit 1' : `echo '${ticketsRoot}'`}\n`)
+  chmodSync(ticketScript, 0o755)
+  return log
+}
+
+/**
+ * A Silent Project: the repository has no `.scratch` (and a worktree on `demo/02`), the Workflow
+ * folder is another temporary folder with Epic `demo` — spec.md and two Tickets that name their
+ * branch and repository.
+ */
+function makeSilent(base: string): { repo: string; folder: string; scratch: string } {
+  const repo = join(base, 'silent-repo')
+  mkdirSync(repo, { recursive: true })
+  writeFileSync(join(repo, 'README.md'), 'code only\n')
+  git(base, 'init', '-q', '-b', 'main', repo)
+  git(repo, 'add', '-A')
+  git(repo, 'commit', '-qm', 'code')
+  git(repo, 'worktree', 'add', '-q', '-b', 'demo/02', join(repo, '.claude', 'worktrees', '02'), 'main')
+  const folder = join(base, 'workflow-folder')
+  const scratch = join(folder, '.scratch')
+  const issues = join(scratch, 'demo', 'issues')
+  mkdirSync(issues, { recursive: true })
+  writeFileSync(join(scratch, 'demo', 'spec.md'), '# Silent epic: tickets outside the repository\n')
+  writeFileSync(join(issues, '01-first.md'), ticketText(1, 'claimed — 2026-10-09', '—', ['src/a.ts']).replace('Type: task', 'Type: task\nBranch: fix/first\nRepo: silent-repo'))
+  writeFileSync(join(issues, '02-second.md'), ticketText(2, 'open', '01', ['src/b.ts', 'src/c.ts']))
+  return { repo, folder, scratch }
+}
+
+const silentProfile = (repo: string, folder: string) => ({
+  name: 'silent',
+  mode: 'silent',
+  _resolved: { name: 'silent', mode: 'silent', workflow_folder: folder, workspace: null, repos: [{ name: 'silent-repo', path: repo, gate_key: 'silent' }] },
+})
+
+describe('workflow reader in Silent mode', () => {
+  it('Silent Project: the Epic title from spec.md and the Ticket files come from the Workflow folder; no epic-status --ref, fromBranch null', async () => {
+    const { repo, folder, scratch } = makeSilent(dir)
+    const { home, log } = makeClaudeHome(dir)
+    const harnessLog = stubHarness(home, { code: 0, json: silentProfile(repo, folder) }, scratch)
+    process.env.STUB_SCRATCH = scratch
+
+    const { model } = await readWorkflow({ root: repo, claudeHome: home })
+    expect(model.error).toBeNull()
+    expect(model.epics).toEqual([{ epic: 'demo', hasSpec: true, hasMap: false, title: 'Silent epic: tickets outside the repository' }])
+    expect(ticketOf(model, 1)).toMatchObject({ state: 'work', files: ['src/a.ts'], filesListed: true, fromBranch: null, branch: 'fix/first', repo: 'silent-repo' })
+    expect(ticketOf(model, 2)).toMatchObject({ state: 'open', files: ['src/b.ts', 'src/c.ts'], filesListed: true, fromBranch: null })
+    expect(model.branchErrors).toEqual([])
+    // The worktree on demo/02 is there, and still no branch is read: in Silent mode the status lives in the Workflow folder only.
+    expect(calls(log)).toEqual(['.'])
+    expect(calls(harnessLog)).toEqual([`profile -C ${repo} --json`, `ticket root in ${realpathSync(repo)}`])
+  })
+
+  it('a Ticket file edited in the Workflow folder comes as a new model through the watcher; refs are not read', async () => {
+    const { repo, folder, scratch } = makeSilent(dir)
+    const { home, log } = makeClaudeHome(dir)
+    stubHarness(home, { code: 0, json: silentProfile(repo, folder) }, scratch)
+    process.env.STUB_SCRATCH = scratch
+    const deltas: WorkflowDelta[] = []
+    const watcher = await startWatcher(repo, home, deltas)
+    expect(ticketOf(watcher.current, 2)?.state).toBe('open')
+
+    const file = join(scratch, 'demo', 'issues', '02-second.md')
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked — waiting').replace('`src/c.ts`', '`src/d.ts`'))
+    const { delta } = await nextDelta(deltas, (d) => d.tickets.length > 0)
+    expect(delta.tickets.map((t) => [t.num, t.state, t.files, t.fromBranch])).toEqual([[2, 'blocked', ['src/b.ts', 'src/d.ts'], null]])
+
+    // A new commit on the Ticket branch of the worktree changes nothing and runs no --ref.
+    const worktree = join(repo, '.claude', 'worktrees', '02')
+    writeFileSync(join(worktree, 'x.txt'), 'x')
+    git(worktree, 'add', 'x.txt')
+    git(worktree, 'commit', '-qm', 'x')
+    await new Promise((done) => setTimeout(done, 700))
+    await watcher.idle()
+    expect(calls(log).filter((call) => call !== '.')).toEqual([])
+  })
+
+  it('a Full Project and a Harness without the new fields read as before the Ticket: exit 4, no _resolved.mode, a failing script', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    claimInWorktree(repo, 'demo/02', '02', '02-second.md')
+    const before = (await readWorkflow({ root: repo, claudeHome: home })).model
+    expect(ticketOf(before, 2)).toMatchObject({ state: 'work', fromBranch: 'demo/02' })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    for (const [label, profile, ticketsRoot] of [
+      ['Full mode', { code: 0, json: { mode: 'full', _resolved: { mode: 'full', workflow_folder: repo, workspace: null, repos: [{ name: 'project', path: repo, gate_key: 'p' }] } } }, join(repo, '.scratch')],
+      ['exit code 4', { code: 4, json: '' }, null],
+      ['no _resolved.mode', { code: 0, json: { name: 'old', _resolved: { name: 'old', dir: '/x', repo_root: repo } } }, null],
+      ['a failing script', { code: 1, json: 'registry is broken' }, null],
+      ['exit code 3', { code: 3, json: '' }, null],
+    ] as const) {
+      stubHarness(home, profile, ticketsRoot)
+      const { model } = await readWorkflow({ root: repo, claudeHome: home })
+      expect(model, label).toEqual(before)
+    }
+    warn.mockRestore()
+  })
+
+  it('writes nothing into the Workflow folder, the repository or the Claude home while reading and watching', async () => {
+    const { repo, folder, scratch } = makeSilent(dir)
+    const { home } = makeClaudeHome(dir)
+    stubHarness(home, { code: 0, json: silentProfile(repo, folder) }, scratch)
+    process.env.STUB_SCRATCH = scratch
+    const status = git(repo, 'status', '--porcelain', '--untracked-files=all')
+    const refs = git(repo, 'for-each-ref')
+    const [repoBefore, folderBefore, homeBefore] = [treeState(repo), treeState(folder), treeState(home)]
+
+    await readWorkflow({ root: repo, claudeHome: home })
+    const watcher = await startWatcher(repo, home, [])
+    await new Promise((done) => setTimeout(done, 500))
+    await watcher.close()
+
+    expect(treeState(repo)).toEqual(repoBefore)
+    expect(treeState(folder)).toEqual(folderBefore)
+    expect(treeState(home)).toEqual(homeBefore)
+    expect(git(repo, 'status', '--porcelain', '--untracked-files=all')).toBe(status)
+    expect(git(repo, 'for-each-ref')).toBe(refs)
   })
 })
 

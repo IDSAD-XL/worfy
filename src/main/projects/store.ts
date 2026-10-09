@@ -1,7 +1,8 @@
 // The list of Projects and the active one, kept in `<WORFY_DATA_DIR>/projects.json` (ADR 0005).
-// A Project is one git repository. worfy only reads the repository, with `git rev-parse` and
-// `git symbolic-ref`, and never writes into it: the list, the settings and the data folder of a
-// Project all live under worfy's data root.
+// A Project is a git repository, or a folder above several repositories that the Harness knows as
+// one Project (ADR-0045: `profile -C <folder>` answers with code 0 and a `_resolved.workspace`).
+// worfy only reads the repository, with `git rev-parse` and `git symbolic-ref`, and never writes
+// into it: the list, the settings and the data folder of a Project all live under worfy's data root.
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { mkdirSync, realpathSync, statSync } from 'node:fs'
@@ -9,7 +10,8 @@ import { basename, dirname, join } from 'node:path'
 import { z } from 'zod'
 import type { ProjectsState, ProjectView } from '../../shared/ipc/projects'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
-import { dataRoot } from '../storage/paths'
+import { claudeHome, dataRoot } from '../storage/paths'
+import { readResolvedProfile } from '../workflow/profile'
 import { ensureProjectSettings } from './settings'
 
 const storedProjectSchema = z.object({
@@ -44,6 +46,18 @@ export const runGit: GitRunner = (args) => {
       else resolve(stdout.trim())
     })
   })
+}
+
+/**
+ * The folder above several repositories that the Harness knows as one Project, for a folder outside
+ * git; null when it knows none. Tests pass a fake.
+ */
+export type WorkspaceOf = (folder: string) => Promise<string | null>
+
+/** `_resolved.workspace` of `bin/profile -C <folder> --json` of the Harness in the app's Claude home. */
+export const harnessWorkspaceOf: WorkspaceOf = async (folder) => {
+  const read = await readResolvedProfile({ root: folder, claudeHome: claudeHome(), env: process.env, log: () => undefined })
+  return read.ok ? read.profile.workspace : null
 }
 
 /** Hex characters of the path hash that ends every Project id. */
@@ -100,6 +114,7 @@ export class ProjectStore {
   constructor(
     private readonly root: string,
     private readonly git: GitRunner = runGit,
+    private readonly workspaceOf: WorkspaceOf = harnessWorkspaceOf,
   ) {}
 
   get file(): string {
@@ -201,7 +216,7 @@ export class ProjectStore {
       toplevel = await this.git(['-C', folder, 'rev-parse', '--show-toplevel'])
       commonDir = await this.git(['-C', folder, 'rev-parse', '--path-format=absolute', '--git-common-dir'])
     } catch {
-      return { ok: false, reason: `${folder} is not a git repository. Choose the folder of a git repository.` }
+      return this.resolveWorkspace(folder)
     }
     if (!toplevel) return { ok: false, reason: `${folder} is not inside a working tree of a git repository.` }
 
@@ -214,6 +229,22 @@ export class ProjectStore {
       notice = `${folder} is inside the repository ${root}; the repository root was added instead.`
     }
     return { ok: true, root, notice }
+  }
+
+  /**
+   * A folder outside git: a Project over several repositories when the Harness knows it as one
+   * (ADR-0045), its common folder as the root; any other is refused.
+   */
+  private async resolveWorkspace(folder: string): Promise<Resolved> {
+    const workspace = await this.workspaceOf(folder).catch(() => null)
+    if (workspace === null) {
+      return {
+        ok: false,
+        reason: `${folder} is not a git repository. Choose the folder of a git repository; a Project over several repositories is connected in the Harness first.`,
+      }
+    }
+    const notice = realpathOrSelf(folder) === realpathOrSelf(workspace) ? null : `${folder} is inside the Project ${workspace} over several repositories; its folder was added instead.`
+    return { ok: true, root: workspace, notice }
   }
 
   /**

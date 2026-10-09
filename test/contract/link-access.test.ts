@@ -572,7 +572,7 @@ describe('round 2: a Linked machine works inside the Projects of the list only',
     })
   })
 
-  it('a root outside the Projects is refused for A on workflow, claude-home, bindings and checks; inside it answers; B\'s window as before', async () => {
+  it('a root outside the Projects is refused for A on workflow, claude-home, bindings and checks; inside it answers; B\'s window as before, except checks', async () => {
     setAccess(true)
     const sessionId = '77777777-7777-4777-8777-777777777777'
     for (const [channel, input] of [
@@ -601,7 +601,9 @@ describe('round 2: a Linked machine works inside the Projects of the list only',
     const windowCall = await windowIpc(['./claude-home.ts', './bindings.ts', './checks.ts'])
     expect(await windowCall('claudeHome.live', { projectRoot: outside }, window)).toMatchObject({ ok: true })
     expect(await windowCall('bindings.signals', { projectRoot: '/', sessionId }, window)).toMatchObject({ ok: true })
-    expect(await windowCall('checks.get', { root: outside, branches: [] }, window)).toMatchObject({ ok: true, value: { root: outside } })
+    // checks.get takes only a Project root or one of its repositories, from a window too (worfy-harness ticket 23).
+    expect(await windowCall('checks.get', { root: outside, branches: [] }, window)).toMatchObject({ ok: false, error: expect.stringMatching(/neither the root of a Project nor one of its repositories/) })
+    expect(await windowCall('checks.get', { root: repo, branches: [] }, window)).toMatchObject({ ok: true, value: { root: repo } })
   })
 
   it('projects.add and projects.remove from A leave B\'s active Project as it is; the active one is not removed; B\'s window switches as before', async () => {

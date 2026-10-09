@@ -1,7 +1,8 @@
 # 23 — worfy читает Workflow folder Silent Project-а; Project над несколькими репозиториями: репозиторий на Node Ticket-а, Gate, PR и CI по нему
 
 Type: task
-Status: open
+Status: claimed — 2026-10-09
+Branch: worfy-harness/23
 Blocked by: 22
 Source: решения владельца 2026-10-07, Q27, Q29, Q24, Q17; [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) (Full mode и Silent mode, Workflow folder, статус в Silent только в Workflow folder); [ADR-0045](../../../docs/adr/0045-one-ticket-one-repository.md) (один Ticket — один репозиторий, Project над несколькими репозиториями — Silent mode); [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md) (worfy — вид над workflow, только чтение); [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md) (worfy ничего не пишет в репозитории Project-ов); [spec.md](../spec.md)
 
@@ -163,4 +164,59 @@ Epic-а из spec.md в Workflow folder». На нынешнем main `enrichSna
 
 ## Итог
 
-Заполняется при закрытии.
+- Где workflow Project-а — новый `src/main/workflow/folder.ts`: `readProjectLayout` спрашивает
+  `profile -C <корень> --json` (`readResolvedProfile` в `src/main/workflow/profile.ts`, тот же запуск и
+  те же коды выхода, что у `mcp.allowed`) и `ticket root` в корне Project-а. Код 3, код 4, нет скрипта,
+  сбой, не JSON, нет `_resolved.mode` — Full mode, корень Project-а, `<корень>/.scratch`, репозиториев
+  не названо; причина — одна строка `[workflow] …` в лог на Project. Сбой одного `ticket root` —
+  `<Workflow folder>/.scratch`. `LayoutCache` держит ответ 30 с (checks и документы спрашивают часто).
+- `enrichSnapshot` и watcher читают корень Ticket-ов, который назвал `ticket root`; в Silent mode
+  `epic-status --ref` не вызывается и refs не отслеживаются, `fromBranch` — `null`, `branchErrors` пуст.
+  Режим читается один раз при старте watcher-а: смена режима в Profile видна после повторного
+  открытия Project-а. У Ticket-а в модели — `branch` и `repo` из `epic-status --json` (необязательные:
+  старый Harness их не даёт).
+- HANDOFF и ADR: корень документов — `docsRoot` в `src/main/ipc/docs.ts` (Full — корень Project-а,
+  Silent — Workflow folder); правило `resolveDocPath` то же.
+- Папка вне git добавляется, если `profile -C <папка> --json` даёт `_resolved.workspace`; корень Project-а —
+  этот workspace (папка внутри него добавляет его же, с пояснением). Отказ теперь: «… is not a git
+  repository. Choose the folder of a git repository; a Project over several repositories is connected in
+  the Harness first.»
+- Gate, PR и CI: новый канал `checks.repos` (`project`, как `checks.get`: Canvas Linked machine
+  показывает те же бейджи) — режим и репозитории Project-а. Renderer (`use-checks.ts`) в Project-е над
+  несколькими репозиториями спрашивает `checks.get` по каждому репозиторию с ветками его Ticket-ов;
+  бейджи и Open PR Ticket-а — из снимка его репозитория, Ticket без `Repo:` — без бейджей.
+  `checks.get` в main принимает только корень Project-а или один из его `repos` (из окна тоже) и ветки
+  `<epic>/<NN>` или названные моделью (`Branch:`) для Ticket-ов этого репозитория; модель — из
+  `WorkflowHub.model`.
+- Дерево `<HARNESS_HOME>/worktrees/<project>/<NN>` узнаётся как дерево Ticket-а `<NN>` (`ticket-ref.ts`,
+  Binding по cwd); Binding по ветке сначала ищет Ticket, чей `Branch:` — эта ветка (ровно один).
+- Chip репозитория на Node Ticket-а (`data-testid="ticket-repo"`, подсказка «repository <имя>», «no repo»
+  без `Repo:`) — только когда у Project-а больше одного репозитория. Снимки:
+  [Silent Project, светлая](../evidence/23-silent-project-light.png),
+  [тёмная](../evidence/23-silent-project-dark.png); [два репозитория, светлая](../evidence/23-two-repos-light.png),
+  [тёмная](../evidence/23-two-repos-dark.png).
+- Как падал первый test: `test/contract/workflow-reader.test.ts`, «Silent Project: …» — на main
+  `model.epics[0].title` был `null` (ожидался «Silent epic: tickets outside the repository»): spec.md
+  читался из `<корень>/.scratch`.
+- Вне следа (требовал результат Ticket-а): `test/contract/link-access.test.ts` — вызов `checks.get` из окна
+  с корнем вне Project-ов теперь отказ (раньше проходил); `test/e2e/projects.spec.ts` (след Ticket-а 24) —
+  новый текст отказа для папки вне git.
+- Решено без владельца, подтвердить: (1) дерево вне репозитория узнаётся по любому
+  `…/worktrees/<project>/<NN>`, а не только под `HARNESS_HOME`: путь Harness home renderer не знает, а его
+  можно перенести; (2) окружение `profile` и `ticket` для чтения режима — то же, что у `epic-status`
+  (окружение процесса worfy); (3) `checks.get` отказывает всему вызову при чужой ветке — renderer
+  отправляет только ветки, которые main примет; (4) список репозиториев renderer спрашивает один раз за
+  жизнь окна.
+- Долг Ticket-а 22 (`src/main/workflow/reader.ts:321` читает `done` с невлитой ветки как закрытый) не
+  исправлен: это правило ADR-0033 («ветка перекрывает checkout, кроме `blocked`/`done` checkout-а»), его
+  изменение — отдельное решение; в Silent mode ветки не читаются вовсе, там долга нет.
+- Проверки: `pnpm lint && pnpm typecheck && pnpm test` — код 0 (157 файлов, 3060 test-ов); gate fast — код 0,
+  «зелено»; `GATE_SCOPE=all gate.sh full` под замком `/tmp/worfy-e2e.lock` — код 0, «зелено (full)» (третий
+  прогон: в первом упали оба test-а `silent-project.spec.ts`, во втором — 25 test-ов `agent…card-runtime`,
+  оба раза при параллельных прогонах e2e других агентов: замок снимался как «старше 30 минут» у
+  ещё работавшего владельца; отдельно `silent-project.spec.ts` проходил).
+- Не проверено: ручной пункт — Project Atakama в Stable copy (окно Stable copy агенту недоступно,
+  `/Users/alexey/Work/*` не читались). Двойной клик по Ticket-у Silent Project-а открывает путь
+  `.scratch/…` относительно корня Project-а (`ticketFile` в `src/renderer/canvas/epic-layout.ts`, вне
+  следа) — файла там нет. Бейдж Gate на Session в Project-е над несколькими репозиториями по-прежнему
+  спрашивает корень Project-а (папку вне git) — Gate Session-а в таком Project-е не показывается.

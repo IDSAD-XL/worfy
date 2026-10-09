@@ -14,13 +14,19 @@ const absolutePath = z
   .refine((path) => path.startsWith('/') && !path.includes('\0'), 'must be an absolute path')
 
 /**
- * A branch that names a Ticket (`<epic>/<NN>`, src/shared/workflow/ticket-ref.ts). Main passes it
- * to `gh` inside a single argument; it can never start with a dash.
+ * A branch name `checks.get` takes: at most 200 characters, no whitespace or control characters,
+ * never starting with a dash. Main passes it to `gh` inside a single argument, and takes it only
+ * when it is `<epic>/<NN>` or a branch the workflow model names for a Ticket (src/main/ipc/checks.ts).
  */
-export const ticketBranchSchema = z
+export const branchNameSchema = z
   .string()
+  .min(1)
   .max(200)
-  .refine((branch) => parseTicketBranch(branch) !== null && !branch.startsWith('-') && !/\s/.test(branch), 'not a Ticket branch')
+  // eslint-disable-next-line no-control-regex
+  .refine((branch) => !branch.startsWith('-') && !/[\s\u0000-\u001f\u007f]/u.test(branch), 'not a branch name')
+
+/** A branch that names a Ticket by its form (`<epic>/<NN>`, src/shared/workflow/ticket-ref.ts). */
+export const ticketBranchSchema = branchNameSchema.refine((branch) => parseTicketBranch(branch) !== null, 'not a Ticket branch')
 
 /**
  * The gate's verdict on one worktree. `green`, `red` and `unverified` («проверить не удалось») are
@@ -111,53 +117,95 @@ export const checksSnapshotSchema = z.object({
 export type ChecksSnapshot = z.infer<typeof checksSnapshotSchema>
 
 /**
- * Gate state of every worktree of the Project and the pull requests of its Ticket branches.
- * `branches` are the branches of Tickets in work that the renderer knows of; main adds the
- * branches of the Project's worktrees itself. `gh` runs at most once per interval whatever the
- * call rate, so the renderer may ask often (it asks only while its window is focused).
+ * Gate state of every worktree of a repository and the pull requests of its Ticket branches.
+ * `root` is the Project root or one of the Project's repositories (`checks.repos`): main refuses
+ * any other folder, so `git` and `gh` never run elsewhere. `branches` are the branches of Tickets in
+ * work that the renderer knows of — `<epic>/<NN>`, or the `Branch:` the workflow model names for a
+ * Ticket of that repository; main refuses any other and adds the branches of the worktrees itself.
+ * `gh` runs at most once per interval whatever the call rate, so the renderer may ask often (it
+ * asks only while its window is focused).
  */
 export const checksGet = invokeChannel(
   'checks.get',
-  z.object({ root: absolutePath, branches: z.array(ticketBranchSchema).max(500) }),
+  z.object({ root: absolutePath, branches: z.array(branchNameSchema).max(500) }),
   checksSnapshotSchema,
   'project',
 )
 
+/** One repository of a Project: `name` is what a Ticket's `Repo:` line says, `path` its root. */
+export const projectRepoSchema = z.object({ name: z.string().min(1), path: z.string().min(1) })
+export type ProjectRepoView = z.infer<typeof projectRepoSchema>
+
+export const projectReposSchema = z.object({
+  mode: z.enum(['full', 'silent']),
+  /** The Project's repositories as the Harness names them (worfy-harness ticket 22); empty when it does not. */
+  repos: z.array(projectRepoSchema),
+})
+export type ProjectRepos = z.infer<typeof projectReposSchema>
+
+/**
+ * The mode and the repositories of the Project at `root` (a Project root, nothing else): a
+ * Project over several repositories gets its checks one repository at a time (ADR-0045). Open to a
+ * Linked machine like `checks.get`: its Canvas shows the same badges.
+ */
+export const checksRepos = invokeChannel('checks.repos', z.object({ root: absolutePath }), projectReposSchema, 'project')
+
 declare module './channels' {
   interface IpcContract {
     'checks.get': typeof checksGet
+    'checks.repos': typeof checksRepos
   }
 }
 
 // ── what a badge shows ──────────────────────────────────────────────────────
 
-/** A Ticket as the selectors need it. */
+/** A Ticket as the selectors need it; `branch` is its `Branch:` line, when it has one. */
 export interface TicketLike {
   epic: string
   num: number
+  branch?: string | null | undefined
 }
 
+/** The branch is the Ticket's: the one its `Branch:` line names, or `<epic>/<NN>` of it. */
 const sameTicket = (ticket: TicketLike, branch: string | null): boolean => {
-  const ref = branch === null ? null : parseTicketBranch(branch)
+  if (branch === null) return false
+  if (ticket.branch && branch === ticket.branch) return true
+  const ref = parseTicketBranch(branch)
   return ref !== null && ref.epic === ticket.epic && ref.num === ticket.num
 }
 
 /**
  * The worktree of a Ticket: the one whose branch names it, else the one whose folder
- * (`.claude/worktrees/<NN>`) carries its number while its branch names no Ticket at all. The
- * folder names no Epic, so it is taken only when no other Epic of the Project (`tickets`, all of
- * its Tickets) has a Ticket with that number.
+ * (`.claude/worktrees/<NN>`, or `<Harness home>/worktrees/<project>/<NN>` outside the repository)
+ * carries its number while its branch names no Ticket at all. The folder names no Epic, so it is
+ * taken only when no other Epic of the Project (`tickets`, all of its Tickets) has a Ticket with
+ * that number.
  */
 export function worktreeOfTicket(snapshot: ChecksSnapshot, ticket: TicketLike, tickets: readonly TicketLike[]): WorktreeChecks | null {
   const byBranch = snapshot.worktrees.find((worktree) => sameTicket(ticket, worktree.branch))
   if (byBranch) return byBranch
   if (tickets.some((other) => other.num === ticket.num && other.epic !== ticket.epic)) return null
+  const named = new Set(tickets.flatMap((other) => (other.branch ? [other.branch] : [])))
   return (
     snapshot.worktrees.find((worktree) => {
-      if (worktree.branch !== null && parseTicketBranch(worktree.branch) !== null) return false
+      if (worktree.branch !== null && (parseTicketBranch(worktree.branch) !== null || named.has(worktree.branch))) return false
       return parseWorktreeFolder(worktree.path)?.num === ticket.num
     }) ?? null
   )
+}
+
+/**
+ * Where a Ticket's checks come from: `project` — the Project root, as for a Project of one
+ * repository; `repo` — its own repository in a Project over several (its `Repo:` line names one of
+ * them); `none` — such a Project, and the Ticket names no repository of it: it gets no Gate, PR or
+ * CI badges.
+ */
+export type TicketChecksSource = { kind: 'project' } | { kind: 'repo'; repo: ProjectRepoView } | { kind: 'none' }
+
+export function checksSourceOfTicket(repos: readonly ProjectRepoView[], ticket: { repo?: string | null | undefined }): TicketChecksSource {
+  if (repos.length < 2) return { kind: 'project' }
+  const repo = ticket.repo ? repos.find((each) => each.name === ticket.repo) : undefined
+  return repo ? { kind: 'repo', repo } : { kind: 'none' }
 }
 
 const PR_STATE_RANK: Record<PullRequest['state'], number> = { OPEN: 0, MERGED: 1, CLOSED: 2 }

@@ -4,6 +4,7 @@ import type { Ticket } from '../../../shared/workflow/types'
 import { invoke } from '../../ipc'
 import { StatusChip } from '../../theme/primitives'
 import { actions, badges, type SlotSubject } from '../badges'
+import { useProjectRepos } from '../badges/use-checks'
 import { blockedReason, ticketFile, ticketTitle, type AttentionReason } from '../epic-layout'
 import type { TicketNodeData } from '../sources/epics'
 import type { CanvasNodeProps } from './index'
@@ -13,7 +14,8 @@ import '../epic-frame.css'
 // slots for badges (ticket 17) and actions (ticket 23). A double click opens the Ticket file in
 // the default editor through `shell.openInEditor`. The Node comes from sources/epics.ts. A row that
 // may be cut — the title past its line limit, the blockers line, the blocked reason — carries its
-// whole text in its tooltip.
+// whole text in its tooltip. In a Project over several repositories (ADR-0045) a chip next to the
+// number names the Ticket's repository (its `Repo:` line), or says it has none.
 export const kind = 'ticket'
 // TICKET_WIDTH and TICKET_HEIGHT of epic-layout.ts; a literal, so Fast Refresh keeps working.
 export const defaultWidth = 204
@@ -41,6 +43,27 @@ function StateChip({ ticket }: { ticket: Ticket }) {
         </span>
       )
   }
+}
+
+/** The chip is cut with "…" past this width; its tooltip has the whole name. */
+const REPO_CHIP_STYLE = { display: 'block', minWidth: 0, maxWidth: 84, overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '16px' } as const
+
+/** The Ticket's repository, shown only in a Project with more than one. */
+function RepoChip({ root, repo }: { root: string; repo: string | null | undefined }) {
+  const repos = useProjectRepos(root)
+  if (!repos || repos.repos.length < 2) return null
+  const name = repo?.trim() || null
+  return (
+    <span
+      className="w-chip w-chip--open w-mono"
+      style={REPO_CHIP_STYLE}
+      data-testid="ticket-repo"
+      data-repo={name ?? undefined}
+      title={name ? `repository ${name}` : 'no repository: the Ticket has no Repo: line'}
+    >
+      {name ?? 'no repo'}
+    </span>
+  )
 }
 
 function attentionText(reason: AttentionReason): string {
@@ -107,6 +130,7 @@ function TicketNode({ data }: CanvasNodeProps) {
       <Handle type="target" position={Position.Left} isConnectable={false} className="w-ticket__handle" />
       <div className="w-ticket__top">
         <span className="w-mono w-ticket__num">{pad(ticket.num)}</span>
+        <RepoChip root={root} repo={ticket.repo} />
         <StateChip ticket={ticket} />
         {placed.ready ? (
           // In the ready Wave: marked here, not by the Ticket's place in its column (ADR-0037).

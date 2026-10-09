@@ -4,14 +4,15 @@ import { useClaudeHome } from '../../claude-home/useClaudeHome'
 import { useWorkflow } from '../../workflow/useWorkflow'
 import { StatusChip, type Status } from '../../theme/primitives'
 import type { SlotProps } from './index'
-import { useChecks } from './use-checks'
+import { useChecks, useTicketChecks } from './use-checks'
 import '../epic-frame.css'
 import './checks-badges.css'
 
 // Gate, PR, CI and the reviewer's verdict on a Ticket, and the gate on a Session (ticket 17).
 //
-// The snapshot comes from use-checks.ts, one copy per Project for all badges. Colours are the
-// ready / working / blocked tokens, always with a label.
+// The snapshot comes from use-checks.ts, one copy per Project for all badges — per repository in a
+// Project over several, where a Ticket's badges come from its own repository's copy. Colours are
+// the ready / working / blocked tokens, always with a label.
 
 export const order = 10
 
@@ -71,7 +72,7 @@ function summary(worktree: { gate: { outcome: GateOutcome } } | null, pull: Pull
 }
 
 function TicketChecks({ root, ticket }: { root: string; ticket: Ticket }) {
-  const snapshot = useChecks(root)
+  const snapshot = useTicketChecks(root, ticket)
   const { model } = useWorkflow(root)
   if (!snapshot) return null
   const worktree = worktreeOfTicket(snapshot, ticket, model?.tickets ?? [ticket])

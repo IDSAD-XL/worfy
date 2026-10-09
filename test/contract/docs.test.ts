@@ -141,6 +141,8 @@ beforeEach(async () => {
 
   vi.resetModules()
   process.env.WORFY_DATA_DIR = dataDir
+  // No Harness in this Claude home: every Project reads as Full mode, the machine's ~/.claude is not asked.
+  process.env.WORFY_CLAUDE_HOME = join(scratch, 'claude-home')
   const { registerIpc, appUrlMatcher } = await import('../../src/main/ipc/index')
   docsModule = await import('../../src/main/ipc/docs')
   layoutModule = await import('../../src/main/layout/store')
@@ -158,6 +160,7 @@ afterEach(async () => {
   await docsModule.docsHub.closeAll()
   vi.restoreAllMocks()
   delete process.env.WORFY_DATA_DIR
+  delete process.env.WORFY_CLAUDE_HOME
   rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
@@ -336,6 +339,67 @@ describe('the HANDOFF Node', () => {
     await value('docs.open', { projectId: PROJECT_ID })
     const id = handoffNodes()[0]!.id
     expect(() => layoutModule.layoutStore().apply(PROJECT_ID, { op: 'remove', id })).toThrow(/locked/)
+  })
+})
+
+describe('a Silent Project (worfy-harness ticket 23)', () => {
+  let folder: string
+
+  /** Makes the Project Silent: stub bin/profile and bin/ticket name `folder` as its Workflow folder. */
+  beforeEach(() => {
+    folder = join(scratch, 'workflow-folder')
+    mkdirSync(join(folder, 'docs', 'adr'), { recursive: true })
+    writeFileSync(join(folder, 'HANDOFF.md'), '# HANDOFF of the Workflow folder\n')
+    writeFileSync(join(folder, 'docs', 'adr', '0007-silent.md'), '# Тихий режим\n\nДата: 2026-10-09. Статус: принят.\n')
+    const bin = join(scratch, 'claude-home', 'bin')
+    mkdirSync(bin, { recursive: true })
+    const json = { mode: 'silent', _resolved: { mode: 'silent', workflow_folder: folder, workspace: null, repos: [{ name: 'repo', path: repo }] } }
+    writeFileSync(join(scratch, 'profile.json'), JSON.stringify(json))
+    writeFileSync(join(bin, 'profile'), `#!/bin/sh\ncat '${join(scratch, 'profile.json')}'\n`)
+    writeFileSync(join(bin, 'ticket'), `#!/bin/sh\necho '${join(folder, '.scratch')}'\n`)
+    execFileSync('chmod', ['755', join(bin, 'profile'), join(bin, 'ticket')])
+  })
+
+  it('lists and reads HANDOFF.md and the ADRs of the Workflow folder, not those of the repository', async () => {
+    const state = await value<DocsState>('docs.open', { projectId: PROJECT_ID })
+    expect(state.adrs.map((adr) => [adr.path, adr.title])).toStrictEqual([['docs/adr/0007-silent.md', 'Тихий режим']])
+    expect(await value('docs.read', { projectId: PROJECT_ID, path: 'HANDOFF.md' })).toStrictEqual({ path: 'HANDOFF.md', text: '# HANDOFF of the Workflow folder\n' })
+    expect(await value('docs.read', { projectId: PROJECT_ID, path: 'docs/adr/0007-silent.md' })).toMatchObject({ path: 'docs/adr/0007-silent.md' })
+    // The repository's own ADR is not one of this Project's documents now.
+    await refused({ projectId: PROJECT_ID, path: 'docs/adr/0001-clean-room.md' }, /does not exist/)
+  })
+
+  it('refuses paths outside the Workflow folder: the repository\'s HANDOFF.md by absolute path or by ../', async () => {
+    await refused({ projectId: PROJECT_ID, path: join(repo, 'HANDOFF.md') }, /outside the Project/)
+    await refused({ projectId: PROJECT_ID, path: '../repo/HANDOFF.md' }, /outside the Project/)
+    await refused({ projectId: PROJECT_ID, path: join(outside, 'secret.md') }, /outside the Project/)
+  })
+
+  it('follows edits in the Workflow folder and writes nothing there or in the repository', async () => {
+    const status = git(repo, 'status', '--porcelain')
+    const before = { repo: snapshot(repo), folder: snapshot(folder) }
+    const first = await value<DocsState>('docs.open', { projectId: PROJECT_ID })
+    await pastStartReads()
+    writeFileSync(join(folder, 'HANDOFF.md'), '# HANDOFF, edited\n')
+    await vi.waitFor(
+      () => {
+        expect(sender.sent.length).toBeGreaterThan(0)
+        expect(sender.sent.at(-1)?.handoff?.version).not.toBe(first.handoff?.version)
+      },
+      { timeout: 1000, interval: 20 },
+    )
+    expect(await value('docs.read', { projectId: PROJECT_ID, path: 'HANDOFF.md' })).toStrictEqual({ path: 'HANDOFF.md', text: '# HANDOFF, edited\n' })
+    // An edit of the repository's HANDOFF.md is not this Project's.
+    const count = sender.sent.length
+    writeFileSync(join(repo, 'HANDOFF.md'), `${HANDOFF}\n- в репозитории\n`)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(sender.sent).toHaveLength(count)
+    writeFileSync(join(repo, 'HANDOFF.md'), HANDOFF)
+    writeFileSync(join(folder, 'HANDOFF.md'), '# HANDOFF of the Workflow folder\n')
+    await docsModule.docsHub.closeAll()
+    expect(git(repo, 'status', '--porcelain')).toBe(status)
+    expect(Object.keys(snapshot(folder)).sort()).toStrictEqual(Object.keys(before.folder).sort())
+    expect(Object.keys(snapshot(repo)).sort()).toStrictEqual(Object.keys(before.repo).sort())
   })
 })
 

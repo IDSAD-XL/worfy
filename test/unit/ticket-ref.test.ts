@@ -40,6 +40,21 @@ describe('parseWorktreeFolder', () => {
     expect(parseWorktreeFolder('/Users/a/repo/.claude/worktrees/07-движок-сессий')).toEqual({ num: 7, slug: 'движок-сессий' })
   })
 
+  it('reads <Harness home>/worktrees/<project>/<NN>, the tree of a Ticket outside the repository (worfy-harness ticket 23)', () => {
+    expect(parseWorktreeFolder('/Users/a/.claude/worfy-harness/worktrees/atakama/05')).toEqual({ num: 5, slug: null })
+    expect(parseWorktreeFolder('/Users/a/.claude/worfy-harness/worktrees/atakama/05/')).toEqual({ num: 5, slug: null })
+    expect(parseWorktreeFolder('/tmp/h/worktrees/my.project/12-fix-badge')).toEqual({ num: 12, slug: 'fix-badge' })
+    for (const path of [
+      '/Users/a/.claude/worfy-harness/worktrees/atakama',
+      '/Users/a/.claude/worfy-harness/worktrees/atakama/05/src',
+      '/Users/a/.claude/worfy-harness/worktrees/atakama/review-05',
+      '/Users/a/.claude/worfy-harness/worktrees/.hidden/05',
+      '/Users/a/.claude/worfy-harness/worktrees/atakama/05-',
+    ]) {
+      expect(parseWorktreeFolder(path), path).toBeNull()
+    }
+  })
+
   it('refuses folders of any other form', () => {
     for (const path of [
       '/Users/a/repo',

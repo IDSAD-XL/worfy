@@ -1,8 +1,10 @@
 // The Project's HANDOFF.md and ADRs (docs/adr/NNNN-*.md), read-only (ADR-0002, ADR-0005).
 //
-// Every read goes through resolveDocPath: the path is resolved against the Project root,
-// symlinks included, and must then be HANDOFF.md at the root or an ADR file directly in docs/adr
-// of the same root. `docs.read` (src/main/ipc/docs.ts) hands out nothing else.
+// `root` here is the root of the Project's documents: the Project root in Full mode, its Workflow
+// folder in Silent mode (ADR-0042; src/main/ipc/docs.ts picks it). Every read goes through
+// resolveDocPath: the path is resolved against that root, symlinks included, and must then be
+// HANDOFF.md at the root or an ADR file directly in docs/adr of the same root. `docs.read`
+// (src/main/ipc/docs.ts) hands out nothing else.
 //
 // DocsWatcher follows those files with one recursive fs.watch of the root and reports a new state
 // after a short quiet period; DocsHub shares one watcher per Project between the windows that

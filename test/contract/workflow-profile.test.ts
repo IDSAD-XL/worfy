@@ -10,7 +10,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QueryRequest } from '../../src/main/agent/session'
 import type { CanvasSession } from '../../src/main/mcp/canvas-server'
-import { DEFAULT_MCP_SERVERS, GITHUB_ACCOUNT_FIELD, MCP_ALLOWED_FIELD, profileRunner, readGithubAccount, readMcpAllowlist, type ProfileRun, type ProfileRunner } from '../../src/main/workflow/profile'
+import { DEFAULT_MCP_SERVERS, GITHUB_ACCOUNT_FIELD, MCP_ALLOWED_FIELD, profileRunner, readGithubAccount, readMcpAllowlist, readResolvedProfile, type ProfileRun, type ProfileRunner } from '../../src/main/workflow/profile'
+import { fullLayout, LayoutCache, readProjectLayout } from '../../src/main/workflow/folder'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
 
@@ -388,5 +389,117 @@ describe('sdkQueryFactory and the Profile list', () => {
     })
     expect(options.mcpServers).toEqual({ [CANVAS_SERVER_NAME]: canvasServer })
     expect(snapshot(home)).toEqual(before)
+  })
+})
+
+// ── where the workflow lives (worfy-harness ticket 23) ──────────────────────
+
+const SILENT_JSON = {
+  name: 'atakama',
+  mode: 'silent',
+  _resolved: {
+    name: 'atakama',
+    mode: 'silent',
+    workflow_folder: '/work/atakama',
+    workspace: '/work/atakama',
+    repos: [
+      { name: 'api', path: '/work/atakama/api', gate_key: 'api' },
+      { name: 'web', path: '/work/atakama/web', gate_key: null },
+    ],
+  },
+}
+
+describe('readResolvedProfile and readProjectLayout with a stand-in runner', () => {
+  it('exit code 0 in Silent mode: the Workflow folder, the repositories and the Tickets root of `ticket root`, run in the Project root', async () => {
+    const run = stubRun({ code: 0, stdout: `${JSON.stringify(SILENT_JSON)}\n`, stderr: '' })
+    const runTicket = stubRun({ code: 0, stdout: '/work/atakama/.scratch\n', stderr: '' })
+    const layout = await readProjectLayout({ root: '/work/atakama', claudeHome: '/h', env: {}, run, runTicket, log })
+    expect(layout).toEqual({
+      root: '/work/atakama',
+      mode: 'silent',
+      workflowFolder: '/work/atakama',
+      ticketsRoot: '/work/atakama/.scratch',
+      repos: [
+        { name: 'api', path: '/work/atakama/api' },
+        { name: 'web', path: '/work/atakama/web' },
+      ],
+      workspace: '/work/atakama',
+      reason: null,
+    })
+    expect(run.calls).toEqual([['/work/atakama', ['-C', '/work/atakama', '--json']]])
+    expect(runTicket.calls).toEqual([['/work/atakama', ['root']]])
+    expect(logged).toEqual([])
+  })
+
+  it('exit code 0 in Full mode: the Project root as the Workflow folder, whatever spelling of it the Harness printed', async () => {
+    const json = { mode: 'full', _resolved: { mode: 'full', workflow_folder: '/private/repo', workspace: null, repos: [{ name: 'repo', path: '/private/repo' }] } }
+    const layout = await readProjectLayout({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun({ code: 0, stdout: JSON.stringify(json), stderr: '' }), runTicket: stubRun({ code: 0, stdout: '/private/repo/.scratch\n', stderr: '' }), log })
+    expect(layout).toMatchObject({ mode: 'full', workflowFolder: '/repo', ticketsRoot: '/private/repo/.scratch', repos: [{ name: 'repo', path: '/private/repo' }], reason: null })
+  })
+
+  it('`ticket root` failing: the Tickets root is .scratch of the Workflow folder, and the reason is logged', async () => {
+    const layout = await readProjectLayout({ root: '/work/atakama', claudeHome: '/h', env: {}, run: stubRun({ code: 0, stdout: JSON.stringify(SILENT_JSON), stderr: '' }), runTicket: stubRun({ code: 1, stdout: '', stderr: 'usage' }), log })
+    expect(layout).toMatchObject({ mode: 'silent', ticketsRoot: '/work/atakama/.scratch', reason: null })
+    expect(logged.join('\n')).toMatch(/ticket root failed with exit code 1: usage/)
+  })
+
+  it.each<[string, ProfileRun | Error, RegExp]>([
+    ['exit code 3', { code: 3, stdout: '', stderr: 'profile: /repo is not in a registered project\n' }, /no registered project.*exit code 3/],
+    ['exit code 4', { code: 4, stdout: '', stderr: '' }, /exit code 4/],
+    ['no script', enoent(), /no profile script at \/h\/bin\/profile/],
+    ['a failing script', { code: 1, stdout: '', stderr: 'registry is broken\n' }, /failed with exit code 1: registry is broken/],
+    ['a timeout', { code: null, stdout: '', stderr: '' }, /timed out/],
+    ['output that is not JSON', { code: 0, stdout: 'name: demo\n', stderr: '' }, /not JSON/],
+    ['a Harness before Silent mode: no _resolved.mode', { code: 0, stdout: JSON.stringify({ name: 'demo', _resolved: { name: 'demo', repo_root: '/repo' } }), stderr: '' }, /no _resolved\.mode/],
+    ['_resolved without workflow_folder', { code: 0, stdout: JSON.stringify({ _resolved: { mode: 'silent', repos: [] } }), stderr: '' }, /workflow_folder/],
+    ['a relative workflow_folder', { code: 0, stdout: JSON.stringify({ _resolved: { mode: 'silent', workflow_folder: 'wf', repos: [] } }), stderr: '' }, /workflow_folder/],
+    ['an unknown mode', { code: 0, stdout: JSON.stringify({ _resolved: { mode: 'quiet', workflow_folder: '/wf', repos: [] } }), stderr: '' }, /mode/],
+  ])('%s: Full mode, the Project root, one repository, <root>/.scratch — and `ticket root` is not run', async (_case, answer, reason) => {
+    const runTicket = stubRun({ code: 0, stdout: '/elsewhere\n', stderr: '' })
+    const layout = await readProjectLayout({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun(answer), runTicket, log })
+    expect({ ...layout, reason: null }).toEqual(fullLayout('/repo'))
+    expect(layout.reason).toMatch(reason)
+    expect(runTicket.calls).toEqual([])
+    expect(logged).toHaveLength(1)
+    expect(logged[0]).toMatch(/^\[workflow\] \/repo: Full mode/)
+    const resolved = await readResolvedProfile({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun(answer) })
+    expect(resolved).toMatchObject({ ok: false, reason: expect.stringMatching(reason) })
+  })
+
+  it('the cache reads a Project once per interval and again after it', async () => {
+    let now = 0
+    let runs = 0
+    const home = join(scratch, 'cache-home')
+    mkdirSync(join(home, 'bin'), { recursive: true })
+    const cache = new LayoutCache({ claudeHome: () => home, ttlMs: 1000, now: () => now })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => void (runs += 1))
+    const first = await cache.get('/nowhere/repo')
+    expect(await cache.get('/nowhere/repo')).toBe(first)
+    now = 1500
+    expect(await cache.get('/nowhere/repo')).not.toBe(first)
+    expect(first).toMatchObject({ mode: 'full', root: '/nowhere/repo' })
+    // The fallback reason (no script) is logged once for the Project, not on every read.
+    expect(runs).toBe(1)
+    warn.mockRestore()
+  })
+})
+
+describe('readProjectLayout with the real scripts', () => {
+  it('runs bin/profile --json and bin/ticket root of the Claude home in the Project root, and writes nowhere', async () => {
+    const root = projectRoot()
+    const folder = join(scratch, 'workflow')
+    mkdirSync(join(folder, '.scratch'), { recursive: true })
+    const json = { mode: 'silent', _resolved: { mode: 'silent', workflow_folder: folder, workspace: null, repos: [{ name: 'project', path: root }] } }
+    const { home, calls } = stubHome(0, JSON.stringify(json))
+    const ticketCalls = join(scratch, 'ticket-calls.txt')
+    writeFileSync(join(home, 'bin', 'ticket'), `#!/usr/bin/env ${INTERPRETER}\necho "$(pwd -P) $*" >> '${ticketCalls}'\necho '${join(folder, '.scratch')}'\n`)
+    chmodSync(join(home, 'bin', 'ticket'), 0o755)
+    const before = { home: snapshot(home), root: snapshot(root), folder: snapshot(folder) }
+
+    const layout = await readProjectLayout({ root, claudeHome: home, env: loginEnv(), log })
+    expect(layout).toEqual({ root, mode: 'silent', workflowFolder: folder, ticketsRoot: join(folder, '.scratch'), repos: [{ name: 'project', path: root }], workspace: null, reason: null })
+    expect(readFileSync(calls, 'utf8').trim()).toBe(`${realpathSync(root)} -C ${root} --json`)
+    expect(readFileSync(ticketCalls, 'utf8').trim()).toBe(`${realpathSync(root)} root`)
+    expect({ home: snapshot(home), root: snapshot(root), folder: snapshot(folder) }).toEqual(before)
   })
 })

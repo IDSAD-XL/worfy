@@ -154,6 +154,40 @@ describe('resolveBinding: signals in order of strength', () => {
     expect(resolveBinding(input, undefined)?.target).toEqual({ kind: 'ticket', epic: 'other-epic', num: 3 })
   })
 
+  it('a branch the workflow model names as a Ticket\'s (`Branch:`, Silent mode) binds to it; one it does not name, does not (worfy-harness ticket 23)', () => {
+    const silent: BindingWorkflow = {
+      epics: ['atakama'],
+      tickets: [
+        { epic: 'atakama', num: 5, state: 'work', branch: 'fix/x' },
+        { epic: 'atakama', num: 6, state: 'open', branch: null },
+        { epic: 'atakama', num: 7, state: 'open', branch: 'shared/name' },
+        { epic: 'atakama', num: 8, state: 'open', branch: 'shared/name' },
+      ],
+    }
+    expect(resolveBinding({ signals: signals({ gitBranch: 'fix/x' }) }, silent)).toEqual({ target: { kind: 'ticket', epic: 'atakama', num: 5 }, source: 'branch', detail: 'fix/x' })
+    expect(resolveBinding({ signals: signals({ gitBranch: 'refs/heads/fix/x' }) }, silent)?.target).toEqual({ kind: 'ticket', epic: 'atakama', num: 5 })
+    expect(bindingReason(resolveBinding({ signals: signals({ gitBranch: 'fix/x' }) }, silent)!)).toBe('branch fix/x')
+    // Not named by the model, or named by two Tickets: no Binding by branch.
+    expect(resolveBinding({ signals: signals({ gitBranch: 'fix/y' }) }, silent)).toBeNull()
+    expect(resolveBinding({ signals: signals({ gitBranch: 'shared/name' }) }, silent)).toBeNull()
+    // Without the model the branch names nothing.
+    expect(resolveBinding({ signals: signals({ gitBranch: 'fix/x' }) }, undefined)).toBeNull()
+    // `<epic>/<NN>` binds as before.
+    expect(resolveBinding({ signals: signals({ gitBranch: 'atakama/06' }) }, silent)?.target).toEqual({ kind: 'ticket', epic: 'atakama', num: 6 })
+  })
+
+  it('a cwd in <Harness home>/worktrees/<project>/<NN> binds like .claude/worktrees/<NN> (worfy-harness ticket 23)', () => {
+    const cwd = '/Users/a/.claude/worfy-harness/worktrees/atakama/16/api/src'
+    expect(resolveBinding({ signals: signals({ cwd, gitBranch: 'fix/unknown' }) }, workflow)).toEqual({
+      target: { kind: 'ticket', epic: 'worfy-mvp', num: 16 },
+      source: 'worktree',
+      detail: 'worktrees/atakama/16',
+    })
+    expect(resolveBinding({ signals: signals({ cwd: '/Users/a/.claude/worfy-harness/worktrees/atakama/review-16' }) }, workflow)).toBeNull()
+    // The in-repository form is unchanged.
+    expect(resolveBinding({ signals: signals({ cwd: '/repo/.claude/worktrees/16-x/src' }) }, workflow)?.target).toEqual({ kind: 'ticket', epic: 'worfy-mvp', num: 16 })
+  })
+
   it('takes the rules as a list, so a later ticket adds one', () => {
     const always: BindingRule = { name: 'always', resolve: () => ({ target: { kind: 'epic', epic: 'auction' }, source: 'skill', detail: 'x' }) }
     expect(resolveBinding({}, workflow, [...BINDING_RULES, always])?.target).toEqual({ kind: 'epic', epic: 'auction' })
@@ -174,8 +208,23 @@ describe('labels', () => {
   })
 
   it('reads the workflow model, and none while it is missing or failed', () => {
-    const model = { root: '/r', epics: [{ epic: 'e', hasSpec: true, hasMap: false, title: null }], tickets: [{ epic: 'e', num: 1, state: 'open' }], error: null, branchErrors: [] } as unknown as WorkflowModel
-    expect(bindingWorkflowOf(model)).toEqual({ epics: ['e'], tickets: [{ epic: 'e', num: 1, state: 'open' }] })
+    const model = {
+      root: '/r',
+      epics: [{ epic: 'e', hasSpec: true, hasMap: false, title: null }],
+      tickets: [
+        { epic: 'e', num: 1, state: 'open' },
+        { epic: 'e', num: 2, state: 'work', branch: 'fix/x', repo: 'api' },
+      ],
+      error: null,
+      branchErrors: [],
+    } as unknown as WorkflowModel
+    expect(bindingWorkflowOf(model)).toEqual({
+      epics: ['e'],
+      tickets: [
+        { epic: 'e', num: 1, state: 'open', branch: null },
+        { epic: 'e', num: 2, state: 'work', branch: 'fix/x' },
+      ],
+    })
     expect(bindingWorkflowOf(undefined)).toBeUndefined()
     expect(bindingWorkflowOf({ ...model, error: { code: 'failed', message: 'x' } })).toBeUndefined()
   })
