@@ -131,12 +131,15 @@ Unit-test-ов Ticket почти не добавляет: он меняет на
 
 - `.gitattributes` (новый)
 - `package.json`
-- `pnpm-workspace.yaml`
-- `pnpm-lock.yaml`
 - `README.md`
-- `scripts/postinstall.mjs` (новый, если пункт 2 выбрал готовую сборку)
-- `test/contract/postinstall.test.ts` (новый, вместе с ним)
+- `scripts/postinstall.mjs` (новый: пункт 2 выбрал готовую сборку)
 - `scripts/vitest-electron.mjs` (новый: пункт 4 выбрал скрипт на Node)
+- `test/contract/postinstall.test.ts` (новый)
+- `test/contract/vitest-electron.test.ts` (новый)
+- `test/contract/gitattributes.test.ts` (новый)
+
+`pnpm-workspace.yaml` и `pnpm-lock.yaml` не меняются: `ERR_PNPM_IGNORED_BUILDS` на ПК не было (пункт
+3), lockfile тот же.
 
 Ticket-ы 03, 08, 09 и 11 ждут этот Ticket. Файлы package.json и pnpm-workspace.yaml потом меняет
 Ticket 12 (сборка на Windows), он идёт позже.
@@ -178,14 +181,28 @@ Ticket 12 (сборка на Windows), он идёт позже.
 - **Прогон на Windows (клон в `%USERPROFILE%\worfy`, без флагов-обходов):** `pnpm install
   --frozen-lockfile` — exit 0; `pnpm lint` — exit 0; `pnpm typecheck` — exit 0; `pnpm test` —
   стартует и печатает итог vitest, exit 1: `Test Files 55 failed | 103 passed (158)`, `Tests 662
-  failed | 2297 passed | 41 skipped (3000)`. Набор упавших файлов и число падений в каждом совпадают
-  со списком evidence Ticket-а 01, раздел 17 (сверка JSON-отчётов vitest); новых падений нет,
-  добавился зелёный `postinstall.test.ts` (5 test-ов). В этом клоне рабочее дерево создано до
-  `.gitattributes`, поэтому `make-icons` в нём ещё красный; в свежем клоне `pnpm test
-  test/contract/make-icons.test.ts test/contract/postinstall.test.ts` — exit 0 (8 passed, 6 skipped —
-  test-ы только для macOS). Для Ticket-а 14 список упавших — прежний, минус `make-icons` на свежем клоне.
-- **`pnpm dev`:** снимка `../evidence/02-pnpm-dev.png` нет — снимает владелец; до этого Ticket-а
-  окно открывалось на экране First run (evidence Ticket-а 01, раздел 17).
+  failed | 2297 passed | 41 skipped (3000)` (прогон до test-ов ревью, см. ниже).
+  - **Список упавших файлов с причинами** — таблица evidence Ticket-а 01, раздел 17 (55 файлов, у
+    каждого число падений, первая строка ошибки и разбор). Отличий нет: тот же скрипт
+    `%TEMP%\worfy-01\jsonsum.cjs` по JSON-отчёту этого прогона дал те же 55 строк «файл — число
+    падений», `Compare-Object` двух списков различает только итоговую строку (`numTotalTests` 2995 →
+    3000, `numPassedTests` 2292 → 2297: добавился зелёный `postinstall.test.ts`, 5 test-ов).
+  - **`make-icons`:** в этом клоне рабочее дерево создано до `.gitattributes`, поэтому он здесь ещё в
+    списке; в свежем клоне `pnpm test test/contract/make-icons.test.ts test/contract/postinstall.test.ts`
+    — exit 0 (8 passed, 6 skipped — test-ы только для macOS). Для Ticket-а 14 список — таблица §17,
+    минус `make-icons` на свежем клоне.
+- **Test-ы по ревью Session на Mac:** `test/contract/vitest-electron.test.ts` (exit code vitest
+  проходит наружу: фильтр без файлов → 1, зелёный файл → 0; `scripts.test`), в `postinstall.test.ts`
+  — `--dry-run` без `--platform`, отсутствующий `electron-rebuild` → exit 1, exit code stub-а →
+  наружу (только macOS и Linux), `test/contract/gitattributes.test.ts` (`git check-attr eol` — `lf`
+  у 13 файлов-представителей правил, `unspecified` у прочих). На Windows: `pnpm test
+  test/contract/postinstall.test.ts test/contract/gitattributes.test.ts
+  test/contract/vitest-electron.test.ts` — exit 0, `Tests 24 passed | 1 skipped (25)`. Мутанты
+  проверены: `process.exitCode = 0` в `vitest-electron.mjs` и `let platform = "darwin"` в
+  `postinstall.mjs` — по одному красному test-у на каждый.
+- **`pnpm dev`:** с правками этого Ticket-а на Windows не проверялся; снимка
+  `../evidence/02-pnpm-dev.png` нет — снимает владелец. До этого Ticket-а окно открывалось на экране
+  First run (evidence Ticket-а 01, раздел 17). README так и говорит.
 - **Вопрос владельцу (пункт 1):** CRLF в других текстовых файлах валит
   `test/contract/harness-evals.test.ts` — 16 падений: `frontMatter` ищет `^---\n`, а
   `harness/evals/*/prompt.md` и грейдеры в рабочем дереве с CRLF (evidence Ticket-а 01, раздел 17).
