@@ -135,9 +135,9 @@ function connectorWith(overrides: Partial<ConnectDeps> & { script?: string; scri
     },
     draftSchema: () => SCHEMA,
     reportsLanguage: () => 'ru',
-    add: async (root): Promise<AddOutcome> => {
+    add: async (root, options): Promise<AddOutcome> => {
       added.push(root)
-      const result = await store.add(root)
+      const result = await store.add(root, options)
       return result.status === 'added' ? { status: 'added', projectId: result.project.id, notice: result.notice } : result
     },
     log: () => undefined,
@@ -491,6 +491,23 @@ describe('the form and the write (steps 5 and 6)', () => {
     expect((await realProfile(api, ['-C', api, '--field', 'mode'])).stdout.trim()).toBe('silent')
     expect(clean(api)).toBe('')
     expect(clean(web)).toBe('')
+  })
+})
+
+describe('Connect for a Linked machine (worfy-link ticket 11)', () => {
+  it('with keepActive the Project joins the list and the active Project of this Machine stays', async () => {
+    const mine = makeRepo(join(scratch, 'mine'))
+    await sandboxStore().add(mine)
+    const run = connectorWith()
+    const repo = makeRepo(join(scratch, 'shop'))
+    const outcome = await run.connector.draft({ draftId: 'linked', root: repo, mode: 'silent', workflowFolder: null }, () => undefined)
+    if (outcome.status !== 'draft') throw new Error(`no draft: ${JSON.stringify(outcome)}`)
+    const draft: ProfileDraft = { ...outcome.draft, profile: { ...outcome.draft.profile, name: 'shop' }, gate: outcome.draft.gate.map((entry) => ({ ...entry, key: 'shop', profile: 'shop' })) }
+    expect(await run.connector.write(repo, draft, { keepActive: true })).toMatchObject({ status: 'added' })
+    const store = sandboxStore()
+    expect(store.list().map((project) => project.path)).toEqual([mine, repo])
+    expect(store.active()).toMatchObject({ path: mine })
+    // Without keepActive — this Machine's own screen — the new Project becomes active: the test of steps 5 and 6 above.
   })
 })
 

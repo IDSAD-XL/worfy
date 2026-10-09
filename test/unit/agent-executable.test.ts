@@ -1,6 +1,6 @@
 // Which Claude Code binary a Session runs (ADR-0008) and the options it runs with.
 import { existsSync, realpathSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, win32 } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { claudeExecutablePath, sessionOptions, type RuntimeInfo } from '../../src/main/agent/options'
@@ -31,9 +31,19 @@ describe('claudeExecutablePath', () => {
     // electron-builder hoists it into the app's node_modules, where the packaged path points.
     const sdkDir = realpathSync(join(repoRoot, 'node_modules', '@anthropic-ai', 'claude-agent-sdk'))
     const platformPackage = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`
+    const binary = process.platform === 'win32' ? 'claude.exe' : 'claude'
     const path = claudeExecutablePath({ packaged: true, resourcesPath: '/R', platform: process.platform, arch: process.arch })
-    expect(path).toBe(`/R/app.asar.unpacked/node_modules/${platformPackage}/claude`)
-    expect(existsSync(join(dirname(dirname(sdkDir)), platformPackage, 'claude'))).toBe(true)
+    const expected = process.platform === 'win32' ? win32.join('/R', 'app.asar.unpacked', 'node_modules', platformPackage, binary) : `/R/app.asar.unpacked/node_modules/${platformPackage}/claude`
+    expect(path).toBe(expected)
+    expect(existsSync(join(dirname(dirname(sdkDir)), platformPackage, binary))).toBe(true)
+  })
+
+  it('on win32 points at claude.exe of the win32 package, with Windows separators (ADR-0057)', () => {
+    const windows: RuntimeInfo = { packaged: true, resourcesPath: 'C:\\Program Files\\worfy\\resources', platform: 'win32', arch: 'x64' }
+    expect(claudeExecutablePath(windows)).toBe(
+      'C:\\Program Files\\worfy\\resources\\app.asar.unpacked\\node_modules\\@anthropic-ai\\claude-agent-sdk-win32-x64\\claude.exe',
+    )
+    expect(claudeExecutablePath({ ...windows, packaged: false })).toBeUndefined()
   })
 })
 

@@ -1,7 +1,8 @@
 # 11 — «Add Project» на Linked machine: выбор Machine и просмотр её папок
 
 Type: task
-Status: open
+Status: done — 2026-10-09, [PR #196](https://github.com/IDSAD-XL/worfy/pull/196)
+Branch: worfy-link/11
 Blocked by: 09
 Source: решения владельца 2026-10-07: Q3 (с другой машины можно всё, кроме действий, которым нужен рабочий стол машины Project-а), Q9 (у Project ровно одна Machine; один репозиторий на двух Machine — два Project-а), Q10 («Add Project» — выбор Machine, затем папка через просмотр её файлов внутри worfy), Q14 (системные диалоги — в UI машины, откуда вызваны; просмотр папок машины Project-а); [spec.md](../spec.md); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md) — Machine, Linked machine, «Add Project» спрашивает Machine, потом папку; [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — системные действия в UI вызвавшей машины; [Ticket 24 Epic-а worfy-harness](../../worfy-harness/issues/24-подключение-project-а.md) — подключение Project-а по шагам
 
@@ -117,6 +118,8 @@ Source: решения владельца 2026-10-07: Q3 (с другой маш
 - `test/unit/folder-browser.test.tsx` (новый)
 - `test/unit/add-project-machine.test.tsx` (новый)
 - `test/e2e/linked-add-project.spec.ts` (новый)
+- `src/renderer/projects/GithubAccount.tsx` — шаг аккаунта на Linked machine-е (добавлен исполнителем по брифу)
+- `test/unit/link-access.test.ts`, `test/contract/projects-connect.test.ts` — пометки каналов подключения сменились (добавлены исполнителем по брифу)
 
 `src/main/projects/connect.ts` и `src/renderer/projects/ConnectProject.tsx` заводит Ticket 24 Epic-а
 worfy-harness. Если по его «Итог» файлы диалога называются иначе, исполнитель правит список. Пометка
@@ -126,4 +129,95 @@ Ticket-а 08 для `projects.browse` стоит в объявлении кан�
 
 ## Итог
 
-Заполняется при закрытии.
+**Решено без владельца, подтвердить:**
+
+1. **Что видно в просмотре папок** (вопрос пункта 1) — рекомендация Ticket-а: весь диск, старт — в
+   домашней папке Machine (`os.homedir()` на ней). `projects.browse` путь не ограничивает: Linked
+   machine с включённым доступом и так запускает Terminal на машине Project-а.
+2. **Шаг GitHub-аккаунта на Linked machine-е — только чтение.** `projects.connect.accounts` идёт на
+   выбранную Machine и показывает её аккаунты gh. Кнопки «Sign in with gh» и «First-run checks…» для
+   чужой Machine нет. Вместо них строка «To sign in with gh, run gh auth login on <Machine> itself,
+   then Check again». Каналы входа (`projects.connect.signIn*`) остаются `local`, поэтому Linked
+   machine не может открыть вход в gh на этой машине.
+3. **Шаг Harness на Linked machine-е.** Если Harness Machine-ы не готов, диалог показывает причину и
+   строку «The Harness is set up on <Machine> itself, in its first-run checks». Кнопки
+   «First-run checks…» для чужой Machine нет: экран первого запуска — это экран своей машины.
+4. **Workflow folder на Linked machine-е** выбирается тем же `FolderBrowser`. Создать в нём новую
+   папку нельзя (у нативного диалога есть `createDirectory`): выбирается существующая папка.
+
+**Пометки каналов (Ticket 08) пересмотрены осознанно.** Шаги подключения теперь идут на выбранную
+Machine через `invokeOn`, поэтому `projects.connect.inspect`, `.draft`, `.stop`, `.check`, `.write`,
+`.activity` и `.accounts` переведены из `local` в `project`. Это самая закрытая пометка, при которой
+вызов вообще доходит до другой Machine: только при включённом доступе «Linked machines can work with
+my Projects». `desktop` не подходит: он закрыт для Linked machine-а всегда. Шесть каналов входа в gh
+остались `local`. `projects.browse` — новый, `project`. Это закрепляет
+`test/unit/link-access.test.ts` (каналы перечислены по имени, с разделением на `project` и `local`).
+Следствие: в окне, открытом на Linked machine-е, эти каналы через `invoke` маршрутизируются на неё.
+Поэтому `ConnectProject` и `GithubAccount` получили явный `machine` и зовут `invokeOn(machine, …)`.
+
+**Что сделано.**
+- `src/main/projects/browse.ts` (новый) — `browseFolder`: только папки (и symlink на папку), по имени
+  (`Intl.Collator('en', {numeric})`), `hidden` — имя с точки, `gitRepo` — есть `.git` (файл или
+  папка), git не запускается. Больше 2000 — первые 2000 и `truncated: true`. Папка без доступа или
+  отсутствующая — `{ok:false, path, parent, reason}`: `parent` в ответе позволяет уйти вверх. У корня
+  `parent: null`, в том числе `C:\` (`parentOf` с `path.win32`).
+- `projects.browse {path: string | null}` (`src/shared/ipc/projects.ts`, handler в
+  `src/main/ipc/projects.ts`). Относительный путь — ошибка вызова.
+- Активный Project. `ProjectStore.add` уже умел `keepActive` (Ticket 09). Теперь его передают и
+  `projects.connect.inspect` (папка, которую Harness уже знает), и `projects.connect.write`
+  (`ProjectConnector.write(root, draft, {keepActive})` → `deps.add(root, {keepActive})`). Признак —
+  `isRemoteCall(event)`: `event.sender` — клиент соединения, а не окно.
+- `src/renderer/shell/sidebar/ProjectsSection.tsx`. Если есть хоть одна Linked machine, «Add project»
+  сначала показывает шаг выбора Machine (`MachineChoice`): своя первой, затем Linked machine-ы по
+  имени. Machine не в сети, спящая, со сменившимся сертификатом или с выключенным доступом выбрать
+  нельзя — причина видна под именем. Своя машина → нативный диалог, как раньше. Linked machine →
+  `FolderBrowser` → `projects.connect.inspect` на ней → известная папка добавляется там; новая
+  открывает `ConnectProject` с `machine`. После добавления окно открывает Project на его Machine
+  (`openProject(machine, id)`). «Choose another folder…» возвращает к просмотру той же Machine.
+  Без Linked machine-ов шага нет.
+- `src/renderer/projects/FolderBrowser.tsx` (новый): Up по `parent`, Home, вход в папку по строке,
+  флажок «Show hidden folders», пометка `git`, строка об усечении. Ошибка — причина на месте списка.
+  «Choose» отдаёт `path` ответа как есть. Ответ, пришедший после более позднего клика, отбрасывается.
+- `ConnectProject.tsx`: все вызовы — на `machine`, строка «On <Machine>: …», Workflow folder Linked
+  machine-а выбирается через `FolderBrowser`. Если связь пропала посреди диалога, причина приходит
+  тем же путём, что и любая ошибка вызова (`failureReason`).
+
+**Сначала красный test.** `test/contract/projects.test.ts` с новыми test-ами, до объявления канала (`browse.ts` уже был, канала и handler-а ещё не было, пометки `projects.connect.*` — `local`):
+7 упали, 34 прошли. Пять test-ов `projects.browse` — `Error: no handler for projects.browse`.
+`projects.browse` с Linked machine-а — `expected false to deeply equal [ 'shop' ]`.
+`projects.connect.inspect` с Linked machine-а — `expected false to be 'added'` (канал был `local` и
+отвечал отказом). После реализации — 41 passed.
+
+**Mutation testing.** Убран `keepActive` из handler-а `projects.connect.inspect` — падает test
+«projects.connect.inspect of a folder the Harness knows adds it without switching the active Project
+for a Linked machine». В `ProjectConnector.write` подставлен `keepActive: false` — падает test
+«with keepActive the Project joins the list and the active Project of this Machine stays». Код
+восстановлен из копии.
+
+**Тесты.**
+- contract `test/contract/projects.test.ts`: `projects.browse` (только папки, symlink, `hidden`,
+  `gitRepo`, `parent`, 2000 + `truncated`, нет доступа, нет папки, `null` → домашняя папка, отказ
+  на относительный путь). Через адаптер Ticket-а 01 (`createLinkIpc` + `LinkPeer`): `browse` при
+  доступе вкл/выкл; `pickFolder` — отказ при любом доступе, диалог не вызван; `projects.add` и
+  `projects.connect.inspect` с Linked machine-а не меняют `activeId`, со своего окна — меняют.
+- contract `test/contract/projects-connect.test.ts`: `write` с `keepActive` не меняет активный Project.
+- unit `test/unit/folder-browser.test.tsx` (новый, пути в форме Windows),
+  `test/unit/add-project-machine.test.tsx` (новый), `test/unit/link-access.test.ts` (новые пометки).
+- e2e `test/e2e/linked-add-project.spec.ts` (новый): два связанных worfy. Домашняя папка B — временная
+  fixture-папка (`HOME`). Просмотр до `code/shop` → Project в `projects.json` B и нет в A, активный B —
+  `beta`, окно A на `?machine=B&project=shop`, строка выделена, `dialog.showOpenDialog` не вызван ни
+  в A, ни в B. С выключенным доступом B недоступна в шаге выбора Machine, причина видна.
+
+**Снимки** (Playwright, обе темы):
+[шаг Machine](../evidence/11-machine-step-light.png) ([тёмная](../evidence/11-machine-step-dark.png)),
+[B с выключенным доступом](../evidence/11-machine-step-access-off-light.png) ([тёмная](../evidence/11-machine-step-access-off-dark.png)),
+[FolderBrowser](../evidence/11-folder-browser-light.png) ([тёмная](../evidence/11-folder-browser-dark.png)),
+[скрытые папки](../evidence/11-folder-browser-hidden-light.png) ([тёмная](../evidence/11-folder-browser-hidden-dark.png)),
+[папка без доступа](../evidence/11-folder-browser-denied-light.png) ([тёмная](../evidence/11-folder-browser-denied-dark.png)).
+
+### Gate оркестратора (2026-10-09)
+
+- Круг 1 — `VERIFIED` ([комментарий в PR #196](https://github.com/IDSAD-XL/worfy/pull/196#issuecomment-6082731698)). Ревьюер проверил доступ через настоящий link-адаптер: при выключенном доступе `projects.connect.*` (кроме входа в gh) и `projects.browse` отказывают; `signIn*`, `pickFolder`, `select` закрыты для Linked machine всегда. Долги:
+  - [low] `src/main/ipc/projects.ts:262` — Session черновика не привязана к клиенту связи: если связь с B оборвалась посреди черновика, «Stop» с A не доходит, черновик на B (только чтение) доходит до конца на токенах Claude Code машины B. Исправление: по `destroyed` клиента останавливать его черновики, как `watchSignIn` для входа в gh.
+  - [low] вопрос, не воспроизведён: `src/main/projects/browse.ts:78` — `stat` symlink-ов и `lstat` `.git` без таймаута; ссылка на мёртвый сетевой диск может задержать ответ до таймаута вызова связи.
+- Мерж: ветка уже на `bef0a85`, `GATE_SCOPE=all gate full` — код 0 (результат из кэша Gate для того же коммита `603f5ac`, прогнанного исполнителем под замком), CI зелёный, CLEAN, влит `49cc7cf`.

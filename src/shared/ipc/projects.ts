@@ -40,6 +40,43 @@ export const projectsPickFolder = invokeChannel(
 
 export const projectsList = invokeChannel('projects.list', z.void(), projectsStateSchema, 'project')
 
+/** One folder of a browsed folder: its path in the form of the Machine's OS, as the Machine gave it. */
+export const browsedFolderSchema = z.object({
+  name: z.string().min(1),
+  path: z.string().min(1),
+  /** The name starts with a dot. */
+  hidden: z.boolean(),
+  /** Holds a `.git` (a folder, or the file of a linked worktree); git is not run. */
+  gitRepo: z.boolean(),
+})
+export type BrowsedFolder = z.output<typeof browsedFolderSchema>
+
+export const browseAnswerSchema = z.discriminatedUnion('ok', [
+  z.object({
+    ok: z.literal(true),
+    path: z.string().min(1),
+    /** The folder above; null at a root. */
+    parent: z.string().min(1).nullable(),
+    /** Only folders (a symbolic link to a folder too), by name; at most 2000. */
+    folders: z.array(browsedFolderSchema),
+    /** More than 2000 folders: the first 2000 by name are here. */
+    truncated: z.boolean(),
+  }),
+  /** The folder cannot be read (no permission, gone): the reason, and its parent to go up. */
+  z.object({ ok: z.literal(false), path: z.string().min(1), parent: z.string().min(1).nullable(), reason: z.string().min(1) }),
+])
+export type BrowseAnswer = z.output<typeof browseAnswerSchema>
+
+/**
+ * The folders of one folder of the Machine called (src/main/projects/browse.ts): how a screen of a
+ * Linked machine picks a folder for "Add project" there (worfy-link ticket 11), since the system
+ * picker of a Machine opens only on its own screen. `null` is the start: the home folder. The whole
+ * disk is open (decided without the owner, to confirm): a Linked machine with access on already runs
+ * a Terminal there. Paths are in the form of that Machine's OS; the screen goes on only by `path`
+ * and `parent` of an answer and never parses or joins them. Only while access is on (`project`).
+ */
+export const projectsBrowse = invokeChannel('projects.browse', z.object({ path: z.string().min(1).nullable() }), browseAnswerSchema, 'project')
+
 /**
  * Adds the git repository that contains `path` and makes it active. A subfolder or a linked
  * worktree is resolved to the repository root, and `notice` says so. A folder outside any git
@@ -102,8 +139,13 @@ export const projectsChanged = eventChannel('projects.changed', projectsStateSch
 // "Add project" is one dialog in steps: the folder (projects.connect.inspect), the mode and the
 // Workflow folder, the Harness check and the draft Session (projects.connect.draft), the form
 // (projects.connect.check) and the write through the Harness's bin/project-connect
-// (projects.connect.write). Nothing is written before the last step. All of them are `local`: a
-// Linked machine adds Projects with projects.add, never connects one.
+// (projects.connect.write). Nothing is written before the last step.
+//
+// They are `project` (worfy-link ticket 11): "Add project" on a Linked machine runs every step on
+// that Machine — its folder, its Harness, its draft Session, its Profile and gate registry — so a
+// Linked machine reaches them only while "Linked machines can work with my Projects" is on. A folder
+// added for a Linked machine does not become this Machine's active Project. The gh sign-in below
+// stays `local`: it types into a terminal of the Machine whose screen shows it.
 
 /** One git repository of a folder: its folder name and its absolute root. */
 export const connectRepoSchema = z.object({ name: z.string().min(1), path: z.string().min(1) })
@@ -156,7 +198,7 @@ export const projectsConnectInspect = invokeChannel(
     z.object({ status: z.literal('rejected'), reason: z.string().min(1) }),
     z.object({ status: z.literal('new'), folder: connectFolderSchema, harnessHome: z.string().min(1) }),
   ]),
-  'local',
+  'project',
 )
 
 /**
@@ -177,14 +219,14 @@ export const projectsConnectDraft = invokeChannel(
     z.object({ status: z.literal('stopped') }),
     z.object({ status: z.literal('failed'), reason: z.string().min(1), issues: z.array(draftIssueSchema) }),
   ]),
-  'local',
+  'project',
 )
 
 /** "Stop" of the dialog: ends the draft Session `draftId`; false when none runs under it. */
-export const projectsConnectStop = invokeChannel('projects.connect.stop', z.object({ draftId: z.string().min(1).max(100) }), z.object({ stopped: z.boolean() }), 'local')
+export const projectsConnectStop = invokeChannel('projects.connect.stop', z.object({ draftId: z.string().min(1).max(100) }), z.object({ stopped: z.boolean() }), 'project')
 
 /** Step 5: the problems of an edited draft (`bin/project-connect --check`); writes nothing. */
-export const projectsConnectCheck = invokeChannel('projects.connect.check', z.object({ draft: profileDraftSchema }), z.object({ issues: z.array(draftIssueSchema) }), 'local')
+export const projectsConnectCheck = invokeChannel('projects.connect.check', z.object({ draft: profileDraftSchema }), z.object({ issues: z.array(draftIssueSchema) }), 'project')
 
 /**
  * Step 6, "Connect": bin/project-connect writes the Profile and the gate registry entries, then the
@@ -200,11 +242,11 @@ export const projectsConnectWrite = invokeChannel(
     z.object({ status: z.literal('refused'), issues: z.array(draftIssueSchema) }),
     z.object({ status: z.literal('rejected'), reason: z.string().min(1) }),
   ]),
-  'local',
+  'project',
 )
 
 /** The last action of a draft Session, sent to the window that asked for the draft. */
-export const projectsConnectActivity = eventChannel('projects.connect.activity', z.object({ draftId: z.string(), text: z.string() }), 'local')
+export const projectsConnectActivity = eventChannel('projects.connect.activity', z.object({ draftId: z.string(), text: z.string() }), 'project')
 
 // ── the GitHub account of a new Project (worfy-harness ticket 25) ─────────────────
 //
@@ -213,7 +255,9 @@ export const projectsConnectActivity = eventChannel('projects.connect.activity',
 // (projects.connect.accounts, src/main/github/accounts.ts). The chosen account and the finish its
 // access allows go into the draft (withGithubAccount) and are written with it on "Connect". A sign-in
 // runs `gh auth login` in a terminal inside the dialog (projects.connect.signIn and the channels
-// after it): the user answers gh there, worfy types nothing into it. All of them are `local`.
+// after it): the user answers gh there, worfy types nothing into it. The accounts are `project`, as
+// the steps above; the sign-in is `local`, so a Linked machine never signs gh in here: on a Linked
+// machine the step only reads the accounts (decided without the owner, to confirm).
 
 export const workflowFinishSchema = z.enum(['pr-green-ci', 'local-green'])
 export type WorkflowFinish = z.output<typeof workflowFinishSchema>
@@ -286,7 +330,7 @@ export function withGithubAccount(draft: ProfileDraft, choice: GithubChoice): Pr
 }
 
 /** The account step of the folder `root` (main inspects it again); reads gh, writes nothing. */
-export const projectsConnectAccounts = invokeChannel('projects.connect.accounts', z.object({ root: z.string().min(1) }), githubAccountsStepSchema, 'local')
+export const projectsConnectAccounts = invokeChannel('projects.connect.accounts', z.object({ root: z.string().min(1) }), githubAccountsStepSchema, 'project')
 
 const signInRef = { signInId: z.string().min(1).max(100) }
 const signInCells = z.number().int().positive().max(10_000)
@@ -329,6 +373,7 @@ declare module './channels' {
   interface IpcContract {
     'projects.pickFolder': typeof projectsPickFolder
     'projects.list': typeof projectsList
+    'projects.browse': typeof projectsBrowse
     'projects.add': typeof projectsAdd
     'projects.select': typeof projectsSelect
     'projects.remove': typeof projectsRemove

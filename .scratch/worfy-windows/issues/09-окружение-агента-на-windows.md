@@ -1,7 +1,7 @@
 # 09 — Окружение агента на Windows: PATH без login shell, Git Bash для Claude Code, claude.exe
 
 Type: task
-Status: open
+Status: done — 2026-10-09, [PR #194](https://github.com/IDSAD-XL/worfy/pull/194)
 Blocked by: 02
 Source: решения владельца 2026-10-07: Q1 (полный порт worfy под Windows), Q18 (Git for Windows обязателен), Q24 (Windows 10 21H2+ и 11, только x64) ([spec.md](../spec.md)); [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port» (пункты 3 и 4; «Что меняется в прежних ADR» — ADR-0007); [ADR-0007](../../../docs/adr/0007-claude-code-launch-environment.md) (окружение Claude Code — login shell); [ADR-0008](../../../docs/adr/0008-claude-code-native-binary-path.md) (нативный бинарник из пакета SDK)
 
@@ -65,7 +65,10 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
 ## Что делаем
 
 1. **Окружение на Windows без login shell** (Q18, ADR-0054). `agentEnv()` на `win32` shell не
-   запускает. Основа — окружение процесса worfy. Из него убираются:
+   запускает. *После ревью PR #194 основа другая:* не окружение процесса минус переменные
+   родительской Session, а сборка как при новом входе — переменные сеанса по списку, реестр машины и
+   пользователя, без ключей API (ADR-0057, Итог). План ниже — первый вариант, оставлен для истории.
+   Основа — окружение процесса worfy. Из него убираются:
    - `ANTHROPIC_API_KEY` и `ANTHROPIC_AUTH_TOKEN`, как на Mac; имя сравнивается без учёта регистра;
    - переменные родительской Session Claude Code: имена с началом `CLAUDE` или `ANTHROPIC_` (без
      учёта регистра) и `NoDefaultCurrentDirectoryInExePath` (evidence Ticket-а 01, раздел 20),
@@ -116,25 +119,25 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/agent-env.test.ts`, платформа `win32` передана в функцию: login shell не
+- [x] Unit `test/unit/agent-env.test.ts`, платформа `win32` передана в функцию: login shell не
   запускается; `ANTHROPIC_API_KEY` и `anthropic_auth_token` удалены; `CLAUDECODE`,
   `CLAUDE_CODE_SESSION_ID` и `ANTHROPIC_BASE_URL` из окружения процесса удалены; `ANTHROPIC_MODEL`,
   которая есть в фикстуре ответа `reg query`, осталась; ключ `Path` один, значение прежнее.
-- [ ] Unit: `reg query` не ответил — все `CLAUDE*` и `ANTHROPIC_*` удалены, `error` не пуст.
-- [ ] Unit `findGitBash` на фикстуре файлов: Git Bash находится от `git.exe` в `<Git>\cmd`,
+- [x] Unit: `reg query` не ответил — все `CLAUDE*` и `ANTHROPIC_*` удалены, `error` не пуст.
+- [x] Unit `findGitBash` на фикстуре файлов: Git Bash находится от `git.exe` в `<Git>\cmd`,
   `<Git>\bin` и `<Git>\mingw64\bin`, затем по `%ProgramFiles%` и `%LOCALAPPDATA%\Programs`;
   `C:\Windows\System32\bash.exe` не берётся; своя `CLAUDE_CODE_GIT_BASH_PATH` не перезаписывается;
   без Git Bash переменной нет, `error` называет причину.
-- [ ] Unit `test/unit/agent-executable.test.ts`: упакованная сборка `win32`/`x64` →
+- [x] Unit `test/unit/agent-executable.test.ts`: упакованная сборка `win32`/`x64` →
   `<resources>\app.asar.unpacked\node_modules\@anthropic-ai\claude-agent-sdk-win32-x64\claude.exe`;
   ожидания `darwin` (`:18-21`) не меняются; test `:29-37` на Windows ждёт `claude.exe`.
-- [ ] Test только для `win32` (`it.runIf(process.platform === 'win32')`) в
+- [x] Test только для `win32` (`it.runIf(process.platform === 'win32')`) в
   `test/unit/agent-env.test.ts`: настоящий `agentEnv()` даёт окружение, в котором `where.exe`
   находит `git`, `node` и `gh`, а `CLAUDE_CODE_GIT_BASH_PATH` указывает на существующий `bash.exe`
   вне `System32`.
-- [ ] Windows-ПК: `pnpm test test/unit/agent-env.test.ts test/unit/agent-executable.test.ts` —
+- [x] Windows-ПК: `pnpm test test/unit/agent-env.test.ts test/unit/agent-executable.test.ts` —
   exit 0; test-ы `win32` выполнены, а не пропущены (вывод vitest).
-- [ ] Windows-ПК, проверка платформенного PR (Q23, ADR-0056): gate full — строка вердикта и код выхода
+- [x] Windows-ПК, проверка платформенного PR (Q23, ADR-0056): gate full — строка вердикта и код выхода
   в отчёт. Пока Gate не на Node (Ticket 03) — `pnpm lint`, `pnpm typecheck`, `pnpm test` с кодами
   выхода и пометка «Gate не запускался». Падения `pnpm test` сверены со списком Ticket-а 02: новых
   нет.
@@ -143,7 +146,7 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
   Как проверить: окно worfy, Session Node.
 - [ ] Mac: test-ы `onMac` в `test/unit/agent-env.test.ts` зелёные с прежними ожиданиями; gate full
   на Mac зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
-- [ ] ADR об окружении агента на Windows лежит в `docs/adr/` и ссылается на ADR-0007 и ADR-0054.
+- [x] ADR об окружении агента на Windows лежит в `docs/adr/` и ссылается на ADR-0007 и ADR-0054.
 
 ## Тесты
 
@@ -161,6 +164,8 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
 - `src/main/agent/options.ts`
 - `test/unit/agent-env.test.ts`
 - `test/unit/agent-executable.test.ts`
+- `test/unit/agent-query-factory.test.ts` (ожидание пути `claude.exe` на `win32`)
+- `docs/adr/0057-agent-environment-on-windows.md` (новый)
 
 `src/main/agent/app-registry.ts`, `src/main/ipc/checks.ts` и `src/main/ipc/terminal.ts` берут
 окружение через `agentEnv()` и не меняются. ADR этого Ticket-а — новый файл в `docs/adr/`, имя с
@@ -168,4 +173,112 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-windows/09` от main `a84d551`; прогоны — на ПК владельца из Session Claude Code.
+
+- **Окружение на Windows** (`src/main/agent/env.ts`, ADR-0057). `captureAgentEnv` выбирает путь по
+  платформе: на `win32` — `captureWindowsEnv` без login shell, на остальных — `captureLoginShellEnv`,
+  как было. На Windows окружение собирается как при новом входе: переменные сеанса из процесса по
+  списку `WINDOWS_SESSION_VARS` (`SystemRoot`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`,
+  `ProgramFiles*` …), сверху — постоянные переменные из `reg query` машины, затем пользователя
+  (`REG_EXPAND_SZ` раскрываются, `Path` — машины, затем пользователя, под одним ключом), без
+  `ANTHROPIC_API_KEY` и `ANTHROPIC_AUTH_TOKEN` при любом регистре. Из процесса больше не берётся ничего:
+  `GH_TOKEN`, `GITHUB_TOKEN`, `WORFY_*`, `CLAUDECODE`, `CLAUDE_CODE_*`, `NoDefaultCurrentDirectoryInExePath`
+  родительской Session до агента не доходят. Без ответа `reg query` — переменные сеанса и `Path`
+  процесса, `from: 'fallback'`, `error` говорит почему; обычно `from: 'registry'`.
+  - Раскрытие — как при входе в Windows (`putKey`, алгоритм из третьего ревью PR #194): сначала ключ
+    машины до финальных значений, потом ключ пользователя поверх. В ключе `REG_SZ` — как есть;
+    `REG_EXPAND_SZ` ждёт, пока переменные, на которые он ссылается, станут финальными, и получает их
+    значения один раз, без повторного сканирования. `Path` — машины, затем пользователя. Так
+    `%NVM_HOME%` в `Path` находит `NVM_HOME` ниже в том же ключе, а `%PATHEXT%` в пользовательском
+    `PATHEXT` — машинное значение.
+  - Предыдущие варианты: раскрытие сразу при чтении (второе ревью: ссылка вперёд оставалась
+    буквальной) и два прохода по сырым значениям обоих ключей (третье ревью: пользовательский
+    `PATHEXT=%PATHEXT%;.PY` давал `%PATHEXT%;.PY;.PY;.PY;.PY`). На ПК владельца в реестре таких
+    ссылок нет (в `Path` только `%SystemRoot%` и `%USERPROFILE%`, `PATHEXT` и `PSModulePath` только у
+    машины), поэтому здесь ни одна ошибка не проявлялась.
+  - Чтение реестра (четвёртое ревью): `reg query` заменён на Windows PowerShell по абсолютному пути
+    (`powershellRegRead`, `registryScript`, `parseRegistryValues`): `GetValue(…,
+    'DoNotExpandEnvironmentNames')`, имя и значение в base64 от UTF-8. Проверено на ПК временным
+    ключом `HKCU\Software\worfy-probe` (создан и удалён, `reg query` после удаления — exit 1): значение
+    `C:\Users\Алексей\日本\😀\%USERPROFILE%` через `reg query` как UTF-8 читается как
+    `C:\Users\����ᥩ\??\??\%USERPROFILE%`, как CP866 — `C:\Users\Алексей\??\??\%USERPROFILE%`
+    (`chcp` — 866), через PowerShell — без потерь. Точка подмены для test-ов — `readKey` (значения
+    ключа уже разобранными), вместо `regQuery`.
+  - Там же: предел 32 767 символов на значение (длиннее — остаётся как есть), запасное окружение без
+    частей реестра (реестр собирается отдельно), без пустого `Path`, в `WINDOWS_SESSION_VARS` —
+    `USERDNSDOMAIN`, `ProgramFiles(Arm)`, `CommonProgramFiles(Arm)`.
+  - Пятое ревью: значение обрезается по первому NUL, имя с NUL отбрасывается (иначе Node отказывает в
+    `spawn` любого агента); предел 32 767 «липкий»; ключ открывается через .NET Registry API, подключ
+    в base64; запуск PowerShell — чистая `powershellCommand` (абсолютный путь, `-NoProfile`,
+    `-NonInteractive`, timeout, `windowsHide`; пустой или не абсолютный `SystemRoot` — `C:\Windows`);
+    в ошибке — сообщение скрипта, «timed out after 10 s» или последняя строка stderr; весь
+    `WINDOWS_SESSION_VARS` закреплён test-ом.
+  - **Долг:** пользовательское значение `P2=%Path%` получает только `Path` пользователя, а итоговый
+    `Path` — машины и пользователя. Как поступает сама Windows, не проверено; случай редкий.
+  - **Долг:** скрипт идёт через `-EncodedCommand`; средства защиты могут его помечать. Передача через
+    stdin (`-Command -`) не сделана: многострочный скрипт в этом режиме читается построчно, как в
+    интерактивной консоли, — нужна отдельная проверка.
+  - Переменные входа из `HKCU\Volatile Environment` (`LOGONSERVER`, `HOMESHARE`,
+    `USERDOMAIN_ROAMINGPROFILE`, `SESSIONNAME`, `CLIENTNAME`) — тоже в `WINDOWS_SESSION_VARS`.
+  - Первый вариант (окружение процесса минус `CLAUDE*`/`ANTHROPIC_*`) отвергнут на ревью PR #194:
+    прочие переменные того, кто запустил worfy, доходили до агента. Он записан в ADR-0057, раздел
+    «Considered Options».
+- **Git Bash** — `findOnPath` и `findGitBash`, экспортируются. `findOnPath` видит и псевдоним MSIX
+  (`pwsh.exe` из winget; evidence Ticket-а 01, раздел 25) — проверено test-ом на этом ПК. `findGitBash`:
+  от `git.exe` в `Path` (`cmd`, `bin`, `mingw64\bin`), затем `%ProgramFiles%\Git`,
+  `%LOCALAPPDATA%\Programs\Git`; ничего под `%SystemRoot%`, WSL-овский `bash.exe` первым в `Path` не
+  берётся. Без Git Bash — `error` «Git Bash not found: the agent has no Bash tool».
+- **`claude.exe`** (`src/main/agent/options.ts`): путь собирается разделителями платформы сборки —
+  `win32` для Windows, `posix` для остальных; на Windows-машине ожидания `darwin` теперь тоже верны.
+- **ADR-0057** «Окружение агента на Windows» — ссылается на ADR-0007, ADR-0008 и ADR-0054; раздел
+  «Considered Options». Номер 0057 — следующий свободный на main, в открытых PR других ADR нет.
+- **Как test-ы падали до правки** (код main, новые test-ы): `test/unit/agent-env.test.ts` — файл
+  упал при загрузке (`TypeError: Cannot read properties of undefined (reading '0')`, нет
+  `PERSISTENT_ENV_KEYS`); `test/unit/agent-executable.test.ts` — 3 из 9 (`'\Applications\…'` вместо
+  `'/Applications/…'`, `claude` вместо `claude.exe`).
+- **Мутанты** (на Windows, по одному). Первый круг: проверка платформы `'win32'` → `'darwin'` — 10
+  красных; `'claude'` вместо `'claude.exe'` — 2; без отказа от папки Windows в `findGitBash` — 1.
+  Второй круг, после ревью: всё окружение процесса вместо списка сеанса — 3 красных; без фильтра
+  ключей API — 1; без раскрытия `REG_EXPAND_SZ` — 2; реестр пользователя раньше машины — 2. После
+  третьего ревью (`putKey`, по одному на `agent-env.test.ts`): раскрытие сразу при чтении — 5
+  красных; один проход по ждущим значениям — 1; сырое значение пользователя заменяет машинное до
+  раскрытия — 2; повторное сканирование подставленного текста — 1; раскрытие `REG_SZ` — 1; ключ
+  пользователя раньше машины — 7; `Path` пользователя заменяет машинный — 4; без значений из цикла —
+  1. Новая таблица на коде `442c871` — 5 красных из 9 строк (PATHEXT, PSModulePath, `REG_SZ`, цикл,
+  машинный ключ не видит пользовательскую переменную). После четвёртого ревью — 21 мутант, все
+  красные: 8 прежних и 13 новых (пункты a–f ревью — регистр ключа API, регистр в `setVar`, регистр в
+  ссылке вперёд, пустой `Path` пользователя, остаток цикла без раскрытия, `;` в имени; без предела
+  длины, `>=` вместо `>`, запасное окружение с частью реестра, пустой `Path`, base64 как latin1, чтение
+  с раскрытием, без `USERDNSDOMAIN`). После пятого ревью — 37 мутантов, все красные: 21 прежний и
+  16 новых (без обрезки по NUL, без отбрасывания имени с NUL, нелипкий предел, голый
+  `powershell.exe`, без `-NoProfile`, без `-NonInteractive`, без timeout, `windowsHide: false`,
+  `SystemRoot` не учитывается, пустой `SystemRoot` принят, ошибка ключа пользователя проглочена как
+  `[]`, без текста о timeout, без сообщения скрипта, без строки stderr, перепутанные HKCU/HKLM,
+  без отказа на отсутствующий ключ, без `OS` в списке сеанса).
+- **Test-ы на Windows-ПК:** `pnpm test test/unit/agent-env.test.ts test/unit/agent-executable.test.ts
+  test/unit/agent-query-factory.test.ts` — exit 0 (после пятого ревью `agent-env.test.ts` — `57 passed | 4 skipped (61)`; после четвёртого — `50
+  passed | 4 skipped (54)`, с test-ами читателя реестра на временном ключе
+  `HKCU\Software\worfy-test-registry-reader`; после третьего — `37 passed | 4 skipped (41)`; после
+  второго ревью `agent-env.test.ts` — `30
+  passed | 4 skipped (34)`: добавлены случай порядка раскрытия и случай с настоящим реестром и
+  подложенными `CLAUDECODE`, `GH_TOKEN`, `ANTHROPIC_API_KEY` в окружение процесса; test псевдонима
+  MSIX без псевдонима — `ctx.skip()`), до него — `Tests 50 passed | 4 skipped (54)`; пропущены
+  4 test-а `onMac`. Test-ы `win32` выполнены: настоящий `agentEnv()` — `from: 'registry'`, `error`
+  null, `where.exe` находит `git`, `node`, `gh`, `CLAUDE_CODE_GIT_BASH_PATH` — существующий `bash.exe`
+  вне `System32`, ключей `CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`,
+  `NoDefaultCurrentDirectoryInExePath`, `GH_TOKEN`, `ANTHROPIC_API_KEY` нет (сами test-ы идут внутри
+  Session Claude Code, так что в `process.env` они есть); псевдоним MSIX `pwsh.exe` найден.
+- **Проверка платформенного PR без Gate** (Gate на Node — Ticket 03, «Gate не запускался»), на
+  коммите `f9f36bd`: `pnpm install --frozen-lockfile` — exit 0; `pnpm typecheck` — exit 0; `pnpm lint`
+  — exit 1 (`no-useless-assignment` в новом test-е), правка — следующим коммитом, после неё `pnpm lint`
+  — exit 0, `pnpm typecheck` — exit 0, `agent-env.test.ts` — `28 passed | 4 skipped`. `pnpm test` на
+  `f9f36bd` — exit 1, `Test Files 52 failed | 114 passed (166)`, `Tests 695 failed | 2492 passed | 16
+  skipped (3203)`. Сверка с main `9e4874b` по JSON-отчётам vitest (там `53 failed | 113 passed`, `697
+  failed | 2466 passed | 16 skipped (3179)`): отличие одно — ушёл `agent-executable` (2 падения), его
+  чинит этот Ticket. Новых падений нет. После второго ревью — то же: `pnpm lint` — exit 0, `pnpm
+  typecheck` — exit 0, `pnpm test` — exit 1, `Test Files 52 failed | 114 passed (166)`, `Tests 695
+  failed | 2494 passed | 16 skipped (3205)`, отличие от main одно — ушёл `agent-executable`. (В прогоне первого варианта `autopilot-limits` один раз упал
+  по таймауту под нагрузкой; отдельно — 3 прогона из 3 зелёные, в этом прогоне не падал.)
+- **Не проверено, нужен владелец:** ручной пункт «`pnpm dev`: новая Session отвечает и зовёт Bash
+  tool». Новой Session нужен Project, а добавление Project-а с путём `C:\…` на Windows скорее всего ждёт Ticket-а 08 (схемы путей «absolute POSIX path»)
+  (пути и папки на Windows).

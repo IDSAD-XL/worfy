@@ -1,4 +1,4 @@
-# Передача контекста — снимок на 2026-10-09 (UTC), main @ 9f76dcc
+# Передача контекста — снимок на 2026-10-09 (UTC), main @ f95b7e7
 
 ## Сейчас в работе
 
@@ -6,12 +6,12 @@
 - `worfy-harness` 24–25 влиты 2026-10-09: «Connect project» (черновик Profile-а без Bash, факты — `project-connect --facts`, worktree под `.claude/worktrees/`, у Silent — в `.git/info/exclude`) и шаг аккаунта GitHub (PR #191: `gh auth status`, вход внутри диалога, финиш по праву записи).
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 18. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`; работа — только в локальной ветке `wip/worfy-week-14` («Итог» Ticket-а 14).
 - Stable copy и plugin `worfy` — сборка `df8e870` (2026-10-09). Откат машины на plugin — «Итог» `worfy-harness` 16.
-- `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–10, 12–15, `epic-status` — 14/16; Wave 5 — 10, 12, 13 (PR #183–#185). 11 снова open: диалог «Connect project» влит.
-- `worfy-windows` (полный порт под Windows; spec, ADR 0054–0056): влиты 01 и 02 (PR #172, #177), ответы владельца — PR #192. Session на Windows-ПК ведёт 09, затем 08 и 11; gate full — на Mac. 03–07 ждут закрытия E3.
+- `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/16; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16.
+- `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057): влиты 01, 02 и 09 (PR #172, #177, #194 — окружение агента из реестра, как при входе в Windows), ответы владельца — PR #192. Session на Windows-ПК ведёт 08, затем 11; gate full — на Mac. 03–07 ждут закрытия E3.
 
 ## Ждёт владельца
 
-- Подтвердить решения, принятые без владельца (пометки «подтвердить» в «Итог» Ticket-ов): `worfy-week` 03–07, 09, 10, 12, 15, 17, 18; `worfy-harness` 01, 02, 04–09, 11–14, 17, 19, 20, 23–25, 27; `worfy-link` 01–06, 08–10, 12–15.
+- Подтвердить решения, принятые без владельца (пометки «подтвердить» в «Итог» Ticket-ов): `worfy-week` 03–07, 09, 10, 12, 15, 17, 18; `worfy-harness` 01, 02, 04–09, 11–14, 17, 19, 20, 23–25, 27; `worfy-link` 01–06, 08–15.
 - `worfy-link` 08: подтвердить, что с включённым доступом Linked machine может в Project-ах всё — Terminal, Session с `bypassPermissions`, ответы на разрешения (ADR-0052 п.6).
 - `worfy-link` 08: должно ли выключение доступа останавливать Session-ы, Autopilot и очередь, запущенные Linked machine раньше (spec и ADR-0052 расходятся) — [Ticket 08](.scratch/worfy-link/issues/08-доступ-linked-machine-к-project-ам.md), «Итог».
 - `worfy-link` 02: вручную — dev-сборка и Stable copy находят друг друга по Bonjour и связываются по коду; появился ли запрос Local Network и на каком шаге — [Ticket 02](.scratch/worfy-link/issues/02-link-a-machine-код-список-и-отзыв.md), «Итог».
@@ -33,7 +33,7 @@
 - [med] С plugin-ом оживают долги про `gh`: Stop hook зовёт `gh` по имени, и `bin/gh` plugin-а подменит учётную запись (`worfy-harness` 01); `preflight` советует `gh auth switch` вместо `GH_TOKEN` (`worfy-week` 01).
 - [med] `harness/bin/tests/preflight.test.sh` не изолирует `HOME` и пишет замки в настоящий `~/.claude/worfy-harness/` (`worfy-harness` 11). Запускать его только с `HOME` и `HARNESS_HOME` во временном каталоге.
 - [med] Contract test-ы читают настоящий `~/.claude/settings.json`: если там `model: haiku`, падают 10 test-ов (`worfy-daily` 07 и 23).
-- Нестабильный `test/e2e/epic-frame.spec.ts:721` «long names» роняет `gate full` и уже останавливал мержи; причина известна. Сводка нестабильных test-ов — «Итог» `worfy-week` 06.
+- Нестабильные e2e роняют `gate full` и уже останавливали мержи: `test/e2e/epic-frame.spec.ts:721` «long names» (причина известна) и `binding.spec.ts:272` (узел Ticket-а 12 не виден за 5 s под нагрузкой, 2026-10-09; отдельно 3 из 3). Сводка нестабильных test-ов — «Итог» `worfy-week` 06.
 - Пока не сделан пункт о реестре Gate и Profile, Gate `fast` и CI не проверяют PR, где изменён только `HANDOFF.md`: перед его push — `node scripts/check-handoff.mjs`. PR только в `harness/` гоняют Gate с `GATE_SCOPE=all`.
 - Gate `fast` с сужением по диффу не видит `scripts/` и `test/fixtures/` (`worfy-mvp` 01). Перед мержем — `GATE_SCOPE=all gate.sh full` на ветке: e2e и `.app` идут только локально ([ci-merge.md](docs/lessons/ci-merge.md)).
 - Contract test-ы с дочерними процессами (`github-prs`, `harness-qmd`, `workflow-reader`, `docs`) при load 6–8 не укладываются в 15 s: gate fast параллельных исполнителей краснел.
@@ -43,7 +43,7 @@
 
 ## Дальше
 
-- Следом `worfy-link` 11; приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot. Платная часть 27 — после ответа про git.
+- Приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot. Платная часть 27 — после ответа про git.
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21, 24, 25 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
 - Ждут условия (проверит агент): упор в Limits (`worfy-daily` 05), наблюдатель касаний (`worfy-daily` 04), workflow-скрипт в Autopilot (`worfy-daily` 29, 17), бейджи у Ticket-а с открытым PR (`worfy-mvp` 17, `worfy-week` 01).
 - Неделя работы владельца из Stable copy (условие 4 E2 и цель `worfy-week`): каждый дефект и каждое вмешательство человека — Ticket `worfy-week`, следующий номер 19.
@@ -60,7 +60,7 @@
 - `worfy-week` (17/18, Ticket 14 отложен) — [spec](.scratch/worfy-week/spec.md); условия готовности на 2026-10-08 — «Итог» Ticket-а 12.
 - Spec-и открытых Epic-ов: [worfy-harness](.scratch/worfy-harness/spec.md), [worfy-link](.scratch/worfy-link/spec.md), [worfy-windows](.scratch/worfy-windows/spec.md), [worfy-review](.scratch/worfy-review/spec.md). Этапы E1–E4 — [roadmap](docs/roadmap.md).
 - Исследования внешних проектов — [docs/research/](docs/research/).
-- Решения — [docs/adr/](docs/adr/): 0001–0024 и 0029–0056, номера 0025–0028 не используются. Следующий свободный — 0057.
+- Решения — [docs/adr/](docs/adr/): 0001–0024 и 0029–0057, номера 0025–0028 не используются. Следующий свободный — 0058.
 - Уроки — [docs/lessons/](docs/lessons/): `process.md`, `agents.md`, `ci-merge.md`, `testing.md`. Словарь терминов — [CONTEXT.md](CONTEXT.md). Дизайн — [F-SPEC](docs/design/F-SPEC.md).
 - Реестр Gate живёт вне репозитория (`~/.claude/gate/config.json`, после переноса — `$HARNESS_HOME/gate/`); что в нём для worfy — «Итог» `worfy-mvp` 32.
 - Прошлые снимки — `git log -p -- HANDOFF.md`; последний подробный, до сжатия 2026-10-08, — `git show 84684b5:HANDOFF.md`.

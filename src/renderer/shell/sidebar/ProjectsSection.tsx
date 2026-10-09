@@ -1,8 +1,12 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
+import '../../canvas/actions/actions.css'
+import type { LinkState } from '../../../shared/ipc/link'
 import type { ConnectFolder, ProjectsState, ProjectView } from '../../../shared/ipc/projects'
-import { invokeOn, windowMachine } from '../../ipc'
+import { invokeOn, readableReason, windowMachine } from '../../ipc'
 import { useMachines } from '../../machines/useMachines'
 import { ConnectProject } from '../../projects/ConnectProject'
+import { FolderBrowser } from '../../projects/FolderBrowser'
 import { acceptMachineProjects, openProject, useProjectGroups, useProjects, type ProjectGroup } from '../../projects/useProjects'
 import { ListRow, StatusChip } from '../../theme/primitives'
 import { openFirstRun } from '../first-run-store'
@@ -47,6 +51,155 @@ const styles = {
 } satisfies Record<string, CSSProperties>
 
 type Message = { kind: 'notice' | 'error'; text: string }
+
+const choiceStyles = {
+  backdrop: { position: 'fixed', inset: 0, zIndex: 95, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.25)' },
+  dialog: {
+    width: 440,
+    maxWidth: 'calc(100vw - 32px)',
+    display: 'flex',
+    flexDirection: 'column',
+    boxSizing: 'border-box',
+    borderRadius: 'var(--radius-popover)',
+    border: '1px solid var(--border)',
+    background: 'var(--surface)',
+    color: 'var(--text)',
+    boxShadow: 'var(--shadow-node)',
+    fontSize: 'var(--text-13)',
+    outline: 'none',
+  },
+  header: { padding: 'var(--space-4) var(--space-4) var(--space-3)', borderBottom: '1px solid var(--border)' },
+  title: { margin: '0 0 var(--space-1)', fontSize: 'var(--text-20)', fontWeight: 600 },
+  hint: { margin: 0, color: 'var(--text-secondary)', fontSize: 'var(--text-12)' },
+  list: { margin: 0, padding: 'var(--space-2) var(--space-3)', listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' },
+  option: {
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 2,
+    padding: 'var(--space-2) var(--space-3)',
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: 'var(--border)',
+    borderRadius: 'var(--radius-button)',
+    background: 'var(--surface)',
+    color: 'var(--text)',
+    font: 'inherit',
+    textAlign: 'left',
+  },
+  optionOff: { color: 'var(--text-muted)', background: 'var(--surface-raised)' },
+  optionName: { fontWeight: 600 },
+  optionDetail: { fontSize: 'var(--text-12)', color: 'var(--text-secondary)' },
+  optionReason: { fontSize: 'var(--text-12)', color: 'var(--text-muted)' },
+  footer: { display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', padding: 'var(--space-3) var(--space-4)', borderTop: '1px solid var(--border)' },
+} satisfies Record<string, CSSProperties>
+
+/** A Machine "Add project" can add a Project on, or why it cannot now. */
+interface MachineOption {
+  /** null — this Machine. */
+  machine: string | null
+  name: string
+  /** Why it cannot be chosen; null when it can. */
+  unavailable: string | null
+}
+
+/**
+ * The Machines of the first step of "Add project" (worfy-link ticket 11): this one first, then the
+ * Linked machines by name (the sidebar's groups). A Machine that is not online, or does not let
+ * Linked machines work with its Projects, cannot be chosen, and says why.
+ */
+function machineOptions(groups: readonly ProjectGroup[], link: LinkState | undefined): MachineOption[] {
+  return groups.map((group) => {
+    if (group.machine === null) return { machine: null, name: group.name, unavailable: null }
+    const view = link?.linked.find((machine) => machine.id === group.machine)
+    let unavailable: string | null = null
+    if (view?.certificateChanged === true) unavailable = `${group.name} has to be linked again: its certificate changed`
+    else if (view?.state === 'sleeping') unavailable = `${group.name} is asleep`
+    else if (group.state !== 'online') unavailable = `${group.name} is not online`
+    else if (!group.sharing) unavailable = `${group.name} doesn't let Linked machines work with its Projects`
+    return { machine: group.machine, name: group.name, unavailable }
+  })
+}
+
+interface MachineChoiceProps {
+  options: readonly MachineOption[]
+  onChoose: (option: MachineOption) => void
+  onCancel: () => void
+}
+
+/** The first step of "Add project" when there are Linked machines: on which Machine. */
+function MachineChoice({ options, onChoose, onCancel }: MachineChoiceProps) {
+  const titleId = useId()
+  const dialog = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    dialog.current?.focus()
+  }, [])
+  return createPortal(
+    <div
+      style={choiceStyles.backdrop}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onCancel()
+      }}
+    >
+      <div
+        ref={dialog}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        style={choiceStyles.dialog}
+        data-testid="add-project-machine"
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.stopPropagation()
+            onCancel()
+          }
+        }}
+      >
+        <div style={choiceStyles.header}>
+          <h2 id={titleId} style={choiceStyles.title}>
+            Add project
+          </h2>
+          <p style={choiceStyles.hint}>Choose the Machine the project&apos;s folder is on. The Project is added there.</p>
+        </div>
+        <ul style={choiceStyles.list} aria-label="Machines">
+          {options.map((option) => (
+            <li key={option.machine ?? ''}>
+              <button
+                type="button"
+                className="w-row"
+                style={{ ...choiceStyles.option, ...(option.unavailable === null ? {} : choiceStyles.optionOff), height: 'auto' }}
+                disabled={option.unavailable !== null}
+                aria-disabled={option.unavailable === null ? undefined : 'true'}
+                data-testid="add-project-machine-option"
+                data-machine-id={option.machine ?? undefined}
+                onClick={() => option.unavailable === null && onChoose(option)}
+              >
+                <span style={choiceStyles.optionName}>
+                  <MachineName name={option.name} />
+                </span>
+                {option.unavailable !== null ? (
+                  <span style={choiceStyles.optionReason} data-testid="add-project-machine-reason">
+                    {option.unavailable}
+                  </span>
+                ) : (
+                  <span style={choiceStyles.optionDetail}>{option.machine === null ? 'This Machine: its own folder picker' : 'Browse its folders here'}</span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+        <div style={choiceStyles.footer}>
+          <button type="button" className="w-action" onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
 
 const folderIcon = (
   <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -165,8 +318,11 @@ function ProjectRows({ group, onSelect, onMenu }: RowsProps) {
  * and a click on a Project of another Machine opens the window on that Machine. "Add project"
  * opens the system folder picker of this Machine; a folder the Harness already knows joins the
  * list at once, a new one opens the dialog that connects it (worfy-harness ticket 24,
- * ConnectProject.tsx), a folder of neither kind is refused here. The context menu of a row opens
- * its settings or removes it from the list (its data folder stays), on the row's Machine.
+ * ConnectProject.tsx), a folder of neither kind is refused here. With Linked machines it first asks
+ * for the Machine (worfy-link ticket 11): a Linked machine's folder is chosen among its folders
+ * inside worfy (FolderBrowser.tsx), every step runs on it, the Project is added there without
+ * switching its active one, and this window opens it. The context menu of a row opens its
+ * settings or removes it from the list (its data folder stays), on the row's Machine.
  */
 export default function ProjectsSection() {
   const state = useProjects()
@@ -175,34 +331,53 @@ export default function ProjectsSection() {
   const [message, setMessage] = useState<Message>()
   const [menu, setMenu] = useState<{ machine: string | null; project: ProjectView; x: number; y: number }>()
   const [settingsFor, setSettingsFor] = useState<{ machine: string | null; project: ProjectView }>()
-  const [connecting, setConnecting] = useState<{ folder: ConnectFolder; harnessHome: string }>()
+  const [connecting, setConnecting] = useState<{ machine: string | null; machineName: string; folder: ConnectFolder; harnessHome: string }>()
+  /** "Add project" before the folder: the Machine step, or the folders of a Linked machine. */
+  const [picking, setPicking] = useState<{ kind: 'machine' } | { kind: 'browse'; machine: string; name: string }>()
 
-  const fail = (error: string): void => setMessage({ kind: 'error', text: error })
+  const fail = (error: string): void => setMessage({ kind: 'error', text: readableReason(error) })
 
-  /** A Project added on this Machine: the list, the notice, and the window back on this Machine. */
-  const added = async (state: ProjectsState, project: ProjectView, notice: string | null): Promise<void> => {
-    acceptMachineProjects(null, state)
+  /**
+   * A Project added on Machine `machine` (null — this Machine): the list, the notice, and the window
+   * on it. Added here, it is this Machine's active Project: a window on a Linked machine comes back to
+   * show it. Added on a Linked machine, its active Project stays; this window opens the new one there.
+   */
+  const added = async (machine: string | null, state: ProjectsState, project: ProjectView, notice: string | null): Promise<void> => {
+    acceptMachineProjects(machine, state)
     if (notice) setMessage({ kind: 'notice', text: notice })
-    // Added here, it is this Machine's active Project: a window on a Linked machine comes back to show it.
-    if (windowMachine() !== null) {
-      const failure = await openProject(null, project.id)
-      if (failure !== undefined) fail(failure)
-    }
+    if (machine === null && windowMachine() === null) return
+    const failure = await openProject(machine, project.id)
+    if (failure !== undefined) fail(failure)
   }
 
-  // A Project is added on this Machine (a Linked machine's — worfy-link ticket 11).
-  const addProject = async (): Promise<void> => {
-    setMessage(undefined)
-    setConnecting(undefined)
-    const picked = await invokeOn(null, 'projects.pickFolder', { purpose: 'project' })
-    if (!picked.ok) return fail(picked.error)
-    if (picked.value.path === null) return
-    const inspected = await invokeOn(null, 'projects.connect.inspect', { path: picked.value.path })
+  /** The folder `path` of Machine `machine`: known to its Harness — added; new — the connect dialog. */
+  const inspect = async (machine: string | null, machineName: string, path: string): Promise<void> => {
+    const inspected = await invokeOn(machine, 'projects.connect.inspect', { path })
     if (!inspected.ok) return fail(inspected.error)
     const answer = inspected.value
     if (answer.status === 'rejected') return fail(answer.reason)
-    if (answer.status === 'new') return setConnecting({ folder: answer.folder, harnessHome: answer.harnessHome })
-    await added(answer.state, answer.project, answer.notice)
+    if (answer.status === 'new') return setConnecting({ machine, machineName, folder: answer.folder, harnessHome: answer.harnessHome })
+    await added(machine, answer.state, answer.project, answer.notice)
+  }
+
+  /** The folder on Machine `machine`: this Machine's system picker, or a Linked machine's folders inside worfy. */
+  const pickOn = async (machine: string | null, machineName: string): Promise<void> => {
+    setMessage(undefined)
+    setConnecting(undefined)
+    if (machine !== null) return setPicking({ kind: 'browse', machine, name: machineName })
+    setPicking(undefined)
+    const picked = await invokeOn(null, 'projects.pickFolder', { purpose: 'project' })
+    if (!picked.ok) return fail(picked.error)
+    if (picked.value.path === null) return
+    await inspect(null, machineName, picked.value.path)
+  }
+
+  // With Linked machines the Machine comes first (worfy-link ticket 11); without them, this Machine's picker as before.
+  const addProject = async (): Promise<void> => {
+    setMessage(undefined)
+    setConnecting(undefined)
+    if (groups !== null && (link?.linked.length ?? 0) > 0) return setPicking({ kind: 'machine' })
+    await pickOn(null, link?.machine?.name ?? 'This Machine')
   }
 
   const select = async (machine: string | null, project: ProjectView): Promise<void> => {
@@ -304,19 +479,43 @@ export default function ProjectsSection() {
 
       {settingsFor ? <ProjectSettings project={settingsFor.project} machine={settingsFor.machine} onClose={() => setSettingsFor(undefined)} /> : null}
 
+      {picking?.kind === 'machine' && groups !== null ? (
+        <MachineChoice
+          options={machineOptions(groups, link)}
+          onCancel={() => setPicking(undefined)}
+          onChoose={(option) => void pickOn(option.machine, option.name)}
+        />
+      ) : null}
+
+      {picking?.kind === 'browse' ? (
+        <FolderBrowser
+          machine={picking.machine}
+          machineName={picking.name}
+          title="Add project"
+          hint="Choose the folder of a git repository, or the folder above the repositories of one project."
+          onCancel={() => setPicking(undefined)}
+          onChoose={(path) => {
+            setPicking(undefined)
+            void inspect(picking.machine, picking.name, path)
+          }}
+        />
+      ) : null}
+
       {connecting ? (
         <ConnectProject
           folder={connecting.folder}
+          machine={connecting.machine}
+          machineName={connecting.machineName}
           harnessHome={connecting.harnessHome}
           onClose={() => setConnecting(undefined)}
-          onPickAnother={() => void addProject()}
+          onPickAnother={() => void pickOn(connecting.machine, connecting.machineName)}
           onFirstRun={() => {
             setConnecting(undefined)
             openFirstRun()
           }}
           onConnected={(connected) => {
             setConnecting(undefined)
-            void added(connected.state, connected.project, connected.notice)
+            void added(connecting.machine, connected.state, connected.project, connected.notice)
           }}
         />
       ) : null}
