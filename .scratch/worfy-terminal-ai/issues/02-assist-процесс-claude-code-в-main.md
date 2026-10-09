@@ -285,4 +285,20 @@ Source: решения владельца 2026-10-09: пункт 5 (один о�
   - Гонка, оставленная как есть: запасной процесс умер, а запрос взял его раньше, чем пришёл `exited`, —
     `claim()` бросает, Suggestion и Next command получают отказ `not-claimed`, Fix и Command request
     повторяются через `query()` (test «retries a Fix … spare exits between being taken and the claim»).
+- **Узкий раунд после ревью, раунд 2** (комментарии PR #205 6090558481 и 6090571753; база — e356f79):
+  1. `sk-…` снова закрывается после `/` и `.` (путь к файлу ключа, URL, `foo.sk-…`); слово вроде
+     `feature/sk-learn-upgrade-for-models` держит проверка на цифру.
+  2. Первая обрезка (до 8000 символов поля, до 2000 символов строки вывода Fix) убирает слово, которое
+     она разрезала: redaction сжимает текст перед ним (длинный JWT становится `[redacted]`), и голова
+     ключа `AKIAABCDEF` попадала бы в первые 2000 (500) символов. Одно слово длиннее первой обрезки
+     уходит целиком.
+  3. `-u`/`--user` (и `-a`/`--auth` у httpie) с `x:y` закрываются только после `curl`, `wget`, `http`,
+     `https` как отдельной команды: `docker run -u 1000:1000`, `docker exec --user root:root`,
+     `podman run --user=nobody:nogroup`, `sort -u a:b`, `docker run --name my-curl -u 1000:1000` не
+     тронуты.
+  4. `Basic <слово>` закрывается, только если слово похоже на base64-учётные данные: в нём есть цифра,
+     `+`, `/` или `=`, или оно декодируется в печатное `user:password`. `Basic configuration done`,
+     `Basic authentication failed`, `## Basic Requirements` не тронуты; голый `Basic dXNlcjpwYXNzd29yZA==` закрыт.
+  - Mutation testing раунда: 8 мутантов (`/tmp/worfy-terminal-ai-w1/impl-02/mut/run3.sh`), все роняют
+    unit test, в том числе мутант, который убирает правило `Basic`.
 - **UI не менялся** (окно Settings — Ticket 08), снимков нет.

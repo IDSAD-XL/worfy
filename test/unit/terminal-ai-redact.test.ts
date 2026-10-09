@@ -14,6 +14,8 @@ const SLACK = `xoxb-${'1234567890'}-${'abcdefghij'}`
 const STRIPE = `sk_live_${'4eC39HqLyjWDarjtT1zdp7dc'}`
 const STRIPE_RESTRICTED = `rk_live_${'51HxYzAbCdEf0123456789'}`
 const GOOGLE = `AIza${'SyD-9tSrke72PouQMnMX-a7eZSW0jkFMBWY'}`
+const ANTHROPIC_REAL = `sk-ant-api03-${'Zq7_aB3-xY9k'.repeat(8).slice(0, 95)}`
+const OPENAI_PROJECT = `sk-proj-${'Ab3dEf6hIj9kLm2n'.repeat(4)}`
 const JWT = `eyJ${'hbGciOiJIUzI1NiJ9'}.eyJ${'zdWIiOiIxIn0'}.${'sflKxwRJSMeKKF2QT4fwpMeJf36P'}`
 
 describe('redactSecrets', () => {
@@ -43,6 +45,12 @@ describe('redactSecrets', () => {
     ['an APIKEY variable', 'APIKEY=abc123 ./deploy.sh', `APIKEY=${REDACTED} ./deploy.sh`],
     ['a Stripe secret key', `stripe charges list --api ${STRIPE}`, `stripe charges list --api ${REDACTED}`],
     ['a Stripe restricted key', `export K=${STRIPE_RESTRICTED}`, `export K=${REDACTED}`],
+    ['an Anthropic key file after a slash', `cat ~/keys/${ANTHROPIC_REAL}`, `cat ~/keys/${REDACTED}`],
+    ['an OpenAI key in a URL path', `curl https://x.io/v1/${OPENAI_PROJECT}/run`, `curl https://x.io/v1/${REDACTED}/run`],
+    ['an Anthropic key after a dot', `echo foo.${ANTHROPIC_REAL}`, `echo foo.${REDACTED}`],
+    ['a wget --user= password', 'wget --user=admin:hunter2 https://x.dev/f', `wget --user=admin:${REDACTED} https://x.dev/f`],
+    ['an httpie -a password', 'http -a admin:hunter2 api.local/me', `http -a admin:${REDACTED} api.local/me`],
+    ['a curl -u password after other options', 'curl -s -H "Accept: x" -u admin:hunter2 https://x.dev', `curl -s -H "Accept: x" -u admin:${REDACTED} https://x.dev`],
     ['a Google API key', `curl "https://maps.googleapis.com/x?key=${GOOGLE}"`, `curl "https://maps.googleapis.com/x?key=${REDACTED}"`],
   ])('replaces %s', (_name, input, expected) => {
     expect(redactSecrets(input)).toBe(expected)
@@ -54,6 +62,12 @@ describe('redactSecrets', () => {
     expect(redacted).not.toContain(GITHUB_CLASSIC)
     expect(redacted).not.toContain(AWS)
     expect(redacted).toBe(`${'echo start; '.repeat(20)}deploy --key ${REDACTED} --other ${REDACTED} && ${'ls -la; '.repeat(20)}`)
+  })
+
+  it('replaces a bare Basic credential, base64 with a digit or padding, or base64 of user:password', () => {
+    expect(redactSecrets('Basic dXNlcjpwYXNzd29yZA==')).toBe(`Basic ${REDACTED}`)
+    expect(redactSecrets(`header Basic ${btoa('abc:defgh')} sent`)).toBe(`header Basic ${REDACTED} sent`)
+    expect(btoa('abc:defgh')).toMatch(/^[A-Za-z]+$/) // the decoding branch decides, not a digit or padding
   })
 
   it('replaces a private key block of command output', () => {
@@ -78,6 +92,15 @@ describe('redactSecrets', () => {
     'mysql -p',
     'sort -u names.txt',
     'MONKEY=1 make',
+    'docker run -u 1000:1000 img',
+    'docker exec --user root:root c sh',
+    'podman run --user=nobody:nogroup img',
+    'sort -u a:b',
+    'docker run -e URL=https://x.io -u 1000:1000 img',
+    'docker run --name my-curl -u 1000:1000 img',
+    'echo "Basic configuration done"',
+    'Basic authentication failed',
+    '## Basic Requirements',
   ])(
     'leaves %s as it is',
     (command) => {

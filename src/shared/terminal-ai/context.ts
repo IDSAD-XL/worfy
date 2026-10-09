@@ -59,20 +59,33 @@ export interface TerminalAiContext {
 export const isPrivateLine = (text: string): boolean => /^[ \t]/.test(text)
 
 /**
- * `text` redacted, then cut to `max`. Redaction comes first, so a secret across the cut is replaced
- * whole instead of leaving its head in the text. What goes into redaction is cut at four times `max`
- * only to bound its work: a secret across that cut lies past `max` and is dropped anyway.
+ * The first `limit` characters of `text`, without a word the cut splits: when the cut falls inside a
+ * run of non-space characters, that run goes too. A secret cut in two would no longer match its
+ * pattern, and its head would reach the model; so the cut never leaves the head of anything.
+ */
+function headOf(text: string, limit: number): string {
+  if (text.length <= limit) return text
+  const head = text.slice(0, limit)
+  return /\S/.test(text.charAt(limit)) ? head.replace(/\S+$/, '') : head
+}
+
+/**
+ * `text` redacted, then cut to `max`. What goes into redaction is cut first at four times `max`, only
+ * to bound its work, and that cut drops the word it splits (headOf): redaction shrinks what comes
+ * before (a long JWT becomes `[redacted]`), so text from near the first cut may land within `max`, and
+ * a secret's head left there would go out. The second cut acts on redacted text: every secret this
+ * module recognises is already whole `[redacted]` by then.
  */
 function redactThenCut(text: string, max: number): string {
-  const redacted = redactSecrets(text.length > 4 * max ? text.slice(0, 4 * max) : text)
+  const redacted = redactSecrets(headOf(text, 4 * max))
   return redacted.length > max ? redacted.slice(0, max) : redacted
 }
 
 const field = (text: string): string => redactThenCut(text, MAX_FIELD_CHARS)
 
-/** The Fix output tail: the last lines, redacted as one text (a key block spans lines), each line cut. */
+/** The Fix output tail: the last lines, redacted as one text (a key block spans lines), each line cut as a field is. */
 function outputTail(lines: readonly string[]): string[] {
-  const tail = lines.slice(-MAX_OUTPUT_LINES).map((line) => (line.length > 4 * MAX_OUTPUT_LINE_CHARS ? line.slice(0, 4 * MAX_OUTPUT_LINE_CHARS) : line))
+  const tail = lines.slice(-MAX_OUTPUT_LINES).map((line) => headOf(line, 4 * MAX_OUTPUT_LINE_CHARS))
   return redactSecrets(tail.join('\n'))
     .split('\n')
     .map((line) => (line.length > MAX_OUTPUT_LINE_CHARS ? line.slice(0, MAX_OUTPUT_LINE_CHARS) : line))

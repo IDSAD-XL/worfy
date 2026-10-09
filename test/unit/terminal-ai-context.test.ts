@@ -87,7 +87,29 @@ describe('prepareContext', () => {
     expect(context.output?.[0]).toBe('short')
     expect(context.output?.[1]).toHaveLength(MAX_OUTPUT_LINE_CHARS)
     expect(context.output?.[1]).not.toContain('ghp_')
-    expect(context.output?.[2]).toBe('z'.repeat(MAX_OUTPUT_LINE_CHARS))
+    // One word four times longer than the cap is split by the first cut and goes whole: nothing of it
+    // could be told apart from the head of a secret.
+    expect(context.output?.[2]).toBe('')
+    expect(prepareContext('fix', input({ output: [`${'z'.repeat(10 * MAX_OUTPUT_LINE_CHARS)} `.repeat(2)] })).output?.[0]).toBe('')
+    expect(prepareContext('fix', input({ output: ['w '.repeat(2 * MAX_OUTPUT_LINE_CHARS)] })).output?.[0]).toHaveLength(MAX_OUTPUT_LINE_CHARS)
+  })
+
+  it('leaves no head of a secret split by the first cut, after redaction shrank the text before it', () => {
+    const jwt = (length: number): string => `eyJ${'a'.repeat(length - 3 - 22)}.${'b'.repeat(10)}.${'c'.repeat(10)}`
+    const key = 'AKIAABCDEFGHIJKLMNOP'
+    // A Fix output line: the key starts at 1990, the first cut is at 2000 (four times the line cap).
+    const line = `${jwt(1605)} ${'y'.repeat(383)} ${key}`
+    expect(line.indexOf(key)).toBe(1990)
+    const fix = prepareContext('fix', input({ output: [line] }))
+    expect(fix.output?.[0]).not.toContain('AKIA')
+    expect(contextText('fix', fix)).not.toContain('AKIA')
+    // A field: a 6100-character JWT, then the key at 7990, the first cut at 8000.
+    const field = `${jwt(6100)} ${'y'.repeat(1888)} ${key}`
+    expect(field.indexOf(key)).toBe(7990)
+    const context = prepareContext('request', input({ line: field, request: field, commands: [field] }))
+    for (const value of [context.line, context.request ?? '', context.commands[0] ?? '']) expect(value).not.toContain('AKIA')
+    // A word the cut does not split stays.
+    expect(prepareContext('next', input({ line: `${jwt(6100)} ${'y'.repeat(1893)} done` })).line.endsWith('done')).toBe(true)
   })
 
   it('takes the branch main found when the shell did not send one', () => {
