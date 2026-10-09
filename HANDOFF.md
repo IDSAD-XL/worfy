@@ -13,7 +13,7 @@
 ## Ждёт владельца
 
 - Подтвердить решения, принятые без владельца (пометки «подтвердить» в «Итог» Ticket-ов): `worfy-week` 03–07, 09, 10, 12, 15, 17, 18; `worfy-harness` 01, 02, 04–09, 11–14, 17, 19, 20, 23–25, 27; `worfy-link` 01–06, 08–15.
-- `worfy-terminal-ai`: подтвердить «Готово, когда», разбиение на Ticket-ы и 14 пунктов «Решено без владельца» ([spec](.scratch/worfy-terminal-ai/spec.md)), в том числе `claim()` прогретого процесса на каждый запрос (ADR-0058, пункт 2) и каналы `project` для панели и Fix.
+- `worfy-terminal-ai`: подтвердить «Готово, когда», разбиение на Ticket-ы и 13 пунктов «Решено без владельца» ([spec](.scratch/worfy-terminal-ai/spec.md)), в том числе `claim()` прогретого процесса на каждый запрос (ADR-0058, пункт 2).
 - `worfy-link` 08: подтвердить, что с включённым доступом Linked machine может в Project-ах всё — Terminal, Session с `bypassPermissions`, ответы на разрешения (ADR-0052 п.6).
 - `worfy-link` 08: должно ли выключение доступа останавливать Session-ы, Autopilot и очередь, запущенные Linked machine раньше (spec и ADR-0052 расходятся) — [Ticket 08](.scratch/worfy-link/issues/08-доступ-linked-machine-к-project-ам.md), «Итог».
 - `worfy-link` 02: вручную — dev-сборка и Stable copy находят друг друга по Bonjour и связываются по коду; появился ли запрос Local Network и на каком шаге — [Ticket 02](.scratch/worfy-link/issues/02-link-a-machine-код-список-и-отзыв.md), «Итог».

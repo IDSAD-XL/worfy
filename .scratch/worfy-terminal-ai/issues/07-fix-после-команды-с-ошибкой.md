@@ -35,7 +35,7 @@ Source: решения владельца 2026-10-09: пункт 1(d) (кноп�
    Файлы — `src/shared/ipc/terminal-ai-fix.ts`, `src/main/ipc/terminal-ai-fix.ts` (новые). Пометка —
    `project`, как у Command request (Ticket 06): Fix работает с Terminal-ом Project-а, рабочий стол ему
    не нужен; с экрана Linked machine-а при включённом доступе кнопка работает и тратит подписку
-   Machine Project-а (spec, «Решено без владельца», пункт 5).
+   Machine Project-а (решение владельца 8(a)).
 2. **Кнопка** — в шапке Terminal Node-а, рядом с заголовком: «Fix».
    - Нажатие — `terminalAi.fix.run`, на кнопке «Fixing…».
    - Ответ — строка shell-а заменена исправленной командой, кнопка прячется до следующей ошибки.

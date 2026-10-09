@@ -28,8 +28,8 @@ Source: решения владельца 2026-10-09: пункт 1(a) (Suggestio
 ## Что делаем
 
 1. **Socket** — `src/main/terminal-ai/socket.ts` (новый).
-   - Unix socket `assist.sock` в папке Ticket-а 01 (права 0700), файл 0600; путь — не длиннее 104
-     байт (предел macOS, Ticket 01 выбирает папку). Стартует с первым zsh-Terminal-ом, закрывается при
+   - Unix socket `assist.sock` в папке Ticket-а 01 (права 0700), файл 0600; путь — не длиннее 103
+     байт: `zsocket` zsh 5.9 копирует не больше 103 байт пути (Ticket 01 выбирает папку). Стартует с первым zsh-Terminal-ом, закрывается при
      выходе worfy. Файла socket-а нет при старте очередного Terminal-а (папку чистили) — сервер слушает
      заново.
    - Каждый запуск shell-а получает свой токен: `WORFY_ASSIST_SOCKET` и `WORFY_ASSIST_TOKEN` в
@@ -69,8 +69,8 @@ Source: решения владельца 2026-10-09: пункт 1(a) (Suggestio
    - socket нет или он закрылся — Suggestion из истории работают, остальное молчит; в Terminal не
      печатается ни одной ошибки.
    - У пользователя уже есть zsh-autosuggestions (функция `_zsh_autosuggest_start` определена) — свой
-     Suggestion не включается, сообщения main работают (spec, «Решено без владельца», пункт 8).
-   - `config` выключил Suggestion — серого текста нет и из истории (там же, пункт 9).
+     Suggestion не включается, сообщения main работают (spec, «Решено без владельца», пункт 7).
+   - `config` выключил Suggestion — серого текста нет и из истории (там же, пункт 8).
 
 **Не входит:** Suggestion от модели (Ticket 04), Next command (05), строка `# …` (06), Fix (07).
 
@@ -78,7 +78,7 @@ Source: решения владельца 2026-10-09: пункт 1(a) (Suggestio
 
 - [ ] Unit `test/unit/terminal-ai-protocol.test.ts` (новый): каждое сообщение пункта 2 кодируется и разбирается обратно; текст с TAB, `\n`, `\`, кириллицей и эмодзи — без потерь.
 - [ ] Contract `test/contract/terminal-ai-zle.test.ts` (новый), настоящий zsh с интеграцией Ticket-а 01, `HOME` во временной папке: после `echo worfy-zle-1` ввод `echo wo` даёт в выводе серый `rfy-zle-1` (SGR цвета 8 или 90); → — строка `echo worfy-zle-1`, Enter печатает `worfy-zle-1`; Option+→ (`ESC [1;3C`, как его шлёт xterm.js worfy) принимает одно слово; Esc — серый текст стёрт; ` echo wo` (пробел в начале) — серого текста нет.
-- [ ] Тот же contract: файл socket — 0600, папка — 0700; соединение без `hello`, с чужим токеном и с токеном закрытого shell-а — закрыто; файл socket-а удалён — следующий Terminal подключается; `insert git status` заменяет строку, команда не запускается (её вывода нет, main не пишет в pty `\r`); `show` с устаревшим id не показывается; socket закрыт — история работает, в выводе нет ошибок zsh.
+- [ ] Тот же contract: файл socket — 0600, папка — 0700; путь socket-а в 103 байта — zsh подключается; соединение без `hello`, с чужим токеном и с токеном закрытого shell-а — закрыто; файл socket-а удалён — следующий Terminal подключается; `insert git status` заменяет строку, команда не запускается (её вывода нет, main не пишет в pty `\r`); `show` с устаревшим id не показывается; socket закрыт — история работает, в выводе нет ошибок zsh.
 - [ ] Тот же contract: `env` внутри shell-а — без `WORFY_ASSIST_TOKEN` и `WORFY_ASSIST_SOCKET`; вложенный `zsh -i` — без widget-а; определённая заранее `_zsh_autosuggest_start` — свой Suggestion не включается; `config` без Suggestion — серого текста нет.
 - [ ] e2e `test/e2e/terminal-ai-history.spec.ts` (новый): в Terminal Node выполнена команда с уникальной меткой, затем набран её префикс — в буфере xterm остаток команды серым; → и Enter выполняют её; Alt+ArrowRight (Playwright) принимает одно слово. Тот же Terminal во втором окне (helper `openSecondWindow`, `test/e2e/helpers.ts:228`) показывает тот же серый текст.
 - [ ] (вручную) `WORFY_AGENT=fake pnpm dev`, zsh владельца: Suggestion из истории — без заметной задержки; →, Option+→ и Esc работают; время скрытия по Esc — в «Итог». Снимки серого текста — `../evidence/03-suggestion-light.png` и `../evidence/03-suggestion-dark.png`: текст читается в обеих темах. Как проверить: окно worfy.

@@ -19,9 +19,9 @@ Source: решения владельца 2026-10-09: пункт 2 (всё вы�
   e2e этого Ticket-а проверяет серый текст из истории.
 - Ticket 06 (строка `# …`) — не блокер. Если он к claim влит, e2e проверяет и её; если нет — эта
   проверка остаётся приёмке (Ticket 09).
-- Переключатели (Ticket 02, пункт 6): «Terminal AI»; «Suggestion»; «Ask Claude when history has
-  nothing»; «Next command» и его модель; «Command request»; «Fix». По умолчанию всё включено, модель
-  Next command — Sonnet.
+- Переключатели (Ticket 02, пункт 7): «Terminal AI»; «Suggestion»; «Ask Claude when history has
+  nothing»; «Next command» и его модель; «Command request»; «Fix». По умолчанию всё включено (решение
+  владельца 8(b)), модель Next command — Sonnet.
 - Terminal AI работает только в Terminal-ах на zsh (решение 4).
 - Состояние Limits worfy показывает `LimitsMeter` в toolbar-е (`src/renderer/shell/toolbar/LimitsMeter.tsx`).
 

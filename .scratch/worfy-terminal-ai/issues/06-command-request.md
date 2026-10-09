@@ -37,12 +37,12 @@ Source: решения владельца 2026-10-09: пункт 1(c) (стро�
    - Строка начинается с `# ` (решётка и пробел) — не исполняется: `ask <id> request <текст>`, серым
      `status` «asking Claude…».
    - Ответ — `insert <команда>`: строка заменяется командой, курсор в конце (spec, «Решено без
-     владельца», пункт 6). Enter нажимает пользователь.
+     владельца», пункт 5). Enter нажимает пользователь.
    - Любое нажатие до ответа — `cancel <id>`, строка остаётся `# …`.
    - Отказ — серым `status` с причиной («Limits reached until 14:20», «Terminal AI is off»).
    - Строка `# …` в историю zsh не попадает. Без `# ` в начале — `accept-line` как обычно.
 2. **Где есть панель.** Только у Terminal-а, чей zsh подключён к socket-у Ticket-а 03 (spec, «Решено
-   без владельца», пункт 13). Состояние — канал `terminalAi.request.state {projectId, nodeId}` →
+   без владельца», пункт 12). Состояние — канал `terminalAi.request.state {projectId, nodeId}` →
    `{available, busy}` и событие `terminalAi.request.changed`: `available` — zsh подключён и Command
    request включён в Settings, `busy` — идёт команда. В остальных Terminal-ах Cmd+I и Ctrl+I уходят в
    shell, как сейчас.
@@ -59,7 +59,7 @@ Source: решения владельца 2026-10-09: пункт 1(c) (стро�
 4. **Каналы** — `src/shared/ipc/terminal-ai-request.ts`, `src/main/ipc/terminal-ai-request.ts`
    (новые), пометка `project`: панель работает с Terminal-ом Project-а, рабочий стол ей не нужен. С
    экрана Linked machine-а при включённом доступе она работает так же, как строка `# …`, и тратит
-   подписку Machine Project-а (spec, «Решено без владельца», пункт 5).
+   подписку Machine Project-а (решение владельца 8(a)).
 5. **Обработчик** — `src/main/terminal-ai/features/command-request.ts` (новый): `ask request` из shell-а
    и вызов из канала. Контекст: текст просьбы, текущая строка (если не пустая), папка, ветка, код
    выхода, последние 20 команд.

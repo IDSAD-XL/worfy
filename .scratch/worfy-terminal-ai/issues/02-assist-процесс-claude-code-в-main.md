@@ -27,12 +27,21 @@ Source: решения владельца 2026-10-09: пункт 5 (один о�
   `receivedAt` (`src/shared/agent/limits.ts:24-33`). Состояние переживает перезапуск worfy, а статус
   окна держится, пока не придёт новый. Ожидание Autopilot предупреждает: `rejected`, оставшийся от
   прошлого хода, может относиться к окну, которое не блокирует (`src/main/autopilot/limits-wait.ts:13-16`).
-- SDK 0.3.289 (`sdk.d.ts` пакета): у `startup()` все опции фиксируются при старте процесса. У
-  `prewarm()` при старте фиксируются исполняемый файл, `settingSources`, `env`, `systemPrompt`,
-  `mcpServers`, `hooks`, tools и plugin-ы. `claim()` запасного процесса задаёт `model`,
-  `maxThinkingTokens`, `settings` (например, `effortLevel`), `appendSystemPrompt`, `title`. Отказ
-  `option_not_applied` значит: запрос уже ушёл, но без `model` или `maxThinkingTokens`. Запасной
-  процесс в простое — 230–260 MB (документация `prewarm()`).
+- SDK 0.3.289 (`sdk.d.ts` пакета) даёт два способа держать процесс тёплым.
+  - `startup(options)` стартует процесс с опциями вызова; `WarmQuery.query()` вызывается один раз и
+    принимает строку или поток сообщений. В режиме потока у Query есть `setModel()`,
+    `setMaxThinkingTokens()` и `applyFlagSettings({effortLevel})` — до первого сообщения можно
+    сменить модель, thinking и effort. `systemPrompt` фиксирован при старте. Spike так и сделал:
+    `setMaxThinkingTokens(0)` на процессе `startup()` выключил thinking.
+  - `prewarm()` (alpha) паркует запасной процесс до того, как известна Session. При старте
+    фиксируются исполняемый файл, `settingSources`, `env`, `systemPrompt`, `mcpServers`, `hooks`,
+    tools и plugin-ы; `cwd` у `prewarm()` — только папка ожидания, «never the session's folder».
+    `claim()` задаёт `cwd` Session-а (обязательно), `model`, `maxThinkingTokens`, `settings`
+    (например, `effortLevel`), `appendSystemPrompt`, `title` — до отправки prompt-а. Запасной
+    процесс в простое — 230–260 MB.
+  - Отказы `claim()`: `option_not_applied` — запрос ушёл, но без `model` или `maxThinkingTokens`;
+    `settings_not_applied` — overlay `settings` отклонён, запрос не ушёл, процесс закрыт;
+    `not_claimed`, `claim_failed`, `spare_exited`, `spare_closed` — запрос не ушёл.
 - Spike 2026-10-09 ([evidence](../evidence/spike-задержки-2026-10-09.md)) проверил опции
   assist-процесса на подписке Max владельца. Старт ~0,5 с, `prewarm()` — 746 ms, RSS 210–300 MB. Haiku
   с `effort: 'low'` думает (до 54 с); с `thinking: {type: 'disabled'}` или `setMaxThinkingTokens(0)` —
@@ -55,10 +64,20 @@ Source: решения владельца 2026-10-09: пункт 5 (один о�
    - Процесс — по ADR-0058, пункт 2: запасной процесс `prewarm()`; запрос — `claim()` с
      настройками функции (пункт 2 ниже). Первый запрос стартует процесс. После ответа или отмены
      процесс закрывается, сразу прогревается следующий. 10 минут без запросов — запасной
-     закрывается. `startup()` не годится: у него опции функции задать нельзя.
+     закрывается.
+   - Почему `prewarm()` + `claim()`, а не `startup()`: все настройки функции — одной записью до
+     отправки prompt-а, с отдельным отказом на каждую; инструкция функции — `appendSystemPrompt`, а не
+     текст в сообщении пользователя; `cwd` Session-а задаётся при запросе. `startup()` с `setModel()`,
+     `setMaxThinkingTokens()` и `applyFlagSettings()` в режиме потока — тоже рабочий путь (spike его
+     частично проверил) и запасной: если `claim()` (alpha) подведёт вживую, Ticket переходит на него, а
+     инструкция функции идёт в сообщение пользователя.
    - Запрос пришёл, пока запасной ещё прогревается, — ждёт его, не стартуя второй.
    - `option_not_applied` у `suggest` (thinking не выключился) — запрос отменяется; у остальных —
      ответ принимается, строка в лог.
+   - Отказ, после которого запрос не ушёл (`settings_not_applied` — например, отклонён `effortLevel`;
+     `not_claimed`, `claim_failed`, `spare_exited`, `spare_closed`): `request` и `fix` повторяются один
+     раз обычным `query()` с теми же опциями — холодный старт, как советует SDK; `suggest` и `next` —
+     отказ без повтора. Ждать тайм-аута при таком отказе нельзя.
    - В полёте один запрос. Новый `suggest` или `next` отменяет `suggest` и `next` в полёте. `request` и
      `fix` отменяют автоматический и сами не отменяются; следующий запрос по требованию ждёт.
    - Тайм-ауты: `suggest` — 5 с, `next` — 8 с, `request` и `fix` — 30 с (spec, «Решено без
@@ -73,10 +92,10 @@ Source: решения владельца 2026-10-09: пункт 5 (один о�
    - При `prewarm()`: `settingSources: []`, `mcpServers: {}`, `strictMcpConfig: true`, `tools: []`,
      `permissionMode: 'dontAsk'`, `maxTurns: 1`, `persistSession: false`, `includePartialMessages:
      true`, общий `systemPrompt` строкой (вернуть только команду, без кавычек и пояснений); `env` —
-     `agentEnv()`, ключи `API_KEY_VARS` вычищаются ещё раз; `cwd` — пустая папка
-     `<WORFY_DATA_DIR>/terminal-ai/` (риск 4 spec-а); `pathToClaudeCodeExecutable` —
-     `claudeExecutablePath`.
-   - При `claim()`, по функции: `suggest` — `model: 'haiku'`, `maxThinkingTokens: 0`; `next` —
+     `agentEnv()`, ключи `API_KEY_VARS` вычищаются ещё раз; `pathToClaudeCodeExecutable` —
+     `claudeExecutablePath`. `cwd` у `prewarm()` не задаётся: это только папка ожидания.
+   - При `claim()`, у всех функций: `cwd` — пустая папка `<WORFY_DATA_DIR>/terminal-ai/` (риск 4
+     spec-а: по `cwd` Session-а worfy решает, чья она). По функции: `suggest` — `model: 'haiku'`, `maxThinkingTokens: 0`; `next` —
      `sonnet` с `settings: {effortLevel: 'low'}`, а с настройкой «Haiku» — `haiku` с
      `maxThinkingTokens: 0`; `request` и `fix` — `sonnet`, `effortLevel: 'low'`. У каждой функции —
      свой `appendSystemPrompt` и `title`.
@@ -86,7 +105,7 @@ Source: решения владельца 2026-10-09: пункт 5 (один о�
    функции и текущего времени.
    - Окно, у которого `resetsAt` уже прошёл, не считается: ни доля, ни статус. Окно без `resetsAt` —
      `allowed_warning` и `rejected` считаются час после `receivedAt` (spec, «Решено без владельца»,
-     пункт 11).
+     пункт 10).
    - `suggest` и `next` — нельзя, если доля окна `five_hour` больше 0,8 или у любого действующего окна
      `allowed_warning` или `rejected`.
    - `request` и `fix` — нельзя только при `rejected` действующего окна.
@@ -109,8 +128,7 @@ Source: решения владельца 2026-10-09: пункт 5 (один о�
    хранение — `<WORFY_DATA_DIR>/terminal-ai.json` (`src/main/terminal-ai/settings.ts`, новый).
    - Переключатели: «Terminal AI» (всё); «Suggestion»; «Ask Claude when history has nothing»;
      «Next command» и его модель (Sonnet или Haiku); «Command request»; «Fix».
-   - По умолчанию всё включено, модель Next command — Sonnet (решение владельца 1(b); включено по
-     умолчанию — spec, «Решено без владельца», пункт 4).
+   - По умолчанию всё включено, модель Next command — Sonnet (решения владельца 1(b) и 8(b)).
    - Выключенная функция — отказ сервиса с причиной «off».
 8. **Каналы** — `src/shared/ipc/terminal-ai.ts` и `src/main/ipc/terminal-ai.ts` (новые), все `local`
    (Settings и состояние — машины экрана, как Limits). Имена — по образцу `link.state` и
@@ -118,7 +136,10 @@ Source: решения владельца 2026-10-09: пункт 5 (один о�
    - `terminalAi.state` — Settings, по каждой функции `on`, `off` или `paused` (Limits, со временем
      сброса), состояние процесса (`idle`, `warm`, `busy`);
    - `terminalAi.setSettings` — изменить Settings;
-   - событие `terminalAi.changed`.
+   - событие `terminalAi.changed` — при смене Settings, состояния процесса, Limits (когда main шлёт окнам
+     `limits.changed`) и по таймеру на время сброса окна, которое держит паузу: в этот момент `paused`
+     снимается без нового запроса. Таймер — по часам, как `wallTimer` ожидания Autopilot
+     (`src/main/autopilot/limits-wait.ts`): Mac мог спать.
 9. **Fake** — `src/main/terminal-ai/fake-backend.ts` (новый).
    - При `WORFY_AGENT=fake` сервис SDK не импортирует. Ответы — из JSON-файла
      `WORFY_TERMINAL_AI_ANSWERS`: функция, подстрока строки ввода или просьбы, ответ, задержка, по
@@ -132,12 +153,12 @@ Source: решения владельца 2026-10-09: пункт 5 (один о�
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/terminal-ai-options.test.ts` (новый): опции `prewarm()` — `mcpServers` `{}`, `tools` и `settingSources` пусты, `persistSession` false, `permissionMode` `dontAsk`; во входном окружении есть `ANTHROPIC_API_KEY` — в опциях его нет; опции `claim()` каждой функции — как в пункте 2 (`suggest` — `haiku` и `maxThinkingTokens: 0`; `next` с настройкой «Haiku» — `haiku`).
+- [ ] Unit `test/unit/terminal-ai-options.test.ts` (новый): опции `prewarm()` — `mcpServers` `{}`, `tools` и `settingSources` пусты, `persistSession` false, `permissionMode` `dontAsk`; во входном окружении есть `ANTHROPIC_API_KEY` — в опциях его нет; опции `claim()` каждой функции — как в пункте 2 (`cwd` — папка `terminal-ai` в папке данных; `suggest` — `haiku` и `maxThinkingTokens: 0`; `next` с настройкой «Haiku» — `haiku`); у опций `prewarm()` нет `cwd` Session-а.
 - [ ] Unit `test/unit/terminal-ai-redact.test.ts` (новый): каждый образец пункта 6 заменён на `[redacted]`, в том числе внутри длинной строки и в URL; `git status`, `export PATH=/usr/bin`, `ls -la` не тронуты.
 - [ ] Unit `test/unit/terminal-ai-context.test.ts` (новый): хвост вывода — только у `fix`; команд не больше 20, строк вывода не больше 50; строки с пробелом в начале выброшены; redaction применён к каждому полю.
 - [ ] Unit `test/unit/terminal-ai-limits-gate.test.ts` (новый): `five_hour` 0,79 и `allowed` — можно всё; 0,81 — `suggest` и `next` нельзя, `request` и `fix` можно; `allowed_warning` у `seven_day` — автоматические нельзя; `rejected` — нельзя ничего, отказ со временем сброса; 0,9 и `rejected`, но `resetsAt` в прошлом — можно всё; `rejected` без `resetsAt` старше часа — можно; Limits пусты — можно всё.
-- [ ] Contract `test/contract/terminal-ai-assist.test.ts` (новый), поддельный SDK и поддельные часы: первый запрос стартует процесс; после ответа сразу прогревается следующий; запрос, пришедший во время прогрева, ждёт его и второй процесс не стартует; 10 минут без запросов — запасной закрыт; новый `suggest` отменяет `suggest` в полёте (его процесс закрыт, следующий прогревается); `fix` отменяет `next`; `next` не отменяет `fix`; тайм-аут `suggest` — отмена; поток `suggest` с thinking — отмена, поток `next` с thinking — нет; `option_not_applied` у `suggest` — отмена, у `fix` — ответ принят; ответ `` `git status` `` — команда `git status`.
-- [ ] Тот же contract: `rate_limit_event` из потока запроса виден в `snapshot()` трекера Limits; при `rejected` запрос в SDK не уходит; с признаком «идёт команда» или «альтернативный экран» — тоже; выключенная в Settings функция — отказ «off».
+- [ ] Contract `test/contract/terminal-ai-assist.test.ts` (новый), поддельный SDK и поддельные часы: первый запрос стартует процесс; после ответа сразу прогревается следующий; запрос, пришедший во время прогрева, ждёт его и второй процесс не стартует; 10 минут без запросов — запасной закрыт; новый `suggest` отменяет `suggest` в полёте (его процесс закрыт, следующий прогревается); `fix` отменяет `next`; `next` не отменяет `fix`; тайм-аут `suggest` — отмена; поток `suggest` с thinking — отмена, поток `next` с thinking — нет; `option_not_applied` у `suggest` — отмена, у `fix` — ответ принят; `settings_not_applied` у `fix` — один повтор через `query()`, у `next` — отказ сразу, без ожидания тайм-аута; ответ `` `git status` `` — команда `git status`.
+- [ ] Тот же contract: `rate_limit_event` из потока запроса виден в `snapshot()` трекера Limits; при `rejected` запрос в SDK не уходит; с признаком «идёт команда» или «альтернативный экран» — тоже; выключенная в Settings функция — отказ «off»; пауза по Limits со временем сброса через минуту — через минуту (поддельные часы) `terminalAi.changed` и `on` без нового запроса.
 - [ ] Тот же contract: при `WORFY_AGENT=fake` ответ берётся из файла ответов, запрос записан в журнал с контекстом после redaction, SDK не импортирован; под vitest без fake настоящая фабрика бросает ошибку.
 - [ ] Contract: `terminalAi.setSettings` пишет `terminal-ai.json`, `terminalAi.state` читает его после перезапуска; каналы `terminalAi.*` этого Ticket-а помечены `local`.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0.
