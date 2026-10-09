@@ -8,7 +8,7 @@ Source: решения владельца 2026-10-07: Q18 (Git for Windows об�
 ## Что происходит
 
 - Экран первого запуска и установщик Harness приносит E3 (`worfy-harness`, Harness как часть
-  worfy). На 4f983ef их кода ещё не было; на main `08e8256` E3 Ticket-ы 13, 14, 15 и 19 влиты, и все
+  worfy). На 4f983ef их кода ещё не было; на main `76f7ff8` и `8cabc65` E3 Ticket-ы 13, 14, 15 и 19 влиты, и все
   файлы из «Где в коде» есть: `src/main/first-run/checks.ts`, `actions.ts`,
   `src/shared/ipc/first-run.ts`, `src/main/harness/install.ts`, `migrate/plan.ts`, `migrate/apply.ts`,
   `src/renderer/shell/FirstRun.tsx` (evidence Ticket-а 01, раздел 24). В `checks.ts` — проверка
@@ -168,7 +168,7 @@ Source: решения владельца 2026-10-07: Q18 (Git for Windows об�
 - `test/contract/harness-install.test.ts`
 - `test/contract/harness-migrate.test.ts`
 
-Пути — из планов E3; на main `08e8256` все эти файлы, кроме новых test-ов, есть (evidence Ticket-а
+Пути — из планов E3; на main `76f7ff8` и `8cabc65` все эти файлы, кроме новых test-ов, есть (evidence Ticket-а
 01, раздел 24).
 
 Только чтение: `src/main/agent/env.ts` (поиск Git Bash, Ticket 09), `src/main/agent/options.ts`
