@@ -275,7 +275,9 @@ test('the GitHub account: the active account with access by default, "Sign in wi
     await connect.click()
     await expect(dialog).toHaveCount(0, { timeout: 20_000 })
 
-    const env = { ...process.env, HOME: join(scratch, 'home'), HARNESS_HOME: harnessHome, CLAUDE_CONFIG_DIR: launched.claudeHome }
+    // The sandbox Harness only: the gate exports CLAUDE_GATE_CONFIG (its own registry) to the tests it runs.
+    const outside = /^(CLAUDE_GATE_|CLAUDE_PROFILES_DIR$|PROJECT_CONNECT_|ELECTRON_RUN_AS_NODE$)/
+    const env = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !outside.test(key))), HOME: join(scratch, 'home'), HARNESS_HOME: harnessHome, CLAUDE_CONFIG_DIR: launched.claudeHome }
     const field = (name: string): string => execFileSync(join(harnessHome, 'plugin', 'bin', 'profile'), ['-C', shop, '--field', name], { env, encoding: 'utf8' }).trim()
     expect(field('github.account')).toBe('bob')
     expect(field('workflow.finish')).toBe('local-green')
