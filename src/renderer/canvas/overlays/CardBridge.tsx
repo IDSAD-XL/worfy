@@ -1,6 +1,7 @@
 // Runs the Card API bridge (../card-bridge.ts, ticket 26) for the Cards of the active Project: it
 // listens to the window's `message` events, finds the Card frames on the Canvas, and answers them
-// through main (`cardApi.*`) or, for the workflow, from what the window already reads
+// through main (`cardApi.*`; for a Project of a Linked machine its data and `session.ask` go to that
+// Machine, the dialog stays on this one) or, for the workflow, from what the window already reads
 // (useWorkflow, useChecks). The workflow is read only after a Card first asks for it. Draws nothing.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cardOriginOf, failedSnapshot, workflowSnapshot, type WorkflowSnapshot } from '../../../shared/cards/bridge'
@@ -36,6 +37,28 @@ function cardFrames(): CardFrame[] {
 function unwrap<T>(result: IpcResult<T>): T {
   if (!result.ok) throw new Error(result.error)
   return result.value
+}
+
+/**
+ * `session.ask` (worfy-link ticket 10; ADR-0053): the Machine of the Project prepares the question
+ * and sends the message, this window's own Machine shows the dialog. In a window on a Linked machine
+ * `invoke` sends askPrepare and askFinish there by their mark and keeps confirm here. A question the
+ * user did not send — "Cancel", or a dialog that failed — is finished with `send: false`, so the
+ * Card may ask again at once.
+ */
+async function askThroughDialog(projectId: string, cardId: string, text: string): Promise<{ sent: boolean }> {
+  const { askId, cardTitle, recipientLabel, message } = unwrap(await invoke('cardApi.askPrepare', { projectId, cardId, text }))
+  let send = false
+  try {
+    send = unwrap(await invoke('cardApi.confirm', { cardTitle, recipientLabel, message })).send
+  } finally {
+    if (!send) {
+      const ended = await invoke('cardApi.askFinish', { projectId, askId, send: false })
+      if (!ended.ok) console.warn(`cardApi.askFinish: ${ended.error}`)
+    }
+  }
+  if (!send) return { sent: false }
+  return { sent: unwrap(await invoke('cardApi.askFinish', { projectId, askId, send: true })).sent }
 }
 
 /** Reads the workflow and checks of a Project and reports each new snapshot. */
@@ -80,7 +103,7 @@ export default function CardBridgeOverlay() {
         dataSet: async (cardId, value) => {
           unwrap(await invoke('cardApi.dataSet', { projectId, cardId, value }))
         },
-        ask: async (cardId, text) => ({ sent: unwrap(await invoke('cardApi.ask', { projectId, cardId, text })).sent }),
+        ask: (cardId, text) => askThroughDialog(projectId, cardId, text),
         workflow: () => {
           if (snapshot.current?.root === root) return Promise.resolve(snapshot.current.value)
           setWantedRoot(root)

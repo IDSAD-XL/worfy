@@ -21,22 +21,57 @@ export const cardApiDataSet = invokeChannel(
   'project',
 )
 
+// `session.ask` (worfy-link ticket 10; ADR-0053): the Machine of the Project prepares the question
+// and sends the message, the Machine of the screen shows the dialog. A window calls askPrepare,
+// then confirm, then askFinish; in a window that shows a Project of a Linked machine the first and
+// the last go to that Machine (they are `project`), confirm stays on the window's own (`local`).
+
+/** What the dialog shows: the Card, who gets the message, and the message exactly as it will be sent. */
+export const cardPromptSchema = z.object({
+  // No length limit on the title and the message: the Card's <title> has none, and a waiting
+  // question whose answer failed its schema would hold the Card until it timed out.
+  cardTitle: z.string(),
+  recipientLabel: z.string().min(1).max(200),
+  message: z.string().min(1),
+})
+export type CardPrompt = z.output<typeof cardPromptSchema>
+
 /**
- * Shows the user the text and who gets it; only after "Send" does the text go to the Session
- * that last edited the Card, or to the Project's Orchestrator when no live Session did.
- * `sent: false` — the user said no; `recipient` is null then.
+ * Picks who gets the text — the Session that last edited the Card, or the Project's Orchestrator
+ * when no live Session did — and keeps the question waiting under `askId`, until askFinish, until
+ * the screen that asked leaves, or for 10 minutes. Refused while the Card has a question waiting,
+ * and when the recipient runs unattended (Autopilot): no one would answer the dialog.
  */
-export const cardApiAsk = invokeChannel(
-  'cardApi.ask',
+export const cardApiAskPrepare = invokeChannel(
+  'cardApi.askPrepare',
   z.object({ ...card, text: askTextSchema }),
+  cardPromptSchema.extend({ askId: z.uuid() }),
+  'project',
+)
+
+/**
+ * The message box of `session.ask` on the window that asks, on the window's own Machine: "Send"
+ * gives `send: true`, anything else false.
+ */
+export const cardApiConfirm = invokeChannel('cardApi.confirm', cardPromptSchema, z.object({ send: z.boolean() }), 'local')
+
+/**
+ * Ends the question: with `send: true` the text goes to the recipient askPrepare picked, with
+ * `send: false` nothing is sent. `recipient` is null when nothing was sent.
+ */
+export const cardApiAskFinish = invokeChannel(
+  'cardApi.askFinish',
+  z.object({ projectId: card.projectId, askId: z.uuid(), send: z.boolean() }),
   z.object({ sent: z.boolean(), recipient: z.enum(['session', 'orchestrator']).nullable() }),
-  'desktop',
+  'project',
 )
 
 declare module './channels' {
   interface IpcContract {
     'cardApi.dataGet': typeof cardApiDataGet
     'cardApi.dataSet': typeof cardApiDataSet
-    'cardApi.ask': typeof cardApiAsk
+    'cardApi.askPrepare': typeof cardApiAskPrepare
+    'cardApi.confirm': typeof cardApiConfirm
+    'cardApi.askFinish': typeof cardApiAskFinish
   }
 }

@@ -25,6 +25,8 @@ import {
   CARD_OPS,
   CARD_TEXT_LIMIT,
   cardOriginOf,
+  linkedCardUrl,
+  machineLabel,
   parseCardRequest,
   workflowSnapshot,
   workflowSnapshotSchema,
@@ -113,12 +115,12 @@ describe('card bridge protocol: the operations', () => {
     }
   })
 
-  it('main gets exactly three channels from the bridge: data get and set, and ask', () => {
+  it('main gets exactly these channels from the bridge: data get and set, and the three steps of ask', () => {
     const channels = (Object.values(cardApi) as unknown[])
       .filter((value): value is { kind: string; name: string } => typeof value === 'object' && value !== null && 'kind' in value)
       .map((channel) => channel.name)
       .sort()
-    expect(channels).toEqual(['cardApi.ask', 'cardApi.dataGet', 'cardApi.dataSet'])
+    expect(channels).toEqual(['cardApi.askFinish', 'cardApi.askPrepare', 'cardApi.confirm', 'cardApi.dataGet', 'cardApi.dataSet'])
   })
 
   const valid: Record<(typeof CARD_OPS)[number], unknown> = {
@@ -181,6 +183,45 @@ describe('card bridge protocol: the operations', () => {
     for (const url of ['https://c1.0a1b2c3d/', 'worfy-card://c1.0a1b2c3d.evil/', 'worfy-card://C1.0a1b2c3d/', 'worfy-card://c1.xyz/', 'about:blank', '']) {
       expect(cardOriginOf(url)).toBeNull()
     }
+  })
+
+  it('finds the origin of a Card of a Linked machine, with its machine label; never the origin of the own Card', () => {
+    const linked = cardOriginOf('worfy-card://c1.0a1b2c3d.89abcdef/index.html')
+    expect(linked).toEqual({ origin: `${ORIGIN}.89abcdef`, cardId: 'c1', machineLabel: '89abcdef' })
+    expect(cardOriginOf('worfy-card://c1.0a1b2c3d.89abcdef')).toEqual(linked)
+    expect(linked?.origin).not.toBe(cardOriginOf(`${ORIGIN}/index.html`)?.origin)
+    expect(cardOriginOf(`${ORIGIN}/index.html`)).not.toHaveProperty('machineLabel')
+    for (const url of ['worfy-card://c1.0a1b2c3d.89abcdef.00000000/', 'worfy-card://c1.0a1b2c3d.89abcdeg/', 'worfy-card://c1.0a1b2c3d.89ab/', 'worfy-card://c1.0a1b2c3d./']) {
+      expect(cardOriginOf(url), url).toBeNull()
+    }
+  })
+
+  it('machineLabel: 8 hex characters, the same for one id, different for different ids', () => {
+    const one = '3f2504e0-4f89-41d3-9a0c-0305e82c3301'
+    const other = '3f2504e0-4f89-41d3-9a0c-0305e82c3302'
+    expect(machineLabel(one)).toMatch(/^[0-9a-f]{8}$/)
+    expect(machineLabel(one)).toBe(machineLabel(one))
+    expect(machineLabel(other)).not.toBe(machineLabel(one))
+    // FNV-1a over the UTF-8 bytes: pinned, since the window and main must agree on it.
+    expect(machineLabel('')).toBe('811c9dc5')
+    expect(machineLabel('a')).toBe('e40c292c')
+  })
+
+  it('linkedCardUrl turns the address a Linked machine gives into the form with its machine label, and nothing else', () => {
+    expect(linkedCardUrl(`${ORIGIN}/index.html`, '89abcdef')).toBe(`${ORIGIN}.89abcdef/index.html`)
+    expect(linkedCardUrl(`${ORIGIN}/js/app.js?x=1`, '89abcdef')).toBe(`${ORIGIN}.89abcdef/js/app.js?x=1`)
+    expect(linkedCardUrl(ORIGIN, '89abcdef')).toBe(`${ORIGIN}.89abcdef`)
+    // Already a Linked machine's form, not a Card address, or not a machine label: none.
+    expect(linkedCardUrl(`${ORIGIN}.01234567/index.html`, '89abcdef')).toBeNull()
+    expect(linkedCardUrl('https://c1.0a1b2c3d/index.html', '89abcdef')).toBeNull()
+    expect(linkedCardUrl('file:///etc/hosts', '89abcdef')).toBeNull()
+    expect(linkedCardUrl(`${ORIGIN}/index.html`, 'machine')).toBeNull()
+    // What comes out is read back as the Card of that Linked machine.
+    expect(cardOriginOf(linkedCardUrl(`${ORIGIN}/index.html`, machineLabel('m-1')) ?? '')).toEqual({
+      origin: `${ORIGIN}.${machineLabel('m-1')}`,
+      cardId: 'c1',
+      machineLabel: machineLabel('m-1'),
+    })
   })
 })
 
@@ -336,11 +377,18 @@ describe('card bridge: card.text, worfy asking a Card', () => {
 describe('cardApi channels', () => {
   const card = { projectId: PROJECT, cardId: 'c1' }
 
-  it('dataGet / dataSet / ask take a valid call and drop keys they do not declare', () => {
+  it('dataGet / dataSet / askPrepare / confirm / askFinish take a valid call and drop keys they do not declare', () => {
+    const askId = '6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b'
+    const prompt = { cardTitle: 'Clock', recipientLabel: 'the Orchestrator', message: 'hi' }
     expect(cardApi.cardApiDataGet.input.parse({ ...card, extra: 1 })).toEqual(card)
     expect(cardApi.cardApiDataSet.input.parse({ ...card, value: { a: 1 }, extra: 1 })).toEqual({ ...card, value: { a: 1 } })
-    expect(cardApi.cardApiAsk.input.parse({ ...card, text: 'hi', extra: 1 })).toEqual({ ...card, text: 'hi' })
-    expect(cardApi.cardApiAsk.output.parse({ sent: true, recipient: 'session', extra: 1 })).toEqual({ sent: true, recipient: 'session' })
+    expect(cardApi.cardApiAskPrepare.input.parse({ ...card, text: 'hi', extra: 1 })).toEqual({ ...card, text: 'hi' })
+    expect(cardApi.cardApiAskPrepare.output.parse({ askId, ...prompt, extra: 1 })).toEqual({ askId, ...prompt })
+    expect(cardApi.cardApiConfirm.input.parse({ ...prompt, extra: 1 })).toEqual(prompt)
+    expect(cardApi.cardApiConfirm.output.parse({ send: true, extra: 1 })).toEqual({ send: true })
+    expect(cardApi.cardApiAskFinish.input.parse({ projectId: PROJECT, askId, send: false, extra: 1 })).toEqual({ projectId: PROJECT, askId, send: false })
+    expect(cardApi.cardApiAskFinish.output.parse({ sent: true, recipient: 'session', extra: 1 })).toEqual({ sent: true, recipient: 'session' })
+    expect(cardApi.cardApiAskFinish.input.safeParse({ projectId: PROJECT, askId: 'not-an-id', send: true }).success).toBe(false)
   })
 
   it('refuses a wrong Card id, data over 1 MB, data that is not JSON, and an empty or long text', () => {
@@ -348,8 +396,8 @@ describe('cardApi channels', () => {
     expect(cardApi.cardApiDataSet.input.safeParse({ ...card, value: jsonOfBytes(CARD_DATA_LIMIT_BYTES + 1) }).success).toBe(false)
     expect(cardApi.cardApiDataSet.input.safeParse({ ...card, value: jsonOfBytes(CARD_DATA_LIMIT_BYTES) }).success).toBe(true)
     expect(cardApi.cardApiDataSet.input.safeParse({ ...card, value: new Map() }).success).toBe(false)
-    expect(cardApi.cardApiAsk.input.safeParse({ ...card, text: '' }).success).toBe(false)
-    expect(cardApi.cardApiAsk.input.safeParse({ ...card, text: 'x'.repeat(ASK_TEXT_LIMIT + 1) }).success).toBe(false)
+    expect(cardApi.cardApiAskPrepare.input.safeParse({ ...card, text: '' }).success).toBe(false)
+    expect(cardApi.cardApiAskPrepare.input.safeParse({ ...card, text: 'x'.repeat(ASK_TEXT_LIMIT + 1) }).success).toBe(false)
   })
 })
 
@@ -383,6 +431,12 @@ describe('card data in the Project data folder', () => {
 
 // ── main: session.ask ────────────────────────────────────────────────────────
 
+/** session.ask as the window runs it: prepare, the user's answer, finish. */
+async function askOnce(ask: CardAsk, projectId: string, cardId: string, text: string, answer: () => Promise<boolean> | boolean) {
+  const prepared = await ask.prepare(projectId, cardId, text)
+  return ask.finish(projectId, prepared.askId, await answer())
+}
+
 describe('session.ask', () => {
   function deps(over: Partial<CardAskDeps> & { confirmAnswer?: boolean } = {}) {
     const questions: AskQuestion[] = []
@@ -395,19 +449,16 @@ describe('session.ask', () => {
       ],
       orchestrator: () => Promise.resolve('orch'),
       cardTitle: () => Promise.resolve('Clock'),
-      confirm: (question) => {
-        questions.push(question)
-        return Promise.resolve(over.confirmAnswer ?? true)
-      },
+      refuseUnattended: (question) => void questions.push(question),
       send: (sessionId, text) => void sent.push({ sessionId, text }),
       ...over,
     }
-    return { deps: result, questions, sent }
+    return { deps: result, questions, sent, answer: () => over.confirmAnswer ?? true }
   }
 
   it('without "Send" nothing reaches any Session; the dialog named the Card, the recipient and the text', async () => {
-    const { deps: d, questions, sent } = deps({ confirmAnswer: false })
-    expect(await new CardAsk(d).ask(PROJECT, 'c1', 'Ship 07?')).toEqual({ sent: false, recipient: null })
+    const { deps: d, questions, sent, answer } = deps({ confirmAnswer: false })
+    expect(await askOnce(new CardAsk(d), PROJECT, 'c1', 'Ship 07?', answer)).toEqual({ sent: false, recipient: null })
     expect(sent).toEqual([])
     expect(questions).toEqual([
       {
@@ -422,22 +473,22 @@ describe('session.ask', () => {
 
   it('goes to the Orchestrator when the last editor is not live, or the Card has none', async () => {
     const closed = deps({ sessions: () => [{ sessionId: 'sdk-b', sdkSessionId: 'sdk-b', cwd: '/', state: 'closed' }] })
-    expect(await new CardAsk(closed.deps).ask(PROJECT, 'c1', 'hi')).toEqual({ sent: true, recipient: 'orchestrator' })
+    expect(await askOnce(new CardAsk(closed.deps), PROJECT, 'c1', 'hi', closed.answer)).toEqual({ sent: true, recipient: 'orchestrator' })
     expect(closed.sent).toEqual([{ sessionId: 'orch', text: askMessage('Clock', 'c1', 'hi') }])
     expect(closed.questions[0]?.recipientLabel).toBe('the Orchestrator')
 
     const none = deps({ nodes: () => [] })
-    expect(await new CardAsk(none.deps).ask(PROJECT, 'c1', 'hi')).toEqual({ sent: true, recipient: 'orchestrator' })
+    expect(await askOnce(new CardAsk(none.deps), PROJECT, 'c1', 'hi', none.answer)).toEqual({ sent: true, recipient: 'orchestrator' })
     expect(none.sent.map((each) => each.sessionId)).toEqual(['orch'])
   })
 
   it('shows one question per Card at a time', async () => {
     let release: (answer: boolean) => void = () => undefined
-    const { deps: d, sent } = deps({ confirm: () => new Promise((resolve) => (release = resolve)) })
+    const { deps: d, sent } = deps()
     const ask = new CardAsk(d)
-    const first = ask.ask(PROJECT, 'c1', 'one')
+    const first = askOnce(ask, PROJECT, 'c1', 'one', () => new Promise<boolean>((resolve) => (release = resolve)))
     await tick()
-    await expect(ask.ask(PROJECT, 'c1', 'two')).rejects.toThrow(/already has a question/)
+    await expect(ask.prepare(PROJECT, 'c1', 'two')).rejects.toThrow(/already has a question/)
     release(true)
     expect(await first).toEqual({ sent: true, recipient: 'session' })
     expect(sent.map((each) => each.text)).toEqual([askMessage('Clock', 'c1', 'one')])
@@ -506,16 +557,16 @@ describe('session.ask', () => {
       sessions: () => registry.list(),
       orchestrator: () => Promise.reject(new Error('no Orchestrator in this test')),
       cardTitle: () => Promise.resolve('Clock'),
-      confirm: () => Promise.resolve(answer),
+      refuseUnattended: () => undefined,
       send: (sessionId, text) => registry.get(sessionId).send(text),
     })
-    expect(await ask.ask(PROJECT, 'c1', 'Is 07 done?')).toEqual({ sent: false, recipient: null })
+    expect(await askOnce(ask, PROJECT, 'c1', 'Is 07 done?', () => answer)).toEqual({ sent: false, recipient: null })
     await tick()
     expect(received.get('session-a')).toEqual(['write the card'])
     expect(received.get('session-b')).toEqual(['write the card'])
 
     answer = true
-    expect(await ask.ask(PROJECT, 'c1', 'Is 07 done?')).toEqual({ sent: true, recipient: 'session' })
+    expect(await askOnce(ask, PROJECT, 'c1', 'Is 07 done?', () => answer)).toEqual({ sent: true, recipient: 'session' })
     await vi.waitFor(() => expect(received.get('session-b')).toEqual(['write the card', askMessage('Clock', 'c1', 'Is 07 done?')]))
     expect(received.get('session-a')).toEqual(['write the card'])
     registry.closeAll()

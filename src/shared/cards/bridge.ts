@@ -181,12 +181,48 @@ export const workflowEvent = (snapshot: WorkflowSnapshot) => ({ type: 'worfy.eve
 
 // ── addresses ────────────────────────────────────────────────────────────────
 
+/** A machine label: 8 hex characters, the last part of the host of a Card of a Linked machine. */
+export const MACHINE_LABEL_PATTERN = /^[0-9a-f]{8}$/
+
+/**
+ * The machine label of Machine `machineId` (worfy-link ticket 10): the FNV-1a hash (32 bits) of the
+ * id's UTF-8 bytes, as 8 hex characters. The window and main both compute it, the window
+ * synchronously while it draws a Card, so it is a plain hash rather than one of Web Crypto's. It
+ * only tells the Linked machines of one Machine apart; it guards nothing.
+ */
+export function machineLabel(machineId: string): string {
+  let hash = 0x811c9dc5
+  for (const byte of new TextEncoder().encode(machineId)) {
+    hash ^= byte
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return hash.toString(16).padStart(8, '0')
+}
+
+const CARD_ADDRESS = /^worfy-card:\/\/([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.([0-9a-f]{8})(?:\.([0-9a-f]{8}))?(?=\/|$)/
+
 /**
  * The origin of a Card's frame from its address (ADR-0012): `worfy-card://<card id>.<project
- * label>`. null for any other URL. Built by hand: the URL API gives no origin for a custom scheme.
+ * label>` for a Card of this Machine, `worfy-card://<card id>.<project label>.<machine label>` for
+ * a Card of a Linked machine (worfy-link ticket 10), whose `machineLabel` is then set. null for any
+ * other URL. Built by hand: the URL API gives no origin for a custom scheme.
  */
-export function cardOriginOf(url: string): { origin: string; cardId: string } | null {
-  const match = /^worfy-card:\/\/([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.([0-9a-f]{8})(?:\/|$)/.exec(url)
+export function cardOriginOf(url: string): { origin: string; cardId: string; machineLabel?: string } | null {
+  const match = CARD_ADDRESS.exec(url)
   if (!match?.[1] || !match[2]) return null
-  return { origin: `worfy-card://${match[1]}.${match[2]}`, cardId: match[1] }
+  const [origin, cardId, , machine] = match
+  return machine === undefined ? { origin, cardId } : { origin, cardId, machineLabel: machine }
+}
+
+/**
+ * The address a window shows a Card of Linked machine M at: M's own address of the Card
+ * (`cards.get` there) with M's machine label added to the host, so the frame gets an origin no
+ * Card of this Machine has, and this Machine's main fetches its files from M. null when `url` is
+ * not the address of a Card of M's own (a form a window must not put into a frame) or the label is
+ * not one.
+ */
+export function linkedCardUrl(url: string, label: string): string | null {
+  const address = cardOriginOf(url)
+  if (address === null || address.machineLabel !== undefined || !MACHINE_LABEL_PATTERN.test(label)) return null
+  return `${address.origin}.${label}${url.slice(address.origin.length)}`
 }

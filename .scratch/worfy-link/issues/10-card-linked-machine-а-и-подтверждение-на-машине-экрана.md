@@ -1,7 +1,8 @@
 # 10 — Card Linked machine-а через worfy-card:// своей Machine; подтверждение там, где Card открыта
 
 Type: task
-Status: open
+Status: claimed — 2026-10-09
+Branch: worfy-link/10
 Blocked by: 09
 Source: решения владельца 2026-10-07: Q3 (с другой машины можно всё, кроме действий, которым нужен рабочий стол машины Project-а), Q9 (один репозиторий на двух Machine — два Project-а), Q14 (системные диалоги — в UI машины, откуда вызваны; подтверждение Card — где она открыта); [spec.md](../spec.md); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md) — Machine и Linked machine; [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — несколько экранов на одном Project-е, диалоги на машине экрана; [ADR-0012](../../../docs/adr/0012-card-origin-worfy-card-scheme.md) — Card на своём origin схемы `worfy-card://`
 

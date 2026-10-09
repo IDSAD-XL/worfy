@@ -15,10 +15,16 @@ import {
   createCardHandler,
   parseCardUrl,
   projectLabel,
+  readCardFileChunk,
   CARD_CSP,
+  CARD_HEADERS,
   CARD_SCHEME,
+  type LinkedCardSource,
 } from '../../src/main/cards/protocol'
+import { createLinkedCardSource } from '../../src/main/cards/remote'
 import { CardStore, titleOf } from '../../src/main/cards/store'
+import { machineLabel } from '../../src/shared/cards/bridge'
+import { CARD_FILE_CHUNK_BYTES, CARD_FILE_LIMIT_BYTES, cardsFile } from '../../src/shared/ipc/cards'
 import { projectId, projectIdHash } from '../../src/main/projects/store'
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
@@ -208,6 +214,21 @@ describe('Card addresses', () => {
     expect(() => cardUrl('no-label', 'c1')).toThrow()
   })
 
+  it('reads the machine label of a Card of a Linked machine: <card id>.<project label>.<machine label>', () => {
+    expect(parseCardUrl(`${CARD_SCHEME}://c1.0123abcd.89abcdef/index.html`)).toEqual({
+      cardId: 'c1',
+      projectLabel: '0123abcd',
+      machineLabel: '89abcdef',
+      pathname: '/index.html',
+    })
+    // The own form has no machine label at all.
+    expect(parseCardUrl(`${BASE}/index.html`)?.machineLabel).toBeUndefined()
+    // The machine label is 8 hex characters like the project label; four parts are no address.
+    for (const host of [`c1.${LABEL}.machine`, `c1.${LABEL}.89ABCDEG`, `c1.${LABEL}.89abcdef.00000000`, `c1.${LABEL}.`]) {
+      expect(parseCardUrl(`${CARD_SCHEME}://${host}/index.html`), host).toBeNull()
+    }
+  })
+
   it('takes the label from the Project id format of the Project store, for any folder name', () => {
     for (const root of ['/Users/me/My Projects', '/Users/me/Мой проект', '/']) {
       const id = projectId(root)
@@ -216,6 +237,190 @@ describe('Card addresses', () => {
       expect(projectLabel(id)).toBe(hash)
       expect(parseCardUrl(cardUrl(id, 'c1'))).toEqual({ cardId: 'c1', projectLabel: hash, pathname: '/index.html' })
     }
+  })
+})
+
+// ── a Card of a Linked machine (worfy-link ticket 10) ────────────────────────
+
+/** Linked machine M: its own data folder, with Card c1 of a Project that has this Project's label. */
+const MACHINE_M = '3f2504e0-4f89-41d3-9a0c-0305e82c3301'
+const M_BASE = `${BASE}.${machineLabel(MACHINE_M)}`
+
+describe('worfy-card:// serves a Card of a Linked machine from its second source', () => {
+  let storeOfM: CardStore
+  let dataOfM: string
+  let calls: { machine: string; channel: string; input: { offset: number; length: number; path: string } }[]
+  let reachable: boolean
+  let linkedHandle: (request: { url: string; method: string }) => Promise<Response>
+
+  const cardOfM = (id: string) => join(dataOfM, PROJECT, 'cards', id)
+
+  beforeEach(() => {
+    dataOfM = join(scratch, 'data-of-m')
+    mkdirSync(join(cardOfM('c1'), 'js'), { recursive: true })
+    writeFileSync(join(cardOfM('c1'), 'index.html'), '<!doctype html><html><head><title>Clock of M</title></head><body>M</body></html>')
+    writeFileSync(join(cardOfM('c1'), 'js', 'app.js'), 'document.title = "tick of M"')
+    storeOfM = new CardStore({
+      dataDirOf: (id) => {
+        if (id !== PROJECT) throw new Error(`No Project ${id}`)
+        return join(dataOfM, id)
+      },
+      projectIds: () => [PROJECT],
+      watch: false,
+    })
+    calls = []
+    reachable = true
+    // M answers cards.file as its main does (src/main/ipc/cards.ts), through the channel's schemas.
+    const source = createLinkedCardSource({
+      machines: () => Promise.resolve([{ id: MACHINE_M }, { id: 'another-machine' }]),
+      call: async (machine, channel, input) => {
+        const parsed = cardsFile.input.parse(input)
+        calls.push({ machine, channel, input: parsed })
+        if (!reachable) return { ok: false, error: `${channel}: Mini is unreachable` }
+        if (machine !== MACHINE_M || channel !== 'cards.file') return { ok: false, error: 'wrong call' }
+        const answer = await readCardFileChunk(storeOfM.locate({ cardId: parsed.cardId, projectLabel: parsed.projectLabel }), parsed.cardId, parsed.path, parsed.offset, parsed.length)
+        return { ok: true, value: cardsFile.output.parse(answer) }
+      },
+    })
+    linkedHandle = createCardHandler((host) => store.locate(host), source)
+  })
+
+  afterEach(async () => {
+    await storeOfM.close()
+  })
+
+  const expectCardHeaders = (response: Response, what: string) => {
+    for (const [name, value] of Object.entries(CARD_HEADERS)) expect(response.headers.get(name), `${what}: ${name}`).toBe(value)
+  }
+
+  it('serves the file of M with the Card headers and its content type, the runtime of this Machine in the HTML', async () => {
+    const page = await linkedHandle({ url: `${M_BASE}/index.html`, method: 'GET' })
+    expect(page.status).toBe(200)
+    expectCardHeaders(page, 'index.html')
+    expect(page.headers.get('content-type')).toBe('text/html; charset=utf-8')
+    const html = await page.text()
+    expect(html).toContain('<title>Clock of M</title>')
+    // The runtime once, put in by this side: M sent the file as it is on disk.
+    expect(html.match(/data-worfy-runtime/g)).toHaveLength(1)
+    expect(html.startsWith('<!doctype html><html><head><script data-worfy-runtime>')).toBe(true)
+    expect(calls.map((each) => each.machine)).toEqual([MACHINE_M])
+    expect(calls[0]?.input).toMatchObject({ path: '/index.html', offset: 0 })
+
+    const script = await linkedHandle({ url: `${M_BASE}/js/app.js`, method: 'GET' })
+    expect(script.status).toBe(200)
+    expect(script.headers.get('content-type')).toBe('text/javascript; charset=utf-8')
+    expect(await script.text()).toBe('document.title = "tick of M"')
+
+    // The root path is index.html, as for the own Card; HEAD gets the headers and asks for no bytes.
+    expect(await (await linkedHandle({ url: `${M_BASE}/`, method: 'GET' })).text()).toContain('Clock of M')
+    const head = await linkedHandle({ url: `${M_BASE}/index.html`, method: 'HEAD' })
+    expect(head.status).toBe(200)
+    expect(head.headers.get('content-type')).toBe('text/html; charset=utf-8')
+    expect(await head.text()).toBe('')
+    expect(calls.at(-1)?.input.length).toBe(0)
+  })
+
+  it('the own Card with the same card id and project label stays the own one', async () => {
+    const own = await linkedHandle({ url: `${BASE}/index.html`, method: 'GET' })
+    expect(await own.text()).toContain('<title>Clock</title>')
+    expect(calls).toEqual([])
+    expect(parseCardUrl(`${M_BASE}/index.html`)).not.toEqual(parseCardUrl(`${BASE}/index.html`))
+  })
+
+  it('an unknown machine label, no file on M and a method other than GET or HEAD: 404 and 405 with the same headers', async () => {
+    const unknown = await linkedHandle({ url: `${BASE}.${machineLabel('nobody')}/index.html`, method: 'GET' })
+    expect(unknown.status).toBe(404)
+    expectCardHeaders(unknown, 'unknown machine')
+    expect(calls).toEqual([])
+
+    for (const path of ['missing.html', '..%2F..%2Flayout.json', 'notes.md']) {
+      const missing = await linkedHandle({ url: `${M_BASE}/${path}`, method: 'GET' })
+      expect(missing.status, path).toBe(404)
+      expectCardHeaders(missing, path)
+    }
+    const other = await linkedHandle({ url: `${CARD_SCHEME}://c1.ffffffff.${machineLabel(MACHINE_M)}/index.html`, method: 'GET' })
+    expect(other.status).toBe(404)
+
+    const post = await linkedHandle({ url: `${M_BASE}/index.html`, method: 'POST' })
+    expect(post.status).toBe(405)
+    expectCardHeaders(post, 'POST')
+  })
+
+  it('without a second source an address with a machine label is a 404', async () => {
+    const response = await get(`${M_BASE}/index.html`)
+    expect(response.status).toBe(404)
+    expectCardHeaders(response, 'no second source')
+  })
+
+  it('a file over 20 MB is a 413 with the same headers, and M reads none of it', async () => {
+    expect(CARD_FILE_LIMIT_BYTES).toBe(20 * 1024 * 1024)
+    writeFileSync(join(cardOfM('c1'), 'big.mp4'), Buffer.alloc(CARD_FILE_LIMIT_BYTES + 1))
+    const response = await linkedHandle({ url: `${M_BASE}/big.mp4`, method: 'GET' })
+    expect(response.status).toBe(413)
+    expectCardHeaders(response, '413')
+    expect(calls).toHaveLength(1)
+
+    // A Linked machine that sends more than the limit anyway is not believed either.
+    const lying: LinkedCardSource = () => Promise.resolve({ status: 'file', extension: '.mp4', bytes: new Uint8Array(CARD_FILE_LIMIT_BYTES + 1) })
+    const refused = await createCardHandler(() => null, lying)({ url: `${M_BASE}/big.mp4`, method: 'GET' })
+    expect(refused.status).toBe(413)
+    expectCardHeaders(refused, 'lying 413')
+  })
+
+  it('a file larger than one piece comes in several calls, glued in order', async () => {
+    const size = CARD_FILE_CHUNK_BYTES * 2 + 5
+    const bytes = Buffer.alloc(size)
+    for (let index = 0; index < size; index += 4096) bytes[index] = (index / 4096) % 251
+    writeFileSync(join(cardOfM('c1'), 'clip.webm'), bytes)
+    const response = await linkedHandle({ url: `${M_BASE}/clip.webm`, method: 'GET' })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('video/webm')
+    expect(Buffer.from(await response.arrayBuffer()).equals(bytes)).toBe(true)
+    expect(calls.map((each) => each.input.offset)).toEqual([0, CARD_FILE_CHUNK_BYTES, CARD_FILE_CHUNK_BYTES * 2])
+  })
+
+  it('M unreachable: 502 with the same headers; an extension M has no business sending: 404', async () => {
+    reachable = false
+    const response = await linkedHandle({ url: `${M_BASE}/index.html`, method: 'GET' })
+    expect(response.status).toBe(502)
+    expectCardHeaders(response, '502')
+    expect(await response.text()).toBe('cards.file: Mini is unreachable')
+
+    const odd: LinkedCardSource = () => Promise.resolve({ status: 'file', extension: '.exe', bytes: new Uint8Array(1) })
+    expect((await createCardHandler(() => null, odd)({ url: `${M_BASE}/index.html`, method: 'GET' })).status).toBe(404)
+  })
+})
+
+describe('cards.file on the Machine of the Project: nothing outside the Card folder, the file as it is', () => {
+  const read = (path: string, label = LABEL, cardId = 'c1') => readCardFileChunk(store.locate({ cardId, projectLabel: label }), cardId, path, 0, CARD_FILE_CHUNK_BYTES)
+
+  it('sends the HTML without the runtime, with its extension and size', async () => {
+    const answer = await read('/index.html')
+    expect(answer).toEqual({
+      status: 'file',
+      extension: '.html',
+      size: Buffer.byteLength('<!doctype html><title>Clock</title><script src="js/app.js"></script>'),
+      base64: Buffer.from('<!doctype html><title>Clock</title><script src="js/app.js"></script>').toString('base64'),
+    })
+    expect(cardsFile.output.safeParse(answer).success).toBe(true)
+  })
+
+  it('answers "missing" for .., a symlink out, an extension outside the list and a Card of an unknown label', async () => {
+    symlinkSync(join(dataDir, PROJECT, 'layout.json'), join(cardDir('c1'), 'layout.json'))
+    symlinkSync(join(scratch, 'outside.html'), join(cardDir('c1'), 'outside.html'))
+    writeFileSync(join(cardDir('c1'), 'notes.md'), '# notes')
+    for (const path of ['/..%2F..%2Flayout.json', '/js/%2e%2e%2F..%2F..%2Flayout.json', '/layout.json', '/outside.html', '/notes.md', '/missing.html', '/js']) {
+      expect(await read(path), path).toEqual({ status: 'missing' })
+    }
+    expect(await read('/index.html', 'ffffffff')).toEqual({ status: 'missing' })
+    expect(await read('/index.html', LABEL, 'c9')).toEqual({ status: 'missing' })
+  })
+
+  it('reads the piece asked for, and never more than one piece', async () => {
+    const piece = await readCardFileChunk(store.locate({ cardId: 'c1', projectLabel: LABEL }), 'c1', '/js/app.js', 9, 5)
+    expect(piece).toMatchObject({ status: 'file', extension: '.js', size: 23, base64: Buffer.from('title').toString('base64') })
+    expect(cardsFile.input.safeParse({ projectLabel: LABEL, cardId: 'c1', path: '/index.html', length: CARD_FILE_CHUNK_BYTES + 1 }).success).toBe(false)
+    expect(cardsFile.input.safeParse({ projectLabel: 'Demo', cardId: 'c1', path: '/index.html' }).success).toBe(false)
   })
 })
 
@@ -234,6 +439,13 @@ describe('main lets a Card frame navigate only within its own origin', () => {
     ['the window goes to a Card', { isMainFrame: true, frameUrl: 'file:///app/index.html', targetUrl: card }, false],
     ['the window loads its renderer', { isMainFrame: true, frameUrl: '', targetUrl: 'file:///app/index.html' }, true],
     ['an iframe that is not a Card navigates', { isMainFrame: false, frameUrl: 'https://a.example/', targetUrl: 'https://b.example/' }, true],
+    // A Card of Linked machine M (worfy-link ticket 10): the whole host, machine label included.
+    ['the Node loads a Card of a Linked machine', { isMainFrame: false, frameUrl: '', targetUrl: `${BASE}.89abcdef/index.html` }, true],
+    ['a Card of a Linked machine goes to another of its own files', { isMainFrame: false, frameUrl: `${BASE}.89abcdef/index.html`, targetUrl: `${BASE}.89abcdef/page.html` }, true],
+    ['a Card of a Linked machine goes to the own Card with the same ids', { isMainFrame: false, frameUrl: `${BASE}.89abcdef/index.html`, targetUrl: card }, false],
+    ['the own Card goes to the Card of a Linked machine with the same ids', { isMainFrame: false, frameUrl: card, targetUrl: `${BASE}.89abcdef/index.html` }, false],
+    ['a Card of a Linked machine goes to the same Card of another Linked machine', { isMainFrame: false, frameUrl: `${BASE}.89abcdef/index.html`, targetUrl: `${BASE}.01234567/index.html` }, false],
+    ['the window goes to a Card of a Linked machine', { isMainFrame: true, frameUrl: 'file:///app/index.html', targetUrl: `${BASE}.89abcdef/index.html` }, false],
   ]
   for (const [name, navigation, allowed] of cases) {
     it(`${allowed ? 'allows' : 'stops'}: ${name}`, () => {
@@ -425,6 +637,17 @@ describe('cards IPC domain', () => {
     expect(result).toEqual({ ok: true, value: { projectId: PROJECT, cardId: 'c1', url: `${BASE}/index.html`, exists: true, title: 'Clock', revision: 0 } })
     if (!result.ok) return
     expect(Object.keys(result.value as object).sort()).toEqual(Object.keys(cardInfoSchema.shape).sort())
+  })
+
+  it('answers cards.file through the IPC handler: the file as it is, and "missing" outside the Card', async () => {
+    const listener = handlers.get(`${IPC_CHANNEL_PREFIX}cards.file`)
+    if (!listener) throw new Error('cards.file is not registered')
+    const event = { senderFrame: { url: `file://${INDEX_HTML}` }, sender: {} } as unknown as IpcMainInvokeEvent
+    const page = (await listener(event, { projectLabel: LABEL, cardId: 'c1', path: '/index.html' })) as IpcResult<{ status: string; base64?: string }>
+    expect(page.ok && page.value.status).toBe('file')
+    if (page.ok) expect(Buffer.from(page.value.base64 ?? '', 'base64').toString('utf8')).not.toContain('data-worfy-runtime')
+    expect(await listener(event, { projectLabel: LABEL, cardId: 'c1', path: '/..%2F..%2Flayout.json' })).toEqual({ ok: true, value: { status: 'missing' } })
+    expect(await listener(event, { projectLabel: 'ffffffff', cardId: 'c1', path: '/index.html' })).toEqual({ ok: true, value: { status: 'missing' } })
   })
 
   it('refuses a Card id of the wrong type or shape, and an unknown Project', async () => {

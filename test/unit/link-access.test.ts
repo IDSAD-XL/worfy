@@ -82,7 +82,7 @@ describe('the initial marks', () => {
 
   it('desktop: the actions that need the desktop of the Project machine (a dialog, the OS shell)', () => {
     // shell.openExternal is `local` since worfy-link ticket 12: a link opens on the screen's machine.
-    expect(marked('desktop')).toEqual(['agent.attachPick', 'cardApi.ask', 'projects.pickFolder', 'shell.openInEditor'])
+    expect(marked('desktop')).toEqual(['agent.attachPick', 'projects.pickFolder', 'shell.openInEditor'])
   })
 
   it('local: the state of the screen machine, every other link channel, the Harness and the first run', () => {
