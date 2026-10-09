@@ -237,7 +237,8 @@ const backupDir = (): string => join(sandbox.harnessHome, 'backup-2026-10-08-10-
 describe('the plan of the form', () => {
   it('Q19 matches the plugin: the 3 agents and 7 skills of the old Harness are the ones harness/ carries', () => {
     expect(readdirSync(join(REPO, 'harness', 'agents')).sort()).toEqual([...HARNESS_AGENTS].sort())
-    expect(readdirSync(join(REPO, 'harness', 'skills')).sort()).toEqual([...HARNESS_SKILLS].sort())
+    // connect-project came with the plugin (worfy-harness ticket 24): the old Harness never had it.
+    expect(readdirSync(join(REPO, 'harness', 'skills')).sort()).toEqual([...HARNESS_SKILLS, 'connect-project'].sort())
   })
 
   it('names the ten hook records of the old Harness, the Harness files, the qmd group, the state and three Profiles — and nothing personal', () => {

@@ -410,11 +410,27 @@ clear what to check. It is not an instruction to the agent; `hooks/session-start
 ## New project
 
 The profile is written on the machine, in `$HARNESS_HOME/projects/<name>/`, not into the project's
-repository.
+repository, and only by `${CLAUDE_PLUGIN_ROOT}/bin/project-connect` — worfy's "Add project" dialog
+and a terminal session (skill `connect-project`) both call it.
 
-1. An entry in `$HARNESS_HOME/gate/config.json` (`key`, `match`, `pm`, gate scripts) and the field
-   `"profile": "<name>"`.
-2. `$HARNESS_HOME/projects/<name>/profile.json` with `"schema": 2` and `mode` by the table above;
-   fields the project does not have — `null`.
-3. `$HARNESS_HOME/projects/<name>/rules.md` with a `## Sources` section.
+1. Skill `connect-project` reads the project and proposes a draft `{ profile, rules, gate }` by the
+   schema `profiles/draft.schema.json`: `profile.json` (schema 2, `mode` by the table above, fields
+   the project does not have — `null`), the text of `rules.md` with a `## Sources` section, and the
+   gate registry entries (`key`, `match`, `profile`, `pm`, gate scripts), one per repository.
+2. `project-connect --check < draft.json` checks it and writes nothing: the schema, the name not
+   taken, no `match` or `key` already in the registry, Silent mode for several repositories, no
+   Workflow folder in Full mode, a chosen Workflow folder outside the repositories. Exit 1 lists the
+   problems as `{ path, kind, message }`.
+3. `project-connect < draft.json` writes `profile.json` and `rules.md`, appends the entries to
+   `$HARNESS_HOME/gate/config.json`, creates the default Workflow folder of a Silent project
+   (`workflow.folder: null` → `$HARNESS_HOME/projects/<name>/workflow/`, `git init`, left out of the
+   Harness home's history) and records the path in `workflow.folder`, and commits once in the git of
+   `$HARNESS_HOME` (`git init` and the `.gitignore` of a Harness home first when it is none). A
+   failure half-way rolls back what was written; exit 1, nothing left. Only after the commit it adds
+   the qmd collections when qmd and its models are there (otherwise the step is skipped with the
+   reason); their `qmd` field joins the same commit, and a qmd failure undoes nothing else.
 4. Check: `${CLAUDE_PLUGIN_ROOT}/bin/profile -C <project root>` prints the profile, exit code 0.
+
+Exit codes of `project-connect`: `0` written (or checked); `1` the draft failed a check, or the write
+failed and was rolled back; `2` usage. Its output is JSON: `{ name, profileDir, gateKeys,
+workflowFolder, qmd }`. Tests: `bash bin/tests/project-connect.test.sh` from the plugin root.

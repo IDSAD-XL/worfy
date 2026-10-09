@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import type { ProjectView } from '../../../shared/ipc/projects'
+import type { ConnectFolder, ProjectsState, ProjectView } from '../../../shared/ipc/projects'
 import { invokeOn, windowMachine } from '../../ipc'
 import { useMachines } from '../../machines/useMachines'
+import { ConnectProject } from '../../projects/ConnectProject'
 import { acceptMachineProjects, openProject, useProjectGroups, useProjects, type ProjectGroup } from '../../projects/useProjects'
 import { ListRow, StatusChip } from '../../theme/primitives'
+import { openFirstRun } from '../first-run-store'
 import { ProjectSettings } from '../ProjectSettings'
 import { MachineName } from './MachinesSection'
 
@@ -161,8 +163,10 @@ function ProjectRows({ group, onSelect, onMenu }: RowsProps) {
  * highlighted, its branch on the right. With Linked machines (worfy-link ticket 09) the Projects
  * are grouped by Machine — this one first, then the Linked machines by name, each with its state —
  * and a click on a Project of another Machine opens the window on that Machine. "Add project"
- * opens the system folder picker of this Machine; the context menu of a row opens its settings or
- * removes it from the list (its data folder stays), on the row's Machine.
+ * opens the system folder picker of this Machine; a folder the Harness already knows joins the
+ * list at once, a new one opens the dialog that connects it (worfy-harness ticket 24,
+ * ConnectProject.tsx), a folder of neither kind is refused here. The context menu of a row opens
+ * its settings or removes it from the list (its data folder stays), on the row's Machine.
  */
 export default function ProjectsSection() {
   const state = useProjects()
@@ -171,25 +175,34 @@ export default function ProjectsSection() {
   const [message, setMessage] = useState<Message>()
   const [menu, setMenu] = useState<{ machine: string | null; project: ProjectView; x: number; y: number }>()
   const [settingsFor, setSettingsFor] = useState<{ machine: string | null; project: ProjectView }>()
+  const [connecting, setConnecting] = useState<{ folder: ConnectFolder; harnessHome: string }>()
 
   const fail = (error: string): void => setMessage({ kind: 'error', text: error })
+
+  /** A Project added on this Machine: the list, the notice, and the window back on this Machine. */
+  const added = async (state: ProjectsState, project: ProjectView, notice: string | null): Promise<void> => {
+    acceptMachineProjects(null, state)
+    if (notice) setMessage({ kind: 'notice', text: notice })
+    // Added here, it is this Machine's active Project: a window on a Linked machine comes back to show it.
+    if (windowMachine() !== null) {
+      const failure = await openProject(null, project.id)
+      if (failure !== undefined) fail(failure)
+    }
+  }
 
   // A Project is added on this Machine (a Linked machine's — worfy-link ticket 11).
   const addProject = async (): Promise<void> => {
     setMessage(undefined)
-    const picked = await invokeOn(null, 'projects.pickFolder')
+    setConnecting(undefined)
+    const picked = await invokeOn(null, 'projects.pickFolder', { purpose: 'project' })
     if (!picked.ok) return fail(picked.error)
     if (picked.value.path === null) return
-    const added = await invokeOn(null, 'projects.add', { path: picked.value.path })
-    if (!added.ok) return fail(added.error)
-    if (added.value.status === 'rejected') return fail(added.value.reason)
-    acceptMachineProjects(null, added.value.state)
-    if (added.value.notice) setMessage({ kind: 'notice', text: added.value.notice })
-    // Added here, it is this Machine's active Project: a window on a Linked machine comes back to show it.
-    if (windowMachine() !== null) {
-      const failure = await openProject(null, added.value.project.id)
-      if (failure !== undefined) fail(failure)
-    }
+    const inspected = await invokeOn(null, 'projects.connect.inspect', { path: picked.value.path })
+    if (!inspected.ok) return fail(inspected.error)
+    const answer = inspected.value
+    if (answer.status === 'rejected') return fail(answer.reason)
+    if (answer.status === 'new') return setConnecting({ folder: answer.folder, harnessHome: answer.harnessHome })
+    await added(answer.state, answer.project, answer.notice)
   }
 
   const select = async (machine: string | null, project: ProjectView): Promise<void> => {
@@ -290,6 +303,23 @@ export default function ProjectsSection() {
       ) : null}
 
       {settingsFor ? <ProjectSettings project={settingsFor.project} machine={settingsFor.machine} onClose={() => setSettingsFor(undefined)} /> : null}
+
+      {connecting ? (
+        <ConnectProject
+          folder={connecting.folder}
+          harnessHome={connecting.harnessHome}
+          onClose={() => setConnecting(undefined)}
+          onPickAnother={() => void addProject()}
+          onFirstRun={() => {
+            setConnecting(undefined)
+            openFirstRun()
+          }}
+          onConnected={(connected) => {
+            setConnecting(undefined)
+            void added(connected.state, connected.project, connected.notice)
+          }}
+        />
+      ) : null}
     </section>
   )
 }

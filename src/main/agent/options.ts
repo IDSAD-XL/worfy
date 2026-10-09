@@ -30,10 +30,18 @@
 // servers of its .mcp.json itself as `plugin_worfy_<server>` (pluginMcpServers). The allowlist then
 // filters them by that name like the user's own, and their tools keep the names they have in a
 // terminal session, where the installed plugin registers them: `mcp__plugin_worfy_qmd__…`.
+//
+// The draft Session of a Project's connection (worfy-harness ticket 24, draftSessionOptions) adds
+// its structured answer (`outputFormat`, the draft schema) and the tools it runs without
+// (`disallowedTools`: Write, Edit, NotebookEdit). It reads only the user's settings, not the
+// `.claude/settings*.json` of the folder it reads, whose allow rules would let a tool past the
+// Session's canUseTool; and it asks the policy tier to ignore every allow rule outside it
+// (`allowManagedPermissionRulesOnly`), so the user's own allow rules do not either — that key is
+// documented for the policy tier, but no real Claude Code run has confirmed it is kept.
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
-import type { McpServerConfig, McpStdioServerConfig, Options } from '@anthropic-ai/claude-agent-sdk'
+import type { McpServerConfig, McpStdioServerConfig, Options, OutputFormat, SettingSource } from '@anthropic-ai/claude-agent-sdk'
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
 import type { HarnessKind } from '../../shared/projects/action-templates'
@@ -125,6 +133,28 @@ export interface SessionOptionsInput {
   harnessPlugin?: string | null | undefined
   /** Where the reason a plugin server is left out goes; console.warn by default. */
   warn?: ((message: string) => void) | undefined
+  /**
+   * The structured answer the Session ends its turn with (the draft of a Project's connection,
+   * src/main/projects/connect.ts): the `result` message then carries `structured_output`.
+   */
+  outputFormat?: OutputFormat | undefined
+  /** Tools Claude Code runs without, Subagents included: the draft Session takes away those that write files. */
+  disallowedTools?: readonly string[] | undefined
+  /** Which settings files Claude Code reads; user + project + local when absent. */
+  settingSources?: readonly SettingSource[] | undefined
+  /** Only the policy tier may allow a tool: allow rules of every settings file are ignored. */
+  permissionRulesFromPolicyOnly?: boolean | undefined
+}
+
+/** The options of the draft Session of a Project's connection; see the header. */
+export type DraftSessionOptionsInput = Omit<SessionOptionsInput, 'settingSources' | 'permissionRulesFromPolicyOnly' | 'canvas' | 'mcpAllowlist' | 'outputFormat' | 'disallowedTools'> & {
+  outputFormat: OutputFormat
+  disallowedTools: readonly string[]
+}
+
+/** The draft Session: no canvas, only the user's settings, allow rules from the policy tier alone. */
+export function draftSessionOptions(input: DraftSessionOptionsInput): Options {
+  return sessionOptions({ ...input, settingSources: ['user'], permissionRulesFromPolicyOnly: true })
 }
 
 /** The name worfy registers a server of the Harness plugin under: `plugin_worfy_qmd` for `qmd`. */
@@ -190,7 +220,7 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   const options: Options = {
     cwd: input.cwd,
     env: input.env,
-    settingSources: ['user', 'project', 'local'],
+    settingSources: [...(input.settingSources ?? ['user', 'project', 'local'])],
     systemPrompt: { type: 'preset', preset: 'claude_code' },
     permissionMode: input.unattended === true ? 'bypassPermissions' : settings.permissionMode,
     // Not required by SDK 0.3.289 (ticket 06, question 9), but documented as required with
@@ -209,11 +239,14 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   else if (input.sessionId !== undefined) options.sessionId = input.sessionId
   if (input.stderr !== undefined) options.stderr = input.stderr
   if (input.canUseTool !== undefined) options.canUseTool = input.canUseTool
+  if (input.outputFormat !== undefined) options.outputFormat = input.outputFormat
+  if (input.disallowedTools !== undefined && input.disallowedTools.length > 0) options.disallowedTools = [...input.disallowedTools]
   const allowlist = input.mcpAllowlist ?? null
   const allowed = (name: string): boolean => allowlist === null || allowlist.includes(name)
   if (allowlist !== null) {
     options.managedSettings = { allowManagedMcpServersOnly: true, allowedMcpServers: allowlist.map((serverName) => ({ serverName })) }
   }
+  if (input.permissionRulesFromPolicyOnly === true) options.managedSettings = { ...options.managedSettings, allowManagedPermissionRulesOnly: true }
   // Added to the user's own MCP servers from settingSources, not instead of them.
   const servers: Record<string, McpServerConfig> = {}
   if (input.canvas) {

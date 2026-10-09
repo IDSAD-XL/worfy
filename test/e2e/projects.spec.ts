@@ -56,6 +56,18 @@ const LEGACY_SHIP = '/ship-ticket {epic} {NN}'
 const LEGACY_WAVE = '/epic-wave Ticket-ы {tickets} эпика {epic}'
 /** An `epic-status` stub that answers with no Epics, so the sidebar reads the Project without an error. */
 const NO_EPICS = `#!/bin/sh\necho '{"ref":"main","epics":[],"tickets":[]}'\n`
+/**
+ * A `bin/profile` stub that knows every folder: `--json` exits 0, a `--field` is absent (exit 4).
+ * "Add project" then puts a repository into the list at once, without the dialog that connects a
+ * new one (worfy-harness ticket 24).
+ */
+const KNOWS_ALL = `#!/bin/sh\ncase "$*" in *--json*) echo '{"name":"stub","_resolved":{"workspace":null}}' ;; *) exit 4 ;; esac\n`
+
+/** Puts the stub `bin/profile` where worfy looks for the scripts when there is no Harness: <Claude home>/bin. */
+function harnessKnowsEverything(claudeHome: string): void {
+  mkdirSync(join(claudeHome, 'bin'), { recursive: true })
+  writeFileSync(join(claudeHome, 'bin', 'profile'), KNOWS_ALL, { mode: 0o755 })
+}
 
 let scratch: string
 let dataDir: string
@@ -80,13 +92,15 @@ test('Projects: add, switch, edit settings, restart, remove — and the reposito
     const { window } = first
     await expect(window.getByTestId('app-shell')).toBeVisible()
     await expect(subtitle(window)).toHaveText('No project')
+    harnessKnowsEverything(first.claudeHome)
 
-    // A folder outside any git repository is refused with a message.
+    // A folder outside any git repository and without repositories is refused in step 1, with a message.
     await addProject(first, plain)
     await expect(window.getByTestId('projects-error')).toHaveText(
-      `${plain} is not a git repository. Choose the folder of a git repository; a Project over several repositories is connected in the Harness first.`,
+      `${plain} is not a git repository and holds no repositories. Choose the folder of a git repository, or the folder above the repositories of one project.`,
     )
     await expect(window.getByTestId('project-row')).toHaveCount(0)
+    await expect(window.getByTestId('connect-project')).toHaveCount(0)
 
     // A subfolder becomes its repository root, and the user is told so.
     await addProject(first, join(auction, 'src'))
@@ -103,6 +117,14 @@ test('Projects: add, switch, edit settings, restart, remove — and the reposito
     await rowButton(window, 'auction').click()
     await expect(rowButton(window, 'auction')).toHaveAttribute('aria-current', 'true')
     await expect(subtitle(window)).toHaveText('auction · main')
+
+    // Adding a Project that is in the list already selects it and says so, as before.
+    await addProject(first, worfy)
+    await expect(window.getByTestId('projects-notice')).toHaveText('worfy is already in the list.')
+    await expect(window.getByTestId('project-row')).toHaveCount(2)
+    await expect(rowButton(window, 'worfy')).toHaveAttribute('aria-current', 'true')
+    await rowButton(window, 'auction').click()
+    await expect(rowButton(window, 'auction')).toHaveAttribute('aria-current', 'true')
 
     // A template with an unknown placeholder shows its error under the field and cannot be saved.
     // The temporary Claude home of launchApp holds no Harness: the defaults are the plugin's (worfy-harness ticket 12).
@@ -167,7 +189,7 @@ test('Project settings: the defaults and "Reset to default" follow the Harness o
   try {
     const { window, claudeHome } = launched
     // The old Harness: <Claude home>/bin/epic-status. A new Project gets its templates.
-    mkdirSync(join(claudeHome, 'bin'))
+    harnessKnowsEverything(claudeHome)
     writeFileSync(join(claudeHome, 'bin', 'epic-status'), NO_EPICS, { mode: 0o755 })
     await addProject(launched, worfy)
     await expect(rowButton(window, 'worfy')).toHaveAttribute('aria-current', 'true')
