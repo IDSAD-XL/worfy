@@ -240,8 +240,12 @@ plugin-а `harness/hooks/gh-token-env.sh` (SessionStart) ставит `GH_TOKEN`
      `gh pr list --state open --json number,headRefName,labels,files`. Правило worfy-windows (spec,
      «Соглашения для Ticket-ов этого Epic-а», пункт «Метка needs-mac-gate») выбирает эти PR по метке
      `needs-mac-gate`. Но на 2026-10-09 такой метки в репозитории нет (`gh label list`), а PR #200
-     (worfy-windows/08) открыт без неё. Поэтому выборка — по ветке. PR, который трогает общий код,
-     Session на Mac проходит по шагам того пункта: rebase, gate full на Mac, отчёт в PR, мерж.
+     (worfy-windows/08) открыт без неё. Поэтому выборка — по ветке, но только для сверки файлов: его
+     файлы сравниваются с «Где в коде» Ticket-ов Wave, и Ticket с общим файлом ждёт мержа этого PR.
+     Сам PR Session на Mac берёт в работу, только когда Windows-сторона его закончила: в описании есть
+     раздел «Mac checks», а последний комментарий Session на Windows просит проверки после push. Тогда —
+     шаги того пункта: rebase, команды «Mac checks», gate full на Mac, отчёт в PR, мерж. PR, который
+     ещё дорабатывают, не трогать: rebase его ветки конфликтует со следующим push Session на Windows.
   2. Открытые PR других Epic-ов (ADR-0056, пункт 5) — тот же `gh pr list`. Их файлы сравниваются с
      «Где в коде» Ticket-ов Wave тем же правилом, что внутри Wave. Ticket с общим файлом ждёт мержа
      того PR. Пересечение и отложенный Ticket — в отчёте Wave. Список раздела «Порядок относительно
@@ -254,8 +258,9 @@ plugin-а `harness/hooks/gh-token-env.sh` (SessionStart) ставит `GH_TOKEN`
   Harness или упаковку) — Ticket-ы 03, 04, 05 и 06:
   - 03, 04 и 06 меняют скрипты Harness: `harness/hooks/gate.sh`, новые `harness/bin/shortcut-ledger`
     и `harness/bin/decision-log`;
-  - 05 меняет `src/main/index.ts`, а там ветка по платформе (`process.platform !== 'darwin'`,
-    `:130`). Обработчики падений части А работают и на Windows.
+  - 05, часть А, меняет `src/main/index.ts`, а там ветка по платформе (`process.platform !== 'darwin'`,
+    `:130`). Обработчики падений части А работают и на Windows. Часть Б (снимок `sample` и раздел
+    README) — только macOS; если 05 делится на два PR, PR части Б платформенным не считается.
 
   01, 02 и 07 меняют тексты агентов и skills, test-ы и contract test-ы. Bash-test-ы — не скрипты
   Harness (ADR-0055: скрипты — на Node, bash только в test-ах). Скриптов Harness, кода с ветками по
