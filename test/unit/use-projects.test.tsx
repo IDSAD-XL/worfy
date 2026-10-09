@@ -87,6 +87,7 @@ const linkState = (linked: { id: string; name: string; state?: 'online' | 'unava
   linked: linked.map(({ id, name, state = 'online' }) => ({ id, name, state, certificateChanged: false })),
   discovered: [],
   projectsAccess: false,
+  keepAwake: true,
 })
 
 const linkedState = (machines: { id: string; sharing: 'yes' | 'no' | 'unknown'; epoch?: number; online?: boolean }[], revision = 1): LinkedState => ({
