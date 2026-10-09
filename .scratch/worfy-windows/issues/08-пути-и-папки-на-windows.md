@@ -131,7 +131,7 @@ Source: решения владельца 2026-10-07: Q1 (полный порт)
 - [x] `test/contract/statusline-bridge.test.ts`: все прежние случаи проходят против `node scripts/statusline-bridge.mjs` и против входа `.sh`, если он остался. Новые: PATH без `jq` — файл всё равно пишется; выбор папок для `win32` — `%APPDATA%\worfy` и `worfy-dev`.
 - [ ] `@packaged` test в `test/e2e/packaged.spec.ts` (локально, `test:package` в gate full): в `.app` рядом с `Contents/Resources/statusline-bridge.sh` лежит `statusline-bridge.mjs`. Команда прежнего вида `<.app>/Contents/Resources/statusline-bridge.sh '<cmd>'` с образцом JSON пишет файл и пропускает вывод команды.
 - [ ] Windows-ПК, dev-сборка: список Session-ов Project-а worfy показывает транскрипты из `%USERPROFILE%\.claude\projects`. `claude`, запущенный в PowerShell в worktree worfy и в его подпапке, виден как живая Session. Session в `.claude\worktrees\NN` привязана к Ticket-у NN. Снимок — `../evidence/08-session-ы-на-windows.png`.
-- [ ] Windows-ПК: образец JSON строки состояния, поданный в `node scripts\statusline-bridge.mjs`, пишет `%APPDATA%\worfy-dev\statusline-limits.json`, и dev-сборка показывает полосы Limits. Если владелец сам ставит `statusLine` с мостом — Limits приходят из терминала. Данные dev-сборки лежат в `%APPDATA%\worfy-dev`.
+- [x] Windows-ПК: образец JSON строки состояния, поданный в `node scripts\statusline-bridge.mjs`, пишет `%APPDATA%\worfy-dev\statusline-limits.json`, и dev-сборка показывает полосы Limits. Если владелец сам ставит `statusLine` с мостом — Limits приходят из терминала. Данные dev-сборки лежат в `%APPDATA%\worfy-dev`.
 - [ ] Mac: данные на прежнем месте — `test/e2e/packaged.spec.ts:304` и `:418` зелёные; gate full зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
 
 ## Тесты
@@ -257,8 +257,22 @@ Windows (Ticket 12).
 - **Данные dev-сборки на ПК:** прежние запуски писали в `C:\Users\Alexey\Library\Application
   Support\worfy` и `…\worfy-dev` (путь macOS). Новая dev-сборка начинает в `%APPDATA%\worfy-dev` с
   чистого листа; переноса нет — сборок под Windows ещё не выпускали. Старые папки не тронуты.
-- **Не проверено (нужен владелец):** список Session-ов в dev-сборке со снимком
-  `../evidence/08-session-ы-на-windows.png`; полосы Limits в dev-сборке после записи моста в
-  `%APPDATA%\worfy-dev` (папки ещё нет — появится при первом запуске dev-сборки); живой прогон
-  `statusLine` с мостом на Windows.
+- **Проверка dev-сборки на ПК** (владелец, `v0.2.0+693f4d7`, снимок
+  `../evidence/08-session-ы-на-windows.png`):
+  - данные dev-сборки — в `%APPDATA%\worfy-dev` (там `first-run.json`, `Local State` …);
+  - «Add project» новой папки на Windows сейчас не пройти: подключение идёт через Harness, а
+    dev-сборка его не ставит (Harness на Windows — Ticket-ы 03–07, 12). Для проверки Project worfy
+    записан в `%APPDATA%\worfy-dev\projects.json` так, как его пишет `ProjectStore` (`path` из `git
+    rev-parse` — `C:/Users/Alexey/worfy`, id `worfy-d5750da7`);
+  - Sessions «2 live»: Orchestrator самой worfy и Session `claude`, запущенная владельцем в
+    PowerShell в подпапке `C:\Users\Alexey\worfy\src` (pid 47344, `cli` в
+    `%USERPROFILE%\.claude\sessions\47344.json`) — «src-05 · terminal · idle». Session из корня, уже
+    закрытая, — на холсте как `finished`. Транскрипты из `%USERPROFILE%\.claude\projects` видны;
+  - мост: образец JSON строки состояния, поданный в `node scripts\statusline-bridge.mjs` (exit 0),
+    записал `%APPDATA%\worfy-dev\statusline-limits.json`; `%APPDATA%\worfy` нет — туда не писал.
+    Dev-сборка показала полосы Limits: 5-hour 29 %, 7-day 9 %;
+  - не проверено: привязка Session в `.claude\worktrees\NN` к Ticket-у NN в живой сборке — без
+    Harness нет модели Epic-ов (панель Epics: «epic-status not found»), так что Binding к Ticket-у
+    не из чего строить; покрыто test-ами `binding.test.ts` и `ticket-ref.test.ts`. Живой прогон
+    `statusLine` с мостом — тоже нет (`statusLine` ставит владелец).
 - **Долги Ticket-а 09** из последнего комментария PR #194 — в Итоге Ticket-а 09.
