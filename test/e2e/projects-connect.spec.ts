@@ -109,7 +109,12 @@ test('Add project connects a new repository: Silent by default, the draft, the f
       .split('\n')
       .map((line) => JSON.parse(line) as { draft?: boolean; kind: string; text?: string })
       .filter((call) => call.draft === true && call.kind === 'message')
-    expect(messages.map((call) => call.text)).toEqual([`/worfy:connect-project ${shop} silent --draft-only`])
+    // One message: the skill, then the facts bin/project-connect --facts read (the draft has no Bash).
+    expect(messages).toHaveLength(1)
+    const first = messages[0]?.text ?? ''
+    expect(first.startsWith(`/worfy:connect-project ${shop} silent --draft-only\n`)).toBe(true)
+    expect(first).toContain(`"path": "${shop}"`)
+    expect(first).toContain('"origin": null')
 
     // The form: the commands of the draft; the mode and the Workflow folder only shown.
     const name = dialog.getByLabel('Name')
