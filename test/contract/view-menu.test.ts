@@ -82,8 +82,10 @@ describe('View ▸ Show Minimap', () => {
       'zoomOut',
       'togglefullscreen',
     ])
-    // The rest of the default menu stays: Edit keeps copy and paste working in text fields.
-    expect(template.map((item) => item.role ?? item.label)).toEqual(expect.arrayContaining(['fileMenu', 'editMenu', 'View', 'windowMenu']))
+    // The rest of the default menu stays: Edit keeps copy and paste working in text fields. File is
+    // the fileMenu role on macOS and spelled out elsewhere, with Settings… in it.
+    const file = process.platform === 'darwin' ? 'fileMenu' : 'File'
+    expect(template.map((item) => item.role ?? item.label)).toEqual(expect.arrayContaining([file, 'editMenu', 'View', 'windowMenu']))
   })
 
   it('switching it tells every window and changes what view.get answers', async () => {
