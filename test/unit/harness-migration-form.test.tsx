@@ -81,6 +81,14 @@ const pressed = (row: HTMLElement): string[] =>
     .filter((button) => button.getAttribute('aria-pressed') === 'true')
     .map((button) => button.textContent ?? '')
 
+/** Chooses `value` in the Select `testId`: a click on the button, then on the option. */
+function pick(testId: string, value: string): void {
+  fireEvent.click(screen.getByTestId(testId))
+  const option = screen.getAllByRole('option').find((element) => element.getAttribute('data-value') === value)
+  if (option === undefined) throw new Error(`no option ${value} in ${testId}`)
+  fireEvent.click(option)
+}
+
 function renderForm(extra: { plan?: MigrationPlan; result?: MigrationResult; busy?: boolean } = {}) {
   const onMove = vi.fn<(selection: MigrationSelection) => void>()
   const onClose = vi.fn()
@@ -146,16 +154,32 @@ describe('MigrationFormView', () => {
         .flatMap((diff) => Array.from(diff.querySelectorAll<HTMLElement>('[data-diff="added"]')))
         .map((line) => line.textContent ?? '')
     expect(added()).toEqual(expect.arrayContaining(['+   "schema": 2,', '+   "mode": "full",', '+   "attribution": "on",', '+ gate: ~/.claude/worfy-harness/plugin/hooks/gate.sh']))
-    fireEvent.change(screen.getByTestId('profile-mode'), { target: { value: 'silent' } })
-    fireEvent.change(screen.getByTestId('profile-attribution'), { target: { value: 'off' } })
-    fireEvent.change(screen.getByTestId('profile-languageDocs'), { target: { value: 'en' } })
+    pick('profile-mode', 'silent')
+    pick('profile-attribution', 'off')
+    pick('profile-languageDocs', 'en')
+    expect(screen.getByTestId('profile-mode').getAttribute('data-value')).toBe('silent')
     expect(added()).toEqual(expect.arrayContaining(['+   "mode": "silent",', '+   "attribution": "off",', '+     "docs": "en"']))
     fireEvent.click(moveButton())
     expect(onMove.mock.calls[0]?.[0].profiles).toEqual({ worfy: { mode: 'silent', languageDocs: 'en', attribution: 'off' } })
     // Kept: no diff, the fields cannot be changed.
     fireEvent.click(within(rowOf('profile:worfy')).getByRole('button', { name: 'Keep' }))
     expect(screen.queryAllByTestId('profile-diff')).toEqual([])
-    expect((screen.getByTestId('profile-mode') as HTMLSelectElement).disabled).toBe(true)
+    expect((screen.getByTestId('profile-mode') as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByTestId('profile-mode'))
+    expect(screen.queryByRole('listbox')).toBeNull()
+  })
+
+  it('a Profile field: Esc on its open list closes the list, not the form; the next Esc closes the form', () => {
+    const { onClose } = renderForm()
+    const field = screen.getByTestId('profile-mode')
+    fireEvent.keyDown(field, { key: 'ArrowDown' })
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    fireEvent.keyDown(field, { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByTestId('migration-form')).toBeTruthy()
+    fireEvent.keyDown(field, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('without the plugin: the form names what is missing and Move is disabled', () => {

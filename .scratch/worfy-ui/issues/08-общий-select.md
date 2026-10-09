@@ -1,7 +1,8 @@
 # 08 — Общий Select: стилизованный список вместо native `<select>`
 
 Type: task
-Status: open
+Status: claimed — 2026-10-09
+Branch: worfy-ui/08
 Blocked by: —
 Source: решение владельца 2026-10-09: 4 (один общий стилизованный компонент Select/Menu — стрелки, Enter, Esc, набор букв, ARIA — заменяет каждый native `<select>` в renderer; макет — `docs/design/F-session-dark.dc.html:177-179`) ([spec.md](../spec.md), «Как устроено», «Select»); [worfy-terminal-ai 08](../../worfy-terminal-ai/issues/08-settings-terminal-ai.md) — выбор модели Next command в Settings → «Terminal AI» ждёт этот Ticket
 

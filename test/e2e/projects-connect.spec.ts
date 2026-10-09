@@ -126,7 +126,7 @@ test('Add project connects a new repository: Silent by default, the draft, the f
     await expect(name).toHaveValue('fake-project')
     await expect(dialog.getByLabel('test', { exact: true })).toHaveValue('npm test')
     await expect(dialog.getByTestId('connect-form-mode')).toHaveText('silent')
-    await expect(dialog.getByLabel('Reports')).toHaveValue(/^(ru|en)$/)
+    await expect(dialog.getByLabel('Reports')).toHaveAttribute('data-value', /^(ru|en)$/)
     // A taken name: its problem under the field, Connect not available.
     await name.fill('other')
     await expect(dialog.locator('[data-field="profile.name"]').getByRole('alert')).toContainText('the name is taken')
@@ -249,7 +249,7 @@ test('the GitHub account: the active account with access by default, "Sign in wi
     await expect(rows.nth(0)).toHaveAttribute('data-login', 'alice')
     await expect(rows.nth(0).getByRole('radio')).toBeChecked()
     await expect(rows.nth(1).getByTestId('connect-github-reason')).toHaveText('bob has no write access to acme/shop: Tickets will close with the local finish.')
-    await expect(dialog.getByLabel('Finish', { exact: true })).toHaveValue('pr-green-ci')
+    await expect(dialog.getByLabel('Finish', { exact: true })).toHaveAttribute('data-value', 'pr-green-ci')
     await expect(dialog.getByRole('button', { name: 'Connect' })).toBeEnabled({ timeout: 10_000 })
     await shoot(launched, dialog, 'account-list', '25')
 
@@ -269,7 +269,7 @@ test('the GitHub account: the active account with access by default, "Sign in wi
 
     // The person picks bob, who cannot push: the local finish.
     await step.locator('[data-login="bob"]').getByRole('radio').check()
-    await expect(dialog.getByLabel('Finish', { exact: true })).toHaveValue('local-green')
+    await expect(dialog.getByLabel('Finish', { exact: true })).toHaveAttribute('data-value', 'local-green')
     const connect = dialog.getByRole('button', { name: 'Connect' })
     await expect(connect).toBeEnabled({ timeout: 10_000 })
     await connect.click()
@@ -305,7 +305,7 @@ test('the GitHub account: gh failing says why; gh without accounts offers the si
     const dialog = await toForm(launched, shop)
     const step = dialog.getByTestId('connect-github')
     await expect(step.getByTestId('connect-github-error')).toHaveText('gh auth status failed: error connecting to api.github.com', { timeout: 20_000 })
-    await expect(dialog.getByLabel('Finish', { exact: true })).toHaveValue('local-green')
+    await expect(dialog.getByLabel('Finish', { exact: true })).toHaveAttribute('data-value', 'local-green')
     const connect = dialog.getByRole('button', { name: 'Connect' })
     await expect(connect).toBeEnabled({ timeout: 10_000 })
     // Nothing in focus: the screenshot shows the error, not a focus ring.
