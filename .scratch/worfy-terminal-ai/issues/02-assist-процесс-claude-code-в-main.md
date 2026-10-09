@@ -161,7 +161,7 @@ Source: решения владельца 2026-10-09: пункт 5 (один о�
 - [x] Тот же contract: `rate_limit_event` из потока запроса виден в `snapshot()` трекера Limits; при `rejected` запрос в SDK не уходит; с признаком «идёт команда» или «альтернативный экран» — тоже; выключенная в Settings функция — отказ «off»; пауза по Limits со временем сброса через минуту — через минуту (поддельные часы) `terminalAi.changed` и `on` без нового запроса.
 - [x] Тот же contract: при `WORFY_AGENT=fake` ответ берётся из файла ответов, запрос записан в журнал с контекстом после redaction, SDK не импортирован; под vitest без fake настоящая фабрика бросает ошибку.
 - [x] Contract: `terminalAi.setSettings` пишет `terminal-ai.json`, `terminalAi.state` читает его после перезапуска; каналы `terminalAi.*` этого Ticket-а помечены `local`.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0.
 
 ## Тесты
 
@@ -259,4 +259,5 @@ Source: решения владельца 2026-10-09: пункт 5 (один о�
 - **Не проверено вживую:** принимает ли настоящий `claim()` `maxThinkingTokens: 0` и `effortLevel`, есть
   ли hooks у встроенных plugin-ов, держит ли `query()`-повтор опцию `effort` — Ticket 09 (запросы к
   модели только у владельца).
+- **Проверки.** `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (174 файла, 3365 test-ов). `GATE_SCOPE=all` gate full под замком `/tmp/worfy-e2e.lock` на коммите da46eb4 — exit 0, `[gate] зелено (full): lint typecheck test test:e2e test:package`. CI PR #205 (`check`) — pass.
 - **UI не менялся** (окно Settings — Ticket 08), снимков нет.
