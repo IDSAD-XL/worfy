@@ -896,3 +896,73 @@ node-pty его запускает (раздел 09). Поиск «файл ес
 - worktree `C:\Users\Alexey\worfy\.claude\worktrees\windows-long-path-probe-0123456789abcdefg` и
   ветка `probe/windows-long-path-probe-0123456789abcdefg` в клоне (раздел 11) — удалены;
 - PowerShell 7.6.6 (winget) и pnpm 11.22.0 в node 22.13.0 (nvm); node 22.13.0 активен в nvm.
+
+### 27. Ответы владельца 2026-10-09 и проверки после них
+
+Ответы владельца в Session на Windows-ПК (после мержа PR #177):
+
+- `C:\a` удалил сам (раздел 26) — «есть»;
+- снимок окна `pnpm dev` на main с правками Ticket-а 02 — [`02-pnpm-dev.png`](02-pnpm-dev.png)
+  (из `.webp` владельца, 2000×1116);
+- Smart App Control в Windows Security — выключен;
+- чистой Windows нет: приёмка без чистой машины, `jq` на Windows не требуется (ответ на вопрос «как
+  проверяем установщик и первый запуск без чистой Windows и что с jq»: «Без чистой машины» — первый
+  запуск проверяют unit-test-ы с подставленными пробами и установка NSIS на ПК владельца; строка jq
+  на Windows — `warn`, пока Ticket-ы 04 и 05 не уберут jq из hooks и скриптов);
+- режим разработчика — включил;
+- `harness-evals`: `\r?\n` в test-е в Ticket-е 14, а не LF для `harness/evals/**` — «ок».
+
+Проверки после ответов (PowerShell, Session Claude Code):
+
+```
+PS> Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock | Select AllowDevelopmentWithoutDevLicense
+AllowDevelopmentWithoutDevLicense : 1
+PS> "C:\a exists=$(Test-Path -LiteralPath 'C:\a')"
+C:\a exists=False
+PS> Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy | Select VerifiedAndReputablePolicyState
+VerifiedAndReputablePolicyState : 0
+PS> pnpm test test/contract/shell.test.ts test/contract/first-run-checks.test.ts test/contract/link-access.test.ts test/unit/link-caller.test.ts test/unit/canvas.test.tsx test/unit/session-rail-discovery.test.tsx test/unit/shell-discovery.test.tsx
+ ❯ |node| test/unit/link-caller.test.ts (8 tests | 2 failed) 24ms
+ ❯ |contract| test/contract/first-run-checks.test.ts (33 tests | 15 failed) 905ms
+ ❯ |contract| test/contract/link-access.test.ts (15 tests | 5 failed) 6703ms
+ ❯ |contract| test/contract/shell.test.ts (10 tests | 10 failed) 27165ms
+ Test Files  4 failed | 3 passed (7)
+      Tests  32 failed | 60 passed (92)
+EXIT=1
+```
+
+Первые строки ошибок этого прогона, по числу (пути временных папок сокращены до `worfy-…`):
+
+```
+     11 Error: EPERM, Permission denied: \\?\C:\Users\Alexey\AppData\Local\Temp\worfy-… '\\?\C:\Users\Alexey\AppData\Local\Temp\worfy-…'
+      5 AssertionError: expected { ok: false, …(1) } to strictly equal { ok: true, …(1) }
+      2 AssertionError: expected { ok: false, …(1) } to match object { ok: true }
+      2 AssertionError: expected 'failed' to be 'done' // Object.is equality
+      1 TypeError: Cannot read properties of undefined (reading 'sessionId')
+      1 AssertionError: workflow.open: expected 'workflow.open: invalid input\n✖ root …' to match /is outside the Projects of this Machi…/
+      1 AssertionError: expected { id: 'qmd', group: 'qmd', …(6) } to match object { status: 'warn', …(1) }
+      1 AssertionError: expected { id: 'harness', …(7) } to match object { status: 'warn', …(1) }
+      1 AssertionError: expected { 'claude-login': 'ok', …(11) } to match object { 'claude-login': 'ok', …(7) }
+      1 AssertionError: expected null to be 'gh auth login' // Object.is equality
+```
+
+Вывод: с режимом разработчика `EPERM … symlink` (раздел 22) больше нет — `canvas`, `session-rail-
+discovery` и `shell-discovery` зелёные, `link-access` и `link-caller` загружаются. В четырёх файлах
+остались 32 падения других причин: 11 — `EPERM` при удалении временной папки через путь `\\?\…`,
+остальные — пути и проверки первого запуска.
+
+Что видно на снимке `02-pnpm-dev.png` (окно `pnpm dev`, экран First run):
+
+- рамка окна — обычная рамка Windows: заголовок «worfy», кнопки свернуть, развернуть, закрыть; под
+  ним меню `File Edit View Window`;
+- в строке поиска подпись `⌘K`;
+- First run: «worfy checks this Mac…», «6 failed · 3 warnings»; Sign-in — OK (Claude Max); «Claude
+  Code in the terminal» — Warning, «not found on the PATH of the login shell»; `git`, `gh`, `node`,
+  `jq` — Failed, «not found on the PATH of the login shell», подсказки `brew install …`; GitHub
+  accounts — Failed, «gh is not installed»; Harness plugin — Failed, «not installed» (dev-сборка
+  только показывает состояние); Old Harness in ~/.claude — OK, «none»; qmd — Warning,
+  `brew install node`.
+
+Вывод: на Windows проверки первого запуска ищут инструменты через login shell, которого нет, и
+не находят `git`, `gh`, `node` — хотя все три стоят и есть в PATH процесса (раздел 16); подсказки —
+для macOS.

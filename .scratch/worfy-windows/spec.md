@@ -33,8 +33,10 @@ Windows, тоже работает в worfy.
 
 Epic готов, когда:
 
-1. На чистой Windows 11 с Git for Windows, node и gh неподписанный установщик ставит worfy. Первый
-   запуск проходит проверки, установщик E3 ставит Harness plugin.
+1. На Windows-ПК владельца неподписанный установщик ставит worfy. Первый запуск проходит проверки,
+   установщик E3 ставит Harness plugin. Проверки «голой» машины (нет Git for Windows, node, gh и
+   других) — unit-test-ы с подставленными пробами (Ticket 13). Чистой Windows 11 нет: решение
+   владельца 2026-10-09 (было — «на чистой Windows 11 с Git for Windows, node и gh»).
 2. На Windows работают Project worfy, Canvas, Session-ы, Terminal на PowerShell, Gate, epic-status.
    Одна Wave Autopilot проходит целиком: implementer, gate full на Windows, PR, мерж.
 3. Скрипты Harness на Node работают на обеих системах, bash — только в test-ах, `.gitattributes`
@@ -162,8 +164,9 @@ Gate. `.gitattributes` — файл git с правилами концов ст�
    «Windows» в CI. С его мержа правило Q23 действует целиком.
 7. **qmd** — 15. Обёртки `qmd-mcp`, `qmd-refresh`, `qmd-sync-main` на Node; `.mcp.json` и Stop-hook
    через `node`; путь А или Б.
-8. **Приёмка** — 16. Contract test пункта 3 «Готово, когда»; чистая Windows 11 (шаг владельца);
-   Wave Autopilot из Stable copy на ПК; qmd или grep; gate full на Mac.
+8. **Приёмка** — 16. Contract test пункта 3 «Готово, когда»; установщик и первый запуск на ПК
+   владельца (чистой Windows нет, решение владельца 2026-10-09); Wave Autopilot из Stable copy на ПК;
+   qmd или grep; gate full на Mac.
 
 ## Решения владельца
 
@@ -232,7 +235,8 @@ Session (Q1–Q25). Ticket-ы ссылаются на эти номера и н�
 
 - **Windows на arm64** — позже (Q24).
 - **Подпись установщика и репутация SmartScreen** — E4 (Q22). Исключение — Smart App Control на ПК
-  владельца или на чистой Windows: тогда вопрос подписи уходит владельцу сразу.
+  владельца (выключен — проверено 2026-10-09, evidence Ticket-а 01, раздел 27): если он включится,
+  вопрос подписи уходит владельцу сразу.
 - **Сборка Windows-установщика на Mac** — не выбрано (ADR-0054): pnpm без `supportedArchitectures` не
   ставит на Mac `claude.exe`, а `electronDist` указывает на Electron для macOS.
 - **Windows-раннер на PR** — нет (Q23).
@@ -311,10 +315,9 @@ Session (Q1–Q25). Ticket-ы ссылаются на эти номера и н�
 7. **Общие файлы двух Epic-ов.** План ниже не знает о PR `worfy-link`. Перед каждой Wave Session
    сверяет файлы своих Ticket-ов с файлами открытых PR `worfy-link`; до Ticket-а 07 — вручную.
    `HANDOFF.md` — один файл на репозиторий; конфликт в нём решает Session, которая мержит второй.
-8. **`jq` на чистой Windows.** Skills зовут `jq` из Git Bash и после порта. Пункт 1 «Готово, когда»
-   называет только Git for Windows, node и gh. Если в Git for Windows `jq` нет, экран первого запуска
-   покажет `fail` с `winget install jqlang.jq` — это расходится с пунктом 1. Тогда вопрос владельцу
-   (Ticket-ы 01, 13, 16).
+8. **`jq` на Windows.** Skills зовут `jq` из Git Bash и после порта, а в Git for Windows его нет
+   (evidence Ticket-а 01, раздел 05). Решение владельца 2026-10-09: на Windows `jq` не требуется —
+   строка `jq` на экране первого запуска `warn`, а не `fail` (Ticket 13).
 9. **Terminal и Bash tool на Windows — разные оболочки:** PowerShell и Git Bash. Команда из ответа
    агента, вставленная в Terminal, может там не сработать (ADR-0054, «Последствия»). Закрытие Terminal
    на Windows гасит и процессы, запущенные из него через `Start-Process`; на Mac приложение из
@@ -420,8 +423,8 @@ UI в двух темах, Autopilot над worfy — только на Stable c
 - **Evidence** — `.scratch/worfy-windows/evidence/`: выводы команд и снимки с ПК.
 - **Только чтение.** Писать в `/Users/alexey/Work/*` нельзя.
 - **Шаги владельца.** Установки через winget — с его согласия. Вход в Claude и в `gh`, системные
-  запросы Windows (SmartScreen, Smart App Control), чистая Windows 11 для приёмки — делает
-  владелец.
+  запросы Windows (SmartScreen, Smart App Control) — делает владелец. Чистой Windows 11 для приёмки
+  нет (решение владельца 2026-10-09).
 - **Язык.** Текст Harness — английский (ADR-0044). Документы Project-а — русские, термины — из
   `CONTEXT.md`.
 
@@ -449,7 +452,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 13 | `src/main/first-run/checks.ts`, `src/main/first-run/actions.ts`, `src/shared/ipc/first-run.ts`, `src/main/harness/install.ts`, `src/main/harness/migrate/plan.ts`, `src/main/harness/migrate/apply.ts`, `docs/design/F-SPEC.md`, `test/unit/first-run-windows.test.ts`, `test/contract/first-run-checks.test.ts`, `test/contract/harness-install.test.ts`, `test/contract/harness-migrate.test.ts` | 6 |
 | 14 | `test/e2e/canvas-layout.spec.ts`, `test/e2e/epic-frame-undo.spec.ts`, `test/e2e/wheel-over-nodes.spec.ts`, `test/e2e/focus.spec.ts`, `test/e2e/snapping.spec.ts`, `test/e2e/trash-undo.spec.ts`, `test/e2e/pin-tags.spec.ts`, `test/e2e/edges.spec.ts`, `test/e2e/theme-shadows.spec.ts`, `test/e2e/no-overlap.spec.ts`, `test/e2e/epic-frame.spec.ts`, `test/e2e/palette-find.spec.ts`, `test/e2e/tidy-up.spec.ts`, `test/e2e/terminal.spec.ts`, `test/e2e/packaged.spec.ts`, `test/e2e/helpers.ts`, `test/fixtures/gh/gh`, `test/fixtures/gh/gh-stub.mjs`, `test/contract/github-prs.test.ts`, `test/contract/harness-scripts.test.ts`, `test/contract/harness-install.test.ts`, `test/unit/agent-env.test.ts`, `test/unit/tail.test.ts`, `test/contract/workflow-reader.test.ts`, `test/contract/terminal.test.ts`, `test/contract/make-icons.test.ts`, `src/main/github/prs.ts`, `src/main/ipc/checks.ts`, `.github/workflows/ci.yml` | 7 |
 | 15 | `harness/bin/qmd-mcp`, `harness/bin/qmd-refresh`, `harness/bin/qmd-sync-main`, `harness/bin/qmd-collections`, `harness/.mcp.json`, `harness/hooks/hooks.json`, `harness/skills/qmd/SKILL.md`, `harness/bin/tests/qmd.test.sh`, `harness/bin/tests/harness-home.test.sh`, `harness/bin/tests/qmd-collections.test.sh`, `src/main/harness/qmd.ts`, `src/main/first-run/checks.ts`, `src/main/workflow/profile.ts`, `docs/design/F-SPEC.md`, `test/contract/harness-qmd.test.ts`, `test/contract/workflow-profile.test.ts`, `test/contract/first-run-checks.test.ts`, `test/contract/harness-scripts.test.ts`, `.github/workflows/ci.yml` | 8 |
-| 16 | `test/contract/harness-node-only.test.ts`, `.scratch/worfy-windows/evidence/16-чистая-windows.md`, `.scratch/worfy-windows/evidence/16-чистая-установка.png`, `.scratch/worfy-windows/evidence/16-первый-запуск.png`, `.scratch/worfy-windows/evidence/16-canvas.png`, `.scratch/worfy-windows/evidence/16-session.png`, `.scratch/worfy-windows/evidence/16-terminal-powershell.png`, `HANDOFF.md` | 9 |
+| 16 | `test/contract/harness-node-only.test.ts`, `.scratch/worfy-windows/evidence/16-установка.png`, `.scratch/worfy-windows/evidence/16-первый-запуск.png`, `.scratch/worfy-windows/evidence/16-canvas.png`, `.scratch/worfy-windows/evidence/16-session.png`, `.scratch/worfy-windows/evidence/16-terminal-powershell.png`, `HANDOFF.md` | 9 |
 | 17 | `harness/skills/gate-queue/SKILL.md`, `harness/skills/epic-wave/SKILL.md`, `harness/bin/tests/gate-queue.test.sh`, `harness/bin/tests/epic-wave-ship-ticket.test.sh`, `harness/bin/tests/skill-blocks.test.sh`, `harness/README.md`, `src/main/github/gate-queue.ts`, `src/shared/ipc/gate-queue.ts`, `src/main/ipc/gate-queue.ts`, `src/renderer/projects/useGateQueue.ts`, `src/shared/projects/action-templates.ts`, `src/main/actions/launch.ts`, `src/shared/ipc/actions.ts`, `src/main/ipc/actions.ts`, `src/renderer/palette/commands.ts`, `src/renderer/palette/CommandPalette.tsx`, `src/renderer/shell/sidebar/ProjectsSection.tsx`, `src/main/notify.ts`, `src/main/index.ts`, `src/main/autopilot/run.ts`, `src/shared/autopilot/journal.ts`, `test/contract/gate-queue.test.ts`, `test/unit/notify.test.ts`, `test/unit/action-templates.test.ts`, `test/unit/launch.test.ts`, `test/contract/actions.test.ts`, `test/unit/palette-commands.test.tsx`, `test/unit/shell.test.tsx`, `test/unit/autopilot-run.test.ts`, `test/unit/autopilot-journal.test.ts` | 7 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух

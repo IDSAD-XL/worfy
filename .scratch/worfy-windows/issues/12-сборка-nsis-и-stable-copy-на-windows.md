@@ -57,8 +57,8 @@ Source: решения владельца 2026-10-07: Q22 (неподписан�
   подменяет `gitCommonDir`, настоящий git не зовёт.
 - **SmartScreen.** Неподписанный установщик: «Windows protected your PC» → More info → Run anyway.
   Smart App Control на Windows 11 неподписанное блокирует (ADR-0054, пункт 5). На ПК владельца он
-  выключен: `VerifiedAndReputablePolicyState = 0` (evidence Ticket-а 01, раздел 02); сверка в окне
-  Windows Security — за владельцем.
+  выключен: `VerifiedAndReputablePolicyState = 0` (evidence Ticket-а 01, раздел 02), и владелец
+  подтвердил это в окне Windows Security 2026-10-09 (раздел 27).
 - После 4f983ef `electron-builder.yml` меняли E3 Ticket 15 (#134, мост Limits в ресурсах сборки) и
   worfy-link Ticket 02 (#158); `scripts/install-stable.sh` не менялся; `package.json` — четыре коммита,
   строки сдвинулись (evidence Ticket-а 01, раздел 24). Строки выше — main 4f983ef. Перед началом
@@ -114,7 +114,8 @@ Source: решения владельца 2026-10-07: Q22 (неподписан�
    настоящий git: временный репозиторий и worktree; dev-сборка отказывает и в checkout, и в
    worktree, упакованная — нет. На Windows-ПК он проверяет пути `C:/…` от git против `realpath`.
    `selfProjectRefusal` правится, только если test покажет расхождение.
-6. **Smart App Control.** По evidence Ticket-а 01 (раздел 02) на ПК он выключен. Если к сборке он
+6. **Smart App Control.** На ПК он выключен (evidence Ticket-а 01, разделы 02 и 27: реестр и Windows
+   Security). Если к сборке он
    окажется включён и установщик не запустится — Status `blocked`, вопрос подписи уходит владельцу
    сразу (Q22).
 
