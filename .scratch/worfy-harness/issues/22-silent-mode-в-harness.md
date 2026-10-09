@@ -1,7 +1,7 @@
 # 22 — Silent mode в Harness: файлы workflow в Workflow folder, без следов в ветках, коммитах и PR
 
 Type: task
-Status: claimed — 2026-10-08
+Status: done — 2026-10-09, [PR #150](https://github.com/IDSAD-XL/worfy/pull/150)
 Branch: worfy-harness/22
 Blocked by: 16
 Source: решения владельца 2026-10-07, Q11' (б), Q17, Q23–Q30; [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) (Profile на машине, Full mode и Silent mode, Workflow folder, worktree вне репозитория, `attribution`; заменяет ADR-0020); [ADR-0045](../../../docs/adr/0045-one-ticket-one-repository.md) (один Ticket — один репозиторий, Project над несколькими репозиториями — всегда Silent mode, финиш без прав — локальный); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (состояние Harness на машине — `~/.claude/worfy-harness/`); [spec.md](../spec.md)
@@ -539,3 +539,55 @@ Session-ов; в этот список попадают и записи живы
 test:package». Отдельный `pnpm lint && pnpm typecheck && pnpm test` под нагрузкой машины (load average 5–7) — код 1:
 2 таймаута 15 000 мс (`github-prs`, `harness-qmd`); до PR #171, на `fed7879`, `gate.sh full` был красным только на
 таймаутах тех же contract test-ов. Записи в `~/.claude` в этом круге не было: проб `claude -p` нет.
+
+### Сводка оркестратора по кругам (перенесена из main: вливание PR #150 заменило файл версией ветки)
+
+
+Wave 10 (2026-10-08): Ticket выведен из Wave гейтом, `blocked`. Работа — в открытом PR #150 (ветка
+`worfy-harness/22`, worktree `.claude/worktrees/h22` оставлен); полный «Итог» исполнителя — в файле Ticket-а на
+этой ветке, вердикты — в комментариях PR.
+
+- Круг 1 `REJECTED`: [high] локальный финиш при `single` без `worktree.base` брал основную ветку из HEAD
+  checkout-а и печатал `MERGED=0` без вливания (настройка Atakama) + 2 med, 4 low текста. Исправлено.
+- Круг 2 `REJECTED`: доработка внесла 2 med — `done` на ветке до gate full; документам волны нечем ехать, если
+  последний тикет выпал. Скептики подтвердили обе; Ticket на критическом пути (от него зависят 23–26) — узкий круг.
+- Узкий круг `NARROW: REJECTED`: A и B закрыты, но внесены 2 med — при NOT ON TOP подготовленные документы
+  остаются незакоммиченными в worktree, где implementer делает rebase (rebase падает, коммит возвращает `done` на
+  невлитую ветку); результат коммита документов не проверяется, main перематывается и печатается `MERGED=0`.
+  Плюс low: `git commit` без pathspec берёт весь индекс; `git worktree remove` без `--force` для грязного
+  временного дерева; `add -A -- .scratch/` в основном checkout-е цепляет чужие файлы.
+- Пункт 7 не сделан: живая проба `claude -p` пишет в `~/.claude` (с `CLAUDE_CONFIG_DIR` во временной папке —
+  «Not logged in»; с `--no-session-persistence` — пустая `~/.claude/projects/<cwd>/memory`). Вопрос владельцу —
+  разрешить ли такие пробы.
+- Долги ревьюеров: guard пропускает `git push origin HEAD:<эпик>/05`, `git merge -m`, `git tag`, сообщение из
+  `$VAR`; `src/main/workflow/reader.ts:321` читает `done` с невлитой ветки как закрытый.
+- Решено без владельца, подтвердить: документы тикета при local-green — коммитом на его ветке после зелёного gate
+  full перед перемоткой; документы волны без невлитого тикета — коммитом в main под замком (временный worktree).
+
+**Решение владельца 2026-10-08** (после блока узким кругом): «1 разрешаю, делай ещё круг».
+- Живые пробы `claude -p` (пункт 7) разрешены, хотя они пишут в `~/.claude/projects/<cwd>/`. Пробы — во временной папке и с `--no-session-persistence`, где это возможно; что записалось — перечислить в «Итог».
+- Ещё один полный круг доработки по двум находкам [med] узкого круга: (1) при NOT ON TOP подготовленные документы остаются незакоммиченными в worktree, где implementer делает rebase; (2) результат коммита документов не проверяется, main перематывается и печатается `MERGED=0`. Плюс три [low] того же круга. Работа — в ветке PR #150 (`worfy-harness/22`, worktree `.claude/worktrees/h22`).
+
+Круг владельца 2026-10-08 (работа — в PR #150, ветка `worfy-harness/22`, head `4291c1e`; полный «Итог» круга — в файле
+Ticket-а на ветке): `REJECTED`, основание — новый дефект high. Находки узкого круга B1–B5 исправлены (откат документов
+на NOT ON TOP, `DOCS COMMIT FAILED` без перемотки, pathspec, временное дерево Wave, только свои файлы `.scratch/`).
+- [high] пункт 7 сделан через hook `WorktreeCreate` (`harness/hooks/worktree-create.sh`, `hooks.json:145`). Plugin
+  включён на всю машину, поэтому после пересборки hook заменит встроенное создание worktree во всех Session-ах любого
+  репозитория: повторный `claude -w <имя>` падает (ветка уже есть), деревья, которые agent не менял, не удаляются,
+  нет fetch и `.worktreeinclude`. Пользы сейчас нет — у worfy и Auction корень внутри репозитория.
+- [med] `profiles/README.md:141` прячет эти отличия; [med] тексты skills описывают путь через plugin как проверенный,
+  а пробы шли через `--settings` с другим скриптом.
+- Пробы пункта 7 (около 1,1 USD): (а) `EnterWorktree` с path — отказ; (б) Subagent с cwd — параметра нет; (в) hook
+  `WorktreeCreate` — работает. Записи в `~/.claude`: `projects/-private-tmp-worfy-harness-w10-impl-22-p7-repo/`
+  (пустая `memory/`, 12 файлов `subagents/*.meta.json`, транскриптов нет), 9 пустых папок `session-env/`, 5 копий
+  `backups/.claude.json.backup.*`; из первого круга — `projects/-private-tmp-worfy-harness-w10-impl-22-probe-t0/`.
+  Ничего не удалено.
+- Предложение оркестратора: та же ветка без регистрации `WorktreeCreate` (скрипт и выводы проб остаются для Ticket-а
+  24) и правка двух текстовых [med] — решение владельца.
+
+Короткий круг владельца 2026-10-09 (решение — PR #150, issuecomment-6069594308): регистрация `WorktreeCreate` снята,
+`hooks.json` совпадает с main; `harness/hooks/worktree-create.sh` оставлен незарегистрированным черновиком для Ticket-а 24
+(через plugin не проверялся); тексты README, skills и implementer: корень worktree вне репозитория не поддерживается до
+Ticket-а 24. Гейт — `VERIFIED`; после rebase на `0b6f1df` — gate full «зелено», PR #150 влит `3837558`.
+- [low] долг ревьюера: `harness/hooks/worktree-create.sh:27-28` ещё упоминает `git branch -m` implementer-а — инструкция
+  убрана; безвредно, пока hook не зарегистрирован.

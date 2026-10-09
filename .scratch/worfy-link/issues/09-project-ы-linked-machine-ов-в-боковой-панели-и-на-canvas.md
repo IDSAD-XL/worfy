@@ -1,7 +1,7 @@
 # 09 — Project-ы Linked machine-ов в боковой панели и на Canvas
 
 Type: task
-Status: claimed — 2026-10-08
+Status: done — 2026-10-09, [PR #169](https://github.com/IDSAD-XL/worfy/pull/169)
 Blocked by: 08
 Source: решения владельца 2026-10-07: Q2 (обе машины работают одновременно, общее состояние живое, у каждого экрана своё), Q3 (с другой машины можно всё, кроме действий, которым нужен рабочий стол машины Project-а; выбор машины), Q9 (у Project ровно одна Machine; один репозиторий на двух Machine — два Project-а), Q10 (список слева — Project-ы всех Linked machine-ов по машинам с состоянием); [spec.md](../spec.md); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md) — Machine, Linked machine, связь по коду, доступ выключен по умолчанию; [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — несколько экранов на одном Project-е
 
@@ -302,3 +302,16 @@ machine-ом и ничего в его файлах не правит. Кана�
   снимают подписку и второго; подписки окна, которое перезагрузилось, живут на M до закрытия связи.
 - Адрес Card от M (Card-ы Linked machine-а) — Ticket 10.
 - Send, Run wave и Ship ticket не отключаются, пока M недоступна (пункт 5 выше).
+
+Гейт Wave 4: `REJECTED` (2 ревьюера: отчёт со снимками — VERIFIED с low; безопасность — med: ответы и события от
+Linked machine доходили до renderer без схемы канала) → доработка `e4d694e..bd8e2bf` → `VERIFIED`. Мерж — после
+rebase на `0a000ef`: typecheck красный (фикстура `test/unit/use-projects.test.tsx` без поля `keepAwake` Ticket-а 14),
+оркестратор добавил поле (`9794dc3`), gate full «зелено», влит `0b6f1df`. Долги ревьюеров (не блокируют):
+- [low] `src/main/layout/viewports.ts:96`, `:112` — камеры Project-ов Linked machine-ов не удаляются из
+  `viewports.json` (отвязка, удаление Project-а на M); `viewport.set` с `machine` пишет любой `projectId`.
+- [low] два окна A на одном Project-е M делят один клиент на M (`docs.close`/`workflow.close` одного снимает подписку
+  другого) — команды «New Window» сейчас нет.
+- [low] Send, Run wave и Ship ticket доступны, пока M недоступна.
+- [low] спящая Linked machine (Ticket 14) в секции Projects показана как «Unavailable», а не «Sleeping»
+  (`src/renderer/projects/useProjects.ts:307-313`).
+- Адрес Card от M открывается протоколом этой машины — к Ticket-у 10.
