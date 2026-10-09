@@ -205,7 +205,9 @@ test('a Silent Project: the Epic frame with its title and the Tickets come from 
     const { window } = launched
     await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
     const frame = window.locator('[data-testid="epic-frame"]')
-    await expect(frame).toHaveCount(1)
+    // The frame appears after three Harness scripts run one after another (profile, ticket root,
+    // epic-status); under a loaded gate full that took longer than the default 5 s.
+    await expect(frame).toHaveCount(1, { timeout: 15_000 })
     await expect(frame.locator('.w-epic__title')).toContainText('Silent epic from the Workflow folder')
     const ticket = (num: number): Locator => window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`)
     await expect(ticket(1)).toHaveAttribute('data-state', 'work')
@@ -265,7 +267,9 @@ test('a Project over two repositories: each Ticket shows its repository, and its
     const { window } = launched
     await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1400, 900))
     const ticket = (num: number): Locator => window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`)
-    await expect(window.locator('[data-testid="epic-frame"] .w-epic__title')).toContainText('Two repositories')
+    await expect(window.locator('[data-testid="epic-frame"] .w-epic__title')).toContainText('Two repositories', {
+      timeout: 15_000,
+    })
 
     await expect(ticket(5).getByTestId('ticket-repo')).toHaveText('api')
     await expect(ticket(5).getByTestId('ticket-repo')).toHaveAttribute('title', 'repository api')
