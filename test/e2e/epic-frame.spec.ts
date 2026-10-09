@@ -702,12 +702,63 @@ async function expectWhole(locator: Locator, what: string): Promise<void> {
   expect(overflows(f), `${what} has no hidden overflow: ${JSON.stringify(f)}`).toBe(false)
 }
 
+interface Box {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** The page, typed for the reading below: the e2e typecheck has no DOM library. */
+interface RowsPage {
+  requestAnimationFrame(callback: (now: number) => void): number
+  performance: { now(): number }
+}
+interface RowsElement {
+  getBoundingClientRect(): Box
+  querySelectorAll(selector: string): ArrayLike<RowsElement>
+}
+
+/**
+ * The Ticket Node's box and its rows' boxes, all read in one animation frame, once they have
+ * stayed the same for two frames in a row. One reading, not one per element: ELK's answer can move
+ * the Node between two separate reads, and a row read after the move then lies outside the Node
+ * read before it (worfy-week ticket 06).
+ */
+async function ticketRows(ticket: Locator): Promise<{ card: Box; rows: Box[] }> {
+  const read = await ticket.evaluate(
+    (node, ms) =>
+      new Promise<{ ok: boolean; card: Box; rows: Box[] }>((done) => {
+        const page = globalThis as unknown as RowsPage
+        const card = node as unknown as RowsElement
+        const plain = (element: RowsElement): Box => {
+          const { x, y, width, height } = element.getBoundingClientRect()
+          return { x, y, width, height }
+        }
+        const measure = () => ({ card: plain(card), rows: Array.from(card.querySelectorAll(':scope > :not(.react-flow__handle)'), plain) })
+        const until = page.performance.now() + ms
+        let last: string | null = null
+        const tick = (now: number): void => {
+          const current = measure()
+          const signature = JSON.stringify(current)
+          if (signature === last) return done({ ok: true, ...current })
+          if (now > until) return done({ ok: false, ...current })
+          last = signature
+          page.requestAnimationFrame(tick)
+        }
+        page.requestAnimationFrame(tick)
+      }),
+    10_000,
+  )
+  if (!read.ok) throw new Error(`the Ticket Node kept moving for 10 000 ms; last reading: ${JSON.stringify({ card: read.card, rows: read.rows })}`)
+  return read
+}
+
 /** Every row of the Ticket Node ends inside it: nothing is cut by its bottom or right edge. */
 async function expectRowsInside(ticket: Locator, what: string): Promise<void> {
-  const card = await box(ticket)
-  for (const row of await ticket.locator(':scope > :not(.react-flow__handle)').all()) {
-    const b = await row.boundingBox()
-    if (!b || b.height === 0) continue
+  const { card, rows } = await ticketRows(ticket)
+  for (const b of rows) {
+    if (b.height === 0) continue
     expect(b.y + b.height, `${what}: a row ends inside the Ticket Node`).toBeLessThanOrEqual(card.y + card.height + 0.5)
     expect(b.x + b.width, `${what}: a row ends inside the Ticket Node`).toBeLessThanOrEqual(card.x + card.width + 0.5)
   }
