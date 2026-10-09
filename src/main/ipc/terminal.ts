@@ -11,12 +11,18 @@
 // of src/main/clients.ts) gets its output, its exit and the start of a new shell. Which client's
 // size the pty has is decided in the registry (src/main/terminal/pty.ts): the one that typed or
 // clicked last (worfy-link ticket 05, ADR-0053).
+//
+// The shells of Terminal Nodes start with worfy's shell integration when they are zsh (worfy-terminal-ai
+// ticket 01): its folder is made on the first zsh Terminal and removed when worfy exits. The
+// modules of Terminal AI get the registry from terminalNodeRegistry(): the state of each shell and
+// its events (prompt shown, command started, command finished).
 import { app } from 'electron'
 import { agentEnv } from '../agent/env'
 import { clientOf, type Client } from '../clients'
 import { layoutStore, type LayoutChange } from '../layout/store'
 import { projectStore } from '../projects/store'
 import { TerminalRegistry, type TerminalSink } from '../terminal/pty'
+import { ShellIntegration } from '../terminal/shell-integration'
 import {
   TERMINAL_NODE_KIND,
   terminalClose,
@@ -154,10 +160,18 @@ let appRegistry: TerminalRegistry | null = null
 /** The app's registry, made on first use, wired to the Layout, the Projects and quitting. */
 function sharedRegistry(): TerminalRegistry {
   if (appRegistry !== null) return appRegistry
-  const registry = new TerminalRegistry({ env: async () => (await agentEnv()).env })
+  const integration = new ShellIntegration()
+  // Synchronous, so it runs however worfy exits; the shells have ended by then (the quit waits for them).
+  process.once('exit', () => integration.disposeSync())
+  const registry = new TerminalRegistry({ env: async () => (await agentEnv()).env, integration })
   wireRegistry(registry, { layout: layoutStore(), projects: projectStore(), app })
   appRegistry = registry
   return registry
+}
+
+/** The registry of the Terminal Nodes' shells, for the modules of Terminal AI: shellState() and onShellEvent(). */
+export function terminalNodeRegistry(): TerminalRegistry {
+  return sharedRegistry()
 }
 
 export default terminalHandlers({

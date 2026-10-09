@@ -1,7 +1,8 @@
 # 01 — Shell integration для zsh: свой ZDOTDIR worfy, OSC 633 с nonce, история пользователя, состояние Terminal-а в main
 
 Type: task
-Status: open
+Status: claimed — 2026-10-09
+Branch: worfy-terminal-ai/01
 Blocked by: —
 Source: решения владельца 2026-10-09: пункт 4 (гибрид, сначала zsh; контекст через OSC 133/633, подключение как в VS Code — `ZDOTDIR` на свою временную папку, `~/.zshrc` не меняется, только в Terminal-ах worfy), пункт 3 (не спрашивать модель во время команды и на альтернативном экране, строки с пробелом в начале пропускать, OSC от программ не верить — nonce), пункт 1(a) (Suggestion сначала из истории команд) ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md) — процесс Terminal AI; [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — Terminal на нескольких экранах
 
@@ -128,18 +129,18 @@ Source: решения владельца 2026-10-09: пункт 4 (гибрид
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/terminal-osc.test.ts` (новый): A, B, C, D, E, P с nonce shell-а меняют состояние; без nonce, с чужим nonce и OSC 133 — не меняют; последовательность, разрезанная между двумя кусками в каждой позиции, разбирается так же, как целая; строка команды с `;`, `\`, переводом строки и ESC раскодирована точно; альтернативный экран включается и выключается; команда без E не попадает в список; в списке не больше 20 команд; вывод команды — текст между C и D.
-- [ ] Unit (там же): `ReplayBuffer`, у которого граница прошла внутри OSC 633, отдаёт replay, начинающийся после конца этой последовательности.
-- [ ] Contract `test/contract/terminal-shell-integration.test.ts` (новый), настоящий zsh в pty, `HOME` во временной папке: `.zshenv`, `.zprofile`, `.zshrc`, `.zlogin` пользователя подгружены (каждый ставит свою переменную, `echo` печатает все четыре); то же, когда `.zshenv` пользователя ставит `ZDOTDIR=$HOME/zdot` и остальные файлы лежат там; `.zlogin` worfy выполнился (его метка видна); SHA-256 файлов пользователя до и после — одинаковые.
-- [ ] Тот же contract, **история**: в `$HOME/.zsh_history` заранее есть строка — `fc -ln -1` в новом Terminal-е её видит; у пользователя `SAVEHIST=100` — команда, набранная в Terminal-е worfy, после выхода shell-а дописана в `$HOME/.zsh_history`, а в папке worfy `.zsh_history` нет; пользователь в `.zshrc` ставит `HISTFILE=$HOME/custom_hist` — команда ушла туда. `HISTFILE=$HOME/envhist` в `.zshenv` пользователя — итог как у того же zsh без worfy (запуск с тем же `HOME` без `ZDOTDIR` worfy): на `darwin` с настоящим `/etc/zshrc` — `$HOME/.zsh_history`, на Linux — `$HOME/envhist`.
-- [ ] Тот же contract: после `cd sub` папка в состоянии — `sub`; после `false` код выхода 1, после `true` — 0; во время `sleep 1` «идёт команда», после — нет; `printf '\e]633;D;0\a'` без nonce состояние не меняет; `env | grep WORFY_` внутри shell-а пуст; вложенный `zsh -i` последовательностей worfy не печатает.
-- [ ] Тот же contract: `less` на файле — «альтернативный экран» во время работы и снят после выхода; команда ` echo secret` (пробел в начале) — в списке команд её нет; `PS1`, пересобранный в своём `precmd` (как у prompt-фреймворков), всё равно даёт A и B на каждом prompt-е, без задвоения.
-- [ ] Тот же contract: обёртки удалены из папки worfy (как это сделал бы `dirhelper`) — следующий Terminal пишет их заново и стартует с файлами пользователя; путь socket-а будущего Ticket-а 03 в папке не длиннее 103 байт; при `TMPDIR` с длинным путём папка уходит в `/tmp`.
-- [ ] Тот же contract: запускаемый файл не zsh (`/bin/sh`) — в окружении нет `ZDOTDIR` worfy, последовательностей нет; registry без `integration` (как у «Sign in with gh») — тоже; `SHELL` не задан — запускается `/bin/zsh`, и интеграция есть.
-- [ ] Замер 10 МБ напечатан в выводе test-а; цифры и сравнение с Ticket-ом 05 `worfy-link` — в «Итог». p99 задержки event loop main не выше 100 ms (порог того Ticket-а).
-- [ ] `test/contract/terminal.test.ts`, `test/e2e/terminal.spec.ts`, `test/e2e/focus.spec.ts` зелёные без правки ожиданий.
+- [x] Unit `test/unit/terminal-osc.test.ts` (новый): A, B, C, D, E, P с nonce shell-а меняют состояние; без nonce, с чужим nonce и OSC 133 — не меняют; последовательность, разрезанная между двумя кусками в каждой позиции, разбирается так же, как целая; строка команды с `;`, `\`, переводом строки и ESC раскодирована точно; альтернативный экран включается и выключается; команда без E не попадает в список; в списке не больше 20 команд; вывод команды — текст между C и D.
+- [x] Unit (там же): `ReplayBuffer`, у которого граница прошла внутри OSC 633, отдаёт replay, начинающийся после конца этой последовательности.
+- [x] Contract `test/contract/terminal-shell-integration.test.ts` (новый), настоящий zsh в pty, `HOME` во временной папке: `.zshenv`, `.zprofile`, `.zshrc`, `.zlogin` пользователя подгружены (каждый ставит свою переменную, `echo` печатает все четыре); то же, когда `.zshenv` пользователя ставит `ZDOTDIR=$HOME/zdot` и остальные файлы лежат там; `.zlogin` worfy выполнился (его метка видна); SHA-256 файлов пользователя до и после — одинаковые.
+- [x] Тот же contract, **история**: в `$HOME/.zsh_history` заранее есть строка — `fc -ln -1` в новом Terminal-е её видит; у пользователя `SAVEHIST=100` — команда, набранная в Terminal-е worfy, после выхода shell-а дописана в `$HOME/.zsh_history`, а в папке worfy `.zsh_history` нет; пользователь в `.zshrc` ставит `HISTFILE=$HOME/custom_hist` — команда ушла туда. `HISTFILE=$HOME/envhist` в `.zshenv` пользователя — итог как у того же zsh без worfy (запуск с тем же `HOME` без `ZDOTDIR` worfy): на `darwin` с настоящим `/etc/zshrc` — `$HOME/.zsh_history`, на Linux — `$HOME/envhist`.
+- [x] Тот же contract: после `cd sub` папка в состоянии — `sub`; после `false` код выхода 1, после `true` — 0; во время `sleep 1` «идёт команда», после — нет; `printf '\e]633;D;0\a'` без nonce состояние не меняет; `env | grep WORFY_` внутри shell-а пуст; вложенный `zsh -i` последовательностей worfy не печатает.
+- [x] Тот же contract: `less` на файле — «альтернативный экран» во время работы и снят после выхода; команда ` echo secret` (пробел в начале) — в списке команд её нет; `PS1`, пересобранный в своём `precmd` (как у prompt-фреймворков), всё равно даёт A и B на каждом prompt-е, без задвоения.
+- [x] Тот же contract: обёртки удалены из папки worfy (как это сделал бы `dirhelper`) — следующий Terminal пишет их заново и стартует с файлами пользователя; путь socket-а будущего Ticket-а 03 в папке не длиннее 103 байт; при `TMPDIR` с длинным путём папка уходит в `/tmp`.
+- [x] Тот же contract: запускаемый файл не zsh (`/bin/sh`) — в окружении нет `ZDOTDIR` worfy, последовательностей нет; registry без `integration` (как у «Sign in with gh») — тоже; `SHELL` не задан — запускается `/bin/zsh`, и интеграция есть.
+- [x] Замер 10 МБ напечатан в выводе test-а; цифры и сравнение с Ticket-ом 05 `worfy-link` — в «Итог». p99 задержки event loop main не выше 100 ms (порог того Ticket-а).
+- [x] `test/contract/terminal.test.ts`, `test/e2e/terminal.spec.ts`, `test/e2e/focus.spec.ts` зелёные без правки ожиданий.
 - [ ] (вручную) `pnpm dev`, Terminal Node на zsh владельца: prompt такой же, как без worfy; `node -v` работает (nvm из `~/.zshrc`); стрелка вверх показывает команды из прошлых сеансов; команда, набранная в worfy, видна в `~/.zsh_history` (`tail -1 ~/.zsh_history` в Terminal.app после выхода из shell-а worfy); `shasum ~/.zshrc` до и после — одинаковый. Снимки — `../evidence/01-terminal-light.png` и `../evidence/01-terminal-dark.png`. Как проверить: окно worfy и Terminal.app.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально (команда — `rules.md` Profile-а worfy) — exit 0.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально (команда — `rules.md` Profile-а worfy) — exit 0.
 
 ## Тесты
 
@@ -172,4 +173,78 @@ registry модулям Terminal AI, и цифры замера.
 
 ## Итог
 
-Заполняется при закрытии.
+PR #204, ветка `worfy-terminal-ai/01`.
+
+- **Первый test.** `test/unit/terminal-osc.test.ts` упал раньше любой проверки: модуля
+  `src/main/terminal/osc.ts` не было («Failed to resolve import "../../src/main/terminal/osc"»,
+  0 test-ов). После `osc.ts` и правки `ReplayBuffer` — 17 из 17.
+- **Файлы `src/main/terminal/zsh/`:** `zshenv.zsh`, `zprofile.zsh`, `zshrc.zsh`, `zlogin.zsh`
+  (в папке worfy — `.zshenv`, `.zprofile`, `.zshrc`, `.zlogin`), `integration.zsh`, `assets.d.ts`
+  (типы `import.meta.glob` Vite). Папки `rc.d/` пока нет: `.zshrc` подключает `rc.d/*.zsh`, когда
+  они появятся (Ticket-ы 03–06), на верхнем уровне, как файлы пользователя.
+- **Папка worfy** — `ShellIntegration` в `src/main/terminal/shell-integration.ts`: `mkdtemp`
+  `worfy-XXXXXX` в `os.tmpdir()` (или `/tmp`, если путь socket-а длиннее 103 байт), один раз за
+  запуск worfy; `prepare()` при каждом старте zsh-Terminal-а пишет все скрипты заново (временный
+  файл и `rename`), папку создаёт заново, если её нет. Удаляется на `process.once('exit')` в
+  `src/main/ipc/terminal.ts`. Для Ticket-а 03: `socketPath(dir)`, файл `SOCKET_FILE = 'assist.sock'`.
+- **Включение** — опция `integration` у `TerminalRegistry` и `isZsh(<запускаемый файл>)`
+  (`basename` — `zsh` или `zsh-5.9`). Её ставит только registry Terminal Node-ов; у «Sign in with
+  gh» её нет. Окружение: `ZDOTDIR`, `WORFY_USER_ZDOTDIR` (только если в окружении пользователя есть
+  `ZDOTDIR`; иначе скрипт берёт `HOME`), `WORFY_SHELL_NONCE` (16 случайных байт hex, новый на
+  каждый shell).
+- **Состояние и события.** `ShellTracker` (`osc.ts`) — папка, `awaitingInput` (после B),
+  `commandRunning` (C…D), `altScreen`, `exitCode`, до 20 команд, `lastOutput` (C…D, последние
+  `REPLAY_LIMIT` символов). `TerminalRegistry.shellState(key)` и `onShellEvent(listener)`; события
+  `prompt` (на B), `command-started`, `command-finished`. **Registry модулям Terminal AI отдаёт
+  `terminalNodeRegistry()` из `src/main/ipc/terminal.ts`.** Новых каналов IPC нет.
+- **Replay.** `ReplayBuffer` следит за срезанной частью потока (`OscCutScanner`) и, если начало
+  попало внутрь OSC, срезает дальше, до BEL или ST.
+- **Замер 10 МБ** (`test/contract/terminal-shell-integration.test.ts`, zsh с интеграцией, один
+  экран): Mac — последний байт через 321–322 ms, p99 задержки event loop main 10–11 ms; Linux CI —
+  160 ms, p99 11 ms. Ticket 05 `worfy-link` без разбора: 331 ms, p99 12 ms. Разбор заметной
+  нагрузки не добавил; порог 100 ms далеко.
+- **Проверки.** `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (171 файл, 3312 test-ов);
+  gate fast — «зелено»; `GATE_SCOPE=all` gate full на `ef6d3dd` — exit 0, «зелено (full)»: lint,
+  typecheck, test, test:e2e, test:package (первый прогон full упал на test:package — окно
+  упакованного приложения не показалось за 30 s в 10 test-ах; тот же test один — зелёный, повтор full
+  — зелёный); CI PR #204 — `check` pass. Мутанты (проверка нонса в `osc.ts`, срез
+  `ReplayBuffer`, сброс `HISTFILE`, перестановка precmd, возврат `ZDOTDIR` в `.zlogin`, `unset`
+  переменных `WORFY_*`) — каждый роняет test.
+- **Не сделано мной:** ручная проверка на zsh владельца (`pnpm dev`, nvm, стрелка вверх,
+  `~/.zsh_history`, `shasum ~/.zshrc`) и снимки `01-terminal-*.png` — GUI-проверки по брифу не мои.
+  Видимого изменения не ожидается: prompt тот же, A и B — невидимые вставки.
+
+- **Доработка после ревью (раунд 1).**
+  - Пока идёт файл пользователя, `ZDOTDIR` в точности такой, как без worfy: значение пользователя
+    (с `export` или без) или не задан. Форма XDG `: ${ZDOTDIR:=$HOME/zdot}; export ZDOTDIR` в
+    `.zshenv` читает тот же `.zshrc` и оставляет тот же `ZDOTDIR`, что zsh без worfy. Поэтому
+    `WORFY_USER_ZDOTDIR` передаётся, только если `ZDOTDIR` у пользователя есть (тикет говорил «или
+    `HOME`»).
+  - `setopt allexport` в `.zshrc` пользователя: `.zshrc` worfy снимает `export` со всех
+    переменных `__worfy_*`, nonce в `env` не попадает.
+  - ESC, CAN и SUB внутри CSI обрывают её, как в xterm; ESC начинает новую последовательность.
+    Вывод, кончающийся на `\e[`, больше не съедает D.
+  - C1 (U+0080–U+009F) экранируются в E и P как `\xHH`; U+009C (ST) заканчивает OSC и в разборе
+    main, и в срезе replay — как в xterm.js.
+  - Незакрытая OSC, приходящая по символу, читается один раз: 200 000 символов — меньше секунды
+    (было бы около 72 s при повторном чтении с начала, проверено мутантом).
+
+Решено без владельца (рекомендованный вариант), подтвердить:
+
+- *`lastOutput` — сырой вывод.* zsh печатает свою отбивку конца строки (`PROMPT_SP`: метка `%`,
+  пробелы, `\r \r`) до своего `precmd`, то есть до D: она попадает в конец вывода команды. Убирать
+  её (и ANSI) — дело Fix, Ticket 07.
+- *Событие «prompt показан» — на B*, не на A: на B shell ждёт ввода.
+- *`ZDOTDIR` пользователя возвращается как был:* не было — `unset ZDOTDIR` (VS Code ставит
+  `ZDOTDIR=$HOME`).
+- *Папку не удалось подготовить* (ошибка записи) — shell стартует без интеграции, с
+  предупреждением в лог main, а не с ошибкой Terminal-а.
+- *Папка с тем же именем, но не своя* (не каталог, чужой владелец, права шире 0700) — не
+  используется: делается новая `mkdtemp`.
+- *Известные расхождения с zsh без worfy, как у VS Code:* `/etc/zshrc` macOS ищет `~/.zkbd` по
+  `${ZDOTDIR:-$HOME}` — в Terminal-е worfy он смотрит в папку worfy; глобальный `compinit` Ubuntu
+  (`/etc/zsh/zshrc`) кладёт `.zcompdump` в папку worfy. У владельца `.zkbd` нет (в `~/.zshrc`
+  только nvm) — не проверялось.
+- *CI Ubuntu:* глобальный `compinit` `/etc/zsh/zshrc` на runner-е находит небезопасные папки в
+  `fpath` и ждёт клавишу (и без worfy). Contract-test ставит `skip_global_compinit=1` — переключатель,
+  описанный в том же файле Ubuntu.
