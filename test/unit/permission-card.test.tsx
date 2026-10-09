@@ -193,6 +193,38 @@ describe('the Session a notification opens', () => {
     expect(notificationTarget({ sessionId: 'ext-1', projectRoot: '/Users/test/other' }, project)).toBeNull()
     expect(notificationTarget({ sessionId: 'nobody', projectRoot: null }, project)).toBeNull()
   })
+
+  it('a note of Linked machine A finds the Session Node of A\'s Project in a window on A; the same id without a Machine finds the Session of this Machine', async () => {
+    // The window's views are of one Machine: here the Node that runs sdk-7.
+    answers['sessions.views'] = () => ({ views: [nodeView({ state: 'busy' })] })
+    const { notificationTarget, noteMachine } = await import('../../src/renderer/session/notification-target')
+    const { useSessionNodeViewOf } = await import('../../src/renderer/session/node-sessions')
+    function Load() {
+      useSessionNodeViewOf('alpha', 'sdk-7')
+      return null
+    }
+    render(<Load />)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    const project = { id: 'alpha', path: '/Users/test/alpha' }
+    const ofA = { sessionId: 'sdk-7', projectRoot: null, machineId: 'machine-a' }
+    const local = { sessionId: 'sdk-7', projectRoot: null }
+    expect(noteMachine(ofA)).toBe('machine-a')
+    expect(noteMachine(local)).toBeNull()
+    expect(noteMachine({ ...local, machineId: null })).toBeNull()
+    // In a window on A (on B): A's note finds A's Node; a note of B's own Session is not looked for among A's.
+    expect(notificationTarget(ofA, project, 'machine-a')).toEqual({ nodeId: 'node-7', projectId: 'alpha' })
+    expect(notificationTarget(local, project, 'machine-a')).toBeNull()
+    // In a window on this Machine: its own Session; A's note is not looked for here.
+    expect(notificationTarget(local, project, null)).toEqual({ nodeId: 'node-7', projectId: 'alpha' })
+    expect(notificationTarget(ofA, project, null)).toBeNull()
+    expect(notificationTarget({ sessionId: 'ext-1', projectRoot: '/Users/test/alpha', machineId: 'machine-a' }, project, 'machine-a')).toEqual({
+      nodeId: 'session:ext-1',
+      projectId: 'alpha',
+      external: { sessionId: 'ext-1' },
+    })
+  })
 })
 
 describe('the notification overlay', () => {
@@ -267,6 +299,157 @@ describe('the notification overlay', () => {
       await Promise.resolve()
     })
     expect(h.opened().opened).toBeNull()
+  })
+
+  describe('a note of a Linked machine', () => {
+    const OF_A = { projects: [{ id: 'beta', name: 'beta', path: '/Users/test/beta', branch: 'main' }, { id: 'gamma', name: 'gamma', path: '/Users/test/gamma', branch: 'main' }], activeId: 'beta', revision: 3 }
+
+    afterEach(() => {
+      window.history.replaceState(null, '', '/')
+      window.sessionStorage.clear()
+    })
+
+    /** Channels of the window's Machine go through `linked.invoke` in a window on a Linked machine. */
+    function onLinkedMachine(machine: string, answer: Record<string, (input: unknown) => unknown>) {
+      const reached: { machine: string; channel: string; input: unknown }[] = []
+      answers['linked.invoke'] = (input) => {
+        const call = input as { machine: string; channel: string; input: unknown }
+        reached.push(call)
+        const each = answer[call.channel]
+        return each ? { ok: true, value: each(call.input) } : { ok: false, error: `no ${call.channel} on ${machine}` }
+      }
+      answers['linked.open'] = () => ({})
+      return reached
+    }
+
+    it('in a window on this Machine, loads the window again on the Project of that Machine the Session is in, and carries the note across the load', async () => {
+      answers['projects.list'] = () => PROJECTS
+      // This Machine runs a Session of the same id: not the one the note is about.
+      answers['sessions.views'] = () => ({ views: [nodeView({ sessionId: 'sdk-9', sdkSessionId: 'sdk-9', state: 'busy' })] })
+      const reached = onLinkedMachine('machine-a', {
+        'projects.list': () => OF_A,
+        'sessions.views': (input) => ({ views: (input as { projectId: string }).projectId === 'gamma' ? [nodeView({ projectId: 'gamma', nodeId: 'node-g', sessionId: 'sdk-9', sdkSessionId: 'sdk-9', state: 'busy' })] : [] }),
+      })
+      answers['notify.pending'] = () => ({ note: { sessionId: 'sdk-9', projectRoot: null, machineId: 'machine-a' } })
+      const { navigation } = await import('../../src/renderer/projects/useProjects')
+      const loads: string[] = []
+      navigation.load = (url) => loads.push(url)
+      const h = await mountOverlay()
+      await vi.waitFor(() => expect(loads).toHaveLength(1))
+      expect(new URL(loads[0] ?? '').searchParams.get('machine')).toBe('machine-a')
+      expect(new URL(loads[0] ?? '').searchParams.get('project')).toBe('gamma')
+      expect(reached.every((each) => each.machine === 'machine-a')).toBe(true)
+      // Nothing opened here, not even a Session of this Machine with the same id.
+      expect(h.opened().opened).toBeNull()
+      expect(h.target.usePendingNote.getState().pending).toBeNull()
+      const carried = h.target.takeCarriedNote()
+      expect(carried?.note).toEqual({ sessionId: 'sdk-9', projectRoot: null, machineId: 'machine-a' })
+      // Taken once.
+      expect(h.target.takeCarriedNote()).toBeNull()
+    })
+
+    it('a Session from the registry of that Machine: the window loads on its Project by root; unknown — on the Machine\'s active one', async () => {
+      answers['projects.list'] = () => PROJECTS
+      onLinkedMachine('machine-a', { 'projects.list': () => OF_A, 'sessions.views': () => ({ views: [] }) })
+      const { projectOfNote } = await import('../../src/renderer/session/notification-target')
+      expect(await projectOfNote({ sessionId: 'ext-1', projectRoot: '/Users/test/gamma', machineId: 'machine-a' }, 'machine-a')).toBe('gamma')
+      expect(await projectOfNote({ sessionId: 'ext-1', projectRoot: '/Users/test/elsewhere', machineId: 'machine-a' }, 'machine-a')).toBe('beta')
+      expect(await projectOfNote({ sessionId: 'orchestrator-1', projectRoot: null, machineId: 'machine-a' }, 'machine-a')).toBe('beta')
+      answers['linked.invoke'] = () => ({ ok: false, error: 'projects.list: Mini is unreachable' })
+      expect(await projectOfNote({ sessionId: 'sdk-9', projectRoot: null, machineId: 'machine-a' }, 'machine-a')).toBeNull()
+    })
+
+    it('after the load on that Machine, looks for the Session in every Project of it and opens it with its Project', async () => {
+      window.history.replaceState(null, '', '/?machine=machine-a')
+      const view = nodeView({ projectId: 'gamma', nodeId: 'node-g', sessionId: 'sdk-9', sdkSessionId: 'sdk-9', state: 'busy' })
+      const reached = onLinkedMachine('machine-a', {
+        'projects.list': () => OF_A,
+        'sessions.views': (input) => ({ views: (input as { projectId: string }).projectId === 'gamma' ? [view] : [] }),
+      })
+      answers['notify.pending'] = () => ({ note: null })
+      const { carryNote } = await import('../../src/renderer/session/notification-target')
+      carryNote({ note: { sessionId: 'sdk-9', projectRoot: null, machineId: 'machine-a' }, until: Date.now() + 5_000 })
+      const { navigation } = await import('../../src/renderer/projects/useProjects')
+      const replaced: string[] = []
+      navigation.replace = (url) => replaced.push(url)
+      navigation.load = () => {
+        throw new Error('the window must not load again')
+      }
+      const h = await mountOverlay()
+      await vi.waitFor(() => expect(h.opened()).toMatchObject({ view: 'session', opened: { nodeId: 'node-g', projectId: 'gamma' } }))
+      // Every Project of A was asked for its views, through A.
+      expect(reached.filter((each) => each.channel === 'sessions.views').map((each) => each.input)).toEqual(expect.arrayContaining([{ projectId: 'beta' }, { projectId: 'gamma' }]))
+      expect(reached.every((each) => each.machine === 'machine-a')).toBe(true)
+      // The window now shows gamma of A, as the sidebar would open it.
+      expect(new URL(replaced.at(-1) ?? 'http://x/').searchParams.get('project')).toBe('gamma')
+      expect(asked).toContainEqual({ channel: 'linked.open', input: { machine: 'machine-a', projectId: 'gamma' } })
+    })
+
+    it('a newer click while the Project of a Linked machine\'s note is looked up decides: the window stays and opens the newer one', async () => {
+      answers['projects.list'] = () => PROJECTS
+      answers['sessions.views'] = () => ({ views: [nodeView({ state: 'busy' })] })
+      onLinkedMachine('machine-a', { 'projects.list': () => OF_A, 'sessions.views': () => ({ views: [] }) })
+      // Machine A answers only when the test lets it.
+      const bridge = (globalThis as { worfy?: WorfyBridge }).worfy as WorfyBridge
+      const plain = bridge.invoke.bind(bridge)
+      let release: () => void = () => undefined
+      const released = new Promise<void>((done) => {
+        release = done
+      })
+      let waiting = 0
+      bridge.invoke = ((channel: string, input: unknown) => {
+        if (channel !== 'linked.invoke') return plain(channel as never, input as never)
+        waiting += 1
+        return released.then(() => plain(channel as never, input as never))
+      }) as never
+      answers['notify.pending'] = () => ({ note: { sessionId: 'sdk-9', projectRoot: null, machineId: 'machine-a' } })
+      const { navigation } = await import('../../src/renderer/projects/useProjects')
+      const loads: string[] = []
+      navigation.load = (url) => loads.push(url)
+      const h = await mountOverlay()
+      await vi.waitFor(() => expect(waiting).toBeGreaterThan(0))
+      // The newer click is about a Session of this Machine: it opens here.
+      act(() => h.target.holdNote({ sessionId: 'sdk-7', projectRoot: null }))
+      await vi.waitFor(() => expect(h.opened().opened).toEqual({ nodeId: 'node-7', projectId: 'alpha' }))
+      release()
+      await act(async () => {
+        await new Promise((done) => setTimeout(done, 20))
+      })
+      expect(loads).toEqual([])
+      expect(h.target.takeCarriedNote()).toBeNull()
+    })
+
+    it('a carried note that waited too long opens nothing after the load', async () => {
+      window.history.replaceState(null, '', '/?machine=machine-a')
+      onLinkedMachine('machine-a', { 'projects.list': () => OF_A, 'sessions.views': () => ({ views: [nodeView({ projectId: 'beta', state: 'busy' })] }) })
+      answers['notify.pending'] = () => ({ note: null })
+      const { carryNote } = await import('../../src/renderer/session/notification-target')
+      carryNote({ note: { sessionId: 'sdk-7', projectRoot: null, machineId: 'machine-a' }, until: Date.now() - 1 })
+      const h = await mountOverlay()
+      await vi.waitFor(() => expect(asked.map((each) => each.channel)).toContain('notify.pending'))
+      await act(async () => {
+        await Promise.resolve()
+      })
+      expect(h.target.usePendingNote.getState().pending).toBeNull()
+      expect(h.opened().opened).toBeNull()
+    })
+
+    it('a note of this Machine in a window on a Linked machine brings the window back to this Machine', async () => {
+      window.history.replaceState(null, '', '/?machine=machine-a&project=beta')
+      onLinkedMachine('machine-a', { 'projects.list': () => OF_A, 'sessions.views': () => ({ views: [nodeView({ projectId: 'beta', state: 'busy' })] }) })
+      answers['notify.pending'] = () => ({ note: { sessionId: 'sdk-7', projectRoot: null } })
+      const { navigation } = await import('../../src/renderer/projects/useProjects')
+      const loads: string[] = []
+      navigation.load = (url) => loads.push(url)
+      const h = await mountOverlay()
+      await vi.waitFor(() => expect(loads).toHaveLength(1))
+      const url = new URL(loads[0] ?? '')
+      expect(url.searchParams.get('machine')).toBeNull()
+      expect(url.searchParams.get('project')).toBeNull()
+      // A's Node runs a Session of the same id: it is not the one the note is about.
+      expect(h.opened().opened).toBeNull()
+      expect(h.target.takeCarriedNote()?.note).toEqual({ sessionId: 'sdk-7', projectRoot: null })
+    })
   })
 
   it('a newer note replaces one still waiting; letting go of the old one keeps the new', async () => {
