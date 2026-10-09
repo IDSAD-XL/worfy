@@ -30,7 +30,8 @@ Source: решения владельца 2026-10-07: Q22 (неподписан�
   дальше запускает скрипт, только на macOS (один из пяти test-ов `skipIf(platform !== 'darwin')`,
   их разбирает Ticket 14). На ПК этот test красный: sha256 `build/brand/icon.svg` и `mark.svg` в
   рабочем дереве (CRLF, `core.autocrlf=true`) не совпадают с `build/icons.json` (evidence Ticket-а 01,
-  разделы 03 и 17). LF для SVG — решение Ticket-а 02 (`.gitattributes`).
+  разделы 03 и 17). LF для `build/brand/*.svg` задаёт `.gitattributes` Ticket-а 02 (его пункт 1);
+  к началу этого Ticket-а случай sha256 зелёный.
 - **Stable copy** (собранная копия worfy вне репозитория, из которой Autopilot ведёт Wave-ы самого
   worfy) ставит `scripts/install-stable.sh` — bash, только `.app`:
   - цель по умолчанию — `~/Applications/worfy-stable.app` (`:25`), цель обязана кончаться на `.app`
@@ -58,10 +59,10 @@ Source: решения владельца 2026-10-07: Q22 (неподписан�
   Smart App Control на Windows 11 неподписанное блокирует (ADR-0054, пункт 5). На ПК владельца он
   выключен: `VerifiedAndReputablePolicyState = 0` (evidence Ticket-а 01, раздел 02); сверка в окне
   Windows Security — за владельцем.
-- E3 Ticket-ы 13, 15 и 21, которые меняют `electron-builder.yml` и `scripts/install-stable.sh`
-  (Harness и мост Limits в ресурсах сборки, чтение `<target>.json`), на main `76f7ff8` уже влиты
-  (evidence, раздел 24). Строки выше — main 4f983ef. Перед началом перечитать оба файла и
-  `package.json` на свежем main.
+- После 4f983ef `electron-builder.yml` меняли E3 Ticket 15 (#134, мост Limits в ресурсах сборки) и
+  worfy-link Ticket 02 (#158); `scripts/install-stable.sh` не менялся; `package.json` — пять коммитов,
+  строки сдвинулись (evidence Ticket-а 01, раздел 24). Строки выше — main 4f983ef. Перед началом
+  перечитать оба файла и `package.json` на свежем main.
 
 ## Что делаем
 

@@ -54,8 +54,11 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
   `test/unit/agent-executable.test.ts:13-37` ждёт путей `darwin`. На ПК `agent-executable.test.ts` —
   2 упавших (`'\Applications\worfy.app\…'` вместо `'/Applications/…'`), `agent-env.test.ts` в
   списке упавших нет (evidence, раздел 17).
-- E3 (`worfy-harness`) ещё открыт. Его Ticket-ы 17, 18 и 19 опираются на `env.ts` и `options.ts`
-  (qmd, `GH_TOKEN` через hook, экран первого запуска). Строки выше — main 4f983ef. Перед началом
+- E3 (`worfy-harness`) ещё открыт. Его Ticket-ы 17, 18 и 19, которые опираются на `env.ts` и
+  `options.ts` (qmd, `GH_TOKEN` через hook, экран первого запуска), уже влиты (evidence Ticket-а 01,
+  раздел 24); PR #150 (E3 Ticket 22) влит как `3837558`. Открытый E3 Ticket 23 (worfy читает Silent
+  Project) меняет `src/main/workflow/reader.ts`, `src/main/workflow/profile.ts` и их contract test-ы —
+  не файлы этого Ticket-а, но их же берёт Ticket 05. Строки выше — main 4f983ef. Перед началом
   перечитать `src/main/agent/env.ts`, `src/main/agent/options.ts` и
   `src/main/agent/app-registry.ts` на свежем main.
 

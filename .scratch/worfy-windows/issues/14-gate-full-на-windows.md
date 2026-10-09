@@ -10,9 +10,9 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
 - gate full worfy (запись `worfy` в реестре Gate) — это lint, typecheck, `pnpm test`,
   `pnpm test:e2e` и `pnpm test:package`. Gate на Node и его запуск на Windows делает Ticket 03 (Gate
   на Node). На Windows gate full ещё ни разу не шёл.
-- Unit- и contract-test-ы. На ПК владельца до Epic-а (main `76f7ff8`, `pnpm test` с
-  `shell-emulator=true`): 55 файлов из 152 и 660 test-ов из 2921 упали; список с причиной — evidence
-  Ticket-а 01, раздел 17. Ticket 02 пишет в Итог, что изменилось после него. Ticket-ы 03–12 чинят
+- Unit- и contract-test-ы. На ПК владельца до Epic-а (main `08e8256`, `pnpm test` с
+  `shell-emulator=true`): 55 файлов из 157 и 662 test-а из 2995 упали; список из JSON-отчёта vitest
+  с причиной — evidence Ticket-а 01, раздел 17. Ticket 02 пишет в Итог, что изменилось после него. Ticket-ы 03–12 чинят
   test-ы своих срезов. Что к началу этого Ticket-а ещё красное — его. Общие причины в списке:
   - symlink без режима разработчика — `EPERM` (7 файлов: `first-run-checks`, `shell`, `link-access`,
     `link-caller`, `canvas`, `session-rail-discovery`, `shell-discovery`; evidence, раздел 22).
@@ -41,9 +41,10 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
   `sh -c 'command -v …'` (`:40-41`). На Windows: zsh в Git Bash нет, а qmd-скрипты на zsh до
   Ticket-а 15; `sh` и `bash` есть в PATH, только если там папка `bin` или `usr\bin` Git for Windows.
   На ПК владельца в постоянном PATH из Git только `C:\Program Files\Git\cmd`, `sh` не найден, первый
-  `bash` — `C:\Windows\System32\bash.exe` (WSL, не стартует). Итог: `harness-scripts.test.ts` — 20
-  упавших с `bash is not installed` (`spawnSync sh` — ENOENT), `jq` в Git Bash тоже нет (evidence
-  Ticket-а 01, разделы 04, 05 и 17).
+  `bash` — `C:\Windows\System32\bash.exe` (WSL, не стартует). Итог: `harness-scripts.test.ts` — 22
+  упавших из 23: 5 проверок PATH (`bash`, `zsh`, `jq`, `git`, `node` — `bash is not installed`:
+  `sh` не найден) и 17 прогонов `.test.sh`; `jq` в Git Bash тоже нет (evidence Ticket-а 01,
+  разделы 04, 05 и 17).
 - e2e, клавиши. `Meta` — 55 мест в 13 файлах: 38 `Meta+…` в `keyboard.press` и 17 `'Meta'` в
   `keyboard.down`, `keyboard.up` и `modifiers` клика. В брифе фактов было 51 в 12 файлах: main с тех
   пор вырос (`test/e2e/wheel-over-nodes.spec.ts`). Playwright понимает `ControlOrMeta`: Meta на

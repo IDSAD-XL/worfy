@@ -39,6 +39,12 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
     `./harness/bin/epic-status --json` — EXIT=0; `bash harness/bin/epic-status --json` с CRLF в
     рабочем дереве — EXIT=0, валидный JSON (evidence, разделы 18, 19 и 21).
   - `epic-board:355` открывает страницу командой macOS `open`.
+- **`silent-check` — на Node, пришёл с PR #150** (E3 Ticket 22, `3837558`). Те же места, что у
+  соседей: `profile` и `ticket` зовёт по пути, то есть по shebang (`execFileSync(PROFILE, …)` `:84`,
+  `execFileSync(TICKET, …)` `:112`), домашнюю папку берёт из `process.env.HOME` (`:139`). На ПК
+  `node harness/bin/silent-check hello` — EXIT=2, `profile not read (exit ENOENT): spawnSync
+  …\harness\bin\profile ENOENT` (evidence Ticket-а 01, раздел 18). Его зовут `guard.mjs`,
+  `session-start.sh`, skills `ship-ticket` и agent `implementer`; test — `harness/bin/tests/silent-mode.test.sh`.
 - **worfy зовёт `epic-status` и `profile` по shebang**: `src/main/workflow/reader.ts:99`,
   `src/main/workflow/profile.ts:64`.
   - `profile` получает окружение login shell пользователя, где node есть в PATH (`profile.ts:91`,
@@ -79,11 +85,13 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
      один `git cat-file --batch`. Тексты ошибок и exit 3 — прежние (`:268-300`). git на Windows
      отдаёт пути вида `C:/…`: путь корня внутри репозитория считается после
      `fs.realpathSync.native` с обеих сторон.
-2. **`os.homedir()` вместо `HOME`**: `profile:33`, `:177`, `worktree-lock:39`. На Mac
+2. **`os.homedir()` вместо `HOME`**: `profile:33`, `:177`, `worktree-lock:39`, `silent-check:139`. На Mac
    `os.homedir()` отдаёт `$HOME`, если он задан, поэтому test-ы с временным `HOME` работают как
    прежде. На Windows — `%USERPROFILE%`.
 3. **Соседи — через `process.execPath` и путь** (ADR-0055 пункт 2): `ticket:83`/`:107`,
-   `epic-board:66` и `:74`, `profile:139` (`gate-resolve.mjs`). Нет файла соседа — ответ прежний:
+   `epic-board:66` и `:74`, `profile:139` (`gate-resolve.mjs`), `silent-check:84` и `:112`. Номера
+   строк — на 4f983ef (у `silent-check` — на `08e8256`); PR #150 правил `ticket`, `profile` и
+   `epic-board`, перед началом перечитать. Нет файла соседа — ответ прежний:
    существование файла проверяется до запуска (`ticket:110` — «Profile нет»).
 4. **`epic-board:355`** открывает файл командой своей системы: `open` на macOS, `cmd /c start ""
    <файл>` или `explorer.exe` на Windows, `xdg-open` на Linux. `--no-open` — как прежде.
@@ -173,6 +181,8 @@ Stub-ы в `workflow-reader.test.ts` и `workflow-profile.test.ts` станов�
 - `harness/bin/ticket`
 - `harness/bin/worktree-lock`
 - `harness/bin/epic-board`
+- `harness/bin/silent-check`
+- `harness/bin/tests/silent-mode.test.sh`
 - `harness/bin/tests/epic-status.test.sh` (новый)
 - `harness/bin/tests/harness-home.test.sh`
 - `src/main/workflow/reader.ts`
@@ -204,9 +214,11 @@ Ticket 06 (его `bash …/preflight`, `:186`), поэтому 05 и 06 не и
 дают ещё пересечения: `test/contract/projects.test.ts` — с Ticket-ом 10, `github-prs.test.ts` и
 e2e-файлы — с Ticket-ом 14. С Epic-ом `worfy-link` общие `test/e2e/card-api.spec.ts` (его Ticket 10)
 и `test/contract/projects.test.ts` (его Ticket 11); их видит проверка открытых PR второго Epic-а
-перед Wave (ADR-0056). Открытый PR #150 (E3 Ticket 22) правит `epic-status`, `profile`, `ticket`,
-`epic-board`, `harness-home.test.sh` и `tickets-root.test.sh` (evidence Ticket-а 01, раздел 18):
-перед началом — проверить, влит ли он, и перечитать эти файлы.
+перед Wave (ADR-0056). PR #150 (E3 Ticket 22) влит как `3837558` и правил `epic-status`, `profile`,
+`ticket`, `epic-board`, `harness-home.test.sh`, `tickets-root.test.sh` и `profile.test.sh` (evidence
+Ticket-а 01, раздел 18): строки выше — на 4f983ef, перед началом перечитать эти файлы. Открытый E3
+Ticket 23 (worfy читает Silent Project) тоже меняет `src/main/workflow/reader.ts`,
+`src/main/workflow/profile.ts` и их contract test-ы — общие файлы с этим Ticket-ом.
 
 ## Итог
 

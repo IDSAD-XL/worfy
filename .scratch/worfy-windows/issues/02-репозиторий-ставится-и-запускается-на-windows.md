@@ -12,9 +12,9 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
   и в global), и после клона все 1088 текстовых файлов — `w/crlf`, `git status` пуст (evidence
   Ticket-а 01, раздел 03).
   - bash Git for Windows скрипт с CRLF выполняет без ошибок — и через `bash файл`, и по shebang;
-    `epic-status` с CRLF дал EXIT=0 и валидный JSON (evidence, разделы 18 и 21). CRLF ломает
-    скрипты в других оболочках: WSL, Linux, macOS (строка `#!/usr/bin/env bash\r` ищет `bash\r`,
-    bash спотыкается о `$'\r'`) — например, при копировании рабочего дерева Windows.
+    `epic-status` с CRLF дал EXIT=0 и валидный JSON (evidence, разделы 18 и 21). В других оболочках
+    (WSL, Linux, macOS) CRLF не проверялся; по устройству bash строка `#!/usr/bin/env bash\r` ищет
+    `bash\r`, а bash спотыкается о `$'\r'` — например, при копировании рабочего дерева Windows.
   - CRLF уже валит test на Windows: `test/contract/make-icons.test.ts` — sha256 `build/brand/icon.svg`
     и `mark.svg` в рабочем дереве не совпадают с `build/icons.json` (evidence, раздел 17).
 
@@ -24,7 +24,7 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
     и в папках `tests`, `*.mjs` в `harness/hooks`;
   - `scripts`: `install-stable.sh`, `statusline-bridge.sh`, `make-icons.mjs`, `build-version.ts`.
 - **node-pty собирается из исходников.** Root `postinstall` — `electron-rebuild --only node-pty`
-  (`package.json:20`). Своя установка node-pty (`node scripts/prebuild.js || node-gyp rebuild`) на
+  (`package.json:21`). Своя установка node-pty (`node scripts/prebuild.js || node-gyp rebuild`) на
   Windows берёт готовую сборку из `prebuilds/win32-x64`, она в пакете есть. node-pty грузит
   `build/Release` раньше `prebuilds` (`node_modules/node-pty/lib/utils.js:18-19`). На ПК владельца
   (evidence Ticket-а 01):
@@ -36,15 +36,16 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
   - Готовая сборка `prebuilds/win32-x64` грузится в Electron 44.5.1 без `build/Release`:
     `require('node-pty')` при `ELECTRON_RUN_AS_NODE=1` — EXIT=0, `spawn` через ConPTY работает
     (раздел 09). Пересборка на Windows не нужна.
-- **pnpm 11 повторяет install перед каждым скриптом.** Пока root `postinstall` падает, `pnpm lint`,
-  `pnpm typecheck`, `pnpm test`, `pnpm dev` и `pnpm exec` падают с EXIT=1 в `runDepsStatusCheck`: pnpm
-  снова зовёт `pnpm install` (evidence, разделы 09 и 17). С `--config.verify-deps-before-run=false`
-  `lint` и `typecheck` — EXIT=0, `dev` открывает окно (экран First run).
+- **pnpm 11 повторяет install перед скриптом.** Пока root `postinstall` падает, `pnpm lint` и
+  `pnpm exec electron …` падают с EXIT=1 в `runDepsStatusCheck`: pnpm снова зовёт `pnpm install`
+  (evidence, разделы 09 и 17; `typecheck`, `test` и `dev` без флага не запускались). С
+  `--config.verify-deps-before-run=false` `lint` и `typecheck` — EXIT=0, `dev` открывает окно (экран
+  First run).
 - **`allowBuilds`.** `pnpm-workspace.yaml:5-9` разрешает install-скрипты только `electron`,
   `esbuild` и `node-pty` (`electron-winstaller` — запрещён). Пакет со скриптом сборки не из списка
   валит `pnpm install` ошибкой `ERR_PNPM_IGNORED_BUILDS`. Пакеты под win32 в `pnpm-lock.yaml` уже
-  есть: `@anthropic-ai/claude-agent-sdk-win32-x64@0.3.289` (`:156`), `@esbuild/win32-x64`
-  (`:669`, `:675`). На ПК `ERR_PNPM_IGNORED_BUILDS` не было: install-скрипты `esbuild` и `node-pty`
+  есть: `@anthropic-ai/claude-agent-sdk-win32-x64@0.3.289` (`:171`), `@esbuild/win32-x64`
+  (`:684`, `:690`). На ПК `ERR_PNPM_IGNORED_BUILDS` не было: install-скрипты `esbuild` и `node-pty`
   прошли, `claude-agent-sdk-win32-x64` поставлен (evidence Ticket-а 01, разделы 08 и 14).
 - **Скрипт `test`** — `ELECTRON_RUN_AS_NODE=1 electron ./node_modules/vitest/vitest.mjs run`
   (`package.json:16`). Префикс `VAR=value` понимает POSIX shell, cmd.exe — нет. На ПК pnpm исполняет
@@ -59,9 +60,9 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
 - **Test Harness в `pnpm test`.** `test/contract/harness-scripts.test.ts` требует в PATH `bash`,
   `zsh`, `jq`, `git`, `node` (`:40`) и гоняет test-ы Harness командой `bash <файл>` (`:63`). zsh в
   Git Bash нет: на Windows этот test упадёт. Его чинит не этот Ticket.
-- **Исход `pnpm test` на ПК до этого Ticket-а** (с `shell-emulator=true`): 55 файлов из 152 и 660
-  test-ов из 2921 упали; список с причиной одной строкой — evidence Ticket-а 01, раздел 17. Это
-  исходный список для Ticket-ов 03–14.
+- **Исход `pnpm test` на ПК до этого Ticket-а** (с `shell-emulator=true`, main `08e8256`): 55
+  файлов из 157 и 662 test-а из 2995 упали; список из JSON-отчёта vitest с причиной одной строкой —
+  evidence Ticket-а 01, раздел 17. Это исходный список для Ticket-ов 03–14.
 
 ## Что делаем
 
@@ -69,6 +70,9 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
    `harness/bin/*`, `*.sh`, `*.mjs` и всего в `scripts`. Это решение владельца без вопроса и пункт 3
    «Готово, когда» Epic-а. Индекс уже весь в LF: `git add --renormalize .` не должен изменить ни
    одного файла — проверить и написать в Итог.
+   Ещё LF — для `build/brand/*.svg`: их sha256 записан в `build/icons.json`, и с CRLF
+   `test/contract/make-icons.test.ts` красный на любом Windows-клоне (evidence Ticket-а 01, раздел 17).
+   Это тот же случай, что скрипты: файл, побайтное содержимое которого — контракт.
    Если test-ы на Windows падают из-за CRLF в других текстовых файлах (фикстуры, Markdown правил,
    исходники), LF для всех текстовых файлов (`* text=auto eol=lf`) Ticket сам не включает. Он кладёт
    список таких test-ов в Итог как вопрос владельцу.
@@ -97,7 +101,7 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
 
 ## Готово, когда
 
-- [ ] Windows-ПК, свежий `git clone` с настройками Git for Windows по умолчанию: `git ls-files --eol harness/bin harness/hooks scripts` — у каждого текстового файла `w/lf`; `git status --porcelain` пуст.
+- [ ] Windows-ПК, свежий `git clone` с настройками Git for Windows по умолчанию: `git ls-files --eol harness/bin harness/hooks scripts build/brand` — у каждого текстового файла `w/lf`; `git status --porcelain` пуст; случай sha256 в `test/contract/make-icons.test.ts` зелёный.
 - [ ] Mac: `git add --renormalize . && git status --porcelain` пуст — `.gitattributes` не меняет ни одного файла индекса (через раздел Mac checks PR, Q33).
 - [ ] Windows-ПК: `pnpm install --frozen-lockfile` — exit 0 в Session Claude Code (там `NoDefaultCurrentDirectoryInExePath=1`, evidence Ticket-а 01, раздел 20) и без пересборки node-pty; после него `git status --porcelain` пуст.
 - [ ] Windows-ПК: node-pty грузится в Electron — `pnpm exec electron -e "require('node-pty')"` при `ELECTRON_RUN_AS_NODE=1` — exit 0.

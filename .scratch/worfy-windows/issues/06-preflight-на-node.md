@@ -44,8 +44,8 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
   `--epic worfy-windows --no-fetch` — EXIT=2, `profile unreadable (profile, exit 1): … gate-resolve.mjs
   failed (exit 4) — project not determined` (evidence Ticket-а 01, раздел 18). git там печатает пути
   `C:/…` (раздел 06).
-- Открытый PR #150 (E3 Ticket 22) правит `preflight` и `preflight.test.sh` (evidence, раздел 18):
-  перед началом — проверить, влит ли он, и перечитать оба файла.
+- PR #150 (E3 Ticket 22) влит как `3837558` и правил `preflight` и `preflight.test.sh` (evidence,
+  раздел 18): строки выше — на 4f983ef, перед началом перечитать оба файла.
 
 ## Что делаем
 

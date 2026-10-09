@@ -10,6 +10,17 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 Skills Harness — тексты, по которым агент работает. Их блоки команд агент выполняет Bash tool-ом:
 на Mac это zsh, на Windows — Git Bash, то есть bash с GNU coreutils (ADR-0055).
 
+**Строки ниже — на 4f983ef.** PR #150 (E3 Ticket 22, `3837558`) переписал `epic-wave`, `ship-ticket`,
+`continuous-audit` и `harness/agents/implementer.md` (Silent mode, ветка по смыслу, rebase перед
+локальным мержем). Те же места на main `08e8256` (evidence Ticket-а 01, раздел 18): `stat -f %m` —
+`epic-wave/SKILL.md:383` (замок — `:375`, раздел 4 — `:337`); `date -v-14d` —
+`continuous-audit/SKILL.md:133`, `live-tickets.jsonl` — `:135`; `gh pr list --state open --json
+number,headRefName,mergeStateStatus,files` — `epic-wave/SKILL.md:79`; `mergeStateStatus` раздела 4 —
+`:355`; ручные проверки GUI — `ship-ticket/SKILL.md:219-234` (раздел 6 — `:192`). Новых команд BSD и
+macOS PR #150 не добавил: `grep -rnE 'stat -f|date -v' harness/skills` — те же две строки,
+`grep -rnE 'stat -f|date -v|open -|ps -o|screencapture|osascript' harness/agents harness/hooks/rules`
+пуст. Перед началом перечитать три skill-а на свежем main.
+
 - **Замок на главной ветке** (`harness/skills/epic-wave/SKILL.md:316-334`). Блок `:321-330` берёт
   время изменения папки замка командой BSD `stat -f %m "$L"` (`:324`). В GNU `stat` ключ `-f` —
   сведения о файловой системе, а `%m` читается как имя файла. Команда кончается ошибкой, и

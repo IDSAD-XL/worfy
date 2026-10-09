@@ -1,7 +1,10 @@
 # Evidence Ticket-а 01 — факты порта на живой Windows
 
 Снято 2026-10-09 на Windows-ПК владельца Session-ей Claude Code (desktop app, вкладка Code). Клон —
-`C:\Users\Alexey\worfy`, main на `76f7ff8` (`worfy-link/14: keep the Project machine awake …`).
+`C:\Users\Alexey\worfy`, main на `76f7ff8` (`worfy-link/14: keep the Project machine awake …`). После
+мержа PR #150 (`3837558`) ветка перебазирована на main `08e8256`; там же сняты заново `pnpm test`
+(раздел 17, из JSON-отчёта vitest), опись Harness (раздел 18), `realpath.native` (раздел 06) и
+сверка файлов сборки (раздел 24). `package.json` и `pnpm-lock.yaml` между этими коммитами не менялись.
 Временные файлы и полные логи — `%TEMP%\worfy-01\` на ПК, в репозиторий не идут; здесь — хвосты
 вывода и exit code. Раздел `### NN` с номером 01–15 — факт `3.NN` тикета: на эти номера ссылаются
 Ticket-ы 02–17 («evidence Ticket-а 01, раздел N»). Разделы 16 и дальше — состояние машины, пробный
@@ -104,6 +107,10 @@ PowerShell не виден.
 
 ### 05. Что есть в Git Bash; BSD-флаги stat и date
 
+Цикл шёл в Bash tool этой Session — Git Bash, `BASH=/usr/bin/bash 5.2.26(1)-release`, login-PATH с
+`/usr/bin/vendor_perl` и `/usr/bin/core_perl`. Строки `<имя> -> <путь>` и `<none>` — формат самого
+цикла (`for c in …; do p=$(command -v $c); echo "$c -> ${p:-<none>} (rc=$?)"; done`).
+
 ```
 $ uname -a
 MINGW64_NT-10.0-26200 … 3.4.10-87d57229.x86_64 2024-02-14 x86_64 Msys
@@ -135,6 +142,8 @@ TMPDIR=[/c/Users/Alexey/AppData/Local/Temp]
 
 Вывод: в Git Bash 2.45.1 есть perl, shasum, sha1sum, realpath, cygpath; нет jq и zsh. BSD
 `stat -f %m` и `date -v-14d` кончаются exit 1; GNU-формы работают. `TMPDIR` в Bash tool задан.
+`shasum` лежит в `/usr/bin/core_perl`: в login-PATH Bash tool эта папка есть, а в PATH процесса
+hook-а — нет (там из Git только `mingw64\bin`, `usr\bin`, `bin`, `cmd`; раздел 13).
 
 ### 06. Пути у git и Git Bash
 
@@ -155,6 +164,19 @@ git rev-parse --show-toplevel → C:/Users/Alexey/worfy/.claude/worktrees/window
 git rev-parse --git-common-dir → C:/Users/Alexey/worfy/.git
 git rev-parse --git-dir        → C:/Users/Alexey/worfy/.git/worktrees/windows-long-path-probe-0123456789abcdefg
 cat .git                       → gitdir: C:/Users/Alexey/worfy/.git/worktrees/windows-long-path-probe-0123456789abcdefg
+```
+
+`realpath.native` (Git Bash, node 22.13.0) — в клоне и во временном worktree
+`git worktree add --detach C:/Users/Alexey/worfy/.claude/worktrees/realpath-probe origin/main`
+(после снят `git worktree remove --force`):
+
+```
+$ node -p "require('fs').realpathSync.native('.')"        (клон)
+C:\Users\Alexey\worfy
+EXIT=0
+$ cd …/.claude/worktrees/realpath-probe && node -p "require('fs').realpathSync.native('.')" && git rev-parse --show-toplevel
+C:\Users\Alexey\worfy\.claude\worktrees\realpath-probe
+C:/Users/Alexey/worfy/.claude/worktrees/realpath-probe
 ```
 
 Вывод: git и в PowerShell, и в Git Bash печатает `C:/…` — буква диска заглавная, разделитель `/`.
@@ -181,8 +203,15 @@ list`), удалять их владелец не стал. Проверено �
 
 ```
 PS> pnpm install --frozen-lockfile
-… node-pty install$ node scripts/prebuild.js || node-gyp rebuild
-… node-pty install: > Checking prebuilds... Done
+.../esbuild@0.25.12/node_modules/esbuild postinstall$ node install.js
+.../esbuild@0.28.2/node_modules/esbuild postinstall$ node install.js
+.../node-pty@1.1.0/node_modules/node-pty install$ node scripts/prebuild.js || node-gyp rebuild
+.../node-pty@1.1.0/node_modules/node-pty install: > Checking prebuilds...
+.../node-pty@1.1.0/node_modules/node-pty install: Done
+.../node-pty@1.1.0/node_modules/node-pty postinstall$ node scripts/post-install.js
+.../node-pty@1.1.0/node_modules/node-pty postinstall: Done
+.../esbuild@0.28.2/node_modules/esbuild postinstall: Done
+.../esbuild@0.25.12/node_modules/esbuild postinstall: Done
 . postinstall$ electron-rebuild --only node-pty
 . postinstall: Building modules: node-pty
 . postinstall: 'GetCommitHash.bat' is not recognized as an internal or external command,
@@ -228,7 +257,9 @@ out-has-marker true exitCode 0
 EXIT=0
 ```
 
-Через node-pty из `prebuilds/win32-x64` запускаются и оболочки Ticket-а 10 (`%TEMP%\worfy-01\pty-pwsh.cjs`):
+Через node-pty из `prebuilds/win32-x64` запускаются и оболочки Ticket-а 10. Скрипт
+`%TEMP%\worfy-01\pty-pwsh.cjs` шёл в Electron, как и проба выше:
+`$env:ELECTRON_RUN_AS_NODE="1"; node node_modules\electron\cli.js pty-pwsh.cjs <оболочка> <аргументы>`.
 
 ```
 C:\Users\Alexey\AppData\Local\Microsoft\WindowsApps\pwsh.exe -NoLogo -NoProfile -Command '$x=2+3; Write-Output worfy-$x' → has worfy-5: true exitCode 0
@@ -383,6 +414,11 @@ PS> (XDG_CACHE_HOME, XDG_CONFIG_HOME, HOME — во %TEMP%\worfy-01) qmd.cmd sta
 status EXIT=-1073741819
 add EXIT=-1073741819
 search EXIT=-1073741819
+PS> Get-ChildItem -Recurse $env:XDG_CACHE_HOME, $env:HOME | Select -First 5 -Expand FullName
+C:\Users\Alexey\AppData\Local\Temp\worfy-01\qmd-cache\qmd
+PS> Test-Path C:\Users\Alexey\.cache\qmd; (Get-Item C:\Users\Alexey\.cache\qmd).CreationTime
+True
+09.10.2026 4:45:51   (первый qmd status без XDG_*; папка пустая)
 ```
 
 Нативные модули пакета: `better-sqlite3/prebuilds/win32-x64.node`, `tree-sitter-*`
@@ -430,16 +466,21 @@ Windows 11 Pro 25H2, build 26200.9550, x64
 
 ```
 pnpm install --frozen-lockfile                       EXIT=-1 — root postinstall (раздел 08)
-pnpm lint / typecheck / test / exec (как есть)       EXIT=1 — pnpm 11 перед скриптом снова зовёт install:
+pnpm lint, pnpm exec electron … (как есть)          EXIT=1 — pnpm 11 перед скриптом снова зовёт install
+  (без флага запускались только эти две; typecheck, test и dev — сразу с флагом):
   [ERROR] Command failed with exit code 4294967295: "…\node.exe" "…\pnpm.mjs" install … at runDepsStatusCheck
 pnpm --config.verify-deps-before-run=false lint      EXIT=0 (19 s)
   $ eslint . && node scripts/check-handoff.mjs
   handoff: ok (70 строк, 14741 байт)
 pnpm --config.verify-deps-before-run=false typecheck EXIT=0 (31 s)
 pnpm --config.verify-deps-before-run=false test      EXIT=1 (1 s) — 'ELECTRON_RUN_AS_NODE' is not recognized (раздел 10)
-pnpm … --config.shell-emulator=true test             EXIT=1 (305 s)
+pnpm … --config.shell-emulator=true test             main 76f7ff8: EXIT=1 (305 s)
    Test Files  55 failed | 97 passed (152)
         Tests  660 failed | 2221 passed | 40 skipped (2921)
+pnpm … --config.shell-emulator=true test --reporter=default --reporter=json --outputFile.json=%TEMP%\worfy-01\vitest-08e8256.json
+                                                     main 08e8256: EXIT=1 (224 s)
+   Test Files  55 failed | 102 passed (157)
+        Tests  662 failed | 2292 passed | 41 skipped (2995)
 pnpm --config.verify-deps-before-run=false dev       окно открылось
 ```
 
@@ -447,73 +488,76 @@ pnpm --config.verify-deps-before-run=false dev       окно открылось
 electron renderer process at http://localhost:5173/`, `starting electron app...`. Владелец: «открылось
 привычное окно, всё в порядке, передо мной First run». Снимка нет; процесс остановлен этой Session.
 
-Упавшие файлы `pnpm test` (с `shell-emulator=true`; число упавших test-ов; причина одной строкой):
+Упавшие файлы `pnpm test` на main `08e8256` — из JSON-отчёта vitest (`assertionResults` со `status: "failed"` по файлу; причина — первая строка первой ошибки, самая частая в файле). Таблица собрана скриптом `%TEMP%\worfy-01\jsonsum.cjs`; прежняя таблица по логу `76f7ff8` считала часть test-ов дважды (сумма 740 при сводке 660) и заменена этой.
 
-| Файл | Упало | Причина |
+| Файл | Упало | Причина (первая строка ошибки) |
 |---|---|---|
-| test/contract/actions.test.ts | 4 | ответ `{ ok: false }` вместо `{ ok: true }` |
+| test/contract/actions.test.ts | 4 | `AssertionError: expected { ok: false, …(1) } to strictly equal { ok: true, value: { …(3) } }` |
 | test/contract/agent-attachments.test.ts | 26 | `agent.start: invalid input` (`✖ cwd must be an absolute path` — путь `C:\…`) |
 | test/contract/agent-controls.test.ts | 37 | `agent.start: invalid input` |
 | test/contract/agent-session.test.ts | 20 | `agent.start: invalid input` |
-| test/contract/autopilot-journal.test.ts | 1 | `expected false to be true` |
-| test/contract/autopilot.test.ts | 9 | ответ `{ ok: false }` вместо `{ ok: true }` |
-| test/contract/bindings.test.ts | 7 | ответ `{ ok: false }` вместо `{ ok: true }` |
-| test/contract/canvas-tools.test.ts | 7 | `expected null to be 'demo-0a1b2c3d'` |
-| test/contract/card-bridge.test.ts | 1 | `expected null to be 'session-b'` |
-| test/contract/card-last-editor.test.ts | 4 | `expected null to be 'c1'` — автор правки не найден |
-| test/contract/card-protocol.test.ts | 7 | `expected false to be true` |
-| test/contract/claude-home-registry.test.ts | 39 | `expected false to be true` |
-| test/contract/claude-home-subagents.test.ts | 29 | `call rejected, it came from an untrusted frame (file:///Applications/worfy.app/…)` |
-| test/contract/clients.test.ts | 13 | `expected false to be true` |
-| test/contract/docs.test.ts | 35 | `untrusted frame (file:///Applications/worfy.app/…)` |
-| test/contract/first-run-checks.test.ts | 28 | `EPERM: operation not permitted, symlink` |
-| test/contract/github-prs.test.ts | 26 | `expected false to be true` (stub `#!/bin/sh`) |
-| test/contract/harness-drift.test.ts | 11 | `spawnSync /bin/sh ENOENT` |
-| test/contract/harness-evals.test.ts | 41 | `bash` из PATH — WSL: сообщение WSL о выключенной виртуализации |
+| test/contract/autopilot-journal.test.ts | 1 | `AssertionError: expected false to be true // Object.is equality` |
+| test/contract/autopilot.test.ts | 9 | `AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true, value: { …(13) } }` |
+| test/contract/bindings.test.ts | 7 | `AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true, value: { …(2) } }` |
+| test/contract/canvas-tools.test.ts | 6 | `AssertionError: expected null to be 'demo-0a1b2c3d' // Object.is equality` |
+| test/contract/card-bridge.test.ts | 1 | `AssertionError: expected null to be 'session-b' // Object.is equality` |
+| test/contract/card-last-editor.test.ts | 4 | `AssertionError: expected null to be 'c1' // Object.is equality` |
+| test/contract/card-protocol.test.ts | 7 | `AssertionError: expected false to be true // Object.is equality` |
+| test/contract/claude-home-registry.test.ts | 39 | `AssertionError: expected false to be true // Object.is equality` |
+| test/contract/claude-home-subagents.test.ts | 29 | `Error: call failed: claudeHome.subagents: call rejected, it came from an untrusted frame (file:///Applications/worfy.…` |
+| test/contract/clients.test.ts | 10 | `AssertionError: expected false to be true // Object.is equality` |
+| test/contract/docs.test.ts | 19 | `Error: docs.open: call rejected, it came from an untrusted frame (file:///Applications/worfy.app/Contents/Resources/a…` |
+| test/contract/first-run-checks.test.ts | 28 | `Error: EPERM: operation not permitted, symlink '<клон>\test\fixtures\first-run-tools\claude' -> '%TEMP%\…` |
+| test/contract/github-prs.test.ts | 26 | `AssertionError: expected false to be true // Object.is equality` |
+| test/contract/harness-drift.test.ts | 9 | `Error: spawnSync /bin/sh ENOENT` |
+| test/contract/harness-evals.test.ts | 41 | `bash` из PATH — WSL: в тексте ошибки сообщение WSL о выключенной виртуализации |
 | test/contract/harness-install.test.ts | 11 | `kind: "error"`, `step: "marketplace add"`: `Claude Code not found at …\stub\claude (ENOENT)` — stub без `.exe` |
-| test/contract/harness-migrate.test.ts | 84 | `SyntaxError: Bad escaped character in JSON at position 1877` |
-| test/contract/harness-plugin.test.ts | 1 | список файлов plugin не совпал |
-| test/contract/harness-qmd.test.ts | 11 | `expected [] to deeply equal [ Array(1) ]` |
-| test/contract/harness-scripts.test.ts | 20 | `bash is not installed` — `sh` нет в PATH (раздел 04) |
-| test/contract/ipc.test.ts | 7 | ответ `{ ok: false }` |
-| test/contract/layout-store.test.ts | 37 | `untrusted frame (file:///Applications/worfy.app/…)` |
-| test/contract/limits.test.ts | 3 | ответ `{ ok: false }` |
-| test/contract/link-access.test.ts | файл | `EPERM … symlink` при загрузке файла |
-| test/contract/link-server.test.ts | 1 | `expected 1006 to be 1009` (код закрытия WebSocket) |
-| test/contract/main-ipc-wiring.test.ts | 5 | ответ `{ ok: false }` |
+| test/contract/harness-migrate.test.ts | 54 | `SyntaxError: Bad escaped character in JSON at position 1877 (line 91 column 28)` |
+| test/contract/harness-plugin.test.ts | 1 | `AssertionError: expected [ …(115) ] to deeply equal ArrayContaining{…}` |
+| test/contract/harness-qmd.test.ts | 11 | `AssertionError: expected [] to deeply equal [ Array(1) ]` |
+| test/contract/harness-scripts.test.ts | 22 | `bash is not installed` — 5 проверок PATH (`bash`, `zsh`, `jq`, `git`, `node`: `sh` нет в PATH) и 17 прогонов `.test.sh` |
+| test/contract/ipc.test.ts | 7 | `AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true, value: { echoed: 'hi' } }` |
+| test/contract/layout-store.test.ts | 37 | `Error: layout.apply failed: layout.apply: call rejected, it came from an untrusted frame (file:///Applications/worfy.…` |
+| test/contract/limits.test.ts | 3 | `AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true, …(1) }` |
+| test/contract/link-access.test.ts | файл | `EPERM: operation not permitted, symlink '%TEMP%\…' -> '%TEMP%\…` |
+| test/contract/link-server.test.ts | 1 | `AssertionError: expected 1006 to be 1009 // Object.is equality` |
+| test/contract/main-ipc-wiring.test.ts | 5 | `AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true, …(1) }` |
 | test/contract/make-icons.test.ts | 1 | sha256 `icon.svg` и `mark.svg` не совпали с `build/icons.json` — в рабочем дереве SVG с CRLF |
 | test/contract/node-pty.test.ts | 1 | `File not found:` — спавнит `/bin/echo` |
 | test/contract/permissions.test.ts | 15 | `agent.start: invalid input` |
-| test/contract/projects.test.ts | 45 | `untrusted frame (file:///Applications/worfy.app/…)` |
-| test/contract/shell.test.ts | 18 | `EPERM … symlink` |
-| test/contract/startup-failure.test.ts | 8 | ждёт `/tmp/worfy-star…` в тексте |
-| test/contract/statusline-bridge.test.ts | 8 | `status: null` — мост `#!/bin/sh` не запускается |
+| test/contract/projects.test.ts | 26 | `Error: projects.add failed: projects.add: call rejected, it came from an untrusted frame (file:///Applications/worfy.…` |
+| test/contract/shell.test.ts | 9 | `Error: EPERM: operation not permitted, symlink '%TEMP%\…' -> 'C:\Users\Alexey\AppData\Local\Temp` |
+| test/contract/startup-failure.test.ts | 8 | `AssertionError: expected 'Step: checkDataFolder (checking the d…' to contain 'worfy\'s data folder: /tmp/worfy-star…'` |
+| test/contract/statusline-bridge.test.ts | 8 | `AssertionError: expected { status: null, …(2) } to match object { status: +0 }` |
 | test/contract/terminal.test.ts | 20 | `terminal.open failed: File not found:` — `/bin/zsh`, `/bin/sh` |
-| test/contract/trash.test.ts | 14 | `untrusted frame (file:///Applications/worfy.app/…)` |
-| test/contract/viewport-store.test.ts | 8 | текст ошибки не совпал |
-| test/contract/web-policy.test.ts | 2 | `expected false to be true` |
+| test/contract/trash.test.ts | 14 | `Error: trash.put failed: trash.put: call rejected, it came from an untrusted frame (file:///Applications/worfy.app/Co…` |
+| test/contract/viewport-store.test.ts | 8 | `AssertionError: expected { ok: false, …(1) } to deeply equal { ok: false, error: StringMatching{…} }` |
+| test/contract/web-policy.test.ts | 2 | `AssertionError: expected false to be true // Object.is equality` |
 | test/contract/workflow-profile.test.ts | 20 | `no profile script at \h\bin\…` вместо `/h/bin/…` |
-| test/contract/workflow-reader.test.ts | 25 | `{ code: 'not-found' }` — stub `epic-status` по shebang |
-| test/unit/agent-executable.test.ts | 2 | `'\Applications\worfy.app\…'` вместо `'/Applications/…'` |
-| test/unit/agent-options.test.ts | 1 | `plugin_worfy_qmd` не совпал (путь) |
-| test/unit/attachments.test.ts | 5 | `expected false to be true` |
-| test/unit/build-version.test.ts | 2 | `EPERM, Permission denied: \\?\C:\…\worfy-build-version-…` |
-| test/unit/canvas.test.tsx | файл | `EPERM … symlink` (`.github` → glob probe) |
-| test/unit/epic-layout.test.ts | 1 | `Test timed out in 5000ms` |
-| test/unit/gate-state.test.ts | 12 | `spawnSync /bin/sh ENOENT` |
-| test/unit/json-file.test.ts | 1 | `expected [Function] to throw an error` |
-| test/unit/link-caller.test.ts | файл | `EPERM … symlink` |
-| test/unit/paths.test.ts | 6 | `'C:\tmp\worfy-data'` вместо `'/tmp/worfy-data'` |
-| test/unit/session-rail-discovery.test.tsx | файл | `EPERM … symlink` |
-| test/unit/shell-discovery.test.tsx | файл | `EPERM … symlink` |
+| test/contract/workflow-reader.test.ts | 25 | `AssertionError: expected { code: 'not-found', …(1) } to be null` |
+| test/unit/agent-executable.test.ts | 2 | `AssertionError: expected '\Applications\worfy.app\Contents\Reso…' to be '/Applications/worfy.app/Contents/Reso…' // O…` |
+| test/unit/agent-options.test.ts | 1 | `AssertionError: expected { plugin_worfy_qmd: { …(2) } } to deeply equal { plugin_worfy_qmd: { …(2) } }` |
+| test/unit/attachments.test.ts | 5 | `AssertionError: expected false to be true // Object.is equality` |
+| test/unit/build-version.test.ts | 2 | `Error: EPERM, Permission denied: \\?\%TEMP%\… '\\?\%TEMP%\…` |
+| test/unit/canvas.test.tsx | файл | `EPERM: operation not permitted, symlink '<клон>\.claude' -> '%TEMP%\…'` |
+| test/unit/epic-layout.test.ts | 1 | `Error: Test timed out in 5000ms.` |
+| test/unit/gate-state.test.ts | 12 | `Error: spawnSync /bin/sh ENOENT` |
+| test/unit/json-file.test.ts | 1 | `AssertionError: expected [Function] to throw an error` |
+| test/unit/link-caller.test.ts | файл | `EPERM: operation not permitted, symlink '%TEMP%\…' -> '%TEMP%\…` |
+| test/unit/paths.test.ts | 6 | `AssertionError: expected 'C:\tmp\worfy-data' to be '/tmp/worfy-data' // Object.is equality` |
+| test/unit/session-rail-discovery.test.tsx | файл | `EPERM: operation not permitted, symlink '<клон>\.claude' -> '%TEMP%\…'` |
+| test/unit/shell-discovery.test.tsx | файл | `EPERM: operation not permitted, symlink '<клон>\.claude' -> '%TEMP%\…'` |
+
+Сумма по столбцу «Упало» — 662, как в сводке vitest.
 
 «файл» — файл упал целиком при загрузке. Общие причины: пути с `\` и схемы «absolute POSIX path»;
 `/bin/sh`, `/bin/zsh`, stub-ы `#!/bin/sh`; symlink без режима разработчика (раздел 22); `bash` из
 PATH — WSL; проверка доверенного frame с путём macOS `file:///Applications/worfy.app/…`.
 
-### 18. Опись скриптов Harness (на main 76f7ff8, до закрытия E3)
+### 18. Опись скриптов Harness (на main 08e8256, до закрытия E3)
 
-Команда описи — первая строка каждого файла `harness/bin` и `harness/hooks` вне `tests`:
+Опись снята дважды: на `76f7ff8` и, после мержа PR #150 (E3 Ticket 22, `3837558`), на `08e8256`.
+Команда — первая строка каждого файла `harness/bin` и `harness/hooks` вне `tests` (Git Bash):
 
 ```
 $ for f in $(git ls-files harness/bin harness/hooks | grep -v '/tests/'); do printf '%s\t%s\n' "$f" "$(head -n1 "$f" | tr -d '\r')"; done
@@ -526,6 +570,7 @@ harness/bin/qmd-collections       #!/usr/bin/env node
 harness/bin/qmd-mcp               #!/bin/zsh
 harness/bin/qmd-refresh           #!/bin/zsh
 harness/bin/qmd-sync-main         #!/bin/zsh
+harness/bin/silent-check          #!/usr/bin/env node        (новый на 08e8256)
 harness/bin/ticket                #!/usr/bin/env node
 harness/bin/worktree-lock         #!/usr/bin/env node
 harness/hooks/gate-resolve.mjs    #!/usr/bin/env node
@@ -539,7 +584,63 @@ harness/hooks/rules/orchestrator.md  # worfy Harness — orchestrator rules
 harness/hooks/session-end.sh      #!/usr/bin/env bash
 harness/hooks/session-start.sh    #!/usr/bin/env bash
 harness/hooks/stop.sh             #!/usr/bin/env bash
+harness/hooks/worktree-create.sh  #!/usr/bin/env bash         (новый на 08e8256)
 EXIT=0
+$ diff <опись 76f7ff8> <опись 08e8256>
+9a10
+> harness/bin/silent-check	#!/usr/bin/env node
+22a24
+> harness/hooks/worktree-create.sh	#!/usr/bin/env bash
+$ grep -c 'worktree-create' harness/hooks/hooks.json
+0
+$ git show --stat=200 --format= 3837558 | grep -E 'harness/' | awk '{print $1}'   (PR #150, E3 Ticket 22; без файла Ticket-а E3)
+harness/agents/implementer.md
+harness/bin/epic-board
+harness/bin/epic-status
+harness/bin/preflight
+harness/bin/profile
+harness/bin/silent-check
+harness/bin/tests/epic-wave-ship-ticket.test.sh
+harness/bin/tests/harness-home.test.sh
+harness/bin/tests/preflight.test.sh
+harness/bin/tests/profile.test.sh
+harness/bin/tests/real-home.sh
+harness/bin/tests/silent-mode.test.sh
+harness/bin/tests/skill-blocks.test.sh
+harness/bin/tests/tickets-root.test.sh
+harness/bin/ticket
+harness/hooks/guard.mjs
+harness/hooks/session-start.sh
+harness/hooks/tests/guard-silent.test.sh
+harness/hooks/tests/rules-hooks.test.sh
+harness/hooks/tests/session-hooks.test.sh
+harness/hooks/worktree-create.sh
+harness/profiles/README.md
+harness/skills/continuous-audit/SKILL.md
+harness/skills/epic-wave/SKILL.md
+harness/skills/retro/SKILL.md
+harness/skills/ship-ticket/SKILL.md
+$ grep -rnE 'stat -f|date -v|open -|ps -o|screencapture|osascript' harness/agents harness/hooks/rules
+EXIT=1
+$ grep -rnE 'stat -f|date -v' harness/skills
+harness/skills/continuous-audit/SKILL.md:133:  | awk -v t="$(date -v-14d +%s)" '$2>t{print $1}' \
+harness/skills/epic-wave/SKILL.md:383:  m=$(stat -f %m "$L" 2>/dev/null) || continue        # lock released between mkdi…
+$ grep -n '^## ' harness/skills/epic-wave/SKILL.md            → 1. Preflight :74 · 4. Merge by policy :337
+$ grep -n 'Lock on the main branch\|gh pr list --state open\|mergeStateStatus' harness/skills/epic-wave/SKILL.md
+→ :79 gh pr list --state open --json number,headRefName,mergeStateStatus,files · :355 gh pr view <N> --json mergeStateStatus · :375 **Lock on the main branch.**
+$ grep -n 'live-tickets' harness/skills/continuous-audit/SKILL.md   → :135
+$ grep -n 'screencapture\|Screen Recording\|env -i\|ps -o comm\|^## 6' harness/skills/ship-ticket/SKILL.md
+→ :192 ## 6. Checks · :219 … :224 `screencapture` · :231 `env -i` · :233 `open -b` · :234 `ps -o comm= -p <pid>`
+$ for f in harness/hooks/*.sh harness/bin/epic-status harness/bin/preflight; do echo "$f jq=$(grep -c '\bjq\b' $f) profile=$(grep -c 'bin/profile\|PROFILE_BIN' $f) shasum=$(grep -c shasum $f)"; done
+harness/hooks/gate.sh jq=0 profile=0 shasum=4
+harness/hooks/gh-token-env.sh jq=1 profile=6 shasum=0
+harness/hooks/inject-rules.sh jq=5 profile=0 shasum=0
+harness/hooks/session-end.sh jq=3 profile=5 shasum=0
+harness/hooks/session-start.sh jq=4 profile=5 shasum=0
+harness/hooks/stop.sh jq=0 profile=0 shasum=2
+harness/hooks/worktree-create.sh jq=2 profile=5 shasum=0
+harness/bin/epic-status jq=0 profile=2 shasum=0
+harness/bin/preflight jq=5 profile=3 shasum=0
 ```
 
 Скрипты на bash и zsh — кто зовёт, исход в Git Bash без правок (CRLF в рабочем дереве, Harness не
@@ -547,34 +648,46 @@ EXIT=0
 
 | Скрипт | Язык | Кто зовёт | В Git Bash как есть | Ticket |
 |---|---|---|---|---|
-| `harness/hooks/gate.sh` | bash | hooks.json (`TaskCompleted`, `TeammateIdle`), skills, agents | `bash harness/hooks/gate.sh --help` → EXIT=3: `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: резолвер gate-resolve.mjs завершился с кодом 4` (реестра нет) | 03 |
-| `harness/hooks/inject-rules.sh` | bash | hooks.json (`SessionStart`, `SubagentStart`) | не запускался; нужен `jq` — в Git Bash нет (раздел 05) | 04 |
-| `harness/hooks/session-start.sh` | bash | hooks.json (`SessionStart`) | не запускался; зовёт `jq` | 04 |
-| `harness/hooks/session-end.sh` | bash | hooks.json (`SessionEnd`) | не запускался; зовёт `jq` | 04 |
-| `harness/hooks/stop.sh` | bash | hooks.json (`Stop`) | не запускался; `shasum` есть, `jq` нет | 04 |
-| `harness/hooks/gh-token-env.sh` | bash | hooks.json (`SessionStart`, E3 Ticket 18 — уже на main) | не запускался | 04 |
+| `harness/hooks/gate.sh` | bash | hooks.json (`TaskCompleted`, `TeammateIdle`), skills, agents | `bash harness/hooks/gate.sh --help` → EXIT=3: `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: резолвер gate-resolve.mjs завершился с кодом 4` (реестра нет); `jq` не зовёт, `shasum` — да | 03 |
+| `harness/hooks/inject-rules.sh` | bash | hooks.json (`SessionStart`, `SubagentStart`) | не запускался; зовёт `jq` — в Git Bash его нет (раздел 05) | 04 |
+| `harness/hooks/session-start.sh` | bash | hooks.json (`SessionStart`) | не запускался; зовёт `jq` и `profile` | 04 |
+| `harness/hooks/session-end.sh` | bash | hooks.json (`SessionEnd`) | не запускался; зовёт `jq` и `profile` | 04 |
+| `harness/hooks/stop.sh` | bash | hooks.json (`Stop`) | не запускался; `jq` и `profile` не зовёт, `shasum` — да (в PATH hook-а `core_perl` нет, раздел 05) | 04 |
+| `harness/hooks/gh-token-env.sh` | bash | hooks.json (`SessionStart`, E3 Ticket 18) | не запускался; зовёт `jq` и `profile` | 04 |
+| `harness/hooks/worktree-create.sh` | bash | никто: в `hooks.json` не зарегистрирован (E3 Ticket 22) | не запускался; зовёт `jq` и `profile` | не портируется до решения E3 Ticket-а 24 (упомянут в 04) |
 | `harness/bin/epic-status` | bash | skills, worfy (`reader.ts`), `preflight` | `bash harness/bin/epic-status --json` → EXIT=0, 56705 байт JSON; по shebang `./harness/bin/epic-status --json` → EXIT=0 | 05 |
 | `harness/bin/preflight` | bash | skills `epic-wave`, `ship-ticket` | `--help` → EXIT=0; `--epic worfy-windows --no-fetch` → EXIT=2: `profile unreadable … gate-resolve.mjs failed (exit 4) — project not determined` | 06 |
 | `harness/bin/qmd-mcp` | zsh | `harness/.mcp.json` (по shebang) | zsh нет — не запускается | 15 |
 | `harness/bin/qmd-refresh` | zsh | hooks.json (`Stop`) | zsh нет | 15 |
 | `harness/bin/qmd-sync-main` | zsh | строка `update:` коллекций `qmd-collections` | zsh нет | 15 |
 
-Скрипты на Node (`profile`, `ticket`, `worktree-lock`, `epic-board`, `qmd-collections`,
-`gate-resolve.mjs`, `guard.mjs`) — у Ticket-ов 03, 04, 05 и 15 по их срезам. В Git Bash: `node
-harness/bin/profile --help` → EXIT=0, `./harness/bin/profile --help` по shebang → EXIT=0, `node
-harness/bin/ticket root` → EXIT=0 (`C:\Users\Alexey\worfy\.scratch`), `node harness/bin/epic-board
---help` → EXIT=2: `tickets root not determined: spawnSync C:\Users\Alexey\worfy\harness\bin\ticket
-ENOENT` — node на Windows не запускает соседа по shebang.
+Скрипты на Node (`profile`, `ticket`, `worktree-lock`, `epic-board`, `silent-check`,
+`qmd-collections`, `gate-resolve.mjs`, `guard.mjs`) — у Ticket-ов 03, 04, 05 и 15 по их срезам. В
+Git Bash: `node harness/bin/profile --help` → EXIT=0, `./harness/bin/profile --help` по shebang →
+EXIT=0, `node harness/bin/ticket root` → EXIT=0 (`C:\Users\Alexey\worfy\.scratch`), `node
+harness/bin/epic-board --help` → EXIT=2: `tickets root not determined: spawnSync
+C:\Users\Alexey\worfy\harness\bin\ticket ENOENT` — node на Windows не запускает соседа по shebang.
+`silent-check` (новый, Ticket 05) — те же места: соседей `profile` и `ticket` зовёт по пути
+(`execFileSync(PROFILE, …)` `:84`, `execFileSync(TICKET, …)` `:112`), домашнюю папку берёт из
+`process.env.HOME` (`:139`):
 
-Скрипты E3, которых на main ещё нет:
+```
+$ node harness/bin/silent-check hello
+silent-check: profile not read (exit ENOENT): spawnSync C:\Users\Alexey\worfy\harness\bin\profile ENOENT
+silent-check EXIT=2
+$ grep -rln 'silent-check' harness src test | sort
+harness/agents/implementer.md
+harness/bin/silent-check
+harness/bin/tests/silent-mode.test.sh
+harness/bin/tests/skill-blocks.test.sh
+harness/hooks/guard.mjs
+harness/hooks/session-start.sh
+harness/profiles/README.md
+harness/skills/ship-ticket/SKILL.md
+```
 
-- `harness/bin/silent-check` (`#!/usr/bin/env node`) и hook `harness/hooks/worktree-create.sh`
-  (`#!/usr/bin/env bash`) — E3 Ticket 22, PR #150 открыт (`Status: blocked`, круг владельца
-  2026-10-08 REJECTED из-за hook-а `WorktreeCreate`). Ticket-а этого Epic-а для `worktree-create.sh`
-  нет — вопрос в Итог Ticket-а 01.
-- `harness/bin/project-connect` (node, по плану) — E3 Ticket 24, открыт, PR нет.
-
-Опись после закрытия E3 — отдельным коммитом, когда E3 закроется.
+Скрипт E3, которого на main ещё нет: `harness/bin/project-connect` (node, по плану) — E3 Ticket 24,
+открыт, PR нет. Опись после закрытия E3 — отдельным коммитом, когда E3 закроется.
 
 ### 19. Как ведётся Epic, пока Harness не на Node
 
@@ -590,7 +703,7 @@ Harness и Profile worfy на этот ПК не ставились (решен�
   `bash harness/bin/epic-status worfy-windows` → EXIT=0, строка `/to-tickets · worfy-windows 0/17 ·
   worfy-windows/01 · ticket 01 — …`. С `--json`: `bash harness/bin/epic-status --json > "$TMP/es.json"`
   → EXIT=0; отбор на node — пункт «Готово, когда» Ticket-а 01.
-- **Проверка вместо Gate.** Gate (`gate.sh`) на ПК не запускается: нет реестра, нет `jq`. Проверка
+- **Проверка вместо Gate.** Gate (`gate.sh`) на ПК не запускается: нет реестра Gate. Проверка
   ветки — `pnpm lint`, `pnpm typecheck`, `pnpm test` с exit code каждой команды; отчёт прямо пишет
   «Gate не запускался». Пока не влит Ticket 02, все три идут с
   `--config.verify-deps-before-run=false`, а `test` ещё с `--config.shell-emulator=true` (разделы 10,
@@ -639,8 +752,8 @@ $ shopt igncr       → bash: shopt: igncr: invalid shell option name
 ```
 
 Вывод: bash Git for Windows 5.2.26 выполняет скрипт с CRLF без ошибок — и через `bash файл`, и по
-shebang. `epic-status` с CRLF в рабочем дереве дал EXIT=0 и валидный JSON (раздел 18). Ломает CRLF
-другие оболочки (WSL, Linux, macOS), а не Git Bash.
+shebang. `epic-status` с CRLF в рабочем дереве дал EXIT=0 и валидный JSON (раздел 18). Как CRLF ведёт
+себя в WSL, Linux и macOS, здесь не проверялось.
 
 ### 22. Symlink без режима разработчика
 
@@ -684,6 +797,20 @@ $ grep -m1 '^Status' .scratch/worfy-harness/issues/{12,13,14,15,17,18,19,21}-*.m
 E3/12 done (PR #117) · E3/13 done (#132) · E3/14 done (#136) · E3/15 done (#134) · E3/17 done (#145) · E3/18 done (#147) · E3/19 done (#148) · E3/21 done (#141)
 $ ls harness/hooks/tests/
 gate-notverified.test.sh gate-unregistered.test.sh gate-verdict.test.sh gh-token-env.test.sh rules-hooks.test.sh session-hooks.test.sh
+```
+
+Файлы сборки после `4f983ef` (для Ticket-а 12):
+
+```
+$ git log --oneline 4f983ef..origin/main -- electron-builder.yml scripts/install-stable.sh package.json
+d0a0ba2 worfy-link/02: Link a machine — … (#158)            → electron-builder.yml, package.json
+a8cd1a2 worfy-link/01: link server between Machines … (#154) → package.json
+7893df3 worfy-harness/27: Harness eval cases … (#142)        → package.json
+77e4490 worfy: HANDOFF is a snapshot again … (#139)          → package.json
+4bdfb5a worfy-harness/15: the status line bridge ships in the .app (#134) → electron-builder.yml
+$ grep -n '"postinstall"\|"test":' package.json
+16:    "test": "ELECTRON_RUN_AS_NODE=1 electron ./node_modules/vitest/vitest.mjs run",
+21:    "postinstall": "electron-rebuild --only node-pty"
 ```
 
 Вывод: экран первого запуска, установщик Harness, форма переноса, мост Limits, qmd (`qmd.ts`,

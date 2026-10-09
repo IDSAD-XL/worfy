@@ -38,8 +38,9 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
     shebang;
   - Stop-hook `qmd-refresh --quiet` в `harness/hooks/hooks.json`;
   - `harness/bin/qmd-collections` на Node — коллекции по Profile, строка `update:` коллекции зовёт
-    `<папка plugin>/bin/qmd-sync-main <project>`; путь памяти Claude кодируется заменой `/` и `.` на
-    `-`;
+    `<папка plugin>/bin/qmd-sync-main <project>`; папку памяти Claude строит
+    `MATCH.replace(/[^A-Za-z0-9]/g, "-")` (`harness/bin/qmd-collections:270`) — тем же правилом, что
+    `projectDirName`;
   - `src/main/harness/qmd.ts` — установка `npm install -g @tobilu/qmd@2.8.3` с согласия, подсказка
     `brew install node`, модели с размером и согласием; без ответа «скачано» `qmd-mcp` не стартует;
   - строку qmd на экране первого запуска (E3 Ticket 19).
@@ -57,8 +58,8 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
     Серверу с командой `node` — настоящим `.exe` — она не нужна.
   - Claude Code кодирует путь `C:\a\b` в имя папки `projects` как `C--a-b` — каждый символ вне
     `[A-Za-z0-9]` становится `-`, как `projectDirName` (evidence Ticket-а 01, раздел 12).
-    `qmd-collections` строит путь памяти Project заменой только `/` и `.`: для `C:\…` это не то же
-    имя.
+    `qmd-collections:270` строит папку памяти тем же правилом, поэтому для `C:\…` она совпадёт с
+    папкой Claude Code.
   - Как qmd исполняет строку `update:` коллекции (через оболочку или нет), не установлено.
 
 ## Что делаем
@@ -82,7 +83,8 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
      переписываются так же, как E3 Ticket 17 переписал старые пути `update:`: копия `index.yml`
      рядом, имена и `pattern` не меняются.
    - Путь памяти Project в `qmd-collections` на Windows — та же кодировка, что в
-     `src/main/claude-home/registry.ts` после Ticket-а 08.
+     `src/main/claude-home/registry.ts`: она уже совпадает (`qmd-collections:270`, evidence Ticket-а
+     01, раздел 12), правка нужна, только если Ticket 08 её изменит.
 3. **Windows: какой путь** (Q21). По evidence Ticket-а 01 (раздел 15) qmd 2.8.3 на ПК падает на
    любой команде с индексом — ожидаемый путь Б. Исполнитель ставит qmd на ПК владельца модулем E3 (с
    согласия) той версией, что тогда будет в `QMD_VERSION`, и проверяет `qmd --version`, `qmd search`
