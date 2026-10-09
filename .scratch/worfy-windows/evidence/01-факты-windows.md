@@ -119,8 +119,10 @@ PowerShell не виден.
 
 ### 05. Что есть в Git Bash; BSD-флаги stat и date
 
-Команды шли в Bash tool этой Session (Git Bash). Вывод — как снят; PATH сокращён в середине (там
-папки программ Windows), начало и конец — как есть.
+Команды шли в Bash tool этой Session (Git Bash). Вывод — как снят, кроме трёх сокращений, помеченных
+«…»: в `uname -a` пропущено имя машины; в PATH пропущена середина (папки программ Windows), начало и
+конец — как есть; в выводе `stat -f %m` пропущены строки сведений о файловой системе после
+`File: "package.json"`.
 
 ```
 $ uname -a
@@ -136,14 +138,15 @@ sha1sum -> /usr/bin/sha1sum (rc=0)
 sha256sum -> /usr/bin/sha256sum (rc=0)
 realpath -> /usr/bin/realpath (rc=0)
 zsh -> <none> (rc=1)
-$ stat -f %m package.json
+$ stat -f %m package.json; echo "stat-f EXIT=$?"
 stat: cannot read file system information for '%m': No such file or directory
   File: "package.json" … (сведения о файловой системе)
 stat-f EXIT=1
 $ stat -c %Y package.json
 1791509715
-$ date -v-14d
+$ date -v-14d; echo "date-v EXIT=$?"
 date: unknown option -- v
+Try 'date --help' for more information.
 date-v EXIT=1
 $ date -d '-14 days' +%F
 2026-09-25
@@ -541,7 +544,7 @@ electron renderer process at http://localhost:5173/`, `starting electron app...`
 | test/contract/first-run-checks.test.ts | 28 | `Error: EPERM: operation not permitted, symlink '<клон>\test\fixtures\first-run-tools\claude' -> '%TEMP%\…` |  |
 | test/contract/github-prs.test.ts | 26 | `AssertionError: expected false to be true // Object.is equality` |  |
 | test/contract/harness-drift.test.ts | 9 | `Error: spawnSync /bin/sh ENOENT` |  |
-| test/contract/harness-evals.test.ts | 41 | `AssertionError:   5   C 4 0 ; > A L   7 0 ? C A B 8 B L   W S L 2 ,   B 0 :   : 0 :   = 0   M B > <   : > <…` | JSON, по первым строкам: 8 из 41 — сообщение WSL2 в UTF-16, как у `C:\Windows\System32\bash.exe` (раздел 04); 4 — stub `claude --version failed: spawnSync…`; остальные — разные ожидания (`expected 1 to be +0`, `tool_used`, `[main]`) |
+| test/contract/harness-evals.test.ts | 41 | `AssertionError:   5   C 4 0 ; > A L   7 0 ? C A B 8 B L   W S L 2 ,   B 0 :   : 0 :   = 0   M B > <   : > <…` | по причинам (JSON, названия test-ов и `test/contract/harness-evals.test.ts`): 16 — CRLF во front matter: `frontMatter` ищет `^---\n` (`:32`), а `prompt.md` и грейдеры в рабочем дереве с CRLF — `[main]`/`[gui]` и `tool_used` у 8 кейсов; 8 — `builds its fixture`: `scaffold` зовёт `spawnSync('bash', …)` (`:63`) — это WSL, сообщение WSL2 в UTF-16 (раздел 04); 9 — проверки готовой фикстуры (`bin/profile -C <fixture>` exit 1, `epic-status` null): фикстуру строит тот же scaffold, связь отдельно не проверялась; 8 — группа `pnpm eval:harness` со stub `claude`: у 4 `spawnSync …\claude ENOENT`, у 4 — коды выхода и версия того же прогона |
 | test/contract/harness-install.test.ts | 11 | `AssertionError: expected { outcome: 'done', status: { …(4) } } to deeply equal { outcome: 'done', status: {…` | лог `76f7ff8`, diff ожидания: `kind: "error"`, `step: "marketplace add"`, `Claude Code not found at …\stub\claude (ENOENT)` |
 | test/contract/harness-migrate.test.ts | 54 | `SyntaxError: Bad escaped character in JSON at position 1877 (line 91 column 28)` |  |
 | test/contract/harness-plugin.test.ts | 1 | `AssertionError: expected [ …(115) ] to deeply equal ArrayContaining{…}` |  |
@@ -811,7 +814,7 @@ CreationDate=2026-10-09T04:32:02.9530700+03:00 name=claude.exe
 Вывод: на Windows Claude Code пишет в `procStart` время старта процесса как FILETIME (десятичная
 строка); его даёт `Get-CimInstance Win32_Process` (`CreationDate`).
 
-### 24. Код E3 на main 76f7ff8
+### 24. Код E3 на main 76f7ff8 и 8cabc65
 
 Ticket-ы 13 и 15 писались по планам E3 на `4f983ef`. Сверка с main `76f7ff8`:
 
@@ -844,9 +847,24 @@ $ grep -n '"postinstall"\|"test":' package.json
 21:    "postinstall": "electron-rebuild --only node-pty"
 ```
 
+Повтор на main `8cabc65` (после мержа PR #172):
+
+```
+$ for f in <те же 9 файлов>; do [ -e "$f" ] && echo "есть $f" || echo "НЕТ $f"; done
+есть … (все 9)
+$ grep -n "brew install\|'jq'" src/main/first-run/checks.ts
+10, 132, 235, 237, 262, 373 — те же строки (10: `brew install <tool>`, 132: проверка jq, 237: `brew install ${name}`)
+$ cat harness/.mcp.json
+{ "mcpServers": { "qmd": { "command": "${CLAUDE_PLUGIN_ROOT}/bin/qmd-mcp" } } }
+$ git diff --stat 76f7ff8 HEAD -- src/main/first-run src/shared/ipc/first-run.ts src/main/harness harness/.mcp.json harness/bin/qmd-collections src/renderer/shell/FirstRun.tsx
+ src/renderer/shell/FirstRun.tsx | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+```
+
 Вывод: экран первого запуска, установщик Harness, форма переноса, мост Limits, qmd (`qmd.ts`,
-`qmd-collections`, `.mcp.json`) и hook `gh-token-env.sh` E3 уже на main; проверка `jq` на экране
-первого запуска есть, подсказки — `brew install`.
+`qmd-collections`, `.mcp.json`) и hook `gh-token-env.sh` E3 уже на main — на `76f7ff8` и на
+`8cabc65`; между ними из этих файлов менялся только `FirstRun.tsx` (3 строки). Проверка `jq` на
+экране первого запуска есть, подсказки — `brew install`.
 
 ### 25. pwsh из MSIX глазами node
 

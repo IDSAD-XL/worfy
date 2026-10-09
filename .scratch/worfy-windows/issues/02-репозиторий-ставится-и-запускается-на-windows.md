@@ -16,6 +16,9 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
     `epic-status` с CRLF дал EXIT=0 и валидный JSON (evidence, разделы 18 и 21). В других оболочках
     (WSL, Linux, macOS) CRLF не проверялся; по устройству bash строка `#!/usr/bin/env bash\r` ищет
     `bash\r`, а bash спотыкается о `$'\r'` — например, при копировании рабочего дерева Windows.
+  - CRLF валит и `test/contract/harness-evals.test.ts`: 16 падений — `frontMatter` ищет `^---\n`
+    (`:32`), а `harness/evals/*/prompt.md` и грейдеры в рабочем дереве с CRLF (evidence, раздел 17).
+    Это кандидат в список пункта 1 «другие текстовые файлы».
   - CRLF уже валит test на Windows: `test/contract/make-icons.test.ts` — sha256 `build/brand/icon.svg`
     и `mark.svg` в рабочем дереве не совпадают с `build/icons.json` (evidence, раздел 17).
 

@@ -32,7 +32,7 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
   qmd-скрипты). zsh нужен и блокам skills: `harness/bin/tests/skill-blocks.test.sh:42`, `:53` гонят
   их под bash и под zsh. На Windows `qmd.test.sh` пропускает Ticket 14 (gate full на Windows) с
   причиной, которая называет этот Ticket.
-- E3 Ticket 17 (на 4f983ef был открыт, на main `08e8256` влит — evidence Ticket-а 01, разделы 18 и
+- E3 Ticket 17 (на 4f983ef был открыт, на main `76f7ff8` и `8cabc65` влит — evidence Ticket-а 01, разделы 18 и
   24) принёс:
   - `harness/.mcp.json` — сервер `qmd` с командой `${CLAUDE_PLUGIN_ROOT}/bin/qmd-mcp`, то есть по
     shebang;
@@ -165,7 +165,7 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
 
 `src/main/workflow/profile.ts` и `test/contract/workflow-profile.test.ts` меняются только на пути Б.
 `.github/workflows/ci.yml` — только комментарий шага «Install zsh». Пути файлов E3 сверены с main
-`08e8256`: `harness/.mcp.json`, `harness/bin/qmd-collections`, `src/main/harness/qmd.ts` есть
+`76f7ff8` и `8cabc65`: `harness/.mcp.json`, `harness/bin/qmd-collections`, `src/main/harness/qmd.ts` есть
 (evidence Ticket-а 01, разделы 18 и 24).
 
 Ticket последний перед приёмкой: Ticket-ы 06, 07, 13 и 14 к нему влиты, общих файлов в одной Wave

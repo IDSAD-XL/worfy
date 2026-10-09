@@ -22,8 +22,10 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
     `projects`, `trash`;
   - `/bin/sh` и stub-ы `#!/bin/sh`: `harness-drift`, `gate-state`, `github-prs`, `workflow-reader`,
     `statusline-bridge`, `terminal`, `node-pty`;
-  - `bash` из PATH — WSL, который на ПК не стартует: 8 из 41 упавших в `harness-evals`; ещё 4 там —
-    stub `claude --version failed: spawnSync…`, остальные — разные ожидания;
+  - `harness-evals` — 41 упавший, по причинам: 16 — CRLF во front matter (`frontMatter` ищет
+    `^---\n`); 8 — scaffold через `bash` из PATH, а это WSL, который на ПК не стартует; 9 —
+    проверки фикстуры, которую строит тот же scaffold; 8 — `pnpm eval:harness` со stub `claude`
+    (`spawnSync …\claude ENOENT`) (evidence Ticket-а 01, раздел 17);
   - прочее: `link-server` (код закрытия WebSocket 1006 вместо 1009), `epic-layout` (тайм-аут 5 s),
     `json-file`, `build-version` (`EPERM … \\?\C:\…`).
 - Пять test-ов идут только на macOS (`skipIf(process.platform !== 'darwin')`):

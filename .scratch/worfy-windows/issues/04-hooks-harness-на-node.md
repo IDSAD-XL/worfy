@@ -19,14 +19,14 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
   - `session-end.sh` (37 строк, PR #150 его не менял) дописывает строку в
     `<Profile>/state/pending-retro.log`; зовёт `bin/profile` по shebang (`:23`, `:30`) и разбирает
     ответ `jq` (`:27`, `:31-32`).
-  - Переменные для test-ов обоих: `CLAUDE_PROFILE_BIN`, `CLAUDE_GATE_CONFIG`, `CLAUDE_PROFILES_DIR`,
-    `CLAUDE_SESSION_SECTION_CAP`.
+  - Переменные для test-ов обоих: `CLAUDE_PROFILE_BIN`, `CLAUDE_GATE_CONFIG`, `CLAUDE_PROFILES_DIR`;
+    `CLAUDE_SESSION_SECTION_CAP` читает только `session-start.sh` (`:65`).
   - `stop.sh` (197 строк) держит конец хода кодом 2, пока у worktree красный маркер Gate
     (`:156-183`), и один раз за Session говорит модели о «не проверено». Тег worktree — `shasum`
     (`:73`, `:75`). Время рождения транскрипта — `stat` в синтаксисе BSD или GNU по `uname`
     (`:77-85`); время 0 значит «не известно» (`:99-100`). Путь репозитория для реестра —
     `cd … && pwd` (`:43`), в Git Bash это `/c/…`.
-  - Все, кроме `inject-rules.sh`, ищут node в nvm и `/opt/homebrew/bin` (`session-start.sh:30-36`,
+  - Все, кроме `inject-rules.sh`, ищут node в nvm и `/opt/homebrew/bin` (`session-start.sh:31-37`,
     `session-end.sh:14-20`, `stop.sh:29-35`).
 - **`harness/hooks/hooks.json`** (строки — main `08e8256`; PR #150 файл не менял) зовёт скрипты по shebang:
   `inject-rules.sh` (`:9`, `:18`, `:56`), `session-start.sh` (`:27`), `gh-token-env.sh` (`:36`),
