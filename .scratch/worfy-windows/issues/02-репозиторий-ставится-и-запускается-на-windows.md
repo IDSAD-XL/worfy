@@ -105,14 +105,14 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
 
 ## Готово, когда
 
-- [ ] Windows-ПК, свежий `git clone` с настройками Git for Windows по умолчанию: `git ls-files --eol harness/bin harness/hooks scripts build/brand` — у каждого текстового файла `w/lf`; `git status --porcelain` пуст; случай sha256 в `test/contract/make-icons.test.ts` зелёный.
+- [x] Windows-ПК, свежий `git clone` с настройками Git for Windows по умолчанию: `git ls-files --eol harness/bin harness/hooks scripts build/brand` — у каждого текстового файла `w/lf`; `git status --porcelain` пуст; случай sha256 в `test/contract/make-icons.test.ts` зелёный.
 - [ ] Mac: `git add --renormalize . && git status --porcelain` пуст — `.gitattributes` не меняет ни одного файла индекса (через раздел Mac checks PR, Q33).
-- [ ] Windows-ПК: `pnpm install --frozen-lockfile` — exit 0 в Session Claude Code (там `NoDefaultCurrentDirectoryInExePath=1`, evidence Ticket-а 01, раздел 20) и без пересборки node-pty; после него `git status --porcelain` пуст.
-- [ ] Windows-ПК: node-pty грузится в Electron — `pnpm exec electron -e "require('node-pty')"` при `ELECTRON_RUN_AS_NODE=1` — exit 0.
+- [x] Windows-ПК: `pnpm install --frozen-lockfile` — exit 0 в Session Claude Code (там `NoDefaultCurrentDirectoryInExePath=1`, evidence Ticket-а 01, раздел 20) и без пересборки node-pty; после него `git status --porcelain` пуст.
+- [x] Windows-ПК: node-pty грузится в Electron — `pnpm exec electron -e "require('node-pty')"` при `ELECTRON_RUN_AS_NODE=1` — exit 0.
 - [ ] Windows-ПК: `pnpm dev` открывает окно worfy; снимок — `../evidence/02-pnpm-dev.png`.
-- [ ] Windows-ПК: `pnpm lint` и `pnpm typecheck` — exit 0.
-- [ ] Windows-ПК: `pnpm test` стартует и печатает итог vitest; exit code и список упавших файлов с причиной — в Итог.
-- [ ] Если появился `scripts/postinstall.mjs` — `test/contract/postinstall.test.ts` зелёный: на `darwin` скрипт зовёт `electron-rebuild --only node-pty`, на `win32` — нет.
+- [x] Windows-ПК: `pnpm lint` и `pnpm typecheck` — exit 0.
+- [x] Windows-ПК: `pnpm test` стартует и печатает итог vitest; exit code и список упавших файлов с причиной — в Итог.
+- [x] Если появился `scripts/postinstall.mjs` — `test/contract/postinstall.test.ts` зелёный: на `darwin` скрипт зовёт `electron-rebuild --only node-pty`, на `win32` — нет.
 - [ ] Mac: gate full зелёный (`lint`, `typecheck`, `test`, `test:e2e`, `test:package`) (по правилу needs-mac-gate: проверяет и вливает Session на Mac). Если выбран `shellEmulator` — ещё `pnpm install:stable "$(mktemp -d)/worfy.app"` ставит Stable copy, exit 0 (через раздел Mac checks PR, Q33).
 - [ ] CI на PR зелёный (Linux).
 
@@ -136,10 +136,57 @@ Unit-test-ов Ticket почти не добавляет: он меняет на
 - `README.md`
 - `scripts/postinstall.mjs` (новый, если пункт 2 выбрал готовую сборку)
 - `test/contract/postinstall.test.ts` (новый, вместе с ним)
+- `scripts/vitest-electron.mjs` (новый: пункт 4 выбрал скрипт на Node)
 
 Ticket-ы 03, 08, 09 и 11 ждут этот Ticket. Файлы package.json и pnpm-workspace.yaml потом меняет
 Ticket 12 (сборка на Windows), он идёт позже.
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-windows/02` от main `f3b2aa9`; прогоны на ПК владельца (Windows 11 Pro 25H2, build
+26200), из Session Claude Code (`NoDefaultCurrentDirectoryInExePath=1`).
+
+- **Как падала проверка до правки:** на ПК с `core.autocrlf=true` клон main давал `w/crlf` у всех
+  текстовых файлов, в том числе `harness/bin` (evidence Ticket-а 01, раздел 03).
+  `test/contract/postinstall.test.ts` до скрипта — 5 из 5 красные (`Cannot find module
+  …\scripts\postinstall.mjs`; `expected 'electron-rebuild --only node-pty' to be 'node
+  scripts/postinstall.mjs'`).
+- **`.gitattributes`:** LF для `harness/bin/*`, `harness/hooks/**`, `*.sh`, `*.mjs`, `scripts/**` и
+  `build/brand/*.svg`. `harness/hooks/**` добавлен после первого свежего клона: `hooks.json` и
+  `rules/*.md` там остались `w/crlf`, а правила `inject-rules` отдаёт Session как есть. `git add
+  --renormalize .` на Windows не изменил ни одного файла индекса (в `git status` — только правки
+  Ticket-а). Свежий клон ветки (`gh repo clone … -- --branch worfy-windows/02`, `core.autocrlf=true`):
+  `git ls-files --eol harness/bin harness/hooks scripts build/brand` — `w/lf=67`, других нет;
+  `git status --porcelain` пуст.
+- **Пункт 2 — готовая сборка node-pty.** `scripts/postinstall.mjs`: на `darwin` и `linux` —
+  `electron-rebuild --only node-pty`, как было; на `win32` — ничего (`skip: …`). Свежий клон: `pnpm
+  install --frozen-lockfile` — exit 0 за 9 s, `git status` после него пуст; свой postinstall node-pty
+  кладёт в `build/Release` только `conpty/conpty.dll` и `OpenConsole.exe`, `.node` там нет, поэтому
+  модуль берётся из `prebuilds/win32-x64`. `pnpm exec electron -e "require('node-pty')"` при
+  `ELECTRON_RUN_AS_NODE=1` — exit 0; `pty.spawn('cmd.exe', …)` в Electron 44.5.1 — вывод пришёл,
+  exitCode 0. Если в `build/Release` всё же лежит `pty.node` от старой пересборки (например, клон,
+  где `electron-rebuild` когда-то прошёл), node-pty возьмёт его раньше `prebuilds`; убрать — удалить
+  `node_modules/.pnpm/node-pty@1.1.0/node_modules/node-pty/build/Release/*.node` или папку
+  `node_modules` и поставить заново.
+- **Пункт 3 — `allowBuilds`:** `ERR_PNPM_IGNORED_BUILDS` на ПК не было, `pnpm-workspace.yaml` не
+  менялся.
+- **Пункт 4 — скрипт на Node, а не `shellEmulator`.** `test` — `node scripts/vitest-electron.mjs`:
+  он задаёт `ELECTRON_RUN_AS_NODE=1` только дочернему Electron и передаёт аргументы в `vitest run`.
+  `shellEmulator: true` сменил бы оболочку всех скриптов на Mac и в CI (`install:stable`, `package`,
+  `postinstall`) ради одной переменной; скрипт меняет только `test`, и проверка `install:stable` на
+  Mac не нужна.
+- **Прогон на Windows (клон в `%USERPROFILE%\worfy`, без флагов-обходов):** `pnpm install
+  --frozen-lockfile` — exit 0; `pnpm lint` — exit 0; `pnpm typecheck` — exit 0; `pnpm test` —
+  стартует и печатает итог vitest, exit 1: `Test Files 55 failed | 103 passed (158)`, `Tests 662
+  failed | 2297 passed | 41 skipped (3000)`. Набор упавших файлов и число падений в каждом совпадают
+  со списком evidence Ticket-а 01, раздел 17 (сверка JSON-отчётов vitest); новых падений нет,
+  добавился зелёный `postinstall.test.ts` (5 test-ов). В этом клоне рабочее дерево создано до
+  `.gitattributes`, поэтому `make-icons` в нём ещё красный; в свежем клоне `pnpm test
+  test/contract/make-icons.test.ts test/contract/postinstall.test.ts` — exit 0 (8 passed, 6 skipped —
+  test-ы только для macOS). Для Ticket-а 14 список упавших — прежний, минус `make-icons` на свежем клоне.
+- **`pnpm dev`:** снимка `../evidence/02-pnpm-dev.png` нет — снимает владелец; до этого Ticket-а
+  окно открывалось на экране First run (evidence Ticket-а 01, раздел 17).
+- **Вопрос владельцу (пункт 1):** CRLF в других текстовых файлах валит
+  `test/contract/harness-evals.test.ts` — 16 падений: `frontMatter` ищет `^---\n`, а
+  `harness/evals/*/prompt.md` и грейдеры в рабочем дереве с CRLF (evidence Ticket-а 01, раздел 17).
+  Дать LF и `harness/evals/**` или чинить test (регулярное выражение с `\r?\n`) в Ticket-е 14?
