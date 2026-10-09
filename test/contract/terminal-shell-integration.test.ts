@@ -23,6 +23,12 @@ import { ShellIntegration, SOCKET_PATH_MAX, socketPath } from '../../src/main/te
 const ZSH = execFileSync('/bin/sh', ['-c', 'command -v zsh'], { encoding: 'utf8' }).trim()
 const KEY = 'terminal-1'
 const WAIT = { timeout: 10_000, interval: 20 }
+/**
+ * Ubuntu's /etc/zsh/zshrc runs compinit unless skip_global_compinit is set, and on the CI runner
+ * compinit finds insecure folders in fpath and waits for a key; zsh without worfy waits the same.
+ * The variable is the switch Ubuntu documents in that file.
+ */
+const QUIET_ZSH: Env = { skip_global_compinit: '1' }
 /** One of worfy's sequences, whatever the nonce. */
 // eslint-disable-next-line no-control-regex -- the sequences start with ESC.
 const WORFY_OSC = /\x1b\]633;/
@@ -75,7 +81,7 @@ async function start(options: StartOptions = {}) {
   const integration = options.integration instanceof ShellIntegration ? options.integration : new ShellIntegration()
   integrations.push(integration)
   const shell = options.shell === undefined ? ZSH : options.shell
-  const base: Env = { PATH: SYSTEM_PATH, HOME: home, LANG: 'en_US.UTF-8', LESS: '', ...(shell === null ? {} : { SHELL: shell }), ...options.env }
+  const base: Env = { ...QUIET_ZSH, PATH: SYSTEM_PATH, HOME: home, LANG: 'en_US.UTF-8', LESS: '', ...(shell === null ? {} : { SHELL: shell }), ...options.env }
   const registry = new TerminalRegistry({
     env: () => Promise.resolve(base),
     killGraceMs: 1000,
@@ -213,7 +219,7 @@ describe('the history stays the user\'s', () => {
     await userFiles({ '.zshenv': 'HISTFILE=$HOME/envhist' })
     // The same zsh with the same HOME, without worfy's ZDOTDIR.
     const without = execFileSync(ZSH, ['-l', '-i', '-c', 'print -r -- "hf:$HISTFILE"'], {
-      env: { PATH: SYSTEM_PATH, HOME: home, TERM: 'xterm-256color', TERM_PROGRAM: 'worfy', LANG: 'en_US.UTF-8' },
+      env: { ...QUIET_ZSH, PATH: SYSTEM_PATH, HOME: home, TERM: 'xterm-256color', TERM_PROGRAM: 'worfy', LANG: 'en_US.UTF-8' },
       encoding: 'utf8',
     })
     const expected = /hf:(.*)/.exec(without)?.[1]
