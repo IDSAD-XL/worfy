@@ -28,6 +28,9 @@ Source: «Готово, когда» Epic-а — пять пунктов, под
   (`src/main/autopilot/journal.ts:1`). Строки `refused-dialog` (Session просила человека) и
   `human-input` (человек вмешался) — дефект прогона (`src/shared/autopilot/journal.ts:35`, `:37`);
   `run-stopped` — прогон закончился (`:42`).
+- На Windows-клоне с `core.autocrlf=true` все скрипты Harness — `w/crlf` (evidence Ticket-а 01,
+  раздел 03). bash Git for Windows их выполняет (раздел 21), поэтому CRLF сам по себе в Git Bash
+  незаметен — его ловит только проверка концов строк.
 - Пункт 3 целиком не проверяет ни один test. `test/contract/harness-scripts.test.ts` гоняет
   `.test.sh`, но не смотрит, на чём написаны сами скрипты Harness, как их зовут `hooks.json` и
   `.mcp.json` и какие у них концы строк в рабочем дереве.
@@ -69,10 +72,12 @@ test и сбор evidence делает implementer по его брифу. На 
      `gh auth login` — их делает владелец.
 
    Если Smart App Control в состоянии «On» блокирует установщик — стоп. Вопрос подписи идёт
-   владельцу сразу (Q22). Выключать Smart App Control агенты не предлагают. Если экран первого
-   запуска требует `jq` (в Git for Windows его может не быть — опись Ticket-а 01), это расходится с
-   пунктом 1 («Git for Windows, node и gh»). Тогда — вопрос владельцу, если его не закрыли Ticket-ы
-   01 и 13. Ответ владельца и снимки — в Итог.
+   владельцу сразу (Q22). Выключать Smart App Control агенты не предлагают. На ПК владельца он
+   выключен (evidence Ticket-а 01, раздел 02); на чистой Windows 11 его состояние — своё, его
+   проверяют там. Экран первого запуска сейчас требует `jq` (`src/main/first-run/checks.ts:132`), а в
+   Git for Windows 2.45.1 его нет (evidence, разделы 05 и 24) — это расходится с пунктом 1 («Git for
+   Windows, node и gh»). Вопрос задан владельцу в отчёте PR Ticket-а 01; если его не закрыл Ticket 13
+   — вопрос в Итог. Ответ владельца и снимки — в Итог.
 3. **Пункт 2 — ПК владельца, Stable copy.**
    - Project worfy открыт, Canvas показывает Epic-и и Ticket-ы (epic-status), Session отвечает и
      зовёт Bash tool, Terminal Node на PowerShell, `gate fast` в worktree worfy — код 0.

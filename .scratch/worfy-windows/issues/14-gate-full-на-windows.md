@@ -10,9 +10,21 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
 - gate full worfy (запись `worfy` в реестре Gate) — это lint, typecheck, `pnpm test`,
   `pnpm test:e2e` и `pnpm test:package`. Gate на Node и его запуск на Windows делает Ticket 03 (Gate
   на Node). На Windows gate full ещё ни разу не шёл.
-- Unit- и contract-test-ы. Что из них падает на Windows, пишет в Итог Ticket 02 (репозиторий
-  ставится и запускается на Windows). Ticket-ы 03–12 чинят test-ы своих срезов. Что к началу этого
-  Ticket-а ещё красное — его.
+- Unit- и contract-test-ы. На ПК владельца до Epic-а (main `76f7ff8`, `pnpm test` с
+  `shell-emulator=true`): 55 файлов из 152 и 660 test-ов из 2921 упали; список с причиной — evidence
+  Ticket-а 01, раздел 17. Ticket 02 пишет в Итог, что изменилось после него. Ticket-ы 03–12 чинят
+  test-ы своих срезов. Что к началу этого Ticket-а ещё красное — его. Общие причины в списке:
+  - symlink без режима разработчика — `EPERM` (7 файлов: `first-run-checks`, `shell`, `link-access`,
+    `link-caller`, `canvas`, `session-rail-discovery`, `shell-discovery`; evidence, раздел 22).
+    Режим разработчика на ПК выключен, прав администратора у Session нет;
+  - проверка доверенного frame: `call rejected, it came from an untrusted frame
+    (file:///Applications/worfy.app/…)` — `claude-home-subagents`, `docs`, `layout-store`,
+    `projects`, `trash`;
+  - `/bin/sh` и stub-ы `#!/bin/sh`: `harness-drift`, `gate-state`, `github-prs`, `workflow-reader`,
+    `statusline-bridge`, `terminal`, `node-pty`;
+  - `bash` из PATH — WSL, который на ПК не стартует: `harness-evals` (41 упавший);
+  - прочее: `link-server` (код закрытия WebSocket 1006 вместо 1009), `epic-layout` (тайм-аут 5 s),
+    `json-file`, `build-version` (`EPERM … \\?\C:\…`).
 - Пять test-ов идут только на macOS (`skipIf(process.platform !== 'darwin')`):
   - `test/unit/agent-env.test.ts:30` — настоящий `/bin/zsh` как login shell;
   - `test/unit/tail.test.ts:69` — APFS даёт новому файлу новый inode, ext4 на Linux берёт
@@ -27,9 +39,11 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
 - `test/contract/harness-scripts.test.ts` гоняет каждый `harness/{bin,hooks}/tests/*.test.sh` как
   `bash <файл>` (`:63`). Перед этим проверяет `bash`, `zsh`, `jq`, `git` и `node` через
   `sh -c 'command -v …'` (`:40-41`). На Windows: zsh в Git Bash нет, а qmd-скрипты на zsh до
-  Ticket-а 15; `sh` и `bash` есть в PATH, только если там папка `bin` или `usr\bin` Git for Windows (по
-  умолчанию установщик Git кладёт в PATH только `cmd`); `bash` из PATH может оказаться
-  `C:\Windows\System32\bash.exe` — запуском WSL.
+  Ticket-а 15; `sh` и `bash` есть в PATH, только если там папка `bin` или `usr\bin` Git for Windows.
+  На ПК владельца в постоянном PATH из Git только `C:\Program Files\Git\cmd`, `sh` не найден, первый
+  `bash` — `C:\Windows\System32\bash.exe` (WSL, не стартует). Итог: `harness-scripts.test.ts` — 20
+  упавших с `bash is not installed` (`spawnSync sh` — ENOENT), `jq` в Git Bash тоже нет (evidence
+  Ticket-а 01, разделы 04, 05 и 17).
 - e2e, клавиши. `Meta` — 55 мест в 13 файлах: 38 `Meta+…` в `keyboard.press` и 17 `'Meta'` в
   `keyboard.down`, `keyboard.up` и `modifiers` клика. В брифе фактов было 51 в 12 файлах: main с тех
   пор вырос (`test/e2e/wheel-over-nodes.spec.ts`). Playwright понимает `ControlOrMeta`: Meta на
@@ -58,9 +72,12 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
 
 ## Что делаем
 
-1. **Unit- и contract-test-ы на Windows.** Каждый test из списка Ticket-а 02, который к началу ещё
-   красный, — починить (test или код). Если смысл test-а на Windows не держится — пропуск на
-   `win32` с комментарием: почему и какой Ticket его снимет. Итоговый список пропусков — в Итог.
+1. **Unit- и contract-test-ы на Windows.** Каждый test из списка evidence Ticket-а 01 (раздел 17) и
+   Итог-а Ticket-а 02, который к началу ещё красный, — починить (test или код). Если смысл test-а на
+   Windows не держится — пропуск на `win32` с комментарием: почему и какой Ticket его снимет. Test-ы
+   с symlink: либо пропуск на `win32` без режима разработчика (причина — в комментарии), либо
+   требование включить режим разработчика — выбор и причина в Итог, решение подтвердить у
+   владельца. Итоговый список пропусков — в Итог.
 2. **Пять test-ов только для macOS** — решение по каждому. Где смысл держится (inode на NTFS,
    пауза 300 ms у чтения workflow), test идёт и на Windows. Где нет (`/bin/zsh`, `sips`) — пропуск
    остаётся, комментарий называет причину для Windows. Комментарии «worfy runs on macOS only»
@@ -162,8 +179,9 @@ Harness (Ticket 05); test-ы qmd (Ticket 15); Windows-раннер на PR (Q23 
 - `.github/workflows/ci.yml`
 
 `src/main/github/prs.ts` и `src/main/ipc/checks.ts` меняются, только если подмена `gh` идёт через
-код worfy (пункт 7). Остальные файлы из списка Ticket-а 02 исполнитель дописывает сюда до начала
-работы: по ним worfy считает пересечения Wave. `playwright.config.ts` и `vitest.config.ts`
+код worfy (пункт 7). Остальные файлы из списка evidence Ticket-а 01 (раздел 17) и Итог-а Ticket-а 02,
+которые к началу ещё красные, исполнитель дописывает сюда до начала работы: по ним worfy считает
+пересечения Wave. `playwright.config.ts` и `vitest.config.ts`
 меняются, только если без этого test-ы на Windows не идут; тогда они тоже идут в этот список.
 
 Ticket 05 меняет stub-ы скриптов Harness в тех же e2e-файлах, Ticket 13 — `harness-install.test.ts`.

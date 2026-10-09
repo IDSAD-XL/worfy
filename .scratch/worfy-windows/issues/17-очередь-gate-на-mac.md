@@ -30,6 +30,10 @@ Source: решения владельца 2026-10-08: Q32 (команда Harnes
   `accountAuth` — `:95`). Метки, время создания и коммиты PR в этом чтении не запрашиваются.
 - Profile worfy читает через `bin/profile` (`profileRunner`, `src/main/workflow/profile.ts:58`).
   Поле `cross_machine_gate` (Ticket 07) worfy не читает.
+- `gh … --jq` без внешнего `jq` на Windows-ПК работает: `gh pr list --json number,headRefName,files
+  --jq '…'` в Git Bash — EXIT=0, а `jq` в Git Bash нет (evidence Ticket-а 01, разделы 05 и 19).
+- `pnpm test` на Windows-ПК до Epic-а не зелёный: 55 файлов упали (evidence, раздел 17); их чинят
+  Ticket-ы 02–14.
 
 ## Что делаем
 
@@ -141,7 +145,7 @@ Linked machine-ах — Epic `worfy-link`, Ticket 13; живой проход о
 - [ ] Unit `test/unit/launch.test.ts` и contract `test/contract/actions.test.ts`: `actions.gateQueue` при `serve` шлёт `/worfy:gate-queue` Orchestrator-у Project-а. При `request`, без поля, с пустым шаблоном и при идущем Autopilot — отказ с причиной из пункта 7, сообщение не отправлено.
 - [ ] Unit `test/unit/palette-commands.test.tsx` и `test/unit/shell.test.tsx`: при `serve` — команда palette `Process gate queue` с detail `2 PRs waiting, oldest 3 h` (без ждущих — `queue empty`) и пункт меню Project-а; при `request` и без поля — ни команды, ни пункта.
 - [ ] Unit `test/unit/autopilot-run.test.ts` и `test/unit/autopilot-journal.test.ts`: прогон на `serve` без готовой Wave — в журнале `gate-queue` с текстом шаблона, затем `run-stopped` с `no-ready-wave`; то же с `blocked-tickets`. На `request`, после Stop владельцем и при `limits-timeout` события `gate-queue` нет. Схема журнала принимает `gate-queue`.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 на Windows-ПК. Mac: gate full зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
+- [ ] Windows-ПК: `pnpm lint`, `pnpm typecheck` — exit 0; `pnpm test` — exit 0, а пока не влит Ticket 14 — падения сверены со списком evidence Ticket-а 01 (раздел 17) и Итог-а Ticket-а 02: новых нет. Mac: gate full зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
 - [ ] (вручную) Mac, упакованная сборка этой ветки (`pnpm package`), открытая через `open`, Project worfy: очередь читается настоящим `gh`. В palette — команда `Process gate queue`, в detail посчитан PR этого Ticket-а (метка есть, отчёта ещё нет); в меню Project-а — пункт «Process gate queue». Команду не запускать: она прошла бы и этот PR. Detail и снимки palette и меню в двух темах — в отчёт Session на Mac в PR (через раздел Mac checks PR, Q33).
 - [ ] (вручную) Mac, та же сборка: уведомление о PR, который ждёт больше часа, — снимок и номер PR в отчёт в PR. Такого PR за время проверки не было (после rebase ожидание этого PR считается заново) — пункт закрывает `test/unit/notify.test.ts`, в отчёт — «живого случая не было» (через раздел Mac checks PR, Q33).
 

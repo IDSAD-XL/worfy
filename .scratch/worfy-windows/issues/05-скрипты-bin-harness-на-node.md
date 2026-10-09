@@ -27,11 +27,17 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
   - `process.env.HOME` без запасного `os.homedir()`. `harness/bin/profile:33` —
     `path.join(process.env.HOME, …)`: без `HOME` бросает исключение на старте. `profile:177` — то же
     для проверки рабочей папки. `harness/bin/worktree-lock:39` без `HOME` молча ничего не делает.
-    В обычном окружении Windows переменной `HOME` нет; Git Bash её задаёт.
+    В обычном окружении Windows переменной `HOME` нет; Git Bash её задаёт (на ПК: в PowerShell
+    `HOME` пуст, в Git Bash — `/c/Users/Alexey`; evidence Ticket-а 01, раздел 07).
   - Соседний скрипт зовётся по пути без интерпретатора, то есть по shebang (строке `#!` в начале
     файла): `harness/bin/ticket:83` и `:107` (`profile`), `harness/bin/epic-board:66` (`ticket root`)
-    и `:74` (`epic-status`). На Windows файл без расширения так не запускается. `profile:139` зовёт
+    и `:74` (`epic-status`). На Windows файл без расширения так не запускается: на ПК
+    `node harness/bin/epic-board --help` — EXIT=2, `tickets root not determined: spawnSync
+    C:\Users\Alexey\worfy\harness\bin\ticket ENOENT` (evidence, раздел 18). `profile:139` зовёт
     `node` по имени из PATH, а не тот node, что запустил его.
+  - Из Git Bash (Bash tool) по shebang скрипты `bin` запускаются: `./harness/bin/profile --help` и
+    `./harness/bin/epic-status --json` — EXIT=0; `bash harness/bin/epic-status --json` с CRLF в
+    рабочем дереве — EXIT=0, валидный JSON (evidence, разделы 18, 19 и 21).
   - `epic-board:355` открывает страницу командой macOS `open`.
 - **worfy зовёт `epic-status` и `profile` по shebang**: `src/main/workflow/reader.ts:99`,
   `src/main/workflow/profile.ts:64`.
@@ -92,9 +98,9 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
    - Нет `node` в PATH окружения — свой текст: `node not found in PATH`, а не «epic-status not
      found».
 6. **Вызовы из skills не меняются.** Имена скриптов без расширения, путь
-   `${CLAUDE_PLUGIN_ROOT}/bin/<имя>` прежний. Работает ли вызов по shebang в Git Bash, проверяет
-   Ticket 01. Если нет, skills переходят на явный `node` (ADR-0055 пункт 2), и этот срез Ticket 01
-   добавляет в Epic.
+   `${CLAUDE_PLUGIN_ROOT}/bin/<имя>` прежний. Вызов по shebang в Git Bash работает — и в Bash tool,
+   и в команде hook-а (evidence Ticket-а 01, разделы 13 и 19), поэтому перехода skills на явный
+   `node` в Epic-е нет.
 7. **Stub-ы `epic-status` и `profile` в test-ах worfy — Node-скрипты.** После пункта 5 worfy зовёт
    оба скрипта через `node`, а test-ы подкладывают вместо них shell-скрипты: `#!/bin/sh` и
    `cat '<fixture>'`, `echo` или `printf`. node такой файл не выполнит: `cat '…'` для него —
@@ -118,7 +124,7 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 - [ ] `head -1 harness/bin/epic-status` — `#!/usr/bin/env node`; `grep -n 'process.env.HOME' harness/bin/profile harness/bin/worktree-lock` — exit 1.
 - [ ] `harness-home.test.sh`, новый случай: копия `harness/` со снятым битом исполнения у всех файлов `bin` (`chmod -x`). В ней `node <копия>/bin/ticket root`, `node <копия>/bin/epic-status --json` и `node <копия>/bin/epic-board --no-open --out …` — exit 0. Так на Mac проверяется, что соседи зовутся не по shebang. На нынешнем main случай красный.
 - [ ] `bash harness/bin/tests/<файл>` для `profile.test.sh`, `tickets-root.test.sh`, `harness-home.test.sh` и `epic-status.test.sh` — exit 0 на Mac; в `pnpm test` (`test/contract/harness-scripts.test.ts`) — зелёные.
-- [ ] Те же четыре test-а — exit 0 в Git Bash на Windows-ПК. Случай, который на Windows не может пройти (например, symlink в `harness-home.test.sh:196`), пропускается со строкой `skip <причина>` только на Windows; причина — в Итог.
+- [ ] Те же четыре test-а — exit 0 в Git Bash на Windows-ПК. Случай, который на Windows не может пройти (например, symlink в `harness-home.test.sh:196`: без режима разработчика symlink на ПК — `EPERM`, evidence Ticket-а 01, раздел 22), пропускается со строкой `skip <причина>` только на Windows; причина — в Итог.
 - [ ] `test/contract/workflow-reader.test.ts`, новый случай: в `process.env` нет node, в окружении, переданном runner-у, есть — Epic-и и Ticket-ы читаются. На нынешнем main он красный.
 - [ ] `test/contract/workflow-reader.test.ts`: нет файла `epic-status` — `not-found` с обоими путями (прежний случай `:339`); нет `node` в PATH окружения — `not-found` с текстом про node. `test/contract/workflow-profile.test.ts`: нет файла `profile` — отказ, а не exit 1.
 - [ ] Windows-ПК, dev-сборка: Canvas Project-а worfy показывает рамки Epic-ов с Ticket-ами; снимок — `../evidence/05-epic-и-на-windows.png`. На Windows-ПК `node harness/bin/epic-board` открывает страницу в браузере по умолчанию.
@@ -151,10 +157,14 @@ Stub-ы в `workflow-reader.test.ts` и `workflow-profile.test.ts` станов�
 запускает `node`, как и stub-ы пункта 7. Другой путь — stub `node` в PATH окружения test-а, как
 `worfy-profile-node` (`workflow-profile.test.ts:111-120`).
 
-Ожидаемая трудность в Git Bash (на Windows не проверено). Git Bash переводит пути `/tmp/…` в
-аргументах native-программ в `C:\…`, а в содержимое JSON-файлов fixture-ов — нет. Если `match`
-реестра не совпадёт с путём, который видит node, fixture пишет пути через `cygpath -m`, когда тот
-есть.
+Ожидаемая трудность в Git Bash. Git Bash переводит пути `/tmp/…` в аргументах native-программ в
+`C:\…`, а в содержимое JSON-файлов fixture-ов — нет. Если `match` реестра не совпадёт с путём,
+который видит node, fixture пишет пути через `cygpath -m`: в Git Bash ПК он есть, `cygpath -m /tmp`
+→ `C:/Users/Alexey/AppData/Local/Temp` (evidence Ticket-а 01, раздел 05).
+
+На ПК `test/contract/workflow-reader.test.ts` (25 упавших, `code: 'not-found'`) и
+`test/contract/workflow-profile.test.ts` (20 упавших, `no profile script at \h\bin\…`) уже красные
+(evidence, раздел 17): stub-ы `#!/bin/sh` и пути с `/`. Этот Ticket сверяет их с тем списком.
 
 ## Где в коде
 
@@ -194,7 +204,9 @@ Ticket 06 (его `bash …/preflight`, `:186`), поэтому 05 и 06 не и
 дают ещё пересечения: `test/contract/projects.test.ts` — с Ticket-ом 10, `github-prs.test.ts` и
 e2e-файлы — с Ticket-ом 14. С Epic-ом `worfy-link` общие `test/e2e/card-api.spec.ts` (его Ticket 10)
 и `test/contract/projects.test.ts` (его Ticket 11); их видит проверка открытых PR второго Epic-а
-перед Wave (ADR-0056).
+перед Wave (ADR-0056). Открытый PR #150 (E3 Ticket 22) правит `epic-status`, `profile`, `ticket`,
+`epic-board`, `harness-home.test.sh` и `tickets-root.test.sh` (evidence Ticket-а 01, раздел 18):
+перед началом — проверить, влит ли он, и перечитать эти файлы.
 
 ## Итог
 

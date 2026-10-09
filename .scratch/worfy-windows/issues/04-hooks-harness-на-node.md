@@ -25,18 +25,34 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
     `cd … && pwd` (`:43`), в Git Bash это `/c/…`.
   - Все, кроме `inject-rules.sh`, ищут node в nvm и `/opt/homebrew/bin` (`session-start.sh:28-34`,
     `session-end.sh:14-20`, `stop.sh:29-35`).
-- **`harness/hooks/hooks.json`** зовёт скрипты по shebang: `inject-rules.sh` (`:9`, `:18`, `:47`),
-  `session-start.sh` (`:27`), `stop.sh` (`:80`), `session-end.sh` (`:100`), `bin/worktree-lock`
-  (`:36`, `:89`, `:109`), `guard.mjs` (`:121`). Gate (`:58`, `:69`) Ticket 03 уже перевёл на `node`.
+- **`harness/hooks/hooks.json`** (строки — main `76f7ff8`) зовёт скрипты по shebang:
+  `inject-rules.sh` (`:9`, `:18`, `:56`), `session-start.sh` (`:27`), `gh-token-env.sh` (`:36`),
+  `stop.sh` (`:89`), `session-end.sh` (`:118`), `bin/worktree-lock` (`:45`, `:98`, `:127`),
+  `bin/qmd-refresh` (`:107`, его переводит Ticket 15), `guard.mjs` (`:139`). Gate (`:67`, `:78`)
+  Ticket 03 уже перевёл на `node`.
 - **Hooks на Windows** (docs hooks Claude Code): команда hook-а идёт в Git Bash, а без Git Bash — в
   PowerShell. Git for Windows обязателен (Q18), так что команда `node "${CLAUDE_PLUGIN_ROOT}/…"`
-  идёт в Git Bash. Работает ли там вызов по shebang и в каком виде приходят `cwd` и
-  `${CLAUDE_PLUGIN_ROOT}` — evidence Ticket-а 01, раздел 13.
+  идёт в Git Bash. Проверено в песочнице на ПК владельца, Claude Code 2.1.233 (evidence Ticket-а 01,
+  раздел 13):
+  - команда hook-а идёт в `/usr/bin/bash` Git for Windows (MINGW64); вызов по shebang работает и у
+    `.sh`, и у `.mjs` с `#!/usr/bin/env node`; форма `node "${CLAUDE_PLUGIN_ROOT}/…"` находит node;
+  - `${CLAUDE_PLUGIN_ROOT}` (в команде и в окружении) и `CLAUDE_PROJECT_DIR` — `C:/…`; `cwd`,
+    `transcript_path`, `tool_input.file_path` в stdin и `CLAUDE_ENV_FILE` — `C:\…`;
+  - `HOME` у hook-а: в bash — `/c/Users/…`, в node-процессе — `C:\Users\…`; `os.homedir()` —
+    `C:\Users\…` (раздел 07);
+  - переменная, которую hook `SessionStart` пишет в `CLAUDE_ENV_FILE`, доходит до Bash tool, но не до
+    окружения других hook-ов (на этом стоит `gh-token-env`).
+- **jq в Git Bash ПК нет** (evidence, раздел 05): `inject-rules.sh` на Windows сейчас ничего не
+  внедряет (`:29`), а `session-start.sh`, `session-end.sh` и `stop.sh` не разбирают ответы `profile`.
 - **`harness/package.json`** нарочно без `"type"` (`:2`): у скриптов `bin` без расширения Node сам
   определяет, CommonJS это или ES-модуль. Файл с расширением `.mjs` — ES-модуль при любом
   `package.json`.
-- **Hooks, которые добавит E3** (worfy-harness): `harness/hooks/gh-token-env.sh` (E3 Ticket 18, hook
-  `SessionStart`, пишет `GH_TOKEN` в `CLAUDE_ENV_FILE`) и другие — по описи Ticket-а 01.
+- **Hooks E3** (worfy-harness). На main `76f7ff8` уже есть `harness/hooks/gh-token-env.sh` (E3
+  Ticket 18, hook `SessionStart`, пишет `GH_TOKEN` в `CLAUDE_ENV_FILE`; `hooks.json:36`) и его test
+  `harness/hooks/tests/gh-token-env.test.sh`. В открытом PR #150 (E3 Ticket 22, `Status: blocked`)
+  лежит ещё один bash-hook — `harness/hooks/worktree-create.sh`; на main его нет. Опись — evidence
+  Ticket-а 01, раздел 18. Если PR #150 вольют до этого Ticket-а, `worktree-create.sh` — тоже его
+  (вопрос владельцу в Итог Ticket-а 01).
 - **Имена hooks стоят ещё в:** `harness/README.md:15`, `:19`; `harness/profiles/README.md:40`,
   `:157-159`, `:270`; `harness/skills/retro/SKILL.md:35`; `harness/skills/tickets-to-tasks/SKILL.md:116`;
   комментарий `test/contract/harness-plugin.test.ts:82`; комментарии `harness/hooks/gate-resolve.mjs:37-38`
@@ -70,10 +86,10 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
    когда» про Session на Mac.
 6. **`hooks.json`.** Каждая команда — явный `node` и путь к скрипту, как велит ADR-0055 (пункт 2) и
    как Ticket 03 сделал для Gate: `node "${CLAUDE_PLUGIN_ROOT}/hooks/stop.mjs"`. Это четыре новых
-   hooks, `bin/worktree-lock` (`:36`, `:89`, `:109`) и `guard.mjs` (`:121`). События, matcher-ы и
+   hooks, `gh-token-env`, `bin/worktree-lock` (`:45`, `:98`, `:127`) и `guard.mjs` (`:139`). События, matcher-ы и
    timeout-ы не меняются.
-7. **Hooks E3 на bash** — `gh-token-env.sh` и остальные по описи Ticket-а 01 — переводятся так же,
-   вместе со своими test-ами.
+7. **Hooks E3 на bash** — `gh-token-env.sh` (на main) и, если PR #150 влит, `worktree-create.sh`
+   (опись — evidence Ticket-а 01, раздел 18) — переводятся так же, вместе со своими test-ами.
 8. **Ссылки на имена** — список в «Что происходит». После правки
    `git grep -nE '(inject-rules|session-start|session-end|stop)\.sh' -- harness src` пуст.
 
@@ -102,12 +118,13 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 Остальное:
 
 - Ожидания вывода в test-ах не меняются, кроме имён и команд: тот же JSON, те же коды выхода.
-- В test-ах `jq` остаётся, если по evidence Ticket-а 01 он есть в Git Bash ПК (winget `jqlang.jq`).
-  Иначе проверки JSON в test-ах идут через `node -e`.
+- В Git Bash ПК `jq` нет (evidence Ticket-а 01, раздел 05), поэтому проверки JSON в test-ах этого
+  Ticket-а идут через `node -e`, а не `jq`.
 - Случай «нет node» у Stop (`gate-notverified.test.sh:95`) уходит с той же причиной, что у Gate в
   Ticket-е 03.
 - В Git Bash на Windows `session-hooks.test.sh` получает случай с `cwd` в виде, в каком его шлёт
-  Claude Code на Windows (evidence Ticket-а 01, раздел 13).
+  Claude Code на Windows: `C:\…` с `\`, а `CLAUDE_PLUGIN_ROOT` — `C:/…` (evidence Ticket-а 01,
+  раздел 13).
 
 ## Где в коде
 
@@ -122,9 +139,9 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 - `harness/hooks/hooks.json`
 - `harness/hooks/gate.mjs`
 - `harness/hooks/gate-resolve.mjs`
-- `harness/hooks/gh-token-env.sh` (из E3 Ticket 18, удаляется; список hooks E3 уточняет Ticket 01)
+- `harness/hooks/gh-token-env.sh` (из E3 Ticket 18, на main; удаляется)
 - `harness/hooks/gh-token-env.mjs` (новый)
-- `harness/hooks/tests/gh-token-env.test.sh` (из E3 Ticket 18)
+- `harness/hooks/tests/gh-token-env.test.sh` (из E3 Ticket 18, на main)
 - `harness/hooks/tests/rules-hooks.test.sh`
 - `harness/hooks/tests/session-hooks.test.sh`
 - `harness/hooks/tests/gate-notverified.test.sh`

@@ -145,13 +145,13 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
 
 ## Готово, когда
 
-- [ ] `.scratch/worfy-windows/evidence/01-факты-windows.md` есть. В нём версии инструментов и номер build Windows. `grep -c '^### ' .scratch/worfy-windows/evidence/01-факты-windows.md` печатает не меньше 15. Каждый раздел — команда, вывод и вывод одной фразой либо «не установлено» с причиной.
-- [ ] В evidence — исход `pnpm install --frozen-lockfile`, `pnpm dev`, `pnpm lint`, `pnpm typecheck` и `pnpm test` на Windows: exit code каждой команды и хвост вывода; для `pnpm dev` — снимок окна или текст ошибки; для `pnpm test` — список упавших файлов с причиной.
+- [x] `.scratch/worfy-windows/evidence/01-факты-windows.md` есть. В нём версии инструментов и номер build Windows. `grep -c '^### ' .scratch/worfy-windows/evidence/01-факты-windows.md` печатает не меньше 15. Каждый раздел — команда, вывод и вывод одной фразой либо «не установлено» с причиной.
+- [x] В evidence — исход `pnpm install --frozen-lockfile`, `pnpm dev`, `pnpm lint`, `pnpm typecheck` и `pnpm test` на Windows: exit code каждой команды и хвост вывода; для `pnpm dev` — снимок окна или текст ошибки; для `pnpm test` — список упавших файлов с причиной.
 - [ ] В evidence — опись скриптов `harness/bin` и `harness/hooks` на main после закрытия E3, с выводом команды описи. Каждый скрипт на bash и zsh приписан ровно к одному из Ticket-ов 03, 04, 05, 06 или 15.
-- [ ] В evidence — раздел «Как ведётся Epic, пока Harness не на Node»: установка Harness и Profile на ПК, команды для статуса Ticket-а, для epic-status, проверка вместо Gate, просмотр открытых PR worfy-link.
-- [ ] Smart App Control: состояние в evidence. Если он включён — вопрос о подписи задан владельцу, ответ записан в evidence и в Ticket 12.
-- [ ] Ticket-ы 02–17 правлены по фактам, каждая правка ссылается на раздел evidence. `bash harness/bin/epic-status --json > "$TMP/es.json"; echo $?` печатает 0. `--json` стоит до имени Epic-а: после имени печатается строка этапа, а не JSON; вывод — Ticket-ы всех Epic-ов репозитория. Отбор — на node, потому что `jq` в Git Bash может не быть (это проверяет этот же Ticket): `node -e "const t=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).tickets.filter(x=>x.epic==='worfy-windows'); console.log(t.length, t.every(x=>x.blockedParsed), t.every(x=>x.blockedNums.every(n=>n>=1&&n<=17)))" "$TMP/es.json"` печатает `17 true true`: 17 Ticket-ов Epic-а `worfy-windows`, у каждого `blockedParsed: true`, в `blockedNums` только номера 1–17.
-- [ ] `git diff --name-only origin/main...HEAD` в PR печатает только файлы под `.scratch/worfy-windows`.
+- [x] В evidence — раздел «Как ведётся Epic, пока Harness не на Node»: установка Harness и Profile на ПК, команды для статуса Ticket-а, для epic-status, проверка вместо Gate, просмотр открытых PR worfy-link.
+- [x] Smart App Control: состояние в evidence. Если он включён — вопрос о подписи задан владельцу, ответ записан в evidence и в Ticket 12.
+- [x] Ticket-ы 02–17 правлены по фактам, каждая правка ссылается на раздел evidence. `bash harness/bin/epic-status --json > "$TMP/es.json"; echo $?` печатает 0. `--json` стоит до имени Epic-а: после имени печатается строка этапа, а не JSON; вывод — Ticket-ы всех Epic-ов репозитория. Отбор — на node, потому что `jq` в Git Bash может не быть (это проверяет этот же Ticket): `node -e "const t=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).tickets.filter(x=>x.epic==='worfy-windows'); console.log(t.length, t.every(x=>x.blockedParsed), t.every(x=>x.blockedNums.every(n=>n>=1&&n<=17)))" "$TMP/es.json"` печатает `17 true true`: 17 Ticket-ов Epic-а `worfy-windows`, у каждого `blockedParsed: true`, в `blockedNums` только номера 1–17.
+- [x] `git diff --name-only origin/main...HEAD` в PR печатает только файлы под `.scratch/worfy-windows`.
 
 ## Тесты
 
@@ -170,4 +170,64 @@ Ticket-ами других Epic-ов общих файлов нет.
 
 ## Итог
 
-Заполняется при закрытии.
+Evidence — [`../evidence/01-факты-windows.md`](../evidence/01-факты-windows.md), снят 2026-10-09 на
+ПК владельца (Windows 11 Pro 25H2, build 26200, x64), main `76f7ff8`. Пункт описи после закрытия E3
+не отмечен: опись сделана на текущем main (раздел 18), повтор — отдельным коммитом после E3.
+
+Правки Ticket-ов:
+
+- 02 — node-pty: выбрана готовая сборка (`prebuilds/win32-x64` грузится в Electron 44.5.1, а
+  пересборка падает и с Build Tools: `GetCommitHash.bat` из-за `NoDefaultCurrentDirectoryInExePath`,
+  `MSB8040` Spectre), Build Tools не требуются; pnpm 11 повторяет install перед каждым скриптом;
+  скрипты идут через cmd.exe; CRLF в Git Bash не ломает скрипты, но валит `make-icons`; числа
+  `--eol` и исходный список упавших test-ов (разделы 03, 08, 09, 10, 17, 20, 21).
+- 03 — git печатает `C:/…` (заглавная буква, `/`), отсюда правило тега; `shasum` есть, `jq` нет;
+  node в hook-е находится; строки `hooks.json` по main (разделы 05, 06, 07, 13, 17, 18).
+- 04 — hooks на Windows проверены: shebang и `node "${CLAUDE_PLUGIN_ROOT}/…"` работают, формы путей
+  `C:/` и `C:\`, `CLAUDE_ENV_FILE` → Bash tool; `jq` нет — JSON в test-ах через `node -e`;
+  `gh-token-env.sh` уже на main, `worktree-create.sh` в PR #150; строки `hooks.json` (разделы 05, 13, 18).
+- 05 — `epic-board` падает на ENOENT при вызове соседа; shebang в Git Bash работает, поэтому
+  перехода skills на явный `node` нет; `cygpath` есть; symlink — EPERM; PR #150 правит те же файлы
+  (разделы 05, 07, 13, 18, 19, 22).
+- 06 — perl есть, `jq` нет; исход `preflight` на ПК без Profile; `cygpath` есть; PR #150 правит
+  `preflight` (разделы 05, 06, 18).
+- 07 — `stat -f %m` и `date -v-14d` на ПК — exit 1; `TMPDIR` задан; `gh --jq` работает без `jq`;
+  явный `node` в skills не нужен; `NoDefaultCurrentDirectoryInExePath` в окружении агента (разделы
+  05, 13, 19, 20).
+- 08 — `projectDirName` совпадает с Claude Code (пункт 4 без правки кода); `procStart` — FILETIME =
+  `CreationDate`; `file_path` с `\`; оболочка `statusLine` не проверена; упавшие test-ы среза
+  (разделы 12, 13, 17, 23).
+- 09 — Claude Code сам нашёл Git Bash при WSL-bash первым в PATH; `claude.exe` в SDK-пакете;
+  переменные родительской Session и `NoDefaultCurrentDirectoryInExePath`; `findOnPath` и псевдоним
+  MSIX; упавшие test-ы среза (разделы 04, 13, 14, 17, 20, 25).
+- 10 — node-pty запускает pwsh (MSIX), powershell и Git Bash через ConPTY; pwsh из winget — псевдоним,
+  невидимый `existsSync`, — в поиск и в unit-test; кавычки в аргументах (разделы 01, 09, 16, 17, 25).
+- 11 — `pnpm dev` на ПК открывает окно на First run; рамка и клавиши не проверялись (раздел 17).
+- 12 — `claude-agent-sdk-win32-x64` ставится сам; prebuild node-pty годится при `npmRebuild: false`;
+  Smart App Control выключен; скрипты pnpm — cmd.exe; `make-icons` красный из-за CRLF; E3 13/15/21
+  на main (разделы 02, 03, 06, 09, 10, 14, 17, 24).
+- 13 — код E3 (первый запуск, установщик, перенос) уже на main, `jq` проверяется и в Git Bash его
+  нет; pwsh — MSIX; Git Bash находится; `harness-install` падает на stub без `.exe` (разделы 04, 05,
+  13, 16, 17, 24, 25).
+- 14 — исходный список 55 упавших файлов и общие причины (symlink, untrusted frame, `/bin/sh`, WSL
+  bash); PATH ПК без `sh`; решение по symlink — в Итог с владельцем (разделы 04, 05, 17, 22).
+- 15 — qmd 2.8.3 ставится, но падает с 0xC0000005 на любой команде с индексом — ожидаемый путь Б;
+  E3 Ticket 17 на main; кодировка имени `projects` (разделы 12, 15, 18, 24).
+- 16 — Smart App Control выключен на ПК; `jq` на экране первого запуска против пункта 1 Epic-а;
+  CRLF скриптов в Git Bash незаметен (разделы 02, 03, 05, 21, 24).
+- 17 — `gh --jq` без `jq`; пункт `pnpm test` на Windows сверяется со списком, пока не влит 14
+  (разделы 05, 17, 19).
+
+Работу ни одного Ticket-а факты целиком не сняли.
+
+Вопросы владельцу (заданы в отчёте PR):
+
+- Smart App Control по реестру выключен (`VerifiedAndReputablePolicyState = 0`) — сверить в Windows
+  Security → App & browser control.
+- `jq` — экран первого запуска (`checks.ts:132`) требует его, а в Git for Windows его нет: добавить
+  `jqlang.jq` в требования чистой Windows (пункт 1 «Готово, когда» Epic-а) или убрать `jq` из skills
+  и проверки на Windows?
+- `harness/hooks/worktree-create.sh` (bash, PR #150, E3 Ticket 22) — если его вольют, переводить на
+  Node в Ticket-е 04?
+- Symlink в test-ах: на ПК режим разработчика выключен и 7 файлов test-ов падают с EPERM — пропуск на
+  `win32` или включить режим разработчика (Ticket 14)?

@@ -18,6 +18,9 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
     `.w-sidebar__titlebar` высотой с toolbar (`shell.css:20-24`, `src/renderer/shell/Sidebar.tsx:15`);
   - toolbar и эти полосы — области перетаскивания окна (`-webkit-app-region: drag`, `shell.css:23`,
     `:53`; `focus.css:31`).
+- На ПК владельца `pnpm dev` (с `--config.verify-deps-before-run=false`, пока не влит Ticket 02)
+  открывает окно worfy на экране First run; рамку, меню и клавиши никто не смотрел (evidence
+  Ticket-а 01, раздел 17).
 - Renderer систему не знает. Preload отдаёт только `invoke`, `on` и `off` (`src/preload/index.ts:10-29`),
   в `src/renderer` проверок системы нет.
 - **Меню.** `menuTemplate` (`src/main/menu.ts:11-34`) уже не ставит `appMenu` вне macOS (`:13`).

@@ -32,18 +32,28 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
 - **Git Bash.** Без него у Claude Code на Windows нет Bash tool, hooks с matcher `Bash` молчат
   (ADR-0054, документация hooks Claude Code). Путь к Git Bash можно задать переменной
   `CLAUDE_CODE_GIT_BASH_PATH` — она есть в списке переменных SDK
-  (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`). Как Claude Code ищет Git Bash без неё —
-  не установлено (проверяет Ticket 01). worfy её не задаёт: `grep -rn GIT_BASH src` пуст. `bash.exe`
-  из PATH ненадёжен: на Windows с WSL есть `C:\Windows\System32\bash.exe` — это запуск WSL, не
-  Git Bash.
+  (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`). worfy её не задаёт: `grep -rn GIT_BASH
+  src` пуст. На ПК владельца Claude Code 2.1.233 без этой переменной нашёл
+  `C:\Program Files\Git\bin\bash.exe` (так `SHELL` у hook-а), хотя первым `bash` в PATH стоит WSL;
+  как он ищет — не установлено (evidence Ticket-а 01, разделы 04 и 13). `bash.exe` из PATH
+  ненадёжен: на ПК первый — `C:\Windows\System32\bash.exe`, запуск WSL, и он даже не стартует (WSL2
+  без виртуализации, EXIT=1; раздел 04). В постоянном PATH ПК из Git только `C:\Program Files\Git\cmd`.
+- **Переменные родительской Session на ПК.** Процесс Session Claude Code несёт `CLAUDECODE=1`,
+  `CLAUDE_CODE_*` (22 имени, среди них `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_ENTRYPOINT`,
+  `CLAUDE_CODE_MESSAGING_*`), `CLAUDE_AGENT_SDK_*`, `CLAUDE_PID` и `NoDefaultCurrentDirectoryInExePath=1`.
+  Последней нет в реестре User и Machine (evidence, раздел 20); с ней cmd.exe не находит `.bat` в
+  текущей папке — так на ПК падает пересборка node-pty (раздел 08). `pnpm dev` из Bash tool отдаст
+  всё это worfy.
 - **Бинарник.** В упакованной сборке `claudeExecutablePath` (`src/main/agent/options.ts:51-54`)
   отдаёт `<resources>/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-<platform>-<arch>/claude`.
-  В пакете `claude-agent-sdk-win32-x64` файл называется `claude.exe` (ADR-0054, бриф фактов). В
-  `pnpm dev` путь не задаётся, бинарник ищет SDK (`:52`).
+  В пакете `claude-agent-sdk-win32-x64` файл называется `claude.exe`: на ПК pnpm поставил
+  `@anthropic-ai/claude-agent-sdk-win32-x64@0.3.289`, `claude.exe --version` — `2.1.289 (Claude
+  Code)`, EXIT=0 (evidence Ticket-а 01, раздел 14). В `pnpm dev` путь не задаётся, бинарник ищет SDK
+  (`:52`).
 - **Test-ы.** `test/unit/agent-env.test.ts` гоняет настоящий zsh только на Mac (`onMac`, `:30`).
-  `test/unit/agent-executable.test.ts:13-37` ждёт путей `darwin`. Test `:29-37` на Windows упадёт и
-  сам: он ждёт файл `claude` без `.exe` и путь `/R/…` с `/`. Что из этих файлов упало на ПК —
-  список Ticket-а 02 (Итог).
+  `test/unit/agent-executable.test.ts:13-37` ждёт путей `darwin`. На ПК `agent-executable.test.ts` —
+  2 упавших (`'\Applications\worfy.app\…'` вместо `'/Applications/…'`), `agent-env.test.ts` в
+  списке упавших нет (evidence, раздел 17).
 - E3 (`worfy-harness`) ещё открыт. Его Ticket-ы 17, 18 и 19 опираются на `env.ts` и `options.ts`
   (qmd, `GH_TOKEN` через hook, экран первого запуска). Строки выше — main 4f983ef. Перед началом
   перечитать `src/main/agent/env.ts`, `src/main/agent/options.ts` и
@@ -55,7 +65,8 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
    запускает. Основа — окружение процесса worfy. Из него убираются:
    - `ANTHROPIC_API_KEY` и `ANTHROPIC_AUTH_TOKEN`, как на Mac; имя сравнивается без учёта регистра;
    - переменные родительской Session Claude Code: имена с началом `CLAUDE` или `ANTHROPIC_` (без
-     учёта регистра), которых нет в постоянном окружении пользователя. Постоянное окружение — реестр:
+     учёта регистра) и `NoDefaultCurrentDirectoryInExePath` (evidence Ticket-а 01, раздел 20),
+     которых нет в постоянном окружении пользователя. Постоянное окружение — реестр:
      `HKCU\Environment` и `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment`,
      команда `reg query`. Так переменная, заданная самим пользователем (`setx ANTHROPIC_MODEL …`),
      доходит до Claude Code — как на Mac доходит экспорт из rc-файла (ADR-0007).
@@ -67,7 +78,9 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
    Окружение процесса, ответ `reg query` и проверка файлов передаются в функцию параметрами — для
    test-ов.
 2. **Git Bash для Claude Code** (Q18). В `src/main/agent/env.ts` — экспортируемые `findOnPath` (поиск
-   `<имя>.exe` по `Path` окружения) и `findGitBash`. Тот же helper потом берут экран первого
+   `<имя>.exe` по `Path` окружения; псевдоним MSIX в `WindowsApps`, например pwsh из winget, —
+   найденный файл, хотя `fs.existsSync` для него false: evidence Ticket-а 01, раздел 25) и
+   `findGitBash`. Тот же helper потом берут экран первого
    запуска (Ticket 13), Terminal (Ticket 10) и test-ы Harness на Windows (Ticket 14). Порядок поиска:
    - от `git.exe` из `Path`: корень Git for Windows — папка над `cmd`, `bin` или `mingw64\bin`, в
      которой лежит `git.exe`; Git Bash — `<корень>\bin\bash.exe`;
@@ -90,8 +103,8 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
    (номер выдаёт ship-ticket при мерже): окружение процесса без ключей API и без переменных
    родительской Session, Git Bash через `CLAUDE_CODE_GIT_BASH_PATH`, `claude.exe`. ADR-0007 принят и
    не правится; новый ADR ссылается на него и на ADR-0054.
-6. **Test-ы своего среза.** Test-ы `test/unit/agent-env.test.ts` и
-   `test/unit/agent-executable.test.ts` из списка Ticket-а 02 (упали на Windows) — зелёные на ПК.
+6. **Test-ы своего среза.** `test/unit/agent-executable.test.ts` (упал на ПК, evidence Ticket-а 01,
+   раздел 17) и `test/unit/agent-env.test.ts` — зелёные на ПК.
    Test-ы `onMac` (`agent-env.test.ts:30`) не трогаем: пять test-ов `skipIf(platform !== 'darwin')`
    разбирает Ticket 14.
 

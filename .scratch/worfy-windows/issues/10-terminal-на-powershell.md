@@ -25,7 +25,18 @@ Source: решения владельца 2026-10-07: Q20 (Terminal на Windows
   (`node_modules/node-pty/lib/windowsPtyAgent.js:133-160`). Процесс, у которого своя консоль или
   окно (например, запущенный через `Start-Process`), в этот список не входит.
 - ConPTY node-pty включает при сборке Windows ≥ 18309 (`lib/windowsPtyAgent.js:37-38`). Q24 —
-  Windows 10 21H2 (сборка 19044) и новее, ветка winpty не нужна.
+  Windows 10 21H2 (сборка 19044) и новее, ветка winpty не нужна. На ПК владельца (build 26200)
+  node-pty из `prebuilds/win32-x64` в Electron 44.5.1 запускает через ConPTY `cmd.exe`, `pwsh.exe`,
+  `powershell.exe` и `C:\Program Files\Git\bin\bash.exe --login` (evidence Ticket-а 01, разделы 01 и
+  09). Аргумент с двойными кавычками внутри (`Write-Output ("worfy-" + (2+3))`) обе PowerShell
+  получили сломанным, EXIT=1: node-pty склеивает аргументы в командную строку.
+- **pwsh из winget — MSIX.** `winget install Microsoft.PowerShell` на ПК поставил пакет MSIX
+  (`C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.6.0_…`), а в `Path` лежит только псевдоним
+  `%LOCALAPPDATA%\Microsoft\WindowsApps\pwsh.exe`. node-pty его запускает, но `fs.existsSync` по
+  этому пути — `false`, `fs.statSync` — `EACCES`, `fs.lstatSync` видит symlink (evidence, разделы 09,
+  16 и 25). Поиск «файл есть в `Path`» через `existsSync` такой pwsh пропустит.
+- На ПК `test/contract/terminal.test.ts` — 20 упавших, `terminal.open failed: File not found:`;
+  `test/contract/node-pty.test.ts` — 1, спавнит `/bin/echo` (evidence, раздел 17).
 - **Настроек оболочки нет.** Единственный экран настроек worfy — настройки Project-а: окно
   `src/renderer/shell/ProjectSettings.tsx`, схема `projectSettingsSchema`
   (`src/shared/projects/action-templates.ts:120-123`), файл `<папка данных Project-а>/settings.json`
@@ -49,7 +60,8 @@ Source: решения владельца 2026-10-07: Q20 (Terminal на Windows
    - Не Windows — `env.SHELL ?? '/bin/zsh'` с `-l`, как сейчас.
    - Windows, PowerShell (по умолчанию): `pwsh.exe` из `Path` окружения агента (`findOnPath`,
      Ticket 09); нет его — `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`. Аргумент
-     `-NoLogo`, без `-l`.
+     `-NoLogo`, без `-l`. Поиск находит и pwsh из MSIX — псевдоним в `WindowsApps`, который
+     `fs.existsSync` не видит (evidence Ticket-а 01, раздел 25): например, через `fs.lstatSync`.
    - Windows, Git Bash: `findGitBash` (Ticket 09) с `--login -i`. Git Bash не найден — Terminal
      запускает PowerShell, причина — в лог.
 
@@ -97,7 +109,8 @@ Terminal на фоне ускорителей меню и горячих кла�
 ## Готово, когда
 
 - [ ] Unit `test/unit/terminal-shell.test.ts` (новый): `win32`, PowerShell, `pwsh.exe` в `Path` →
-  `pwsh.exe` и `['-NoLogo']`; без `pwsh` → `…\WindowsPowerShell\v1.0\powershell.exe`; Git Bash →
+  `pwsh.exe` и `['-NoLogo']`; `pwsh.exe` — псевдоним MSIX в `WindowsApps` (`existsSync` — false,
+  `lstat` — symlink) → тоже `pwsh.exe`; без `pwsh` → `…\WindowsPowerShell\v1.0\powershell.exe`; Git Bash →
   `bash.exe` и `['--login', '-i']`; Git Bash выбран, но не найден → PowerShell; `darwin` →
   `$SHELL -l`, без `SHELL` — `/bin/zsh -l`.
 - [ ] Unit (`TerminalRegistry` с подменённым `spawn`): на `win32` `close` вызывает функцию, которая

@@ -24,9 +24,11 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 - **Тайм-аут на perl.** `with_timeout` (`:70-83`) делает fork, ставит ребёнку свою группу процессов
   (`setpgrp`) и по тайм-ауту шлёт TERM, через 0.5 s — KILL всей группе (`kill -$pid`); код 124.
   Группа нужна потому, что `git fetch` оставляет `git-remote-https`, а `gh` не умирает от SIGALRM
-  (`:27-29`). На Windows нет сигналов группе процессов. Есть ли perl в Git Bash, проверяет Ticket 01.
+  (`:27-29`). На Windows нет сигналов группе процессов. perl в Git Bash ПК есть (`/usr/bin/perl`,
+  evidence Ticket-а 01, раздел 05).
 - **Прочие зависимости от shell.** `jq` — в `mig_last` (`:107-114`) и `check_prs` (`:395-397`); без
-  `jq` миграции пропускаются с предупреждением (`:358`). awk, sort, uniq, paste, sed — в функциях ADR
+  `jq` миграции пропускаются с предупреждением (`:358`). В Git Bash ПК `jq` нет (раздел 05): на
+  Windows миграции сейчас не проверяются. awk, sort, uniq, paste, sed — в функциях ADR
   (`:85-105`). `realpath`, `mktemp`, `node -e` для чтения JSON Profile-а (`:151-165`). Обрезка темы
   коммита по символам держится на `LC_CTYPE=en_US.UTF-8` (`:39-41`, `cut_chars`, `:62-67`).
 - **Соседи зовутся по shebang**: `$PROFILE_BIN` (`:46`, `:145`), `$BIN/worktree-lock` (`:269`),
@@ -38,6 +40,12 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
   `harness/bin/tests/harness-home.test.sh:186` зовёт `bash "$COPY/bin/preflight"`. Не покрыты
   тайм-аут, функции ADR, миграции и разбор вывода `worktree-lock`. Шапка (`:31-34`) описывает
   проверку функций ADR через `source preflight`.
+- **На ПК владельца** без Harness и Profile: `bash harness/bin/preflight --help` — EXIT=0;
+  `--epic worfy-windows --no-fetch` — EXIT=2, `profile unreadable (profile, exit 1): … gate-resolve.mjs
+  failed (exit 4) — project not determined` (evidence Ticket-а 01, раздел 18). git там печатает пути
+  `C:/…` (раздел 06).
+- Открытый PR #150 (E3 Ticket 22) правит `preflight` и `preflight.test.sh` (evidence, раздел 18):
+  перед началом — проверить, влит ли он, и перечитать оба файла.
 
 ## Что делаем
 
@@ -88,10 +96,10 @@ bash-файла падает. После переписывания он зел�
 Случаи сверки старой и новой версии: прежние 9 случаев `preflight.test.sh` дают тот же вывод.
 Других test-ов вывода нет, поэтому сверка в worktree worfy (пункт «Готово, когда») обязательна.
 
-Ожидаемая трудность в Git Bash (на Windows не проверено). Git Bash переводит пути `/tmp/…` в
-аргументах native-программ в `C:\…`, а в содержимое JSON реестра и Profile-ов fixture-а — нет.
-Если `match` не совпадёт с путём, который видит node, fixture пишет пути через `cygpath -m`, когда
-тот есть.
+Ожидаемая трудность в Git Bash. Git Bash переводит пути `/tmp/…` в аргументах native-программ в
+`C:\…`, а в содержимое JSON реестра и Profile-ов fixture-а — нет. Если `match` не совпадёт с путём,
+который видит node, fixture пишет пути через `cygpath -m`: в Git Bash ПК он есть (evidence Ticket-а
+01, раздел 05).
 
 ## Где в коде
 
