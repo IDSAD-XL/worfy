@@ -3,7 +3,7 @@
 Type: task
 Status: open
 Blocked by: —
-Source: решение владельца 2026-10-09: 4 (один общий стилизованный компонент Select/Menu — стрелки, Enter, Esc, набор букв, ARIA — заменяет каждый native `<select>` в renderer; макет — `docs/design/F-session-dark.dc.html:177-179`) ([spec.md](../spec.md), «Как устроено», «Select»)
+Source: решение владельца 2026-10-09: 4 (один общий стилизованный компонент Select/Menu — стрелки, Enter, Esc, набор букв, ARIA — заменяет каждый native `<select>` в renderer; вид кнопок — макет `docs/design/F-session-dark.dc.html:177-179`) ([spec.md](../spec.md), «Как устроено», «Select»); [worfy-terminal-ai 08](../../worfy-terminal-ai/issues/08-settings-terminal-ai.md) — выбор модели Next command в Settings → «Terminal AI» ждёт этот Ticket
 
 ## Что происходит
 
@@ -21,12 +21,21 @@ Source: решение владельца 2026-10-09: 4 (один общий с�
   Slash-меню (`src/renderer/session/SlashMenu.tsx`).
 - Вид меню в F-SPEC — меню Autopilot (`docs/design/F-SPEC.md:51`): поверхность, рамка 1 px, радиус
   10 px, тень Node-а, отступ 4 px, ширина от 180 px, строки общего вида (13 px).
-- Макет composer-а рисует Model и Effort кнопками с подписью-префиксом и шевроном, а не системным
-  списком (`docs/design/F-session-dark.dc.html:177-178`).
-- Режим фокуса закрывается по Esc, если Node не забрал его раньше: popup внутри Node-а зовёт
-  `preventDefault` (`src/renderer/focus/FocusMode.tsx:232-238`).
-- Test-ы, которые выбирают в native `<select>`: `test/unit/harness-migration-form.test.tsx:149-151`
-  (`fireEvent.change`) и `:158` (`disabled` у `HTMLSelectElement`); test-ы composer-а — Ticket 09.
+- Макет Session (`docs/design/F-session-dark.dc.html:170` — шапка Session) рисует Model и Effort
+  кнопками с подписью-префиксом и шевроном (`:177-178`), а не системным списком. Вид кнопки
+  берётся оттуда.
+- Диалоги, где стоят эти `<select>`, закрываются по Esc в своём `onKeyDown` и `defaultPrevented` не
+  смотрят: `ConnectProject.tsx:779`, `MigrationForm.tsx:318`. Native-список забирал Esc сам; кнопка
+  Select-а — нет, и Esc всплывёт до диалога.
+- Режим фокуса закрывается по Esc, если его никто не забрал раньше (`src/renderer/focus/FocusMode.tsx:232-238`).
+- Диалоги worfy — порталы в `document.body` с `z-index` 90–101; окно Settings Ticket-а 02 — 110.
+- Test-ы, которые полагаются на native `<select>`:
+  - `test/unit/harness-migration-form.test.tsx:149-151` (`fireEvent.change`) и `:158` (`disabled` у
+    `HTMLSelectElement`);
+  - `test/e2e/projects-connect.spec.ts:129`, `:252`, `:272`, `:308` — `toHaveValue` у полей «Reports»
+    и «Finish»: у кнопки значения `value` нет, Playwright бросит ошибку.
+
+  Test-ы composer-а — Ticket 09.
 
 ## Что делаем
 
@@ -34,13 +43,18 @@ Source: решение владельца 2026-10-09: 4 (один общий с�
    по образцу WAI-ARIA «select-only combobox» (выбор без ввода текста).
    - Кнопка: `role="combobox"`, `aria-haspopup="listbox"`, `aria-expanded`, `aria-controls`,
      `aria-activedescendant`; имя — `aria-label` или связанный `<label>` (`id`); `aria-invalid`,
-     `aria-describedby`, `data-testid` передаются на неё.
-   - Список: `role="listbox"`, строки `role="option"` с `aria-selected`. Портал в `document.body`:
-     `overflow` родителя его не режет. Открывается вниз, если места нет — вверх.
-   - Клавиши. Закрыт: ↓, ↑, Enter, Space открывают. Открыт: ↑ и ↓ (по кругу), Home и End; Enter и
-     Space выбирают и закрывают; Esc закрывает без выбора и зовёт `preventDefault`, чтобы не закрыть
-     режим фокуса или диалог под ним; Tab закрывает и уводит фокус дальше. Набор букв переходит к
-     строке, которая с них начинается (буфер сбрасывается через 500 ms). Клик вне — закрывает.
+     `aria-describedby`, `data-testid` передаются на неё. Выбранное значение — в `data-value`
+     кнопки (для test-ов).
+   - Список: `role="listbox"`, строки `role="option"` с `aria-selected`. Портал в `document.body`,
+     `z-index` выше всех диалогов (выше 110 окна Settings): `overflow` родителя его не режет, и он
+     виден над окном Settings. Открывается вниз, если места нет — вверх.
+   - Клавиши — как в образце APG. Закрыт: ↓, ↑, Enter, Space, Home, End открывают. Открыт: ↑ и ↓ —
+     без перехода по кругу, Home и End; Enter и Space выбирают и закрывают; Tab выбирает строку под
+     курсором, закрывает и уводит фокус дальше; набор букв переходит к строке, которая с них
+     начинается (буфер сбрасывается через 500 ms). Клик вне — закрывает.
+   - Esc в открытом списке закрывает его без выбора и дальше не идёт: `preventDefault` и
+     `stopPropagation`. Диалог под Select-ом и режим фокуса этот Esc не получают. Закрытый Select Esc
+     не трогает: он закрывает диалог, как раньше.
    - Props: `value`, `options` (`value`, `label`, `detail`, `disabled`), `onChange`, `disabled`,
      `mono`, `onOpen` (composer обновляет список моделей при открытии), подпись-префикс.
    - Вид. Кнопка — высота 24 px, рамка 1 px, радиус chip-а, шеврон справа (макет). Список — вид
@@ -48,6 +62,11 @@ Source: решение владельца 2026-10-09: 4 (один общий с�
      выбранной — галочка.
 2. **Замена** native `<select>` в `ConnectProject.tsx:634` и `MigrationForm.tsx:212` на `Select`.
    `id`, `aria-invalid`, `aria-describedby` поля и `data-testid="profile-<key>"` переходят на кнопку.
+   Диалоги `ConnectProject` и `MigrationForm` не меняются: Esc им не доходит (пункт 1).
+3. **Test-ы** из «Что происходит» переходят на Select: `toHaveValue` — на `data-value` кнопки,
+   `fireEvent.change` — на клик по кнопке и строке.
+4. Пользователи Select-а после этого Ticket-а: composer (Ticket 09), выбор модели Next command в
+   разделе «Terminal AI» (Ticket 08 `worfy-terminal-ai`, `SettingRow` Ticket-а 02).
 
 Решено в Ticket-е, подтвердить у владельца: свои меню worfy (меню Canvas, Autopilot, контекстные,
 Binding, Slash) на Select не переводятся.
@@ -57,22 +76,31 @@ Binding, Slash) на Select не переводятся.
 ## Готово, когда
 
 - [ ] Unit `test/unit/select.test.tsx` (новый): ARIA кнопки и списка; ↓ открывает, ↑/↓ двигают
-  `aria-activedescendant` по кругу, Enter выбирает и закрывает, Esc закрывает без выбора и событие
-  дальше не идёт (`defaultPrevented`); набор «pl» выбирает строку на «Pl…»; `disabled` не
-  открывается; клик вне закрывает; `onOpen` зовётся при открытии.
+  `aria-activedescendant` и на краях стоят; Enter выбирает и закрывает; Tab выбирает и закрывает;
+  набор «pl» выбирает строку на «Pl…»; `disabled` не открывается; клик вне закрывает; `onOpen`
+  зовётся при открытии.
+- [ ] Unit, тот же файл: Select внутри контейнера с `onKeyDown`, который ловит Esc, и с
+  `window`-слушателем Esc — Esc в открытом списке закрывает список, а ни контейнер, ни `window` его
+  не получают; Esc на закрытом Select-е доходит до контейнера.
 - [ ] Unit `test/unit/harness-migration-form.test.tsx`: поля Profile-а выбираются через Select (клик
-  по кнопке и строке) вместо `fireEvent.change`; неактивное поле — кнопка `disabled`.
+  по кнопке и строке) вместо `fireEvent.change`; неактивное поле — кнопка `disabled`; Esc в открытом
+  списке не закрывает форму.
+- [ ] e2e `test/e2e/projects-connect.spec.ts`: проверки «Reports» и «Finish» (`:129`, `:252`, `:272`,
+  `:308`) читают `data-value` кнопки; зелёный.
 - [ ] e2e `test/e2e/select.spec.ts` (новый): форма Profile-а при подключении Project-а — тем же
   путём, что `test/e2e/projects-connect.spec.ts`; поле открывается с клавиатуры, значение выбирается
-  набором букв и Enter, черновик Profile-а меняется. Снимок `select-open` в светлой и тёмной теме.
-- [ ] grep: в `src/renderer` `<select` — только в `Pickers.tsx` (его меняет Ticket 09).
+  набором букв и Enter, черновик Profile-а меняется; Esc в открытом списке закрывает только список,
+  форма остаётся. Снимок `select-open` в светлой и тёмной теме.
+- [ ] grep: в `src/renderer` `<select` — только в `Pickers.tsx` (его меняет Ticket 09); в `test/e2e`
+  `selectOption` — только в spec-файлах Ticket-а 09.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально —
   exit 0.
 
 ## Тесты
 
-Сначала падающий test — unit «↓ открывает список, Enter выбирает»: компонента нет. В «Итог» — API
-компонента для Ticket-а 09 и как падал первый test.
+Сначала падающий test — unit «↓ открывает список, Enter выбирает»: компонента нет. Затем Esc в
+контейнере. В «Итог» — API компонента для Ticket-а 09 и раздела «Terminal AI» и как падал первый
+test.
 
 ## Где в коде
 
@@ -82,6 +110,7 @@ Binding, Slash) на Select не переводятся.
 - `src/renderer/harness/MigrationForm.tsx`
 - `test/unit/select.test.tsx` (новый)
 - `test/unit/harness-migration-form.test.tsx`
+- `test/e2e/projects-connect.spec.ts`
 - `test/e2e/select.spec.ts` (новый)
 
 ## Итог

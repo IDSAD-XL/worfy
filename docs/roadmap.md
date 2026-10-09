@@ -2,10 +2,10 @@
 
 Status: принята владельцем 2026-10-06; раздел E3 переписан по решениям владельца 2026-10-07; разделы
 `worfy-link` и `worfy-windows` добавлены по решениям владельца 2026-10-07, их «Готово, когда»
-подтверждены 2026-10-08; раздел `worfy-ui` добавлен по решениям владельца 2026-10-09.
+подтверждены 2026-10-08; разделы `worfy-review`, `worfy-terminal-ai` и `worfy-ui` добавлены по решениям владельца 2026-10-09.
 Source: итог проектирования 2026-10-06; [CONTEXT.md](../CONTEXT.md); ADR
 [0017](adr/0017-english-canonical-terms.md)–[0021](adr/0021-mcp-servers-allowlist-in-profile.md), 0040–0047 (E3);
-0052–0056 (`worfy-link` и `worfy-windows`).
+0052–0056 (`worfy-link` и `worfy-windows`); 0058 (`worfy-terminal-ai`).
 
 ## Куда идёт worfy
 
@@ -237,6 +237,65 @@ Project-а в имя папки так же, как worfy ожидает на Ma
 
 **Не в `worfy-windows`:** Windows на arm64; подпись установщика — в E4.
 
+## worfy-review — ревью и минимальные изменения в Harness
+
+Заведён 2026-10-09 по решению владельца: взять в Harness приёмы трёх внешних проектов — ponytail
+(prompt «минимальное изменение»), pstack (набор skills Lauren Tan для Cursor) и Thermos («thermo
+nuclear code review» из `cursor/plugins`). Plugin-ы целиком не ставятся, берутся идеи и формулировки.
+Разбор — [исследование 2026-10-09](research/2026-10-09-ponytail-pstack-thermos.md). Epic
+`worfy-review`, Ticket-ы — в [.scratch/worfy-review/](../.scratch/worfy-review/spec.md).
+
+**Цель.** Reviewer-ы ловят больше реальных дефектов и лишнего кода, а не больше шума; implementer
+пишет минимальное изменение; зависание Electron-приложения оставляет stack trace как evidence.
+
+**Темы:** проверки correctness из Thermos и сортировка находок по группам; линза «упрощение»;
+предупреждение gate о файле больше 1000 строк; лестница минимального изменения и комментарии
+`shortcut:`; диагностика зависаний Electron; журнал решений для Autopilot; режим max review по
+запросу или по пометке риска у Ticket-а.
+
+**Порядок.** Не блокирует E3 и `worfy-link`. Правки `harness/` действуют после `pnpm install:stable`
+(ADR-0047: Harness ставится из Stable copy), линзы живут в Profile вне репозитория.
+
+## worfy-terminal-ai — Terminal AI в Terminal-ах
+
+Спроектирован 2026-10-09 (решения владельца). Epic `worfy-terminal-ai`, Ticket-ы — в
+[.scratch/worfy-terminal-ai/](../.scratch/worfy-terminal-ai/spec.md). Решение —
+[ADR-0058](adr/0058-terminal-ai-assist-process.md).
+
+**Цель.** Модель Claude помогает владельцу набирать команды в Terminal-е worfy — на его подписке, как
+Session-ы. Ничего не запускается само: команду запускает пользователь.
+
+**Готово, когда** (подтверждено владельцем 2026-10-09):
+
+1. В Terminal-е на zsh серый Suggestion появляется сразу из истории команд, а если история молчит —
+   от модели после паузы; → принимает, Option/Alt+→ — по словам, Esc скрывает; его видят все экраны
+   этого Terminal-а; история пользователя пишется как раньше.
+2. После команды появляется Next command; строка `# …` и панель Cmd+I вставляют команду по
+   просьбе словами; «Fix» после ошибки вставляет исправленную. Сама ни одна команда не запускается.
+3. Модель зовёт один общий процесс Claude Code на подписке без MCP, tools, настроек пользователя и
+   транскриптов, hooks встроенных plugin-ов проверены; его запросы видны в Limits; автоматические
+   функции выключаются сами выше 80 % окна 5 часов и при `allowed_warning` или `rejected`.
+4. В модель уходит только перечисленный контекст, секреты заменены; запросов нет во время команды, на
+   альтернативном экране и для строки с пробелом в начале; `~/.zshrc` не меняется.
+5. Всё выключается в Settings → «Terminal AI»; test-ы не тратят подписку; live-проверка владельца
+   пройдена.
+
+**Решения.** [ADR-0058](adr/0058-terminal-ai-assist-process.md) «Terminal AI: свой процесс Claude Code
+на подписке» — Terminal AI не Session: отдельный процесс Claude Code без MCP-серверов, tools,
+настроек пользователя и транскриптов, один на все Terminal-ы, каждый запрос самостоятельный.
+Suggestion — Haiku без thinking, Next command, Command request и Fix — Sonnet. Это исключение из
+правила «Session-ам haiku нельзя»: у assist-процесса нет 634 tools MCP, из-за которых правило
+появилось. Подписка, а не ключ API, — решение владельца с риском: support-статья разрешает Agent SDK
+на лимитах подписки, а страница legal советует разработчикам продуктов ключ API (ADR-0058, пункт 7).
+Серый текст рисует сам zsh (ZLE), а не renderer поверх xterm, поэтому его видят все экраны.
+
+**Порядок.** Идёт на Mac параллельно с Epic-ом [`worfy-ui`](../.scratch/worfy-ui/spec.md). Раздел
+Settings ждёт его окно Settings (Ticket 02) и общий Select (Ticket 08). Приёмку с live-проверкой на
+подписке проводит владелец.
+
+**Не в `worfy-terminal-ai`:** bash и fish — позже; PowerShell на Windows — позже, через предикторы
+PSReadLine; ключ API.
+
 ## worfy-ui — интерфейс и настройки
 
 Спроектирован 2026-10-09 (решения владельца). Epic `worfy-ui`, Ticket-ы — в
@@ -271,8 +330,9 @@ settings…» одного Project-а ([CONTEXT.md](../CONTEXT.md), термин
 и «Link a machine…». Один общий Select заменяет каждый native `<select>`. Ctrl на Windows делает
 Ticket 11 Epic-а `worfy-windows`; реестр сочетаний ждёт его.
 
-**Порядок.** Идёт на Mac сразу, параллельно с `worfy-terminal-ai`. Окно Settings — Ticket 02; его
-ждёт раздел «Terminal AI» Epic-а `worfy-terminal-ai` (PR #202). Реестр сочетаний — после Ticket-а 11
+**Порядок.** Идёт на Mac сразу, параллельно с `worfy-terminal-ai`. Окно Settings — Ticket 02, общий
+Select — Ticket 08; их ждёт раздел «Terminal AI» — Ticket 08 Epic-а
+[`worfy-terminal-ai`](../.scratch/worfy-terminal-ai/spec.md). Реестр сочетаний — после Ticket-а 11
 `worfy-windows`. Проверка на Windows — после приёмки `worfy-windows`.
 
 **Не в `worfy-ui`:** смена сочетаний пользователем; свои меню worfy на общем Select; синхронизация

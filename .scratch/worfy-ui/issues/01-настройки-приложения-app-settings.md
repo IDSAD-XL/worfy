@@ -14,9 +14,11 @@ Source: решения владельца 2026-10-09: 1 (свёрнутость 
   `window-state.json` (`src/main/window.ts:9-12`), `first-run.json` (`src/main/ipc/first-run.ts:147`),
   `viewports.json` (`src/main/layout/viewports.ts:4`), `link/settings.json`
   (`src/main/link/settings.ts:1-8`).
-- Хранилища читают и пишут через `src/main/storage/json-file.ts`: схема zod, атомарная запись через
-  временный файл, нечитаемый файл переименовывается в `<имя>.unreadable-<время>`, и хранилище
-  начинает с пустого состояния (`json-file.ts:1-16`).
+- Хранилища с Ticket-а 04 worfy-mvp читают и пишут через `src/main/storage/json-file.ts`: схема zod,
+  атомарная запись через временный файл, нечитаемый файл переименовывается в
+  `<имя>.unreadable-<время>`, и хранилище начинает с пустого состояния (`json-file.ts:1-16`). Мимо
+  него пишутся `window-state.json` (`json-file.ts:12-13`) и `first-run.json`
+  (`src/main/ipc/first-run.ts:163`).
 - Образец домена «состояние в main, renderer следит за ним» — `view`: канал `view.get` и событие
   `view.changed` (`src/shared/ipc/view.ts:13-16`), рассылка каждому окну через `toEveryWindow`
   (`src/main/ipc/view.ts:14-18`). Состояние `view` живёт только в памяти (`src/main/ipc/view.ts:8`),
@@ -60,7 +62,8 @@ Source: решения владельца 2026-10-09: 1 (свёрнутость 
    `acceptLinkState`. `setAppSettings(patch)` зовёт `appSettings.set`. Без моста preload (unit-test-ы
    компонентов) — значения по умолчанию.
 5. Окно на Project-е Linked machine-а читает и пишет настройки своей Machine: канал `local`
-   (`src/renderer/ipc.ts:5-11`).
+   (`src/renderer/ipc.ts:5-11`). Файл один на Machine: изменение в одном окне приходит всем окнам
+   этой Machine (масштаб, свёрнутость секций, видимость боковой панели).
 
 **Не входит:** UI — Ticket-ы 02–05 и 10; переключатели Machines остаются в `link/settings.json`
 (Ticket 05 переносит только их UI); синхронизация настроек между Machine-ами — ADR-0005, будущее
@@ -79,7 +82,8 @@ Source: решения владельца 2026-10-09: 1 (свёрнутость 
 - [ ] Unit `test/unit/use-app-settings.test.tsx` (новый): store берёт ответ `appSettings.get`;
   событие со старшей ревизией меняет состояние, с младшей — нет; `setAppSettings` зовёт
   `appSettings.set` с переданной частью; без моста preload — значения по умолчанию.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально —
+  exit 0 (новый домен IPC грузится при старте приложения, это видят только e2e и `.app`).
 
 ## Тесты
 

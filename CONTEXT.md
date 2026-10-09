@@ -117,7 +117,7 @@ _Avoid_: привязка, assignment, линк
 ## App
 
 **Settings**:
-Настройки самого worfy на этой Machine и окно, где они меняются (Cmd/Ctrl+, или «Settings…» в меню): масштаб интерфейса, проверки Health, сочетания клавиш, переключатели Machines и разделы других функций worfy. Хранятся в папке данных worfy — `app-settings.json`, переключатели Machines — `link/settings.json` ([ADR-0005](docs/adr/0005-worfy-own-state-inventory.md)); в репозиторий Project-а и в Profile не попадают. Это не Profile — описание Project-а для Harness, — и не «Project settings…» — окно одного Project-а с его шаблонами действий, которые worfy хранит в своей папке данных этого Project-а.
+Настройки самого worfy на этой Machine и окно, где они меняются (Cmd/Ctrl+, или «Settings…» в меню): масштаб интерфейса, проверки Health, сочетания клавиш, доступ Linked machine-ов, Terminal AI и другие функции worfy. Это собственное состояние worfy на Machine ([ADR-0005](docs/adr/0005-worfy-own-state-inventory.md)): в репозиторий Project-а и в Profile Settings не попадают и действуют во всех Project-ах этой Machine. Это не Profile — описание Project-а для Harness, — и не «Project settings…» — окно одного Project-а в worfy с его шаблонами действий.
 _Avoid_: настройки (без уточнения чьи), preferences, конфиг, Profile или Project settings (как синоним)
 
 ## Machines
@@ -129,6 +129,28 @@ _Avoid_: инстанс, машина (как термин), host и client (к�
 **Linked machine**:
 Machine, связанная с этой по коду из 6 цифр. Связь двусторонняя, отзывается с любой стороны. Если здесь включён доступ «Linked machines can work with my Projects» (по умолчанию выключен), Linked machine видит Project-ы этой Machine и работает с ними: открывает Canvas, пишет в Session, печатает в Terminal, запускает Autopilot. При выключенном доступе Project-ов этой Machine она не видит. Всё это выполняется на Machine Project-а ([ADR-0052](docs/adr/0052-machines-and-linking.md), [ADR-0053](docs/adr/0053-several-screens-on-one-project.md)).
 _Avoid_: удалённый инстанс, host, client, remote
+
+## Terminal AI
+
+**Terminal AI**:
+Помощь модели Claude в Terminal-е — Suggestion, Next command, Command request и Fix — и раздел Settings, где они включаются и выключаются. Terminal AI — не Session и не агент: у него нет транскрипта, Node-а и Binding-а, он ничего не запускает и только предлагает текст для строки ввода; команду запускает пользователь. Его запросы расходуют Limits подписки ([ADR-0058](docs/adr/0058-terminal-ai-assist-process.md)).
+_Avoid_: AI-ассистент, агент Terminal-а, копилот
+
+**Suggestion**:
+Серый текст в строке ввода Terminal-а — продолжение того, что пользователь набирает, из истории его команд или от модели. Пользователь принимает его целиком или по словам либо скрывает; пока не принят, он не часть строки.
+_Avoid_: подсказка, автодополнение, autosuggestion, completion (completion — дополнение shell-а по Tab)
+
+**Next command**:
+Suggestion на пустой строке после законченной команды: команда, которую модель предлагает следующей.
+_Avoid_: следующая команда, next step
+
+**Command request**:
+Просьба словами, что нужно сделать в Terminal-е; в ответ Terminal AI ставит в строку ввода команду, не запуская её.
+_Avoid_: запрос к AI, промпт, NL-команда
+
+**Fix**:
+Действие после команды, которая кончилась ошибкой: Terminal AI ставит в строку ввода исправленную команду, не запуская её.
+_Avoid_: исправление, autofix, quick fix
 
 ## Relationships
 
@@ -143,3 +165,4 @@ _Avoid_: удалённый инстанс, host, client, remote
 - У **Project** ровно одна **Workflow folder**: в **Full mode** это корень репозитория, в **Silent mode** — папка вне репозитория.
 - **Card** принадлежит **Project**, а не Session: менять её может любая Session Project.
 - **Autopilot** над самим worfy идёт только из **Stable copy**; агенты **Wave** в это время собирают и проверяют dev-сборку worfy в своих worktree.
+- **Terminal AI** работает в **Terminal**-е и не делает его агентским: команды в **Terminal**-е по-прежнему запускает только пользователь, а **Terminal AI** лишь предлагает текст строки ввода. Это не **Session**: на **Canvas** у него нет Node-а.

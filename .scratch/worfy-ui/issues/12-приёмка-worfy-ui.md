@@ -9,7 +9,8 @@ Source: «Готово, когда» Epic-а worfy-ui ([spec.md](../spec.md), «
 
 - К claim Ticket-ы 01–11 влиты, у каждого свои test-ы и снимки. Целиком, на одной сборке, Epic
   никто не проверял.
-- Ускорители меню Playwright не нажимает: e2e зовут пункты меню по id (`test/e2e/pin-tags.spec.ts:101`).
+- Ускорители меню Playwright не нажимает: e2e зовут пункты меню по id через `clickMenuItem`
+  (`test/e2e/menu.ts` Ticket-а 02).
   Cmd/Ctrl+,, ⌥⌘= / ⌥⌘− / ⌥⌘0, Cmd/Ctrl+B и Cmd/Ctrl+/ проверяет только человек (spec, риск 1).
 - Снимки в двух темах снимает `snapshotThemes` (`test/e2e/snapshots.ts:36`) на окне `launchApp`
   (`test/e2e/helpers.ts:120`) с временной папкой данных.
@@ -23,15 +24,16 @@ Source: «Готово, когда» Epic-а worfy-ui ([spec.md](../spec.md), «
 ## Что делаем
 
 1. **Сквозной e2e** — `test/e2e/worfy-ui-acceptance.spec.ts` (новый): один сценарий на `launchApp`
-   с временной папкой данных — Settings (пункт меню по id), масштаб 120 %, свернуть Sessions, режим
+   с временной папкой данных — Settings (`clickMenuItem`), масштаб 120 %, свернуть Sessions, режим
    фокуса с боковой панелью, спрятать её в режиме фокуса, палитра с группами, Select модели,
    ползунок effort, окно Keyboard shortcuts; перезапуск над той же папкой — масштаб, свёрнутость и
    видимость панели на месте. Каждый шаг — снимок в светлой и тёмной теме; копии — в
-   `../evidence/12-*.png`. Снимки — только с окон `launchApp`: живую Stable copy и окно владельца не
-   снимать.
+   `../evidence/12-*.png`, их список и ответы владельца — `../evidence/12-приёмка.md`. Снимки — только
+   с окон `launchApp`: живую Stable copy и окно владельца не снимать.
 2. **F-SPEC** — разделы «Settings», «Sidebar sections», «Select» и «Keyboard shortcuts» в
    `docs/design/F-SPEC.md` по «Итог» Ticket-ов 02–11 и снимкам пункта 1. Язык F-SPEC — английский,
-   как у соседних разделов.
+   как у соседних разделов. В правило «цвет статуса — с подписью или иконкой» (`F-SPEC.md:40`)
+   вносится исключение для точки Machines (Ticket 05, по просьбе владельца).
 3. **Шаги владельца** — на Stable copy с влитыми 01–11 (`pnpm install:stable`, вне прогона
    Autopilot); пункты «Готово, когда» ниже.
 4. Найденный дефект — новый Ticket Epic-а, его номер дописывается в `Blocked by` этого.
@@ -53,8 +55,10 @@ Source: «Готово, когда» Epic-а worfy-ui ([spec.md](../spec.md), «
 - [ ] Разделы F-SPEC написаны.
 - [ ] (вручную, владелец) Stable copy: ⌘, открывает Settings на Canvas, в Session, в режиме фокуса,
   в поле ввода Session и при фокусе в Terminal Node. Как проверить: окно worfy.
-- [ ] (вручную, владелец) ⌥⌘= / ⌥⌘− / ⌥⌘0 меняют масштаб везде; ⌘= / ⌘− на Canvas масштабируют
-  только Canvas; масштаб переживает перезапуск Stable copy. Как проверить: окно worfy.
+- [ ] (вручную, владелец) ⌥⌘= / ⌥⌘− / ⌥⌘0 меняют масштаб везде (если в системных настройках macOS
+  включено «Use keyboard shortcuts to zoom», ⌥⌘= и ⌥⌘− забирает системная лупа — spec, риск 11); ⌘= /
+  ⌘− на Canvas масштабируют только Canvas; масштаб переживает перезапуск Stable copy; кнопки окна —
+  по центру toolbar на 80 % и 150 %. Как проверить: окно worfy.
 - [ ] (вручную, владелец) ⌘B прячет и показывает боковую панель в обычном виде и в режиме фокуса,
   каждый вид помнит своё; ⌘/ и «?» открывают окно Keyboard shortcuts. Как проверить: окно worfy.
 - [ ] (вручную, владелец) пульсация точки Machines при связанной Linked machine заметна и не
@@ -67,8 +71,9 @@ Source: «Готово, когда» Epic-а worfy-ui ([spec.md](../spec.md), «
 
 - [ ] (вручную) Windows-ПК: Ctrl+, Ctrl+Alt+= / Ctrl+Alt+- / Ctrl+Alt+0, Ctrl+B, Ctrl+/ работают;
   подписи в окне Keyboard shortcuts и в меню — с Ctrl.
-- [ ] (вручную) Windows-ПК: в Terminal Node Ctrl+B и Ctrl+/ уходят в оболочку (spec, риск 5); в поле
-  ввода Session AltGr-символы раскладки печатаются (spec, риск 4).
+- [ ] (вручную) Windows-ПК: Ctrl+B и Ctrl+/ в Terminal Node ведут себя, как решил Ticket 11 по риску 5
+  (по его «Итог» и ответу владельца); в поле ввода Session AltGr-символы раскладки печатаются (spec,
+  риск 4).
 - [ ] Windows-ПК: gate full — строка вердикта и код выхода в «Итог».
 
 ## Тесты
@@ -81,6 +86,7 @@ Source: «Готово, когда» Epic-а worfy-ui ([spec.md](../spec.md), «
 - `test/e2e/worfy-ui-acceptance.spec.ts` (новый)
 - `docs/design/F-SPEC.md`
 - `.scratch/worfy-ui/spec.md`
+- `.scratch/worfy-ui/evidence/12-приёмка.md` (новый)
 
 ## Итог
 

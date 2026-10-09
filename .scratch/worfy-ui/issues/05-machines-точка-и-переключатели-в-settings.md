@@ -3,7 +3,7 @@
 Type: task
 Status: open
 Blocked by: 02, 04
-Source: решения владельца 2026-10-09: 1 (Machines свёрнута по умолчанию; зелёная точка с лёгкой пульсацией, когда хотя бы одна Linked machine в сети — `online` без `certificateChanged`; нет — точки нет; сменился сертификат — статичная янтарная точка; подсказка и `aria-label`; `prefers-reduced-motion`; два переключателя — в Settings → Machines, в секции остаются список и «Link a machine…»; перечислить e2e и шаги приёмки worfy-link 16, которые меняются), 2 (раздел Machines окна Settings) ([spec.md](../spec.md), «Как устроено», «Точка Machines»; риск 6; «Пересечения», worfy-link 16); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), пункт 6 (доступ «Linked machines can work with my Projects»)
+Source: решения владельца 2026-10-09: 1 (Machines свёрнута по умолчанию; зелёная точка с лёгкой пульсацией, когда хотя бы одна Linked machine в сети — `online` без `certificateChanged`; нет — точки нет; сменился сертификат — статичная янтарная точка; tooltip (`title`) и `aria-label`; `prefers-reduced-motion`; два переключателя — в Settings → Machines, в секции остаются список и «Link a machine…»; перечислить e2e и шаги приёмки worfy-link 16, которые меняются), 2 (раздел Machines окна Settings) ([spec.md](../spec.md), «Как устроено», «Точка Machines»; риск 6; «Пересечения», worfy-link 16); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), пункт 6 (доступ «Linked machines can work with my Projects»)
 
 ## Что происходит
 
@@ -35,7 +35,8 @@ Source: решения владельца 2026-10-09: 1 (Machines свёрнут
 - Переключатели и строки Machines трогают e2e:
   - `test/e2e/helpers.ts:463-466` — «Link a machine…» из секции; `:505-506` — состояние строк после
     связи;
-  - `test/e2e/linked-machines.spec.ts:30-32` (свежая Machine: «только кнопка и переключатель»),
+  - `test/e2e/linked-machines.spec.ts:20-23` (отзыв правым кликом по строке), `:30-32` (свежая
+    Machine: «только кнопка и переключатель»), `:61-65` (`boundingBox` суффикса и chip-а строки),
     `:66` (снимок секции), `:122-138` (доступ переживает перезапуск), `:180` (включить доступ);
   - `test/e2e/linked-sleep.spec.ts:75-79` (оба переключателя), `:86-103` (keep-awake переживает
     перезапуск);
@@ -45,8 +46,10 @@ Source: решения владельца 2026-10-09: 1 (Machines свёрнут
 
   `test/e2e/linked-autopilot.spec.ts:16` упоминает доступ только в комментарии.
 - Приёмка worfy-link — Ticket 16, `open` на 2026-10-09. Его шаги смотрят список Linked machine-ов
-  (`.scratch/worfy-link/issues/16-приёмка-epic-а-worfy-link.md:37-38`, `:76`) и переключатель доступа
-  (`:55`, `:60`), сквозной e2e — `linked-machines.spec.ts` (`:66`).
+  (`.scratch/worfy-link/issues/16-приёмка-epic-а-worfy-link.md:37-38`, `:76`), начинаются с «Link a
+  machine…» (`:70`) и включают доступ (`:55`, `:60`); сквозной e2e — `linked-machines.spec.ts`
+  (`:66`).
+- F-SPEC велит показывать цвет статуса с подписью или иконкой (`docs/design/F-SPEC.md:40`).
 
 ## Что делаем
 
@@ -73,20 +76,25 @@ Source: решения владельца 2026-10-09: 1 (Machines свёрнут
 4. **e2e.** В `test/e2e/helpers.ts`:
    - перед «Link a machine…» секция Machines разворачивается;
    - новые helper-ы `setProjectsAccess(window, on)` и `setKeepAwake(window, on)` — открывают
-     Settings → Machines пунктом меню по id и щёлкают переключатель.
+     Settings → Machines через `clickMenuItem` (`test/e2e/menu.ts` Ticket-а 02) и щёлкают
+     переключатель.
 
-   Spec-файлы из «Что происходит» переходят на них. Снимок секции (`linked-machines.spec.ts:66`) —
-   с развёрнутой секцией.
+   Spec-файлы из «Что происходит» переходят на них. Перед отзывом правым кликом, `boundingBox`
+   строки и снимком секции (`linked-machines.spec.ts:20-23`, `:61-65`, `:66`) секция
+   разворачивается.
 5. **Приёмка worfy-link 16.** Если к claim она не `done`, её шаги правятся:
    - `:37-38` — список Linked machine-ов смотрят в развёрнутой секции Machines, связь видна и по
      зелёной точке;
    - `:55` и `:60` — переключатель доступа — в Settings → Machines;
+   - `:70` — «Link a machine…» — в развёрнутой секции Machines;
    - `:76` — состояние «спит» — в развёрнутой секции.
 
    Уже `done` — правки нет, запись об этом в «Итог». Если приёмка в работе — Ticket ждёт её конца
    (spec, «Пересечения»).
 
-Решено в Ticket-е, подтвердить у владельца: янтарная точка важнее зелёной; тексты подсказки.
+Решено в Ticket-е, подтвердить у владельца: янтарная точка важнее зелёной; тексты tooltip-а; у точки
+нет видимой подписи — только tooltip и `aria-label`, это отступление от правила F-SPEC
+(`F-SPEC.md:40`) по просьбе владельца, и Ticket 12 записывает его в F-SPEC.
 
 **Не входит:** новые состояния Linked machine-а; рамка и свёрнутость секций (Ticket 04); раздел
 «Terminal AI» и другие разделы Settings.

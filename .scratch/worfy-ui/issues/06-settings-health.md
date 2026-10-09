@@ -9,7 +9,7 @@ Source: решение владельца 2026-10-09: 2 (раздел Health о�
 
 - Проверки здоровья worfy — экран First run: `src/renderer/shell/FirstRun.tsx:190`, заголовок
   «First run» (`:263`), «Check again» (`:294`). Вид и правила — `docs/design/F-SPEC.md:98-116`:
-  диалог поверх окна, строка проверки — chip статуса, имя, найденное, кнопки; под ней подсказка и
+  диалог поверх окна, строка проверки — chip статуса, имя, найденное, кнопки; под ней hint и
   команда с «Copy».
 - Открывается он:
   - сам при старте, когда main просит (`askAtStartup`, `src/renderer/shell/first-run-store.ts:54`);
@@ -21,13 +21,16 @@ Source: решение владельца 2026-10-09: 2 (раздел Health о�
 - Каналы — `firstRun.checks` (`src/shared/ipc/first-run.ts:80`), `firstRun.run` (`:88-89`),
   `firstRun.close` (`:105`), все `local`. `firstRun.close` пишет отметку `first-run.json`
   (`src/main/ipc/first-run.ts:7`, `:147`): по ней First run больше не открывается сам.
-- Ticket-ы 13 и 15 worfy-windows (открыты) добавляют проверки в `src/main/first-run/checks.ts`;
-  renderer First run они не меняют.
+- Ticket-ы 13 и 15 worfy-windows (открыты) добавляют проверки в `src/main/first-run/checks.ts`.
+  `src/renderer/shell/FirstRun.tsx` Ticket 13 правит, только если экран не рисует новую проверку
+  (`.scratch/worfy-windows/issues/13-первый-запуск-на-windows.md:184-185`); группы проверок заданы
+  списком `GROUPS` (`FirstRun.tsx:26`) и схемой `checkGroupSchema`
+  (`src/shared/ipc/first-run.ts:38`).
 - После Ticket-а 02 есть окно Settings и разделы по файлам `src/renderer/settings/*Section.tsx`.
 
 ## Что делаем
 
-1. **Тело First run** — список проверок со статусами, подсказками, командами, «Copy», действиями
+1. **Тело First run** — список проверок со статусами, hint-ами, командами, «Copy», действиями
    с подтверждением и «Check again» — выносится в `src/renderer/shell/FirstRunChecks.tsx` (новый).
    Диалог First run показывает его, как сейчас: при старте, по палитре и по кнопкам — поведение не
    меняется.
@@ -38,6 +41,9 @@ Source: решение владельца 2026-10-09: 2 (раздел Health о�
    run (`firstRun.close`).
 4. Отчёт и ход проверки — общие с диалогом (`useFirstRun`): проверка, запущенная в одном месте,
    видна в другом.
+5. Список `GROUPS` уходит вместе с телом в `FirstRunChecks.tsx`. Если к claim Ticket 13
+   worfy-windows открыт и правит `FirstRun.tsx` — сверка по правилу spec-а («Пересечения»); влитый
+   после этого Ticket 13 правит уже `FirstRunChecks.tsx`, об этом — запись в «Итог».
 
 Решено в Ticket-е, подтвердить у владельца: пункт палитры «First-run checks» по-прежнему открывает
 диалог First run, а не Settings → Health.
