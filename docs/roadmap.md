@@ -2,10 +2,10 @@
 
 Status: принята владельцем 2026-10-06; раздел E3 переписан по решениям владельца 2026-10-07; разделы
 `worfy-link` и `worfy-windows` добавлены по решениям владельца 2026-10-07, их «Готово, когда»
-подтверждены 2026-10-08.
+подтверждены 2026-10-08; раздел `worfy-terminal-ai` добавлен по решениям владельца 2026-10-09.
 Source: итог проектирования 2026-10-06; [CONTEXT.md](../CONTEXT.md); ADR
 [0017](adr/0017-english-canonical-terms.md)–[0021](adr/0021-mcp-servers-allowlist-in-profile.md), 0040–0047 (E3);
-0052–0056 (`worfy-link` и `worfy-windows`).
+0052–0056 (`worfy-link` и `worfy-windows`); 0058 (`worfy-terminal-ai`).
 
 ## Куда идёт worfy
 
@@ -236,6 +236,45 @@ Project-а в имя папки так же, как worfy ожидает на Ma
 для `.claude/worktrees/…/node_modules`.
 
 **Не в `worfy-windows`:** Windows на arm64; подпись установщика — в E4.
+
+## worfy-terminal-ai — AI-подсказки в Terminal-ах
+
+Спроектирован 2026-10-09 (решения владельца). Epic `worfy-terminal-ai`, Ticket-ы — в
+[.scratch/worfy-terminal-ai/](../.scratch/worfy-terminal-ai/spec.md). Решение —
+[ADR-0058](adr/0058-terminal-ai-assist-process.md).
+
+**Цель.** Модель Claude помогает владельцу набирать команды в Terminal-е worfy — на его подписке, как
+Session-ы. Ничего не запускается само: команду запускает пользователь.
+
+**Готово, когда** (предложение docs-PR, подтвердить):
+
+1. В Terminal-е на zsh серый Suggestion появляется сразу из истории команд, а если история молчит —
+   от модели после паузы; → принимает, Option/Alt+→ — по словам, Esc скрывает; его видят все экраны
+   этого Terminal-а.
+2. После команды появляется Next command; строка `# …` и панель Cmd/Ctrl+I вставляют команду по
+   просьбе словами; «Fix» после ошибки вставляет исправленную. Сама ни одна команда не запускается.
+3. Модель зовёт один общий процесс Claude Code на подписке без MCP, tools, hooks и транскриптов; его
+   запросы видны в Limits; автоматические функции выключаются сами выше 80 % окна 5 часов и при
+   `allowed_warning` или `rejected`.
+4. В модель уходит только перечисленный контекст, секреты заменены; запросов нет во время команды, на
+   альтернативном экране и для строки с пробелом в начале; `~/.zshrc` не меняется.
+5. Всё выключается в Settings → «Terminal AI»; test-ы не тратят подписку; live-проверка владельца
+   пройдена.
+
+**Решения.** [ADR-0058](adr/0058-terminal-ai-assist-process.md) «Terminal AI: свой процесс Claude Code
+на подписке» — Terminal AI не Session: отдельный процесс Claude Code без MCP-серверов, tools, hooks и
+транскриптов, один на все Terminal-ы, каждый запрос самостоятельный. Suggestion — Haiku без thinking,
+Next command, Command request и Fix — Sonnet. Это исключение из правила «Session-ам haiku нельзя»: у
+assist-процесса нет 634 tools MCP, из-за которых правило появилось. Ключ API отвергнут: правила
+подписки разрешают Agent SDK для обычного личного использования. Серый текст рисует сам zsh (ZLE), а
+не renderer поверх xterm, поэтому его видят все экраны.
+
+**Порядок.** Идёт на Mac параллельно с Epic-ом `worfy-ui` (его spec на 2026-10-09 ещё не влит).
+Раздел Settings ждёт окно Settings из `worfy-ui`, панель Cmd/Ctrl+I — модуль сочетаний клавиш Ticket-а
+11 `worfy-windows`.
+
+**Не в `worfy-terminal-ai`:** bash и fish — позже; PowerShell на Windows — позже, через предикторы
+PSReadLine; ключ API; панель Cmd/Ctrl+I и «Fix» на экране Linked machine-а.
 
 ## E4 — Для других людей
 

@@ -8,6 +8,7 @@
 - Stable copy и plugin `worfy` — сборка `df8e870` (2026-10-09). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/16; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16.
 - `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057): влиты 01, 02 и 09 (PR #172, #177, #194 — окружение агента из реестра, как при входе в Windows), ответы владельца — PR #192. Session на Windows-ПК ведёт 08, затем 11; gate full — на Mac. 03–07 ждут закрытия E3.
+- `worfy-terminal-ai` (AI-подсказки в Terminal-ах на подписке; [spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) спроектирован 2026-10-09: 9 Ticket-ов, не начат, идёт на Mac параллельно с `worfy-ui`. 06 ждёт `worfy-windows` 11, 08 — окно Settings `worfy-ui`.
 
 ## Ждёт владельца
 
@@ -58,7 +59,7 @@
 - `worfy-daily` (E2, Autopilot, 32/32) закрыт — [spec](.scratch/worfy-daily/spec.md); условия 3 и 4 готовности E2 ещё не выполнены (`docs/roadmap.md`, E2).
 - `worfy-week` (17/18, Ticket 14 отложен) — [spec](.scratch/worfy-week/spec.md); условия готовности на 2026-10-08 — «Итог» Ticket-а 12.
 - Spec-и открытых Epic-ов: [worfy-harness](.scratch/worfy-harness/spec.md), [worfy-link](.scratch/worfy-link/spec.md), [worfy-windows](.scratch/worfy-windows/spec.md). Этапы E1–E4 — [roadmap](docs/roadmap.md).
-- Решения — [docs/adr/](docs/adr/): 0001–0024 и 0029–0057, номера 0025–0028 не используются. Следующий свободный — 0058.
+- Решения — [docs/adr/](docs/adr/): 0001–0024 и 0029–0058, номера 0025–0028 не используются. Следующий свободный — 0059.
 - Уроки — [docs/lessons/](docs/lessons/): `process.md`, `agents.md`, `ci-merge.md`, `testing.md`. Словарь терминов — [CONTEXT.md](CONTEXT.md). Дизайн — [F-SPEC](docs/design/F-SPEC.md).
 - Реестр Gate живёт вне репозитория (`~/.claude/gate/config.json`, после переноса — `$HARNESS_HOME/gate/`); что в нём для worfy — «Итог» `worfy-mvp` 32.
 - Прошлые снимки — `git log -p -- HANDOFF.md`; последний подробный, до сжатия 2026-10-08, — `git show 84684b5:HANDOFF.md`.
