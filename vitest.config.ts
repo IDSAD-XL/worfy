@@ -52,7 +52,19 @@ export default defineConfig({
         test: {
           name: 'node',
           environment: 'node',
-          include: ['test/unit/**/*.test.ts', 'test/contract/**/*.test.ts'],
+          include: ['test/unit/**/*.test.ts'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'contract',
+          environment: 'node',
+          include: ['test/contract/**/*.test.ts'],
+          // Contract tests start real processes (bash, git, node, the Harness scripts). Alone one
+          // takes about a second; in a full run on a loaded Mac they reach 4–5 s, past vitest's
+          // 5 s default, and fail on time alone. A test that really hangs still fails at 15 s.
+          testTimeout: 15_000,
         },
       },
       {
