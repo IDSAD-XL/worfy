@@ -1,14 +1,22 @@
 import { spawn } from 'node:child_process'
 import { appendFileSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog } from 'electron'
 import {
   projectsAdd,
   projectsChanged,
+  projectsConnectAccounts,
   projectsConnectActivity,
   projectsConnectCheck,
   projectsConnectDraft,
   projectsConnectInspect,
+  projectsConnectSignIn,
+  projectsConnectSignInClose,
+  projectsConnectSignInExit,
+  projectsConnectSignInInput,
+  projectsConnectSignInOutput,
+  projectsConnectSignInResize,
   projectsConnectStop,
   projectsConnectWrite,
   projectsHold,
@@ -27,7 +35,9 @@ import { fakeQueryFactory } from '../agent/fake-query'
 import { draftSessionOptions, sessionHarnessPlugin } from '../agent/options'
 import type { QueryHandle } from '../agent/session'
 import { toEveryWindow } from '../broadcast'
-import { clientOf } from '../clients'
+import { clientOf, type Client } from '../clients'
+import { signInRegistry, type GhProgram } from '../github/accounts'
+import { ghRunner } from '../github/prs'
 import { bundledHarnessDir } from '../harness/bundled'
 import { currentHarness, harnessHomes, locateHarness, scriptEnv } from '../harness/locate'
 import { isRemoteCall } from '../link/caller'
@@ -36,6 +46,7 @@ import { projectHolds } from '../projects/holds'
 import { readProjectSettings, writeProjectSettings } from '../projects/settings'
 import { projectStore, runGit } from '../projects/store'
 import { claudeHome, harnessHome } from '../storage/paths'
+import type { TerminalRegistry } from '../terminal/pty'
 import { profileRunner } from '../workflow/profile'
 import { appInstaller } from './harness'
 import { defineHandler, emit, type EventTarget, type HandlerModule } from './index'
@@ -113,11 +124,21 @@ function draftQueryFromEnv(env: NodeJS.ProcessEnv = process.env): DraftQueryFact
 
 const systemLanguage = (): 'ru' | 'en' => (app.getLocale().toLowerCase().startsWith('ru') ? 'ru' : 'en')
 
+/**
+ * The app's gh, as the PR badges run it (src/main/ipc/checks.ts): WORFY_GH (a stub in tests) with
+ * the app's own environment, else `gh` with the login shell's environment.
+ */
+function appGh(): GhProgram {
+  const stub = process.env.WORFY_GH
+  return stub ? { command: stub, env: () => Promise.resolve(process.env) } : { command: 'gh', env: async () => (await agentEnv()).env }
+}
+
 let sharedConnector: ProjectConnector | undefined
 
 function connector(): ProjectConnector {
   sharedConnector ??= new ProjectConnector({
     git: runGit,
+    gh: ghRunner(appGh()),
     profile: async (cwd, args) => profileRunner(claudeHome(), (await agentEnv()).env)(cwd, args),
     connect: connectScript,
     harness: () => appInstaller().status(),
@@ -130,6 +151,31 @@ function connector(): ProjectConnector {
     },
   })
   return sharedConnector
+}
+
+// "Sign in with gh" of the account step: `gh auth login` in a pseudo-terminal of its own, through
+// the Terminal Nodes' registry (replay, size, SIGHUP then SIGKILL on close), but with gh itself as
+// the process instead of a shell: there is no Project and no Canvas yet when a Project is being
+// connected. One sign-in per id; it ends when the dialog closes it, when the window that opened it
+// goes, or when the app quits.
+
+let appSignIns: TerminalRegistry | null = null
+
+function signIns(): TerminalRegistry {
+  if (appSignIns !== null) return appSignIns
+  const registry = signInRegistry(appGh())
+  app.on('will-quit', () => void registry.closeAll().catch((error: unknown) => console.warn('[projects] ending the gh sign-in failed', error)))
+  appSignIns = registry
+  return registry
+}
+
+const watchedSignIn = new WeakSet<Client>()
+
+/** The client's sign-ins end when it goes. */
+function watchSignIn(client: Client): void {
+  if (watchedSignIn.has(client)) return
+  watchedSignIn.add(client)
+  client.once('destroyed', () => void signIns().leave(client).catch((error: unknown) => console.warn('[projects] ending the gh sign-in of a closed window failed', error)))
 }
 
 /** The list after an add, with the added Project's view. */
@@ -219,6 +265,38 @@ export default [
     const written = await connector().write(root, draft)
     if (written.status !== 'added') return written
     return addedView(written.projectId, written.notice)
+  }),
+
+  defineHandler(projectsConnectAccounts, ({ root }) => connector().accounts(root)),
+
+  defineHandler(projectsConnectSignIn, async ({ signInId, cols, rows }, { event }) => {
+    const client = clientOf(event)
+    if (client === undefined || client.isDestroyed()) throw new Error('projects.connect.signIn needs the window that calls it')
+    watchSignIn(client)
+    const alive = (): boolean => !client.isDestroyed()
+    const opened = await signIns().open(signInId, { cwd: homedir(), cols, rows }, client, {
+      output: (data, end) => {
+        if (alive()) emit(client, projectsConnectSignInOutput, { signInId, data, end })
+      },
+      exit: (exitCode, signal) => {
+        if (alive()) emit(client, projectsConnectSignInExit, { signInId, exitCode, signal })
+      },
+      started: () => undefined,
+    })
+    if (client.isDestroyed()) void signIns().leave(client)
+    return { replay: opened.replay, end: opened.end, exited: opened.exited }
+  }),
+
+  defineHandler(projectsConnectSignInInput, ({ signInId, data }, { event }) => {
+    signIns().write(signInId, data, clientOf(event))
+  }),
+
+  defineHandler(projectsConnectSignInResize, ({ signInId, cols, rows }, { event }) => {
+    signIns().resize(signInId, cols, rows, clientOf(event))
+  }),
+
+  defineHandler(projectsConnectSignInClose, async ({ signInId }) => {
+    await signIns().close(signInId)
   }),
 
   defineHandler(projectsSelect, ({ id }) => {

@@ -4,7 +4,9 @@
 // draft Session (`projects.connect.draft`) with its last action and Stop; then the form over the
 // draft, checked by the Harness on every edit (`projects.connect.check`), and "Connect", which has
 // bin/project-connect write the Profile (`projects.connect.write`). Nothing is written before
-// "Connect"; the folder was read in step 1 (ProjectsSection.tsx, `projects.connect.inspect`).
+// "Connect"; the folder was read in step 1 (ProjectsSection.tsx, `projects.connect.inspect`). The
+// form starts with the GitHub account (GithubAccount.tsx, worfy-harness ticket 25), which sets
+// `github.account` and `workflow.finish` of the draft.
 //
 // The look follows the first-run screen (docs/design/F-SPEC.md, "First run"): a dialog over the
 // window on a backdrop of black at 25%, header, scrolling body, footer with the shared action
@@ -14,8 +16,9 @@ import { createPortal } from 'react-dom'
 import '../canvas/actions/actions.css'
 import './connect-project.css'
 import { failureReason } from '../../shared/ipc/channels'
-import type { ConnectFolder, ConnectMode, DraftIssue, ProfileDraft, ProjectsState, ProjectView } from '../../shared/ipc/projects'
+import { withGithubAccount, type ConnectFolder, type ConnectMode, type DraftIssue, type GithubChoice, type ProfileDraft, type ProjectsState, type ProjectView } from '../../shared/ipc/projects'
 import { invoke, invokeOn, subscribe } from '../ipc'
+import { GithubAccount } from './GithubAccount'
 
 export interface ConnectedProject {
   project: ProjectView
@@ -227,6 +230,8 @@ export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPi
   /** Why the last check could not run: Connect waits for a check that ran. */
   const [checkError, setCheckError] = useState<string | null>(null)
   const [writing, setWriting] = useState(false)
+  /** The GitHub accounts are being read (from the form's start): Connect waits for the account they choose. */
+  const [readingAccounts, setReadingAccounts] = useState(true)
   const [message, setMessage] = useState<{ error: boolean; text: string } | null>(null)
   const titleId = useId()
   const dialog = useRef<HTMLDivElement>(null)
@@ -323,6 +328,14 @@ export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPi
     void check(next)
   }
 
+  const chooseAccount = (choice: GithubChoice): void => {
+    if (draft === null) return
+    const next = withGithubAccount(draft, choice)
+    setDraft(next)
+    setMessage(null)
+    void check(next)
+  }
+
   const editGate = (index: number, key: 'fast' | 'full', input: string): void => {
     if (draft === null) return
     const gate = draft.gate.map((entry, at) => (at === index ? { ...entry, root: { ...(isJson(entry.root) ? entry.root : {}), [key]: words(input, /\s+/) } } : entry))
@@ -333,7 +346,7 @@ export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPi
   }
 
   const connect = async (): Promise<void> => {
-    if (draft === null || writing || checking || checkError !== null || issues.length > 0) return
+    if (draft === null || writing || checking || readingAccounts || checkError !== null || issues.length > 0) return
     setWriting(true)
     setMessage(null)
     const result = await invoke('projects.connect.write', { root: folder.root, draft })
@@ -357,7 +370,7 @@ export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPi
   const current = step.kind === 'mode' ? 'Mode' : step.kind === 'harness' ? 'Harness' : step.kind === 'form' ? 'Review' : 'Draft'
   const paths = draft ? formPaths(draft) : []
   const general = draft ? issues.filter((issue) => !paths.some((path) => issuesAt([issue], path).length > 0)) : []
-  const canConnect = draft !== null && !checking && !writing && checkError === null && issues.length === 0
+  const canConnect = draft !== null && !checking && !writing && !readingAccounts && checkError === null && issues.length === 0
 
   const folderSection = (
     <section style={styles.section} aria-label="Folder">
@@ -610,6 +623,7 @@ export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPi
               ))}
             </ul>
           ) : null}
+          <GithubAccount root={folder.root} disabled={writing} onChoose={chooseAccount} onBusy={setReadingAccounts} onFirstRun={onFirstRun} />
           <section style={styles.section} aria-label="Profile">
             <h3 style={styles.sectionTitle}>Profile</h3>
             <div style={styles.grid}>

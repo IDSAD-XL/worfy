@@ -206,6 +206,125 @@ export const projectsConnectWrite = invokeChannel(
 /** The last action of a draft Session, sent to the window that asked for the draft. */
 export const projectsConnectActivity = eventChannel('projects.connect.activity', z.object({ draftId: z.string(), text: z.string() }), 'local')
 
+// ── the GitHub account of a new Project (worfy-harness ticket 25) ─────────────────
+//
+// The form of "Add project" reads the accounts gh knows for the hosts of the folder's `origin`
+// remotes and the write access of each account to every such repository
+// (projects.connect.accounts, src/main/github/accounts.ts). The chosen account and the finish its
+// access allows go into the draft (withGithubAccount) and are written with it on "Connect". A sign-in
+// runs `gh auth login` in a terminal inside the dialog (projects.connect.signIn and the channels
+// after it): the user answers gh there, worfy types nothing into it. All of them are `local`.
+
+export const workflowFinishSchema = z.enum(['pr-green-ci', 'local-green'])
+export type WorkflowFinish = z.output<typeof workflowFinishSchema>
+
+/** An account of `gh auth status --json hosts`, with its write access to the folder's repositories. */
+export const githubAccountSchema = z.object({
+  login: z.string().min(1),
+  host: z.string().min(1),
+  /** The account gh uses for its host now. */
+  active: z.boolean(),
+  /** gh's own word for the login: `success`, `error`, `timeout`. */
+  state: z.string(),
+  /** Write access to every repository with a GitHub origin. */
+  push: z.boolean(),
+  /** `pr-green-ci` with write access everywhere, else `local-green` (ADR-0045). */
+  finish: workflowFinishSchema,
+  /** Why the finish is local: the repositories without write access; null with access everywhere. */
+  reason: z.string().nullable(),
+})
+export type GithubAccount = z.output<typeof githubAccountSchema>
+
+/** A repository of the folder whose `origin` is on a GitHub host: `owner/repo`. */
+export const githubRepoSchema = z.object({ name: z.string().min(1), host: z.string().min(1), slug: z.string().min(1) })
+
+/**
+ * The GitHub account step: the accounts of the hosts with their access and the one chosen by
+ * default (`selected`: the active account with write access, else the first with it, else none);
+ * no `origin` on a GitHub host (`no-origin`); no gh (`no-gh`); gh failing otherwise (`failed`).
+ * Without accounts the Project has none (`github.account: null`) and the local finish.
+ */
+export const githubAccountsStepSchema = z.discriminatedUnion('status', [
+  z.object({
+    status: z.literal('accounts'),
+    repos: z.array(githubRepoSchema),
+    /** Repositories of a multi-repo folder without an origin on a GitHub host, by name. */
+    skipped: z.array(z.string()),
+    accounts: z.array(githubAccountSchema),
+    selected: z.string().nullable(),
+  }),
+  z.object({ status: z.literal('no-origin'), reason: z.string().min(1) }),
+  z.object({ status: z.literal('no-gh'), reason: z.string().min(1) }),
+  z.object({ status: z.literal('failed'), reason: z.string().min(1) }),
+])
+export type GithubAccountsStep = z.output<typeof githubAccountsStepSchema>
+
+/** What the account step puts into the draft. */
+export interface GithubChoice {
+  account: string | null
+  finish: WorkflowFinish
+}
+
+/**
+ * The choice for `login` (null: "No account"): the account and the finish its access allows. An
+ * account the step does not list, "No account" and every step without accounts give no account
+ * and the local finish: nobody checked the access then.
+ */
+export function githubChoice(step: GithubAccountsStep, login: string | null): GithubChoice {
+  const account = step.status === 'accounts' && login !== null ? step.accounts.find((each) => each.login === login) : undefined
+  return account === undefined ? { account: null, finish: 'local-green' } : { account: account.login, finish: account.finish }
+}
+
+const recordOf = (value: unknown): Record<string, unknown> => (typeof value === 'object' && value !== null && !Array.isArray(value) ? { ...(value as Record<string, unknown>) } : {})
+
+/** The draft with `github.account` and `workflow.finish` of the choice; every other field as it was. */
+export function withGithubAccount(draft: ProfileDraft, choice: GithubChoice): ProfileDraft {
+  const profile = { ...draft.profile }
+  profile.github = { ...recordOf(profile.github), account: choice.account }
+  profile.workflow = { ...recordOf(profile.workflow), finish: choice.finish }
+  return { ...draft, profile }
+}
+
+/** The account step of the folder `root` (main inspects it again); reads gh, writes nothing. */
+export const projectsConnectAccounts = invokeChannel('projects.connect.accounts', z.object({ root: z.string().min(1) }), githubAccountsStepSchema, 'local')
+
+const signInRef = { signInId: z.string().min(1).max(100) }
+const signInCells = z.number().int().positive().max(10_000)
+
+/**
+ * "Sign in with gh": main runs `gh auth login` — the same gh worfy runs — in a pseudo-terminal of
+ * its own, not in a Project's shell (there is no Project yet), and answers with the output so far.
+ * Opening a running sign-in attaches to it. Its output and exit come on the events below.
+ */
+export const projectsConnectSignIn = invokeChannel(
+  'projects.connect.signIn',
+  z.object({ ...signInRef, cols: signInCells, rows: signInCells }),
+  z.object({
+    replay: z.string(),
+    end: z.number().int().nonnegative(),
+    exited: z.object({ exitCode: z.number().int(), signal: z.number().int().nullable() }).nullable(),
+  }),
+  'local',
+)
+
+/** Keys the user typed into the sign-in terminal. */
+export const projectsConnectSignInInput = invokeChannel('projects.connect.signInInput', z.object({ ...signInRef, data: z.string().min(1).max(100_000) }), z.void(), 'local')
+
+/** The size of the sign-in terminal's view. */
+export const projectsConnectSignInResize = invokeChannel('projects.connect.signInResize', z.object({ ...signInRef, cols: signInCells, rows: signInCells }), z.void(), 'local')
+
+/** Ends the sign-in (the dialog closed it); ending one that is not running is not an error. */
+export const projectsConnectSignInClose = invokeChannel('projects.connect.signInClose', z.object(signInRef), z.void(), 'local')
+
+export const projectsConnectSignInOutput = eventChannel('projects.connect.signInOutput', z.object({ ...signInRef, data: z.string(), end: z.number().int().nonnegative() }), 'local')
+
+/** `gh auth login` ended: the step reads the accounts again. */
+export const projectsConnectSignInExit = eventChannel(
+  'projects.connect.signInExit',
+  z.object({ ...signInRef, exitCode: z.number().int(), signal: z.number().int().nullable() }),
+  'local',
+)
+
 declare module './channels' {
   interface IpcContract {
     'projects.pickFolder': typeof projectsPickFolder
@@ -225,5 +344,12 @@ declare module './channels' {
     'projects.connect.check': typeof projectsConnectCheck
     'projects.connect.write': typeof projectsConnectWrite
     'projects.connect.activity': typeof projectsConnectActivity
+    'projects.connect.accounts': typeof projectsConnectAccounts
+    'projects.connect.signIn': typeof projectsConnectSignIn
+    'projects.connect.signInInput': typeof projectsConnectSignInInput
+    'projects.connect.signInResize': typeof projectsConnectSignInResize
+    'projects.connect.signInClose': typeof projectsConnectSignInClose
+    'projects.connect.signInOutput': typeof projectsConnectSignInOutput
+    'projects.connect.signInExit': typeof projectsConnectSignInExit
   }
 }

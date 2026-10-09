@@ -21,16 +21,22 @@
 //    Harness home and never in the Project's repositories (ADR-0005). After the write `bin/profile -C`
 //    must know the folder, and the caller adds it to the list.
 //
-// Everything that reaches outside — git, the two Harness scripts, the installer, Claude Code, the
-// list — comes in through ConnectDeps, so the contract test runs the steps with stand-ins.
+// The GitHub account of the form (worfy-harness ticket 25): the accounts gh knows for the hosts of
+// the folder's `origin` remotes and their write access (src/main/github/accounts.ts). The choice
+// goes into the draft and is written with it; there is no write of its own.
+//
+// Everything that reaches outside — git, gh, the two Harness scripts, the installer, Claude Code,
+// the list — comes in through ConnectDeps, so the contract test runs the steps with stand-ins.
 import { readdirSync, realpathSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { DEFAULT_SETTINGS } from '../../shared/agent/settings'
 import type { HarnessStatus } from '../../shared/ipc/harness'
-import type { ConnectFolder, ConnectMode, DraftIssue, ProfileDraft } from '../../shared/ipc/projects'
+import type { ConnectFolder, ConnectMode, DraftIssue, GithubAccountsStep, ProfileDraft } from '../../shared/ipc/projects'
 import type { CanUseToolHandler } from '../agent/permissions'
 import type { QueryHandle, QueryRequest } from '../agent/session'
+import { readGithubAccounts } from '../github/accounts'
+import type { GhRunner } from '../github/prs'
 import type { ProfileRunner } from '../workflow/profile'
 import type { GitRunner } from './store'
 
@@ -90,6 +96,8 @@ export type AddOutcome = { status: 'added'; projectId: string; notice: string | 
 
 export interface ConnectDeps {
   git: GitRunner
+  /** The app's gh, for the GitHub account step: the same executable and environment as its other gh calls. */
+  gh: GhRunner
   /** `bin/profile` of the Harness on the machine. */
   profile: ProfileRunner
   /** `bin/project-connect` of the Harness on the machine. */
@@ -371,6 +379,13 @@ export class ProjectConnector {
     if (!inspected.ok) return { status: 'rejected', reason: inspected.reason }
     const known = await profileKnows(inspected.folder, this.deps.profile)
     return { status: known ? 'known' : 'new', folder: inspected.folder }
+  }
+
+  /** The GitHub account step: the accounts of the hosts of the folder's origins and their write access. */
+  async accounts(root: string): Promise<GithubAccountsStep> {
+    const inspected = await inspectFolder(root, this.deps.git)
+    if (!inspected.ok) return { status: 'failed', reason: inspected.reason }
+    return readGithubAccounts(inspected.folder.repos, { git: this.deps.git, gh: this.deps.gh })
   }
 
   /** Runs `bin/project-connect` with `args` on `draft`; a code other than 0 and 1 (or no script) throws. */
