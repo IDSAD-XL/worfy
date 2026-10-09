@@ -152,6 +152,7 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 
 ## Готово, когда
 
+- [ ] Опись скриптов `harness/bin` и `harness/hooks` снята заново на main после закрытия E3 командой описи из шага 4 Ticket-а 01. Раздел 18 evidence Ticket-а 01 обновлён; каждый скрипт на bash и zsh приписан ровно к одному из Ticket-ов 03, 04, 05, 06 или 15. Перенесено из Ticket-а 01 при мерже PR #172.
 - [ ] `bash harness/hooks/tests/gate-verdict.test.sh` — код 0 на Mac и в Git Bash на Windows-ПК. Test зовёт `node "$HOOKS/gate.mjs"`. Ожидания строк `[gate] …`, кодов выхода и полей `verdict-<tag>.json` — прежние; убран только случай «нет node».
 - [ ] `bash harness/hooks/tests/gate-notverified.test.sh` и `bash harness/hooks/tests/gate-unregistered.test.sh` — код 0 на Mac. Они гоняют и `stop.sh`; в Git Bash это пункт «Готово, когда» Ticket-а 04.
 - [ ] `rules-hooks.test.sh`, `agents-text.test.sh`, `epic-wave-ship-ticket.test.sh`, `harness-home.test.sh` — код 0 на Mac.
