@@ -1,7 +1,7 @@
 # 15 — Один Autopilot на Epic и origin на все Linked machine-ы
 
 Type: task
-Status: claimed — 2026-10-08
+Status: done — 2026-10-09, [PR #168](https://github.com/IDSAD-XL/worfy/pull/168)
 Blocked by: 08
 Source: решения владельца 2026-10-07: Q13 (второй Autopilot на тот же Epic с тем же `origin` на другой Machine не стартует, обход — явный) и Q9 (у Project ровно одна Machine; один репозиторий на двух Machine — два Project-а) ([spec.md](../spec.md)); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md)
 
@@ -200,3 +200,12 @@ renderer, открыт в этой же Wave). Поэтому Stop шлют од
 `test/contract/github-prs.test.ts` и `test/contract/harness-qmd.test.ts` (оба в списке известных
 нестабильных, нагрузка 5–7). Эти два файла отдельно — 76 из 76 зелёные. CI PR #168 на 698fa88 —
 зелёный.
+
+Гейт Wave 4: `REJECTED` (2 med — «Stop autopilot» наследовал отказ кнопки Autopilot; «Start anyway» сжимал заголовок
+узкой рамки Epic-а до нуля; 3 low) → доработка `533bed1..b2daf39` → `VERIFIED`. Мерж — после rebase на `76f7ff8`,
+gate full «зелено» со второго прогона (первый: e2e `harness-install.spec.ts:117` «window was not shown within 30 s»,
+не связан с Ticket-ом); влит `0a000ef`. Долги ревьюера (не блокируют):
+- [low] `src/renderer/canvas/actions/AutopilotAction.tsx:154` — клик «Start anyway» снимает отказ до ответа main:
+  собственные состояния кнопки не видны, отказ по другой причине теряется.
+- [low] `AutopilotAction.tsx:181-207` — `StartAnyway` почти копия `ActionButton`.
+- [low] chip «running on <Machine>» остаётся после конца чужого прогона до следующего старта (описано в F-SPEC).

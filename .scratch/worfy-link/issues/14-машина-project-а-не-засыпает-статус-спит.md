@@ -1,7 +1,7 @@
 # 14 — Machine Project-а не засыпает, пока подключены Linked machine-ы; статус «спит»
 
 Type: task
-Status: claimed — 2026-10-08
+Status: done — 2026-10-09, [PR #167](https://github.com/IDSAD-XL/worfy/pull/167)
 Blocked by: 02
 Source: решения владельца 2026-10-07: Q5 (пока подключена Linked machine, Machine Project-а не засыпает; переключатель) и Q17 (уснувшая Machine — статус «спит», Wake-on-LAN позже) ([spec.md](../spec.md)); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md)
 
@@ -136,3 +136,11 @@ Mutation-проверка в своём worktree (вернул из копии),
 - не проверено: «Живой сон на одном Mac» (`pmset sleepnow`) — бриф запрещает усыплять Mac владельца. Успевает ли
   `sleeping` уйти до заморозки процесса на macOS, не известно; не успеет — вторая машина покажет «недоступна», как без
   этого Ticket-а. Проверка — шагом владельца или в Ticket-е 16.
+
+Гейт Wave 4: `VERIFIED` с первого круга (PR #167); снимки ревьюера в обеих темах — Online, Sleeping, оба
+переключателя выключены. Мерж ждал зелёного gate (таймауты contract-test-ов, исправлены владельцем в PR #171);
+после rebase на `4fb466a` — gate full «зелено», влит `76f7ff8`. Долги ревьюера (не блокируют):
+- [low] нет test-а на `settings.json` Ticket-а 02 без поля `keepAwake` (mutant `?? false` в `src/main/link/settings.ts:48`
+  выживает).
+- [low] переключатель «Keep this computer awake» показан включённым при выключенном доступе, хотя blocker не держится
+  (`src/main/link/keep-awake.ts:55`, `MachinesSection.tsx:245`) — решено без владельца, подтвердить.
