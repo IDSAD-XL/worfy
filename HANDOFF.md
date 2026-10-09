@@ -3,7 +3,7 @@
 ## Сейчас в работе
 
 - `worfy-harness` (E3: Harness — правила, skills, agents и скрипты владельца — становится plugin-ом worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–23 (23 — PR #178, #181), `epic-status` — 23/27; 27 — бесплатная часть влита, Ticket `blocked`.
-- `worfy-harness` 24 (подключение Project-а: форма «Connect project», `bin/project-connect`) — `blocked` гейтом, работа в открытом PR #176: во втором круге новые high в списке читающих команд Bash Session-а черновика.
+- `worfy-harness` 24 (подключение Project-а: форма «Connect project», `bin/project-connect`) — круг по решению владельца 2026-10-09 (PR #176): черновик Profile-а без Bash (Read, Glob, Grep), worktree под `.claude/worktrees/`, у Silent — в `.git/info/exclude`.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 18. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`; работа — только в локальной ветке `wip/worfy-week-14` («Итог» Ticket-а 14).
 - Stable copy и plugin `worfy` — сборка `df8e870` (2026-10-09). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–10, 12–15, `epic-status` — 14/16; Wave 5 — 10, 12, 13 (PR #183–#185). 11 `blocked` до мержа `worfy-harness` 24 (его диалог «Connect project»), потом — в open.
@@ -17,7 +17,6 @@
 - `worfy-link` 02: вручную — dev-сборка и Stable copy находят друг друга по Bonjour и связываются по коду; появился ли запрос Local Network и на каком шаге — [Ticket 02](.scratch/worfy-link/issues/02-link-a-machine-код-список-и-отзыв.md), «Итог».
 - Вопросы: `worfy-harness` 05 — как давать «Standing authorization» и переводить ли подписи блока статуса; 08 — смысл фразы `continuous-audit/SKILL.md:228-229`; `worfy-daily` 25 — MCP prompt в slash-меню; `worfy-week` 17 — relaunch после таймаута `halt`.
 - `worfy-harness` 17: включить qmd — обновить plugin, записать согласие на модели, `qmd-collections worfy` и `auction` (у `auction` путь `update:` ведёт в удалённый `~/.claude/bin`) — [Ticket 17](.scratch/worfy-harness/issues/17-qmd-модели-и-коллекции-в-harness.md), «Итог».
-- `worfy-harness` 24: после второго `REJECTED` — (а) короткий круг или (б) черновик без Bash (рекомендация); корень worktree под `.claude/worktrees/` — [Ticket 24](.scratch/worfy-harness/issues/24-подключение-project-а.md), «Итог».
 - `worfy-harness` 27: как дать прогонам eval git (brew git, правка Harness или ждать Claude Code) и когда гонять полный набор — [Ticket 27](.scratch/worfy-harness/issues/27-eval-кейсы-harness-через-plugin-eval.md), «Итог».
 - Личное в истории: `worfy-harness` 01 — коммиты PR #106 с UUID аккаунта (чистит только поддержка GitHub); 02 — пути `/Users/alexey/Work/…` в `harness/` и в истории импорта. Ответ — в «Итог» Ticket-ов.
 - Мусор на машине: удалить ли 13 папок транскриптов spike-а `~/.claude/projects/*worfy-harness-probe*` (`worfy-harness` 01) `~/.claude/worfy-harness/worktree-sessions/` (`worfy-harness` 11).
@@ -28,8 +27,6 @@
 - `worfy-harness` 26 (приёмка E3): один `/login` в песочнице (он же откроет `claude plugin validate` и живые проверки 05–08) и второй пользователь macOS — [Ticket 26](.scratch/worfy-harness/issues/26-приёмка-e3.md).
 - `worfy-windows` 01: jq на чистой Windows (в Git for Windows его нет, first-run требует) и symlink-test-ы без Developer Mode — skip на win32 или Developer Mode — [Ticket 01](.scratch/worfy-windows/issues/01-проверка-фактов-на-живой-windows.md), «Итог».
 - `worfy-windows` 02: снимок окна `pnpm dev` на Windows-ПК; 16 падений `harness-evals` от CRLF во front matter — LF и для `harness/evals/**` или `\r?\n` в test-е (Ticket 14) — [Ticket 02](.scratch/worfy-windows/issues/02-репозиторий-ставится-и-запускается-на-windows.md), «Итог».
-- Mac: `defaults write com.github.Electron ApplePersistenceIgnoreState -bool YES` (2026-10-09, PR #179) — оставить или `defaults delete com.github.Electron ApplePersistenceIgnoreState`.
-- Замок e2e в `rules.md` Profile-а worfy: держащий делает `touch` раз в 5 минут (риск ниже) — дописать в правило.
 
 ## Риски и долги
 
@@ -41,9 +38,9 @@
 - Нестабильный `test/e2e/epic-frame.spec.ts:721` «long names» роняет `gate full` и уже останавливал мержи; причина известна. Сводка нестабильных test-ов — «Итог» `worfy-week` 06.
 - Пока не сделан пункт о реестре Gate и Profile, Gate `fast` и CI не проверяют PR, где изменён только `HANDOFF.md`: перед его push — `node scripts/check-handoff.mjs`. PR только в `harness/` гоняют Gate с `GATE_SCOPE=all`.
 - Gate `fast` с сужением по диффу не видит `scripts/` и `test/fixtures/` (`worfy-mvp` 01). Перед мержем — `GATE_SCOPE=all gate.sh full` на ветке: e2e и `.app` идут только локально ([ci-merge.md](docs/lessons/ci-merge.md)).
-- Замок `/tmp/worfy-e2e.lock` брошен через 30 минут, а `gate full` под нагрузкой идёт ~35: живой замок снимали, e2e падали. Держащий его делает `touch` раз в 5 минут; `rules.md` не менялся.
 - Contract test-ы с дочерними процессами (`github-prs`, `harness-qmd`, `workflow-reader`, `docs`) при load 6–8 не укладываются в 15 s: gate fast параллельных исполнителей краснел.
-- Ложный таймаут первого окна в e2e: заблокированный экран, параллельные e2e, окно macOS «восстановить окна?» (с PR #179 test-ы его отключают) — [agents.md](docs/lessons/agents.md).
+- Ложный таймаут первого окна в e2e: заблокированный экран, параллельные e2e, окно macOS «восстановить окна?» (с PR #179 test-ы его отключают; на Mac владельца ещё и `defaults` для `com.github.Electron`) — [agents.md](docs/lessons/agents.md).
+- Замок e2e держащий обновляет `touch`-ем раз в 5 минут (`rules.md` Profile-а worfy, 2026-10-09): без этого соседняя очередь снимала живой замок.
 - Долги low — в «Итог» Ticket-ов (абзацы «Долг» и подраздел «Долги из HANDOFF (2026-10-08)»), разбор — шаг документов при закрытии Epic-а.
 
 ## Дальше
