@@ -1,9 +1,9 @@
-# Передача контекста — снимок на 2026-10-09 (UTC), main @ 119425a
+# Передача контекста — снимок на 2026-10-09 (UTC), main @ 9f76dcc
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3: Harness — правила, skills, agents и скрипты владельца — становится plugin-ом worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–24 (23 — PR #178, #181; 24 — PR #176), `epic-status` — 24/27; 27 — бесплатная часть влита, Ticket `blocked`.
-- `worfy-harness` 24 (подключение Project-а: «Connect project», `bin/project-connect`) влит 2026-10-09 (PR #176) после круга владельца: черновик Profile-а без Bash (Read, Glob, Grep), факты — `project-connect --facts`, worktree под `.claude/worktrees/`, у Silent — в `.git/info/exclude`.
+- `worfy-harness` (E3: Harness — правила, skills, agents и скрипты владельца — становится plugin-ом worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–25 (23 — PR #178, #181; 24 — PR #176; 25 — PR #191), `epic-status` — 25/27; 27 — бесплатная часть влита, Ticket `blocked`.
+- `worfy-harness` 24–25 влиты 2026-10-09: «Connect project» (черновик Profile-а без Bash, факты — `project-connect --facts`, worktree под `.claude/worktrees/`, у Silent — в `.git/info/exclude`) и шаг аккаунта GitHub (PR #191: `gh auth status`, вход внутри диалога, финиш по праву записи).
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 18. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`; работа — только в локальной ветке `wip/worfy-week-14` («Итог» Ticket-а 14).
 - Stable copy и plugin `worfy` — сборка `df8e870` (2026-10-09). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–10, 12–15, `epic-status` — 14/16; Wave 5 — 10, 12, 13 (PR #183–#185). 11 снова open: диалог «Connect project» влит.
@@ -11,7 +11,7 @@
 
 ## Ждёт владельца
 
-- Подтвердить решения, принятые без владельца (пометки «подтвердить» в «Итог» Ticket-ов): `worfy-week` 03–07, 09, 10, 12, 15, 17, 18; `worfy-harness` 01, 02, 04–09, 11–14, 17, 19, 20, 23, 24, 27; `worfy-link` 01–06, 08–10, 12–15.
+- Подтвердить решения, принятые без владельца (пометки «подтвердить» в «Итог» Ticket-ов): `worfy-week` 03–07, 09, 10, 12, 15, 17, 18; `worfy-harness` 01, 02, 04–09, 11–14, 17, 19, 20, 23–25, 27; `worfy-link` 01–06, 08–10, 12–15.
 - `worfy-link` 08: подтвердить, что с включённым доступом Linked machine может в Project-ах всё — Terminal, Session с `bypassPermissions`, ответы на разрешения (ADR-0052 п.6).
 - `worfy-link` 08: должно ли выключение доступа останавливать Session-ы, Autopilot и очередь, запущенные Linked machine раньше (spec и ADR-0052 расходятся) — [Ticket 08](.scratch/worfy-link/issues/08-доступ-linked-machine-к-project-ам.md), «Итог».
 - `worfy-link` 02: вручную — dev-сборка и Stable copy находят друг друга по Bonjour и связываются по коду; появился ли запрос Local Network и на каком шаге — [Ticket 02](.scratch/worfy-link/issues/02-link-a-machine-код-список-и-отзыв.md), «Итог».
@@ -43,8 +43,8 @@
 
 ## Дальше
 
-- Следом `worfy-harness` 25 и `worfy-link` 11; приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot. Платная часть 27 — после ответа про git.
-- Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
+- Следом `worfy-link` 11; приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot. Платная часть 27 — после ответа про git.
+- Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21, 24, 25 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
 - Ждут условия (проверит агент): упор в Limits (`worfy-daily` 05), наблюдатель касаний (`worfy-daily` 04), workflow-скрипт в Autopilot (`worfy-daily` 29, 17), бейджи у Ticket-а с открытым PR (`worfy-mvp` 17, `worfy-week` 01).
 - Неделя работы владельца из Stable copy (условие 4 E2 и цель `worfy-week`): каждый дефект и каждое вмешательство человека — Ticket `worfy-week`, следующий номер 19.
 - Кандидаты в Ticket-ы: `done` с невлитой ветки, `reader.ts:329` (`worfy-harness` 22); [med] Project по первому совпадению пути в `checks.ts:69` и ещё два долга `worfy-harness` 23 — его «Итог».
