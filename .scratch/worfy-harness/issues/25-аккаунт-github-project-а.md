@@ -185,7 +185,9 @@ not a function` (3 случая) — шага аккаунта не было, `a
 - Ticket 19 читает `gh auth status` текстом (`ghAccounts` в `src/main/first-run/checks.ts`: только «host:
   login», без `active` и `state`) — этот Ticket его не взял, чтение JSON — новое в `accounts.ts`.
 - Каналы IPC — все `local`: `projects.connect.accounts`, `projects.connect.signIn`, `…signInInput`,
-  `…signInResize`, `…signInClose`, события `…signInOutput`, `…signInExit`.
+  `…signInResize`, `…signInClose`, события `…signInOutput`, `…signInExit`. Пометку `local` всех каналов
+  `projects.connect.*` (и Ticket-а 24) держит `test/unit/link-access.test.ts`, случай «local: connecting a
+  Project…»; mutant «`signIn` и `signInInput` — `project`» — красный.
 - Подменённый gh (`test/fixtures/gh/gh-stub.mjs`) понимает `auth status --json hosts [--hostname]`,
   `auth token -u`, `api repos/<o>/<r>` (по `GH_TOKEN` → login: `true`/`false`/HTTP-код, по умолчанию 404) и
   `auth login` (ждёт Enter, добавляет аккаунт из `login.json`, делает его активным); файл `fail` в
@@ -246,3 +248,10 @@ test:e2e test:package».
   (`.hosts | add`), настоящий вывод не читался.
 - не проверено: аккаунты GitHub Enterprise — `auth token` и `api` получают `--hostname`, test-ы только на
   `github.com`.
+
+**Долги (ревью PR #191, issuecomment-6081331466).**
+- [low] `src/main/github/accounts.ts:117-119`, `:176` — у хоста GitHub Enterprise Server проверка прав
+  передаёт `GH_TOKEN`, а gh для такого хоста читает `GH_ENTERPRISE_TOKEN`: все аккаунты хоста получают права
+  активного. Исправление — `GH_ENTERPRISE_TOKEN` вместе с `GH_HOST` для хостов кроме `github.com`.
+- [low] `src/main/github/accounts.ts:145-150` — remote через SSH-алиас (`git@github-work:acme/shop.git`)
+  читается как «No GitHub origin»: `local-green` без выбора аккаунта.

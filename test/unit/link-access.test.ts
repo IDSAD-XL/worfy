@@ -100,6 +100,29 @@ describe('the initial marks', () => {
     }
   })
 
+  it('local: connecting a Project — the draft, the GitHub account and the gh sign-in (worfy-harness tickets 24, 25)', () => {
+    const local = marked('local')
+    const connect = channels.map((channel) => channel.name).filter((name) => name.startsWith('projects.connect.'))
+    // Named, so a channel that disappears or is renamed fails here too.
+    const expected = [
+      'projects.connect.inspect',
+      'projects.connect.draft',
+      'projects.connect.stop',
+      'projects.connect.check',
+      'projects.connect.write',
+      'projects.connect.activity',
+      'projects.connect.accounts',
+      'projects.connect.signIn',
+      'projects.connect.signInInput',
+      'projects.connect.signInResize',
+      'projects.connect.signInClose',
+      'projects.connect.signInOutput',
+      'projects.connect.signInExit',
+    ]
+    expect(connect.sort()).toEqual([...expected].sort())
+    for (const name of connect) expect(local, name).toContain(name)
+  })
+
   it('no channel of the shell domain, and no dialog, is open to a Linked machine', () => {
     for (const channel of channels) {
       // `desktop` or `local` (shell.openExternal, worfy-link ticket 12): both are closed to a Linked machine.
