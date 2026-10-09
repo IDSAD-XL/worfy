@@ -28,8 +28,10 @@ Source: решения владельца 2026-10-09: пункт 1(a) (Suggestio
 ## Что делаем
 
 1. **Socket** — `src/main/terminal-ai/socket.ts` (новый).
-   - Unix socket `assist.sock` в папке Ticket-а 01 (права 0700), файл 0600. Стартует с первым
-     zsh-Terminal-ом, закрывается при выходе worfy.
+   - Unix socket `assist.sock` в папке Ticket-а 01 (права 0700), файл 0600; путь — не длиннее 104
+     байт (предел macOS, Ticket 01 выбирает папку). Стартует с первым zsh-Terminal-ом, закрывается при
+     выходе worfy. Файла socket-а нет при старте очередного Terminal-а (папку чистили) — сервер слушает
+     заново.
    - Каждый запуск shell-а получает свой токен: `WORFY_ASSIST_SOCKET` и `WORFY_ASSIST_TOKEN` в
      окружении (правка `src/main/terminal/shell-integration.ts`). Токен связывает соединение с
      Terminal-ом (Project и Node) и умирает с shell-ом. Скрипт убирает обе переменные из окружения,
@@ -53,9 +55,11 @@ Source: решения владельца 2026-10-09: пункт 1(a) (Suggestio
    - Suggestion из истории — на каждое нажатие: последняя команда `$history`, которая начинается с
      набранного. Без процесса и без main. Серый — `POSTDISPLAY` и `region_highlight` `fg=8`.
    - → в конце строки — принять целиком. → не в конце — как обычно.
-   - Option/Alt+→ — принять до конца следующего слова. По чтению кода xterm.js на macOS Option+→
-     шлёт `ESC f`, на других системах — `ESC [1;5C` (риск 6 spec-а): widget привязывает обе, Ticket
-     проверяет.
+   - Option/Alt+→ — принять до конца следующего слова. xterm.js 6.0.0 (версия worfy, `package.json`)
+     шлёт на Alt+→ `ESC [1;3C` на всех системах (`node_modules/@xterm/xterm/src/common/input/Keyboard.ts`,
+     ветка правой стрелки; `macOptionIsMeta` в worfy не задан). Widget привязывает ровно ту
+     последовательность, которую шлёт xterm worfy; Ticket сверяет её с исходником xterm той версии,
+     что стоит при claim (риск 6 spec-а).
    - Esc — скрыть (риск 5 spec-а, задержка `KEYTIMEOUT`).
    - Строка с пробелом в начале — без Suggestion.
    - Соединение одно на shell, на его fd — `zle -F`. Обработчик раскладывает сообщения по функциям
@@ -73,10 +77,10 @@ Source: решения владельца 2026-10-09: пункт 1(a) (Suggestio
 ## Готово, когда
 
 - [ ] Unit `test/unit/terminal-ai-protocol.test.ts` (новый): каждое сообщение пункта 2 кодируется и разбирается обратно; текст с TAB, `\n`, `\`, кириллицей и эмодзи — без потерь.
-- [ ] Contract `test/contract/terminal-ai-zle.test.ts` (новый), настоящий zsh с интеграцией Ticket-а 01, `HOME` во временной папке: после `echo worfy-zle-1` ввод `echo wo` даёт в выводе серый `rfy-zle-1` (SGR цвета 8 или 90); → — строка `echo worfy-zle-1`, Enter печатает `worfy-zle-1`; Option+→ в обеих последовательностях принимает одно слово; Esc — серый текст стёрт; ` echo wo` (пробел в начале) — серого текста нет.
-- [ ] Тот же contract: файл socket — 0600, папка — 0700; соединение без `hello`, с чужим токеном и с токеном закрытого shell-а — закрыто; `insert git status` заменяет строку, команда не запускается (её вывода нет, main не пишет в pty `\r`); `show` с устаревшим id не показывается; socket закрыт — история работает, в выводе нет ошибок zsh.
+- [ ] Contract `test/contract/terminal-ai-zle.test.ts` (новый), настоящий zsh с интеграцией Ticket-а 01, `HOME` во временной папке: после `echo worfy-zle-1` ввод `echo wo` даёт в выводе серый `rfy-zle-1` (SGR цвета 8 или 90); → — строка `echo worfy-zle-1`, Enter печатает `worfy-zle-1`; Option+→ (`ESC [1;3C`, как его шлёт xterm.js worfy) принимает одно слово; Esc — серый текст стёрт; ` echo wo` (пробел в начале) — серого текста нет.
+- [ ] Тот же contract: файл socket — 0600, папка — 0700; соединение без `hello`, с чужим токеном и с токеном закрытого shell-а — закрыто; файл socket-а удалён — следующий Terminal подключается; `insert git status` заменяет строку, команда не запускается (её вывода нет, main не пишет в pty `\r`); `show` с устаревшим id не показывается; socket закрыт — история работает, в выводе нет ошибок zsh.
 - [ ] Тот же contract: `env` внутри shell-а — без `WORFY_ASSIST_TOKEN` и `WORFY_ASSIST_SOCKET`; вложенный `zsh -i` — без widget-а; определённая заранее `_zsh_autosuggest_start` — свой Suggestion не включается; `config` без Suggestion — серого текста нет.
-- [ ] e2e `test/e2e/terminal-ai-history.spec.ts` (новый): в Terminal Node выполнена команда с уникальной меткой, затем набран её префикс — в буфере xterm остаток команды серым; → и Enter выполняют её. Тот же Terminal во втором окне (helper `openSecondWindow`, `test/e2e/helpers.ts:228`) показывает тот же серый текст.
+- [ ] e2e `test/e2e/terminal-ai-history.spec.ts` (новый): в Terminal Node выполнена команда с уникальной меткой, затем набран её префикс — в буфере xterm остаток команды серым; → и Enter выполняют её; Alt+ArrowRight (Playwright) принимает одно слово. Тот же Terminal во втором окне (helper `openSecondWindow`, `test/e2e/helpers.ts:228`) показывает тот же серый текст.
 - [ ] (вручную) `WORFY_AGENT=fake pnpm dev`, zsh владельца: Suggestion из истории — без заметной задержки; →, Option+→ и Esc работают; время скрытия по Esc — в «Итог». Снимки серого текста — `../evidence/03-suggestion-light.png` и `../evidence/03-suggestion-dark.png`: текст читается в обеих темах. Как проверить: окно worfy.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0.
 
@@ -86,7 +90,7 @@ Source: решения владельца 2026-10-09: пункт 1(a) (Suggestio
 widget-а ещё нет. Потом протокол и socket.
 
 contract идёт на настоящем zsh и в Linux CI. e2e — с настоящим `HOME` владельца, поэтому команда в
-нём с уникальной меткой: история владельца не должна подсказать другое (риск 10 spec-а). В «Итог» —
+нём с уникальной меткой: история владельца не должна дать другой Suggestion (риск 10 spec-а). В «Итог» —
 как падал первый test, точный протокол, имена общих функций widget-а для Ticket-ов 04–07.
 
 ## Где в коде

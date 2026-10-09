@@ -1,7 +1,7 @@
 # 09 — Приёмка Epic-а worfy-terminal-ai по «Готово, когда» и live-проверка владельца на подписке
 
 Type: task
-Status: open
+Status: blocked — шаги владельца: live-проверка на подписке; Autopilot не берёт, открывает владелец или Orchestrator по его слову, когда 01–08 влиты
 Blocked by: 01, 02, 03, 04, 05, 06, 07, 08
 Source: «Готово, когда» Epic-а worfy-terminal-ai ([spec.md](../spec.md)); решения владельца 2026-10-09, пункт 7 (test-ы без расхода подписки, одна live-проверка владельца в конце), пункты 1–5 ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md); [evidence spike-а](../evidence/spike-задержки-2026-10-09.md) — цифры, с которыми сравнивать
 
@@ -26,7 +26,8 @@ Source: «Готово, когда» Epic-а worfy-terminal-ai ([spec.md](../spe
 3. Найденный дефект — новый Ticket Epic-а, его номер дописывается в `Blocked by` этого.
 4. В `spec.md` отмечает пункты «Готово, когда» Epic-а со ссылкой на «Итог» этого Ticket-а.
 
-Autopilot этот Ticket не берёт: в нём шаги владельца.
+Autopilot этот Ticket не берёт: с этого docs-PR он лежит в `blocked` (как Ticket 16 Epic-а
+`worfy-harness`). Когда 01–08 влиты и владелец готов, Orchestrator по его слову ставит `Status: open`.
 
 ## Готово, когда
 
@@ -45,7 +46,8 @@ Autopilot этот Ticket не берёт: в нём шаги владельца
 Пункт 3 — процесс и Limits.
 
 - [ ] Команда: `ps -o pid,rss,command -p <pid>` по pid из строки лога — один процесс `claude` assist-а (кроме процессов Session-ов), RSS — в «Итог»; после 10 минут без запросов его нет.
-- [ ] Команда: строка лога assist-процесса — `apiKeySource` `none`, модель Suggestion — haiku без thinking, нет plugin-ов пользователя.
+- [ ] Команда: строка лога assist-процесса — `apiKeySource` `none`, модель Suggestion — haiku без thinking (`option_not_applied` нет), нет plugin-ов пользователя; есть ли hooks у встроенных plugin-ов Claude Code — записать в «Итог» (по `init` и `claude --debug`, если `init` их не сообщает).
+- [ ] (вручную) Next command, Command request и Fix на Sonnet с `effort: 'low'`: были ли блоки thinking и как это сказалось на времени ответа — в «Итог» (у Sonnet 5.5 thinking не выключается).
 - [ ] Команда: список папок `~/.claude/projects` до и после проверки одинаков — транскриптов нет; в `~/.claude/sessions` нет записи assist-процесса с `cwd` в Project-е; на Canvas нет нового Session Node-а.
 - [ ] (вручную) `LimitsMeter` обновился после запросов Terminal AI (время показаний свежее).
 - [ ] Contract-test-ы порогов Limits Ticket-а 02 (`test/unit/terminal-ai-limits-gate.test.ts`, `test/contract/terminal-ai-assist.test.ts`) зелёные: живой упор в 80 % на подписке не устраивается.

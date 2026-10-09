@@ -127,7 +127,7 @@ _Avoid_: удалённый инстанс, host, client, remote
 ## Terminal AI
 
 **Terminal AI**:
-Подсказки модели Claude в Terminal-е — Suggestion, Next command, Command request и Fix — и раздел Settings, где они включаются и выключаются. Terminal AI — не Session и не агент: у него нет транскрипта, Node-а и Binding-а, он ничего не запускает и только предлагает текст для строки ввода; команду запускает пользователь. Его запросы расходуют Limits подписки ([ADR-0058](docs/adr/0058-terminal-ai-assist-process.md)).
+Помощь модели Claude в Terminal-е — Suggestion, Next command, Command request и Fix — и раздел Settings, где они включаются и выключаются. Terminal AI — не Session и не агент: у него нет транскрипта, Node-а и Binding-а, он ничего не запускает и только предлагает текст для строки ввода; команду запускает пользователь. Его запросы расходуют Limits подписки ([ADR-0058](docs/adr/0058-terminal-ai-assist-process.md)).
 _Avoid_: AI-ассистент, агент Terminal-а, копилот
 
 **Suggestion**:

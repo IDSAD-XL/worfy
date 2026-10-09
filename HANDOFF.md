@@ -8,11 +8,12 @@
 - Stable copy и plugin `worfy` — сборка `df8e870` (2026-10-09). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/16; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16.
 - `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057): влиты 01, 02 и 09 (PR #172, #177, #194 — окружение агента из реестра, как при входе в Windows), ответы владельца — PR #192. Session на Windows-ПК ведёт 08, затем 11; gate full — на Mac. 03–07 ждут закрытия E3.
-- `worfy-terminal-ai` (AI-подсказки в Terminal-ах на подписке; [spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) спроектирован 2026-10-09: 9 Ticket-ов, не начат, идёт на Mac параллельно с `worfy-ui`. 06 ждёт `worfy-windows` 11, 08 — окно Settings `worfy-ui`.
+- `worfy-terminal-ai` (Terminal AI в Terminal-ах на подписке; [spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) спроектирован 2026-10-09: 9 Ticket-ов, не начат, идёт на Mac параллельно с `worfy-ui`. 08 ждёт окно Settings `worfy-ui`, 09 — шаги владельца (`blocked`).
 
 ## Ждёт владельца
 
 - Подтвердить решения, принятые без владельца (пометки «подтвердить» в «Итог» Ticket-ов): `worfy-week` 03–07, 09, 10, 12, 15, 17, 18; `worfy-harness` 01, 02, 04–09, 11–14, 17, 19, 20, 23–25, 27; `worfy-link` 01–06, 08–15.
+- `worfy-terminal-ai`: подтвердить «Готово, когда», разбиение на Ticket-ы и 14 пунктов «Решено без владельца» ([spec](.scratch/worfy-terminal-ai/spec.md)), в том числе `claim()` прогретого процесса на каждый запрос (ADR-0058, пункт 2) и каналы `project` для панели и Fix.
 - `worfy-link` 08: подтвердить, что с включённым доступом Linked machine может в Project-ах всё — Terminal, Session с `bypassPermissions`, ответы на разрешения (ADR-0052 п.6).
 - `worfy-link` 08: должно ли выключение доступа останавливать Session-ы, Autopilot и очередь, запущенные Linked machine раньше (spec и ADR-0052 расходятся) — [Ticket 08](.scratch/worfy-link/issues/08-доступ-linked-machine-к-project-ам.md), «Итог».
 - `worfy-link` 02: вручную — dev-сборка и Stable copy находят друг друга по Bonjour и связываются по коду; появился ли запрос Local Network и на каком шаге — [Ticket 02](.scratch/worfy-link/issues/02-link-a-machine-код-список-и-отзыв.md), «Итог».
@@ -58,7 +59,7 @@
 - `worfy-mvp` (первая версия, 33/33) закрыт — [spec](.scratch/worfy-mvp/spec.md); где что в коде и долги — «Итог» его Ticket-ов.
 - `worfy-daily` (E2, Autopilot, 32/32) закрыт — [spec](.scratch/worfy-daily/spec.md); условия 3 и 4 готовности E2 ещё не выполнены (`docs/roadmap.md`, E2).
 - `worfy-week` (17/18, Ticket 14 отложен) — [spec](.scratch/worfy-week/spec.md); условия готовности на 2026-10-08 — «Итог» Ticket-а 12.
-- Spec-и открытых Epic-ов: [worfy-harness](.scratch/worfy-harness/spec.md), [worfy-link](.scratch/worfy-link/spec.md), [worfy-windows](.scratch/worfy-windows/spec.md). Этапы E1–E4 — [roadmap](docs/roadmap.md).
+- Spec-и открытых Epic-ов: [worfy-harness](.scratch/worfy-harness/spec.md), [worfy-link](.scratch/worfy-link/spec.md), [worfy-windows](.scratch/worfy-windows/spec.md), [worfy-terminal-ai](.scratch/worfy-terminal-ai/spec.md). Этапы E1–E4 — [roadmap](docs/roadmap.md).
 - Решения — [docs/adr/](docs/adr/): 0001–0024 и 0029–0058, номера 0025–0028 не используются. Следующий свободный — 0059.
 - Уроки — [docs/lessons/](docs/lessons/): `process.md`, `agents.md`, `ci-merge.md`, `testing.md`. Словарь терминов — [CONTEXT.md](CONTEXT.md). Дизайн — [F-SPEC](docs/design/F-SPEC.md).
 - Реестр Gate живёт вне репозитория (`~/.claude/gate/config.json`, после переноса — `$HARNESS_HOME/gate/`); что в нём для worfy — «Итог» `worfy-mvp` 32.
