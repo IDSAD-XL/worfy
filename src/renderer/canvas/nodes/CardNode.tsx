@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '@xyflow/react'
+import { linkedCardUrl, machineLabel } from '../../../shared/cards/bridge'
 import { CARD_ID_PATTERN, type CardInfo } from '../../../shared/ipc/cards'
 import type { LayoutNode } from '../../../shared/layout/types'
-import { invoke, subscribe } from '../../ipc'
+import { invoke, subscribe, windowMachine } from '../../ipc'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
@@ -14,6 +15,10 @@ import type { CanvasNodeProps } from './index'
 // keeps the frame from navigating away or opening windows. The Node reloads the Card when main
 // reports a change of its files, and draws only the title and a frame when the Canvas is zoomed
 // out below LIVE_ZOOM_MIN.
+//
+// In a window on Linked machine M (worfy-link ticket 10) the Card's address from M gets M's machine
+// label (frameUrl): the frame then has an origin of its own, and this Machine's main fetches the
+// files from M. M's own address never goes into the frame.
 export const kind = 'card'
 export const defaultWidth = 360
 export const defaultHeight = 280
@@ -27,6 +32,14 @@ export const LIVE_ZOOM_MIN = 0.4
  * to the window. No popups, no top navigation, no forms.
  */
 export const CARD_SANDBOX = 'allow-scripts allow-same-origin'
+
+/**
+ * The address the frame loads: the Card's own on this Machine; in a window on a Linked machine,
+ * that Machine's address with its machine label, or null when it is not a Card address of its own.
+ */
+function frameUrl(url: string, machine: string | null): string | null {
+  return machine === null ? url : linkedCardUrl(url, machineLabel(machine))
+}
 
 /** The Card a Node shows: `data.cardId` when it is set, otherwise the Node's own id. */
 function cardIdOf(node: LayoutNode): string {
@@ -141,10 +154,12 @@ export default function CardNode({ id, data, selected }: CanvasNodeProps) {
   const live = useStore((store) => store.transform[2] >= LIVE_ZOOM_MIN)
   useFramesStepAsideWhilePressed(useStore((store) => store.domNode))
   const title = info?.title ?? 'Card'
+  const src = info === undefined ? null : frameUrl(info.url, windowMachine())
 
   let body
   if (error !== undefined) body = <div style={messageStyle}>{error}</div>
   else if (info === undefined) body = null
+  else if (src === null) body = <div style={messageStyle}>{`"${info.url}" is not the address of a Card`}</div>
   else if (!info.exists)
     body = (
       <div style={messageStyle} data-testid="card-missing">
@@ -155,10 +170,10 @@ export default function CardNode({ id, data, selected }: CanvasNodeProps) {
     body = (
       <iframe
         // A new frame for every revision: reloading means a fresh document from the protocol.
-        key={`${info.url}#${info.revision}`}
+        key={`${src}#${info.revision}`}
         className="nodrag nowheel"
         style={frameStyle}
-        src={info.url}
+        src={src}
         sandbox={CARD_SANDBOX}
         referrerPolicy="no-referrer"
         title={title}

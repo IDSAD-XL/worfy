@@ -19,12 +19,26 @@
 // Every HTML file a Card serves gets the Card API runtime (src/card-runtime/worfy-card.ts) as an
 // inline script at the start of its <head>, before the Card's own scripts: that is how a Card gets
 // window.worfy (ticket 26). The file on disk is not changed.
-import { readFile, realpath, stat } from 'node:fs/promises'
+//
+// A Card of a Linked machine M (worfy-link ticket 10; ADR-0052, ADR-0053) is shown in a window of
+// this Machine at worfy-card://<card id>.<project label>.<machine label>/<path>, where the machine
+// label names M (machineLabel, src/shared/cards/bridge.ts). Its origin is not the origin of any Card
+// of this Machine, even one with the same card id and project label. The Cards of one Project of M
+// share the site <project label>.<machine label>, but they cannot meet there through
+// `document.domain`: a sandboxed iframe (CARD_SANDBOX, CardNode.tsx) may not set it at all, whatever
+// its allow- keywords. (The header Origin-Agent-Cluster, which would forbid it too, makes Electron
+// 44 close the window that loads such a frame.) Its files come from M through
+// the second source of the handler (src/main/cards/remote.ts): M finds and checks the file
+// (readCardFileChunk below, on M) and sends its bytes; this Machine's main puts its own runtime into
+// the HTML, since the runtime must match the bridge of the window that shows the Card.
+import { open, readFile, realpath, stat } from 'node:fs/promises'
 import { extname, join, resolve, sep } from 'node:path'
 import { protocol } from 'electron'
 import { installWorfyCard } from '../../card-runtime/worfy-card'
-import { CARD_ID_PATTERN } from '../../shared/ipc/cards'
+import { MACHINE_LABEL_PATTERN } from '../../shared/cards/bridge'
+import { CARD_FILE_CHUNK_BYTES, CARD_FILE_LIMIT_BYTES, CARD_ID_PATTERN, type CardFileAnswer } from '../../shared/ipc/cards'
 import { isProjectIdHash, projectIdHash } from '../projects/store'
+import { appLinkedCardSource } from './remote'
 
 export const CARD_SCHEME = 'worfy-card'
 
@@ -107,8 +121,6 @@ export function injectCardRuntime(html: string): string {
   return RUNTIME_TAG + html
 }
 
-const isHtml = (file: string): boolean => ['.html', '.htm'].includes(extname(file).toLowerCase())
-
 /** The host part that names a Project: the hash that ends its id (src/main/projects/store.ts), or null when the id has none. */
 export function projectLabel(projectId: string): string | null {
   return projectIdHash(projectId)
@@ -126,6 +138,8 @@ export function cardUrl(projectId: string, cardId: string, path = 'index.html'):
 export interface CardHost {
   cardId: string
   projectLabel: string
+  /** Set for a Card of a Linked machine: the label of that Machine. Absent for a Card of this one. */
+  machineLabel?: string
 }
 
 export interface CardAddress extends CardHost {
@@ -133,16 +147,21 @@ export interface CardAddress extends CardHost {
   pathname: string
 }
 
-/** Splits a worfy-card:// URL; null for any other URL or a host that is not <card id>.<project label>. */
+/**
+ * Splits a worfy-card:// URL; null for any other URL or a host that is neither <card id>.<project
+ * label> nor <card id>.<project label>.<machine label>.
+ */
 export function parseCardUrl(url: string): CardAddress | null {
   if (!URL.canParse(url)) return null
   const parsed = new URL(url)
   if (parsed.protocol !== `${CARD_SCHEME}:` || parsed.port !== '' || parsed.username !== '' || parsed.password !== '') return null
   const parts = parsed.hostname.split('.')
-  if (parts.length !== 2) return null
-  const [cardId = '', label = ''] = parts
+  if (parts.length !== 2 && parts.length !== 3) return null
+  const [cardId = '', label = '', machine] = parts
   if (!CARD_ID_PATTERN.test(cardId) || !isProjectIdHash(label)) return null
-  return { cardId, projectLabel: label, pathname: parsed.pathname }
+  if (machine === undefined) return { cardId, projectLabel: label, pathname: parsed.pathname }
+  if (!MACHINE_LABEL_PATTERN.test(machine)) return null
+  return { cardId, projectLabel: label, machineLabel: machine, pathname: parsed.pathname }
 }
 
 export function isCardUrl(url: string): boolean {
@@ -188,19 +207,78 @@ export async function resolveCardFile(cardsDir: string, cardId: string, pathname
 /** Finds the folder of all Cards of the Project a host names, or null when no single Project has that label. */
 export type CardsDirLocator = (host: CardHost) => string | null
 
+/** What the handler asks of the second source: one file of a Card of the Linked machine `machineLabel` names. */
+export interface LinkedCardRequest {
+  machineLabel: string
+  projectLabel: string
+  cardId: string
+  /** The path of the URL, still percent-encoded; the Linked machine resolves it. */
+  pathname: string
+  /** HEAD: the type is enough, the bytes are not needed. */
+  head: boolean
+}
+
+/** What the second source answers. `extension` is the file's, in lower case; this side picks the content type. */
+export type LinkedCardFile =
+  | { status: 'file'; extension: string; bytes: Uint8Array }
+  | { status: 'unknown-machine' }
+  | { status: 'missing' }
+  | { status: 'too-large' }
+  | { status: 'unreachable'; reason: string }
+
+/** The second source of files: Cards of Linked machines (src/main/cards/remote.ts). */
+export type LinkedCardSource = (request: LinkedCardRequest) => Promise<LinkedCardFile>
+
 type CardRequest = Pick<Request, 'url' | 'method'>
 
-const notFound = (): Response =>
-  new Response('Not found', { status: 404, headers: { ...CARD_HEADERS, 'Content-Type': 'text/plain; charset=utf-8' } })
+const plain = (status: number, text: string): Response =>
+  new Response(text, { status, headers: { ...CARD_HEADERS, 'Content-Type': 'text/plain; charset=utf-8' } })
 
-/** The protocol's request handler; Electron gives it to protocol.handle, tests call it directly. */
-export function createCardHandler(locate: CardsDirLocator): (request: CardRequest) => Promise<Response> {
+const notFound = (): Response => plain(404, 'Not found')
+
+/** The answer for a file found, by its extension; the body only for GET. HTML gets this Machine's runtime. */
+function fileResponse(method: string, extension: string, body: Uint8Array): Response {
+  const headers = { ...CARD_HEADERS, 'Content-Type': CARD_CONTENT_TYPES[extension] ?? 'application/octet-stream' }
+  if (method === 'HEAD') return new Response(null, { status: 200, headers })
+  const content = extension === '.html' || extension === '.htm' ? new TextEncoder().encode(injectCardRuntime(new TextDecoder('utf-8', { ignoreBOM: true }).decode(body))) : body
+  return new Response(content, { status: 200, headers })
+}
+
+/** A Card of a Linked machine: its file from the second source, the answers as for a Card of this Machine. */
+async function linkedResponse(method: string, address: CardAddress & { machineLabel: string }, source: LinkedCardSource | undefined): Promise<Response> {
+  if (source === undefined) return notFound()
+  const { machineLabel, projectLabel, cardId, pathname } = address
+  const file = await source({ machineLabel, projectLabel, cardId, pathname, head: method === 'HEAD' })
+  switch (file.status) {
+    case 'unknown-machine':
+    case 'missing':
+      return notFound()
+    case 'too-large':
+      return plain(413, `A Card file is served up to ${CARD_FILE_LIMIT_BYTES} bytes`)
+    case 'unreachable':
+      return plain(502, file.reason)
+    case 'file':
+      // The extension is checked here too: a Linked machine does not choose what this side serves.
+      if (CARD_CONTENT_TYPES[file.extension] === undefined) return notFound()
+      if (file.bytes.byteLength > CARD_FILE_LIMIT_BYTES) return plain(413, `A Card file is served up to ${CARD_FILE_LIMIT_BYTES} bytes`)
+      return fileResponse(method, file.extension, file.bytes)
+  }
+}
+
+/**
+ * The protocol's request handler; Electron gives it to protocol.handle, tests call it directly.
+ * `locate` finds the Cards of this Machine; `linked`, the second source, the Cards of Linked
+ * machines (an address with a machine label). Without it such an address is a 404.
+ */
+export function createCardHandler(locate: CardsDirLocator, linked?: LinkedCardSource): (request: CardRequest) => Promise<Response> {
   return async (request) => {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       return new Response('Method not allowed', { status: 405, headers: { ...CARD_HEADERS, Allow: 'GET, HEAD' } })
     }
     const address = parseCardUrl(request.url)
     if (address === null) return notFound()
+    const { machineLabel } = address
+    if (machineLabel !== undefined) return linkedResponse(request.method, { ...address, machineLabel }, linked)
     const cardsDir = locate(address)
     if (cardsDir === null) return notFound()
     const file = await resolveCardFile(cardsDir, address.cardId, address.pathname)
@@ -211,10 +289,40 @@ export function createCardHandler(locate: CardsDirLocator): (request: CardReques
     } catch {
       return notFound()
     }
-    const headers = { ...CARD_HEADERS, 'Content-Type': CARD_CONTENT_TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream' }
-    if (request.method === 'HEAD') return new Response(null, { status: 200, headers })
-    const content = isHtml(file) ? new TextEncoder().encode(injectCardRuntime(body.toString('utf8'))) : new Uint8Array(body)
-    return new Response(content, { status: 200, headers })
+    return fileResponse(request.method, extname(file).toLowerCase(), new Uint8Array(body))
+  }
+}
+
+/**
+ * On the Machine of a Project: one piece of a file of its Card for a Linked machine that shows the
+ * Card (`cards.file`, src/main/ipc/cards.ts). The file is found and checked as for this Machine's
+ * own frames (resolveCardFile), and sent as it is on disk: no runtime, the Machine that shows the
+ * Card adds its own. `cardsDir` null — no single Project has the label. A file over
+ * CARD_FILE_LIMIT_BYTES is not read. `length` is capped at CARD_FILE_CHUNK_BYTES, so one answer
+ * stays well inside a link message.
+ */
+export async function readCardFileChunk(cardsDir: string | null, cardId: string, pathname: string, offset: number, length: number): Promise<CardFileAnswer> {
+  if (cardsDir === null) return { status: 'missing' }
+  const file = await resolveCardFile(cardsDir, cardId, pathname)
+  if (file === null) return { status: 'missing' }
+  let handle
+  try {
+    handle = await open(file, 'r')
+  } catch {
+    return { status: 'missing' }
+  }
+  try {
+    const { size, mtimeMs } = await handle.stat()
+    if (size > CARD_FILE_LIMIT_BYTES) return { status: 'too-large', size }
+    const start = Math.min(offset, size)
+    const wanted = Math.min(length, CARD_FILE_CHUNK_BYTES, size - start)
+    const buffer = Buffer.alloc(wanted)
+    const { bytesRead } = wanted === 0 ? { bytesRead: 0 } : await handle.read(buffer, 0, wanted, start)
+    return { status: 'file', extension: extname(file).toLowerCase(), size, mtimeMs, base64: buffer.subarray(0, bytesRead).toString('base64') }
+  } catch {
+    return { status: 'missing' }
+  } finally {
+    await handle.close().catch(() => undefined)
   }
 }
 
@@ -228,15 +336,22 @@ export interface FrameNavigation {
 
 /**
  * Whether main lets a frame navigate. A Card frame may go only to its own origin (its own files,
- * a reload); the window itself never shows a Card. Navigations that involve no Card are not this
- * module's business and are let through.
+ * a reload): the whole host — card id, project label and, for a Card of a Linked machine, machine
+ * label — stays the same. The window itself never shows a Card. Navigations that involve no Card
+ * are not this module's business and are let through.
  */
 export function allowFrameNavigation({ isMainFrame, frameUrl, targetUrl }: FrameNavigation): boolean {
   const target = parseCardUrl(targetUrl)
   if (isMainFrame) return target === null && !isCardUrl(targetUrl)
   if (!isCardUrl(frameUrl)) return true
   const current = parseCardUrl(frameUrl)
-  return current !== null && target !== null && current.cardId === target.cardId && current.projectLabel === target.projectLabel
+  return (
+    current !== null &&
+    target !== null &&
+    current.cardId === target.cardId &&
+    current.projectLabel === target.projectLabel &&
+    current.machineLabel === target.machineLabel
+  )
 }
 
 /** Must run before the app is ready: a scheme gets its privileges only then. */
@@ -244,7 +359,10 @@ export function registerCardScheme(): void {
   protocol.registerSchemesAsPrivileged([{ scheme: CARD_SCHEME, privileges: { standard: true, secure: true } }])
 }
 
-/** Serves the protocol. Runs once, after the app is ready, before the first window. */
+/**
+ * Serves the protocol: the Cards of this Machine from `locate`, those of Linked machines from the
+ * app's link (src/main/cards/remote.ts). Runs once, after the app is ready, before the first window.
+ */
 export function installCardRuntime(locate: CardsDirLocator): void {
-  protocol.handle(CARD_SCHEME, createCardHandler(locate))
+  protocol.handle(CARD_SCHEME, createCardHandler(locate, appLinkedCardSource))
 }

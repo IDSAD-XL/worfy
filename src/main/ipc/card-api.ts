@@ -1,29 +1,28 @@
 // Handlers of the `cardApi` domain (src/shared/ipc/card-api.ts): a Card's own data and
 // `session.ask`, asked by the window's Card bridge on behalf of a Card (ticket 26).
 //
-// `session.ask` waits for the user's "Send" in a message box. When the recipient Session runs
-// unattended (Autopilot, worfy-daily ticket 02) no one would answer it: confirmAsk shows nothing,
-// the Card gets a refusal, and the Session's subscribers get a `refused_dialog` event.
+// `session.ask` goes in three calls (worfy-link ticket 10; ADR-0053): `cardApi.askPrepare` and
+// `cardApi.askFinish` on the Machine of the Project (src/main/cards/ask.ts), `cardApi.confirm` on
+// the Machine of the screen, which shows the message box on the window that asked. When the
+// recipient Session runs unattended (Autopilot, worfy-daily ticket 02) no one would answer it:
+// askPrepare refuses before any dialog, and the Session's subscribers get a `refused_dialog` event.
 import { BrowserWindow, dialog, type Dialog } from 'electron'
-import { cardApiAsk, cardApiDataGet, cardApiDataSet } from '../../shared/ipc/card-api'
+import { cardApiAskFinish, cardApiAskPrepare, cardApiConfirm, cardApiDataGet, cardApiDataSet, type CardPrompt } from '../../shared/ipc/card-api'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
 import type { Session, SessionRegistry } from '../agent/session'
 import { CardAsk, type AskQuestion } from '../cards/ask'
 import { cardDataStore } from '../cards/data'
 import { cardStore } from '../cards/store'
+import { clientOf } from '../clients'
 import { layoutStore } from '../layout/store'
 import { defineHandler, type HandlerModule } from './index'
 
 /** What the Card gets when the recipient Session runs unattended. */
 export const NO_HUMAN_MESSAGE = 'No one is at this Session to confirm the message: it runs unattended (worfy Autopilot). Nothing was sent.'
 
-/** What confirmAsk uses of Electron and of the app's Sessions; tests give their own. */
-export interface ConfirmAskDeps {
-  dialog: Pick<Dialog, 'showMessageBox'>
-  /** The live Session with this registry id, or undefined. */
-  session(sessionId: string): Pick<Session, 'unattended' | 'refuseDialog'> | undefined
-}
+/** The live Session with a registry id, or undefined; tests give their own. */
+export type SessionLookup = (sessionId: string) => Pick<Session, 'unattended' | 'refuseDialog'> | undefined
 
 function appSession(sessionId: string): Session | undefined {
   try {
@@ -34,29 +33,33 @@ function appSession(sessionId: string): Session | undefined {
   }
 }
 
-const appDeps: ConfirmAskDeps = { dialog, session: appSession }
+/**
+ * Before a question of `session.ask` waits for a dialog: for an unattended recipient no dialog
+ * will be shown. Throws NO_HUMAN_MESSAGE, after the Session's subscribers got `refused_dialog`.
+ */
+export function refuseUnattended(question: AskQuestion, session: SessionLookup = appSession): void {
+  const recipient = session(question.recipient.sessionId)
+  if (recipient?.unattended !== true) return
+  recipient.refuseDialog('card_ask', question.cardId, NO_HUMAN_MESSAGE)
+  throw new Error(NO_HUMAN_MESSAGE)
+}
 
 /**
- * The confirmation of `session.ask`: a message box on the asking window. Button 0 is "Send". For an
- * unattended recipient no box is shown: the call rejects with NO_HUMAN_MESSAGE.
+ * The confirmation of `session.ask`: a message box on the window that asked, on the Machine of that
+ * window. Button 0 is "Send"; true only for it.
  */
-export async function confirmAsk(owner: BrowserWindow | null, question: AskQuestion, deps: ConfirmAskDeps = appDeps): Promise<boolean> {
-  const recipient = deps.session(question.recipient.sessionId)
-  if (recipient?.unattended === true) {
-    recipient.refuseDialog('card_ask', question.cardId, NO_HUMAN_MESSAGE)
-    throw new Error(NO_HUMAN_MESSAGE)
-  }
+export async function confirmCardMessage(owner: BrowserWindow | null, prompt: CardPrompt, box: Pick<Dialog, 'showMessageBox'> = dialog): Promise<boolean> {
   const options = {
     type: 'question' as const,
     buttons: ['Send', 'Cancel'],
     defaultId: 0,
     cancelId: 1,
     title: 'Message from a Card',
-    message: `Card "${question.cardTitle}" wants to send a message to ${question.recipientLabel}.`,
-    detail: question.message,
+    message: `Card "${prompt.cardTitle}" wants to send a message to ${prompt.recipientLabel}.`,
+    detail: prompt.message,
     noLink: true,
   }
-  const { response } = owner ? await deps.dialog.showMessageBox(owner, options) : await deps.dialog.showMessageBox(options)
+  const { response } = owner ? await box.showMessageBox(owner, options) : await box.showMessageBox(options)
   return response === 0
 }
 
@@ -83,7 +86,7 @@ function cardAsk(): CardAsk {
       return view.sessionId
     },
     cardTitle: async (projectId, cardId) => (await cardStore().info(projectId, cardId)).title,
-    confirm: (question, owner) => confirmAsk((owner as BrowserWindow | null | undefined) ?? null, question),
+    refuseUnattended: (question) => refuseUnattended(question),
     send: (sessionId, text) => sendFromCard(sharedRegistry(), sessionId, text),
   })
   return ask
@@ -92,7 +95,8 @@ function cardAsk(): CardAsk {
 export default [
   defineHandler(cardApiDataGet, ({ projectId, cardId }) => ({ value: cardDataStore().get(projectId, cardId) })),
   defineHandler(cardApiDataSet, ({ projectId, cardId, value }) => ({ bytes: cardDataStore().set(projectId, cardId, value) })),
-  defineHandler(cardApiAsk, ({ projectId, cardId, text }, { event }) =>
-    cardAsk().ask(projectId, cardId, text, BrowserWindow.fromWebContents(event.sender)),
-  ),
+  defineHandler(cardApiAskPrepare, ({ projectId, cardId, text }, { event }) => cardAsk().prepare(projectId, cardId, text, clientOf(event))),
+  // `local`: only a window of this Machine calls it, so the sender is a window's webContents.
+  defineHandler(cardApiConfirm, async (prompt, { event }) => ({ send: await confirmCardMessage(BrowserWindow.fromWebContents(event.sender), prompt) })),
+  defineHandler(cardApiAskFinish, ({ projectId, askId, send }, { event }) => cardAsk().finish(projectId, askId, send, clientOf(event))),
 ] satisfies HandlerModule

@@ -29,7 +29,7 @@ import { layoutStore } from '../../src/main/layout/store'
 import { LinkSender } from '../../src/main/link/ipc-adapter'
 import { projectStore } from '../../src/main/projects/store'
 import { TerminalRegistry } from '../../src/main/terminal/pty'
-import { cardApiAsk } from '../../src/shared/ipc/card-api'
+import { cardApiConfirm } from '../../src/shared/ipc/card-api'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { limitsChanged } from '../../src/shared/ipc/limits'
 import { notifyOpen } from '../../src/shared/ipc/notify'
@@ -201,10 +201,10 @@ const modules: Record<string, ModuleLoader> = {
   './checks.ts': async () => checksHandlers(fakeChecks),
   './stand-ins.ts': async () =>
     [
-      // As src/main/ipc/card-api.ts does: a native dialog on the screen of the Project machine.
-      defineHandler(cardApiAsk, async () => {
+      // As src/main/ipc/card-api.ts does: a native dialog on the screen of the Machine called.
+      defineHandler(cardApiConfirm, async () => {
         await electron.showMessageBox()
-        return { sent: false, recipient: null }
+        return { send: false }
       }),
       defineHandler(trashList, async () => {
         calls.trashList += 1
@@ -365,7 +365,7 @@ describe('access on', () => {
   it('still refuses the `desktop` and `local` channels: no dialog, no OS shell, the active Project stays', async () => {
     setAccess(true)
     expect(await callB('projects.pickFolder')).toEqual(notOpen('projects.pickFolder'))
-    expect(await callB('cardApi.ask', { projectId: PROJECT, cardId: 'card-1', text: 'hi?' })).toEqual(notOpen('cardApi.ask'))
+    expect(await callB('cardApi.confirm', { cardTitle: 'Card', recipientLabel: 'the Orchestrator', message: 'hi?' })).toEqual(notOpen('cardApi.confirm'))
     expect(await callB('shell.openExternal', { url: 'https://example.com' })).toEqual(notOpen('shell.openExternal'))
     expect(await callB('shell.openInEditor', { projectId: PROJECT, path: 'HANDOFF.md' })).toEqual(notOpen('shell.openInEditor'))
     expect(electron.showOpenDialog).not.toHaveBeenCalled()
