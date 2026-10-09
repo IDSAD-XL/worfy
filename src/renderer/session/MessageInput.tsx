@@ -1,6 +1,6 @@
-import { useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 import { FILE_COPY_LIMIT_BYTES, MAX_ATTACHMENTS, fileTooLarge, imageTooLarge, tooManyAttachments, type Attachment, type AttachmentSource, type AttachResult } from '../../shared/agent/attachments'
-import { invoke } from '../ipc'
+import { invoke, windowMachine } from '../ipc'
 import { composerItems } from './composer/index'
 import { stepHistory } from './history'
 import { useSlashMenu } from './SlashMenu'
@@ -18,6 +18,12 @@ import { useSlashMenu } from './SlashMenu'
 // message is sent, or the chip is removed. A refused file is named under the field; the message
 // itself can still be sent. A message takes MAX_ATTACHMENTS at most: what comes past that is left
 // out, and named under the field.
+//
+// In a window on a Linked machine (worfy-link ticket 12; ADR-0053) the file dialog is this
+// Machine's: "+" opens a hidden <input type="file">, and the chosen files go to the Project's
+// Machine as bytes, the way dropped files do: the same size limit and the same count. That
+// Machine's own dialog (`agent.attachPick`) would open on a screen nobody here sees; it refuses
+// the call anyway.
 
 /** A message as the field sends it. */
 export interface OutgoingMessage {
@@ -122,6 +128,10 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
   // The attachments of a message being sent: they come back as chips if it is not sent.
   const sendingCount = useRef(0)
   const field = useRef<HTMLTextAreaElement>(null)
+  const chooser = useRef<HTMLInputElement>(null)
+  // A window on a Linked machine picks files with this Machine's dialog (the hidden input). The
+  // window's Machine never changes: another Machine loads the window again (useProjects.ts).
+  const [pickHere] = useState(() => windowMachine() !== null)
   const disabled = sessionId === null
 
   // Grows with the text up to MAX_HEIGHT.
@@ -205,10 +215,23 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
 
   const pick = () => {
     if (sessionId === null) return
+    if (pickHere) {
+      chooser.current?.click()
+      return
+    }
     void invoke('agent.attachPick', { sessionId }).then((result) => {
       if (result.ok) took(result.value.results)
       else setError(result.error)
     })
+  }
+
+  /** Files chosen in this Machine's dialog: carried as bytes, like dropped ones. */
+  const chosen = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = [...(event.target.files ?? [])]
+    // Emptied, so that choosing the same file again is a change too.
+    event.target.value = ''
+    if (disabled || files.length === 0) return
+    void attachFiles(files, 'dropped')
   }
 
   const send = async () => {
@@ -334,6 +357,7 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
             <button type="button" className="w-composer__attach" aria-label="Attach files" title="Attach files" data-testid="input-attach" disabled={disabled} onClick={pick}>
               <PlusIcon />
             </button>
+            {pickHere ? <input ref={chooser} type="file" multiple hidden tabIndex={-1} aria-hidden="true" data-testid="input-attach-file" onChange={chosen} /> : null}
             <span className="w-composer__hint w-mono">/ commands · ⇧⏎ new line · ↑↓ history</span>
             <span className="w-composer__spacer" />
             {composerItems.map(({ id, Component }) => (

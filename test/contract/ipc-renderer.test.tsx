@@ -165,11 +165,19 @@ describe('the route of a call from a window on a Linked machine', () => {
   })
 
   it("passes M's refusal on as the answer of the call, and a failure of this Machine's main as it is", async () => {
-    install(preloadOfThisMachine(() => ({ ok: false, error: 'shell.openExternal: not open to Linked machines' })).bridge)
+    install(preloadOfThisMachine(() => ({ ok: false, error: 'shell.openInEditor: not open to Linked machines' })).bridge)
     windowOn(M)
-    expect(await renderer.invoke('shell.openExternal', { url: 'https://example.com' })).toEqual({ ok: false, error: 'shell.openExternal: not open to Linked machines' })
+    expect(await renderer.invoke('shell.openInEditor', { projectId: 'demo-0a1b2c3d', path: 'HANDOFF.md' })).toEqual({ ok: false, error: 'shell.openInEditor: not open to Linked machines' })
     install(fakeBridge(() => Promise.resolve({ ok: false, error: 'linked.invoke: invalid input' })).bridge)
     expect(await renderer.invoke('layout.get', { projectId: 'x' })).toEqual({ ok: false, error: 'linked.invoke: invalid input' })
+  })
+
+  it('keeps shell.openExternal of a window on M on this Machine: a link opens where it was clicked', async () => {
+    const preload = preloadOfThisMachine()
+    install(preload.bridge)
+    windowOn(M)
+    expect(await renderer.invoke('shell.openExternal', { url: 'https://example.com' })).toEqual({ ok: true, value: 'here: shell.openExternal' })
+    expect(preload.calls).toEqual([['shell.openExternal', { url: 'https://example.com' }]])
   })
 
   it('keeps app.version and view.changed of a window on M on this Machine', async () => {
