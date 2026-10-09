@@ -127,8 +127,6 @@ export const PERSISTENT_ENV_KEYS = ['HKCU\\Environment', 'HKLM\\SYSTEM\\CurrentC
 export type RegQuery = (key: string) => Promise<string>
 export type FileExists = (path: string) => boolean
 
-const SYSTEM32_BASH = /\\windows\\system32\\bash\.exe$/i
-
 /** Variable names on Windows are case-insensitive: the value of `name` under any case. */
 function getVar(env: SourceEnv, name: string): string | undefined {
   const upper = name.toUpperCase()
@@ -138,11 +136,12 @@ function getVar(env: SourceEnv, name: string): string | undefined {
 
 /**
  * Session variables Windows sets at sign-in and keeps outside the Environment keys of the registry
- * (Volatile Environment, the system itself). They are taken from worfy's process; nothing else is.
+ * (HKCU\Volatile Environment, the system itself). They are taken from worfy's process; nothing else is.
  */
 export const WINDOWS_SESSION_VARS = [
   'SystemRoot', 'SystemDrive', 'windir', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP',
-  'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA', 'LOCALAPPDATA', 'ProgramData',
+  'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'HOMESHARE', 'APPDATA', 'LOCALAPPDATA', 'ProgramData',
+  'LOGONSERVER', 'USERDOMAIN_ROAMINGPROFILE', 'SESSIONNAME', 'CLIENTNAME',
   'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432',
   'PUBLIC', 'ALLUSERSPROFILE', 'COMPUTERNAME', 'USERNAME', 'USERDOMAIN', 'OS',
   'PROCESSOR_ARCHITECTURE', 'PROCESSOR_IDENTIFIER', 'PROCESSOR_LEVEL', 'PROCESSOR_REVISION', 'NUMBER_OF_PROCESSORS',
@@ -221,10 +220,12 @@ export function findGitBash(env: SourceEnv, exists: FileExists = fileOrAlias): s
   if (programFiles) candidates.push(win32.join(programFiles, 'Git', 'bin', 'bash.exe'))
   const localAppData = getVar(env, 'LOCALAPPDATA')
   if (localAppData) candidates.push(win32.join(localAppData, 'Programs', 'Git', 'bin', 'bash.exe'))
+  // Every candidate is <folder>\bin\bash.exe, never System32\bash.exe itself: bash.exe from the Path
+  // is not looked at, because the first one there may be the WSL launcher. A candidate under the
+  // Windows folder (git.exe placed there) is refused all the same.
   const systemRoot = (getVar(env, 'SystemRoot') ?? 'C:\\Windows').toLowerCase()
   for (const candidate of candidates) {
-    const lower = candidate.toLowerCase()
-    if (SYSTEM32_BASH.test(candidate) || lower.startsWith(`${systemRoot}\\`)) continue
+    if (candidate.toLowerCase().startsWith(`${systemRoot}\\`)) continue
     if (exists(candidate)) return candidate
   }
   return null
@@ -266,16 +267,25 @@ export async function captureWindowsEnv(options: WindowsEnvOptions = {}): Promis
   try {
     // PERSISTENT_ENV_KEYS: the user's key first, the machine's second.
     const [user, machine] = await Promise.all(PERSISTENT_ENV_KEYS.map((key) => (options.regQuery ?? execRegQuery)(key)))
-    const paths: string[] = []
+    // As Windows does: first all raw values of both keys (the user's over the machine's), then the
+    // expansion against the whole set — so `%NVM_HOME%` in Path finds NVM_HOME listed after Path or
+    // set only for the user. Two passes resolve a reference to a variable that is itself expanded.
+    const raw = new Map<string, { name: string; expand: boolean; value: string }>()
+    const paths: { expand: boolean; value: string }[] = []
     for (const values of [parseRegQuery(machine!), parseRegQuery(user!)]) {
       for (const { name, type, value } of values) {
         if (type !== 'REG_SZ' && type !== 'REG_EXPAND_SZ') continue
-        const expanded = type === 'REG_EXPAND_SZ' ? expandVars(value, env) : value
-        if (name.toUpperCase() === 'PATH') paths.push(expanded)
-        else setVar(env, name, expanded)
+        const entry = { name, expand: type === 'REG_EXPAND_SZ', value }
+        if (name.toUpperCase() === 'PATH') paths.push(entry)
+        else raw.set(name.toUpperCase(), entry)
       }
     }
-    setVar(env, 'Path', paths.filter((path) => path !== '').join(';'))
+    for (const { name, value } of raw.values()) setVar(env, name, value)
+    for (let pass = 0; pass < 2; pass += 1) {
+      for (const { name, expand } of raw.values()) if (expand) setVar(env, name, expandVars(getVar(env, name)!, env))
+    }
+    const path = paths.map(({ expand, value }) => (expand ? expandVars(value, env) : value)).filter((part) => part !== '')
+    setVar(env, 'Path', path.join(';'))
   } catch (error) {
     from = 'fallback'
     const path = getVar(source, 'PATH')

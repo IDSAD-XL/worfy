@@ -229,6 +229,25 @@ describe('captureAgentEnv on win32', () => {
     expect(env).not.toHaveProperty('SomeFlag')
   })
 
+  it('expands against the whole set: a variable listed after Path, or set only for the user, and a chain', async () => {
+    // nvm-windows: Path holds %NVM_HOME%;%NVM_SYMLINK%, and NVM_HOME comes after Path in the key.
+    const answers: Record<string, string> = {
+      [PERSISTENT_ENV_KEYS[1]]: [
+        '    Path    REG_EXPAND_SZ    %SystemRoot%\\system32;%NVM_HOME%;%NVM_SYMLINK%',
+        '    NVM_SYMLINK    REG_SZ    C:\\Program Files\\nodejs',
+      ].join('\r\n'),
+      [PERSISTENT_ENV_KEYS[0]]: [
+        '    Path    REG_EXPAND_SZ    %TOOLS%\\bin',
+        '    TOOLS    REG_EXPAND_SZ    %BASE%\\tools',
+        '    BASE    REG_EXPAND_SZ    %USERPROFILE%\\base',
+        '    NVM_HOME    REG_EXPAND_SZ    %APPDATA%\\nvm',
+      ].join('\r\n'),
+    }
+    const { env } = await capture({ regQuery: async (key) => answers[key]! })
+    expect(env.Path).toBe('C:\\Windows\\system32;C:\\Users\\u\\AppData\\Roaming\\nvm;C:\\Program Files\\nodejs;C:\\Users\\u\\base\\tools\\bin')
+    expect(env.TOOLS).toBe('C:\\Users\\u\\base\\tools')
+  })
+
   it('builds Path from the machine Path and then the user Path, under one key', async () => {
     const { env } = await capture()
     expect(Object.keys(env).filter((key) => key.toUpperCase() === 'PATH')).toEqual(['Path'])
@@ -349,13 +368,19 @@ describe.runIf(process.platform === 'win32')('agentEnv on this Windows machine',
     const bash = env.CLAUDE_CODE_GIT_BASH_PATH ?? ''
     expect(existsSync(bash)).toBe(true)
     expect(bash.toLowerCase()).not.toContain('\\system32\\')
-    // The tests themselves run inside a Claude Code session on this machine, so these are in process.env.
-    for (const key of Object.keys(env)) {
-      expect(key.toUpperCase()).not.toMatch(/^(CLAUDECODE|CLAUDE_CODE_SESSION_ID|NODEFAULTCURRENTDIRECTORYINEXEPATH|GH_TOKEN|ANTHROPIC_API_KEY)$/)
-    }
   })
 
-  it('findOnPath sees the app execution alias of pwsh from MSIX, when one is installed', () => {
+  it("with the real registry, drops what a parent session puts into worfy's process", async () => {
+    const planted = { CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 'planted', NoDefaultCurrentDirectoryInExePath: '1', GH_TOKEN: 'gho_planted', GITHUB_TOKEN: 'ghp_planted', WORFY_DATA_DIR: 'C:\\planted', ANTHROPIC_API_KEY: 'planted' }
+    const { env, from, error } = await captureAgentEnv({ platform: 'win32', source: { ...process.env, ...planted } })
+    expect(from).toBe('registry')
+    expect(error).toBeNull()
+    for (const key of Object.keys(env)) expect(Object.keys(planted).map((name) => name.toUpperCase())).not.toContain(key.toUpperCase())
+    expect(JSON.stringify(env)).not.toContain('planted')
+    expect(env.USERPROFILE).toBe(process.env.USERPROFILE)
+  })
+
+  it('findOnPath sees the app execution alias of pwsh from MSIX, when one is installed', (ctx) => {
     const alias = win32.join(process.env.LOCALAPPDATA ?? '', 'Microsoft', 'WindowsApps', 'pwsh.exe')
     const isAlias = (() => {
       try {
@@ -364,7 +389,7 @@ describe.runIf(process.platform === 'win32')('agentEnv on this Windows machine',
         return false
       }
     })()
-    if (!isAlias) return // no MSIX pwsh on this machine: nothing to check
+    if (!isAlias) ctx.skip('no MSIX pwsh on this machine')
     expect(existsSync(alias)).toBe(false) // the reason findOnPath has its own check (evidence of ticket 01, section 25)
     expect(findOnPath('pwsh', { Path: win32.dirname(alias) })).toBe(alias)
   })

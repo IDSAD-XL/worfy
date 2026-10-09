@@ -185,6 +185,14 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
   `GH_TOKEN`, `GITHUB_TOKEN`, `WORFY_*`, `CLAUDECODE`, `CLAUDE_CODE_*`, `NoDefaultCurrentDirectoryInExePath`
   родительской Session до агента не доходят. Без ответа `reg query` — переменные сеанса и `Path`
   процесса, `from: 'fallback'`, `error` говорит почему; обычно `from: 'registry'`.
+  - Раскрытие — как в Windows: сначала сырые значения обоих ключей (пользователь главнее машины),
+    затем `REG_EXPAND_SZ` раскрываются по всему набору в два прохода, `Path` — последним. Так
+    `%NVM_HOME%` в `Path` находит `NVM_HOME`, который в ключе идёт после `Path` или задан только у
+    пользователя (nvm-windows). Первый вариант раскрывал значение сразу при чтении — второе ревью PR
+    #194 это нашло. На ПК владельца в `Path` реестра только `%SystemRoot%` и `%USERPROFILE%`, поэтому
+    здесь ошибка не проявлялась.
+  - Переменные входа из `HKCU\Volatile Environment` (`LOGONSERVER`, `HOMESHARE`,
+    `USERDOMAIN_ROAMINGPROFILE`, `SESSIONNAME`, `CLIENTNAME`) — тоже в `WINDOWS_SESSION_VARS`.
   - Первый вариант (окружение процесса минус `CLAUDE*`/`ANTHROPIC_*`) отвергнут на ревью PR #194:
     прочие переменные того, кто запустил worfy, доходили до агента. Он записан в ADR-0057, раздел
     «Considered Options».
@@ -204,9 +212,13 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
 - **Мутанты** (на Windows, по одному). Первый круг: проверка платформы `'win32'` → `'darwin'` — 10
   красных; `'claude'` вместо `'claude.exe'` — 2; без отказа от папки Windows в `findGitBash` — 1.
   Второй круг, после ревью: всё окружение процесса вместо списка сеанса — 3 красных; без фильтра
-  ключей API — 1; без раскрытия `REG_EXPAND_SZ` — 2; реестр пользователя раньше машины — 2.
+  ключей API — 1; без раскрытия `REG_EXPAND_SZ` — 2; реестр пользователя раньше машины — 2. Третий
+  круг: раскрытие сразу при чтении — 1 красный; один проход вместо двух — 1.
 - **Test-ы на Windows-ПК:** `pnpm test test/unit/agent-env.test.ts test/unit/agent-executable.test.ts
-  test/unit/agent-query-factory.test.ts` — exit 0, `Tests 50 passed | 4 skipped (54)`; пропущены
+  test/unit/agent-query-factory.test.ts` — exit 0 (после второго ревью `agent-env.test.ts` — `30
+  passed | 4 skipped (34)`: добавлены случай порядка раскрытия и случай с настоящим реестром и
+  подложенными `CLAUDECODE`, `GH_TOKEN`, `ANTHROPIC_API_KEY` в окружение процесса; test псевдонима
+  MSIX без псевдонима — `ctx.skip()`), до него — `Tests 50 passed | 4 skipped (54)`; пропущены
   4 test-а `onMac`. Test-ы `win32` выполнены: настоящий `agentEnv()` — `from: 'registry'`, `error`
   null, `where.exe` находит `git`, `node`, `gh`, `CLAUDE_CODE_GIT_BASH_PATH` — существующий `bash.exe`
   вне `System32`, ключей `CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`,
@@ -219,7 +231,9 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
   `f9f36bd` — exit 1, `Test Files 52 failed | 114 passed (166)`, `Tests 695 failed | 2492 passed | 16
   skipped (3203)`. Сверка с main `9e4874b` по JSON-отчётам vitest (там `53 failed | 113 passed`, `697
   failed | 2466 passed | 16 skipped (3179)`): отличие одно — ушёл `agent-executable` (2 падения), его
-  чинит этот Ticket. Новых падений нет. (В прогоне первого варианта `autopilot-limits` один раз упал
+  чинит этот Ticket. Новых падений нет. После второго ревью — то же: `pnpm lint` — exit 0, `pnpm
+  typecheck` — exit 0, `pnpm test` — exit 1, `Test Files 52 failed | 114 passed (166)`, `Tests 695
+  failed | 2494 passed | 16 skipped (3205)`, отличие от main одно — ушёл `agent-executable`. (В прогоне первого варианта `autopilot-limits` один раз упал
   по таймауту под нагрузкой; отдельно — 3 прогона из 3 зелёные, в этом прогоне не падал.)
 - **Не проверено, нужен владелец:** ручной пункт «`pnpm dev`: новая Session отвечает и зовёт Bash
   tool». Новой Session нужен Project, а добавление Project-а с путём `C:\…` на Windows скорее всего ждёт Ticket-а 08 (схемы путей «absolute POSIX path»)

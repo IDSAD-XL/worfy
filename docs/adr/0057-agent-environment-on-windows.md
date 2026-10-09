@@ -31,13 +31,17 @@ Windows) оставил выбор окружения на Windows Ticket-у 09 
 1. **На Windows login shell не запускается; окружение собирается как при новом входе.**
    - Основа — переменные сеанса из процесса worfy, по списку `WINDOWS_SESSION_VARS`: `SystemRoot`,
      `SystemDrive`, `windir`, `ComSpec`, `PATHEXT`, `TEMP`, `TMP`, `USERPROFILE`, `HOMEDRIVE`,
-     `HOMEPATH`, `APPDATA`, `LOCALAPPDATA`, `ProgramData`, `ProgramFiles*`, `CommonProgramFiles*`,
+     `HOMEPATH`, `HOMESHARE`, `APPDATA`, `LOCALAPPDATA`, `ProgramData`, `LOGONSERVER`,
+     `USERDOMAIN_ROAMINGPROFILE`, `SESSIONNAME`, `CLIENTNAME`, `ProgramFiles*`, `CommonProgramFiles*`,
      `PUBLIC`, `ALLUSERSPROFILE`, `COMPUTERNAME`, `USERNAME`, `USERDOMAIN`, `OS`, `PROCESSOR_*`,
      `NUMBER_OF_PROCESSORS`. Больше из процесса не берётся ничего.
    - Сверху — постоянные переменные из реестра (`reg query` обоих ключей): сначала машины, потом
-     пользователя — пользователя главнее. Значения `REG_SZ` и `REG_EXPAND_SZ`; ссылки `%…%`
-     раскрываются по уже собранным переменным, неизвестная остаётся как есть. `Path` — `Path` машины,
-     за ним `Path` пользователя, под одним ключом.
+     пользователя — пользователя главнее. Значения `REG_SZ` и `REG_EXPAND_SZ`. Как в Windows,
+     сначала собираются сырые значения обоих ключей, потом ссылки `%…%` раскрываются по всему набору
+     и переменным сеанса, в два прохода; неизвестная остаётся как есть. Так `%NVM_HOME%` в `Path`
+     находит `NVM_HOME`, который идёт в ключе после `Path` или задан только у пользователя
+     (nvm-windows). `Path` собирается последним: `Path` машины, за ним `Path` пользователя, под одним
+     ключом.
    - Убираются `ANTHROPIC_API_KEY` и `ANTHROPIC_AUTH_TOKEN` при любом регистре — как на macOS, даже
      если пользователь задал их сам.
    - Если `reg query` не ответил — окружение из переменных сеанса и `Path` процесса,
@@ -82,6 +86,9 @@ ADR-0007 принят и не правится: этот ADR — его ветк
   `WORFY_*`, переменные терминала — доходило бы до Claude Code, Terminal и `gh` любого Project-а. На
   macOS этого нет: login shell стартует из минимального окружения.
 - **Окружение процесса как есть.** То же, плюс переменные родительской Session.
+- **Раскрывать `REG_EXPAND_SZ` сразу при чтении, в порядке выдачи `reg query`.** Второй вариант PR
+  #194. Отвергнут на втором ревью: ссылка на переменную, которая идёт ниже в ключе или есть только у
+  пользователя, оставалась буквальной — у nvm-windows агент не нашёл бы node.
 - **Только реестр, без переменных сеанса.** Без `USERPROFILE`, `APPDATA`, `LOCALAPPDATA` и других
   переменных, которые Windows задаёт при входе, не раскрываются ссылки `%…%` и не работают программы,
   которые их читают.
