@@ -8,6 +8,7 @@
 - Stable copy и plugin `worfy` — сборка `df8e870` (2026-10-09). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/16; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16.
 - `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057): влиты 01, 02 и 09 (PR #172, #177, #194 — окружение агента из реестра, как при входе в Windows), ответы владельца — PR #192. Session на Windows-ПК ведёт 08, затем 11; gate full — на Mac. 03–07 ждут закрытия E3.
+- `worfy-ui` (окно Settings, масштаб, боковая панель, режим фокуса, палитра, Select, сочетания клавиш; [spec](.scratch/worfy-ui/spec.md)) спроектирован 2026-10-09: 12 Ticket-ов, не начат, идёт на Mac. 11 ждёт `worfy-windows` 11; окно Settings — Ticket 02, его ждёт `worfy-terminal-ai` 08.
 
 ## Ждёт владельца
 

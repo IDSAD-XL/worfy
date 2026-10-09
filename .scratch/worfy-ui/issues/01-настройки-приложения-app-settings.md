@@ -1,0 +1,104 @@
+# 01 — Настройки приложения: файл app-settings.json и каналы appSettings
+
+Type: task
+Status: open
+Blocked by: —
+Source: решения владельца 2026-10-09: 1 (свёрнутость секций боковой панели помнится между запусками), 2 (настройки приложения — новый файл в папке данных worfy, каналы `local`, образец — `view.*` и `json-file`), 3 (масштаб интерфейса помнится), 8 (видимость боковой панели помнится отдельно для обычного вида и режима фокуса) ([spec.md](../spec.md), «Как устроено», «Настройки приложения»); [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md) (своё состояние worfy — в его папке данных); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), пункт 6 (пометка канала)
+
+## Что происходит
+
+- Общего файла настроек приложения нет, домена IPC для них тоже: `app-settings` и `appSettings` в
+  `src/` не встречаются (grep).
+- Своё состояние worfy лежит в его папке данных — `dataRoot()` (`src/main/storage/paths.ts:30-34`);
+  `WORFY_DATA_DIR` её подменяет, dev-сборка берёт `worfy-dev`. Файлы приложения сейчас:
+  `window-state.json` (`src/main/window.ts:9-12`), `first-run.json` (`src/main/ipc/first-run.ts:147`),
+  `viewports.json` (`src/main/layout/viewports.ts:4`), `link/settings.json`
+  (`src/main/link/settings.ts:1-8`).
+- Хранилища читают и пишут через `src/main/storage/json-file.ts`: схема zod, атомарная запись через
+  временный файл, нечитаемый файл переименовывается в `<имя>.unreadable-<время>`, и хранилище
+  начинает с пустого состояния (`json-file.ts:1-16`).
+- Образец домена «состояние в main, renderer следит за ним» — `view`: канал `view.get` и событие
+  `view.changed` (`src/shared/ipc/view.ts:13-16`), рассылка каждому окну через `toEveryWindow`
+  (`src/main/ipc/view.ts:14-18`). Состояние `view` живёт только в памяти (`src/main/ipc/view.ts:8`),
+  на диск не пишется.
+- Renderer держит состояние main zustand-store-ом с ревизией: `acceptLinkState` берёт состояние, если
+  его ревизия не меньше текущей (`src/renderer/machines/useMachines.ts:20-23`). Так ответ и событие,
+  пришедшие в обратном порядке, не откатывают состояние.
+- localStorage renderer не использует; sessionStorage — только
+  `src/renderer/session/notification-target.ts:97`.
+- Новый домен IPC не правит `src/main/ipc/index.ts`: handler-модули находит `import.meta.glob`
+  (`src/main/ipc/index.ts:62`). Пометка доступа у канала обязательна; `local` — состояние машины
+  экрана, Linked machine-у закрыто (`src/shared/ipc/channels.ts:30-31`).
+
+## Что делаем
+
+1. **Схема** — `src/shared/settings/app-settings.ts` (новый). Сразу все поля Epic-а, чтобы
+   Ticket-ы 03, 04 и 10 файл схемы не правили:
+   - `interfaceScale` — от 0.8 до 1.5, кратно 0.1, по умолчанию 1 (Ticket 03);
+   - `sidebar.collapsed` — `{ [id секции]: boolean }`; id — имя файла секции без расширения, как
+     `ShellExtension.id` (`src/renderer/shell/registry.ts:10-15`), например `MachinesSection`. Нет
+     ключа — значение по умолчанию самой секции (Ticket-ы 04 и 05);
+   - `sidebar.visible` — `{ normal: boolean, focus: boolean }`, оба по умолчанию `true` (Ticket 10);
+   - `revision` — растёт с каждой записью.
+
+   Там же `clampScale(value)` — приводит число к диапазону и шагу 0.1 (его зовут меню и ползунок
+   Ticket-а 03) и значения по умолчанию.
+2. **Хранилище в main** — `src/main/settings/store.ts` (новый): `app-settings.json` в `dataRoot()`,
+   чтение `readJsonFile`, запись `writeJsonFile`. Нет файла или он нечитаем — значения по умолчанию.
+   Поле вне схемы отбрасывается, `interfaceScale` вне диапазона приводится (`3` → `1.5`). Событие
+   `changed` — для модулей main (масштаб окна, Ticket 03).
+3. **Каналы** — `src/shared/ipc/app-settings.ts` (новый), все `local`:
+   - `appSettings.get` — состояние целиком;
+   - `appSettings.set` — изменение частями: `{ interfaceScale?, sidebar?: { collapsed?, visible?:
+     { normal?, focus? } } }`. `collapsed` сливается по ключам: изменение одной секции не стирает
+     другие. Ответ — новое состояние;
+   - событие `appSettings.changed` — каждому окну, как `view.changed`.
+
+   Handler-ы — `src/main/ipc/app-settings.ts` (новый).
+4. **Renderer** — `src/renderer/settings/useAppSettings.ts` (новый): zustand-store; первый запрос
+   `appSettings.get`, подписка на `appSettings.changed`, состояние берётся по ревизии, как
+   `acceptLinkState`. `setAppSettings(patch)` зовёт `appSettings.set`. Без моста preload (unit-test-ы
+   компонентов) — значения по умолчанию.
+5. Окно на Project-е Linked machine-а читает и пишет настройки своей Machine: канал `local`
+   (`src/renderer/ipc.ts:5-11`).
+
+**Не входит:** UI — Ticket-ы 02–05 и 10; переключатели Machines остаются в `link/settings.json`
+(Ticket 05 переносит только их UI); синхронизация настроек между Machine-ами — ADR-0005, будущее
+решение; перенос `window-state.json` в этот файл.
+
+## Готово, когда
+
+- [ ] Contract `test/contract/app-settings.test.ts` (новый), хранилище над временной папкой: нет
+  файла — значения по умолчанию; `appSettings.set` пишет `app-settings.json` и шлёт
+  `appSettings.changed` каждому окну; новое хранилище над той же папкой читает записанное;
+  нечитаемый файл отложен как `app-settings.json.unreadable-<время>`, состояние — по умолчанию;
+  `interfaceScale: 3` приведён к `1.5`, `0.83` — к `0.8`; поле вне схемы отброшено; изменение
+  `collapsed` одной секции не стирает другую; `revision` растёт.
+- [ ] Contract, тот же файл: все три канала помечены `local`; соединение Linked machine-а их не
+  вызывает (адаптер канала, по образцу `test/contract/link-access.test.ts`).
+- [ ] Unit `test/unit/use-app-settings.test.tsx` (новый): store берёт ответ `appSettings.get`;
+  событие со старшей ревизией меняет состояние, с младшей — нет; `setAppSettings` зовёт
+  `appSettings.set` с переданной частью; без моста preload — значения по умолчанию.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+
+## Тесты
+
+Сначала падающий test — contract «нет файла — значения по умолчанию»: модуля хранилища нет. Затем
+слияние `collapsed` и приведение `interfaceScale`.
+
+UI у Ticket-а нет, поэтому снимков и ручных пунктов нет. В «Итог» — имена каналов и полей, как их
+зовут Ticket-ы 02–05 и 10, и как падал первый test.
+
+## Где в коде
+
+- `src/shared/settings/app-settings.ts` (новый)
+- `src/shared/ipc/app-settings.ts` (новый)
+- `src/main/settings/store.ts` (новый)
+- `src/main/ipc/app-settings.ts` (новый)
+- `src/renderer/settings/useAppSettings.ts` (новый)
+- `test/contract/app-settings.test.ts` (новый)
+- `test/unit/use-app-settings.test.tsx` (новый)
+
+## Итог
+
+Заполняется при закрытии.
