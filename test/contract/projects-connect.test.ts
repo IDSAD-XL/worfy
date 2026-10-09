@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { HarnessStatus } from '../../src/shared/ipc/harness'
-import type { ProfileDraft } from '../../src/shared/ipc/projects'
+import { githubChoice, withGithubAccount, type ProfileDraft } from '../../src/shared/ipc/projects'
 import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
 import { draftSessionOptions, sessionOptions } from '../../src/main/agent/options'
 import {
@@ -26,8 +26,10 @@ import {
   type ConnectDeps,
   type DraftRequest,
 } from '../../src/main/projects/connect'
+import { ghRunner } from '../../src/main/github/prs'
 import { ProjectStore, runGit } from '../../src/main/projects/store'
 import type { ProfileRunner } from '../../src/main/workflow/profile'
+import { ghWorld } from './gh-world'
 
 const REPO = join(__dirname, '..', '..')
 const BIN = join(REPO, 'harness', 'bin')
@@ -122,6 +124,8 @@ function connectorWith(overrides: Partial<ConnectDeps> & { script?: string; scri
   const store = sandboxStore()
   const deps: ConnectDeps = {
     git: runGit,
+    // No gh unless a test brings its stand-in (test/contract/gh-world.ts).
+    gh: ghRunner({ command: join(scratch, 'no-gh') }),
     profile: realProfile,
     connect: (args, stdin) => runScript('project-connect', args, stdin),
     harness: () => Promise.resolve(installed),
@@ -487,5 +491,69 @@ describe('the form and the write (steps 5 and 6)', () => {
     expect((await realProfile(api, ['-C', api, '--field', 'mode'])).stdout.trim()).toBe('silent')
     expect(clean(api)).toBe('')
     expect(clean(web)).toBe('')
+  })
+})
+
+describe('the GitHub account (worfy-harness ticket 25)', () => {
+  const ACCOUNTS = [
+    { login: 'alice', active: true, token: 'gho_alice_TOKEN_0001' },
+    { login: 'bob', token: 'gho_bob_TOKEN_0002' },
+  ]
+
+  async function draftFor(run: Harnessed, root: string): Promise<ProfileDraft> {
+    const outcome = await run.connector.draft({ draftId: `d-${root}`, root, mode: 'silent', workflowFolder: null }, () => undefined)
+    if (outcome.status !== 'draft') throw new Error(`no draft: ${JSON.stringify(outcome)}`)
+    return { ...outcome.draft, profile: { ...outcome.draft.profile, name: 'shop' }, gate: outcome.draft.gate.map((entry) => ({ ...entry, key: 'shop', profile: 'shop' })) }
+  }
+
+  it('after the account step the draft carries the chosen account and the finish its access allows; Connect writes both', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    git(repo, 'remote', 'add', 'origin', 'https://github.com/acme/shop.git')
+    const gh = ghWorld(join(scratch, 'gh'), { accounts: ACCOUNTS, repos: { 'acme/shop': { alice: true, bob: false } } })
+    const run = connectorWith({ gh: gh.run })
+
+    const step = await run.connector.accounts(repo)
+    expect(step).toMatchObject({ status: 'accounts', selected: 'alice' })
+    const draft = await draftFor(run, repo)
+    // bob has no write access: the local finish.
+    const chosen = withGithubAccount(draft, githubChoice(step, 'bob'))
+    expect(chosen.profile.github).toEqual({ account: 'bob' })
+    expect((chosen.profile.workflow as Record<string, unknown>).finish).toBe('local-green')
+    expect(await run.connector.check(chosen)).toEqual([])
+    expect(await run.connector.write(repo, chosen)).toMatchObject({ status: 'added' })
+    expect(await realProfile(repo, ['-C', repo, '--field', 'github.account'])).toMatchObject({ code: 0, stdout: 'bob\n' })
+    expect((await realProfile(repo, ['-C', repo, '--field', 'workflow.finish'])).stdout.trim()).toBe('local-green')
+    // No token reached the draft or the Harness home.
+    const written = JSON.stringify(harnessFiles())
+    for (const account of ACCOUNTS) expect(`${JSON.stringify(step)}${JSON.stringify(chosen)}${written}`).not.toContain(account.token)
+    expect(clean(repo)).toBe('')
+  })
+
+  it('the active account with write access is chosen by default: pr-green-ci; "No account" gives none and the local finish', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    git(repo, 'remote', 'add', 'origin', 'git@github.com:acme/shop.git')
+    const gh = ghWorld(join(scratch, 'gh'), { accounts: ACCOUNTS, repos: { 'acme/shop': { alice: true, bob: false } } })
+    const run = connectorWith({ gh: gh.run })
+    const step = await run.connector.accounts(repo)
+    const draft = await draftFor(run, repo)
+    const byDefault = withGithubAccount(draft, githubChoice(step, step.status === 'accounts' ? step.selected : null))
+    expect(byDefault.profile.github).toEqual({ account: 'alice' })
+    expect((byDefault.profile.workflow as Record<string, unknown>).finish).toBe('pr-green-ci')
+    const none = withGithubAccount(draft, githubChoice(step, null))
+    expect(none.profile.github).toEqual({ account: null })
+    expect((none.profile.workflow as Record<string, unknown>).finish).toBe('local-green')
+    expect(await run.connector.write(repo, byDefault)).toMatchObject({ status: 'added' })
+    expect((await realProfile(repo, ['-C', repo, '--field', 'github.account'])).stdout.trim()).toBe('alice')
+    expect((await realProfile(repo, ['-C', repo, '--field', 'workflow.finish'])).stdout.trim()).toBe('pr-green-ci')
+  })
+
+  it('a repository without origin needs no account and gh is not run: no account, the local finish', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const gh = ghWorld(join(scratch, 'gh'), { accounts: ACCOUNTS })
+    const run = connectorWith({ gh: gh.run })
+    const step = await run.connector.accounts(repo)
+    expect(step).toEqual({ status: 'no-origin', reason: 'No GitHub origin: shop has no origin remote.' })
+    expect(githubChoice(step, 'alice')).toEqual({ account: null, finish: 'local-green' })
+    expect(gh.calls()).toEqual([])
   })
 })
