@@ -8,6 +8,11 @@
 // form starts with the GitHub account (GithubAccount.tsx, worfy-harness ticket 25), which sets
 // `github.account` and `workflow.finish` of the draft.
 //
+// On a Linked machine (worfy-link ticket 11) every step runs there (`machine`, through invokeOn):
+// its folder, its Harness, its draft Session, its Profile; the Workflow folder is chosen with
+// FolderBrowser over its folders, and the first-run screen and the gh sign-in of this Machine are
+// not offered for it.
+//
 // The look follows the first-run screen (docs/design/F-SPEC.md, "First run"): a dialog over the
 // window on a backdrop of black at 25%, header, scrolling body, footer with the shared action
 // buttons; colours only from the token roles.
@@ -17,7 +22,8 @@ import '../canvas/actions/actions.css'
 import './connect-project.css'
 import { failureReason } from '../../shared/ipc/channels'
 import { withGithubAccount, type ConnectFolder, type ConnectMode, type DraftIssue, type GithubChoice, type ProfileDraft, type ProjectsState, type ProjectView } from '../../shared/ipc/projects'
-import { invoke, invokeOn, subscribe } from '../ipc'
+import { invoke, invokeOn, subscribe, subscribeOn } from '../ipc'
+import { FolderBrowser } from './FolderBrowser'
 import { GithubAccount } from './GithubAccount'
 
 export interface ConnectedProject {
@@ -28,6 +34,13 @@ export interface ConnectedProject {
 
 export interface ConnectProjectProps {
   folder: ConnectFolder
+  /**
+   * The Machine of the folder, where every step runs: null — this Machine, a Linked machine's id —
+   * that one. Left out: the window's Machine, as `invoke` routes.
+   */
+  machine?: string | null
+  /** The name of a Linked machine, shown in the dialog. */
+  machineName?: string
   /** Where the Harness keeps its state: the default Workflow folder is under it. */
   harnessHome: string
   onClose: () => void
@@ -219,8 +232,15 @@ function Field({ label, path, issues, children }: FieldProps) {
 /** How long an edit waits for the next one before the Harness checks the draft. */
 const CHECK_DELAY_MS = 350
 
-export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPickAnother, onFirstRun }: ConnectProjectProps) {
+export function ConnectProject({ folder, machine, machineName, harnessHome, onClose, onConnected, onPickAnother, onFirstRun }: ConnectProjectProps) {
   const multi = folder.kind === 'multi-repo'
+  /** The folder is on a Linked machine. */
+  const remote = typeof machine === 'string'
+  const otherName = machineName ?? 'the Linked machine'
+  // Every step on the folder's Machine.
+  const call: typeof invoke = machine === undefined ? invoke : (channel, ...args) => invokeOn(machine, channel, ...args)
+  /** The Workflow folder is being chosen among the Linked machine's folders. */
+  const [browsing, setBrowsing] = useState(false)
   const [step, setStep] = useState<Step>({ kind: 'mode' })
   const [mode, setMode] = useState<ConnectMode>('silent')
   const [workflowFolder, setWorkflowFolder] = useState<string | null>(null)
@@ -246,10 +266,11 @@ export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPi
   // The last action of the draft Session, while it runs.
   useEffect(() => {
     if (drafting === null) return
-    return subscribe('projects.connect.activity', ({ draftId, text }) => {
+    const follow = ({ draftId, text }: { draftId: string; text: string }): void => {
       setStep((current) => (current.kind === 'drafting' && current.draftId === draftId ? { ...current, activity: text } : current))
-    })
-  }, [drafting])
+    }
+    return machine === undefined ? subscribe('projects.connect.activity', follow) : subscribeOn(machine, 'projects.connect.activity', follow)
+  }, [drafting, machine])
 
   const name = draft ? text(draft.profile.name) : ''
   const defaultFolder = multi ? folder.root : `${harnessHome}/projects/${name || '<name>'}/workflow/`
@@ -258,12 +279,12 @@ export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPi
   const stop = (): void => {
     if (step.kind !== 'drafting') return
     setStep({ ...step, stopping: true })
-    void invoke('projects.connect.stop', { draftId: step.draftId })
+    void call('projects.connect.stop', { draftId: step.draftId })
   }
 
   const close = (): void => {
     if (writing) return
-    if (step.kind === 'drafting') void invoke('projects.connect.stop', { draftId: step.draftId })
+    if (step.kind === 'drafting') void call('projects.connect.stop', { draftId: step.draftId })
     onClose()
   }
 
@@ -271,7 +292,7 @@ export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPi
     setMessage(null)
     const draftId = crypto.randomUUID()
     setStep({ kind: 'drafting', draftId, activity: 'Checking the Harness…', stopping: false })
-    const result = await invoke('projects.connect.draft', { draftId, root: folder.root, mode, workflowFolder })
+    const result = await call('projects.connect.draft', { draftId, root: folder.root, mode, workflowFolder })
     if (!result.ok) {
       setStep({ kind: 'failed', reason: failureReason('projects.connect.draft', result.error), issues: [] })
       return
@@ -303,7 +324,7 @@ export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPi
     setChecking(true)
     await new Promise((resolve) => setTimeout(resolve, CHECK_DELAY_MS))
     if (seq !== checkSeq.current) return
-    const result = await invoke('projects.connect.check', { draft: next })
+    const result = await call('projects.connect.check', { draft: next })
     if (seq !== checkSeq.current) return
     setChecking(false)
     if (result.ok) {
@@ -349,7 +370,7 @@ export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPi
     if (draft === null || writing || checking || readingAccounts || checkError !== null || issues.length > 0) return
     setWriting(true)
     setMessage(null)
-    const result = await invoke('projects.connect.write', { root: folder.root, draft })
+    const result = await call('projects.connect.write', { root: folder.root, draft })
     setWriting(false)
     if (!result.ok) {
       setMessage({ error: true, text: failureReason('projects.connect.write', result.error) })
@@ -362,6 +383,11 @@ export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPi
   }
 
   const chooseWorkflowFolder = async (): Promise<void> => {
+    // A Linked machine's folders: browsed inside worfy; this Machine's: its system picker.
+    if (remote) {
+      setBrowsing(true)
+      return
+    }
     const picked = await invokeOn(null, 'projects.pickFolder', { purpose: 'workflow-folder' })
     if (!picked.ok) setMessage({ error: true, text: picked.error })
     else if (picked.value.path !== null) setWorkflowFolder(picked.value.path)
@@ -514,6 +540,7 @@ export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPi
                 {step.reason}
               </span>
             </div>
+            {remote ? <p style={styles.secondary}>The Harness is set up on {otherName} itself, in its first-run checks.</p> : null}
           </section>
         </>
       )
@@ -523,9 +550,11 @@ export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPi
           <button type="button" className="w-action" onClick={() => setStep({ kind: 'mode' })}>
             Back
           </button>
-          <button type="button" className="w-action w-action--primary" onClick={onFirstRun}>
-            First-run checks…
-          </button>
+          {remote ? null : (
+            <button type="button" className="w-action w-action--primary" onClick={onFirstRun}>
+              First-run checks…
+            </button>
+          )}
         </>
       )
       break
@@ -623,7 +652,7 @@ export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPi
               ))}
             </ul>
           ) : null}
-          <GithubAccount root={folder.root} disabled={writing} onChoose={chooseAccount} onBusy={setReadingAccounts} onFirstRun={onFirstRun} />
+          <GithubAccount root={folder.root} machine={machine} machineName={machineName} disabled={writing} onChoose={chooseAccount} onBusy={setReadingAccounts} onFirstRun={onFirstRun} />
           <section style={styles.section} aria-label="Profile">
             <h3 style={styles.sectionTitle}>Profile</h3>
             <div style={styles.grid}>
@@ -757,6 +786,11 @@ export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPi
           <h2 id={titleId} style={styles.title}>
             Add project
           </h2>
+          {remote ? (
+            <p style={{ ...styles.secondary, margin: '0 0 var(--space-2)' }} data-testid="connect-machine">
+              On {otherName}: the Project, its Profile and its draft Session are there.
+            </p>
+          ) : null}
           <ol style={styles.steps} aria-label="Steps">
             {STEPS.map((name, index) => (
               <li key={name} style={name === current ? styles.stepCurrent : undefined} aria-current={name === current ? 'step' : undefined}>
@@ -768,6 +802,19 @@ export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPi
         <div style={styles.body}>{body}</div>
         <div style={styles.footer}>{footer}</div>
       </div>
+      {browsing && typeof machine === 'string' ? (
+        <FolderBrowser
+          machine={machine}
+          machineName={otherName}
+          title="Workflow folder"
+          hint="Choose the folder for the tickets, specs, ADRs and the state file of the project."
+          onCancel={() => setBrowsing(false)}
+          onChoose={(path) => {
+            setBrowsing(false)
+            setWorkflowFolder(path)
+          }}
+        />
+      ) : null}
     </div>,
     document.body,
   )

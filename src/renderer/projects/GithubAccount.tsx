@@ -6,16 +6,27 @@
 //
 // The sign-in runs in main's pseudo-terminal of its own (`projects.connect.signIn`), not in a
 // Terminal Node: a Project being connected has no Canvas yet.
+//
+// On a Linked machine (worfy-link ticket 11) the step reads that Machine's accounts and offers no
+// sign-in and no first-run screen: both are of the Machine whose screen shows them, and gh is
+// signed in on the Machine itself (decided without the owner, to confirm).
 import { useEffect, useEffectEvent, useRef, useState, type CSSProperties } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { failureReason } from '../../shared/ipc/channels'
 import { githubChoice, type GithubAccountsStep, type GithubChoice } from '../../shared/ipc/projects'
-import { invoke, subscribe } from '../ipc'
+import { invoke, invokeOn, subscribe } from '../ipc'
 
 export interface GithubAccountProps {
   root: string
+  /**
+   * The Machine of the folder: null — this Machine, a Linked machine's id — that one: its accounts
+   * only, no sign-in. Left out: the window's Machine, as `invoke` routes.
+   */
+  machine?: string | null
+  /** The name of a Linked machine, for "sign in on <name>". */
+  machineName?: string
   disabled: boolean
   /** The account and the finish for the draft: on every load and every choice. */
   onChoose: (choice: GithubChoice) => void
@@ -55,7 +66,9 @@ function choiceOf(step: GithubAccountsStep, picked: string | null | undefined): 
   return githubChoice(step, step.status === 'accounts' ? step.selected : null)
 }
 
-export function GithubAccount({ root, disabled, onChoose, onBusy, onFirstRun }: GithubAccountProps) {
+export function GithubAccount({ root, machine, machineName, disabled, onChoose, onBusy, onFirstRun }: GithubAccountProps) {
+  /** A Linked machine's folder: its gh is not signed in from this screen. */
+  const remote = typeof machine === 'string'
   /** The read the answer belongs to, and the answer; a read whose answer has not come is loading. */
   const [answer, setAnswer] = useState<{ read: number; load: Load } | null>(null)
   /** What the person picked: undefined until they pick; null is "No account". */
@@ -72,13 +85,13 @@ export function GithubAccount({ root, disabled, onChoose, onBusy, onFirstRun }: 
 
   useEffect(() => {
     let active = true
-    void invoke('projects.connect.accounts', { root }).then((result) => {
+    void (machine === undefined ? invoke('projects.connect.accounts', { root }) : invokeOn(machine, 'projects.connect.accounts', { root })).then((result) => {
       if (active) answered(reads, result.ok ? { kind: 'step', step: result.value } : { kind: 'error', reason: failureReason('projects.connect.accounts', result.error) })
     })
     return () => {
       active = false
     }
-  }, [root, reads])
+  }, [root, machine, reads])
 
   const load: Load | { kind: 'loading' } = answer === null || answer.read !== reads ? { kind: 'loading' } : answer.load
   const step = load.kind === 'step' ? load.step : null
@@ -145,7 +158,7 @@ export function GithubAccount({ root, disabled, onChoose, onBusy, onFirstRun }: 
         <div role="radiogroup" aria-label="GitHub account" style={styles.list}>
           {step.accounts.length === 0 ? (
             <p style={styles.secondary} data-testid="connect-github-empty">
-              gh has no account for {hosts}. Sign in with gh, or connect without an account.
+              {remote ? `gh on ${machineName ?? 'that Machine'} has no account for ${hosts}. Sign in with gh there, or connect without an account.` : `gh has no account for ${hosts}. Sign in with gh, or connect without an account.`}
             </p>
           ) : null}
           {step.accounts.map((account) => (
@@ -194,7 +207,11 @@ export function GithubAccount({ root, disabled, onChoose, onBusy, onFirstRun }: 
       {content}
       {step?.status === 'no-origin' ? null : (
         <div style={styles.actions}>
-          {step?.status === 'no-gh' ? (
+          {remote ? (
+            <span style={styles.detail} data-testid="connect-github-remote">
+              To sign in with gh, run gh auth login on {machineName ?? 'that Machine'} itself, then Check again.
+            </span>
+          ) : step?.status === 'no-gh' ? (
             <button type="button" className="w-action" onClick={onFirstRun}>
               First-run checks…
             </button>
@@ -214,7 +231,7 @@ export function GithubAccount({ root, disabled, onChoose, onBusy, onFirstRun }: 
           </button>
         </div>
       )}
-      {signIn !== null ? (
+      {signIn !== null && !remote ? (
         <SignInTerminal
           key={signIn}
           signInId={signIn}

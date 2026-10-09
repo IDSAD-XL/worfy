@@ -110,8 +110,11 @@ export interface ConnectDeps {
   draftSchema: () => Record<string, unknown>
   /** `language.reports` by default: the system language (`app.getLocale()`), `ru` or `en`. */
   reportsLanguage: () => 'ru' | 'en'
-  /** Puts the folder into the list and makes it active. */
-  add: (root: string) => Promise<AddOutcome>
+  /**
+   * Puts the folder into the list and makes it active; with `keepActive` (a Linked machine connects
+   * it, worfy-link ticket 11) the active Project of this Machine stays as it is.
+   */
+  add: (root: string, options: { keepActive: boolean }) => Promise<AddOutcome>
   /** Where a reason goes besides the answer; console.warn by default. */
   log?: (message: string) => void
 }
@@ -499,8 +502,11 @@ export class ProjectConnector {
     return (await this.script(['--check'], draft)).issues
   }
 
-  /** Step 6: the write through bin/project-connect, then the folder into the list. */
-  async write(root: string, draft: ProfileDraft): Promise<WriteOutcome> {
+  /**
+   * Step 6: the write through bin/project-connect, then the folder into the list. `keepActive`: the
+   * caller is a Linked machine, and the active Project of this Machine stays as it is.
+   */
+  async write(root: string, draft: ProfileDraft, options: { keepActive?: boolean } = {}): Promise<WriteOutcome> {
     const inspected = await inspectFolder(root, this.deps.git)
     if (!inspected.ok) return { status: 'rejected', reason: inspected.reason }
     const folder = inspected.folder
@@ -511,7 +517,7 @@ export class ProjectConnector {
     if (!(await profileKnows(folder, this.deps.profile))) {
       return { status: 'rejected', reason: `The profile was written, but the Harness does not find it from ${folder.root} (bin/profile -C). The folder was not added.` }
     }
-    const added = await this.deps.add(folder.root)
+    const added = await this.deps.add(folder.root, { keepActive: options.keepActive === true })
     if (added.status === 'rejected') return added
     const qmd = isRecord(written.output) && isRecord(written.output.qmd) ? written.output.qmd : null
     const skipped = qmd !== null && qmd.status === 'skipped' && typeof qmd.reason === 'string' ? `qmd collections were not set up: ${qmd.reason}.` : null
