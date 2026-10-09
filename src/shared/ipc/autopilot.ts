@@ -60,16 +60,47 @@ export const autopilotStateSchema = z.object({
    * told. Kept whether a run goes on or not.
    */
   harnessBehind: harnessBehindSchema.nullable(),
+  /**
+   * While the run goes on: the Machine that runs it (worfy-link ticket 15), the one whose Project it
+   * is; null when the link service does not run. Absent when no run goes on.
+   */
+  machine: z.object({ id: z.string().min(1), name: z.string().min(1) }).nullable().optional(),
+  /**
+   * While the run goes on: the Linked machines its start could not ask whether they run the same
+   * Epic of the same repository (not connected, or no answer within 3 s). Absent when no run goes on.
+   */
+  unasked: z.array(z.string().min(1)).optional(),
   revision: z.number().int().nonnegative(),
 })
 export type AutopilotState = z.infer<typeof autopilotStateSchema>
 
 /**
+ * A start refused because a run of the same Epic and origin goes on, or starts, on another Machine
+ * (worfy-link ticket 15, ADR-0053, Q13): `machine` names it, `message` says it in words. Its own
+ * field of the answer, not an error, so the button tells it from other refusals and offers "Start
+ * anyway".
+ */
+export const runningElsewhereSchema = z.object({ epic: epicNameSchema, machine: z.string().min(1), message: z.string().min(1) })
+export type RunningElsewhereRefusal = z.infer<typeof runningElsewhereSchema>
+
+/** What `autopilot.start` answers: the run's first state, or the refusal for a run elsewhere. */
+export const autopilotStartAnswerSchema = z.union([autopilotStateSchema, z.object({ runningElsewhere: runningElsewhereSchema })])
+export type AutopilotStartAnswer = z.infer<typeof autopilotStartAnswerSchema>
+
+/**
  * Starts Autopilot over the Epic: the Orchestrator goes unattended, keep-awake is held, and the
  * ready Wave is sent. Refused while the Project has a run, while the Orchestrator is in a turn, and
- * on worfy's own repository in a development build.
+ * on worfy's own repository in a development build. A run of the same Epic and origin on a Linked
+ * machine (or in another Project of this Machine) answers `runningElsewhere` instead (worfy-link
+ * ticket 15); `override` ("Start anyway") starts anyway: it still asks, and the run journals the
+ * override only when it went past such a run.
  */
-export const autopilotStart = invokeChannel('autopilot.start', z.object({ projectId, epic: epicNameSchema }), autopilotStateSchema, 'project')
+export const autopilotStart = invokeChannel(
+  'autopilot.start',
+  z.object({ projectId, epic: epicNameSchema, override: z.boolean().optional() }),
+  autopilotStartAnswerSchema,
+  'project',
+)
 
 /**
  * Stops the Project's run gracefully (`user-stop`, worfy-week ticket 18, ADR-0051): no new Ticket,

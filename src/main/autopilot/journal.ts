@@ -82,8 +82,24 @@ export class RunJournal {
   }
 }
 
-/** Starts a new run of `epic` in `project`: creates its file with the `run-started` line. */
-export async function openRun(start: { project: string; epic: string }, options: JournalOptions = {}): Promise<RunJournal> {
+/** What `run-started` says besides the Project and the Epic (openRun). */
+export interface RunStart {
+  project: string
+  epic: string
+  /** The key of the Project's origin; absent without one. */
+  origin?: string
+  /** The start went past the question to the Linked machines ("Start anyway"). */
+  override?: true
+  /** The Linked machines that could not be asked; absent when every one answered. */
+  unasked?: string[]
+}
+
+/**
+ * Starts a new run of `epic` in `project`: creates its file with the `run-started` line, which
+ * carries the run's origin key, `override` and the Linked machines not asked when given
+ * (worfy-link ticket 15).
+ */
+export async function openRun(start: RunStart, options: JournalOptions = {}): Promise<RunJournal> {
   const now = options.now ?? (() => new Date())
   const suffix = options.suffix ?? randomSuffix
   const dir = journalDir(options.env)
@@ -93,7 +109,16 @@ export async function openRun(start: { project: string; epic: string }, options:
     const at = now()
     const run = makeRunId(at, suffix())
     const file = join(dir, journalFileName(run))
-    const line = formatJournalLine({ at: at.toISOString(), run, project: start.project, epic: start.epic, kind: 'run-started' })
+    const line = formatJournalLine({
+      at: at.toISOString(),
+      run,
+      project: start.project,
+      epic: start.epic,
+      kind: 'run-started',
+      ...(start.origin === undefined ? {} : { origin: start.origin }),
+      ...(start.override === true ? { override: true } : {}),
+      ...(start.unasked === undefined || start.unasked.length === 0 ? {} : { unasked: [...start.unasked] }),
+    })
     try {
       // 'wx': a new run never appends to the file of another one.
       await writeFile(file, line, { flag: 'wx' })
