@@ -1,7 +1,7 @@
 # 01 — Настройки приложения: файл app-settings.json и каналы appSettings
 
 Type: task
-Status: open
+Status: claimed — 2026-10-09
 Blocked by: —
 Source: решения владельца 2026-10-09: 1 (свёрнутость секций боковой панели помнится между запусками), 2 (настройки приложения — новый файл в папке данных worfy, каналы `local`, образец — `view.*` и `json-file`), 3 (масштаб интерфейса помнится), 8 (видимость боковой панели помнится отдельно для обычного вида и режима фокуса) ([spec.md](../spec.md), «Как устроено», «Настройки приложения»); [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md) (своё состояние worfy — в его папке данных); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), пункт 6 (пометка канала)
 
@@ -105,4 +105,43 @@ UI у Ticket-а нет, поэтому снимков и ручных пункт
 
 ## Итог
 
-Заполняется при закрытии.
+PR #PRNUM, ветка `worfy-ui/01`.
+
+- **Первый test.** `test/contract/app-settings.test.ts` упал раньше любой проверки: модуля
+  `src/main/settings/store.ts` не было («Failed to resolve import "../../src/main/settings/store"»,
+  0 test-ов). `test/unit/use-app-settings.test.tsx` — так же, без `src/renderer/settings/useAppSettings.ts`.
+  Первый прогон после реализации поймал округление: `1.15 / 0.1` даёт `11.499…`, поэтому
+  `clampScale` считает в десятых умножением (`Math.round(x * 10) / 10`).
+- **Для Ticket-ов 02–05 и 10 — имена, как их звать.**
+  - Схема — `src/shared/settings/app-settings.ts`: тип `AppSettings` = `{ interfaceScale, sidebar:
+    { collapsed: { [id секции]: boolean }, visible: { normal, focus } }, revision }`; тип изменения
+    `AppSettingsPatch`; `clampScale(value)`; константы `INTERFACE_SCALE_MIN` (0.8), `_MAX` (1.5),
+    `_STEP` (0.1), `_DEFAULT` (1); `DEFAULT_APP_SETTINGS` и `defaultAppSettings()` (свежая копия).
+    Id секции — имя файла без расширения, шаблон `^[A-Za-z0-9][\w-]{0,99}$` (так в запись не
+    попадает ключ вроде `__proto__`).
+  - Каналы — `src/shared/ipc/app-settings.ts`, все `local`: `appSettings.get` (`appSettingsGet`),
+    `appSettings.set` (`appSettingsSet`, ответ — новое состояние), событие `appSettings.changed`
+    (`appSettingsChanged`) каждому окну.
+  - Main — `appSettingsStore()` из `src/main/settings/store.ts` (одно хранилище на приложение,
+    создаётся без чтения файла, файл читается при первом `get`/`set`); `.get()`, `.set(patch)`,
+    событие `.on('changed', state => …)` — его слушает масштаб окна Ticket-а 03. Изменение из main
+    (пункт меню) тоже уходит каждому окну: `src/main/ipc/app-settings.ts` подписан на `changed`.
+  - Renderer — `src/renderer/settings/useAppSettings.ts`: `useAppSettings()` или
+    `useAppSettings(s => s.sidebar.visible.focus)`; `setAppSettings(patch)` → причина отказа или
+    `undefined`; `acceptAppSettings`, `refreshAppSettings`.
+- **Поведение хранилища.** Изменение, которое ничего не меняет, файл не пишет, событие не шлёт и
+  `revision` не растит. `revision` пишется в файл и продолжается после перезапуска. Файл старой
+  версии без части полей берёт для них значения по умолчанию (не откладывается); поле не того типа
+  делает файл нечитаемым — он откладывается как `app-settings.json.unreadable-<время>`. Ошибка
+  ввода-вывода при чтении (нет прав, на месте файла папка) — значения по умолчанию и
+  предупреждение в лог; запись, которая не удалась, состояние в памяти не меняет.
+- **Решено без владельца, подтвердить:** (1) пустое изменение — без записи и без роста `revision`,
+  как у `link/settings.json`; (2) файл без части полей читается со значениями по умолчанию, а не
+  откладывается целиком; (3) без моста preload `useAppSettings` молчит (без `console.error`), чтобы
+  unit-test-ы компонентов Ticket-ов 02–05 и 10 не шумели.
+- **Проверки:** `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast — exit 0, «зелено».
+  GATEFULL
+- Mutation testing: восемь мутантов (слияние `collapsed`, рост `revision`, `clampScale` в `set`,
+  пропуск пустого изменения, подписка IPC-модуля на `changed`, пометка `project` у `appSettings.set`,
+  проверка ревизии в renderer, проверка моста) — каждый краснит свой test.
+- UI нет, снимков нет.
