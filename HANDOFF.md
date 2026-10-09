@@ -10,7 +10,7 @@
 - Работа над `worfy-week` 14 лежит только в локальной ветке `wip/worfy-week-14`, на GitHub её нет. Как вернуть Ticket — «Итог» Ticket-а 14.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт владельца: влиты 01–09, 14, 15, `epic-status` — 11/16. Wave 4: 09 (PR #169), 14 (PR #167), 15 (PR #168) — после PR #171 (таймаут contract-test-ов 15 s).
 - `worfy-link` Wave 3: 06 своя камера Canvas у каждого экрана (PR #162), 08 доступ Linked machine к Project-ам — пометки каналов, путь только внутри Project-ов (PR #161). Wave 2: 02, 04, 05, 07 (PR #156–#159).
-- `worfy-windows` (полный порт под Windows; spec, ADR 0054–0056): 01 влит 2026-10-09 (PR #172) — факты с Windows-ПК в evidence, Ticket-ы 02–17 поправлены. Session на Windows-ПК ведёт 02; gate full перед мержем — на Mac. 03–07 ждут закрытия E3.
+- `worfy-windows` (полный порт под Windows; spec, ADR 0054–0056): влиты 01 (PR #172, факты с Windows-ПК) и 02 (PR #177: `.gitattributes`, `postinstall` и `pnpm test` без POSIX-синтаксиса). Следом 08, 09, 11 (Session на Windows-ПК; gate full — на Mac); 03–07 ждут закрытия E3.
 
 ## Ждёт владельца
 
@@ -29,6 +29,8 @@
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).
 - `worfy-harness` 26 (приёмка E3): один `/login` в песочнице (он же откроет `claude plugin validate` и живые проверки 05–08) и второй пользователь macOS — [Ticket 26](.scratch/worfy-harness/issues/26-приёмка-e3.md).
 - `worfy-windows` 01: jq на чистой Windows (в Git for Windows его нет, first-run требует) и symlink-test-ы без Developer Mode — skip на win32 или Developer Mode — [Ticket 01](.scratch/worfy-windows/issues/01-проверка-фактов-на-живой-windows.md), «Итог».
+- `worfy-windows` 02: снимок окна `pnpm dev` на Windows-ПК; 16 падений `harness-evals` от CRLF во front matter — LF и для `harness/evals/**` или `\r?\n` в test-е (Ticket 14) — [Ticket 02](.scratch/worfy-windows/issues/02-репозиторий-ставится-и-запускается-на-windows.md), «Итог».
+- Mac, 2026-10-09: `defaults write com.github.Electron ApplePersistenceIgnoreState -bool YES` — снял модальное окно macOS «восстановить окна?», из-за которого все e2e падали в `firstWindow` (PR #179); оставить или `defaults delete com.github.Electron ApplePersistenceIgnoreState`.
 
 ## Риски и долги
 
