@@ -207,8 +207,17 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
   - Там же: предел 32 767 символов на значение (длиннее — остаётся как есть), запасное окружение без
     частей реестра (реестр собирается отдельно), без пустого `Path`, в `WINDOWS_SESSION_VARS` —
     `USERDNSDOMAIN`, `ProgramFiles(Arm)`, `CommonProgramFiles(Arm)`.
+  - Пятое ревью: значение обрезается по первому NUL, имя с NUL отбрасывается (иначе Node отказывает в
+    `spawn` любого агента); предел 32 767 «липкий»; ключ открывается через .NET Registry API, подключ
+    в base64; запуск PowerShell — чистая `powershellCommand` (абсолютный путь, `-NoProfile`,
+    `-NonInteractive`, timeout, `windowsHide`; пустой или не абсолютный `SystemRoot` — `C:\Windows`);
+    в ошибке — сообщение скрипта, «timed out after 10 s» или последняя строка stderr; весь
+    `WINDOWS_SESSION_VARS` закреплён test-ом.
   - **Долг:** пользовательское значение `P2=%Path%` получает только `Path` пользователя, а итоговый
     `Path` — машины и пользователя. Как поступает сама Windows, не проверено; случай редкий.
+  - **Долг:** скрипт идёт через `-EncodedCommand`; средства защиты могут его помечать. Передача через
+    stdin (`-Command -`) не сделана: многострочный скрипт в этом режиме читается построчно, как в
+    интерактивной консоли, — нужна отдельная проверка.
   - Переменные входа из `HKCU\Volatile Environment` (`LOGONSERVER`, `HOMESHARE`,
     `USERDOMAIN_ROAMINGPROFILE`, `SESSIONNAME`, `CLIENTNAME`) — тоже в `WINDOWS_SESSION_VARS`.
   - Первый вариант (окружение процесса минус `CLAUDE*`/`ANTHROPIC_*`) отвергнут на ревью PR #194:
@@ -240,9 +249,14 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
   красные: 8 прежних и 13 новых (пункты a–f ревью — регистр ключа API, регистр в `setVar`, регистр в
   ссылке вперёд, пустой `Path` пользователя, остаток цикла без раскрытия, `;` в имени; без предела
   длины, `>=` вместо `>`, запасное окружение с частью реестра, пустой `Path`, base64 как latin1, чтение
-  с раскрытием, без `USERDNSDOMAIN`).
+  с раскрытием, без `USERDNSDOMAIN`). После пятого ревью — 37 мутантов, все красные: 21 прежний и
+  16 новых (без обрезки по NUL, без отбрасывания имени с NUL, нелипкий предел, голый
+  `powershell.exe`, без `-NoProfile`, без `-NonInteractive`, без timeout, `windowsHide: false`,
+  `SystemRoot` не учитывается, пустой `SystemRoot` принят, ошибка ключа пользователя проглочена как
+  `[]`, без текста о timeout, без сообщения скрипта, без строки stderr, перепутанные HKCU/HKLM,
+  без отказа на отсутствующий ключ, без `OS` в списке сеанса).
 - **Test-ы на Windows-ПК:** `pnpm test test/unit/agent-env.test.ts test/unit/agent-executable.test.ts
-  test/unit/agent-query-factory.test.ts` — exit 0 (после четвёртого ревью `agent-env.test.ts` — `50
+  test/unit/agent-query-factory.test.ts` — exit 0 (после пятого ревью `agent-env.test.ts` — `57 passed | 4 skipped (61)`; после четвёртого — `50
   passed | 4 skipped (54)`, с test-ами читателя реестра на временном ключе
   `HKCU\Software\worfy-test-registry-reader`; после третьего — `37 passed | 4 skipped (41)`; после
   второго ревью `agent-env.test.ts` — `30

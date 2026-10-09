@@ -2,9 +2,10 @@
 // a temporary HOME whose rc file stands in for the user's.
 //
 // On Windows there is no login shell (worfy-windows ticket 09, ADR-0057): the cases of
-// captureAgentEnv take the platform, worfy's environment, the answer of `reg query` and the file
-// checks as parameters, so they run on the Mac and on Linux CI; the last case runs the real
-// agentEnv() on Windows only.
+// captureAgentEnv take the platform, worfy's environment, the registry reader (`readKey`, values
+// already parsed) and the file checks as parameters, and the reader takes the process runner, so
+// they run on the Mac and on Linux CI. The last two blocks run the real reader and agentEnv() on
+// Windows only.
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, lstatSync } from 'node:fs'
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -23,6 +24,7 @@ import {
   MAX_VAR_LENGTH,
   parseRegistryValues,
   PERSISTENT_ENV_KEYS,
+  powershellCommand,
   powershellRegRead,
   registryScript,
   shellBaseEnv,
@@ -31,6 +33,7 @@ import {
   WINDOWS_SESSION_VARS,
   type CapturedEnv,
   type RegValue,
+  type RunFile,
 } from '../../src/main/agent/env'
 
 let home: string
@@ -217,7 +220,15 @@ describe('captureAgentEnv on win32', () => {
   it('takes the session variables Windows sets at sign-in from the process', async () => {
     const { env } = await capture()
     expect(env).toMatchObject({ SystemRoot: 'C:\\Windows', USERPROFILE: 'C:\\Users\\u', APPDATA: 'C:\\Users\\u\\AppData\\Roaming', USERNAME: 'u' })
-    expect(WINDOWS_SESSION_VARS).toEqual(expect.arrayContaining(['LOCALAPPDATA', 'USERDNSDOMAIN', 'ProgramFiles(Arm)', 'CommonProgramFiles(Arm)', 'ProgramW6432', 'CommonProgramW6432']))
+    expect(WINDOWS_SESSION_VARS).toEqual([
+      'SystemRoot', 'SystemDrive', 'windir', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP',
+      'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'HOMESHARE', 'APPDATA', 'LOCALAPPDATA', 'ProgramData',
+      'LOGONSERVER', 'USERDOMAIN_ROAMINGPROFILE', 'USERDNSDOMAIN', 'SESSIONNAME', 'CLIENTNAME',
+      'ProgramFiles', 'ProgramFiles(x86)', 'ProgramFiles(Arm)', 'ProgramW6432',
+      'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramFiles(Arm)', 'CommonProgramW6432',
+      'PUBLIC', 'ALLUSERSPROFILE', 'COMPUTERNAME', 'USERNAME', 'USERDOMAIN', 'OS',
+      'PROCESSOR_ARCHITECTURE', 'PROCESSOR_IDENTIFIER', 'PROCESSOR_LEVEL', 'PROCESSOR_REVISION', 'NUMBER_OF_PROCESSORS',
+    ])
   })
 
   it("takes the user's persistent variables, the user's over the machine's, REG_EXPAND_SZ expanded", async () => {
@@ -334,6 +345,19 @@ describe('captureAgentEnv on win32', () => {
       expected: { DOUBLE: '%BIG%%BIG%', EXACT: `${'x'.repeat(20_000)}${'y'.repeat(12_767)}` },
     },
     {
+      name: 'once past 32,767 characters a value stays as written, even if later references make it shorter',
+      machine: key(['BIG', SZ, 'x'.repeat(32_760)], ['E', SZ, ''], ['STICKY', EXPAND, '%BIG%%E%%E%%E%']),
+      user: key(),
+      expected: { STICKY: '%BIG%%E%%E%%E%' },
+    },
+    {
+      name: 'a value is cut at its first NUL, and a name with a NUL is dropped',
+      machine: key(['TOOLS', EXPAND, '%SystemRoot%\\tools\0junk'], ['SZ_NUL', SZ, 'C:\\a\0b'], ['BAD\0NAME', SZ, 'x'], ['USES', EXPAND, '%TOOLS%\\bin']),
+      user: key(),
+      expected: { TOOLS: 'C:\\Windows\\tools', SZ_NUL: 'C:\\a', USES: 'C:\\Windows\\tools\\bin' },
+      absent: ['BAD\0NAME', 'BAD'],
+    },
+    {
       name: 'a value that doubles at every step stops at 32,767 characters',
       machine: doubling,
       user: key(),
@@ -372,6 +396,21 @@ describe('captureAgentEnv on win32', () => {
     expect(env).not.toHaveProperty('CLAUDECODE')
     expect(error).toMatch(/the registry could not be read/)
     expect(error).toMatch(/powershell is missing/)
+  })
+
+  it('a failure reading only the user key still falls back', async () => {
+    const { env, from, error } = await capture({ readKey: async (name) => (name === PERSISTENT_ENV_KEYS[0] ? Promise.reject(new Error('user key unreadable')) : regAnswers[name]!) })
+    expect(from).toBe('fallback')
+    expect(error).toMatch(/user key unreadable/)
+    expect(env).not.toHaveProperty('DriverData')
+  })
+
+  it('an environment with a NUL in the registry still starts a process', async () => {
+    const { env } = await capture({ readKey: async (name) => (name === PERSISTENT_ENV_KEYS[0] ? key(['TOOLS', SZ, 'C:\\tools\0junk'], ['N\0UL', SZ, 'x']) : regAnswers[name]!) })
+    expect(env.TOOLS).toBe('C:\\tools')
+    const started = spawnSync(process.execPath, ['-e', ''], { env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, timeout: 20_000 })
+    expect(started.error).toBeUndefined()
+    expect(started.status).toBe(0)
   })
 
   it('a failure while the registry is applied leaves nothing of it in the fallback', async () => {
@@ -470,11 +509,54 @@ describe('findOnPath and the registry reader', () => {
     expect(parseRegistryValues(`#< CLIXML\r\nDWord ${b64('Flag')} ${b64('1')}\r\nwarning: something\r\n`)).toEqual([])
   })
 
-  it('the registry script names the key literally, reads values unexpanded, and prints only String and ExpandString', () => {
-    const script = registryScript("HKCU\\Software\\it's")
-    expect(script).toContain("Get-Item -LiteralPath 'Registry::HKCU\\Software\\it''s'")
-    expect(script).toContain("'DoNotExpandEnvironmentNames'")
-    expect(script).toContain("$kind -ne 'String' -and $kind -ne 'ExpandString'")
+  it('the registry script opens the key through the .NET API with the subkey in base64, reads values unexpanded, and prints only String and ExpandString', () => {
+    const subkey = 'Software\\it’s ‘quoted’'
+    const user = registryScript(`HKCU\\${subkey}`)
+    expect(user).toContain('[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($path)')
+    expect(user).toContain(`FromBase64String('${b64(subkey)}')`)
+    expect(user).not.toContain('it’s')
+    expect(registryScript(PERSISTENT_ENV_KEYS[1])).toContain('[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($path)')
+    expect(registryScript(PERSISTENT_ENV_KEYS[1])).toContain(`FromBase64String('${b64('SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment')}')`)
+    expect(user).toContain("'DoNotExpandEnvironmentNames'")
+    expect(user).toContain("$kind -ne 'String' -and $kind -ne 'ExpandString'")
+    expect(user).toContain('if ($null -eq $key) { throw')
+    expect(() => registryScript('HKCR\\x')).toThrow(/not a key of HKCU or HKLM/)
+  })
+
+  it('starts Windows PowerShell of SystemRoot by its absolute path, without a profile or prompts, hidden, with a timeout', () => {
+    const { file, args, options } = powershellCommand('D:\\Win', PERSISTENT_ENV_KEYS[0])
+    expect(file).toBe('D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
+    expect(args.slice(0, 3)).toEqual(['-NoProfile', '-NonInteractive', '-EncodedCommand'])
+    expect(Buffer.from(args[3]!, 'base64').toString('utf16le')).toBe(registryScript(PERSISTENT_ENV_KEYS[0]))
+    expect(args).toHaveLength(4)
+    expect(options).toEqual({ encoding: 'utf8', timeout: 10_000, windowsHide: true })
+    for (const root of [undefined, '', 'Windows', 'C:Windows']) {
+      expect(powershellCommand(root, PERSISTENT_ENV_KEYS[0]).file).toBe('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
+    }
+  })
+
+  // The process runner of powershellRegRead, answering with `answer` and recording what it ran.
+  const runner = (answer: { error?: { code?: unknown; killed?: boolean }; stdout?: string; stderr?: string }) => {
+    const calls: { file: string; args: string[] }[] = []
+    const run: RunFile = (file, args, _options, done) => {
+      calls.push({ file, args })
+      done(answer.error ?? null, answer.stdout ?? '', answer.stderr ?? '')
+    }
+    return { run, calls }
+  }
+
+  it('the reader runs powershellCommand and gives [] for empty output', async () => {
+    const { run, calls } = runner({ stdout: '' })
+    await expect(powershellRegRead('C:\\Windows', run)(PERSISTENT_ENV_KEYS[0])).resolves.toEqual([])
+    expect(calls).toEqual([{ file: powershellCommand('C:\\Windows', PERSISTENT_ENV_KEYS[0]).file, args: powershellCommand('C:\\Windows', PERSISTENT_ENV_KEYS[0]).args }])
+  })
+
+  it("the reader's error says the timeout, the script's own message, or the last line of stderr", async () => {
+    const read = (answer: Parameters<typeof runner>[0]) => powershellRegRead('C:\\Windows', runner(answer).run)(PERSISTENT_ENV_KEYS[0])
+    await expect(read({ error: { killed: true, code: null } })).rejects.toThrow(/could not read HKCU\\Environment: timed out after 10 s$/)
+    await expect(read({ error: { code: 1 }, stdout: `Error ${b64('no such key: Ключ')}\r\n` })).rejects.toThrow(/: no such key: Ключ$/)
+    await expect(read({ error: { code: 1 }, stderr: 'first\r\nAccess is denied.\r\n\r\n' })).rejects.toThrow(/: exit 1: Access is denied\.$/)
+    await expect(read({ error: { code: 'ENOENT' } })).rejects.toThrow(/: exit ENOENT$/)
   })
 })
 
@@ -499,7 +581,7 @@ describe.runIf(process.platform === 'win32')('the registry reader on this Window
 
   it('rejects for a key that does not exist', async () => {
     execFileSync('reg', ['add', SCRATCH, '/f'], { stdio: 'ignore' })
-    await expect(powershellRegRead(process.env.SystemRoot ?? 'C:\\Windows')(`${SCRATCH}\\missing`)).rejects.toThrow(/could not read/)
+    await expect(powershellRegRead(process.env.SystemRoot ?? 'C:\\Windows')(`${SCRATCH}\\missing`)).rejects.toThrow(/could not read .*: no such key: Software/)
   })
 })
 

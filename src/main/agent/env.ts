@@ -160,25 +160,41 @@ export interface RegValue {
   value: string
 }
 
+const REGISTRY_HIVES: Record<string, string> = { HKCU: 'CurrentUser', HKLM: 'LocalMachine' }
+const toBase64 = (text: string): string => Buffer.from(text, 'utf8').toString('base64')
+const fromBase64 = (base64: string | undefined): string => Buffer.from(base64 ?? '', 'base64').toString('utf8')
+
 /**
- * A Windows PowerShell script that prints the REG_SZ and REG_EXPAND_SZ values of `key`, not
- * expanded, one per line: `<String|ExpandString> <name> <value>`, name and value in base64 of UTF-8,
- * so the output is ASCII whatever the console's code page. `reg query` is not used: it writes to a
- * pipe in the OEM code page, so C:\Users\Алексей came out garbled and characters outside that code
- * page as `?`, with no error (review of PR #194, round 4).
+ * A Windows PowerShell script that prints the REG_SZ and REG_EXPAND_SZ values of `key` (HKCU\… or
+ * HKLM\…), not expanded, one per line: `<String|ExpandString> <name> <value>`, name and value in
+ * base64 of UTF-8, so the output is ASCII whatever the console's code page. A failure prints
+ * `Error <message in base64>` and exits 1. The key is opened through the .NET Registry API, not the
+ * registry provider: no module to load (PSModulePath may come from a pwsh 7 parent) and no quoting —
+ * the subkey goes in as base64 too. `reg query` is not used: it writes to a pipe in the OEM code page,
+ * so C:\Users\Алексей came out garbled and characters outside that code page as `?`, with no error
+ * (review of PR #194, round 4).
  */
 export function registryScript(key: string): string {
+  const [hive = '', ...subkey] = key.split('\\')
+  const root = REGISTRY_HIVES[hive.toUpperCase()]
+  if (!root) throw new Error(`not a key of HKCU or HKLM: ${key}`)
   return [
     "$ErrorActionPreference = 'Stop'",
-    "$ProgressPreference = 'SilentlyContinue'",
-    `$key = Get-Item -LiteralPath 'Registry::${key.replace(/'/g, "''")}'`,
     '$b64 = { param($s) [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$s)) }',
-    'foreach ($name in $key.GetValueNames()) {',
-    "  if ($name -eq '') { continue }",
-    '  $kind = $key.GetValueKind($name).ToString()',
-    "  if ($kind -ne 'String' -and $kind -ne 'ExpandString') { continue }",
-    "  $value = $key.GetValue($name, '', 'DoNotExpandEnvironmentNames')",
-    '  "$kind $(& $b64 $name) $(& $b64 $value)"',
+    'try {',
+    `  $path = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${toBase64(subkey.join('\\'))}'))`,
+    `  $key = [Microsoft.Win32.Registry]::${root}.OpenSubKey($path)`,
+    '  if ($null -eq $key) { throw "no such key: $path" }',
+    '  foreach ($name in $key.GetValueNames()) {',
+    "    if ($name -eq '') { continue }",
+    '    $kind = $key.GetValueKind($name).ToString()',
+    "    if ($kind -ne 'String' -and $kind -ne 'ExpandString') { continue }",
+    "    $value = $key.GetValue($name, '', 'DoNotExpandEnvironmentNames')",
+    '    "$kind $(& $b64 $name) $(& $b64 $value)"',
+    '  }',
+    '} catch {',
+    '  "Error $(& $b64 $_.Exception.Message)"',
+    '  exit 1',
     '}',
   ].join('\n')
 }
@@ -186,22 +202,60 @@ export function registryScript(key: string): string {
 /** The values in the output of registryScript; other lines are skipped. */
 export function parseRegistryValues(output: string): RegValue[] {
   const values: RegValue[] = []
-  const text = (base64: string | undefined): string => Buffer.from(base64 ?? '', 'base64').toString('utf8')
   for (const line of output.split(/\r?\n/)) {
     const match = /^(String|ExpandString) ([A-Za-z0-9+/]+=*)(?: ([A-Za-z0-9+/]*=*))? *$/.exec(line)
-    if (match) values.push({ name: text(match[2]), type: match[1] === 'String' ? 'REG_SZ' : 'REG_EXPAND_SZ', value: text(match[3]) })
+    if (match) values.push({ name: fromBase64(match[2]), type: match[1] === 'String' ? 'REG_SZ' : 'REG_EXPAND_SZ', value: fromBase64(match[3]) })
   }
   return values
 }
 
-/** Reads a key through Windows PowerShell of `systemRoot`, started by its absolute path. */
-export function powershellRegRead(systemRoot: string): RegRead {
-  const powershell = win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+export interface PowershellCommand {
+  file: string
+  args: string[]
+  options: { encoding: 'utf8'; timeout: number; windowsHide: boolean }
+}
+
+/**
+ * How registryScript runs: Windows PowerShell of `systemRoot` by its absolute path — C:\Windows when
+ * `systemRoot` is missing, empty or not absolute — without a profile and without prompts, hidden,
+ * with a timeout.
+ */
+export function powershellCommand(systemRoot: string | undefined, key: string): PowershellCommand {
+  const root = systemRoot && win32.isAbsolute(systemRoot) ? systemRoot : 'C:\\Windows'
+  return {
+    file: win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    args: ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(registryScript(key), 'utf16le').toString('base64')],
+    options: { encoding: 'utf8', timeout: SHELL_TIMEOUT_MS, windowsHide: true },
+  }
+}
+
+export type RunFile = (
+  file: string,
+  args: string[],
+  options: PowershellCommand['options'],
+  done: (error: { code?: unknown; killed?: boolean } | null, stdout: string, stderr: string) => void,
+) => void
+
+const runFile: RunFile = (file, args, options, done) => {
+  execFile(file, args, options, (error, stdout, stderr) => done(error, stdout, stderr))
+}
+
+/** Why the reader failed: the timeout, the script's own Error line, or the last line of stderr. */
+function readerFailure(error: { code?: unknown; killed?: boolean }, stdout: string, stderr: string): string {
+  if (error.killed) return `timed out after ${SHELL_TIMEOUT_MS / 1000} s`
+  const own = /^Error ([A-Za-z0-9+/]*=*) *$/m.exec(stdout)
+  if (own) return fromBase64(own[1])
+  const last = stderr.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== '').pop()
+  return last ? `exit ${String(error.code)}: ${last.slice(0, 300)}` : `exit ${String(error.code)}`
+}
+
+/** Reads a key through Windows PowerShell (powershellCommand). */
+export function powershellRegRead(systemRoot: string | undefined, run: RunFile = runFile): RegRead {
   return (key) =>
     new Promise((resolve, reject) => {
-      const script = Buffer.from(registryScript(key), 'utf16le').toString('base64')
-      execFile(powershell, ['-NoProfile', '-NonInteractive', '-EncodedCommand', script], { encoding: 'utf8', timeout: SHELL_TIMEOUT_MS, windowsHide: true }, (error, stdout) =>
-        error ? reject(new Error(`${powershell} could not read ${key}: ${error.code ?? error.signal ?? 'failed'}`)) : resolve(parseRegistryValues(stdout)),
+      const { file, args, options } = powershellCommand(systemRoot, key)
+      run(file, args, options, (error, stdout, stderr) =>
+        error ? reject(new Error(`${file} could not read ${key}: ${readerFailure(error, stdout, stderr)}`)) : resolve(parseRegistryValues(stdout)),
       )
     })
 }
@@ -218,27 +272,36 @@ function setVar(env: Env, key: string, value: string): void {
  * then each `%NAME%` gets the value NAME has in `env`, once: the text put in is not scanned again.
  * So a forward reference within the key works, and a reference to the value's own name gets the value
  * from before this key: the machine's for the user's key, or the session's when there is none. An
- * unknown name stays as written, and so does a reference within a cycle. A value that would grow
- * past MAX_VAR_LENGTH stays as written.
+ * unknown name stays as written, and so does a reference within a cycle. A value whose expansion goes
+ * past MAX_VAR_LENGTH at any point stays as written.
+ *
+ * A value is cut at its first NUL, as the C-string APIs of a sign-in read it, and a name with a NUL is
+ * dropped: GetValue keeps an embedded NUL, and Node refuses an environment holding one at spawn
+ * (ERR_INVALID_ARG_VALUE), so no agent would start.
  */
 function putKey(values: RegValue[], env: Env): void {
   const waiting = new Map<string, RegValue>()
-  for (const entry of values) {
-    if (entry.type === 'REG_SZ') {
-      waiting.delete(entry.name.toUpperCase())
-      setVar(env, entry.name, entry.value)
-    } else if (entry.type === 'REG_EXPAND_SZ') waiting.set(entry.name.toUpperCase(), entry)
+  for (const { name, type, value: raw } of values) {
+    if (name.includes('\0')) continue
+    const value = raw.split('\0')[0]!
+    if (type === 'REG_SZ') {
+      waiting.delete(name.toUpperCase())
+      setVar(env, name, value)
+    } else if (type === 'REG_EXPAND_SZ') waiting.set(name.toUpperCase(), { name, type, value })
   }
   const blockedBy = (self: string, name: string): boolean => name.toUpperCase() !== self && waiting.has(name.toUpperCase())
   const expand = (self: string, value: string): string => {
-    // The length is counted while expanding, so a value that doubles at every step stops early.
+    // The length is counted while expanding, so a value that doubles at every step stops early; once
+    // past the limit the value stays as written, even if later references would make it shorter.
     let length = value.length
+    let over = false
     const expanded = value.replace(/%([^%;]+)%/g, (whole, name: string) => {
       const found = blockedBy(self, name) ? whole : (getVar(env, name) ?? whole)
       length += found.length - whole.length
-      return length > MAX_VAR_LENGTH ? '' : found
+      if (length > MAX_VAR_LENGTH) over = true
+      return over ? '' : found
     })
-    return length > MAX_VAR_LENGTH ? value : expanded
+    return over ? value : expanded
   }
   let progress = true
   while (progress) {
@@ -328,8 +391,9 @@ export interface WindowsEnvOptions {
  *      user Path, and no Path when both are missing or empty;
  *   3. without ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN (any case), as on the Mac;
  *   4. Git Bash in CLAUDE_CODE_GIT_BASH_PATH unless the user has an own one.
- * When the registry cannot be read the result is exactly the session variables and the Path of
- * `source` (`fallback`), and `error` says why; without Git Bash `error` says the agent has no Bash tool.
+ * When either key cannot be read, or applying them fails, the result is exactly the session variables
+ * and the Path of `source` (`fallback`), and `error` says why; without Git Bash `error` says the
+ * agent has no Bash tool.
  */
 export async function captureWindowsEnv(options: WindowsEnvOptions = {}): Promise<CapturedEnv> {
   const source = options.source ?? process.env
@@ -341,7 +405,7 @@ export async function captureWindowsEnv(options: WindowsEnvOptions = {}): Promis
   }
   let from: CapturedEnv['from'] = 'registry'
   try {
-    const readKey = options.readKey ?? powershellRegRead(getVar(source, 'SystemRoot') ?? 'C:\\Windows')
+    const readKey = options.readKey ?? powershellRegRead(getVar(source, 'SystemRoot'))
     // PERSISTENT_ENV_KEYS: the user's key first, the machine's second.
     const [userValues, machineValues] = await Promise.all(PERSISTENT_ENV_KEYS.map((key) => readKey(key)))
     // Built apart and taken only when complete, so a fallback carries nothing of the registry.
