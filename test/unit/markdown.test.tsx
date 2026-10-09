@@ -108,6 +108,23 @@ describe('Markdown: links', () => {
     expect(asked).toEqual([])
   })
 
+  // worfy-windows ticket 08: react-markdown's default urlTransform blanked these before classifyLink.
+  it.each([
+    ['[f](C:\\Users\\a\\f.md)', 'C:\\Users\\a\\f.md'],
+    ['[f](C:/Users/a/f.md)', 'C:\\Users\\a\\f.md'],
+    // In markdown `\\` is an escaped backslash: a UNC path is written with four.
+    ['[f](\\\\\\\\server\\share\\f.md)', '\\\\server\\share\\f.md'],
+  ])('opens an absolute Windows path %s as a file through shell.openInEditor', (text, path) => {
+    render(<Markdown text={text} projectId="alpha" />)
+    expect(fireEvent.click(screen.getByRole('link', { name: 'f' }))).toBe(false)
+    expect(asked).toEqual([{ channel: 'shell.openInEditor', input: { projectId: 'alpha', path } }])
+  })
+
+  it('keeps blanking a drive-letter scheme that is not a path, such as c:alert(1)', () => {
+    const { container } = render(<Markdown text={'[x](c:alert(1))'} projectId="alpha" />)
+    expect(container.querySelector('a')).toBeNull()
+  })
+
   it('a javascript: or http:// link is not a link and opens nothing', () => {
     const { container } = render(<Markdown text={'[run](javascript:alert(1)) and [plain](http://example.com)'} projectId="alpha" />)
     expect(container.querySelector('a')).toBeNull()
@@ -148,6 +165,9 @@ describe('classifyLink', () => {
     ['c:\\docs\\.\\x\\..\\a.md#top', 'C:\\docs\\a.md'],
     ['C:\\docs\\F%20SPEC.md', 'C:\\docs\\F SPEC.md'],
     ['\\\\server\\share\\a.md', '\\\\server\\share\\a.md'],
+    // As the markdown parser hands it over: `\` percent-encoded.
+    ['C:%5Cdocs%5Ca.md', 'C:\\docs\\a.md'],
+    ['%5C%5Cserver%5Cshare%5Ca.md', '\\\\server\\share\\a.md'],
   ])('%s is a file with an absolute Windows path', (href, path) => {
     expect(classifyLink(href, 'docs')).toEqual({ kind: 'file', path })
   })
@@ -156,6 +176,8 @@ describe('classifyLink', () => {
     expect(classifyLink('docs\\adr\\0001.md')).toEqual({ kind: 'file', path: 'docs/adr/0001.md' })
     expect(classifyLink('..\\src\\main\\index.ts', '.scratch/worfy-mvp')).toEqual({ kind: 'file', path: '.scratch/src/main/index.ts' })
     expect(classifyLink('C:\\')).toEqual({ kind: 'none' })
+    // An absolute POSIX path keeps `\` as part of a name.
+    expect(classifyLink('/a/b\\c.md')).toEqual({ kind: 'file', path: '/a/b\\c.md' })
     expect(classifyLink('C:a.md')).toEqual({ kind: 'none' })
   })
 })

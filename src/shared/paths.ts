@@ -18,6 +18,15 @@ export function isAbsolutePath(path: string): boolean {
   return path.startsWith('/') || DRIVE_ROOT.test(path) || UNC.test(path)
 }
 
+/**
+ * An absolute path by the rules of Windows: `C:\…`, `C:/…` or UNC. Not `/x` nor `\x` (the root of
+ * the current drive) nor `C:x`. The one rule for values that must name a Windows folder, such as
+ * APPDATA for dataRoot() and for scripts/statusline-bridge.mjs, which keeps a copy of it.
+ */
+export function isWindowsAbsolutePath(path: string): boolean {
+  return !path.includes('\0') && (DRIVE_ROOT.test(path) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(path))
+}
+
 /** An absolute path for IPC (isAbsolutePath); the main process resolves it again before use. */
 export const absolutePathSchema = z.string().min(1).refine(isAbsolutePath, 'must be an absolute path')
 

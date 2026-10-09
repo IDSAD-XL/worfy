@@ -152,19 +152,38 @@ export function readWindowsProcessStarts(systemRoot: string | undefined = proces
 
 /** How long the pids asked for are gathered before one PowerShell call reads them all. */
 export const PROCESS_START_BATCH_MS = 25
+/**
+ * How long a start time read for a pid is reused. The live list and the Subagents are asked again
+ * every 2 s; the start of a running process never changes, so PowerShell runs at most once in this
+ * time per pid. A pid that a new process took within it would still match the old start: that
+ * takes a registry file left behind by a dead Session and the pid reused within 30 s.
+ */
+export const PROCESS_START_CACHE_MS = 30_000
 
 /**
  * `read`, but every pid asked for within PROCESS_START_BATCH_MS goes into one call: the live
- * Sessions of a listing are checked by one PowerShell start, not one per Session.
+ * Sessions of a listing are checked by one PowerShell start, not one per Session. A start time
+ * read is reused for PROCESS_START_CACHE_MS; `?`, a pid not found and a failed read are not.
  */
-export function batchedProcessStarts(read: WindowsProcessStarts, delayMs = PROCESS_START_BATCH_MS): (pid: number) => Promise<Map<number, string>> {
+export function batchedProcessStarts(
+  read: WindowsProcessStarts,
+  delayMs = PROCESS_START_BATCH_MS,
+  cacheMs = PROCESS_START_CACHE_MS,
+  now: () => number = Date.now,
+): (pid: number) => Promise<Map<number, string>> {
+  const known = new Map<number, { start: string; at: number }>()
   let batch: { pids: Set<number>; starts: Promise<Map<number, string>> } | null = null
   return (pid) => {
+    const cached = known.get(pid)
+    if (cached !== undefined && now() - cached.at < cacheMs) return Promise.resolve(new Map([[pid, cached.start]]))
     if (batch === null) {
       const pids = new Set<number>()
-      const starts = new Promise<void>((wait) => setTimeout(wait, delayMs)).then(() => {
+      const starts = new Promise<void>((wait) => setTimeout(wait, delayMs)).then(async () => {
         batch = null
-        return read([...pids])
+        const answer = await read([...pids])
+        const at = now()
+        for (const [each, start] of answer) if (start !== '?') known.set(each, { start, at })
+        return answer
       })
       batch = { pids, starts }
     }

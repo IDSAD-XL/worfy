@@ -94,7 +94,26 @@ describe('lastEditor: Windows paths (worfy-windows ticket 08)', () => {
     expect(normalizePath('cards\\c1/x.md', 'C:\\p\\data')).toBe('C:\\p\\data\\cards\\c1\\x.md')
     expect(normalizePath('..\\..\\..', 'C:\\a')).toBe('C:\\')
     expect(normalizePath('\\\\srv\\share\\a\\..\\b', '/x')).toBe('\\\\srv\\share\\b')
-    expect(normalizePath('C:a', 'D:\\x')).toBe('D:\\x\\C:a')
+    // `C:a` is in the current folder of drive C:, known only when the cwd is on C:.
+    expect(normalizePath('C:a', 'D:\\x')).toBeNull()
+    expect(normalizePath('c:a\\b', 'C:\\x')).toBe('C:\\x\\a\\b')
+    // `\a` is the root of the cwd's drive.
+    expect(normalizePath('\\a\\b', 'D:\\x\\y')).toBe('D:\\a\\b')
+  })
+
+  it('reads a Git Bash path /c/… as drive C: against a Windows folder of Cards', () => {
+    expect(cardOfPath('/c/p/data/cards/abc/x.md', winCards, 'C:\\')).toBe('abc')
+    expect(cardOfPath('/C/p/data/cards/abc/x.md', winCards, '/')).toBe('abc')
+    expect(cardOfPath('/d/p/data/cards/abc/x.md', winCards, 'C:\\')).toBeNull()
+    expect(cardOfPath('/c', winCards, 'C:\\')).toBeNull()
+  })
+
+  it('keeps the POSIX rules for a POSIX path: `\\` is part of a name, case counts', () => {
+    expect(normalizePath('/a/b\\c', '/')).toBe('/a/b\\c')
+    expect(normalizePath('b\\c', '/a')).toBe('/a/b\\c')
+    expect(cardOfPath('/P/data/cards/abc/x', '/p/data/cards', '/')).toBeNull()
+    expect(cardOfPath('/p/data/cards/abc\\x', '/p/data/cards', '/')).toBeNull()
+    expect(cardOfPath('/c/p/data/cards/abc/x', '/c/p/data/cards', '/')).toBe('abc')
   })
 
   it('names the Card of a Write with a `C:\\…` file_path, of a relative `cards\\…` path and of a path in another case', () => {

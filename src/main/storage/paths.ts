@@ -1,6 +1,6 @@
 import { homedir } from 'node:os'
 import { join, resolve, win32 } from 'node:path'
-import { isAbsolutePath } from '../../shared/paths'
+import { isWindowsAbsolutePath } from '../../shared/paths'
 
 type Env = Readonly<Record<string, string | undefined>>
 
@@ -37,7 +37,7 @@ export function dataRoot(env: Env = process.env, kind: BuildKind = currentBuildK
   if (override) return resolve(override)
   const name = kind === 'dev' ? 'worfy-dev' : 'worfy'
   if (platform === 'win32') {
-    const appData = env.APPDATA !== undefined && isAbsolutePath(env.APPDATA) ? env.APPDATA : win32.join(homedir(), 'AppData', 'Roaming')
+    const appData = env.APPDATA !== undefined && isWindowsAbsolutePath(env.APPDATA) ? env.APPDATA : win32.join(homedir(), 'AppData', 'Roaming')
     return win32.join(appData, name)
   }
   return join(homedir(), 'Library', 'Application Support', name)

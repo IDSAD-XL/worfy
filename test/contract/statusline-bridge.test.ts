@@ -5,7 +5,7 @@
 // against it and, where /bin/sh is, against the entry scripts/statusline-bridge.sh that the user's
 // `statusLine` names in the .app.
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, relative, win32 } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -146,7 +146,7 @@ describe('statusline-bridge scripts', () => {
     const mjs = codeOf(MJS)
     expect(mjs.join('\n')).toContain('rateLimitsOf')
     const sh = codeOf(SH)
-    expect(sh.join('\n')).toContain('exec node "$here/statusline-bridge.mjs" "$@"')
+    expect(sh.join('\n')).toContain(`printf '%s' "$input" | node "$here/statusline-bridge.mjs" >/dev/null 2>&1`)
     for (const line of [...mjs, ...sh]) {
       expect(line).not.toContain('/Users/')
       expect(line).not.toContain('CanvasForAI')
@@ -165,6 +165,56 @@ describe('statusline-bridge scripts', () => {
   })
 })
 
+// The entry the user's `statusLine` names on macOS: whatever happens to node, the user's own line
+// keeps its output and exit code, and the Limits are written through jq as before (round 1 of the
+// review of PR #200). A PATH of its own holds only the tools the entry uses, and a `node` stub.
+describe.skipIf(WINDOWS)('statusline-bridge.sh without a working node', () => {
+  // Asked while the tests are collected, also on Windows, where there is no /bin/sh: then null.
+  const tool = (name: string): string | null => (spawnSync('/bin/sh', ['-c', `command -v ${name}`], { encoding: 'utf8' }).stdout ?? '').trim() || null
+  const JQ = tool('jq')
+  const STUBS = {
+    // An asdf or mise shim with no version selected.
+    fails: '#!/bin/sh\necho "No version is set for command node" >&2\nexit 126\n',
+    // A Node too old for `?.`.
+    old: "#!/bin/sh\necho \"SyntaxError: Unexpected token '.'\" >&2\nexit 1\n",
+  }
+
+  function binDir(node: keyof typeof STUBS | null, withJq = true): string {
+    const dir = join(scratch, 'bin')
+    mkdirSync(dir)
+    for (const name of ['cat', 'mv', 'rm', 'sh', 'grep', ...(withJq ? ['jq'] : [])]) {
+      const found = tool(name)
+      if (found) symlinkSync(found, join(dir, name))
+    }
+    if (node !== null) writeFileSync(join(dir, 'node'), STUBS[node], { mode: 0o755 })
+    return dir
+  }
+
+  const userLine = `grep -o '"display_name":"[^"]*"'; exit 3`
+
+  it.each([
+    ['no node on PATH', null],
+    ['a node that fails', 'fails'],
+    ['a node too old for the script', 'old'],
+  ] as const)('with %s, runs the user command with its output and exit code, and writes the Limits through jq', (_case, node) => {
+    const result = spawnSync('/bin/sh', [SH, userLine], { input: JSON.stringify(STATUS), encoding: 'utf8', env: { PATH: binDir(node), HOME: home, WORFY_DATA_DIR: dataDir } })
+    expect(result).toMatchObject({ status: 3, stdout: '"display_name":"Haiku 4.5"\n', stderr: '' })
+    if (JQ !== null) expect(written()).toEqual(RATE_LIMITS)
+  })
+
+  it('without node and jq, still runs the user command and writes nothing', () => {
+    const result = spawnSync('/bin/sh', [SH, userLine], { input: JSON.stringify(STATUS), encoding: 'utf8', env: { PATH: binDir(null, false), HOME: home, WORFY_DATA_DIR: dataDir } })
+    expect(result).toMatchObject({ status: 3, stdout: '"display_name":"Haiku 4.5"\n', stderr: '' })
+    expect(readdirSync(dataDir)).toEqual([])
+  })
+
+  it('gives the user command stdin byte for byte, trailing newlines included', () => {
+    const input = `${JSON.stringify(STATUS)}\n\n`
+    const result = spawnSync('/bin/sh', [SH, 'cat'], { input, encoding: 'utf8', env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, WORFY_DATA_DIR: dataDir } })
+    expect(result).toMatchObject({ status: 0, stdout: input })
+  })
+})
+
 interface Bridge {
   limitsFolders: (env: Record<string, string | undefined>, platform: NodeJS.Platform, home?: string) => string[]
   commandRunner: (command: string, platform: NodeJS.Platform, env: Record<string, string | undefined>, exists: (path: string) => boolean) => { file: string; args: string[]; shell: boolean }
@@ -180,6 +230,14 @@ describe('statusline-bridge.mjs: folders and shell by platform', () => {
     expect(limitsFolders({ USERPROFILE: 'C:\\Users\\u' }, 'win32')).toEqual(['C:\\Users\\u\\AppData\\Roaming\\worfy', 'C:\\Users\\u\\AppData\\Roaming\\worfy-dev'])
     expect(limitsFolders({ APPDATA: 'Roaming' }, 'win32', 'C:\\Users\\h')).toEqual(['C:\\Users\\h\\AppData\\Roaming\\worfy', 'C:\\Users\\h\\AppData\\Roaming\\worfy-dev'])
     expect(limitsFolders({ APPDATA: appData, WORFY_DATA_DIR: 'D:\\data' }, 'win32')).toEqual(['D:\\data'])
+  })
+
+  it('takes APPDATA by the same rule as dataRoot(), so the Limits land where worfy reads them', async () => {
+    const { limitsFolders } = await bridge()
+    for (const APPDATA of ['C:\\Users\\u\\AppData\\Roaming', 'C:/Users/u/AppData/Roaming', '\\\\srv\\share\\roaming', '/x', '\\x', 'C:x', 'Roaming', '']) {
+      const env = { APPDATA, USERPROFILE: homedir() }
+      expect(limitsFolders(env, 'win32', homedir()), APPDATA).toEqual([dataRoot(env, 'packaged', 'win32'), dataRoot(env, 'dev', 'win32')])
+    }
   })
 
   it('on macOS and Linux writes to ~/Library/Application Support/worfy and worfy-dev', async () => {

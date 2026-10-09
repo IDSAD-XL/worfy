@@ -1,7 +1,7 @@
 // An absolute path as worfy accepts it on any platform (worfy-windows ticket 08): POSIX `/…`,
 // Windows `C:\…` or `C:/…` and UNC `\\server\share\…`. Shared by main and renderer, so no node:path.
 import { describe, expect, it } from 'vitest'
-import { absolutePathSchema, isAbsolutePath } from '../../src/shared/paths'
+import { absolutePathSchema, isAbsolutePath, isWindowsAbsolutePath } from '../../src/shared/paths'
 
 const ABSOLUTE = ['/a', '/', 'C:\\a', 'C:/a', 'c:\\a', 'C:\\', 'Z:/x y/з', '\\\\server\\share\\a', '\\\\server\\share', '//server/share/a']
 const NOT_ABSOLUTE = ['a/b', 'a\\b', 'C:a', 'C:', '', '\\a', '\\\\server', '\\\\', 'CC:\\a', '1:\\a', '.\\a', '..\\a', '~/a']
@@ -18,6 +18,13 @@ describe('isAbsolutePath', () => {
   it('refuses a path with a NUL', () => {
     expect(isAbsolutePath('/a\0b')).toBe(false)
     expect(isAbsolutePath('C:\\a\0')).toBe(false)
+  })
+})
+
+describe('isWindowsAbsolutePath', () => {
+  it('takes a drive root or UNC, and not a POSIX root, a drive-relative or a current-drive root path', () => {
+    for (const path of ['C:\\a', 'C:/a', 'c:\\', '\\\\server\\share', '//server/share/a']) expect(isWindowsAbsolutePath(path), path).toBe(true)
+    for (const path of ['/a', '\\a', 'C:a', 'a\\b', '', '\\\\server', 'C:\\a\0']) expect(isWindowsAbsolutePath(path), path).toBe(false)
   })
 })
 

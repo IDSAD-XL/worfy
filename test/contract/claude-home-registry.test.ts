@@ -388,6 +388,56 @@ describe('process liveness on Windows (worfy-windows ticket 08)', () => {
     await start(4)
     expect(reads).toEqual([[1, 2, 3], [4]])
   })
+
+  it('reuses a start time read for a pid for 30 s, and never `?`, a missing pid or a failed read', async () => {
+    let clock = 1_000
+    const reads: number[][] = []
+    let answer: Map<number, string> | Error = new Map([[1, START], [2, '?']])
+    const start = batchedProcessStarts(
+      async (pids) => {
+        reads.push([...pids])
+        if (answer instanceof Error) throw answer
+        return answer
+      },
+      1,
+      30_000,
+      () => clock,
+    )
+    await Promise.all([start(1), start(2), start(3)])
+    expect(reads).toEqual([[1, 2, 3]])
+    expect((await start(1)).get(1)).toBe(START)
+    expect(reads).toHaveLength(1)
+    await start(2)
+    await start(3)
+    expect(reads).toEqual([[1, 2, 3], [2], [3]])
+    clock += 30_000
+    answer = new Error('powershell failed')
+    await expect(start(1)).rejects.toThrow('powershell failed')
+    answer = new Map([[1, START]])
+    await start(1)
+    expect(reads.at(-1)).toEqual([1])
+  })
+
+  it('starts the PowerShell of SystemRoot and asks Get-Process for each pid, its start as UTC FILETIME', async () => {
+    const calls: { file: string; script: string }[] = []
+    const run: RunFile = (file, args, _options, done) => {
+      calls.push({ file, script: Buffer.from(args[3]!, 'base64').toString('utf16le') })
+      done(null, '', '')
+    }
+    await readWindowsProcessStarts('D:\\Win', run)([7, 8])
+    expect(calls[0]!.file).toBe('D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
+    expect(calls[0]!.script).toBe(
+      [
+        "$ErrorActionPreference = 'SilentlyContinue'",
+        'foreach ($process in Get-Process -Id 7,8) {',
+        '  $start = $null',
+        '  try { $start = $process.StartTime } catch { }',
+        '  if ($null -eq $start) { "$($process.Id) ?" } else { "$($process.Id) $($start.ToFileTimeUtc())" }',
+        '}',
+        'exit 0',
+      ].join('\n'),
+    )
+  })
 })
 
 describe.runIf(process.platform === 'win32')('process liveness on this Windows machine', { timeout: 30_000 }, () => {

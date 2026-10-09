@@ -28,6 +28,16 @@ function normalise(path: string): string {
   return (absolute ? '/' : '') + out.join('/')
 }
 
+/**
+ * Whether `href` is an absolute Windows path (`C:\…`, `C:/…`, `\\server\share…`). react-markdown's
+ * default urlTransform blanks it as an unknown `c:` scheme; Markdown.tsx lets these through, and
+ * only these, so classifyLink sees them. The markdown parser hands `\` over percent-encoded
+ * (`C:%5CUsers`), so the address is decoded first.
+ */
+export function isWindowsPathLink(href: string): boolean {
+  return WINDOWS_ROOT.test(decode(href.trim()))
+}
+
 /** An absolute Windows path normalised (`\`, the drive letter in upper case); null for any other path. */
 function windowsPath(path: string): string | null {
   const root = WINDOWS_ROOT.exec(path)
@@ -59,7 +69,7 @@ export function classifyLink(href: string | undefined, baseDir = ''): LinkTarget
   if (href === undefined) return { kind: 'none' }
   const value = href.trim()
   if (value === '' || value.startsWith('#') || value.startsWith('//')) return { kind: 'none' }
-  if (WINDOWS_ROOT.test(value)) {
+  if (isWindowsPathLink(value)) {
     const path = windowsPath(decode(value.replace(/[?#].*$/, '')))
     return path ? { kind: 'file', path } : { kind: 'none' }
   }

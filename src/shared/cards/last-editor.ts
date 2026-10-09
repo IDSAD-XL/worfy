@@ -42,11 +42,22 @@ function rootOf(path: string): Rooted | null {
   return path.startsWith('/') ? { root: '/', rest: path, windows: false } : null
 }
 
+/**
+ * `path` against the root of `base`: a Windows `\x` is on the cwd's drive; `C:x` is in the cwd when
+ * the cwd is on C:, unknown (null) on another drive; anything else relative is in the cwd.
+ */
+function againstCwd(path: string, base: Rooted): Rooted | null {
+  if (base.windows && /^\\(?!\\)/.test(path)) return { ...base, rest: path }
+  const drive = /^([A-Za-z]):(?![\\/])/.exec(path)
+  if (base.windows && drive) return `${drive[1]!.toUpperCase()}:` === base.root ? { ...base, rest: `${base.rest}/${path.slice(2)}` } : null
+  return { ...base, rest: `${base.rest}/${path}` }
+}
+
 /** `path` made absolute against `cwd` and normalized; null when it is not a usable path. */
 export function normalizePath(path: string, cwd: string): string | null {
   if (path === '' || path.includes('\0')) return null
   const base = rootOf(cwd)
-  const full = rootOf(path) ?? (base === null ? null : { ...base, rest: `${base.rest}/${path}` })
+  const full = rootOf(path) ?? (base === null ? null : againstCwd(path, base))
   if (full === null) return null
   const parts: string[] = []
   for (const part of full.rest.split(full.windows ? /[\\/]/ : '/')) {
@@ -59,10 +70,13 @@ export function normalizePath(path: string, cwd: string): string | null {
 
 /** The id of the Card whose folder holds `path`, or null. `cardsDir` is `<Project data folder>/cards`. */
 export function cardOfPath(path: string, cardsDir: string, cwd: string): string | null {
-  const file = normalizePath(path, cwd)
+  let file = normalizePath(path, cwd)
   const root = normalizePath(cardsDir, '/')
   if (file === null || root === null) return null
   const windows = rootOf(root)!.windows
+  // Git Bash names C:\Users as /c/Users: on a Windows folder of Cards, read it as the drive.
+  const gitBash = windows && !rootOf(file)!.windows ? /^\/([A-Za-z])(?:\/|$)/.exec(file) : null
+  if (gitBash) file = normalizePath(`${gitBash[1]}:/${file.slice(3)}`, '/')!
   if (rootOf(file)!.windows !== windows) return null
   const sep = windows ? '\\' : '/'
   const prefix = root.endsWith(sep) ? root : `${root}${sep}`

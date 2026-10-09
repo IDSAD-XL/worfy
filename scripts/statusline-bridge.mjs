@@ -33,7 +33,8 @@ import { fileURLToPath } from 'node:url'
 
 export const LIMITS_FILE = 'statusline-limits.json'
 const FOLDERS = ['worfy', 'worfy-dev']
-const WINDOWS_ABSOLUTE = /^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)/
+/** isWindowsAbsolutePath of src/shared/paths.ts: `C:\…`, `C:/…` or UNC; the test keeps the two in step. */
+const WINDOWS_ABSOLUTE = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/]+[\\/][^\\/]+)/
 
 /**
  * The folders the Limits go to: WORFY_DATA_DIR when it is set, else both default data folders of

@@ -94,7 +94,7 @@ describe('data root on Windows (worfy-windows ticket 08)', () => {
   })
 
   it('without APPDATA, or with one that is not absolute, is <home>\\AppData\\Roaming\\…', () => {
-    for (const env of [{}, { APPDATA: '' }, { APPDATA: 'Roaming' }]) {
+    for (const env of [{}, { APPDATA: '' }, { APPDATA: 'Roaming' }, { APPDATA: '/x' }, { APPDATA: '\\x' }, { APPDATA: 'C:x' }]) {
       expect(dataRoot(env, 'packaged', 'win32')).toBe(win32.join(homedir(), 'AppData', 'Roaming', 'worfy'))
       expect(dataRoot(env, 'dev', 'win32')).toBe(win32.join(homedir(), 'AppData', 'Roaming', 'worfy-dev'))
     }
