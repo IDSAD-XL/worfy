@@ -1,7 +1,7 @@
 # 13 — Уведомления на Linked machine-ах и «не беспокоить» на каждой
 
 Type: task
-Status: claimed — 2026-10-09
+Status: done — 2026-10-09, [PR #183](https://github.com/IDSAD-XL/worfy/pull/183)
 Branch: worfy-link/13
 Blocked by: 09
 Source: решения владельца 2026-10-07: Q16 (уведомления — Machine Project-а и подключённым Linked machine; «не беспокоить» на каждой) и Q6 (уведомления — в другом worfy, не в браузере) ([spec.md](../spec.md)); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md)
@@ -160,3 +160,10 @@ Helper двух связанных worfy берётся из Ticket-а 02 как
   отдельным test-ом.
 - Снимков UI нет: видимое не менялось (`NotificationTarget` ничего не рисует, переключателя «не
   беспокоить» worfy не заводит).
+
+### Gate оркестратора (2026-10-09)
+
+- Круг 1 — `VERIFIED` ([комментарий в PR #183](https://github.com/IDSAD-XL/worfy/pull/183#issuecomment-6076314835)), с долгами:
+  - [low] `src/renderer/canvas/overlays/NotificationTarget.tsx:68-69`, `:47` — между записью заметки в sessionStorage и загрузкой страницы `notify.open` более нового клика может попасть в старую страницу; та заберёт его через одноразовый `notify.pending`, и новый клик потеряется (окно — миллисекунды, не воспроизведено). Исправление: флаг «страница уходит» перед `navigation.load`, при нём `notify.pending` не звать.
+  - [low] `NotificationTarget.tsx:45` — `holdNote(carried.note)` заново даёт полные 10 s: перенесённая заметка ждёт до ~20 s. Исправление: передавать `carried.until - NOTE_WAIT_MS` как `now`.
+- Мерж: rebase на `c51edce`, `GATE_SCOPE=all gate full` — код 0 с первого прогона, CI зелёный, CLEAN, влит `b415879`.
