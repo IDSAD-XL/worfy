@@ -8,6 +8,7 @@
 // to the preset. Claude Code runs as the native binary of the SDK's platform package
 // (ADR-0008): in `pnpm dev` the SDK finds it itself; in the packaged app its own lookup points
 // inside app.asar, where nothing can be spawned, so the path into app.asar.unpacked is explicit.
+// On Windows that binary is claude.exe of the win32 package (ADR-0057).
 // Outside bypassPermissions Claude Code asks the Session's permission gate before a tool
 // (canUseTool, ticket 21, src/main/agent/permissions.ts). An unattended Session (Autopilot,
 // worfy-daily ticket 02, src/main/agent/session-settings.ts) starts in bypassPermissions whatever
@@ -41,7 +42,7 @@
 // documented for the policy tier, but no real Claude Code run has confirmed it is kept.
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { dirname, join, posix, win32 } from 'node:path'
 import type { McpServerConfig, McpStdioServerConfig, Options, OutputFormat, SettingSource } from '@anthropic-ai/claude-agent-sdk'
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
@@ -62,12 +63,16 @@ export interface RuntimeInfo {
 
 /**
  * The Claude Code binary to run, or undefined to let the SDK find it (`pnpm dev`). In the
- * packaged app: <Resources>/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-<platform>-<arch>/claude.
- * electron-builder.yml unpacks that package (asarUnpack).
+ * packaged app: <Resources>/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-<platform>-<arch>/claude,
+ * on Windows …\claude-agent-sdk-win32-<arch>\claude.exe (ADR-0057). electron-builder.yml unpacks
+ * that package (asarUnpack). The path is built with the separators of the runtime's platform, not
+ * of the machine that runs this code, so tests of either platform run anywhere.
  */
 export function claudeExecutablePath(runtime: RuntimeInfo): string | undefined {
   if (!runtime.packaged) return undefined
-  return join(runtime.resourcesPath, 'app.asar.unpacked', 'node_modules', '@anthropic-ai', `claude-agent-sdk-${runtime.platform}-${runtime.arch}`, 'claude')
+  const windows = runtime.platform === 'win32'
+  const paths = windows ? win32 : posix
+  return paths.join(runtime.resourcesPath, 'app.asar.unpacked', 'node_modules', '@anthropic-ai', `claude-agent-sdk-${runtime.platform}-${runtime.arch}`, windows ? 'claude.exe' : 'claude')
 }
 
 /**
@@ -101,7 +106,7 @@ export interface CanvasAttachment {
 export interface SessionOptionsInput {
   /** Root of the Project the Session works in. */
   cwd: string
-  /** Environment from the user's login shell, without API keys (env.ts). */
+  /** The agent environment, without API keys (env.ts): the login shell on macOS, a new sign-in on Windows. */
   env: Env
   runtime: RuntimeInfo
   /** Session id to continue, when the Session is resumed. */

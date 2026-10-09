@@ -7,7 +7,19 @@
 // parent Claude Code session when worfy runs from a terminal) never reach the child Claude Code.
 // From the shell's environment only ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN are removed: with
 // them Claude Code would log in by key instead of the user's subscription.
+//
+// Windows has no login shell (ADR-0057, worfy-windows ticket 09). The environment is built as a new
+// sign-in builds it, not taken from worfy's process: the persistent variables of the machine and
+// the user from the registry (read through Windows PowerShell, REG_EXPAND_SZ expanded, Path =
+// machine Path + user Path), on top of a short list of session variables Windows sets at sign-in (SystemRoot,
+// USERPROFILE, APPDATA …), taken from the process. Nothing else of whoever started worfy — a
+// parent Claude Code session's CLAUDECODE or GH_TOKEN, WORFY_* — reaches Claude Code, as the
+// minimal start of the login shell ensures on the Mac. The API keys are removed as on the Mac.
+// Claude Code gets Git Bash for its Bash tool through CLAUDE_CODE_GIT_BASH_PATH; `bash.exe` from
+// Path may be the WSL launcher.
 import { execFile } from 'node:child_process'
+import { existsSync, lstatSync } from 'node:fs'
+import { win32 } from 'node:path'
 
 export type Env = Record<string, string>
 type SourceEnv = Readonly<Record<string, string | undefined>>
@@ -67,9 +79,12 @@ export interface CaptureOptions {
 
 export interface CapturedEnv {
   env: Env
-  /** How it was obtained: from the shell, or the minimal fallback when the shell failed. */
-  from: 'login-shell' | 'fallback'
-  /** Why the shell was not used, when `from` is `fallback`. */
+  /**
+   * How it was obtained: from the login shell, from the registry of Windows (ADR-0057), or the
+   * minimal fallback when either failed.
+   */
+  from: 'login-shell' | 'registry' | 'fallback'
+  /** Why the fallback was used, or what is missing on Windows (Git Bash); else null. */
   error: string | null
 }
 
@@ -105,12 +120,343 @@ export async function captureLoginShellEnv(options: CaptureOptions = {}): Promis
   })
 }
 
+/** The persistent environment of Windows: the user's and the machine's. */
+export const PERSISTENT_ENV_KEYS = ['HKCU\\Environment', 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment'] as const
+
+/** The REG_SZ and REG_EXPAND_SZ values of a registry key, not expanded; rejects when the key cannot be read. */
+export type RegRead = (key: string) => Promise<RegValue[]>
+export type FileExists = (path: string) => boolean
+
+/** Windows keeps one variable to 32,767 characters; a longer expansion stays as written. */
+export const MAX_VAR_LENGTH = 32_767
+
+/** Variable names on Windows are case-insensitive: the value of `name` under any case. */
+function getVar(env: SourceEnv, name: string): string | undefined {
+  const upper = name.toUpperCase()
+  for (const [key, value] of Object.entries(env)) if (key.toUpperCase() === upper) return value
+  return undefined
+}
+
+/**
+ * The variables Windows sets for a session, taken from worfy's process; nothing else of it is. Most
+ * live outside the Environment keys of the registry (HKCU\Volatile Environment, the system itself).
+ * Some — ComSpec, PATHEXT, TEMP, windir … — are normally values of the machine's key too: the
+ * registry value wins, and the copy from the process stays only when the registry lacks the name,
+ * or in the fallback.
+ */
+export const WINDOWS_SESSION_VARS = [
+  'SystemRoot', 'SystemDrive', 'windir', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP',
+  'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'HOMESHARE', 'APPDATA', 'LOCALAPPDATA', 'ProgramData',
+  'LOGONSERVER', 'USERDOMAIN_ROAMINGPROFILE', 'USERDNSDOMAIN', 'SESSIONNAME', 'CLIENTNAME',
+  'ProgramFiles', 'ProgramFiles(x86)', 'ProgramFiles(Arm)', 'ProgramW6432',
+  'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramFiles(Arm)', 'CommonProgramW6432',
+  'PUBLIC', 'ALLUSERSPROFILE', 'COMPUTERNAME', 'USERNAME', 'USERDOMAIN', 'OS',
+  'PROCESSOR_ARCHITECTURE', 'PROCESSOR_IDENTIFIER', 'PROCESSOR_LEVEL', 'PROCESSOR_REVISION', 'NUMBER_OF_PROCESSORS',
+] as const
+
+export interface RegValue {
+  name: string
+  type: string
+  value: string
+}
+
+const REGISTRY_HIVES: Record<string, string> = { HKCU: 'CurrentUser', HKLM: 'LocalMachine' }
+const toBase64 = (text: string): string => Buffer.from(text, 'utf8').toString('base64')
+const fromBase64 = (base64: string | undefined): string => Buffer.from(base64 ?? '', 'base64').toString('utf8')
+
+/**
+ * A Windows PowerShell script that prints the REG_SZ and REG_EXPAND_SZ values of `key` (HKCU\… or
+ * HKLM\…), not expanded, one per line: `<String|ExpandString> <name> <value>`, name and value in
+ * base64 of UTF-8, so the output is ASCII whatever the console's code page. A failure prints
+ * `Error <message in base64>` and exits 1. The key is opened through the .NET Registry API, not the
+ * registry provider: no module to load (PSModulePath may come from a pwsh 7 parent) and no quoting —
+ * the subkey goes in as base64 too. `reg query` is not used: it writes to a pipe in the OEM code page,
+ * so C:\Users\Алексей came out garbled and characters outside that code page as `?`, with no error
+ * (review of PR #194, round 4).
+ */
+export function registryScript(key: string): string {
+  const [hive = '', ...subkey] = key.split('\\')
+  const root = REGISTRY_HIVES[hive.toUpperCase()]
+  if (!root) throw new Error(`not a key of HKCU or HKLM: ${key}`)
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    '$b64 = { param($s) [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$s)) }',
+    'try {',
+    `  $path = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${toBase64(subkey.join('\\'))}'))`,
+    `  $key = [Microsoft.Win32.Registry]::${root}.OpenSubKey($path)`,
+    '  if ($null -eq $key) { throw "no such key: $path" }',
+    '  foreach ($name in $key.GetValueNames()) {',
+    "    if ($name -eq '') { continue }",
+    '    $kind = $key.GetValueKind($name).ToString()',
+    "    if ($kind -ne 'String' -and $kind -ne 'ExpandString') { continue }",
+    "    $value = $key.GetValue($name, '', 'DoNotExpandEnvironmentNames')",
+    '    "$kind $(& $b64 $name) $(& $b64 $value)"',
+    '  }',
+    '} catch {',
+    '  "Error $(& $b64 $_.Exception.Message)"',
+    '  exit 1',
+    '}',
+  ].join('\n')
+}
+
+/** The values in the output of registryScript; other lines are skipped. */
+export function parseRegistryValues(output: string): RegValue[] {
+  const values: RegValue[] = []
+  for (const line of output.split(/\r?\n/)) {
+    const match = /^(String|ExpandString) ([A-Za-z0-9+/]+=*)(?: ([A-Za-z0-9+/]*=*))? *$/.exec(line)
+    if (match) values.push({ name: fromBase64(match[2]), type: match[1] === 'String' ? 'REG_SZ' : 'REG_EXPAND_SZ', value: fromBase64(match[3]) })
+  }
+  return values
+}
+
+export interface PowershellCommand {
+  file: string
+  args: string[]
+  options: { encoding: 'utf8'; timeout: number; windowsHide: boolean }
+}
+
+/**
+ * How registryScript runs: Windows PowerShell of `systemRoot` by its absolute path — C:\Windows when
+ * `systemRoot` is missing, empty or not absolute — without a profile and without prompts, hidden,
+ * with a timeout.
+ */
+export function powershellCommand(systemRoot: string | undefined, key: string): PowershellCommand {
+  const root = systemRoot && win32.isAbsolute(systemRoot) ? systemRoot : 'C:\\Windows'
+  return {
+    file: win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    args: ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(registryScript(key), 'utf16le').toString('base64')],
+    options: { encoding: 'utf8', timeout: SHELL_TIMEOUT_MS, windowsHide: true },
+  }
+}
+
+export type RunFile = (
+  file: string,
+  args: string[],
+  options: PowershellCommand['options'],
+  done: (error: { code?: unknown; killed?: boolean } | null, stdout: string, stderr: string) => void,
+) => void
+
+const runFile: RunFile = (file, args, options, done) => {
+  execFile(file, args, options, (error, stdout, stderr) => done(error, stdout, stderr))
+}
+
+/** Why the reader failed: the timeout, the script's own Error line, or the last line of stderr. */
+function readerFailure(error: { code?: unknown; killed?: boolean }, stdout: string, stderr: string): string {
+  if (error.killed) return `timed out after ${SHELL_TIMEOUT_MS / 1000} s`
+  const own = /^Error ([A-Za-z0-9+/]*=*) *$/m.exec(stdout)
+  if (own) return fromBase64(own[1])
+  const last = stderr.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== '').pop()
+  return last ? `exit ${String(error.code)}: ${last.slice(0, 300)}` : `exit ${String(error.code)}`
+}
+
+/** Reads a key through Windows PowerShell (powershellCommand). */
+export function powershellRegRead(systemRoot: string | undefined, run: RunFile = runFile): RegRead {
+  return (key) =>
+    new Promise((resolve, reject) => {
+      const { file, args, options } = powershellCommand(systemRoot, key)
+      run(file, args, options, (error, stdout, stderr) =>
+        error ? reject(new Error(`${file} could not read ${key}: ${readerFailure(error, stdout, stderr)}`)) : resolve(parseRegistryValues(stdout)),
+      )
+    })
+}
+
+/** Sets `key` in `env`, replacing a key that differs only in case. */
+function setVar(env: Env, key: string, value: string): void {
+  for (const existing of Object.keys(env)) if (existing.toUpperCase() === key.toUpperCase()) delete env[existing]
+  env[key] = value
+}
+
+/**
+ * The values of one Environment key put into `env`, as a sign-in does. REG_SZ goes in as it is.
+ * REG_EXPAND_SZ waits until every variable it names is final — not itself waiting in this key — and
+ * then each `%NAME%` gets the value NAME has in `env`, once: the text put in is not scanned again.
+ * So a forward reference within the key works, and a reference to the value's own name gets the value
+ * from before this key: the machine's for the user's key, or the session's when there is none. An
+ * unknown name stays as written, and so does a reference within a cycle. A value whose expansion goes
+ * past MAX_VAR_LENGTH at any point stays as written.
+ *
+ * A value is cut at its first NUL, as the C-string APIs of a sign-in read it, and a name with a NUL is
+ * dropped: GetValue keeps an embedded NUL, and Node refuses an environment holding one at spawn
+ * (ERR_INVALID_ARG_VALUE), so no agent would start.
+ */
+function putKey(values: RegValue[], env: Env): void {
+  const waiting = new Map<string, RegValue>()
+  for (const { name, type, value: raw } of values) {
+    if (name.includes('\0')) continue
+    const value = raw.split('\0')[0]!
+    if (type === 'REG_SZ') {
+      waiting.delete(name.toUpperCase())
+      setVar(env, name, value)
+    } else if (type === 'REG_EXPAND_SZ') waiting.set(name.toUpperCase(), { name, type, value })
+  }
+  const blockedBy = (self: string, name: string): boolean => name.toUpperCase() !== self && waiting.has(name.toUpperCase())
+  const expand = (self: string, value: string): string => {
+    // The length is counted while expanding, so a value that doubles at every step stops early; once
+    // past the limit the value stays as written, even if later references would make it shorter.
+    let length = value.length
+    let over = false
+    const expanded = value.replace(/%([^%;]+)%/g, (whole, name: string) => {
+      const found = blockedBy(self, name) ? whole : (getVar(env, name) ?? whole)
+      length += found.length - whole.length
+      if (length > MAX_VAR_LENGTH) over = true
+      return over ? '' : found
+    })
+    return over ? value : expanded
+  }
+  let progress = true
+  while (progress) {
+    progress = false
+    for (const [self, entry] of waiting) {
+      if ([...entry.value.matchAll(/%([^%;]+)%/g)].some((match) => blockedBy(self, match[1]!))) continue
+      setVar(env, entry.name, expand(self, entry.value))
+      waiting.delete(self)
+      progress = true
+    }
+  }
+  // What is left waits on a cycle: those references stay as written.
+  const left = [...waiting].map(([self, entry]) => [entry.name, expand(self, entry.value)] as const)
+  for (const [name, value] of left) setVar(env, name, value)
+}
+
+/**
+ * A file there, or an app execution alias: `pwsh.exe` installed by winget from MSIX is a link in
+ * %LOCALAPPDATA%\Microsoft\WindowsApps that existsSync does not see (evidence of worfy-windows
+ * ticket 01, section 25).
+ */
+const fileOrAlias: FileExists = (path) => {
+  if (existsSync(path)) return true
+  try {
+    return lstatSync(path).isSymbolicLink()
+  } catch {
+    return false
+  }
+}
+
+/** The first `<name>.exe` in the Path of `env`, or null. */
+export function findOnPath(name: string, env: SourceEnv, exists: FileExists = fileOrAlias): string | null {
+  const file = /\.[a-z0-9]+$/i.test(name) ? name : `${name}.exe`
+  for (const raw of (getVar(env, 'PATH') ?? '').split(';')) {
+    const dir = raw.trim().replace(/^"(.*)"$/, '$1')
+    if (!dir) continue
+    const candidate = win32.join(dir, file)
+    if (exists(candidate)) return candidate
+  }
+  return null
+}
+
+/**
+ * Git Bash of Git for Windows, or null. First from git.exe on the Path: the root of Git for Windows
+ * is the folder above `cmd`, `bin` or `mingw64\bin`, and Git Bash is <root>\bin\bash.exe. Then
+ * %ProgramFiles%\Git and %LOCALAPPDATA%\Programs\Git (a per-user install). The WSL launcher
+ * C:\Windows\System32\bash.exe is never taken.
+ */
+export function findGitBash(env: SourceEnv, exists: FileExists = fileOrAlias): string | null {
+  const candidates: string[] = []
+  const git = findOnPath('git', env, exists)
+  if (git) {
+    let root = win32.dirname(git)
+    const tail = win32.basename(root).toLowerCase()
+    if (tail === 'cmd' || tail === 'bin') root = win32.dirname(root)
+    if (win32.basename(root).toLowerCase() === 'mingw64') root = win32.dirname(root)
+    candidates.push(win32.join(root, 'bin', 'bash.exe'))
+  }
+  const programFiles = getVar(env, 'ProgramFiles')
+  if (programFiles) candidates.push(win32.join(programFiles, 'Git', 'bin', 'bash.exe'))
+  const localAppData = getVar(env, 'LOCALAPPDATA')
+  if (localAppData) candidates.push(win32.join(localAppData, 'Programs', 'Git', 'bin', 'bash.exe'))
+  // Every candidate is <folder>\bin\bash.exe, never System32\bash.exe itself: bash.exe from the Path
+  // is not looked at, because the first one there may be the WSL launcher. A candidate under the
+  // Windows folder (git.exe placed there) is refused all the same.
+  const systemRoot = (getVar(env, 'SystemRoot') ?? 'C:\\Windows').toLowerCase()
+  for (const candidate of candidates) {
+    if (candidate.toLowerCase().startsWith(`${systemRoot}\\`)) continue
+    if (exists(candidate)) return candidate
+  }
+  return null
+}
+
+export interface WindowsEnvOptions {
+  /** worfy's own environment; process.env by default. */
+  source?: SourceEnv
+  /** The registry reader; powershellRegRead of %SystemRoot% by default. */
+  readKey?: RegRead
+  exists?: FileExists
+}
+
+/**
+ * The agent environment on Windows, built as a new sign-in builds it:
+ *   1. the session variables of WINDOWS_SESSION_VARS, from `source`;
+ *   2. the machine's persistent variables, final, and then the user's on top (putKey): REG_EXPAND_SZ
+ *      gets the final values of the variables it names; Path is the machine Path followed by the
+ *      user Path, and no Path when both are missing or empty;
+ *   3. without ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN (any case), as on the Mac;
+ *   4. Git Bash in CLAUDE_CODE_GIT_BASH_PATH unless the user has an own one.
+ * When either key cannot be read, or applying them fails, the result is exactly the session variables
+ * and the Path of `source` (`fallback`), and `error` says why; without Git Bash `error` says the
+ * agent has no Bash tool.
+ */
+export async function captureWindowsEnv(options: WindowsEnvOptions = {}): Promise<CapturedEnv> {
+  const source = options.source ?? process.env
+  const errors: string[] = []
+  let env: Env = {}
+  for (const key of WINDOWS_SESSION_VARS) {
+    const value = getVar(source, key)
+    if (value !== undefined) env[key] = value
+  }
+  let from: CapturedEnv['from'] = 'registry'
+  try {
+    const readKey = options.readKey ?? powershellRegRead(getVar(source, 'SystemRoot'))
+    // PERSISTENT_ENV_KEYS: the user's key first, the machine's second.
+    const [userValues, machineValues] = await Promise.all(PERSISTENT_ENV_KEYS.map((key) => readKey(key)))
+    // Built apart and taken only when complete, so a fallback carries nothing of the registry.
+    const registry: Env = { ...env }
+    // As Windows does: the machine's key is final before the user's is read, so `%PATHEXT%` in the
+    // user's PATHEXT is the machine's value. Path alone is not replaced: the user's goes after it.
+    const hasPath = (values: RegValue[]): boolean => values.some(({ name, type }) => name.toUpperCase() === 'PATH' && /^REG_(EXPAND_)?SZ$/.test(type))
+    putKey(machineValues!, registry)
+    const machinePath = hasPath(machineValues!) ? getVar(registry, 'PATH') : undefined
+    putKey(userValues!, registry)
+    const userPath = hasPath(userValues!) ? getVar(registry, 'PATH') : undefined
+    const path = [machinePath, userPath].filter((part) => part !== undefined && part !== '')
+    setVar(registry, 'Path', path.join(';'))
+    if (path.length === 0) delete registry.Path
+    env = registry
+  } catch (error) {
+    from = 'fallback'
+    const path = getVar(source, 'PATH')
+    if (path !== undefined) setVar(env, 'Path', path)
+    errors.push(`the registry could not be read, only the session variables and the Path of worfy's process are used: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  for (const key of Object.keys(env)) if ((API_KEY_VARS as readonly string[]).includes(key.toUpperCase())) delete env[key]
+  if (getVar(env, 'CLAUDE_CODE_GIT_BASH_PATH') === undefined) {
+    const bash = findGitBash(env, options.exists)
+    if (bash) env.CLAUDE_CODE_GIT_BASH_PATH = bash
+    else errors.push('Git Bash not found: the agent has no Bash tool')
+  }
+  return { env, from, error: errors.length > 0 ? errors.join('; ') : null }
+}
+
+export interface AgentEnvOptions extends WindowsEnvOptions {
+  platform?: NodeJS.Platform
+  /** The login shell capture of macOS and Linux; captureLoginShellEnv by default. */
+  captureShell?: () => Promise<CapturedEnv>
+}
+
+/**
+ * The agent environment of this platform: the login shell on macOS and Linux; on Windows, the
+ * session variables and the registry, as a new sign-in builds it.
+ */
+export function captureAgentEnv(options: AgentEnvOptions = {}): Promise<CapturedEnv> {
+  if ((options.platform ?? process.platform) === 'win32') return captureWindowsEnv(options)
+  return (options.captureShell ?? (() => captureLoginShellEnv({ source: options.source })))()
+}
+
 let captured: Promise<CapturedEnv> | null = null
 
-/** The login shell environment, captured once per app run on first use. */
+/** The agent environment, captured once per app run on first use. */
 export function agentEnv(): Promise<CapturedEnv> {
-  captured ??= captureLoginShellEnv().then((result) => {
-    if (result.error) console.warn(`[agent] using the minimal environment: ${result.error}`)
+  captured ??= captureAgentEnv().then((result) => {
+    if (result.error) console.warn(`[agent] ${result.from === 'fallback' ? 'using the minimal environment' : 'agent environment'}: ${result.error}`)
     return result
   })
   return captured
