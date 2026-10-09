@@ -10,8 +10,9 @@
 #   "statusLine": {"type": "command", "command": "/Applications/worfy.app/Contents/Resources/statusline-bridge.sh 'bash ~/.claude/statusline.sh'"}
 #
 # The Limits are written by statusline-bridge.mjs next to this file (Node, worfy-windows ticket 08),
-# with its output and exit code ignored. When node is missing or fails (a version manager's shim with
-# no version, a Node too old for the script), they are written as before through jq, which macOS 15
+# which answers `written` when it wrote them. When node is missing, fails or answers anything else (a
+# version manager's shim with no version, a Node too old for the script, a stub that exits 0, input
+# the script could not use), they are written as before through jq, which macOS 15
 # ships as /usr/bin/jq. The user's command is run here, never by the Node script: whatever happens to
 # the Limits, the user's status line keeps its output and exit code (Claude Code shows the line only
 # on exit 0). Both files ship in Contents/Resources (electron-builder.yml).
@@ -27,9 +28,11 @@ esac
 input=$(cat; printf x)
 input=${input%x}
 
+# Only a `written` from the script counts: a `node` that exits 0 without running it (a stub, a shim
+# that prints a hint) or a script that wrote nothing leaves the Limits to jq.
 limits_by_node() {
   command -v node >/dev/null 2>&1 && [ -f "$here/statusline-bridge.mjs" ] || return 1
-  printf '%s' "$input" | node "$here/statusline-bridge.mjs" >/dev/null 2>&1
+  [ "$(printf '%s' "$input" | node "$here/statusline-bridge.mjs" --worfy-limits-only 2>/dev/null)" = written ]
 }
 
 # Written beside the target and renamed over it, so worfy never reads half a file.

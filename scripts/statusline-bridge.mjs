@@ -24,8 +24,9 @@
 // Without an argument it prints nothing. It writes nothing but that one file per folder, only into
 // a folder that exists (worfy has run), needs nothing but Node (no jq), and never fails the status
 // line: any error of the Limits part is ignored.
+import { Buffer } from 'node:buffer'
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 import process from 'node:process'
@@ -50,18 +51,46 @@ export function limitsFolders(env = process.env, platform = process.platform, ho
   return FOLDERS.map((name) => posix.join(home, 'Library', 'Application Support', name))
 }
 
+/**
+ * The first JSON object of `input`: anything after it is ignored, as jq reads the first value of a
+ * stream before it fails on what follows. Null when `input` does not start with one.
+ */
+function firstObject(input) {
+  const start = input.search(/\S/)
+  if (start < 0 || input[start] !== '{') return null
+  let depth = 0
+  let inString = false
+  for (let index = start; index < input.length; index += 1) {
+    const char = input[index]
+    if (inString) {
+      if (char === '\\') index += 1
+      else if (char === '"') inString = false
+    } else if (char === '"') inString = true
+    else if (char === '{' || char === '[') depth += 1
+    else if (char === '}' || char === ']') {
+      depth -= 1
+      if (depth === 0) return JSON.parse(input.slice(start, index + 1))
+    }
+  }
+  return null
+}
+
 /** The `rate_limits` object of the status line JSON, as one line of JSON; null when there is none. */
 export function rateLimitsOf(input) {
   try {
-    const limits = JSON.parse(input)?.rate_limits
+    const limits = firstObject(input)?.rate_limits
     return typeof limits === 'object' && limits !== null && !Array.isArray(limits) ? JSON.stringify(limits) : null
   } catch {
     return null
   }
 }
 
-/** Writes `limits` into each folder that exists, beside the target and renamed over it, so worfy never reads half a file. */
+/**
+ * Writes `limits` into each folder that exists, beside the target and renamed over it, so worfy never
+ * reads half a file. Returns how many folders got it.
+ */
 export function writeLimits(folders, limits) {
+  let written = 0
   for (const folder of folders) {
     try {
       if (!statSync(folder).isDirectory()) continue
@@ -72,10 +101,12 @@ export function writeLimits(folders, limits) {
     try {
       writeFileSync(tmp, `${limits}\n`)
       renameSync(tmp, join(folder, LIMITS_FILE))
+      written += 1
     } catch {
       rmSync(tmp, { force: true })
     }
   }
+  return written
 }
 
 /**
@@ -108,20 +139,39 @@ export function commandRunner(command, platform = process.platform, env = proces
   return bash ? { file: bash, args: ['-c', command], shell: false } : { file: command, args: [], shell: true }
 }
 
-function main() {
-  let input = ''
+/**
+ * The first argument of the entry statusline-bridge.sh: write the Limits and nothing else, print
+ * `written` when a file was written and exit 2 when none was, so the entry falls back to jq also
+ * for a `node` that exits 0 without running this script.
+ */
+export const LIMITS_ONLY = '--worfy-limits-only'
+
+/** All of stdin, read as a stream: readFileSync(0) fails with EAGAIN on a pipe past 64 KB. */
+async function readStdin() {
+  const chunks = []
   try {
-    input = readFileSync(0, 'utf8')
+    for await (const chunk of process.stdin) chunks.push(chunk)
   } catch {
-    // No stdin: nothing to copy, nothing to pass on.
+    // What was read so far is the input.
   }
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+async function main() {
+  const input = await readStdin()
+  let written = 0
   try {
     const limits = rateLimitsOf(input)
-    if (limits !== null) writeLimits(limitsFolders(), limits)
+    if (limits !== null) written = writeLimits(limitsFolders(), limits)
   } catch {
     // The status line never fails because of the Limits.
   }
   const command = process.argv[2]
+  if (command === LIMITS_ONLY) {
+    if (written > 0) process.stdout.write('written\n')
+    process.exitCode = written > 0 ? 0 : 2
+    return
+  }
   if (command === undefined) return
   const { file, args, shell } = commandRunner(command)
   const result = spawnSync(file, args, { input, stdio: ['pipe', 'inherit', 'inherit'], shell })
@@ -137,4 +187,4 @@ function runAsScript() {
   }
 }
 
-if (runAsScript()) main()
+if (runAsScript()) await main()

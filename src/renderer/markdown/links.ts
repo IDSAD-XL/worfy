@@ -38,10 +38,16 @@ export function isWindowsPathLink(href: string): boolean {
   return WINDOWS_ROOT.test(decode(href.trim()))
 }
 
-/** An absolute Windows path normalised (`\`, the drive letter in upper case); null for any other path. */
+/**
+ * An absolute Windows path normalised (`\`, the drive letter in upper case); '' for a UNC or device
+ * path (`\\host\share`, `\\?\`, `\\.\`), which opens nothing: following it would make Windows contact
+ * that host with the user's credentials, and a link in a Ticket or a transcript can name any host
+ * (review of worfy-windows ticket 08). main refuses a path outside the Project by its text too.
+ */
 function windowsPath(path: string): string | null {
   const root = WINDOWS_ROOT.exec(path)
   if (!root) return null
+  if (root[1] === undefined) return ''
   const head = root[1] !== undefined ? `${root[1].toUpperCase()}:` : `\\\\${root[2]}\\${root[3]}`
   const out: string[] = []
   for (const segment of path.slice(root[0].length).split(/[\\/]/)) {

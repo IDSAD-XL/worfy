@@ -146,7 +146,7 @@ describe('statusline-bridge scripts', () => {
     const mjs = codeOf(MJS)
     expect(mjs.join('\n')).toContain('rateLimitsOf')
     const sh = codeOf(SH)
-    expect(sh.join('\n')).toContain(`printf '%s' "$input" | node "$here/statusline-bridge.mjs" >/dev/null 2>&1`)
+    expect(sh.join('\n')).toContain(`[ "$(printf '%s' "$input" | node "$here/statusline-bridge.mjs" --worfy-limits-only 2>/dev/null)" = written ]`)
     for (const line of [...mjs, ...sh]) {
       expect(line).not.toContain('/Users/')
       expect(line).not.toContain('CanvasForAI')
@@ -154,6 +154,27 @@ describe('statusline-bridge scripts', () => {
     }
     expect(mjs.join('\n')).not.toContain('statusline-bridge')
     expect(sh.join('\n').replaceAll('$here/statusline-bridge.mjs', '')).not.toContain('statusline-bridge')
+  })
+
+  // Review round 2 of PR #200: readFileSync(0) failed with EAGAIN past 64 KB on a pipe, and stray
+  // bytes after the JSON made the script write nothing while it exited 0.
+  it('reads a status line JSON over 64 KB, and the first object of JSON followed by stray bytes', () => {
+    const big = JSON.stringify({ ...STATUS, padding: 'x'.repeat(70_000) })
+    expect(run('mjs', big, ['cat >/dev/null; echo ok'])).toMatchObject({ status: 0, stdout: 'ok\n' })
+    expect(written()).toEqual(RATE_LIMITS)
+    rmSync(join(dataDir, 'statusline-limits.json'))
+    expect(run('mjs', `${JSON.stringify(STATUS)}\n{"not": "closed"`)).toMatchObject({ status: 0 })
+    expect(written()).toEqual(RATE_LIMITS)
+    rmSync(join(dataDir, 'statusline-limits.json'))
+    expect(run('mjs', `  ${JSON.stringify({ ...STATUS, note: 'a } and a " inside' })} junk`)).toMatchObject({ status: 0 })
+    expect(written()).toEqual(RATE_LIMITS)
+  })
+
+  it(`with ${'--worfy-limits-only'} prints written when it wrote the file, and exits 2 with nothing when it did not`, () => {
+    expect(run('mjs', JSON.stringify(STATUS), ['--worfy-limits-only'])).toEqual({ status: 0, stdout: 'written\n', stderr: '' })
+    expect(run('mjs', JSON.stringify({ ...STATUS, rate_limits: undefined }), ['--worfy-limits-only'])).toEqual({ status: 2, stdout: '', stderr: '' })
+    expect(run('mjs', 'not json', ['--worfy-limits-only'])).toEqual({ status: 2, stdout: '', stderr: '' })
+    expect(run('mjs', JSON.stringify(STATUS), ['--worfy-limits-only'], { WORFY_DATA_DIR: join(scratch, 'missing') })).toEqual({ status: 2, stdout: '', stderr: '' })
   })
 
   it('writes the file with no jq anywhere on PATH', () => {
@@ -177,18 +198,38 @@ describe.skipIf(WINDOWS)('statusline-bridge.sh without a working node', () => {
     fails: '#!/bin/sh\necho "No version is set for command node" >&2\nexit 126\n',
     // A Node too old for `?.`.
     old: "#!/bin/sh\necho \"SyntaxError: Unexpected token '.'\" >&2\nexit 1\n",
+    // A `node` that exits 0 without running the script.
+    silent: '#!/bin/sh\nexit 0\n',
   }
 
-  function binDir(node: keyof typeof STUBS | null, withJq = true): string {
+  /** `node`: a stub, the real one, or none. */
+  function binDir(node: keyof typeof STUBS | 'real' | null, withJq = true): string {
     const dir = join(scratch, 'bin')
     mkdirSync(dir)
     for (const name of ['cat', 'mv', 'rm', 'sh', 'grep', ...(withJq ? ['jq'] : [])]) {
       const found = tool(name)
       if (found) symlinkSync(found, join(dir, name))
     }
-    if (node !== null) writeFileSync(join(dir, 'node'), STUBS[node], { mode: 0o755 })
+    if (node === 'real') symlinkSync(NODE, join(dir, 'node'))
+    else if (node !== null) writeFileSync(join(dir, 'node'), STUBS[node], { mode: 0o755 })
     return dir
   }
+
+  it('with node and no jq, writes the Limits through the Node script', () => {
+    const result = spawnSync('/bin/sh', [SH, `grep -o '"display_name":"[^"]*"'; exit 3`], { input: JSON.stringify(STATUS), encoding: 'utf8', env: { PATH: binDir('real', false), HOME: home, WORFY_DATA_DIR: dataDir } })
+    expect(result).toMatchObject({ status: 3, stdout: '"display_name":"Haiku 4.5"\n', stderr: '' })
+    expect(written()).toEqual(RATE_LIMITS)
+  })
+
+  it('with node, writes the Limits of a status line JSON over 64 KB and of JSON followed by stray bytes', () => {
+    const path = binDir('real', false)
+    for (const input of [JSON.stringify({ ...STATUS, padding: 'x'.repeat(70_000) }), `${JSON.stringify(STATUS)} junk`]) {
+      rmSync(join(dataDir, 'statusline-limits.json'), { force: true })
+      const result = spawnSync('/bin/sh', [SH, 'cat >/dev/null; echo ok'], { input, encoding: 'utf8', env: { PATH: path, HOME: home, WORFY_DATA_DIR: dataDir } })
+      expect(result).toMatchObject({ status: 0, stdout: 'ok\n' })
+      expect(written()).toEqual(RATE_LIMITS)
+    }
+  })
 
   const userLine = `grep -o '"display_name":"[^"]*"'; exit 3`
 
@@ -196,6 +237,7 @@ describe.skipIf(WINDOWS)('statusline-bridge.sh without a working node', () => {
     ['no node on PATH', null],
     ['a node that fails', 'fails'],
     ['a node too old for the script', 'old'],
+    ['a node that exits 0 without running the script', 'silent'],
   ] as const)('with %s, runs the user command with its output and exit code, and writes the Limits through jq', (_case, node) => {
     const result = spawnSync('/bin/sh', [SH, userLine], { input: JSON.stringify(STATUS), encoding: 'utf8', env: { PATH: binDir(node), HOME: home, WORFY_DATA_DIR: dataDir } })
     expect(result).toMatchObject({ status: 3, stdout: '"display_name":"Haiku 4.5"\n', stderr: '' })

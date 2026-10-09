@@ -28,7 +28,6 @@ export interface MarkdownProps {
   breaks?: boolean
 }
 
-/** The hint "File is on <Machine>" next to a file link in a window on a Linked machine. */
 /**
  * react-markdown's own sanitising of a link or image address, except for an absolute Windows path
  * (`C:\…`, worfy-windows ticket 08), which it would blank as an unknown `c:` scheme. classifyLink
@@ -36,7 +35,8 @@ export interface MarkdownProps {
  */
 const keepWindowsPaths = (url: string): string => (isWindowsPathLink(url) ? url : defaultUrlTransform(url))
 
-const hintStyle: CSSProperties ={ marginLeft: 6, fontSize: 'var(--text-11)', color: 'var(--text-muted)' }
+/** The hint "File is on <Machine>" next to a file link in a window on a Linked machine. */
+const hintStyle: CSSProperties = { marginLeft: 6, fontSize: 'var(--text-11)', color: 'var(--text-muted)' }
 
 function open(href: string | undefined, projectId: string | undefined, baseDir: string | undefined): void {
   const target = classifyLink(href, baseDir)

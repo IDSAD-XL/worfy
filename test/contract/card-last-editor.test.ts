@@ -111,6 +111,9 @@ describe('lastEditor: Windows paths (worfy-windows ticket 08)', () => {
   it('keeps the POSIX rules for a POSIX path: `\\` is part of a name, case counts', () => {
     expect(normalizePath('/a/b\\c', '/')).toBe('/a/b\\c')
     expect(normalizePath('b\\c', '/a')).toBe('/a/b\\c')
+    // `\x` and `C:x` mean something only on Windows: against a POSIX cwd they are names.
+    expect(normalizePath('\\x', '/a')).toBe('/a/\\x')
+    expect(normalizePath('C:x', '/a')).toBe('/a/C:x')
     expect(cardOfPath('/P/data/cards/abc/x', '/p/data/cards', '/')).toBeNull()
     expect(cardOfPath('/p/data/cards/abc\\x', '/p/data/cards', '/')).toBeNull()
     expect(cardOfPath('/c/p/data/cards/abc/x', '/c/p/data/cards', '/')).toBe('abc')

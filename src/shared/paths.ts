@@ -24,7 +24,7 @@ export function isAbsolutePath(path: string): boolean {
  * APPDATA for dataRoot() and for scripts/statusline-bridge.mjs, which keeps a copy of it.
  */
 export function isWindowsAbsolutePath(path: string): boolean {
-  return !path.includes('\0') && (DRIVE_ROOT.test(path) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(path))
+  return !path.includes('\0') && (DRIVE_ROOT.test(path) || UNC.test(path))
 }
 
 /** An absolute path for IPC (isAbsolutePath); the main process resolves it again before use. */

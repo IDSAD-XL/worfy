@@ -10,6 +10,8 @@ import type { RunFile } from '../../src/main/agent/env'
 import {
   batchedProcessStarts,
   ClaudeHomeRegistry,
+  PROCESS_START_BATCH_MS,
+  PROCESS_START_CACHE_MS,
   gitWorktrees,
   isInsidePath,
   processAlive,
@@ -387,6 +389,38 @@ describe('process liveness on Windows (worfy-windows ticket 08)', () => {
     expect(answers.every((map) => map.get(2) === START)).toBe(true)
     await start(4)
     expect(reads).toEqual([[1, 2, 3], [4]])
+  })
+
+  it('gathers for 25 ms and keeps a start time for 30 s by default', () => {
+    expect(PROCESS_START_BATCH_MS).toBe(25)
+    expect(PROCESS_START_CACHE_MS).toBe(30_000)
+  })
+
+  it('by default reads the clock of Date.now and the batch delay of PROCESS_START_BATCH_MS', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] })
+    try {
+      const reads: number[][] = []
+      const start = batchedProcessStarts(async (pids) => {
+        reads.push([...pids])
+        return new Map(pids.map((pid) => [pid, START]))
+      })
+      const first = start(1)
+      await vi.advanceTimersByTimeAsync(24)
+      expect(reads).toEqual([])
+      await vi.advanceTimersByTimeAsync(1)
+      await first
+      expect(reads).toEqual([[1]])
+      vi.setSystemTime(Date.now() + 29_999)
+      await start(1)
+      expect(reads).toHaveLength(1)
+      vi.setSystemTime(Date.now() + 1)
+      const again = start(1)
+      await vi.advanceTimersByTimeAsync(25)
+      await again
+      expect(reads).toEqual([[1], [1]])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('reuses a start time read for a pid for 30 s, and never `?`, a missing pid or a failed read', async () => {

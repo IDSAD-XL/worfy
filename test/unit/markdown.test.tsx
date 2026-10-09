@@ -112,17 +112,30 @@ describe('Markdown: links', () => {
   it.each([
     ['[f](C:\\Users\\a\\f.md)', 'C:\\Users\\a\\f.md'],
     ['[f](C:/Users/a/f.md)', 'C:\\Users\\a\\f.md'],
-    // In markdown `\\` is an escaped backslash: a UNC path is written with four.
-    ['[f](\\\\\\\\server\\share\\f.md)', '\\\\server\\share\\f.md'],
   ])('opens an absolute Windows path %s as a file through shell.openInEditor', (text, path) => {
     render(<Markdown text={text} projectId="alpha" />)
     expect(fireEvent.click(screen.getByRole('link', { name: 'f' }))).toBe(false)
     expect(asked).toEqual([{ channel: 'shell.openInEditor', input: { projectId: 'alpha', path } }])
   })
 
+  // Following one would make Windows contact the host with the user's credentials.
+  it.each([
+    // In markdown `\\` is an escaped backslash: a UNC path is written with four.
+    '[f](\\\\\\\\attacker\\share\\f.md)',
+    '[f](//attacker/share/f.md)',
+    '[f](\\\\\\\\?\\C:\\x\\f.md)',
+    '[f](\\\\\\\\.\\pipe\\x)',
+  ])('opens nothing for a UNC or device path: %s', (text) => {
+    render(<Markdown text={text} projectId="alpha" />)
+    fireEvent.click(screen.getByText('f'))
+    expect(asked).toEqual([])
+  })
+
   it('keeps blanking a drive-letter scheme that is not a path, such as c:alert(1)', () => {
-    const { container } = render(<Markdown text={'[x](c:alert(1))'} projectId="alpha" />)
-    expect(container.querySelector('a')).toBeNull()
+    const { container } = render(<Markdown text={'[x](c:alert(1)) [y](C:\\a.md)'} projectId="alpha" />)
+    // The Windows path keeps its address; the scheme is blanked before it reaches the page.
+    expect([...container.querySelectorAll('a')].map((link) => link.getAttribute('href'))).toEqual(['C:%5Ca.md'])
+    expect(container.innerHTML).not.toContain('alert')
   })
 
   it('a javascript: or http:// link is not a link and opens nothing', () => {
@@ -164,12 +177,14 @@ describe('classifyLink', () => {
     ['C:/docs/a.md', 'C:\\docs\\a.md'],
     ['c:\\docs\\.\\x\\..\\a.md#top', 'C:\\docs\\a.md'],
     ['C:\\docs\\F%20SPEC.md', 'C:\\docs\\F SPEC.md'],
-    ['\\\\server\\share\\a.md', '\\\\server\\share\\a.md'],
     // As the markdown parser hands it over: `\` percent-encoded.
     ['C:%5Cdocs%5Ca.md', 'C:\\docs\\a.md'],
-    ['%5C%5Cserver%5Cshare%5Ca.md', '\\\\server\\share\\a.md'],
   ])('%s is a file with an absolute Windows path', (href, path) => {
     expect(classifyLink(href, 'docs')).toEqual({ kind: 'file', path })
+  })
+
+  it.each(['\\\\server\\share\\a.md', '%5C%5Cserver%5Cshare%5Ca.md', '\\\\?\\C:\\x\\a.md', '\\\\.\\pipe\\x', '//server/share/a.md'])('%s, a UNC or device path, opens nothing', (href) => {
+    expect(classifyLink(href, 'docs')).toEqual({ kind: 'none' })
   })
 
   it('takes `\\` in a relative link as a separator, and a drive root or a bare drive as nothing to open', () => {
