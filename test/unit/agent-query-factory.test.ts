@@ -3,7 +3,7 @@
 // unpacked native binary in the packaged app. The SDK's query() and agentEnv() are mocked.
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QueryRequest } from '../../src/main/agent/session'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
@@ -130,8 +130,11 @@ describe('sdkQueryFactory', () => {
   it('points the packaged app at the native binary unpacked from app.asar', async () => {
     mocks.app.isPackaged = true
     await sdkQueryFactory()(request())
+    // claude.exe with Windows separators on win32 (ADR-0057), claude with / elsewhere.
+    const windows = process.platform === 'win32'
+    const paths = windows ? win32 : posix
     expect(sdkOptions().pathToClaudeCodeExecutable).toBe(
-      join(RESOURCES, 'app.asar.unpacked', 'node_modules', '@anthropic-ai', `claude-agent-sdk-${process.platform}-${process.arch}`, 'claude'),
+      paths.join(RESOURCES, 'app.asar.unpacked', 'node_modules', '@anthropic-ai', `claude-agent-sdk-${process.platform}-${process.arch}`, windows ? 'claude.exe' : 'claude'),
     )
   })
 })
