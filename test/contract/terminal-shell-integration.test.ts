@@ -111,7 +111,9 @@ async function openTerminal(registry: TerminalRegistry, allEvents: { key: string
     exited: () => exit,
     /** Waits for the shell's prompt (B with its nonce). */
     prompt: async (count = 1) => {
-      await vi.waitFor(() => expect(events().filter((event) => event.type === 'prompt').length).toBeGreaterThanOrEqual(count), WAIT)
+      const prompts = () => events().filter((event) => event.type === 'prompt').length
+      // On failure the message shows what the shell printed instead.
+      await vi.waitFor(() => expect(prompts(), `prompts in ${JSON.stringify(text().slice(-3000))}`).toBeGreaterThanOrEqual(count), WAIT)
     },
     /** Types one command line and waits until it finished and the next prompt is shown; answers its event. */
     run: async (line: string, timeout = WAIT.timeout) => {
@@ -392,6 +394,8 @@ describe('no integration where it does not belong', () => {
   })
 
   it('zsh in a registry without the integration (as "Sign in with gh"): the same', async () => {
+    // Without any startup file zsh on Debian and Ubuntu opens zsh-newuser-install, which waits for a key.
+    await userFiles({ '.zshrc': "PS1='$ '" })
     const { open } = await start({ integration: false })
     const t = await open()
     t.type('echo "zd:${ZDOTDIR-none}:$WORFY_SHELL_NONCE:"\r')
