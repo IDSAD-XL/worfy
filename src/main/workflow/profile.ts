@@ -61,11 +61,19 @@ const TIMEOUT_MS = 15_000
  * and an app started from Finder has only the system PATH, where there is no node.
  */
 export function profileRunner(claudeHome: string, env: ProfileEnv): ProfileRunner {
+  return harnessScriptRunner(claudeHome, env, 'profile')
+}
+
+/**
+ * A runner of another read-only script of the same Harness (`ticket root`, src/main/workflow/folder.ts),
+ * with the same timeout, size cap and exit-code rules as `profile`.
+ */
+export function harnessScriptRunner(claudeHome: string, env: ProfileEnv, name: 'profile' | 'ticket'): ProfileRunner {
   return (cwd, args) =>
     new Promise((resolvePromise, reject) => {
       // Looked for on every run; the plugin's script gets HARNESS_HOME, where its Profiles are.
       const harness = locateHarness(harnessHomes(claudeHome))
-      const script = join(harness.binDir, 'profile')
+      const script = join(harness.binDir, name)
       execFile(script, [...args], { cwd, env: scriptEnv(harness, env), maxBuffer: MAX_OUTPUT, timeout: TIMEOUT_MS, encoding: 'utf8' }, (error, stdout, stderr) => {
         if (!error) return resolvePromise({ code: 0, stdout, stderr })
         const code = (error as NodeJS.ErrnoException).code
@@ -107,13 +115,18 @@ export type ReadMcpAllowlistOptions = ReadProfileOptions
 type FieldRead = { ok: true; stdout: string } | { ok: false; reason: string }
 
 /** Runs `bin/profile -C <root> --field <field>` and turns every exit but code 0 into a reason. */
-async function readField(options: ReadProfileOptions, field: string): Promise<FieldRead> {
+function readField(options: ReadProfileOptions, field: string): Promise<FieldRead> {
+  return runProfile(options, ['--field', field], `the Profile has no ${field} field (profile exit code 4)`)
+}
+
+/** Runs `bin/profile -C <root> <args>`; every exit but code 0 is a reason, `absent` that of code 4. */
+async function runProfile(options: ReadProfileOptions, args: readonly string[], absent: string): Promise<FieldRead> {
   const run = options.run ?? profileRunner(options.claudeHome, options.env)
   const none = (reason: string): FieldRead => ({ ok: false, reason })
 
   let result: ProfileRun
   try {
-    result = await run(options.root, ['-C', options.root, '--field', field])
+    result = await run(options.root, ['-C', options.root, ...args])
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
     // With no Harness found this names <claudeHome>/bin/profile, where it was looked for before the plugin.
@@ -123,7 +136,7 @@ async function readField(options: ReadProfileOptions, field: string): Promise<Fi
 
   const detail = result.stderr.trim()
   if (result.code === 3) return none(`the folder is in no registered project (profile exit code 3${detail ? `: ${detail}` : ''})`)
-  if (result.code === 4) return none(`the Profile has no ${field} field (profile exit code 4)`)
+  if (result.code === 4) return none(absent)
   if (result.code === null) return none('the profile script timed out')
   if (result.code !== 0) return none(`the profile script failed with exit code ${result.code}${detail ? `: ${detail}` : ''}`)
   return { ok: true, stdout: result.stdout.trim() }
@@ -198,4 +211,59 @@ export async function readGithubAccount(options: ReadProfileOptions): Promise<Gi
   if (value === '') return none(`${GITHUB_ACCOUNT_FIELD} is empty`)
   if (!GITHUB_LOGIN.test(value)) return none(`${GITHUB_ACCOUNT_FIELD} is not a GitHub login: ${JSON.stringify(value.slice(0, 200))}`)
   return { account: value, reason: null }
+}
+
+// ── where the workflow is: mode, Workflow folder, repositories ───────────────
+
+/** One repository of the Project as `_resolved.repos` names it; `name` is what a Ticket's `Repo:` line says. */
+export interface ResolvedRepo {
+  name: string
+  path: string
+}
+
+/** What `profile --json` says about where the Project's workflow lives (worfy-harness ticket 22, ADR-0042, ADR-0045). */
+export interface ResolvedProfile {
+  mode: 'full' | 'silent'
+  /** Absolute; in Full mode the root of the checkout `profile` ran in. */
+  workflowFolder: string
+  /** The folder above the repositories of a Project of several repositories, when `profile` ran in it; else null. */
+  workspace: string | null
+  repos: readonly ResolvedRepo[]
+}
+
+const absolute = z.string().refine((path) => path.startsWith('/') && !path.includes('\0'), 'not an absolute path')
+
+const resolvedSchema = z.object({
+  _resolved: z.object({
+    mode: z.enum(['full', 'silent']),
+    workflow_folder: absolute,
+    workspace: absolute.nullable().optional(),
+    repos: z.array(z.object({ name: z.string().trim().min(1), path: absolute })),
+  }),
+})
+
+/**
+ * `_resolved.mode`, `workflow_folder`, `workspace` and `repos` of `bin/profile -C <root> --json`, or
+ * why there are none: exit code 3, 4, a missing script, a failed run, output that is not JSON, or a
+ * Harness from before Silent mode that has no such fields. Nothing is logged here; the caller
+ * falls back to Full mode (src/main/workflow/folder.ts) and logs the reason once.
+ */
+export async function readResolvedProfile(options: ReadProfileOptions): Promise<{ ok: true; profile: ResolvedProfile } | { ok: false; reason: string }> {
+  const read = await runProfile(options, ['--json'], 'the profile script answered --json with exit code 4')
+  if (!read.ok) return read
+  let json: unknown
+  try {
+    json = JSON.parse(read.stdout)
+  } catch {
+    return { ok: false, reason: `profile --json printed something that is not JSON: ${JSON.stringify(read.stdout.slice(0, 200))}` }
+  }
+  const resolved = (json as { _resolved?: { mode?: unknown } } | null)?._resolved
+  if (resolved?.mode === undefined) return { ok: false, reason: 'the Harness gives no _resolved.mode: it is older than Silent mode' }
+  const parsed = resolvedSchema.safeParse(json)
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    return { ok: false, reason: `profile --json does not have the expected _resolved fields: ${issue ? `${issue.path.join('.')}: ${issue.message}` : ''}` }
+  }
+  const { mode, workflow_folder, workspace, repos } = parsed.data._resolved
+  return { ok: true, profile: { mode, workflowFolder: workflow_folder, workspace: workspace ?? null, repos: repos.map(({ name, path }) => ({ name, path })) } }
 }

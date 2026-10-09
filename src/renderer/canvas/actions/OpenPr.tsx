@@ -1,11 +1,11 @@
 import { pullOfTicket } from '../../../shared/ipc/checks'
 import { invoke } from '../../ipc'
-import { useChecks } from '../badges/use-checks'
+import { useTicketChecks } from '../badges/use-checks'
 import type { SlotProps } from '../badges'
 import { ActionButton } from './action-button'
 
 // "Open PR" on a Ticket that has a PR (ticket 23): opens the PR's address from `gh` (the checks
-// snapshot of ticket 17) in the browser through `shell.openExternal` (ticket 11). Only
+// snapshot of ticket 17; of the Ticket's own repository in a Project over several) in the browser through `shell.openExternal` (ticket 11). Only
 // https://github.com/ addresses are opened; any other is refused on the button. worfy writes
 // nothing to GitHub: the button only opens the page.
 
@@ -19,7 +19,7 @@ function githubAddress(url: string): string | null {
 }
 
 function OpenPullRequest({ root, ticket }: Extract<SlotProps['subject'], { kind: 'ticket' }>) {
-  const snapshot = useChecks(root)
+  const snapshot = useTicketChecks(root, ticket)
   const pull = snapshot?.gh.available ? pullOfTicket(snapshot, ticket) : null
   if (!pull) return null
   const address = githubAddress(pull.url)

@@ -1,0 +1,8 @@
+/* The fields of the "Add project" form (ConnectProject.tsx): the focus ring of the shared rows
+   (primitives.css, .w-row:focus-visible) instead of the browser's own. A field the Harness refused
+   carries the blocked colour on its border, set inline next to its other border longhands. */
+.w-connect-input:focus,
+.w-connect-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}

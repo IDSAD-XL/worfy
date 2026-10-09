@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { BUILD_VERSION, buildVersion } from '../../scripts/build-version'
-import { launchApp, type LaunchedApp, repoRoot } from './helpers'
+import { launchApp, type LaunchedApp, NO_WINDOW_RESTORE, repoRoot } from './helpers'
 
 // The packaged tests drive the stable copy of worfy.app that scripts/install-stable.sh installs:
 // into a temporary folder from the dist/ build of `pnpm test:package`, or the copy named by
@@ -84,7 +84,7 @@ async function secondStart(first: LaunchedApp, command: string, args: string[]):
     WORFY_AGENT: 'fake',
     WORFY_GH: join(repoRoot, 'test', 'fixtures', 'gh', 'gh'),
   })
-  const child = spawn(command, args, { cwd: repoRoot, env, stdio: 'ignore' })
+  const child = spawn(command, [...args, ...NO_WINDOW_RESTORE], { cwd: repoRoot, env, stdio: 'ignore' })
   return exitWithin(child, 20_000)
 }
 
@@ -670,7 +670,7 @@ test.describe('dev run of the unpacked build', () => {
     })
     const electron = createRequire(import.meta.url)('electron') as string
     // Started without Playwright: launchApp waits for a window, and this start must never open one.
-    const child = spawn(electron, [repoRoot], { cwd: repoRoot, env, stdio: ['ignore', 'ignore', 'pipe'] })
+    const child = spawn(electron, [repoRoot, ...NO_WINDOW_RESTORE], { cwd: repoRoot, env, stdio: ['ignore', 'ignore', 'pipe'] })
     let stderr = ''
     child.stderr?.setEncoding('utf8')
     child.stderr?.on('data', (chunk: string) => {

@@ -1,17 +1,21 @@
 // Keeps the workflow model of a Project current and reports only what changed.
 //
 // Two kinds of change are watched (chokidar), both read-only:
-// - `.scratch/**` of the checkout: Tickets, specs. After a 300 ms quiet period one full
+// - the Tickets root (src/main/workflow/folder.ts: `.scratch/**` of the checkout in Full mode, the
+//   Workflow folder's in Silent mode): Tickets, specs. After a 300 ms quiet period one full
 //   `epic-status --json` runs; the result is compared with the previous snapshot. A steady stream
 //   of events (an agent rewriting Tickets) does not postpone the read for good: it starts at the
 //   latest 1 s after the first event of the series (max-wait).
-// - the git refs of Ticket branches (`refs/heads/**`, `packed-refs`) and the worktree list
-//   (`worktrees/<name>/HEAD`): only branches whose head moved are read again.
+// - in Full mode, the git refs of Ticket branches (`refs/heads/**`, `packed-refs`) and the worktree
+//   list (`worktrees/<name>/HEAD`): only branches whose head moved are read again. In Silent mode
+//   the status lives in the Workflow folder only (ADR-0042), so refs are not watched.
+// Where the workflow lives is read once, when the watch starts.
 // Reads never overlap: a change during a read leads to exactly one more read after it.
 import { execFile } from 'node:child_process'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { watch, type FSWatcher } from 'chokidar'
 import { diffModels, type WorkflowDelta, type WorkflowModel } from '../../shared/workflow/types'
+import { readProjectLayout, type ProjectLayout } from './folder'
 import {
   applyBranches,
   epicStatusRunner,
@@ -39,6 +43,8 @@ export interface WatchOptions {
   onChange: (delta: WorkflowDelta) => void
   /** Replaces the real script, for tests. */
   run?: EpicStatusRunner
+  /** Where the workflow lives; read from the Harness (src/main/workflow/folder.ts) by default. */
+  layout?: (root: string) => Promise<ProjectLayout>
 }
 
 function gitCommonDir(root: string): Promise<string | null> {
@@ -99,6 +105,7 @@ export class WorkflowWatcher {
   private branches: BranchCache = new Map()
   private readonly watchers: FSWatcher[] = []
   private readonly debounce: Debounce
+  private layout: ProjectLayout | null = null
   private dirtyCheckout = false
   private dirtyBranches = false
   private running: Promise<void> | null = null
@@ -120,6 +127,7 @@ export class WorkflowWatcher {
     const run = options.run ?? epicStatusRunner(options.claudeHome)
     const watcher = new WorkflowWatcher({ ...options, root, run })
     try {
+      watcher.layout = await (options.layout ?? ((at: string) => readProjectLayout({ root: at, claudeHome: options.claudeHome })))(root)
       await watcher.watch()
       watcher.dirtyCheckout = true
       watcher.dirtyBranches = true
@@ -157,6 +165,7 @@ export class WorkflowWatcher {
 
   private async watch(): Promise<void> {
     const { root } = this.options
+    const layout = this.layout!
     // `ready` is awaited through a promise made right away: it may fire while git answers below.
     const ready: Promise<void>[] = []
     const add = (watcher: FSWatcher, what: 'checkout' | 'branches') => {
@@ -164,9 +173,9 @@ export class WorkflowWatcher {
       watcher.on('all', () => this.schedule(what))
       this.watchers.push(watcher)
     }
-    add(watch(join(root, '.scratch'), { ignoreInitial: true }), 'checkout')
+    add(watch(layout.ticketsRoot, { ignoreInitial: true }), 'checkout')
 
-    const common = await gitCommonDir(root)
+    const common = layout.mode === 'silent' ? null : await gitCommonDir(root)
     if (common) {
       const worktrees = join(common, 'worktrees')
       // Only the HEAD file of each linked worktree matters; index and logs change on every git call.
@@ -208,6 +217,7 @@ export class WorkflowWatcher {
 
   private async readOnce(): Promise<void> {
     const { root, run } = this.options
+    const layout = this.layout!
     const checkoutChanged = this.dirtyCheckout || !this.checkout
     const branchesChanged = this.dirtyBranches
     this.dirtyCheckout = false
@@ -215,8 +225,8 @@ export class WorkflowWatcher {
 
     try {
       let checkout = this.checkout
-      if (checkoutChanged || !checkout) checkout = this.checkout = await readCheckout(root, run)
-      if (checkout.error) this.branches = new Map()
+      if (checkoutChanged || !checkout) checkout = this.checkout = await readCheckout(root, run, layout.ticketsRoot)
+      if (checkout.error || layout.mode === 'silent') this.branches = new Map()
       else if (checkoutChanged || branchesChanged) {
         this.branches = await readBranches(root, checkout, await ticketWorktrees(root), this.branches, run)
       }
@@ -269,6 +279,19 @@ export class WorkflowHub {
     }
     project.subscribers.set(subscriber.id, subscriber)
     return (await project.watcher).current
+  }
+
+  /**
+   * The current model of `root` when it is being watched (src/main/ipc/checks.ts asks which branches
+   * the model names); null when it is not, or its first read failed. Starts nothing.
+   */
+  async model(root: string): Promise<WorkflowModel | null> {
+    const project = this.projects.get(resolve(root))
+    if (!project) return null
+    return project.watcher.then(
+      (watcher) => watcher.current,
+      () => null,
+    )
   }
 
   /** Stops `subscriber`'s interest in `root`; returns false when it was not subscribed. */

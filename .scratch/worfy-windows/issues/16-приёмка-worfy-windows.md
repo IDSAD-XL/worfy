@@ -8,8 +8,10 @@ Source: «Готово, когда» Epic-а — пять пунктов, под
 ## Что происходит
 
 - «Готово, когда» Epic-а:
-  1. на чистой Windows 11 с Git for Windows, node и gh неподписанный установщик ставит worfy;
-     первый запуск проходит проверки, установщик E3 ставит Harness plugin;
+  1. на Windows-ПК владельца неподписанный установщик ставит worfy; первый запуск проходит
+     проверки, установщик E3 ставит Harness plugin. Чистой Windows 11 нет — решение владельца
+     2026-10-09 (spec.md, пункт 1; evidence Ticket-а 01, раздел 27): проверки «голой» машины —
+     unit-test-ы Ticket-а 13 с подставленными пробами;
   2. на Windows работают Project worfy, Canvas, Session-ы, Terminal на PowerShell, Gate,
      epic-status; одна Wave Autopilot проходит целиком (implementer, gate full на Windows, PR,
      мерж);
@@ -19,8 +21,8 @@ Source: «Готово, когда» Epic-а — пять пунктов, под
   5. на Mac ничего не сломалось — gate full на Mac зелёный.
 - Ticket-ы 01–15 проверяют свои части по отдельности: на ПК владельца, где уже стоят инструменты
   разработки, в dev-сборке, с fake-агентом в e2e (`WORFY_AGENT: 'fake'`, `test/e2e/helpers.ts:130`).
-  Целиком — чистая Windows, установщик, первый запуск, Wave Autopilot из Stable copy на Windows —
-  никто не проверял.
+  Целиком — установщик, первый запуск, Wave Autopilot из Stable copy на Windows — никто не
+  проверял.
 - Autopilot над worfy из dev-сборки worfy отказывает (`selfProjectRefusal`,
   `src/main/autopilot/run.ts:168`). Wave над worfy идёт из Stable copy; на путях Windows её чинит
   Ticket 12 (сборка на Windows).
@@ -28,6 +30,9 @@ Source: «Готово, когда» Epic-а — пять пунктов, под
   (`src/main/autopilot/journal.ts:1`). Строки `refused-dialog` (Session просила человека) и
   `human-input` (человек вмешался) — дефект прогона (`src/shared/autopilot/journal.ts:35`, `:37`);
   `run-stopped` — прогон закончился (`:42`).
+- На Windows-клоне с `core.autocrlf=true` все скрипты Harness — `w/crlf` (evidence Ticket-а 01,
+  раздел 03). bash Git for Windows их выполняет (раздел 21), поэтому CRLF сам по себе в Git Bash
+  незаметен — его ловит только проверка концов строк.
 - Пункт 3 целиком не проверяет ни один test. `test/contract/harness-scripts.test.ts` гоняет
   `.test.sh`, но не смотрит, на чём написаны сами скрипты Harness, как их зовут `hooks.json` и
   `.mcp.json` и какие у них концы строк в рабочем дереве.
@@ -44,8 +49,8 @@ Source: «Готово, когда» Epic-а — пять пунктов, под
 
 ## Что делаем
 
-**Кто ведёт.** Autopilot этот Ticket не берёт: в нём шаги владельца — чистая Windows, вход в Claude
-и в `gh` на ней, gate full на Mac. Ведёт Orchestrator Session-и на Windows-ПК владельца. Contract
+**Кто ведёт.** Autopilot этот Ticket не берёт: в нём шаги владельца — установка worfy из
+неподписанного установщика (SmartScreen), Install Harness, gate full на Mac. Ведёт Orchestrator Session-и на Windows-ПК владельца. Contract
 test и сбор evidence делает implementer по его брифу. На шаге владельца implementer
 останавливается и пишет, какой шаг ждёт. Закрывает Ticket Orchestrator, после шагов владельца.
 
@@ -59,20 +64,17 @@ test и сбор evidence делает implementer по его брифу. На 
    - мост Limits (файл Ticket-а 08) — на Node;
    - `git check-attr eol` для этих файлов — `lf`; в рабочем дереве в них нет `\r\n`. На Windows-клоне
      это ловит CRLF, если `.gitattributes` (Ticket 02) что-то пропустил.
-2. **Пункт 1 — чистая Windows 11.** Шаг владельца. Чистую Windows 11 даёт владелец: виртуальная
-   машина или Windows Sandbox (если её позволяет редакция) — выбор владельца, системные настройки —
-   его. Session готовит:
-   - установщик из `pnpm package` на ПК владельца (имя файла — Ticket 12) и его SHA-256;
-   - список шагов в `../evidence/16-чистая-windows.md`: `winget install Git.Git`,
-     `winget install OpenJS.NodeJS.LTS`, `winget install GitHub.cli`; запуск установщика
-     (SmartScreen: More info → Run anyway); экран первого запуска; Install Harness; вход в Claude и
-     `gh auth login` — их делает владелец.
+2. **Пункт 1 — установщик и первый запуск на ПК владельца.** Чистой Windows нет (решение владельца
+   2026-10-09, evidence Ticket-а 01, раздел 27). Session готовит установщик из `pnpm package` на ПК
+   владельца (имя файла — Ticket 12) и его SHA-256. Владелец ставит worfy (SmartScreen: More info →
+   Run anyway), открывает экран первого запуска и жмёт Install Harness. Проверки «голой» машины
+   (нет Git for Windows, node, gh) — unit-test-ы Ticket-а 13 с подставленными пробами; этот Ticket
+   сверяет, что они в `pnpm test` и зелёные.
 
    Если Smart App Control в состоянии «On» блокирует установщик — стоп. Вопрос подписи идёт
-   владельцу сразу (Q22). Выключать Smart App Control агенты не предлагают. Если экран первого
-   запуска требует `jq` (в Git for Windows его может не быть — опись Ticket-а 01), это расходится с
-   пунктом 1 («Git for Windows, node и gh»). Тогда — вопрос владельцу, если его не закрыли Ticket-ы
-   01 и 13. Ответ владельца и снимки — в Итог.
+   владельцу сразу (Q22). Выключать Smart App Control агенты не предлагают. На ПК владельца он
+   выключен (evidence Ticket-а 01, разделы 02 и 27). `jq` на Windows не требуется: строка `jq` на
+   экране первого запуска — `warn` (решение владельца 2026-10-09, Ticket 13). Снимки — в Итог.
 3. **Пункт 2 — ПК владельца, Stable copy.**
    - Project worfy открыт, Canvas показывает Epic-и и Ticket-ы (epic-status), Session отвечает и
      зовёт Bash tool, Terminal Node на PowerShell, `gate fast` в worktree worfy — код 0.
@@ -84,8 +86,8 @@ test и сбор evidence делает implementer по его брифу. На 
      на Windows, PR, мерж. PR с меткой `needs-mac-gate` — с разделом «Mac checks»; вливает его
      Session на Mac командой `/worfy:gate-queue` (Autopilot на Mac или «Process gate queue»), с
      отчётом в PR (Q32, Q33).
-4. **Пункт 4 — qmd или grep**, по пути, который выбрал Ticket 15 (qmd на Windows). На чистой Windows
-   из пункта 1 и на ПК владельца агент Session-а на вопрос об ADR находит файл в `docs/adr`: через
+4. **Пункт 4 — qmd или grep**, по пути, который выбрал Ticket 15 (qmd на Windows). На ПК владельца,
+   в установленном worfy из пункта 1, агент Session-а на вопрос об ADR находит файл в `docs/adr`: через
    `mcp__plugin_worfy_qmd__query` или grep-ом, и экран первого запуска говорит, какой путь.
 5. **Пункт 5 — Mac.** Session на Windows пишет просьбу в `HANDOFF.md`, раздел «Ждёт владельца»:
    `GATE_SCOPE=all` gate full на Mac на коммите main после последнего мержа Epic-а. Делает Session
@@ -102,11 +104,11 @@ machines (`worfy-link`).
 
 - [ ] Пункт 3: `pnpm test harness-node-only` — код 0 на Mac, на ПК владельца и в CI на Linux. Контрольный шаг: копия `harness/bin` во временной папке с подложенным скриптом `#!/bin/bash` — test называет этот файл и красный.
 - [ ] Пункт 3: `git ls-files --eol harness scripts` на Windows-клоне — у каждого скрипта `w/lf`. Вывод — в Итог.
-- [ ] Пункт 1 (шаг владельца): на чистой Windows 11 установщик поставил worfy; экран первого запуска — все строки `ok` (`warn` — только PowerShell, архитектура или qmd по пути Б Ticket-а 15); после Install `claude plugin list --json` показывает `worfy` включённым и с версией сборки. Снимки — `../evidence/16-чистая-установка.png`, `../evidence/16-первый-запуск.png`; ответ владельца — в Итог.
+- [ ] Пункт 1 (шаг владельца): на ПК владельца неподписанный установщик поставил worfy; экран первого запуска — все строки `ok` (`warn` — только PowerShell, архитектура, `jq` или qmd по пути Б Ticket-а 15); после Install `claude plugin list --json` показывает `worfy` включённым и с версией сборки. Снимки — `../evidence/16-установка.png`, `../evidence/16-первый-запуск.png`. Unit-test-ы «голой» машины Ticket-а 13 (`test/unit/first-run-windows.test.ts`) — в `pnpm test`, зелёные.
 - [ ] Пункт 2: на ПК владельца из Stable copy — Canvas с Epic-ами worfy, ответ Session с вызовом Bash tool, Terminal Node с выводом `$PSVersionTable.PSEdition`, `gate fast` в worktree — код 0. Снимки — `../evidence/16-canvas.png`, `../evidence/16-session.png`, `../evidence/16-terminal-powershell.png`.
 - [ ] Пункт 2, Wave: выбранный Ticket — `done`, его PR влит. В журнале прогона нет строк `refused-dialog` и `human-input`, последняя строка — `run-stopped`. Вердикт gate full на Windows в этой Wave — «зелено». Номер Ticket-а, PR, путь журнала и вердикт — в Итог.
 - [ ] Пункт 2, путь needs-mac-gate (Q31–Q33, Ticket-ы 07 и 17): отчёт Wave начинается с gate full на свежем main на ПК владельца — вердикт «зелено» стоит раньше раздачи Ticket-ов. Если PR Wave получил метку `needs-mac-gate`: в его описании есть раздел «Mac checks»; влит он Session на Mac через `/worfy:gate-queue` после её отчёта в PR (первая строка `Mac checks report: green`); мерж позже отчёта. Без метки — в Итог причина: все файлы PR — из `exempt`. Строка вердикта, ссылки на раздел и отчёт — в Итог.
-- [ ] Пункт 4: по пути Ticket-а 15 агент нашёл ADR через qmd или grep-ом, на ПК владельца и на чистой Windows. Выдержка из транскрипта (вызов инструмента и найденный файл) — в Итог.
+- [ ] Пункт 4: по пути Ticket-а 15 агент нашёл ADR через qmd или grep-ом в установленном worfy на ПК владельца. Выдержка из транскрипта (вызов инструмента и найденный файл) — в Итог.
 - [ ] Пункт 5: `GATE_SCOPE=all` gate full на Mac на коммите main после последнего мержа Epic-а — код 0 и вердикт «зелено». Кто прогнал, коммит и строка `[gate]` — в Итог.
 - [ ] `GATE_SCOPE=all` gate full на ветке с contract test-ом — код 0 на ПК владельца и на Mac (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
 
@@ -124,8 +126,7 @@ machines (`worfy-link`).
 ## Где в коде
 
 - `test/contract/harness-node-only.test.ts` — новый
-- `.scratch/worfy-windows/evidence/16-чистая-windows.md` — новый: шаги владельца и его ответ
-- `.scratch/worfy-windows/evidence/16-чистая-установка.png` — новый
+- `.scratch/worfy-windows/evidence/16-установка.png` — новый
 - `.scratch/worfy-windows/evidence/16-первый-запуск.png` — новый
 - `.scratch/worfy-windows/evidence/16-canvas.png` — новый
 - `.scratch/worfy-windows/evidence/16-session.png` — новый

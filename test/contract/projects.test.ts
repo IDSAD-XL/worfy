@@ -2,7 +2,7 @@
 // registerIpc (the same wrapper the app uses) over a mocked `electron`, against real git
 // repositories in a temporary folder and a temporary WORFY_DATA_DIR.
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -122,6 +122,23 @@ function switchToPlugin(keepOld = false): void {
   if (!keepOld) rmSync(join(claudeHome, 'bin'), { recursive: true, force: true })
 }
 
+/**
+ * A stub `bin/profile` in the test's Claude home: `--json` prints `_resolved` with `workspace` and
+ * exits with `code`; `old` leaves `_resolved.mode` out, like a Harness before Silent mode. Its
+ * arguments go to the file it returns.
+ */
+function stubProfile(answer: { code: number; workspace: string | null; old?: boolean }): string {
+  const calls = join(scratch, 'profile-calls.txt')
+  writeFileSync(calls, '')
+  const resolved = answer.old ? { name: 'x', workspace: answer.workspace } : { mode: 'silent', workflow_folder: answer.workspace ?? scratch, workspace: answer.workspace, repos: [] }
+  const json = join(scratch, 'profile-answer.json')
+  writeFileSync(json, answer.code === 0 ? JSON.stringify({ _resolved: resolved }) : '')
+  const script = join(claudeHome, 'bin', 'profile')
+  writeFileSync(script, `#!/bin/sh\necho "$*" >> '${calls}'\ncat '${json}'\nexit ${answer.code}\n`)
+  chmodSync(script, 0o755)
+  return calls
+}
+
 const LEGACY_TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}' }
 const PLUGIN_TEMPLATES = { shipTicket: '/worfy:ship-ticket {epic} {NN}', runWave: '/worfy:epic-wave tickets {tickets} of epic {epic}' }
 
@@ -188,9 +205,58 @@ describe('projects.add', () => {
   it('rejects a folder that is not in a git repository, with a reason for the user', async () => {
     const plain = join(scratch, 'plain')
     mkdirSync(plain)
-    expect(await add(plain)).toStrictEqual({ status: 'rejected', reason: `${plain} is not a git repository. Choose the folder of a git repository.` })
+    expect(await add(plain)).toStrictEqual({
+      status: 'rejected',
+      reason: `${plain} is not a git repository. Choose the folder of a git repository; a Project over several repositories is connected in the Harness first.`,
+    })
     expect(await add(join(scratch, 'missing'))).toStrictEqual({ status: 'rejected', reason: `${join(scratch, 'missing')} does not exist.` })
     expect((await value<State>('projects.list')).projects).toEqual([])
+  })
+
+  it('adds a folder outside git that the Harness knows as a Project over several repositories (profile: code 0, a workspace)', async () => {
+    const workspace = join(scratch, 'atakama')
+    mkdirSync(join(workspace, 'docs'), { recursive: true })
+    const api = makeRepo('atakama/api')
+    const web = makeRepo('atakama/web')
+    const calls = stubProfile({ code: 0, workspace })
+    const status = { api: repoStatus(api), web: repoStatus(web) }
+    const before = readdirSync(workspace).sort()
+
+    const result = await addOk(workspace)
+    expect(result.project).toStrictEqual({ id: expect.stringMatching(/^atakama-[0-9a-f]{8}$/), name: 'atakama', path: workspace, branch: null })
+    expect(result.notice).toBeNull()
+    expect(result.state.activeId).toBe(result.project.id)
+    expect(readFileSync(calls, 'utf8').trim()).toBe(`-C ${workspace} --json`)
+
+    // A folder inside it that is not a repository either: the Project's folder is added instead, once.
+    const inside = await addOk(join(workspace, 'docs'))
+    expect(inside.project.id).toBe(result.project.id)
+    expect(inside.notice).toBe(`${join(workspace, 'docs')} is inside the Project ${workspace} over several repositories; its folder was added instead.`)
+    expect((await value<State>('projects.list')).projects).toHaveLength(1)
+
+    // Nothing was written into the folder or its repositories.
+    expect(readdirSync(workspace).sort()).toStrictEqual(before)
+    expect({ api: repoStatus(api), web: repoStatus(web) }).toStrictEqual(status)
+  })
+
+  it.each([
+    ['exit code 3 (no registered project)', { code: 3, workspace: null }],
+    ['exit code 0 without a workspace', { code: 0, workspace: null }],
+    ['a Harness without Silent mode (no _resolved.mode)', { code: 0, workspace: 'old' as const }],
+  ])('refuses a folder outside git the Harness does not know as such a Project: %s', async (_case, answer) => {
+    const plain = join(scratch, 'plain')
+    mkdirSync(plain)
+    stubProfile({ code: answer.code, workspace: answer.workspace === 'old' ? plain : answer.workspace, old: answer.workspace === 'old' })
+    const result = await add(plain)
+    expect(result).toStrictEqual({ status: 'rejected', reason: expect.stringMatching(/is not a git repository\. .*a Project over several repositories is connected in the Harness first\.$/) })
+    expect((await value<State>('projects.list')).projects).toEqual([])
+  })
+
+  it('asks the Harness only about a folder outside git: a repository is added by git alone', async () => {
+    const calls = stubProfile({ code: 0, workspace: scratch })
+    const repo = makeRepo('auction')
+    expect((await addOk(repo)).project.path).toBe(repo)
+    expect(readFileSync(calls, 'utf8')).toBe('')
   })
 
   it('does not list a repository twice', async () => {

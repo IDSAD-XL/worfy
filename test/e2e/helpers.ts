@@ -19,6 +19,15 @@ const FIRST_WINDOW_TIMEOUT_MS = 30_000
 /** How long the app may take to quit. A quit takes well under a second; this bounds a quit that hangs. */
 const QUIT_TIMEOUT_MS = 20_000
 
+/**
+ * Arguments every test start of the app passes. macOS remembers when Electron (one bundle id,
+ * com.github.Electron, for every dev and test start) was killed while it reopened its windows, and
+ * the next start then runs a modal "reopen windows?" alert before `ready`: no window ever appears
+ * and every test times out in firstWindow. Tests kill the app on purpose, so this happens. The
+ * argument turns window restoration off for that one process and changes nothing on the machine.
+ */
+export const NO_WINDOW_RESTORE = ['-ApplePersistenceIgnoreState', 'YES']
+
 /** Names of the attachments a failing test keeps (see FailureArtifactsReporter below). */
 export const APP_TRACE = 'app-trace'
 export const APP_SCREENSHOT = 'app-screenshot'
@@ -148,7 +157,9 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
     // it: Electron then reads package.json (`main` points at out/main/index.js), and the app's name
     // and version are worfy's own, not Electron's.
     app = await _electron.launch(
-      executablePath === undefined ? { args: [repoRoot], cwd: repoRoot, env } : { executablePath, env },
+      executablePath === undefined
+        ? { args: [repoRoot, ...NO_WINDOW_RESTORE], cwd: repoRoot, env }
+        : { executablePath, args: NO_WINDOW_RESTORE, env },
     )
   } catch (error) {
     await cleanDirs()

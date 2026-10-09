@@ -6,6 +6,13 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, repoRoot } from './helpers'
 
+/**
+ * A `bin/profile` stub that knows every folder: `--json` exits 0, a `--field` is absent (exit 4).
+ * "Add project" then puts a repository into the list at once, without the dialog that connects a
+ * new one (worfy-harness ticket 24).
+ */
+const KNOWS_ALL = `#!/bin/sh\ncase "$*" in *--json*) echo '{"name":"stub","_resolved":{"workspace":null}}' ;; *) exit 4 ;; esac\n`
+
 // The toolbar with a long Project name: the name is cut with an ellipsis (full in its title), and
 // the Canvas/Session switch, the Limits, the Harness item and the search field stay inside the
 // window. The Limits are two days old, so their notes are the longest the toolbar shows
@@ -80,6 +87,8 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
       })
       .toBe(WIDTH)
 
+    mkdirSync(join(launched.claudeHome, 'bin'), { recursive: true })
+    writeFileSync(join(launched.claudeHome, 'bin', 'profile'), KNOWS_ALL, { mode: 0o755 })
     await app.evaluate(({ dialog }, path) => {
       dialog.showOpenDialog = (() => Promise.resolve({ canceled: false, filePaths: [path] })) as typeof dialog.showOpenDialog
     }, repo)

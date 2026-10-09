@@ -3,7 +3,7 @@
 // addresses go to the browser (`shell.openExternal`), relative paths to the Project's file in the
 // default editor (`shell.openInEditor`). Anything else is not a link at all.
 import { fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Markdown } from '../../src/renderer/markdown/Markdown'
 import { classifyLink } from '../../src/renderer/markdown/links'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
@@ -139,5 +139,58 @@ describe('classifyLink', () => {
   it('resolves a relative path against the directory of the document', () => {
     expect(classifyLink('../../src/main/index.ts', '.scratch/worfy-mvp')).toEqual({ kind: 'file', path: 'src/main/index.ts' })
     expect(classifyLink('0002.md', 'docs/adr/')).toEqual({ kind: 'file', path: 'docs/adr/0002.md' })
+  })
+})
+
+// worfy-link ticket 12 (ADR-0053, Q14): in a window on Linked machine M an https:// link opens on
+// this Machine — `shell.openExternal` goes to the window's own main, not to M as `linked.invoke` —
+// and a link to a Project file shows "File is on <M>" instead of any call.
+describe('Markdown: links in a window on a Linked machine', () => {
+  const M = '7d3c1a52-0b8e-4c39-9a51-2f6d8e4b7a10'
+
+  const linkState = (name: string) => ({
+    revision: 1_000_000,
+    machine: null,
+    problem: null,
+    listening: true,
+    addresses: [],
+    bonjour: false,
+    linking: { open: false, code: null, expiresAt: null, linked: null, failure: null },
+    linked: [{ id: M, name, state: 'online', certificateChanged: false }],
+    discovered: [],
+    projectsAccess: false,
+    keepAwake: false,
+  })
+
+  beforeEach(() => {
+    window.history.replaceState(null, '', `/?machine=${M}&project=alpha`)
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      invoke: (channel: string, input: unknown) => {
+        asked.push({ channel, input })
+        if (channel === 'link.state') return Promise.resolve({ ok: true, value: linkState('Mini') })
+        return Promise.resolve({ ok: true, value: {} })
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+  })
+
+  afterEach(() => {
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('an https:// link calls shell.openExternal through the bridge of this Machine', () => {
+    render(<Markdown text={'See [the PR](https://github.com/IDSAD-XL/worfy/pull/12).'} projectId="alpha" />)
+    expect(fireEvent.click(screen.getByRole('link', { name: 'the PR' }))).toBe(false)
+    expect(asked).toEqual([{ channel: 'shell.openExternal', input: { url: 'https://github.com/IDSAD-XL/worfy/pull/12' } }])
+  })
+
+  it('a link to a Project file shows "File is on Mini" and calls nothing on either Machine', async () => {
+    render(<Markdown text={'Decided in [ADR 0002](../adr/0002-view.md).'} projectId="alpha" baseDir="docs/design" />)
+    expect(screen.queryByTestId('file-elsewhere')).toBeNull()
+    expect(fireEvent.click(screen.getByRole('link', { name: 'ADR 0002' }))).toBe(false)
+    await vi.waitFor(() => expect(screen.getByTestId('file-elsewhere').textContent).toBe('File is on Mini'))
+    // Only the link state of this Machine, for the name; no shell call here or on M.
+    expect(asked.map((each) => each.channel).filter((channel) => channel !== 'link.state')).toEqual([])
   })
 })

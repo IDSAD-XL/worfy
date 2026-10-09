@@ -4,6 +4,7 @@ import { ADR_DIR, type AdrEntry } from '../../../shared/ipc/docs'
 import { useDocs, useDocText } from '../../docs/useDocs'
 import { markAdrHandled, useCanvasRequests } from '../../find/canvas-requests'
 import { invoke } from '../../ipc'
+import { useFileElsewhere } from '../../machines/useFileElsewhere'
 import { Markdown } from '../../markdown/Markdown'
 import { activeProject, useProjects } from '../../projects/useProjects'
 
@@ -106,7 +107,14 @@ function AdrPanel({ projectId, adr, onClose }: AdrPanelProps) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [onClose])
 
+  const file = useFileElsewhere({ style: styles.panelStatus })
+
   const openInEditor = () => {
+    // In a window on a Linked machine the ADR file lies there: the hint instead of its editor.
+    if (file.elsewhere) {
+      file.show()
+      return
+    }
     void invoke('shell.openInEditor', { projectId, path: adr.path }).then((result) => {
       if (!result.ok) console.error('shell.openInEditor failed:', result.error)
     })
@@ -122,6 +130,7 @@ function AdrPanel({ projectId, adr, onClose }: AdrPanelProps) {
           {adr.title}
         </h2>
         {adr.status !== null ? <span style={styles.panelStatus}>{adr.status}</span> : null}
+        {file.hint}
         <button type="button" style={styles.button} onClick={openInEditor} title={adr.path}>
           Open in Editor
         </button>

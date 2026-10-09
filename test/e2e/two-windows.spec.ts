@@ -7,6 +7,13 @@ import { expect, test, type ElectronApplication, type Page } from '@playwright/t
 import { epicStatusSchema } from '../../src/shared/workflow/types'
 import { launchApp, openSecondWindow, repoRoot, type LaunchedApp } from './helpers'
 
+/**
+ * A `bin/profile` stub that knows every folder: `--json` exits 0, a `--field` is absent (exit 4).
+ * "Add project" then puts a repository into the list at once, without the dialog that connects a
+ * new one (worfy-harness ticket 24).
+ */
+const KNOWS_ALL = `#!/bin/sh\ncase "$*" in *--json*) echo '{"name":"stub","_resolved":{"workspace":null}}' ;; *) exit 4 ;; esac\n`
+
 // worfy-link ticket 03 against the built app: two windows of one worfy are two clients of main
 // (src/main/clients.ts). What one window changes in the shared state — the Layout, the View menu,
 // the Project list, an Epic in the Project's folder — reaches the other live, and a window that
@@ -54,6 +61,7 @@ test.beforeEach(() => {
   const script = join(claudeHome, 'bin', 'epic-status')
   writeFileSync(script, `#!/bin/sh\ncat '${answer}'\n`)
   chmodSync(script, 0o755)
+  writeFileSync(join(claudeHome, 'bin', 'profile'), KNOWS_ALL, { mode: 0o755 })
   mkdirSync(join(dataDir, PROJECT), { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'demo', path: repo }], activeId: PROJECT }))
 })

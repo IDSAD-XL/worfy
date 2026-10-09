@@ -1,7 +1,8 @@
 # 13 — Уведомления на Linked machine-ах и «не беспокоить» на каждой
 
 Type: task
-Status: open
+Status: done — 2026-10-09, [PR #183](https://github.com/IDSAD-XL/worfy/pull/183)
+Branch: worfy-link/13
 Blocked by: 09
 Source: решения владельца 2026-10-07: Q16 (уведомления — Machine Project-а и подключённым Linked machine; «не беспокоить» на каждой) и Q6 (уведомления — в другом worfy, не в браузере) ([spec.md](../spec.md)); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md)
 
@@ -40,13 +41,13 @@ Source: решения владельца 2026-10-07: Q16 (уведомлени�
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/notify.test.ts`: на машине Project-а при фокусе её окна `result` Session не показан, но заметка ушла в соединение подключённой Linked machine. Без фокуса — показан и ушёл туда же. Правила «10 s на Session» и «придержанное не считается» держатся на каждой машине своим счётом.
-- [ ] Unit `test/unit/link-notify.test.ts` (новый): две Machine с двумя папками данных в одном процессе vitest (стенд Ticket-а 01). `result` и `permission_request` Session Project-а машины A показаны на B с теми же title и body. При выключенном переключателе доступа на A или без соединения B ничего не получает. B с фокусом своего окна не показывает, A при этом показывает. Переподключившаяся B старых заметок не получает.
-- [ ] Unit там же: клик на B кладёт заметку с Machine A в `PendingOpens` клиента B. `notify.pending` отдаёт её этому клиенту один раз. `open` машины A не вызван.
-- [ ] Unit `test/unit/permission-card.test.tsx` (там уже проверяется `notificationTarget`, `:180-192`): заметка с Machine A находит Session Node Project-а A на B. Заметка с той же `sessionId` без Machine находит локальную Session.
-- [ ] e2e `test/e2e/linked-notify.spec.ts` (новый, локально в gate full): два worfy, связанные helper-ом Ticket-а 02, окна обоих без фокуса. Ход fake-агента в Session Project-а A кончается — уведомление записано на обоих. Клик на B открывает эту Session на Canvas Project-а A в окне B (`data-testid` открытой Session).
-- [ ] Одна машина без Linked machine-ов ведёт себя как раньше: прежние test-ы `test/unit/notify.test.ts` зелёные без правки ожиданий.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all gate.sh full` — зелёный.
+- [x] Unit `test/unit/notify.test.ts`: на машине Project-а при фокусе её окна `result` Session не показан, но заметка ушла в соединение подключённой Linked machine. Без фокуса — показан и ушёл туда же. Правила «10 s на Session» и «придержанное не считается» держатся на каждой машине своим счётом.
+- [x] Unit `test/unit/link-notify.test.ts` (новый): две Machine с двумя папками данных в одном процессе vitest (стенд Ticket-а 01). `result` и `permission_request` Session Project-а машины A показаны на B с теми же title и body. При выключенном переключателе доступа на A или без соединения B ничего не получает. B с фокусом своего окна не показывает, A при этом показывает. Переподключившаяся B старых заметок не получает.
+- [x] Unit там же: клик на B кладёт заметку с Machine A в `PendingOpens` клиента B. `notify.pending` отдаёт её этому клиенту один раз. `open` машины A не вызван.
+- [x] Unit `test/unit/permission-card.test.tsx` (там уже проверяется `notificationTarget`, `:180-192`): заметка с Machine A находит Session Node Project-а A на B. Заметка с той же `sessionId` без Machine находит локальную Session.
+- [x] e2e `test/e2e/linked-notify.spec.ts` (новый, локально в gate full): два worfy, связанные helper-ом Ticket-а 02, окна обоих без фокуса. Ход fake-агента в Session Project-а A кончается — уведомление записано на обоих. Клик на B открывает эту Session на Canvas Project-а A в окне B (`data-testid` открытой Session).
+- [x] Одна машина без Linked machine-ов ведёт себя как раньше: прежние test-ы `test/unit/notify.test.ts` зелёные без правки ожиданий.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all gate.sh full` — зелёный.
 
 Ручная проверка на dev-сборке и Stable copy — в Ticket-е 16 (приёмка Epic-а), пункт 4.
 
@@ -75,6 +76,94 @@ Helper двух связанных worfy берётся из Ticket-а 02 как
 
 При claim сюда дописывается файл служебных сообщений связи из Ticket-а 01. Его путь будет в «Итог» Ticket-а 01.
 
+- Служебные сообщения связи (Ticket 01): `src/main/link/messages.ts` (`defineLinkMessage`) и
+  `LinkService.registerMessage` / `sendMessage` в `src/main/link/service.ts` — только используются, без правки.
+  Сообщение заметки определяется в `src/main/link/notes.ts`.
+
 ## Итог
 
-Заполняется при закрытии.
+Сделано в ветке `worfy-link/13`.
+
+- **Первый test падал так.** `test/unit/link-notify.test.ts` против `src/main/link/notes.ts`, где `LinkNotes`
+  ничего не делал (только схема сообщения): 9 из 9 красные. Восемь — `Test timed out in 5000ms`: `result` и
+  `permission_request` Session машины A не доходили до `show` машины B. Девятый — нет предупреждения
+  «sent message note outside its schema; dropped»: B не знал сообщения `note`.
+- **Как устроено.**
+  - `Notifier` (`src/main/notify.ts`) делится на решение и показ. Правила `sessionEvent` / `externalSessions`
+    прежние. Решённая заметка идёт в `NoteDisplay` этой машины и в `NoteLink.send` — независимо от фокуса
+    и от 10 s машины Project-а.
+  - `NoteDisplay` — правила показа одной машины: фокус её окна, 10 s с ключом Machine + sessionId.
+    Придержанная фокусом заметка не считается. Записи старше 10 s забываются при показе: Session-ы
+    Linked machine-а не сообщают о закрытии.
+  - `src/main/link/notes.ts` — служебное сообщение связи `note` `{ title, body, sessionId, projectRoot }` и
+    `LinkNotes`. Отправка — только при включённом «Linked machines can work with my Projects» и только
+    подключённым сейчас машинам (`isConnected`), без очереди. Machine отправителя — из соединения
+    (`from.machineId`). Полученная заметка показывается и дальше не уходит: машина шлёт только заметки
+    о своих Session-ах. `appNoteLink()` подключается к связи приложения, когда та запустилась
+    (`onAppLinkStart`): связь стартует после `installNotifications`.
+  - Клик на B: `openNote` поднимает окно B и кладёт заметку с `machineId` в `PendingOpens`.
+    `notifyOpenSchema.machineId` — `string | null`, необязательное (null или нет поля — эта машина).
+  - Renderer: `notificationTarget(note, project, machine)` ищет только среди views Machine окна. Окно на
+    другой Machine (`NotificationTarget.tsx`) спрашивает Machine заметки, в каком её Project-е Session
+    (`projectOfNote`: `projects.list` и `sessions.views` через `invokeOn`). Потом окно грузится заново на
+    этом Project-е этой Machine (`addressFor` Ticket-а 09). Заметка переживает перезагрузку в
+    `sessionStorage` окна (`carryNote` / `takeCarriedNote`, срок — прежний `NOTE_WAIT_MS`). На своей
+    Machine окно ищет Session во всех её Project-ах и открывает её Project через `openProject`, как
+    боковая панель.
+- **Test-ы.** `test/unit/link-notify.test.ts` (новый, стенд Ticket-а 01): показ на B с теми же title и body,
+  связь в обе стороны, без пересылки третьей машине, выключенный доступ, нет соединения и
+  переподключение, фокус и 10 s на каждой машине своим счётом, клик на B → `PendingOpens` клиента B
+  → `notify.pending` один раз, `open` машины A не вызван, заметка вне схемы. `test/unit/notify.test.ts`: прежние
+  test-ы без правки ожиданий; новые — заметка уходит в связь при фокусе, отправка без счёта 10 s,
+  свой счёт по Machine для полученных, клик с Machine, `PendingOpens` с `machineId`.
+  `test/unit/permission-card.test.tsx`: заметка с Machine A находит Node Project-а A в окне на A, та же
+  `sessionId` без Machine — локальную; перезагрузка на нужный Project с переносом заметки; поиск
+  во всех Project-ах после перезагрузки; просроченная перенесённая заметка; возврат на свою машину;
+  более новый клик во время поиска на другой машине побеждает. Мутанты каждого правила (пересылка
+  полученной, отправка без доступа, ключ 10 s без Machine, фокус гасит отправку, `notificationTarget` без
+  проверки Machine, без `carryNote`, поиск только в активном Project-е, без защиты от более нового
+  клика) — каждый красный.
+- **e2e** `test/e2e/linked-notify.spec.ts`: два worfy, связанные через UI (helper-ы `launchApp`,
+  `linkThroughUi` из `helpers.ts` без правки). `setSharing`, `gitRepo`, `dataFolder`, `call` — копии в самом
+  spec-файле. Подмена `Notification.prototype.show` через `app.evaluate` сработала, переменная для test-ов
+  не понадобилась. Фокус снимается `BrowserWindow.blur()`, test ждёт `getFocusedWindow() === null`.
+  Клик — `emit('click')` записанного экземпляра.
+
+- **Проверки.** `pnpm lint && pnpm typecheck && pnpm test` и `GATE_SCOPE=all gate.sh full` — зелёные (full: lint,
+  typecheck, test, test:e2e, test:package). CI PR #183 — `check` pass. `gate.sh fast` дважды дал красный test
+  из-за `Test timed out in 15000ms` в `test/contract/harness-qmd.test.ts`, `docs.test.ts`, `github-prs.test.ts`,
+  `workflow-reader.test.ts`. Эти test-ы не касаются уведомлений. Машина в это время была нагружена (load
+  average 6–7: test-ы других агентов волны). Отдельно эти четыре файла зелёные (141 test).
+
+Решения (все — **решено без владельца, подтвердить**):
+
+- **«Подключена к Project-у»** — как в «Что делаем»: соединение есть сейчас и переключатель доступа
+  машины Project-а включён. Открытый Canvas не нужен.
+- **Машина Project-а шлёт каждую решённую заметку**, свой счёт 10 s применяет только к своему показу:
+  иначе фокус или 10 s машины A гасили бы показ на B. Частота ограничена самими событиями: конец хода
+  и запрос разрешения.
+- **Перенос заметки через перезагрузку окна — `sessionStorage`**, без нового канала IPC. Вариант с каналом
+  «положи заметку обратно в `PendingOpens`» требовал нового канала с пометкой доступа. `sessionStorage`
+  живёт только в этом окне и только до его закрытия, срок заметки проверяется при чтении.
+- **Окно на другой Machine грузится сразу на Project Session.** Без Project-а окно на Linked machine
+  показывает «No project», и overlay с Canvas не монтируется. Поэтому Project ищется до перезагрузки.
+  Не нашёлся (Orchestrator, Session уже закрыта) — активный Project той машины.
+- **Заметка о своей Session в окне на Linked machine** возвращает окно на эту машину. До Ticket-а окно
+  искало бы её среди views чужой машины.
+
+Не проверено:
+
+- **Ручная проверка с настоящим баннером на второй Machine** и Focus («не беспокоить») macOS на каждой —
+  не проверено: бриф запрещает настоящие уведомления и трогать Focus. Остаётся пунктом 4 Ticket-а 16.
+- Переименование Session машины A в SDK id (`renamed`) не передаётся на B. Счёт 10 s на B может начаться
+  заново под новым id. На практике `renamed` приходит до первого `result`, так что это не проверялось
+  отдельным test-ом.
+- Снимков UI нет: видимое не менялось (`NotificationTarget` ничего не рисует, переключателя «не
+  беспокоить» worfy не заводит).
+
+### Gate оркестратора (2026-10-09)
+
+- Круг 1 — `VERIFIED` ([комментарий в PR #183](https://github.com/IDSAD-XL/worfy/pull/183#issuecomment-6076314835)), с долгами:
+  - [low] `src/renderer/canvas/overlays/NotificationTarget.tsx:68-69`, `:47` — между записью заметки в sessionStorage и загрузкой страницы `notify.open` более нового клика может попасть в старую страницу; та заберёт его через одноразовый `notify.pending`, и новый клик потеряется (окно — миллисекунды, не воспроизведено). Исправление: флаг «страница уходит» перед `navigation.load`, при нём `notify.pending` не звать.
+  - [low] `NotificationTarget.tsx:45` — `holdNote(carried.note)` заново даёт полные 10 s: перенесённая заметка ждёт до ~20 s. Исправление: передавать `carried.until - NOTE_WAIT_MS` как `now`.
+- Мерж: rebase на `c51edce`, `GATE_SCOPE=all gate full` — код 0 с первого прогона, CI зелёный, CLEAN, влит `b415879`.

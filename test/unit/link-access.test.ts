@@ -81,13 +81,14 @@ describe('the initial marks', () => {
   })
 
   it('desktop: the actions that need the desktop of the Project machine (a dialog, the OS shell)', () => {
-    expect(marked('desktop')).toEqual(['agent.attachPick', 'cardApi.ask', 'projects.pickFolder', 'shell.openExternal', 'shell.openInEditor'])
+    // shell.openExternal is `local` since worfy-link ticket 12: a link opens on the screen's machine.
+    expect(marked('desktop')).toEqual(['agent.attachPick', 'projects.pickFolder', 'shell.openInEditor'])
   })
 
   it('local: the state of the screen machine, every other link channel, the Harness and the first run', () => {
     const local = marked('local')
     // viewport.* (worfy-link ticket 06): the Canvas camera of the screen's own machine.
-    for (const name of ['projects.select', 'view.get', 'view.changed', 'notify.pending', 'notify.open', 'limits.open', 'limits.changed', 'app.version', 'viewport.get', 'viewport.set']) {
+    for (const name of ['projects.select', 'view.get', 'view.changed', 'notify.pending', 'notify.open', 'limits.open', 'limits.changed', 'app.version', 'viewport.get', 'viewport.set', 'shell.openExternal']) {
       expect(local, name).toContain(name)
     }
     // A Linked machine never switches access on, links or revokes machines for the owner.
@@ -99,9 +100,33 @@ describe('the initial marks', () => {
     }
   })
 
+  it('local: connecting a Project — the draft, the GitHub account and the gh sign-in (worfy-harness tickets 24, 25)', () => {
+    const local = marked('local')
+    const connect = channels.map((channel) => channel.name).filter((name) => name.startsWith('projects.connect.'))
+    // Named, so a channel that disappears or is renamed fails here too.
+    const expected = [
+      'projects.connect.inspect',
+      'projects.connect.draft',
+      'projects.connect.stop',
+      'projects.connect.check',
+      'projects.connect.write',
+      'projects.connect.activity',
+      'projects.connect.accounts',
+      'projects.connect.signIn',
+      'projects.connect.signInInput',
+      'projects.connect.signInResize',
+      'projects.connect.signInClose',
+      'projects.connect.signInOutput',
+      'projects.connect.signInExit',
+    ]
+    expect(connect.sort()).toEqual([...expected].sort())
+    for (const name of connect) expect(local, name).toContain(name)
+  })
+
   it('no channel of the shell domain, and no dialog, is open to a Linked machine', () => {
     for (const channel of channels) {
-      if (channel.name.startsWith('shell.')) expect(channel.access, channel.name).toBe('desktop')
+      // `desktop` or `local` (shell.openExternal, worfy-link ticket 12): both are closed to a Linked machine.
+      if (channel.name.startsWith('shell.')) expect(['desktop', 'local'], channel.name).toContain(channel.access)
     }
   })
 

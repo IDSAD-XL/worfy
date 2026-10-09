@@ -27,8 +27,16 @@ export type ProjectsState = z.output<typeof projectsStateSchema>
 
 const projectId = z.object({ id: z.string().min(1) })
 
-/** Opens the system folder picker; null when the user cancels. */
-export const projectsPickFolder = invokeChannel('projects.pickFolder', z.void(), z.object({ path: z.string().nullable() }), 'desktop')
+/**
+ * Opens the system folder picker; null when the user cancels. `purpose` words the picker: the folder
+ * of a Project (the default), or the Workflow folder of a Silent mode Project (worfy-harness ticket 24).
+ */
+export const projectsPickFolder = invokeChannel(
+  'projects.pickFolder',
+  z.object({ purpose: z.enum(['project', 'workflow-folder']) }).optional(),
+  z.object({ path: z.string().nullable() }),
+  'desktop',
+)
 
 export const projectsList = invokeChannel('projects.list', z.void(), projectsStateSchema, 'project')
 
@@ -89,6 +97,234 @@ export const projectsSettingsChanged = eventChannel('projects.settings.changed',
 /** Sent to every window after any change of the list or of the active Project. */
 export const projectsChanged = eventChannel('projects.changed', projectsStateSchema, 'project')
 
+// ── connecting a Project (worfy-harness ticket 24) ─────────────────────────────
+//
+// "Add project" is one dialog in steps: the folder (projects.connect.inspect), the mode and the
+// Workflow folder, the Harness check and the draft Session (projects.connect.draft), the form
+// (projects.connect.check) and the write through the Harness's bin/project-connect
+// (projects.connect.write). Nothing is written before the last step. All of them are `local`: a
+// Linked machine adds Projects with projects.add, never connects one.
+
+/** One git repository of a folder: its folder name and its absolute root. */
+export const connectRepoSchema = z.object({ name: z.string().min(1), path: z.string().min(1) })
+
+/**
+ * What kind of folder the user picked: a git repository (`root` is its root; a subfolder or a linked
+ * worktree is resolved to it, and `notice` says so), or a folder that is not in git itself and holds
+ * two or more git repositories as direct subfolders (`multi-repo`, ADR-0045).
+ */
+export const connectFolderSchema = z.object({
+  kind: z.enum(['git', 'multi-repo']),
+  root: z.string().min(1),
+  /** The repositories: the one of a git folder, every one of a multi-repo folder, by name. */
+  repos: z.array(connectRepoSchema),
+  notice: z.string().nullable(),
+})
+export type ConnectFolder = z.output<typeof connectFolderSchema>
+
+export const connectModeSchema = z.enum(['full', 'silent'])
+export type ConnectMode = z.output<typeof connectModeSchema>
+
+/**
+ * A draft of the connection, by harness/profiles/draft.schema.json: profile.json, the text of
+ * rules.md and the gate registry entries. Its fields are checked by bin/project-connect, not here.
+ */
+export const profileDraftSchema = z.object({
+  profile: z.record(z.string(), z.unknown()),
+  rules: z.string(),
+  gate: z.array(z.record(z.string(), z.unknown())),
+})
+export type ProfileDraft = z.output<typeof profileDraftSchema>
+
+/** A problem bin/project-connect found, at a path of the draft (`profile.commands.test`, `gate[0].match`). */
+export const draftIssueSchema = z.object({ path: z.string(), kind: z.string(), message: z.string() })
+export type DraftIssue = z.output<typeof draftIssueSchema>
+
+const addedSchema = z.object({ status: z.literal('added'), project: projectViewSchema, notice: z.string().nullable(), state: projectsStateSchema })
+
+/**
+ * Step 1: the kind of the folder, only read. A folder the Harness already knows (`bin/profile -C`
+ * exits 0) is added to the list at once, as projects.add does (`added`); a new one answers what the
+ * dialog needs next (`new`): the folder, and where the Harness keeps its state, for the default
+ * Workflow folder `<harnessHome>/projects/<name>/workflow/`.
+ */
+export const projectsConnectInspect = invokeChannel(
+  'projects.connect.inspect',
+  z.object({ path: z.string().min(1) }),
+  z.discriminatedUnion('status', [
+    addedSchema,
+    z.object({ status: z.literal('rejected'), reason: z.string().min(1) }),
+    z.object({ status: z.literal('new'), folder: connectFolderSchema, harnessHome: z.string().min(1) }),
+  ]),
+  'local',
+)
+
+/**
+ * Steps 3 and 4: the Harness check, then the draft Session in `root` (main inspects the folder
+ * again). `workflowFolder` is the Workflow folder of Silent mode; null for the default one (a
+ * multi-repo folder: the folder itself). Answers the draft with the problems bin/project-connect
+ * --check finds in it (`draft`), the reason the Harness stops the connection (`harness`: the dialog
+ * sends the user to the first-run screen), a refusal of the choice (`refused`), a Stop (`stopped`),
+ * or what went wrong (`failed`). While it runs, projects.connect.activity tells the last action.
+ */
+export const projectsConnectDraft = invokeChannel(
+  'projects.connect.draft',
+  z.object({ draftId: z.string().min(1).max(100), root: z.string().min(1), mode: connectModeSchema, workflowFolder: z.string().min(1).nullable() }),
+  z.discriminatedUnion('status', [
+    z.object({ status: z.literal('draft'), draft: profileDraftSchema, issues: z.array(draftIssueSchema) }),
+    z.object({ status: z.literal('harness'), reason: z.string().min(1) }),
+    z.object({ status: z.literal('refused'), reason: z.string().min(1) }),
+    z.object({ status: z.literal('stopped') }),
+    z.object({ status: z.literal('failed'), reason: z.string().min(1), issues: z.array(draftIssueSchema) }),
+  ]),
+  'local',
+)
+
+/** "Stop" of the dialog: ends the draft Session `draftId`; false when none runs under it. */
+export const projectsConnectStop = invokeChannel('projects.connect.stop', z.object({ draftId: z.string().min(1).max(100) }), z.object({ stopped: z.boolean() }), 'local')
+
+/** Step 5: the problems of an edited draft (`bin/project-connect --check`); writes nothing. */
+export const projectsConnectCheck = invokeChannel('projects.connect.check', z.object({ draft: profileDraftSchema }), z.object({ issues: z.array(draftIssueSchema) }), 'local')
+
+/**
+ * Step 6, "Connect": bin/project-connect writes the Profile and the gate registry entries, then the
+ * folder is added to the list and becomes active (`added`; `notice` names a skipped qmd step). A
+ * draft that fails the check writes nothing (`refused`); a folder the list does not take after the
+ * write answers why (`rejected`).
+ */
+export const projectsConnectWrite = invokeChannel(
+  'projects.connect.write',
+  z.object({ root: z.string().min(1), draft: profileDraftSchema }),
+  z.discriminatedUnion('status', [
+    addedSchema,
+    z.object({ status: z.literal('refused'), issues: z.array(draftIssueSchema) }),
+    z.object({ status: z.literal('rejected'), reason: z.string().min(1) }),
+  ]),
+  'local',
+)
+
+/** The last action of a draft Session, sent to the window that asked for the draft. */
+export const projectsConnectActivity = eventChannel('projects.connect.activity', z.object({ draftId: z.string(), text: z.string() }), 'local')
+
+// ── the GitHub account of a new Project (worfy-harness ticket 25) ─────────────────
+//
+// The form of "Add project" reads the accounts gh knows for the hosts of the folder's `origin`
+// remotes and the write access of each account to every such repository
+// (projects.connect.accounts, src/main/github/accounts.ts). The chosen account and the finish its
+// access allows go into the draft (withGithubAccount) and are written with it on "Connect". A sign-in
+// runs `gh auth login` in a terminal inside the dialog (projects.connect.signIn and the channels
+// after it): the user answers gh there, worfy types nothing into it. All of them are `local`.
+
+export const workflowFinishSchema = z.enum(['pr-green-ci', 'local-green'])
+export type WorkflowFinish = z.output<typeof workflowFinishSchema>
+
+/** An account of `gh auth status --json hosts`, with its write access to the folder's repositories. */
+export const githubAccountSchema = z.object({
+  login: z.string().min(1),
+  host: z.string().min(1),
+  /** The account gh uses for its host now. */
+  active: z.boolean(),
+  /** gh's own word for the login: `success`, `error`, `timeout`. */
+  state: z.string(),
+  /** Write access to every repository with a GitHub origin. */
+  push: z.boolean(),
+  /** `pr-green-ci` with write access everywhere, else `local-green` (ADR-0045). */
+  finish: workflowFinishSchema,
+  /** Why the finish is local: the repositories without write access; null with access everywhere. */
+  reason: z.string().nullable(),
+})
+export type GithubAccount = z.output<typeof githubAccountSchema>
+
+/** A repository of the folder whose `origin` is on a GitHub host: `owner/repo`. */
+export const githubRepoSchema = z.object({ name: z.string().min(1), host: z.string().min(1), slug: z.string().min(1) })
+
+/**
+ * The GitHub account step: the accounts of the hosts with their access and the one chosen by
+ * default (`selected`: the active account with write access, else the first with it, else none);
+ * no `origin` on a GitHub host (`no-origin`); no gh (`no-gh`); gh failing otherwise (`failed`).
+ * Without accounts the Project has none (`github.account: null`) and the local finish.
+ */
+export const githubAccountsStepSchema = z.discriminatedUnion('status', [
+  z.object({
+    status: z.literal('accounts'),
+    repos: z.array(githubRepoSchema),
+    /** Repositories of a multi-repo folder without an origin on a GitHub host, by name. */
+    skipped: z.array(z.string()),
+    accounts: z.array(githubAccountSchema),
+    selected: z.string().nullable(),
+  }),
+  z.object({ status: z.literal('no-origin'), reason: z.string().min(1) }),
+  z.object({ status: z.literal('no-gh'), reason: z.string().min(1) }),
+  z.object({ status: z.literal('failed'), reason: z.string().min(1) }),
+])
+export type GithubAccountsStep = z.output<typeof githubAccountsStepSchema>
+
+/** What the account step puts into the draft. */
+export interface GithubChoice {
+  account: string | null
+  finish: WorkflowFinish
+}
+
+/**
+ * The choice for `login` (null: "No account"): the account and the finish its access allows. An
+ * account the step does not list, "No account" and every step without accounts give no account
+ * and the local finish: nobody checked the access then.
+ */
+export function githubChoice(step: GithubAccountsStep, login: string | null): GithubChoice {
+  const account = step.status === 'accounts' && login !== null ? step.accounts.find((each) => each.login === login) : undefined
+  return account === undefined ? { account: null, finish: 'local-green' } : { account: account.login, finish: account.finish }
+}
+
+const recordOf = (value: unknown): Record<string, unknown> => (typeof value === 'object' && value !== null && !Array.isArray(value) ? { ...(value as Record<string, unknown>) } : {})
+
+/** The draft with `github.account` and `workflow.finish` of the choice; every other field as it was. */
+export function withGithubAccount(draft: ProfileDraft, choice: GithubChoice): ProfileDraft {
+  const profile = { ...draft.profile }
+  profile.github = { ...recordOf(profile.github), account: choice.account }
+  profile.workflow = { ...recordOf(profile.workflow), finish: choice.finish }
+  return { ...draft, profile }
+}
+
+/** The account step of the folder `root` (main inspects it again); reads gh, writes nothing. */
+export const projectsConnectAccounts = invokeChannel('projects.connect.accounts', z.object({ root: z.string().min(1) }), githubAccountsStepSchema, 'local')
+
+const signInRef = { signInId: z.string().min(1).max(100) }
+const signInCells = z.number().int().positive().max(10_000)
+
+/**
+ * "Sign in with gh": main runs `gh auth login` — the same gh worfy runs — in a pseudo-terminal of
+ * its own, not in a Project's shell (there is no Project yet), and answers with the output so far.
+ * Opening a running sign-in attaches to it. Its output and exit come on the events below.
+ */
+export const projectsConnectSignIn = invokeChannel(
+  'projects.connect.signIn',
+  z.object({ ...signInRef, cols: signInCells, rows: signInCells }),
+  z.object({
+    replay: z.string(),
+    end: z.number().int().nonnegative(),
+    exited: z.object({ exitCode: z.number().int(), signal: z.number().int().nullable() }).nullable(),
+  }),
+  'local',
+)
+
+/** Keys the user typed into the sign-in terminal. */
+export const projectsConnectSignInInput = invokeChannel('projects.connect.signInInput', z.object({ ...signInRef, data: z.string().min(1).max(100_000) }), z.void(), 'local')
+
+/** The size of the sign-in terminal's view. */
+export const projectsConnectSignInResize = invokeChannel('projects.connect.signInResize', z.object({ ...signInRef, cols: signInCells, rows: signInCells }), z.void(), 'local')
+
+/** Ends the sign-in (the dialog closed it); ending one that is not running is not an error. */
+export const projectsConnectSignInClose = invokeChannel('projects.connect.signInClose', z.object(signInRef), z.void(), 'local')
+
+export const projectsConnectSignInOutput = eventChannel('projects.connect.signInOutput', z.object({ ...signInRef, data: z.string(), end: z.number().int().nonnegative() }), 'local')
+
+/** `gh auth login` ended: the step reads the accounts again. */
+export const projectsConnectSignInExit = eventChannel(
+  'projects.connect.signInExit',
+  z.object({ ...signInRef, exitCode: z.number().int(), signal: z.number().int().nullable() }),
+  'local',
+)
+
 declare module './channels' {
   interface IpcContract {
     'projects.pickFolder': typeof projectsPickFolder
@@ -102,5 +338,18 @@ declare module './channels' {
     'projects.hold': typeof projectsHold
     'projects.changed': typeof projectsChanged
     'projects.settings.changed': typeof projectsSettingsChanged
+    'projects.connect.inspect': typeof projectsConnectInspect
+    'projects.connect.draft': typeof projectsConnectDraft
+    'projects.connect.stop': typeof projectsConnectStop
+    'projects.connect.check': typeof projectsConnectCheck
+    'projects.connect.write': typeof projectsConnectWrite
+    'projects.connect.activity': typeof projectsConnectActivity
+    'projects.connect.accounts': typeof projectsConnectAccounts
+    'projects.connect.signIn': typeof projectsConnectSignIn
+    'projects.connect.signInInput': typeof projectsConnectSignInInput
+    'projects.connect.signInResize': typeof projectsConnectSignInResize
+    'projects.connect.signInClose': typeof projectsConnectSignInClose
+    'projects.connect.signInOutput': typeof projectsConnectSignInOutput
+    'projects.connect.signInExit': typeof projectsConnectSignInExit
   }
 }

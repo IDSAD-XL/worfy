@@ -8,8 +8,12 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
 ## Что происходит
 
 - qmd — локальный поиск по markdown (ADR, HANDOFF, Ticket-ы, память Claude). Агенты зовут его
-  через MCP-сервер. Работает ли qmd на Windows, не установлено. Ticket 01 (проверка фактов на живой
-  Windows) пробует его поставить и пишет исход в evidence.
+  через MCP-сервер. На ПК владельца (node 22.13.0) `npm install -g @tobilu/qmd@2.8.3` во временный
+  prefix — EXIT=0, `qmd --version` — `qmd 2.8.3 (facd35e)`; но `qmd status`, `qmd collection add` и
+  `qmd search` падают с EXIT=-1073741819 (0xC0000005, access violation) без вывода, и с кешем во
+  временной папке тоже. Нативные модули пакета — `better-sqlite3` и `tree-sitter-*` из
+  `prebuilds/win32-x64`, `@reflink/reflink-win32-x64-msvc`; какой падает, не установлено (evidence
+  Ticket-а 01, раздел 15). Сейчас на Windows qmd не работает: по Q21 Epic идёт на grep.
 - Три обёртки qmd — на zsh (`#!/bin/zsh` в первой строке `harness/bin/qmd-mcp`,
   `harness/bin/qmd-refresh`, `harness/bin/qmd-sync-main`). В Git Bash zsh нет. Места, которые
   держат их на macOS (строки на 4f983ef; E3 Ticket 17 эти файлы ещё меняет — перечитать):
@@ -18,7 +22,9 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
   - zsh: путь своего файла `${0:A:h}` (`qmd-refresh:36`, `qmd-sync-main:30`), glob `(N)`
     (`qmd-refresh:117`);
   - папки qmd — `$HOME/.cache/qmd` (`qmd-mcp:23`, `qmd-refresh:33`) и `$HOME/.config/qmd/index.yml`
-    (`qmd-refresh:34`). Где qmd держит индекс и модели на Windows, не установлено.
+    (`qmd-refresh:34`). На Windows первый `qmd status` создал `%USERPROFILE%\.cache\qmd`, а с
+    `XDG_CACHE_HOME` — `<XDG_CACHE_HOME>\qmd` (evidence Ticket-а 01, раздел 15); где qmd держит
+    модели, не установлено.
 - Test-ы: `harness/bin/tests/qmd.test.sh` зовёт скрипты через `zsh` (`:29`, `:38`, `:75`),
   `harness/bin/tests/harness-home.test.sh` — тоже (`:151`, `:185`, `:190`). Stub-ы в
   `qmd.test.sh` — `#!/bin/sh` (`:25`, `:46`, `:50`). `test/contract/harness-scripts.test.ts:40` требует `zsh` в PATH,
@@ -26,13 +32,15 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
   qmd-скрипты). zsh нужен и блокам skills: `harness/bin/tests/skill-blocks.test.sh:42`, `:53` гонят
   их под bash и под zsh. На Windows `qmd.test.sh` пропускает Ticket 14 (gate full на Windows) с
   причиной, которая называет этот Ticket.
-- E3 Ticket 17 (на 4f983ef открыт) приносит:
+- E3 Ticket 17 (на 4f983ef был открыт, на main `76f7ff8` и `8cabc65` влит — evidence Ticket-а 01, разделы 18 и
+  24) принёс:
   - `harness/.mcp.json` — сервер `qmd` с командой `${CLAUDE_PLUGIN_ROOT}/bin/qmd-mcp`, то есть по
     shebang;
   - Stop-hook `qmd-refresh --quiet` в `harness/hooks/hooks.json`;
   - `harness/bin/qmd-collections` на Node — коллекции по Profile, строка `update:` коллекции зовёт
-    `<папка plugin>/bin/qmd-sync-main <project>`; путь памяти Claude кодируется заменой `/` и `.` на
-    `-`;
+    `<папка plugin>/bin/qmd-sync-main <project>`; папку памяти Claude строит
+    `MATCH.replace(/[^A-Za-z0-9]/g, "-")` (`harness/bin/qmd-collections:270`) — тем же правилом, что
+    `projectDirName`;
   - `src/main/harness/qmd.ts` — установка `npm install -g @tobilu/qmd@2.8.3` с согласия, подсказка
     `brew install node`, модели с размером и согласием; без ответа «скачано» `qmd-mcp` не стартует;
   - строку qmd на экране первого запуска (E3 Ticket 19).
@@ -48,9 +56,10 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
     `spawn` без `shell: true` (ошибка `EINVAL`, исправление CVE-2024-27980).
   - По docs Claude Code локальному MCP-серверу через `npx` на Windows нужна обёртка `cmd /c`.
     Серверу с командой `node` — настоящим `.exe` — она не нужна.
-  - Как Claude Code кодирует путь `C:\a\b` в имя папки `projects`, проверяет Ticket 01; в worfy это
-    делает Ticket 08 (`src/main/claude-home/registry.ts:44`). `qmd-collections` строит путь памяти
-    Project так же.
+  - Claude Code кодирует путь `C:\a\b` в имя папки `projects` как `C--a-b` — каждый символ вне
+    `[A-Za-z0-9]` становится `-`, как `projectDirName` (evidence Ticket-а 01, раздел 12).
+    `qmd-collections:270` строит папку памяти тем же правилом, поэтому для `C:\…` она совпадёт с
+    папкой Claude Code.
   - Как qmd исполняет строку `update:` коллекции (через оболочку или нет), не установлено.
 
 ## Что делаем
@@ -74,10 +83,12 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
      переписываются так же, как E3 Ticket 17 переписал старые пути `update:`: копия `index.yml`
      рядом, имена и `pattern` не меняются.
    - Путь памяти Project в `qmd-collections` на Windows — та же кодировка, что в
-     `src/main/claude-home/registry.ts` после Ticket-а 08.
-3. **Windows: какой путь** (Q21). Исполнитель ставит qmd на ПК владельца модулем E3 (с согласия) и
-   проверяет `qmd --version`, `qmd search` и ответ `qmd mcp`. По этому и по evidence Ticket-а 01 —
-   один из двух путей. Какой и почему — в Итог.
+     `src/main/claude-home/registry.ts`: она уже совпадает (`qmd-collections:270`, evidence Ticket-а
+     01, раздел 12), правка нужна, только если Ticket 08 её изменит.
+3. **Windows: какой путь** (Q21). По evidence Ticket-а 01 (раздел 15) qmd 2.8.3 на ПК падает на
+   любой команде с индексом — ожидаемый путь Б. Исполнитель ставит qmd на ПК владельца модулем E3 (с
+   согласия) той версией, что тогда будет в `QMD_VERSION`, и проверяет `qmd --version`, `qmd search`
+   и ответ `qmd mcp`. Если падение осталось — путь Б; если ушло — путь А. Какой и почему — в Итог.
    - **А. qmd работает.** Установка с экрана первого запуска на Windows: `npm install -g` в
      окружении процесса worfy (Ticket 09), подсказка для node — `winget install OpenJS.NodeJS.LTS`.
      Модели — с размером и согласием, как на Mac. Коллекции — через `qmd-collections`. Session worfy
@@ -153,8 +164,9 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
 - `.github/workflows/ci.yml`
 
 `src/main/workflow/profile.ts` и `test/contract/workflow-profile.test.ts` меняются только на пути Б.
-`.github/workflows/ci.yml` — только комментарий шага «Install zsh». Пути файлов E3 — из плана E3
-Ticket-а 17; если E3 положил код иначе, Ticket 01 правит этот раздел.
+`.github/workflows/ci.yml` — только комментарий шага «Install zsh». Пути файлов E3 сверены с main
+`76f7ff8` и `8cabc65`: `harness/.mcp.json`, `harness/bin/qmd-collections`, `src/main/harness/qmd.ts` есть
+(evidence Ticket-а 01, разделы 18 и 24).
 
 Ticket последний перед приёмкой: Ticket-ы 06, 07, 13 и 14 к нему влиты, общих файлов в одной Wave
 нет.

@@ -29,7 +29,7 @@ import { layoutStore } from '../../src/main/layout/store'
 import { LinkSender } from '../../src/main/link/ipc-adapter'
 import { projectStore } from '../../src/main/projects/store'
 import { TerminalRegistry } from '../../src/main/terminal/pty'
-import { cardApiAsk } from '../../src/shared/ipc/card-api'
+import { cardApiConfirm } from '../../src/shared/ipc/card-api'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { limitsChanged } from '../../src/shared/ipc/limits'
 import { notifyOpen } from '../../src/shared/ipc/notify'
@@ -201,10 +201,10 @@ const modules: Record<string, ModuleLoader> = {
   './checks.ts': async () => checksHandlers(fakeChecks),
   './stand-ins.ts': async () =>
     [
-      // As src/main/ipc/card-api.ts does: a native dialog on the screen of the Project machine.
-      defineHandler(cardApiAsk, async () => {
+      // As src/main/ipc/card-api.ts does: a native dialog on the screen of the Machine called.
+      defineHandler(cardApiConfirm, async () => {
         await electron.showMessageBox()
-        return { sent: false, recipient: null }
+        return { send: false }
       }),
       defineHandler(trashList, async () => {
         calls.trashList += 1
@@ -365,7 +365,7 @@ describe('access on', () => {
   it('still refuses the `desktop` and `local` channels: no dialog, no OS shell, the active Project stays', async () => {
     setAccess(true)
     expect(await callB('projects.pickFolder')).toEqual(notOpen('projects.pickFolder'))
-    expect(await callB('cardApi.ask', { projectId: PROJECT, cardId: 'card-1', text: 'hi?' })).toEqual(notOpen('cardApi.ask'))
+    expect(await callB('cardApi.confirm', { cardTitle: 'Card', recipientLabel: 'the Orchestrator', message: 'hi?' })).toEqual(notOpen('cardApi.confirm'))
     expect(await callB('shell.openExternal', { url: 'https://example.com' })).toEqual(notOpen('shell.openExternal'))
     expect(await callB('shell.openInEditor', { projectId: PROJECT, path: 'HANDOFF.md' })).toEqual(notOpen('shell.openInEditor'))
     expect(electron.showOpenDialog).not.toHaveBeenCalled()
@@ -572,7 +572,7 @@ describe('round 2: a Linked machine works inside the Projects of the list only',
     })
   })
 
-  it('a root outside the Projects is refused for A on workflow, claude-home, bindings and checks; inside it answers; B\'s window as before', async () => {
+  it('a root outside the Projects is refused for A on workflow, claude-home, bindings and checks; inside it answers; B\'s window as before, except checks', async () => {
     setAccess(true)
     const sessionId = '77777777-7777-4777-8777-777777777777'
     for (const [channel, input] of [
@@ -601,7 +601,9 @@ describe('round 2: a Linked machine works inside the Projects of the list only',
     const windowCall = await windowIpc(['./claude-home.ts', './bindings.ts', './checks.ts'])
     expect(await windowCall('claudeHome.live', { projectRoot: outside }, window)).toMatchObject({ ok: true })
     expect(await windowCall('bindings.signals', { projectRoot: '/', sessionId }, window)).toMatchObject({ ok: true })
-    expect(await windowCall('checks.get', { root: outside, branches: [] }, window)).toMatchObject({ ok: true, value: { root: outside } })
+    // checks.get takes only a Project root or one of its repositories, from a window too (worfy-harness ticket 23).
+    expect(await windowCall('checks.get', { root: outside, branches: [] }, window)).toMatchObject({ ok: false, error: expect.stringMatching(/neither the root of a Project nor one of its repositories/) })
+    expect(await windowCall('checks.get', { root: repo, branches: [] }, window)).toMatchObject({ ok: true, value: { root: repo } })
   })
 
   it('projects.add and projects.remove from A leave B\'s active Project as it is; the active one is not removed; B\'s window switches as before', async () => {

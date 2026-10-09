@@ -14,8 +14,19 @@
 // and so do its Sessions: then the click opens a new window, whose renderer takes the note once
 // its overlay mounts.
 //
+// Linked machines (worfy-link ticket 13): the Machine of a Project decides what to notify about, as
+// above, and hands each note to two places — its own display, and the connected Linked machines it
+// shares its Projects with (src/main/link/notes.ts). Its own focus does not hold the note back from
+// them. Every Machine shows a note by its own rules (NoteDisplay): the focus of its own worfy
+// window, and its own 10 s per Session, counted by Machine and Session. Nothing of that passes
+// between Machines, and neither does the OS's Focus mode ("do not disturb"): each Machine shows the
+// banner of its own OS, so its own Focus applies to it. worfy has no switch of its own for it. A
+// click opens the Session on the Machine where it was made: that Machine's window rises and its
+// renderer opens the Session of the other Machine (src/renderer/canvas/overlays/NotificationTarget.tsx);
+// the Machine of the Project does nothing.
+//
 // Notifier holds the rules and takes its Electron parts as NotifyDeps, so tests pass their own
-// (test/unit/notify.test.ts). An unsigned build from `pnpm dev` may show "Electron" or nothing
+// (test/unit/notify.test.ts, test/unit/link-notify.test.ts). An unsigned build from `pnpm dev` may show "Electron" or nothing
 // (spec, risk 9); the packaged .app shows "worfy".
 import { basename } from 'node:path'
 import { app, BrowserWindow, Notification } from 'electron'
@@ -31,13 +42,27 @@ export const NOTIFY_INTERVAL_MS = 10_000
 
 const BODY_LIMIT = 160
 
-/** One notification: what it says and which Session a click opens. */
-export interface Note {
+/** A notification as the Machine of its Session decides on it, and as it goes to Linked machines. */
+export interface SharedNote {
   title: string
   body: string
   sessionId: string
   /** The Project root of a Session from the registry; null for a Session worfy runs. */
   projectRoot: string | null
+}
+
+/** One notification: what it says and which Session a click opens. */
+export interface Note extends SharedNote {
+  /** The Linked machine whose Session this is (worfy-link ticket 13); absent for a Session of this Machine. */
+  machineId?: string
+}
+
+/** Where the notes of this Machine's Sessions go besides its own display (src/main/link/notes.ts). */
+export interface NoteLink {
+  /** Hands a note this Machine decided on to the Linked machines that may see it. */
+  send(note: SharedNote): void
+  /** Calls `handler` with each note a Linked machine sends; answers the function that stops it. */
+  receive(handler: (machineId: string, note: SharedNote) => void): () => void
 }
 
 /** The Electron parts of notifications; tests pass their own. */
@@ -65,15 +90,65 @@ function inputLine(toolName: string, input: unknown): string {
   return JSON.stringify(input) ?? ''
 }
 
-export class Notifier {
-  /** When each Session last notified, by its current id. */
+/** The key of a Session in NoteDisplay: its Machine (empty for this one) and its id. */
+const keyOf = (machineId: string | undefined, sessionId: string): string => `${machineId ?? ''}\0${sessionId}`
+
+/**
+ * This Machine's rules for showing a note, whichever Machine decided on it: nothing while a worfy
+ * window of this Machine has focus, and at most one notification per Session in
+ * NOTIFY_INTERVAL_MS, counted by Machine and Session. A note held back by focus is not counted.
+ */
+export class NoteDisplay {
+  /** When each Session last showed a notification here, by keyOf. */
   private readonly last = new Map<string, number>()
+
+  constructor(private readonly deps: NotifyDeps) {}
+
+  show(note: Note): void {
+    if (this.deps.focused()) return
+    const now = this.deps.now()
+    const key = keyOf(note.machineId, note.sessionId)
+    const last = this.last.get(key)
+    if (last !== undefined && now - last < NOTIFY_INTERVAL_MS) return
+    this.last.set(key, now)
+    // A Linked machine's Sessions come and go without telling this one: forget what no longer counts.
+    for (const [each, at] of this.last) if (now - at >= NOTIFY_INTERVAL_MS && each !== key) this.last.delete(each)
+    this.deps.show(note, () => this.deps.open(note))
+  }
+
+  /** A Session of this Machine took its SDK id: its count goes with it. */
+  rename(from: string, to: string): void {
+    const last = this.last.get(keyOf(undefined, from))
+    if (last !== undefined) this.last.set(keyOf(undefined, to), last)
+    this.last.delete(keyOf(undefined, from))
+  }
+
+  /** A Session of this Machine closed. */
+  forget(sessionId: string): void {
+    this.last.delete(keyOf(undefined, sessionId))
+  }
+}
+
+export class Notifier {
+  /** Where this Machine shows notes. */
+  private readonly display: NoteDisplay
   /** The cwd of each Session worfy runs, from its system/init: the notification's title. */
   private readonly cwds = new Map<string, string>()
   /** The last status of each Session from the registry, by `<projectRoot>\0<sessionId>`. */
   private readonly external = new Map<string, LiveSession['status']>()
 
-  constructor(private readonly deps: NotifyDeps) {}
+  constructor(
+    deps: NotifyDeps,
+    /** The Linked machines that get this Machine's notes too; none when absent. */
+    private readonly link?: Pick<NoteLink, 'send'>,
+  ) {
+    this.display = new NoteDisplay(deps)
+  }
+
+  /** A note a Linked machine decided on (src/main/link/notes.ts): shown here by this Machine's rules, sent nowhere. */
+  received(machineId: string, note: SharedNote): void {
+    this.display.show({ title: note.title, body: note.body, sessionId: note.sessionId, projectRoot: note.projectRoot, machineId })
+  }
 
   /** One event of a Session worfy runs. */
   sessionEvent(sessionId: string, event: AgentEvent): void {
@@ -101,7 +176,7 @@ export class Notifier {
       case 'state':
         if (event.state === 'closed') {
           this.cwds.delete(sessionId)
-          this.last.delete(sessionId)
+          this.display.forget(sessionId)
         }
         return
       default:
@@ -132,21 +207,16 @@ export class Notifier {
   }
 
   private rename(from: string, to: string): void {
-    const last = this.last.get(from)
-    if (last !== undefined) this.last.set(to, last)
-    this.last.delete(from)
+    this.display.rename(from, to)
     const cwd = this.cwds.get(from)
     if (cwd !== undefined && !this.cwds.has(to)) this.cwds.set(to, cwd)
     this.cwds.delete(from)
   }
 
-  private notify(note: Note): void {
-    if (this.deps.focused()) return
-    const now = this.deps.now()
-    const last = this.last.get(note.sessionId)
-    if (last !== undefined && now - last < NOTIFY_INTERVAL_MS) return
-    this.last.set(note.sessionId, now)
-    this.deps.show(note, () => this.deps.open(note))
+  /** A note this Machine decided on: shown here by its own rules, and sent to the Linked machines whatever they are. */
+  private notify(note: SharedNote): void {
+    this.display.show(note)
+    this.link?.send(note)
   }
 }
 
@@ -160,7 +230,7 @@ const watched = new Set<number>()
 function holdFor(window: BrowserWindow, note: Note, pending: PendingOpens): void {
   const contents = window.webContents
   const id = contents.id
-  pending.hold(id, { sessionId: note.sessionId, projectRoot: note.projectRoot })
+  pending.hold(id, { sessionId: note.sessionId, projectRoot: note.projectRoot, ...(note.machineId === undefined ? {} : { machineId: note.machineId }) })
   if (watched.has(id)) return
   watched.add(id)
   contents.once('destroyed', () => {
@@ -171,7 +241,8 @@ function holdFor(window: BrowserWindow, note: Note, pending: PendingOpens): void
 
 /**
  * Raises worfy and opens the Session of a clicked notification: in the open window, or in a new
- * one when none is open (macOS keeps the app running without windows).
+ * one when none is open (macOS keeps the app running without windows). A note of a Linked
+ * machine's Session keeps its Machine: the window's renderer opens it on that Machine.
  */
 export function openNote(note: Note, pending: PendingOpens = pendingOpens, createWindow: () => BrowserWindow = createMainWindow): void {
   const existing = BrowserWindow.getAllWindows().find((each) => !each.isDestroyed())
@@ -211,19 +282,23 @@ export const electronNotifyDeps: NotifyDeps = {
 
 /**
  * Starts notifications for the app: every Session of `registry`, and the registry watchers the
- * windows run. Answers the function that stops them.
+ * windows run; with `link`, the notes go to the Linked machines too and theirs are shown here.
+ * Answers the function that stops them.
  */
 export function installNotifications(
   registry: Pick<SessionRegistry, 'observe'>,
   liveSessions: Set<(projectRoot: string, live: readonly LiveSession[]) => void>,
   deps: NotifyDeps = electronNotifyDeps,
+  link?: NoteLink,
 ): () => void {
-  const notifier = new Notifier(deps)
+  const notifier = new Notifier(deps, link)
   const stop = registry.observe((sessionId, event) => notifier.sessionEvent(sessionId, event))
   const onLive = (projectRoot: string, live: readonly LiveSession[]) => notifier.externalSessions(projectRoot, live)
   liveSessions.add(onLive)
+  const stopReceiving = link?.receive((machineId, note) => notifier.received(machineId, note))
   return () => {
     stop()
     liveSessions.delete(onLive)
+    stopReceiving?.()
   }
 }

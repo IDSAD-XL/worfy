@@ -1,7 +1,8 @@
 # 10 — Card Linked machine-а через worfy-card:// своей Machine; подтверждение там, где Card открыта
 
 Type: task
-Status: open
+Status: done — 2026-10-09, [PR #184](https://github.com/IDSAD-XL/worfy/pull/184)
+Branch: worfy-link/10
 Blocked by: 09
 Source: решения владельца 2026-10-07: Q3 (с другой машины можно всё, кроме действий, которым нужен рабочий стол машины Project-а), Q9 (один репозиторий на двух Machine — два Project-а), Q14 (системные диалоги — в UI машины, откуда вызваны; подтверждение Card — где она открыта); [spec.md](../spec.md); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md) — Machine и Linked machine; [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — несколько экранов на одном Project-е, диалоги на машине экрана; [ADR-0012](../../../docs/adr/0012-card-origin-worfy-card-scheme.md) — Card на своём origin схемы `worfy-card://`
 
@@ -147,4 +148,77 @@ Source: решения владельца 2026-10-07: Q3 (с другой маш
 
 ## Итог
 
-Заполняется при закрытии.
+Сделано в ветке `worfy-link/10`.
+
+- **Первый test падал так.** `test/contract/card-protocol.test.ts`, «reads the machine label of a Card of a Linked
+  machine» на `origin/main` (c51edce): `AssertionError: expected null to deeply equal { cardId: 'c1', …(3) }` —
+  `parseCardUrl('worfy-card://c1.0123abcd.89abcdef/index.html')` отклонял host из трёх частей.
+- **Адрес и origin.** Card Linked machine-а M — `worfy-card://<card id>.<project label>.<machine label>/<путь>`.
+  `parseCardUrl` (`src/main/cards/protocol.ts`) и `cardOriginOf` (`src/shared/cards/bridge.ts`) принимают обе формы;
+  `machineLabel` в ответе есть только у формы M. `allowFrameNavigation` сравнивает весь host. CSP окна не менялась.
+- **`document.domain` (review, раунд 1).** Card одного Project-а M делят сайт `<project label>.<machine label>`, но
+  встретиться на нём через `document.domain` не могут: iframe с атрибутом `sandbox` (`CARD_SANDBOX`, `CardNode.tsx`)
+  не может его ставить вовсе, какие бы allow-ключи у него ни были. Это проверяет e2e `linked-cards.spec.ts`: обе Card
+  B получают `SecurityError … sandboxed`, соседний кадр недоступен. Mutation testing: без `sandbox` у кадра test
+  красный; адрес из двух частей host-а (`<project label>-<machine label>`) этот test не различает — откат к форме
+  тикета. Заголовок `Origin-Agent-Cluster: ?1`, предложенный review, не поставлен: в Electron 44 окно, загрузившее
+  кадр с ним, закрывается (e2e card-runtime и card-api красные: «Target page … has been closed»).
+- **Machine label** — id Machine (UUID) без дефисов, в нижнем регистре: 32 hex (`machineLabel`,
+  `src/shared/cards/bridge.ts`), а не 8 hex, как предлагал тикет. Id у Linked machine-ов разные, поэтому label не
+  совпадёт ни у каких двух, какой бы id Machine себе ни выбрала; хэш на 8 hex такой подбор допускал (review, раунд 1).
+  Id не секрет: renderer и так знает id Machine-ов. **Решено без владельца, подтвердить.**
+- **Долг: хранилище Card M после отзыва.** `localStorage` и прочее хранилище origin-ов Card M остаётся в профиле
+  Electron и после отзыва связи; при новой связи с той же Machine (тот же id) Card увидит его снова. Чужой Machine
+  оно недоступно: label — её собственный id. Чистить при отзыве — `session.clearData` с перечнем origin-ов, а перечня
+  Card M у этой машины нет; не сделано.
+- **Кто строит адрес.** `CardNode` в окне на M переписывает `url` от M через `linkedCardUrl`; адрес M без label в
+  iframe не попадает (не адрес Card — Node пишет об этом вместо кадра).
+- **Второй источник файлов** — `src/main/cards/remote.ts` (`appLinkedCardSource`; `installCardRuntime` берёт его сам,
+  `src/main/index.ts` не менялся). Новый канал `cards.file {projectLabel, cardId, path, offset, length}` (`project`):
+  M находит папку (`store.locate`) и проверяет путь (`resolveCardFile`), отвечает расширением, размером и байтами
+  base64 — HTML без runtime. Свой main ставит свой runtime, заголовки `CARD_HEADERS` и Content-Type выбирает сам по
+  расширению (расширение не из списка — 404). Ответы: нет Linked machine-а с label или нет файла — 404; не GET/HEAD —
+  405; больше 20 МБ (`CARD_FILE_LIMIT_BYTES` = `FILE_COPY_LIMIT_BYTES`) — 413; M недоступна — 502. Всё с теми же
+  заголовками.
+- **Файл кусками по 4 МБ** (`CARD_FILE_CHUNK_BYTES`). Каждый кусок несёт размер и mtime файла; если они или расширение
+  разошлись между кусками (файл переписан, даже того же размера), файл читается заново. Предпосылка тикета «байты base64 одним ответом» не сходится с
+  пределом одного сообщения связи: `LINK_MAX_PAYLOAD` = 16 МБ (`src/main/link/messages.ts`), а 20 МБ в base64 — около
+  27 МБ, и такое сообщение закрыло бы всё соединение. Куски держат предел 20 МБ без правки модуля связи; цена — до
+  шести вызовов на большой файл. Файл, изменившийся между кусками, читается заново один раз. **Решено без владельца,
+  подтвердить.**
+- **`session.ask` — три канала вместо `cardApi.ask`.** `cardApi.askPrepare` и `cardApi.askFinish` (`project`) — на
+  машине Project-а (`CardAsk.prepare`/`finish`, `src/main/cards/ask.ts`); `cardApi.confirm` (`local`) —
+  `dialog.showMessageBox` на окне, которое спросило, с прежними кнопками и текстом (`confirmCardMessage`,
+  `src/main/ipc/card-api.ts`). Получатель без человека — отказ и `refused_dialog` в askPrepare, до диалога. Ждущий
+  вопрос снимается после askFinish, при `destroyed` клиента, который спросил (окно или клиент связи), и через 10 минут
+  (`ASK_WAIT_MS`). askFinish принимает только тот же клиент и тот же Project; перед отправкой askFinish ещё раз
+  проверяет, не стал ли получатель Session без человека (диалог мог быть открыт минуты). Окно после «Cancel» или сбоя диалога
+  само зовёт `askFinish(send: false)`, поэтому Card может спросить сразу снова. `window.worfy` и
+  `CardBridgeBackend.ask` не менялись.
+- **Test-ы вне следа.** Уход `cardApi.ask` потребовал правок `test/unit/link-access.test.ts` (список `desktop`) и
+  `test/contract/link-access.test.ts` (заглушка диалога и отказ теперь на `cardApi.confirm`, `local`).
+- **Проверки.** contract: `test/contract/card-protocol.test.ts`, `test/contract/card-bridge.test.ts`,
+  `test/contract/card-api.test.ts`; e2e: `test/e2e/card-api.spec.ts` (свой Project, без правок — зелёный на новом
+  пути), `test/e2e/linked-cards.spec.ts` (новый). Mutation testing: `cardApi.confirm` с пометкой `project` — e2e
+  красный; без снятия вопроса по `destroyed` и по сроку — contract красный; без сравнения machine label в
+  `allowFrameNavigation` — contract красный. Раунд 2: без сравнения mtime между кусками, без повторной проверки
+  получателя в askFinish, с label из 8 знаков id вместо 32 — contract красный; без `sandbox` у кадра — e2e красный.
+- **Первый кадр Card B в окне A (review, раунд 1: один красный прогон из четырёх при load ~7).** Причину паузы
+  воспроизвести не удалось: в 5 прогонах трёх spec-ов подряд (`linked-cards`, `card-api`, `card-runtime`, load ~5)
+  кадр готов за 0,02–0,04 s после появления iframe и около 0,2 s после клика. Первый кадр Card B ждёт явно 15 s, как
+  `epic-frame.spec.ts`: путь идёт через два приложения и связь. Если кадр не готов, ошибка test-а называет адрес кадра
+  и ответ протокола на него из main A (404 или 502 видны сразу, а не как пустой кадр).
+- **Снимки** (A показывает Project B; светлая и тёмная тема): Card B в окне A —
+  [светлая](../evidence/10-card-of-linked-machine-light.png), [тёмная](../evidence/10-card-of-linked-machine-dark.png);
+  после «Send» из Card B — [светлая](../evidence/10-card-of-linked-machine-sent-light.png),
+  [тёмная](../evidence/10-card-of-linked-machine-sent-dark.png). Сам диалог — системный `NSAlert`: Playwright снимает
+  только страницу, поэтому его текст и кнопки проверены через подменённый `dialog.showMessageBox`, а не снимком.
+
+### Gate оркестратора (2026-10-09)
+
+- Круг 1 — `REJECTED` ([комментарий в PR #184](https://github.com/IDSAD-XL/worfy/pull/184#issuecomment-6076474121)): [med] нестабильный `test/e2e/linked-cards.spec.ts` (три spec Card подряд при load ~7 — кадр Card B пуст 5 s, 1 красный из 4); [low] склейка кусков при перезаписи файла с тем же размером; [low] общий «сайт» Card одного Project-а M через `document.domain`; [low] 32-битная метка машины и localStorage после отвязки; [low] повторная проверка «получатель без человека» в `finish`.
+- Круг 2 — `VERIFIED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/184#issuecomment-6077125692)), доработка `e01ec2a..b76c086`: явное ожидание первого кадра 15 s с диагностикой (три spec вместе — 3 из 3 зелёные у ревьюера, 5 из 5 у исполнителя); `mtimeMs` в каждом куске; метка машины — UUID Machine; повторная проверка в `finish`. Находка про `document.domain` опровергнута проверяемым фактом: кадр Card всегда с `sandbox` (`CardNode.tsx:34`), без него `linked-cards.spec.ts:262` красный. Долги:
+  - [low] код Card машины B в окне A видит UUID B в `location.origin` и может отправить его по https; id и так объявлен в TXT-записи Bonjour и не является учётными данными. Исправление при нужде — ключевой hash id.
+  - [low] `src/main/cards/protocol.ts:315-321` — `stat` до `read` внутри куска: перезапись файла после `stat` последнего куска даёт склейку с тем же `mtimeMs`. Исправление: сравнивать `mtimeMs` и после чтения.
+  - [low] хранилище origin-ов Card Linked machine не чистится при отвязке.
+- Мерж: ветка уже на `741fad5`, `GATE_SCOPE=all gate full` — код 0 (результат из кэша Gate для того же коммита `b76c086`, прогнанного исполнителем под замком), CI зелёный, CLEAN, влит `4ecf3f0`.
