@@ -1,7 +1,7 @@
 # 24 — Подключение Project-а: папка, режим, черновик Profile, форма, запись на машину и регистрация в Gate
 
 Type: task
-Status: claimed — 2026-10-09
+Status: done — 2026-10-09, [PR #176](https://github.com/IDSAD-XL/worfy/pull/176)
 Blocked by: 19, 22
 Source: решения владельца 2026-10-07, вопросы Q10, Q11', Q16, Q17, Q23–Q29; [spec.md](../spec.md); [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) — Profile целиком на машине, Full mode и Silent mode, Workflow folder, worktree новых Project-ов вне репозитория; [ADR-0045](../../../docs/adr/0045-one-ticket-one-repository.md) — Project над несколькими репозиториями всегда в Silent mode; [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) — состояние Harness в `~/.claude/worfy-harness/`; [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md) — коллекции qmd по Profile; [ADR-0018](../../../docs/adr/0018-project-is-a-workflow-folder.md) — Project — папка с workflow; [docs/roadmap.md](../../../docs/roadmap.md), раздел E3
 
@@ -367,3 +367,14 @@ Ticket-ами Wave. Ticket 25 продолжает те же файлы подк
 - не проверено: что настоящий Claude Code оставляет ключ `allowManagedPermissionRulesOnly` из
   `managedSettings` SDK. Без него allow-правила пользователя могут пропустить `Read`/`Glob`/`Grep` мимо
   `canUseTool` — других инструментов у Session нет (`disallowedTools`), так что это ничего не открывает.
+
+### Gate оркестратора (2026-10-09)
+
+- Круг 1 — `REJECTED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/176#issuecomment-6074571476)): нет отката шага qmd; список «читающих» команд Bash пропускал пишущие; три [low] формы.
+- Круг 2 — `REJECTED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/176#issuecomment-6075059618)): новые high — `git ls-remote --upload-pack` и `sort -o` проходили список; снимки ошибки поля в фокусе; [med] откат `profile.json` при сбое `qmd update`. Ticket — `blocked`, к владельцу.
+- Решение владельца 2026-10-09 ([комментарий](https://github.com/IDSAD-XL/worfy/pull/176#issuecomment-6079208406)): вариант (б) — черновик без Bash, факты считает `project-connect`; worktree под `<repo>/.claude/worktrees/`, у Silent — в `.git/info/exclude`.
+- Круг владельца — `VERIFIED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/176#issuecomment-6079843699)), diff `0f5df32..407f1d7`. Долги:
+  - [low] `harness/bin/project-connect:129` — `withoutCredentials` вырезает только `user:pass@`; токен в query-строке URL remote (`?access_token=…`) доходит до черновика.
+  - [low] `src/main/projects/connect.ts:245` — Read, Glob, Grep черновика не ограничены папкой (например, `~/.ssh`); так было и до круга, писать и выходить в сеть нечем.
+  - [low] `harness/skills/connect-project/SKILL.md:39` — в терминале skill просит пользователя запустить `--facts`, а шаги `:92`, `:95` запускают `project-connect` сами.
+- Мерж: rebase на `8092d7b`, `GATE_SCOPE=all gate full` — код 0 с первого прогона, CI зелёный, CLEAN, влит `119425a`.

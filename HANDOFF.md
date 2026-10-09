@@ -1,12 +1,12 @@
-# Передача контекста — снимок на 2026-10-09 (UTC), main @ df8e870
+# Передача контекста — снимок на 2026-10-09 (UTC), main @ 119425a
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3: Harness — правила, skills, agents и скрипты владельца — становится plugin-ом worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–23 (23 — PR #178, #181), `epic-status` — 23/27; 27 — бесплатная часть влита, Ticket `blocked`.
-- `worfy-harness` 24 (подключение Project-а: форма «Connect project», `bin/project-connect`) — круг по решению владельца 2026-10-09 (PR #176): черновик Profile-а без Bash (Read, Glob, Grep), worktree под `.claude/worktrees/`, у Silent — в `.git/info/exclude`.
+- `worfy-harness` (E3: Harness — правила, skills, agents и скрипты владельца — становится plugin-ом worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–24 (23 — PR #178, #181; 24 — PR #176), `epic-status` — 24/27; 27 — бесплатная часть влита, Ticket `blocked`.
+- `worfy-harness` 24 (подключение Project-а: «Connect project», `bin/project-connect`) влит 2026-10-09 (PR #176) после круга владельца: черновик Profile-а без Bash (Read, Glob, Grep), факты — `project-connect --facts`, worktree под `.claude/worktrees/`, у Silent — в `.git/info/exclude`.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 18. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`; работа — только в локальной ветке `wip/worfy-week-14` («Итог» Ticket-а 14).
 - Stable copy и plugin `worfy` — сборка `df8e870` (2026-10-09). Откат машины на plugin — «Итог» `worfy-harness` 16.
-- `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–10, 12–15, `epic-status` — 14/16; Wave 5 — 10, 12, 13 (PR #183–#185). 11 `blocked` до мержа `worfy-harness` 24 (его диалог «Connect project»), потом — в open.
+- `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–10, 12–15, `epic-status` — 14/16; Wave 5 — 10, 12, 13 (PR #183–#185). 11 снова open: диалог «Connect project» влит.
 - `worfy-windows` (полный порт под Windows; spec, ADR 0054–0056): влиты 01 (PR #172, факты с Windows-ПК) и 02 (PR #177: `.gitattributes`, `postinstall` и `pnpm test` без POSIX-синтаксиса). Следом 08, 09, 11 (Session на Windows-ПК; gate full — на Mac); 03–07 ждут закрытия E3.
 
 ## Ждёт владельца
@@ -45,7 +45,7 @@
 
 ## Дальше
 
-- `worfy-harness` 24 — после решения владельца, следом 25 и `worfy-link` 11; приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot. Платная часть 27 — после ответа про git.
+- Следом `worfy-harness` 25 и `worfy-link` 11; приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot. Платная часть 27 — после ответа про git.
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
 - Ждут условия (проверит агент): упор в Limits (`worfy-daily` 05), наблюдатель касаний (`worfy-daily` 04), workflow-скрипт в Autopilot (`worfy-daily` 29, 17), бейджи у Ticket-а с открытым PR (`worfy-mvp` 17, `worfy-week` 01).
 - Неделя работы владельца из Stable copy (условие 4 E2 и цель `worfy-week`): каждый дефект и каждое вмешательство человека — Ticket `worfy-week`, следующий номер 19.
