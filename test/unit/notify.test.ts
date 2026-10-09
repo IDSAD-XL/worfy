@@ -180,6 +180,98 @@ describe('Notifier', () => {
   })
 })
 
+describe('the Machine of a Project and its Linked machines (worfy-link ticket 13)', () => {
+  /** The harness with a link that records what this Machine sends to its Linked machines. */
+  function linked() {
+    let focused = false
+    let now = 1_000_000
+    const sent: Note[] = []
+    const shown: { note: Note; click: () => void }[] = []
+    const opened: Note[] = []
+    const notifier = new Notifier(
+      { focused: () => focused, show: (note, click) => shown.push({ note, click }), open: (note) => opened.push(note), now: () => now },
+      { send: (note) => sent.push(note) },
+    )
+    return {
+      notifier,
+      sent,
+      shown,
+      opened,
+      focus: (value: boolean) => {
+        focused = value
+      },
+      wait: (ms: number) => {
+        now += ms
+      },
+    }
+  }
+
+  it('with its window focused the result is not shown here but goes to the Linked machines; without focus, both', () => {
+    const h = linked()
+    h.notifier.sessionEvent('s1', init('/Users/test/alpha'))
+    h.focus(true)
+    h.notifier.sessionEvent('s1', result())
+    expect(h.shown).toEqual([])
+    expect(h.sent).toEqual([{ title: 'alpha', body: 'All tests pass.', sessionId: 's1', projectRoot: null }])
+    h.focus(false)
+    h.notifier.sessionEvent('s1', permission())
+    expect(h.shown.map((each) => each.note)).toEqual([{ title: 'alpha', body: 'Needs permission: Bash git push', sessionId: 's1', projectRoot: null }])
+    expect(h.sent).toHaveLength(2)
+    // A registry Session's note goes the same way.
+    h.notifier.externalSessions('/r', [live('e1', 'busy')])
+    h.notifier.externalSessions('/r', [live('e1', 'idle')])
+    expect(h.sent[2]).toEqual({ title: '07', body: 'Finished its turn', sessionId: 'e1', projectRoot: '/r' })
+  })
+
+  it('sends every note it decides on: the 10 s are counted by each Machine that shows it', () => {
+    const h = linked()
+    h.notifier.sessionEvent('s1', result())
+    h.notifier.sessionEvent('s1', result())
+    expect(h.shown).toHaveLength(1)
+    expect(h.sent).toHaveLength(2)
+    // An interrupted turn stays quiet everywhere.
+    h.notifier.sessionEvent('s1', result({ interrupted: true }))
+    expect(h.sent).toHaveLength(2)
+  })
+
+  it('shows a received note by its own rules, with its own 10 s per Machine and Session, and sends it nowhere', () => {
+    const h = linked()
+    const note = { title: 'beta', body: 'Done', sessionId: 's1', projectRoot: null }
+    // Held back by focus: not counted.
+    h.focus(true)
+    h.notifier.received('machine-a', note)
+    h.focus(false)
+    h.notifier.received('machine-a', note)
+    expect(h.shown.map((each) => each.note)).toEqual([{ ...note, machineId: 'machine-a' }])
+    // The same Session id of this Machine and of another Linked machine are counted apart.
+    h.notifier.sessionEvent('s1', result())
+    h.notifier.received('machine-c', note)
+    expect(h.shown.map((each) => each.note.machineId)).toEqual(['machine-a', undefined, 'machine-c'])
+    h.notifier.received('machine-a', note)
+    expect(h.shown).toHaveLength(3)
+    h.wait(NOTIFY_INTERVAL_MS)
+    h.notifier.received('machine-a', note)
+    expect(h.shown).toHaveLength(4)
+    // Only this Machine's own note went to the link.
+    expect(h.sent.map((each) => each.sessionId)).toEqual(['s1'])
+    // A click opens it with its Machine.
+    h.shown[0]?.click()
+    expect(h.opened).toEqual([{ ...note, machineId: 'machine-a' }])
+  })
+
+  it('a closed Session of this Machine leaves the count of a Linked machine\'s Session with the same id alone', () => {
+    const h = linked()
+    const note = { title: 'beta', body: 'Done', sessionId: 's1', projectRoot: null }
+    h.notifier.received('machine-a', note)
+    h.notifier.sessionEvent('s1', result())
+    h.notifier.sessionEvent('s1', { type: 'state', state: 'closed', error: null } as AgentEvent)
+    h.notifier.received('machine-a', note)
+    expect(h.shown).toHaveLength(2)
+    h.notifier.sessionEvent('s1', result())
+    expect(h.shown).toHaveLength(3)
+  })
+})
+
 describe('Electron notifications', () => {
   it('shows an Electron Notification only when no window has focus', () => {
     electron.shown.length = 0
@@ -355,6 +447,21 @@ describe('a click on a notification', () => {
     openNote({ ...note, sessionId: 's3' }, pending, vi.fn() as never)
     openNote({ ...note, sessionId: 's4' }, pending, vi.fn() as never)
     expect(pending.take(3)).toEqual({ sessionId: 's4', projectRoot: null })
+    electron.windows = []
+  })
+})
+
+describe('a click on a note of a Linked machine', () => {
+  it('keeps the note with its Machine for the raised window', () => {
+    const pending = new PendingOpens()
+    const open = fakeWindow(8)
+    electron.windows = [open.window]
+    openNote({ title: 'beta', body: 'Done', sessionId: 's1', projectRoot: null, machineId: 'machine-a' }, pending, vi.fn() as never)
+    expect(open.sent).toEqual([{ channel: 'worfy:notify.open', payload: {} }])
+    expect(pending.take(8)).toEqual({ sessionId: 's1', projectRoot: null, machineId: 'machine-a' })
+    // A null Machine is this one: the note reads as one of this Machine.
+    pending.hold(8, { sessionId: 's2', projectRoot: null, machineId: null })
+    expect(pending.take(8)).toEqual({ sessionId: 's2', projectRoot: null })
     electron.windows = []
   })
 })

@@ -7,9 +7,10 @@ import { installDevDockIcon } from './dock-icon'
 import { bundledHarnessVersion } from './harness/bundled'
 import { liveSessionListeners } from './ipc/claude-home'
 import { appUrlMatcher, registerIpc } from './ipc/index'
+import { appNoteLink } from './link/notes'
 import { startAppLink, stopLinkOnQuit } from './link/service'
 import { installAppMenu } from './menu'
-import { installNotifications } from './notify'
+import { electronNotifyDeps, installNotifications } from './notify'
 import { checkDataFolder, inStep, reportStartupFailure } from './startup-failure'
 import { dataRoot, setBuildKind } from './storage/paths'
 import { createMainWindow, installWebPolicy, rendererEntry } from './window'
@@ -103,8 +104,9 @@ function start(): void {
       inStep('installCardRuntime', () => installCardRuntime((host) => cardStore().locate(host)))
       // Before the first window: its creation is what opens the active Project's Orchestrator.
       inStep('startOrchestrators', () => startOrchestrators())
-      // macOS notifications when a Session ends its turn or asks for permission (ticket 21).
-      inStep('installNotifications', () => installNotifications(sharedRegistry(), liveSessionListeners))
+      // macOS notifications when a Session ends its turn or asks for permission (ticket 21), here
+      // and on the Linked machines once the link has started (worfy-link ticket 13).
+      inStep('installNotifications', () => installNotifications(sharedRegistry(), liveSessionListeners, electronNotifyDeps, appNoteLink()))
       // A page that fails to load is reported by createMainWindow itself, as step loadURL or
       // loadFile, and only for this first window; windows opened later only log such a failure.
       inStep('createMainWindow', () => createMainWindow({ firstOfStart: true }))

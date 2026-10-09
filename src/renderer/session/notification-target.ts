@@ -5,8 +5,17 @@
 // A window a click just opened knows no Node yet: its Projects, Canvas and views arrive after the
 // note. So a note waits here (NOTE_WAIT_MS at most) until its Session can be found, and the
 // overlay (canvas/overlays/NotificationTarget.tsx) tries again whenever what it knows changes.
+//
+// A note of a Linked machine's Session (worfy-link ticket 13) carries that Machine. A window shows
+// the Projects of one Machine (src/renderer/projects/useProjects.ts), so a note of another Machine
+// than the window's is not looked up here: the overlay asks that Machine which of its Projects the
+// Session is in (projectOfNote), loads the window again on that Project of that Machine — a
+// window shows a Canvas, and so this overlay, only with a Project — and the note waits across that
+// load in the window's session storage (carryNote).
+import { z } from 'zod'
 import { create } from 'zustand'
-import type { NotifyOpen } from '../../shared/ipc/notify'
+import { notifyOpenSchema, type NotifyOpen } from '../../shared/ipc/notify'
+import { invokeOn } from '../ipc'
 import { orchestratorViewOf } from '../canvas/nodes/orchestrator-view'
 import { sessionNodeId } from '../claude-home/session-nodes'
 import type { OpenedSession } from './navigation'
@@ -15,8 +24,17 @@ import { sessionNodeViewOf } from './node-sessions'
 /** How long a note waits for its Session to become known in this window. */
 export const NOTE_WAIT_MS = 10_000
 
-/** The Session view to open for a notification, or null when this window knows no Node for it. */
-export function notificationTarget(note: NotifyOpen, project: { id: string; path: string } | undefined): OpenedSession | null {
+/** The Machine of a note's Session: null — this Machine. */
+export const noteMachine = (note: NotifyOpen): string | null => note.machineId ?? null
+
+/**
+ * The Session view to open for a notification, or null when this window knows no Node for it.
+ * `machine` is the window's Machine (null — this one): a note of another Machine finds nothing
+ * here, though a Session of the same id may run on this one. `project` is the Project a Session from
+ * the registry is looked for in.
+ */
+export function notificationTarget(note: NotifyOpen, project: { id: string; path: string } | undefined, machine: string | null = null): OpenedSession | null {
+  if (noteMachine(note) !== machine) return null
   const node = sessionNodeViewOf(note.sessionId)
   if (node !== undefined) return { nodeId: node.nodeId, projectId: node.projectId }
   const orchestrator = orchestratorViewOf(note.sessionId)
@@ -43,4 +61,71 @@ export function holdNote(note: NotifyOpen, now: number = Date.now()): void {
 /** Lets go of `pending` (opened, or waited too long), unless a newer note replaced it. */
 export function dropNote(pending: PendingNote): void {
   if (usePendingNote.getState().pending === pending) usePendingNote.setState({ pending: null })
+}
+
+/**
+ * The Project of Linked machine `machine` a note's Session is in: the Project with the note's root
+ * for a Session from the registry, else the one whose Session Node runs it. When none is known
+ * (an Orchestrator, a Session closed meanwhile) the Machine's active Project, where the window
+ * keeps looking; null when the Machine does not answer or has no Project.
+ */
+export async function projectOfNote(note: NotifyOpen, machine: string): Promise<string | null> {
+  const list = await invokeOn(machine, 'projects.list')
+  if (!list.ok) {
+    console.error(`a notification of Machine ${machine}: projects.list failed:`, list.error)
+    return null
+  }
+  const { projects, activeId } = list.value
+  const root = note.projectRoot
+  if (root !== null) return projects.find((project) => project.path === root)?.id ?? activeId
+  for (const project of projects) {
+    const views = await invokeOn(machine, 'sessions.views', { projectId: project.id })
+    const runs = views.ok && views.value.views.some((view) => view.state !== 'closed' && (view.sessionId === note.sessionId || view.sdkSessionId === note.sessionId))
+    if (runs) return project.id
+  }
+  return activeId
+}
+
+/** Where a note waits while its window loads again on another Machine. */
+const CARRIED_KEY = 'worfy.notify.carried'
+
+const carriedSchema = z.object({ note: notifyOpenSchema, until: z.number() })
+
+/** The window's session storage: it outlives a load of the page in the same window, and only that. */
+function storage(): Storage | undefined {
+  try {
+    return globalThis.sessionStorage
+  } catch {
+    return undefined
+  }
+}
+
+/** Keeps `pending` across the load of this window that comes next (with the time it may still wait). */
+export function carryNote(pending: PendingNote): void {
+  try {
+    storage()?.setItem(CARRIED_KEY, JSON.stringify({ note: pending.note, until: pending.until }))
+  } catch (error) {
+    console.error('a notification could not wait across the load of the window', error)
+  }
+}
+
+/** The note carried across the last load of this window, once; null when none or it waited too long. */
+export function takeCarriedNote(now: number = Date.now()): PendingNote | null {
+  const store = storage()
+  let text: string | null
+  try {
+    text = store?.getItem(CARRIED_KEY) ?? null
+    store?.removeItem(CARRIED_KEY)
+  } catch {
+    return null
+  }
+  if (text === null) return null
+  let value: unknown
+  try {
+    value = JSON.parse(text)
+  } catch {
+    return null
+  }
+  const parsed = carriedSchema.safeParse(value)
+  return parsed.success && parsed.data.until > now ? parsed.data : null
 }
