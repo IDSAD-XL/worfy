@@ -8,8 +8,9 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
 ## Что происходит
 
 - **`.gitattributes` нет.** Все файлы индекса — с LF: на main `76f7ff8` `git ls-files --eol` даёт
-  1088 `i/lf`, 191 `i/-text` (двоичные) и 3 `i/none`. На ПК владельца `core.autocrlf=true` (в system
-  и в global), и после клона все 1088 текстовых файлов — `w/crlf`, `git status` пуст (evidence
+  1088 `i/lf`, 191 `i/-text` (двоичные) и 3 `i/none`; на main `08e8256` — 1105 `i/lf`, 207 `i/-text`
+  и 3 `i/none`. На ПК владельца `core.autocrlf=true` (в system и в global), и после клона все
+  текстовые файлы — `w/crlf`, `git status` пуст (evidence
   Ticket-а 01, раздел 03).
   - bash Git for Windows скрипт с CRLF выполняет без ошибок — и через `bash файл`, и по shebang;
     `epic-status` с CRLF дал EXIT=0 и валидный JSON (evidence, разделы 18 и 21). В других оболочках

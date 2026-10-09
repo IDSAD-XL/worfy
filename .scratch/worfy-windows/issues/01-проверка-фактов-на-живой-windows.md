@@ -194,7 +194,8 @@ Evidence — [`../evidence/01-факты-windows.md`](../evidence/01-факты-
   test-ов по main `08e8256` (разделы 05, 13, 18).
 - 05 — `epic-board` падает на ENOENT при вызове соседа; shebang в Git Bash работает, поэтому
   перехода skills на явный `node` нет; `cygpath` есть; symlink — EPERM; `silent-check` (Node, из PR
-  #150) приписан этому Ticket-у — те же вызовы соседей и `HOME`; PR #150 влит и правил те же файлы;
+  #150) приписан этому Ticket-у — те же вызовы соседей и `HOME`, пункты «Готово, когда» (grep `HOME`,
+  `silent-mode.test.sh`, exit 0 на ПК); PR #150 влит и правил те же файлы;
   E3 Ticket 23 трогает `reader.ts` и `profile.ts` (разделы 05, 07, 13, 18, 19, 22).
 - 06 — perl есть, `jq` нет; исход `preflight` на ПК без Profile; `cygpath` есть; PR #150 влит и правил
   `preflight` (разделы 05, 06, 18).

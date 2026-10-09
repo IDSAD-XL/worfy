@@ -11,21 +11,24 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
   - `inject-rules.sh` (46 строк) отдаёт часть правил `rules/<часть>.md` как `additionalContext` и
     подставляет в текст путь plugin вместо `${CLAUDE_PLUGIN_ROOT}` (`:31-45`). Без `jq` он ничего не
     внедряет и пишет одну строку в stderr (`:29`).
-  - `session-start.sh` (109 строк) подмешивает в Session правила Profile, индекс уроков, карту Epic-а
-    и напоминание о `/retro`. `session-end.sh` (37 строк) дописывает строку в
-    `<Profile>/state/pending-retro.log`. Оба зовут `bin/profile` по shebang (`session-start.sh:37`,
-    `:44`; `session-end.sh:23`, `:30`) и разбирают ответ `jq` (`session-start.sh:41`, `:45-46`,
-    `:108`; `session-end.sh:27`, `:31-32`). Домашняя папка — из `HOME` (`session-start.sh:55`).
-    Переменные для test-ов: `CLAUDE_PROFILE_BIN`, `CLAUDE_GATE_CONFIG`, `CLAUDE_PROFILES_DIR`,
+  - `session-start.sh` (126 строк на main `08e8256`, после PR #150) подмешивает в Session режим
+    работы Project-а (Silent mode и `attribution: off`, `:88-98` — добавил PR #150), правила Profile,
+    индекс уроков, карту Epic-а и напоминание о `/retro`. Зовёт `bin/profile` по shebang (`:40`,
+    `:47`) и разбирает JSON `jq` (`:44` — `cwd` из stdin, `:48-49` — поля Profile, `:125` — ответ
+    hook-а). Домашняя папка — из `HOME` (`:60`).
+  - `session-end.sh` (37 строк, PR #150 его не менял) дописывает строку в
+    `<Profile>/state/pending-retro.log`; зовёт `bin/profile` по shebang (`:23`, `:30`) и разбирает
+    ответ `jq` (`:27`, `:31-32`).
+  - Переменные для test-ов обоих: `CLAUDE_PROFILE_BIN`, `CLAUDE_GATE_CONFIG`, `CLAUDE_PROFILES_DIR`,
     `CLAUDE_SESSION_SECTION_CAP`.
   - `stop.sh` (197 строк) держит конец хода кодом 2, пока у worktree красный маркер Gate
     (`:156-183`), и один раз за Session говорит модели о «не проверено». Тег worktree — `shasum`
     (`:73`, `:75`). Время рождения транскрипта — `stat` в синтаксисе BSD или GNU по `uname`
     (`:77-85`); время 0 значит «не известно» (`:99-100`). Путь репозитория для реестра —
     `cd … && pwd` (`:43`), в Git Bash это `/c/…`.
-  - Все, кроме `inject-rules.sh`, ищут node в nvm и `/opt/homebrew/bin` (`session-start.sh:28-34`,
+  - Все, кроме `inject-rules.sh`, ищут node в nvm и `/opt/homebrew/bin` (`session-start.sh:30-36`,
     `session-end.sh:14-20`, `stop.sh:29-35`).
-- **`harness/hooks/hooks.json`** (строки — main `76f7ff8`) зовёт скрипты по shebang:
+- **`harness/hooks/hooks.json`** (строки — main `08e8256`; PR #150 файл не менял) зовёт скрипты по shebang:
   `inject-rules.sh` (`:9`, `:18`, `:56`), `session-start.sh` (`:27`), `gh-token-env.sh` (`:36`),
   `stop.sh` (`:89`), `session-end.sh` (`:118`), `bin/worktree-lock` (`:45`, `:98`, `:127`),
   `bin/qmd-refresh` (`:107`, его переводит Ticket 15), `guard.mjs` (`:139`). Gate (`:67`, `:78`)
@@ -43,9 +46,10 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
   - переменная, которую hook `SessionStart` пишет в `CLAUDE_ENV_FILE`, доходит до Bash tool, но не до
     окружения других hook-ов (на этом стоит `gh-token-env`).
 - **jq в Git Bash ПК нет** (evidence, раздел 05): `inject-rules.sh` на Windows сейчас ничего не
-  внедряет (`:29`), а `session-start.sh`, `session-end.sh` и `gh-token-env.sh` не разбирают ответы
-  `profile`. `stop.sh` не зовёт ни `jq`, ни `profile`, ему нужен `shasum` — а `/usr/bin/core_perl`, где
-  он лежит, в PATH процесса hook-а нет (evidence, разделы 05 и 18).
+  внедряет (`:29`), а `session-start.sh` и `session-end.sh` не разбирают ответы `profile`.
+  `gh-token-env.sh` зовёт `jq` один раз (`:34`): читает `.cwd` из stdin hook-а; без `jq` берёт
+  `$PWD`, а Profile читает `profile --field github.account` (`:37`) без `jq`. `stop.sh` не зовёт ни
+  `jq`, ни `profile`, ему нужен `shasum` из `/usr/bin/core_perl` (evidence, разделы 05 и 18).
 - **`harness/package.json`** нарочно без `"type"` (`:2`): у скриптов `bin` без расширения Node сам
   определяет, CommonJS это или ES-модуль. Файл с расширением `.mjs` — ES-модуль при любом
   `package.json`.

@@ -12,8 +12,8 @@ Ticket-ы 02–17 («evidence Ticket-а 01, раздел N»). Разделы 16
 
 Отступления от тикета (решения владельца на 2026-10-09):
 
-- Шаг 4 (опись Harness) сделан на текущем main `76f7ff8`, а не после закрытия E3: E3 открыт
-  (Ticket-ы 22–26). Пункт «Готово, когда» про опись после закрытия E3 не отмечен.
+- Шаг 4 (опись Harness) сделан на текущем main `08e8256`, а не после закрытия E3: E3 открыт
+  (Ticket-ы 23–26). Пункт «Готово, когда» про опись после закрытия E3 не отмечен.
 - Harness на ПК не ставился, `%USERPROFILE%\.claude` не правился. Hooks проверены в песочнице:
   тестовый plugin в `%TEMP%\worfy-01\hook-plugin`, `claude -p --plugin-dir … --no-session-persistence`.
 - На ПК уже стояли Git, node (через nvm-windows), pnpm, gh, VS Build Tools и Python. Владелец решил:
@@ -78,8 +78,20 @@ $ file harness/bin/epic-status
 harness/bin/epic-status: Bourne-Again shell script, … with CRLF line terminators
 ```
 
+После rebase на main `08e8256` (ветка этого Ticket-а; файл evidence не считается, один Ticket этого
+Epic-а записан с LF):
+
+```
+$ git ls-files --eol | grep -v 'scratch/worfy-windows/evidence/' | awk '{print $1, $2}' | sort | uniq -c
+    207 i/-text w/-text
+   1104 i/lf w/crlf
+      1 i/lf w/lf
+      3 i/none w/none
+```
+
 Вывод: `core.autocrlf=true` (в system — установщик, в global — сам владелец), `core.longpaths=true`.
-Все 1088 текстовых файлов индекса в рабочем дереве — с CRLF, `git status` при этом пуст.
+Все текстовые файлы индекса в рабочем дереве — с CRLF (1088 на `76f7ff8`), `git status` при этом
+пуст.
 
 ### 04. Какие bash и sh первыми в PATH PowerShell
 
@@ -107,21 +119,23 @@ PowerShell не виден.
 
 ### 05. Что есть в Git Bash; BSD-флаги stat и date
 
-Цикл шёл в Bash tool этой Session — Git Bash, `BASH=/usr/bin/bash 5.2.26(1)-release`, login-PATH с
-`/usr/bin/vendor_perl` и `/usr/bin/core_perl`. Строки `<имя> -> <путь>` и `<none>` — формат самого
-цикла (`for c in …; do p=$(command -v $c); echo "$c -> ${p:-<none>} (rc=$?)"; done`).
+Команды шли в Bash tool этой Session (Git Bash). Вывод — как снят; PATH сокращён в середине (там
+папки программ Windows), начало и конец — как есть.
 
 ```
 $ uname -a
 MINGW64_NT-10.0-26200 … 3.4.10-87d57229.x86_64 2024-02-14 x86_64 Msys
-$ for c in jq perl shasum sha1sum sha256sum realpath zsh; do command -v $c; done
-jq -> <none>
-perl -> /usr/bin/perl
-shasum -> /usr/bin/core_perl/shasum
-sha1sum -> /usr/bin/sha1sum
-sha256sum -> /usr/bin/sha256sum
-realpath -> /usr/bin/realpath
-zsh -> <none>
+$ echo "BASH=$BASH $BASH_VERSION"; echo "PATH=$PATH"
+BASH=/usr/bin/bash 5.2.26(1)-release
+PATH=/c/Users/Alexey/bin:/mingw64/bin:/usr/local/bin:/usr/bin:/bin:/mingw64/bin:/usr/bin:/c/Users/Alexey/bin:… (папки Windows) …:/mingw64/bin:/c/Program Files/GitHub CLI:/c/WINDOWS/system32:/c/WINDOWS:/c/WINDOWS/System32/Wbem:/c/WINDOWS/System32/WindowsPowerShell/v1.0:/c/WINDOWS/System32/OpenSSH:/c/Users/Alexey/AppData/Local/Programs/cursor/resources/app/bin:/usr/bin/vendor_perl:/usr/bin/core_perl
+$ for c in jq perl shasum sha1sum sha256sum realpath zsh; do p=$(command -v $c); echo "$c -> ${p:-<none>} (rc=$?)"; done
+jq -> <none> (rc=1)
+perl -> /usr/bin/perl (rc=0)
+shasum -> /usr/bin/core_perl/shasum (rc=0)
+sha1sum -> /usr/bin/sha1sum (rc=0)
+sha256sum -> /usr/bin/sha256sum (rc=0)
+realpath -> /usr/bin/realpath (rc=0)
+zsh -> <none> (rc=1)
 $ stat -f %m package.json
 stat: cannot read file system information for '%m': No such file or directory
   File: "package.json" … (сведения о файловой системе)
@@ -142,8 +156,25 @@ TMPDIR=[/c/Users/Alexey/AppData/Local/Temp]
 
 Вывод: в Git Bash 2.45.1 есть perl, shasum, sha1sum, realpath, cygpath; нет jq и zsh. BSD
 `stat -f %m` и `date -v-14d` кончаются exit 1; GNU-формы работают. `TMPDIR` в Bash tool задан.
-`shasum` лежит в `/usr/bin/core_perl`: в login-PATH Bash tool эта папка есть, а в PATH процесса
-hook-а — нет (там из Git только `mingw64\bin`, `usr\bin`, `bin`, `cmd`; раздел 13).
+`shasum` лежит в `/usr/bin/core_perl`: в PATH Bash tool эта папка есть (в конце). В PATH
+node-процесса hook-а, который записал `probe.mjs` (раздел 13), её нет:
+
+```
+PS> node %TEMP%\worfy-01\hookpath.cjs %TEMP%\worfy-01\hook-plugin\probe-out\node-form-50240.json
+hook PATH entries: 68
+core_perl in hook PATH: false
+vendor_perl in hook PATH: false
+Git entries:
+  C:\Program Files\Git\mingw64\bin
+  C:\Program Files\Git\usr\bin
+  C:\Program Files\Git\bin
+  C:\Program Files\Git\cmd
+  C:\Program Files\Git\mingw64\bin
+EXIT=0
+```
+
+PATH bash-hook-а, запущенного по shebang, проба не записала: найдёт ли `stop.sh` `shasum` в
+команде hook-а, не установлено.
 
 ### 06. Пути у git и Git Bash
 
@@ -488,65 +519,65 @@ pnpm --config.verify-deps-before-run=false dev       окно открылось
 electron renderer process at http://localhost:5173/`, `starting electron app...`. Владелец: «открылось
 привычное окно, всё в порядке, передо мной First run». Снимка нет; процесс остановлен этой Session.
 
-Упавшие файлы `pnpm test` на main `08e8256` — из JSON-отчёта vitest (`assertionResults` со `status: "failed"` по файлу; причина — первая строка первой ошибки, самая частая в файле). Таблица собрана скриптом `%TEMP%\worfy-01\jsonsum.cjs`; прежняя таблица по логу `76f7ff8` считала часть test-ов дважды (сумма 740 при сводке 660) и заменена этой.
+Упавшие файлы `pnpm test` на main `08e8256` — из JSON-отчёта vitest (`assertionResults` со `status: "failed"` по файлу; третий столбец — самая частая первая строка ошибки в файле, как есть; четвёртый — разбор, у каждого назван источник). Таблица собрана скриптом `%TEMP%\worfy-01\jsonsum.cjs`; прежняя таблица по логу `76f7ff8` считала часть test-ов дважды (сумма 740 при сводке 660) и заменена этой.
 
-| Файл | Упало | Причина (первая строка ошибки) |
-|---|---|---|
-| test/contract/actions.test.ts | 4 | `AssertionError: expected { ok: false, …(1) } to strictly equal { ok: true, value: { …(3) } }` |
-| test/contract/agent-attachments.test.ts | 26 | `agent.start: invalid input` (`✖ cwd must be an absolute path` — путь `C:\…`) |
-| test/contract/agent-controls.test.ts | 37 | `agent.start: invalid input` |
-| test/contract/agent-session.test.ts | 20 | `agent.start: invalid input` |
-| test/contract/autopilot-journal.test.ts | 1 | `AssertionError: expected false to be true // Object.is equality` |
-| test/contract/autopilot.test.ts | 9 | `AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true, value: { …(13) } }` |
-| test/contract/bindings.test.ts | 7 | `AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true, value: { …(2) } }` |
-| test/contract/canvas-tools.test.ts | 6 | `AssertionError: expected null to be 'demo-0a1b2c3d' // Object.is equality` |
-| test/contract/card-bridge.test.ts | 1 | `AssertionError: expected null to be 'session-b' // Object.is equality` |
-| test/contract/card-last-editor.test.ts | 4 | `AssertionError: expected null to be 'c1' // Object.is equality` |
-| test/contract/card-protocol.test.ts | 7 | `AssertionError: expected false to be true // Object.is equality` |
-| test/contract/claude-home-registry.test.ts | 39 | `AssertionError: expected false to be true // Object.is equality` |
-| test/contract/claude-home-subagents.test.ts | 29 | `Error: call failed: claudeHome.subagents: call rejected, it came from an untrusted frame (file:///Applications/worfy.…` |
-| test/contract/clients.test.ts | 10 | `AssertionError: expected false to be true // Object.is equality` |
-| test/contract/docs.test.ts | 19 | `Error: docs.open: call rejected, it came from an untrusted frame (file:///Applications/worfy.app/Contents/Resources/a…` |
-| test/contract/first-run-checks.test.ts | 28 | `Error: EPERM: operation not permitted, symlink '<клон>\test\fixtures\first-run-tools\claude' -> '%TEMP%\…` |
-| test/contract/github-prs.test.ts | 26 | `AssertionError: expected false to be true // Object.is equality` |
-| test/contract/harness-drift.test.ts | 9 | `Error: spawnSync /bin/sh ENOENT` |
-| test/contract/harness-evals.test.ts | 41 | `bash` из PATH — WSL: в тексте ошибки сообщение WSL о выключенной виртуализации |
-| test/contract/harness-install.test.ts | 11 | `kind: "error"`, `step: "marketplace add"`: `Claude Code not found at …\stub\claude (ENOENT)` — stub без `.exe` |
-| test/contract/harness-migrate.test.ts | 54 | `SyntaxError: Bad escaped character in JSON at position 1877 (line 91 column 28)` |
-| test/contract/harness-plugin.test.ts | 1 | `AssertionError: expected [ …(115) ] to deeply equal ArrayContaining{…}` |
-| test/contract/harness-qmd.test.ts | 11 | `AssertionError: expected [] to deeply equal [ Array(1) ]` |
-| test/contract/harness-scripts.test.ts | 22 | `bash is not installed` — 5 проверок PATH (`bash`, `zsh`, `jq`, `git`, `node`: `sh` нет в PATH) и 17 прогонов `.test.sh` |
-| test/contract/ipc.test.ts | 7 | `AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true, value: { echoed: 'hi' } }` |
-| test/contract/layout-store.test.ts | 37 | `Error: layout.apply failed: layout.apply: call rejected, it came from an untrusted frame (file:///Applications/worfy.…` |
-| test/contract/limits.test.ts | 3 | `AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true, …(1) }` |
-| test/contract/link-access.test.ts | файл | `EPERM: operation not permitted, symlink '%TEMP%\…' -> '%TEMP%\…` |
-| test/contract/link-server.test.ts | 1 | `AssertionError: expected 1006 to be 1009 // Object.is equality` |
-| test/contract/main-ipc-wiring.test.ts | 5 | `AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true, …(1) }` |
-| test/contract/make-icons.test.ts | 1 | sha256 `icon.svg` и `mark.svg` не совпали с `build/icons.json` — в рабочем дереве SVG с CRLF |
-| test/contract/node-pty.test.ts | 1 | `File not found:` — спавнит `/bin/echo` |
-| test/contract/permissions.test.ts | 15 | `agent.start: invalid input` |
-| test/contract/projects.test.ts | 26 | `Error: projects.add failed: projects.add: call rejected, it came from an untrusted frame (file:///Applications/worfy.…` |
-| test/contract/shell.test.ts | 9 | `Error: EPERM: operation not permitted, symlink '%TEMP%\…' -> 'C:\Users\Alexey\AppData\Local\Temp` |
-| test/contract/startup-failure.test.ts | 8 | `AssertionError: expected 'Step: checkDataFolder (checking the d…' to contain 'worfy\'s data folder: /tmp/worfy-star…'` |
-| test/contract/statusline-bridge.test.ts | 8 | `AssertionError: expected { status: null, …(2) } to match object { status: +0 }` |
-| test/contract/terminal.test.ts | 20 | `terminal.open failed: File not found:` — `/bin/zsh`, `/bin/sh` |
-| test/contract/trash.test.ts | 14 | `Error: trash.put failed: trash.put: call rejected, it came from an untrusted frame (file:///Applications/worfy.app/Co…` |
-| test/contract/viewport-store.test.ts | 8 | `AssertionError: expected { ok: false, …(1) } to deeply equal { ok: false, error: StringMatching{…} }` |
-| test/contract/web-policy.test.ts | 2 | `AssertionError: expected false to be true // Object.is equality` |
-| test/contract/workflow-profile.test.ts | 20 | `no profile script at \h\bin\…` вместо `/h/bin/…` |
-| test/contract/workflow-reader.test.ts | 25 | `AssertionError: expected { code: 'not-found', …(1) } to be null` |
-| test/unit/agent-executable.test.ts | 2 | `AssertionError: expected '\Applications\worfy.app\Contents\Reso…' to be '/Applications/worfy.app/Contents/Reso…' // O…` |
-| test/unit/agent-options.test.ts | 1 | `AssertionError: expected { plugin_worfy_qmd: { …(2) } } to deeply equal { plugin_worfy_qmd: { …(2) } }` |
-| test/unit/attachments.test.ts | 5 | `AssertionError: expected false to be true // Object.is equality` |
-| test/unit/build-version.test.ts | 2 | `Error: EPERM, Permission denied: \\?\%TEMP%\… '\\?\%TEMP%\…` |
-| test/unit/canvas.test.tsx | файл | `EPERM: operation not permitted, symlink '<клон>\.claude' -> '%TEMP%\…'` |
-| test/unit/epic-layout.test.ts | 1 | `Error: Test timed out in 5000ms.` |
-| test/unit/gate-state.test.ts | 12 | `Error: spawnSync /bin/sh ENOENT` |
-| test/unit/json-file.test.ts | 1 | `AssertionError: expected [Function] to throw an error` |
-| test/unit/link-caller.test.ts | файл | `EPERM: operation not permitted, symlink '%TEMP%\…' -> '%TEMP%\…` |
-| test/unit/paths.test.ts | 6 | `AssertionError: expected 'C:\tmp\worfy-data' to be '/tmp/worfy-data' // Object.is equality` |
-| test/unit/session-rail-discovery.test.tsx | файл | `EPERM: operation not permitted, symlink '<клон>\.claude' -> '%TEMP%\…'` |
-| test/unit/shell-discovery.test.tsx | файл | `EPERM: operation not permitted, symlink '<клон>\.claude' -> '%TEMP%\…'` |
+| Файл | Упало | Первая строка ошибки (JSON) | Разбор (источник) |
+|---|---|---|---|
+| test/contract/actions.test.ts | 4 | `AssertionError: expected { ok: false, …(1) } to strictly equal { ok: true, value: { …(3) } }` |  |
+| test/contract/agent-attachments.test.ts | 26 | `Error: agent.start: invalid input` | JSON: в тексте ошибки `✖ cwd must be an absolute path` — 26 из 26 |
+| test/contract/agent-controls.test.ts | 37 | `Error: agent.start: invalid input` | JSON: `✖ cwd must be an absolute path` — 37 из 37 |
+| test/contract/agent-session.test.ts | 20 | `Error: agent.start: invalid input` | JSON: `✖ cwd must be an absolute path` — 19 из 20 |
+| test/contract/autopilot-journal.test.ts | 1 | `AssertionError: expected false to be true // Object.is equality` |  |
+| test/contract/autopilot.test.ts | 9 | `AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true, value: { …(13) } }` |  |
+| test/contract/bindings.test.ts | 7 | `AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true, value: { …(2) } }` |  |
+| test/contract/canvas-tools.test.ts | 6 | `AssertionError: expected null to be 'demo-0a1b2c3d' // Object.is equality` |  |
+| test/contract/card-bridge.test.ts | 1 | `AssertionError: expected null to be 'session-b' // Object.is equality` |  |
+| test/contract/card-last-editor.test.ts | 4 | `AssertionError: expected null to be 'c1' // Object.is equality` |  |
+| test/contract/card-protocol.test.ts | 7 | `AssertionError: expected false to be true // Object.is equality` |  |
+| test/contract/claude-home-registry.test.ts | 39 | `AssertionError: expected false to be true // Object.is equality` |  |
+| test/contract/claude-home-subagents.test.ts | 29 | `Error: call failed: claudeHome.subagents: call rejected, it came from an untrusted frame (file:///Applicati…` |  |
+| test/contract/clients.test.ts | 10 | `AssertionError: expected false to be true // Object.is equality` |  |
+| test/contract/docs.test.ts | 19 | `Error: docs.open: call rejected, it came from an untrusted frame (file:///Applications/worfy.app/Contents/R…` |  |
+| test/contract/first-run-checks.test.ts | 28 | `Error: EPERM: operation not permitted, symlink '<клон>\test\fixtures\first-run-tools\claude' -> '%TEMP%\…` |  |
+| test/contract/github-prs.test.ts | 26 | `AssertionError: expected false to be true // Object.is equality` |  |
+| test/contract/harness-drift.test.ts | 9 | `Error: spawnSync /bin/sh ENOENT` |  |
+| test/contract/harness-evals.test.ts | 41 | `AssertionError:   5   C 4 0 ; > A L   7 0 ? C A B 8 B L   W S L 2 ,   B 0 :   : 0 :   = 0   M B > <   : > <…` | JSON, по первым строкам: 8 из 41 — сообщение WSL2 в UTF-16, как у `C:\Windows\System32\bash.exe` (раздел 04); 4 — stub `claude --version failed: spawnSync…`; остальные — разные ожидания (`expected 1 to be +0`, `tool_used`, `[main]`) |
+| test/contract/harness-install.test.ts | 11 | `AssertionError: expected { outcome: 'done', status: { …(4) } } to deeply equal { outcome: 'done', status: {…` | лог `76f7ff8`, diff ожидания: `kind: "error"`, `step: "marketplace add"`, `Claude Code not found at …\stub\claude (ENOENT)` |
+| test/contract/harness-migrate.test.ts | 54 | `SyntaxError: Bad escaped character in JSON at position 1877 (line 91 column 28)` |  |
+| test/contract/harness-plugin.test.ts | 1 | `AssertionError: expected [ …(115) ] to deeply equal ArrayContaining{…}` |  |
+| test/contract/harness-qmd.test.ts | 11 | `AssertionError: expected [] to deeply equal [ Array(1) ]` |  |
+| test/contract/harness-scripts.test.ts | 22 | `AssertionError: bash is not installed: expected null to be +0 // Object.is equality` | названия test-ов в JSON: 5 проверок `<cmd> is on PATH` (`bash`, `zsh`, `jq`, `git`, `node`) и 17 прогонов `<файл> exits 0 with an empty HOME` |
+| test/contract/ipc.test.ts | 7 | `AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true, value: { echoed: 'hi' } }` |  |
+| test/contract/layout-store.test.ts | 37 | `Error: layout.apply failed: layout.apply: call rejected, it came from an untrusted frame (file:///Applicati…` |  |
+| test/contract/limits.test.ts | 3 | `AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true, …(1) }` |  |
+| test/contract/link-access.test.ts | файл | `EPERM: operation not permitted, symlink '%TEMP%\…' -> '%TEMP%\…` |  |
+| test/contract/link-server.test.ts | 1 | `AssertionError: expected 1006 to be 1009 // Object.is equality` |  |
+| test/contract/main-ipc-wiring.test.ts | 5 | `AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true, …(1) }` |  |
+| test/contract/make-icons.test.ts | 1 | `AssertionError: expected { …(2) } to deeply equal { …(2) }` | лог `76f7ff8`, diff ожидания: другие sha256 у `icon.svg` и `mark.svg` (в рабочем дереве SVG с CRLF) |
+| test/contract/node-pty.test.ts | 1 | `Error: File not found:` | название test-а в JSON: `spawns /bin/echo in a pseudo-terminal…` |
+| test/contract/permissions.test.ts | 15 | `Error: agent.start: invalid input` | JSON: `✖ cwd must be an absolute path` — 15 из 15 |
+| test/contract/projects.test.ts | 26 | `Error: projects.add failed: projects.add: call rejected, it came from an untrusted frame (file:///Applicati…` |  |
+| test/contract/shell.test.ts | 9 | `Error: EPERM: operation not permitted, symlink '%TEMP%\…' -> 'C:\Users\Alexey\AppData\Local\Temp` |  |
+| test/contract/startup-failure.test.ts | 8 | `AssertionError: expected 'Step: checkDataFolder (checking the d…' to contain 'worfy\'s data folder: /tmp/wo…` |  |
+| test/contract/statusline-bridge.test.ts | 8 | `AssertionError: expected { status: null, …(2) } to match object { status: +0 }` |  |
+| test/contract/terminal.test.ts | 20 | `Error: terminal.open failed: File not found:` |  |
+| test/contract/trash.test.ts | 14 | `Error: trash.put failed: trash.put: call rejected, it came from an untrusted frame (file:///Applications/wo…` |  |
+| test/contract/viewport-store.test.ts | 8 | `AssertionError: expected { ok: false, …(1) } to deeply equal { ok: false, error: StringMatching{…} }` |  |
+| test/contract/web-policy.test.ts | 2 | `AssertionError: expected false to be true // Object.is equality` |  |
+| test/contract/workflow-profile.test.ts | 20 | `AssertionError: expected 'there is no profile script at \h\bin\…' to match /no profile script at \/h\/bin\/…` |  |
+| test/contract/workflow-reader.test.ts | 25 | `AssertionError: expected { code: 'not-found', …(1) } to be null` |  |
+| test/unit/agent-executable.test.ts | 2 | `AssertionError: expected '\Applications\worfy.app\Contents\Reso…' to be '/Applications/worfy.app/Contents/R…` |  |
+| test/unit/agent-options.test.ts | 1 | `AssertionError: expected { plugin_worfy_qmd: { …(2) } } to deeply equal { plugin_worfy_qmd: { …(2) } }` |  |
+| test/unit/attachments.test.ts | 5 | `AssertionError: expected false to be true // Object.is equality` |  |
+| test/unit/build-version.test.ts | 2 | `Error: EPERM, Permission denied: \\?\%TEMP%\… '\\?\%TEMP%\…` |  |
+| test/unit/canvas.test.tsx | файл | `EPERM: operation not permitted, symlink '<клон>\.claude' -> '%TEMP%\…'` |  |
+| test/unit/epic-layout.test.ts | 1 | `Error: Test timed out in 5000ms.` |  |
+| test/unit/gate-state.test.ts | 12 | `Error: spawnSync /bin/sh ENOENT` |  |
+| test/unit/json-file.test.ts | 1 | `AssertionError: expected [Function] to throw an error` |  |
+| test/unit/link-caller.test.ts | файл | `EPERM: operation not permitted, symlink '%TEMP%\…' -> '%TEMP%\…` |  |
+| test/unit/paths.test.ts | 6 | `AssertionError: expected 'C:\tmp\worfy-data' to be '/tmp/worfy-data' // Object.is equality` |  |
+| test/unit/session-rail-discovery.test.tsx | файл | `EPERM: operation not permitted, symlink '<клон>\.claude' -> '%TEMP%\…'` |  |
+| test/unit/shell-discovery.test.tsx | файл | `EPERM: operation not permitted, symlink '<клон>\.claude' -> '%TEMP%\…'` |  |
 
 Сумма по столбцу «Упало» — 662, как в сводке vitest.
 
@@ -652,7 +683,7 @@ harness/bin/preflight jq=5 profile=3 shasum=0
 | `harness/hooks/inject-rules.sh` | bash | hooks.json (`SessionStart`, `SubagentStart`) | не запускался; зовёт `jq` — в Git Bash его нет (раздел 05) | 04 |
 | `harness/hooks/session-start.sh` | bash | hooks.json (`SessionStart`) | не запускался; зовёт `jq` и `profile` | 04 |
 | `harness/hooks/session-end.sh` | bash | hooks.json (`SessionEnd`) | не запускался; зовёт `jq` и `profile` | 04 |
-| `harness/hooks/stop.sh` | bash | hooks.json (`Stop`) | не запускался; `jq` и `profile` не зовёт, `shasum` — да (в PATH hook-а `core_perl` нет, раздел 05) | 04 |
+| `harness/hooks/stop.sh` | bash | hooks.json (`Stop`) | не запускался; `jq` и `profile` не зовёт, `shasum` — да (в PATH node-процесса hook-а `core_perl` нет; для bash-hook-а не установлено, раздел 05) | 04 |
 | `harness/hooks/gh-token-env.sh` | bash | hooks.json (`SessionStart`, E3 Ticket 18) | не запускался; зовёт `jq` и `profile` | 04 |
 | `harness/hooks/worktree-create.sh` | bash | никто: в `hooks.json` не зарегистрирован (E3 Ticket 22) | не запускался; зовёт `jq` и `profile` | не портируется до решения E3 Ticket-а 24 (упомянут в 04) |
 | `harness/bin/epic-status` | bash | skills, worfy (`reader.ts`), `preflight` | `bash harness/bin/epic-status --json` → EXIT=0, 56705 байт JSON; по shebang `./harness/bin/epic-status --json` → EXIT=0 | 05 |

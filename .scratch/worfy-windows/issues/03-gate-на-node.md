@@ -8,7 +8,7 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 ## Что происходит
 
 - **Gate сейчас** — `harness/hooks/gate.sh`, 465 строк bash. Его зовут hooks `TaskCompleted` и
-  `TeammateIdle` (`harness/hooks/hooks.json:67`, `:78` на main `76f7ff8`; evidence Ticket-а 01,
+  `TeammateIdle` (`harness/hooks/hooks.json:67`, `:78` на main `08e8256`; evidence Ticket-а 01,
   раздел 18), а агенты и skills — командой
   `bash "${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh" fast`. Gate:
   - выбирает пакеты по diff от merge-base с origin/main (`gate.sh:246-290`);
@@ -23,7 +23,8 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 - **Что в `gate.sh` не работает на Windows:**
   - PATH зашит под Mac: nvm, `/opt/homebrew/bin`, `~/.local/share/pnpm` (`:95-102`);
   - `shasum` считает тег worktree (`:113`) и отпечатки кэша (`:305`, `:306`, `:390`). В Git Bash
-    ПК владельца `shasum` есть (`/usr/bin/core_perl/shasum`), `jq` — нет (evidence Ticket-а 01,
+    ПК владельца `shasum` есть в PATH Bash tool (`/usr/bin/core_perl/shasum`), а в PATH node-процесса
+    hook-а `core_perl` нет (для bash-hook-а не проверено); `jq` — нет (evidence Ticket-а 01,
     раздел 05);
   - путь репозитория для реестра (`canon`, `:112`) берётся через `cd … && pwd`. В Git Bash `pwd`
     печатает `/c/Users/…` (evidence, раздел 06). Node на Windows такого пути не понимает, и
@@ -66,7 +67,7 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
   `harness-home.test.sh` (`:80`, `:105`, `:170`, `:192`, `:199-201`, `:242`);
   `test/unit/gate-state.test.ts:94-97` (читает исходник `gate.sh`, чтобы узнать слова вердикта);
   `test/contract/harness-plugin.test.ts:68`; `test/e2e/packaged.spec.ts:173`. Строки — на
-  `4f983ef`; опись скриптов Harness на main `76f7ff8` — evidence Ticket-а 01, раздел 18. Перед
+  `4f983ef`; опись скриптов Harness на main `08e8256` — evidence Ticket-а 01, раздел 18. Перед
   началом повторить `git grep -n 'gate\.sh'` на свежем main: E3 ещё открыт.
 - **Изоляция test-ов.** `test/contract/harness-scripts.test.ts:50-62` гоняет test-ы Harness с `HOME`
   во временной папке. Node `os.homedir()` на Mac читает `HOME`, а на Windows — `USERPROFILE`: на ПК

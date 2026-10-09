@@ -60,7 +60,7 @@ Source: решения владельца 2026-10-07: Q22 (неподписан�
   выключен: `VerifiedAndReputablePolicyState = 0` (evidence Ticket-а 01, раздел 02); сверка в окне
   Windows Security — за владельцем.
 - После 4f983ef `electron-builder.yml` меняли E3 Ticket 15 (#134, мост Limits в ресурсах сборки) и
-  worfy-link Ticket 02 (#158); `scripts/install-stable.sh` не менялся; `package.json` — пять коммитов,
+  worfy-link Ticket 02 (#158); `scripts/install-stable.sh` не менялся; `package.json` — четыре коммита,
   строки сдвинулись (evidence Ticket-а 01, раздел 24). Строки выше — main 4f983ef. Перед началом
   перечитать оба файла и `package.json` на свежем main.
 
