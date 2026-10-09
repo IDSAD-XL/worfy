@@ -1,7 +1,7 @@
 # 15 — Один Autopilot на Epic и origin на все Linked machine-ы
 
 Type: task
-Status: open
+Status: blocked — VERIFIED во втором круге (PR #168), не влит: gate full красный только по таймаутам contract-test-ов вне диффа; ждёт решения владельца
 Blocked by: 08
 Source: решения владельца 2026-10-07: Q13 (второй Autopilot на тот же Epic с тем же `origin` на другой Machine не стартует, обход — явный) и Q9 (у Project ровно одна Machine; один репозиторий на двух Machine — два Project-а) ([spec.md](../spec.md)); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md)
 

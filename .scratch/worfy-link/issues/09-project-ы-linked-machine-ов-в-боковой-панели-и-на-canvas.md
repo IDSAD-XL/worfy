@@ -1,7 +1,7 @@
 # 09 — Project-ы Linked machine-ов в боковой панели и на Canvas
 
 Type: task
-Status: open
+Status: blocked — VERIFIED во втором круге (PR #169), не влит: gate full красный только по таймаутам contract-test-ов вне диффа; ждёт решения владельца
 Blocked by: 08
 Source: решения владельца 2026-10-07: Q2 (обе машины работают одновременно, общее состояние живое, у каждого экрана своё), Q3 (с другой машины можно всё, кроме действий, которым нужен рабочий стол машины Project-а; выбор машины), Q9 (у Project ровно одна Machine; один репозиторий на двух Machine — два Project-а), Q10 (список слева — Project-ы всех Linked machine-ов по машинам с состоянием); [spec.md](../spec.md); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md) — Machine, Linked machine, связь по коду, доступ выключен по умолчанию; [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — несколько экранов на одном Project-е
 

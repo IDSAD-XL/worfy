@@ -1,4 +1,4 @@
-# Передача контекста — снимок на 2026-10-08 (UTC), main @ 61839d9
+# Передача контекста — снимок на 2026-10-08 (UTC), main @ 27f12f6
 
 ## Сейчас в работе
 
@@ -8,7 +8,7 @@
 - `worfy-harness` 16 сделан 2026-10-08: машина владельца на plugin `worfy` 0.2.0+77e4490 ([Ticket 16](.scratch/worfy-harness/issues/16-переход-машины-владельца-на-plugin.md)): откат и резервная копия — в «Итог». qmd в Session-ах нет, пока владелец не сделает шаги Ticket-а 17.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 18. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`.
 - Работа над `worfy-week` 14 лежит только в локальной ветке `wip/worfy-week-14`, на GitHub её нет. Как вернуть Ticket — «Итог» Ticket-а 14.
-- `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт владельца: влиты 01–08, `epic-status` — 8/16. Autopilot остановлен владельцем после Wave 3.
+- `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт владельца: влиты 01–08, `epic-status` — 8/16. Wave 4 (09, 14, 15) прошла gate ревью, но не влита — `blocked`, см. «Ждёт владельца». Autopilot остановлен владельцем.
 - `worfy-link` Wave 3: 06 своя камера Canvas у каждого экрана (PR #162), 08 доступ Linked machine к Project-ам — пометки каналов, путь только внутри Project-ов (PR #161). Wave 2: 02, 04, 05, 07 (PR #156–#159).
 - `worfy-windows` (полный порт под Windows, 0/17) спроектирован: spec, ADR 0054–0056. Ждёт закрытия E3.
 
@@ -16,6 +16,9 @@
 
 - `worfy-harness` 22: как дальше после круга владельца — рекомендация: та же ветка без регистрации hook-а `WorktreeCreate` (скрипт и выводы проб — для Ticket-а 24) и две правки текстов — [Ticket 22](.scratch/worfy-harness/issues/22-silent-mode-в-harness.md), «Итог».
 - Подтвердить решения, принятые без владельца (пометки «подтвердить» в «Итог» Ticket-ов): `worfy-week` 03–07, 09, 10, 12, 15, 17, 18; `worfy-harness` 01, 02, 04–09, 11–14, 17, 19, 20, 27; `worfy-link` 01–06, 08.
+- `worfy-link` PR #167 (14), #168 (15), #169 (09) — `VERIFIED`, CI зелёный, но не влиты: `gate full` красный только на шаге `test`.
+- Причина — таймауты 5000 мс в contract-test-ах вне диффов (`workflow-reader`, `workflow-profile`, `harness-qmd`, `github-prs`), и на машине без параллельных прогонов (load 5–7).
+- Решить: поднять таймауты этих test-ов (короткий Ticket), влить при красном gate только на таймаутах вне диффа, или прогнать gate при закрытых Docker/VM/Stable copy.
 - `worfy-link` 08: подтвердить, что с включённым доступом Linked machine может в Project-ах всё — Terminal, Session с `bypassPermissions`, ответы на разрешения (ADR-0052 п.6).
 - `worfy-link` 08: должно ли выключение доступа останавливать Session-ы, Autopilot и очередь, запущенные Linked machine раньше (spec и ADR-0052 расходятся) — [Ticket 08](.scratch/worfy-link/issues/08-доступ-linked-machine-к-project-ам.md), «Итог».
 - `worfy-link` 02: вручную — dev-сборка и Stable copy находят друг друга по Bonjour и связываются по коду; появился ли запрос Local Network и на каком шаге — [Ticket 02](.scratch/worfy-link/issues/02-link-a-machine-код-список-и-отзыв.md), «Итог».
