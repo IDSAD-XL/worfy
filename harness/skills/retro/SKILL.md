@@ -40,6 +40,13 @@ session sits elsewhere:
   format below. A lesson there is a change to the repo: make it in the current
   branch or worktree together with the work, never as a direct commit on the
   main branch. There is no index file and no pending-retro log in this mode.
+  **Silent mode** (`profile -C <repo> --field _resolved.mode` prints `silent`):
+  a relative `<path>` is taken from the Workflow folder
+  (`profile -C <repo> --field _resolved.workflow_folder`), not from the repo.
+  The lesson is written there and never into the repository or its branches;
+  when the Workflow folder is a git repository of its own, commit it there
+  locally (`git -C <Workflow folder> add -A . && git -C <Workflow folder>
+  commit -m "lesson: <title>"`), without push.
 
 ## Procedure
 

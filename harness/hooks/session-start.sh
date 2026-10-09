@@ -7,8 +7,11 @@
 # and without `session.retro_reminder_after` — print nothing, code 0. That way the Auction session
 # start stays empty, as it was.
 #
-# What is mixed in (the format is profiles/README.md, the `session` field); items 1–3 only with
-# session.inject_rules: true, item 4 with any session.retro_reminder_after:
+# What is mixed in (the format is profiles/README.md, the `session` field); item 0 in a Silent project or with
+# `attribution: off`, items 1–3 only with session.inject_rules: true, item 4 with any session.retro_reminder_after:
+#   0. the workflow mode: in Silent mode (mode "silent") where the workflow files live (the Workflow folder)
+#      and that branches, commits and PRs carry no trace of the workflow; with `attribution: off` that commits
+#      and PRs carry no Claude attribution lines. A Full project with attribution on gets nothing here;
 #   1. the profile's rules.md without the section «## Sources» / «## Источники» (it is for the maintainer,
 #      not for the agent), under the heading session.rules_heading;
 #   2. the lessons index <profile>/lessons/lessons-index.md, if the lessons live in the profile
@@ -45,7 +48,9 @@ json="$("$PROFILE_BIN" -C "$cwd" --json 2>/dev/null)" || exit 0
 field() { printf '%s' "$json" | jq -r "$1 // empty"; }
 inject="$(printf '%s' "$json" | jq -r '.session.inject_rules // false')"
 after="$(field '.session.retro_reminder_after')"
-[ "$inject" = "true" ] || [ -n "$after" ] || exit 0
+mode="$(field '._resolved.mode')"
+attribution="$(field '.attribution')"
+[ "$inject" = "true" ] || [ -n "$after" ] || [ "$mode" = silent ] || [ "$attribution" = off ] || exit 0
 
 name="$(field '._resolved.name')"
 dir="$(field '._resolved.dir')"
@@ -79,6 +84,18 @@ add() { # $1 heading, $2 text, $3 file with the full text (for the truncation li
     fi
     ctx+=$'\n'"## $1"$'\n'"$text"$'\n'
 }
+
+# The workflow mode goes first: it decides where every document of the session is written.
+modetext=""
+if [ "$mode" = silent ]; then
+    wf="$(field '._resolved.workflow_folder')"
+    modetext+="This project works in Silent mode. Its workflow files — tickets, epic specs, the state file, ADRs, the glossary, lessons, evidence screenshots — live in the Workflow folder ${wf/#$HOME/$tilde}, not in the repository; relative paths of the profile's tickets and docs fields are taken from that folder, and \`ticket\` writes the status there from any worktree. Documents in the repository are read-only, unless the ticket's own goal is a document for the team."$'\n'
+    modetext+="Branches, commit messages, PR titles, descriptions and comments, and code comments describe the change itself: no epic names, ticket or ADR numbers, Workflow folder paths, \`.scratch\` or \`HANDOFF\`. Name a branch by what it changes (\`fix/lot-withdraw-button\`) and record it with \`ticket claim <epic> <NN> --branch <branch>\`. The Bash guard refuses commits, branch names and PR texts with such traces (\`bin/silent-check\` shows them)."$'\n'
+fi
+if [ "$attribution" = off ]; then
+    modetext+="Attribution is off for this project: commit messages and PR descriptions carry no Claude attribution lines (\`Co-Authored-By: Claude …\`, \`Generated with [Claude Code]\`) — leave them out even where other instructions ask for them; the Bash guard refuses commits and PR texts that carry them."$'\n'
+fi
+add "Workflow mode (profile $name)" "${modetext%$'\n'}"
 
 if [ "$inject" = "true" ] && [ -s "$dir/rules.md" ]; then
     rules="$(awk '/^## /{skip=($0 ~ /^## (Sources|Источники)/)} !skip' "$dir/rules.md")"

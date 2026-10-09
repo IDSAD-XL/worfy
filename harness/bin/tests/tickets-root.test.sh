@@ -16,6 +16,8 @@ export CLAUDE_PROFILE_BIN="$BIN/profile"
 export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
 T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
+. "$(dirname "$0")/real-home.sh"
+home_before="$(real_home_snapshot "$HOME" "$T")"
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
@@ -101,10 +103,31 @@ got="$(cd "$T/unreg/sub" && "$TICKET" root 2>&1)"
 got="$(cd "$T/unreg/sub" && "$STATUS" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && [ "$got" = "outside tickets (no $T/unreg/.scratch)" ] && ok "unregistered epic-status unchanged" || bad "unregistered status: exit $rc, got: $got"
 
+# 6a. Silent mode (worfy-harness ticket 22): a relative tickets.root — and no tickets.root at all — is taken
+# from the Workflow folder, the same from the repository, its worktree and the folder itself.
+mkdir -p "$T/silent" "$T/silent2" "$T/wfs" "$T/wfs2" "$CLAUDE_PROFILES_DIR/sil" "$CLAUDE_PROFILES_DIR/sil2"
+for r in silent silent2; do git -C "$T/$r" init -q -b main && git -C "$T/$r" commit -q --allow-empty -m init; done
+git -C "$T/silent" worktree add -q -b fix/a "$T/silent-wt" 2>/dev/null
+jq --arg a "$T/silent" --arg b "$T/silent2" '.repos += [{key: "sil", match: $a, profile: "sil"}, {key: "sil2", match: $b, profile: "sil2"}]' "$CLAUDE_GATE_CONFIG" >"$T/c.json" && mv "$T/c.json" "$CLAUDE_GATE_CONFIG"
+printf '{"schema":2,"name":"sil","mode":"silent","workflow":{"folder":"%s"},"tickets":{"root":"tickets/"}}\n' "$T/wfs" >"$CLAUDE_PROFILES_DIR/sil/profile.json"
+printf '{"schema":2,"name":"sil2","mode":"silent","workflow":{"folder":"%s"}}\n' "$T/wfs2" >"$CLAUDE_PROFILES_DIR/sil2/profile.json"
+mk "$T/wfs/tickets" ep 01-silent open
+for d in "$T/silent" "$T/silent-wt"; do
+    got="$(cd "$d" && "$TICKET" root 2>&1)"
+    [ "$got" = "$T/wfs/tickets" ] && ok "silent: relative tickets.root from ${d##*/} -> the Workflow folder" || bad "silent root from $d: $got"
+done
+got="$(cd "$T/silent2" && "$TICKET" root 2>&1)"
+[ "$got" = "$T/wfs2/.scratch" ] && ok "silent: no tickets.root -> <Workflow folder>/.scratch" || bad "silent default root: $got"
+got="$(cd "$T/silent-wt" && "$STATUS" ep 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [[ "$got" == "/to-tickets · ep 0/1 · ticket 01"* ]] && ok "silent: epic-status from a worktree reads the Workflow folder" || bad "silent epic-status: exit $rc, got: $got"
+
 # 7. A broken registry — refusal, not a silent fallback to git top-level.
 printf '{broken' >"$CLAUDE_GATE_CONFIG"
 got="$(cd "$WS/Repo-A" && "$TICKET" show ep 01 2>&1)"; rc=$?
 [ "$rc" -eq 1 ] && [[ "$got" == *"--root"* ]] && ok "broken registry -> ticket exit 1, names --root" || bad "broken registry: exit $rc, got: $got"
+
+home_after="$(real_home_snapshot "$HOME" "$T")"
+[ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || bad "the real home changed"
 
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

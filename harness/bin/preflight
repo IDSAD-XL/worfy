@@ -19,6 +19,9 @@
 #                                 none — origin/<layout.repos.<repo>.default_branch>, then the branch
 #                                 origin/HEAD points to, then origin/main;
 #   numbering.adr.dir           — the ADR directory (fallback — docs.adr_dir); none — the ADR step is skipped;
+#                                 in Silent mode (mode "silent") the ADRs live in the Workflow folder
+#                                 (_resolved.workflow_folder), not in branches: the numbers are counted
+#                                 from the files of that directory, a relative path is taken from the folder;
 #   numbering.migrations.journal / .generate — the migrations journal (drizzle _journal.json format)
 #                                 and the generate command for the hint; none — the step is skipped.
 # A skipped step is printed as a line, not passed over silently.
@@ -45,7 +48,7 @@ USAGE='usage: preflight [--epic <epic>] [--no-fetch]'
 BIN=$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" 2>/dev/null && pwd -P)
 PROFILE_BIN=${PREFLIGHT_PROFILE_BIN:-$BIN/profile}   # the override is for tests
 # load_profile fills these; the defaults are only for sourcing the functions in tests.
-BASE=origin/main MAIN=main ADR_DIR=docs/adr JOURNAL='' MIG_GEN=''
+BASE=origin/main MAIN=main ADR_DIR=docs/adr JOURNAL='' MIG_GEN='' MODE=full WORKFLOW=''
 EPIC_TOOL=$BIN/epic-status   # a constant of the Harness, the same for every project
 FETCH_TIMEOUT=60   # seconds; a typical fetch takes a few seconds
 GH_TIMEOUT=20
@@ -159,6 +162,8 @@ load_profile() {
         g(p, "numbering", "adr", "dir") || g(p, "docs", "adr_dir") || "",
         g(p, "numbering", "migrations", "journal") || "",
         g(p, "numbering", "migrations", "generate") || "",
+        g(p, "_resolved", "mode") || "full",
+        g(p, "_resolved", "workflow_folder") || "",
       ]
       process.stdout.write(v.map((x) => String(x).replace(/[\t\n]/g, " ")).join("\t") + "\n")
     })' 2>"$TMP/profile.err") || die "profile --json not parsed: $(first_line "$(cat "$TMP/profile.err")")"
@@ -166,7 +171,9 @@ load_profile() {
   BASE=${vals%%$'\t'*};      vals=${vals#*$'\t'}
   ADR_DIR=${vals%%$'\t'*};   vals=${vals#*$'\t'}
   JOURNAL=${vals%%$'\t'*};   vals=${vals#*$'\t'}
-  MIG_GEN=$vals
+  MIG_GEN=${vals%%$'\t'*};   vals=${vals#*$'\t'}
+  MODE=${vals%%$'\t'*};      vals=${vals#*$'\t'}
+  WORKFLOW=$vals
   ADR_DIR=${ADR_DIR%/}
   # Neither field: the branch origin/HEAD points to (set by git clone), and only then origin/main.
   if [ -z "$BASE" ]; then
@@ -322,8 +329,22 @@ ref_sources() {
   git for-each-ref --format='%(refname)%09local:%(refname:strip=2)' refs/heads/ 2>/dev/null
 }
 
+# Silent mode: the ADRs are files of the Workflow folder, one copy, in no branch of the repository. A duplicate
+# number there is the same collision two branches give in Full mode, so it blocks.
+check_adr_silent() {
+  local dir=$ADR_DIR mx dups
+  case $dir in /*) ;; '~'|'~/'*) dir=$HOME${dir#'~'} ;; *) dir=$WORKFLOW/$dir ;; esac
+  [ -n "$WORKFLOW" ] || { block "Silent mode, but the profile names no Workflow folder"; return; }
+  if [ ! -d "$dir" ]; then say "ADR: Silent mode, no ADR directory $dir in the Workflow folder yet → next free 0001"; return; fi
+  mx=$(ls -1 "$dir" 2>/dev/null | adr_max); mx=$(( 10#${mx:-0} ))
+  dups=$(ls -1 "$dir" 2>/dev/null | adr_dups)
+  [ -n "$dups" ] && block "duplicate ADR $dups in the Workflow folder ($dir)"
+  say "ADR: Silent mode, highest $(fmt4 "$mx") in the Workflow folder ($dir) → next free $(fmt4 $((mx + 1)))"
+}
+
 check_adr() {  # 6
   [ -n "$ADR_DIR" ] || { say "ADR: no ADR directory in the profile (numbering.adr) — step skipped"; return; }
+  [ "$MODE" = silent ] && { check_adr_silent; return; }
   local list main_max dups ref b m br_max=0 br_name='' local_max next coll
   list=$(git ls-tree --name-only "$BASE" "$ADR_DIR/" 2>/dev/null)
   main_max=$(printf '%s\n' "$list" | adr_max); main_max=$(( 10#${main_max:-0} ))

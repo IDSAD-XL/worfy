@@ -1,7 +1,8 @@
 # 22 — Silent mode в Harness: файлы workflow в Workflow folder, без следов в ветках, коммитах и PR
 
 Type: task
-Status: blocked — gate: круг владельца 2026-10-08 REJECTED — hook WorktreeCreate из plugin заменяет создание worktree во всех Session-ах машины (повтор имени падает, деревья не убираются); B1–B5 узкого круга исправлены; PR #150 открыт
+Status: claimed — 2026-10-08
+Branch: worfy-harness/22
 Blocked by: 16
 Source: решения владельца 2026-10-07, Q11' (б), Q17, Q23–Q30; [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) (Profile на машине, Full mode и Silent mode, Workflow folder, worktree вне репозитория, `attribution`; заменяет ADR-0020); [ADR-0045](../../../docs/adr/0045-one-ticket-one-repository.md) (один Ticket — один репозиторий, Project над несколькими репозиториями — всегда Silent mode, финиш без прав — локальный); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (состояние Harness на машине — `~/.claude/worfy-harness/`); [spec.md](../spec.md)
 
@@ -212,6 +213,11 @@ E3 её нет).
 - `harness/bin/tests/skill-blocks.test.sh` — из ~/.claude/bin/tests/skill-blocks.test.sh
 - `harness/hooks/tests/guard-silent.test.sh` — новый
 - `harness/hooks/tests/session-hooks.test.sh` — из ~/.claude/hooks/tests/session-hooks.test.sh
+- `harness/bin/tests/real-home.sh` — новый (добавлен исполнителем): общий снимок настоящих `~/.claude` и
+  `~/.claude/worfy-harness` для test-ов этого следа (пункт «Все test-ы пишут только во временные папки»)
+- `harness/bin/tests/epic-wave-ship-ticket.test.sh` — добавлен исполнителем (text-test skills, круг доработки 1)
+- `harness/bin/tests/harness-home.test.sh` — добавлен исполнителем: сравнивает JSON `epic-status --json`
+  побайтно, а у Ticket-а появились поля `branch` и `repo`
 
 Если hook `WorktreeCreate` (пункт 7, вариант в) понадобится, исполнитель добавляет его файл и
 `harness/hooks/hooks.json` (файл Ticket-а 05) сюда. Настоящий `~/.claude` этот Ticket не меняет:
@@ -225,44 +231,311 @@ E3 её нет).
 
 ## Итог
 
-Wave 10 (2026-10-08): Ticket выведен из Wave гейтом, `blocked`. Работа — в открытом PR #150 (ветка
-`worfy-harness/22`, worktree `.claude/worktrees/h22` оставлен); полный «Итог» исполнителя — в файле Ticket-а на
-этой ветке, вердикты — в комментариях PR.
+Ветка `worfy-harness/22`. Сделаны пункты 1–9. Пункт 7 сделан в круге владельца 2026-10-08 (живые пробы
+разрешены владельцем): сработал вариант (в) — hook `WorktreeCreate` и Subagent с `isolation: "worktree"`;
+подробности — в разделе «Круг владельца 2026-10-08» в конце. **После короткого круга 2026-10-09 hook не
+зарегистрирован**: `harness/hooks/worktree-create.sh` — незарегистрированный черновик для Ticket-а 24, путь
+через plugin не проверялся, а `worktree.root` вне репозитория не поддерживается до Ticket-а 24 — раздел
+«Короткий круг 2026-10-09» в конце.
 
-- Круг 1 `REJECTED`: [high] локальный финиш при `single` без `worktree.base` брал основную ветку из HEAD
-  checkout-а и печатал `MERGED=0` без вливания (настройка Atakama) + 2 med, 4 low текста. Исправлено.
-- Круг 2 `REJECTED`: доработка внесла 2 med — `done` на ветке до gate full; документам волны нечем ехать, если
-  последний тикет выпал. Скептики подтвердили обе; Ticket на критическом пути (от него зависят 23–26) — узкий круг.
-- Узкий круг `NARROW: REJECTED`: A и B закрыты, но внесены 2 med — при NOT ON TOP подготовленные документы
-  остаются незакоммиченными в worktree, где implementer делает rebase (rebase падает, коммит возвращает `done` на
-  невлитую ветку); результат коммита документов не проверяется, main перематывается и печатается `MERGED=0`.
-  Плюс low: `git commit` без pathspec берёт весь индекс; `git worktree remove` без `--force` для грязного
-  временного дерева; `add -A -- .scratch/` в основном checkout-е цепляет чужие файлы.
-- Пункт 7 не сделан: живая проба `claude -p` пишет в `~/.claude` (с `CLAUDE_CONFIG_DIR` во временной папке —
-  «Not logged in»; с `--no-session-persistence` — пустая `~/.claude/projects/<cwd>/memory`). Вопрос владельцу —
-  разрешить ли такие пробы.
-- Долги ревьюеров: guard пропускает `git push origin HEAD:<эпик>/05`, `git merge -m`, `git tag`, сообщение из
-  `$VAR`; `src/main/workflow/reader.ts:321` читает `done` с невлитой ветки как закрытый.
-- Решено без владельца, подтвердить: документы тикета при local-green — коммитом на его ветке после зелёного gate
-  full перед перемоткой; документы волны без невлитого тикета — коммитом в main под замком (временный worktree).
+**Первый test.** `harness/bin/tests/silent-mode.test.sh`, случай «`ticket claim --branch` пишет
+`Branch:` в Workflow folder», на базе 3625fef упал так: `ticket claim checkout-flow 05 --branch fix/x`
+→ exit 1, `unknown flag: --branch` и usage.
 
-**Решение владельца 2026-10-08** (после блока узким кругом): «1 разрешаю, делай ещё круг».
-- Живые пробы `claude -p` (пункт 7) разрешены, хотя они пишут в `~/.claude/projects/<cwd>/`. Пробы — во временной папке и с `--no-session-persistence`, где это возможно; что записалось — перечислить в «Итог».
-- Ещё один полный круг доработки по двум находкам [med] узкого круга: (1) при NOT ON TOP подготовленные документы остаются незакоммиченными в worktree, где implementer делает rebase; (2) результат коммита документов не проверяется, main перематывается и печатается `MERGED=0`. Плюс три [low] того же круга. Работа — в ветке PR #150 (`worfy-harness/22`, worktree `.claude/worktrees/h22`).
+**Что сделано.**
+- Пункт 1. Поле `workflow.folder` (Ticket 11 другого поля под этот путь не завёл; `bin/qmd-collections`
+  уже читал `workflow.folder`). `bin/profile` отдаёт в `_resolved`: `mode`, `workflow_folder` (в обоих
+  режимах), `repos` `[{name, path, gate_key}]` по записям реестра Gate. Silent без `workflow.folder`:
+  у Project-а над несколькими репозиториями — общая папка над ними, иначе
+  `$HARNESS_HOME/projects/<name>/workflow`. Относительный `workflow.folder` — exit 1. В сводке без
+  флагов у Silent Profile-а есть строка `mode: silent   workflow folder: …`, у Full сводка прежняя.
+  Правило путей реализуют `bin/ticket` (корень Ticket-ов), `bin/epic-status`, `bin/epic-board` и
+  `bin/preflight` (каталог ADR). Контракт — `harness/profiles/README.md`, разделы «Full mode and
+  Silent mode» и «Local finish».
+- Пункт 2. `ticket claim <эпик> <NN> --branch <ветка>` пишет строку `Branch:`, `--repo <имя>` — строку
+  `Repo:` (имя сверяется с `_resolved.repos`). `epic-status --json` отдаёт `branch` и `repo`;
+  `--ref` в Silent mode — exit 3 «in Silent mode the status does not live in branches».
+  `epic-board` в Silent mode читает только Workflow folder.
+- Пункт 3. `bin/preflight` в Silent mode считает номера ADR по файлам каталога ADR в Workflow folder,
+  дубль — `BLOCKED`. Skills `epic-wave`, `ship-ticket`, `retro`, `continuous-audit` и agent
+  `implementer` пишут документы только в Workflow folder.
+- Пункт 4. Ветка по смыслу, проверка `silent-check` и `ticket claim --branch` — блок в `ship-ticket`,
+  шаг 2. Нет документного PR и коммита: локальный коммит в Workflow folder без push (`epic-wave`,
+  раздел 4, пункт 4). Вердикт при `local-green` в Silent mode — строка `gate: …` в конце файла
+  Ticket-а. Wave возобновляется по строкам `Branch:` (`epic-wave`, «How to resume a wave»).
+- Пункт 5. Новый `bin/silent-check`: текст аргументами, `--file <путь|->`, `--diff <rev>`, `--cached`,
+  `--untracked`. `hooks/guard.mjs` (раздел 3) отказывает `git commit` (`-m`, `-F`, индекс, а после
+  `git add` в той же команде — всё дерево и неотслеживаемые файлы), именам веток
+  `checkout -b`/`switch -c`/`branch <имя>`/`worktree add -b` и текстам `gh pr
+  create|edit|comment|review|merge`. Каталог команды определяется по `cd` и `git -C`.
+- Пункт 6. `attribution: off` в любом режиме: строки атрибуции — след для `silent-check` и guard;
+  `hooks/session-start.sh` подмешивает раздел «Workflow mode» (режим и атрибуция) независимо от
+  `session.inject_rules`. Full mode с `attribution: on` — вывод прежний (test).
+- Пункт 9. Локальный финиш: rebase ветки на основную ветку в её worktree → `gate full` на этой ветке →
+  fast-forward основной ветки (`git merge --ff-only` в дереве, где она выписана, или `git branch -f`,
+  если она нигде не выписана) → `git merge-base --is-ancestor` как доказательство; без push. Ветка не
+  поверх основной — `NOT ON TOP`, не вливается. Блок — `ship-ticket`, шаг 11; `epic-wave`, раздел 4,
+  «Local merge». При `single` следующая ветка Wave — от основной ветки после вливания (раньше —
+  цепочка от предыдущей ветки).
 
-Круг владельца 2026-10-08 (работа — в PR #150, ветка `worfy-harness/22`, head `4291c1e`; полный «Итог» круга — в файле
-Ticket-а на ветке): `REJECTED`, основание — новый дефект high. Находки узкого круга B1–B5 исправлены (откат документов
-на NOT ON TOP, `DOCS COMMIT FAILED` без перемотки, pathspec, временное дерево Wave, только свои файлы `.scratch/`).
-- [high] пункт 7 сделан через hook `WorktreeCreate` (`harness/hooks/worktree-create.sh`, `hooks.json:145`). Plugin
-  включён на всю машину, поэтому после пересборки hook заменит встроенное создание worktree во всех Session-ах любого
-  репозитория: повторный `claude -w <имя>` падает (ветка уже есть), деревья, которые agent не менял, не удаляются,
-  нет fetch и `.worktreeinclude`. Пользы сейчас нет — у worfy и Auction корень внутри репозитория.
-- [med] `profiles/README.md:141` прячет эти отличия; [med] тексты skills описывают путь через plugin как проверенный,
-  а пробы шли через `--settings` с другим скриптом.
-- Пробы пункта 7 (около 1,1 USD): (а) `EnterWorktree` с path — отказ; (б) Subagent с cwd — параметра нет; (в) hook
-  `WorktreeCreate` — работает. Записи в `~/.claude`: `projects/-private-tmp-worfy-harness-w10-impl-22-p7-repo/`
-  (пустая `memory/`, 12 файлов `subagents/*.meta.json`, транскриптов нет), 9 пустых папок `session-env/`, 5 копий
-  `backups/.claude.json.backup.*`; из первого круга — `projects/-private-tmp-worfy-harness-w10-impl-22-probe-t0/`.
-  Ничего не удалено.
-- Предложение оркестратора: та же ветка без регистрации `WorktreeCreate` (скрипт и выводы проб остаются для Ticket-а
-  24) и правка двух текстовых [med] — решение владельца.
+**Круг доработки 1** (гейт REJECTED на 3105907, список — в комментарии PR #150).
+1. [high] Основная ветка при локальном финише больше не берётся из `HEAD` основного checkout-а: при
+   `single` он стоит на ветке Ticket-а, и блок печатал `MERGED=0`, ничего не влив (настройка Atakama:
+   `single`, `local-green`, `worktree.base: null`). Теперь порядок: `worktree.base` без `origin/` →
+   `layout.repos.<репозиторий>.default_branch` → `origin/HEAD` → локальные `main`/`master`. Если основная
+   ветка — сама ветка Ticket-а, блок отказывает (`SAME BRANCH`, `MERGED=1`); если основная ветка не
+   найдена — `NO MAIN BRANCH`. Новые случаи в `silent-mode.test.sh` (single + base null с `origin/HEAD`
+   и без него; `layout.repos`; `SAME BRANCH`): на старом блоке три первых были красными (`MERGED=0`,
+   main без ветки Ticket-а).
+2. [med] `ship-ticket`, шаг 2: при `single` + `local-green` ветка — от основной ветки после локального
+   вливания предыдущего Ticket-а, как в `epic-wave`.
+3. [med] Где коммит документов при `local-green`: Orchestrator делает `ticket done`, «Итог» Ticket-а, а у
+   последнего Ticket-а Wave ещё и HANDOFF (и `ticket block` снятых) одним коммитом **на ветке Ticket-а**
+   до `gate full` и перемотки; перемотка несёт их в main. Отдельного коммита документов в main нет.
+   Решено без владельца, подтвердить: другой вариант — отдельный коммит в main под замком; для него
+   main должен быть где-то выписан, а при `single` он не выписан.
+4. [low] `epic-wave`: при `single` + `local-green` следующий implementer ждёт локального вливания
+   (`MERGED=0`), а не только gate.
+5. [low] Rebase перед локальным вливанием всегда делает implementer в своём дереве: Orchestrator
+   только проверяет `merge-base --is-ancestor` и возвращает ветку через `SendMessage`. Так написано в
+   `ship-ticket` (шаг 11), в `epic-wave` («Local merge») и в `implementer.md`.
+6. [low] `implementer.md`: от Workflow folder считаются и `numbering.adr.dir`, и `lessons: "repo:<путь>"`.
+7. [low] `profiles/README.md`: `<HARNESS_HOME>/worktrees/<name>/` — задуманное значение по умолчанию;
+   его не ставят, пока владелец не ответит по пункту 7, а `worktree.root` до тех пор лежит под
+   `.claude/worktrees/`.
+Text-проверки пунктов 2–7 — в `harness/bin/tests/epic-wave-ship-ticket.test.sh` (раздел 7a). На
+текстах до доработки (3105907) они дают 12 красных.
+Проверки круга: все `harness/{bin,hooks}/tests/*.test.sh` под пустым HOME — код 0; `gate.sh full` под
+замком `/tmp/worfy-e2e.lock` на cf3b74a — код 0, «[gate] зелено (full)». Долг, не доработан (перенесёт
+Orchestrator): guard пропускает `git push origin HEAD:<эпик>/05`, `git merge -m`, `git tag`, `$VAR`.
+
+**Узкий круг** (гейт, круг 2: REJECTED на 6738ee8; находки подтвердили скептики, комментарий `NARROW:`
+в PR #150).
+- A [med]. При `local-green` документы Ticket-а (`ticket done`, «Итог»; у последнего вливаемого
+  Ticket-а Wave — HANDOFF и `ticket block` снятых) коммитятся только после зелёного `gate full`.
+  Коммит делает тот же блок вливания, под замком: сначала проверка «ветка поверх основной», потом
+  коммит документов на ветке Ticket-а, сразу за ним fast-forward. Красный gate или `NOT ON TOP` не
+  оставляют коммита документов — `done` лежит незакоммиченным в дереве Ticket-а до следующей попытки.
+  Окно между коммитом и перемоткой (обрыв Session) закрывает правило возобновления в `epic-wave`:
+  «`done` на ветке, а `merge-base --is-ancestor <ветка> <основная>` даёт 1 — вливание ещё впереди,
+  Ticket не закрыт; повторить блок, второй раз документы он не коммитит». Test-ы — в
+  `silent-mode.test.sh`, раздел 5b. На mutant-е «коммит документов до проверки NOT ON TOP» ветка не
+  поверх main получила `done`, и test покраснел.
+- B [med]. Если в Wave не осталось невлитого `VERIFIED`-Ticket-а (последний снят, когда остальные
+  влиты, или сняты все), документы Wave идут одним коммитом в основную ветку под замком. Коммит
+  делается в дереве, где выписана основная ветка, а если она нигде не выписана (`single`) — во временном
+  worktree основной ветки, который потом убирают. Два блока — `epic-wave`, раздел 4, пункт 4. Строка
+  про `ticket block` в разделе 3 для `local-green` указывает на этот коммит. Решено без владельца,
+  подтвердить. Test-ы — в `silent-mode.test.sh`, раздел 5b (временное дерево и основной checkout).
+  На mutant-е без временного дерева test покраснел.
+Text-проверки A и B — `epic-wave-ship-ticket.test.sh`, раздел 7b: на текстах 6738ee8 — 9 красных.
+Проверки узкого круга: все `harness/{bin,hooks}/tests/*.test.sh` под пустым HOME — код 0. `gate.sh full`
+под замком на 888791c: первый прогон — код 2, упал известный нестабильный
+`test/e2e/epic-frame.spec.ts:721` (код приложения круг не меняет); повтор — код 0, «[gate] зелено (full)».
+Долги, не доработаны: `origin/HEAD` в test-е, `branch -d` при `single`, комментарий в `epic-wave` :446.
+
+**Пункт 7 в первом круге** (до решения владельца) — две пробы 2026-10-08, cwd в scratchpad.
+1. `CLAUDE_CONFIG_DIR=/tmp/worfy-harness-w10/impl-22/probe/cfg claude -p "Reply with the single word
+   PONG." --model haiku --max-budget-usd 0.2 --no-session-persistence` → exit 1, «Not logged in · Please
+   run /login». Вход идёт через keychain и с временной папкой конфигурации не работает; `--bare`
+   требует `ANTHROPIC_API_KEY`, его нет. В `~/.claude` ничего не появилось.
+2. `claude -p "Reply with the single word PONG." --model haiku --max-budget-usd 0.2
+   --no-session-persistence --setting-sources project` (настоящий конфиг, cwd
+   `/tmp/worfy-harness-w10/impl-22/probe/t0`) → exit 0, ответ `PONG`. Появились папка
+   `~/.claude/projects/-private-tmp-worfy-harness-w10-impl-22-probe-t0/` с пустой подпапкой `memory/` и
+   `~/.claude/backups/.claude.json.backup.1791436482932`. Пробы остановлены до решения владельца (оно —
+   ниже, «Круг владельца 2026-10-08»).
+
+**Решено без владельца, подтвердить.**
+- Имя поля — `workflow.folder`; относительный путь в нём — сломанный Profile (exit 1).
+- В добавленных строках диффа голое имя Epic-а следом не считается: код называет свои области, а Epic
+  часто назван по области (`deals`, `frontend` у Auction). `<эпик>/<NN>` и остальные следы в диффе
+  считаются. В тексте коммита, ветки и PR голое имя Epic-а — след, поэтому Epic с именем-обычным словом
+  даст ложные отказы guard-а; лечится именем Epic-а, а не правилом.
+- Guard проверяет и `gh pr merge` (`--subject`, `--body`): их текст попадает в историю основной ветки.
+- Если сама проверка упала (Profile не читается, таймаут 8 с), guard пропускает команду: он не должен
+  ломать Session из-за чужой поломки.
+- Коммиты в Workflow folder guard не проверяет: это не репозиторий Project-а (`gate_key` пуст или
+  Project не найден).
+- `ticket claim --branch` пишет `Branch:` и в Full mode; на поведение Full mode это не влияет.
+- Локальное вливание — fast-forward после rebase, не merge-коммит: `gate full` проверяет ровно то
+  дерево, которым станет основная ветка.
+
+**Test-ы** (каждый — код 0, и под пустым HOME, как в CI): `harness/bin/tests/silent-mode.test.sh` (40),
+`harness/hooks/tests/guard-silent.test.sh` (32), `profile.test.sh`, `tickets-root.test.sh`,
+`preflight.test.sh` (теперь с временными HOME, HARNESS_HOME, CLAUDE_CONFIG_DIR),
+`skill-blocks.test.sh` (блоки Silent mode под bash и zsh), `session-hooks.test.sh`. Каждый из них в
+конце сверяет настоящие `~/.claude` (части Harness) и `~/.claude/worfy-harness` со снимком до
+прогона (`harness/bin/tests/real-home.sh`: список файлов, размер и mtime; в папках, куда пишут живые
+Session-ы, — поиск файлов, где упомянута временная папка test-а). Заодно исправлены две живые
+проверки, падавшие на настоящем HOME после переноса Profile-ов в `~/.claude/worfy-harness/projects/`
+(`profile.test.sh`: auction `--dir`; `skill-blocks.test.sh`: два случая atakama).
+
+**Проверки.** `pnpm lint && pnpm typecheck && pnpm test` — код 0 (141 файл, 2685 test-ов). `GATE_SCOPE=all
+gate.sh fast` — код 0, «[gate] зелено (fast)». `gate.sh full` под замком `/tmp/worfy-e2e.lock` на
+коммите 1c055c7 — код 0, «[gate] зелено (full): … test:e2e … test:package». Первый прогон full до
+коммита упал на `test/e2e/packaged.spec.ts:700` (`git diff --quiet -- harness`: правки ещё не были
+закоммичены) — это не дефект.
+
+**Не сделано здесь.** Ревьюер с линзой «смысл сохранён» (Q34) — за Orchestrator-ом.
+
+**Круг владельца 2026-10-08** (решение владельца — последний комментарий PR #150: живые пробы `claude -p`
+для пункта 7 разрешены; полный круг по двум [med] и трём [low] узкого круга, комментарий `NARROW: REJECTED`).
+Head до круга — 0dcdfef. Ветка перенесена rebase-ом на origin/main 61839d9 (head bcc39e0): конфликт был
+только в этом файле (на main — `Status: open` и сводка Orchestrator-а), оставлены «Итог» ветки и
+`Status: claimed`. Код круга — коммит 0d980cf.
+
+Находки узкого круга:
+1. [med] `NOT ON TOP` оставлял подготовленные документы незакоммиченными в дереве Ticket-а. Теперь два
+   слоя: в `ship-ticket`, шаг 11, пункт 3 — сначала под замком проверка «ветка поверх основной», и только
+   потом `ticket done` и «Итог»; а сам блок на `NOT ON TOP` откатывает документы
+   (`git restore --source=HEAD --staged --worktree -- <документы>`, строка `DOCS ROLLED BACK`): rebase
+   implementer-а идёт по чистому дереву, `done` на невлитую ветку не попадает. После rebase и зелёного
+   `gate full` документы готовятся заново.
+2. [med] Результат коммита документов проверяется: упал (hook, подпись, нет `user.email`) — строка
+   `DOCS COMMIT FAILED`, основная ветка не двигается, `MERGED=1`; документы остаются в индексе дерева
+   Ticket-а, после исправления причины блок запускается снова.
+3. [low] Коммит документов — с pathspec (`git commit -- <документы>`): заранее добавленный в индекс файл
+   кода в него не попадает.
+4. [low] `epic-wave`, документы Wave: временное дерево основной ветки теперь на постоянном пути
+   `<git common dir>/worfy-wave-docs`, блок коммита убирает его `git worktree remove --force` при любом
+   исходе коммита (`WAVE DOCS COMMIT FAILED` — документы готовятся заново). Дерево, оставшееся после обрыва
+   Session, первый блок находит снова как временное (раньше оно сошло бы за дерево, где выписана основная
+   ветка, и не убиралось бы никогда).
+5. [low] Документы — это папка Epic-а в корне Ticket-ов (`<tickets.root><эпик>/`) и файл состояния, а не
+   весь `.scratch/`: и в `ship-ticket`, и в `epic-wave`; файлы другого Epic-а и индекс не цепляются.
+
+Сбои по шагам (test-ы — `silent-mode.test.sh`, раздел 5b): pre-commit hook и подпись (`gpg.program`,
+падающий) — `MERGED=1`, main на месте, ветка на месте; второй запуск после исправления — один коммит
+документов. Обрыв между коммитом и перемоткой (перемотка падает на локальной правке в основном checkout-е)
+— `MERGED=1`, `done` на ветке; повтор — второго коммита нет, main перемотан; третий запуск ничего не меняет.
+Обрыв после первого блока документов Wave — повторный первый блок отдаёт то же временное дерево.
+
+Mutant-ы — копии `harness/` в scratchpad (`/tmp/worfy-harness-w10/impl-22/mut-owner.*`):
+- skills с 0dcdfef под новым `silent-mode.test.sh` — 10 красных; под новым
+  `epic-wave-ship-ticket.test.sh` (раздел 7c) — 12 красных;
+- без отката на `NOT ON TOP` — красный «NOT ON TOP rolls the documents back»;
+- без проверки коммита — красные «a commit hook refuses …» и «signing fails …»;
+- коммит без pathspec — красный «one documents commit, only the epic's folder …»;
+- `worktree remove` без `--force` — красный «a failing commit in the temporary worktree …»;
+- временное дерево из `mktemp` (как раньше) — 4 красных, среди них «found again as temporary»;
+- весь `tickets.root` вместо папки Epic-а (`epic-wave`, `ship-ticket` по отдельности) и коммит Wave без
+  pathspec — красный «only the epic's folder — another epic's file and a staged code file stay out».
+
+**Пункт 7 — сделан, сработал вариант (в).** (Короткий круг 2026-10-09 снял регистрацию hook-а; ниже —
+выводы проб для Ticket-а 24. Пробы шли со скриптом `p7/wt-create.sh` и `p7b/wt-create.sh`, заданным через
+`claude -p --settings`, а не с `harness/hooks/worktree-create.sh` через `hooks.json` plugin-а: путь через
+plugin не проверялся.) Пробы — `claude -p … --model haiku --max-budget-usd 0.6
+--no-session-persistence --setting-sources project --output-format json`, cwd — временный репозиторий
+`/tmp/worfy-harness-w10/impl-22/p7/repo`, дерево вне репозитория — `…/p7/hh/worktrees/proj/05` (ветка
+`fix/a`). Пробы a–d сделал прошлый исполнитель этого Ticket-а (результаты в `…/p7/`), e–h — этот круг
+(`…/p7b/`). Claude Code 2.1.291.
+- (а) `EnterWorktree` с `path` дерева вне репозитория (из Subagent-а, `bypassPermissions`) — отказ:
+  «Cannot enter worktree: the current working directory /private/tmp/…/p7/repo is the repository root,
+  not an isolated worktree — switching is only available to sessions whose working directory is inside a
+  worktree of this repository». Описание инструмента добавляет: из Subagent-а — только деревья под
+  `.claude/worktrees/`. Не работает.
+- (б) Subagent с cwd дерева: у инструмента Agent нет параметра `cwd` — Subagent запустился в cwd
+  Session-и, Write и Edit попали в `p7/repo` (проба d). Без входа в дерево Subagent пишет в него по
+  абсолютным путям только при `bypassPermissions` (проба b-bypass: Write, Edit, `git status` — да); при
+  `acceptEdits` — отказ Write и Bash, с `--add-dir` Write и Edit проходят, Bash всё равно ждёт
+  разрешения. cwd при этом не закреплён — это не вариант (б), а обход. Не работает.
+- (в) hook `WorktreeCreate` + Subagent с `isolation: "worktree"` — работает (пробы c-hook-agent, e):
+  Claude Code сам дерево не создаёт, а запускает hook с JSON `{session_id, transcript_path, cwd,
+  prompt_id, hook_event_name, name}`, где `name` — `agent-<id>` (параметр Agent `name: "t05"` его не
+  меняет), и закрепляет Subagent-а в пути, который hook напечатал: `pwd` — дерево вне репозитория, Write,
+  Edit, `git switch -c`, `git commit` — работают. `EnterWorktree` с `name` из Subagent-а с hook-ом — отказ
+  «EnterWorktree cannot create a worktree from a subagent with a cwd override». Деревья, созданные hook-ом,
+  Claude Code не удаляет (и пустые, пробы g и h), hook `WorktreeRemove` не вызывается. Без hook-а
+  (проба f) дерево — `<repo>/.claude/worktrees/agent-<id>`, ветка `worktree-agent-<id>` от HEAD.
+
+Что сделано: `harness/hooks/worktree-create.sh` (новый) и запись `WorktreeCreate` в
+`harness/hooks/hooks.json`. Если у Project-а `worktree.root` вне репозитория, hook запускает его шаблон
+`worktree.implementer` с `<NN>` = `agent-<id>` и `<ветка>` = `worktree-agent-<id>` и печатает добавленное
+дерево; implementer переименовывает ветку (`git branch -m <ветка>`). Иначе — то же, что Claude Code без
+hook-а. Описано в `ship-ticket` (шаг 2), `epic-wave` (раздел 2, `parallel: worktrees`), `implementer.md`,
+`profiles/README.md` (`worktree.root`). Test — `silent-mode.test.sh`, раздел 4b: шаблон с корнем
+`<HARNESS_HOME>/worktrees/sp/` даёт `<корень>agent-a1` на `worktree-agent-a1`, Profile тот же,
+репозиторий чист; повтор того же имени, имя с `..`, cwd вне git — exit не 0 и пустой вывод; Full Project —
+`.claude/worktrees/agent-b1`; `hooks.json` регистрирует hook. Mutant-ы: hook без ветки «вне
+репозитория», без регистрации, без файла — красные.
+
+Что записали пробы в `~/.claude` (`find ~/.claude -newer <метка>`, кроме транскриптов других
+Session-ов; в этот список попадают и записи живых Session-ов, шедших параллельно):
+- новая папка `~/.claude/projects/-private-tmp-worfy-harness-w10-impl-22-p7-repo/`: пустая `memory/` и
+  по одной папке на пробу `<session-id>/subagents/agent-<id>.meta.json` — 12 штук (3e613ca5, 473e9477,
+  86188f23, 879e9215, 957cc28e, 988ff0dc, a9ad74ce, bdd82a5a, d6995a72, ea6a25ee, eb268280, ed0540fa);
+  транскриптов `.jsonl` нет (`--no-session-persistence`), а метаданные Subagent-ов пишутся всё равно;
+- пустые `~/.claude/session-env/<session-id>/` — 9 штук (те же id без 988ff0dc, bdd82a5a, d6995a72);
+- `~/.claude/backups/.claude.json.backup.{1791465202929,1791465284533,1791465354893,1791487688736,1791491283553}`;
+- `~/.claude/state/mcp-discover-verdicts.json`, `~/.claude/cache/model-catalog/847f0521-…-cc.json`,
+  `~/.claude/plugins/known_marketplaces.json` и `~/.claude/plugins/cache` (изменены);
+- изменилось время папок `~/.claude/sessions` и `~/.claude/shell-snapshots`.
+Из первого круга остались `~/.claude/projects/-private-tmp-worfy-harness-w10-impl-22-probe-t0/memory/` и
+`~/.claude/backups/.claude.json.backup.1791436482932`. Ничего не удалено. Стоимость 12 проб — около 1,1 USD.
+
+**Решено без владельца, подтвердить (круг владельца).**
+- Hook `WorktreeCreate` зарегистрирован в plugin-е, то есть действует во всех Session-ах машины: для
+  Project-ов без корня вне репозитория (worfy, Auction, незарегистрированные папки) он повторяет поведение
+  Claude Code (`.claude/worktrees/<name>`, ветка `worktree-<name>`, от `origin/HEAD`, иначе от HEAD), но
+  без `fetch`, без настройки `worktree.baseRef` и без копирования файлов `.worktreeinclude`. Другой
+  вариант — не регистрировать hook, пока Ticket 24 не подключит первый Project с корнем вне репозитория.
+- Дерево такого Project-а называется `agent-<id>`, а не `<NN>`: номера Ticket-а hook не получает. Связь
+  Ticket-а с деревом — строка `Branch:` и ветка после `git branch -m`.
+- Откат документов на `NOT ON TOP` выбрасывает подготовленный Orchestrator-ом «Итог»; он пишется заново
+  после rebase. Упавший коммит документов Wave во временном дереве выбрасывает документы вместе с деревом.
+
+Проверки круга: все `harness/{bin,hooks}/tests/*.test.sh` под пустым HOME — код 0 (`silent-mode.test.sh` —
+66, `epic-wave-ship-ticket.test.sh` — 124, `rules-hooks.test.sh` — 142). `pnpm lint`, `pnpm typecheck` —
+код 0. `pnpm test` под нагрузкой машины (load average 4–6) — код 1: 10 таймаутов 5000 мс в
+`github-prs`, `harness-qmd`, `harness-drift`, `harness-install`; эти пять файлов вместе с
+`harness-scripts` отдельно — код 0 (136 test-ов). `gate.sh fast` — три прогона, код 2: красный только
+`test/contract/harness-qmd.test.ts` (2 таймаута); он же отдельно — код 0. `gate.sh full` под замком
+`/tmp/worfy-e2e.lock` на 0d980cf — код 2: lint, typecheck, `test:e2e`, `test:package` прошли, красный
+только тот же `harness-qmd` (2 таймаута). Ветка не трогает `src/` и `test/`. CI на 0d980cf — success.
+
+**Короткий круг 2026-10-09** (решение владельца — комментарий PR #150 от 2026-10-09: только находки отказа
+`REJECTED` круга владельца, без новой логики; head до круга — `4291c1e`, после rebase на `origin/main` `fed7879`).
+- [high] Регистрация `WorktreeCreate` снята: `harness/hooks/hooks.json` — снова как в `main` (без записи и без
+  слов «where subagent worktrees are created» в описании). Plugin больше не подменяет встроенное создание worktree
+  Claude Code ни в одной Session-и. `harness/hooks/worktree-create.sh` остался: в шапке — «NOT REGISTERED», почему
+  (hook plugin-а действует на всю машину; нет повторного использования дерева, уборки, fetch, `.worktreeinclude`,
+  `sparsePaths`, `baseRef`) и что живые пробы шли с другим скриптом (`p7/wt-create.sh`, `p7b/wt-create.sh`) через
+  `claude -p --settings`, а этот скрипт через plugin не проверялся. Выводы проб (раздел «Пункт 7» выше) оставлены для
+  Ticket-а 24. Ветка «иначе» скрипта больше не называется поведением Claude Code.
+- [med] `harness/profiles/README.md`, строка `worktree.root`: корень вне репозитория не задаётся и не поддерживается
+  до Ticket-а 24, до тех пор `worktree.root` — под `.claude/worktrees/`; hook — незарегистрированный черновик, через
+  plugin не проверен и для корня внутри репозитория не равен встроенному созданию worktree. Утверждения «hook делает
+  то же, что Claude Code» и `<NN>` = `agent-<id>` ушли вместе с описанием пути.
+- [med] `ship-ticket` (шаг 2), `epic-wave` (раздел 2, `parallel: worktrees`), `implementer.md`: вернулось требование
+  «`F worktree.root` must lie there» (под `.claude/worktrees/`); корень вне репозитория — не поддерживается до
+  Ticket-а 24; `isolation: "worktree"` и `git branch -m` для такого дерева из текстов убраны. В `implementer.md`
+  исключение про корень вне репозитория стоит первым пунктом раздела и отсылает к правилу ложной предпосылки брифа.
+- low, `ship-ticket`, локальный финиш: `<main branch>` в проверке перед блоком берётся в том же порядке, что строки
+  `M=` блока; для `NO MAIN BRANCH` и `SAME BRANCH` сказано, что подготовленные документы остаются незакоммиченными в
+  дереве Ticket-а: поправить Profile и запустить блок снова, а если Ticket сейчас не вливается — откатить их тем же
+  `git restore --staged --worktree`, что при `NOT ON TOP`. Сам блок bash не менялся.
+- low, `silent-mode.test.sh`: новый сценарий «`DOCS COMMIT FAILED`, затем main ушёл вперёд — `NOT ON TOP`»: после
+  упавшего коммита документы лежат в индексе, и откат обязан снять их и оттуда.
+
+**Test-ы круга.**
+- `harness/hooks/tests/rules-hooks.test.sh` — ожидаемый список hook-ов без `WorktreeCreate`; на `hooks.json` из
+  `4291c1e` — красный «hooks.json differs: > WorktreeCreate||…/worktree-create.sh|60».
+- `harness/bin/tests/silent-mode.test.sh`, раздел 4b — unit-проверки скрипта остались (регистрации не требуют);
+  проверка регистрации заменена на «hooks.json registers no WorktreeCreate hook and never runs worktree-create.sh»;
+  на `hooks.json` из `4291c1e` — красная. Новый сценарий раздела 5b — красный на mutant-е отката без `--staged`
+  (копия `harness/` в scratchpad, `restore -q --source=HEAD --worktree`): «failed documents commit, then not on top».
+  На `4291c1e` он зелёный: `--staged` там уже был, сценарий закрывает выживший mutant.
+- `harness/bin/tests/epic-wave-ship-ticket.test.sh` — 16 новых текстовых проверок (README, `ship-ticket`,
+  `epic-wave`, `implementer.md`, шапка `worktree-create.sh`, два low `ship-ticket`), прежние 5 проверок пути через
+  hook сняты. На текстах `4291c1e` (файлы через `EPIC_WAVE_FILE`, `SHIP_TICKET_FILE`, `IMPLEMENTER_FILE`,
+  `PROFILES_README_FILE`, `WORKTREE_CREATE_FILE`) — 16 красных из 135; проверка порядка в `implementer.md` красная,
+  когда исключение стоит после правила «create a working tree».
+
+**Проверки круга** (ветка после rebase на `origin/main` `4fb466a` — там уже PR владельца #171: contract test-ы со
+своим таймаутом 15 с). Все `harness/{bin,hooks}/tests/*.test.sh` под пустым HOME — код 0 (`silent-mode.test.sh` —
+67, `epic-wave-ship-ticket.test.sh` — 135, `rules-hooks.test.sh` — 141). `gate.sh fast` — код 0, «зелено»;
+`gate.sh full` под замком `/tmp/worfy-e2e.lock` — код 0, «зелено (full): lint typecheck test test:e2e
+test:package». Отдельный `pnpm lint && pnpm typecheck && pnpm test` под нагрузкой машины (load average 5–7) — код 1:
+2 таймаута 15 000 мс (`github-prs`, `harness-qmd`); до PR #171, на `fed7879`, `gate.sh full` был красным только на
+таймаутах тех же contract test-ов. Записи в `~/.claude` в этом круге не было: проб `claude -p` нет.

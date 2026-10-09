@@ -2,7 +2,8 @@
 // profile — finds the project's profile from a directory and prints it.
 //
 //   profile                     summary: name, paths, profile.json and rules.md (this is what agents read)
-//   profile --json              profile.json + a _resolved block (name, profile directory, root, checkout)
+//   profile --json              profile.json + a _resolved block (name, profile directory, root, checkout,
+//                               mode, workflow_folder, repos)
 //   profile --field a.b.c       one field (a string as is, anything else as JSON); _resolved.* too
 //   profile --rules             only rules.md
 //   profile --dir               only the profile directory
@@ -271,6 +272,36 @@ if (checkout) {
         checkoutReal = checkout
     }
 }
+// The repositories of the project: every registry entry that names this profile (the same registry the
+// workspace above is computed from). name — the folder name of the repository, used by a ticket's `Repo:` line.
+const profileEntries = (cfg.repos || []).filter((r) => r && r.profile === name && typeof r.match === "string" && r.match)
+const repos = profileEntries.map((r) => ({ name: path.basename(path.resolve(r.match)), path: path.resolve(r.match), gate_key: r.key ?? null }))
+// The common parent of the project's repositories, whatever directory profile runs from (null with one repository).
+function commonParent() {
+    if (profileEntries.length < 2) return null
+    let ws = path.resolve(profileEntries[0].match)
+    for (const r of profileEntries.slice(1)) while (!under(path.resolve(r.match), ws) && ws !== path.dirname(ws)) ws = path.dirname(ws)
+    return ws === path.dirname(ws) ? null : ws
+}
+const expandHome = (p) => (p === "~" || p.startsWith("~/") ? path.join(process.env.HOME, p.slice(1)) : p)
+
+// The Workflow folder — where the workflow files (tickets, the epic spec, the state file, ADRs, lessons) live
+// (profiles/README.md, "Workflow folder"). Full mode: the root of the current working tree (they travel in the
+// branch). Silent mode: workflow.folder; without it — the folder above the repositories of a project of several
+// repositories, otherwise $HARNESS_HOME/projects/<name>/workflow. A relative workflow.folder would depend on
+// the directory profile runs from — a broken profile.
+let workflowFolder
+if (profile.mode === "silent") {
+    const wf = profile.workflow && typeof profile.workflow === "object" ? profile.workflow.folder : undefined
+    if (typeof wf === "string" && wf.trim()) {
+        workflowFolder = expandHome(wf.trim())
+        if (!path.isAbsolute(workflowFolder)) die(1, `${pjPath}: workflow.folder ${JSON.stringify(wf)} is not an absolute path — broken profile`)
+        workflowFolder = path.resolve(workflowFolder)
+    } else if (wf === undefined || wf === null) {
+        workflowFolder = commonParent() || path.join(HARNESS_HOME, "projects", name, "workflow")
+    } else die(1, `${pjPath}: workflow.folder must be a path or null, got ${JSON.stringify(wf)} — broken profile`)
+} else workflowFolder = checkoutReal || (workspace ? workspace.ws : null) || repoRoot || null
+
 const resolved = {
     name,
     dir,
@@ -279,6 +310,9 @@ const resolved = {
     checkout: checkoutReal,
     in_worktree: Boolean(!workspace && checkoutReal && checkoutReal !== canon),
     workspace: workspace ? workspace.ws : null,
+    mode: profile.mode,
+    workflow_folder: workflowFolder,
+    repos,
 }
 const full = { ...profile, _resolved: resolved }
 const rulesPath = path.join(dir, "rules.md")
@@ -319,6 +353,10 @@ switch (mode) {
             `repo: ${repoRoot}` +
                 (checkoutReal ? `   checkout: ${checkoutReal}${resolved.in_worktree ? " (worktree)" : ""}` : "")
         )
+        // Silent mode is said in the summary itself: an agent that reads only the summary must know that the
+        // workflow files are not in the repository. The Full mode summary stays as it was.
+        if (profile.mode === "silent")
+            out(`mode: silent   workflow folder: ${workflowFolder} (tickets, spec, state file, ADRs, lessons live there, not in the repository)`)
         out("--- profile.json")
         out(JSON.stringify(profile, null, 2))
         out("--- rules.md")

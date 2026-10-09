@@ -245,7 +245,8 @@ HJ="$HOOKS/hooks.json"
 if jq -e .hooks "$HJ" >/dev/null 2>&1; then ok "hooks.json is valid JSON with .hooks"; else bad "hooks.json missing or invalid"; fi
 
 # The hooks of ~/.claude/settings.json:5-109, plus the three inject-rules entries; qmd-refresh came
-# with the qmd server of the plugin (worfy-harness ticket 17). One line per hook: event|matcher|command|timeout.
+# with the qmd server of the plugin (worfy-harness ticket 17). No WorktreeCreate: hooks/worktree-create.sh stays unregistered until
+# worfy-harness ticket 24 (owner decision 2026-10-09). One line per hook: event|matcher|command|timeout.
 R='"${CLAUDE_PLUGIN_ROOT}'
 # Read outside $(…): macOS bash 3.2 cannot parse a here-document with an odd number of quotes
 # inside a command substitution.

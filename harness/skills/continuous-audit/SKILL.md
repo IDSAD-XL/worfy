@@ -42,6 +42,16 @@ the report to the user — `F language.reports`; the ticket template headings �
 
 ## 0. Orientation
 
+**Silent mode** — `F _resolved.mode` prints `silent` (contract: `profiles/README.md`, "Full mode and Silent
+mode"). The audit epic is a set of workflow files, so it lives in the Workflow folder
+(`F _resolved.workflow_folder`) and never in the repository: the tickets root is `ticket root` (a relative
+`tickets.root` is taken from the Workflow folder), there is no audit branch, no worktree is created for it
+and no PR is opened. The code is read from the main checkout at the audit commit (`git -C <repo> worktree add
+--detach <scratchpad>/audit-tree "$BASE"` when a separate read-only tree is needed — it is the "Tree" of the
+briefs, and nothing is committed in it). The blocks below are for Full mode; in Silent mode `T` is
+`$(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/ticket" root)/` and `A` is the epic name chosen in the first block
+(`audit-<date>`, a repeat gets `-2`), and phase 4 ends with the local commit described there.
+
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$1"; }
 BASE=$(F worktree.base) && [ "$BASE" != null ] || BASE=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
@@ -203,6 +213,11 @@ git add "$T$A" && git commit -m "docs: audit $A — N tickets" && gh pr create -
 ```
 
 How CI treats a PR that contains only ticket files is in the profile's `rules.md`, if it says so there.
+
+In Silent mode there is no commit in the repository and no PR: the epic is already in the Workflow folder.
+When the Workflow folder is a git repository of its own, it gets a local commit, without push:
+`git -C <Workflow folder> add -A . && git -C <Workflow folder> commit -m "audit $A — N tickets"`. The
+"Сейчас" line of the status block then names that commit instead of a PR.
 
 ## 5. Waves, report, status
 

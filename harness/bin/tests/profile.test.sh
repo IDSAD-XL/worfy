@@ -19,6 +19,10 @@ LIVE_GATE="${HARNESS_HOME:-$HOME/.claude/worfy-harness}/gate/config.json"
 AUCTION="$HOME/Work/Auction"
 pass=0
 fail=0
+# The real ~/.claude (the Harness parts) and ~/.claude/worfy-harness: compared at the end (real-home.sh).
+. "$(dirname "$0")/real-home.sh"
+REAL_HOME="$HOME"
+home_before="$(real_home_snapshot "$REAL_HOME")"
 
 check() { # $1 name, $2 expected exit code, $3 expected stdout substring (or ""), then the command
     local name="$1" want_rc="$2" want_out="$3"
@@ -54,7 +58,8 @@ if [ -d "$AUCTION" ] && [ -f "$LIVE_GATE" ]; then
     # the staging password must not get into curl's arguments: the pair goes through stdin (curl -K -)
     check "auction production_check: no -u in args" 1 "" bash -c "'$PROFILE' -C '$AUCTION' --field deploy.production_check | grep -q -- ' -u '"
     check "auction production_check: curl -K - and pipefail" 0 "" bash -c "c=\$('$PROFILE' -C '$AUCTION' --field deploy.production_check) && [[ \$c == 'set -o pipefail;'* && \$c == *'curl -K -'* ]]"
-    check "auction --dir" 0 "/.claude/profiles/auction" "$PROFILE" -C "$AUCTION" --dir
+    # ~/.claude/profiles/auction before the move to the Harness home, $HARNESS_HOME/projects/auction after it
+    check "auction --dir" 0 "" bash -c 'd="$("$@")" && [[ "$d" == */.claude/profiles/auction || "$d" == */projects/auction ]]' _ "$PROFILE" -C "$AUCTION" --dir
     check "auction --rules" 0 "## Источники" "$PROFILE" -C "$AUCTION" --rules
     check "auction default briefing" 0 "--- rules.md" "$PROFILE" -C "$AUCTION"
     check "auction --json is JSON" 0 "" bash -c "'$PROFILE' -C '$AUCTION' --json | node -e 'JSON.parse(require(\"fs\").readFileSync(0,\"utf8\"))'"
@@ -232,6 +237,17 @@ newp schema3 '{"schema":3,"name":"schema3","mode":"full"}'
 oldp absbin "{\"schema\":1,\"name\":\"absbin\",\"tickets\":{\"status_tool\":\"$H/.claude/bin/ticket\"},\"workflow\":{\"preflight\":\"$H/.claude/bin/preflight --epic <эпик>\"}}"
 # valid JSON, but not an object
 newp notobj '["schema",2]'
+# Silent mode (worfy-harness ticket 22): a Workflow folder given with ~/, a relative one (broken), and a
+# project of two repositories without workflow.folder (the folder above them).
+mkdir -p "$T/r/multi"
+for n in home relwf; do git -C "$T/r" init -q -b main "$n"; done
+for n in m1 m2; do git -C "$T/r/multi" init -q -b main "$n"; done
+jq --arg r "$T/r" '.repos += [{key: "home", match: ($r + "/home"), profile: "home"}, {key: "relwf", match: ($r + "/relwf"), profile: "relwf"},
+    {key: "m1", match: ($r + "/multi/m1"), profile: "ms"}, {key: "m2", match: ($r + "/multi/m2"), profile: "ms"}]' "$HH/gate/config.json" >"$T/cfg.json" \
+    && mv "$T/cfg.json" "$HH/gate/config.json"
+newp home '{"schema":2,"name":"home","mode":"silent","workflow":{"folder":"~/wf"},"tickets":{"root":".scratch/"}}'
+newp relwf '{"schema":2,"name":"relwf","mode":"silent","workflow":{"folder":"wf"}}'
+newp ms '{"schema":2,"name":"ms","mode":"silent","workflow":{"folder":null}}'
 cat >"$T/p2" <<EOF
 #!/usr/bin/env bash
 exec env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR HOME="$H" HARNESS_HOME="$HH" "$PROFILE" "\$@"
@@ -292,6 +308,28 @@ eq "schema 1: string language -> language.team" ru "$P2" -C "$T/r/legacy" --fiel
 mkdir -p "$T/override/both"
 printf '{"schema":2,"name":"both","title":"override","mode":"full"}\n' >"$T/override/both/profile.json"
 eq "CLAUDE_PROFILES_DIR overrides both places" "$T/override/both" env CLAUDE_PROFILES_DIR="$T/override" HOME="$H" HARNESS_HOME="$HH" "$PROFILE" -C "$T/r/both" --dir
+# --- Silent mode: _resolved.mode, workflow_folder, repos (worfy-harness ticket 22) -----------------
+eq "silent: _resolved.mode" silent "$P2" -C "$T/r/demo" --field _resolved.mode
+eq "silent without workflow.folder, one repository -> HARNESS_HOME/projects/<name>/workflow" "$HH/projects/demo/workflow" "$P2" -C "$T/r/demo" --field _resolved.workflow_folder
+eq "silent: workflow.folder with ~/ is expanded" "$H/wf" "$P2" -C "$T/r/home" --field _resolved.workflow_folder
+fails_with "silent: a relative workflow.folder -> 1 with the reason" 1 "not an absolute path" "$P2" -C "$T/r/relwf" --name
+eq "silent, two repositories, no folder -> the folder above them" "$T/r/multi" "$P2" -C "$T/r/multi/m1" --field _resolved.workflow_folder
+eq "silent, two repositories: _resolved.repos lists both" "m1 $T/r/multi/m1 m1|m2 $T/r/multi/m2 m2" \
+    bash -c '"$@" | jq -r "map(\"\(.name) \(.path) \(.gate_key)\") | join(\"|\")"' _ "$P2" -C "$T/r/multi/m2" --field _resolved.repos
+eq "silent, the common directory itself: the same Workflow folder" "$T/r/multi" "$P2" -C "$T/r/multi" --field _resolved.workflow_folder
+eq "full: _resolved.mode" full "$P2" -C "$T/r/both" --field _resolved.mode
+eq "schema 1: _resolved.mode full" full "$P2" -C "$T/r/legacy" --field _resolved.mode
+eq "full: the Workflow folder is the working tree" "$(cd "$T/r/both" && pwd -P)" "$P2" -C "$T/r/both" --field _resolved.workflow_folder
+eq "full: _resolved.repos of one repository" '[{"name":"both","gate_key":"both"}]' \
+    bash -c '"$@" | jq -c "map({name, gate_key})"' _ "$P2" -C "$T/r/both" --field _resolved.repos
+check "silent summary names the mode and the Workflow folder" 0 "mode: silent   workflow folder: $H/wf" "$P2" -C "$T/r/home"
+check "full summary has no mode line" 0 "" bash -c '! "$@" | grep -q "^mode: "' _ "$P2" -C "$T/r/both"
+# The relative tickets.root of a Silent profile is taken from the Workflow folder (bin/ticket applies the rule).
+eq "silent: a relative tickets.root is taken from the Workflow folder" "$H/wf/.scratch" \
+    env CLAUDE_PROFILE_BIN="$P2" bash -c 'cd "$0" && node "$1" root' "$T/r/home" "$BIN/ticket"
+eq "full: a relative tickets.root is still taken from the working tree" "$(cd "$T/r/both" && pwd -P)/.scratch" \
+    env CLAUDE_PROFILE_BIN="$P2" bash -c 'cd "$0" && node "$1" root' "$T/r/both" "$BIN/ticket"
+
 after="$(snapshot)"
 check "profile writes nothing into HOME or HARNESS_HOME" 0 "" test "$before" = "$after"
 if [ -f "$LIVE_GATE" ]; then
@@ -299,6 +337,9 @@ if [ -f "$LIVE_GATE" ]; then
 else
     echo "skip live registry check: $LIVE_GATE missing"
 fi
+
+home_after="$(real_home_snapshot "$REAL_HOME")"
+check "the real ~/.claude and ~/.claude/worfy-harness are unchanged" 0 "" test "$home_before" = "$home_after"
 
 echo "passed: $pass, failed: $fail"
 [ "$fail" -eq 0 ]

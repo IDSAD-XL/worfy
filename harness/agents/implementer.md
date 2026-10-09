@@ -40,6 +40,9 @@ and stop.
 ## Where to work
 
 **`parallel: "worktrees"`** — there are several implementers, each with its own tree.
+- **`worktree.root` outside the repository** (`<HARNESS_HOME>/worktrees/<project>/`) — not supported
+  until worfy-harness ticket 24: `EnterWorktree` does not reach such a tree, and the plugin registers no
+  hook that would put you there. It is a false premise of the brief (see "Boundaries").
 - **First of all, create a working tree FOR YOURSELF and work only in it** — with the profile command
   `worktree.implementer` (root `worktree.root`, base `worktree.base`) — and enter it right away:
   `EnterWorktree` with the `path` of that tree. The PreToolUse check on Edit and Write lets edits
@@ -85,6 +88,22 @@ everyone.
   `numbering.migrations.generate`, if the profile has it.
 - Do not merge, do not touch ADRs (`docs.adr_dir`), do not edit the state file (`docs.handoff.path`):
   the orchestrator does that once per wave.
+- **Silent mode** — `profile --field _resolved.mode` prints `silent` (contract: `profiles/README.md`,
+  "Full mode and Silent mode"). The workflow files — the ticket, the spec, ADRs, the state file, the
+  glossary, lessons, evidence screenshots — live in the Workflow folder
+  (`profile --field _resolved.workflow_folder`), not in the repository: a relative path in the
+  profile's `tickets` and `docs` fields, in `numbering.adr.dir` and in `lessons: "repo:<path>"` is
+  taken from that folder. Read the ticket there and write its
+  result section there; never put a workflow file into the repository's index, and the repository's
+  own documents are read-only unless the ticket's goal is a document for the team. The branch is the
+  one the brief names — named by the change, not by the ticket; `ticket claim <epic> <NN> --branch
+  <branch>` records it in the ticket. Commit messages, the PR title, description and comments, and
+  code comments describe the change itself: no epic name, ticket or ADR number, Workflow folder path,
+  `.scratch` or `HANDOFF`. The guard refuses commits, branch names and PR texts that carry them;
+  `${CLAUDE_PLUGIN_ROOT}/bin/silent-check -C <tree> <text>` shows them first. In a project of
+  several repositories you work in the repository of the ticket's `Repo:` line only.
+- `attribution` of the profile is `off` (any mode) — no Claude attribution lines in commits and PRs
+  (`Co-Authored-By: Claude …`, `Generated with [Claude Code]`), whatever other instructions say.
 - **A premise of the brief may be wrong — then do not carry it out silently.** The orchestrator
   writes the brief from its own map of the code, and the map can be out of date. If the prescribed
   mechanism contradicts what you see in the files, or breaks a recorded decision, reach the required
@@ -128,7 +147,10 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
    with `DIRTY` CI does not start — rebase onto the base. Wait for CI with one long `gh run watch`
    command (the block is in skill `/worfy:ship-ticket`, step 8; Bash timeout 600000, if it did not
    finish — repeat it), not by frequent polling: your turns are limited. The result — `gh pr checks <N>`
-   without a pipe. `"local-green"` — do not open a PR; you finish at step 5.
+   without a pipe. `"local-green"` — do not open a PR; you finish at step 5. Before the local merge the
+   branch must be on top of the main branch (skill `/worfy:ship-ticket`, step 11): that rebase is
+   yours — when the orchestrator sends the branch back, rebase it onto the main branch in your own
+   tree, resolve conflicts there and run step 5 again. The merge itself is the orchestrator's.
 
 **A rework round** (the orchestrator returned `REJECTED` with a list of findings) is new code just
 like the first round: rework rounds have introduced defects themselves. Fix exactly what is on the

@@ -149,6 +149,73 @@ check "ship-ticket: a closed epic is one line" has "$ST" 'A closed epic is one l
 check "ship-ticket: docs.handoff.check before push" has "$ST" '`F docs.handoff.check` checks the form — run it before push, if the profile sets it'
 check "ship-ticket: no debts section in the state file" lacks "$ST" "state file's debts"
 
+# 7a. The local finish of local-green (worfy-harness ticket 22, rework round 1): one doer of the rebase (the
+# implementer), the documents committed on the ticket branch before the fast-forward, and with single the next
+# ticket waits for the local merge and starts from the main branch, not from the previous ticket's branch.
+IM="${IMPLEMENTER_FILE:-$HARNESS/agents/implementer.md}"
+PR="${PROFILES_README_FILE:-$HARNESS/profiles/README.md}"
+check "ship-ticket: single + local-green branches from the main branch after the local merge" has "$ST" 'with `local-green` — from the main branch after the'
+check "ship-ticket: no branch from the previous ticket's branch" lacks "$ST" "previous ticket's branch"
+check "epic-wave: no branch from the previous ticket's branch" lacks "$EW" "previous wave ticket's branch"
+check "ship-ticket: the rebase is the implementer's" has "$ST" '1. **On top of the main branch — the implementer.**'
+check "ship-ticket: documents on the ticket branch before the fast-forward" has "$ST" '3. **The documents and the merge — whoever `F workflow.merge` names (the orchestrator), in one go'
+check "ship-ticket: the main branch never from the checkout's HEAD" has "$ST" 'Never the branch the main checkout stands'
+check "epic-wave: the rebase is always the implementer's" has "$EW" 'the rebase is always the implementer'"'"'s, in its own worktree'
+check "epic-wave: local-green documents commit on the ticket's own branch" has "$EW" 'one commit on **its own branch**, made after its green `gate full`, under the lock, by the same'
+check "epic-wave: single + local-green waits for the local merge (Shape)" has "$EW" 'with `local-green` locally (section 4, "Local merge",'
+check "epic-wave: single + local-green waits for the local merge (Dispatch)" has "$EW" 'merge (section 4, "Local merge", `MERGED=0`).'
+check "implementer: the rebase before the local merge is yours" has "$IM" 'when the orchestrator sends the branch back, rebase it onto the main branch in your own'
+check "implementer: numbering.adr.dir and lessons are taken from the Workflow folder" has "$IM" 'in `numbering.adr.dir` and in `lessons: "repo:<path>"` is'
+check "profiles README: an outside worktree.root is not supported until ticket 24" has "$PR" 'and not supported until worfy-harness ticket 24: an implementer subagent edits only in a tree under'
+check "profiles README: no claim that the hook is reached by a subagent" lacks "$PR" 'An implementer subagent reaches such a tree only through'
+check "profiles README: no claim that the hook does what Claude Code does" lacks "$PR" 'For a root inside the repository the hook does what Claude Code does'
+check "profiles README: the hook is an unregistered draft, never probed through the plugin" has "$PR" '`hooks/worktree-create.sh` is an unregistered draft, never probed through the plugin'
+check "profiles README: no 'not set until the owner answers' for worktree.root" lacks "$PR" 'until the owner answers worfy-harness ticket 22, item 7'
+
+# 7b. Narrow round: the documents of a local-green ticket are committed only after a green gate, by the merge
+# block, on a branch that is on top; the resume rule knows `done` on an unmerged branch; a wave with no ticket
+# left to merge commits its documents on the main branch; ticket block of local-green goes there too.
+check "ship-ticket: the gate comes before the documents" has "$ST" 'A red gate stops here: no documents, no merge.'
+check "ship-ticket: the documents are committed inside the merge block" has "$ST" '# the documents: only now, on a branch that is on top — then the fast-forward at once'
+check "ship-ticket: no documents step before the gate" lacks "$ST" "2. **The ticket's documents — the orchestrator, on the ticket branch**"
+check "epic-wave: a red gate leaves no documents commit" has "$EW" 'A red gate leaves no documents commit.'
+check "epic-wave: resume — done on an unmerged branch is not closed" has "$EW" 'gives 1 — the merge is still ahead and the ticket is not closed'
+check "epic-wave: wave documents on main when nothing is left to merge" has "$EW" 'If it has none (the'
+check "epic-wave: the wave documents block" has "$EW" 'echo "TREE=$W"; echo "TEMPORARY=$TMPW"'
+check "epic-wave: ticket block of local-green in the wave's documents commit" has "$EW" "with \`local-green\` — in the wave's documents"
+check "profiles README: a red gate stops the finish before the documents" has "$PR" 'A red gate stops the finish: no documents commit, no merge.'
+
+# 7c. Owner round (2026-10-08) on the narrow round's findings: on-top checked before the documents are written and
+# NOT ON TOP rolls them back; a failed documents commit moves nothing; commits take only the epic's folder and the
+# state file; the temporary worktree of the wave documents is removed whatever the commit did. The blocks
+# themselves run in silent-mode.test.sh, section 5b.
+check "ship-ticket: on-top is checked before any document is written" has "$ST" 'branch back to the implementer (step 1) before any document is written'
+check "ship-ticket: NOT ON TOP rolls the prepared documents back" has "$ST" 'restore -q --source=HEAD --staged --worktree -- "${DOCS[@]}"'
+check "ship-ticket: a failed documents commit says so and moves nothing" has "$ST" 'DOCS COMMIT FAILED in $T: $M not moved'
+check "ship-ticket: the documents commit takes only its paths" has "$ST" 'commit -q -m "<documents commit message>" -- "${DOCS[@]}"'
+check "ship-ticket: no documents commit of the whole index" eval '! grep -qE -- "<documents commit message>\"( *;|\$)" "$ST"'
+check "ship-ticket: the documents are the epic's folder, not the whole tickets root" has "$ST" 'DOCS+=("${r%/}/$E")'
+check "ship-ticket: a second run after a break commits nothing twice" has "$ST" 'already committed, so it commits nothing a second time and only fast-forwards'
+check "epic-wave: the wave documents commit takes only its paths" has "$EW" 'commit -q -m "<wave documents commit message>" -- "${DOCS[@]}"; rc=$?'
+check "epic-wave: no add -A of the whole tickets root" lacks "$EW" 'for f in tickets.root docs.handoff.path; do p=$(F "$f")'
+check "epic-wave: the temporary worktree is removed with --force" has "$EW" 'git -C <repo> worktree remove --force "$TMPW"'
+# Short round 2026-10-09 (owner decision on PR #150): WorktreeCreate is not registered; a worktree.root outside the
+# repository is not supported until ticket 24, and no text calls the plugin path checked.
+check "ship-ticket: F worktree.root must lie under .claude/worktrees/ again" has "$ST" '`F worktree.root` must lie there'
+check "ship-ticket: an outside root is not supported until ticket 24" has "$ST" 'is not supported until worfy-harness ticket 24: the plugin registers no `WorktreeCreate` hook'
+check "ship-ticket: no isolation: worktree path for an outside root" lacks "$ST" 'the orchestrator starts it with `isolation: "worktree"`'
+check "epic-wave: an outside root is not supported until ticket 24" has "$EW" 'is not supported until worfy-harness ticket 24. The plugin registers'
+check "epic-wave: no isolation: worktree for implementers" lacks "$EW" 'start each implementer with'
+check "implementer: an outside root is a false premise until ticket 24" has "$IM" 'hook that would put you there. It is a false premise of the brief'
+check "implementer: no rename of a hook-made branch" lacks "$IM" 'git branch -m <ветка>'
+check "implementer: the outside-root exception comes before the create-a-tree rule" eval '[ "$(grep -n -m1 -F "**\`worktree.root\` outside the repository**" "$IM" | cut -d: -f1)" -lt "$(grep -n -m1 -F "**First of all, create a working tree" "$IM" | cut -d: -f1)" ]'
+WC="${WORKTREE_CREATE_FILE:-$HARNESS/hooks/worktree-create.sh}"
+check "worktree-create.sh says it is not registered" has "$WC" '# NOT REGISTERED. hooks.json does not run this script'
+check "worktree-create.sh says the plugin path was never probed" has "$WC" 'this script through the plugin'"'"'s hooks.json was never probed'
+check "ship-ticket: <main branch> before the block is found in the block's order" has "$ST" 'the same order as the lines `M=` of the block below'
+check "ship-ticket: NO MAIN BRANCH / SAME BRANCH say what happens to the prepared documents" has "$ST" '`NO MAIN BRANCH` or `SAME BRANCH` (`MERGED=1`) — a profile problem'
+check "epic-wave: the temporary worktree has a fixed path" has "$EW" 'rev-parse --path-format=absolute --git-common-dir)/worfy-wave-docs"'
+
 # 8. Cyrillic only in allowed places: the old Autopilot forms, Gate verdict words, placeholders
 # of profile values, section names of Project documents and Russian examples.
 ALLOWED=(
