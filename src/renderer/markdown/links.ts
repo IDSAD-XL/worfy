@@ -10,17 +10,36 @@ export type LinkTarget =
   | { kind: 'none' }
 
 const SCHEME = /^[a-z][a-z0-9+.-]*:/i
+/** `C:\…`, `C:/…` or `\\server\share…`: a Windows path, not a `c:` scheme (worfy-windows ticket 08). */
+const WINDOWS_ROOT = /^([A-Za-z]):[\\/]|^\\\\([^\\/]+)[\\/]([^\\/]+)/
 
-/** Joins and normalises POSIX path segments; `..` above the start is kept for main to refuse. */
+/**
+ * Joins and normalises path segments; `..` above the start is kept for main to refuse. A relative
+ * path takes `\` as a separator too; an absolute POSIX path only `/`.
+ */
 function normalise(path: string): string {
   const absolute = path.startsWith('/')
   const out: string[] = []
-  for (const segment of path.split('/')) {
+  for (const segment of path.split(absolute ? '/' : /[\\/]/)) {
     if (segment === '' || segment === '.') continue
     if (segment === '..' && out.length > 0 && out[out.length - 1] !== '..') out.pop()
     else if (segment !== '..' || !absolute) out.push(segment)
   }
   return (absolute ? '/' : '') + out.join('/')
+}
+
+/** An absolute Windows path normalised (`\`, the drive letter in upper case); null for any other path. */
+function windowsPath(path: string): string | null {
+  const root = WINDOWS_ROOT.exec(path)
+  if (!root) return null
+  const head = root[1] !== undefined ? `${root[1].toUpperCase()}:` : `\\\\${root[2]}\\${root[3]}`
+  const out: string[] = []
+  for (const segment of path.slice(root[0].length).split(/[\\/]/)) {
+    if (segment === '' || segment === '.') continue
+    if (segment === '..') out.pop()
+    else out.push(segment)
+  }
+  return out.length === 0 ? '' : `${head}\\${out.join('\\')}`
 }
 
 function decode(path: string): string {
@@ -40,6 +59,10 @@ export function classifyLink(href: string | undefined, baseDir = ''): LinkTarget
   if (href === undefined) return { kind: 'none' }
   const value = href.trim()
   if (value === '' || value.startsWith('#') || value.startsWith('//')) return { kind: 'none' }
+  if (WINDOWS_ROOT.test(value)) {
+    const path = windowsPath(decode(value.replace(/[?#].*$/, '')))
+    return path ? { kind: 'file', path } : { kind: 'none' }
+  }
   if (SCHEME.test(value)) {
     try {
       const url = new URL(value)

@@ -7,6 +7,7 @@
 // the text. A file outside the Project is first copied into worfy's own data folder (ADR-0005):
 // nothing is ever written into the Project's repository.
 import { z } from 'zod'
+import { absolutePathSchema } from '../paths'
 
 /** The image types the Messages API takes in an image block. */
 export const IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
@@ -39,7 +40,7 @@ export const tooManyAttachments = (names: readonly string[]): string => `A messa
 export const unsupportedImage = (name: string): string => `${name} is not a supported image: paste a PNG, JPEG, GIF or WebP`
 
 const name = z.string().min(1).max(255)
-const absolutePath = z.string().startsWith('/', 'the path must be absolute')
+const absolutePath = absolutePathSchema
 const base64 = (bytes: number) =>
   z
     .string()

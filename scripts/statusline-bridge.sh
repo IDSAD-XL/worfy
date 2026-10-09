@@ -1,52 +1,24 @@
 #!/bin/sh
-# worfy status line bridge: copies the `rate_limits` object that Claude Code passes to the status
-# line command into statusline-limits.json in worfy's data folder, where worfy reads its Limits
-# (ticket worfy-mvp/22). Claude Code 2.1.284 sends it after the first answer of a session:
-#   {"five_hour": {"used_percentage": 29, "resets_at": 1791202800}, "seven_day": {...}}
+# worfy status line bridge, entry: the work is done by statusline-bridge.mjs next to this file (Node,
+# worfy-windows ticket 08). It copies the `rate_limits` object of the status line JSON into
+# statusline-limits.json of worfy's data folders and passes stdin to the user's own status line
+# command, whose output and exit code come through unchanged.
 #
-# The data folder is WORFY_DATA_DIR when it is set. Otherwise the file goes to each of the two
-# folders that src/main/storage/paths.ts names and that exist: Application Support/worfy (the
-# packaged app, such as the stable copy) and Application Support/worfy-dev (`pnpm dev`), so a dev
-# run that works next to the stable copy sees the same Limits. A shell script cannot import
-# paths.ts; test/contract/statusline-bridge.test.ts keeps the two folder names in step with it.
-#
-# The script ships inside worfy.app as Contents/Resources/statusline-bridge.sh (electron-builder.yml)
-# and runs from there, so it depends on no checkout of the repository. It goes in front of the
-# user's own status line command, which gets the same stdin and whose output is passed through
-# unchanged:
+# This file stays at its path: the user's `statusLine` names it, as the Harness migration form wrote
+# it (ADR-0040, ADR-0047), and an update of the .app must not break it:
 #
 #   "statusLine": {"type": "command", "command": "/Applications/worfy.app/Contents/Resources/statusline-bridge.sh 'bash ~/.claude/statusline.sh'"}
 #
-# worfy points `statusLine` at this script only through the Harness migration form, after the user
-# agrees to that row (ADR-0040, ADR-0047); nothing else in worfy edits ~/.claude/settings.json.
-# Apart from that, worfy only reads statusline-limits.json.
-#
-# Without an argument the script prints nothing. It writes nothing but that one file per folder,
-# only into a folder that exists (worfy has run) and only when jq is available, and never fails
-# the status line.
-input=$(cat)
-
-# Written beside the target and renamed over it, so worfy never reads half a file.
-copy_limits() {
-  [ -d "$1" ] || return 0
-  tmp="$1/.statusline-limits.json.$$"
-  if printf '%s\n' "$limits" >"$tmp" 2>/dev/null; then
-    mv -f "$tmp" "$1/statusline-limits.json" 2>/dev/null || rm -f "$tmp"
-  fi
-}
-
-if command -v jq >/dev/null 2>&1; then
-  limits=$(printf '%s' "$input" | jq -c '.rate_limits | select(type == "object")' 2>/dev/null)
-  if [ -n "$limits" ]; then
-    if [ -n "${WORFY_DATA_DIR:-}" ]; then
-      copy_limits "$WORFY_DATA_DIR"
-    else
-      copy_limits "$HOME/Library/Application Support/worfy"
-      copy_limits "$HOME/Library/Application Support/worfy-dev"
-    fi
-  fi
+# Both files ship in Contents/Resources (electron-builder.yml). Without node on PATH there are no
+# Limits from the terminal, but the user's own status line still runs, as it did without jq.
+case $0 in
+  */*) here=${0%/*} ;;
+  *) here=. ;;
+esac
+if command -v node >/dev/null 2>&1 && [ -f "$here/statusline-bridge.mjs" ]; then
+  exec node "$here/statusline-bridge.mjs" "$@"
 fi
-
 if [ $# -gt 0 ]; then
-  printf '%s' "$input" | sh -c "$1"
+  exec sh -c "$1"
 fi
+cat >/dev/null

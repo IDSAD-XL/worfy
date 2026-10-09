@@ -1,5 +1,6 @@
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, resolve, win32 } from 'node:path'
+import { isAbsolutePath } from '../../shared/paths'
 
 type Env = Readonly<Record<string, string | undefined>>
 
@@ -19,18 +20,27 @@ export function setBuildKind(kind: BuildKind): void {
 }
 
 /**
- * Root of worfy's own state (ADR 0005). The packaged app uses Application Support/worfy, a dev
- * run Application Support/worfy-dev, so both can run at once without sharing limits.json or
- * bindings.json. WORFY_DATA_DIR overrides either, so tests run against a temporary directory.
+ * Root of worfy's own state (ADR 0005). The packaged app uses worfy, a dev run worfy-dev, so both
+ * can run at once without sharing limits.json or bindings.json: on macOS (and any other system but
+ * Windows) in ~/Library/Application Support, on Windows in %APPDATA% (<home>\AppData\Roaming when
+ * APPDATA is missing or not absolute; worfy-windows ticket 08, ADR-0054) — the folder Electron's
+ * app.getPath('appData') gives there. userData is set from this, not read from Electron: both
+ * builds share the app name, so their folders would merge (ADR-0023). WORFY_DATA_DIR overrides
+ * either, so tests run against a temporary directory.
  * This module is the only place in the app that knows where worfy's data lives. The one copy
- * outside it is scripts/statusline-bridge.sh, a shell script that cannot import this module; it
- * writes to both default folders, and test/contract/statusline-bridge.test.ts derives them from
- * dataRoot(), so renaming a folder here fails that test until the script follows.
+ * outside it is scripts/statusline-bridge.mjs, which runs without the app; it writes to both
+ * default folders, and test/contract/statusline-bridge.test.ts derives them from dataRoot(), so
+ * renaming a folder here fails that test until the script follows.
  */
-export function dataRoot(env: Env = process.env, kind: BuildKind = currentBuildKind): string {
+export function dataRoot(env: Env = process.env, kind: BuildKind = currentBuildKind, platform: NodeJS.Platform = process.platform): string {
   const override = env.WORFY_DATA_DIR
   if (override) return resolve(override)
-  return join(homedir(), 'Library', 'Application Support', kind === 'dev' ? 'worfy-dev' : 'worfy')
+  const name = kind === 'dev' ? 'worfy-dev' : 'worfy'
+  if (platform === 'win32') {
+    const appData = env.APPDATA !== undefined && isAbsolutePath(env.APPDATA) ? env.APPDATA : win32.join(homedir(), 'AppData', 'Roaming')
+    return win32.join(appData, name)
+  }
+  return join(homedir(), 'Library', 'Application Support', name)
 }
 
 /**

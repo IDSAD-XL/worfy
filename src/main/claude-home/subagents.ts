@@ -26,8 +26,15 @@ import {
   type SubagentSignal,
   type WorkflowAgent,
 } from '../../shared/transcript/subagents'
+import { lastPathSegment } from '../../shared/paths'
 import { processState } from './registry'
 import { readNewLines, type TailCursor } from './tail'
+
+/**
+ * The id of the Session whose transcript is at `path`: the file name without `.jsonl`. The path is
+ * split at `/` and `\`: on Windows it comes from the file system with `\` (worfy-windows ticket 08).
+ */
+export const transcriptSessionId = (path: string): string => lastPathSegment(path).replace(/\.jsonl$/, '')
 
 /** A Subagent id: letters, digits, `-` and `_` only. */
 const AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
@@ -258,7 +265,7 @@ export class SubagentReader {
 
   /** Both, for the Session whose transcript is at `path`; a `session-closed` signal last when its process is gone. */
   async session(path: string): Promise<SessionSubagents> {
-    const sessionId = path.slice(path.lastIndexOf('/') + 1).replace(/\.jsonl$/, '')
+    const sessionId = transcriptSessionId(path)
     // Asked before the files are read: a Session found closed has written every end it will
     // report, so a Subagent that ended just before the process did is read as ended, not cut off.
     const runs = await sessionRuns(path, sessionId, this.processState)
@@ -298,7 +305,7 @@ const isFileAt = async (path: string): Promise<boolean> => {
  */
 export async function subagentTranscriptPath(sessionTranscript: string, agentId: string): Promise<string | null> {
   if (!AGENT_ID.test(agentId)) return null
-  const sessionId = sessionTranscript.slice(sessionTranscript.lastIndexOf('/') + 1).replace(/\.jsonl$/, '')
+  const sessionId = transcriptSessionId(sessionTranscript)
   const folder = join(dirname(sessionTranscript), sessionId, 'subagents')
   const name = `agent-${agentId}.jsonl`
   if (await isFileAt(join(folder, name))) return join(folder, name)

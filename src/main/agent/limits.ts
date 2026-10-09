@@ -5,9 +5,10 @@
 // - every SDK message of every Session: observe() wraps the app's query factory, so each
 //   `rate_limit_event` a Session receives is recorded, whichever window started the Session;
 // - <WORFY_DATA_DIR>/statusline-limits.json, which the status line bridge writes from the user's
-//   status line command. The bridge is scripts/statusline-bridge.sh, shipped in the .app as
-//   Contents/Resources/statusline-bridge.sh; `statusLine` in ~/.claude/settings.json points at it
-//   once the user agrees to that row of the Harness migration form (ADR-0040, ADR-0047).
+//   status line command. The bridge is scripts/statusline-bridge.mjs (Node, worfy-windows ticket
+//   08) behind its entry scripts/statusline-bridge.sh, both shipped in the .app in
+//   Contents/Resources; `statusLine` in ~/.claude/settings.json points at the entry once the user
+//   agrees to that row of the Harness migration form (ADR-0040, ADR-0047).
 //   This module only reads the file.
 //
 // A change is written to limits.json and sent to the subscribers (src/main/ipc/limits.ts sends it
@@ -22,7 +23,7 @@ import type { AgentEvent } from '../../shared/agent/events'
 import type { EventSink, QueryFactory } from './session'
 
 export const LIMITS_FILE = 'limits.json'
-/** Written by scripts/statusline-bridge.sh: the status line's `rate_limits` object as is. */
+/** Written by scripts/statusline-bridge.mjs: the status line's `rate_limits` object as is. */
 export const STATUSLINE_FILE = 'statusline-limits.json'
 
 /** How long to wait after a change of the status line file before reading it. */

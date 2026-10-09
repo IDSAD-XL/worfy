@@ -6,7 +6,18 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ClaudeHomeRegistry, gitWorktrees, processAlive, projectDirName, type ClaudeHomeChange } from '../../src/main/claude-home/registry'
+import type { RunFile } from '../../src/main/agent/env'
+import {
+  batchedProcessStarts,
+  ClaudeHomeRegistry,
+  gitWorktrees,
+  isInsidePath,
+  processAlive,
+  processState,
+  projectDirName,
+  readWindowsProcessStarts,
+  type ClaudeHomeChange,
+} from '../../src/main/claude-home/registry'
 import { readNewLines } from '../../src/main/claude-home/tail'
 import { ClaudeHomeSubscriptions, claudeHomeHandlers, type Subscriber } from '../../src/main/ipc/claude-home'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
@@ -135,6 +146,38 @@ describe('project folder names', () => {
     expect(name).toMatch(/^-Users-test-deep-deep-.{178}-[0-9a-z]+$/)
     expect(name.slice(0, 200)).toBe(cwd.replace(/[^a-zA-Z0-9]/g, '-').slice(0, 200))
     expect(projectDirName(`${cwd}y`)).not.toBe(name)
+  })
+
+  // As Claude Code 2.1.233 named them on Windows (evidence of worfy-windows ticket 01, section 12).
+  it.each([
+    ['C:\\a\\b', 'C--a-b'],
+    ['C:\\Users\\Alexey\\AppData\\Local\\Temp\\worfy-01\\with space', 'C--Users-Alexey-AppData-Local-Temp-worfy-01-with-space'],
+    ['C:\\Users\\Alexey\\AppData\\Local\\Temp\\worfy-01\\кириллица', 'C--Users-Alexey-AppData-Local-Temp-worfy-01----------'],
+  ])('Windows: %s → %s', (cwd, dir) => {
+    expect(projectDirName(cwd)).toBe(dir)
+  })
+})
+
+describe('a folder inside a Project (worfy-windows ticket 08)', () => {
+  it('on Windows takes `\\` and `/` and ignores case', () => {
+    expect(isInsidePath('C:\\p\\worfy', 'C:\\p\\worfy', 'win32')).toBe(true)
+    expect(isInsidePath('C:\\p\\worfy\\src\\main', 'C:\\p\\worfy', 'win32')).toBe(true)
+    expect(isInsidePath('c:/P/Worfy/src', 'C:\\p\\worfy', 'win32')).toBe(true)
+    expect(isInsidePath('C:\\p\\worfy\\.claude\\worktrees\\05', 'C:\\p\\worfy\\', 'win32')).toBe(true)
+    expect(isInsidePath('C:\\p\\worfy-other', 'C:\\p\\worfy', 'win32')).toBe(false)
+    expect(isInsidePath('D:\\p\\worfy', 'C:\\p\\worfy', 'win32')).toBe(false)
+    expect(isInsidePath('C:\\p\\worfy\\..\\x', 'C:\\p\\worfy', 'win32')).toBe(false)
+    expect(isInsidePath('C:\\anything', 'C:\\', 'win32')).toBe(true)
+  })
+
+  it('on macOS and Linux is as before: `/` only, case counts', () => {
+    for (const platform of ['darwin', 'linux'] as const) {
+      expect(isInsidePath('/p/worfy/src', '/p/worfy', platform)).toBe(true)
+      expect(isInsidePath('/p/worfy', '/p/worfy/', platform)).toBe(true)
+      expect(isInsidePath('/p/Worfy/src', '/p/worfy', platform)).toBe(false)
+      expect(isInsidePath('/p/worfy-other', '/p/worfy', platform)).toBe(false)
+      expect(isInsidePath('/anything', '/', platform)).toBe(true)
+    }
   })
 })
 
@@ -295,6 +338,64 @@ describe('process liveness', () => {
     expect(await processAlive(pid, undefined)).toBe(false)
     expect(await processAlive(0, undefined)).toBe(false)
     expect(await processAlive(-1, undefined)).toBe(false)
+  })
+})
+
+// On Windows procStart is the FILETIME of the start in decimal (evidence of worfy-windows ticket 01,
+// section 23), read by Get-Process through one PowerShell call; the command is replaced here.
+describe('process liveness on Windows (worfy-windows ticket 08)', () => {
+  const START = '134359927685768597'
+  const win = (answer: Map<number, string> | Error) => ({ platform: 'win32' as const, windowsStart: async () => (answer instanceof Error ? Promise.reject(answer) : answer) })
+
+  it('is alive when the start of the running pid is procStart, gone when it is another, unknown when it cannot be read', async () => {
+    expect(await processState(process.pid, START, win(new Map([[process.pid, START]])))).toBe('alive')
+    expect(await processState(process.pid, ` ${START}\n`, win(new Map([[process.pid, START]])))).toBe('alive')
+    expect(await processState(process.pid, START, win(new Map([[process.pid, '134359927685768590']])))).toBe('gone')
+    expect(await processState(process.pid, START, win(new Map()))).toBe('gone')
+    expect(await processState(process.pid, START, win(new Map([[process.pid, '?']])))).toBe('unknown')
+    expect(await processState(process.pid, START, win(new Error('powershell timed out')))).toBe('unknown')
+    expect(await processState(process.pid, undefined, win(new Error('not asked')))).toBe('alive')
+  })
+
+  it('reads the start times of all pids by one PowerShell call and parses its lines', async () => {
+    const calls: { file: string; args: string[] }[] = []
+    const run: RunFile = (file, args, _options, done) => {
+      calls.push({ file, args })
+      done(null, `41001 ${START}\r\n41002 ?\r\nnoise\r\n`, '')
+    }
+    const starts = await readWindowsProcessStarts('C:\\Windows', run)([41001, 41002, 41003])
+    expect(starts).toEqual(new Map([[41001, START], [41002, '?']]))
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.file).toBe('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
+    const script = Buffer.from(calls[0]!.args[3]!, 'base64').toString('utf16le')
+    expect(script).toContain('Get-Process -Id 41001,41002,41003')
+    expect(script).toContain('ToFileTimeUtc()')
+    expect(await readWindowsProcessStarts('C:\\Windows', run)([])).toEqual(new Map())
+    expect(calls).toHaveLength(1)
+    const failing: RunFile = (_file, _args, _options, done) => done({ code: 1 }, '', 'boom')
+    await expect(readWindowsProcessStarts('C:\\Windows', failing)([1])).rejects.toThrow(/could not read process start times: exit 1/)
+  })
+
+  it('gathers the pids asked for at the same time into one read', async () => {
+    const reads: number[][] = []
+    const start = batchedProcessStarts(async (pids) => {
+      reads.push([...pids])
+      return new Map(pids.map((pid) => [pid, START]))
+    }, 5)
+    const answers = await Promise.all([start(1), start(2), start(3)])
+    expect(reads).toEqual([[1, 2, 3]])
+    expect(answers.every((map) => map.get(2) === START)).toBe(true)
+    await start(4)
+    expect(reads).toEqual([[1, 2, 3], [4]])
+  })
+})
+
+describe.runIf(process.platform === 'win32')('process liveness on this Windows machine', { timeout: 30_000 }, () => {
+  it('is alive for this process at its own start time, gone at another, read through PowerShell', async () => {
+    const own = (await readWindowsProcessStarts()([process.pid])).get(process.pid)
+    expect(own).toMatch(/^\d{17,}$/)
+    expect(await processState(process.pid, own)).toBe('alive')
+    expect(await processState(process.pid, '134359927685768590')).toBe('gone')
   })
 })
 

@@ -27,6 +27,7 @@ import {
   powershellCommand,
   powershellRegRead,
   registryScript,
+  stderrLine,
   shellBaseEnv,
   SYSTEM_PATH,
   withoutApiKeys,
@@ -398,6 +399,13 @@ describe('captureAgentEnv on win32', () => {
     expect(error).toMatch(/powershell is missing/)
   })
 
+  it('a failure reading only the machine key still falls back', async () => {
+    const { env, from, error } = await capture({ readKey: async (name) => (name === PERSISTENT_ENV_KEYS[1] ? Promise.reject(new Error('machine key unreadable')) : regAnswers[name]!) })
+    expect(from).toBe('fallback')
+    expect(error).toMatch(/machine key unreadable/)
+    expect(env).not.toHaveProperty('ANTHROPIC_MODEL')
+  })
+
   it('a failure reading only the user key still falls back', async () => {
     const { env, from, error } = await capture({ readKey: async (name) => (name === PERSISTENT_ENV_KEYS[0] ? Promise.reject(new Error('user key unreadable')) : regAnswers[name]!) })
     expect(from).toBe('fallback')
@@ -530,7 +538,7 @@ describe('findOnPath and the registry reader', () => {
     expect(Buffer.from(args[3]!, 'base64').toString('utf16le')).toBe(registryScript(PERSISTENT_ENV_KEYS[0]))
     expect(args).toHaveLength(4)
     expect(options).toEqual({ encoding: 'utf8', timeout: 10_000, windowsHide: true })
-    for (const root of [undefined, '', 'Windows', 'C:Windows']) {
+    for (const root of [undefined, '', 'Windows', 'C:Windows', '\\Windows', '/Windows']) {
       expect(powershellCommand(root, PERSISTENT_ENV_KEYS[0]).file).toBe('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
     }
   })
@@ -556,6 +564,10 @@ describe('findOnPath and the registry reader', () => {
     await expect(read({ error: { killed: true, code: null } })).rejects.toThrow(/could not read HKCU\\Environment: timed out after 10 s$/)
     await expect(read({ error: { code: 1 }, stdout: `Error ${b64('no such key: Ключ')}\r\n` })).rejects.toThrow(/: no such key: Ключ$/)
     await expect(read({ error: { code: 1 }, stderr: 'first\r\nAccess is denied.\r\n\r\n' })).rejects.toThrow(/: exit 1: Access is denied\.$/)
+    // powershell.exe writes a redirected error stream as CLIXML: its first Error string is the message.
+    const clixml = '#< CLIXML\r\n<Objs Version="1.1.0.1"><Obj S="progress" RefId="0"></Obj><S S="Error">Get-Item : Cannot find path &apos;x&apos;._x000D__x000A_</S><S S="Error">At line:2 char:1_x000D__x000A_</S></Objs>'
+    await expect(read({ error: { code: 1 }, stderr: clixml })).rejects.toThrow(/: exit 1: Get-Item : Cannot find path 'x'\.$/)
+    expect(stderrLine('#< CLIXML\r\n<Objs Version="1.1.0.1"></Objs>')).toBeNull()
     await expect(read({ error: { code: 'ENOENT' } })).rejects.toThrow(/: exit ENOENT$/)
   })
 })

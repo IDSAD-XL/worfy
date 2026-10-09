@@ -20,11 +20,14 @@ files:
 # `statusLine` runs it from the .app, so Limits from the terminal do not depend on a checkout of
 # this repository (worfy-harness ticket 15). The Harness migration form (src/main/harness/migrate/)
 # proposes <process.resourcesPath>/statusline-bridge.sh by this name; do not rename or move it.
+# It is the entry of statusline-bridge.mjs (Node, worfy-windows ticket 08), which goes next to it.
 extraResources:
   - from: out/harness
     to: harness
   - from: scripts/statusline-bridge.sh
     to: statusline-bridge.sh
+  - from: scripts/statusline-bridge.mjs
+    to: statusline-bridge.mjs
 
 # Package the Electron that is already installed instead of downloading another copy.
 electronDist: node_modules/electron/dist

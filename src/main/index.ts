@@ -23,7 +23,8 @@ setBuildKind(app.isPackaged ? 'packaged' : 'dev')
 // cannot be taken in it, and the start would end as "another worfy already runs" with exit code 0.
 if (dataFolderUsable()) {
   // Electron's own files (caches, local storage) go under worfy's data root too, so a test run
-  // with a temporary WORFY_DATA_DIR leaves nothing in the real Application Support folder.
+  // with a temporary WORFY_DATA_DIR leaves nothing in the real data folder (Application Support on
+  // macOS, %APPDATA% on Windows).
   app.setPath('userData', dataRoot())
 
   // One process per data root: Electron keys the lock on userData, set just above. Two processes

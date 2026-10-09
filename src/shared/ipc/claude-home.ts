@@ -3,14 +3,12 @@
 // ADR 0005); the main process side is src/main/claude-home/ and src/main/ipc/claude-home.ts.
 import { z } from 'zod'
 import { agentEvent } from '../agent/events'
+import { absolutePathSchema } from '../paths'
 import { subagentFileSchema, subagentSignalSchema } from '../transcript/subagents'
 import { eventChannel, invokeChannel } from './channels'
 
-/** An absolute POSIX path; the main process resolves it again before use. */
-const absolutePath = z
-  .string()
-  .min(1)
-  .refine((path) => path.startsWith('/') && !path.includes('\0'), 'must be an absolute path')
+/** An absolute path, POSIX or Windows; the main process resolves it again before use. */
+const absolutePath = absolutePathSchema
 
 /** A Session id names a file: letters, digits and dashes only, so it can never leave its folder. */
 export const sessionIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/, 'not a session id')

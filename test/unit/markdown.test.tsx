@@ -140,6 +140,24 @@ describe('classifyLink', () => {
     expect(classifyLink('../../src/main/index.ts', '.scratch/worfy-mvp')).toEqual({ kind: 'file', path: 'src/main/index.ts' })
     expect(classifyLink('0002.md', 'docs/adr/')).toEqual({ kind: 'file', path: 'docs/adr/0002.md' })
   })
+
+  // worfy-windows ticket 08: a Windows path is a file, not a `c:` scheme.
+  it.each([
+    ['C:\\docs\\a.md', 'C:\\docs\\a.md'],
+    ['C:/docs/a.md', 'C:\\docs\\a.md'],
+    ['c:\\docs\\.\\x\\..\\a.md#top', 'C:\\docs\\a.md'],
+    ['C:\\docs\\F%20SPEC.md', 'C:\\docs\\F SPEC.md'],
+    ['\\\\server\\share\\a.md', '\\\\server\\share\\a.md'],
+  ])('%s is a file with an absolute Windows path', (href, path) => {
+    expect(classifyLink(href, 'docs')).toEqual({ kind: 'file', path })
+  })
+
+  it('takes `\\` in a relative link as a separator, and a drive root or a bare drive as nothing to open', () => {
+    expect(classifyLink('docs\\adr\\0001.md')).toEqual({ kind: 'file', path: 'docs/adr/0001.md' })
+    expect(classifyLink('..\\src\\main\\index.ts', '.scratch/worfy-mvp')).toEqual({ kind: 'file', path: '.scratch/src/main/index.ts' })
+    expect(classifyLink('C:\\')).toEqual({ kind: 'none' })
+    expect(classifyLink('C:a.md')).toEqual({ kind: 'none' })
+  })
 })
 
 // worfy-link ticket 12 (ADR-0053, Q14): in a window on Linked machine M an https:// link opens on

@@ -1,14 +1,22 @@
-// scripts/statusline-bridge.sh against the JSON Claude Code passes to the status line command
-// (shape recorded from Claude Code 2.1.284, ticket 22): it copies `rate_limits` and nothing else
-// into statusline-limits.json in worfy's data folder and passes stdin to the user's own command.
-import { spawnSync } from 'node:child_process'
+// The status line bridge against the JSON Claude Code passes to the status line command (shape
+// recorded from Claude Code 2.1.284, ticket 22): it copies `rate_limits` and nothing else into
+// statusline-limits.json in worfy's data folder and passes stdin to the user's own command.
+// The work is done by scripts/statusline-bridge.mjs (Node, worfy-windows ticket 08); every case runs
+// against it and, where /bin/sh is, against the entry scripts/statusline-bridge.sh that the user's
+// `statusLine` names in the .app.
+import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { join, relative, win32 } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type BuildKind, dataRoot } from '../../src/main/storage/paths'
 
-const SCRIPT = join(__dirname, '..', '..', 'scripts', 'statusline-bridge.sh')
+const MJS = join(__dirname, '..', '..', 'scripts', 'statusline-bridge.mjs')
+const SH = join(__dirname, '..', '..', 'scripts', 'statusline-bridge.sh')
+const WINDOWS = process.platform === 'win32'
+/** Node itself, not the Electron that runs the tests. */
+const NODE = execFileSync('node', ['-p', 'process.execPath'], { encoding: 'utf8' }).trim()
 
 const RATE_LIMITS = { five_hour: { used_percentage: 29, resets_at: 1791202800 }, seven_day: { used_percentage: 9, resets_at: 1791777600 } }
 const STATUS = {
@@ -37,44 +45,56 @@ afterEach(() => {
   rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
-function run(stdin: string, args: string[] = [], env: Record<string, string> = { WORFY_DATA_DIR: dataDir }) {
-  const result = spawnSync('/bin/sh', [SCRIPT, ...args], { input: stdin, encoding: 'utf8', env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, ...env } })
+type Entry = 'mjs' | 'sh'
+
+/**
+ * Runs the bridge with a HOME of the test's own; on Windows also USERPROFILE, which os.homedir()
+ * reads there, so the default data folders are never the user's real ones.
+ */
+function run(entry: Entry, stdin: string, args: string[] = [], env: Record<string, string> = { WORFY_DATA_DIR: dataDir }) {
+  const base: Record<string, string> = { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home }
+  if (WINDOWS) Object.assign(base, { USERPROFILE: home, SystemRoot: process.env.SystemRoot ?? 'C:\\Windows' })
+  const [file, fileArgs] = entry === 'mjs' ? [NODE, [MJS]] : ['/bin/sh', [SH]]
+  const result = spawnSync(file, [...fileArgs, ...args], { input: stdin, encoding: 'utf8', env: { ...base, ...env } })
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
 }
 
 const written = (dir = dataDir): unknown => JSON.parse(readFileSync(join(dir, 'statusline-limits.json'), 'utf8'))
 
-/** The default data folder of a build kind under the test's HOME, as src/main/storage/paths.ts names it. */
+/** The default data folder of a build kind under the test's home, as src/main/storage/paths.ts names it. */
 const defaultDataDir = (kind: BuildKind): string => join(home, relative(homedir(), dataRoot({}, kind)))
 
-describe('statusline-bridge.sh', () => {
+const ENTRIES: Entry[] = WINDOWS ? ['mjs'] : ['mjs', 'sh']
+
+describe.each(ENTRIES)('statusline-bridge (%s)', (entry) => {
   it('writes rate_limits and nothing else of the status line JSON', () => {
-    expect(run(JSON.stringify(STATUS))).toEqual({ status: 0, stdout: '', stderr: '' })
+    expect(run(entry, JSON.stringify(STATUS))).toEqual({ status: 0, stdout: '', stderr: '' })
     expect(written()).toEqual(RATE_LIMITS)
     expect(readdirSync(dataDir)).toEqual(['statusline-limits.json'])
   })
 
   it('gives the wrapped status line command the same stdin and passes its output and exit code through', () => {
-    const result = run(JSON.stringify(STATUS), ['jq -r ".model.display_name"; exit 3'])
-    expect(result).toMatchObject({ status: 3, stdout: 'Haiku 4.5\n' })
+    const result = run(entry, JSON.stringify(STATUS), [`grep -o '"display_name":"[^"]*"'; exit 3`])
+    expect(result).toMatchObject({ status: 3, stdout: '"display_name":"Haiku 4.5"\n' })
     expect(written()).toEqual(RATE_LIMITS)
   })
 
   it('leaves the file alone when the status line JSON has no rate_limits or is not JSON', () => {
-    run(JSON.stringify(STATUS))
-    expect(run(JSON.stringify({ ...STATUS, rate_limits: undefined, cwd: '/elsewhere' }), ['cat >/dev/null; echo ok'])).toMatchObject({ status: 0, stdout: 'ok\n' })
-    expect(run('{"rate_limits": "soon"}')).toMatchObject({ status: 0 })
-    expect(run('not json', ['echo still here'])).toMatchObject({ status: 0, stdout: 'still here\n' })
+    run(entry, JSON.stringify(STATUS))
+    expect(run(entry, JSON.stringify({ ...STATUS, rate_limits: undefined, cwd: '/elsewhere' }), ['cat >/dev/null; echo ok'])).toMatchObject({ status: 0, stdout: 'ok\n' })
+    expect(run(entry, '{"rate_limits": "soon"}')).toMatchObject({ status: 0 })
+    expect(run(entry, '{"rate_limits": [1, 2]}')).toMatchObject({ status: 0 })
+    expect(run(entry, 'not json', ['echo still here'])).toMatchObject({ status: 0, stdout: 'still here\n' })
     expect(written()).toEqual(RATE_LIMITS)
     expect(readdirSync(dataDir)).toEqual(['statusline-limits.json'])
   })
 
   it('writes nowhere when the data directory does not exist', () => {
     const missing = join(scratch, 'no-worfy-yet')
-    expect(run(JSON.stringify(STATUS), [], { WORFY_DATA_DIR: missing })).toMatchObject({ status: 0 })
+    expect(run(entry, JSON.stringify(STATUS), [], { WORFY_DATA_DIR: missing })).toMatchObject({ status: 0 })
     expect(existsSync(missing)).toBe(false)
-    // Without WORFY_DATA_DIR the default is under $HOME/Library, which this HOME does not have.
-    expect(run(JSON.stringify(STATUS), [], {})).toMatchObject({ status: 0 })
+    // Without WORFY_DATA_DIR the defaults are under this home, which has none of them.
+    expect(run(entry, JSON.stringify(STATUS), [], {})).toMatchObject({ status: 0 })
     expect(readdirSync(home)).toEqual([])
   })
 
@@ -84,7 +104,7 @@ describe('statusline-bridge.sh', () => {
     expect(packaged).not.toBe(dev)
     mkdirSync(packaged, { recursive: true })
     mkdirSync(dev, { recursive: true })
-    expect(run(JSON.stringify(STATUS), [], {})).toEqual({ status: 0, stdout: '', stderr: '' })
+    expect(run(entry, JSON.stringify(STATUS), [], {})).toEqual({ status: 0, stdout: '', stderr: '' })
     expect(written(packaged)).toEqual(RATE_LIMITS)
     expect(written(dev)).toEqual(RATE_LIMITS)
     expect(readdirSync(packaged)).toEqual(['statusline-limits.json'])
@@ -94,26 +114,9 @@ describe('statusline-bridge.sh', () => {
   it('without WORFY_DATA_DIR writes only to the data folders that exist', () => {
     const dev = defaultDataDir('dev')
     mkdirSync(dev, { recursive: true })
-    expect(run(JSON.stringify(STATUS), [], { WORFY_DATA_DIR: '' })).toMatchObject({ status: 0 })
+    expect(run(entry, JSON.stringify(STATUS), [], { WORFY_DATA_DIR: '' })).toMatchObject({ status: 0 })
     expect(written(dev)).toEqual(RATE_LIMITS)
     expect(existsSync(defaultDataDir('packaged'))).toBe(false)
-  })
-
-  // The script ships in the .app (worfy-harness ticket 15) and runs from there, with no checkout of
-  // the repository next to it: its commands name no path of the owner's machine or of the repository.
-  it('names no path of a checkout in its executable lines', () => {
-    const code = readFileSync(SCRIPT, 'utf8')
-      .split('\n')
-      .map((line) => line.replace(/(^|\s)#.*$/, '').trim())
-      .filter((line) => line !== '')
-    // The comments are gone, the commands are still there.
-    expect(code).toContain('input=$(cat)')
-    expect(code.join('\n')).not.toContain('statusline-bridge')
-    for (const line of code) {
-      expect(line).not.toContain('/Users/')
-      expect(line).not.toContain('CanvasForAI')
-      expect(line).not.toContain('scripts/')
-    }
   })
 
   it('with WORFY_DATA_DIR writes there and leaves the default data folders alone', () => {
@@ -121,9 +124,83 @@ describe('statusline-bridge.sh', () => {
     const dev = defaultDataDir('dev')
     mkdirSync(packaged, { recursive: true })
     mkdirSync(dev, { recursive: true })
-    expect(run(JSON.stringify(STATUS))).toMatchObject({ status: 0 })
+    expect(run(entry, JSON.stringify(STATUS))).toMatchObject({ status: 0 })
     expect(written()).toEqual(RATE_LIMITS)
     expect(readdirSync(packaged)).toEqual([])
     expect(readdirSync(dev)).toEqual([])
+  })
+})
+
+/** The lines of a script without its comments. */
+const codeOf = (path: string): string[] =>
+  readFileSync(path, 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .map((line) => line.replace(/(^|\s)(#|\/\/).*$/, '').trim())
+    .filter((line) => line !== '' && !line.startsWith('#!'))
+
+describe('statusline-bridge scripts', () => {
+  // Both ship in the .app (worfy-harness ticket 15) and run from there, with no checkout of the
+  // repository next to them: their commands name no path of the owner's machine or of the repository.
+  it('name no path of a checkout in their executable lines; the entry names only the .mjs next to it', () => {
+    const mjs = codeOf(MJS)
+    expect(mjs.join('\n')).toContain('rateLimitsOf')
+    const sh = codeOf(SH)
+    expect(sh.join('\n')).toContain('exec node "$here/statusline-bridge.mjs" "$@"')
+    for (const line of [...mjs, ...sh]) {
+      expect(line).not.toContain('/Users/')
+      expect(line).not.toContain('CanvasForAI')
+      expect(line).not.toContain('scripts/')
+    }
+    expect(mjs.join('\n')).not.toContain('statusline-bridge')
+    expect(sh.join('\n').replaceAll('$here/statusline-bridge.mjs', '')).not.toContain('statusline-bridge')
+  })
+
+  it('writes the file with no jq anywhere on PATH', () => {
+    const emptyPath = join(scratch, 'empty-path')
+    mkdirSync(emptyPath)
+    const result = spawnSync(NODE, [MJS], { input: JSON.stringify(STATUS), encoding: 'utf8', env: { PATH: emptyPath, HOME: home, USERPROFILE: home, WORFY_DATA_DIR: dataDir } })
+    expect(result).toMatchObject({ status: 0, stdout: '', stderr: '' })
+    expect(written()).toEqual(RATE_LIMITS)
+  })
+})
+
+interface Bridge {
+  limitsFolders: (env: Record<string, string | undefined>, platform: NodeJS.Platform, home?: string) => string[]
+  commandRunner: (command: string, platform: NodeJS.Platform, env: Record<string, string | undefined>, exists: (path: string) => boolean) => { file: string; args: string[]; shell: boolean }
+}
+const bridge = async (): Promise<Bridge> => (await import(pathToFileURL(MJS).href)) as Bridge
+
+describe('statusline-bridge.mjs: folders and shell by platform', () => {
+  it('on Windows writes to %APPDATA%\\worfy and %APPDATA%\\worfy-dev, as dataRoot() names them', async () => {
+    const { limitsFolders } = await bridge()
+    const appData = 'C:\\Users\\u\\AppData\\Roaming'
+    expect(limitsFolders({ APPDATA: appData }, 'win32')).toEqual([dataRoot({ APPDATA: appData }, 'packaged', 'win32'), dataRoot({ APPDATA: appData }, 'dev', 'win32')])
+    expect(limitsFolders({ APPDATA: appData }, 'win32')).toEqual(['C:\\Users\\u\\AppData\\Roaming\\worfy', 'C:\\Users\\u\\AppData\\Roaming\\worfy-dev'])
+    expect(limitsFolders({ USERPROFILE: 'C:\\Users\\u' }, 'win32')).toEqual(['C:\\Users\\u\\AppData\\Roaming\\worfy', 'C:\\Users\\u\\AppData\\Roaming\\worfy-dev'])
+    expect(limitsFolders({ APPDATA: 'Roaming' }, 'win32', 'C:\\Users\\h')).toEqual(['C:\\Users\\h\\AppData\\Roaming\\worfy', 'C:\\Users\\h\\AppData\\Roaming\\worfy-dev'])
+    expect(limitsFolders({ APPDATA: appData, WORFY_DATA_DIR: 'D:\\data' }, 'win32')).toEqual(['D:\\data'])
+  })
+
+  it('on macOS and Linux writes to ~/Library/Application Support/worfy and worfy-dev', async () => {
+    const { limitsFolders } = await bridge()
+    for (const platform of ['darwin', 'linux'] as const) {
+      expect(limitsFolders({}, platform, '/Users/u')).toEqual(['/Users/u/Library/Application Support/worfy', '/Users/u/Library/Application Support/worfy-dev'])
+    }
+    if (!WINDOWS) expect(limitsFolders({}, 'darwin', homedir())).toEqual([dataRoot({}, 'packaged', 'darwin'), dataRoot({}, 'dev', 'darwin')])
+  })
+
+  it('runs the user command with sh -c on macOS and Linux, and on Windows with Git Bash, as Claude Code runs statusLine there', async () => {
+    const { commandRunner } = await bridge()
+    const none = (): boolean => false
+    expect(commandRunner('echo hi', 'darwin', {}, none)).toEqual({ file: 'sh', args: ['-c', 'echo hi'], shell: false })
+    const gitCmd = 'C:\\Program Files\\Git\\cmd'
+    const bash = 'C:\\Program Files\\Git\\bin\\bash.exe'
+    const has = (...files: string[]) => (path: string): boolean => files.includes(path)
+    expect(commandRunner('echo hi', 'win32', { PATH: `C:\\Windows\\System32;${gitCmd}` }, has(win32.join(gitCmd, 'git.exe'), bash, 'C:\\Windows\\System32\\bash.exe'))).toEqual({ file: bash, args: ['-c', 'echo hi'], shell: false })
+    expect(commandRunner('echo hi', 'win32', { CLAUDE_CODE_GIT_BASH_PATH: 'D:\\g\\bin\\bash.exe' }, has('D:\\g\\bin\\bash.exe'))).toMatchObject({ file: 'D:\\g\\bin\\bash.exe' })
+    expect(commandRunner('echo hi', 'win32', { ProgramFiles: 'C:\\Program Files' }, has(bash))).toMatchObject({ file: bash })
+    // The WSL launcher is never taken; without Git Bash the command goes to Node's default shell.
+    expect(commandRunner('echo hi', 'win32', { CLAUDE_CODE_GIT_BASH_PATH: 'C:\\Windows\\System32\\bash.exe', SystemRoot: 'C:\\Windows' }, has('C:\\Windows\\System32\\bash.exe'))).toEqual({ file: 'echo hi', args: [], shell: true })
   })
 })

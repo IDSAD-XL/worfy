@@ -5,6 +5,9 @@
 //
 // Paths are compared as text after normalization (`.`, `..`, repeated slashes, a path relative to
 // the Session's cwd). Symlinks are not followed: this module is pure and never touches the disk.
+// A Windows path (`C:\…`, `C:/…`, `\\server\share\…`; worfy-windows ticket 08) takes `\` and `/`
+// as one separator and is compared without regard to case, as the Windows file system does by
+// default; Claude Code on Windows names files with `\`. A POSIX path keeps `/` as its only separator.
 
 /** The tools that write a file, and the input key that names it. */
 const WRITE_TOOLS: Readonly<Record<string, string>> = {
@@ -23,18 +26,35 @@ export interface ToolUseRecord {
   input: unknown
 }
 
+/** The root of an absolute path and what follows it; null for a relative path. */
+interface Rooted {
+  /** `/`, `C:` (upper case) or `\\server\share`. */
+  root: string
+  rest: string
+  windows: boolean
+}
+
+function rootOf(path: string): Rooted | null {
+  const drive = /^([A-Za-z]):[\\/]/.exec(path)
+  if (drive) return { root: `${drive[1]!.toUpperCase()}:`, rest: path.slice(2), windows: true }
+  const unc = /^\\\\([^\\/]+)[\\/]([^\\/]+)/.exec(path)
+  if (unc) return { root: `\\\\${unc[1]}\\${unc[2]}`, rest: path.slice(unc[0].length), windows: true }
+  return path.startsWith('/') ? { root: '/', rest: path, windows: false } : null
+}
+
 /** `path` made absolute against `cwd` and normalized; null when it is not a usable path. */
 export function normalizePath(path: string, cwd: string): string | null {
   if (path === '' || path.includes('\0')) return null
-  const full = path.startsWith('/') ? path : `${cwd}/${path}`
-  if (!full.startsWith('/')) return null
+  const base = rootOf(cwd)
+  const full = rootOf(path) ?? (base === null ? null : { ...base, rest: `${base.rest}/${path}` })
+  if (full === null) return null
   const parts: string[] = []
-  for (const part of full.split('/')) {
+  for (const part of full.rest.split(full.windows ? /[\\/]/ : '/')) {
     if (part === '' || part === '.') continue
     if (part === '..') parts.pop()
     else parts.push(part)
   }
-  return `/${parts.join('/')}`
+  return full.windows ? `${full.root}\\${parts.join('\\')}` : `/${parts.join('/')}`
 }
 
 /** The id of the Card whose folder holds `path`, or null. `cardsDir` is `<Project data folder>/cards`. */
@@ -42,9 +62,13 @@ export function cardOfPath(path: string, cardsDir: string, cwd: string): string 
   const file = normalizePath(path, cwd)
   const root = normalizePath(cardsDir, '/')
   if (file === null || root === null) return null
-  const prefix = root === '/' ? '/' : `${root}/`
-  if (!file.startsWith(prefix)) return null
-  const [id, ...rest] = file.slice(prefix.length).split('/')
+  const windows = rootOf(root)!.windows
+  if (rootOf(file)!.windows !== windows) return null
+  const sep = windows ? '\\' : '/'
+  const prefix = root.endsWith(sep) ? root : `${root}${sep}`
+  const head = file.slice(0, prefix.length)
+  if (windows ? head.toLowerCase() !== prefix.toLowerCase() : head !== prefix) return null
+  const [id, ...rest] = file.slice(prefix.length).split(sep)
   // The folder itself is not a file in it.
   return id !== undefined && id !== '' && rest.length > 0 ? id : null
 }
