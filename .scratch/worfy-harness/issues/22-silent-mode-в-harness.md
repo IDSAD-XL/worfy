@@ -233,7 +233,10 @@ E3 её нет).
 
 Ветка `worfy-harness/22`. Сделаны пункты 1–9. Пункт 7 сделан в круге владельца 2026-10-08 (живые пробы
 разрешены владельцем): сработал вариант (в) — hook `WorktreeCreate` и Subagent с `isolation: "worktree"`;
-подробности — в разделе «Круг владельца 2026-10-08» в конце.
+подробности — в разделе «Круг владельца 2026-10-08» в конце. **После короткого круга 2026-10-09 hook не
+зарегистрирован**: `harness/hooks/worktree-create.sh` — незарегистрированный черновик для Ticket-а 24, путь
+через plugin не проверялся, а `worktree.root` вне репозитория не поддерживается до Ticket-а 24 — раздел
+«Короткий круг 2026-10-09» в конце.
 
 **Первый test.** `harness/bin/tests/silent-mode.test.sh`, случай «`ticket claim --branch` пишет
 `Branch:` в Workflow folder», на базе 3625fef упал так: `ticket claim checkout-flow 05 --branch fix/x`
@@ -419,7 +422,10 @@ Mutant-ы — копии `harness/` в scratchpad (`/tmp/worfy-harness-w10/impl-
 - весь `tickets.root` вместо папки Epic-а (`epic-wave`, `ship-ticket` по отдельности) и коммит Wave без
   pathspec — красный «only the epic's folder — another epic's file and a staged code file stay out».
 
-**Пункт 7 — сделан, сработал вариант (в).** Пробы — `claude -p … --model haiku --max-budget-usd 0.6
+**Пункт 7 — сделан, сработал вариант (в).** (Короткий круг 2026-10-09 снял регистрацию hook-а; ниже —
+выводы проб для Ticket-а 24. Пробы шли со скриптом `p7/wt-create.sh` и `p7b/wt-create.sh`, заданным через
+`claude -p --settings`, а не с `harness/hooks/worktree-create.sh` через `hooks.json` plugin-а: путь через
+plugin не проверялся.) Пробы — `claude -p … --model haiku --max-budget-usd 0.6
 --no-session-persistence --setting-sources project --output-format json`, cwd — временный репозиторий
 `/tmp/worfy-harness-w10/impl-22/p7/repo`, дерево вне репозитория — `…/p7/hh/worktrees/proj/05` (ветка
 `fix/a`). Пробы a–d сделал прошлый исполнитель этого Ticket-а (результаты в `…/p7/`), e–h — этот круг
@@ -487,3 +493,41 @@ Session-ов; в этот список попадают и записи живы
 `test/contract/harness-qmd.test.ts` (2 таймаута); он же отдельно — код 0. `gate.sh full` под замком
 `/tmp/worfy-e2e.lock` на 0d980cf — код 2: lint, typecheck, `test:e2e`, `test:package` прошли, красный
 только тот же `harness-qmd` (2 таймаута). Ветка не трогает `src/` и `test/`. CI на 0d980cf — success.
+
+**Короткий круг 2026-10-09** (решение владельца — комментарий PR #150 от 2026-10-09: только находки отказа
+`REJECTED` круга владельца, без новой логики; head до круга — `4291c1e`, после rebase на `origin/main` `fed7879`).
+- [high] Регистрация `WorktreeCreate` снята: `harness/hooks/hooks.json` — снова как в `main` (без записи и без
+  слов «where subagent worktrees are created» в описании). Plugin больше не подменяет встроенное создание worktree
+  Claude Code ни в одной Session-и. `harness/hooks/worktree-create.sh` остался: в шапке — «NOT REGISTERED», почему
+  (hook plugin-а действует на всю машину; нет повторного использования дерева, уборки, fetch, `.worktreeinclude`,
+  `sparsePaths`, `baseRef`) и что живые пробы шли с другим скриптом (`p7/wt-create.sh`, `p7b/wt-create.sh`) через
+  `claude -p --settings`, а этот скрипт через plugin не проверялся. Выводы проб (раздел «Пункт 7» выше) оставлены для
+  Ticket-а 24. Ветка «иначе» скрипта больше не называется поведением Claude Code.
+- [med] `harness/profiles/README.md`, строка `worktree.root`: корень вне репозитория не задаётся и не поддерживается
+  до Ticket-а 24, до тех пор `worktree.root` — под `.claude/worktrees/`; hook — незарегистрированный черновик, через
+  plugin не проверен и для корня внутри репозитория не равен встроенному созданию worktree. Утверждения «hook делает
+  то же, что Claude Code» и `<NN>` = `agent-<id>` ушли вместе с описанием пути.
+- [med] `ship-ticket` (шаг 2), `epic-wave` (раздел 2, `parallel: worktrees`), `implementer.md`: вернулось требование
+  «`F worktree.root` must lie there» (под `.claude/worktrees/`); корень вне репозитория — не поддерживается до
+  Ticket-а 24; `isolation: "worktree"` и `git branch -m` для такого дерева из текстов убраны. В `implementer.md`
+  исключение про корень вне репозитория стоит первым пунктом раздела и отсылает к правилу ложной предпосылки брифа.
+- low, `ship-ticket`, локальный финиш: `<main branch>` в проверке перед блоком берётся в том же порядке, что строки
+  `M=` блока; для `NO MAIN BRANCH` и `SAME BRANCH` сказано, что подготовленные документы остаются незакоммиченными в
+  дереве Ticket-а: поправить Profile и запустить блок снова, а если Ticket сейчас не вливается — откатить их тем же
+  `git restore --staged --worktree`, что при `NOT ON TOP`. Сам блок bash не менялся.
+- low, `silent-mode.test.sh`: новый сценарий «`DOCS COMMIT FAILED`, затем main ушёл вперёд — `NOT ON TOP`»: после
+  упавшего коммита документы лежат в индексе, и откат обязан снять их и оттуда.
+
+**Test-ы круга.**
+- `harness/hooks/tests/rules-hooks.test.sh` — ожидаемый список hook-ов без `WorktreeCreate`; на `hooks.json` из
+  `4291c1e` — красный «hooks.json differs: > WorktreeCreate||…/worktree-create.sh|60».
+- `harness/bin/tests/silent-mode.test.sh`, раздел 4b — unit-проверки скрипта остались (регистрации не требуют);
+  проверка регистрации заменена на «hooks.json registers no WorktreeCreate hook and never runs worktree-create.sh»;
+  на `hooks.json` из `4291c1e` — красная. Новый сценарий раздела 5b — красный на mutant-е отката без `--staged`
+  (копия `harness/` в scratchpad, `restore -q --source=HEAD --worktree`): «failed documents commit, then not on top».
+  На `4291c1e` он зелёный: `--staged` там уже был, сценарий закрывает выживший mutant.
+- `harness/bin/tests/epic-wave-ship-ticket.test.sh` — 16 новых текстовых проверок (README, `ship-ticket`,
+  `epic-wave`, `implementer.md`, шапка `worktree-create.sh`, два low `ship-ticket`), прежние 5 проверок пути через
+  hook сняты. На текстах `4291c1e` (файлы через `EPIC_WAVE_FILE`, `SHIP_TICKET_FILE`, `IMPLEMENTER_FILE`,
+  `PROFILES_README_FILE`, `WORKTREE_CREATE_FILE`) — 16 красных из 135; проверка порядка в `implementer.md` красная,
+  когда исключение стоит после правила «create a working tree».
