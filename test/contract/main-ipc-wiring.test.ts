@@ -36,7 +36,8 @@ vi.mock('../../src/main/link/service', () => ({
   startAppLink: link.startAppLink,
   appLinkService: () => undefined,
   appLinkProblem: () => 'the link service is replaced in this test',
-  // src/main/ipc/autopilot.ts subscribes when its module loads (worfy-link ticket 15).
+  // src/main/ipc/autopilot.ts subscribes when its module loads (worfy-link ticket 15), and
+  // src/main/ipc/linked.ts follows the start of the link from its load on (worfy-link ticket 09).
   onAppLinkStart: () => () => undefined,
   stopLinkOnQuit: vi.fn(),
 }))

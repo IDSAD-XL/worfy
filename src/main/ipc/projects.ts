@@ -2,6 +2,7 @@ import { BrowserWindow, dialog } from 'electron'
 import {
   projectsAdd,
   projectsChanged,
+  projectsHold,
   projectsList,
   projectsPickFolder,
   projectsRemove,
@@ -13,8 +14,10 @@ import {
 } from '../../shared/ipc/projects'
 import { defaultProjectSettings } from '../../shared/projects/action-templates'
 import { toEveryWindow } from '../broadcast'
+import { clientOf } from '../clients'
 import { currentHarness } from '../harness/locate'
 import { isRemoteCall } from '../link/caller'
+import { projectHolds } from '../projects/holds'
 import { readProjectSettings, writeProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
 import { defineHandler, emit, type HandlerModule } from './index'
@@ -67,6 +70,17 @@ export default [
   defineHandler(projectsRemove, ({ id }, { event }) => {
     store.remove(id, { keepActive: isRemoteCall(event) })
     return store.state()
+  }),
+
+  // A screen of a Linked machine shows a Project of this Machine (worfy-link ticket 09): its
+  // Orchestrator and documents stay open (projects/holds.ts); the active Project stays as it is.
+  defineHandler(projectsHold, ({ screen, projectId }, { event }) => {
+    const client = clientOf(event)
+    if (client === undefined) throw new Error('the call came from no client')
+    // Only a Project of the list: an unknown id throws here.
+    const id = projectId === null ? null : store.get(projectId).id
+    if (!projectHolds().set(client, screen, id)) throw new Error('the client is gone')
+    return { projectId: id }
   }),
 
   defineHandler(projectsSettingsGet, ({ id }) => readProjectSettings(store.dataDir(store.get(id).id))),

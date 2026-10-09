@@ -105,8 +105,12 @@ export interface LinkServiceEvents {
   connected: [{ id: string; name: string }]
   disconnected: [{ id: string; name: string }]
   'certificate-changed': [{ id: string; name: string }]
-  /** An IPC event pushed by a Linked machine (worfy-link ticket 08 routes them). */
-  'ipc-event': [{ machineId: string; channel: string; payload: unknown }]
+  /**
+   * An IPC event pushed by a Linked machine (worfy-link ticket 08), with the connection it came
+   * over: with two connections open to one Machine, its broadcasts arrive on both, and the
+   * receiver keeps one connection's (remote-calls.ts, worfy-link ticket 09).
+   */
+  'ipc-event': [{ machineId: string; channel: string; payload: unknown; connection: LinkConnection }]
   /** The link settings changed (settings.ts). */
   settings: [LinkSettingsValue]
 }
@@ -398,6 +402,11 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     return this.openConnection(machineId) !== undefined
   }
 
+  /** An open connection to Linked machine `machineId`, the one call() uses; undefined when none is. */
+  connectionTo(machineId: string): LinkConnection | undefined {
+    return this.openConnection(machineId)
+  }
+
   // ---- service messages ------------------------------------------------------------------------
 
   /** Registers a service message of a module (messages.ts); each name once per service. */
@@ -585,7 +594,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
         return
       }
       case 'event':
-        this.emit('ipc-event', { machineId: connection.machineId, channel: frame.channel, payload: frame.payload })
+        this.emit('ipc-event', { machineId: connection.machineId, channel: frame.channel, payload: frame.payload, connection })
         return
       case 'result':
         return

@@ -8,11 +8,16 @@ import {
   templateError,
   type ActionTemplates,
 } from '../../shared/projects/action-templates'
-import { invoke } from '../ipc'
+import { invoke, invokeOn } from '../ipc'
 import { PrimaryButton } from '../theme/primitives'
 
 export interface ProjectSettingsProps {
   project: { id: string; name: string }
+  /**
+   * The Machine of the Project (worfy-link ticket 09): null — this Machine, an id — a Linked
+   * machine. Left out: the Machine the window shows.
+   */
+  machine?: string | null
   onClose: () => void
 }
 
@@ -72,7 +77,9 @@ const styles = {
  * an unknown placeholder shows its error under the field and cannot be saved; main checks the same
  * schema again (projects.settings.set).
  */
-export function ProjectSettings({ project, onClose }: ProjectSettingsProps) {
+export function ProjectSettings({ project, machine, onClose }: ProjectSettingsProps) {
+  // The calls go to the Project's Machine.
+  const call: typeof invoke = machine === undefined ? invoke : (channel, ...args) => invokeOn(machine, channel, ...args)
   const [templates, setTemplates] = useState<ActionTemplates>()
   const [failure, setFailure] = useState<string>()
   const [saving, setSaving] = useState(false)
@@ -82,7 +89,8 @@ export function ProjectSettings({ project, onClose }: ProjectSettingsProps) {
 
   useEffect(() => {
     let active = true
-    void invoke('projects.settings.get', { id: project.id }).then((result) => {
+    const id = { id: project.id }
+    void (machine === undefined ? invoke('projects.settings.get', id) : invokeOn(machine, 'projects.settings.get', id)).then((result) => {
       if (!active) return
       if (result.ok) setTemplates(result.value.actionTemplates)
       else setFailure(result.error)
@@ -90,7 +98,7 @@ export function ProjectSettings({ project, onClose }: ProjectSettingsProps) {
     return () => {
       active = false
     }
-  }, [project.id])
+  }, [project.id, machine])
 
   const loaded = templates !== undefined
   useEffect(() => {
@@ -103,7 +111,7 @@ export function ProjectSettings({ project, onClose }: ProjectSettingsProps) {
   const save = async (): Promise<void> => {
     if (!templates || invalid) return
     setSaving(true)
-    const result = await invoke('projects.settings.set', { id: project.id, settings: { actionTemplates: templates } })
+    const result = await call('projects.settings.set', { id: project.id, settings: { actionTemplates: templates } })
     setSaving(false)
     if (result.ok) onClose()
     else setFailure(result.error)
@@ -111,7 +119,7 @@ export function ProjectSettings({ project, onClose }: ProjectSettingsProps) {
 
   // The defaults depend on the Harness on the machine (worfy-harness ticket 12): main says which.
   const resetToDefault = async (): Promise<void> => {
-    const result = await invoke('projects.settings.defaults')
+    const result = await call('projects.settings.defaults')
     if (result.ok) {
       setFailure(undefined)
       setTemplates(result.value.actionTemplates)

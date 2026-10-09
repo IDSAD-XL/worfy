@@ -51,7 +51,7 @@ import './canvas.css'
 import { EPIC_FRAME_KIND, SUBAGENT_KIND } from '../../shared/layout/derived'
 import { isParticipant, obstaclesFor, type Rect } from '../../shared/layout/free-place'
 import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput, type LayoutState, type Viewport } from '../../shared/layout/types'
-import { invoke } from '../ipc'
+import { invoke, windowMachine } from '../ipc'
 import { dropNodes, edgeSources, edgesOf, edgeTypes, nodeSources, overlays, type NodeSource } from './extensions'
 import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
 import { UnknownNode } from './UnknownNode'
@@ -411,7 +411,7 @@ function Flow({ projectId, state, opening }: FlowProps) {
       const saved = savedCamera.current
       if (saved.x === viewport.x && saved.y === viewport.y && saved.zoom === viewport.zoom) return
       savedCamera.current = { x: viewport.x, y: viewport.y, zoom: viewport.zoom }
-      void invoke('viewport.set', { projectId, viewport: savedCamera.current }).then((result) => {
+      void invoke('viewport.set', { projectId, viewport: savedCamera.current, ...onMachine() }).then((result) => {
         if (!result.ok) console.error('viewport.set failed:', result.error)
       })
     },
@@ -546,10 +546,10 @@ function Flow({ projectId, state, opening }: FlowProps) {
  * when it cannot, the Canvas opens at the Layout's `viewport`, as before there was a camera apart.
  */
 function useOpeningCamera(projectId: string, layout: Layout | undefined): Viewport | undefined {
-  const [answer, setAnswer] = useState<{ viewport: Viewport } | { failed: true }>()
+  const [answer, setAnswer] = useState<{ viewport: Viewport | null } | { failed: true }>()
   useEffect(() => {
     let active = true
-    void invoke('viewport.get', { projectId }).then((result) => {
+    void invoke('viewport.get', { projectId, ...onMachine() }).then((result) => {
       if (!active) return
       if (result.ok) setAnswer({ viewport: result.value })
       else {
@@ -562,7 +562,17 @@ function useOpeningCamera(projectId: string, layout: Layout | undefined): Viewpo
     }
   }, [projectId])
   if (answer === undefined) return undefined
-  return 'viewport' in answer ? answer.viewport : layout?.viewport
+  // null: a Project of a Linked machine with no camera saved here yet.
+  return ('viewport' in answer ? answer.viewport : null) ?? layout?.viewport
+}
+
+/**
+ * The camera is this machine's state (`viewport.*` are `local`), kept apart for each Machine whose
+ * Project the window shows: one folder on two Machines is two Projects with one id (worfy-link 09).
+ */
+function onMachine(): { machine?: string } {
+  const machine = windowMachine()
+  return machine === null ? {} : { machine }
 }
 
 function ProjectCanvas({ projectId }: { projectId: string }) {

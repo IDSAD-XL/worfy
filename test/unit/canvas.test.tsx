@@ -7,7 +7,7 @@
 // the new file, with no edit of nodes/index.ts or Canvas.tsx, and a Node of a kind nobody declares
 // as the placeholder while the rest of the Canvas still renders. Nothing is written into src/,
 // and which test file Vite transforms the real registry for first does not matter.
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import type { ComponentType } from 'react'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
@@ -226,6 +226,31 @@ describe('Canvas', () => {
     expect(dropOperation(dragged)).toEqual({ op: 'moveMany', moves: [{ id: 'a', x: 100, y: 0 }, { id: 'b', x: 340, y: 0 }] })
     expect(dropOperation(dragged.slice(0, 1))).toEqual({ op: 'move', id: 'a', x: 100, y: 0 })
     expect(dropOperation([])).toBeUndefined()
+  })
+
+  it("asks this machine for the camera of a Linked machine's Project under that Machine (worfy-link ticket 09)", async () => {
+    const machine = '0b7c4a52-3c1e-4f6e-9a4b-6d2f0c1e8a11'
+    const calls: [string, unknown][] = []
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      invoke: (channel: string, input: unknown) => {
+        calls.push([channel, input])
+        return new Promise(() => undefined)
+      },
+      on: () => 1,
+      off: () => undefined,
+    }
+    window.history.replaceState(null, '', `/?machine=${machine}&project=camera-00000000`)
+    try {
+      const { Canvas } = (await import('../../src/renderer/canvas/Canvas')) as { Canvas: ComponentType<{ projectId: string | undefined }> }
+      render(<Canvas projectId="camera-00000000" />)
+      // The camera is this machine's (`local`), kept under the Machine of the Project.
+      await waitFor(() => expect(calls).toContainEqual(['viewport.get', { projectId: 'camera-00000000', machine }]))
+      // The Layout itself is M's.
+      expect(calls).toContainEqual(['linked.invoke', { machine, channel: 'layout.get', input: { projectId: 'camera-00000000' } }])
+    } finally {
+      window.history.replaceState(null, '', '/')
+      delete (globalThis as { worfy?: WorfyBridge }).worfy
+    }
   })
 
   it('shows a hint instead of a Canvas when there is no active Project', async () => {

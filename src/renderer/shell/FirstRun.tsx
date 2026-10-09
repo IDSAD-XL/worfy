@@ -165,7 +165,8 @@ function CheckRow({ check, running, locked, projectName, onAction }: RowProps) {
 async function openSignInTerminal(projectId: string): Promise<string | undefined> {
   // The camera this machine saved for the Canvas (worfy-link ticket 06): the Terminal lands in sight.
   const camera = await invoke('viewport.get', { projectId })
-  const viewport = camera.ok ? camera.value : { x: 0, y: 0, zoom: 1 }
+  // null only for a Project of a Linked machine with no camera saved here (worfy-link ticket 09).
+  const viewport = (camera.ok ? camera.value : null) ?? { x: 0, y: 0, zoom: 1 }
   const id = `terminal-${crypto.randomUUID()}`
   // Hidden until its shell runs: the Canvas does not draw a hidden Node, so the Node's own view
   // cannot start a shell without the command first. main moves it off any Node it would cover.

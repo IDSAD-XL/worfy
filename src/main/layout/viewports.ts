@@ -1,8 +1,9 @@
 // The camera of each Project's Canvas as this machine's screens left it (worfy-link ticket 06,
 // owner's decisions Q2 and Q15). It is not part of the Layout: the Layout is shared by every screen
 // of the Project, the camera is the screen's own. It is kept on the machine of the screen, in
-// `<worfy data folder>/viewports.json` as `{ [projectId]: Viewport }` (ADR-0005); ticket 09 widens
-// the key to a Machine and a Project for the Projects of Linked machines.
+// `<worfy data folder>/viewports.json` as `{ [key]: Viewport }` (ADR-0005). The key of a Project of
+// this machine is its id; of a Project of Linked machine M it is `<id of M>/<projectId>` (worfy-link
+// ticket 09): one folder on two Machines is two Projects with one id, and each keeps its own camera.
 //
 // One saved camera per Project for all windows of this machine: the window where the Canvas was
 // panned last writes it, and a new or reloaded window opens there. A window has no id that lives
@@ -12,7 +13,8 @@
 // While a Project has no camera of its own, the `viewport` left in its layout.json stands in for
 // it, so the first opening after an update shows the Canvas where it was. Writes, like the
 // Layout's, wait for a quiet period (LAYOUT_SAVE_DELAY_MS) and happen at once on flush(), which
-// the IPC module calls when the app quits. A Project gone from the list loses its entry.
+// the IPC module calls when the app quits. A Project gone from this machine's list loses its entry;
+// the cameras of Linked machines' Projects are not judged by that list and stay.
 import { join } from 'node:path'
 import { z } from 'zod'
 import { viewportSchema, type Viewport } from '../../shared/layout/types'
@@ -23,7 +25,7 @@ import { LAYOUT_SAVE_DELAY_MS, layoutStore } from './store'
 
 export const VIEWPORTS_FILE = 'viewports.json'
 
-/** The content of viewports.json: the saved camera of each Project, by Project id. */
+/** The content of viewports.json: the saved camera of each Project, by its key (cameraKey). */
 export const viewportsFileSchema = z.record(z.string().min(1), viewportSchema)
 export type ViewportsFile = z.output<typeof viewportsFileSchema>
 
@@ -40,6 +42,12 @@ export interface ViewportStoreOptions {
 }
 
 const writeViewportsFile = (file: string, viewports: ViewportsFile): void => writeJsonFile(file, viewportsFileSchema, viewports)
+
+/** The key of a Project's camera: its id here; `<machine>/<id>` for a Project of Linked machine `machine`. */
+export const cameraKey = (projectId: string, machine?: string): string => (machine === undefined ? projectId : `${machine}/${projectId}`)
+
+/** Whether a key is a camera of a Linked machine's Project (a Project id never has a slash: it starts with a folder name). */
+const ofLinkedMachine = (key: string): boolean => key.includes('/')
 
 const sameViewport = (a: Viewport, b: Viewport): boolean => a.x === b.x && a.y === b.y && a.zoom === b.zoom
 
@@ -70,32 +78,38 @@ export class ViewportStore {
     if (!this.options.projectIds().includes(projectId)) throw new Error(`No Project with id ${projectId}`)
   }
 
-  /** The Project's saved camera, or the `viewport` of its layout.json while it has none. */
-  get(projectId: string): Viewport {
+  /**
+   * The Project's saved camera, or the `viewport` of its layout.json while it has none. For a
+   * Project of Linked machine `machine`: its saved camera, or null — its Layout is on that Machine.
+   */
+  get(projectId: string, machine?: string): Viewport | null {
+    if (machine !== undefined) return this.data().get(cameraKey(projectId, machine)) ?? null
     this.known(projectId)
     return this.data().get(projectId) ?? this.options.fallback(projectId)
   }
 
   /** Saves the Project's camera and schedules the write. A camera outside the schema throws and changes nothing. */
-  set(projectId: string, viewport: Viewport): void {
+  set(projectId: string, viewport: Viewport, machine?: string): void {
     const parsed = viewportSchema.safeParse(viewport)
     if (!parsed.success) throw new Error(`invalid viewport\n${z.prettifyError(parsed.error)}`)
-    this.known(projectId)
+    // A Linked machine's list is not here to check against; its Project is whatever its screen shows.
+    if (machine === undefined) this.known(projectId)
+    const key = cameraKey(projectId, machine)
     const data = this.data()
-    const current = data.get(projectId)
+    const current = data.get(key)
     if (current !== undefined && sameViewport(current, parsed.data)) return
-    data.set(projectId, parsed.data)
+    data.set(key, parsed.data)
     this.changed()
   }
 
-  /** Drops the cameras of Projects that are no longer in the list. */
+  /** Drops the cameras of this machine's Projects that are no longer in its list; a Linked machine's stay. */
   prune(): void {
     const data = this.loaded
     if (data === undefined) return
     const listed = new Set(this.options.projectIds())
     let removed = false
     for (const projectId of [...data.keys()]) {
-      if (listed.has(projectId)) continue
+      if (listed.has(projectId) || ofLinkedMachine(projectId)) continue
       data.delete(projectId)
       removed = true
     }
