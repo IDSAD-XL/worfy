@@ -8,7 +8,9 @@
 # mode's default Workflow folder is created with git; --check and --schema-only write nothing;
 # a taken name, a registered `match`, Full mode over two repositories and a broken draft are exit 1
 # with nothing changed; a failure half-way is rolled back; one commit in the git of HARNESS_HOME;
-# the qmd step runs only with qmd and its models; the project's repository stays clean.
+# the qmd step runs only with qmd and its models, after the commit; the project's repository stays
+# clean — a Silent project gets `.claude/worktrees/` in .git/info/exclude, once, and nothing else;
+# --facts reads remotes and branches of a repository and of a folder above several, and writes nothing.
 set -u
 HARNESS="$(cd "$(dirname "$0")/../.." && pwd)"
 BIN="${BIN_DIR:-$HARNESS/bin}"
@@ -95,6 +97,35 @@ git -C "$HARNESS_HOME" init -q
 git -C "$HARNESS_HOME" add -A
 git -C "$HARNESS_HOME" commit -q -m base
 
+# --- --facts: only reads -------------------------------------------------------------------
+repo "$T/f-remote"
+git -C "$T/f-remote" remote add origin "https://someone:s3cret@example.com/acme/shop.git"
+git -C "$T/f-remote" remote add upstream "git@example.com:acme/shop.git"
+check "--facts of a repository: kind git" 0 '"kind": "git"' "$CONNECT" --facts "$T/f-remote"
+check "--facts names origin without the credentials" 0 '"origin": "https://example.com/acme/shop.git"' "$CONNECT" --facts "$T/f-remote"
+check "--facts never prints the password" 1 "" bash -c '"$1" --facts "$2" | grep -q s3cret' _ "$CONNECT" "$T/f-remote"
+check "--facts lists every remote" 0 '"name": "upstream"' "$CONNECT" --facts "$T/f-remote"
+check "--facts: the default branch without origin/HEAD is the local main" 0 '"defaultBranch": "main"' "$CONNECT" --facts "$T/f-remote"
+git -C "$T/f-remote" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk
+check "--facts: the default branch follows origin/HEAD" 0 '"defaultBranch": "trunk"' "$CONNECT" --facts "$T/f-remote"
+mkdir -p "$T/f-remote/src"
+check "--facts of a subfolder answers for the repository root" 0 "\"folder\": \"$T/f-remote\"" "$CONNECT" --facts "$T/f-remote/src"
+repo "$T/f-plain"
+check "--facts of a repository without remotes: none, origin null" 0 '"remotes": [],' "$CONNECT" --facts "$T/f-plain"
+check "--facts of a repository without remotes: origin null" 0 '"origin": null' "$CONNECT" --facts "$T/f-plain"
+mkdir -p "$T/f-ws"
+repo "$T/f-ws/api"
+repo "$T/f-ws/web"
+mkdir -p "$T/f-ws/notes"
+check "--facts of a folder above two repositories: multi-repo" 0 '"kind": "multi-repo"' "$CONNECT" --facts "$T/f-ws"
+check "--facts lists both repositories" 0 "$T/f-ws/web" "$CONNECT" --facts "$T/f-ws"
+mkdir -p "$T/f-none/docs"
+check "--facts of a folder without repositories is exit 1" 1 "holds no repositories" "$CONNECT" --facts "$T/f-none"
+check "--facts without a folder is exit 2" 2 "" "$CONNECT" --facts
+for r in f-remote f-plain f-ws/api f-ws/web; do
+    [ -z "$(git -C "$T/$r" status --porcelain --ignored --untracked-files=all)" ] && ok "--facts left $r clean" || bad "--facts changed $r"
+done
+
 # --- Silent mode with the default Workflow folder ---------------------------------
 repo "$T/shop"
 draft shop silent null "$T/shop" >"$T/shop.json"
@@ -116,6 +147,15 @@ check "the commit holds the profile, rules.md and the registry" 0 "gate/config.j
 check "the Harness home's history leaves the Workflow folder out" 0 "/projects/*/workflow/" cat "$HARNESS_HOME/.gitignore"
 [ -z "$(git -C "$HARNESS_HOME" status --porcelain)" ] && ok "HARNESS_HOME has nothing left uncommitted" || bad "HARNESS_HOME is dirty: $(git -C "$HARNESS_HOME" status --porcelain)"
 [ -z "$(git -C "$T/shop" status --porcelain --ignored --untracked-files=all)" ] && ok "the project's repository is untouched" || bad "the repository changed: $(git -C "$T/shop" status --porcelain --ignored --untracked-files=all)"
+[ "$(grep -cx '.claude/worktrees/' "$T/shop/.git/info/exclude")" = 1 ] && ok "Silent: .claude/worktrees/ is in .git/info/exclude once" || bad "exclude of shop: $(cat "$T/shop/.git/info/exclude")"
+check "the output names the exclude file" 0 "$T/shop/.git/info/exclude" cat "$T/shop.out"
+mkdir -p "$T/shop/.claude/worktrees/05/src"
+echo x >"$T/shop/.claude/worktrees/05/src/a.ts"
+[ -z "$(git -C "$T/shop" status --porcelain --untracked-files=all)" ] && ok "a ticket worktree folder does not show in git status" || bad "git status shows: $(git -C "$T/shop" status --porcelain --untracked-files=all)"
+check "it is ignored by .git/info/exclude, not by a tracked file" 0 ".git/info/exclude" git -C "$T/shop" check-ignore -v .claude/worktrees/05/src/a.ts
+rm -rf "$T/shop/.claude"
+[ -z "$(git -C "$T/shop" ls-files --others --exclude-standard)" ] && [ ! -e "$T/shop/.gitignore" ] && ok "no .gitignore and no tracked file was written" || bad "a file appeared in shop"
+
 check "the qmd step is skipped without qmd, with the reason" 0 "qmd is not installed" cat "$T/shop.out"
 
 # --- refusals: nothing changes -------------------------------------------------------
@@ -145,11 +185,35 @@ check "an unknown flag is exit 2" 2 "" "$CONNECT" --force <"$T/shop.json"
 
 # --- a failure half-way is rolled back -------------------------------------------------
 draft shop2 silent null "$T/shop2" >"$T/shop2.json"
-for at in workflow gate commit; do
+for at in workflow gate exclude commit; do
     before="$(state)"
+    exclude_before="$(cat "$T/shop2/.git/info/exclude")"
     check "a failure at the step $at is exit 1" 1 "rolled back" env PROJECT_CONNECT_FAIL_AT="$at" "$CONNECT" <"$T/shop2.json"
     [ "$before" = "$(state)" ] && [ ! -e "$HARNESS_HOME/projects/shop2" ] && ok "the failure at $at left nothing behind" || bad "the failure at $at left changes: $(diff <(echo "$before") <(state))"
+    [ "$exclude_before" = "$(cat "$T/shop2/.git/info/exclude")" ] && ok "the failure at $at left .git/info/exclude as it was" || bad "the failure at $at changed the exclude file"
 done
+
+# --- .git/info/exclude: once, the common git dir of a linked worktree, not in Full mode --------
+repo "$T/x-seeded"
+printf '# mine\n.claude/worktrees/\n' >>"$T/x-seeded/.git/info/exclude"
+seeded="$(cat "$T/x-seeded/.git/info/exclude")"
+draft xseeded silent null "$T/x-seeded" >"$T/x-seeded.json"
+check "a repository that excludes the folder already is connected" 0 '"excludes": []' "$CONNECT" <"$T/x-seeded.json"
+[ "$seeded" = "$(cat "$T/x-seeded/.git/info/exclude")" ] && ok "no second .claude/worktrees/ line" || bad "exclude of x-seeded changed: $(cat "$T/x-seeded/.git/info/exclude")"
+repo "$T/x-main"
+git -C "$T/x-main" worktree add -q -b side "$T/x-linked"
+draft xlinked silent null "$T/x-linked" >"$T/x-linked.json"
+check "a linked worktree as the match is connected" 0 "$T/x-main/.git/info/exclude" "$CONNECT" <"$T/x-linked.json"
+[ "$(grep -cx '.claude/worktrees/' "$T/x-main/.git/info/exclude")" = 1 ] && ok "the line went into the common git dir" || bad "common exclude: $(cat "$T/x-main/.git/info/exclude")"
+mkdir -p "$T/x-linked/.claude/worktrees/07"
+echo x >"$T/x-linked/.claude/worktrees/07/f"
+[ -z "$(git -C "$T/x-linked" status --porcelain --untracked-files=all)" ] && ok "the linked worktree does not show its ticket worktrees" || bad "linked status: $(git -C "$T/x-linked" status --porcelain --untracked-files=all)"
+rm -rf "$T/x-linked/.claude"
+repo "$T/x-full"
+full_before="$(cat "$T/x-full/.git/info/exclude")"
+draft xfull full null "$T/x-full" >"$T/x-full.json"
+check "a Full project is connected" 0 '"excludes": []' "$CONNECT" <"$T/x-full.json"
+[ "$full_before" = "$(cat "$T/x-full/.git/info/exclude")" ] && ok "Full mode leaves .git/info/exclude alone" || bad "Full mode changed exclude"
 
 # --- a project over two repositories: Silent, the folder above them is the Workflow folder ---
 draft ws silent "\"$T/ws\"" "$T/ws/api" "$T/ws/web" >"$T/ws.json"
@@ -158,6 +222,10 @@ check "both repositories have the profile ws" 0 "ws" "$PROFILE" -C "$T/ws/web" -
 check "the folder above them resolves as the workspace" 0 "$T/ws" "$PROFILE" -C "$T/ws" --field _resolved.workspace
 check "its Workflow folder is the folder itself" 0 "$T/ws" "$PROFILE" -C "$T/ws/api" --field workflow.folder
 [ ! -e "$T/ws/.git" ] && ok "a chosen Workflow folder is taken as it is (no git init)" || bad "git init ran in $T/ws"
+for r in api web; do
+    [ "$(grep -cx '.claude/worktrees/' "$T/ws/$r/.git/info/exclude")" = 1 ] && ok "multi-repo: $r excludes .claude/worktrees/" || bad "multi-repo exclude of $r"
+    [ -z "$(git -C "$T/ws/$r" status --porcelain --ignored --untracked-files=all)" ] && ok "multi-repo: $r shows nothing in git status --ignored" || bad "multi-repo $r status"
+done
 
 # --- a Harness home that is no git repository yet: git init, .gitignore, one commit ----------
 SAVED="$HARNESS_HOME"
@@ -170,6 +238,7 @@ check "the fresh Harness home ignores the plugin copy" 0 "!/gate/config.json" ca
 check "bin/profile -C prints full" 0 "full" "$PROFILE" -C "$T/solo" --field mode
 
 # --- qmd: run only with qmd and downloaded models ----------------------------------
+export QMD_INDEX_YML="$T/qmd/index.yml"
 printf '#!/bin/sh\necho "qmd 2.8.3"\n' >"$T/bin/qmd"
 # The stand-in qmd-collections notes the call and writes a qmd field into the profile, as the real one does.
 cat >"$T/bin/qmd-collections" <<STUB
@@ -207,6 +276,25 @@ draft q3 full null "$T/q3" >"$T/q3.json"
 check "a failing qmd-collections keeps the connection, with the reason" 0 "qmd-collections failed: broken" \
     env PROJECT_CONNECT_QMD="$T/bin/qmd" PROJECT_CONNECT_QMD_BIN="$T/bin/qmd-fail" "$CONNECT" <"$T/q3.json"
 [ "$(commits)" -eq $((n_q + 1)) ] && ok "q3 is one commit" || bad "q3 commits: $n_q -> $(commits)"
+check "a qmd-collections that wrote nothing leaves the profile without a qmd field" 1 "" bash -c 'git -C "$1" show HEAD:projects/q3/profile.json | grep -q "\"qmd\""' _ "$HARNESS_HOME"
+# qmd-collections writes index.yml and the profile field, then qmd update fails.
+cat >"$T/bin/qmd-late-fail" <<STUB
+#!/bin/sh
+mkdir -p "$T/qmd"
+printf 'collections:\n  \$1-docs: {}\n' >>"$T/qmd/index.yml"
+"$T/bin/qmd-collections" "\$1"
+echo "qmd update: refresh.lock is held" >&2
+exit 1
+STUB
+chmod +x "$T/bin/qmd-late-fail"
+n_q="$(commits)"
+repo "$T/q4"
+draft q4 full null "$T/q4" >"$T/q4.json"
+check "qmd update failing after index.yml was written reports only that" 0 "the collections are set up, but qmd update failed: qmd update: refresh.lock is held" \
+    env PROJECT_CONNECT_QMD="$T/bin/qmd" PROJECT_CONNECT_QMD_BIN="$T/bin/qmd-late-fail" "$CONNECT" <"$T/q4.json"
+check "the profile keeps its qmd field, committed" 0 "q4-docs" git -C "$HARNESS_HOME" show HEAD:projects/q4/profile.json
+[ "$(commits)" -eq $((n_q + 1)) ] && ok "q4 is one commit" || bad "q4 commits: $n_q -> $(commits)"
+[ -z "$(git -C "$HARNESS_HOME" status --porcelain)" ] && ok "nothing left uncommitted after the late qmd failure" || bad "uncommitted: $(git -C "$HARNESS_HOME" status --porcelain)"
 export HARNESS_HOME="$SAVED"
 
 home_after="$(real_home_snapshot "$REAL_HOME")"

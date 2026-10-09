@@ -32,8 +32,9 @@
 // terminal session, where the installed plugin registers them: `mcp__plugin_worfy_qmd__…`.
 //
 // The draft Session of a Project's connection (worfy-harness ticket 24, draftSessionOptions) adds
-// its structured answer (`outputFormat`, the draft schema) and the tools it runs without
-// (`disallowedTools`: Write, Edit, NotebookEdit). It reads only the user's settings, not the
+// its structured answer (`outputFormat`, the draft schema), the tools it may use (`allowedTools`:
+// Read, Glob, Grep) and the tools it runs without (`disallowedTools`: Bash and every tool that
+// writes or reaches out; src/main/projects/connect.ts). It reads only the user's settings, not the
 // `.claude/settings*.json` of the folder it reads, whose allow rules would let a tool past the
 // Session's canUseTool; and it asks the policy tier to ignore every allow rule outside it
 // (`allowManagedPermissionRulesOnly`), so the user's own allow rules do not either — that key is
@@ -138,8 +139,10 @@ export interface SessionOptionsInput {
    * src/main/projects/connect.ts): the `result` message then carries `structured_output`.
    */
   outputFormat?: OutputFormat | undefined
-  /** Tools Claude Code runs without, Subagents included: the draft Session takes away those that write files. */
+  /** Tools Claude Code runs without, Subagents included: the draft Session takes away Bash and those that write. */
   disallowedTools?: readonly string[] | undefined
+  /** Tools Claude Code runs without asking: the draft Session's Read, Glob and Grep. */
+  allowedTools?: readonly string[] | undefined
   /** Which settings files Claude Code reads; user + project + local when absent. */
   settingSources?: readonly SettingSource[] | undefined
   /** Only the policy tier may allow a tool: allow rules of every settings file are ignored. */
@@ -147,8 +150,9 @@ export interface SessionOptionsInput {
 }
 
 /** The options of the draft Session of a Project's connection; see the header. */
-export type DraftSessionOptionsInput = Omit<SessionOptionsInput, 'settingSources' | 'permissionRulesFromPolicyOnly' | 'canvas' | 'mcpAllowlist' | 'outputFormat' | 'disallowedTools'> & {
+export type DraftSessionOptionsInput = Omit<SessionOptionsInput, 'settingSources' | 'permissionRulesFromPolicyOnly' | 'canvas' | 'mcpAllowlist' | 'outputFormat' | 'disallowedTools' | 'allowedTools'> & {
   outputFormat: OutputFormat
+  allowedTools: readonly string[]
   disallowedTools: readonly string[]
 }
 
@@ -241,6 +245,7 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   if (input.canUseTool !== undefined) options.canUseTool = input.canUseTool
   if (input.outputFormat !== undefined) options.outputFormat = input.outputFormat
   if (input.disallowedTools !== undefined && input.disallowedTools.length > 0) options.disallowedTools = [...input.disallowedTools]
+  if (input.allowedTools !== undefined && input.allowedTools.length > 0) options.allowedTools = [...input.allowedTools]
   const allowlist = input.mcpAllowlist ?? null
   const allowed = (name: string): boolean => allowlist === null || allowlist.includes(name)
   if (allowlist !== null) {

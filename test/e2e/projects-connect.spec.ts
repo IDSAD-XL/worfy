@@ -122,6 +122,8 @@ test('Add project connects a new repository: Silent by default, the draft, the f
     await expect(dialog.locator('[data-field="profile.name"]').getByRole('alert')).toContainText('the name is taken')
     const connect = dialog.getByRole('button', { name: 'Connect' })
     await expect(connect).toBeDisabled()
+    // Out of focus, so the error border shows rather than the focus ring.
+    await name.blur()
     await shoot(launched, dialog, 'connect-form-error')
     await name.fill('shop')
     await expect(dialog.locator('[data-field="profile.name"]').getByRole('alert')).toHaveCount(0)

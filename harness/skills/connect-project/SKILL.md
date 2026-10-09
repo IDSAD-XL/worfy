@@ -26,12 +26,17 @@ The result is a **draft**: one JSON object `{ profile, rules, gate }` by the sch
   gate runs at the root), `workspace` (`{}` for one package), `root_if` when only some files should
   wake the root scripts. All entries of a project over several repositories name one profile.
 
-## You only read
+## You only read files
 
 Nothing is written while the draft is made — not in the project, not in `~/.claude`, not in
-`$HARNESS_HOME`. Read files; run only commands that read (`git remote -v`, `git symbolic-ref
-refs/remotes/origin/HEAD`, `git branch --show-current`, `ls`, `cat`). No install, no build, no test
-run: the commands go into the draft as text.
+`$HARNESS_HOME`. The draft is made with **Read, Glob and Grep only — never Bash**: no git command,
+no install, no build, no test run; the commands go into the draft as text.
+
+What only a command could tell — the kind of the folder, and per repository its current and default
+branch, whether it has commits, its remotes and `origin` — comes as **facts**: the JSON of
+`"${CLAUDE_PLUGIN_ROOT}/bin/project-connect" --facts <folder>`. worfy runs it and puts it under the
+first message (`Facts of the repositories …`); take the values from there. In a terminal session
+without that block, ask the user to run that one command and paste its output.
 
 ## What to read
 
@@ -43,8 +48,8 @@ run: the commands go into the draft as text.
 2. **Workflow files already there.** `.scratch/` (epics, tickets, their `## …` section listing the
    files to edit — `tickets.trail_section`), `HANDOFF.md`, `docs/adr/`, `CONTEXT.md`, `CLAUDE.md`,
    `AGENTS.md`. Their language is `language.docs`.
-3. **Branch and remote.** The main branch (`origin/HEAD`, else `main`/`master`) and whether there
-   is an `origin`.
+3. **Branch and remote** — from the facts, not from git: `defaultBranch` gives `worktree.base`
+   (`origin/<defaultBranch>` when there is an `origin`), `origin` decides `workflow.finish`.
 
 In a project over several repositories, read each repository, and the folder above them for its
 `.scratch/` and `HANDOFF.md`.
@@ -57,10 +62,12 @@ In a project over several repositories, read each repository, and the folder abo
   several repositories (its `.scratch/` and `HANDOFF.md` stay where they are);
 - `worktree.root` — `<repository>/.claude/worktrees/` for one repository, `null` for several, with
   `worktree.implementer` = `git worktree add -b <ветка> <repository>/.claude/worktrees/<NN> <base>`;
-  the placeholders stay as written (`<ветка>`, `<NN>`, `<эпик>`);
+  the placeholders stay as written (`<ветка>`, `<NN>`, `<эпик>`). In Silent mode `project-connect`
+  puts `.claude/worktrees/` into each repository's `.git/info/exclude`, so the trees never show in
+  git; `rules.md` needs no `.gitignore` advice for them;
 - `language.docs` — the language of the documents already there; without documents, the language of
   the user's messages (worfy sets `language.reports` from the system language itself);
-- `workflow.finish` — `pr-green-ci` when the repository has an `origin`, else `local-green`;
+- `workflow.finish` — `pr-green-ci` when the facts name an `origin`, else `local-green`;
 - `mcp.allowed` — `["plugin_worfy_qmd", "worfy-canvas"]`; `attribution` — `"on"`;
 - `github.account` — `null` (the account is chosen later);
 - `tickets.branch` — `<эпик>/<NN>` in Full mode, `null` in Silent mode (the branch is named by the
@@ -86,11 +93,12 @@ questions: worfy shows the draft in a form, the person edits it there, and worfy
    problem with its field (`profile.name: the name is taken`); fix them with the user.
 3. Ask for confirmation. Only on an explicit yes:
    `"${CLAUDE_PLUGIN_ROOT}/bin/project-connect" <<'JSON' … JSON; echo "EXIT=$?"`.
-   Exit 0 prints `{ name, profileDir, gateKeys, workflowFolder, qmd }`; `qmd.status: "skipped"`
-   carries the reason (no qmd, models not downloaded) — the connection still holds.
+   Exit 0 prints `{ name, profileDir, gateKeys, workflowFolder, excludes, qmd }`; `qmd.status:
+   "skipped"` carries the reason (no qmd, models not downloaded) — the connection still holds.
 4. Verify: `"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <folder>; echo "EXIT=$?"` — exit 0, the profile
    printed.
 
 `project-connect` writes `$HARNESS_HOME/projects/<name>/` and the gate registry, creates the default
 Workflow folder with `git init`, commits once in the git of `$HARNESS_HOME` and rolls everything
-back on a failure half-way. It never writes into the project's repositories.
+back on a failure half-way. In a project's repository it writes only the `.git/info/exclude` line
+of Silent mode — no working-tree file, no `.gitignore`.

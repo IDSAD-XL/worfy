@@ -318,6 +318,8 @@ export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPi
     }
     const next = path[0] === 'rules' ? { ...draft, rules: String(value) } : { ...draft, profile, gate }
     setDraft(next)
+    // An edit makes the last write's failure stale: what the footer says next is this draft's check.
+    setMessage(null)
     void check(next)
   }
 
@@ -326,6 +328,7 @@ export function ConnectProject({ folder, harnessHome, onClose, onConnected, onPi
     const gate = draft.gate.map((entry, at) => (at === index ? { ...entry, root: { ...(isJson(entry.root) ? entry.root : {}), [key]: words(input, /\s+/) } } : entry))
     const next = { ...draft, gate }
     setDraft(next)
+    setMessage(null)
     void check(next)
   }
 

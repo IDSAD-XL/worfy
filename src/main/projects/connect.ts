@@ -9,10 +9,12 @@
 // 2. The mode: Full or Silent; a multi-repo folder is Silent only.
 // 3. The Harness check, from the same installer state as the first-run screen (worfy-harness ticket
 //    19): the plugin installed, enabled, of this build's version. Otherwise no Session starts.
-// 4. The draft: a Claude Code Session in the folder, first message `/worfy:connect-project <folder>
-//    <mode> --draft-only`, the draft schema as its structured output (outputFormat), and Write, Edit,
-//    NotebookEdit taken away; a Bash command that is not a known read-only one is refused
-//    (draftCanUseTool). The answer is checked against the schema by `bin/project-connect
+// 4. The draft: first `bin/project-connect --facts <folder>` reads what only a command could tell
+//    (remotes, branches; owner decision 2026-10-09), then a Claude Code Session in the folder gets
+//    `/worfy:connect-project <folder> <mode> --draft-only` with those facts as data, the draft schema
+//    as its structured output (outputFormat), and only Read, Glob and Grep: Bash and every tool that
+//    writes or reaches out are taken away (DRAFT_DISALLOWED_TOOLS), and canUseTool refuses anything
+//    outside DRAFT_TOOLS. The answer is checked against the schema by `bin/project-connect
 //    --schema-only`; worfy then sets what it owns (applyChoices) and asks `--check` for the form.
 // 5./6. The form's checks and the write go through `bin/project-connect` only (ADR-0002: worfy
 //    changes workflow state only with the Harness's tools); worfy writes nothing itself — not in the
@@ -32,8 +34,29 @@ import type { QueryHandle, QueryRequest } from '../agent/session'
 import type { ProfileRunner } from '../workflow/profile'
 import type { GitRunner } from './store'
 
-/** The tools the draft Session runs without: it reads the Project and writes nothing (outputFormat answers). */
-export const DRAFT_DISALLOWED_TOOLS: readonly string[] = Object.freeze(['Write', 'Edit', 'NotebookEdit'])
+/** The only tools the draft Session uses: it reads files and answers with its structured output. */
+export const DRAFT_TOOLS: readonly string[] = Object.freeze(['Read', 'Glob', 'Grep'])
+
+/** The tool Claude Code answers an `outputFormat` turn with; canUseTool lets it through. */
+const STRUCTURED_OUTPUT_TOOL = 'StructuredOutput'
+
+/**
+ * The tools taken away from the draft Session (and its Subagents): no shell, nothing that writes,
+ * nothing that reaches the network or starts other agents.
+ */
+export const DRAFT_DISALLOWED_TOOLS: readonly string[] = Object.freeze([
+  'Bash',
+  'BashOutput',
+  'KillShell',
+  'Write',
+  'Edit',
+  'MultiEdit',
+  'NotebookEdit',
+  'WebFetch',
+  'WebSearch',
+  'Task',
+  'Agent',
+])
 
 /** The structured output a draft Session answers with (SDK option `outputFormat`). */
 export interface DraftOutputFormat {
@@ -44,6 +67,8 @@ export interface DraftOutputFormat {
 /** A Claude Code query of the draft Session: a Session's request plus the draft's own options. */
 export interface DraftRequest extends QueryRequest {
   outputFormat: DraftOutputFormat
+  /** The tools the Session may use without asking. */
+  allowedTools: readonly string[]
   disallowedTools: readonly string[]
 }
 
@@ -198,94 +223,27 @@ export function harnessBlocker(status: HarnessStatus): string | null {
 
 // ── step 4: the draft Session ───────────────────────────────────────────────
 
-/** The first message of the draft Session; a folder with a space goes in double quotes. */
-export function draftCommand(root: string, mode: ConnectMode): string {
-  const folder = /\s/.test(root) ? `"${root}"` : root
-  return `/worfy:connect-project ${folder} ${mode} --draft-only`
-}
-
-/** Commands a draft Session may run as they are: they only read. */
-// Not here on purpose: `uniq` (`uniq in out` writes out), `file` (`file -C` compiles a magic file),
-// `tee`, and anything that runs another program.
-const READERS = new Set(['ls', 'cat', 'head', 'tail', 'wc', 'jq', 'grep', 'pwd', 'stat', 'test', '[', 'echo', 'basename', 'dirname', 'realpath', 'cut', 'tr', 'which'])
-/** Readers with an option that writes or runs another program. */
-const WRITING_OPTIONS: Record<string, RegExp> = {
-  find: /^-(delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/,
-  sort: /^(-o|--output(=.*)?|--compress-program(=.*)?)$/,
-  tree: /^-o$/,
-  // `rg --pre <command>` runs the command on every file it searches.
-  rg: /^--pre(-glob)?(=.*)?$/,
-}
-
-/** Whether `git <words>` only reads: the subcommand and its arguments, after `-C <dir>` and `-c <k=v>`. */
-function gitReads(words: readonly string[]): boolean {
-  let at = 0
-  // `-c <key=value>`, `--config-env` and `--exec-path` can make any git command run a program
-  // (`git -c diff.external=rm diff`): such a git call is no reader.
-  if (words.some((word) => word === '-c' || word.startsWith('--config-env') || word.startsWith('--exec-path'))) return false
-  while (words[at] === '-C' || words[at] === '--no-pager') at += words[at] === '--no-pager' ? 1 : 2
-  const [sub, ...args] = words.slice(at)
-  const flags = args.filter((word) => word.startsWith('-'))
-  const positional = args.filter((word) => !word.startsWith('-'))
-  // `git diff --output=<file>` and `git log --output` write the file.
-  if (flags.some((flag) => flag.startsWith('--output'))) return false
-  switch (sub) {
-    case 'rev-parse':
-    case 'log':
-    case 'ls-files':
-    case 'show':
-    case 'status':
-    case 'describe':
-    case 'ls-remote':
-    case 'diff':
-      return true
-    case 'symbolic-ref':
-      return positional.length <= 1 && !flags.some((flag) => flag === '-d' || flag === '--delete')
-    case 'remote':
-      return positional.length === 0 || positional[0] === 'show' || positional[0] === 'get-url'
-    case 'branch':
-      return positional.length === 0 && flags.every((flag) => /^(-a|-r|-v|-vv|-l|--all|--remotes|--verbose|--list|--show-current|--no-color|--format=.*)$/.test(flag))
-    case 'config':
-      return flags.some((flag) => /^(--get|--get-all|--get-regexp|--list|-l)$/.test(flag))
-    case 'tag':
-      return args.length === 0 || flags.some((flag) => flag === '-l' || flag === '--list')
-    default:
-      return false
-  }
-}
-
 /**
- * Whether a Bash command only reads: every part of a `&&`, `||`, `;` or `|` chain is a known reader
- * without an option that writes, and nothing is redirected into a file or run in a subshell.
+ * The first message of the draft Session; a folder with a space goes in double quotes. The facts of
+ * `bin/project-connect --facts` follow as JSON: what the Session would otherwise need a command for.
  */
-export function readOnlyCommand(command: string): boolean {
-  // Output thrown away is no write.
-  const plain = command.replace(/\d?>\s*\/dev\/null|2>&1/g, ' ')
-  if (/[>`]|\$\(|<\(/.test(plain)) return false
-  return plain
-    // A single `&` ends a command too (it runs the one before in the background).
-    .split(/&&|\|\||;|\||&|\n/)
-    .map((part) => part.trim())
-    .every((part) => {
-      if (part === '') return true
-      const [head = '', ...args] = part.split(/\s+/)
-      if (head === 'git') return gitReads(args)
-      const writing = Object.hasOwn(WRITING_OPTIONS, head) ? WRITING_OPTIONS[head] : undefined
-      if (writing !== undefined) return !args.some((word) => writing.test(word))
-      return READERS.has(head)
-    })
+export function draftMessage(root: string, mode: ConnectMode, facts: unknown): string {
+  const folder = /\s/.test(root) ? `"${root}"` : root
+  return [
+    `/worfy:connect-project ${folder} ${mode} --draft-only`,
+    '',
+    'Facts of the repositories, read by bin/project-connect --facts (run no commands; use these):',
+    '```json',
+    JSON.stringify(facts, null, 2),
+    '```',
+  ].join('\n')
 }
 
-const DRAFT_DENIED = 'The draft Session only reads the project: worfy writes the profile after the form.'
+const DRAFT_DENIED = 'The draft Session only reads files with Read, Glob and Grep: worfy writes the profile after the form.'
 
-/** canUseTool of the draft Session: the tools that write and any Bash that is not readOnlyCommand are refused. */
-export const draftCanUseTool: CanUseToolHandler = (toolName, input) => {
-  if (DRAFT_DISALLOWED_TOOLS.includes(toolName) || toolName === 'MultiEdit') return Promise.resolve({ behavior: 'deny', message: DRAFT_DENIED })
-  if (toolName === 'Bash' && !(typeof input.command === 'string' && readOnlyCommand(input.command))) {
-    return Promise.resolve({ behavior: 'deny', message: `${DRAFT_DENIED} Only commands that read run here.` })
-  }
-  return Promise.resolve({ behavior: 'allow', updatedInput: input })
-}
+/** canUseTool of the draft Session: Read, Glob, Grep and its structured answer; anything else is refused. */
+export const draftCanUseTool: CanUseToolHandler = (toolName, input) =>
+  Promise.resolve(DRAFT_TOOLS.includes(toolName) || toolName === STRUCTURED_OUTPUT_TOOL ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: DRAFT_DENIED })
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 
@@ -448,13 +406,24 @@ export class ProjectConnector {
     }
     if (blocker !== null) return { status: 'harness', reason: blocker }
 
+    // Registered before the facts, so a Stop while they are read ends the draft too.
     const run = { query: null as QueryHandle | null, stopped: false }
     this.running.set(input.draftId, run)
     let raw: unknown
     try {
+      onActivity('Reading the repositories')
+      let facts: unknown
+      try {
+        const read = await this.script(['--facts', folder.root], null)
+        if (!read.ok) return { status: 'failed', reason: `The facts of the folder could not be read: ${describeIssues(read.issues)}`, issues: read.issues }
+        facts = read.output
+      } catch (error) {
+        return { status: 'failed', reason: error instanceof Error ? error.message : String(error), issues: [] }
+      }
+      if (run.stopped) return { status: 'stopped' }
       const stderr: string[] = []
       const query = await this.deps.query({
-        prompt: oneMessage(draftCommand(folder.root, input.mode)),
+        prompt: oneMessage(draftMessage(folder.root, input.mode, facts)),
         cwd: folder.root,
         resume: undefined,
         stderr: (data) => stderr.push(data),
@@ -462,6 +431,7 @@ export class ProjectConnector {
         canUseTool: draftCanUseTool,
         unattended: false,
         outputFormat: { type: 'json_schema', schema: this.deps.draftSchema() },
+        allowedTools: DRAFT_TOOLS,
         disallowedTools: DRAFT_DISALLOWED_TOOLS,
       })
       run.query = query

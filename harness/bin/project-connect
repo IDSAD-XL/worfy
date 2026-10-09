@@ -2,6 +2,7 @@
 // project-connect — writes a new project's profile and its gate registry entries on this machine.
 //
 //   project-connect [--check | --schema-only] < draft.json
+//   project-connect --facts <folder>
 //
 // The draft is one JSON object { profile, rules, gate } (profiles/draft.schema.json): profile.json
 // (schema 2), the text of rules.md, and the gate registry entries, one per repository. Skill
@@ -18,17 +19,25 @@
 //                  the same commit. A qmd failure is reported and undoes nothing of the connection.
 //   --check        only the checks; writes nothing.
 //   --schema-only  only the schema of profiles/draft.schema.json; writes nothing.
+//   --facts <dir>  only reads: what a draft needs that only a command could tell (owner decision
+//                  2026-10-09: the draft Session has no Bash) — the kind of the folder (a git
+//                  repository, or a folder above two or more repositories) and per repository its
+//                  name, path, current branch, default branch, whether it has commits, its remotes
+//                  (credentials taken out of the URLs) and origin. Prints JSON; no stdin.
 //
-// Nothing is ever written into the project's repositories: they are only read (realpath).
+// The project's repositories get one thing only, and only in Silent mode: the line
+// `.claude/worktrees/` in their `.git/info/exclude` (the common git dir, so a linked worktree's
+// repository is covered), once — the ticket worktrees live there and must not show in git. Nothing
+// goes into a working tree, `.gitignore` or a tracked file.
 //
 // Exit codes: 0 — written (or the check passed); 1 — the draft failed the schema or a check (the
 // name is taken, a `match` is already in the registry, …) or the write failed and was rolled back:
 // nothing written, the reasons in stderr; 2 — usage error.
-// Output (stdout, JSON, English only): on success { name, profileDir, gateKeys, workflowFolder, qmd }
+// Output (stdout, JSON, English only): on success { name, profileDir, gateKeys, workflowFolder, excludes, qmd }
 // (with --check: { ok: true, name, gateKeys, workflowFolder }); on exit 1 { ok: false, errors: [{ path,
 // kind, message }] }, kind is "schema", "conflict", "value" or "write".
 // Environment: HARNESS_HOME (default ~/.claude/worfy-harness). Tests only: PROJECT_CONNECT_FAIL_AT
-// (profile | workflow | gate | commit — fail as that step starts), PROJECT_CONNECT_QMD_BIN
+// (profile | workflow | gate | exclude | commit — fail as that step starts), PROJECT_CONNECT_QMD_BIN
 // (the qmd-collections to run), PROJECT_CONNECT_QMD (the qmd command to look for).
 "use strict"
 
@@ -45,6 +54,7 @@ const QMD = process.env.PROJECT_CONNECT_QMD || "qmd"
 const FAIL_AT = process.env.PROJECT_CONNECT_FAIL_AT || ""
 
 const USAGE = `usage: project-connect [--check | --schema-only] < draft.json
+       project-connect --facts <folder>
 exit: 0 written (or checked), 1 the draft failed a check or the write was rolled back, 2 usage`
 
 // The .gitignore of a Harness home made a git repository (the same as worfy's move of the old
@@ -72,10 +82,16 @@ const err = (text) => process.stderr.write(`project-connect: ${text}\n`)
 
 // --- arguments ---------------------------------------------------------------------
 let mode = "write"
-for (const arg of process.argv.slice(2)) {
+let factsFolder = null
+const argv = process.argv.slice(2)
+for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]
     if (arg === "--check" && mode === "write") mode = "check"
     else if (arg === "--schema-only" && mode === "write") mode = "schema"
-    else if (arg === "-h" || arg === "--help") {
+    else if (arg === "--facts" && mode === "write" && argv[i + 1] !== undefined && !argv[i + 1].startsWith("-")) {
+        mode = "facts"
+        factsFolder = argv[++i]
+    } else if (arg === "-h" || arg === "--help") {
         process.stdout.write(USAGE + "\n")
         process.exit(0)
     } else {
@@ -84,6 +100,82 @@ for (const arg of process.argv.slice(2)) {
         process.exit(2)
     }
 }
+// --- facts: only reads ------------------------------------------------------------------
+// git without the caller's GIT_* variables and without optional locks: not even an index refresh.
+const gitEnv = (() => {
+    const env = { GIT_OPTIONAL_LOCKS: "0" }
+    for (const [key, value] of Object.entries(process.env)) if (!key.startsWith("GIT_")) env[key] = value
+    return env
+})()
+const gitRead = (dir, args) => {
+    const result = spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", env: gitEnv })
+    return result.status === 0 ? result.stdout.trim() : null
+}
+const realOr = (p) => {
+    try {
+        return fs.realpathSync.native(p)
+    } catch {
+        return null
+    }
+}
+// The root of the main repository `dir` is in (a linked worktree resolves to it), or null.
+const repositoryOf = (dir) => {
+    const top = gitRead(dir, ["rev-parse", "--show-toplevel"])
+    if (!top) return null
+    const common = gitRead(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
+    return realOr(common && path.basename(common) === ".git" ? path.dirname(common) : top)
+}
+// A URL without the user and password some remotes carry.
+const withoutCredentials = (url) => url.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^@/]*@/i, "$1")
+function repoFacts(root) {
+    const remotes = []
+    const listed = gitRead(root, ["config", "--get-regexp", "^remote\\..*\\.url$"]) || ""
+    for (const line of listed.split("\n")) {
+        const match = /^remote\.(.+)\.url\s+(.*)$/.exec(line.trim())
+        if (match) remotes.push({ name: match[1], url: withoutCredentials(match[2]) })
+    }
+    const branch = gitRead(root, ["symbolic-ref", "--short", "-q", "HEAD"])
+    const originHead = gitRead(root, ["symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"])
+    const local = (name) => gitRead(root, ["show-ref", "--verify", "-q", `refs/heads/${name}`]) !== null
+    const defaultBranch = originHead ? originHead.replace(/^origin\//, "") : local("main") ? "main" : local("master") ? "master" : branch
+    const origin = remotes.find((remote) => remote.name === "origin")
+    return {
+        name: path.basename(root),
+        path: root,
+        branch,
+        defaultBranch,
+        hasCommits: gitRead(root, ["rev-parse", "-q", "--verify", "HEAD"]) !== null,
+        remotes,
+        origin: origin ? origin.url : null,
+    }
+}
+if (mode === "facts") {
+    const dir = realOr(path.resolve(factsFolder))
+    const refuseFacts = (message) => {
+        err(message)
+        out({ ok: false, errors: [{ path: "", kind: "value", message }] })
+        process.exit(1)
+    }
+    if (dir === null || !fs.statSync(dir).isDirectory()) refuseFacts(`${factsFolder} is not a folder`)
+    const root = repositoryOf(dir)
+    if (root !== null) {
+        out({ folder: root, kind: "git", repos: [repoFacts(root)] })
+        process.exit(0)
+    }
+    const repos = fs
+        .readdirSync(dir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+        .map((entry) => path.join(dir, entry.name))
+        .sort()
+        .filter((sub) => {
+            const top = gitRead(sub, ["rev-parse", "--show-toplevel"])
+            return top !== null && realOr(top) === realOr(sub)
+        })
+    if (repos.length < 2) refuseFacts(`${dir} is not a git repository and holds ${repos.length === 1 ? "only one" : "no"} repositories`)
+    out({ folder: dir, kind: "multi-repo", repos: repos.map((repo) => repoFacts(realOr(repo))) })
+    process.exit(0)
+}
+
 if (process.stdin.isTTY) {
     err("the draft is read from stdin")
     process.stderr.write(USAGE + "\n")
@@ -274,7 +366,9 @@ const writeAtomic = (file, text) => {
     fs.renameSync(tmp, file)
 }
 
-const written = { name, profileDir, gateKeys: draft.gate.map((entry) => entry.key), workflowFolder, qmd: null }
+const written = { name, profileDir, gateKeys: draft.gate.map((entry) => entry.key), workflowFolder, excludes: [], qmd: null }
+// The line that keeps the ticket worktrees of a Silent project out of git, in .git/info/exclude.
+const WORKTREES_EXCLUDE = ".claude/worktrees/"
 try {
     fs.mkdirSync(HARNESS_HOME, { recursive: true })
 
@@ -300,6 +394,26 @@ try {
         const next = registry ? { ...registry, repos: [...registry.repos, ...draft.gate] } : { repos: [...draft.gate] }
         writeAtomic(gateFile, JSON.stringify(next, null, 2) + "\n")
         undo.push(() => (before === null ? fs.rmSync(gateFile, { force: true }) : writeAtomic(gateFile, before)))
+    })
+
+    step("exclude", () => {
+        if (profile.mode !== "silent") return
+        const files = new Set()
+        for (const repo of repos) {
+            const common = gitRead(repo, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
+            if (!common) throw new Error(`the git dir of ${repo} cannot be read`)
+            files.add(path.join(common, "info", "exclude"))
+        }
+        for (const file of files) {
+            const before = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null
+            const lines = (before || "").split("\n").map((line) => line.trim())
+            if (lines.includes(WORKTREES_EXCLUDE) || lines.includes(`/${WORKTREES_EXCLUDE}`)) continue
+            fs.mkdirSync(path.dirname(file), { recursive: true })
+            const text = before === null || before === "" || before.endsWith("\n") ? before || "" : before + "\n"
+            fs.writeFileSync(file, `${text}${WORKTREES_EXCLUDE}\n`)
+            undo.push(() => (before === null ? fs.rmSync(file, { force: true }) : fs.writeFileSync(file, before)))
+            written.excludes.push(file)
+        }
     })
 
     step("commit", () => {
@@ -353,25 +467,45 @@ const models = (() => {
         return ""
     }
 })()
+// qmd's index.yml, found as bin/qmd-collections finds it: whether a failed run had written it.
+const INDEX_YML =
+    process.env.QMD_INDEX_YML ||
+    (process.env.QMD_CONFIG_DIR ? path.join(process.env.QMD_CONFIG_DIR, "index.yml") : path.join(process.env.XDG_CONFIG_HOME || path.join(HOME, ".config"), "qmd", "index.yml"))
+const readIndex = () => {
+    try {
+        return fs.readFileSync(INDEX_YML, "utf8")
+    } catch {
+        return null
+    }
+}
+// The qmd field qmd-collections wrote into profile.json joins the connection commit.
+const amendProfile = () => {
+    const changed = spawnSync("git", ["-C", HARNESS_HOME, "status", "--porcelain", "--", profileRel], { encoding: "utf8" })
+    if (changed.status !== 0 || changed.stdout.trim() === "") return null
+    try {
+        run("git", ["add", "--", profileRel], HARNESS_HOME)
+        run("git", [...commitArgs(HARNESS_HOME), "commit", "-q", "--no-verify", "--amend", "--no-edit", "--", profileRel], HARNESS_HOME)
+        return null
+    } catch (e) {
+        return `the qmd field of profile.json is not committed: ${e.message}`
+    }
+}
 const qmd = spawnSync(QMD, ["--version"], { encoding: "utf8" })
 if (qmd.error || qmd.status !== 0) written.qmd = { status: "skipped", reason: "qmd is not installed" }
 else if (models !== "downloaded") written.qmd = { status: "skipped", reason: 'the qmd models were not downloaded (qmd-models is not "downloaded")' }
 else {
+    const indexBefore = readIndex()
     const added = spawnSync(QMD_COLLECTIONS, [name], { encoding: "utf8", env: { ...process.env, HARNESS_HOME } })
-    if (added.status !== 0) {
-        spawnSync("git", ["-C", HARNESS_HOME, "checkout", "-q", "--", profileRel])
-        written.qmd = { status: "skipped", reason: `qmd-collections failed: ${((added.stderr || "") + (added.error ? added.error.message : "")).trim().split("\n").pop()}` }
+    const last = ((added.stderr || "") + (added.error ? added.error.message : "")).trim().split("\n").pop()
+    if (added.status === 0) {
+        written.qmd = { status: "added", reason: amendProfile() }
+    } else if (readIndex() !== indexBefore) {
+        // The collections are in index.yml already: only what came after (qmd update) failed. The
+        // profile keeps its qmd field, so the two agree.
+        written.qmd = { status: "added", reason: [`the collections are set up, but qmd update failed: ${last}`, amendProfile()].filter(Boolean).join("; ") }
     } else {
-        written.qmd = { status: "added", reason: null }
-        const changed = spawnSync("git", ["-C", HARNESS_HOME, "status", "--porcelain", "--", profileRel], { encoding: "utf8" })
-        if (changed.status === 0 && changed.stdout.trim() !== "") {
-            try {
-                run("git", ["add", "--", profileRel], HARNESS_HOME)
-                run("git", [...commitArgs(HARNESS_HOME), "commit", "-q", "--no-verify", "--amend", "--no-edit", "--", profileRel], HARNESS_HOME)
-            } catch (e) {
-                written.qmd = { status: "added", reason: `the qmd field of profile.json is not committed: ${e.message}` }
-            }
-        }
+        spawnSync("git", ["-C", HARNESS_HOME, "checkout", "-q", "--", profileRel])
+        written.qmd = { status: "skipped", reason: `qmd-collections failed: ${last}` }
     }
 }
 

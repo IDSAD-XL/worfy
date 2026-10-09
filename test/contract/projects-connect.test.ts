@@ -15,11 +15,13 @@ import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query
 import { draftSessionOptions, sessionOptions } from '../../src/main/agent/options'
 import {
   activityOf,
+  DRAFT_DISALLOWED_TOOLS,
+  DRAFT_TOOLS,
   draftCanUseTool,
+  draftMessage,
   inspectFolder,
   MULTI_REPO_FULL,
   ProjectConnector,
-  readOnlyCommand,
   type AddOutcome,
   type ConnectDeps,
   type DraftRequest,
@@ -99,13 +101,25 @@ interface Harnessed {
   activity: string[]
 }
 
+/**
+ * The real ProjectStore over the sandbox: a folder outside git joins the list when the sandbox
+ * Harness resolves its `_resolved.workspace` (worfy-harness ticket 23), read by the real bin/profile.
+ */
+function sandboxStore(): ProjectStore {
+  return new ProjectStore(join(scratch, 'data'), runGit, async (folder) => {
+    const run = await realProfile(folder, ['-C', folder, '--field', '_resolved.workspace'])
+    const value = run.stdout.trim()
+    return run.code === 0 && value !== '' && value !== 'null' ? value : null
+  })
+}
+
 /** A connector over the sandbox; `overrides` replace any of its parts. */
 function connectorWith(overrides: Partial<ConnectDeps> & { script?: string; scriptsDir?: string } = {}): Harnessed {
   const requests: DraftRequest[] = []
   const calls: FakeCall[] = []
   const added: string[] = []
   const fake = fakeQueryFactory({ scriptsDir: overrides.scriptsDir ?? SCRIPTS, script: overrides.script ?? 'profile-draft', record: (call) => calls.push(call), releases: undefined })
-  const store = new ProjectStore(join(scratch, 'data'))
+  const store = sandboxStore()
   const deps: ConnectDeps = {
     git: runGit,
     profile: realProfile,
@@ -253,7 +267,7 @@ describe('the Harness check (step 3)', () => {
 })
 
 describe('the draft Session (step 4)', () => {
-  it('runs in the folder with the draft schema, without Write/Edit/NotebookEdit, and its first message is the skill', async () => {
+  it('runs in the folder with the draft schema and only Read/Glob/Grep; its first message is the skill with the facts of the repository', async () => {
     const repo = makeRepo(join(scratch, 'shop'))
     const run = connectorWith()
     const activity: string[] = []
@@ -265,10 +279,18 @@ describe('the draft Session (step 4)', () => {
     const request = run.requests[0]
     expect(request?.cwd).toBe(repo)
     expect(request?.outputFormat).toEqual({ type: 'json_schema', schema: SCHEMA })
-    expect(request?.disallowedTools).toEqual(expect.arrayContaining(['Write', 'Edit', 'NotebookEdit']))
+    expect(request?.allowedTools).toEqual(['Read', 'Glob', 'Grep'])
+    expect(request?.disallowedTools).toEqual(expect.arrayContaining(['Bash', 'Write', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task']))
+    expect(request?.allowedTools).not.toContain('Bash')
     expect(request?.settings.permissionMode).toBe('default')
-    expect(run.calls.filter((call) => call.kind === 'message').map((call) => (call as { text: string }).text)).toEqual([`/worfy:connect-project ${repo} silent --draft-only`])
-    expect(activity).toEqual(['Claude Code started', `Read ${repo}/package.json`, 'Bash git remote -v', 'The draft is ready'])
+    // The facts come from bin/project-connect --facts, as data: the Session runs no command for them.
+    const facts = { folder: repo, kind: 'git', repos: [{ name: 'shop', path: repo, branch: 'main', defaultBranch: 'main', hasCommits: true, remotes: [], origin: null }] }
+    const messages = run.calls.filter((call) => call.kind === 'message').map((call) => (call as { text: string }).text)
+    expect(messages).toEqual([draftMessage(repo, 'silent', facts)])
+    expect(messages[0]?.startsWith(`/worfy:connect-project ${repo} silent --draft-only\n`)).toBe(true)
+    expect(messages[0]).toContain('run no commands')
+    expect(messages[0]).toContain('"origin": null')
+    expect(activity).toEqual(['Reading the repositories', 'Claude Code started', `Read ${repo}/package.json`, `Grep ${repo}/package.json`, 'The draft is ready'])
 
     // The form gets the draft, with what worfy owns set over it.
     expect(outcome.status).toBe('draft')
@@ -322,41 +344,44 @@ describe('the draft Session (step 4)', () => {
     expect(connector.stop('d1')).toBe(false)
   })
 
-  it('refuses the tools that write, and Bash that does not only read', async () => {
+  it('canUseTool lets through only Read, Glob, Grep and the structured answer', async () => {
     const signal = new AbortController().signal
-    for (const tool of ['Write', 'Edit', 'NotebookEdit', 'MultiEdit']) {
-      expect((await draftCanUseTool(tool, { file_path: '/x' }, { signal })).behavior).toBe('deny')
+    for (const tool of ['Read', 'Glob', 'Grep', 'StructuredOutput']) {
+      expect((await draftCanUseTool(tool, { file_path: '/x' }, { signal })).behavior, tool).toBe('allow')
     }
-    expect((await draftCanUseTool('Read', { file_path: '/x' }, { signal })).behavior).toBe('allow')
-    expect((await draftCanUseTool('Bash', { command: 'git remote -v' }, { signal })).behavior).toBe('allow')
-    expect((await draftCanUseTool('Bash', { command: 'npm install' }, { signal })).behavior).toBe('deny')
-    for (const command of ['git -C /x remote -v', 'cat package.json | jq .scripts', 'ls -la && git branch --show-current', 'git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null', 'find . -name "*.yml"', 'git config --get remote.origin.url']) {
-      expect(readOnlyCommand(command), command).toBe(true)
+    for (const tool of ['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task', 'Agent', 'BashOutput', 'mcp__x__y', 'Skill']) {
+      expect((await draftCanUseTool(tool, { command: 'git remote -v' }, { signal })).behavior, tool).toBe('deny')
     }
-    for (const command of ['echo x > a', 'git commit -m x', 'git branch new', 'git tag v1', 'git config user.name x', 'find . -delete', 'sort -o out in', 'cat $(which x)', 'rm -rf x', 'ls; touch y', 'git diff --output=x', 'git remote add o u']) {
-      expect(readOnlyCommand(command), command).toBe(false)
-    }
-    // A single `&` ends a command; readers that write or run a program; git told to run one.
-    for (const command of [
-      'ls & touch x',
-      'ls &touch x',
-      'uniq in out',
-      'file -C -m magic',
-      'rg --pre=rm x .',
-      'rg --pre rm x .',
-      'rg --pre-glob "*" --pre=sh x',
-      'sort --compress-program=sh in',
-      'git -c diff.external=rm diff',
-      'git -C /x -c core.pager=sh log',
-      'git --config-env=core.pager=X log',
-      'git --exec-path=/tmp/x status',
-      'toString',
-      'constructor x',
-    ]) {
-      expect(readOnlyCommand(command), command).toBe(false)
-    }
-    expect(readOnlyCommand('rg -n lint package.json'), 'rg without --pre').toBe(true)
-    expect(readOnlyCommand('ls 2>&1 | head'), '2>&1 is no background &').toBe(true)
+    expect(DRAFT_TOOLS).toEqual(['Read', 'Glob', 'Grep'])
+    expect(DRAFT_DISALLOWED_TOOLS).toEqual(expect.arrayContaining(['Bash', 'Write', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task']))
+  })
+
+  it('Stop while the facts are read ends the draft before any Session', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    let release: () => void = () => undefined
+    const released = new Promise<void>((resolve) => (release = resolve))
+    const run = connectorWith({
+      connect: async (args, stdin) => {
+        if (args[0] === '--facts') await released
+        return runScript('project-connect', args, stdin)
+      },
+    })
+    let reading: () => void = () => undefined
+    const readingNow = new Promise<void>((resolve) => (reading = resolve))
+    const outcome = run.connector.draft({ draftId: 'd1', root: repo, mode: 'silent', workflowFolder: null }, (text) => text === 'Reading the repositories' && reading())
+    await readingNow
+    expect(run.connector.stop('d1')).toBe(true)
+    release()
+    expect(await outcome).toEqual({ status: 'stopped' })
+    expect(run.requests).toHaveLength(0)
+  })
+
+  it('the facts of the folder that cannot be read stop the draft before any Session', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const run = connectorWith({ connect: (args, stdin) => (args[0] === '--facts' ? Promise.resolve({ code: 1, stdout: '{"ok":false,"errors":[{"path":"","kind":"value","message":"cannot read"}]}', stderr: '' }) : runScript('project-connect', args, stdin)) })
+    const outcome = await run.connector.draft({ draftId: 'd1', root: repo, mode: 'silent', workflowFolder: null }, () => undefined)
+    expect(outcome).toEqual({ status: 'failed', reason: 'The facts of the folder could not be read: draft: cannot read', issues: [{ path: '', kind: 'value', message: 'cannot read' }] })
+    expect(run.requests).toHaveLength(0)
   })
 
   it('reads only the user\'s settings and asks the policy tier to ignore every allow rule outside it', () => {
@@ -367,13 +392,16 @@ describe('the draft Session (step 4)', () => {
       settings: { model: null, effort: null, permissionMode: 'default' },
       canUseTool: draftCanUseTool,
       outputFormat: { type: 'json_schema', schema: SCHEMA },
-      disallowedTools: ['Write', 'Edit', 'NotebookEdit'],
+      allowedTools: DRAFT_TOOLS,
+      disallowedTools: DRAFT_DISALLOWED_TOOLS,
       harnessPlugin: null,
     })
     // Not 'project' or 'local': allow rules in the repository's .claude/settings*.json would let a tool past canUseTool.
     expect(options.settingSources).toEqual(['user'])
     expect(options.managedSettings).toEqual({ allowManagedPermissionRulesOnly: true })
-    expect(options.disallowedTools).toEqual(['Write', 'Edit', 'NotebookEdit'])
+    expect(options.allowedTools).toEqual(['Read', 'Glob', 'Grep'])
+    expect(options.disallowedTools).toContain('Bash')
+    expect(options.allowedTools).not.toContain('Bash')
     expect(options.outputFormat).toEqual({ type: 'json_schema', schema: SCHEMA })
     expect(options.permissionMode).toBe('default')
     expect(options.canUseTool).toBe(draftCanUseTool)
@@ -426,12 +454,11 @@ describe('the form and the write (steps 5 and 6)', () => {
   })
 
   it('a folder above two repositories: Silent only, the folder itself is the Workflow folder, Full is refused', async () => {
-    const workspace = realpathSync(mkdirSync(join(scratch, 'ws'), { recursive: true }) ?? join(scratch, 'ws'))
+    const workspace = join(scratch, 'ws')
     const api = makeRepo(join(workspace, 'api'))
     const web = makeRepo(join(workspace, 'web'))
-    // The list takes the folder as ticket 23 makes ProjectStore take it: a stand-in records it.
-    const listed: string[] = []
-    const run = connectorWith({ add: (root) => (listed.push(root), Promise.resolve({ status: 'added', projectId: 'ws-1', notice: null })) })
+    // The real ProjectStore (ticket 23 takes a folder outside git that the Harness resolves).
+    const run = connectorWith()
 
     expect(await run.connector.draft({ draftId: 'full', root: workspace, mode: 'full', workflowFolder: null }, () => undefined)).toEqual({ status: 'refused', reason: MULTI_REPO_FULL })
     expect(run.requests).toHaveLength(0)
@@ -444,10 +471,18 @@ describe('the form and the write (steps 5 and 6)', () => {
     // The skill proposes one entry per repository; the fake agent proposed one for the folder.
     const both: ProfileDraft = { ...draft, profile: { ...draft.profile, name: 'ws' }, gate: [api, web].map((match) => ({ ...draft.gate[0], key: match.split('/').at(-1), match, profile: 'ws' })) }
     expect(await run.connector.write(workspace, { ...both, profile: { ...both.profile, mode: 'full' } })).toEqual({ status: 'refused', issues: [{ path: 'profile.mode', kind: 'value', message: MULTI_REPO_FULL }] })
-    expect(listed).toEqual([])
+    expect(run.added).toEqual([])
+    // Before the write the store refuses the folder: the Harness does not know it yet.
+    expect((await sandboxStore().add(workspace)).status).toBe('rejected')
 
-    expect(await run.connector.write(workspace, both)).toEqual({ status: 'added', projectId: 'ws-1', notice: 'qmd collections were not set up: qmd is not installed.' })
-    expect(listed).toEqual([workspace])
+    const written = await run.connector.write(workspace, both)
+    expect(written).toMatchObject({ status: 'added', notice: 'qmd collections were not set up: qmd is not installed.' })
+    expect(run.added).toEqual([workspace])
+    const store = sandboxStore()
+    expect(store.list()).toEqual([expect.objectContaining({ name: 'ws', path: workspace })])
+    expect(store.active()).toMatchObject({ path: workspace })
+    // Both repositories keep their ticket worktrees out of git (Silent mode).
+    for (const repo of [api, web]) expect(readFileSync(join(repo, '.git', 'info', 'exclude'), 'utf8').split('\n')).toContain('.claude/worktrees/')
     expect((await realProfile(workspace, ['-C', workspace, '--field', '_resolved.workspace'])).stdout.trim()).toBe(workspace)
     expect((await realProfile(api, ['-C', api, '--field', 'mode'])).stdout.trim()).toBe('silent')
     expect(clean(api)).toBe('')

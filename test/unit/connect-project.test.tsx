@@ -83,4 +83,14 @@ describe('the form', () => {
     await waitFor(() => expect(connect.disabled).toBe(false), { timeout: 2000 })
     expect(screen.queryByTestId('connect-message')).toBeNull()
   })
+
+  it('a failed write is not shown any more once the draft is edited: the footer then says what the new check says', async () => {
+    await toForm([])
+    ipc.invoke.mockImplementation((channel: string) => Promise.resolve(channel === 'projects.connect.write' ? { ok: false, error: 'the write broke' } : { ok: false, error: 'main is gone' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+    await waitFor(() => expect(screen.getByTestId('connect-message').textContent).toContain('the write broke'))
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'shop2' } })
+    await waitFor(() => expect(screen.getByTestId('connect-message').textContent).toContain('The draft could not be checked'), { timeout: 2000 })
+    expect(screen.getByTestId('connect-message').textContent).not.toContain('the write broke')
+  })
 })

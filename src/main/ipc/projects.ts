@@ -90,6 +90,7 @@ const sdkDraftQuery: DraftQueryFactory = async (request) => {
     // The skill /worfy:connect-project comes with the Harness of this build, as in every Session.
     harnessPlugin: sessionHarnessPlugin(currentHarness().kind),
     outputFormat: request.outputFormat,
+    allowedTools: request.allowedTools,
     disallowedTools: request.disallowedTools,
   })
   return query({ prompt: request.prompt, options }) as QueryHandle
