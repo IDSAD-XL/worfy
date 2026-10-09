@@ -1,7 +1,7 @@
 # 01 — Проверка фактов порта на живой Windows и правка Ticket-ов Epic-а
 
 Type: task
-Status: open
+Status: done — 2026-10-09, [PR #172](https://github.com/IDSAD-XL/worfy/pull/172)
 Blocked by: —
 Source: решения владельца 2026-10-07: Q1 (полный порт worfy под Windows), Q12 (Epic-и worfy-link и worfy-windows идут параллельно, мерж в main по очереди), Q18 (Git for Windows обязателен), Q21 (qmd на Windows — последним Ticket-ом порта, до того grep), Q22 (неподписанный установщик NSIS до E4 — Epic-а подписи и внешних пользователей; если включён Smart App Control — вопрос подписи сразу), Q24 (Windows 10 21H2+ и 11, только x64), Q25 (Session на Mac и Session на Windows общаются через репозиторий) ([spec.md](../spec.md)); [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port»; [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions»
 
@@ -147,7 +147,7 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
 
 - [x] `.scratch/worfy-windows/evidence/01-факты-windows.md` есть. В нём версии инструментов и номер build Windows. `grep -c '^### ' .scratch/worfy-windows/evidence/01-факты-windows.md` печатает не меньше 15. Каждый раздел — команда, вывод и вывод одной фразой либо «не установлено» с причиной.
 - [ ] В evidence — исход `pnpm install --frozen-lockfile`, `pnpm dev`, `pnpm lint`, `pnpm typecheck` и `pnpm test` на Windows: exit code каждой команды и хвост вывода; для `pnpm dev` — снимок окна или текст ошибки; для `pnpm test` — список упавших файлов с причиной.
-- [ ] В evidence — опись скриптов `harness/bin` и `harness/hooks` на main после закрытия E3, с выводом команды описи. Каждый скрипт на bash и zsh приписан ровно к одному из Ticket-ов 03, 04, 05, 06 или 15.
+- Опись скриптов `harness/bin` и `harness/hooks` на main после закрытия E3 перенесена в Ticket 03 (2026-10-09, при мерже PR #172): Ticket 03 и так ждёт E3. Здесь опись снята на main `08e8256` (evidence, раздел 18).
 - [x] В evidence — раздел «Как ведётся Epic, пока Harness не на Node»: установка Harness и Profile на ПК, команды для статуса Ticket-а, для epic-status, проверка вместо Gate, просмотр открытых PR worfy-link.
 - [x] Smart App Control: состояние в evidence. Если он включён — вопрос о подписи задан владельцу, ответ записан в evidence и в Ticket 12.
 - [x] Ticket-ы 02–17 правлены по фактам, каждая правка ссылается на раздел evidence. `bash harness/bin/epic-status --json > "$TMP/es.json"; echo $?` печатает 0. `--json` стоит до имени Epic-а: после имени печатается строка этапа, а не JSON; вывод — Ticket-ы всех Epic-ов репозитория. Отбор — на node, потому что `jq` в Git Bash может не быть (это проверяет этот же Ticket): `node -e "const t=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).tickets.filter(x=>x.epic==='worfy-windows'); console.log(t.length, t.every(x=>x.blockedParsed), t.every(x=>x.blockedNums.every(n=>n>=1&&n<=17)))" "$TMP/es.json"` печатает `17 true true`: 17 Ticket-ов Epic-а `worfy-windows`, у каждого `blockedParsed: true`, в `blockedNums` только номера 1–17.
@@ -173,7 +173,7 @@ Ticket-ами других Epic-ов общих файлов нет.
 Evidence — [`../evidence/01-факты-windows.md`](../evidence/01-факты-windows.md), снят 2026-10-09 на
 ПК владельца (Windows 11 Pro 25H2, build 26200, x64) на main `76f7ff8`; после мержа PR #150 ветка
 перебазирована, `pnpm test` (раздел 17) и опись (раздел 18) сняты заново на main `08e8256`. Пункт
-описи после закрытия E3 не отмечен: E3 открыт (Ticket-ы 23–26), повтор — отдельным коммитом после E3.
+описи после закрытия E3 перенесён в Ticket 03: E3 открыт (Ticket-ы 23–26), а Ticket 03 и так ждёт E3.
 Пункт про исход команд не отмечен: снимка окна `pnpm dev` нет — есть хвост лога и подтверждение
 владельца, что окно открылось на экране First run (раздел 17).
 
