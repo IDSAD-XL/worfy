@@ -372,4 +372,12 @@ Windows (Ticket 12).
     доходит до `realpath` (`src/main/ipc/shell.ts`, тот же порядок в `src/main/cards/protocol.ts`),
     и Windows может обратиться к хосту до отказа. Нужен репозиторий с таким symlink и
     `core.symlinks=true`. Отдельный Ticket — за Orchestrator-ом и владельцем.
+- **Известное падение на Windows, не от этого PR** (для Ticket-а 14, gate full на Windows):
+  `test/contract/link-server.test.ts` › «the server closes a pairing socket that sends more than
+  65536 bytes with 1009» — `expected 1006 to be 1009` (строка 496): клиент видит обрыв соединения
+  (1006) вместо кода «сообщение слишком большое» (1009). На main `0f4bf19` этот test, запущенный
+  отдельно (`vitest run test/contract/link-server.test.ts -t "65536 bytes with 1009"`), падает 3 раза
+  из 3; на head PR #209 `3e6b2cb` — 5 из 5. В полных прогонах `pnpm test` на ПК результат плавает:
+  упал на main `f95b7e7`, на `3e6b2cb` и в круге 4 этого PR, прошёл на main `0f4bf19` и в кругах 2
+  и 3. Код Link-а этот PR не трогает; причина не разбиралась.
 - **Долги Ticket-а 09** из последнего комментария PR #194 — в Итоге Ticket-а 09.
