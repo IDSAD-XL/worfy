@@ -201,6 +201,19 @@ test проверит в gate full на Windows-ПК. Мутанты (убрат
 (на коммите 6ecaaa8, под замком `/tmp/worfy-e2e.lock`) — exit 0, «[gate] зелено (full): worfy/.:lint
 worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package».
 
+**Проверки раунда 2** (после rebase на main 558dd67, коммит 5565f27): `pnpm lint`, `pnpm typecheck`,
+`pnpm test` — exit 0 (181 файл, 3656 test-ов); gate fast — exit 0, «[gate] зелено (fast)»;
+`GATE_SCOPE=all` gate full под замком — exit 0, «[gate] зелено (full): worfy/.:lint
+worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package»; CI PR #209 — check pass.
+e2e `test/e2e/settings.spec.ts` — 3 passed: третий test на Project-е с Canvas проверяет, что при
+открытом Settings ⌘K, ⌘F и ⌘↩ ничего не делают (и при фокусе на странице), Tab возвращает фокус, Esc
+закрывает окно, после закрытия те же сочетания работают, а в режиме фокуса «Settings…» не
+открывается. Мутанты раунда: 13 для unit и contract test-ов (перехват клавиш, возврат фокуса, слой
+выше окна, `defaultPrevented`, режим фокуса, уничтоженное окно в меню) и 2 для e2e (перехват
+выключен — ⌘K открывает палитру; без проверки режима фокуса — окно открывается под ним) — все
+красные. Из `src/` раунд менял только `src/renderer/settings/` (`SettingsDialog.tsx`,
+`settings-window.ts`, `settings.css`); `src/main/menu.ts` и `src/shared/ipc/menu.ts` не менялись.
+
 **Снимки** (светлая и тёмная тема, Playwright, `snapshotThemes`): окно с General —
 [светлая](../evidence/02-settings-general-light.png), [тёмная](../evidence/02-settings-general-dark.png);
 фокус клавиатуры на кнопке «Close» после Tab — [светлая](../evidence/02-settings-focus-light.png),
