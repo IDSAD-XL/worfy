@@ -69,6 +69,7 @@ describe('the target of the stable copy', () => {
     expect(() => checkTarget('win32', 'D:\\', WIN_ENV, WIN_HOME)).toThrow(/not a whole disk/)
     // A .app ending means nothing on Windows.
     expect(checkTarget('win32', 'D:\\apps\\worfy-stable.app', WIN_ENV, WIN_HOME)).toBe('D:\\apps\\worfy-stable.app')
+    expect(metadataPath('win32', 'D:\\apps\\worfy-stable.app')).toBe('D:\\apps\\worfy-stable.app.json')
   })
 })
 
@@ -153,7 +154,8 @@ describe.runIf(process.platform === 'win32')('scripts/install-stable.mjs on Wind
 
   const run = (args: string[], env: Env = {}) => {
     // process.execPath is Electron run as Node (ELECTRON_RUN_AS_NODE=1 is in the environment).
-    return spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8', env: { ...process.env, LOCALAPPDATA: local, WORFY_STABLE_PREBUILT: build, ...env } })
+    // The working folder is the temporary one: a relative target would land there, not in the repository.
+    return spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8', cwd: dir, env: { ...process.env, LOCALAPPDATA: local, WORFY_STABLE_PREBUILT: build, ...env } })
   }
   const head = (): string => spawnSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim()
 
@@ -211,9 +213,13 @@ describe.runIf(process.platform === 'win32')('scripts/install-stable.mjs on Wind
     expect(noBuild.status).not.toBe(0)
     expect(noBuild.stderr).toContain('does not look like a built worfy')
     expect(existsSync(join(dir, 'apps', 'worfy-stable'))).toBe(false)
-    const two = run(['a', 'b'])
+    const notAFolder = run([join(dir, 'apps', 'worfy-stable')], { WORFY_STABLE_PREBUILT: join(build, 'worfy.exe') })
+    expect(notAFolder.status).not.toBe(0)
+    expect(notAFolder.stderr).toContain('install-stable: WORFY_STABLE_PREBUILT is not a folder')
+    const two = run([join(dir, 'one'), join(dir, 'two')])
     expect(two.status).not.toBe(0)
     expect(two.stderr).toContain('expected at most one argument')
+    expect(existsSync(join(dir, 'one'))).toBe(false)
   }, 60_000)
 
   it('refuses while a program of the copy is running, and leaves the copy in place', async () => {

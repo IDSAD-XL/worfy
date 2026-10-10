@@ -28,9 +28,6 @@ import { dirname, posix, win32 } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
-// Run by Electron as Node (the tests do), fs would read app.asar as a folder and copy it as one.
-if (process.versions.electron) process.noAsar = true
-
 /** The name of the app as electron-builder writes it (productName). */
 const APP = 'worfy'
 

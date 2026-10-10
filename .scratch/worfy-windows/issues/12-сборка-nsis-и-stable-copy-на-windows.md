@@ -129,7 +129,7 @@ Harness (Ticket 13); `@packaged` e2e на Windows (Ticket 14); шаг для Win
   ICO и семь записей 16, 24, 32, 48, 64, 128, 256 px; sha256 файла совпадает с `build/icons.json`.
   На Mac запуск скрипта пишет `icon.icns`, `icon.ico`, `icon.png` и `icons.json` и ничего больше
   (`:192-196`; на Mac — через раздел Mac checks PR, Q33).
-- [ ] Unit `test/unit/install-stable.test.ts` (новый): цель по умолчанию и путь `<target>.json` для
+- [x] Unit `test/unit/install-stable.test.ts` (новый): цель по умолчанию и путь `<target>.json` для
   `darwin` и `win32`; Windows-цель, равная папке установщика, отвергается; Mac-цель без `.app`
   отвергается; запущенная копия находится в фикстуре списка процессов обеих систем.
 - [ ] Contract `test/contract/autopilot.test.ts`, настоящий git: dev-сборка отказывает в checkout и
@@ -158,7 +158,7 @@ Harness (Ticket 13); `@packaged` e2e на Windows (Ticket 14); шаг для Win
   копия на месте. Stable copy открывается, Session в ней отвечает. В `pnpm dev` Autopilot над
   Project-ом worfy отказывает с «Autopilot does not run on worfy itself from a development build».
   Как проверить: PowerShell и окно worfy.
-- [ ] `CONTEXT.md` («Stable copy») и раздел «Stable copy» `README.md` называют путь Stable copy на
+- [x] `CONTEXT.md` («Stable copy») и раздел «Stable copy» `README.md` называют путь Stable copy на
   Windows.
 
 ## Тесты
@@ -193,4 +193,121 @@ contract `selfProjectRefusal` с настоящим git.
 
 ## Итог
 
-Заполняется при закрытии.
+Заполняет Session на Windows-ПК. Ticket не закрыт: ждёт шага на Mac (`build/icon.ico`) и ручных
+пунктов владельца — оба списка в конце.
+
+- **Что сделано.**
+  - **`.ico`.** `scripts/ico.mjs` — упаковка и чтение `.ico` на чистом Node (`packIco`, `readIco`).
+    `scripts/make-icons.mjs` рисует через `sips` ещё семь PNG (16, 24, 32 px из `mark.svg`; 48,
+    64, 128, 256 px из `icon.svg`), пакует их в `icon.ico` и пишет его sha256 и список размеров в
+    `icons.json`.
+  - **Сборка.** В `electron-builder.yml` — секция `win:` (цель `nsis`, `x64`, значок
+    `build/icon.ico`); `package` — `electron-vite build && electron-builder` без флага системы.
+  - **Stable copy.** `scripts/install-stable.mjs` вместо `scripts/install-stable.sh`; на Mac —
+    прежнее поведение, на Windows — папка, по умолчанию `%LOCALAPPDATA%\Programs\worfy-stable`,
+    рядом `worfy-stable.json`. `install:stable` — `node scripts/install-stable.mjs`.
+    `test/e2e/packaged.spec.ts` зовёт скрипт через Node.
+  - **Отказ Autopilot.** `gitCommonDir` экспортирован; новый contract test берёт настоящий git.
+    Править `selfProjectRefusal` не пришлось (ниже).
+  - **Документы.** Путь Stable copy на Windows — в `CONTEXT.md` и в разделе «Stable copy»
+    `README.md`.
+- **Ждёт шага на Mac.** `build/icon.ico` и новый `build/icons.json` даёт только `pnpm icons` на
+  Mac (`sips`). Пока их нет:
+  - четыре случая `test/contract/make-icons.test.ts` красные: «holds the sha256 of
+    build/icon.icns, build/icon.ico and build/icon.png», «lists the ten sizes of the iconset, the
+    seven of icon.ico…», и оба случая блока «the committed build/icon.ico»;
+  - `pnpm package` на Windows не соберётся: файла значка нет. Поэтому пункт «`pnpm package` —
+    exit 0» ниже выполнен пробной сборкой, а не этой командой.
+- **Пробная сборка на ПК.** Значок временный, вне репозитория: семь PNG, уменьшенных из
+  `build/icon.png`, упакованы `packIco`.
+  - Команда: `pnpm exec electron-vite build`, затем `pnpm exec electron-builder
+    --config.win.icon=<временный .ico>`; оба — exit 0. Кэш electron-builder направлен в
+    `%TEMP%\worfy-01\eb-cache` (`ELECTRON_BUILDER_CACHE`); туда он скачал `nsis-3.0.4.1`,
+    `nsis-resources-3.4.1` и `7zip`.
+  - Получилось: `dist\worfy Setup 0.2.0.exe` — 204 914 954 байта; `dist\win-unpacked\worfy.exe`.
+    `Test-Path dist\win-unpacked\resources\app.asar.unpacked\node_modules\@anthropic-ai\claude-agent-sdk-win32-x64\claude.exe`
+    — `True`. `Get-AuthenticodeSignature` для установщика и для `worfy.exe` — `NotSigned`.
+  - Установщик: `oneClick=true perMachine=false` (строка electron-builder) — для текущего
+    пользователя, без прав администратора. Папка установки по этим настройкам —
+    `%LOCALAPPDATA%\Programs\worfy`; установщик на ПК не запускался, папку подтвердит ручной пункт.
+  - Значок: картинка 32 px, которую оболочка Windows отдаёт для `worfy.exe` и для установщика
+    (`Icon.ExtractAssociatedIcon`), совпала с временным значком пиксель в пиксель (средняя разница
+    0,00); у `electron.exe` разница 43,57. То есть `.ico` из PNG-записей попадает и в программу,
+    и в установщик.
+  - Запуск: `dist\win-unpacked\worfy.exe` стартовал как упакованный worfy 0.2.0
+    (`app.isPackaged` — `true`), окно «worfy» открылось, в ресурсах есть `harness` и
+    `statusline-bridge.mjs`. Временный spec Playwright, папки данных и `.claude` — временные; spec
+    удалён.
+- **Решения этого Ticket-а.**
+  - **Записи `.ico` — PNG**, все семь. Проверено пробной сборкой (выше); в меню Пуск и на панели
+    задач — ручной пункт.
+  - **Значок Windows нарисован на сетке macOS**: те же SVG, поля около 10 % с каждой стороны.
+    Значки Windows обычно занимают всё поле, рядом с ними значок worfy будет мельче. Ticket
+    называл только источники; обрезать ли поля для Windows — вопрос владельцу (ниже).
+  - **Существующую папку, не похожую на копию, скрипт не заменяет** (Windows): в ней должен быть
+    `worfy.exe`, либо она пуста. Иначе `pnpm install:stable D:\Documents` удалил бы папку.
+  - **Папка установщика, папка внутри неё и папка вокруг неё** отвергаются как цель; диск целиком
+    — тоже.
+  - **Сообщение о лишних аргументах** теперь «expected at most one argument, the target path»
+    (было «…the target .app path»).
+- **Отказ Autopilot на путях Windows.** На ПК git печатает общую папку как `C:/…/.git`, папки
+  приходят из `realpath` как `C:\…`. После `realpath` обе стороны совпадают: test с настоящим git
+  (checkout, worktree, папка внутри worktree, другой репозиторий, папка вне git) зелёный на
+  Windows без правки `src/main/autopilot/run.ts`.
+- **Как test-ы падали до правки.**
+  - `make-icons.test.ts`: `ENOENT … build\icon.ico` и `expected undefined to deeply equal
+    [ Array(7) ]` (списка `ico` в `icons.json` нет) — и падают так до шага на Mac.
+  - Contract `selfProjectRefusal` с настоящим git: `TypeError: gitCommonDir is not a function`.
+  - `test/unit/install-stable.test.ts` и `test/unit/ico.test.ts` написаны вместе со скриптами, а
+    не до них.
+- **Мутанты.** 36, по одному, на unit-файле своего скрипта: все 36 валят test-ы — 13 из 13 в
+  `scripts/ico.mjs`, 23 из 23 в `scripts/install-stable.mjs`.
+  - В первом прогоне было 37, выжили два. Строка `process.noAsar = true` в скрипте Stable copy
+    оказалась лишней и убрана: файл `app.asar` копируется файлом и без неё, а неверно читал его
+    только сам test (его исполняет Electron). Отказ «`WORFY_STABLE_PREBUILT` is not a folder» не
+    имел test-а — добавлен.
+  - Мутант «принимается лишний аргумент» в том же прогоне поставил фальшивую копию в папку `a`
+    в корне репозитория: test передавал относительные пути. Папка и `a.json` удалены, test теперь
+    запускает скрипт из временной папки и с путями внутри неё.
+  - `make-icons.mjs` мутантами не проверялся: на ПК он не запускается.
+- **Windows-ПК** (Gate не запускался — он на bash, Ticket 03):
+  - `pnpm lint` — 0, `pnpm typecheck` — 0. `pnpm install --frozen-lockfile` для этой ветки не
+    повторялся: зависимости не менялись;
+  - `pnpm test test/unit/ico.test.ts test/unit/install-stable.test.ts` — exit 0: 18 passed. Случаи
+    со скриптом на Windows прошли: установка по умолчанию с подменённым `LOCALAPPDATA`, замена
+    прежней копии, отказы, отказ при запущенной программе копии (настоящий список процессов);
+  - `pnpm test test/unit/install-stable.test.ts test/contract/make-icons.test.ts
+    test/contract/autopilot.test.ts` — exit **1**, не 0, как просил пункт «Готово, когда»:
+    `make-icons` — 4 красных до шага на Mac (выше); `autopilot.test.ts` — 37 passed | 9 failed:
+    три новых случая с настоящим git зелёные, девять падений («call rejected…» у каналов и
+    четыре случая журнала) те же, что на main;
+  - `pnpm test` — exit 1, как на main: 54 failed | 141 passed файлов, 667 failed | 3251 passed | 32
+    skipped. Main `11ca93c`: 53 failed | 140 passed файлов, 661 failed | 3234 passed | 31 skipped;
+    ветка стоит на `2e8a6ff`, который отличается только документами. По именам новых семь:
+    четыре — `make-icons` до шага на Mac; три — время под нагрузкой: `e3-sandbox.test.ts`
+    («exits 3 with what gh said…», `Test timed out in 15000ms`; отдельно этот случай проходит),
+    `startup-failure.test.ts` («a createMainWindow that throws…», плавает и на main) и первый
+    test `canvas.test.tsx` (`Test timed out in 5000ms`). Ушёл один: «holds the sha256 of
+    build/brand/icon.svg and build/brand/mark.svg» — он падал из-за состояния этого клона (SVG
+    были выписаны с CRLF до `.gitattributes`), файлы выписаны заново;
+  - полный прогон сделан до последних правок test-а Stable copy и до удаления строки
+    `process.noAsar`; два unit-файла, lint этих файлов и typecheck после них повторены.
+- **Вопросы владельцу.**
+  1. Путь Stable copy на Windows — `%LOCALAPPDATA%\Programs\worfy-stable` (предложение Ticket-а):
+     подтвердить или назвать другой.
+  2. Значок Windows с полями сетки macOS: оставить или обрезать поля для `.ico`.
+- **Шаг на Mac** (раздел «Mac checks» PR): `pnpm icons`, коммит `build/icon.ico` и
+  `build/icons.json` в ветку; блок macOS в `make-icons.test.ts`; блок «with a stand-in app» в
+  `packaged.spec.ts`; `pnpm test:package`; `pnpm install:stable "$(mktemp -d)/worfy.app"`; что
+  `pnpm package` без `--mac dir` даёт прежний `dist/mac*/worfy.app`.
+- **Не проверено.**
+  - Всё, что на Mac: скрипт значков с новым кодом ни разу не запускался (на ПК нет `sips`), ветка
+    `darwin` скрипта Stable copy проверена только unit-test-ами чистых функций.
+  - Установщик не запускался: SmartScreen, папка установки, значки в меню Пуск и на панели задач,
+    установленный worfy и Session в нём — ручной пункт владельца.
+  - `pnpm install:stable` в настоящий `%LOCALAPPDATA%\Programs` не запускался: test-ы ставят копию
+    во временную папку, подменяя `LOCALAPPDATA`. Запуск Stable copy, Session в ней и отказ
+    Autopilot в `pnpm dev` над Project-ом worfy — ручной пункт владельца.
+  - `pnpm package` с настоящим значком — после шага на Mac.
+  - Smart App Control: в реестре `VerifiedAndReputablePolicyState` = 0 (прочитано 2026-10-10,
+    выключен). Пропустит ли Windows неподписанный установщик, покажет только его запуск.
