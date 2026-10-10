@@ -7,8 +7,8 @@
 #   - 900 → 1100 warns; 1200 → 1300 does not (the file was long already); a new file of 1500 warns;
 #   - the limit itself: 1000 → 1001 warns, 900 → 1000 does not; a last line without a newline counts;
 #   - committed on the branch, staged, edited in the worktree, untracked, in an untracked folder;
-#   - not counted: lock files, *.min.js, *.map, *.snap, dist/ out/ build/, binary files, deleted
-#     files, symlinks; a long file that was only renamed;
+#   - not counted: lock files, *.min.js, *.map, *.snap, dist/ out/ build/, binary files (by content
+#     and by .gitattributes), deleted files, symlinks; a long file that was only renamed;
 #   - a green cache hit prints the warning again; red stays red; a narrowed scope warns too;
 #   - without a merge-base the check is skipped silently.
 # Run: bash harness/hooks/tests/gate-file-size.test.sh; exit code 0 means everything passed.
@@ -117,6 +117,9 @@ lines 1200 "$R/moved-from.ts"       # renamed without edits: was long under the 
 lines 900 "$R/short-from.ts"        # renamed and grown to 1100: crossed the limit under the new name
 lines 900 "$R/with space.ts"        # a path with a space
 lines 900 "$R/distant/a.ts"         # "dist" only as the start of a folder name: counted
+lines 900 "$R/заметки/файл.md"      # a path that is not ASCII
+lines 900 "$R/table.dat"            # binary by .gitattributes, text by content
+printf '*.dat binary\n' >"$R/.gitattributes"
 commit "$R" base
 based "$R"
 
@@ -132,7 +135,7 @@ git -C "$R" rm -q gone.ts
 lines 1100 "$R/grow.ts"
 lines 1300 "$R/long.ts"
 for f in pnpm-lock.yaml package-lock.json yarn.lock sub/Cargo.lock sub/npm-shrinkwrap.json go.sum vendor.min.js bundle.js.map \
-    __snapshots__/a.test.ts.snap dist/a.js pkg/out/a.js pkg/build/a.js out/b.js build/b.js "with space.ts" distant/a.ts; do
+    __snapshots__/a.test.ts.snap dist/a.js pkg/out/a.js pkg/build/a.js out/b.js build/b.js "with space.ts" distant/a.ts "заметки/файл.md" table.dat; do
     lines 1100 "$R/$f"
 done
 lines 1001 "$R/edge-up.ts"
@@ -177,8 +180,10 @@ warns "a new file in an untracked folder: a warning" "newdir/deep/inside.ts" 0 1
 silent "dist/ inside an untracked folder: no warning" "newdir/dist/gen.js"
 warns "1001 lines, the last without a newline: a warning" "no-newline.ts" 0 1001
 silent "a binary file: no warning" "blob.bin"
+silent "a file that .gitattributes calls binary: no warning" "table.dat"
+warns "a path that is not ASCII: a warning" "заметки/файл.md" 900 1100
 silent "a symlink to a long file: no warning" "link.ts"
-if [ "$(nwarn)" -eq 10 ]; then ok "ten warnings, one per file"; else bad "ten warnings expected, got $(nwarn) (out: ${out:0:900})"; fi
+if [ "$(nwarn)" -eq 11 ]; then ok "eleven warnings, one per file"; else bad "eleven warnings expected, got $(nwarn) (out: ${out:0:900})"; fi
 
 # The warning changes neither the verdict line nor the exit code; the verdict line is the last line.
 if [ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | tail -n 1)" = "[gate] зелено (fast): t/.:check" ]; then
@@ -210,7 +215,7 @@ else
     bad "a cache hit expected (rc=$rc, out: ${out:0:600})"
 fi
 warns "cache hit: the warning is printed again" "grow.ts" 900 1100
-if [ "$(nwarn)" -eq 10 ]; then ok "cache hit: all ten warnings again"; else bad "cache hit: ten warnings expected, got $(nwarn)"; fi
+if [ "$(nwarn)" -eq 11 ]; then ok "cache hit: all eleven warnings again"; else bad "cache hit: eleven warnings expected, got $(nwarn)"; fi
 # Like the scope line, the warning goes to stdout: with stderr dropped it is still there.
 out="$(cd "$R" && GATE_SCOPE=all bash "$GATE" fast </dev/null 2>/dev/null)"; rc=$?
 warns "the warning is on stdout" "grow.ts" 900 1100
