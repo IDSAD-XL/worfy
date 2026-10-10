@@ -126,8 +126,10 @@ AppUserModelId в меню Пуск создаёт установщик Ticket-�
   — exit 0.
 - [x] Windows-ПК, проверка платформенного PR (Q23, ADR-0056): gate full — строка вердикта и код выхода
   в отчёт. Пока Gate не на Node (Ticket 03) — `pnpm lint`, `pnpm typecheck`, `pnpm test` с кодами
-  выхода и пометка «Gate не запускался». Падения `pnpm test` сверены со списком Ticket-а 02: новых
-  нет.
+  выхода и пометка «Gate не запускался». Падения `pnpm test` сверены по именам с прогоном main на
+  том же ПК (не со списком Ticket-а 02 — main с тех пор ушёл далеко): падений от правок этого PR
+  нет. Новые по именам есть в каждом прогоне — это test-ы, которые падают и на main, и timeout-ы
+  под нагрузкой; список и числа — в «Итог».
 - [ ] (вручную) Windows-ПК, `pnpm dev`: окно двигается за заголовок, разворачивается и закрывается
   кнопками Windows; sidebar и Canvas непрозрачные; слева в toolbar нет пустого места под traffic
   lights; меню File, Edit, View, Window открываются, View ▸ Show Minimap переключает мини-карту.
@@ -135,8 +137,11 @@ AppUserModelId в меню Пуск создаёт установщик Ticket-�
   `../evidence/11-окно-windows-тёмная.png`. Как проверить: окно worfy.
 - [ ] (вручную) Windows-ПК, `pnpm dev`: Ctrl+K, Ctrl+F, Ctrl+Enter работают; Ctrl+Z и Ctrl+Shift+Z
   отменяют и возвращают перетаскивание Node-а; Ctrl+= и Ctrl+- масштабируют Canvas, а не страницу;
-  Ctrl+C и Ctrl+V в поле Session копируют и вставляют. Если Ticket 10 уже влит — в Terminal Node
-  Ctrl+C прерывает `ping -t localhost`, а Ctrl+K палитру не открывает. Как проверить: окно worfy.
+  Ctrl+C и Ctrl+V в поле Session копируют и вставляют. При русской раскладке Ctrl+K, Ctrl+F и
+  Ctrl+Z работают так же. Если Ticket 10 уже влит — в Terminal Node Ctrl+C прерывает
+  `ping -t localhost`, Ctrl+K палитру не открывает, а Ctrl+_ (Ctrl+Shift+−) остаётся у оболочки
+  и на Canvas, и в плитке режима фокуса: Canvas при этом не масштабируется. Как проверить: окно
+  worfy.
 - [ ] (вручную) Windows-ПК, `pnpm dev`, `electron.exe` закреплён в меню Пуск (документация
   Electron): окно worfy не в фокусе, Session закончила ход — приходит уведомление, клик по нему
   открывает Session. Как проверить: уведомление Windows и окно worfy.
@@ -234,16 +239,26 @@ AppUserModelId в меню Пуск создаёт установщик Ticket-�
     `zoomActivationKeyCode` (колесо с зажатой клавишей масштабирует или двигает Canvas).
   - Комментарий `test/setup-dom.ts` исправлен: user agent jsdom не называет ни macOS, ни Windows,
     и без этой настройки любой jsdom-test шёл бы как Linux на любой машине.
+- **Второй круг ревью PR #215.**
+  - `shortcutKey` сужен: по месту клавиши читается только одиночная буква нелатинского письма
+    (`\p{L}` и не `\p{Script=Latin}`), и не во время набора через метод ввода (`isComposing`).
+    Раньше по месту читалось всё, что не a–z: `Process`, `Dead`, `Unidentified`, знаки и буквы с
+    диакритикой латинских раскладок — на Dvorak Ctrl+; (там `;` на месте Z) отменял бы, на BÉPO —
+    Ctrl+à.
+  - Test-ы исключения Ctrl+_ в Terminal: под режимом фокуса масштаб Canvas не меняется, остальные
+    клавиши масштаба из плитки Terminal глушатся; вне режима фокуса клавиши масштаба внутри
+    Terminal Node масштабируют Canvas в обе стороны на обеих системах, кроме Ctrl+_ на Windows.
+  - `main-ipc-wiring.test.ts`: у `beforeAll` свой предел 20 с — выше ожидания старта (10 с);
+    предел hook-а по умолчанию (10 с) обрезал бы это ожидание.
 - **Мутанты:** первый набор — 34 из 34 валят test-ы (`platform.ts` — 11, обработчики и подписи — 17,
   окно — 2, AppUserModelId — 4); один выжил в первом прогоне (Backspace с «другим» модификатором
   удалял бы выделение) — добавлен test. После первого круга ревью — ещё 24 из 24: выжившие у
-  ревьюера и код этого круга (`shortcutKey`, Ctrl+_ в Terminal).
+  ревьюера и код этого круга (`shortcutKey`, Ctrl+_ в Terminal). После второго круга — ещё 10 из 10 (сужение `shortcutKey`, исключение Ctrl+_ в обе стороны).
 - **Windows-ПК** (Session Claude Code; Gate не запускался — он на bash, Ticket 03). Числа — для
   ветки, перебазированной на main `baf7a14`, с правками первого круга:
   - `pnpm install --frozen-lockfile` — 0, `pnpm typecheck` — 0, `eslint .` — 0;
-  - `pnpm lint` — **1**, и на main `baf7a14` тоже: `scripts/check-handoff.mjs` считает байты
-    рабочей копии, а она на Windows с CRLF — `HANDOFF.md` 15356 байт в git и 15428 на диске при
-    пределе 15360. До перебазирования `pnpm lint` был 0. Передано Orchestrator-у;
+  - `pnpm lint` — 0 на ветке, перебазированной на main `e21ce65` (на базе `baf7a14` был 1:
+    `check-handoff` считал байты рабочей копии с CRLF; на main это исправил PR #219);
   - `pnpm build` — 0 (до перебазирования; после не повторялся);
   - `pnpm test test/unit/platform-keys.test.ts test/unit/window-options.test.ts
     test/contract/app-user-model-id.test.ts test/contract/view-menu.test.ts` — exit 0;
@@ -257,10 +272,14 @@ AppUserModelId в меню Пуск создаёт установщик Ticket-�
     - `canvas.test.tsx` › `collectNodeTypes`… — timeout 5000 мс у первого test-а файла (он платит
       за загрузку реестра Node-ов). На main `baf7a14` файл, запущенный отдельно, падает на том же
       test-е 2 раза из 2, на ветке — 3 из 3; остальные 37 случаев файла на ветке проходят.
-- **Пункт «Готово, когда» про падения `pnpm test`** отмечен, но слово «новых нет» в нём верно с
-  оговоркой: по именам новые есть в каждом прогоне (см. выше и первый прогон — 3 новых: timeout в
-  `check-handoff` и два случая `startup-failure`), и каждый раз это либо test-ы, которые падают и
-  на main, либо timeout под нагрузкой. Падений от правок этого PR нет.
+  - `pnpm test` после второго круга, на ветке от main `e21ce65`, — exit 1: 52 failed | 136 passed
+    файлов, 630 failed | 3116 passed | 29 skipped. Против предыдущего прогона ветки по именам — 5
+    новых, от PR ни одного: 4 — test-ы, пришедшие в main после `baf7a14` (`harness-evals` ×3,
+    `harness-scripts` › `epic-wave-ship-ticket.test.sh`), на main `e21ce65` отдельно они падают так
+    же; пятый — timeout 5000 мс в `check-handoff` под нагрузкой, отдельно файл проходит (13 из 13).
+- **Пункт «Готово, когда» про падения `pnpm test`** переписан под то, что было сделано: сверка по
+  именам с прогоном main, а не со списком Ticket-а 02. В первом прогоне новых по именам было 3
+  (timeout в `check-handoff` и два случая `startup-failure`), после перебазирования — 37 (выше).
 - **Осталось.**
   - Пункт 4 (ускорители меню): `registerAccelerator: false` **не введён**, `menu.ts` этим PR не
     изменён (ветка перебазирована на main с PR #209; его test «on Windows is the first item of
@@ -272,9 +291,11 @@ AppUserModelId в меню Пуск создаёт установщик Ticket-�
     у `undo`, `redo`, `zoomIn`, `zoomOut`, `copy` на `win32`, отдельным коммитом.
   - Ручные пункты на ПК: окно и снимки в двух темах, сочетания, уведомление.
 - **Не проверено вживую.**
-  - Выставляет ли Chromium на Windows `AltGraph` для AltGr (на ПК нет раскладки с AltGr); и что на
-    раскладках, где Windows сама превращает Ctrl+Alt в AltGr (польская, немецкая), событие приходит
-    с символом в `event.key` (`ą`, `€`), так что обработчики, сверяющие `key`, не срабатывают.
+  - Выставляет ли Chromium на Windows `AltGraph` для AltGr (на ПК нет раскладки с AltGr). AltGr
+    не считается основным модификатором только по `getModifierState('AltGraph')` в `isPrimary`.
+    Символ в `event.key` — вторая линия лишь для латинских раскладок: `ą` и `€` (польская,
+    немецкая) `shortcutKey` оставляет как есть, и сочетание не совпадает; букву нелатинского
+    письма он прочитал бы по месту клавиши.
   - Что при русской раскладке Chromium на Windows отдаёт `code: 'KeyK'` для Ctrl+K — войдёт в
     ручную проверку сочетаний.
 - **Долги** (первый круг ревью, low).
@@ -290,7 +311,7 @@ AppUserModelId в меню Пуск создаёт установщик Ticket-�
   - `test/contract/main-ipc-wiring.test.ts`: до этого PR, запущенный отдельно, падал на уровне
     файла (предел 1 с в `beforeAll`); с явным пределом выполняется, и 5 случаев из 11 падают, как
     в полном прогоне (сравнение `file://`-адреса с путём macOS);
-  - `pnpm lint` и CRLF в `HANDOFF.md` — см. выше;
+  - `pnpm lint` и CRLF в `HANDOFF.md` — исправлено на main PR-ом #219 (`3478cc4`);
   - `test/contract/first-run-checks.test.ts` и `test/contract/harness-install.test.ts` — 55 падений
     на main `baf7a14` (test-ы пришли с PR #216); на ветке те же, имя в имя. Причина не разбиралась;
   - `test/unit/canvas.test.tsx` › `collectNodeTypes maps each kind to its component…` — timeout
