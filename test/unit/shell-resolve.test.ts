@@ -3,12 +3,26 @@
 // A link to \\host\share made main call realpath on it before the inside check, and Windows
 // contacted that host with the user's NTLM credentials. The real-repository cases are in
 // test/contract/shell.test.ts.
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ shell: { openPath: vi.fn(), openExternal: vi.fn() } }))
+
+/** What Node was asked through node:fs/promises: lstat reads a link, it does not follow it. */
+const fsAsked = vi.hoisted(() => ({ lstat: [] as string[] }))
+
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    lstat: (...args: unknown[]): unknown => {
+      fsAsked.lstat.push(String(args[0]))
+      return (actual.lstat as (...all: unknown[]) => unknown)(...args)
+    },
+  }
+})
 
 const load = async () => (await import('../../src/main/ipc/shell')).resolveProjectFile
 
@@ -186,6 +200,15 @@ describe('resolveProjectFile and a link that leads to a share (Windows rules)', 
     expect(fs.calls).toEqual(['lstat C:\\link\\repo', 'lstat C:\\link\\repo\\docs', 'lstat C:\\link\\repo\\docs\\a.md'])
   })
 
+  it('given no links to read with, reads them with lstat of Node', async () => {
+    const resolveProjectFile = await load()
+    fsAsked.lstat.length = 0
+    // A folder that is on no machine: the walk ends at its first segment, which is not there.
+    const root = 'C:\\worfy-no-such-folder-18\\repo'
+    expect(await resolveProjectFile(root, 'docs\\a.md', [], { real: async (path) => path, paths: win32 })).toBe(`${root}\\docs\\a.md`)
+    expect(fsAsked.lstat).toEqual([root])
+  })
+
   it('under POSIX rules reads no link: a symlink is resolved by realpath and checked after it, as before', async () => {
     const resolveProjectFile = await load()
     const fs = fakeLinks({ '/p/repo/docs': '//evil/share/docs' })
@@ -234,6 +257,8 @@ describe('resolveProjectFile on this file system', () => {
     try {
       symlinkSync('\\\\worfy-no-such-host\\share\\a.md', join(repo, 'link.md'), 'file')
       symlinkSync('\\\\worfy-no-such-host\\share\\docs', join(repo, 'docs'), 'dir')
+      // The network redirector by its device name: readlink hands it back as \??\GLOBALROOT\….
+      symlinkSync('\\\\?\\GLOBALROOT\\Device\\Mup\\worfy-no-such-host\\share\\a.md', join(repo, 'nt.md'), 'file')
       symlinkSync(join(repo, 'a.md'), join(repo, 'inside.md'), 'file')
     } catch (error) {
       // Without Developer Mode a user may not create symlinks (SeCreateSymbolicLinkPrivilege).
@@ -246,7 +271,9 @@ describe('resolveProjectFile on this file system', () => {
     }
     await expect(resolveProjectFile(repo, 'link.md', [], { real })).rejects.toThrow(/outside the Project/)
     await expect(resolveProjectFile(repo, 'docs\\deep\\a.md', [], { real })).rejects.toThrow(/outside the Project/)
-    expect(asked).toEqual([repo, repo])
+    expect(readlinkSync(join(repo, 'nt.md'))).toBe('\\??\\GLOBALROOT\\Device\\Mup\\worfy-no-such-host\\share\\a.md')
+    await expect(resolveProjectFile(repo, 'nt.md', [], { real })).rejects.toThrow(/outside the Project/)
+    expect(asked).toEqual([repo, repo, repo])
     // A link that stays inside the Project opens its target.
     expect(await resolveProjectFile(repo, 'inside.md', [], { real })).toBe(join(repo, 'a.md'))
   })

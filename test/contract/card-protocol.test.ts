@@ -37,6 +37,20 @@ const electron = vi.hoisted(() => {
   return { sent, quitListeners, window }
 })
 
+/** What Node was asked through node:fs/promises: lstat reads a link, it does not follow it. */
+const fsAsked = vi.hoisted(() => ({ lstat: [] as string[] }))
+
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    lstat: (...args: unknown[]): unknown => {
+      fsAsked.lstat.push(String(args[0]))
+      return (actual.lstat as (...all: unknown[]) => unknown)(...args)
+    },
+  }
+})
+
 // protocol.ts registers the scheme with Electron; the handler and the IPC module are called directly.
 vi.mock('electron', () => ({
   app: {
@@ -259,6 +273,22 @@ describe('resolveCardFile and a link that leads to a share', () => {
     system.asked.length = 0
     expect(await resolveCardFile(shared, 'c1', '/out.png', system.options)).toBeNull()
     expect(system.asked).toEqual([])
+  })
+
+  it('given no links to read with, reads them with lstat of Node', async () => {
+    const system = fakeSystem({})
+    fsAsked.lstat.length = 0
+    // A folder that is on no machine: the walk ends at its first segment, which is not there.
+    const cards = 'C:\\worfy-no-such-folder-18\\cards'
+    expect(await resolveCardFile(cards, 'c1', '/x.png', { paths: win32, real: system.options.real, isFile: system.options.isFile })).toBe(`${cards}\\c1\\x.png`)
+    expect(fsAsked.lstat).toEqual([cards])
+    expect(system.read).toEqual([])
+  })
+
+  it('serves nothing of a sibling folder whose name starts with the id of the Card', async () => {
+    const system = fakeSystem({})
+    expect(await resolveCardFile(CARDS, 'c1', '/..%2Fc1x%2Findex.html', system.options)).toBeNull()
+    expect(await resolveCardFile(CARDS, 'c1', '/..%2Fc1%2Findex.html', system.options)).toBe('C:\\data\\demo\\cards\\c1\\index.html')
   })
 
   it('under POSIX rules reads no link and asks realpath as before', async () => {

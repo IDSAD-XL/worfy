@@ -2,27 +2,59 @@
 // that leads to `\\host\share\…` is found with lstat and readlink, which do not follow it, so the
 // caller can refuse the path before realpath makes Windows contact that host. The file system is
 // replaced and the path rules are path.win32, so every case runs on any machine.
-import { posix, win32 } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { isInside, leadsToRemote, MAX_LINK_HOPS } from '../../src/main/remote-links'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, posix, win32 } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-/** A file system of links alone: `links` maps a link to its target as written; `missing` cannot be read. */
-function fakeLinks(links: Record<string, string>, missing: readonly string[] = []) {
+/** What Node was asked through node:fs/promises: lstat reads a link, stat would follow it. */
+const asked = vi.hoisted(() => ({ lstat: [] as string[], stat: [] as string[], realpath: [] as string[] }))
+
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof import('node:fs/promises')>()
+  const watched =
+    <Name extends 'lstat' | 'stat' | 'realpath'>(name: Name) =>
+    (...args: unknown[]): unknown => {
+      asked[name].push(String(args[0]))
+      return (actual[name] as (...all: unknown[]) => unknown)(...args)
+    }
+  return { ...actual, lstat: watched('lstat'), stat: watched('stat'), realpath: watched('realpath') }
+})
+
+const { isInside, leadsToRemote, MAX_LINK_HOPS, nodeLinks } = await import('../../src/main/remote-links')
+
+afterEach(() => {
+  asked.lstat.length = 0
+  asked.stat.length = 0
+  asked.realpath.length = 0
+})
+
+/** An error of the file system with its code, as Node rejects with. */
+const failure = (code: string, path: string): Error => Object.assign(new Error(`${code}: ${path}`), { code })
+
+/**
+ * A file system of links alone: `links` maps a link to its target as written; `missing` is not
+ * there; `denied` cannot be looked at (lstat rejects with EACCES); `unreadable` is a link whose
+ * target cannot be read (readlink rejects).
+ */
+function fakeLinks(links: Record<string, string>, missing: readonly string[] = [], broken: { denied?: readonly string[]; unreadable?: readonly string[] } = {}) {
   const calls: string[] = []
   const key = (path: string): string => path.toLowerCase()
   const table = new Map(Object.entries(links).map(([path, target]) => [key(path), target]))
+  const among = (list: readonly string[] | undefined, path: string): boolean => (list ?? []).some((each) => key(each) === key(path))
   return {
     calls,
     links: {
       isLink: async (path: string): Promise<boolean | null> => {
         calls.push(`lstat ${path}`)
-        if (missing.some((each) => key(each) === key(path))) return null
-        return table.has(key(path))
+        if (among(broken.denied, path)) throw failure('EACCES', path)
+        if (among(missing, path)) return null
+        return table.has(key(path)) || among(broken.unreadable, path)
       },
       readlink: async (path: string): Promise<string> => {
         calls.push(`readlink ${path}`)
         const target = table.get(key(path))
-        if (target === undefined) throw new Error(`EINVAL: not a link, readlink '${path}'`)
+        if (target === undefined) throw failure('EINVAL', path)
         return target
       },
     },
@@ -33,11 +65,26 @@ const REPO = 'C:\\p\\repo'
 const ask = (candidate: string, fs: ReturnType<typeof fakeLinks>, allowed: readonly string[] = [REPO]) => leadsToRemote(candidate, allowed, { paths: win32, links: fs.links })
 
 describe('leadsToRemote', () => {
+  // The targets as Node's readlink hands them back on Windows (checked on the PC, review round 1
+  // of PR #228) — a share comes without its device prefix, and the NT namespace comes as stored —
+  // and the spellings a link can be written with before Node rewrites them.
   it.each([
-    ['\\\\evil\\share\\x', '\\\\host\\share\\x'],
-    ['//evil/share/x', '//host/share/x'],
-    ['\\\\?\\UNC\\evil\\share\\x', '\\\\?\\UNC\\host\\share\\x'],
-    ['\\\\.\\pipe\\x', 'a device'],
+    ['\\\\evil\\share\\x'],
+    ['//evil/share/x'],
+    ['\\\\?\\UNC\\evil\\share\\x'],
+    ['\\??\\UNC\\evil\\share\\x'],
+    // \\?\GLOBALROOT\Device\Mup\… and \\.\GLOBALROOT\… are stored and read back like this: the
+    // network redirector by its device name. path.win32.resolve would make C:\??\… of it.
+    ['\\??\\GLOBALROOT\\Device\\Mup\\evil\\share\\x'],
+    ['\\??\\Global\\UNC\\evil\\share\\x'],
+    ['\\\\?\\GLOBALROOT\\Device\\Mup\\evil\\share\\x'],
+    ['\\\\.\\GLOBALROOT\\Device\\Mup\\evil\\share\\x'],
+    ['\\?\\evil\\share\\x'],
+    ['\\.\\evil\\share\\x'],
+    // A server with no share: path.win32.resolve reads a folder \evil of the current disk.
+    ['\\\\evil'],
+    ['\\\\evil\\'],
+    ['//evil'],
   ])('a file that is a link to %s leads to a remote path, and nothing is asked after its readlink', async (target) => {
     const fs = fakeLinks({ 'C:\\p\\repo\\docs\\a.md': target })
     expect(await ask('C:\\p\\repo\\docs\\a.md', fs)).toBe(true)
@@ -52,10 +99,45 @@ describe('leadsToRemote', () => {
   })
 
   it('a link to the root of a share, as the last segment, is refused like any other', async () => {
-    const fs = fakeLinks({ 'C:\\p\\repo\\docs': '\\\\evil\\share', 'C:\\p\\repo\\dev': '\\\\.\\pipe' })
+    // \??\pipe\ is what Node's readlink answers for a link written to \\.\pipe.
+    const fs = fakeLinks({ 'C:\\p\\repo\\docs': '\\\\evil\\share', 'C:\\p\\repo\\dev': '\\??\\pipe\\' })
     expect(await ask('C:\\p\\repo\\docs', fs)).toBe(true)
     expect(await ask('C:\\p\\repo\\dev', fs)).toBe(true)
     expect(fs.calls.at(-1)).toBe('readlink C:\\p\\repo\\dev')
+  })
+
+  it('a target in the NT namespace that names a local disk is that local path', async () => {
+    const fs = fakeLinks({ 'C:\\p\\repo\\a.md': '\\??\\C:\\p\\repo\\real.md', 'C:\\p\\repo\\b.md': '\\??\\C:\\p\\repo\\far\\x', 'C:\\p\\repo\\far': '\\??\\UNC\\evil\\share' })
+    expect(await ask('C:\\p\\repo\\a.md', fs)).toBe(false)
+    expect(fs.calls).toContain('lstat C:\\p\\repo\\real.md')
+    expect(await ask('C:\\p\\repo\\b.md', fs)).toBe(true)
+  })
+
+  it('refuses when a segment cannot be looked at, or a link cannot be read: realpath must not be the next step', async () => {
+    const denied = fakeLinks({}, [], { denied: ['C:\\p\\repo\\docs'] })
+    expect(await ask('C:\\p\\repo\\docs\\a.md', denied)).toBe(true)
+    expect(denied.calls).toEqual(['lstat C:\\p\\repo', 'lstat C:\\p\\repo\\docs'])
+    const unreadable = fakeLinks({}, [], { unreadable: ['C:\\p\\repo\\docs'] })
+    expect(await ask('C:\\p\\repo\\docs\\a.md', unreadable)).toBe(true)
+    expect(unreadable.calls).toEqual(['lstat C:\\p\\repo', 'lstat C:\\p\\repo\\docs', 'readlink C:\\p\\repo\\docs'])
+  })
+
+  it('a relative target is resolved from the folder of the link, also when the link is the folder the walk starts at', async () => {
+    const fs = fakeLinks({ 'C:\\p\\repo': '..\\real-repo' })
+    expect(await ask('C:\\p\\repo\\a.md', fs)).toBe(false)
+    expect(fs.calls).toEqual(['lstat C:\\p\\repo', 'readlink C:\\p\\repo', 'lstat C:\\real-repo', 'lstat C:\\real-repo\\a.md'])
+  })
+
+  it('with allowed folders one inside another, the walk starts at the outer one, in whatever order they are given', async () => {
+    const worktree = 'C:\\p\\repo\\.claude\\worktrees\\07'
+    for (const allowed of [
+      [REPO, worktree],
+      [worktree, REPO],
+    ]) {
+      const fs = fakeLinks({ 'C:\\p\\repo\\.claude': '\\\\evil\\share' })
+      expect(await ask(`${worktree}\\a.md`, fs, allowed)).toBe(true)
+      expect(fs.calls).toEqual(['lstat C:\\p\\repo', 'lstat C:\\p\\repo\\.claude', 'readlink C:\\p\\repo\\.claude'])
+    }
   })
 
   it('a chain of local links that ends on a share is refused, and the share is not read', async () => {
@@ -101,7 +183,19 @@ describe('leadsToRemote', () => {
 
   it('a remote path outside the allowed folders is a yes by its text, and is never read', async () => {
     const fs = fakeLinks({})
-    for (const path of ['\\\\evil\\share\\a.md', '//evil/share/a.md', '\\\\?\\UNC\\evil\\share\\a.md', '\\\\.\\pipe\\x']) expect(await ask(path, fs), path).toBe(true)
+    for (const path of [
+      '\\\\evil\\share\\a.md',
+      '//evil/share/a.md',
+      '\\\\?\\UNC\\evil\\share\\a.md',
+      '\\\\.\\pipe\\x',
+      // The root of a share, with nothing after it, and a server with no share.
+      '\\\\evil\\share',
+      '\\\\evil\\share\\',
+      '\\\\evil',
+      '//evil/',
+      '\\??\\GLOBALROOT\\Device\\Mup\\evil\\share\\a.md',
+    ])
+      expect(await ask(path, fs), path).toBe(true)
     expect(fs.calls).toEqual([])
   })
 
@@ -125,8 +219,9 @@ describe('leadsToRemote', () => {
 
   it(`follows ${MAX_LINK_HOPS} links and refuses one more, a loop included`, async () => {
     const chain = (length: number): Record<string, string> => Object.fromEntries(Array.from({ length }, (_, index) => [`C:\\p\\repo\\l${index}`, `C:\\p\\repo\\l${index + 1}`]))
-    expect(await ask('C:\\p\\repo\\l0', fakeLinks(chain(MAX_LINK_HOPS)))).toBe(false)
-    expect(await ask('C:\\p\\repo\\l0', fakeLinks(chain(MAX_LINK_HOPS + 1)))).toBe(true)
+    expect(MAX_LINK_HOPS).toBe(40)
+    expect(await ask('C:\\p\\repo\\l0', fakeLinks(chain(40)))).toBe(false)
+    expect(await ask('C:\\p\\repo\\l0', fakeLinks(chain(41)))).toBe(true)
     const loop = fakeLinks({ 'C:\\p\\repo\\a': 'C:\\p\\repo\\b', 'C:\\p\\repo\\b': 'C:\\p\\repo\\a' })
     expect(await ask('C:\\p\\repo\\a\\x.md', loop)).toBe(true)
     expect(loop.calls.filter((call) => call.startsWith('readlink'))).toHaveLength(MAX_LINK_HOPS)
@@ -156,6 +251,50 @@ describe('leadsToRemote', () => {
     expect(await leadsToRemote('/p/repo/a.md', ['/p/repo'], { paths: posix, links: fs.links })).toBe(false)
     expect(await leadsToRemote('//evil/share/x', ['/p/repo'], { paths: posix, links: fs.links })).toBe(false)
     expect(fs.calls).toEqual([])
+  })
+})
+
+// The links of Node itself: what leadsToRemote uses when it is given none.
+describe('nodeLinks', () => {
+  let scratch: string | undefined
+
+  afterEach(() => {
+    if (scratch !== undefined) rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    scratch = undefined
+  })
+
+  it('reads a link with lstat and never follows it: a link to nothing is a link, and stat is not called', async (context) => {
+    scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-links-')))
+    writeFileSync(join(scratch, 'plain.md'), '# plain\n')
+    mkdirSync(join(scratch, 'folder'))
+    try {
+      symlinkSync(join(scratch, 'nothing-here.md'), join(scratch, 'dangling.md'), 'file')
+    } catch (error) {
+      // On Windows a user without Developer Mode may not create symlinks.
+      context.skip(`this user cannot create a symlink: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    asked.lstat.length = 0
+    expect(await nodeLinks.isLink(join(scratch, 'dangling.md'))).toBe(true)
+    expect(await nodeLinks.isLink(join(scratch, 'plain.md'))).toBe(false)
+    expect(await nodeLinks.isLink(join(scratch, 'folder'))).toBe(false)
+    expect(await nodeLinks.isLink(join(scratch, 'missing.md'))).toBeNull()
+    expect(await nodeLinks.readlink(join(scratch, 'dangling.md'))).toBe(join(scratch, 'nothing-here.md'))
+    expect(asked.lstat).toHaveLength(4)
+    expect(asked.stat).toEqual([])
+    expect(asked.realpath).toEqual([])
+  })
+
+  it('rejects when a path cannot be looked at for another reason than being absent', async () => {
+    // A NUL in a path is refused by Node before the system is asked: ERR_INVALID_ARG_VALUE, not ENOENT.
+    await expect(nodeLinks.isLink('bad\0path')).rejects.toThrow()
+  })
+
+  it('is what leadsToRemote asks when it is given no links: lstat of each segment, stat and realpath of none', async () => {
+    // A folder that is on no machine: under Windows rules the walk starts at the root of its disk.
+    expect(await leadsToRemote('C:\\worfy-no-such-folder-18\\docs\\a.md', [], { paths: win32 })).toBe(false)
+    expect(asked.lstat).toEqual(['C:\\worfy-no-such-folder-18'])
+    expect(asked.stat).toEqual([])
+    expect(asked.realpath).toEqual([])
   })
 })
 
