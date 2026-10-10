@@ -16,16 +16,25 @@ Visual Studio Build Tools are not needed: on Windows `pnpm install` does not reb
 
 ## Stable copy
 
-Autopilot over worfy itself runs only on a stable copy of `worfy.app` outside the repository, never on a dev build: agents rebuild and test the dev build in their worktrees while Autopilot runs, and `pnpm package` replaces `dist/` on every build.
+Autopilot over worfy itself runs only on a stable copy of worfy outside the repository, never on a dev build: agents rebuild and test the dev build in their worktrees while Autopilot runs, and `pnpm package` replaces `dist/` on every build.
 
-Install or update the copy:
+Install or update the copy (`scripts/install-stable.mjs`). On macOS it is a `.app`:
 
 ```sh
 pnpm install:stable                      # ~/Applications/worfy-stable.app
 pnpm install:stable /path/to/worfy.app   # any other path ending in .app
 ```
 
-The command builds the `.app` (`pnpm package`), replaces the previous copy and writes the commit and the build time next to it, in `~/Applications/worfy-stable.json` (nothing is written inside the `.app`: that would break its ad-hoc signature). It refuses with a non-zero exit code while the copy is running.
+On Windows it is a folder with `worfy.exe` in it:
+
+```powershell
+pnpm install:stable                        # %LOCALAPPDATA%\Programs\worfy-stable
+pnpm install:stable D:\apps\worfy-stable   # any other folder
+```
+
+The command builds the app (`pnpm package`), replaces the previous copy and writes the commit and the build time next to it: in `~/Applications/worfy-stable.json` on macOS (nothing is written inside the `.app`: that would break its ad-hoc signature), in `%LOCALAPPDATA%\Programs\worfy-stable.json` on Windows. It refuses with a non-zero exit code while the copy is running.
+
+On Windows `pnpm package` writes the installer, `dist\worfy Setup <version>.exe`, and the unpacked app, `dist\win-unpacked`. The stable copy is a copy of the unpacked app, started by `worfy-stable\worfy.exe`; it has no shortcut in the Start menu. The installer is not signed, so SmartScreen asks before its first run (More info → Run anyway). It installs worfy for the current user into `%LOCALAPPDATA%\Programs\worfy`, and the stable copy cannot go into that folder: the command refuses it, and a folder that is neither empty nor an earlier copy.
 
 The copy and a dev run keep separate data: the packaged app uses `~/Library/Application Support/worfy`, `pnpm dev` and other unpacked runs use `~/Library/Application Support/worfy-dev`. Two processes over the same folder are not allowed: the second start quits and brings the running window to the front. The status line bridge (`scripts/statusline-bridge.sh`) writes Limits to both folders, whichever of them exist, so a dev run next to the copy sees the same Limits; with `WORFY_DATA_DIR` set it writes only there.
 
