@@ -1,4 +1,4 @@
-# Передача контекста — снимок на 2026-10-10 (UTC), main @ f129870
+# Передача контекста — снимок на 2026-10-10 (UTC), main @ baf7a14
 
 ## Сейчас в работе
 
@@ -9,7 +9,7 @@
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/16; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16.
 - `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057): влиты 01, 02, 08 и 09 (PR #172, #177, #200 — пути и папки, #194 — окружение агента из реестра), ответы владельца — PR #192. Session на Windows-ПК ведёт 11; gate full — на Mac. 03–07 ждут закрытия E3.
 - `worfy-terminal-ai` (Terminal AI в Terminal-ах на подписке; [spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) 01, 02 влиты (PR #204, #205); следом 03. 08 ждёт `worfy-ui` 02 и 08 (окно Settings, Select), 09 — шаги владельца (`blocked`).
-- `worfy-ui` (Settings, масштаб, боковая панель, режим фокуса, палитра, Select, сочетания; [spec](.scratch/worfy-ui/spec.md)) 12 Ticket-ов: влиты 01, 07, 08 (PR #207, #210, #208); 02 (PR #209) — `VERIFIED`, ждёт прогон на Windows-ПК. До 09 — долг Select из «Итог» 08. 11 ждёт `worfy-windows` 11.
+- `worfy-ui` (Settings, масштаб, боковая панель, режим фокуса, палитра, Select, сочетания; [spec](.scratch/worfy-ui/spec.md)) 12 Ticket-ов: влиты 01, 02, 07, 08 (PR #207, #209, #210, #208) — Wave 1. До 09 — долг Select из «Итог» 08. 11 ждёт `worfy-windows` 11.
 
 ## Ждёт владельца
 
@@ -46,7 +46,7 @@
 
 ## Дальше
 
-- `worfy-harness` 30 (установщик ставит зависимость `mattpocock-skills`, PR #216) — перед пунктами 1 и 2 приёмки E3; `worfy-windows` 18 — Windows Session после 11.
+- `worfy-harness` 30 влит (PR #216, ADR-0059): пункты 1 и 2 приёмки E3 можно прогонять; `worfy-windows` 18 — Windows Session после 11.
 - `worfy-harness` 28 (git и `HARNESS_HOME` в прогонах eval, решение владельца 2026-10-10) открывает платную часть 27; 29 — карта «кейс eval → файлы правил» и правило частоты eval.
 - Приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot. Платная часть 27 — после ответа про git.
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21, 24, 25 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
@@ -66,7 +66,7 @@
 - Spec-и: [worfy-harness](.scratch/worfy-harness/spec.md), [worfy-link](.scratch/worfy-link/spec.md), [worfy-windows](.scratch/worfy-windows/spec.md), [worfy-review](.scratch/worfy-review/spec.md), [worfy-terminal-ai](.scratch/worfy-terminal-ai/spec.md), [worfy-ui](.scratch/worfy-ui/spec.md).
 - Этапы E1–E4 — [roadmap](docs/roadmap.md).
 - Исследования внешних проектов — [docs/research/](docs/research/).
-- Решения — [docs/adr/](docs/adr/): 0001–0024 и 0029–0058, номера 0025–0028 не используются. Следующий свободный — 0059.
+- Решения — [docs/adr/](docs/adr/): 0001–0024 и 0029–0059, номера 0025–0028 не используются. Следующий свободный — 0060.
 - Уроки — [docs/lessons/](docs/lessons/): `process.md`, `agents.md`, `ci-merge.md`, `testing.md`. Словарь терминов — [CONTEXT.md](CONTEXT.md). Дизайн — [F-SPEC](docs/design/F-SPEC.md).
 - Реестр Gate живёт вне репозитория (`~/.claude/gate/config.json`, после переноса — `$HARNESS_HOME/gate/`); что в нём для worfy — «Итог» `worfy-mvp` 32.
 - Прошлые снимки — `git log -p -- HANDOFF.md`; последний подробный, до сжатия 2026-10-08, — `git show 84684b5:HANDOFF.md`.

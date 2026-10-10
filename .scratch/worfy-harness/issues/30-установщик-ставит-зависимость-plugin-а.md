@@ -1,7 +1,7 @@
 # 30 — Установщик сам ставит зависимость plugin-а `worfy` (`mattpocock-skills`) и не оставляет Harness установленным наполовину
 
 Type: task
-Status: claimed — 2026-10-10
+Status: done — 2026-10-10, [PR #216](https://github.com/IDSAD-XL/worfy/pull/216)
 Blocked by:
 Source: решение владельца 2026-10-10 по приёмке E3 (Ticket 26, пункт 1 — песочница с пустым `~/.claude`), вариант а: зависимость ставит сам установщик, в том же диалоге согласия, как qmd с согласия; находка того же прогона — после отказа `claude plugin install` plugin `worfy` записан и включён; [Ticket 13](13-установщик-harness-из-app.md) (установщик; «решено без владельца»: worfy зависимость не ставит); [Ticket 19](19-экран-первого-запуска.md) (экран первого запуска); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md), пункт 7 (что установщик пишет в `~/.claude`); [ADR-0047](../../../docs/adr/0047-harness-lessons-by-pr-early-owner-switch.md), пункт 5 (plugin объявляет зависимость); [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md), пункт 4 (скачивание — с согласия); [ADR-0048](../../../docs/adr/0048-harness-plugin-spike-results.md) (команды `claude plugin`); [spec.md](../spec.md)
 
@@ -311,3 +311,13 @@ spec нужно проверить после мержа обоих PR.
 - Пункт «После мержа, не в CI: `pnpm test:acceptance -g "sandbox"`» — запускает Orchestrator или владелец.
 - Пункт «Ticket 26 получает `Blocked by: …, 30`» в этом PR не делается: файл Ticket-а 26 правит открытый
   PR #211, строку добавляет исполнитель Ticket-а 26 там.
+
+### Gate оркестратора (2026-10-10)
+
+- Круг 1 — `VERIFIED` ([комментарий в PR #216](https://github.com/IDSAD-XL/worfy/pull/216#issuecomment-6093137280)). Долги:
+  - [low] `src/main/harness/install.ts:340` — любой сбой `marketplace add` со словом «already» в выводе считается успехом (после прерванного клона настоящая причина теряется).
+  - [low] `install.ts:55`, `src/renderer/shell/FirstRun.tsx:207`, `:296` — предел 10 минут не закреплён test-ом; пока действие идёт, экран первого запуска не закрывается ни Close, ни Esc (зависший клон — до 20 минут без отмены).
+  - [low] `install.ts:466`, `src/main/first-run/checks.ts:288`, `src/main/projects/connect.ts:231` — с текстом настоящего Claude Code строка Harness и отказ подключения Project-а могут советовать ставить зависимость руками.
+  - [low] ссылка в ADR-0059 п. 7 на «ADR-0052, пункт 6» неточна (пометка `local` — Ticket `worfy-link` 08); критерии `:115-121` говорят об одном чтении, их два.
+- В приёмку Ticket-а 26: настоящий Claude Code с зависимостью; пишут ли два чтения до диалога (`plugin list`, `plugin marketplace list`) что-нибудь в пустой Claude home.
+- Мерж: rebase на `b17dfc1`, `GATE_SCOPE=all gate full` — код 0 с первого прогона, CI зелёный, CLEAN, влит `e0b04d1`.

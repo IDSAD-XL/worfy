@@ -1,7 +1,7 @@
 # 02 — Окно Settings: диалог с разделами, «Settings…» в меню и Cmd/Ctrl+,
 
 Type: task
-Status: claimed — 2026-10-09
+Status: done — 2026-10-10, [PR #209](https://github.com/IDSAD-XL/worfy/pull/209)
 Branch: worfy-ui/02
 Blocked by: —
 Source: решение владельца 2026-10-09: 2 (Settings — модальный диалог внутри приложения; открывается по Cmd/Ctrl+, и пунктом меню «Settings…»; слева разделы, справа содержимое; разделы General, Health, Shortcuts, Machines; разделы других Epic-ов подключаются) ([spec.md](../spec.md), «Как устроено», «Окно Settings» и «Меню → окно»); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), пункт 6 (каналы `local`); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), пункт 2 (платформенный PR); [worfy-terminal-ai 08](../../worfy-terminal-ai/issues/08-settings-terminal-ai.md) — раздел «Terminal AI» ждёт этот Ticket и Ticket 08 (Select)
@@ -281,3 +281,15 @@ Settings по-прежнему снимает активность с актив
 - В режиме фокуса «Settings…» не открывается (и режим фокуса не закрывает) — до Ticket-а 10.
 - Сочетание с ⌘ или Ctrl внутри окна не доходит и до обработчиков самих разделов (только действие
   клавиши по умолчанию): разделу, которому нужно своё сочетание, понадобится исключение в перехвате.
+
+### Gate оркестратора (2026-10-10)
+
+- Круг 1 — `REJECTED` ([комментарий в PR #209](https://github.com/IDSAD-XL/worfy/pull/209#issuecomment-6092144261)): [med] Esc и ловушка Tab висели только на диалоге — сочетания со слушателями на `window` работали под окном (⌘K открывал палитру под подложкой и уводил фокус, ⌘F, ⌘Enter); мелкие — Settings в режиме фокуса, снимок-дубль, два выживших мутанта.
+- Круг 2 — `VERIFIED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/209#issuecomment-6092659393)), доработка `673757a..9345f79`, в `src/` — только три файла `src/renderer/settings/`. Долги:
+  - [low] `src/renderer/settings/settings-window.ts:116` — Ctrl+Alt (AltGr) считается сочетанием приложения: символ в поле Settings вводится, но `keydown` до обработчика поля не доходит; проверить на Windows-раскладке (Ticket 12).
+  - [low] `settings-window.ts:106`, `:119`, `:134` — слой выше окна пропускает и сочетания приложения; достижимо с первым диалогом раздела поверх Settings.
+  - [low] `src/renderer/canvas/overlays/BindingDrop.tsx:192-198` — меню Binding остаётся поверх Settings (z-index 2000): первый Esc закрывает его, второй — окно.
+  - [low] `SettingsDialog.tsx:85-91` — после клика по тексту в окне Shift+Tab не сдвигает фокус.
+  - [low] шесть выживших мутантов (`SettingsDialog.tsx:97`, `:34`, `:42-43`; `settings-window.ts:91`, `:95`): потерю слоя окна не замечает ни один test.
+- Windows-ПК: полный прогон на `3e6b2cb` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/209#issuecomment-6091488849)) и на финальном коде `02e6f27` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/209#issuecomment-6093140983)): install, lint, typecheck — 0; `test` — без новых падений относительно main `f129870`; свои test-ы PR — 38 passed. На ПК не запускались `test:e2e` и `test:package`; Ctrl+, / Esc / Tab / AltGr вживую — владелец вместе с ручными пунктами `worfy-windows` 11.
+- Мерж: rebase на `e0b04d1` (код PR тот же, что на `02e6f27`), `GATE_SCOPE=all gate full` — код 0 с первого прогона, CI зелёный, CLEAN, влит `baf7a14`.
