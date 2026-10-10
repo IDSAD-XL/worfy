@@ -1,8 +1,10 @@
 // The shells of Terminal Nodes, run in pseudo-terminals by node-pty (rebuilt for Electron's ABI
 // by postinstall, unpacked from app.asar in the packaged app).
 //
-// Each terminal is `$SHELL -l` in the root of its Project, with the environment of the user's
-// login shell (ADR-0007, the same one Sessions get) plus the terminal variables. The registry
+// Each terminal is a shell in the root of its Project, with the environment of the user's login
+// shell (ADR-0007, the same one Sessions get) plus the terminal variables. Which shell, terminalShell
+// says: `$SHELL -l` on macOS and Linux; on Windows PowerShell — pwsh, else Windows PowerShell — or
+// Git Bash when the Project's settings ask for it, never cmd.exe (ADR-0054). The registry
 // keeps the last 256 KB of each terminal's output, so a renderer that comes back (the Canvas
 // remounted, the window reloaded) redraws the terminal with what it already showed.
 //
@@ -21,7 +23,10 @@
 //
 // No shell outlives what owns it: close() sends SIGHUP, as a terminal emulator does when its
 // window closes, and SIGKILL after a grace period when the shell ignores it; closeAll() does that
-// for every terminal and resolves once all of them have exited.
+// for every terminal and resolves once all of them have exited. Windows has neither process groups
+// nor SIGHUP: there close() ends the process tree of the shell, then the pseudo-console (worfy-windows
+// ticket 10). A program started from the shell with Start-Process is in that tree and ends with
+// it; on macOS an app started with `open` is not a child of the shell and stays.
 //
 // open() may carry a command (worfy-harness ticket 19: `gh auth login` from the first-run screen).
 // The shell that call starts gets it typed, with a newline, as the user would type it: after the
@@ -35,9 +40,10 @@
 // is, which command runs, in which folder and how it ended (osc.ts). That state is kept per
 // Terminal (shellState) and its changes go to onShellEvent's listeners. Another shell, or zsh in a
 // registry without `integration`, runs as before.
-import { basename } from 'node:path'
+import { execFile } from 'node:child_process'
+import { posix, win32 } from 'node:path'
 import { spawn as spawnNodePty } from 'node-pty'
-import type { Env } from '../agent/env'
+import { findGitBash, findOnPath, powershellScriptCommand, type Env, type FileExists } from '../agent/env'
 import { OscCutScanner, ShellTracker, type ShellEvent, type ShellState } from './osc'
 import { integrationEnv, isZsh, newNonce, type ShellIntegration } from './shell-integration'
 
@@ -122,6 +128,75 @@ export class ReplayBuffer {
   }
 }
 
+/** Which shell the Terminals of a Project start on Windows (its settings); PowerShell when not set. */
+export type TerminalShellSetting = 'powershell' | 'git-bash'
+
+export interface ShellChoice {
+  file: string
+  args: string[]
+  /** The file name, as a Terminal Node shows it. */
+  name: string
+  /** Why the shell asked for is not the one that starts; null otherwise. */
+  note: string | null
+}
+
+export interface ShellSearch {
+  /** The system the shell runs on; that of this process by default. */
+  platform?: NodeJS.Platform | undefined
+  /** Whether a file is there; by default a file or an app execution alias (findOnPath). */
+  exists?: FileExists | undefined
+}
+
+/** Variable names on Windows are case-insensitive: the value of `name` under any case. */
+function envVar(env: Readonly<Env>, name: string): string | undefined {
+  const upper = name.toUpperCase()
+  for (const [key, value] of Object.entries(env)) if (key.toUpperCase() === upper) return value
+  return undefined
+}
+
+/**
+ * The shell of a Terminal: its file and arguments, by the system, the setting and the environment.
+ *
+ * Off Windows: `$SHELL -l`, `/bin/zsh -l` without the variable; the setting means nothing there.
+ * On Windows: PowerShell with `-NoLogo` — `pwsh.exe` from the Path of `env`, also when it is the
+ * alias of an MSIX install that existsSync does not see, else Windows PowerShell of %SystemRoot%
+ * by its full path. With the setting `git-bash`: Git Bash of Git for Windows with `--login -i`;
+ * when it is not found, PowerShell, with the reason in `note`. `$SHELL` and cmd.exe are never
+ * taken there (ADR-0054).
+ */
+export function terminalShell(env: Readonly<Env>, setting?: TerminalShellSetting, search: ShellSearch = {}): ShellChoice {
+  if ((search.platform ?? process.platform) !== 'win32') {
+    const file = env.SHELL ?? '/bin/zsh'
+    return { file, args: ['-l'], name: posix.basename(file), note: null }
+  }
+  let note: string | null = null
+  if (setting === 'git-bash') {
+    const bash = findGitBash(env, search.exists)
+    if (bash !== null) return { file: bash, args: ['--login', '-i'], name: win32.basename(bash), note: null }
+    note = 'Git Bash was not found on this machine: PowerShell runs instead'
+  }
+  const file = findOnPath('pwsh', env, search.exists) ?? powershellScriptCommand(envVar(env, 'SystemRoot'), '').file
+  return { file, args: ['-NoLogo'], name: win32.basename(file), note }
+}
+
+/**
+ * Ends a process of Windows and every process under it: `taskkill /PID <pid> /T /F` of %SystemRoot%.
+ * Windows builds the tree from the parents of the processes that are alive, so it is called while
+ * the shell still runs. A pid that is gone already is not an error; a taskkill that cannot be
+ * started is.
+ */
+export function taskkillTree(pid: number): Promise<void> {
+  const root = envVar(process.env as Env, 'SystemRoot')
+  const file = win32.join(root !== undefined && /^[A-Za-z]:[\\/]/.test(root) ? root : 'C:\\Windows', 'System32', 'taskkill.exe')
+  return new Promise((resolve, reject) => {
+    execFile(file, ['/PID', String(pid), '/T', '/F'], { windowsHide: true }, (error) => {
+      // A number is the exit code of taskkill: the process, or part of its tree, was gone already.
+      if (error !== null && typeof error.code !== 'number') reject(error)
+      else resolve()
+    })
+  })
+}
+
 /** The part of node-pty's IPty the registry uses; tests may pass their own. */
 export interface PtyProcess {
   readonly pid: number
@@ -178,6 +253,8 @@ export interface OpenRequest {
   restart?: boolean | undefined
   /** Typed into the shell with a newline once it has started; only when this call starts the shell. */
   command?: string | undefined
+  /** Which shell to start on Windows (the Project's settings); only when this call starts the shell. */
+  shell?: TerminalShellSetting | undefined
 }
 
 export interface ShellExit {
@@ -223,6 +300,12 @@ export interface TerminalRegistryOptions {
   commandDelayMs?: number
   /** worfy's ZDOTDIR folder: zsh starts with the shell integration. Only the Terminal Nodes' registry has it. */
   integration?: ShellIntegration
+  /** The system the shells run on: which shell starts and how it is ended. That of this process by default. */
+  platform?: NodeJS.Platform
+  /** Ends a process of Windows with every process under it; taskkillTree by default. Not called elsewhere. */
+  killTree?: (pid: number) => Promise<void> | void
+  /** Whether a file is there, for the search of the shell on Windows (terminalShell). */
+  exists?: FileExists
 }
 
 /** Hears the shell integration events of every Terminal of a registry. */
@@ -253,12 +336,16 @@ export class TerminalRegistry {
   private readonly spawnPty: SpawnPty
   private readonly killGraceMs: number
   private readonly commandDelayMs: number
+  private readonly platform: NodeJS.Platform
+  private readonly killTree: (pid: number) => Promise<void> | void
   private readonly shellListeners = new Set<ShellEventListener>()
 
   constructor(private readonly options: TerminalRegistryOptions) {
     this.spawnPty = options.spawn ?? ((file, args, spawnOptions) => spawnNodePty(file, args, spawnOptions))
     this.killGraceMs = options.killGraceMs ?? KILL_GRACE_MS
     this.commandDelayMs = options.commandDelayMs ?? COMMAND_DELAY_MS
+    this.platform = options.platform ?? process.platform
+    this.killTree = options.killTree ?? taskkillTree
   }
 
   /** Running terminals, including those still exiting (not those kept as exited). */
@@ -386,7 +473,8 @@ export class TerminalRegistry {
       // The shell may be closing or gone by now: then there is nobody to type to.
       if (terminal.closing || ended()) return
       try {
-        terminal.pty.write(`${command}\n`)
+        // Enter, as the terminal of that system sends it: PowerShell under ConPTY takes a line feed for Ctrl+J.
+        terminal.pty.write(`${command}${this.platform === 'win32' ? '\r' : '\n'}`)
       } catch (error) {
         console.warn(`[terminal] typing the command into ${key} failed`, error)
       }
@@ -398,7 +486,9 @@ export class TerminalRegistry {
 
   private async start(key: string, request: OpenRequest): Promise<Terminal> {
     let env = terminalEnv(await this.options.env(), request.cwd)
-    const file = env.SHELL ?? '/bin/zsh'
+    const choice = terminalShell(env, request.shell, { platform: this.platform, exists: this.options.exists })
+    if (choice.note !== null) console.warn(`[terminal] ${key}: ${choice.note}`)
+    const { file } = choice
     let tracker: ShellTracker | null = null
     const { integration } = this.options
     if (integration !== undefined && isZsh(file)) {
@@ -412,11 +502,11 @@ export class TerminalRegistry {
       }
     }
     const { cols, rows } = clampSize(request.cols, request.rows)
-    const pty = this.spawnPty(file, ['-l'], { name: 'xterm-256color', cols, rows, cwd: request.cwd, env })
+    const pty = this.spawnPty(file, choice.args, { name: 'xterm-256color', cols, rows, cwd: request.cwd, env })
     let exitedResolve: () => void = () => undefined
     const terminal: Terminal = {
       pty,
-      shell: basename(file),
+      shell: choice.name,
       buffer: new ReplayBuffer(),
       tracker,
       size: { cols, rows },
@@ -542,19 +632,41 @@ export class TerminalRegistry {
     if (!terminal.closing) {
       terminal.closing = true
       const { pid } = terminal.pty
-      // The shell is the leader of its own session and process group (node-pty calls setsid):
-      // SIGHUP to the group reaches the shell, and the shell passes it on to its jobs.
-      signalProcess(-pid, 'SIGHUP')
-      signalProcess(pid, 'SIGHUP')
-      const timer = setTimeout(() => {
-        signalProcess(-pid, 'SIGKILL')
-        signalProcess(pid, 'SIGKILL')
-      }, this.killGraceMs)
-      void terminal.exited.then(() => clearTimeout(timer))
+      if (this.platform === 'win32') {
+        void this.endTree(key, terminal)
+      } else {
+        // The shell is the leader of its own session and process group (node-pty calls setsid):
+        // SIGHUP to the group reaches the shell, and the shell passes it on to its jobs.
+        signalProcess(-pid, 'SIGHUP')
+        signalProcess(pid, 'SIGHUP')
+        const timer = setTimeout(() => {
+          signalProcess(-pid, 'SIGKILL')
+          signalProcess(pid, 'SIGKILL')
+        }, this.killGraceMs)
+        void terminal.exited.then(() => clearTimeout(timer))
+      }
     }
     await terminal.exited
     // Its subscribers heard the exit; a shell started meanwhile keeps the ones it has.
     if (!this.has(key) && !this.ended.has(key)) this.audiences.delete(key)
+  }
+
+  /**
+   * Ends a shell of Windows: first every process under it, while the shell is still their living
+   * parent, then the pty — node-pty ends what is left in the console and closes ConPTY. node-pty
+   * takes no signal there, and there is no group to signal.
+   */
+  private async endTree(key: string, terminal: Terminal): Promise<void> {
+    try {
+      await this.killTree(terminal.pty.pid)
+    } catch (error) {
+      console.warn(`[terminal] ending the process tree of ${key} failed`, error)
+    }
+    try {
+      terminal.pty.kill()
+    } catch {
+      // The pseudo-console is closed already.
+    }
   }
 
   /** Closes every terminal whose key passes `test`, running or kept as exited. */

@@ -202,7 +202,7 @@ describe('TerminalRegistry by the system', () => {
       const fake = fakePty(platform === 'win32' ? 6001 : 6002)
       fake.pty.write = (data) => void typed[platform]!.push(data)
       const registry = new TerminalRegistry({
-        env: () => Promise.resolve(platform === 'win32' ? { ...WIN_ENV } : { SHELL: '/bin/sh' }),
+        env: () => Promise.resolve<Record<string, string>>(platform === 'win32' ? { ...WIN_ENV } : { SHELL: '/bin/sh' }),
         spawn: () => fake.pty,
         platform,
         killTree: () => undefined,
