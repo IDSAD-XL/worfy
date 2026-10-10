@@ -4,6 +4,7 @@
 // what the agent would, and marks the Tickets of each Wave done when "Run wave" reaches it.
 // keep-awake is a fake (src/main/autopilot/power.ts is tested over Electron's in
 // test/unit/autopilot-power.test.ts), so nothing here keeps the Mac awake.
+import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, realpathSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -19,7 +20,7 @@ import { SessionSettingsStore, UNATTENDED_MODE_MESSAGE } from '../../src/main/ag
 import { openRun, readRun } from '../../src/main/autopilot/journal'
 import { Autopilot, alreadyRunning, selfProjectRefusal, SELF_PROJECT_MESSAGE, STOP_TEXT, type AutopilotDeps } from '../../src/main/autopilot/run'
 import { agentHandlers } from '../../src/main/ipc/agent'
-import { autopilotHandlers } from '../../src/main/ipc/autopilot'
+import { autopilotHandlers, gitCommonDir } from '../../src/main/ipc/autopilot'
 import { sendFromCard } from '../../src/main/ipc/card-api'
 import { appUrlMatcher, emit, registerIpc } from '../../src/main/ipc/index'
 import { LayoutStore } from '../../src/main/layout/store'
@@ -783,6 +784,63 @@ describe('selfProjectRefusal', () => {
   it('the run itself refuses such a Project with that text', async () => {
     const h = harness({ selfRefusal: (root) => selfProjectRefusal({ packaged: false, appPath: repo, projectRoot: root, gitCommonDir: () => Promise.resolve(null) }) })
     await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow(SELF_PROJECT_MESSAGE)
+  })
+})
+
+// The same against git itself (worfy-windows ticket 12). On Windows git prints the common folder
+// with forward slashes (C:/Users/…/.git), and the folders it is compared for come from realpath
+// with backslashes.
+describe('selfProjectRefusal with the git of this machine', () => {
+  let space: string
+  let worfy: string
+  let worktree: string
+  let other: string
+
+  const git = (cwd: string, ...args: string[]): string => {
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+    return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], { cwd, env, encoding: 'utf8' }).trim()
+  }
+
+  beforeEach(() => {
+    space = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-self-git-')))
+    worfy = join(space, 'worfy')
+    worktree = join(space, 'worfy-ticket')
+    other = join(space, 'other')
+    for (const folder of [worfy, other]) {
+      mkdirSync(folder)
+      git(folder, 'init', '-q')
+      writeFileSync(join(folder, 'a.txt'), 'a\n')
+      git(folder, 'add', '.')
+      git(folder, 'commit', '-q', '-m', 'first')
+    }
+    git(worfy, 'worktree', 'add', '-q', '-b', 'ticket', worktree)
+    mkdirSync(join(worktree, 'deep'))
+  })
+
+  afterEach(async () => {
+    await rm(space, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  })
+
+  it('gitCommonDir names one folder for a checkout and its worktree, another for another repository, none outside git', async () => {
+    const [ofCheckout, ofWorktree, ofOther] = await Promise.all([worfy, worktree, other].map((folder) => gitCommonDir(folder)))
+    expect(realpathSync(ofCheckout!)).toBe(join(worfy, '.git'))
+    expect(realpathSync(ofWorktree!)).toBe(join(worfy, '.git'))
+    expect(realpathSync(ofOther!)).toBe(join(other, '.git'))
+    expect(await gitCommonDir(space)).toBeNull()
+  })
+
+  it('a development build refuses the checkout, a worktree and a folder inside one, whichever of them the app runs from', async () => {
+    for (const appPath of [worfy, worktree]) {
+      for (const projectRoot of [worfy, worktree, join(worktree, 'deep')]) {
+        expect(await selfProjectRefusal({ packaged: false, appPath, projectRoot, gitCommonDir }), `${appPath} over ${projectRoot}`).toBe(SELF_PROJECT_MESSAGE)
+      }
+    }
+  })
+
+  it('lets a development build run over another repository and over a folder outside git, and a packaged build over its own', async () => {
+    expect(await selfProjectRefusal({ packaged: false, appPath: worktree, projectRoot: other, gitCommonDir })).toBeNull()
+    expect(await selfProjectRefusal({ packaged: false, appPath: worktree, projectRoot: space, gitCommonDir })).toBeNull()
+    expect(await selfProjectRefusal({ packaged: true, appPath: worktree, projectRoot: worfy, gitCommonDir })).toBeNull()
   })
 })
 
