@@ -44,7 +44,7 @@ const NO_REPO = 'не проверено: нет E3_SILENT_REPO (пустой pr
 const REPO_NOT_EMPTY = 'is not empty: this run pushes its own main there. The owner deletes it and makes it again, empty and private, or names another empty repository in E3_SILENT_REPO'
 const WAVE_TIMEOUT_MS = 90 * 60_000
 /** The checks of the first-run screen (Q22), in the order the screen shows them. */
-const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
+const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
 /** Files of the workflow that must never reach a Silent Project's repository. */
 const WORKFLOW_FILES = [/(^|\/)\.scratch(\/|$)/, /(^|\/)HANDOFF(\.md)?$/i, /(^|\/)docs\/adr\//, /(^|\/)adr\/\d{4}-/, /(^|\/)CONTEXT\.md$/, /(^|\/)lessons\//]
 const ATTRIBUTION = [/Co-Authored-By: Claude/i, /Generated with \[Claude Code\]/i]
@@ -308,6 +308,8 @@ test('sandbox: the packaged app installs its Harness and qmd into an empty Claud
     const plugin = worfyPlugin(box)
     expect(plugin.status, 'claude plugin list --json in the sandbox').toBe(0)
     expect(plugin.entry).toMatchObject({ id: 'worfy@worfy-harness', enabled: true, version })
+    // The same Install puts in the plugin's dependency (mattpocock-skills): its own row says so.
+    await expectRowStatus(checkRow(screen, 'harness-dependencies'), 'Install the plugin dependencies', 'ok', 60_000)
 
     // qmd with consent: npm installs it under npm_config_prefix of the sandbox.
     await checkRow(screen, 'qmd').getByRole('button', { name: 'Install…' }).click()
