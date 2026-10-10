@@ -262,3 +262,7 @@ test:e2e test:package».
 - [med] из вердикта — пометку `local` каналов `projects.connect.signIn*` не закреплял ни один test (подмена на `project` оставляла 88 из 88 зелёными). Исправлено до мержа: `test/unit/link-access.test.ts` — «local: connecting a Project — the draft, the GitHub account and the gh sign-in» перечисляет все 13 каналов `projects.connect.*` и краснеет на этой подмене (код 1).
 - [low] долги — строками выше в «Итог» (GitHub Enterprise: `GH_ENTERPRISE_TOKEN`; remote через SSH-алиас).
 - Мерж: rebase на `a84d551`, `GATE_SCOPE=all gate full` — код 0 с первого прогона, CI зелёный, CLEAN, влит `9f76dcc`.
+
+### Подтверждение владельца (2026-10-10)
+
+Все решения этого Ticket-а с пометкой «решено без владельца, подтвердить» подтверждены владельцем 2026-10-10.

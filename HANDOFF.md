@@ -1,4 +1,4 @@
-# Передача контекста — снимок на 2026-10-10 (UTC), main @ 56a9bb4
+# Передача контекста — снимок на 2026-10-10 (UTC), main @ 1fe8382
 
 ## Сейчас в работе
 
@@ -8,20 +8,18 @@
 - Stable copy и plugin `worfy` — сборка `df8e870` (2026-10-09). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/16; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16.
 - `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057): влиты 01, 02 и 09 (PR #172, #177, #194 — окружение агента из реестра, как при входе в Windows), ответы владельца — PR #192. Session на Windows-ПК ведёт 08, затем 11; gate full — на Mac. 03–07 ждут закрытия E3.
-- `worfy-terminal-ai` (Terminal AI в Terminal-ах на подписке; [spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) 01 влит (PR #204); 02 `blocked` после узкого круга (PR #205, worktree `t02`). 08 ждёт `worfy-ui` 02 и 08 (окно Settings, Select), 09 — шаги владельца (`blocked`).
+- `worfy-terminal-ai` (Terminal AI в Terminal-ах на подписке; [spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) 01, 02 влиты (PR #204, #205); следом 03. 08 ждёт `worfy-ui` 02 и 08 (окно Settings, Select), 09 — шаги владельца (`blocked`).
 - `worfy-ui` (Settings, масштаб, боковая панель, режим фокуса, палитра, Select, сочетания; [spec](.scratch/worfy-ui/spec.md)) спроектирован 2026-10-09: 12 Ticket-ов, не начат. 11 ждёт `worfy-windows` 11.
 
 ## Ждёт владельца
 
-- `worfy-terminal-ai` 02: узкий круг gate REJECTED — правка redaction `curl -u` открыла утечку пароля (`/usr/bin/curl`, `;`/`&` в кавычках); как продолжать — [Ticket 02](.scratch/worfy-terminal-ai/issues/02-assist-процесс-claude-code-в-main.md), «Итог»; от него зависят 03–09.
-- Подтвердить решения, принятые без владельца (пометки «подтвердить» в «Итог» Ticket-ов): `worfy-week` 03–07, 09, 10, 12, 15, 17, 18; `worfy-harness` 01, 02, 04–09, 11–14, 17, 19, 20, 23–25, 27; `worfy-link` 01–06, 08–15.
+- Подтвердить решения, принятые без владельца (пометки «подтвердить» в «Итог» Ticket-ов): `worfy-week` 03–07, 09, 10, 12, 15, 17, 18; `worfy-harness` 01, 02, 04–09, 11–14, 17, 19, 20, 23, 27; `worfy-terminal-ai` 01, 02; `worfy-link` 01–06, 08–15.
 - `worfy-review`: подтвердить три решения плана без владельца ([spec](.scratch/worfy-review/spec.md), «Решения владельца»): plugin-ы не ставим, источник с SHA, дословно — с MIT; без слов заглавными; max-review (07) — по просьбе или пометке риска.
 - `worfy-link` 08: подтвердить, что с включённым доступом Linked machine может в Project-ах всё — Terminal, Session с `bypassPermissions`, ответы на разрешения (ADR-0052 п.6).
 - `worfy-link` 08: должно ли выключение доступа останавливать Session-ы, Autopilot и очередь, запущенные Linked machine раньше (spec и ADR-0052 расходятся) — [Ticket 08](.scratch/worfy-link/issues/08-доступ-linked-machine-к-project-ам.md), «Итог».
 - `worfy-link` 02: вручную — dev-сборка и Stable copy находят друг друга по Bonjour и связываются по коду; появился ли запрос Local Network и на каком шаге — [Ticket 02](.scratch/worfy-link/issues/02-link-a-machine-код-список-и-отзыв.md), «Итог».
 - Вопросы: `worfy-harness` 05 — как давать «Standing authorization» и переводить ли подписи блока статуса; 08 — смысл фразы `continuous-audit/SKILL.md:228-229`; `worfy-daily` 25 — MCP prompt в slash-меню; `worfy-week` 17 — relaunch после таймаута `halt`.
 - `worfy-harness` 17: включить qmd — обновить plugin, записать согласие на модели, `qmd-collections worfy` и `auction` (у `auction` путь `update:` ведёт в удалённый `~/.claude/bin`) — [Ticket 17](.scratch/worfy-harness/issues/17-qmd-модели-и-коллекции-в-harness.md), «Итог».
-- `worfy-harness` 27: как дать прогонам eval git (brew git, правка Harness или ждать Claude Code) и когда гонять полный набор — [Ticket 27](.scratch/worfy-harness/issues/27-eval-кейсы-harness-через-plugin-eval.md), «Итог».
 - Личное в истории: `worfy-harness` 01 — коммиты PR #106 с UUID аккаунта (чистит только поддержка GitHub); 02 — пути `/Users/alexey/Work/…` в `harness/` и в истории импорта. Ответ — в «Итог» Ticket-ов.
 - Мусор на машине: удалить ли 13 папок транскриптов spike-а `~/.claude/projects/*worfy-harness-probe*` (`worfy-harness` 01) `~/.claude/worfy-harness/worktree-sessions/` (`worfy-harness` 11).
 - Мусор от проб `worfy-harness` 22: `~/.claude/projects/-private-tmp-worfy-harness-w10-impl-22-{probe-t0,p7-repo}/` и пустые `~/.claude/session-env/*` — удалить ли.
@@ -47,6 +45,7 @@
 
 ## Дальше
 
+- `worfy-harness` 28 (git и `HARNESS_HOME` в прогонах eval, решение владельца 2026-10-10) открывает платную часть 27; 29 — карта «кейс eval → файлы правил» и правило частоты eval.
 - Приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot. Платная часть 27 — после ответа про git.
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21, 24, 25 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
 - Ждут условия (проверит агент): упор в Limits (`worfy-daily` 05), наблюдатель касаний (`worfy-daily` 04), workflow-скрипт в Autopilot (`worfy-daily` 29, 17), бейджи у Ticket-а с открытым PR (`worfy-mvp` 17, `worfy-week` 01).

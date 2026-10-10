@@ -1,7 +1,7 @@
 # 02 — Assist-процесс в main: тёплый Claude Code на подписке, модели по функции, Limits, redaction, Settings, fake для test-ов
 
 Type: task
-Status: claimed — 2026-10-09
+Status: done — 2026-10-10, [PR #205](https://github.com/IDSAD-XL/worfy/pull/205)
 Blocked by: —
 Source: решения владельца 2026-10-09: пункт 5 (один общий тёплый процесс Claude Code на все Terminal-ы: Agent SDK на подписке, `settingSources: []`, без MCP и tools, `persistSession: false`, без thinking у Haiku, `title`; старт с первого запроса, выгрузка после ~10 минут простоя; каждый запрос самостоятельный), пункт 2 (Limits: автоматические функции выключаются сами выше 80 % окна 5 часов и при `allowed_warning`/`rejected`, по требованию — до `rejected`; запросы кормят Limits; всё выключается в Settings), пункт 3 (что уходит в модель, redaction), пункт 7 (test-ы без расхода подписки) ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md) — свой процесс Claude Code для Terminal AI; пометки доступа каналов — `src/shared/ipc/channels.ts:20-34` (Ticket 08 Epic-а worfy-link); [evidence spike-а](../evidence/spike-задержки-2026-10-09.md)
 
@@ -311,3 +311,16 @@ Source: решения владельца 2026-10-09: пункт 5 (один о�
   `URL=https://x.io/curl -u …`, а также docker после `curl … ;`, `&&`, `|` или новой строки.
   Mutation testing: 6 мутантов правила (`/tmp/worfy-terminal-ai-w1/impl-02/mut/run4.sh`) — все красные.
 - **UI не менялся** (окно Settings — Ticket 08), снимков нет.
+
+### Gate оркестратора (2026-10-10)
+
+- Круг 1 — `REJECTED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/205#issuecomment-6090095036)): нет `includeHookEvents`; три пробела в test-ах жизни запасного процесса; мелкие — отменённый запрос, `dispose()`, отписка окна, пропуски redaction, обрезка до redaction.
+- Круг 2 — `REJECTED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/205#issuecomment-6090558481)): доработка перестала закрывать `sk-…` после `/` и `.`; голова секрета на первой обрезке; ложные срабатывания `-u x:y` и `Basic <слово>`. Четыре находки устояли перед скептиками, high нет; Ticket блокирует 03–09 — узкий круг ([NARROW](https://github.com/IDSAD-XL/worfy/pull/205#issuecomment-6090571753)).
+- Узкий круг — `NARROW: REJECTED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/205#issuecomment-6090798859)): правка `-u` открыла утечку пароля `curl -u` в частых формах.
+- Решение владельца 2026-10-10 ([комментарий](https://github.com/IDSAD-XL/worfy/pull/205#issuecomment-6090844527)): ещё один короткий круг только по утечке `curl -u`.
+- Круг владельца — `VERIFIED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/205#issuecomment-6091147537)), diff `2804fdb..129c6fe`. Долги:
+  - [low] `src/shared/terminal-ai/redact.ts:79` — ложное срабатывание на аргументе-пути: `docker run -w /x/curl -u 1000:1000 img` → `1000:[redacted]`.
+  - [low] `redact.ts:79` — многострочный `curl … \` с `-u` на следующей строке не закрывается (было и до круга); так же `\curl -u …` и `"curl" -u …`.
+  - [low] `redact.ts:79` — квадратичное время на открытой кавычке: до 30 мс на худший хвост вывода Fix; вход ограничен в `context.ts:80, 88`.
+  - Из прежних кругов: голова секрета в кавычках с пробелами на первой обрезке; строка вывода Fix из одного слова длиннее 2000 символов пустая; `Basic` без паддинга и цифр с длиной не кратной 4 не закрывается; `sk-…` с цифрой в имени ветки закрывается лишний раз; Fix в очереди во время `dispose()` отвечает `failed`.
+- Мерж: ветка на `0f4bf19`, `GATE_SCOPE=all gate full` — код 0 (результат из кэша Gate для того же коммита `129c6fe`, прогнанного исполнителем под замком), CI зелёный, CLEAN, влит `1fe8382`.
