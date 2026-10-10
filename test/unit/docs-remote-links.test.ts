@@ -164,6 +164,11 @@ describe('resolveDocPath and a link that leads to a share (Windows rules)', () =
 
     const linked = fakeSystem({ files: { '\\\\nas\\team\\repo\\HANDOFF.md': HANDOFF }, links: { 'C:\\p\\repo': '\\\\nas\\team\\repo' }, reals: { 'C:\\p\\repo': '\\\\nas\\team\\repo' } })
     expect(await resolveDocPath(ROOT, 'HANDOFF.md', linked.options)).toEqual({ real: '\\\\nas\\team\\repo\\HANDOFF.md', rel: 'HANDOFF.md' })
+
+    // A Project folder on a share that is itself a link to another folder of that share: the folder
+    // as written and its real path are both the Project's own.
+    const aliased = fakeSystem({ files: { '\\\\nas\\team\\real\\HANDOFF.md': HANDOFF }, links: { '\\\\nas\\team\\repo': '\\\\nas\\team\\real' }, reals: { '\\\\nas\\team\\repo': '\\\\nas\\team\\real' } })
+    expect(await resolveDocPath('\\\\nas\\team\\repo', 'HANDOFF.md', aliased.options)).toEqual({ real: '\\\\nas\\team\\real\\HANDOFF.md', rel: 'HANDOFF.md' })
   })
 
   it('says that a document could not be checked, not that it is outside, when a folder on the way cannot be looked at', async () => {
@@ -234,6 +239,23 @@ describe('readDocs and a link that leads to a share (Windows rules)', () => {
     const docs = await readDocs('\\\\nas\\team\\repo', system.options)
     expect(docs.handoff?.path).toBe('HANDOFF.md')
     expect(paths(docs)).toEqual(['docs/adr/0001-first.md'])
+  })
+
+  it('lists the ADRs of a Project reached through a link to its own share', async () => {
+    const files = { '\\\\nas\\team\\repo\\HANDOFF.md': HANDOFF, '\\\\nas\\team\\repo\\docs\\adr\\0001-first.md': adr('Первый') }
+    const system = fakeSystem({ files, links: { 'C:\\p\\repo': '\\\\nas\\team\\repo' }, reals: { 'C:\\p\\repo': '\\\\nas\\team\\repo' } })
+    const docs = await readDocs(ROOT, system.options)
+    expect(docs.handoff?.path).toBe('HANDOFF.md')
+    expect(paths(docs)).toEqual(['docs/adr/0001-first.md'])
+  })
+
+  it('given no links to read with, reads them with lstat of Node: for HANDOFF.md, for the folder of the ADRs and for each ADR', async () => {
+    const root = 'C:\\worfy-no-such-folder-19\\repo'
+    const system = fakeSystem({ files: { [`${root}\\HANDOFF.md`]: HANDOFF, [`${root}\\docs\\adr\\0001-first.md`]: adr('Первый') } })
+    // A folder that is on no machine: each walk ends at its first segment, which is not there.
+    const docs = await readDocs(root, { paths: win32, fs: system.options.fs })
+    expect(paths(docs)).toEqual(['docs/adr/0001-first.md'])
+    expect(asked.lstat).toEqual([root, root, root])
   })
 
   it('answers with no document for a Project folder that is not there, as before', async () => {
