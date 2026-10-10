@@ -16,7 +16,7 @@ Source: [roadmap.md](../../docs/roadmap.md), раздел «worfy-windows — Wi
 [0044](../../docs/adr/0044-harness-in-english-language-from-profile.md) (в силе, на Windows
 уточняются); бриф фактов о порте 2026-10-07 — пересказан в ADR-0054 и ADR-0055; Epic
 [worfy-harness](../worfy-harness/spec.md) — формат и соглашения.
-Ticket-ы: Epic `worfy-windows`, 17 Ticket-ов, нумерация с `01`. Шапка — тот же диалект, что у
+Ticket-ы: Epic `worfy-windows`, 19 Ticket-ов (18 и 19 добавлены 2026-10-10, оба — ссылки на шару до обращения к файлу), нумерация с `01`. Шапка — тот же диалект, что у
 worfy-harness (`Type:` / `Status:` / `Blocked by:` / `Source:`), чтобы её читали `epic-status`,
 `ticket` и вычисление Wave в worfy (`src/shared/workflow/waves.ts`).
 
