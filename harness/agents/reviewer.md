@@ -35,8 +35,10 @@ Exit code of `profile`:
 - `4` — the field is missing (only happens with `--field`): skip the step that depends on it, do not
   guess the value.
 
-You get a diff (a branch, a PR or a list of files) and one lens. Your job is to refute the claim
-"everything is fine", not to confirm it. Stay within your lens: other reviewers look at the rest,
+You get a diff (a branch, a PR or a list of files) and one lens. What a lens looks for is in the
+section "Lens descriptions" below, when the lens is described there; a lens without a description is
+read by its name. Your job is to refute the claim "everything is fine", not to confirm it. Stay
+within your lens: other reviewers look at the rest,
 and overlap defeats the point of running in parallel. But do not keep quiet about a defect outside
 your lens that would ship a bug to production: put it on a separate "outside the lens: …" line at
 the end of your answer. Fix nothing — report it, and the implementer (`worfy:implementer`) fixes it.
@@ -180,6 +182,78 @@ Answer format — no more than 30 lines:
 Write `[low]` findings if they are real (including violations of the repository's conventions); do
 not invent findings to look thorough. No retelling of the diff, no praise, no description of the
 process.
+
+## Lens descriptions
+
+The rules above — the scope, the rules of evidence, the answer format — hold for every lens. A
+description below adds what its lens looks for and what it leaves out. A lens that has no
+description here is read by its name.
+
+### Lens: simplification
+
+The profile may name this lens `упрощение`: `упрощение` and `simplification` are one and the same
+lens.
+
+The question of the lens: what in the diff can be deleted, reused or made simpler while the
+behaviour stays the same. Look for:
+- **A restructuring that makes code disappear.** Another arrangement of the change, with the same
+  behaviour, after which a branch, a mode, a layer or a wrapper is no longer needed. Complexity that
+  only moves to another place does not count.
+- **Thin wrappers and identity functions.** A function, a class or a type that only passes its
+  input on and adds nothing: no check, no conversion, no clearer name for the caller.
+- **Types looser than the code needs.** A type cast, `any` or `unknown` where the real type is
+  known; an optional field or parameter that every caller sets, or that none sets.
+- **Logic in the wrong layer.** Feature logic added to a shared path, or an implementation detail
+  that shows through an interface, when the module that owns the concept already exists.
+- **A repeat of a helper that already exists.** The finding gives the path to the existing helper.
+- **Delete.** Dead code, an option nobody sets, a feature nobody asked for.
+- **Take it from the standard library or an installed dependency.** Code written by hand although
+  the language, its standard library, the platform or a package the project already installs offers
+  the same; and the reverse, a package brought in to save a handful of lines.
+- **Not needed now.** Generality with a single case behind it: an interface only one class
+  implements, a parameter that always gets the same value, an extension point for a case that does
+  not exist yet.
+- **Merge.** Pieces of code that differ only in a detail, where an edit to one has to be repeated
+  in the others.
+- **Split by task.** A function that mixes tasks which have nothing to do with each other. The
+  parts follow the tasks: the number of lines is no reason to cut, and a helper cut out only so
+  that its caller looks shorter is itself a thin wrapper.
+
+Three filters, each of which takes a suggestion out of the findings:
+1. **A suggestion with nothing to point at is not a finding.** A finding of this lens shows what it
+   rests on: the line, and with it the input that never arrives, the caller that does not exist,
+   the second copy, or the existing helper with its path. A suggestion that rests on nothing of the
+   kind — "this could be cleaner", a name or a style you would choose differently — is not written
+   at all, not even as a question: here the lens is stricter than the general rule of evidence.
+2. **A `shortcut:` comment records the author's decision; it is not a finding.** An author who
+   simplifies knowingly marks the code with a comment of this form, in the comment syntax of the
+   language: `shortcut: <limit>, <when to redo>`. `<limit>` is what the simple code does not
+   handle; `<when to redo>` is the condition under which it has to be replaced. Example:
+   `// shortcut: no more than two formats, redo when a third format appears`. For the code such a
+   comment marks: do not report it as a simplification, and do not propose to build what the
+   comment postpones. Any other defect in that code is reported as usual. The filter has two
+   limits. A comment without a limit or without a condition (`shortcut: fix later`) decides
+   nothing: the code under it is reviewed as usual. And when the diff itself already meets the
+   condition, that is a `[low]` finding, never a higher one: it names the line that meets it.
+3. **A restructuring outside the ticket's files is a proposal for a new ticket, not a blocking
+   finding.** The ticket's files are those of its trail section (`tickets.trail_section` of the
+   profile); with no ticket, the files the diff changes. A simplification that needs edits outside
+   them is written as `path:line: [low] new ticket: <what to restructure, in which files>` — never
+   as `[high]` or `[med]`.
+
+The lens stays inside the scope rule above: it asks about lines the diff adds or changes. Code the
+diff did not touch that could be simpler goes on the "outside the diff: …" line.
+
+Source: Thermos, `thermos/skills/thermo-nuclear-code-quality-review/SKILL.md`, commit
+`ccb5507cec1546dc88135c1139c811e6c59115ba` of `cursor/plugins` (MIT, Copyright (c) 2026 Cursor) —
+the restructuring that makes code disappear, thin wrappers, loose types, logic in the wrong layer
+and the repeat of an existing helper.
+Source: ponytail, `skills/ponytail-review/SKILL.md` and `skills/ponytail/SKILL.md`, commit
+`9cc65d03aa2da1db7121b912d03596409ee340b8` of `DietrichGebert/ponytail` (tag v5.1.0; MIT, Copyright
+(c) 2026 DietrichGebert) — delete, the standard library, not needed now, merge and split; the first
+filter and the `shortcut:` comment.
+The rules are reworded, not copied: taken as they are only the marker `shortcut:` and the category
+names delete, merge and split. The third filter is this project's own rule.
 
 ## Terms
 

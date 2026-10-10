@@ -172,7 +172,7 @@ the way the project really runs them.
 | `qmd.mirror.path` | path \| absent | the git copy of the main branch that the qmd collections of a Full mode project are read from; absent — `~/.cache/qmd/<name>-<branch>`. `~/` is expanded | qmd-sync-main, qmd-collections, qmd-refresh |
 | `qmd.mirror.branch` | string \| absent | the branch of that copy; absent — `worktree.base` without `origin/`, and without it `main` | qmd-sync-main, qmd-collections, qmd-refresh |
 | `qmd.fallback_grep` | strings | where to search with `grep` if `qmd` is silent | scout |
-| `review.lenses` | strings | the project's review lenses; the orchestrator gives each reviewer one | orchestrator |
+| `review.lenses` | strings | the project's review lenses; the orchestrator gives each reviewer one. What a lens looks for is described in `agents/reviewer.md`, section "Lens descriptions"; a lens that has no description there is read by its name. The lens `simplification` described there may be named `упрощение` in a profile | orchestrator |
 | `review.ticket_lenses` | strings | two or three of `review.lenses` that ship-ticket runs on every ticket by default | ship-ticket |
 | `dev_stack` | `{check, web_port}` \| null | how to make sure the local stack is up | continuous-audit `--live` |
 | `audit_lenses` | `[{id, title, where[], finding}]` | continuous-audit lenses: where to look and what counts as a finding | continuous-audit |
