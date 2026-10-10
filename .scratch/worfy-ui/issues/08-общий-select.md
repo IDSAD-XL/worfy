@@ -1,7 +1,7 @@
 # 08 — Общий Select: стилизованный список вместо native `<select>`
 
 Type: task
-Status: claimed — 2026-10-09
+Status: done — 2026-10-10, [PR #208](https://github.com/IDSAD-XL/worfy/pull/208)
 Branch: worfy-ui/08
 Blocked by: —
 Source: решение владельца 2026-10-09: 4 (один общий стилизованный компонент Select/Menu — стрелки, Enter, Esc, набор букв, ARIA — заменяет каждый native `<select>` в renderer; макет — `docs/design/F-session-dark.dc.html:177-179`) ([spec.md](../spec.md), «Как устроено», «Select»); [worfy-terminal-ai 08](../../worfy-terminal-ai/issues/08-settings-terminal-ai.md) — выбор модели Next command в Settings → «Terminal AI» ждёт этот Ticket
@@ -76,25 +76,25 @@ Binding, Slash) на Select не переводятся.
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/select.test.tsx` (новый): ARIA кнопки и списка; ↓ открывает, ↑/↓ двигают
+- [x] Unit `test/unit/select.test.tsx` (новый): ARIA кнопки и списка; ↓ открывает, ↑/↓ двигают
   `aria-activedescendant` и на краях стоят; Enter выбирает и закрывает; Tab выбирает и закрывает;
   набор «pl» выбирает строку на «Pl…»; `disabled` не открывается; клик вне закрывает; `onOpen`
   зовётся при открытии.
-- [ ] Unit, тот же файл: Select внутри контейнера с `onKeyDown`, который ловит Esc, и с
+- [x] Unit, тот же файл: Select внутри контейнера с `onKeyDown`, который ловит Esc, и с
   `window`-слушателем Esc — Esc в открытом списке закрывает список, а ни контейнер, ни `window` его
   не получают; Esc на закрытом Select-е доходит до контейнера.
-- [ ] Unit `test/unit/harness-migration-form.test.tsx`: поля Profile-а выбираются через Select (клик
+- [x] Unit `test/unit/harness-migration-form.test.tsx`: поля Profile-а выбираются через Select (клик
   по кнопке и строке) вместо `fireEvent.change`; неактивное поле — кнопка `disabled`; Esc в открытом
   списке не закрывает форму.
-- [ ] e2e `test/e2e/projects-connect.spec.ts`: проверки «Reports» и «Finish» (`:129`, `:252`, `:272`,
+- [x] e2e `test/e2e/projects-connect.spec.ts`: проверки «Reports» и «Finish» (`:129`, `:252`, `:272`,
   `:308`) читают `data-value` кнопки; зелёный.
-- [ ] e2e `test/e2e/select.spec.ts` (новый): форма Profile-а при подключении Project-а — тем же
+- [x] e2e `test/e2e/select.spec.ts` (новый): форма Profile-а при подключении Project-а — тем же
   путём, что `test/e2e/projects-connect.spec.ts`; поле открывается с клавиатуры, значение выбирается
   набором букв и Enter, черновик Profile-а меняется; Esc в открытом списке закрывает только список,
   форма остаётся. Снимок `select-open` в светлой и тёмной теме.
-- [ ] grep: в `src/renderer` `<select` — только в `Pickers.tsx` (его меняет Ticket 09); в `test/e2e`
+- [x] grep: в `src/renderer` `<select` — только в `Pickers.tsx` (его меняет Ticket 09); в `test/e2e`
   `selectOption` — только в spec-файлах Ticket-а 09.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально —
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально —
   exit 0.
 
 ## Тесты
@@ -180,3 +180,12 @@ PR #208, ветка `worfy-ui/08`.
 - **grep.** `<select` в `src/renderer` — только `src/renderer/session/composer/Pickers.tsx` (`:69`,
   `:85`, `:104`); `selectOption` в `test/e2e` — только `own-sessions.spec.ts`,
   `session-controls.spec.ts`, `permissions.spec.ts` (Ticket 09).
+
+### Gate оркестратора (2026-10-10)
+
+- Круг 1 — `VERIFIED` ([комментарий в PR #208](https://github.com/IDSAD-XL/worfy/pull/208#issuecomment-6091956047)). Долги:
+  - [med], важно для Ticket-а 09: `src/renderer/theme/Select.tsx:277-281` — список закрывает scroll любого элемента документа, а не только предка кнопки; в composer-е под транскриптом с автопрокруткой список будет закрываться сам. Исправление: закрывать, только если прокрученный элемент содержит кнопку.
+  - [low] `Select.tsx:244-261` — позиция считается один раз при открытии; `:372` — шеврон одинарный, в макете двойной ↑↓ (`docs/design/F-session-dark.dc.html:178`); `:94` — `open` переживает `disabled`; `:270-290` — `blur` кнопки не закрывает список; `:140`, `:215-219` — курсор встаёт на `disabled` выбранную строку; `:251-257` — зазор 2 px при открытии вверх.
+  - [low] `MigrationForm.tsx:203` — повторный клик по подписи открытого поля закрывает и снова открывает список; `ConnectProject.tsx:635-645` — значение в кнопке моноширинное, строки списка — шрифтом интерфейса.
+  - [low] `test/unit/select.test.tsx` не ловит подмены: без слушателей scroll, resize, blur окна, без их снятия, без Alt+↑, «всегда вниз», без возврата фокуса после выбора. Дописать до Ticket-а 09.
+- Мерж: rebase на `ff58b47`, `GATE_SCOPE=all gate full` — код 0 с первого прогона, CI зелёный, CLEAN, влит `558dd67`.
