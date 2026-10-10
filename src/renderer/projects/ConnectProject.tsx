@@ -23,6 +23,7 @@ import './connect-project.css'
 import { failureReason } from '../../shared/ipc/channels'
 import { withGithubAccount, type ConnectFolder, type ConnectMode, type DraftIssue, type GithubChoice, type ProfileDraft, type ProjectsState, type ProjectView } from '../../shared/ipc/projects'
 import { invoke, invokeOn, subscribe, subscribeOn } from '../ipc'
+import { Select } from '../theme/Select'
 import { FolderBrowser } from './FolderBrowser'
 import { GithubAccount } from './GithubAccount'
 
@@ -631,13 +632,17 @@ export function ConnectProject({ folder, machine, machineName, harnessHome, onCl
       const select = (path: string, label: string, options: readonly string[]) => (
         <Field key={path} label={label} path={path} issues={issues}>
           {({ id, invalid, describedBy }) => (
-            <select id={id} className="w-connect-input" style={invalid ? { ...styles.input, ...styles.invalid } : styles.input} value={text(getAt(draft, at(path)))} aria-invalid={invalid ? 'true' : undefined} aria-describedby={describedBy} disabled={writing} onChange={(event) => edit(at(path), event.target.value)}>
-              {options.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
+            <Select
+              id={id}
+              className="w-connect-input"
+              style={invalid ? { ...styles.input, ...styles.invalid } : styles.input}
+              value={text(getAt(draft, at(path)))}
+              options={options.map((option) => ({ value: option, label: option }))}
+              aria-invalid={invalid ? 'true' : undefined}
+              aria-describedby={describedBy}
+              disabled={writing}
+              onChange={(next) => edit(at(path), next)}
+            />
           )}
         </Field>
       )

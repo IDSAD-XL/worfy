@@ -1,0 +1,113 @@
+/* The shared Select (Select.tsx). Values come from tokens.css only.
+   The button follows the Model and Effort pickers of the Session header mockup
+   (docs/design/F-session-dark.dc.html:178-179): 24 px tall, 1 px border, a muted caption, the value,
+   a chevron on the right. The list has the look of worfy's menus (docs/design/F-SPEC.md, the
+   Autopilot menu): surface fill, 1 px border, popover radius, the Node shadow, 4 px padding, rows of
+   28 px, a check on the chosen one. */
+
+.w-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-12);
+  text-align: left;
+  cursor: default;
+}
+.w-select:hover:not(:disabled) {
+  border-color: var(--text-muted);
+}
+.w-select:focus-visible,
+.w-select[aria-expanded='true'] {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.w-select:disabled {
+  background: transparent;
+  color: var(--text-muted);
+}
+.w-select__prefix {
+  flex: none;
+  color: var(--text-muted);
+}
+.w-select__value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.w-select--mono .w-select__value {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.w-select__chevron {
+  flex: none;
+  color: var(--text-muted);
+}
+
+/* Above every dialog (90–110), the focus mode (1000) and the Binding menu (2000). */
+.w-select-list {
+  position: fixed;
+  z-index: 3000;
+  top: 0;
+  left: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: var(--space-1);
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-popover);
+  background: var(--surface);
+  box-shadow: var(--shadow-node);
+  color: var(--text);
+  font-size: var(--text-13);
+}
+.w-select-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--row-height);
+  padding: 0 var(--space-2) 0 6px;
+  box-sizing: border-box;
+  border-radius: var(--radius-button);
+  white-space: nowrap;
+  cursor: default;
+}
+.w-select-option[data-active='true'] {
+  background: var(--selected);
+}
+.w-select-option[aria-disabled='true'] {
+  color: var(--text-muted);
+}
+.w-select-option__check {
+  display: inline-flex;
+  flex: none;
+  width: 12px;
+  color: var(--accent);
+}
+.w-select-option__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.w-select-list--mono .w-select-option__label {
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+}
+.w-select-option__detail {
+  flex: none;
+  margin-left: var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}

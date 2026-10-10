@@ -13,6 +13,7 @@ import type {
 } from '../../shared/ipc/harness-migration'
 import { invoke } from '../ipc'
 import { PrimaryButton, SegmentedControl } from '../theme/primitives'
+import { Select } from '../theme/Select'
 
 // The form that moves the old Harness out of ~/.claude (worfy-harness ticket 14): a row for each
 // file, CLAUDE.md section, hook record, the status line, the qmd group, the machine state and each
@@ -84,14 +85,6 @@ const styles = {
   added: { color: 'var(--ready-text)', background: 'var(--ready-bg)', display: 'block' },
   same: { display: 'block' },
   fields: { display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)', margin: '4px 0', alignItems: 'center' },
-  select: {
-    height: 22,
-    borderRadius: 'var(--radius-button)',
-    border: '1px solid var(--border-strong)',
-    background: 'var(--bg)',
-    color: 'var(--text)',
-    fontSize: 'var(--text-12)',
-  },
   secondary: {
     height: 'var(--row-height)',
     padding: '0 var(--space-3)',
@@ -209,20 +202,15 @@ function ProfileRow({
   const select = <K extends keyof ProfileFields>(key: K, label: string, options: readonly ProfileFields[K][]) => (
     <label htmlFor={`${id}-${key}`} style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
       {label}
-      <select
+      <Select
         id={`${id}-${key}`}
-        style={styles.select}
+        mono
         value={fields[key]}
+        options={options.map((option) => ({ value: option, label: option }))}
         disabled={value === 'keep'}
         data-testid={`profile-${key}`}
-        onChange={(event) => onFields({ ...fields, [key]: event.target.value as ProfileFields[K] })}
-      >
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
+        onChange={(next) => onFields({ ...fields, [key]: next })}
+      />
     </label>
   )
   const files: MigrationFileDiff[] = profile.files.map((file) => (file.path.endsWith('profile.json') ? { ...file, after: profileJsonWith(file.after, fields) } : file))
