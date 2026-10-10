@@ -4,6 +4,7 @@ import { sharedRegistry } from './agent/app-registry'
 import { appUserModelId } from './app-id'
 import { installCardRuntime, registerCardScheme } from './cards/protocol'
 import { cardStore } from './cards/store'
+import { installProcessGone } from './diagnostics/process-gone'
 import { installDevDockIcon } from './dock-icon'
 import { bundledHarnessVersion } from './harness/bundled'
 import { liveSessionListeners } from './ipc/claude-home'
@@ -97,6 +98,8 @@ function start(): void {
     .whenReady()
     .then(async () => {
       // Each step runs in inStep(), so a failure names the step it happened in (startup-failure.ts).
+      // First, so a renderer or helper process that ends during the start is recorded too.
+      inStep('installProcessGone', () => installProcessGone())
       inStep('installAppMenu', () => installAppMenu())
       // Before the first window, so a dev run never shows the Electron icon in the Dock with it.
       // Not a step that can fail the start: it turns its own failures into a warning (dock-icon.ts).

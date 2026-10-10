@@ -10,6 +10,7 @@ import { dataRoot } from './storage/paths'
 /** The steps of the start, in order. The names are the functions src/main/index.ts calls. */
 export type StartupStep =
   | 'checkDataFolder'
+  | 'installProcessGone'
   | 'installAppMenu'
   | 'registerIpc'
   | 'installWebPolicy'
@@ -36,6 +37,7 @@ const STEPS: Record<StartupStep, { doing: string; advice: string }> = {
     doing: 'checking the data folder',
     advice: 'Make sure the data folder below is a folder (not a file) and that you can write to it. If WORFY_DATA_DIR is set, point it at such a folder.',
   },
+  installProcessGone: { doing: 'subscribing to the processes that end', advice: REINSTALL },
   installAppMenu: { doing: 'installing the app menu', advice: REINSTALL },
   registerIpc: {
     doing: 'registering the handlers the window calls',
