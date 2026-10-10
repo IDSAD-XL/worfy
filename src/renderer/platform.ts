@@ -44,11 +44,19 @@ export function isMac(platform: Platform = currentPlatform()): boolean {
 export interface Modifiers {
   metaKey: boolean
   ctrlKey: boolean
+  /** As KeyboardEvent and MouseEvent have it; asked for `AltGraph` only. */
+  getModifierState?: (key: string) => boolean
 }
 
-/** The primary modifier is held and the other one is not: ⌘ without Ctrl on macOS, Ctrl without ⌘ elsewhere. */
+/**
+ * The primary modifier is held and the other one is not: ⌘ without Ctrl on macOS, Ctrl without ⌘
+ * elsewhere. On Windows the AltGr key arrives as Ctrl+Alt with the AltGraph state on; it types a
+ * character (`@` on a German keyboard is AltGr+Q) and is no shortcut. Ctrl+Alt pressed as two keys
+ * has no AltGraph state and stays a combination with the primary modifier.
+ */
 export function isPrimary(event: Modifiers, platform: Platform = currentPlatform()): boolean {
-  return isMac(platform) ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
+  if (isMac(platform)) return event.metaKey && !event.ctrlKey
+  return event.ctrlKey && !event.metaKey && event.getModifierState?.('AltGraph') !== true
 }
 
 /** The modifier that is not the primary one is held: Ctrl on macOS, ⌘ (the Windows key) elsewhere. */

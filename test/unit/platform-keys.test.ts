@@ -46,6 +46,19 @@ describe('isPrimary and isOtherModifier', () => {
     expect(isOtherModifier(keys(true, false), platform)).toBe(true)
     expect(isOtherModifier(keys(false, true), platform)).toBe(false)
   })
+
+  // On Windows the AltGr key arrives as Ctrl+Alt with the AltGraph state on. It types a character
+  // (`@` on a German keyboard is AltGr+Q) and is no shortcut; Ctrl+Alt pressed as two keys is one.
+  it.each(OTHERS)('on %s AltGr is not the primary modifier, and Ctrl+Alt pressed as two keys is', (platform) => {
+    const altGr = { ...keys(false, true), getModifierState: (key: string) => key === 'AltGraph' }
+    const ctrlAlt = { ...keys(false, true), getModifierState: () => false }
+    expect(isPrimary(altGr, platform)).toBe(false)
+    expect(isPrimary(ctrlAlt, platform)).toBe(true)
+  })
+
+  it('on macOS the AltGraph state changes nothing', () => {
+    expect(isPrimary({ ...keys(true, false), getModifierState: (key: string) => key === 'AltGraph' }, 'mac')).toBe(true)
+  })
 })
 
 describe('label and ariaKeyShortcuts', () => {
