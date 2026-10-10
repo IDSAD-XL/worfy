@@ -15,6 +15,12 @@
 # The main rule: «ничего не прогналось» (nothing ran) is not «зелено» (green). The red marker
 # is removed only by a run that actually checked something.
 #
+# A warning is not a verdict. After the scope line the gate prints one line per file that the
+# diff from the merge-base took over 1000 lines:
+#   [gate] warning: file over 1000 lines: <path> (<lines at the merge-base> → <lines now>)
+# It changes nothing else: the exit code, the verdict line, the verdict file, the markers and the
+# cache are the same as without it, and a cache hit prints it again (see size_warnings below).
+#
 # Exit codes:
 #   0 — green, «ничего не прогналось», «ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение
 #       недоступно» (the unverified marker) or a directory outside git — they are told apart by
@@ -289,6 +295,69 @@ changed_paths() {
     } | sed 's/^"//; s/"$//; /^$/d' | sort -u
 }
 
+# --- files that grew past the size limit --------------------------------------------
+# Counting lines is a deterministic check, so it lives here and not in a reviewer's prompt. The
+# rule is about crossing the limit: a file that was already longer at the merge-base is left alone.
+FILE_LINES_MAX=1000
+
+# Not counted: lock files and generated files — nobody writes or reads them by hand.
+size_exempt() { # $1 = a path inside the repository
+    case "$1" in
+        *.lock | *-lock.json | *-lock.yaml | npm-shrinkwrap.json | */npm-shrinkwrap.json | go.sum | */go.sum) return 0 ;;
+        *.min.js | *.map | *.snap) return 0 ;;
+        dist/* | */dist/* | out/* | */out/* | build/* | */build/*) return 0 ;;
+    esac
+    return 1
+}
+
+# Lines on stdin. A last line without a newline counts, as it does for git; the C locale, because
+# awk on macOS stops on bytes that are not UTF-8.
+count_lines() { LC_ALL=C awk 'END { print NR }'; }
+
+# Prints the warning lines for the paths in $changed. Without a merge-base there is nothing to
+# compare with, and the check is skipped silently. It only reads: the worktree, the index and the
+# gate state are left as they are, and no variable of the script is set here.
+size_warnings() {
+    [ -n "$mb" ] && [ -n "$changed" ] || return 0
+    local entry path file now before old
+    while IFS= read -r entry; do
+        # git status names an untracked folder (a trailing slash), not the files in it
+        if [ "${entry%/}" != "$entry" ]; then
+            git -C "$repo" --literal-pathspecs -c core.quotePath=false ls-files --others --exclude-standard -- "$entry" 2>/dev/null
+        else
+            printf '%s\n' "$entry"
+        fi
+    done <<<"$changed" | while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        size_exempt "$path" && continue
+        file="$repo/$path"
+        # a deleted file, a folder (a submodule) and a symlink are not files to count
+        [ -f "$file" ] && [ ! -L "$file" ] || continue
+        # Most files stop here, with no call to git: only a file that is long now is looked up.
+        now="$(count_lines <"$file" 2>/dev/null)" || continue
+        [[ "$now" =~ ^[0-9]+$ ]] && [ "$now" -gt "$FILE_LINES_MAX" ] || continue
+        # binary — by content or by .gitattributes: git prints "-" instead of the line counts
+        case "$(git -C "$repo" diff --no-index --numstat -- /dev/null "$path" 2>/dev/null)" in
+            -$'\t'*) continue ;;
+        esac
+        # The file at the merge-base: under the same path, or under its old one after a rename —
+        # a long file that only moved did not grow. A path that is in neither place is a new file.
+        old="$path"
+        if ! git -C "$repo" cat-file -e "$mb:$path" 2>/dev/null; then
+            old="$(git -C "$repo" -c core.quotePath=false diff -M --name-status --diff-filter=R "$mb" -- 2>/dev/null |
+                NEW_PATH="$path" awk -F'\t' '$3 == ENVIRON["NEW_PATH"] { print $2; exit }')"
+        fi
+        before=0
+        [ -n "$old" ] && before="$(git -C "$repo" cat-file blob "$mb:$old" 2>/dev/null | count_lines)"
+        [[ "$before" =~ ^[0-9]+$ ]] || before=0
+        [ "$before" -le "$FILE_LINES_MAX" ] || continue
+        # Single quotes on purpose: test/unit/gate-state.test.ts takes every double-quoted
+        # «[gate] <word>» of this file for a verdict word, and this line is not a verdict.
+        printf '[gate] warning: file over %s lines: %s (%s → %s)\n' "$FILE_LINES_MAX" "$path" "$before" "$now"
+    done
+    return 0
+}
+
 # A fingerprint without HEAD is a fingerprint of nothing, that is, an eternal constant: such a thing
 # must not be cached.
 # The paths are the package itself and its workspace dependencies: an uncommitted edit in
@@ -373,6 +442,8 @@ if [ "$SCOPE_ALL" -eq 1 ]; then
 else
     echo "[gate] scope ($PROFILE): narrowed by the diff from merge-base ${mb:0:8} with $base_ref (branch ahead by $ahead, behind by $behind; files changed: $nchanged) —${plan_dirs:- none}${plan_added:+; added as dependents: $plan_added}. Full scope: GATE_SCOPE=all"
 fi
+# Before the cache is looked at and before any verdict: a green cache hit must not hide a warning.
+size_warnings
 if [ -z "$plan_dirs" ]; then
     write_verdict none 0 "the changes touch no checked package"
     echo "[gate] ничего не прогналось ($PROFILE): изменения не затрагивают проверяемые пакеты. Это не «зелено»."
