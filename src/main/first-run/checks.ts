@@ -296,10 +296,11 @@ function harnessDependencies(status: HarnessStatus): Row {
   const missing = dependencies.filter((each) => each.status === 'missing')
   if (missing.length > 0) {
     const devRun = status.canInstall ? '' : ' (a dev run only shows the state: start the packaged app to install)'
+    // The name goes to the hint: the line of what was found is cut where the button starts.
     return row(
       'fail',
-      `${missing.map((each) => each.id).join(', ')} not installed`,
-      `Claude Code does not load the Harness plugin without ${missing.length === 1 ? 'it' : 'them'}: install ${missing.length === 1 ? 'it' : 'them'} from GitHub (${DEPENDENCY_MARKETPLACE_SOURCE})${devRun}`,
+      'not installed',
+      `Claude Code does not load the Harness plugin without ${missing.map((each) => each.id).join(', ')}: install ${missing.length === 1 ? 'it' : 'them'} from GitHub (${DEPENDENCY_MARKETPLACE_SOURCE})${devRun}`,
       null,
       status.canInstall ? [action('harness-install', 'Install…')] : [],
     )

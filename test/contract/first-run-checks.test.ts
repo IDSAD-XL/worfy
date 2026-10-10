@@ -261,7 +261,8 @@ describe('first-run checks', () => {
     writeFileSync(join(state, 'plugin-version'), `${BUNDLED_HARNESS}\n`)
     report = await runChecks(deps(env))
     const missing = checkOf(report, 'harness-dependencies')
-    expect(missing).toMatchObject({ status: 'fail', detail: `${DEP} not installed`, command: null, actions: [{ id: 'harness-install', label: 'Install…' }] })
+    expect(missing).toMatchObject({ status: 'fail', detail: 'not installed', command: null, actions: [{ id: 'harness-install', label: 'Install…' }] })
+    expect(missing.hint).toContain(DEP)
     expect(missing.hint).toContain('anthropics/claude-plugins-official')
     // The plugin's own row says the same thing as an error of the install, with Retry.
     expect(checkOf(report, 'harness')).toMatchObject({ status: 'fail', detail: 'error at dependency install', actions: [{ id: 'harness-install', label: 'Retry' }] })

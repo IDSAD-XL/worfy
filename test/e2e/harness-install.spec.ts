@@ -158,7 +158,7 @@ test('"Harness not installed" → Install → one dialog names the dependency co
     expect(shown?.buttons).toEqual(['Install', 'Cancel'])
     expect(shown?.message).toBe(`Install the worfy Harness ${bundledVersion()}?`)
     // The native dialog cannot be screenshotted from Playwright: its text is kept with the test's output.
-    await test.info().attach('30-harness-dialog-install.json', { body: JSON.stringify(shown, null, 2), contentType: 'application/json' })
+    writeFileSync(test.info().outputPath('30-harness-dialog-install.txt'), `${shown?.message ?? ''}\n\n${shown?.detail ?? ''}\n\n[${(shown?.buttons ?? []).join('] [')}]\n`)
     // The dependency first (ticket 30): its commands, where Claude Code downloads it from, then the Harness.
     const detail = shown?.detail ?? ''
     const order = [`claude ${ADD_OFFICIAL}`, `claude ${INSTALL_DEP}`, 'downloads it from GitHub (anthropics/claude-plugins-official)', `claude plugin marketplace add ${pluginDir}`, `claude ${INSTALL_WORFY}`]
@@ -301,7 +301,7 @@ test('worfy installed without its dependency: "Harness error: dependency install
     await expect(item.getByTestId('harness-text')).toHaveText(`Harness ${bundledVersion()}`)
     const [shown, ...more] = await shownDialogs(launched)
     expect(more).toEqual([])
-    await test.info().attach('30-harness-dialog-dependency.json', { body: JSON.stringify(shown, null, 2), contentType: 'application/json' })
+    writeFileSync(test.info().outputPath('30-harness-dialog-dependency.txt'), `${shown?.message ?? ''}\n\n${shown?.detail ?? ''}\n\n[${(shown?.buttons ?? []).join('] [')}]\n`)
     expect(shown?.buttons).toEqual(['Install', 'Cancel'])
     expect(shown?.message).toBe(`Install ${DEP} for the worfy Harness?`)
     expect(shown?.detail).toContain(`claude ${ADD_OFFICIAL}`)

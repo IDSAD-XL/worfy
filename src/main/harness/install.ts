@@ -51,6 +51,8 @@ export const DEPENDENCY_MARKETPLACE_SOURCE = 'anthropics/claude-plugins-official
 /** Lines of a failed command's output kept in the error. */
 const TAIL_LINES = 5
 const COMMAND_TIMEOUT_MS = 120_000
+/** The limit of a command that downloads (the dependency's marketplace and plugin come from GitHub). */
+const DOWNLOAD_TIMEOUT_MS = 600_000
 
 type Env = Readonly<Record<string, string | undefined>>
 
@@ -313,12 +315,12 @@ export class HarnessInstaller {
       for (const args of plan.dependencyCommands) {
         if (args[1] === 'marketplace') await this.addDependencyMarketplace(args, marketplacesUnread)
         else {
-          await this.claude(args, 'dependency install')
+          await this.claude(args, 'dependency install', DOWNLOAD_TIMEOUT_MS)
           dependencies = dependencies.map((each) => (each.id === args[2] ? { ...each, status: 'installed' } : each))
         }
       }
       if (plan.copy) await this.replaceCopy()
-      for (const args of plan.commands) await this.harnessCommand(args, facts.entry === null)
+      for (const args of plan.commands) await this.harnessCommand(args)
     } catch (error) {
       return { outcome: 'done', status: this.withState(this.errorState(error), dependencies) }
     }
@@ -332,7 +334,7 @@ export class HarnessInstaller {
    */
   private async addDependencyMarketplace(args: string[], marketplacesUnread: string | null): Promise<void> {
     try {
-      await this.claude(args, 'dependency marketplace add')
+      await this.claude(args, 'dependency marketplace add', DOWNLOAD_TIMEOUT_MS)
     } catch (error) {
       if (!(error instanceof StepError)) throw error
       if (/\balready\b/i.test(error.message)) return
@@ -341,17 +343,18 @@ export class HarnessInstaller {
   }
 
   /**
-   * One command for the plugin `worfy`. A first `install` that fails may have recorded the plugin
-   * all the same (the acceptance run of ticket 26 saw it listed and enabled after a refusal): the
-   * list is read again and the record removed, so the failure leaves `worfy` not installed. A failed
-   * `update` removes nothing: the version that was installed stays.
+   * One command for the plugin `worfy`. `install` is planned only when Claude Code does not list the
+   * plugin, and one that fails may have recorded it all the same (the acceptance run of ticket 26
+   * saw it listed and enabled after a refusal): the list is read again and the record removed, so
+   * the failure leaves `worfy` not installed. A failed `update` removes nothing: the version that
+   * was installed stays.
    */
-  private async harnessCommand(args: string[], firstInstall: boolean): Promise<void> {
+  private async harnessCommand(args: string[]): Promise<void> {
     const step: HarnessStep = args[1] === 'marketplace' ? 'marketplace add' : (args[1] as HarnessStep)
     try {
       await this.claude(args, step)
     } catch (error) {
-      if (!(error instanceof StepError) || step !== 'install' || !firstInstall) throw error
+      if (!(error instanceof StepError) || step !== 'install') throw error
       let recorded: boolean
       try {
         recorded = (await this.listed()).has(HARNESS_PLUGIN_ID)
@@ -572,12 +575,12 @@ export class HarnessInstaller {
   }
 
   /** Runs one `claude` command; a missing binary or a non-zero exit is a StepError of `step`. */
-  private claude(args: string[], step: HarnessStep): Promise<{ stdout: string; stderr: string }> {
+  private claude(args: string[], step: HarnessStep, timeout = COMMAND_TIMEOUT_MS): Promise<{ stdout: string; stderr: string }> {
     const { claude, env } = this.options
     if (claude === undefined) return Promise.reject(new StepError(step, `${commandLine(args)}: no Claude Code binary in this build`))
     return new Promise((resolve, reject) => {
       // cwd: a folder without project settings, so `plugin list` shows only what the user scope holds.
-      execFile(claude, args, { env, cwd: tmpdir(), timeout: COMMAND_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' }, (error, stdout, stderr) => {
+      execFile(claude, args, { env, cwd: tmpdir(), timeout, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' }, (error, stdout, stderr) => {
         if (error === null) {
           resolve({ stdout, stderr })
           return
