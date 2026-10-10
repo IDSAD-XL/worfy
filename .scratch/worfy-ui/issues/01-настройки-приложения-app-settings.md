@@ -71,19 +71,21 @@ Source: решения владельца 2026-10-09: 1 (свёрнутость 
 
 ## Готово, когда
 
-- [ ] Contract `test/contract/app-settings.test.ts` (новый), хранилище над временной папкой: нет
+- [x] Contract `test/contract/app-settings.test.ts` (новый), хранилище над временной папкой: нет
   файла — значения по умолчанию; `appSettings.set` пишет `app-settings.json` и шлёт
   `appSettings.changed` каждому окну; новое хранилище над той же папкой читает записанное;
   нечитаемый файл отложен как `app-settings.json.unreadable-<время>`, состояние — по умолчанию;
   `interfaceScale: 3` приведён к `1.5`, `0.83` — к `0.8`; поле вне схемы отброшено; изменение
   `collapsed` одной секции не стирает другую; `revision` растёт.
-- [ ] Contract, тот же файл: все три канала помечены `local`; соединение Linked machine-а их не
+- [x] Contract, тот же файл: все три канала помечены `local`; соединение Linked machine-а их не
   вызывает (адаптер канала, по образцу `test/contract/link-access.test.ts`).
-- [ ] Unit `test/unit/use-app-settings.test.tsx` (новый): store берёт ответ `appSettings.get`;
+- [x] Unit `test/unit/use-app-settings.test.tsx` (новый): store берёт ответ `appSettings.get`;
   событие со старшей ревизией меняет состояние, с младшей — нет; `setAppSettings` зовёт
   `appSettings.set` с переданной частью; без моста preload — значения по умолчанию.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально —
   exit 0 (новый домен IPC грузится при старте приложения, это видят только e2e и `.app`).
+  Не проверено: `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0, но gate full одним зелёным
+  прогоном не получен (три прогона, три разных нестабильных test-а — см. «Итог»).
 
 ## Тесты
 
@@ -105,7 +107,7 @@ UI у Ticket-а нет, поэтому снимков и ручных пункт
 
 ## Итог
 
-PR #PRNUM, ветка `worfy-ui/01`.
+PR #207, ветка `worfy-ui/01`.
 
 - **Первый test.** `test/contract/app-settings.test.ts` упал раньше любой проверки: модуля
   `src/main/settings/store.ts` не было («Failed to resolve import "../../src/main/settings/store"»,
@@ -140,7 +142,20 @@ PR #PRNUM, ветка `worfy-ui/01`.
   откладывается целиком; (3) без моста preload `useAppSettings` молчит (без `console.error`), чтобы
   unit-test-ы компонентов Ticket-ов 02–05 и 10 не шумели.
 - **Проверки:** `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast — exit 0, «зелено».
-  GATEFULL
+  CI PR #207 (`check`) — зелёный.
+- **Gate full — одним прогоном зелёным не получен; не проверено.** Три прогона `GATE_SCOPE=all`
+  gate full на commit-е a5987b1 под замком `/tmp/worfy-e2e.lock`, каждый — exit 2, каждый раз один
+  упавший test, все три разные, и ни один не касается настроек:
+  1. 02:29 (нагрузка машины около 18, четыре посторонних процесса `yes`): `test` — unit
+     `test/unit/epic-layout.test.ts` «keeps every open Ticket in place over many random Epics»,
+     timeout 5 s; `test:e2e` (181) и `test:package` прошли. Отдельно тот же файл — 33 из 33 за 1.5 s.
+  2. 02:49: `test:e2e` — `test/e2e/edges.spec.ts:166` (`strokeWidth` пустой вместо `1px`), 180 из
+     181; остальное прошло. Этот test известен как нестабильный; на той же сборке
+     `--repeat-each 5` — 4 из 5.
+  3. 03:09: `test:e2e` — `test/e2e/binding.spec.ts:272` (после hover не появилась линия Binding),
+     180 из 181; остальное прошло. Отдельно `--repeat-each 4` — 4 из 4.
+  Каждая часть gate full (lint, typecheck, test, test:e2e, test:package) была зелёной хотя бы в
+  одном прогоне, но одного зелёного прогона нет — перед мержем gate full повторить.
 - Mutation testing: восемь мутантов (слияние `collapsed`, рост `revision`, `clampScale` в `set`,
   пропуск пустого изменения, подписка IPC-модуля на `changed`, пометка `project` у `appSettings.set`,
   проверка ревизии в renderer, проверка моста) — каждый краснит свой test.
