@@ -15,7 +15,7 @@
 #
 # Where: <per-user temp dir>/worfy-e3-sandbox/ — `getconf DARWIN_USER_TEMP_DIR`, which is $TMPDIR
 # of a Terminal, so a run from an agent's shell and from the owner's Terminal find the same folder.
-# E3_SANDBOX_TMP replaces that temp dir (this script's own tests).
+# E3_SANDBOX_TMP replaces that temp dir and E3_LOCK_DIR the lock folder (this script's own tests).
 #
 # Inside it:
 #   home/           HOME of the sandbox; home/.claude is CLAUDE_CONFIG_DIR, so ~/.claude/worfy-harness/
@@ -32,7 +32,7 @@
 set -euo pipefail
 
 MARKER=.worfy-e3-sandbox
-LOCK=/tmp/worfy-e2e.lock
+LOCK=${E3_LOCK_DIR:-/tmp/worfy-e2e.lock}
 ACCOUNT=${E3_GH_ACCOUNT:-IDSAD-XL}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
@@ -205,7 +205,10 @@ lock_run() {
   done
   (while sleep 300; do touch "$LOCK" 2>/dev/null || exit 0; done) &
   hb=$!
-  trap 'kill '"$hb"' 2>/dev/null; rmdir "'"$LOCK"'"' EXIT
+  # Every step of the release is guarded: under `set -e` a failing step would end the trap before rmdir.
+  trap 'kill '"$hb"' 2>/dev/null || true; wait '"$hb"' 2>/dev/null || true; rmdir "'"$LOCK"'" 2>/dev/null || true' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   E3_LOCK_HELD=1 "$@"
 }
 
