@@ -216,6 +216,45 @@ check "ship-ticket: <main branch> before the block is found in the block's order
 check "ship-ticket: NO MAIN BRANCH / SAME BRANCH say what happens to the prepared documents" has "$ST" '`NO MAIN BRANCH` or `SAME BRANCH` (`MERGED=1`) — a profile problem'
 check "epic-wave: the temporary worktree has a fixed path" has "$EW" 'rev-parse --path-format=absolute --git-common-dir)/worfy-wave-docs"'
 
+# 7d. Four groups of review findings (ticket worfy-review/01): the orchestrator sorts the findings into
+# Act on, Consider, Noted and Dismissed — in ship-ticket step 7 and in epic-wave section 3. The levels and
+# the verdicts stay; the rule names its source. The text is wrapped, so phrases are looked up in the
+# section with its line breaks folded into spaces.
+section() { awk -v re="^## $2\\\\." '$0 ~ re {p=1; next} /^## /{p=0} p' "$1"; }    # section <file> <number>
+PSTACK_SOURCE='Source: pstack, `pstack/skills/interrogate/SKILL.md` and `pstack/skills/interrogate/references/lead-judgment.md`, commit `ccb5507cec1546dc88135c1139c811e6c59115ba`'
+for pair in "$ST:7" "$EW:3"; do
+    f="${pair%:*}" num="${pair##*:}" n="$(name_of "${pair%:*}")"
+    # The rule itself: from its heading to the end of its Source paragraph.
+    rule="$(section "$f" "$num" | awk '/^\*\*Four groups of findings\.\*\*/{p=1} p && /^Source: /{s=1} s && /^$/{exit} p' | tr '\n' ' ' | tr -s ' ')"
+    in_rule() { [[ "$rule" == *"$1"* ]]; }
+    check "$n section $num: the rule about four groups of findings is there" test -n "$rule"
+    for group in 'Act on' 'Consider' 'Noted' 'Dismissed'; do
+        check "$n section $num: group '$group'" in_rule "- **$group** — "
+    done
+    check "$n section $num: Act on holds no more than 5" in_rule 'No more than 5:'
+    check "$n section $num: more than 5 means the selection is checked again" in_rule 'a longer list means the selection is weak'
+    check "$n section $num: a confirmed high finding is not cut to fit the limit" in_rule 'is never moved out of Act on to fit the limit'
+    check "$n section $num: every dismissed finding carries a one-line reason" in_rule 'each with a one-line reason'
+    check "$n section $num: no finding is dropped silently" in_rule 'No finding is dropped silently'
+    check "$n section $num: the groups are not a new scale" in_rule 'not a new scale: the levels `high` / `med` / `low`'
+    check "$n section $num: the verdicts stay" in_rule '`VERIFIED` / `REJECTED`'
+    check "$n section $num: the rule names pstack, the files and the commit" in_rule "$PSTACK_SOURCE"
+    # Allowed: the verdict words and the file name SKILL.md of the source.
+    caps="$(perl -e 'my %ok = map { $_ => 1 } qw(VERIFIED REJECTED NARROW SKILL); my $t = shift;
+        while ($t =~ /(?<![A-Z])([A-Z]{4,})(?![A-Z])/g) { print "$1 " unless $ok{$1} }' "$rule")"
+    check "$n section $num: the rule has no word in capitals${caps:+ — found: $caps}" test -z "$caps"
+    [ "$n" = epic-wave ] || continue
+    # The wave's gate: what the groups mean for the verdict, the rework list and the round count.
+    check "$n section $num: the rework list is the Act on group" in_rule 'The implementer gets the Act on group as the rework list'
+    check "$n section $num: the round count stays" in_rule 'and the count of rounds stay as they are'
+    check "$n section $num: a REJECTED with an empty Act on is not VERIFIED" in_rule 'is a disagreement with the verifier, not a `VERIFIED`'
+    check "$n section $num: the exchange with the verifier comes before the verdict is recorded" in_rule 'before you record anything, send the verifier your reasons through `SendMessage`'
+    check "$n section $num: that exchange is not a rework round" in_rule 'that exchange is not a rework round'
+    check "$n section $num: the verifier's brief does not change" in_rule "The verifier's brief does not change"
+    check "$n section $num: REJECTED sends the Act on group, not the whole list" \
+        bash -c '[[ "$(tr "\n" " " <"$1" | tr -s " ")" == *"$2"* ]]' _ "$f" '`SendMessage` with the Act on group of its list'
+done
+
 # 8. Cyrillic only in allowed places: the old Autopilot forms, Gate verdict words, placeholders
 # of profile values, section names of Project documents and Russian examples.
 ALLOWED=(

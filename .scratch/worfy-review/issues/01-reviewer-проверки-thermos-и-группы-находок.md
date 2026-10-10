@@ -1,7 +1,7 @@
 # 01 — Reviewer проверяет поломку локальной сборки и утечки feature flag; Orchestrator сортирует находки на четыре группы
 
 Type: task
-Status: open
+Status: claimed — 2026-10-10
 Blocked by: —
 Source: решение владельца 2026-10-09 («Хорошие идеи, сохрани их и добавь в планы к имплементации»), пункты «проверки Thermos» и «группы находок» из таблицы; [исследование](../../../docs/research/2026-10-09-ponytail-pstack-thermos.md), разделы о Thermos (plugin Cursor с двумя review-skills) и о skill `interrogate` из pstack (ревью несколькими моделями); [spec.md](../spec.md)
 
@@ -54,12 +54,12 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
 
 ## Готово, когда
 
-- [ ] `harness/bin/tests/agents-text.test.sh`: в `reviewer.md` есть строки о переменных окружения,
+- [x] `harness/bin/tests/agents-text.test.sh`: в `reviewer.md` есть строки о переменных окружения,
   feature flag, «unfinished research», намеренной поломке и объёме по diff-у — код 0.
-- [ ] Тот же test: в `reviewer.md` нет слов из 4+ заглавных латинских букв, кроме разрешённого списка
+- [x] Тот же test: в `reviewer.md` нет слов из 4+ заглавных латинских букв, кроме разрешённого списка
   (`VERIFIED`, `REJECTED`, `EXIT`, `JSON`, `CLAUDE`, `AGENTS`, `NARROW` и подобных имён протокола и
   файлов). Сначала test красный на `REMOVE`.
-- [ ] `harness/bin/tests/epic-wave-ship-ticket.test.sh`: в обоих skills есть `Act on`, `Consider`,
+- [x] `harness/bin/tests/epic-wave-ship-ticket.test.sh`: в обоих skills есть `Act on`, `Consider`,
   `Noted`, `Dismissed` и правило «не больше 5» — код 0.
 - [ ] Ручная проверка на одном diff-е с намеренно удалённой проверкой и описанием в Ticket-е: reviewer
   не делает из неё находку. Вывод — в «Итог». Eval-кейс `harness/evals/reviewer-intended-breakage/` —
@@ -71,11 +71,11 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
   `scaffold_script`; не меньше двух grader-ов, среди них `tool_used`; scaffold с кодом 0 создаёт `.git`
   и `.claude/worfy-harness/projects/demo/profile.json` во временном HOME, а
   `bin/profile -C <fixture> --name` печатает `demo`. `pnpm test` — код 0.
-- [ ] Источник назван (spec, «Решения владельца», пункт 1). У каждого правила из Thermos и pstack в
+- [x] Источник назван (spec, «Решения владельца», пункт 1). У каждого правила из Thermos и pstack в
   `reviewer.md` и в двух skills — строка `Source:` с проектом, путём к файлу и SHA коммита.
   Дословно взятый текст — ещё и пометка MIT: строка copyright владельца источника
   и полный текст лицензии из его `LICENSE` на том же коммите.
-- [ ] `gate.sh fast` — код 0 и строка `[gate] зелено (fast)`.
+- [x] `gate.sh fast` — код 0 и строка `[gate] зелено (fast)`.
 
 ## Где в коде
 
@@ -104,4 +104,63 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-review/01`.
+
+- **Первый test.** До правки текстов оба test-а были красными: `agents-text.test.sh` — 18 отказов
+  (17 строк о новых правилах и «words in capitals: 52: REMOVE»), `epic-wave-ship-ticket.test.sh` — 28.
+  Contract test `harness-evals.test.ts` упал на новой папке кейса, пока её имени не было в `CASES`.
+- **`harness/agents/reviewer.md`.** `REMOVE` написано обычным шрифтом. Новые абзацы: «Scope — the
+  diff», «Two defects that lenses rarely name» (поломка локальной сборки и запуска; утечка из-под
+  feature flag), «No unfinished research», «Intended breakage is not a finding» с двумя исключениями.
+  В формате ответа — строка «outside the diff: …». В конце — строка `Source:` (Thermos,
+  `thermos/skills/thermo-nuclear-review/SKILL.md`, коммит `ccb5507c…`).
+- **Skills.** Абзац «Four groups of findings» — в ship-ticket, шаг 7, и в epic-wave, раздел 3; у
+  каждого своя строка `Source:` (pstack, `interrogate/SKILL.md` и `references/lead-judgment.md`, тот же
+  коммит). В epic-wave Implementer получает на доработку группу Act on, а не весь список `REJECTED`.
+- **Eval-кейс `reviewer-intended-breakage`.** Проект demo, ветка `demo/01`: Ticket прямо говорит, что
+  проверка `total === 0` в `percent` убирается намеренно, а единственный вызывающий код сам
+  обрабатывает ноль. В том же diff-е есть настоящий дефект: `Math.floor` вместо округления к
+  ближайшему, test-ы ветки на нём зелёные (`percent(2, 3)` — `66.6`, Ticket просит `66.7`). Grader-ы:
+  запущен ровно один `worfy:reviewer`; удаление проверки не стало находкой с уровнем; дефект
+  округления назван. Contract test проверяет и саму заготовку: ветку, diff, текст Ticket-а, код 0 у
+  `node --test` и значение `66.6`.
+- **Проверки.** `pnpm lint && pnpm typecheck && pnpm test` — код 0 (183 файла, 3730 test-ов).
+  `GATE_SCOPE=all gate.sh fast` — код 0, строка `[gate] зелено (fast): worfy/.:lint worfy/.:typecheck
+  worfy/.:test`. Мутанты текстов (12 штук на копиях: вернуть `REMOVE`, добавить слово заглавными,
+  убрать исключение, убрать `Source:`, сменить предел 5 на 7, вынести правило из шага 7 и другие) и
+  два мутанта заготовки кейса — все красные.
+- не проверено: ручная проверка «reviewer не делает находку из намеренно удалённой проверки». Прогон
+  без человека не запускает настоящий Claude Code и платный `pnpm eval:harness`: поведение reviewer-а
+  на новом тексте не наблюдалось. Пункт «Готово, когда» остаётся `[ ]` до платного прогона кейса
+  `reviewer-intended-breakage` (Epic worfy-harness, Ticket 27 — eval-кейсы через `claude plugin eval`).
+- не проверено: `gate.sh full` (e2e и `.app`) на этой ветке не запускался; он нужен перед мержем, на
+  ветке после rebase.
+- **Шаг владельца.** Новые тексты начнут действовать после `pnpm install:stable` вне прогона
+  Autopilot (ADR-0047): до него работает прежняя копия Harness.
+
+Решено без владельца, подтвердить:
+
+1. **Verifier-у Wave отдельный бриф о четырёх группах не нужен** (открытый вопрос из «Риски»).
+   Сортирует Orchestrator, verifier отвечает в прежнем формате; так и сказано в epic-wave, раздел 3.
+2. **Предел 5 не срезает подтверждённые находки.** Если после повторной проверки в Act on больше 5,
+   подтверждённая `high` из группы не уходит: Orchestrator пишет об этом в отчёте. В Ticket-е было
+   только «не больше 5, иначе перепроверить».
+3. **`REJECTED` с пустой группой Act on — не `VERIFIED`.** Если Orchestrator опроверг или отложил
+   все находки verifier-а, он до записи вердикта отправляет verifier-у свои причины через
+   `SendMessage` и записывает тот вердикт, которым verifier ответит. Этот обмен не считается кругом
+   доработки. Без такого правила сортировка позволяла бы Orchestrator-у молча обойти Gate.
+4. **Пометки MIT нет.** Текст Thermos и pstack пересказан своими словами. Дословно взяты только
+   названия четырёх групп и термин «unfinished research» (его требует этот Ticket). Строка `Source:`
+   называет лицензию и владельца copyright, но полного текста лицензии в файлах нет. Если названия
+   групп считать дословным текстом, пометку нужно добавить в оба skills.
+5. **Две новые проверки делает каждый reviewer, с любой линзой.** Находка вне его линзы идёт
+   строкой «outside the lens: …». Линзы в Profile — только названия, поэтому привязать проверки к
+   одной линзе в тексте агента нельзя.
+6. **Намеренная поломка — только по Ticket-у или брифу.** Догадка по diff-у или по сообщению
+   коммита не считается; без Ticket-а удаление проверки остаётся находкой.
+7. **Разрешённые слова заглавными в `reviewer.md`:** `VERIFIED`, `REJECTED`, `NARROW`, `EXIT`, `JSON`,
+   `CLAUDE`, `PLUGIN`, `ROOT`, `AGENTS`, `TOKEN`, `SKILL` — имена протокола, переменных и файлов. Слово
+   в test-е — это подряд идущие четыре и более заглавных латинских букв.
+
+Замечено вне Ticket-а: `harness/README.md:74` и `:88` говорят о восьми eval-кейсах; теперь их девять.
+Файл принадлежит Ticket-у 07 этого Epic-а, здесь он не менялся.

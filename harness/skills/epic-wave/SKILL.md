@@ -284,11 +284,41 @@ These counts do not see the narrow round below: its verdicts start with `NARROW:
 `local-green` — commits `gate: NARROW: …`, in Silent mode — such lines in the ticket file). A `NARROW:` comment or commit means the ticket has had
 its narrow round; the last `NARROW: VERIFIED` or `NARROW: REJECTED` is its verdict.
 
+**Four groups of findings.** Before a verdict is recorded and before a `REJECTED` list goes to the
+implementer, re-read every `file:line` in the verifier's answer and sort its findings into four
+groups; the wave's report (section 5) shows the four groups of every ticket under its table. The
+groups are a way to show the findings, not a new scale: the levels `high` / `med` / `low`, the
+verdicts `VERIFIED` / `REJECTED` and the count of rounds stay as they are.
+- **Act on** — confirmed `high` and `med` findings; they go to rework. The implementer gets the Act
+  on group as the rework list. No more than 5: a longer list means the selection is weak, so check
+  every item again — is it confirmed, is its level right, is it one defect reported twice — and
+  move what does not hold to another group. A confirmed `high` finding is never moved out of Act on
+  to fit the limit: if more than 5 remain after the second check, say so in the report.
+- **Consider** — `med` and `low` findings whose fix is disputable or costs more than it gives; the
+  documents commit (section 4, item 4) moves them into the ticket's result section: they are debts,
+  not rework.
+- **Noted** — `low` findings that need no fix now and the `[low] debt: …` lines of a later round;
+  one line each in the ticket's result section, by the same commit.
+- **Dismissed** — findings you refuted, each with a one-line reason.
+
+No finding is dropped silently: what goes to no other group goes to Dismissed, so the owner sees
+what was rejected and can overrule it. An empty group is written as "none". A `REJECTED` whose Act
+on group came out empty is a disagreement with the verifier, not a `VERIFIED`: before you record
+anything, send the verifier your reasons through `SendMessage` and record the verdict it answers
+with; that exchange is not a rework round. The verifier's brief does not change: the verifier does
+not sort, it answers in its own format.
+
+Source: pstack, `pstack/skills/interrogate/SKILL.md` and
+`pstack/skills/interrogate/references/lead-judgment.md`, commit
+`ccb5507cec1546dc88135c1139c811e6c59115ba` of `cursor/plugins` (MIT, Copyright (c) 2026 Lauren Tan)
+— the four groups, the limit of 5 and the reason to show what was dismissed. The group names are
+pstack's; the rules are reworded, not copied.
+
 `REJECTED` (except `REJECTED: gate 3 …` — see above) goes to the same implementer through
-`SendMessage` with that list — exactly one rework round (the exception is the narrow round below),
-then the gate again. The same message reminds the implementer: cover every new behaviour of the
-rework with a test that turns red on a mutant of that change, and think through races in async
-code — rework rounds have introduced defects themselves.
+`SendMessage` with the Act on group of its list — exactly one rework round (the exception is the
+narrow round below), then the gate again. The same message reminds the implementer: cover every new
+behaviour of the rework with a test that turns red on a mutant of that change, and think through
+races in async code — rework rounds have introduced defects themselves.
 
 **The second gate round checks the rework round; it does not search everything again.** The
 brief gives the first round's `REJECTED` list and the diff of the rework only: `git diff <sha>..HEAD`,

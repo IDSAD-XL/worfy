@@ -271,6 +271,30 @@ Each reviewer's brief carries the owner's rules on evidence: an item with "not v
 6, manual checks) is not a finding; attached evidence that does not show what is claimed is a
 high-severity finding.
 
+**Four groups of findings.** When the reviewers have answered and you have re-read every
+`file:line`, sort all their findings into four groups and show the four groups to the user. The
+groups are a way to show the findings, not a new scale: the levels `high` / `med` / `low` stay as
+the reviewers set them, and the verdicts `VERIFIED` / `REJECTED` of a wave's gate stay as they are.
+- **Act on** — confirmed `high` and `med` findings; they go to rework. No more than 5: a longer
+  list means the selection is weak, so check every item again — is it confirmed, is its level
+  right, is it one defect reported twice — and move what does not hold to another group. A
+  confirmed `high` finding is never moved out of Act on to fit the limit: if more than 5 remain
+  after the second check, say so in the report.
+- **Consider** — `med` and `low` findings whose fix is disputable or costs more than it gives; they
+  go to the ticket's result section as debts (step 11).
+- **Noted** — `low` findings that need no fix now and the `[low] debt: …` lines of a repeat review;
+  one line each in the ticket's result section.
+- **Dismissed** — findings you refuted, each with a one-line reason.
+
+No finding is dropped silently: what goes to no other group goes to Dismissed, so the owner sees
+what was rejected and can overrule it. An empty group is written as "none".
+
+Source: pstack, `pstack/skills/interrogate/SKILL.md` and
+`pstack/skills/interrogate/references/lead-judgment.md`, commit
+`ccb5507cec1546dc88135c1139c811e6c59115ba` of `cursor/plugins` (MIT, Copyright (c) 2026 Lauren Tan)
+— the four groups, the limit of 5 and the reason to show what was dismissed. The group names are
+pstack's; the rules are reworded, not copied.
+
 **A repeat review after rework** checks the rework round; it does not search everything again. The
 brief gives the first round's findings and the diff of the rework only. Only these block: (a) a
 first-round finding that is neither fixed nor refuted; (b) a defect introduced by the rework's
