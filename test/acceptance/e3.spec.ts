@@ -255,6 +255,25 @@ async function expectRowStatus(row: Pick<Locator, 'getAttribute' | 'innerText'>,
   throw new Error(`${what}: the row is "${String(seen)}", not "${status}", after ${Math.round(timeoutMs / 1000)} s. The row says: "${await rowText(row)}"`)
 }
 
+/**
+ * Waits until the "Add project" dialog shows the form of the draft (`data-step="form"`). A draft
+ * that failed stops the wait at once: no form follows `failed`, and the reason — what Claude Code
+ * said when it exited — is in the dialog and nowhere else. Either way the error carries what the
+ * dialog says.
+ */
+async function expectDraftForm(dialog: Pick<Locator, 'getAttribute' | 'innerText'>, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  let seen: string | null
+  for (;;) {
+    seen = await dialog.getAttribute('data-step')
+    if (seen === 'form') return
+    if (seen === 'failed') throw new Error(`The draft of the real agent failed. The dialog says: "${await rowText(dialog)}"`)
+    if (Date.now() >= deadline) break
+    await new Promise((done) => setTimeout(done, Math.min(500, Math.max(1, deadline - Date.now()))))
+  }
+  throw new Error(`The draft of the real agent: the dialog is at "${String(seen)}", not "form", after ${Math.round(timeoutMs / 1000)} s. The dialog says: "${await rowText(dialog)}"`)
+}
+
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 test('silent: control — the search for this run’s values finds a planted trace (no app)', () => {
@@ -273,6 +292,24 @@ test('sandbox: control — a row that does not turn ok fails with what the row s
   let reads = 0
   const turns = { getAttribute: () => Promise.resolve(++reads < 3 ? 'fail' : 'ok'), innerText: () => Promise.resolve('') }
   await expectRowStatus(turns, 'Install the Harness', 'ok', 5_000)
+  expect(reads).toBe(3)
+})
+
+test('silent: control — a draft that failed stops the wait at once with what the dialog says (no app)', async () => {
+  const says = 'Add project\nDraft\nFailed  The draft Session failed: Claude Code process exited with code 1. stderr: Error: --json-schema is not a valid JSON Schema'
+  let reads = 0
+  const failed = { getAttribute: () => Promise.resolve(++reads < 2 ? 'drafting' : 'failed'), innerText: () => Promise.resolve(says) }
+  const started = Date.now()
+  await expect(expectDraftForm(failed, 30_000)).rejects.toThrow(
+    'The draft of the real agent failed. The dialog says: "Add project Draft Failed The draft Session failed: Claude Code process exited with code 1. stderr: Error: --json-schema is not a valid JSON Schema"',
+  )
+  expect(reads).toBe(2)
+  expect(Date.now() - started).toBeLessThan(10_000)
+  const stuck = { getAttribute: () => Promise.resolve('drafting'), innerText: () => Promise.resolve('Add project\nDraft\nReading the repositories') }
+  await expect(expectDraftForm(stuck, 50)).rejects.toThrow('The draft of the real agent: the dialog is at "drafting", not "form", after 0 s. The dialog says: "Add project Draft Reading the repositories"')
+  reads = 0
+  const turns = { getAttribute: () => Promise.resolve(++reads < 3 ? 'drafting' : 'form'), innerText: () => Promise.resolve('') }
+  await expectDraftForm(turns, 5_000)
   expect(reads).toBe(3)
 })
 
@@ -389,7 +426,7 @@ test('silent: a Silent Project connects, one Wave runs, and no workflow trace re
     await expect(dialog).toBeVisible()
     await expect(dialog.getByTestId('connect-mode-silent').getByRole('radio')).toBeChecked()
     await dialog.getByRole('button', { name: 'Write draft' }).click()
-    await expect(dialog, 'the draft of the real agent').toHaveAttribute('data-step', 'form', { timeout: 15 * 60_000 })
+    await expectDraftForm(dialog, 15 * 60_000)
     const account = dialog.getByTestId('connect-github').locator(`[data-testid="connect-github-account"][data-login="${ACCOUNT}"]`)
     await expect(account).toBeVisible({ timeout: 60_000 })
     await account.getByRole('radio').check()

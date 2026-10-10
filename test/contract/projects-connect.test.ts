@@ -6,6 +6,7 @@
 // plays test/fixtures/agent-scripts/profile-draft.jsonl through the fake agent.
 import { execFileSync, spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -35,6 +36,41 @@ const REPO = join(__dirname, '..', '..')
 const BIN = join(REPO, 'harness', 'bin')
 const SCRIPTS = join(REPO, 'test', 'fixtures', 'agent-scripts')
 const SCHEMA = JSON.parse(readFileSync(join(REPO, 'harness', 'profiles', 'draft.schema.json'), 'utf8')) as Record<string, unknown>
+/** The 2020-12 meta-schema the schema file names; a validator that knows draft-07 only has no such schema. */
+const META_2020_12 = 'https://json-schema.org/draft/2020-12/schema'
+
+/**
+ * Compiles `schema` with a JSON Schema validator that knows draft-07 only, as Claude Code checks
+ * `--json-schema`: ajv 6, the one eslint (a devDependency) brings — the repository has no ajv of its
+ * own. Unknown keywords are errors (`strictKeywords`), so a keyword of a later draft fails here even
+ * where a lenient validator would skip it. Throws what the validator says.
+ */
+function compileDraft07(schema: unknown): void {
+  let Ajv: new (options: { strictKeywords: boolean }) => { compile: (schema: unknown) => unknown }
+  try {
+    const eslint = createRequire(join(REPO, 'package.json')).resolve('eslint/package.json')
+    Ajv = createRequire(eslint)('ajv') as typeof Ajv
+  } catch (error) {
+    throw new Error(
+      `ajv was not found among the dependencies of eslint (${error instanceof Error ? error.message : String(error)}). ` +
+        'This test needs a JSON Schema validator without the 2020-12 meta-schema to check the schema the draft Session gets: bring one another way, do not skip the check.',
+      { cause: error },
+    )
+  }
+  new Ajv({ strictKeywords: true }).compile(schema)
+}
+
+/** Every place in `value` where a key is `$schema` or `$id`, as paths: whatever the key means there. */
+function metaKeys(value: unknown, at = ''): string[] {
+  if (Array.isArray(value)) return value.flatMap((item, index) => metaKeys(item, `${at}[${index}]`))
+  if (typeof value !== 'object' || value === null) return []
+  return Object.entries(value).flatMap(([key, inner]) => [...(key === '$schema' || key === '$id' ? [`${at}.${key}`] : []), ...metaKeys(inner, `${at}.${key}`)])
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value === 'object' && value !== null) for (const inner of Object.values(Object.freeze(value))) deepFreeze(inner)
+  return value
+}
 
 let scratch: string
 let home: string
@@ -282,7 +318,7 @@ describe('the draft Session (step 4)', () => {
     expect(run.requests).toHaveLength(1)
     const request = run.requests[0]
     expect(request?.cwd).toBe(repo)
-    expect(request?.outputFormat).toEqual({ type: 'json_schema', schema: SCHEMA })
+    expect(request?.outputFormat.type).toBe('json_schema')
     expect(request?.allowedTools).toEqual(['Read', 'Glob', 'Grep'])
     expect(request?.disallowedTools).toEqual(expect.arrayContaining(['Bash', 'Write', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task']))
     expect(request?.allowedTools).not.toContain('Bash')
@@ -310,6 +346,76 @@ describe('the draft Session (step 4)', () => {
     // Nothing was written: not in the Harness home, not in the repository.
     expect(harnessFiles()).toEqual(before)
     expect(clean(repo)).toBe('')
+  })
+
+  it('the schema file as it is fails a draft-07 validator on the meta-schema it names, as Claude Code refused it', () => {
+    expect(SCHEMA.$schema).toBe(META_2020_12)
+    expect(() => compileDraft07(SCHEMA)).toThrow(`no schema with key or ref "${META_2020_12}"`)
+    // And a keyword draft-07 does not have is an error too, not skipped.
+    expect(() => compileDraft07({ type: 'array', prefixItems: [{ type: 'string' }] })).toThrow('unknown keyword: prefixItems')
+  })
+
+  it('gets the schema of the file without $schema and $id, and a draft-07 validator compiles it', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const run = connectorWith()
+
+    const outcome = await run.connector.draft({ draftId: 'd1', root: repo, mode: 'silent', workflowFolder: null }, () => undefined)
+
+    expect(outcome.status).toBe('draft')
+    const sent = run.requests[0]?.outputFormat.schema
+    expect(metaKeys(sent)).toEqual([])
+    expect(() => compileDraft07(sent)).not.toThrow()
+    // Nothing else of the schema is lost on the way, and the file's own copy keeps its $schema.
+    const { $schema: named, ...rest } = SCHEMA
+    expect(named).toBe(META_2020_12)
+    expect(sent).toEqual(rest)
+  })
+
+  it('takes $schema and $id out of every schema inside the schema, and leaves a field or a value of that name', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const inner = { $schema: META_2020_12, $id: 'https://worfy.example/inner' }
+    // Frozen: the schema of the caller is not changed in place.
+    const schema = deepFreeze({
+      ...inner,
+      type: 'object',
+      required: ['$id'],
+      properties: {
+        // Fields of the draft that happen to be called $id and $schema: names, not keywords.
+        $id: { ...inner, type: 'string', enum: ['$schema', '$id'] },
+        $schema: { type: 'object', default: { $id: 'a value' }, const: { $schema: 'a value' } },
+        list: { type: 'array', items: { ...inner, type: 'string' }, contains: { ...inner, type: 'string' } },
+        pair: { type: 'array', items: [{ ...inner, type: 'string' }], additionalItems: { ...inner, type: 'number' } },
+        either: { anyOf: [{ ...inner, type: 'string' }], oneOf: [{ ...inner, type: 'string' }], allOf: [{ ...inner, type: 'string' }], not: { ...inner, type: 'number' } },
+        when: { if: { ...inner, type: 'string' }, then: { ...inner, minLength: 1 }, else: { ...inner, type: 'null' } },
+        map: { type: 'object', patternProperties: { '^x': { ...inner, type: 'string' } }, additionalProperties: { ...inner, type: 'number' }, propertyNames: { ...inner, minLength: 1 } },
+        needs: { type: 'object', dependencies: { a: { ...inner, required: ['b'] }, c: ['d'] } },
+        shared: { $ref: '#/definitions/name' },
+      },
+      definitions: { name: { ...inner, type: 'string' } },
+    })
+    const run = connectorWith({ draftSchema: () => schema })
+
+    await run.connector.draft({ draftId: 'd1', root: repo, mode: 'silent', workflowFolder: null }, () => undefined)
+
+    expect(run.requests).toHaveLength(1)
+    const sent = run.requests[0]?.outputFormat.schema
+    expect(sent).toEqual({
+      type: 'object',
+      required: ['$id'],
+      properties: {
+        $id: { type: 'string', enum: ['$schema', '$id'] },
+        $schema: { type: 'object', default: { $id: 'a value' }, const: { $schema: 'a value' } },
+        list: { type: 'array', items: { type: 'string' }, contains: { type: 'string' } },
+        pair: { type: 'array', items: [{ type: 'string' }], additionalItems: { type: 'number' } },
+        either: { anyOf: [{ type: 'string' }], oneOf: [{ type: 'string' }], allOf: [{ type: 'string' }], not: { type: 'number' } },
+        when: { if: { type: 'string' }, then: { minLength: 1 }, else: { type: 'null' } },
+        map: { type: 'object', patternProperties: { '^x': { type: 'string' } }, additionalProperties: { type: 'number' }, propertyNames: { minLength: 1 } },
+        needs: { type: 'object', dependencies: { a: { required: ['b'] }, c: ['d'] } },
+        shared: { $ref: '#/definitions/name' },
+      },
+      definitions: { name: { type: 'string' } },
+    })
+    expect(() => compileDraft07(sent)).not.toThrow()
   })
 
   it('a draft off the schema is an error with its reasons, and nothing is written', async () => {
