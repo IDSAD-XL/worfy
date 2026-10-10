@@ -76,6 +76,19 @@ export function isTerminalKey(event: { target: unknown }, platform: Platform = c
 }
 
 /**
+ * The key a shortcut is matched by. A Latin letter is taken from the key cap (`event.key`), in lower
+ * case, so a shortcut follows the letter on QWERTZ, AZERTY and Dvorak. With a layout that is not
+ * Latin the key cap says `л` where the shortcut says K — on Windows also while Ctrl is held — so
+ * there the letter comes from the place of the key (`event.code`, `KeyK`). Any other key is
+ * `event.key` as it is.
+ */
+export function shortcutKey(event: { key: string; code?: string }): string {
+  if (/^[a-z]$/i.test(event.key)) return event.key.toLowerCase()
+  const place = /^Key([A-Z])$/.exec(event.code ?? '')
+  return place ? place[1]!.toLowerCase() : event.key
+}
+
+/**
  * A key combination, written without the system: `primary` is ⌘ on macOS and Ctrl elsewhere.
  * `key` is the name of the key as KeyboardEvent.key has it (`K`, `Enter`, `=`).
  */

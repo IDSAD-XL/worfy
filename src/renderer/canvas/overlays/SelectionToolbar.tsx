@@ -11,7 +11,7 @@ import { useEffect, useState, type ComponentType, type KeyboardEvent } from 'rea
 import { useNodes, useReactFlow, useStoreApi, ViewportPortal } from '@xyflow/react'
 import { create } from 'zustand'
 import type { LayoutNode } from '../../../shared/layout/types'
-import { isOtherModifier, isPrimary } from '../../platform'
+import { isOtherModifier, isPrimary, shortcutKey } from '../../platform'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import { deletableNodes, deleteToTrash, grouped, historyOf } from '../history'
 import type { CanvasFlowNode } from '../nodes'
@@ -60,7 +60,7 @@ function useCanvasKeys(projectId: string | undefined): void {
       // The other modifier (Ctrl on macOS, the Windows key on Windows) makes it another combination.
       if (event.defaultPrevented || event.altKey || isOtherModifier(event) || isTextTarget(event.target)) return
       if (!onCanvas(event)) return
-      if (isPrimary(event) && (event.key === 'z' || event.key === 'Z')) {
+      if (isPrimary(event) && shortcutKey(event) === 'z') {
         event.preventDefault()
         void (event.shiftKey ? historyOf(projectId).redo() : historyOf(projectId).undo())
       } else if (!isPrimary(event) && !event.shiftKey && (event.key === 'Delete' || event.key === 'Backspace')) {

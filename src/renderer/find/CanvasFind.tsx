@@ -21,7 +21,7 @@ import { createItems } from '../canvas/overlays/create-items'
 import { useTidyUp } from '../canvas/tidy'
 import { useLayout, useLayoutOps } from '../canvas/useLayout'
 import { useDocs, useDocText } from '../docs/useDocs'
-import { isPrimary, isTerminalKey, label, type KeyCombo } from '../platform'
+import { isPrimary, isTerminalKey, label, shortcutKey, type KeyCombo } from '../platform'
 import { activeProject, useProjects } from '../projects/useProjects'
 import { useSessionLogs } from '../session/store'
 import { useWorkflow } from '../workflow/useWorkflow'
@@ -465,7 +465,7 @@ function ProjectFind({ projectId, root }: FindBarProps) {
   // ⌘F, while the Canvas is the view on screen (the Session view hides it).
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!isPrimary(event) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'f') return
+      if (!isPrimary(event) || event.altKey || event.shiftKey || shortcutKey(event) !== 'f') return
       // On Windows Ctrl+F in a Terminal Node is the shell's (worfy-windows ticket 11).
       if (isTerminalKey(event)) return
       const dom = store.getState().domNode

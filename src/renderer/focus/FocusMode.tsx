@@ -21,7 +21,7 @@ import { createPortal } from 'react-dom'
 import { useNodes } from '@xyflow/react'
 import { nodeTypes, type CanvasFlowNode, type CanvasNodeProps } from '../canvas/nodes'
 import { UnknownNode } from '../canvas/UnknownNode'
-import { isPrimary } from '../platform'
+import { isPrimary, isTerminalKey } from '../platform'
 import {
   buildPreset,
   computeGeometry,
@@ -225,6 +225,9 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
   useEffect(() => {
     // Capture phase: the Canvas listens on window too, and must not zoom while it is covered.
     const swallowZoom = (event: KeyboardEvent) => {
+      // On Windows Ctrl+_ in a Terminal tile is the shell's undo (readline): it goes to the terminal,
+      // which keeps it from the Canvas itself.
+      if (event.key === '_' && isTerminalKey(event)) return
       if (isPrimary(event) && ZOOM_KEYS.has(event.key)) {
         event.preventDefault()
         event.stopImmediatePropagation()

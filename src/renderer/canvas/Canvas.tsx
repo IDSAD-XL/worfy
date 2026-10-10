@@ -52,7 +52,7 @@ import { EPIC_FRAME_KIND, SUBAGENT_KIND } from '../../shared/layout/derived'
 import { isParticipant, obstaclesFor, type Rect } from '../../shared/layout/free-place'
 import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput, type LayoutState, type Viewport } from '../../shared/layout/types'
 import { invoke, windowMachine } from '../ipc'
-import { isMac, isPrimary } from '../platform'
+import { isMac, isPrimary, isTerminalKey } from '../platform'
 import { dropNodes, edgeSources, edgesOf, edgeTypes, nodeSources, overlays, type NodeSource } from './extensions'
 import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
 import { UnknownNode } from './UnknownNode'
@@ -435,6 +435,8 @@ function Flow({ projectId, state, opening }: FlowProps) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!isPrimary(event) || event.altKey) return
+      // On Windows Ctrl+_ in a Terminal Node is the shell's undo (readline), not a zoom.
+      if (event.key === '_' && isTerminalKey(event)) return
       if (wrapper.current === null || wrapper.current.offsetParent === null) return
       if (event.key === '=' || event.key === '+') {
         event.preventDefault()

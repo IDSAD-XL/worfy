@@ -574,12 +574,23 @@ describe('the keys of the Canvas by system', () => {
 
   it.each(SYSTEMS)('on %s a Note dragged with %s held does not snap, and with %s held it does', async (system, primary, other) => {
     document.documentElement.dataset.platform = system
-    const canvas = await renderCanvas(`keys-drag-${system}`, [node('n', 'note', 0, { text: '' })])
+    // A neighbour 400 below: a Note dragged to (5, 101) lines up with it and snaps to x = 0.
+    const canvas = await renderCanvas(`keys-drag-${system}`, [node('n', 'note', 0, { text: '' }), { ...node('m', 'note', 0, { text: '' }), y: 400 }])
+    const guides = (): number => document.querySelectorAll('[data-testid="snap-guide"]').length
     try {
-      await drag('n', { x: 0, y: 0 }, { x: 13, y: 21 }, { [primary]: true })
-      expect(canvas.sent).toEqual([{ op: 'move', id: 'n', x: 13, y: 21 }])
-      await drag('n', { x: 13, y: 21 }, { x: 45, y: 53 }, { [other]: true })
-      expect(canvas.sent.slice(1)).toEqual([{ op: 'move', id: 'n', x: 48, y: 56 }])
+      let during = -1
+      // The other modifier is not the one that frees the drag: a guide shows, and the Note snaps.
+      await drag('n', { x: 0, y: 0 }, { x: 5, y: 101 }, { [other]: true }, () => {
+        during = guides()
+      })
+      expect(during).toBeGreaterThan(0)
+      expect(canvas.sent).toEqual([{ op: 'move', id: 'n', x: 0, y: 104 }])
+      // The primary one: no guide while it is held, and the Note stays where it was let go.
+      await drag('n', { x: 0, y: 104 }, { x: 5, y: 205 }, { [primary]: true }, () => {
+        during = guides()
+      })
+      expect(during).toBe(0)
+      expect(canvas.sent.slice(1)).toEqual([{ op: 'move', id: 'n', x: 5, y: 205 }])
     } finally {
       await activate(null)
       canvas.cleanup()
@@ -597,11 +608,18 @@ describe('the keys of the Canvas by system', () => {
       const back = { op: 'move', id: 'n', x: 0, y: 0 }
       expect((await press({ key: 'z', [other]: true })).defaultPrevented).toBe(false)
       expect((await press({ key: 'z', [primary]: true, [other]: true })).defaultPrevented).toBe(false)
+      expect((await press({ key: 'z', [primary]: true, altKey: true })).defaultPrevented).toBe(false)
       expect(canvas.sent).toEqual([moved])
       expect((await press({ key: 'z', [primary]: true })).defaultPrevented).toBe(true)
       expect(canvas.sent).toEqual([moved, back])
       await press({ key: 'Z', [primary]: true, shiftKey: true })
       expect(canvas.sent).toEqual([moved, back, moved])
+      // With a Russian layout the Z key gives 'я': the place of the key decides.
+      expect((await press({ key: 'я', code: 'KeyZ', [primary]: true })).defaultPrevented).toBe(true)
+      expect(canvas.sent).toEqual([moved, back, moved, back])
+      await press({ key: 'Я', code: 'KeyZ', [primary]: true, shiftKey: true })
+      expect(canvas.sent).toEqual([moved, back, moved, back, moved])
+      expect((await press({ key: 'н', code: 'KeyY', [primary]: true })).defaultPrevented).toBe(false)
     } finally {
       await activate(null)
       canvas.cleanup()
@@ -622,6 +640,7 @@ describe('the keys of the Canvas by system', () => {
       expect((await press({ key: 'Backspace', [primary]: true })).defaultPrevented).toBe(false)
       expect((await press({ key: 'Backspace', [other]: true })).defaultPrevented).toBe(false)
       expect((await press({ key: 'Delete', [other]: true })).defaultPrevented).toBe(false)
+      expect((await press({ key: 'Backspace', altKey: true })).defaultPrevented).toBe(false)
       // The press alone is the Canvas's: it takes the key and sends the selection to the trash.
       expect((await press({ key: 'Backspace' })).defaultPrevented).toBe(true)
     } finally {
@@ -639,8 +658,22 @@ describe('the keys of the Canvas by system', () => {
     await activate(`keys-find-${system}`)
     try {
       await press({ key: 'f', [other]: true })
+      await press({ key: 'f', [primary]: true, altKey: true })
+      await press({ key: 'f', [primary]: true, shiftKey: true })
       expect(useCanvasRequests.getState().findOpen).toBe(false)
+      // With a Node selected the bar says what it searches, and names the keys of the system.
+      await act(async () => {
+        flowNode('n').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      await waitFor(() => expect(document.querySelector('[data-testid="selection-toolbar"]')).not.toBeNull())
       expect((await press({ key: 'f', [primary]: true })).defaultPrevented).toBe(true)
+      expect(useCanvasRequests.getState().findOpen).toBe(true)
+      const scope = await screen.findByTestId('find-scope')
+      expect(scope.getAttribute('title')).toBe(`Only the Nodes selected at the last ${system === 'mac' ? '⌘F' : 'Ctrl+F'}`)
+      expect(screen.getByLabelText('Previous match').getAttribute('title')).toBe(`Previous match (${system === 'mac' ? '⇧Enter' : 'Shift+Enter'})`)
+      // With a Russian layout the F key gives а: the place of the key decides.
+      await act(async () => closeFind())
+      expect((await press({ key: 'а', code: 'KeyF', [primary]: true })).defaultPrevented).toBe(true)
       expect(useCanvasRequests.getState().findOpen).toBe(true)
     } finally {
       await act(async () => closeFind())
@@ -680,6 +713,7 @@ describe('the keys of the Canvas by system', () => {
     try {
       expect(scale()).toBe(1)
       expect((await press({ key: '=', [other]: true })).defaultPrevented).toBe(false)
+      expect((await press({ key: '=', [primary]: true, altKey: true })).defaultPrevented).toBe(false)
       expect(scale()).toBe(1)
       expect((await press({ key: '=', [primary]: true })).defaultPrevented).toBe(true)
       await waitFor(() => expect(scale()).toBeGreaterThan(1))
@@ -688,6 +722,44 @@ describe('the keys of the Canvas by system', () => {
       await waitFor(() => expect(scale()).toBeLessThan(zoomed))
     } finally {
       await activate(null)
+      canvas.cleanup()
+      restore()
+    }
+  })
+
+  // React Flow zooms on the wheel while its zoom key is held (zoomActivationKeyCode) and pans
+  // otherwise. The key is the primary modifier of the system: on Windows the Windows key held over
+  // the wheel must not zoom.
+  it.each(SYSTEMS)('on %s the wheel zooms the Canvas while %s is held, and pans it while %s is', async (system, primary, other) => {
+    document.documentElement.dataset.platform = system
+    const restore = onScreen()
+    const canvas = await renderCanvas(`keys-wheel-${system}`, [node('n', 'note', 0, { text: '' })])
+    const KEY = { metaKey: 'Meta', ctrlKey: 'Control' } as const
+    const pane = document.querySelector('.react-flow__pane') as HTMLElement
+    /** Holds a modifier, turns the wheel over the empty plane, lets the modifier go. */
+    const wheel = async (modifier: Modifier) => {
+      await act(async () => {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: KEY[modifier], code: `${KEY[modifier]}Left`, bubbles: true }))
+      })
+      await act(async () => {
+        // React Flow takes a wheel with ctrlKey for a pinch and zooms whatever key is held; the
+        // event carries no modifier flag, so only the held key decides.
+        pane.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -120, clientX: 600, clientY: 400 }))
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      await act(async () => {
+        document.dispatchEvent(new KeyboardEvent('keyup', { key: KEY[modifier], code: `${KEY[modifier]}Left`, bubbles: true }))
+      })
+    }
+    try {
+      expect(scale()).toBe(1)
+      const before = viewport().style.transform
+      await wheel(other)
+      expect(scale()).toBe(1)
+      expect(viewport().style.transform).not.toBe(before)
+      await wheel(primary)
+      expect(scale()).toBeGreaterThan(1)
+    } finally {
       canvas.cleanup()
       restore()
     }
@@ -711,6 +783,8 @@ describe('the keys of the Canvas by system', () => {
       expect(button.querySelector('kbd')?.textContent).toBe(system === 'mac' ? '⌘↩' : 'Ctrl+Enter')
       expect(button.getAttribute('aria-keyshortcuts')).toBe(system === 'mac' ? 'Meta+Enter' : 'Control+Enter')
       await press({ key: 'Enter', [other]: true })
+      await press({ key: 'Enter', [primary]: true, altKey: true })
+      await press({ key: 'Enter', [primary]: true, shiftKey: true })
       expect(screen.queryByTestId('focus-mode')).toBeNull()
       expect((await press({ key: 'Enter', [primary]: true })).defaultPrevented).toBe(true)
       expect(await screen.findByTestId('focus-mode')).toBeTruthy()
@@ -718,6 +792,16 @@ describe('the keys of the Canvas by system', () => {
       expect((await press({ key: '=', [primary]: true })).defaultPrevented).toBe(true)
       expect(scale()).toBe(1)
       expect((await press({ key: '0', [other]: true })).defaultPrevented).toBe(false)
+      // Ctrl+_ is undo in a shell (readline): on Windows a Terminal tile keeps it. On macOS the
+      // shell's keys are on Ctrl, and ⌘_ is the Canvas zoom, swallowed like the rest.
+      const field = terminalField()
+      try {
+        expect((await press({ key: '_', [primary]: true, shiftKey: true }, field)).defaultPrevented).toBe(system === 'mac')
+        expect((await press({ key: '-', [primary]: true }, field)).defaultPrevented).toBe(true)
+        expect((await press({ key: '_', [primary]: true, shiftKey: true })).defaultPrevented).toBe(true)
+      } finally {
+        field.parentElement?.remove()
+      }
     } finally {
       await activate(null)
       canvas.cleanup()

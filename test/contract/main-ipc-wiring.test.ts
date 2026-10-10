@@ -9,6 +9,9 @@ import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channel
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 
+/** How long a test waits for the start: on a loaded machine it takes longer than the 1 s vi.waitFor waits by default. */
+const START_WAIT = { timeout: 10_000 }
+
 type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
 
 const electron = vi.hoisted(() => {
@@ -112,7 +115,7 @@ beforeAll(async () => {
   })
   await import('../../src/main/index')
   // registerIpc runs inside whenReady().then(...); the window is created right after it.
-  await vi.waitFor(() => expect(electron.createMainWindow).toHaveBeenCalled())
+  await vi.waitFor(() => expect(electron.createMainWindow).toHaveBeenCalled(), START_WAIT)
   // Taken now: mock call records do not outlive this hook.
   startup.schemes = electron.protocol.registerSchemesAsPrivileged.mock.calls.map((args) => args[0])
   startup.served = electron.protocol.handle.mock.calls.map((args) => args[0])
@@ -216,9 +219,9 @@ describe('link service wiring in src/main/index.ts', () => {
       link.startAppLink.mockImplementation(failing)
       vi.resetModules()
       await import('../../src/main/index')
-      await vi.waitFor(() => expect(electron.createMainWindow).toHaveBeenCalled())
+      await vi.waitFor(() => expect(electron.createMainWindow).toHaveBeenCalled(), START_WAIT)
       expect(link.startAppLink).toHaveBeenCalledTimes(1)
-      await vi.waitFor(() => expect(warnings.mock.calls.some(([message]) => String(message).includes('[link] the link service did not start'))).toBe(true))
+      await vi.waitFor(() => expect(warnings.mock.calls.some(([message]) => String(message).includes('[link] the link service did not start'))).toBe(true), START_WAIT)
     } finally {
       warnings.mockRestore()
       if (previous === undefined) delete process.env.WORFY_DATA_DIR

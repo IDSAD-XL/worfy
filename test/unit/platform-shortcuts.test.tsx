@@ -77,6 +77,16 @@ describe('the command palette', () => {
     expect(opened()).toBe(true)
   })
 
+  // Review round 1 of PR #215: with a Russian layout the K key gives key 'л' and code 'KeyK'.
+  it('on Windows opens on Ctrl+K with a Russian layout: by the place of the key, not its letter', () => {
+    on('windows')
+    render(<CommandPalette />)
+    fireEvent.keyDown(document.body, { key: 'д', code: 'KeyL', ctrlKey: true })
+    expect(opened()).toBe(false)
+    fireEvent.keyDown(document.body, { key: 'л', code: 'KeyK', ctrlKey: true })
+    expect(opened()).toBe(true)
+  })
+
   it('on Windows leaves Ctrl+K pressed inside a Terminal Node to the shell', () => {
     on('windows')
     render(<CommandPalette />)

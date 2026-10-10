@@ -2,7 +2,7 @@
 // is written, by system. The system is a parameter, so both branches run on any machine. What reads
 // <html data-platform> is in test/unit/platform-shortcuts.test.tsx (jsdom).
 import { describe, expect, it } from 'vitest'
-import { ariaKeyShortcuts, currentPlatform, isMac, isOtherModifier, isPrimary, isTerminalKey, label, platformOf, type Platform } from '../../src/renderer/platform'
+import { ariaKeyShortcuts, currentPlatform, isMac, isOtherModifier, isPrimary, isTerminalKey, label, platformOf, shortcutKey, type Platform } from '../../src/renderer/platform'
 
 const keys = (metaKey: boolean, ctrlKey: boolean) => ({ metaKey, ctrlKey })
 const OTHERS: Platform[] = ['windows', 'linux']
@@ -58,6 +58,32 @@ describe('isPrimary and isOtherModifier', () => {
 
   it('on macOS the AltGraph state changes nothing', () => {
     expect(isPrimary({ ...keys(true, false), getModifierState: (key: string) => key === 'AltGraph' }, 'mac')).toBe(true)
+  })
+})
+
+// Review round 1 of PR #215: with a Russian layout the K key gives key 'л' and code 'KeyK'.
+describe('shortcutKey', () => {
+  it('is the letter of the key cap when the layout is Latin, whatever the place of the key', () => {
+    expect(shortcutKey({ key: 'k', code: 'KeyK' })).toBe('k')
+    expect(shortcutKey({ key: 'K', code: 'KeyK' })).toBe('k')
+    // QWERTZ: the key that says Z is where QWERTY has Y, and the one that says Y is where Z is.
+    expect(shortcutKey({ key: 'z', code: 'KeyY' })).toBe('z')
+    expect(shortcutKey({ key: 'y', code: 'KeyZ' })).toBe('y')
+  })
+
+  it('is the Latin letter of the key place when the layout is not Latin', () => {
+    expect(shortcutKey({ key: 'л', code: 'KeyK' })).toBe('k')
+    expect(shortcutKey({ key: 'А', code: 'KeyF' })).toBe('f')
+    expect(shortcutKey({ key: 'я', code: 'KeyZ' })).toBe('z')
+    expect(shortcutKey({ key: 'ω', code: 'KeyV' })).toBe('v')
+  })
+
+  it('is the key itself for anything that is not a letter key, and without a code', () => {
+    expect(shortcutKey({ key: 'Enter', code: 'Enter' })).toBe('Enter')
+    expect(shortcutKey({ key: '=', code: 'Equal' })).toBe('=')
+    expect(shortcutKey({ key: 'ё', code: 'Backquote' })).toBe('ё')
+    expect(shortcutKey({ key: 'л' })).toBe('л')
+    expect(shortcutKey({ key: 'л', code: '' })).toBe('л')
   })
 })
 

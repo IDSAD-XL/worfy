@@ -14,7 +14,7 @@ import { useClaudeHome } from '../claude-home/useClaudeHome'
 import { useDocs } from '../docs/useDocs'
 import { useCanvasRequests } from '../find/canvas-requests'
 import { rankItems } from '../find/search-index'
-import { isPrimary, isTerminalKey, label, type KeyCombo } from '../platform'
+import { isPrimary, isTerminalKey, label, shortcutKey, type KeyCombo } from '../platform'
 import { activeProject, useProjects } from '../projects/useProjects'
 import { useNavigation } from '../session/navigation'
 import { useWorkflow } from '../workflow/useWorkflow'
@@ -372,7 +372,7 @@ export function CommandPalette() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!isPrimary(event) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'k') return
+      if (!isPrimary(event) || event.altKey || event.shiftKey || shortcutKey(event) !== 'k') return
       // On Windows Ctrl+K in a Terminal Node is the shell's (worfy-windows ticket 11).
       if (isTerminalKey(event)) return
       event.preventDefault()
