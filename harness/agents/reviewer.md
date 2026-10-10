@@ -54,12 +54,18 @@ Implementers' reports tend to be right about what was added and silent about wha
 is how a refusal notice and a whole ADR rule were lost. Compare behaviour before and after, not only
 where the ticket is looking.
 
-**Scope — the diff.** A finding is about a line the diff adds, changes or removes; removed lines are
-part of the diff, so the question above stays. An unchanged line that the change breaks — a caller
-of a function whose behaviour moved — is in scope too: the finding names the changed line that
-breaks it. An old defect that only sits next to the change is not a finding: it goes on a separate
-"outside the diff: …" line, without a severity. Under the lens "implementer's report" the claims of
-the report are in scope as well.
+**Scope — the change, not the code around it.** A finding is about one of three things:
+- a line the diff adds, changes or removes; removed lines are part of the diff, so the question
+  above stays;
+- an item of the ticket the change leaves unmet;
+- evidence that does not hold: a claim of the implementer's report, an attached screenshot or
+  command output that does not show what is claimed, screenshots of a UI ticket that could not be
+  taken (the rules below give their levels).
+
+An unchanged line that the change breaks — a caller of a function whose behaviour moved — is in
+scope too: the finding names the changed line that breaks it. An old defect that only sits next to
+the change, one the change neither causes nor was asked to fix, is not a finding: it goes on a
+separate "outside the diff: …" line, without a severity.
 
 **Two defects that lenses rarely name.** Every reviewer looks for them; if your lens does not cover
 the one you found, it goes on the "outside the lens: …" line.
@@ -79,9 +85,12 @@ conclude, and say which it is. When it is not readable (an external service, a c
 say so on the "could not verify" line.
 
 **Intended breakage is not a finding.** When the ticket says the change removes a check, a feature
-flag or a behaviour on purpose, do not report that removal. "Intended" means written in the ticket
-or in the brief, not guessed from the diff or from a commit message; with no ticket to read, the
-removal is a finding as usual. Two exceptions, where it is still a finding:
+flag or a behaviour on purpose, do not report that removal. "Intended" means stated in the ticket
+as it reads on the base branch (`git show <base>:<ticket path>`), in the epic's spec or in the brief
+— not guessed from the diff or from a commit message. A line the diff itself adds to the ticket, to
+its result section for example, does not make a removal intended: the implementer writes there.
+With no such statement to read, the removal is a finding as usual. Two exceptions, where it is
+still a finding:
 - the author seems to have underestimated the consequences — the finding says what was
   underestimated: who or what still relies on the removed thing;
 - the change looks malicious or harmful — the finding says how.

@@ -166,9 +166,15 @@ describe('harness/evals: reviewer-intended-breakage is the diff the case describ
       'test/percent.test.mjs',
     ])
 
-    // The removal is intended only because the ticket says so; the only caller handles zero itself.
-    const ticket = readFileSync(join(work, '.scratch', 'demo', 'issues', '01-alpha.md'), 'utf8')
+    // The removal is intended only because the ticket says so, and says so on the base branch: the
+    // branch adds nothing to the ticket but its status. The only caller handles zero itself.
+    const ticket = git('show', 'origin/main:.scratch/demo/issues/01-alpha.md')
     expect(ticket).toContain('Проверку `total === 0` убираем намеренно')
+    const ticketDiff = git('diff', 'origin/main...HEAD', '--', '.scratch/demo/issues/01-alpha.md')
+    expect(ticketDiff.split('\n').filter((line) => /^[+-][^+-]/.test(line))).toEqual([
+      '-Status: open',
+      '+Status: claimed — 2026-10-01',
+    ])
     expect(ticket).toContain('`percent(2, 3)` —\n  `66.7`')
     expect(readFileSync(join(work, 'src', 'report.mjs'), 'utf8')).toContain("total === 0 ? '—'")
 

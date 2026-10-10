@@ -288,31 +288,65 @@ its narrow round; the last `NARROW: VERIFIED` or `NARROW: REJECTED` is its verdi
 implementer, re-read every `file:line` in the verifier's answer and sort its findings into four
 groups; the wave's report (section 5) shows the four groups of every ticket under its table. The
 groups are a way to show the findings, not a new scale: the levels `high` / `med` / `low`, the
-verdicts `VERIFIED` / `REJECTED` and the count of rounds stay as they are.
+verdicts `VERIFIED` / `REJECTED` and the count of rounds stay as they are. The level of a finding
+is the verifier's: you do not change it, you may only propose a change to the verifier (below).
 - **Act on** — confirmed `high` and `med` findings; they go to rework. The implementer gets the Act
   on group as the rework list. No more than 5: a longer list means the selection is weak, so check
-  every item again — is it confirmed, is its level right, is it one defect reported twice — and
-  move what does not hold to another group. A confirmed `high` finding is never moved out of Act on
-  to fit the limit: if more than 5 remain after the second check, say so in the report.
+  every item again — is it confirmed, is it one defect reported twice. A finding the verifier
+  stands by is never moved out of Act on to fit the limit: if more than 5 remain, say so in the
+  report.
 - **Consider** — `med` and `low` findings whose fix is disputable or costs more than it gives; the
   documents commit (section 4, item 4) moves them into the ticket's result section: they are debts,
-  not rework.
+  not rework. A `high` finding never goes here.
 - **Noted** — `low` findings that need no fix now and the `[low] debt: …` lines of a later round;
   one line each in the ticket's result section, by the same commit.
-- **Dismissed** — findings you refuted, each with a one-line reason.
+- **Dismissed** — findings you refuted, each with a one-line reason. Deciding not to fix a finding
+  does not refute it: such a `med` or `low` finding belongs to Consider.
 
 No finding is dropped silently: what goes to no other group goes to Dismissed, so the owner sees
-what was rejected and can overrule it. An empty group is written as "none". A `REJECTED` whose Act
-on group came out empty is a disagreement with the verifier, not a `VERIFIED`: before you record
-anything, send the verifier your reasons through `SendMessage` and record the verdict it answers
-with; that exchange is not a rework round. The verifier's brief does not change: the verifier does
-not sort, it answers in its own format.
+what was rejected and can overrule it. An empty group is written as "none".
+
+**You do not take a `high` or `med` finding out of Act on alone.** A `low` finding you sort
+yourself. A `high` or `med` finding that you would put into Consider, Noted or Dismissed, or whose
+level you think is too high, goes back to the verifier first: before the verdict is recorded, send
+the verifier your reason for each such finding through `SendMessage`. Its answer decides, finding
+by finding:
+- a finding the verifier withdraws, or agrees to lower or to set aside, goes to the group it agreed
+  to, and its line says "agreed by the verifier";
+- a finding the verifier insists on stays in Act on, at the verifier's level;
+- if the verifier cannot answer any more, every such finding stays in Act on.
+
+The same exchange is due when a `REJECTED` would leave Act on empty for another reason (its list
+holds only `low` findings): ask the verifier which of them block; what it insists on goes to Act
+on, whatever its level. The verdict you record is the one the verifier's answer carries, never your
+own: `VERIFIED` only when the verifier itself says so. A `REJECTED` that stands therefore has at
+least one finding in Act on, and the implementer never gets an empty list. That exchange is not a
+rework round. `REJECTED: gate 3 …` is not a disagreement and has no findings to sort: it keeps its
+own rule above. The verifier's brief does not change: the verifier does not sort, it answers in its
+own format.
+
+**The recorded verdict carries the groups**, so they survive a session break. The first line of a
+recorded `REJECTED` holds the Act on group — the rework list — and each other group that is not
+empty follows as a line that starts with the group's name:
+
+```
+REJECTED: <Act on: the rework list>
+Consider: <findings>
+Noted: <findings>
+Dismissed: <findings, each with its reason>
+```
+
+In a PR comment these lines are the comment's body. With `local-green` the first line is the subject
+of the `gate: REJECTED: …` commit and the group lines are its body. In Silent mode the group lines
+follow the `gate: REJECTED: …` line in the ticket file. No group line starts with `REJECTED` or
+`gate:`, so the counts above still count verdicts only.
 
 Source: pstack, `pstack/skills/interrogate/SKILL.md` and
 `pstack/skills/interrogate/references/lead-judgment.md`, commit
 `ccb5507cec1546dc88135c1139c811e6c59115ba` of `cursor/plugins` (MIT, Copyright (c) 2026 Lauren Tan)
 — the four groups, the limit of 5 and the reason to show what was dismissed. The group names are
-pstack's; the rules are reworded, not copied.
+pstack's; the rules are reworded, not copied. The exchange with the verifier and the group lines of
+the recorded verdict are this project's own rules.
 
 `REJECTED` (except `REJECTED: gate 3 …` — see above) goes to the same implementer through
 `SendMessage` with the Act on group of its list — exactly one rework round (the exception is the
@@ -321,11 +355,14 @@ behaviour of the rework with a test that turns red on a mutant of that change, a
 races in async code — rework rounds have introduced defects themselves.
 
 **The second gate round checks the rework round; it does not search everything again.** The
-brief gives the first round's `REJECTED` list and the diff of the rework only: `git diff <sha>..HEAD`,
+brief gives the first round's list — the Act on group of the recorded `REJECTED`, without the lines
+of the other groups — and the diff of the rework only: `git diff <sha>..HEAD`,
 where `<sha>` is the branch HEAD before the rework, already after the rebase (append it to the
 `REJECTED` comment too, so it survives a session break). A second-round `REJECTED` is given only
 for: (a) a first-round item that is neither fixed nor refuted; (b) a defect introduced by the
-rework's changes; (c) a new high-severity defect. Everything else new is `[low] debt: …`: it does
+rework's changes; (c) a new high-severity defect. Only the items of that list count for (a): what
+the first round put into Consider, Noted or Dismissed — a `high` or `med` finding only with the
+verifier's agreement — is not ground (a). Everything else new is `[low] debt: …`: it does
 not block, the verdict carries it as a line (`VERIFIED; debt: …`), and the documents commit
 (section 4, item 4) moves it into the ticket's result section. Without this rule a fresh verifier always finds
 something new, and a ticket on the critical path blocks everything that depends on it.
@@ -538,7 +575,9 @@ after the merge).
 
 ## 5. Report
 
-A table for the wave, then the four-line status block. Its labels stay exactly as written —
+A table for the wave, then the four groups of findings of every ticket whose gate gave any
+(section 3: Act on, Consider, Noted, Dismissed, an empty group as "none"), then the four-line
+status block, which stays last. Its labels stay exactly as written —
 `— Этап:`, `— Сейчас:`, `— Дальше:`, `— Жду:` — whatever the reports language: worfy reads them
 (`src/shared/agent/status-block.ts`); the values are in `F language.reports`. `— Этап:` — the
 output of `"${CLAUDE_PLUGIN_ROOT}/bin/epic-status" <epic>` after a fast-forward of the main branch; `— Сейчас:` —
