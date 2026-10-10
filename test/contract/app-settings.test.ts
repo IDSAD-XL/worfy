@@ -15,6 +15,9 @@ import { appSettingsChanged, appSettingsGet, appSettingsSet } from '../../src/sh
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { clampScale, DEFAULT_APP_SETTINGS, type AppSettings } from '../../src/shared/settings/app-settings'
 
+/** The path of every readFileSync call, by the test and by the code under test. */
+const disk = vi.hoisted(() => ({ reads: [] as string[] }))
+
 const env = await vi.hoisted(async () => {
   // Before any module of main is imported: the store of the running app sits over dataRoot().
   const fs = await import('node:fs')
@@ -23,6 +26,16 @@ const env = await vi.hoisted(async () => {
   const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'worfy-app-settings-')))
   process.env.WORFY_DATA_DIR = path.join(scratch, 'data')
   return { scratch }
+})
+
+vi.mock('node:fs', async (importOriginal) => {
+  // The real file system, with every readFileSync noted: "creating the store reads no disk" below.
+  const actual = await importOriginal<typeof import('node:fs')>()
+  const readFileSync = ((...args: Parameters<typeof actual.readFileSync>) => {
+    disk.reads.push(String(args[0]))
+    return actual.readFileSync(...args)
+  }) as typeof actual.readFileSync
+  return { ...actual, default: { ...actual, readFileSync }, readFileSync }
 })
 
 const electron = vi.hoisted(() => {
@@ -146,7 +159,10 @@ describe('AppSettingsStore', () => {
   it.each([
     ['not JSON', '{ "interfaceScale": '],
     ['a wrong type', JSON.stringify({ interfaceScale: 'big' })],
-    ['a section id that is not a file name', JSON.stringify({ sidebar: { collapsed: { __proto__x: 1 } } })],
+    // The value is a valid boolean in each of these: only the section id makes the file unreadable.
+    ['a section id with a space and punctuation', JSON.stringify({ sidebar: { collapsed: { 'bad id!': true } } })],
+    ['a section id that starts with an underscore', JSON.stringify({ sidebar: { collapsed: { _x: true } } })],
+    ['a section id that is a path', JSON.stringify({ sidebar: { collapsed: { '../x': true } } })],
     ['an array', '[]'],
   ])('sets an unreadable file aside as app-settings.json.unreadable-<time> and starts from the defaults: %s', (_case, text) => {
     const file = freshFile()
@@ -181,6 +197,20 @@ describe('AppSettingsStore', () => {
     } finally {
       warn.mockRestore()
     }
+  })
+
+  it('creating a store reads no disk; the first get reads the file, once', () => {
+    const file = freshFile()
+    new AppSettingsStore(file).set({ interfaceScale: 1.2 })
+    disk.reads.length = 0
+    const store = new AppSettingsStore(file)
+    store.on('changed', () => undefined)
+    expect(disk.reads).toEqual([])
+    expect(store.get().interfaceScale).toBe(1.2)
+    expect(disk.reads).toEqual([file])
+    store.get()
+    store.set({ interfaceScale: 1.3 })
+    expect(disk.reads).toEqual([file])
   })
 
   it('announces `changed` with the new state for the modules of main', () => {
@@ -226,6 +256,16 @@ beforeEach(() => {
 })
 
 describe('appSettings channels', () => {
+  // First on purpose: nothing has imported src/main/ipc/app-settings.ts yet. Were it imported
+  // already, the last check would fail, the file having been read before.
+  it('importing the handler module reads no disk; the first call reads app-settings.json', async () => {
+    disk.reads.length = 0
+    const call = await windowCaller()
+    expect(disk.reads).toEqual([])
+    expect(await call('appSettings.get')).toMatchObject({ ok: true })
+    expect(disk.reads).toEqual([settingsFile])
+  })
+
   it('appSettings.get answers the defaults while there is no file', async () => {
     const call = await windowCaller()
     expect(existsSync(settingsFile)).toBe(false)
@@ -266,8 +306,32 @@ describe('appSettings channels', () => {
       const answer = await call('appSettings.set', input)
       expect(answer.ok, JSON.stringify(input)).toBe(false)
     }
+    // A section id that is not a file name, with a value that is a valid boolean: the id alone is refused.
+    for (const id of ['bad id!', '_x', '../x', 'a'.repeat(101)]) {
+      const answer = await call('appSettings.set', { sidebar: { collapsed: { [id]: true } } })
+      expect(answer, id).toMatchObject({ ok: false, error: expect.stringContaining('appSettings.set: invalid input') })
+    }
+    // The ids a section file can have are taken.
+    expect(appSettingsSet.input.safeParse({ sidebar: { collapsed: { MachinesSection: true, Docs2Section: false, 'a-b_c': true } } }).success).toBe(true)
     expect(await call('appSettings.get')).toStrictEqual(before)
     expect(electron.sent).toEqual([])
+  })
+
+  it('an own `__proto__` key in `collapsed` changes nothing, from a call and from the file', async () => {
+    // Parsed from text, as a call or a file arrives: `__proto__` is then an own key, not the prototype.
+    const text = '{"sidebar":{"collapsed":{"__proto__":true}}}'
+    const call = await windowCaller()
+    const before = await call('appSettings.get')
+    const answer = await call('appSettings.set', JSON.parse(text))
+    expect(answer).toStrictEqual(before)
+    expect(electron.sent).toEqual([])
+
+    const file = freshFile()
+    mkdirSync(join(file, '..'), { recursive: true })
+    writeFileSync(file, text)
+    const { collapsed } = new AppSettingsStore(file).get().sidebar
+    expect(Object.keys(collapsed)).toEqual([])
+    expect(Object.getPrototypeOf(collapsed)).toBe(Object.prototype)
   })
 
   it('the contract drops undeclared keys of the state and refuses a missing field', () => {

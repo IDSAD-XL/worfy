@@ -73,6 +73,13 @@ describe('useAppSettings', () => {
     expect(hook.result.current).toStrictEqual(settings(4, 1.3, { MachinesSection: true }))
   })
 
+  it('takes an answer whose revision equals the one it holds: revision 0 of a file never written by worfy', async () => {
+    const { hook } = await mount()
+    // The defaults carry revision 0 too; a file edited by hand, or one without `revision`, answers 0.
+    await act(async () => fake.answerGet(settings(0, 1.3, { DocsSection: true })))
+    expect(hook.result.current).toStrictEqual(settings(0, 1.3, { DocsSection: true }))
+  })
+
   it('an event with a newer revision changes the settings; one with an older revision does not', async () => {
     const { hook } = await mount()
     await act(async () => fake.answerGet(settings(4, 1.3)))
