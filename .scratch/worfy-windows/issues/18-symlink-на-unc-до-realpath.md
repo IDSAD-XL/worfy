@@ -1,7 +1,7 @@
 # 18 — Symlink внутри Project-а, который ведёт на `\\host\share\…`: отказ до `realpath`
 
 Type: task
-Status: open
+Status: done — 2026-10-10, [PR #228](https://github.com/IDSAD-XL/worfy/pull/228)
 Blocked by: 08, 11
 Source: долг из «Итог» [Ticket-а 08](08-пути-и-папки-на-windows.md) (пути и папки на Windows), четвёртый круг ревью PR #200 на Mac — [комментарий](https://github.com/IDSAD-XL/worfy/pull/200#issuecomment-6091473304), раздел «Debt»: «отдельный Ticket worfy-windows: lstat на каждом сегменте пути или отказ ссылке, чья цель — UNC, до realpath»; решения владельца 2026-10-07: Q1 (полный порт worfy под Windows), Q24 (Windows 10 21H2+ и 11, x64) ([spec.md](../spec.md)); [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port»; [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) (проверки на двух машинах) и правило «Метка needs-mac-gate» в spec.md
 
