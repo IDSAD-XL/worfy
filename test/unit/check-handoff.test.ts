@@ -15,11 +15,11 @@ afterEach(() => {
 })
 
 /** Runs the script on a temporary HANDOFF.md with these lines; `pnpm test` runs under Electron as Node, so the child does too. */
-function check(lines: string[]): { status: number | null; stdout: string; stderr: string; file: string } {
+function check(lines: string[], eol = '\n'): { status: number | null; stdout: string; stderr: string; file: string } {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-check-handoff-')))
   dirs.push(dir)
   const file = join(dir, 'HANDOFF.md')
-  writeFileSync(file, `${lines.join('\n')}\n`)
+  writeFileSync(file, lines.map((line) => `${line}${eol}`).join(''))
   const run = spawnSync(process.execPath, [SCRIPT, file], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
   return { status: run.status, stdout: run.stdout, stderr: run.stderr, file }
 }
@@ -97,6 +97,31 @@ describe('check-handoff', () => {
     const fail = check(overLimit)
     expect(fail.status).toBe(1)
     expect(fail.stderr).toContain(`${fail.file}:${overLimit.length}: файл больше 15360 байт (15361)`)
+  })
+
+  it('counts the bytes and the lines of a CRLF working copy as git stores them, with LF', () => {
+    // On Windows with core.autocrlf the file on disk ends its lines with CRLF: one more byte per line
+    // than in git. The limit is on what git stores.
+    const atLimit = sized(15360)
+    const pass = check(atLimit, '\r\n')
+    expect(pass.stderr).toBe('')
+    expect(pass.status).toBe(0)
+    expect(pass.stdout).toBe(`handoff: ok (${atLimit.length} строк, 15360 байт)\n`)
+
+    const overLimit = sized(15361)
+    const fail = check(overLimit, '\r\n')
+    expect(fail.status).toBe(1)
+    expect(fail.stderr).toContain(`${fail.file}:${overLimit.length}: файл больше 15360 байт (15361)`)
+
+    // A line of exactly 300 characters stays within the limit: the CR is not one of its characters.
+    const long = good()
+    long.push('ж'.repeat(300))
+    expect(check(long, '\r\n').status).toBe(0)
+    // A lone CR inside a line is not a line end and is counted as it is.
+    const lone = good()
+    lone.push('a\rb')
+    const loneRun = check(lone)
+    expect(loneRun.stdout).toBe(`handoff: ok (${lone.length} строк, ${Buffer.byteLength(`${lone.join('\n')}\n`)} байт)\n`)
   })
 
   it('fails on a line longer than 300 characters and names that line', () => {

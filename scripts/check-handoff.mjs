@@ -4,7 +4,7 @@
 //   node scripts/check-handoff.mjs [<path>]     (part of pnpm lint; default: HANDOFF.md at the repo root)
 //
 // HANDOFF.md is a snapshot for whoever picks the work up tomorrow, not a log. The limits keep it one:
-//   - at most 150 lines and 15360 bytes;
+//   - at most 150 lines and 15360 bytes, counted with LF line ends (a CRLF working copy counts the same);
 //   - no line longer than 300 characters;
 //   - second-level headings are exactly the five sections below, each once, in this order.
 // Headings inside fenced code blocks do not count. Every violation is printed to stderr as
@@ -34,8 +34,11 @@ try {
   process.exit(2)
 }
 
-const text = buffer.toString('utf8')
-const lines = text.split(/\r?\n/)
+// The limits are on the file as git stores it, with LF line ends. A working copy on Windows
+// (core.autocrlf) has CRLF, one more byte per line, so CRLF is read as LF before anything is counted.
+const text = buffer.toString('utf8').replace(/\r\n/g, '\n')
+const size = Buffer.byteLength(text, 'utf8')
+const lines = text.split('\n')
 if (lines.at(-1) === '') lines.pop() // the newline that ends the last line does not start another one
 
 const problems = []
@@ -45,7 +48,7 @@ if (lines.length > MAX_LINES) {
   report(MAX_LINES + 1, `файл длиннее ${MAX_LINES} строк (${lines.length}); подробности — в «Итог» Ticket-ов, spec, ADR`)
 }
 
-if (buffer.length > MAX_BYTES) {
+if (size > MAX_BYTES) {
   // Point at the line on which the file crosses the limit.
   let bytes = 0
   let at = lines.length
@@ -56,7 +59,7 @@ if (buffer.length > MAX_BYTES) {
       break
     }
   }
-  report(at, `файл больше ${MAX_BYTES} байт (${buffer.length}); предел пройден на этой строке`)
+  report(at, `файл больше ${MAX_BYTES} байт (${size}); предел пройден на этой строке`)
 }
 
 const headings = [] // { line, title }
@@ -108,4 +111,4 @@ if (problems.length > 0) {
   process.stderr.write(`handoff: форма нарушена (${problems.length}): снимок для того, кто садится за работу завтра, — подробности в «Итог» Ticket-ов, spec Epic-ов, ADR, docs/lessons/\n`)
   process.exit(1)
 }
-process.stdout.write(`handoff: ok (${lines.length} строк, ${buffer.length} байт)\n`)
+process.stdout.write(`handoff: ok (${lines.length} строк, ${size} байт)\n`)
