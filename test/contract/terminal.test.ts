@@ -12,7 +12,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { findGitBash, findOnPath, SYSTEM_PATH } from '../../src/main/agent/env'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { closeRemovedNode, closeRemovedProjects, terminalHandlers, terminalKey, wireRegistry } from '../../src/main/ipc/terminal'
-import { clampSize, KILL_GRACE_MS, ReplayBuffer, REPLAY_LIMIT, terminalEnv, TerminalRegistry, type PtyProcess, type SpawnPty, type TerminalSink } from '../../src/main/terminal/pty'
+import {
+  clampSize,
+  KILL_GRACE_MS,
+  ReplayBuffer,
+  REPLAY_LIMIT,
+  terminalEnv,
+  TerminalRegistry,
+  terminalShellOptions,
+  type PtyProcess,
+  type SpawnPty,
+  type TerminalSink,
+} from '../../src/main/terminal/pty'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
@@ -124,11 +135,12 @@ function alive(pid: number): boolean {
 }
 
 async function harness(options: { killGraceMs?: number; nodes?: string[]; spawn?: SpawnPty; path?: readonly string[]; shell?: 'powershell' | 'git-bash' } = {}) {
+  // /bin/sh with an empty HOME: no rc file of the machine running the tests takes part. On
+  // Windows: Windows PowerShell without a profile (windowsEnv, spawnWithoutProfile).
+  const env = (): Promise<Record<string, string>> =>
+    Promise.resolve(WINDOWS ? windowsEnv(home, options.path) : { SHELL: '/bin/sh', PATH: SYSTEM_PATH, HOME: home, PS1: '$ ', PWD: '/somewhere/else', SHLVL: '3' })
   const registry = new TerminalRegistry({
-    // /bin/sh with an empty HOME: no rc file of the machine running the tests takes part. On
-    // Windows: Windows PowerShell without a profile (windowsEnv, spawnWithoutProfile).
-    env: () =>
-      Promise.resolve(WINDOWS ? windowsEnv(home, options.path) : { SHELL: '/bin/sh', PATH: SYSTEM_PATH, HOME: home, PS1: '$ ', PWD: '/somewhere/else', SHLVL: '3' }),
+    env,
     killGraceMs: options.killGraceMs ?? 1000,
     // A stand-in pty has a pid of no process: nothing of the system is asked to end it.
     ...(options.spawn === undefined ? (WINDOWS ? { spawn: spawnWithoutProfile } : {}) : { spawn: options.spawn, killTree: () => undefined }),
@@ -145,7 +157,10 @@ async function harness(options: { killGraceMs?: number; nodes?: string[]; spawn?
     modules: {
       './terminal.ts': () =>
         Promise.resolve(
-          terminalHandlers({ registry: () => registry, projectRoot, isTerminalNode: (projectId, nodeId) => projectId === PROJECT && nodes.has(nodeId), shellSetting: () => options.shell }),
+          terminalHandlers({ registry: () => registry, projectRoot, isTerminalNode: (projectId, nodeId) => projectId === PROJECT && nodes.has(nodeId),
+            shellSetting: () => options.shell,
+            shells: async () => terminalShellOptions(await env()),
+          }),
         ),
     },
     isTrustedSender: (url) => url === APP_URL,
@@ -988,6 +1003,21 @@ describe('terminal channels at the IPC boundary', () => {
     expect(opened.shell).toBe(SHELL_NAME)
     await h.run(SAY_THE_FOLDER, folderLine(root))
     for (const output of h.outputs) expect(Object.keys(output).sort()).toEqual(['data', 'end', 'nodeId', 'projectId'])
+  })
+
+  it('terminal.shells lists the shells of this Machine: none where the shell is $SHELL; PowerShell and Git Bash on Windows', async () => {
+    const h = await harness()
+    const shells = await h.ok<{ id: string; label: string; found: boolean }[]>('terminal.shells')
+    if (!WINDOWS) expect(shells).toEqual([])
+    else {
+      // The Path of the harness has the system folders alone: Windows PowerShell.
+      expect(shells).toEqual([
+        { id: 'powershell', label: 'Windows PowerShell', found: true },
+        { id: 'git-bash', label: 'Git Bash', found: findGitBash(windowsEnv(home)) !== null },
+      ])
+    }
+    // Asking starts nothing.
+    expect(h.registry.size).toBe(0)
   })
 
   it('refuses a Node that is not a Terminal Node of the Project, and an unknown Project', async () => {

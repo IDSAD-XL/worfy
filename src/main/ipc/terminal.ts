@@ -22,7 +22,7 @@ import { clientOf, type Client } from '../clients'
 import { layoutStore, type LayoutChange } from '../layout/store'
 import { readProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
-import { TerminalRegistry, type TerminalSink } from '../terminal/pty'
+import { TerminalRegistry, terminalShellOptions, type ShellOption, type TerminalSink } from '../terminal/pty'
 import { ShellIntegration } from '../terminal/shell-integration'
 import type { TerminalShellSetting } from '../../shared/projects/action-templates'
 import {
@@ -33,6 +33,7 @@ import {
   terminalOpen,
   terminalOutput,
   terminalResize,
+  terminalShells,
   terminalStarted,
   terminalTakeSize,
 } from '../../shared/ipc/terminal'
@@ -70,6 +71,8 @@ export interface TerminalDeps {
    * they name none. Read when a shell starts: a running shell keeps the one it has.
    */
   shellSetting?: (projectId: string) => TerminalShellSetting | undefined
+  /** The shells there are to choose from on this Machine; none when left out. */
+  shells?: () => Promise<ShellOption[]>
 }
 
 /** The handlers over a registry; tests pass their own registry, Projects and Layout. */
@@ -103,6 +106,7 @@ export function terminalHandlers(deps: TerminalDeps): HandlerModule {
       if (client.isDestroyed()) leave(client)
       return result
     }),
+    defineHandler(terminalShells, async () => (await deps.shells?.()) ?? []),
     defineHandler(terminalInput, ({ projectId, nodeId, data }, { event }) => {
       deps.registry().write(terminalKey(projectId, nodeId), data, clientOf(event))
     }),
@@ -191,4 +195,5 @@ export default terminalHandlers({
       .get(projectId)
       .layout.nodes.some((node) => node.id === nodeId && node.kind === TERMINAL_NODE_KIND),
   shellSetting: (projectId) => readProjectSettings(projectStore().dataDir(projectId)).terminalShell,
+  shells: async () => terminalShellOptions((await agentEnv()).env),
 }) satisfies HandlerModule

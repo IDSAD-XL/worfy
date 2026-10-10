@@ -21,7 +21,8 @@ vi.mock('node:fs', async (original) => {
   }
 })
 
-const { KILL_GRACE_MS, terminalShell, TerminalRegistry } = await import('../../src/main/terminal/pty')
+const { KILL_GRACE_MS, terminalShell, terminalShellOptions, TerminalRegistry } = await import('../../src/main/terminal/pty')
+const { projectSettingsSchema } = await import('../../src/shared/projects/action-templates')
 type PtyProcess = import('../../src/main/terminal/pty').PtyProcess
 type SpawnPty = import('../../src/main/terminal/pty').SpawnPty
 
@@ -86,6 +87,40 @@ describe('terminalShell off Windows', () => {
     expect(terminalShell({ SHELL: '/opt/homebrew/bin/fish' }, undefined, { platform })).toEqual({ file: '/opt/homebrew/bin/fish', args: ['-l'], name: 'fish', note: null })
     expect(terminalShell({}, undefined, { platform })).toEqual({ file: '/bin/zsh', args: ['-l'], name: 'zsh', note: null })
     expect(terminalShell({ SHELL: '/bin/bash' }, 'git-bash', { platform })).toEqual({ file: '/bin/bash', args: ['-l'], name: 'bash', note: null })
+  })
+})
+
+describe('terminalShellOptions: the shells there are to choose from', () => {
+  it.each(['darwin', 'linux'] as const)('on %s there is nothing to choose: the shell is $SHELL', (platform) => {
+    expect(terminalShellOptions({ SHELL: '/bin/zsh' }, { platform })).toEqual([])
+  })
+
+  it('on Windows names the PowerShell that would start, and says whether Git Bash is there', () => {
+    const options = () => terminalShellOptions(WIN_ENV, { platform: 'win32' })
+    expect(options()).toEqual([
+      { id: 'powershell', label: 'Windows PowerShell', found: true },
+      { id: 'git-bash', label: 'Git Bash', found: false },
+    ])
+    disk.aliases.add(ALIAS)
+    disk.files.add('C:\\Program Files\\Git\\cmd\\git.exe').add(GIT_BASH)
+    expect(options()).toEqual([
+      { id: 'powershell', label: 'PowerShell (pwsh)', found: true },
+      { id: 'git-bash', label: 'Git Bash', found: true },
+    ])
+  })
+})
+
+describe('the setting terminalShell of a Project', () => {
+  const templates = { shipTicket: '', runWave: '' }
+
+  it('is not added to settings that do not have it, is kept when it names a shell, and anything else is refused', () => {
+    expect(projectSettingsSchema.parse({ actionTemplates: templates })).toStrictEqual({ actionTemplates: templates })
+    for (const terminalShell of ['powershell', 'git-bash']) {
+      expect(projectSettingsSchema.parse({ actionTemplates: templates, terminalShell })).toStrictEqual({ actionTemplates: templates, terminalShell })
+    }
+    for (const terminalShell of ['cmd', 'bash', '', 3, null]) {
+      expect(projectSettingsSchema.safeParse({ actionTemplates: templates, terminalShell }).success, String(terminalShell)).toBe(false)
+    }
   })
 })
 

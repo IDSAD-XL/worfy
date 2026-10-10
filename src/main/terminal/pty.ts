@@ -178,6 +178,27 @@ export function terminalShell(env: Readonly<Env>, setting?: TerminalShellSetting
   return { file, args: ['-NoLogo'], name: win32.basename(file), note }
 }
 
+/** One shell of the choice in the settings of a Project (the channel terminal.shells). */
+export interface ShellOption {
+  id: TerminalShellSetting
+  label: string
+  found: boolean
+}
+
+/**
+ * The shells there are to choose from on this system. None off Windows: the shell is `$SHELL`.
+ * On Windows PowerShell — named by the one terminalShell would start — and Git Bash, with whether
+ * it is found.
+ */
+export function terminalShellOptions(env: Readonly<Env>, search: ShellSearch = {}): ShellOption[] {
+  if ((search.platform ?? process.platform) !== 'win32') return []
+  const powershell = terminalShell(env, 'powershell', search)
+  return [
+    { id: 'powershell', label: powershell.name.toLowerCase() === 'pwsh.exe' ? 'PowerShell (pwsh)' : 'Windows PowerShell', found: true },
+    { id: 'git-bash', label: 'Git Bash', found: findGitBash(env, search.exists) !== null },
+  ]
+}
+
 /**
  * Ends a process of Windows and every process under it: `taskkill /PID <pid> /T /F` of %SystemRoot%.
  * Windows builds the tree from the parents of the processes that are alive, so it is called while
