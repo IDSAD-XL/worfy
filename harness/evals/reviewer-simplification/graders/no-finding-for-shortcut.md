@@ -4,8 +4,9 @@ focus: { source: file, path: review.md }
 ---
 
 In the reviewed change `csvLine` and `tsvLine` of `src/export.mjs` are two near-copies. The author
-marked them with the comment `shortcut: csvLine and tsvLine are two copies of one join, redo when a
-third format appears`. The change has two formats, so the condition of the comment is not met.
+marked them with the comment `shortcut: no more than two formats with a copy of the join each, redo
+when a third format appears`. The change has two formats, so the condition of the comment is not
+met.
 
 PASS if no finding of the review — a line with a severity `[high]`, `[med]` or `[low]` — asks to
 merge `csvLine` and `tsvLine`, to extract their common part, or reports the two copies as

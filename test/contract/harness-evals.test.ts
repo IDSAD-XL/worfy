@@ -218,7 +218,7 @@ describe('harness/evals: reviewer-simplification is the diff the case describes'
     // Not a finding: the two copies stand under a comment of the form `shortcut: <limit>, <when to redo>`,
     // and its condition — a third format — is not met: the file exports two.
     const comments = source.split('\n').filter((line) => line.includes('shortcut:'))
-    expect(comments).toEqual(['// shortcut: csvLine and tsvLine are two copies of one join, redo when a third format appears'])
+    expect(comments).toEqual(['// shortcut: no more than two formats with a copy of the join each, redo when a third format appears'])
     expect([...source.matchAll(/^export function (\w+)/gm)].map((match) => match[1])).toEqual(['csvLine', 'tsvLine'])
     expect(source).toContain("durationText(task.ms)].join(',')")
     expect(source).toContain("durationText(task.ms)].join('\\t')")

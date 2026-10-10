@@ -207,30 +207,34 @@ behaviour stays the same. Look for:
   that shows through an interface, when the module that owns the concept already exists.
 - **A repeat of a helper that already exists.** The finding gives the path to the existing helper.
 - **Delete.** Dead code, an option nobody sets, a feature nobody asked for.
-- **Take it from the standard library or an installed dependency.** Hand-written code for what the
-  platform, the standard library or a dependency the project already has does; a new dependency
-  added for a few lines of code.
-- **Not needed now.** An abstraction with one implementation, a setting nobody sets, an extension
-  point for a case that does not exist yet.
-- **Merge.** Near-copies that have to change together.
-- **Split by task.** One function that does several unrelated jobs. Divide by task, not by length:
-  a helper whose only reason is a shorter caller is itself a thin wrapper.
+- **Take it from the standard library or an installed dependency.** Code written by hand although
+  the language, its standard library, the platform or a package the project already installs offers
+  the same; and the reverse, a package brought in to save a handful of lines.
+- **Not needed now.** Generality with a single case behind it: an interface only one class
+  implements, a parameter that always gets the same value, an extension point for a case that does
+  not exist yet.
+- **Merge.** Pieces of code that differ only in a detail, where an edit to one has to be repeated
+  in the others.
+- **Split by task.** A function that mixes tasks which have nothing to do with each other. The
+  parts follow the tasks: the number of lines is no reason to cut, and a helper cut out only so
+  that its caller looks shorter is itself a thin wrapper.
 
 Three filters, each of which takes a suggestion out of the findings:
-1. **No concrete case — no finding.** A finding of this lens names its case: the line, and with it
-   the input that never arrives, the caller that does not exist, the second copy, or the existing
-   helper with its path. A suggestion without such a case — "this could be cleaner", a name or a
-   style you would choose differently — is not written at all, not even as a question: here the
-   lens is stricter than the general rule of evidence.
-2. **A `shortcut:` comment is the author's decision, not a finding.** An author who simplifies
-   knowingly marks the code with a comment of this form, in the comment syntax of the language:
-   `shortcut: <limit>, <when to redo>`. `<limit>` is what the simple code does not handle;
-   `<when to redo>` is the condition under which it has to be replaced. Example:
-   `// shortcut: two copies of the join, redo when a third format appears`. Under this lens, do not
-   report the code such a comment marks, and do not propose to build what it postpones. The filter
-   has two limits. A comment without a limit or without a condition (`shortcut: fix later`) decides
+1. **A suggestion with nothing to point at is not a finding.** A finding of this lens shows what it
+   rests on: the line, and with it the input that never arrives, the caller that does not exist,
+   the second copy, or the existing helper with its path. A suggestion that rests on nothing of the
+   kind — "this could be cleaner", a name or a style you would choose differently — is not written
+   at all, not even as a question: here the lens is stricter than the general rule of evidence.
+2. **A `shortcut:` comment records the author's decision; it is not a finding.** An author who
+   simplifies knowingly marks the code with a comment of this form, in the comment syntax of the
+   language: `shortcut: <limit>, <when to redo>`. `<limit>` is what the simple code does not
+   handle; `<when to redo>` is the condition under which it has to be replaced. Example:
+   `// shortcut: no more than two formats, redo when a third format appears`. For the code such a
+   comment marks: do not report it as a simplification, and do not propose to build what the
+   comment postpones. Any other defect in that code is reported as usual. The filter has two
+   limits. A comment without a limit or without a condition (`shortcut: fix later`) decides
    nothing: the code under it is reviewed as usual. And when the diff itself already meets the
-   condition, that is a finding: it names the line that meets it.
+   condition, that is a `[low]` finding, never a higher one: it names the line that meets it.
 3. **A restructuring outside the ticket's files is a proposal for a new ticket, not a blocking
    finding.** The ticket's files are those of its trail section (`tickets.trail_section` of the
    profile); with no ticket, the files the diff changes. A simplification that needs edits outside
@@ -246,9 +250,10 @@ the restructuring that makes code disappear, thin wrappers, loose types, logic i
 and the repeat of an existing helper.
 Source: ponytail, `skills/ponytail-review/SKILL.md` and `skills/ponytail/SKILL.md`, commit
 `9cc65d03aa2da1db7121b912d03596409ee340b8` of `DietrichGebert/ponytail` (tag v5.1.0; MIT, Copyright
-(c) 2026 DietrichGebert) — delete, the standard library, not needed now, merge and split; the
-filter of the concrete case and the `shortcut:` comment.
-The rules are reworded, not copied; the third filter is this project's own rule.
+(c) 2026 DietrichGebert) — delete, the standard library, not needed now, merge and split; the first
+filter and the `shortcut:` comment.
+The rules are reworded, not copied: taken as they are only the marker `shortcut:` and the category
+names delete, merge and split. The third filter is this project's own rule.
 
 ## Terms
 

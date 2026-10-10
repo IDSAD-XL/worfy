@@ -198,12 +198,17 @@ descriptions="$(line_of '## Lens descriptions')" lens_at="$(line_of '### Lens: s
 # section HEADING: the text under that heading, up to the next heading of any level.
 section() { awk -v h="$1" '$0 == h { s = 1; next } s && /^##* / { exit } s' "$AGENTS/reviewer.md"; }
 in_text() { printf '%s\n' "$1" | tr '\n' ' ' | tr -s ' ' | grep -qF -- "$2"; } # $1 = text, $2 = literal sentence
-# sentences TEXT WHERE: every line "label :: sentence" on stdin must be in TEXT.
+# sentences TEXT WHERE [whole]: every line "label :: sentence" on stdin must be in TEXT; with
+# `whole`, the sentences in their order, joined by spaces, must also be all of TEXT.
 sentences() {
-    local line
+    local line all=""
     while IFS= read -r line; do
         if in_text "$1" "${line#* :: }"; then ok "reviewer, $2: ${line%% :: *}"; else bad "reviewer, $2: ${line%% :: *} — no '${line#* :: }'"; fi
+        all="${all:+$all }${line#* :: }"
     done
+    [ "${3:-}" = whole ] || return 0
+    [ "$(printf '%s\n' "$1" | tr '\n' ' ' | tr -s ' ' | sed 's/^ //; s/ $//')" = "$all" ] \
+        && ok "reviewer, $2: nothing but these sentences, in this order" || bad "reviewer, $2: the text is not exactly these sentences in this order"
 }
 sentences "$(section '## Lens descriptions')" "lens descriptions" <<'EOF'
 the general rules hold for every lens :: The rules above — the scope, the rules of evidence, the answer format — hold for every lens.
@@ -220,32 +225,45 @@ types looser than the code needs :: - **Types looser than the code needs.** A ty
 logic in the wrong layer :: - **Logic in the wrong layer.** Feature logic added to a shared path, or an implementation detail that shows through an interface, when the module that owns the concept already exists.
 a repeat of an existing helper, with its path :: - **A repeat of a helper that already exists.** The finding gives the path to the existing helper.
 delete :: - **Delete.** Dead code, an option nobody sets, a feature nobody asked for.
-the standard library or an installed dependency :: - **Take it from the standard library or an installed dependency.** Hand-written code for what the platform, the standard library or a dependency the project already has does; a new dependency added for a few lines of code.
-not needed now :: - **Not needed now.** An abstraction with one implementation, a setting nobody sets, an extension point for a case that does not exist yet.
-merge :: - **Merge.** Near-copies that have to change together.
-split by task, not by length :: - **Split by task.** One function that does several unrelated jobs. Divide by task, not by length: a helper whose only reason is a shorter caller is itself a thin wrapper.
+the standard library or an installed dependency :: - **Take it from the standard library or an installed dependency.** Code written by hand although the language, its standard library, the platform or a package the project already installs offers the same; and the reverse, a package brought in to save a handful of lines.
+not needed now :: - **Not needed now.** Generality with a single case behind it: an interface only one class implements, a parameter that always gets the same value, an extension point for a case that does not exist yet.
+merge :: - **Merge.** Pieces of code that differ only in a detail, where an edit to one has to be repeated in the others.
+split by task, not by length :: - **Split by task.** A function that mixes tasks which have nothing to do with each other. The parts follow the tasks: the number of lines is no reason to cut, and a helper cut out only so that its caller looks shorter is itself a thin wrapper.
 three filters :: Three filters, each of which takes a suggestion out of the findings:
-filter 1: no concrete case, no finding :: 1. **No concrete case — no finding.** A finding of this lens names its case: the line, and with it the input that never arrives, the caller that does not exist, the second copy, or the existing helper with its path.
-filter 1: without a case nothing is written, not even a question :: A suggestion without such a case — "this could be cleaner", a name or a style you would choose differently — is not written at all, not even as a question: here the lens is stricter than the general rule of evidence.
-filter 2: a shortcut comment is the author's decision :: 2. **A `shortcut:` comment is the author's decision, not a finding.** An author who simplifies knowingly marks the code with a comment of this form, in the comment syntax of the language: `shortcut: <limit>, <when to redo>`.
-filter 2: the two parts of the comment :: `<limit>` is what the simple code does not handle; `<when to redo>` is the condition under which it has to be replaced.
-filter 2: an example of the comment :: Example: `// shortcut: two copies of the join, redo when a third format appears`.
-filter 2: the marked code is not reported :: Under this lens, do not report the code such a comment marks, and do not propose to build what it postpones.
-filter 2: a comment without a limit or a condition decides nothing :: The filter has two limits. A comment without a limit or without a condition (`shortcut: fix later`) decides nothing: the code under it is reviewed as usual.
-filter 2: a condition the diff already meets is a finding :: And when the diff itself already meets the condition, that is a finding: it names the line that meets it.
-filter 3: outside the ticket's files, a proposal for a new ticket :: 3. **A restructuring outside the ticket's files is a proposal for a new ticket, not a blocking finding.** The ticket's files are those of its trail section (`tickets.trail_section` of the profile); with no ticket, the files the diff changes.
-filter 3: written as a low finding, never higher :: A simplification that needs edits outside them is written as `path:line: [low] new ticket: <what to restructure, in which files>` — never as `[high]` or `[med]`.
 the lens keeps the scope rule :: The lens stays inside the scope rule above: it asks about lines the diff adds or changes. Code the diff did not touch that could be simpler goes on the "outside the diff: …" line.
+EOF
+# Every filter is checked on its own text: a sentence that moves under another filter fails, and so
+# does a sentence added to a filter.
+filter() { printf '%s\n' "$LENS" | awk -v n="$1." '/^[0-9]+\. / { cur = $1 } /^$/ { cur = "" } cur == n'; }
+sentences "$(filter 1)" "lens simplification, filter 1" whole <<'EOF'
+nothing to point at, no finding :: 1. **A suggestion with nothing to point at is not a finding.**
+a finding shows what it rests on :: A finding of this lens shows what it rests on: the line, and with it the input that never arrives, the caller that does not exist, the second copy, or the existing helper with its path.
+without that nothing is written, not even a question :: A suggestion that rests on nothing of the kind — "this could be cleaner", a name or a style you would choose differently — is not written at all, not even as a question: here the lens is stricter than the general rule of evidence.
+EOF
+sentences "$(filter 2)" "lens simplification, filter 2" whole <<'EOF'
+a shortcut comment is the author's decision :: 2. **A `shortcut:` comment records the author's decision; it is not a finding.**
+the form of the comment :: An author who simplifies knowingly marks the code with a comment of this form, in the comment syntax of the language: `shortcut: <limit>, <when to redo>`.
+the two parts of the comment :: `<limit>` is what the simple code does not handle; `<when to redo>` is the condition under which it has to be replaced.
+an example whose limit is what the code does not handle :: Example: `// shortcut: no more than two formats, redo when a third format appears`.
+the marked code is not reported as a simplification :: For the code such a comment marks: do not report it as a simplification, and do not propose to build what the comment postpones.
+any other defect in the marked code is reported :: Any other defect in that code is reported as usual.
+a comment without a limit or a condition decides nothing :: The filter has two limits. A comment without a limit or without a condition (`shortcut: fix later`) decides nothing: the code under it is reviewed as usual.
+a condition the diff already meets is a low finding :: And when the diff itself already meets the condition, that is a `[low]` finding, never a higher one: it names the line that meets it.
+EOF
+sentences "$(filter 3)" "lens simplification, filter 3" whole <<'EOF'
+outside the ticket's files, a proposal for a new ticket :: 3. **A restructuring outside the ticket's files is a proposal for a new ticket, not a blocking finding.**
+the ticket's files :: The ticket's files are those of its trail section (`tickets.trail_section` of the profile); with no ticket, the files the diff changes.
+written as a low finding, never higher :: A simplification that needs edits outside them is written as `path:line: [low] new ticket: <what to restructure, in which files>` — never as `[high]` or `[med]`.
 EOF
 steps="$(printf '%s\n' "$LENS" | awk '/^[0-9]+\. /{print substr($0,1,2)}' | tr -d '\n')"
 [ "$steps" = "1.2.3." ] && ok "reviewer, lens simplification: the filters are items 1. to 3. of the section" \
     || bad "reviewer, lens simplification: numbered items of the section: [$steps]"
-# The sources close the section: project, file, commit and licence of each (spec of worfy-review,
-# owner's decision 1).
-sentences "$(printf '%s\n' "$LENS" | awk 'BEGIN { RS = "" } { p = $0 } END { print p }')" "the last paragraph of lens simplification" <<'EOF'
-names Thermos, the file, the commit and the licence :: Source: Thermos, `thermos/skills/thermo-nuclear-code-quality-review/SKILL.md`, commit `ccb5507cec1546dc88135c1139c811e6c59115ba` of `cursor/plugins` (MIT, Copyright (c) 2026 Cursor) —
-names ponytail, the files, the commit and the licence :: Source: ponytail, `skills/ponytail-review/SKILL.md` and `skills/ponytail/SKILL.md`, commit `9cc65d03aa2da1db7121b912d03596409ee340b8` of `DietrichGebert/ponytail` (tag v5.1.0; MIT, Copyright (c) 2026 DietrichGebert) —
-says the rules are reworded :: The rules are reworded, not copied; the third filter is this project's own rule.
+# The sources close the section: project, file, commit and licence of each, and what was taken from
+# it (spec of worfy-review, owner's decision 1). The paragraph is nothing but these three sentences.
+sentences "$(printf '%s\n' "$LENS" | awk 'BEGIN { RS = "" } { p = $0 } END { print p }')" "the last paragraph of lens simplification" whole <<'EOF'
+names Thermos, the file, the commit, the licence and what was taken :: Source: Thermos, `thermos/skills/thermo-nuclear-code-quality-review/SKILL.md`, commit `ccb5507cec1546dc88135c1139c811e6c59115ba` of `cursor/plugins` (MIT, Copyright (c) 2026 Cursor) — the restructuring that makes code disappear, thin wrappers, loose types, logic in the wrong layer and the repeat of an existing helper.
+names ponytail, the files, the commit, the licence and what was taken :: Source: ponytail, `skills/ponytail-review/SKILL.md` and `skills/ponytail/SKILL.md`, commit `9cc65d03aa2da1db7121b912d03596409ee340b8` of `DietrichGebert/ponytail` (tag v5.1.0; MIT, Copyright (c) 2026 DietrichGebert) — delete, the standard library, not needed now, merge and split; the first filter and the `shortcut:` comment.
+says what is reworded and what is taken as it is :: The rules are reworded, not copied: taken as they are only the marker `shortcut:` and the category names delete, merge and split. The third filter is this project's own rule.
 EOF
 # The Profile contract points at the descriptions (harness/profiles/README.md, the row of review.lenses).
 README="${PROFILES_README_FILE:-$AGENTS/../profiles/README.md}"

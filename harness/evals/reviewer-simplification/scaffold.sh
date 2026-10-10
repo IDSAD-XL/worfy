@@ -113,7 +113,7 @@ function durationText(ms) {
   return formatDuration(ms)
 }
 
-// shortcut: csvLine and tsvLine are two copies of one join, redo when a third format appears
+// shortcut: no more than two formats with a copy of the join each, redo when a third format appears
 /** One task as a line of a CSV file. */
 export function csvLine(task) {
   return [task.id, task.name, durationText(task.ms)].join(',')
