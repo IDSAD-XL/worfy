@@ -87,6 +87,21 @@ describe('slashQuery and matchCommands', () => {
   })
 })
 
+// worfy-windows ticket 11: the hints name the Enter key of the system (src/renderer/session/hints.ts).
+describe('the key hints of the field', () => {
+  it.each([
+    ['mac', '/ commands · ⇧⏎ new line · ↑↓ history', '↑↓ navigate · ⏎ select · esc'],
+    ['windows', '/ commands · Shift+Enter new line · ↑↓ history', '↑↓ navigate · Enter select · esc'],
+  ] as const)('on %s the field shows "%s" and the slash menu "%s"', async (system, composer, slash) => {
+    document.documentElement.dataset.platform = system
+    const { type } = await mount()
+    expect(document.querySelector('.w-composer__hint')?.textContent).toBe(composer)
+    await type('/sh')
+    await vi.waitFor(() => expect(items()).toEqual(['ship-ticket', 'reship']))
+    expect(screen.getByTestId('slash-menu').querySelector('.w-slash__head .w-mono')?.textContent).toBe(slash)
+  })
+})
+
 describe('the slash menu', () => {
   it('/sh shows /ship-ticket with its description; Tab puts it into the field', async () => {
     const { field, type, key, send } = await mount()

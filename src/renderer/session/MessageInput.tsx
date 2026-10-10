@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEven
 import { FILE_COPY_LIMIT_BYTES, MAX_ATTACHMENTS, fileTooLarge, imageTooLarge, tooManyAttachments, type Attachment, type AttachmentSource, type AttachResult } from '../../shared/agent/attachments'
 import { invoke, windowMachine } from '../ipc'
 import { composerItems } from './composer/index'
+import { composerHint } from './hints'
 import { stepHistory } from './history'
 import { useSlashMenu } from './SlashMenu'
 
@@ -358,7 +359,7 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
               <PlusIcon />
             </button>
             {pickHere ? <input ref={chooser} type="file" multiple hidden tabIndex={-1} aria-hidden="true" data-testid="input-attach-file" onChange={chosen} /> : null}
-            <span className="w-composer__hint w-mono">/ commands · ⇧⏎ new line · ↑↓ history</span>
+            <span className="w-composer__hint w-mono">{composerHint()}</span>
             <span className="w-composer__spacer" />
             {composerItems.map(({ id, Component }) => (
               <span key={id} className="w-composer__item" data-item={id}>

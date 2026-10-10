@@ -1,9 +1,10 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, screen, session, type HandlerDetails, type WindowOpenHandlerResponse } from 'electron'
+import { app, BrowserWindow, nativeTheme, screen, session, type HandlerDetails, type WindowOpenHandlerResponse } from 'electron'
 import { MIN_SIZE, initialBounds, parseWindowState, serializeWindowState, type Rect } from '../shared/window/bounds'
 import { allowFrameNavigation } from './cards/protocol'
 import { reportStartupFailure } from './startup-failure'
+import { frameOptions } from './window-frame'
 import { dataRoot } from './storage/paths'
 
 /** Path of the file that remembers the window's position and size (ADR 0005: worfy's own state). */
@@ -71,14 +72,8 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
     minHeight: MIN_SIZE.height,
     title: 'worfy',
     show: false,
-    // Native macOS frame of design F: no title bar, traffic lights inset into the unified
-    // toolbar, a translucent sidebar. The page keeps its own background transparent where the
-    // sidebar is, so the vibrancy shows through.
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 20, y: 19 },
-    vibrancy: 'sidebar',
-    visualEffectState: 'followWindow',
-    backgroundColor: '#00000000',
+    // The frame of design F on macOS, the system's own frame elsewhere (window-frame.ts).
+    ...frameOptions(process.platform, nativeTheme.shouldUseDarkColors),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
