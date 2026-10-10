@@ -5,17 +5,16 @@
 //
 // It opens from the app menu's "Settings…" (Cmd/Ctrl+,, `menu.command`) and from the command
 // palette, through openSettings (settings-window.ts). Esc and Close close it, and the focus goes
-// back where it was. The window keeps Esc to itself: an Esc that reached the app window would also
-// close focus mode under it.
-import { useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+// back where it was. The window is modal: while it is open the app behind it gets neither keys nor
+// the focus (the guard in settings-window.ts), so Esc closes this window and not focus mode or a
+// popover under it, and ⌘K, ⌘F and ⌘↩ do nothing.
+import { useEffect, useId, useLayoutEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import '../canvas/actions/actions.css'
 import { ListRow } from '../theme/primitives'
 import './settings.css'
 import { settingsSections, type SettingsSection } from './sections'
-import { closeSettings, followMenuCommands, selectSection, useSettingsWindow } from './settings-window'
-
-const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+import { closeSettings, focusablesOf, followMenuCommands, selectSection, setSettingsDialogElement, SETTINGS_LAYER, useSettingsWindow } from './settings-window'
 
 export interface SettingsDialogViewProps {
   sections: readonly SettingsSection[]
@@ -29,14 +28,18 @@ export function SettingsDialogView({ sections }: SettingsDialogViewProps) {
   const dialog = useRef<HTMLDivElement>(null)
   const nav = useRef<HTMLDivElement>(null)
 
-  // On opening: the focus goes to the chosen section, so ↑ and ↓ work at once; on closing it goes
-  // back to what had it before, if that is still on the page.
-  useEffect(() => {
+  // On opening: the modal guard learns the dialog, and the focus goes to the chosen section, so ↑
+  // and ↓ work at once; on closing the focus goes back to what had it before, if that is still on
+  // the page. A layout effect: no key may fall between the dialog appearing and the guard knowing it.
+  useLayoutEffect(() => {
     if (!open) return
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setSettingsDialogElement(dialog.current)
     const selected = nav.current?.querySelector<HTMLElement>('[aria-current="true"]')
     ;(selected ?? dialog.current)?.focus()
     return () => {
+      // The guard first: it would take the focus back from the element it returns to.
+      setSettingsDialogElement(null)
       if (previous?.isConnected) previous.focus()
     }
   }, [open])
@@ -74,7 +77,7 @@ export function SettingsDialogView({ sections }: SettingsDialogViewProps) {
     }
     if (event.key !== 'Tab' || dialog.current === null) return
     // Modal: Tab and Shift+Tab go round the controls of the window.
-    const focusable = [...dialog.current.querySelectorAll<HTMLElement>(FOCUSABLE)]
+    const focusable = focusablesOf(dialog.current)
     const first = focusable[0]
     const last = focusable.at(-1)
     if (first === undefined || last === undefined) return
@@ -91,6 +94,7 @@ export function SettingsDialogView({ sections }: SettingsDialogViewProps) {
   return createPortal(
     <div
       className="w-settings__backdrop"
+      style={{ zIndex: SETTINGS_LAYER }}
       // A press on the backdrop must not take the focus out of the modal window.
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) event.preventDefault()

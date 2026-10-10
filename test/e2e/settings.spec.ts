@@ -1,4 +1,8 @@
-import { expect, test } from '@playwright/test'
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
 import { clickMenuItem } from './menu'
 import { snapshotThemes } from './snapshots'
@@ -62,9 +66,9 @@ test('Settings… in the menu opens Settings with General and the version; Esc c
     await expect(sections.first()).toBeFocused()
     await window.keyboard.press('Tab')
     await expect(dialog.getByRole('button', { name: 'Close' })).toBeFocused()
+    await snapshotThemes(window, 'settings-focus')
     await window.keyboard.press('Tab')
     await expect(sections.first()).toBeFocused()
-    await snapshotThemes(window, 'settings-focus')
 
     await window.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
@@ -81,5 +85,103 @@ test('Settings… in the menu opens Settings with General and the version; Esc c
     await expect(dialog).toHaveCount(0)
   } finally {
     await launched.close()
+  }
+})
+
+/** Resolves after the renderer has drawn a frame, so a render the last key caused is on screen. */
+const nextFrame = (window: Page): Promise<void> =>
+  window.evaluate(() => new Promise<void>((resolve) => (globalThis as unknown as { requestAnimationFrame(cb: () => void): void }).requestAnimationFrame(() => resolve())))
+
+/** Takes the focus off the focused control of `dialog`, as when a focused element goes away: the page has it then. */
+async function focusToPage(window: Page, dialog: Locator): Promise<void> {
+  await dialog.locator(':focus').evaluate((element) => (element as unknown as { blur(): void }).blur())
+  await expect(window.locator('body')).toBeFocused()
+}
+
+test('Settings is modal: ⌘K, ⌘F and ⌘↩ do nothing under it, also with the focus on the page, where Tab comes back and Esc closes; it does not open under focus mode', async () => {
+  // A Project with two notes: ⌘F searches its Canvas and ⌘↩ opens focus mode on the selected note.
+  const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-settings-')))
+  const PROJECT = 'alpha-0000000a'
+  const dataDir = join(scratch, 'data')
+  mkdirSync(join(scratch, 'alpha'))
+  mkdirSync(join(dataDir, PROJECT), { recursive: true })
+  writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'alpha', path: join(scratch, 'alpha') }], activeId: PROJECT }))
+  writeFileSync(
+    join(dataDir, PROJECT, 'layout.json'),
+    JSON.stringify({
+      nodes: [
+        { id: 'n1', kind: 'note', x: 40, y: 40, w: 220, h: 120, data: { text: 'one' } },
+        { id: 'n2', kind: 'note', x: 300, y: 40, w: 220, h: 120, data: { text: 'two' } },
+      ],
+      viewport: { x: 30, y: 20, zoom: 1 },
+    }),
+  )
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+  try {
+    const { app, window } = launched
+    await expect(window.getByTestId('note-node')).toHaveCount(2)
+    const selectNote = async (): Promise<void> => {
+      await window.locator('.react-flow__node[data-id="n1"] .w-note__header').click()
+      await expect(window.locator('.react-flow__node.selected')).toHaveCount(1)
+    }
+    await selectNote()
+
+    const dialog = window.getByRole('dialog', { name: 'Settings' })
+    const palette = window.getByTestId('command-palette')
+    const find = window.getByTestId('canvas-find')
+    const focusMode = window.getByTestId('focus-mode')
+    const sections = dialog.getByRole('navigation', { name: 'Settings sections' }).getByRole('button')
+    /** The app's shortcuts, pressed while Settings is open: none of them does anything. */
+    const shortcutsDoNothing = async (): Promise<void> => {
+      for (const keys of ['Meta+k', 'Meta+f', 'Meta+Enter']) {
+        await window.keyboard.press(keys)
+        await nextFrame(window)
+        await expect(palette, keys).toHaveCount(0)
+        await expect(find, keys).toHaveCount(0)
+        await expect(focusMode, keys).toHaveCount(0)
+        await expect(dialog, keys).toBeVisible()
+      }
+    }
+
+    await clickMenuItem(app, SETTINGS_MENU_ITEM_ID)
+    await expect(dialog).toBeVisible()
+    await expect(sections.first()).toBeFocused()
+    await shortcutsDoNothing()
+
+    // The focus on the page behind, as after a focused element went away.
+    await focusToPage(window, dialog)
+    await shortcutsDoNothing()
+    await window.keyboard.press('Tab')
+    await expect(sections.first()).toBeFocused()
+    await focusToPage(window, dialog)
+    await window.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    // Nothing behind took that Esc or the keys before it: the note is still selected.
+    await expect(window.locator('.react-flow__node.selected')).toHaveCount(1)
+
+    // Closed, the same keys work, so the checks above were not empty.
+    await window.keyboard.press('Meta+k')
+    await expect(palette).toBeVisible()
+    await window.keyboard.press('Escape')
+    await expect(palette).toHaveCount(0)
+    await window.keyboard.press('Meta+f')
+    await expect(find).toBeVisible()
+    await window.keyboard.press('Escape')
+    await expect(find).toHaveCount(0)
+
+    // Focus mode covers the window in a layer above Settings: "Settings…" does not open under it.
+    await selectNote()
+    await window.keyboard.press('Meta+Enter')
+    await expect(focusMode).toBeVisible()
+    await clickMenuItem(app, SETTINGS_MENU_ITEM_ID)
+    await nextFrame(window)
+    await expect(dialog).toHaveCount(0)
+    await window.keyboard.press('Escape')
+    await expect(focusMode).toHaveCount(0)
+    await clickMenuItem(app, SETTINGS_MENU_ITEM_ID)
+    await expect(dialog).toBeVisible()
+  } finally {
+    await launched.close()
+    await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

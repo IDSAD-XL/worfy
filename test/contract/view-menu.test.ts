@@ -31,7 +31,8 @@ const electron = vi.hoisted(() => {
     constructor(readonly name: string) {
       this.webContents = { send: (channel, payload) => sent.push({ to: name, channel, payload }) }
     }
-    isDestroyed = () => false
+    destroyed = false
+    isDestroyed = () => this.destroyed
   }
   const window = new FakeBrowserWindow('main')
   FakeBrowserWindow.all = [window]
@@ -177,6 +178,19 @@ describe('Settings…', () => {
     expect(electron.sent).toEqual([{ to: 'main', channel: `${IPC_CHANNEL_PREFIX}menu.command`, payload: 'settings' }])
     electron.sent.length = 0
     electron.FakeBrowserWindow.focused = null
+    settings.click?.({ checked: false }, undefined)
+    expect(electron.sent).toEqual([])
+  })
+
+  it('a destroyed window gets no command, whether it came with the click or has the focus', async () => {
+    const { settings } = await templateFor('darwin')
+    const gone = new electron.FakeBrowserWindow('gone')
+    gone.destroyed = true
+    electron.FakeBrowserWindow.focused = electron.window
+    // The window of the click was closed meanwhile: the command is not passed on to another one.
+    settings.click?.({ checked: false }, gone)
+    expect(electron.sent).toEqual([])
+    electron.FakeBrowserWindow.focused = gone
     settings.click?.({ checked: false }, undefined)
     expect(electron.sent).toEqual([])
   })

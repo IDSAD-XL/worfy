@@ -3,8 +3,7 @@
 .w-settings__backdrop {
   position: fixed;
   inset: 0;
-  /* Above every other dialog of the app (90–101). */
-  z-index: 110;
+  /* z-index: SETTINGS_LAYER (settings-window.ts), set inline; the modal guard compares layers with it. */
   display: flex;
   align-items: center;
   justify-content: center;
