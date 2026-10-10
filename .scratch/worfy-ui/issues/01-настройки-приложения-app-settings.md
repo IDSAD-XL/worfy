@@ -82,10 +82,10 @@ Source: решения владельца 2026-10-09: 1 (свёрнутость 
 - [x] Unit `test/unit/use-app-settings.test.tsx` (новый): store берёт ответ `appSettings.get`;
   событие со старшей ревизией меняет состояние, с младшей — нет; `setAppSettings` зовёт
   `appSettings.set` с переданной частью; без моста preload — значения по умолчанию.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально —
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально —
   exit 0 (новый домен IPC грузится при старте приложения, это видят только e2e и `.app`).
-  Не проверено: `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0, но gate full одним зелёным
-  прогоном не получен (три прогона, три разных нестабильных test-а — см. «Итог»).
+  Gate full — exit 0 с четвёртого прогона; три красных прогона с разными нестабильными test-ами —
+  в «Итог».
 
 ## Тесты
 
@@ -143,19 +143,19 @@ PR #207, ветка `worfy-ui/01`.
   unit-test-ы компонентов Ticket-ов 02–05 и 10 не шумели.
 - **Проверки:** `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast — exit 0, «зелено».
   CI PR #207 (`check`) — зелёный.
-- **Gate full — одним прогоном зелёным не получен; не проверено.** Три прогона `GATE_SCOPE=all`
-  gate full на commit-е a5987b1 под замком `/tmp/worfy-e2e.lock`, каждый — exit 2, каждый раз один
+- **Gate full — зелёный с четвёртого прогона.** `GATE_SCOPE=all` gate full под замком
+  `/tmp/worfy-e2e.lock`. Первые три прогона (commit a5987b1, до rebase) — exit 2, каждый раз один
   упавший test, все три разные, и ни один не касается настроек:
   1. 02:29 (нагрузка машины около 18, четыре посторонних процесса `yes`): `test` — unit
      `test/unit/epic-layout.test.ts` «keeps every open Ticket in place over many random Epics»,
-     timeout 5 s; `test:e2e` (181) и `test:package` прошли. Отдельно тот же файл — 33 из 33 за 1.5 s.
+     timeout 5 s; `test:e2e` и `test:package` прошли. Отдельно тот же файл — 33 из 33 за 1.5 s.
   2. 02:49: `test:e2e` — `test/e2e/edges.spec.ts:166` (`strokeWidth` пустой вместо `1px`), 180 из
      181; остальное прошло. Этот test известен как нестабильный; на той же сборке
      `--repeat-each 5` — 4 из 5.
   3. 03:09: `test:e2e` — `test/e2e/binding.spec.ts:272` (после hover не появилась линия Binding),
      180 из 181; остальное прошло. Отдельно `--repeat-each 4` — 4 из 4.
-  Каждая часть gate full (lint, typecheck, test, test:e2e, test:package) была зелёной хотя бы в
-  одном прогоне, но одного зелёного прогона нет — перед мержем gate full повторить.
+  4. 03:53, после rebase на `origin/main` ae7a930 (commit 685bfe6): exit 0, «[gate] зелено (full):
+     lint typecheck test test:e2e test:package». Следующий commit ветки меняет только этот файл.
 - Mutation testing: восемь мутантов (слияние `collapsed`, рост `revision`, `clampScale` в `set`,
   пропуск пустого изменения, подписка IPC-модуля на `changed`, пометка `project` у `appSettings.set`,
   проверка ревизии в renderer, проверка моста) — каждый краснит свой test.
