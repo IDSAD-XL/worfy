@@ -1,7 +1,7 @@
 # 32 — Черновик «Add project» падает: Claude Code отвергает ключ `$schema` в схеме черновика
 
 Type: task
-Status: claimed — 2026-10-10
+Status: done — 2026-10-10, [PR #238](https://github.com/IDSAD-XL/worfy/pull/238)
 Blocked by:
 Source: приёмка E3, пункт 2 (Ticket [26](26-приёмка-e3.md)), запуск «silent» 2026-10-10: диалог «Add project» на шаге Draft перешёл в `failed` через несколько секунд. Диагностический запуск того же шага показал текст отказа.
 
@@ -220,3 +220,12 @@ Session как есть. Сейчас `$defs` в схеме нет; обход �
   отказывает именно так, как подставной объект control-test-а (ошибка с «Timeout … exceeded»).
 - не проверено: шаг Draft с настоящим Claude Code в песочнице (четвёртый пункт) и gate full — шаги
   Orchestrator-а.
+
+### Gate оркестратора (2026-10-10)
+
+- Ревью — `VERIFIED` с первого круга на `eb09685` ([комментарий в PR #238](https://github.com/IDSAD-XL/worfy/pull/238#issuecomment-6100609767)). Reviewer прочитал, не запуская, пакет Claude Code 2.1.291 и нашёл, чем проверяется `--json-schema`: `new Ajv({allErrors:true, validateFormats:false, multipleOfPrecision:6})`, затем `validateSchema` и `compile` — Ajv 8, строгий режим по умолчанию. Схема, которая уходит в Session после правки, этим валидатором компилируется без ошибок и без записей строгого режима; схема с диска как есть даёт тот же текст отказа, что был в приёмке.
+- Из-за этого находка [med]: contract test первого варианта проверял схему ajv 6 со `strictKeywords` (выбор Orchestrator-а из двух вариантов Implementer-а) — он не равен валидатору Claude Code. До мержа Implementer заменил его на Ajv 8 с теми же опциями и закрыл три находки [low] (`eb09685..270147a`); второй взгляд того же reviewer-а — `VERIFIED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/238#issuecomment-6100868847)). Решение «ajv 6 через eslint» этим снято.
+- Долг: [low] `src/main/projects/connect.ts:265` — `sessionSchema` не заходит в `$defs`. Отказа это не даёт (Ajv 8 компилирует `$defs`), а если `$defs` с `$schema` или `$id` появится в файле схемы, contract test покраснеет.
+- не проверено: три опции валидатора и вызов `validateSchema` test не закрепляет (в схеме нет `format` и `multipleOf`); при обновлении Claude Code опции сверить чтением пакета. Ответ API на схему как на входную схему инструмента. Шаг Draft с настоящим Claude Code — повтор приёмки «silent» (Ticket 26), когда владелец даст пустой репозиторий.
+- Мерж: rebase на `04fe3db` (после PR #235, без конфликта), head `f3a447d`; `GATE_SCOPE=all gate full` — код 0 с первого запуска, не из кэша, строка `[gate] зелено (full)`; CI зелёный, CLEAN, влит `5b58c58`.
+- Шаг владельца: правка в коде приложения — в Stable copy «Add project» заработает после `pnpm install:stable`.

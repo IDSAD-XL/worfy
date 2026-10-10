@@ -1,8 +1,8 @@
-# Передача контекста — снимок на 2026-10-10 (UTC), main @ ba6a134
+# Передача контекста — снимок на 2026-10-10 (UTC), main @ 5b58c58
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3: Harness — правила, skills, agents и скрипты владельца — становится plugin-ом worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–25 и 30, `epic-status` — 26/32; 26 — приёмка E3, `blocked`; 27 (платная часть eval) ждёт 28; 29 — после 27 и 28; 31 и 32 — открыты.
+- `worfy-harness` (E3: Harness — правила, skills, agents и скрипты владельца — становится plugin-ом worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–25, 30 и 32, `epic-status` — 27/32; 26 — приёмка E3, `blocked`; 27 (платная часть eval) ждёт 28; 29 — после 27 и 28; 31 — открыт.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 19; 19 (старая неудача в окне First run, low) открыт. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`; работа — только в локальной ветке `wip/worfy-week-14` («Итог» Ticket-а 14).
 - Stable copy и plugin `worfy` — сборка `4d3d60c` (2026-10-10). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/16; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16.
@@ -14,7 +14,7 @@
 ## Ждёт владельца
 
 - `worfy-harness` 26 (приёмка E3): код приёмки влит (PR #211, узкий круг — `NARROW: VERIFIED`); остались шаги ниже.
-- Приёмка E3 («Итог» 26): пункт 1 упал на шаге qmd (PATH песочницы), пункт 2 — на шаге Draft (Ticket 32), ему нужен пустой `worfy-e3-silent`; вход в песочнице открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08; пункт 5 (второй пользователь macOS) отложен владельцем 2026-10-10.
+- Приёмка E3 («Итог» 26): пункт 1 — запуск зелёный, принять владельцу; пункту 2 нужен пустой `worfy-e3-silent` (Ticket 32 влит); вход в песочнице открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08; пункт 5 (второй пользователь macOS) отложен владельцем 2026-10-10.
 - Приёмка E3, пункт 3 (Wave под Autopilot с одним graceful Stop) принят владельцем 2026-10-10.
 - Подтвердить решения, принятые без владельца (пометки «подтвердить» в «Итог» Ticket-ов): `worfy-week` 03–07, 09, 10, 12, 15, 17, 18; `worfy-harness` 01, 02, 04–09, 11–14, 17, 19, 20, 23, 27; `worfy-terminal-ai` 01, 02; `worfy-link` 01–06, 08–15; `worfy-review` 01–03, 05.
 - `worfy-review`: подтвердить три решения плана без владельца ([spec](.scratch/worfy-review/spec.md), «Решения владельца»): plugin-ы не ставим, источник с SHA, дословно — с MIT; без слов заглавными; max-review (07) — по просьбе или пометке риска.
@@ -52,7 +52,7 @@
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21, 24, 25 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
 - Ждут условия (проверит агент): упор в Limits (`worfy-daily` 05), наблюдатель касаний (`worfy-daily` 04), workflow-скрипт в Autopilot (`worfy-daily` 29, 17), бейджи у Ticket-а с открытым PR (`worfy-mvp` 17, `worfy-week` 01).
 - Неделя работы владельца из Stable copy (условие 4 E2 и цель `worfy-week`): каждый дефект и каждое вмешательство человека — Ticket `worfy-week`, следующий номер 20.
-- `worfy-harness` 31: `$0` и `$1` в shell-блоках skills подменяются аргументами вызова. 32: черновик «Add project» падает на ключе `$schema`.
+- `worfy-harness` 31: `$0` и `$1` в shell-блоках skills подменяются аргументами вызова. 32 (черновик «Add project») влит — нужен `pnpm install:stable`.
 - Кандидаты в Ticket-ы: `done` с невлитой ветки, `reader.ts:329` (`worfy-harness` 22); [med] Project по первому совпадению пути в `checks.ts:69` и ещё два долга `worfy-harness` 23 — его «Итог».
 - Ещё кандидаты: изоляция `preflight.test.sh` (`worfy-harness` 11), абсолютный путь к `gh` (`worfy-harness` 01), PATH с node в hook-е `gh-token-env.sh` (`worfy-harness` 18), панель выделения поверх шапки рамки (`worfy-week` 10).
 - После E3 — `worfy-link` (ведёт Session на Mac) и `worfy-windows` (Session на Windows-ПК) параллельно. PR Windows с общим кодом получают метку `needs-mac-gate`, их вливает Session на Mac (spec `worfy-windows`, Q30–Q33).
