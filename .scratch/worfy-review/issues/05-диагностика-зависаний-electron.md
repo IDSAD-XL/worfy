@@ -1,7 +1,7 @@
 # 05 — Диагностика зависаний и падений worfy: запись о падении процесса и стек при таймауте шага по CDP
 
 Type: task
-Status: claimed — 2026-10-10
+Status: done — 2026-10-10, [PR #222](https://github.com/IDSAD-XL/worfy/pull/222)
 Blocked by: —
 Source: решение владельца 2026-10-09 («Хорошие идеи, сохрани их и добавь в планы к имплементации»), пункт «диагностика зависаний» из таблицы; [исследование](../../../docs/research/2026-10-09-ponytail-pstack-thermos.md), раздел о pstack: Unix-утилита `pstack` печатает стеки потоков процесса, на macOS её нет, ближайшая замена — `sample`; [spec.md](../spec.md)
 
@@ -299,3 +299,12 @@ worfy/.:test:e2e worfy/.:test:package».
   Исправление: уточнить комментарий (и оценку роста журнала под ним).
 - `scripts/hang-sample.mjs:181-195` — `runSample` test-ами не покрыт: мутанты «запуск через sudo»
   и «убрать предел времени» выживают. Проверен чтением и ручным прогоном.
+
+### Gate оркестратора (2026-10-10)
+
+- Ревью — `VERIFIED` с первого круга на `8b00eb6` ([комментарий в PR #222](https://github.com/IDSAD-XL/worfy/pull/222#issuecomment-6094083881)); долги — в списке выше. По двум из них Implementer сделал дополнение `26b1f5a` (`setAppUserModelId` в mock-е `app`, test-ы настоящих `ps` и `pgrep`); его проверил отдельный reviewer — `VERIFIED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/222#issuecomment-6094330424)): 9 мутантов красные, без строки mock-а test падает с `TypeError: app.setAppUserModelId is not a function` на ветке win32. Новый долг:
+  - [low] `test/unit/hang-sample.test.ts:251` — test запускает 7 настоящих процессов под пределом vitest 5 s по умолчанию; на сильно загруженном Mac полный `pnpm test` может не уложиться. Правка: `{ timeout: 15_000 }`, как в `test/unit/process-gone.test.ts:204`.
+- Отступление от spec: PR #215 (`worfy-windows` 11, общий файл `src/main/index.ts`) был открыт до Wave, и по разделу spec о порядке с `worfy-windows` этот Ticket не должен был стартовать. Orchestrator запустил его по ошибке; Ticket ждал мержа PR #215 (`78fc03e`) в статусе `blocked`. Rebase на main с PR #215 прошёл без конфликтов в коде; абзац раздела «Stable copy» в `README.md` после rebase перечитан.
+- Windows-ПК ([комментарий](https://github.com/IDSAD-XL/worfy/pull/222#issuecomment-6098127365)), head `32cb1d4`, сравнение с main `4d3d60c`: `pnpm install`, `lint`, `typecheck` — код 0; `pnpm test` — код 1, как на main, новых падающих test-ов по именам нет; свои test-ы отдельно — `process-gone` 10 passed, `hang-sample` 30 passed и 2 skipped (блок настоящих `ps` и `pgrep` — только macOS).
+- Находка запуска на Windows-ПК, исправлена до мержа (`6c1bef0`): в полном прогоне `test/unit/process-gone.test.ts` помечался упавшим при 10 прошедших из 10 — `afterAll` получал `ENOTEMPTY` при удалении временной папки. Теперь оба test-файла этого Ticket-а удаляют её с `maxRetries: 5, retryDelay: 100`, как остальные test-ы. Повторный запуск на Windows-ПК ради этой строки владелец не требовал; на Mac оба файла — 42 passed, eslint — код 0.
+- Мерж: rebase на `d2a4eb4`, head `917884e`; `GATE_SCOPE=all gate full` — код 0 с первого запуска, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN, влит `ac8254f`.
