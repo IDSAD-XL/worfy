@@ -291,4 +291,10 @@ AppUserModelId в меню Пуск создаёт установщик Ticket-�
     файла (предел 1 с в `beforeAll`); с явным пределом выполняется, и 5 случаев из 11 падают, как
     в полном прогоне (сравнение `file://`-адреса с путём macOS);
   - `pnpm lint` и CRLF в `HANDOFF.md` — см. выше;
-  - `first-run-checks.test.ts` и `harness-install.test.ts` — 55 падений на main `baf7a14`.
+  - `test/contract/first-run-checks.test.ts` и `test/contract/harness-install.test.ts` — 55 падений
+    на main `baf7a14` (test-ы пришли с PR #216); на ветке те же, имя в имя. Причина не разбиралась;
+  - `test/unit/canvas.test.tsx` › `collectNodeTypes maps each kind to its component…` — timeout
+    5000 мс первого test-а файла; на main `baf7a14` файл, запущенный отдельно, падает на нём 2 из 2;
+  - `test/contract/link-server.test.ts` «1009» — описан в Итоге Ticket-а 08;
+  - `test/contract/startup-failure.test.ts` — 11–12 падений из 35, набор меняется от прогона к
+    прогону (зависит от скорости ПК).
