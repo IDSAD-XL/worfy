@@ -147,7 +147,7 @@ function read(file, args) {
 }
 
 /** The real system: `ps`, `pgrep` and `sample` of macOS, the real clock and the standard streams. */
-function systemDeps() {
+export function systemDeps() {
   return {
     platform: process.platform,
     env: process.env,

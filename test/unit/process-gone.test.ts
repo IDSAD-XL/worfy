@@ -33,6 +33,8 @@ vi.mock('electron', () => ({
     on: electron.on,
     exit: vi.fn(),
     getVersion: () => '1.2.3',
+    // The start names the app to Windows before the first window; the other systems never call it.
+    setAppUserModelId: vi.fn(),
   },
   Menu: { buildFromTemplate: (template: unknown) => ({ template }), setApplicationMenu: vi.fn() },
   BrowserWindow: { getAllWindows: () => [] },

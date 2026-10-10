@@ -92,7 +92,9 @@ Ticket можно разделить на два независимых PR. Ча
   copy с открытым Terminal в worfy → файлы с потоками main process и helper-ов, среди них файл
   `worfy Helper (Renderer)`; shell Terminal — строка `skipped:`, код выхода 0. На pid, который не
   main process упакованного worfy (например, pid того shell-а), — отказ с ненулевым кодом. Вывод и
-  коды — в «Итог».
+  коды — в «Итог». Отметка стоит за прогон не на Stable copy владельца, а на копии той же сборки,
+  установленной тем же `scripts/install-stable.sh` во временную папку: brief Wave запретил трогать
+  Stable copy. На самой Stable copy — не проверено.
 - [x] `gate.sh fast` — код 0 и строка `[gate] зелено (fast)`.
 
 ## Где в коде
@@ -247,11 +249,53 @@ worfy/.:test:e2e worfy/.:test:package».
 - Процесс `claude` Agent SDK как дочерний процесс из `app.asar.unpacked` — только в test-е с
   поддельными `ps` и `pgrep`: настоящий Claude Code в проверках не запускался.
 - `sample` на приложении с hardened runtime (не ad-hoc подпись) — такой сборки нет.
-- Предел времени `sample` (код 124) и разбор вывода настоящих `ps` и `pgrep` для живого процесса
-  test-ами не покрыты; второе проверено ручным прогоном выше.
+- Предел времени `sample` (код 124) test-ами не покрыт. Разбор вывода настоящих `ps` и `pgrep`
+  покрыт test-ом раунда 2 на процессе самого test-а, а для живого упакованного worfy — ручным
+  прогоном выше.
 - `child-process-gone` для utility-процесса вживую (ронялся только GPU-процесс).
 - Настоящее зависание шага по CDP не воспроизводилось: `sample` снят с работающего worfy.
 - Альтернативы из «Что делаем» (`spindump`, `lldb`, `--report-on-signal`) не проверялись:
   `sample` хватило.
 - gate full на Windows-ПК (платформенный PR: `src/main/index.ts`) — шаг Windows Session.
 - Шаг владельца: дописать запуск скрипта в личную заметку о CDP Autopilot.
+
+**Порядок мержа.** PR #222 не вливается, пока открыт PR #215 (worfy-windows/11: Ctrl вместо ⌘,
+системная рамка окна и AppUserModelId на Windows). Так требует spec.md Epic-а, раздел о порядке
+относительно worfy-windows: #215 открыт до этой Wave и правит тот же `src/main/index.ts`. После его
+мержа — rebase этой ветки на main, `GATE_SCOPE=all gate.sh full` на Mac под замком
+`/tmp/worfy-e2e.lock` и gate full на Windows-ПК (платформенный PR).
+
+**Доработка после ревью (раунд 2, PR #222 — `VERIFIED` с долгами).** Только test-ы и этот файл; в
+`src/` правок нет, в скрипте — одно слово `export`.
+- `test/unit/process-gone.test.ts`: в поддельный `app` добавлен `setAppUserModelId`. PR #215 зовёт
+  его в `start()` на Windows; без него после rebase на #215 test запуска `index.ts` краснел бы
+  только на Windows-ПК. Проверка на этой ветке: с временным вызовом `app.setAppUserModelId(…)` в
+  `start()` test зелёный (exit 0), без строки в поддельном `app` — красный (exit 1, `TypeError:
+  app.setAppUserModelId is not a function`); оба файла восстановлены из копий.
+- `scripts/hang-sample.mjs`: `systemDeps` экспортирован. Новый test в
+  `test/unit/hang-sample.test.ts` — «ps gives the path of the executable apart from the arguments;
+  pgrep gives the children of that pid alone», только macOS: настоящие `ps` и `pgrep` спрашиваются
+  о самом процессе test-а и об одном `/bin/sleep 30`, который test запускает и завершает по точному
+  pid; ничего не сэмплируется. Сначала красный: `TypeError: systemDeps is not a function`, exit 1.
+  Мутанты раунда — 7, список в `/tmp/worfy-review-w1/impl-05/mutants-r2.txt`: `comm=` → `args=`,
+  `args=` → `comm=`, `pgrep` без `-P`, `pgrep` по всем процессам, `ps` несуществующего процесса не
+  `null`, родитель среди дочерних — красные (exit 1). Один выжил (exit 0): «вывод команды с
+  ненулевым кодом читается как вывод» — для `ps` и `pgrep` он равнозначен коду: при ненулевом коде
+  их stdout пуст.
+- Проверки раунда: `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (185 файлов, 3767 test-ов);
+  `GATE_SCOPE=all gate.sh fast` — exit 0, «[gate] зелено (fast)». gate full в раунде не
+  повторялся: он нужен заново после rebase на main с влитым #215.
+
+**Долги из вердикта ревью** ([low], не блокируют):
+- `src/main/diagnostics/process-gone.ts:48-51` — `plain()` убирает только разделители путей. Строка
+  из `[A-Za-z0-9 ._-]` до 80 символов, похожая на токен, прошла бы в файл. Сейчас гарантия держится
+  на том, что `reason`, `type` и `serviceName` у Electron — из постоянного словаря. Исправление:
+  список разрешённых значений для `reason` и `type`.
+- `scripts/hang-sample.mjs:66`, `:158` — «main process упакованного worfy» определяется по
+  `ps -o comm=`, а на macOS это `argv[0]`: процесс может назвать себя чужим путём. Это не граница
+  безопасности — `sample` и так доступен тому же пользователю. Исправление: комментарий в скрипте.
+- `process-gone.ts:14-15` — комментарий «worfy starts no process again after it ends» неполон:
+  Chromium сам перезапускает GPU-процесс и network service, и `clean-exit` тоже пишется.
+  Исправление: уточнить комментарий (и оценку роста журнала под ним).
+- `scripts/hang-sample.mjs:181-195` — `runSample` test-ами не покрыт: мутанты «запуск через sudo»
+  и «убрать предел времени» выживают. Проверен чтением и ручным прогоном.

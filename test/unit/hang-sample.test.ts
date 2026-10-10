@@ -1,14 +1,14 @@
 // scripts/hang-sample.mjs <pid> [seconds]: when a step that drives a packaged worfy over CDP stops
 // answering, the script saves the thread stacks of worfy's main process and of its child processes
 // from the same .app with macOS `sample`, into <data root>/logs/hang-<time>-<pid>.txt. The cases
-// here run it over faked `ps`, `pgrep` and `sample`; the real ones are a manual check on a
-// packaged worfy.
-import { spawnSync } from 'node:child_process'
+// here run it over faked `ps`, `pgrep` and `sample`. The real `ps` and `pgrep` are asked only about
+// this test run and a `sleep` it starts; the real `sample` is a manual check on a packaged worfy.
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { processGoneLogPath } from '../../src/main/diagnostics/process-gone'
 import { dataRoot } from '../../src/main/storage/paths'
 
@@ -34,8 +34,9 @@ interface Deps {
 interface HangSample {
   hangSample: (args: string[], deps: Deps) => Promise<number>
   logsFolder: (env: Record<string, string | undefined>, home: string) => string
+  systemDeps: () => Deps
 }
-const { hangSample, logsFolder } = (await import(pathToFileURL(SCRIPT).href)) as HangSample
+const { hangSample, logsFolder, systemDeps } = (await import(pathToFileURL(SCRIPT).href)) as HangSample
 
 const BUNDLE = '/Users/u/Applications/worfy stable.app'
 const MAIN = `${BUNDLE}/Contents/MacOS/worfy`
@@ -240,6 +241,35 @@ describe('hang-sample: where the files go', () => {
     for (const env of [{}, { WORFY_DATA_DIR: '/data/worfy' }, { WORFY_DATA_DIR: '' }]) {
       expect(logsFolder(env, home)).toBe(join(dataRoot(env, 'packaged', 'darwin'), 'logs'))
       expect(join(logsFolder(env, home), 'process-gone.jsonl')).toBe(processGoneLogPath(dataRoot(env, 'packaged', 'darwin')))
+    }
+  })
+})
+
+// The real `ps` and `pgrep`, asked about this test run and one `sleep` it starts — nothing else on
+// the machine, and nothing is sampled. The `sleep` ends by itself after 30 s if the test dies first.
+describe.skipIf(process.platform !== 'darwin')('hang-sample: the real ps and pgrep of macOS', () => {
+  it('ps gives the path of the executable apart from the arguments; pgrep gives the children of that pid alone', async () => {
+    const { ps, childrenOf } = systemDeps()
+    const child = spawn('/bin/sleep', ['30'], { stdio: 'ignore' })
+    const pid = child.pid
+    const ended = new Promise((done) => child.once('exit', done))
+    try {
+      if (pid === undefined) throw new Error('/bin/sleep did not start')
+      await vi.waitFor(() => expect(ps(pid)).toEqual({ comm: '/bin/sleep', args: '/bin/sleep 30' }))
+      const children = childrenOf(process.pid)
+      expect(children).toContain(pid)
+      expect(children).not.toContain(process.pid)
+      expect(children).not.toContain(process.ppid)
+      for (const each of children) expect(Number.isInteger(each) && each > 0, String(each)).toBe(true)
+      expect(childrenOf(pid)).toEqual([])
+    } finally {
+      child.kill('SIGKILL')
+      await ended
+    }
+    // The process is gone: no pid of a live process, no child of this one.
+    if (pid !== undefined) {
+      expect(ps(pid)).toBeNull()
+      expect(childrenOf(process.pid)).not.toContain(pid)
     }
   })
 })
