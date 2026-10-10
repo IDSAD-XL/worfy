@@ -12,6 +12,9 @@
 #                                 Electron lock /tmp/worfy-e2e.lock, with E3_LOCK_HELD=1
 #   e3-sandbox.sh path            print the sandbox folder
 #   e3-sandbox.sh reset           delete the sandbox folder, and nothing else
+#   e3-sandbox.sh reset-harness   back to "no Harness" for another acceptance run, keeping the
+#                                 sign-in: deletes worfy-harness/, plugins/ and settings.json of the
+#                                 sandbox Claude home, and npm/, data/, runs/ of the sandbox
 #
 # Where: <per-user temp dir>/worfy-e3-sandbox/ — `getconf DARWIN_USER_TEMP_DIR`, which is $TMPDIR
 # of a Terminal, so a run from an agent's shell and from the owner's Terminal find the same folder.
@@ -212,18 +215,34 @@ lock_run() {
   E3_LOCK_HELD=1 "$@"
 }
 
+# Deleting is allowed only in a folder this script made: its marker is there and its name is the sandbox's.
+deletable_root() {
+  [ -f "$ROOT/$MARKER" ] || die 2 "$ROOT has no $MARKER: not a sandbox of this script, left as it is"
+  case "$ROOT" in
+    /*/worfy-e3-sandbox) ;;
+    *) die 2 "refusing to delete in $ROOT" ;;
+  esac
+}
+
 reset() {
   [ -e "$ROOT" ] || {
     echo "e3-sandbox: no sandbox at $ROOT"
     return 0
   }
-  [ -f "$ROOT/$MARKER" ] || die 2 "$ROOT has no $MARKER: not a sandbox of this script, left as it is"
-  case "$ROOT" in
-    /*/worfy-e3-sandbox) ;;
-    *) die 2 "refusing to delete $ROOT" ;;
-  esac
+  deletable_root
   rm -rf -- "$ROOT"
   echo "e3-sandbox: removed $ROOT"
+}
+
+# What an install leaves: the Harness copy, Claude Code's plugin records (plugins/, and settings.json,
+# which the sandbox does not have before an install), qmd under the npm prefix, the app's data and
+# the runs' folders. The sign-in (.claude.json of the Claude home, the keychain item) stays.
+reset_harness() {
+  require_sandbox
+  deletable_root
+  rm -rf -- "$SBX_CLAUDE/worfy-harness" "$SBX_CLAUDE/plugins" "$SBX_CLAUDE/settings.json" "$ROOT/npm" "$ROOT/data" "$ROOT/runs"
+  mkdir -p "$ROOT/npm/bin" "$ROOT/data" "$ROOT/runs"
+  echo "e3-sandbox: no Harness in $ROOT now; the sign-in is kept"
 }
 
 case "${1:-}" in
@@ -235,5 +254,6 @@ case "${1:-}" in
   lock-run) shift && lock_run "$@" ;;
   path) echo "$ROOT" ;;
   reset) reset ;;
-  *) die 2 "usage: e3-sandbox.sh init|check-gh|env|run <cmd>...|shell|lock-run <cmd>...|path|reset" ;;
+  reset-harness) reset_harness ;;
+  *) die 2 "usage: e3-sandbox.sh init|check-gh|env|run <cmd>...|shell|lock-run <cmd>...|path|reset|reset-harness" ;;
 esac
