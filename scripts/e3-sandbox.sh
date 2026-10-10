@@ -32,6 +32,12 @@
 #                   variables for the login shell worfy reads its agent environment from (ADR-0007);
 #                   home/Library/Keychains is a link to the machine's keychains (see init)
 #   npm/            npm_config_prefix: `npm install -g` of qmd stays in the sandbox
+#   tools/          links to the machine's claude, node, npm, npx, git, gh and jq, where the caller's
+#                   PATH finds them outside the system folders. The sandbox PATH is npm/bin, tools/
+#                   and the system folders: no folder of the machine, so no tool the machine happens
+#                   to have (a qmd next to node) is found in the sandbox. init, env, run and check-gh
+#                   bring the links up to date; reset-harness keeps them, as they are not what an
+#                   install leaves
 #   data/           WORFY_DATA_DIR of the app
 #   runs/           working folders of the acceptance runs
 #
@@ -69,20 +75,62 @@ SBX_CLAUDE="$SBX_HOME/.claude"
 REAL_HOME=${HOME:?HOME is not set}
 GH_DIR=${GH_CONFIG_DIR:-${XDG_CONFIG_HOME:-$REAL_HOME/.config}/gh}
 
-# The folders of the tools the first-run screen checks, from the caller's PATH, then the system PATH.
+TOOLS_DIR="$ROOT/tools"
+SYSTEM_PATH=/usr/bin:/bin:/usr/sbin:/sbin
+# The tools of the machine the sandbox finds besides those of the system folders: what the first-run
+# screen checks (claude, git, gh, node, jq), what the app installs qmd with (npm, and npx next to
+# it), and what the acceptance run and the Harness scripts call (git, gh, node, jq, claude). qmd is
+# not one of them: the sandbox has a qmd only when the app has installed it into npm/bin.
+TOOLS=(claude node gh jq git npm npx)
+
+# Where the caller's PATH finds a tool: an absolute path, or nothing.
+machine_tool() {
+  local found
+  found=$(command -v "$1" 2>/dev/null || true)
+  case "$found" in /*) printf '%s\n' "$found" ;; esac
+}
+
+# The PATH of the sandbox: what npm installs in it, the links to the tools above, the system folders.
+# No folder of the machine is on it: such a folder holds other tools too (a qmd next to node), and
+# the app would take them for installed.
 tool_path() {
-  local path="$ROOT/npm/bin" tool found dir
-  for tool in claude node gh jq git npm; do
-    found=$(command -v "$tool" 2>/dev/null || true)
+  local tool
+  for tool in "${TOOLS[@]}"; do
+    [ -n "$(machine_tool "$tool")" ] || [ -x "$TOOLS_DIR/$tool" ] || echo "e3-sandbox: $tool is not on the PATH; the sandbox will be without it" >&2
+  done
+  printf '%s\n' "$ROOT/npm/bin:$TOOLS_DIR:$SYSTEM_PATH"
+}
+
+# Makes the links of tools/ point at the tools the caller's PATH finds now. Every command that gives
+# out the sandbox environment comes through here, so a sandbox made before tools/ existed gets it
+# without being made again. Without a sandbox it does nothing.
+# - A tool of a system folder gets no link, and loses the one it had: the sandbox PATH finds it there.
+# - A tool the caller's PATH does not have keeps its link: a caller with a shorter PATH must not take
+#   a tool from an app that is running in the sandbox. For the same reason a link that is right is
+#   not written again.
+# - A tool found inside the sandbox means the caller runs in the sandbox environment: nothing to do.
+link_tools() {
+  [ -f "$ROOT/$MARKER" ] || return 0
+  local dir tool found
+  # Through a link the tools would be linked into the folder it points at.
+  for dir in "$ROOT" "$TOOLS_DIR"; do
+    [ ! -L "$dir" ] || die 2 "$dir is a link: refusing to work through it"
+  done
+  mkdir -p "$TOOLS_DIR"
+  for tool in "${TOOLS[@]}"; do
+    found=$(machine_tool "$tool")
     case "$found" in
-      /*)
-        dir=$(dirname "$found")
-        case ":$path:/usr/bin:/bin:/usr/sbin:/sbin:" in *":$dir:"*) ;; *) path="$path:$dir" ;; esac
+      "" | "$ROOT"/*) continue ;;
+    esac
+    case ":$SYSTEM_PATH:" in
+      *":$(dirname "$found"):"*)
+        if [ -L "$TOOLS_DIR/$tool" ]; then rm -f -- "$TOOLS_DIR/$tool"; fi
         ;;
-      *) echo "e3-sandbox: $tool is not on the PATH; the first-run screen will say so" >&2 ;;
+      *)
+        if [ "$(readlink "$TOOLS_DIR/$tool" 2>/dev/null || true)" != "$found" ]; then ln -sfn "$found" "$TOOLS_DIR/$tool"; fi
+        ;;
     esac
   done
-  printf '%s\n' "$path:/usr/bin:/bin:/usr/sbin:/sbin"
 }
 
 # The sandbox environment: what the app, the owner's `claude` and the checks get, and nothing else.
@@ -161,6 +209,7 @@ init() {
   inside_sandbox
   mkdir -p "$SBX_CLAUDE" "$ROOT/npm/bin" "$ROOT/data" "$ROOT/runs"
   [ -f "$ROOT/$MARKER" ] || printf 'worfy E3 acceptance sandbox, created %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$ROOT/$MARKER"
+  link_tools
   # macOS finds the login keychain under $HOME/Library/Keychains. gh keeps its tokens there, so with
   # the sandbox HOME alone `gh auth token` answers "no oauth token found". The keychain is the
   # machine's, like the gh accounts: the sandbox links to it (E3_KEYCHAIN_LINK=0 leaves it out).
@@ -198,6 +247,7 @@ require_sandbox() {
 run_in() {
   require_sandbox
   [ $# -gt 0 ] || die 2 "run: no command"
+  link_tools
   local -a env_args=()
   while IFS= read -r line; do env_args+=("$line"); done < <(sandbox_env)
   cd "$SBX_HOME"
@@ -288,8 +338,8 @@ reset_harness() {
 
 case "${1:-}" in
   init) init ;;
-  check-gh) require_sandbox && check_gh ;;
-  env) sandbox_env ;;
+  check-gh) require_sandbox && link_tools && check_gh ;;
+  env) link_tools && sandbox_env ;;
   run) shift && run_in "$@" ;;
   shell) print_shell ;;
   lock-run) shift && lock_run "$@" ;;
