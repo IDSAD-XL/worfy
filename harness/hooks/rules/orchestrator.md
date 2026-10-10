@@ -149,6 +149,10 @@ skill `worfy:ship-ticket`, step 11).
 Never invent a second state file. If the profile or the repo has one, use it; if neither does, ask
 before creating one. Two files describing where we are means one of them is lying.
 
+The decision log of a wave that runs without a human (`decisions.tsv`, skill `worfy:epic-wave`) is
+not a state file. The state file says where the work stands; the log says why one run decided what
+it did. The log is not committed and is not read when work resumes.
+
 **State files and ADRs are different documents — never merge them.** ADRs live where the
 profile's `docs.adr_dir` says, if the project keeps them. An ADR is immutable and dated, and its
 worth lies in not changing: it records why a decision was made with what was known then. A state

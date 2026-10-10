@@ -1,0 +1,120 @@
+#!/usr/bin/env node
+// decision-log — appends one decision to the decision log of a wave that runs without a human.
+//
+//   decision-log <file> <decision> <why> [<evidence>]
+//
+// The log says why a run decided what it did: why a ticket left the wave, why one PR was merged
+// before another. It is a TSV file, UTF-8 with LF line ends: a header line, then one row per
+// decision —
+//
+//   time_utc <TAB> decision <TAB> why <TAB> evidence
+//
+// time_utc is the moment of the call, `2026-10-10T08:15:00Z`. A missing or empty <evidence> is
+// written as `-`, so every row has four fields that are not empty: a shell `read` with a tab as
+// the separator folds an empty field into its neighbour.
+//
+// What the script does to a value:
+//   - a tab, a line break and every other control character becomes a space; white space around
+//     the value is cut. Quotes and backslashes are written as they are: the file has no quoting,
+//     a field ends at the next tab;
+//   - a value longer than 2000 characters is cut to 1999 characters and `…`.
+//
+// The file and its folders are created when they are missing. Rows are only appended: the script
+// never rewrites a line, and a file that does not start with the header is refused untouched.
+// Several processes may write to one file at once: the header is written once, and each row goes
+// to the end of the file in one write.
+//
+// Exit codes: 0 — the row is written; 1 — the file cannot be written or is not a decision log;
+// 2 — usage error (a missing or empty <file>, <decision> or <why>, too many arguments).
+"use strict"
+
+const fs = require("node:fs")
+const path = require("node:path")
+const crypto = require("node:crypto")
+
+const HEADER = "time_utc\tdecision\twhy\tevidence\n"
+const MAX_CHARS = 2000
+
+const USAGE = `usage: decision-log <file> <decision> <why> [<evidence>]
+  appends the row "time_utc<TAB>decision<TAB>why<TAB>evidence" to the TSV file <file>;
+  creates the file with its header line, and its folders, when they are missing
+exit: 0 written, 1 the file cannot be written or is not a decision log, 2 usage error`
+
+// The control characters (Unicode category Cc: tab, line feed, carriage return and NEL among them)
+// and the Unicode line and paragraph separators (categories Zl and Zp).
+const CONTROL = /[\p{Cc}\p{Zl}\p{Zp}]/gu
+
+// A value as it goes into a field. The limit counts characters (code points), so a character that
+// takes two UTF-16 units is never cut in half.
+const clean = (value) => {
+    const chars = Array.from(value.replace(CONTROL, " ").trim())
+    return chars.length > MAX_CHARS ? chars.slice(0, MAX_CHARS - 1).join("") + "…" : chars.join("")
+}
+
+// Creates the log with its header so that the name never shows a file without the whole header,
+// and never replaces a file that is already there. The header goes into a temporary file next to
+// the log, and a hard link gives that file the log's name: a link fails when the name is taken.
+// Of several processes that all found no file, one creates it and the rest see it exist.
+const createWithHeader = (file) => {
+    const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`
+    fs.writeFileSync(tmp, HEADER, { flag: "wx" })
+    try {
+        fs.linkSync(tmp, file)
+    } catch (e) {
+        if (e.code !== "EEXIST") throw e
+    } finally {
+        fs.rmSync(tmp, { force: true, maxRetries: 3 })
+    }
+}
+
+const startsWithHeader = (file) => {
+    const want = Buffer.from(HEADER)
+    const got = Buffer.alloc(want.length)
+    const fd = fs.openSync(file, "r")
+    try {
+        return fs.readSync(fd, got, 0, want.length, 0) === want.length && got.equals(want)
+    } finally {
+        fs.closeSync(fd)
+    }
+}
+
+// Returns the exit code. The process ends on its own after that, not through process.exit():
+// stderr may be a pipe that is written asynchronously, and exit() would cut the message.
+const main = (argv) => {
+    const fail = (code, message) => {
+        process.stderr.write(`decision-log: ${message}\n`)
+        return code
+    }
+    if (argv.length === 1 && (argv[0] === "-h" || argv[0] === "--help")) {
+        process.stdout.write(USAGE + "\n")
+        return 0
+    }
+    if (argv.length < 3) {
+        process.stderr.write(USAGE + "\n")
+        return 2
+    }
+    if (argv.length > 4) return fail(2, `${argv.length} arguments, at most 4 expected — quote each value\n${USAGE}`)
+
+    const [fileArg, decisionArg, whyArg, evidenceArg = ""] = argv
+    const decision = clean(decisionArg)
+    const why = clean(whyArg)
+    const evidence = clean(evidenceArg) || "-"
+    if (fileArg === "") return fail(2, `<file> is empty\n${USAGE}`)
+    if (decision === "") return fail(2, `<decision> is empty\n${USAGE}`)
+    if (why === "") return fail(2, `<why> is empty\n${USAGE}`)
+
+    const file = path.resolve(fileArg)
+    const time = new Date().toISOString().replace(/\.\d+Z$/, "Z")
+    try {
+        fs.mkdirSync(path.dirname(file), { recursive: true })
+        if (!fs.existsSync(file)) createWithHeader(file)
+        if (!startsWithHeader(file)) return fail(1, `${file} is not a decision log: it does not start with the header line — nothing written`)
+        // One write in append mode: the row lands at the end of the file whole, whoever else writes.
+        fs.appendFileSync(file, `${time}\t${decision}\t${why}\t${evidence}\n`)
+    } catch (e) {
+        return fail(1, `cannot write ${file}: ${e.message}`)
+    }
+    return 0
+}
+
+process.exitCode = main(process.argv.slice(2))
