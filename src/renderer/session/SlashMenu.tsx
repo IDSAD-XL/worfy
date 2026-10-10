@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { SlashCommand } from '../../shared/agent/commands'
 import { invoke } from '../ipc'
+import { slashHint } from './hints'
 
 // The slash menu of the input field (ticket 20): a `/` at the start of the field opens a popover
 // with the Session's slash commands and skills, as Claude Code reports them (`agent.commands`:
@@ -93,7 +94,7 @@ export function useSlashMenu(sessionId: string | null, text: string, setText: (t
     <div className="w-slash" role="listbox" aria-label={`Commands matching /${query}`} data-testid="slash-menu">
       <div className="w-slash__head">
         <span className="w-slash__title">Commands</span>
-        <span className="w-mono">↑↓ navigate · ⏎ select · esc</span>
+        <span className="w-mono">{slashHint()}</span>
       </div>
       <div className="w-slash__list">
         {matches.map((command, index) => (

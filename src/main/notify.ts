@@ -1,5 +1,8 @@
-// macOS notifications (ticket 21). A notification goes out when a Session finished its turn or
-// waits for a permission answer, and no worfy window has focus:
+// Notifications of macOS and Windows (ticket 21; worfy-windows ticket 11). On Windows they show
+// only for the AppUserModelId src/main/index.ts sets before the first window (app-id.ts): the
+// installed app's Start menu shortcut carries it, and a dev run needs electron.exe pinned to the
+// Start menu. A notification goes out when a Session finished its turn or waits for a permission
+// answer, and no worfy window has focus:
 //
 // - a Session worfy runs: its `result` (not one the user interrupted) and each `permission_request`,
 //   seen through SessionRegistry.observe;

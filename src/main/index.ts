@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { startOrchestrators } from './agent/app-orchestrators'
 import { sharedRegistry } from './agent/app-registry'
+import { appUserModelId } from './app-id'
 import { installCardRuntime, registerCardScheme } from './cards/protocol'
 import { cardStore } from './cards/store'
 import { installDevDockIcon } from './dock-icon'
@@ -87,6 +88,11 @@ function start(): void {
   // Cards get their own origin on worfy-card:// (ticket 25); a scheme's privileges are set only before ready.
   registerCardScheme()
 
+  // Windows: before the first window and the first notification, or the notifications do not show
+  // or carry no name and icon of worfy (app-id.ts, worfy-windows ticket 11).
+  const appId = appUserModelId(process.platform, app.isPackaged, process.execPath)
+  if (appId !== null) app.setAppUserModelId(appId)
+
   void app
     .whenReady()
     .then(async () => {
@@ -105,8 +111,8 @@ function start(): void {
       inStep('installCardRuntime', () => installCardRuntime((host) => cardStore().locate(host)))
       // Before the first window: its creation is what opens the active Project's Orchestrator.
       inStep('startOrchestrators', () => startOrchestrators())
-      // macOS notifications when a Session ends its turn or asks for permission (ticket 21), here
-      // and on the Linked machines once the link has started (worfy-link ticket 13).
+      // Notifications when a Session ends its turn or asks for permission (ticket 21), here and on
+      // the Linked machines once the link has started (worfy-link ticket 13).
       inStep('installNotifications', () => installNotifications(sharedRegistry(), liveSessionListeners, electronNotifyDeps, appNoteLink()))
       // A page that fails to load is reported by createMainWindow itself, as step loadURL or
       // loadFile, and only for this first window; windows opened later only log such a failure.

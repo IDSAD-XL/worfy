@@ -14,6 +14,7 @@ import { useClaudeHome } from '../claude-home/useClaudeHome'
 import { useDocs } from '../docs/useDocs'
 import { useCanvasRequests } from '../find/canvas-requests'
 import { rankItems } from '../find/search-index'
+import { isPrimary, isTerminalKey, label, type KeyCombo } from '../platform'
 import { activeProject, useProjects } from '../projects/useProjects'
 import { useNavigation } from '../session/navigation'
 import { useWorkflow } from '../workflow/useWorkflow'
@@ -22,6 +23,9 @@ import { groupRows } from './groups'
 
 /** Rows shown at most; the rest are reached by typing more. */
 const SHOWN = 50
+
+/** ⌘K on macOS, Ctrl+K on Windows. */
+const PALETTE_KEYS: KeyCombo = { primary: true, key: 'K' }
 
 const styles = {
   // The toolbar's CSS draws the field (.w-toolbar__palette-hint); a button only needs its own font reset.
@@ -368,7 +372,9 @@ export function CommandPalette() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'k') return
+      if (!isPrimary(event) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'k') return
+      // On Windows Ctrl+K in a Terminal Node is the shell's (worfy-windows ticket 11).
+      if (isTerminalKey(event)) return
       event.preventDefault()
       setOpen(true)
     }
@@ -392,7 +398,7 @@ export function CommandPalette() {
       >
         <SearchIcon />
         <span className="w-toolbar__palette-text">Search or run…</span>
-        <kbd className="w-mono">⌘K</kbd>
+        <kbd className="w-mono">{label(PALETTE_KEYS)}</kbd>
       </button>
       {open ? (
         project ? (

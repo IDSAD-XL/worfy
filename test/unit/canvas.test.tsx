@@ -374,7 +374,7 @@ const flowNode = (id: string): HTMLElement => document.querySelector(`.react-flo
  * first move past its 1 px threshold and measures from there, so that first move is a small one.
  * `at` and `to` are in canvas units; the pane shows the Canvas at PANE_ORIGIN and `zoom`.
  */
-async function drag(id: string, at: { x: number; y: number }, to: { x: number; y: number }, keys: { metaKey?: boolean } = {}, during?: () => void, zoom = 1) {
+async function drag(id: string, at: { x: number; y: number }, to: { x: number; y: number }, keys: { metaKey?: boolean; ctrlKey?: boolean } = {}, during?: () => void, zoom = 1) {
   // d3-drag listens for the moves on `event.view`; jsdom refuses vitest's window as the init's
   // `view`, so it is set on the event afterwards.
   const view = window
@@ -514,6 +514,214 @@ describe('resizing a Node on the Canvas (worfy-week ticket 06)', () => {
       expect(historyOf('snap-resize-0000').size).toBe(1)
     } finally {
       canvas.cleanup()
+    }
+  })
+})
+
+// worfy-windows ticket 11: the primary modifier is ⌘ on macOS and Ctrl on Windows; the system is
+// what <html data-platform> says (src/renderer/platform.ts; test/setup-dom.ts sets macOS).
+describe('the keys of the Canvas by system', () => {
+  type Modifier = 'metaKey' | 'ctrlKey'
+  const SYSTEMS = [
+    ['windows', 'ctrlKey', 'metaKey'],
+    ['mac', 'metaKey', 'ctrlKey'],
+  ] as const satisfies readonly (readonly [string, Modifier, Modifier])[]
+
+  /** jsdom lays nothing out: offsetParent is always null, and the Canvas takes itself for hidden. */
+  function onScreen(): () => void {
+    const before = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent')
+    Object.defineProperty(HTMLElement.prototype, 'offsetParent', { configurable: true, get: () => document.body })
+    return () => {
+      if (before) Object.defineProperty(HTMLElement.prototype, 'offsetParent', before)
+    }
+  }
+
+  async function press(init: KeyboardEventInit, target: EventTarget = document.body): Promise<KeyboardEvent> {
+    const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })
+    await act(async () => {
+      target.dispatchEvent(event)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    return event
+  }
+
+  /** An element inside a Terminal Node, as xterm builds it. */
+  function terminalField(): HTMLElement {
+    const terminal = document.createElement('div')
+    terminal.className = 'xterm'
+    const field = document.createElement('div')
+    terminal.append(field)
+    document.body.append(terminal)
+    return field
+  }
+
+  /**
+   * Makes `projectId` the active Project of the window: the search and the selection toolbar belong
+   * to the active Project and are not mounted without one.
+   */
+  let revision = 1000
+  async function activate(projectId: string | null): Promise<void> {
+    const { acceptProjectsState } = await import('../../src/renderer/projects/useProjects')
+    revision += 1
+    const projects = projectId === null ? [] : [{ id: projectId, name: 'keys', path: '/repo/keys', branch: 'main' }]
+    await act(async () => {
+      acceptProjectsState({ projects, activeId: projectId, revision })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+  }
+  const viewport = (): HTMLElement => document.querySelector('.react-flow__viewport') as HTMLElement
+  const scale = (): number => Number(/scale\(([\d.]+)\)/.exec(viewport().style.transform)?.[1])
+
+  it.each(SYSTEMS)('on %s a Note dragged with %s held does not snap, and with %s held it does', async (system, primary, other) => {
+    document.documentElement.dataset.platform = system
+    const canvas = await renderCanvas(`keys-drag-${system}`, [node('n', 'note', 0, { text: '' })])
+    try {
+      await drag('n', { x: 0, y: 0 }, { x: 13, y: 21 }, { [primary]: true })
+      expect(canvas.sent).toEqual([{ op: 'move', id: 'n', x: 13, y: 21 }])
+      await drag('n', { x: 13, y: 21 }, { x: 45, y: 53 }, { [other]: true })
+      expect(canvas.sent.slice(1)).toEqual([{ op: 'move', id: 'n', x: 48, y: 56 }])
+    } finally {
+      await activate(null)
+      canvas.cleanup()
+    }
+  })
+
+  it.each(SYSTEMS)('on %s %s+Z undoes a drag and with Shift redoes it; %s+Z does nothing', async (system, primary, other) => {
+    document.documentElement.dataset.platform = system
+    const restore = onScreen()
+    const canvas = await renderCanvas(`keys-undo-${system}`, [node('n', 'note', 0, { text: '' })])
+    await activate(`keys-undo-${system}`)
+    try {
+      await drag('n', { x: 0, y: 0 }, { x: 13, y: 21 })
+      const moved = { op: 'move', id: 'n', x: 16, y: 24 }
+      const back = { op: 'move', id: 'n', x: 0, y: 0 }
+      expect((await press({ key: 'z', [other]: true })).defaultPrevented).toBe(false)
+      expect((await press({ key: 'z', [primary]: true, [other]: true })).defaultPrevented).toBe(false)
+      expect(canvas.sent).toEqual([moved])
+      expect((await press({ key: 'z', [primary]: true })).defaultPrevented).toBe(true)
+      expect(canvas.sent).toEqual([moved, back])
+      await press({ key: 'Z', [primary]: true, shiftKey: true })
+      expect(canvas.sent).toEqual([moved, back, moved])
+    } finally {
+      await activate(null)
+      canvas.cleanup()
+      restore()
+    }
+  })
+
+  it.each(SYSTEMS)('on %s Backspace with %s or %s held leaves the selection alone; alone it deletes it', async (system, primary, other) => {
+    document.documentElement.dataset.platform = system
+    const restore = onScreen()
+    const canvas = await renderCanvas(`keys-delete-${system}`, [node('n', 'note', 0, { text: '' })])
+    await activate(`keys-delete-${system}`)
+    try {
+      await act(async () => {
+        flowNode('n').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      await waitFor(() => expect(document.querySelector('[data-testid="selection-toolbar"]')).not.toBeNull())
+      expect((await press({ key: 'Backspace', [primary]: true })).defaultPrevented).toBe(false)
+      expect((await press({ key: 'Backspace', [other]: true })).defaultPrevented).toBe(false)
+      expect((await press({ key: 'Delete', [other]: true })).defaultPrevented).toBe(false)
+      // The press alone is the Canvas's: it takes the key and sends the selection to the trash.
+      expect((await press({ key: 'Backspace' })).defaultPrevented).toBe(true)
+    } finally {
+      await activate(null)
+      canvas.cleanup()
+      restore()
+    }
+  })
+
+  it.each(SYSTEMS)('on %s %s+F opens the search over the Canvas; %s+F does not', async (system, primary, other) => {
+    const { useCanvasRequests, closeFind } = await import('../../src/renderer/find/canvas-requests')
+    document.documentElement.dataset.platform = system
+    const restore = onScreen()
+    const canvas = await renderCanvas(`keys-find-${system}`, [node('n', 'note', 0, { text: '' })])
+    await activate(`keys-find-${system}`)
+    try {
+      await press({ key: 'f', [other]: true })
+      expect(useCanvasRequests.getState().findOpen).toBe(false)
+      expect((await press({ key: 'f', [primary]: true })).defaultPrevented).toBe(true)
+      expect(useCanvasRequests.getState().findOpen).toBe(true)
+    } finally {
+      await act(async () => closeFind())
+      await activate(null)
+      canvas.cleanup()
+      restore()
+    }
+  })
+
+  it('on Windows Ctrl+F pressed inside a Terminal Node stays with the shell; on macOS ⌘F opens the search from there', async () => {
+    const { useCanvasRequests, closeFind } = await import('../../src/renderer/find/canvas-requests')
+    const restore = onScreen()
+    const canvas = await renderCanvas('keys-find-terminal', [node('n', 'note', 0, { text: '' })])
+    await activate('keys-find-terminal')
+    const field = terminalField()
+    try {
+      document.documentElement.dataset.platform = 'windows'
+      expect((await press({ key: 'f', ctrlKey: true }, field)).defaultPrevented).toBe(false)
+      expect(useCanvasRequests.getState().findOpen).toBe(false)
+      document.documentElement.dataset.platform = 'mac'
+      await press({ key: 'f', metaKey: true }, field)
+      expect(useCanvasRequests.getState().findOpen).toBe(true)
+    } finally {
+      await act(async () => closeFind())
+      field.parentElement?.remove()
+      await activate(null)
+      canvas.cleanup()
+      restore()
+    }
+  })
+
+  it.each(SYSTEMS)('on %s %s+= and - zoom the Canvas; with %s they do not', async (system, primary, other) => {
+    document.documentElement.dataset.platform = system
+    const restore = onScreen()
+    const canvas = await renderCanvas(`keys-zoom-${system}`, [node('n', 'note', 0, { text: '' })])
+    await activate(`keys-zoom-${system}`)
+    try {
+      expect(scale()).toBe(1)
+      expect((await press({ key: '=', [other]: true })).defaultPrevented).toBe(false)
+      expect(scale()).toBe(1)
+      expect((await press({ key: '=', [primary]: true })).defaultPrevented).toBe(true)
+      await waitFor(() => expect(scale()).toBeGreaterThan(1))
+      const zoomed = scale()
+      expect((await press({ key: '-', [primary]: true })).defaultPrevented).toBe(true)
+      await waitFor(() => expect(scale()).toBeLessThan(zoomed))
+    } finally {
+      await activate(null)
+      canvas.cleanup()
+      restore()
+    }
+  })
+
+  it.each(SYSTEMS)('on %s %s+Enter opens focus mode over the selection; %s+Enter does not', async (system, primary, other) => {
+    document.documentElement.dataset.platform = system
+    const restore = onScreen()
+    const canvas = await renderCanvas(`keys-focus-${system}`, [node('n', 'note', 0, { text: '' })])
+    await activate(`keys-focus-${system}`)
+    try {
+      await act(async () => {
+        flowNode('n').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      const button = await waitFor(() => {
+        const found = document.querySelector('.w-focus-entry')
+        if (found === null) throw new Error('no Focus button yet')
+        return found
+      })
+      // The button names the keys of the system.
+      expect(button.querySelector('kbd')?.textContent).toBe(system === 'mac' ? '⌘↩' : 'Ctrl+Enter')
+      expect(button.getAttribute('aria-keyshortcuts')).toBe(system === 'mac' ? 'Meta+Enter' : 'Control+Enter')
+      await press({ key: 'Enter', [other]: true })
+      expect(screen.queryByTestId('focus-mode')).toBeNull()
+      expect((await press({ key: 'Enter', [primary]: true })).defaultPrevented).toBe(true)
+      expect(await screen.findByTestId('focus-mode')).toBeTruthy()
+      // Focus mode covers the Canvas: the zoom keys reach neither the Canvas nor the page.
+      expect((await press({ key: '=', [primary]: true })).defaultPrevented).toBe(true)
+      expect(scale()).toBe(1)
+      expect((await press({ key: '0', [other]: true })).defaultPrevented).toBe(false)
+    } finally {
+      await activate(null)
+      canvas.cleanup()
+      restore()
     }
   })
 })

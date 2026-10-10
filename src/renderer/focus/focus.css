@@ -30,6 +30,11 @@
   background: var(--toolbar);
   -webkit-app-region: drag;
 }
+/* Outside macOS there are no traffic lights to keep clear of (worfy-windows ticket 11). */
+html[data-platform='windows'] .w-focus__bar,
+html[data-platform='linux'] .w-focus__bar {
+  padding-left: var(--space-3);
+}
 .w-focus__title {
   font-size: var(--text-13);
   font-weight: 600;

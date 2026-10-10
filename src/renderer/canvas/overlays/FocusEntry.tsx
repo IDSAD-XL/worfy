@@ -5,10 +5,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore, ViewportPortal, type ReactFlowState } from '@xyflow/react'
 import { FocusMode } from '../../focus/FocusMode'
 import { buildPreset, type TileTree } from '../../focus/split-tree'
+import { ariaKeyShortcuts, isPrimary, label, type KeyCombo } from '../../platform'
 import { usePlaneToolbar } from '../pinning'
 import '../../focus/focus.css'
 
 export const order = 50
+
+/** ⌘↩ on macOS, Ctrl+Enter on Windows. */
+const FOCUS_KEYS: KeyCombo = { primary: true, key: 'Enter', macKey: '↩' }
 
 /** The ids of the selected, visible Nodes as one string, so the selector's result compares by value. */
 const selectedKey = (state: ReactFlowState): string => JSON.stringify(state.nodes.filter((node) => node.selected === true && node.hidden !== true).map((node) => node.id))
@@ -37,7 +41,7 @@ export default function FocusEntry() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Enter' || !event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
+      if (event.key !== 'Enter' || !isPrimary(event) || event.altKey || event.shiftKey) return
       if (isEditable(event.target)) return
       // Only while this Canvas is the view on screen (the Session view hides it).
       if (domNode === null || domNode.offsetParent === null || latestSelected.current.length === 0) return
@@ -62,8 +66,8 @@ export default function FocusEntry() {
   return (
     <ViewportPortal>
       <div style={style} className="react-flow__node-toolbar">
-        <button type="button" className="w-focus-entry nodrag" onClick={enter} aria-keyshortcuts="Meta+Enter">
-          Focus <kbd>⌘↩</kbd>
+        <button type="button" className="w-focus-entry nodrag" onClick={enter} aria-keyshortcuts={ariaKeyShortcuts(FOCUS_KEYS)}>
+          Focus <kbd>{label(FOCUS_KEYS)}</kbd>
         </button>
       </div>
     </ViewportPortal>

@@ -57,6 +57,8 @@ vi.mock('electron', () => {
       },
       requestSingleInstanceLock: electron.requestSingleInstanceLock,
       setPath: vi.fn(),
+      // On Windows the start sets the AppUserModelId (worfy-windows ticket 11).
+      setAppUserModelId: vi.fn(),
       getPath: () => DATA_DIR,
       whenReady: () => Promise.resolve(),
       getVersion: () => '1.2.3',
@@ -66,6 +68,8 @@ vi.mock('electron', () => {
     protocol: { registerSchemesAsPrivileged: vi.fn(), handle: vi.fn() },
     dialog: { showErrorBox: electron.showErrorBox },
     BrowserWindow: FakeWindow,
+    // The frame of the window follows the theme outside macOS (src/main/window-frame.ts).
+    nativeTheme: { shouldUseDarkColors: false },
     screen: { getAllDisplays: () => [] },
     session: { defaultSession: { setPermissionRequestHandler: vi.fn() } },
   }

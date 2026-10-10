@@ -106,25 +106,25 @@ AppUserModelId в меню Пуск создаёт установщик Ticket-�
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/platform-keys.test.ts` (новый): `isPrimary` на Mac — `metaKey` без `ctrlKey`,
+- [x] Unit `test/unit/platform-keys.test.ts` (новый): `isPrimary` на Mac — `metaKey` без `ctrlKey`,
   на Windows — `ctrlKey` без `metaKey`; подписи `⌘K` / `Ctrl+K`, `⌘↩` / `Ctrl+Enter`, `⇧⏎` /
   `Shift+Enter`; `aria-keyshortcuts` `Meta+Enter` / `Control+Enter`.
-- [ ] Unit (jsdom), система `win32`: Ctrl+K открывает палитру (`CommandPalette`); Ctrl+K с целью
+- [x] Unit (jsdom), система `win32`: Ctrl+K открывает палитру (`CommandPalette`); Ctrl+K с целью
   внутри `.xterm` палитру не открывает; Ctrl+F открывает поиск (`CanvasFind`); Ctrl+Z и
   Ctrl+Shift+Z на Canvas зовут `undo` и `redo` истории (`SelectionToolbar`). Система `darwin`: те же
   сочетания с ⌘ работают, Ctrl+K палитру не открывает.
-- [ ] Unit `test/unit/window-options.test.ts` (новый): опции окна для `win32` — без `titleBarStyle`,
+- [x] Unit `test/unit/window-options.test.ts` (новый): опции окна для `win32` — без `titleBarStyle`,
   `trafficLightPosition`, `vibrancy`, `visualEffectState`, с непрозрачным `backgroundColor`; для
   `darwin` — значения `window.ts:77-81`.
-- [ ] Contract `test/contract/app-user-model-id.test.ts` (новый) по образцу
+- [x] Contract `test/contract/app-user-model-id.test.ts` (новый) по образцу
   `test/contract/startup-failure.test.ts` (mock `electron`, импорт `src/main/index.ts`): на `win32`
   `app.setAppUserModelId` вызван до первого `BrowserWindow`, в упакованной сборке — со значением
   `appId` из `electron-builder.yml`; на `darwin` не вызван.
 - [ ] `test/contract/view-menu.test.ts`: на `win32` в шаблоне нет `appMenu`; если пункт 4 ввёл
   `registerAccelerator: false` — у этих пунктов на `win32` он есть, на `darwin` нет.
-- [ ] Windows-ПК: `pnpm test test/unit/platform-keys.test.ts test/unit/window-options.test.ts test/contract/app-user-model-id.test.ts test/contract/view-menu.test.ts`
+- [x] Windows-ПК: `pnpm test test/unit/platform-keys.test.ts test/unit/window-options.test.ts test/contract/app-user-model-id.test.ts test/contract/view-menu.test.ts`
   — exit 0.
-- [ ] Windows-ПК, проверка платформенного PR (Q23, ADR-0056): gate full — строка вердикта и код выхода
+- [x] Windows-ПК, проверка платформенного PR (Q23, ADR-0056): gate full — строка вердикта и код выхода
   в отчёт. Пока Gate не на Node (Ticket 03) — `pnpm lint`, `pnpm typecheck`, `pnpm test` с кодами
   выхода и пометка «Gate не запускался». Падения `pnpm test` сверены со списком Ticket-а 02: новых
   нет.
@@ -176,4 +176,61 @@ AppUserModelId в меню Пуск создаёт установщик Ticket-�
 
 ## Итог
 
-Заполняется при закрытии.
+Заполняет Session на Windows-ПК; ручные пункты и пункт 4 (меню) ещё открыты — см. «Осталось».
+
+- **Что сделано.**
+  - `src/renderer/platform.ts`: `platformOf` по user agent, `currentPlatform` (читает `data-platform`
+    у `<html>`, иначе user agent), `markPlatform` (его зовёт `main.tsx` до первого рендера),
+    `isMac`, `isPrimary`, `isOtherModifier`, `isTerminalKey`, подписи `label` и `ariaKeyShortcuts`
+    над одной записью `KeyCombo` (`primary`, `shift`, `alt`, `key`). Модуль не берёт типов DOM —
+    его test идёт в Node. Системы три: `mac`, `windows`, `linux`; всё, что не macOS, — Ctrl.
+  - Обработчики на `isPrimary`: палитра, поиск, режим фокуса (вход и глушение масштаба), история
+    Canvas, масштаб Canvas, перетаскивание без snapping. `SelectionToolbar` отвергает
+    `isOtherModifier`, а не любой `ctrlKey`. `zoomActivationKeyCode` — `Meta` / `Control`.
+  - Terminal: на Windows Ctrl+K и Ctrl+F с целью внутри `.xterm` палитру и поиск не открывают.
+  - Подписи из `label`: `⌘K`, `⌘↩` и `aria-keyshortcuts`, «last ⌘F», «(⇧Enter)», подсказки поля
+    ввода `⇧⏎ new line` и `⏎ select` (`src/renderer/session/hints.ts`). Два последних места
+    Orchestrator попросил добавить сверх списка Ticket-а.
+  - Окно: `src/main/window-frame.ts`, `frameOptions(platform, dark)` — значения macOS прежние; вне
+    macOS обычная рамка системы и непрозрачный `backgroundColor` (`--bg` темы, test сверяет с
+    `tokens.css`). CSS по `html[data-platform]` в `shell.css` и `focus.css`.
+  - Уведомления: `src/main/app-id.ts`, `appUserModelId(platform, packaged, execPath)`; `index.ts`
+    зовёт `app.setAppUserModelId` в начале `start()`, до `whenReady`.
+  - `test/setup-dom.ts` ставит jsdom-test-ам `data-platform="mac"`: user agent jsdom называет
+    машину, на которой идут test-ы, а test с ⌘K должен проходить на Mac, Windows и в Linux CI.
+- **Как test-ы падали до правки.** Первым написан test палитры на Windows: `expected '⌘K' to be
+  'Ctrl+K'`, палитра по Ctrl+K не открывалась. На неизменённом коде падали все случаи Windows:
+  палитра, подписи, перетаскивание с Ctrl (`move` в (16, 24) вместо (13, 21)), Ctrl+Z, Ctrl+F,
+  Ctrl+=, Ctrl+Enter (`expected '⌘↩' to be 'Ctrl+Enter'`). Случаи macOS с ⌘ (перетаскивание,
+  масштаб, фокус) на старом коде проходили.
+- **Отступления от текста Ticket-а.**
+  - Чистая функция окна — в новом `src/main/window-frame.ts`, а не в `window.ts`: так её test не
+    подменяет `electron`.
+  - Test входа renderer — отдельный файл `test/unit/platform-entry.test.tsx`; test-ы сочетаний —
+    `test/unit/platform-shortcuts.test.tsx` (палитра, подписи) и новый блок в
+    `test/unit/canvas.test.tsx` (поиск, история, масштаб, фокус, перетаскивание — на настоящем
+    Canvas, с подменённым `offsetParent`).
+  - `test/contract/app-user-model-id.test.ts` запускает `start()` из `index.ts` с подменённым
+    `process.platform`; окно, уведомления и link-сервис заменены, как в `main-ipc-wiring.test.ts`.
+  - `nativeTheme` и `app.setAppUserModelId` добавлены в подмены `electron` у
+    `startup-failure.test.ts` и `main-ipc-wiring.test.ts`.
+- **Мутанты:** 34 из 34 валят test-ы (`platform.ts` — 11, обработчики и подписи — 17, окно — 2,
+  AppUserModelId — 4). Один выжил в первом прогоне (Backspace с «другим» модификатором удалял бы
+  выделение) — добавлен test, мутант пойман.
+- **Windows-ПК** (Session Claude Code; Gate не запускался — он на bash, Ticket 03):
+  - `pnpm install --frozen-lockfile` — 0, `pnpm lint` — 0, `pnpm typecheck` — 0, `pnpm build` — 0;
+  - `pnpm test test/unit/platform-keys.test.ts test/unit/window-options.test.ts
+    test/contract/app-user-model-id.test.ts test/contract/view-menu.test.ts` — exit 0, 31 passed;
+  - `pnpm test` — exit 1, как на main: 52 failed | 133 passed файлов, 599 failed | 3027 passed | 29
+    skipped (прогон до test-а Backspace, он добавил 2 случая). Против main `558dd67` по именам: 3
+    новых, 1 ушёл. Новые — timeout 5000 мс под нагрузкой
+    в `check-handoff` и два случая `startup-failure` («installWebPolicy that throws», «startOrchestrators
+    that throws»). Эти два падают и на main: в прогоне main `0f4bf19` — оба; файл, запущенный
+    отдельно три раза на ветке, даёт 12, 11 и 11 падений из 35 — он зависит от скорости ПК.
+- **Осталось.**
+  - Пункт 4 (ускорители меню): `registerAccelerator: false` **не введён**. Отнимают ли ускорители
+    меню у страницы Ctrl+Z, Ctrl+=, Ctrl+-, а у Terminal — Ctrl+C, видно только вживую; `menu.ts`
+    правит PR #209 (worfy-ui 02), он ещё не влит.
+  - Ручные пункты на ПК: окно и снимки в двух темах, сочетания, уведомление.
+  - Не покрыто unit-test-ом: `zoomActivationKeyCode` (Ctrl+колесо на Windows и так масштабирует —
+    `wheel-router.ts` отдаёт Canvas колесо с Ctrl) и правила CSS — их видно только в окне.

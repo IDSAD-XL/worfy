@@ -6,6 +6,7 @@ import { AppShell } from './shell/AppShell'
 import { Canvas } from './canvas/Canvas'
 import { windowMachine } from './ipc'
 import { useMachines } from './machines/useMachines'
+import { markPlatform } from './platform'
 import { activeProject, useLinked, useProjects } from './projects/useProjects'
 import { setView, useNavigation } from './session/navigation'
 import { SessionView } from './session/SessionView'
@@ -82,6 +83,9 @@ export function App() {
 
 const container = document.getElementById('root')
 if (container) {
+  // Before the first render: the styles and the key handlers read the system from <html>
+  // (platform.ts, worfy-windows ticket 11).
+  markPlatform()
   createRoot(container).render(
     <StrictMode>
       <App />

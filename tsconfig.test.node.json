@@ -19,6 +19,7 @@
     "src/renderer/canvas/wheel-router.ts",
     "src/renderer/find/search-index.ts",
     "src/renderer/ipc.ts",
+    "src/renderer/platform.ts",
     "test/unit/**/*.ts",
     "test/contract/**/*.ts",
     "test/e2e/**/*.ts"

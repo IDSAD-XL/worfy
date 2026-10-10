@@ -50,6 +50,8 @@ vi.mock('electron', () => ({
     isPackaged: true,
     requestSingleInstanceLock: () => true,
     setPath: vi.fn(),
+    // On Windows the start sets the AppUserModelId (worfy-windows ticket 11).
+    setAppUserModelId: vi.fn(),
     whenReady: () => Promise.resolve(),
     on: vi.fn(),
     exit: vi.fn(),

@@ -52,6 +52,7 @@ import { EPIC_FRAME_KIND, SUBAGENT_KIND } from '../../shared/layout/derived'
 import { isParticipant, obstaclesFor, type Rect } from '../../shared/layout/free-place'
 import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput, type LayoutState, type Viewport } from '../../shared/layout/types'
 import { invoke, windowMachine } from '../ipc'
+import { isMac, isPrimary } from '../platform'
 import { dropNodes, edgeSources, edgesOf, edgeTypes, nodeSources, overlays, type NodeSource } from './extensions'
 import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
 import { UnknownNode } from './UnknownNode'
@@ -373,7 +374,7 @@ function Flow({ projectId, state, opening }: FlowProps) {
 
   const onNodeDrag: OnNodeDrag<CanvasFlowNode> = useCallback(
     (event, node, dragged) => {
-      const plan = planFor(node, dragged, event.metaKey)
+      const plan = planFor(node, dragged, isPrimary(event))
       if (plan === undefined) return
       showSnapGuides(plan)
       if (dragged.every((each) => !plan.snapped.has(each.id) || (plan.snapped.get(each.id)!.x === each.position.x && plan.snapped.get(each.id)!.y === each.position.y))) return
@@ -384,7 +385,7 @@ function Flow({ projectId, state, opening }: FlowProps) {
 
   const onNodeDragStop: OnNodeDrag<CanvasFlowNode> = useCallback(
     (event, lead, released) => {
-      const plan = planFor(lead, released, event.metaKey)
+      const plan = planFor(lead, released, isPrimary(event))
       dragScene.current = null
       clearSnapGuides()
       // Every dropped Node at its landing place: the place the outline showed.
@@ -433,7 +434,7 @@ function Flow({ projectId, state, opening }: FlowProps) {
   // ⌘= / ⌘− zoom, while the Canvas view is the one on screen (the Session view hides it).
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!event.metaKey || event.ctrlKey || event.altKey) return
+      if (!isPrimary(event) || event.altKey) return
       if (wrapper.current === null || wrapper.current.offsetParent === null) return
       if (event.key === '=' || event.key === '+') {
         event.preventDefault()
@@ -520,7 +521,7 @@ function Flow({ projectId, state, opening }: FlowProps) {
           maxZoom={ZOOM_MAX}
           panOnScroll
           zoomOnScroll={false}
-          zoomActivationKeyCode="Meta"
+          zoomActivationKeyCode={isMac() ? 'Meta' : 'Control'}
           panOnDrag={[1]}
           panActivationKeyCode="Space"
           selectionOnDrag

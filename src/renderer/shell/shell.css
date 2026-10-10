@@ -56,6 +56,23 @@
 .w-toolbar[data-sidebar='hidden'] {
   padding-left: 80px;
 }
+/*
+ * Outside macOS the window has the system's own frame, with no traffic lights and no vibrancy
+ * (src/main/window-frame.ts, worfy-windows ticket 11): the page and the sidebar are opaque, and the
+ * toolbar leaves no room on its left. main.tsx writes the system on <html> (platform.ts).
+ */
+html[data-platform='windows'] body,
+html[data-platform='linux'] body {
+  background: var(--bg);
+}
+html[data-platform='windows'] .w-sidebar,
+html[data-platform='linux'] .w-sidebar {
+  background: var(--sidebar);
+}
+html[data-platform='windows'] .w-toolbar[data-sidebar='hidden'],
+html[data-platform='linux'] .w-toolbar[data-sidebar='hidden'] {
+  padding-left: var(--space-2);
+}
 .w-toolbar button,
 .w-toolbar [role='group'],
 .w-toolbar__item {
