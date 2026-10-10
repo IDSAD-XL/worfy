@@ -1,8 +1,10 @@
-// worfy-harness ticket 13: worfy installs the Harness of its build as the Claude Code plugin `worfy`
-// (ADR-0040, ADR-0048). Every case runs in a sandbox: HOME, CLAUDE_CONFIG_DIR and the Claude home
-// worfy reads (WORFY_CLAUDE_HOME) all point into a temporary folder, never at the real ~/.claude.
-// `claude` is a stub that logs its arguments and environment and keeps its own state outside the
-// sandbox; the last case runs the Claude Code binary of the SDK on macOS.
+// worfy-harness tickets 13 and 30: worfy installs the Harness of its build as the Claude Code plugin
+// `worfy` (ADR-0040, ADR-0048), and the plugins it depends on before it (ADR-0059). Every case runs
+// in a sandbox: HOME, CLAUDE_CONFIG_DIR and the Claude home worfy reads (WORFY_CLAUDE_HOME) all point
+// into a temporary folder, never at the real ~/.claude. `claude` is a stub that logs its arguments
+// and environment and keeps its own state outside the sandbox; it never reaches the network. The
+// last case runs the Claude Code binary of the SDK on macOS, on a Harness copy without dependencies,
+// so that binary runs only local commands.
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -14,6 +16,8 @@ import { bundledClaudeBinary, claudeExecutablePath } from '../../src/main/agent/
 import {
   claudeCommandEnv,
   confirmationText,
+  DEPENDENCY_MARKETPLACE,
+  DEPENDENCY_MARKETPLACE_SOURCE,
   HARNESS_MARKETPLACE,
   HARNESS_PLUGIN_ID,
   HarnessInstaller,
@@ -22,10 +26,23 @@ import {
   type InstallPlan,
 } from '../../src/main/harness/install'
 import { harnessHome } from '../../src/main/storage/paths'
+import { accessOf, LINKED_MACHINE_ACCESS } from '../../src/shared/ipc/channels'
+import { firstRunRun } from '../../src/shared/ipc/first-run'
+import { harnessInstall, type HarnessStatus } from '../../src/shared/ipc/harness'
 
 const REPO = join(__dirname, '..', '..')
 const V1 = '0.2.0+aaaaaaa'
 const V2 = '0.2.0+bbbbbbb'
+/** The dependency harness/.claude-plugin/plugin.json declares, and the version the stub gives it. */
+const DEP = 'mattpocock-skills@claude-plugins-official'
+const DEP_VERSION = '1.4.0'
+const LIST = 'plugin list --json'
+const MARKETPLACES = 'plugin marketplace list --json'
+const ADD_OFFICIAL = `plugin marketplace add ${DEPENDENCY_MARKETPLACE_SOURCE}`
+const INSTALL_DEP = `plugin install ${DEP} --scope user`
+const INSTALL_WORFY = `plugin install ${HARNESS_PLUGIN_ID} --scope user`
+const UNINSTALL_WORFY = `plugin uninstall ${HARNESS_PLUGIN_ID} --scope user`
+const UPDATE_WORFY = `plugin update ${HARNESS_PLUGIN_ID} --scope user`
 
 /** Files of a tree with their bytes' hash and mode: equal maps mean byte-equal trees. */
 function treeOf(dir: string): Record<string, string> {
@@ -56,7 +73,7 @@ function filesWithTimes(dir: string): Record<string, number> {
 }
 
 /** The Harness copy a build makes (electron.vite.config.ts): harness/ without its tests, with `version`. */
-function makeBundle(target: string, version: string): string {
+function makeBundle(target: string, version: string, dependencies?: string[]): string {
   const source = join(REPO, 'harness')
   const tests = [join('bin', 'tests'), join('hooks', 'tests')]
   cpSync(source, target, {
@@ -68,35 +85,73 @@ function makeBundle(target: string, version: string): string {
   })
   const manifestPath = join(target, '.claude-plugin', 'plugin.json')
   const { name, ...rest } = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>
-  writeFileSync(manifestPath, `${JSON.stringify({ name, version, ...rest }, null, 2)}\n`)
+  writeFileSync(manifestPath, `${JSON.stringify({ name, version, ...rest, ...(dependencies === undefined ? {} : { dependencies }) }, null, 2)}\n`)
   return target
 }
 
-// The stub keeps Claude Code's side (known marketplace, installed version) in STUB_CLAUDE_STATE,
-// outside the sandbox, so the sandbox shows only what worfy itself wrote.
+// The stub keeps Claude Code's side (the marketplaces it knows, the plugins it has installed) in
+// STUB_CLAUDE_STATE, outside the sandbox, so the sandbox shows only what worfy itself wrote. A
+// marketplace is a folder (the Harness copy: its name comes from marketplace.json) or `owner/repo`
+// (its name is the repository's). What a test can ask of it, each by the start of the command line,
+// several joined with `|`:
+//   STUB_CLAUDE_FAIL        exit 3 before anything is recorded
+//   STUB_CLAUDE_FAIL_AFTER  record what the command asked, then exit 1 (an install that refuses but leaves its record)
+//   STUB_CLAUDE_NO_MARKETPLACE_LIST  `plugin marketplace list` is an unknown command
+//   STUB_CLAUDE_ADD_TWICE_FAILS      `plugin marketplace add` of a known marketplace exits 1 with "already"
+//   STUB_CLAUDE_ERRORS      an error `plugin list` reports for the plugin `worfy`
 const STUB = `
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, isAbsolute, join } from 'node:path'
 const args = process.argv.slice(2)
+const line = args.join(' ')
 appendFileSync(process.env.STUB_CLAUDE_LOG, JSON.stringify({ args, HOME: process.env.HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR }) + '\\n')
-const command = args.slice(0, args[1] === 'marketplace' ? 3 : 2).join(' ')
-if (process.env.STUB_CLAUDE_FAIL === command) {
-  process.stderr.write('first line of noise\\nsecond line\\n' + command + ' failed: stub error\\n')
-  process.exit(3)
+const asked = (name) => (process.env[name] ?? '').split('|').some((prefix) => prefix !== '' && line.startsWith(prefix))
+const fail = (code) => {
+  process.stderr.write('first line of noise\\nsecond line\\n' + line + ' failed: stub error\\n')
+  process.exit(code)
 }
+if (asked('STUB_CLAUDE_FAIL')) fail(3)
 const statePath = process.env.STUB_CLAUDE_STATE
-const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf8')) : { marketplace: null, installed: null }
-const folderVersion = () => JSON.parse(readFileSync(join(state.marketplace, '.claude-plugin', 'plugin.json'), 'utf8')).version
-if (command === 'plugin marketplace add') state.marketplace = args[3]
-else if (command === 'plugin install' || command === 'plugin update') {
-  if (state.marketplace === null) { process.stderr.write('marketplace not found\\n'); process.exit(1) }
-  state.installed = folderVersion()
+const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf8')) : { marketplaces: {}, plugins: {} }
+const manifest = (dir, file) => JSON.parse(readFileSync(join(dir, '.claude-plugin', file), 'utf8'))
+const command = args.slice(0, args[1] === 'marketplace' ? 3 : 2).join(' ')
+if (command === 'plugin marketplace list') {
+  if (process.env.STUB_CLAUDE_NO_MARKETPLACE_LIST) {
+    process.stderr.write("error: unknown command 'list'\\n")
+    process.exit(1)
+  }
+  process.stdout.write(JSON.stringify(Object.entries(state.marketplaces).map(([name, source]) => ({ name, source })), null, 2) + '\\n')
+} else if (command === 'plugin marketplace add') {
+  const source = args[3]
+  const name = isAbsolute(source) ? manifest(source, 'marketplace.json').name : basename(source)
+  if (name in state.marketplaces && process.env.STUB_CLAUDE_ADD_TWICE_FAILS) {
+    process.stderr.write("Marketplace '" + name + "' is already added\\n")
+    process.exit(1)
+  }
+  state.marketplaces[name] = source
+} else if (command === 'plugin install' || command === 'plugin update') {
+  const source = state.marketplaces[args[2].split('@')[1]]
+  if (source === undefined) {
+    process.stderr.write('marketplace of ' + args[2] + ' not found\\n')
+    process.exit(1)
+  }
+  state.plugins[args[2]] = isAbsolute(source) ? manifest(source, 'plugin.json').version : '${DEP_VERSION}'
+} else if (command === 'plugin uninstall') {
+  delete state.plugins[args[2]]
 } else if (command === 'plugin list') {
-  const errors = process.env.STUB_CLAUDE_ERRORS ? [process.env.STUB_CLAUDE_ERRORS] : []
-  const list = state.installed === null ? [] : [{ id: '${HARNESS_PLUGIN_ID}', version: state.installed, scope: 'user', enabled: true, folderVersion: folderVersion(), errors }]
+  // As Claude Code does (ticket 13): a plugin whose dependency is not installed is listed with an error.
+  const list = Object.entries(state.plugins).map(([id, version]) => {
+    const source = state.marketplaces[id.split('@')[1]] ?? ''
+    // A marketplace folder that is gone (a copy interrupted between its renames) still leaves the plugin listed.
+    const needs = isAbsolute(source) && existsSync(source) ? (manifest(source, 'plugin.json').dependencies ?? []) : []
+    const errors = needs.filter((dep) => !(dep in state.plugins)).map((dep) => 'Dependency "' + dep + '" is not installed')
+    if (id === '${HARNESS_PLUGIN_ID}' && process.env.STUB_CLAUDE_ERRORS) errors.push(process.env.STUB_CLAUDE_ERRORS)
+    return { id, version, scope: 'user', enabled: true, errors }
+  })
   process.stdout.write(JSON.stringify(list, null, 2) + '\\n')
 }
 writeFileSync(statePath, JSON.stringify(state))
+if (asked('STUB_CLAUDE_FAIL_AFTER')) fail(1)
 `
 
 interface Sandbox {
@@ -162,24 +217,67 @@ function installer(bundle: string, options: Partial<InstallerOptions> = {}): Har
 
 const yes = (): Promise<boolean> => Promise.resolve(true)
 
+interface StubState {
+  marketplaces: Record<string, string>
+  plugins: Record<string, string>
+}
+/** Claude Code's side as the stub keeps it. */
+const stubState = (): StubState => (existsSync(sb.state) ? (JSON.parse(readFileSync(sb.state, 'utf8')) as StubState) : { marketplaces: {}, plugins: {} })
+const setStubState = (change: (state: StubState) => void): void => {
+  const state = stubState()
+  change(state)
+  writeFileSync(sb.state, JSON.stringify(state))
+}
+/** The dependency is installed before the test starts, as on a machine that already uses it. */
+const dependencyInstalled = (): void =>
+  setStubState((state) => {
+    state.marketplaces[DEPENDENCY_MARKETPLACE] = DEPENDENCY_MARKETPLACE_SOURCE
+    state.plugins[DEP] = DEP_VERSION
+  })
+
+const dep = (status: 'installed' | 'missing' | 'unchecked'): HarnessStatus['dependencies'] => [{ id: DEP, status, version: status === 'installed' ? DEP_VERSION : null }]
+/** Commands that write: everything but the two reads. */
+const writes = (): string[] => commands().filter((command) => command !== LIST && command !== MARKETPLACES)
+
 describe('the state', () => {
-  it('without <harnessHome>/plugin is "not installed", and reading it writes no file and runs no claude', async () => {
+  it('without <harnessHome>/plugin is "not installed" with the dependency not checked, and reading it writes no file and runs no claude', async () => {
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
     const before = filesWithTimes(sb.root)
     const status = await installer(bundle).status()
-    expect(status).toEqual({ state: { kind: 'not-installed' }, bundledVersion: V1, canInstall: true, pluginDir: sb.pluginDir })
+    expect(status).toEqual({ state: { kind: 'not-installed' }, bundledVersion: V1, canInstall: true, pluginDir: sb.pluginDir, dependencies: dep('unchecked') })
     expect(filesWithTimes(sb.root)).toEqual(before)
     expect(existsSync(sb.harnessHome)).toBe(false)
     expect(calls()).toEqual([])
   })
+
+  it('with the plugin folder reads `plugin list` once, and takes the dependency from the same list', async () => {
+    const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
+    await installer(bundle).install(yes)
+    clearCalls()
+    const status = await installer(bundle).status()
+    expect(status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
+    expect(status.dependencies).toEqual(dep('installed'))
+    expect(commands()).toEqual([LIST])
+  })
+
+  it('a build whose Harness names no dependency has none to report', async () => {
+    const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1, [])
+    expect((await installer(bundle).status()).dependencies).toEqual([])
+    const result = await installer(bundle).install(yes)
+    expect(result.status).toMatchObject({ state: { kind: 'installed', version: V1 }, dependencies: [] })
+    expect(commands()).toEqual([LIST, `plugin marketplace add ${sb.pluginDir}`, INSTALL_WORFY, LIST])
+  })
 })
 
 describe('installing', () => {
-  it('copies the Harness of the build byte for byte, then registers the marketplace and installs worfy in the user scope', async () => {
+  it('an empty sandbox: the dependency is installed before worfy — the official marketplace, the dependency, then the copy byte for byte, its marketplace and worfy in the user scope', async () => {
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
     const plans: InstallPlan[] = []
     const result = await installer(bundle).install((plan) => {
       plans.push(plan)
+      // The dialog is up: both reads are done, nothing is written yet.
+      expect(commands()).toEqual([LIST, MARKETPLACES])
+      expect(existsSync(sb.harnessHome)).toBe(false)
       return Promise.resolve(true)
     })
     expect(plans).toEqual([
@@ -188,15 +286,22 @@ describe('installing', () => {
         from: null,
         to: V1,
         copy: true,
+        dependencies: [DEP],
+        dependencyCommands: [
+          ['plugin', 'marketplace', 'add', DEPENDENCY_MARKETPLACE_SOURCE],
+          ['plugin', 'install', DEP, '--scope', 'user'],
+        ],
         commands: [
           ['plugin', 'marketplace', 'add', sb.pluginDir],
           ['plugin', 'install', HARNESS_PLUGIN_ID, '--scope', 'user'],
         ],
-        dependencies: ['mattpocock-skills@claude-plugins-official'],
         legacyHarness: null,
       },
     ])
-    expect(result).toEqual({ outcome: 'done', status: { state: { kind: 'installed', version: V1, enabled: true }, bundledVersion: V1, canInstall: true, pluginDir: sb.pluginDir } })
+    expect(result).toEqual({
+      outcome: 'done',
+      status: { state: { kind: 'installed', version: V1, enabled: true }, bundledVersion: V1, canInstall: true, pluginDir: sb.pluginDir, dependencies: dep('installed') },
+    })
 
     expect(treeOf(sb.pluginDir)).toEqual(treeOf(bundle))
     expect(Object.keys(treeOf(sb.pluginDir))).toContain(join('.claude-plugin', 'marketplace.json'))
@@ -207,9 +312,45 @@ describe('installing', () => {
       plugins: [{ name: 'worfy', source: './' }],
     })
 
-    expect(commands()).toEqual([`plugin marketplace add ${sb.pluginDir}`, `plugin install ${HARNESS_PLUGIN_ID} --scope user`, 'plugin list --json'])
+    expect(commands()).toEqual([LIST, MARKETPLACES, ADD_OFFICIAL, INSTALL_DEP, `plugin marketplace add ${sb.pluginDir}`, INSTALL_WORFY, LIST])
     for (const call of calls()) expect({ HOME: call.HOME, CLAUDE_CONFIG_DIR: call.CLAUDE_CONFIG_DIR }).toEqual({ HOME: sb.home, CLAUDE_CONFIG_DIR: sb.claudeHome })
     expect(HARNESS_PLUGIN_ID).toBe(`worfy@${HARNESS_MARKETPLACE}`)
+    expect(stubState()).toEqual({
+      marketplaces: { [DEPENDENCY_MARKETPLACE]: DEPENDENCY_MARKETPLACE_SOURCE, [HARNESS_MARKETPLACE]: sb.pluginDir },
+      plugins: { [DEP]: DEP_VERSION, [HARNESS_PLUGIN_ID]: V1 },
+    })
+  })
+
+  it('the dependency already installed: no command for it in the plan or in the log, and the dialog does not name it', async () => {
+    dependencyInstalled()
+    const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
+    const plans: InstallPlan[] = []
+    const result = await installer(bundle).install((plan) => {
+      plans.push(plan)
+      return Promise.resolve(true)
+    })
+    expect(plans.map(({ dependencies, dependencyCommands }) => ({ dependencies, dependencyCommands }))).toEqual([{ dependencies: [], dependencyCommands: [] }])
+    const text = confirmationText(plans[0]!)
+    expect(text.detail).not.toContain(DEPENDENCY_MARKETPLACE)
+    expect(text.detail).not.toContain('mattpocock-skills')
+    expect(result.status).toMatchObject({ state: { kind: 'installed', version: V1 }, dependencies: dep('installed') })
+    // Nothing asks which marketplaces are known: there is nothing to add one for.
+    expect(commands()).toEqual([LIST, `plugin marketplace add ${sb.pluginDir}`, INSTALL_WORFY, LIST])
+  })
+
+  it('the official marketplace already known: only the dependency is installed from it', async () => {
+    setStubState((state) => {
+      state.marketplaces[DEPENDENCY_MARKETPLACE] = DEPENDENCY_MARKETPLACE_SOURCE
+    })
+    const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
+    const plans: InstallPlan[] = []
+    const result = await installer(bundle).install((plan) => {
+      plans.push(plan)
+      return Promise.resolve(true)
+    })
+    expect(plans[0]?.dependencyCommands).toEqual([['plugin', 'install', DEP, '--scope', 'user']])
+    expect(result.status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
+    expect(commands()).not.toContain(ADD_OFFICIAL)
   })
 
   it('writes nothing in the sandbox but <harnessHome>/plugin, and leaves settings.json byte for byte', async () => {
@@ -242,8 +383,7 @@ describe('installing', () => {
     expect(asked).toBe(false)
     expect(result.outcome).toBe('nothing-to-do')
     expect(result.status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
-    expect(commands().every((command) => command === 'plugin list --json')).toBe(true)
-    expect(commands().length).toBeGreaterThan(0)
+    expect(commands()).toEqual([LIST, LIST])
     const after = filesWithTimes(sb.root)
     const written = Object.keys(after).filter((path) => before[path] !== after[path])
     // Only the stub's own log and state changed: the stub ran, worfy wrote nothing.
@@ -266,25 +406,27 @@ describe('installing', () => {
       plans.push(plan)
       return Promise.resolve(true)
     })
-    expect(plans.map(({ from, to, copy, commands: planned }) => ({ from, to, copy, planned }))).toEqual([
-      { from: V1, to: V2, copy: true, planned: [['plugin', 'update', HARNESS_PLUGIN_ID, '--scope', 'user']] },
+    expect(plans.map(({ from, to, copy, commands: planned, dependencyCommands }) => ({ from, to, copy, planned, dependencyCommands }))).toEqual([
+      { from: V1, to: V2, copy: true, planned: [['plugin', 'update', HARNESS_PLUGIN_ID, '--scope', 'user']], dependencyCommands: [] },
     ])
     expect(confirmationText(plans[0]!).message).toContain(`${V1} → ${V2}`)
     expect(result).toMatchObject({ outcome: 'done', status: { state: { kind: 'installed', version: V2, enabled: true } } })
     expect(existsSync(join(sb.pluginDir, dropped))).toBe(false)
     expect(treeOf(sb.pluginDir)).toEqual(treeOf(v2))
-    expect(commands()).toEqual(['plugin list --json', 'plugin list --json', `plugin update ${HARNESS_PLUGIN_ID} --scope user`, 'plugin list --json'])
+    expect(commands()).toEqual([LIST, LIST, UPDATE_WORFY, LIST])
     expect(readdirSync(sb.harnessHome)).toEqual(['plugin'])
   })
 
-  it('declined in the dialog: nothing is written and claude does not run', async () => {
+  it('declined in the dialog: claude ran only the two reads, no file appeared in the sandbox, and the outcome is `declined`', async () => {
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
-    const before = filesWithTimes(sb.root)
+    const before = filesWithTimes(sb.home)
     const result = await installer(bundle).install(() => Promise.resolve(false))
-    expect(result).toEqual({ outcome: 'declined', status: { state: { kind: 'not-installed' }, bundledVersion: V1, canInstall: true, pluginDir: sb.pluginDir } })
-    expect(filesWithTimes(sb.root)).toEqual(before)
+    // The list was read for the dialog, so the answer knows the dependency is missing.
+    expect(result).toEqual({ outcome: 'declined', status: { state: { kind: 'not-installed' }, bundledVersion: V1, canInstall: true, pluginDir: sb.pluginDir, dependencies: dep('missing') } })
+    expect(filesWithTimes(sb.home)).toEqual(before)
     expect(existsSync(sb.harnessHome)).toBe(false)
-    expect(calls()).toEqual([])
+    expect(commands()).toEqual([LIST, MARKETPLACES])
+    expect(stubState()).toEqual({ marketplaces: {}, plugins: {} })
   })
 
   it('two clicks at once run one install', async () => {
@@ -298,7 +440,150 @@ describe('installing', () => {
     const [first, second] = await Promise.all([subject.install(confirm), subject.install(confirm)])
     expect(asked).toBe(1)
     expect(second).toEqual(first)
-    expect(commands().filter((command) => command.startsWith('plugin install'))).toHaveLength(1)
+    expect(commands().filter((command) => command === INSTALL_WORFY)).toHaveLength(1)
+    expect(commands().filter((command) => command === INSTALL_DEP)).toHaveLength(1)
+  })
+})
+
+describe('a dependency that is missing', () => {
+  it('worfy installed with the build version but its dependency not: the state is an error of `dependency install`, and install() asks with the dependency commands alone and brings it to installed', async () => {
+    const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
+    await installer(bundle).install(yes)
+    // Someone removed the dependency later; its marketplace is still known.
+    setStubState((state) => {
+      delete state.plugins[DEP]
+    })
+    clearCalls()
+
+    const status = await installer(bundle).status()
+    expect(status.state).toMatchObject({ kind: 'error', step: 'dependency install' })
+    if (status.state.kind === 'error') expect(status.state.reason).toContain(DEP)
+    expect(status.dependencies).toEqual(dep('missing'))
+    expect(commands()).toEqual([LIST])
+    clearCalls()
+
+    const plans: InstallPlan[] = []
+    const result = await installer(bundle).install((plan) => {
+      plans.push(plan)
+      return Promise.resolve(true)
+    })
+    expect(plans).toEqual([
+      { pluginDir: sb.pluginDir, from: V1, to: V1, copy: false, dependencies: [DEP], dependencyCommands: [['plugin', 'install', DEP, '--scope', 'user']], commands: [], legacyHarness: null },
+    ])
+    const text = confirmationText(plans[0]!)
+    expect(text.button).toBe('Install')
+    expect(text.message).toContain(DEP)
+    expect(text.detail).toContain(`claude ${INSTALL_DEP}`)
+    expect(text.detail).not.toContain(HARNESS_PLUGIN_ID)
+    expect(text.detail).not.toContain('copies the Harness')
+    expect(result).toMatchObject({ outcome: 'done', status: { state: { kind: 'installed', version: V1, enabled: true }, dependencies: dep('installed') } })
+    expect(commands()).toEqual([LIST, MARKETPLACES, INSTALL_DEP, LIST])
+  })
+
+  it('worfy installed by the installer of ticket 13 (no marketplace, no dependency): the plan adds the official marketplace and the dependency, nothing of worfy', async () => {
+    const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
+    // What ticket 13 left: the copy, its marketplace and worfy, listed with "Dependency … is not installed".
+    cpSync(bundle, sb.pluginDir, { recursive: true })
+    setStubState((state) => {
+      state.marketplaces[HARNESS_MARKETPLACE] = sb.pluginDir
+      state.plugins[HARNESS_PLUGIN_ID] = V1
+    })
+    expect((await installer(bundle).status()).state).toMatchObject({ kind: 'error', step: 'dependency install' })
+    clearCalls()
+    const result = await installer(bundle).install(yes)
+    expect(result.status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
+    expect(commands()).toEqual([LIST, MARKETPLACES, ADD_OFFICIAL, INSTALL_DEP, LIST])
+  })
+
+  it('together with another version: one dialog, the dependency first, then the copy and `plugin update`', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    setStubState((state) => {
+      delete state.plugins[DEP]
+    })
+    const v2 = makeBundle(join(sb.root, 'bundle-v2'), V2)
+    clearCalls()
+    let asked = 0
+    const result = await installer(v2).install(() => {
+      asked += 1
+      return Promise.resolve(true)
+    })
+    expect(asked).toBe(1)
+    expect(result.status).toMatchObject({ state: { kind: 'installed', version: V2 }, dependencies: dep('installed') })
+    expect(commands()).toEqual([LIST, MARKETPLACES, INSTALL_DEP, UPDATE_WORFY, LIST])
+  })
+
+  it.each([
+    ['of another marketplace', 'x@someone-elses-marketplace'],
+    ['without a marketplace in its name', 'x'],
+  ])('a dependency %s is not installed by worfy: an error naming it, no dialog and no command that writes', async (_what, id) => {
+    const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1, [DEP, id])
+    const before = filesWithTimes(sb.home)
+    let asked = false
+    const result = await installer(bundle).install(() => {
+      asked = true
+      return Promise.resolve(true)
+    })
+    expect(asked).toBe(false)
+    expect(result.outcome).toBe('done')
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'dependency install' })
+    if (result.status.state.kind === 'error') {
+      expect(result.status.state.reason).toContain(id)
+      expect(result.status.state.reason).toContain(DEPENDENCY_MARKETPLACE)
+    }
+    expect(writes()).toEqual([])
+    expect(filesWithTimes(sb.home)).toEqual(before)
+    expect(stubState()).toEqual({ marketplaces: {}, plugins: {} })
+  })
+
+  it('a dependency of another marketplace that is already installed stops nothing', async () => {
+    const other = 'x@someone-elses-marketplace'
+    dependencyInstalled()
+    setStubState((state) => {
+      state.marketplaces['someone-elses-marketplace'] = 'someone/elses-marketplace'
+      state.plugins[other] = '2.0.0'
+    })
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v1'), V1, [DEP, other])).install(yes)
+    expect(result.status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
+    expect(result.status.dependencies).toEqual([...dep('installed'), { id: other, status: 'installed', version: '2.0.0' }])
+  })
+})
+
+describe('which marketplaces Claude Code knows', () => {
+  it('a Claude Code without `plugin marketplace list`: the official marketplace is added every time', async () => {
+    const env = { ...sb.env, STUB_CLAUDE_NO_MARKETPLACE_LIST: '1' }
+    setStubState((state) => {
+      state.marketplaces[DEPENDENCY_MARKETPLACE] = DEPENDENCY_MARKETPLACE_SOURCE
+    })
+    const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
+    const result = await installer(bundle, { env }).install(yes)
+    expect(result.status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
+    expect(commands()).toEqual([LIST, MARKETPLACES, ADD_OFFICIAL, INSTALL_DEP, `plugin marketplace add ${sb.pluginDir}`, INSTALL_WORFY, LIST])
+  })
+
+  it('`marketplace add` answering "already added" with a non-zero exit is not an error', async () => {
+    const env = { ...sb.env, STUB_CLAUDE_NO_MARKETPLACE_LIST: '1', STUB_CLAUDE_ADD_TWICE_FAILS: '1' }
+    setStubState((state) => {
+      state.marketplaces[DEPENDENCY_MARKETPLACE] = DEPENDENCY_MARKETPLACE_SOURCE
+    })
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v1'), V1), { env }).install(yes)
+    expect(result.status).toMatchObject({ state: { kind: 'installed', version: V1 }, dependencies: dep('installed') })
+    expect(commands()).toContain(ADD_OFFICIAL)
+  })
+
+  it('`plugin marketplace list` printing something else than a list of names: the marketplace is added, and a failure of that says the list could not be read', async () => {
+    // A stub in front of the stub: `marketplace list` prints an object, everything else goes through.
+    const front = join(sb.root, 'stub', 'claude-odd-list')
+    writeFileSync(front, `#!/bin/sh\nif [ "$*" = "${MARKETPLACES}" ]; then printf '%s\\n' '{"marketplaces":{}}'; exit 0; fi\nexec "${sb.stub}" "$@"\n`)
+    chmodSync(front, 0o755)
+    const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
+    const failing = await installer(bundle, { claude: front, env: { ...sb.env, STUB_CLAUDE_FAIL: ADD_OFFICIAL } }).install(yes)
+    expect(failing.status.state).toMatchObject({ kind: 'error', step: 'dependency marketplace add' })
+    if (failing.status.state.kind === 'error') {
+      expect(failing.status.state.reason).toContain('failed: stub error')
+      expect(failing.status.state.reason).toContain(`claude ${MARKETPLACES}`)
+    }
+    const result = await installer(bundle, { claude: front }).install(yes)
+    expect(result.status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
   })
 })
 
@@ -309,27 +594,123 @@ describe('errors', () => {
     expect(reason).toContain('second line')
   }
 
-  it.each([
-    ['marketplace add', 'plugin marketplace add'],
-    ['install', 'plugin install'],
-  ] as const)('a non-zero exit of `claude %s` on a first install is an error naming that step, with the tail of stderr', async (step, command) => {
+  it('`marketplace add` of the official marketplace fails: an error of `dependency marketplace add` with the tail of stderr; no Harness copy, no command for worfy', async () => {
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
-    const result = await installer(bundle, { env: { ...sb.env, STUB_CLAUDE_FAIL: command } }).install(yes)
+    const result = await installer(bundle, { env: { ...sb.env, STUB_CLAUDE_FAIL: ADD_OFFICIAL } }).install(yes)
     expect(result.outcome).toBe('done')
-    expect(result.status.state).toMatchObject({ kind: 'error', step })
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'dependency marketplace add' })
     if (result.status.state.kind === 'error') tail(result.status.state.reason)
+    expect(result.status.dependencies).toEqual(dep('missing'))
+    expect(existsSync(sb.pluginDir)).toBe(false)
+    expect(existsSync(sb.harnessHome)).toBe(false)
+    expect(commands()).toEqual([LIST, MARKETPLACES, ADD_OFFICIAL])
+    expect(stubState().plugins).toEqual({})
   })
 
-  it('a non-zero exit of `claude plugin update` is an error naming `update`', async () => {
+  it('`install` of the dependency fails: an error of `dependency install`; no Harness copy, no command for worfy; the next try with a working claude installs everything and does not add the marketplace again', async () => {
+    const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
+    const result = await installer(bundle, { env: { ...sb.env, STUB_CLAUDE_FAIL: INSTALL_DEP } }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'dependency install' })
+    if (result.status.state.kind === 'error') tail(result.status.state.reason)
+    expect(existsSync(sb.pluginDir)).toBe(false)
+    expect(commands()).toEqual([LIST, MARKETPLACES, ADD_OFFICIAL, INSTALL_DEP])
+    expect(stubState().plugins).toEqual({})
+    clearCalls()
+
+    const retry = await installer(bundle).install(yes)
+    expect(retry.status).toMatchObject({ state: { kind: 'installed', version: V1, enabled: true }, dependencies: dep('installed') })
+    expect(commands()).toEqual([LIST, MARKETPLACES, INSTALL_DEP, `plugin marketplace add ${sb.pluginDir}`, INSTALL_WORFY, LIST])
+  })
+
+  it('`marketplace add` of the Harness copy fails on a first install: an error naming `marketplace add`, and Claude Code lists no worfy', async () => {
+    const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
+    const result = await installer(bundle, { env: { ...sb.env, STUB_CLAUDE_FAIL: `plugin marketplace add ${sb.pluginDir}` } }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'marketplace add' })
+    if (result.status.state.kind === 'error') tail(result.status.state.reason)
+    // The dependency went in before the failure; its version is read with the next `plugin list`.
+    expect(result.status.dependencies).toEqual([{ id: DEP, status: 'installed', version: null }])
+    expect(stubState().plugins).toEqual({ [DEP]: DEP_VERSION })
+    expect(commands()).not.toContain(UNINSTALL_WORFY)
+  })
+
+  it('a first `install` of worfy that fails and records nothing: an error naming `install`; the list is read again and nothing is uninstalled', async () => {
+    const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
+    const result = await installer(bundle, { env: { ...sb.env, STUB_CLAUDE_FAIL: INSTALL_WORFY } }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'install' })
+    if (result.status.state.kind === 'error') {
+      tail(result.status.state.reason)
+      expect(result.status.state.reason).not.toContain('uninstall')
+    }
+    expect(commands().slice(-2)).toEqual([INSTALL_WORFY, LIST])
+    expect(commands()).not.toContain(UNINSTALL_WORFY)
+  })
+
+  it('a first `install` of worfy that records the plugin and exits non-zero: worfy is uninstalled, Claude Code lists it no more, and the error names `install` and the removal', async () => {
+    const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
+    const result = await installer(bundle, { env: { ...sb.env, STUB_CLAUDE_FAIL_AFTER: INSTALL_WORFY } }).install(yes)
+    expect(result.outcome).toBe('done')
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'install' })
+    if (result.status.state.kind === 'error') {
+      tail(result.status.state.reason)
+      expect(result.status.state.reason).toContain(`claude ${UNINSTALL_WORFY}`)
+      expect(result.status.state.reason).toContain('removed')
+    }
+    expect(commands().slice(-3)).toEqual([INSTALL_WORFY, LIST, UNINSTALL_WORFY])
+    expect(stubState().plugins).toEqual({ [DEP]: DEP_VERSION })
+    // Not half installed: the state read afresh is "not installed", and the next try installs.
+    expect((await installer(bundle).status()).state).toEqual({ kind: 'not-installed' })
+    expect((await installer(bundle).install(yes)).status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
+  })
+
+  it('the same with `uninstall` failing too: an error naming `uninstall`, with the tails of both commands', async () => {
+    const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
+    const result = await installer(bundle, { env: { ...sb.env, STUB_CLAUDE_FAIL_AFTER: INSTALL_WORFY, STUB_CLAUDE_FAIL: UNINSTALL_WORFY } }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'uninstall' })
+    if (result.status.state.kind === 'error') {
+      expect(result.status.state.reason).toContain(`${INSTALL_WORFY} failed: stub error`)
+      expect(result.status.state.reason).toContain(`${UNINSTALL_WORFY} failed: stub error`)
+    }
+    expect(stubState().plugins).toMatchObject({ [HARNESS_PLUGIN_ID]: V1 })
+  })
+
+  it('the list cannot be read after a failed first `install`: the error names `install` and says the record was not checked', async () => {
+    const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1, [])
+    // The first `plugin list` (before the dialog) answers; the one after the failed install does not.
+    const front = join(sb.root, 'stub', 'claude-list-once')
+    const mark = join(sb.root, 'stub', 'listed-once')
+    writeFileSync(front, `#!/bin/sh\nif [ "$*" = "${LIST}" ]; then if [ -e "${mark}" ]; then echo 'list broke' >&2; exit 4; fi; : >"${mark}"; fi\nexec "${sb.stub}" "$@"\n`)
+    chmodSync(front, 0o755)
+    const result = await installer(bundle, { claude: front, env: { ...sb.env, STUB_CLAUDE_FAIL_AFTER: INSTALL_WORFY } }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'install' })
+    if (result.status.state.kind === 'error') {
+      expect(result.status.state.reason).toContain(`${INSTALL_WORFY} failed: stub error`)
+      expect(result.status.state.reason).toContain('list broke')
+    }
+    expect(commands()).not.toContain(UNINSTALL_WORFY)
+  })
+
+  it('a non-zero exit of `claude plugin update` is an error naming `update`; the installed version is not uninstalled', async () => {
     await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
     const v2 = makeBundle(join(sb.root, 'bundle-v2'), V2)
+    clearCalls()
     const result = await installer(v2, { env: { ...sb.env, STUB_CLAUDE_FAIL: 'plugin update' } }).install(yes)
     expect(result.status.state).toMatchObject({ kind: 'error', step: 'update' })
     if (result.status.state.kind === 'error') tail(result.status.state.reason)
+    expect(commands()).toEqual([LIST, UPDATE_WORFY])
+    expect(stubState().plugins).toEqual({ [DEP]: DEP_VERSION, [HARNESS_PLUGIN_ID]: V1 })
     // The copy is the new one; the next try only has to run `update`.
     expect(treeOf(sb.pluginDir)).toEqual(treeOf(v2))
     const retry = await installer(v2).install(yes)
     expect(retry.status.state).toEqual({ kind: 'installed', version: V2, enabled: true })
+  })
+
+  it('an `update` that records the new version and exits non-zero uninstalls nothing either', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    const v2 = makeBundle(join(sb.root, 'bundle-v2'), V2)
+    const result = await installer(v2, { env: { ...sb.env, STUB_CLAUDE_FAIL_AFTER: 'plugin update' } }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'update' })
+    expect(commands()).not.toContain(UNINSTALL_WORFY)
+    expect(stubState().plugins).toMatchObject({ [HARNESS_PLUGIN_ID]: V2 })
   })
 
   it('a non-zero exit of `claude plugin list` is an error naming `plugin list`, in the state and in the action', async () => {
@@ -339,6 +720,7 @@ describe('errors', () => {
     const status = await failing.status()
     expect(status.state).toMatchObject({ kind: 'error', step: 'plugin list' })
     if (status.state.kind === 'error') tail(status.state.reason)
+    expect(status.dependencies).toEqual(dep('unchecked'))
     let asked = false
     const result = await failing.install(() => {
       asked = true
@@ -348,21 +730,29 @@ describe('errors', () => {
     expect(result.status.state).toMatchObject({ kind: 'error', step: 'plugin list' })
   })
 
-  it('no Claude Code binary is an error naming the step that needed it', async () => {
+  it('no Claude Code binary is an error of `plugin list` before the dialog, and nothing is written', async () => {
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
     const missing = join(sb.root, 'nowhere', 'claude')
-    const result = await installer(bundle, { claude: missing }).install(yes)
-    expect(result.status.state).toMatchObject({ kind: 'error', step: 'marketplace add' })
+    let asked = false
+    const confirm = (): Promise<boolean> => {
+      asked = true
+      return Promise.resolve(true)
+    }
+    const result = await installer(bundle, { claude: missing }).install(confirm)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'plugin list' })
     if (result.status.state.kind === 'error') expect(result.status.state.reason).toContain(missing)
-    const none = await installer(bundle, { claude: undefined }).install(yes)
+    const none = await installer(bundle, { claude: undefined }).install(confirm)
     expect(none.status.state).toMatchObject({ kind: 'error', step: 'plugin list' })
+    expect(asked).toBe(false)
+    expect(existsSync(sb.harnessHome)).toBe(false)
   })
 
-  it('a plugin Claude Code reports broken (a missing dependency) is an error with its reason, not a quiet success', async () => {
+  it('a plugin Claude Code reports broken for another reason is an error of `install` with that reason, not a quiet success', async () => {
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
-    const reason = 'Dependency "mattpocock-skills@claude-plugins-official" is not installed'
+    const reason = 'hooks/hooks.json: unexpected token'
     const result = await installer(bundle, { env: { ...sb.env, STUB_CLAUDE_ERRORS: reason } }).install(yes)
     expect(result.status.state).toEqual({ kind: 'error', step: 'install', reason })
+    expect(result.status.dependencies).toEqual(dep('installed'))
   })
 
   it('a copy that fails half way leaves the previous plugin folder byte for byte, and no staging folder behind', async () => {
@@ -381,7 +771,7 @@ describe('errors', () => {
     if (result.status.state.kind === 'error') expect(result.status.state.reason).toContain('disk full (injected)')
     expect(treeOf(sb.pluginDir)).toEqual(before)
     expect(readdirSync(sb.harnessHome)).toEqual(['plugin'])
-    expect(commands().filter((command) => command !== 'plugin list --json')).toEqual([])
+    expect(writes()).toEqual([])
   })
 
   it('a copy interrupted between its two renames (the old folder set aside, the new one not in place) gets the old folder back before the next copy', async () => {
@@ -411,7 +801,7 @@ describe('the dev build', () => {
   it('without the offer shows the state and refuses the action before the dialog', async () => {
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
     const subject = installer(bundle, { canInstall: false })
-    expect(await subject.status()).toEqual({ state: { kind: 'not-installed' }, bundledVersion: V1, canInstall: false, pluginDir: sb.pluginDir })
+    expect(await subject.status()).toEqual({ state: { kind: 'not-installed' }, bundledVersion: V1, canInstall: false, pluginDir: sb.pluginDir, dependencies: dep('unchecked') })
     let asked = false
     await expect(
       subject.install(() => {
@@ -454,19 +844,29 @@ describe('the environment of the claude commands', () => {
 })
 
 describe('the dialog', () => {
-  it('names the folder, the commands, the versions and the dependency', () => {
-    const plan: InstallPlan = {
-      pluginDir: '/Users/me/.claude/worfy-harness/plugin',
-      from: null,
-      to: V1,
-      copy: true,
-      commands: [
-        ['plugin', 'marketplace', 'add', '/Users/me/.claude/worfy-harness/plugin'],
-        ['plugin', 'install', HARNESS_PLUGIN_ID, '--scope', 'user'],
-      ],
-      dependencies: ['mattpocock-skills@claude-plugins-official'],
-      legacyHarness: null,
-    }
+  const plan: InstallPlan = {
+    pluginDir: '/Users/me/.claude/worfy-harness/plugin',
+    from: null,
+    to: V1,
+    copy: true,
+    dependencies: [],
+    dependencyCommands: [],
+    commands: [
+      ['plugin', 'marketplace', 'add', '/Users/me/.claude/worfy-harness/plugin'],
+      ['plugin', 'install', HARNESS_PLUGIN_ID, '--scope', 'user'],
+    ],
+    legacyHarness: null,
+  }
+  const withDependency: InstallPlan = {
+    ...plan,
+    dependencies: [DEP],
+    dependencyCommands: [
+      ['plugin', 'marketplace', 'add', DEPENDENCY_MARKETPLACE_SOURCE],
+      ['plugin', 'install', DEP, '--scope', 'user'],
+    ],
+  }
+
+  it('names the folder, the commands and the versions', () => {
     const text = confirmationText(plan)
     // The plugin loads in place (ADR-0048): Sessions running in a terminal see the copy change.
     expect(text.detail).toContain('Restart them')
@@ -479,10 +879,54 @@ describe('the dialog', () => {
     expect(text.detail).toContain('/Users/me/.claude/worfy-harness/plugin')
     expect(text.detail).toContain('claude plugin marketplace add /Users/me/.claude/worfy-harness/plugin')
     expect(text.detail).toContain(`claude plugin install ${HARNESS_PLUGIN_ID} --scope user`)
-    expect(text.detail).toContain('mattpocock-skills@claude-plugins-official')
     const update = confirmationText({ ...plan, from: V1, to: V2, commands: [['plugin', 'update', HARNESS_PLUGIN_ID, '--scope', 'user']] })
     expect(update.button).toBe('Update')
     expect(update.message).toContain(`${V1} → ${V2}`)
+  })
+
+  it('without dependency commands says nothing of a dependency, a download or the official marketplace', () => {
+    const text = confirmationText(plan)
+    expect(text.detail).not.toContain('mattpocock-skills')
+    expect(text.detail).not.toContain(DEPENDENCY_MARKETPLACE)
+    expect(text.detail).not.toMatch(/download/i)
+    expect(text.detail).toContain('Nothing else in ~/.claude changes.')
+  })
+
+  it('with dependency commands names them before the Harness commands, the download from GitHub and what Claude Code records; it does not tell the user to install anything by hand', () => {
+    const text = confirmationText(withDependency)
+    expect(text.message).toBe(`Install the worfy Harness ${V1}?`)
+    const add = text.detail.indexOf(`claude ${ADD_OFFICIAL}`)
+    const install = text.detail.indexOf(`claude ${INSTALL_DEP}`)
+    const copy = text.detail.indexOf('copies the Harness')
+    const worfy = text.detail.indexOf(`claude ${INSTALL_WORFY}`)
+    expect(add).toBeGreaterThanOrEqual(0)
+    expect(install).toBeGreaterThan(add)
+    expect(copy).toBeGreaterThan(install)
+    expect(worfy).toBeGreaterThan(copy)
+    expect(text.detail).toContain(`downloads it from GitHub (${DEPENDENCY_MARKETPLACE_SOURCE})`)
+    expect(text.detail).toContain('records the marketplace')
+    expect(text.detail).not.toContain('Nothing is downloaded')
+    expect(text.detail).not.toContain('install it with')
+    // Only the commands worfy runs itself are in the text: each line starting with `claude` is one of the plan's.
+    const lines = text.detail.split('\n').filter((line) => line.trim().startsWith('claude '))
+    expect(lines.map((line) => line.trim())).toEqual([...withDependency.dependencyCommands, ...withDependency.commands].map((args) => `claude ${args.join(' ')}`))
+  })
+
+  it('with the marketplace already known says only that the plugin is recorded', () => {
+    const text = confirmationText({ ...withDependency, dependencyCommands: [['plugin', 'install', DEP, '--scope', 'user']] })
+    expect(text.detail).not.toContain('records the marketplace')
+    expect(text.detail).toContain(`downloads it from GitHub (${DEPENDENCY_MARKETPLACE_SOURCE})`)
+  })
+})
+
+describe('a Linked machine', () => {
+  it('cannot start the install: `harness.install` and `firstRun.run` are local channels', () => {
+    for (const channel of [harnessInstall, firstRunRun]) {
+      expect(channel.access).toBe('local')
+      expect(accessOf(channel.name)).toBe('local')
+      expect(LINKED_MACHINE_ACCESS).not.toContain(accessOf(channel.name))
+    }
+    expect([harnessInstall.name, firstRunRun.name]).toEqual(['harness.install', 'firstRun.run'])
   })
 })
 
@@ -506,32 +950,36 @@ describe('the Claude Code binary the installer runs', () => {
   })
 })
 
-describe.skipIf(process.platform !== 'darwin')('with the Claude Code binary of the SDK (macOS, local)', () => {
+// The Harness copy here names no dependency: that binary must not reach for a remote marketplace
+// from a test, so it runs the commands of the plugin `worfy` alone, all of them local. The
+// dependency with that binary is checked by the acceptance run in a sandbox (worfy-harness ticket 26).
+describe.skipIf(process.platform !== 'darwin')('with the Claude Code binary of the SDK (macOS, local, a Harness copy without dependencies)', () => {
   it('installs worfy enabled with the build version, keeps the keys of settings.json, and the same commands again exit 0', async () => {
     const claude = sdkClaude()
     // A bare environment: no variables of a parent Claude Code session, no network (closed proxy port).
     const env = { PATH: '/usr/bin:/bin', HOME: sb.home, CLAUDE_CONFIG_DIR: sb.claudeHome, HTTPS_PROXY: 'http://127.0.0.1:9', HTTP_PROXY: 'http://127.0.0.1:9' }
-    const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
+    const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1, [])
     const plans: InstallPlan[] = []
     const result = await installer(bundle, { claude, env }).install((plan) => {
       plans.push(plan)
       return Promise.resolve(true)
     })
+    expect(plans.map(({ dependencyCommands, commands: planned }) => ({ dependencyCommands, planned }))).toEqual([
+      {
+        dependencyCommands: [],
+        planned: [
+          ['plugin', 'marketplace', 'add', sb.pluginDir],
+          ['plugin', 'install', HARNESS_PLUGIN_ID, '--scope', 'user'],
+        ],
+      },
+    ])
     const run = (args: string[]): ReturnType<typeof spawnSync> => spawnSync(claude, args, { env, cwd: sb.root, encoding: 'utf8', timeout: 60_000 })
 
     const list = run(['plugin', 'list', '--json'])
     expect(list.status).toBe(0)
     const entry = (JSON.parse(String(list.stdout)) as { id: string; version: string; enabled: boolean; errors?: string[] }[]).find(({ id }) => id === HARNESS_PLUGIN_ID)
     expect(entry).toMatchObject({ id: HARNESS_PLUGIN_ID, version: V1, enabled: true })
-
-    // Claude Code does not install the dependency from a marketplace it does not know (ADR-0048
-    // does not cover it; the ticket's summary): worfy reports that, not a quiet success.
-    if (entry?.errors !== undefined && entry.errors.length > 0) {
-      expect(result.status.state).toMatchObject({ kind: 'error', step: 'install' })
-      if (result.status.state.kind === 'error') expect(result.status.state.reason).toContain('mattpocock-skills@claude-plugins-official')
-    } else {
-      expect(result.status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
-    }
+    expect(result.status).toMatchObject({ state: { kind: 'installed', version: V1, enabled: true }, dependencies: [] })
 
     const settings = JSON.parse(readFileSync(join(sb.claudeHome, 'settings.json'), 'utf8')) as Record<string, unknown>
     expect(settings).toMatchObject({ theme: 'dark', model: expect.any(String) as unknown })

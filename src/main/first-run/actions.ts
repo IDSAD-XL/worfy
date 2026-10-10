@@ -58,7 +58,7 @@ export interface ActionResult {
   report: FirstRunReport
 }
 
-/** The check whose row shows an action's failure. */
+/** The check whose row shows an action's failure; an action may name another one (`Outcome.check`). */
 const CHECK_OF: Record<RunnableAction, CheckId> = {
   'harness-install': 'harness',
   'qmd-install': 'qmd',
@@ -68,10 +68,12 @@ const CHECK_OF: Record<RunnableAction, CheckId> = {
   'gh-login': 'gh-auth',
 }
 
-type Outcome = { outcome: ActionResult['outcome']; message: string | null }
+type Outcome = { outcome: ActionResult['outcome']; message: string | null; check?: CheckId }
 const declined: Outcome = { outcome: 'declined', message: null }
 const done = (message: string | null = null): Outcome => ({ outcome: 'done', message })
-const failed = (message: string): Outcome => ({ outcome: 'failed', message })
+const failed = (message: string, check?: CheckId): Outcome => ({ outcome: 'failed', message, ...(check === undefined ? {} : { check }) })
+/** The rows one action answers for: a run that did not fail clears the failures of all of them. */
+const ROWS_OF: Partial<Record<RunnableAction, readonly CheckId[]>> = { 'harness-install': ['harness', 'harness-dependencies'] }
 
 /** `npm prefix -g`: where `npm install -g` puts qmd. Read only; null when npm does not answer. */
 function npmPrefix(env: Env): Promise<string | null> {
@@ -116,9 +118,10 @@ export class FirstRunActions {
     if (this.running) throw new Error('another action is running: wait for it to finish')
     this.running = true
     try {
-      const result = await this.perform(action, context)
-      if (result.outcome === 'failed') this.failures.set(CHECK_OF[action], result.message ?? 'failed')
-      else if (result.outcome !== 'declined') this.failures.delete(CHECK_OF[action])
+      const { check, ...result } = await this.perform(action, context)
+      const rows = ROWS_OF[action] ?? [CHECK_OF[action]]
+      if (result.outcome !== 'declined') for (const row of rows) this.failures.delete(row)
+      if (result.outcome === 'failed') this.failures.set(check ?? CHECK_OF[action], result.message ?? 'failed')
       // A confirmed gh-login goes on in the Terminal: checking now would only delay it, so the
       // screen keeps the last checks and the user checks again when signed in.
       const report = result.outcome === 'confirmed' && this.last !== null ? this.last : await this.report()
@@ -150,14 +153,17 @@ export class FirstRunActions {
     try {
       result = await this.deps.installHarness((plan) => {
         const text = confirmationText(plan)
-        return this.deps.confirm({ message: text.message, detail: `${text.detail}\n\nNothing is downloaded: the copy comes from this build.` })
+        // A dependency is downloaded by Claude Code, and the installer's text says from where.
+        const download = plan.dependencyCommands.length === 0 ? '\n\nNothing is downloaded: the copy comes from this build.' : ''
+        return this.deps.confirm({ message: text.message, detail: `${text.detail}${download}` })
       })
     } catch (error) {
       return failed(error instanceof Error ? error.message : String(error))
     }
     if (result.outcome === 'declined') return declined
     const { state } = result.status
-    if (state.kind === 'error') return failed(`${state.step}: ${tail(state.reason)}`)
+    // A failed dependency step is shown on the dependencies' row; anything else on the plugin's.
+    if (state.kind === 'error') return failed(`${state.step}: ${tail(state.reason)}`, state.step.startsWith('dependency') ? 'harness-dependencies' : undefined)
     return done(result.outcome === 'nothing-to-do' ? 'The Harness of this build is already installed' : null)
   }
 

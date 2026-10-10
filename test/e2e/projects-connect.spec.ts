@@ -26,7 +26,7 @@ const bundledVersion = (): string => (JSON.parse(readFileSync(join(bundle, '.cla
 
 const STUB = `#!/bin/sh
 case "$*" in
-  "plugin list --json") printf '[{"id":"worfy@worfy-harness","version":"%s","scope":"user","enabled":true,"errors":[]}]\\n' "$STUB_PLUGIN_VERSION" ;;
+  "plugin list --json") printf '[{"id":"worfy@worfy-harness","version":"%s","scope":"user","enabled":true,"errors":[]},{"id":"mattpocock-skills@claude-plugins-official","version":"1.0.0","scope":"user","enabled":true,"errors":[]}]\\n' "$STUB_PLUGIN_VERSION" ;;
 esac
 exit 0
 `

@@ -5,6 +5,8 @@ import { invoke } from '../../ipc'
 
 // The Harness in the toolbar (worfy-harness ticket 13): whether the plugin `worfy` of this build is
 // installed, and the Install or Update button that opens main's consent dialog (src/main/ipc/harness.ts).
+// After an error the button is Retry: the installer reads the state again and runs what is left,
+// a missing dependency of the plugin included (ticket 30), so nothing is installed by hand.
 // A dev run on the real ~/.claude shows the state without the button (canInstall).
 // While the old Harness is still in ~/.claude, "Move old Harness…" opens the move form (ticket 14,
 // src/renderer/harness/MigrationForm.tsx); the form itself says what is missing before a move.
@@ -81,7 +83,7 @@ export function HarnessStatusView({ status, busy, failure, onInstall, onMigrate 
       text = `Harness error: ${state.step}`
       title = state.reason
       tone = 'var(--blocked-text)'
-      button = action('Retry', 'Fix what the error names first (a missing dependency: install it with claude plugin install), then Retry: it reads the state again and runs what is left of the install')
+      button = action('Retry', 'Retry reads the state again and runs what is left of the install, a missing dependency of the plugin included; the dialog names every command before anything runs')
       break
   }
   return (

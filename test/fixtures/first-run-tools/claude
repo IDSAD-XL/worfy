@@ -2,6 +2,25 @@
 # A stand-in for Claude Code's CLI (test/fixtures/first-run-tools/README.md).
 [ -n "$FIRST_RUN_TOOLS_LOG" ] && printf 'claude %s\n' "$*" >>"$FIRST_RUN_TOOLS_LOG"
 state=$FIRST_RUN_TOOLS_STATE
+
+# Whether the file $1 has the line $2.
+has_line() {
+  [ -f "$1" ] || return 1
+  while IFS= read -r each; do
+    [ "$each" = "$2" ] && return 0
+  done <"$1"
+  return 1
+}
+
+if [ -n "$FAKE_CLAUDE_FAIL" ]; then
+  case "$*" in
+    "$FAKE_CLAUDE_FAIL"*)
+      printf 'claude stand-in: %s failed\n' "$*" >&2
+      exit 1
+      ;;
+  esac
+fi
+
 case "$1" in
   --version)
     printf '%s (Claude Code)\n' "${FAKE_CLAUDE_VERSION:-2.1.289}"
@@ -10,31 +29,76 @@ case "$1" in
   plugin)
     case "$2" in
       list)
-        if [ -n "$state" ] && [ -f "$state/plugin-version" ]; then
+        entries=
+        if [ -n "$state" ] && [ -s "$state/plugin-version" ]; then
           IFS= read -r version <"$state/plugin-version"
-          printf '[{"id":"worfy@worfy-harness","version":"%s","scope":"user","enabled":true,"errors":[]}]\n' "$version"
-        else
-          printf '[]\n'
+          entries="{\"id\":\"worfy@worfy-harness\",\"version\":\"$version\",\"scope\":\"user\",\"enabled\":true,\"errors\":[]}"
         fi
+        if [ -n "$state" ] && [ -f "$state/plugins" ]; then
+          while IFS= read -r id; do
+            [ -n "$id" ] || continue
+            entries="${entries:+$entries,}{\"id\":\"$id\",\"version\":\"1.0.0\",\"scope\":\"user\",\"enabled\":true,\"errors\":[]}"
+          done <"$state/plugins"
+        fi
+        printf '[%s]\n' "$entries"
         exit 0
         ;;
       marketplace)
-        [ "$3" = add ] && printf '%s\n' "$4" >"$state/marketplace"
+        case "$3" in
+          list)
+            names=
+            [ -f "$state/marketplace" ] && names='{"name":"worfy-harness"}'
+            if [ -f "$state/marketplaces" ]; then
+              while IFS= read -r name; do
+                [ -n "$name" ] || continue
+                names="${names:+$names,}{\"name\":\"$name\"}"
+              done <"$state/marketplaces"
+            fi
+            printf '[%s]\n' "$names"
+            ;;
+          add)
+            # A folder is the Harness copy; anything else is `owner/repo`, known by the repository's name.
+            if [ -d "$4" ]; then
+              printf '%s\n' "$4" >"$state/marketplace"
+            else
+              has_line "$state/marketplaces" "${4##*/}" || printf '%s\n' "${4##*/}" >>"$state/marketplaces"
+            fi
+            ;;
+        esac
         exit 0
         ;;
       install | update)
-        IFS= read -r folder <"$state/marketplace"
-        version=
-        while IFS= read -r line; do
-          case "$line" in
-            *'"version"'*)
-              version=${line#*\"version\"}
-              version=${version#*\"}
-              version=${version%%\"*}
-              ;;
-          esac
-        done <"$folder/.claude-plugin/plugin.json"
-        printf '%s\n' "$version" >"$state/plugin-version"
+        case "$3" in
+          worfy@*)
+            IFS= read -r folder <"$state/marketplace"
+            version=
+            while IFS= read -r line; do
+              case "$line" in
+                *'"version"'*)
+                  version=${line#*\"version\"}
+                  version=${version#*\"}
+                  version=${version%%\"*}
+                  ;;
+              esac
+            done <"$folder/.claude-plugin/plugin.json"
+            printf '%s\n' "$version" >"$state/plugin-version"
+            ;;
+          *)
+            # Another plugin: installed only from a marketplace added before.
+            if ! has_line "$state/marketplaces" "${3##*@}"; then
+              printf 'claude stand-in: marketplace of %s not found\n' "$3" >&2
+              exit 1
+            fi
+            has_line "$state/plugins" "$3" || printf '%s\n' "$3" >>"$state/plugins"
+            ;;
+        esac
+        exit 0
+        ;;
+      uninstall)
+        # Built-ins only, so no rm: an empty file is "not installed".
+        case "$3" in
+          worfy@*) : >"$state/plugin-version" ;;
+        esac
         exit 0
         ;;
     esac

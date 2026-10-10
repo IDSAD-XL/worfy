@@ -5,12 +5,14 @@ import { HarnessStatusView } from '../../src/renderer/shell/toolbar/HarnessStatu
 
 // worfy-harness ticket 13: the Harness item of the toolbar. A dev run on the real ~/.claude
 // (canInstall false) shows the state and offers no install; a run that may install shows the button.
+// Ticket 30: Retry installs a missing dependency itself, so its hint names no command to run by hand.
 
 const status = (state: HarnessState, canInstall: boolean): HarnessStatus => ({
   state,
   bundledVersion: '0.2.0+bbbbbbb',
   canInstall,
   pluginDir: '/Users/me/.claude/worfy-harness/plugin',
+  dependencies: [{ id: 'mattpocock-skills@claude-plugins-official', status: state.kind === 'installed' ? 'installed' : 'unchecked', version: null }],
 })
 
 const STATES: HarnessState[] = [
@@ -53,7 +55,22 @@ describe('HarnessStatusView', () => {
   it('an error carries its reason in the tooltip', () => {
     render(<HarnessStatusView status={status(STATES[2]!, true)} busy={false} failure={undefined} onInstall={() => undefined} />)
     expect(screen.getByTestId('harness-text').getAttribute('title')).toBe('claude plugin marketplace add … exited with 1')
-    // Retry reads the state again (`plugin list`): after a missing dependency is installed it clears the error.
-    expect(screen.getByTestId('harness-action').getAttribute('title')).toMatch(/missing dependency.*then Retry/)
+  })
+
+  it('an error of `dependency install` names the step, and the hint of Retry tells of no command to run by hand', () => {
+    const state: HarnessState = { kind: 'error', step: 'dependency install', reason: 'the Harness needs mattpocock-skills@claude-plugins-official, and Claude Code does not list it as installed' }
+    const onInstall = vi.fn()
+    render(<HarnessStatusView status={{ ...status(state, true), dependencies: [{ id: 'mattpocock-skills@claude-plugins-official', status: 'missing', version: null }] }} busy={false} failure={undefined} onInstall={onInstall} />)
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness error: dependency install')
+    expect(screen.getByTestId('harness-text').getAttribute('title')).toBe(state.reason)
+    const retry = screen.getByTestId('harness-action')
+    expect(retry.textContent).toBe('Retry')
+    const hint = retry.getAttribute('title') ?? ''
+    expect(hint).not.toContain('claude plugin install')
+    expect(hint).not.toMatch(/install it with|by hand|yourself|first/i)
+    // Retry installs what is missing: the hint says so.
+    expect(hint).toMatch(/Retry .*missing dependency/)
+    fireEvent.click(retry)
+    expect(onInstall).toHaveBeenCalledTimes(1)
   })
 })
