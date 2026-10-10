@@ -722,6 +722,10 @@ describe('the keys of the Canvas by system', () => {
       expect(scale()).toBe(1)
       expect((await press({ key: '=', [primary]: true })).defaultPrevented).toBe(true)
       await waitFor(() => expect(scale()).toBeGreaterThan(1))
+      // `+` is how Shift+= arrives on a US keyboard, and a key of its own on a German one: it zooms in too.
+      const once = scale()
+      expect((await press({ key: '+', [primary]: true, shiftKey: true })).defaultPrevented).toBe(true)
+      await waitFor(() => expect(scale()).toBeGreaterThan(once))
       const zoomed = scale()
       expect((await press({ key: '-', [primary]: true })).defaultPrevented).toBe(true)
       await waitFor(() => expect(scale()).toBeLessThan(zoomed))
@@ -823,10 +827,17 @@ describe('the keys of the Canvas by system', () => {
       // Ctrl+_ is undo in a shell (readline): on Windows a Terminal tile keeps it. On macOS the
       // shell's keys are on Ctrl, and ⌘_ is the Canvas zoom, swallowed like the rest.
       const field = terminalField()
+      // What the terminal itself gets: xterm listens for keydown on its own element, and the guard
+      // of focus mode sits before it, on the window in the capture phase.
+      const reached: string[] = []
+      field.addEventListener('keydown', (event) => reached.push((event as KeyboardEvent).key))
       try {
         expect((await press({ key: '_', [primary]: true, shiftKey: true }, field)).defaultPrevented).toBe(system === 'mac')
-        // Every other zoom key pressed in the Terminal tile is swallowed like anywhere else.
+        expect(reached).toEqual(system === 'mac' ? [] : ['_'])
+        // Every other zoom key pressed in the Terminal tile is swallowed like anywhere else: it
+        // does not reach the terminal either.
         for (const key of ['-', '=', '+', '0']) expect((await press({ key, [primary]: true }, field)).defaultPrevented, key).toBe(true)
+        expect(reached).toEqual(system === 'mac' ? [] : ['_'])
         expect((await press({ key: '_', [primary]: true, shiftKey: true })).defaultPrevented).toBe(true)
         // And none of these presses zoomed the Canvas under focus mode.
         await new Promise((resolve) => setTimeout(resolve, 20))

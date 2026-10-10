@@ -91,6 +91,13 @@ describe('the command palette', () => {
     expect(opened()).toBe(true)
   })
 
+  it('on Windows Ctrl+K with a Latin letter opens the palette also while the input method composes', () => {
+    on('windows')
+    render(<CommandPalette />)
+    fireEvent.keyDown(document.body, { key: 'k', code: 'KeyK', ctrlKey: true, isComposing: true })
+    expect(opened()).toBe(true)
+  })
+
   it('on Windows leaves Ctrl+K pressed inside a Terminal Node to the shell', () => {
     on('windows')
     render(<CommandPalette />)

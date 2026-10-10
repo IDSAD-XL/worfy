@@ -105,6 +105,9 @@ describe('shortcutKey', () => {
   it('reads no letter by its place while the input method composes', () => {
     expect(shortcutKey({ key: 'л', code: 'KeyK', isComposing: true })).toBe('л')
     expect(shortcutKey({ key: 'л', code: 'KeyK', isComposing: false })).toBe('k')
+    // A Latin letter is the letter of the key cap also while composing, as before this module.
+    expect(shortcutKey({ key: 'k', code: 'KeyK', isComposing: true })).toBe('k')
+    expect(shortcutKey({ key: 'Z', code: 'KeyZ', isComposing: true })).toBe('z')
   })
 
   it('reads only letter keys by their place: a digit key stays what it types', () => {
