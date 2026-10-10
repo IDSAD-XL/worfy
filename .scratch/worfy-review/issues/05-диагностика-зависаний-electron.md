@@ -1,7 +1,7 @@
 # 05 — Диагностика зависаний и падений worfy: запись о падении процесса и стек при таймауте шага по CDP
 
 Type: task
-Status: open
+Status: blocked — PR #222, ревью VERIFIED; по spec ждёт мержа PR #215 (worfy-windows 11), затем rebase и gate full на Mac и на Windows-ПК
 Blocked by: —
 Source: решение владельца 2026-10-09 («Хорошие идеи, сохрани их и добавь в планы к имплементации»), пункт «диагностика зависаний» из таблицы; [исследование](../../../docs/research/2026-10-09-ponytail-pstack-thermos.md), раздел о pstack: Unix-утилита `pstack` печатает стеки потоков процесса, на macOS её нет, ближайшая замена — `sample`; [spec.md](../spec.md)
 
