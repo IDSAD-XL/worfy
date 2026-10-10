@@ -25,6 +25,7 @@ const CASES: [name: string, tag: 'main' | 'gui'][] = [
   ['no-os-screen-capture', 'gui'],
   ['status-block', 'main'],
   ['reviewer-intended-breakage', 'main'],
+  ['reviewer-simplification', 'main'],
 ]
 // A scaffold script has 120 seconds inside `claude plugin eval`; here it takes about a second.
 const SCAFFOLD_TIMEOUT_MS = 60_000
@@ -80,7 +81,7 @@ const harness = (home: string, cwd: string, script: string, args: string[]): Spa
   })
 
 describe('harness/evals: the cases', () => {
-  it('holds exactly the nine cases', () => {
+  it('holds exactly the ten cases', () => {
     const found = existsSync(EVALS)
       ? readdirSync(EVALS, { withFileTypes: true })
           .filter((entry) => entry.isDirectory() && existsSync(join(EVALS, entry.name, 'prompt.md')))
@@ -139,16 +140,16 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
   })
 })
 
-describe('harness/evals: reviewer-intended-breakage is the diff the case describes', () => {
-  // The fixture's own commands, with the fixture's HOME and no Electron variables.
-  const inFixture = (home: string, cwd: string, command: string, args: string[]): SpawnSyncReturns<string> =>
-    spawnSync(command, args, {
-      cwd,
-      env: { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR ?? tmpdir() },
-      encoding: 'utf8',
-      timeout: SCAFFOLD_TIMEOUT_MS,
-    })
+// The fixture's own commands, with the fixture's HOME and no Electron variables.
+const inFixture = (home: string, cwd: string, command: string, args: string[]): SpawnSyncReturns<string> =>
+  spawnSync(command, args, {
+    cwd,
+    env: { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR ?? tmpdir() },
+    encoding: 'utf8',
+    timeout: SCAFFOLD_TIMEOUT_MS,
+  })
 
+describe('harness/evals: reviewer-intended-breakage is the diff the case describes', () => {
   it('removes the check the ticket removes on purpose, and hides a rounding defect behind green tests', () => {
     const { work, home, run } = scaffold('reviewer-intended-breakage')
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
@@ -187,6 +188,44 @@ describe('harness/evals: reviewer-intended-breakage is the diff the case describ
       "import { percent } from './src/percent.mjs'; console.log(percent(2, 3), percent(1, 0))",
     ])
     expect(value.stdout.trim()).toBe('66.6 Infinity')
+  })
+})
+
+describe('harness/evals: reviewer-simplification is the diff the case describes', () => {
+  it('adds a thin wrapper over an existing helper, and two near-copies under a shortcut comment', () => {
+    const { work, home, run } = scaffold('reviewer-simplification')
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    const git = (...args: string[]): string => inFixture(home, work, 'git', args).stdout
+
+    // The reviewer is pointed at origin/main...HEAD on the ticket's branch, with the Profile's name of the lens.
+    expect(git('rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('demo/01')
+    expect(git('status', '--porcelain')).toBe('')
+    expect(git('diff', '--name-only', 'origin/main...HEAD').trim().split('\n').sort()).toEqual([
+      '.scratch/demo/issues/01-alpha.md',
+      'src/export.mjs',
+      'test/export.test.mjs',
+    ])
+    expect(readFileSync(join(EVALS, 'reviewer-simplification', 'prompt.md'), 'utf8')).toContain('одной линзой «упрощение»')
+
+    // The finding: durationText only passes its argument on to a helper the base branch already has.
+    expect(git('show', 'origin/main:src/duration.mjs')).toContain('export function formatDuration(ms)')
+    const source = readFileSync(join(work, 'src', 'export.mjs'), 'utf8')
+    expect(source).toContain('function durationText(ms) {\n  return formatDuration(ms)\n}')
+    // The ticket asks for neither the wrapper nor the two copies: both are the implementer's own choice.
+    const ticket = git('show', 'origin/main:.scratch/demo/issues/01-alpha.md')
+    expect(ticket).not.toMatch(/durationText|shortcut/)
+
+    // Not a finding: the two copies stand under a comment of the form `shortcut: <limit>, <when to redo>`,
+    // and its condition — a third format — is not met: the file exports two.
+    const comments = source.split('\n').filter((line) => line.includes('shortcut:'))
+    expect(comments).toEqual(['// shortcut: csvLine and tsvLine are two copies of one join, redo when a third format appears'])
+    expect([...source.matchAll(/^export function (\w+)/gm)].map((match) => match[1])).toEqual(['csvLine', 'tsvLine'])
+    expect(source).toContain("durationText(task.ms)].join(',')")
+    expect(source).toContain("durationText(task.ms)].join('\\t')")
+
+    // The change itself works: a reviewer has nothing to report but its shape.
+    const tests = inFixture(home, work, 'node', ['--test'])
+    expect(tests.status, `${tests.stdout}\n${tests.stderr}`).toBe(0)
   })
 })
 

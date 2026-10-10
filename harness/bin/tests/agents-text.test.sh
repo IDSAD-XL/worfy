@@ -117,12 +117,14 @@ sed -n '1,/^---$/{1d;/^---$/d;p;}' "$AGENTS/implementer.md" | grep -q '^tools:' 
 
 # --- 7. Cyrillic only where other programs and files still expect it -------------------------
 # Gate verdict words (their new text is ticket 09), Profile placeholders and the Profile heading
-# for the implementer's required reading (Profile contract, ticket 11), and the Russian metaphor
-# examples of the section on terms.
+# for the implementer's required reading (Profile contract, ticket 11), the Russian metaphor
+# examples of the section on terms, and the name a Profile gives the lens "simplification"
+# (ticket worfy-review/02).
 ALLOWED=(
     '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ' 'ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно' '[gate] зелено' 'ничего не прогналось'
     '<эпик>' '<ветка>' '<что-ревьюишь>' '## Обязательное чтение исполнителя'
     '«ручка»' '«проба»' '«выкат»' '«прогон»' '«диверсия»' '«сторож»' '«ворота»' '«врезка»' '«грабли»' '«ложная зелень»'
+    'упрощение'
 )
 for a in $ALL; do
     left="$(strip "$AGENTS/$a.md" "${ALLOWED[@]}" | perl -CSD -ne 'print "$.: $_" if /\p{Cyrillic}/')"
@@ -181,6 +183,76 @@ caps="$(CAPS_ALLOWED="$CAPS_ALLOWED" perl -ne 'BEGIN { %ok = map { $_ => 1 } spl
     while (/(?<![A-Z])([A-Z]{4,})(?![A-Z])/g) { print "$.: $1\n" unless $ok{$1} }' "$AGENTS/reviewer.md")"
 [ -z "$caps" ] && ok "reviewer: no word of four or more capital letters outside the allowed names" \
     || bad "reviewer: words in capitals:"$'\n'"$caps"
+
+# --- 9. reviewer: the lens "simplification" (ticket worfy-review/02) ---------------------------
+# Lens descriptions live in reviewer.md, in the section "Lens descriptions" before the section on
+# terms. Every sentence of the lens is looked up inside its own section, so a rule that moves out
+# of the section fails the check too.
+rv "a lens is read by its description, and by its name without one" \
+    'What a lens looks for is in the section "Lens descriptions" below, when the lens is described there; a lens without a description is read by its name.'
+line_of() { grep -nxF -- "$1" "$AGENTS/reviewer.md" | head -n 1 | cut -d: -f1; }
+descriptions="$(line_of '## Lens descriptions')" lens_at="$(line_of '### Lens: simplification')" terms="$(line_of '## Terms')"
+[ -n "$descriptions" ] && [ -n "$lens_at" ] && [ -n "$terms" ] && [ "$descriptions" -lt "$lens_at" ] && [ "$lens_at" -lt "$terms" ] \
+    && ok "reviewer: 'Lens: simplification' is inside 'Lens descriptions', before the section on terms" \
+    || bad "reviewer: no '### Lens: simplification' between '## Lens descriptions' and '## Terms' (lines: [$descriptions] [$lens_at] [$terms])"
+# section HEADING: the text under that heading, up to the next heading of any level.
+section() { awk -v h="$1" '$0 == h { s = 1; next } s && /^##* / { exit } s' "$AGENTS/reviewer.md"; }
+in_text() { printf '%s\n' "$1" | tr '\n' ' ' | tr -s ' ' | grep -qF -- "$2"; } # $1 = text, $2 = literal sentence
+# sentences TEXT WHERE: every line "label :: sentence" on stdin must be in TEXT.
+sentences() {
+    local line
+    while IFS= read -r line; do
+        if in_text "$1" "${line#* :: }"; then ok "reviewer, $2: ${line%% :: *}"; else bad "reviewer, $2: ${line%% :: *} — no '${line#* :: }'"; fi
+    done
+}
+sentences "$(section '## Lens descriptions')" "lens descriptions" <<'EOF'
+the general rules hold for every lens :: The rules above — the scope, the rules of evidence, the answer format — hold for every lens.
+a description adds what the lens looks for and leaves out :: A description below adds what its lens looks for and what it leaves out.
+a lens without a description is read by its name :: A lens that has no description here is read by its name.
+EOF
+LENS="$(section '### Lens: simplification')"
+sentences "$LENS" "lens simplification" <<'EOF'
+the profile's name of the lens :: The profile may name this lens `упрощение`: `упрощение` and `simplification` are one and the same lens.
+the question of the lens :: The question of the lens: what in the diff can be deleted, reused or made simpler while the behaviour stays the same. Look for:
+a restructuring that makes code disappear :: - **A restructuring that makes code disappear.** Another arrangement of the change, with the same behaviour, after which a branch, a mode, a layer or a wrapper is no longer needed. Complexity that only moves to another place does not count.
+thin wrappers and identity functions :: - **Thin wrappers and identity functions.** A function, a class or a type that only passes its input on and adds nothing: no check, no conversion, no clearer name for the caller.
+types looser than the code needs :: - **Types looser than the code needs.** A type cast, `any` or `unknown` where the real type is known; an optional field or parameter that every caller sets, or that none sets.
+logic in the wrong layer :: - **Logic in the wrong layer.** Feature logic added to a shared path, or an implementation detail that shows through an interface, when the module that owns the concept already exists.
+a repeat of an existing helper, with its path :: - **A repeat of a helper that already exists.** The finding gives the path to the existing helper.
+delete :: - **Delete.** Dead code, an option nobody sets, a feature nobody asked for.
+the standard library or an installed dependency :: - **Take it from the standard library or an installed dependency.** Hand-written code for what the platform, the standard library or a dependency the project already has does; a new dependency added for a few lines of code.
+not needed now :: - **Not needed now.** An abstraction with one implementation, a setting nobody sets, an extension point for a case that does not exist yet.
+merge :: - **Merge.** Near-copies that have to change together.
+split by task, not by length :: - **Split by task.** One function that does several unrelated jobs. Divide by task, not by length: a helper whose only reason is a shorter caller is itself a thin wrapper.
+three filters :: Three filters, each of which takes a suggestion out of the findings:
+filter 1: no concrete case, no finding :: 1. **No concrete case — no finding.** A finding of this lens names its case: the line, and with it the input that never arrives, the caller that does not exist, the second copy, or the existing helper with its path.
+filter 1: without a case nothing is written, not even a question :: A suggestion without such a case — "this could be cleaner", a name or a style you would choose differently — is not written at all, not even as a question: here the lens is stricter than the general rule of evidence.
+filter 2: a shortcut comment is the author's decision :: 2. **A `shortcut:` comment is the author's decision, not a finding.** An author who simplifies knowingly marks the code with a comment of this form, in the comment syntax of the language: `shortcut: <limit>, <when to redo>`.
+filter 2: the two parts of the comment :: `<limit>` is what the simple code does not handle; `<when to redo>` is the condition under which it has to be replaced.
+filter 2: an example of the comment :: Example: `// shortcut: two copies of the join, redo when a third format appears`.
+filter 2: the marked code is not reported :: Under this lens, do not report the code such a comment marks, and do not propose to build what it postpones.
+filter 2: a comment without a limit or a condition decides nothing :: The filter has two limits. A comment without a limit or without a condition (`shortcut: fix later`) decides nothing: the code under it is reviewed as usual.
+filter 2: a condition the diff already meets is a finding :: And when the diff itself already meets the condition, that is a finding: it names the line that meets it.
+filter 3: outside the ticket's files, a proposal for a new ticket :: 3. **A restructuring outside the ticket's files is a proposal for a new ticket, not a blocking finding.** The ticket's files are those of its trail section (`tickets.trail_section` of the profile); with no ticket, the files the diff changes.
+filter 3: written as a low finding, never higher :: A simplification that needs edits outside them is written as `path:line: [low] new ticket: <what to restructure, in which files>` — never as `[high]` or `[med]`.
+the lens keeps the scope rule :: The lens stays inside the scope rule above: it asks about lines the diff adds or changes. Code the diff did not touch that could be simpler goes on the "outside the diff: …" line.
+EOF
+steps="$(printf '%s\n' "$LENS" | awk '/^[0-9]+\. /{print substr($0,1,2)}' | tr -d '\n')"
+[ "$steps" = "1.2.3." ] && ok "reviewer, lens simplification: the filters are items 1. to 3. of the section" \
+    || bad "reviewer, lens simplification: numbered items of the section: [$steps]"
+# The sources close the section: project, file, commit and licence of each (spec of worfy-review,
+# owner's decision 1).
+sentences "$(printf '%s\n' "$LENS" | awk 'BEGIN { RS = "" } { p = $0 } END { print p }')" "the last paragraph of lens simplification" <<'EOF'
+names Thermos, the file, the commit and the licence :: Source: Thermos, `thermos/skills/thermo-nuclear-code-quality-review/SKILL.md`, commit `ccb5507cec1546dc88135c1139c811e6c59115ba` of `cursor/plugins` (MIT, Copyright (c) 2026 Cursor) —
+names ponytail, the files, the commit and the licence :: Source: ponytail, `skills/ponytail-review/SKILL.md` and `skills/ponytail/SKILL.md`, commit `9cc65d03aa2da1db7121b912d03596409ee340b8` of `DietrichGebert/ponytail` (tag v5.1.0; MIT, Copyright (c) 2026 DietrichGebert) —
+says the rules are reworded :: The rules are reworded, not copied; the third filter is this project's own rule.
+EOF
+# The Profile contract points at the descriptions (harness/profiles/README.md, the row of review.lenses).
+README="${PROFILES_README_FILE:-$AGENTS/../profiles/README.md}"
+LENSES_ROW='the project'"'"'s review lenses; the orchestrator gives each reviewer one. What a lens looks for is described in `agents/reviewer.md`, section "Lens descriptions"; a lens that has no description there is read by its name. The lens `simplification` described there may be named `упрощение` in a profile |'
+if [ ! -f "$README" ]; then bad "profiles/README.md not found at $README"
+elif grep -F -- '| `review.lenses` | strings |' "$README" | grep -qF -- "$LENSES_ROW"; then ok "profiles/README.md: the row of review.lenses points at the lens descriptions"
+else bad "profiles/README.md: the row of review.lenses has no '$LENSES_ROW'"; fi
 
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]
