@@ -169,6 +169,13 @@ into Ticket 19»). Всё — в `src/main/remote-links.ts` и `test/unit/remote
     `index.html`, — `exists: true`, `title: null`.
   - **`readdir` папки `issues` тоже за проверкой.** Ticket называл только `readText`, но это тот
     же вызов по ссылке в той же функции.
+  - **Разрешённые папки у `enrichSnapshot` — корень Project-а и папка Ticket-ов**, а не одна папка
+    Ticket-ов, как в тексте Ticket-а (первый круг ревью). Иначе Project, записанный как UNC-путь,
+    терял ссылки внутри собственного репозитория: `.scratch\e1 -> ..\docs\e1` на
+    `\\nas\team\repo` переставал читаться, а main его читал.
+  - **У заголовка Card разрешённая папка одна — папка Card-ов.** Если папка данных worfy лежит на
+    шаре, ссылка из папки Card в другую папку той же шары считается чужой, и у такой Card нет
+    заголовка. main её читал.
   - **Файлы test-ов.** Новые: `test/unit/docs-remote-links.test.ts` и
     `test/unit/workflow-remote-links.test.ts`. Случаи Card — в
     `test/contract/card-protocol.test.ts`: `CardStore` проверяется там, в `card-api.test.ts` его
@@ -220,47 +227,87 @@ into Ticket 19»). Всё — в `src/main/remote-links.ts` и `test/unit/remote
     отвечают ENOENT за доли миллисекунды, хост не ищется. Для обхода такой junction — «сегмента
     нет», ответ `'local'`; `realpath` вызывающего получает тот же ENOENT.
   - Это записано в doc-комментарии к `LinkFs`.
-- **Мутанты.** 95, по одному; у каждого идут test-файлы его места, у `remote-links.ts` — все
-  пять файлов Ticket-а. 94 валят test-ы: 47 из 48 в `remote-links.ts` (35 из них — мутанты
-  Ticket-а 18 на нынешнем коде), 10 из 10 в `shell.ts`, 2 из 2 в `protocol.ts`, 20 из 20 в
-  `watch.ts`, 7 из 7 в `store.ts`, 8 из 8 в `reader.ts`. В каждом из четырёх мест этого Ticket-а
-  есть мутант «проверка убрана», и он красный.
-  - Выживает один, равнозначный, тот же, что в Ticket-е 18: проверка текста пути прямо перед
-    `lstat` в цикле обхода — удалённый путь до неё не доходит.
-  - В первом прогоне выжил ещё один: ветка `readDocs` для корня, у которого не получился
-    `realpath`. Она убрана правкой кода: у такого корня папка ADR больше не спрашивается вовсе, и
-    test это закрепляет.
+- **Мутанты.** После первого круга ревью в списке 101, по одному; у каждого идут test-файлы его
+  места, у `remote-links.ts` — все пять файлов Ticket-а. 99 валят test-ы: 48 из 49 в
+  `remote-links.ts` (35 из них — мутанты Ticket-а 18 на нынешнем коде), 10 из 10 в `shell.ts`,
+  2 из 2 в `protocol.ts`, 21 из 22 в `watch.ts`, 8 из 8 в `store.ts`, 10 из 10 в `reader.ts`. В
+  каждом из четырёх мест этого Ticket-а есть мутант «проверка убрана», и он красный.
+  - До ревью список был короче — 95, из них в `watch.ts` 20. Мутанта «путь, который не удалось
+    проверить, у папки ADR считается чистым» в нём не было, а у ревью на Mac он выжил: строка
+    «20 из 20 в `watch.ts`» в первом варианте этого раздела описывала мой список, а не код.
+    Мутант добавлен и теперь красный, как и такие же случаи у Card.
+  - После первого круга перезапущены 44: все мутанты `watch.ts`, `store.ts` и `reader.ts` и
+    четыре из `remote-links.ts`. `remote-links.ts`, `shell.ts` и `protocol.ts` в этом круге не
+    менялись, остальные их мутанты — по прогону до ревью.
+  - Выживают два.
+    - Проверка текста пути прямо перед `lstat` в цикле обхода — равнозначный, тот же, что в
+      Ticket-е 18: удалённый путь до неё не доходит.
+    - «Правила путей не переданы в проверку папки ADR» — на Windows равнозначен: `node:path`
+      там и есть правила Windows, а под правилами POSIX эта проверка не вызывается. На Mac он
+      красный.
+  - Мутанты «правила путей по умолчанию — POSIX» в трёх местах (у ревью W19, C09, R09) на ПК
+    красные: их ловят случаи с настоящими ссылками, только `win32`.
+  - До ревью, в первом прогоне, выжил ещё один: ветка `readDocs` для корня, у которого не
+    получился `realpath`. Она убрана правкой кода: у такого корня папка ADR больше не
+    спрашивается вовсе, и test это закрепляет.
 - **Время на ПК** (репозиторий worfy, медиана повторных вызовов, три прогона):
-  - `readDocs`, 55 ADR и HANDOFF: 11,3 мс → 17,4 мс. Вызывается при открытии Project-а и на каждое
-    изменение наблюдаемых файлов;
-  - `enrichSnapshot`, 9 Epic-ов и 178 Ticket-ов: 17,8 мс → 38 мс. Snapshot собран из списка
-    файлов: `epic-status` — bash-скрипт, на ПК не запускается. В приложении перед
+  - `readDocs`, 55 ADR и HANDOFF: 11,3 мс → 17,4 мс (после первого круга ревью — 16,6–17,2 мс).
+    Вызывается при открытии Project-а и на каждое изменение наблюдаемых файлов;
+  - `enrichSnapshot`, 9 Epic-ов и 178 Ticket-ов: 17,8 мс → 38 мс, после первого круга ревью — 42
+    мс: обход начинается от корня Project-а, это ещё один `lstat` на файл. Snapshot собран из
+    списка файлов: `epic-status` — bash-скрипт, на ПК не запускается. В приложении перед
     `enrichSnapshot` идёт запуск этого скрипта;
   - прибавка — по одному `lstat` на каждый сегмент пути от разрешённой папки для каждого файла.
     Кэша между файлами нет: правило риска из Ticket-а просило измерить, а не ускорить.
 - **Windows-ПК** (Gate не запускался — он на bash, Ticket 03):
+  Числа — на коде после первого круга ревью (кроме `pnpm install` и `pnpm build`: они до ревью,
+  после него не повторялись).
   - `pnpm install --frozen-lockfile` — 0, `pnpm lint` — 0, `pnpm typecheck` — 0, `pnpm build` — 0;
   - `pnpm test test/unit/remote-links.test.ts test/unit/shell-resolve.test.ts
     test/unit/docs-remote-links.test.ts test/unit/workflow-remote-links.test.ts` — exit 0:
-    101 passed | 1 skipped. Пропущен один случай — symlink-псевдоним корня из Ticket-а 08, он не
+    110 passed | 1 skipped. Пропущен один случай — symlink-псевдоним корня из Ticket-а 08, он не
     для Windows. Случаи с настоящими ссылками на `\\worfy-no-such-host\share\…` прошли, не
     пропущены: документы — «reads none of them through the link: realpath, readdir, stat and
     readFile of Node are asked about no such path», Ticket-ы — «reads and lists none of them
     through the link…»;
-  - `pnpm test test/contract/card-protocol.test.ts` — exit 1: 74 passed | 5 failed. Девять случаев
-    этого Ticket-а зелёные, в том числе с настоящими ссылками. Пять падений — четыре в «cards IPC
+  - `pnpm test test/contract/card-protocol.test.ts` — exit 1: 84 passed | 5 failed. Случаи этого
+    Ticket-а зелёные, в том числе с настоящими ссылками. Пять падений — четыре в «cards IPC
     domain» и «reports a file change of a Card within a second» — те же, что на main;
-  - `pnpm test` — exit 1, как на main: 55 failed | 140 passed файлов, 663 failed | 3287 passed | 31
-    skipped. Main `11ca93c`, прогнанный сразу после: 53 failed | 140 passed файлов, 661 failed |
-    3234 passed | 31 skipped. По именам новых два, оба — `Test timed out in 5000ms` под нагрузкой:
-    первый test `test/unit/canvas.test.tsx` и test `test/unit/shell-discovery.test.tsx`. Отдельно
-    оба файла проходят: 40 из 40. Ушедших нет.
+  - `pnpm test` — exit 1, как на main: 52 failed | 143 passed файлов, 660 failed | 3309 passed | 31
+    skipped. Main `11ca93c`: 53 failed | 140 passed файлов, 661 failed | 3234 passed | 31 skipped.
+    По именам новых падений нет. Ушло одно — случай `make-icons.test.ts`, который падал из-за
+    состояния этого клона (SVG были выписаны с CRLF; выписаны заново при работе над Ticket-ом
+    12). В прогоне до ревью новых было два, оба — таймауты 5000 мс под нагрузкой.
+- **Первый круг ревью PR #233** — что изменилось в коде:
+  - `CardStore.info` спрашивает папку Card-ов у списка Project-ов один раз, до первого ожидания.
+    Раньше второй запрос шёл после `stat`: Project, ушедший из списка за это время, получал отказ
+    там, где main отвечал, — и на macOS тоже. Test до правки красный под обоими правилами;
+  - `enrichSnapshot` считает своими и корень Project-а, и папку Ticket-ов (см. «Отступления»);
+  - `readDocs` не под правилами Windows не делает лишнего `realpath` корня: вызовы и их порядок
+    те же, что до Ticket-а;
+  - комментарии в `store.ts` и `src/shared/ipc/docs.ts` говорят то, что есть.
+- **Отказ выглядит как отсутствие файла.** Узел HANDOFF пишет, что HANDOFF.md у Project-а нет;
+  Card — «Card files missing»; у Ticket-ов пропадает список «Где в коде». Текст «cannot be
+  checked…» доходит до экрана только через `docs.read`, а renderer зовёт его лишь для файлов,
+  которые `readDocs` уже перечислил. Так же молча теперь ничего не показывает `.scratch` в Full
+  mode, который ссылкой ведёт на шару команды: main его читал. Запись в лог об отказе не
+  добавлена — предложение ревью, отдельная правка.
 - **Другие места того же класса** (не правились — по условию Ticket-а строкой сюда):
-  - `src/main/cards/store.ts`, `watchProject`: chokidar следит за папкой Card-ов с
-    `followSymlinks` по умолчанию, то есть идёт по ссылкам внутри неё;
+  - **Оба наблюдателя chokidar.** `WorkflowWatcher.watch()` (`src/main/workflow/watch.ts`)
+    запускает chokidar на папке Ticket-ов при открытии Project-а, до первого чтения и без
+    щелчка. Наблюдатель папки Card-ов (`src/main/cards/store.ts`, `watchProject`) `info()`
+    запускает первым делом. chokidar 5 зовёт `realpath`, `stat`, `readdir` и `fs.watch` по каждой
+    ссылке в папке; `followSymlinks: false` и `ignored` этого не останавливают (проверено ревью
+    на Mac, на этом PR и на main одинаково). То есть папка Card, которая ведёт на шару, в
+    приложении всё же спрашивается — наблюдателем, не `info()`;
   - `src/main/docs/watch.ts`, `DocsWatcher.watch`: `fs.watch(root, { recursive: true })`. Идёт ли
     он на Windows по ссылке-папке внутри Project-а, не проверялось;
-  - скрипт `epic-status` Harness сам читает файлы Ticket-ов — это не код worfy;
+  - `src/main/layout/trash.ts`: `existsSync` и чтение заголовка Card по ссылке-папке Card;
+  - `src/main/mcp/canvas-server.ts`: `existsSync` при выборе id Card;
+  - `src/main/projects/browse.ts`: выбор папки зовёт `stat` для дочерних ссылок и `lstat` для
+    `<папка>\.git`;
+  - скрипт `epic-status` Harness сам читает файлы Ticket-ов и перечисляет `.scratch/*/` по
+    ссылкам — это не код worfy;
   - остальной список — в «Итог» [Ticket-а 18](18-symlink-на-unc-до-realpath.md).
 - **Долги.** Обход и следующий за ним вызов (`realpath`, `readFile`, `open`, `readdir`) — два
   отдельных шага: ссылку, подменённую между ними, обход не видит. Как в Ticket-е 18.
