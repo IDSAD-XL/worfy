@@ -193,7 +193,10 @@ preferences, options). **General** — строка «Version» со значе�
 
 **Проверки.** `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (172 файла, 3340 test-ов);
 `GATE_SCOPE=all` gate fast — exit 0, «[gate] зелено (fast)»; CI PR #209 — check pass. e2e
-`test/e2e/settings.spec.ts` — 1 passed. Мутанты (убрать `stopPropagation`, убрать возврат фокуса,
+`test/e2e/settings.spec.ts` — 2 passed: второй test сверяет явный список пунктов меню с тем, что Electron
+строит из голой роли (`appMenu` на macOS, `fileMenu` на остальных) — пункт, забытый в списке, его
+краснит (мутант без `unhide` — красный). На macOS сверена роль `appMenu`; ветку `fileMenu` тот же
+test проверит в gate full на Windows-ПК. Мутанты (убрать `stopPropagation`, убрать возврат фокуса,
 меню без окна из аргумента) — каждый краснит свой test. `GATE_SCOPE=all` gate full на macOS
 (на коммите 6ecaaa8, под замком `/tmp/worfy-e2e.lock`) — exit 0, «[gate] зелено (full): worfy/.:lint
 worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package».

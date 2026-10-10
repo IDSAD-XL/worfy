@@ -11,6 +11,33 @@ import { snapshotThemes } from './snapshots'
 /** SETTINGS_MENU_ITEM_ID of src/main/menu.ts; that module needs Electron, so it is not imported here. */
 const SETTINGS_MENU_ITEM_ID = 'app.settings'
 
+test('the menu that carries Settings… keeps every item of the Electron role it spells out', async () => {
+  // src/main/menu.ts replaces a role (appMenu on macOS, fileMenu elsewhere) by a list of its items,
+  // because "Settings…" goes inside. The list is compared with what this Electron builds from the
+  // bare role, so an item the role has and the list forgot fails here.
+  const launched = await launchApp()
+  try {
+    const menus = await launched.app.evaluate(({ Menu }, settingsId) => {
+      const role: 'appMenu' | 'fileMenu' = process.platform === 'darwin' ? 'appMenu' : 'fileMenu'
+      const bare = Menu.buildFromTemplate([{ role }]).items[0]?.submenu?.items
+      const installed = Menu.getApplicationMenu()?.items[0]?.submenu?.items
+      if (!bare || !installed) throw new Error('the app menu or the menu of the bare role has no items')
+      const names = (items: Electron.MenuItem[]): string[] => items.map((item) => (item.type === 'separator' ? 'separator' : String(item.role ?? item.label).toLowerCase()))
+      const at = installed.findIndex((item) => item.id === settingsId)
+      // Settings… and the separator after it are worfy's; the rest is the role's.
+      const rest = installed.filter((_item, index) => index !== at && index !== at + 1)
+      return { platform: process.platform, at, afterSettings: installed[at + 1]?.type, expected: names(bare), actual: names(rest) }
+    }, SETTINGS_MENU_ITEM_ID)
+    // After About and its separator on macOS; the first item of File elsewhere.
+    expect(menus.at).toBe(menus.platform === 'darwin' ? 2 : 0)
+    expect(menus.afterSettings).toBe('separator')
+    expect(menus.expected.length).toBeGreaterThan(0)
+    expect(menus.actual).toEqual(menus.expected)
+  } finally {
+    await launched.close()
+  }
+})
+
 test('Settings… in the menu opens Settings with General and the version; Esc closes it; the palette opens it again', async () => {
   const launched = await launchApp()
   try {
