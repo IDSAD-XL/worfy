@@ -223,6 +223,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 16 | `src/renderer/canvas/Canvas.tsx`, `src/renderer/canvas/wheel-router.ts`, `src/renderer/canvas/canvas.css`, `src/renderer/canvas/nodes/CardNode.tsx`, `src/renderer/canvas/nodes/HandoffNode.tsx`, `test/unit/wheel-router.test.ts`, `test/e2e/wheel-over-nodes.spec.ts`, `test/e2e/card-drag.spec.ts` | 6 |
 | 17 | `src/main/autopilot/run.ts`, `src/main/agent/session.ts`, `src/main/agent/orchestrator.ts`, `src/main/ipc/autopilot.ts`, `src/main/actions/launch.ts`, `src/shared/ipc/autopilot.ts`, `src/shared/autopilot/cycle.ts`, `src/shared/autopilot/journal.ts`, `src/shared/actions/render-template.ts`, `src/renderer/canvas/actions/gates.ts`, `src/renderer/canvas/actions/AutopilotAction.tsx`, `docs/design/F-SPEC.md`, `test/contract/agent-controls.test.ts`, `test/contract/autopilot-background.test.ts`, `test/contract/autopilot.test.ts`, `test/unit/autopilot-run.test.ts`, `test/unit/autopilot-cycle.test.ts`, `test/unit/launch.test.ts`, `test/unit/canvas-actions.test.tsx`, `test/e2e/autopilot.spec.ts` | 6 |
 | 18 | `src/shared/autopilot/cycle.ts`, `src/shared/autopilot/journal.ts`, `src/shared/ipc/autopilot.ts`, `src/main/autopilot/run.ts`, `src/main/ipc/autopilot.ts`, `src/renderer/canvas/actions/AutopilotAction.tsx`, `src/renderer/canvas/actions/action-menu.ts`, `src/renderer/canvas/actions/actions.css`, `docs/design/F-SPEC.md`, `test/unit/autopilot-cycle.test.ts`, `test/unit/autopilot-run.test.ts`, `test/contract/autopilot-background.test.ts`, `test/contract/autopilot.test.ts`, `test/contract/autopilot-limits.test.ts`, `test/contract/autopilot-journal.test.ts`, `test/unit/canvas-actions.test.tsx`, `test/e2e/autopilot.spec.ts` | 8 |
+| 19 | `src/main/first-run/actions.ts`, `src/main/ipc/first-run.ts`, `test/contract/first-run-checks.test.ts`, `src/renderer/shell/FirstRun.tsx` | 9 |
 
 Общих файлов у 01 и 02 нет, блокеров нет: оба в Wave 1.
 
@@ -265,6 +266,8 @@ graceful, Force stop — в меню «⋯».
   Wave-ой позже 15. С 13, 14 и 16 общих файлов нет. Esc в меню «⋯» зовёт
   `preventDefault`: Esc из 15 при открытом меню стопку done не сворачивает, Esc из 16 это нажатие
   пропускает.
+- **Wave 9 — 19.** Блокеров нет, общих файлов с открытыми Ticket-ами этого Epic-а нет (14 отложен
+  и правит Canvas). Заведён 2026-10-10 после Wave 8.
 
 Списки сверены скриптом, который читает «Где в коде» так же, как `src/main/workflow/reader.ts`, и
 ищет пересечения правилом `filesOverlap` (`src/shared/workflow/waves.ts:145`): внутри каждой Wave
