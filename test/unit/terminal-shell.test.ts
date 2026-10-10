@@ -232,8 +232,16 @@ describe('TerminalRegistry by the system', () => {
     const fake = fakePty(5151)
     const signals = vi.spyOn(process, 'kill').mockImplementation(() => true)
     const killTree = vi.fn()
-    const registry = new TerminalRegistry({ env: () => Promise.resolve({ SHELL: '/bin/sh' }), spawn: () => fake.pty, platform, killTree })
-    await registry.open('a', { cwd: '/p/repo', cols: 80, rows: 24 }, {}, SINK)
+    const started: { file: string; args: string[] }[] = []
+    const spawn: SpawnPty = (file, args) => {
+      started.push({ file, args })
+      return fake.pty
+    }
+    const registry = new TerminalRegistry({ env: () => Promise.resolve({ SHELL: '/bin/sh' }), spawn, platform, killTree })
+    const opened = await registry.open('a', { cwd: '/p/repo', cols: 80, rows: 24, shell: 'git-bash' }, {}, SINK)
+    // The shell of that system, whatever system the test runs on and whatever the request names.
+    expect(started).toEqual([{ file: '/bin/sh', args: ['-l'] }])
+    expect(opened.shell).toBe('sh')
     const closed = registry.close('a')
     await vi.advanceTimersByTimeAsync(0)
     expect(signals.mock.calls).toEqual([

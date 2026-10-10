@@ -325,12 +325,23 @@ describe('terminal channels on a real pty', () => {
       // A program that holds the terminal: the shell waits for it.
       await h.type(`& '${node}' -e "console.log('pid=' + process.pid); setInterval(() => {}, 1000)"\r`)
       const held = await number(/pid=(\d+)\r?\n/)
-      expect([alive(pid), alive(started), alive(held)]).toEqual([true, true, true])
+      try {
+        expect([alive(pid), alive(started), alive(held)]).toEqual([true, true, true])
 
-      await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+        await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
 
-      await vi.waitFor(() => expect([alive(pid), alive(started), alive(held)]).toEqual([false, false, false]), { timeout: KILL_GRACE_MS + 1000 })
-      expect(h.registry.has(terminalKey(PROJECT, NODE))).toBe(false)
+        await vi.waitFor(() => expect([alive(pid), alive(started), alive(held)]).toEqual([false, false, false]), { timeout: KILL_GRACE_MS + 1000 })
+        expect(h.registry.has(terminalKey(PROJECT, NODE))).toBe(false)
+      } finally {
+        // A failed test must not leave the two programs running on the machine.
+        for (const left of [started, held]) {
+          try {
+            process.kill(left)
+          } catch {
+            // Gone, as it should be.
+          }
+        }
+      }
     })
   })
 
