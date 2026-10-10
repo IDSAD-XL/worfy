@@ -4,7 +4,7 @@
 // The work is done by scripts/statusline-bridge.mjs (Node, worfy-windows ticket 08); every case runs
 // against it and, where /bin/sh is, against the entry scripts/statusline-bridge.sh that the user's
 // `statusLine` names in the .app.
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, relative, win32 } from 'node:path'
@@ -55,8 +55,34 @@ function run(entry: Entry, stdin: string, args: string[] = [], env: Record<strin
   const base: Record<string, string> = { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home }
   if (WINDOWS) Object.assign(base, { USERPROFILE: home, SystemRoot: process.env.SystemRoot ?? 'C:\\Windows' })
   const [file, fileArgs] = entry === 'mjs' ? [NODE, [MJS]] : ['/bin/sh', [SH]]
-  const result = spawnSync(file, [...fileArgs, ...args], { input: stdin, encoding: 'utf8', env: { ...base, ...env } })
+  const result = spawnSync(file, [...fileArgs, ...args], { input: stdin, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, env: { ...base, ...env } })
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
+}
+
+/** No outer spawnSync waits for ever: a bridge that hangs fails its test (review round 4 of PR #200). */
+const SPAWN_TIMEOUT_MS = 30_000
+
+/**
+ * A run through an async spawn, for input past the size of a pipe buffer: spawnSync with such an
+ * `input` sometimes never returned on macOS, and it blocks the test worker, so no test timeout
+ * fires. Killed after `timeoutMs`; the status is then null.
+ */
+function runAsync(file: string, args: string[], stdin: string, options: { env?: Record<string, string>; cwd?: string; timeoutMs?: number } = {}): Promise<{ status: number | null; stdout: string }> {
+  const base: Record<string, string> = { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, WORFY_DATA_DIR: dataDir }
+  if (WINDOWS) Object.assign(base, { USERPROFILE: home, SystemRoot: process.env.SystemRoot ?? 'C:\\Windows' })
+  return new Promise((done) => {
+    const child = spawn(file, args, { cwd: options.cwd, env: { ...base, ...options.env }, stdio: ['pipe', 'pipe', 'ignore'] })
+    let stdout = ''
+    const timer = setTimeout(() => child.kill('SIGKILL'), options.timeoutMs ?? 20_000)
+    child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString('utf8')))
+    child.stdin.on('error', () => undefined)
+    child.on('error', () => done({ status: null, stdout }))
+    child.on('close', (status) => {
+      clearTimeout(timer)
+      done({ status, stdout })
+    })
+    child.stdin.end(stdin)
+  })
 }
 
 const written = (dir = dataDir): unknown => JSON.parse(readFileSync(join(dir, 'statusline-limits.json'), 'utf8'))
@@ -158,9 +184,9 @@ describe('statusline-bridge scripts', () => {
 
   // Review round 2 of PR #200: readFileSync(0) failed with EAGAIN past 64 KB on a pipe, and stray
   // bytes after the JSON made the script write nothing while it exited 0.
-  it('reads a status line JSON over 64 KB, and the first object of JSON followed by stray bytes', () => {
+  it('reads a status line JSON over 64 KB, and the first object of JSON followed by stray bytes', async () => {
     const big = JSON.stringify({ ...STATUS, padding: 'x'.repeat(70_000) })
-    expect(run('mjs', big, ['cat >/dev/null; echo ok'])).toMatchObject({ status: 0, stdout: 'ok\n' })
+    expect(await runAsync(NODE, [MJS, 'cat >/dev/null; echo ok'], big)).toMatchObject({ status: 0, stdout: 'ok\n' })
     expect(written()).toEqual(RATE_LIMITS)
     rmSync(join(dataDir, 'statusline-limits.json'))
     expect(run('mjs', `${JSON.stringify(STATUS)}\n{"not": "closed"`)).toMatchObject({ status: 0 })
@@ -174,6 +200,33 @@ describe('statusline-bridge scripts', () => {
     expect(written()).toEqual(RATE_LIMITS)
   })
 
+  // Review round 4 of PR #200: the script gave the user command its stdin through spawnSync's
+  // `input`; at 70 KB that call sometimes never returned on macOS (the command had read everything
+  // and got no end of input), and the status line hung with it. On Windows this is the call that
+  // runs the user's command.
+  it('gives the user command a status line JSON over 64 KB and returns, 30 runs in a row', async () => {
+    const big = JSON.stringify({ ...STATUS, padding: 'x'.repeat(70_000) })
+    for (let round = 0; round < 30; round += 1) {
+      expect(await runAsync(NODE, [MJS, 'wc -c'], big), `run ${round}`).toMatchObject({ status: 0, stdout: expect.stringMatching(new RegExp(`^\\s*${big.length}\\s*$`)) })
+    }
+    expect(written()).toEqual(RATE_LIMITS)
+  }, 180_000)
+
+  it('runs a user command that does not read its stdin, with its output and exit code', async () => {
+    const big = JSON.stringify({ ...STATUS, padding: 'x'.repeat(300_000) })
+    expect(await runAsync(NODE, [MJS, 'echo hi; exit 4'], big)).toEqual({ status: 4, stdout: 'hi\n' })
+    expect(written()).toEqual(RATE_LIMITS)
+  })
+
+  it('answers with the exit code of the user command, and stops waiting for one that outlives the time limit', async () => {
+    const { runCommand, COMMAND_TIMEOUT_MS } = await bridge()
+    expect(COMMAND_TIMEOUT_MS).toBe(10_000)
+    expect(await runCommand('exit 7', '')).toBe(7)
+    const started = Date.now()
+    expect(await runCommand('sleep 4', '', 300)).toBe(1)
+    expect(Date.now() - started).toBeLessThan(3000)
+  })
+
   it(`with ${'--worfy-limits-only'} prints written when it wrote the file, and exits 2 with nothing when it did not`, () => {
     expect(run('mjs', JSON.stringify(STATUS), ['--worfy-limits-only'])).toEqual({ status: 0, stdout: 'written\n', stderr: '' })
     expect(run('mjs', JSON.stringify({ ...STATUS, rate_limits: undefined }), ['--worfy-limits-only'])).toEqual({ status: 2, stdout: '', stderr: '' })
@@ -184,7 +237,7 @@ describe('statusline-bridge scripts', () => {
   it('writes the file with no jq anywhere on PATH', () => {
     const emptyPath = join(scratch, 'empty-path')
     mkdirSync(emptyPath)
-    const result = spawnSync(NODE, [MJS], { input: JSON.stringify(STATUS), encoding: 'utf8', env: { PATH: emptyPath, HOME: home, USERPROFILE: home, WORFY_DATA_DIR: dataDir } })
+    const result = spawnSync(NODE, [MJS], { input: JSON.stringify(STATUS), encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, env: { PATH: emptyPath, HOME: home, USERPROFILE: home, WORFY_DATA_DIR: dataDir } })
     expect(result).toMatchObject({ status: 0, stdout: '', stderr: '' })
     expect(written()).toEqual(RATE_LIMITS)
   })
@@ -220,17 +273,16 @@ describe.skipIf(WINDOWS)('statusline-bridge.sh without a working node', () => {
   }
 
   it('with node and no jq, writes the Limits through the Node script', () => {
-    const result = spawnSync('/bin/sh', [SH, `grep -o '"display_name":"[^"]*"'; exit 3`], { input: JSON.stringify(STATUS), encoding: 'utf8', env: { PATH: binDir('real', false), HOME: home, WORFY_DATA_DIR: dataDir } })
+    const result = spawnSync('/bin/sh', [SH, `grep -o '"display_name":"[^"]*"'; exit 3`], { input: JSON.stringify(STATUS), encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, env: { PATH: binDir('real', false), HOME: home, WORFY_DATA_DIR: dataDir } })
     expect(result).toMatchObject({ status: 3, stdout: '"display_name":"Haiku 4.5"\n', stderr: '' })
     expect(written()).toEqual(RATE_LIMITS)
   })
 
-  it('with node, writes the Limits of a status line JSON over 64 KB and of JSON followed by stray bytes', () => {
+  it('with node, writes the Limits of a status line JSON over 64 KB and of JSON followed by stray bytes', async () => {
     const path = binDir('real', false)
     for (const input of [JSON.stringify({ ...STATUS, padding: 'x'.repeat(70_000) }), `${JSON.stringify(STATUS)} junk`]) {
       rmSync(join(dataDir, 'statusline-limits.json'), { force: true })
-      const result = spawnSync('/bin/sh', [SH, 'cat >/dev/null; echo ok'], { input, encoding: 'utf8', env: { PATH: path, HOME: home, WORFY_DATA_DIR: dataDir } })
-      expect(result).toMatchObject({ status: 0, stdout: 'ok\n' })
+      expect(await runAsync('/bin/sh', [SH, 'cat >/dev/null; echo ok'], input, { env: { PATH: path } })).toEqual({ status: 0, stdout: 'ok\n' })
       expect(written()).toEqual(RATE_LIMITS)
     }
   })
@@ -243,50 +295,71 @@ describe.skipIf(WINDOWS)('statusline-bridge.sh without a working node', () => {
     ['a node too old for the script', 'old'],
     ['a node that exits 0 without running the script', 'silent'],
   ] as const)('with %s, runs the user command with its output and exit code, and writes the Limits through jq', (_case, node) => {
-    const result = spawnSync('/bin/sh', [SH, userLine], { input: JSON.stringify(STATUS), encoding: 'utf8', env: { PATH: binDir(node), HOME: home, WORFY_DATA_DIR: dataDir } })
+    const result = spawnSync('/bin/sh', [SH, userLine], { input: JSON.stringify(STATUS), encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, env: { PATH: binDir(node), HOME: home, WORFY_DATA_DIR: dataDir } })
     expect(result).toMatchObject({ status: 3, stdout: '"display_name":"Haiku 4.5"\n', stderr: '' })
     if (JQ !== null) expect(written()).toEqual(RATE_LIMITS)
   })
 
   it('without node and jq, still runs the user command and writes nothing', () => {
-    const result = spawnSync('/bin/sh', [SH, userLine], { input: JSON.stringify(STATUS), encoding: 'utf8', env: { PATH: binDir(null, false), HOME: home, WORFY_DATA_DIR: dataDir } })
+    const result = spawnSync('/bin/sh', [SH, userLine], { input: JSON.stringify(STATUS), encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, env: { PATH: binDir(null, false), HOME: home, WORFY_DATA_DIR: dataDir } })
     expect(result).toMatchObject({ status: 3, stdout: '"display_name":"Haiku 4.5"\n', stderr: '' })
     expect(readdirSync(dataDir)).toEqual([])
   })
 
-  // Review round 3 of PR #200: run by bare name, `$0` has no `/`, and the entry took `.` for its own
-  // folder, so a statusline-bridge.mjs in Claude Code's cwd (the user's project) ran instead.
-  it('run by bare name through PATH, runs the .mjs next to it and never one in the current folder', () => {
+  /** A folder like Contents/Resources: the entry (executable or not) and the Node script next to it. */
+  function appDir(executable = true): string {
     const app = join(scratch, 'app')
     mkdirSync(app)
-    writeFileSync(join(app, 'statusline-bridge.sh'), readFileSync(SH), { mode: 0o755 })
+    writeFileSync(join(app, 'statusline-bridge.sh'), readFileSync(SH), { mode: executable ? 0o755 : 0o644 })
     writeFileSync(join(app, 'statusline-bridge.mjs'), readFileSync(MJS))
+    return app
+  }
+
+  // Review rounds 3 and 4 of PR #200: run by bare name, `$0` has no `/` and does not say where the
+  // entry is. `.` ran a statusline-bridge.mjs of Claude Code's cwd (the user's project); `command -v`
+  // names a file under the cwd too when PATH has `.` in it. So a bare name never runs node.
+  it.each([
+    ['found on PATH, from a folder with a statusline-bridge.mjs of its own', 'project', 'app'],
+    ['opened in the current folder, with . on PATH', 'app', '.'],
+  ] as const)('run by bare name, %s, never runs node and writes the Limits through jq', (_case, cwdName, pathEntry) => {
+    const app = appDir()
     const project = join(scratch, 'project')
     mkdirSync(project)
-    const decoy = `import { writeFileSync } from 'node:fs'\nwriteFileSync(${JSON.stringify(join(scratch, 'decoy-ran'))}, '')\nconsole.log('written')\n`
-    writeFileSync(join(project, 'statusline-bridge.mjs'), decoy)
-    // No jq: the Limits can only come from the .mjs in the app folder.
-    const path = `${binDir('real', false)}:${app}`
-    const result = spawnSync('/bin/sh', ['-c', 'statusline-bridge.sh "$1"', 'sh', 'cat >/dev/null; echo ok'], { cwd: project, input: JSON.stringify(STATUS), encoding: 'utf8', env: { PATH: path, HOME: home, WORFY_DATA_DIR: dataDir } })
+    writeFileSync(join(project, 'statusline-bridge.mjs'), "console.log('written')\n")
+    const bin = binDir(null)
+    // A `node` that records that it ran, and claims the Limits are written.
+    const ran = join(scratch, 'node-ran')
+    writeFileSync(join(bin, 'node'), `#!/bin/sh\n: >'${ran}'\necho written\n`, { mode: 0o755 })
+    const env = { PATH: `${bin}:${pathEntry === 'app' ? app : '.'}`, HOME: home, WORFY_DATA_DIR: dataDir }
+    const result = spawnSync('/bin/sh', ['statusline-bridge.sh', 'cat >/dev/null; echo ok'], { cwd: cwdName === 'app' ? app : project, input: JSON.stringify(STATUS), encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, env })
+    expect(existsSync(ran)).toBe(false)
+    // A sh that does not look a script up on PATH (dash) cannot open the first case at all.
+    if (cwdName === 'app') expect(result).toMatchObject({ status: 0, stdout: 'ok\n' })
+    if (result.status === 0 && JQ !== null) expect(written()).toEqual(RATE_LIMITS)
+  })
+
+  it.each([
+    ['a relative path with a slash', true, './statusline-bridge.sh'],
+    ['the absolute path of a copy that is not executable', false, null],
+  ] as const)('run by %s, takes the .mjs next to itself', (_case, executable, relative) => {
+    const app = appDir(executable)
+    // No jq: the Limits can only come from the .mjs.
+    const env = { PATH: binDir('real', false), HOME: home, WORFY_DATA_DIR: dataDir }
+    const result = spawnSync('/bin/sh', [relative ?? join(app, 'statusline-bridge.sh'), 'cat >/dev/null; echo ok'], { cwd: relative === null ? scratch : app, input: JSON.stringify(STATUS), encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, env })
     expect(result).toMatchObject({ status: 0, stdout: 'ok\n' })
-    expect(existsSync(join(scratch, 'decoy-ran'))).toBe(false)
     expect(written()).toEqual(RATE_LIMITS)
-    // `sh statusline-bridge.sh`, where sh looks the script up on PATH (bash does), gives `$0` no `/` at all.
-    rmSync(join(dataDir, 'statusline-limits.json'))
-    const bare = spawnSync('/bin/sh', ['statusline-bridge.sh', 'cat >/dev/null; echo ok'], { cwd: project, input: JSON.stringify(STATUS), encoding: 'utf8', env: { PATH: path, HOME: home, WORFY_DATA_DIR: dataDir } })
-    expect(existsSync(join(scratch, 'decoy-ran'))).toBe(false)
-    // A sh that does not look scripts up on PATH (dash) cannot open it at all.
-    if (bare.status === 0) expect(written()).toEqual(RATE_LIMITS)
   })
 
   it('gives the user command stdin byte for byte, trailing newlines included', () => {
     const input = `${JSON.stringify(STATUS)}\n\n`
-    const result = spawnSync('/bin/sh', [SH, 'cat'], { input, encoding: 'utf8', env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, WORFY_DATA_DIR: dataDir } })
+    const result = spawnSync('/bin/sh', [SH, 'cat'], { input, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, WORFY_DATA_DIR: dataDir } })
     expect(result).toMatchObject({ status: 0, stdout: input })
   })
 })
 
 interface Bridge {
+  COMMAND_TIMEOUT_MS: number
+  runCommand: (command: string, input: string, timeoutMs?: number) => Promise<number>
   limitsFolders: (env: Record<string, string | undefined>, platform: NodeJS.Platform, home?: string) => string[]
   commandRunner: (command: string, platform: NodeJS.Platform, env: Record<string, string | undefined>, exists: (path: string) => boolean) => { file: string; args: string[]; shell: boolean }
 }

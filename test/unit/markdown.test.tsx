@@ -199,6 +199,10 @@ describe('classifyLink', () => {
     '/%5Cserver%5Cshare%5Ca.md',
     '%2F%2Fserver%2Fshare%2Fa.md',
     '\\/server/share/a.md',
+    // Review round 4: the two separators come only after `.` and `..` are resolved.
+    '/./\\server\\share\\a.md',
+    '/x/../\\server\\share\\a.md',
+    '%2F.%2F%5Cserver%5Cshare%5Ca.md',
   ])('%s, a UNC or device path, opens nothing', (href) => {
     expect(classifyLink(href, 'docs')).toEqual({ kind: 'none' })
   })

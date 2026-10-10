@@ -25,7 +25,7 @@
 // a folder that exists (worfy has run), needs nothing but Node (no jq), and never fails the status
 // line: any error of the Limits part is ignored.
 import { Buffer } from 'node:buffer'
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { existsSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
@@ -139,6 +139,28 @@ export function commandRunner(command, platform = process.platform, env = proces
   return bash ? { file: bash, args: ['-c', command], shell: false } : { file: command, args: [], shell: true }
 }
 
+/** How long the user's command may run before it is stopped; a status line that slow shows nothing. */
+export const COMMAND_TIMEOUT_MS = 10_000
+
+/**
+ * Runs the user's command with `input` on its stdin and its output on this process's own; resolves
+ * with its exit code, 1 when it could not be started or was stopped after `timeoutMs`. The input
+ * goes through a stream that is ended, not through spawnSync's `input`: with 70 KB that call
+ * sometimes never returned on macOS — the command had read everything and got no end of input
+ * (review round 4 of worfy-windows ticket 08).
+ */
+export function runCommand(command, input, timeoutMs = COMMAND_TIMEOUT_MS) {
+  const { file, args, shell } = commandRunner(command)
+  return new Promise((done) => {
+    const child = spawn(file, args, { stdio: ['pipe', 'inherit', 'inherit'], shell, timeout: timeoutMs, killSignal: 'SIGKILL' })
+    child.on('error', () => done(1))
+    child.on('close', (code) => done(code ?? 1))
+    // A command that does not read its stdin closes it early: not an error of the status line.
+    child.stdin.on('error', () => {})
+    child.stdin.end(input)
+  })
+}
+
 /**
  * The first argument of the entry statusline-bridge.sh: write the Limits and nothing else, print
  * `written` when a file was written and exit 2 when none was, so the entry falls back to jq also
@@ -173,9 +195,7 @@ async function main() {
     return
   }
   if (command === undefined) return
-  const { file, args, shell } = commandRunner(command)
-  const result = spawnSync(file, args, { input, stdio: ['pipe', 'inherit', 'inherit'], shell })
-  process.exitCode = result.status ?? 1
+  process.exitCode = await runCommand(command, input)
 }
 
 /** Run as a script, not imported (the test imports the functions above). */

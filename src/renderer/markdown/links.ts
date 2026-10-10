@@ -12,6 +12,7 @@ export type LinkTarget =
 const SCHEME = /^[a-z][a-z0-9+.-]*:/i
 /** `C:\…`, `C:/…` or `\\server\share…`: a Windows path, not a `c:` scheme (worfy-windows ticket 08). */
 const WINDOWS_ROOT = /^([A-Za-z]):[\\/]|^\\\\([^\\/]+)[\\/]([^\\/]+)/
+const TWO_SEPARATORS = /^[\\/]{2}/
 
 /**
  * Joins and normalises path segments; `..` above the start is kept for main to refuse. A relative
@@ -88,9 +89,10 @@ export function classifyLink(href: string | undefined, baseDir = ''): LinkTarget
     }
   }
   const path = decode(value.replace(/[?#].*$/, ''))
-  // `/\\host\share` and `\/host/share`: Windows reads two leading separators of either kind as UNC.
-  if (path === '' || /^[\\/]{2}/.test(path)) return { kind: 'none' }
+  // `/\host\share` and `\/host/share`: Windows reads two leading separators of either kind as UNC,
+  // as written or once `.` and `..` are resolved (`/./\host\share`).
+  if (path === '' || TWO_SEPARATORS.test(path)) return { kind: 'none' }
   const joined = path.startsWith('/') || baseDir === '' ? path : `${baseDir}/${path}`
   const normalised = normalise(joined)
-  return normalised === '' || normalised === '/' ? { kind: 'none' } : { kind: 'file', path: normalised }
+  return normalised === '' || normalised === '/' || TWO_SEPARATORS.test(normalised) ? { kind: 'none' } : { kind: 'file', path: normalised }
 }

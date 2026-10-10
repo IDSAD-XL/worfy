@@ -20,18 +20,12 @@
 # Without an argument it prints nothing. It writes nothing but that one file per folder, only into
 # a folder that exists (worfy has run), and never fails the status line.
 #
-# The .mjs is looked up only next to this file. Run by bare name (`sh statusline-bridge.sh`, found on
-# PATH), `$0` has no `/`: its folder is where PATH finds it, never the current folder, which is the
-# user's project; when that is not an absolute path, node is skipped and jq writes the Limits.
+# Run it by absolute path, as worfy writes it into `statusLine`; a bare-name call takes the jq path.
+# With no `/` in `$0` nothing says where this file is: neither `.` nor what PATH finds is it for
+# sure, and either can be the current folder, which is the user's project, so no .mjs is run.
 case $0 in
   */*) here=${0%/*} ;;
-  *)
-    here=$(command -v -- "$0" 2>/dev/null)
-    case $here in
-      /*) here=${here%/*} ;;
-      *) here= ;;
-    esac
-    ;;
+  *) here= ;;
 esac
 
 # stdin as it is, trailing newlines included.

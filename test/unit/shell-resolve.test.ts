@@ -62,6 +62,32 @@ describe('resolveProjectFile by the text of a path', () => {
     await expect(resolveProjectFile('\\\\nas\\team\\repo', '\\\\nas\\other\\a.md', [], options)).rejects.toThrow(/outside the Project/)
   })
 
+  // Review round 4 of PR #200.
+  it('refuses a share folder whose name only starts with the name of the Project folder, before any file system call', async () => {
+    const resolveProjectFile = await load()
+    const real = vi.fn(async (path: string): Promise<string | null> => path)
+    await expect(resolveProjectFile('\\\\nas\\team\\repo', '\\\\nas\\team\\repo-evil\\a.md', [], { real, paths: win32 })).rejects.toThrow(/outside the Project/)
+    expect(real.mock.calls.map(([called]) => called)).toEqual(['\\\\nas\\team\\repo'])
+  })
+
+  it('opens a UNC path inside the real folder of a Project opened through a mapped drive', async () => {
+    const resolveProjectFile = await load()
+    // Z: is \\nas\team mapped to a drive letter.
+    const real = vi.fn(async (path: string): Promise<string | null> => path.replace(/^Z:\\/, '\\\\nas\\team\\'))
+    expect(await resolveProjectFile('Z:\\repo', '\\\\nas\\team\\repo\\a.md', [], { real, paths: win32 })).toBe('\\\\nas\\team\\repo\\a.md')
+    real.mockClear()
+    await expect(resolveProjectFile('Z:\\repo', '\\\\nas\\team\\other\\a.md', [], { real, paths: win32 })).rejects.toThrow(/outside the Project/)
+    expect(real.mock.calls.map(([called]) => called)).toEqual(['Z:\\repo'])
+  })
+
+  it('on a case-sensitive volume refuses a path in another letter case (POSIX rules)', async () => {
+    const resolveProjectFile = await load()
+    // realpath answers with the path as written: /real/REPO is another folder than /real/repo.
+    const real = async (path: string): Promise<string | null> => path
+    await expect(resolveProjectFile('/real/repo', '/real/REPO/a.md', [], { real, paths: posix })).rejects.toThrow(/outside the Project/)
+    expect(await resolveProjectFile('/real/repo', '/real/repo/a.md', [], { real, paths: posix })).toBe('/real/repo/a.md')
+  })
+
   it('takes a path inside the real folder of a Project opened through a link, and refuses a missing file, as before', async () => {
     const resolveProjectFile = await load()
     const real = async (path: string): Promise<string | null> => (path.endsWith('missing.md') ? null : path.replace('/link/', '/real/'))
