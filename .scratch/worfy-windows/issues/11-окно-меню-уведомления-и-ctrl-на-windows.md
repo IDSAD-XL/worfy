@@ -196,8 +196,8 @@ AppUserModelId в меню Пуск создаёт установщик Ticket-�
     `tokens.css`). CSS по `html[data-platform]` в `shell.css` и `focus.css`.
   - Уведомления: `src/main/app-id.ts`, `appUserModelId(platform, packaged, execPath)`; `index.ts`
     зовёт `app.setAppUserModelId` в начале `start()`, до `whenReady`.
-  - `test/setup-dom.ts` ставит jsdom-test-ам `data-platform="mac"`: user agent jsdom называет
-    машину, на которой идут test-ы, а test с ⌘K должен проходить на Mac, Windows и в Linux CI.
+  - `test/setup-dom.ts` ставит jsdom-test-ам `data-platform="mac"`: user agent jsdom не называет
+    ни macOS, ни Windows, и без этого любой jsdom-test шёл бы как Linux на любой машине.
 - **Как test-ы падали до правки.** Первым написан test палитры на Windows: `expected '⌘K' to be
   'Ctrl+K'`, палитра по Ctrl+K не открывалась. На неизменённом коде падали все случаи Windows:
   палитра, подписи, перетаскивание с Ctrl (`move` в (16, 24) вместо (13, 21)), Ctrl+Z, Ctrl+F,
@@ -214,19 +214,53 @@ AppUserModelId в меню Пуск создаёт установщик Ticket-�
     `process.platform`; окно, уведомления и link-сервис заменены, как в `main-ipc-wiring.test.ts`.
   - `nativeTheme` и `app.setAppUserModelId` добавлены в подмены `electron` у
     `startup-failure.test.ts` и `main-ipc-wiring.test.ts`.
-- **Мутанты:** 34 из 34 валят test-ы (`platform.ts` — 11, обработчики и подписи — 17, окно — 2,
-  AppUserModelId — 4). Один выжил в первом прогоне (Backspace с «другим» модификатором удалял бы
-  выделение) — добавлен test, мутант пойман.
-- **Windows-ПК** (Session Claude Code; Gate не запускался — он на bash, Ticket 03):
-  - `pnpm install --frozen-lockfile` — 0, `pnpm lint` — 0, `pnpm typecheck` — 0, `pnpm build` — 0;
+- **Первый круг ревью PR #215.**
+  - **Буквенные сочетания при нелатинской раскладке.** Палитра, поиск и история сверяли
+    `event.key` (`k`, `f`, `z`); при русской раскладке на Windows клавиша K даёт `key: 'л'`,
+    `code: 'KeyK'`, и Ctrl+K, Ctrl+F, Ctrl+Z не работали. Теперь `shortcutKey(event)` в
+    `platform.ts`: латинская буква берётся с клавиши (`key`), а при нелатинской раскладке — по
+    месту клавиши (`code`, `KeyK`). Не «всегда по `code`», как предлагал ревьюер: на QWERTZ клавиша
+    с буквой Y стоит на месте Z, и Ctrl+Y (в других программах — возврат) стал бы отменой.
+  - **AltGr.** `isPrimary` вне macOS не считает основным модификатором нажатие с состоянием
+    `AltGraph`: AltGr на Windows приходит как Ctrl+Alt и набирает символ. Ctrl+Alt двумя клавишами
+    остаётся основным — на нём масштаб интерфейса worfy-ui (Ctrl+Alt+=).
+  - **Ctrl+_ в Terminal на Windows** — отмена в оболочке (readline). Режим фокуса и масштаб Canvas
+    это нажатие из Terminal больше не забирают (`FocusMode.tsx`, `Canvas.tsx`).
+  - `test/contract/main-ipc-wiring.test.ts` ждёт старт с явным пределом 10 с вместо 1 с по
+    умолчанию: на Mac файл падал 6 раз из 40, на ПК, запущенный отдельно, — всегда.
+  - Test-ы на выживших мутантов ревьюера: Alt и Shift в поиске, входе в фокус, истории и масштабе;
+    направляющие во время перетаскивания; опции, которые `createMainWindow` передаёт в
+    `BrowserWindow`; подписи в полосе поиска, под полем ввода и в slash-меню на месте вызова;
+    `zoomActivationKeyCode` (колесо с зажатой клавишей масштабирует или двигает Canvas).
+  - Комментарий `test/setup-dom.ts` исправлен: user agent jsdom не называет ни macOS, ни Windows,
+    и без этой настройки любой jsdom-test шёл бы как Linux на любой машине.
+- **Мутанты:** первый набор — 34 из 34 валят test-ы (`platform.ts` — 11, обработчики и подписи — 17,
+  окно — 2, AppUserModelId — 4); один выжил в первом прогоне (Backspace с «другим» модификатором
+  удалял бы выделение) — добавлен test. После первого круга ревью — ещё 24 из 24: выжившие у
+  ревьюера и код этого круга (`shortcutKey`, Ctrl+_ в Terminal).
+- **Windows-ПК** (Session Claude Code; Gate не запускался — он на bash, Ticket 03). Числа — для
+  ветки, перебазированной на main `baf7a14`, с правками первого круга:
+  - `pnpm install --frozen-lockfile` — 0, `pnpm typecheck` — 0, `eslint .` — 0;
+  - `pnpm lint` — **1**, и на main `baf7a14` тоже: `scripts/check-handoff.mjs` считает байты
+    рабочей копии, а она на Windows с CRLF — `HANDOFF.md` 15356 байт в git и 15428 на диске при
+    пределе 15360. До перебазирования `pnpm lint` был 0. Передано Orchestrator-у;
+  - `pnpm build` — 0 (до перебазирования; после не повторялся);
   - `pnpm test test/unit/platform-keys.test.ts test/unit/window-options.test.ts
-    test/contract/app-user-model-id.test.ts test/contract/view-menu.test.ts` — exit 0, 31 passed;
-  - `pnpm test` — exit 1, как на main: 52 failed | 133 passed файлов, 599 failed | 3027 passed | 29
-    skipped (прогон до test-а Backspace, он добавил 2 случая). Против main `558dd67` по именам: 3
-    новых, 1 ушёл. Новые — timeout 5000 мс под нагрузкой
-    в `check-handoff` и два случая `startup-failure` («installWebPolicy that throws», «startOrchestrators
-    that throws»). Эти два падают и на main: в прогоне main `0f4bf19` — оба; файл, запущенный
-    отдельно три раза на ветке, даёт 12, 11 и 11 падений из 35 — он зависит от скорости ПК.
+    test/contract/app-user-model-id.test.ts test/contract/view-menu.test.ts` — exit 0;
+  - `pnpm test` — exit 1, как на main: 51 failed | 137 passed файлов, 625 failed | 3110 passed | 29
+    skipped. Main `baf7a14` целиком на ПК не прогонялся; сверка по именам — с прогоном head-а
+    PR #209 (`02e6f27`, это main до двух следующих PR). Новых по именам 37:
+    - 35 — в `first-run-checks.test.ts` и `harness-install.test.ts`: их test-ы пришли в main с PR
+      #216 (worfy-harness/30). На main `baf7a14` эти два файла, запущенные отдельно, дают те же 55
+      падений, что и на ветке, имя в имя;
+    - `link-server` «1009» — известное падение (Итог Ticket-а 08);
+    - `canvas.test.tsx` › `collectNodeTypes`… — timeout 5000 мс у первого test-а файла (он платит
+      за загрузку реестра Node-ов). На main `baf7a14` файл, запущенный отдельно, падает на том же
+      test-е 2 раза из 2, на ветке — 3 из 3; остальные 37 случаев файла на ветке проходят.
+- **Пункт «Готово, когда» про падения `pnpm test`** отмечен, но слово «новых нет» в нём верно с
+  оговоркой: по именам новые есть в каждом прогоне (см. выше и первый прогон — 3 новых: timeout в
+  `check-handoff` и два случая `startup-failure`), и каждый раз это либо test-ы, которые падают и
+  на main, либо timeout под нагрузкой. Падений от правок этого PR нет.
 - **Осталось.**
   - Пункт 4 (ускорители меню): `registerAccelerator: false` **не введён**, `menu.ts` этим PR не
     изменён (ветка перебазирована на main с PR #209; его test «on Windows is the first item of
@@ -235,23 +269,26 @@ AppUserModelId в меню Пуск создаёт установщик Ticket-�
     ждёт ручного пункта на ПК. Ожидание: не отнимают — на Windows Electron отдаёт ускорителям меню
     только те нажатия, которые страница не обработала, а обработчики Canvas и xterm зовут
     `preventDefault`. Если ручная проверка покажет обратное, правка — `registerAccelerator: false`
-    у `undo`, `redo`, `zoomIn`, `zoomOut`, `copy` на `win32`.
+    у `undo`, `redo`, `zoomIn`, `zoomOut`, `copy` на `win32`, отдельным коммитом.
   - Ручные пункты на ПК: окно и снимки в двух темах, сочетания, уведомление.
-  - **AltGr** (первый круг ревью). `isPrimary` вне macOS не считает основным модификатором
-    нажатие с состоянием `AltGraph`: AltGr на Windows приходит как Ctrl+Alt и набирает символ.
-    Ctrl+Alt двумя клавишами остаётся основным — на нём масштаб интерфейса worfy-ui (Ctrl+Alt+=).
-    **Не проверено вживую** (на ПК нет раскладки с AltGr): выставляет ли Chromium на Windows
-    `AltGraph` для AltGr; и что на раскладках, где Windows сама превращает Ctrl+Alt в AltGr
-    (польская, немецкая), событие приходит с символом в `event.key` (`ą`, `€`), так что
-    обработчики, сверяющие `key`, не срабатывают.
-  - **Известные падения на Windows, не от этого PR** (для Ticket-а 14, gate full на Windows):
-    - `test/contract/main-ipc-wiring.test.ts`, запущенный отдельно (`vitest run
-      test/contract/main-ipc-wiring.test.ts`), падает на уровне файла: в `beforeAll` `vi.waitFor`
-      с пределом 1000 мс не дожидается `createMainWindow`, все 11 случаев пропущены. На main
-      `baf7a14` — так же, 2 раза из 2. В полном прогоне файл выполняется, 5 случаев из 11 падают
-      (сравнение `file://`-адреса с путём macOS);
-    - `pnpm lint` на Windows — exit 1 с main `baf7a14`: `scripts/check-handoff.mjs` считает байты
-      рабочей копии, а она с CRLF — `HANDOFF.md` 15356 байт в git и 15428 на диске при пределе
-      15360. `eslint .` — exit 0. Передано Orchestrator-у.
-  - Не покрыто unit-test-ом: `zoomActivationKeyCode` (Ctrl+колесо на Windows и так масштабирует —
-    `wheel-router.ts` отдаёт Canvas колесо с Ctrl) и правила CSS — их видно только в окне.
+- **Не проверено вживую.**
+  - Выставляет ли Chromium на Windows `AltGraph` для AltGr (на ПК нет раскладки с AltGr); и что на
+    раскладках, где Windows сама превращает Ctrl+Alt в AltGr (польская, немецкая), событие приходит
+    с символом в `event.key` (`ą`, `€`), так что обработчики, сверяющие `key`, не срабатывают.
+  - Что при русской раскладке Chromium на Windows отдаёт `code: 'KeyK'` для Ctrl+K — войдёт в
+    ручную проверку сочетаний.
+- **Долги** (первый круг ревью, low).
+  - Непрозрачный фон окна на Windows и Linux выбирается один раз, по
+    `nativeTheme.shouldUseDarkColors` при создании окна; при смене темы ОС он не обновляется
+    (`nativeTheme.on('updated')` нет). Виден только до первой отрисовки страницы.
+  - macOS, ⌘ и ⌃ вместе: `isPrimary` на Mac — `metaKey && !ctrlKey`, а main в перетаскивании и в
+    режиме фокуса смотрел только `metaKey`. Перетаскивание с ⌘⌃ теперь привязывается, режим фокуса
+    не глушит ⌘⌃= и ⌘⌃−. На практике не наблюдается.
+  - Правило CSS непрозрачной боковой панели (`shell.css`) проверяется только глазами или e2e: jsdom
+    стили не применяет.
+- **Известные падения на Windows, не от этого PR** (для Ticket-а 14, gate full на Windows):
+  - `test/contract/main-ipc-wiring.test.ts`: до этого PR, запущенный отдельно, падал на уровне
+    файла (предел 1 с в `beforeAll`); с явным пределом выполняется, и 5 случаев из 11 падают, как
+    в полном прогоне (сравнение `file://`-адреса с путём macOS);
+  - `pnpm lint` и CRLF в `HANDOFF.md` — см. выше;
+  - `first-run-checks.test.ts` и `harness-install.test.ts` — 55 падений на main `baf7a14`.
