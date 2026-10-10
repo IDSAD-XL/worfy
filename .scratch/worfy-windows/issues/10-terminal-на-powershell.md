@@ -108,24 +108,24 @@ Terminal на фоне ускорителей меню и горячих кла�
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/terminal-shell.test.ts` (новый): `win32`, PowerShell, `pwsh.exe` в `Path` →
+- [x] Unit `test/unit/terminal-shell.test.ts` (новый): `win32`, PowerShell, `pwsh.exe` в `Path` →
   `pwsh.exe` и `['-NoLogo']`; `pwsh.exe` — псевдоним MSIX в `WindowsApps` (`existsSync` — false,
   `lstat` — symlink) → тоже `pwsh.exe`; без `pwsh` → `…\WindowsPowerShell\v1.0\powershell.exe`; Git Bash →
   `bash.exe` и `['--login', '-i']`; Git Bash выбран, но не найден → PowerShell; `darwin` →
   `$SHELL -l`, без `SHELL` — `/bin/zsh -l`.
-- [ ] Unit (`TerminalRegistry` с подменённым `spawn`): на `win32` `close` вызывает функцию, которая
+- [x] Unit (`TerminalRegistry` с подменённым `spawn`): на `win32` `close` вызывает функцию, которая
   гасит дерево, с `pid` оболочки, затем `pty.kill()` без аргумента, и не вызывает `process.kill` с
   отрицательным `pid`; на `darwin` — SIGHUP группе и SIGKILL после `KILL_GRACE_MS`, как сейчас.
 - [ ] Contract `test/contract/projects.test.ts`: `settings.json` без `terminalShell` читается без
   поля; `projects.settings.set` с `git-bash` сохраняет его; неизвестное значение отвергается схемой.
   Contract `terminal.shells`: на `darwin` — пустой список.
-- [ ] `test/contract/terminal.test.ts`, test для `win32` на настоящем pty, на Windows-ПК:
+- [x] `test/contract/terminal.test.ts`, test для `win32` на настоящем pty, на Windows-ПК:
   - PowerShell: ввод `Write-Output "worfy-$(2+3)"` печатает `worfy-5`;
   - Git Bash: ввод `echo "worfy-$((2+3))"` печатает `worfy-5`;
   - в PowerShell запущен `node -e "console.log('pid=' + process.pid); setInterval(() => {}, 1000)"`;
     после `terminal.close` процесса с этим pid нет (`process.kill(pid, 0)` бросает `ESRCH`) не позже
     `KILL_GRACE_MS` + 1 s. То же для процесса, запущенного через `Start-Process`.
-- [ ] Windows-ПК: `pnpm test test/unit/terminal-shell.test.ts test/contract/terminal.test.ts` —
+- [x] Windows-ПК: `pnpm test test/unit/terminal-shell.test.ts test/contract/terminal.test.ts` —
   exit 0; test-ы `win32` выполнены, а не пропущены (вывод vitest).
 - [ ] Windows-ПК, проверка платформенного PR (Q23, ADR-0056): gate full — строка вердикта и код выхода
   в отчёт. Пока Gate не на Node (Ticket 03) — `pnpm lint`, `pnpm typecheck`, `pnpm test` с кодами
@@ -166,4 +166,106 @@ Windows-ПК они обязательны. В «Итог» — как test-ы �
 
 ## Итог
 
-Заполняется при закрытии.
+Заполняет Session на Windows-ПК. Что не проверено и что ждёт владельца и Mac — в конце.
+
+- **Что сделано.**
+  - **Оболочка по системе** (`src/main/terminal/pty.ts`, `terminalShell`). Не Windows —
+    `$SHELL -l`, без переменной `/bin/zsh -l`, как раньше. Windows — PowerShell с `-NoLogo`:
+    `pwsh.exe` из `Path` окружения агента, иначе Windows PowerShell из `%SystemRoot%` по полному
+    пути; с настройкой `git-bash` — Git Bash с `--login -i`, а когда его нет — PowerShell и строка
+    в лог. `$SHELL` и `cmd.exe` на Windows не берутся.
+  - **Закрытие на Windows** (`close` → `endTree`): сначала `taskkill /PID <pid> /T /F` из
+    `%SystemRoot%\System32`, затем — только если оболочка ещё жива — `pty.kill()` без сигнала.
+    Сигналов и группы процессов там нет. Ветка не для Windows — прежний код.
+  - **Настройка** `terminalShell: 'powershell' | 'git-bash'` в `projectSettingsSchema`,
+    необязательная. main читает её при запуске оболочки (`TerminalDeps.shellSetting`), от renderer
+    она не приходит.
+  - **Канал `terminal.shells`**: оболочки этой Machine для окна настроек. Не Windows — пустой
+    список; Windows — PowerShell (с подписью, какая именно запустится) и Git Bash с признаком
+    «найден».
+  - **Окно настроек Project-а** показывает поле «Terminal shell», только когда список не пуст;
+    сохраняет и шаблоны, и выбор. Пока пользователь не выбрал, поле в файл не пишется.
+  - **Команда в Terminal** (`gh auth login` экрана первого запуска, E3 Ticket 19 добавил её после
+    того, как Ticket был написан): на Windows набирается с `\r`, не с `\n`. Оболочка после команды
+    остаётся открытой, как на Mac.
+- **Решения этого Ticket-а.**
+  - **Дерево гасит `taskkill`**, свой обход по `ParentProcessId` не писался.
+  - **`pty.kill()` после дерева — только если оболочка пережила его.** `taskkill /T /F` уносит и
+    саму оболочку. Если после этого позвать `pty.kill()`, node-pty запускает помощника, который
+    ищет процессы уже закрытой консоли, и тот печатает в stderr `Error: AttachConsole failed` со
+    стеком — на каждое закрытие Terminal. Поэтому `pty.kill()` зовётся, только когда процесс
+    оболочки ещё есть (дерево погасить не удалось). Ticket описывал оба шага подряд; порядок
+    «сначала дерево» сохранён.
+  - **Выбор оболочки — в настройках Project-а** (решение Ticket-а, подтвердить у владельца — ниже).
+  - **Имя оболочки** в `OpenResult.shell` — имя файла по правилам той системы: `pwsh.exe`,
+    `powershell.exe`, `bash.exe`.
+- **Что показал Windows.**
+  - **Событие выхода приходит примерно через секунду после смерти процесса.** node-pty после
+    выхода процесса ждёт остаток вывода (`FLUSH_DATA_INTERVAL` = 1000 мс) и только потом сообщает
+    о выходе. Процессы исчезают сразу, а `terminal.close` и `closeAll` завершаются на секунду
+    позже. Трём ожиданиям в `terminal.test.ts` дан запас 5 с вместо секунды по умолчанию.
+  - **pwsh из MSIX запускается**: на ПК `pwsh.exe` — псевдоним в `WindowsApps`; test на настоящем
+    pty стартует его и получает `edition=Core`.
+  - **Программа из `Start-Process` гаснет вместе с Terminal**: она потомок оболочки. На Mac
+    приложение, запущенное через `open`, закрытие Terminal переживает. Это отличие систем.
+- **`test/contract/terminal.test.ts` на Windows.** Harness там запускает Windows PowerShell без
+  профиля: в `Path` только системные папки, все папки пользователя (`USERPROFILE`, `APPDATA`,
+  `LOCALAPPDATA`, `TEMP`) — временные, чтобы ни профиль, ни история PSReadLine машины не
+  участвовали; к аргументам добавлен `-NoProfile`. Набираемые команды получили запись для обеих
+  оболочек (`say`, `sayTheSize`, `SAY_THE_FOLDER`). Пропущены на `win32`, с причиной в комментарии:
+  - «a shell that ignores SIGHUP is killed after the grace period» — SIGHUP на Windows нет;
+  - «10 MB of output…» — замер конвейера на macOS средствами `/bin/sh`; ConPTY перерисовывает
+    поток по-своему;
+  - «open starts $SHELL -l…» — и раньше шёл только на macOS.
+
+  Новые случаи, только `win32`: Windows PowerShell (`worfy-5`, папка Project-а, `TERM_PROGRAM`,
+  аргументы), `pwsh` из `Path`, Git Bash по настройке (`worfy-5`, интерактивный login-shell),
+  закрытие гасит программу внутри оболочки и программу из `Start-Process`.
+- **Как test-ы падали до правки.** Unit `terminal-shell.test.ts` написан первым: `TypeError:
+  terminalShell is not a function`; registry на `win32` запускал `/bin/zsh -l` (`expected
+  [ { file: '/bin/zsh', … } ]`); закрытие на `win32` не завершалось (timeout 5000 мс — ждало
+  SIGHUP); команда набиралась с `\n`. `terminal.test.ts` на ПК до правки: 20 упавших, `File not
+  found`.
+- **Мутанты.** 33, по одному: все 33 валят test-ы — 21 в `pty.ts` (выбор оболочки, список для
+  настроек, закрытие на Windows, Enter команды), 2 в `ipc/terminal.ts`, 8 в `ProjectSettings.tsx`,
+  2 в схеме настроек. Мутант «`taskkill` без `/T`» ловит contract test на настоящем pty: программы
+  внутри оболочки остаются живы. Остальные 20 мутантов `pty.ts` ловит unit-файл, мутанты окна
+  настроек — `test/unit/project-settings-shell.test.tsx`.
+- **Windows-ПК** (Gate не запускался — он на bash, Ticket 03):
+  - `pnpm lint` — 0, `pnpm typecheck` — 0, `pnpm build` — 0. `pnpm install --frozen-lockfile` для
+    этой ветки не повторялся: зависимости не менялись;
+  - `pnpm test test/unit/terminal-shell.test.ts test/contract/terminal.test.ts` — exit 0:
+    58 passed | 3 skipped. Пропущены три случая, названные выше; четыре случая `win32` выполнены,
+    не пропущены: на ПК есть и `pwsh` (псевдоним MSIX), и Git Bash, и `node`;
+  - `pnpm test test/unit/project-settings-shell.test.tsx` — exit 0, 7 passed;
+  - `pnpm test` — exit 1, как на main: 55 failed | 140 passed файлов, 649 failed | 3281 passed | 33
+    skipped. Main `11ca93c`: 53 failed | 140 passed файлов, 661 failed | 3234 passed | 31 skipped.
+    Ушло 20 падений: 19 в `terminal.test.ts` и одно в `make-icons.test.ts` (состояние этого
+    клона, см. Итог Ticket-а 12). По именам новых восемь:
+    - четыре — время под нагрузкой: `check-handoff` и первые test-ы `canvas.test.tsx` и
+      `shell-discovery.test.tsx` (`Test timed out in 5000ms`), `e3-sandbox` (15000 мс);
+    - три — случаи `reviewer-simplification` в `harness-evals.test.ts`: их добавил в main PR,
+      влитый после прогона main, и на Windows они падают так же, как остальные случаи файла;
+    - один — новый случай этого Ticket-а в `projects.test.ts`, вместе со всем файлом;
+  - в полном прогоне один случай `terminal.test.ts` упал: «a Terminal Node removed from the
+    Layout…» — сразу после закрытия pid оболочки снова значился живым. Отдельно файл проходит.
+    Вероятная причина: Windows отдаёт освободившийся pid другому процессу, а событие выхода
+    приходит через секунду; под нагрузкой полного прогона за эту секунду pid успевает достаться
+    другому процессу. Проверка «жив ли pid» в test-ах от этого не защищена;
+  - старые shell-test-ы Harness (`harness/bin/tests/*.test.sh`) на Windows оставляют после
+    каждого полного прогона семь зависших `bash.exe` (`epic-status` не завершается). За день их
+    набралось 35; убраны вручную. К этому Ticket-у не относится — к списку Ticket-а 14.
+- **Вопрос владельцу.** Выбор оболочки живёт в настройках Project-а (других настроек у worfy нет,
+  а Project живёт на одной Machine, ADR-0052). Подтвердить или назвать другое место.
+- **Ждёт Mac** (раздел «Mac checks» PR): `test/contract/terminal.test.ts` и e2e
+  `test/e2e/terminal.spec.ts` с прежними ожиданиями; новый случай в `test/contract/projects.test.ts`
+  (на Windows этот файл падает целиком и на main); в окне настроек Project-а поля оболочки нет.
+- **Не проверено.**
+  - В окне приложения ничего не открывалось: новый Terminal Node с PowerShell, Restart с Git Bash,
+    закрытие Terminal Node — ручной пункт владельца.
+  - Windows 10 21H2: ConPTY и `taskkill` проверены на одной машине, Windows 11 26200.
+  - Terminal на Linked machine под Windows.
+  - Shell integration (подсказки Terminal AI) на Windows нет: она только для zsh.
+  - Профиль PowerShell пользователя в Terminal worfy: test-ы идут с `-NoProfile`.
+  - `test/contract/projects.test.ts` на Windows: новый случай там красный вместе со всем файлом
+    (38 из 41 падают на main: «call rejected, it came from an untrusted frame»).
