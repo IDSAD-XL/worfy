@@ -1,7 +1,7 @@
 # 08 — Пути и папки на Windows: данные worfy, ~/.claude, мост Limits
 
 Type: task
-Status: open
+Status: done — 2026-10-10, [PR #200](https://github.com/IDSAD-XL/worfy/pull/200)
 Blocked by: 02
 Source: решения владельца 2026-10-07: Q1 (полный порт), Q19 (скрипты, которые зовут hooks и worfy, — на Node), Q24 (Windows 10 21H2+ и 11, x64) ([spec.md](../spec.md)); [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port»; [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) «Harness scripts in Node»; [ADR-0023](../../../docs/adr/0023-separate-data-roots-packaged-and-dev.md) (раздельные папки данных dev и packaged); [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md) (своё состояние worfy); evidence Ticket-а 01 (`.scratch/worfy-windows/evidence/01-факты-windows.md`, файл создаёт Ticket 01)
 
@@ -372,6 +372,34 @@ Windows (Ticket 12).
     доходит до `realpath` (`src/main/ipc/shell.ts`, тот же порядок в `src/main/cards/protocol.ts`),
     и Windows может обратиться к хосту до отказа. Нужен репозиторий с таким symlink и
     `core.symlinks=true`. Отдельный Ticket — за Orchestrator-ом и владельцем.
+- **Проверка круга 4 на Mac** (слияние main + `263b551`, [комментарий](https://github.com/IDSAD-XL/worfy/pull/200#issuecomment-6091950644)):
+  - зависание ушло. `statusline-bridge.test.ts` прошёл 10 раз из 10 под watchdog 120 с. Сам `.mjs`
+    на 70 КБ прошёл 200 запусков из 200. Старый `.mjs` (`fab089a`) в том же цикле висел 13 раз из 100;
+  - мост проверен таблицей из 76 строк на `/bin/sh`, bash, zsh, dash и ksh. stdin доходит байт в байт
+    в 180 случаях из 180, коды выхода проходят без изменений;
+  - `gate full` на слиянии main `ff58b47` + `42a1e60` — exit 0, «[gate] зелено (full)». Мерж — `4b5b326`.
+- **Долги круга 4** (все low, в этом PR не правились):
+  - не стартует shell (ENOENT) — `runCommand` сразу отдаёт 1, но процесс живёт полные 10 с. Node
+    снимает таймер опции `timeout` у `spawn` только по `exit`, а `exit` после неудачного запуска не
+    приходит. Правка — свой `setTimeout`, снимаемый по `error` и `close`. Достижимо только при
+    неверной настройке на Windows;
+  - предел 10 с убивает только прямой shell (`scripts/statusline-bridge.mjs`). Дочерние процессы
+    команды пользователя живут дальше с PPID 1 и держат stdout открытым. Правка — `detached: true` и
+    kill группы процессов на POSIX, `taskkill /T /F` на Windows. Не регрессия: до круга 4 предела не
+    было совсем;
+  - путь `.mjs` перекодирует stdin в UTF-8, и неверные байты становятся U+FFFD; путь `.sh` передаёт
+    их как есть. Было и на `fab089a`;
+  - вызов `node … --worfy-limits-only` во входе `.sh` идёт без предела времени: застрявший node
+    задерживает статусную строку. Было и до PR;
+  - в описании круга 4 выше «у всех внешних `spawnSync` в test-е — timeout» неточно:
+    `spawnSync` с `command -v` и один `execFileSync('node', …)` в `statusline-bridge.test.ts` идут
+    без timeout;
+  - test-ы пока не закрепляют поведение в пяти местах:
+    - предел 10 с не проверен целиком: мутант на 10 минут проходит;
+    - `killSignal: 'SIGKILL'` не проверен;
+    - половина «как записано» в `[...folders, ...bases]` (`src/main/ipc/shell.ts`) не проверена;
+    - цикл из 30 запусков ловит возврат к `spawnSync` в 4 прогонах из 6 и только на macOS;
+    - kill через 20 с у `runAsync` срабатывает позже timeout-а contract test-ов (15 с).
 - **Известное падение на Windows, не от этого PR** (для Ticket-а 14, gate full на Windows):
   `test/contract/link-server.test.ts` › «the server closes a pairing socket that sends more than
   65536 bytes with 1009» — `expected 1006 to be 1009` (строка 496): клиент видит обрыв соединения
