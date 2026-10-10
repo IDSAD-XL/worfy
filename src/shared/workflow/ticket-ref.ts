@@ -41,7 +41,8 @@ export function parseTicketBranch(branch: string): BranchTicketRef | null {
  * `<Harness home>/worktrees/<project>/07` → a Ticket; else null.
  */
 export function parseWorktreeFolder(path: string): FolderTicketRef | null {
-  const trimmed = path.trim()
+  // On Windows a folder comes with `\` (worfy-windows ticket 08): both are separators here.
+  const trimmed = path.trim().replace(/\\/g, '/')
   const match = FOLDER.exec(trimmed) ?? HARNESS_FOLDER.exec(trimmed)
   if (!match) return null
   const [, digits, slug] = match

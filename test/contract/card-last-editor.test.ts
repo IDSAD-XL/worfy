@@ -83,6 +83,68 @@ describe('lastEditor: paths', () => {
   })
 })
 
+// Claude Code on Windows gives `file_path` with `\` (evidence of worfy-windows ticket 01, section 13).
+describe('lastEditor: Windows paths (worfy-windows ticket 08)', () => {
+  const winCards = 'C:\\p\\data\\cards'
+
+  it('normalizes a Windows path: `\\` and `/` are one separator, the drive letter is upper case', () => {
+    expect(normalizePath('C:\\a\\\\b\\.\\c\\..\\d', 'C:\\x')).toBe('C:\\a\\b\\d')
+    expect(normalizePath('C:/a/b', '/x')).toBe('C:\\a\\b')
+    expect(normalizePath('c:\\a', '/x')).toBe('C:\\a')
+    expect(normalizePath('cards\\c1/x.md', 'C:\\p\\data')).toBe('C:\\p\\data\\cards\\c1\\x.md')
+    expect(normalizePath('..\\..\\..', 'C:\\a')).toBe('C:\\')
+    expect(normalizePath('\\\\srv\\share\\a\\..\\b', '/x')).toBe('\\\\srv\\share\\b')
+    // `C:a` is in the current folder of drive C:, known only when the cwd is on C:.
+    expect(normalizePath('C:a', 'D:\\x')).toBeNull()
+    expect(normalizePath('c:a\\b', 'C:\\x')).toBe('C:\\x\\a\\b')
+    // `\a` is the root of the cwd's drive.
+    expect(normalizePath('\\a\\b', 'D:\\x\\y')).toBe('D:\\a\\b')
+  })
+
+  it('reads a Git Bash path /c/… as drive C: against a Windows folder of Cards', () => {
+    expect(cardOfPath('/c/p/data/cards/abc/x.md', winCards, 'C:\\')).toBe('abc')
+    expect(cardOfPath('/C/p/data/cards/abc/x.md', winCards, '/')).toBe('abc')
+    expect(cardOfPath('/d/p/data/cards/abc/x.md', winCards, 'C:\\')).toBeNull()
+    expect(cardOfPath('/c', winCards, 'C:\\')).toBeNull()
+  })
+
+  it('keeps the POSIX rules for a POSIX path: `\\` is part of a name, case counts', () => {
+    expect(normalizePath('/a/b\\c', '/')).toBe('/a/b\\c')
+    expect(normalizePath('b\\c', '/a')).toBe('/a/b\\c')
+    // `\x` and `C:x` mean something only on Windows: against a POSIX cwd they are names.
+    expect(normalizePath('\\x', '/a')).toBe('/a/\\x')
+    expect(normalizePath('C:x', '/a')).toBe('/a/C:x')
+    expect(cardOfPath('/P/data/cards/abc/x', '/p/data/cards', '/')).toBeNull()
+    expect(cardOfPath('/p/data/cards/abc\\x', '/p/data/cards', '/')).toBeNull()
+    expect(cardOfPath('/c/p/data/cards/abc/x', '/c/p/data/cards', '/')).toBe('abc')
+  })
+
+  it('names the Card of a Write with a `C:\\…` file_path, of a relative `cards\\…` path and of a path in another case', () => {
+    const write = (file_path: string, cwd = 'C:\\p\\data') => cardEditedBy({ cwd, name: 'Write', input: { file_path, content: 'x' } }, winCards)
+    expect(write('C:\\p\\data\\cards\\abc\\index.html')).toBe('abc')
+    expect(write('cards\\abc\\x.md')).toBe('abc')
+    expect(write('c:\\P\\DATA\\cards\\abc\\x.md')).toBe('abc')
+    expect(write('C:/p/data/cards/abc/x.md', '/')).toBe('abc')
+  })
+
+  it('names nothing for the folder itself, a lookalike prefix, another drive or a POSIX path', () => {
+    const at = (path: string) => cardOfPath(path, winCards, 'C:\\')
+    expect(at('C:\\p\\data\\cards\\abc')).toBeNull()
+    expect(at('C:\\p\\data\\cards-evil\\abc\\x')).toBeNull()
+    expect(at('D:\\p\\data\\cards\\abc\\x')).toBeNull()
+    expect(at('/p/data/cards/abc/x')).toBeNull()
+    expect(at('C:\\p\\data\\cards\\abc\\..\\..\\layout.json')).toBeNull()
+  })
+
+  it('A writes abc with `\\`, B edits it with `/`: the last editor of abc is B', () => {
+    const uses: ToolUseRecord[] = [
+      { sessionId: 'A', cwd: 'C:\\p', name: 'Write', input: { file_path: 'C:\\p\\data\\cards\\abc\\index.html' } },
+      { sessionId: 'B', cwd: 'C:\\p', name: 'Edit', input: { file_path: 'C:/p/data/cards/abc/app.js' } },
+    ]
+    expect(lastEditor(uses, winCards, 'abc')).toBe('B')
+  })
+})
+
 /** One fake-agent turn: init, then one assistant message with the given tool calls, then result. */
 function script(name: string, uses: { name: string; input: Record<string, unknown> }[]): string {
   const lines = [

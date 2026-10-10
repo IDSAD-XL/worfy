@@ -108,6 +108,37 @@ describe('Markdown: links', () => {
     expect(asked).toEqual([])
   })
 
+  // worfy-windows ticket 08: react-markdown's default urlTransform blanked these before classifyLink.
+  it.each([
+    ['[f](C:\\Users\\a\\f.md)', 'C:\\Users\\a\\f.md'],
+    ['[f](C:/Users/a/f.md)', 'C:\\Users\\a\\f.md'],
+  ])('opens an absolute Windows path %s as a file through shell.openInEditor', (text, path) => {
+    render(<Markdown text={text} projectId="alpha" />)
+    expect(fireEvent.click(screen.getByRole('link', { name: 'f' }))).toBe(false)
+    expect(asked).toEqual([{ channel: 'shell.openInEditor', input: { projectId: 'alpha', path } }])
+  })
+
+  // Following one would make Windows contact the host with the user's credentials.
+  it.each([
+    // In markdown `\\` is an escaped backslash: a UNC path is written with four.
+    '[f](\\\\\\\\attacker\\share\\f.md)',
+    '[f](//attacker/share/f.md)',
+    '[f](\\\\\\\\?\\C:\\x\\f.md)',
+    '[f](\\\\\\\\.\\pipe\\x)',
+    '[f](/\\\\\\\\attacker\\share\\f.md)',
+  ])('opens nothing for a UNC or device path: %s', (text) => {
+    render(<Markdown text={text} projectId="alpha" />)
+    fireEvent.click(screen.getByText('f'))
+    expect(asked).toEqual([])
+  })
+
+  it('keeps blanking a drive-letter scheme that is not a path, such as c:alert(1)', () => {
+    const { container } = render(<Markdown text={'[x](c:alert(1)) [y](C:\\a.md)'} projectId="alpha" />)
+    // The Windows path keeps its address; the scheme is blanked before it reaches the page.
+    expect([...container.querySelectorAll('a')].map((link) => link.getAttribute('href'))).toEqual(['C:%5Ca.md'])
+    expect(container.innerHTML).not.toContain('alert')
+  })
+
   it('a javascript: or http:// link is not a link and opens nothing', () => {
     const { container } = render(<Markdown text={'[run](javascript:alert(1)) and [plain](http://example.com)'} projectId="alpha" />)
     expect(container.querySelector('a')).toBeNull()
@@ -139,6 +170,50 @@ describe('classifyLink', () => {
   it('resolves a relative path against the directory of the document', () => {
     expect(classifyLink('../../src/main/index.ts', '.scratch/worfy-mvp')).toEqual({ kind: 'file', path: 'src/main/index.ts' })
     expect(classifyLink('0002.md', 'docs/adr/')).toEqual({ kind: 'file', path: 'docs/adr/0002.md' })
+  })
+
+  // worfy-windows ticket 08: a Windows path is a file, not a `c:` scheme.
+  it.each([
+    ['C:\\docs\\a.md', 'C:\\docs\\a.md'],
+    ['C:/docs/a.md', 'C:\\docs\\a.md'],
+    ['c:\\docs\\.\\x\\..\\a.md#top', 'C:\\docs\\a.md'],
+    ['C:\\docs\\F%20SPEC.md', 'C:\\docs\\F SPEC.md'],
+    // As the markdown parser hands it over: `\` percent-encoded.
+    ['C:%5Cdocs%5Ca.md', 'C:\\docs\\a.md'],
+  ])('%s is a file with an absolute Windows path', (href, path) => {
+    expect(classifyLink(href, 'docs')).toEqual({ kind: 'file', path })
+  })
+
+  it.each([
+    '\\\\server\\share\\a.md',
+    '%5C%5Cserver%5Cshare%5Ca.md',
+    '\\\\?\\C:\\x\\a.md',
+    '\\\\.\\pipe\\x',
+    '//server/share/a.md',
+    // Review round 3 of PR #200: the device prefix reaches windowsPath only with `?` encoded; a raw
+    // `?` is cut as a query string first.
+    '\\\\%3F\\C:\\x\\a.md',
+    '%5C%5C%3F%5CC:%5Cx%5Ca.md',
+    // A path that Windows reads as UNC, though it starts with `/`.
+    '/\\\\server\\share\\a.md',
+    '/%5Cserver%5Cshare%5Ca.md',
+    '%2F%2Fserver%2Fshare%2Fa.md',
+    '\\/server/share/a.md',
+    // Review round 4: the two separators come only after `.` and `..` are resolved.
+    '/./\\server\\share\\a.md',
+    '/x/../\\server\\share\\a.md',
+    '%2F.%2F%5Cserver%5Cshare%5Ca.md',
+  ])('%s, a UNC or device path, opens nothing', (href) => {
+    expect(classifyLink(href, 'docs')).toEqual({ kind: 'none' })
+  })
+
+  it('takes `\\` in a relative link as a separator, and a drive root or a bare drive as nothing to open', () => {
+    expect(classifyLink('docs\\adr\\0001.md')).toEqual({ kind: 'file', path: 'docs/adr/0001.md' })
+    expect(classifyLink('..\\src\\main\\index.ts', '.scratch/worfy-mvp')).toEqual({ kind: 'file', path: '.scratch/src/main/index.ts' })
+    expect(classifyLink('C:\\')).toEqual({ kind: 'none' })
+    // An absolute POSIX path keeps `\` as part of a name.
+    expect(classifyLink('/a/b\\c.md')).toEqual({ kind: 'file', path: '/a/b\\c.md' })
+    expect(classifyLink('C:a.md')).toEqual({ kind: 'none' })
   })
 })
 

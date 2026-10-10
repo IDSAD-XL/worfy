@@ -543,6 +543,17 @@ describe('Subagents of a workflow script', () => {
     ])
   })
 
+  it('names the run from a script file and finds it by its transcript folder on Windows, with `\\` (worfy-windows ticket 08)', () => {
+    const workflow = (id: string, input: Record<string, unknown>): AgentEvent => ({ type: 'tool_use', id, name: 'Workflow', input, parentToolUseId: null })
+    const { files } = loadWorkflow()
+    const signals = live([
+      [1000, workflow('toolu_win', { scriptPath: `C:\\Users\\test\\.claude\\projects\\p\\s\\workflows\\scripts\\fix-pass-${RUN}.js` })],
+      [1001, { type: 'tool_result', toolUseId: 'toolu_win', content: `Workflow launched in background.\nTranscript dir: C:\\Users\\test\\.claude\\projects\\p\\s\\subagents\\workflows\\${RUN}`, isError: false, parentToolUseId: null }],
+    ])
+    const tree = buildSubagentTree({ signals, files })
+    expect(tree.map(({ id, name, children }) => [id, name, children.length])).toEqual([['toolu_win', 'fix-pass', 3]])
+  })
+
   it('groups the agents of a run whose Workflow call is not known under the run id', () => {
     const { files } = loadWorkflow()
     const tree = buildSubagentTree({ signals: [], files })

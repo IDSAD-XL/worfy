@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve, win32 } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { claudeHome, dataRoot, harnessHome, setBuildKind } from '../../src/main/storage/paths'
 
@@ -9,11 +9,11 @@ describe('storage paths', () => {
   })
 
   it('defaults the data root to ~/Library/Application Support/worfy', () => {
-    expect(dataRoot({})).toBe(join(homedir(), 'Library', 'Application Support', 'worfy'))
+    expect(dataRoot({}, 'packaged', 'darwin')).toBe(join(homedir(), 'Library', 'Application Support', 'worfy'))
   })
 
   it('ignores an empty WORFY_DATA_DIR', () => {
-    expect(dataRoot({ WORFY_DATA_DIR: '' })).toBe(join(homedir(), 'Library', 'Application Support', 'worfy'))
+    expect(dataRoot({ WORFY_DATA_DIR: '' }, 'packaged', 'darwin')).toBe(join(homedir(), 'Library', 'Application Support', 'worfy'))
   })
 
   it('uses WORFY_CLAUDE_HOME as the Claude home when it is set', () => {
@@ -59,8 +59,8 @@ describe('data root of the packaged app and of a dev run', () => {
   const applicationSupport = join(homedir(), 'Library', 'Application Support')
 
   it('gives a dev run worfy-dev and the packaged app worfy, so the two never share limits.json and bindings.json', () => {
-    const packaged = dataRoot({}, 'packaged')
-    const dev = dataRoot({}, 'dev')
+    const packaged = dataRoot({}, 'packaged', 'darwin')
+    const dev = dataRoot({}, 'dev', 'darwin')
     expect(packaged).toBe(join(applicationSupport, 'worfy'))
     expect(dev).toBe(join(applicationSupport, 'worfy-dev'))
     expect(join(dev, 'limits.json')).not.toBe(join(packaged, 'limits.json'))
@@ -74,13 +74,40 @@ describe('data root of the packaged app and of a dev run', () => {
 
   it('switches the default of every later dataRoot() call once the entry point reports a dev run', () => {
     try {
-      expect(dataRoot({})).toBe(join(applicationSupport, 'worfy'))
+      expect(dataRoot({}, undefined, 'darwin')).toBe(join(applicationSupport, 'worfy'))
       setBuildKind('dev')
-      expect(dataRoot({})).toBe(join(applicationSupport, 'worfy-dev'))
+      expect(dataRoot({}, undefined, 'darwin')).toBe(join(applicationSupport, 'worfy-dev'))
       setBuildKind('packaged')
-      expect(dataRoot({})).toBe(join(applicationSupport, 'worfy'))
+      expect(dataRoot({}, undefined, 'darwin')).toBe(join(applicationSupport, 'worfy'))
     } finally {
       setBuildKind('packaged')
+    }
+  })
+})
+
+describe('data root on Windows (worfy-windows ticket 08)', () => {
+  const appData = 'C:\\Users\\u\\AppData\\Roaming'
+
+  it('is %APPDATA%\\worfy for the packaged app and %APPDATA%\\worfy-dev for a dev run', () => {
+    expect(dataRoot({ APPDATA: appData }, 'packaged', 'win32')).toBe('C:\\Users\\u\\AppData\\Roaming\\worfy')
+    expect(dataRoot({ APPDATA: appData }, 'dev', 'win32')).toBe('C:\\Users\\u\\AppData\\Roaming\\worfy-dev')
+  })
+
+  it('without APPDATA, or with one that is not absolute, is <home>\\AppData\\Roaming\\…', () => {
+    for (const env of [{}, { APPDATA: '' }, { APPDATA: 'Roaming' }, { APPDATA: '/x' }, { APPDATA: '\\x' }, { APPDATA: 'C:x' }]) {
+      expect(dataRoot(env, 'packaged', 'win32')).toBe(win32.join(homedir(), 'AppData', 'Roaming', 'worfy'))
+      expect(dataRoot(env, 'dev', 'win32')).toBe(win32.join(homedir(), 'AppData', 'Roaming', 'worfy-dev'))
+    }
+  })
+
+  it('lets WORFY_DATA_DIR win on Windows too', () => {
+    expect(dataRoot({ APPDATA: appData, WORFY_DATA_DIR: '/tmp/worfy-data' }, 'dev', 'win32')).toBe(resolve('/tmp/worfy-data'))
+  })
+
+  it('keeps the macOS folders for darwin and for every other system, so Linux CI does not change', () => {
+    for (const platform of ['darwin', 'linux'] as const) {
+      expect(dataRoot({ APPDATA: appData }, 'packaged', platform)).toBe(join(homedir(), 'Library', 'Application Support', 'worfy'))
+      expect(dataRoot({ APPDATA: appData }, 'dev', platform)).toBe(join(homedir(), 'Library', 'Application Support', 'worfy-dev'))
     }
   })
 })

@@ -121,17 +121,17 @@ Source: решения владельца 2026-10-07: Q1 (полный порт)
 
 ## Готово, когда
 
-- [ ] `test/unit/paths.test.ts`: для `darwin` пути прежние (старые случаи не менялись); для `win32` с `APPDATA=C:\Users\u\AppData\Roaming` — `…\worfy` и `…\worfy-dev`; без `APPDATA` — `<homedir>\AppData\Roaming\…`; `WORFY_DATA_DIR` побеждает.
-- [ ] `test/unit/platform-paths.test.ts` (новый): абсолютные — `/a`, `C:\a`, `C:/a`, `c:\a`, `\\server\share\a`; не абсолютные — `a/b`, `a\b`, `C:a`, пустая строка; путь с `\0` — отказ. Схема IPC из `src/shared/paths.ts` принимает и отвергает то же.
-- [ ] `test/contract/card-last-editor.test.ts`: `Write` с `file_path` `C:\p\data\cards\abc\index.html` при `cardsDir` `C:\p\data\cards` — Card `abc`; относительный `cards\abc\x.md` при cwd `C:\p\data` — `abc`; `c:\P\DATA\cards\abc\x.md` — `abc`. Прежние случаи POSIX не менялись.
-- [ ] `test/unit/markdown.test.tsx`: ссылки `C:\docs\a.md` и `C:/docs/a.md` — файл с абсолютным путём; относительные ссылки — как прежде.
-- [ ] `test/unit/binding.test.ts` и `test/unit/ticket-ref.test.ts`: cwd `C:\r\.claude\worktrees\05` — Ticket 05 по папке; задача Subagent-а с `.scratch\worfy-windows\issues\05-x.md` — Ticket 05 Epic-а `worfy-windows`. Прежние случаи не менялись.
-- [ ] `test/contract/claude-home-subagents.test.ts`: id Session из пути транскрипта с `\` — имя файла без `.jsonl`.
-- [ ] `test/contract/claude-home-registry.test.ts`: `projectDirName` пути Windows — имя из evidence Ticket-а 01, раздел 12 (`C:\a\b` → `C--a-b`); время старта процесса в формате Windows с подменённой командой даёт `alive`, `gone` и `unknown`.
-- [ ] `test/contract/statusline-bridge.test.ts`: все прежние случаи проходят против `node scripts/statusline-bridge.mjs` и против входа `.sh`, если он остался. Новые: PATH без `jq` — файл всё равно пишется; выбор папок для `win32` — `%APPDATA%\worfy` и `worfy-dev`.
+- [x] `test/unit/paths.test.ts`: для `darwin` пути прежние (старые случаи не менялись); для `win32` с `APPDATA=C:\Users\u\AppData\Roaming` — `…\worfy` и `…\worfy-dev`; без `APPDATA` — `<homedir>\AppData\Roaming\…`; `WORFY_DATA_DIR` побеждает.
+- [x] `test/unit/platform-paths.test.ts` (новый): абсолютные — `/a`, `C:\a`, `C:/a`, `c:\a`, `\\server\share\a`; не абсолютные — `a/b`, `a\b`, `C:a`, пустая строка; путь с `\0` — отказ. Схема IPC из `src/shared/paths.ts` принимает и отвергает то же.
+- [x] `test/contract/card-last-editor.test.ts`: `Write` с `file_path` `C:\p\data\cards\abc\index.html` при `cardsDir` `C:\p\data\cards` — Card `abc`; относительный `cards\abc\x.md` при cwd `C:\p\data` — `abc`; `c:\P\DATA\cards\abc\x.md` — `abc`. Прежние случаи POSIX не менялись.
+- [x] `test/unit/markdown.test.tsx`: ссылки `C:\docs\a.md` и `C:/docs/a.md` — файл с абсолютным путём; относительные ссылки — как прежде.
+- [x] `test/unit/binding.test.ts` и `test/unit/ticket-ref.test.ts`: cwd `C:\r\.claude\worktrees\05` — Ticket 05 по папке; задача Subagent-а с `.scratch\worfy-windows\issues\05-x.md` — Ticket 05 Epic-а `worfy-windows`. Прежние случаи не менялись.
+- [x] `test/contract/claude-home-subagents.test.ts`: id Session из пути транскрипта с `\` — имя файла без `.jsonl`.
+- [x] `test/contract/claude-home-registry.test.ts`: `projectDirName` пути Windows — имя из evidence Ticket-а 01, раздел 12 (`C:\a\b` → `C--a-b`); время старта процесса в формате Windows с подменённой командой даёт `alive`, `gone` и `unknown`.
+- [x] `test/contract/statusline-bridge.test.ts`: все прежние случаи проходят против `node scripts/statusline-bridge.mjs` и против входа `.sh`, если он остался. Новые: PATH без `jq` — файл всё равно пишется; выбор папок для `win32` — `%APPDATA%\worfy` и `worfy-dev`.
 - [ ] `@packaged` test в `test/e2e/packaged.spec.ts` (локально, `test:package` в gate full): в `.app` рядом с `Contents/Resources/statusline-bridge.sh` лежит `statusline-bridge.mjs`. Команда прежнего вида `<.app>/Contents/Resources/statusline-bridge.sh '<cmd>'` с образцом JSON пишет файл и пропускает вывод команды.
 - [ ] Windows-ПК, dev-сборка: список Session-ов Project-а worfy показывает транскрипты из `%USERPROFILE%\.claude\projects`. `claude`, запущенный в PowerShell в worktree worfy и в его подпапке, виден как живая Session. Session в `.claude\worktrees\NN` привязана к Ticket-у NN. Снимок — `../evidence/08-session-ы-на-windows.png`.
-- [ ] Windows-ПК: образец JSON строки состояния, поданный в `node scripts\statusline-bridge.mjs`, пишет `%APPDATA%\worfy-dev\statusline-limits.json`, и dev-сборка показывает полосы Limits. Если владелец сам ставит `statusLine` с мостом — Limits приходят из терминала. Данные dev-сборки лежат в `%APPDATA%\worfy-dev`.
+- [x] Windows-ПК: образец JSON строки состояния, поданный в `node scripts\statusline-bridge.mjs`, пишет `%APPDATA%\worfy-dev\statusline-limits.json`, и dev-сборка показывает полосы Limits. Если владелец сам ставит `statusLine` с мостом — Limits приходят из терминала. Данные dev-сборки лежат в `%APPDATA%\worfy-dev`.
 - [ ] Mac: данные на прежнем месте — `test/e2e/packaged.spec.ts:304` и `:418` зелёные; gate full зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
 
 ## Тесты
@@ -185,4 +185,199 @@ Windows (Ticket 12).
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-windows/08`, от main `f95b7e7`. Сделано на Windows-ПК владельца, Session Claude Code.
+
+- **Папка данных** (`src/main/storage/paths.ts`): `dataRoot(env, kind, platform)`. Windows —
+  `%APPDATA%\worfy` и `%APPDATA%\worfy-dev`; без `APPDATA` или с не абсолютным —
+  `<homedir>\AppData\Roaming\…`. macOS и прочие системы — прежний `~/Library/Application Support/…`.
+  `WORFY_DATA_DIR` побеждает везде. Выбран `%APPDATA%` (Roaming), как `app.getPath('appData')` на
+  Windows; `claudeHome()` не менялся. Старые случаи `test/unit/paths.test.ts`, где путь по умолчанию
+  зависел от платформы, теперь передают `'darwin'` явно; шесть случаев с литералом `/tmp/…` через
+  `resolve` падают на Windows и на main — это Ticket 14.
+- **Абсолютный путь — `src/shared/paths.ts`** (`isAbsolutePath`, `absolutePathSchema`,
+  `lastPathSegment`): `/…`, `C:\…`, `C:/…`, UNC `\\server\share…`; не абсолютные — `a\b`, `C:a`, `\a`,
+  пустая строка; путь с NUL — отказ. Кроме `claude-home.ts` и `bindings.ts` её берут ещё четыре места,
+  которых не было в списке тикета, с той же проверкой `startsWith('/')`: `src/shared/ipc/agent.ts`
+  (`cwd` у `agent.start` — без этого агент не стартует в `C:\…`), `src/shared/ipc/workflow.ts`,
+  `src/shared/agent/attachments.ts`, `src/main/workflow/profile.ts`. `src/shared/ipc/checks.ts`
+  оставлен Ticket-у 03. `cards.file` не тронут: там путь из адреса Card, не путь на диске.
+- **Автор правки Card** (`last-editor.ts`): путь Windows — `\` и `/` один разделитель, буква диска
+  заглавная, сравнение без учёта регистра; путь POSIX — как был.
+- **Ссылки markdown** (`links.ts`): `C:\…`, `C:/…`, `\\server\share\…` — файл с абсолютным путём (а не
+  схема `c:`); `\` в относительной ссылке — разделитель; корень диска — ничего.
+- **`/` и `\` в `~/.claude` и в Binding:** id Session — `transcriptSessionId` (`subagents.ts`, его
+  берёт и `binding-signals.ts`); `worktreeFolderOf` и `parseWorktreeFolder` читают путь с `\` как с
+  `/`, поэтому `detail` Binding-а одинаков на обеих системах (`.claude/worktrees/05`); путь Ticket-а
+  в задаче Subagent-а и `ticket claim` после пути с `\`; имя workflow-скрипта и папка прогона в
+  `Transcript dir:` с `\`.
+- **Session внутри Project-а** (`registry.ts`): `isInsidePath(path, root, platform)` — правила
+  `path.win32` на Windows (разделитель `\`, без учёта регистра), `path.posix` на остальных.
+- **Имя папки транскриптов** не менялось; test-ы фиксируют три имени из evidence Ticket-а 01, раздел 12.
+- **Живые Session-ы на Windows** (`processState`): время старта — `Get-Process -Id <все pid>`,
+  `StartTime.ToFileTimeUtc()`, одним вызовом Windows PowerShell на все pid, спрошенные в пределах
+  25 мс (`batchedProcessStarts`). Проверено на ПК (exit 0): для Session 20488 `Get-Process` дал
+  `134359927685768597` — ровно `procStart`; `Get-CimInstance Win32_Process` (`CreationDate`) дал
+  `…590` — теряет последнюю цифру (100 нс) и вдвое медленнее (1181 мс против 642), поэтому не он.
+  Сравнение — строки FILETIME; нет pid в ответе — `gone`, время не прочитать — `unknown`, PowerShell
+  упал — `unknown`. Запуск PowerShell — общая `powershellScriptCommand` из `src/main/agent/env.ts`.
+- **Мост Limits на Node** — `scripts/statusline-bridge.mjs`: тот же контракт, `jq` не нужен,
+  `limitsFolders` и `commandRunner` экспортируются. Команда пользователя — `sh -c` на macOS и Linux;
+  на Windows — Git Bash (`CLAUDE_CODE_GIT_BASH_PATH`, рядом с `git.exe`, `%ProgramFiles%\Git`,
+  `%LOCALAPPDATA%\Programs\Git`, ничего под `%SystemRoot%`), без него — оболочка Node по умолчанию.
+  Оболочку `statusLine` на Windows живым прогоном не проверял: в бинарнике Claude Code 2.1.233 его
+  агент настройки строки состояния пишет про Windows «the command is executed through Git Bash»
+  (`grep` по `claude.exe`, при найденном Git Bash).
+- **Уже записанная команда на Mac:** `statusline-bridge.sh` остался на прежнем пути тонким входом:
+  есть `node` и рядом `.mjs` — `exec node …/statusline-bridge.mjs "$@"`; нет — только отдаёт stdin
+  команде пользователя (`exec sh -c "$1"`), без Limits. `electron-builder.yml` кладёт `.mjs` в
+  `Resources` рядом с `.sh`. Проверено под Git Bash на ПК: код выхода команды доходит (4), файл
+  пишется; без `node` команда получает stdin.
+- **Как test-ы падали до правки:** `platform-paths.test.ts` — модуля нет (exit 1);
+  `paths.test.ts` — оба новых случая `win32` (`dataRoot` не знал платформы);
+  `card-last-editor.test.ts` — 3 новых случая Windows (и 4 старых, которые на ПК падали и на main);
+  `markdown.test.tsx` — 6; `binding.test.ts` и `ticket-ref.test.ts` — 4; `subagents.test.ts` — 1.
+- **Мутанты** (на Windows, по одному, 11 затронутых test-файлов, счёт — новые падения против того же
+  набора без мутантов): все 32 красные. Абсолютный путь: `C:` без разделителя, без UNC, без отказа
+  на NUL, `lastPathSegment` только по `/`; `dataRoot` без ветки Windows, `APPDATA` без проверки;
+  автор правки Card: регистр, разделитель, буква диска; ссылки: без ветки Windows, `\` в
+  относительной; Binding: папка worktree, `parseWorktreeFolder`, путь Ticket-а, `claim`; имя
+  workflow-скрипта, папка прогона, id Session; `isInsidePath`: регистр, `posix` вместо `win32`;
+  `processState`: без ветки Windows, нет pid → `unknown`, `?` → `alive`, без сбора pid в один
+  вызов, `ToFileTime` вместо `ToFileTimeUtc`; мост: папки Windows, `USERPROFILE`, WSL-овский
+  `bash.exe`, `sh` на Windows, массив вместо объекта `rate_limits`; читатель реестра Ticket-а 09:
+  последняя строка CLIXML, `SystemRoot` вида `\Windows`.
+- **Проверки на Windows-ПК** (на `56b7a1a` + Итог): `pnpm install --frozen-lockfile` — 0, `pnpm lint` —
+  0, `pnpm typecheck` — 0. `pnpm test` — 1: `48 failed | 122 passed (170)` файлов, `591 failed | 2737
+  passed | 16 skipped (3344)` test-ов; против main `f95b7e7` (`53 | 116`, `709 | 2560 | 16 (3285)`)
+  по именам test-ов — 119 падений ушло (`agent-controls` 37, `agent-attachments` 25,
+  `agent-session` 20, `permissions` 15 — их держала проверка `cwd` у `agent.start`; ещё
+  `statusline-bridge` 8, `card-last-editor` 4, `claude-home-registry` 3 и другие), одно новое —
+  `check-handoff` «passes exactly 15360 bytes», timeout 5000 мс под нагрузкой; отдельно файл —
+  exit 0, `11 passed`.
+- **Данные dev-сборки на ПК:** прежние запуски писали в `C:\Users\Alexey\Library\Application
+  Support\worfy` и `…\worfy-dev` (путь macOS). Новая dev-сборка начинает в `%APPDATA%\worfy-dev` с
+  чистого листа; переноса нет — сборок под Windows ещё не выпускали. Старые папки не тронуты.
+- **Проверка dev-сборки на ПК** (владелец, `v0.2.0+693f4d7`, снимок
+  `../evidence/08-session-ы-на-windows.png`):
+  - данные dev-сборки — в `%APPDATA%\worfy-dev` (там `first-run.json`, `Local State` …);
+  - «Add project» новой папки на Windows сейчас не пройти: подключение идёт через Harness, а
+    dev-сборка его не ставит (Harness на Windows — Ticket-ы 03–07, 12). Для проверки Project worfy
+    записан в `%APPDATA%\worfy-dev\projects.json` так, как его пишет `ProjectStore` (`path` из `git
+    rev-parse` — `C:/Users/Alexey/worfy`, id `worfy-d5750da7`);
+  - Sessions «2 live»: Orchestrator самой worfy и Session `claude`, запущенная владельцем в
+    PowerShell в подпапке `C:\Users\Alexey\worfy\src` (pid 47344, `cli` в
+    `%USERPROFILE%\.claude\sessions\47344.json`) — «src-05 · terminal · idle». Session из корня, уже
+    закрытая, — на холсте как `finished`. Транскрипты из `%USERPROFILE%\.claude\projects` видны;
+  - мост: образец JSON строки состояния, поданный в `node scripts\statusline-bridge.mjs` (exit 0),
+    записал `%APPDATA%\worfy-dev\statusline-limits.json`; `%APPDATA%\worfy` нет — туда не писал.
+    Dev-сборка показала полосы Limits: 5-hour 29 %, 7-day 9 %;
+  - не проверено: привязка Session в `.claude\worktrees\NN` к Ticket-у NN в живой сборке — без
+    Harness нет модели Epic-ов (панель Epics: «epic-status not found»), так что Binding к Ticket-у
+    не из чего строить; покрыто test-ами `binding.test.ts` и `ticket-ref.test.ts`. Живой прогон
+    `statusLine` с мостом — тоже нет (`statusLine` ставит владелец).
+- **Первый круг ревью PR #200:**
+  - вход `statusline-bridge.sh` переписан. Прежний «тонкий вход» гасил строку пользователя при
+    `node`, который падает (shim asdf/mise без версии — 126, старый Node — SyntaxError), а без `node`
+    переставал писать Limits, хотя старый мост писал их через `/usr/bin/jq` (он есть в macOS 15+). Теперь
+    вход читает stdin один раз, байт в байт; пробует `node statusline-bridge.mjs` только для Limits
+    (вывод и код не смотрит); без `node` или при его падении пишет Limits прежним путём через `jq`;
+    команду пользователя всегда запускает сам и выходит с её кодом. Test-ы входа без `node`, с
+    падающим и со «старым» `node`-стабом и на stdin байт в байт идут там, где есть `/bin/sh` (на Mac).
+    На ПК тот же сценарий прогнан вручную в Git Bash (`jq` — стаб на Node): новый вход — все три
+    случая exit 3, строка пользователя, пустой stderr, Limits записаны; вход из `693f4d7` — без `node`
+    Limits нет, с падающим и старым `node` — exit 126 и 1, строки нет;
+  - ссылки `C:\…` в markdown не открывались: `urlTransform` `react-markdown` по умолчанию обнулял их,
+    а парсер отдаёт `\` закодированным (`C:%5CUsers…`). `Markdown.tsx` пропускает мимо
+    `defaultUrlTransform` только абсолютные пути Windows (`isWindowsPathLink`, после раскодирования);
+    test-ы через `<Markdown>` (до правки — красные);
+  - одно правило `APPDATA` у `dataRoot` и моста — `isWindowsAbsolutePath` (`C:\…`, `C:/…`, UNC; не
+    `/x`, `\x`, `C:x`); test сверяет мост с `dataRoot` на восьми значениях;
+  - `last-editor`: путь Git Bash `/c/…` против папки Card-ов Windows — диск C:; `\x` — корень диска
+    cwd; `C:x` — в cwd на том же диске, иначе null; test-ы POSIX-веток;
+  - время старта процесса кэшируется по pid на 30 с (`PROCESS_START_CACHE_MS`): опрос идёт раз в 2 с,
+    и PowerShell запускался бы каждый раз. `?`, pid без ответа и упавшее чтение не кэшируются.
+    Риск — pid, занятый новым процессом в эти 30 с при оставшемся файле умершей Session;
+  - test текста скрипта PowerShell и `SystemRoot` в `readWindowsProcessStarts`;
+  - **долги:** `isInsidePath` на Windows сравнивает через `toLowerCase`, шире, чем NTFS (косметика);
+    нет test-а, что `inProject` передаёт платформу в `isInsidePath`; `claimIn` не видит формы команды
+    в кавычках, как её пишет skill (было и до этого PR).
+- **Второй круг ревью PR #200:**
+  - **UNC-ссылка и NTLM.** Щелчок по `[x](\\host\share\f)` в любом markdown вёл main к `realpath`
+    этого пути до проверки «внутри Project-а» (`src/main/ipc/shell.ts`) — Windows подключается к
+    хосту по SMB и отдаёт ему NTLM-хэш пользователя. Теперь `resolveProjectFile` сначала по одному
+    тексту пути (правила платформы, `path.win32` на Windows) проверяет, что он внутри корня или
+    worktree Project-а — как они записаны и как real path; путь снаружи отклоняется без единого
+    обращения к файловой системе. Project, сам лежащий на шаре, открывает свои файлы там же.
+    `classifyLink` не считает ссылкой UNC и device-пути (`\\host\…`, `//host/…`, `\\?\`, `\\.\`): в
+    renderer нет корня Project-а, чтобы проверить «та же шара». Test-ы — `test/unit/shell-resolve.test.ts`
+    (шпион на `realpath`: до него доходят только папки Project-а) и Markdown/`classifyLink`.
+    Старый код в этом test-е на ПК обращался к `\\attacker\…` и `\\nas\…` по-настоящему (3,2 и 2,7 с
+    ожидания на несуществующих именах) — уязвимость воспроизводилась;
+  - **мост `.mjs` выходил с кодом 0, не записав Limits** — и `jq` не подхватывал: stdin больше 64 КБ
+    (`readFileSync(0)` — EAGAIN на pipe), мусор после JSON, `node`-стаб с кодом 0. Теперь stdin
+    читается потоком; берётся первый JSON-объект (как `jq` читает первое значение потока); вход
+    `.sh` зовёт `.mjs` с `--worfy-limits-only`, и только ответ `written` считается записью — иначе
+    `jq`. `.mjs` в этом режиме печатает `written` или выходит с кодом 2. На ПК вручную в Git Bash
+    (`jq` — стаб на Node): новый вход — «тихий» `node`, настоящий `node` без `jq` (обычный JSON, 70
+    КБ, JSON с мусором), падающий `node` — везде exit 3, строка, Limits есть; вход круга 1
+    (`ad1a8ce`) — с «тихим» `node` и на JSON с мусором Limits нет (EAGAIN на 70 КБ в Git Bash не
+    воспроизвёлся; ревьюер воспроизвёл его на Mac);
+  - low: test-ы входа `.sh` с настоящим `node` без `jq`, на 70 КБ и JSON с мусором (на Mac);
+    защитные ветки POSIX в `againstCwd`; test `c:alert(1)` смотрит на `href`; одно регулярное
+    выражение UNC в `paths.ts`; значения кэша по умолчанию (`PROCESS_START_BATCH_MS`,
+    `PROCESS_START_CACHE_MS`, `Date.now`) закреплены test-ом; комментарий `hintStyle`.
+- **Третий круг ревью PR #200:**
+  - **регрессия на macOS.** Проверка по тексту из круга 2 шла на всех платформах, и абсолютная
+    ссылка на файл Project-а через symlink-псевдоним корня или в другом регистре на
+    регистронезависимом APFS отклонялась (на `f95b7e7` открывалась). Теперь по тексту решается только
+    UNC и device-путь на Windows (после `path.win32.resolve` он начинается с `\\`: `\\host\…`,
+    `//host/…`, `/\host\…`, `\\?\…`, `\\.\…`), кроме путей внутри папок самого Project-а; всё
+    остальное — прежний порядок: `realpath`, затем проверка по реальным корням. Test-ы: псевдоним
+    корня и другой регистр по правилам POSIX с подменённым `realpath`; на файловой системе машины —
+    symlink-псевдоним (не на Windows) и другой регистр (пропуск, если том регистрозависимый); `D:\…`
+    и `..\…` на Windows доходят до `realpath` и отклоняются после него;
+  - **вход моста по голому имени.** Без `/` в `$0` вход брал `.` за свою папку и запускал
+    `statusline-bridge.mjs` из cwd Claude Code — папки проекта пользователя. Теперь папка — та, где
+    его находит `command -v -- "$0"`; не абсолютный путь — без `node`, сразу `jq`. Test (на Mac):
+    вызов по имени через PATH из папки с подложным `.mjs` — он не запускается, Limits записаны через
+    настоящий `.mjs`. На ПК вручную в Git Bash (`bash statusline-bridge.sh` из папки с подложным
+    `.mjs`, `jq` нет): вход `be77ddd` запускал подложный и Limits не писал, новый — подложный не
+    запускается, Limits есть;
+  - low: `classifyLink` возвращает `none` для пути с двумя разделителями в начале (`/\\host\share`,
+    `\/host/share`, `%2F%2Fhost`); мёртвая ветка UNC в `windowsPath` убрана; test-ы правила `\\?\`
+    (с `?` в виде `%3F` — сырой `?` срезается как query) и массивов в `firstObject`;
+  - **долг (был до PR):** `isInside` в `shell.ts` и `isInsidePath` на win32 сравнивают через
+    `toLowerCase`: соседняя папка, в имени которой знак Кельвина (U+212A → `k`), сойдёт за папку
+    Project-а. Не исправлено.
+- **Четвёртый круг ревью PR #200:**
+  - **зависание `spawnSync` на большом stdin.** `.mjs` отдавал stdin команде пользователя через
+    `input` у `spawnSync`; на macOS (Node 24.19) при 70 КБ вызов изредка не возвращался: команда
+    прочитала всё, а конца ввода не получила. На Windows именно этот вызов запускает команду
+    пользователя. Теперь `runCommand`: асинхронный `spawn`, stdin пишется потоком и закрывается,
+    ошибка записи (команда не читает stdin) не роняет мост, команда останавливается через 10 с
+    (`COMMAND_TIMEOUT_MS`, код 1) — на macOS вход `.sh` запускает команду сам, без этого предела.
+    На ПК (Node 22.13, Git Bash) зависание не воспроизвелось: 30 запусков старого `.mjs` на 70 КБ —
+    0 сбоев, нового — 0. Test-ы: 30 запусков подряд на 70 КБ через `spawn` с timeout; команда, не
+    читающая stdin (300 КБ); код выхода и предел времени `runCommand`; у всех внешних `spawnSync`
+    в test-е — timeout, большие входы идут через `spawn`;
+  - **вход по голому имени — сразу `jq`.** `command -v -- "$0"` не называет файл, который запустил
+    sh: с `.` в PATH `/bin/sh` на macOS и ksh дают путь под текущей папкой, и `node` запускал `.mjs`
+    проекта. Без `/` в `$0` `node` не запускается вовсе. Test-ы (на Mac): голое имя через PATH и с
+    `.` в PATH — `node`-стаб не запускался, Limits пишет `jq`; `./statusline-bridge.sh` и абсолютный
+    путь к неисполняемой копии — `.mjs` рядом. На ПК вручную в Git Bash — те же четыре случая;
+  - low: `classifyLink` проверяет два разделителя и у нормализованного пути (`/./\host\share`);
+    test-ы `shell.ts`: шара `repo-evil` рядом с `repo`, Project через подключённый диск с реальным
+    путём UNC, другой регистр на регистрозависимом томе;
+  - **долг (был до PR):** локальный путь внутри Project-а, который сам symlink на `\\host\share\…`,
+    доходит до `realpath` (`src/main/ipc/shell.ts`, тот же порядок в `src/main/cards/protocol.ts`),
+    и Windows может обратиться к хосту до отказа. Нужен репозиторий с таким symlink и
+    `core.symlinks=true`. Отдельный Ticket — за Orchestrator-ом и владельцем.
+- **Известное падение на Windows, не от этого PR** (для Ticket-а 14, gate full на Windows):
+  `test/contract/link-server.test.ts` › «the server closes a pairing socket that sends more than
+  65536 bytes with 1009» — `expected 1006 to be 1009` (строка 496): клиент видит обрыв соединения
+  (1006) вместо кода «сообщение слишком большое» (1009). На main `0f4bf19` этот test, запущенный
+  отдельно (`vitest run test/contract/link-server.test.ts -t "65536 bytes with 1009"`), падает 3 раза
+  из 3; на head PR #209 `3e6b2cb` — 5 из 5. В полных прогонах `pnpm test` на ПК результат плавает:
+  упал на main `f95b7e7`, на `3e6b2cb` и в круге 4 этого PR, прошёл на main `0f4bf19` и в кругах 2
+  и 3. Код Link-а этот PR не трогает; причина не разбиралась.
+- **Долги Ticket-а 09** из последнего комментария PR #194 — в Итоге Ticket-а 09.

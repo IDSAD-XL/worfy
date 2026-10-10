@@ -6,16 +6,14 @@
 // Handled in src/main/ipc/bindings.ts (ADR 0006).
 import { z } from 'zod'
 import { agentSignalsSchema, bindingTargetSchema } from '../binding/resolve'
+import { absolutePathSchema } from '../paths'
 import { eventChannel, invokeChannel } from './channels'
 import { agentIdSchema, sessionIdSchema } from './claude-home'
 
 const projectId = z.string().min(1)
 
-/** An absolute POSIX path; the main process resolves it again before use. */
-const absolutePath = z
-  .string()
-  .min(1)
-  .refine((path) => path.startsWith('/') && !path.includes('\0'), 'must be an absolute path')
+/** An absolute path, POSIX or Windows; the main process resolves it again before use. */
+const absolutePath = absolutePathSchema
 
 /** The agent a manual Binding is for: a Session (`agentId` null) or one of its Subagents. */
 export const bindingAgentSchema = z.object({ sessionId: sessionIdSchema, agentId: agentIdSchema.nullable() })

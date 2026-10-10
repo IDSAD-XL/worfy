@@ -7,7 +7,7 @@
 //   `resetsAt` may be missing;
 // - the `rate_limits` object Claude Code passes to the status line command (2.1.284:
 //   `{five_hour: {used_percentage, resets_at}, seven_day: {...}}`), which
-//   scripts/statusline-bridge.sh copies into <WORFY_DATA_DIR>/statusline-limits.json.
+//   scripts/statusline-bridge.mjs copies into <WORFY_DATA_DIR>/statusline-limits.json.
 //
 // Both are read leniently into per-window updates; a newer update replaces the older one of the
 // same window, except that an update without a reset time keeps the one already known while it is

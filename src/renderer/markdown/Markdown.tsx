@@ -1,9 +1,9 @@
 import { useMemo, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
-import ReactMarkdown, { type Components } from 'react-markdown'
+import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { invoke } from '../ipc'
 import { useFileElsewhere } from '../machines/useFileElsewhere'
-import { classifyLink } from './links'
+import { classifyLink, isWindowsPathLink } from './links'
 import { remarkSoftBreaks } from './soft-breaks'
 import './markdown.css'
 
@@ -27,6 +27,13 @@ export interface MarkdownProps {
   /** Keep single newlines as line breaks, as chat text means them (soft-breaks.ts). */
   breaks?: boolean
 }
+
+/**
+ * react-markdown's own sanitising of a link or image address, except for an absolute Windows path
+ * (`C:\…`, worfy-windows ticket 08), which it would blank as an unknown `c:` scheme. classifyLink
+ * decides what such a path opens.
+ */
+const keepWindowsPaths = (url: string): string => (isWindowsPathLink(url) ? url : defaultUrlTransform(url))
 
 /** The hint "File is on <Machine>" next to a file link in a window on a Linked machine. */
 const hintStyle: CSSProperties = { marginLeft: 6, fontSize: 'var(--text-11)', color: 'var(--text-muted)' }
@@ -91,7 +98,7 @@ export function Markdown({ text, projectId, baseDir, breaks = false }: MarkdownP
   )
   return (
     <div className="w-md">
-      <ReactMarkdown remarkPlugins={breaks ? [remarkGfm, remarkSoftBreaks] : [remarkGfm]} components={components}>
+      <ReactMarkdown remarkPlugins={breaks ? [remarkGfm, remarkSoftBreaks] : [remarkGfm]} components={components} urlTransform={keepWindowsPaths}>
         {text}
       </ReactMarkdown>
     </div>

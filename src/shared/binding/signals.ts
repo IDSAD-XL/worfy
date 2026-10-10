@@ -31,10 +31,10 @@ type Json = Record<string, unknown>
 const isObject = (value: unknown): value is Json => typeof value === 'object' && value !== null && !Array.isArray(value)
 const cap = (value: string, max: number): string => (value.length > max ? value.slice(0, max) : value)
 
-/** `ticket claim <epic> <NN>` or `ticket claim <epic>/<NN>` as a word of a shell command (any path before `ticket`). */
-const CLAIM = /(?:^|[\s;&|()/'"`])ticket\s+claim\s+([A-Za-z0-9][A-Za-z0-9._-]*?)(?:\/|\s+)(\d+)(?![\w-])/gu
-/** A Ticket file's path: `.scratch/<epic>/issues/<NN>-…`. */
-const TICKET_PATH = /(?:^|[^A-Za-z0-9._-])\.scratch\/([A-Za-z0-9][A-Za-z0-9._-]*)\/issues\/(\d+)-/u
+/** `ticket claim <epic> <NN>` or `ticket claim <epic>/<NN>` as a word of a shell command (any path before `ticket`, with `/` or `\`). */
+const CLAIM = /(?:^|[\s;&|()/\\'"`])ticket\s+claim\s+([A-Za-z0-9][A-Za-z0-9._-]*?)(?:\/|\s+)(\d+)(?![\w-])/gu
+/** A Ticket file's path: `.scratch/<epic>/issues/<NN>-…`, with `/` or, on Windows, `\` (worfy-windows ticket 08). */
+const TICKET_PATH = /(?:^|[^A-Za-z0-9._-])\.scratch[\\/]([A-Za-z0-9][A-Za-z0-9._-]*)[\\/]issues[\\/](\d+)-/u
 
 /** The last claim in a Bash command; null when it has none. */
 export function claimIn(command: string): (TicketRef & { command: string }) | null {

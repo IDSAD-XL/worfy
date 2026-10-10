@@ -3,10 +3,12 @@
 //
 // - live Sessions: sessions/<pid>.json. A file alone does not prove the Session runs, so it is
 //   live only when the process `pid` exists and was started at `procStart` (`ps -o lstart=` in
-//   UTC); this guards against a reused pid.
+//   UTC; on Windows the FILETIME of the start, read with PowerShell — worfy-windows ticket 08);
+//   this guards against a reused pid.
 // - history: projects/<dir>/<sessionId>.jsonl, where <dir> is the cwd the Session was started in,
 //   NFC-normalised, every character outside [A-Za-z0-9] replaced by `-` (long names shortened
-//   the way Claude Code does). A list reads only the head and the tail of each file.
+//   the way Claude Code does; on Windows the same rule: `C:\a\b` → `C--a-b`, evidence of
+//   worfy-windows ticket 01, section 12). A list reads only the head and the tail of each file.
 // - one rule for both: a Session belongs to the Project when its cwd is the root, a worktree, or
 //   a folder inside either. Folder names lose the difference between `/` and `-`, so a transcript
 //   in a folder that only starts like a subfolder of the Project is kept only when the cwd its
@@ -16,12 +18,13 @@
 // reads directory listings.
 import { execFile } from 'node:child_process'
 import { open, readdir, readFile } from 'node:fs/promises'
-import { join, relative, resolve, sep } from 'node:path'
+import { join, posix, relative, resolve, sep, win32 } from 'node:path'
 import { promisify } from 'node:util'
 import { watch, type FSWatcher } from 'chokidar'
 import { z } from 'zod'
 import type { HistorySession, LiveSession } from '../../shared/ipc/claude-home'
 import { parseTranscriptRecord } from '../../shared/transcript/parse'
+import { powershellScriptCommand, runFile, type RunFile } from '../agent/env'
 import { splitLines } from './tail'
 
 const run = promisify(execFile)
@@ -65,13 +68,21 @@ function dirMatch(dirName: string, roots: readonly string[]): DirMatch {
   return 'none'
 }
 
-const isInside = (path: string, root: string): boolean => path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`)
+/**
+ * Is `path` the folder `root` or inside it? Both are resolved by the rules of `platform`. On Windows
+ * the separator is `\` and the comparison ignores case, as the file system does by default
+ * (worfy-windows ticket 08): a Session started in a subfolder of a Project belongs to it.
+ */
+export function isInsidePath(path: string, root: string, platform: NodeJS.Platform = process.platform): boolean {
+  const paths = platform === 'win32' ? win32 : posix
+  const fold = (text: string): string => (platform === 'win32' ? text.toLowerCase() : text)
+  const inner = fold(paths.resolve(path))
+  const outer = fold(paths.resolve(root))
+  return inner === outer || inner.startsWith(outer.endsWith(paths.sep) ? outer : `${outer}${paths.sep}`)
+}
 
 /** Is `cwd` the root, a worktree or a folder inside one of them? */
-const inProject = (cwd: string, roots: readonly string[]): boolean => {
-  const path = resolve(cwd)
-  return roots.some((root) => isInside(path, root))
-}
+const inProject = (cwd: string, roots: readonly string[]): boolean => roots.some((root) => isInsidePath(cwd, root))
 
 // ---------------------------------------------------------------------------------------------
 // Dependencies that touch the system, replaceable in tests
@@ -97,13 +108,107 @@ export async function gitWorktrees(root: string): Promise<string[]> {
 
 const collapse = (text: string): string => text.trim().replace(/\s+/g, ' ')
 
+/** The start of each running process asked for, as a FILETIME in decimal, or `?` when it cannot be read; a pid not in the map runs no more. */
+export type WindowsProcessStarts = (pids: readonly number[]) => Promise<Map<number, string>>
+
+/**
+ * The start times of processes on Windows, by one Windows PowerShell call: `Get-Process`,
+ * `StartTime.ToFileTimeUtc()`. That is exactly the FILETIME Claude Code writes as `procStart` there
+ * (evidence of worfy-windows ticket 01, section 23; checked again for ticket 08: `Get-CimInstance
+ * Win32_Process` `CreationDate` drops the last digit, the 100 ns). Rejects when PowerShell fails.
+ */
+export function readWindowsProcessStarts(systemRoot: string | undefined = process.env.SystemRoot, run: RunFile = runFile): WindowsProcessStarts {
+  return (pids) =>
+    new Promise((done, fail) => {
+      const ids = pids.filter((pid) => Number.isInteger(pid) && pid > 0)
+      if (ids.length === 0) {
+        done(new Map())
+        return
+      }
+      const script = [
+        "$ErrorActionPreference = 'SilentlyContinue'",
+        `foreach ($process in Get-Process -Id ${ids.join(',')}) {`,
+        '  $start = $null',
+        '  try { $start = $process.StartTime } catch { }',
+        '  if ($null -eq $start) { "$($process.Id) ?" } else { "$($process.Id) $($start.ToFileTimeUtc())" }',
+        '}',
+        'exit 0',
+      ].join('\n')
+      const { file, args, options } = powershellScriptCommand(systemRoot, script)
+      run(file, args, options, (error, stdout) => {
+        if (error) {
+          fail(new Error(`${file} could not read process start times: ${error.killed ? 'timed out' : `exit ${String(error.code)}`}`))
+          return
+        }
+        const starts = new Map<number, string>()
+        for (const line of stdout.split(/\r?\n/)) {
+          const match = /^(\d+) (\d+|\?)\s*$/.exec(line)
+          if (match) starts.set(Number(match[1]), match[2]!)
+        }
+        done(starts)
+      })
+    })
+}
+
+/** How long the pids asked for are gathered before one PowerShell call reads them all. */
+export const PROCESS_START_BATCH_MS = 25
+/**
+ * How long a start time read for a pid is reused. The live list and the Subagents are asked again
+ * every 2 s; the start of a running process never changes, so PowerShell runs at most once in this
+ * time per pid. A pid that a new process took within it would still match the old start: that
+ * takes a registry file left behind by a dead Session and the pid reused within 30 s.
+ */
+export const PROCESS_START_CACHE_MS = 30_000
+
+/**
+ * `read`, but every pid asked for within PROCESS_START_BATCH_MS goes into one call: the live
+ * Sessions of a listing are checked by one PowerShell start, not one per Session. A start time
+ * read is reused for PROCESS_START_CACHE_MS; `?`, a pid not found and a failed read are not.
+ */
+export function batchedProcessStarts(
+  read: WindowsProcessStarts,
+  delayMs = PROCESS_START_BATCH_MS,
+  cacheMs = PROCESS_START_CACHE_MS,
+  now: () => number = Date.now,
+): (pid: number) => Promise<Map<number, string>> {
+  const known = new Map<number, { start: string; at: number }>()
+  let batch: { pids: Set<number>; starts: Promise<Map<number, string>> } | null = null
+  return (pid) => {
+    const cached = known.get(pid)
+    if (cached !== undefined && now() - cached.at < cacheMs) return Promise.resolve(new Map([[pid, cached.start]]))
+    if (batch === null) {
+      const pids = new Set<number>()
+      const starts = new Promise<void>((wait) => setTimeout(wait, delayMs)).then(async () => {
+        batch = null
+        const answer = await read([...pids])
+        const at = now()
+        for (const [each, start] of answer) if (start !== '?') known.set(each, { start, at })
+        return answer
+      })
+      batch = { pids, starts }
+    }
+    batch.pids.add(pid)
+    return batch.starts
+  }
+}
+
+let windowsStarts: ((pid: number) => Promise<Map<number, string>>) | null = null
+
+export interface ProcessStateOptions {
+  platform?: NodeJS.Platform
+  /** On Windows: the start of `pid` among others asked for at the same time; batchedProcessStarts(readWindowsProcessStarts()) by default. */
+  windowsStart?: (pid: number) => Promise<Map<number, string>>
+}
+
 /**
  * Whether process `pid` runs and, if `procStart` is given, was started at that time:
  * `alive`, `gone` (no such process, or another one started at another time under a reused pid),
- * or `unknown` when `ps` itself could not answer (not found, timed out, killed, no output).
- * `procStart` is `ps -o lstart=` in UTC with the C locale (ticket 09); EPERM still means it runs.
+ * or `unknown` when the start time could not be read (`ps` or PowerShell not found, timed out,
+ * killed, no output). EPERM still means it runs. `procStart` is, on macOS and Linux, `ps -o
+ * lstart=` in UTC with the C locale (ticket 09); on Windows the FILETIME of the process start in
+ * decimal (worfy-windows ticket 08), read for every pid of a listing by one PowerShell call.
  */
-export async function processState(pid: number, procStart: string | undefined): Promise<'alive' | 'gone' | 'unknown'> {
+export async function processState(pid: number, procStart: string | undefined, options: ProcessStateOptions = {}): Promise<'alive' | 'gone' | 'unknown'> {
   if (!Number.isInteger(pid) || pid <= 0) return 'gone'
   try {
     process.kill(pid, 0)
@@ -111,6 +216,19 @@ export async function processState(pid: number, procStart: string | undefined): 
     if (!(typeof error === 'object' && error !== null && 'code' in error && error.code === 'EPERM')) return 'gone'
   }
   if (procStart === undefined) return 'alive'
+  if ((options.platform ?? process.platform) === 'win32') {
+    const start = options.windowsStart ?? (windowsStarts ??= batchedProcessStarts(readWindowsProcessStarts()))
+    let starts: Map<number, string>
+    try {
+      starts = await start(pid)
+    } catch {
+      return 'unknown'
+    }
+    const found = starts.get(pid)
+    if (found === undefined) return 'gone'
+    if (found === '?') return 'unknown'
+    return found === procStart.trim() ? 'alive' : 'gone'
+  }
   let stdout: string
   try {
     stdout = (await run('ps', ['-p', String(pid), '-o', 'lstart='], { env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' }, timeout: 5000 })).stdout

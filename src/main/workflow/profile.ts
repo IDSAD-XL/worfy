@@ -16,6 +16,7 @@ import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
+import { isAbsolutePath } from '../../shared/paths'
 import { harnessHomes, locateHarness, scriptEnv } from '../harness/locate'
 
 /** The script's environment, for example the login shell's from src/main/agent/env.ts. */
@@ -231,7 +232,7 @@ export interface ResolvedProfile {
   repos: readonly ResolvedRepo[]
 }
 
-const absolute = z.string().refine((path) => path.startsWith('/') && !path.includes('\0'), 'not an absolute path')
+const absolute = z.string().refine(isAbsolutePath, 'not an absolute path')
 
 const resolvedSchema = z.object({
   _resolved: z.object({

@@ -75,6 +75,16 @@ describe('resolveBinding: signals in order of strength', () => {
     }
   })
 
+  // worfy-windows ticket 08: on Windows cwd comes with `\`.
+  it('binds a Windows cwd in .claude\\worktrees\\NN, or in a folder inside it, to Ticket NN', () => {
+    const windows: BindingWorkflow = { epics: ['worfy-windows'], tickets: [{ epic: 'worfy-windows', num: 5, state: 'open' }] }
+    for (const cwd of ['C:\\r\\.claude\\worktrees\\05', 'C:\\r\\.claude\\worktrees\\05\\src\\main', 'C:/r/.claude/worktrees/05', 'C:\\Users\\a\\.claude\\worfy-harness\\worktrees\\r\\05\\src']) {
+      expect(resolveBinding({ signals: signals({ cwd, gitBranch: 'HEAD' }) }, windows), cwd).toMatchObject({ target: { kind: 'ticket', epic: 'worfy-windows', num: 5 }, source: 'worktree' })
+    }
+    expect(resolveBinding({ signals: signals({ cwd: 'C:\\r\\.claude\\worktrees\\05' }) }, windows)?.detail).toBe('.claude/worktrees/05')
+    expect(resolveBinding({ signals: signals({ cwd: 'C:\\r\\.claude\\worktrees\\review-05' }) }, windows)).toBeNull()
+  })
+
   it('a folder number two Epics share goes to the one whose Ticket is not done, and to none when both are open', () => {
     expect(resolveBinding({ signals: signals({ cwd: '/repo/.claude/worktrees/12' }) }, workflow)?.target).toEqual({ kind: 'ticket', epic: 'worfy-mvp', num: 12 })
     expect(resolveBinding({ signals: signals({ cwd: '/repo/.claude/worktrees/30' }) }, workflow)).toBeNull()
@@ -312,6 +322,17 @@ describe('extendSignals', () => {
     expect(state.signals.task).toEqual({ epic: 'worfy-mvp', num: 12 })
     const blocks = extendSignals(emptySignalState(), [line({ type: 'user', message: { content: [{ type: 'text', text: 'see .scratch/auction/issues/30-x.md' }] } })], { subagent: true })
     expect(blocks.signals.task).toEqual({ epic: 'auction', num: 30 })
+  })
+
+  it('in a Subagent file, takes a Ticket path written with `\\` (worfy-windows ticket 08)', () => {
+    const prompt = 'Тикет: C:\\Users\\x\\repo\\.scratch\\worfy-windows\\issues\\05-x.md'
+    const state = extendSignals(emptySignalState(), [userText(prompt, { isSidechain: true, cwd: 'C:\\repo' })], { subagent: true })
+    expect(state.signals.task).toEqual({ epic: 'worfy-windows', num: 5 })
+  })
+
+  it('reads a claim after a Windows path to the ticket script', () => {
+    const state = extendSignals(emptySignalState(), [bash('C:\\Users\\x\\bin\\ticket claim worfy-windows 05')], { subagent: false })
+    expect(state.signals.claim).toMatchObject({ epic: 'worfy-windows', num: 5 })
   })
 
   it('in a Subagent file, drops cwd and gitBranch: they are the parent Session\'s, so the Ticket path in its task decides', () => {

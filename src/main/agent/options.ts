@@ -106,7 +106,7 @@ export interface CanvasAttachment {
 export interface SessionOptionsInput {
   /** Root of the Project the Session works in. */
   cwd: string
-  /** The agent environment, without API keys (env.ts): the login shell on macOS, a new sign-in on Windows. */
+  /** The agent environment, without API keys (env.ts): the login shell on macOS and Linux, a new sign-in on Windows. */
   env: Env
   runtime: RuntimeInfo
   /** Session id to continue, when the Session is resumed. */

@@ -20,6 +20,7 @@ import { attachmentSchema, attachmentSourceSchema, attachResultSchema, MAX_ATTAC
 import { slashCommandSchema } from '../agent/commands'
 import { agentEventEnvelope, permissionDecisionSchema, queueSnapshotSchema, sessionState } from '../agent/events'
 import { modelOptionSchema, sessionSettingsSchema, settingsChangeSchema } from '../agent/settings'
+import { absolutePathSchema } from '../paths'
 import { eventChannel, invokeChannel } from './channels'
 
 const sessionId = z.string().min(1)
@@ -28,7 +29,7 @@ export const agentStart = invokeChannel(
   'agent.start',
   z.object({
     /** Root of the Project: an absolute path to an existing directory. */
-    cwd: z.string().startsWith('/', 'cwd must be an absolute path'),
+    cwd: absolutePathSchema,
     /** SDK session id to continue. */
     resume: sessionId.optional(),
   }),

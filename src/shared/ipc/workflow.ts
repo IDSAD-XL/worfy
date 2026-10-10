@@ -1,11 +1,12 @@
 // The `workflow` domain: the Epics and Tickets of a Project, read through epic-status
 // (ADR-0002), and the stream of changes to them.
 import { z } from 'zod'
+import { absolutePathSchema } from '../paths'
 import { workflowDeltaSchema, workflowModelSchema } from '../workflow/types'
 import { eventChannel, invokeChannel } from './channels'
 
 /** A Project is named by the absolute path of its repository root. */
-const projectRoot = z.object({ root: z.string().min(1).startsWith('/', 'root must be an absolute path') })
+const projectRoot = z.object({ root: absolutePathSchema })
 
 /**
  * Reads the Project's workflow model and starts sending `workflow.changed` to the calling window

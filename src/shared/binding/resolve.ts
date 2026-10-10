@@ -154,8 +154,11 @@ function epicInArgs(args: string, workflow: BindingWorkflow | undefined): Bindin
 /**
  * `<anything>/.claude/worktrees/<NN>[-<slug>]/<anything>` → `.claude/worktrees/<NN>[-<slug>]`;
  * `<Harness home>/worktrees/<project>/<NN>[-<slug>]/<anything>` → `worktrees/<project>/<NN>[-<slug>]`.
+ * A Windows cwd (`C:\…\.claude\worktrees\05`) is read with `/` for `\` (worfy-windows ticket 08), so
+ * the folder is named the same on every system.
  */
-function worktreeFolderOf(cwd: string): string | null {
+function worktreeFolderOf(windowsOrPosix: string): string | null {
+  const cwd = windowsOrPosix.replace(/\\/g, '/')
   const inRepo = /(?:^|\/)(\.claude\/worktrees\/[^/]+)/u.exec(cwd)?.[1]
   if (inRepo !== undefined && parseWorktreeFolder(inRepo) !== null) return inRepo
   const outside = /(?:^|\/)(worktrees\/[^/.][^/]*\/\d+(?:-[^/]+)?)(?:\/|$)/u.exec(cwd)?.[1]

@@ -21,6 +21,7 @@
 // `workflow`, with its agents under it; the run's `journal.jsonl` says how each agent ended.
 import { z } from 'zod'
 import type { AgentEvent } from '../agent/events'
+import { lastPathSegment } from '../paths'
 import { parseTranscriptRecord, type TranscriptEntry } from './parse'
 
 /** Names of the tool that starts a Subagent: `Agent` since 2.1.222; `Task` in older versions. */
@@ -177,7 +178,8 @@ function workflowName(input: Json): string | null {
     if (named) return shortOf(named[2])
   }
   if (typeof input.scriptPath === 'string') {
-    const file = input.scriptPath.slice(input.scriptPath.lastIndexOf('/') + 1)
+    // With `/` or, on Windows, `\` (worfy-windows ticket 08).
+    const file = lastPathSegment(input.scriptPath)
     return shortOf(file.replace(/\.[cm]?[jt]s$/, '').replace(/-wf_[A-Za-z0-9_-]+$/, ''))
   }
   return null
@@ -185,7 +187,7 @@ function workflowName(input: Json): string | null {
 
 /** The run a Workflow call started, by its result: `Run ID: wf_…`, or the run's folder in `Transcript dir:`. */
 function workflowRunOf(text: string): string | null {
-  const id = /^Run ID: (\S+)\s*$/m.exec(text)?.[1] ?? /\/subagents\/workflows\/([^/\s]+)\s*$/m.exec(text)?.[1]
+  const id = /^Run ID: (\S+)\s*$/m.exec(text)?.[1] ?? /[\\/]subagents[\\/]workflows[\\/]([^\\/\s]+)\s*$/m.exec(text)?.[1]
   return id !== undefined && WORKFLOW_RUN_ID.test(id) ? id : null
 }
 

@@ -10,7 +10,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { ClaudeHomeRegistry, processAlive, processState } from '../../src/main/claude-home/registry'
-import { SubagentReader } from '../../src/main/claude-home/subagents'
+import { SubagentReader, transcriptSessionId } from '../../src/main/claude-home/subagents'
 import { ClaudeHomeSubscriptions, claudeHomeHandlers } from '../../src/main/ipc/claude-home'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
@@ -319,6 +319,15 @@ describe('claudeHome.subagents: Subagents without a task-notification user messa
 
 // The process check of the Session registry (registry.ts): what `ps` cannot answer is not a
 // process that ended (PR #45 review: with `ps` missing, a live Session was called closed).
+describe('transcriptSessionId (worfy-windows ticket 08)', () => {
+  it('is the transcript file name without .jsonl, the path split at `/` or `\\`', () => {
+    expect(transcriptSessionId('/h/projects/p/abc-1.jsonl')).toBe('abc-1')
+    expect(transcriptSessionId('C:\\Users\\u\\.claude\\projects\\C--p\\abc-1.jsonl')).toBe('abc-1')
+    expect(transcriptSessionId('C:/Users/u/.claude/projects/C--p/abc-1.jsonl')).toBe('abc-1')
+    expect(transcriptSessionId('abc-1.jsonl')).toBe('abc-1')
+  })
+})
+
 describe('processState', () => {
   /** This test's own process and its start time, as `ps` prints it for `procStart`. */
   const self = () => ({ pid: process.pid, procStart: execFileSync('ps', ['-p', String(process.pid), '-o', 'lstart='], { env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' } }).toString().trim() })

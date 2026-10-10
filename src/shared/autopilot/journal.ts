@@ -4,7 +4,8 @@
 // without any worfy code.
 //
 // Where. `<WORFY_DATA_DIR>/autopilot/<run>.jsonl`, one file per run, no rotation. WORFY_DATA_DIR
-// defaults to `~/Library/Application Support/worfy` (ADR-0005). `<run>` is the run id: the start
+// defaults to `~/Library/Application Support/worfy` on macOS and `%APPDATA%\worfy` on Windows
+// (ADR-0005, worfy-windows ticket 08). `<run>` is the run id: the start
 // time in UTC with `:` and `.` replaced by `-`, a dash, and six lowercase hex digits, for example
 // `2026-10-06T01-02-03-004Z-a1b2c3`. File names sort by start time; the newest run is the last.
 //
@@ -131,6 +132,8 @@
 //
 //   printf '%s\n' '{"at":"2026-10-06T04:05:00+03:00","run":"2026-10-06T01-02-03-004Z-a1b2c3","project":"worfy-1a2b3c4d","epic":"worfy-daily","kind":"human-input","source":"observer","what":"clicked Allow on a Keychain dialog"}' \
 //     >> "$HOME/Library/Application Support/worfy/autopilot/2026-10-06T01-02-03-004Z-a1b2c3.jsonl"
+//
+// On Windows, in Git Bash, the file is "$APPDATA/worfy/autopilot/<run>.jsonl".
 //
 // Reading. A line that is not JSON (the last line cut off by a crash), a line of an unknown kind
 // and a line whose fields do not match its kind are skipped and counted; the other lines are

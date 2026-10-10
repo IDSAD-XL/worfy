@@ -17,6 +17,8 @@ import { launchApp, type LaunchedApp, NO_WINDOW_RESTORE, repoRoot } from './help
 const distDir = join(repoRoot, 'dist')
 const installScript = join(repoRoot, 'scripts', 'install-stable.sh')
 const bridgeScript = join(repoRoot, 'scripts', 'statusline-bridge.sh')
+/** The work of the bridge, in Node, next to its entry (worfy-windows ticket 08). */
+const bridgeModule = join(repoRoot, 'scripts', 'statusline-bridge.mjs')
 
 // The status line JSON of test/contract/statusline-bridge.test.ts (Claude Code 2.1.284), copied:
 // that file runs under vitest and cannot be imported here.
@@ -424,13 +426,16 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
   // The status line bridge ships in the .app (worfy-harness ticket 15), so the `statusLine` the
   // Harness migration form of ticket 14 proposes, <process.resourcesPath>/statusline-bridge.sh,
   // does not depend on a checkout of the repository.
-  test('the copy carries scripts/statusline-bridge.sh as Contents/Resources/statusline-bridge.sh, executable', () => {
+  test('the copy carries scripts/statusline-bridge.sh as Contents/Resources/statusline-bridge.sh, executable, with statusline-bridge.mjs next to it', () => {
     const bridge = join(stableApp, 'Contents', 'Resources', 'statusline-bridge.sh')
+    const module = join(stableApp, 'Contents', 'Resources', 'statusline-bridge.mjs')
     expect(existsSync(bridge)).toBe(true)
     expect(isExecutable(bridge)).toBe(true)
-    // Packaged from this build (not a WORFY_PACKAGED_APP copy): the very file of the repository.
+    expect(existsSync(module)).toBe(true)
+    // Packaged from this build (not a WORFY_PACKAGED_APP copy): the very files of the repository.
     if (!process.env.WORFY_PACKAGED_APP) {
       expect(readFileSync(bridge).equals(readFileSync(bridgeScript))).toBe(true)
+      expect(readFileSync(module).equals(readFileSync(bridgeModule))).toBe(true)
     }
   })
 
@@ -591,6 +596,7 @@ test.describe('scripts/install-stable.sh', { tag: '@packaged' }, () => {
     expect(existsSync(bridge)).toBe(true)
     expect(isExecutable(bridge)).toBe(true)
     expect(readFileSync(bridge).equals(readFileSync(bridgeScript))).toBe(true)
+    expect(readFileSync(join(target, 'Contents', 'Resources', 'statusline-bridge.mjs')).equals(readFileSync(bridgeModule))).toBe(true)
   })
 
   test('refuses with a non-zero exit code while the copy is running, and leaves it in place', async () => {

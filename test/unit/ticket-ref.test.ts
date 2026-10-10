@@ -40,6 +40,14 @@ describe('parseWorktreeFolder', () => {
     expect(parseWorktreeFolder('/Users/a/repo/.claude/worktrees/07-движок-сессий')).toEqual({ num: 7, slug: 'движок-сессий' })
   })
 
+  it('reads a Windows path with `\\` (worfy-windows ticket 08)', () => {
+    expect(parseWorktreeFolder('C:\\r\\.claude\\worktrees\\05')).toEqual({ num: 5, slug: null })
+    expect(parseWorktreeFolder('C:\\r\\.claude\\worktrees\\05-x\\')).toEqual({ num: 5, slug: 'x' })
+    expect(parseWorktreeFolder('.claude\\worktrees\\05')).toEqual({ num: 5, slug: null })
+    expect(parseWorktreeFolder('C:\\Users\\a\\.claude\\worfy-harness\\worktrees\\atakama\\05')).toEqual({ num: 5, slug: null })
+    expect(parseWorktreeFolder('C:\\r\\.claude\\worktrees\\05\\src')).toBeNull()
+  })
+
   it('reads <Harness home>/worktrees/<project>/<NN>, the tree of a Ticket outside the repository (worfy-harness ticket 23)', () => {
     expect(parseWorktreeFolder('/Users/a/.claude/worfy-harness/worktrees/atakama/05')).toEqual({ num: 5, slug: null })
     expect(parseWorktreeFolder('/Users/a/.claude/worfy-harness/worktrees/atakama/05/')).toEqual({ num: 5, slug: null })

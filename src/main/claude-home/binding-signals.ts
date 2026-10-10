@@ -7,6 +7,7 @@ import { readdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { AgentSignals } from '../../shared/binding/resolve'
 import { emptySignalState, extendSignals, type SignalState } from '../../shared/binding/signals'
+import { transcriptSessionId } from './subagents'
 import { readNewLines, type TailCursor } from './tail'
 
 const AGENT_TRANSCRIPT = /^agent-([A-Za-z0-9][A-Za-z0-9_-]{0,127})\.jsonl$/
@@ -44,7 +45,7 @@ export class BindingSignalReader {
 
   /** The signals of the Session whose transcript is at `path` and of each of its Subagents that has a transcript. */
   async session(path: string): Promise<SessionSignals> {
-    const sessionId = path.slice(path.lastIndexOf('/') + 1).replace(/\.jsonl$/, '')
+    const sessionId = transcriptSessionId(path)
     const folder = join(dirname(path), sessionId, 'subagents')
     let names: string[] = []
     try {

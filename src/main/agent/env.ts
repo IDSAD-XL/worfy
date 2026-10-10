@@ -216,17 +216,23 @@ export interface PowershellCommand {
 }
 
 /**
- * How registryScript runs: Windows PowerShell of `systemRoot` by its absolute path — C:\Windows when
+ * How a script runs: Windows PowerShell of `systemRoot` by its absolute path — C:\Windows when
  * `systemRoot` is missing, empty or not absolute — without a profile and without prompts, hidden,
- * with a timeout.
+ * with a timeout. Also used by the live Session check of src/main/claude-home/registry.ts.
  */
-export function powershellCommand(systemRoot: string | undefined, key: string): PowershellCommand {
-  const root = systemRoot && win32.isAbsolute(systemRoot) ? systemRoot : 'C:\\Windows'
+export function powershellScriptCommand(systemRoot: string | undefined, script: string): PowershellCommand {
+  // A drive and its root: `\Windows` (the root of the current drive) passes win32.isAbsolute but is not one.
+  const root = systemRoot && /^[A-Za-z]:[\\/]/.test(systemRoot) ? systemRoot : 'C:\\Windows'
   return {
     file: win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-    args: ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(registryScript(key), 'utf16le').toString('base64')],
+    args: ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
     options: { encoding: 'utf8', timeout: SHELL_TIMEOUT_MS, windowsHide: true },
   }
+}
+
+/** How registryScript runs for `key` (powershellScriptCommand). */
+export function powershellCommand(systemRoot: string | undefined, key: string): PowershellCommand {
+  return powershellScriptCommand(systemRoot, registryScript(key))
 }
 
 export type RunFile = (
@@ -236,17 +242,38 @@ export type RunFile = (
   done: (error: { code?: unknown; killed?: boolean } | null, stdout: string, stderr: string) => void,
 ) => void
 
-const runFile: RunFile = (file, args, options, done) => {
+export const runFile: RunFile = (file, args, options, done) => {
   execFile(file, args, options, (error, stdout, stderr) => done(error, stdout, stderr))
 }
 
-/** Why the reader failed: the timeout, the script's own Error line, or the last line of stderr. */
+const XML_ENTITIES: Record<string, string> = { lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' }
+
+/**
+ * The line of stderr that says what failed. powershell.exe writes a redirected error stream as
+ * CLIXML (`#< CLIXML` and one line of XML), even with -OutputFormat Text (checked on the owner's PC
+ * for worfy-windows ticket 08): its message is the first line of the `<S S="Error">` strings.
+ * Plain stderr gives its last line.
+ */
+export function stderrLine(stderr: string): string | null {
+  const clixml = stderr.trimStart().startsWith('#< CLIXML')
+  const text = clixml
+    ? [...stderr.matchAll(/<S S="Error">([\s\S]*?)<\/S>/g)]
+        .map((match) => match[1]!)
+        .join('')
+        .replace(/_x([0-9A-Fa-f]{4})_/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+        .replace(/&(lt|gt|quot|apos|amp);/g, (_, name: string) => XML_ENTITIES[name]!)
+    : stderr
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== '')
+  return (clixml ? lines[0] : lines.at(-1)) ?? null
+}
+
+/** Why the reader failed: the timeout, the script's own Error line, or what stderr says. */
 function readerFailure(error: { code?: unknown; killed?: boolean }, stdout: string, stderr: string): string {
   if (error.killed) return `timed out after ${SHELL_TIMEOUT_MS / 1000} s`
   const own = /^Error ([A-Za-z0-9+/]*=*) *$/m.exec(stdout)
   if (own) return fromBase64(own[1])
-  const last = stderr.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== '').pop()
-  return last ? `exit ${String(error.code)}: ${last.slice(0, 300)}` : `exit ${String(error.code)}`
+  const line = stderrLine(stderr)
+  return line ? `exit ${String(error.code)}: ${line.slice(0, 300)}` : `exit ${String(error.code)}`
 }
 
 /** Reads a key through Windows PowerShell (powershellCommand). */

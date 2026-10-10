@@ -1,30 +1,43 @@
 #!/bin/sh
-# worfy status line bridge: copies the `rate_limits` object that Claude Code passes to the status
-# line command into statusline-limits.json in worfy's data folder, where worfy reads its Limits
-# (ticket worfy-mvp/22). Claude Code 2.1.284 sends it after the first answer of a session:
-#   {"five_hour": {"used_percentage": 29, "resets_at": 1791202800}, "seven_day": {...}}
+# worfy status line bridge, entry: copies the `rate_limits` object that Claude Code passes to the
+# status line command into statusline-limits.json in worfy's data folders, where worfy reads its
+# Limits (ticket worfy-mvp/22), and passes stdin to the user's own status line command, whose output
+# and exit code come through unchanged.
 #
-# The data folder is WORFY_DATA_DIR when it is set. Otherwise the file goes to each of the two
-# folders that src/main/storage/paths.ts names and that exist: Application Support/worfy (the
-# packaged app, such as the stable copy) and Application Support/worfy-dev (`pnpm dev`), so a dev
-# run that works next to the stable copy sees the same Limits. A shell script cannot import
-# paths.ts; test/contract/statusline-bridge.test.ts keeps the two folder names in step with it.
-#
-# The script ships inside worfy.app as Contents/Resources/statusline-bridge.sh (electron-builder.yml)
-# and runs from there, so it depends on no checkout of the repository. It goes in front of the
-# user's own status line command, which gets the same stdin and whose output is passed through
-# unchanged:
+# This file stays at its path: the user's `statusLine` names it, as the Harness migration form wrote
+# it (ADR-0040, ADR-0047), and an update of the .app must not break it:
 #
 #   "statusLine": {"type": "command", "command": "/Applications/worfy.app/Contents/Resources/statusline-bridge.sh 'bash ~/.claude/statusline.sh'"}
 #
-# worfy points `statusLine` at this script only through the Harness migration form, after the user
-# agrees to that row (ADR-0040, ADR-0047); nothing else in worfy edits ~/.claude/settings.json.
-# Apart from that, worfy only reads statusline-limits.json.
+# The Limits are written by statusline-bridge.mjs next to this file (Node, worfy-windows ticket 08),
+# which answers `written` when it wrote them. When node is missing, fails or answers anything else (a
+# version manager's shim with no version, a Node too old for the script, a stub that exits 0, input
+# the script could not use), they are written as before through jq, which macOS 15
+# ships as /usr/bin/jq. The user's command is run here, never by the Node script: whatever happens to
+# the Limits, the user's status line keeps its output and exit code (Claude Code shows the line only
+# on exit 0). Both files ship in Contents/Resources (electron-builder.yml).
 #
-# Without an argument the script prints nothing. It writes nothing but that one file per folder,
-# only into a folder that exists (worfy has run) and only when jq is available, and never fails
-# the status line.
-input=$(cat)
+# Without an argument it prints nothing. It writes nothing but that one file per folder, only into
+# a folder that exists (worfy has run), and never fails the status line.
+#
+# Run it by absolute path, as worfy writes it into `statusLine`; a bare-name call takes the jq path.
+# With no `/` in `$0` nothing says where this file is: neither `.` nor what PATH finds is it for
+# sure, and either can be the current folder, which is the user's project, so no .mjs is run.
+case $0 in
+  */*) here=${0%/*} ;;
+  *) here= ;;
+esac
+
+# stdin as it is, trailing newlines included.
+input=$(cat; printf x)
+input=${input%x}
+
+# Only a `written` from the script counts: a `node` that exits 0 without running it (a stub, a shim
+# that prints a hint) or a script that wrote nothing leaves the Limits to jq.
+limits_by_node() {
+  [ -n "$here" ] && command -v node >/dev/null 2>&1 && [ -f "$here/statusline-bridge.mjs" ] || return 1
+  [ "$(printf '%s' "$input" | node "$here/statusline-bridge.mjs" --worfy-limits-only 2>/dev/null)" = written ]
+}
 
 # Written beside the target and renamed over it, so worfy never reads half a file.
 copy_limits() {
@@ -35,17 +48,19 @@ copy_limits() {
   fi
 }
 
-if command -v jq >/dev/null 2>&1; then
+limits_by_jq() {
+  command -v jq >/dev/null 2>&1 || return 0
   limits=$(printf '%s' "$input" | jq -c '.rate_limits | select(type == "object")' 2>/dev/null)
-  if [ -n "$limits" ]; then
-    if [ -n "${WORFY_DATA_DIR:-}" ]; then
-      copy_limits "$WORFY_DATA_DIR"
-    else
-      copy_limits "$HOME/Library/Application Support/worfy"
-      copy_limits "$HOME/Library/Application Support/worfy-dev"
-    fi
+  [ -n "$limits" ] || return 0
+  if [ -n "${WORFY_DATA_DIR:-}" ]; then
+    copy_limits "$WORFY_DATA_DIR"
+  else
+    copy_limits "$HOME/Library/Application Support/worfy"
+    copy_limits "$HOME/Library/Application Support/worfy-dev"
   fi
-fi
+}
+
+limits_by_node || limits_by_jq
 
 if [ $# -gt 0 ]; then
   printf '%s' "$input" | sh -c "$1"
