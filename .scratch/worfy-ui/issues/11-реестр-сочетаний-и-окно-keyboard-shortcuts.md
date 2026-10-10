@@ -1,7 +1,7 @@
 # 11 — Реестр сочетаний клавиш и окно Keyboard shortcuts
 
 Type: task
-Status: blocked — ждёт мержа Ticket-а 11 Epic-а worfy-windows (Ctrl вместо ⌘ на Windows: `src/renderer/platform.ts` с `isPrimary`, `isOtherModifier` и подписями своей системы); оба Ticket-а правят одни и те же обработчики клавиш. После его мержа Orchestrator ставит этому Ticket-у `open`
+Status: open
 Blocked by: 02, 03, 07, 10
 Source: решения владельца 2026-10-09: 6 (Ctrl на Windows — в Ticket-е 11 worfy-windows, здесь не повторяется), 7 (центральный реестр сочетаний — один источник для подписей обработчиков и для окна; окно с подписями своей системы открывают Cmd/Ctrl+/, «?» вне текстового поля, пункт палитры «Keyboard shortcuts» и Settings → Shortcuts; Ticket реестра ждёт worfy-windows 11), 8 (Cmd/Ctrl+B — везде) ([spec.md](../spec.md), «Как устроено», «Сочетания клавиш»; «Пересечения», worfy-windows 11 и worfy-terminal-ai 06; риски 5 и 8); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), пункт 2 (платформенный PR); [worfy-windows 11](../../worfy-windows/issues/11-окно-меню-уведомления-и-ctrl-на-windows.md); [worfy-terminal-ai 06](../../worfy-terminal-ai/issues/06-command-request.md) (⌘I в Terminal-е)
 
@@ -30,8 +30,9 @@ Source: решения владельца 2026-10-09: 6 (Ctrl на Windows — �
   (`FocusEntry.tsx:17`, `:41`) и строка в `epics.ts:134-135`.
 - Окна или списка сочетаний нет. Меню Help в worfy нет: `menuTemplate` — меню приложения (на Mac),
   File, Edit, View и Window (`src/main/menu.ts:11-34`).
-- Ticket 11 worfy-windows (открыт, ведёт Session на Windows-ПК): `src/renderer/platform.ts` —
-  `isMac`, `isPrimary`, `isOtherModifier`, подписи ⌘/Ctrl; обработчики выше переходят на `isPrimary`;
+- Ticket 11 worfy-windows влит 2026-10-10 (PR #215, `78fc03e`): `src/renderer/platform.ts` даёт
+  `isMac`, `isPrimary`, `isOtherModifier`, `isTerminalKey`, `label`, `ariaKeyShortcuts` и
+  `shortcutKey`; обработчики выше перешли на `isPrimary` (номера строк ниже сверить при claim);
   в Terminal Node на Windows Ctrl+K и Ctrl+F уходят в оболочку (его «Что делаем», пункты 1–3).
   Подписей «(⇧Enter)» и «⏎ select» в его списке нет — их переводит этот Ticket.
 - После Ticket-ов 02, 03 и 10 этого Epic-а — ускорители меню (`src/main/menu.ts`): «Settings…»
