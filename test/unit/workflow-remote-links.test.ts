@@ -176,14 +176,34 @@ describe('enrichSnapshot and a link that leads to a share (Windows rules)', () =
     expect(filesOf(model)).toEqual([['src/a.ts'], ['src/b.ts'], ['src/c.ts']])
   })
 
+  // Review round 1 of PR #233: with the Tickets root alone as the caller's own, a Project written
+  // as a UNC path lost the links that stay in its own repository.
+  it('reads a Ticket folder that is a link to another folder of the same Project on a share', async () => {
+    const root = '\\\\nas\\team\\repo'
+    const scratch = '\\\\nas\\team\\repo\\.scratch'
+    const moved = Object.fromEntries(Object.entries(filesUnder(scratch, '\\')).map(([path, text]) => [path.replace('\\.scratch\\alpha\\', '\\docs\\alpha\\'), text]))
+    const system = fakeSystem(moved, { '\\\\nas\\team\\repo\\.scratch\\alpha': '..\\docs\\alpha' })
+    // The reader asks by the path as written; the fake answers for the folder the link names.
+    const real = (path: string): string => path.replace('\\.scratch\\alpha', '\\docs\\alpha')
+    const fs = { readText: (path: string) => system.options.fs.readText(real(path)), readdir: (dir: string) => system.options.fs.readdir(real(dir)) }
+    const model = await enrichSnapshot(root, SNAPSHOT, scratch, { ...system.options, fs })
+    expect(titles(model)).toEqual(['Alpha epic', 'Beta epic'])
+    expect(filesOf(model)).toEqual([['src/a.ts'], ['src/b.ts'], ['src/c.ts']])
+    // A link out of the Project, to another folder of the same share, is still not the Project's own.
+    const out = fakeSystem(filesUnder(scratch, '\\'), { '\\\\nas\\team\\repo\\.scratch\\alpha': '\\\\nas\\team\\other\\alpha' })
+    expect(titles(await enrichSnapshot(root, SNAPSHOT, scratch, out.options))).toEqual([null, 'Beta epic'])
+  })
+
   it('given no links to read with, reads them with lstat of Node', async () => {
-    // A folder that is on no machine: each walk ends at its first segment, which is not there.
+    // A folder that is on no machine: each walk ends at the folder it starts at, which is not there.
+    // It starts at the Project root, the outer one of the two folders the paths may go.
+    const root = 'C:\\worfy-no-such-folder-19\\repo'
     const scratch = 'C:\\worfy-no-such-folder-19\\repo\\.scratch'
     const system = fakeSystem(filesUnder(scratch, '\\'))
-    const model = await enrichSnapshot('C:\\worfy-no-such-folder-19\\repo', SNAPSHOT, scratch, { paths: win32, fs: system.options.fs })
+    const model = await enrichSnapshot(root, SNAPSHOT, scratch, { paths: win32, fs: system.options.fs })
     expect(titles(model)).toEqual(['Alpha epic', 'Beta epic'])
     expect(asked.lstat.length).toBeGreaterThan(0)
-    expect(new Set(asked.lstat)).toEqual(new Set([scratch]))
+    expect(new Set(asked.lstat)).toEqual(new Set([root]))
     expect(asked.readFile).toEqual([])
     expect(asked.readdir).toEqual([])
   })

@@ -24,7 +24,7 @@ vi.mock('node:fs/promises', async (original) => {
   return { ...actual, lstat: watched('lstat'), stat: watched('stat'), realpath: watched('realpath') }
 })
 
-const { isInside, leadsToRemote, MAX_LINK_HOPS, nodeLinks, walkLinks } = await import('../../src/main/remote-links')
+const { isInside, leadsToRemote, MAX_LINK_HOPS, nodeLinks, UNCHECKED, walkLinks } = await import('../../src/main/remote-links')
 
 afterEach(() => {
   asked.lstat.length = 0
@@ -268,6 +268,13 @@ describe('leadsToRemote', () => {
     expect(odd.calls).toEqual([])
   })
 
+  it('an allowed folder written in the NT namespace of a disk is that folder: the walk starts at it', async () => {
+    const fs = fakeLinks({})
+    expect(await ask('C:\\p\\repo\\docs\\a.md', fs, ['\\??\\C:\\p\\repo'])).toBe(false)
+    // Not from the root of the disk: the folder is known as C:\p\repo.
+    expect(fs.calls).toEqual(['lstat C:\\p\\repo', 'lstat C:\\p\\repo\\docs', 'lstat C:\\p\\repo\\docs\\a.md'])
+  })
+
   it('a UNC path whose server is spelled like the disk of an allowed folder is remote, not inside that folder', async () => {
     const fs = fakeLinks({ 'C:\\p\\repo\\link': '\\\\C:\\p\\repo\\x' })
     expect(await ask('\\\\C:\\p\\repo\\x', fs)).toBe(true)
@@ -305,6 +312,10 @@ describe('walkLinks', () => {
     expect(await verdict('C:\\p\\repo\\a\\x.md')).toBe('unchecked')
     expect(await verdict('C:\\p\\repo\\l0', fakeLinks(chain(41)))).toBe('unchecked')
     expect(await walkLinks('//evil/share/x', ['/p/repo'], { paths: posix, links: fs.links })).toBe('local')
+  })
+
+  it('gives the callers one wording for a path that could not be checked', () => {
+    expect(UNCHECKED).toBe('cannot be checked: a link on the way to it cannot be read, or the links do not end')
   })
 })
 

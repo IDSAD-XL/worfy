@@ -162,6 +162,7 @@ describe('resolveProjectFile and a link that leads to a share (Windows rules)', 
     const real = identity()
     const loop = fakeLinks({ 'C:\\p\\repo\\a': 'C:\\p\\repo\\b', 'C:\\p\\repo\\b': 'C:\\p\\repo\\a' })
     const looped = resolveProjectFile('C:\\p\\repo', 'a\\x.md', [], { real, paths: win32, links: loop.links })
+    await expect(looped).rejects.toThrow('a\\x.md cannot be checked: a link on the way to it cannot be read, or the links do not end')
     await expect(looped).rejects.toThrow(/^a\\x\.md cannot be checked/)
     await expect(looped).rejects.not.toThrow(/outside/)
     const denied = {

@@ -4,9 +4,11 @@
 // and watches the folders so a Node reloads its Card within a second of a file change.
 //
 // On Windows stat of a Card's folder and open of its index.html follow a link, and a link to
-// `\\host\share\…` makes the system contact that host with the user's credentials. So the links on
-// the way are read first (remote-links.ts; worfy-windows ticket 19): a Card whose folder leads
-// there is not there, and a Card whose index.html leads there has no title.
+// `\\host\share\…` makes the system contact that host with the user's credentials. So info() reads
+// the links on the way first (remote-links.ts; worfy-windows ticket 19): a Card whose folder leads
+// there is not there, and a Card whose index.html leads there has no title. This covers info()
+// alone. The watch below does not have it: chokidar calls realpath, stat and readdir through every
+// link in the Cards folder, also with followSymlinks off.
 //
 // Watching starts for a Project the first time one of its Cards is asked for, and lasts until the
 // Project leaves the list or close(). Changes are reported per Card after a short quiet period
@@ -153,15 +155,19 @@ export class CardStore {
 
   /**
    * One Card as the renderer shows it; starts watching the Project's Cards. A Card whose folder
-   * leads to a share is not there, and one whose index.html leads there has no title: neither is
-   * asked about (see the top of this file).
+   * leads to a share is not there, and one whose index.html leads there has no title: stat and
+   * open here are not asked about either. The watch it starts is another matter (see the top of
+   * this file).
    */
   async info(projectId: string, cardId: string): Promise<CardInfo> {
+    // The folders are asked of the Project list once, before anything is awaited: a Project that
+    // leaves the list meanwhile still gets its answer, as before the walk was here.
+    const cards = this.cardsDir(projectId)
     const dir = this.cardDir(projectId, cardId)
     const url = cardUrl(projectId, cardId)
     this.watchProject(projectId)
     // The Cards folder is the only place these paths may go: also when it lies on a share itself.
-    const away = (path: string): Promise<boolean> => leadsToRemote(path, [this.cardsDir(projectId)], { paths: this.paths, links: this.options.links })
+    const away = (path: string): Promise<boolean> => leadsToRemote(path, [cards], { paths: this.paths, links: this.options.links })
     const index = this.paths.join(dir, 'index.html')
     const exists = !(await away(dir)) && (await this.fs.isDirectory(dir))
     const title = exists && !(await away(index)) ? await this.fs.readTitle(index) : null

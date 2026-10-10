@@ -134,9 +134,13 @@ export async function readDocs(root: string, options: DocOptions = {}): Promise<
     () => null,
   )
   const adrDir = paths.join(root, ...ADR_PARTS)
-  const base = await fs.realpath(root).catch(() => null)
-  // A root that cannot be resolved has no documents: nothing more is asked about it.
-  const away = base === null || (await leadsToRemote(adrDir, [root, base], { paths, links: options.links }))
+  // Off Windows there is no share to lead to, and no call is added to those there were.
+  let away = false
+  if (paths.sep === '\\') {
+    const base = await fs.realpath(root).catch(() => null)
+    // A root that cannot be resolved has no documents: nothing more is asked about it.
+    away = base === null || (await leadsToRemote(adrDir, [root, base], { paths, links: options.links }))
+  }
   const names = away ? [] : await fs.readdir(adrDir).catch(() => [] as string[])
   const adrs = await Promise.all(
     names

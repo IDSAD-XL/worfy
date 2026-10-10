@@ -41,6 +41,8 @@ interface Tree {
   reals?: Record<string, string>
   /** Paths lstat is refused for (EACCES). */
   denied?: readonly string[]
+  /** Links whose target cannot be read: readlink fails. */
+  unreadable?: readonly string[]
 }
 
 /**
@@ -94,11 +96,13 @@ function fakeSystem(tree: Tree, rules: typeof win32 = win32) {
         isLink: async (path: string): Promise<boolean | null> => {
           calls.push(`lstat ${path}`)
           if ((tree.denied ?? []).some((each) => key(each) === key(path))) throw Object.assign(new Error(`EACCES: ${path}`), { code: 'EACCES' })
-          return links.has(key(path))
+          return links.has(key(path)) || (tree.unreadable ?? []).some((each) => key(each) === key(path))
         },
         readlink: async (path: string): Promise<string> => {
           calls.push(`readlink ${path}`)
-          return links.get(key(path))!
+          const target = links.get(key(path))
+          if (target === undefined) throw Object.assign(new Error(`EINVAL: ${path}`), { code: 'EINVAL' })
+          return target
         },
       },
     },
@@ -226,6 +230,35 @@ describe('readDocs and a link that leads to a share (Windows rules)', () => {
     expect(system.calls.some((call) => call.includes('evil'))).toBe(false)
   })
 
+  // Review round 1 of PR #233: a way that cannot be checked is not a way that is clear. The folder
+  // of the ADRs is listed when a Project is opened, with no click.
+  const chainToShare = (start: string, count: number): Record<string, string> => {
+    const hop = (index: number): string => (index === 0 ? start : `C:\\p\\repo\\hop${index}`)
+    return Object.fromEntries(Array.from({ length: count }, (_, index) => [hop(index), index === count - 1 ? '\\\\evil\\share\\adr' : hop(index + 1)]))
+  }
+  it.each<[string, Tree]>([
+    ['the docs folder cannot be looked at', { denied: ['C:\\p\\repo\\docs'] }],
+    ['the folder of the ADRs cannot be looked at', { denied: ['C:\\p\\repo\\docs\\adr'] }],
+    ['the folder of the ADRs is a link that cannot be read', { unreadable: ['C:\\p\\repo\\docs\\adr'] }],
+    ['the docs folder is a link in a circle of links', { links: { 'C:\\p\\repo\\docs': 'C:\\p\\repo\\round', 'C:\\p\\repo\\round': 'C:\\p\\repo\\docs' } }],
+    ['the folder of the ADRs is the first of 41 links, the last of them to a share', { links: chainToShare('C:\\p\\repo\\docs\\adr', 41) }],
+  ])('lists no ADR and never lists the folder when %s; HANDOFF.md is read as before', async (_case, tree) => {
+    const system = fakeSystem({ files: PLAIN, ...tree })
+    const docs = await readDocs(ROOT, system.options)
+    expect(docs.handoff?.path).toBe('HANDOFF.md')
+    expect(docs.adrs).toEqual([])
+    expect(system.calls.filter((call) => call.startsWith('readdir'))).toEqual([])
+    expect(system.calls.some((call) => call.includes('evil'))).toBe(false)
+  })
+
+  it('lists the ADRs of a Project on a share whose folder there is a link to another folder of that share', async () => {
+    const files = { '\\\\nas\\team\\real\\HANDOFF.md': HANDOFF, '\\\\nas\\team\\real\\docs\\adr\\0001-first.md': adr('Первый') }
+    const system = fakeSystem({ files, links: { '\\\\nas\\team\\repo': '\\\\nas\\team\\real' }, reals: { '\\\\nas\\team\\repo': '\\\\nas\\team\\real' } })
+    const docs = await readDocs('\\\\nas\\team\\repo', system.options)
+    expect(docs.handoff?.path).toBe('HANDOFF.md')
+    expect(paths(docs)).toEqual(['docs/adr/0001-first.md'])
+  })
+
   it('leaves out one ADR that is a link to a share, without reading it, and lists the others', async () => {
     const system = fakeSystem({ files: PLAIN, links: { 'C:\\p\\repo\\docs\\adr\\0001-first.md': '\\\\evil\\share\\0001-first.md' } })
     const docs = await readDocs(ROOT, system.options)
@@ -271,6 +304,18 @@ describe('readDocs and a link that leads to a share (Windows rules)', () => {
     expect(docs.handoff?.path).toBe('HANDOFF.md')
     expect(paths(docs)).toEqual(['docs/adr/0001-first.md'])
     expect(system.calls.filter((call) => call.startsWith('lstat') || call.startsWith('readlink'))).toEqual([])
+    // The same calls as before this check was there, in the same order: none is added off Windows.
+    expect(system.calls).toEqual([
+      'realpath /p/repo',
+      'realpath /p/repo/HANDOFF.md',
+      'stat /p/repo/HANDOFF.md',
+      'readFile /p/repo/HANDOFF.md',
+      'readdir /p/repo/docs/adr',
+      'realpath /p/repo',
+      'realpath /p/repo/docs/adr/0001-first.md',
+      'stat /p/repo/docs/adr/0001-first.md',
+      'readFile /p/repo/docs/adr/0001-first.md',
+    ])
   })
 })
 

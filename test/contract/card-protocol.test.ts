@@ -307,9 +307,16 @@ describe('the title of a Card and a link that leads to a share', () => {
   const INDEX = CARD + '\\index.html'
 
   /** A store under the given rules, over a file system of links alone: every path is a folder, and every index.html has a title. */
-  function fakeStore(links: Record<string, string>, rules: typeof win32 = win32, data = 'C:\\data\\demo') {
+  /** What cannot be read: `denied` — lstat is refused (EACCES); `unreadable` — a link whose target cannot be read. */
+  interface Broken {
+    denied?: readonly string[]
+    unreadable?: readonly string[]
+  }
+
+  function fakeStore(links: Record<string, string>, rules: typeof win32 = win32, data = 'C:\\data\\demo', broken: Broken = {}) {
     const calls: string[] = []
     const table = new Map(Object.entries(links).map(([path, target]) => [path.toLowerCase(), target]))
+    const among = (list: readonly string[] | undefined, path: string): boolean => (list ?? []).some((each) => each.toLowerCase() === path.toLowerCase())
     const store = new CardStore({
       dataDirOf: () => data,
       projectIds: () => [PROJECT],
@@ -318,11 +325,14 @@ describe('the title of a Card and a link that leads to a share', () => {
       links: {
         isLink: async (path: string): Promise<boolean | null> => {
           calls.push('lstat ' + path)
-          return table.has(path.toLowerCase())
+          if (among(broken.denied, path)) throw Object.assign(new Error('EACCES: ' + path), { code: 'EACCES' })
+          return table.has(path.toLowerCase()) || among(broken.unreadable, path)
         },
         readlink: async (path: string): Promise<string> => {
           calls.push('readlink ' + path)
-          return table.get(path.toLowerCase())!
+          const target = table.get(path.toLowerCase())
+          if (target === undefined) throw Object.assign(new Error('EINVAL: ' + path), { code: 'EINVAL' })
+          return target
         },
       },
       fs: {
@@ -362,6 +372,60 @@ describe('the title of a Card and a link that leads to a share', () => {
     expect(await store.info(PROJECT, 'c1')).toMatchObject({ exists: true, title: null })
     expect(calls.filter((call) => call.startsWith('open'))).toEqual([])
     expect(calls.at(-1)).toBe('readlink ' + INDEX)
+  })
+
+  /** `count` links in a row, from `start` on; the last one leads to a share. */
+  const chainToShare = (start: string, count: number): Record<string, string> => {
+    const hop = (index: number): string => (index === 0 ? start : 'C:\\data\\demo\\cards\\hop' + index)
+    return Object.fromEntries(Array.from({ length: count }, (_, index) => [hop(index), index === count - 1 ? '\\\\evil\\share\\x' : hop(index + 1)]))
+  }
+  /** The ways a walk ends without an answer, at the path `at`. */
+  const unchecked = (at: string): [string, Record<string, string>, Broken][] => [
+    ['cannot be looked at', {}, { denied: [at] }],
+    ['is a link that cannot be read', {}, { unreadable: [at] }],
+    ['is a link in a circle of links', { [at]: 'C:\\data\\demo\\cards\\round', 'C:\\data\\demo\\cards\\round': at }, {}],
+    ['is the first of 41 links, the last of them to a share', chainToShare(at, 41), {}],
+  ]
+
+  it.each(unchecked(CARD))('a Card is not there when its folder %s: neither the folder nor index.html is asked about', async (_case, links, broken) => {
+    const { store, calls } = fakeStore(links, win32, 'C:\\data\\demo', broken)
+    expect(await store.info(PROJECT, 'c1')).toMatchObject({ cardId: 'c1', exists: false, title: null })
+    expect(calls.filter((call) => call.startsWith('stat') || call.startsWith('open'))).toEqual([])
+    expect(calls.some((call) => call.includes('evil'))).toBe(false)
+  })
+
+  it.each(unchecked(INDEX))('a Card has no title when its index.html %s: the file is not opened', async (_case, links, broken) => {
+    const { store, calls } = fakeStore(links, win32, 'C:\\data\\demo', broken)
+    expect(await store.info(PROJECT, 'c1')).toMatchObject({ cardId: 'c1', exists: true, title: null })
+    expect(calls.filter((call) => call.startsWith('open'))).toEqual([])
+    expect(calls.some((call) => call.includes('evil'))).toBe(false)
+  })
+
+  // Review round 1 of PR #233: the Cards folder was asked of the Project list a second time, after
+  // the wait for stat, so a Project removed meanwhile made info reject where it had answered.
+  it.each([
+    ['POSIX', posix as typeof win32, '/data/demo'],
+    ['Windows', win32, 'C:\\data\\demo'],
+  ])('under %s rules a Project that leaves the list while its Card is asked about still gets the answer', async (_name, rules, data) => {
+    let listed = true
+    const store = new CardStore({
+      dataDirOf: () => {
+        if (!listed) throw new Error('Project ' + PROJECT + ' is not in the list')
+        return data
+      },
+      projectIds: () => [PROJECT],
+      watch: false,
+      paths: rules,
+      links: { isLink: async (): Promise<boolean | null> => false, readlink: async (): Promise<string> => '' },
+      fs: {
+        isDirectory: async (): Promise<boolean> => {
+          listed = false
+          return true
+        },
+        readTitle: async (): Promise<string | null> => 'A Card',
+      },
+    })
+    expect(await store.info(PROJECT, 'c1')).toMatchObject({ cardId: 'c1', exists: true, title: 'A Card' })
   })
 
   it('reads the title behind a link that stays on the machine, and of a Card in a data folder on a share', async () => {

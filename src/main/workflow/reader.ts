@@ -211,8 +211,9 @@ export interface EnrichOptions {
  * that host with the user's credentials, and a checked-out repository can carry such a link. So
  * the links on the way to each file and folder are read first (remote-links.ts; worfy-windows
  * ticket 19): one that leads there, or cannot be checked, is taken as a file that cannot be read
- * or a folder with nothing in it. The Tickets root is the only place these paths may go: also
- * when it lies on a share itself.
+ * or a folder with nothing in it. The Project root and the Tickets root are the places these
+ * paths may go, also when they lie on a share themselves: a link from the Tickets into another
+ * folder of the same Project is read as before.
  */
 export async function enrichSnapshot(
   root: string,
@@ -223,7 +224,7 @@ export async function enrichSnapshot(
   const scratch = ticketsRoot
   const paths = options.paths ?? nativePath
   const fs = options.fs ?? nodeFs
-  const away = (path: string): Promise<boolean> => leadsToRemote(path, [scratch], { paths, links: options.links })
+  const away = (path: string): Promise<boolean> => leadsToRemote(path, [root, scratch], { paths, links: options.links })
   const read = async (path: string): Promise<string | null> => ((await away(path)) ? null : fs.readText(path))
 
   const epics = await Promise.all(
