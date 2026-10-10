@@ -300,10 +300,13 @@ contract `selfProjectRefusal` с настоящим git.
     были выписаны с CRLF до `.gitattributes`), файлы выписаны заново;
   - полный прогон сделан до последних правок test-а Stable copy и до удаления строки
     `process.noAsar`; два unit-файла, lint этих файлов и typecheck после них повторены.
-- **Вопросы владельцу.**
-  1. Путь Stable copy на Windows — `%LOCALAPPDATA%\Programs\worfy-stable` (предложение Ticket-а):
-     подтвердить или назвать другой.
-  2. Значок Windows с полями сетки macOS: оставить или обрезать поля для `.ico`.
+- **Решения владельца** (2026-10-10, переданы Session на Mac):
+  1. Путь Stable copy на Windows — `%LOCALAPPDATA%\Programs\worfy-stable`: подтверждён.
+  2. Значок Windows остаётся на сетке macOS, с полями. Владелец посмотрит на настоящей сборке;
+     если значок покажется мелким, обрезка полей для `.ico` пойдёт отдельной небольшой правкой
+     `scripts/make-icons.mjs` и этот Ticket не держит.
+  3. Два ручных пункта на ПК делает владелец сам, после настоящей сборки: установщик и запуск
+     worfy; Stable copy и отказ Autopilot в `pnpm dev`.
 - **Шаги на Mac** (раздел «Mac checks» PR), по сообщению Session на Mac от 2026-10-10:
   - сделано: `pnpm icons` и коммит fc5938b; `pnpm test test/contract/make-icons.test.ts` — exit
     0, 12 passed, блок macOS включён; `pnpm test test/contract/autopilot.test.ts -t "git of this
