@@ -36,8 +36,9 @@ try {
 
 // The limits are on the file as git stores it, with LF line ends. A working copy on Windows
 // (core.autocrlf) has CRLF, one more byte per line, so CRLF is read as LF before anything is counted.
-const text = buffer.toString('utf8').replace(/\r\n/g, '\n')
-const size = Buffer.byteLength(text, 'utf8')
+const raw = buffer.toString('utf8')
+const text = raw.replace(/\r\n/g, '\n')
+const size = buffer.length - (raw.length - text.length) // the bytes on disk less one CR per CRLF
 const lines = text.split('\n')
 if (lines.at(-1) === '') lines.pop() // the newline that ends the last line does not start another one
 
