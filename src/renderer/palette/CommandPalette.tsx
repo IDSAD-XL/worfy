@@ -2,7 +2,8 @@
 // one field over the window; typing ranks the commands (commands.ts, find/search-index.ts), ↑/↓
 // pick one, Enter runs it, Esc closes. A command that cannot run now ("Ship ticket" for a Ticket
 // with an open blocker) stays in the list, inactive, with the reason as its tooltip — the same
-// reason the button on the Canvas shows.
+// reason the button on the Canvas shows. The ranked rows are shown in groups (groups.ts), each under
+// a heading with its name; ↑/↓ walk the rows across the groups.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { ActionState } from '../../shared/actions/render-template'
@@ -17,6 +18,7 @@ import { activeProject, useProjects } from '../projects/useProjects'
 import { useNavigation } from '../session/navigation'
 import { useWorkflow } from '../workflow/useWorkflow'
 import { buildCommands, type CommandGate, type PaletteCommand } from './commands'
+import { groupRows } from './groups'
 
 /** Rows shown at most; the rest are reached by typing more. */
 const SHOWN = 50
@@ -56,6 +58,18 @@ const styles = {
   // border-box keeps the browser's 1 px vertical padding inside the field's height.
   input: { flex: 1, minWidth: 0, height: '100%', boxSizing: 'border-box', border: 0, outline: 'none', background: 'transparent', color: 'var(--text)', font: 'inherit', fontSize: 'var(--text-13)' },
   list: { margin: 0, padding: 'var(--space-1)', listStyle: 'none', overflowY: 'auto' },
+  groupRows: { margin: 0, padding: 0, listStyle: 'none' },
+  // As the section headings of the sidebar (shell/sidebar/*Section.tsx).
+  heading: {
+    padding: 'var(--space-1) var(--space-2)',
+    fontSize: 'var(--text-11)',
+    lineHeight: '14px',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+    userSelect: 'none',
+  },
+  // As the separator of the Canvas menu (canvas/overlays/CanvasMenu.tsx).
+  separator: { height: 1, margin: 'var(--space-1) 0', background: 'var(--border)' },
   row: {
     display: 'flex',
     alignItems: 'center',
@@ -77,7 +91,7 @@ const styles = {
   inactive: { color: 'var(--text-muted)', cursor: 'default' },
   title: { flex: 'none', maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   detail: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 'var(--text-12)', color: 'var(--text-muted)' },
-  group: { flex: 'none', fontSize: 'var(--text-11)', color: 'var(--text-muted)' },
+  note: { flex: 'none', fontSize: 'var(--text-11)', color: 'var(--text-muted)' },
   message: { margin: 0, padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--text-12)', color: 'var(--text-muted)' },
   problem: { margin: 0, padding: 'var(--space-2) var(--space-3)', borderTop: '1px solid var(--border)', fontSize: 'var(--text-12)', color: 'var(--blocked-text)', background: 'var(--blocked-bg)' },
 } satisfies Record<string, CSSProperties>
@@ -94,12 +108,14 @@ function SearchIcon() {
 interface RowProps {
   command: PaletteCommand
   id: string
+  /** The first row of its group. */
+  first: boolean
   active: boolean
   onPick: (command: PaletteCommand) => void
   onHover: () => void
 }
 
-function RowButton({ command, id, active, onPick, onHover, state }: RowProps & { state: ActionState | null }) {
+function RowButton({ command, id, first, active, onPick, onHover, state }: RowProps & { state: ActionState | null }) {
   const enabled = state === null || state.enabled
   const tooltip = state === null ? undefined : state.enabled ? state.text : state.reason
   return (
@@ -114,6 +130,7 @@ function RowButton({ command, id, active, onPick, onHover, state }: RowProps & {
         data-testid="palette-option"
         data-command={command.id}
         data-active={active ? 'true' : 'false'}
+        data-first={first ? 'true' : undefined}
         title={tooltip}
         style={{ ...styles.row, ...(active ? styles.active : null), ...(enabled ? null : styles.inactive) }}
         onMouseMove={onHover}
@@ -126,9 +143,11 @@ function RowButton({ command, id, active, onPick, onHover, state }: RowProps & {
         <span className="w-mono" style={styles.detail}>
           {command.detail ?? ''}
         </span>
-        <span style={styles.group} data-testid="palette-option-note">
-          {state !== null && !state.enabled ? state.reason : command.group}
-        </span>
+        {state !== null && !state.enabled ? (
+          <span style={styles.note} data-testid="palette-option-note">
+            {state.reason}
+          </span>
+        ) : null}
       </button>
     </li>
   )
@@ -198,7 +217,8 @@ function EmptyPalette({ projects, onClose }: Omit<PanelProps, 'project'>) {
   return <PaletteBody commands={commands} empty="Add a project to get its commands" onClose={onClose} />
 }
 
-function PaletteBody({ commands, empty, onClose }: BodyProps) {
+/** The field and the grouped list over `commands`; exported for the tests of the list. */
+export function PaletteBody({ commands, empty, onClose }: BodyProps) {
   const listId = useId()
   const input = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLUListElement>(null)
@@ -207,7 +227,10 @@ function PaletteBody({ commands, empty, onClose }: BodyProps) {
   const [problem, setProblem] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
 
-  const shown = useMemo(() => rankItems(commands, query, SHOWN), [commands, query])
+  // Ranked and cut to SHOWN first, then grouped; `shown` is the rows in the order on screen, which
+  // is the order ↑/↓ walk and the index `picked` counts in.
+  const groups = useMemo(() => groupRows(rankItems(commands, query, SHOWN), (command) => command.group), [commands, query])
+  const shown = useMemo(() => groups.flatMap((group) => group.rows), [groups])
   const current = Math.min(picked, Math.max(0, shown.length - 1))
 
   useEffect(() => {
@@ -215,7 +238,11 @@ function PaletteBody({ commands, empty, onClose }: BodyProps) {
   }, [])
 
   useEffect(() => {
-    list.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' })
+    const row = list.current?.querySelector<HTMLElement>('[data-active="true"]')
+    if (row === null || row === undefined) return
+    // The first row of a group brings its heading into view too, so the group's name is never cut off.
+    if (row.dataset['first'] === 'true') row.closest('[role="group"]')?.querySelector('[data-testid="palette-group-heading"]')?.scrollIntoView({ block: 'nearest' })
+    row.scrollIntoView({ block: 'nearest' })
   }, [current, shown])
 
   const pick = useCallback(
@@ -254,6 +281,8 @@ function PaletteBody({ commands, empty, onClose }: BodyProps) {
   }
 
   const optionId = (index: number) => `${listId}-${index}`
+  // Where each group's rows start in `shown`.
+  const starts = groups.map((_, groupIndex) => groups.slice(0, groupIndex).reduce((sum, group) => sum + group.rows.length, 0))
 
   return createPortal(
     <>
@@ -280,7 +309,7 @@ function PaletteBody({ commands, empty, onClose }: BodyProps) {
             }}
             onKeyDown={onKeyDown}
           />
-          <kbd className="w-mono" style={styles.group}>
+          <kbd className="w-mono" style={styles.note}>
             esc
           </kbd>
         </div>
@@ -288,18 +317,36 @@ function PaletteBody({ commands, empty, onClose }: BodyProps) {
           <p style={styles.message}>{empty}</p>
         ) : (
           <ul ref={list} id={listId} role="listbox" aria-label="Commands" style={styles.list}>
-            {shown.map((command, index) => (
-              <CommandRow
-                key={command.id}
-                id={optionId(index)}
-                command={command}
-                active={index === current}
-                onPick={pick}
-                onHover={() => {
-                  if (index !== current) setPicked(index)
-                }}
-              />
-            ))}
+            {groups.map((group, groupIndex) => {
+              const headingId = `${listId}-group-${groupIndex}`
+              const start = starts[groupIndex] ?? 0
+              return (
+                <li key={group.name} role="presentation">
+                  <ul role="group" aria-labelledby={headingId} style={styles.groupRows} data-testid="palette-group" data-group={group.name}>
+                    {groupIndex > 0 ? <li role="presentation" aria-hidden="true" style={styles.separator} data-testid="palette-group-separator" /> : null}
+                    <li role="presentation" id={headingId} style={styles.heading} data-testid="palette-group-heading">
+                      {group.name}
+                    </li>
+                    {group.rows.map((command, offset) => {
+                      const index = start + offset
+                      return (
+                        <CommandRow
+                          key={command.id}
+                          id={optionId(index)}
+                          command={command}
+                          first={offset === 0}
+                          active={index === current}
+                          onPick={pick}
+                          onHover={() => {
+                            if (index !== current) setPicked(index)
+                          }}
+                        />
+                      )
+                    })}
+                  </ul>
+                </li>
+              )
+            })}
           </ul>
         )}
         {problem !== null ? (
