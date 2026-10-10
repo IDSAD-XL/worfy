@@ -276,7 +276,7 @@ describe.skipIf(process.platform !== 'darwin')('hang-sample: the real ps and pgr
 
 describe('hang-sample run as a script', () => {
   const scratch = mkdtempSync(join(tmpdir(), 'worfy-hang-sample-'))
-  afterAll(() => rmSync(scratch, { recursive: true, force: true }))
+  afterAll(() => rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
 
   /** `pnpm test` runs under Electron as Node, so the child does too. */
   const script = (args: string[]) =>

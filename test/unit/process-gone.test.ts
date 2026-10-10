@@ -60,7 +60,7 @@ vi.mock('../../src/main/link/service', () => ({
 const { installProcessGone, processGoneLogPath } = await import('../../src/main/diagnostics/process-gone')
 
 const scratch = mkdtempSync(join(tmpdir(), 'worfy-process-gone-'))
-afterAll(() => rmSync(scratch, { recursive: true, force: true }))
+afterAll(() => rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
 
 let cases = 0
 /** A fake `app` that keeps its listeners, and a log file in a folder that does not exist yet. */
