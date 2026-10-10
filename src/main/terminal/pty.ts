@@ -44,6 +44,7 @@ import { execFile } from 'node:child_process'
 import { posix, win32 } from 'node:path'
 import { spawn as spawnNodePty } from 'node-pty'
 import { findGitBash, findOnPath, powershellScriptCommand, type Env, type FileExists } from '../agent/env'
+import type { TerminalShellSetting } from '../../shared/projects/action-templates'
 import { OscCutScanner, ShellTracker, type ShellEvent, type ShellState } from './osc'
 import { integrationEnv, isZsh, newNonce, type ShellIntegration } from './shell-integration'
 
@@ -128,8 +129,6 @@ export class ReplayBuffer {
   }
 }
 
-/** Which shell the Terminals of a Project start on Windows (its settings); PowerShell when not set. */
-export type TerminalShellSetting = 'powershell' | 'git-bash'
 
 export interface ShellChoice {
   file: string
@@ -322,6 +321,16 @@ function signalProcess(pid: number, signal: NodeJS.Signals): void {
     process.kill(pid, signal)
   } catch {
     // Already gone.
+  }
+}
+
+/** True while a process with this pid is there (signal 0 asks, and ends nothing). */
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
   }
 }
 
@@ -655,13 +664,21 @@ export class TerminalRegistry {
    * Ends a shell of Windows: first every process under it, while the shell is still their living
    * parent, then the pty — node-pty ends what is left in the console and closes ConPTY. node-pty
    * takes no signal there, and there is no group to signal.
+   *
+   * The tree takes the shell with it. Then the console has no process left and closes by itself,
+   * and the pty is not asked: node-pty would look for the processes of a console that is gone and
+   * print the failure. Its exit event follows about a second after the process, once node-pty
+   * has waited for the rest of the output. The pty is asked only when the shell is still there —
+   * the tree could not be ended.
    */
   private async endTree(key: string, terminal: Terminal): Promise<void> {
+    const { pid } = terminal.pty
     try {
-      await this.killTree(terminal.pty.pid)
+      await this.killTree(pid)
     } catch (error) {
       console.warn(`[terminal] ending the process tree of ${key} failed`, error)
     }
+    if (!processAlive(pid)) return
     try {
       terminal.pty.kill()
     } catch {

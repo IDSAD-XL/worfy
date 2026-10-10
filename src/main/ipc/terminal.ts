@@ -20,9 +20,11 @@ import { app } from 'electron'
 import { agentEnv } from '../agent/env'
 import { clientOf, type Client } from '../clients'
 import { layoutStore, type LayoutChange } from '../layout/store'
+import { readProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
 import { TerminalRegistry, type TerminalSink } from '../terminal/pty'
 import { ShellIntegration } from '../terminal/shell-integration'
+import type { TerminalShellSetting } from '../../shared/projects/action-templates'
 import {
   TERMINAL_NODE_KIND,
   terminalClose,
@@ -63,6 +65,11 @@ export interface TerminalDeps {
   projectRoot: (projectId: string) => string
   /** True when the Project's Layout has a Node of kind `terminal` with this id. */
   isTerminalNode: (projectId: string, nodeId: string) => boolean
+  /**
+   * Which shell the Project's settings ask for on Windows (worfy-windows ticket 10); undefined when
+   * they name none. Read when a shell starts: a running shell keeps the one it has.
+   */
+  shellSetting?: (projectId: string) => TerminalShellSetting | undefined
 }
 
 /** The handlers over a registry; tests pass their own registry, Projects and Layout. */
@@ -89,7 +96,9 @@ export function terminalHandlers(deps: TerminalDeps): HandlerModule {
       const cwd = deps.projectRoot(projectId)
       if (!deps.isTerminalNode(projectId, nodeId)) throw new Error(`${nodeId} is not a Terminal Node of ${projectId}`)
       watch(client)
-      const result = await deps.registry().open(terminalKey(projectId, nodeId), { cwd, cols, rows, restart, command }, client, clientSink(client, projectId, nodeId))
+      // The shell comes from the settings of the Project, never from the renderer.
+      const shell = deps.shellSetting?.(projectId)
+      const result = await deps.registry().open(terminalKey(projectId, nodeId), { cwd, cols, rows, restart, command, shell }, client, clientSink(client, projectId, nodeId))
       // Destroyed while the shell was starting: its `destroyed` may have come before it subscribed.
       if (client.isDestroyed()) leave(client)
       return result
@@ -181,4 +190,5 @@ export default terminalHandlers({
     layoutStore()
       .get(projectId)
       .layout.nodes.some((node) => node.id === nodeId && node.kind === TERMINAL_NODE_KIND),
+  shellSetting: (projectId) => readProjectSettings(projectStore().dataDir(projectId)).terminalShell,
 }) satisfies HandlerModule

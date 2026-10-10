@@ -114,6 +114,8 @@ const SINK = { output: () => undefined, exit: () => undefined, started: () => un
 describe('TerminalRegistry by the system', () => {
   it('on Windows starts the shell of terminalShell: PowerShell by default, Git Bash for a request that names it', async () => {
     disk.files.add('C:\\Tools\\pwsh.exe').add('C:\\Program Files\\Git\\cmd\\git.exe').add(GIT_BASH)
+    // The stand-in shells are still there when the registry closes them at the end.
+    vi.spyOn(process, 'kill').mockImplementation(() => true)
     const started: { file: string; args: string[] }[] = []
     const spawn: SpawnPty = (file, args) => {
       started.push({ file, args })
@@ -131,9 +133,10 @@ describe('TerminalRegistry by the system', () => {
     await registry.closeAll()
   })
 
-  it('on Windows close ends the process tree of the shell first, then the pty, and sends no signal', async () => {
+  it('on Windows close ends the process tree of the shell first, then the pty when the shell is still there, and sends no signal', async () => {
     const order: string[] = []
     const fake = fakePty(4242)
+    // The shell outlives its tree here: process.kill(pid, 0) finds it.
     const signals = vi.spyOn(process, 'kill').mockImplementation(() => true)
     const registry = new TerminalRegistry({
       env: () => Promise.resolve({ ...WIN_ENV }),
@@ -150,12 +153,32 @@ describe('TerminalRegistry by the system', () => {
     expect(order).toEqual(['tree 4242 (pty killed 0 times so far)'])
     // node-pty on Windows throws for a signal; kill() without one ends the console and closes ConPTY.
     expect(fake.kills).toEqual([undefined])
-    expect(signals).not.toHaveBeenCalled()
+    // Asked once whether the shell is still there; no group and no signal.
+    expect(signals.mock.calls).toEqual([[4242, 0]])
     expect(registry.has('a')).toBe(false)
   })
 
-  it('on Windows the pty is ended even when ending the tree fails, and a shell that already left is not an error', async () => {
+  it('on Windows the pty is not asked to end when the shell went with its tree: its console closes by itself', async () => {
+    const fake = fakePty(4244)
+    vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' })
+    })
+    const registry = new TerminalRegistry({
+      env: () => Promise.resolve({ ...WIN_ENV }),
+      spawn: () => fake.pty,
+      platform: 'win32',
+      // The tree ends, and node-pty reports the exit of the shell on its own.
+      killTree: () => fake.exit(),
+    })
+    await registry.open('a', { cwd: 'C:\\p\\repo', cols: 80, rows: 24 }, {}, SINK)
+    await registry.close('a')
+    expect(fake.kills).toEqual([])
+    expect(registry.has('a')).toBe(false)
+  })
+
+  it('on Windows the pty is ended even when ending the tree fails', async () => {
     const fake = fakePty(4243)
+    vi.spyOn(process, 'kill').mockImplementation(() => true)
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const registry = new TerminalRegistry({
       env: () => Promise.resolve({ ...WIN_ENV }),
