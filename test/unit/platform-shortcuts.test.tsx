@@ -83,6 +83,10 @@ describe('the command palette', () => {
     render(<CommandPalette />)
     fireEvent.keyDown(document.body, { key: 'д', code: 'KeyL', ctrlKey: true })
     expect(opened()).toBe(false)
+    // A key the input method is handling says Process, and names no letter.
+    fireEvent.keyDown(document.body, { key: 'Process', code: 'KeyK', ctrlKey: true })
+    fireEvent.keyDown(document.body, { key: 'л', code: 'KeyK', ctrlKey: true, isComposing: true })
+    expect(opened()).toBe(false)
     fireEvent.keyDown(document.body, { key: 'л', code: 'KeyK', ctrlKey: true })
     expect(opened()).toBe(true)
   })

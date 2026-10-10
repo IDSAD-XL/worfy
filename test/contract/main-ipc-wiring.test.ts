@@ -127,7 +127,8 @@ beforeAll(async () => {
   startup.policies = electron.installWebPolicy.mock.calls.map((args) => args[0] as (url: string) => boolean)
   startup.policyBeforeWindow =
     (electron.installWebPolicy.mock.invocationCallOrder[0] ?? Infinity) < (electron.createMainWindow.mock.invocationCallOrder[0] ?? -Infinity)
-})
+  // Above START_WAIT: the default 10 s of a hook would cut that wait short.
+}, 20_000)
 
 describe('IPC wiring in src/main/index.ts', () => {
   it('answers a call from the window the app loads', async () => {

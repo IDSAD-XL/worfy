@@ -79,11 +79,15 @@ export function isTerminalKey(event: { target: unknown }, platform: Platform = c
  * The key a shortcut is matched by. A Latin letter is taken from the key cap (`event.key`), in lower
  * case, so a shortcut follows the letter on QWERTZ, AZERTY and Dvorak. With a layout that is not
  * Latin the key cap says `л` where the shortcut says K — on Windows also while Ctrl is held — so
- * there the letter comes from the place of the key (`event.code`, `KeyK`). Any other key is
- * `event.key` as it is.
+ * there the letter comes from the place of the key (`event.code`, `KeyK`). Only a single letter of
+ * another script is read by its place. Everything else is `event.key` as it is: punctuation and
+ * accented letters of a Latin layout (Dvorak has `;` and BÉPO `à` where QWERTY has Z), the values
+ * that name no character (`Process`, `Dead`, `Unidentified`), and any key while the input method
+ * composes.
  */
-export function shortcutKey(event: { key: string; code?: string }): string {
+export function shortcutKey(event: { key: string; code?: string; isComposing?: boolean }): string {
   if (/^[a-z]$/i.test(event.key)) return event.key.toLowerCase()
+  if (event.isComposing === true || !/^\p{L}$/u.test(event.key) || /^\p{Script=Latin}$/u.test(event.key)) return event.key
   const place = /^Key([A-Z])$/.exec(event.code ?? '')
   return place ? place[1]!.toLowerCase() : event.key
 }

@@ -85,6 +85,37 @@ describe('shortcutKey', () => {
     expect(shortcutKey({ key: 'л' })).toBe('л')
     expect(shortcutKey({ key: 'л', code: '' })).toBe('л')
   })
+
+  // Review round 2 of PR #215: only a letter of another script is read by its place.
+  it('keeps punctuation and accented letters of a Latin layout, whatever letter QWERTY has there', () => {
+    // Dvorak has ; where QWERTY has Z, BÉPO has à there: neither is Z.
+    expect(shortcutKey({ key: ';', code: 'KeyZ' })).toBe(';')
+    expect(shortcutKey({ key: ':', code: 'KeyZ' })).toBe(':')
+    expect(shortcutKey({ key: 'à', code: 'KeyZ' })).toBe('à')
+    expect(shortcutKey({ key: 'É', code: 'KeyW' })).toBe('É')
+    expect(shortcutKey({ key: 'ß', code: 'KeyS' })).toBe('ß')
+  })
+
+  it('keeps the values that name no character: a key the input method handles, a dead key, an unknown one', () => {
+    expect(shortcutKey({ key: 'Process', code: 'KeyK' })).toBe('Process')
+    expect(shortcutKey({ key: 'Dead', code: 'KeyK' })).toBe('Dead')
+    expect(shortcutKey({ key: 'Unidentified', code: 'KeyK' })).toBe('Unidentified')
+  })
+
+  it('reads no letter by its place while the input method composes', () => {
+    expect(shortcutKey({ key: 'л', code: 'KeyK', isComposing: true })).toBe('л')
+    expect(shortcutKey({ key: 'л', code: 'KeyK', isComposing: false })).toBe('k')
+  })
+
+  it('reads only letter keys by their place: a digit key stays what it types', () => {
+    expect(shortcutKey({ key: '1', code: 'Digit1' })).toBe('1')
+    expect(shortcutKey({ key: 'é', code: 'Digit2' })).toBe('é')
+    // An Arabic digit, and a Russian letter on a key that is not a letter key in QWERTY.
+    expect(shortcutKey({ key: '١', code: 'Digit1' })).toBe('١')
+    expect(shortcutKey({ key: 'ж', code: 'Semicolon' })).toBe('ж')
+    // A Thai keyboard types letters on the digit row: the letter is not the digit of the key.
+    expect(shortcutKey({ key: 'ภ', code: 'Digit4' })).toBe('ภ')
+  })
 })
 
 describe('label and ariaKeyShortcuts', () => {

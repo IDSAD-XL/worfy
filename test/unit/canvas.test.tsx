@@ -620,6 +620,11 @@ describe('the keys of the Canvas by system', () => {
       await press({ key: 'Я', code: 'KeyZ', [primary]: true, shiftKey: true })
       expect(canvas.sent).toEqual([moved, back, moved, back, moved])
       expect((await press({ key: 'н', code: 'KeyY', [primary]: true })).defaultPrevented).toBe(false)
+      // Dvorak has ; where QWERTY has Z, and BÉPO has à: neither undoes.
+      expect((await press({ key: ';', code: 'KeyZ', [primary]: true })).defaultPrevented).toBe(false)
+      expect((await press({ key: ':', code: 'KeyZ', [primary]: true, shiftKey: true })).defaultPrevented).toBe(false)
+      expect((await press({ key: 'à', code: 'KeyZ', [primary]: true })).defaultPrevented).toBe(false)
+      expect(canvas.sent).toEqual([moved, back, moved, back, moved])
     } finally {
       await activate(null)
       canvas.cleanup()
@@ -720,6 +725,29 @@ describe('the keys of the Canvas by system', () => {
       const zoomed = scale()
       expect((await press({ key: '-', [primary]: true })).defaultPrevented).toBe(true)
       await waitFor(() => expect(scale()).toBeLessThan(zoomed))
+      // Inside a Terminal Node the zoom keys still zoom the Canvas, on both systems. Only
+      // Ctrl+_ on Windows does not: it is the shell's undo (readline). ⌘_ on macOS zooms out.
+      const field = terminalField()
+      try {
+        const start = scale()
+        expect((await press({ key: '=', [primary]: true }, field)).defaultPrevented).toBe(true)
+        await waitFor(() => expect(scale()).toBeGreaterThan(start))
+        const inside = scale()
+        expect((await press({ key: '-', [primary]: true }, field)).defaultPrevented).toBe(true)
+        await waitFor(() => expect(scale()).toBeLessThan(inside))
+        const before = scale()
+        const undo = await press({ key: '_', [primary]: true, shiftKey: true }, field)
+        if (system === 'mac') {
+          expect(undo.defaultPrevented).toBe(true)
+          await waitFor(() => expect(scale()).toBeLessThan(before))
+        } else {
+          expect(undo.defaultPrevented).toBe(false)
+          await new Promise((resolve) => setTimeout(resolve, 20))
+          expect(scale()).toBe(before)
+        }
+      } finally {
+        field.parentElement?.remove()
+      }
     } finally {
       await activate(null)
       canvas.cleanup()
@@ -797,8 +825,12 @@ describe('the keys of the Canvas by system', () => {
       const field = terminalField()
       try {
         expect((await press({ key: '_', [primary]: true, shiftKey: true }, field)).defaultPrevented).toBe(system === 'mac')
-        expect((await press({ key: '-', [primary]: true }, field)).defaultPrevented).toBe(true)
+        // Every other zoom key pressed in the Terminal tile is swallowed like anywhere else.
+        for (const key of ['-', '=', '+', '0']) expect((await press({ key, [primary]: true }, field)).defaultPrevented, key).toBe(true)
         expect((await press({ key: '_', [primary]: true, shiftKey: true })).defaultPrevented).toBe(true)
+        // And none of these presses zoomed the Canvas under focus mode.
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        expect(scale()).toBe(1)
       } finally {
         field.parentElement?.remove()
       }
