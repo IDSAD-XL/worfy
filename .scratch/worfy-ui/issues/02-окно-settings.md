@@ -97,23 +97,23 @@ Ticket-а 03 показывает версию; «Settings…» есть и в �
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/settings-dialog.test.tsx` (новый): два раздела-заглушки с `order` 20 и 10 —
+- [x] Unit `test/unit/settings-dialog.test.tsx` (новый): два раздела-заглушки с `order` 20 и 10 —
   в списке по `order`; клик и ↑/↓ меняют раздел; Esc и «Close» закрывают и возвращают фокус;
   `openSettings('<id>')` открывает нужный раздел; модуль без `title` — ошибка с именем файла.
-- [ ] Unit, тот же файл: `SettingSwitch` — `role="switch"`, `aria-checked`; клик зовёт `onChange`
+- [x] Unit, тот же файл: `SettingSwitch` — `role="switch"`, `aria-checked`; клик зовёт `onChange`
   с обратным значением; `disabled` — не зовёт.
-- [ ] Contract `test/contract/view-menu.test.ts`: на `darwin` в меню приложения есть «Settings…» с
+- [x] Contract `test/contract/view-menu.test.ts`: на `darwin` в меню приложения есть «Settings…» с
   `CmdOrCtrl+,`, прежние пункты роли `appMenu` на месте; на `win32` «Settings…» — первый пункт File,
   выход из приложения на месте; клик с окном шлёт этому окну `menu.command` со значением `settings`;
   клик без окна — окну в фокусе, без фокуса — никому.
-- [ ] Unit `test/unit/palette-commands.test.tsx`: «Settings…» есть в группе View с Project-ом и без
+- [x] Unit `test/unit/palette-commands.test.tsx`: «Settings…» есть в группе View с Project-ом и без
   и открывает окно.
-- [ ] e2e `test/e2e/settings.spec.ts` (новый): `clickMenuItem` по id «Settings…» открывает Settings,
+- [x] e2e `test/e2e/settings.spec.ts` (новый): `clickMenuItem` по id «Settings…» открывает Settings,
   General показывает версию; Esc закрывает; «Settings…» из палитры открывает снова. Снимки
   `settings-general` в светлой и тёмной теме (`snapshotThemes`).
 - [ ] (вручную) `pnpm dev`: ⌘, открывает Settings на Canvas, в Session, в поле ввода Session и при
   фокусе в Terminal Node; Esc закрывает. Как проверить: окно worfy.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально —
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально —
   exit 0.
 - [ ] Windows-ПК: gate full — строка вердикта и код выхода в PR (платформенный PR: `src/main/menu.ts`
   ветвится по системе; spec, «Соглашения», «Платформенный PR»).
@@ -146,4 +146,76 @@ Ticket 08 `worfy-terminal-ai`.
 
 ## Итог
 
-Заполняется при закрытии.
+Сделано (PR #209, ветка `worfy-ui/02`).
+
+**Окно.** `src/renderer/settings/SettingsDialog.tsx` + `settings.css`: модальный диалог как First run
+(720 px, не шире окна минус 32 px, высота 520 px, не выше окна минус 48 px, подложка чёрного 25 %,
+радиус 10 px, тень Node-а), портал в `document.body`, `z-index` 110. Слева колонка 180 px на
+surface raised: подпись «Settings» (11 px, semibold, muted) и строки `ListRow`; справа заголовок
+раздела (20 px, semibold), содержимое с прокруткой; внизу полоса с рамкой сверху и кнопкой «Close»
+(общая кнопка действия, primary). `role="dialog"`, `aria-modal="true"`, имя «Settings»
+(`aria-labelledby` на подпись колонки). При открытии фокус — на выбранной строке раздела, ↑/↓ ходят по
+разделам и несут фокус, у концов списка останавливаются. Esc (если его не забрал элемент внутри —
+`defaultPrevented`) и «Close» закрывают, фокус возвращается туда, где был. Esc — `preventDefault` и
+`stopPropagation`: до `window` он не доходит, режим фокуса под окном остаётся. Tab и Shift+Tab ходят по
+кругу внутри окна; нажатие на подложку фокус не забирает и окно не закрывает (как у First run).
+
+**Как подключить раздел** (для Ticket-ов 03, 05, 06, 11 и Ticket-а 08 Epic-а `worfy-terminal-ai`):
+файл `src/renderer/settings/<Name>Section.tsx` с тремя экспортами — компонент по умолчанию,
+`export const order = <число>`, `export const title = '<Заголовок>'`. Окно файл не правит:
+`sections.ts` собирает `./*Section.tsx` через `import.meta.glob` (`collectSections`); файл без
+компонента, `order` или непустого `title` — ошибка с путём файла при загрузке renderer-а. id раздела —
+имя файла без расширения (`GeneralSection`, `TerminalAiSection`). Строки раздела —
+`SettingRow` (`label`, `description`, элемент справа — `children`) и `SettingSwitch` (`label` —
+имя для экранного диктора, `checked`, `onChange(next)`, `disabled`) из `controls.tsx`.
+
+**Как test открывает Settings.** Unit: `openSettings('<id>')` / `closeSettings()` из
+`src/renderer/settings/settings-window.ts` и `SettingsDialogView` со своими разделами
+(`collectSections({...})`, пример — `test/unit/settings-dialog.test.tsx`). e2e: `clickMenuItem(app,
+'app.settings')` из `test/e2e/menu.ts` (id — `SETTINGS_MENU_ITEM_ID` из `src/main/menu.ts`; модуль
+тянет Electron, поэтому в e2e id — строкой, а contract test сверяет её с константой); окно —
+`window.getByRole('dialog', { name: 'Settings' })`, раздел — кнопка в
+`getByRole('navigation', { name: 'Settings sections' })`.
+
+**Меню.** «Settings…» с `CmdOrCtrl+,`, id `app.settings`. macOS: меню приложения (`label: app.name`)
+— явный список пунктов роли `appMenu` (About, Services, Hide, Hide Others, Show All, Quit) с
+«Settings…» после About между разделителями. Не macOS: File — «Settings…», разделитель, Quit (явный
+список роли `fileMenu`). Клик шлёт `menu.command` = `settings` окну из аргумента обработчика, без
+него — окну в фокусе, без фокуса — никому (`sendMenuCommand`). Домен `src/shared/ipc/menu.ts`:
+событие `menu.command`, доступ `local`, значение — перечисление `MENU_COMMANDS` (пока `settings`;
+Ticket 10 добавит `toggleSidebar`, Ticket 11 — `shortcuts`). Подписка — `followMenuCommands()` в
+эффекте `SettingsDialog`; окно на Project-е Linked machine-а слушает свой main (канал `local`), раздел
+General зовёт `app.version` — тоже `local`, своя машина.
+
+**Палитра.** «Settings…» в группе View, с Project-ом и без (`id: settings`, ключи settings,
+preferences, options). **General** — строка «Version» со значением `app.version` моноширинным
+шрифтом; при ошибке канала — «unknown» с причиной в подсказке.
+
+**Проверки.** `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (172 файла, 3340 test-ов);
+`GATE_SCOPE=all` gate fast — exit 0, «[gate] зелено (fast)»; CI PR #209 — check pass. e2e
+`test/e2e/settings.spec.ts` — 1 passed. Мутанты (убрать `stopPropagation`, убрать возврат фокуса,
+меню без окна из аргумента) — каждый краснит свой test. `GATE_SCOPE=all` gate full на macOS
+(на коммите 6ecaaa8, под замком `/tmp/worfy-e2e.lock`) — exit 0, «[gate] зелено (full): worfy/.:lint
+worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package».
+
+**Снимки** (светлая и тёмная тема, Playwright, `snapshotThemes`): окно с General —
+[светлая](../evidence/02-settings-general-light.png), [тёмная](../evidence/02-settings-general-dark.png);
+фокус клавиатуры на строке раздела после Tab по кругу — [светлая](../evidence/02-settings-focus-light.png),
+[тёмная](../evidence/02-settings-focus-dark.png); «Settings…» в палитре —
+[светлая](../evidence/02-settings-palette-light.png), [тёмная](../evidence/02-settings-palette-dark.png).
+Разделов пока один (General): Health, Shortcuts, Machines приходят своими Ticket-ами.
+
+**Не проверено:**
+- Нативное меню macOS (пункт «Settings…» в меню worfy) Playwright не снимает: снимков меню нет;
+  структуру меню проверяет contract test, клик по id — e2e.
+- (вручную) ⌘, на Canvas, в Session, в поле ввода Session и в Terminal Node — шаг владельца.
+- Не проверено: gate full на Windows-ПК — шаг владельца / Windows Session.
+
+**Решено без владельца, подтвердить:**
+- Esc закрывает окно, только если элемент внутри его не забрал (`defaultPrevented`) — так открытый
+  список Select Ticket-а 08 закроется первым.
+- Подложка окно не закрывает и фокус не забирает (как First run); Tab ходит по кругу внутри окна.
+- `openSettings()` без id открывает закрытое окно на первом разделе (General), открытое оставляет на
+  месте; id, которого нет, — первый раздел.
+- Высота окна постоянная, 520 px (не выше окна минус 48 px), чтобы окно не прыгало между разделами.
+- Пункт «Settings…» в File на Linux тоже (не macOS — одна ветка), как на Windows.
