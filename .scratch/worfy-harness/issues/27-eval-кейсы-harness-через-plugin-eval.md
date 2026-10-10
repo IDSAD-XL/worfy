@@ -1,8 +1,8 @@
 # 27 — Eval-кейсы Harness: `claude plugin eval` проверяет, что Claude следует правилам Harness
 
 Type: task
-Status: blocked — платная часть не идёт: песочница claude plugin eval запрещает git из Command Line Tools; ждёт решения владельца (brew git / правка Harness / исправление Claude Code), бесплатная часть влита PR #142
-Blocked by: 05, 06, 07, 11
+Status: open
+Blocked by: 05, 06, 07, 11, 28
 Source: решения владельца 2026-10-08, пересмотр E3: вопрос 34, вариант б («давай таки попробуем б» — eval-кейсы Harness через `claude plugin eval`), и вопрос 35 («Готово, когда» E3 без изменений) — номера Session «Несколько машин и порт под Windows», продолжают Q30–Q33 spec-а worfy-windows, это не Q34 и Q35 spec-а E3; решение владельца о дешёвом CI (2026-10-06, PR #42: CI — одна задача на Linux, e2e и `.app` — локально); [ADR-0041](../../../docs/adr/0041-harness-rules-via-session-hooks.md) (правила Harness через hooks `SessionStart` и `SubagentStart`), [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (plugin `worfy`, состояние машины в `~/.claude/worfy-harness/`), [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) (скрипты Harness на Node, bash — только в test-ах); [документация `claude plugin eval`](https://code.claude.com/docs/en/plugin-evals); [spec.md](../spec.md)
 
 ## Что происходит
@@ -300,3 +300,8 @@ Xcode Command Line Tools. Настройки песочницы, которые 
   что фильтр копирования (`electron.vite.config.ts:40`) этот список читает.
 - [low] `scripts/eval-harness.mjs:207` — если `claude` не запустился (`status` и `signal` — null), скрипт выходит с
   кодом 143 «interrupted» вместо 1.
+
+### Решения владельца (2026-10-10)
+
+- Как дать прогонам eval git — вариант (б): правка Harness отдельным Ticket-ом 28 (`scripts/eval-harness.mjs` кладёт копию git в папку, которую песочница читает; скрипты берут путь к git и `HARNESS_HOME` из `EVAL_*`). Платная часть этого Ticket-а идёт после Ticket-а 28.
+- Когда гонять полный набор: перед мержем PR, который правит правила, — кейсы изменённых файлов; полный набор — по событию (смена закреплённой модели, новая версия Claude Code, обновление Stable copy). Связь «кейс → файлы правил» и строка итога eval в PR — Ticket 29.
