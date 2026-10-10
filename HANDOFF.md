@@ -1,4 +1,4 @@
-# Передача контекста — снимок на 2026-10-10 (UTC), main @ 1fe8382
+# Передача контекста — снимок на 2026-10-10 (UTC), main @ 558dd67
 
 ## Сейчас в работе
 
@@ -9,7 +9,7 @@
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/16; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16.
 - `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057): влиты 01, 02, 08 и 09 (PR #172, #177, #200 — пути и папки, #194 — окружение агента из реестра), ответы владельца — PR #192. Session на Windows-ПК ведёт 11; gate full — на Mac. 03–07 ждут закрытия E3.
 - `worfy-terminal-ai` (Terminal AI в Terminal-ах на подписке; [spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) 01, 02 влиты (PR #204, #205); следом 03. 08 ждёт `worfy-ui` 02 и 08 (окно Settings, Select), 09 — шаги владельца (`blocked`).
-- `worfy-ui` (Settings, масштаб, боковая панель, режим фокуса, палитра, Select, сочетания; [spec](.scratch/worfy-ui/spec.md)) спроектирован 2026-10-09: 12 Ticket-ов, не начат. 11 ждёт `worfy-windows` 11.
+- `worfy-ui` (Settings, масштаб, боковая панель, режим фокуса, палитра, Select, сочетания; [spec](.scratch/worfy-ui/spec.md)) 12 Ticket-ов: влиты 07 и 08 (PR #210, #208); 01 (PR #207) и 02 (PR #209) — в gate. До 09 — долг Select из «Итог» 08. 11 ждёт `worfy-windows` 11.
 
 ## Ждёт владельца
 
@@ -45,6 +45,7 @@
 
 ## Дальше
 
+- `worfy-harness` 30 (установщик сам ставит зависимость `mattpocock-skills`, решение владельца 2026-10-10) — перед пунктами 1 и 2 приёмки E3 (26); `worfy-windows` 18 (symlink на UNC до `realpath`) — Windows Session после 11.
 - `worfy-harness` 28 (git и `HARNESS_HOME` в прогонах eval, решение владельца 2026-10-10) открывает платную часть 27; 29 — карта «кейс eval → файлы правил» и правило частоты eval.
 - Приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot. Платная часть 27 — после ответа про git.
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21, 24, 25 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
