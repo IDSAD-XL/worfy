@@ -23,6 +23,8 @@
 # of a Terminal, so a run from an agent's shell and from the owner's Terminal find the same folder.
 # E3_SANDBOX_TMP replaces that temp dir and E3_LOCK_DIR the lock folder: test/contract/e3-sandbox.test.ts
 # runs the script on temporary folders with them, never on the real sandbox or the shared lock.
+# E3_LOCK_PAUSE is how long lock-run pauses between two attempts to take the lock, as `sleep` takes it
+# (default 20, seconds); it is there for that test, which does not wait 20 seconds.
 #
 # Inside it:
 #   home/           HOME of the sandbox; home/.claude is CLAUDE_CONFIG_DIR, so ~/.claude/worfy-harness/
@@ -221,8 +223,8 @@ EOF
 }
 
 # The shared lock of Electron runs (rules.md of the worfy Profile): mkdir, a touch every 5 minutes
-# so a long run is not taken for abandoned, a lock older than 30 minutes is abandoned; only this
-# run's own lock is removed.
+# so a long run is not taken for abandoned, a lock older than 30 minutes is abandoned and removed,
+# with a pause before the next attempt; apart from that only this run's own lock is removed.
 # The modification time of a folder in seconds: BSD stat on macOS, GNU stat elsewhere.
 mtime_of() {
   if [ "$(uname)" = Darwin ]; then stat -f %m "$1"; else stat -c %Y "$1"; fi
@@ -230,13 +232,16 @@ mtime_of() {
 
 lock_run() {
   [ $# -gt 0 ] || die 2 "lock-run: no command"
-  local m hb
+  local m hb pause=${E3_LOCK_PAUSE:-20}
   until mkdir "$LOCK" 2>/dev/null; do
     m=$(mtime_of "$LOCK" 2>/dev/null) || continue
-    # An abandoned lock is removed and taken at once; a live one is waited for.
-    if [ $(($(date +%s) - m)) -gt 1800 ] && rmdir "$LOCK" 2>/dev/null; then continue; fi
+    # An abandoned lock is removed, and the pause below comes before this run tries to take it. Taking
+    # it at once let two runs hold the lock: both read the old time, the first removed the lock and
+    # made its own, and the `rmdir` of the second then removed that fresh lock. With the pause every
+    # run that read the old time has finished its `rmdir` before any of them makes a lock.
+    if [ $(($(date +%s) - m)) -gt 1800 ]; then rmdir "$LOCK" 2>/dev/null || true; fi
     echo "e3-sandbox: waiting for $LOCK" >&2
-    sleep 20
+    sleep "$pause"
   done
   # Its output goes nowhere: the `sleep` it leaves behind would otherwise hold the caller's pipe
   # open for up to 5 minutes after this script has exited.

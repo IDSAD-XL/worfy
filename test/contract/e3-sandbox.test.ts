@@ -1,9 +1,10 @@
 // scripts/e3-sandbox.sh (worfy-harness ticket 26, item 1) on temporary folders: E3_SANDBOX_TMP is
 // the temp dir its sandbox lives in and E3_LOCK_DIR its lock, so no test touches the real sandbox or
-// the shared Electron lock /tmp/worfy-e2e.lock. HOME is a temporary folder too (the keychain link
+// the shared Electron lock /tmp/worfy-e2e.lock (E3_LOCK_PAUSE shortens the pause between two attempts
+// to take it). HOME is a temporary folder too (the keychain link
 // points into it), and `gh` is a stub first on the PATH: it records how it was called and prints a
 // made-up token, so no test reads a real one.
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -58,8 +59,9 @@ interface Run {
   ms: number
 }
 
-function sandbox(args: string[], options: { env?: Record<string, string>; timeout?: number } = {}): Run {
-  const env: NodeJS.ProcessEnv = {
+/** What every run of the script gets: temporary folders only, and <scratch>/bin first on the PATH. */
+function sandboxEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
+  return {
     PATH: `${join(scratch, 'bin')}:${process.env.PATH ?? ''}`,
     HOME: userHome,
     TMPDIR: process.env.TMPDIR ?? tmpdir(),
@@ -67,8 +69,12 @@ function sandbox(args: string[], options: { env?: Record<string, string>; timeou
     E3_SANDBOX_TMP: temp,
     E3_LOCK_DIR: lock,
     GH_CONFIG_DIR: join(scratch, 'gh-config'),
-    ...options.env,
+    ...extra,
   }
+}
+
+function sandbox(args: string[], options: { env?: Record<string, string>; timeout?: number } = {}): Run {
+  const env = sandboxEnv(options.env)
   const started = Date.now()
   const run = spawnSync('bash', [SCRIPT, ...args], { cwd: scratch, env, encoding: 'utf8', input: '', timeout: options.timeout ?? 10_000, killSignal: 'SIGKILL' })
   return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '', timedOut: run.error !== undefined, ms: Date.now() - started }
@@ -297,8 +303,15 @@ describe('e3-sandbox.sh lock-run', () => {
     expect(existsSync(lock)).toBe(true)
   })
 
+  const minutesAgo = (minutes: number): Date => new Date(Date.now() - minutes * 60_000)
+
+  /** A stand-in for a command the script calls by name, in <scratch>/bin: first on the script's PATH. */
+  function stubCommand(name: string, lines: string[]): void {
+    writeFileSync(join(scratch, 'bin', name), `${['#!/bin/sh', ...lines].join('\n')}\n`)
+    chmodSync(join(scratch, 'bin', name), 0o755)
+  }
+
   it('waits for a lock touched 29 minutes ago, and takes one left 31 minutes ago', () => {
-    const minutesAgo = (minutes: number): Date => new Date(Date.now() - minutes * 60_000)
     mkdirSync(lock)
     utimesSync(lock, minutesAgo(29), minutesAgo(29))
     const waiting = sandbox(['lock-run', ...touchRan], { env: { SCRATCH: scratch }, timeout: 2_500 })
@@ -307,11 +320,131 @@ describe('e3-sandbox.sh lock-run', () => {
     expect(existsSync(lock)).toBe(true)
 
     utimesSync(lock, minutesAgo(31), minutesAgo(31))
-    const taken = sandbox(['lock-run', ...touchRan], { env: { SCRATCH: scratch } })
+    const taken = sandbox(['lock-run', ...touchRan], { env: { SCRATCH: scratch, E3_LOCK_PAUSE: '1' } })
     expectExit(taken, 0)
     expect(ran()).toBe(true)
     expect(existsSync(lock)).toBe(false)
   })
+
+  it('pauses 20 seconds between two attempts to take the lock, or as long as E3_LOCK_PAUSE says', () => {
+    // This `sleep` records what it was asked for and fails, which ends the script at its first pause.
+    const pauses = join(scratch, 'pauses')
+    stubCommand('sleep', [`echo "$1" >> '${pauses}'`, 'exit 1'])
+    mkdirSync(lock)
+    expectExit(sandbox(['lock-run', ...touchRan], { env: { SCRATCH: scratch } }), 1)
+    expectExit(sandbox(['lock-run', ...touchRan], { env: { SCRATCH: scratch, E3_LOCK_PAUSE: '3' } }), 1)
+    expect(readFileSync(pauses, 'utf8')).toBe('20\n3\n')
+    expect(ran()).toBe(false)
+    expect(existsSync(lock)).toBe(true)
+  })
+
+  // Two runs find the same abandoned lock. The one that removes it must pause before it takes the
+  // lock: the other has read the old time too, and without the pause its own `rmdir` removes the
+  // fresh lock of the first, and both run.
+  //
+  // No step of this test is timed. `rmdir` and `sleep` of the script are stand-ins that wait for
+  // each other through marker files in <scratch>/race, so the order is the same on any machine:
+  //   1. both runs read the old time and reach `rmdir` — `first` removes the lock only then;
+  //   2. `second` calls its `rmdir` only when `first` has gone on: it is in its pause, or (without
+  //      the pause) it holds the lock and its command runs;
+  //   3. the pause of `first` lasts until that `rmdir` of `second` is over, which is what 20 seconds
+  //      are for outside the test;
+  //   4. the command under the lock ends only when the other run has started its command too (both
+  //      hold the lock: the failure) or waits for the lock after its own pause.
+  // The stand-in `sleep` never sleeps, and the heartbeat's `sleep 300` fails at once, so the
+  // heartbeat ends and no process outlives the test.
+  it('two runs that find the same abandoned lock do not both take it: the one that removed it pauses first', async () => {
+    const race = join(scratch, 'race')
+    mkdirSync(race)
+    writeFileSync(
+      join(race, 'lib.sh'),
+      [
+        'PATH=$REAL_PATH',
+        'me=$RACE_DIR/$RACER',
+        'if [ "$RACER" = first ]; then other=$RACE_DIR/second; else other=$RACE_DIR/first; fi',
+        'any_of() { for f in "$@"; do [ ! -e "$f" ] || return 0; done; return 1; }',
+        'gone() { [ ! -e "$1" ]; }',
+        // Polls for a state of the files; gives up after a minute of polls, or when the test did.
+        'wait_until() {',
+        '  n=0',
+        '  until "$@"; do',
+        '    [ -d "$RACE_DIR" ] || exit 1',
+        '    n=$((n + 1))',
+        '    if [ "$n" -gt 1200 ] || [ -e "$RACE_DIR/abort" ]; then echo "$RACER gave up waiting: $*" >> "$RACE_DIR/stuck"; exit 1; fi',
+        '    sleep 0.05',
+        '  done',
+        '}',
+        '',
+      ].join('\n'),
+    )
+    stubCommand('rmdir', [
+      '. "$RACE_DIR/lib.sh"',
+      // Only the first `rmdir` of a run is the one of an abandoned lock; a later one releases its own.
+      'if [ -e "$me.at-rmdir" ]; then exec rmdir "$@"; fi',
+      ': > "$me.at-rmdir"',
+      'if [ "$RACER" = first ]; then wait_until any_of "$other.at-rmdir"; else wait_until any_of "$other.paused" "$other.entered"; fi',
+      'rmdir "$@"',
+      'code=$?',
+      ': > "$me.rmdir-done"',
+      'exit "$code"',
+    ])
+    stubCommand('sleep', [
+      '. "$RACE_DIR/lib.sh"',
+      '[ "$1" != 300 ] || exit 1',
+      'echo "$1" >> "$me.pauses"',
+      'if [ ! -e "$me.paused" ]; then',
+      '  : > "$me.paused"',
+      '  wait_until any_of "$other.rmdir-done"',
+      'else',
+      '  : > "$me.waiting"',
+      '  wait_until gone "$E3_LOCK_DIR"',
+      'fi',
+    ])
+    writeFileSync(
+      join(race, 'under-lock.sh'),
+      ['. "$RACE_DIR/lib.sh"', 'echo "enter $RACER" >> "$RACE_DIR/log"', ': > "$me.entered"', 'wait_until any_of "$other.entered" "$other.waiting"', 'echo "exit $RACER" >> "$RACE_DIR/log"', ''].join('\n'),
+    )
+
+    const racer = (name: 'first' | 'second'): Promise<Run> =>
+      new Promise((resolve) => {
+        const started = Date.now()
+        const env = sandboxEnv({ RACER: name, RACE_DIR: race, REAL_PATH: process.env.PATH ?? '', E3_LOCK_PAUSE: '7' })
+        const child = spawn('bash', [SCRIPT, 'lock-run', 'sh', join(race, 'under-lock.sh')], { cwd: scratch, env, stdio: ['ignore', 'pipe', 'pipe'] })
+        let stdout = ''
+        let stderr = ''
+        let timedOut = false
+        child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()))
+        child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()))
+        // Far above what the run takes (under a second): only a run that hangs gets here.
+        const timer = setTimeout(() => {
+          timedOut = true
+          writeFileSync(join(race, 'abort'), '')
+          child.kill('SIGKILL')
+        }, 90_000)
+        child.on('close', (status) => {
+          clearTimeout(timer)
+          resolve({ status, stdout, stderr, timedOut, ms: Date.now() - started })
+        })
+      })
+
+    mkdirSync(lock)
+    utimesSync(lock, minutesAgo(31), minutesAgo(31))
+    const [first, second] = await Promise.all([racer('first'), racer('second')])
+
+    expect(existsSync(join(race, 'stuck')) ? readFileSync(join(race, 'stuck'), 'utf8') : '').toBe('')
+    expectExit(first, 0)
+    expectExit(second, 0)
+    // One command at a time under the lock, whichever run took it first after the pause.
+    const log = readFileSync(join(race, 'log'), 'utf8').trim().split('\n')
+    expect([
+      ['enter first', 'exit first', 'enter second', 'exit second'],
+      ['enter second', 'exit second', 'enter first', 'exit first'],
+    ]).toContainEqual(log)
+    // Every pause was as long as E3_LOCK_PAUSE says: the one after the removal, and the wait for the other run's lock.
+    const pauses = ['first', 'second'].flatMap((name) => readFileSync(join(race, `${name}.pauses`), 'utf8').trim().split('\n'))
+    expect(pauses.sort()).toEqual(['7', '7', '7'])
+    expect(existsSync(lock)).toBe(false)
+  }, 120_000)
 
   it('refuses without a command, taking no lock', () => {
     expectExit(sandbox(['lock-run']), 2)
