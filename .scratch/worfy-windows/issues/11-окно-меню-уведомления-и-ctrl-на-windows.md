@@ -244,5 +244,14 @@ AppUserModelId в меню Пуск создаёт установщик Ticket-�
     `AltGraph` для AltGr; и что на раскладках, где Windows сама превращает Ctrl+Alt в AltGr
     (польская, немецкая), событие приходит с символом в `event.key` (`ą`, `€`), так что
     обработчики, сверяющие `key`, не срабатывают.
+  - **Известные падения на Windows, не от этого PR** (для Ticket-а 14, gate full на Windows):
+    - `test/contract/main-ipc-wiring.test.ts`, запущенный отдельно (`vitest run
+      test/contract/main-ipc-wiring.test.ts`), падает на уровне файла: в `beforeAll` `vi.waitFor`
+      с пределом 1000 мс не дожидается `createMainWindow`, все 11 случаев пропущены. На main
+      `baf7a14` — так же, 2 раза из 2. В полном прогоне файл выполняется, 5 случаев из 11 падают
+      (сравнение `file://`-адреса с путём macOS);
+    - `pnpm lint` на Windows — exit 1 с main `baf7a14`: `scripts/check-handoff.mjs` считает байты
+      рабочей копии, а она с CRLF — `HANDOFF.md` 15356 байт в git и 15428 на диске при пределе
+      15360. `eslint .` — exit 0. Передано Orchestrator-у.
   - Не покрыто unit-test-ом: `zoomActivationKeyCode` (Ctrl+колесо на Windows и так масштабирует —
     `wheel-router.ts` отдаёт Canvas колесо с Ctrl) и правила CSS — их видно только в окне.
