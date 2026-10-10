@@ -24,6 +24,7 @@ const CASES: [name: string, tag: 'main' | 'gui'][] = [
   ['reviewer-verdict', 'main'],
   ['no-os-screen-capture', 'gui'],
   ['status-block', 'main'],
+  ['reviewer-intended-breakage', 'main'],
 ]
 // A scaffold script has 120 seconds inside `claude plugin eval`; here it takes about a second.
 const SCAFFOLD_TIMEOUT_MS = 60_000
@@ -79,7 +80,7 @@ const harness = (home: string, cwd: string, script: string, args: string[]): Spa
   })
 
 describe('harness/evals: the cases', () => {
-  it('holds exactly the eight cases of the ticket', () => {
+  it('holds exactly the nine cases', () => {
     const found = existsSync(EVALS)
       ? readdirSync(EVALS, { withFileTypes: true })
           .filter((entry) => entry.isDirectory() && existsSync(join(EVALS, entry.name, 'prompt.md')))
@@ -135,6 +136,57 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     const line = harness(home, work, 'epic-status', ['demo'])
     expect(line.status, line.stderr).toBe(0)
     expect(line.stdout).toMatch(/demo 0\/4/)
+  })
+})
+
+describe('harness/evals: reviewer-intended-breakage is the diff the case describes', () => {
+  // The fixture's own commands, with the fixture's HOME and no Electron variables.
+  const inFixture = (home: string, cwd: string, command: string, args: string[]): SpawnSyncReturns<string> =>
+    spawnSync(command, args, {
+      cwd,
+      env: { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR ?? tmpdir() },
+      encoding: 'utf8',
+      timeout: SCAFFOLD_TIMEOUT_MS,
+    })
+
+  it('removes the check the ticket removes on purpose, and hides a rounding defect behind green tests', () => {
+    const { work, home, run } = scaffold('reviewer-intended-breakage')
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    const git = (...args: string[]): string => inFixture(home, work, 'git', args).stdout
+
+    // The reviewer is pointed at origin/main...HEAD on the ticket's branch.
+    expect(git('rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('demo/01')
+    expect(git('status', '--porcelain')).toBe('')
+    const diff = git('diff', 'origin/main...HEAD', '--', 'src/percent.mjs')
+    expect(diff).toMatch(/^-\s+if \(total === 0\) throw new RangeError/m)
+    expect(diff).toMatch(/^\+\s+return Math\.floor\(/m)
+    expect(git('diff', '--name-only', 'origin/main...HEAD').trim().split('\n').sort()).toEqual([
+      '.scratch/demo/issues/01-alpha.md',
+      'src/percent.mjs',
+      'test/percent.test.mjs',
+    ])
+
+    // The removal is intended only because the ticket says so, and says so on the base branch: the
+    // branch adds nothing to the ticket but its status. The only caller handles zero itself.
+    const ticket = git('show', 'origin/main:.scratch/demo/issues/01-alpha.md')
+    expect(ticket).toContain('Проверку `total === 0` убираем намеренно')
+    const ticketDiff = git('diff', 'origin/main...HEAD', '--', '.scratch/demo/issues/01-alpha.md')
+    expect(ticketDiff.split('\n').filter((line) => /^[+-][^+-]/.test(line))).toEqual([
+      '-Status: open',
+      '+Status: claimed — 2026-10-01',
+    ])
+    expect(ticket).toContain('`percent(2, 3)` —\n  `66.7`')
+    expect(readFileSync(join(work, 'src', 'report.mjs'), 'utf8')).toContain("total === 0 ? '—'")
+
+    // The real defect: the branch's tests are green, yet percent(2, 3) is 66.6, not the ticket's 66.7.
+    const tests = inFixture(home, work, 'node', ['--test'])
+    expect(tests.status, `${tests.stdout}\n${tests.stderr}`).toBe(0)
+    const value = inFixture(home, work, 'node', [
+      '--input-type=module',
+      '-e',
+      "import { percent } from './src/percent.mjs'; console.log(percent(2, 3), percent(1, 0))",
+    ])
+    expect(value.stdout.trim()).toBe('66.6 Infinity')
   })
 })
 

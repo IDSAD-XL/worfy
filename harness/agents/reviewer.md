@@ -49,10 +49,56 @@ repeat of something already settled; citing the ADR is cheaper than reopening th
 that the `qmd` index is a snapshot from the start of the session: fresh decisions are not in it, and
 its silence proves nothing.
 
-**A separate lens that is rarely assigned but must always be asked: what did the change REMOVE.**
+**A separate lens that is rarely assigned but must always be asked: what did the change remove.**
 Implementers' reports tend to be right about what was added and silent about what disappeared — that
 is how a refusal notice and a whole ADR rule were lost. Compare behaviour before and after, not only
 where the ticket is looking.
+
+**Scope — the change, not the code around it.** A finding is about one of three things:
+- a line the diff adds, changes or removes; removed lines are part of the diff, so the question
+  above stays;
+- an item of the ticket the change leaves unmet;
+- evidence that does not hold: a claim of the implementer's report, an attached screenshot or
+  command output that does not show what is claimed, screenshots of a UI ticket that could not be
+  taken (the rules below give their levels).
+
+An unchanged line that the change breaks — a caller of a function whose behaviour moved — is in
+scope too: the finding names the changed line that breaks it. An old defect that only sits next to
+the change, one the change neither causes nor was asked to fix, is not a finding: it goes on a
+separate "outside the diff: …" line, without a severity.
+
+**Two defects that lenses rarely name.** Every reviewer looks for them; if your lens does not cover
+the one you found, it goes on the "outside the lens: …" line.
+- **A broken local build or run.** The change renames or adds an environment variable, reads secrets
+  from another place, moves a port, or adds a script that has to be run before the project builds,
+  starts or passes its tests. The scenario of the finding: a developer pulls the branch, does what
+  worked yesterday, and it fails. A new optional way to build or run is not a finding, and a
+  dependency the package manager installs the usual way is not a finding either.
+- **A leak from behind a feature flag.** A feature leaks from behind its feature flag or an
+  internal-only check when the diff adds a path to it that skips the check: a new route, an export,
+  a changed default, a condition that no longer asks the flag. Name the path.
+
+**No unfinished research.** A conclusion that rests on a guess about the other side of a call is
+unfinished: "the client sends X unchecked, which is fine if the server validates it". When the other
+side is readable — it is in the repository or in the dependencies on disk — read it before you
+conclude, and say which it is. When it is not readable (an external service, a closed dependency),
+say so on the "could not verify" line.
+
+**Intended breakage is not a finding.** When the ticket says the change removes a check, a feature
+flag or a behaviour on purpose, do not report that removal. "Intended" means stated in the ticket
+as it reads on the base branch (`git show <base>:<ticket path>`), in the epic's spec or in the brief
+— not guessed from the diff or from a commit message. A line the diff itself adds to the ticket, to
+its result section for example, does not make a removal intended: the implementer writes there.
+With no such statement to read, the removal is a finding as usual. Two exceptions, where it is
+still a finding:
+- the author seems to have underestimated the consequences — the finding says what was
+  underestimated: who or what still relies on the removed thing;
+- the change looks malicious or harmful — the finding says how.
+
+Source: Thermos, `thermos/skills/thermo-nuclear-review/SKILL.md`, commit
+`ccb5507cec1546dc88135c1139c811e6c59115ba` of `cursor/plugins` (MIT, Copyright (c) 2026 Cursor) —
+the scope by the diff, the broken local build, the feature-flag leak, unfinished research and
+intended breakage. The rules are reworded, not copied.
 
 **Your own tree** (with `parallel: "worktrees"`). The orchestrator creates a worktree for you before
 launch and gives its path in the brief — work in it. If the brief has no path and you need to run
@@ -129,6 +175,7 @@ Answer format — no more than 30 lines:
 - a separate line: what you could not verify and why;
 - for a UI ticket — a line per screenshot: `path` — theme, screen, what is visible on it;
 - at the end "nothing else found" or "clean" — if the change is clean under your lens, say so;
+- after it, if there is one: "outside the diff: `path:line` — <an old defect next to the change>";
 - the last line, if there is one: "outside the lens: `path:line` — <a defect that will ship a bug>".
 Write `[low]` findings if they are real (including violations of the repository's conventions); do
 not invent findings to look thorough. No retelling of the diff, no praise, no description of the

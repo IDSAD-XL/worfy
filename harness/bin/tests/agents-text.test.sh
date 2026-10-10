@@ -133,5 +133,54 @@ for a in $ALL; do
     has "$a" '«ложная зелень»' && ok "$a: Russian metaphor examples kept" || bad "$a: Russian metaphor examples lost"
 done
 
+# --- 8. reviewer: checks for a broken local build and a feature-flag leak, scope by the diff ---
+# (ticket worfy-review/01). The text is wrapped, so a phrase is looked up in the file with its line
+# breaks folded into spaces.
+flat() { tr '\n' ' ' <"$AGENTS/$1.md" | tr -s ' '; }
+has_flat() { flat "$1" | grep -qF -- "$2"; } # $1 = agent, $2 = literal text
+rv() { if has_flat reviewer "$2"; then ok "reviewer: $1"; else bad "reviewer: $1 — no '$2'"; fi; }
+rv "broken local build: environment variables" 'renames or adds an environment variable'
+rv "broken local build: where secrets are read" 'reads secrets from another place'
+rv "broken local build: ports" 'moves a port'
+rv "broken local build: a new required script" 'adds a script that has to be run before'
+rv "an ordinary new dependency is not a finding" 'a dependency the package manager installs the usual way is not a finding'
+rv "leak from behind a feature flag or an internal check" 'leaks from behind its feature flag or an internal-only check'
+rv "no unfinished research" '**No unfinished research.**'
+rv "no unfinished research: read the other side of the call" 'read it before you conclude'
+rv "intended breakage is not a finding" '**Intended breakage is not a finding.**'
+rv "intended breakage: the ticket on the base branch, the spec or the brief says so" \
+    '"Intended" means stated in the ticket as it reads on the base branch (`git show <base>:<ticket path>`), in the epic'"'"'s spec or in the brief'
+rv "intended breakage: a guess from the diff or a commit message does not count" \
+    'in the brief — not guessed from the diff or from a commit message.'
+rv "intended breakage: a line the diff adds to the ticket does not count" \
+    'A line the diff itself adds to the ticket, to its result section for example, does not make a removal intended: the implementer writes there.'
+rv "intended breakage: without such a statement the removal is a finding" \
+    'With no such statement to read, the removal is a finding as usual.'
+rv "intended breakage: the two exceptions are findings" 'Two exceptions, where it is still a finding:'
+rv "intended breakage, exception 1: underestimated consequences" 'underestimated the consequences — the finding says what was underestimated'
+rv "intended breakage, exception 2: malicious or harmful" 'looks malicious or harmful — the finding says how'
+rv "scope: the change, three kinds of finding" '**Scope — the change, not the code around it.** A finding is about one of three things:'
+rv "scope: added, changed and removed lines" '- a line the diff adds, changes or removes; removed lines are part of the diff'
+rv "scope: an unmet item of the ticket" '- an item of the ticket the change leaves unmet;'
+rv "scope: evidence that does not hold" \
+    '- evidence that does not hold: a claim of the implementer'"'"'s report, an attached screenshot or command output that does not show what is claimed, screenshots of a UI ticket that could not be taken'
+rv "scope: an unchanged line the change breaks is in scope" \
+    'An unchanged line that the change breaks — a caller of a function whose behaviour moved — is in scope too: the finding names the changed line that breaks it.'
+rv "scope: an old defect goes on the 'outside the diff' line, without a severity" \
+    'one the change neither causes nor was asked to fix, is not a finding: it goes on a separate "outside the diff: …" line, without a severity.'
+rv "answer format has the 'outside the diff' line" '"outside the diff: `path:line` — <an old defect next to the change>"'
+rv "the question about what the change removed is kept" 'what did the change remove.**'
+# The borrowed rules name their source: project, file and commit (spec of worfy-review, owner's decision 1).
+THERMOS_SOURCE='Source: Thermos, `thermos/skills/thermo-nuclear-review/SKILL.md`, commit `ccb5507cec1546dc88135c1139c811e6c59115ba`'
+rv "the borrowed rules name Thermos, the file and the commit" "$THERMOS_SOURCE"
+
+# No word written wholly in capitals: such pressure gives newer models false alarms. A word here is
+# a run of four or more capital Latin letters; the allowed ones are names of the protocol and of files.
+CAPS_ALLOWED='VERIFIED REJECTED NARROW EXIT JSON CLAUDE PLUGIN ROOT AGENTS TOKEN SKILL'
+caps="$(CAPS_ALLOWED="$CAPS_ALLOWED" perl -ne 'BEGIN { %ok = map { $_ => 1 } split " ", $ENV{CAPS_ALLOWED} }
+    while (/(?<![A-Z])([A-Z]{4,})(?![A-Z])/g) { print "$.: $1\n" unless $ok{$1} }' "$AGENTS/reviewer.md")"
+[ -z "$caps" ] && ok "reviewer: no word of four or more capital letters outside the allowed names" \
+    || bad "reviewer: words in capitals:"$'\n'"$caps"
+
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

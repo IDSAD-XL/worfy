@@ -271,11 +271,53 @@ Each reviewer's brief carries the owner's rules on evidence: an item with "not v
 6, manual checks) is not a finding; attached evidence that does not show what is claimed is a
 high-severity finding.
 
+**Four groups of findings.** When the reviewers have answered and you have re-read every
+`file:line`, sort all their findings into four groups and show the four groups to the user. The
+groups are a way to show the findings, not a new scale: the levels `high` / `med` / `low` and the
+verdicts `VERIFIED` / `REJECTED` of a wave's gate stay as they are. The level of a finding is its
+reviewer's: you do not change it, you may only propose a change to that reviewer (below).
+- **Act on** — confirmed `high` and `med` findings; they go to rework. No more than 5: a longer
+  list means the selection is weak, so check every item again — is it confirmed, is it one defect
+  reported twice. A finding its reviewer stands by is never moved out of Act on to fit the limit:
+  if more than 5 remain, say so in the report.
+- **Consider** — `med` and `low` findings whose fix is disputable or costs more than it gives; they
+  go to the ticket's result section as debts (step 11). A `high` finding never goes here.
+- **Noted** — `low` findings that need no fix now and the `[low] debt: …` lines of a repeat review;
+  one line each in the ticket's result section.
+- **Dismissed** — findings you refuted, each with a one-line reason. Deciding not to fix a finding
+  does not refute it: such a `med` or `low` finding belongs to Consider.
+
+No finding is dropped silently: what goes to no other group goes to Dismissed, so the owner sees
+what was rejected and can overrule it. An empty group is written as "none".
+
+**You do not take a `high` or `med` finding out of Act on alone.** A `low` finding you sort
+yourself. A `high` or `med` finding that you would put into Consider, Noted or Dismissed, or whose
+level you think is too high, goes back to the reviewer that raised it: before anything goes to
+rework, send that reviewer your reason through `SendMessage`. Its answer decides:
+- a finding the reviewer withdraws, or agrees to lower or to set aside, goes to the group it agreed
+  to, and its line says "agreed by the reviewer";
+- a finding the reviewer insists on stays in Act on, at the reviewer's level;
+- if the reviewer cannot answer any more, the finding stays in Act on.
+
+Write the Consider, Noted and Dismissed lines into the ticket's result section as soon as they are
+sorted, not at step 11: the brief of the repeat review is built from the groups, and a session
+break must not lose them.
+
+Source: pstack, `pstack/skills/interrogate/SKILL.md` and
+`pstack/skills/interrogate/references/lead-judgment.md`, commit
+`ccb5507cec1546dc88135c1139c811e6c59115ba` of `cursor/plugins` (MIT, Copyright (c) 2026 Lauren Tan)
+— the four groups, the limit of 5 and the reason to show what was dismissed. The group names are
+pstack's; the rules are reworded, not copied. The exchange with the reviewer is this project's own
+rule.
+
 **A repeat review after rework** checks the rework round; it does not search everything again. The
-brief gives the first round's findings and the diff of the rework only. Only these block: (a) a
-first-round finding that is neither fixed nor refuted; (b) a defect introduced by the rework's
-changes; (c) a new high-severity defect. Everything else new is `[low] debt: …`: it does not block
-and goes to the ticket's result section (step 11). Without this rule fresh reviewers always find
+brief gives the first round's findings — its Act on group, without the other groups — and the diff
+of the rework only. Only these block: (a) a first-round finding that is neither fixed nor refuted;
+(b) a defect introduced by the rework's changes; (c) a new high-severity defect. Only the Act on
+group counts for (a): what the first round put into Consider, Noted or Dismissed — a `high` or
+`med` finding only with its reviewer's agreement — is not ground (a). Everything else new is
+`[low] debt: …`: it does not block and goes to the ticket's result section (step 11). Without this
+rule fresh reviewers always find
 something new, and tickets on the critical path get stuck together with their dependents. The
 narrow fix round for such a ticket — skill `/worfy:epic-wave`, section 3.
 

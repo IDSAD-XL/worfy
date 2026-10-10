@@ -216,6 +216,127 @@ check "ship-ticket: <main branch> before the block is found in the block's order
 check "ship-ticket: NO MAIN BRANCH / SAME BRANCH say what happens to the prepared documents" has "$ST" '`NO MAIN BRANCH` or `SAME BRANCH` (`MERGED=1`) — a profile problem'
 check "epic-wave: the temporary worktree has a fixed path" has "$EW" 'rev-parse --path-format=absolute --git-common-dir)/worfy-wave-docs"'
 
+# 7d. Four groups of review findings (ticket worfy-review/01): the orchestrator sorts the findings into
+# Act on, Consider, Noted and Dismissed — in ship-ticket step 7 and in epic-wave section 3. The levels and
+# the verdicts stay; the rule names its source. The text is wrapped, so phrases are looked up in the
+# section with its line breaks folded into spaces.
+section() { awk -v re="^## $2\\\\." '$0 ~ re {p=1; next} /^## /{p=0} p' "$1"; }    # section <file> <number>
+PSTACK_SOURCE='Source: pstack, `pstack/skills/interrogate/SKILL.md` and `pstack/skills/interrogate/references/lead-judgment.md`, commit `ccb5507cec1546dc88135c1139c811e6c59115ba`'
+for pair in "$ST:7" "$EW:3"; do
+    f="${pair%:*}" num="${pair##*:}" n="$(name_of "${pair%:*}")"
+    # The rule itself: from its heading to the end of its Source paragraph.
+    rule="$(section "$f" "$num" | awk '/^\*\*Four groups of findings\.\*\*/{p=1} p && /^Source: /{s=1} s && /^$/{exit} p' | tr '\n' ' ' | tr -s ' ')"
+    in_rule() { [[ "$rule" == *"$1"* ]]; }
+    sec="$(section "$f" "$num" | tr '\n' ' ' | tr -s ' ')"
+    in_sec() { [[ "$sec" == *"$1"* ]]; }
+    not_in_rule() { [[ "$rule" != *"$1"* ]]; }
+    # Who raised the findings: the lens reviewers of a ticket, or the verifier of a wave's gate.
+    if [ "$n" = epic-wave ]; then who=verifier; else who=reviewer; fi
+    check "$n section $num: the rule about four groups of findings is there" test -n "$rule"
+    # Whole sentences, not fragments: a changed word inside one changes the rule.
+    check "$n section $num: Act on is confirmed high and med, and goes to rework" \
+        in_rule '- **Act on** — confirmed `high` and `med` findings; they go to rework.'
+    check "$n section $num: Act on holds no more than 5, a longer list is checked again" \
+        in_rule 'No more than 5: a longer list means the selection is weak, so check every item again — is it confirmed, is it one defect reported twice.'
+    check "$n section $num: Consider is med and low whose fix is disputable or too costly" \
+        in_rule '- **Consider** — `med` and `low` findings whose fix is disputable or costs more than it gives;'
+    check "$n section $num: a high finding never goes to Consider" in_rule 'A `high` finding never goes here.'
+    check "$n section $num: Noted is low findings and debt lines" \
+        in_rule '- **Noted** — `low` findings that need no fix now and the `[low] debt: …` lines of a'
+    check "$n section $num: Dismissed is refuted findings only, each with a one-line reason" \
+        in_rule '- **Dismissed** — findings you refuted, each with a one-line reason. Deciding not to fix a finding does not refute it: such a `med` or `low` finding belongs to Consider.'
+    check "$n section $num: no finding is dropped silently, an empty group is 'none'" \
+        in_rule 'No finding is dropped silently: what goes to no other group goes to Dismissed, so the owner sees what was rejected and can overrule it. An empty group is written as "none".'
+    check "$n section $num: the groups are not a new scale" in_rule 'not a new scale: the levels `high` / `med` / `low`'
+    check "$n section $num: the verdicts stay" in_rule '`VERIFIED` / `REJECTED`'
+    check "$n section $num: the orchestrator does not judge the level" not_in_rule 'is its level right'
+    # A high or med finding leaves Act on only with the agreement of whoever raised it.
+    check "$n section $num: no high or med finding leaves Act on on the orchestrator's word alone" \
+        in_rule '**You do not take a `high` or `med` finding out of Act on alone.** A `low` finding you sort yourself. A `high` or `med` finding that you would put into Consider, Noted or Dismissed, or whose level you think is too high, goes back to the '"$who"
+    check "$n section $num: a withdrawn or lowered finding is marked as agreed" \
+        in_rule "- a finding the $who withdraws, or agrees to lower or to set aside, goes to the group it agreed to, and its line says \"agreed by the $who\";"
+    check "$n section $num: a finding the $who insists on stays in Act on" \
+        in_rule "- a finding the $who insists on stays in Act on, at the $who's level;"
+    check "$n section $num: the rule names pstack, the files and the commit" in_rule "$PSTACK_SOURCE"
+    # Allowed: the verdict words and the file name SKILL.md of the source.
+    caps="$(perl -e 'my %ok = map { $_ => 1 } qw(VERIFIED REJECTED NARROW SKILL); my $t = shift;
+        while ($t =~ /(?<![A-Z])([A-Z]{4,})(?![A-Z])/g) { print "$1 " unless $ok{$1} }' "$rule")"
+    check "$n section $num: the rule has no word in capitals${caps:+ — found: $caps}" test -z "$caps"
+    if [ "$n" = ship-ticket ]; then
+        check "$n section $num: the four groups are shown to the user" \
+            in_rule 'sort all their findings into four groups and show the four groups to the user.'
+        check "$n section $num: the level is the reviewer's, the orchestrator only proposes a change" \
+            in_rule "The level of a finding is its reviewer's: you do not change it, you may only propose a change to that reviewer (below)."
+        check "$n section $num: a finding its reviewer stands by is not cut to fit the limit" \
+            in_rule 'A finding its reviewer stands by is never moved out of Act on to fit the limit: if more than 5 remain, say so in the report.'
+        check "$n section $num: the finding goes back to its reviewer before rework" \
+            in_rule 'goes back to the reviewer that raised it: before anything goes to rework, send that reviewer your reason through `SendMessage`. Its answer decides:'
+        check "$n section $num: a reviewer that cannot answer leaves the finding in Act on" \
+            in_rule '- if the reviewer cannot answer any more, the finding stays in Act on.'
+        check "$n section $num: the groups are written down when sorted, to survive a session break" \
+            in_rule "Write the Consider, Noted and Dismissed lines into the ticket's result section as soon as they are sorted, not at step 11: the brief of the repeat review is built from the groups, and a session break must not lose them."
+        check "$n section $num: the repeat review gets the Act on group as the first round's findings" \
+            in_sec "The brief gives the first round's findings — its Act on group, without the other groups — and the diff of the rework only."
+        check "$n section $num: a finding set aside in the first round is not ground (a)" \
+            in_sec "Only the Act on group counts for (a): what the first round put into Consider, Noted or Dismissed — a \`high\` or \`med\` finding only with its reviewer's agreement — is not ground (a)."
+        continue
+    fi
+    # The wave's gate: what the groups mean for the verdict, the rework list and the round count.
+    check "$n section $num: the wave's report shows the groups" \
+        in_rule "the wave's report (section 5) shows the four groups of every ticket under its table."
+    check "$n section $num: the level is the verifier's, the orchestrator only proposes a change" \
+        in_rule "The level of a finding is the verifier's: you do not change it, you may only propose a change to the verifier (below)."
+    check "$n section $num: the rework list is the Act on group" in_rule 'The implementer gets the Act on group as the rework list.'
+    check "$n section $num: a finding the verifier stands by is not cut to fit the limit" \
+        in_rule 'A finding the verifier stands by is never moved out of Act on to fit the limit: if more than 5 remain, say so in the report.'
+    check "$n section $num: the round count stays" in_rule 'and the count of rounds stay as they are'
+    check "$n section $num: the finding goes back to the verifier before the verdict is recorded" \
+        in_rule 'goes back to the verifier first: before the verdict is recorded, send the verifier your reason for each such finding through `SendMessage`. Its answer decides, finding by finding:'
+    check "$n section $num: a verifier that cannot answer leaves the findings in Act on" \
+        in_rule '- if the verifier cannot answer any more, every such finding stays in Act on.'
+    check "$n section $num: a REJECTED that would leave Act on empty goes to the verifier too" \
+        in_rule 'The same exchange is due when a `REJECTED` would leave Act on empty for another reason (its list holds only `low` findings): ask the verifier which of them block; what it insists on goes to Act on, whatever its level.'
+    check "$n section $num: the recorded verdict is the verifier's, never the orchestrator's" \
+        in_rule "The verdict you record is the one the verifier's answer carries, never your own: \`VERIFIED\` only when the verifier itself says so."
+    check "$n section $num: the implementer never gets an empty list" \
+        in_rule 'A `REJECTED` that stands therefore has at least one finding in Act on, and the implementer never gets an empty list.'
+    check "$n section $num: that exchange is not a rework round" in_rule 'That exchange is not a rework round.'
+    check "$n section $num: REJECTED: gate 3 is not a disagreement" \
+        in_rule '`REJECTED: gate 3 …` is not a disagreement and has no findings to sort: it keeps its own rule above.'
+    check "$n section $num: the verifier's brief does not change" in_rule "The verifier's brief does not change: the verifier does not sort"
+    # The recorded verdict carries the groups, and the counts of rounds still see verdicts only.
+    check "$n section $num: the recorded REJECTED holds Act on first, then a line per group" \
+        in_rule "The first line of a recorded \`REJECTED\` holds the Act on group — the rework list — and each other group that is not empty follows as a line that starts with the group's name:"
+    check "$n section $num: the groups survive a session break" in_rule '**The recorded verdict carries the groups**, so they survive a session break.'
+    check "$n section $num: local-green — the group lines are the body of the gate: commit" \
+        in_rule 'With `local-green` the first line is the subject of the `gate: REJECTED: …` commit and the group lines are its body.'
+    check "$n section $num: Silent mode — the group lines follow the gate: line" \
+        in_rule 'In Silent mode the group lines follow the `gate: REJECTED: …` line in the ticket file.'
+    check "$n section $num: no group line starts like a verdict" \
+        in_rule 'No group line starts with `REJECTED` or `gate:`, so the counts above still count verdicts only.'
+    # The example itself: its first line is the verdict, and the commands that count rounds see one verdict in it.
+    example="$(section "$f" "$num" | awk '/^\*\*The recorded verdict carries the groups\*\*/{p=1} p && /^```$/{if (b) exit; b=1; next} b')"
+    check "$n section $num: the example of a recorded REJECTED has the four lines" test "$example" = \
+        'REJECTED: <Act on: the rework list>
+Consider: <findings>
+Noted: <findings>
+Dismissed: <findings, each with its reason>'
+    check "$n section $num: the example counts as one REJECTED for a PR comment" \
+        test "$(jq -n --arg body "$example" '[$body | select(startswith("REJECTED"))] | length')" = 1
+    check "$n section $num: the example counts as one REJECTED in a Silent-mode ticket file" \
+        test "$(printf 'gate: %s\n' "$example" | grep -c '^gate: REJECTED')" = 1
+    check "$n section $num: REJECTED sends the Act on group, not the whole list" \
+        in_sec '`SendMessage` with the Act on group of its list'
+    check "$n section $num: the second round gets the Act on group as the first round's list" \
+        in_sec "The brief gives the first round's list — the Act on group of the recorded \`REJECTED\`, without the lines of the other groups — and the diff of the rework only"
+    check "$n section $num: a finding set aside in the first round is not ground (a)" \
+        in_sec "Only the items of that list count for (a): what the first round put into Consider, Noted or Dismissed — a \`high\` or \`med\` finding only with the verifier's agreement — is not ground (a)."
+done
+# The wave's report (section 5) shows the groups between the table and the status block.
+check "epic-wave section 5: the report shows the four groups, the status block stays last" \
+    bash -c '[[ "$1" == *"$2"* ]]' _ "$(section "$EW" 5 | tr '\n' ' ' | tr -s ' ')" \
+    'A table for the wave, then the four groups of findings of every ticket whose gate gave any (section 3: Act on, Consider, Noted, Dismissed, an empty group as "none"), then the four-line status block, which stays last.'
+
 # 8. Cyrillic only in allowed places: the old Autopilot forms, Gate verdict words, placeholders
 # of profile values, section names of Project documents and Russian examples.
 ALLOWED=(
