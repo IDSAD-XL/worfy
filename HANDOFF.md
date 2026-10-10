@@ -1,19 +1,19 @@
-# Передача контекста — снимок на 2026-10-10 (UTC), main @ c80d43a
+# Передача контекста — снимок на 2026-10-10 (UTC), main @ 899129d
 
 ## Сейчас в работе
 
 - `worfy-harness` (E3: Harness — правила, skills, agents и скрипты владельца — становится plugin-ом worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–25 и 30, `epic-status` — 26/30; 26 — приёмка E3, `blocked`; 27 (платная часть eval) ждёт 28; 29 — после 27 и 28.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 19; 19 (старая неудача в окне First run, low) открыт. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`; работа — только в локальной ветке `wip/worfy-week-14` («Итог» Ticket-а 14).
-- Stable copy и plugin `worfy` — сборка `df8e870` (2026-10-09). Откат машины на plugin — «Итог» `worfy-harness` 16.
+- Stable copy и plugin `worfy` — сборка `4d3d60c` (2026-10-10). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/16; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16.
 - `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057): влиты 01, 02, 08, 09, 11 (PR #172, #177, #200, #194, #215), ответы владельца — PR #192. Session на Windows-ПК ведёт 18, затем 12 и 10; gate full — на Mac. 03–07 ждут закрытия E3.
 - `worfy-terminal-ai` (Terminal AI в Terminal-ах на подписке; [spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) 01, 02 влиты (PR #204, #205); следом 03. 08 ждёт `worfy-ui` 02 и 08 (окно Settings, Select), 09 — шаги владельца (`blocked`).
-- `worfy-ui` (Settings, масштаб, боковая панель, режим фокуса, палитра, Select, сочетания; [spec](.scratch/worfy-ui/spec.md)) 12 Ticket-ов: влиты 01, 02, 07, 08 (PR #207, #209, #210, #208) — Wave 1. До 09 — долг Select из «Итог» 08. 11 ждёт `worfy-windows` 11.
-- `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 2/7: 01 и 03 влиты (PR #220, #221). 05 (PR #222) — `VERIFIED`, `blocked`: ждёт мержа PR #215, затем gate full на Mac и Windows-ПК. Следом 02 и 06.
+- `worfy-ui` (Settings, масштаб, боковая панель, режим фокуса, палитра, Select, сочетания; [spec](.scratch/worfy-ui/spec.md)) 13 Ticket-ов: влиты 01, 02, 07, 08 (PR #207, #209, #210, #208) — Wave 1. До 09 — долг Select из «Итог» 08. 13 («Settings…» в режиме фокуса) — после 10.
+- `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 2/7: 01 и 03 влиты (PR #220, #221). 05 (PR #222) — `VERIFIED`, gate full на Mac зелёный (head `32cb1d4`), ждёт gate full на Windows-ПК. Следом 02 и 06.
 
 ## Ждёт владельца
 
-- `worfy-harness` 26 (приёмка E3): код приёмки (PR #211) — второй `REJECTED` (гонка двух `lock-run`); узкий круг листовому Ticket-у — решение владельца.
+- `worfy-harness` 26 (приёмка E3): код приёмки влит (PR #211, узкий круг — `NARROW: VERIFIED`); остались шаги ниже.
 - Приёмка E3, пункты 1 и 2 — прогон в песочнице после слова владельца (вход есть с 2026-10-10, Ticket 30 влит); тот же вход открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08; пункт 5 (второй пользователь macOS) отложен владельцем 2026-10-10.
 - Приёмка E3, пункт 3 (Wave под Autopilot с одним graceful Stop): прогон 2026-10-10 на Wave 1 `worfy-review`, `e3-owner-check.sh` по его журналу — код 0, статусы 01, 03, 05 сверены; принять пункт — владелец.
 - Подтвердить решения, принятые без владельца (пометки «подтвердить» в «Итог» Ticket-ов): `worfy-week` 03–07, 09, 10, 12, 15, 17, 18; `worfy-harness` 01, 02, 04–09, 11–14, 17, 19, 20, 23, 27; `worfy-terminal-ai` 01, 02; `worfy-link` 01–06, 08–15; `worfy-review` 01, 03.
@@ -42,7 +42,7 @@
 - Gate `fast` с сужением по диффу не видит `scripts/` и `test/fixtures/` (`worfy-mvp` 01). Перед мержем — `GATE_SCOPE=all gate.sh full` на ветке: e2e и `.app` идут только локально ([ci-merge.md](docs/lessons/ci-merge.md)).
 - Contract test-ы с дочерними процессами (`github-prs`, `harness-qmd`, `workflow-reader`, `docs`) при load 6–8 не укладываются в 15 s: gate fast параллельных исполнителей краснел.
 - Ложный таймаут первого окна в e2e: заблокированный экран, параллельные e2e, окно macOS «восстановить окна?» (с PR #179 test-ы его отключают; на Mac владельца ещё и `defaults` для `com.github.Electron`) — [agents.md](docs/lessons/agents.md).
-- Замок e2e держащий обновляет `touch`-ем раз в 5 минут (`rules.md` Profile-а worfy, 2026-10-09): без этого соседняя очередь снимала живой замок.
+- Замок e2e держащий обновляет `touch -c` раз в 5 минут (`rules.md` Profile-а worfy, 2026-10-10): без этого соседняя очередь снимала живой замок.
 - Долги low — в «Итог» Ticket-ов (абзацы «Долг» и подраздел «Долги из HANDOFF (2026-10-08)»), разбор — шаг документов при закрытии Epic-а.
 
 ## Дальше
