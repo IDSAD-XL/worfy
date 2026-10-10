@@ -29,9 +29,9 @@ describe('.gitattributes', () => {
     'harness/hooks/rules/common.md',
     'harness/hooks/stop.sh', // *.sh
     'harness/bin/tests/profile.test.sh',
-    'scripts/install-stable.sh',
     'harness/hooks/guard.mjs', // *.mjs
     'scripts/check-handoff.mjs',
+    'scripts/install-stable.mjs',
     'scripts/build-version.ts', // scripts/**
     'scripts/spikes/path-probe/main.ts',
     'build/brand/icon.svg', // hashes in build/icons.json

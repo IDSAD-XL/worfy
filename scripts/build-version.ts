@@ -1,6 +1,6 @@
 // The build version of worfy and of the Harness copy it carries: `<semver>+<short SHA>`, with
 // `.dirty` at the end when the working tree has uncommitted changes (`git status --porcelain` is
-// not empty, as scripts/install-stable.sh counts them): such a build does not match its commit.
+// not empty, as scripts/install-stable.mjs counts them): such a build does not match its commit.
 // semver allows dots in build metadata. electron.vite.config.ts writes it into
 // out/harness/.claude-plugin/plugin.json; `app.version` answers it (src/main/harness/bundled.ts).
 import { execFileSync } from 'node:child_process'
