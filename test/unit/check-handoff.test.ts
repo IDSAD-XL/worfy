@@ -124,6 +124,17 @@ describe('check-handoff', () => {
     expect(loneRun.stdout).toBe(`handoff: ok (${lone.length} строк, ${Buffer.byteLength(`${lone.join('\n')}\n`)} байт)\n`)
   })
 
+  it('prints the size on disk for a file with bytes that are not UTF-8', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-check-handoff-')))
+    dirs.push(dir)
+    const file = join(dir, 'HANDOFF.md')
+    const bytes = Buffer.concat([Buffer.from(`${good().join('\n')}\n`), Buffer.from([0xff, 0xfe, 0x0a])])
+    writeFileSync(file, bytes)
+    const run = spawnSync(process.execPath, [SCRIPT, file], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+    expect(run.status).toBe(0)
+    expect(run.stdout).toBe(`handoff: ok (${good().length + 1} строк, ${bytes.length} байт)\n`)
+  })
+
   it('fails on a line longer than 300 characters and names that line', () => {
     const lines = good()
     lines.push('ж'.repeat(301))
