@@ -6,9 +6,10 @@
 // plays test/fixtures/agent-scripts/profile-draft.jsonl through the fake agent.
 import { execFileSync, spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HarnessStatus } from '../../src/shared/ipc/harness'
 import { githubChoice, withGithubAccount, type ProfileDraft } from '../../src/shared/ipc/projects'
 import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
@@ -35,6 +36,69 @@ const REPO = join(__dirname, '..', '..')
 const BIN = join(REPO, 'harness', 'bin')
 const SCRIPTS = join(REPO, 'test', 'fixtures', 'agent-scripts')
 const SCHEMA = JSON.parse(readFileSync(join(REPO, 'harness', 'profiles', 'draft.schema.json'), 'utf8')) as Record<string, unknown>
+/** The 2020-12 meta-schema the schema file names; the validator of Claude Code has no such schema. */
+const META_2020_12 = 'https://json-schema.org/draft/2020-12/schema'
+
+interface SchemaValidator {
+  validateSchema: (schema: unknown) => unknown
+  compile: (schema: unknown) => unknown
+  errorsText: () => string
+}
+type SchemaValidatorClass = new (options: { allErrors: boolean; validateFormats: boolean; multipleOfPrecision: number }) => SchemaValidator
+
+/**
+ * Ajv 8 of the repository's dependencies: the one @modelcontextprotocol/sdk brings, which
+ * @anthropic-ai/claude-agent-sdk (a dependency of the repository) brings. The repository has no ajv
+ * of its own, and pnpm does not put a dependency of a dependency at the root.
+ */
+function ajv8(): SchemaValidatorClass {
+  try {
+    const agentSdk = createRequire(join(REPO, 'package.json')).resolve('@anthropic-ai/claude-agent-sdk')
+    const mcpSdk = createRequire(agentSdk).resolve('@modelcontextprotocol/sdk/package.json')
+    const ajv = createRequire(mcpSdk)('ajv') as SchemaValidatorClass & { default?: SchemaValidatorClass }
+    return ajv.default ?? ajv
+  } catch (error) {
+    throw new Error(
+      `ajv was not found through @anthropic-ai/claude-agent-sdk and its @modelcontextprotocol/sdk (${error instanceof Error ? error.message : String(error)}). ` +
+        'This test needs Ajv 8, the validator Claude Code checks --json-schema with, to check the schema the draft Session gets: bring one another way, do not skip the check.',
+      { cause: error },
+    )
+  }
+}
+
+/**
+ * Checks `schema` the way Claude Code checks `--json-schema`: Ajv 8 (draft-07, strict mode by
+ * default) built with `allErrors`, `validateFormats: false` and `multipleOfPrecision: 6`, then
+ * `validateSchema`, then `compile`. The options and the order of the calls were read in the package
+ * of Claude Code 2.1.291 (a binary with readable JS; it was not run): compare them again when Claude
+ * Code is updated. Throws what the validator says, an error of its strict mode among that; returns
+ * what strict mode only wrote to the console (its findings about types and tuples).
+ */
+function checkAsClaudeCode(schema: unknown): string[] {
+  const Ajv = ajv8()
+  const logged: string[] = []
+  const spies = (['log', 'warn', 'error'] as const).map((level) => vi.spyOn(console, level).mockImplementation((...args: unknown[]) => void logged.push(args.map(String).join(' '))))
+  try {
+    const ajv = new Ajv({ allErrors: true, validateFormats: false, multipleOfPrecision: 6 })
+    if (ajv.validateSchema(schema) !== true) throw new Error(`schema is invalid: ${ajv.errorsText()}`)
+    ajv.compile(schema)
+  } finally {
+    for (const spy of spies) spy.mockRestore()
+  }
+  return logged
+}
+
+/** Every place in `value` where a key is `$schema` or `$id`, as paths: whatever the key means there. */
+function metaKeys(value: unknown, at = ''): string[] {
+  if (Array.isArray(value)) return value.flatMap((item, index) => metaKeys(item, `${at}[${index}]`))
+  if (typeof value !== 'object' || value === null) return []
+  return Object.entries(value).flatMap(([key, inner]) => [...(key === '$schema' || key === '$id' ? [`${at}.${key}`] : []), ...metaKeys(inner, `${at}.${key}`)])
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value === 'object' && value !== null) for (const inner of Object.values(Object.freeze(value))) deepFreeze(inner)
+  return value
+}
 
 let scratch: string
 let home: string
@@ -282,7 +346,7 @@ describe('the draft Session (step 4)', () => {
     expect(run.requests).toHaveLength(1)
     const request = run.requests[0]
     expect(request?.cwd).toBe(repo)
-    expect(request?.outputFormat).toEqual({ type: 'json_schema', schema: SCHEMA })
+    expect(request?.outputFormat.type).toBe('json_schema')
     expect(request?.allowedTools).toEqual(['Read', 'Glob', 'Grep'])
     expect(request?.disallowedTools).toEqual(expect.arrayContaining(['Bash', 'Write', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task']))
     expect(request?.allowedTools).not.toContain('Bash')
@@ -310,6 +374,87 @@ describe('the draft Session (step 4)', () => {
     // Nothing was written: not in the Harness home, not in the repository.
     expect(harnessFiles()).toEqual(before)
     expect(clean(repo)).toBe('')
+  })
+
+  it('the schema file as it is fails the validator of Claude Code on the meta-schema it names, with the text Claude Code printed', () => {
+    expect(SCHEMA.$schema).toBe(META_2020_12)
+    expect(() => checkAsClaudeCode(SCHEMA)).toThrow(`no schema with key or ref "${META_2020_12}"`)
+  })
+
+  it('the validator of the test is the strict Ajv 8 of Claude Code: it throws on what strict mode refuses and knows $defs', () => {
+    expect(() => checkAsClaudeCode({ type: 'array', prefixItems: [{ type: 'string' }] })).toThrow('strict mode: unknown keyword: "prefixItems"')
+    expect(() => checkAsClaudeCode({ if: { type: 'string' } })).toThrow('strict mode: "if" without "then" and "else" is ignored')
+    expect(() => checkAsClaudeCode({ type: 'array', additionalItems: { type: 'number' } })).toThrow('strict mode: "additionalItems" is ignored when "items" is not an array of schemas')
+    expect(() => checkAsClaudeCode({ type: 'strng' })).toThrow('schema is invalid')
+    // What strict mode only writes down comes back, and the console is left as it was.
+    expect(checkAsClaudeCode({ type: 'object', properties: { text: { minLength: 1 } } })).toEqual([expect.stringContaining('strict mode: missing type "string" for keyword "minLength"')])
+    expect(vi.isMockFunction(console.warn)).toBe(false)
+    expect(checkAsClaudeCode({ type: 'object', $defs: { name: { type: ['string', 'null'] } }, properties: { name: { $ref: '#/$defs/name' } } })).toEqual([])
+  })
+
+  it('gets the schema of the file without $schema and $id, and the validator of Claude Code takes it with no strict mode finding', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const run = connectorWith()
+
+    const outcome = await run.connector.draft({ draftId: 'd1', root: repo, mode: 'silent', workflowFolder: null }, () => undefined)
+
+    expect(outcome.status).toBe('draft')
+    const sent = run.requests[0]?.outputFormat.schema
+    expect(metaKeys(sent)).toEqual([])
+    // No error of strict mode (it would throw) and nothing strict mode wrote to the console.
+    expect(checkAsClaudeCode(sent)).toEqual([])
+    // Nothing else of the schema is lost on the way, and the file's own copy keeps its $schema.
+    const { $schema: named, ...rest } = SCHEMA
+    expect(named).toBe(META_2020_12)
+    expect(sent).toEqual(rest)
+  })
+
+  it('takes $schema and $id out of every schema inside the schema, and leaves a field or a value of that name', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const inner = { $schema: META_2020_12, $id: 'https://worfy.example/inner' }
+    // Frozen: the schema of the caller is not changed in place.
+    const schema = deepFreeze({
+      ...inner,
+      type: 'object',
+      required: ['$id'],
+      properties: {
+        // Fields of the draft that happen to be called $id and $schema: names, not keywords.
+        // Values of enum, examples, default and const are data too, an object with such a key among them.
+        $id: { ...inner, enum: ['$schema', '$id', { $id: 'a value', $schema: 'a value' }], examples: [{ $id: 'a value' }] },
+        $schema: { type: 'object', default: { $id: 'a value' }, const: { $schema: 'a value' } },
+        list: { type: 'array', items: { ...inner, type: 'string' }, contains: { ...inner, type: 'string' } },
+        pair: { type: 'array', minItems: 1, maxItems: 1, items: [{ ...inner, type: 'string' }], additionalItems: { ...inner, type: 'number' } },
+        either: { anyOf: [{ ...inner, type: 'string' }], oneOf: [{ ...inner, type: 'string' }], allOf: [{ ...inner, type: 'string' }], not: { ...inner, type: 'number' } },
+        when: { if: { ...inner, type: 'string' }, then: { ...inner, type: 'string', minLength: 1 }, else: { ...inner, type: 'null' } },
+        map: { type: 'object', patternProperties: { '^x': { ...inner, type: 'string' } }, additionalProperties: { ...inner, type: 'number' }, propertyNames: { ...inner, type: 'string', minLength: 1 } },
+        needs: { type: 'object', dependencies: { a: { ...inner, required: ['b'] }, c: ['d'] } },
+        shared: { $ref: '#/definitions/name' },
+      },
+      definitions: { name: { ...inner, type: 'string' } },
+    })
+    const run = connectorWith({ draftSchema: () => schema })
+
+    await run.connector.draft({ draftId: 'd1', root: repo, mode: 'silent', workflowFolder: null }, () => undefined)
+
+    expect(run.requests).toHaveLength(1)
+    const sent = run.requests[0]?.outputFormat.schema
+    expect(sent).toEqual({
+      type: 'object',
+      required: ['$id'],
+      properties: {
+        $id: { enum: ['$schema', '$id', { $id: 'a value', $schema: 'a value' }], examples: [{ $id: 'a value' }] },
+        $schema: { type: 'object', default: { $id: 'a value' }, const: { $schema: 'a value' } },
+        list: { type: 'array', items: { type: 'string' }, contains: { type: 'string' } },
+        pair: { type: 'array', minItems: 1, maxItems: 1, items: [{ type: 'string' }], additionalItems: { type: 'number' } },
+        either: { anyOf: [{ type: 'string' }], oneOf: [{ type: 'string' }], allOf: [{ type: 'string' }], not: { type: 'number' } },
+        when: { if: { type: 'string' }, then: { type: 'string', minLength: 1 }, else: { type: 'null' } },
+        map: { type: 'object', patternProperties: { '^x': { type: 'string' } }, additionalProperties: { type: 'number' }, propertyNames: { type: 'string', minLength: 1 } },
+        needs: { type: 'object', dependencies: { a: { required: ['b'] }, c: ['d'] } },
+        shared: { $ref: '#/definitions/name' },
+      },
+      definitions: { name: { type: 'string' } },
+    })
+    expect(checkAsClaudeCode(sent)).toEqual([])
   })
 
   it('a draft off the schema is an error with its reasons, and nothing is written', async () => {

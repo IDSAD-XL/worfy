@@ -1,7 +1,7 @@
 # 32 — Черновик «Add project» падает: Claude Code отвергает ключ `$schema` в схеме черновика
 
 Type: task
-Status: open
+Status: claimed — 2026-10-10
 Blocked by:
 Source: приёмка E3, пункт 2 (Ticket [26](26-приёмка-e3.md)), запуск «silent» 2026-10-10: диалог «Add project» на шаге Draft перешёл в `failed` через несколько секунд. Диагностический запуск того же шага показал текст отказа.
 
@@ -44,10 +44,10 @@ Source: приёмка E3, пункт 2 (Ticket [26](26-приёмка-e3.md)), 
 
 ## Готово, когда
 
-- [ ] Contract test: `query` получает схему без `$schema` и `$id`; та же схема компилируется
+- [x] Contract test: `query` получает схему без `$schema` и `$id`; та же схема компилируется
       валидатором draft-07 без ошибок. Test красный на main `ba6a134` и на мутанте, который возвращает
       схему с диска как есть.
-- [ ] `bin/project-connect --schema-only` и проверка черновика по схеме работают как раньше (их
+- [x] `bin/project-connect --schema-only` и проверка черновика по схеме работают как раньше (их
       test-ы зелёные без правок ожиданий).
 - [ ] Приёмка: при `failed` на шаге Draft ошибка test-а содержит текст диалога; control-test без
       приложения, как у строк первого запуска.
@@ -78,3 +78,145 @@ Source: приёмка E3, пункт 2 (Ticket [26](26-приёмка-e3.md)), 
   `harness-dependencies`): второй по порядку мержа делает rebase.
 
 ## Итог
+
+Сделано в ветке `worfy-harness/32` (2026-10-10). Код и test-ы; приёмка с настоящим Claude Code — за
+Orchestrator-ом после мержа.
+
+### Что изменилось
+
+- `src/main/projects/connect.ts`: новая функция `sessionSchema`. Session черновика получает копию
+  схемы без `$schema` и `$id` — в самой схеме и в каждой вложенной схеме. Обход идёт по местам, где
+  draft-07 держит схемы (`properties`, `patternProperties`, `definitions`, `dependencies`, `items`,
+  `additionalItems`, `additionalProperties`, `contains`, `propertyNames`, `not`, `if`/`then`/`else`,
+  `allOf`/`anyOf`/`oneOf`). Данные не трогаются: поле черновика с именем `$id` под `properties`,
+  значения `enum`, `const`, `default` остаются. Исходный объект не меняется.
+- Файл `harness/profiles/draft.schema.json`, `harness/bin/project-connect` и
+  `src/main/ipc/projects.ts` не менялись: файл читается с диска как раньше, ключи убираются в
+  `ProjectConnector` прямо перед `query`. Ответ Session по-прежнему проверяет
+  `bin/project-connect --schema-only` по полной схеме файла.
+- `test/acceptance/e3.spec.ts`: шаг Draft ждёт форму через `expectDraftForm`. При
+  `data-step="failed"` он останавливается сразу, и ошибка test-а несёт текст диалога; при истечении
+  15 минут — тоже текст диалога и шаг, на котором диалог остался. Каждое чтение диалога получает
+  остаток этих 15 минут как свой timeout (не меньше 5 секунд): если диалога нет в DOM (закрыт во время
+  Draft), чтение не ждёт timeout всего test-а (120 минут). Отказ чтения становится той же ошибкой
+  helper-а, с текстом отказа на месте текста диалога.
+
+### Чем проверяет Claude Code и чем проверяет test
+
+- Claude Code 2.1.291 проверяет `--json-schema` так: `new Ajv({allErrors: true, validateFormats:
+  false, multipleOfPrecision: 6})`, затем `validateSchema`, затем `compile`; исключение любого из них
+  становится текстом отказа. Это Ajv 8 (класс draft-07), strict mode по умолчанию. Перед этим он
+  отказывает схеме с `$async` и слишком большой схеме (больше 100 000 узлов или глубже 10 000).
+- Откуда это известно: чтение пакета Claude Code 2.1.291 —
+  `/Users/alexey/.local/share/claude/versions/2.1.291`, бинарь Bun с читаемым JS; его нашёл reviewer
+  проверочного Gate (комментарий в PR #238), Implementer перечитал то же место поиском по файлу
+  (`grep -a` по `multipleOfPrecision:6`). Сам Claude Code не запускался.
+- **При обновлении Claude Code опции и порядок вызовов нужно сверить заново** тем же чтением: они
+  записаны в test-е как константы (`checkAsClaudeCode` в `test/contract/projects-connect.test.ts`), и
+  test не узнает, что Claude Code их сменил.
+- Test проверяет тем же способом: ajv 8.20.0 с теми же тремя опциями, `validateSchema`, затем
+  `compile`. То, что strict mode только пишет в консоль (находки о типах и кортежах), test собирает и
+  для уходящей схемы требует пустого списка.
+
+### Ключевые слова 2020-12 (п. 2 «Что делаем»)
+
+В схеме их нет: она использует только `type`, `enum`, `required`, `properties`,
+`additionalProperties`, `items`, `minLength`, `minItems`, `title`, `description`. Единственное, что
+отвергал валидатор, — ключ `$schema`. Заменять или убирать больше нечего.
+
+Если в файле позже появится то, что этот валидатор не принимает, contract test упадёт: неизвестное
+ему ключевое слово (`prefixItems`, `dependentSchemas`, `unevaluatedProperties`), `if` без `then`,
+`additionalItems` без массива `items` — ошибки strict mode. `$defs` и `nullable` Ajv 8 знает, test на
+них не падает. `sessionSchema` вглубь `$defs` не заходит: вложенные там `$schema` и `$id` ушли бы в
+Session как есть. Сейчас `$defs` в схеме нет; обход — решение для того Ticket-а, который его добавит.
+
+### Test-ы
+
+`test/contract/projects-connect.test.ts`, блок «the draft Session (step 4)»:
+
+- «the schema file as it is fails the validator of Claude Code…» — сам симптом: схема с диска как
+  есть отвергается с текстом `no schema with key or ref "https://json-schema.org/draft/2020-12/schema"`
+  (тот же текст, что в stderr Claude Code 2.1.291).
+- «the validator of the test is the strict Ajv 8 of Claude Code…» — что валидатор test-а именно такой:
+  `prefixItems`, `if` без `then`, `additionalItems` без массива `items` — ошибки strict mode;
+  неверный `type` — «schema is invalid»; находка strict mode о типе возвращается списком; `$defs` и
+  тип `["string", "null"]` проходят без находок.
+- «gets the schema of the file without $schema and $id…» — `query` получает схему файла без этих
+  ключей на любом уровне; валидатор принимает её без ошибок и без находок strict mode; остальное
+  содержимое совпадает с файлом.
+- «takes $schema and $id out of every schema inside the schema…» — схема с вложенными `$schema` и
+  `$id` во всех местах, где draft-07 держит схемы, с полями по имени `$id` и `$schema` и со
+  значениями-объектами с такими ключами в `enum`, `examples`, `default`, `const`; вход заморожен.
+- До правки кода (база `9c6f4fe`, она содержит `ba6a134`) test-ы про уходящую схему красные: `2
+  failed | 23 passed`, код 1 (первый круг, тогда с ajv 6).
+- Мутанты `sessionSchema`, каждый — код 1: схема с диска как есть (2 test-а красные); только верхний
+  уровень (1); убирать ключи везде, включая имена полей и значения (1); правка входа на месте (3);
+  без обхода списков схем (1); без обхода схем по имени (1); оставить `$id` (1); обход `enum`,
+  `examples`, `default`, `const` как схем (по 1).
+- Мутанты валидатора test-а, красные: вернуть ajv 6 со `strictKeywords` (1); `strict: false` (1); без
+  `compile` (1); не возвращать находки strict mode (1); ajv не найден (4, текст «ajv was not found
+  through @anthropic-ai/claude-agent-sdk and its @modelcontextprotocol/sdk…»).
+- Мутанты валидатора test-а, которые остались зелёными, — test их не различает: убрать `allErrors`;
+  убрать `validateFormats: false`; убрать `multipleOfPrecision: 6`; убрать вызов `validateSchema`
+  (`compile` сам проверяет схему по мета-схеме и бросает «schema is invalid»). Ни в схеме черновика,
+  ни в случаях test-а нет `format` и `multipleOf`, а `allErrors` меняет только число ошибок при
+  проверке данных. Опции оставлены такими, как у Claude Code; случаи ради них не придумывались.
+- В первом test-е блока ожидание `outputFormat` «равно схеме файла» заменено на проверку
+  `type`: прежнее ожидание закрепляло сам дефект. Содержимое схемы теперь проверяют новые test-ы.
+- `bin/project-connect`: `bash harness/bin/tests/project-connect.test.sh` — `passed: 98, failed: 0`,
+  без правок; test «a draft off the schema is an error with its reasons» зелёный без правок.
+
+`test/acceptance/e3.spec.ts`, два control-test-а без приложения:
+
+- «silent: control — a draft that failed stops the wait at once with what the dialog says (no app)» —
+  `failed` после одного чтения `drafting` (ошибка с текстом диалога, два чтения, без ожидания);
+  застрявший `drafting` (ошибка с шагом и текстом диалога); переход в `form`; шаг `harness` — не
+  форма, ошибка `at "harness"`.
+- «silent: control — a read of the draft dialog gets what is left of the wait, and a refused read ends
+  it (no app)» — чтение атрибута и текста получает остаток срока (первое чтение — почти весь срок, не
+  константа и не «без timeout»); отказ чтения атрибута и отказ чтения текста при `failed` становятся
+  ошибкой helper-а; после срока чтение получает 5 секунд, а не 0 (0 для Playwright — «без timeout»).
+
+### Решено без владельца, подтвердить
+
+- **Валидатор в contract test-е — ajv 8.20.0 из зависимостей репозитория**, по цепочке
+  `@anthropic-ai/claude-agent-sdk` (прямая зависимость) → `@modelcontextprotocol/sdk` → `ajv`, через
+  `createRequire`. Своего `ajv` у репозитория нет: `require.resolve('ajv')` из корня не находит
+  пакет, pnpm не поднимает зависимости зависимостей. Цена: test зависит от того, что эта цепочка
+  тянет ajv 8. Если пакет так не найдётся, test падает с текстом, что именно не нашлось и зачем оно
+  нужно, — не пропускается. Другой путь — `ajv` в devDependencies (`package.json` и
+  `pnpm-lock.yaml`, оба вне следа). Первый круг брал ajv 6 из зависимостей `eslint` со
+  `strictKeywords`; reviewer показал, что он не равен валидатору Claude Code в обе стороны (пропускал
+  `if` без `then`, ложно отвергал `$defs` и `nullable`), и test переведён на ajv 8.
+- **Test равен валидатору Claude Code 2.1.291 по опциям и порядку вызовов, но не строже его.**
+  Запись первого круга «test строже валидатора Claude Code» была неверной и убрана. Равенство —
+  по чтению пакета, а не по запуску; при обновлении Claude Code его нужно сверить (см. выше).
+- **Настоящий Claude Code схему не проверял.** Запускать его Implementer-у запрещено. Это закрывает
+  приёмка после мержа (четвёртый пункт «Готово, когда»). Не проверен и ответ API на эту схему как на
+  входную схему инструмента: это другой валидатор, не Ajv.
+- **Только `failed` останавливает ожидание в приёмке.** Шаг `harness` (Harness не установлен или не
+  той версии) тоже не ведёт к форме, но Ticket называет только `failed`; при `harness` test ждёт
+  15 минут и тогда пишет шаг и текст диалога.
+
+### Остальные вызовы со структурированным ответом
+
+Других нет. `outputFormat` в `src/` задаёт только `ProjectConnector.draft`
+(`src/main/projects/connect.ts`); `src/main/ipc/projects.ts` (`sdkDraftQuery`) и
+`src/main/agent/options.ts` (`draftSessionOptions`, `sessionOptions`) передают его дальше без
+изменений. Обычные Session и Subagent-ы `outputFormat` не задают.
+
+### Не проверено
+
+- не проверено: control-test-ы приёмки под Playwright не запускались — `pnpm test:acceptance` и
+  Playwright с `playwright.acceptance.config.ts` Implementer-у запрещены. Вместо этого тела обоих
+  control-test-ов и `expectDraftForm` вырезаны из файла и выполнены под Node с `expect` из
+  `@playwright/test`: зелёные. Мутанты helper-а — все красные: чтение атрибута без остатка времени;
+  чтение текста без timeout; постоянный timeout вместо остатка; остаток без нижней границы; отказ
+  чтения атрибута не превращён в ошибку helper-а; то же для текста; любой шаг, кроме `drafting` и
+  `failed`, — успех; не останавливаться на `failed`; без текста диалога при `failed`; без текста
+  диалога по таймауту; останавливаться на любом шаге. Третий пункт «Готово, когда» остаётся `[ ]` до
+  запуска `pnpm test:acceptance -g control`.
+- не проверено: настоящий Playwright с диалогом, которого нет в DOM, — что `getAttribute` с timeout
+  отказывает именно так, как подставной объект control-test-а (ошибка с «Timeout … exceeded»).
+- не проверено: шаг Draft с настоящим Claude Code в песочнице (четвёртый пункт) и gate full — шаги
+  Orchestrator-а.
