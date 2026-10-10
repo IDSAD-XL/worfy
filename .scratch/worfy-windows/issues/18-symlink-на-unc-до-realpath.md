@@ -71,22 +71,22 @@ Project-а или Card, работает как раньше.
 
 ## Готово, когда
 
-- [ ] `test/unit/remote-links.test.ts` (новый, `path.win32`, подменённые `lstat` и `readlink`; идёт
+- [x] `test/unit/remote-links.test.ts` (новый, `path.win32`, подменённые `lstat` и `readlink`; идёт
   на Mac, в Linux CI и на Windows): ссылка-файл и ссылка-папка с целью `\\host\share\x`,
   `//host/share/x`, `\\?\UNC\host\share\x` — отказ, и после `readlink` этой ссылки нет ни одного
   вызова `lstat`; цепочка «ссылка → локальная ссылка → `\\host\…`» — отказ; ссылка с локальной
   целью внутри `base` и ссылка на путь внутри разрешённой шары — «нет»; цепочка длиннее 40 — отказ;
   с `path.posix` — «нет» и ни одного вызова `lstat`.
-- [ ] `test/unit/shell-resolve.test.ts`, `path.win32`, подменённые `real`, `lstat`, `readlink`:
+- [x] `test/unit/shell-resolve.test.ts`, `path.win32`, подменённые `real`, `lstat`, `readlink`:
   `C:\p\repo\docs\a.md`, где `docs` — ссылка на `\\evil\share\docs`, — ошибка «outside the
   Project», подменённый `real` для кандидата не вызывался ни разу. То же для ссылки-файла `a.md` и
   для файла в worktree. Project `\\nas\team\repo` со ссылкой внутри на `\\nas\team\repo\other` —
   файл открыт. Все прежние случаи файла зелёные без правок.
-- [ ] `test/contract/card-protocol.test.ts`: `resolveCardFile` с подменёнными `lstat`, `readlink` и
+- [x] `test/contract/card-protocol.test.ts`: `resolveCardFile` с подменёнными `lstat`, `readlink` и
   правилами `path.win32` — файл Card, который ссылка на `\\evil\share\x.png`, и папка Card, которая
   ссылка на `\\evil\share\card`, дают `null`, `realpath` для них не вызывался. Прежние случаи
   (`:106`, `:113`, `:120`) зелёные без правок.
-- [ ] Mutation: проверка убрана из `resolveProjectFile` — новый случай `shell-resolve.test.ts`
+- [x] Mutation: проверка убрана из `resolveProjectFile` — новый случай `shell-resolve.test.ts`
   красный; убрана из `resolveCardFile` — новый случай `card-protocol.test.ts` красный.
 - [ ] Windows-ПК: `pnpm test test/unit/remote-links.test.ts test/unit/shell-resolve.test.ts
   test/contract/card-protocol.test.ts` — код 0. Случай на настоящей файловой системе (только
@@ -124,4 +124,95 @@ Project-а или Card, работает как раньше.
 
 ## Итог
 
-Заполняется при закрытии.
+Заполняет Session на Windows-ПК. Ручной пункт в `pnpm dev` заменён пробой на собранном приложении
+(ниже); что не проверено — в конце.
+
+- **Что сделано.**
+  - `src/main/remote-links.ts` (новый): `leadsToRemote(candidate, allowed, { paths, links })` —
+    «есть ли на пути к `candidate` ссылка, которая уводит на удалённый путь вне `allowed`». Идёт по
+    сегментам: `lstat` сегмента, у ссылки — `readlink`, цель разрешается от папки ссылки. Удалённая
+    цель вне `allowed` — «да», и после её `readlink` файловая система больше не спрашивается.
+    Локальная цель обходится дальше (от разрешённой папки, в которой она лежит, или от корня её
+    диска), так что цепочка «ссылка → локальная ссылка → шара» тоже отклоняется. Предел —
+    `MAX_LINK_HOPS` = 40 ссылок, цикл в него упирается. Не на Windows — сразу «нет», без единого
+    вызова. Туда же переехала `isInside` из `shell.ts`.
+  - `resolveProjectFile` (`src/main/ipc/shell.ts`) зовёт её после проверки по тексту и до
+    `realpath` кандидата; разрешённые папки — `folders` и `bases`, как у проверки по тексту. Отказ —
+    та же ошибка «outside the Project and its worktrees».
+  - `resolveCardFile` (`src/main/cards/protocol.ts`) зовёт её один раз, до первого `realpath`; обход
+    смотрит папку всех Card-ов, папку Card, каждую папку пути и сам файл. Разрешённая папка —
+    папка Card-ов как записана (если папка данных лежит на шаре, её файлы отдаются как раньше).
+    У функции появился параметр `options` (правила путей, `lstat`/`readlink`, `realpath`, проверка
+    «файл ли») — для test-ов.
+- **Отступления от текста Ticket-а.**
+  - У функции нет параметра `base`: начало обхода она выбирает сама — разрешённая папка, в которой
+    кандидат лежит по тексту (сама эта папка тоже проверяется), а для локального пути вне всех
+    разрешённых папок — корень его диска. Так закрыт и путь вне Project-а, идущий через ссылку на
+    шару (`D:\other\link\a.md`): раньше он доходил до `realpath` и отклонялся после него.
+  - В `resolveCardFile` — один вызов перед первым `realpath`, а не три: один обход проходит все три
+    места, которые называл Ticket.
+  - Трём прежним случаям `shell-resolve.test.ts`, где Project лежит на выдуманной шаре `\\nas\…`,
+    передана подмена `lstat` (`NO_LINKS`); их утверждения не менялись. Без неё настоящий `lstat`
+    на Windows шёл искать хост `nas`: случай занимал 2,7 с.
+- **Device-путь в цели ссылки (пункт 4).** Выбрано «снять префикс»: `\\?\C:\x` читается как `C:\x`,
+  `\\?\UNC\host\share` — как `\\host\share`; любой другой device-путь (`\\.\…`) считается
+  удалённым. На ПК (Node 22.13.0, symlink-и создаются без прав администратора): `readlink` сам
+  отдаёт цель без префикса — `\\?\UNC\h\s\a.md` → `\\h\s\a.md`, `\\?\C:\…\a.md` → `C:\…\a.md`,
+  `//h/s/a.md` → `\\h\s\a.md`; относительная цель отдаётся как записана. Для symlink-а на файл,
+  symlink-а на папку и junction `lstat().isSymbolicLink()` — `true`. Junction на UNC Node не
+  создаёт: `symlinkSync(…, 'junction')` не бросает, но ссылки нет (`lstat` — ENOENT).
+- **Как test падал до правки.** Первым написан случай `shell-resolve.test.ts` «`docs` — ссылка на
+  `\\evil\share\docs`»: на main `promise resolved "'C:\p\repo\docs\a.md'" instead of rejecting`,
+  подменённый `real` получал кандидата. Случай с настоящей ссылкой на main: `realpath` ушёл к
+  несуществующему хосту на 1283 мс и ответил `UNKNOWN: unknown error, realpath`.
+- **Мутанты:** 21 из 21 валят test-ы — 13 в `remote-links.ts`, 4 в `shell.ts`, 4 в `protocol.ts`,
+  среди них названные в Ticket-е (проверка убрана из `resolveProjectFile`; убрана из
+  `resolveCardFile`). Три выжили в первом прогоне и получили test-ы: ссылка ровно на корень шары
+  последним сегментом (без явной проверки цели обход отвечал «нет»), шара с префиксом `\\?\UNC\`,
+  Project, чья папка достигается через ссылку на собственную шару. Сортировка разрешённых папок
+  по длине, которую ничто не различало, убрана.
+- **Время на ПК.** `lstat` + `readlink` ссылки на `\\worfy-no-such-host\share\a.md` — 1,2 мс;
+  `fs.realpathSync.native` того же пути — 1268 мс в первый раз (второй раз 2,4 мс: система помнит
+  неудачный поиск хоста). В собранном приложении (Playwright `_electron`, временный spec, удалён;
+  имя хоста новое на каждый запуск) `shell.openInEditor`: `link.md` — отказ «outside the Project
+  and its worktrees» за 118 мс, `docs\deep\a.md` за ссылкой-папкой — 121 мс; несуществующий
+  `missing.md` для сравнения — 121 мс. Отказ не ждёт сеть.
+- **Windows-ПК** (Gate не запускался — он на bash, Ticket 03):
+  - `pnpm install --frozen-lockfile` — 0, `pnpm lint` — 0, `pnpm typecheck` — 0, `pnpm build` — 0;
+  - `pnpm test test/unit/remote-links.test.ts test/unit/shell-resolve.test.ts
+    test/contract/card-protocol.test.ts` — exit **1**, не 0, как просил пункт «Готово, когда»:
+    4 failed | 102 passed | 1 skipped. Оба unit-файла проходят целиком (пропущен один случай —
+    symlink-псевдоним корня, он не для Windows). Четыре падения — в `card-protocol.test.ts`, блок
+    «cards IPC domain» и «Card store»; на main `78fc03e` они падают так же (там пять, пятое —
+    «reports a file change of a Card within a second» — плавает). Все случаи этого Ticket-а в
+    файле зелёные, в том числе с настоящей ссылкой;
+  - `pnpm test` — exit 1, как на main: 53 failed | 136 passed файлов, 635 failed | 3150 passed | 29
+    skipped. Main `78fc03e`, прогнанный сразу после: 52 failed | 136 passed файлов, 635 failed | 3113
+    passed | 29 skipped. По именам новое одно — timeout 5000 мс в `check-handoff` («counts the bytes
+    and the lines of a CRLF working copy…») под нагрузкой, отдельно файл проходит (13 из 13); ушло
+    одно — случай `startup-failure`, зависящий от скорости ПК. Прогон сделан до добавления случая
+    Card с настоящей ссылкой; три файла Ticket-а после него перезапущены отдельно (строка выше).
+- **Другие места, где main зовёт `realpath` для пути не от самого worfy** (не правились, по
+  условию Ticket-а — отдельным Ticket-ом):
+  - `src/main/docs/watch.ts`, `resolveDocPath`: `realpath` пути документа из renderer
+    (`HANDOFF.md`, ADR) до проверки «внутри Project-а» — тот же порядок и тот же риск, что был в
+    `shell.ts`;
+  - `src/main/ipc/shell.ts`: `real(folder)` для папок из `git worktree list` — до всех проверок;
+    их пишет git в `.git/worktrees`, не содержимое репозитория;
+  - `src/main/agent/attachments.ts`: `stat`, чтение начала файла и `realpath` пути вложения,
+    которое выбрал пользователь;
+  - `src/main/mcp/canvas-server.ts`, `projectForCwd`: `realpathSync` для `cwd` Session;
+  - папки Project-а и worktree, которые называет пользователь или git: `src/main/projects/store.ts`,
+    `src/main/projects/connect.ts`, `src/main/ipc/checks.ts`, `src/main/gate/state.ts`,
+    `src/main/link/caller.ts`, `src/main/autopilot/run.ts`.
+- **Не проверено.**
+  - Ручной пункт «щелчок по markdown-ссылке в `pnpm dev`» глазами не проходился: вместо него —
+    вызов `shell.openInEditor` в собранном приложении (выше). Открытие файла за ссылкой внутрь
+    репозитория в приложении не запускалось (оно открыло бы файл в программе владельца); это
+    покрыто test-ом с настоящей ссылкой.
+  - Настоящая шара и настоящий NTLM-обмен: все ссылки вели на хост, которого нет. Что Windows при
+    `lstat` и `readlink` ссылки к хосту не обращается, видно по времени (1,2 мс), сетевой трафик
+    не записывался.
+  - Junction с целью UNC, созданный не Node (Node такой не создаёт).
+  - Через `worfy-card://` в окне приложения файл Card за такой ссылкой не запрашивался: проверены
+    `resolveCardFile` и обработчик протокола в test-е с настоящей ссылкой.

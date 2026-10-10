@@ -4,18 +4,8 @@ import * as nativePath from 'node:path'
 import { shell } from 'electron'
 import { shellOpenExternal, shellOpenInEditor } from '../../shared/ipc/shell'
 import { projectStore } from '../projects/store'
+import { isInside, leadsToRemote, type LinkFs, type PathRules } from '../remote-links'
 import { defineHandler, type HandlerModule } from './index'
-
-type PathRules = Pick<typeof nativePath, 'isAbsolute' | 'relative' | 'resolve' | 'sep'>
-
-/**
- * True when `path` is `base` itself or lies under it, by the rules of `paths`. Only a first segment
- * that is exactly `..` leaves `base`: a folder named `..drafts` inside it is still inside.
- */
-function isInside(base: string, path: string, paths: PathRules = nativePath): boolean {
-  const rel = paths.relative(base, path)
-  return rel === '' || (rel !== '..' && !rel.startsWith(`..${paths.sep}`) && !paths.isAbsolute(rel))
-}
 
 /** The folders of the Project's git worktrees (the main one included); empty when git cannot say. */
 function worktreeFolders(root: string): Promise<string[]> {
@@ -39,6 +29,8 @@ export interface ResolveOptions {
   real?: (path: string) => Promise<string | null>
   /** The path rules of the platform; path.win32 in tests on any system. */
   paths?: PathRules
+  /** lstat and readlink for the links on the way to the file (remote-links.ts); replaced in tests. */
+  links?: LinkFs
 }
 
 /**
@@ -48,7 +40,10 @@ export interface ResolveOptions {
  * (`\\host\share\…`, `//host/…`, `\\?\…`, `\\.\…`) is first checked by its text alone, against the
  * folders as written and as real paths, and one outside is refused before any file system call on
  * it: realpath on it would make Windows contact that host and hand it the user's NTLM credentials
- * (review of worfy-windows ticket 08). A Project on a share is opened on that share as before.
+ * (review of worfy-windows ticket 08). A local path can lead there too, through a symlink in the
+ * repository: the links on its way are read before realpath, and a path that leads to such a host is
+ * refused the same way (worfy-windows ticket 18). A Project on a share is opened on that share as
+ * before.
  */
 export async function resolveProjectFile(root: string, path: string, worktrees: readonly string[], options: ResolveOptions = {}): Promise<string> {
   const real = options.real ?? realOrNull
@@ -59,6 +54,7 @@ export async function resolveProjectFile(root: string, path: string, worktrees: 
   // path.win32.resolve gives every UNC and device form a leading `\\`.
   const remote = paths.sep === '\\' && candidate.startsWith('\\\\')
   if (remote && ![...folders, ...bases].some((base) => isInside(base, candidate, paths))) throw new Error(`${path} is outside the Project and its worktrees`)
+  if (await leadsToRemote(candidate, [...folders, ...bases], { paths, links: options.links })) throw new Error(`${path} is outside the Project and its worktrees`)
   const target = await real(candidate)
   if (target === null) throw new Error(`${path} does not exist`)
   if (!bases.some((base) => isInside(base, target, paths))) throw new Error(`${path} is outside the Project and its worktrees`)

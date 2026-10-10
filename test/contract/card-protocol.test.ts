@@ -4,7 +4,7 @@
 // is ever served, and that a change of a Card's files is reported within a second.
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
@@ -16,6 +16,7 @@ import {
   parseCardUrl,
   projectLabel,
   readCardFileChunk,
+  resolveCardFile,
   CARD_CSP,
   CARD_HEADERS,
   CARD_SCHEME,
@@ -124,6 +125,31 @@ describe('worfy-card:// leaves the Card folder for nothing', () => {
     expect((await get(`${CARD_SCHEME}://c2.${LABEL}/index.html`)).status).toBe(404)
   })
 
+  // worfy-windows ticket 18, with real links: lstat and readlink are Node's own, and realpath is
+  // wrapped to see what it was asked. The host does not exist; nothing here follows the link.
+  it.runIf(process.platform === 'win32')('serves nothing behind a real symlink to a share, and realpath is not asked about it', async (context) => {
+    try {
+      symlinkSync('\\\\worfy-no-such-host\\share\\x.png', join(cardDir('c1'), 'remote.png'), 'file')
+      symlinkSync('\\\\worfy-no-such-host\\share\\card', cardDir('c3'), 'dir')
+    } catch (error) {
+      // Without Developer Mode a user may not create symlinks (SeCreateSymbolicLinkPrivilege).
+      context.skip(`this user cannot create a symlink: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    const cards = join(dataDir, PROJECT, 'cards')
+    const asked: string[] = []
+    const real = async (path: string): Promise<string> => {
+      asked.push(path)
+      return realpathSync.native(path)
+    }
+    expect(await resolveCardFile(cards, 'c1', '/remote.png', { real })).toBeNull()
+    expect(await resolveCardFile(cards, 'c3', '/index.html', { real })).toBeNull()
+    expect(asked).toEqual([])
+    // A plain file of the same Card is served, through the same wrapped realpath.
+    expect(await resolveCardFile(cards, 'c1', '/index.html', { real })).toBe(join(realpathSync.native(cardDir('c1')), 'index.html'))
+    // And through the protocol the answer is a 404.
+    expect((await get(`${BASE}/remote.png`)).status).toBe(404)
+  })
+
   it('answers 404 to another Project’s Card through this Card’s address', async () => {
     mkdirSync(cardDir('c1', 'other-ffffffff'), { recursive: true })
     writeFileSync(join(cardDir('c1', 'other-ffffffff'), 'secret.json'), '{}')
@@ -164,6 +190,82 @@ describe('worfy-card:// leaves the Card folder for nothing', () => {
     const response = await handle({ url: `${BASE}/index.html`, method: 'POST' })
     expect(response.status).toBe(405)
     expect(response.headers.get('content-security-policy')).toBe(CARD_CSP)
+  })
+})
+
+// worfy-windows ticket 18: on Windows realpath of a link to \\host\share makes the system contact
+// that host, so the links on the way to a Card file are read first (src/main/remote-links.ts). The
+// file system is replaced here and the path rules are path.win32: the cases run on any machine.
+describe('resolveCardFile and a link that leads to a share', () => {
+  const CARDS = 'C:\\data\\demo\\cards'
+
+  /** `links` maps a link to its target as written; realpath answers with the path it was asked. */
+  function fakeSystem(links: Record<string, string>, rules: typeof win32 = win32) {
+    const asked: string[] = []
+    const read: string[] = []
+    const table = new Map(Object.entries(links).map(([path, target]) => [path.toLowerCase(), target]))
+    return {
+      asked,
+      read,
+      options: {
+        paths: rules,
+        links: {
+          isLink: async (path: string): Promise<boolean | null> => {
+            read.push(path)
+            return table.has(path.toLowerCase())
+          },
+          readlink: async (path: string): Promise<string> => table.get(path.toLowerCase())!,
+        },
+        real: async (path: string): Promise<string> => {
+          asked.push(path)
+          return path
+        },
+        isFile: async (): Promise<boolean> => true,
+      },
+    }
+  }
+
+  it('serves a plain file of a Card: realpath is asked about the Cards folder, the Card and the file', async () => {
+    const system = fakeSystem({})
+    expect(await resolveCardFile(CARDS, 'c1', '/img/x.png', system.options)).toBe('C:\\data\\demo\\cards\\c1\\img\\x.png')
+    expect(system.asked).toEqual([CARDS, 'C:\\data\\demo\\cards\\c1', 'C:\\data\\demo\\cards\\c1\\img\\x.png'])
+    // Every folder on the way and the file were looked at for a link.
+    expect(system.read).toEqual([CARDS, 'C:\\data\\demo\\cards\\c1', 'C:\\data\\demo\\cards\\c1\\img', 'C:\\data\\demo\\cards\\c1\\img\\x.png'])
+  })
+
+  it.each([
+    ['a file of the Card', '/x.png', { 'C:\\data\\demo\\cards\\c1\\x.png': '\\\\evil\\share\\x.png' }],
+    ['a folder inside the Card', '/img/x.png', { 'C:\\data\\demo\\cards\\c1\\img': '//evil/share/img' }],
+    ['the folder of the Card', '/index.html', { 'C:\\data\\demo\\cards\\c1': '\\\\evil\\share\\card' }],
+    ['the folder of all Cards', '/index.html', { 'C:\\data\\demo\\cards': '\\\\evil\\share\\cards' }],
+    ['a local link whose target is a link to a share', '/x.png', { 'C:\\data\\demo\\cards\\c1\\x.png': 'C:\\data\\demo\\cards\\c1\\hop.png', 'C:\\data\\demo\\cards\\c1\\hop.png': '\\\\evil\\share\\x.png' }],
+  ])('answers null when %s is a link to a share, and realpath is asked nothing', async (_case, pathname, links) => {
+    const system = fakeSystem(links)
+    expect(await resolveCardFile(CARDS, 'c1', pathname, system.options)).toBeNull()
+    expect(system.asked).toEqual([])
+    expect(system.read.some((path) => path.includes('evil'))).toBe(false)
+  })
+
+  it('serves a link that stays on the machine by the rules it had: realpath decides', async () => {
+    const system = fakeSystem({ 'C:\\data\\demo\\cards\\c1\\alias.js': 'C:\\data\\demo\\cards\\c1\\js\\app.js' })
+    expect(await resolveCardFile(CARDS, 'c1', '/alias.js', system.options)).toBe('C:\\data\\demo\\cards\\c1\\alias.js')
+    expect(system.asked).toContain('C:\\data\\demo\\cards\\c1\\alias.js')
+  })
+
+  it('serves the Cards of a data folder that lies on a share itself, and nothing behind a link to another share', async () => {
+    const shared = '\\\\nas\\profiles\\u\\worfy\\demo\\cards'
+    const system = fakeSystem({ '\\\\nas\\profiles\\u\\worfy\\demo\\cards\\c1\\out.png': '\\\\nas\\other\\out.png' })
+    expect(await resolveCardFile(shared, 'c1', '/x.png', system.options)).toBe('\\\\nas\\profiles\\u\\worfy\\demo\\cards\\c1\\x.png')
+    system.asked.length = 0
+    expect(await resolveCardFile(shared, 'c1', '/out.png', system.options)).toBeNull()
+    expect(system.asked).toEqual([])
+  })
+
+  it('under POSIX rules reads no link and asks realpath as before', async () => {
+    const system = fakeSystem({ '/data/demo/cards/c1/x.png': '//evil/share/x.png' }, posix as unknown as typeof win32)
+    expect(await resolveCardFile('/data/demo/cards', 'c1', '/x.png', system.options)).toBe('/data/demo/cards/c1/x.png')
+    expect(system.read).toEqual([])
+    expect(system.asked).toEqual(['/data/demo/cards', '/data/demo/cards/c1', '/data/demo/cards/c1/x.png'])
   })
 })
 
