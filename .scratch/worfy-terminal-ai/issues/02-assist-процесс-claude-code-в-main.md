@@ -1,7 +1,7 @@
 # 02 — Assist-процесс в main: тёплый Claude Code на подписке, модели по функции, Limits, redaction, Settings, fake для test-ов
 
 Type: task
-Status: blocked — узкий круг gate REJECTED (PR #205): правка redaction curl -u открыла утечку пароля в частых формах (/usr/bin/curl, ; и & в кавычках, кавычка перед curl); решение владельца
+Status: claimed — 2026-10-09
 Blocked by: —
 Source: решения владельца 2026-10-09: пункт 5 (один общий тёплый процесс Claude Code на все Terminal-ы: Agent SDK на подписке, `settingSources: []`, без MCP и tools, `persistSession: false`, без thinking у Haiku, `title`; старт с первого запроса, выгрузка после ~10 минут простоя; каждый запрос самостоятельный), пункт 2 (Limits: автоматические функции выключаются сами выше 80 % окна 5 часов и при `allowed_warning`/`rejected`, по требованию — до `rejected`; запросы кормят Limits; всё выключается в Settings), пункт 3 (что уходит в модель, redaction), пункт 7 (test-ы без расхода подписки) ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md) — свой процесс Claude Code для Terminal AI; пометки доступа каналов — `src/shared/ipc/channels.ts:20-34` (Ticket 08 Epic-а worfy-link); [evidence spike-а](../evidence/spike-задержки-2026-10-09.md)
 
@@ -153,15 +153,15 @@ Source: решения владельца 2026-10-09: пункт 5 (один о�
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/terminal-ai-options.test.ts` (новый): опции `prewarm()` — `mcpServers` `{}`, `tools` и `settingSources` пусты, `persistSession` false, `permissionMode` `dontAsk`; во входном окружении есть `ANTHROPIC_API_KEY` — в опциях его нет; опции `claim()` каждой функции — как в пункте 2 (`cwd` — папка `terminal-ai` в папке данных; `suggest` — `haiku` и `maxThinkingTokens: 0`; `next` с настройкой «Haiku» — `haiku`); у опций `prewarm()` нет `cwd` Session-а.
-- [ ] Unit `test/unit/terminal-ai-redact.test.ts` (новый): каждый образец пункта 6 заменён на `[redacted]`, в том числе внутри длинной строки и в URL; `git status`, `export PATH=/usr/bin`, `ls -la` не тронуты.
-- [ ] Unit `test/unit/terminal-ai-context.test.ts` (новый): хвост вывода — только у `fix`; команд не больше 20, строк вывода не больше 50; строки с пробелом в начале выброшены; redaction применён к каждому полю.
-- [ ] Unit `test/unit/terminal-ai-limits-gate.test.ts` (новый): `five_hour` 0,79 и `allowed` — можно всё; 0,81 — `suggest` и `next` нельзя, `request` и `fix` можно; `allowed_warning` у `seven_day` — автоматические нельзя; `rejected` — нельзя ничего, отказ со временем сброса; 0,9 и `rejected`, но `resetsAt` в прошлом — можно всё; `rejected` без `resetsAt` старше часа — можно; Limits пусты — можно всё.
-- [ ] Contract `test/contract/terminal-ai-assist.test.ts` (новый), поддельный SDK и поддельные часы: первый запрос стартует процесс; после ответа сразу прогревается следующий; запрос, пришедший во время прогрева, ждёт его и второй процесс не стартует; 10 минут без запросов — запасной закрыт; новый `suggest` отменяет `suggest` в полёте (его процесс закрыт, следующий прогревается); `fix` отменяет `next`; `next` не отменяет `fix`; тайм-аут `suggest` — отмена; поток `suggest` с thinking — отмена, поток `next` с thinking — нет; `option_not_applied` у `suggest` — отмена, у `fix` — ответ принят; `settings_not_applied` у `fix` — один повтор через `query()`, у `next` — отказ сразу, без ожидания тайм-аута; ответ `` `git status` `` — команда `git status`.
-- [ ] Тот же contract: `rate_limit_event` из потока запроса виден в `snapshot()` трекера Limits; при `rejected` запрос в SDK не уходит; с признаком «идёт команда» или «альтернативный экран» — тоже; выключенная в Settings функция — отказ «off»; пауза по Limits со временем сброса через минуту — через минуту (поддельные часы) `terminalAi.changed` и `on` без нового запроса.
-- [ ] Тот же contract: при `WORFY_AGENT=fake` ответ берётся из файла ответов, запрос записан в журнал с контекстом после redaction, SDK не импортирован; под vitest без fake настоящая фабрика бросает ошибку.
-- [ ] Contract: `terminalAi.setSettings` пишет `terminal-ai.json`, `terminalAi.state` читает его после перезапуска; каналы `terminalAi.*` этого Ticket-а помечены `local`.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0.
+- [x] Unit `test/unit/terminal-ai-options.test.ts` (новый): опции `prewarm()` — `mcpServers` `{}`, `tools` и `settingSources` пусты, `persistSession` false, `permissionMode` `dontAsk`; во входном окружении есть `ANTHROPIC_API_KEY` — в опциях его нет; опции `claim()` каждой функции — как в пункте 2 (`cwd` — папка `terminal-ai` в папке данных; `suggest` — `haiku` и `maxThinkingTokens: 0`; `next` с настройкой «Haiku» — `haiku`); у опций `prewarm()` нет `cwd` Session-а.
+- [x] Unit `test/unit/terminal-ai-redact.test.ts` (новый): каждый образец пункта 6 заменён на `[redacted]`, в том числе внутри длинной строки и в URL; `git status`, `export PATH=/usr/bin`, `ls -la` не тронуты.
+- [x] Unit `test/unit/terminal-ai-context.test.ts` (новый): хвост вывода — только у `fix`; команд не больше 20, строк вывода не больше 50; строки с пробелом в начале выброшены; redaction применён к каждому полю.
+- [x] Unit `test/unit/terminal-ai-limits-gate.test.ts` (новый): `five_hour` 0,79 и `allowed` — можно всё; 0,81 — `suggest` и `next` нельзя, `request` и `fix` можно; `allowed_warning` у `seven_day` — автоматические нельзя; `rejected` — нельзя ничего, отказ со временем сброса; 0,9 и `rejected`, но `resetsAt` в прошлом — можно всё; `rejected` без `resetsAt` старше часа — можно; Limits пусты — можно всё.
+- [x] Contract `test/contract/terminal-ai-assist.test.ts` (новый), поддельный SDK и поддельные часы: первый запрос стартует процесс; после ответа сразу прогревается следующий; запрос, пришедший во время прогрева, ждёт его и второй процесс не стартует; 10 минут без запросов — запасной закрыт; новый `suggest` отменяет `suggest` в полёте (его процесс закрыт, следующий прогревается); `fix` отменяет `next`; `next` не отменяет `fix`; тайм-аут `suggest` — отмена; поток `suggest` с thinking — отмена, поток `next` с thinking — нет; `option_not_applied` у `suggest` — отмена, у `fix` — ответ принят; `settings_not_applied` у `fix` — один повтор через `query()`, у `next` — отказ сразу, без ожидания тайм-аута; ответ `` `git status` `` — команда `git status`.
+- [x] Тот же contract: `rate_limit_event` из потока запроса виден в `snapshot()` трекера Limits; при `rejected` запрос в SDK не уходит; с признаком «идёт команда» или «альтернативный экран» — тоже; выключенная в Settings функция — отказ «off»; пауза по Limits со временем сброса через минуту — через минуту (поддельные часы) `terminalAi.changed` и `on` без нового запроса.
+- [x] Тот же contract: при `WORFY_AGENT=fake` ответ берётся из файла ответов, запрос записан в журнал с контекстом после redaction, SDK не импортирован; под vitest без fake настоящая фабрика бросает ошибку.
+- [x] Contract: `terminalAi.setSettings` пишет `terminal-ai.json`, `terminalAi.state` читает его после перезапуска; каналы `terminalAi.*` этого Ticket-а помечены `local`.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0.
 
 ## Тесты
 
@@ -198,9 +198,116 @@ Source: решения владельца 2026-10-09: пункт 5 (один о�
 
 ## Итог
 
-`blocked` 2026-10-10 gate-ом: работа — в открытом PR #205 (ветка `worfy-terminal-ai/02`, worktree `.claude/worktrees/t02`); полный «Итог» исполнителя, с десятью пунктами «решено без владельца, подтвердить», — в файле Ticket-а на этой ветке.
+- **Что сделано.** Сервис `AssistService` (`src/main/terminal-ai/assist.ts`) — один на запуск worfy,
+  `request(feature, input, signal)` отвечает `{ok: true, command, model}` или
+  `{ok: false, reason, until?, detail?}`. Причины отказа: `off`, `limits` (с `until` — когда пауза снимется),
+  `command-running`, `alternate-screen`, `private-line`, `busy`, `cancelled`, `timeout`, `thinking`,
+  `option-not-applied`, `not-claimed`, `empty`, `failed`. Процесс — `prewarm()` при первом запросе,
+  `claim()` на запрос, после ответа или отмены процесс закрывается и сразу прогревается следующий;
+  10 минут без запросов (`IDLE_MS`) — запасной закрыт. Опции — `options.ts`, порог Limits —
+  `limits-gate.ts`, контекст и текст запроса — `src/shared/terminal-ai/context.ts`, redaction —
+  `redact.ts`, Settings — `src/shared/terminal-ai/settings.ts` и `<WORFY_DATA_DIR>/terminal-ai.json`,
+  каналы `terminalAi.state`, `terminalAi.setSettings`, `terminalAi.changed` — все `local`.
+- **Подключение к запуску приложения без `src/main/index.ts`.** Сервис создаёт `appAssist()` при первом
+  вызове канала `terminalAi.*` (модуль `src/main/ipc/terminal-ai.ts` находится сам, ADR-0006); на
+  `will-quit` он закрывает запасной процесс и запрос в полёте. Пока `request()` никто не зовёт — socket
+  shell-а делает Ticket 03.
+- **Как падал первый test.** `test/unit/terminal-ai-limits-gate.test.ts` против заглушки, которая пускала
+  всё: 5 из 8 красные, первый — `expected [ 'suggest', 'next', 'request', 'fix' ] to deeply equal
+  [ 'request', 'fix' ]` (0,81 окна 5 часов пустил `suggest`).
+- **Fake: переменные окружения и формат.** `WORFY_AGENT=fake` — сервис берёт `fakeAssistBackend` и SDK не
+  загружает. `WORFY_TERMINAL_AI_ANSWERS` — JSON-массив, файл читается заново на каждый запрос:
 
-- Круг 1 — `REJECTED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/205#issuecomment-6090095036)): [med] нет `includeHookEvents` в опциях запасного процесса; [med] три пробела в test-ах (смерть запасного процесса в простое, повторная проверка после очереди, утечка процесса при отмене во время прогрева); [low] отменённый запрос, `dispose()`, отписка окна, пропуски redaction, обрезка до redaction.
-- Круг 2 — `REJECTED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/205#issuecomment-6090558481)): [med] доработка перестала закрывать `sk-…` после `/` и `.`; [low] голова секрета на границе первой обрезки; [low] ложные срабатывания `-u x:y` (docker) и `Basic <слово>`. Все четыре устояли перед скептиками, ни одной high; Ticket блокирует 03–09 — дан узкий круг ([NARROW](https://github.com/IDSAD-XL/worfy/pull/205#issuecomment-6090571753)).
-- Узкий круг — `NARROW: REJECTED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/205#issuecomment-6090798859)), diff `e356f79..fb393cb`: находки 1, 2, 4 исправлены; правка находки 3 открыла утечку пароля `curl -u` в частых формах, которые до узкого круга закрывались: `/usr/bin/curl -u …`, `;` или `&` в кавычках перед `-u`, кавычка или backtick перед `curl`. Долги: голова секрета в кавычках с пробелами на первой обрезке; строка вывода Fix из одного слова длиннее 2000 символов теперь пустая; `/\S+$/` квадратичен (~29 мс на поле в main); `Basic` без паддинга и цифр с длиной не кратной 4 не закрывается; `sk-…` с цифрой в имени ветки или папки теперь закрывается лишний раз.
-- Ждёт владельца: второго узкого круга правила не дают. Варианты: (а) короткий круг по решению владельца только по утечке `curl -u` (путь, кавычка, backtick перед `curl`; промежуток до `-u` не обрывать на `;&|` в кавычках) — рекомендация; (б) вернуть правило `-u`/`--user` к состоянию до узкого круга (закрывает всё, с ложными срабатываниями на `docker -u`) и принять их долгом.
+  ```json
+  [{"feature": "suggest", "match": "git st", "answer": "`git status`", "delayMs": 300, "thinking": true,
+    "rateLimit": {"status": "allowed", "rateLimitType": "five_hour", "utilization": 0.4, "resetsAt": 1791202800}}]
+  ```
+
+  `feature` и `match` (подстрока строки ввода или слов просьбы) по желанию;
+  отвечает первая подходящая запись, без неё ответ пустой (`empty`). `WORFY_TERMINAL_AI_LOG` — по строке
+  JSON на запрос, при его конце: `{feature, model, context, cancelled, cold}`; `context` — после
+  redaction, `cold: true` — повтор через `query()`.
+- **Test не может потратить подписку.** `realBackend()` под vitest бросает до загрузки SDK; модуль SDK
+  в contract test-е подменён `vi.mock`, и test проверяет, что его не загрузил никто
+  (`sdkModule.loaded` = 0) и что загрузчик SDK не вызван ни с fake, ни без него.
+- **Mutation testing** (свой worktree, восстановление из копии): 12 мутантов `assist.ts` — без проверки
+  `VITEST`, автоматический отменяет запрос по требованию, без записи в Limits, без отмены на thinking,
+  без закрытия по простою, без повтора `query()`, без таймера паузы, без порога Limits, второй
+  `prewarm()` во время прогрева, `option_not_applied` у `suggest` не отменяет, `claim()` бросает
+  наружу, ожидающий в очереди не уходит по отмене — каждый роняет contract test.
+- **Решено без владельца, подтвердить:**
+  1. Окно без `resetsAt` считается час после `receivedAt` целиком — и доля, и статус, а не только
+     `allowed_warning` и `rejected`: старая доля без времени сброса ничего не говорит о текущем окне.
+  2. Автоматический запрос, пока летит или ждёт запрос по требованию, — отказ `busy`, а не очередь:
+     Suggestion и Next command после 30 с ожидания уже не нужны.
+  3. Ожидающий в очереди запрос по требованию уходит сразу, если вызывающий отменил его (`signal`).
+  4. Redaction шире списка пункта 6: ещё `ASIA…`, `gho_`/`ghu_`/`ghs_`/`ghr_`, `*_KEY=`, `*SECRET*=`,
+     `*PASSWD*=` в любом регистре (в том числе `password=` в query string), опции `--password`,
+     `--token`, `--secret`, `--api-key` и блок PEM `PRIVATE KEY`. Поле длиннее 2000 символов обрезается.
+  5. `init` SDK 0.3.289 поля hooks не несёт: строка процесса пишет `hooks: not reported by init`, а
+     каждый `system/hook_started` — отдельной строкой (`hook_event` и `hook_name`, без вывода). Есть ли
+     hooks у встроенных plugin-ов, по-прежнему проверяет Ticket 09.
+  6. Запасной процесс, умерший в простое, просто убирается; новый стартует со следующим запросом.
+     Запасной, умерший между выдачей запросу и `claim()` (`claim()` бросает), — отказ `not-claimed`:
+     `request` и `fix` повторяются через `query()`, как при остальных отказах `claim()`.
+  7. Подписка окна на `terminalAi.changed` — при вызове `terminalAi.state` или `terminalAi.setSettings`
+     из этого окна, как `limits.open`.
+  8. Ключи Settings: `enabled`, `suggestion`, `suggestionAsksModel`, `nextCommand`, `nextCommandModel`
+     (`sonnet` | `haiku`), `commandRequest`, `fix`. Сломанное поле файла берёт значение по умолчанию.
+  9. Тексты `systemPrompt` и `appendSystemPrompt` функций — черновые; их доводят Ticket-ы 04–07.
+  10. Ответ `request` несёт модель (`model`), чтобы Ticket-ы 04–07 и 09 видели, кто ответил.
+- **Не проверено вживую:** принимает ли настоящий `claim()` `maxThinkingTokens: 0` и `effortLevel`, есть
+  ли hooks у встроенных plugin-ов, держит ли `query()`-повтор опцию `effort` — Ticket 09 (запросы к
+  модели только у владельца).
+- **Проверки.** `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (174 файла, 3365 test-ов). `GATE_SCOPE=all` gate full под замком `/tmp/worfy-e2e.lock` на коммите da46eb4 — exit 0, `[gate] зелено (full): lint typecheck test test:e2e test:package`. CI PR #205 (`check`) — pass.
+- **Доработка после ревью, раунд 1** (комментарий PR #205 6090095036; база раунда — 34fe085 после rebase):
+  1. `prewarmOptions()` ставит `includeHookEvents: true`: без него SDK шлёт `hook_started` только для
+     SessionStart и Setup, и hook на UserPromptSubmit прошёл бы мимо лога. Закреплено в unit test опций и
+     в contract test (строка лога на `hook_started`).
+  2. Test-ы: запасной процесс умер в простое — состояние `idle`, следующий запрос стартует новый процесс;
+     Fix в очереди за Fix-ом, который принёс `rejected`, — отказ `limits`, в SDK ничего; Fix, выключенный
+     в Settings, пока ждал, — отказ `off`; отменённый во время прогрева Suggestion оставляет процесс в
+     слоте, и тот закрывается через 10 минут простоя; `dispose()` закрывает запасной процесс, запрос в
+     полёте и процесс, который достартовал после `dispose()`; окно, которое закрылось, снимает подписку.
+  3. Запрос с уже отменённым `signal` ничего не стартует (новая проверка в начале `request()`); отмена во
+     время чтения ветки git останавливает запрос до `claim()` — test.
+  4. Redaction: `curl -u user:pass` и `--user`, `mysql -pSecret` (mysql, mysqldump, mysqladmin, mariadb),
+     `Authorization: Basic|token|…`, `Basic <base64>`, npm `:_authToken=` (имя на `TOKEN` без `_`),
+     `APIKEY=`/`ACCESSKEY=`, Stripe `sk_live_`/`rk_live_` (и `_test_`), Google `AIza…`. `sk-…` — только
+     целый токен (не после `/`, `.`, `-`), от 16 символов после `sk-` и с цифрой: ветка
+     `feature/sk-learn-upgrade-for-models` не тронута. Не тронуты и `git push -u origin main`,
+     `mkdir -p`, `mysql -p` без значения, `sort -u`, `MONKEY=1`.
+  5. Контекст: сначала redaction, потом обрезка до 2000 символов (на вход redaction — не больше 8000, это
+     только ограничение работы: секрет на той границе всё равно за 2000-м символом). Строки хвоста
+     вывода Fix режутся до 500 символов (`MAX_OUTPUT_LINE_CHARS`), тоже после redaction.
+  - Mutation testing раунда: 18 мутантов (по одному на каждую новую проверку и каждый новый шаблон
+    redaction) — все роняют test (`/tmp/worfy-terminal-ai-w1/impl-02/mut/run2.sh`).
+  - Гонка, оставленная как есть: запасной процесс умер, а запрос взял его раньше, чем пришёл `exited`, —
+    `claim()` бросает, Suggestion и Next command получают отказ `not-claimed`, Fix и Command request
+    повторяются через `query()` (test «retries a Fix … spare exits between being taken and the claim»).
+- **Узкий раунд после ревью, раунд 2** (комментарии PR #205 6090558481 и 6090571753; база — e356f79):
+  1. `sk-…` снова закрывается после `/` и `.` (путь к файлу ключа, URL, `foo.sk-…`); слово вроде
+     `feature/sk-learn-upgrade-for-models` держит проверка на цифру.
+  2. Первая обрезка (до 8000 символов поля, до 2000 символов строки вывода Fix) убирает слово, которое
+     она разрезала: redaction сжимает текст перед ним (длинный JWT становится `[redacted]`), и голова
+     ключа `AKIAABCDEF` попадала бы в первые 2000 (500) символов. Одно слово длиннее первой обрезки
+     уходит целиком.
+  3. `-u`/`--user` (и `-a`/`--auth` у httpie) с `x:y` закрываются только после `curl`, `wget`, `http`,
+     `https` как отдельной команды: `docker run -u 1000:1000`, `docker exec --user root:root`,
+     `podman run --user=nobody:nogroup`, `sort -u a:b`, `docker run --name my-curl -u 1000:1000` не
+     тронуты.
+  4. `Basic <слово>` закрывается, только если слово похоже на base64-учётные данные: в нём есть цифра,
+     `+`, `/` или `=`, или оно декодируется в печатное `user:password`. `Basic configuration done`,
+     `Basic authentication failed`, `## Basic Requirements` не тронуты; голый `Basic dXNlcjpwYXNzd29yZA==` закрыт.
+  - Mutation testing раунда: 8 мутантов (`/tmp/worfy-terminal-ai-w1/impl-02/mut/run3.sh`), все роняют
+    unit test, в том числе мутант, который убирает правило `Basic`.
+- **Раунд по решению владельца 2026-10-10** (комментарии PR #205 6090798859 и 6090844527; база — 2804fdb
+  после rebase): пароль `-u`/`--user` (и `-a`/`--auth` у httpie) у `curl`, `wget`, `http`, `https`
+  снова закрывается во всех формах. Команда может идти с путём (`/usr/bin/curl`, `./curl`, `~/bin/wget`)
+  и после кавычки, обратной кавычки или `$(`. Между командой и опцией `;`, `&`, `|` внутри кавычек
+  (`-H "Content-Type: a; b"`, `"https://x?a=1&b=2"`) команду не обрывают; вне кавычек обрывают. Без
+  изменений остаются `docker run -u 1000:1000`, `docker exec --user root:root`,
+  `podman run --user=nobody:nogroup`, `sort -u a:b`, `docker run --name my-curl -u …`,
+  `URL=https://x.io/curl -u …`, а также docker после `curl … ;`, `&&`, `|` или новой строки.
+  Mutation testing: 6 мутантов правила (`/tmp/worfy-terminal-ai-w1/impl-02/mut/run4.sh`) — все красные.
+- **UI не менялся** (окно Settings — Ticket 08), снимков нет.

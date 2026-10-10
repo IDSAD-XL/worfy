@@ -1,0 +1,138 @@
+// The context of a Terminal AI request (src/shared/terminal-ai/context.ts): what goes to the model,
+// trimmed and redacted, and the text built from it.
+import { describe, expect, it } from 'vitest'
+import { MAX_COMMANDS, MAX_FIELD_CHARS, MAX_OUTPUT_LINES, MAX_OUTPUT_LINE_CHARS, contextText, prepareContext, terminalAiInputSchema, type TerminalAiInput } from '../../src/shared/terminal-ai/context'
+import { REDACTED } from '../../src/shared/terminal-ai/redact'
+import { TERMINAL_AI_FEATURES } from '../../src/shared/terminal-ai/settings'
+
+const TOKEN = `ghp_${'Ab12'.repeat(9)}`
+
+function input(over: Partial<TerminalAiInput> = {}): TerminalAiInput {
+  return { line: 'git st', cwd: '/Users/me/work', commands: ['ls', 'cd work'], branch: 'main', exitCode: 0, commandRunning: false, alternateScreen: false, ...over }
+}
+
+describe('prepareContext', () => {
+  it('sends the output tail only with Fix', () => {
+    const output = ['error: something', 'at line 3']
+    for (const feature of TERMINAL_AI_FEATURES) {
+      const context = prepareContext(feature, input({ output }))
+      expect(context.output).toEqual(feature === 'fix' ? output : null)
+      expect(contextText(feature, context).includes('error: something')).toBe(feature === 'fix')
+    }
+  })
+
+  it('keeps at most 20 commands and 50 output lines, the last ones', () => {
+    const commands = Array.from({ length: 30 }, (_, n) => `echo ${n}`)
+    const output = Array.from({ length: 80 }, (_, n) => `line ${n}`)
+    const context = prepareContext('fix', input({ commands, output }))
+    expect(context.commands).toHaveLength(MAX_COMMANDS)
+    expect(context.commands[0]).toBe('echo 10')
+    expect(context.commands.at(-1)).toBe('echo 29')
+    expect(context.output).toHaveLength(MAX_OUTPUT_LINES)
+    expect(context.output?.[0]).toBe('line 30')
+    expect(context.output?.at(-1)).toBe('line 79')
+  })
+
+  it('drops a line and commands that start with a space', () => {
+    const context = prepareContext('next', input({ line: ' mysql -p secret', commands: ['ls', ' export X=1', '\tcurl -u a:b x', 'pwd'] }))
+    expect(context.line).toBe('')
+    expect(context.commands).toEqual(['ls', 'pwd'])
+    const text = contextText('next', context)
+    expect(text).not.toContain('mysql')
+    expect(text).not.toContain('export X')
+    expect(text).not.toContain('curl')
+  })
+
+  it('redacts every field before the text is built', () => {
+    const context = prepareContext(
+      'fix',
+      input({
+        line: `GH_TOKEN=${TOKEN} gh pr list`,
+        request: `clone with ${TOKEN}`,
+        cwd: `/tmp/${TOKEN}`,
+        commands: [`git push https://me:hunter2@github.com/o/r.git`],
+        branch: `feature/${TOKEN}`,
+        output: [`fatal: token ${TOKEN} rejected`],
+      }),
+    )
+    expect(context).toEqual({
+      line: `GH_TOKEN=${REDACTED} gh pr list`,
+      request: `clone with ${REDACTED}`,
+      cwd: `/tmp/${REDACTED}`,
+      commands: [`git push https://me:${REDACTED}@github.com/o/r.git`],
+      branch: `feature/${REDACTED}`,
+      exitCode: 0,
+      output: [`fatal: token ${REDACTED} rejected`],
+    })
+    const text = contextText('fix', context)
+    expect(text).not.toContain(TOKEN)
+    expect(text).not.toContain('hunter2')
+  })
+
+  it('redacts before it cuts: a token across the 2000-character cut leaves no part of itself', () => {
+    // The token starts 10 characters before the cut: cut first, its head `ghp_Ab12Ab` would be
+    // too short for any pattern and would go out.
+    const line = `${'x'.repeat(MAX_FIELD_CHARS - 10)} ${TOKEN} tail`
+    const context = prepareContext('fix', input({ line, request: line, commands: [line] }))
+    for (const value of [context.line, context.request ?? '', context.commands[0] ?? '']) {
+      expect(value).toHaveLength(MAX_FIELD_CHARS)
+      expect(value).not.toContain('ghp_')
+      expect(value.endsWith(REDACTED.slice(0, 9))).toBe(true)
+    }
+  })
+
+  it('cuts every line of the Fix output tail, after redaction', () => {
+    const long = `${'y'.repeat(MAX_OUTPUT_LINE_CHARS - 5)} ${TOKEN} and more`
+    const context = prepareContext('fix', input({ output: ['short', long, 'z'.repeat(10 * MAX_OUTPUT_LINE_CHARS)] }))
+    expect(context.output?.[0]).toBe('short')
+    expect(context.output?.[1]).toHaveLength(MAX_OUTPUT_LINE_CHARS)
+    expect(context.output?.[1]).not.toContain('ghp_')
+    // One word four times longer than the cap is split by the first cut and goes whole: nothing of it
+    // could be told apart from the head of a secret.
+    expect(context.output?.[2]).toBe('')
+    expect(prepareContext('fix', input({ output: [`${'z'.repeat(10 * MAX_OUTPUT_LINE_CHARS)} `.repeat(2)] })).output?.[0]).toBe('')
+    expect(prepareContext('fix', input({ output: ['w '.repeat(2 * MAX_OUTPUT_LINE_CHARS)] })).output?.[0]).toHaveLength(MAX_OUTPUT_LINE_CHARS)
+  })
+
+  it('leaves no head of a secret split by the first cut, after redaction shrank the text before it', () => {
+    const jwt = (length: number): string => `eyJ${'a'.repeat(length - 3 - 22)}.${'b'.repeat(10)}.${'c'.repeat(10)}`
+    const key = 'AKIAABCDEFGHIJKLMNOP'
+    // A Fix output line: the key starts at 1990, the first cut is at 2000 (four times the line cap).
+    const line = `${jwt(1605)} ${'y'.repeat(383)} ${key}`
+    expect(line.indexOf(key)).toBe(1990)
+    const fix = prepareContext('fix', input({ output: [line] }))
+    expect(fix.output?.[0]).not.toContain('AKIA')
+    expect(contextText('fix', fix)).not.toContain('AKIA')
+    // A field: a 6100-character JWT, then the key at 7990, the first cut at 8000.
+    const field = `${jwt(6100)} ${'y'.repeat(1888)} ${key}`
+    expect(field.indexOf(key)).toBe(7990)
+    const context = prepareContext('request', input({ line: field, request: field, commands: [field] }))
+    for (const value of [context.line, context.request ?? '', context.commands[0] ?? '']) expect(value).not.toContain('AKIA')
+    // A word the cut does not split stays.
+    expect(prepareContext('next', input({ line: `${jwt(6100)} ${'y'.repeat(1893)} done` })).line.endsWith('done')).toBe(true)
+  })
+
+  it('takes the branch main found when the shell did not send one', () => {
+    expect(prepareContext('next', input({ branch: undefined }), 'dev').branch).toBe('dev')
+    expect(prepareContext('next', input({ branch: undefined })).branch).toBeNull()
+  })
+
+  it('has no field for environment variables: the input schema drops them', () => {
+    const parsed = terminalAiInputSchema.parse({ ...input(), env: { GITHUB_TOKEN: TOKEN } })
+    expect(parsed).not.toHaveProperty('env')
+    expect(JSON.stringify(prepareContext('fix', parsed))).not.toContain(TOKEN)
+  })
+})
+
+describe('contextText', () => {
+  it('labels each field and puts the typed line last for a Suggestion', () => {
+    const text = contextText('suggest', prepareContext('suggest', input({ exitCode: 1 })))
+    expect(text).toBe(['Folder: /Users/me/work', 'Git branch: main', 'Recent commands, oldest first:\n  ls\n  cd work', 'Exit code of the last command: 1', 'Typed so far: git st'].join('\n\n'))
+  })
+
+  it('carries the words of a Command request', () => {
+    const text = contextText('request', prepareContext('request', input({ line: '', request: 'find big files' })))
+    expect(text).toContain('Request: find big files')
+    expect(text).not.toContain('Current input line')
+  })
+})
