@@ -16,6 +16,7 @@
     "test": "node scripts/vitest-electron.mjs",
     "test:e2e": "electron-vite build && playwright test --grep-invert @packaged",
     "test:package": "pnpm package && playwright test --grep @packaged",
+    "test:acceptance": "bash scripts/e3-sandbox.sh lock-run playwright test -c playwright.acceptance.config.ts",
     "install:stable": "scripts/install-stable.sh",
     "eval:harness": "node scripts/eval-harness.mjs",
     "postinstall": "node scripts/postinstall.mjs"

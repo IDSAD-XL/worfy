@@ -5,6 +5,8 @@ out/
 .env
 .claude/worktrees/
 test-results/
+# What a failed acceptance run keeps (playwright.acceptance.config.ts), one folder per run.
+test-results-acceptance/
 playwright-report/
 # Probe files the discovery tests of older versions wrote into src/ (ADR-0036).
 ZzVitestProbe*

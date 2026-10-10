@@ -7,7 +7,7 @@ import { configDefaults, defineConfig } from 'vitest/config'
 
 // Worktrees of other tickets live under .claude/worktrees/ inside this checkout;
 // their tests must never be picked up by a run here.
-const exclude = [...configDefaults.exclude, '.claude/worktrees/**', 'out/**', 'test/e2e/**']
+const exclude = [...configDefaults.exclude, '.claude/worktrees/**', 'out/**', 'test/e2e/**', 'test/acceptance/**']
 
 // Discovery tests no longer write probe files into src/ (ADR-0036). A run of an older version
 // that was killed mid-test could still have left one behind, and Vite would then find it in a
