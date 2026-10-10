@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { defineConfig } from '@playwright/test'
 
 // The acceptance run of the worfy-harness Epic: test/acceptance/e3.spec.ts drives the packaged
@@ -8,6 +9,14 @@ import { defineConfig } from '@playwright/test'
 //
 // No retries: a second try of a Wave with a real agent would spend the Limits again and hide why
 // the first one failed.
+//
+// What a failed test keeps goes to test-results-acceptance/<start time>/, a folder of its own per
+// run: Playwright empties an output folder when a run starts, so inside test-results/ the next
+// `pnpm test:e2e` (a gate full) would delete the only record of a failed 90-minute run, and so
+// would the next acceptance run. The start time is set once, in the process that starts the run;
+// its workers read the same value from the environment.
+const startedAt = (process.env.E3_RESULTS_RUN ??= new Date().toISOString().replace(/[:.]/g, '-'))
+
 export default defineConfig({
   testDir: 'test/acceptance',
   testMatch: '**/*.spec.ts',
@@ -15,7 +24,7 @@ export default defineConfig({
   workers: 1,
   timeout: 15 * 60_000,
   reporter: [['list']],
-  outputDir: 'test-results/acceptance',
+  outputDir: join('test-results-acceptance', startedAt),
   use: {
     trace: 'retain-on-failure',
   },

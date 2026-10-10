@@ -7,18 +7,25 @@
 # ~/Library/Application Support/worfy/autopilot/<run>.jsonl.
 #
 # Checks:
-#   - ~/.claude holds only personal files. What is the Harness's is the manifest of the move form
-#     (src/main/harness/migrate/plan.ts, Ticket 14), read from that file, not a second list: agents/
-#     and skills/ of the Q19 list or of the plugin, bin/ except the personal scripts (the qmd
-#     scripts included), hooks/, profiles/README.md when the plugin has one, and the sections of
-#     CLAUDE.md the move removes by default (imported, not personal, carried by the plugin's rules);
+#   - ~/.claude holds only personal files. What is the Harness's follows the move form
+#     (src/main/harness/migrate/plan.ts, Ticket 14), whose lists are read from that file, not kept
+#     as a second list here. A violation is what the form offers to remove: an entry of agents/,
+#     skills/, bin/ or hooks/ that the installed plugin carries under the same name (the personal
+#     scripts of bin/ aside), the qmd scripts of bin/, profiles/README.md when the plugin has one,
+#     and the sections of CLAUDE.md the move removes by default (imported, not personal, carried by
+#     the plugin's rules). What the plugin does not ship — bin/tests, hooks/tests, a file under
+#     another name — the form only keeps, so it is no violation;
+#   - the plugin itself is in <Claude home>/worfy-harness/plugin: without it nothing above can be told;
 #   - no hook record of settings.json runs a file in ~/.claude that is not there;
 #   - .claude.json has no MCP server record of qmd (Q15);
 #   - `claude plugin list --json` names worfy@… enabled;
 #   - the journal: the run started after Ticket 16 became done (the commit time of its
-#     `Status: done` line), it has no `refused-dialog` and no `human-input` line, and it ended:
-#     a `run-stopped` line with any reason (`user-stop` of a graceful Stop included), followed only
-#     by what a stopped run still writes (`background-tasks`, `orchestrator-returned`, `tasks-killed`).
+#     `Status: done` line); it has no `refused-dialog` and no `human-input` line; a Wave ran — a
+#     `wave-finished` line before `run-stopped`, or a graceful Stop that found Tickets in work
+#     (`wave-started`, then `run-stopping` with a non-empty `inWork`, then `run-stopped` with reason
+#     `user-stop`: a Wave stopped that way journals no `wave-finished`, src/shared/autopilot/cycle.ts);
+#     and it ended — a `run-stopped` line followed only by what a stopped run still writes
+#     (`background-tasks`, `orchestrator-returned`, `tasks-killed`).
 #
 # Exit codes: 0 — all of it holds; 1 — the violations, one line each; 2 — usage error, or a file
 # the check needs could not be read (that is not a pass).
@@ -26,7 +33,7 @@
 # Paths: the Claude home is $CLAUDE_CONFIG_DIR or ~/.claude; .claude.json is
 # $CLAUDE_CONFIG_DIR/.claude.json or ~/.claude.json (as Claude Code reads them); the plugin is
 # <Claude home>/worfy-harness/plugin. E3_CLAUDE replaces `claude` and E3_HARNESS_DONE_AT (ISO time)
-# the time Ticket 16 became done — for this script's own tests. Nothing is written.
+# the time Ticket 16 became done — for test/contract/e3-owner-check.test.ts. Nothing is written.
 set -euo pipefail
 
 if [ $# -ne 1 ] || [ -z "$1" ]; then
@@ -99,8 +106,6 @@ function objectBody(name) {
   if (!m) die(`${name} not found in ${planFile}`)
   return m[1]
 }
-const AGENTS = list("HARNESS_AGENTS")
-const SKILLS = list("HARNESS_SKILLS")
 const PERSONAL_BIN = list("PERSONAL_BIN")
 const QMD_BINS = list("QMD_BINS")
 const IMPORTED = list("IMPORTED_CLAUDE_MD_HEADINGS")
@@ -118,15 +123,16 @@ const listDir = (dir) => {
 const exists = (p) => fs.existsSync(p)
 
 // ── Files of the Harness in the Claude home ──
+// The move form offers "Remove" only for what the plugin carries under the same name
+// (`removable: inPlugin` in buildPlan); the rest it keeps, and so does this check.
+if (!exists(path.join(plugin, ".claude-plugin", "plugin.json"))) violations.push(`the Harness plugin is not in ${shown(plugin)}: nothing to compare ${shown(claudeHome)} with`)
 for (const dir of ["agents", "skills", "bin", "hooks"]) {
   for (const name of listDir(path.join(claudeHome, dir))) {
     const rel = path.join(dir, name)
     const where = shown(path.join(claudeHome, rel))
     if (dir === "bin" && PERSONAL_BIN.includes(name)) continue
     if (dir === "bin" && QMD_BINS.includes(name)) violations.push(`a qmd script of the old Harness is still there: ${where}`)
-    else if (dir === "agents" && !AGENTS.includes(name) && !exists(path.join(plugin, rel))) continue
-    else if (dir === "skills" && !SKILLS.includes(name) && !exists(path.join(plugin, rel))) continue
-    else violations.push(`a file of the Harness is still there: ${where}`)
+    else if (exists(path.join(plugin, rel))) violations.push(`a file of the Harness is still there: ${where}`)
   }
 }
 const readme = path.join("profiles", "README.md")
@@ -257,21 +263,33 @@ else if (!(Date.parse(started.at) > doneAt)) violations.push(`${journal}: the ru
 for (const [i, line] of lines.entries()) {
   if (isObject(line) && (line.kind === "refused-dialog" || line.kind === "human-input")) violations.push(`${journal}: line ${i + 1} is ${line.kind}${line.what ? ` (${line.what})` : ""}`)
 }
-// The run ended: a run-stopped line (any reason — `user-stop` of a graceful Stop included), and after
-// it only what a stopped run still writes while it gives the Orchestrator back.
+// The run ended: a run-stopped line, and after it only what a stopped run still writes while it
+// gives the Orchestrator back.
 const AFTER_STOP = ["background-tasks", "orchestrator-returned", "tasks-killed"]
 const stoppedAt = lines.findLastIndex((line) => isObject(line) && line.kind === "run-stopped")
 const stopped = stoppedAt < 0 ? undefined : lines[stoppedAt]
+let wave = ""
 if (!stopped) violations.push(`${journal}: no run-stopped line (the last line is ${isObject(lines.at(-1)) ? lines.at(-1).kind : "missing"}): the run did not end`)
 else {
   for (const line of lines.slice(stoppedAt + 1)) {
     if (!isObject(line) || !AFTER_STOP.includes(line.kind)) violations.push(`${journal}: ${isObject(line) ? line.kind : "a line"} after run-stopped: the run went on`)
   }
+  // A Wave ran: it finished, or a graceful Stop found its Tickets in work (that Wave journals no
+  // wave-finished). A run that stopped with no ready Wave, or on a Session error, ran none.
+  const before = lines.slice(0, stoppedAt).filter(isObject)
+  const finished = before.filter((line) => line.kind === "wave-finished")
+  const startedWave = before.some((line) => line.kind === "wave-started")
+  const stopping = before.findLast((line) => line.kind === "run-stopping")
+  const graceful = startedWave && stopped.reason === "user-stop" && stopping !== undefined && Array.isArray(stopping.inWork) && stopping.inWork.length > 0
+  if (finished.length > 0) wave = `a Wave ran by rule (a): ${finished.length} wave-finished line${finished.length === 1 ? "" : "s"} before run-stopped`
+  else if (graceful)
+    wave = `a Wave ran by rule (b): a graceful Stop during Wave ${stopping.wave ?? "?"}, Tickets in work at the Stop: ${stopping.inWork.join(", ")} — compare with their Ticket statuses`
+  else violations.push(`${journal}: no Wave ran: no wave-finished line before run-stopped (${stopped.reason ?? "no reason"}), and no graceful Stop with Tickets in work`)
 }
 
 if (violations.length > 0) {
   process.stdout.write(`${violations.length} violation${violations.length === 1 ? "" : "s"}:\n${violations.join("\n")}\n`)
   process.exit(1)
 }
-process.stdout.write(`ok: ${shown(claudeHome)} holds only personal files, worfy is enabled, the run ${started.run ?? ""} went without a person and stopped (${stopped.reason ?? "no reason"})\n`)
+process.stdout.write(`ok: ${shown(claudeHome)} holds only personal files, worfy is enabled, the run ${started.run ?? ""} went without a person and stopped (${stopped.reason ?? "no reason"})\n${wave}\n`)
 JS

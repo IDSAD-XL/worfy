@@ -3,7 +3,8 @@
 # packaged worfy.app installs its Harness, qmd and the Profiles there and never in the real ~/.claude.
 #
 #   e3-sandbox.sh init            create the sandbox (or keep the one there), write its .gitconfig and
-#                                 shell files, then check gh (below); exit 3 when gh has no token
+#                                 shell files, then check gh (below); exit 3 when gh has no token;
+#                                 exit 2 when the folder is there, not empty and not this script's
 #   e3-sandbox.sh check-gh        `gh auth token -u <account>` in the sandbox environment: exit 0 or 3
 #   e3-sandbox.sh env             the sandbox environment, one KEY=VALUE per line
 #   e3-sandbox.sh run <cmd>...    run a command in the sandbox environment only (env -i)
@@ -15,10 +16,13 @@
 #   e3-sandbox.sh reset-harness   back to "no Harness" for another acceptance run, keeping the
 #                                 sign-in: deletes worfy-harness/, plugins/ and settings.json of the
 #                                 sandbox Claude home, and npm/, data/, runs/ of the sandbox
+# reset and reset-harness delete only in a folder that carries this script's marker, and refuse
+# (exit 2) when the sandbox, its home/ or home/.claude is a link: a link would take them outside.
 #
 # Where: <per-user temp dir>/worfy-e3-sandbox/ — `getconf DARWIN_USER_TEMP_DIR`, which is $TMPDIR
 # of a Terminal, so a run from an agent's shell and from the owner's Terminal find the same folder.
-# E3_SANDBOX_TMP replaces that temp dir and E3_LOCK_DIR the lock folder (this script's own tests).
+# E3_SANDBOX_TMP replaces that temp dir and E3_LOCK_DIR the lock folder: test/contract/e3-sandbox.test.ts
+# runs the script on temporary folders with them, never on the real sandbox or the shared lock.
 #
 # Inside it:
 #   home/           HOME of the sandbox; home/.claude is CLAUDE_CONFIG_DIR, so ~/.claude/worfy-harness/
@@ -130,7 +134,29 @@ check_gh() {
   return 3
 }
 
+# The sandbox and the two folders this script writes into and deletes from are real folders inside
+# it, not links: through a link `reset-harness` would delete in the folder the link points at.
+inside_sandbox() {
+  [ ! -L "$ROOT" ] || die 2 "$ROOT is a link: refusing to work through it"
+  local dir real
+  for dir in "$SBX_HOME" "$SBX_CLAUDE"; do
+    [ ! -L "$dir" ] || die 2 "$dir is a link: refusing to work through it"
+    [ -d "$dir" ] || continue
+    real=$(cd "$dir" && pwd -P)
+    case "$real" in
+      "$ROOT"/*) ;;
+      *) die 2 "$dir is $real, outside $ROOT: refusing to work there" ;;
+    esac
+  done
+}
+
 init() {
+  # A folder of this name that this script did not make is someone else's: marking it would let
+  # `reset` delete it.
+  if [ -e "$ROOT" ] && [ ! -f "$ROOT/$MARKER" ] && [ -n "$(ls -A "$ROOT" 2>/dev/null)" ]; then
+    die 2 "$ROOT is there, is not empty and has no $MARKER: not a sandbox of this script, left as it is"
+  fi
+  inside_sandbox
   mkdir -p "$SBX_CLAUDE" "$ROOT/npm/bin" "$ROOT/data" "$ROOT/runs"
   [ -f "$ROOT/$MARKER" ] || printf 'worfy E3 acceptance sandbox, created %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$ROOT/$MARKER"
   # macOS finds the login keychain under $HOME/Library/Keychains. gh keeps its tokens there, so with
@@ -197,16 +223,24 @@ EOF
 # The shared lock of Electron runs (rules.md of the worfy Profile): mkdir, a touch every 5 minutes
 # so a long run is not taken for abandoned, a lock older than 30 minutes is abandoned; only this
 # run's own lock is removed.
+# The modification time of a folder in seconds: BSD stat on macOS, GNU stat elsewhere.
+mtime_of() {
+  if [ "$(uname)" = Darwin ]; then stat -f %m "$1"; else stat -c %Y "$1"; fi
+}
+
 lock_run() {
   [ $# -gt 0 ] || die 2 "lock-run: no command"
   local m hb
   until mkdir "$LOCK" 2>/dev/null; do
-    m=$(stat -f %m "$LOCK" 2>/dev/null) || continue
-    if [ $(($(date +%s) - m)) -gt 1800 ]; then rmdir "$LOCK" 2>/dev/null || true; fi
+    m=$(mtime_of "$LOCK" 2>/dev/null) || continue
+    # An abandoned lock is removed and taken at once; a live one is waited for.
+    if [ $(($(date +%s) - m)) -gt 1800 ] && rmdir "$LOCK" 2>/dev/null; then continue; fi
     echo "e3-sandbox: waiting for $LOCK" >&2
     sleep 20
   done
-  (while sleep 300; do touch "$LOCK" 2>/dev/null || exit 0; done) &
+  # Its output goes nowhere: the `sleep` it leaves behind would otherwise hold the caller's pipe
+  # open for up to 5 minutes after this script has exited.
+  (while sleep 300; do touch "$LOCK" 2>/dev/null || exit 0; done) >/dev/null 2>&1 &
   hb=$!
   # Every step of the release is guarded: under `set -e` a failing step would end the trap before rmdir.
   trap 'kill '"$hb"' 2>/dev/null || true; wait '"$hb"' 2>/dev/null || true; rmdir "'"$LOCK"'" 2>/dev/null || true' EXIT
@@ -215,13 +249,15 @@ lock_run() {
   E3_LOCK_HELD=1 "$@"
 }
 
-# Deleting is allowed only in a folder this script made: its marker is there and its name is the sandbox's.
+# Deleting is allowed only in a folder this script made: its marker is there, its name is the
+# sandbox's, and neither it nor its home/ and home/.claude is a link.
 deletable_root() {
   [ -f "$ROOT/$MARKER" ] || die 2 "$ROOT has no $MARKER: not a sandbox of this script, left as it is"
   case "$ROOT" in
     /*/worfy-e3-sandbox) ;;
     *) die 2 "refusing to delete in $ROOT" ;;
   esac
+  inside_sandbox
 }
 
 reset() {

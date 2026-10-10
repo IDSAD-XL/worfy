@@ -19,11 +19,20 @@ import { NO_WINDOW_RESTORE, repoRoot } from '../e2e/helpers'
 //            branches, commits or PRs
 //
 // Both start by reading the sign-in row of the first-run screen: without the owner's /login in the
-// sandbox they stop with NO_LOGIN, as a failure — a skip would let the command exit 0.
+// sandbox they stop with NO_LOGIN, as a failure — a skip would let the command exit 0. Until that
+// row is ok nothing leaves the machine: `silent` reads the gh token and pushes only after it.
 // Run: `pnpm package`, then `pnpm test:acceptance -g sandbox` and
 // `E3_SILENT_REPO=<owner>/<name> pnpm test:acceptance -g silent`. The command holds the shared
 // Electron lock /tmp/worfy-e2e.lock (scripts/e3-sandbox.sh lock-run); a test that starts the app
-// refuses to run without it.
+// refuses to run without it. What a failed test keeps (the trace, the page as it was) is in
+// test-results-acceptance/<start time>/, which no other run cleans.
+//
+// Running `sandbox` again: `bash scripts/e3-sandbox.sh reset-harness` first (it keeps the sign-in).
+// Running `silent` again: it pushes its `main` into E3_SILENT_REPO once the sign-in row is ok, so
+// after any run that got that far the repository is no longer empty and the next run stops with
+// REPO_NOT_EMPTY. The owner then deletes the repository and makes it again, empty and private
+// (`gh repo delete <owner>/<name> --yes`, `gh repo create <owner>/<name> --private`), or names
+// another empty one in E3_SILENT_REPO. Agents create and delete no repositories.
 
 const SANDBOX_SCRIPT = join(repoRoot, 'scripts', 'e3-sandbox.sh')
 const FIXTURES = join(repoRoot, 'test', 'acceptance', 'fixtures')
@@ -32,6 +41,7 @@ const TICKET_SLUG = 'first-task'
 const ACCOUNT = process.env.E3_GH_ACCOUNT ?? 'IDSAD-XL'
 const NO_LOGIN = 'не проверено: нет входа в песочнице — шаг владельца'
 const NO_REPO = 'не проверено: нет E3_SILENT_REPO (пустой private-репозиторий на GitHub) — шаг владельца'
+const REPO_NOT_EMPTY = 'is not empty: this run pushes its own main there. The owner deletes it and makes it again, empty and private, or names another empty repository in E3_SILENT_REPO'
 const WAVE_TIMEOUT_MS = 90 * 60_000
 /** The checks of the first-run screen (Q22), in the order the screen shows them. */
 const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
@@ -51,6 +61,9 @@ function runValues(workflowFolder: string): string[] {
   const folders = existsSync(workflowFolder) ? [workflowFolder, realpathSync(workflowFolder)] : [workflowFolder]
   return [...new Set([EPIC, TICKET_SLUG, `${EPIC}/01`, ...folders, '.scratch', 'worfy-harness'])]
 }
+
+/** A text with every value of this run in it: what the control step plants. */
+const plantedTrace = (workflowFolder: string): string => `Merge ${EPIC}/01 (${TICKET_SLUG}): see ${workflowFolder}/x.md, .scratch/${EPIC} and worfy-harness`
 
 /** The values of `values` that `text` contains, case-insensitively, in the order of `values`. */
 function tracesIn(text: string, values: readonly string[]): string[] {
@@ -215,21 +228,52 @@ async function firstRunScreen(window: Page): Promise<Locator> {
 
 const checkRow = (screen: Locator, id: string): Locator => screen.locator(`[data-check="${id}"]`)
 
+/** What a row of the screen says, on one line. */
+const rowText = async (row: Pick<Locator, 'innerText'>): Promise<string> => (await row.innerText()).replace(/\s+/g, ' ').trim()
+
 /** The first step of both tests: the sign-in row. Without the owner's /login the run stops here. */
 async function expectSignedIn(screen: Locator): Promise<void> {
   const row = checkRow(screen, 'claude-login')
   const status = await row.getAttribute('data-status')
-  if (status !== 'ok') throw new Error(`${NO_LOGIN} (the Sign-in row: ${status}, "${(await row.innerText()).replace(/\s+/g, ' ').trim()}")`)
+  if (status !== 'ok') throw new Error(`${NO_LOGIN} (the Sign-in row: ${status}, "${await rowText(row)}")`)
+}
+
+/**
+ * Waits until a row of the first-run screen has `status`. When it does not within `timeoutMs`, the
+ * error carries what the row says: the reason of a failed install is on the screen and nowhere
+ * else, and the log of the run is what stays of it.
+ */
+async function expectRowStatus(row: Pick<Locator, 'getAttribute' | 'innerText'>, what: string, status: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  let seen: string | null
+  for (;;) {
+    seen = await row.getAttribute('data-status')
+    if (seen === status) return
+    if (Date.now() >= deadline) break
+    await new Promise((done) => setTimeout(done, Math.min(500, Math.max(1, deadline - Date.now()))))
+  }
+  throw new Error(`${what}: the row is "${String(seen)}", not "${status}", after ${Math.round(timeoutMs / 1000)} s. The row says: "${await rowText(row)}"`)
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 test('silent: control — the search for this run’s values finds a planted trace (no app)', () => {
-  const values = runValues('/tmp/sandbox/home/.claude/worfy-harness/projects/silent-app/workflow')
-  const planted = `Merge ${EPIC}/01: start ${EPIC}`
-  expect(tracesIn(planted, values)).toEqual([EPIC, `${EPIC}/01`])
+  const folder = '/tmp/sandbox/home/.claude/harness-home/projects/silent-app/workflow'
+  const values = runValues(folder)
+  // Every value, written out here and not taken from runValues: a value dropped there fails this.
+  expect(tracesIn(plantedTrace(folder), values)).toEqual(['e3-acceptance', 'first-task', 'e3-acceptance/01', folder, '.scratch', 'worfy-harness'])
+  expect(tracesIn(`Merge ${EPIC}/01: start ${EPIC}`, values)).toEqual([EPIC, `${EPIC}/01`])
   expect(tracesIn('Add greet(name) with a node:test test', values)).toEqual([])
-  expect(tracesIn('see /TMP/SANDBOX/home/.claude/worfy-harness/projects/silent-app/workflow/x.md', values)).toEqual([values[3], 'worfy-harness'])
+  expect(tracesIn(`see ${folder.toUpperCase()}/x.md`, values)).toEqual([folder])
+})
+
+test('sandbox: control — a row that does not turn ok fails with what the row says (no app)', async () => {
+  const stuck = { getAttribute: () => Promise.resolve('fail'), innerText: () => Promise.resolve('Failed  Harness plugin\nerror at install\nRetry') }
+  await expect(expectRowStatus(stuck, 'Install the Harness', 'ok', 50)).rejects.toThrow('Install the Harness: the row is "fail", not "ok", after 0 s. The row says: "Failed Harness plugin error at install Retry"')
+  let reads = 0
+  const turns = { getAttribute: () => Promise.resolve(++reads < 3 ? 'fail' : 'ok'), innerText: () => Promise.resolve('') }
+  await expectRowStatus(turns, 'Install the Harness', 'ok', 5_000)
+  expect(reads).toBe(3)
 })
 
 test('sandbox: the packaged app installs its Harness and qmd into an empty Claude home', async () => {
@@ -256,7 +300,7 @@ test('sandbox: the packaged app installs its Harness and qmd into an empty Claud
     // Install → Confirm → the Harness of this build in the sandbox, enabled in Claude Code.
     await confirmDialogs(launched.app)
     await checkRow(screen, 'harness').getByRole('button', { name: /^Install/ }).click()
-    await expect(checkRow(screen, 'harness')).toHaveAttribute('data-status', 'ok', { timeout: 5 * 60_000 })
+    await expectRowStatus(checkRow(screen, 'harness'), 'Install the Harness', 'ok', 5 * 60_000)
     await expect(checkRow(screen, 'harness')).toContainText(version)
     expect(version).toMatch(/^\d+\.\d+\.\d+\+[0-9a-f]{7,}/)
     const installed = JSON.parse(readFileSync(join(box.plugin, '.claude-plugin', 'plugin.json'), 'utf8')) as { version: string }
@@ -267,7 +311,7 @@ test('sandbox: the packaged app installs its Harness and qmd into an empty Claud
 
     // qmd with consent: npm installs it under npm_config_prefix of the sandbox.
     await checkRow(screen, 'qmd').getByRole('button', { name: 'Install…' }).click()
-    await expect(checkRow(screen, 'qmd')).toHaveAttribute('data-status', 'ok', { timeout: 10 * 60_000 })
+    await expectRowStatus(checkRow(screen, 'qmd'), 'Install qmd', 'ok', 10 * 60_000)
     const qmd = join(box.root, 'npm', 'bin', 'qmd')
     const qmdVersion = inSandbox(box, qmd, ['--version'])
     expect(qmdVersion.status, `${qmd} --version: ${qmdVersion.stderr}`).toBe(0)
@@ -276,13 +320,13 @@ test('sandbox: the packaged app installs its Harness and qmd into an empty Claud
     const models = checkRow(screen, 'qmd-models')
     if (process.env.E3_QMD_MODELS === '1') {
       await models.getByRole('button', { name: 'Download…' }).click()
-      await expect(models).toHaveAttribute('data-status', 'ok', { timeout: 80 * 60_000 })
+      await expectRowStatus(models, 'Download the qmd models', 'ok', 80 * 60_000)
       await expect(models).toContainText('downloaded')
       const search = inSandbox(box, qmd, ['query', 'worfy'])
       expect(search.status, `qmd query in the sandbox: ${search.stderr}`).toBe(0)
     } else {
       await models.getByRole('button', { name: 'Skip…' }).click()
-      await expect(models).toHaveAttribute('data-status', 'ok', { timeout: 60_000 })
+      await expectRowStatus(models, 'Skip the qmd models', 'ok', 60_000)
       await expect(models).toContainText('skipped')
     }
   } finally {
@@ -298,29 +342,23 @@ test('silent: a Silent Project connects, one Wave runs, and no workflow trace re
   if (!/^[\w.-]+\/[\w.-]+$/.test(remote)) throw new Error(`E3_SILENT_REPO is <owner>/<name>, not ${remote}`)
   const app = packagedApp()
   const box = sandbox()
-  if (!box.gh) throw new Error(`не проверено: gh auth token -u ${ACCOUNT} в env песочницы не ответил (bash scripts/e3-sandbox.sh check-gh)`)
   const bin = join(box.plugin, 'bin')
-  if (!existsSync(join(bin, 'profile'))) throw new Error(`no Harness in the sandbox (${box.plugin}): run \`pnpm test:acceptance -g sandbox\` first`)
-  // The token stays in this process's memory: it goes to gh as GH_TOKEN and is never printed.
-  const token = ok('gh', ['auth', 'token', '--hostname', 'github.com', '-u', ACCOUNT], { env: box.env })
-  const ghEnv: Env = { GH_TOKEN: token }
-  // git authenticates through `gh auth git-credential` (the sandbox .gitconfig), which takes GH_TOKEN
-  // before gh's active account: the active account of the machine may not reach E3_SILENT_REPO.
-  const gitEnv: Env = { ...box.env, ...ghEnv }
+  // GH_TOKEN of the account, once the sandbox is known to be signed in. It stays in this process's
+  // memory and is never printed. git authenticates through `gh auth git-credential` (the sandbox
+  // .gitconfig), which takes GH_TOKEN before gh's active account: the active account of the
+  // machine may not reach E3_SILENT_REPO.
+  const ghEnv: Env = {}
   const url = `https://github.com/${remote}.git`
 
-  // The repository: fresh, from the fixture, pushed to the empty GitHub repository.
+  // The repository: fresh, from the fixture. Nothing of it leaves the machine yet.
   const work = runDir(box, 'silent')
   const repo = join(work, 'silent-app')
   cpSync(join(FIXTURES, 'silent-repo'), repo, { recursive: true })
-  const git = (...args: string[]): string => ok('git', args, { cwd: repo, env: gitEnv })
-  expect(ok('git', ['ls-remote', url], { env: gitEnv }), `${remote} must be empty: the run pushes its own main`).toBe('')
+  const git = (...args: string[]): string => ok('git', args, { cwd: repo, env: { ...box.env, ...ghEnv } })
   git('init', '-q', '-b', 'main')
   git('add', '-A')
   git('commit', '-q', '-m', 'Initial commit')
   const base = git('rev-parse', 'HEAD')
-  git('remote', 'add', 'origin', url)
-  git('push', '-q', '-u', 'origin', 'main')
 
   const dataDir = join(work, 'data')
   const launched = await launch(box, app, dataDir)
@@ -329,6 +367,16 @@ test('silent: a Silent Project connects, one Wave runs, and no workflow trace re
     const { window } = launched
     const screen = await firstRunScreen(window)
     await expectSignedIn(screen)
+
+    // Signed in: only now the token is read and `main` is pushed to the empty GitHub repository. A
+    // push before this step would leave the repository not empty for a run that then stops.
+    if (!box.gh) throw new Error(`не проверено: gh auth token -u ${ACCOUNT} в env песочницы не ответил (bash scripts/e3-sandbox.sh check-gh)`)
+    if (!existsSync(join(bin, 'profile'))) throw new Error(`no Harness in the sandbox (${box.plugin}): run \`pnpm test:acceptance -g sandbox\` first`)
+    ghEnv.GH_TOKEN = ok('gh', ['auth', 'token', '--hostname', 'github.com', '-u', ACCOUNT], { env: box.env })
+    expect(git('ls-remote', url), `${remote} ${REPO_NOT_EMPTY}`).toBe('')
+    git('remote', 'add', 'origin', url)
+    git('push', '-q', '-u', 'origin', 'main')
+
     await screen.getByRole('button', { name: 'Close' }).click()
     await expect(screen).toBeHidden()
 
@@ -362,10 +410,10 @@ test('silent: a Silent Project connects, one Wave runs, and no workflow trace re
     ok('git', ['commit', '-q', '-m', `Add the ${EPIC} Epic`], { cwd: workflowFolder, env: box.env })
 
     // The control step: both searches find a planted trace. A check that cannot fail does not count.
-    const planted = `Merge ${EPIC}/01: start ${EPIC}`
+    const planted = plantedTrace(workflowFolder)
     const plantedCheck = inSandbox(box, join(bin, 'silent-check'), ['-C', repo, '--file', '-'], { input: planted })
     expect(plantedCheck.status, `silent-check on a planted trace: ${plantedCheck.stdout}${plantedCheck.stderr}`).toBe(1)
-    expect(tracesIn(planted, values)).toEqual([EPIC, `${EPIC}/01`])
+    expect(tracesIn(planted, values)).toEqual(expect.arrayContaining([EPIC, TICKET_SLUG, `${EPIC}/01`, workflowFolder, '.scratch', 'worfy-harness']))
 
     // One Wave, unattended: Autopilot runs the Wave without a person ("Run wave" would hand it to an
     // attended Orchestrator, whose permission prompts nobody answers here).
