@@ -32,12 +32,14 @@
 // (readCardFileChunk below, on M) and sends its bytes; this Machine's main puts its own runtime into
 // the HTML, since the runtime must match the bridge of the window that shows the Card.
 import { open, readFile, realpath, stat } from 'node:fs/promises'
-import { extname, join, resolve, sep } from 'node:path'
+import * as nativePath from 'node:path'
+import { extname } from 'node:path'
 import { protocol } from 'electron'
 import { installWorfyCard } from '../../card-runtime/worfy-card'
 import { MACHINE_LABEL_PATTERN } from '../../shared/cards/bridge'
 import { CARD_FILE_CHUNK_BYTES, CARD_FILE_LIMIT_BYTES, CARD_ID_PATTERN, type CardFileAnswer } from '../../shared/ipc/cards'
 import { isProjectIdHash, projectIdHash } from '../projects/store'
+import { leadsToRemote, type LinkFs, type PathRules } from '../remote-links'
 import { appLinkedCardSource } from './remote'
 
 export const CARD_SCHEME = 'worfy-card'
@@ -168,15 +170,35 @@ export function isCardUrl(url: string): boolean {
   return URL.canParse(url) && new URL(url).protocol === `${CARD_SCHEME}:`
 }
 
-const isInside = (root: string, path: string): boolean => path.startsWith(root + sep)
+/** What resolveCardFile asks of the system; replaced in tests. */
+export interface CardFileOptions {
+  /** The path rules of the platform; path.win32 in tests on any system. */
+  paths?: PathRules & Pick<typeof nativePath, 'extname'>
+  /** lstat and readlink for the links on the way to the file (remote-links.ts). */
+  links?: LinkFs
+  /** realpath; rejects when there is nothing at the path. */
+  real?: (path: string) => Promise<string>
+  /** Whether the path is a file. */
+  isFile?: (path: string) => Promise<boolean>
+}
 
 /**
  * The file a request path names inside a Card's folder, or null when there is none to serve: the
  * path leaves the folder (with .. or through a symlink), names a directory or a missing file, or
  * has an extension that is not in CARD_CONTENT_TYPES. `cardsDir` is the folder of all the
  * Project's Cards; the Card's own folder must be a real folder inside it, not a symlink out.
+ *
+ * On Windows the links on the way — the Cards folder, the Card's folder, each folder of the path
+ * and the file — are read before any realpath: realpath of a link to `\\host\share\…` would make
+ * Windows contact that host with the user's credentials before the path is refused (worfy-windows
+ * ticket 18). A path that leads there is not served.
  */
-export async function resolveCardFile(cardsDir: string, cardId: string, pathname: string): Promise<string | null> {
+export async function resolveCardFile(cardsDir: string, cardId: string, pathname: string, options: CardFileOptions = {}): Promise<string | null> {
+  const paths = options.paths ?? nativePath
+  const real = options.real ?? realpath
+  const isFile = options.isFile ?? (async (path: string) => (await stat(path)).isFile())
+  const inside = (root: string, path: string): boolean => path.startsWith(root + paths.sep)
+
   if (!CARD_ID_PATTERN.test(cardId)) return null
   let segments: string[]
   try {
@@ -186,19 +208,21 @@ export async function resolveCardFile(cardsDir: string, cardId: string, pathname
   }
   if (segments.some((segment) => segment.includes('\0') || segment.includes('\\'))) return null
   const relativePath = segments.filter((segment) => segment !== '').join('/')
-  const requested = relativePath === '' || pathname.endsWith('/') ? join(relativePath, 'index.html') : relativePath
-  if (CARD_CONTENT_TYPES[extname(requested).toLowerCase()] === undefined) return null
+  const requested = relativePath === '' || pathname.endsWith('/') ? paths.join(relativePath, 'index.html') : relativePath
+  if (CARD_CONTENT_TYPES[paths.extname(requested).toLowerCase()] === undefined) return null
 
   try {
-    const realCards = await realpath(cardsDir)
-    const realCard = await realpath(join(cardsDir, cardId))
-    if (realCard !== join(realCards, cardId)) return null
-    const candidate = resolve(realCard, requested)
-    if (!isInside(realCard, candidate)) return null
-    const real = await realpath(candidate)
-    if (!isInside(realCard, real)) return null
-    if (!(await stat(real)).isFile()) return null
-    return real
+    // The Cards folder is the only place this path may go: also when it lies on a share itself.
+    if (await leadsToRemote(paths.join(cardsDir, cardId, requested), [cardsDir], { paths, links: options.links })) return null
+    const realCards = await real(cardsDir)
+    const realCard = await real(paths.join(cardsDir, cardId))
+    if (realCard !== paths.join(realCards, cardId)) return null
+    const candidate = paths.resolve(realCard, requested)
+    if (!inside(realCard, candidate)) return null
+    const target = await real(candidate)
+    if (!inside(realCard, target)) return null
+    if (!(await isFile(target))) return null
+    return target
   } catch {
     return null
   }
