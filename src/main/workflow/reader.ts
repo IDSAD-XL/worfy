@@ -13,9 +13,11 @@
 // Nothing here writes: processes are run with the Project as cwd, files are only read.
 import { execFile } from 'node:child_process'
 import { readdir, readFile, stat } from 'node:fs/promises'
+import * as nativePath from 'node:path'
 import { join, resolve } from 'node:path'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import { harnessHomes, locateHarness, notFoundPaths, scriptEnv, type HarnessLocation } from '../harness/locate'
+import { leadsToRemote, type LinkFs, type PathRules } from '../remote-links'
 import { readProjectLayout, type ProjectLayout } from './folder'
 import {
   epicStatusSchema,
@@ -182,28 +184,63 @@ function issueKey(file: string): string | null {
 
 const readText = (path: string): Promise<string | null> => readFile(path, 'utf8').catch(() => null)
 
+/** What is asked of the file system for the Tickets; both calls follow links. */
+export interface TicketFs {
+  /** The text of a file, or null when it cannot be read. */
+  readText: (path: string) => Promise<string | null>
+  /** The names in a folder. */
+  readdir: (dir: string) => Promise<string[]>
+}
+
+const nodeFs: TicketFs = { readText, readdir: (dir) => readdir(dir) }
+
+export interface EnrichOptions {
+  /** The path rules of the platform; path.win32 in tests on any system. */
+  paths?: PathRules
+  /** lstat and readlink for the links on the way to a file (remote-links.ts); replaced in tests. */
+  links?: LinkFs
+  /** The calls that follow links; replaced in tests. */
+  fs?: TicketFs
+}
+
 /**
  * Adds the "Где в коде" files and the Epic titles to a snapshot of the checkout, read from
  * `ticketsRoot` (the folder with `<epic>/spec.md` and `<epic>/issues/`).
+ *
+ * On Windows readFile and readdir through a link to `\\host\share\…` make the system contact
+ * that host with the user's credentials, and a checked-out repository can carry such a link. So
+ * the links on the way to each file and folder are read first (remote-links.ts; worfy-windows
+ * ticket 19): one that leads there, or cannot be checked, is taken as a file that cannot be read
+ * or a folder with nothing in it. The Tickets root is the only place these paths may go: also
+ * when it lies on a share itself.
  */
-export async function enrichSnapshot(root: string, snapshot: EpicStatusSnapshot, ticketsRoot: string = join(root, '.scratch')): Promise<CheckoutModel> {
+export async function enrichSnapshot(
+  root: string,
+  snapshot: EpicStatusSnapshot,
+  ticketsRoot: string = join(root, '.scratch'),
+  options: EnrichOptions = {},
+): Promise<CheckoutModel> {
   const scratch = ticketsRoot
+  const paths = options.paths ?? nativePath
+  const fs = options.fs ?? nodeFs
+  const away = (path: string): Promise<boolean> => leadsToRemote(path, [scratch], { paths, links: options.links })
+  const read = async (path: string): Promise<string | null> => ((await away(path)) ? null : fs.readText(path))
 
   const epics = await Promise.all(
     snapshot.epics.map(async (epic) => {
-      const spec = epic.hasSpec ? await readText(join(scratch, epic.epic, 'spec.md')) : null
+      const spec = epic.hasSpec ? await read(paths.join(scratch, epic.epic, 'spec.md')) : null
       return { ...epic, title: spec === null ? null : firstHeading(spec) }
     }),
   )
 
   const issueFiles = new Map<string, Map<string, string>>()
   for (const name of new Set(snapshot.tickets.map((ticket) => ticket.epic))) {
-    const dir = join(scratch, name, 'issues')
-    const entries = await readdir(dir).catch(() => [] as string[])
+    const dir = paths.join(scratch, name, 'issues')
+    const entries = (await away(dir)) ? [] : await fs.readdir(dir).catch(() => [] as string[])
     const byKey = new Map<string, string>()
     for (const entry of entries) {
       const key = issueKey(entry)
-      if (key) byKey.set(key, join(dir, entry))
+      if (key) byKey.set(key, paths.join(dir, entry))
     }
     issueFiles.set(name, byKey)
   }
@@ -211,7 +248,7 @@ export async function enrichSnapshot(root: string, snapshot: EpicStatusSnapshot,
   const tickets = await Promise.all(
     snapshot.tickets.map(async (ticket): Promise<Ticket> => {
       const path = issueFiles.get(ticket.epic)?.get(`${ticket.num}:${ticket.slug}`)
-      const markdown = path ? await readText(path) : null
+      const markdown = path ? await read(path) : null
       const section = markdown === null ? { listed: false, files: [] } : codeSection(markdown)
       return { ...ticket, files: section.files, filesListed: section.listed, fromBranch: null }
     }),

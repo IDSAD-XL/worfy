@@ -12,8 +12,10 @@
 import { createHash } from 'node:crypto'
 import { watch, type FSWatcher } from 'node:fs'
 import { readdir, readFile, realpath, stat } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import * as nativePath from 'node:path'
+import { resolve, sep } from 'node:path'
 import { ADR_DIR, ADR_FILE_PATTERN, HANDOFF_FILE, type AdrEntry, type DocsState } from '../../shared/ipc/docs'
+import { isInside, leadsToRemote, UNCHECKED, walkLinks, type LinkFs, type PathRules } from '../remote-links'
 
 /** A larger file is refused: HANDOFF and ADRs are short text. */
 export const DOC_SIZE_MAX = 1024 * 1024
@@ -23,9 +25,30 @@ export type Docs = Omit<DocsState, 'projectId'>
 
 const ADR_PARTS = ADR_DIR.split('/')
 
+/** What is asked of the file system for a document; each of these follows links. */
+export interface DocFs {
+  realpath: (path: string) => Promise<string>
+  /** The names in a folder. */
+  readdir: (dir: string) => Promise<string[]>
+  stat: (path: string) => Promise<{ isFile: () => boolean; size: number }>
+  /** The text of a file. */
+  readFile: (path: string) => Promise<string>
+}
+
+const nodeFs: DocFs = { realpath: (path) => realpath(path), readdir: (dir) => readdir(dir), stat: (path) => stat(path), readFile: (path) => readFile(path, 'utf8') }
+
+export interface DocOptions {
+  /** The path rules of the platform; path.win32 in tests on any system. */
+  paths?: PathRules
+  /** lstat and readlink for the links on the way to a document (remote-links.ts); replaced in tests. */
+  links?: LinkFs
+  /** The calls that follow links; replaced in tests. */
+  fs?: DocFs
+}
+
 /** True when `rel` (relative, any separator) leaves the folder it is relative to. */
-function leaves(rel: string): boolean {
-  return rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)
+function leaves(rel: string, paths: PathRules): boolean {
+  return rel === '..' || rel.startsWith(`..${paths.sep}`) || paths.isAbsolute(rel)
 }
 
 /** True for HANDOFF.md at the root and for docs/adr/NNNN-*.md; `parts` are the segments of a relative path. */
@@ -39,29 +62,45 @@ function isDocument(parts: readonly string[]): boolean {
  * root, when it is HANDOFF.md or an ADR of this Project; throws otherwise. Symlinks are resolved
  * first, so `../`, a link that points out of the Project and a link to some other file of it are
  * all refused.
+ *
+ * On Windows realpath of a path on a share, or of one that goes through a link to a share, makes
+ * the system contact that host and hand it the user's NTLM credentials (worfy-windows tickets 18
+ * and 19). So a UNC or device path outside the root is refused by its text, before anything is
+ * asked of the file system; and the links on the way to any other path are read before realpath
+ * (remote-links.ts): one that leads to such a host is refused as outside the Project, one that
+ * cannot be read as a path that could not be checked. A Project that is itself on a share reads its
+ * documents there as before.
  */
-export async function resolveDocPath(root: string, path: string): Promise<{ real: string; rel: string }> {
-  const base = await realpath(root)
-  const lexical = resolve(root, path)
-  const real = await realpath(lexical).catch(() => null)
+export async function resolveDocPath(root: string, path: string, options: DocOptions = {}): Promise<{ real: string; rel: string }> {
+  const paths = options.paths ?? nativePath
+  const fs = options.fs ?? nodeFs
+  const lexical = paths.resolve(root, path)
+  // path.win32.resolve gives every UNC and device form a leading `\\`.
+  if (paths.sep === '\\' && lexical.startsWith('\\\\') && !isInside(paths.resolve(root), lexical, paths)) throw new Error(`${path} is outside the Project`)
+  const base = await fs.realpath(root)
+  const verdict = await walkLinks(lexical, [root, base], { paths, links: options.links })
+  if (verdict === 'remote') throw new Error(`${path} is outside the Project`)
+  if (verdict === 'unchecked') throw new Error(`${path} ${UNCHECKED}`)
+  const real = await fs.realpath(lexical).catch(() => null)
   if (real === null) {
-    if (leaves(relative(root, lexical)) && leaves(relative(base, lexical))) throw new Error(`${path} is outside the Project`)
+    if (leaves(paths.relative(root, lexical), paths) && leaves(paths.relative(base, lexical), paths)) throw new Error(`${path} is outside the Project`)
     throw new Error(`${path} does not exist`)
   }
-  const rel = relative(base, real)
-  if (rel === '' || leaves(rel)) throw new Error(`${path} is outside the Project`)
-  const parts = rel.split(sep)
+  const rel = paths.relative(base, real)
+  if (rel === '' || leaves(rel, paths)) throw new Error(`${path} is outside the Project`)
+  const parts = rel.split(paths.sep)
   if (!isDocument(parts)) throw new Error(`${path}: only HANDOFF.md and docs/adr/NNNN-*.md of the Project are read`)
   return { real, rel: parts.join('/') }
 }
 
 /** The text of HANDOFF.md or an ADR; `path` in the answer is the real file relative to the root. */
-export async function readDoc(root: string, path: string): Promise<{ path: string; text: string }> {
-  const { real, rel } = await resolveDocPath(root, path)
-  const info = await stat(real)
+export async function readDoc(root: string, path: string, options: DocOptions = {}): Promise<{ path: string; text: string }> {
+  const fs = options.fs ?? nodeFs
+  const { real, rel } = await resolveDocPath(root, path, options)
+  const info = await fs.stat(real)
   if (!info.isFile()) throw new Error(`${path} is not a file`)
   if (info.size > DOC_SIZE_MAX) throw new Error(`${path} is larger than ${DOC_SIZE_MAX} bytes`)
-  return { path: rel, text: await readFile(real, 'utf8') }
+  return { path: rel, text: await fs.readFile(real) }
 }
 
 /** Changes with the content; the renderer reads the text again when it does. */
@@ -82,20 +121,29 @@ export function parseAdr(fileName: string, text: string): Omit<AdrEntry, 'path' 
   return { number, title: title || fileName, status: status || null }
 }
 
-/** HANDOFF.md and the ADRs of the Project at `root`, as they are now. Files that cannot be read are left out. */
-export async function readDocs(root: string): Promise<Docs> {
-  const handoffText = await readDoc(root, HANDOFF_FILE).then(
+/**
+ * HANDOFF.md and the ADRs of the Project at `root`, as they are now. Files that cannot be read are
+ * left out, and so is all that lies behind a link to a share (resolveDocPath): the folder of the
+ * ADRs is not listed when the way to it leads there.
+ */
+export async function readDocs(root: string, options: DocOptions = {}): Promise<Docs> {
+  const paths = options.paths ?? nativePath
+  const fs = options.fs ?? nodeFs
+  const handoffText = await readDoc(root, HANDOFF_FILE, options).then(
     (doc) => doc.text,
     () => null,
   )
-  const names = await readdir(join(root, ...ADR_PARTS)).catch(() => [] as string[])
+  const adrDir = paths.join(root, ...ADR_PARTS)
+  const base = await fs.realpath(root).catch(() => null)
+  const away = await leadsToRemote(adrDir, base === null ? [root] : [root, base], { paths, links: options.links })
+  const names = away ? [] : await fs.readdir(adrDir).catch(() => [] as string[])
   const adrs = await Promise.all(
     names
       .filter((name) => ADR_FILE_PATTERN.test(name))
       .map(async (name): Promise<AdrEntry | null> => {
         const path = `${ADR_DIR}/${name}`
         try {
-          const { text } = await readDoc(root, path)
+          const { text } = await readDoc(root, path, options)
           return { path, ...parseAdr(name, text), version: versionOf(text) }
         } catch {
           return null
