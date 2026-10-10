@@ -135,7 +135,8 @@ export async function readDocs(root: string, options: DocOptions = {}): Promise<
   )
   const adrDir = paths.join(root, ...ADR_PARTS)
   const base = await fs.realpath(root).catch(() => null)
-  const away = await leadsToRemote(adrDir, base === null ? [root] : [root, base], { paths, links: options.links })
+  // A root that cannot be resolved has no documents: nothing more is asked about it.
+  const away = base === null || (await leadsToRemote(adrDir, [root, base], { paths, links: options.links }))
   const names = away ? [] : await fs.readdir(adrDir).catch(() => [] as string[])
   const adrs = await Promise.all(
     names

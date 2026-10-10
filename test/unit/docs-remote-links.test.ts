@@ -261,6 +261,8 @@ describe('readDocs and a link that leads to a share (Windows rules)', () => {
   it('answers with no document for a Project folder that is not there, as before', async () => {
     const system = fakeSystem({ files: {} })
     expect(await readDocs(ROOT, system.options)).toEqual({ handoff: null, adrs: [] })
+    // Once for HANDOFF.md and once for the folder of the ADRs; nothing is asked after that.
+    expect(system.calls).toEqual(['realpath C:\\p\\repo', 'realpath C:\\p\\repo'])
   })
 
   it('under POSIX rules reads no link: the folder is listed and the files are read as before', async () => {
