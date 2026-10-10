@@ -16,8 +16,9 @@
 #   - .claude.json has no MCP server record of qmd (Q15);
 #   - `claude plugin list --json` names worfy@… enabled;
 #   - the journal: the run started after Ticket 16 became done (the commit time of its
-#     `Status: done` line), it has no `refused-dialog` and no `human-input` line, and its last line
-#     is `run-stopped`.
+#     `Status: done` line), it has no `refused-dialog` and no `human-input` line, and it ended:
+#     a `run-stopped` line with any reason (`user-stop` of a graceful Stop included), followed only
+#     by what a stopped run still writes (`background-tasks`, `orchestrator-returned`, `tasks-killed`).
 #
 # Exit codes: 0 — all of it holds; 1 — the violations, one line each; 2 — usage error, or a file
 # the check needs could not be read (that is not a pass).
@@ -256,12 +257,21 @@ else if (!(Date.parse(started.at) > doneAt)) violations.push(`${journal}: the ru
 for (const [i, line] of lines.entries()) {
   if (isObject(line) && (line.kind === "refused-dialog" || line.kind === "human-input")) violations.push(`${journal}: line ${i + 1} is ${line.kind}${line.what ? ` (${line.what})` : ""}`)
 }
-const last = lines.at(-1)
-if (!isObject(last) || last.kind !== "run-stopped") violations.push(`${journal}: the last line is ${isObject(last) ? last.kind : "missing"}, not run-stopped: the Wave did not finish`)
+// The run ended: a run-stopped line (any reason — `user-stop` of a graceful Stop included), and after
+// it only what a stopped run still writes while it gives the Orchestrator back.
+const AFTER_STOP = ["background-tasks", "orchestrator-returned", "tasks-killed"]
+const stoppedAt = lines.findLastIndex((line) => isObject(line) && line.kind === "run-stopped")
+const stopped = stoppedAt < 0 ? undefined : lines[stoppedAt]
+if (!stopped) violations.push(`${journal}: no run-stopped line (the last line is ${isObject(lines.at(-1)) ? lines.at(-1).kind : "missing"}): the run did not end`)
+else {
+  for (const line of lines.slice(stoppedAt + 1)) {
+    if (!isObject(line) || !AFTER_STOP.includes(line.kind)) violations.push(`${journal}: ${isObject(line) ? line.kind : "a line"} after run-stopped: the run went on`)
+  }
+}
 
 if (violations.length > 0) {
   process.stdout.write(`${violations.length} violation${violations.length === 1 ? "" : "s"}:\n${violations.join("\n")}\n`)
   process.exit(1)
 }
-process.stdout.write(`ok: ${shown(claudeHome)} holds only personal files, worfy is enabled, the run ${started.run ?? ""} went without a person\n`)
+process.stdout.write(`ok: ${shown(claudeHome)} holds only personal files, worfy is enabled, the run ${started.run ?? ""} went without a person and stopped (${stopped.reason ?? "no reason"})\n`)
 JS

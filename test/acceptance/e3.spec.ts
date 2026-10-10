@@ -392,7 +392,10 @@ test('silent: a Silent Project connects, one Wave runs, and no workflow trace re
       .flatMap((name) => readFileSync(join(journals, name), 'utf8').split('\n').filter(Boolean))
       .map((line) => JSON.parse(line) as { kind: string })
     expect(lines.filter((line) => line.kind === 'refused-dialog' || line.kind === 'human-input')).toEqual([])
-    expect(lines.at(-1)?.kind).toBe('run-stopped')
+    // The run ended; after run-stopped it may only give the Orchestrator back.
+    const stopped = lines.findLastIndex((line) => line.kind === 'run-stopped')
+    expect(stopped, 'the journal has a run-stopped line').toBeGreaterThanOrEqual(0)
+    expect(lines.slice(stopped + 1).filter((line) => !['background-tasks', 'orchestrator-returned', 'tasks-killed'].includes(line.kind))).toEqual([])
   } finally {
     await launched.close()
   }
