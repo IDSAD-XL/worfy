@@ -10,7 +10,8 @@ the PATH (links in a temporary folder): a tool left out is "not installed".
 |---|---|---|
 | `FIRST_RUN_TOOLS_LOG` | all | the call log |
 | `FIRST_RUN_TOOLS_DIR` | `npm` | this folder: `npm install -g` links `qmd` from here |
-| `FIRST_RUN_TOOLS_STATE` | `claude` | a folder with the plugin state (`marketplace`, `plugin-version`) |
+| `FIRST_RUN_TOOLS_STATE` | `claude` | a folder with the plugin state: `marketplace` (the folder of the Harness copy), `plugin-version` (the installed `worfy`; empty — not installed), `marketplaces` (the names of the other marketplaces, a line each), `plugins` (the ids of the other installed plugins, a line each) |
+| `FAKE_CLAUDE_FAIL` | `claude` | a call whose arguments start with it prints an error and exits 1 (`plugin install mattpocock-skills@`) |
 | `FAKE_CLAUDE_VERSION` | `claude` | what `claude --version` prints (default `2.1.289`) |
 | `FAKE_GH_ACCOUNT` | `gh` | the signed-in account; empty — `gh auth status` exits 1, not signed in |
 | `FAKE_NODE_VERSION` | `node` | what `node --version` prints, without `v` (default `22.11.0`) |
@@ -20,6 +21,9 @@ the PATH (links in a temporary folder): a tool left out is "not installed".
 | `FAKE_QMD_PULL_FAIL` | `qmd` | `qmd pull` prints it to stderr and exits 1 |
 
 `gh auth login` prints `fake gh: auth login started` and exits 0: the e2e test looks for that line
-in a Terminal Node. `claude plugin list | marketplace add | install | update` keep the state of the
-`worfy@worfy-harness` plugin in `$FIRST_RUN_TOOLS_STATE`, as the stub `claude` of
-`test/e2e/harness-install.spec.ts` does.
+in a Terminal Node. `claude plugin list | marketplace list | marketplace add | install | update |
+uninstall` keep the state of the `worfy@worfy-harness` plugin and of the plugins it depends on in
+`$FIRST_RUN_TOOLS_STATE`, as the stub `claude` of `test/e2e/harness-install.spec.ts` does:
+`marketplace add <folder>` is the Harness copy, `marketplace add <owner>/<repo>` any other
+marketplace, known by the repository's name; a plugin of a marketplace that was not added is not
+installed (exit 1); every other plugin is listed with version `1.0.0`. Nothing reaches the network.

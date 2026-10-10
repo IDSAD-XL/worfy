@@ -6,36 +6,56 @@ import { join, relative } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { launchApp, type LaunchedApp, repoRoot } from './helpers'
 
-// worfy-harness ticket 13: the Harness item of the toolbar and the consent dialog. The app runs with
-// the temporary Claude home of launchApp (WORFY_CLAUDE_HOME, so the install is offered in this dev
-// build) and a stub `claude` (WORFY_CLAUDE) that logs its calls and keeps Claude Code's side in a
-// file outside that home. The dialog is replaced in main: it records what it was shown and answers
-// with the given button.
+// worfy-harness tickets 13 and 30: the Harness item of the toolbar and the consent dialog. The app
+// runs with the temporary Claude home of launchApp (WORFY_CLAUDE_HOME, so the install is offered in
+// this dev build) and a stub `claude` (WORFY_CLAUDE) that logs its calls and keeps Claude Code's
+// side — the marketplaces it knows, the plugins it has installed — in a file outside that home; it
+// never reaches the network. The dialog is replaced in main: it records what it was shown and
+// answers with the given button.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const bundle = join(repoRoot, 'out', 'harness')
 const bundledVersion = (): string => (JSON.parse(readFileSync(join(bundle, '.claude-plugin', 'plugin.json'), 'utf8')) as { version: string }).version
 const OLD = '0.1.0+0000000'
+/** The dependency out/harness declares (harness/.claude-plugin/plugin.json), and what the installer runs for it. */
+const DEP = 'mattpocock-skills@claude-plugins-official'
+const LIST = 'plugin list --json'
+const MARKETPLACES = 'plugin marketplace list --json'
+const ADD_OFFICIAL = 'plugin marketplace add anthropics/claude-plugins-official'
+const INSTALL_DEP = `plugin install ${DEP} --scope user`
+const INSTALL_WORFY = 'plugin install worfy@worfy-harness --scope user'
 
+// A command fails when its line starts with STUB_CLAUDE_FAIL, or with the text of the file
+// STUB_CLAUDE_FAIL_FILE while that file is there (a test removes it to let Retry through).
 const STUB = `
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, isAbsolute, join } from 'node:path'
 const args = process.argv.slice(2)
-appendFileSync(process.env.STUB_CLAUDE_LOG, args.join(' ') + '\\n')
+const line = args.join(' ')
+appendFileSync(process.env.STUB_CLAUDE_LOG, line + '\\n')
 appendFileSync(process.env.STUB_CLAUDE_ENV_LOG, JSON.stringify({ HOME: process.env.HOME ?? null, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR ?? null }) + '\\n')
-const command = args.slice(0, args[1] === 'marketplace' ? 3 : 2).join(' ')
-if (process.env.STUB_CLAUDE_FAIL === command) {
-  process.stderr.write('Installing worfy@worfy-harness…\\n✘ ' + command + ' failed: stub error\\n')
+const failFile = process.env.STUB_CLAUDE_FAIL_FILE
+const failing = process.env.STUB_CLAUDE_FAIL || (failFile && existsSync(failFile) ? readFileSync(failFile, 'utf8').trim() : '')
+if (failing && line.startsWith(failing)) {
+  process.stderr.write('Installing…\\n✘ ' + line + ' failed: stub error\\n')
   process.exit(1)
 }
 const statePath = process.env.STUB_CLAUDE_STATE
-const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf8')) : { marketplace: null, installed: null }
-const folderVersion = () => JSON.parse(readFileSync(join(state.marketplace, '.claude-plugin', 'plugin.json'), 'utf8')).version
-if (command === 'plugin marketplace add') state.marketplace = args[3]
-else if (command === 'plugin install' || command === 'plugin update') state.installed = folderVersion()
+const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf8')) : { marketplaces: {}, plugins: {} }
+const manifest = (dir, file) => JSON.parse(readFileSync(join(dir, '.claude-plugin', file), 'utf8'))
+const command = args.slice(0, args[1] === 'marketplace' ? 3 : 2).join(' ')
+if (command === 'plugin marketplace list') process.stdout.write(JSON.stringify(Object.keys(state.marketplaces).map((name) => ({ name }))) + '\\n')
+else if (command === 'plugin marketplace add') state.marketplaces[isAbsolute(args[3]) ? manifest(args[3], 'marketplace.json').name : basename(args[3])] = args[3]
+else if (command === 'plugin install' || command === 'plugin update') {
+  const source = state.marketplaces[args[2].split('@')[1]]
+  if (source === undefined) {
+    process.stderr.write('marketplace of ' + args[2] + ' not found\\n')
+    process.exit(1)
+  }
+  state.plugins[args[2]] = isAbsolute(source) ? manifest(source, 'plugin.json').version : '1.0.0'
+} else if (command === 'plugin uninstall') delete state.plugins[args[2]]
 else if (command === 'plugin list') {
-  const list = state.installed === null ? [] : [{ id: 'worfy@worfy-harness', version: state.installed, scope: 'user', enabled: true, errors: [] }]
-  process.stdout.write(JSON.stringify(list) + '\\n')
+  process.stdout.write(JSON.stringify(Object.entries(state.plugins).map(([id, version]) => ({ id, version, scope: 'user', enabled: true, errors: [] }))) + '\\n')
 }
 writeFileSync(statePath, JSON.stringify(state))
 `
@@ -114,7 +134,7 @@ async function shoot(launched: LaunchedApp, name: string): Promise<void> {
   await launched.window.emulateMedia({ colorScheme: null })
 }
 
-test('"Harness not installed" → Install → the dialog names the folder, the commands and the dependency → "Harness <version>"', async () => {
+test('"Harness not installed" → Install → one dialog names the dependency commands, the download, the folder and the Harness commands → "Harness <version>"', async () => {
   const launched = await launchApp({ env: stub.env })
   try {
     const { window, claudeHome } = launched
@@ -137,11 +157,17 @@ test('"Harness not installed" → Install → the dialog names the folder, the c
     expect(more).toEqual([])
     expect(shown?.buttons).toEqual(['Install', 'Cancel'])
     expect(shown?.message).toBe(`Install the worfy Harness ${bundledVersion()}?`)
-    expect(shown?.detail).toContain(`claude plugin marketplace add ${pluginDir}`)
-    expect(shown?.detail).toContain('claude plugin install worfy@worfy-harness --scope user')
-    expect(shown?.detail).toContain('mattpocock-skills@claude-plugins-official')
+    // The native dialog cannot be screenshotted from Playwright: its text is kept with the test's output.
+    await test.info().attach('30-harness-dialog-install.json', { body: JSON.stringify(shown, null, 2), contentType: 'application/json' })
+    // The dependency first (ticket 30): its commands, where Claude Code downloads it from, then the Harness.
+    const detail = shown?.detail ?? ''
+    const order = [`claude ${ADD_OFFICIAL}`, `claude ${INSTALL_DEP}`, 'downloads it from GitHub (anthropics/claude-plugins-official)', `claude plugin marketplace add ${pluginDir}`, `claude ${INSTALL_WORFY}`]
+    const places = order.map((text) => detail.indexOf(text))
+    expect(places.every((place) => place >= 0), detail).toBe(true)
+    expect(places).toEqual([...places].sort((a, b) => a - b))
+    expect(detail).not.toContain('install it with')
 
-    expect(calls()).toEqual([`plugin marketplace add ${pluginDir}`, 'plugin install worfy@worfy-harness --scope user', 'plugin list --json'])
+    expect(calls()).toEqual([LIST, MARKETPLACES, ADD_OFFICIAL, INSTALL_DEP, `plugin marketplace add ${pluginDir}`, INSTALL_WORFY, LIST])
     // The app runs `claude` inside the sandbox of WORFY_CLAUDE_HOME (src/main/ipc/harness.ts,
     // claudeCommandEnv): without it the commands would register the marketplace in the real ~/.claude.
     expect(callEnvs()).toEqual(calls().map(() => ({ HOME: claudeHome, CLAUDE_CONFIG_DIR: claudeHome })))
@@ -151,7 +177,7 @@ test('"Harness not installed" → Install → the dialog names the folder, the c
   }
 })
 
-test('Cancel in the dialog writes nothing and runs no claude', async () => {
+test('Cancel in the dialog writes nothing: claude ran only its two reads', async () => {
   const launched = await launchApp({ env: stub.env })
   try {
     const item = launched.window.getByTestId('harness-status')
@@ -160,7 +186,8 @@ test('Cancel in the dialog writes nothing and runs no claude', async () => {
     await item.getByTestId('harness-action').click()
     await expect.poll(async () => (await shownDialogs(launched)).length).toBe(1)
     await expect(item.getByTestId('harness-text')).toHaveText('Harness not installed')
-    expect(calls()).toEqual([])
+    expect(calls()).toEqual([LIST, MARKETPLACES])
+    expect(JSON.parse(readFileSync(stub.state, 'utf8'))).toEqual({ marketplaces: {}, plugins: {} })
     expect(existsSync(join(launched.claudeHome, 'worfy-harness'))).toBe(false)
   } finally {
     await launched.close()
@@ -176,7 +203,13 @@ test('another version installed: "Update Harness" → the dialog shows from → 
     const manifest = join(pluginDir, '.claude-plugin', 'plugin.json')
     writeFileSync(manifest, JSON.stringify({ ...(JSON.parse(readFileSync(manifest, 'utf8')) as object), version: OLD }))
     writeFileSync(join(pluginDir, 'bin', 'dropped-in-the-new-version'), '#!/bin/sh\n')
-    writeFileSync(stub.state, JSON.stringify({ marketplace: pluginDir, installed: OLD }))
+    writeFileSync(
+      stub.state,
+      JSON.stringify({
+        marketplaces: { 'worfy-harness': pluginDir, 'claude-plugins-official': 'anthropics/claude-plugins-official' },
+        plugins: { 'worfy@worfy-harness': OLD, [DEP]: '1.0.0' },
+      }),
+    )
     await launched.window.reload()
 
     const item = launched.window.getByTestId('harness-status')
@@ -202,16 +235,79 @@ test('another version installed: "Update Harness" → the dialog shows from → 
   }
 })
 
-test('a failing `claude plugin install` shows the step, with the tail of stderr in the tooltip', async () => {
-  const launched = await launchApp({ env: { ...stub.env, STUB_CLAUDE_FAIL: 'plugin install' } })
+test('a failing `claude plugin install` of worfy shows the step, with the tail of stderr in the tooltip', async () => {
+  const launched = await launchApp({ env: { ...stub.env, STUB_CLAUDE_FAIL: 'plugin install worfy@' } })
   try {
     const item = launched.window.getByTestId('harness-status')
     await answerDialogWith(launched, 0)
     await item.getByTestId('harness-action').click()
     await expect(item.getByTestId('harness-text')).toHaveText('Harness error: install')
-    await expect(item.getByTestId('harness-text')).toHaveAttribute('title', /plugin install failed: stub error/)
+    await expect(item.getByTestId('harness-text')).toHaveAttribute('title', /plugin install worfy@worfy-harness --scope user failed: stub error/)
     await expect(item.getByTestId('harness-action')).toHaveText('Retry')
     await shoot(launched, 'error')
+  } finally {
+    await launched.close()
+  }
+})
+
+test('a failing install of the dependency: "Harness error: dependency install", no Harness copy and no worfy; Retry installs what is left', async () => {
+  const failFile = join(scratch, 'fail')
+  writeFileSync(failFile, `plugin install ${DEP}\n`)
+  const launched = await launchApp({ env: { ...stub.env, STUB_CLAUDE_FAIL_FILE: failFile } })
+  try {
+    const pluginDir = join(launched.claudeHome, 'worfy-harness', 'plugin')
+    const item = launched.window.getByTestId('harness-status')
+    await answerDialogWith(launched, 0)
+    await item.getByTestId('harness-action').click()
+    await expect(item.getByTestId('harness-text')).toHaveText('Harness error: dependency install')
+    await expect(item.getByTestId('harness-text')).toHaveAttribute('title', new RegExp(`plugin install ${DEP} --scope user failed: stub error`))
+    const retry = item.getByTestId('harness-action')
+    await expect(retry).toHaveText('Retry')
+    // Retry installs the dependency itself: its hint names no command to run by hand.
+    expect(await retry.getAttribute('title')).not.toContain('claude plugin install')
+    expect(existsSync(join(launched.claudeHome, 'worfy-harness'))).toBe(false)
+    expect(calls()).toEqual([LIST, MARKETPLACES, ADD_OFFICIAL, INSTALL_DEP])
+    await shoot(launched, 'dependency-error')
+
+    await rm(failFile)
+    await retry.click()
+    await expect(item.getByTestId('harness-text')).toHaveText(`Harness ${bundledVersion()}`)
+    const shown = await shownDialogs(launched)
+    expect(shown).toHaveLength(2)
+    // The marketplace went in at the first attempt: the second dialog does not add it again.
+    expect(shown[1]?.detail).not.toContain(`claude ${ADD_OFFICIAL}`)
+    expect(shown[1]?.detail).toContain(`claude ${INSTALL_DEP}`)
+    expect(calls().slice(4)).toEqual([LIST, MARKETPLACES, INSTALL_DEP, `plugin marketplace add ${pluginDir}`, INSTALL_WORFY, LIST])
+    expect(treeOf(pluginDir)).toEqual(treeOf(bundle))
+  } finally {
+    await launched.close()
+  }
+})
+
+test('worfy installed without its dependency: "Harness error: dependency install" → Retry → a dialog with the dependency commands alone → "Harness <version>"', async () => {
+  const launched = await launchApp({ env: stub.env })
+  try {
+    const pluginDir = join(launched.claudeHome, 'worfy-harness', 'plugin')
+    // What the installer of ticket 13 left: the copy, its marketplace and worfy — no dependency.
+    cpSync(bundle, pluginDir, { recursive: true })
+    writeFileSync(stub.state, JSON.stringify({ marketplaces: { 'worfy-harness': pluginDir }, plugins: { 'worfy@worfy-harness': bundledVersion() } }))
+    await launched.window.reload()
+
+    const item = launched.window.getByTestId('harness-status')
+    await expect(item.getByTestId('harness-text')).toHaveText('Harness error: dependency install')
+    await expect(item.getByTestId('harness-text')).toHaveAttribute('title', new RegExp(DEP))
+    await answerDialogWith(launched, 0)
+    await item.getByTestId('harness-action').click()
+    await expect(item.getByTestId('harness-text')).toHaveText(`Harness ${bundledVersion()}`)
+    const [shown, ...more] = await shownDialogs(launched)
+    expect(more).toEqual([])
+    await test.info().attach('30-harness-dialog-dependency.json', { body: JSON.stringify(shown, null, 2), contentType: 'application/json' })
+    expect(shown?.buttons).toEqual(['Install', 'Cancel'])
+    expect(shown?.message).toBe(`Install ${DEP} for the worfy Harness?`)
+    expect(shown?.detail).toContain(`claude ${ADD_OFFICIAL}`)
+    expect(shown?.detail).toContain(`claude ${INSTALL_DEP}`)
+    expect(shown?.detail).not.toContain('worfy@worfy-harness')
+    expect(calls().filter((line) => line !== LIST && line !== MARKETPLACES)).toEqual([ADD_OFFICIAL, INSTALL_DEP])
   } finally {
     await launched.close()
   }
