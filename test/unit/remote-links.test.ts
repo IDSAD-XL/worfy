@@ -16,12 +16,15 @@ vi.mock('node:fs/promises', async (original) => {
     <Name extends 'lstat' | 'stat' | 'realpath'>(name: Name) =>
     (...args: unknown[]): unknown => {
       asked[name].push(String(args[0]))
+      // A path with this marker cannot be looked at: lstat is refused with the code the marker names.
+      const refused = /worfy-lstat-(E[A-Z]+)/.exec(String(args[0]))
+      if (name === 'lstat' && refused !== null) return Promise.reject(Object.assign(new Error(refused[1] + ': lstat'), { code: refused[1] }))
       return (actual[name] as (...all: unknown[]) => unknown)(...args)
     }
   return { ...actual, lstat: watched('lstat'), stat: watched('stat'), realpath: watched('realpath') }
 })
 
-const { isInside, leadsToRemote, MAX_LINK_HOPS, nodeLinks } = await import('../../src/main/remote-links')
+const { isInside, leadsToRemote, MAX_LINK_HOPS, nodeLinks, walkLinks } = await import('../../src/main/remote-links')
 
 afterEach(() => {
   asked.lstat.length = 0
@@ -81,6 +84,10 @@ describe('leadsToRemote', () => {
     ['\\\\.\\GLOBALROOT\\Device\\Mup\\evil\\share\\x'],
     ['\\?\\evil\\share\\x'],
     ['\\.\\evil\\share\\x'],
+    // The same prefixes with forward slashes, in whole or in part.
+    ['/??/GLOBALROOT/Device/Mup/evil/share/x'],
+    ['\\??/GLOBALROOT/Device/Mup/evil/share/x'],
+    ['/?/evil/share/x'],
     // A server with no share: path.win32.resolve reads a folder \evil of the current disk.
     ['\\\\evil'],
     ['\\\\evil\\'],
@@ -107,9 +114,12 @@ describe('leadsToRemote', () => {
   })
 
   it('a target in the NT namespace that names a local disk is that local path', async () => {
-    const fs = fakeLinks({ 'C:\\p\\repo\\a.md': '\\??\\C:\\p\\repo\\real.md', 'C:\\p\\repo\\b.md': '\\??\\C:\\p\\repo\\far\\x', 'C:\\p\\repo\\far': '\\??\\UNC\\evil\\share' })
+    const fs = fakeLinks({ 'C:\\p\\repo\\a.md': '\\??\\C:\\p\\repo\\real.md', 'C:\\p\\repo\\b.md': '\\??\\C:\\p\\repo\\far\\x', 'C:\\p\\repo\\far': '\\??\\UNC\\evil\\share', 'C:\\p\\repo\\c.md': '\\??\\c:\\p\\repo\\lower.md' })
     expect(await ask('C:\\p\\repo\\a.md', fs)).toBe(false)
     expect(fs.calls).toContain('lstat C:\\p\\repo\\real.md')
+    // The letter of the disk in either case.
+    expect(await ask('C:\\p\\repo\\c.md', fs)).toBe(false)
+    expect(fs.calls).toContain('lstat C:\\p\\repo\\lower.md')
     expect(await ask('C:\\p\\repo\\b.md', fs)).toBe(true)
   })
 
@@ -246,11 +256,55 @@ describe('leadsToRemote', () => {
     expect(own.calls).toEqual(['lstat C:\\p\\repo', 'readlink C:\\p\\repo', 'lstat \\\\nas\\team\\repo\\a.md'])
   })
 
+  it('an allowed folder that names neither a folder of a disk nor one of a share allows nothing, and breaks nothing', async () => {
+    const plain = fakeLinks({ 'C:\\p\\repo\\docs': 'C:\\p\\repo\\real' })
+    expect(await ask('C:\\p\\repo\\docs\\a.md', plain)).toBe(false)
+    const odd = fakeLinks({ 'C:\\p\\repo\\docs': 'C:\\p\\repo\\real' })
+    expect(await ask('C:\\p\\repo\\docs\\a.md', odd, ['\\??\\GLOBALROOT\\Device\\Mup\\evil\\share', '\\\\evil', REPO, '//evil/'])).toBe(false)
+    expect(odd.calls).toEqual(plain.calls)
+    // Neither form makes that server the caller's own.
+    odd.calls.length = 0
+    expect(await ask('\\\\evil\\share\\a.md', odd, ['\\\\evil', '\\??\\UNC\\evil\\share', '\\??\\GLOBALROOT\\Device\\Mup\\evil\\share'])).toBe(true)
+    expect(odd.calls).toEqual([])
+  })
+
+  it('a UNC path whose server is spelled like the disk of an allowed folder is remote, not inside that folder', async () => {
+    const fs = fakeLinks({ 'C:\\p\\repo\\link': '\\\\C:\\p\\repo\\x' })
+    expect(await ask('\\\\C:\\p\\repo\\x', fs)).toBe(true)
+    expect(await ask('//c:/p/repo/x', fs)).toBe(true)
+    expect(fs.calls).toEqual([])
+    expect(await ask('C:\\p\\repo\\link', fs)).toBe(true)
+    expect(fs.calls).toEqual(['lstat C:\\p\\repo', 'lstat C:\\p\\repo\\link', 'readlink C:\\p\\repo\\link'])
+  })
+
   it('off Windows the answer is no, and the file system is not touched', async () => {
     const fs = fakeLinks({ '/p/repo/a.md': '//evil/share/x' })
     expect(await leadsToRemote('/p/repo/a.md', ['/p/repo'], { paths: posix, links: fs.links })).toBe(false)
     expect(await leadsToRemote('//evil/share/x', ['/p/repo'], { paths: posix, links: fs.links })).toBe(false)
     expect(fs.calls).toEqual([])
+  })
+})
+
+// The same walk with its reason: a caller that refuses with a message says which of the two it was.
+describe('walkLinks', () => {
+  it('tells a path that leads off the machine from one that could not be checked', async () => {
+    const chain = (length: number): Record<string, string> => Object.fromEntries(Array.from({ length }, (_, index) => ['C:\\p\\repo\\l' + index, 'C:\\p\\repo\\l' + (index + 1)]))
+    const links = { 'C:\\p\\repo\\out.md': '\\\\evil\\share\\x', 'C:\\p\\repo\\in.md': 'C:\\p\\repo\\real.md', 'C:\\p\\repo\\a': 'C:\\p\\repo\\b', 'C:\\p\\repo\\b': 'C:\\p\\repo\\a' }
+    const fs = fakeLinks(links, [], { denied: ['C:\\p\\repo\\locked'], unreadable: ['C:\\p\\repo\\odd.md'] })
+    const verdict = (candidate: string, system = fs) => walkLinks(candidate, [REPO], { paths: win32, links: system.links })
+    expect(await verdict('C:\\p\\repo\\plain.md')).toBe('local')
+    expect(await verdict('C:\\p\\repo\\in.md')).toBe('local')
+    expect(await verdict('C:\\p\\repo\\l0', fakeLinks(chain(40)))).toBe('local')
+    // Off the machine: by the text of the path, or by the target of a link.
+    expect(await verdict('C:\\p\\repo\\out.md')).toBe('remote')
+    expect(await verdict('\\\\evil\\share\\x')).toBe('remote')
+    expect(await verdict('\\??\\GLOBALROOT\\Device\\Mup\\evil\\share\\x')).toBe('remote')
+    // Not checked: a segment that cannot be looked at, a link that cannot be read, links that do not end.
+    expect(await verdict('C:\\p\\repo\\locked\\a.md')).toBe('unchecked')
+    expect(await verdict('C:\\p\\repo\\odd.md')).toBe('unchecked')
+    expect(await verdict('C:\\p\\repo\\a\\x.md')).toBe('unchecked')
+    expect(await verdict('C:\\p\\repo\\l0', fakeLinks(chain(41)))).toBe('unchecked')
+    expect(await walkLinks('//evil/share/x', ['/p/repo'], { paths: posix, links: fs.links })).toBe('local')
   })
 })
 
@@ -289,6 +343,16 @@ describe('nodeLinks', () => {
     await expect(nodeLinks.isLink('bad\0path')).rejects.toThrow()
   })
 
+  it.each(['EACCES', 'EPERM', 'ELOOP', 'ENOTDIR'])('a path the system refuses with %s is not an absent one: isLink rejects, and the walk refuses', async (code) => {
+    const marker = 'C:\\worfy-lstat-' + code
+    await expect(nodeLinks.isLink(marker)).rejects.toMatchObject({ code })
+    expect(await leadsToRemote(marker + '\\docs\\a.md', [], { paths: win32 })).toBe(true)
+    expect(await walkLinks(marker + '\\docs\\a.md', [], { paths: win32 })).toBe('unchecked')
+    expect(asked.lstat).toEqual([marker, marker, marker])
+    expect(asked.stat).toEqual([])
+    expect(asked.realpath).toEqual([])
+  })
+
   it('is what leadsToRemote asks when it is given no links: lstat of each segment, stat and realpath of none', async () => {
     // A folder that is on no machine: under Windows rules the walk starts at the root of its disk.
     expect(await leadsToRemote('C:\\worfy-no-such-folder-18\\docs\\a.md', [], { paths: win32 })).toBe(false)
@@ -306,7 +370,20 @@ describe('isInside', () => {
     expect(isInside('C:\\p\\repo', 'C:\\p\\repo-evil\\a.md', win32)).toBe(false)
     expect(isInside('C:\\p\\repo', 'C:\\p', win32)).toBe(false)
     expect(isInside('C:\\p\\repo', 'D:\\p\\repo\\a.md', win32)).toBe(false)
+    expect(isInside('\\\\nas\\team\\repo', '\\\\NAS\\team\\repo\\a.md', win32)).toBe(true)
+    expect(isInside('\\\\nas\\team\\repo', '\\\\nas\\other\\repo\\a.md', win32)).toBe(false)
     expect(isInside('/p/repo', '/p/repo/a.md', posix)).toBe(true)
     expect(isInside('/p/repo', '/p/Repo/a.md', posix)).toBe(false)
+  })
+
+  // path.win32.relative drops the leading separators of a UNC path, and reads \\C:\p\repo\x —
+  // server "C:", share "p" — as C:\p\repo\x.
+  it('under Windows rules a UNC path is never inside a folder of a disk, nor the other way round', () => {
+    expect(isInside('C:\\p\\repo', '\\\\C:\\p\\repo\\x', win32)).toBe(false)
+    expect(isInside('C:\\p\\repo', '//c:/p/repo/x', win32)).toBe(false)
+    expect(isInside('C:\\p\\repo', '\\\\C:\\p\\repo', win32)).toBe(false)
+    expect(isInside('\\\\C:\\p\\repo', 'C:\\p\\repo\\x', win32)).toBe(false)
+    // POSIX rules know no share: a doubled leading slash is a plain root there, as before.
+    expect(isInside('/p/repo', '//p/repo/a.md', posix)).toBe(true)
   })
 })

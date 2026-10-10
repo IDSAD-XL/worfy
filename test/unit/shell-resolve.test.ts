@@ -38,7 +38,7 @@ describe('resolveProjectFile by the text of a path', () => {
     const resolveProjectFile = await load()
     const real = vi.fn(async (path: string): Promise<string | null> => path)
     const options = { real, paths: win32 }
-    for (const path of ['\\\\attacker\\share\\f.md', '//attacker/share/f.md', '/\\attacker\\share\\f.md', '\\\\?\\C:\\elsewhere\\f.md', '\\\\.\\pipe\\x', '\\\\?\\UNC\\attacker\\share\\f.md']) {
+    for (const path of ['\\\\attacker\\share\\f.md', '//attacker/share/f.md', '/\\attacker\\share\\f.md', '\\\\?\\C:\\elsewhere\\f.md', '\\\\.\\pipe\\x', '\\\\?\\UNC\\attacker\\share\\f.md', '\\\\C:\\p\\repo\\f.md', '//c:/p/wt/f.md']) {
       real.mockClear()
       await expect(resolveProjectFile('C:\\p\\repo', path, ['C:\\p\\wt'], options), path).rejects.toThrow(/outside the Project/)
       // Only the Project's own folders reached realpath.
@@ -155,6 +155,24 @@ describe('resolveProjectFile and a link that leads to a share (Windows rules)', 
     // Only the Project's own folder reached realpath; the share reached nothing.
     expect(real.mock.calls.map(([called]) => called)).toEqual(['C:\\p\\repo'])
     expect(fs.calls.some((call) => call.includes('evil'))).toBe(false)
+  })
+
+  it('says that a path could not be checked, not that it is outside, when a link cannot be read or the links do not end', async () => {
+    const resolveProjectFile = await load()
+    const real = identity()
+    const loop = fakeLinks({ 'C:\\p\\repo\\a': 'C:\\p\\repo\\b', 'C:\\p\\repo\\b': 'C:\\p\\repo\\a' })
+    const looped = resolveProjectFile('C:\\p\\repo', 'a\\x.md', [], { real, paths: win32, links: loop.links })
+    await expect(looped).rejects.toThrow(/^a\\x\.md cannot be checked/)
+    await expect(looped).rejects.not.toThrow(/outside/)
+    const denied = {
+      isLink: async (): Promise<boolean | null> => {
+        throw Object.assign(new Error('EACCES: permission denied, lstat'), { code: 'EACCES' })
+      },
+      readlink: async (): Promise<string> => '',
+    }
+    await expect(resolveProjectFile('C:\\p\\repo', 'docs\\a.md', [], { real, paths: win32, links: denied })).rejects.toThrow(/^docs\\a\.md cannot be checked/)
+    // realpath was asked about the Project's own folder alone, both times.
+    expect(real.mock.calls.map(([called]) => called)).toEqual(['C:\\p\\repo', 'C:\\p\\repo'])
   })
 
   it('refuses a file of a worktree behind such a link', async () => {
