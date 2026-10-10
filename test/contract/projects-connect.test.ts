@@ -93,7 +93,7 @@ function runScript(script: string, args: readonly string[], stdin: string, cwd =
 /** The real harness/bin/profile in the sandbox. */
 const realProfile: ProfileRunner = (cwd, args) => runScript('profile', args, '', cwd)
 
-const installed: HarnessStatus = { state: { kind: 'installed', version: '0.4.0', enabled: true }, bundledVersion: '0.4.0', canInstall: true, pluginDir: '/x/plugin' }
+const installed: HarnessStatus = { state: { kind: 'installed', version: '0.4.0', enabled: true }, bundledVersion: '0.4.0', canInstall: true, pluginDir: '/x/plugin', dependencies: [] }
 
 interface Harnessed {
   connector: ProjectConnector

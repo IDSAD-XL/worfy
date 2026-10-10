@@ -211,7 +211,7 @@ describe('MigrationFormView', () => {
 })
 
 describe('HarnessStatusView: the move button', () => {
-  const status = { state: { kind: 'installed', version: '0.2.0+bbbbbbb', enabled: true }, bundledVersion: '0.2.0+bbbbbbb', canInstall: true, pluginDir: '/p' } as const
+  const status = { state: { kind: 'installed' as const, version: '0.2.0+bbbbbbb', enabled: true }, bundledVersion: '0.2.0+bbbbbbb', canInstall: true, pluginDir: '/p', dependencies: [] }
   it('shows "Move old Harness…" only when main offers a move', () => {
     const onMigrate = vi.fn()
     const { rerender } = render(<HarnessStatusView status={status} busy={false} failure={undefined} onInstall={() => undefined} />)

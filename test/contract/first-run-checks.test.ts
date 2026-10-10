@@ -3,7 +3,7 @@
 // one on the PATH of the "login shell" environment handed to the checks: a tool left out is not
 // installed. HOME, the Claude home, the Harness home and the Project folder are temporary too, and
 // the tools log their calls outside them, so a test can tell that the checks wrote nothing.
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -18,6 +18,8 @@ const TOOLS = join(REPO, 'test', 'fixtures', 'first-run-tools')
 /** The Claude Code version "this build" carries, as the checks are told. */
 const BUNDLED = '2.1.289'
 const BUNDLED_HARNESS = '1.2.0+abc1234'
+/** The dependency the Harness copy of the build declares, as harness/.claude-plugin/plugin.json does. */
+const DEP = 'mattpocock-skills@claude-plugins-official'
 
 let root: string
 let bin: string
@@ -40,7 +42,7 @@ beforeEach(() => {
   state = join(root, 'state')
   log = join(root, 'calls.log')
   for (const dir of [bin, claudeHome, project, join(bundle, '.claude-plugin'), state]) mkdirSync(dir, { recursive: true })
-  writeFileSync(join(bundle, '.claude-plugin', 'plugin.json'), `{\n  "name": "worfy",\n  "version": "${BUNDLED_HARNESS}"\n}\n`)
+  writeFileSync(join(bundle, '.claude-plugin', 'plugin.json'), `{\n  "name": "worfy",\n  "version": "${BUNDLED_HARNESS}",\n  "dependencies": ["${DEP}"]\n}\n`)
   writeFileSync(join(project, 'README.md'), 'alpha\n')
 })
 
@@ -123,6 +125,7 @@ describe('first-run checks', () => {
       ['Command-line tools', 'jq'],
       ['GitHub', 'gh-auth'],
       ['Harness', 'harness'],
+      ['Harness', 'harness-dependencies'],
       ['Harness', 'legacy-harness'],
       ['qmd', 'qmd'],
       ['qmd', 'qmd-models'],
@@ -239,8 +242,59 @@ describe('first-run checks', () => {
 
     writeFileSync(join(harnessHome, 'plugin', '.claude-plugin', 'plugin.json'), `{ "name": "worfy", "version": "${BUNDLED_HARNESS}" }\n`)
     writeFileSync(join(state, 'plugin-version'), `${BUNDLED_HARNESS}\n`)
+    writeFileSync(join(state, 'plugins'), `${DEP}\n`)
     report = await runChecks(deps(env))
     expect(checkOf(report, 'harness')).toMatchObject({ status: 'ok', actions: [] })
+  })
+
+  it('the plugin dependencies: not checked without the Harness plugin, failed with Install… when worfy is installed without one, ok with its version when it is there', async () => {
+    tools(...ALL_TOOLS)
+    const env = loginEnv()
+    let report = await runChecks(deps(env))
+    // No plugin folder: `claude plugin list` did not run, so nothing is known — a warning without a button.
+    expect(checkOf(report, 'harness-dependencies')).toMatchObject({ title: 'Plugin dependencies', status: 'warn', detail: 'checked when the Harness plugin is installed', command: null, actions: [] })
+    expect(calls().filter((line) => line.startsWith('claude plugin'))).toEqual([])
+
+    mkdirSync(join(harnessHome, 'plugin', '.claude-plugin'), { recursive: true })
+    writeFileSync(join(harnessHome, 'plugin', '.claude-plugin', 'plugin.json'), `{ "name": "worfy", "version": "${BUNDLED_HARNESS}" }\n`)
+    writeFileSync(join(state, 'marketplace'), `${join(harnessHome, 'plugin')}\n`)
+    writeFileSync(join(state, 'plugin-version'), `${BUNDLED_HARNESS}\n`)
+    report = await runChecks(deps(env))
+    const missing = checkOf(report, 'harness-dependencies')
+    expect(missing).toMatchObject({ status: 'fail', detail: 'not installed', command: null, actions: [{ id: 'harness-install', label: 'Install…' }] })
+    expect(missing.hint).toContain(DEP)
+    expect(missing.hint).toContain('anthropics/claude-plugins-official')
+    // The plugin's own row says the same thing as an error of the install, with Retry.
+    expect(checkOf(report, 'harness')).toMatchObject({ status: 'fail', detail: 'error at dependency install', actions: [{ id: 'harness-install', label: 'Retry' }] })
+    // Both rows come from one `claude plugin list`.
+    expect(calls().filter((line) => line.startsWith('claude plugin'))).toEqual(['claude plugin list --json'])
+
+    writeFileSync(join(state, 'plugins'), `${DEP}\n`)
+    report = await runChecks(deps(env))
+    expect(checkOf(report, 'harness-dependencies')).toMatchObject({ status: 'ok', detail: `${DEP} 1.0.0`, hint: '', actions: [] })
+    expect(checkOf(report, 'harness').status).toBe('ok')
+    expect(report.checks.filter((check) => check.group === 'Harness').map((check) => check.id)).toEqual(['harness', 'harness-dependencies', 'legacy-harness'])
+  })
+
+  it('the plugin dependencies in a run that may not install: failed without a button', async () => {
+    tools(...ALL_TOOLS)
+    const env = loginEnv()
+    mkdirSync(join(harnessHome, 'plugin', '.claude-plugin'), { recursive: true })
+    writeFileSync(join(harnessHome, 'plugin', '.claude-plugin', 'plugin.json'), `{ "name": "worfy", "version": "${BUNDLED_HARNESS}" }\n`)
+    writeFileSync(join(state, 'plugin-version'), `${BUNDLED_HARNESS}\n`)
+    const devRun = new HarnessInstaller({ bundledDir: bundle, harnessHome, claude: join(TOOLS, 'claude'), env: { ...env, CLAUDE_CONFIG_DIR: claudeHome }, canInstall: false, claudeHome })
+    const report = await runChecks(deps(env, { harness: () => devRun.status() }))
+    expect(checkOf(report, 'harness-dependencies')).toMatchObject({ status: 'fail', actions: [] })
+    expect(checkOf(report, 'harness-dependencies').hint).toContain('dev run')
+  })
+
+  it('the plugin dependencies when `claude plugin list` fails: not checked, and the error stays on the Harness plugin row', async () => {
+    tools(...ALL_TOOLS)
+    mkdirSync(join(harnessHome, 'plugin', '.claude-plugin'), { recursive: true })
+    writeFileSync(join(harnessHome, 'plugin', '.claude-plugin', 'plugin.json'), `{ "name": "worfy", "version": "${BUNDLED_HARNESS}" }\n`)
+    const report = await runChecks(deps(loginEnv({ FAKE_CLAUDE_FAIL: 'plugin list' })))
+    expect(checkOf(report, 'harness')).toMatchObject({ status: 'fail', detail: 'error at plugin list' })
+    expect(checkOf(report, 'harness-dependencies')).toMatchObject({ status: 'warn', detail: 'not checked', actions: [] })
   })
 
   it('the old Harness in ~/.claude: a warning with the move form', async () => {
@@ -451,23 +505,102 @@ describe('first-run actions', () => {
     expect(checkOf(result.report, 'qmd-models').hint).toContain('pull: network down')
   })
 
-  it('the Harness: Install shows the installer plan with Confirm, then the row is ok', async () => {
+  it('the Harness: Install shows one dialog with the installer plan — the dependency commands and the download, then the Harness commands — and after Confirm both rows are ok', async () => {
     tools(...ALL_TOOLS)
     const shown: Confirmation[] = []
     const result = await actions(loginEnv(), [true], shown).run('harness-install')
+    expect(shown).toHaveLength(1)
     expect(shown[0]?.message).toBe(`Install the worfy Harness ${BUNDLED_HARNESS}?`)
     expect(shown[0]?.detail).toContain(join(harnessHome, 'plugin'))
+    expect(shown[0]?.detail).toContain('claude plugin marketplace add anthropics/claude-plugins-official')
+    expect(shown[0]?.detail).toContain(`claude plugin install ${DEP} --scope user`)
     expect(shown[0]?.detail).toContain('claude plugin install worfy@worfy-harness --scope user')
+    expect(shown[0]?.detail).toContain('downloads it from GitHub (anthropics/claude-plugins-official)')
+    // A dependency is downloaded: the line that nothing is does not belong here.
+    expect(shown[0]?.detail).not.toContain('Nothing is downloaded')
     expect(result.outcome).toBe('done')
     expect(checkOf(result.report, 'harness').status).toBe('ok')
+    expect(checkOf(result.report, 'harness-dependencies')).toMatchObject({ status: 'ok', detail: `${DEP} 1.0.0` })
+    expect(calls().filter((line) => line.startsWith('claude plugin') && !line.endsWith('list --json'))).toEqual([
+      'claude plugin marketplace add anthropics/claude-plugins-official',
+      `claude plugin install ${DEP} --scope user`,
+      `claude plugin marketplace add ${join(harnessHome, 'plugin')}`,
+      'claude plugin install worfy@worfy-harness --scope user',
+    ])
   })
 
-  it('a declined Harness install writes nothing', async () => {
+  it('the Harness with its dependency already installed: the dialog names no dependency and keeps "Nothing is downloaded"', async () => {
+    tools(...ALL_TOOLS)
+    writeFileSync(join(state, 'marketplaces'), 'claude-plugins-official\n')
+    writeFileSync(join(state, 'plugins'), `${DEP}\n`)
+    const shown: Confirmation[] = []
+    const result = await actions(loginEnv(), [true], shown).run('harness-install')
+    expect(shown[0]?.detail).toContain('Nothing is downloaded: the copy comes from this build.')
+    expect(shown[0]?.detail).not.toContain('claude-plugins-official')
+    expect(result.outcome).toBe('done')
+    expect(checkOf(result.report, 'harness-dependencies').status).toBe('ok')
+  })
+
+  it('Install… on the dependencies row (worfy installed without its dependency) asks with the dependency commands alone and makes both rows ok', async () => {
+    tools(...ALL_TOOLS)
+    mkdirSync(join(harnessHome, 'plugin', '.claude-plugin'), { recursive: true })
+    writeFileSync(join(harnessHome, 'plugin', '.claude-plugin', 'plugin.json'), `{ "name": "worfy", "version": "${BUNDLED_HARNESS}" }\n`)
+    writeFileSync(join(state, 'marketplace'), `${join(harnessHome, 'plugin')}\n`)
+    writeFileSync(join(state, 'plugin-version'), `${BUNDLED_HARNESS}\n`)
+    const shown: Confirmation[] = []
+    const result = await actions(loginEnv(), [true], shown).run('harness-install')
+    expect(shown).toHaveLength(1)
+    expect(shown[0]?.message).toBe(`Install ${DEP} for the worfy Harness?`)
+    expect(shown[0]?.detail).toContain(`claude plugin install ${DEP} --scope user`)
+    expect(shown[0]?.detail).not.toContain('worfy@worfy-harness')
+    expect(shown[0]?.detail).not.toContain('Nothing is downloaded')
+    expect(result.outcome).toBe('done')
+    expect(checkOf(result.report, 'harness').status).toBe('ok')
+    expect(checkOf(result.report, 'harness-dependencies').status).toBe('ok')
+  })
+
+  it('a failed dependency install shows on the dependencies row, leaves no Harness copy, and the next attempt that works clears it', async () => {
+    tools(...ALL_TOOLS)
+    const failing = await actions(loginEnv({ FAKE_CLAUDE_FAIL: `plugin install ${DEP}` }), [true]).run('harness-install')
+    expect(failing.outcome).toBe('failed')
+    expect(failing.message).toContain('dependency install')
+    const row = checkOf(failing.report, 'harness-dependencies')
+    expect(row.status).toBe('fail')
+    expect(row.hint).toContain('The last attempt failed: dependency install')
+    expect(row.hint).toContain(`plugin install ${DEP} --scope user failed`)
+    // The plugin's own row is as it was: not installed, with Install — nothing is half way.
+    expect(checkOf(failing.report, 'harness')).toMatchObject({ status: 'fail', detail: 'not installed', actions: [{ id: 'harness-install', label: 'Install' }] })
+    expect(checkOf(failing.report, 'harness').hint).not.toContain('The last attempt failed')
+    expect(existsSync(join(harnessHome, 'plugin'))).toBe(false)
+    expect(calls()).not.toContain('claude plugin install worfy@worfy-harness --scope user')
+
+    // One runner keeps the failure until its next attempt.
+    const answers = [true, true]
+    let env = loginEnv({ FAKE_CLAUDE_FAIL: `plugin install ${DEP}` })
+    const runner = new FirstRunActions({
+      checks: () => runChecks(deps(env)),
+      confirm: () => Promise.resolve(answers.shift() ?? false),
+      env: () => Promise.resolve(env),
+      homes: { harnessHome, claudeHome },
+      installHarness: (confirm) => installer(env).install(confirm),
+      projects: () => Promise.resolve([]),
+      binDir: join(harnessHome, 'plugin', 'bin'),
+    })
+    expect(checkOf((await runner.run('harness-install')).report, 'harness-dependencies').status).toBe('fail')
+    env = loginEnv()
+    const retried = await runner.run('harness-install')
+    expect(retried.outcome).toBe('done')
+    expect(checkOf(retried.report, 'harness-dependencies')).toMatchObject({ status: 'ok', hint: '' })
+    expect(checkOf(retried.report, 'harness').status).toBe('ok')
+  })
+
+  it('a declined Harness install writes nothing: claude ran only its two reads', async () => {
     tools(...ALL_TOOLS)
     const result = await actions(loginEnv(), [false]).run('harness-install')
     expect(result.outcome).toBe('declined')
     expect(readdirSync(claudeHome)).toEqual([])
-    expect(calls().filter((line) => line.startsWith('claude plugin'))).toEqual([])
+    expect(readdirSync(state)).toEqual([])
+    expect(calls().filter((line) => line.startsWith('claude plugin'))).toEqual(['claude plugin list --json', 'claude plugin marketplace list --json'])
   })
 
   it('gh-login: only confirmed by main, which names the Project and the command', async () => {

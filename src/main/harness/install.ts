@@ -1,27 +1,37 @@
-// The installer of the Harness (worfy-harness ticket 13; ADR-0040, ADR-0048): worfy puts the Harness
-// copy of its build (bundled.ts) into <harnessHome>/plugin/ and has Claude Code install it from
-// there as the plugin `worfy` in the user scope.
+// The installer of the Harness (worfy-harness tickets 13 and 30; ADR-0040, ADR-0048, ADR-0059): worfy
+// puts the Harness copy of its build (bundled.ts) into <harnessHome>/plugin/ and has Claude Code
+// install it from there as the plugin `worfy` in the user scope — and, before that, the plugins
+// plugin.json of the copy names as `dependencies`, which Claude Code needs to load `worfy` at all.
 //
 // The copy is the marketplace and the plugin at once: harness/.claude-plugin/marketplace.json names
 // the marketplace `worfy-harness` with the plugin at `./` (ADR-0048, decision 3). The commands are
 // ADR-0048's, run with the Claude Code binary of the SDK (ADR-0008), never the user's `claude`:
 //
-//   first install   claude plugin marketplace add <harnessHome>/plugin
-//                   claude plugin install worfy@worfy-harness --scope user
-//   another version claude plugin update worfy@worfy-harness --scope user
-//   the state       claude plugin list --json
+//   a missing dependency  claude plugin marketplace add anthropics/claude-plugins-official   (when not known yet)
+//                         claude plugin install <name>@claude-plugins-official --scope user
+//   first install         claude plugin marketplace add <harnessHome>/plugin
+//                         claude plugin install worfy@worfy-harness --scope user
+//   another version       claude plugin update worfy@worfy-harness --scope user
+//   the state             claude plugin list --json
+//   known marketplaces    claude plugin marketplace list --json                               (install() only)
 //
 // A second `install` does not change the version (ADR-0048), so the version is changed by `update`.
-// Reading the state writes nothing: without the plugin folder it runs no command at all. Writing
-// happens only after the user agreed (`confirm`). worfy itself writes only <harnessHome>/plugin/
-// (through a staging folder next to it, renamed into place, so a failed copy leaves the previous
-// one as it was); settings.json and plugins/ are written by `claude plugin` (ADR-0040, decision 7).
+// Reading the state writes nothing: without the plugin folder it runs no command at all. install()
+// reads the two lists before its dialog, also without the folder, so the dialog names exactly what
+// will run. Writing happens only after the user agreed (`confirm`). worfy itself writes only
+// <harnessHome>/plugin/ (through a staging folder next to it, renamed into place, so a failed copy
+// leaves the previous one as it was); settings.json and plugins/ are written by `claude plugin`
+// (ADR-0040, decision 7; ADR-0059 adds the official marketplace and the dependency to that).
+//
+// An install ends installed or not installed, never half way (ADR-0059): the dependency goes first,
+// and a failure there leaves no Harness copy and no `worfy`; a first `install` of `worfy` that
+// fails but left its record is uninstalled again.
 import { execFile } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, rename, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
-import type { HarnessState, HarnessStatus, HarnessStep } from '../../shared/ipc/harness'
+import type { HarnessDependency, HarnessState, HarnessStatus, HarnessStep } from '../../shared/ipc/harness'
 import { claudeHome } from '../storage/paths'
 import { HARNESS_PLUGIN_NAME, locateHarness } from './locate'
 
@@ -30,9 +40,19 @@ export const HARNESS_MARKETPLACE = 'worfy-harness'
 /** The plugin as Claude Code names it: `worfy@worfy-harness`. */
 export const HARNESS_PLUGIN_ID = `${HARNESS_PLUGIN_NAME}@${HARNESS_MARKETPLACE}`
 
+/**
+ * The one marketplace worfy adds for a dependency (ADR-0059): its name, as a dependency of
+ * plugin.json carries it after `@`, and the GitHub repository `claude plugin marketplace add` takes.
+ * A dependency of any other marketplace is not installed by worfy.
+ */
+export const DEPENDENCY_MARKETPLACE = 'claude-plugins-official'
+export const DEPENDENCY_MARKETPLACE_SOURCE = 'anthropics/claude-plugins-official'
+
 /** Lines of a failed command's output kept in the error. */
 const TAIL_LINES = 5
 const COMMAND_TIMEOUT_MS = 120_000
+/** The limit of a command that downloads (the dependency's marketplace and plugin come from GitHub). */
+const DOWNLOAD_TIMEOUT_MS = 600_000
 
 type Env = Readonly<Record<string, string | undefined>>
 
@@ -67,10 +87,12 @@ export interface InstallPlan {
   to: string
   /** Whether the folder is replaced by the copy of this build (it carries another version, or none). */
   copy: boolean
-  /** Arguments of each `claude` command, in order. */
-  commands: string[][]
-  /** The plugins the Harness depends on (plugin.json `dependencies`): Claude Code does not install them from an unknown marketplace. */
+  /** The dependencies this install adds: those of plugin.json that Claude Code does not list. */
   dependencies: string[]
+  /** Arguments of each `claude` command that installs them, in order; they run first, before the copy. */
+  dependencyCommands: string[][]
+  /** Arguments of each `claude` command for the plugin `worfy`, in order; they run after the copy. */
+  commands: string[][]
   /** `bin/epic-status` of the old Harness in the Claude home when it is still there (ADR-0049, `legacy`); null otherwise. */
   legacyHarness: string | null
 }
@@ -109,13 +131,21 @@ interface PluginEntry {
   errors: string[]
 }
 
-/** What reading found: the version of the copy and the plugin Claude Code lists. */
+/** What reading found: the version of the copy, the plugin Claude Code lists, and its dependencies. */
 interface Facts {
   bundled: string | null
   /** `version` of <pluginDir>/.claude-plugin/plugin.json; undefined when the folder is not there. */
   folder: string | null | undefined
   /** The `worfy@worfy-harness` entry of `plugin list`; null when not listed or when not asked. */
   entry: PluginEntry | null
+  /** Each dependency of the build's plugin.json, from the same `plugin list`; `unchecked` when it was not asked. */
+  dependencies: HarnessDependency[]
+}
+
+/** A plan and, when Claude Code could not say which marketplaces it knows, why: a failed `marketplace add` repeats it. */
+interface Planned {
+  plan: InstallPlan | null
+  marketplacesUnread: string | null
 }
 
 /** `version` of `<dir>/.claude-plugin/plugin.json`; null when the file or the field is unreadable. */
@@ -159,20 +189,51 @@ function tail(stderr: string, stdout: string): string {
 
 const commandLine = (args: readonly string[]): string => `claude ${args.join(' ')}`
 
+const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+
+/** The marketplace a dependency names after `@`; null when it names none. */
+function marketplaceOf(dependency: string): string | null {
+  const at = dependency.lastIndexOf('@')
+  return at > 0 && at < dependency.length - 1 ? dependency.slice(at + 1) : null
+}
+
+/** "it" for one, "them" for several. */
+const pronoun = (items: readonly unknown[]): string => (items.length === 1 ? 'it' : 'them')
+
 /** The default copy into the (empty) staging folder: the whole tree, modes kept, symlinks as they are. */
 const copyWhole = (from: string, to: string): Promise<void> => cp(from, to, { recursive: true, verbatimSymlinks: true })
 
-/** The text of the consent dialog for a plan. */
+/** The text of the consent dialog for a plan: every command worfy will run, in the order it runs them. */
 export function confirmationText(plan: InstallPlan): { button: string; message: string; detail: string } {
   const update = plan.from !== null
-  const lines = [
-    plan.copy
-      ? `worfy copies the Harness of this build to ${plan.pluginDir}, replacing what is there, and runs Claude Code's own commands:`
-      : `The Harness of this build is already in ${plan.pluginDir}. worfy runs Claude Code's own commands:`,
-    ...plan.commands.map((args) => `  ${commandLine(args)}`),
-    '',
-    'Claude Code records the plugin in its settings.json and its plugins folder. Nothing else in ~/.claude changes.',
-  ]
+  // worfy is installed with this build's version and only a dependency is missing.
+  const onlyDependencies = !plan.copy && plan.commands.length === 0 && plan.dependencyCommands.length > 0
+  const lines: string[] = []
+  if (plan.dependencyCommands.length > 0) {
+    const names = plan.dependencies.join(', ')
+    const it = pronoun(plan.dependencies)
+    const addsMarketplace = plan.dependencyCommands.some((args) => args[1] === 'marketplace')
+    lines.push(
+      `The Harness needs ${names}. worfy ${onlyDependencies ? '' : 'first '}runs Claude Code's own commands to install ${it}:`,
+      ...plan.dependencyCommands.map((args) => `  ${commandLine(args)}`),
+      '',
+      `Claude Code downloads ${it} from GitHub (${DEPENDENCY_MARKETPLACE_SOURCE}) and records ${addsMarketplace ? `the marketplace ${DEPENDENCY_MARKETPLACE} and the plugin` : 'the plugin'} in its settings.json and its plugins folder.`,
+      '',
+    )
+  }
+  if (onlyDependencies) {
+    lines.push(`The Harness of this build (${plan.to}) is already installed from ${plan.pluginDir}. Nothing else in ~/.claude changes.`)
+  } else {
+    const then = plan.dependencyCommands.length > 0 ? 'Then ' : ''
+    lines.push(
+      plan.copy
+        ? `${then}worfy copies the Harness of this build to ${plan.pluginDir}, replacing what is there, and runs Claude Code's own commands:`
+        : `${then === '' ? 'The' : 'Then, as the'} Harness of this build is already in ${plan.pluginDir}${then === '' ? '. worfy' : ', worfy'} runs Claude Code's own commands:`,
+      ...plan.commands.map((args) => `  ${commandLine(args)}`),
+      '',
+      'Claude Code records the plugin in its settings.json and its plugins folder. Nothing else in ~/.claude changes.',
+    )
+  }
   if (plan.copy) {
     lines.push(
       '',
@@ -185,12 +246,8 @@ export function confirmationText(plan: InstallPlan): { button: string; message: 
       `The old Harness is still in ~/.claude (${plan.legacyHarness}, its hooks in settings.json). Until it is moved out, Claude Code sessions in a terminal run its hooks and the plugin's both.`,
     )
   }
-  if (plan.dependencies.length > 0) {
-    lines.push(
-      '',
-      `The Harness needs ${plan.dependencies.join(', ')}. Claude Code does not install it from a marketplace it does not know; if it is missing, install it with:`,
-      ...plan.dependencies.map((dep) => `  claude plugin install ${dep}`),
-    )
+  if (onlyDependencies) {
+    return { button: 'Install', message: `Install ${plan.dependencies.join(', ')} for the worfy Harness?`, detail: lines.join('\n') }
   }
   return {
     button: update ? 'Update' : 'Install',
@@ -209,19 +266,19 @@ export class HarnessInstaller {
 
   /** The state, as the toolbar shows it. Writes nothing; runs `plugin list` only when the plugin folder is there. */
   async status(): Promise<HarnessStatus> {
-    let state: HarnessState
+    let facts: Facts
     try {
-      state = this.stateOf(await this.facts())
+      facts = await this.facts(false)
     } catch (error) {
-      state = this.errorState(error)
+      return this.withState(this.errorState(error), this.unchecked())
     }
-    return this.withState(state)
+    return this.withState(this.stateOf(facts), facts.dependencies)
   }
 
   /**
    * Installs or updates after `confirm` said yes. Without anything to do there is no dialog; with
-   * `confirm` saying no nothing is written and `claude` does not run. A second call while one runs
-   * gets the same result.
+   * `confirm` saying no nothing is written and `claude` ran only its two reads (`plugin list`,
+   * `plugin marketplace list`). A second call while one runs gets the same result.
    */
   install(confirm: (plan: InstallPlan) => Promise<boolean>): Promise<{ outcome: InstallOutcome; status: HarnessStatus }> {
     if (!this.options.canInstall) {
@@ -236,25 +293,87 @@ export class HarnessInstaller {
   private async runInstall(confirm: (plan: InstallPlan) => Promise<boolean>): Promise<{ outcome: InstallOutcome; status: HarnessStatus }> {
     let facts: Facts
     try {
-      facts = await this.facts()
+      // Also without the plugin folder: what is installed already decides what the dialog names.
+      facts = await this.facts(true)
     } catch (error) {
-      return { outcome: 'done', status: this.withState(this.errorState(error)) }
+      return { outcome: 'done', status: this.withState(this.errorState(error), this.unchecked()) }
     }
-    const plan = this.planOf(facts)
-    if (plan === null) return { outcome: 'nothing-to-do', status: this.withState(this.stateOf(facts)) }
-    if (!(await confirm(plan))) return { outcome: 'declined', status: this.withState(this.stateOf(facts)) }
-
+    let planned: Planned
     try {
-      if (plan.copy) await this.replaceCopy()
-      for (const args of plan.commands) await this.claude(args, args[1] === 'marketplace' ? 'marketplace add' : (args[1] as HarnessStep))
+      planned = await this.planOf(facts)
     } catch (error) {
-      return { outcome: 'done', status: this.withState(this.errorState(error)) }
+      return { outcome: 'done', status: this.withState(this.errorState(error), facts.dependencies) }
+    }
+    const { plan, marketplacesUnread } = planned
+    if (plan === null) return { outcome: 'nothing-to-do', status: this.withState(this.stateOf(facts), facts.dependencies) }
+    if (!(await confirm(plan))) return { outcome: 'declined', status: this.withState(this.stateOf(facts), facts.dependencies) }
+
+    // What the commands that ran so far left of the dependencies, for the status of a failed run.
+    let dependencies = facts.dependencies
+    try {
+      // The dependency first: when it fails there is no Harness copy and no `worfy` to be half installed.
+      for (const args of plan.dependencyCommands) {
+        if (args[1] === 'marketplace') await this.addDependencyMarketplace(args, marketplacesUnread)
+        else {
+          await this.claude(args, 'dependency install', DOWNLOAD_TIMEOUT_MS)
+          dependencies = dependencies.map((each) => (each.id === args[2] ? { ...each, status: 'installed' } : each))
+        }
+      }
+      if (plan.copy) await this.replaceCopy()
+      for (const args of plan.commands) await this.harnessCommand(args)
+    } catch (error) {
+      return { outcome: 'done', status: this.withState(this.errorState(error), dependencies) }
     }
     return { outcome: 'done', status: await this.status() }
   }
 
-  private withState(state: HarnessState): HarnessStatus {
-    return { state, bundledVersion: manifestVersion(this.options.bundledDir), canInstall: this.options.canInstall, pluginDir: this.pluginDir }
+  /**
+   * `marketplace add` of the dependency's marketplace. An answer that it is already there is not a
+   * failure, whatever its exit code: the plan adds it whenever Claude Code could not say which
+   * marketplaces it knows.
+   */
+  private async addDependencyMarketplace(args: string[], marketplacesUnread: string | null): Promise<void> {
+    try {
+      await this.claude(args, 'dependency marketplace add', DOWNLOAD_TIMEOUT_MS)
+    } catch (error) {
+      if (!(error instanceof StepError)) throw error
+      if (/\balready\b/i.test(error.message)) return
+      throw new StepError(error.step, marketplacesUnread === null ? error.message : `${error.message}\n${marketplacesUnread}`)
+    }
+  }
+
+  /**
+   * One command for the plugin `worfy`. `install` is planned only when Claude Code does not list the
+   * plugin, and one that fails may have recorded it all the same (the acceptance run of ticket 26
+   * saw it listed and enabled after a refusal): the list is read again and the record removed, so
+   * the failure leaves `worfy` not installed. A failed `update` removes nothing: the version that
+   * was installed stays.
+   */
+  private async harnessCommand(args: string[]): Promise<void> {
+    const step: HarnessStep = args[1] === 'marketplace' ? 'marketplace add' : (args[1] as HarnessStep)
+    try {
+      await this.claude(args, step)
+    } catch (error) {
+      if (!(error instanceof StepError) || step !== 'install') throw error
+      let recorded: boolean
+      try {
+        recorded = (await this.listed()).has(HARNESS_PLUGIN_ID)
+      } catch (listError) {
+        throw new StepError('install', `${error.message}\nworfy could not check whether Claude Code recorded the plugin all the same:\n${messageOf(listError)}`)
+      }
+      if (!recorded) throw error
+      const uninstall = ['plugin', 'uninstall', HARNESS_PLUGIN_ID, '--scope', 'user']
+      try {
+        await this.claude(uninstall, 'uninstall')
+      } catch (uninstallError) {
+        throw new StepError('uninstall', `${error.message}\nClaude Code recorded the plugin all the same, and removing the record failed:\n${messageOf(uninstallError)}`)
+      }
+      throw new StepError('install', `${error.message}\nClaude Code recorded the plugin all the same; worfy removed the record (${commandLine(uninstall)}).`)
+    }
+  }
+
+  private withState(state: HarnessState, dependencies: HarnessDependency[]): HarnessStatus {
+    return { state, bundledVersion: manifestVersion(this.options.bundledDir), canInstall: this.options.canInstall, pluginDir: this.pluginDir, dependencies }
   }
 
   private errorState(error: unknown): HarnessState {
@@ -262,44 +381,117 @@ export class HarnessInstaller {
     throw error
   }
 
-  private async facts(): Promise<Facts> {
-    const bundled = manifestVersion(this.options.bundledDir)
-    if (!existsSync(this.pluginDir)) return { bundled, folder: undefined, entry: null }
-    return { bundled, folder: manifestVersion(this.pluginDir), entry: await this.listed() }
+  /** The dependencies of the build's plugin.json, none of them looked up. */
+  private unchecked(): HarnessDependency[] {
+    return dependenciesOf(this.options.bundledDir).map((id) => ({ id, status: 'unchecked', version: null }))
   }
 
-  /** The `worfy@worfy-harness` entry of `claude plugin list --json`. */
-  private async listed(): Promise<PluginEntry | null> {
-    const { stdout } = await this.claude(['plugin', 'list', '--json'], 'plugin list')
+  /** Reads what is there. `always` — run `plugin list` also without the plugin folder (install(), before its dialog). */
+  private async facts(always: boolean): Promise<Facts> {
+    const bundled = manifestVersion(this.options.bundledDir)
+    const folder = existsSync(this.pluginDir) ? manifestVersion(this.pluginDir) : undefined
+    if (folder === undefined && !always) return { bundled, folder, entry: null, dependencies: this.unchecked() }
+    const list = await this.listed()
+    const dependencies = dependenciesOf(this.options.bundledDir).map((id): HarnessDependency => {
+      // A dependency named without a marketplace is installed when any marketplace's plugin of that name is.
+      const found = marketplaceOf(id) === null ? [...list].find(([listed]) => listed.startsWith(`${id}@`))?.[1] : list.get(id)
+      return found === undefined ? { id, status: 'missing', version: null } : { id, status: 'installed', version: found.version }
+    })
+    return { bundled, folder, entry: list.get(HARNESS_PLUGIN_ID) ?? null, dependencies }
+  }
+
+  /** Every plugin of `claude plugin list --json`, by its id (`name@marketplace`). */
+  private async listed(): Promise<Map<string, PluginEntry>> {
+    const args = ['plugin', 'list', '--json']
+    const { stdout } = await this.claude(args, 'plugin list')
     let parsed: unknown
     try {
       parsed = JSON.parse(stdout)
     } catch {
-      throw new StepError('plugin list', `${commandLine(['plugin', 'list', '--json'])} printed no JSON:\n${tail('', stdout)}`)
+      throw new StepError('plugin list', `${commandLine(args)} printed no JSON:\n${tail('', stdout)}`)
     }
-    if (!Array.isArray(parsed)) throw new StepError('plugin list', `${commandLine(['plugin', 'list', '--json'])} printed no list`)
-    const found = (parsed as unknown[]).find((item) => typeof item === 'object' && item !== null && (item as { id?: unknown }).id === HARNESS_PLUGIN_ID) as
-      | { version?: unknown; enabled?: unknown; errors?: unknown }
-      | undefined
-    if (found === undefined) return null
-    return {
-      version: typeof found.version === 'string' ? found.version : null,
-      enabled: found.enabled !== false,
-      errors: Array.isArray(found.errors) ? found.errors.filter((error): error is string => typeof error === 'string') : [],
+    if (!Array.isArray(parsed)) throw new StepError('plugin list', `${commandLine(args)} printed no list`)
+    const plugins = new Map<string, PluginEntry>()
+    for (const item of parsed as unknown[]) {
+      if (typeof item !== 'object' || item === null) continue
+      const { id, version, enabled, errors } = item as { id?: unknown; version?: unknown; enabled?: unknown; errors?: unknown }
+      if (typeof id !== 'string') continue
+      plugins.set(id, {
+        version: typeof version === 'string' ? version : null,
+        enabled: enabled !== false,
+        errors: Array.isArray(errors) ? errors.filter((error): error is string => typeof error === 'string') : [],
+      })
     }
+    return plugins
   }
 
-  private stateOf({ bundled, folder, entry }: Facts): HarnessState {
+  /**
+   * Whether Claude Code knows the dependency's marketplace, by `claude plugin marketplace list
+   * --json`: a list of entries with `name`. A Claude Code without that command, or with another
+   * answer, cannot say: `unread` then tells why, and the plan adds the marketplace anyway.
+   */
+  private async dependencyMarketplaceKnown(): Promise<{ known: boolean; unread: string | null }> {
+    const args = ['plugin', 'marketplace', 'list', '--json']
+    const cannotTell = (why: string): { known: boolean; unread: string } => ({
+      known: false,
+      unread: `worfy could not tell whether Claude Code already knows the marketplace ${DEPENDENCY_MARKETPLACE}: ${why}`,
+    })
+    let stdout: string
+    try {
+      // A read; its failure is not a step of the install, so the step named here never reaches a state.
+      ;({ stdout } = await this.claude(args, 'dependency marketplace add'))
+    } catch (error) {
+      return cannotTell(messageOf(error))
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(stdout)
+    } catch {
+      return cannotTell(`${commandLine(args)} printed no JSON`)
+    }
+    if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === 'object' && item !== null && typeof (item as { name?: unknown }).name === 'string')) {
+      return cannotTell(`${commandLine(args)} printed no list of marketplaces with names`)
+    }
+    return { known: (parsed as { name: string }[]).some(({ name }) => name === DEPENDENCY_MARKETPLACE), unread: null }
+  }
+
+  private stateOf({ bundled, folder, entry, dependencies }: Facts): HarnessState {
     if (folder === undefined || entry === null) return { kind: 'not-installed' }
     if (bundled !== null && (entry.version !== bundled || folder !== bundled)) return { kind: 'outdated', from: entry.version, to: bundled }
-    // `plugin install` succeeds when a dependency is missing; `plugin list` names it (ticket 13, item 8).
+    // `plugin install` succeeds when a dependency is missing, and Claude Code then loads nothing of
+    // the plugin (ticket 13, item 8; ticket 30): an error, and install() has a plan for it.
+    const missing = dependencies.filter((each) => each.status === 'missing').map((each) => each.id)
+    if (missing.length > 0) {
+      const reason = `the Harness needs ${missing.join(', ')}, and Claude Code does not list ${pronoun(missing)} as installed`
+      return { kind: 'error', step: 'dependency install', reason: [reason, ...entry.errors].join('\n') }
+    }
     if (entry.errors.length > 0) return { kind: 'error', step: 'install', reason: entry.errors.join('\n') }
     return { kind: 'installed', version: entry.version ?? folder ?? '', enabled: entry.enabled }
   }
 
-  /** What install() would do; null when the copy and the plugin already carry this build's version. */
-  private planOf({ bundled, folder, entry }: Facts): InstallPlan | null {
-    if (bundled === null) return null
+  /**
+   * What install() would do; a null plan when the copy, the plugin and its dependencies are all
+   * there with this build's version. Reads which marketplaces Claude Code knows when a dependency
+   * is missing; a missing dependency worfy does not install is a StepError naming it.
+   */
+  private async planOf({ bundled, folder, entry, dependencies }: Facts): Promise<Planned> {
+    if (bundled === null) return { plan: null, marketplacesUnread: null }
+    const missing = dependencies.filter((each) => each.status === 'missing').map((each) => each.id)
+    const foreign = missing.filter((id) => marketplaceOf(id) !== DEPENDENCY_MARKETPLACE)
+    if (foreign.length > 0) {
+      throw new StepError(
+        'dependency install',
+        `the Harness needs ${foreign.join(', ')}, and worfy installs dependencies only from the marketplace ${DEPENDENCY_MARKETPLACE}: install ${pronoun(foreign)} in Claude Code yourself, then try again`,
+      )
+    }
+    const dependencyCommands: string[][] = []
+    let marketplacesUnread: string | null = null
+    if (missing.length > 0) {
+      const { known, unread } = await this.dependencyMarketplaceKnown()
+      marketplacesUnread = unread
+      if (!known) dependencyCommands.push(['plugin', 'marketplace', 'add', DEPENDENCY_MARKETPLACE_SOURCE])
+      for (const id of missing) dependencyCommands.push(['plugin', 'install', id, '--scope', 'user'])
+    }
     const copy = folder !== bundled
     let commands: string[][] = []
     if (entry === null) {
@@ -310,15 +502,19 @@ export class HarnessInstaller {
     } else if (entry.version !== bundled) {
       commands = [['plugin', 'update', HARNESS_PLUGIN_ID, '--scope', 'user']]
     }
-    if (!copy && commands.length === 0) return null
+    if (!copy && commands.length === 0 && dependencyCommands.length === 0) return { plan: null, marketplacesUnread }
     return {
-      pluginDir: this.pluginDir,
-      from: entry?.version ?? null,
-      to: bundled,
-      copy,
-      commands,
-      dependencies: dependenciesOf(this.options.bundledDir),
-      legacyHarness: this.legacyHarness(),
+      plan: {
+        pluginDir: this.pluginDir,
+        from: entry?.version ?? null,
+        to: bundled,
+        copy,
+        dependencies: missing,
+        dependencyCommands,
+        commands,
+        legacyHarness: this.legacyHarness(),
+      },
+      marketplacesUnread,
     }
   }
 
@@ -379,12 +575,12 @@ export class HarnessInstaller {
   }
 
   /** Runs one `claude` command; a missing binary or a non-zero exit is a StepError of `step`. */
-  private claude(args: string[], step: HarnessStep): Promise<{ stdout: string; stderr: string }> {
+  private claude(args: string[], step: HarnessStep, timeout = COMMAND_TIMEOUT_MS): Promise<{ stdout: string; stderr: string }> {
     const { claude, env } = this.options
     if (claude === undefined) return Promise.reject(new StepError(step, `${commandLine(args)}: no Claude Code binary in this build`))
     return new Promise((resolve, reject) => {
       // cwd: a folder without project settings, so `plugin list` shows only what the user scope holds.
-      execFile(claude, args, { env, cwd: tmpdir(), timeout: COMMAND_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' }, (error, stdout, stderr) => {
+      execFile(claude, args, { env, cwd: tmpdir(), timeout, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' }, (error, stdout, stderr) => {
         if (error === null) {
           resolve({ stdout, stderr })
           return

@@ -13,6 +13,10 @@
 //   which the user goes through in a Terminal Node.
 // - Harness: the installer's state (src/main/harness/install.ts, ticket 13) — not installed fails,
 //   another version than this build's warns; both offer Install / Update.
+// - Plugin dependencies: the plugins the Harness plugin needs (ticket 30, ADR-0059), from the same
+//   state — the same `claude plugin list`, no command of its own. Missing fails and offers the same
+//   install action, which then runs the dependency's commands alone; without the Harness plugin's
+//   folder nothing was listed, so the row only says when it is checked.
 // - Old Harness in ~/.claude: the files of the Q19 list (src/main/harness/migrate/plan.ts, ticket 14);
 //   a warning with the move form.
 // - qmd, its models, the collections of the connected Projects (src/main/harness/qmd.ts, ticket 17).
@@ -21,6 +25,7 @@ import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AccountInfoLike } from '../agent/session'
+import { DEPENDENCY_MARKETPLACE_SOURCE } from '../harness/install'
 import { hasLegacyHarness, type PlanOptions } from '../harness/migrate/plan'
 import { MIN_NODE_MAJOR, modelPlan, NODE_INSTALL_HINT, profileDocsLanguages, QMD_VERSION, qmdState, type QmdHomes } from '../harness/qmd'
 import type { HarnessStatus } from '../../shared/ipc/harness'
@@ -132,6 +137,7 @@ const CHECKS: readonly { id: CheckId; group: CheckGroup; title: string }[] = [
   { id: 'jq', group: 'Command-line tools', title: 'jq' },
   { id: 'gh-auth', group: 'GitHub', title: 'GitHub accounts' },
   { id: 'harness', group: 'Harness', title: 'Harness plugin' },
+  { id: 'harness-dependencies', group: 'Harness', title: 'Plugin dependencies' },
   { id: 'legacy-harness', group: 'Harness', title: 'Old Harness in ~/.claude' },
   { id: 'qmd', group: 'qmd', title: 'qmd' },
   { id: 'qmd-models', group: 'qmd', title: 'qmd models' },
@@ -265,8 +271,7 @@ async function ghAuth(deps: CheckDeps, timeoutMs: number): Promise<Row> {
   return row('fail', 'not signed in to any GitHub host', 'Sign in with gh auth login: you answer its questions yourself', 'gh auth login', [action('gh-login', 'Sign in…')])
 }
 
-async function harness(deps: CheckDeps): Promise<Row> {
-  const status = await deps.harness()
+function harness(status: HarnessStatus): Row {
   const { state } = status
   const install = (label: string): Check['actions'] => (status.canInstall ? [action('harness-install', label)] : [])
   const devRun = status.canInstall ? '' : ' (a dev run only shows the state: start the packaged app to install)'
@@ -282,6 +287,30 @@ async function harness(deps: CheckDeps): Promise<Row> {
     case 'error':
       return row('fail', `error at ${state.step}`, lastLine(state.reason), null, install('Retry'))
   }
+}
+
+/** The plugins the Harness depends on, as the installer's state lists them. */
+function harnessDependencies(status: HarnessStatus): Row {
+  const { dependencies } = status
+  if (dependencies.length === 0) return row('ok', 'none')
+  const missing = dependencies.filter((each) => each.status === 'missing')
+  if (missing.length > 0) {
+    const devRun = status.canInstall ? '' : ' (a dev run only shows the state: start the packaged app to install)'
+    // The name goes to the hint: the line of what was found is cut where the button starts.
+    return row(
+      'fail',
+      'not installed',
+      `Claude Code does not load the Harness plugin without ${missing.map((each) => each.id).join(', ')}: install ${missing.length === 1 ? 'it' : 'them'} from GitHub (${DEPENDENCY_MARKETPLACE_SOURCE})${devRun}`,
+      null,
+      status.canInstall ? [action('harness-install', 'Install…')] : [],
+    )
+  }
+  if (dependencies.some((each) => each.status === 'unchecked')) {
+    // Reading the plugin list failed: the Harness plugin row carries the error.
+    if (status.state.kind === 'error') return row('warn', 'not checked', 'Claude Code did not list its plugins: see the Harness plugin above')
+    return row('warn', 'checked when the Harness plugin is installed', `Installing the Harness plugin installs ${dependencies.map((each) => each.id).join(', ')} too`)
+  }
+  return row('ok', dependencies.map((each) => (each.version === null ? each.id : `${each.id} ${each.version}`)).join(', '))
 }
 
 function legacyHarness(deps: CheckDeps): Row {
@@ -364,6 +393,9 @@ export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
   // One read of qmd's state feeds its three rows; a failure there fails each of them with the error.
   const qmdAll = qmdRows(deps)
   qmdAll.catch(() => undefined)
+  // One read of the installer's state feeds the Harness plugin and its dependencies.
+  const harnessStatus = Promise.resolve().then(() => deps.harness())
+  harnessStatus.catch(() => undefined)
   const rows: Record<CheckId, Promise<Row>> = {
     'claude-login': guarded(() => signIn(deps)),
     'claude-version': guarded(() => claudeVersion(deps, timeoutMs)),
@@ -372,7 +404,8 @@ export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
     node: guarded(() => node(deps, timeoutMs)),
     jq: guarded(() => tool('jq', deps, timeoutMs)),
     'gh-auth': guarded(() => ghAuth(deps, timeoutMs)),
-    harness: guarded(() => harness(deps)),
+    harness: guarded(async () => harness(await harnessStatus)),
+    'harness-dependencies': guarded(async () => harnessDependencies(await harnessStatus)),
     'legacy-harness': guarded(() => legacyHarness(deps)),
     qmd: guarded(async () => (await qmdAll).qmd),
     'qmd-models': guarded(async () => (await qmdAll).models),

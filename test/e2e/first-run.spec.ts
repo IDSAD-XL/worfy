@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,9 +11,10 @@ import { snapshotThemes } from './snapshots'
 // data folder are temporary; the shell is /bin/sh, and $HOME/.profile puts the stand-in tools of
 // test/fixtures/first-run-tools/ first on the PATH of the login shell, so every check and the
 // Terminal see them and nothing of the machine running the tests. The Harness installer runs the
-// stand-in `claude` (WORFY_CLAUDE), which keeps the plugin state in a file outside that home. The
-// agent is the fake one (launchApp), so the sign-in check gets a subscription login. The dialog of
-// each action is replaced in main: it records what it was shown and answers with the given button.
+// stand-in `claude` (WORFY_CLAUDE), which keeps the plugin state in a file outside that home and
+// never reaches the network: the dependency of the Harness plugin (ticket 30) is "installed" there
+// too. The agent is the fake one (launchApp), so the sign-in check gets a subscription login. The
+// dialog of each action is replaced in main: it records what it was shown and answers with the given button.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const TOOLS = join(repoRoot, 'test', 'fixtures', 'first-run-tools')
@@ -22,6 +23,8 @@ const PROJECT = 'alpha-0000000a'
 const bundledClaude = (): string =>
   (JSON.parse(readFileSync(join(repoRoot, 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'package.json'), 'utf8')) as { claudeCodeVersion: string }).claudeCodeVersion
 const bundledHarness = (): string => (JSON.parse(readFileSync(join(repoRoot, 'out', 'harness', '.claude-plugin', 'plugin.json'), 'utf8')) as { version: string }).version
+/** The dependency out/harness declares (harness/.claude-plugin/plugin.json). */
+const DEP = 'mattpocock-skills@claude-plugins-official'
 
 let scratch: string
 let home: string
@@ -107,7 +110,7 @@ async function answerDialogWith(launched: LaunchedApp, button: number): Promise<
 const shownDialogs = (launched: LaunchedApp): Promise<ShownDialog[]> =>
   launched.app.evaluate(() => ((globalThis as { shownDialogs?: unknown[] }).shownDialogs ?? []) as ShownDialog[])
 
-const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
+const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
 
 /** The screen, once its checks are in. */
 async function screen(window: Page): Promise<Locator> {
@@ -121,7 +124,8 @@ const row = (dialog: Locator, id: string): Locator => dialog.locator(`[data-chec
 
 /**
  * Snapshots of the window in both themes, in test-results/snapshots/<name>/ (snapshots.ts), to
- * compare with F-SPEC "First run"; the ticket keeps copies as .scratch/worfy-harness/evidence/19-*.png.
+ * compare with F-SPEC "First run"; the tickets keep copies as .scratch/worfy-harness/evidence/19-*.png
+ * and 30-*.png.
  */
 async function keep(window: Page, name: string): Promise<void> {
   await snapshotThemes(window, name)
@@ -138,6 +142,11 @@ test.describe('first-run screen', () => {
         await expect(row(dialog, id), id).toHaveAttribute('data-status', 'ok')
       }
       await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'fail')
+      // The dependencies come from the same `claude plugin list` as the plugin: nothing is listed before it is installed.
+      await expect(row(dialog, 'harness-dependencies')).toHaveAttribute('data-status', 'warn')
+      await expect(row(dialog, 'harness-dependencies')).toContainText('Plugin dependencies')
+      await expect(row(dialog, 'harness-dependencies')).toContainText('checked when the Harness plugin is installed')
+      await expect(row(dialog, 'harness-dependencies').getByRole('button')).toHaveCount(0)
       await expect(row(dialog, 'qmd-models')).toHaveAttribute('data-status', 'warn')
       // The line under the title is one line next to the summary chip, and nothing of it is cut (F-SPEC "First run").
       const subtitle = dialog.getByTestId('first-run-subtitle')
@@ -152,16 +161,32 @@ test.describe('first-run screen', () => {
       expect(calls().filter((line) => /^claude plugin (marketplace|install|update)|^npm install|^qmd pull/.test(line))).toEqual([])
       await keep(launched.window, 'first-run')
 
-      // Install → the dialog with Confirm → the Harness is installed and its row is ok.
+      // Install → one dialog with Confirm → the dependency and the Harness are installed and both rows are ok.
       await answerDialogWith(launched, 0)
       await row(dialog, 'harness').getByRole('button', { name: 'Install' }).click()
       await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'ok', { timeout: 30_000 })
       await expect(row(dialog, 'harness')).toContainText(bundledHarness())
+      await expect(row(dialog, 'harness-dependencies')).toHaveAttribute('data-status', 'ok')
+      await expect(row(dialog, 'harness-dependencies')).toContainText('OK')
+      await expect(row(dialog, 'harness-dependencies')).toContainText(`${DEP} 1.0.0`)
       let shown = await shownDialogs(launched)
       expect(shown).toHaveLength(1)
       expect(shown[0]).toMatchObject({ buttons: ['Confirm', 'Cancel'], message: `Install the worfy Harness ${bundledHarness()}?` })
+      // The native dialog cannot be screenshotted from Playwright: its text is kept with the test's output.
+      writeFileSync(test.info().outputPath('30-first-run-dialog-install.txt'), `${shown[0]?.message ?? ''}\n\n${shown[0]?.detail ?? ''}\n\n[${(shown[0]?.buttons ?? []).join('] [')}]\n`)
       expect(shown[0]?.detail).toContain(join(claudeHome, 'worfy-harness', 'plugin'))
-      expect(calls()).toContain('claude plugin install worfy@worfy-harness --scope user')
+      expect(shown[0]?.detail).toContain('claude plugin marketplace add anthropics/claude-plugins-official')
+      expect(shown[0]?.detail).toContain(`claude plugin install ${DEP} --scope user`)
+      expect(shown[0]?.detail).toContain('downloads it from GitHub (anthropics/claude-plugins-official)')
+      // With a dependency to download, the dialog does not say that nothing is.
+      expect(shown[0]?.detail).not.toContain('Nothing is downloaded')
+      const writes = calls().filter((line) => /^claude plugin (marketplace add|install|update|uninstall)/.test(line))
+      expect(writes).toEqual([
+        'claude plugin marketplace add anthropics/claude-plugins-official',
+        `claude plugin install ${DEP} --scope user`,
+        `claude plugin marketplace add ${join(claudeHome, 'worfy-harness', 'plugin')}`,
+        'claude plugin install worfy@worfy-harness --scope user',
+      ])
 
       // Download → the dialog names the size of the models; Cancel → nothing is downloaded.
       await answerDialogWith(launched, 1)
@@ -202,6 +227,49 @@ test.describe('first-run screen', () => {
       )
       expect(startup).toMatchObject({ ok: true, value: { show: false } })
       await expect(launched.window.getByTestId('first-run')).toHaveCount(0)
+    } finally {
+      await launched.close()
+    }
+  })
+
+  test('worfy installed without its dependency: "Plugin dependencies" is Failed with Install…, which asks with the dependency commands alone and makes the row OK', async () => {
+    sandbox()
+    // What the installer before ticket 30 left: the copy and worfy in Claude Code's list, no dependency.
+    const pluginDir = join(claudeHome, 'worfy-harness', 'plugin')
+    cpSync(join(repoRoot, 'out', 'harness'), pluginDir, { recursive: true })
+    writeFileSync(join(state, 'marketplace'), `${pluginDir}\n`)
+    writeFileSync(join(state, 'plugin-version'), `${bundledHarness()}\n`)
+    const launched = await launch()
+    try {
+      const dialog = await screen(launched.window)
+      const dependencies = row(dialog, 'harness-dependencies')
+      await expect(dependencies).toHaveAttribute('data-status', 'fail')
+      await expect(dependencies).toContainText('not installed')
+      await expect(dependencies).toContainText(`without ${DEP}`)
+      await expect(dependencies.getByRole('button', { name: 'Install…' })).toBeVisible()
+      await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'fail')
+      await expect(row(dialog, 'harness')).toContainText('error at dependency install')
+      await keep(launched.window, 'first-run-dependency-missing')
+
+      await answerDialogWith(launched, 0)
+      await dependencies.getByRole('button', { name: 'Install…' }).click()
+      await expect(dependencies).toHaveAttribute('data-status', 'ok', { timeout: 30_000 })
+      await expect(dependencies).toContainText('OK')
+      await expect(dependencies).toContainText(`${DEP} 1.0.0`)
+      await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'ok')
+      const shown = await shownDialogs(launched)
+      expect(shown).toHaveLength(1)
+      writeFileSync(test.info().outputPath('30-first-run-dialog-dependency.txt'), `${shown[0]?.message ?? ''}\n\n${shown[0]?.detail ?? ''}\n\n[${(shown[0]?.buttons ?? []).join('] [')}]\n`)
+      expect(shown[0]).toMatchObject({ buttons: ['Confirm', 'Cancel'], message: `Install ${DEP} for the worfy Harness?` })
+      expect(shown[0]?.detail).toContain(`claude plugin install ${DEP} --scope user`)
+      expect(shown[0]?.detail).toContain('downloads it from GitHub (anthropics/claude-plugins-official)')
+      expect(shown[0]?.detail).not.toContain('worfy@worfy-harness')
+      expect(shown[0]?.detail).not.toContain('Nothing is downloaded')
+      expect(calls().filter((line) => /^claude plugin (marketplace add|install|update|uninstall)/.test(line))).toEqual([
+        'claude plugin marketplace add anthropics/claude-plugins-official',
+        `claude plugin install ${DEP} --scope user`,
+      ])
+      await keep(launched.window, 'first-run-dependency-installed')
     } finally {
       await launched.close()
     }

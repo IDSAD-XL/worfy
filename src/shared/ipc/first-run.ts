@@ -1,7 +1,7 @@
 // The `firstRun` domain (worfy-harness ticket 19, question Q22 of the epic): the first-run screen.
 // main checks the machine — the Claude Code sign-in, `claude --version` against the version this
-// build carries, git, gh and its accounts, node 22 or newer, jq, the Harness plugin, the old Harness
-// in ~/.claude, qmd and its models — and runs an action only after the user pressed "Confirm" in
+// build carries, git, gh and its accounts, node 22 or newer, jq, the Harness plugin and the plugins
+// it depends on, the old Harness in ~/.claude, qmd and its models — and runs an action only after the user pressed "Confirm" in
 // the dialog that names what it will do. Checks read only; they run in the login shell environment
 // (ADR-0007). main: src/main/first-run/ and src/main/ipc/first-run.ts; the screen:
 // src/renderer/shell/FirstRun.tsx; the look: docs/design/F-SPEC.md, "First run".
@@ -20,6 +20,7 @@ export const checkIdSchema = z.enum([
   'jq',
   'gh-auth',
   'harness',
+  'harness-dependencies',
   'legacy-harness',
   'qmd',
   'qmd-models',
@@ -28,8 +29,9 @@ export const checkIdSchema = z.enum([
 export type CheckId = z.infer<typeof checkIdSchema>
 
 /**
- * What a check's button does. main runs `harness-install` and the `qmd-*` actions itself after its
- * dialog; `gh-login` is confirmed by main and then typed into a Terminal Node by the screen;
+ * What a check's button does. main runs `harness-install` (the Harness plugin and its missing
+ * dependencies, one dialog) and the `qmd-*` actions itself after its dialog; `gh-login` is
+ * confirmed by main and then typed into a Terminal Node by the screen;
  * `migration-form` only opens the form of worfy-harness ticket 14, which asks on its own.
  */
 export const firstRunActionSchema = z.enum(['harness-install', 'migration-form', 'qmd-install', 'qmd-models-download', 'qmd-models-skip', 'qmd-collections', 'gh-login'])

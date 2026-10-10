@@ -1,0 +1,17 @@
+Install the worfy Harness 0.2.0+9a91e6f?
+
+The Harness needs mattpocock-skills@claude-plugins-official. worfy first runs Claude Code's own commands to install it:
+  claude plugin marketplace add anthropics/claude-plugins-official
+  claude plugin install mattpocock-skills@claude-plugins-official --scope user
+
+Claude Code downloads it from GitHub (anthropics/claude-plugins-official) and records the marketplace claude-plugins-official and the plugin in its settings.json and its plugins folder.
+
+Then worfy copies the Harness of this build to /private/var/folders/3c/vgccn1z92czdrc5h61w_hkvw0000gn/T/worfy-e2e-first-run-mKBvzk/home/.claude/worfy-harness/plugin, replacing what is there, and runs Claude Code's own commands:
+  claude plugin marketplace add /private/var/folders/3c/vgccn1z92czdrc5h61w_hkvw0000gn/T/worfy-e2e-first-run-mKBvzk/home/.claude/worfy-harness/plugin
+  claude plugin install worfy@worfy-harness --scope user
+
+Claude Code records the plugin in its settings.json and its plugins folder. Nothing else in ~/.claude changes.
+
+Claude Code loads the plugin straight from this folder: Claude Code sessions already running in a terminal see the files change under them. Restart them afterwards.
+
+[Confirm] [Cancel]
