@@ -116,4 +116,67 @@ test.
 
 ## Итог
 
-Заполняется при закрытии.
+PR #208, ветка `worfy-ui/08`.
+
+- **Первый test.** `test/unit/select.test.tsx` упал раньше любой проверки: модуля
+  `src/renderer/theme/Select.tsx` не было («Failed to resolve import "../../src/renderer/theme/Select"»,
+  0 test-ов). После компонента — все test-ы файла зелёные. Мутант «Esc без `stopPropagation`»
+  роняет оба test-а на Esc: в `select.test.tsx` и в `harness-migration-form.test.tsx`.
+- **API для Ticket-а 09 и раздела «Terminal AI».** `import { Select, type SelectOption } from
+  '../theme/Select'`. `Select<V extends string>`, props:
+  - `value: V`, `options: readonly SelectOption<V>[]` (`value`, `label`, `detail?` — серый текст
+    справа, `disabled?`), `onChange(value: V)` — зовётся только при выборе другого значения, как
+    change у native-списка;
+  - `disabled?`, `mono?` (значение и строки моноширинным, значение полужирным, как в макете),
+    `onOpen?()` — при каждом открытии, до показа списка; список можно менять, пока он открыт:
+    курсор держится за значение, а не за номер строки;
+  - `prefix?` — серая подпись внутри кнопки перед значением («Model», «Effort»);
+  - на кнопку: `id` (для `<label htmlFor>`), `aria-label`, `aria-invalid`, `aria-describedby`,
+    `data-testid`, `title`, `className`, `style` (форма со своим видом полей, как «Add project»).
+  - Для test-ов: значение — `data-value` кнопки; список — `getByRole('listbox')`, его имя —
+    `aria-label` Select-а или текст его `<label>`; у списка `data-testid` = `<data-testid>-list`;
+    строки — `role="option"` с `data-value`, курсор — `aria-activedescendant` кнопки, у строки
+    под курсором `data-active="true"`.
+- **Поведение.** Закрыт: ↓, ↑, Enter, Space, Home, End и буква открывают (буква — сразу на
+  совпадении). Открыт: ↑/↓ без перехода по кругу, пропуская неактивные строки; Home/End;
+  Enter и Space выбирают; Alt+↑ выбирает; Tab выбирает и уводит фокус дальше; набор букв —
+  совпадение с началом подписи, повтор одной буквы идёт по строкам на неё. Esc в открытом списке —
+  `preventDefault` и `stopPropagation`. Закрывают список: нажатие мыши вне его, прокрутка вне его,
+  изменение размера окна, потеря окном фокуса. Фокус всё время на кнопке; после выбора — на ней же.
+- **Список** — портал в `document.body`, `position: fixed`, `z-index: 3000`: выше диалогов (90–110),
+  режима фокуса (1000) и меню Binding (2000). Под кнопкой с отступом 4 px; если снизу места меньше,
+  чем нужно, и сверху больше — над ней. Высота до 320 px, дальше прокрутка.
+- **Формы.** `ConnectProject.tsx` — `Select` с прежним `id`, `aria-invalid`, `aria-describedby`, классом
+  `w-connect-input` и стилем полей формы (28 px, фон `--bg`, моноширинный), чтобы ряд не отличался от
+  соседних полей ввода. `MigrationForm.tsx` — `Select` с `mono`, `data-testid="profile-<key>"`;
+  стиль `styles.select` (22 px) удалён, кнопка — 24 px по умолчанию. Обработчики Esc диалогов не
+  менялись.
+- **Снимки** (светлая и тёмная тема): закрыт —
+  [светлая](../evidence/08-select-closed-light.png), [тёмная](../evidence/08-select-closed-dark.png);
+  открыт — [светлая](../evidence/08-select-open-light.png), [тёмная](../evidence/08-select-open-dark.png);
+  выделение клавиатурой — [светлая](../evidence/08-select-keyboard-light.png),
+  [тёмная](../evidence/08-select-keyboard-dark.png); неактивный —
+  [светлая](../evidence/08-select-disabled-light.png), [тёмная](../evidence/08-select-disabled-dark.png);
+  форма «Add project» — [светлая](../evidence/08-connect-form-light.png),
+  [тёмная](../evidence/08-connect-form-dark.png); форма переноса Harness — закрыт
+  [светлая](../evidence/08-migration-form-light.png), [тёмная](../evidence/08-migration-form-dark.png),
+  открыт [светлая](../evidence/08-migration-open-light.png), [тёмная](../evidence/08-migration-open-dark.png).
+  Снимает `test/e2e/select.spec.ts`.
+- **Решено без владельца, подтвердить:**
+  1. Радиус кнопки — 6 px (`--radius-button`), как в макете `F-session-dark.dc.html:178-179`, а не
+     4 px (`--radius-chip`), как написано в Ticket-е: Ticket сам ссылается на макет.
+  2. Ширина списка — не меньше ширины кнопки, а не от 180 px, как у меню в F-SPEC: у полей «ru/en»
+     список в 180 px шире поля втрое.
+  3. В форме «Add project» Select берёт вид её полей ввода (28 px), а не свои 24 px.
+  4. Буква на закрытом Select-е открывает список на совпадении (как в образце APG), а не меняет
+     значение молча, как native-список на macOS.
+  5. `z-index` списка — 3000: выше режима фокуса (1000), где будет composer Ticket-а 09.
+- **Проверки.** `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (172 файла, 3336 test-ов);
+  gate fast — «зелено (fast)»; e2e `select.spec.ts` и `projects-connect.spec.ts` — 6 из 6;
+  `GATE_SCOPE=all` gate full на `de3524a` — exit 0, «зелено (full)»: lint, typecheck, test,
+  test:e2e, test:package; CI PR #208 — `check` pass.
+- **Не сделано мной:** ручная проверка в приложении (VoiceOver, вид в окне Settings) — GUI-проверки
+  не мои; Alt+↑ test-ом не покрыт.
+- **grep.** `<select` в `src/renderer` — только `src/renderer/session/composer/Pickers.tsx` (`:69`,
+  `:85`, `:104`); `selectOption` в `test/e2e` — только `own-sessions.spec.ts`,
+  `session-controls.spec.ts`, `permissions.spec.ts` (Ticket 09).
