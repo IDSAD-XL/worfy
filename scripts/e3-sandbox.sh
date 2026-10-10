@@ -33,11 +33,16 @@
 #                   home/Library/Keychains is a link to the machine's keychains (see init)
 #   npm/            npm_config_prefix: `npm install -g` of qmd stays in the sandbox
 #   tools/          links to the machine's claude, node, npm, npx, git, gh and jq, where the caller's
-#                   PATH finds them outside the system folders. The sandbox PATH is npm/bin, tools/
-#                   and the system folders: no folder of the machine, so no tool the machine happens
-#                   to have (a qmd next to node) is found in the sandbox. init, env, run and check-gh
-#                   bring the links up to date; reset-harness keeps them, as they are not what an
-#                   install leaves
+#                   PATH finds them outside the system folders. The PATH this script gives out (env,
+#                   run, and the line it writes into .zshenv and .profile) is npm/bin, tools/ and the
+#                   system folders: no folder of the machine, so no tool the machine happens to have
+#                   (a qmd next to node) comes with it. A zsh login shell of the sandbox still gets
+#                   more: /etc/zprofile runs path_helper after .zshenv, which puts /usr/local/bin and
+#                   the folders of /etc/paths.d (Homebrew, where it is listed there) in front. The
+#                   app reads the environment of its checks from that shell, so it finds the tools of
+#                   those folders too. init, env, run and check-gh bring the links up to date, and
+#                   exit 1 when they cannot write them; reset-harness keeps the links, as they are
+#                   not what an install leaves
 #   data/           WORFY_DATA_DIR of the app
 #   runs/           working folders of the acceptance runs
 #
@@ -90,9 +95,12 @@ machine_tool() {
   case "$found" in /*) printf '%s\n' "$found" ;; esac
 }
 
-# The PATH of the sandbox: what npm installs in it, the links to the tools above, the system folders.
-# No folder of the machine is on it: such a folder holds other tools too (a qmd next to node), and
-# the app would take them for installed.
+# The PATH this script gives out: what npm installs in the sandbox, the links to the tools above, the
+# system folders. No folder of the machine is on it: such a folder holds other tools too (a qmd next
+# to node), and the app would take them for installed. That holds for env, run and the line written
+# into .zshenv and .profile. The zsh login shell the app reads the environment of its checks from
+# gets /usr/local/bin and the folders of /etc/paths.d in front of it, from /etc/zprofile.
+# A link that leads nowhere is not a tool: the warning is about what can be run.
 tool_path() {
   local tool
   for tool in "${TOOLS[@]}"; do
@@ -106,29 +114,35 @@ tool_path() {
 # without being made again. Without a sandbox it does nothing.
 # - A tool of a system folder gets no link, and loses the one it had: the sandbox PATH finds it there.
 # - A tool the caller's PATH does not have keeps its link: a caller with a shorter PATH must not take
-#   a tool from an app that is running in the sandbox. For the same reason a link that is right is
-#   not written again.
-# - A tool found inside the sandbox means the caller runs in the sandbox environment: nothing to do.
+#   a tool from an app that is running in the sandbox.
+# - A tool that is the same file as its link is left alone. Either the link is right already, and
+#   writing it again would take it away for a moment; or the caller found the link itself — its PATH
+#   names tools/ (by this path or another one to the same folder) or a link that leads here — and
+#   pointing the link at what was found would point it at itself. The files are compared, not their
+#   paths: /tmp/x and /private/tmp/x are one folder.
+# - Anything else the caller finds inside the sandbox is not a tool of the machine: no link to it.
+# A write that fails ends the script with exit 1 and says which: the environment given out after it
+# would be without that tool. That does not depend on `set -e`, which is off in a `&&` list.
 link_tools() {
   [ -f "$ROOT/$MARKER" ] || return 0
-  local dir tool found
+  local dir tool found link
   # Through a link the tools would be linked into the folder it points at.
   for dir in "$ROOT" "$TOOLS_DIR"; do
     [ ! -L "$dir" ] || die 2 "$dir is a link: refusing to work through it"
   done
-  mkdir -p "$TOOLS_DIR"
+  mkdir -p "$TOOLS_DIR" || die 1 "cannot make $TOOLS_DIR: the sandbox would be without the tools of the machine"
   for tool in "${TOOLS[@]}"; do
+    link="$TOOLS_DIR/$tool"
     found=$(machine_tool "$tool")
-    case "$found" in
-      "" | "$ROOT"/*) continue ;;
-    esac
+    if [ -z "$found" ] || [ "$found" -ef "$link" ]; then continue; fi
+    case "$found" in "$ROOT"/*) continue ;; esac
     case ":$SYSTEM_PATH:" in
       *":$(dirname "$found"):"*)
-        if [ -L "$TOOLS_DIR/$tool" ]; then rm -f -- "$TOOLS_DIR/$tool"; fi
+        # Only a link is removed: a file or a folder of that name is not this script's.
+        if [ -L "$link" ]; then rm -f -- "$link" || die 1 "cannot remove the link $link"; fi
         ;;
-      *)
-        if [ "$(readlink "$TOOLS_DIR/$tool" 2>/dev/null || true)" != "$found" ]; then ln -sfn "$found" "$TOOLS_DIR/$tool"; fi
-        ;;
+      # -n: a link that points at a folder is replaced, not followed into that folder.
+      *) ln -sfn "$found" "$link" || die 1 "cannot write the link $link: the sandbox would be without $tool" ;;
     esac
   done
 }
@@ -338,8 +352,15 @@ reset_harness() {
 
 case "${1:-}" in
   init) init ;;
-  check-gh) require_sandbox && link_tools && check_gh ;;
-  env) link_tools && sandbox_env ;;
+  check-gh)
+    require_sandbox
+    link_tools
+    check_gh
+    ;;
+  env)
+    link_tools
+    sandbox_env
+    ;;
   run) shift && run_in "$@" ;;
   shell) print_shell ;;
   lock-run) shift && lock_run "$@" ;;
