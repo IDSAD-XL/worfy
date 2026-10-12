@@ -3,7 +3,7 @@
 // script does for these tests' simple files: from the working tree, or from a branch for `--ref`.
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,7 +11,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { readCheckout, readWorkflow, epicStatusRunner, type EpicStatusRunner } from '../../src/main/workflow/reader'
-import { Debounce, WorkflowHub, WorkflowWatcher } from '../../src/main/workflow/watch'
+import { Debounce, ticketsIgnored, WorkflowHub, WorkflowWatcher } from '../../src/main/workflow/watch'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { diffModels, type WorkflowDelta, type WorkflowModel } from '../../src/shared/workflow/types'
 import { generateScratch } from './scratch-gen'
@@ -645,6 +645,127 @@ describe('workflow watcher', () => {
     rmSync(join(repo, '.scratch/demo/issues/04-fourth.md'))
     const { delta } = await nextDelta(deltas, (d) => d.removedTickets.length > 0)
     expect(delta.removedTickets).toEqual([{ epic: 'demo', num: 4 }])
+  })
+
+  it('watches only what epic-status reads under the Tickets root', () => {
+    const root = join(dir, '.scratch')
+    const skips = ticketsIgnored(root)
+    for (const path of [root, join(root, 'demo'), join(root, 'demo', 'spec.md'), join(root, 'demo', 'map.md'), join(root, 'demo', 'issues'), join(root, 'demo', 'issues', '03-third.md')]) {
+      expect(skips(path), path).toBe(false)
+    }
+    for (const path of [
+      join(root, 'demo', 'logs'),
+      join(root, 'demo', 'logs', 'node_modules'),
+      join(root, 'demo', 'evidence', '12-aligner', '.venv', 'lib', 'site.py'),
+      join(root, 'demo', 'issues', 'notes.txt'),
+      join(root, 'demo', 'issues', 'old'),
+      join(root, 'demo', 'issues', 'old', '01-first.md'),
+    ]) {
+      expect(skips(path), path).toBe(true)
+    }
+  })
+
+  it('treats an Epic folder whose name starts with two dots as an Epic, and a path outside the Tickets root as outside', () => {
+    const root = join(dir, '.scratch')
+    const skips = ticketsIgnored(root)
+    for (const path of [join(root, '..hidden'), join(root, '..hidden', 'spec.md'), join(root, '..hidden', 'issues'), join(root, '..hidden', 'issues', '01-a.md'), join(root, '...', 'map.md')]) {
+      expect(skips(path), path).toBe(false)
+    }
+    for (const path of [join(root, '..hidden', 'logs'), join(root, '..hidden', 'logs', 'x.log'), join(root, '..hidden', 'node_modules'), join(root, '...', 'evidence')]) {
+      expect(skips(path), path).toBe(true)
+    }
+    // Outside the root nothing is skipped, as before: chokidar asks about the parent folder when the
+    // root does not exist yet.
+    for (const path of [join(root, '..'), join(root, '..', 'x'), join(`${root}2`, 'e', 'issues', '01.md'), join(`${root}2`, 'e', 'logs', 'x.log')]) {
+      expect(skips(path), path).toBe(false)
+    }
+  })
+
+  it('watches spec.md, map.md and issues whatever the case of their letters; a Ticket ends in .md as written', () => {
+    // On a disk that ignores case (the default on macOS and Windows) epic-status finds Issues/ and
+    // Spec.md too. Its glob for Tickets is *.md, and that one tells the case apart on any disk.
+    const root = join(dir, '.scratch')
+    const skips = ticketsIgnored(root)
+    for (const path of [join(root, 'e', 'Spec.md'), join(root, 'e', 'MAP.md'), join(root, 'e', 'Issues'), join(root, 'e', 'Issues', '01-a.md'), join(root, 'e', 'ISSUES', '02-b.md')]) {
+      expect(skips(path), path).toBe(false)
+    }
+    for (const path of [join(root, 'e', 'Issues', '01-a.MD'), join(root, 'e', 'Issues', 'sub', 'x.md'), join(root, 'e', 'Issues', 'notes.TXT'), join(root, 'e', 'Logs')]) {
+      expect(skips(path), path).toBe(true)
+    }
+  })
+
+  it('follows a Tickets root made after the start: the first Ticket, then an edit of it and a second Ticket', async () => {
+    // A new Project before its first Epic: a repository with no `.scratch` yet.
+    const repo = join(dir, 'project')
+    mkdirSync(repo)
+    writeFileSync(join(repo, 'README.md'), 'code only\n')
+    git(dir, 'init', '-q', '-b', 'main', repo)
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'code')
+    const { home } = makeClaudeHome(dir)
+    const deltas: WorkflowDelta[] = []
+    const watcher = await startWatcher(repo, home, deltas)
+    expect(watcher.current.tickets).toEqual([])
+
+    const issues = join(repo, '.scratch', 'demo', 'issues')
+    mkdirSync(issues, { recursive: true })
+    writeFileSync(join(repo, '.scratch', 'demo', 'spec.md'), '# Demo epic: made after the start\n')
+    const file = join(issues, '01-first.md')
+    writeFileSync(file, ticketText(1, 'open', '—', null))
+    const added = await nextDelta(deltas, (d) => d.tickets.some((t) => t.num === 1))
+    expect(added.delta.tickets.map((t) => [t.epic, t.num, t.state])).toEqual([['demo', 1, 'open']])
+    await watcher.idle()
+
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked — waiting'))
+    const edited = await nextDelta(deltas, (d) => d.tickets.length > 0)
+    expect(edited.delta.tickets.map((t) => [t.num, t.state])).toEqual([[1, 'blocked']])
+
+    writeFileSync(join(issues, '02-second.md'), ticketText(2, 'open', '01', null))
+    const second = await nextDelta(deltas, (d) => d.tickets.length > 0)
+    expect(second.delta.tickets.map((t) => [t.num, t.state])).toEqual([[2, 'open']])
+  })
+
+  it('logs an error event of either file watch and does not throw', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const watcher = await startWatcher(repo, home, [])
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    // The watcher keeps its two chokidar watchers private: the Tickets root first, then the git refs.
+    const watchers = (watcher as unknown as { watchers: { emit(event: 'error', error: Error): boolean }[] }).watchers
+    expect(watchers).toHaveLength(2)
+    const failure = new Error('EMFILE: too many open files, watch')
+
+    // An 'error' event with no listener throws from `emit`.
+    for (const one of watchers) expect(() => one.emit('error', failure)).not.toThrow()
+    expect(logged.mock.calls).toEqual([
+      ['[workflow] checkout watch error', failure],
+      ['[workflow] branches watch error', failure],
+    ])
+    logged.mockRestore()
+  })
+
+  it('reads nothing again for a change outside what epic-status reads, a linked node_modules included, and still sees a new Epic', async () => {
+    const repo = makeRepo(dir)
+    const { home, log } = makeClaudeHome(dir)
+    const modules = join(dir, 'node_modules')
+    mkdirSync(join(modules, 'pkg'), { recursive: true })
+    writeFileSync(join(modules, 'pkg', 'index.js'), '')
+    const logs = join(repo, '.scratch', 'demo', 'logs')
+    mkdirSync(logs)
+    symlinkSync(modules, join(logs, 'node_modules'), 'dir')
+    const deltas: WorkflowDelta[] = []
+    await startWatcher(repo, home, deltas)
+    writeFileSync(log, '')
+
+    writeFileSync(join(modules, 'pkg', 'index.js'), 'changed')
+    writeFileSync(join(logs, 'run.txt'), 'a log line')
+    await new Promise((done) => setTimeout(done, 1000))
+    expect(calls(log)).toEqual([])
+
+    mkdirSync(join(repo, '.scratch', 'later', 'issues'), { recursive: true })
+    writeFileSync(join(repo, '.scratch', 'later', 'issues', '01-new.md'), ticketText(1, 'open', '—', null))
+    const { delta } = await nextDelta(deltas, (d) => d.tickets.some((t) => t.epic === 'later'))
+    expect(delta.tickets.map((t) => [t.epic, t.num])).toEqual([['later', 1]])
   })
 
   it('does not lose a Ticket saved while the first read runs', async () => {

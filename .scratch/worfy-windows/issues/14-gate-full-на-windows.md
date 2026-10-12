@@ -78,6 +78,12 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
 - CI (`.github/workflows/ci.yml`): job `check` на ubuntu идёт на PR и push (`:24-26`); `full-macos`
   — только на `workflow_dispatch` (`:60-62`). Job-а Windows нет. Каждый ручной запуск гоняет
   `full-macos`, минута macOS — $0.062, Windows — $0.010.
+- Зависшие `bash.exe` после `pnpm test` (Session на Windows-ПК, 2026-10-10). После каждого полного
+  прогона остаются 7 процессов `bash.exe`. Их запускают `harness/bin/tests/silent-mode.test.sh`,
+  `skill-blocks.test.sh` и `tickets-root.test.sh`, а также вызванные ими
+  `harness/bin/epic-status --json` и `bin/profile`. vitest снимает test по timeout, дочерние `bash`
+  живут дальше: за пять прогонов набралось 35. Почему `epic-status` на Windows не завершается, не
+  разбиралось; на Node его переносит Ticket 05.
 
 ## Что делаем
 

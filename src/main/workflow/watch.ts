@@ -47,6 +47,38 @@ export interface WatchOptions {
   layout?: (root: string) => Promise<ProjectLayout>
 }
 
+/**
+ * What the watch of a Tickets root skips: everything `epic-status` does not read. It reads the Epic
+ * folders right under the root, their `spec.md` and `map.md`, and `issues/*.md`. The rest of a
+ * Tickets root can be anything — evidence, logs, a Python `.venv`, `node_modules` or links to one —
+ * and chokidar holds one open file per file it watches: an Arbor `.scratch` with links to
+ * `node_modules` reached 30 000 of them, and worfy hung at start on EMFILE.
+ *
+ * This function alone bounds the walk; the watch has no `depth` option. When the Tickets root does
+ * not exist at the start (a new Project before its first Epic), chokidar watches the parent folder
+ * and counts `depth` from there, so a limit that fits an existing root would cut off `issues` of a
+ * root made later. For the same reason a path outside the root is never skipped: chokidar asks about
+ * the parent folder too. Outside means `..` or `../…`; a folder inside the root named `..x` is an
+ * Epic like any other.
+ *
+ * `spec.md`, `map.md` and `issues` are compared without regard to case: on a disk that ignores case
+ * (the default on macOS and Windows) `epic-status` finds `Issues/` or `Spec.md` as well. On a disk
+ * that keeps case apart this watches a few files more than needed; a save of one costs a read that
+ * changes nothing. The `.md` ending of a Ticket is compared as written, as the glob of `epic-status`
+ * compares it: it does not read `01-a.MD` on any disk.
+ */
+export function ticketsIgnored(ticketsRoot: string): (path: string) => boolean {
+  return (path) => {
+    const rel = relative(ticketsRoot, path)
+    if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return false
+    const [, inEpic, inIssues, ...deeper] = rel.split(sep)
+    if (inEpic === undefined) return false
+    const name = inEpic.toLowerCase()
+    if (inIssues === undefined) return name !== 'spec.md' && name !== 'map.md' && name !== 'issues'
+    return name !== 'issues' || !inIssues.endsWith('.md') || deeper.length > 0
+  }
+}
+
 function gitCommonDir(root: string): Promise<string | null> {
   return new Promise((done) => {
     execFile('git', ['rev-parse', '--git-common-dir'], { cwd: root, encoding: 'utf8' }, (error, stdout) => {
@@ -171,9 +203,13 @@ export class WorkflowWatcher {
     const add = (watcher: FSWatcher, what: 'checkout' | 'branches') => {
       ready.push(new Promise<void>((done) => watcher.once('ready', () => done())))
       watcher.on('all', () => this.schedule(what))
+      // Without a listener chokidar's 'error' event throws, and every failed watch became an
+      // unhandled rejection.
+      watcher.on('error', (error) => console.error(`[workflow] ${what} watch error`, error))
       this.watchers.push(watcher)
     }
-    add(watch(layout.ticketsRoot, { ignoreInitial: true }), 'checkout')
+    // No `depth`: see `ticketsIgnored`.
+    add(watch(layout.ticketsRoot, { ignoreInitial: true, ignored: ticketsIgnored(layout.ticketsRoot) }), 'checkout')
 
     const common = layout.mode === 'silent' ? null : await gitCommonDir(root)
     if (common) {

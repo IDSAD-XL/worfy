@@ -93,7 +93,7 @@ describe('e3-sandbox.sh init', () => {
     const run = sandbox(['init'])
     expectExit(run, 0)
     expect(run.stdout).toContain(`e3-sandbox: ${root}`)
-    for (const dir of ['home/.claude', 'npm/bin', 'data', 'runs']) expect(lstatSync(join(root, dir)).isDirectory(), dir).toBe(true)
+    for (const dir of ['home/.claude', 'npm/bin', 'tools', 'data', 'runs']) expect(lstatSync(join(root, dir)).isDirectory(), dir).toBe(true)
     expect(existsSync(join(root, '.worfy-e3-sandbox'))).toBe(true)
     const gitconfig = readFileSync(join(root, 'home', '.gitconfig'), 'utf8')
     expect(gitconfig).toContain('email = IDSAD-XL@users.noreply.github.com')
@@ -185,6 +185,303 @@ describe('e3-sandbox.sh env and run', () => {
   })
 })
 
+describe('e3-sandbox.sh tools', () => {
+  const SYSTEM_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
+  const TOOLS = ['claude', 'gh', 'git', 'jq', 'node', 'npm', 'npx']
+
+  /** Stand-ins for tools of the machine in <scratch>/<folder>: each prints its name and that folder. */
+  function machineTools(folder: string, names: string[]): string {
+    const dir = join(scratch, folder)
+    mkdirSync(dir, { recursive: true })
+    for (const name of names) {
+      writeFileSync(join(dir, name), `#!/bin/sh\necho '${name} of ${folder}'\n`)
+      chmodSync(join(dir, name), 0o755)
+    }
+    return dir
+  }
+
+  /** The caller's PATH: these folders of the machine, then the system folders. */
+  const callerPath = (...dirs: string[]): Record<string, string> => ({ PATH: [...dirs, SYSTEM_PATH].join(':') })
+
+  /**
+   * A machine like the owner's: a node folder that also holds a qmd, and a folder of other tools with
+   * a tool nobody asked for; `gh` is the stand-in of <scratch>/bin.
+   */
+  function machine(): { nodeBin: string; otherBin: string; env: Record<string, string> } {
+    const nodeBin = machineTools('node-bin', ['node', 'npm', 'npx', 'qmd'])
+    const otherBin = machineTools('other-bin', ['claude', 'git', 'jq', 'tool-nobody-asked-for'])
+    return { nodeBin, otherBin, env: callerPath(nodeBin, otherBin, join(scratch, 'bin')) }
+  }
+
+  /** The environment `e3-sandbox.sh env` prints, as variables. */
+  function printedEnv(env: Record<string, string>): Record<string, string> {
+    const run = sandbox(['env'], { env })
+    expectExit(run, 0)
+    return Object.fromEntries(run.stdout.trim().split('\n').map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]))
+  }
+
+  /** Where a shell with the environment `env` finds each of `names`: '' when nowhere. */
+  function found(env: Record<string, string>, names: string[]): Record<string, string> {
+    const run = spawnSync('/bin/sh', ['-c', `for t in ${names.join(' ')}; do echo "$t=$(command -v "$t")"; done`], { env, encoding: 'utf8' })
+    return Object.fromEntries(run.stdout.trim().split('\n').map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]))
+  }
+
+  const toolLinks = (): string[] => readdirSync(join(root, 'tools')).sort()
+  const linkOf = (name: string): string => readlinkSync(join(root, 'tools', name))
+
+  it('finds the tools the acceptance needs through links in tools/, and not the qmd that lies next to node on the machine', () => {
+    const { nodeBin, otherBin, env } = machine()
+    expectExit(sandbox(['init'], { env }), 0)
+    const printed = printedEnv(env)
+    // No folder of the machine: what npm installs in the sandbox, the links, the system folders.
+    expect(printed.PATH).toBe(`${join(root, 'npm', 'bin')}:${join(root, 'tools')}:${SYSTEM_PATH}`)
+    expect(found(printed, [...TOOLS, 'qmd', 'tool-nobody-asked-for'])).toEqual({
+      ...Object.fromEntries(TOOLS.map((name) => [name, join(root, 'tools', name)])),
+      qmd: '',
+      'tool-nobody-asked-for': '',
+    })
+    expect(toolLinks()).toEqual(TOOLS)
+    for (const name of ['node', 'npm', 'npx']) expect(linkOf(name), name).toBe(join(nodeBin, name))
+    for (const name of ['claude', 'git', 'jq']) expect(linkOf(name), name).toBe(join(otherBin, name))
+    expect(linkOf('gh')).toBe(join(scratch, 'bin', 'gh'))
+    // The link runs the tool of the machine.
+    expect(spawnSync('node', [], { env: printed, encoding: 'utf8' }).stdout).toBe('node of node-bin\n')
+    // The login shells of the sandbox get the same PATH.
+    expect(readFileSync(join(root, 'home', '.zshenv'), 'utf8')).toContain(`export PATH='${printed.PATH}'\n`)
+  })
+
+  it('finds qmd once it is installed under the npm prefix of the sandbox', () => {
+    const { env } = machine()
+    expectExit(sandbox(['init'], { env }), 0)
+    writeFileSync(join(root, 'npm', 'bin', 'qmd'), '#!/bin/sh\n')
+    chmodSync(join(root, 'npm', 'bin', 'qmd'), 0o755)
+    expect(found(printedEnv(env), ['qmd'])).toEqual({ qmd: join(root, 'npm', 'bin', 'qmd') })
+  })
+
+  it.each([
+    ['env', ['env']],
+    ['run', ['run', 'true']],
+    ['check-gh', ['check-gh']],
+    ['init', ['init']],
+  ])('%s gives the links to a sandbox that was made without them, and changes nothing else in it', (_name, args) => {
+    const { env } = machine()
+    expectExit(sandbox(['init'], { env }), 0)
+    rmSync(join(root, 'tools'), { recursive: true })
+    writeFileSync(join(root, 'home', '.claude', '.claude.json'), '{"signedIn":true}\n')
+    expectExit(sandbox(args, { env }), 0)
+    expect(toolLinks()).toEqual(TOOLS)
+    expect(readFileSync(join(root, 'home', '.claude', '.claude.json'), 'utf8')).toBe('{"signedIn":true}\n')
+  })
+
+  it('env makes no sandbox: without one it only prints', () => {
+    const { env } = machine()
+    expect(printedEnv(env).PATH).toBe(`${join(root, 'npm', 'bin')}:${join(root, 'tools')}:${SYSTEM_PATH}`)
+    expect(existsSync(root)).toBe(false)
+  })
+
+  it('says which tool the machine does not have and goes on: no link, no refusal', () => {
+    const nodeBin = machineTools('node-bin', ['node', 'npm', 'npx'])
+    const env = callerPath(nodeBin, join(scratch, 'bin'))
+    const run = sandbox(['init'], { env })
+    expectExit(run, 0)
+    expect(run.stderr).toContain('e3-sandbox: claude is not on the PATH')
+    expect(run.stderr).not.toContain('node is not on the PATH')
+    expect(toolLinks()).not.toContain('claude')
+    expect(found(printedEnv(env), ['claude', 'node'])).toEqual({ claude: '', node: join(root, 'tools', 'node') })
+  })
+
+  it('keeps a link when the caller has a shorter PATH: a tool is not taken from the sandbox', () => {
+    const { nodeBin, env } = machine()
+    expectExit(sandbox(['init'], { env }), 0)
+    const run = sandbox(['env'], { env: callerPath() })
+    expectExit(run, 0)
+    expect(linkOf('node')).toBe(join(nodeBin, 'node'))
+    expect(linkOf('claude')).toBe(join(scratch, 'other-bin', 'claude'))
+    expect(run.stderr).not.toContain('is not on the PATH')
+  })
+
+  it('points a link at the tool the caller finds now', () => {
+    const { nodeBin, otherBin, env } = machine()
+    expectExit(sandbox(['init'], { env }), 0)
+    const newer = machineTools('node-bin-newer', ['node'])
+    const printed = printedEnv(callerPath(newer, nodeBin, otherBin, join(scratch, 'bin')))
+    expect(linkOf('node')).toBe(join(newer, 'node'))
+    expect(linkOf('npm')).toBe(join(nodeBin, 'npm'))
+    expect(spawnSync('node', [], { env: printed, encoding: 'utf8' }).stdout).toBe('node of node-bin-newer\n')
+  })
+
+  it('makes no link to a tool of a system folder, and drops the link once the caller finds the tool there', () => {
+    // git is in a system folder on macOS (the Xcode shim) and on the CI image.
+    const systemGit = found(callerPath(), ['git']).git ?? ''
+    expect(SYSTEM_PATH.split(':')).toContain(systemGit.slice(0, systemGit.lastIndexOf('/')))
+    const { nodeBin, otherBin, env } = machine()
+    expectExit(sandbox(['init'], { env }), 0)
+    expect(linkOf('git')).toBe(join(otherBin, 'git'))
+    // The machine lost its own git: the caller finds the system one now.
+    rmSync(join(otherBin, 'git'))
+    const printed = printedEnv(env)
+    expect(toolLinks()).toEqual(TOOLS.filter((name) => name !== 'git'))
+    expect(found(printed, ['git', 'node'])).toEqual({ git: systemGit, node: join(root, 'tools', 'node') })
+    expect(linkOf('node')).toBe(join(nodeBin, 'node'))
+  })
+
+  it('leaves the links as they are when the caller itself runs in the sandbox environment', () => {
+    const { nodeBin, env } = machine()
+    expectExit(sandbox(['init'], { env }), 0)
+    const printed = printedEnv(env)
+    const run = sandbox(['env'], { env: { PATH: printed.PATH ?? '' } })
+    expectExit(run, 0)
+    expect(run.stderr).not.toContain('is not on the PATH')
+    expect(toolLinks()).toEqual(TOOLS)
+    expect(linkOf('node')).toBe(join(nodeBin, 'node'))
+    expect(linkOf('gh')).toBe(join(scratch, 'bin', 'gh'))
+  })
+
+  const targets = (): Record<string, string> => Object.fromEntries(TOOLS.map((name) => [name, linkOf(name)]))
+  const writtenAt = (): bigint[] => TOOLS.map((name) => lstatSync(join(root, 'tools', name), { bigint: true }).mtimeNs)
+
+  it.each([
+    ['another path to the same folder', (): string => {
+      symlinkSync(root, join(scratch, 'another-way'))
+      return join(scratch, 'another-way', 'tools')
+    }],
+    ['a link that leads to tools/', (): string => {
+      mkdirSync(join(scratch, 'front-bin'))
+      for (const name of TOOLS) symlinkSync(join(root, 'tools', name), join(scratch, 'front-bin', name))
+      return join(scratch, 'front-bin')
+    }],
+  ])('points no link at itself when the caller finds the links through %s', (_name, callerFolder) => {
+    const { env } = machine()
+    expectExit(sandbox(['init'], { env }), 0)
+    const before = targets()
+    const run = sandbox(['env'], { env: callerPath(callerFolder()) })
+    expectExit(run, 0)
+    expect(targets()).toEqual(before)
+    expect(spawnSync('node', [], { env: printedEnv(env), encoding: 'utf8' }).stdout).toBe('node of node-bin\n')
+  })
+
+  it.each([
+    ['env', ['env']],
+    ['init', ['init']],
+  ])('%s does not write again a link that is right', (_name, args) => {
+    const { env } = machine()
+    expectExit(sandbox(['init'], { env }), 0)
+    const before = writtenAt()
+    expectExit(sandbox(args, { env }), 0)
+    expect(writtenAt()).toEqual(before)
+  })
+
+  it('replaces a link that points at a folder, and writes nothing into that folder', () => {
+    const { nodeBin, env } = machine()
+    expectExit(sandbox(['init'], { env }), 0)
+    const outside = join(scratch, 'outside-folder')
+    mkdirSync(outside)
+    rmSync(join(root, 'tools', 'node'))
+    symlinkSync(outside, join(root, 'tools', 'node'))
+    expectExit(sandbox(['env'], { env }), 0)
+    expect(linkOf('node')).toBe(join(nodeBin, 'node'))
+    expect(readdirSync(outside)).toEqual([])
+  })
+
+  it('removes only a link when the tool is in a system folder: a folder of that name stays whole', () => {
+    expect(found(callerPath(), ['git']).git).not.toBe('')
+    const env = callerPath(machineTools('node-bin', ['node', 'npm', 'npx']), join(scratch, 'bin'))
+    expectExit(sandbox(['init'], { env }), 0)
+    mkdirSync(join(root, 'tools', 'git'))
+    writeFileSync(join(root, 'tools', 'git', 'kept.txt'), 'not of this script\n')
+    expectExit(sandbox(['env'], { env }), 0)
+    expect(readFileSync(join(root, 'tools', 'git', 'kept.txt'), 'utf8')).toBe('not of this script\n')
+  })
+
+  it('says so when a link leads nowhere and the caller has no such tool: a link is not a tool', () => {
+    const { nodeBin, env } = machine()
+    expectExit(sandbox(['init'], { env }), 0)
+    rmSync(join(nodeBin, 'node'))
+    const run = sandbox(['env'], { env: callerPath() })
+    expectExit(run, 0)
+    expect(run.stderr).toContain('e3-sandbox: node is not on the PATH')
+    expect(run.stderr).not.toContain('npm is not on the PATH')
+  })
+
+  // A folder nobody can write into stops nobody who is root: nothing to check then.
+  describe.skipIf(process.getuid?.() === 0)('a write that fails', () => {
+    /** Runs `args` with `dir` read-only, and makes it writable again: the test folder is deleted afterwards. */
+    function withReadOnly(dir: string, args: string[], env: Record<string, string>): Run {
+      chmodSync(dir, 0o555)
+      try {
+        return sandbox(args, { env })
+      } finally {
+        chmodSync(dir, 0o755)
+      }
+    }
+
+    // claude is the first tool of the list: a failure the links after it must not hide.
+    it.each([
+      ['init', ['init']],
+      ['env', ['env']],
+      ['run', ['run', '/usr/bin/env']],
+      ['check-gh', ['check-gh']],
+    ])('%s exits 1 and names the link it could not write, giving out no environment', (_name, args) => {
+      const { env } = machine()
+      expectExit(sandbox(['init'], { env }), 0)
+      rmSync(join(root, 'tools', 'claude'))
+      const run = withReadOnly(join(root, 'tools'), args, env)
+      expectExit(run, 1)
+      expect(run.stderr).toContain(`e3-sandbox: cannot write the link ${join(root, 'tools', 'claude')}`)
+      expect(run.stdout).not.toContain('PATH=')
+      // gh was asked once, by the first init: the command stopped before its own check of gh.
+      expect(ghCalls()).toHaveLength(1)
+    })
+
+    it('exits 1 when tools/ cannot be made', () => {
+      const { env } = machine()
+      expectExit(sandbox(['init'], { env }), 0)
+      rmSync(join(root, 'tools'), { recursive: true })
+      const run = withReadOnly(root, ['env'], env)
+      expectExit(run, 1)
+      expect(run.stderr).toContain(`e3-sandbox: cannot make ${join(root, 'tools')}`)
+      expect(run.stdout).not.toContain('PATH=')
+    })
+
+    it('exits 1 when the link of a tool that moved to a system folder cannot be removed', () => {
+      expect(found(callerPath(), ['git']).git).not.toBe('')
+      const { otherBin, env } = machine()
+      expectExit(sandbox(['init'], { env }), 0)
+      rmSync(join(otherBin, 'git'))
+      const run = withReadOnly(join(root, 'tools'), ['env'], env)
+      expectExit(run, 1)
+      expect(run.stderr).toContain(`e3-sandbox: cannot remove the link ${join(root, 'tools', 'git')}`)
+      expect(run.stdout).not.toContain('PATH=')
+    })
+  })
+
+  it.each(['env', 'init', 'run'])('%s refuses when tools/ is a link, and writes nothing where it points', (command) => {
+    const { env } = machine()
+    expectExit(sandbox(['init'], { env }), 0)
+    const outside = join(scratch, 'outside-tools')
+    mkdirSync(outside)
+    rmSync(join(root, 'tools'), { recursive: true })
+    symlinkSync(outside, join(root, 'tools'))
+    const run = sandbox(command === 'run' ? ['run', 'true'] : [command], { env })
+    expectExit(run, 2)
+    expect(run.stderr).toContain(`${join(root, 'tools')} is a link`)
+    expect(readdirSync(outside)).toEqual([])
+  })
+
+  it.each(['env', 'run'])('%s refuses when the sandbox folder itself is a link, and makes no tools/ where it points', (command) => {
+    const { env } = machine()
+    expectExit(sandbox(['init'], { env }), 0)
+    rmSync(join(root, 'tools'), { recursive: true })
+    const outside = join(scratch, 'outside-sandbox')
+    renameSync(root, outside)
+    symlinkSync(outside, root)
+    const run = sandbox(command === 'run' ? ['run', 'true'] : [command], { env })
+    expectExit(run, 2)
+    expect(run.stderr).toContain(`${root} is a link`)
+    expect(existsSync(join(outside, 'tools'))).toBe(false)
+  })
+})
+
 describe('e3-sandbox.sh reset and reset-harness', () => {
   /** What an install leaves in the sandbox, and the sign-in next to it. */
   function installed(claudeHome = join(root, 'home', '.claude')): void {
@@ -202,6 +499,8 @@ describe('e3-sandbox.sh reset and reset-harness', () => {
     expect(existsSync(root)).toBe(false)
     expect(readdirSync(temp)).toEqual([])
     expect(readFileSync(join(userHome, 'Library', 'Keychains', 'login.keychain-db'), 'utf8')).toBe('the keychain of the machine\n')
+    // tools/gh was a link to the gh of the machine: the link is gone, the tool is not.
+    expect(existsSync(join(scratch, 'bin', 'gh'))).toBe(true)
     expectExit(sandbox(['reset']), 0)
   })
 
@@ -211,7 +510,10 @@ describe('e3-sandbox.sh reset and reset-harness', () => {
     writeFileSync(join(root, 'npm', 'bin', 'qmd'), '')
     writeFileSync(join(root, 'data', 'first-run.json'), '{}')
     mkdirSync(join(root, 'runs', 'one'))
+    expect(readlinkSync(join(root, 'tools', 'gh'))).toBe(join(scratch, 'bin', 'gh'))
     expectExit(sandbox(['reset-harness']), 0)
+    // The links to the tools of the machine are not what an install left: they stay.
+    expect(readlinkSync(join(root, 'tools', 'gh'))).toBe(join(scratch, 'bin', 'gh'))
     expect(readdirSync(join(root, 'home', '.claude'))).toEqual(['.claude.json'])
     expect(readFileSync(join(root, 'home', '.claude', '.claude.json'), 'utf8')).toBe('{"oauthAccount":{}}\n')
     for (const dir of ['npm/bin', 'data', 'runs']) expect(readdirSync(join(root, dir)), dir).toEqual([])

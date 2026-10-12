@@ -12,10 +12,11 @@
 // 4. The draft: first `bin/project-connect --facts <folder>` reads what only a command could tell
 //    (remotes, branches; owner decision 2026-10-09), then a Claude Code Session in the folder gets
 //    `/worfy:connect-project <folder> <mode> --draft-only` with those facts as data, the draft schema
-//    as its structured output (outputFormat), and only Read, Glob and Grep: Bash and every tool that
-//    writes or reaches out are taken away (DRAFT_DISALLOWED_TOOLS), and canUseTool refuses anything
-//    outside DRAFT_TOOLS. The answer is checked against the schema by `bin/project-connect
-//    --schema-only`; worfy then sets what it owns (applyChoices) and asks `--check` for the form.
+//    (without `$schema` and `$id`: sessionSchema) as its structured output (outputFormat), and only
+//    Read, Glob and Grep: Bash and every tool that writes or reaches out are taken away
+//    (DRAFT_DISALLOWED_TOOLS), and canUseTool refuses anything outside DRAFT_TOOLS. The answer is
+//    checked against the whole schema of the file by `bin/project-connect --schema-only`; worfy then
+//    sets what it owns (applyChoices) and asks `--check` for the form.
 // 5./6. The form's checks and the write go through `bin/project-connect` only (ADR-0002: worfy
 //    changes workflow state only with the Harness's tools); worfy writes nothing itself — not in the
 //    Harness home and never in the Project's repositories (ADR-0005). After the write `bin/profile -C`
@@ -106,7 +107,7 @@ export interface ConnectDeps {
   harness: () => Promise<HarnessStatus>
   /** Claude Code for the draft Session. */
   query: DraftQueryFactory
-  /** harness/profiles/draft.schema.json of the Harness this build carries. */
+  /** harness/profiles/draft.schema.json of the Harness this build carries, as the file has it; the Session gets `sessionSchema` of it. */
   draftSchema: () => Record<string, unknown>
   /** `language.reports` by default: the system language (`app.getLocale()`), `ru` or `en`. */
   reportsLanguage: () => 'ru' | 'en'
@@ -257,6 +258,31 @@ export const draftCanUseTool: CanUseToolHandler = (toolName, input) =>
   Promise.resolve(DRAFT_TOOLS.includes(toolName) || toolName === STRUCTURED_OUTPUT_TOOL ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: DRAFT_DENIED })
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
+
+// Where a draft-07 schema holds other schemas: one schema or a list of them, and schemas by name.
+// Everything else is data — `enum`, `const`, `default`, and the names under `properties`.
+const SCHEMA_OR_LIST: ReadonlySet<string> = new Set(['additionalItems', 'additionalProperties', 'allOf', 'anyOf', 'contains', 'else', 'if', 'items', 'not', 'oneOf', 'propertyNames', 'then'])
+const SCHEMAS_BY_NAME: ReadonlySet<string> = new Set(['definitions', 'dependencies', 'patternProperties', 'properties'])
+
+const innerSchema = (value: unknown): unknown => (isRecord(value) ? sessionSchema(value) : value)
+
+/**
+ * The draft schema as the Session gets it: a copy without `$schema` and `$id`, in the schema and in
+ * every schema inside it. Claude Code checks `--json-schema` with a validator that knows draft-07
+ * only: on the `$schema` of draft 2020-12 it exits before the first request to the model ("no schema
+ * with key or ref …", Claude Code 2.1.291). The file keeps both keys for its other readers
+ * (`bin/project-connect`). A field of the draft that is itself called `$id` stays.
+ */
+export function sessionSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  const copy: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(schema)) {
+    if (key === '$schema' || key === '$id') continue
+    if (SCHEMA_OR_LIST.has(key)) copy[key] = Array.isArray(value) ? value.map(innerSchema) : innerSchema(value)
+    else if (SCHEMAS_BY_NAME.has(key) && isRecord(value)) copy[key] = Object.fromEntries(Object.entries(value).map(([name, inner]) => [name, innerSchema(inner)]))
+    else copy[key] = value
+  }
+  return copy
+}
 
 /** The last action of an SDK message, in a few words; null for a message that shows none. */
 export function activityOf(message: unknown): string | null {
@@ -448,7 +474,7 @@ export class ProjectConnector {
         settings: { ...DEFAULT_SETTINGS, permissionMode: 'default' },
         canUseTool: draftCanUseTool,
         unattended: false,
-        outputFormat: { type: 'json_schema', schema: this.deps.draftSchema() },
+        outputFormat: { type: 'json_schema', schema: sessionSchema(this.deps.draftSchema()) },
         allowedTools: DRAFT_TOOLS,
         disallowedTools: DRAFT_DISALLOWED_TOOLS,
       })
