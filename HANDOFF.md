@@ -1,4 +1,4 @@
-# Передача контекста — снимок на 2026-10-12 (UTC), main @ ac556ff
+# Передача контекста — снимок на 2026-10-12 (UTC), main @ d0c3d30
 
 ## Сейчас в работе
 
@@ -6,15 +6,16 @@
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 19; 19 (старая неудача в окне First run, low) открыт. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`; работа — только в локальной ветке `wip/worfy-week-14` («Итог» Ticket-а 14).
 - Stable copy и plugin `worfy` — сборка `4d3d60c` (2026-10-10). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/18; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16; 17 и 18 — до связи с чужой машиной.
-- `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057): влиты 01, 02, 08–12, 18, 19 (PR #172, #177, #200, #194, #239, #215, #237, #228, #233), ответы — PR #192. Windows-ПК: 23, затем 20–22; на Mac — 24, 25 и gate full. 03–07 ждут закрытия E3.
+- `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057): влиты 01, 02, 08–12, 18, 19 (PR #172, #177, #200, #194, #239, #215, #237, #228, #233), ответы — PR #192. Windows-ПК: 23, затем 26 (test-ы оставляют папки в `%TEMP%`), 20–22; на Mac — 24, 25 и gate full. 03–07 ждут закрытия E3.
 - `worfy-terminal-ai` (Terminal AI в Terminal-ах на подписке; [spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) 01, 02 влиты (PR #204, #205); следом 03. 08 ждёт `worfy-ui` 02 и 08 (окно Settings, Select), 09 — шаги владельца (`blocked`).
 - `worfy-ui` (Settings, масштаб, боковая панель, режим фокуса, палитра, Select, сочетания; [spec](.scratch/worfy-ui/spec.md)) 13 Ticket-ов: влиты 01, 02, 07, 08 (PR #207, #209, #210, #208) — Wave 1. До 09 — долг Select из «Итог» 08. 13 («Settings…» в режиме фокуса) — после 10.
-- `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 4/7: влиты 01, 03, 05 (Wave 1) и 02 (PR #231). 06 (PR #232, журнал решений) ждёт ревью, затем gate full на Mac и Windows-ПК.
+- `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 5/8: влиты 01, 03, 05 (Wave 1), 02 и 06 (PR #231, #232) — Wave 2. Следом 04 и 07; 08 (глубина ревью) ждёт ответов владельца.
 
 ## Ждёт владельца
 
 - `worfy-harness` 26 (приёмка E3): код приёмки влит (PR #211, узкий круг — `NARROW: VERIFIED`); остались шаги ниже.
-- Приёмка E3 («Итог» 26): пункты 1, 3 и 4 приняты; пункт 2 ждёт от владельца пустой репозиторий; пункт 5 владелец делает сам (`/Users/Shared/worfy-item5/`); вход в песочнице открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08.
+- Приёмка E3 («Итог» 26): пункты 1, 3 и 4 приняты; пункт 5 владелец делает сам (`/Users/Shared/worfy-item5/`); пункт 2 — строкой ниже; вход в песочнице открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08.
+- Приёмка E3, пункт 2: Wave в Silent Project прошла 2026-10-12, упало ожидание самого test-а (PR #252); следы по этому запуску проверены отдельно — код 0. Засчитать или повторить на третьем пустом репозитории — решает владелец.
 - `worfy-link` 02: вручную — dev-сборка и Stable copy находят друг друга по Bonjour и связываются по коду; появился ли запрос Local Network и на каком шаге — [Ticket 02](.scratch/worfy-link/issues/02-link-a-machine-код-список-и-отзыв.md), «Итог».
 - Мусор на машине: удалить ли 13 папок транскриптов spike-а `~/.claude/projects/*worfy-harness-probe*` (`worfy-harness` 01) `~/.claude/worfy-harness/worktree-sessions/` (`worfy-harness` 11).
 - Мусор от проб `worfy-harness` 22: `~/.claude/projects/-private-tmp-worfy-harness-w10-impl-22-{probe-t0,p7-repo}/` и пустые `~/.claude/session-env/*` — удалить ли.
