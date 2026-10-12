@@ -235,7 +235,7 @@ workflow-файл им не проверен.
 - Gate full на Mac: 2026-10-12 23:15 – 2026-10-13 00:45 — красный в четырёх запусках на test-ах вне PR (наблюдатели за файлами `docs.test.ts`, `claude-home-registry.test.ts`, e2e `card-drag` и `external-session`); main без этого PR в то же время тоже не проходил `pnpm test`. Причина — служба macOS `fseventsd` (замеры владельца — `worfy-windows` 26); после `sudo killall fseventsd` в 01:02 — один запуск, код 0, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`, на head `be1db3d` (rebase на `5f43db8`).
 - Мерж: CI зелёный, CLEAN, влит `6b06ca0`. Workflow «Windows tests» появился в списке workflow-ов репозитория; запусков его не было.
 - не проверено: первые два пункта «Готово, когда» — платные запуски на `windows-latest` делает владелец после мержа и присылает числа.
-- Пункт 6 Ticket-а: строка в `rules.md` Profile-а об исключении из правила о платных прогонах не добавлена — файл живёт в `~/.claude/worfy-harness`, запись туда — по слову владельца.
+- Пункт 6 Ticket-а: строку в `rules.md` Profile-а об исключении из правила о платных прогонах добавил владелец 2026-10-13 (commit `1b4296b` в `~/.claude/worfy-harness`): исключение — только workflow «Windows tests»; запускают владелец и Session-оркестратор на Mac, которая ведёт очередь; Session этого Ticket-а, implementer и reviewer — нет.
 
 ### Приёмочные запуски на `windows-latest` (2026-10-13, Session на Mac, с разрешения владельца)
 
