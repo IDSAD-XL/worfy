@@ -207,7 +207,7 @@ contract test-ам Ticket-а 12; test-ы, которые их читают, пи
   `[qmd, worfy-canvas]` — только `qmd`; `[]` — ни одного. Мимо списка проходит только SDK-сервер
   в процессе (`worfy-canvas`). Строка Profile
   `mcp.allowed` для qmd из plugin-а — `plugin_worfy_qmd`; `DEFAULT_MCP_SERVERS` →
-  `['plugin_worfy_qmd', 'worfy-canvas']` — **решено без владельца, подтвердить** (ADR-0048,
+  `['plugin_worfy_qmd', 'worfy-canvas']` — **решено без владельца, подтверждено владельцем 2026-10-12** (ADR-0048,
   пункт 4).
 - **Настоящие файлы.** `shasum ~/.claude/settings.json ~/.claude/plugins/installed_plugins.json
   ~/.claude/plugins/known_marketplaces.json ~/.claude.json` до (15:32) и после прогона:
@@ -240,6 +240,8 @@ contract test-ам Ticket-а 12; test-ы, которые их читают, пи
 - Старые коммиты ветки `cd28023` и `3a4c0f5` с двумя настоящими UUID аккаунта Claude владельца
   (`accountUuid`, `organizationUuid`) успели попасть на GitHub. После force-push они могут оставаться
   доступными по sha из ленты PR #106. Полностью их убирает только поддержка GitHub — решает владелец.
+  Владелец решил 2026-10-12: принять, пока репозиторий приватный (UUID — не секрет); написать в поддержку
+  GitHub перед тем, как открывать репозиторий.
 - `scripts/spikes/harness-plugin/probe.ts`: повторный `--rescrub` обрезает уже обрезанные строки.
 
 ### Долги из HANDOFF (2026-10-08)

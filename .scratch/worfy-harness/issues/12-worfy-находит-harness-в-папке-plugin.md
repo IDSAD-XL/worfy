@@ -199,7 +199,7 @@ Ticket (Blocked by) и берёт helper отсюда.
   старый Harness — [светлая](../evidence/12-project-settings-legacy-light.png),
   [тёмная](../evidence/12-project-settings-legacy-dark.png); plugin после «Reset to default» —
   [светлая](../evidence/12-project-settings-plugin-light.png), [тёмная](../evidence/12-project-settings-plugin-dark.png).
-- Решено без владельца, подтвердить:
+- Решено без владельца, подтверждено владельцем 2026-10-12:
   - `none` (Harness не найден) читает скрипты и Gate из `<claudeHome>/bin` и `<claudeHome>/gate`, как до
     Ticket-а: так прежние test-ы и машины без Harness ведут себя по-старому;
   - `legacy` узнаётся по наличию файла `<claudeHome>/bin/epic-status`, без проверки права на запуск: любой
@@ -226,7 +226,7 @@ plugin-ом рядом) с базой `6580d95`: шаблоны, `epic-status` �
 - [low] `src/main/harness/locate.ts:75` — при `none` (Harness не найден) Session получает inline plugin, а
   worfy читает Gate из `<claudeHome>/gate`. `gate.sh` plugin-а пишет в
   `${HARNESS_HOME:-~/.claude/worfy-harness}/gate/state`, поэтому эти вердикты Gate worfy не видит. Решено
-  без владельца.
+  без владельца; подтверждено владельцем 2026-10-12.
 - [low] `docs/adr/0049-…md:44` — слова «`bin/epic-status` в первую очередь» можно прочесть как «удалить его первым».
   Ticket 14 (перенос Harness из `~/.claude`) должен удалять `bin/epic-status` последним, после записей
   hooks в `~/.claude/settings.json`. Иначе Session-ы в этот промежуток получат inline plugin, и hooks

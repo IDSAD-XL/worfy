@@ -208,7 +208,7 @@ plugin-а (13); перенос и уборка `~/.claude` (14, 16); qmd (17).
 - **Новый файл вне таблицы** — `harness/package.json` без поля `type`. Без него `profile` и `epic-board`
   (CommonJS без расширения) Node грузит как ES-модули: корневой `package.json` worfy — `"type": "module"`,
   `profile` падал на `require` (строка 27). Без `type` Node определяет синтаксис каждого скрипта сам, как в
-  `~/.claude`. Решено без владельца, подтвердить.
+  `~/.claude`. Решено без владельца, подтверждено владельцем 2026-10-12.
 - **Переносимые правки скриптов для Linux** — не понадобились: все 8 test-ов зелёные в `node:24-bookworm`
   (docker) с пустым `HOME` и `LANG=C.UTF-8`. Без `LANG` `epic-status` берёт `en_US.UTF-8`, которой в
   минимальном образе нет, и предупреждение `setlocale` попадает в сравниваемый вывод; contract test передаёт
@@ -239,6 +239,8 @@ plugin-а (13); перенос и уборка `~/.claude` (14, 16); qmd (17).
 `/Users/alexey/Work/{Auction,Atakama}` в `harness/bin/profile:138,143,172`, `harness/hooks/gate-resolve.mjs:55`,
 `harness/profiles/README.md:46,50,54,154`, `harness/bin/qmd-sync-main:15` и имена рабочих репозиториев — в
 дереве `harness/` и в уже влитой истории импорта. Секретов нет. Устраивает ли это — вопрос владельцу (HANDOFF).
+Владелец решил 2026-10-12: историю принять; в дереве `harness/` заменить на нейтральные примеры мелким Ticket-ом;
+Ticket на правку заводит Orchestrator.
 
 ### Долги из HANDOFF (2026-10-08)
 
