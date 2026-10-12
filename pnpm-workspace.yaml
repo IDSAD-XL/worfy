@@ -7,3 +7,10 @@ allowBuilds:
   esbuild: true
   node-pty: true
   electron-winstaller: false
+
+# Node 24 is required for development (`engines.node` of package.json). With that field alone
+# pnpm 11.22.0 only warns under an older Node (`[WARN] Unsupported engine`), installs everything and
+# exits 0. With engineStrict it stops before anything is installed: ERR_PNPM_UNSUPPORTED_ENGINE,
+# exit code 1, the version it expects and the one it got. The setting also refuses a dependency
+# whose own `engines` does not accept the Node that runs pnpm.
+engineStrict: true
