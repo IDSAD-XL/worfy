@@ -225,7 +225,7 @@ worfy/.:test». `GATE_SCOPE=all gate.sh full` на macOS (коммит `be305db`
 `/tmp/worfy-e2e.lock`) — exit 0, «[gate] зелено (full): worfy/.:lint worfy/.:typecheck worfy/.:test
 worfy/.:test:e2e worfy/.:test:package».
 
-**Решено без владельца, подтвердить:**
+**Решено без владельца, подтверждено владельцем 2026-10-12:**
 - **URL окна в запись не идёт**, хотя «Что делаем» его называет. Brief Wave запретил в этом журнале
   пути вне Project-а, а URL окна упакованного worfy — `file:///Users/<имя>/…/worfy.app/…/index.html`.
   Пользы от него мало: у всех окон worfy URL один, Card-ы — frame-ы внутри окна.

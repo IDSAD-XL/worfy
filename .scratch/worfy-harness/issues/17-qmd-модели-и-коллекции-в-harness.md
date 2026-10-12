@@ -235,7 +235,7 @@ test-ы `harness/bin/tests/` идут в CI worfy на Linux (Ticket 02). `qmd-m
   выхода 1. Stop-hook `qmd-refresh --quiet` Ticket 05 не перенёс — добавлен в `harness/hooks/hooks.json`
   (timeout 15, как в старом `settings.json`).
 - **Session-ы worfy (ADR-0048, пункт 4) — схема сделана здесь**, потому что больше её никто не делал;
-  решено без владельца, подтвердить. Inline plugin идёт с `skipMcpDiscovery: true`, а серверы его
+  решено без владельца, подтверждено владельцем 2026-10-12. Inline plugin идёт с `skipMcpDiscovery: true`, а серверы его
   `.mcp.json` worfy регистрирует сам как `plugin_worfy_<сервер>` (`src/main/agent/options.ts`,
   `pluginMcpServers`), с `${CLAUDE_PLUGIN_ROOT}`, заменённым на путь inline plugin-а, и только если имя
   пропускает список MCP-серверов Profile. Нечитаемый или битый `.mcp.json` — Session стартует без этих
@@ -294,6 +294,9 @@ test-ы `harness/bin/tests/` идут в CI worfy на Linux (Ticket 02). `qmd-m
   4. `~/.claude/worfy-harness/plugin/bin/qmd-collections auction` — путь `update:` коллекций `auction` и
      `tickets` с `/Users/alexey/.claude/bin/qmd-sync-main` (после Ticket-а 16 его нет) на plugin, копия
      `index.yml` рядом.
+
+  Сделано; прочитано на машине 2026-10-12: plugin — `0.2.0+4d3d60c`, первая строка `qmd-models` — `downloaded`,
+  коллекции worfy есть в Profile, путь `update:` у `auction` ведёт в `worfy-harness/plugin/bin/qmd-sync-main`.
 
 Гейт волны 8: `VERIFIED` с первого круга (PR #145, влит `282a7c9`). Выход за след — `src/main/agent/options.ts`
 (регистрация серверов plugin-а под `plugin_worfy_<name>` по ADR-0048 п.4) — разрешил оркестратор, «решено без

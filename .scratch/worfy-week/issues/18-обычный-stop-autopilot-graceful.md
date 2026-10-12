@@ -173,7 +173,7 @@ Orchestrator-а человеку. Причина — `user-stop`; `run-stopped` 
       через interrupt хода и новое сообщение (обрывает шаг, который идёт); кнопка Force stop рядом со
       Stop (владелец просил меню).
 
-**Решено без владельца, подтвердить:**
+**Решено без владельца, подтверждено владельцем 2026-10-12:**
 
 - Имена причин: `user-stop` — graceful Stop, `user-force-stop` — Force stop.
 - Stop во время ожидания Limits не останавливает прогон сразу: ждёт сброса и шлёт `STOP_TEXT`
@@ -288,7 +288,7 @@ ADR — файл в `docs/adr`, номер выдаёт Orchestrator. Общие
   - «Stopping…» и строка `stopping`: [светлая](../evidence/18-autopilot-stopping-light.png), [тёмная](../evidence/18-autopilot-stopping-dark.png);
   - Stop во время ожидания Limits: [светлая](../evidence/18-autopilot-waiting-stopping-light.png), [тёмная](../evidence/18-autopilot-waiting-stopping-dark.png);
   - меню при Force stop в пути, пункт неактивен: [светлая](../evidence/18-force-stop-pending-menu-light.png), [тёмная](../evidence/18-force-stop-pending-menu-dark.png).
-- **Решено без владельца, подтвердить** — пять пунктов раздела «Что делаем» приняты как
+- **Решено без владельца, подтверждено владельцем 2026-10-12** — пять пунктов раздела «Что делаем» приняты как
   рекомендовано: имена причин; Stop во время Limits ждёт сброса; Stop в `settling` — сразу; строка
   считает Ticket-ы Wave, а не Background task-и; «⋯» только у идущего прогона. Ещё одно: в
   журнальном test-е e2e строка `run-stopping` записана как `run-stopping 1` (помощник

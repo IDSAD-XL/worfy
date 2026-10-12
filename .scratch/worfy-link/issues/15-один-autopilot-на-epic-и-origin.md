@@ -130,7 +130,7 @@ union «первое состояние прогона» или `{ runningElsewh
 - прогон ведёт другая машина, старт отклонён («занято») — [светлая](../evidence/15-other-machine-light.png), [тёмная](../evidence/15-other-machine-dark.png);
 - после «Start anyway» — [светлая](../evidence/15-start-anyway-light.png), [тёмная](../evidence/15-start-anyway-dark.png).
 
-**Ответы на вопросы — решено без владельца, подтвердить:**
+**Ответы на вопросы — решено без владельца, подтверждено владельцем 2026-10-12:**
 1. Недоступная или не ответившая за 3 s Linked machine старт не блокирует. Её имя — в `unasked`
    состояния и `run-started`, в подсказке chip-а «on <Machine>» («Could not ask …»).
 2. Проверка работает при выключенном «Linked machines can work with my Projects» на любой стороне:
