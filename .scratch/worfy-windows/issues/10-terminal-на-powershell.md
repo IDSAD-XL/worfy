@@ -1,7 +1,7 @@
 # 10 — Terminal на PowerShell; закрытие Terminal гасит дерево процессов
 
 Type: task
-Status: open
+Status: done — 2026-10-12, [PR #239](https://github.com/IDSAD-XL/worfy/pull/239)
 Blocked by: 09
 Source: решения владельца 2026-10-07: Q20 (Terminal на Windows — PowerShell: `pwsh`, иначе Windows PowerShell; Git Bash — в настройках), Q24 (Windows 10 21H2+ и 11, x64: ConPTY везде) ([spec.md](../spec.md)); [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port» (пункты 2 и 4); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md) (Project живёт на одной Machine); [ADR-0006](../../../docs/adr/0006-ipc-contract-by-declaration-merging.md) (контракт IPC); [ADR-0007](../../../docs/adr/0007-claude-code-launch-environment.md)
 
