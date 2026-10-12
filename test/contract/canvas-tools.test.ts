@@ -388,6 +388,32 @@ describe('canvas tools: refused calls are tool errors with a reason', () => {
     expect(existsSync(cardsDir) ? readdirSync(cardsDir) : []).toEqual([])
   })
 
+  // worfy-windows ticket 23: the folder goes with removeTree, which takes a link away as a link.
+  // Under the Node of Electron 44 on Windows fs.rmSync went through a junction.
+  it('create_card whose Layout change fails with a link in the Card folder: the folder goes, the folder the link leads to keeps its file', async () => {
+    const cardsDir = join(dataDir, PROJECT, 'cards')
+    const outside = join(scratch, 'outside')
+    mkdirSync(outside)
+    writeFileSync(join(outside, 'notes.txt'), 'keep me')
+    let linked = 0
+    const failing = {
+      get: (projectId: string) => store.get(projectId),
+      apply: () => {
+        // A junction on Windows; elsewhere a symlink to the folder.
+        for (const id of readdirSync(cardsDir)) {
+          symlinkSync(outside, join(cardsDir, id, 'linked'), process.platform === 'win32' ? 'junction' : 'dir')
+          linked++
+        }
+        throw new Error('layout.json is not writable')
+      },
+    }
+    const rpc = await connect(context({ layout: failing }))
+    expect((await rpc.call('create_card', { title: 'Lost' })).isError).toBe(true)
+    expect(linked).toBe(1)
+    expect(readdirSync(cardsDir)).toEqual([])
+    expect(readdirSync(outside)).toEqual(['notes.txt'])
+  })
+
   it('update_node refuses a Node that is neither a Card nor a note, and a field the kind does not have', async () => {
     store.apply(PROJECT, orchestrator())
     store.apply(PROJECT, note('n1'))

@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HarnessState } from '../../src/shared/ipc/harness'
 import type { MigrationChoice, MigrationPlan, MigrationSelection, MigrationStep } from '../../src/shared/ipc/harness-migration'
 import { applyMigration, MIGRATION_STEPS, type ApplyOptions } from '../../src/main/harness/migrate/apply'
+import { removeTree } from '../../src/main/storage/remove'
 import { buildPlan, claudeJsonPath, HARNESS_AGENTS, hasLegacyHarness, HARNESS_SKILLS, hookRecords, QMD_WARNING, RUNNING_SESSIONS_WARNING, type PlanOptions } from '../../src/main/harness/migrate/plan'
 import { rewriteHarnessPaths } from '../../src/main/harness/migrate/profiles'
 import { treeHash } from '../../src/main/harness/migrate/restore'
@@ -172,8 +173,11 @@ beforeEach(() => {
   makeSandbox()
 })
 
+// removeTree, not rmSync: the sandbox holds a git repository, whose objects are read-only files.
+// Under the Node of Electron 44 on Windows rmSync stops at such a file with EPERM, which failed
+// the test and left the folder behind (worfy-windows ticket 23).
 afterEach(() => {
-  rmSync(sandbox.root, { recursive: true, force: true })
+  removeTree(sandbox.root)
 })
 
 /**
@@ -321,7 +325,7 @@ describe('the plan of the form', () => {
   })
 
   it('a plugin with a qmd server: the qmd row has no warning', () => {
-    rmSync(sandbox.root, { recursive: true, force: true })
+    removeTree(sandbox.root)
     makeSandbox({ qmdInPlugin: true })
     expect(plan().rows.find((row) => row.group === 'qmd')?.note).toBeNull()
   })
@@ -527,7 +531,7 @@ describe('the move', () => {
     expect(hookCommands(join(sandbox.claudeHome, 'settings.json'))).toContain('$HOME/.claude/bin/qmd-refresh --quiet')
     expect(read(sandbox.claudeJson)).toBe(claudeJson)
 
-    rmSync(sandbox.root, { recursive: true, force: true })
+    removeTree(sandbox.root)
     makeSandbox()
     expect((await applyMigration(selection(plan()), applyOptions())).outcome).toBe('done')
     for (const name of ['qmd-mcp', 'qmd-refresh', 'qmd-sync-main']) expect(existsSync(join(sandbox.claudeHome, 'bin', name))).toBe(false)
@@ -545,7 +549,7 @@ describe('the move', () => {
     expect(offered()).toBe(false)
     expect(plan().missing).toEqual(['nothing of the old Harness is left in ~/.claude'])
 
-    rmSync(sandbox.root, { recursive: true, force: true })
+    removeTree(sandbox.root)
     makeSandbox()
     const again = plan()
     const keepScout = (id: string): MigrationChoice | undefined => (id === 'file:agents/scout.md' ? 'keep' : (again.claudeMd?.sections.find((section) => section.id === id)?.defaultChoice))
@@ -623,6 +627,65 @@ describe('restore and refusals', () => {
     expect(treeOf(sandbox.claudeHome)).toEqual(before.tree)
     expect(read(sandbox.claudeJson)).toBe(before.claudeJson)
     expect(treeOf(sandbox.root, { skip: (rel) => rel === join('home', '.claude') || rel === 'claude-calls.log' })).toEqual(before.outside)
+  })
+
+  // worfy-windows ticket 23. A junction is the link to a folder that Windows lets any user make; a
+  // skill folder under ~/.claude can be one. The step "files", the undo in restore.mjs and the
+  // removal of the backup each meet the link, and each must take it as a link: under the Node of
+  // Electron 44 fs.rmSync went through it and emptied the folder behind. Only Windows has junctions.
+  it.runIf(process.platform === 'win32')('a Harness skill that is a junction: the step "files" takes the link away, the undo puts it back, and the folder behind keeps its files all along', async () => {
+    const skill = join(sandbox.claudeHome, 'skills', HARNESS_SKILLS[0])
+    const behind = join(sandbox.root, 'behind-skill')
+    renameSync(skill, behind)
+    writeFileSync(join(behind, 'mine.txt'), 'not the Harness\n')
+    symlinkSync(behind, skill, 'junction')
+    const kept = treeOf(behind, everything)
+    expect(Object.keys(kept)).toContain('mine.txt')
+    const there = (path: string): boolean => {
+      try {
+        lstatSync(path)
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    const afterFiles: { link: boolean; behind: Record<string, string> }[] = []
+    const fail = (current: MigrationStep): void => {
+      if (current !== 'files') return
+      afterFiles.push({ link: there(skill), behind: treeOf(behind, everything) })
+      throw new Error('injected failure after files')
+    }
+    const result = await applyMigration(selection(plan()), applyOptions({ afterStep: fail }))
+    expect(result).toEqual({ outcome: 'failed', step: 'files', reason: 'injected failure after files', rolledBack: true, rollbackError: null, backupDir: null })
+    expect(afterFiles).toEqual([{ link: false, behind: kept }])
+    expect(lstatSync(skill).isSymbolicLink()).toBe(true)
+    expect(treeOf(behind, everything)).toEqual(kept)
+    expect(existsSync(backupDir())).toBe(false)
+  })
+
+  // The same for the walk inside restore.mjs: the undo removes what is at a path before it puts
+  // the backup's copy there. Here the link is back at the path by then — made again while the move
+  // ran — so the undo meets it.
+  it.runIf(process.platform === 'win32')('a junction that is at the path of a skill again when the move is undone: the undo takes it as a link, the folder behind keeps its files', async () => {
+    const skill = join(sandbox.claudeHome, 'skills', HARNESS_SKILLS[0])
+    const behind = join(sandbox.root, 'behind-skill')
+    renameSync(skill, behind)
+    writeFileSync(join(behind, 'mine.txt'), 'not the Harness\n')
+    symlinkSync(behind, skill, 'junction')
+    const kept = treeOf(behind, everything)
+    let made = 0
+    const fail = (current: MigrationStep): void => {
+      if (current !== 'files') return
+      symlinkSync(behind, skill, 'junction')
+      made++
+      throw new Error('injected failure after files')
+    }
+    const result = await applyMigration(selection(plan()), applyOptions({ afterStep: fail }))
+    expect(made).toBe(1)
+    expect(result).toMatchObject({ outcome: 'failed', step: 'files', rolledBack: true, rollbackError: null })
+    expect(treeOf(behind, everything)).toEqual(kept)
+    expect(lstatSync(skill).isSymbolicLink()).toBe(true)
   })
 
   it.each<[string, HarnessState]>([

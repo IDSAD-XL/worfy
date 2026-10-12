@@ -285,6 +285,40 @@ describe('removeTree over a model of the file system', () => {
   })
 })
 
+describe('removeFile over a model of the file system', () => {
+  const single = (m: Model, path: string, platform: NodeJS.Platform): unknown => {
+    try {
+      removeFile(path, { fs: m.fs, platform, wait: (ms) => m.waits.push(ms) })
+      return null
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code
+    }
+  }
+
+  it('unlinks a file and a link, never reads a folder, and refuses a folder without touching it', () => {
+    const m = model(WITH_A_LINK)
+    expect(single(m, '/data/card/linked', 'linux')).toBeNull()
+    expect(single(m, '/data/card/index.html', 'linux')).toBeNull()
+    expect(single(m, '/data/never-was', 'linux')).toBeNull()
+    expect(single(m, '/data/card/assets', 'linux')).toBe('EISDIR')
+    expect(m.calls).toEqual(['lstat /data/card/linked', 'unlink /data/card/linked', 'lstat /data/card/index.html', 'unlink /data/card/index.html', 'lstat /data/never-was', 'lstat /data/card/assets'])
+    expect(m.names()).toEqual(['/data', '/data/card', '/data/card/assets', '/data/card/assets/app.js', '/home', '/home/notes', '/home/notes/keep.txt'])
+  })
+
+  it('on Windows tries a busy file again, as the walk does; elsewhere not at all', () => {
+    const busy = () => model({ '/f': { kind: 'file' } }, { 'unlink /f': ['EBUSY', 'EPERM'] })
+    const windows = busy()
+    expect(single(windows, '/f', 'win32')).toBeNull()
+    expect(windows.calls).toEqual(['lstat /f', 'unlink /f', 'unlink /f', 'unlink /f'])
+    expect(windows.waits).toEqual([REMOVE_RETRY_MS, REMOVE_RETRY_MS])
+    expect(windows.names()).toEqual([])
+    const elsewhere = busy()
+    expect(single(elsewhere, '/f', 'darwin')).toBe('EBUSY')
+    expect(elsewhere.calls).toEqual(['lstat /f', 'unlink /f'])
+    expect(elsewhere.waits).toEqual([])
+  })
+})
+
 /** The text between the two marks of a copy of the walk. */
 function copyOf(source: string, where: string): string {
   const start = source.indexOf('// <remove-tree>')
