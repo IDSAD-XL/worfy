@@ -9,9 +9,15 @@
 #   - a value longer than 2000 characters is cut to 2000, counted in characters, not bytes;
 #   - a path with a space and Cyrillic letters, absolute or relative;
 #   - a file that is not a decision log is refused and left as it was;
-#   - several processes that write to one file at once: one header, every row whole.
+#   - a last line that lost its line feed is not glued to the new row;
+#   - several processes that write to one file at once: one header, every row whole — with the
+#     order of their steps set by the test, and once more on a volume without hard links;
+#   - the block of skills/epic-wave that names the log and writes its first row: run under bash and
+#     zsh, with the words of the skill's call in place of $0…$9, with values that hold commands, and
+#     with no project name; the sentences of the skill's two rules.
 # Run: bash harness/bin/tests/decision-log.test.sh; exit code 0 means everything passed.
-# BIN_DIR points it at another copy of bin/ (a mutant of the script).
+# BIN_DIR points it at another copy of bin/ (a mutant of the script); EPIC_WAVE_FILE at another
+# copy of the skill.
 #
 # Everything lives in a temporary directory, HOME and HARNESS_HOME included. At the end the test
 # compares the real ~/.claude (the Harness parts) and ~/.claude/worfy-harness with a snapshot taken
@@ -186,105 +192,255 @@ mkdir "$T/a-folder"
 run "$T/a-folder" "a decision" "a reason"
 [ "$rc" -eq 1 ] && [ -s "$T/err" ] && [ -z "$(ls -A "$T/a-folder")" ] && ok "a folder instead of a file: exit 1" || bad "a folder: rc=$rc"
 
-# --- 10. Several processes write to one file at once -------------------------------------------------
-# A module loaded before the script makes its file system slow: every call that changes a file waits
-# first, and the first such call of a process also waits for a moment all the processes share. So
-# every process has looked at the folder before any of them writes — the order in which a script
-# that checks first and writes later goes wrong every time, not once in a hundred runs.
-cat >"$T/slow-fs.js" <<'JS'
+# --- 10. A last line that lost its line feed -------------------------------------------------------
+# A write cut short (a full disk, a killed process) leaves the last row without its line feed. The
+# next row must not be glued to it.
+C="$T/cut/decisions.tsv"; mkdir -p "$T/cut"
+printf '%s\n%s' "$HEADER" "2026-10-10T08:15:00Z${TAB}a cut row${TAB}its reason${TAB}-" >"$C"
+run "$C" "the next row" "a reason" "evidence"
+[ "$rc" -eq 0 ] && [ "$(lines "$C")" = 3 ] && four_fields "$C" && ok "a last line without a line feed: the new row starts a line of its own" \
+    || bad "a last line without a line feed: rc=$rc, $(lines "$C") lines, fields per line: $(awk -F'\t' '{printf "%s ", NF}' "$C")"
+[ "$(line "$C" 2)" = "2026-10-10T08:15:00Z${TAB}a cut row${TAB}its reason${TAB}-" ] && [ "$(last "$C")" = "the next row${TAB}a reason${TAB}evidence" ] \
+    && ok "a last line without a line feed: both rows are whole" || bad "a last line without a line feed: line 2 '$(line "$C" 2)', line 3 '$(line "$C" 3)'"
+run "$C" "one more row" "a reason"
+[ "$rc" -eq 0 ] && [ "$(lines "$C")" = 4 ] && [ "$(grep -c '^$' "$C")" = 0 ] && ok "a file that ends with a line feed gets no empty line" \
+    || bad "a file that ends with a line feed: $(lines "$C") lines, $(grep -c '^$' "$C") empty"
+
+# --- 11. Several processes write to one file at once -------------------------------------------------
+# The order of the steps of two processes is set by the test, not by chance or by delays. A module
+# loaded before the script (node -r) splits every way of writing a file into the steps the system
+# itself takes — open (the name appears), write, close — and stops a process at the moment named by
+# SYNC_PAUSE_AT:
+#   checked — before the first call of the process that changes anything: it has looked, not written;
+#   created — right after the log's name came to exist through this process;
+#   wrote   — right after this process's first write into a log that was there when it opened it.
+# A stopped process creates <SYNC_DIR>/<SYNC_ROLE>.paused and goes on when <SYNC_DIR>/<SYNC_ROLE>.go
+# appears. So a script that looks first and writes later, or shows the name before the header is in
+# it, or writes a row in two parts, goes wrong on every run, whatever the load of the machine.
+# SYNC_NO_LINK=1 makes a hard link fail the way a volume without hard links does.
+cat >"$T/sync-fs.js" <<'JS'
 const fs = require("node:fs")
-const sleep = (ms) => { if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) }
-const startAt = Number(process.env.SLOW_FS_START_AT || 0)
-const delay = Number(process.env.SLOW_FS_DELAY_MS || 20)
-let started = false
-for (const name of ["linkSync", "openSync", "writeSync", "writeFileSync", "appendFileSync", "renameSync", "copyFileSync", "symlinkSync"]) {
-    const real = fs[name]
-    fs[name] = function (...args) {
-        if (!started) { started = true; sleep(startAt - Date.now()) }
-        sleep(delay)
-        return real.apply(this, args)
+const path = require("node:path")
+const real = {}
+for (const name of ["openSync", "writeSync", "closeSync", "linkSync", "renameSync", "existsSync", "readFileSync", "writeFileSync"]) real[name] = fs[name]
+const log = process.env.SYNC_LOG ? path.resolve(process.env.SYNC_LOG) : null
+const isLog = (p) => log !== null && typeof p === "string" && path.resolve(p) === log
+const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+const seen = new Set()
+const at = (event) => {
+    if (seen.has(event)) return
+    seen.add(event)
+    if (process.env.SYNC_PAUSE_AT !== event) return
+    const base = path.join(process.env.SYNC_DIR, process.env.SYNC_ROLE)
+    real.writeFileSync(base + ".paused", "")
+    for (let i = 0; i < 6000 && !real.existsSync(base + ".go"); i++) sleep(5)
+    if (!real.existsSync(base + ".go")) process.stderr.write(`sync-fs: ${process.env.SYNC_ROLE} was never told to go on\n`)
+}
+const forWriting = (flags) => !(flags === undefined || flags === "r" || flags === "rs" || flags === fs.constants.O_RDONLY)
+let logFd = null
+let logWasThere = false
+fs.openSync = function (p, flags, mode) {
+    if (!forWriting(flags)) return real.openSync(p, flags, mode)
+    at("checked")
+    const there = real.existsSync(p)
+    const fd = real.openSync(p, flags, mode)
+    if (isLog(p)) {
+        logFd = fd
+        logWasThere = there
+        if (!there) at("created")
+    }
+    return fd
+}
+fs.writeSync = function (fd, ...rest) {
+    at("checked")
+    const written = real.writeSync(fd, ...rest)
+    if (fd === logFd && logWasThere) at("wrote")
+    return written
+}
+fs.closeSync = function (fd) {
+    if (fd === logFd) logFd = null
+    return real.closeSync(fd)
+}
+const writeWhole = (defaultFlag) => function (p, data, options) {
+    const o = options && typeof options === "object" ? options : {}
+    const fd = fs.openSync(p, o.flag || defaultFlag, o.mode)
+    try {
+        fs.writeSync(fd, data)
+    } finally {
+        fs.closeSync(fd)
     }
 }
-JS
-# race <file> <processes> <rows per process> <step> — every process appends its rows one after another.
-# Each call that changes a file waits 20 ms plus <step> ms for every process before this one: with
-# step 0 the processes go through their steps together, with a step the later ones still create the
-# file when the first ones have already written their rows.
-race() {
-    local file="$1" procs="$2" rows="$3" step="$4" p
-    local at; at="$(node -e 'console.log(Date.now() + 1500)')"
-    for p in $(seq 1 "$procs"); do
-        ( for r in $(seq 1 "$rows"); do
-              SLOW_FS_START_AT="$at" SLOW_FS_DELAY_MS="$((20 + step * (p - 1)))" node -r "$T/slow-fs.js" "$DL" "$file" \
-                  "process $p row $r" "the reason of process $p row $r" "evidence $p.$r" || echo "process $p row $r: exit $?"
-          done ) >>"$T/race.out" 2>&1 &
-    done
-    wait
+fs.writeFileSync = writeWhole("w")
+fs.appendFileSync = writeWhole("a")
+fs.copyFileSync = function (from, to, mode = 0) {
+    const fd = fs.openSync(to, mode & fs.constants.COPYFILE_EXCL ? "wx" : "w")
+    try {
+        fs.writeSync(fd, real.readFileSync(from))
+    } finally {
+        fs.closeSync(fd)
+    }
 }
-# race_ok <what> <file> <rows expected>
-race_ok() {
-    local what="$1" file="$2" want="$3" expected
-    [ ! -s "$T/race.out" ] && ok "$what: every process exits 0 and prints nothing" || bad "$what: $(head -n 3 "$T/race.out" | tr '\n' ' ')"
+fs.linkSync = function (from, to) {
+    at("checked")
+    if (process.env.SYNC_NO_LINK) throw Object.assign(new Error("ENOTSUP: operation not supported, link"), { code: "ENOTSUP", syscall: "link" })
+    real.linkSync(from, to)
+    if (isLog(to)) at("created")
+}
+fs.renameSync = function (from, to) {
+    at("checked")
+    const there = real.existsSync(to)
+    real.renameSync(from, to)
+    if (isLog(to) && !there) at("created")
+}
+JS
+scene=0
+# two <name> <event> <file> <rows already in the file> [no-link] — the first process stops at <event>,
+# the second runs to its end, then the first goes on. Both rows and the earlier ones must be there.
+two() {
+    local what="$1" event="$2" file="$3" earlier="$4" nolink="${5:-}" dir i=0 rc1 rc2 expected
+    scene=$((scene + 1)); dir="$T/sync-$scene"; mkdir -p "$dir"
+    ( SYNC_DIR="$dir" SYNC_ROLE=first SYNC_PAUSE_AT="$event" SYNC_LOG="$file" SYNC_NO_LINK="$nolink" \
+          node -r "$T/sync-fs.js" "$DL" "$file" "the process that stops" "the reason of the first" "evidence 1" >"$dir/first.out" 2>&1
+      echo "$?" >"$dir/first.rc" ) &
+    until [ -e "$dir/first.paused" ] || [ -e "$dir/first.rc" ] || [ "$i" -ge 1200 ]; do i=$((i + 1)); sleep 0.05; done
+    [ -e "$dir/first.paused" ] && ok "$what: the first process stops at '$event'" \
+        || bad "$what: the first process never reached '$event' (exit $(cat "$dir/first.rc" 2>/dev/null), output '$(head -c 200 "$dir/first.out")')"
+    SYNC_DIR="$dir" SYNC_ROLE=second SYNC_PAUSE_AT="" SYNC_LOG="$file" SYNC_NO_LINK="$nolink" \
+        node -r "$T/sync-fs.js" "$DL" "$file" "the process that runs through" "the reason of the second" "evidence 2" >"$dir/second.out" 2>&1
+    rc2=$?
+    : >"$dir/first.go"
+    wait
+    rc1="$(cat "$dir/first.rc" 2>/dev/null)"
+    [ "$rc1" = 0 ] && [ "$rc2" = 0 ] && [ ! -s "$dir/first.out" ] && [ ! -s "$dir/second.out" ] && ok "$what: both processes exit 0 and print nothing" \
+        || bad "$what: exit ${rc1:-none} and $rc2; first '$(head -c 200 "$dir/first.out")', second '$(head -c 200 "$dir/second.out")'"
     [ "$(line "$file" 1)" = "$HEADER" ] && [ "$(grep -c '^time_utc' "$file")" = 1 ] \
         && ok "$what: one header, and it is the first line" || bad "$what: $(grep -c '^time_utc' "$file") headers, line 1 '$(line "$file" 1)'"
-    [ "$(lines "$file")" = "$((want + 1))" ] && four_fields "$file" && ok "$what: $want rows, four fields each" || bad "$what: $(lines "$file") lines"
-    expected="$(for p in $(seq 1 "$PROCS"); do for r in $(seq 1 "$ROWS"); do echo "process $p row $r${TAB}the reason of process $p row $r${TAB}evidence $p.$r"; done; done | sort)"
-    [ "$(tail -n +2 "$file" | cut -f2- | sort)" = "$expected" ] && ok "$what: every row is whole and written once" || bad "$what: the rows differ from what was written"
+    expected="$(printf '%s\n%s\n' "the process that stops${TAB}the reason of the first${TAB}evidence 1" "the process that runs through${TAB}the reason of the second${TAB}evidence 2"; [ -z "$earlier" ] || printf '%s\n' "$earlier")"
+    [ "$(tail -n +2 "$file" | cut -f2- | sort)" = "$(printf '%s\n' "$expected" | sort)" ] && four_fields "$file" \
+        && ok "$what: every row is there, whole and once" || bad "$what: the file holds: $(tail -n +2 "$file" | cut -f2- | tr '\n' '|')"
     [ "$(ls -A "$(dirname "$file")")" = decisions.tsv ] && ok "$what: no temporary file is left" || bad "$what: the folder holds $(ls -A "$(dirname "$file")" | tr '\n' ' ')"
 }
-# A file that does not exist yet: who creates it and who writes the header. Once with the processes
-# in step, once with each next process slower than the one before.
-: >"$T/race.out"; PROCS=5 ROWS=1
-race "$T/race-together/decisions.tsv" "$PROCS" "$ROWS" 0
-race_ok "a new file, 5 processes in step" "$T/race-together/decisions.tsv" 5
-: >"$T/race.out"; PROCS=5 ROWS=1
-race "$T/race-staggered/decisions.tsv" "$PROCS" "$ROWS" 15
-race_ok "a new file, 5 processes, each slower than the one before" "$T/race-staggered/decisions.tsv" 5
-# Three rows from each process, the first of them into a file that does not exist yet.
-: >"$T/race.out"; PROCS=4 ROWS=3
-R="$T/race-rows/decisions.tsv"
-race "$R" "$PROCS" "$ROWS" 0
-race_ok "4 processes, 3 rows each" "$R" 12
+# The first process finds no log; before it creates one, the second creates the log and writes its row.
+two "a log created by another process after the look" checked "$T/sync-late/decisions.tsv" ""
+# The second process comes while the first is creating the log: the name is there, is the header?
+two "a log read while it is being created" created "$T/sync-created/decisions.tsv" ""
+# Two rows into a log that exists: the second process writes while the first is in the middle of its row.
+S="$T/sync-rows/decisions.tsv"
+run "$S" "an earlier row" "a reason" "evidence 0"
+two "two rows written at the same time" wrote "$S" "an earlier row${TAB}a reason${TAB}evidence 0"
+# Without any set order: five processes at once, two rows each.
+U="$T/at-once/decisions.tsv"
+for p in 1 2 3 4 5; do
+    ( for r in 1 2; do "$DL" "$U" "process $p row $r" "the reason of process $p row $r" "evidence $p.$r" || echo "process $p row $r: exit $?"; done ) >>"$T/at-once.out" 2>&1 &
+done
+wait
+expected="$(for p in 1 2 3 4 5; do for r in 1 2; do echo "process $p row $r${TAB}the reason of process $p row $r${TAB}evidence $p.$r"; done; done | sort)"
+[ ! -s "$T/at-once.out" ] && [ "$(line "$U" 1)" = "$HEADER" ] && [ "$(grep -c '^time_utc' "$U")" = 1 ] && four_fields "$U" \
+    && [ "$(tail -n +2 "$U" | cut -f2- | sort)" = "$expected" ] && [ "$(ls -A "$(dirname "$U")")" = decisions.tsv ] \
+    && ok "five processes at once, two rows each: one header, ten whole rows, nothing else in the folder" \
+    || bad "five processes at once: output '$(head -c 200 "$T/at-once.out")', $(lines "$U") lines, $(grep -c '^time_utc' "$U") headers"
 
-# --- 11. The epic-wave skill: where the log lives and how it is written -------------------------------
+# --- 12. A volume without hard links -----------------------------------------------------------------
+# The log is created through a hard link. Where the volume has none (exFAT, some network folders)
+# the script creates the log directly, still without replacing a file that is already there.
+X="$T/no-link/decisions.tsv"
+SYNC_NO_LINK=1 SYNC_LOG="$X" SYNC_PAUSE_AT="" node -r "$T/sync-fs.js" "$DL" "$X" "the first row" "a reason" "evidence" >"$T/out" 2>"$T/err"; rc=$?
+[ "$rc" -eq 0 ] && [ ! -s "$T/err" ] && [ "$(line "$X" 1)" = "$HEADER" ] && [ "$(last "$X")" = "the first row${TAB}a reason${TAB}evidence" ] && [ "$(lines "$X")" = 2 ] \
+    && ok "no hard links: the log is created with its header and the row" || bad "no hard links: rc=$rc, stderr '$(head -c 200 "$T/err")', $(lines "$X" 2>/dev/null) lines"
+[ "$(ls -A "$(dirname "$X")")" = decisions.tsv ] && ok "no hard links: no temporary file is left" || bad "no hard links: the folder holds $(ls -A "$(dirname "$X")" | tr '\n' ' ')"
+# The first process finds no log and stops; the second creates it and writes; the first, whose link
+# fails, must not write its header over what is there.
+two "no hard links, a log created by another process after the look" checked "$T/no-link-late/decisions.tsv" "" 1
+
+# --- 13. The epic-wave skill: where the log lives and how it is written -------------------------------
 # The block of skills/epic-wave/SKILL.md that names the log of a wave and writes its first row, cut
-# out of the skill and run the way an agent runs it — under bash and under zsh (the Bash tool of
-# Claude Code runs zsh on macOS). The profile is replaced by a stub F; the plugin root is a folder
-# with the script under test in bin/. EPIC_WAVE_FILE points at another copy of the skill.
+# out of the skill whole and run the way an agent runs it — under bash and under zsh (the Bash tool
+# of Claude Code runs zsh on macOS), in a folder of its own, in a time zone 14 hours ahead of UTC.
+# The plugin root is a folder with a space in its name; its bin/ holds the script under test and a
+# stand-in for bin/profile. EPIC_WAVE_FILE points at another copy of the skill.
 EW="${EPIC_WAVE_FILE:-$HARNESS/skills/epic-wave/SKILL.md}"
-block="$(awk '/^```bash/{inb=1; buf=""; next} /^```/{if(inb && index(buf,"bin/decision-log")) printf "%s", buf; inb=0; next} inb{buf=buf $0 "\n"}' "$EW" \
-    | grep -v '^F() { "\${CLAUDE_PLUGIN_ROOT}/bin/profile"')"
+block="$(awk '/^```bash/{inb=1; buf=""; next} /^```/{if(inb && index(buf,"bin/decision-log")) printf "%s", buf; inb=0; next} inb{buf=buf $0 "\n"}' "$EW")"
 [ -n "$block" ] && ok "epic-wave: a bash block calls bin/decision-log" || bad "epic-wave: no bash block with bin/decision-log in $EW"
-block="${block//<epic>/checkout}"
-STUB='F() { case "$1" in _resolved.name) echo demo ;; *) return 4 ;; esac; }'
-mkdir -p "$T/plugin/bin" && cp "$DL" "$T/plugin/bin/decision-log" 2>/dev/null
+mkdir -p "$T/repo" "$T/cwd"
+block="${block//<epic>/checkout}"; block="${block//<repo>/$T/repo}"
+PLUGIN="$T/plugin root"
+mkdir -p "$PLUGIN/bin" && cp "$DL" "$PLUGIN/bin/decision-log" 2>/dev/null
+# The stand-in answers the two ways of asking the project's name; the name comes from STUB_PROJECT,
+# and an empty one is a folder outside the registered projects (the real script prints nothing, exit 3).
+cat >"$PLUGIN/bin/profile" <<'SH'
+#!/bin/sh
+[ "$1" = -C ] && [ -d "$2" ] || exit 2
+case "$3 ${4:-}" in
+    "--name "|"--field _resolved.name") [ -n "${STUB_PROJECT:-}" ] || exit 3; printf '%s\n' "$STUB_PROJECT" ;;
+    *) exit 4 ;;
+esac
+SH
+chmod +x "$PLUGIN/bin/profile"
+export STUB_PROJECT=demo
 STAMP_RE='^checkout-wave-[0-9]{8}T[0-9]{6}Z$'
-# skill_block <name> <shell> <state folder, or "" for none> <home> — runs the block with HARNESS_HOME
-# set to the state folder or unset, checks the path it prints and the file at that path.
-skill_block() {
-    local what="$1" sh="$2" state="$3" home="$4" runs out log
+# run_block <shell> <state folder, or "" for none> <home> <text> — sets out (the output) and log (its last line)
+run_block() {
+    local sh="$1" state="$2" home="$3" text="$4"
     mkdir -p "$home"
     if [ -n "$state" ]; then
-        runs="$state/runs"
-        out="$(HOME="$home" HARNESS_HOME="$state" CLAUDE_PLUGIN_ROOT="$T/plugin" "$sh" -c "$STUB"$'\n'"$block" 2>&1)"
+        out="$(cd "$T/cwd" && TZ=Pacific/Kiritimati HOME="$home" HARNESS_HOME="$state" CLAUDE_PLUGIN_ROOT="$PLUGIN" "$sh" -c "$text" 2>&1)"
     else
-        runs="$home/.claude/worfy-harness/runs"
-        out="$(env -u HARNESS_HOME HOME="$home" CLAUDE_PLUGIN_ROOT="$T/plugin" "$sh" -c "$STUB"$'\n'"$block" 2>&1)"
+        out="$(cd "$T/cwd" && env -u HARNESS_HOME TZ=Pacific/Kiritimati HOME="$home" CLAUDE_PLUGIN_ROOT="$PLUGIN" "$sh" -c "$text" 2>&1)"
     fi
     log="$(printf '%s\n' "$out" | tail -n 1)"
-    [[ "$out" == *"EXIT=0"* ]] && [[ "$log" == "$runs/demo/checkout-wave-"*"/decisions.tsv" ]] && [[ "$(basename "$(dirname "$log")")" =~ $STAMP_RE ]] \
-        && ok "$what: exit 0, the path printed is <state folder>/runs/<project>/<epic>-wave-<UTC time>/decisions.tsv" \
-        || bad "$what: output '${out:0:300}'"
-    [ "$(line "$log" 1 2>/dev/null)" = "$HEADER" ] && [ "$(last "$log" 2>/dev/null)" = "<decision>${TAB}<why>${TAB}<evidence>" ] && [ "$(lines "$log" 2>/dev/null)" = 2 ] \
-        && ok "$what: the file at that path holds the header and the row" || bad "$what: no log with one row at '$log'"
 }
+# block_ok <name> <folder the runs must land in> <the row expected> — checks out and log of the last run_block
+block_ok() {
+    local what="$1" runs="$2" row="$3" stamp
+    stamp="$(basename "$(dirname "$log")")"
+    [[ "$out" == *"EXIT=0"* ]] && [[ "$log" == "$runs/demo/checkout-wave-"*"/decisions.tsv" ]] && [[ "$stamp" =~ $STAMP_RE ]] \
+        && ok "$what: exit 0, the path printed is <state folder>/runs/<project>/<epic>-wave-<time>/decisions.tsv" \
+        || bad "$what: output '${out:0:300}'"
+    node -e 'const m = /^checkout-wave-(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)Z$/.exec(process.argv[1])
+        process.exit(m && Math.abs(Date.now() - Date.UTC(m[1], m[2] - 1, m[3], m[4], m[5], m[6])) < 120000 ? 0 : 1)' "$stamp" \
+        && ok "$what: the time in the folder's name is UTC whatever the time zone" || bad "$what: '$stamp' is not the current UTC time"
+    [ "$(line "$log" 1 2>/dev/null)" = "$HEADER" ] && [ "$(last "$log" 2>/dev/null)" = "$row" ] && [ "$(lines "$log" 2>/dev/null)" = 2 ] \
+        && ok "$what: the file at that path holds the header and the row" || bad "$what: no log with the row at '$log': '$(tail -n 1 "$log" 2>/dev/null)'"
+}
+# Claude Code puts the words of the skill's call in place of $0…$9 anywhere in the skill's text, bash
+# blocks included. The wave is called as "/worfy:epic-wave tickets 02, 06 of epic checkout".
+called="$(printf '%s' "$block" | perl -pe 'BEGIN { @w = ("tickets", "02,", "06", "of", "epic", "checkout", "", "", "", "") } s/\$([0-9])/$w[$1]/g')"
+# Values an agent may well write: a command in backquotes, a command substitution, a variable.
+hostile="$(printf '%s' "$block" | D="the check \`touch $T/ran-backquote\` failed" W="\$(touch $T/ran-dollar) is the reason" E="\$HOME/notes.md:12" \
+    perl -pe 's/<decision>/$ENV{D}/; s/<why>/$ENV{W}/; s/<evidence>/$ENV{E}/')"
+# An apostrophe inside a value, written the way the skill says.
+apostrophe="$(printf '%s' "$block" | W="it'\\''s the owner'\\''s call" perl -pe 's/<why>/$ENV{W}/')"
+PLAIN_ROW="<decision>${TAB}<why>${TAB}<evidence>"
 for sh in bash zsh; do
     # Git Bash on Windows has no zsh; on macOS and Linux the contract test of these scripts requires it.
     if ! command -v "$sh" >/dev/null 2>&1; then echo "skip the skill block under $sh: not installed"; continue; fi
-    skill_block "epic-wave block under $sh, HARNESS_HOME set" "$sh" "$T/state of $sh" "$T/home-a-$sh"
+    run_block "$sh" "$T/state of $sh" "$T/home-a-$sh" "$block"
+    block_ok "epic-wave block under $sh, HARNESS_HOME set" "$T/state of $sh/runs" "$PLAIN_ROW"
     # Without HARNESS_HOME the state folder is ~/.claude/worfy-harness; the home has a space in its name.
-    skill_block "epic-wave block under $sh, no HARNESS_HOME" "$sh" "" "$T/home of $sh"
+    run_block "$sh" "" "$T/home of $sh" "$block"
+    block_ok "epic-wave block under $sh, no HARNESS_HOME" "$T/home of $sh/.claude/worfy-harness/runs" "$PLAIN_ROW"
+    run_block "$sh" "$T/called-$sh" "$T/home-b-$sh" "$called"
+    block_ok "epic-wave block under $sh, with the words of the call in place of \$0…\$9" "$T/called-$sh/runs" "$PLAIN_ROW"
+    run_block "$sh" "$T/hostile-$sh" "$T/home-c-$sh" "$hostile"
+    block_ok "epic-wave block under $sh, values with backquotes, \$(…) and \$HOME" "$T/hostile-$sh/runs" \
+        "the check \`touch $T/ran-backquote\` failed${TAB}\$(touch $T/ran-dollar) is the reason${TAB}\$HOME/notes.md:12"
+    run_block "$sh" "$T/apostrophe-$sh" "$T/home-d-$sh" "$apostrophe"
+    block_ok "epic-wave block under $sh, an apostrophe written as '\\''" "$T/apostrophe-$sh/runs" "<decision>${TAB}it's the owner's call${TAB}<evidence>"
+    # No project name: no log, and the block says so.
+    STUB_PROJECT=""; run_block "$sh" "$T/nameless-$sh" "$T/home-e-$sh" "$block"; STUB_PROJECT=demo
+    [[ "$out" == *"no project name: the decision log is not kept"* ]] && [[ "$out" != *"EXIT="* ]] && [ ! -e "$T/nameless-$sh" ] \
+        && ok "epic-wave block under $sh, no project name: no log is started, and the block says so" \
+        || bad "epic-wave block under $sh, no project name: output '${out:0:300}', state folder: $(ls -A "$T/nameless-$sh" 2>/dev/null | tr '\n' ' ')"
 done
+[ ! -e "$T/ran-backquote" ] && [ ! -e "$T/ran-dollar" ] && ok "epic-wave block: a command inside a value is not run" || bad "epic-wave block: a command inside a value was run: $(ls "$T" | grep '^ran-' | tr '\n' ' ')"
+[ -z "$(ls -A "$T/cwd")" ] && ok "epic-wave block: nothing is left in the folder it runs in" || bad "epic-wave block: left in the current folder: $(ls -A "$T/cwd" | tr '\n' ' ')"
+[[ "$block" == *"\"\$LOG\" '<decision>' '<why>' '<evidence>'"* ]] && ok "epic-wave block: the three values stand in single quotes" || bad "epic-wave block: the values are not in single quotes"
+
+# The two rules of the skill, the block included: each is the last text of its section, so it runs
+# from its heading to the next section.
+rules_all="$(awk '/^\*\*The decision log of a wave without a human\*\*/{p=1} /^\*\*A wave without a human names its decision log\*\*/{p=1} /^## /{p=0} p' "$EW")"
+positional="$(printf '%s\n' "$rules_all" | grep -nE '\$[0-9]' | head -n 3 | tr '\n' ' ')"
+[ -n "$rules_all" ] && [ -z "$positional" ] && ok "epic-wave: the two rules have no \$0…\$9 for Claude Code to replace" || bad "epic-wave: the rules are not found or hold a positional token: $positional"
 
 # The rule itself, whole sentences: a changed word inside one changes the rule. The text is wrapped,
 # so a section is searched with its line breaks folded into spaces.
@@ -293,11 +449,17 @@ s1="$(section "$EW" 1)"; s5="$(section "$EW" 5)"
 # has <name> <section text> <sentence>
 has() { [[ "$2" == *"$3"* ]] && ok "epic-wave $1" || bad "epic-wave $1 — missing: $3"; }
 has "section 1: the log is kept by a wave without a human" "$s1" '**The decision log of a wave without a human** (worfy Autopilot).'
+has "section 1: what decides is the declined question, as for the narrow round" "$s1" \
+    'What decides is the same as for the narrow round in section 3: a question to the owner is declined automatically; the wave then usually came as the Autopilot command.'
 has "section 1: every decision made without the owner gets a row, outside the repository" "$s1" \
     'So every decision made without the owner gets a row in a file of that run, `decisions.tsv`, in the Harness state folder of the machine, outside the repository.'
-has "section 1: the file is named once, the plan is its first row" "$s1" 'Name the file once, when the plan table is ready, and write the plan as its first row:'
+has "section 1: the file is started when the sign shows, the plan is its first row" "$s1" \
+    'Start the file at the moment that sign shows — with the plan table when the wave came as the Autopilot command, later when a question is declined only then — name it once, and write the plan as its first row:'
 has "section 1: later rows use the printed path, not the variable" "$s1" \
     'Every later row is the `decision-log` line of that block with the printed path written out in place of `$LOG`: a shell variable does not live until the next command, and a second `date` would name another file.'
+has "section 1: the values stay in single quotes" "$s1" \
+    'The three values stay in single quotes, so the shell hands them to the script as written: a backquote or a `$` inside a value is neither run nor expanded.'
+has "section 1: an apostrophe inside a value" "$s1" 'An apostrophe inside a value is written as `'"'\\''"'`.'
 has "section 1: only the script writes the file" "$s1" '`decision-log` creates the file with its header and its folders, and only appends; do not create or edit the file any other way.'
 has "section 1: a row for the plan and for a ticket that is not dispatched" "$s1" \
     '- the plan — which tickets go into the wave and in which order — and each ticket that is not dispatched, with the reason;'
@@ -309,8 +471,8 @@ has "section 1: what the three values are" "$s1" \
     '`<decision>` says what was decided and names the ticket; `<why>` is the reason in one sentence; `<evidence>` is what can be opened or run to check it — a PR comment, a `file:line`, a command with its exit code — and is left out when there is none.'
 has "section 1: no secrets in a row" "$s1" 'No secret goes into a row — a token, a password, a key: the same rule as for a profile.'
 has "section 1: a wrong row is corrected by a new one" "$s1" 'A wrong row is corrected by a new row.'
-has "section 1: a row that cannot be written does not stop the wave" "$s1" \
-    'If `EXIT` is not 0 or the command is refused, the wave goes on and the report says that the log could not be written.'
+has "section 1: a log that cannot be started or written does not stop the wave" "$s1" \
+    'If the project name comes out empty, `EXIT` is not 0 or the command is refused, the wave goes on without the log and the report says that it could not be written.'
 has "section 1: the log is not a state file" "$s1" 'The log is not a state file: it is not committed, and a resumed wave does not read it — it starts a file of its own.'
 has "section 1: a session with a human needs no log" "$s1" 'A session with a human needs no log.'
 has "section 5: the report is compared with the log" "$s5" \
@@ -320,7 +482,7 @@ has "section 5: a missing row is added with the mark, written rows are not edite
 has "section 5: the report names the log between the groups and the status block" "$s5" \
     'Then one line goes between the groups of findings and the status block: `Decision log: <path>`, or `Decision log: not written — <reason>`.'
 # No word in capitals for emphasis in the two rules; EXIT is the word of the bash block.
-rules_text="$(awk '/^\*\*The decision log of a wave without a human\*\*/{p=1} /^\*\*A wave without a human names its decision log\*\*/{p=1} /^```bash/{c=1} p && !c; /^```$/{c=0} p && /(needs no|not written — <reason>`\.)$/{p=0}' "$EW" | tr '\n' ' ')"
+rules_text="$(printf '%s\n' "$rules_all" | awk '/^```bash/{c=1} !c; /^```$/{c=0}' | tr '\n' ' ')"
 caps="$(perl -e 'my %ok = map { $_ => 1 } qw(EXIT); my $t = shift; while ($t =~ /(?<![A-Z])([A-Z]{4,})(?![A-Z])/g) { print "$1 " unless $ok{$1} }' "$rules_text")"
 [ -n "$rules_text" ] && [ -z "$caps" ] && ok "epic-wave: the two rules have no word in capitals" || bad "epic-wave: the rules are not found or have a word in capitals: $caps"
 

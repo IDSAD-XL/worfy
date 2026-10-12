@@ -151,24 +151,29 @@ ticket out of the wave (worfy-daily, wave 1: ticket 03 and, after it, the whole 
 only via `F numbering.migrations.generate` on top of the base. Once the table is ready, dispatch
 right away, without waiting for confirmation.
 
-**The decision log of a wave without a human** (worfy Autopilot). The signs are those of the narrow
-round in section 3: the wave came as the Autopilot command, or a question to the owner was declined
-automatically. After such a wave only the transcript says why a ticket left the wave or why one PR
-was merged before another, and nobody reads a transcript. So every decision made without the owner
-gets a row in a file of that run, `decisions.tsv`, in the Harness state folder of the machine,
-outside the repository. Name the file once, when the plan table is ready, and write the plan as
-its first row:
+**The decision log of a wave without a human** (worfy Autopilot). What decides is the same as for
+the narrow round in section 3: a question to the owner is declined automatically; the wave then
+usually came as the Autopilot command. After such a wave only the transcript says why a ticket left
+the wave or why one PR was merged before another, and nobody reads a transcript. So every decision
+made without the owner gets a row in a file of that run, `decisions.tsv`, in the Harness state
+folder of the machine, outside the repository. Start the file at the moment that sign shows — with
+the plan table when the wave came as the Autopilot command, later when a question is declined only
+then — name it once, and write the plan as its first row:
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1"; }
-LOG=${HARNESS_HOME:-~/.claude/worfy-harness}"/runs/$(F _resolved.name)/<epic>-wave-$(date -u +%Y%m%dT%H%M%SZ)/decisions.tsv"
-"${CLAUDE_PLUGIN_ROOT}/bin/decision-log" "$LOG" "<decision>" "<why>" "<evidence>"; echo "EXIT=$?"; echo "$LOG"
+P=$("${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --name)
+if [ -z "$P" ]; then echo "no project name: the decision log is not kept"; else
+  LOG=${HARNESS_HOME:-~/.claude/worfy-harness}"/runs/$P/<epic>-wave-$(date -u +%Y%m%dT%H%M%SZ)/decisions.tsv"
+  "${CLAUDE_PLUGIN_ROOT}/bin/decision-log" "$LOG" '<decision>' '<why>' '<evidence>'; echo "EXIT=$?"; echo "$LOG"
+fi
 ```
 
 Every later row is the `decision-log` line of that block with the printed path written out in
 place of `$LOG`: a shell variable does not live until the next command, and a second `date` would
-name another file. `decision-log` creates the file with its header and its folders, and only
-appends; do not create or edit the file any other way. One row per decision:
+name another file. The three values stay in single quotes, so the shell hands them to the script
+as written: a backquote or a `$` inside a value is neither run nor expanded. An apostrophe inside a
+value is written as `'\''`. `decision-log` creates the file with its header and its folders, and
+only appends; do not create or edit the file any other way. One row per decision:
 - the plan — which tickets go into the wave and in which order — and each ticket that is not
   dispatched, with the reason;
 - a fork the owner decides, settled by the recommended option (section 2);
@@ -180,10 +185,10 @@ appends; do not create or edit the file any other way. One row per decision:
 `<evidence>` is what can be opened or run to check it — a PR comment, a `file:line`, a command with
 its exit code — and is left out when there is none. The values are in `F language.reports`. No
 secret goes into a row — a token, a password, a key: the same rule as for a profile. A wrong row is
-corrected by a new row. If `EXIT` is not 0 or the command is refused, the wave goes on and the
-report says that the log could not be written. The log is not a state file: it is not committed,
-and a resumed wave does not read it — it starts a file of its own. A session with a human needs no
-log.
+corrected by a new row. If the project name comes out empty, `EXIT` is not 0 or the command is
+refused, the wave goes on without the log and the report says that it could not be written. The log
+is not a state file: it is not committed, and a resumed wave does not read it — it starts a file of
+its own. A session with a human needs no log.
 
 ## 2. Dispatch
 

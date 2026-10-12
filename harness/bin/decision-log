@@ -22,7 +22,8 @@
 // The file and its folders are created when they are missing. Rows are only appended: the script
 // never rewrites a line, and a file that does not start with the header is refused untouched.
 // Several processes may write to one file at once: the header is written once, and each row goes
-// to the end of the file in one write.
+// to the end of the file in one write. A last line that lost its line feed gets one before the new
+// row.
 //
 // Exit codes: 0 — the row is written; 1 — the file cannot be written or is not a decision log;
 // 2 — usage error (a missing or empty <file>, <decision> or <why>, too many arguments).
@@ -55,24 +56,44 @@ const clean = (value) => {
 // and never replaces a file that is already there. The header goes into a temporary file next to
 // the log, and a hard link gives that file the log's name: a link fails when the name is taken.
 // Of several processes that all found no file, one creates it and the rest see it exist.
+//
+// A volume without hard links (exFAT, some network folders) fails the link with another error.
+// There the log is created under its own name, still only when the name is free. That way the name
+// exists for a moment without its header, and a process that reads the file in that moment refuses
+// it — the price of having a log on such a volume at all.
 const createWithHeader = (file) => {
     const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`
     fs.writeFileSync(tmp, HEADER, { flag: "wx" })
     try {
         fs.linkSync(tmp, file)
     } catch (e) {
-        if (e.code !== "EEXIST") throw e
+        if (e.code !== "EEXIST") createInPlace(file)
     } finally {
         fs.rmSync(tmp, { force: true, maxRetries: 3 })
     }
 }
 
-const startsWithHeader = (file) => {
+const createInPlace = (file) => {
+    try {
+        fs.writeFileSync(file, HEADER, { flag: "wx" })
+    } catch (e) {
+        if (e.code !== "EEXIST") throw e
+    }
+}
+
+// What an append has to know about the file: whether it starts with the header, and whether it
+// ends with a line feed. A write that was cut short (a full disk, a killed process) leaves the
+// last row without one, and the next row would be glued to it.
+const inspect = (file) => {
     const want = Buffer.from(HEADER)
-    const got = Buffer.alloc(want.length)
+    const head = Buffer.alloc(want.length)
+    const last = Buffer.alloc(1)
     const fd = fs.openSync(file, "r")
     try {
-        return fs.readSync(fd, got, 0, want.length, 0) === want.length && got.equals(want)
+        const size = fs.fstatSync(fd).size
+        const header = fs.readSync(fd, head, 0, want.length, 0) === want.length && head.equals(want)
+        const lineFeed = size > 0 && fs.readSync(fd, last, 0, 1, size - 1) === 1 && last[0] === 0x0a
+        return { header, lineFeed }
     } finally {
         fs.closeSync(fd)
     }
@@ -108,9 +129,10 @@ const main = (argv) => {
     try {
         fs.mkdirSync(path.dirname(file), { recursive: true })
         if (!fs.existsSync(file)) createWithHeader(file)
-        if (!startsWithHeader(file)) return fail(1, `${file} is not a decision log: it does not start with the header line — nothing written`)
+        const { header, lineFeed } = inspect(file)
+        if (!header) return fail(1, `${file} is not a decision log: it does not start with the header line — nothing written`)
         // One write in append mode: the row lands at the end of the file whole, whoever else writes.
-        fs.appendFileSync(file, `${time}\t${decision}\t${why}\t${evidence}\n`)
+        fs.appendFileSync(file, `${lineFeed ? "" : "\n"}${time}\t${decision}\t${why}\t${evidence}\n`)
     } catch (e) {
         return fail(1, `cannot write ${file}: ${e.message}`)
     }
