@@ -524,7 +524,8 @@ test('silent: a Silent Project connects, one Wave runs, and no workflow trace re
       return parsed.tickets.find((ticket) => ticket.epic === EPIC && ticket.num === 1)?.state ?? 'missing'
     }
     await expect.poll(ticketState, { timeout: WAVE_TIMEOUT_MS, intervals: [30_000] }).toBe('done')
-    await expect(frame.getByTestId('autopilot-status'), 'the run stops once no Wave is left').toHaveCount(0, { timeout: 15 * 60_000 })
+    // The line stays after the run and names why it stopped (F-SPEC, "Status line text" and "Visible when").
+    await expect(frame.getByTestId('autopilot-status'), 'the run stops once no Wave is left').toHaveText('stopped: no ready wave', { timeout: 15 * 60_000 })
 
     // The run's journal: no point where it asked for a person, and no person stepped in.
     const journals = join(dataDir, 'autopilot')
