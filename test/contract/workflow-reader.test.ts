@@ -3,7 +3,7 @@
 // script does for these tests' simple files: from the working tree, or from a branch for `--ref`.
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,7 +11,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { readCheckout, readWorkflow, epicStatusRunner, type EpicStatusRunner } from '../../src/main/workflow/reader'
-import { Debounce, WorkflowHub, WorkflowWatcher } from '../../src/main/workflow/watch'
+import { Debounce, ticketsIgnored, WorkflowHub, WorkflowWatcher } from '../../src/main/workflow/watch'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { diffModels, type WorkflowDelta, type WorkflowModel } from '../../src/shared/workflow/types'
 import { generateScratch } from './scratch-gen'
@@ -645,6 +645,48 @@ describe('workflow watcher', () => {
     rmSync(join(repo, '.scratch/demo/issues/04-fourth.md'))
     const { delta } = await nextDelta(deltas, (d) => d.removedTickets.length > 0)
     expect(delta.removedTickets).toEqual([{ epic: 'demo', num: 4 }])
+  })
+
+  it('watches only what epic-status reads under the Tickets root', () => {
+    const root = join(dir, '.scratch')
+    const skips = ticketsIgnored(root)
+    for (const path of [root, join(root, 'demo'), join(root, 'demo', 'spec.md'), join(root, 'demo', 'map.md'), join(root, 'demo', 'issues'), join(root, 'demo', 'issues', '03-third.md')]) {
+      expect(skips(path), path).toBe(false)
+    }
+    for (const path of [
+      join(root, 'demo', 'logs'),
+      join(root, 'demo', 'logs', 'node_modules'),
+      join(root, 'demo', 'evidence', '12-aligner', '.venv', 'lib', 'site.py'),
+      join(root, 'demo', 'issues', 'notes.txt'),
+      join(root, 'demo', 'issues', 'old'),
+      join(root, 'demo', 'issues', 'old', '01-first.md'),
+    ]) {
+      expect(skips(path), path).toBe(true)
+    }
+  })
+
+  it('reads nothing again for a change outside what epic-status reads, a linked node_modules included, and still sees a new Epic', async () => {
+    const repo = makeRepo(dir)
+    const { home, log } = makeClaudeHome(dir)
+    const modules = join(dir, 'node_modules')
+    mkdirSync(join(modules, 'pkg'), { recursive: true })
+    writeFileSync(join(modules, 'pkg', 'index.js'), '')
+    const logs = join(repo, '.scratch', 'demo', 'logs')
+    mkdirSync(logs)
+    symlinkSync(modules, join(logs, 'node_modules'), 'dir')
+    const deltas: WorkflowDelta[] = []
+    await startWatcher(repo, home, deltas)
+    writeFileSync(log, '')
+
+    writeFileSync(join(modules, 'pkg', 'index.js'), 'changed')
+    writeFileSync(join(logs, 'run.txt'), 'a log line')
+    await new Promise((done) => setTimeout(done, 1000))
+    expect(calls(log)).toEqual([])
+
+    mkdirSync(join(repo, '.scratch', 'later', 'issues'), { recursive: true })
+    writeFileSync(join(repo, '.scratch', 'later', 'issues', '01-new.md'), ticketText(1, 'open', '—', null))
+    const { delta } = await nextDelta(deltas, (d) => d.tickets.some((t) => t.epic === 'later'))
+    expect(delta.tickets.map((t) => [t.epic, t.num])).toEqual([['later', 1]])
   })
 
   it('does not lose a Ticket saved while the first read runs', async () => {

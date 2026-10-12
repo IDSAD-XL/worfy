@@ -47,6 +47,24 @@ export interface WatchOptions {
   layout?: (root: string) => Promise<ProjectLayout>
 }
 
+/**
+ * What the watch of a Tickets root skips: everything `epic-status` does not read. It reads the Epic
+ * folders right under the root, their `spec.md` and `map.md`, and `issues/*.md`. The rest of a
+ * Tickets root can be anything — evidence, logs, a Python `.venv`, `node_modules` or links to one —
+ * and chokidar holds one open file per file it watches: an Arbor `.scratch` with links to
+ * `node_modules` reached 30 000 of them, and worfy hung at start on EMFILE.
+ */
+export function ticketsIgnored(ticketsRoot: string): (path: string) => boolean {
+  return (path) => {
+    const rel = relative(ticketsRoot, path)
+    if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return false
+    const [, inEpic, inIssues, ...deeper] = rel.split(sep)
+    if (inEpic === undefined) return false
+    if (inIssues === undefined) return inEpic !== 'spec.md' && inEpic !== 'map.md' && inEpic !== 'issues'
+    return inEpic !== 'issues' || !inIssues.endsWith('.md') || deeper.length > 0
+  }
+}
+
 function gitCommonDir(root: string): Promise<string | null> {
   return new Promise((done) => {
     execFile('git', ['rev-parse', '--git-common-dir'], { cwd: root, encoding: 'utf8' }, (error, stdout) => {
@@ -171,9 +189,12 @@ export class WorkflowWatcher {
     const add = (watcher: FSWatcher, what: 'checkout' | 'branches') => {
       ready.push(new Promise<void>((done) => watcher.once('ready', () => done())))
       watcher.on('all', () => this.schedule(what))
+      // Without a listener chokidar's 'error' event throws, and every failed watch became an
+      // unhandled rejection.
+      watcher.on('error', (error) => console.error(`[workflow] ${what} watch error`, error))
       this.watchers.push(watcher)
     }
-    add(watch(layout.ticketsRoot, { ignoreInitial: true }), 'checkout')
+    add(watch(layout.ticketsRoot, { ignoreInitial: true, depth: 2, ignored: ticketsIgnored(layout.ticketsRoot) }), 'checkout')
 
     const common = layout.mode === 'silent' ? null : await gitCommonDir(root)
     if (common) {
