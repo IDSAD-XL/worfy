@@ -161,42 +161,57 @@ export interface RegValue {
 }
 
 const REGISTRY_HIVES: Record<string, string> = { HKCU: 'CurrentUser', HKLM: 'LocalMachine' }
-const toBase64 = (text: string): string => Buffer.from(text, 'utf8').toString('base64')
 const fromBase64 = (base64: string | undefined): string => Buffer.from(base64 ?? '', 'base64').toString('utf8')
 
+/** The variables of the environment the registry script reads its key from. */
+export const REGISTRY_HIVE_VAR = 'WORFY_REGISTRY_HIVE'
+export const REGISTRY_SUBKEY_VAR = 'WORFY_REGISTRY_SUBKEY'
+
 /**
- * A Windows PowerShell script that prints the REG_SZ and REG_EXPAND_SZ values of `key` (HKCU\… or
- * HKLM\…), not expanded, one per line: `<String|ExpandString> <name> <value>`, name and value in
- * base64 of UTF-8, so the output is ASCII whatever the console's code page. A failure prints
+ * A Windows PowerShell script that prints the REG_SZ and REG_EXPAND_SZ values of a key, not
+ * expanded, one per line: `<String|ExpandString> <name> <value>`, name and value in base64 of UTF-8,
+ * so the output is ASCII whatever the console's code page. A failure prints
  * `Error <message in base64>` and exits 1. The key is opened through the .NET Registry API, not the
- * registry provider: no module to load (PSModulePath may come from a pwsh 7 parent) and no quoting —
- * the subkey goes in as base64 too. `reg query` is not used: it writes to a pipe in the OEM code page,
- * so C:\Users\Алексей came out garbled and characters outside that code page as `?`, with no error
- * (review of PR #194, round 4).
+ * registry provider: no module to load (PSModulePath may come from a pwsh 7 parent). `reg query` is
+ * not used: it writes to a pipe in the OEM code page, so C:\Users\Алексей came out garbled and
+ * characters outside that code page as `?`, with no error (review of PR #194, round 4).
+ *
+ * The text is constant (worfy-windows ticket 21): the key comes in two variables of the
+ * environment (registryVars), so nothing is quoted and nothing is decoded. Measured on the owner's
+ * PC from the Node of Electron: a script that decodes base64 — handed over with -EncodedCommand,
+ * or calling FromBase64String itself — costs about a second more the first time a process runs
+ * its text, and again after worfy is started anew; a script as text that only encodes costs
+ * 0.26 s every time. From the system Node there is no such difference.
  */
-export function registryScript(key: string): string {
+export const REGISTRY_SCRIPT = [
+  "$ErrorActionPreference = 'Stop'",
+  '$b64 = { param($s) [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$s)) }',
+  'try {',
+  '  $hives = @{ CurrentUser = [Microsoft.Win32.Registry]::CurrentUser; LocalMachine = [Microsoft.Win32.Registry]::LocalMachine }',
+  `  $hive = $hives[[string]$env:${REGISTRY_HIVE_VAR}]`,
+  `  if ($null -eq $hive) { throw "not a hive this script reads: $env:${REGISTRY_HIVE_VAR}" }`,
+  `  $path = [string]$env:${REGISTRY_SUBKEY_VAR}`,
+  '  $key = $hive.OpenSubKey($path)',
+  '  if ($null -eq $key) { throw "no such key: $path" }',
+  '  foreach ($name in $key.GetValueNames()) {',
+  "    if ($name -eq '') { continue }",
+  '    $kind = $key.GetValueKind($name).ToString()',
+  "    if ($kind -ne 'String' -and $kind -ne 'ExpandString') { continue }",
+  "    $value = $key.GetValue($name, '', 'DoNotExpandEnvironmentNames')",
+  '    "$kind $(& $b64 $name) $(& $b64 $value)"',
+  '  }',
+  '} catch {',
+  '  "Error $(& $b64 $_.Exception.Message)"',
+  '  exit 1',
+  '}',
+].join('\n')
+
+/** The variables REGISTRY_SCRIPT reads for `key` (HKCU\… or HKLM\…); throws for a key of another hive. */
+export function registryVars(key: string): Env {
   const [hive = '', ...subkey] = key.split('\\')
   const root = REGISTRY_HIVES[hive.toUpperCase()]
   if (!root) throw new Error(`not a key of HKCU or HKLM: ${key}`)
-  return [
-    "$ErrorActionPreference = 'Stop'",
-    '$b64 = { param($s) [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$s)) }',
-    'try {',
-    `  $path = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${toBase64(subkey.join('\\'))}'))`,
-    `  $key = [Microsoft.Win32.Registry]::${root}.OpenSubKey($path)`,
-    '  if ($null -eq $key) { throw "no such key: $path" }',
-    '  foreach ($name in $key.GetValueNames()) {',
-    "    if ($name -eq '') { continue }",
-    '    $kind = $key.GetValueKind($name).ToString()',
-    "    if ($kind -ne 'String' -and $kind -ne 'ExpandString') { continue }",
-    "    $value = $key.GetValue($name, '', 'DoNotExpandEnvironmentNames')",
-    '    "$kind $(& $b64 $name) $(& $b64 $value)"',
-    '  }',
-    '} catch {',
-    '  "Error $(& $b64 $_.Exception.Message)"',
-    '  exit 1',
-    '}',
-  ].join('\n')
+  return { [REGISTRY_HIVE_VAR]: root, [REGISTRY_SUBKEY_VAR]: subkey.join('\\') }
 }
 
 /** The values in the output of registryScript; other lines are skipped. */
@@ -212,27 +227,33 @@ export function parseRegistryValues(output: string): RegValue[] {
 export interface PowershellCommand {
   file: string
   args: string[]
-  options: { encoding: 'utf8'; timeout: number; windowsHide: boolean }
+  /** `env` is there when the script has data: the environment of worfy with the data added. */
+  options: { encoding: 'utf8'; timeout: number; windowsHide: boolean; env?: Env }
 }
 
 /**
  * How a script runs: Windows PowerShell of `systemRoot` by its absolute path — C:\Windows when
  * `systemRoot` is missing, empty or not absolute — without a profile and without prompts, hidden,
  * with a timeout. Also used by the live Session check of src/main/claude-home/registry.ts.
+ *
+ * The script goes in as text, with -Command, and must be a constant: what changes from call to
+ * call is given in `vars`, which the script reads as `$env:NAME`. -EncodedCommand is not used
+ * (worfy-windows ticket 21; the numbers are at REGISTRY_SCRIPT).
  */
-export function powershellScriptCommand(systemRoot: string | undefined, script: string): PowershellCommand {
+export function powershellScriptCommand(systemRoot: string | undefined, script: string, vars: Env = {}, env: Env = process.env as Env): PowershellCommand {
   // A drive and its root: `\Windows` (the root of the current drive) passes win32.isAbsolute but is not one.
   const root = systemRoot && /^[A-Za-z]:[\\/]/.test(systemRoot) ? systemRoot : 'C:\\Windows'
+  const withData = Object.keys(vars).length > 0
   return {
     file: win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-    args: ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
-    options: { encoding: 'utf8', timeout: SHELL_TIMEOUT_MS, windowsHide: true },
+    args: ['-NoProfile', '-NonInteractive', '-Command', script],
+    options: { encoding: 'utf8', timeout: SHELL_TIMEOUT_MS, windowsHide: true, ...(withData ? { env: { ...env, ...vars } } : {}) },
   }
 }
 
-/** How registryScript runs for `key` (powershellScriptCommand). */
-export function powershellCommand(systemRoot: string | undefined, key: string): PowershellCommand {
-  return powershellScriptCommand(systemRoot, registryScript(key))
+/** How REGISTRY_SCRIPT runs for `key` (powershellScriptCommand). */
+export function powershellCommand(systemRoot: string | undefined, key: string, env: Env = process.env as Env): PowershellCommand {
+  return powershellScriptCommand(systemRoot, REGISTRY_SCRIPT, registryVars(key), env)
 }
 
 export type RunFile = (
