@@ -6,9 +6,13 @@
 // On Windows stat of a Card's folder and open of its index.html follow a link, and a link to
 // `\\host\share\…` makes the system contact that host with the user's credentials. So info() reads
 // the links on the way first (remote-links.ts; worfy-windows ticket 19): a Card whose folder leads
-// there is not there, and a Card whose index.html leads there has no title. This covers info()
-// alone. The watch below does not have it: chokidar calls realpath, stat and readdir through every
-// link in the Cards folder, also with followSymlinks off.
+// there is not there, and a Card whose index.html leads there has no title. The watch reads the
+// links first as well (worfy-windows ticket 20): chokidar calls realpath, stat and readdir through
+// every link in a folder it watches, also with followSymlinks off, so on Windows the Cards folder
+// is watched by link-safe-watch.ts. A Cards folder that leads to a share is not watched; a Card
+// folder or a file of a Card that does is left alone, and the other Cards are watched as before.
+// A link to a folder or a file of this machine is followed, as chokidar followed it, down to the
+// folders right inside a Card; chokidar stays the watch on every other system.
 //
 // Watching starts for a Project the first time one of its Cards is asked for, and lasts until the
 // Project leaves the list or close(). Changes are reported per Card after a short quiet period
@@ -17,8 +21,9 @@ import { mkdirSync } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { relative, sep } from 'node:path'
-import { watch, type FSWatcher } from 'chokidar'
+import { watch } from 'chokidar'
 import { CARD_ID_PATTERN, type CardInfo } from '../../shared/ipc/cards'
+import { LinkSafeWatch, type WatchFs } from '../link-safe-watch'
 import { projectStore } from '../projects/store'
 import { leadsToRemote, type LinkFs, type PathRules } from '../remote-links'
 import { cardUrl, projectLabel, type CardHost } from './protocol'
@@ -28,6 +33,12 @@ export const CARDS_DIR = 'cards'
 
 /** Quiet period after the last file event of a Card before it is reported changed. */
 export const CARD_CHANGE_DELAY_MS = 100
+
+/**
+ * How deep under the Cards folder a link is looked for by the watch on Windows: the Card folder
+ * itself, what lies in it, and what lies in a folder right inside it (`<card>/assets/app.js`).
+ */
+export const CARD_LINK_DEPTH = 2
 
 /** How much of index.html is read to find its <title>. */
 const TITLE_READ_LIMIT = 64 * 1024
@@ -104,13 +115,20 @@ export interface CardStoreOptions {
   links?: LinkFs
   /** The calls that follow links; replaced in tests. */
   fs?: CardFs
+  /** The file system of the watch on Windows (link-safe-watch.ts); replaced in tests. */
+  watchFs?: WatchFs
+}
+
+/** A watch of one Project's Cards, whichever kind it is. */
+interface CardsWatch {
+  close: () => Promise<void> | void
 }
 
 const keyOf = (projectId: string, cardId: string): string => `${projectId}\n${cardId}`
 
 export class CardStore {
   private readonly revisions = new Map<string, number>()
-  private readonly watchers = new Map<string, FSWatcher>()
+  private readonly watchers = new Map<string, CardsWatch>()
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly listeners = new Set<(info: CardInfo) => void>()
   private readonly delayMs: number
@@ -156,14 +174,14 @@ export class CardStore {
   /**
    * One Card as the renderer shows it; starts watching the Project's Cards. A Card whose folder
    * leads to a share is not there, and one whose index.html leads there has no title: stat and
-   * open here are not asked about either. The watch it starts is another matter (see the top of
-   * this file).
+   * open here are not asked about either.
    */
   async info(projectId: string, cardId: string): Promise<CardInfo> {
-    // The folders are asked of the Project list once, before anything is awaited: a Project that
-    // leaves the list meanwhile still gets its answer, as before the walk was here.
-    const cards = this.cardsDir(projectId)
+    // The folders are asked of the Project list before anything is awaited: a Project that leaves
+    // the list meanwhile still gets its answer, as before the walk was here. The Card first: an id
+    // that is not one is refused as such, whatever the Project.
     const dir = this.cardDir(projectId, cardId)
+    const cards = this.cardsDir(projectId)
     const url = cardUrl(projectId, cardId)
     this.watchProject(projectId)
     // The Cards folder is the only place these paths may go: also when it lies on a share itself.
@@ -197,6 +215,34 @@ export class CardStore {
   private watchProject(projectId: string): void {
     if (this.options.watch === false || this.closed || this.watchers.has(projectId)) return
     const dir = this.cardsDir(projectId)
+    const failed = (error: unknown): void => console.error(`[cards] watching the Cards of ${projectId} failed`, error)
+    if (this.paths.sep === '\\') {
+      // Windows: every link is read before anything follows it. The folder is not made here — a
+      // folder that is not there yet is waited for — so nothing is asked through a link on the way.
+      const names = (path: string): string[] => this.paths.relative(dir, path).split(this.paths.sep)
+      const ofCard = (path: string): boolean => CARD_ID_PATTERN.test(names(path)[0] ?? '')
+      const watcher = new LinkSafeWatch({
+        root: dir,
+        // The Cards folder is the only place these paths may go: also when it lies on a share itself.
+        allowed: [dir],
+        paths: this.paths,
+        links: this.options.links,
+        fs: this.options.watchFs,
+        // Links are looked for among the Cards, in a Card, and in the folders right inside it.
+        enter: (path) => ofCard(path) && names(path).length <= CARD_LINK_DEPTH,
+        wanted: ofCard,
+        onChange: (path) => {
+          const [cardId] = names(path)
+          if (cardId !== undefined && CARD_ID_PATTERN.test(cardId)) this.schedule(projectId, cardId)
+        },
+        onError: failed,
+      })
+      this.watchers.set(projectId, watcher)
+      void watcher.start().then((state) => {
+        if (state === 'refused') console.error(`[cards] the Cards folder of ${projectId} leads off this machine, or cannot be checked: it is not watched`)
+      })
+      return
+    }
     // worfy's own data folder (ADR-0005): the folder is made so it can be watched before the
     // first Card is written.
     mkdirSync(dir, { recursive: true })
@@ -205,7 +251,7 @@ export class CardStore {
       const [cardId] = relative(dir, path).split(sep)
       if (cardId !== undefined && CARD_ID_PATTERN.test(cardId)) this.schedule(projectId, cardId)
     })
-    watcher.on('error', (error) => console.error(`[cards] watching the Cards of ${projectId} failed`, error))
+    watcher.on('error', failed)
     this.watchers.set(projectId, watcher)
   }
 
@@ -248,7 +294,7 @@ export class CardStore {
     for (const [projectId, watcher] of [...this.watchers]) {
       if (listed.has(projectId)) continue
       this.watchers.delete(projectId)
-      watcher.close().catch((error: unknown) => console.error(`[cards] could not stop watching the Cards of ${projectId}`, error))
+      Promise.resolve(watcher.close()).catch((error: unknown) => console.error(`[cards] could not stop watching the Cards of ${projectId}`, error))
     }
   }
 

@@ -6,8 +6,7 @@
 // Developer Mode: without it the cases with the share are skipped, with the reason.
 //
 // `epic-status` is a stand-in that lists the folders; the bash script does not run on Windows.
-import fs, { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmdirSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
-import { syncBuiltinESMExports } from 'node:module'
+import fs, { mkdirSync, mkdtempSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { watch } from 'chokidar'
@@ -17,24 +16,9 @@ import { removeTree } from '../../src/main/storage/remove'
 import type { ProjectLayout } from '../../src/main/workflow/folder'
 import type { EpicStatusRunner } from '../../src/main/workflow/reader'
 import { ticketsIgnored, WorkflowWatcher } from '../../src/main/workflow/watch'
+import { canLink, countFsCalls, SHARE, through, until } from './counted-fs'
 
 const WINDOWS = process.platform === 'win32'
-const SHARE = '\\\\worfy-no-such-host\\share'
-
-/** Whether this user may make a symlink (Developer Mode, or an elevated process). */
-function canLink(): boolean {
-  if (!WINDOWS) return false
-  const probe = mkdtempSync(join(tmpdir(), 'worfy-watch-links-probe-'))
-  try {
-    symlinkSync(`${SHARE}\\probe`, join(probe, 'link'), 'dir')
-    unlinkSync(join(probe, 'link'))
-    return true
-  } catch {
-    return false
-  } finally {
-    rmdirSync(probe)
-  }
-}
 const LINKS = canLink()
 
 let dir: string
@@ -125,55 +109,7 @@ async function start(options: { follow?: readonly string[]; ticketsWatch?: 'link
   return { watcher, deltas, startMs: performance.now() - at }
 }
 
-async function until(what: string, done: () => boolean, ms = 5000): Promise<void> {
-  const end = performance.now() + ms
-  while (!done()) {
-    if (performance.now() > end) throw new Error(`timed out after ${ms} ms waiting for ${what}`)
-    await new Promise((resolve) => setTimeout(resolve, 20))
-  }
-}
 const numbers = (deltas: WorkflowDelta[]): string[] => deltas.flatMap((delta) => delta.tickets.map((each) => `${each.epic}/${each.num}`))
-
-/**
- * Counts the calls of node:fs that take a path, whoever makes them — chokidar included: the
- * functions are replaced on the module and the named imports are brought in line with it.
- */
-function countFsCalls(): { calls: string[]; restore: () => void } {
-  const calls: string[] = []
-  const undo: (() => void)[] = []
-  const wrap = (owner: Record<string, unknown>, name: string, label: string): void => {
-    const original = owner[name] as (...args: unknown[]) => unknown
-    const counted = function (this: unknown, ...args: unknown[]): unknown {
-      calls.push(`${label} ${String(args[0])}`)
-      return original.apply(this, args)
-    }
-    owner[name] = Object.assign(counted, original)
-    undo.push(() => {
-      owner[name] = original
-    })
-  }
-  for (const name of ['realpath', 'stat', 'lstat', 'readdir', 'open', 'readlink', 'access', 'readFile']) wrap(fs.promises as unknown as Record<string, unknown>, name, name)
-  for (const name of ['realpath', 'stat', 'lstat', 'readdir', 'open', 'readlink', 'access', 'readFile', 'watch', 'watchFile']) wrap(fs as unknown as Record<string, unknown>, name, name)
-  for (const name of ['realpathSync', 'statSync', 'lstatSync', 'readdirSync', 'openSync', 'readlinkSync', 'existsSync', 'accessSync', 'readFileSync']) wrap(fs as unknown as Record<string, unknown>, name, name.replace(/Sync$/, ''))
-  syncBuiltinESMExports()
-  return {
-    calls,
-    restore: () => {
-      for (const each of undo) each()
-      syncBuiltinESMExports()
-    },
-  }
-}
-
-/** The counted calls that name a path through the link, other than lstat and readlink of the link itself. */
-function through(calls: readonly string[], link: string): string[] {
-  const lower = link.toLowerCase()
-  return calls.filter((call) => {
-    const path = call.replace(/^\S+ /, '').toLowerCase()
-    if (path === lower) return !/^(lstat|readlink) /.test(call)
-    return path.startsWith(`${lower}\\`)
-  })
-}
 
 describe.runIf(WINDOWS)('the watch of a Tickets root on Windows', () => {
   it('sees a new Ticket, an edit of it, and a new Epic', async () => {
