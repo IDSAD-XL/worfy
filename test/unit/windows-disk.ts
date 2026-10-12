@@ -7,7 +7,7 @@
 // the link itself are not such calls; lstat of anything below it is.
 import { win32 } from 'node:path'
 import type { EntryKind, WatchFs, WatchHandle } from '../../src/main/link-safe-watch'
-import type { LinkFs } from '../../src/main/remote-links'
+import type { LinkFs, LinkFsSync } from '../../src/main/remote-links'
 
 export type DiskEntry = { kind: 'folder' } | { kind: 'file' } | { kind: 'link'; to: string }
 
@@ -28,6 +28,12 @@ const key = (path: string): string => path.toLowerCase()
 
 export interface WindowsDisk {
   links: LinkFs
+  /** The same two calls for a caller that cannot wait. */
+  linksSync: LinkFsSync
+  /** lstat of a path, as a yes or no; counted as `lstat`. */
+  there: (path: string) => boolean
+  /** A read of a file, through any link on the way; counted as `open`. */
+  readText: (path: string) => string
   fs: WatchFs
   /** Every call, as `<call> <path>`, in order. */
   calls: string[]
@@ -59,6 +65,9 @@ export function windowsDisk(entries: Record<string, DiskEntry>): WindowsDisk {
   /** Puts an entry in the tree; answers the paths that are new or changed, the folders made above it first. */
   const set = (path: string, entry: DiskEntry): string[] => {
     const made: string[] = []
+    // The root of a disk or of a share is always there.
+    const root = win32.parse(path).root
+    if (!tree.has(key(root))) tree.set(key(root), { path: root, entry: FOLDER })
     for (let above = win32.dirname(path); above !== win32.dirname(above); above = win32.dirname(above)) {
       if (tree.has(key(above))) continue
       tree.set(key(above), { path: above, entry: FOLDER })
@@ -85,7 +94,8 @@ export function windowsDisk(entries: Record<string, DiskEntry>): WindowsDisk {
         const here = tree.get(key(at))?.entry
         if (here?.kind !== 'link' || (!last && index === names.length - 1)) continue
         const target = win32.resolve(win32.dirname(at), here.to)
-        if (target.startsWith('\\\\')) {
+        // A share the model holds entries of is one the user is already on; any other is a host to contact.
+        if (target.startsWith('\\\\') && !tree.has(key(win32.parse(target).root))) {
           contacts.push(`${call} ${asked}`)
           throw failure('UNKNOWN', asked)
         }
@@ -115,19 +125,39 @@ export function windowsDisk(entries: Record<string, DiskEntry>): WindowsDisk {
     }
   }
 
-  const links: LinkFs = {
-    isLink: async (path) => {
+  const linksSync: LinkFsSync = {
+    isLink: (path) => {
       calls.push(`lstat ${path}`)
       if (denied.has(key(path))) throw failure('EACCES', path)
       const entry = tree.get(key(follow('lstat', path, false)))?.entry
       return entry === undefined ? null : entry.kind === 'link'
     },
-    readlink: async (path) => {
+    readlink: (path) => {
       calls.push(`readlink ${path}`)
       const entry = tree.get(key(follow('readlink', path, false)))?.entry
       if (entry?.kind !== 'link' || unreadable.has(key(path))) throw failure('EINVAL', path)
       return entry.to
     },
+  }
+  const links: LinkFs = {
+    isLink: async (path) => linksSync.isLink(path),
+    readlink: async (path) => linksSync.readlink(path),
+  }
+  /** lstat of a path, as a yes or no: a link is there whatever it leads to. */
+  const there = (path: string): boolean => {
+    calls.push(`lstat ${path}`)
+    try {
+      return tree.has(key(follow('lstat', path, false)))
+    } catch {
+      return false
+    }
+  }
+  /** A read of a file, through any link on the way. */
+  const readText = (path: string): string => {
+    calls.push(`open ${path}`)
+    const real = follow('open', path, true)
+    if (tree.get(key(real))?.entry.kind !== 'file') throw failure('ENOENT', path)
+    return `<title>the text of ${real}</title>`
   }
 
   const fs: WatchFs = {
@@ -174,6 +204,9 @@ export function windowsDisk(entries: Record<string, DiskEntry>): WindowsDisk {
 
   return {
     links,
+    linksSync,
+    there,
+    readText,
     fs,
     calls,
     contacts,
