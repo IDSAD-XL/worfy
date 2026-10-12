@@ -85,6 +85,16 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
   живут дальше: за пять прогонов набралось 35. Почему `epic-status` на Windows не завершается, не
   разбиралось; на Node его переносит Ticket 05.
 
+- Папки в `%TEMP%` после test-ов (Session на Windows-ПК, 2026-10-12). С 2026-10-09 там 9510 папок
+  `worfy-*`: `worfy-migrate` 2268, `worfy-canvas` 1134, `worfy-docs` 959, `worfy-projects` 946,
+  `worfy-connect` 725, `worfy-eval` 676 и мельче; объём не замерен. Вероятная причина части из
+  них — та же, что в Ticket-е 23: `afterEach` чистит через `rmSync`, а под Node 24 он бросает EPERM
+  на файле «только для чтения» (объекты git). На main в `harness-migrate.test.ts` больше 20 таких
+  падений. Session папки не удаляла; удалять ли и как — решает владелец. Сколько test-файлов
+  перестают оставлять папки после общей функции удаления — замер в «Итог» Ticket-а 23.
+- `test/contract/trash.test.ts` на Windows падает целиком и на main: «untrusted frame», `INDEX_HTML`
+  — путь macOS (Session на Windows-ПК, 2026-10-12).
+
 ## Что делаем
 
 1. **Unit- и contract-test-ы на Windows.** Каждый test из списка evidence Ticket-а 01 (раздел 17) и
