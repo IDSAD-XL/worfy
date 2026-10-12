@@ -24,9 +24,11 @@
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).
 - `worfy-windows` 12 (влит, PR #237), вручную на ПК: установщик из `dist\` и значок; `pnpm install:stable`; установщик при копии, запущенной из старой папки — [Ticket 12](.scratch/worfy-windows/issues/12-сборка-nsis-и-stable-copy-на-windows.md), «Готово, когда».
 - Windows-ПК: поставить Node 24 (после этого вливается `worfy-windows` 24); решить, удалять ли 9510 папок `worfy-*` в `%TEMP%` от test-ов (`worfy-windows` 14).
+- Mac: перезапустить `fseventsd` (`sudo launchctl kickstart -k system/com.apple.fseventsd`) или перезагрузить Mac — до этого `gate full` красный и на main; PR #254, #256 и #257 ждут. Замеры — строка в «Риски и долги».
 
 ## Риски и долги
 
+- `gate full` на Mac красный с 2026-10-12 23:04, и на main: во время `pnpm test` служба macOS `fseventsd` держит 102–116 % CPU, уведомление о файле опаздывает до 2,5 s, test-ы наблюдателей (`docs.test.ts`, `claude-home-registry.test.ts`) падают. Замеры — `worfy-windows` 26, «Что происходит».
 - Каждый мерж, который трогает `harness/`, кончается `pnpm install:stable` вне прогона Autopilot (ADR-0047): без пересборки Stable copy влитый урок не действует.
 - Atakama пойдёт через полный предполёт Harness с `git fetch`. На живых репозиториях Atakama это не проверено, только на клонах (`worfy-harness` 11).
 - [med] С plugin-ом оживают долги про `gh`: Stop hook зовёт `gh` по имени, и `bin/gh` plugin-а подменит учётную запись (`worfy-harness` 01); `preflight` советует `gh auth switch` вместо `GH_TOKEN` (`worfy-week` 01).
