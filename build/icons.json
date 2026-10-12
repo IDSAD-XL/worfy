@@ -5,6 +5,7 @@
   },
   "outputs": {
     "icon.icns": "6c5d2843b1f791eeb5bfa5ddd7adaf9ef2c0ff248404a61598b254c7faef9f4d",
+    "icon.ico": "2492591096fad5db35ea9d1a4075d477ecdb29bba26a4610bab8e64014ca3576",
     "icon.png": "d59385df0efb83f5f4916258f2bd38b764e26a2addc3c8a1d106a7559d8cf135"
   },
   "iconset": [
@@ -56,6 +57,36 @@
     {
       "file": "icon_512x512@2x.png",
       "px": 1024,
+      "source": "icon.svg"
+    }
+  ],
+  "ico": [
+    {
+      "px": 16,
+      "source": "mark.svg"
+    },
+    {
+      "px": 24,
+      "source": "mark.svg"
+    },
+    {
+      "px": 32,
+      "source": "mark.svg"
+    },
+    {
+      "px": 48,
+      "source": "icon.svg"
+    },
+    {
+      "px": 64,
+      "source": "icon.svg"
+    },
+    {
+      "px": 128,
+      "source": "icon.svg"
+    },
+    {
+      "px": 256,
       "source": "icon.svg"
     }
   ],

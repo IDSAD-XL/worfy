@@ -16,18 +16,37 @@ Visual Studio Build Tools are not needed: on Windows `pnpm install` does not reb
 
 ## Stable copy
 
-Autopilot over worfy itself runs only on a stable copy of `worfy.app` outside the repository, never on a dev build: agents rebuild and test the dev build in their worktrees while Autopilot runs, and `pnpm package` replaces `dist/` on every build.
+Autopilot over worfy itself runs only on a stable copy of worfy outside the repository, never on a dev build: agents rebuild and test the dev build in their worktrees while Autopilot runs, and `pnpm package` replaces `dist/` on every build.
 
-Install or update the copy:
+Install or update the copy (`scripts/install-stable.mjs`). On macOS it is a `.app`:
 
 ```sh
 pnpm install:stable                      # ~/Applications/worfy-stable.app
 pnpm install:stable /path/to/worfy.app   # any other path ending in .app
 ```
 
-The command builds the `.app` (`pnpm package`), replaces the previous copy and writes the commit and the build time next to it, in `~/Applications/worfy-stable.json` (nothing is written inside the `.app`: that would break its ad-hoc signature). It refuses with a non-zero exit code while the copy is running.
+On Windows it is a folder with `worfy.exe` in it:
 
-The copy and a dev run keep separate data: the packaged app uses `~/Library/Application Support/worfy`, `pnpm dev` and other unpacked runs use `~/Library/Application Support/worfy-dev`. Two processes over the same folder are not allowed: the second start quits and brings the running window to the front. The status line bridge (`scripts/statusline-bridge.sh`) writes Limits to both folders, whichever of them exist, so a dev run next to the copy sees the same Limits; with `WORFY_DATA_DIR` set it writes only there.
+```powershell
+pnpm install:stable                        # %LOCALAPPDATA%\worfy-stable
+pnpm install:stable D:\apps\worfy-stable   # any other folder
+```
+
+The command builds the app (`pnpm package`), replaces the previous copy and writes the commit and the build time next to it: in `~/Applications/worfy-stable.json` on macOS (nothing is written inside the `.app`: that would break its ad-hoc signature), in `%LOCALAPPDATA%\worfy-stable.json` on Windows. It refuses with a non-zero exit code while the copy is running. The previous copy is moved aside until the new one is in place; when the swap fails, it is put back.
+
+While it works, the command keeps two folders next to the target: `<target>.installing-<pid>`, the copy being made, and `<target>.replaced-<pid>`, the previous copy moved aside. A run that was interrupted leaves them there. The next run that has a build to install removes the first and puts the second back when nothing is at the target. These two names are the command's own: keep no folder of such a name next to the copy.
+
+On Windows `pnpm package` writes the installer, `dist\worfy Setup <version>.exe`, and the unpacked app, `dist\win-unpacked`. The stable copy is a copy of the unpacked app, started by `worfy-stable\worfy.exe`; it has no shortcut in the Start menu. The installer is not signed, so SmartScreen asks before its first run (More info → Run anyway). It installs worfy for the current user into `%LOCALAPPDATA%\Programs\worfy`.
+
+The stable copy on Windows does not go under `Programs`. The installer stops every running program whose path starts with the path of its folder, so a copy in `…\Programs\worfy-stable` would be stopped by an install, an update or an uninstall of worfy. The command refuses:
+
+- the installer's folder, a folder inside it or around it, and any path that starts with its path (`…\Programs\worfy-2`);
+- a folder that holds `Uninstall worfy.exe`: the installer put that worfy there, wherever the folder is;
+- a folder that is neither empty nor an earlier copy.
+
+A folder that holds `worfy.exe` counts as an earlier copy and is replaced whole: every other file in it is removed with it. Keep nothing of your own in the folder of the copy.
+
+The copy and a dev run keep separate data: the packaged app uses `~/Library/Application Support/worfy` (on Windows `%APPDATA%\worfy`), `pnpm dev` and other unpacked runs use `~/Library/Application Support/worfy-dev` (on Windows `%APPDATA%\worfy-dev`). Two processes over the same folder are not allowed: the second start quits and brings the running window to the front. The status line bridge (`scripts/statusline-bridge.sh`) writes Limits to both folders, whichever of them exist, so a dev run next to the copy sees the same Limits; with `WORFY_DATA_DIR` set it writes only there.
 
 Update the copy in this order:
 

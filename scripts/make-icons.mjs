@@ -1,16 +1,21 @@
 #!/usr/bin/env node
-// Builds the app icon from the brand sources (ticket 31):
+// Builds the app icon from the brand sources (ticket 31; the Windows icon: worfy-windows ticket 12):
 //
 //   node scripts/make-icons.mjs [--out <dir>]     (pnpm icons)
 //
 // Renders the ten PNGs of a macOS iconset from build/brand/icon.svg and build/brand/mark.svg with
-// `sips`, packs them into icon.icns with `iconutil -c icns`, and writes into <dir> (default build/):
+// `sips`, packs them into icon.icns with `iconutil -c icns`, renders the seven PNGs of the Windows
+// icon the same way and packs them into icon.ico (scripts/ico.mjs), and writes into <dir> (default
+// build/):
 //   icon.icns   — the bundle icon, electron-builder's mac.icon;
+//   icon.ico    — the icon of worfy.exe and of its installer, electron-builder's win.icon;
 //   icon.png    — 1024 px from icon.svg, the Dock icon of `pnpm dev` (src/main/dock-icon.ts);
-//   icons.json  — sha256 of both SVGs and of both outputs, and the list of sizes; the contract test
-//                 test/contract/make-icons.test.ts turns red when an SVG changes without this script.
-// The outputs are committed, so packaging does not depend on sips, iconutil or the installed macOS.
-// The iconset itself lives in a temporary folder and is removed afterwards.
+//   icons.json  — sha256 of both SVGs and of the three outputs, and the lists of sizes; the contract
+//                 test test/contract/make-icons.test.ts turns red when an SVG changes without this
+//                 script.
+// The outputs are committed, so packaging does not depend on sips, iconutil or the installed macOS:
+// the Windows installer is built on Windows from the committed icon.ico. The script itself runs on
+// macOS only. The rendered PNGs live in a temporary folder and are removed afterwards.
 
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -19,6 +24,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { packIco } from './ico.mjs'
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const brand = join(repo, 'build', 'brand')
@@ -38,6 +44,18 @@ const ICONSET = [
   { file: 'icon_512x512@2x.png', px: 1024, source: 'icon.svg' },
 ]
 const PNG = { file: 'icon.png', px: 1024, source: 'icon.svg' }
+
+// The sizes of the Windows icon, by the same rule: the mark below 48 px (the title bar, the
+// taskbar and lists at 100–200 % scale), the full icon from 48 px on (large icons, the installer).
+const ICO = [
+  { px: 16, source: 'mark.svg' },
+  { px: 24, source: 'mark.svg' },
+  { px: 32, source: 'mark.svg' },
+  { px: 48, source: 'icon.svg' },
+  { px: 64, source: 'icon.svg' },
+  { px: 128, source: 'icon.svg' },
+  { px: 256, source: 'icon.svg' },
+]
 
 // icon.svg places its 120-unit mark on the macOS icon grid: a 1024 canvas, a body of 824 centred,
 // 100 of transparent field on each side. mark.svg is drawn edge to edge; it is wrapped the same way,
@@ -114,17 +132,26 @@ function main() {
     const icns = join(work, 'icon.icns')
     run('iconutil', ['-c', 'icns', iconset, '-o', icns])
 
+    const icoFiles = ICO.map((entry) => join(work, `ico-${entry.px}.png`))
+    ICO.forEach((entry, index) => render(sources[entry.source], entry.px, icoFiles[index]))
+    const ico = packIco(
+      icoFiles.map((file) => readFileSync(file)),
+      ICO.map((entry) => `the ${entry.px} px picture of icon.ico`),
+    )
+
     mkdirSync(out, { recursive: true })
     copyFileSync(icns, join(out, 'icon.icns'))
+    writeFileSync(join(out, 'icon.ico'), ico)
     copyFileSync(png, join(out, PNG.file))
     const manifest = {
       sources: { 'icon.svg': sha256(join(brand, 'icon.svg')), 'mark.svg': sha256(join(brand, 'mark.svg')) },
-      outputs: { 'icon.icns': sha256(join(out, 'icon.icns')), 'icon.png': sha256(join(out, PNG.file)) },
+      outputs: { 'icon.icns': sha256(join(out, 'icon.icns')), 'icon.ico': sha256(join(out, 'icon.ico')), 'icon.png': sha256(join(out, PNG.file)) },
       iconset: ICONSET,
+      ico: ICO,
       png: PNG,
     }
     writeFileSync(join(out, 'icons.json'), `${JSON.stringify(manifest, null, 2)}\n`)
-    process.stdout.write(`make-icons: wrote icon.icns, icon.png and icons.json to ${out}\n`)
+    process.stdout.write(`make-icons: wrote icon.icns, icon.ico, icon.png and icons.json to ${out}\n`)
   } finally {
     rmSync(work, { recursive: true, force: true })
   }

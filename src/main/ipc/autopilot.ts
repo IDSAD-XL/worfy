@@ -60,7 +60,7 @@ export function autopilotHandlers(autopilot: () => Pick<Autopilot, 'start' | 'st
 }
 
 /** The repository's common git folder of `dir`, absolute; null outside git. */
-function gitCommonDir(dir: string): Promise<string | null> {
+export function gitCommonDir(dir: string): Promise<string | null> {
   return new Promise((done) => {
     execFile('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: dir, encoding: 'utf8' }, (error, stdout) => done(error ? null : stdout.trim() || null))
   })
