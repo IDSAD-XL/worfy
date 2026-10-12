@@ -1,11 +1,11 @@
 // src/main/link-safe-watch.ts (worfy-windows ticket 20): a watch that never calls through a link
-// to `\\host\share\…`. The disk is a model (test/helpers/windows-disk.ts) under path.win32, so
+// to `\\host\share\…`. The disk is a model (test/unit/windows-disk.ts) under path.win32, so
 // every case runs on any system. The model writes down each call and marks the ones Windows would
 // answer by contacting the host: `contacts` must stay empty.
 import { win32 } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { LinkSafeWatch, MAX_SCAN_DEPTH, type WatchState } from '../../src/main/link-safe-watch'
-import { FILE, FOLDER, linkTo, windowsDisk, type DiskEntry, type WindowsDisk } from '../helpers/windows-disk'
+import { FILE, FOLDER, linkTo, windowsDisk, type DiskEntry, type WindowsDisk } from './windows-disk'
 
 const REPO = 'C:\\p\\repo'
 const ROOT = `${REPO}\\.scratch`
