@@ -54,9 +54,32 @@ function nodeSources(workflow: string): { steps: number; versions: string[]; fil
  */
 function nodeMajorsNamed(text: string): number[] {
   const version = String.raw`v?\d+(?:\.(?:\d+|x))*`
-  const named = new RegExp(String.raw`\bNode(?:\.js)?(?:\s+LTS)?[\s(]+${version}(?:\s*(?:,|or|and|\/)\s*${version})*`, 'gi')
-  return [...text.matchAll(named)].flatMap((match) => [...match[0].matchAll(/v?(\d+)(?:\.(?:\d+|x))*/gi)].map((each) => Number(each[1])))
+  // "Node" is also a term of the Canvas here ("Terminal Node 2 closes with Node 1"), so a number
+  // after it is a version of Node.js only when the text says "Node.js", or when the bare "Node" does
+  // not follow "Terminal" or "Canvas" and the number is 10 or more: Node.js has had no major below
+  // 10 since 2018, and a README does not number that many Nodes of a Canvas. A further number of the
+  // list ("24 or 22", "24, 22", "24/22") counts by the same bound, and "and" does not continue the
+  // list: "Node.js 24 and 2 more tools" names one version.
+  const named = new RegExp(String.raw`\b(?:(Node\.js)|(?<!\b(?:Terminal|Canvas)\s+)Node)(?:\s+LTS)?[\s(]+(${version}(?:\s*(?:,|or|\/)\s*${version})*)`, 'gi')
+  return [...text.matchAll(named)].flatMap((match) => {
+    const majors = [...(match[2] ?? '').matchAll(/v?(\d+)(?:\.(?:\d+|x))*/gi)].map((each) => Number(each[1]))
+    return majors.filter((major, index) => major >= 10 || (index === 0 && match[1] !== undefined))
+  })
 }
+
+/**
+ * The majors of the lower bounds a text gives for Node: a `>=` that follows `engines.node` or
+ * "Node.js" on the same line, at most 60 characters after it. Any other `>=` is not about Node
+ * ("Windows >= 10 is needed").
+ */
+const nodeBoundsNamed = (text: string): number[] => [...text.matchAll(/(?:engines\.node|Node\.js)[^\n]{0,60}?>=[ \t]*v?(\d+)/gi)].map((match) => Number(match[1]))
+
+/**
+ * The majors of the versions a text tells winget to install for Node: `--version` after a package
+ * `OpenJS.NodeJS…` in the same command (no backtick and no line break between them). `--version` of
+ * another package is not about Node (`winget install Git.Git --version 2.47.1`).
+ */
+const nodeInstallsNamed = (text: string): number[] => [...text.matchAll(/OpenJS\.NodeJS[\w.]*[^\n`]{0,40}?--version[ =]+v?(\d+)/g)].map((match) => Number(match[1]))
 
 describe('the version of Node for development', () => {
   it('engines.node of package.json names the major of .nvmrc', () => {
@@ -124,10 +147,34 @@ describe('the version of Node for development', () => {
     ['Node.js 24 or 22', [24, 22]],
     ['Node.js\n22 or newer', [22]],
     ['Node.js 24, 24.15 or newer of that line', [24, 24]],
+    ['Node.js 8', [8]],
     ['a Terminal Node on Windows 10 21H2+', []],
     ['`node --version` must print 24.15', []],
+    ['Terminal Node 2 closes with Node 1', []],
+    ['Terminal Node 22 and Canvas Node 23', []],
+    ['Node.js 24 and 2 more tools', [24]],
+    ['Node.js 24, 2 files and 3 folders', [24]],
   ])('finds the majors named for Node in %j', (text, majors) => {
     expect(nodeMajorsNamed(text)).toEqual(majors)
+  })
+
+  it.each([
+    ['`engines.node` of `package.json` is `>=22`', [22]],
+    ['Node.js >= 22', [22]],
+    ['Windows >= 10 is needed', []],
+    ['Node.js 24.\nWindows >= 10 is needed', []],
+  ])('finds the lower bounds given for Node in %j', (text, majors) => {
+    expect(nodeBoundsNamed(text)).toEqual(majors)
+  })
+
+  it.each([
+    ['`winget install OpenJS.NodeJS.LTS --version 22.13.0`', [22]],
+    ['`winget install OpenJS.NodeJS --version=22.13.0`', [22]],
+    ['`winget install Git.Git --version 2.47.1`', []],
+    ['`OpenJS.NodeJS.LTS`, then `winget install Git.Git --version 2.47.1`', []],
+    ['`node --version` must print 24.15', []],
+  ])('finds the versions winget installs for Node in %j', (text, majors) => {
+    expect(nodeInstallsNamed(text)).toEqual(majors)
   })
 
   it('the README names that major for Node, and no other', () => {
@@ -136,11 +183,11 @@ describe('the version of Node for development', () => {
     const named = nodeMajorsNamed(readme)
     expect(named.length, 'the README names no version of Node').toBeGreaterThan(0)
     expect(named, 'the majors the README names for Node').toEqual(named.map(() => major))
-    // The other numbers of the README that repeat the version: a lower bound (`>=24`) and the
-    // version a command installs (`--version 24.20.0`).
-    const bounds = [...readme.matchAll(/>=[ \t]*v?(\d+)/g)].map((match) => Number(match[1]))
-    expect(bounds, 'the lower bounds (>=) of the README').toEqual(bounds.map(() => major))
-    const installed = [...readme.matchAll(/--version[ =]+v?(\d+)/g)].map((match) => Number(match[1]))
-    expect(installed, 'the versions of --version in the README').toEqual(installed.map(() => major))
+    // The other numbers of the README that repeat the version: the lower bound of engines.node
+    // (`>=24`) and the version winget installs (`OpenJS.NodeJS.LTS --version 24.20.0`).
+    const bounds = nodeBoundsNamed(readme)
+    expect(bounds, 'the lower bounds (>=) the README gives for Node').toEqual(bounds.map(() => major))
+    const installed = nodeInstallsNamed(readme)
+    expect(installed, 'the versions winget installs for Node in the README').toEqual(installed.map(() => major))
   })
 })

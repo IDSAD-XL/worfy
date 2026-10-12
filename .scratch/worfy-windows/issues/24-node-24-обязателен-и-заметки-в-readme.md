@@ -179,10 +179,10 @@ test не проверяет: в `pnpm test` и в CI Node один. Она пр
     (`.msi`) of the newest 24.x from <https://nodejs.org/dist/latest-v24.x/>, or
     `winget install OpenJS.NodeJS.LTS --version 24.20.0`. Without `--version` winget installs the
     newest LTS line, and that is 24 only until the next line becomes LTS, planned for 2026-10-28.
-    After that date the winget command may stop finding 24.20.0: a year earlier winget moved the 22.x
-    versions out of `OpenJS.NodeJS.LTS` into a package of their own, `OpenJS.NodeJS.22`, within a
-    week of such a change, and the 24.x versions may move to `OpenJS.NodeJS.24` the same way (there
-    is no such package today). The installer from nodejs.org does not depend on that.
+    After that date the winget command may stop finding 24.20.0: in November 2025 winget moved the
+    older lines out of `OpenJS.NodeJS.LTS` into packages of their own (`OpenJS.NodeJS.22` and the
+    like), and whether the 24.x versions follow once the next line is LTS is not known (there is no
+    `OpenJS.NodeJS.24` today). The installer from nodejs.org does not depend on that.
     `node --version` must then print 24.15 or a newer version of the line 24;»
 
 - **Команда winget: что проверено и по каким источникам. Решено без владельца, подтвердить.**
@@ -216,7 +216,8 @@ test не проверяет: в `pnpm test` и в CI Node один. Она пр
     are ended at once and get no request to close, so what was not saved in them is lost. worfy does
     not ask before it closes a Terminal either. The tree is walked from the shell down through
     parents that are still running: a program whose parent has already exited, one started through a
-    launcher or `cmd /c start` for example, is not found and stays.»
+    launcher or `cmd /c start` for example, is not found and stays, unless it is on the console of
+    the shell: closing the pseudo-console ends that one.»
   - `README.md:32`: «The same happens when the Node leaves the Layout by any other route, when its
     Project is removed from worfy, when the last window or Linked machine that opened the Terminal
     goes away, and when worfy quits. A program worfy cannot end, an elevated one for example, stays,
@@ -268,13 +269,15 @@ test не проверяет: в `pnpm test` и в CI Node один. Она пр
 Ревью по двум линзам: одна находка med и три low в тексте README, шесть low в contract test-е.
 `package.json` не менялся; в `pnpm-workspace.yaml` дописан только комментарий.
 
-- **Команда winget после 2026-10-28 (med).** Это прогноз по прецеденту, не факт. Node 24 стал LTS
-  2025-10-28, и через шесть дней, 2025-11-03, в `microsoft/winget-pkgs` версии 22.x убрали из
-  пакета `OpenJS.NodeJS.LTS` в `OpenJS.NodeJS.22`: история папки
-  `manifests/o/OpenJS/NodeJS/LTS/22.11.0` заканчивается commit-ом «Remove OpenJS.NodeJS.LTS 22.11.0
-  to OpenJS.NodeJS.22 22.11.0 (#309252)» от 2025-11-03T19:03:10Z, рядом такие же для 22.15.1–22.21.0
-  (#309265–#309279), а 2025-11-07 — для 16.x и 18.x (прочитано через GitHub API, только чтение).
-  Если с Node 26 поступят так же, 24.20.0 в пакете LTS не найдётся, а пакета `OpenJS.NodeJS.24`
+- **Команда winget после 2026-10-28 (med).** Перестанет ли она находить 24.20.0 — неизвестно;
+  README так и говорит (текст поправлен во втором круге, см. ниже). Что известно из истории
+  `microsoft/winget-pkgs` (GitHub API, только чтение): в ноябре 2025 старые линии разом убрали из
+  пакета `OpenJS.NodeJS.LTS` в пакеты по major — 22.11.0 2025-11-03 («Remove OpenJS.NodeJS.LTS
+  22.11.0 to OpenJS.NodeJS.22 22.11.0 (#309252)»), 20.18.0 2025-11-05 (#310118), 18.12.1 и 16.20.1
+  2025-11-07 (#310633, #310743), 14.21.3 и 12.22.12 2025-11-08 (#310987, #311011), 10.24.1
+  2025-11-09 (#311148). Это была разовая уборка, а не правило «через неделю после смены LTS»: до неё
+  старые линии лежали в пакете годами — 20.18.0 добавлена 2024-10-03 и пережила в нём год после
+  того, как 22 стал LTS (2024-10-29); 18.12.1 лежала с 2022-11-07. Пакета `OpenJS.NodeJS.24`
   сейчас нет (404). В README первым стоит путь без срока годности: установщик `.msi` из
   `https://nodejs.org/dist/latest-v24.x/` — в его `SHASUMS256.txt` сегодня есть
   `node-v24.21.0-x64.msi` и `node-v24.21.0-arm64.msi`. Фраза о `winget show … --versions` убрана.
@@ -314,17 +317,18 @@ test не проверяет: в `pnpm test` и в CI Node один. Она пр
   и остаётся — фраза в `README.md:30`. При пределе 3 с helper снимается посреди цикла (`:315`), уже
   завершённые процессы завершены; исход `gone` (`:260`, `:866-868`) — под оболочкой не завершается
   ничего; в любом исходе идёт `release` (`:869`) — фразы в `README.md:32`.
-- **Contract test, `test/contract/node-version.test.ts`** (24 проверки вместо 5):
-  - `:55-59`, `:118-131` — версии Node в README ищутся в формах «Node.js 22», «Node 22 or newer»,
+- **Contract test, `test/contract/node-version.test.ts`** (24 проверки вместо 5; номера строк —
+  по файлу после второй доработки):
+  - `:55-68`, `:141-159` — версии Node в README ищутся в формах «Node.js 22», «Node 22 or newer»,
     «node 22.x», «Node.js v22», «Node.js LTS (22)», «Node.js 24 or 22» и с переносом строки перед
     числом; таблица форм — в самом test-е.
-  - `:139-144` — `>=N` и major из `--version` в README сверяются с `engines.node`; `:114-115` —
+  - `:186-191` — `>=N` и major из `--version` в README сверяются с `engines.node`; `:137-138` —
     число из фразы «Node of Electron, which is N» сверяется с Node, под которым идёт test.
-  - `:41-48`, `:75-76` — значений версии (`node-version` и `node-version-file`) в workflow должно
+  - `:41-48`, `:98-99` — значений версии (`node-version` и `node-version-file`) в workflow должно
     быть столько же, сколько шагов `uses: actions/setup-node`; строки-комментарии не считаются.
-  - `:33-34`, `:83-99` — ключ читается и в кавычках, и внутри `{ }`, и с пробелом перед двоеточием;
-    `node-version-file` допустим только со значением `.nvmrc` (`:79`).
-  - `:108-111` — без `process.versions.electron` test падает с сообщением «process.versions.electron
+  - `:33-34`, `:106-122` — ключ читается и в кавычках, и внутри `{ }`, и с пробелом перед двоеточием;
+    `node-version-file` допустим только со значением `.nvmrc` (`:102`).
+  - `:131-134` — без `process.versions.electron` test падает с сообщением «process.versions.electron
     is not set … run the tests with `pnpm test`». Выбран отказ, а не пропуск: пропуск скрыл бы, что
     test-ы перестали идти под Node из Electron, а именно это он и проверяет.
 - **Мутанты** (по одному, файлы возвращены из копий; журналы с кодом выхода —
@@ -355,12 +359,72 @@ test не проверяет: в `pnpm test` и в CI Node один. Она пр
   не проверено: имя второго упавшего файла; зелёный gate fast на Mac. По указанию оркестратора
   gate не повторялся; опора — CI на Linux.
 
+### Вторая доработка (2026-10-13, один коммит поверх `8a9fd9f`)
+
+Повторное ревью обеих линз — VERIFIED; четыре места закрыты сразу.
+
+- **`README.md:21` — довод о winget был однобоким.** Первая доработка писала «a year earlier winget
+  moved the 22.x versions … within a week of such a change», будто перенос следует за сменой LTS.
+  По истории `microsoft/winget-pkgs` это разовая уборка ноября 2025 всех старых линий сразу (даты и
+  номера — в пункте «Команда winget» выше; проверены линии 10.x–22.x). Теперь в README: «in
+  November 2025 winget moved the older lines out of `OpenJS.NodeJS.LTS` into packages of their own
+  (`OpenJS.NodeJS.22` and the like), and whether the 24.x versions follow once the next line is LTS
+  is not known (there is no `OpenJS.NodeJS.24` today). The installer from nodejs.org does not depend
+  on that.»
+- **`README.md:30` — оговорка о консоли оболочки.** Программа, чей родитель уже вышел, остаётся,
+  только если она не на консоли оболочки: такую завершает закрытие псевдоконсоли
+  (`src/main/terminal/pty.ts:849-852`). Добавлено: «…is not found and stays, unless it is on the
+  console of the shell: closing the pseudo-console ends that one.»
+- **`test/contract/node-version.test.ts:75`, `:82`, `:188-191` — `>=` и `--version` привязаны к
+  словам о Node.** Нижняя граница считается, только если `>=` стоит в той же строке не дальше 60
+  знаков после `engines.node` или «Node.js»; версия установки — только если `--version` стоит в той
+  же команде после пакета `OpenJS.NodeJS…`. «Windows >= 10 is needed» и
+  `winget install Git.Git --version 2.47.1` больше не дают ложный красный.
+- **`:55-68` — Node.js отличается от Node холста.** Число считается версией, если в тексте
+  «Node.js», либо если голое «Node» не стоит после «Terminal» или «Canvas» и число не меньше 10:
+  у Node.js нет major ниже 10 с 2018 года, а столько Node-ов холста README не нумерует. Следующее
+  число списка («24 or 22», «24, 22», «24/22») считается по той же границе; «and» список не
+  продолжает: «Node.js 24 and 2 more tools» называет одну версию. Формы закреплены таблицами в
+  самом test-е (`:141-178`); проверок стало 38.
+- **Мутанты** (по одному, файлы возвращены из копий; журналы с кодом выхода —
+  `/tmp/worfy-windows-24/impl/mut3/`):
+  - все 22 прежних — как раньше: 21 красный (exit 1), `node-version-file: .nvmrc` зелёный;
+  - README, который не о версии Node.js, теперь зелёный (exit 0, 38 passed): «Windows >= 10 is
+    needed.»; `winget install Git.Git --version 2.47.1`; «Terminal Node 2 closes with Node 1.»;
+    «Node.js 24 and 2 more tools.»;
+  - настоящие по-прежнему красные (exit 1, по 1 failed): «`engines.node` … is `>=22`»;
+    `winget install OpenJS.NodeJS.LTS --version 22.13.0`; шесть форм «Node 22»; и два новых
+    контрольных — «Node.js >= 22 is needed.», «Node.js 24 or 22 and 2 more tools.».
+- **Проверки.** `node scripts/vitest-electron.mjs test/contract/node-version.test.ts` — 0
+  (38 passed); `pnpm lint` — 0; `pnpm typecheck` — 0.
+  **gate fast (`GATE_SCOPE=all`), один запуск — не зелёный: exit 2**, `[gate] красно (fast):
+  worfy/.:test (прошло: worfy/.:lint worfy/.:typecheck)`, `Test Files 3 failed | 199 passed (202)`,
+  `Tests 7 failed | 4223 passed | 33 skipped (4263)`. В 40 строках вывода gate — два падения, оба в
+  `test/contract/workflow-reader.test.ts`, оба ждут события от наблюдателя за файлами: «workflow
+  watcher › re-reads only the branch whose ref moved and marks the newly claimed Ticket» и
+  «workflow watcher › follows a Tickets root made after the start: the first Ticket, then an edit of
+  it and a second Ticket» («no matching workflow delta within 5000 ms; got []»). Load average — 8.
+  не проверено: имена двух других упавших файлов; зелёный gate fast на Mac. Gate не повторялся;
+  опора — CI на Linux.
+
 #### Долги (не чинились)
 
-- [low] `test/contract/node-version.test.ts:113` — версия Node из Electron сравнивается с
+- [low] `test/contract/node-version.test.ts:34`, `:99`, `:102` (в ревью — `:34`, `:76`, `:79`:
+  строки сдвинулись) — ложный красный на `node-version-file: ./.nvmrc`, на комментарии
+  `# node-version: 24 below` в конце строки шага и на вызове reusable workflow с входом
+  `node-version: 24`; обратный случай — строка `run: echo "node-version: 24"` покрывает шаг
+  `setup-node` без версии. Правка на будущее: считать версию внутри блока `with:` своего шага.
+- [low] `:63`, `:138` — зелёными остаются «NodeJS 22», «Node.js version 22», «Node.js: 22»,
+  `node@22`, `nvm install 22`, «Electron's Node is 22», ссылки `latest-v22.x`, а после второй
+  доработки и «Node.js 24 and 22» («and» список не продолжает); в workflow — локальный action
+  `./.github/actions/setup-node` без версии и шаг `nvm install 22`.
+- [low] `:75` — `>=` в одной строке с «Node.js» не дальше 60 знаков считается границей Node, даже
+  если он о другом («Node.js 24 on Windows >= 10»): ложный красный.
+
+- [low] `test/contract/node-version.test.ts:136` — версия Node из Electron сравнивается с
   `engines.node` только снизу: после перехода Electron на Node 26 эта проверка останется зелёной, а
   test-ы и скрипты окажутся на разных major. Фраза README «which is 24» тогда станет красной
-  (`:114-115`), но о разнице major test не скажет. Нужна ли верхняя граница — решение владельца.
+  (`:137-138`), но о разнице major test не скажет. Нужна ли верхняя граница — решение владельца.
 - [low] В журналах первого круга в `/tmp/worfy-windows-24/impl/` нет строк с кодами выхода (вывод
   совпадает дословно; коды подтверждены повтором reviewer-а и шагом install в CI). Журналы
   доработки пишут `EXIT=<код>` последней строкой.
