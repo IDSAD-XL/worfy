@@ -728,7 +728,10 @@ describe('workflow watcher', () => {
   it('logs an error event of either file watch and does not throw', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
-    const watcher = await startWatcher(repo, home, [])
+    // Both watches by chokidar, as on every system but Windows: there the Tickets root has a watch of
+    // its own (worfy-windows ticket 20), whose errors test/unit/link-safe-watch.test.ts covers.
+    const watcher = await WorkflowWatcher.start({ root: repo, claudeHome: home, onChange: () => undefined, ticketsWatch: 'chokidar' })
+    cleanups.push(() => watcher.close())
     const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     // The watcher keeps its two chokidar watchers private: the Tickets root first, then the git refs.
     const watchers = (watcher as unknown as { watchers: { emit(event: 'error', error: Error): boolean }[] }).watchers
