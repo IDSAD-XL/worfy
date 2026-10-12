@@ -56,12 +56,13 @@
 // background tasks live — by the last system/background_tasks_changed the fake agent played, not
 // counting ambient ones — is recorded with their ids: Claude Code would kill them (ticket 29).
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SessionSettings } from '../../shared/agent/settings'
 import type { CommandInfoLike } from './commands'
 import type { PermissionAnswer } from './permissions'
 import type { AccountInfoLike, ModelInfoLike, QueryFactory, QueryHandle, QueryRequest } from './session'
+import { removeFile } from '../storage/remove'
 
 /** What the fake agent was asked to do, in the order it happened. */
 export type FakeCall =
@@ -458,7 +459,7 @@ class FakeQuery implements QueryHandle {
   private unregister(): void {
     const file = this.registryEntry
     this.registryEntry = null
-    if (file !== null) rmSync(file, { force: true })
+    if (file !== null) removeFile(file)
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<unknown> {

@@ -26,7 +26,7 @@
 // line: any error of the Limits part is ignored.
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
-import { existsSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 import process from 'node:process'
@@ -103,7 +103,13 @@ export function writeLimits(folders, limits) {
       renameSync(tmp, join(folder, LIMITS_FILE))
       written += 1
     } catch {
-      rmSync(tmp, { force: true })
+      // unlinkSync, not rmSync: under Node 24 on Windows rmSync refuses a read-only file
+      // (worfy-windows ticket 23). This script stands alone, so it imports no helper for it.
+      try {
+        unlinkSync(tmp)
+      } catch {
+        // Not written, or gone already.
+      }
     }
   }
   return written

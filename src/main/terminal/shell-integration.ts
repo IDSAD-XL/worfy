@@ -15,11 +15,11 @@
 // a zsh Terminal starts; each is written to a temporary file and renamed, so a shell starting at
 // the same moment never reads half a file.
 import { randomBytes } from 'node:crypto'
-import { rmSync } from 'node:fs'
 import { lstat, mkdir, mkdtemp, rename, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import type { Env } from '../agent/env'
+import { removeTree } from '../storage/remove'
 
 /**
  * Every `*.zsh` of ./zsh/ and its subfolders, as text in main's bundle (zsh cannot read files
@@ -143,7 +143,7 @@ export class ShellIntegration {
     const dir = this.dir
     this.dir = null
     this.making = null
-    if (dir !== null) rmSync(dir, { recursive: true, force: true })
+    if (dir !== null) removeTree(dir)
   }
 
   private async folder(): Promise<string> {

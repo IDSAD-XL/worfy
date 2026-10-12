@@ -101,9 +101,48 @@ const SOURCE = String.raw`#!/usr/bin/env node
 // version takes its place. Once restored, a second run changes nothing. Exit code 0: restored.
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+// Removes a file, a link, or a folder with everything in it; a path that is not there is not an
+// error. A link is removed as a link: what it leads to is not entered. fs.rmSync is not used: under
+// Node 24 on Windows its "recursive" goes through a junction and empties the folder behind it, and
+// it refuses a read-only file. A copy of removeTree of src/main/storage/remove.ts, since this script
+// imports nothing of worfy; test/unit/remove-tree.test.ts runs both over the same trees.
+// <remove-tree>
+function removeTree(path) {
+  let folder
+  try {
+    folder = lstatSync(path).isDirectory()
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return
+    throw error
+  }
+  if (folder) for (const name of readdirSync(path)) removeTree(join(path, name))
+  for (let left = process.platform === 'win32' ? 5 : 0; ; left--) {
+    try {
+      if (folder) rmdirSync(path)
+      else unlinkSync(path)
+      return
+    } catch (error) {
+      const code = error && error.code
+      if (code === 'ENOENT') return
+      if (left === 0 || !['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES'].includes(code)) throw error
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+    }
+  }
+}
+// </remove-tree>
+
+// Removes one file, or one link as a link; a path that is not there is not an error, a folder is.
+function removeFile(path) {
+  try {
+    unlinkSync(path)
+  } catch (error) {
+    if (!error || error.code !== 'ENOENT') throw error
+  }
+}
 
 function within(root, rel) {
   if (typeof rel !== 'string' || rel === '') throw new Error('refusing an empty path under ' + root)
@@ -159,7 +198,7 @@ function keepAside(afterDir, area, rel, path, log, move) {
   }
   if (!moved) {
     cpSync(path, target, { recursive: true, verbatimSymlinks: true })
-    if (move) rmSync(path, { recursive: true, force: true })
+    if (move) removeTree(path)
   }
   log('Changed after the move, kept in ' + target)
 }
@@ -229,11 +268,11 @@ export function restore(backupDir, options = {}) {
 
   // A path the move never touched (it stopped before) stays as it is.
   for (const { target, source } of touched) {
-    rmSync(target, { recursive: true, force: true })
+    removeTree(target)
     mkdirSync(dirname(target), { recursive: true })
     cpSync(source, target, { recursive: true, verbatimSymlinks: true })
   }
-  for (const { path } of created) rmSync(path, { force: true })
+  for (const { path } of created) removeFile(path)
   if (manifest.harnessGitInit && existsSync(harnessGit)) keepAside(afterDir, 'harness-git', '.git', harnessGit, log, true)
   for (const { rel, path } of createdDirs) {
     if (!existsSync(path)) continue

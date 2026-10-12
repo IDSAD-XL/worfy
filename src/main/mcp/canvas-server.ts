@@ -11,7 +11,7 @@
 // messages for file writes into a Card's folder: the last Session that wrote there is kept in the
 // Card Node's data (`lastEditor`), so it survives a restart (ticket 26 reads it).
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, realpathSync } from 'node:fs'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
@@ -44,6 +44,7 @@ import { projectStore, runGit, type StoredProject } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { epicStatusRunner, readCheckout } from '../workflow/reader'
 import instructionsTemplate from './agent-instructions.md?raw'
+import { removeTree } from '../storage/remove'
 
 /** The part of the LayoutStore the tools use. */
 export interface CanvasLayout {
@@ -154,7 +155,7 @@ function handlers(context: CanvasContext): Handlers {
         const node = apply({ op: 'create', node: { id, kind: CARD_KIND, ...place(args, w, h), w, h, data: { title: args.title } } }, id)
         return { ...node, folder, index: join(folder, 'index.html') }
       } catch (error) {
-        rmSync(folder, { recursive: true, force: true })
+        removeTree(folder)
         throw error
       }
     },
