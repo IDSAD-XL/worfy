@@ -131,7 +131,7 @@ Source: замеры Session на Windows-ПК, 2026-10-12: скрипты `prob
 
 ## Итог
 
-Session на Windows-ПК, 2026-10-12. Node на ПК: системный 22.13.0; `pnpm test` идёт под Node 24.21.0 из Electron 44.5.1. Ветка `worfy-windows/23`, в ней main `15bde98`.
+Session на Windows-ПК, 2026-10-12. Node на ПК: системный 22.13.0; `pnpm test` идёт под Node 24.21.0 из Electron 44.5.1. Ветка `worfy-windows/23`, в ней main `a995a59`.
 
 ### Что сделано
 
@@ -218,6 +218,7 @@ Session на Windows-ПК, 2026-10-12. Node на ПК: системный 22.13.
 | упало | 690 | 654 |
 | пропущено | 35 | 36 |
 
+- **После этих прогонов в ветку влит main `a995a59`** (скрипты `harness/` из PR #232 и документы; файлы ветки не затронуты). После слияния: `pnpm lint` и `pnpm typecheck` — exit code 0; десять test-файлов ветки — ни одного падения, которого нет на main. Полный прогон после слияния не повторялся.
 - **По именам.** 39 test-ов падают на main и не падают на ветке: `harness-migrate` 28, `build-version` 2, ещё 9 — в файлах, которые ветка не трогала (нестабильные на main: `agent-env`, `check-handoff`, `process-boundary`, `e3-sandbox`, `canvas-menu`, `canvas`, `permission-card` 2, `shell-discovery`).
 - **Три test-а падают на ветке и не падают на main** — все три по времени, в файлах, которые ветка не трогала: два в `test/contract/e3-sandbox.test.ts` («the script did not finish in time») и один в `test/unit/epic-canvas.test.tsx`. Эти два файла, запущенные отдельно на ветке: `epic-canvas` — 32 прошло; `e3-sandbox` — ни одного падения, которого нет на main.
 - **`harness-migrate`:** на main 54 из 54 упали; на ветке в полном прогоне 26 упали и 30 прошли из 56 (два test-а новые). Один из 26 — «a move writes nothing outside ~/.claude…» — в полном прогоне упал по timeout 15 s; отдельно файл даёт 25 упавших и 31 прошедший. Остальные 25 падают по причинам переноса Harness на Windows, в этот Ticket не входят.
