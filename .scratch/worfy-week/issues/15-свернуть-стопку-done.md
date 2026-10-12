@@ -156,7 +156,7 @@ exit 0, CI — зелёный.
   [открыта, тёмная](../evidence/15-стопка-done-open-dark.png),
   [свёрнута, светлая](../evidence/15-стопка-done-folded-light.png),
   [свёрнута, тёмная](../evidence/15-стопка-done-folded-dark.png).
-- **Решено без владельца, подтвердить:**
+- **Решено без владельца, подтверждено владельцем 2026-10-12:**
   - unit-файл назван `test/unit/epics-ui.test.tsx`, а не `.ts`: `.ts` попадает в проект vitest `node`
     и в `tsconfig.test.node.json` без DOM и JSX, а test импортирует модуль renderer-а;
   - функция-охрана Esc живёт в `sources/epics.ts`, а не в `SelectionToolbar.tsx`: lint-правило

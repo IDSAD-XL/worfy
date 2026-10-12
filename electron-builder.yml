@@ -1,6 +1,11 @@
-# Local macOS build of worfy: an unpacked .app (`--mac dir`), ad-hoc signed, not notarized.
-# `pnpm package` runs `electron-vite build` first, so out/ is always fresh.
-appId: dev.worfy.app # macOS notifications need a bundle id
+# Local build of worfy for the system it is built on. `pnpm package` runs `electron-vite build` first,
+# so out/ is always fresh, and then electron-builder with no system named: it takes the targets of
+# its own system from here.
+#   macOS    an unpacked .app (mac.target: dir), ad-hoc signed, not notarized: dist/mac*/worfy.app.
+#   Windows  an NSIS installer for x64 (worfy-windows ticket 12), not signed: dist/worfy Setup <version>.exe
+#            and the unpacked app in dist/win-unpacked. It is built on Windows only: the Claude Code
+#            binary and node-pty of the build are the ones pnpm installed for the system it ran on.
+appId: dev.worfy.app # macOS notifications need a bundle id; on Windows it is the AppUserModelID
 productName: worfy
 
 directories:
@@ -58,5 +63,25 @@ mac:
     NSLocalNetworkUsageDescription: worfy looks for worfy on your other computers in the local network and connects to the ones you link with Link a machine.
     NSBonjourServices:
       - _worfy._tcp
+
+win:
+  target:
+    - target: nsis
+      arch: x64
+  # Seven PNGs packed by `pnpm icons` on a Mac from the same SVGs as icon.icns, and committed
+  # (scripts/make-icons.mjs, scripts/ico.mjs). The icon of worfy.exe, of the installer and of the
+  # shortcuts.
+  icon: build/icon.ico
+  # No certificate yet (signing is E4): the installer and worfy.exe are not signed, and SmartScreen
+  # asks before the first run.
+
+# The defaults of electron-builder: a one-click installer for the current user, without admin
+# rights. A first install goes into %LOCALAPPDATA%\Programs\worfy: the folder is named after
+# `name` of package.json, not after productName. A later install goes where the earlier one went
+# (InstallLocation in the registry), and `/D=<folder>` on the command line names another folder.
+#
+# The installer stops every running program whose path starts with the path of its folder, with no
+# backslash at the end. So scripts/install-stable.mjs keeps the stable copy out of Programs
+# (%LOCALAPPDATA%\worfy-stable by default) and refuses a target whose path starts with that folder.
 
 publish: null

@@ -8,14 +8,14 @@ import { expect, test } from '@playwright/test'
 import { BUILD_VERSION, buildVersion } from '../../scripts/build-version'
 import { launchApp, type LaunchedApp, NO_WINDOW_RESTORE, repoRoot } from './helpers'
 
-// The packaged tests drive the stable copy of worfy.app that scripts/install-stable.sh installs:
+// The packaged tests drive the stable copy of worfy.app that scripts/install-stable.mjs installs:
 // into a temporary folder from the dist/ build of `pnpm test:package`, or the copy named by
 // WORFY_PACKAGED_APP (for example ~/Applications/worfy-stable.app after `pnpm install:stable`).
 // They carry the @packaged tag: `pnpm test:e2e` leaves them out, `pnpm test:package` runs only them.
 // The untagged tests at the end run in `pnpm test:e2e` against the unpacked out/ build.
 
 const distDir = join(repoRoot, 'dist')
-const installScript = join(repoRoot, 'scripts', 'install-stable.sh')
+const installScript = join(repoRoot, 'scripts', 'install-stable.mjs')
 const bridgeScript = join(repoRoot, 'scripts', 'statusline-bridge.sh')
 /** The work of the bridge, in Node, next to its entry (worfy-windows ticket 08). */
 const bridgeModule = join(repoRoot, 'scripts', 'statusline-bridge.mjs')
@@ -49,10 +49,10 @@ function builtApp(): string {
   return app
 }
 
-/** Runs scripts/install-stable.sh with the dist/ build as the app to copy, so it does not build again. */
+/** Runs scripts/install-stable.mjs with the dist/ build as the app to copy, so it does not build again. */
 function install(target: string): ReturnType<typeof spawnSync> & { stdout: string; stderr: string } {
   const env = { ...process.env, WORFY_STABLE_PREBUILT: builtApp() }
-  return spawnSync('bash', [installScript, target], { encoding: 'utf8', env })
+  return spawnSync(process.execPath, [installScript, target], { encoding: 'utf8', env })
 }
 
 function executableOf(app: string): string {
@@ -127,7 +127,7 @@ async function expectSecondStartOpensWindow(first: LaunchedApp, command: string,
 }
 
 /**
- * A folder shaped like worfy.app, enough for scripts/install-stable.sh: it copies the folder and
+ * A folder shaped like worfy.app, enough for scripts/install-stable.mjs: it copies the folder and
  * reads the modification time of Contents/Info.plist. The tests below need no packaged build.
  */
 function standInApp(dir: string): string {
@@ -139,7 +139,7 @@ function standInApp(dir: string): string {
 }
 
 function runScript(script: string, args: string[], env: Record<string, string>): ReturnType<typeof spawnSync> & { stdout: string; stderr: string } {
-  return spawnSync('bash', [script, ...args], { encoding: 'utf8', env: { ...process.env, ...env } })
+  return spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', env: { ...process.env, ...env } })
 }
 
 const readJson = (path: string): Record<string, unknown> => JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
@@ -539,7 +539,7 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
   })
 })
 
-test.describe('scripts/install-stable.sh', { tag: '@packaged' }, () => {
+test.describe('scripts/install-stable.mjs', { tag: '@packaged' }, () => {
   let dir: string
 
   test.beforeEach(async () => {
@@ -695,8 +695,8 @@ test.describe('dev run of the unpacked build', () => {
     }
   })
 
-  test('install-stable.sh refuses a target that is not a .app, before building anything', () => {
-    const result = spawnSync('bash', [installScript, join(tmpdir(), 'not-an-app')], { encoding: 'utf8' })
+  test('install-stable.mjs refuses a target that is not a .app, before building anything', () => {
+    const result = spawnSync(process.execPath, [installScript, join(tmpdir(), 'not-an-app')], { encoding: 'utf8' })
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain('must be a path ending in .app')
   })
@@ -710,7 +710,7 @@ test.describe('dev run of the unpacked build', () => {
 })
 
 // The install script against a stand-in app: no packaged build needed, so these run in `pnpm test:e2e`.
-test.describe('scripts/install-stable.sh with a stand-in app', () => {
+test.describe('scripts/install-stable.mjs with a stand-in app', () => {
   let dir: string
 
   test.beforeEach(async () => {
@@ -747,7 +747,7 @@ test.describe('scripts/install-stable.sh with a stand-in app', () => {
     // repository from its own location.
     const repo = join(dir, 'repo')
     mkdirSync(join(repo, 'scripts'), { recursive: true })
-    cpSync(installScript, join(repo, 'scripts', 'install-stable.sh'))
+    cpSync(installScript, join(repo, 'scripts', 'install-stable.mjs'))
     const git = (...args: string[]): string => {
       const result = spawnSync('git', ['-C', repo, '-c', 'user.name=worfy-test', '-c', 'user.email=test@worfy.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { encoding: 'utf8' })
       expect(result.status).toBe(0)
@@ -756,7 +756,7 @@ test.describe('scripts/install-stable.sh with a stand-in app', () => {
     git('init', '-q', '--initial-branch=main')
     git('add', '.')
     git('commit', '-q', '-m', 'install script')
-    const script = join(repo, 'scripts', 'install-stable.sh')
+    const script = join(repo, 'scripts', 'install-stable.mjs')
     const target = join(dir, 'Apps', 'worfy-stable.app')
     const env = { WORFY_STABLE_PREBUILT: standInApp(dir) }
 

@@ -123,7 +123,7 @@ Wave по плану правят только `harness/` — общих фай�
   «pnpm build copies harness/…» и «the copy carries the Harness…»; убрано `'!out/harness/**'` — краснеет
   «the copy carries the Harness…» (48 путей `out/harness` в `app.asar`); путь копии в dev неверный — краснеют
   `launch.spec.ts` и `toolbar.spec.ts` (`v0.2.0` вместо `v0.2.0+…`).
-- **Решено без владельца, подтвердить**:
+- **Решено без владельца, подтверждено владельцем 2026-10-12**:
   1. «скрипты `bin/*` исполняемые» проверяется как «права `bin/*` и `hooks/*` копии совпадают с `harness/`» плюс
      явно `bin/profile` и `hooks/gate.sh`: в `harness/bin/` лежит `ТИКЕТЫ.md`, он не скрипт и не исполняемый.
   2. В `toolbar.spec.ts` версия в регулярном выражении берётся из `package.json`, а не литералом `0\.2\.0`:

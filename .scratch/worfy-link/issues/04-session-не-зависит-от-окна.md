@@ -127,7 +127,7 @@ fake-агент транскрипт не пишет. Селекторы Session
   правило со ссылкой на ADR-0053.
 - **Форма параметра** — `(send: (target) => void) => void`, как `toEveryWindow`, а не `EventSink`, как
   `broadcast` в `app-node-sessions.ts`: так разбор payload остаётся в `agent.ts` и проверяется
-  contract test-ом напрямую. *Решено без владельца, подтвердить.*
+  contract test-ом напрямую. *Решено без владельца, подтверждено владельцем 2026-10-12.*
 - **Изменилось поведение:** событие вне контракта при рассылке через `toEveryWindow` больше не
   бросает исключение в Session — `ClientRegistry.broadcast` ловит его на каждом клиенте и пишет в
   `console.warn` (так же уже работают Session-ы Session Node-ов и Orchestrator). `agent.start`

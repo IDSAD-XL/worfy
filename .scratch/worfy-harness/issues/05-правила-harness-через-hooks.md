@@ -185,7 +185,7 @@ Source: решения владельца 2026-10-07, вопросы Q9, Q6, Q34
 - **`hooks.json`** — записи `~/.claude/settings.json:5-109` с теми же событиями, matcher и timeout, без
   `qmd-refresh --quiet`; плюс `inject-rules.sh orchestrator` и `common` в `SessionStart`, `common` в
   `SubagentStart`, timeout 10. Поле `description` верхнего уровня — необязательное поле `hooks.json`
-  plugin-а. Решено без владельца, подтвердить: timeout 10 у `inject-rules.sh`.
+  plugin-а. Решено без владельца, подтверждено владельцем 2026-10-12: timeout 10 у `inject-rules.sh`.
 
 **Куда легли разделы `harness/rules/global.md`** (строки старого файла → новое место):
 
@@ -224,14 +224,19 @@ Source: решения владельца 2026-10-07, вопросы Q9, Q6, Q34
 1. Как согласие «звать Subagent-ов без вопроса» (бывший «Standing authorization») даёт новый
    пользователь plugin-а: plugin его за пользователя не даёт, у владельца раздел остаётся в личном
    `~/.claude/CLAUDE.md` (Ticket 14).
+   Владелец решил 2026-10-12: действие экрана первого запуска с «Confirm» дописывает раздел в личный
+   `~/.claude/CLAUDE.md`; отдельный Ticket, до первого внешнего пользователя не срочно; Ticket заводит Orchestrator.
 2. Подписи блока статуса остались русскими («— Этап: / — Сейчас: / — Дальше: / — Жду:»): их разбирает
    `src/shared/agent/status-block.ts:23`. Английские подписи потребуют правки worfy — в плане E3 её нет.
+   Владелец решил 2026-10-12: сейчас не переводить; вернуться, когда появится Project с английскими отчётами.
 
 **Не проверено.**
 - [ ] Live-проверка в Claude Code (`claude -p --plugin-dir …`, пункт «Готово, когда») — не проверено:
   бриф волны запретил запускать настоящий Claude Code (он пишет транскрипты в `~/.claude/projects`).
   Hook проверен shell-test-ом с JSON событий на stdin, как его подаёт Claude Code. По той же причине не
   запускался `claude plugin validate`.
+  Владелец решил 2026-10-12: `claude plugin validate harness` и живые проверки `worfy-harness` 05–08
+  делает Orchestrator в песочнице приёмки, где вход уже есть; настоящий `~/.claude` они не трогают.
 - Пока записи hooks в `~/.claude/settings.json` владельца на месте, Session с plugin-ом запускает
   каждый hook дважды (ADR-0041); убирает их перенос — Ticket 14.
 
