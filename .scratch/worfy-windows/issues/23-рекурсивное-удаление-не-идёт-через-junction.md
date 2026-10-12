@@ -14,6 +14,14 @@ Source: замеры Session на Windows-ПК, 2026-10-12: скрипты `prob
     — папка за junction пуста. С `maxRetries` — то же.
   - Там же `fs.promises.rm` и `fs.rm` с callback, оба с `recursive`, папку за junction не трогают.
     Symlink на папку (тип `'dir'`) безопасен во всех трёх. `fs.rmdirSync(junction)` удаляет только ссылку.
+- **Ещё два замера на ПК** (Session на Windows, 2026-10-12, скрипты `probe-t12-r2.cjs` и
+  `probe-rm3.cjs`; таблица — в отчёте второго круга по PR #237):
+  - файл «только для чтения»: `unlinkSync` удаляет его под обоими Node.
+    `rmSync(файл, { force: true })` под Node 24 бросает EPERM, файл остаётся; под Node 22 удаляет;
+  - `rmSync(junction, { force: true })` без `recursive` под Node 24 бросает ERR_FS_EISDIR, ссылка
+    остаётся; под Node 22 удаляет ссылку, папка за ней цела;
+  - `maxRetries: 5, retryDelay: 100` у `rmSync` на Windows действительно ждёт: 1,5–2,1 s на файле,
+    открытом другим процессом, под обоими Node.
 - **Причина — по исходникам Node**; reviewer на Mac прочитал, не запускал: `rmSync` в Node 24 — это
   `std::filesystem::remove_all` в цикле повторов (`src/node_file.cc`, `RmSync`).
 - **Main-процесс worfy идёт на том же Node 24.** На main `d803f93`
@@ -39,14 +47,19 @@ Source: замеры Session на Windows-ПК, 2026-10-12: скрипты `prob
 
 1. **Одна функция удаления дерева**, которая не заходит в junction и symlink: `lstat` каждой записи;
    ссылка удаляется как ссылка (`rmdirSync` или `unlinkSync`). Основа — `removeTree` из PR #237
-   (`scripts/install-stable.mjs:270`, ветка `origin/worfy-windows/12`, `edf7ea1`); сейчас он работает
-   только на Windows (`:311`).
-2. **Все 9 мест в `src/main`** зовут её. `restore.mjs` ничего импортировать не может: ему нужен
+   (`scripts/install-stable.mjs`, ветка `origin/worfy-windows/12`): в его втором круге файл удаляет
+   `unlinkSync`, а удаление и rename на Windows повторяются до пяти раз через 100 ms при EBUSY,
+   EPERM, ENOTEMPTY и EACCES. Сейчас он работает только на Windows.
+2. **Все 9 мест в `src/main`** зовут её. **Семь вызовов `rmSync` без `recursive` — тоже:** функция
+   удаляет и один файл, через `unlinkSync`. Под Node 24 эти вызовы бросают EPERM на файле «только
+   для чтения» и ERR_FS_EISDIR на junction; данные при этом целы, но вызов падает. Места:
+   `src/main/storage/json-file.ts`, `src/main/link/secrets.ts`, `src/main/harness/migrate/apply.ts`
+   (два), `restore.ts`, `src/main/agent/fake-query.ts` и `scripts/statusline-bridge.mjs`. `restore.mjs` ничего импортировать не может: ему нужен
    только node (`restore.ts:1-3`). В его тексте — своя копия; test сверяет её с общей функцией.
 3. **Три скрипта в `scripts/`** — та же функция, или строка в «Итог», почему нет. Импортов между
    `src/main` и `scripts/` на main нет (grep); возможен ли общий модуль — не проверялось. Если нет —
    две копии и test, который их сверяет.
-4. **Test против возврата:** падает, когда рекурсивный `rmSync` снова появился в `src/main`. Образец
+4. **Test против возврата:** падает, когда `rmSync` снова появился в `src/main`. Образец
    запрета на main — правило ESLint `worfy/process-boundary` (`eslint.config.js:105-107`) с test-ом
    `test/unit/process-boundary.test.ts:11-13`. Test-а, который ищет текст по `src/`, на main нет
    (grep). Правило ESLint не увидит вызов в строке `restore.ts`; поиск по тексту увидит.
@@ -60,7 +73,9 @@ Source: замеры Session на Windows-ПК, 2026-10-12: скрипты `prob
 - [ ] Тот же случай на модели идёт на любой системе: подменённая файловая система или symlink на POSIX.
 - [ ] Каждое место вызова, где есть шов, покрыто test-ом: junction внутри удаляемой папки, папка за
       ним цела. Места без шва — списком в «Итог».
-- [ ] Test из пункта 4 красный, если вернуть рекурсивный `rmSync` в любой файл `src/main`.
+- [ ] Test из пункта 4 красный, если вернуть `rmSync` — с `recursive` или без — в любой файл `src/main`.
+- [ ] Файл «только для чтения» и junction как цель одиночного удаления: функция удаляет файл и
+      снимает ссылку, не бросая; test на ПК под Node из Electron.
 - [ ] macOS не меняется (symlink-и не проходились и раньше); gate full на Mac зелёный.
 - [ ] Замер повторён на ПК после правки, вместе с новой функцией, — таблицей в «Итог».
 - [ ] Windows-ПК: `pnpm lint`, `pnpm typecheck`, `pnpm test` — без новых падений относительно main.
@@ -78,13 +93,13 @@ Source: замеры Session на Windows-ПК, 2026-10-12: скрипты `prob
 
 ## Вне скоупа
 
-- 7 вызовов `rmSync` без `recursive`: их поведение на junction не мерили. Исправление в самом Node.
-  Проверка `leadsToRemote` в `trash.ts` и `canvas-server.ts` — это Ticket 20.
+- Исправление в самом Node. Проверка `leadsToRemote` в `trash.ts` и `canvas-server.ts` — это
+  Ticket 20.
 
 ## Риски
 
 - Node могут исправить: обход останется лишним, но безвредным. Версия Node из Electron — в «Итог».
 - Скорость: обход не должен быть медленнее `rmSync` на большом дереве; замер — в «Итог». Файлы
-  только для чтения на Windows: удалит ли их `unlinkSync` — не проверялось.
+  только для чтения на Windows `unlinkSync` удаляет (замер выше).
 - Системный Node 24 (Ticket 24 делает его обязательным): ведёт ли он себя как Node 24 из Electron —
   не проверялось. От этого зависят скрипты в `scripts/`.
