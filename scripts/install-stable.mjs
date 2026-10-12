@@ -29,7 +29,7 @@
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, posix, win32 } from 'node:path'
+import { dirname, join, posix, win32 } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
@@ -313,20 +313,33 @@ function patiently(step) {
  * refuses a read-only file with EPERM; under Node 22 it does neither. unlinkSync removes a
  * read-only file, a junction and a symlink under both.
  */
+// A copy of removeTree of src/main/storage/remove.ts (worfy-windows ticket 23): this script is one
+// file with no import of its own. test/unit/remove-tree.test.ts runs the copies and the module
+// over the same trees.
+// <remove-tree>
 function removeTree(path) {
-  let stat
+  let folder
   try {
-    stat = lstatSync(path)
-  } catch {
-    return
+    folder = lstatSync(path).isDirectory()
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return
+    throw error
   }
-  if (!stat.isDirectory()) {
-    patiently(() => unlinkSync(path))
-    return
+  if (folder) for (const name of readdirSync(path)) removeTree(join(path, name))
+  for (let left = process.platform === 'win32' ? 5 : 0; ; left--) {
+    try {
+      if (folder) rmdirSync(path)
+      else unlinkSync(path)
+      return
+    } catch (error) {
+      const code = error && error.code
+      if (code === 'ENOENT') return
+      if (left === 0 || !['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES'].includes(code)) throw error
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+    }
   }
-  for (const name of readdirSync(path)) removeTree(win32.join(path, name))
-  patiently(() => rmdirSync(path))
 }
+// </remove-tree>
 
 /**
  * The path as the disk spells it: no \\?\, links and subst drives followed. A path that is not

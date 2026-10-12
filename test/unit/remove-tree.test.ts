@@ -3,8 +3,9 @@
 //   - real folders: on Windows with junctions, a `dir` and a `file` symlink and a read-only file,
 //     elsewhere with symlinks; this is where Node 24's fs.rmSync loses the folder behind a junction;
 //   - a model of the file system: the order of the calls, and the tries on Windows when a file is busy;
-//   - the copies of the walk that cannot import the module — the text of restore.mjs and
-//     scripts/remove-tree.mjs — run over the same model and must make the same calls.
+//   - the copies of the walk that cannot import the module — the text of restore.mjs,
+//     scripts/remove-tree.mjs and scripts/install-stable.mjs — run over the same model and must
+//     make the same calls.
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmdirSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, posix } from 'node:path'
@@ -309,6 +310,7 @@ describe('the copies of the walk that cannot import the module', () => {
   const COPIES: Record<string, string> = {
     'the text of restore.mjs (src/main/harness/migrate/restore.ts)': copyOf(restoreScriptSource(), 'restore.mjs'),
     'scripts/remove-tree.mjs': copyOf(readFileSync(join(REPO, 'scripts', 'remove-tree.mjs'), 'utf8').replace(/\r\n/g, '\n'), 'scripts/remove-tree.mjs'),
+    'scripts/install-stable.mjs': copyOf(readFileSync(join(REPO, 'scripts', 'install-stable.mjs'), 'utf8').replace(/\r\n/g, '\n'), 'scripts/install-stable.mjs'),
   }
   /** What is removed, from which tree, with which calls made to fail. */
   const CASES: [string, Record<string, Entry>, string, Record<string, string[]>][] = [
@@ -338,9 +340,9 @@ describe('the copies of the walk that cannot import the module', () => {
     }
   })
 
-  it('the two copies are the same text, and the text of restore.mjs has no backquote in it', () => {
-    const [restore, script] = Object.values(COPIES)
-    expect(restore).toBe(script)
+  it('the copies are the same text, and that text has no backquote in it: one of them lives in a template string', () => {
+    const [restore, ...others] = Object.values(COPIES)
+    for (const other of others) expect(other).toBe(restore)
     expect(restore).not.toContain('`')
   })
 })
