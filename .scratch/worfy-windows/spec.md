@@ -91,8 +91,9 @@ Gate. `.gitattributes` — файл git с правилами концов ст�
   `app.setAppUserModelId` до первого окна — без него уведомления Windows не показываются.
 - **Сборка** (Ticket 12). Неподписанный установщик NSIS (формат установщика, который собирает
   electron-builder), x64. Его собирает Session на Windows-ПК владельца: там pnpm сам ставит
-  `claude.exe` из пакета SDK. Stable copy на Windows — папка; путь предлагает Ticket 12
-  (`%LOCALAPPDATA%\Programs\worfy-stable`), подтверждает владелец.
+  `claude.exe` из пакета SDK. Stable copy на Windows — папка `%LOCALAPPDATA%\worfy-stable`
+  (решение владельца 2026-10-12; предложенный Ticket-ом 12 путь внутри `Programs` не подошёл:
+  установщик worfy останавливает программы, чей путь начинается с пути его папки).
 - **Первый запуск** (Ticket 13). Экран первого запуска E3 (Ticket 19 `worfy-harness`) получает ветку
   для Windows: Git Bash, `git`, `gh`, node ≥ 22, `jq`, PowerShell, версия и архитектура Windows.
   Подсказки — `winget install <id>` вместо `brew install`. Установщик Harness E3 ставит plugin
