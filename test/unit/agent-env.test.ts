@@ -7,7 +7,7 @@
 // they run on the Mac and on Linux CI. The last two blocks run the real reader and agentEnv() on
 // Windows only.
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, lstatSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
@@ -479,6 +479,16 @@ describe('findGitBash', () => {
     expect(findGitBash(env('C:\\Windows\\System32'), files(userGit))).toBe(userGit)
   })
 
+  it('looks under %ProgramFiles(x86)% too, after %ProgramFiles% and before the folder of the user', () => {
+    const x86 = 'C:\\Program Files (x86)\\Git\\bin\\bash.exe'
+    const userGit = 'C:\\Users\\u\\AppData\\Local\\Programs\\Git\\bin\\bash.exe'
+    const withX86 = { ...env('C:\\Windows\\System32'), 'ProgramFiles(x86)': 'C:\\Program Files (x86)' }
+    expect(findGitBash(withX86, files(x86, userGit))).toBe(x86)
+    expect(findGitBash(withX86, files(BASH, x86))).toBe(BASH)
+    // Without the variable that folder is not guessed.
+    expect(findGitBash(env('C:\\Windows\\System32'), files(x86))).toBeNull()
+  })
+
   it('takes Git Bash, not the WSL launcher that comes first on the Path', () => {
     // As on the owner's PC: C:\Windows\System32 (with bash.exe of WSL) before Git's cmd.
     const wsl = 'C:\\Windows\\System32\\bash.exe'
@@ -498,6 +508,17 @@ describe('findOnPath and the registry reader', () => {
     expect(findOnPath('node', { PATH: 'C:\\x;C:\\a;C:\\b' }, exists)).toBe('C:\\a\\node.exe')
     expect(findOnPath('node', { Path: '"C:\\b";C:\\a' }, exists)).toBe('C:\\b\\node.exe')
     expect(findOnPath('pwsh', { Path: 'C:\\a' }, exists)).toBeNull()
+  })
+
+  it('passes by an entry of the Path that is not a full path: it would be looked for in the folder worfy runs in', () => {
+    // Every one of these "has" the program; only the entry with a drive or a server is asked.
+    const everywhere = () => true
+    for (const entry of ['.', 'tools', '..\\bin', '\\bin', 'C:tools', '%NOPE%\\bin']) {
+      expect(findOnPath('node', { Path: `${entry};D:\\last` }, everywhere), entry).toBe('D:\\last\\node.exe')
+      expect(findOnPath('node', { Path: entry }, everywhere), entry).toBeNull()
+    }
+    expect(findOnPath('node', { Path: '\\\\server\\tools' }, everywhere)).toBe('\\\\server\\tools\\node.exe')
+    expect(findOnPath('node', { Path: 'c:/tools' }, everywhere)).toBe('c:\\tools\\node.exe')
   })
 
   const b64 = (text: string): string => Buffer.from(text, 'utf8').toString('base64')
@@ -633,5 +654,36 @@ describe.runIf(process.platform === 'win32')('agentEnv on this Windows machine',
     if (!isAlias) ctx.skip('no MSIX pwsh on this machine')
     expect(existsSync(alias)).toBe(false) // the reason findOnPath has its own check (evidence of ticket 01, section 25)
     expect(findOnPath('pwsh', { Path: win32.dirname(alias) })).toBe(alias)
+  })
+
+  it('findOnPath passes by what cannot start — a folder of that name, a link to nothing, a link to a folder — and takes a file, also through a link', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'worfy-find-on-path-'))
+    const links: string[] = []
+    const link = (target: string, at: string, kind: 'file' | 'junction'): void => {
+      symlinkSync(target, at, kind)
+      links.push(at)
+    }
+    try {
+      for (const name of ['folder', 'dangling', 'to-a-folder', 'real', 'linked', 'elsewhere']) mkdirSync(join(dir, name))
+      mkdirSync(join(dir, 'folder', 'tool.exe'))
+      link(join(dir, 'nothing.exe'), join(dir, 'dangling', 'tool.exe'), 'file')
+      link(join(dir, 'elsewhere'), join(dir, 'to-a-folder', 'tool.exe'), 'junction')
+      writeFileSync(join(dir, 'real', 'tool.exe'), '')
+      link(join(dir, 'real', 'tool.exe'), join(dir, 'linked', 'tool.exe'), 'file')
+      const path = (...names: string[]) => ({ Path: names.map((name) => join(dir, name)).join(';') })
+      expect(findOnPath('tool', path('folder', 'dangling', 'to-a-folder'))).toBeNull()
+      expect(findOnPath('tool', path('folder', 'dangling', 'to-a-folder', 'real'))).toBe(join(dir, 'real', 'tool.exe'))
+      expect(findOnPath('tool', path('dangling', 'linked', 'real'))).toBe(join(dir, 'linked', 'tool.exe'))
+    } finally {
+      // Links first, as links: under Electron's Node rmSync goes through a junction and empties what it leads to.
+      for (const at of links) {
+        try {
+          rmdirSync(at)
+        } catch {
+          unlinkSync(at)
+        }
+      }
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

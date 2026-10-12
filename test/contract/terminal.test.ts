@@ -1,17 +1,32 @@
 // The Terminal through the `terminal.*` IPC channels, on a real pseudo-terminal (node-pty under
 // Electron's Node, ELECTRON_RUN_AS_NODE=1): open, input, output, resize, close, and that no shell
 // process outlives its Node, its window or the app.
+import childProcess, { execFileSync, spawn as spawnProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { createRequire } from 'node:module'
+import { join, win32 } from 'node:path'
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks'
 import type { IpcMainInvokeEvent } from 'electron'
+import { spawn as spawnNodePty } from 'node-pty'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SYSTEM_PATH } from '../../src/main/agent/env'
+import { findGitBash, findOnPath, SYSTEM_PATH } from '../../src/main/agent/env'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
-import { closeRemovedNode, closeRemovedProjects, terminalHandlers, terminalKey, wireRegistry } from '../../src/main/ipc/terminal'
-import { clampSize, ReplayBuffer, REPLAY_LIMIT, terminalEnv, TerminalRegistry, type PtyProcess, type SpawnPty, type TerminalSink } from '../../src/main/terminal/pty'
+import { closeRemovedNode, closeRemovedProjects, QUIT_WAIT_MS, terminalHandlers, terminalKey, WINDOWS_QUIT_WAIT_MS, wireRegistry } from '../../src/main/ipc/terminal'
+import {
+  clampSize,
+  endDescendants,
+  ReplayBuffer,
+  REPLAY_LIMIT,
+  terminalEnv,
+  TerminalRegistry,
+  terminalShellOptions,
+  WINDOWS_CLOSE_BOUND_MS,
+  type PtyProcess,
+  type SpawnPty,
+  type TerminalSink,
+} from '../../src/main/terminal/pty'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
@@ -21,6 +36,52 @@ const PROJECT = 'demo-00000001'
 const NODE = 'node-1'
 /** The stand-in tools of the first-run screen; its `gh auth login` prints one line (worfy-harness ticket 19). */
 const TOOLS = join(import.meta.dirname, '..', 'fixtures', 'first-run-tools')
+
+// The shell of the harness: /bin/sh, and on Windows Windows PowerShell (worfy-windows ticket 10). What
+// the tests type has a wording for each.
+const WINDOWS = process.platform === 'win32'
+const SYSTEM_ROOT = process.env['SystemRoot'] ?? 'C:\\Windows'
+/** The file name of the shell the harness starts. */
+const SHELL_NAME = WINDOWS ? 'powershell.exe' : 'sh'
+/** Prints `a` and `b` as one word. The typed line never holds the word itself, so only the output matches it. */
+const say = (a: string, b: string): string => (WINDOWS ? `Write-Output ('${a}' + '${b}')` : `echo ${a}""${b}`)
+/** Prints `<label>=<columns>x<rows>` of the terminal. */
+const sayTheSize = (label: string): string =>
+  WINDOWS ? `Write-Output ('${label}=' + $Host.UI.RawUI.WindowSize.Width + 'x' + $Host.UI.RawUI.WindowSize.Height)` : `echo "${label}=$(tput cols)x$(tput lines)"`
+/** Prints `cwd=<the folder the shell is in>`; folderLine is the line to wait for. */
+const SAY_THE_FOLDER = WINDOWS ? "Write-Output ('cwd=' + (Get-Location).Path)" : 'echo "cwd=$(pwd)"'
+const folderLine = (folder: string): RegExp => new RegExp(`cwd=${folder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\r?\\n`)
+/** A shell that ignores SIGHUP, where there is one to ignore; then a word, to know the line ran. */
+const IGNORE_HANGUP = `${WINDOWS ? '' : "trap '' HUP; "}${say('trap', 'ped')}`
+
+/**
+ * The environment of a shell of Windows in the tests: the system folders on the Path, so the shell
+ * is Windows PowerShell, and every folder of the user in the temporary home, so no profile,
+ * history or cache of the machine running the tests takes part. `path` goes first on the Path.
+ */
+function windowsEnv(home: string, path: readonly string[] = []): Record<string, string> {
+  return {
+    SystemRoot: SYSTEM_ROOT,
+    SystemDrive: SYSTEM_ROOT.slice(0, 2),
+    windir: SYSTEM_ROOT,
+    ComSpec: win32.join(SYSTEM_ROOT, 'System32', 'cmd.exe'),
+    PATHEXT: '.COM;.EXE;.BAT;.CMD',
+    Path: [...path, win32.join(SYSTEM_ROOT, 'System32'), SYSTEM_ROOT, win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0')].join(';'),
+    ProgramFiles: process.env['ProgramFiles'] ?? 'C:\\Program Files',
+    ProgramData: process.env['ProgramData'] ?? 'C:\\ProgramData',
+    USERPROFILE: home,
+    HOME: home,
+    APPDATA: join(home, 'AppData', 'Roaming'),
+    LOCALAPPDATA: join(home, 'AppData', 'Local'),
+    TEMP: home,
+    TMP: home,
+    PWD: '/somewhere/else',
+    SHLVL: '3',
+  }
+}
+
+/** node-pty itself, with PowerShell started without the profile of the user (as the empty HOME does for /bin/sh). */
+const spawnWithoutProfile: SpawnPty = (shell, args, options) => spawnNodePty(shell, /(?:powershell|pwsh)\.exe$/i.test(shell) ? [...args, '-NoProfile'] : args, options)
 
 type Listener = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
 interface OpenResult {
@@ -76,12 +137,35 @@ function alive(pid: number): boolean {
   }
 }
 
-async function harness(options: { killGraceMs?: number; nodes?: string[]; spawn?: SpawnPty } = {}) {
+interface HarnessOptions {
+  killGraceMs?: number
+  nodes?: string[]
+  spawn?: SpawnPty
+  path?: readonly string[]
+  shell?: 'powershell' | 'git-bash'
+  /** The system of the registry, with a stand-in `spawn`: the Windows way on any machine. */
+  platform?: NodeJS.Platform
+  /** The files there are, for the search of the shell on Windows. */
+  exists?: (path: string) => boolean
+  /** What the settings of a Project answer; `shell` for every Project when left out. */
+  shellSetting?: (projectId: string) => 'powershell' | 'git-bash' | undefined
+  /** What terminal.shells is given; the shells of this machine when left out. */
+  shells?: (() => Promise<unknown[]>) | null
+}
+
+async function harness(options: HarnessOptions = {}) {
+  // /bin/sh with an empty HOME: no rc file of the machine running the tests takes part. On
+  // Windows: Windows PowerShell without a profile (windowsEnv, spawnWithoutProfile).
+  const onWindows = options.platform === undefined ? WINDOWS : options.platform === 'win32'
+  const env = (): Promise<Record<string, string>> =>
+    Promise.resolve(onWindows ? windowsEnv(home, options.path) : { SHELL: '/bin/sh', PATH: SYSTEM_PATH, HOME: home, PS1: '$ ', PWD: '/somewhere/else', SHLVL: '3' })
   const registry = new TerminalRegistry({
-    // /bin/sh with an empty HOME: no rc file of the machine running the tests takes part.
-    env: () => Promise.resolve({ SHELL: '/bin/sh', PATH: SYSTEM_PATH, HOME: home, PS1: '$ ', PWD: '/somewhere/else', SHLVL: '3' }),
+    env,
     killGraceMs: options.killGraceMs ?? 1000,
-    ...(options.spawn === undefined ? {} : { spawn: options.spawn }),
+    // A stand-in pty has a pid of no process: nothing of the system is asked to end it.
+    ...(options.spawn === undefined ? (WINDOWS ? { spawn: spawnWithoutProfile } : {}) : { spawn: options.spawn, endDescendants: () => undefined }),
+    ...(options.platform === undefined ? {} : { platform: options.platform }),
+    ...(options.exists === undefined ? {} : { exists: options.exists }),
   })
   registries.push(registry)
   const nodes = new Set(options.nodes ?? [NODE])
@@ -91,10 +175,19 @@ async function harness(options: { killGraceMs?: number; nodes?: string[]; spawn?
     if (projectId !== PROJECT) throw new Error(`No Project with id ${projectId}`)
     return root
   })
+  const shellSetting = vi.fn(options.shellSetting ?? (() => options.shell))
   await registerIpc(ipc, {
     modules: {
       './terminal.ts': () =>
-        Promise.resolve(terminalHandlers({ registry: () => registry, projectRoot, isTerminalNode: (projectId, nodeId) => projectId === PROJECT && nodes.has(nodeId) })),
+        Promise.resolve(
+          terminalHandlers({
+            registry: () => registry,
+            projectRoot,
+            isTerminalNode: (projectId, nodeId) => projectId === PROJECT && nodes.has(nodeId),
+            shellSetting,
+            ...(options.shells === null ? {} : { shells: (options.shells ?? (async () => terminalShellOptions(await env()))) as () => Promise<never[]> }),
+          }),
+        ),
     },
     isTrustedSender: (url) => url === APP_URL,
   })
@@ -153,7 +246,13 @@ async function harness(options: { killGraceMs?: number; nodes?: string[]; spawn?
     await type(`${command}\r`, nodeId, from)
     await vi.waitFor(() => expect(text(nodeId)).toMatch(expected), { timeout: 5000 })
   }
-  return { registry, call, ok, open, type, run, text, outputs, exits, sender, makeWindow, nodes, projectRoot }
+  return { registry, call, ok, open, type, run, text, outputs, exits, sender, makeWindow, nodes, projectRoot, shellSetting }
+}
+
+/** The conhost.exe processes this process started: one per pseudo-console that is still open. */
+function consoleHosts(): number {
+  const script = `@(Get-CimInstance -Query "SELECT ProcessId FROM Win32_Process WHERE ParentProcessId = ${process.pid} AND Name = 'conhost.exe'").Count`
+  return Number(execFileSync(win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' }))
 }
 
 describe('terminal channels on a real pty', () => {
@@ -167,7 +266,8 @@ describe('terminal channels on a real pty', () => {
 
     await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 3000 })
     await vi.waitFor(() => expect(h.exits).toHaveLength(1))
-    expect(h.exits[0]).toMatchObject({ projectId: PROJECT, nodeId: NODE, signal: 1 })
+    // Windows has no signal to name: the process tree of the shell is ended.
+    expect(h.exits[0]).toMatchObject({ projectId: PROJECT, nodeId: NODE, signal: WINDOWS ? null : 1 })
     expect(h.registry.has(terminalKey(PROJECT, NODE))).toBe(false)
     // A shell ended by close is not kept as exited: the next open starts a new one. Checked before
     // the second close below, which would forget a kept exit anyway.
@@ -200,22 +300,100 @@ describe('terminal channels on a real pty', () => {
     }
   })
 
+  // The shells of Windows on a real pseudo-console (worfy-windows ticket 10): only there.
+  describe.runIf(WINDOWS)('on Windows', () => {
+    it('open starts Windows PowerShell with -NoLogo in the Project root with TERM_PROGRAM=worfy; input reaches it, output comes back', async () => {
+      const h = await harness()
+      const opened = await h.open()
+      expect(opened).toStrictEqual({ pid: opened.pid, shell: 'powershell.exe', replay: '', end: 0, started: true, exited: null })
+
+      await h.run(SAY_THE_FOLDER, folderLine(root))
+      // The typed line holds the expression, the output its value.
+      await h.run('Write-Output "worfy-$(2+3)"', /worfy-5\r?\n/)
+      await h.run("Write-Output ('tp=' + $env:TERM_PROGRAM + ' term=' + $env:TERM)", /tp=worfy term=xterm-256color\r?\n/)
+      await h.run("Write-Output ('args=' + [Environment]::CommandLine)", /args=.*powershell\.exe"? -NoLogo -NoProfile\r?\n/)
+      // Every chunk carries the running length of all output.
+      let total = 0
+      for (const output of h.outputs) {
+        total += output.data.length
+        expect(output.end).toBe(total)
+      }
+    })
+
+    it('pwsh from the Path is the shell when it is there, also as the alias of an MSIX install', async (context) => {
+      const pwsh = findOnPath('pwsh', process.env)
+      if (pwsh === null) context.skip('this machine has no pwsh on its Path')
+      const h = await harness({ path: [win32.dirname(pwsh ?? '')] })
+      const opened = await h.open()
+      expect(opened.shell).toBe('pwsh.exe')
+      await h.run('Write-Output "worfy-$(2+3)"', /worfy-5\r?\n/)
+      await h.run("Write-Output ('edition=' + $PSVersionTable.PSEdition)", /edition=Core\r?\n/)
+    })
+
+    it('Git Bash is the shell when the settings of the Project ask for it', async (context) => {
+      if (findGitBash(process.env) === null) context.skip('this machine has no Git for Windows')
+      const h = await harness({ shell: 'git-bash' })
+      const opened = await h.open()
+      expect(opened.shell).toBe('bash.exe')
+      await h.run('echo "worfy-$((2+3))"', /worfy-5\r?\n/)
+      // An interactive login shell, as --login -i asks.
+      await h.run('case $- in *i*) echo interactive=yes;; esac', /interactive=yes\r?\n/)
+      await h.run('shopt -q login_shell && echo login=yes', /login=yes\r?\n/)
+    })
+
+    it('terminal.close ends what runs in the shell: a program started in it, and one started with Start-Process', async (context) => {
+      const node = findOnPath('node', process.env)
+      if (node === null) context.skip('this machine has no node on its Path')
+      await writeFile(join(root, 'keep.js'), 'setInterval(() => {}, 1000)\n')
+      const h = await harness()
+      const { pid } = await h.open()
+      const number = async (pattern: RegExp): Promise<number> => {
+        await vi.waitFor(() => expect(h.text()).toMatch(pattern), { timeout: 10_000 })
+        return Number(pattern.exec(h.text())?.[1])
+      }
+      // A program with a window and a console of its own: still a child of the shell.
+      await h.type(`$p = Start-Process -WindowStyle Hidden -PassThru -WorkingDirectory (Get-Location).Path -FilePath '${node}' -ArgumentList 'keep.js'; Write-Output ('started=' + $p.Id)\r`)
+      const started = await number(/started=(\d+)\r?\n/)
+      // A program that holds the terminal: the shell waits for it.
+      await h.type(`& '${node}' -e "console.log('pid=' + process.pid); setInterval(() => {}, 1000)"\r`)
+      const held = await number(/pid=(\d+)\r?\n/)
+      try {
+        expect([alive(pid), alive(started), alive(held)]).toEqual([true, true, true])
+
+        await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+
+        // close() resolves when all three are gone and the registry has forgotten the shell: nothing to wait for.
+        expect([alive(pid), alive(started), alive(held)]).toEqual([false, false, false])
+        expect(h.registry.has(terminalKey(PROJECT, NODE))).toBe(false)
+      } finally {
+        // A failed test must not leave the two programs running on the machine.
+        for (const left of [started, held]) {
+          try {
+            process.kill(left)
+          } catch {
+            // Gone, as it should be.
+          }
+        }
+      }
+    })
+  })
+
   it('resize changes the size of the pty, clamped to 20–500 columns and 5–300 rows', async () => {
     const h = await harness()
     await h.open(NODE, { cols: 90, rows: 30 })
-    await h.run('echo "size=$(tput cols)x$(tput lines)"', /size=90x30\r?\n/)
+    await h.run(sayTheSize('size'), /size=90x30\r?\n/)
 
     await h.ok('terminal.resize', { projectId: PROJECT, nodeId: NODE, cols: 132, rows: 40 })
-    await h.run('echo "after=$(tput cols)x$(tput lines)"', /after=132x40\r?\n/)
+    await h.run(sayTheSize('after'), /after=132x40\r?\n/)
 
     await h.ok('terminal.resize', { projectId: PROJECT, nodeId: NODE, cols: 3, rows: 1 })
-    await h.run('echo "small=$(tput cols)x$(tput lines)"', /small=20x5\r?\n/)
+    await h.run(sayTheSize('small'), /small=20x5\r?\n/)
   })
 
   it('a second open attaches to the running shell and replays its output', async () => {
     const h = await harness()
     const first = await h.open()
-    await h.run('echo mark""er-one', /marker-one\r?\n/)
+    await h.run(say('mark', 'er-one'), /marker-one\r?\n/)
 
     const other = h.makeWindow()
     const second = await h.open(NODE, { cols: 80, rows: 24 }, other)
@@ -237,8 +415,9 @@ describe('terminal channels on a real pty', () => {
 
     await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5000 })
     expect(alive(otherPid)).toBe(true)
-    // The registry forgets the shell when its exit is reported, which can come after the pid is gone.
-    await vi.waitFor(() => expect(h.registry.has(terminalKey(PROJECT, NODE))).toBe(false))
+    // The registry forgets the shell when its exit is reported, which can come after the pid is gone:
+    // on Windows about a second after it (node-pty waits for the rest of the output).
+    await vi.waitFor(() => expect(h.registry.has(terminalKey(PROJECT, NODE))).toBe(false), { timeout: 5000 })
     // Ended because its window went away, not on its own: not kept as exited, the next open starts a new shell.
     expect(h.registry.hasExited(terminalKey(PROJECT, NODE))).toBe(false)
     const reopened = await h.open()
@@ -276,10 +455,11 @@ describe('terminal channels on a real pty', () => {
     expect(h.registry.size).toBe(0)
   })
 
-  it('a shell that ignores SIGHUP is killed after the grace period', async () => {
+  // Windows has no SIGHUP to ignore: close ends the process tree at once (the cases "on Windows" below).
+  it.skipIf(WINDOWS)('a shell that ignores SIGHUP is killed after the grace period', async () => {
     const h = await harness({ killGraceMs: 300 })
     const { pid } = await h.open()
-    await h.run(`trap '' HUP; echo trap""ped`, /trapped\r?\n/)
+    await h.run(IGNORE_HANGUP, /trapped\r?\n/)
 
     await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
 
@@ -289,7 +469,7 @@ describe('terminal channels on a real pty', () => {
   it('the shell exiting on its own reports its exit code and stays exited until open asks for a restart', async () => {
     const h = await harness()
     const { pid } = await h.open()
-    await h.run('echo be""fore-exit', /before-exit\r?\n/)
+    await h.run(say('be', 'fore-exit'), /before-exit\r?\n/)
     await h.type('exit 3\r')
     await vi.waitFor(() => expect(h.exits).toEqual([{ projectId: PROJECT, nodeId: NODE, exitCode: 3, signal: null }]), { timeout: 5000 })
     expect(alive(pid)).toBe(false)
@@ -297,7 +477,7 @@ describe('terminal channels on a real pty', () => {
 
     // A view coming back (remount, reload) sees the exit and the last output; nothing is started.
     const back = await h.open()
-    expect(back).toStrictEqual({ pid, shell: 'sh', replay: h.text(), end: h.outputs.at(-1)?.end, started: false, exited: { exitCode: 3, signal: null } })
+    expect(back).toStrictEqual({ pid, shell: SHELL_NAME, replay: h.text(), end: h.outputs.at(-1)?.end, started: false, exited: { exitCode: 3, signal: null } })
     expect(back.replay).toContain('before-exit')
     expect(h.registry.size).toBe(0)
     // A plain open with restart: false is the same.
@@ -350,7 +530,7 @@ describe('one Terminal on several screens (worfy-link ticket 05, ADR-0053)', () 
     const second = await h.open(NODE, { cols: 80, rows: 24 }, b)
     expect(second).toMatchObject({ pid: first.pid, started: false })
 
-    await h.run('echo two""-screens', /two-screens\r?\n/, NODE, a)
+    await h.run(say('two', '-screens'), /two-screens\r?\n/, NODE, a)
     await vi.waitFor(() => expect(received(a)).toMatch(/two-screens\r?\n/), { timeout: 2000 })
     await vi.waitFor(() => expect(received(b)).toMatch(/two-screens\r?\n/), { timeout: 2000 })
 
@@ -364,14 +544,14 @@ describe('one Terminal on several screens (worfy-link ticket 05, ADR-0053)', () 
     const h = await harness()
     const a = h.makeWindow()
     await h.open(NODE, { cols: 80, rows: 24 }, a)
-    await h.run('echo be""fore', /before\r?\n/, NODE, a)
+    await h.run(say('be', 'fore'), /before\r?\n/, NODE, a)
 
     const b = h.makeWindow()
     const attached = await h.open(NODE, { cols: 80, rows: 24 }, b)
     expect(attached.replay).toBe(received(a))
     expect(attached.end).toBe(a.outputs.at(-1)?.end)
 
-    await h.run('echo af""ter', /after\r?\n/, NODE, b)
+    await h.run(say('af', 'ter'), /after\r?\n/, NODE, b)
     await vi.waitFor(() => expect(received(b)).toMatch(/after\r?\n/), { timeout: 5000 })
     // The live chunks start where the replay ended: replay + chunks is the whole output, once.
     expect(b.outputs[0]?.end).toBe(attached.end + (b.outputs[0]?.data.length ?? 0))
@@ -390,13 +570,13 @@ describe('one Terminal on several screens (worfy-link ticket 05, ADR-0053)', () 
     b.destroy()
     await new Promise((resolve) => setTimeout(resolve, 300))
     expect(alive(pid)).toBe(true)
-    await h.run('echo still""-here', /still-here\r?\n/, NODE, a)
+    await h.run(say('still', '-here'), /still-here\r?\n/, NODE, a)
     await vi.waitFor(() => expect(received(a)).toMatch(/still-here\r?\n/), { timeout: 2000 })
     expect(received(b)).not.toContain('still-here')
 
     a.destroy()
     await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5000 })
-    await vi.waitFor(() => expect(h.registry.has(terminalKey(PROJECT, NODE))).toBe(false))
+    await vi.waitFor(() => expect(h.registry.has(terminalKey(PROJECT, NODE))).toBe(false), { timeout: 5000 })
     expect(h.registry.hasExited(terminalKey(PROJECT, NODE))).toBe(false)
   })
 
@@ -416,7 +596,7 @@ describe('one Terminal on several screens (worfy-link ticket 05, ADR-0053)', () 
     })
     const { pid } = await h.open(NODE, { cols: 80, rows: 24 }, a)
     await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5000 })
-    await vi.waitFor(() => expect(h.registry.size).toBe(0))
+    await vi.waitFor(() => expect(h.registry.size).toBe(0), { timeout: 5000 })
     expect(h.registry.hasExited(terminalKey(PROJECT, NODE))).toBe(false)
   })
 
@@ -437,7 +617,7 @@ describe('one Terminal on several screens (worfy-link ticket 05, ADR-0053)', () 
 
     const back = await h.open(NODE, { cols: 80, rows: 24 }, b)
     expect(back).toMatchObject({ pid: again.pid, started: false, exited: null })
-    await h.run('echo new""-shell', /new-shell\r?\n/, NODE, b)
+    await h.run(say('new', '-shell'), /new-shell\r?\n/, NODE, b)
     await vi.waitFor(() => expect(received(a)).toMatch(/new-shell\r?\n/), { timeout: 5000 })
   })
 })
@@ -460,7 +640,7 @@ describe('the output of one Terminal on one and on two screens, measured (worfy-
     for (const window of windows) await h.open(NODE, { cols: 80, rows: 24 }, window)
     const [typing] = windows
     if (typing === undefined) throw new Error('no window')
-    await h.run('echo rea""dy', /ready\r?\n/, NODE, typing)
+    await h.run(say('rea', 'dy'), /ready\r?\n/, NODE, typing)
     const before = windows.map((window) => window.outputs.length)
     const loop = monitorEventLoopDelay({ resolution: 10 })
     loop.enable()
@@ -486,7 +666,8 @@ describe('the output of one Terminal on one and on two screens, measured (worfy-
     return { ms, events, bytes, p99, max }
   }
 
-  it('10 MB of output: the number of terminal.output events, the time to the last byte and the p99 delay of the event loop', { timeout: 180_000 }, async () => {
+  // A measurement of the pipeline on macOS, with the tools of /bin/sh; ConPTY redraws the stream in its own way.
+  it.skipIf(WINDOWS)('10 MB of output: the number of terminal.output events, the time to the last byte and the p99 delay of the event loop', { timeout: 180_000 }, async () => {
     const one = await measure(1)
     const two = await measure(2)
     for (const [name, m] of [
@@ -656,8 +837,10 @@ describe('terminal.open with a command (worfy-harness ticket 19)', () => {
     // The stand-ins go first on the PATH through $HOME/.profile, which a login shell reads after
     // /etc/profile: on macOS /etc/profile (path_helper) moves the system folders, Homebrew's
     // included, before what the PATH had, and a real gh would win.
-    await writeFile(join(home, '.profile'), `PATH="${TOOLS}:$PATH"; export PATH\n`)
-    const h = await harness({ nodes: [NODE, 'node-2'] })
+    if (!WINDOWS) await writeFile(join(home, '.profile'), `PATH="${TOOLS}:$PATH"; export PATH\n`)
+    // On Windows the stand-ins of TOOLS are scripts of /bin/sh: a gh.cmd of one line stands in there.
+    if (WINDOWS) await writeFile(join(home, 'gh.cmd'), '@echo fake gh: auth login started\r\n')
+    const h = await harness({ nodes: [NODE, 'node-2'], path: [home] })
     const opened = await h.open(NODE, { cols: 80, rows: 24, command: 'gh auth login' })
     expect(opened.started).toBe(true)
     // The stand-in gh prints this line: the command reached the shell and ran there.
@@ -667,7 +850,7 @@ describe('terminal.open with a command (worfy-harness ticket 19)', () => {
 
     // Without a command, as before: nothing is typed.
     await h.open('node-2')
-    await h.run('echo mark""er-two', /marker-two\r?\n/, 'node-2')
+    await h.run(say('mark', 'er-two'), /marker-two\r?\n/, 'node-2')
     expect(h.text('node-2')).not.toContain('gh auth login')
     expect(h.text('node-2')).not.toContain('fake gh')
   })
@@ -716,7 +899,8 @@ describe('the command typed into a new shell, on a stand-in pty', () => {
   const sink: TerminalSink = { output: () => undefined, exit: () => undefined, started: () => undefined }
   const request = { cwd: '/tmp', cols: 80, rows: 24 }
   const registry = (commandDelayMs = 60_000) =>
-    new TerminalRegistry({ env: () => Promise.resolve({ SHELL: '/bin/sh' }), spawn: () => new FakePty(), commandDelayMs, killGraceMs: 10 })
+    // The Enter of macOS on any system; the Enter of Windows is in test/unit/terminal-shell.test.ts.
+    new TerminalRegistry({ env: () => Promise.resolve({ SHELL: '/bin/sh' }), spawn: () => new FakePty(), commandDelayMs, killGraceMs: 10, platform: 'darwin' })
   const pty = (): FakePty => {
     if (FakePty.last === null) throw new Error('no pty')
     return FakePty.last
@@ -768,6 +952,224 @@ describe('the command typed into a new shell, on a stand-in pty', () => {
   })
 })
 
+// What closing a Terminal on Windows leaves behind, and whom it may end (worfy-windows ticket 10,
+// review round 1): real pseudo-consoles and real processes, so only there.
+describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
+  it('node-pty is the one the registry knows: its kill() has the helper process that the registry takes out', () => {
+    const pty = spawnNodePty(win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoLogo', '-NoProfile'], { name: 'xterm-256color', cols: 80, rows: 24, cwd: root, env: windowsEnv(home) })
+    const agent = (pty as unknown as { _agent?: { _getConsoleProcessList?: unknown } })._agent
+    try {
+      // When this fails after an update of node-pty, read withoutConsoleHelper in src/main/terminal/pty.ts again.
+      expect(typeof agent?._getConsoleProcessList).toBe('function')
+    } finally {
+      // Without the helper here too: it would end this pid 5 s from now.
+      if (agent !== undefined) agent._getConsoleProcessList = () => Promise.resolve([])
+      pty.kill()
+    }
+  })
+
+  it('close ends a program two levels under the shell: the shell started cmd.exe, and cmd.exe the program', async (context) => {
+    const node = findOnPath('node', process.env)
+    if (node === null) context.skip('this machine has no node on its Path')
+    // The program says who it is by a file in the Project folder: its output goes to no terminal.
+    await writeFile(join(root, 'keep.js'), "require('node:fs').writeFileSync('grandchild.pid', String(process.pid)); setInterval(() => {}, 1000)\n")
+    const h = await harness()
+    const { pid } = await h.open()
+    // cmd.exe in a window of its own: neither it nor what it starts is on the console of the shell.
+    await h.type(`$p = Start-Process -WindowStyle Hidden -PassThru -WorkingDirectory (Get-Location).Path -FilePath $env:ComSpec -ArgumentList '/d','/c','"${node}" keep.js'; Write-Output ('cmd=' + $p.Id)\r`)
+    await vi.waitFor(() => expect(h.text()).toMatch(/cmd=(\d+)\r?\n/), { timeout: 10_000 })
+    const cmd = Number(/cmd=(\d+)\r?\n/.exec(h.text())?.[1])
+    let grandchild = 0
+    await vi.waitFor(
+      async () => {
+        grandchild = Number(await readFile(join(root, 'grandchild.pid'), 'utf8'))
+        expect(grandchild).toBeGreaterThan(0)
+      },
+      { timeout: 10_000 },
+    )
+    try {
+      expect([alive(pid), alive(cmd), alive(grandchild)]).toEqual([true, true, true])
+      expect(grandchild).not.toBe(cmd)
+      await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+      expect([alive(pid), alive(cmd), alive(grandchild)]).toEqual([false, false, false])
+    } finally {
+      for (const left of [cmd, grandchild]) {
+        try {
+          process.kill(left)
+        } catch {
+          // Gone, as it should be.
+        }
+      }
+    }
+  }, 60_000)
+
+  it('close leaves no conhost.exe behind and starts no helper process; it is done well inside its bound', async () => {
+    const fork = vi.spyOn(childProcess, 'fork')
+    const h = await harness({ nodes: ['n1', 'n2', 'n3'] })
+    const before = consoleHosts()
+    const took: number[] = []
+    for (const nodeId of ['n1', 'n2', 'n3']) {
+      await h.open(nodeId)
+      await h.run(say('rea', 'dy'), /ready\r?\n/, nodeId)
+      const started = performance.now()
+      await h.ok('terminal.close', { projectId: PROJECT, nodeId })
+      took.push(performance.now() - started)
+    }
+    expect(Math.max(...took)).toBeLessThan(3000)
+    expect(h.registry.size).toBe(0)
+    // Not more than before: the count before may still hold a console of an earlier test that is closing.
+    // Three Terminals closed the old way would leave three more.
+    await vi.waitFor(() => expect(consoleHosts()).toBeLessThanOrEqual(before), { timeout: 5000, interval: 500 })
+    // node-pty's helper lists the console and, when it fails, ends the pid of the shell 5 s later.
+    expect(fork).not.toHaveBeenCalled()
+  }, 60_000)
+
+  it('a shell that exited on its own is asked nothing by its pid afterwards: no helper process is started', async () => {
+    const fork = vi.spyOn(childProcess, 'fork')
+    const signals = vi.spyOn(process, 'kill')
+    const h = await harness()
+    const { pid } = await h.open()
+    await h.run(say('rea', 'dy'), /ready\r?\n/)
+    await h.type('exit 3\r')
+    await vi.waitFor(() => expect(h.exits).toEqual([{ projectId: PROJECT, nodeId: NODE, exitCode: 3, signal: null }]), { timeout: 5000 })
+    await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+    expect(fork).not.toHaveBeenCalled()
+    expect(signals.mock.calls.filter(([target]) => target === pid)).toEqual([])
+  })
+
+  /** A PowerShell that starts a hidden node under itself, prints its pid and waits. */
+  async function shellWithChild(): Promise<{ shell: number; child: number; startedBy: number; end: () => void }> {
+    const node = findOnPath('node', process.env)
+    if (node === null) throw new Error('no node on the Path')
+    const script = `$p = Start-Process -WindowStyle Hidden -PassThru -FilePath '${node}' -ArgumentList '-e','setInterval(()=>{},1000)'; Write-Output ('child=' + $p.Id); Start-Sleep -Seconds 120`
+    const shell = spawnProcess(win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true })
+    const startedBy = Date.now()
+    let output = ''
+    shell.stdout.on('data', (chunk: Buffer) => (output += chunk.toString()))
+    await vi.waitFor(() => expect(output).toMatch(/child=\d+/), { timeout: 15_000 })
+    const child = Number(/child=(\d+)/.exec(output)?.[1])
+    const end = () => {
+      for (const pid of [child, shell.pid ?? 0]) {
+        try {
+          process.kill(pid)
+        } catch {
+          // Gone.
+        }
+      }
+    }
+    return { shell: shell.pid ?? 0, child, startedBy, end }
+  }
+
+  it('endDescendants ends what is under the shell and leaves the shell', async (context) => {
+    if (findOnPath('node', process.env) === null) context.skip('this machine has no node on its Path')
+    const started = await shellWithChild()
+    try {
+      expect([alive(started.shell), alive(started.child)]).toEqual([true, true])
+      expect(await endDescendants({ pid: started.shell, startedBy: started.startedBy })).toBe('ended')
+      expect([alive(started.shell), alive(started.child)]).toEqual([true, false])
+    } finally {
+      started.end()
+    }
+  }, 30_000)
+
+  it('endDescendants ends nothing when the process with the pid of the shell was created after the shell was started: it is another process', async (context) => {
+    if (findOnPath('node', process.env) === null) context.skip('this machine has no node on its Path')
+    const started = await shellWithChild()
+    try {
+      // The registry started "its shell" a minute before this process was created: the pid was given out again.
+      expect(await endDescendants({ pid: started.shell, startedBy: started.startedBy - 60_000 })).toBe('gone')
+      expect([alive(started.shell), alive(started.child)]).toEqual([true, true])
+      // And a pid nobody has.
+      await expect(endDescendants({ pid: 4_194_300, startedBy: Date.now() })).resolves.toBe('gone')
+    } finally {
+      started.end()
+    }
+  }, 30_000)
+})
+
+// The setting of the Project reaches the registry, and nothing else does: a stand-in pty under the
+// rules of each system, so these run on any machine (worfy-windows ticket 10, review round 1).
+describe('terminal.open and the shell setting of the Project, on a stand-in pty', () => {
+  const GIT_BASH = 'C:\\Program Files\\Git\\bin\\bash.exe'
+  const POWERSHELL = win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+  const exists = (path: string) => path === GIT_BASH
+  function standIn() {
+    const started: { file: string; args: string[] }[] = []
+    const exits: ((event: { exitCode: number }) => void)[] = []
+    const spawn: SpawnPty = (file, args) => {
+      started.push({ file, args })
+      let exit: (event: { exitCode: number }) => void = () => undefined
+      exits.push((event) => exit(event))
+      return { pid: 4001 + started.length * 2, onData: () => undefined, onExit: (listener) => void (exit = listener), write: () => undefined, resize: () => undefined, kill: () => exit({ exitCode: 0 }) }
+    }
+    /** Every stand-in shell exits on its own: nothing is left for the registry to end. */
+    const endAll = () => exits.forEach((exit) => exit({ exitCode: 0 }))
+    return { started, spawn, endAll }
+  }
+
+  it('on Windows the shell the settings of the Project name is the one that starts; the setting is asked once, for that Project', async () => {
+    const { started, spawn } = standIn()
+    const h = await harness({ platform: 'win32', spawn, exists, shellSetting: (projectId) => (projectId === PROJECT ? 'git-bash' : undefined) })
+    const opened = await h.open()
+    expect(started).toEqual([{ file: GIT_BASH, args: ['--login', '-i'] }])
+    expect(opened.shell).toBe('bash.exe')
+    expect(h.shellSetting.mock.calls).toEqual([[PROJECT]])
+    // A second screen attaches to the running shell: the settings are not read again.
+    const attached = await h.open(NODE, { cols: 80, rows: 24 }, h.makeWindow())
+    expect(attached.started).toBe(false)
+    expect(h.shellSetting).toHaveBeenCalledTimes(1)
+  })
+
+  it('on Windows a Project whose settings name no shell gets PowerShell, whatever the renderer sends as `shell`', async () => {
+    const { started, spawn } = standIn()
+    const h = await harness({ platform: 'win32', spawn, exists, shellSetting: () => undefined })
+    for (const shell of ['git-bash', GIT_BASH, 'cmd.exe']) {
+      const opened = await h.ok<OpenResult>('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24, restart: true, shell })
+      expect(opened.shell, shell).toBe('powershell.exe')
+      await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+    }
+    expect(started).toEqual(Array.from({ length: 3 }, () => ({ file: POWERSHELL, args: ['-NoLogo'] })))
+  })
+
+  it('on Windows settings that cannot be read do not stop the Terminal: PowerShell starts', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { started, spawn } = standIn()
+    const h = await harness({
+      platform: 'win32',
+      spawn,
+      exists,
+      shellSetting: () => {
+        throw Object.assign(new Error('EACCES: permission denied, open settings.json'), { code: 'EACCES' })
+      },
+    })
+    expect((await h.open()).shell).toBe('powershell.exe')
+    expect(started).toEqual([{ file: POWERSHELL, args: ['-NoLogo'] }])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not be read'), expect.any(Error))
+  })
+
+  it.each(['darwin', 'linux'] as const)('on %s terminal.open does not read the settings of the Project at all, as before the setting was there', async (platform) => {
+    const { started, spawn, endAll } = standIn()
+    const h = await harness({
+      platform,
+      spawn,
+      shellSetting: () => {
+        throw new Error('settings.json cannot be read')
+      },
+    })
+    try {
+      const opened = await h.open()
+      expect(opened).toMatchObject({ shell: 'sh', started: true })
+      expect(started).toEqual([{ file: '/bin/sh', args: ['-l'] }])
+      await h.open(NODE, { cols: 80, rows: 24 }, h.makeWindow())
+      expect(h.shellSetting).not.toHaveBeenCalled()
+    } finally {
+      // The pid of a stand-in is the pid of no shell: the registry must have nothing to signal when the test ends.
+      endAll()
+    }
+    expect(h.registry.size).toBe(0)
+  })
+})
+
 describe('wireRegistry: the shells follow the Layout, the Projects and quitting', () => {
   it('a Terminal Node removed from the Layout by any route ends its shell; other ops and other Nodes do not', async () => {
     const h = await harness({ nodes: [NODE, 'node-2'] })
@@ -808,7 +1210,7 @@ describe('wireRegistry: the shells follow the Layout, the Projects and quitting'
     wireRegistry(h.registry, { ...w, quitWaitMs: 10_000 })
     const { pid } = await h.open()
     const { pid: otherPid } = await h.open('node-2')
-    await h.run(`trap '' HUP; echo trap""ped`, /trapped\r?\n/, 'node-2')
+    await h.run(IGNORE_HANGUP, /trapped\r?\n/, 'node-2')
 
     const preventDefault = w.willQuit()
 
@@ -823,12 +1225,70 @@ describe('wireRegistry: the shells follow the Layout, the Projects and quitting'
     expect(w.quit).toHaveBeenCalledOnce()
   })
 
-  it('will-quit gives up waiting after quitWaitMs and quits anyway', async () => {
+  it('will-quit gives up waiting after quitWaitMs and quits anyway: the quit that follows is not held back by a shell that is still closing', async () => {
     const w = wiring([])
-    const stuck = { size: 1, closeAll: () => new Promise<void>(() => undefined) } as unknown as TerminalRegistry
+    const closeAll = vi.fn(() => new Promise<void>(() => undefined))
+    const stuck = { size: 1, closeAll } as unknown as TerminalRegistry
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     wireRegistry(stuck, { ...w, quitWaitMs: 50 })
     expect(w.willQuit()).toHaveBeenCalledOnce()
+    // A will-quit that comes during the wait is held back too, and starts no second wait.
+    expect(w.willQuit()).toHaveBeenCalledOnce()
+    expect(w.quit).not.toHaveBeenCalled()
     await vi.waitFor(() => expect(w.quit).toHaveBeenCalledOnce(), { timeout: 2000 })
+    // The wait was cut: what the shells started may be left running, and the log says so.
+    expect(warn.mock.calls).toEqual([['[terminal] quitting after 50 ms with 1 shells still closing: what they started may be left running']])
+    // The registry still holds the shell. The quit worfy asked for goes through all the same.
+    expect(w.willQuit()).not.toHaveBeenCalled()
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    expect(w.quit).toHaveBeenCalledOnce()
+    expect(closeAll).toHaveBeenCalledOnce()
+    // That one quit only: when worfy is still there afterwards, the next quit waits for the shells again.
+    expect(w.willQuit()).toHaveBeenCalledOnce()
+    expect(closeAll).toHaveBeenCalledTimes(2)
+    // Let that second wait end inside this test.
+    await vi.waitFor(() => expect(w.quit).toHaveBeenCalledTimes(2), { timeout: 2000 })
+    warn.mockRestore()
+  })
+
+  it('a wait that was not cut logs nothing, and the quit after it goes through once', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const w = wiring([])
+    let size = 1
+    const closing = { size: 0, closeAll: () => undefined } as unknown as TerminalRegistry
+    Object.defineProperty(closing, 'size', { get: () => size })
+    ;(closing as unknown as { closeAll: () => Promise<void> }).closeAll = () => {
+      size = 0
+      return Promise.resolve()
+    }
+    wireRegistry(closing, { ...w, quitWaitMs: 5000 })
+    expect(w.willQuit()).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(w.quit).toHaveBeenCalledOnce(), { timeout: 2000 })
+    expect(w.willQuit()).not.toHaveBeenCalled()
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('the wait of a quit is longer than what closing a Terminal may take: 3 s, and on Windows 6 s, a second past the bound of a close there', async () => {
+    expect({ QUIT_WAIT_MS, WINDOWS_QUIT_WAIT_MS, WINDOWS_CLOSE_BOUND_MS }).toEqual({ QUIT_WAIT_MS: 3000, WINDOWS_QUIT_WAIT_MS: 6000, WINDOWS_CLOSE_BOUND_MS: 5000 })
+    vi.useFakeTimers()
+    try {
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      const waits: Record<string, number> = {}
+      for (const platform of ['win32', 'darwin', 'linux'] as const) {
+        const w = wiring([])
+        const stuck = { size: 1, closeAll: () => new Promise<void>(() => undefined) } as unknown as TerminalRegistry
+        wireRegistry(stuck, { ...w, platform })
+        const started = Date.now()
+        w.willQuit()
+        w.quit.mockImplementation(() => (waits[platform] = Date.now() - started))
+        await vi.advanceTimersByTimeAsync(10_000)
+      }
+      expect(waits).toEqual({ win32: 6000, darwin: 3000, linux: 3000 })
+    } finally {
+      vi.useRealTimers()
+      vi.restoreAllMocks()
+    }
   })
 })
 
@@ -860,9 +1320,40 @@ describe('terminal channels at the IPC boundary', () => {
     const elsewhere = await realpath(tmpdir())
     const opened = await h.ok<OpenResult>('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24, cwd: elsewhere, shell: '/bin/bash' })
     expect(Object.keys(opened).sort()).toEqual(['end', 'exited', 'pid', 'replay', 'shell', 'started'])
-    expect(opened.shell).toBe('sh')
-    await h.run('echo "cwd=$(pwd)"', new RegExp(`cwd=${root}\\r?\\n`))
+    expect(opened.shell).toBe(SHELL_NAME)
+    await h.run(SAY_THE_FOLDER, folderLine(root))
     for (const output of h.outputs) expect(Object.keys(output).sort()).toEqual(['data', 'end', 'nodeId', 'projectId'])
+  })
+
+  it('terminal.shells lists the shells of this Machine: none where the shell is $SHELL; PowerShell and Git Bash on Windows', async () => {
+    const h = await harness()
+    const shells = await h.ok<{ id: string; label: string; found: boolean }[]>('terminal.shells')
+    if (!WINDOWS) expect(shells).toEqual([])
+    else {
+      // The Path of the harness has the system folders alone: Windows PowerShell.
+      expect(shells).toEqual([
+        { id: 'powershell', label: 'Windows PowerShell', found: true },
+        { id: 'git-bash', label: 'Git Bash', found: findGitBash(windowsEnv(home)) !== null },
+      ])
+    }
+    // Asking starts nothing.
+    expect(h.registry.size).toBe(0)
+  })
+
+  it('terminal.shells answers what the Machine gives, an empty list when it gives nothing, and refuses an answer outside the contract', async () => {
+    const list = [
+      { id: 'powershell', label: 'PowerShell (pwsh)', found: true },
+      { id: 'git-bash', label: 'Git Bash', found: false },
+    ]
+    expect(await (await harness({ shells: () => Promise.resolve(list) })).ok('terminal.shells')).toEqual(list)
+    expect(await (await harness({ shells: null })).ok('terminal.shells')).toEqual([])
+    for (const wrong of [[{ id: 'wsl', label: 'WSL', found: true }], [{ id: 'git-bash', label: '', found: true }], [{ id: 'git-bash', label: 'Git Bash' }], [{ id: 'git-bash', label: 'Git Bash', found: 'yes' }], { id: 'git-bash' }]) {
+      const h = await harness({ shells: () => Promise.resolve(wrong as unknown[]) })
+      expect((await h.call('terminal.shells')).ok, JSON.stringify(wrong)).toBe(false)
+    }
+    // Input is not taken.
+    const h = await harness({ shells: () => Promise.resolve(list) })
+    expect((await h.call('terminal.shells', { projectId: PROJECT })).ok).toBe(false)
   })
 
   it('refuses a Node that is not a Terminal Node of the Project, and an unknown Project', async () => {
@@ -878,6 +1369,16 @@ describe('terminal channels at the IPC boundary', () => {
     const h = await harness()
     const result = await h.call('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'ls\r' })
     expect(!result.ok && result.error).toMatch(/not running/)
+  })
+})
+
+describe('node-pty as the registry knows it', () => {
+  it('still has the private helper that the registry takes out of kill() on Windows, and kill() still calls it', () => {
+    // lib/windowsPtyAgent.js loads on any system: its native part is asked for only when a pty starts.
+    // When this fails after an update of node-pty, read withoutConsoleHelper in src/main/terminal/pty.ts again.
+    const { WindowsPtyAgent } = createRequire(import.meta.url)('node-pty/lib/windowsPtyAgent.js') as { WindowsPtyAgent: { prototype: Record<string, unknown> } }
+    expect(typeof WindowsPtyAgent.prototype['_getConsoleProcessList']).toBe('function')
+    expect(String(WindowsPtyAgent.prototype['kill'])).toContain('this._getConsoleProcessList()')
   })
 })
 
@@ -900,7 +1401,8 @@ describe('pty helpers', () => {
   })
 
   it('terminalEnv keeps the login shell environment, sets the terminal variables and the Project root', () => {
-    const env = terminalEnv({ PATH: '/opt/bin:/usr/bin', HOME: '/Users/u', PWD: '/old', OLDPWD: '/older', SHLVL: '2', _: '/usr/bin/env', MY_VAR: 'x' }, '/repo')
+    // LANG by the system is in test/unit/terminal-shell.test.ts; here the rules of macOS.
+    const env = terminalEnv({ PATH: '/opt/bin:/usr/bin', HOME: '/Users/u', PWD: '/old', OLDPWD: '/older', SHLVL: '2', _: '/usr/bin/env', MY_VAR: 'x' }, '/repo', 'darwin')
     expect(env).toStrictEqual({
       PATH: '/opt/bin:/usr/bin',
       HOME: '/Users/u',
@@ -911,6 +1413,6 @@ describe('pty helpers', () => {
       TERM_PROGRAM: 'worfy',
       LANG: 'en_US.UTF-8',
     })
-    expect(terminalEnv({ LANG: 'ru_RU.UTF-8' }, '/repo').LANG).toBe('ru_RU.UTF-8')
+    expect(terminalEnv({ LANG: 'ru_RU.UTF-8' }, '/repo', 'darwin').LANG).toBe('ru_RU.UTF-8')
   })
 })

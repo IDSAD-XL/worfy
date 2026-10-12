@@ -463,6 +463,24 @@ describe('projects.settings', () => {
     expect(listing(claudeHome)).toEqual(before)
   })
 
+  it('adds no shell of the Terminals to settings without one, keeps one that is set, and refuses an unknown one (worfy-windows ticket 10)', async () => {
+    const { project } = await addOk(makeRepo('auction'))
+    const file = join(dataDir, project.id, 'settings.json')
+    // A settings file from before the field: read as it is.
+    expect(await value('projects.settings.get', { id: project.id })).not.toHaveProperty('terminalShell')
+    expect(JSON.parse(readFileSync(file, 'utf8'))).not.toHaveProperty('terminalShell')
+
+    const chosen = { actionTemplates: { shipTicket: '/x {NN}', runWave: '' }, terminalShell: 'git-bash' }
+    expect(await value('projects.settings.set', { id: project.id, settings: chosen })).toStrictEqual(chosen)
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toStrictEqual(chosen)
+    expect(await value('projects.settings.get', { id: project.id })).toStrictEqual(chosen)
+
+    const before = readFileSync(file, 'utf8')
+    const refused = await call('projects.settings.set', { id: project.id, settings: { ...chosen, terminalShell: 'cmd' } })
+    expect(refused.ok).toBe(false)
+    expect(readFileSync(file, 'utf8')).toBe(before)
+  })
+
   it('stores only the declared keys, whatever else the caller sends', async () => {
     const { project } = await addOk(makeRepo('auction'))
     const result = await value('projects.settings.set', {

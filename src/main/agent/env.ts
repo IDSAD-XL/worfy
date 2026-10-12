@@ -18,7 +18,7 @@
 // Claude Code gets Git Bash for its Bash tool through CLAUDE_CODE_GIT_BASH_PATH; `bash.exe` from
 // Path may be the WSL launcher.
 import { execFile } from 'node:child_process'
-import { existsSync, lstatSync } from 'node:fs'
+import { readlinkSync, statSync } from 'node:fs'
 import { win32 } from 'node:path'
 
 export type Env = Record<string, string>
@@ -346,25 +346,33 @@ function putKey(values: RegValue[], env: Env): void {
 }
 
 /**
- * A file there, or an app execution alias: `pwsh.exe` installed by winget from MSIX is a link in
- * %LOCALAPPDATA%\Microsoft\WindowsApps that existsSync does not see (evidence of worfy-windows
- * ticket 01, section 25).
+ * A file there, or an app execution alias of one: `pwsh.exe` installed by winget from MSIX is a
+ * link in %LOCALAPPDATA%\Microsoft\WindowsApps that cannot be opened as a file (existsSync says no,
+ * stat fails with EACCES), and readlink names the program it starts (evidence of worfy-windows
+ * ticket 01, section 25; ticket 10). A folder of that name and a link to nothing are neither.
  */
 const fileOrAlias: FileExists = (path) => {
-  if (existsSync(path)) return true
   try {
-    return lstatSync(path).isSymbolicLink()
+    return statSync(path).isFile()
+  } catch {
+    // Not a file that opens: an alias, a link to nothing, or nothing.
+  }
+  try {
+    return statSync(readlinkSync(path)).isFile()
   } catch {
     return false
   }
 }
 
-/** The first `<name>.exe` in the Path of `env`, or null. */
+/**
+ * The first `<name>.exe` in the Path of `env`, or null. An entry of the Path that is not a full
+ * path (`.`, `tools`, `\bin`) is skipped: it would be looked for in worfy's own working folder.
+ */
 export function findOnPath(name: string, env: SourceEnv, exists: FileExists = fileOrAlias): string | null {
   const file = /\.[a-z0-9]+$/i.test(name) ? name : `${name}.exe`
   for (const raw of (getVar(env, 'PATH') ?? '').split(';')) {
     const dir = raw.trim().replace(/^"(.*)"$/, '$1')
-    if (!dir) continue
+    if (!/^(?:[A-Za-z]:[\\/]|[\\/]{2})/.test(dir)) continue
     const candidate = win32.join(dir, file)
     if (exists(candidate)) return candidate
   }
@@ -374,7 +382,8 @@ export function findOnPath(name: string, env: SourceEnv, exists: FileExists = fi
 /**
  * Git Bash of Git for Windows, or null. First from git.exe on the Path: the root of Git for Windows
  * is the folder above `cmd`, `bin` or `mingw64\bin`, and Git Bash is <root>\bin\bash.exe. Then
- * %ProgramFiles%\Git and %LOCALAPPDATA%\Programs\Git (a per-user install). The WSL launcher
+ * %ProgramFiles%\Git, %ProgramFiles(x86)%\Git (a 32-bit Git) and %LOCALAPPDATA%\Programs\Git (a
+ * per-user install). The registry is not asked. The WSL launcher
  * C:\Windows\System32\bash.exe is never taken.
  */
 export function findGitBash(env: SourceEnv, exists: FileExists = fileOrAlias): string | null {
@@ -389,6 +398,8 @@ export function findGitBash(env: SourceEnv, exists: FileExists = fileOrAlias): s
   }
   const programFiles = getVar(env, 'ProgramFiles')
   if (programFiles) candidates.push(win32.join(programFiles, 'Git', 'bin', 'bash.exe'))
+  const programFilesX86 = getVar(env, 'ProgramFiles(x86)')
+  if (programFilesX86) candidates.push(win32.join(programFilesX86, 'Git', 'bin', 'bash.exe'))
   const localAppData = getVar(env, 'LOCALAPPDATA')
   if (localAppData) candidates.push(win32.join(localAppData, 'Programs', 'Git', 'bin', 'bash.exe'))
   // Every candidate is <folder>\bin\bash.exe, never System32\bash.exe itself: bash.exe from the Path
