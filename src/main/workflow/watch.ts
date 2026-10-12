@@ -80,13 +80,20 @@ export interface WatchOptions {
  * that keeps case apart this watches a few files more than needed; a save of one costs a read that
  * changes nothing. The `.md` ending of a Ticket is compared as written, as the glob of `epic-status`
  * compares it: it does not read `01-a.MD` on any disk.
+ *
+ * Right under the root only a folder is an Epic. A name alone does not say what a path is, so a
+ * file there is skipped when the caller says it is one: chokidar asks about each path twice, the
+ * second time with its stats. Without them the path is kept, as a folder would be.
  */
-export function ticketsIgnored(ticketsRoot: string, paths: Pick<PathRules, 'relative' | 'isAbsolute' | 'sep'> = nativePath): (path: string) => boolean {
-  return (path) => {
+export function ticketsIgnored(
+  ticketsRoot: string,
+  paths: Pick<PathRules, 'relative' | 'isAbsolute' | 'sep'> = nativePath,
+): (path: string, stats?: { isFile: () => boolean }) => boolean {
+  return (path, stats) => {
     const rel = paths.relative(ticketsRoot, path)
     if (rel === '' || rel === '..' || rel.startsWith(`..${paths.sep}`) || paths.isAbsolute(rel)) return false
     const [, inEpic, inIssues, ...deeper] = rel.split(paths.sep)
-    if (inEpic === undefined) return false
+    if (inEpic === undefined) return typeof stats?.isFile === 'function' && stats.isFile()
     const name = inEpic.toLowerCase()
     if (inIssues === undefined) return name !== 'spec.md' && name !== 'map.md' && name !== 'issues'
     return name !== 'issues' || !inIssues.endsWith('.md') || deeper.length > 0
