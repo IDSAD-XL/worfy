@@ -6,7 +6,7 @@
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 19; 19 (старая неудача в окне First run, low) открыт. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`; работа — только в локальной ветке `wip/worfy-week-14` («Итог» Ticket-а 14).
 - Stable copy и plugin `worfy` — сборка `4d3d60c` (2026-10-10). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/19; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16; 17 и 18 — до связи с чужой машиной.
-- `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057): влиты 01, 02, 08–12, 18, 19, 25 (PR #172, #177, #200, #194, #239, #215, #237, #228, #233, #254), ответы — PR #192. Windows-ПК: 23, затем 26 (test-ы оставляют папки в `%TEMP%`), 20–22; на Mac — 24. 03–07 ждут закрытия E3.
+- `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057): влиты 01, 02, 08–12, 18, 19, 25 (PR #172, #177, #200, #194, #239, #215, #237, #228, #233, #254), ответы — PR #192. Windows-ПК: 23 (PR #257, второй круг ревью), затем 26, 20–22, 27 (DocsWatcher на удалённом корне); на Mac — 24. 03–07 ждут закрытия E3.
 - `worfy-terminal-ai` (Terminal AI в Terminal-ах на подписке; [spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) 01, 02 влиты (PR #204, #205); следом 03. 08 ждёт `worfy-ui` 02 и 08 (окно Settings, Select), 09 — шаги владельца (`blocked`).
 - `worfy-ui` (Settings, масштаб, боковая панель, режим фокуса, палитра, Select, сочетания; [spec](.scratch/worfy-ui/spec.md)) 13 Ticket-ов: влиты 01, 02, 07, 08 (PR #207, #209, #210, #208) — Wave 1. До 09 — долг Select из «Итог» 08. 13 («Settings…» в режиме фокуса) — после 10.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 5/8: влиты 01, 03, 05 (Wave 1), 02 и 06 (PR #231, #232) — Wave 2. Следом 04 и 07; 08 (глубина ревью) ждёт ответов владельца.
@@ -44,7 +44,7 @@
 
 ## Дальше
 
-- `worfy-harness` 28 (git и `HARNESS_HOME` в прогонах eval) открывает платную часть 27; 29 — карта «кейс eval → файлы правил» и правило частоты eval. `worfy-windows`: Windows Session — 23 (удаление и junction; в нём же остатки ревью PR #237), затем 20, 21, 22; на Mac — 24 и 25.
+- `worfy-harness` 28 (git и `HARNESS_HOME` в прогонах eval) открывает платную часть 27; 29 — карта «кейс eval → файлы правил» и правило частоты eval. `worfy-windows`: Windows Session — 23 (удаление и junction; в нём же остатки ревью PR #237), затем 26, 20, 21, 22, 27; на Mac — 24.
 - Приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot.
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21, 24, 25 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
 - Ждут условия (проверит агент): упор в Limits (`worfy-daily` 05), наблюдатель касаний (`worfy-daily` 04), workflow-скрипт в Autopilot (`worfy-daily` 29, 17), бейджи у Ticket-а с открытым PR (`worfy-mvp` 17, `worfy-week` 01).
