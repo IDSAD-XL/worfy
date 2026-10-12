@@ -2,13 +2,15 @@
 // tree in src/main goes through this module; fs.rmSync is called nowhere else there
 // (test/unit/no-rmsync.test.ts).
 //
-// Why not fs.rmSync on Windows. Under Node 24 — the Node of Electron 44 — measured on the owner's PC:
+// Why not fs.rmSync on Windows. Under the Node that Electron 44 carries (24.21.0 in Electron
+// 44.5.1) — the one the main process and the tests run under — measured on the owner's PC:
 //   - with `recursive` it goes through a junction (a link to a folder on NTFS) and empties the
 //     folder behind it, whether the junction is the path itself or lies inside the folder removed;
 //   - it refuses a read-only file with EPERM, and a junction without `recursive` with
 //     ERR_FS_EISDIR.
-// Under Node 22 it does none of this. fs.unlinkSync, under both, removes a read-only file, and
-// removes a junction or a symlink as the link it is, leaving what it leads to.
+// A Node from nodejs.org does none of this, neither 22.13.0 nor 24.21.0: the difference is in
+// the Node Electron builds, not in the version. fs.unlinkSync, under all three, removes a
+// read-only file, and removes a junction or a symlink as the link it is, leaving what it leads to.
 //
 // So on Windows a tree is removed by a walk of its own: lstat says what a path is and never follows
 // a link; what is not a folder is unlinked; a folder is emptied and then removed. The walk reaches
@@ -25,7 +27,13 @@
 import { lstatSync, readdirSync, rmdirSync, rmSync, unlinkSync, type Stats } from 'node:fs'
 import { join } from 'node:path'
 
-/** How often and how long a step is tried again on Windows when the file is busy. */
+/**
+ * How often and how long a removal waits on Windows when a file is busy. The waits are counted for
+ * the removal as a whole, not for each entry: the walk goes on past an entry that stays busy, and
+ * a folder of such entries must not block the main process for a wait each. So one call of
+ * removeTree sleeps for half a second at most, whatever the tree; once the waits are spent, a busy
+ * entry fails at its first try.
+ */
 export const REMOVE_RETRIES = 5
 export const REMOVE_RETRY_MS = 100
 /** What Windows answers while another process — an antivirus, the indexer — holds a file for a moment. */
@@ -65,16 +73,22 @@ const trimmed = (path: string): string => {
   return cut === '' || cut.endsWith(':') ? path : cut
 }
 
-/** Runs a step; when the answer is "busy", tries again after a moment, a few times. */
-function patiently(step: () => void, options: RemoveOptions): void {
-  for (let left = REMOVE_RETRIES; ; left--) {
+/** The waits one removal has left. */
+interface Patience {
+  waits: number
+}
+
+/** Runs a step; when the answer is "busy", tries again after a moment, while the removal has waits left. */
+function patiently(step: () => void, options: RemoveOptions, patience: Patience): void {
+  for (;;) {
     try {
       step()
       return
     } catch (error) {
       // Gone meanwhile: that is what was asked for.
       if (codeOf(error) === 'ENOENT') return
-      if (left === 0 || !BUSY.includes(codeOf(error) ?? '')) throw error
+      if (patience.waits === 0 || !BUSY.includes(codeOf(error) ?? '')) throw error
+      patience.waits -= 1
       ;(options.wait ?? sleep)(REMOVE_RETRY_MS)
     }
   }
@@ -94,11 +108,11 @@ function kindOf(path: string, fs: RemoveFs): 'folder' | 'other' | null {
  * The walk of Windows. An entry that cannot be removed does not end it: the others go, and the
  * first error is thrown at the end, with the folder left for what stayed in it.
  */
-function walk(path: string, fs: RemoveFs, options: RemoveOptions): void {
+function walk(path: string, fs: RemoveFs, options: RemoveOptions, patience: Patience): void {
   const kind = kindOf(path, fs)
   if (kind === null) return
   if (kind === 'other') {
-    patiently(() => fs.unlinkSync(path), options)
+    patiently(() => fs.unlinkSync(path), options, patience)
     return
   }
   let names: string[]
@@ -112,13 +126,13 @@ function walk(path: string, fs: RemoveFs, options: RemoveOptions): void {
   let failed: { error: unknown } | null = null
   for (const name of names) {
     try {
-      walk(join(path, name), fs, options)
+      walk(join(path, name), fs, options, patience)
     } catch (error) {
       failed ??= { error }
     }
   }
   if (failed !== null) throw failed.error
-  patiently(() => fs.rmdirSync(path), options)
+  patiently(() => fs.rmdirSync(path), options, patience)
 }
 
 /**
@@ -134,7 +148,7 @@ export function removeTree(path: string, options: RemoveOptions = {}): void {
     fs.rmSync(path, { recursive: true, force: true })
     return
   }
-  walk(trimmed(path), fs, options)
+  walk(trimmed(path), fs, options, { waits: REMOVE_RETRIES })
 }
 
 /**
@@ -152,5 +166,5 @@ export function removeFile(path: string, options: RemoveOptions = {}): void {
   const kind = kindOf(file, fs)
   if (kind === null) return
   if (kind === 'folder') throw Object.assign(new Error(`${file} is a folder: removeFile removes a file or a link`), { code: 'EISDIR' })
-  patiently(() => fs.unlinkSync(file), options)
+  patiently(() => fs.unlinkSync(file), options, { waits: REMOVE_RETRIES })
 }

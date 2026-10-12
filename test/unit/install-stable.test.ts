@@ -589,6 +589,59 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
     }, 60_000)
 
+    // Review round 2 of PR #257. The checks above come after a copy is installed; on a first
+    // install the name of the unfinished copy is the only one the run uses, and it is checked too.
+    it('on a first install, with nothing at the target, refuses when the name of its unfinished copy is taken by a link to a folder of the user, or a file: nothing goes through the link, and nothing lands at the target', () => {
+      const target = targetIn('apps', 'worfy-stable')
+      const apps = join(dir, 'apps')
+      mkdirSync(apps)
+      const staging = join(apps, leftoverName(NAME, 'installing', process.pid))
+      const mine = join(dir, 'mine')
+      mkdirSync(mine)
+      writeFileSync(join(mine, 'notes.txt'), 'keep me')
+      const untouched = (taken: string): void => {
+        expect(readdirSync(mine)).toEqual(['notes.txt'])
+        expect(readFileSync(join(mine, 'notes.txt'), 'utf8')).toBe('keep me')
+        // Neither a copy nor the file that names its build.
+        expect(readdirSync(apps)).toEqual([taken])
+      }
+
+      // A link: the build would be copied through it into the folder it leads to.
+      symlinkSync(mine, staging, WINDOWS ? 'junction' : 'dir')
+      links.push(staging)
+      // The whole refusal: what is in the way, why, and what to do.
+      expect(() => installStable([target], inProcess())).toThrow(`${staging} is in the way: this run needs that name, and what lies there is not a leftover it could clear. Remove it by hand, then run this again.`)
+      expect(lstatSync(staging).isSymbolicLink()).toBe(true)
+      untouched(basename(staging))
+      unlinkSync(staging)
+
+      // A file: it is not removed, and nothing is copied over it.
+      writeFileSync(staging, 'a file of mine')
+      expect(() => installStable([target], inProcess())).toThrow(`${staging} is in the way`)
+      expect(readFileSync(staging, 'utf8')).toBe('a file of mine')
+      untouched(basename(staging))
+    }, 60_000)
+
+    // A link at the target that leads nowhere is a copy to move aside all the same: the name of
+    // the copy moved aside is needed, and a file of the user under it is in the way.
+    it('with a link that leads nowhere at the target, refuses when the name of the copy moved aside is taken by a file, and leaves the file and the link', () => {
+      const target = targetIn('apps', 'worfy-stable')
+      const apps = join(dir, 'apps')
+      mkdirSync(apps)
+      const nowhere = join(dir, 'nowhere')
+      mkdirSync(nowhere)
+      symlinkSync(nowhere, target, WINDOWS ? 'junction' : 'dir')
+      links.push(target)
+      rmdirSync(nowhere)
+      expect(existsSync(target)).toBe(false)
+      const aside = join(apps, leftoverName(NAME, 'replaced', process.pid))
+      writeFileSync(aside, 'a file of mine')
+      expect(() => installStable([target], inProcess())).toThrow(`${aside} is in the way`)
+      expect(readFileSync(aside, 'utf8')).toBe('a file of mine')
+      expect(lstatSync(target).isSymbolicLink()).toBe(true)
+      expect(readdirSync(apps).sort()).toEqual([NAME, basename(aside)].sort())
+    }, 60_000)
+
     // Review round 1 of PR #257. A real folder under the name of this run's unfinished copy is a
     // leftover and is cleared — unless it cannot be: then the build must not be copied into it.
     it('refuses when a real folder at the name of its unfinished copy cannot be cleared: the build is not copied into it, and the earlier copy stays whole', async () => {

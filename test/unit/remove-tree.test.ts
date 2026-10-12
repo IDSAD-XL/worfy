@@ -2,13 +2,14 @@
 // ever going through a link. On Windows that is a walk of the module's own; on every other system
 // it is fs.rmSync, as before the module. Three parts:
 //   - real folders: on Windows with junctions, a `dir` and a `file` symlink and a read-only file,
-//     elsewhere with symlinks; this is where Node 24's fs.rmSync loses the folder behind a junction;
+//     elsewhere with symlinks; this is where the fs.rmSync of Electron's Node loses the folder
+//     behind a junction;
 //   - a model of the file system: the order of the calls of the walk, its tries when a file is
 //     busy, and the one call every other system makes;
 //   - the copies that cannot import the module — the text of restore.mjs, scripts/remove-tree.mjs
 //     and scripts/install-stable.mjs — run over the same model and must make the same calls.
 import { spawn } from 'node:child_process'
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmdirSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, posix } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -169,11 +170,48 @@ describe('removeTree and removeFile over real folders', () => {
     expect(existsSync(tree)).toBe(false)
   }, 30_000)
 
+  // Review round 2 of PR #257. Every call of the application comes with no options, so it is the
+  // machine that says which way a removal goes. A folder nothing may be removed from tells the two
+  // ways apart: the walk would fail in unlink of the file in it, fs.rmSync fails as "rm" — with
+  // whatever code this system gives, which is why the same tree is given to fs.rmSync first.
+  it.skipIf(WINDOWS)('off Windows is fs.rmSync for a call with no options, on real folders: it fails as that call does, and leaves what that call leaves', () => {
+    const grow = (name: string): string => {
+      const tree = join(dir, name)
+      mkdirSync(join(tree, 'locked'), { recursive: true })
+      writeFileSync(join(tree, 'a.txt'), 'x')
+      writeFileSync(join(tree, 'locked', 'inner.txt'), 'x')
+      writeFileSync(join(tree, 'z.txt'), 'x')
+      chmodSync(join(tree, 'locked'), 0o555)
+      return tree
+    }
+    const outcome = (tree: string, remove: (path: string) => void): unknown => {
+      let failure: { code?: string; syscall?: string } | null = null
+      try {
+        remove(tree)
+      } catch (error) {
+        const { code, syscall } = error as NodeJS.ErrnoException
+        failure = { code, syscall }
+      }
+      return { failure, left: existsSync(tree) ? readdirSync(tree, { recursive: true }).map(String).sort() : null }
+    }
+    const [twin, tree] = [grow('twin'), grow('tree')]
+    try {
+      const asRmSync = outcome(twin, (path) => rmSync(path, { recursive: true, force: true }))
+      const asRemoveTree = outcome(tree, (path) => removeTree(path))
+      expect(asRemoveTree).toEqual(asRmSync)
+      // A user who may remove anything (root) gets no failure from either; any other gets it from "rm".
+      if ((asRmSync as { failure: unknown }).failure !== null) expect(asRemoveTree).toMatchObject({ failure: { syscall: 'rm' } })
+    } finally {
+      for (const each of [twin, tree]) if (existsSync(join(each, 'locked'))) chmodSync(join(each, 'locked'), 0o755)
+    }
+  })
+
   it('removeFile refuses a folder, as a removal without "recursive" did, and takes a path that is not there', () => {
     const folder = join(dir, 'folder')
     mkdirSync(folder)
     writeFileSync(join(folder, 'kept.txt'), 'x')
-    expect(() => removeFile(folder)).toThrow(/is a folder: removeFile removes a file or a link/)
+    // Off Windows the refusal is that of rmSync itself, as on main; its words are Node's.
+    expect(() => removeFile(folder)).toThrow(WINDOWS ? /is a folder: removeFile removes a file or a link/ : /EISDIR/)
     expect((() => {
       try {
         removeFile(folder)
@@ -181,7 +219,6 @@ describe('removeTree and removeFile over real folders', () => {
       } catch (error) {
         return (error as NodeJS.ErrnoException).code
       }
-      // Off Windows the refusal is that of rmSync itself, as on main.
     })()).toBe(WINDOWS ? 'EISDIR' : 'ERR_FS_EISDIR')
     expect(readdirSync(folder)).toEqual(['kept.txt'])
     expect(() => removeFile(join(dir, 'never-was'))).not.toThrow()
@@ -335,16 +372,19 @@ describe('removeTree over a model of the file system', () => {
   })
 
   it('reads a path with a separator at its end as the path without it: a link named that way goes as a link', () => {
-    for (const written of ['/data/card/linked/', '/data/card/linked//']) {
+    for (const written of ['/data/card/linked/', '/data/card/linked//', '/data/card/linked\\', '/data/card/linked\\/', '/data/card/linked/\\']) {
       const m = model(WITH_A_LINK)
       expect(viaModule(m, written, 'win32'), written).toBeNull()
       expect(m.calls, written).toEqual(['lstat /data/card/linked', 'unlink /data/card/linked'])
       expect(m.names(), written).toContain('/home/notes/keep.txt')
     }
-    // The root of a disk keeps its separator: without it the path would name another folder.
-    const root = model({})
-    viaModule(root, 'C:\\', 'win32')
-    expect(root.calls).toEqual(['lstat C:/'])
+    // The root of a disk keeps its separator: without it the path would name another folder. So
+    // does a path that is separators and nothing else: without them it would be no path at all.
+    for (const [written, asked] of [['C:\\', 'C:/'], ['C:/', 'C:/'], ['/', '/'], ['\\', '/']] as const) {
+      const root = model({})
+      viaModule(root, written, 'win32')
+      expect(root.calls, written).toEqual([`lstat ${asked}`])
+    }
   })
 
   it('on Windows tries a busy step again after 100 ms, up to five times, then gives the error', () => {
@@ -360,7 +400,47 @@ describe('removeTree over a model of the file system', () => {
     expect(viaModule(always, '/f', 'win32')).toBe('EBUSY')
     expect(always.calls.filter((call) => call === 'unlink /f')).toHaveLength(1 + REMOVE_RETRIES)
     expect(always.waits).toHaveLength(REMOVE_RETRIES)
+  })
 
+  // Review round 2 of PR #257. The walk goes on past an entry it cannot remove; were the tries
+  // counted for each entry, a folder of files that a program holds would block the main process
+  // for half a second a file.
+  it('counts the waits for the whole removal, not for each entry: a folder of files that stay busy waits five times in all', () => {
+    const files = Array.from({ length: 20 }, (_, index) => `/d/held-${String(index).padStart(2, '0')}.txt`)
+    const tree = (): Record<string, Entry> => {
+      const entries: Record<string, Entry> = { '/d': { kind: 'folder' } }
+      for (const file of files) entries[file] = { kind: 'file' }
+      return entries
+    }
+    const failing = (those: string[], codes: string[]): Record<string, string[]> => Object.fromEntries(those.map((file): [string, string[]] => [`unlink ${file}`, codes]))
+    const forever = (code: string): string[] => Array.from({ length: 50 }, () => code)
+
+    const held = model(tree(), failing(files, forever('EPERM')))
+    expect(viaModule(held, '/d', 'win32')).toBe('EPERM')
+    expect(held.waits).toEqual(Array.from({ length: REMOVE_RETRIES }, () => REMOVE_RETRY_MS))
+    // The first file has its tries; every later one is asked once.
+    const tries = (m: Model, file: string): number => m.calls.filter((call) => call === `unlink ${file}`).length
+    expect(files.map((file) => tries(held, file))).toEqual([1 + REMOVE_RETRIES, ...files.slice(1).map(() => 1)])
+    expect(held.names()).toEqual(['/d', ...files])
+
+    // Files that are busy for a moment each: the waits last for five of them, the sixth fails at
+    // its first try, and what is not busy goes all the same.
+    const busyOnce = files.slice(0, 7)
+    const passing = model(tree(), failing(busyOnce, ['EBUSY']))
+    expect(viaModule(passing, '/d', 'win32')).toBe('EBUSY')
+    expect(passing.waits).toHaveLength(REMOVE_RETRIES)
+    expect(passing.names()).toEqual(['/d', ...busyOnce.slice(REMOVE_RETRIES)])
+
+    // The folder at the end takes of the same waits: none is left for it here.
+    const folder = model({ '/d': { kind: 'folder' }, '/d/a.txt': { kind: 'file' } }, { 'unlink /d/a.txt': forever('EBUSY').slice(0, REMOVE_RETRIES), 'rmdir /d': ['ENOTEMPTY'] })
+    expect(viaModule(folder, '/d', 'win32')).toBe('ENOTEMPTY')
+    expect(folder.waits).toHaveLength(REMOVE_RETRIES)
+    expect(folder.names()).toEqual(['/d'])
+
+    // A second removal starts with all its waits.
+    const again = model({ '/f': { kind: 'file' } }, { 'unlink /f': forever('EBUSY').slice(0, REMOVE_RETRIES) })
+    expect(viaModule(again, '/f', 'win32')).toBeNull()
+    expect(again.waits).toHaveLength(REMOVE_RETRIES)
   })
 
   it('tries again for a folder that is not empty yet, and never for an error that is not "busy"', () => {
@@ -468,6 +548,13 @@ describe('the copies of the walk that cannot import the module', () => {
     ['a folder gone between the look and the listing', WITH_A_LINK, '/data/card', { 'readdir /data/card/assets': ['ENOENT'] }],
     ['a listing that fails', WITH_A_LINK, '/data/card', { 'readdir /data/card/assets': ['EACCES'] }],
     ['rmSync that fails', WITH_A_LINK, '/data/card', { 'rmSync /data/card recursive force': ['ENOTEMPTY'] }],
+    ['a link written with a separator at its end', WITH_A_LINK, '/data/card/linked/', {}],
+    ['a link written with a backslash at its end', WITH_A_LINK, '/data/card/linked\\', {}],
+    ['a folder written with separators at its end', WITH_A_LINK, '/data/card//', {}],
+    ['separators and nothing else', WITH_A_LINK, '/', { 'lstat /': ['EIO'] }],
+    ['the root of a disk', WITH_A_LINK, 'C:\\', {}],
+    ['two files that stay busy: the waits are those of the whole removal', WITH_A_LINK, '/data/card', { 'unlink /data/card/index.html': Array.from({ length: 10 }, () => 'EBUSY'), 'unlink /data/card/assets/app.js': Array.from({ length: 10 }, () => 'EPERM') }],
+    ['a busy file, then a folder that is not empty at first: the same waits', WITH_A_LINK, '/data/card', { 'unlink /data/card/index.html': ['EBUSY', 'EBUSY', 'EBUSY', 'EBUSY'], 'rmdir /data/card': ['ENOTEMPTY', 'ENOTEMPTY'] }],
   ]
 
   it.each(Object.keys(COPIES))('%s makes the same calls as the module, in the same order, with the same tries and the same end', (name) => {
@@ -505,6 +592,9 @@ describe('the copies of the walk that cannot import the module', () => {
       ['a name on the way that is no folder', '/data/card/index.html/x', { 'lstat /data/card/index.html/x': ['ENOTDIR'] }],
       ['a look that fails', '/data/card/index.html', { 'lstat /data/card/index.html': ['EACCES'] }],
       ['rmSync that fails', '/data/card/index.html', { 'rmSync /data/card/index.html force': ['EPERM'] }],
+      ['a link written with a separator at its end', '/data/card/linked/', {}],
+      ['a file written with a backslash at its end', '/data/card/index.html\\', {}],
+      ['a folder written with a separator at its end', '/data/card/assets/', {}],
     ]
     for (const platform of ['win32', 'darwin', 'linux'] as const) {
       for (const [what, path, failing] of cases) {
