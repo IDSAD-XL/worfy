@@ -22,7 +22,7 @@ import { clientOf, type Client } from '../clients'
 import { layoutStore, type LayoutChange } from '../layout/store'
 import { readProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
-import { TerminalRegistry, terminalShellOptions, type ShellOption, type TerminalSink } from '../terminal/pty'
+import { TerminalRegistry, terminalShellOptions, WINDOWS_CLOSE_BOUND_MS, type ShellOption, type TerminalSink } from '../terminal/pty'
 import { ShellIntegration } from '../terminal/shell-integration'
 import type { TerminalShellSetting } from '../../shared/projects/action-templates'
 import {
@@ -136,21 +136,28 @@ export function closeRemovedProjects(registry: TerminalRegistry, projectIds: Rea
   })
 }
 
-/** How long quitting waits for the shells beyond their own SIGKILL grace period. */
+/** How long quitting waits for the shells to exit: longer than their own SIGKILL grace period. */
 export const QUIT_WAIT_MS = 3000
+/** The same on Windows: longer than the upper bound of closing a Terminal there. */
+export const WINDOWS_QUIT_WAIT_MS = WINDOWS_CLOSE_BOUND_MS + 1000
 
 /** What the registry is wired to: the Layout, the list of Projects and the app quitting. */
 export interface RegistryWiring {
   layout: { onChange(listener: (change: Pick<LayoutChange, 'projectId' | 'op'>) => void): unknown }
   projects: { onChange(listener: () => void): unknown; list(): readonly { id: string }[] }
   app: { on(event: 'will-quit', listener: (event: { preventDefault(): void }) => void): unknown; quit(): void }
+  /** QUIT_WAIT_MS by default, WINDOWS_QUIT_WAIT_MS on Windows. */
   quitWaitMs?: number
+  /** The system worfy runs on; that of this process by default. */
+  platform?: NodeJS.Platform
 }
 
 /**
  * Ends the shells when what owns them goes: their Node leaving the Layout, their Project leaving
  * the list, the app quitting. Quitting waits for the shells to exit (at most `quitWaitMs`), then
- * quits again, and that second quit is not held back, whatever is still closing.
+ * quits again, and that one quit is not held back, whatever is still closing: a wait that was cut
+ * is logged, since what the shells started may be left running. A will-quit that comes during the
+ * wait is held back with the first; the one quit after the wait is for both.
  */
 export function wireRegistry(registry: TerminalRegistry, wiring: RegistryWiring): void {
   const warn = (what: string) => (error: unknown) => console.warn(`[terminal] ${what} failed`, error)
@@ -161,13 +168,32 @@ export function wireRegistry(registry: TerminalRegistry, wiring: RegistryWiring)
   wiring.projects.onChange(
     () => void closeRemovedProjects(registry, new Set(wiring.projects.list().map((project) => project.id))).catch(warn('closing the shells of a removed Project')),
   )
+  const waitMs = wiring.quitWaitMs ?? ((wiring.platform ?? process.platform) === 'win32' ? WINDOWS_QUIT_WAIT_MS : QUIT_WAIT_MS)
+  let waiting = false
   let waited = false
   wiring.app.on('will-quit', (event) => {
-    if (waited || registry.size === 0) return
+    // The quit this handler asked for after its wait: it goes through, once.
+    if (waited) {
+      waited = false
+      return
+    }
+    if (registry.size === 0) return
     event.preventDefault()
-    const timeout = new Promise<void>((resolve) => setTimeout(resolve, wiring.quitWaitMs ?? QUIT_WAIT_MS))
+    if (waiting) return
+    waiting = true
+    let cut = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(() => {
+        cut = true
+        resolve()
+      }, waitMs)
+    })
     void Promise.race([registry.closeAll(), timeout]).finally(() => {
-      // A shell that is still closing after the wait would hold back every quit from here on.
+      clearTimeout(timer)
+      if (cut) console.warn(`[terminal] quitting after ${waitMs} ms with ${registry.size} shells still closing: what they started may be left running`)
+      waiting = false
+      // Set only now: a shell that is still closing would otherwise hold back every quit from here on.
       waited = true
       wiring.app.quit()
     })
@@ -180,7 +206,7 @@ let appRegistry: TerminalRegistry | null = null
 function sharedRegistry(): TerminalRegistry {
   if (appRegistry !== null) return appRegistry
   const integration = new ShellIntegration()
-  // Synchronous, so it runs however worfy exits; the shells have ended by then (the quit waits for them).
+  // Synchronous, so it runs however worfy exits; the shells have ended by then, unless the wait of the quit was cut.
   process.once('exit', () => integration.disposeSync())
   const registry = new TerminalRegistry({ env: async () => (await agentEnv()).env, integration })
   wireRegistry(registry, { layout: layoutStore(), projects: projectStore(), app })

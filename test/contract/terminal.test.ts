@@ -3,8 +3,9 @@
 // process outlives its Node, its window or the app.
 import childProcess, { execFileSync, spawn as spawnProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { createRequire } from 'node:module'
 import { join, win32 } from 'node:path'
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -12,7 +13,7 @@ import { spawn as spawnNodePty } from 'node-pty'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { findGitBash, findOnPath, SYSTEM_PATH } from '../../src/main/agent/env'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
-import { closeRemovedNode, closeRemovedProjects, terminalHandlers, terminalKey, wireRegistry } from '../../src/main/ipc/terminal'
+import { closeRemovedNode, closeRemovedProjects, QUIT_WAIT_MS, terminalHandlers, terminalKey, WINDOWS_QUIT_WAIT_MS, wireRegistry } from '../../src/main/ipc/terminal'
 import {
   clampSize,
   endDescendants,
@@ -21,6 +22,7 @@ import {
   terminalEnv,
   TerminalRegistry,
   terminalShellOptions,
+  WINDOWS_CLOSE_BOUND_MS,
   type PtyProcess,
   type SpawnPty,
   type TerminalSink,
@@ -966,6 +968,41 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     }
   })
 
+  it('close ends a program two levels under the shell: the shell started cmd.exe, and cmd.exe the program', async (context) => {
+    const node = findOnPath('node', process.env)
+    if (node === null) context.skip('this machine has no node on its Path')
+    // The program says who it is by a file in the Project folder: its output goes to no terminal.
+    await writeFile(join(root, 'keep.js'), "require('node:fs').writeFileSync('grandchild.pid', String(process.pid)); setInterval(() => {}, 1000)\n")
+    const h = await harness()
+    const { pid } = await h.open()
+    // cmd.exe in a window of its own: neither it nor what it starts is on the console of the shell.
+    await h.type(`$p = Start-Process -WindowStyle Hidden -PassThru -WorkingDirectory (Get-Location).Path -FilePath $env:ComSpec -ArgumentList '/d','/c','"${node}" keep.js'; Write-Output ('cmd=' + $p.Id)\r`)
+    await vi.waitFor(() => expect(h.text()).toMatch(/cmd=(\d+)\r?\n/), { timeout: 10_000 })
+    const cmd = Number(/cmd=(\d+)\r?\n/.exec(h.text())?.[1])
+    let grandchild = 0
+    await vi.waitFor(
+      async () => {
+        grandchild = Number(await readFile(join(root, 'grandchild.pid'), 'utf8'))
+        expect(grandchild).toBeGreaterThan(0)
+      },
+      { timeout: 10_000 },
+    )
+    try {
+      expect([alive(pid), alive(cmd), alive(grandchild)]).toEqual([true, true, true])
+      expect(grandchild).not.toBe(cmd)
+      await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+      expect([alive(pid), alive(cmd), alive(grandchild)]).toEqual([false, false, false])
+    } finally {
+      for (const left of [cmd, grandchild]) {
+        try {
+          process.kill(left)
+        } catch {
+          // Gone, as it should be.
+        }
+      }
+    }
+  }, 60_000)
+
   it('close leaves no conhost.exe behind and starts no helper process; it is done well inside its bound', async () => {
     const fork = vi.spyOn(childProcess, 'fork')
     const h = await harness({ nodes: ['n1', 'n2', 'n3'] })
@@ -1028,7 +1065,7 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     const started = await shellWithChild()
     try {
       expect([alive(started.shell), alive(started.child)]).toEqual([true, true])
-      await endDescendants({ pid: started.shell, startedBy: started.startedBy })
+      expect(await endDescendants({ pid: started.shell, startedBy: started.startedBy })).toBe('ended')
       expect([alive(started.shell), alive(started.child)]).toEqual([true, false])
     } finally {
       started.end()
@@ -1040,10 +1077,10 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     const started = await shellWithChild()
     try {
       // The registry started "its shell" a minute before this process was created: the pid was given out again.
-      await endDescendants({ pid: started.shell, startedBy: started.startedBy - 60_000 })
+      expect(await endDescendants({ pid: started.shell, startedBy: started.startedBy - 60_000 })).toBe('gone')
       expect([alive(started.shell), alive(started.child)]).toEqual([true, true])
       // And a pid nobody has.
-      await expect(endDescendants({ pid: 4_194_300, startedBy: Date.now() })).resolves.toBeUndefined()
+      await expect(endDescendants({ pid: 4_194_300, startedBy: Date.now() })).resolves.toBe('gone')
     } finally {
       started.end()
     }
@@ -1192,14 +1229,66 @@ describe('wireRegistry: the shells follow the Layout, the Projects and quitting'
     const w = wiring([])
     const closeAll = vi.fn(() => new Promise<void>(() => undefined))
     const stuck = { size: 1, closeAll } as unknown as TerminalRegistry
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     wireRegistry(stuck, { ...w, quitWaitMs: 50 })
     expect(w.willQuit()).toHaveBeenCalledOnce()
+    // A will-quit that comes during the wait is held back too, and starts no second wait.
+    expect(w.willQuit()).toHaveBeenCalledOnce()
+    expect(w.quit).not.toHaveBeenCalled()
     await vi.waitFor(() => expect(w.quit).toHaveBeenCalledOnce(), { timeout: 2000 })
+    // The wait was cut: what the shells started may be left running, and the log says so.
+    expect(warn.mock.calls).toEqual([['[terminal] quitting after 50 ms with 1 shells still closing: what they started may be left running']])
     // The registry still holds the shell. The quit worfy asked for goes through all the same.
     expect(w.willQuit()).not.toHaveBeenCalled()
     await new Promise((resolve) => setTimeout(resolve, 150))
     expect(w.quit).toHaveBeenCalledOnce()
     expect(closeAll).toHaveBeenCalledOnce()
+    // That one quit only: when worfy is still there afterwards, the next quit waits for the shells again.
+    expect(w.willQuit()).toHaveBeenCalledOnce()
+    expect(closeAll).toHaveBeenCalledTimes(2)
+    // Let that second wait end inside this test.
+    await vi.waitFor(() => expect(w.quit).toHaveBeenCalledTimes(2), { timeout: 2000 })
+    warn.mockRestore()
+  })
+
+  it('a wait that was not cut logs nothing, and the quit after it goes through once', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const w = wiring([])
+    let size = 1
+    const closing = { size: 0, closeAll: () => undefined } as unknown as TerminalRegistry
+    Object.defineProperty(closing, 'size', { get: () => size })
+    ;(closing as unknown as { closeAll: () => Promise<void> }).closeAll = () => {
+      size = 0
+      return Promise.resolve()
+    }
+    wireRegistry(closing, { ...w, quitWaitMs: 5000 })
+    expect(w.willQuit()).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(w.quit).toHaveBeenCalledOnce(), { timeout: 2000 })
+    expect(w.willQuit()).not.toHaveBeenCalled()
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('the wait of a quit is longer than what closing a Terminal may take: 3 s, and on Windows 6 s, a second past the bound of a close there', async () => {
+    expect({ QUIT_WAIT_MS, WINDOWS_QUIT_WAIT_MS, WINDOWS_CLOSE_BOUND_MS }).toEqual({ QUIT_WAIT_MS: 3000, WINDOWS_QUIT_WAIT_MS: 6000, WINDOWS_CLOSE_BOUND_MS: 5000 })
+    vi.useFakeTimers()
+    try {
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      const waits: Record<string, number> = {}
+      for (const platform of ['win32', 'darwin', 'linux'] as const) {
+        const w = wiring([])
+        const stuck = { size: 1, closeAll: () => new Promise<void>(() => undefined) } as unknown as TerminalRegistry
+        wireRegistry(stuck, { ...w, platform })
+        const started = Date.now()
+        w.willQuit()
+        w.quit.mockImplementation(() => (waits[platform] = Date.now() - started))
+        await vi.advanceTimersByTimeAsync(10_000)
+      }
+      expect(waits).toEqual({ win32: 6000, darwin: 3000, linux: 3000 })
+    } finally {
+      vi.useRealTimers()
+      vi.restoreAllMocks()
+    }
   })
 })
 
@@ -1280,6 +1369,16 @@ describe('terminal channels at the IPC boundary', () => {
     const h = await harness()
     const result = await h.call('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'ls\r' })
     expect(!result.ok && result.error).toMatch(/not running/)
+  })
+})
+
+describe('node-pty as the registry knows it', () => {
+  it('still has the private helper that the registry takes out of kill() on Windows, and kill() still calls it', () => {
+    // lib/windowsPtyAgent.js loads on any system: its native part is asked for only when a pty starts.
+    // When this fails after an update of node-pty, read withoutConsoleHelper in src/main/terminal/pty.ts again.
+    const { WindowsPtyAgent } = createRequire(import.meta.url)('node-pty/lib/windowsPtyAgent.js') as { WindowsPtyAgent: { prototype: Record<string, unknown> } }
+    expect(typeof WindowsPtyAgent.prototype['_getConsoleProcessList']).toBe('function')
+    expect(String(WindowsPtyAgent.prototype['kill'])).toContain('this._getConsoleProcessList()')
   })
 })
 

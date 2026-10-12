@@ -10,9 +10,12 @@ type Answer = { ok: true; value: unknown } | { ok: false; error: string }
 const main = vi.hoisted(() => ({
   answers: {} as Record<string, Answer>,
   calls: [] as { machine: string | null | undefined; channel: string; input: unknown }[],
+  /** When set, answers terminal.shells instead of `answers`. */
+  shells: undefined as (() => Promise<Answer>) | undefined,
 }))
 const answer = (machine: string | null | undefined, channel: string, input: unknown): Promise<Answer> => {
   main.calls.push({ machine, channel, input })
+  if (channel === 'terminal.shells' && main.shells !== undefined) return main.shells()
   return Promise.resolve(main.answers[channel] ?? { ok: false, error: `no answer for ${channel}` })
 }
 vi.mock('../../src/renderer/ipc', () => ({
@@ -43,6 +46,7 @@ const saved = (): unknown => main.calls.find((call) => call.channel === 'project
 
 beforeEach(() => {
   main.calls.length = 0
+  main.shells = undefined
   main.answers = {
     'projects.settings.get': { ok: true, value: { actionTemplates: TEMPLATES } },
     'projects.settings.set': { ok: true, value: { actionTemplates: TEMPLATES } },
@@ -130,6 +134,26 @@ describe('the shell of the Terminals in Project settings', () => {
     expect(onClose).not.toHaveBeenCalled()
     expect(screen.getByRole('alert').textContent).toContain('the disk is full')
     expect(screen.getByLabelText<HTMLSelectElement>('Terminal shell').value).toBe('git-bash')
+  })
+
+  it('drops the shells of a Project that is no longer the one shown: a late answer for the first does not bring the field back', async () => {
+    // The first Project's Machine answers late; the second one's at once, with no shells.
+    let late: (answer: Answer) => void = () => undefined
+    const first = new Promise<Answer>((resolve) => (late = resolve))
+    const shells = vi.fn<() => Promise<Answer>>().mockReturnValueOnce(first).mockResolvedValue({ ok: true, value: [] })
+    main.shells = shells
+    const onClose = vi.fn()
+    const view = render(<ProjectSettings project={PROJECT} onClose={onClose} />)
+    await act(async () => {})
+    view.rerender(<ProjectSettings project={{ id: 'other-00000002', name: 'other' }} onClose={onClose} />)
+    await act(async () => {})
+    expect(screen.queryByLabelText('Terminal shell')).toBeNull()
+    await act(async () => {
+      late({ ok: true, value: WINDOWS_SHELLS })
+      await first
+    })
+    expect(shells).toHaveBeenCalledTimes(2)
+    expect(screen.queryByLabelText('Terminal shell')).toBeNull()
   })
 
   it('asks the Machine of the Project for its shells, not the Machine of the window', async () => {
