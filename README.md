@@ -19,7 +19,7 @@ The Windows port is in progress (epic `worfy-windows`). To work on the repositor
 
 - Git for Windows (`winget install Git.Git`): Claude Code and the Harness use its Git Bash;
 - Node.js 24, 24.15 or newer of that line: the Windows installer (`.msi`) of the newest 24.x from <https://nodejs.org/dist/latest-v24.x/>, or `winget install OpenJS.NodeJS.LTS --version 24.20.0`. Without `--version` winget installs the newest LTS line, and that is 24 only until the next line becomes LTS, planned for 2026-10-28. After that date the winget command may stop finding 24.20.0: in November 2025 winget moved the older lines out of `OpenJS.NodeJS.LTS` into packages of their own (`OpenJS.NodeJS.22` and the like), and whether the 24.x versions follow once the next line is LTS is not known (there is no `OpenJS.NodeJS.24` today). The installer from nodejs.org does not depend on that. `node --version` must then print 24.15 or a newer version of the line 24;
-- pnpm of the version in `packageManager` of `package.json`: `npm install -g pnpm@<version>`.
+- pnpm of the version in `packageManager` of `package.json`: `npm install -g pnpm@<version>`. With nvm for Windows a global pnpm belongs to one version of Node.js: after `nvm use` of another version install pnpm again. Otherwise an older pnpm found elsewhere on `PATH` answers, and the project refuses it with `ERR_PNPM_BAD_PM_VERSION`.
 
 Turn on Developer Mode (Settings → System → For developers): several tests create symbolic links, and without it Windows refuses them to a user without administrator rights.
 
