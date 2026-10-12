@@ -141,11 +141,14 @@ describe('removeTree and removeFile over real folders', () => {
     writeFileSync(join(tree, 'a.txt'), 'a')
     writeFileSync(join(tree, 'held', 'in.txt'), 'in')
     writeFileSync(join(tree, 'z.txt'), 'z')
-    const holder = spawn(process.env['ComSpec'] ?? 'C:/Windows/System32/cmd.exe', ['/d', '/c', 'pause'], { cwd: join(tree, 'held', 'inner'), stdio: ['pipe', 'ignore', 'ignore'] })
+    // The program takes its working folder while it starts, after spawn() has returned: the line it
+    // prints says it is running. Then it waits for a key on an input that stays open.
+    const holder = spawn(process.env['ComSpec'] ?? 'C:/Windows/System32/cmd.exe', ['/d', '/c', 'echo ready& pause'], { cwd: join(tree, 'held', 'inner'), stdio: ['pipe', 'pipe', 'ignore'] })
     try {
       await new Promise((resolve, reject) => {
-        holder.once('spawn', resolve)
+        holder.stdout.once('data', resolve)
         holder.once('error', reject)
+        holder.once('exit', () => reject(new Error('the program that holds the folder ended at once')))
       })
       let code: string | undefined
       try {

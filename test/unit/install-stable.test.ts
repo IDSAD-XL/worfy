@@ -602,13 +602,16 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       writeFileSync(join(locked, 'junk.txt'), 'from a run long gone')
       // What keeps the folder from going: on Windows a program whose working folder it is; elsewhere
       // a folder nothing may be removed from.
-      const holder = WINDOWS ? spawn(process.env['ComSpec'] ?? 'C:/Windows/System32/cmd.exe', ['/d', '/c', 'pause'], { cwd: locked, stdio: ['pipe', 'ignore', 'ignore'] }) : null
+      const holder = WINDOWS ? spawn(process.env['ComSpec'] ?? 'C:/Windows/System32/cmd.exe', ['/d', '/c', 'echo ready& pause'], { cwd: locked, stdio: ['pipe', 'pipe', 'ignore'] }) : null
       if (holder === null) chmodSync(locked, 0o555)
       try {
         if (holder !== null) {
+          // The program takes its working folder while it starts, after spawn() has returned: the
+          // line it prints says it is running.
           await new Promise((resolve, reject) => {
-            holder.once('spawn', resolve)
+            holder.stdout.once('data', resolve)
             holder.once('error', reject)
+            holder.once('exit', () => reject(new Error('the program that holds the folder ended at once')))
           })
         }
         expect(() => installStable([target], inProcess())).toThrow(`${staging} is in the way`)
