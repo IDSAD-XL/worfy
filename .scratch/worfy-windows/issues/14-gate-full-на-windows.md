@@ -95,6 +95,13 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
 - `test/contract/trash.test.ts` на Windows падает целиком и на main: «untrusted frame», `INDEX_HTML`
   — путь macOS (Session на Windows-ПК, 2026-10-12).
 
+- `test/unit/shell-resolve.test.ts:297` падает на `windows-latest` (ручной job Ticket-а 25,
+  [прогон 38315851244](https://github.com/IDSAD-XL/worfy/actions/runs/38315851244), 2026-10-13):
+  временная папка там — `C:\Users\RUNNER~1\…` (короткое имя 8.3), test строит ожидаемый путь от
+  неё, а `resolveProjectFile` отвечает длинным именем после `realpath`. На ПК владельца не
+  воспроизводится. Починка — в test-е: брать папку через `realpathSync.native`. Остальные 68
+  test-ов двух файлов прошли. Какие ещё test-ы строят ожидание от `tmpdir()`, не проверялось.
+
 ## Что делаем
 
 1. **Unit- и contract-test-ы на Windows.** Каждый test из списка evidence Ticket-а 01 (раздел 17) и
