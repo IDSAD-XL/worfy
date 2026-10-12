@@ -50,7 +50,7 @@ function uses(text: string): string[] {
     if (copy !== null) return
     if (/^\s*(\/\/|\*)/.test(line) || /^\s*\/\*(?:(?!\*\/).)*(\*\/\s*)?$/.test(line)) return
     if (hasCopy && /^\s*import \{[^}]*\} from 'node:fs'\s*;?\s*$/.test(line)) return
-    if (/\brmSync\b/.test(line) || /\brmdirSync\s*\([^)]*\brecursive\b/.test(line)) found.push(`${index + 1}: ${line.trim()}`)
+    if (/\brmSync\b/.test(line) || /\brmdirSync\s*\(.*\brecursive\b/.test(line)) found.push(`${index + 1}: ${line.trim()}`)
   })
   return found
 }
@@ -88,6 +88,7 @@ describe('fs.rmSync in src/ and in scripts/', () => {
     expect(uses('const remove = fs.rmSync')).toHaveLength(1)
     expect(uses('const SOURCE = String.raw`\n    if (move) rmSync(path, { recursive: true, force: true })\n`')).toEqual(['2: if (move) rmSync(path, { recursive: true, force: true })'])
     expect(uses('  rmdirSync(dir, { recursive: true })')).toHaveLength(1)
+    expect(uses('  rmdirSync(this.entryDir(projectId, label), { recursive: true })')).toHaveLength(1)
     // A block comment before code on the same line hides nothing.
     expect(uses('/* gone */ rmSync(dir)')).toHaveLength(1)
   })
