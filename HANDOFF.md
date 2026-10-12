@@ -1,4 +1,4 @@
-# Передача контекста — снимок на 2026-10-12 (UTC), main @ 6b06ca0
+# Передача контекста — снимок на 2026-10-12 (UTC), main @ a1277f2
 
 ## Сейчас в работе
 
@@ -6,7 +6,7 @@
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 19; 19 (старая неудача в окне First run, low) открыт. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`; работа — только в локальной ветке `wip/worfy-week-14` («Итог» Ticket-а 14).
 - Stable copy и plugin `worfy` — сборка `4d3d60c` (2026-10-10). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/19; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16; 17 и 18 — до связи с чужой машиной.
-- `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057): влиты 01, 02, 08–12, 18, 19, 25 (PR #172, #177, #200, #194, #239, #215, #237, #228, #233, #254), ответы — PR #192. Windows-ПК: 23 (PR #257), затем 26, 20–22, 27; на Mac — 24. 03–07 ждут закрытия E3.
+- `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057): влиты 01, 02, 08–12, 18, 19, 24, 25 (PR #172, #177, #200, #194, #239, #215, #237, #228, #233, #256, #254), ответы — PR #192. Windows-ПК: 23 (PR #257), затем 26, 20–22, 27. 03–07 ждут закрытия E3.
 - `worfy-terminal-ai` (Terminal AI в Terminal-ах на подписке; [spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) 01, 02 влиты (PR #204, #205); следом 03. 08 ждёт `worfy-ui` 02 и 08 (окно Settings, Select), 09 — шаги владельца (`blocked`).
 - `worfy-ui` (Settings, масштаб, боковая панель, режим фокуса, палитра, Select, сочетания; [spec](.scratch/worfy-ui/spec.md)) 13 Ticket-ов: влиты 01, 02, 07, 08 (PR #207, #209, #210, #208) — Wave 1. До 09 — долг Select из «Итог» 08. 13 («Settings…» в режиме фокуса) — после 10.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 5/8: влиты 01, 03, 05 (Wave 1), 02 и 06 (PR #231, #232) — Wave 2. Следом 04 и 07; 08 (глубина ревью) ждёт ответов владельца.
@@ -23,7 +23,6 @@
 - Проверки только для владельца: знак worfy в Dock и Finder (`worfy-daily` 31), щелчок по баннеру с выключенным Focus (`worfy-mvp` 21), запрос разрешения на уведомления (`worfy-daily` 03), трекпад в Terminal (`worfy-daily` 13), fish (`worfy-mvp` 06).
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).
 - `worfy-windows` 12 (влит, PR #237), вручную на ПК: установщик из `dist\` и значок; `pnpm install:stable`; установщик при копии, запущенной из старой папки — [Ticket 12](.scratch/worfy-windows/issues/12-сборка-nsis-и-stable-copy-на-windows.md), «Готово, когда».
-- Windows-ПК: поставить Node 24 (после этого вливается `worfy-windows` 24, PR #256 — gate full зелёный).
 - `worfy-link` 19: нужна ли строка-подсказка под переключателем доступа о том, что без него «Keep awake» не действует, — вопрос в Ticket-е.
 
 ## Риски и долги
