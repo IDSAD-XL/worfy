@@ -3,15 +3,24 @@
 // write a Card's files; this store only reads them: it lists the Cards, reads a Card's <title>,
 // and watches the folders so a Node reloads its Card within a second of a file change.
 //
+// On Windows stat of a Card's folder and open of its index.html follow a link, and a link to
+// `\\host\share\…` makes the system contact that host with the user's credentials. So info() reads
+// the links on the way first (remote-links.ts; worfy-windows ticket 19): a Card whose folder leads
+// there is not there, and a Card whose index.html leads there has no title. This covers info()
+// alone. The watch below does not have it: chokidar calls realpath, stat and readdir through every
+// link in the Cards folder, also with followSymlinks off.
+//
 // Watching starts for a Project the first time one of its Cards is asked for, and lasts until the
 // Project leaves the list or close(). Changes are reported per Card after a short quiet period
 // (CARD_CHANGE_DELAY_MS), so a burst of writes reloads the Card once.
 import { mkdirSync } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
-import { join, relative, sep } from 'node:path'
+import * as nativePath from 'node:path'
+import { relative, sep } from 'node:path'
 import { watch, type FSWatcher } from 'chokidar'
 import { CARD_ID_PATTERN, type CardInfo } from '../../shared/ipc/cards'
 import { projectStore } from '../projects/store'
+import { leadsToRemote, type LinkFs, type PathRules } from '../remote-links'
 import { cardUrl, projectLabel, type CardHost } from './protocol'
 
 /** The folder of a Project's Cards, inside its data folder. */
@@ -67,6 +76,15 @@ async function isDirectory(path: string): Promise<boolean> {
   }
 }
 
+/** What is asked of the file system for one Card; both calls follow links. */
+export interface CardFs {
+  isDirectory: (path: string) => Promise<boolean>
+  /** The <title> of an HTML file, or null when there is no file or no title. */
+  readTitle: (file: string) => Promise<string | null>
+}
+
+const nodeFs: CardFs = { isDirectory, readTitle }
+
 export interface CardStoreOptions {
   /** A Project's data folder; throws for a Project that is not in the list. */
   dataDirOf: (projectId: string) => string
@@ -80,6 +98,12 @@ export interface CardStoreOptions {
    */
   subscribeProjects?: (listener: () => void) => () => void
   delayMs?: number
+  /** The path rules of the platform; path.win32 in tests on any system. */
+  paths?: PathRules
+  /** lstat and readlink for the links on the way to a Card (remote-links.ts); replaced in tests. */
+  links?: LinkFs
+  /** The calls that follow links; replaced in tests. */
+  fs?: CardFs
 }
 
 const keyOf = (projectId: string, cardId: string): string => `${projectId}\n${cardId}`
@@ -91,23 +115,27 @@ export class CardStore {
   private readonly listeners = new Set<(info: CardInfo) => void>()
   private readonly delayMs: number
   private readonly unsubscribeProjects: () => void
+  private readonly paths: PathRules
+  private readonly fs: CardFs
   private closed = false
 
   /** Does no I/O. */
   constructor(private readonly options: CardStoreOptions) {
     this.delayMs = options.delayMs ?? CARD_CHANGE_DELAY_MS
+    this.paths = options.paths ?? nativePath
+    this.fs = options.fs ?? nodeFs
     this.unsubscribeProjects = options.subscribeProjects?.(() => this.forgetRemovedProjects()) ?? (() => undefined)
   }
 
   /** The folder of all Cards of a Project. Throws for a Project that is not in the list. */
   cardsDir(projectId: string): string {
-    return join(this.options.dataDirOf(projectId), CARDS_DIR)
+    return this.paths.join(this.options.dataDirOf(projectId), CARDS_DIR)
   }
 
   /** The folder of one Card. Throws for an invalid Card id or a Project that is not in the list. */
   cardDir(projectId: string, cardId: string): string {
     if (!CARD_ID_PATTERN.test(cardId)) throw new Error(`${cardId} is not a valid Card id`)
-    return join(this.cardsDir(projectId), cardId)
+    return this.paths.join(this.cardsDir(projectId), cardId)
   }
 
   /**
@@ -125,13 +153,24 @@ export class CardStore {
     }
   }
 
-  /** One Card as the renderer shows it; starts watching the Project's Cards. */
+  /**
+   * One Card as the renderer shows it; starts watching the Project's Cards. A Card whose folder
+   * leads to a share is not there, and one whose index.html leads there has no title: stat and
+   * open here are not asked about either. The watch it starts is another matter (see the top of
+   * this file).
+   */
   async info(projectId: string, cardId: string): Promise<CardInfo> {
+    // The folders are asked of the Project list once, before anything is awaited: a Project that
+    // leaves the list meanwhile still gets its answer, as before the walk was here.
+    const cards = this.cardsDir(projectId)
     const dir = this.cardDir(projectId, cardId)
     const url = cardUrl(projectId, cardId)
     this.watchProject(projectId)
-    const exists = await isDirectory(dir)
-    const title = exists ? await readTitle(join(dir, 'index.html')) : null
+    // The Cards folder is the only place these paths may go: also when it lies on a share itself.
+    const away = (path: string): Promise<boolean> => leadsToRemote(path, [cards], { paths: this.paths, links: this.options.links })
+    const index = this.paths.join(dir, 'index.html')
+    const exists = !(await away(dir)) && (await this.fs.isDirectory(dir))
+    const title = exists && !(await away(index)) ? await this.fs.readTitle(index) : null
     return { projectId, cardId, url, exists, title, revision: this.revisions.get(keyOf(projectId, cardId)) ?? 0 }
   }
 

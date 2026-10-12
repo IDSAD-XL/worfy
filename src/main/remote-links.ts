@@ -6,18 +6,33 @@
 // remote path. No Electron here; the file system and the path rules are parameters, so the walk is
 // tested on any machine (test/unit/remote-links.test.ts).
 //
-// What it cannot see: a link put in place after the walk and before the caller's realpath. The two
-// are separate steps.
+// What it cannot see:
+// - a link put in place after the walk and before the caller's realpath. The two are separate steps;
+// - `..` in a target written as `\\?\C:\…` or `\??\C:\…`. path.win32 takes `..` out of such a path,
+//   Windows reads it there as a name. The walk then looks at another path than the one the link
+//   leads to; both are on the same disk, since only the drive forms of these prefixes are read as
+//   local at all.
 import { lstat, readlink } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 
 export type PathRules = Pick<typeof nativePath, 'dirname' | 'isAbsolute' | 'join' | 'parse' | 'relative' | 'resolve' | 'sep'>
 
-/** What the walk reads of the file system; neither call follows a link. */
+/**
+ * What the walk reads of the file system. Neither call follows a symlink, or a junction to a folder
+ * of a disk.
+ *
+ * Node's lstat does follow any other reparse point: libuv opens it again without
+ * FILE_FLAG_OPEN_REPARSE_POINT when it cannot read it as a link. Seen on Windows 11 with Node 22
+ * (worfy-windows ticket 19): a junction to a volume by its GUID is answered as a plain folder; a
+ * junction whose target is a share — `\??\UNC\host\share`, `\??\GLOBALROOT\Device\Mup\…`,
+ * `\Device\Mup\…`; mklink makes none, a raw reparse call does — is answered ENOENT in a fraction
+ * of a millisecond, by lstat, stat, readdir and realpath alike: Windows does not follow a junction
+ * off the machine, and no host is looked for.
+ */
 export interface LinkFs {
   /**
-   * Whether the path is a link (a symlink or a junction); null when there is nothing at the path.
-   * Rejects when the path cannot be looked at for any other reason.
+   * Whether the path is a link (a symlink, or a junction to a folder of a disk); null when there is
+   * nothing at the path. Rejects when the path cannot be looked at for any other reason.
    */
   isLink: (path: string) => Promise<boolean | null>
   /** The target of a link, as written in it. */
@@ -33,6 +48,9 @@ export interface RemoteLinkOptions {
 
 /** How many links one walk follows; a longer chain, or a loop, is refused. */
 export const MAX_LINK_HOPS = 40
+
+/** A path that starts with two separators: a share, or a device path. */
+const UNC = /^[\\/]{2}/
 
 /** lstat and readlink of Node. lstat, never stat: stat follows the link, which is the call to avoid. */
 export const nodeLinks: LinkFs = {
@@ -50,8 +68,13 @@ export const nodeLinks: LinkFs = {
 /**
  * True when `path` is `base` itself or lies under it, by the rules of `paths`. Only a first segment
  * that is exactly `..` leaves `base`: a folder named `..drafts` inside it is still inside.
+ *
+ * Under Windows rules a UNC path is never inside a folder of a disk, nor the other way round:
+ * path.win32.relative drops the leading separators, and reads `\\C:\p\repo\x` — server `C:`, share
+ * `p` — as `C:\p\repo\x`.
  */
 export function isInside(base: string, path: string, paths: Pick<PathRules, 'isAbsolute' | 'relative' | 'sep'> = nativePath): boolean {
+  if (paths.sep === '\\' && UNC.test(base) !== UNC.test(path)) return false
   const rel = paths.relative(base, path)
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${paths.sep}`) && !paths.isAbsolute(rel))
 }
@@ -72,10 +95,11 @@ function withoutDevicePrefix(path: string): string {
  * absolute, with a leading `\\` when it is remote. Null when it names something off the machine in
  * a form path.win32.resolve would show as a local folder:
  *
- * - the NT namespace, which Node's readlink hands back as it is stored. `\??\C:\x` is a disk, and
- *   is read as one; every other name there (`\??\GLOBALROOT\Device\Mup\host\share\x`,
- *   `\??\Global\UNC\host\…`, `\??\UNC\host\…`) can reach the network redirector, and
- *   path.win32.resolve would make `C:\??\…` of it;
+ * - the NT namespace. Of the target of a symlink libuv's readlink takes `\??\` off before the
+ *   letter of a disk and rewrites `\??\UNC\` to `\\`; every other name there comes back as it is
+ *   stored (`\??\GLOBALROOT\Device\Mup\host\share\x`, `\??\Global\UNC\host\…`, `\??\pipe\x`). Such a
+ *   name can reach the network redirector, and path.win32.resolve would make `C:\??\…` of it. Only
+ *   `\??\C:\x`, should it arrive, is read as the disk it names;
  * - a server with no share, `\\host`: Windows reads a server, path.win32.resolve a folder `\host`
  *   of the current disk.
  */
@@ -86,14 +110,21 @@ function absolute(written: string, from: string | null, paths: PathRules): strin
     text = text.slice(4)
   }
   const full = from === null ? paths.resolve(text) : paths.resolve(from, text)
-  if (/^[\\/]{2}/.test(text) && !full.startsWith('\\\\')) return null
+  if (UNC.test(text) && !full.startsWith('\\\\')) return null
   return withoutDevicePrefix(full)
 }
 
+/** What a walk found: nothing that leads off the machine; a remote path; or a path it could not read to the end. */
+export type LinkVerdict = 'local' | 'remote' | 'unchecked'
+
+/** What a caller says of an 'unchecked' path, after the path itself: the file may well be its own. */
+export const UNCHECKED = 'cannot be checked: a link on the way to it cannot be read, or the links do not end'
+
 /**
- * Whether a link on the way to `candidate` leads to a remote path outside `allowed`.
+ * Whether a link on the way to `candidate` leads to a remote path outside `allowed`; and when the
+ * answer is not a plain no, which of the two refusals it is.
  *
- * Only on Windows (`paths.sep` is `\`); elsewhere the answer is no and the file system is not
+ * Only on Windows (`paths.sep` is `\`); elsewhere the answer is 'local' and the file system is not
  * touched. A remote path is one that path.win32.resolve gives a leading `\\` — `\\host\share\…`,
  * `//host/…`, `\\?\…`, `\\.\…` — or one of the forms absolute() names. `allowed` are the folders
  * the caller works in, as written and as real paths: a share among them is the caller's own, and a
@@ -102,18 +133,19 @@ function absolute(written: string, from: string | null, paths: PathRules): strin
  * The walk starts at the outermost allowed folder that holds `candidate` by its text — the folder
  * itself is looked at too — or, for a local path outside all of them, at the root of its disk. Each
  * segment is read with lstat. A link is read with readlink and its target resolved from the link's
- * folder: a remote target outside `allowed` ends the walk with yes, and nothing is asked of the
+ * folder: a remote target outside `allowed` ends the walk with 'remote', and nothing is asked of the
  * file system after it; any other target is walked in turn, so a chain of local links that ends on
  * a share is refused as well. No path with a leading `\\` outside `allowed` is ever given to lstat.
- * More than MAX_LINK_HOPS links, a loop included, is a yes.
+ * More than MAX_LINK_HOPS links, a loop included, is 'unchecked'.
  *
- * A segment that is not there ends the walk with no: there is nothing behind it to follow, and the
- * caller's realpath says the rest. Any other failure to look at a segment or to read a link is a
- * yes: the caller's next step is realpath, and it must not be taken on a path that was not read.
+ * A segment that is not there ends the walk with 'local': there is nothing behind it to follow, and
+ * the caller's next step says the rest. Any other failure to look at a segment or to read a link is
+ * 'unchecked': the caller's next step follows links, and it must not be taken on a path that was
+ * not read.
  */
-export async function leadsToRemote(candidate: string, allowed: readonly string[], options: RemoteLinkOptions): Promise<boolean> {
+export async function walkLinks(candidate: string, allowed: readonly string[], options: RemoteLinkOptions): Promise<LinkVerdict> {
   const paths = options.paths
-  if (paths.sep !== '\\') return false
+  if (paths.sep !== '\\') return 'local'
   const links = options.links ?? nodeLinks
   const folders = allowed.map((folder) => absolute(folder, null, paths)).filter((folder): folder is string => folder !== null)
   const isRemote = (path: string): boolean => path.startsWith('\\\\') && !folders.some((folder) => isInside(folder, path, paths))
@@ -126,7 +158,7 @@ export async function leadsToRemote(candidate: string, allowed: readonly string[
   }
 
   const first = absolute(candidate, null, paths)
-  if (first === null || isRemote(first)) return true
+  if (first === null || isRemote(first)) return 'remote'
   let { from: current, rest: pending } = route(first)
   // The folder the walk starts at is looked at too, unless it is the root of a disk.
   let next: string | undefined = paths.parse(current).root === current ? undefined : current
@@ -134,37 +166,45 @@ export async function leadsToRemote(candidate: string, allowed: readonly string[
   for (;;) {
     if (next === undefined) {
       const segment = pending.shift()
-      if (segment === undefined) return false
+      if (segment === undefined) return 'local'
       next = paths.join(current, segment)
     }
     const path = next
     next = undefined
-    if (isRemote(path)) return true
+    if (isRemote(path)) return 'remote'
     let link: boolean | null
     try {
       link = await links.isLink(path)
     } catch {
-      return true
+      return 'unchecked'
     }
-    if (link === null) return false
+    if (link === null) return 'local'
     if (!link) {
       current = path
       continue
     }
     hops += 1
-    if (hops > MAX_LINK_HOPS) return true
+    if (hops > MAX_LINK_HOPS) return 'unchecked'
     let written: string
     try {
       written = await links.readlink(path)
     } catch {
-      return true
+      return 'unchecked'
     }
     const target = absolute(written, paths.dirname(path), paths)
-    if (target === null || isRemote(target)) return true
+    if (target === null || isRemote(target)) return 'remote'
     // The rest of the path now hangs off the target, and the target's own segments are walked
     // first: from the allowed folder it lies in, or from the root of its disk.
     const onward = route(target)
     current = onward.from
     pending = [...onward.rest, ...pending]
   }
+}
+
+/**
+ * True when the path must not be followed: walkLinks found a link that leads off the machine, or
+ * could not check the path. For a caller that refuses without saying why.
+ */
+export async function leadsToRemote(candidate: string, allowed: readonly string[], options: RemoteLinkOptions): Promise<boolean> {
+  return (await walkLinks(candidate, allowed, options)) !== 'local'
 }

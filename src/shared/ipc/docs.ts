@@ -55,7 +55,9 @@ export const docsClose = invokeChannel('docs.close', project, z.object({ closed:
 
 /**
  * The text of HANDOFF.md or of docs/adr/NNNN-*.md. `path` is relative to the Project root or
- * absolute; after symlinks are resolved it must be one of those files of this Project. `path` in
+ * absolute; after symlinks are resolved it must be one of those files of this Project. On Windows
+ * a UNC or device path outside the root as written is refused by its text alone, and a path whose
+ * links lead to another host is refused before it is resolved (worfy-windows ticket 19). `path` in
  * the answer is the real file, relative to the root.
  */
 export const docsRead = invokeChannel(

@@ -4,7 +4,7 @@ import * as nativePath from 'node:path'
 import { shell } from 'electron'
 import { shellOpenExternal, shellOpenInEditor } from '../../shared/ipc/shell'
 import { projectStore } from '../projects/store'
-import { isInside, leadsToRemote, type LinkFs, type PathRules } from '../remote-links'
+import { isInside, UNCHECKED, walkLinks, type LinkFs, type PathRules } from '../remote-links'
 import { defineHandler, type HandlerModule } from './index'
 
 /** The folders of the Project's git worktrees (the main one included); empty when git cannot say. */
@@ -42,7 +42,8 @@ export interface ResolveOptions {
  * it: realpath on it would make Windows contact that host and hand it the user's NTLM credentials
  * (review of worfy-windows ticket 08). A local path can lead there too, through a symlink in the
  * repository: the links on its way are read before realpath, and a path that leads to such a host is
- * refused the same way (worfy-windows ticket 18). A Project on a share is opened on that share as
+ * refused the same way (worfy-windows ticket 18); a path whose links cannot be read to the end is
+ * refused as one that could not be checked, not as one outside. A Project on a share is opened on that share as
  * before.
  */
 export async function resolveProjectFile(root: string, path: string, worktrees: readonly string[], options: ResolveOptions = {}): Promise<string> {
@@ -54,7 +55,9 @@ export async function resolveProjectFile(root: string, path: string, worktrees: 
   // path.win32.resolve gives every UNC and device form a leading `\\`.
   const remote = paths.sep === '\\' && candidate.startsWith('\\\\')
   if (remote && ![...folders, ...bases].some((base) => isInside(base, candidate, paths))) throw new Error(`${path} is outside the Project and its worktrees`)
-  if (await leadsToRemote(candidate, [...folders, ...bases], { paths, links: options.links })) throw new Error(`${path} is outside the Project and its worktrees`)
+  const verdict = await walkLinks(candidate, [...folders, ...bases], { paths, links: options.links })
+  if (verdict === 'remote') throw new Error(`${path} is outside the Project and its worktrees`)
+  if (verdict === 'unchecked') throw new Error(`${path} ${UNCHECKED}`)
   const target = await real(candidate)
   if (target === null) throw new Error(`${path} does not exist`)
   if (!bases.some((base) => isInside(base, target, paths))) throw new Error(`${path} is outside the Project and its worktrees`)
