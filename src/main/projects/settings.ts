@@ -1,4 +1,5 @@
-// A Project's settings (`<Project data folder>/settings.json`): today only the action templates.
+// A Project's settings (`<Project data folder>/settings.json`): the action templates and, for
+// Windows, the shell of the Terminals.
 // The schema and the defaults live in src/shared/projects/action-templates.ts. The defaults are
 // those of the Harness found on the machine (src/main/harness/locate.ts, worfy-harness ticket 12),
 // looked up again on every call unless the caller names it.
@@ -8,6 +9,7 @@ import {
   defaultProjectSettings,
   migrateProjectSettings,
   projectSettingsSchema,
+  savedProjectSettingsSchema,
   type HarnessKind,
   type ProjectSettings,
 } from '../../shared/projects/action-templates'
@@ -24,7 +26,7 @@ export function settingsPath(projectDataDir: string): string {
  * (migrateProjectSettings); the file is not rewritten here, the next save writes it.
  */
 export function readProjectSettings(projectDataDir: string, harness: HarnessKind = currentHarness().kind): ProjectSettings {
-  const saved = readJsonFile(settingsPath(projectDataDir), projectSettingsSchema)
+  const saved = readJsonFile(settingsPath(projectDataDir), savedProjectSettingsSchema)
   return saved === undefined ? defaultProjectSettings(harness) : migrateProjectSettings(saved, harness)
 }
 

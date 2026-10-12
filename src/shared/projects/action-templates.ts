@@ -116,11 +116,30 @@ export const actionTemplatesSchema = z.object({
 })
 export type ActionTemplates = z.output<typeof actionTemplatesSchema>
 
+/** The shells a Terminal can start on Windows (worfy-windows ticket 10). */
+export const terminalShellSettingSchema = z.enum(['powershell', 'git-bash'])
+export type TerminalShellSetting = z.output<typeof terminalShellSettingSchema>
+
 /** A Project's settings, kept in `<Project data folder>/settings.json`. */
 export const projectSettingsSchema = z.object({
   actionTemplates: actionTemplatesSchema,
+  /**
+   * Which shell the Terminals of the Project start on Windows; PowerShell when absent, and absent
+   * until the user chooses. A Project lives on one Machine (ADR-0052), so the choice is for that
+   * Machine. Elsewhere the shell is `$SHELL`, and the field is not read.
+   */
+  terminalShell: terminalShellSettingSchema.optional(),
 })
 export type ProjectSettings = z.output<typeof projectSettingsSchema>
+
+/**
+ * The settings as `settings.json` is read: a `terminalShell` this version does not know (a data
+ * folder of a later worfy, a hand edit) reads as not chosen, and the rest of the file stays. What
+ * is saved goes through projectSettingsSchema, which refuses such a value.
+ */
+export const savedProjectSettingsSchema = projectSettingsSchema.extend({
+  terminalShell: terminalShellSettingSchema.optional().catch(undefined),
+})
 
 /** What a new Project starts with: the defaults of the Harness found on the machine. */
 export function defaultProjectSettings(harness: HarnessKind): ProjectSettings {

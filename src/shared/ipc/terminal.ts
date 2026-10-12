@@ -21,6 +21,7 @@
 // starts, once the shell has started. Only the commands of TERMINAL_COMMANDS are accepted, so the
 // renderer still never names a program of its own; opening a shell that already runs types nothing.
 import { z } from 'zod'
+import { terminalShellSettingSchema } from '../projects/action-templates'
 import { eventChannel, invokeChannel } from './channels'
 
 /** The `kind` of a Terminal Node in the Layout. */
@@ -69,6 +70,26 @@ export const terminalOpen = invokeChannel(
   'project',
 )
 
+/**
+ * The shells a Terminal can start on the Machine that answers, for the choice in the settings of a
+ * Project (worfy-windows ticket 10). Empty where there is nothing to choose: on macOS and Linux the
+ * shell is `$SHELL`. On Windows: PowerShell, named as the one that would start, and Git Bash.
+ */
+export const terminalShells = invokeChannel(
+  'terminal.shells',
+  z.void(),
+  z.array(
+    z.object({
+      id: terminalShellSettingSchema,
+      /** How the settings name it, e.g. `PowerShell (pwsh)`. */
+      label: z.string().min(1),
+      /** False when it is not on this Machine: a Terminal that asks for it starts PowerShell. */
+      found: z.boolean(),
+    }),
+  ),
+  'project',
+)
+
 /** Keys typed or pasted in the terminal. */
 export const terminalInput = invokeChannel('terminal.input', z.object({ ...terminalRef, data: z.string().min(1).max(1_000_000) }), z.void(), 'project')
 
@@ -100,6 +121,7 @@ export const terminalStarted = eventChannel('terminal.started', z.object({ ...te
 declare module './channels' {
   interface IpcContract {
     'terminal.open': typeof terminalOpen
+    'terminal.shells': typeof terminalShells
     'terminal.input': typeof terminalInput
     'terminal.resize': typeof terminalResize
     'terminal.takeSize': typeof terminalTakeSize
