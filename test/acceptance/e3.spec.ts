@@ -44,7 +44,7 @@ const NO_REPO = 'не проверено: нет E3_SILENT_REPO (пустой pr
 const REPO_NOT_EMPTY = 'is not empty: this run pushes its own main there. The owner deletes it and makes it again, empty and private, or names another empty repository in E3_SILENT_REPO'
 const WAVE_TIMEOUT_MS = 90 * 60_000
 /** The checks of the first-run screen (Q22), in the order the screen shows them. */
-const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
+const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
 /** Files of the workflow that must never reach a Silent Project's repository. */
 const WORKFLOW_FILES = [/(^|\/)\.scratch(\/|$)/, /(^|\/)HANDOFF(\.md)?$/i, /(^|\/)docs\/adr\//, /(^|\/)adr\/\d{4}-/, /(^|\/)CONTEXT\.md$/, /(^|\/)lessons\//]
 const ATTRIBUTION = [/Co-Authored-By: Claude/i, /Generated with \[Claude Code\]/i]
@@ -255,6 +255,40 @@ async function expectRowStatus(row: Pick<Locator, 'getAttribute' | 'innerText'>,
   throw new Error(`${what}: the row is "${String(seen)}", not "${status}", after ${Math.round(timeoutMs / 1000)} s. The row says: "${await rowText(row)}"`)
 }
 
+/** The least time one read of the "Add project" dialog gets: enough to read a dialog that is there, also when the wait is over. */
+const DIALOG_READ_GRACE_MS = 5_000
+
+/**
+ * Waits until the "Add project" dialog shows the form of the draft (`data-step="form"`). A draft
+ * that failed stops the wait at once: no form follows `failed`, and the reason — what Claude Code
+ * said when it exited — is in the dialog and nowhere else. Either way the error carries what the
+ * dialog says.
+ *
+ * Every read of the dialog gets what is left of `timeoutMs` as its own timeout (never less than
+ * DIALOG_READ_GRACE_MS): a read of a dialog that is gone — closed while the draft was written —
+ * would otherwise wait until the timeout of the whole test. A read that is refused ends the wait
+ * with the same error, with the refusal where the dialog's text would be.
+ */
+async function expectDraftForm(dialog: Pick<Locator, 'getAttribute' | 'innerText'>, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  const left = (): number => Math.max(DIALOG_READ_GRACE_MS, deadline - Date.now())
+  const unread = (error: unknown): string => `The dialog could not be read: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}`
+  const says = (): Promise<string> => dialog.innerText({ timeout: left() }).then((text) => `The dialog says: "${text.replace(/\s+/g, ' ').trim()}"`, unread)
+  let seen: string | null = null
+  for (;;) {
+    try {
+      seen = await dialog.getAttribute('data-step', { timeout: left() })
+    } catch (error) {
+      throw new Error(`The draft of the real agent: the dialog is at "${String(seen)}", not "form". ${unread(error)}`, { cause: error })
+    }
+    if (seen === 'form') return
+    if (seen === 'failed') throw new Error(`The draft of the real agent failed. ${await says()}`)
+    if (Date.now() >= deadline) break
+    await new Promise((done) => setTimeout(done, Math.min(500, Math.max(1, deadline - Date.now()))))
+  }
+  throw new Error(`The draft of the real agent: the dialog is at "${String(seen)}", not "form", after ${Math.round(timeoutMs / 1000)} s. ${await says()}`)
+}
+
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 test('silent: control — the search for this run’s values finds a planted trace (no app)', () => {
@@ -274,6 +308,63 @@ test('sandbox: control — a row that does not turn ok fails with what the row s
   const turns = { getAttribute: () => Promise.resolve(++reads < 3 ? 'fail' : 'ok'), innerText: () => Promise.resolve('') }
   await expectRowStatus(turns, 'Install the Harness', 'ok', 5_000)
   expect(reads).toBe(3)
+})
+
+test('silent: control — a draft that failed stops the wait at once with what the dialog says (no app)', async () => {
+  const says = 'Add project\nDraft\nFailed  The draft Session failed: Claude Code process exited with code 1. stderr: Error: --json-schema is not a valid JSON Schema'
+  let reads = 0
+  const failed = { getAttribute: () => Promise.resolve(++reads < 2 ? 'drafting' : 'failed'), innerText: () => Promise.resolve(says) }
+  const started = Date.now()
+  await expect(expectDraftForm(failed, 30_000)).rejects.toThrow(
+    'The draft of the real agent failed. The dialog says: "Add project Draft Failed The draft Session failed: Claude Code process exited with code 1. stderr: Error: --json-schema is not a valid JSON Schema"',
+  )
+  expect(reads).toBe(2)
+  expect(Date.now() - started).toBeLessThan(10_000)
+  const stuck = { getAttribute: () => Promise.resolve('drafting'), innerText: () => Promise.resolve('Add project\nDraft\nReading the repositories') }
+  await expect(expectDraftForm(stuck, 50)).rejects.toThrow('The draft of the real agent: the dialog is at "drafting", not "form", after 0 s. The dialog says: "Add project Draft Reading the repositories"')
+  reads = 0
+  const turns = { getAttribute: () => Promise.resolve(++reads < 3 ? 'drafting' : 'form'), innerText: () => Promise.resolve('') }
+  await expectDraftForm(turns, 5_000)
+  expect(reads).toBe(3)
+  // A step that is neither the form nor a failure is not the form: the Harness check stopped the draft.
+  const harness = { getAttribute: () => Promise.resolve('harness'), innerText: () => Promise.resolve('Add project\nHarness\nThe Harness plugin is not installed') }
+  await expect(expectDraftForm(harness, 50)).rejects.toThrow('The draft of the real agent: the dialog is at "harness", not "form", after 0 s. The dialog says: "Add project Harness The Harness plugin is not installed"')
+})
+
+test('silent: control — a read of the draft dialog gets what is left of the wait, and a refused read ends it (no app)', async () => {
+  // Playwright refuses a read of an element that is not there when the timeout of the read is over.
+  const refusal = (): Promise<never> => Promise.reject(new Error('locator.getAttribute: Timeout 29500ms exceeded.\nCall log:\n  - waiting for getByTestId(\'connect-project\')'))
+  const timeouts: unknown[] = []
+  let reads = 0
+  const gone = {
+    getAttribute: (_name: string, options?: { timeout?: number }) => (timeouts.push(options?.timeout), ++reads < 2 ? Promise.resolve('drafting') : refusal()),
+    innerText: () => Promise.resolve('never read'),
+  }
+  await expect(expectDraftForm(gone, 30_000)).rejects.toThrow('The draft of the real agent: the dialog is at "drafting", not "form". The dialog could not be read: locator.getAttribute: Timeout 29500ms exceeded.')
+  expect(reads).toBe(2)
+  // What is left of the 30 s, not a constant and not "no timeout": the first read starts with all of it.
+  expect(timeouts).toEqual([expect.any(Number), expect.any(Number)])
+  expect(timeouts[0]).toBeGreaterThan(25_000)
+  expect(timeouts[0]).toBeLessThanOrEqual(30_000)
+  expect(timeouts[1]).toBeLessThanOrEqual(timeouts[0] as number)
+  // The text of a failed draft is read with a timeout too; when that read is refused the error still names the failure.
+  const textTimeouts: unknown[] = []
+  const closing = {
+    getAttribute: () => Promise.resolve('failed'),
+    innerText: (options?: { timeout?: number }) => (textTimeouts.push(options?.timeout), Promise.reject(new Error('locator.innerText: Target page, context or browser has been closed'))),
+  }
+  await expect(expectDraftForm(closing, 30_000)).rejects.toThrow('The draft of the real agent failed. The dialog could not be read: locator.innerText: Target page, context or browser has been closed')
+  expect(textTimeouts).toEqual([expect.any(Number)])
+  expect(textTimeouts[0]).toBeGreaterThan(25_000)
+  expect(textTimeouts[0]).toBeLessThanOrEqual(30_000)
+  // When the wait is over a read still gets the least time, not zero: zero would mean "no timeout" to Playwright.
+  const late: unknown[] = []
+  const stuck = {
+    getAttribute: (_name: string, options?: { timeout?: number }) => (late.push(options?.timeout), Promise.resolve('drafting')),
+    innerText: (options?: { timeout?: number }) => (late.push(options?.timeout), Promise.resolve('Add project')),
+  }
+  await expect(expectDraftForm(stuck, 0)).rejects.toThrow('The draft of the real agent: the dialog is at "drafting", not "form", after 0 s. The dialog says: "Add project"')
+  expect(late).toEqual([5_000, 5_000])
 })
 
 test('sandbox: the packaged app installs its Harness and qmd into an empty Claude home', async () => {
@@ -308,6 +399,8 @@ test('sandbox: the packaged app installs its Harness and qmd into an empty Claud
     const plugin = worfyPlugin(box)
     expect(plugin.status, 'claude plugin list --json in the sandbox').toBe(0)
     expect(plugin.entry).toMatchObject({ id: 'worfy@worfy-harness', enabled: true, version })
+    // The same Install puts in the plugin's dependency (mattpocock-skills): its own row says so.
+    await expectRowStatus(checkRow(screen, 'harness-dependencies'), 'Install the plugin dependencies', 'ok', 60_000)
 
     // qmd with consent: npm installs it under npm_config_prefix of the sandbox.
     await checkRow(screen, 'qmd').getByRole('button', { name: 'Install…' }).click()
@@ -387,7 +480,7 @@ test('silent: a Silent Project connects, one Wave runs, and no workflow trace re
     await expect(dialog).toBeVisible()
     await expect(dialog.getByTestId('connect-mode-silent').getByRole('radio')).toBeChecked()
     await dialog.getByRole('button', { name: 'Write draft' }).click()
-    await expect(dialog, 'the draft of the real agent').toHaveAttribute('data-step', 'form', { timeout: 15 * 60_000 })
+    await expectDraftForm(dialog, 15 * 60_000)
     const account = dialog.getByTestId('connect-github').locator(`[data-testid="connect-github-account"][data-login="${ACCOUNT}"]`)
     await expect(account).toBeVisible({ timeout: 60_000 })
     await account.getByRole('radio').check()
