@@ -151,6 +151,37 @@ out2="$("$SC" -C "$FR" $'Fix\n\nCo-Authored-By: Claude <noreply@anthropic.com>' 
 [ "$rc1" -eq 0 ] && [ "$rc2" -eq 1 ] && ok "Full project with attribution off: only attribution lines are traces" || bad "full attribution off: $rc1/$rc2 $out $out2"
 printf '{"schema":2,"name":"fp","mode":"full","attribution":"on","tickets":{"root":".scratch/"}}\n' >"$HARNESS_HOME/projects/fp/profile.json"
 
+# The profile does not set `attribution`: the default follows the mode — off in Silent mode, on in Full
+# mode — and a value written in the profile wins. silent-check reads the value bin/profile resolved.
+SPP="$HARNESS_HOME/projects/sp/profile.json"; FPP="$HARNESS_HOME/projects/fp/profile.json"
+cp "$SPP" "$T/sp-profile.json"; cp "$FPP" "$T/fp-profile.json"
+ATTR_LINES=("Co-Authored-By: Claude Opus <noreply@anthropic.com>" "Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>" \
+            "🤖 Generated with [Claude Code](https://claude.com/claude-code)" "Generated with Claude Code")
+jq 'del(.attribution)' "$T/sp-profile.json" >"$SPP"
+jq 'del(.attribution)' "$T/fp-profile.json" >"$FPP"
+[ "$("$BIN/profile" -C "$R" --field attribution 2>&1)" = off ] && [ "$("$BIN/profile" -C "$FR" --field attribution 2>&1)" = on ] \
+    && ok "attribution not set: profile resolves off in the Silent project and on in the Full one" \
+    || bad "attribution default: sp=$("$BIN/profile" -C "$R" --field attribution 2>&1) fp=$("$BIN/profile" -C "$FR" --field attribution 2>&1)"
+for t in "${ATTR_LINES[@]}"; do
+    out="$("$SC" -C "$R" $'Fix the button\n\n'"$t" 2>&1)"; rc=$?
+    [ "$rc" -eq 1 ] && [[ "$out" == *"text:3: Claude attribution"* ]] && ok "Silent project, attribution not set: \"$t\" is a trace" \
+        || bad "silent, attribution not set, \"$t\": exit $rc, out: ${out:0:200}"
+    out="$("$SC" -C "$FR" $'Fix the button\n\n'"$t" 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] && [[ "$out" == *"Full mode, attribution on"* ]] && ok "Full project, attribution not set: \"$t\" passes" \
+        || bad "full, attribution not set, \"$t\": exit $rc, out: ${out:0:200}"
+done
+out="$("$SC" -C "$R" "Fix the withdraw button state after a failed request" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && ok "Silent project, attribution not set: clean text passes" || bad "silent, attribution not set, clean text: exit $rc, out: ${out:0:200}"
+jq '.attribution = "on"' "$T/sp-profile.json" >"$SPP"
+for t in "${ATTR_LINES[@]}"; do
+    out="$("$SC" -C "$R" $'Fix the button\n\n'"$t" 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] && ok "Silent project with an explicit attribution on: \"$t\" passes" || bad "silent, explicit on, \"$t\": exit $rc, out: ${out:0:200}"
+done
+out="$("$SC" -C "$R" $'Ticket 05\n\nCo-Authored-By: Claude <noreply@anthropic.com>' 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && [[ "$out" == *"ticket number"* && "$out" != *"Claude attribution"* ]] \
+    && ok "Silent project with an explicit attribution on: the other traces are still found" || bad "silent, explicit on, ticket number: exit $rc, out: ${out:0:200}"
+cp "$T/sp-profile.json" "$SPP"; cp "$T/fp-profile.json" "$FPP"
+
 # --- 4. A worktree outside the repository ----------------------------------------------------
 WT="$HARNESS_HOME/worktrees/sp/05"
 mkdir -p "$HARNESS_HOME/worktrees/sp"

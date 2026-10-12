@@ -177,6 +177,15 @@ export function proposeLanguageDocs(profile: Json): 'ru' | 'en' {
   return reports === 'ru' ? 'ru' : 'en'
 }
 
+/**
+ * `attribution` proposed: the value the Profile already names, else the default of the proposed mode —
+ * `off` for Silent, `on` for Full (the rule bin/profile applies to a Profile without the field).
+ */
+export function proposeAttribution(profile: Json, mode: 'full' | 'silent'): 'on' | 'off' {
+  if (profile.attribution === 'on' || profile.attribution === 'off') return profile.attribution
+  return mode === 'silent' ? 'off' : 'on'
+}
+
 /** A Profile of schema 1 found in ~/.claude/profiles/. */
 export interface LegacyProfile {
   name: string
@@ -240,7 +249,7 @@ export function readLegacyProfiles(
       jsonText: text,
       rules: existsSync(rulesPath) ? readFileSync(rulesPath, 'utf8') : null,
       carried: CARRIED.filter((folder) => existsSync(join(dir, folder))).map((folder) => `${folder}/`),
-      fields: { mode, languageDocs: proposeLanguageDocs(json), attribution: 'on' },
+      fields: { mode, languageDocs: proposeLanguageDocs(json), attribution: proposeAttribution(json, mode) },
       modeReason: reason,
     })
   }

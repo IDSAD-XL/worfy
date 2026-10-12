@@ -68,7 +68,9 @@ In a project over several repositories, read each repository, and the folder abo
 - `language.docs` — the language of the documents already there; without documents, the language of
   the user's messages (worfy sets `language.reports` from the system language itself);
 - `workflow.finish` — `pr-green-ci` when the facts name an `origin`, else `local-green`;
-- `mcp.allowed` — `["plugin_worfy_qmd", "worfy-canvas"]`; `attribution` — `"on"`;
+- `mcp.allowed` — `["plugin_worfy_qmd", "worfy-canvas"]`;
+- `attribution` — `"off"` in Silent mode, `"on"` in Full mode: a Silent project's commits and PRs
+  carry no Claude attribution lines unless the user asks for them;
 - `github.account` — `null` (the account is chosen later);
 - `tickets.branch` — `<эпик>/<NN>` in Full mode, `null` in Silent mode (the branch is named by the
   change);

@@ -236,7 +236,10 @@ if (schema === 2 && !MODES.includes(profile.mode))
     )
 // Before modes existed the whole Harness worked as Full mode.
 if (schema === 1) profile.mode = "full"
-if (profile.attribution === undefined) profile.attribution = "on"
+// `attribution` not set: the default follows the mode — `off` in Silent mode, whose repository and PRs show
+// no trace of the workflow, `on` in Full mode. A value written in the profile wins in both modes. This is the
+// one place the default lives: bin/silent-check, the guard, the session hook and skills read the value from here.
+if (profile.attribution === undefined) profile.attribution = profile.mode === "silent" ? "off" : "on"
 // The old form `"language": "ru"` is one language for everything. Readers ask for `language.reports` and
 // `language.team` (profiles/README.md), so the string is expanded into an object with both fields.
 if (typeof profile.language === "string") profile.language = { reports: profile.language, team: profile.language }

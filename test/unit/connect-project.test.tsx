@@ -3,6 +3,8 @@
 // and a check that could not run keeps "Connect" unavailable until a check runs again. The GitHub
 // account step (worfy-harness ticket 25): the account chosen by default and the one the person
 // picks go into the checked draft with their finish, and "Connect" waits for the accounts.
+// Attribution: the form shows the value of the draft — off in a Silent draft, on in a Full one — the
+// value the person picks is written as picked, and the mode cannot change under a draft.
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ConnectFolder, GithubAccountsStep, ProfileDraft } from '../../src/shared/ipc/projects'
@@ -14,10 +16,12 @@ const { ConnectProject } = await import('../../src/renderer/projects/ConnectProj
 
 const folder: ConnectFolder = { kind: 'git', root: '/repos/shop', repos: [{ name: 'shop', path: '/repos/shop' }], notice: null }
 const draft: ProfileDraft = {
-  profile: { name: 'shop', mode: 'silent', commands: { test: 'npm test' }, language: { reports: 'en', team: 'en', docs: 'en' }, attribution: 'on', workflow: { finish: 'local-green', folder: null } },
+  profile: { name: 'shop', mode: 'silent', commands: { test: 'npm test' }, language: { reports: 'en', team: 'en', docs: 'en' }, attribution: 'off', workflow: { finish: 'local-green', folder: null } },
   rules: '# shop\n',
   gate: [{ key: 'shop', match: '/repos/shop', profile: 'shop', root: { fast: ['test'], full: ['test'] } }],
 }
+/** The draft of the same folder in Full mode, as skill connect-project proposes it. */
+const fullDraft: ProfileDraft = { ...draft, profile: { ...draft.profile, mode: 'full', attribution: 'on' } }
 
 const open = () =>
   render(<ConnectProject folder={folder} harnessHome="/h" onClose={() => undefined} onConnected={() => undefined} onPickAnother={() => undefined} onFirstRun={() => undefined} />)
@@ -46,15 +50,16 @@ describe('the mode cards', () => {
 const NO_ORIGIN: GithubAccountsStep = { status: 'no-origin', reason: 'No GitHub origin: shop has no origin remote.' }
 
 /** The dialog in its form: the draft, the account step's answer, and the check that answer started. */
-async function toForm(issues: { path: string; kind: string; message: string }[], accounts: GithubAccountsStep | Promise<GithubAccountsStep> = NO_ORIGIN) {
-  ipc.invoke.mockImplementation((channel: string) =>
+async function toForm(issues: { path: string; kind: string; message: string }[], accounts: GithubAccountsStep | Promise<GithubAccountsStep> = NO_ORIGIN, mode: 'silent' | 'full' = 'silent') {
+  ipc.invoke.mockImplementation((channel: string, input?: { mode?: string }) =>
     channel === 'projects.connect.draft'
-      ? Promise.resolve({ ok: true, value: { status: 'draft', draft, issues } })
+      ? Promise.resolve({ ok: true, value: { status: 'draft', draft: input?.mode === 'full' ? fullDraft : draft, issues } })
       : channel === 'projects.connect.accounts'
         ? Promise.resolve(accounts).then((value) => ({ ok: true, value }))
         : Promise.resolve({ ok: true, value: { issues } }),
   )
   open()
+  if (mode === 'full') fireEvent.click(screen.getByTestId('connect-mode-full').querySelector('input') as HTMLInputElement)
   fireEvent.click(screen.getByRole('button', { name: 'Write draft' }))
   await screen.findByLabelText('Name')
 }
@@ -113,6 +118,84 @@ describe('the form', () => {
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'shop2' } })
     await waitFor(() => expect(screen.getByTestId('connect-message').textContent).toContain('The draft could not be checked'), { timeout: 2000 })
     expect(screen.getByTestId('connect-message').textContent).not.toContain('the write broke')
+  })
+})
+
+describe('attribution in the form', () => {
+  const attribution = (): HTMLElement => screen.getByLabelText('Attribution')
+  /** Chooses `value` in the Attribution field: a click on the field, then on the option. */
+  const pickAttribution = (value: string): void => {
+    fireEvent.click(attribution())
+    const option = screen.getAllByRole('option').find((element) => element.getAttribute('data-value') === value)
+    if (option === undefined) throw new Error(`no option ${value}`)
+    fireEvent.click(option)
+  }
+  const draftCalls = (): { mode: string }[] => ipc.invoke.mock.calls.filter(([channel]) => channel === 'projects.connect.draft').map(([, input]) => input as { mode: string })
+  const written = (): ProfileDraft | undefined => (ipc.invoke.mock.calls.find(([channel]) => channel === 'projects.connect.write')?.[1] as { draft: ProfileDraft } | undefined)?.draft
+
+  it('a Silent draft shows off and Connect writes off', async () => {
+    await toForm([])
+    await checked()
+    expect(draftCalls()).toMatchObject([{ mode: 'silent' }])
+    expect(screen.getByTestId('connect-form-mode').textContent).toBe('silent')
+    expect(attribution().getAttribute('data-value')).toBe('off')
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+    expect(written()?.profile).toMatchObject({ mode: 'silent', attribution: 'off' })
+  })
+
+  it('a Full draft shows on and Connect writes on', async () => {
+    await toForm([], NO_ORIGIN, 'full')
+    await checked()
+    expect(draftCalls()).toMatchObject([{ mode: 'full' }])
+    expect(screen.getByTestId('connect-form-mode').textContent).toBe('full')
+    expect(attribution().getAttribute('data-value')).toBe('on')
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+    expect(written()?.profile).toMatchObject({ mode: 'full', attribution: 'on' })
+  })
+
+  it('the value the person picks is checked and written as picked, against the default of the mode', async () => {
+    await toForm([])
+    await checked()
+    pickAttribution('on')
+    await checked()
+    expect(attribution().getAttribute('data-value')).toBe('on')
+    expect(checkedDrafts().at(-1)?.profile).toMatchObject({ mode: 'silent', attribution: 'on' })
+    // Another edit of the form leaves the picked value alone.
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'shop2' } })
+    await checked()
+    expect(attribution().getAttribute('data-value')).toBe('on')
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+    expect(written()?.profile).toMatchObject({ name: 'shop2', mode: 'silent', attribution: 'on' })
+  })
+
+  it('the mode cannot change under a draft: the form shows it read-only and offers no mode cards', async () => {
+    await toForm([])
+    await checked()
+    expect(screen.queryByTestId('connect-mode-silent')).toBeNull()
+    expect(screen.queryByTestId('connect-mode-full')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
+    expect(screen.getByTestId('connect-form-mode').tagName).toBe('SPAN')
+  })
+
+  it('a draft that failed, Back, the other mode: the form shows the value of the new draft', async () => {
+    let attempt = 0
+    ipc.invoke.mockImplementation((channel: string, input?: { mode?: string }) => {
+      if (channel === 'projects.connect.draft') {
+        attempt += 1
+        if (attempt === 1) return Promise.resolve({ ok: true, value: { status: 'failed', reason: 'The draft Session failed: no answer', issues: [] } })
+        return Promise.resolve({ ok: true, value: { status: 'draft', draft: input?.mode === 'full' ? fullDraft : draft, issues: [] } })
+      }
+      return Promise.resolve({ ok: true, value: channel === 'projects.connect.accounts' ? NO_ORIGIN : { issues: [] } })
+    })
+    open()
+    fireEvent.click(screen.getByRole('button', { name: 'Write draft' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Back' }))
+    fireEvent.click(screen.getByTestId('connect-mode-full').querySelector('input') as HTMLInputElement)
+    fireEvent.click(screen.getByRole('button', { name: 'Write draft' }))
+    await screen.findByLabelText('Name')
+    expect(draftCalls()).toMatchObject([{ mode: 'silent' }, { mode: 'full' }])
+    expect(screen.getByTestId('connect-form-mode').textContent).toBe('full')
+    expect(attribution().getAttribute('data-value')).toBe('on')
   })
 })
 

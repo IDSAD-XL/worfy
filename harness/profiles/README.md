@@ -119,7 +119,7 @@ the way the project really runs them.
 | `language.reports` | `"ru"` \| `"en"` | language of agent reports and messages to the user | all agents, skills |
 | `language.team` | `"ru"` \| `"en"` | language of everything the team sees: code comments, commit messages, PR titles and descriptions, review comments and verdicts in PRs. While the profile has no `language.docs`, documents (tickets, `spec.md`, ADRs, the state file) are written in the language their neighbours are already written in; a new set without neighbours — `language.reports`; exceptions — in `rules.md`. The old form is the string `"language": "ru"`: `bin/profile` reads it as `{reports: "ru", team: "ru"}`, so `--field language.team` works on it too | implementer, reviewer, ship-ticket, epic-wave, overnight-fix-loop, continuous-audit |
 | `language.docs` | `"ru"` \| `"en"` | language of the project's documents: tickets, the epic spec, ADRs, the state file, lessons. Absent — exit 4, and the reader keeps the rule of `language.team` (the language of the neighbouring documents) | implementer, reviewer, ship-ticket, epic-wave, retro |
-| `attribution` | `"on"` \| `"off"` | whether commits and PRs carry the Claude attribution lines. Absent — `--field attribution` prints `on` | agents and skills that commit or open PRs |
+| `attribution` | `"on"` \| `"off"` | whether commits and PRs carry the Claude attribution lines. Absent — the default follows `mode`: `--field attribution` prints `off` in Silent mode and `on` in Full mode (worfy ADR-0061). A value written here wins in both modes | agents and skills that commit or open PRs |
 | `layout.summary` | string | the code layout in one phrase (packages, repositories) | scout |
 | `layout.packages` | strings | package or repository directories | scout, audit |
 | `layout.repos` | `{"<repository>": {kind, default_branch, what}}` \| null | a project of several repositories: `kind` — `single` (one package) or `workspaces`; the main branch; what is in it | scout, implementer |
@@ -324,7 +324,15 @@ stays as it is. `bin/profile` prints the fields as written; `bin/ticket`, `bin/e
 **`attribution: off`** (any mode): commits and PRs of the project carry no Claude attribution lines
 (`Co-Authored-By: Claude …`, `Generated with [Claude Code]`). `hooks/session-start.sh` says so in every
 session of the project, and the guard refuses the commands above when their text carries such a line.
-`on` (the default) — as before.
+`on` — as before.
+
+A profile that does not set `attribution` gets the default of its mode: **`off` in Silent mode, `on`
+in Full mode** (worfy ADR-0061, which refines item 6 of ADR-0042). A value written in the profile
+wins in both modes: `"on"` in a Silent project keeps the lines, `"off"` in a Full project drops
+them. The default lives in one place, `bin/profile`: `--field attribution` and `--json` print the
+resolved value, and `bin/silent-check`, the guard, `hooks/session-start.sh` and the skills read it
+from there. Skill `connect-project` proposes the same value in its draft, and the draft always names
+it, so a project connected through worfy carries the value explicitly.
 
 ## Local finish
 
@@ -373,7 +381,8 @@ Profiles of schema 1 are read until they are moved to schema 2 and into `$HARNES
   has no `profile.json` (step 3 of the lookup).
 - **`mode`.** Schema 1 has no such field; `--field mode` prints `full`: before modes the whole
   Harness worked as Full mode. A schema 1 profile with no `schema` field is read the same way.
-- **`attribution`** — absent prints `on`, as in schema 2; **`language.docs`** — absent, exit 4.
+- **`attribution`** — absent prints `on`: schema 1 is always Full mode, whose default is `on`;
+  **`language.docs`** — absent, exit 4.
 - **The four path fields.** Schema 1 has `tickets.status_tool`, `tickets.epic_status`,
   `workflow.preflight` (with the placeholder `<эпик>`) and `numbering.reserve_with` — paths to the
   Harness, not facts of the project. A value that starts with `~/.claude/bin/` or with its

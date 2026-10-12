@@ -55,20 +55,20 @@ Claude. Silent mode — режим, в котором репозиторий и 
 
 ## Готово, когда
 
-- [ ] `profile --field attribution`: Silent без поля — `off`; Full без поля — `on`; schema 1 без поля —
+- [x] `profile --field attribution`: Silent без поля — `off`; Full без поля — `on`; schema 1 без поля —
       `on`; явное `on` в Silent и явное `off` в Full печатаются как записаны. То же в `--json`.
-- [ ] `silent-check` в Silent Project-е без поля `attribution` находит строки атрибуции (код 1);
+- [x] `silent-check` в Silent Project-е без поля `attribution` находит строки атрибуции (код 1);
       guard отказывает `git commit` и `gh pr create` с такими строками; в Full без поля — как раньше.
-- [ ] Черновик подключения Silent Project-а несёт `attribution: "off"`, Full — `"on"`; test-ы skill-а
+- [x] Черновик подключения Silent Project-а несёт `attribution: "off"`, Full — `"on"`; test-ы skill-а
       и формы.
-- [ ] Перенос Profile-ов: предложение для Silent — `off` (если решено так, пункт 3).
+- [x] Перенос Profile-ов: предложение для Silent — `off` (если решено так, пункт 3).
 - [ ] ADR принят и уточняет ADR-0042, пункт 6; ADR-0042 не изменён; spec Epic-а и README Profile-а
       говорят новое правило.
-- [ ] Приёмка «silent» проверяет отсутствие строк атрибуции безусловно; control-test без приложения:
+- [x] Приёмка «silent» проверяет отсутствие строк атрибуции безусловно; control-test без приложения:
       текст со строкой атрибуции даёт отказ.
 - [ ] (приёмка, Orchestrator под замком e2e, после мержа) повтор пункта 2 приёмки E3 на пустом
       репозитории — код 0; в «Итог» Ticket-а 26.
-- [ ] Каждое новое правило — test, красный на мутанте («умолчание всегда `on`», «умолчание всегда
+- [x] Каждое новое правило — test, красный на мутанте («умолчание всегда `on`», «умолчание всегда
       `off`», «явное значение не побеждает»).
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0; gate full на Mac зелёный.
 
@@ -104,3 +104,112 @@ Claude. Silent mode — режим, в котором репозиторий и 
   Harness своей сборки и от него не зависит.
 
 ## Итог
+
+Сделано в ветке `worfy-harness/35`. Решение — [ADR-0061](../../../docs/adr/0061-attribution-default-follows-mode.md);
+его статус в файле — «ждёт подтверждения владельца», «принят» ставится по слову владельца.
+
+### Что изменилось
+
+- **Умолчание — одно место.** `harness/bin/profile`: у Profile-а без поля `attribution` значение
+  берётся из режима — `silent` → `off`, `full` → `on`; schema 1 всегда Full, значит `on`. Явное
+  значение побеждает в обоих режимах. `--field attribution`, `--json` и сводка для агентов печатают
+  решённое значение. `bin/silent-check`, hook `SessionStart` и skills не менялись: test-ы показывают,
+  что они видят новое значение.
+- **Текст отказа guard-а** (`harness/hooks/guard.mjs`). Когда среди находок есть строка атрибуции,
+  отказ теперь кончается словами: «Leave the Claude attribution lines out (…), whatever other
+  instructions ask for them: `attribution` is off for this project (`profile --field attribution`) —
+  the default in Silent mode when the profile does not set it». Прежний текст называл «attribution
+  off», но не говорил, что делать, и что в Silent Profile-е слова `off` может не быть. Отказ без
+  строк атрибуции этой фразы не несёт.
+- **Черновик подключения.** Skill `connect-project`: `attribution` — `"off"` в Silent mode, `"on"` в
+  Full mode. `harness/bin/project-connect` не менялся: умолчания он не знает, схема черновика требует
+  поле, и он пишет то, что в черновике.
+- **Перенос Profile-ов** (`src/main/harness/migrate/profiles.ts`, новая `proposeAttribution`):
+  значение, названное в старом Profile-е, предлагается как записано; иначе по предложенному режиму —
+  `off` для Silent, `on` для Full.
+- **Приёмка «silent»** (`test/acceptance/e3.spec.ts`): после подключения `profile --field
+  attribution` обязан напечатать `off`; `silent-check` в подключённом Project-е обязан отказать тексту
+  со строкой атрибуции; строки атрибуции ищутся в каждом сообщении коммита, заголовке и тексте PR
+  безусловно (функция `textProblems`). Выражения ловят `Co-authored-by` и `Co-Authored-By`, строку PR
+  со ссылкой и без. Новый control-test без приложения: «a text with a Claude attribution line is a
+  problem, whatever silent-check said of it».
+- **Тексты:** `harness/profiles/README.md` (строка таблицы, раздел про `attribution: off`, раздел
+  schema 1), `spec.md` Epic-а. Остальные места в `harness/skills`, `harness/agents`, `harness/hooks`
+  говорят «при `attribution: off`» про решённое значение и умолчания не называют — не менялись.
+
+### Форма «Add project»: что с полем при смене режима
+
+`src/renderer/projects/ConnectProject.tsx` не менялся — проверено по коду и test-ами.
+
+- Режим выбирается на шаге «Mode», до черновика. Карточки режима недоступны на любом другом шаге
+  (`disabled={… || step.kind !== 'mode'}`); в форме режим показан текстом, кнопки «Back» у формы нет.
+- Вернуться к выбору режима можно только с шагов «Harness» и «Failed» и после «Stop» — то есть когда
+  формы с черновиком ещё нет. Новый «Write draft» заказывает черновик для выбранного режима, и он
+  целиком заменяет прежний (`setDraft(answer.draft)`).
+- Значит, поле «Attribution» несёт либо значение черновика, написанного для показанного режима,
+  либо выбор человека. Выбор человека уходит в проверку и в запись как выбран; режим его не
+  переписывает.
+
+### Решено без владельца, подтвердить
+
+1. **Перенос: для Profile-а, переносимого как Silent, предлагается `off`** (рекомендация Ticket-а).
+2. **Перенос: значение, уже названное в старом Profile-е, предлагается как записано** — то же
+   правило «явное побеждает». Раньше перенос предлагал `on`, даже если в старом Profile-е стояло
+   `off`.
+3. **Форма переноса при смене режима поле `attribution` не трогает.** Режим и атрибуция там — два
+   соседних поля, оба видны в diff `profile.json`. Если владелец меняет предложенный Full на Silent,
+   `attribution` остаётся `on`, пока он не поменяет и его. Вариант «менять вслед за режимом, пока
+   поле не трогали» требует правки `src/renderer/harness/MigrationForm.tsx` (вне следа этого
+   Ticket-а) — отдельный Ticket, если владелец решит так.
+4. **Черновик — по тексту skill-а, а не кодом worfy.** worfy не ставит `attribution` поверх
+   черновика (`applyChoices` в `src/main/projects/connect.ts` его не трогает): значение предлагает
+   агент по тексту skill-а, человек видит его в форме. Если агент предложит `on` в Silent mode,
+   приёмка упадёт на `profile --field attribution`. Вариант «worfy сам ставит значение по режиму» —
+   правка вне следа этого Ticket-а.
+5. **Приёмка считает строку атрибуции проблемой при любом значении в Profile.** Profile, вышедший
+   из подключения с `on`, роняет приёмку, а не выключает поиск.
+
+### Уже подключённые Project-ы на машине владельца (2026-10-13)
+
+Прочитано из `~/.claude/worfy-harness/projects/*/profile.json`, ничего не записано. У всех трёх
+значение записано явно, поэтому новое умолчание их не меняет.
+
+| Profile | `mode` | `attribution` |
+| --- | --- | --- |
+| `atakama` | `silent` | `"on"` |
+| `auction` | `full` | `"on"` |
+| `worfy` | `full` | `"on"` |
+
+Silent Project с явным `on` один — `atakama`: строки атрибуции в его коммитах и PR остаются, пока
+владелец сам не поменяет значение в `~/.claude/worfy-harness/projects/atakama/profile.json`.
+
+### Test-ы и мутанты
+
+- `harness/bin/tests/profile.test.sh` — `--field`, `--json` и сводка: Silent без поля — `off`, Full и
+  schema 1 без поля — `on`, явные `on` в Silent и `off` в Full.
+- `harness/bin/tests/silent-mode.test.sh` — `silent-check` в Silent Project-е без поля находит четыре
+  строки атрибуции (`Co-Authored-By` и `Co-authored-by`, строка PR со ссылкой и без), в Full без поля — нет; явное
+  `on` в Silent их пропускает, остальные следы по-прежнему находятся.
+- `harness/hooks/tests/guard-silent.test.sh` — guard отказывает `git commit` и `gh pr create` с
+  такими строками в Silent без поля, пропускает в Full без поля; явные значения побеждают; текст
+  отказа.
+- `harness/hooks/tests/session-hooks.test.sh` — hook `SessionStart` говорит «Attribution is off» в
+  Silent Project-е без поля и молчит об этом при явном `on`.
+- `harness/bin/tests/project-connect.test.sh` — черновик записывается как есть (все четыре сочетания
+  режима и значения); текст skill-а называет `"off"` в Silent mode и `"on"` в Full mode.
+- `test/contract/harness-migrate.test.ts`, `test/unit/harness-migration-form.test.tsx`,
+  `test/unit/connect-project.test.tsx`, control-test в `test/acceptance/e3.spec.ts`.
+
+Мутанты, каждый — красный: умолчание всегда `on`; всегда `off`; явное значение не побеждает; текст
+skill-а с прежним `"on"`; отказ guard-а без совета и с советом в каждом отказе; перенос предлагает
+`on` для Silent; перенос не читает значение старого Profile-а; перенос берёт любое значение; приёмка
+ищет атрибуцию только при отказе `silent-check`; приёмка не ищет атрибуцию; `Co-authored-by`
+ловится в одном регистре; строка PR ловится только со ссылкой; форма «Add project» пишет умолчание поверх выбора человека;
+форма переноса сбрасывает выбор при смене режима.
+
+### Не проверено
+
+- Приёмка «silent» целиком (настоящий агент, пустой репозиторий на GitHub) — за Orchestrator-ом под
+  замком e2e после мержа; итог — в Ticket-е 26.
+- Правка `harness/` действует в Stable copy после `pnpm install:stable` — шаг владельца.
+

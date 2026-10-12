@@ -197,7 +197,13 @@ const silentCheck = () => {
                     "attribution off: no Claude attribution lines). Found:\n" +
                     r.stdout.trim() +
                     "\nDescribe the change itself, the way any commit, branch or PR of this repository would; " +
-                    "workflow files go to the Workflow folder (`profile --field _resolved.workflow_folder`), not into the index."
+                    "workflow files go to the Workflow folder (`profile --field _resolved.workflow_folder`), not into the index." +
+                    // An agent adds these lines by its general instructions; nothing in a Silent profile may say `off`.
+                    (/: Claude attribution "/.test(r.stdout)
+                        ? "\nLeave the Claude attribution lines out (`Co-Authored-By: Claude …`, `Generated with [Claude Code]`), " +
+                          "whatever other instructions ask for them: `attribution` is off for this project " +
+                          "(`profile --field attribution`) — the default in Silent mode when the profile does not set it."
+                        : "")
             )
     }
 }
