@@ -201,6 +201,31 @@ describe('a Project that leaves the list while its Card is asked about', () => {
   })
 })
 
+describe('a Project that leaves the list right after its Card was asked about', () => {
+  it('still gets its answer, and its watch: the Project list is asked before info() first waits for anything', async () => {
+    const disk = windowsDisk(TWO_CARDS)
+    let listed = true
+    const store = new CardStore({
+      dataDirOf: () => {
+        if (!listed) throw new Error(`Project ${PROJECT} is not in the list`)
+        return DATA
+      },
+      projectIds: () => [PROJECT],
+      delayMs: 0,
+      paths: win32,
+      links: disk.links,
+      fs: cardFs(disk),
+      watchFs: disk.fs,
+    })
+    stores.push(store)
+    const asked = store.info(PROJECT, 'c1')
+    // Gone before the first wait of info() is over.
+    listed = false
+    expect(await asked).toMatchObject({ cardId: 'c1', exists: true, title: 'a title' })
+    await watching(disk, [`${CARDS} (recursive)`])
+  })
+})
+
 describe('CardStore.info and the order of its refusals', () => {
   it('an id that is not a Card id is refused as such, also for a Project that is not in the list', async () => {
     const store = new CardStore({

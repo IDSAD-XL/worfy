@@ -279,8 +279,8 @@ export class LinkSafeWatch {
     }
   }
 
+  /** Called only by a watch that is still the current one: after close there is none. */
   private report(path: string): void {
-    if (this.closed) return
     const { root } = this.options
     const interesting = path === root || this.options.wanted(path)
     if (interesting) this.options.onChange(path)

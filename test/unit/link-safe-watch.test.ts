@@ -144,6 +144,20 @@ describe('a link to a share', () => {
     expect(disk.calls).toEqual([`lstat ${REPO}`, `readlink ${REPO}`])
   })
 
+  it('a root that is a link which cannot be read, or cannot be looked at, is refused like one that leads to a share', async () => {
+    const unread = windowsDisk({ [`${REPO}\\README.md`]: FILE, [ROOT]: linkTo('C:\\other\\scratch'), 'C:\\other\\scratch\\demo\\issues\\01-a.md': FILE })
+    unread.breakLink(ROOT)
+    expect((await start(unread)).state).toBe('refused')
+    expect(unread.open()).toEqual([])
+    expect(through(unread, ROOT)).toEqual([])
+
+    const denied = windowsDisk(TICKETS)
+    denied.deny(ROOT)
+    expect((await start(denied)).state).toBe('refused')
+    expect(denied.open()).toEqual([])
+    expect(denied.calls.filter((call) => !call.startsWith('lstat '))).toEqual([])
+  })
+
   it('a root that lies on a share of the caller is watched: the share is the caller\'s own', async () => {
     const share = '\\\\nas\\work\\repo'
     const disk = windowsDisk({ [`${share}\\.scratch\\demo\\issues\\01-a.md`]: FILE })

@@ -128,6 +128,19 @@ describe('the trash and the files of a Card', () => {
     expect(disk.contacts).toEqual([])
   })
 
+  it('a data folder on a share of its own — worfy told to keep its data there — is looked at as a folder of a disk is', () => {
+    const data = '\\\\nas\\worfy\\demo'
+    const disk = windowsDisk({ [`${data}\\cards\\c1\\index.html`]: FILE, [`${data}\\card-data\\c1.json`]: FILE })
+    const fs = { there: disk.there, readText: disk.readText }
+    expect(cardOnDisk({ folder: `${data}\\cards\\c1`, data: `${data}\\card-data\\c1.json` }, data, { paths: win32, links: disk.linksSync, fs })).toEqual({
+      folder: true,
+      data: true,
+      title: `the text of ${data}\\cards\\c1\\index.html`,
+    })
+    expect(placeOf(`${data}\\cards\\c2`, data, { paths: win32, links: disk.linksSync, fs })).toBe('free')
+    expect(disk.contacts).toEqual([])
+  })
+
   it('under POSIX rules no link is read: the look and the read are as before', () => {
     const disk = windowsDisk({})
     const seen: string[] = []
