@@ -9,18 +9,24 @@ interface Ico {
   packIco: (pngs: Buffer[], names?: string[]) => Buffer
   readIco: (data: Buffer) => { px: number; png: Buffer }[]
   pngSizeOf: (data: Buffer) => { width: number; height: number } | null
+  pngFormatOf: (data: Buffer) => { bitDepth: number; colourType: number } | null
 }
 const SCRIPT = join(import.meta.dirname, '..', '..', 'scripts', 'ico.mjs')
-const { packIco, readIco, pngSizeOf } = (await import(pathToFileURL(SCRIPT).href)) as Ico
+const { packIco, readIco, pngSizeOf, pngFormatOf } = (await import(pathToFileURL(SCRIPT).href)) as Ico
 
-/** The start of a PNG of the given size, with `tail` bytes after the IHDR so that images differ in length. */
-function png(width: number, height: number = width, tail = 0): Buffer {
+/**
+ * The start of a PNG of the given size, 8-bit RGBA unless `format` says otherwise, with `tail` bytes
+ * after the IHDR so that images differ in length.
+ */
+function png(width: number, height: number = width, tail = 0, format: { bitDepth?: number; colourType?: number } = {}): Buffer {
   const data = Buffer.alloc(33 + tail, 0xab)
   Buffer.from('89504e470d0a1a0a', 'hex').copy(data, 0)
   data.writeUInt32BE(13, 8)
   data.write('IHDR', 12, 'latin1')
   data.writeUInt32BE(width, 16)
   data.writeUInt32BE(height, 20)
+  data.writeUInt8(format.bitDepth ?? 8, 24)
+  data.writeUInt8(format.colourType ?? 6, 25)
   return data
 }
 
@@ -62,6 +68,22 @@ describe('packIco', () => {
     expect(() => packIco([png(0)])).toThrow(/is 0 px/)
     expect(() => packIco([png(1), png(256)])).not.toThrow()
   })
+
+  it('refuses a PNG that is not 8-bit RGBA: its entry would say 32 bits per pixel about other pixels', () => {
+    // No alpha (colour type 2), 16 bits per channel, a palette, grey with alpha.
+    expect(() => packIco([png(16), png(32, 32, 0, { colourType: 2 })], ['a.png', 'b.png'])).toThrow(/^b\.png is not an 8-bit RGBA PNG \(bit depth 8, colour type 2\): an entry of the \.ico says 32 bits per pixel$/)
+    expect(() => packIco([png(16, 16, 0, { bitDepth: 16 })])).toThrow(/^image 1 is not an 8-bit RGBA PNG \(bit depth 16, colour type 6\)/)
+    expect(() => packIco([png(16, 16, 0, { colourType: 3 })])).toThrow(/colour type 3/)
+    expect(() => packIco([png(16, 16, 0, { colourType: 4 })])).toThrow(/colour type 4/)
+    // A stub that ends before its IHDR does, and one whose first chunk is not IHDR.
+    expect(() => packIco([png(16).subarray(0, 24)], ['stub.png'])).toThrow(/^stub\.png has no whole IHDR chunk/)
+    const other = png(16)
+    other.write('tEXt', 12, 'latin1')
+    expect(() => packIco([other])).toThrow(/has no whole IHDR chunk/)
+    expect(pngFormatOf(png(16))).toEqual({ bitDepth: 8, colourType: 6 })
+    expect(pngFormatOf(png(16).subarray(0, 32))).toBeNull()
+    expect(pngFormatOf(Buffer.from('not a png at all, not a png at all'))).toBeNull()
+  })
 })
 
 describe('readIco', () => {
@@ -89,6 +111,13 @@ describe('readIco', () => {
     const notPng = Buffer.from(ico)
     notPng.writeUInt8(0, ico.readUInt32LE(6 + 12))
     expect(() => readIco(notPng)).toThrow(/^entry 1 of the \.ico is not a PNG$/)
+    // An entry that says another depth, and a PNG that is not 8-bit RGBA behind an entry that says 32.
+    const depth = Buffer.from(ico)
+    depth.writeUInt16LE(24, 6 + 16 + 6)
+    expect(() => readIco(depth)).toThrow(/^entry 2 of the \.ico says 24 bits per pixel, not 32$/)
+    const noAlpha = Buffer.from(ico)
+    noAlpha.writeUInt8(2, ico.readUInt32LE(6 + 12) + 25)
+    expect(() => readIco(noAlpha)).toThrow(/^the PNG of entry 1 of the \.ico is not an 8-bit RGBA PNG \(bit depth 8, colour type 2\)$/)
   })
 })
 

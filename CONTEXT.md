@@ -61,7 +61,7 @@ _Avoid_: волна, batch, спринт
 _Avoid_: ночной режим, автономный прогон
 
 **Stable copy**:
-Собранная копия worfy вне репозитория (на macOS — `~/Applications/worfy-stable.app`, на Windows — папка `%LOCALAPPDATA%\Programs\worfy-stable`), из которой Autopilot ведёт Wave-ы самого worfy; обновляется между прогонами.
+Собранная копия worfy вне репозитория (на macOS — `~/Applications/worfy-stable.app`, на Windows — папка `%LOCALAPPDATA%\worfy-stable`), из которой Autopilot ведёт Wave-ы самого worfy; обновляется между прогонами.
 _Avoid_: стабильная копия, prod-сборка, релиз
 
 **Gate**:

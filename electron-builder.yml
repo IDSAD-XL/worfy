@@ -76,7 +76,12 @@ win:
   # asks before the first run.
 
 # The defaults of electron-builder: a one-click installer for the current user, without admin
-# rights, into %LOCALAPPDATA%\Programs\worfy. scripts/install-stable.mjs refuses that folder as the
-# target of the stable copy.
+# rights. A first install goes into %LOCALAPPDATA%\Programs\worfy: the folder is named after
+# `name` of package.json, not after productName. A later install goes where the earlier one went
+# (InstallLocation in the registry), and `/D=<folder>` on the command line names another folder.
+#
+# The installer stops every running program whose path starts with the path of its folder, with no
+# backslash at the end. So scripts/install-stable.mjs keeps the stable copy out of Programs
+# (%LOCALAPPDATA%\worfy-stable by default) and refuses a target whose path starts with that folder.
 
 publish: null

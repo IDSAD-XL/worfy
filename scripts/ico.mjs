@@ -20,9 +20,30 @@ export function pngSizeOf(data) {
   return { width: data.readUInt32BE(16), height: data.readUInt32BE(20) }
 }
 
+/** The colour type of a PNG with red, green, blue and alpha. */
+const RGBA = 6
+
 /**
- * An .ico of the given PNGs (Buffers), in the order given. Each must be a square PNG of 1 to 256 px;
- * anything else throws, with `names[index]` in the message when names are given.
+ * How a PNG stores its pixels, from its IHDR chunk: the bits per channel and the colour type. Null
+ * when the data is not a PNG with a whole IHDR.
+ */
+export function pngFormatOf(data) {
+  if (pngSizeOf(data) === null || data.length < 33 || data.toString('latin1', 12, 16) !== 'IHDR') return null
+  return { bitDepth: data.readUInt8(24), colourType: data.readUInt8(25) }
+}
+
+/** Why a PNG cannot be an entry that says "32 bits per pixel", or null: it must be RGBA with 8 bits per channel. */
+function notRgba8(png) {
+  const format = pngFormatOf(png)
+  if (format === null) return 'has no whole IHDR chunk'
+  if (format.bitDepth !== 8 || format.colourType !== RGBA) return `is not an 8-bit RGBA PNG (bit depth ${format.bitDepth}, colour type ${format.colourType})`
+  return null
+}
+
+/**
+ * An .ico of the given PNGs (Buffers), in the order given. Each must be a square PNG of 1 to 256 px
+ * with 8-bit RGBA pixels, since its entry says 32 bits per pixel; anything else throws, with
+ * `names[index]` in the message when names are given.
  */
 export function packIco(pngs, names = []) {
   if (pngs.length === 0) throw new Error('an .ico needs at least one image')
@@ -32,6 +53,8 @@ export function packIco(pngs, names = []) {
     if (size === null) throw new Error(`${name} is not a PNG`)
     if (size.width !== size.height) throw new Error(`${name} is not square: ${size.width}×${size.height}`)
     if (size.width < 1 || size.width > MAX_SIDE) throw new Error(`${name} is ${size.width} px: an .ico entry is 1 to ${MAX_SIDE} px`)
+    const reason = notRgba8(png)
+    if (reason !== null) throw new Error(`${name} ${reason}: an entry of the .ico says 32 bits per pixel`)
     return size.width
   })
   const header = Buffer.alloc(DIR_BYTES + ENTRY_BYTES * pngs.length)
@@ -58,7 +81,8 @@ export function packIco(pngs, names = []) {
 /**
  * The images of an .ico made of PNG entries, in file order: `px` is the side the directory names,
  * `png` the data. Throws when the data is not such a file: a wrong header, an entry that runs past
- * the end, an entry that is not a PNG, or a PNG whose size is not the one its entry names.
+ * the end, an entry that is not a PNG, a PNG whose size is not the one its entry names, an entry
+ * that does not say 32 bits per pixel, or a PNG that is not 8-bit RGBA.
  */
 export function readIco(data) {
   if (data.length < DIR_BYTES || data.readUInt16LE(0) !== 0 || data.readUInt16LE(2) !== 1) throw new Error('not an .ico: the header is wrong')
@@ -76,6 +100,10 @@ export function readIco(data) {
     const size = pngSizeOf(png)
     if (size === null) throw new Error(`entry ${index + 1} of the .ico is not a PNG`)
     if (size.width !== px || size.height !== height) throw new Error(`entry ${index + 1} of the .ico names ${px}×${height} px, and its PNG is ${size.width}×${size.height}`)
+    const bits = data.readUInt16LE(at + 6)
+    if (bits !== 32) throw new Error(`entry ${index + 1} of the .ico says ${bits} bits per pixel, not 32`)
+    const reason = notRgba8(png)
+    if (reason !== null) throw new Error(`the PNG of entry ${index + 1} of the .ico ${reason}`)
     return { px, png }
   })
 }
