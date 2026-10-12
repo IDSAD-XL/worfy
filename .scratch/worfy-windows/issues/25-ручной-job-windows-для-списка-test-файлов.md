@@ -49,17 +49,18 @@ Source: решение владельца 2026-10-12: вынести вперё�
 
 ## Готово, когда
 
-- [ ] Запуск с двумя малыми файлами, зелёными на Windows сегодня, — exit 0 на `windows-latest`.
+- [x] Запуск с двумя малыми файлами, зелёными на Windows сегодня, — exit 0 на `windows-latest`.
       Кандидаты: `test/unit/remote-links.test.ts` и `test/unit/shell-resolve.test.ts` (на ПК оба
       проходят целиком — «Итог» Ticket-а 18, `:236`). Длительность и цена — в «Итог».
-      не проверено: запуск на GitHub делает владелец после мержа
-- [ ] Запуск с e2e-файлом, запуск с 13 файлами и запуск с пустым списком: каждый падает на шаге
+      2026-10-13: с `remote-links` и `action-templates` — success, 63 passed, job 106 s. С парой
+      кандидатов запуск красный: один test `shell-resolve` падает на чистой машине (см. «Итог»).
+- [x] Запуск с e2e-файлом, запуск с 13 файлами и запуск с пустым списком: каждый падает на шаге
       проверки меньше чем за минуту. Ссылки на прогоны — в «Итог».
-      не проверено: запуск на GitHub делает владелец после мержа
+      2026-10-13: 22, 19 и 26 s; пустую строку GitHub не принимает вовсе (HTTP 422).
 - [x] Job-ы `check` и `full-macos` не изменились: diff их определений пуст.
 - [x] Contract test падает, когда убрано любое ограничение из пунктов 1 и 2 (проверено по одному).
-- [ ] CI на Linux зелёный; gate full на Mac зелёный.
-      не проверено: gate full на Mac запускает оркестратор перед мержем; CI на Linux зелёный — PR #254
+- [x] CI на Linux зелёный; gate full на Mac зелёный.
+      2026-10-13 01:17: gate full на `be1db3d` — exit code 0 (после перезапуска `fseventsd`); CI — PR #254.
 
 ## Тесты
 
@@ -234,4 +235,37 @@ workflow-файл им не проверен.
 - Gate full на Mac: 2026-10-12 23:15 – 2026-10-13 00:45 — красный в четырёх запусках на test-ах вне PR (наблюдатели за файлами `docs.test.ts`, `claude-home-registry.test.ts`, e2e `card-drag` и `external-session`); main без этого PR в то же время тоже не проходил `pnpm test`. Причина — служба macOS `fseventsd` (замеры владельца — `worfy-windows` 26); после `sudo killall fseventsd` в 01:02 — один запуск, код 0, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`, на head `be1db3d` (rebase на `5f43db8`).
 - Мерж: CI зелёный, CLEAN, влит `6b06ca0`. Workflow «Windows tests» появился в списке workflow-ов репозитория; запусков его не было.
 - не проверено: первые два пункта «Готово, когда» — платные запуски на `windows-latest` делает владелец после мержа и присылает числа.
-- Пункт 6 Ticket-а: строка в `rules.md` Profile-а об исключении из правила о платных прогонах не добавлена — файл живёт в `~/.claude/worfy-harness`, запись туда — по слову владельца.
+- Пункт 6 Ticket-а: строку в `rules.md` Profile-а об исключении из правила о платных прогонах добавил владелец 2026-10-13 (commit `1b4296b` в `~/.claude/worfy-harness`): исключение — только workflow «Windows tests»; запускают владелец и Session-оркестратор на Mac, которая ведёт очередь; Session этого Ticket-а, implementer и reviewer — нет.
+
+### Приёмочные запуски на `windows-latest` (2026-10-13, Session на Mac, с разрешения владельца)
+
+Команда: `gh workflow run windows-tests.yml --ref main -f files="…"`, ветка `main` (`6b06ca0`).
+Длительность — время job-а от начала до конца.
+
+| Список | Прогон | Итог | Где остановился | Job |
+| --- | --- | --- | --- | --- |
+| `remote-links`, `action-templates` | [38316069584](https://github.com/IDSAD-XL/worfy/actions/runs/38316069584) | success | 2 файла, 63 passed | 106 s |
+| `remote-links`, `shell-resolve` | [38315851244](https://github.com/IDSAD-XL/worfy/actions/runs/38315851244) | failure | шаг test-ов: 68 passed, 1 failed, 1 skipped | 70 s |
+| 13 файлов `test/unit/` | [38315861539](https://github.com/IDSAD-XL/worfy/actions/runs/38315861539) | failure | шаг проверки, до установки | 19 s |
+| `test/e2e/card-drag.spec.ts` | [38315872677](https://github.com/IDSAD-XL/worfy/actions/runs/38315872677) | failure | шаг проверки, до установки | 22 s |
+| `,` (после разбора список пуст) | [38315905139](https://github.com/IDSAD-XL/worfy/actions/runs/38315905139) | failure | шаг проверки, до установки | 26 s |
+| пустая строка; один пробел | прогона нет | HTTP 422 | GitHub: «Required input 'files' not provided» | 0 |
+
+- **Сообщения отказа** — те, что задуманы: «13 files listed, one run takes 12 at most»;
+  «"test/e2e/card-drag.spec.ts": is not under test/unit/ or test/contract/»; «the list is empty: name
+  at least one test file».
+- **Пустой список строже, чем в «Готово, когда»:** GitHub не создаёт прогон, потому что вход `files`
+  обязателен. До шага проверки доходит только список, пустой после разбора (запятая).
+- **По шагам, прогон с `shell-resolve`:** checkout 7 s, проверка списка 3 s, pnpm 16 s, Node 6 s,
+  `pnpm install --frozen-lockfile` 24 s, test-ы 7 s. В зелёном прогоне установка шла дольше; job — 106 s.
+- **Цена.** Шесть job-ов; при $0.010 за минуту с округлением вверх до минуты — 7 минут, $0.07. API
+  `actions/runs/<id>/timing` сразу после прогонов показывает для `WINDOWS` 0 ms — счёт к этому
+  моменту не выставлен или минуты входят в план; не выяснялось.
+- **Находка первого же запуска.** `test/unit/shell-resolve.test.ts:297` («refuses a file that is a
+  real symlink to a share, and realpath is not asked about it») падает на чистой машине: ждёт
+  `C:\Users\RUNNER~1\AppData\Local\Temp\…\a.md`, получает `C:\Users\runneradmin\…\a.md`. Временная
+  папка там названа коротким именем 8.3, а `resolveProjectFile` отвечает длинным — через `realpath`.
+  На ПК владельца имя пользователя короткое, и расхождения нет. Это дефект test-а, не кода: путь
+  ожидания надо строить от `realpathSync.native`. Записано в Ticket 14.
+- Строка в `rules.md` Profile-а об исключении из правила о платных прогонах (пункт 6) — за владельцем
+  или Session на Mac; на момент запусков не добавлена.
