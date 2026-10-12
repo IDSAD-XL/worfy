@@ -151,7 +151,8 @@ test не проверяет: в `pnpm test` и в CI Node один. Она пр
     (`scripts/install-stable.mjs:186`) под тем же системным Node 24.
   - Harness: `harness/hooks/gate-resolve.mjs:118-131` читает из `pnpm-workspace.yaml` только список
     `packages:`; новая строка его не меняет. Других читателей `pnpm-workspace.yaml` и `engines` в
-    `scripts/`, `harness/`, `test/` нет (grep). gate fast с новой настройкой — зелёный.
+    `scripts/`, `harness/`, `test/` нет (grep). gate fast с новой настройкой запускается и доходит
+    до test-ов: lint и typecheck в нём прошли (его итог — в «Проверки на Mac»).
   - Сборка `.app`: в коде electron-builder (`node_modules/app-builder-lib/out`) слова `engines` нет
     (grep). не проверено запуском: `pnpm package` и `pnpm test:package` исполнитель не запускал —
     это gate full оркестратора.
@@ -230,6 +231,16 @@ test не проверяет: в `pnpm test` и в CI Node один. Она пр
   `test/contract/claude-home-registry.test.ts:122`, «no matching change yet» — ожидание события от
   наблюдателя за файлами не дождалось; этот файл отдельно — 0 (62 passed), второй полный запуск — 0.
   Файл с этим Ticket-ом не связан; в это время на машине шли e2e и gate других PR.
+  - **gate fast (`GATE_SCOPE=all`) — не зелёный: exit 2 оба раза**, строка
+    `[gate] красно (fast): worfy/.:test (прошло: worfy/.:lint worfy/.:typecheck)`. В каждом запуске
+    упал один test из 4230, и оба ждут события от наблюдателя за файлами:
+    первый запуск — `test/contract/docs.test.ts` › «the HANDOFF Node › takes a hide for the user's
+    once someone showed the Node while HANDOFF.md was gone» (`:328`, «expected 2 to be greater than 2»);
+    второй — `test/contract/claude-home-registry.test.ts` › «watching the Claude home › reports
+    registry changes and transcripts in a new worktree folder, not other Projects» (`:122`).
+    Load average на Mac в это время — 7–8: шёл gate full соседнего PR с e2e. Третий раз gate не
+    запускался (указание оркестратора: под этой нагрузкой не повторять больше одного раза).
+    не проверено: зелёный gate fast на Mac; опора — CI на Linux (job `check` на PR — зелёный).
 
 - **Риски Ticket-а после работы.**
   - «Остановка ломает `pnpm install` на ПК» — в силе, отсюда порядок мержа.
