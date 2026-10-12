@@ -131,6 +131,20 @@ describe('the watch of the Cards of a Project, by the rules of Windows', () => {
     expect(disk.contacts).toEqual([])
   })
 
+  it('a Cards folder on a share of its own — the data folder of worfy put there — is watched', async () => {
+    const data = '\\\\nas\\worfy\\demo'
+    const disk = windowsDisk({ [`${data}\\cards\\c1\\index.html`]: FILE })
+    const store = new CardStore({ dataDirOf: () => data, projectIds: () => [PROJECT], delayMs: 0, paths: win32, links: disk.links, fs: cardFs(disk), watchFs: disk.fs })
+    stores.push(store)
+    const seen: CardInfo[] = []
+    store.onChange((info) => seen.push(info))
+    expect(await store.info(PROJECT, 'c1')).toMatchObject({ exists: true })
+    await watching(disk, [`${data}\\cards (recursive)`])
+    disk.put(`${data}\\cards\\c1\\index.html`, FILE)
+    await changed(seen, 'c1')
+    expect(disk.contacts).toEqual([])
+  })
+
   it(`looks for links down to the folders right inside a Card (${CARD_LINK_DEPTH} below its id), no deeper`, async () => {
     const disk = windowsDisk({ ...TWO_CARDS, [`${CARDS}\\c1\\js\\vendor`]: FOLDER, [`${CARDS}\\c1\\js\\vendor\\deep`]: linkTo('C:\\elsewhere\\deep'), 'C:\\elsewhere\\deep\\x.js': FILE })
     const { store } = makeStore(disk)

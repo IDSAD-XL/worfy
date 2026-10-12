@@ -105,4 +105,30 @@ describe('the trash and a link inside a Card', () => {
     expect(readdirSync(link)).toEqual(['notes.txt'])
     expect(readdirSync(outside)).toEqual(['notes.txt'])
   })
+
+  // worfy-windows ticket 20: the place is looked at with lstat, so a link there is something.
+  it('restore refuses while something lies at the place of the Card again: a folder, or a link — wherever it leads — and the entry stays', () => {
+    mkdirSync(cardDir('again'), { recursive: true })
+    writeFileSync(join(cardDir('again'), 'index.html'), '<title>Again</title>')
+    nodes.push({ id: 'again', kind: 'card', x: 0, y: 0, w: 360, h: 280, data: {} } as unknown as LayoutNode)
+    const trash = store()
+    const entry = trash.put(PROJECT, 'again')
+    expect(entry.title).toBe('Again')
+    expect(existsSync(cardDir('again'))).toBe(false)
+
+    mkdirSync(cardDir('again'))
+    expect(() => trash.restore(PROJECT, entry.label)).toThrow('A Card with id again exists again; delete it before restoring')
+    rmdirSync(cardDir('again'))
+
+    // A link that leads nowhere: a look that followed it would say the place is free.
+    symlinkSync(join(scratch, 'no-such-folder'), cardDir('again'), WINDOWS ? 'junction' : 'dir')
+    links.push(cardDir('again'))
+    expect(() => trash.restore(PROJECT, entry.label)).toThrow('A Card with id again exists again; delete it before restoring')
+    expect(readdirSync(trashDir())).toEqual([entry.label])
+    if (WINDOWS) rmdirSync(cardDir('again'))
+    else unlinkSync(cardDir('again'))
+
+    expect(trash.restore(PROJECT, entry.label)).toMatchObject({ title: 'Again' })
+    expect(readFileSync(join(cardDir('again'), 'index.html'), 'utf8')).toBe('<title>Again</title>')
+  })
 })

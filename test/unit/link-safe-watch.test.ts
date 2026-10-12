@@ -284,6 +284,27 @@ describe('a root that is not there, or goes away', () => {
     expect(changes).toEqual([])
   })
 
+  it('a root that comes between the look for it and the start of the wait is found: the wait looks once more', async () => {
+    const disk = windowsDisk({ [`${REPO}\\README.md`]: FILE })
+    const watch = disk.fs.watch
+    let first = true
+    const fs = {
+      ...disk.fs,
+      watch: (...args: Parameters<typeof watch>) => {
+        const handle = watch(...args)
+        // Made right after the wait began, with no event: the system had sent it before.
+        if (first) disk.putQuietly(`${ROOT}\\demo\\issues\\01-a.md`, FILE)
+        first = false
+        return handle
+      },
+    }
+    const changes: string[] = []
+    const late = new LinkSafeWatch({ root: ROOT, allowed: [REPO, ROOT], paths: win32, links: disk.links, fs, enter: cares, wanted: cares, onChange: (path) => changes.push(path), onError: () => undefined, scanDelayMs: 0 })
+    open.push(late)
+    expect(await late.start()).toBe('watching')
+    expect(disk.open()).toEqual([`${ROOT} (recursive)`])
+  })
+
   it('a root that comes as a link to a share is refused when it comes', async () => {
     const disk = windowsDisk({ [`${REPO}\\README.md`]: FILE })
     const { watch } = await start(disk)

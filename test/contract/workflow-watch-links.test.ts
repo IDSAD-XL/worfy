@@ -10,7 +10,7 @@ import fs, { mkdirSync, mkdtempSync, readdirSync, realpathSync, symlinkSync, wri
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { watch } from 'chokidar'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorkflowDelta } from '../../src/shared/workflow/types'
 import { removeTree } from '../../src/main/storage/remove'
 import type { ProjectLayout } from '../../src/main/workflow/folder'
@@ -194,7 +194,11 @@ describe.runIf(WINDOWS)('the watch of a Tickets root on Windows', () => {
       removeTree(scratch)
       const first = counted.calls.length
       symlinkSync(`${SHARE}\\scratch`, scratch, 'dir')
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
       const again = await start()
+      // The refusal is said once, in the log: the canvas of such a Project stays as it was read.
+      expect(logged.mock.calls.map((call) => String(call[0]))).toEqual([`[workflow] the Tickets root ${scratch} leads off this machine, or cannot be checked: it is not watched`])
+      logged.mockRestore()
       expect(again.startMs).toBeLessThan(1000)
       expect(again.watcher.current.tickets).toEqual([])
       expect(through(counted.calls.slice(first), scratch)).toEqual([])

@@ -121,6 +121,26 @@ describe.runIf(WINDOWS && LINKS)('a symlink to an unreachable share, on Windows'
     }
   })
 
+  it('in place of the Cards folder after a Card went to the trash: the Card is not put back there, the entry stays, and no call names a path through the link', () => {
+    mkdirSync(cardDir('c1'))
+    writeFileSync(join(cardDir('c1'), 'index.html'), '<title>Clock</title>')
+    nodes.push(cardNode('c1'))
+    const store = trash()
+    const entry = store.put(PROJECT, 'c1')
+    expect(entry).toMatchObject({ title: 'Clock', hasFiles: true })
+    removeTree(join(dataDir, 'cards'))
+    const link = join(dataDir, 'cards')
+    symlinkSync(`${SHARE}\\cards`, link, 'dir')
+    const counted = countFsCalls()
+    try {
+      expect(() => store.restore(PROJECT, entry.label)).toThrow('The folder of Card c1 leads off this machine, or cannot be checked; the Card is not put back')
+      expect(through(counted.calls, link)).toEqual([])
+      expect(readdirSync(join(dataDir, 'trash', entry.label)).sort()).toEqual(['card', 'entry.json'])
+    } finally {
+      counted.restore()
+    }
+  })
+
   it('at the path of a Card id in the Cards folder: the id is taken, and the link is not followed', () => {
     const link = cardDir('card-away')
     symlinkSync(`${SHARE}\\card`, link, 'dir')

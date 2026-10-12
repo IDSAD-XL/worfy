@@ -43,6 +43,8 @@ export interface WindowsDisk {
   open: () => string[]
   /** Puts an entry at a path (its folders above are made) and tells the watches, as Windows would. */
   put: (path: string, entry: DiskEntry) => void
+  /** Puts an entry and tells nobody: a change that came before the watch that would have seen it. */
+  putQuietly: (path: string, entry: DiskEntry) => void
   /** Removes a path with everything below it and tells the watches. */
   remove: (path: string) => void
   /** Makes a link unreadable (readlink rejects) or a path impossible to look at (lstat rejects). */
@@ -214,6 +216,7 @@ export function windowsDisk(entries: Record<string, DiskEntry>): WindowsDisk {
     put: (path, entry) => {
       for (const each of set(path, entry)) tell(each)
     },
+    putQuietly: (path, entry) => void set(path, entry),
     remove: (path) => {
       for (const each of [...tree.values()]) {
         const rel = win32.relative(path, each.path)

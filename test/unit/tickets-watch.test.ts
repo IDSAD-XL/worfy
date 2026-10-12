@@ -126,6 +126,19 @@ describe('the watch of a Tickets root, by the rules of Windows', () => {
     expect(changes.count).toBe(2)
   })
 
+  it('a Tickets root on a share of its own — the Workflow folder of a Project in Silent mode — is watched, though the Project root is elsewhere', async () => {
+    const root = '\\\\nas\\workflows\\demo\\tickets'
+    const disk = windowsDisk({ [`${root}\\demo\\issues\\01-a.md`]: FILE })
+    let changes = 0
+    const watch = ticketsWatch({ ticketsRoot: root, allowed: [REPO], onChange: () => void changes++, onError: () => undefined, paths: win32, links: disk.links, fs: disk.fs, scanDelayMs: 0 })
+    open.push(watch)
+    expect(await watch.start()).toBe('watching')
+    disk.put(`${root}\\demo\\issues\\02-b.md`, FILE)
+    await watch.settled()
+    expect(changes).toBe(1)
+    expect(disk.contacts).toEqual([])
+  })
+
   it('a link where epic-status reads nothing — among the evidence, or right under the root next to a file — is never read', async () => {
     const disk = windowsDisk({ ...TICKETS, [`${ROOT}\\demo\\evidence\\modules`]: linkTo(`${EVIL}\\modules`) })
     const { watch } = await start(disk)
