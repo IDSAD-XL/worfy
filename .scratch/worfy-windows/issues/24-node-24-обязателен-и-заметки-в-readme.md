@@ -1,7 +1,7 @@
 # 24 — Node 24 обязателен для разработки на обеих машинах; README: версия Node и закрытие Terminal на Windows
 
 Type: task
-Status: claimed — 2026-10-12
+Status: done — 2026-10-12, [PR #256](https://github.com/IDSAD-XL/worfy/pull/256)
 Blocked by: 10
 Source: решения владельца 2026-10-12: (1) Node 24 обязателен для разработки и на Mac, и на Windows-ПК; (2) закрытие Terminal Node на Windows завершает все процессы под его оболочкой — поведение остаётся, в README о нём заметка. Заметка описывает код PR #239 (Ticket [10](10-terminal-на-powershell.md) — Terminal на PowerShell, влит 2026-10-12); блокер отсюда. Делает агент-implementer на Mac. Установка Node 24 на ПК — шаг владельца.
 
@@ -432,3 +432,11 @@ test не проверяет: в `pnpm test` и в CI Node один. Она пр
   годности, ближайшая дата — 2026-10-28.
 - [low] Минимум 24.15 в README и в комментарии `pnpm-workspace.yaml` с lockfile не сверяется:
   обновление jsdom может его сдвинуть, test этого не заметит.
+
+### Gate оркестратора (2026-10-13)
+
+- Ticket шёл по `/worfy:ship-ticket`. Ревью по двум линзам Profile-а — «корректность» и «тесты»; сводный вердикт — `VERIFIED` на `b90b82d` после двух кругов доработки README и contract test-а ([комментарий в PR #256](https://github.com/IDSAD-XL/worfy/pull/256#issuecomment-6132742139)). Долги ревью — в разделах «Долги» выше.
+- Остановку под старым Node оба reviewer-а воспроизвели на своих клонах: Node 22.13.0 с `engineStrict` — код 1, `ERR_PNPM_UNSUPPORTED_ENGINE`, `node_modules` не создан; под Node 24.14.1 установка останавливается на `jsdom` (минимум на деле — 24.15); Node 24.19.0 — код 0.
+- Gate full на Mac: на `bcc1eb6` (rebase на `bcaa7c8`) — код 0; перед мержем — rebase на `fec6d24`, head `b216638`, один запуск, код 0, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`. CI зелёный (job `check` — 8m56s; `full-macos` не запускался), CLEAN.
+- Условие мержа выполнено: владелец 2026-10-13 сообщил, что Node 24 на Windows-ПК установлен. Влит `a1277f2`.
+- не проверено: `node --version` и `pnpm install` на Windows-ПК после мержа — проверяет Session на Windows-ПК; команда `winget` и установщик `.msi` запуском на Windows не проверялись.
