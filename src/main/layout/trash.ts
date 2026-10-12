@@ -11,14 +11,22 @@
 // A Card is moved only when no other Node shows it; otherwise only the deleted Node goes to the
 // trash. Entries older than TRASH_KEEP_MS are deleted by purge(), which the IPC module runs when
 // the app starts.
+//
+// On Windows a call through a link to `\\host\share\…` makes the system contact that host with
+// the user's credentials (remote-links.ts). So before a Card's folder or data file is looked at,
+// the links on the way to it are read (worfy-windows ticket 20), and the look itself is lstat,
+// which does not follow: a Card folder that is a link goes to the trash as the link it is, and
+// comes back as one; its title is not read through it when it leads off the machine.
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs'
+import { lstatSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs'
+import * as nativePath from 'node:path'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { CARD_ID_PATTERN } from '../../shared/ipc/cards'
 import { TRASH_KEEP_MS, TRASH_LABEL_PATTERN, trashRefusal, type TrashEntry } from '../../shared/ipc/trash'
 import { layoutNodeSchema, type LayoutNode, type LayoutState } from '../../shared/layout/types'
 import { titleOf } from '../cards/store'
+import { leadsToRemoteSync, type LinkFsSync, type PathRules } from '../remote-links'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 import { removeTree } from '../storage/remove'
 
@@ -81,12 +89,63 @@ function titleOfNode(node: LayoutNode): string | null {
   return line === undefined ? null : line.slice(0, TITLE_LENGTH_LIMIT)
 }
 
-function readCardTitle(cardFolder: string): string | null {
-  try {
-    return titleOf(readFileSync(join(cardFolder, 'index.html'), 'utf8').slice(0, 64 * 1024))
-  } catch {
-    return null
+/** The two calls the trash makes about a Card's files; replaced in tests. */
+export interface CardFilesFs {
+  /** Whether something is at the path, by lstat: a link is there whatever it leads to. */
+  there: (path: string) => boolean
+  readText: (path: string) => string
+}
+
+const nodeCardFiles: CardFilesFs = {
+  there: (path) => {
+    try {
+      lstatSync(path)
+      return true
+    } catch {
+      return false
+    }
+  },
+  readText: (path) => readFileSync(path, 'utf8'),
+}
+
+export interface CardFilesOptions {
+  /** The path rules of the platform; path.win32 in tests on any system. */
+  paths?: PathRules
+  links?: LinkFsSync
+  fs?: CardFilesFs
+}
+
+/**
+ * What is at a path the trash moves from or to. 'away': a link on the way to its folder leads off
+ * the machine, or cannot be checked — the path is not looked at. Else whether something is there;
+ * a link at the path itself is something, and is not followed.
+ */
+export function placeOf(path: string, dataDir: string, options: CardFilesOptions = {}): 'away' | 'taken' | 'free' {
+  const paths = options.paths ?? nativePath
+  if (leadsToRemoteSync(paths.dirname(path), [dataDir], { paths, links: options.links })) return 'away'
+  return (options.fs ?? nodeCardFiles).there(path) ? 'taken' : 'free'
+}
+
+/**
+ * What put() learns of a Card before it moves it: whether its folder and its data file are there,
+ * and the title of its index.html. The title is read only when no link on the way to the file —
+ * the Card folder itself, or index.html — leads off the machine.
+ */
+export function cardOnDisk(card: { folder: string; data: string }, dataDir: string, options: CardFilesOptions = {}): { folder: boolean; data: boolean; title: string | null } {
+  const paths = options.paths ?? nativePath
+  const fs = options.fs ?? nodeCardFiles
+  const folder = placeOf(card.folder, dataDir, options) === 'taken'
+  const data = placeOf(card.data, dataDir, options) === 'taken'
+  const index = paths.join(card.folder, 'index.html')
+  let title: string | null = null
+  if (folder && !leadsToRemoteSync(index, [dataDir], { paths, links: options.links })) {
+    try {
+      title = titleOf(fs.readText(index).slice(0, 64 * 1024))
+    } catch {
+      title = null
+    }
   }
+  return { folder, data, title }
 }
 
 const summaryOf = (label: string, entry: StoredEntry): TrashEntry => ({
@@ -143,16 +202,16 @@ export class TrashStore {
     try {
       if (cardId !== null) {
         const paths = this.deps.cardPaths(projectId, cardId)
-        const title = existsSync(paths.folder) ? readCardTitle(paths.folder) : null
-        const move = (from: string, to: string): boolean => {
-          if (shared || !existsSync(from)) return false
+        const found = cardOnDisk(paths, this.deps.dataDirOf(projectId))
+        const move = (there: boolean, from: string, to: string): boolean => {
+          if (shared || !there) return false
           renameSync(from, to)
           moved.push({ from, to })
           return true
         }
-        const files = move(paths.folder, join(dir, CARD_FOLDER))
-        const data = move(paths.data, join(dir, CARD_DATA_FILE))
-        card = { cardId, files, data, title }
+        const files = move(found.folder, paths.folder, join(dir, CARD_FOLDER))
+        const data = move(found.data, paths.data, join(dir, CARD_DATA_FILE))
+        card = { cardId, files, data, title: found.title }
       }
       const entry: StoredEntry = { trashedAt, node, card }
       writeJsonFile(join(dir, ENTRY_FILE), storedEntrySchema, entry)
@@ -185,7 +244,11 @@ export class TrashStore {
       const paths = this.deps.cardPaths(projectId, card.cardId)
       if (card.files) back.push({ from: join(dir, CARD_FOLDER), to: paths.folder })
       if (card.data) back.push({ from: join(dir, CARD_DATA_FILE), to: paths.data })
-      for (const { to } of back) if (existsSync(to)) throw new Error(`A Card with id ${card.cardId} exists again; delete it before restoring`)
+      for (const { to } of back) {
+        const place = placeOf(to, this.deps.dataDirOf(projectId))
+        if (place === 'away') throw new Error(`The folder of Card ${card.cardId} leads off this machine, or cannot be checked; the Card is not put back`)
+        if (place === 'taken') throw new Error(`A Card with id ${card.cardId} exists again; delete it before restoring`)
+      }
     }
 
     const done: { from: string; to: string }[] = []
