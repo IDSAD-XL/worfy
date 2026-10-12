@@ -307,24 +307,17 @@ function patiently(step) {
 
 /**
  * Removes a folder of Windows with what is in it, and never what a link in it leads to: a link —
- * a symlink or a junction, at the path itself or anywhere below — is removed as a link. rmSync is
- * not used there. Under Node 24 (the one Electron 44 carries) its `recursive` goes through a
- * junction and empties the folder behind it, and it refuses a read-only file with EPERM; under
- * Node 22 it does neither. unlinkSync removes a read-only file under both.
+ * a symlink or a junction, at the path itself or anywhere below — is not a folder to lstat, and is
+ * unlinked as the link it is. rmSync is not used there. Under Node 24 (the one Electron 44
+ * carries) its `recursive` goes through a junction and empties the folder behind it, and it
+ * refuses a read-only file with EPERM; under Node 22 it does neither. unlinkSync removes a
+ * read-only file, a junction and a symlink under both.
  */
 function removeTree(path) {
   let stat
   try {
     stat = lstatSync(path)
   } catch {
-    return
-  }
-  if (stat.isSymbolicLink()) {
-    try {
-      rmdirSync(path)
-    } catch {
-      unlinkSync(path)
-    }
     return
   }
   if (!stat.isDirectory()) {
