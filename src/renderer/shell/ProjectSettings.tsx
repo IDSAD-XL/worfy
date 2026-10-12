@@ -136,6 +136,7 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
   }
 
   // The defaults depend on the Harness on the machine (worfy-harness ticket 12): main says which.
+  // They are the defaults of the action templates: the shell chosen for the Terminals stays.
   const resetToDefault = async (): Promise<void> => {
     const result = await call('projects.settings.defaults')
     if (result.ok) {

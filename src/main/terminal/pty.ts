@@ -24,12 +24,14 @@
 // No shell outlives what owns it: close() sends SIGHUP, as a terminal emulator does when its
 // window closes, and SIGKILL after a grace period when the shell ignores it; closeAll() does that
 // for every terminal and resolves once all of them have exited. Windows has neither process groups
-// nor SIGHUP: there close() ends the process tree of the shell, then the pseudo-console (worfy-windows
-// ticket 10). A program started from the shell with Start-Process is in that tree and ends with
-// it; on macOS an app started with `open` is not a child of the shell and stays.
+// nor SIGHUP: there close() ends every process under the shell, then closes the pseudo-console,
+// which takes the shell and what is left on its console (worfy-windows ticket 10). A program
+// started from the shell with Start-Process is under the shell and ends with it; on macOS an app
+// started with `open` is not a child of the shell and stays. A close there has an upper bound: when
+// node-pty has not reported the exit by then, the Terminal is closed without it.
 //
 // open() may carry a command (worfy-harness ticket 19: `gh auth login` from the first-run screen).
-// The shell that call starts gets it typed, with a newline, as the user would type it: after the
+// The shell that call starts gets it typed, with Enter, as the user would type it: after the
 // shell's first output (the profile's output or the prompt), or after COMMAND_DELAY_MS when it
 // prints nothing. Input typed before the prompt waits in the terminal for the shell to read it.
 // Attaching to a shell that already runs types nothing.
@@ -55,6 +57,10 @@ export const ROWS_MAX = 300
 /** Output kept per terminal for redrawing it, in UTF-16 code units (one per character of ASCII). */
 export const REPLAY_LIMIT = 256 * 1024
 export const KILL_GRACE_MS = 1000
+/** How long the helper that ends the processes under a shell of Windows may run. */
+export const DESCENDANTS_TIMEOUT_MS = 3000
+/** The upper bound of closing a Terminal on Windows; after it the Terminal is closed without node-pty's exit event. */
+export const WINDOWS_CLOSE_BOUND_MS = 5000
 /** How long a new shell may stay silent before its command is typed anyway. */
 export const COMMAND_DELAY_MS = 1000
 
@@ -68,15 +74,17 @@ export function clampSize(cols: number, rows: number): { cols: number; rows: num
 const STALE_KEYS = ['PWD', 'OLDPWD', 'SHLVL', '_'] as const
 
 /** The environment of a Terminal's shell: the login shell environment, the terminal variables, the Project root. */
-export function terminalEnv(base: Readonly<Env>, cwd: string): Env {
+export function terminalEnv(base: Readonly<Env>, cwd: string, platform: NodeJS.Platform = process.platform): Env {
   const env: Env = { ...base }
   for (const key of STALE_KEYS) delete env[key]
   env.PWD = cwd
   env.TERM = 'xterm-256color'
   env.COLORTERM = 'truecolor'
   env.TERM_PROGRAM = 'worfy'
-  // An app started from Finder has no LANG; without it a shell treats typed UTF-8 as bytes.
-  env.LANG ??= 'en_US.UTF-8'
+  // An app started from Finder has no LANG; without it a shell treats typed UTF-8 as bytes. Not on
+  // Windows: PowerShell does not read it, and Git Bash takes its locale from Windows only while
+  // LANG is unset.
+  if (platform !== 'win32') env.LANG ??= 'en_US.UTF-8'
   return env
 }
 
@@ -199,22 +207,118 @@ export function terminalShellOptions(env: Readonly<Env>, search: ShellSearch = {
   ]
 }
 
+/** A shell of Windows as the registry started it. */
+export interface StartedShell {
+  pid: number
+  /** A moment (ms since 1970) by which the shell was running: taken right after its start. */
+  startedBy: number
+}
+
+/** 0001-01-01 to 1970-01-01 in ms: .NET counts its ticks (100 ns) from the first. */
+const DOTNET_EPOCH_MS = 62135596800000n
+
 /**
- * Ends a process of Windows and every process under it: `taskkill /PID <pid> /T /F` of %SystemRoot%.
- * Windows builds the tree from the parents of the processes that are alive, so it is called while
- * the shell still runs. A pid that is gone already is not an error; a taskkill that cannot be
- * started is.
+ * The PowerShell script that ends every process under a shell of Windows, and not the shell.
+ *
+ * It takes one list of the processes and walks down from the shell by the parent each process
+ * names. Windows gives the pid of a process that ended to a new one, so a pid alone is not asked:
+ *   - the shell must have been created by `startedBy`. A process with its pid created later is
+ *     another one — the shell ended and its exit has not been reported yet — and the script prints
+ *     `gone` and ends nothing;
+ *   - a process older than the one it names as its parent is not its child: its parent had that pid
+ *     before. (`taskkill /T` does not look at that, and ends such a process with the tree.)
+ * Then it ends what it found and prints `ended <n> of <found>`: fewer than found when a process
+ * could not be ended, an elevated one for example.
+ *
+ * The script has no double quote: it goes to PowerShell as one argument of the command line.
  */
-export function taskkillTree(pid: number): Promise<void> {
-  const root = envVar(process.env as Env, 'SystemRoot')
-  const file = win32.join(root !== undefined && /^[A-Za-z]:[\\/]/.test(root) ? root : 'C:\\Windows', 'System32', 'taskkill.exe')
+export function descendantsScript(shell: StartedShell): string {
+  const pid = Math.trunc(shell.pid)
+  // One millisecond more: the creation time has parts of a millisecond, `startedBy` has none.
+  const ticks = (BigInt(Math.trunc(shell.startedBy)) + 1n + DOTNET_EPOCH_MS) * 10000n
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    "$all = @(Get-CimInstance -Query 'SELECT ProcessId, ParentProcessId, CreationDate FROM Win32_Process')",
+    `$shell = $all | Where-Object { $_.ProcessId -eq ${pid} } | Select-Object -First 1`,
+    `if ($null -eq $shell -or $null -eq $shell.CreationDate -or $shell.CreationDate.ToUniversalTime().Ticks -gt ${ticks}) { 'gone'; exit 0 }`,
+    '$under = @{}',
+    'foreach ($each in $all) {',
+    '  $key = [string]$each.ParentProcessId',
+    '  if (-not $under.ContainsKey($key)) { $under[$key] = New-Object System.Collections.ArrayList }',
+    '  [void]$under[$key].Add($each)',
+    '}',
+    '$found = New-Object System.Collections.ArrayList',
+    '$seen = @{ [string]$shell.ProcessId = $true }',
+    '$queue = New-Object System.Collections.Queue',
+    '$queue.Enqueue($shell)',
+    'while ($queue.Count -gt 0) {',
+    '  $parent = $queue.Dequeue()',
+    '  foreach ($child in @($under[[string]$parent.ProcessId])) {',
+    '    if ($null -eq $child -or $seen.ContainsKey([string]$child.ProcessId)) { continue }',
+    '    if ($null -eq $child.CreationDate -or $child.CreationDate -lt $parent.CreationDate) { continue }',
+    '    $seen[[string]$child.ProcessId] = $true',
+    '    [void]$found.Add($child)',
+    '    $queue.Enqueue($child)',
+    '  }',
+    '}',
+    '$ended = 0',
+    'foreach ($child in $found) {',
+    '  $process = Get-Process -Id $child.ProcessId -ErrorAction SilentlyContinue',
+    '  if ($null -eq $process) { $ended++; continue }',
+    '  try {',
+    '    $started = $process.StartTime',
+    '    if ($started.AddMilliseconds(-1) -gt $child.CreationDate -or $started.AddMilliseconds(1) -lt $child.CreationDate) { $ended++; continue }',
+    '    Stop-Process -InputObject $process -Force',
+    '    $ended++',
+    '  } catch { }',
+    '}',
+    "'ended ' + $ended + ' of ' + $found.Count",
+  ].join('\n')
+}
+
+/**
+ * Ends every process under a shell of Windows (descendantsScript), with Windows PowerShell of
+ * %SystemRoot%. It is called while the shell runs: the processes are found by their living
+ * parents. Rejects when the script cannot be started, fails or runs longer than
+ * DESCENDANTS_TIMEOUT_MS; a process that could not be ended is only logged.
+ *
+ * The script is passed with -Command, as text. With -EncodedCommand every start with a script not
+ * seen before took 2.3–3.3 s on the owner's PC, against 0.45 s for the same script as text, and
+ * this script differs in every call by the pid and the time.
+ */
+export function endDescendants(shell: StartedShell): Promise<void> {
+  const { file } = powershellScriptCommand(envVar(process.env as Env, 'SystemRoot'), '')
+  const args = ['-NoProfile', '-NonInteractive', '-Command', descendantsScript(shell)]
   return new Promise((resolve, reject) => {
-    execFile(file, ['/PID', String(pid), '/T', '/F'], { windowsHide: true }, (error) => {
-      // A number is the exit code of taskkill: the process, or part of its tree, was gone already.
-      if (error !== null && typeof error.code !== 'number') reject(error)
-      else resolve()
+    execFile(file, args, { encoding: 'utf8', timeout: DESCENDANTS_TIMEOUT_MS, windowsHide: true }, (error, stdout) => {
+      if (error !== null) return reject(error)
+      const answer = String(stdout).trim().split(/\r?\n/).at(-1) ?? ''
+      const counts = /^ended (\d+) of (\d+)$/.exec(answer)
+      if (answer !== 'gone' && counts === null) return reject(new Error(`the helper answered ${JSON.stringify(answer)}`))
+      if (counts !== null && counts[1] !== counts[2]) {
+        console.warn(`[terminal] ${counts[1]} of ${counts[2]} processes under the shell ${shell.pid} were ended: the rest could not be (an elevated program, for one)`)
+      }
+      resolve()
     })
   })
+}
+
+/**
+ * Takes the helper process out of node-pty's kill() on Windows; false when this is not a pty of
+ * node-pty as 1.1.0 builds it.
+ *
+ * kill() there closes the pseudo-console — that ends the shell and what is on its console, by
+ * their handles — and stops node-pty's worker thread. It also starts a helper that lists the
+ * processes of the console, to end them by pid. The console is closed before the helper attaches
+ * to it (10 of 10 on the owner's PC): the helper fails with "AttachConsole failed", and 5 s later
+ * node-pty ends the pid of the shell, whoever has it by then. The helper adds nothing to closing
+ * the console, so it is replaced by an empty list.
+ */
+function withoutConsoleHelper(pty: PtyProcess): boolean {
+  const agent = (pty as { _agent?: { _getConsoleProcessList?: unknown } })._agent
+  if (agent === undefined || agent === null || typeof agent._getConsoleProcessList !== 'function') return false
+  agent._getConsoleProcessList = () => Promise.resolve([])
+  return true
 }
 
 /** The part of node-pty's IPty the registry uses; tests may pass their own. */
@@ -271,10 +375,13 @@ export interface OpenRequest {
   rows: number
   /** Start a new shell even when the last one exited on its own. */
   restart?: boolean | undefined
-  /** Typed into the shell with a newline once it has started; only when this call starts the shell. */
+  /** Typed into the shell with Enter once it has started; only when this call starts the shell. */
   command?: string | undefined
-  /** Which shell to start on Windows (the Project's settings); only when this call starts the shell. */
-  shell?: TerminalShellSetting | undefined
+  /**
+   * Which shell to start on Windows (the Project's settings). Asked only there, and only when this
+   * call starts the shell; when it throws, PowerShell starts.
+   */
+  shell?: (() => TerminalShellSetting | undefined) | undefined
 }
 
 export interface ShellExit {
@@ -310,6 +417,12 @@ interface Terminal {
   size: Size
   exited: Promise<void>
   closing: boolean
+  /** A moment by which the shell was running (StartedShell). */
+  startedBy: number
+  /** Reports the exit to the registry and the subscribers; node-pty's exit event calls it, once. */
+  finish: (exit: ShellExit) => void
+  /** True once the pty was asked to close (release). */
+  released: boolean
 }
 
 export interface TerminalRegistryOptions {
@@ -322,8 +435,10 @@ export interface TerminalRegistryOptions {
   integration?: ShellIntegration
   /** The system the shells run on: which shell starts and how it is ended. That of this process by default. */
   platform?: NodeJS.Platform
-  /** Ends a process of Windows with every process under it; taskkillTree by default. Not called elsewhere. */
-  killTree?: (pid: number) => Promise<void> | void
+  /** Ends every process under a shell of Windows, not the shell; endDescendants by default. Not called elsewhere. */
+  endDescendants?: (shell: StartedShell) => Promise<void> | void
+  /** The upper bound of closing a Terminal on Windows; WINDOWS_CLOSE_BOUND_MS by default. */
+  closeBoundMs?: number
   /** Whether a file is there, for the search of the shell on Windows (terminalShell). */
   exists?: FileExists
 }
@@ -345,16 +460,6 @@ function signalProcess(pid: number, signal: NodeJS.Signals): void {
   }
 }
 
-/** True while a process with this pid is there (signal 0 asks, and ends nothing). */
-function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM'
-  }
-}
-
 export class TerminalRegistry {
   private readonly terminals = new Map<string, Terminal>()
   /** Shells being started: a second open of the same key waits for the first instead of starting another. */
@@ -367,7 +472,8 @@ export class TerminalRegistry {
   private readonly killGraceMs: number
   private readonly commandDelayMs: number
   private readonly platform: NodeJS.Platform
-  private readonly killTree: (pid: number) => Promise<void> | void
+  private readonly endDescendants: (shell: StartedShell) => Promise<void> | void
+  private readonly closeBoundMs: number
   private readonly shellListeners = new Set<ShellEventListener>()
 
   constructor(private readonly options: TerminalRegistryOptions) {
@@ -375,7 +481,8 @@ export class TerminalRegistry {
     this.killGraceMs = options.killGraceMs ?? KILL_GRACE_MS
     this.commandDelayMs = options.commandDelayMs ?? COMMAND_DELAY_MS
     this.platform = options.platform ?? process.platform
-    this.killTree = options.killTree ?? taskkillTree
+    this.endDescendants = options.endDescendants ?? endDescendants
+    this.closeBoundMs = options.closeBoundMs ?? WINDOWS_CLOSE_BOUND_MS
   }
 
   /** Running terminals, including those still exiting (not those kept as exited). */
@@ -515,8 +622,16 @@ export class TerminalRegistry {
   }
 
   private async start(key: string, request: OpenRequest): Promise<Terminal> {
-    let env = terminalEnv(await this.options.env(), request.cwd)
-    const choice = terminalShell(env, request.shell, { platform: this.platform, exists: this.options.exists })
+    let env = terminalEnv(await this.options.env(), request.cwd, this.platform)
+    let setting: TerminalShellSetting | undefined
+    if (this.platform === 'win32' && request.shell !== undefined) {
+      try {
+        setting = request.shell()
+      } catch (error) {
+        console.warn(`[terminal] the shell setting of ${key} could not be read: PowerShell starts`, error)
+      }
+    }
+    const choice = terminalShell(env, setting, { platform: this.platform, exists: this.options.exists })
     if (choice.note !== null) console.warn(`[terminal] ${key}: ${choice.note}`)
     const { file } = choice
     let tracker: ShellTracker | null = null
@@ -533,7 +648,10 @@ export class TerminalRegistry {
     }
     const { cols, rows } = clampSize(request.cols, request.rows)
     const pty = this.spawnPty(file, choice.args, { name: 'xterm-256color', cols, rows, cwd: request.cwd, env })
+    const startedBy = Date.now()
     let exitedResolve: () => void = () => undefined
+    let firstOutput: (() => void) | undefined
+    let ended = false
     const terminal: Terminal = {
       pty,
       shell: choice.name,
@@ -542,9 +660,22 @@ export class TerminalRegistry {
       size: { cols, rows },
       exited: new Promise((resolve) => (exitedResolve = resolve)),
       closing: false,
+      startedBy,
+      finish: (exit) => {
+        if (ended) return
+        ended = true
+        if (this.terminals.get(key) === terminal) {
+          this.terminals.delete(key)
+          // Ended by close: nothing to keep. Exited on its own: kept for the next open.
+          if (!terminal.closing) this.ended.set(key, { pid: terminal.pty.pid, shell: terminal.shell, buffer: terminal.buffer, exit })
+        }
+        exitedResolve()
+        this.broadcast(key, 'reporting the exit', (each) => each.exit(exit.exitCode, exit.signal))
+        // A shell of Windows that exited on its own: node-pty stops its worker thread only in kill().
+        if (this.platform === 'win32') this.release(terminal, true)
+      },
+      released: false,
     }
-    let firstOutput: (() => void) | undefined
-    let ended = false
     pty.onData((data) => {
       terminal.buffer.push(data)
       const { end } = terminal.buffer
@@ -554,17 +685,7 @@ export class TerminalRegistry {
       firstOutput?.()
       firstOutput = undefined
     })
-    pty.onExit(({ exitCode, signal }) => {
-      const exit: ShellExit = { exitCode, signal: signal === undefined || signal === 0 ? null : signal }
-      ended = true
-      if (this.terminals.get(key) === terminal) {
-        this.terminals.delete(key)
-        // Ended by close: nothing to keep. Exited on its own: kept for the next open.
-        if (!terminal.closing) this.ended.set(key, { pid: terminal.pty.pid, shell: terminal.shell, buffer: terminal.buffer, exit })
-      }
-      exitedResolve()
-      this.broadcast(key, 'reporting the exit', (each) => each.exit(exit.exitCode, exit.signal))
-    })
+    pty.onExit(({ exitCode, signal }) => terminal.finish({ exitCode, signal: signal === undefined || signal === 0 ? null : signal }))
     if (request.command !== undefined) firstOutput = this.typeOnStart(key, terminal, request.command, () => ended)
     return terminal
   }
@@ -663,7 +784,15 @@ export class TerminalRegistry {
       terminal.closing = true
       const { pid } = terminal.pty
       if (this.platform === 'win32') {
-        void this.endTree(key, terminal)
+        void this.endWindowsShell(key, terminal)
+        // node-pty reports the exit a second after the last output of the console, and something
+        // may keep printing; the helper has its own limit. Past the bound nobody waits any more.
+        const bound = setTimeout(() => {
+          console.warn(`[terminal] ${key} did not report its exit in ${this.closeBoundMs} ms: closed without it`)
+          this.release(terminal, false)
+          terminal.finish({ exitCode: 1, signal: null })
+        }, this.closeBoundMs)
+        void terminal.exited.then(() => clearTimeout(bound))
       } else {
         // The shell is the leader of its own session and process group (node-pty calls setsid):
         // SIGHUP to the group reaches the shell, and the shell passes it on to its jobs.
@@ -682,24 +811,36 @@ export class TerminalRegistry {
   }
 
   /**
-   * Ends a shell of Windows: first every process under it, while the shell is still their living
-   * parent, then the pty — node-pty ends what is left in the console and closes ConPTY. node-pty
-   * takes no signal there, and there is no group to signal.
+   * Ends a shell of Windows. node-pty takes no signal there, and there is no group to signal.
    *
-   * The tree takes the shell with it. Then the console has no process left and closes by itself,
-   * and the pty is not asked: node-pty would look for the processes of a console that is gone and
-   * print the failure. Its exit event follows about a second after the process, once node-pty
-   * has waited for the rest of the output. The pty is asked only when the shell is still there —
-   * the tree could not be ended.
+   * First every process under the shell, while the shell is their living parent: a program with a
+   * window of its own is not on the shell's console, and closing the console would leave it. Then
+   * the pty (release): that closes the pseudo-console, which ends the shell and what is on its
+   * console. The shell is not ended before the pty is asked: node-pty forgets a pseudo-console
+   * the moment its shell exits, and then neither conhost.exe nor node-pty's worker thread ends
+   * before worfy does.
    */
-  private async endTree(key: string, terminal: Terminal): Promise<void> {
-    const { pid } = terminal.pty
+  private async endWindowsShell(key: string, terminal: Terminal): Promise<void> {
     try {
-      await this.killTree(pid)
+      await this.endDescendants({ pid: terminal.pty.pid, startedBy: terminal.startedBy })
     } catch (error) {
-      console.warn(`[terminal] ending the process tree of ${key} failed`, error)
+      console.warn(`[terminal] ending the processes under the shell of ${key} failed`, error)
     }
-    if (!processAlive(pid)) return
+    this.release(terminal, false)
+  }
+
+  /**
+   * Asks node-pty to close the pty of a shell of Windows, once, without its helper process
+   * (withoutConsoleHelper). kill() goes by the handles node-pty holds, never by a pid: a pid given
+   * out again is not touched. After the shell exited (`exited`) it only stops node-pty's worker
+   * thread — and then it is called only when the helper could be taken out, since the helper would
+   * end the pid of a shell that is gone.
+   */
+  private release(terminal: Terminal, exited: boolean): void {
+    if (terminal.released) return
+    const quiet = withoutConsoleHelper(terminal.pty)
+    if (exited && !quiet) return
+    terminal.released = true
     try {
       terminal.pty.kill()
     } catch {

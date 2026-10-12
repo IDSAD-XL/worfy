@@ -68,7 +68,8 @@ export interface TerminalDeps {
   isTerminalNode: (projectId: string, nodeId: string) => boolean
   /**
    * Which shell the Project's settings ask for on Windows (worfy-windows ticket 10); undefined when
-   * they name none. Read when a shell starts: a running shell keeps the one it has.
+   * they name none. The registry asks only on Windows and only when it starts a shell: a running
+   * shell keeps the one it has, and elsewhere the settings are not read for a Terminal at all.
    */
   shellSetting?: (projectId: string) => TerminalShellSetting | undefined
   /** The shells there are to choose from on this Machine; none when left out. */
@@ -100,7 +101,7 @@ export function terminalHandlers(deps: TerminalDeps): HandlerModule {
       if (!deps.isTerminalNode(projectId, nodeId)) throw new Error(`${nodeId} is not a Terminal Node of ${projectId}`)
       watch(client)
       // The shell comes from the settings of the Project, never from the renderer.
-      const shell = deps.shellSetting?.(projectId)
+      const shell = () => deps.shellSetting?.(projectId)
       const result = await deps.registry().open(terminalKey(projectId, nodeId), { cwd, cols, rows, restart, command, shell }, client, clientSink(client, projectId, nodeId))
       // Destroyed while the shell was starting: its `destroyed` may have come before it subscribed.
       if (client.isDestroyed()) leave(client)
@@ -149,7 +150,7 @@ export interface RegistryWiring {
 /**
  * Ends the shells when what owns them goes: their Node leaving the Layout, their Project leaving
  * the list, the app quitting. Quitting waits for the shells to exit (at most `quitWaitMs`), then
- * quits again with nothing left to wait for.
+ * quits again, and that second quit is not held back, whatever is still closing.
  */
 export function wireRegistry(registry: TerminalRegistry, wiring: RegistryWiring): void {
   const warn = (what: string) => (error: unknown) => console.warn(`[terminal] ${what} failed`, error)
@@ -160,11 +161,16 @@ export function wireRegistry(registry: TerminalRegistry, wiring: RegistryWiring)
   wiring.projects.onChange(
     () => void closeRemovedProjects(registry, new Set(wiring.projects.list().map((project) => project.id))).catch(warn('closing the shells of a removed Project')),
   )
+  let waited = false
   wiring.app.on('will-quit', (event) => {
-    if (registry.size === 0) return
+    if (waited || registry.size === 0) return
     event.preventDefault()
     const timeout = new Promise<void>((resolve) => setTimeout(resolve, wiring.quitWaitMs ?? QUIT_WAIT_MS))
-    void Promise.race([registry.closeAll(), timeout]).finally(() => wiring.app.quit())
+    void Promise.race([registry.closeAll(), timeout]).finally(() => {
+      // A shell that is still closing after the wait would hold back every quit from here on.
+      waited = true
+      wiring.app.quit()
+    })
   })
 }
 

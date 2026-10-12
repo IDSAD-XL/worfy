@@ -103,6 +103,35 @@ describe('the shell of the Terminals in Project settings', () => {
     expect(saved()).toEqual({ id: PROJECT.id, settings: { actionTemplates: TEMPLATES, terminalShell: 'git-bash' } })
   })
 
+  it('Reset to default puts the default templates back and leaves the chosen shell as it is', async () => {
+    main.answers['projects.settings.get'] = { ok: true, value: { actionTemplates: { shipTicket: 'my own {epic}', runWave: 'mine' }, terminalShell: 'git-bash' } }
+    main.answers['projects.settings.defaults'] = { ok: true, value: { actionTemplates: TEMPLATES } }
+    await open()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }))
+    })
+    expect(screen.getByLabelText<HTMLSelectElement>('Terminal shell').value).toBe('git-bash')
+    await save()
+    expect(saved()).toEqual({ id: PROJECT.id, settings: { actionTemplates: TEMPLATES, terminalShell: 'git-bash' } })
+  })
+
+  it('is not shown while the settings of the Project are not there, though the Machine has shells', async () => {
+    main.answers['projects.settings.get'] = { ok: false, error: 'the settings could not be read' }
+    await open()
+    expect(screen.queryByLabelText('Terminal shell')).toBeNull()
+    expect(screen.getByRole('alert').textContent).toContain('the settings could not be read')
+  })
+
+  it('a save that fails keeps the window open with the choice as it was made', async () => {
+    main.answers['projects.settings.set'] = { ok: false, error: 'the disk is full' }
+    const { onClose } = await open()
+    fireEvent.change(screen.getByLabelText('Terminal shell'), { target: { value: 'git-bash' } })
+    await save()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert').textContent).toContain('the disk is full')
+    expect(screen.getByLabelText<HTMLSelectElement>('Terminal shell').value).toBe('git-bash')
+  })
+
   it('asks the Machine of the Project for its shells, not the Machine of the window', async () => {
     await open({ machine: 'machine-m' })
     expect(main.calls.filter((call) => call.channel === 'terminal.shells')).toEqual([{ machine: 'machine-m', channel: 'terminal.shells', input: undefined }])

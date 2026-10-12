@@ -132,6 +132,15 @@ export const projectSettingsSchema = z.object({
 })
 export type ProjectSettings = z.output<typeof projectSettingsSchema>
 
+/**
+ * The settings as `settings.json` is read: a `terminalShell` this version does not know (a data
+ * folder of a later worfy, a hand edit) reads as not chosen, and the rest of the file stays. What
+ * is saved goes through projectSettingsSchema, which refuses such a value.
+ */
+export const savedProjectSettingsSchema = projectSettingsSchema.extend({
+  terminalShell: terminalShellSettingSchema.optional().catch(undefined),
+})
+
 /** What a new Project starts with: the defaults of the Harness found on the machine. */
 export function defaultProjectSettings(harness: HarnessKind): ProjectSettings {
   return { actionTemplates: defaultActionTemplates(harness) }
