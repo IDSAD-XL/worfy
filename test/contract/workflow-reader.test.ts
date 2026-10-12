@@ -665,6 +665,85 @@ describe('workflow watcher', () => {
     }
   })
 
+  it('treats an Epic folder whose name starts with two dots as an Epic, and a path outside the Tickets root as outside', () => {
+    const root = join(dir, '.scratch')
+    const skips = ticketsIgnored(root)
+    for (const path of [join(root, '..hidden'), join(root, '..hidden', 'spec.md'), join(root, '..hidden', 'issues'), join(root, '..hidden', 'issues', '01-a.md'), join(root, '...', 'map.md')]) {
+      expect(skips(path), path).toBe(false)
+    }
+    for (const path of [join(root, '..hidden', 'logs'), join(root, '..hidden', 'logs', 'x.log'), join(root, '..hidden', 'node_modules'), join(root, '...', 'evidence')]) {
+      expect(skips(path), path).toBe(true)
+    }
+    // Outside the root nothing is skipped, as before: chokidar asks about the parent folder when the
+    // root does not exist yet.
+    for (const path of [join(root, '..'), join(root, '..', 'x'), join(`${root}2`, 'e', 'issues', '01.md'), join(`${root}2`, 'e', 'logs', 'x.log')]) {
+      expect(skips(path), path).toBe(false)
+    }
+  })
+
+  it('watches spec.md, map.md and issues whatever the case of their letters; a Ticket ends in .md as written', () => {
+    // On a disk that ignores case (the default on macOS and Windows) epic-status finds Issues/ and
+    // Spec.md too. Its glob for Tickets is *.md, and that one tells the case apart on any disk.
+    const root = join(dir, '.scratch')
+    const skips = ticketsIgnored(root)
+    for (const path of [join(root, 'e', 'Spec.md'), join(root, 'e', 'MAP.md'), join(root, 'e', 'Issues'), join(root, 'e', 'Issues', '01-a.md'), join(root, 'e', 'ISSUES', '02-b.md')]) {
+      expect(skips(path), path).toBe(false)
+    }
+    for (const path of [join(root, 'e', 'Issues', '01-a.MD'), join(root, 'e', 'Issues', 'sub', 'x.md'), join(root, 'e', 'Issues', 'notes.TXT'), join(root, 'e', 'Logs')]) {
+      expect(skips(path), path).toBe(true)
+    }
+  })
+
+  it('follows a Tickets root made after the start: the first Ticket, then an edit of it and a second Ticket', async () => {
+    // A new Project before its first Epic: a repository with no `.scratch` yet.
+    const repo = join(dir, 'project')
+    mkdirSync(repo)
+    writeFileSync(join(repo, 'README.md'), 'code only\n')
+    git(dir, 'init', '-q', '-b', 'main', repo)
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'code')
+    const { home } = makeClaudeHome(dir)
+    const deltas: WorkflowDelta[] = []
+    const watcher = await startWatcher(repo, home, deltas)
+    expect(watcher.current.tickets).toEqual([])
+
+    const issues = join(repo, '.scratch', 'demo', 'issues')
+    mkdirSync(issues, { recursive: true })
+    writeFileSync(join(repo, '.scratch', 'demo', 'spec.md'), '# Demo epic: made after the start\n')
+    const file = join(issues, '01-first.md')
+    writeFileSync(file, ticketText(1, 'open', '—', null))
+    const added = await nextDelta(deltas, (d) => d.tickets.some((t) => t.num === 1))
+    expect(added.delta.tickets.map((t) => [t.epic, t.num, t.state])).toEqual([['demo', 1, 'open']])
+    await watcher.idle()
+
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked — waiting'))
+    const edited = await nextDelta(deltas, (d) => d.tickets.length > 0)
+    expect(edited.delta.tickets.map((t) => [t.num, t.state])).toEqual([[1, 'blocked']])
+
+    writeFileSync(join(issues, '02-second.md'), ticketText(2, 'open', '01', null))
+    const second = await nextDelta(deltas, (d) => d.tickets.length > 0)
+    expect(second.delta.tickets.map((t) => [t.num, t.state])).toEqual([[2, 'open']])
+  })
+
+  it('logs an error event of either file watch and does not throw', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const watcher = await startWatcher(repo, home, [])
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    // The watcher keeps its two chokidar watchers private: the Tickets root first, then the git refs.
+    const watchers = (watcher as unknown as { watchers: { emit(event: 'error', error: Error): boolean }[] }).watchers
+    expect(watchers).toHaveLength(2)
+    const failure = new Error('EMFILE: too many open files, watch')
+
+    // An 'error' event with no listener throws from `emit`.
+    for (const one of watchers) expect(() => one.emit('error', failure)).not.toThrow()
+    expect(logged.mock.calls).toEqual([
+      ['[workflow] checkout watch error', failure],
+      ['[workflow] branches watch error', failure],
+    ])
+    logged.mockRestore()
+  })
+
   it('reads nothing again for a change outside what epic-status reads, a linked node_modules included, and still sees a new Epic', async () => {
     const repo = makeRepo(dir)
     const { home, log } = makeClaudeHome(dir)
