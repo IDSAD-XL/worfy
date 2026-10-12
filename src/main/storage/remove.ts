@@ -1,7 +1,8 @@
-// Removing files and folders in the main process (worfy-windows ticket 23). Every removal in
-// src/main goes through this module; fs.rmSync is not called there (test/unit/no-rmsync.test.ts).
+// Removing files and folders in the main process (worfy-windows ticket 23). Every removal of a
+// tree in src/main goes through this module; fs.rmSync is called nowhere else there
+// (test/unit/no-rmsync.test.ts).
 //
-// Why not fs.rmSync. Under Node 24 — the Node of Electron 44 — on Windows, measured on the owner's PC:
+// Why not fs.rmSync on Windows. Under Node 24 — the Node of Electron 44 — measured on the owner's PC:
 //   - with `recursive` it goes through a junction (a link to a folder on NTFS) and empties the
 //     folder behind it, whether the junction is the path itself or lies inside the folder removed;
 //   - it refuses a read-only file with EPERM, and a junction without `recursive` with
@@ -9,13 +10,19 @@
 // Under Node 22 it does none of this. fs.unlinkSync, under both, removes a read-only file, and
 // removes a junction or a symlink as the link it is, leaving what it leads to.
 //
-// So a tree is removed by a walk of its own: lstat says what a path is and never follows a link;
-// what is not a folder is unlinked; a folder is emptied and then removed. Nothing a link leads to
-// is ever entered.
+// So on Windows a tree is removed by a walk of its own: lstat says what a path is and never follows
+// a link; what is not a folder is unlinked; a folder is emptied and then removed. The walk reaches
+// every entry by its full path, so it holds only for a tree nobody else changes meanwhile: a folder
+// that another process swaps for a link during the removal would be entered.
 //
-// The text of scripts that cannot import anything keeps a copy of removeTree: the restore script
-// of src/main/harness/migrate/restore.ts. test/unit/remove-tree.test.ts compares the copies.
-import { lstatSync, readdirSync, rmdirSync, unlinkSync, type Stats } from 'node:fs'
+// On every other system fs.rmSync is called, as before this module: there it never went through a
+// link, it is safe against such a swap, it has no limit on the length of a path, and it goes on
+// past an entry it cannot remove. Nothing changes off Windows.
+//
+// The text of scripts that cannot import anything keeps a copy of both functions: the restore
+// script of src/main/harness/migrate/restore.ts, scripts/remove-tree.mjs and
+// scripts/install-stable.mjs. test/unit/remove-tree.test.ts compares the copies.
+import { lstatSync, readdirSync, rmdirSync, rmSync, unlinkSync, type Stats } from 'node:fs'
 import { join } from 'node:path'
 
 /** How often and how long a step is tried again on Windows when the file is busy. */
@@ -23,6 +30,8 @@ export const REMOVE_RETRIES = 5
 export const REMOVE_RETRY_MS = 100
 /** What Windows answers while another process — an antivirus, the indexer — holds a file for a moment. */
 const BUSY = ['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES']
+/** What the system answers when nothing is at a path: no such name, or a name on the way is not a folder. */
+const GONE = ['ENOENT', 'ENOTDIR']
 
 /** The calls of node:fs the removal makes; tests replace them. */
 export interface RemoveFs {
@@ -30,24 +39,35 @@ export interface RemoveFs {
   readdirSync: (path: string) => string[]
   unlinkSync: (path: string) => void
   rmdirSync: (path: string) => void
+  /** The removal of every system but Windows. */
+  rmSync: (path: string, options: { recursive?: boolean; force: boolean }) => void
 }
 
 export interface RemoveOptions {
-  /** The system worfy runs on; that of this process by default. Only Windows tries a busy step again. */
+  /** The system worfy runs on; that of this process by default. Only Windows walks the tree itself. */
   platform?: NodeJS.Platform
   fs?: RemoveFs
   /** Waits between two tries; by default the thread sleeps. */
   wait?: (ms: number) => void
 }
 
-const nodeFs: RemoveFs = { lstatSync, readdirSync: (path) => readdirSync(path), unlinkSync, rmdirSync }
+const nodeFs: RemoveFs = { lstatSync, readdirSync: (path) => readdirSync(path), unlinkSync, rmdirSync, rmSync }
 const sleep = (ms: number): void => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 const codeOf = (error: unknown): string | undefined => (error as NodeJS.ErrnoException | null)?.code
+const onWindows = (options: RemoveOptions): boolean => (options.platform ?? process.platform) === 'win32'
 
-/** Runs a step; on Windows, when the answer is "busy", tries again after a moment, a few times. */
+/**
+ * The path without separators at its end: `link\` names the folder behind a link, and lstat would
+ * follow it. The root of a disk keeps its separator.
+ */
+const trimmed = (path: string): string => {
+  const cut = path.replace(/[\\/]+$/, '')
+  return cut === '' || cut.endsWith(':') ? path : cut
+}
+
+/** Runs a step; when the answer is "busy", tries again after a moment, a few times. */
 function patiently(step: () => void, options: RemoveOptions): void {
-  const tries = (options.platform ?? process.platform) === 'win32' ? REMOVE_RETRIES : 0
-  for (let left = tries; ; left--) {
+  for (let left = REMOVE_RETRIES; ; left--) {
     try {
       step()
       return
@@ -65,37 +85,72 @@ function kindOf(path: string, fs: RemoveFs): 'folder' | 'other' | null {
   try {
     return fs.lstatSync(path).isDirectory() ? 'folder' : 'other'
   } catch (error) {
-    if (codeOf(error) === 'ENOENT') return null
+    if (GONE.includes(codeOf(error) ?? '')) return null
     throw error
   }
 }
 
 /**
- * Removes what is at `path`: a file, a link, or a folder with everything in it. A path that is not
- * there is not an error. A link — a symlink or a junction, at the path itself or anywhere below —
- * is removed as a link: what it leads to is neither entered nor touched. Takes the place of
- * `rmSync(path, { recursive: true, force: true })`.
+ * The walk of Windows. An entry that cannot be removed does not end it: the others go, and the
+ * first error is thrown at the end, with the folder left for what stayed in it.
  */
-export function removeTree(path: string, options: RemoveOptions = {}): void {
-  const fs = options.fs ?? nodeFs
+function walk(path: string, fs: RemoveFs, options: RemoveOptions): void {
   const kind = kindOf(path, fs)
   if (kind === null) return
   if (kind === 'other') {
     patiently(() => fs.unlinkSync(path), options)
     return
   }
-  for (const name of fs.readdirSync(path)) removeTree(join(path, name), options)
+  let names: string[]
+  try {
+    names = fs.readdirSync(path)
+  } catch (error) {
+    // Gone between the look and the listing.
+    if (GONE.includes(codeOf(error) ?? '')) return
+    throw error
+  }
+  let failed: { error: unknown } | null = null
+  for (const name of names) {
+    try {
+      walk(join(path, name), fs, options)
+    } catch (error) {
+      failed ??= { error }
+    }
+  }
+  if (failed !== null) throw failed.error
   patiently(() => fs.rmdirSync(path), options)
 }
 
 /**
+ * Removes what is at `path`: a file, a link, or a folder with everything in it. A path that is not
+ * there is not an error. A link — a symlink or a junction, at the path itself or anywhere below —
+ * is removed as a link: what it leads to is neither entered nor touched, as long as nobody else
+ * changes the tree meanwhile. Takes the place of `rmSync(path, { recursive: true, force: true })`,
+ * and off Windows is that call.
+ */
+export function removeTree(path: string, options: RemoveOptions = {}): void {
+  const fs = options.fs ?? nodeFs
+  if (!onWindows(options)) {
+    fs.rmSync(path, { recursive: true, force: true })
+    return
+  }
+  walk(trimmed(path), fs, options)
+}
+
+/**
  * Removes one file, or one link as a link. A path that is not there is not an error; a folder is
- * one, as it was for `rmSync(path, { force: true })`, whose place this takes.
+ * one. Takes the place of `rmSync(path, { force: true })`, and off Windows is that call. On Windows
+ * a folder is refused with the code EISDIR.
  */
 export function removeFile(path: string, options: RemoveOptions = {}): void {
   const fs = options.fs ?? nodeFs
-  const kind = kindOf(path, fs)
+  if (!onWindows(options)) {
+    fs.rmSync(path, { force: true })
+    return
+  }
+  const file = trimmed(path)
+  const kind = kindOf(file, fs)
   if (kind === null) return
-  if (kind === 'folder') throw Object.assign(new Error(`${path} is a folder: removeFile removes a file or a link`), { code: 'EISDIR' })
-  patiently(() => fs.unlinkSync(path), options)
+  if (kind === 'folder') throw Object.assign(new Error(`${file} is a folder: removeFile removes a file or a link`), { code: 'EISDIR' })
+  patiently(() => fs.unlinkSync(file), options)
 }

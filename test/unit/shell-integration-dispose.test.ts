@@ -23,15 +23,18 @@ afterEach(() => {
 
 describe('ShellIntegration.disposeSync and a link in the folder', () => {
   it('removes the folder with the link in it, and the folder the link leads to keeps its file', async () => {
-    // The folder is made under `scratch`, not under /tmp: the socket path fits.
-    expect(tempBase(scratch)).toBe(scratch)
+    // The folder is made under `scratch` when the socket path fits there, and under /tmp when the
+    // temp folder of the user is too long for it. On Windows /tmp would be a folder of the disk:
+    // the test must not write there.
+    const base = tempBase(scratch)
+    if (WINDOWS) expect(base).toBe(scratch)
     const outside = join(scratch, 'outside')
     mkdirSync(outside)
     writeFileSync(join(outside, 'notes.txt'), 'keep me')
 
     const integration = new ShellIntegration({ tmpdir: () => scratch })
     const dir = await integration.prepare()
-    expect(dirname(dir)).toBe(scratch)
+    expect(dirname(dir)).toBe(base)
     expect(readdirSync(dir).length).toBeGreaterThan(0)
     // A junction on Windows; elsewhere a symlink to the folder.
     symlinkSync(outside, join(dir, 'linked'), WINDOWS ? 'junction' : 'dir')

@@ -578,6 +578,57 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       untouched()
     }, 60_000)
 
+    it('with nothing at the target, what lies at the name of a copy moved aside is not in the way: that name is not used', () => {
+      const target = targetIn('apps', 'worfy-stable')
+      const apps = join(dir, 'apps')
+      mkdirSync(apps)
+      const aside = join(apps, leftoverName(NAME, 'replaced', process.pid))
+      writeFileSync(aside, 'a file of mine')
+      expect(installStable([target], inProcess())).toContain(`install-stable: installed ${target} (commit `)
+      expect(readFileSync(aside, 'utf8')).toBe('a file of mine')
+      expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
+    }, 60_000)
+
+    // Review round 1 of PR #257. A real folder under the name of this run's unfinished copy is a
+    // leftover and is cleared — unless it cannot be: then the build must not be copied into it.
+    it('refuses when a real folder at the name of its unfinished copy cannot be cleared: the build is not copied into it, and the earlier copy stays whole', async () => {
+      const target = targetIn('apps', 'worfy-stable')
+      const apps = join(dir, 'apps')
+      expect(run([target]).status).toBe(0)
+      writeFileSync(join(build, 'resources', 'app.asar'), 'the next build')
+      const staging = join(apps, leftoverName(NAME, 'installing', process.pid))
+      const locked = join(staging, 'locked')
+      mkdirSync(locked, { recursive: true })
+      writeFileSync(join(locked, 'junk.txt'), 'from a run long gone')
+      // What keeps the folder from going: on Windows a program whose working folder it is; elsewhere
+      // a folder nothing may be removed from.
+      const holder = WINDOWS ? spawn(process.env['ComSpec'] ?? 'C:/Windows/System32/cmd.exe', ['/d', '/c', 'echo ready& pause'], { cwd: locked, stdio: ['pipe', 'pipe', 'ignore'] }) : null
+      if (holder === null) chmodSync(locked, 0o555)
+      try {
+        if (holder !== null) {
+          // The program takes its working folder while it starts, after spawn() has returned: the
+          // line it prints says it is running.
+          await new Promise((resolve, reject) => {
+            holder.stdout.once('data', resolve)
+            holder.once('error', reject)
+            holder.once('exit', () => reject(new Error('the program that holds the folder ended at once')))
+          })
+        }
+        expect(() => installStable([target], inProcess())).toThrow(`${staging} is in the way`)
+        expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
+        expect(existsSync(join(target, 'locked'))).toBe(false)
+        // Nothing of the build went into the folder.
+        expect(readdirSync(staging)).toEqual(['locked'])
+        expect(readdirSync(apps).sort()).toEqual([NAME, basename(staging), 'worfy-stable.json'].sort())
+      } finally {
+        if (holder !== null) {
+          const gone = new Promise((resolve) => holder.once('exit', resolve))
+          holder.kill()
+          await gone
+        } else chmodSync(locked, 0o755)
+      }
+    }, 120_000)
+
     it('names every leftover it clears; of two copies moved aside the first by name goes back, the other is removed', () => {
       const target = targetIn('apps', 'worfy-stable')
       const apps = join(dir, 'apps')

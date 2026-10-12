@@ -232,6 +232,9 @@ function applyOptions(extra: Partial<ApplyOptions> = {}): ApplyOptions {
   return { ...rest, pluginStatus: () => Promise.resolve(INSTALLED), confirm: () => Promise.resolve(true), now: () => new Date('2026-10-08T10:20:30Z'), ...extra }
 }
 
+/** The link to a folder a user can make without a special right: a junction on Windows, a symlink elsewhere. */
+const LINK_TO_A_FOLDER = process.platform === 'win32' ? 'junction' : 'dir'
+
 const read = (path: string): string => readFileSync(path, 'utf8')
 const readJson = (path: string): Record<string, unknown> => JSON.parse(read(path)) as Record<string, unknown>
 const hookCommands = (settingsPath: string): string[] => hookRecords(readJson(settingsPath)).map((hook) => hook.command)
@@ -624,6 +627,8 @@ describe('restore and refusals', () => {
     }
     const result = await applyMigration(selection(plan()), applyOptions(when === 'before' ? { beforeStep: fail } : { afterStep: fail }))
     expect(result).toEqual({ outcome: 'failed', step, reason: `injected failure ${when} ${step}`, rolledBack: true, rollbackError: null, backupDir: null })
+    // The backup of a move that undid itself is removed (treeOf leaves backups out, so it is asked here).
+    expect(existsSync(backupDir())).toBe(false)
     expect(treeOf(sandbox.claudeHome)).toEqual(before.tree)
     expect(read(sandbox.claudeJson)).toBe(before.claudeJson)
     expect(treeOf(sandbox.root, { skip: (rel) => rel === join('home', '.claude') || rel === 'claude-calls.log' })).toEqual(before.outside)
@@ -632,13 +637,14 @@ describe('restore and refusals', () => {
   // worfy-windows ticket 23. A junction is the link to a folder that Windows lets any user make; a
   // skill folder under ~/.claude can be one. The step "files", the undo in restore.mjs and the
   // removal of the backup each meet the link, and each must take it as a link: under the Node of
-  // Electron 44 fs.rmSync went through it and emptied the folder behind. Only Windows has junctions.
-  it.runIf(process.platform === 'win32')('a Harness skill that is a junction: the step "files" takes the link away, the undo puts it back, and the folder behind keeps its files all along', async () => {
+  // Electron 44 fs.rmSync went through it and emptied the folder behind. Only Windows has junctions;
+  // elsewhere the same runs with a symlink to the folder, which no system ever went through.
+  it('a Harness skill that is a link to a folder (a junction on Windows): the step "files" takes the link away, the undo puts it back, and the folder behind keeps its files all along', async () => {
     const skill = join(sandbox.claudeHome, 'skills', HARNESS_SKILLS[0])
     const behind = join(sandbox.root, 'behind-skill')
     renameSync(skill, behind)
     writeFileSync(join(behind, 'mine.txt'), 'not the Harness\n')
-    symlinkSync(behind, skill, 'junction')
+    symlinkSync(behind, skill, LINK_TO_A_FOLDER)
     const kept = treeOf(behind, everything)
     expect(Object.keys(kept)).toContain('mine.txt')
     const there = (path: string): boolean => {
@@ -667,17 +673,17 @@ describe('restore and refusals', () => {
   // The same for the walk inside restore.mjs: the undo removes what is at a path before it puts
   // the backup's copy there. Here the link is back at the path by then — made again while the move
   // ran — so the undo meets it.
-  it.runIf(process.platform === 'win32')('a junction that is at the path of a skill again when the move is undone: the undo takes it as a link, the folder behind keeps its files', async () => {
+  it('a link that is at the path of a skill again when the move is undone: the undo takes it as a link, the folder behind keeps its files', async () => {
     const skill = join(sandbox.claudeHome, 'skills', HARNESS_SKILLS[0])
     const behind = join(sandbox.root, 'behind-skill')
     renameSync(skill, behind)
     writeFileSync(join(behind, 'mine.txt'), 'not the Harness\n')
-    symlinkSync(behind, skill, 'junction')
+    symlinkSync(behind, skill, LINK_TO_A_FOLDER)
     const kept = treeOf(behind, everything)
     let made = 0
     const fail = (current: MigrationStep): void => {
       if (current !== 'files') return
-      symlinkSync(behind, skill, 'junction')
+      symlinkSync(behind, skill, LINK_TO_A_FOLDER)
       made++
       throw new Error('injected failure after files')
     }
