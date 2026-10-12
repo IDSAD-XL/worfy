@@ -4,21 +4,21 @@ Personal infinite canvas where Claude agents build small apps (cards) while you 
 
 ## Development
 
-Node.js 24 is required on both machines, the Mac and the Windows PC: `engines.node` of `package.json` is `>=24`, and `.nvmrc` and CI name 24. Under an older Node `pnpm install` stops before it installs anything, with `ERR_PNPM_UNSUPPORTED_ENGINE`, exit code 1, the version it expects and the one it got (`engineStrict` in `pnpm-workspace.yaml`). The tests always run under the Node of Electron, which is 24; the scripts (`pnpm icons`, `pnpm install:stable`, `postinstall`) run under the Node of the system: with an older one there, a script can behave differently from the test that covers it.
+Node.js 24 is required on both machines, the Mac and the Windows PC, and of that line 24.15 or newer. `engines.node` of `package.json` is `>=24`, and `.nvmrc` and CI name 24; four dependencies, jsdom among them, accept nothing in that line below 24.15. `engineStrict` in `pnpm-workspace.yaml` holds pnpm to both: under a Node that the package or one of these dependencies does not accept, `pnpm install` stops before it installs anything, with `ERR_PNPM_UNSUPPORTED_ENGINE`, exit code 1, the version it expects and the one it got. The tests always run under the Node of Electron, which is 24; the scripts (`pnpm icons`, `pnpm install:stable`, `postinstall`) run under the Node of the system: with an older one there, a script can behave differently from the test that covers it.
 
 On macOS install:
 
 - Node.js 24: with nvm, `nvm install` in the repository takes the version from `.nvmrc`; without nvm, the macOS installer (`.pkg`) of the newest 24.x from <https://nodejs.org/dist/latest-v24.x/>;
 - pnpm of the version in `packageManager` of `package.json`: `corepack enable pnpm`, or `npm install -g pnpm@<version>`.
 
-Then `pnpm install --frozen-lockfile`. `node --version` must print `v24.` and a version after it.
+Then `pnpm install --frozen-lockfile`. `node --version` must print 24.15 or a newer version of the line 24: `v24.15.0`, `v24.21.0`.
 
 ## Development on Windows
 
 The Windows port is in progress (epic `worfy-windows`). To work on the repository on Windows 10 21H2+ or 11, x64, install:
 
 - Git for Windows (`winget install Git.Git`): Claude Code and the Harness use its Git Bash;
-- Node.js 24 (`winget install OpenJS.NodeJS.LTS --version 24.20.0`). Without `--version` winget installs the newest LTS line, and that is 24 only until the next line becomes LTS, planned for 2026-10-28; `winget show OpenJS.NodeJS.LTS --versions` lists the 24.x versions the package has. `node --version` must then print `v24.` and a version after it;
+- Node.js 24, 24.15 or newer of that line: the Windows installer (`.msi`) of the newest 24.x from <https://nodejs.org/dist/latest-v24.x/>, or `winget install OpenJS.NodeJS.LTS --version 24.20.0`. Without `--version` winget installs the newest LTS line, and that is 24 only until the next line becomes LTS, planned for 2026-10-28. After that date the winget command may stop finding 24.20.0: a year earlier winget moved the 22.x versions out of `OpenJS.NodeJS.LTS` into a package of their own, `OpenJS.NodeJS.22`, within a week of such a change, and the 24.x versions may move to `OpenJS.NodeJS.24` the same way (there is no such package today). The installer from nodejs.org does not depend on that. `node --version` must then print 24.15 or a newer version of the line 24;
 - pnpm of the version in `packageManager` of `package.json`: `npm install -g pnpm@<version>`.
 
 Turn on Developer Mode (Settings → System → For developers): several tests create symbolic links, and without it Windows refuses them to a user without administrator rights.
@@ -27,9 +27,9 @@ Visual Studio Build Tools are not needed: on Windows `pnpm install` does not reb
 
 ### Closing a Terminal on Windows
 
-Closing a Terminal Node on Windows ends every process started under its shell, not only the shell. worfy first ends each process below the shell in the process tree (`Stop-Process -Force`), then closes the pseudo-console, which ends the shell and what is on its console (`src/main/terminal/pty.ts`). That includes programs with a window of their own that were started from the Terminal, an editor or a browser for example: they are ended at once and get no request to close, so what was not saved in them is lost. worfy does not ask before it closes a Terminal either.
+Closing a Terminal Node on Windows ends every process that is below the shell in the process tree at that moment, not only the shell. worfy first ends each process below the shell in the process tree (`Stop-Process -Force`), then closes the pseudo-console, which ends the shell and what is on its console (`src/main/terminal/pty.ts`). That includes programs with a window of their own that were started from the Terminal, an editor or a browser for example: they are ended at once and get no request to close, so what was not saved in them is lost. worfy does not ask before it closes a Terminal either. The tree is walked from the shell down through parents that are still running: a program whose parent has already exited, one started through a launcher or `cmd /c start` for example, is not found and stays.
 
-The same happens when the Node leaves the Layout by any other route, when its Project is removed from worfy, when the last window or Linked machine that opened the Terminal goes away, and when worfy quits. A program worfy cannot end, an elevated one for example, stays, and its pid goes to the log. When the step that ends the processes below the shell fails or takes longer than 3 seconds, only the shell and what is on its console end.
+The same happens when the Node leaves the Layout by any other route, when its Project is removed from worfy, when the last window or Linked machine that opened the Terminal goes away, and when worfy quits. A program worfy cannot end, an elevated one for example, stays, and its pid goes to the log. When the step that ends the processes below the shell fails, or is stopped at its limit of 3 seconds, the processes it had not ended by then stay. When no process has the pid of the shell any more, or the one that has it was created later than the shell worfy started, worfy ends nothing below it. In each of these cases the pseudo-console is still closed, which ends the shell, when it is running, and what is on its console.
 
 On macOS closing a Terminal sends SIGHUP to the shell and its process group, and SIGKILL a second later when the shell has not exited by then: the program in the foreground and the jobs of the shell are ended too.
 

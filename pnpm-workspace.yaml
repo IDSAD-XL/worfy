@@ -12,5 +12,6 @@ allowBuilds:
 # pnpm 11.22.0 only warns under an older Node (`[WARN] Unsupported engine`), installs everything and
 # exits 0. With engineStrict it stops before anything is installed: ERR_PNPM_UNSUPPORTED_ENGINE,
 # exit code 1, the version it expects and the one it got. The setting also refuses a dependency
-# whose own `engines` does not accept the Node that runs pnpm.
+# whose own `engines` does not accept the Node that runs pnpm: with jsdom 30.1.1 and three more
+# packages of the lockfile, which ask for `^24.15.0`, the lowest Node of the line 24 is 24.15.
 engineStrict: true
