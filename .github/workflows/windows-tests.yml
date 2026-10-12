@@ -1,0 +1,78 @@
+name: Windows tests
+
+# Runs a given list of unit and contract test files on a clean Windows machine, by hand only.
+#
+# Why a workflow of its own and not a job in ci.yml: "Run workflow" on CI starts the full macOS
+# job, at six times the price of a Windows minute. A separate file has one trigger and one job, so
+# starting it can never start macOS, and ci.yml stays as it is.
+#
+# The limits, all inside this file and scripts/windows-test-list.mjs. A Windows runner minute costs
+# $0.010, so one run costs $0.10 at most:
+# - it starts only from "Run workflow" (workflow_dispatch): never on a push, a pull request or a timer;
+# - the input is an explicit list of 1 to 12 test files; an empty list is refused;
+# - every element is an existing *.test.ts or *.test.tsx file under test/unit/ or test/contract/;
+#   a name with "e2e", "packaged" or "acceptance", a pattern, a folder and an option are refused;
+# - the job runs `node scripts/vitest-electron.mjs <files>` and never `pnpm test`: the whole suite
+#   is red on Windows (about 700 failing tests on 2026-10-12) and must not reach the runner;
+# - one job, no matrix, stopped after 10 minutes.
+# test/contract/windows-tests-workflow.test.ts pins each of them: loosening one turns the Linux CI red.
+#
+# The input "files": paths from the repository root with forward slashes, spelled as git lists
+# them, separated by spaces, commas or line breaks. For example:
+#   gh workflow run windows-tests.yml --ref <branch> \
+#     -f files="test/unit/remote-links.test.ts test/unit/shell-resolve.test.ts"
+# With --ref the run takes this file, the check script and the tests from that branch.
+#
+# Who runs it: the owner, and — by the owner's permission of 2026-10-12 — the orchestrator Session
+# on the Mac, before it merges a pull request with code for Windows. This is the only exception to
+# the project rule that agents never start paid runs: no other agent starts this workflow, and no
+# agent starts the full macOS job of ci.yml. The run does not replace gate full on the owner's
+# Windows PC (ADR-0056).
+on:
+  workflow_dispatch:
+    inputs:
+      files:
+        description: 'Test files under test/unit/ or test/contract/, separated by spaces or commas, 12 at most'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  listed-tests:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      # The first step after checkout, before anything is installed: a refused list fails the job
+      # within a minute. The script needs no dependencies and runs on the Node of the runner image.
+      # The input reaches it through env. Written into `run` as an expression it would be pasted
+      # into the script before the shell reads it, and a list such as `x; some-command` would run.
+      # bash (Git Bash on the Windows image) is set for both steps that read TEST_FILES: the same
+      # shell everywhere the list is handled, and the one whose word splitting the run step needs.
+      - name: Check the list of test files
+        id: list
+        shell: bash
+        env:
+          TEST_FILES: ${{ inputs.files }}
+        run: node scripts/windows-test-list.mjs
+      # Installs the pnpm version pinned by "packageManager" in package.json.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The list is the output of the check — the accepted paths, separated by spaces — not the raw
+      # input. $TEST_FILES is unquoted on purpose: bash splits it into one argument per file, and the
+      # check allows no character that bash would expand. In PowerShell, the default shell on
+      # Windows, `$TEST_FILES` would be an unset variable and vitest would run the whole suite;
+      # `test -n` stops the step if the list is ever empty for any other reason.
+      - name: Run the listed test files
+        shell: bash
+        env:
+          TEST_FILES: ${{ steps.list.outputs.files }}
+        run: |
+          test -n "$TEST_FILES"
+          node scripts/vitest-electron.mjs $TEST_FILES
