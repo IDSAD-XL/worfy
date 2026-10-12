@@ -1,7 +1,7 @@
 # 25 — Ручной job в CI: заданный список test-файлов на `windows-latest`
 
 Type: task
-Status: claimed — 2026-10-12
+Status: done — 2026-10-12, [PR #254](https://github.com/IDSAD-XL/worfy/pull/254)
 Blocked by: —
 Source: решение владельца 2026-10-12: вынести вперёд малую часть Ticket-а [14](14-gate-full-на-windows.md) (gate full на Windows, с ручным job-ом «Windows» в CI). Условие владельца: большие test-ы не должны попасть на runner. Делает агент-implementer на Mac.
 
@@ -224,3 +224,14 @@ workflow-файл им не проверен.
 
 - Workflow-файлы не входят в `.gitattributes`: на Windows они могут получить CRLF. Contract test
   читает файл с любым концом строки.
+
+### Gate оркестратора (2026-10-13)
+
+- Ticket шёл по `/worfy:ship-ticket`. Ревью по двум линзам Profile-а — «корректность» и «тесты», каждая в своём worktree; сводный вердикт — `VERIFIED` на `1bd022d` ([комментарий в PR #254](https://github.com/IDSAD-XL/worfy/pull/254#issuecomment-6131571055)).
+- «Корректность» (на `9be18bf`; workflow-файл и скрипт после этого не менялись): находок `high` и `med` нет, обхода проверки списка не найдено — 63 входа (CRLF с формы Windows, невидимые символы Unicode, кириллический двойник, glob, внедрение второй строки `files=`, 5000 элементов, symlink, другой регистр), каждый неверный отклонён с кодом 1 и пустым output. Единственный trigger — `workflow_dispatch`; `ci.yml` не тронут и не содержит `workflow_run` и `workflow_call`, так что этот файл не может запустить `full-macos`. vitest берёт ровно принятые файлы. Расхождение с ADR-0056, п. 3 (job в отдельном файле) reviewer находкой не считает: Ticket оставлял выбор.
+- «Тесты»: первый круг — одна `med` (contract test не ловил частично ослабленное правило о словах `e2e`, `packaged`, `acceptance`) и несколько `low`; исправлено в `1bd022d`, повторное ревью — `VERIFIED`: мутанты правила слов, сравнения без учёта регистра, `?`, `permissions: write-all` красные; случай с symlink на Windows больше не пропускается (решение владельца в Ticket-е 14); test спрашивает настоящий `vitest list --filesOnly`. Мутантов reviewer-а: 87 в первом круге (73 красных), 12 из 12 во втором; у Implementer-а 64 из 64.
+- Долги — в разделе «Долги» выше: `cache: pnpm` при запуске с ветки PR; зелёные мутанты, не ослабляющие пункты 1–2.
+- Gate full на Mac: 2026-10-12 23:15 – 2026-10-13 00:45 — красный в четырёх запусках на test-ах вне PR (наблюдатели за файлами `docs.test.ts`, `claude-home-registry.test.ts`, e2e `card-drag` и `external-session`); main без этого PR в то же время тоже не проходил `pnpm test`. Причина — служба macOS `fseventsd` (замеры владельца — `worfy-windows` 26); после `sudo killall fseventsd` в 01:02 — один запуск, код 0, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`, на head `be1db3d` (rebase на `5f43db8`).
+- Мерж: CI зелёный, CLEAN, влит `6b06ca0`. Workflow «Windows tests» появился в списке workflow-ов репозитория; запусков его не было.
+- не проверено: первые два пункта «Готово, когда» — платные запуски на `windows-latest` делает владелец после мержа и присылает числа.
+- Пункт 6 Ticket-а: строка в `rules.md` Profile-а об исключении из правила о платных прогонах не добавлена — файл живёт в `~/.claude/worfy-harness`, запись туда — по слову владельца.
