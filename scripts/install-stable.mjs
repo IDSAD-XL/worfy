@@ -318,15 +318,37 @@ function patiently(step) {
 // over the same trees.
 // <remove-tree>
 function removeTree(path) {
+  // Off Windows rmSync never went through a link, and nothing changes there. The walk is for
+  // Windows alone, and holds for a tree nobody else changes meanwhile.
+  if (process.platform !== 'win32') return rmSync(path, { recursive: true, force: true })
+  const gone = (error) => Boolean(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')
   let folder
   try {
     folder = lstatSync(path).isDirectory()
   } catch (error) {
-    if (error && error.code === 'ENOENT') return
+    if (gone(error)) return
     throw error
   }
-  if (folder) for (const name of readdirSync(path)) removeTree(join(path, name))
-  for (let left = process.platform === 'win32' ? 5 : 0; ; left--) {
+  if (folder) {
+    let names
+    try {
+      names = readdirSync(path)
+    } catch (error) {
+      if (gone(error)) return
+      throw error
+    }
+    // An entry that cannot be removed does not end the walk: the first error is thrown at the end.
+    let failed = null
+    for (const name of names) {
+      try {
+        removeTree(join(path, name))
+      } catch (error) {
+        if (failed === null) failed = { error }
+      }
+    }
+    if (failed !== null) throw failed.error
+  }
+  for (let left = 5; ; left--) {
     try {
       if (folder) rmdirSync(path)
       else unlinkSync(path)
@@ -478,10 +500,11 @@ export function installStable(argv, { platform = process.platform, env = process
   const staging = rules.join(folder, leftoverName(base, 'installing', process.pid))
   const aside = rules.join(folder, leftoverName(base, 'replaced', process.pid))
   try {
-    // Nothing may lie at the two names this run uses. A real folder of such a name was cleared
+    // Nothing may lie at the names this run uses. A real folder of such a name was cleared
     // above; what is there now is a file, a link, or a folder that could not be cleared. The copy
-    // would go into that folder, or through the link into the folder it leads to.
-    for (const path of [staging, aside]) {
+    // would go into that folder, or through the link into the folder it leads to. The name of the
+    // copy moved aside is used only when a copy is at the target.
+    for (const path of there(logical) ? [staging, aside] : [staging]) {
       if (there(path)) fail(`${path} is in the way: this run needs that name, and what lies there is not a leftover it could clear. Remove it by hand, then run this again.`)
     }
 

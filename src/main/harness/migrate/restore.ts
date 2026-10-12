@@ -101,26 +101,48 @@ const SOURCE = String.raw`#!/usr/bin/env node
 // version takes its place. Once restored, a second run changes nothing. Exit code 0: restored.
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // Removes a file, a link, or a folder with everything in it; a path that is not there is not an
-// error. A link is removed as a link: what it leads to is not entered. fs.rmSync is not used: under
-// Node 24 on Windows its "recursive" goes through a junction and empties the folder behind it, and
-// it refuses a read-only file. A copy of removeTree of src/main/storage/remove.ts, since this script
-// imports nothing of worfy; test/unit/remove-tree.test.ts runs both over the same trees.
+// error. A link is removed as a link: what it leads to is not entered. On Windows fs.rmSync is not
+// used: under Node 24 its "recursive" goes through a junction and empties the folder behind it,
+// and it refuses a read-only file. A copy of removeTree of src/main/storage/remove.ts, since this
+// script imports nothing of worfy; test/unit/remove-tree.test.ts runs both over the same trees.
 // <remove-tree>
 function removeTree(path) {
+  // Off Windows rmSync never went through a link, and nothing changes there. The walk is for
+  // Windows alone, and holds for a tree nobody else changes meanwhile.
+  if (process.platform !== 'win32') return rmSync(path, { recursive: true, force: true })
+  const gone = (error) => Boolean(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')
   let folder
   try {
     folder = lstatSync(path).isDirectory()
   } catch (error) {
-    if (error && error.code === 'ENOENT') return
+    if (gone(error)) return
     throw error
   }
-  if (folder) for (const name of readdirSync(path)) removeTree(join(path, name))
-  for (let left = process.platform === 'win32' ? 5 : 0; ; left--) {
+  if (folder) {
+    let names
+    try {
+      names = readdirSync(path)
+    } catch (error) {
+      if (gone(error)) return
+      throw error
+    }
+    // An entry that cannot be removed does not end the walk: the first error is thrown at the end.
+    let failed = null
+    for (const name of names) {
+      try {
+        removeTree(join(path, name))
+      } catch (error) {
+        if (failed === null) failed = { error }
+      }
+    }
+    if (failed !== null) throw failed.error
+  }
+  for (let left = 5; ; left--) {
     try {
       if (folder) rmdirSync(path)
       else unlinkSync(path)
@@ -136,13 +158,31 @@ function removeTree(path) {
 // </remove-tree>
 
 // Removes one file, or one link as a link; a path that is not there is not an error, a folder is.
+// A copy of removeFile of src/main/storage/remove.ts; the same test compares the two.
+// <remove-file>
 function removeFile(path) {
+  if (process.platform !== 'win32') return rmSync(path, { force: true })
+  let folder
   try {
-    unlinkSync(path)
+    folder = lstatSync(path).isDirectory()
   } catch (error) {
-    if (!error || error.code !== 'ENOENT') throw error
+    if (error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) return
+    throw error
+  }
+  if (folder) throw Object.assign(new Error(path + ' is a folder: removeFile removes a file or a link'), { code: 'EISDIR' })
+  for (let left = 5; ; left--) {
+    try {
+      unlinkSync(path)
+      return
+    } catch (error) {
+      const code = error && error.code
+      if (code === 'ENOENT') return
+      if (left === 0 || !['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES'].includes(code)) throw error
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+    }
   }
 }
+// </remove-file>
 
 function within(root, rel) {
   if (typeof rel !== 'string' || rel === '') throw new Error('refusing an empty path under ' + root)
