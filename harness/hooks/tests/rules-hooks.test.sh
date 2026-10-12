@@ -202,6 +202,17 @@ check_topics() {
 check_topics "$all" "${ORCH_TOPICS[@]}"
 check_topics "$RULES/common.md" "${COMMON_TOPICS[@]}"
 
+# The decision log of a wave that runs without a human (worfy-review ticket 06) is not a second
+# state file, and the rule against a second state file says so itself: the caveat is the paragraph
+# right after it. Whole sentences, one after another, with line breaks folded into spaces.
+flat="$(tr '\n' ' ' <"$RULES/orchestrator.md" 2>/dev/null | tr -s ' ')"
+[[ "$flat" == *'Two files describing where we are means one of them is lying. The decision log of a wave that runs without a human (`decisions.tsv`, skill `worfy:epic-wave`) is not a state file.'* ]] \
+    && ok "orchestrator.md: the decision log is not a state file — said right after the rule against a second state file" \
+    || bad "orchestrator.md: no caveat about the decision log right after the rule against a second state file"
+[[ "$flat" == *'is not a state file. The state file says where the work stands; the log says why one run decided what it did. The log is not committed and is not read when work resumes.'* ]] \
+    && ok "orchestrator.md: the log says why, is not committed and is not read on resume" \
+    || bad "orchestrator.md: the caveat does not say what the log is for, that it is not committed or that it is not read on resume"
+
 # common.md holds exactly Plain language, Evidence before "green" and Context hygiene.
 heads="$(grep '^## ' "$RULES/common.md" 2>/dev/null | tr '\n' '|')"
 [ "$heads" = '## Plain language|## Evidence before "green"|## Context hygiene|' ] \
