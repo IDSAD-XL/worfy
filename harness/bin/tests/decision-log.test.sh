@@ -213,10 +213,15 @@ run "$C" "one more row" "a reason"
 # SYNC_PAUSE_AT:
 #   checked — before the first call of the process that changes anything: it has looked, not written;
 #   created — right after the log's name came to exist through this process;
-#   wrote   — right after this process's first write into a log that was there when it opened it.
+#   writing — right before this process's first write into a log that was there when it opened it;
+#   wrote   — right after that write.
 # A stopped process creates <SYNC_DIR>/<SYNC_ROLE>.paused and goes on when <SYNC_DIR>/<SYNC_ROLE>.go
-# appears. So a script that looks first and writes later, or shows the name before the header is in
-# it, or writes a row in two parts, goes wrong on every run, whatever the load of the machine.
+# appears. The orders set below make four kinds of script go wrong on every run, whatever the load
+# of the machine: one that looks first and creates the log later; one that shows the log's name
+# before the header is in it; one that works out where its row goes, or what the whole file will
+# be, before it writes; one that writes a row in two parts. The module stops only the synchronous
+# calls of fs: a script that wrote through fs.promises or a stream would pass the stops, and any
+# other fault is met only by the round without a set order, by chance.
 # SYNC_NO_LINK=1 makes a hard link fail the way a volume without hard links does.
 cat >"$T/sync-fs.js" <<'JS'
 const fs = require("node:fs")
@@ -253,6 +258,7 @@ fs.openSync = function (p, flags, mode) {
 }
 fs.writeSync = function (fd, ...rest) {
     at("checked")
+    if (fd === logFd && logWasThere) at("writing")
     const written = real.writeSync(fd, ...rest)
     if (fd === logFd && logWasThere) at("wrote")
     return written
@@ -294,10 +300,12 @@ fs.renameSync = function (from, to) {
 }
 JS
 scene=0
-# two <name> <event> <file> <rows already in the file> [no-link] — the first process stops at <event>,
-# the second runs to its end, then the first goes on. Both rows and the earlier ones must be there.
+# two <name> <event> <whose row is written first: first|second> <file> <rows already in the file> [no-link]
+# — the first process stops at <event>, the second runs to its end, then the first goes on. The
+# earlier rows and both new ones must be there, in the order they were written.
 two() {
-    local what="$1" event="$2" file="$3" earlier="$4" nolink="${5:-}" dir i=0 rc1 rc2 expected
+    local what="$1" event="$2" order="$3" file="$4" earlier="$5" nolink="${6:-}" dir i=0 rc1 rc2 expected
+    local row1="the process that stops${TAB}the reason of the first${TAB}evidence 1" row2="the process that runs through${TAB}the reason of the second${TAB}evidence 2"
     scene=$((scene + 1)); dir="$T/sync-$scene"; mkdir -p "$dir"
     ( SYNC_DIR="$dir" SYNC_ROLE=first SYNC_PAUSE_AT="$event" SYNC_LOG="$file" SYNC_NO_LINK="$nolink" \
           node -r "$T/sync-fs.js" "$DL" "$file" "the process that stops" "the reason of the first" "evidence 1" >"$dir/first.out" 2>&1
@@ -315,19 +323,26 @@ two() {
         || bad "$what: exit ${rc1:-none} and $rc2; first '$(head -c 200 "$dir/first.out")', second '$(head -c 200 "$dir/second.out")'"
     [ "$(line "$file" 1)" = "$HEADER" ] && [ "$(grep -c '^time_utc' "$file")" = 1 ] \
         && ok "$what: one header, and it is the first line" || bad "$what: $(grep -c '^time_utc' "$file") headers, line 1 '$(line "$file" 1)'"
-    expected="$(printf '%s\n%s\n' "the process that stops${TAB}the reason of the first${TAB}evidence 1" "the process that runs through${TAB}the reason of the second${TAB}evidence 2"; [ -z "$earlier" ] || printf '%s\n' "$earlier")"
-    [ "$(tail -n +2 "$file" | cut -f2- | sort)" = "$(printf '%s\n' "$expected" | sort)" ] && four_fields "$file" \
-        && ok "$what: every row is there, whole and once" || bad "$what: the file holds: $(tail -n +2 "$file" | cut -f2- | tr '\n' '|')"
+    expected="$([ -z "$earlier" ] || printf '%s\n' "$earlier"; if [ "$order" = first ]; then printf '%s\n%s\n' "$row1" "$row2"; else printf '%s\n%s\n' "$row2" "$row1"; fi)"
+    [ "$(tail -n +2 "$file" | cut -f2-)" = "$expected" ] && four_fields "$file" \
+        && ok "$what: every row is there, whole, once and in the order written (the $order process's row before the other's)" \
+        || bad "$what: the file holds: $(tail -n +2 "$file" | cut -f2- | tr '\n' '|')"
     [ "$(ls -A "$(dirname "$file")")" = decisions.tsv ] && ok "$what: no temporary file is left" || bad "$what: the folder holds $(ls -A "$(dirname "$file")" | tr '\n' ' ')"
 }
 # The first process finds no log; before it creates one, the second creates the log and writes its row.
-two "a log created by another process after the look" checked "$T/sync-late/decisions.tsv" ""
+two "a log created by another process after the look" checked second "$T/sync-late/decisions.tsv" ""
 # The second process comes while the first is creating the log: the name is there, is the header?
-two "a log read while it is being created" created "$T/sync-created/decisions.tsv" ""
-# Two rows into a log that exists: the second process writes while the first is in the middle of its row.
+two "a log read while it is being created" created second "$T/sync-created/decisions.tsv" ""
+# A log that exists. The first process is about to write its row — it has opened the log and worked
+# out whatever it needs — when the second writes a whole row. A row written at a place found before
+# the write, or as a new copy of the file read before it, wipes the second's row out.
+W="$T/sync-writing/decisions.tsv"
+run "$W" "an earlier row" "a reason" "evidence 0"
+two "a row written by another process right before the write" writing second "$W" "an earlier row${TAB}a reason${TAB}evidence 0"
+# The same log; the second process writes while the first is in the middle of its row.
 S="$T/sync-rows/decisions.tsv"
 run "$S" "an earlier row" "a reason" "evidence 0"
-two "two rows written at the same time" wrote "$S" "an earlier row${TAB}a reason${TAB}evidence 0"
+two "two rows written at the same time" wrote first "$S" "an earlier row${TAB}a reason${TAB}evidence 0"
 # Without any set order: five processes at once, two rows each.
 U="$T/at-once/decisions.tsv"
 for p in 1 2 3 4 5; do
@@ -350,7 +365,7 @@ SYNC_NO_LINK=1 SYNC_LOG="$X" SYNC_PAUSE_AT="" node -r "$T/sync-fs.js" "$DL" "$X"
 [ "$(ls -A "$(dirname "$X")")" = decisions.tsv ] && ok "no hard links: no temporary file is left" || bad "no hard links: the folder holds $(ls -A "$(dirname "$X")" | tr '\n' ' ')"
 # The first process finds no log and stops; the second creates it and writes; the first, whose link
 # fails, must not write its header over what is there.
-two "no hard links, a log created by another process after the look" checked "$T/no-link-late/decisions.tsv" "" 1
+two "no hard links, a log created by another process after the look" checked second "$T/no-link-late/decisions.tsv" "" 1
 
 # --- 13. The epic-wave skill: where the log lives and how it is written -------------------------------
 # The block of skills/epic-wave/SKILL.md that names the log of a wave and writes its first row, cut
