@@ -42,6 +42,12 @@ describe('the Windows build in electron-builder.yml', () => {
   })
 })
 
+describe('the macOS build in electron-builder.yml', () => {
+  it('is a folder with the app, not an installer: scripts/install-stable.mjs copies dist/mac*/worfy.app', () => {
+    expect(section('mac').filter((line) => /^ {2}target:/.test(line))).toEqual(['  target: dir'])
+  })
+})
+
 describe('the scripts of package.json that build and install', () => {
   it('pnpm package builds for the system it runs on: no system is named', () => {
     expect(scripts['package']).toBe('electron-vite build && electron-builder')

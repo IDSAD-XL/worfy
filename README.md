@@ -34,6 +34,8 @@ pnpm install:stable D:\apps\worfy-stable   # any other folder
 
 The command builds the app (`pnpm package`), replaces the previous copy and writes the commit and the build time next to it: in `~/Applications/worfy-stable.json` on macOS (nothing is written inside the `.app`: that would break its ad-hoc signature), in `%LOCALAPPDATA%\worfy-stable.json` on Windows. It refuses with a non-zero exit code while the copy is running. The previous copy is moved aside until the new one is in place; when the swap fails, it is put back.
 
+While it works, the command keeps two folders next to the target: `<target>.installing-<pid>`, the copy being made, and `<target>.replaced-<pid>`, the previous copy moved aside. A run that was interrupted leaves them there. The next run that has a build to install removes the first and puts the second back when nothing is at the target. These two names are the command's own: keep no folder of such a name next to the copy.
+
 On Windows `pnpm package` writes the installer, `dist\worfy Setup <version>.exe`, and the unpacked app, `dist\win-unpacked`. The stable copy is a copy of the unpacked app, started by `worfy-stable\worfy.exe`; it has no shortcut in the Start menu. The installer is not signed, so SmartScreen asks before its first run (More info → Run anyway). It installs worfy for the current user into `%LOCALAPPDATA%\Programs\worfy`.
 
 The stable copy on Windows does not go under `Programs`. The installer stops every running program whose path starts with the path of its folder, so a copy in `…\Programs\worfy-stable` would be stopped by an install, an update or an uninstall of worfy. The command refuses:

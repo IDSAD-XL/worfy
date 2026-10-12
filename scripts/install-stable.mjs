@@ -6,7 +6,9 @@
 //
 // Builds the app (`pnpm package`), copies it next to the target and swaps it in: the copy that was
 // there is moved aside, the new one takes its place, and only then the old one is removed. When
-// the swap fails, the old copy is put back. Writes the commit and the build time next to the copy,
+// the swap fails, the old copy is put back. What an interrupted run left next to the target —
+// <target>.installing-<pid>, <target>.replaced-<pid> — is cleared by the next run that has a build
+// to install. Writes the commit and the build time next to the copy,
 // in <target>.json: nothing is written inside the copy afterwards, since that would break the
 // ad-hoc signature of a .app. Refuses with a non-zero exit code while the copy is running.
 //
@@ -35,6 +37,11 @@ import { fileURLToPath } from 'node:url'
 const APP = 'worfy'
 /** How long the list of processes may take on Windows. */
 const LISTING_TIMEOUT_MS = 30_000
+/** The largest number a process can have: Linux gives out pids up to 2^22, Windows and macOS stay far below. */
+const MAX_PID = 4_194_304
+/** How often and how long a step of the file system is tried again on Windows when a file is busy. */
+const RETRIES = 5
+const RETRY_MS = 100
 
 const rulesOf = (platform) => (platform === 'win32' ? win32 : posix)
 
@@ -141,21 +148,34 @@ export function notACopy(names) {
   return `it holds no ${APP}.exe, so it is not an earlier stable copy. Remove it yourself, or give another folder.`
 }
 
+/** The name of what a run with this pid keeps next to the target: its unfinished copy (`installing`), or the earlier copy it moved aside (`replaced`). */
+export function leftoverName(base, kind, pid) {
+  return `${base}.${kind}-${pid}`
+}
+
 /**
- * What an interrupted run left next to the target: `names` are the names in the folder of the
- * target, `base` the name of the target, `alive` says whether a process with a pid runs. Answers
- * the names to remove (`<base>.installing-<pid>`: a copy that never got in) and the names of
- * earlier copies set aside (`<base>.replaced-<pid>`), newest pid last. A name whose pid is a
- * running process is left alone: another install may be at work.
+ * What an interrupted run left next to the target. `names` are the names in the folder of the
+ * target, `base` the name of the target, `alive` says whether a process with a pid runs.
+ * Answers, in the order of `names`:
+ *   - `installing`: unfinished copies, `<base>.installing-<pid>` — to remove;
+ *   - `replaced`: earlier copies moved aside, `<base>.replaced-<pid>` — to put back or to remove;
+ *   - `kept`: names of either kind whose pid is a running process — another install may be at
+ *     work, they are left alone.
+ * Only a name of leftoverName counts, with a number a process can have: `…replaced-20261012` is
+ * somebody's own folder.
  */
 export function leftovers(names, base, alive) {
-  const stale = (kind) =>
-    names.filter((name) => {
-      if (!name.startsWith(`${base}.${kind}-`)) return false
-      const pid = name.slice(base.length + kind.length + 2)
-      return /^\d+$/.test(pid) && !alive(Number(pid))
-    })
-  return { installing: stale('installing'), replaced: stale('replaced') }
+  const answer = { installing: [], replaced: [], kept: [] }
+  for (const name of names) {
+    for (const kind of ['installing', 'replaced']) {
+      const prefix = leftoverName(base, kind, '')
+      if (!name.startsWith(prefix)) continue
+      const digits = name.slice(prefix.length)
+      if (!/^[1-9]\d*$/.test(digits) || Number(digits) > MAX_PID) continue
+      answer[alive(Number(digits)) ? 'kept' : kind].push(name)
+    }
+  }
+  return answer
 }
 
 /**
@@ -238,7 +258,15 @@ function processListing(platform) {
   // Windows PowerShell prints in the console code page unless told otherwise: a path with letters
   // outside it would not match.
   const script = '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-CimInstance Win32_Process | Select-Object ProcessId, Name, ExecutablePath | ConvertTo-Json -Compress'
-  return run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { maxBuffer: 64 * 1024 * 1024, timeout: LISTING_TIMEOUT_MS })
+  const listing = run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { maxBuffer: 64 * 1024 * 1024, timeout: LISTING_TIMEOUT_MS })
+  // Some process always runs: an empty answer, or one that is not a list, says nothing about the copy.
+  if (listing.trim() === '') fail('PowerShell printed no list of processes: whether the copy is running is not known')
+  try {
+    JSON.parse(listing)
+  } catch (error) {
+    fail(`the list of processes PowerShell printed could not be read (${error instanceof Error ? error.message : String(error)}): whether the copy is running is not known`)
+  }
+  return listing
 }
 
 /** True while a process with this pid is there. */
@@ -262,10 +290,27 @@ function there(path) {
 }
 
 /**
+ * Runs a step of the file system; on Windows, when the answer is "busy", tries again after a
+ * moment, a few times: an antivirus or the indexer holds a file it has just seen for an instant.
+ * (rmSync has `maxRetries` for that, but it is not used here, see removeTree.)
+ */
+function patiently(step) {
+  for (let left = RETRIES; ; left--) {
+    try {
+      return step()
+    } catch (error) {
+      if (left === 0 || !['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES'].includes(error?.code)) throw error
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, RETRY_MS)
+    }
+  }
+}
+
+/**
  * Removes a folder of Windows with what is in it, and never what a link in it leads to: a link —
  * a symlink or a junction, at the path itself or anywhere below — is removed as a link. rmSync is
- * not used there: under Node 24 (the one Electron 44 carries) its `recursive` goes through a
- * junction and empties the folder behind it; under Node 22 it does not.
+ * not used there. Under Node 24 (the one Electron 44 carries) its `recursive` goes through a
+ * junction and empties the folder behind it, and it refuses a read-only file with EPERM; under
+ * Node 22 it does neither. unlinkSync removes a read-only file under both.
  */
 function removeTree(path) {
   let stat
@@ -283,32 +328,50 @@ function removeTree(path) {
     return
   }
   if (!stat.isDirectory()) {
-    rmSync(path, { force: true, maxRetries: 5, retryDelay: 100 })
+    patiently(() => unlinkSync(path))
     return
   }
   for (const name of readdirSync(path)) removeTree(win32.join(path, name))
-  rmdirSync(path)
+  patiently(() => rmdirSync(path))
 }
 
-/** The path as the disk spells it — no \\?\, no short names, links followed — or null when it is not there. */
+/**
+ * The path as the disk spells it: no \\?\, links and subst drives followed. A path that is not
+ * there yet is spelled by the nearest folder above it that is, with the rest as given.
+ */
 function onDisk(path) {
+  const rest = []
+  for (let at = path; ; at = win32.dirname(at)) {
+    try {
+      return win32.join(realpathSync.native(at), ...rest)
+    } catch {
+      if (win32.dirname(at) === at) return path
+      rest.unshift(win32.basename(at))
+    }
+  }
+}
+
+/** True when the path is a folder itself, not a link to one. */
+function plainFolder(path) {
   try {
-    return realpathSync.native(path)
+    return lstatSync(path).isDirectory()
   } catch {
-    return null
+    return false
   }
 }
 
 /**
  * Installs the copy; answers the line to print. Throws an Error with the reason otherwise.
  * `build(platform, repo)` makes the app when no built one is given; packageApp by default.
+ * `rename(from, to)` moves a copy in the swap; renameSync by default.
  */
-export function installStable(argv, { platform = process.platform, env = process.env, home = homedir(), repo = defaultRepo(), build = packageApp } = {}) {
+export function installStable(argv, { platform = process.platform, env = process.env, home = homedir(), repo = defaultRepo(), build = packageApp, rename = renameSync } = {}) {
   const rules = rulesOf(platform)
   if (argv.length > 1) fail(`expected at most one argument, the target path; got ${argv.length}`)
   const target = checkTarget(platform, argv[0] ?? defaultTarget(platform, env, home), env, home)
   /** Removes a copy, or what is left of one. */
   const remove = (path) => (platform === 'win32' ? removeTree(path) : rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  const why = (error) => (error instanceof Error ? error.message : String(error))
   const parent = rules.dirname(rules.resolve(target))
   mkdirSync(parent, { recursive: true })
   // Both spellings of the target: a process started through a symlinked folder (/var -> /private/var
@@ -319,10 +382,11 @@ export function installStable(argv, { platform = process.platform, env = process
   const spellings = new Set([logical, physical])
 
   if (platform === 'win32') {
-    // The target as Windows spells it: \\?\C:\…, an 8.3 name or a link to the installer's folder
-    // is the installer's folder all the same, and a process shows the spelling of the disk.
-    const real = onDisk(logical) ?? rules.join(onDisk(parent) ?? rules.dirname(physical), rules.basename(target))
-    checkTarget(platform, real, env, home, onDisk(installerDir(env, home)) ?? installerDir(env, home))
+    // The target as Windows spells it: a link to the installer's folder or a subst drive over it is
+    // the installer's folder all the same, and a process shows the spelling of the disk. Both sides
+    // are spelled that way, also when worfy is not installed yet.
+    const real = onDisk(logical)
+    checkTarget(platform, real, env, home, onDisk(installerDir(env, home)))
     spellings.add(real)
     if (existsSync(logical)) {
       const reason = statSync(logical).isDirectory() ? notACopy(readdirSync(logical)) : 'it is a file, not a folder.'
@@ -340,17 +404,6 @@ export function installStable(argv, { platform = process.platform, env = process
   // Before the build, so a refusal costs nothing; again before the copy, since the copy may have
   // been started while the build ran.
   refuseIfRunning()
-
-  // What a run that was interrupted left behind: its unfinished copy is removed; an earlier copy
-  // it had set aside goes back to the target when nothing took its place.
-  const base = rules.basename(logical)
-  const left = leftovers(readdirSync(rules.dirname(logical)), base, processAlive)
-  for (const name of left.installing) remove(rules.join(rules.dirname(logical), name))
-  for (const name of left.replaced.reverse()) {
-    const kept = rules.join(rules.dirname(logical), name)
-    if (there(logical)) remove(kept)
-    else renameSync(kept, logical)
-  }
 
   let source
   if (env.WORFY_STABLE_PREBUILT) {
@@ -377,29 +430,62 @@ export function installStable(argv, { platform = process.platform, env = process
   // target path. The swap moves the earlier copy aside before the new one takes its place, and
   // removes it last: when a step fails — on Windows a folder cannot be renamed or removed while a
   // file in it is open — the earlier copy is still whole, and goes back.
-  const staging = `${logical}.installing-${process.pid}`
-  remove(staging)
+  const folder = rules.dirname(logical)
+  const base = rules.basename(logical)
+  const notes = []
+
+  // What a run that was interrupted left next to the target — only now, when there is a build to
+  // install: a run that is refused changes nothing. Its unfinished copy is removed; an earlier copy
+  // it had moved aside goes back to the target when nothing took its place. Only a real folder with
+  // such a name is taken: a file or a link of that name is somebody's own. A name with the pid of
+  // this run is a leftover too: no other run has this pid now. What cannot be cleared is named and
+  // left, and the run goes on.
+  const left = leftovers(readdirSync(folder), base, (pid) => pid !== process.pid && processAlive(pid))
+  for (const name of left.kept) notes.push(`${rules.join(folder, name)} is left alone: a running process has the pid in its name. If no install is running, remove it by hand`)
+  for (const name of [...left.installing, ...left.replaced]) {
+    const path = rules.join(folder, name)
+    if (!plainFolder(path)) continue
+    try {
+      if (left.replaced.includes(name) && !there(logical)) rename(path, logical)
+      else remove(path)
+    } catch (error) {
+      notes.push(`${path}, left by an earlier run, could not be cleared (${why(error)}): remove it by hand`)
+    }
+  }
+
+  const staging = rules.join(folder, leftoverName(base, 'installing', process.pid))
+  const aside = rules.join(folder, leftoverName(base, 'replaced', process.pid))
   let earlier
   try {
     // ditto keeps the bundle's signature, extended attributes and symlinks intact. On Windows the
     // build is copied from its real folder: cpSync would copy a link to it as a link.
     if (platform === 'win32') cpSync(realpathSync(source), staging, { recursive: true })
     else run('ditto', [source, staging])
-    earlier = swapIn({ staging, target: logical, aside: `${logical}.replaced-${process.pid}` }, { there, rename: renameSync })
+    earlier = swapIn({ staging, target: logical, aside }, { there, rename: platform === 'win32' ? (from, to) => patiently(() => rename(from, to)) : rename })
   } finally {
-    remove(staging)
+    try {
+      remove(staging)
+    } catch (error) {
+      // Not instead of the reason the install failed for.
+      process.stderr.write(`install-stable: the unfinished copy could not be removed and is left at ${staging} (${why(error)}); the next run removes it\n`)
+    }
   }
 
-  writeFileSync(metadata, `${JSON.stringify({ commit, dirty, builtAt, installedAt, source }, null, 2)}\n`)
-  let note = ''
+  // The earlier copy goes before the file is written: when the file cannot be, a whole copy does not stay aside.
   if (earlier !== null) {
     try {
       // A link at the target (a symlink, a junction) is removed as a link: what it led to stays.
       remove(earlier)
     } catch (error) {
-      note = `\ninstall-stable: the earlier copy could not be removed and is left at ${earlier} (${error instanceof Error ? error.message : String(error)}); the next run removes it`
+      notes.push(`the earlier copy could not be removed and is left at ${earlier} (${why(error)}); the next run removes it`)
     }
   }
+  try {
+    writeFileSync(metadata, `${JSON.stringify({ commit, dirty, builtAt, installedAt, source }, null, 2)}\n`)
+  } catch (error) {
+    fail(`the copy is installed at ${logical}, but ${metadata} could not be written (${why(error)}): the file still names the build that was there before`)
+  }
+  const note = notes.map((each) => `\ninstall-stable: ${each}`).join('')
   return `install-stable: installed ${logical} (commit ${commit.slice(0, 7)}${dirty ? ', uncommitted changes' : ''}), details in ${metadata}${note}`
 }
 
