@@ -7,11 +7,12 @@
 // tested on any machine (test/unit/remote-links.test.ts).
 //
 // What it cannot see:
-// - a link put in place after the walk and before the caller's realpath. The two are separate steps;
-// - `..` in a target written as `\\?\C:\…` or `\??\C:\…`. path.win32 takes `..` out of such a path,
-//   Windows reads it there as a name. The walk then looks at another path than the one the link
-//   leads to; both are on the same disk, since only the drive forms of these prefixes are read as
-//   local at all.
+// - a link put in place after the walk and before the caller's realpath. The two are separate steps.
+//
+// A path written with a device prefix — `\\?\C:\…`, `\\?\UNC\host\share\…`, `\??\C:\…` — that
+// holds a `..` is refused as remote (worfy-windows ticket 20). path.win32 takes `..` out of such a
+// path, Windows reads it there as a name: the walk would look at another path than the one the
+// link leads to, and `\\?\UNC\evil\share\..\..\<a share of the user>` would pass for the user's own.
 import { lstatSync, readlinkSync } from 'node:fs'
 import { lstat, readlink } from 'node:fs/promises'
 import * as nativePath from 'node:path'
@@ -130,6 +131,8 @@ function withoutDevicePrefix(path: string): string {
  */
 function absolute(written: string, from: string | null, paths: PathRules): string | null {
   let text = written
+  // Under a device prefix a `..` is a name to Windows and a step up to path.win32: not walked.
+  if (/^[\\/]{1,2}(?:\?\?|\?|\.)[\\/]/.test(text) && text.split(/[\\/]/).includes('..')) return null
   if (/^[\\/](?:\?\?|\?|\.)[\\/]/.test(text)) {
     if (!/^\\\?\?\\[A-Za-z]:\\/.test(text)) return null
     text = text.slice(4)

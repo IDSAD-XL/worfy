@@ -152,6 +152,41 @@ describe('the watch of the Cards of a Project, by the rules of Windows', () => {
   })
 })
 
+// Review round 2 of PR #233 (mutants N36 and N06): the Project list is asked before anything is
+// awaited — for the Card and for the watch — and never after.
+describe('a Project that leaves the list while its Card is asked about', () => {
+  it.each([
+    ['with the watch off', false],
+    ['with the watch on', true],
+  ])('still gets its answer when it leaves during the first look at a link, %s', async (_name, watch) => {
+    const disk = windowsDisk(TWO_CARDS)
+    let listed = true
+    const store = new CardStore({
+      dataDirOf: () => {
+        if (!listed) throw new Error(`Project ${PROJECT} is not in the list`)
+        return DATA
+      },
+      projectIds: () => [PROJECT],
+      watch,
+      delayMs: 0,
+      paths: win32,
+      links: {
+        isLink: async (path) => {
+          listed = false
+          return disk.links.isLink(path)
+        },
+        readlink: (path) => disk.links.readlink(path),
+      },
+      fs: cardFs(disk),
+      watchFs: disk.fs,
+    })
+    stores.push(store)
+    expect(await store.info(PROJECT, 'c1')).toMatchObject({ cardId: 'c1', exists: true, title: 'a title' })
+    expect(listed).toBe(false)
+    if (watch) await watching(disk, [`${CARDS} (recursive)`])
+  })
+})
+
 describe('CardStore.info and the order of its refusals', () => {
   it('an id that is not a Card id is refused as such, also for a Project that is not in the list', async () => {
     const store = new CardStore({
