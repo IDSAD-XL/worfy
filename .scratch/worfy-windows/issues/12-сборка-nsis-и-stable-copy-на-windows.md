@@ -1,7 +1,7 @@
 # 12 — Сборка на Windows: неподписанный NSIS, иконки, Stable copy
 
 Type: task
-Status: open
+Status: done — 2026-10-12, [PR #237](https://github.com/IDSAD-XL/worfy/pull/237)
 Blocked by: 08, 09
 Source: решения владельца 2026-10-07: Q22 (неподписанный NSIS собирает Session на ПК владельца, подпись — E4; если включён Smart App Control — вопрос подписи сразу), Q24 (только x64), Q23 (gate full на ПК владельца перед мержем платформенных PR) ([spec.md](../spec.md)); [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port» (пункт 5; «Последствия» — Stable copy на Windows); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions»; [ADR-0008](../../../docs/adr/0008-claude-code-native-binary-path.md) (`claude` вне app.asar); [ADR-0023](../../../docs/adr/0023-separate-data-roots-packaged-and-dev.md) (папки данных dev и упакованной сборки)
 
@@ -201,8 +201,12 @@ contract `selfProjectRefusal` с настоящим git.
 
 ## Итог
 
-Заполняет Session на Windows-ПК. Ticket не закрыт: ждёт оставшихся шагов на Mac (сборка и e2e) и
-ручных пунктов владельца — оба списка в конце.
+Заполняла Session на Windows-ПК. Ticket закрыт 2026-10-12: PR #237 влит (main `83212ec`) после трёх
+кругов ревью на Mac и зелёного `gate full` на слиянии `afee930` (main `25efbbe` + `2f3dcb6`): exit
+code 0, строка `[gate] зелено (full): lint typecheck test test:e2e test:package`. Три ручных пункта
+владельца на ПК мерж не держат (решение владельца 2026-10-12); они записаны в «Ждёт владельца» в
+`HANDOFF.md`. Остатки третьего круга (все low) и шесть пробелов в test-ах `.ico` — пункт 6 «Что
+делаем» Ticket-а 23 (общая функция удаления; тот же скрипт).
 
 - **Что сделано.**
   - **`.ico`.** `scripts/ico.mjs` — упаковка и чтение `.ico` на чистом Node (`packIco`, `readIco`).
