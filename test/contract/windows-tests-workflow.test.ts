@@ -102,6 +102,12 @@ describe('.github/workflows/windows-tests.yml', () => {
     expect(files).toContain('        type: string')
   })
 
+  it('may only read the repository: permissions are contents: read and nothing else', () => {
+    // `permissions: write-all` on one line and a `permissions` key of the job fail here too.
+    expect(code().filter((line) => /permissions/.test(line))).toEqual(['permissions:'])
+    expect(under(code(), 'permissions:')).toEqual(['  contents: read'])
+  })
+
   it('has one job, on windows-latest, with no matrix', () => {
     const { lines } = job()
     // Exactly these keys: no `strategy` (a matrix multiplies the paid minutes), no `if`, no
@@ -200,6 +206,12 @@ describe('scripts/windows-test-list.mjs', () => {
       'test/unit/E2E-upper.test.ts',
       'test/unit/packaged-app.test.ts',
       'test/contract/acceptance-run.test.ts',
+      // The word in other places of a name: after "-", "_" and ".", and as the name of a folder.
+      'test/unit/flow-e2e.test.ts',
+      'test/unit/x_e2e.test.ts',
+      'test/unit/app.packaged.test.ts',
+      'test/unit/run_acceptance.test.ts',
+      'test/unit/e2e/inner.test.ts',
       'test/unit/helper.ts',
       'test/unit/notes.test.js',
       'test/unit/ok.spec.ts',
@@ -207,6 +219,9 @@ describe('scripts/windows-test-list.mjs', () => {
       'test/unit/a=b.test.ts',
       'test/unit/pair.test.ts',
       'test/unit/pair.test.tsx',
+      // The same pair with another letter case in the longer name.
+      'test/unit/twin.test.ts',
+      'test/unit/Twin.test.tsx',
       'test/other/x.test.ts',
       'test/e2e/x.test.ts',
       'src/x.test.ts',
@@ -296,17 +311,25 @@ describe('scripts/windows-test-list.mjs', () => {
     ['a name with E2E in capitals', 'test/unit/E2E-upper.test.ts', /has "e2e" in its name/, ''],
     ['a name with packaged', 'test/unit/packaged-app.test.ts', /has "packaged" in its name/, ''],
     ['a name with acceptance', 'test/contract/acceptance-run.test.ts', /has "acceptance" in its name/, ''],
+    ['a name with e2e after -', 'test/unit/flow-e2e.test.ts', /has "e2e" in its name/, ''],
+    ['a name with e2e after _', 'test/unit/x_e2e.test.ts', /has "e2e" in its name/, ''],
+    ['a name with packaged between dots', 'test/unit/app.packaged.test.ts', /has "packaged" in its name/, ''],
+    ['a name with acceptance after _', 'test/unit/run_acceptance.test.ts', /has "acceptance" in its name/, ''],
+    ['a file in a folder named e2e', 'test/unit/e2e/inner.test.ts', /has "e2e" in its name/, ''],
     ['a helper that is not a test file', 'test/unit/helper.ts', /is not a \*\.test\.ts or \*\.test\.tsx file/, ''],
     ['a .test.js file', 'test/unit/notes.test.js', /is not a \*\.test\.ts or \*\.test\.tsx file/, ''],
     ['a .spec.ts file', 'test/unit/ok.spec.ts', /is not a \*\.test\.ts or \*\.test\.tsx file/, ''],
     ['a name that is a prefix of a test file name', 'test/unit/ok.test', /is not a \*\.test\.ts or \*\.test\.tsx file/, ''],
     ['a name with glob characters', 'test/unit/a[b].test.ts', /has a character other than/, ''],
     ['a glob', 'test/unit/*.test.ts', /has a character other than/, ''],
+    ['a pattern with ?', 'test/unit/o?.test.ts', /has a character other than/, ''],
     ['a name with =', 'test/unit/a=b.test.ts', /has a character other than/, ''],
     ['a path with backslashes', 'test\\unit\\ok.test.ts', /has a character other than/, ''],
     ['a path with a drive letter', 'C:/repo/test/unit/ok.test.ts', /has a character other than/, ''],
     ['a path from the root of the disk', '/tmp/test/unit/ok.test.ts', /is not under test\/unit\/ or test\/contract\//, ''],
     ['a name that vitest would match to a second file', 'test/unit/pair.test.ts', /also matches test\/unit\/pair\.test\.tsx/, ''],
+    // vitest compares without regard to letter case, on every system.
+    ['a name that vitest would match to a file in another letter case', 'test/unit/twin.test.ts', /also matches test\/unit\/Twin\.test\.tsx/, ''],
   ])('refuses %s', (_name, element, reason, cwd) => {
     const result = check(element, cwd || tree)
     expect(result.status, result.stdout).toBe(1)
@@ -337,10 +360,20 @@ describe('scripts/windows-test-list.mjs', () => {
     expect(result.output).toBe('')
   })
 
-  // Creating a symbolic link on Windows needs developer mode, which a machine may not have.
-  it.skipIf(process.platform === 'win32')('refuses a path that goes through a symbolic link', () => {
-    symlinkSync(join(tree, 'test', 'other'), join(tree, 'test', 'unit', 'linked'))
-    symlinkSync(join(tree, 'test', 'other', 'x.test.ts'), join(tree, 'test', 'unit', 'link.test.ts'))
+  // Not skipped on Windows: Developer Mode is a requirement of a development machine there
+  // (README.md, "Development on Windows"), and without it this test fails and says so.
+  it('refuses a path that goes through a symbolic link', () => {
+    const link = (target: string, path: string) => {
+      try {
+        symlinkSync(target, path)
+      } catch (error) {
+        throw new Error(`cannot create the symbolic link ${path}: on Windows turn on Developer Mode (README.md, "Development on Windows")`, {
+          cause: error,
+        })
+      }
+    }
+    link(join(tree, 'test', 'other'), join(tree, 'test', 'unit', 'linked'))
+    link(join(tree, 'test', 'other', 'x.test.ts'), join(tree, 'test', 'unit', 'link.test.ts'))
     for (const element of ['test/unit/linked/x.test.ts', 'test/unit/link.test.ts']) {
       const result = check(element, tree)
       expect(result.status, element).toBe(1)
@@ -361,5 +394,26 @@ describe('scripts/windows-test-list.mjs', () => {
       const result = check(all.slice(at, at + 12).join(' '))
       expect(result.status, result.stderr).toBe(0)
     }
-  })
+    // One run of the script per 12 files: about twenty processes, too many for the 15 s of a contract test.
+  }, 120_000)
+
+  it('names files as vitest takes them: vitest lists exactly the accepted files, and runs none here', () => {
+    const accepted = check(TWO.join(', '))
+    expect(accepted.status, accepted.stderr).toBe(0)
+    const files = accepted.output.trim().replace(/^files=/, '').split(' ')
+    // `vitest list --filesOnly` answers which files the arguments select, without running a test.
+    // The same Node as `pnpm test`: this process is Electron's Node, and so is its child.
+    const listed = spawnSync(process.execPath, [join(REPO, 'node_modules', 'vitest', 'vitest.mjs'), 'list', '--filesOnly', ...files], {
+      cwd: REPO,
+      encoding: 'utf8',
+      timeout: 120_000,
+    })
+    expect(listed.status, `${listed.stdout}\n${listed.stderr}`).toBe(0)
+    // One line per file: "[project] path", with the separators of the system.
+    const names = listed.stdout
+      .split(/\r?\n/)
+      .filter((line) => line.trim() !== '')
+      .map((line) => line.trim().replace(/^\[[^\]]+\]\s+/, '').split('\\').join('/'))
+    expect(names.sort()).toEqual([...TWO].sort())
+  }, 120_000)
 })
