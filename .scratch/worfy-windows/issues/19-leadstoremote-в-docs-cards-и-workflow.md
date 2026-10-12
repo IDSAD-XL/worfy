@@ -1,7 +1,7 @@
 # 19 — Ссылка на `\\host\share\…` в HANDOFF, ADR, Card-ах и Ticket-ах: та же проверка `leadsToRemote` до обращения к файлу
 
 Type: task
-Status: open
+Status: done — 2026-10-12, [PR #233](https://github.com/IDSAD-XL/worfy/pull/233)
 Blocked by: 18
 Source: решение владельца 2026-10-10; первый круг ревью PR #228 (Ticket [18](18-symlink-на-unc-до-realpath.md)) на Mac — [комментарий](https://github.com/IDSAD-XL/worfy/pull/228#issuecomment-6098109819), раздел «Same class, outside this PR — a separate ticket». Делает Session на Windows-ПК сразу после 18; дальше по порядку — 12, 10.
 
@@ -151,8 +151,8 @@ into Ticket 19»). Всё — в `src/main/remote-links.ts` и `test/unit/remote
     до `open` файла `index.html`; разрешённая папка — папка Card-ов. Шов — три новых поля
     `CardStoreOptions`.
   - **Ticket-ы и spec** (`src/main/workflow/reader.ts`, `enrichSnapshot`): обход до `readFile`
-    файла `spec.md` и файла Ticket-а и до `readdir` папки `issues`; разрешённая папка — папка
-    Ticket-ов. Шов — четвёртый параметр `EnrichOptions`.
+    файла `spec.md` и файла Ticket-а и до `readdir` папки `issues`; разрешённые папки — корень
+    Project-а и папка Ticket-ов (см. «Отступления»). Шов — четвёртый параметр `EnrichOptions`.
   - **`src/main/remote-links.ts`.** Обход теперь называет причину: `walkLinks` отвечает `'local'`,
     `'remote'` или `'unchecked'`; `leadsToRemote` — его форма «да/нет» для мест, где отказ без
     текста. `isInside` под правилами Windows не считает UNC-путь лежащим внутри папки диска.
@@ -174,8 +174,9 @@ into Ticket 19»). Всё — в `src/main/remote-links.ts` и `test/unit/remote
     терял ссылки внутри собственного репозитория: `.scratch\e1 -> ..\docs\e1` на
     `\\nas\team\repo` переставал читаться, а main его читал.
   - **У заголовка Card разрешённая папка одна — папка Card-ов.** Если папка данных worfy лежит на
-    шаре, ссылка из папки Card в другую папку той же шары считается чужой, и у такой Card нет
-    заголовка. main её читал.
+    шаре, ссылка в другую папку той же шары считается чужой. Если ссылка — сама папка Card, Card
+    отвечает `exists: false` (Node показывает «Card files missing»); если ссылка — её
+    `index.html`, у Card нет заголовка. main читал оба случая.
   - **Файлы test-ов.** Новые: `test/unit/docs-remote-links.test.ts` и
     `test/unit/workflow-remote-links.test.ts`. Случаи Card — в
     `test/contract/card-protocol.test.ts`: `CardStore` проверяется там, в `card-api.test.ts` его
