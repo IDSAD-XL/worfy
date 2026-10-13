@@ -6,20 +6,21 @@
 // arguments. git, bin/profile, gate.mjs and restore.mjs run with HOME (and USERPROFILE, the home
 // folder of node on Windows), CLAUDE_CONFIG_DIR and HARNESS_HOME of the sandbox. Nothing here
 // touches the real ~/.claude.
-import { createHash } from 'node:crypto'
-import { spawnSync } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
-import { delimiter, dirname, join, relative, sep } from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+//
+// The cases about boundaries, races and changes after the move are in
+// harness-migrate-boundaries.test.ts, and the sandbox is in harness-migrate-harness.ts
+// (worfy-windows ticket 28: the gate's bound of 1000 lines).
+import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, symlinkSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { delimiter, dirname, join } from 'node:path'
+import { describe, expect, it, vi } from 'vitest'
 import type { HarnessState } from '../../src/shared/ipc/harness'
-import type { MigrationChoice, MigrationPlan, MigrationSelection, MigrationStep } from '../../src/shared/ipc/harness-migration'
-import { applyMigration, MIGRATION_STEPS, type ApplyOptions } from '../../src/main/harness/migrate/apply'
+import type { MigrationChoice, MigrationStep } from '../../src/shared/ipc/harness-migration'
+import { applyMigration, MIGRATION_STEPS } from '../../src/main/harness/migrate/apply'
 import { removeTestTree } from '../remove'
-import { buildPlan, claudeJsonPath, HARNESS_AGENTS, hasLegacyHarness, HARNESS_SKILLS, hookRecords, QMD_WARNING, RUNNING_SESSIONS_WARNING, type PlanOptions } from '../../src/main/harness/migrate/plan'
+import { claudeJsonPath, HARNESS_AGENTS, hasLegacyHarness, HARNESS_SKILLS, QMD_WARNING, RUNNING_SESSIONS_WARNING, type PlanOptions } from '../../src/main/harness/migrate/plan'
 import { rewriteHarnessPaths } from '../../src/main/harness/migrate/profiles'
-import { treeHash } from '../../src/main/harness/migrate/restore'
+import { applyOptions, backupDir, everything, findNode, git, hookCommands, makeSandbox, omit, plan, planOptions, read, readJson, REPO, run, sandbox, selection, treeOf, useSandbox } from './harness-migrate-harness'
 
 // The IPC module (src/main/ipc/harness-migration.ts) runs here without Electron: a dev build
 // (`app.isPackaged` false) whose dialog and installer are watched. hasLegacyHarness and the installer
@@ -46,8 +47,10 @@ vi.mock('../../src/main/harness/install', async (importOriginal) => {
   return { ...real, HarnessInstaller: WatchedInstaller }
 })
 
-const REPO = join(__dirname, '..', '..')
-const FIXTURE = join(REPO, 'test', 'fixtures', 'claude-home-legacy')
+useSandbox()
+
+// The same value as in harness-migrate-harness.ts, declared here too: TypeScript knows that it is the
+// "installed" kind only in the file that declares it, and `{ ...INSTALLED, enabled: false }` needs that.
 const INSTALLED: HarnessState = { kind: 'installed', version: '0.2.0+aaaaaaa', enabled: true }
 
 /** The ten hook records of the old Harness in the fixture's settings.json (the eleventh is personal). */
@@ -66,182 +69,10 @@ const HARNESS_HOOKS = [
 /** Names that are personal (Q19): no row may name them. */
 const PERSONAL = ['cloudflare', 'wrangler', 'sentry-cli', 'web-perf', 'synced', 'telegram-mcp', 'auction-staging-db-mcp', 'agent-time-split', 'freecad', '"model"', '"env"', 'effortLevel']
 
-const STUB = `#!/bin/sh
-printf '%s\\n' "$*" >> "$STUB_CLAUDE_LOG"
-exit 0
-`
-
-const GIT_IDENTITY = { GIT_AUTHOR_NAME: 'Sandbox', GIT_AUTHOR_EMAIL: 'sandbox@example.com', GIT_COMMITTER_NAME: 'Sandbox', GIT_COMMITTER_EMAIL: 'sandbox@example.com' }
-
-interface Sandbox {
-  root: string
-  home: string
-  claudeHome: string
-  harnessHome: string
-  pluginDir: string
-  claudeJson: string
-  repos: { worfy: string; auction: string; atakamaServer: string; atakama: string }
-  stubDir: string
-  stubLog: string
-  /** HOME, CLAUDE_CONFIG_DIR, HARNESS_HOME of the sandbox; git identity; GIT_CONFIG_NOSYSTEM. */
-  env: NodeJS.ProcessEnv
-}
-
-let sandbox: Sandbox
-
-function substitute(dir: string, root: string): void {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name)
-    if (entry.isDirectory()) substitute(path, root)
-    else {
-      const text = readFileSync(path, 'utf8')
-      if (text.includes('__SANDBOX__')) writeFileSync(path, text.replaceAll('__SANDBOX__', root))
-    }
-  }
-}
-
-function run(command: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: string } = {}): { status: number | null; stdout: string; stderr: string } {
-  const result = spawnSync(command, args, { encoding: 'utf8', cwd: options.cwd, env: options.env ?? sandbox.env, input: options.input ?? '' })
-  return { status: result.status, stdout: result.stdout, stderr: result.stderr }
-}
-
-function git(dir: string, ...args: string[]): string {
-  const result = run('git', ['-C', dir, ...args])
-  if (result.status !== 0) throw new Error(`git ${args.join(' ')} in ${dir}: ${result.stderr}`)
-  return result.stdout
-}
-
-/** The plugin as the installer leaves it: harness/ without its tests, with a version (test/contract/harness-install.test.ts). */
-function installPlugin(target: string, withQmd: boolean): void {
-  const source = join(REPO, 'harness')
-  const tests = [join('bin', 'tests'), join('hooks', 'tests')]
-  cpSync(source, target, {
-    recursive: true,
-    filter: (path) => {
-      const rel = relative(source, path)
-      return !path.endsWith(`${sep}.DS_Store`) && !tests.some((dir) => rel === dir || rel.startsWith(`${dir}${sep}`))
-    },
-  })
-  const manifest = join(target, '.claude-plugin', 'plugin.json')
-  const { name, ...rest } = JSON.parse(readFileSync(manifest, 'utf8')) as Record<string, unknown>
-  writeFileSync(manifest, `${JSON.stringify({ name, version: '0.2.0+aaaaaaa', ...rest }, null, 2)}\n`)
-  // harness/ declares qmd since worfy-harness ticket 17; without `withQmd` the plugin is one from before it.
-  if (withQmd) writeFileSync(join(target, '.mcp.json'), `${JSON.stringify({ mcpServers: { qmd: { command: '${CLAUDE_PLUGIN_ROOT}/bin/qmd-mcp' } } }, null, 2)}\n`)
-  else rmSync(join(target, '.mcp.json'), { force: true })
-}
-
-function makeSandbox({ qmdInPlugin = false }: { qmdInPlugin?: boolean } = {}): Sandbox {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-migrate-')))
-  cpSync(FIXTURE, root, { recursive: true })
-  substitute(root, root)
-  const home = join(root, 'home')
-  const claudeHome = join(home, '.claude')
-  renameSync(join(claudeHome, 'gitignore'), join(claudeHome, '.gitignore'))
-  const harnessHome = join(claudeHome, 'worfy-harness')
-  const pluginDir = join(harnessHome, 'plugin')
-  const stubDir = join(root, 'stub-bin')
-  mkdirSync(stubDir)
-  writeFileSync(join(stubDir, 'claude'), STUB)
-  chmodSync(join(stubDir, 'claude'), 0o755)
-  const env: NodeJS.ProcessEnv = {
-    PATH: process.env.PATH,
-    HOME: home,
-    USERPROFILE: home,
-    CLAUDE_CONFIG_DIR: claudeHome,
-    HARNESS_HOME: harnessHome,
-    WORFY_CLAUDE_HOME: claudeHome,
-    TMPDIR: process.env.TMPDIR ?? tmpdir(),
-    LANG: process.env.LANG ?? 'C.UTF-8',
-    GIT_CONFIG_NOSYSTEM: '1',
-    ...GIT_IDENTITY,
-  }
-  const repos = {
-    worfy: join(root, 'repos', 'worfy'),
-    auction: join(root, 'repos', 'auction'),
-    atakama: join(root, 'repos', 'Atakama'),
-    atakamaServer: join(root, 'repos', 'Atakama', 'Atakama-Browser-Server'),
-  }
-  sandbox = { root, home, claudeHome, harnessHome, pluginDir, claudeJson: join(claudeHome, '.claude.json'), repos, stubDir, stubLog: join(root, 'claude-calls.log'), env }
-  for (const dir of [claudeHome, repos.worfy, repos.auction, repos.atakamaServer]) {
-    git(dir, 'init', '-q')
-    git(dir, 'add', '-A')
-    git(dir, 'commit', '-q', '-m', 'fixture')
-  }
-  installPlugin(pluginDir, qmdInPlugin)
-  return sandbox
-}
-
-beforeEach(() => {
-  makeSandbox()
-})
-
-// Not rmSync: the sandbox holds a git repository, whose objects are read-only files. Under the
-// Node of Electron 44 on Windows rmSync stops at such a file with EPERM, which failed the test and
-// left the folder behind (worfy-windows tickets 23 and 26).
-afterEach(() => {
-  removeTestTree(sandbox.root)
-})
-
-/**
- * Files (hash and mode) and folders of a tree: equal maps mean byte-equal trees. `.git` folders
- * and backups of a move are left out unless asked: a restore leaves its revert in the history.
- */
-function treeOf(dir: string, { skip = (rel: string) => rel.split(sep).includes('.git') || /(^|\/)worfy-harness\/backup-/.test(rel) } = {}): Record<string, string> {
-  const out: Record<string, string> = {}
-  const walk = (current: string): void => {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const path = join(current, entry.name)
-      const rel = relative(dir, path)
-      if (skip(rel)) continue
-      if (entry.isDirectory()) {
-        out[`${rel}/`] = 'dir'
-        walk(path)
-      } else if (entry.isSymbolicLink()) out[rel] = `link`
-      else out[rel] = `${createHash('sha256').update(readFileSync(path)).digest('hex')} ${(statSync(path).mode & 0o777).toString(8)}`
-    }
-  }
-  if (existsSync(dir)) walk(dir)
-  return out
-}
-const everything = { skip: () => false }
-
-function planOptions(extra: Partial<PlanOptions> = {}): PlanOptions {
-  return {
-    claudeHome: sandbox.claudeHome,
-    harnessHome: sandbox.harnessHome,
-    claudeJson: sandbox.claudeJson,
-    userHome: sandbox.home,
-    bridgeScript: null,
-    offered: true,
-    env: sandbox.env,
-    pluginState: INSTALLED,
-    ...extra,
-  }
-}
-
-const plan = (extra: Partial<PlanOptions> = {}): MigrationPlan => buildPlan(planOptions(extra)).view
-
-/** Every row id with a choice: `remove` where offered (or what `pick` says), `keep` elsewhere. */
-function selection(view: MigrationPlan, pick: (id: string) => MigrationChoice | undefined = () => undefined, fields: MigrationSelection['profiles'] = {}): MigrationSelection {
-  const rows = [...view.rows, ...(view.claudeMd?.sections ?? []), ...view.profiles]
-  const choices = Object.fromEntries(rows.map((row) => [row.id, pick(row.id) ?? (row.choices.includes('remove') ? 'remove' : 'keep')]))
-  const profiles = Object.fromEntries(view.profiles.map((profile) => [profile.name, fields[profile.name] ?? profile.fields]))
-  return { choices, profiles }
-}
-
-function applyOptions(extra: Partial<ApplyOptions> = {}): ApplyOptions {
-  const rest = omit(planOptions() as unknown as Record<string, unknown>, 'pluginState') as unknown as Omit<PlanOptions, 'pluginState'>
-  return { ...rest, pluginStatus: () => Promise.resolve(INSTALLED), confirm: () => Promise.resolve(true), now: () => new Date('2026-10-08T10:20:30Z'), ...extra }
-}
-
 /** The link to a folder a user can make without a special right: a junction on Windows, a symlink elsewhere. */
 const LINK_TO_A_FOLDER = process.platform === 'win32' ? 'junction' : 'dir'
 
-const read = (path: string): string => readFileSync(path, 'utf8')
-const readJson = (path: string): Record<string, unknown> => JSON.parse(read(path)) as Record<string, unknown>
-const hookCommands = (settingsPath: string): string[] => hookRecords(readJson(settingsPath)).map((hook) => hook.command)
 const sub = (text: string): string => text.replaceAll('__SANDBOX__', sandbox.root)
-const backupDir = (): string => join(sandbox.harnessHome, 'backup-2026-10-08-10-20-30')
 
 describe('the plan of the form', () => {
   it('Q19 matches the plugin: the 3 agents and 7 skills of the old Harness are the ones harness/ carries', () => {
@@ -770,211 +601,6 @@ describe('restore and refusals', () => {
   })
 })
 
-describe('boundaries, races and what changed after the move', () => {
-  const node = (): string => findNode()
-  const runRestore = (): { status: number | null; stdout: string; stderr: string } =>
-    run(node(), [join(backupDir(), 'restore.mjs'), '--keep-plugin'], { env: { ...sandbox.env, PATH: ['/usr/bin', '/bin'].join(delimiter) }, cwd: sandbox.root })
-
-  it('a Harness folder that is a symlink leading outside ~/.claude: refused, nothing written, the outside files untouched', async () => {
-    const outside = join(sandbox.root, 'outside-hooks')
-    renameSync(join(sandbox.claudeHome, 'hooks'), outside)
-    symlinkSync(outside, join(sandbox.claudeHome, 'hooks'))
-    const before = treeOf(sandbox.root, everything)
-    const result = await applyMigration(selection(plan()), applyOptions())
-    expect(result.outcome).toBe('refused')
-    expect(result.outcome === 'refused' ? result.reason : '').toMatch(/^refusing hooks\/.+: its folder leads outside/)
-    expect(treeOf(sandbox.root, everything)).toEqual(before)
-  })
-
-  it('restore.mjs refuses a manifest path leading out of its homes ("../") before it changes anything', async () => {
-    expect((await applyMigration(selection(plan()), applyOptions())).outcome).toBe('done')
-    const victim = join(sandbox.root, 'outside.txt')
-    writeFileSync(victim, 'not the Harness\n')
-    const manifestPath = join(backupDir(), 'manifest.json')
-    const manifest = readJson(manifestPath) as { created: string[]; claude: string[] }
-    for (const tamper of [
-      { ...manifest, created: [...manifest.created, join('..', '..', '..', 'outside.txt')] },
-      { ...manifest, claude: [join('..', '..', 'outside.txt'), ...manifest.claude] },
-    ]) {
-      writeFileSync(manifestPath, JSON.stringify(tamper))
-      const before = treeOf(sandbox.root, everything)
-      const restored = runRestore()
-      expect(restored.status).toBe(1)
-      expect(restored.stderr).toMatch(/^restore failed: refusing a path outside /)
-      expect(treeOf(sandbox.root, everything)).toEqual(before)
-    }
-    expect(read(victim)).toBe('not the Harness\n')
-  })
-
-  it('restore.mjs keeps what changed after the move in <backup>/after/: a lesson, a rules.md edit, settings.json, a new lock', async () => {
-    expect((await applyMigration(selection(plan()), applyOptions())).outcome).toBe('done')
-    const projects = join(sandbox.harnessHome, 'projects')
-    writeFileSync(join(projects, 'atakama', 'lessons', 'retro-2026-10-09.md'), 'a lesson /retro wrote after the move\n')
-    writeFileSync(join(projects, 'worfy', 'rules.md'), `${read(join(projects, 'worfy', 'rules.md'))}- a rule added after the move\n`)
-    const settingsPath = join(sandbox.claudeHome, 'settings.json')
-    const settings = readJson(settingsPath)
-    writeFileSync(settingsPath, `${JSON.stringify({ ...settings, theme: 'light' }, null, 2)}\n`)
-    mkdirSync(join(sandbox.claudeHome, 'gate', 'state'), { recursive: true })
-    writeFileSync(join(sandbox.claudeHome, 'gate', 'state', 'red-new'), 'a marker an old gate wrote after the move\n')
-
-    const restored = runRestore()
-    expect(restored.stderr).toBe('')
-    expect(restored.status).toBe(0)
-    const after = join(backupDir(), 'after')
-    expect(read(join(after, 'harness', 'projects', 'atakama', 'lessons', 'retro-2026-10-09.md'))).toBe('a lesson /retro wrote after the move\n')
-    expect(read(join(after, 'harness', 'projects', 'worfy', 'rules.md'))).toContain('- a rule added after the move')
-    expect(readJson(join(after, 'claude', 'settings.json')).theme).toBe('light')
-    expect(read(join(after, 'claude', 'gate', 'state', 'red-new'))).toBe('a marker an old gate wrote after the move\n')
-    // What the move left untouched is not in after/: an unchanged Profile file was simply taken away.
-    expect(existsSync(join(after, 'harness', 'projects', 'auction'))).toBe(false)
-    expect(existsSync(join(after, 'claude', 'CLAUDE.md'))).toBe(false)
-    // The old places hold the backup's versions again.
-    expect(readJson(settingsPath).theme).toBe('dark')
-    expect(existsSync(join(projects, 'worfy'))).toBe(false)
-  })
-
-  it('a second restore.mjs keeps what the first one saved in after/: it says the backup is restored and changes nothing', async () => {
-    expect((await applyMigration(selection(plan()), applyOptions())).outcome).toBe('done')
-    const settingsPath = join(sandbox.claudeHome, 'settings.json')
-    writeFileSync(settingsPath, `${JSON.stringify({ ...readJson(settingsPath), theme: 'light' }, null, 2)}\n`)
-    const saved = join(backupDir(), 'after', 'claude', 'settings.json')
-    expect(runRestore().status).toBe(0)
-    expect(readJson(saved).theme).toBe('light')
-    const before = treeOf(sandbox.root, everything)
-    const again = runRestore()
-    expect(again.status).toBe(0)
-    expect(again.stdout).toMatch(/^Already restored at .+ from this backup: nothing to do\./m)
-    expect(readJson(saved).theme).toBe('light')
-    expect(treeOf(sandbox.root, everything)).toEqual(before)
-  })
-
-  it('a failed move kept a change in after/, then the owner runs restore.mjs of that backup: the change is still there', async () => {
-    const settingsPath = join(sandbox.claudeHome, 'settings.json')
-    const result = await applyMigration(
-      selection(plan()),
-      applyOptions({
-        afterStep: (step) => {
-          if (step !== 'claude-md') return
-          writeFileSync(settingsPath, `${JSON.stringify({ ...readJson(settingsPath), theme: 'light' }, null, 2)}\n`)
-          throw new Error('injected after a live write')
-        },
-      }),
-    )
-    expect(result).toMatchObject({ outcome: 'failed', rolledBack: true, backupDir: backupDir() })
-    const saved = join(backupDir(), 'after', 'claude', 'settings.json')
-    expect(readJson(saved).theme).toBe('light')
-    const restored = runRestore()
-    expect(restored.status).toBe(0)
-    expect(readJson(saved).theme).toBe('light')
-  })
-
-  it('a restore that stopped before it was marked done: the next run saves into a new after-<n>/, never over after/', async () => {
-    expect((await applyMigration(selection(plan()), applyOptions())).outcome).toBe('done')
-    const settingsPath = join(sandbox.claudeHome, 'settings.json')
-    writeFileSync(settingsPath, `${JSON.stringify({ ...readJson(settingsPath), theme: 'light' }, null, 2)}\n`)
-    expect(runRestore().status).toBe(0)
-    // As if the first run had stopped before marking the backup restored.
-    const manifestPath = join(backupDir(), 'manifest.json')
-    writeFileSync(manifestPath, JSON.stringify(omit(readJson(manifestPath), 'restoredAt')))
-    expect(runRestore().status).toBe(0)
-    expect(readJson(join(backupDir(), 'after', 'claude', 'settings.json')).theme).toBe('light')
-    expect(readJson(join(backupDir(), 'after-2', 'claude', 'settings.json')).theme).toBe('dark')
-  })
-
-  it('restore.mjs and the move fingerprint files the same way', async () => {
-    expect((await applyMigration(selection(plan()), applyOptions())).outcome).toBe('done')
-    const script = (await import(/* @vite-ignore */ pathToFileURL(join(backupDir(), 'restore.mjs')).href)) as { treeHash: (path: string) => string | null }
-    for (const path of [sandbox.pluginDir, join(sandbox.claudeHome, 'settings.json'), join(sandbox.claudeHome, 'skills'), join(sandbox.root, 'missing')]) {
-      expect(script.treeHash(path)).toBe(treeHash(path))
-    }
-    symlinkSync('settings.json', join(sandbox.root, 'link'))
-    expect(script.treeHash(join(sandbox.root, 'link'))).toBe(treeHash(join(sandbox.root, 'link')))
-  })
-
-  it('a state file a live Session writes during the move stays where it is; the files the backup copied leave', async () => {
-    const lock = join(sandbox.claudeHome, 'worktree-sessions', 'live-session.json')
-    const result = await applyMigration(
-      selection(plan()),
-      applyOptions({
-        beforeStep: (step) => {
-          if (step === 'state') writeFileSync(lock, '{"session":"live"}\n')
-        },
-      }),
-    )
-    expect(result.outcome).toBe('done')
-    expect(read(lock)).toBe('{"session":"live"}\n')
-    expect(readdirSync(join(sandbox.claudeHome, 'worktree-sessions'))).toEqual(['live-session.json'])
-    expect(existsSync(join(sandbox.claudeHome, 'gate', 'state'))).toBe(false)
-    expect(existsSync(join(sandbox.harnessHome, 'worktree-sessions', 'sandbox-repos-worfy-0000aaaa.json'))).toBe(true)
-  })
-
-  it('CLAUDE.md changed during the move: the step fails, the move is undone, and the edit stays in CLAUDE.md (the move never wrote it)', async () => {
-    const claudeMd = join(sandbox.claudeHome, 'CLAUDE.md')
-    const edited = `${read(claudeMd)}\n## Written during the move\n`
-    const result = await applyMigration(
-      selection(plan()),
-      applyOptions({
-        beforeStep: (step) => {
-          if (step === 'claude-md') writeFileSync(claudeMd, edited)
-        },
-      }),
-    )
-    expect(result).toMatchObject({ outcome: 'failed', step: 'claude-md', rolledBack: true, backupDir: null })
-    expect(result.outcome === 'failed' ? result.reason : '').toContain('CLAUDE.md changed during the move')
-    expect(read(claudeMd)).toBe(edited)
-    expect(existsSync(join(sandbox.claudeHome, 'agents', 'scout.md'))).toBe(true)
-  })
-
-  it('a file changed during the move after the move wrote it: undone, and the change is kept in after/', async () => {
-    const settingsPath = join(sandbox.claudeHome, 'settings.json')
-    const original = read(settingsPath)
-    const result = await applyMigration(
-      selection(plan()),
-      applyOptions({
-        afterStep: (step) => {
-          if (step !== 'claude-md') return
-          writeFileSync(settingsPath, `${JSON.stringify({ ...readJson(settingsPath), theme: 'light' }, null, 2)}\n`)
-          throw new Error('injected after a live write')
-        },
-      }),
-    )
-    expect(result).toMatchObject({ outcome: 'failed', step: 'claude-md', rolledBack: true, backupDir: backupDir() })
-    expect(read(settingsPath)).toBe(original)
-    expect(readJson(join(backupDir(), 'after', 'claude', 'settings.json')).theme).toBe('light')
-  })
-
-  it('settings.json changed during the move: the step fails rather than dropping the wrong hook records', async () => {
-    const settingsPath = join(sandbox.claudeHome, 'settings.json')
-    const result = await applyMigration(
-      selection(plan()),
-      applyOptions({
-        beforeStep: (step) => {
-          if (step !== 'settings') return
-          const settings = readJson(settingsPath) as { hooks: Record<string, unknown[]> }
-          settings.hooks.SessionStart?.unshift({ hooks: [{ type: 'command', command: 'echo new' }] })
-          writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`)
-        },
-      }),
-    )
-    expect(result).toMatchObject({ outcome: 'failed', step: 'settings', rolledBack: true })
-    expect(result.outcome === 'failed' ? result.reason : '').toContain('settings.json changed during the move')
-    expect(hookCommands(settingsPath)[0]).toBe('echo new')
-  })
-
-  it.each(['settings.json', 'CLAUDE.md', '.claude.json'])('a symlinked %s is refused with the reason, not replaced by a file', async (name) => {
-    const path = join(sandbox.claudeHome, name)
-    const real = join(sandbox.root, `real-${name}`)
-    renameSync(path, real)
-    symlinkSync(real, path)
-    const before = treeOf(sandbox.root, everything)
-    const result = await applyMigration(selection(plan()), applyOptions())
-    expect(result.outcome).toBe('refused')
-    expect(result.outcome === 'refused' ? result.reason : '').toBe(`${path} is a symbolic link: the move would replace it with a file. Replace the link with the file it points to, or keep the rows that change it`)
-    expect(treeOf(sandbox.root, everything)).toEqual(before)
-    expect(lstatSync(path).isSymbolicLink()).toBe(true)
-  })
-})
-
 describe('the IPC of a dev build on the real ~/.claude', () => {
   it('offer reads nothing and answers false; apply refuses before asking the plugin or showing the dialog', async () => {
     const saved = { WORFY_CLAUDE_HOME: process.env.WORFY_CLAUDE_HOME }
@@ -1000,18 +626,4 @@ describe('the IPC of a dev build on the real ~/.claude', () => {
   })
 })
 
-/** `value` without `keys`. */
-function omit(value: Record<string, unknown>, ...keys: string[]): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(value).filter(([key]) => !keys.includes(key)))
-}
-
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
-
-/** The `node` of PATH, as a person would run restore.mjs. */
-function findNode(): string {
-  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
-    const candidate = join(dir, 'node')
-    if (existsSync(candidate)) return candidate
-  }
-  throw new Error('no node in PATH')
-}

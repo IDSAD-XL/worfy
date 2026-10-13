@@ -216,6 +216,38 @@ Harness (Ticket 13); `@packaged` e2e на Windows (Ticket 14); шаг для Win
   - **Осталось на ПК, решает владелец:** `%LOCALAPPDATA%\Programs\worfy-stable.json` (остаток
     test-а); приватная копия Stable copy в папке пакета Claude, 662 MB; папка данных Project-а и
     один транскрипт Session из проверки.
+- **Довесок вечером 2026-10-13: то, что утром осталось «за словом владельца», и остатки на ПК.**
+  Session на Windows-ПК, сборка с main `48b0b9f`, системный Node 24.21.0. Владелец разрешил в чате
+  Session computer use, но снимок экрана на его ПК (три монитора) не делается: вызов не завершается,
+  запроса согласия нет — три попытки. Поэтому **экран никто не видел.** Всё ниже прочитано у Windows
+  скриптами: заголовки и классы окон, значки окон, ответ страницы приложения.
+  - **SmartScreen у установщика из `dist\`.** Установщик не подписан, пометки «из интернета»
+    (`Zone.Identifier`) на нём нет, Smart App Control выключен (`VerifiedAndReputablePolicyState = 0`,
+    только чтение). Запуск через ShellExecute — так запускает двойной щелчок в Проводнике: exit 0 за
+    20 s. Из окон, появившихся за это время, к установке относится одно: «Установка worfy» (класс
+    `#32770`) самого установщика. Процесс `smartscreen.exe` запускался (один) и окна не показал.
+    **Для сборки, собранной на этом же ПК, шага «More info → Run anyway» нет.** Его увидит тот, кто
+    скачал установщик: файл с пометкой «из интернета» не проверялся — диалог SmartScreen должен
+    закрывать человек.
+  - **Значок на панели задач.** Окно worfy своего значка не задаёт (`WM_GETICON` пуст для большого и
+    малого), Windows берёт значок класса окна. Он 48×48 px и совпадает с изображением 48 px из
+    `build\icon.ico` пиксель в пиксель (средняя разница на канал 0,00) — и у установленного worfy
+    (сборка `48b0b9f`), и у Stable copy в `%LOCALAPPDATA%\worfy-stable` (сборка `c64a9db`). Для
+    сравнения: значок `notepad.exe` против изображения 32 px — 67,85. Саму панель задач никто не видел.
+  - **Отказ Autopilot в `pnpm dev`.** `pnpm dev` над отдельной папкой данных (`WORFY_DATA_DIR` в
+    `%TEMP%`), Project — клон worfy. Страница dev-сборки (`http://localhost:5173/`) вызвала
+    `autopilot.start` так же, как кнопка. Ответ: `ok: false`, «autopilot.start failed: Autopilot does
+    not run on worfy itself from a development build: its agents would rebuild the app the run lives
+    in. Run it from the stable copy (pnpm install:stable).» Epic в вызове назван несуществующий: без
+    отказа запуск остановился бы на «The Project has no Epic» и ничего бы не начал. Саму кнопку никто
+    не нажимал.
+  - **Остатки на ПК убраны** с «да» владельца, по списку полных путей:
+    `%LOCALAPPDATA%\Programs\worfy-stable.json`; приватная копия Stable copy в папке пакета Claude
+    (303 файла, 661,6 MB) и файл `.json` при ней; папка данных пробного Project
+    `%APPDATA%\worfy\worfy-d5750da7`; один транскрипт пробного сообщения. Установленный worfy и
+    Stable copy в `%LOCALAPPDATA%\worfy-stable` оставлены.
+  - **После проверки установленный worfy — сборка main `48b0b9f`** (был `c64a9db`): его заменил
+    запуск установщика. Stable copy не менялась.
 - [x] `CONTEXT.md` («Stable copy») и раздел «Stable copy» `README.md` называют путь Stable copy на
   Windows.
 

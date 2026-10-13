@@ -6,7 +6,7 @@
 // system; the script itself runs on macOS only.
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -221,13 +221,17 @@ describe('the committed build/icon.ico', () => {
 describe.skipIf(process.platform !== 'darwin')('scripts/make-icons.mjs (macOS only: sips and iconutil)', () => {
   let scratch: string
   let out: string
+  /** The temporary folder of the script's run: it makes the folder it renders in there. */
+  let temporary: string
   let run: ReturnType<typeof spawnSync> & { stdout: string; stderr: string }
 
   beforeAll(() => {
     scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-icons-')))
     out = join(scratch, 'out')
+    temporary = join(scratch, 'tmp')
+    mkdirSync(temporary)
     // process.execPath is Electron run as Node (ELECTRON_RUN_AS_NODE=1 is in the environment).
-    run = spawnSync(process.execPath, [SCRIPT, '--out', out], { encoding: 'utf8', env: process.env })
+    run = spawnSync(process.execPath, [SCRIPT, '--out', out], { encoding: 'utf8', env: { ...process.env, TMPDIR: temporary } })
   }, 120_000)
 
   afterAll(() => {
@@ -238,6 +242,12 @@ describe.skipIf(process.platform !== 'darwin')('scripts/make-icons.mjs (macOS on
     expect(run.stderr).toBe('')
     expect(run.status).toBe(0)
     expect(readdirSync(out).sort()).toEqual(['icon.icns', 'icon.ico', 'icon.png', 'icons.json'])
+  })
+
+  // worfy-windows ticket 28: this removal had no test. Written on the PC, where this block does not run.
+  it('removes the folder it rendered in: none of its name is left in the temporary folder', () => {
+    expect(run.status).toBe(0)
+    expect(readdirSync(temporary).filter((name) => name.startsWith('worfy-icons-'))).toEqual([])
   })
 
   it('writes the same icons.json as the committed one', () => {

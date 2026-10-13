@@ -24,7 +24,7 @@
 // tests use it to install the app they have already packaged into a temporary folder.
 //
 // One file with no import of its own: a test copies it alone into another repository. The parts
-// that decide by the system take it as a parameter (test/unit/install-stable.test.ts).
+// that decide by the system take it as a parameter (test/unit/install-stable-functions.test.ts).
 
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
@@ -42,6 +42,8 @@ const MAX_PID = 4_194_304
 /** How often and how long a step of the file system is tried again on Windows when a file is busy. */
 const RETRIES = 5
 const RETRY_MS = 100
+/** How many times a removal that busy entries stopped is run on Windows, each with its own five waits. */
+export const REMOVE_ROUNDS = 5
 
 const rulesOf = (platform) => (platform === 'win32' ? win32 : posix)
 
@@ -318,7 +320,14 @@ function patiently(step) {
 // file with no import of its own. test/unit/remove-tree.test.ts runs the copies and the module
 // over the same trees.
 // <remove-tree>
-function removeTree(given, patience = { waits: 5 }) {
+function removeTree(given) {
+  // The waits are those of the whole removal, five in all: a folder of entries that stay busy
+  // does not wait for each of them. They are made here and never taken from the caller: given
+  // to forEach, this function gets the number of the entry as its second argument.
+  return removeWalk(given, { waits: 5 })
+}
+
+function removeWalk(given, patience) {
   // Off Windows rmSync never went through a link, and nothing changes there. The walk is for
   // Windows alone, and holds for a tree nobody else changes meanwhile.
   if (process.platform !== 'win32') return rmSync(given, { recursive: true, force: true })
@@ -345,15 +354,14 @@ function removeTree(given, patience = { waits: 5 }) {
     let failed = null
     for (const name of names) {
       try {
-        removeTree(join(path, name), patience)
+        removeWalk(join(path, name), patience)
       } catch (error) {
         if (failed === null) failed = { error }
       }
     }
     if (failed !== null) throw failed.error
   }
-  // The waits are those of the whole removal, five in all: a folder of entries that stay busy
-  // does not wait for each of them. The caller leaves the second argument out.
+  // The waits that are left are those of the whole removal (removeTree).
   for (;;) {
     try {
       if (folder) rmdirSync(path)
@@ -410,12 +418,27 @@ function plainFile(path) {
  * `build(platform, repo)` makes the app when no built one is given; packageApp by default.
  * `rename(from, to)` moves a copy in the swap; renameSync by default.
  */
-export function installStable(argv, { platform = process.platform, env = process.env, home = homedir(), repo = defaultRepo(), build = packageApp, rename = renameSync } = {}) {
+export function installStable(argv, { platform = process.platform, env = process.env, home = homedir(), repo = defaultRepo(), build = packageApp, rename = renameSync, removeFolder = removeTree } = {}) {
   const rules = rulesOf(platform)
   if (argv.length > 1) fail(`expected at most one argument, the target path; got ${argv.length}`)
   const target = checkTarget(platform, argv[0] ?? defaultTarget(platform, env, home), env, home)
-  /** Removes a copy, or what is left of one. */
-  const remove = (path) => (platform === 'win32' ? removeTree(path) : rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  /**
+   * Removes a copy, or what is left of one. On Windows the walk has five waits for a whole tree:
+   * the application needs that bound, a wait blocks its main process. This script is a command in
+   * a terminal and has the time, so a removal that busy entries stopped is run again, each run
+   * with its own waits: six files that are busy for one try each all go, as they did when every
+   * entry had five tries of its own.
+   */
+  const remove = (path) => {
+    if (platform !== 'win32') return rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    for (let round = 1; ; round++) {
+      try {
+        return removeFolder(path)
+      } catch (error) {
+        if (round >= REMOVE_ROUNDS || !['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES'].includes(error?.code)) throw error
+      }
+    }
+  }
   const why = (error) => (error instanceof Error ? error.message : String(error))
   const parent = rules.dirname(rules.resolve(target))
   mkdirSync(parent, { recursive: true })
