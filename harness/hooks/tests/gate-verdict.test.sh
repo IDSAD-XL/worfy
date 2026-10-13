@@ -265,24 +265,41 @@ if [ "$WIN" -eq 1 ]; then
         ok "the cache file of that entry is a plain file in the cache folder"
     else bad "cache folder: $(find "$STATE/cache" -mindepth 1 | tr '\n' ' ')"; fi
 
-    # (f) The console the gate is started in has its code page back after the run. The gate
-    # switches that console to UTF-8 for cmd.exe: the window of a person who runs the gate by hand
-    # must not be left so. A .cmd stands for that window: node gives it a console of its own, it
-    # sets code page 437 there, runs the gate and asks for the code page again. Only the number is
-    # read: `chcp` words its answer in the language of the system.
-    mode ok; touched
-    printf '@echo off\r\nchcp 437 >nul\r\nchcp >"%%~dp0cp-before.txt"\r\nnode "%s" fast >"%%~dp0cp-gate.out" 2>&1\r\nchcp >"%%~dp0cp-after.txt"\r\n' "$GATE" >"$T/cp.cmd"
-    GATE_SCOPE=all node -e '
-        const path = require("node:path")
-        const cmd = path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32", "cmd.exe")
-        const run = require("node:child_process").spawnSync(cmd, ["/d", "/c", path.win32.normalize(process.argv[1])], { cwd: process.argv[2], windowsHide: true, stdio: "ignore" })
-        process.exit(run.status === 0 ? 0 : 1)' "$T/cp.cmd" "$R"
+    # (f), (g) The gate switches the console it runs in to UTF-8 for cmd.exe and back. A .cmd
+    # stands for the window of a person who runs the gate by hand: node gives it a console of its
+    # own, it sets code page 437 there, runs the gate and asks for the code page again.
+    # at437 <name> <repository> leaves the output of the gate in cp-<name>-gate.out and the answers
+    # of `chcp` in cp-<name>-before.txt and cp-<name>-after.txt. Only the number of an answer is
+    # read: `chcp` words it in the language of the system.
+    at437() {
+        printf '@echo off\r\nchcp 437 >nul\r\nchcp >"%%~dp0cp-%s-before.txt"\r\nnode "%s" fast >"%%~dp0cp-%s-gate.out" 2>&1\r\nchcp >"%%~dp0cp-%s-after.txt"\r\n' "$1" "$GATE" "$1" "$1" >"$T/cp-$1.cmd"
+        GATE_SCOPE=all node -e '
+            const path = require("node:path")
+            const cmd = path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32", "cmd.exe")
+            const run = require("node:child_process").spawnSync(cmd, ["/d", "/c", path.win32.normalize(process.argv[1])], { cwd: process.argv[2], windowsHide: true, stdio: "ignore" })
+            process.exit(run.status === 0 ? 0 : 1)' "$T/cp-$1.cmd" "$2"
+    }
     page() { tr -cd '0-9' <"$T/cp-$1.txt" 2>/dev/null; }
-    if [ "$(page before)" != 437 ]; then echo "skip the code page check: the console did not take code page 437 (it says: $(page before))"
-    elif [[ "$(cat "$T/cp-gate.out" 2>/dev/null)" != *"[gate] зелено (fast): t/.:check"* ]] || [[ "$(cat "$T/cp-gate.out")" == *"(кэш)"* ]]; then
-        bad "the code page check: the gate did not start the script (out: $(head -c 300 "$T/cp-gate.out" 2>/dev/null))"
-    elif [ "$(page after)" = 437 ]; then ok "the console the gate was started in has its code page back (437 before and after)"
-    else bad "the gate left the console it was started in at another code page: 437 before, $(page after) after"; fi
+
+    # (f) The console has its code page back after the run: the window is not left at UTF-8.
+    mode ok; touched
+    at437 back "$R"
+    if [ "$(page back-before)" != 437 ]; then echo "skip the check of the code page after a run: the console did not take code page 437 (it says: $(page back-before))"
+    elif [[ "$(cat "$T/cp-back-gate.out" 2>/dev/null)" != *"[gate] зелено (fast): t/.:check"* ]] || [[ "$(cat "$T/cp-back-gate.out")" == *"(кэш)"* ]]; then
+        bad "the code page after a run: the gate did not start the script (out: $(head -c 300 "$T/cp-back-gate.out" 2>/dev/null))"
+    elif [ "$(page back-after)" = 437 ]; then ok "the console the gate was started in has its code page back (437 before and after)"
+    else bad "the gate left the console it was started in at another code page: 437 before, $(page back-after) after"; fi
+
+    # (g) The same as (a), in a console known not to be at UTF-8 before the gate starts: (a) runs
+    # in the console of this test, which may be at UTF-8 already.
+    echo 2 >"$C/n.txt"
+    at437 words "$C"
+    out="$(cat "$T/cp-words-gate.out" 2>/dev/null)"; rc=0
+    if [ "$(page words-before)" != 437 ]; then echo "skip the check of the words of cmd.exe in a console at 437: the console did not take code page 437 (it says: $(page words-before))"
+    else
+        verdict "in a console at code page 437 cmd.exe still names a missing tool in English -> outcome unverified" "$C" \
+            '.outcome == "unverified" and .exit == 0 and .key == "c" and (.reason | contains("is not recognized as an internal or external command"))'
+    fi
 else
     echo "skip the cmd.exe checks (a real message of cmd.exe, ComSpec, words with a space and &, the current folder, a backslash in a workspace entry, the code page of the console): not Windows"
 fi
