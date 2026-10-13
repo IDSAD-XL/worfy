@@ -64,22 +64,10 @@ export function windowsEnv(home: string, path: readonly string[] = []): Record<s
 
 /**
  * node-pty as the app starts it, with PowerShell started without the profile of the user (as the
- * empty HOME does for /bin/sh) — and with the one answer a terminal owes the console of Windows.
- * The console of the node-pty package asks the terminal what it is when a shell starts (`ESC [ c`)
- * and holds the output of the shell for three seconds when nobody answers: measured on the PC, the
- * prompt came after 3275 ms without an answer and after 276 ms with one. In the app the xterm.js
- * of the Terminal Node answers; here it is answered the same way, once.
+ * empty HOME does for /bin/sh). Nothing here answers the request the console of Windows sends at
+ * the start of a shell: the registry does (src/main/terminal/console-request.ts).
  */
-const spawnWithoutProfile: SpawnPty = (shell, args, options) => {
-  const pty = spawnShellPty(shell, /(?:powershell|pwsh)\.exe$/i.test(shell) ? [...args, '-NoProfile'] : args, options)
-  let answered = false
-  pty.onData((data) => {
-    if (answered || !data.includes('\x1b[c')) return
-    answered = true
-    pty.write('\x1b[?1;2c')
-  })
-  return pty
-}
+const spawnWithoutProfile: SpawnPty = (shell, args, options) => spawnShellPty(shell, /(?:powershell|pwsh)\.exe$/i.test(shell) ? [...args, '-NoProfile'] : args, options)
 
 type Listener = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
 export interface OpenResult {

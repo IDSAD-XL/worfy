@@ -47,6 +47,7 @@ import { posix, win32 } from 'node:path'
 import { spawn as spawnNodePty } from 'node-pty'
 import { findGitBash, findOnPath, powershellScriptCommand, type Env, type FileExists } from '../agent/env'
 import type { TerminalShellSetting } from '../../shared/projects/action-templates'
+import { ConsoleRequests, DEVICE_ATTRIBUTES_ANSWER } from './console-request'
 import { OscCutScanner, ShellTracker, type ShellEvent, type ShellState } from './osc'
 import { integrationEnv, isZsh, newNonce, type ShellIntegration } from './shell-integration'
 
@@ -57,6 +58,8 @@ export const ROWS_MAX = 300
 /** Output kept per terminal for redrawing it, in UTF-16 code units (one per character of ASCII). */
 export const REPLAY_LIMIT = 256 * 1024
 export const KILL_GRACE_MS = 1000
+/** How long the end of a chunk that may be the start of a request of the console waits for the next chunk (console-request.ts). */
+export const HELD_OUTPUT_MS = 50
 /** How long the helper that ends the processes under a shell of Windows may run. */
 export const DESCENDANTS_TIMEOUT_MS = 3000
 /** The upper bound of closing a Terminal on Windows; after it the Terminal is closed without node-pty's exit event. */
@@ -729,7 +732,10 @@ export class TerminalRegistry {
       finished: false,
       released: false,
     }
-    pty.onData((data) => {
+    // On Windows the console asks its terminal for the device attributes; main answers, and the
+    // request reaches neither the kept output nor a screen (console-request.ts).
+    const requests = this.platform === 'win32' ? new ConsoleRequests() : null
+    const deliver = (data: string): void => {
       // A Terminal that was closed and has reported its exit — by itself, or at the bound of the
       // close on Windows — says nothing more: by now its Node may have a new shell, and this
       // output would go to the screens of that one.
@@ -741,10 +747,38 @@ export class TerminalRegistry {
       // After the output went out: the command's echo comes after what the shell printed first.
       firstOutput?.()
       firstOutput = undefined
+    }
+    // The end of a chunk that may be the start of a request is kept back for the next chunk. When
+    // none comes it is sent on as the text it is: output never waits for more than HELD_OUTPUT_MS.
+    let held: ReturnType<typeof setTimeout> | null = null
+    const sendHeld = (): void => {
+      if (held !== null) clearTimeout(held)
+      held = null
+      const rest = requests?.rest() ?? ''
+      if (rest !== '') deliver(rest)
+    }
+    pty.onData((raw) => {
+      if (requests === null) return deliver(raw)
+      if (held !== null) clearTimeout(held)
+      held = null
+      const read = requests.feed(raw)
+      // Not for a Terminal that has ended: its pty takes no input.
+      if (!ended) {
+        try {
+          for (let asked = 0; asked < read.requests; asked++) pty.write(DEVICE_ATTRIBUTES_ANSWER)
+        } catch (error) {
+          console.warn(`[terminal] ${key}: the request of the console could not be answered`, error)
+        }
+      }
+      if (read.text !== '') deliver(read.text)
+      if (requests.holds) held = setTimeout(sendHeld, HELD_OUTPUT_MS)
     })
     // On Windows the event means "the output of the console is closed": after kill() it can come
     // before node-pty knows the exit code. The screens are told an integer all the same.
-    pty.onExit(({ exitCode, signal }) => terminal.finish({ exitCode: (exitCode as number | undefined) ?? 1, signal: signal === undefined || signal === 0 ? null : signal }))
+    pty.onExit(({ exitCode, signal }) => {
+      sendHeld()
+      terminal.finish({ exitCode: (exitCode as number | undefined) ?? 1, signal: signal === undefined || signal === 0 ? null : signal })
+    })
     if (request.command !== undefined) firstOutput = this.typeOnStart(key, terminal, request.command, () => ended)
     return terminal
   }
