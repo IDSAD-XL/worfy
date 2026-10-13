@@ -1,7 +1,7 @@
 # 06 — Settings → Health: проверки First run в окне Settings
 
 Type: task
-Status: claimed — 2026-10-13
+Status: blocked — второй REJECTED гейта 2026-10-13: доработка внесла дефект — клик по тексту формы «Move…» прокручивает её к началу (FirstRunChecks.tsx:247, focus без preventScroll); узкий круг листовому Ticket-у — решение владельца; PR #292 открыт
 Blocked by: 02
 Source: решение владельца 2026-10-09: 2 (раздел Health окна Settings — проверки First run; First run при первом запуске остаётся) ([spec.md](../spec.md), «Решения владельца», пункт 2; «Пересечения», worfy-windows 13 и 15); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), пункт 6 (каналы `firstRun.*` — `local`)
 
