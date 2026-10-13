@@ -63,8 +63,8 @@ Source: решение владельца 2026-10-09: 2 (раздел Health о�
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально —
   exit 0.
   Первая половина сделана: `pnpm lint && pnpm typecheck && pnpm test` — exit 0, gate fast — см. «Итог».
-  не проверено: gate full — шаг Orchestrator-а перед мержем, после rebase на main с Ticket-ом 03
-  (до него красный `test/e2e/settings.spec.ts:66-71`, см. «Итог», «Известный красный e2e»).
+  не проверено: gate full — шаг Orchestrator-а перед мержем. Ветка уже на main с Ticket-ом 03
+  (`c59da98e`); четыре e2e-файла вокруг Settings и First run на ней зелёные, см. «Итог».
 
 ## Тесты
 
@@ -155,12 +155,15 @@ main, Tab и Shift+Tab ходят по кругу внутри формы, Esc �
   [светлая](../evidence/06-settings-health-move-light.png),
   [тёмная](../evidence/06-settings-health-move-dark.png).
 
-**Известный красный e2e до rebase.** `test/e2e/settings.spec.ts:66-71` на этой ветке красный: test
-жмёт Tab один раз со строки General и ждёт фокус на «Close», что верно, только пока раздел один. Со
-вторым разделом Tab попадает на строку Health (так окно и задумано). Этот test переписывает Ticket 03
-— Tab по всем строкам разделов; после rebase на main с Ticket-ом 03 он должен стать зелёным без
-правок файла. Файл в этом Ticket-е не правился. Вариант «одна остановка Tab на весь список разделов»
-(roving tabindex) отвергнут Orchestrator-ом: поведение окна не меняем.
+**e2e окна Settings и порядок Tab.** До rebase `test/e2e/settings.spec.ts:66-71` на этой ветке был
+красный: test жал Tab один раз со строки General и ждал фокус на «Close», что верно, только пока
+раздел один; со вторым разделом Tab попадает на строку Health (так окно и задумано). Ticket 03
+переписал этот test — Tab по всем строкам разделов, затем ползунок «Interface scale», затем «Close».
+После rebase на main с Ticket-ом 03 (`c59da98e`) test зелёный без правок файла: под замком прошли
+`settings-health.spec.ts`, `first-run.spec.ts`, `settings.spec.ts` и `interface-scale.spec.ts`, 11 из
+11. Файл в этом Ticket-е не правился. Вариант «одна остановка Tab на весь список разделов» (roving
+tabindex) отвергнут Orchestrator-ом: поведение окна не меняем. Вид раздела от rebase не изменился
+(масштаб по умолчанию 100 %), снимки не переснимались.
 
 **Пересечение с worfy-windows 13 и 15.** На момент claim открытых PR, правящих `FirstRun.tsx`, не
 было. `GROUPS` и строка проверки теперь в `src/renderer/shell/FirstRunChecks.tsx`: Ticket 13, если
