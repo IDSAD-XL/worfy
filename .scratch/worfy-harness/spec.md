@@ -158,7 +158,9 @@ Session проектирования E3, 2026-10-07. Номер вопроса �
   только Harness. Full mode и Silent mode, Workflow folder; в Silent mode Workflow folder выбирает
   пользователь при подключении. В Silent mode ветки, коммиты, PR и комментарии в коде — без номеров
   Ticket-ов и ADR, имён Epic-ов и путей к Workflow folder; статус Ticket-а пишется сразу в Workflow
-  folder; свои документы Harness пишет только туда. Поле `attribution: on | off`, по умолчанию `on`.
+  folder; свои документы Harness пишет только туда. Поле `attribution: on | off`; умолчание зависит
+  от режима — `off` в Silent mode, `on` в Full mode, явное значение побеждает (ADR-0061, уточняет
+  пункт 6 ADR-0042).
   Worktree новых Project-ов — `~/.claude/worfy-harness/worktrees/<project>/`; у worfy и Auction —
   прежние папки. `GH_TOKEN` аккаунта Project-а выдаёт hook `SessionStart` через `CLAUDE_ENV_FILE`;
   сам токен на диск не пишется.

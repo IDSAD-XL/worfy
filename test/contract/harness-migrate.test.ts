@@ -287,7 +287,8 @@ describe('the plan of the form', () => {
 
     expect(view.rows.filter((row) => row.group === 'state').map((row) => row.id)).toEqual(['state:gate-config', 'state:gate-state', 'state:worktree-sessions'])
     expect(view.profiles.map((profile) => [profile.name, profile.fields])).toEqual([
-      ['atakama', { mode: 'silent', languageDocs: 'en', attribution: 'on' }],
+      // `attribution` follows the proposed mode: off for Silent, on for Full.
+      ['atakama', { mode: 'silent', languageDocs: 'en', attribution: 'off' }],
       ['auction', { mode: 'full', languageDocs: 'ru', attribution: 'on' }],
       ['worfy', { mode: 'full', languageDocs: 'ru', attribution: 'on' }],
     ])
@@ -363,6 +364,20 @@ describe('the plan of the form', () => {
     const elsewhere = { claudeHome: sandbox.claudeHome, harnessHome: '/opt/harness' }
     expect(rewriteHarnessPaths('~/.claude/gate/config.json', elsewhere)).toBe('/opt/harness/gate/config.json')
   })
+
+  it('attribution: a value the old Profile names is proposed as written, in both modes', () => {
+    // Without the field the proposal follows the mode (the test above: atakama off, worfy on).
+    const legacy = (name: string): string => join(sandbox.claudeHome, 'profiles', name, 'profile.json')
+    writeFileSync(legacy('atakama'), JSON.stringify({ ...readJson(legacy('atakama')), attribution: 'on' }))
+    writeFileSync(legacy('worfy'), JSON.stringify({ ...readJson(legacy('worfy')), attribution: 'off' }))
+    // A value that is neither `on` nor `off` is not a choice: the mode decides.
+    writeFileSync(legacy('auction'), JSON.stringify({ ...readJson(legacy('auction')), attribution: 'maybe' }))
+    expect(plan().profiles.map((profile) => [profile.name, profile.fields.mode, profile.fields.attribution])).toEqual([
+      ['atakama', 'silent', 'on'],
+      ['auction', 'full', 'on'],
+      ['worfy', 'full', 'off'],
+    ])
+  })
 })
 
 describe('the move', () => {
@@ -427,7 +442,7 @@ describe('the move', () => {
     // The form's values differ from the proposed ones (worfy: full, ru, on).
     const result = await applyMigration(selection(view, undefined, { worfy: { mode: 'silent', languageDocs: 'en', attribution: 'off' } }), applyOptions())
     expect(result.outcome).toBe('done')
-    const expected = { worfy: ['silent', 'en', 'off'], auction: ['full', 'ru', 'on'], atakama: ['silent', 'en', 'on'] }
+    const expected = { worfy: ['silent', 'en', 'off'], auction: ['full', 'ru', 'on'], atakama: ['silent', 'en', 'off'] }
     for (const [name, [mode, docs, attribution]] of Object.entries(expected)) {
       const dir = join(sandbox.harnessHome, 'projects', name)
       const profile = readJson(join(dir, 'profile.json'))
@@ -457,6 +472,8 @@ describe('the move', () => {
     expect(worfyMode).toMatchObject({ status: 0, stdout: 'silent\n' })
     expect(run(profileBin, ['-C', sandbox.repos.worfy, '--field', 'attribution'])).toMatchObject({ status: 0, stdout: 'off\n' })
     expect(run(profileBin, ['-C', sandbox.repos.atakamaServer, '--field', 'mode'])).toMatchObject({ status: 0, stdout: 'silent\n' })
+    // atakama moved with the proposed fields: Silent, so its attribution is off.
+    expect(run(profileBin, ['-C', sandbox.repos.atakamaServer, '--field', 'attribution'])).toMatchObject({ status: 0, stdout: 'off\n' })
 
     // Gate: registry and markers in worfy-harness/gate/; gate.sh of harness/ finds the project.
     expect(read(join(sandbox.harnessHome, 'gate', 'config.json'))).toBe(read(join(backupDir(), 'claude', 'gate', 'config.json')))

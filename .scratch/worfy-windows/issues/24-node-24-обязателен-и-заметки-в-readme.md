@@ -440,3 +440,10 @@ test не проверяет: в `pnpm test` и в CI Node один. Она пр
 - Gate full на Mac: на `bcc1eb6` (rebase на `bcaa7c8`) — код 0; перед мержем — rebase на `fec6d24`, head `b216638`, один запуск, код 0, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`. CI зелёный (job `check` — 8m56s; `full-macos` не запускался), CLEAN.
 - Условие мержа выполнено: владелец 2026-10-13 сообщил, что Node 24 на Windows-ПК установлен. Влит `a1277f2`.
 - не проверено: `node --version` и `pnpm install` на Windows-ПК после мержа — проверяет Session на Windows-ПК; команда `winget` и установщик `.msi` запуском на Windows не проверялись.
+- Проверено на Windows-ПК после мержа (Session на Windows-ПК, 2026-10-13): `node --version` — v24.21.0;
+  `pnpm install --frozen-lockfile` на main `3d16a41` — exit code 0, pnpm 11.22.0. Находка: Node 24
+  поставлен через nvm for Windows, а глобальный pnpm 11.22.0 стоял только под Node 22.13.0. После
+  переключения отвечал отдельный pnpm 9.1.1 из `AppData\Local\pnpm`, и проект его отвергал:
+  `ERR_PNPM_BAD_PM_VERSION`, exit code 1 у `pnpm lint` и `pnpm typecheck`. Лечение — `npm install -g
+  pnpm@11.22.0` под новым Node (сделано с согласия владельца). Строка об этом добавлена в README,
+  раздел «Development on Windows».

@@ -4,6 +4,11 @@
 // harness/bin/project-connect in a temporary Harness home (HOME, HARNESS_HOME and CLAUDE_CONFIG_DIR
 // all in the temporary folder); the Harness check and Claude Code are replaced — the draft Session
 // plays test/fixtures/agent-scripts/profile-draft.jsonl through the fake agent.
+//
+// Attribution (ADR-0061): that fixture is a Silent draft with `"attribution": "on"`, what the model
+// wrote in the acceptance run of 2026-10-12. The form must get `off` for it, the person's own choice
+// must be written as picked, a Full draft keeps what the Session proposed, and the default worfy's
+// code names for a mode must be the one bin/profile prints for a Profile without the field.
 import { execFileSync, spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -14,8 +19,11 @@ import type { HarnessStatus } from '../../src/shared/ipc/harness'
 import { githubChoice, withGithubAccount, type ProfileDraft } from '../../src/shared/ipc/projects'
 import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
 import { draftSessionOptions, sessionOptions } from '../../src/main/agent/options'
+import { defaultAttribution } from '../../src/main/harness/attribution'
+import { proposeAttribution } from '../../src/main/harness/migrate/profiles'
 import {
   activityOf,
+  applyChoices,
   DRAFT_DISALLOWED_TOOLS,
   DRAFT_TOOLS,
   draftCanUseTool,
@@ -636,6 +644,114 @@ describe('the form and the write (steps 5 and 6)', () => {
     expect((await realProfile(api, ['-C', api, '--field', 'mode'])).stdout.trim()).toBe('silent')
     expect(clean(api)).toBe('')
     expect(clean(web)).toBe('')
+  })
+})
+
+describe('attribution: what the form gets and what Connect writes (ADR-0061)', () => {
+  type Attribution = 'on' | 'off'
+  const fixtureLines = (): string[] => readFileSync(join(SCRIPTS, 'profile-draft.jsonl'), 'utf8').trim().split('\n')
+  const proposedBy = (lines: readonly string[]): Record<string, unknown> => (JSON.parse(lines.at(-1) ?? '{}') as { structured_output: { profile: Record<string, unknown> } }).structured_output.profile
+
+  /** A folder with the fake agent's script changed so that the Session proposes `attribution`. */
+  function scriptsProposing(attribution: Attribution): string {
+    const scripts = join(scratch, `scripts-${attribution}`)
+    mkdirSync(scripts)
+    const lines = fixtureLines()
+    const result = JSON.parse(lines.at(-1) ?? '{}') as { structured_output: { profile: Record<string, unknown> } }
+    result.structured_output.profile.attribution = attribution
+    writeFileSync(join(scripts, 'profile-draft.jsonl'), [...lines.slice(0, -1), JSON.stringify(result)].join('\n'))
+    return scripts
+  }
+
+  /** The draft as the form gets it: the Session's answer after worfy set what it owns. */
+  async function draftFor(run: Harnessed, repo: string, mode: 'full' | 'silent'): Promise<ProfileDraft> {
+    const outcome = await run.connector.draft({ draftId: `d-${repo}`, root: repo, mode, workflowFolder: null }, () => undefined)
+    if (outcome.status !== 'draft') throw new Error(`no draft: ${JSON.stringify(outcome)}`)
+    return outcome.draft
+  }
+
+  /** What the person does in the form: the name of the folder, and `patch` over the Profile. */
+  const edited = (draft: ProfileDraft, name: string, patch: Record<string, unknown> = {}): ProfileDraft => ({
+    ...draft,
+    profile: { ...draft.profile, name, ...patch },
+    gate: draft.gate.map((entry) => ({ ...entry, key: name, profile: name })),
+  })
+  const writtenAttribution = (name: string): unknown => (JSON.parse(readFileSync(join(harnessHome, 'projects', name, 'profile.json'), 'utf8')) as Record<string, unknown>).attribution
+  const printedAttribution = async (repo: string): Promise<string> => (await realProfile(repo, ['-C', repo, '--field', 'attribution'])).stdout.trim()
+
+  it('Silent, the Session proposed on: the form gets off, and Connect writes off', async () => {
+    // The fixture is that case, and stays it.
+    expect(proposedBy(fixtureLines())).toMatchObject({ mode: 'silent', attribution: 'on' })
+    const repo = makeRepo(join(scratch, 'shop'))
+    const run = connectorWith()
+    const draft = await draftFor(run, repo, 'silent')
+    expect(draft.profile).toMatchObject({ mode: 'silent', attribution: 'off' })
+
+    const form = edited(draft, 'shop')
+    expect(await run.connector.check(form)).toEqual([])
+    expect(await run.connector.write(repo, form)).toMatchObject({ status: 'added' })
+    expect(writtenAttribution('shop')).toBe('off')
+    expect(await printedAttribution(repo)).toBe('off')
+  })
+
+  it('Silent, the Session proposed off: off as well', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const draft = await draftFor(connectorWith({ scriptsDir: scriptsProposing('off') }), repo, 'silent')
+    expect(draft.profile).toMatchObject({ mode: 'silent', attribution: 'off' })
+  })
+
+  it('Silent, the person picks on in the form: Connect writes on', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const run = connectorWith()
+    const draft = await draftFor(run, repo, 'silent')
+    expect(draft.profile.attribution).toBe('off')
+
+    // The check and the write take the form's draft as it is: the starting value is not set again.
+    const picked = edited(draft, 'shop', { attribution: 'on' })
+    expect(await run.connector.check(picked)).toEqual([])
+    expect(await run.connector.write(repo, picked)).toMatchObject({ status: 'added' })
+    expect(writtenAttribution('shop')).toBe('on')
+    expect(await printedAttribution(repo)).toBe('on')
+  })
+
+  it('Full: the form gets what the Session proposed, on or off, and Connect writes it', async () => {
+    for (const proposed of ['on', 'off'] as const) {
+      const name = `full-${proposed}`
+      const repo = makeRepo(join(scratch, name))
+      const run = connectorWith({ scriptsDir: scriptsProposing(proposed) })
+      const draft = await draftFor(run, repo, 'full')
+      expect(draft.profile, proposed).toMatchObject({ mode: 'full', attribution: proposed })
+
+      expect(await run.connector.write(repo, edited(draft, name)), proposed).toMatchObject({ status: 'added' })
+      expect(writtenAttribution(name), proposed).toBe(proposed)
+      expect(await printedAttribution(repo), proposed).toBe(proposed)
+    }
+  })
+
+  it('one rule in bin/profile and in worfy: the default worfy names for a mode is what bin/profile prints for a Profile without the field', async () => {
+    const expected = { silent: 'off', full: 'on' } as const
+    const repos = { silent: makeRepo(join(scratch, 'bare-silent')), full: makeRepo(join(scratch, 'bare-full')) }
+    const entries = (['silent', 'full'] as const).map((mode) => ({ key: `bare-${mode}`, match: repos[mode], profile: `bare-${mode}`, pm: 'npm', root: {}, workspace: {} }))
+    writeFileSync(join(harnessHome, 'gate', 'config.json'), JSON.stringify({ repos: entries }))
+    for (const mode of ['silent', 'full'] as const) {
+      mkdirSync(join(harnessHome, 'projects', `bare-${mode}`), { recursive: true })
+      // No `attribution` in the file: bin/profile answers with its own default.
+      writeFileSync(join(harnessHome, 'projects', `bare-${mode}`, 'profile.json'), JSON.stringify({ schema: 2, name: `bare-${mode}`, mode }))
+    }
+    const silentDraft = applyChoices(
+      { profile: { ...proposedBy(fixtureLines()), attribution: 'on' }, rules: '', gate: [] },
+      { folder: { kind: 'git', root: repos.silent, repos: [], notice: null }, mode: 'silent', workflowFolder: null, reportsLanguage: 'en' },
+    )
+    for (const mode of ['silent', 'full'] as const) {
+      const run = await realProfile(repos[mode], ['-C', repos[mode], '--field', 'attribution'])
+      expect(run.code, `${mode}: ${run.stderr}`).toBe(0)
+      const printed = run.stdout.trim()
+      expect(printed, mode).toBe(expected[mode])
+      // The shared function, and its two users: the move of schema 1 Profiles and the Silent draft.
+      expect(defaultAttribution(mode), mode).toBe(printed)
+      expect(proposeAttribution({}, mode), mode).toBe(printed)
+    }
+    expect(silentDraft.profile.attribution).toBe((await realProfile(repos.silent, ['-C', repos.silent, '--field', 'attribution'])).stdout.trim())
   })
 })
 

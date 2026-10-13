@@ -57,7 +57,8 @@ repo() { # $1 path — a git repository with one commit
     git -C "$1" commit -q -m init
 }
 
-# draft <name> <mode> <folder JSON> <match>… — a draft as skill connect-project proposes it.
+# draft <name> <mode> <folder JSON> <match>… — a draft as skill connect-project proposes it
+# (`attribution` off in Silent mode, on in Full mode).
 draft() {
     local name="$1" mode="$2" folder="$3"
     shift 3
@@ -65,7 +66,7 @@ draft() {
 const [name, mode, folder, ...matches] = process.argv.slice(2)
 const profile = {
   schema: 2, name, title: name, mode,
-  language: { reports: "en", team: "en", docs: "en" }, attribution: "on",
+  language: { reports: "en", team: "en", docs: "en" }, attribution: mode === "silent" ? "off" : "on",
   layout: { summary: "one package", packages: ["."], repos: null }, stack: ["node"],
   commands: { install: "npm ci", lint: "npm run lint", typecheck: null, test: "npm test", test_one: null, contract: null, e2e: null,
               build: null, verify: "npm run lint && npm test", prepare_tree: "npm ci", requires: [] },
@@ -140,6 +141,8 @@ check "the gate registry keeps the other project and adds shop" 0 "other shop" \
     node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).repos; process.stdout.write(r.map(e=>e.key).join(" "))' "$HARNESS_HOME/gate/config.json"
 check "bin/profile -C <repository> --field mode prints silent" 0 "silent" "$PROFILE" -C "$T/shop" --field mode
 check "bin/profile -C <repository> --name" 0 "shop" "$PROFILE" -C "$T/shop" --name
+[ "$(jq -r .attribution "$HARNESS_HOME/projects/shop/profile.json")" = off ] && [ "$("$PROFILE" -C "$T/shop" --field attribution)" = off ] \
+    && ok "a Silent draft is written with attribution off, and bin/profile prints off" || bad "Silent attribution: $(jq -c .attribution "$HARNESS_HOME/projects/shop/profile.json")"
 check "the written workflow.folder is the default folder" 0 "$HARNESS_HOME/projects/shop/workflow" "$PROFILE" -C "$T/shop" --field workflow.folder
 [ -d "$HARNESS_HOME/projects/shop/workflow/.git" ] && ok "the default Workflow folder is created with git" || bad "no $HARNESS_HOME/projects/shop/workflow/.git"
 [ "$(commits)" -eq $((n0 + 1)) ] && ok "exactly one new commit in the git of HARNESS_HOME" || bad "commits: $n0 -> $(commits)"
@@ -214,6 +217,33 @@ full_before="$(cat "$T/x-full/.git/info/exclude")"
 draft xfull full null "$T/x-full" >"$T/x-full.json"
 check "a Full project is connected" 0 '"excludes": []' "$CONNECT" <"$T/x-full.json"
 [ "$full_before" = "$(cat "$T/x-full/.git/info/exclude")" ] && ok "Full mode leaves .git/info/exclude alone" || bad "Full mode changed exclude"
+
+# --- attribution: the draft's value is written as it is; the skill proposes it by the mode -----
+[ "$(jq -r .attribution "$HARNESS_HOME/projects/xfull/profile.json")" = on ] && [ "$("$PROFILE" -C "$T/x-full" --field attribution)" = on ] \
+    && ok "a Full draft is written with attribution on, and bin/profile prints on" || bad "Full attribution: $(jq -c .attribution "$HARNESS_HOME/projects/xfull/profile.json")"
+# The person chose `on` for a Silent project (and `off` for a Full one) in the form: the choice is written, not the default.
+repo "$T/a-son"
+draft ason silent null "$T/a-son" | jq -c '.profile.attribution = "on"' >"$T/a-son.json"
+check "a Silent draft with attribution on is connected" 0 '"profileDir"' "$CONNECT" <"$T/a-son.json"
+[ "$(jq -r .attribution "$HARNESS_HOME/projects/ason/profile.json")" = on ] && [ "$("$PROFILE" -C "$T/a-son" --field attribution)" = on ] \
+    && ok "attribution on chosen for a Silent project is written as chosen" || bad "Silent with on: $(jq -c .attribution "$HARNESS_HOME/projects/ason/profile.json")"
+repo "$T/a-foff"
+draft afoff full null "$T/a-foff" | jq -c '.profile.attribution = "off"' >"$T/a-foff.json"
+check "a Full draft with attribution off is connected" 0 '"profileDir"' "$CONNECT" <"$T/a-foff.json"
+[ "$(jq -r .attribution "$HARNESS_HOME/projects/afoff/profile.json")" = off ] && [ "$("$PROFILE" -C "$T/a-foff" --field attribution)" = off ] \
+    && ok "attribution off chosen for a Full project is written as chosen" || bad "Full with off: $(jq -c .attribution "$HARNESS_HOME/projects/afoff/profile.json")"
+# The draft always names the value (the schema requires it), so the proposal is the skill's text.
+SKILL="$HARNESS/skills/connect-project/SKILL.md"
+rule="$(grep -A2 '^- `attribution` — ' "$SKILL" | tr '\n' ' ')"
+[[ "$rule" == *'`attribution` — `"off"` in Silent mode, `"on"` in Full mode'* ]] && ok "skill connect-project proposes attribution off in Silent mode and on in Full mode" \
+    || bad "skill connect-project, the attribution rule: [$rule]"
+[ "$(grep -c '`attribution` — ' "$SKILL")" = 1 ] && ok "skill connect-project names the attribution value once" || bad "attribution rules in the skill: $(grep -c '`attribution` — ' "$SKILL")"
+# What worfy does with the value belongs to the part for worfy: a terminal run has no worfy and no form, and
+# bin/project-connect writes the draft as it is, so the rule above must not lean on worfy there.
+worfy_part="$(sed -n '/^## With `--draft-only`/,/^## Without `--draft-only`/p' "$SKILL" | tr '\n' ' ')"
+[[ "$worfy_part" == *'worfy sets `attribution` to `"off"` itself'* ]] && [ "$(grep -c 'worfy sets `attribution`' "$SKILL")" = 1 ] && [[ "$rule" != *"worfy"* ]] \
+    && ok "skill connect-project says that worfy sets off only in its --draft-only part" || bad "skill connect-project, worfy's part: [$worfy_part] rule: [$rule]"
+check "the draft schema requires attribution" 0 "" jq -e '.properties.profile.required | index("attribution")' "$HARNESS/profiles/draft.schema.json"
 
 # --- a project over two repositories: Silent, the folder above them is the Workflow folder ---
 draft ws silent "\"$T/ws\"" "$T/ws/api" "$T/ws/web" >"$T/ws.json"

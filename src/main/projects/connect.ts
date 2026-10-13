@@ -16,7 +16,8 @@
 //    Read, Glob and Grep: Bash and every tool that writes or reaches out are taken away
 //    (DRAFT_DISALLOWED_TOOLS), and canUseTool refuses anything outside DRAFT_TOOLS. The answer is
 //    checked against the whole schema of the file by `bin/project-connect --schema-only`; worfy then
-//    sets what it owns (applyChoices) and asks `--check` for the form.
+//    sets what it owns (applyChoices: the mode, the Workflow folder, and in Silent mode `attribution`
+//    off as the form's starting value) and asks `--check` for the form.
 // 5./6. The form's checks and the write go through `bin/project-connect` only (ADR-0002: worfy
 //    changes workflow state only with the Harness's tools); worfy writes nothing itself — not in the
 //    Harness home and never in the Project's repositories (ADR-0005). After the write `bin/profile -C`
@@ -37,6 +38,7 @@ import type { ConnectFolder, ConnectMode, DraftIssue, GithubAccountsStep, Profil
 import type { CanUseToolHandler } from '../agent/permissions'
 import type { QueryHandle, QueryRequest } from '../agent/session'
 import { readGithubAccounts } from '../github/accounts'
+import { defaultAttribution } from '../harness/attribution'
 import type { GhRunner } from '../github/prs'
 import type { ProfileRunner } from '../workflow/profile'
 import type { GitRunner } from './store'
@@ -327,12 +329,16 @@ const recordAt = (value: Record<string, unknown>, key: string): Record<string, u
  * null for `<HARNESS_HOME>/projects/<name>/workflow/`), `worktree.root` under the repository's
  * `.claude/worktrees/` (null over several repositories: a tree outside the repository is not
  * supported yet), `language.reports` from the system language, no GitHub account (chosen later),
- * and the profile name in every gate entry. Every other field stays as proposed.
+ * and the profile name in every gate entry. In Silent mode `attribution` starts as the default of the
+ * mode, `off`, whatever the Session proposed (ADR-0061): the form shows it, and what the person picks
+ * there is written as picked — this runs once, on the Session's answer, never on the form's draft.
+ * In Full mode `attribution` and every other field stay as proposed.
  */
 export function applyChoices(draft: ProfileDraft, choices: DraftChoices): ProfileDraft {
   const profile = { ...draft.profile }
   const { folder, mode } = choices
   profile.mode = mode
+  if (mode === 'silent') profile.attribution = defaultAttribution('silent')
   const workflow = recordAt(profile, 'workflow')
   workflow.folder = mode === 'full' ? null : (choices.workflowFolder ?? (folder.kind === 'multi-repo' ? folder.root : null))
   profile.workflow = workflow
