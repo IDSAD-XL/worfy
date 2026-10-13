@@ -52,9 +52,11 @@
   border-bottom: 1px solid var(--toolbar-border);
   -webkit-app-region: drag;
 }
-/* Without the sidebar the traffic lights sit over the toolbar: keep clear of them. */
+/* Without the sidebar the traffic lights sit over the toolbar: keep clear of them. They do not move
+   with the interface scale, so the room is 80 px of the window, not 80 CSS px
+   (settings/interface-scale.ts writes --interface-scale on <html>). */
 .w-toolbar[data-sidebar='hidden'] {
-  padding-left: 80px;
+  padding-left: calc(80px / var(--interface-scale, 1));
 }
 /*
  * Outside macOS the window has the system's own frame, with no traffic lights and no vibrancy
