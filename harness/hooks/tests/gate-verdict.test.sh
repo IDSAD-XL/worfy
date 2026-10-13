@@ -320,14 +320,18 @@ if [ "$WIN" -eq 1 ]; then
     if [[ "$out" == *'late !OS! stays'* ]]; then ok "!NAME! in a .cmd is not expanded by the gate"; else bad "!OS! was expanded: ${out:0:400}"; fi
 
     # (h) The gate waits for the script, not for what the script left behind. The .cmd starts a
-    # process that lives for ten seconds with the output of the script in its hands, and ends.
-    printf '@echo off\r\nstart "" /b node -e "setTimeout(() => {}, 10000)"\r\nexit /b 0\r\n' >"$T/sp dir/argpm.cmd"
+    # process that lives for two minutes with the output of the script in its hands, and ends.
+    # The process writes down its pid; it is stopped by that pid when the gate has returned.
+    printf 'require("node:fs").writeFileSync(__dirname + "/left.pid", String(process.pid))\nsetTimeout(() => {}, 120000)\n' >"$T/sp dir/left.cjs"
+    printf '@echo off\r\nstart "" /b node "%%~dp0left.cjs"\r\nexit /b 0\r\n' >"$T/sp dir/argpm.cmd"
     echo 3 >"$A/n.txt"
     began=$(date +%s)
     out="$(cd "$A" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
     took=$(( $(date +%s) - began ))
-    if [ "$rc" -eq 0 ] && [[ "$out" == *'[gate] зелено (fast): a/.:x&y'* ]] && [ "$took" -lt 7 ]; then ok "a process the script left behind does not hold the gate"
-    else bad "a process left behind: rc=$rc, the gate took $took s (the process lives for 10), out: ${out:0:300}"; fi
+    for _ in $(seq 1 50); do [ -s "$T/sp dir/left.pid" ] && break; sleep 0.1; done
+    node -e 'try { process.kill(Number(require("node:fs").readFileSync(process.argv[1], "utf8"))) } catch {}' "$T/sp dir/left.pid"
+    if [ "$rc" -eq 0 ] && [[ "$out" == *'[gate] зелено (fast): a/.:x&y'* ]] && [ "$took" -lt 60 ]; then ok "a process the script left behind does not hold the gate"
+    else bad "a process left behind: rc=$rc, the gate took $took s (the process lives for 120), out: ${out:0:300}"; fi
 
     # (i) A command line longer than cmd.exe takes is not started: cut to nothing, it would end
     # with code 0 and count as green.

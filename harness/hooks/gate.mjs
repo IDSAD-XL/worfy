@@ -620,7 +620,8 @@ async function main() {
     process.on("exit", () => {
         if (!verdictWritten) remove(verdictFile)
     })
-    for (const [signal, code] of [["SIGHUP", 129], ["SIGINT", 130], ["SIGTERM", 143]]) {
+    // SIGBREAK is Ctrl+Break in a console of Windows (signal 21); nothing sends it elsewhere.
+    for (const [signal, code] of [["SIGHUP", 129], ["SIGINT", 130], ["SIGTERM", 143], ["SIGBREAK", 149]]) {
         process.on(signal, () => {
             endRunning()
             process.exit(code)
