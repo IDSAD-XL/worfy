@@ -4,7 +4,7 @@
 // Elsewhere it is `$SHELL -l`, ended by SIGHUP, as before. The system, the Path, the function that
 // ends the processes under the shell and the program that function runs are passed in or replaced,
 // so the Windows branch runs on any machine.
-import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -42,7 +42,7 @@ vi.mock('node:child_process', async (original) => ({ ...(await original<typeof i
 const { DESCENDANTS_TIMEOUT_MS, descendantsScript, endDescendants, KILL_GRACE_MS, SHELL_START_SLACK_MS, terminalEnv, terminalShell, terminalShellOptions, TerminalRegistry, WINDOWS_CLOSE_BOUND_MS } =
   await import('../../src/main/terminal/pty')
 const { projectSettingsSchema, savedProjectSettingsSchema } = await import('../../src/shared/projects/action-templates')
-const { readProjectSettings, settingsPath } = await import('../../src/main/projects/settings')
+const { readProjectSettings, settingsPath, writeProjectSettings } = await import('../../src/main/projects/settings')
 type PtyProcess = import('../../src/main/terminal/pty').PtyProcess
 type SpawnPty = import('../../src/main/terminal/pty').SpawnPty
 type TerminalSink = import('../../src/main/terminal/pty').TerminalSink
@@ -220,6 +220,22 @@ describe('the setting terminalShell of a Project', () => {
       removeTestTree(dir)
     }
   })
+
+  // Review of PR #239: what is read forgives such a shell, what is saved does not.
+  it('saving settings that name a shell this version does not know is refused and writes nothing; a known one is saved', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'worfy-settings-shell-'))
+    const own = { shipTicket: 'my own {epic} {NN}', runWave: 'my wave' }
+    try {
+      for (const terminalShell of ['wsl', 'cmd', '', 3, null]) {
+        expect(() => writeProjectSettings(dir, { actionTemplates: own, terminalShell: terminalShell as never }, 'none'), String(terminalShell)).toThrow()
+      }
+      expect(readdirSync(dir)).toEqual([])
+      expect(writeProjectSettings(dir, { actionTemplates: own, terminalShell: 'git-bash' }, 'none')).toEqual({ actionTemplates: own, terminalShell: 'git-bash' })
+      expect(JSON.parse(readFileSync(settingsPath(dir), 'utf8'))).toEqual({ actionTemplates: own, terminalShell: 'git-bash' })
+    } finally {
+      removeTestTree(dir)
+    }
+  })
 })
 
 interface FakeOptions {
@@ -227,6 +243,8 @@ interface FakeOptions {
   plain?: boolean
   /** kill() does not end it: node-pty reports no exit. */
   deaf?: boolean
+  /** With the agent and its helper, and without the thread that reads the output. */
+  noWorker?: boolean
 }
 
 /**
@@ -239,7 +257,12 @@ function fakePty(pid: number, options: FakeOptions = {}) {
   const helper: unknown[] = []
   let onExit: (event: { exitCode: number; signal?: number }) => void = () => undefined
   let onData: (data: string) => void = () => undefined
-  const agent: { _getConsoleProcessList: unknown } = { _getConsoleProcessList: (): Promise<unknown> => Promise.resolve('ran') }
+  /** How many times kill() had been called when the thread that reads the output was asked to stop. */
+  const stops: number[] = []
+  const agent: { _getConsoleProcessList: unknown; _conoutSocketWorker?: { dispose: unknown } } = {
+    _getConsoleProcessList: (): Promise<unknown> => Promise.resolve('ran'),
+    ...(options.noWorker ? {} : { _conoutSocketWorker: { dispose: () => void stops.push(kills.length) } }),
+  }
   const pty: PtyProcess = {
     pid,
     onData: (listener) => {
@@ -261,6 +284,7 @@ function fakePty(pid: number, options: FakeOptions = {}) {
     pty,
     kills,
     helper,
+    stops,
     agent,
     exit: (exitCode = 0) => onExit({ exitCode }),
     /** The exit event as node-pty sends it on Windows when its output closes before the exit code is known. */
@@ -573,6 +597,73 @@ describe('TerminalRegistry: closing a Terminal on Windows', () => {
       '[terminal] the pty of the shell 999994264 has no _getConsoleProcessList to take out of kill(): its helper process may end that pid 5 s from now (withoutConsoleHelper)',
       '[terminal] the pty of the shell 999994265 has no _getConsoleProcessList to take out of kill(): its helper process may end that pid 5 s from now (withoutConsoleHelper)',
     ])
+  })
+
+  // worfy-windows ticket 22: with the console of the node-pty package kill() leaves that thread running.
+  it('stops the thread of node-pty that reads the output, once, after kill(): for a closed Terminal and for a shell that exited on its own', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const closed = fakePty(999_994_271)
+    const exited = fakePty(999_994_272, { deaf: true })
+    const ptys = [closed.pty, exited.pty]
+    const registry = new TerminalRegistry({ env: winEnv, spawn: () => ptys.shift()!, platform: 'win32', endDescendants: () => undefined })
+    await registry.open('a', OPEN, {}, SINK)
+    await registry.open('b', OPEN, {}, SINK)
+    expect([closed.stops, exited.stops]).toEqual([[], []])
+    await registry.close('a')
+    exited.exit(3)
+    // Asked when kill() had been called once: after it, not before.
+    expect([closed.stops, exited.stops]).toEqual([[1], [1]])
+    await registry.closeAll()
+    expect([closed.stops, exited.stops]).toEqual([[1], [1]])
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('a pty of node-pty without that thread to stop is closed all the same, with a line that says what may stay', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const odd = fakePty(999_994_273, { noWorker: true })
+    // The name is there and has nothing to call.
+    const odder = fakePty(999_994_274)
+    odder.agent._conoutSocketWorker = { dispose: 'not a function' }
+    const ptys = [odd.pty, odder.pty]
+    const registry = new TerminalRegistry({ env: winEnv, spawn: () => ptys.shift()!, platform: 'win32', endDescendants: () => undefined })
+    await registry.open('a', OPEN, {}, SINK)
+    await registry.open('b', OPEN, {}, SINK)
+    await registry.closeAll()
+    expect([odd.kills, odder.kills]).toEqual([[undefined], [undefined]])
+    expect(warn.mock.calls.map(([line]) => line)).toEqual([
+      '[terminal] the pty of the shell 999994273 has no _conoutSocketWorker to stop: its thread may stay until worfy quits (stopOutputWorker)',
+      '[terminal] the pty of the shell 999994274 has no _conoutSocketWorker to stop: its thread may stay until worfy quits (stopOutputWorker)',
+    ])
+  })
+
+  it('a thread that cannot be stopped does not stop the close, and is logged with the pid', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const broken = fakePty(999_994_275)
+    broken.agent._conoutSocketWorker = {
+      dispose: () => {
+        throw new Error('the worker is gone')
+      },
+    }
+    const registry = new TerminalRegistry({ env: winEnv, spawn: () => broken.pty, platform: 'win32', endDescendants: () => undefined })
+    await registry.open('a', OPEN, {}, SINK)
+    await registry.close('a')
+    expect(registry.size).toBe(0)
+    expect(warn).toHaveBeenCalledWith('[terminal] stopping the output thread of the shell 999994275 failed', expect.any(Error))
+  })
+
+  // Review of PR #239: the Terminal is closing, and its shell has not exited yet.
+  it('what a shell prints between the close and its exit still reaches the screens; what comes after the exit does not', async () => {
+    const fake = fakePty(999_994_276, { deaf: true })
+    const output: string[] = []
+    const registry = new TerminalRegistry({ env: winEnv, spawn: () => fake.pty, platform: 'win32', endDescendants: () => undefined })
+    await registry.open('a', OPEN, {}, { ...SINK, output: (data) => output.push(data) })
+    const closing = registry.close('a')
+    await Promise.resolve()
+    fake.print('the last words')
+    fake.exit(0)
+    fake.print('after the exit')
+    await closing
+    expect(output).toEqual(['the last words'])
   })
 
   it('an exit that comes without a code, as after kill() on Windows, is told to the screens as 1', async () => {
