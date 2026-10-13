@@ -16,7 +16,7 @@ any session before then; the waves of epic E3 (`worfy-harness`) run on the froze
 | `agents/` | Generic agents: `implementer`, `reviewer`, `scout` | `agents/` |
 | `skills/<name>/SKILL.md` | `epic-wave`, `ship-ticket`, `retro`, `qmd`, `overnight-fix-loop`, `continuous-audit`, `tickets-to-tasks` | `skills/` |
 | `bin/` | Scripts: `profile`, `ticket`, `epic-status`, `preflight`, `worktree-lock`, `epic-board`, `qmd-mcp`, `qmd-refresh`, `qmd-sync-main`; notes in `ТИКЕТЫ.md` | `bin/` |
-| `hooks/` | `gate.mjs`, `gate-paths.mjs`, `gate-resolve.mjs`, `guard.mjs`, `session-start.sh`, `session-end.sh`, `stop.sh` | `hooks/` |
+| `hooks/` | `gate.mjs`, `gate-paths.mjs`, `gate-resolve.mjs`, `guard.mjs`, `session-start.sh`, `session-end.sh`, `stop.sh`; `gate.sh` is the old name of the gate and only starts `gate.mjs` — nothing here calls it, it stays for profiles moved from the old Harness until worfy-windows ticket 46 | `hooks/` |
 | `bin/tests/`, `hooks/tests/` | Shell tests of the scripts and hooks | `bin/tests/`, `hooks/tests/` |
 | `profiles/README.md` | The contract of a project profile | `profiles/README.md` |
 | `.claude-plugin/plugin.json` | Plugin manifest: name `worfy`, dependency `mattpocock-skills` | new |
