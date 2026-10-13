@@ -17,6 +17,21 @@
 // every entry by its full path, so it holds only for a tree nobody else changes meanwhile: a folder
 // that another process swaps for a link during the removal would be entered.
 //
+// One link lstat does not see (worfy-windows ticket 35): a junction whose target is written with
+// the GUID of a volume (`mklink /J link \\?\Volume{…}\`, or a folder of such a volume). Measured
+// on the PC, Windows 11 26200, under both Nodes 24.21.0: lstat calls it a folder and gives the
+// `dev` of the volume it leads to, readlink answers EINVAL, a listing reads the volume — and the
+// walk as it was removed every file there. unlink refuses it with EPERM; one rmdir removes it as
+// the link it is, also while it is busy, and leaves the volume alone. A folder that holds entries
+// answers ENOTEMPTY to rmdir in every state measured (read-only, a file held open in it, a path
+// of 359 characters), but for the working folder of a running process, which answers EBUSY.
+// Hence two rules, each enough by itself, before a folder is listed:
+//   - a folder on another volume than the folder it lies in is never listed: it is asked to go
+//     with rmdir, and nothing more;
+//   - any other folder is first asked to go with one rmdir, and is listed only when the answer is
+//     ENOTEMPTY. The price: a folder that is busy itself keeps what it holds, where the walk
+//     before removed that and then failed at the folder all the same.
+//
 // On every other system fs.rmSync is called, as before this module: there it never went through a
 // link, it is safe against such a swap, it has no limit on the length of a path, and it goes on
 // past an entry it cannot remove. Nothing changes off Windows.
@@ -43,7 +58,7 @@ const GONE = ['ENOENT', 'ENOTDIR']
 
 /** The calls of node:fs the removal makes; tests replace them. */
 export interface RemoveFs {
-  lstatSync: (path: string) => Pick<Stats, 'isDirectory'>
+  lstatSync: (path: string) => Pick<Stats, 'isDirectory' | 'dev'>
   readdirSync: (path: string) => string[]
   unlinkSync: (path: string) => void
   rmdirSync: (path: string) => void
@@ -104,17 +119,68 @@ function kindOf(path: string, fs: RemoveFs): 'folder' | 'other' | null {
   }
 }
 
+/** What lstat says of a path — whether it is a folder, and the volume it is on — or null when nothing is there. */
+function seenAt(path: string, fs: RemoveFs): { folder: boolean; volume: number } | null {
+  try {
+    const seen = fs.lstatSync(path)
+    return { folder: seen.isDirectory(), volume: seen.dev }
+  } catch (error) {
+    if (GONE.includes(codeOf(error) ?? '')) return null
+    throw error
+  }
+}
+
+/**
+ * Asks a folder to go as it is, before anything in it is listed. True when it went, or was gone;
+ * false when it answered "not empty": it holds entries, and only then may it be listed. While the
+ * answer is "busy" it is asked again, as any step is; any other answer is thrown.
+ */
+function goesUnlisted(path: string, fs: RemoveFs, options: RemoveOptions, patience: Patience): boolean {
+  for (;;) {
+    try {
+      fs.rmdirSync(path)
+      return true
+    } catch (error) {
+      const code = codeOf(error)
+      if (code === 'ENOENT') return true
+      if (code === 'ENOTEMPTY') return false
+      if (patience.waits === 0 || !BUSY.includes(code ?? '')) throw error
+      patience.waits -= 1
+      ;(options.wait ?? sleep)(REMOVE_RETRY_MS)
+    }
+  }
+}
+
 /**
  * The walk of Windows. An entry that cannot be removed does not end it: the others go, and the
  * first error is thrown at the end, with the folder left for what stayed in it.
+ *
+ * `outer` is the volume of the folder the path lies in; the path the caller gave has none yet, and
+ * its parent folder is asked. A folder is listed only when both hold: it is on that volume, and it
+ * has answered "not empty" to one rmdir (the two rules of the header).
  */
-function walk(path: string, fs: RemoveFs, options: RemoveOptions, patience: Patience): void {
-  const kind = kindOf(path, fs)
-  if (kind === null) return
-  if (kind === 'other') {
+function walk(path: string, fs: RemoveFs, options: RemoveOptions, patience: Patience, outer?: number): void {
+  const seen = seenAt(path, fs)
+  if (seen === null) return
+  if (!seen.folder) {
     patiently(() => fs.unlinkSync(path), options, patience)
     return
   }
+  let volume = outer
+  if (volume === undefined) {
+    try {
+      volume = fs.lstatSync(join(path, '..')).dev
+    } catch {
+      // The parent cannot be asked: the first rmdir below still decides.
+    }
+  }
+  if (volume !== undefined && seen.volume !== volume) {
+    // On another volume than the folder it lies in: the way into that volume, not a folder of this
+    // tree. It goes as the link it is, or the removal ends with what rmdir answers.
+    patiently(() => fs.rmdirSync(path), options, patience)
+    return
+  }
+  if (goesUnlisted(path, fs, options, patience)) return
   let names: string[]
   try {
     names = fs.readdirSync(path)
@@ -126,7 +192,7 @@ function walk(path: string, fs: RemoveFs, options: RemoveOptions, patience: Pati
   let failed: { error: unknown } | null = null
   for (const name of names) {
     try {
-      walk(join(path, name), fs, options, patience)
+      walk(join(path, name), fs, options, patience, seen.volume)
     } catch (error) {
       failed ??= { error }
     }

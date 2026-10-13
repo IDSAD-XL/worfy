@@ -266,8 +266,14 @@ describe('removeTree and removeFile over real folders', () => {
  * A file system in memory, with POSIX names. A `link` is a name that leads to another path of the
  * model. The module joins names by the rules of the machine, so a backslash in a path it asks
  * about is read as a slash.
+ *
+ * A `mount` is a name that leads to another path too, and that lstat does not see as a link
+ * (worfy-windows ticket 35): on Windows a junction whose target is written with the GUID of a
+ * volume. Measured on the PC under both Nodes: lstat calls it a folder and gives the volume it
+ * leads to, a listing reads what is behind it, unlink refuses it with EPERM, and rmdir removes it
+ * as the link it is, whatever lies behind. Everything under `/vol` is another volume.
  */
-type Entry = { kind: 'file' } | { kind: 'folder' } | { kind: 'link'; to: string }
+type Entry = { kind: 'file' } | { kind: 'folder' } | { kind: 'link'; to: string } | { kind: 'mount'; to: string }
 interface Model {
   fs: RemoveFs
   calls: string[]
@@ -302,30 +308,47 @@ function model(entries: Record<string, Entry>, failing: Record<string, string[]>
     rmdirSync: (path) => asked.rmdirSync(path.replace(/\\/g, '/')),
     rmSync: (path, options) => asked.rmSync(path.replace(/\\/g, '/'), options),
   })
+  /** Where a path leads once every link and mount on the way to it is followed; its last name is taken as it is. */
+  const real = (path: string): string => {
+    for (let at = path.indexOf('/', 1); at > 0; at = path.indexOf('/', at + 1)) {
+      const entry = tree.get(path.slice(0, at))
+      if (entry?.kind === 'link' || entry?.kind === 'mount') return real(entry.to + path.slice(at))
+    }
+    return path
+  }
+  /** The volume a path is on. */
+  const dev = (path: string): number => (path === '/vol' || path.startsWith('/vol/') ? 2 : 1)
   const fs: RemoveFs = posixNames({
-    lstatSync: (path) => {
-      step(`lstat ${path}`)
+    lstatSync: (asked) => {
+      step(`lstat ${asked}`)
+      const path = real(asked)
       const entry = tree.get(path)
-      if (entry === undefined) throw fail('ENOENT', path)
-      // lstat does not follow: a link to a folder is not a folder.
-      return { isDirectory: () => entry.kind === 'folder' }
+      if (entry === undefined) throw fail('ENOENT', asked)
+      // lstat does not follow a link: a link to a folder is not a folder. It does not see a mount:
+      // that is a folder to it, on the volume the mount leads to.
+      return { isDirectory: () => entry.kind === 'folder' || entry.kind === 'mount', dev: dev(entry.kind === 'mount' ? real(entry.to) : path) }
     },
-    readdirSync: (path) => {
-      step(`readdir ${path}`)
+    readdirSync: (asked) => {
+      step(`readdir ${asked}`)
+      const path = real(asked)
       const entry = tree.get(path)
-      // A walk that came here through a link would be reading what the link leads to.
-      const real = entry?.kind === 'link' ? entry.to : path
-      return [...tree.keys()].filter((each) => posix.dirname(each) === real).map((each) => posix.basename(each))
+      // A walk that came here through a link or a mount would be reading what it leads to.
+      const listed = entry?.kind === 'link' || entry?.kind === 'mount' ? real(entry.to) : path
+      return [...tree.keys()].filter((each) => posix.dirname(each) === listed).map((each) => posix.basename(each))
     },
-    unlinkSync: (path) => {
-      step(`unlink ${path}`)
-      if (tree.get(path)?.kind === 'folder') throw fail('EPERM', path)
-      if (!tree.delete(path)) throw fail('ENOENT', path)
+    unlinkSync: (asked) => {
+      step(`unlink ${asked}`)
+      const path = real(asked)
+      const kind = tree.get(path)?.kind
+      if (kind === 'folder' || kind === 'mount') throw fail('EPERM', asked)
+      if (!tree.delete(path)) throw fail('ENOENT', asked)
     },
-    rmdirSync: (path) => {
-      step(`rmdir ${path}`)
-      if ([...tree.keys()].some((each) => posix.dirname(each) === path)) throw fail('ENOTEMPTY', path)
-      if (!tree.delete(path)) throw fail('ENOENT', path)
+    rmdirSync: (asked) => {
+      step(`rmdir ${asked}`)
+      const path = real(asked)
+      // A mount holds nothing of its own: what is behind it does not keep it from going.
+      if ([...tree.keys()].some((each) => posix.dirname(each) === path)) throw fail('ENOTEMPTY', asked)
+      if (!tree.delete(path)) throw fail('ENOENT', asked)
     },
     // fs.rmSync as every system but Windows has it: a link goes as a link, a missing path is fine with "force".
     rmSync: (path, options) => {
@@ -356,6 +379,52 @@ const WITH_A_LINK: Record<string, Entry> = {
   '/home/notes/keep.txt': { kind: 'file' },
 }
 
+/** A Card folder that holds a mount to another volume (worfy-windows ticket 35), and the files of that volume. */
+const WITH_A_MOUNT: Record<string, Entry> = {
+  '/data': { kind: 'folder' },
+  '/data/card': { kind: 'folder' },
+  '/data/card/index.html': { kind: 'file' },
+  '/data/card/linked': { kind: 'mount', to: '/vol' },
+  '/vol': { kind: 'folder' },
+  '/vol/keep.txt': { kind: 'file' },
+  '/vol/deep': { kind: 'folder' },
+  '/vol/deep/more.txt': { kind: 'file' },
+}
+const VOLUME = ['/vol', '/vol/deep', '/vol/deep/more.txt', '/vol/keep.txt']
+/** The same Card, with a mount that leads to a folder of its own volume: its `dev` says nothing. */
+const WITH_A_MOUNT_ON_ITS_VOLUME: Record<string, Entry> = {
+  '/data': { kind: 'folder' },
+  '/data/card': { kind: 'folder' },
+  '/data/card/index.html': { kind: 'file' },
+  '/data/card/linked': { kind: 'mount', to: '/home/notes' },
+  '/home': { kind: 'folder' },
+  '/home/notes': { kind: 'folder' },
+  '/home/notes/keep.txt': { kind: 'file' },
+}
+/** An entry of the trash whose Card folder is a mount, and one whose Card folder holds a mount. */
+const TRASH_CARD_IS_A_MOUNT: Record<string, Entry> = {
+  '/trash': { kind: 'folder' },
+  '/trash/entry': { kind: 'folder' },
+  '/trash/entry/entry.json': { kind: 'file' },
+  '/trash/entry/card': { kind: 'mount', to: '/vol' },
+  '/vol': { kind: 'folder' },
+  '/vol/keep.txt': { kind: 'file' },
+  '/vol/deep': { kind: 'folder' },
+  '/vol/deep/more.txt': { kind: 'file' },
+}
+const TRASH_CARD_HOLDS_A_MOUNT: Record<string, Entry> = {
+  '/trash': { kind: 'folder' },
+  '/trash/entry': { kind: 'folder' },
+  '/trash/entry/entry.json': { kind: 'file' },
+  '/trash/entry/card': { kind: 'folder' },
+  '/trash/entry/card/index.html': { kind: 'file' },
+  '/trash/entry/card/linked': { kind: 'mount', to: '/vol' },
+  '/vol': { kind: 'folder' },
+  '/vol/keep.txt': { kind: 'file' },
+  '/vol/deep': { kind: 'folder' },
+  '/vol/deep/more.txt': { kind: 'file' },
+}
+
 /** The module's walk over a model; answers the code of the error it ended with, or null. */
 function viaModule(m: Model, path: string, platform: NodeJS.Platform): unknown {
   try {
@@ -376,6 +445,88 @@ describe('removeTree over a model of the file system', () => {
     expect(m.calls.some((call) => call.includes('/home'))).toBe(false)
     // A folder is emptied before it is removed, and removed last.
     expect(m.calls.at(-1)).toBe('rmdir /data/card')
+  })
+
+  // worfy-windows ticket 35. Measured on the PC: the walk of main listed a junction that leads to a
+  // volume by its GUID — lstat calls it a folder — and removed every file of that volume.
+  describe('a folder that lstat does not see as the link it is (worfy-windows ticket 35)', () => {
+    const through = (m: Model, path: string): string[] => m.calls.filter((call) => call.endsWith(` ${path}`) || call.includes(`${path}/`))
+
+    it('inside the folder that is removed: it is on another volume, so it is never listed — one rmdir takes it, and the volume keeps its files', () => {
+      const m = model(WITH_A_MOUNT)
+      expect(viaModule(m, '/data/card', 'win32')).toBeNull()
+      expect(m.names()).toEqual(['/data', ...VOLUME])
+      expect(through(m, '/data/card/linked')).toEqual(['lstat /data/card/linked', 'rmdir /data/card/linked'])
+      expect(m.waits).toEqual([])
+    })
+
+    it('as the path itself: the volume of its parent folder is asked, and it goes by one rmdir', () => {
+      const m = model(WITH_A_MOUNT)
+      expect(viaModule(m, '/data/card/linked', 'win32')).toBeNull()
+      expect(m.calls).toEqual(['lstat /data/card/linked', 'lstat /data/card', 'rmdir /data/card/linked'])
+      expect(m.names()).toEqual(['/data', '/data/card', '/data/card/index.html', ...VOLUME])
+    })
+
+    it('on the volume of its folder, where the volume says nothing: the first thing asked of any folder is to go as it is, and it does — nothing is listed', () => {
+      const m = model(WITH_A_MOUNT_ON_ITS_VOLUME)
+      expect(viaModule(m, '/data/card', 'win32')).toBeNull()
+      expect(m.names()).toEqual(['/data', '/home', '/home/notes', '/home/notes/keep.txt'])
+      expect(through(m, '/data/card/linked')).toEqual(['lstat /data/card/linked', 'rmdir /data/card/linked'])
+    })
+
+    it('on the volume of its folder and busy at first: it is waited for and asked to go again, and still never listed', () => {
+      const m = model(WITH_A_MOUNT_ON_ITS_VOLUME, { 'rmdir /data/card/linked': ['EBUSY', 'EACCES'] })
+      expect(viaModule(m, '/data/card', 'win32')).toBeNull()
+      expect(m.names()).toEqual(['/data', '/home', '/home/notes', '/home/notes/keep.txt'])
+      expect(through(m, '/data/card/linked')).toEqual(['lstat /data/card/linked', 'rmdir /data/card/linked', 'rmdir /data/card/linked', 'rmdir /data/card/linked'])
+      expect(m.waits).toEqual([REMOVE_RETRY_MS, REMOVE_RETRY_MS])
+    })
+
+    it('on another volume, a "not empty" answer does not lead to a listing either: the volume alone decides', () => {
+      const m = model(WITH_A_MOUNT, { 'rmdir /data/card/linked': ['ENOTEMPTY'] })
+      expect(viaModule(m, '/data/card', 'win32')).toBeNull()
+      expect(m.names()).toEqual(['/data', ...VOLUME])
+      expect(through(m, '/data/card/linked')).toEqual(['lstat /data/card/linked', 'rmdir /data/card/linked', 'rmdir /data/card/linked'])
+      expect(m.waits).toEqual([REMOVE_RETRY_MS])
+    })
+
+    it('when the parent folder cannot be asked for its volume, the first rmdir still decides', () => {
+      const m = model(WITH_A_MOUNT, { 'lstat /data/card': ['EACCES'] })
+      expect(viaModule(m, '/data/card/linked', 'win32')).toBeNull()
+      expect(m.calls).toEqual(['lstat /data/card/linked', 'lstat /data/card', 'rmdir /data/card/linked'])
+      expect(m.names()).toEqual(['/data', '/data/card', '/data/card/index.html', ...VOLUME])
+    })
+
+    it('an entry of the trash whose Card folder is such a link: the entry goes, the volume keeps its files', () => {
+      const m = model(TRASH_CARD_IS_A_MOUNT)
+      expect(viaModule(m, '/trash/entry', 'win32')).toBeNull()
+      expect(m.names()).toEqual(['/trash', ...VOLUME])
+      expect(through(m, '/trash/entry/card')).toEqual(['lstat /trash/entry/card', 'rmdir /trash/entry/card'])
+    })
+
+    it('an entry of the trash whose Card folder holds such a link: the entry goes, the volume keeps its files', () => {
+      const m = model(TRASH_CARD_HOLDS_A_MOUNT)
+      expect(viaModule(m, '/trash/entry', 'win32')).toBeNull()
+      expect(m.names()).toEqual(['/trash', ...VOLUME])
+      expect(through(m, '/trash/entry/card/linked')).toEqual(['lstat /trash/entry/card/linked', 'rmdir /trash/entry/card/linked'])
+    })
+
+    // The price of the rule, written down: a folder is listed only after it has answered "not empty".
+    it('a plain folder that refuses to go for another reason than "not empty" is not listed: what it holds stays, and the removal ends with that reason', () => {
+      const m = model(WITH_A_LINK, { 'rmdir /data/card/assets': Array.from({ length: 10 }, () => 'EBUSY') })
+      expect(viaModule(m, '/data/card', 'win32')).toBe('EBUSY')
+      expect(m.names()).toEqual(['/data', '/data/card', '/data/card/assets', '/data/card/assets/app.js', '/home', '/home/notes', '/home/notes/keep.txt'])
+      expect(m.calls).not.toContain('readdir /data/card/assets')
+      expect(m.waits).toHaveLength(REMOVE_RETRIES)
+    })
+
+    it('off Windows nothing of this runs: one call of rmSync, as on main', () => {
+      for (const platform of ['darwin', 'linux'] as const) {
+        const m = model(WITH_A_MOUNT)
+        expect(viaModule(m, '/data/card', platform), platform).toBeNull()
+        expect(m.calls, platform).toEqual(['rmSync /data/card recursive force'])
+      }
+    })
   })
 
   it('on every other system is one call of rmSync with "recursive" and "force", and nothing else: what main did', () => {
@@ -405,8 +556,9 @@ describe('removeTree over a model of the file system', () => {
     // The first error, not the last.
     expect(viaModule(m, '/d', 'win32')).toBe('EIO')
     expect(m.names()).toEqual(['/d', '/d/held.txt', '/d/sub', '/d/sub/also-held.txt'])
-    // Neither folder that still holds something is asked to go.
-    expect(m.calls.filter((call) => call.startsWith('rmdir '))).toEqual([])
+    // Each folder was asked to go once, before it was listed (worfy-windows ticket 35), and
+    // answered "not empty". Neither is asked again while it still holds something.
+    expect(m.calls.filter((call) => call.startsWith('rmdir '))).toEqual(['rmdir /d', 'rmdir /d/sub'])
     expect(m.waits).toEqual([])
   })
 
@@ -416,8 +568,9 @@ describe('removeTree over a model of the file system', () => {
     expect(below.calls).toEqual(['lstat /f/x'])
     const gone = model({ '/d': { kind: 'folder' }, '/d/a.txt': { kind: 'file' } }, { 'readdir /d': ['ENOENT'] })
     expect(viaModule(gone, '/d', 'win32')).toBeNull()
-    expect(gone.calls).toEqual(['lstat /d', 'readdir /d'])
-    const unreadable = model({ '/d': { kind: 'folder' } }, { 'readdir /d': ['EACCES'] })
+    // The look, the volume of the parent folder, the first rmdir — "not empty" — and the listing.
+    expect(gone.calls).toEqual(['lstat /d', 'lstat /', 'rmdir /d', 'readdir /d'])
+    const unreadable = model({ '/d': { kind: 'folder' }, '/d/a.txt': { kind: 'file' } }, { 'readdir /d': ['EACCES'] })
     expect(viaModule(unreadable, '/d', 'win32')).toBe('EACCES')
   })
 
@@ -481,8 +634,9 @@ describe('removeTree over a model of the file system', () => {
     expect(passing.waits).toHaveLength(REMOVE_RETRIES)
     expect(passing.names()).toEqual(['/d', ...busyOnce.slice(REMOVE_RETRIES)])
 
-    // The folder at the end takes of the same waits: none is left for it here.
-    const folder = model({ '/d': { kind: 'folder' }, '/d/a.txt': { kind: 'file' } }, { 'unlink /d/a.txt': forever('EBUSY').slice(0, REMOVE_RETRIES), 'rmdir /d': ['ENOTEMPTY'] })
+    // The folder at the end takes of the same waits: none is left for it here. (Its first "not
+    // empty" is the answer to the rmdir before the listing, which is no wait.)
+    const folder = model({ '/d': { kind: 'folder' }, '/d/a.txt': { kind: 'file' } }, { 'unlink /d/a.txt': forever('EBUSY').slice(0, REMOVE_RETRIES), 'rmdir /d': ['ENOTEMPTY', 'ENOTEMPTY'] })
     expect(viaModule(folder, '/d', 'win32')).toBe('ENOTEMPTY')
     expect(folder.waits).toHaveLength(REMOVE_RETRIES)
     expect(folder.names()).toEqual(['/d'])
@@ -494,9 +648,11 @@ describe('removeTree over a model of the file system', () => {
   })
 
   it('tries again for a folder that is not empty yet, and never for an error that is not "busy"', () => {
-    const folder = model({ '/d': { kind: 'folder' } }, { 'rmdir /d': ['ENOTEMPTY', 'EACCES'] })
+    // The first "not empty" answers the rmdir before the listing; the two after it are waited for.
+    const folder = model({ '/d': { kind: 'folder' } }, { 'rmdir /d': ['ENOTEMPTY', 'ENOTEMPTY', 'EACCES'] })
     expect(viaModule(folder, '/d', 'win32')).toBeNull()
     expect(folder.waits).toHaveLength(2)
+    expect(folder.calls).toEqual(['lstat /d', 'lstat /', 'rmdir /d', 'readdir /d', 'rmdir /d', 'rmdir /d', 'rmdir /d'])
     const other = model({ '/f': { kind: 'file' } }, { 'unlink /f': ['EIO'] })
     expect(viaModule(other, '/f', 'win32')).toBe('EIO')
     expect(other.waits).toEqual([])
@@ -660,6 +816,24 @@ describe('the copies of the walk that cannot import the module', () => {
     ['the root of a disk', WITH_A_LINK, 'C:\\', {}],
     ['two files that stay busy: the waits are those of the whole removal', WITH_A_LINK, '/data/card', { 'unlink /data/card/index.html': Array.from({ length: 10 }, () => 'EBUSY'), 'unlink /data/card/assets/app.js': Array.from({ length: 10 }, () => 'EPERM') }],
     ['a busy file, then a folder that is not empty at first: the same waits', WITH_A_LINK, '/data/card', { 'unlink /data/card/index.html': ['EBUSY', 'EBUSY', 'EBUSY', 'EBUSY'], 'rmdir /data/card': ['ENOTEMPTY', 'ENOTEMPTY'] }],
+    // worfy-windows ticket 35: a folder that lstat does not see as the link it is.
+    ['a mount to another volume inside the folder', WITH_A_MOUNT, '/data/card', {}],
+    ['a mount to another volume as the path itself', WITH_A_MOUNT, '/data/card/linked', {}],
+    ['a mount written with a separator at its end', WITH_A_MOUNT, '/data/card/linked/', {}],
+    ['a mount on the volume of its folder', WITH_A_MOUNT_ON_ITS_VOLUME, '/data/card', {}],
+    ['a mount on the volume of its folder as the path itself', WITH_A_MOUNT_ON_ITS_VOLUME, '/data/card/linked', {}],
+    ['a mount on the volume of its folder that is busy at first', WITH_A_MOUNT_ON_ITS_VOLUME, '/data/card', { 'rmdir /data/card/linked': ['EBUSY', 'EACCES'] }],
+    ['a mount on the volume of its folder that stays busy', WITH_A_MOUNT_ON_ITS_VOLUME, '/data/card', { 'rmdir /data/card/linked': Array.from({ length: 10 }, () => 'EPERM') }],
+    ['a mount to another volume that answers "not empty" once', WITH_A_MOUNT, '/data/card', { 'rmdir /data/card/linked': ['ENOTEMPTY'] }],
+    ['a mount to another volume that refuses to go', WITH_A_MOUNT, '/data/card', { 'rmdir /data/card/linked': ['EIO'] }],
+    ['a mount whose parent folder cannot be asked', WITH_A_MOUNT, '/data/card/linked', { 'lstat /data/card': ['EACCES'] }],
+    ['a folder whose parent folder is not there to be asked', WITH_A_MOUNT, '/data/card', { 'lstat /data': ['ENOENT'] }],
+    ['an entry of the trash whose Card folder is a mount', TRASH_CARD_IS_A_MOUNT, '/trash/entry', {}],
+    ['an entry of the trash whose Card folder holds a mount', TRASH_CARD_HOLDS_A_MOUNT, '/trash/entry', {}],
+    ['a plain folder that is busy itself', WITH_A_LINK, '/data/card', { 'rmdir /data/card/assets': Array.from({ length: 10 }, () => 'EBUSY') }],
+    ['a plain folder that is busy at first and then "not empty"', WITH_A_LINK, '/data/card', { 'rmdir /data/card/assets': ['EBUSY', 'ENOTEMPTY'] }],
+    ['a plain folder that refuses to go with an error that is not "busy"', WITH_A_LINK, '/data/card', { 'rmdir /data/card/assets': ['EIO'] }],
+    ['a folder gone between the look and the first rmdir', WITH_A_LINK, '/data/card', { 'rmdir /data/card/assets': ['ENOENT'] }],
   ]
 
   it.each(Object.keys(COPIES))('%s makes the same calls as the module, in the same order, with the same tries and the same end', (name) => {

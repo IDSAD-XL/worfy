@@ -327,7 +327,8 @@ function removeTree(given) {
   return removeWalk(given, { waits: 5 })
 }
 
-function removeWalk(given, patience) {
+// "outer" is the volume of the folder the path lies in; the path the caller gave has none yet.
+function removeWalk(given, patience, outer) {
   // Off Windows rmSync never went through a link, and nothing changes there. The walk is for
   // Windows alone, and holds for a tree nobody else changes meanwhile.
   if (process.platform !== 'win32') return rmSync(given, { recursive: true, force: true })
@@ -335,46 +336,71 @@ function removeWalk(given, patience) {
   const cut = given.replace(/[\\/]+$/, '')
   const path = cut === '' || cut.endsWith(':') ? given : cut
   const gone = (error) => Boolean(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')
-  let folder
+  let seen
   try {
-    folder = lstatSync(path).isDirectory()
+    seen = lstatSync(path)
   } catch (error) {
     if (gone(error)) return
     throw error
   }
-  if (folder) {
-    let names
-    try {
-      names = readdirSync(path)
-    } catch (error) {
-      if (gone(error)) return
-      throw error
-    }
-    // An entry that cannot be removed does not end the walk: the first error is thrown at the end.
-    let failed = null
-    for (const name of names) {
+  const folder = seen.isDirectory()
+  // Removes the entry itself and asks again while the answer is "busy"; the waits that are left
+  // are those of the whole removal (removeTree). With "first", a folder that answers "not empty"
+  // is not waited for: false says that it holds entries.
+  const goes = (first) => {
+    for (;;) {
       try {
-        removeWalk(join(path, name), patience)
+        if (folder) rmdirSync(path)
+        else unlinkSync(path)
+        return true
       } catch (error) {
-        if (failed === null) failed = { error }
+        const code = error && error.code
+        if (code === 'ENOENT') return true
+        if (first && code === 'ENOTEMPTY') return false
+        if (patience.waits === 0 || !['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES'].includes(code)) throw error
+        patience.waits -= 1
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
       }
     }
-    if (failed !== null) throw failed.error
   }
-  // The waits that are left are those of the whole removal (removeTree).
-  for (;;) {
+  if (!folder) {
+    goes(false)
+    return
+  }
+  // A junction that leads to a volume by its GUID is a folder to lstat, and a listing of it reads
+  // that volume (worfy-windows ticket 35). So a folder is listed only when both hold: it is on the
+  // volume of the folder it lies in, and it has answered "not empty" to one rmdir.
+  let volume = outer
+  if (volume === undefined) {
     try {
-      if (folder) rmdirSync(path)
-      else unlinkSync(path)
-      return
-    } catch (error) {
-      const code = error && error.code
-      if (code === 'ENOENT') return
-      if (patience.waits === 0 || !['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES'].includes(code)) throw error
-      patience.waits -= 1
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+      volume = lstatSync(join(path, '..')).dev
+    } catch {
+      // The parent cannot be asked: the first rmdir below still decides.
     }
   }
+  if (volume !== undefined && seen.dev !== volume) {
+    goes(false)
+    return
+  }
+  if (goes(true)) return
+  let names
+  try {
+    names = readdirSync(path)
+  } catch (error) {
+    if (gone(error)) return
+    throw error
+  }
+  // An entry that cannot be removed does not end the walk: the first error is thrown at the end.
+  let failed = null
+  for (const name of names) {
+    try {
+      removeWalk(join(path, name), patience, seen.dev)
+    } catch (error) {
+      if (failed === null) failed = { error }
+    }
+  }
+  if (failed !== null) throw failed.error
+  goes(false)
 }
 // </remove-tree>
 
