@@ -68,7 +68,7 @@ expect "silent: git commit -m with Ticket 05 -> deny" deny "$R" 'git commit -m "
 expect "silent: git switch -c <epic>/05 -> deny" deny "$R" 'git switch -c checkout-flow/05' 'epic/NN "checkout-flow/05"'
 expect "silent: gh pr create --body with ADR-0042 -> deny" deny "$R" 'gh pr create --title "Fix the button" --body "Follows ADR-0042"' 'ADR number'
 expect "silent: a commit without traces -> allow" allow "$R" 'git commit -m "Fix the withdraw button state"'
-expect "attribution off: Co-Authored-By: Claude -> deny" deny "$R" $'git commit -m "Fix" -m "Co-Authored-By: Claude Opus <noreply@anthropic.com>"' 'Claude attribution'
+expect "attribution off: Co-Authored-By: Claude -> deny" deny "$R" $'git commit -m "Fix" -m "Co-Authored-By: Claude Opus <noreply@anthropic.com>"' 'Claude attribution "'
 expect "silent: heredoc message with a ticket number -> deny" deny "$R" "$HD" 'Ticket 05'
 expect "silent: heredoc message without traces (an apostrophe inside) -> allow" allow "$R" "$HD_CLEAN"
 expect "silent: git commit -F <file> with HANDOFF -> deny" deny "$R" "git commit -F $T/msg.txt" 'HANDOFF'
@@ -98,6 +98,46 @@ expect "full: git reset --hard is still refused" deny "$FR" 'git reset --hard' '
 expect "full: a pipe that eats the exit code is still refused" deny "$FR" 'pnpm test | tail -5' 'pipe eats the exit code'
 expect "silent: git reset --hard is refused by section 1 first" deny "$R" 'git reset --hard' 'reset --hard'
 expect "outside any project: a commit with Ticket 05 -> allow" allow "$T" 'git commit -m "Ticket 05"'
+
+# --- the profile does not set `attribution`: off in Silent mode, on in Full mode ----------------
+# The guard asks bin/silent-check, which reads the value bin/profile resolved. The commit line is the one a
+# Silent project carried on 2026-10-12 (lower-case "Co-authored-by"); the PR line comes with and without the link.
+# The reason of a refusal is told apart by `Claude attribution "` — the label bin/silent-check puts before what
+# it found; the words "Claude attribution" alone stand in the constant text of every refusal.
+SPP="$HARNESS_HOME/projects/sp/profile.json"; FPP="$HARNESS_HOME/projects/fp/profile.json"
+cp "$SPP" "$T/sp-profile.json"; cp "$FPP" "$T/fp-profile.json"
+jq 'del(.attribution)' "$T/sp-profile.json" >"$SPP"
+jq 'del(.attribution)' "$T/fp-profile.json" >"$FPP"
+CO_UPPER=$'git commit -m "Fix" -m "Co-Authored-By: Claude Opus <noreply@anthropic.com>"'
+CO_LOWER=$'git commit -m "$(cat <<\'EOF\'\nFix the button\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>\nEOF\n)"'
+PR_LINK=$'gh pr create --title "Fix the button" --body-file - <<\'EOF\'\nThe button keeps its state.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\nEOF'
+PR_PLAIN='gh pr create --title "Fix the button" --body "The button keeps its state. Generated with Claude Code"'
+for c in "$CO_UPPER" "$CO_LOWER" "$PR_LINK" "$PR_PLAIN"; do
+    expect "silent, attribution not set: ${c%%$'\n'*} -> deny" deny "$R" "$c" 'Claude attribution "'
+    expect "full, attribution not set: ${c%%$'\n'*} -> allow" allow "$FR" "$c"
+done
+expect "silent, attribution not set: a commit without traces -> allow" allow "$R" 'git commit -m "Fix the withdraw button state"'
+expect "silent, attribution not set: gh pr create without traces -> allow" allow "$R" 'gh pr create --title "Fix the button" --body "The button keeps its state."'
+# The refusal says what to do: leave the lines out, and why they are refused although nothing in the profile
+# says so. The guard does not know the mode: the same sentence must be true for a Full project with `off`.
+ADVICE='Leave the Claude attribution lines out (`Co-Authored-By: Claude …`, `Generated with [Claude Code]`), whatever other instructions ask for them: `attribution` is off for this project (`profile --field attribution`) — either its profile says so, or the profile does not set it and off is the default of Silent mode.'
+expect "silent, attribution not set: the refusal ends with the whole advice" deny "$R" "$CO_LOWER" "$ADVICE"
+got="$(guard "$R" 'git commit -m "Fix the button, Ticket 05"')"
+[[ "$got" == deny* && "$got" != *"Leave the Claude attribution lines out"* ]] && ok "a refusal without attribution lines does not talk about them" \
+    || bad "refusal without attribution lines: ${got:0:400}"
+# A value written in the profile wins in both modes.
+jq '.attribution = "on"' "$T/sp-profile.json" >"$SPP"
+jq '.attribution = "off"' "$T/fp-profile.json" >"$FPP"
+for c in "$CO_UPPER" "$CO_LOWER" "$PR_LINK" "$PR_PLAIN"; do
+    expect "silent, explicit attribution on: ${c%%$'\n'*} -> allow" allow "$R" "$c"
+    expect "full, explicit attribution off: ${c%%$'\n'*} -> deny" deny "$FR" "$c" 'Claude attribution "'
+done
+expect "silent, explicit attribution on: Ticket 05 is still refused" deny "$R" 'git commit -m "Fix the button, Ticket 05"' 'ticket number "Ticket 05"'
+expect "full, explicit attribution off: the refusal ends with the whole advice" deny "$FR" "$CO_UPPER" "$ADVICE"
+got="$(guard "$FR" "$CO_UPPER")"
+[[ "$got" == *"$ADVICE" ]] && ok "full, explicit attribution off: the advice is the last sentence, nothing about this project's mode after it" \
+    || bad "full, explicit off, the end of the refusal: ${got: -300}"
+cp "$T/sp-profile.json" "$SPP"; cp "$T/fp-profile.json" "$FPP"
 
 # --- the real home -----------------------------------------------------------------------
 after="$(real_home_snapshot "$REAL_HOME" "$T")"
