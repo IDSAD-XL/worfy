@@ -60,6 +60,27 @@ async function openSession(window: Page): Promise<Locator> {
   return view
 }
 
+/** The list of a Select picker: drawn into the document's body, not inside the Session view. */
+const listOf = async (window: Page, picker: Locator): Promise<Locator> => window.getByTestId(`${(await picker.getAttribute('data-testid')) ?? ''}-list`)
+
+/** Opens the list of a Select picker and waits for these rows in it; Esc then closes the list alone. */
+async function expectOptions(window: Page, picker: Locator, rows: string[]): Promise<void> {
+  await picker.click()
+  const list = await listOf(window, picker)
+  await expect(list).toBeVisible()
+  await expect(list.getByRole('option')).toHaveText(rows)
+  await expect(picker).toBeFocused()
+  await window.keyboard.press('Escape')
+  await expect(list).toHaveCount(0)
+}
+
+/** Chooses a row of a Select picker: a click on its button, then on the option. */
+async function choose(window: Page, picker: Locator, label: string): Promise<void> {
+  await picker.click()
+  await (await listOf(window, picker)).getByRole('option', { name: label, exact: true }).click()
+  await expect(await listOf(window, picker)).toHaveCount(0)
+}
+
 test('the pickers change the live Session and survive a restart; the queue sends one message per turn', async () => {
   const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view', WORFY_AGENT_LOG: log }
   const first = await launchApp({ env })
@@ -70,20 +91,61 @@ test('the pickers change the live Session and survive a restart; the queue sends
     const effort = view.getByTestId('picker-effort')
     const mode = view.getByTestId('picker-permissions')
     // The fake agent lists a haiku too; worfy leaves it out (worfy-daily ticket 07).
-    await expect(model.locator('option')).toHaveText(['Default (recommended)', 'Opus', 'Sonnet'])
-    await expect(model).toHaveValue('')
-    await expect(mode).toHaveValue('bypassPermissions')
+    await expectOptions(window, model, ['Default (recommended)', 'Opus', 'Sonnet'])
+    // Esc closed the list alone: the Session view is still the one shown.
+    await expect(view).toBeVisible()
+    await expect(model).toHaveAttribute('data-value', '')
+    await expect(model).toHaveText('ModelDefault (recommended)')
+    await expect(effort).toHaveAttribute('data-value', '')
+    await expect(effort).toHaveText('Effortdefault')
+    await expect(mode).toHaveAttribute('data-value', 'bypassPermissions')
+    await expect(mode).toHaveText('PermissionsBypass permissions')
+    // None of the three is a native select element.
+    await expect(view.locator('select')).toHaveCount(0)
     // A new Orchestrator with no pick starts on the user's model: no model named to Claude Code.
     expect(calls().filter((call) => call.kind === 'start')).toMatchObject([{ settings: { model: null, effort: null } }])
     await expect(view.getByTestId('session-effort')).toHaveText('—')
 
     // The picks reach the live Claude Code as control calls, without a restart.
-    await model.selectOption({ label: 'Sonnet' })
-    await expect(model).toHaveValue('sonnet')
-    await expect(effort.locator('option')).toHaveText(['effort default', 'effort low', 'effort medium', 'effort high', 'effort max'])
-    await effort.selectOption('low')
-    await mode.selectOption({ label: 'Plan only' })
-    await expect(mode).toHaveValue('plan')
+    await choose(window, model, 'Sonnet')
+    await expect(model).toHaveAttribute('data-value', 'sonnet')
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      await view.getByTestId('pickers').screenshot({ path: test.info().outputPath(`composer-pickers-${scheme}.png`) })
+    }
+    await window.emulateMedia({ colorScheme: null })
+
+    // The effort is a slider in the popover of its button: its marks are the levels of the picked
+    // model, and the popover opens over the button, inside the window.
+    await effort.click()
+    const popover = view.getByTestId('effort-popover')
+    const slider = view.getByTestId('effort-slider')
+    await expect(popover).toBeVisible()
+    await expect(slider).toBeFocused()
+    expect(await view.getByTestId('effort-mark').evaluateAll((marks) => marks.map((mark) => mark.getAttribute('data-mark')))).toEqual(['default', 'low', 'medium', 'high', 'max'])
+    await expect(slider).toHaveAttribute('aria-valuetext', 'default')
+    const [popoverBox, effortBox] = [await popover.boundingBox(), await effort.boundingBox()]
+    expect(popoverBox !== null && effortBox !== null && popoverBox.y >= 0 && popoverBox.y + popoverBox.height <= effortBox.y).toBe(true)
+    // → moves the thumb to the next mark; the level goes to Claude Code once, not on the key press.
+    await window.keyboard.press('ArrowRight')
+    await expect(slider).toHaveAttribute('aria-valuetext', 'low')
+    await expect(view.getByTestId('effort-current')).toHaveText('low')
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      await window.screenshot({ path: test.info().outputPath(`effort-slider-${scheme}.png`) })
+    }
+    await window.emulateMedia({ colorScheme: null })
+    // The thumb rests: the level is sent with the popover still open, and the button shows it once
+    // main reports it. Enter then closes the popover and sends nothing more (the control calls below).
+    await expect(effort).toHaveAttribute('data-value', 'low')
+    await expect(effort).toHaveText('Effortlow')
+    await expect(popover).toBeVisible()
+    await window.keyboard.press('Enter')
+    await expect(popover).toHaveCount(0)
+    await expect(effort).toBeFocused()
+
+    await choose(window, mode, 'Plan only')
+    await expect(mode).toHaveAttribute('data-value', 'plan')
     await expect(view.getByTestId('session-effort')).toHaveText('low')
     await expect.poll(controls).toEqual([
       { kind: 'setModel', model: 'sonnet' },
@@ -151,9 +213,9 @@ test('the pickers change the live Session and survive a restart; the queue sends
   const second = await launchApp({ env })
   try {
     const view = await openSession(second.window)
-    await expect(view.getByTestId('picker-model')).toHaveValue('sonnet')
-    await expect(view.getByTestId('picker-effort')).toHaveValue('low')
-    await expect(view.getByTestId('picker-permissions')).toHaveValue('plan')
+    await expect(view.getByTestId('picker-model')).toHaveAttribute('data-value', 'sonnet')
+    await expect(view.getByTestId('picker-effort')).toHaveAttribute('data-value', 'low')
+    await expect(view.getByTestId('picker-permissions')).toHaveAttribute('data-value', 'plan')
     const starts = calls().filter((call) => call.kind === 'start')
     expect(starts).toHaveLength(2)
     expect(starts[1]).toMatchObject({ kind: 'start', settings: { model: 'sonnet', effort: 'low', permissionMode: 'plan' } })
@@ -178,15 +240,10 @@ test("an Orchestrator saved on haiku starts on the default model with its effort
   try {
     const view = await openSession(app.window)
     const model = view.getByTestId('picker-model')
-    await expect(model).toHaveValue('')
-    await expect(model.locator('option')).toHaveText(['Default (recommended)', 'Opus', 'Sonnet'])
-    await expect(view.getByTestId('picker-effort')).toHaveValue('')
-    await expect(view.getByTestId('picker-permissions')).toHaveValue('plan')
-    for (const scheme of ['light', 'dark'] as const) {
-      await app.window.emulateMedia({ colorScheme: scheme })
-      await view.getByTestId('pickers').screenshot({ path: test.info().outputPath(`pickers-${scheme}.png`) })
-    }
-    await app.window.emulateMedia({ colorScheme: null })
+    await expect(model).toHaveAttribute('data-value', '')
+    await expectOptions(app.window, model, ['Default (recommended)', 'Opus', 'Sonnet'])
+    await expect(view.getByTestId('picker-effort')).toHaveAttribute('data-value', '')
+    await expect(view.getByTestId('picker-permissions')).toHaveAttribute('data-value', 'plan')
 
     // Claude Code is asked for sonnet, as the user's model is a haiku; the Node keeps the default model.
     expect(calls().filter((call) => call.kind === 'start')).toMatchObject([{ settings: { model: 'sonnet', effort: null, permissionMode: 'plan' } }])

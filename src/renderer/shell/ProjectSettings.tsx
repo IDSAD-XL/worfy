@@ -11,6 +11,7 @@ import {
 } from '../../shared/projects/action-templates'
 import { invoke, invokeOn } from '../ipc'
 import { PrimaryButton } from '../theme/primitives'
+import { Select } from '../theme/Select'
 
 export interface ProjectSettingsProps {
   project: { id: string; name: string }
@@ -212,19 +213,15 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
             <label htmlFor={shellId} style={styles.label}>
               Terminal shell
             </label>
-            <select
+            {/* Named by the label above; Esc on its open list closes the list alone, not this window. */}
+            <Select<TerminalShellSetting>
               id={shellId}
               style={styles.input}
               value={terminalShell ?? 'powershell'}
-              onChange={(event) => setTerminalShell(event.target.value as TerminalShellSetting)}
+              options={shells.map((shell) => ({ value: shell.id, label: shell.found ? shell.label : `${shell.label} — not found on this machine` }))}
+              onChange={setTerminalShell}
               data-testid="project-settings-shell"
-            >
-              {shells.map((shell) => (
-                <option key={shell.id} value={shell.id}>
-                  {shell.found ? shell.label : `${shell.label} — not found on this machine`}
-                </option>
-              ))}
-            </select>
+            />
             <span style={styles.hint}>Applies to the next shell: Restart a Terminal, or open a new one.</span>
           </div>
         ) : null}

@@ -453,63 +453,144 @@ describe('composer: pickers and queue (ticket 19)', () => {
     const { MessageInput } = await import('../../src/renderer/session/MessageInput')
     render(<MessageInput sessionId={sessionId} busy={false} history={[]} recipient="Orchestrator" onSend={() => Promise.resolve(null)} onInterrupt={() => undefined} />)
     // The pickers show nothing before main answered the settings and the models.
-    await vi.waitFor(() => expect((screen.getByTestId('picker-model') as HTMLSelectElement).disabled).toBe(false))
-    await screen.findByRole('option', { name: 'Sonnet' })
+    await vi.waitFor(() => expect(picker('picker-model').disabled).toBe(false))
+    await vi.waitFor(() => expect(modelsAsked()).toBe(1))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
   }
-  const select = (testId: string) => screen.getByTestId(testId) as HTMLSelectElement
-  const options = (testId: string) => [...select(testId).options].map((option) => option.textContent)
+  const modelsAsked = (): number => asked.filter((each) => each.channel === 'agent.models').length
+  // The model and the permission mode are lists on the shared Select: a button that opens a
+  // listbox. The effort is a button that opens a popover with a slider.
+  const picker = (testId: string) => screen.getByTestId<HTMLButtonElement>(testId)
+  const value = (testId: string) => picker(testId).getAttribute('data-value')
+  const list = (testId: string) => within(screen.getByTestId(`${testId}-list`))
+  /** The rows of a Select, read from its open list. */
+  const options = (testId: string) => {
+    fireEvent.click(picker(testId))
+    const rows = list(testId)
+      .getAllByRole('option')
+      .map((option) => option.textContent)
+    fireEvent.keyDown(picker(testId), { key: 'Escape' })
+    expect(screen.queryByTestId(`${testId}-list`)).toBeNull()
+    return rows
+  }
+  const choose = (testId: string, label: string) => {
+    fireEvent.click(picker(testId))
+    fireEvent.click(list(testId).getByRole('option', { name: label }))
+  }
+  /** The marks of the effort slider, read from its open popover. */
+  const effortMarks = () => {
+    fireEvent.click(picker('picker-effort'))
+    const marks = screen.getAllByTestId('effort-mark').map((mark) => mark.dataset['mark'])
+    fireEvent.click(picker('picker-effort'))
+    expect(screen.queryByTestId('effort-popover')).toBeNull()
+    return marks
+  }
 
   it('lists the models main answers and sends a picked one to agent.configure; shows what main reports back', async () => {
     answers['agent.configure'] = (input) => ({ ...DEFAULTS, ...(input as { change: object }).change })
     await mountInput()
+    expect(picker('picker-model').getAttribute('role')).toBe('combobox')
+    expect(picker('picker-model').textContent).toBe('ModelDefault (recommended)')
     expect(options('picker-model')).toEqual(['Default (recommended)', 'Sonnet', 'Haiku'])
-    expect(select('picker-model').value).toBe('')
-    fireEvent.change(select('picker-model'), { target: { value: 'sonnet' } })
+    expect(value('picker-model')).toBe('')
+    choose('picker-model', 'Sonnet')
     expect(asked).toContainEqual({ channel: 'agent.configure', input: { sessionId: 's', change: { model: 'sonnet' } } })
     // The picker follows main's `settings` event, not its own click.
+    expect(value('picker-model')).toBe('')
     emit('s', { type: 'settings', settings: { ...DEFAULTS, model: 'sonnet' } })
-    expect(select('picker-model').value).toBe('sonnet')
-    fireEvent.change(select('picker-model'), { target: { value: '' } })
+    expect(value('picker-model')).toBe('sonnet')
+    expect(picker('picker-model').textContent).toBe('ModelSonnet')
+    choose('picker-model', 'Default (recommended)')
     expect(asked).toContainEqual({ channel: 'agent.configure', input: { sessionId: 's', change: { model: null } } })
   })
 
-  it("offers the picked model's effort levels; a model without effort disables the picker", async () => {
+  it('asks main for the models again each time the list of models opens', async () => {
     await mountInput()
-    expect(options('picker-effort')).toEqual(['effort default', 'effort low', 'effort medium', 'effort high', 'effort xhigh', 'effort max'])
-    fireEvent.change(select('picker-effort'), { target: { value: 'high' } })
+    expect(modelsAsked()).toBe(1)
+    answers['agent.models'] = () => ({ models: [...MODELS, { value: 'opus', displayName: 'Opus', efforts: ['high'] }] })
+    fireEvent.click(picker('picker-model'))
+    expect(modelsAsked()).toBe(2)
+    // The rows that arrive show in the list that is already open.
+    expect((await list('picker-model').findByRole('option', { name: 'Opus' })).textContent).toBe('Opus')
+    fireEvent.keyDown(picker('picker-model'), { key: 'Escape' })
+    fireEvent.click(picker('picker-model'))
+    expect(modelsAsked()).toBe(3)
+  })
+
+  it('shows a saved model Claude Code no longer lists, and offers "Default model" when the list has no default row', async () => {
+    answers['agent.models'] = () => ({ models: [{ value: 'sonnet', displayName: 'Sonnet', efforts: ['low', 'high'] }] })
+    answers['agent.controls'] = () => ({ settings: { ...DEFAULTS, model: 'claude-old-1' }, queue: { items: [], paused: false } })
+    await mountInput()
+    expect(value('picker-model')).toBe('claude-old-1')
+    expect(picker('picker-model').textContent).toBe('Modelclaude-old-1')
+    expect(options('picker-model')).toEqual(['Default model', 'Sonnet', 'claude-old-1'])
+    choose('picker-model', 'Default model')
+    expect(asked).toContainEqual({ channel: 'agent.configure', input: { sessionId: 's', change: { model: null } } })
+  })
+
+  it("offers the picked model's effort levels on a slider; a model without effort disables the picker", async () => {
+    await mountInput()
+    expect(picker('picker-effort').textContent).toBe('Effortdefault')
+    expect(effortMarks()).toEqual(['default', 'low', 'medium', 'high', 'xhigh', 'max'])
+    // The thumb goes to "high"; the level is sent when the popover closes.
+    fireEvent.click(picker('picker-effort'))
+    fireEvent.change(screen.getByTestId('effort-slider'), { target: { value: '3' } })
+    expect(asked.some((each) => each.channel === 'agent.configure')).toBe(false)
+    fireEvent.keyDown(screen.getByTestId('effort-slider'), { key: 'Enter' })
     expect(asked).toContainEqual({ channel: 'agent.configure', input: { sessionId: 's', change: { effort: 'high' } } })
     emit('s', { type: 'settings', settings: { ...DEFAULTS, model: 'sonnet' } })
-    expect(options('picker-effort')).toEqual(['effort default', 'effort low', 'effort high'])
+    expect(effortMarks()).toEqual(['default', 'low', 'high'])
     emit('s', { type: 'settings', settings: { ...DEFAULTS, model: 'haiku' } })
-    expect(select('picker-effort').disabled).toBe(true)
-    expect(options('picker-effort')).toEqual(['effort —'])
+    expect(picker('picker-effort').disabled).toBe(true)
+    expect(picker('picker-effort').textContent).toBe('Effort—')
+    expect(value('picker-effort')).toBe('')
   })
 
   it('switching to a model that does not list the picked effort sends the effort back to default with the model', async () => {
     await mountInput()
     emit('s', { type: 'settings', settings: { ...DEFAULTS, effort: 'xhigh' } })
-    fireEvent.change(select('picker-model'), { target: { value: 'sonnet' } })
+    expect(value('picker-effort')).toBe('xhigh')
+    choose('picker-model', 'Sonnet')
     expect(asked).toContainEqual({ channel: 'agent.configure', input: { sessionId: 's', change: { model: 'sonnet', effort: null } } })
-    fireEvent.change(select('picker-model'), { target: { value: 'haiku' } })
+    choose('picker-model', 'Haiku')
     expect(asked).toContainEqual({ channel: 'agent.configure', input: { sessionId: 's', change: { model: 'haiku', effort: null } } })
     // A level the new model lists stays.
     emit('s', { type: 'settings', settings: { ...DEFAULTS, effort: 'high' } })
     asked.length = 0
-    fireEvent.change(select('picker-model'), { target: { value: 'sonnet' } })
+    choose('picker-model', 'Sonnet')
     expect(asked).toContainEqual({ channel: 'agent.configure', input: { sessionId: 's', change: { model: 'sonnet' } } })
   })
 
   it('offers the four permission modes with plain labels, bypass first', async () => {
     await mountInput()
+    expect(picker('picker-permissions').getAttribute('role')).toBe('combobox')
+    expect(picker('picker-permissions').textContent).toBe('PermissionsBypass permissions')
     expect(options('picker-permissions')).toEqual(['Bypass permissions', 'Accept edits', 'Ask before tools', 'Plan only'])
-    expect(select('picker-permissions').value).toBe('bypassPermissions')
-    fireEvent.change(select('picker-permissions'), { target: { value: 'plan' } })
+    expect(value('picker-permissions')).toBe('bypassPermissions')
+    choose('picker-permissions', 'Plan only')
     expect(asked).toContainEqual({ channel: 'agent.configure', input: { sessionId: 's', change: { permissionMode: 'plan' } } })
+    emit('s', { type: 'settings', settings: { ...DEFAULTS, permissionMode: 'plan' } })
+    expect(value('picker-permissions')).toBe('plan')
+  })
+
+  it('the pickers are not native select elements, and are disabled until main answers the settings', async () => {
+    delete answers['agent.controls']
+    const { MessageInput } = await import('../../src/renderer/session/MessageInput')
+    const view = render(<MessageInput sessionId="s" busy={false} history={[]} recipient="Orchestrator" onSend={() => Promise.resolve(null)} onInterrupt={() => undefined} />)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(view.container.querySelector('select')).toBeNull()
+    for (const testId of ['picker-model', 'picker-effort', 'picker-permissions']) expect(picker(testId).disabled).toBe(true)
+    emit('s', { type: 'settings', settings: DEFAULTS })
+    for (const testId of ['picker-model', 'picker-effort', 'picker-permissions']) expect(picker(testId).disabled).toBe(false)
   })
 
   it('says a change was not applied when main refuses it', async () => {
     await mountInput()
-    fireEvent.change(select('picker-permissions'), { target: { value: 'acceptEdits' } })
+    choose('picker-permissions', 'Accept edits')
     expect((await screen.findByTestId('pickers-error')).getAttribute('title')).toBe('no agent.configure')
   })
 
@@ -647,7 +728,7 @@ describe('SessionPanel', () => {
     expect(header()).toBe('claude-opus-5-5')
     emit('pending-1', { type: 'settings', settings: { ...DEFAULTS, model: 'sonnet' } })
     expect(header()).toBe('sonnet')
-    expect((screen.getByTestId('picker-model') as HTMLSelectElement).value).toBe('sonnet')
+    expect(screen.getByTestId('picker-model').getAttribute('data-value')).toBe('sonnet')
     emit('pending-1', init('claude-sonnet-4-5'))
     expect(header()).toBe('claude-sonnet-4-5')
     // «Default (recommended)»: until init names the model it stands for, the header says default.
