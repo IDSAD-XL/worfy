@@ -18,13 +18,14 @@ Source: ручная проверка владельца на Windows-ПК 2026-
 - **Через тот же скрипт идут три шага формы:** `--facts` перед черновиком, `--schema-only` при
   проверке и запись Profile на шаге «Review» (`src/main/projects/connect.ts:12-23`).
 - **Шаг 1 «Folder» на Windows отвечает неверно и молча.** `profileKnows`
-  (`src/main/projects/connect.ts:196`) читает сбой запуска `bin/profile` как «Harness папку не
+  (`src/main/projects/connect.ts:197`) читает сбой запуска `bin/profile` как «Harness папку не
   знает». Папка, которую Harness уже знает, выглядит новой и идёт в форму, вместо того чтобы сразу
   попасть в список.
 - **Ни один Ticket этого Epic-а вызов не покрывает.** Ticket 05 переводит на запуск через `node`
-  три вызова: `bin/profile` и `bin/ticket` (`src/main/workflow/profile.ts:78`) и `bin/epic-status`
-  (`src/main/workflow/reader.ts:107`). `bin/project-connect` и `bin/qmd-collections`
-  (`src/main/harness/qmd.ts:382`) в нём не названы: Ticket описывал скрипты до того, как в E3
+  два вызова: `bin/profile` (`src/main/workflow/profile.ts:78`) и `bin/epic-status`
+  (`src/main/workflow/reader.ts:107`). `bin/ticket` идёт через тот же запуск, что `bin/profile`, и
+  исправится вместе с ним. `bin/project-connect` и `bin/qmd-collections`
+  (`src/main/harness/qmd.ts:382`) в Ticket-е 05 не названы: Ticket описывал скрипты до того, как в E3
   появилась форма «Add project».
 - **Следствие для ручных проверок.** Владелец не смог проверить, что Session отвечает, ни в
   установленном worfy, ни в Stable copy (ручные пункты Ticket-а 12): без Project-а Session не
@@ -44,7 +45,7 @@ Source: ручная проверка владельца на Windows-ПК 2026-
   Windows — файл `npm.cmd`, а worfy запускает его без оболочки (`src/main/harness/qmd.ts:183`,
   `:320`; `src/main/first-run/actions.ts:81`). Что делать с qmd на Windows, решает
   [Ticket 15](15-qmd-на-windows-или-grep.md): либо установка работает, либо действия установки на
-  Windows нет. Этот вызов нужно назвать там явно.
+  Windows нет. Вызов там назван.
 
 ## Что делаем
 
@@ -56,7 +57,6 @@ Source: ручная проверка владельца на Windows-ПК 2026-
 4. **Форма «Add project» проходит на Windows целиком:** папка, режим, Harness, черновик, запись.
    Черновик пишет Session со skill-ом `connect-project` — для этого Harness должен стоять на
    машине (Ticket 13).
-5. **Назвать вызов `npm` в Ticket-е 15** одной строкой со ссылкой сюда.
 
 ## Готово, когда
 
@@ -91,9 +91,10 @@ Source: ручная проверка владельца на Windows-ПК 2026-
 
 ## Риски
 
-- **Какой `node` запускать.** Ticket-ы 05 и 06 выбирают `node` из `PATH` окружения агента.
-  Собранное приложение может запустить скрипт и собой (`process.execPath` с
-  `ELECTRON_RUN_AS_NODE`), тогда Node на машине не нужен. Выбор — один на все вызовы, в Ticket-е 05.
+- **Какой `node` запускать.** Ticket 05 выбирает `node` из `PATH` окружения агента. Ticket 06
+  запускает соседние скрипты через `process.execPath`. Собранное приложение может запустить скрипт
+  и собой (`process.execPath` с `ELECTRON_RUN_AS_NODE`), тогда Node на машине не нужен. Выбор — один
+  на все вызовы worfy, в Ticket-е 05.
 
 ## Итог
 
