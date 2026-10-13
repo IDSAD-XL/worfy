@@ -82,7 +82,8 @@ export function packIco(pngs, names = []) {
  * The images of an .ico made of PNG entries, in file order: `px` is the side the directory names,
  * `png` the data. Throws when the data is not such a file: a wrong header, an entry that runs past
  * the end, an entry that is not a PNG, a PNG whose size is not the one its entry names, an entry
- * that does not say 32 bits per pixel, or a PNG that is not 8-bit RGBA.
+ * that does not say 32 bits per pixel, a PNG that is not 8-bit RGBA, or an entry whose palette,
+ * reserved byte or colour planes are not the 0, 0 and 1 that packIco writes.
  */
 export function readIco(data) {
   if (data.length < DIR_BYTES || data.readUInt16LE(0) !== 0 || data.readUInt16LE(2) !== 1) throw new Error('not an .ico: the header is wrong')
@@ -102,6 +103,10 @@ export function readIco(data) {
     if (size.width !== px || size.height !== height) throw new Error(`entry ${index + 1} of the .ico names ${px}×${height} px, and its PNG is ${size.width}×${size.height}`)
     const bits = data.readUInt16LE(at + 6)
     if (bits !== 32) throw new Error(`entry ${index + 1} of the .ico says ${bits} bits per pixel, not 32`)
+    const [colours, reserved, planes] = [data.readUInt8(at + 2), data.readUInt8(at + 3), data.readUInt16LE(at + 4)]
+    if (colours !== 0 || reserved !== 0 || planes !== 1) {
+      throw new Error(`entry ${index + 1} of the .ico names a palette of ${colours} colours, a reserved byte of ${reserved} and ${planes} colour planes: an entry of a PNG with 32 bits per pixel names 0, 0 and 1`)
+    }
     const reason = notRgba8(png)
     if (reason !== null) throw new Error(`the PNG of entry ${index + 1} of the .ico ${reason}`)
     return { px, png }

@@ -476,6 +476,24 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       } finally {
         chmodSync(json, 0o644)
       }
+
+      // worfy-windows ticket 28. A link at the path, to a file that cannot be written: the link is
+      // not a file that names a build, and what it leads to is neither read nor changed.
+      const elsewhere = join(dir, 'elsewhere.json')
+      writeFileSync(elsewhere, '{ "commit": "of another copy" }\n')
+      chmodSync(elsewhere, 0o444)
+      unlinkSync(json)
+      symlinkSync(elsewhere, json, 'file')
+      try {
+        const linked = run([target])
+        expect(linked.status).not.toBe(0)
+        expect(linked.stderr).toMatch(/could not be written \((EPERM|EACCES)[^)]*\): no file names the build of this copy/)
+        expect(lstatSync(json).isSymbolicLink()).toBe(true)
+        expect(readFileSync(elsewhere, 'utf8')).toBe('{ "commit": "of another copy" }\n')
+      } finally {
+        chmodSync(elsewhere, 0o644)
+        unlinkSync(json)
+      }
     }, 60_000)
   })
 

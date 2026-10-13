@@ -25,10 +25,12 @@ let links: string[]
 const cardDir = (cardId: string) => join(dataDir, 'cards', cardId)
 const trashDir = () => join(dataDir, 'trash')
 
-function store(): TrashStore {
+/** A store over the scratch folder. `refuse.remove` is what the Layout throws when a Node is taken off it. */
+function store(refuse: { remove?: Error } = {}): TrashStore {
   const layout: TrashLayout = {
     get: () => ({ layout: { nodes } }) as ReturnType<TrashLayout['get']>,
     apply: (_projectId, op) => {
+      if (op.op === 'remove' && refuse.remove !== undefined) throw refuse.remove
       if (op.op === 'remove') nodes = nodes.filter((node) => node.id !== op.id)
       else nodes = [...nodes, op.node]
       return { layout: { nodes } } as ReturnType<TrashLayout['get']>
@@ -229,5 +231,30 @@ describe('the trash and a Card folder that is itself a link', () => {
     expect(gone(cardDir('data'))).toBe(true)
     expect(isLink(dataFile)).toBe(true)
     expect(nodes).toEqual([])
+  })
+
+  // worfy-windows ticket 28: the removal of an entry that was being made had no test.
+  it('when the Node cannot be taken off the Layout, put throws that error; the Card is back with its link and its data, and no entry stays in the trash', () => {
+    const { outside, link } = cardWithLinkOut('half')
+    const dataFile = join(dataDir, 'card-data', 'half.json')
+    mkdirSync(join(dataDir, 'card-data'))
+    writeFileSync(dataFile, '{"n":1}')
+    const refuse: { remove?: Error } = { remove: new Error('the Layout could not be saved') }
+    const trash = store(refuse)
+    expect(() => trash.put(PROJECT, 'half')).toThrow('the Layout could not be saved')
+    // Everything that moved is back where it was.
+    expect(readdirSync(cardDir('half')).sort()).toEqual(['index.html', 'linked'])
+    expect(readdirSync(link)).toEqual(['notes.txt'])
+    expect(readFileSync(dataFile, 'utf8')).toBe('{"n":1}')
+    expect(nodes.map((node) => node.id)).toEqual(['half'])
+    // The folder of the entry is gone with the entry.json written into it: the trash lists nothing.
+    expect(readdirSync(trashDir())).toEqual([])
+    expect(trash.list(PROJECT)).toEqual([])
+    expect(readdirSync(outside)).toEqual(['notes.txt'])
+    // The next try goes through.
+    delete refuse.remove
+    const entry = trash.put(PROJECT, 'half')
+    expect(readdirSync(trashDir())).toEqual([entry.label])
+    expect(existsSync(cardDir('half'))).toBe(false)
   })
 })

@@ -107,6 +107,35 @@ describe('removeTree and removeFile over real folders', () => {
     }
   })
 
+  // worfy-windows ticket 28, from the review of PR #257. Over a model with POSIX names the walk went
+  // wrong on `link\..\victim`: the listing was of the folder the system reaches through the link,
+  // and `join` wrote the names under the folder the text of the path names. Windows — the only
+  // system the walk runs on — resolves `..` in the text of a path before it looks at the disk, so
+  // the look, the listing and the joined names are of one folder: the one beside the link.
+  it.runIf(WINDOWS).each(FOLDER_LINKS)('on Windows a path that goes up from a %s link names the folder beside the link, not the one beside what the link leads to', (kind) => {
+    const tree = join(dir, 'tree')
+    const far = join(dir, 'far')
+    mkdirSync(join(tree, 'victim', 'sub'), { recursive: true })
+    writeFileSync(join(tree, 'victim', 'same-name.txt'), 'beside the link')
+    writeFileSync(join(tree, 'victim', 'sub', 'deep.txt'), 'x')
+    mkdirSync(join(far, 'inner'), { recursive: true })
+    mkdirSync(join(far, 'victim'))
+    writeFileSync(join(far, 'victim', 'same-name.txt'), 'beside what the link leads to')
+    link(join(far, 'inner'), join(tree, 'link'), kind)
+    // Written out, not joined: join would resolve `..` itself.
+    const written = `${tree}\\link\\..\\victim`
+    removeTree(written)
+    expect(readdirSync(tree)).toEqual(['link'])
+    expect(readdirSync(far).sort()).toEqual(['inner', 'victim'])
+    expect(readFileSync(join(far, 'victim', 'same-name.txt'), 'utf8')).toBe('beside what the link leads to')
+    // removeFile reads the path the same way.
+    writeFileSync(join(tree, 'victim'), 'a file now')
+    removeFile(written)
+    expect(readdirSync(tree)).toEqual(['link'])
+    expect(readdirSync(join(far, 'victim'))).toEqual(['same-name.txt'])
+    outsideIsWhole()
+  })
+
   it('a link to a file goes as a link, and a link that leads nowhere goes too', () => {
     const at = join(dir, 'file-link')
     link(join(outside, 'notes.txt'), at, 'file')
@@ -719,6 +748,17 @@ describe('the copies of the walk that cannot import the module', () => {
       ['a link written with a separator at its end', '/data/card/linked/', {}],
       ['a file written with a backslash at its end', '/data/card/index.html\\', {}],
       ['a folder written with a separator at its end', '/data/card/assets/', {}],
+      // worfy-windows ticket 28: more than one separator, the two kinds mixed, and the paths that keep theirs.
+      ['a link written with two separators at its end', '/data/card/linked//', {}],
+      ['a link written with a backslash and a slash at its end', '/data/card/linked\\/', {}],
+      ['a link written with a slash and a backslash at its end', '/data/card/linked/\\', {}],
+      ['a folder written with three separators at its end', '/data/card/assets/\\/', {}],
+      ['separators and nothing else', '/', { 'lstat /': ['EIO'] }],
+      ['a backslash and nothing else', '\\', { 'lstat /': ['EIO'] }],
+      ['two separators and nothing else', '//', { 'lstat //': ['EIO'] }],
+      ['the root of a disk', 'C:\\', { 'lstat C:/': ['EIO'] }],
+      ['the root of a disk written with a slash', 'C:/', { 'lstat C:/': ['EIO'] }],
+      ['the root of a disk written with two separators', 'C:\\\\', { 'lstat C://': ['EIO'] }],
     ]
     for (const platform of ['win32', 'darwin', 'linux'] as const) {
       for (const [what, path, failing] of cases) {
