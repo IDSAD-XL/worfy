@@ -391,6 +391,8 @@ describe('the interface scale as the zoom of the windows', () => {
     electron.FakeBrowserWindow.all = [electron.window, second]
     followInterfaceScale(electron.window as never)
     followInterfaceScale(second as never)
+    // One listener for the app: a window that is opened and closed leaves none behind in the store.
+    expect(store.listenerCount('changed')).toBe(1)
     store.set({ interfaceScale: 1.5 })
     expect(electron.zooms).toEqual([
       { to: 'main', factor: 1.5 },

@@ -308,7 +308,7 @@ test('the slider of Settings → General zooms the whole window when the thumb i
   }
 })
 
-test('the scale is remembered: a restart over the same data folder comes back at 150 %, every load of the page puts it back, and Actual size returns to 100 %', async () => {
+test('the scale is remembered: a restart over the same data folder comes back at 150 %, every load of the page puts it back, app-settings.json beats the zoom Chromium remembers, and Actual size returns to 100 %', async () => {
   const { scratch, dataDir } = projectData()
   try {
     const first = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
@@ -346,6 +346,23 @@ test('the scale is remembered: a restart over the same data folder comes back at
       // The page is back; at 150 % the second note is outside the Canvas and is not drawn.
       await expect(window.locator('.react-flow__node[data-id="n1"]')).toBeVisible()
       await expect.poll(async () => (await pageMetrics(window)).scale).toBe('1.5')
+    } finally {
+      await second.close()
+    }
+
+    // app-settings.json is the one that counts: changed while the app was closed, it beats the
+    // 150 % Chromium remembers for the page in the same data folder.
+    const settingsFile = join(dataDir, 'app-settings.json')
+    writeFileSync(settingsFile, JSON.stringify({ ...(JSON.parse(readFileSync(settingsFile, 'utf8')) as object), interfaceScale: 1.2 }))
+    const third = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+    try {
+      const { app, window } = third
+      await expectZoom(app, 1.2)
+      await expect.poll(async () => (await pageMetrics(window)).scale).toBe('1.2')
+      await expect(window.locator('.react-flow__node[data-id="n1"]')).toBeVisible()
+      // Still 120 % once the page has settled: nothing puts Chromium's own zoom back.
+      await canvasReady(third)
+      expect(await zoomFactor(app)).toBeCloseTo(1.2, 5)
 
       await clickMenuItem(app, ACTUAL)
       await expectZoom(app, 1)
@@ -353,7 +370,7 @@ test('the scale is remembered: a restart over the same data folder comes back at
       await expect.poll(async () => (await pageMetrics(window)).innerWidth).toBe(SIZE.width)
       await expect.poll(async () => (await pageMetrics(window)).scale).toBe('1')
     } finally {
-      await second.close()
+      await third.close()
     }
   } finally {
     await removeDir(scratch)
