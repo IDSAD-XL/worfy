@@ -3,6 +3,7 @@
 // the data folder, then exit code 1. The window's own page load (src/main/window.ts) reports
 // through the same function instead of ending as an unhandled rejection.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeTestTree } from '../remove'
 
 const DATA_DIR = '/tmp/worfy-startup-failure-test/data'
 
@@ -219,7 +220,7 @@ describe('inStep', () => {
 
 describe('checkDataFolder', () => {
   it('refuses a file and anything under a file, accepts a folder and a folder not made yet', async () => {
-    const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs')
+    const { mkdtempSync, writeFileSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
     const { checkDataFolder } = await load()
@@ -232,7 +233,7 @@ describe('checkDataFolder', () => {
       expect(() => checkDataFolder(root)).not.toThrow()
       expect(() => checkDataFolder(join(root, 'not-yet'))).not.toThrow()
     } finally {
-      rmSync(root, { recursive: true, force: true })
+      removeTestTree(root)
     }
   })
 })
@@ -323,7 +324,7 @@ describe('the start in src/main/index.ts', () => {
   })
 
   it('a data folder that is a file stops the start before the single-instance lock', async () => {
-    const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs')
+    const { mkdtempSync, writeFileSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
     const root = mkdtempSync(join(tmpdir(), 'worfy-data-file-'))
@@ -337,7 +338,7 @@ describe('the start in src/main/index.ts', () => {
       expect(electron.requestSingleInstanceLock).not.toHaveBeenCalled()
       expect(electron.exit).toHaveBeenCalledWith(1)
     } finally {
-      rmSync(root, { recursive: true, force: true })
+      removeTestTree(root)
     }
   })
 })

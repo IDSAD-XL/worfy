@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HarnessState } from '../../src/shared/ipc/harness'
 import type { MigrationChoice, MigrationPlan, MigrationSelection, MigrationStep } from '../../src/shared/ipc/harness-migration'
 import { applyMigration, MIGRATION_STEPS, type ApplyOptions } from '../../src/main/harness/migrate/apply'
-import { removeTree } from '../../src/main/storage/remove'
+import { removeTestTree } from '../remove'
 import { buildPlan, claudeJsonPath, HARNESS_AGENTS, hasLegacyHarness, HARNESS_SKILLS, hookRecords, QMD_WARNING, RUNNING_SESSIONS_WARNING, type PlanOptions } from '../../src/main/harness/migrate/plan'
 import { rewriteHarnessPaths } from '../../src/main/harness/migrate/profiles'
 import { treeHash } from '../../src/main/harness/migrate/restore'
@@ -173,11 +173,11 @@ beforeEach(() => {
   makeSandbox()
 })
 
-// removeTree, not rmSync: the sandbox holds a git repository, whose objects are read-only files.
-// Under the Node of Electron 44 on Windows rmSync stops at such a file with EPERM, which failed
-// the test and left the folder behind (worfy-windows ticket 23).
+// Not rmSync: the sandbox holds a git repository, whose objects are read-only files. Under the
+// Node of Electron 44 on Windows rmSync stops at such a file with EPERM, which failed the test and
+// left the folder behind (worfy-windows tickets 23 and 26).
 afterEach(() => {
-  removeTree(sandbox.root)
+  removeTestTree(sandbox.root)
 })
 
 /**
@@ -328,7 +328,7 @@ describe('the plan of the form', () => {
   })
 
   it('a plugin with a qmd server: the qmd row has no warning', () => {
-    removeTree(sandbox.root)
+    removeTestTree(sandbox.root)
     makeSandbox({ qmdInPlugin: true })
     expect(plan().rows.find((row) => row.group === 'qmd')?.note).toBeNull()
   })
@@ -534,7 +534,7 @@ describe('the move', () => {
     expect(hookCommands(join(sandbox.claudeHome, 'settings.json'))).toContain('$HOME/.claude/bin/qmd-refresh --quiet')
     expect(read(sandbox.claudeJson)).toBe(claudeJson)
 
-    removeTree(sandbox.root)
+    removeTestTree(sandbox.root)
     makeSandbox()
     expect((await applyMigration(selection(plan()), applyOptions())).outcome).toBe('done')
     for (const name of ['qmd-mcp', 'qmd-refresh', 'qmd-sync-main']) expect(existsSync(join(sandbox.claudeHome, 'bin', name))).toBe(false)
@@ -552,7 +552,7 @@ describe('the move', () => {
     expect(offered()).toBe(false)
     expect(plan().missing).toEqual(['nothing of the old Harness is left in ~/.claude'])
 
-    removeTree(sandbox.root)
+    removeTestTree(sandbox.root)
     makeSandbox()
     const again = plan()
     const keepScout = (id: string): MigrationChoice | undefined => (id === 'file:agents/scout.md' ? 'keep' : (again.claudeMd?.sections.find((section) => section.id === id)?.defaultChoice))

@@ -3,11 +3,12 @@
 // with readFile and readdir, which follow links; on Windows a link to `\\host\share\…` makes the
 // system contact that host with the user's credentials. The path rules are path.win32 and the file
 // system is replaced, so every case but the last runs on any machine.
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EpicStatusSnapshot } from '../../src/shared/workflow/types'
+import { removeTestTree } from '../remove'
 
 /** What Node itself was asked through node:fs/promises. */
 const asked = vi.hoisted(() => ({ lstat: [] as string[], readdir: [] as string[], readFile: [] as string[] }))
@@ -222,7 +223,7 @@ describe.runIf(process.platform === 'win32')('the Tickets of a Project with real
   let scratch: string | undefined
 
   afterEach(() => {
-    if (scratch !== undefined) rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    if (scratch !== undefined) removeTestTree(scratch)
     scratch = undefined
   })
 

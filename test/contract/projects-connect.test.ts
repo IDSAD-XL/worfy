@@ -5,7 +5,7 @@
 // all in the temporary folder); the Harness check and Claude Code are replaced — the draft Session
 // plays test/fixtures/agent-scripts/profile-draft.jsonl through the fake agent.
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -31,6 +31,7 @@ import { ghRunner } from '../../src/main/github/prs'
 import { ProjectStore, runGit } from '../../src/main/projects/store'
 import type { ProfileRunner } from '../../src/main/workflow/profile'
 import { ghWorld } from './gh-world'
+import { removeTestTree } from '../remove'
 
 const REPO = join(__dirname, '..', '..')
 const BIN = join(REPO, 'harness', 'bin')
@@ -241,7 +242,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  rmSync(scratch, { recursive: true, force: true })
+  removeTestTree(scratch)
 })
 
 describe('the kind of the folder (step 1)', () => {

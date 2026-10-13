@@ -2,11 +2,12 @@
 // `electron` module sets it before the notifications and the first window; without it Windows shows
 // no notification, or one without worfy's name and icon. The steps of the start that need a real
 // app are replaced, as in main-ipc-wiring.test.ts.
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { APP_ID, appUserModelId } from '../../src/main/app-id'
+import { removeTestTree } from '../remove'
 
 /** What the start did, in order: `id:<value>`, `notifications`, `window`. */
 const steps = vi.hoisted((): string[] => [])
@@ -77,7 +78,7 @@ afterEach(() => {
 })
 
 afterAll(() => {
-  rmSync(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(dataDir)
 })
 
 describe('appUserModelId', () => {

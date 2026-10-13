@@ -5,7 +5,7 @@
 // Real git repositories in a temporary folder; gh is the stand-in of test/fixtures/gh (GH_STUB_DIR,
 // GH_STUB_LOG), never the machine's own.
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -14,6 +14,7 @@ import { ghRunner } from '../../src/main/github/prs'
 import { runGit } from '../../src/main/projects/store'
 import { githubAccountsStepSchema, githubChoice, withGithubAccount, type GithubAccountsStep, type ProfileDraft } from '../../src/shared/ipc/projects'
 import { authStatus, ghWorld, type GhWorld, type StubAccount, type StubRepos } from './gh-world'
+import { removeTestTree } from '../remove'
 
 let scratch: string
 
@@ -52,7 +53,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
-  rmSync(scratch, { recursive: true, force: true })
+  removeTestTree(scratch)
 })
 
 describe('the accounts of gh auth status --json hosts', () => {

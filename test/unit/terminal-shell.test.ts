@@ -4,10 +4,11 @@
 // Elsewhere it is `$SHELL -l`, ended by SIGHUP, as before. The system, the Path, the function that
 // ends the processes under the shell and the program that function runs are passed in or replaced,
 // so the Windows branch runs on any machine.
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { removeTestTree } from '../remove'
 
 /**
  * The disk the search of a shell sees. `links` are app execution aliases and links: stat of one
@@ -216,7 +217,7 @@ describe('the setting terminalShell of a Project', () => {
       expect(read.terminalShell).toBeUndefined()
       expect(readdirSync(dir)).toEqual(['settings.json'])
     } finally {
-      rmSync(dir, { recursive: true, force: true })
+      removeTestTree(dir)
     }
   })
 })

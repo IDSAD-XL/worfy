@@ -5,13 +5,14 @@
 // Secrets stay out of the output: the bench remembers every pairing code a service showed and
 // reads every token from the secrets files, and leakedSecrets() lists those that appear in the
 // captured console output or in error texts the test hands it. The bench itself never prints one.
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { format } from 'node:util'
 import { vi, type MockInstance } from 'vitest'
 import type { ModuleLoader } from '../../src/main/ipc/index'
 import { LinkService, type LinkedMachineInfo, type LinkServiceOptions } from '../../src/main/link/service'
+import { removeTestTree } from '../remove'
 
 export interface BenchMachine {
   /** A short label, also the machine's host name (`<label>.local`) and so its Machine name. */
@@ -186,6 +187,6 @@ export class LinkBench {
   async close(): Promise<void> {
     for (const machine of this.machines) await machine.service.stop()
     for (const spy of this.spies) spy.mockRestore()
-    rmSync(this.root, { recursive: true, force: true })
+    removeTestTree(this.root)
   }
 }

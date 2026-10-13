@@ -3,7 +3,7 @@
 // one on the PATH of the "login shell" environment handed to the checks: a tool left out is not
 // installed. HOME, the Claude home, the Harness home and the Project folder are temporary too, and
 // the tools log their calls outside them, so a test can tell that the checks wrote nothing.
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -12,6 +12,7 @@ import { askAccount, oldHarnessPresent, runChecks, type AccountQuery, type Check
 import { HarnessInstaller } from '../../src/main/harness/install'
 import { MODELS_ANSWER_FILE } from '../../src/main/harness/qmd'
 import type { CheckId, CheckStatus, FirstRunReport } from '../../src/shared/ipc/first-run'
+import { removeTestTree } from '../remove'
 
 const REPO = join(import.meta.dirname, '..', '..')
 const TOOLS = join(REPO, 'test', 'fixtures', 'first-run-tools')
@@ -47,7 +48,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  rmSync(root, { recursive: true, force: true })
+  removeTestTree(root)
 })
 
 /** Puts these stand-ins on the PATH. */

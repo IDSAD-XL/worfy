@@ -5,10 +5,11 @@
 // temporary HOME, the fixture is a project the Harness scripts recognise (bin/profile exit 0,
 // epic-status sees four tickets), and the build leaves harness/evals/ out of the app's copy.
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join, sep } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
+import { removeTestTree } from '../remove'
 
 const REPO = join(__dirname, '..', '..')
 const HARNESS = join(REPO, 'harness')
@@ -42,7 +43,7 @@ const graderFiles = (name: string): string[] => {
 
 const temps: string[] = []
 afterAll(() => {
-  for (const dir of temps) rmSync(dir, { recursive: true, force: true })
+  for (const dir of temps) removeTestTree(dir)
 })
 const tempDir = (prefix: string): string => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)))

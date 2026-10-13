@@ -1,12 +1,13 @@
 // How a Session's Claude Code is started (src/main/agent/app-registry.ts): the real SDK unless
 // WORFY_AGENT=fake, with the login shell environment from env.ts rather than worfy's own, and the
 // unpacked native binary in the packaged app. The SDK's query() and agentEnv() are mocked.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QueryRequest } from '../../src/main/agent/session'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
+import { removeTestTree } from '../remove'
 
 const mocks = vi.hoisted(() => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -59,7 +60,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs()
-  rmSync(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(dataDir)
   if (resourcesPath) Object.defineProperty(process, 'resourcesPath', resourcesPath)
   else Reflect.deleteProperty(process, 'resourcesPath')
 })
@@ -192,7 +193,7 @@ describe('the Harness a Session of sdkQueryFactory carries', () => {
   })
 
   afterEach(() => {
-    rmSync(home, { recursive: true, force: true })
+    removeTestTree(home)
   })
 
   const plugins = async (): Promise<unknown> => {

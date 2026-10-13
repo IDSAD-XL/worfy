@@ -5,7 +5,7 @@
 // file. Nothing here writes into the repository (ADR-0002, ADR-0005): the last test checks that
 // the files and `git status --porcelain` are exactly as they were.
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import type { DocsState } from '../../src/shared/ipc/docs'
 import type { LayoutState } from '../../src/shared/layout/types'
+import { removeTestTree, saveLayoutNow } from '../remove'
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PROJECT_ID = 'repo-00000001'
@@ -159,9 +160,12 @@ beforeEach(async () => {
 afterEach(async () => {
   await docsModule.docsHub.closeAll()
   vi.restoreAllMocks()
+  // Before the folder goes: the Layout store saves a moment after the last change, and a save
+  // that came after the removal made the folder again.
+  await saveLayoutNow()
   delete process.env.WORFY_DATA_DIR
   delete process.env.WORFY_CLAUDE_HOME
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 describe('docs.read', () => {
@@ -194,7 +198,7 @@ describe('docs.read', () => {
     symlinkSync(join(outside, 'secret.md'), join(repo, 'HANDOFF.md'))
     await refused({ projectId: PROJECT_ID, path: 'HANDOFF.md' }, /outside the Project/)
     // docs/adr itself swapped for a link to a folder outside.
-    rmSync(join(repo, 'docs', 'adr'), { recursive: true })
+    removeTestTree(join(repo, 'docs', 'adr'))
     symlinkSync(outside, join(repo, 'docs', 'adr'))
     await refused({ projectId: PROJECT_ID, path: 'docs/adr/secret.md' }, /outside the Project/)
   })

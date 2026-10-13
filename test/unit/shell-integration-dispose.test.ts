@@ -4,10 +4,10 @@
 // behind it.
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { removeTree } from '../../src/main/storage/remove'
 import { ShellIntegration, tempBase } from '../../src/main/terminal/shell-integration'
+import { removeTestTree } from '../remove'
 
 const WINDOWS = process.platform === 'win32'
 
@@ -18,7 +18,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  removeTree(scratch)
+  removeTestTree(scratch)
 })
 
 describe('ShellIntegration.disposeSync and a link in the folder', () => {
@@ -44,5 +44,25 @@ describe('ShellIntegration.disposeSync and a link in the folder', () => {
     expect(existsSync(dir)).toBe(false)
     expect(integration.path).toBeNull()
     expect(readdirSync(outside)).toEqual(['notes.txt'])
+  })
+
+  // worfy-windows ticket 26. "A folder of this user that nobody else may open" was read off the
+  // POSIX bits of its mode; Windows has none (every folder shows 0o666 there), so the folder never
+  // passed, every prepare() made a new one, and disposeSync removed the last one only.
+  it('prepare() called again uses the folder it made, and disposeSync leaves nothing behind', async () => {
+    const base = tempBase(scratch)
+    if (WINDOWS) expect(base).toBe(scratch)
+    const before = readdirSync(base)
+    const integration = new ShellIntegration({ tmpdir: () => scratch })
+    const made = (): string[] => readdirSync(base).filter((name) => !before.includes(name))
+
+    const first = await integration.prepare()
+    const second = await integration.prepare()
+    const [third, fourth] = await Promise.all([integration.prepare(), integration.prepare()])
+    expect([second, third, fourth]).toEqual([first, first, first])
+    expect(made()).toEqual([basename(first)])
+
+    integration.disposeSync()
+    expect(made()).toEqual([])
   })
 })

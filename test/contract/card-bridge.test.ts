@@ -5,7 +5,7 @@
 // user's confirmation (src/main/cards/ask.ts) on Sessions of the fake agent, the read-only workflow
 // snapshot, and the window.worfy script the worfy-card:// protocol puts into every Card
 // (src/card-runtime/worfy-card.ts, src/main/cards/protocol.ts).
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -35,6 +35,7 @@ import {
 import * as cardApi from '../../src/shared/ipc/card-api'
 import type { ChecksSnapshot } from '../../src/shared/ipc/checks'
 import type { WorkflowModel } from '../../src/shared/workflow/types'
+import { removeTestTree } from '../remove'
 
 // protocol.ts registers the scheme with Electron; here only its pure parts and the handler run.
 vi.mock('electron', () => ({ protocol: {} }))
@@ -52,7 +53,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))

@@ -4,13 +4,14 @@
 // here run it over faked `ps`, `pgrep` and `sample`. The real `ps` and `pgrep` are asked only about
 // this test run and a `sleep` it starts; the real `sample` is a manual check on a packaged worfy.
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { processGoneLogPath } from '../../src/main/diagnostics/process-gone'
 import { dataRoot } from '../../src/main/storage/paths'
+import { removeTestTree } from '../remove'
 
 const SCRIPT = join(import.meta.dirname, '..', '..', 'scripts', 'hang-sample.mjs')
 
@@ -276,7 +277,7 @@ describe.skipIf(process.platform !== 'darwin')('hang-sample: the real ps and pgr
 
 describe('hang-sample run as a script', () => {
   const scratch = mkdtempSync(join(tmpdir(), 'worfy-hang-sample-'))
-  afterAll(() => rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  afterAll(() => removeTestTree(scratch))
 
   /** `pnpm test` runs under Electron as Node, so the child does too. */
   const script = (args: string[]) =>

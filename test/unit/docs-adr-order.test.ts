@@ -1,9 +1,10 @@
 // readDocs (src/main/docs/watch.ts) lists the ADRs by number whatever order the folder gives the
 // names in: readdir makes no promise about it, so here it hands them out shuffled.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { removeTestTree } from '../remove'
 
 const order = vi.hoisted(() => ({ names: null as string[] | null }))
 
@@ -28,7 +29,7 @@ beforeEach(() => {
 
 afterEach(() => {
   order.names = null
-  rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(root)
 })
 
 it('orders the ADRs by number, then by path, when the folder lists them out of order', async () => {

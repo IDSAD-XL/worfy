@@ -2,12 +2,13 @@
 // registerIpc (the same wrapper the app uses) over a mocked `electron`, against real git
 // repositories in a temporary folder and a temporary WORFY_DATA_DIR.
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import { removeTestTree } from '../remove'
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 
@@ -119,7 +120,7 @@ function switchToPlugin(keepOld = false): void {
   mkdirSync(join(plugin, 'bin'), { recursive: true })
   writeFileSync(join(plugin, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'worfy' }))
   writeFileSync(join(plugin, 'bin', 'epic-status'), '#!/bin/sh\n')
-  if (!keepOld) rmSync(join(claudeHome, 'bin'), { recursive: true, force: true })
+  if (!keepOld) removeTestTree(join(claudeHome, 'bin'))
 }
 
 /**
@@ -161,7 +162,7 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllEnvs()
   delete process.env.WORFY_DATA_DIR
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 describe('projects.add', () => {
@@ -434,7 +435,7 @@ describe('projects.settings', () => {
     switchToPlugin(true)
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual({ actionTemplates: LEGACY_TEMPLATES })
     // The move takes the old Harness away: the same file reads as the plugin's, with no restart.
-    rmSync(join(claudeHome, 'bin'), { recursive: true })
+    removeTestTree(join(claudeHome, 'bin'))
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual({ actionTemplates: PLUGIN_TEMPLATES })
     expect(readFileSync(file, 'utf8')).toBe(saved)
 
@@ -448,7 +449,7 @@ describe('projects.settings', () => {
     switchToPlugin()
     expect(await value('projects.settings.defaults')).toStrictEqual({ actionTemplates: PLUGIN_TEMPLATES })
     // No Harness at all: worfy's Sessions carry its own plugin, so the plugin's names.
-    rmSync(join(claudeHome, 'worfy-harness'), { recursive: true })
+    removeTestTree(join(claudeHome, 'worfy-harness'))
     expect(await value('projects.settings.defaults')).toStrictEqual({ actionTemplates: PLUGIN_TEMPLATES })
   })
 

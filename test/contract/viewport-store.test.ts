@@ -2,7 +2,7 @@
 // registered through registerIpc (the same wrapper the app uses) over a mocked `electron` and a
 // temporary WORFY_DATA_DIR, and the store of src/main/layout/viewports.ts with a recorder for its
 // writes. The camera is kept per machine in viewports.json, not in the Project's layout.json.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import type { Viewport } from '../../src/shared/layout/types'
 import type { ViewportsFile } from '../../src/main/layout/viewports'
+import { removeTestTree } from '../remove'
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const ALPHA = 'alpha-0a1b2c3d'
@@ -98,7 +99,7 @@ beforeEach(async () => {
 afterEach(() => {
   vi.useRealTimers()
   delete process.env.WORFY_DATA_DIR
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 describe('viewport store: over IPC', () => {

@@ -3,10 +3,11 @@
 // `\\host\share\…` make the system contact that host with the user's credentials; HANDOFF.md and
 // the ADRs are read when a Project is opened, with no click at all. The path rules are path.win32
 // and the file system is replaced, so every case but the last runs on any machine.
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { removeTestTree } from '../remove'
 
 /** What Node itself was asked through node:fs/promises. */
 const asked = vi.hoisted(() => ({ lstat: [] as string[], realpath: [] as string[], readdir: [] as string[], stat: [] as string[], readFile: [] as string[] }))
@@ -324,7 +325,7 @@ describe.runIf(process.platform === 'win32')('the documents of a Project with re
   let scratch: string | undefined
 
   afterEach(() => {
-    if (scratch !== undefined) rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    if (scratch !== undefined) removeTestTree(scratch)
     scratch = undefined
   })
 

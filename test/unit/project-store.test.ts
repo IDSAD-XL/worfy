@@ -1,10 +1,11 @@
 // ProjectStore.onChange: the event the rest of main subscribes to for "the active Project
 // switched". A fake GitRunner answers for plain temporary folders, so no git runs here.
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProjectStore, type GitRunner, type ProjectsChange } from '../../src/main/projects/store'
+import { removeTestTree } from '../remove'
 
 let scratch: string
 let store: ProjectStore
@@ -35,7 +36,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 describe('ProjectStore.onChange', () => {
