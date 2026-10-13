@@ -57,7 +57,9 @@ describe('terminal channels on a real pty', () => {
     await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
   })
 
-  // macOS login-shell behaviour; on the Linux CI runner /bin/sh is dash. The Mac runs it in every gate.
+  // macOS login-shell behaviour; on the Linux CI runner /bin/sh is dash. Windows has no $SHELL and
+  // no login shell: the Terminal starts PowerShell there, and 'open starts Windows PowerShell …' in
+  // terminal-windows.test.ts checks the same for it. The Mac runs this in every gate.
   it.skipIf(process.platform !== 'darwin')('open starts $SHELL -l in the Project root with TERM_PROGRAM=worfy; input reaches it, output comes back', async () => {
     const h = await harness()
     const opened = await h.open()

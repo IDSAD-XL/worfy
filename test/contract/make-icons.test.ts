@@ -218,6 +218,9 @@ describe('the committed build/icon.ico', () => {
   })
 })
 
+// The script draws with sips and packs with iconutil, programs of macOS: Windows and Linux have
+// neither, so `pnpm icons` is run on a Mac and its outputs are committed. What it committed —
+// icons.json and icon.ico — is checked above on every system. The Mac runs this in every gate.
 describe.skipIf(process.platform !== 'darwin')('scripts/make-icons.mjs (macOS only: sips and iconutil)', () => {
   let scratch: string
   let out: string

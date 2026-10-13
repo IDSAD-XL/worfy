@@ -64,9 +64,11 @@ describe('readNewLines', () => {
     expect(second.lines).toEqual(['{"n":9}'])
   })
 
-  // APFS gives a new file a new inode; ext4 on the Linux CI runner reuses the freed one at once.
-  // worfy runs on macOS only; the Mac runs this in every gate.
-  it.skipIf(process.platform !== 'darwin')('rereads from the start when the file was replaced by a new one', async () => {
+  // Not on Linux: ext4 on the CI runner gives a new file the inode just freed, so the file id does
+  // not change. APFS gives a new inode. NTFS takes the freed file record again but raises its
+  // sequence number, which is part of the id Node reports as `ino`. worfy runs on macOS and
+  // Windows; the Mac and the Windows PC run this in every gate.
+  it.skipIf(process.platform === 'linux')('rereads from the start when the file was replaced by a new one', async () => {
     await writeFile(file, '{"n":1}\n')
     const first = await readNewLines(file)
     await unlink(file)
