@@ -263,4 +263,28 @@ Ticket 05 меняет stub-ы скриптов Harness в тех же e2e-фа�
 
 ## Итог
 
-Заполняется при закрытии.
+Ticket идёт срезами, по одному PR на срез; каждый срез дописывает сюда свою часть. Порядок срезов согласован с Session на Mac 2026-10-14: (1) URL окна в contract-test-ах; (2) клавиши `Meta` → `ControlOrMeta` в e2e и пять test-ов только для macOS; (3) подмены `gh`, `claude`, `epic-status` и ожидания POSIX-путей; (4) job `windows` в `ci.yml`; после Ticket-а 03 — (5) `harness-scripts.test.ts` через Git Bash, e2e Terminal и собранного приложения, итоговый gate full.
+
+### Срез 1 — contract-test-ы строят URL окна так же, как приложение
+
+Session на Windows-ПК, 2026-10-14. Windows 11 Pro 10.0.26200; `pnpm test` идёт под Node 24.21.0 из Electron 44.5.1. Ветка `worfy-windows/14-frame-url` от main `ba8a58c`. **На macOS и Linux с ПК ничего не запускалось.** Правку сделал subagent этой Session; diff прочитан второй раз другим subagent-ом (дефектов не найдено, три замечания low — ниже) и проверен ею: полный прогон, сравнение по именам.
+
+- **Причина.** `appUrlMatcher` (`src/main/ipc/index.ts`) сравнивает URL окна с `pathToFileURL(indexHtml).href`. На Windows это `file:///C:/Applications/…`. Test-ы собирали URL руками — `` `file://${INDEX_HTML}` `` или строкой `file:///Applications/worfy.app/…` — и каждый вызов канала отклонялся: «call rejected, it came from an untrusted frame». Код прав, неправы test-ы.
+- **Что сделано.** Один общий файл `test/app-url.ts`: путь `INDEX_HTML` и `APP_URL = pathToFileURL(INDEX_HTML).href`. Им пользуются 28 файлов test-ов и `test/contract/terminal-harness.ts`. В `src/` ничего не менялось. Вне `test/` одна строка: файл добавлен в `tsconfig.test.node.json`, иначе `tsc -p` падает с TS6307.
+- **На macOS и Linux значения прежние** — `/Applications/worfy.app/…` и `file:///Applications/worfy.app/…` — во всех файлах, кроме двух. `test/contract/github-prs.test.ts` и два test-а «app URL matcher» в `test/contract/ipc.test.ts` раньше брали свой путь `/app/out/renderer/index.html`; теперь берут путь из общего файла. Проверки те же: принять свой URL, принять его с query и hash, отклонить соседний `other.html`, http-адрес и не-URL.
+- **В `ipc.test.ts` добавлена одна проверка** — вид `APP_URL`: `file:///`, необязательная буква диска, путь. При запуске test-ов из сетевой папки Windows (`\\server\share\…`) она упадёт: там `pathToFileURL` даёт `file://server/share/…`. Замечание ревьюера, low, оставлено.
+
+| `pnpm test` на ПК | Test-ов | Прошли | Упали | Пропущены |
+|---|---|---|---|---|
+| main `6033e14` (эталон; main `ba8a58c` новее на два UI-commit-а) | 4710 | 4026 | 641 | 43 |
+| ветка на `3d7d5e7` | 4793 | 4307 | 443 | 43 |
+
+- **Перестали падать 199 test-ов.** 179 — в изменённых файлах: `layout-store` 37, `projects` 28, `docs` 16, `trash` 14, `claude-home-registry` 13, `claude-home-subagents` 10, `autopilot` 9, `shell` 9, `viewport-store` 8, `ipc` 7, `bindings` 5, `main-ipc-wiring` 5, `actions` 4, `card-protocol` 4, `terminal-ai-assist` 4, `limits` 3, `web-policy` 2, `canvas-tools` 1. Ещё 20 — test-ы с пределом по времени в файлах, которые срез не трогал; они плавают от прогона к прогону.
+- **По именам на ветке падает и не падает в эталоне один test:** `test/contract/claude-home-subagents.test.ts`, «refuses an answer of the wrong shape instead of passing it on». В эталоне он проходил только потому, что вызов отклоняла проверка окна. Теперь вызов доходит до кода, Session из fixture на Windows не находится, и ответ — `found: false` раньше, чем подставленный reader. Причина та же, что у 17 соседних test-ов файла; это срез 3.
+- **В изменённых файлах осталось 93 падения, все с другими причинами:** `github-prs` 31 (подмена `gh`), `claude-home-registry` 23 и `claude-home-subagents` 19 (Session из fixture не находятся; `ps -p … -o lstart=`), `projects` 11 (`C:/` против `C:\`, hash id Project-а), `canvas-tools` 4, `docs` 3, `agent-attachments` 1, `bindings` 1. Ни одно не содержит «untrusted frame».
+- **Мутант:** `APP_URL` указывает на `…/other.html` — в одной пачке файлов упало 37 test-ов в пяти файлах (`trash` 14, `shell` 9, `viewport-store` 8, `terminal-ai-assist` 4, `web-policy` 2).
+- `pnpm lint`, `pnpm typecheck` — exit 0.
+
+**Не сделано и не проверено в срезе 1:** macOS и Linux — значения проверены только вызовом `pathToFileURL(…, { windows: false })` на ПК. `test/unit/renderer-entry.test.ts:74,81` по-прежнему собирает `file://${indexHtml}` руками из настоящего пути: на Windows это проходит, потому что разбор URL сам приводит `file://C:\…` к `file:///C:/…`; путь с `#`, `?` или `%` его сломает на любой системе — не тронуто.
+
+**Что использовано вместо текста Ticket-а** (расхождения подтверждены Session на Mac, текст она правит своим docs PR): проверка клавиш — `grep -rnE "Meta\+|'Meta'" test/e2e | grep -v ControlOrMeta` ничего не печатает; `Meta` стоит в 66 местах 17 файлов, меняются все; job `windows` в `ci.yml` пишется рядом с существующим `windows-tests.yml`, который остаётся как есть.
