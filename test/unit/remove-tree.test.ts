@@ -1,23 +1,43 @@
 // src/main/storage/remove.ts (worfy-windows ticket 23): removing a file, a link or a folder without
 // ever going through a link. On Windows that is a walk of the module's own; on every other system
-// it is fs.rmSync, as before the module. Three parts:
+// it is fs.rmSync, as before the module, after a look through the tree for a mounted volume
+// (worfy-windows ticket 44). Three parts:
 //   - real folders: on Windows with junctions, a `dir` and a `file` symlink and a read-only file,
 //     elsewhere with symlinks; this is where the fs.rmSync of Electron's Node loses the folder
 //     behind a junction;
 //   - a model of the file system: the order of the calls of the walk, its tries when a file is
-//     busy, and the one call every other system makes;
+//     busy, and the calls every other system makes;
 //   - the copies that cannot import the module — the text of restore.mjs, scripts/remove-tree.mjs
 //     and scripts/install-stable.mjs — run over the same model and must make the same calls.
+// The model, its trees and the copies are in test/unit/remove-tree-model.ts; the tests of a volume
+// mounted in the tree off Windows are in test/unit/remove-tree-mounted.test.ts.
 import { spawn } from 'node:child_process'
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, posix } from 'node:path'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { restoreScriptSource } from '../../src/main/harness/migrate/restore'
-import { REMOVE_RETRIES, REMOVE_RETRY_MS, removeFile, removeTree, type RemoveFs } from '../../src/main/storage/remove'
+import { REMOVE_RETRIES, REMOVE_RETRY_MS, removeFile, removeTree } from '../../src/main/storage/remove'
+import {
+  BEHIND_A_LINK_TO_ANOTHER_VOLUME,
+  builtCopy,
+  CARD_HOLDS_A_VOLUME,
+  COPIES,
+  copyOf,
+  model,
+  TRASH_CARD_HOLDS_A_MOUNT,
+  TRASH_CARD_IS_A_MOUNT,
+  viaCopy,
+  viaModule,
+  VOLUME,
+  WITH_A_LINK,
+  WITH_A_MOUNT,
+  WITH_A_MOUNT_ON_ITS_VOLUME,
+  type Entry,
+  type Model,
+} from './remove-tree-model'
 
 const WINDOWS = process.platform === 'win32'
-const REPO = join(import.meta.dirname, '..', '..')
 
 describe('removeTree and removeFile over real folders', () => {
   let dir: string
@@ -243,6 +263,35 @@ describe('removeTree and removeFile over real folders', () => {
     }
   })
 
+  // worfy-windows ticket 44. Off Windows the tree is looked through before fs.rmSync is called, for
+  // a folder a volume is mounted on; a part of the tree that cannot be looked at may hold one. So
+  // the removal ends with the error of the look and removes nothing; fs.rmSync alone would have
+  // removed what it reached before that folder. Not for root, whom no mode keeps out.
+  it.skipIf(WINDOWS || process.getuid?.() === 0)('off Windows a tree with a folder that cannot be listed loses nothing: the removal ends with the error of the look, before fs.rmSync is called', () => {
+    const tree = join(dir, 'tree')
+    mkdirSync(join(tree, 'closed'), { recursive: true })
+    writeFileSync(join(tree, 'a.txt'), 'x')
+    writeFileSync(join(tree, 'closed', 'inner.txt'), 'x')
+    writeFileSync(join(tree, 'z.txt'), 'x')
+    chmodSync(join(tree, 'closed'), 0o000)
+    try {
+      let failure: NodeJS.ErrnoException | null = null
+      try {
+        removeTree(tree)
+      } catch (error) {
+        failure = error as NodeJS.ErrnoException
+      }
+      // The error of the listing, not the "rm" of fs.rmSync: that call was not reached.
+      expect(failure).toMatchObject({ code: 'EACCES', syscall: 'scandir', path: join(tree, 'closed') })
+      expect(readdirSync(tree).sort()).toEqual(['a.txt', 'closed', 'z.txt'])
+    } finally {
+      chmodSync(join(tree, 'closed'), 0o755)
+    }
+    expect(readdirSync(join(tree, 'closed'))).toEqual(['inner.txt'])
+    removeTree(tree)
+    expect(existsSync(tree)).toBe(false)
+  })
+
   it('removeFile refuses a folder, as a removal without "recursive" did, and takes a path that is not there', () => {
     const folder = join(dir, 'folder')
     mkdirSync(folder)
@@ -261,189 +310,6 @@ describe('removeTree and removeFile over real folders', () => {
     expect(() => removeFile(join(dir, 'never-was'))).not.toThrow()
   })
 })
-
-/**
- * A file system in memory, with POSIX names. A `link` is a name that leads to another path of the
- * model. The module joins names by the rules of the machine, so a backslash in a path it asks
- * about is read as a slash.
- *
- * A `mount` is a name that leads to another path too, and that lstat does not see as a link
- * (worfy-windows ticket 35): on Windows a junction whose target is written with the GUID of a
- * volume. Measured on the PC under both Nodes: lstat calls it a folder and gives the volume it
- * leads to, a listing reads what is behind it, unlink refuses it with EPERM, and rmdir removes it
- * as the link it is, whatever lies behind. Everything under `/vol` is another volume.
- */
-type Entry = { kind: 'file' } | { kind: 'folder' } | { kind: 'link'; to: string } | { kind: 'mount'; to: string }
-interface Model {
-  fs: RemoveFs
-  calls: string[]
-  names: () => string[]
-  waits: number[]
-  /** The wait of a removal over this model: written down, not waited. */
-  wait: (ms: number) => void
-}
-
-/**
- * More waits than any removal may make. A removal that never stops waiting — a retry with no end —
- * is refused its next wait and fails its test at once, instead of filling the memory of the test
- * process for minutes.
- */
-const WAITS_BOUND = 100
-function model(entries: Record<string, Entry>, failing: Record<string, string[]> = {}): Model {
-  const tree = new Map(Object.entries(entries))
-  const calls: string[] = []
-  const waits: number[] = []
-  const fail = (code: string, what: string): Error => Object.assign(new Error(`${code}: ${what}`), { code })
-  /** The codes a call still has to fail with, first one next. */
-  const failures = new Map(Object.entries(failing).map(([call, codes]) => [call, [...codes]]))
-  const step = (call: string): void => {
-    calls.push(call)
-    const code = failures.get(call)?.shift()
-    if (code !== undefined) throw fail(code, call)
-  }
-  const posixNames = (asked: RemoveFs): RemoveFs => ({
-    lstatSync: (path) => asked.lstatSync(path.replace(/\\/g, '/')),
-    readdirSync: (path) => asked.readdirSync(path.replace(/\\/g, '/')),
-    unlinkSync: (path) => asked.unlinkSync(path.replace(/\\/g, '/')),
-    rmdirSync: (path) => asked.rmdirSync(path.replace(/\\/g, '/')),
-    rmSync: (path, options) => asked.rmSync(path.replace(/\\/g, '/'), options),
-  })
-  /** Where a path leads once every link and mount on the way to it is followed; its last name is taken as it is. */
-  const real = (path: string): string => {
-    for (let at = path.indexOf('/', 1); at > 0; at = path.indexOf('/', at + 1)) {
-      const entry = tree.get(path.slice(0, at))
-      if (entry?.kind === 'link' || entry?.kind === 'mount') return real(entry.to + path.slice(at))
-    }
-    return path
-  }
-  /** The volume a path is on. */
-  const dev = (path: string): number => (path === '/vol' || path.startsWith('/vol/') ? 2 : 1)
-  const fs: RemoveFs = posixNames({
-    lstatSync: (asked) => {
-      step(`lstat ${asked}`)
-      const path = real(asked)
-      const entry = tree.get(path)
-      if (entry === undefined) throw fail('ENOENT', asked)
-      // lstat does not follow a link: a link to a folder is not a folder. It does not see a mount:
-      // that is a folder to it, on the volume the mount leads to.
-      return { isDirectory: () => entry.kind === 'folder' || entry.kind === 'mount', dev: dev(entry.kind === 'mount' ? real(entry.to) : path) }
-    },
-    readdirSync: (asked) => {
-      step(`readdir ${asked}`)
-      const path = real(asked)
-      const entry = tree.get(path)
-      // A walk that came here through a link or a mount would be reading what it leads to.
-      const listed = entry?.kind === 'link' || entry?.kind === 'mount' ? real(entry.to) : path
-      return [...tree.keys()].filter((each) => posix.dirname(each) === listed).map((each) => posix.basename(each))
-    },
-    unlinkSync: (asked) => {
-      step(`unlink ${asked}`)
-      const path = real(asked)
-      const kind = tree.get(path)?.kind
-      if (kind === 'folder' || kind === 'mount') throw fail('EPERM', asked)
-      if (!tree.delete(path)) throw fail('ENOENT', asked)
-    },
-    rmdirSync: (asked) => {
-      step(`rmdir ${asked}`)
-      const path = real(asked)
-      // A mount holds nothing of its own: what is behind it does not keep it from going.
-      if ([...tree.keys()].some((each) => posix.dirname(each) === path)) throw fail('ENOTEMPTY', asked)
-      if (!tree.delete(path)) throw fail('ENOENT', asked)
-    },
-    // fs.rmSync as every system but Windows has it: a link goes as a link, a missing path is fine with "force".
-    rmSync: (path, options) => {
-      step(`rmSync ${path}${options.recursive ? ' recursive' : ''}${options.force ? ' force' : ''}`)
-      const entry = tree.get(path)
-      if (entry === undefined) return
-      if (entry.kind === 'folder' && !options.recursive) throw fail('ERR_FS_EISDIR', path)
-      for (const each of [...tree.keys()]) if (each === path || each.startsWith(`${path}/`)) tree.delete(each)
-    },
-  })
-  const wait = (ms: number): void => {
-    if (waits.length >= WAITS_BOUND) throw new Error(`the removal waits without end: ${WAITS_BOUND} waits, and one more is asked`)
-    waits.push(ms)
-  }
-  return { fs, calls, waits, wait, names: () => [...tree.keys()].sort() }
-}
-
-/** A Card folder with a file, a folder, and a link to a folder outside it that holds a file. */
-const WITH_A_LINK: Record<string, Entry> = {
-  '/data': { kind: 'folder' },
-  '/data/card': { kind: 'folder' },
-  '/data/card/index.html': { kind: 'file' },
-  '/data/card/assets': { kind: 'folder' },
-  '/data/card/assets/app.js': { kind: 'file' },
-  '/data/card/linked': { kind: 'link', to: '/home/notes' },
-  '/home': { kind: 'folder' },
-  '/home/notes': { kind: 'folder' },
-  '/home/notes/keep.txt': { kind: 'file' },
-}
-
-/** A Card folder that holds a mount to another volume (worfy-windows ticket 35), and the files of that volume. */
-const WITH_A_MOUNT: Record<string, Entry> = {
-  '/data': { kind: 'folder' },
-  '/data/card': { kind: 'folder' },
-  '/data/card/index.html': { kind: 'file' },
-  '/data/card/linked': { kind: 'mount', to: '/vol' },
-  '/vol': { kind: 'folder' },
-  '/vol/keep.txt': { kind: 'file' },
-  '/vol/deep': { kind: 'folder' },
-  '/vol/deep/more.txt': { kind: 'file' },
-}
-const VOLUME = ['/vol', '/vol/deep', '/vol/deep/more.txt', '/vol/keep.txt']
-/** The same Card, with a mount that leads to a folder of its own volume: its `dev` says nothing. */
-const WITH_A_MOUNT_ON_ITS_VOLUME: Record<string, Entry> = {
-  '/data': { kind: 'folder' },
-  '/data/card': { kind: 'folder' },
-  '/data/card/index.html': { kind: 'file' },
-  '/data/card/linked': { kind: 'mount', to: '/home/notes' },
-  '/home': { kind: 'folder' },
-  '/home/notes': { kind: 'folder' },
-  '/home/notes/keep.txt': { kind: 'file' },
-}
-/** A folder reached through an ordinary link to another volume: the link is the parent of what is removed. */
-const BEHIND_A_LINK_TO_ANOTHER_VOLUME: Record<string, Entry> = {
-  '/data': { kind: 'folder' },
-  '/data/away': { kind: 'link', to: '/vol/r' },
-  '/vol': { kind: 'folder' },
-  '/vol/r': { kind: 'folder' },
-  '/vol/r/sub': { kind: 'folder' },
-  '/vol/r/sub/f.txt': { kind: 'file' },
-  '/vol/r/empty': { kind: 'folder' },
-}
-/** An entry of the trash whose Card folder is a mount, and one whose Card folder holds a mount. */
-const TRASH_CARD_IS_A_MOUNT: Record<string, Entry> = {
-  '/trash': { kind: 'folder' },
-  '/trash/entry': { kind: 'folder' },
-  '/trash/entry/entry.json': { kind: 'file' },
-  '/trash/entry/card': { kind: 'mount', to: '/vol' },
-  '/vol': { kind: 'folder' },
-  '/vol/keep.txt': { kind: 'file' },
-  '/vol/deep': { kind: 'folder' },
-  '/vol/deep/more.txt': { kind: 'file' },
-}
-const TRASH_CARD_HOLDS_A_MOUNT: Record<string, Entry> = {
-  '/trash': { kind: 'folder' },
-  '/trash/entry': { kind: 'folder' },
-  '/trash/entry/entry.json': { kind: 'file' },
-  '/trash/entry/card': { kind: 'folder' },
-  '/trash/entry/card/index.html': { kind: 'file' },
-  '/trash/entry/card/linked': { kind: 'mount', to: '/vol' },
-  '/vol': { kind: 'folder' },
-  '/vol/keep.txt': { kind: 'file' },
-  '/vol/deep': { kind: 'folder' },
-  '/vol/deep/more.txt': { kind: 'file' },
-}
-
-/** The module's walk over a model; answers the code of the error it ended with, or null. */
-function viaModule(m: Model, path: string, platform: NodeJS.Platform): unknown {
-  try {
-    removeTree(path, { fs: m.fs, platform, wait: m.wait })
-    return null
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code
-  }
-}
 
 describe('removeTree over a model of the file system', () => {
   it('never reads the folder a link leads to: the link is unlinked, and what is behind it stays', () => {
@@ -588,20 +454,35 @@ describe('removeTree over a model of the file system', () => {
       expect(m.waits).toHaveLength(REMOVE_RETRIES)
     })
 
-    it('off Windows nothing of this runs: one call of rmSync, as on main', () => {
+    // worfy-windows ticket 44. Until then this was one call of rmSync, which goes into a folder on
+    // another volume. test/unit/remove-tree-mounted.test.ts has the mount point of macOS.
+    it('off Windows the walk does not run: the tree is looked through, and a folder on another volume than its folder ends the removal before rmSync is called', () => {
       for (const platform of ['darwin', 'linux'] as const) {
         const m = model(WITH_A_MOUNT)
-        expect(viaModule(m, '/data/card', platform), platform).toBeNull()
-        expect(m.calls, platform).toEqual(['rmSync /data/card recursive force'])
+        expect(viaModule(m, '/data/card', platform), platform).toBe('EXDEV')
+        expect(m.calls, platform).toEqual(['lstat /data/card', 'lstat /data/card/..', 'readdir /data/card', 'lstat /data/card/index.html', 'lstat /data/card/linked'])
+        expect(m.names(), platform).toEqual(['/data', '/data/card', '/data/card/index.html', '/data/card/linked', ...VOLUME])
+        expect(m.waits, platform).toEqual([])
       }
     })
   })
 
-  it('on every other system is one call of rmSync with "recursive" and "force", and nothing else: what main did', () => {
+  // Rewritten by worfy-windows ticket 44: on main this was the call of rmSync and nothing else.
+  it('on every other system the tree is looked through — every entry once, a link never followed — and then removed by one call of rmSync with "recursive" and "force"', () => {
     for (const platform of ['darwin', 'linux'] as const) {
       const m = model(WITH_A_LINK)
       expect(viaModule(m, '/data/card', platform), platform).toBeNull()
-      expect(m.calls, platform).toEqual(['rmSync /data/card recursive force'])
+      expect(m.calls, platform).toEqual([
+        'lstat /data/card',
+        'lstat /data/card/..',
+        'readdir /data/card',
+        'lstat /data/card/index.html',
+        'lstat /data/card/assets',
+        'readdir /data/card/assets',
+        'lstat /data/card/assets/app.js',
+        'lstat /data/card/linked',
+        'rmSync /data/card recursive force',
+      ])
       expect(m.names(), platform).toEqual(['/data', '/home', '/home/notes', '/home/notes/keep.txt'])
       expect(m.waits, platform).toEqual([])
     }
@@ -824,41 +705,7 @@ describe('removeFile over a model of the file system', () => {
   })
 })
 
-/** The text between the two marks of a copy: `remove-tree` for the walk, `remove-file` for the removal of one file. */
-function copyOf(source: string, where: string, name: 'remove-tree' | 'remove-file' = 'remove-tree'): string {
-  const start = source.indexOf(`// <${name}>`)
-  const end = source.indexOf(`// </${name}>`)
-  if (start < 0 || end < start) throw new Error(`${where} has nothing between // <${name}> and // </${name}>`)
-  return source.slice(start, end).replace(/^export /m, '')
-}
-
-/** A copy as a function over a model: it names the calls of node:fs, `join`, `process` and `Atomics` freely. */
-function viaCopy(text: string, m: Model, path: string, platform: NodeJS.Platform, name: 'removeTree' | 'removeFile' = 'removeTree'): unknown {
-  const walk = builtCopy(text, m, platform, name)
-  try {
-    walk(path)
-    return null
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code
-  }
-}
-
-/**
- * The function of a copy, made over a model. Strict, as the scripts are: they are modules. `atomics`
- * is what the copy waits with; the model's wait when left out.
- */
-function builtCopy(text: string, m: Model, platform: NodeJS.Platform, name: 'removeTree' | 'removeFile' = 'removeTree', atomics?: unknown): (...args: unknown[]) => void {
-  const make = new Function('lstatSync', 'readdirSync', 'unlinkSync', 'rmdirSync', 'rmSync', 'join', 'process', 'Atomics', `'use strict'\n${text}\nreturn ${name}`) as (...args: unknown[]) => (...args: unknown[]) => void
-  const waiting = { wait: (_array: unknown, _index: number, _value: number, ms: number) => m.wait(ms) }
-  return make(m.fs.lstatSync, m.fs.readdirSync, m.fs.unlinkSync, m.fs.rmdirSync, m.fs.rmSync, posix.join, { platform }, atomics ?? waiting)
-}
-
 describe('the copies of the walk that cannot import the module', () => {
-  const COPIES: Record<string, string> = {
-    'the text of restore.mjs (src/main/harness/migrate/restore.ts)': copyOf(restoreScriptSource(), 'restore.mjs'),
-    'scripts/remove-tree.mjs': copyOf(readFileSync(join(REPO, 'scripts', 'remove-tree.mjs'), 'utf8').replace(/\r\n/g, '\n'), 'scripts/remove-tree.mjs'),
-    'scripts/install-stable.mjs': copyOf(readFileSync(join(REPO, 'scripts', 'install-stable.mjs'), 'utf8').replace(/\r\n/g, '\n'), 'scripts/install-stable.mjs'),
-  }
   /** What is removed, from which tree, with which calls made to fail. */
   const CASES: [string, Record<string, Entry>, string, Record<string, string[]>][] = [
     ['a folder with a link in it', WITH_A_LINK, '/data/card', {}],
@@ -907,6 +754,14 @@ describe('the copies of the walk that cannot import the module', () => {
     ['a plain folder that is busy at first and then "not empty"', WITH_A_LINK, '/data/card', { 'rmdir /data/card/assets': ['EBUSY', 'ENOTEMPTY'] }],
     ['a plain folder that refuses to go with an error that is not "busy"', WITH_A_LINK, '/data/card', { 'rmdir /data/card/assets': ['EIO'] }],
     ['a folder gone between the look and the first rmdir', WITH_A_LINK, '/data/card', { 'rmdir /data/card/assets': ['ENOENT'] }],
+    // worfy-windows ticket 44: a folder a volume is mounted on, and the look that comes before rmSync off Windows.
+    ['a mount point of macOS inside the folder', CARD_HOLDS_A_VOLUME, '/data/card', {}],
+    ['a mount point of macOS as the path itself', CARD_HOLDS_A_VOLUME, '/data/card/vol', {}],
+    ['a mount point of macOS two folders down', CARD_HOLDS_A_VOLUME, '/data', {}],
+    ['a mount point of macOS after an entry gone meanwhile', CARD_HOLDS_A_VOLUME, '/data/card', { 'lstat /data/card/index.html': ['ENOENT'] }],
+    ['the folder the path lies in cannot be asked', WITH_A_LINK, '/data/card', { 'lstat /data/card/..': ['EACCES'], 'lstat /data': ['EACCES'] }],
+    ['the folder the path lies in is gone meanwhile', WITH_A_LINK, '/data/card', { 'lstat /data/card/..': ['ENOENT'], 'lstat /data': ['ENOENT'] }],
+    ['a path too long to look at', WITH_A_LINK, '/data/card', { 'lstat /data/card/assets/app.js': ['ENAMETOOLONG'] }],
   ]
 
   it.each(Object.keys(COPIES))('%s makes the same calls as the module, in the same order, with the same tries and the same end', (name) => {

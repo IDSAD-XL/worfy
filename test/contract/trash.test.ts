@@ -3,7 +3,7 @@
 // WORFY_DATA_DIR. A deleted Card moves with its files and data to <Project data folder>/trash/<label>/
 // and comes back from there; entries older than three days are deleted when the app starts; nothing
 // outside WORFY_DATA_DIR is ever touched (ADR-0005).
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, utimesSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -47,6 +47,11 @@ let layout: LayoutStore
 
 /** Loads src/main/ipc/trash.ts afresh, as an app start does, over the current data dir. */
 async function start(): Promise<void> {
+  // The Layout store of the start before this one may still hold its last change back. It is
+  // written now: left to its timer, it was written a quarter of a second later into whatever data
+  // folder a test had by then, and made the folder of a finished test again (seen with the test of
+  // worfy-windows ticket 44 in this file: one worfy-trash-* folder left in the temporary folder).
+  ;(layout as LayoutStore | undefined)?.flushAll()
   vi.resetModules()
   process.env.WORFY_DATA_DIR = dataDir
   process.env.WORFY_CLAUDE_HOME = claudeHome
@@ -313,6 +318,49 @@ describe('trash: three days', () => {
     // The old Card's files are gone with its entry, and were never put back.
     expect(existsSync(cardDir('old'))).toBe(false)
     expect(existsSync(cardDataFile('old'))).toBe(false)
+  })
+
+  // worfy-windows ticket 44. The first entry whose removal failed ended the cleanup of its Project,
+  // and the entries after it stayed. Here the removal of one entry is refused by a folder in its
+  // Card that cannot be listed: off Windows a tree is looked through before anything of it is
+  // removed, and what cannot be looked at ends the removal with nothing removed. (A volume mounted
+  // in a Card folder is refused the same way; test/unit/trash-mounted.test.ts has it over a model.)
+  // Not on Windows, where a mode keeps nobody out; not for root, whom no mode keeps out.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('an old entry that cannot be removed stays whole and is named; the other old entries are deleted all the same', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const now = new Date('2026-10-05T12:00:00Z').getTime()
+    const entries: TrashEntry[] = []
+    for (const [index, cardId] of ['before', 'held', 'after'].entries()) {
+      vi.setSystemTime(now - TRASH_KEEP_MS - 60_000 + index * 1000)
+      makeCard(cardId)
+      entries.push(await put(cardId))
+    }
+    const [before, held, after] = entries as [TrashEntry, TrashEntry, TrashEntry]
+    const closed = join(trashDir(), held.label, 'card', 'closed')
+    mkdirSync(closed)
+    writeFileSync(join(closed, 'inner.txt'), 'x')
+    chmodSync(closed, 0o000)
+    const said = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      vi.setSystemTime(now)
+      await start()
+      await vi.waitFor(() => expect(readdirSync(trashDir())).toEqual([held.label]))
+      expect(existsSync(join(trashDir(), before.label))).toBe(false)
+      expect(existsSync(join(trashDir(), after.label))).toBe(false)
+      // Nothing of the entry is gone: it is still listed, and can still be restored.
+      expect(readdirSync(join(trashDir(), held.label)).sort()).toEqual(['card', 'card-data.json', 'entry.json'])
+      expect(readdirSync(join(trashDir(), held.label, 'card')).sort()).toEqual(['assets', 'closed', 'index.html'])
+      expect((await list()).map((entry) => entry.nodeId)).toEqual(['held'])
+      // Named by every start of the application, and by nothing else. The start of beforeEach has
+      // its cleanup still waiting when this test begins, so here it may be named twice.
+      expect(said.mock.calls.length).toBeGreaterThan(0)
+      for (const call of said.mock.calls) {
+        expect(call).toEqual([`[trash] could not delete entry ${held.label} from the trash of ${PROJECT}; it is left there`, expect.objectContaining({ code: 'EACCES', path: closed })])
+      }
+    } finally {
+      said.mockRestore()
+      chmodSync(closed, 0o755)
+    }
   })
 
   it('a stray file or folder in the trash that is not an entry is left alone', async () => {

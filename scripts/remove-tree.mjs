@@ -7,6 +7,14 @@
 // removes a junction or a symlink as the link it is. On every other system fs.rmSync is called, as
 // before: it never went through a link there.
 //
+// It does go into a folder a volume is mounted on (worfy-windows ticket 44; measured on macOS: the
+// files of the volume were removed, then the call threw). lstat calls such a folder a plain one;
+// only its `dev` differs from that of the folder it lies in. So off Windows the tree is looked
+// through before rmSync is called, and with a folder on another volume in it the removal ends
+// with the code EXDEV and nothing removed. A part of the tree that cannot be looked at ends it
+// the same way, with the error of the look. A mount point with the `dev` of its folder (a bind
+// mount on Linux) is not seen.
+//
 // One junction is a folder to lstat: the one whose target is written with the GUID of a volume
 // (worfy-windows ticket 35; the walk as it was listed it and removed the files of that volume).
 // So a folder is first asked to go with one rmdir, which removes such a junction as a link, and is
@@ -23,7 +31,9 @@ import process from 'node:process'
 
 /**
  * Removes a file, a link, or a folder with everything in it; a path that is not there is not an
- * error. A link is removed as a link: what it leads to is neither entered nor touched.
+ * error. A link is removed as a link: what it leads to is neither entered nor touched. Off Windows,
+ * a folder with a volume mounted in it is not removed: the error has the code EXDEV and the mount
+ * point as its `path`.
  */
 // <remove-tree>
 export function removeTree(given) {
@@ -33,11 +43,43 @@ export function removeTree(given) {
   return removeWalk(given, { waits: 5 })
 }
 
+// Off Windows, before anything is removed: the first folder, at the path or below it, that is on
+// another volume than the folder it lies in, or null. A volume is mounted on such a folder; lstat
+// calls it a plain folder, and rmSync would remove every file of that volume (measured on macOS,
+// worfy-windows ticket 44). Reads and removes nothing; a link is not followed. What cannot be
+// looked at is thrown: it may hold a mount point. "outer" is the volume of the folder the path
+// lies in; for the path the caller gave it is asked as "path/..", which the system resolves.
+function removeMounted(path, outer) {
+  let volume
+  let names
+  try {
+    const seen = lstatSync(path)
+    if (!seen.isDirectory()) return null
+    volume = seen.dev
+    if (volume !== (outer === undefined ? lstatSync(path + '/..').dev : outer)) return path
+    names = readdirSync(path)
+  } catch (error) {
+    // Gone meanwhile: nothing is there to be removed, or to be kept from it.
+    if (Boolean(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) return null
+    throw error
+  }
+  for (const name of names) {
+    const found = removeMounted(join(path, name), volume)
+    if (found !== null) return found
+  }
+  return null
+}
+
 // "outer" is the volume of the folder the path lies in; the path the caller gave has none yet.
 function removeWalk(given, patience, outer) {
-  // Off Windows rmSync never went through a link, and nothing changes there. The walk is for
-  // Windows alone, and holds for a tree nobody else changes meanwhile.
-  if (process.platform !== 'win32') return rmSync(given, { recursive: true, force: true })
+  // Off Windows rmSync never went through a link. It does go into a volume mounted in the tree,
+  // so the tree is looked through first, and with a mounted volume in it nothing is removed. The
+  // walk is for Windows alone, and holds for a tree nobody else changes meanwhile.
+  if (process.platform !== 'win32') {
+    const mounted = removeMounted(given)
+    if (mounted !== null) throw Object.assign(new Error('EXDEV: ' + mounted + ' is on another volume than the folder it lies in: a volume is mounted there. Nothing of ' + given + ' was removed'), { code: 'EXDEV', path: mounted })
+    return rmSync(given, { recursive: true, force: true })
+  }
   // Separators at the end go, but for the root of a disk: lstat follows a link written with one.
   const cut = given.replace(/[\\/]+$/, '')
   const path = cut === '' || cut.endsWith(':') ? given : cut

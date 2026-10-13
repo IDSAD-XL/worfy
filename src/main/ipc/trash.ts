@@ -36,11 +36,15 @@ function changed(projectId: string): void {
 }
 
 // Start-up cleanup. Deferred, so loading the handlers never waits on the disk; one Project that
-// cannot be cleaned does not keep the others from it.
+// cannot be cleaned does not keep the others from it, and one entry that cannot be removed does
+// not keep the other entries of its Project (worfy-windows ticket 44): it stays in the trash, is
+// named here, and is tried again at the next start.
 setTimeout(() => {
   for (const { id } of projectStore().list()) {
     try {
-      if (store.purge(id).length > 0) changed(id)
+      const { removed, refused } = store.purge(id)
+      for (const { label, error } of refused) console.error(`[trash] could not delete entry ${label} from the trash of ${id}; it is left there`, error)
+      if (removed.length > 0) changed(id)
     } catch (error) {
       console.error(`[trash] could not clean the trash of ${id}`, error)
     }

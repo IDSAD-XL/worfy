@@ -77,7 +77,7 @@ describe.runIf(WINDOWS && LINKS)('a symlink to an unreachable share, on Windows'
 
       const again = store.put(PROJECT, 'away')
       now += TRASH_KEEP_MS + 1000
-      expect(store.purge(PROJECT)).toEqual([again.label])
+      expect(store.purge(PROJECT)).toEqual({ removed: [again.label], refused: [] })
       expect(readdirSync(join(dataDir, 'trash'))).toEqual([])
 
       for (const path of [link, moved, join(dataDir, 'trash', again.label, 'card')]) expect(through(counted.calls, path), path).toEqual([])

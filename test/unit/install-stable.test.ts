@@ -405,7 +405,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
 
     // worfy-windows ticket 28, from the review of PR #257. The walk of Windows has five waits for a
     // whole tree; main had five tries for every entry. The script runs the walk again.
-    it('on Windows a removal that busy entries stopped is run again, five times at most, and another error ends it at once; elsewhere the walk is not called', () => {
+    it('on Windows a removal that busy entries stopped is run again, five times at most, and another error ends it at once; elsewhere the removal is the copy of removeTree too, run once', () => {
       const target = targetIn('apps', 'worfy-stable')
       const apps = join(dir, 'apps')
       const aside = leftoverName(NAME, 'replaced', process.pid)
@@ -422,8 +422,21 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
         return { out: installStable([target], { ...inProcess(), removeFolder }), asked }
       }
       if (!WINDOWS) {
-        expect(again(99, 'EBUSY')).toMatchObject({ asked: 0 })
-        expect(readdirSync(apps).sort()).toEqual([`${NAME}`, 'worfy-stable.json'].sort())
+        // worfy-windows ticket 44. Off Windows the script called fs.rmSync itself, past the copy of
+        // removeTree, so the look for a mounted volume that copy makes before rmSync did not reach
+        // it. Now every removal of the script is that copy. It is run once: off Windows a removal
+        // does not wait inside, and running it again at once would be no wait either.
+        const passed = again(0, 'EBUSY')
+        expect(passed.asked).toBe(1)
+        expect(passed.out).not.toContain('could not be removed')
+        expect(readdirSync(apps).sort()).toEqual([NAME, 'worfy-stable.json'].sort())
+        for (const code of ['EXDEV', 'EBUSY']) {
+          const refused = again(99, code)
+          expect(refused.asked, code).toBe(1)
+          expect(refused.out, code).toContain(`the earlier copy could not be removed and is left at ${join(apps, aside)} (${code}: the copy moved aside is held); the next run removes it`)
+          expect(readdirSync(apps).sort(), code).toEqual([NAME, aside, 'worfy-stable.json'].sort())
+          removeTestTree(join(apps, aside))
+        }
         return
       }
       // Busy three times: the fourth run of the walk removes it, and nothing is said.
