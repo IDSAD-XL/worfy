@@ -340,6 +340,7 @@ Session на Mac в тот же день измерила то же на том�
    `select vdisk file="C:\Users\Alexey\AppData\Local\Temp\worfy-01\t35-vhd\worfy-scratch.vhdx"` и `detach vdisk`. Диск назван полным путём своего файла, не номером и не буквой. Какой диск за этим файлом, показывает PowerShell без повышения прав:
    `Get-Disk | Where-Object Location -like '*worfy-scratch.vhdx' | Format-List Number, Location, BusType, Size` — ожидается один диск, `BusType` «File Backed Virtual», 64 MB.
    Сам файл скрипта печатает `Get-Content 'C:\Users\Alexey\AppData\Local\Temp\worfy-01\t35-detach-vhd.txt'` — ожидаются ровно эти две строки и ничего больше (добавлено ревью на Mac, второй круг PR #287).
+   Перед шагом 1 спросить Session на ПК, созданы ли папки замера 6 (junction по GUID, том которого потом отключён; Ticket 45, пункт 2) и не нужен ли этот том для замера 7 (`mountvol`, там же): после отключения оба замера требуют нового тома и повышения прав (добавлено ревью на Mac).
 1. Отключить виртуальный диск. Нужно повышение прав, появится окно UAC:
    `powershell.exe -NoProfile -Command "Start-Process diskpart -Verb RunAs -Wait -ArgumentList '/s C:\Users\Alexey\AppData\Local\Temp\worfy-01\t35-detach-vhd.txt'"`
    Скрипт состоит из двух команд: `select vdisk file="C:\Users\Alexey\AppData\Local\Temp\worfy-01\t35-vhd\worfy-scratch.vhdx"` и `detach vdisk`.

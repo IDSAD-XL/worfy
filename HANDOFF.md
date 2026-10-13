@@ -30,7 +30,7 @@
 ## Риски и долги
 
 - Gate full красный 2026-10-12 23:04 – 10-13 01:02 — `fseventsd` (102–116 % CPU, 4,2 ГБ, 32 дня); лечит `sudo killall fseventsd` (kickstart запрещён SIP) и перезапуск приложений с наблюдателями; признак — `docs.test.ts`, `claude-home-registry.test.ts` красные и на main; замеры — `worfy-windows` 26.
-- Trash на macOS при первом запуске после трёх дней стирает файлы тома, примонтированного в папку Card-а или внутрь неё (том ставится руками): замер двух его вызовов 2026-10-13, `worfy-windows` 44. На Windows закрыто PR #287.
+- Trash на macOS при первом запуске после трёх дней стирает файлы тома, примонтированного в папку Card-а или внутрь неё (том ставится руками): замер двух его вызовов 2026-10-13, `worfy-windows` 44. На Windows junction по GUID закрыт PR #287; `mountvol` не измерен (45).
 - Каждый мерж, который трогает `harness/`, кончается `pnpm install:stable` вне прогона Autopilot (ADR-0047): без пересборки Stable copy влитый урок не действует.
 - Atakama пойдёт через полный предполёт Harness с `git fetch`. На живых репозиториях Atakama это не проверено, только на клонах (`worfy-harness` 11).
 - [med] С plugin-ом оживают долги про `gh`: Stop hook зовёт `gh` по имени, и `bin/gh` plugin-а подменит учётную запись (`worfy-harness` 01); `preflight` советует `gh auth switch` вместо `GH_TOKEN` (`worfy-week` 01).
