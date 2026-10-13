@@ -7,6 +7,13 @@
 // removes a junction or a symlink as the link it is. On every other system fs.rmSync is called, as
 // before: it never went through a link there.
 //
+// One junction is a folder to lstat: the one whose target is written with the GUID of a volume
+// (worfy-windows ticket 35; the walk as it was listed it and removed the files of that volume).
+// So a folder is first asked to go with one rmdir, which removes such a junction as a link, and is
+// listed only when the answer is "not empty" and it is on the volume of the folder it lies in.
+// The price: a folder that is busy itself is waited for before its entries, and keeps them when
+// it stays busy.
+//
 // The scripts cannot import from src/main, so this is a copy of removeTree of
 // src/main/storage/remove.ts; test/unit/remove-tree.test.ts runs both over the same trees.
 
@@ -26,7 +33,8 @@ export function removeTree(given) {
   return removeWalk(given, { waits: 5 })
 }
 
-function removeWalk(given, patience) {
+// "outer" is the volume of the folder the path lies in; the path the caller gave has none yet.
+function removeWalk(given, patience, outer) {
   // Off Windows rmSync never went through a link, and nothing changes there. The walk is for
   // Windows alone, and holds for a tree nobody else changes meanwhile.
   if (process.platform !== 'win32') return rmSync(given, { recursive: true, force: true })
@@ -34,45 +42,73 @@ function removeWalk(given, patience) {
   const cut = given.replace(/[\\/]+$/, '')
   const path = cut === '' || cut.endsWith(':') ? given : cut
   const gone = (error) => Boolean(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')
-  let folder
+  let seen
   try {
-    folder = lstatSync(path).isDirectory()
+    seen = lstatSync(path)
   } catch (error) {
     if (gone(error)) return
     throw error
   }
-  if (folder) {
-    let names
-    try {
-      names = readdirSync(path)
-    } catch (error) {
-      if (gone(error)) return
-      throw error
-    }
-    // An entry that cannot be removed does not end the walk: the first error is thrown at the end.
-    let failed = null
-    for (const name of names) {
+  const folder = seen.isDirectory()
+  // Removes the entry itself and asks again while the answer is "busy"; the waits that are left
+  // are those of the whole removal (removeTree). With "first", a folder that answers "not empty"
+  // is not waited for: false says that it holds entries.
+  const goes = (first) => {
+    for (;;) {
       try {
-        removeWalk(join(path, name), patience)
+        if (folder) rmdirSync(path)
+        else unlinkSync(path)
+        return true
       } catch (error) {
-        if (failed === null) failed = { error }
+        const code = error && error.code
+        if (code === 'ENOENT') return true
+        if (first && code === 'ENOTEMPTY') return false
+        if (patience.waits === 0 || !['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES'].includes(code)) throw error
+        patience.waits -= 1
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
       }
     }
-    if (failed !== null) throw failed.error
   }
-  // The waits that are left are those of the whole removal (removeTree).
-  for (;;) {
+  if (!folder) {
+    goes(false)
+    return
+  }
+  // A junction that leads to a volume by its GUID is a folder to lstat, and a listing of it reads
+  // that volume (worfy-windows ticket 35). So a folder is listed only when both hold: it is on the
+  // volume of the folder it lies in, and it has answered "not empty" to one rmdir.
+  let volume = outer
+  if (volume === undefined) {
     try {
-      if (folder) rmdirSync(path)
-      else unlinkSync(path)
-      return
-    } catch (error) {
-      const code = error && error.code
-      if (code === 'ENOENT') return
-      if (patience.waits === 0 || !['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES'].includes(code)) throw error
-      patience.waits -= 1
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+      // A parent that is a link to lstat (an ordinary junction, a symlink) answers with the
+      // volume the link lies on, not the one this path is on: unknown then.
+      const parent = lstatSync(join(path, '..'))
+      if (parent.isDirectory()) volume = parent.dev
+    } catch {
+      // The parent cannot be asked: the first rmdir below still decides.
     }
   }
+  if (volume !== undefined && seen.dev !== volume) {
+    goes(false)
+    return
+  }
+  if (goes(true)) return
+  let names
+  try {
+    names = readdirSync(path)
+  } catch (error) {
+    if (gone(error)) return
+    throw error
+  }
+  // An entry that cannot be removed does not end the walk: the first error is thrown at the end.
+  let failed = null
+  for (const name of names) {
+    try {
+      removeWalk(join(path, name), patience, seen.dev)
+    } catch (error) {
+      if (failed === null) failed = { error }
+    }
+  }
+  if (failed !== null) throw failed.error
+  goes(false)
 }
 // </remove-tree>
