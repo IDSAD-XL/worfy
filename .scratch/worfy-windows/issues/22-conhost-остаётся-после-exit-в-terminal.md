@@ -1,7 +1,7 @@
 # 22 — Оболочка Terminal, которая вышла сама (`exit`), оставляет `conhost.exe` до выхода из worfy
 
 Type: task
-Status: open
+Status: done — 2026-10-13, [PR #280](https://github.com/IDSAD-XL/worfy/pull/280)
 Blocked by: 10
 Source: нашла Session на Windows-ПК, 2026-10-12, при правках PR #239 (Ticket [10](10-terminal-на-powershell.md) — Terminal на PowerShell); причину подтвердило ревью на Mac чтением исходников node-pty. PR #239 правит тот же файл и вливается раньше. Делается после Ticket-а [20](20-chokidar-не-идёт-по-ссылке-на-unc.md) (watcher-ы chokidar и ссылка на share). Делает Session на Windows-ПК; проверяет и вливает Session на Mac, как у Ticket-а 20.
 

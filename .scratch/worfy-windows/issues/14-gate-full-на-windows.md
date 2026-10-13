@@ -102,6 +102,45 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
   воспроизводится. Починка — в test-е: брать папку через `realpathSync.native`. Остальные 68
   test-ов двух файлов прошли. Какие ещё test-ы строят ожидание от `tmpdir()`, не проверялось.
 
+- **Замер 2026-10-13 — с него Ticket начинает** (Session на Windows-ПК, полный `pnpm test`, main
+  `d1ed18c`, Node 24.21.0 из Electron 44.5.1, JSON-отчёт vitest). 4522 test-а: 3862 прошли, 620
+  упали, 40 пропущены; падения — в 51 файле. Ещё один файл не загрузился
+  (`test/contract/terminal-shell-integration.test.ts`); с ним счёт Session — 621: 593 в
+  `test/contract`, 28 в `test/unit`. Скрипты разбора лежат на ПК в `%TEMP%\worfy-01`
+  (`p1-groups.cjs`, `p1-classes.cjs`, `p1-families.cjs`), в репозитории их нет.
+  - Классы по тексту ошибки (первый подошедший):
+
+    | Класс | Test-ов | Файлов |
+    |---|---|---|
+    | `call rejected, it came from an untrusted frame` | 118 | 8 |
+    | shell-скрипт «did not finish in time» | 38 | 1 (`e3-sandbox`) |
+    | shell-скрипт «exited N» | 15 | 1 (`harness-scripts`) |
+    | `ENOENT`, `EINVAL` или неудачный spawn в первых трёх строках | 20 | 8 |
+    | timeout test-а или hook-а | 4 | 4 |
+    | ни один из этих | 426 | 46 |
+
+  - Верхняя граница для file URL macOS: строку `/Applications/worfy.app` содержат 34 test-файла, в
+    них 924 test-а, 242 упали. 117 из них говорят «untrusted frame»; остальные 125 падают на
+    assertion-е, который причину не показывает (вероятно, тот же отказ — не доказано).
+  - Упало по файлам, первые 20 (упало / всего): `e3-sandbox` 45/57; `harness-evals` 39/55;
+    `projects` 39/42; `layout-store` 37/41; `claude-home-registry` 36/67; `harness-install` 34/46;
+    `workflow-profile` 32/60; `github-prs` 31/65; `workflow-reader` 29/43; `claude-home-subagents`
+    28/32; `harness-migrate` 26/57; `e3-owner-check` 23/23; `first-run-checks` 21/39; `docs` 19/22;
+    `harness-scripts` 19/26; `github-accounts` 15/20; `trash` 14/14; `unit/gate-state` 12/63;
+    `harness-qmd` 11/17; `startup-failure` 10/35.
+  - По семействам файлов (упало / файлов / test-ов): `harness-*` 132/7/225; `e3-*` 68/2/80;
+    `claude-*` 64/2/99; `workflow-*` 61/2/103; `github-*` 46/2/85; `projects-*` 45/2/73; `layout-*`
+    37/1/41; `first-*` 21/1/39; `docs-*` 19/1/22; `trash-*` 14/1/14; `unit/gate-*` 12/1/63; в
+    остальных 25 семействах — 102.
+  - По первой строке ошибки — 230 групп. Самые большие: 38 — скрипт не успел (`e3-sandbox`); 32 в
+    14 файлах — `expected false to be true`; 30 — `layout.apply`, 29 — `projects.add`, 14 —
+    `claudeHome.subagents`, 11 — `docs.open`, 11 — `trash.put` (все пять — «untrusted frame»); 22 в
+    3 файлах — `expected N to be N`; 15 — «exited N» (`harness-scripts`).
+  - Чтение Session — предположение, не замер. Большую часть дают три причины: file URL macOS в
+    IPC-test-ах (118 сказано прямо, до 242); shell-скрипты Harness и E3 через bash на Windows
+    (`harness-*` и `e3-*` — 200 падений); ожидание POSIX-пути там, где Windows отвечает своим
+    (`gate-state`, `workflow-*`). Одной общей причины нет: 426 падений не попали ни в один класс.
+
 ## Что делаем
 
 1. **Unit- и contract-test-ы на Windows.** Каждый test из списка evidence Ticket-а 01 (раздел 17) и
