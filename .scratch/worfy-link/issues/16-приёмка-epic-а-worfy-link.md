@@ -34,8 +34,8 @@ Source: «Готово, когда» Epic-а worfy-link ([spec.md](../spec.md));
 
 Пункт 1 Epic-а — связь и отзыв.
 
-- [ ] (вручную) dev-сборка и Stable copy связаны по 6-значному коду. Связь видна в списке Linked machine-ов обеих.
-- [ ] (вручную) отзыв с каждой стороны по очереди. Вторая копия сразу теряет соединение: её нет в списке Linked machine-ов, её Project-ы пропадают из боковой панели.
+- [ ] (вручную) dev-сборка и Stable copy связаны по 6-значному коду. Секция Machines боковой панели свёрнута, пока её не развернули: кнопка «Link a machine…» и список Linked machine-ов — в развёрнутой секции (клик по заголовку «Machines»). Связь видна в этом списке у обеих копий и по зелёной точке рядом с заголовком «Machines» — она видна и у свёрнутой секции, её подсказка — «1 linked machine online».
+- [ ] (вручную) отзыв с каждой стороны по очереди (правый клик по строке в развёрнутой секции Machines → «Revoke»). Вторая копия сразу теряет соединение: её нет в списке Linked machine-ов развёрнутой секции Machines, зелёной точки у заголовка «Machines» нет, её Project-ы пропадают из боковой панели.
 
 Пункт 2 — работа с Project-ом другой машины.
 
@@ -52,12 +52,12 @@ Source: «Готово, когда» Epic-а worfy-link ([spec.md](../spec.md));
 Пункт 4 — уведомления, сон, второй Autopilot.
 
 - [ ] (вручную) Окна обеих копий без фокуса (активно другое приложение). Ход Session Project-а Stable copy кончается — приходят два уведомления, по одному от каждой копии. Клик по уведомлению dev-сборки открывает эту Session в окне dev-сборки.
-- [ ] Команда: копии связаны, доступ включён только у Stable copy. `pmset -g assertions` показывает `PreventUserIdleSystemSleep` у pid Stable copy. После отзыва связи — не показывает.
+- [ ] Команда: копии связаны, доступ включён только у Stable copy (переключатель «Linked machines can work with my Projects» — в Settings → Machines, ⌘, или меню worfy → «Settings…»; в боковой панели его больше нет). `pmset -g assertions` показывает `PreventUserIdleSystemSleep` у pid Stable copy. После отзыва связи — не показывает.
 - [ ] (вручную) Второй Autopilot. Project-ы — два клона одного репозитория: один у Stable copy, другой у dev-сборки. Autopilot Epic-а запущен на Stable copy. Старт того же Epic-а на dev-сборке отклонён, отказ называет Machine Stable copy. «Start anyway» здесь не нажимать: обход проверен e2e Ticket-а 15. Прогон на Stable copy остановлен.
 
 Пункт 5 — безопасность.
 
-- [ ] Команда: worfy с пустой папкой данных (`WORFY_DATA_DIR=$(mktemp -d) pnpm dev`). Переключатель «Linked machines can work with my Projects» выключен. Порт связи не слушается, пока нет Linked machine и не открыт «Link a machine»: `lsof -nP -iTCP -sTCP:LISTEN -a -p <pid>` пуст. Правило — из «Итог» Ticket-ов 01–02.
+- [ ] Команда: worfy с пустой папкой данных (`WORFY_DATA_DIR=$(mktemp -d) pnpm dev`). Переключатель «Linked machines can work with my Projects» в Settings → Machines выключен. Порт связи не слушается, пока нет Linked machine и не открыт «Link a machine»: `lsof -nP -iTCP -sTCP:LISTEN -a -p <pid>` пуст. Правило — из «Итог» Ticket-ов 01–02.
 - [ ] test-ы проверки Origin/Host Ticket-а 01 есть и зелёные: их имена — из «Итог» Ticket-а 01, `pnpm test` — exit 0.
 - [ ] Команда: обе копии запущены из терминала с выводом в файлы — `~/Applications/worfy-stable.app/Contents/MacOS/worfy > stable.log 2>&1` и `pnpm dev > dev.log 2>&1`. Сделаны связывание, работа с Project-ом и отзыв. `grep -c <код с экрана> stable.log dev.log` — 0 и 0. Отсутствие токена в выводе проверяет test Ticket-а 01, он зелёный.
 
@@ -68,12 +68,12 @@ Source: «Готово, когда» Epic-а worfy-link ([spec.md](../spec.md));
 
 **Mac + Windows: после приёмки Epic-а worfy-windows.**
 
-- [ ] (вручную) Mac и Windows связаны по коду. Отзыв с каждой стороны сразу рвёт соединение.
+- [ ] (вручную) Mac и Windows связаны по коду: «Link a machine…» — в развёрнутой секции Machines боковой панели. Отзыв с каждой стороны сразу рвёт соединение.
 - [ ] (вручную) С Windows на Canvas Project-а Mac: правка, Session, Terminal (zsh на Mac), старт и Stop Autopilot. С Mac на Canvas Project-а Windows — то же (Terminal — PowerShell на Windows). Оба экрана обновляются вживую.
 - [ ] (вручную) Session, запущенная с Windows, переживает закрытие окна worfy на Windows. «Add Project» с Windows на Mac — через просмотр папок Mac.
 - [ ] (вручную) Уведомления в обе стороны.
 - [ ] Команда: пока машины связаны, `powercfg /requests` на Windows показывает процесс worfy в разделе SYSTEM, а `pmset -g assertions` на Mac — assertion у worfy.
-- [ ] (вручную) Mac уходит в сон из меню . На Windows Mac показан как «спит», а не «недоступна». Так проверяется, что сообщение перед сном уходит по сети (Ticket 14).
+- [ ] (вручную) Mac уходит в сон из меню . На Windows в развёрнутой секции Machines Mac показан как «спит», а не «недоступна»; зелёной точки у заголовка «Machines» при этом нет. Так проверяется, что сообщение перед сном уходит по сети (Ticket 14).
 - [ ] (вручную) На Windows старт Autopilot того же Epic-а с тем же origin, что идёт на Mac, отклонён с именем Mac.
 
 ## Тесты

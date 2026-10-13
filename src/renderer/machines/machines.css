@@ -1,0 +1,71 @@
+/*
+ * The status dot next to the "Machines" heading of the sidebar (machines-dot.ts says which one).
+ *
+ * The dot is 6 px, like the dot of a chip (.w-chip__dot). Its box is 12 px: the ring of the pulse
+ * grows to 12 px and stays inside the box. The header of a section cuts what leaves the boxes of
+ * its parts (sidebar-section.css), so the dot brings its own room for the ring and asks the frame
+ * for none.
+ */
+.w-machines-dot {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+.w-machines-dot::before,
+.w-machines-dot::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  box-sizing: border-box;
+}
+.w-machines-dot::before {
+  background: var(--w-machines-dot-colour);
+}
+/* A Linked machine is online. */
+.w-machines-dot[data-state='online'] {
+  --w-machines-dot-colour: var(--ready-dot);
+}
+/* A Linked machine answered with another certificate: still, no ring. */
+.w-machines-dot[data-state='certificate-changed'] {
+  --w-machines-dot-colour: var(--blocked-ring);
+}
+
+/* The pulse: a ring of the dot's colour that leaves the dot, grows to the box and fades, every 2 s. */
+.w-machines-dot[data-state='online']::after {
+  border: 1px solid var(--w-machines-dot-colour);
+  opacity: 0;
+  animation: w-machines-dot-pulse 2s ease-out infinite;
+}
+
+@keyframes w-machines-dot-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  70%,
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w-machines-dot[data-state='online']::after {
+    animation: none;
+  }
+}
+
+/* A message of Settings → Machines: why a switch did not change. */
+.w-machines-settings__error {
+  margin: var(--space-2) 0 0;
+  color: var(--blocked-text);
+  font-size: var(--text-12);
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}

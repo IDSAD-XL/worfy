@@ -16,7 +16,7 @@ import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { canvasReady, launchApp, linkThroughUi, machineIdOf, repoRoot, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 
 test.setTimeout(240_000)
@@ -93,13 +93,6 @@ async function countDialogs(app: ElectronApplication): Promise<void> {
 
 const dialogsOf = (app: ElectronApplication): Promise<number> => app.evaluate(() => (globalThis as unknown as { pickerCalls: { dialogs: number } }).pickerCalls.dialogs)
 
-/** Sets "Linked machines can work with my Projects" on the worfy of `window`. */
-async function setSharing(window: Page, on: boolean): Promise<void> {
-  const toggle = window.getByRole('switch', { name: 'Linked machines can work with my Projects' })
-  if ((await toggle.getAttribute('aria-checked')) !== String(on)) await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-checked', String(on))
-}
-
 interface Pair {
   a: LaunchedApp
   b: LaunchedApp
@@ -163,7 +156,7 @@ test.afterEach(async () => {
 
 test('in A: Add project → Machine B → B\'s folders → a repository: the Project is added on B, B\'s active one stays, A opens it; no system picker anywhere', async () => {
   await launchPair(scratch, async ({ a, b, bId, aData, bData, bHome, shop }) => {
-    await setSharing(b.window, true)
+    await setProjectsAccess(b, true)
     // A sees B's Projects: B is online and shares.
     await expect(groupOf(a.window, bId).locator(`[data-testid="project-row"][data-project-id="${BETA}"]`)).toBeVisible()
 
@@ -223,7 +216,7 @@ test('in A: Add project → Machine B → B\'s folders → a repository: the Pro
 
 test('B with access off: B cannot be chosen in the Machine step, and says why', async () => {
   await launchPair(scratch, async ({ a, b, bId }) => {
-    await setSharing(b.window, false)
+    await setProjectsAccess(b, false)
     // A learns it from the refusal of B's list.
     await expect(groupOf(a.window, bId).getByTestId('machine-not-sharing')).toBeVisible()
     await a.window.getByRole('button', { name: 'Add project' }).click()

@@ -11,7 +11,7 @@ import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Frame, type Page } from '@playwright/test'
-import { launchApp, linkThroughUi, machineIdOf, repoRoot, type LaunchedApp } from './helpers'
+import { launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 
 test.setTimeout(180_000)
@@ -74,12 +74,6 @@ function gitRepo(path: string): string {
   git('add', '.')
   git('commit', '-q', '-m', 'init')
   return realpathSync(path)
-}
-
-async function setSharing(window: Page, on: boolean): Promise<void> {
-  const toggle = window.getByRole('switch', { name: 'Linked machines can work with my Projects' })
-  if ((await toggle.getAttribute('aria-checked')) !== String(on)) await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-checked', String(on))
 }
 
 const group = (window: Page, selector: string) => window.locator(`[data-testid="machine-group"]${selector}`)
@@ -191,7 +185,7 @@ test('A shows the Card of B from B, its own Card as before; a file change on B r
     b = await launchApp({ env: { WORFY_DATA_DIR: bData, WORFY_AGENT_SCRIPT: 'orchestrator' } })
     await linkThroughUi(a.window, b.window)
     const bId = await machineIdOf(b.window)
-    await setSharing(b.window, true)
+    await setProjectsAccess(b, true)
     const ownOrigin = `worfy-card://c1.${LABEL}`
 
     // A's own Project: its own Card, at the address it always had.

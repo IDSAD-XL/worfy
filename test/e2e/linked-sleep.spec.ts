@@ -9,12 +9,9 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { launchApp, launchLinkedPair, machineIdOf } from './helpers'
+import { closeSettings, KEEP_AWAKE_LABEL, launchApp, launchLinkedPair, machineIdOf, openMachinesSettings, setKeepAwake, setProjectsAccess } from './helpers'
 
 test.setTimeout(120_000)
-
-const KEEP_AWAKE = 'Keep this computer awake while linked machines are connected'
-const ACCESS = 'Linked machines can work with my Projects'
 
 const row = (window: Page, machineId: string) => window.locator(`[data-testid="machine-row"][data-machine-id="${machineId}"]`)
 
@@ -45,19 +42,27 @@ test('suspend on A: B shows A as sleeping; resume: online again', async () => {
   const pair = await launchLinkedPair()
   try {
     const { a, b, aId } = pair
+    // The row of A is on screen in B: linking left the Machines section of B expanded.
+    await expect(row(b.window, aId)).toBeVisible()
     await expect(row(b.window, aId)).toHaveAttribute('data-state', 'online')
+    const dot = b.window.getByRole('region', { name: 'Machines', exact: true }).getByRole('img')
+    await expect(dot).toHaveAccessibleName('1 linked machine online')
 
     await a.app.evaluate(({ powerMonitor }) => {
       powerMonitor.emit('suspend')
     })
     await expect(row(b.window, aId)).toHaveAttribute('data-state', 'sleeping')
     await expect(row(b.window, aId)).toContainText('Sleeping')
+    await expect(row(b.window, aId)).toBeVisible()
+    // Nobody is online for B: the dot next to "Machines" is gone until A wakes.
+    await expect(dot).toHaveCount(0)
 
     await a.app.evaluate(({ powerMonitor }) => {
       powerMonitor.emit('resume')
     })
     await expect(row(b.window, aId)).toHaveAttribute('data-state', 'online')
     await expect(row(b.window, aId)).toContainText('Online')
+    await expect(dot).toHaveAccessibleName('1 linked machine online')
   } finally {
     await pair.close()
   }
@@ -72,11 +77,12 @@ test('A holds one prevent-app-suspension blocker while B is connected and both s
     // Access is off on a fresh Machine: nothing is held yet.
     expect(await power()).toEqual([])
 
-    await a.window.getByRole('switch', { name: ACCESS }).click()
+    // Both switches are in Settings → Machines.
+    await setProjectsAccess(a, true)
     await expect.poll(power).toEqual(['start prevent-app-suspension'])
-    await a.window.getByRole('switch', { name: KEEP_AWAKE }).click()
+    await setKeepAwake(a, false)
     await expect.poll(power).toEqual(['start prevent-app-suspension', 'stop'])
-    await a.window.getByRole('switch', { name: KEEP_AWAKE }).click()
+    await setKeepAwake(a, true)
     await expect.poll(power).toEqual(['start prevent-app-suspension', 'stop', 'start prevent-app-suspension'])
   } finally {
     await pair.close()
@@ -89,18 +95,22 @@ test('the keep-awake switch is on on a fresh Machine and stays off across a rest
     const first = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
     try {
       await machineIdOf(first.window)
-      const toggle = first.window.getByRole('switch', { name: KEEP_AWAKE })
+      const toggle = (await openMachinesSettings(first)).getByRole('switch', { name: KEEP_AWAKE_LABEL, exact: true })
       await expect(toggle).toBeVisible()
+      await expect(toggle).toBeEnabled()
       await expect(toggle).toHaveAttribute('aria-checked', 'true')
       await toggle.click()
       await expect(toggle).toHaveAttribute('aria-checked', 'false')
+      await closeSettings(first.window)
     } finally {
       await first.close()
     }
     const second = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
     try {
       await machineIdOf(second.window)
-      await expect(second.window.getByRole('switch', { name: KEEP_AWAKE })).toHaveAttribute('aria-checked', 'false')
+      const toggle = (await openMachinesSettings(second)).getByRole('switch', { name: KEEP_AWAKE_LABEL, exact: true })
+      await expect(toggle).toBeVisible()
+      await expect(toggle).toHaveAttribute('aria-checked', 'false')
     } finally {
       await second.close()
     }

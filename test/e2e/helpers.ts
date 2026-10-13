@@ -6,6 +6,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { _electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import type { Reporter, TestCase, TestResult } from '@playwright/test/reporter'
+import { clickMenuItem } from './menu'
 
 export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const mainEntry = join(repoRoot, 'out', 'main', 'index.js')
@@ -460,8 +461,78 @@ export async function machineIdOf(window: Page): Promise<string> {
   return id
 }
 
-/** Opens "Link a machine" from the Machines section of the sidebar. */
+/** The heading of the sidebar's Machines section: the button that collapses and expands it. */
+const machinesHeading = (window: Page): Locator => window.getByRole('region', { name: 'Machines', exact: true }).getByRole('button', { name: 'Machines', exact: true })
+
+/**
+ * Expands the Machines section of the sidebar, which is collapsed until the user expands it: its
+ * list and "Link a machine…" are in its body. worfy remembers it for the data folder. Does nothing
+ * when the section is expanded already.
+ */
+export async function expandMachines(window: Page): Promise<void> {
+  const heading = machinesHeading(window)
+  await expect(heading).toBeVisible()
+  if ((await heading.getAttribute('aria-expanded')) !== 'true') await heading.click()
+  await expect(heading).toHaveAttribute('aria-expanded', 'true')
+  await expect(window.getByTestId('link-machine-button')).toBeVisible()
+}
+
+/** Collapses the Machines section of the sidebar; does nothing when it is collapsed already. */
+export async function collapseMachines(window: Page): Promise<void> {
+  const heading = machinesHeading(window)
+  await expect(heading).toBeVisible()
+  if ((await heading.getAttribute('aria-expanded')) !== 'false') await heading.click()
+  await expect(heading).toHaveAttribute('aria-expanded', 'false')
+  await expect(window.getByTestId('link-machine-button')).toBeHidden()
+}
+
+/** SETTINGS_MENU_ITEM_ID of src/main/menu.ts; that module needs Electron, so it is not imported here. */
+const SETTINGS_MENU_ITEM_ID = 'app.settings'
+
+/** The labels of the two switches of Settings → Machines. */
+export const PROJECTS_ACCESS_LABEL = 'Linked machines can work with my Projects'
+export const KEEP_AWAKE_LABEL = 'Keep this computer awake while linked machines are connected'
+
+/**
+ * Opens Settings → Machines of this worfy the way a person does: "Settings…" of the app menu, then
+ * the row "Machines" of the section list. Answers the Settings window, on that section.
+ */
+export async function openMachinesSettings(launched: Pick<LaunchedApp, 'app' | 'window'>): Promise<Locator> {
+  await clickMenuItem(launched.app, SETTINGS_MENU_ITEM_ID)
+  const dialog = launched.window.getByRole('dialog', { name: 'Settings' })
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Machines', exact: true }).click()
+  await expect(dialog.getByRole('heading', { level: 2 })).toHaveText('Machines')
+  return dialog
+}
+
+/** Closes the Settings window with its Close button. */
+export async function closeSettings(window: Page): Promise<void> {
+  const dialog = window.getByRole('dialog', { name: 'Settings' })
+  await dialog.getByRole('button', { name: 'Close' }).click()
+  await expect(dialog).toHaveCount(0)
+}
+
+/** Sets the switch `label` of Settings → Machines to `on` with a click, and closes Settings. */
+async function setMachinesSwitch(launched: Pick<LaunchedApp, 'app' | 'window'>, label: string, on: boolean): Promise<void> {
+  const dialog = await openMachinesSettings(launched)
+  const toggle = dialog.getByRole('switch', { name: label, exact: true })
+  // Disabled until the link service of this worfy has started.
+  await expect(toggle).toBeEnabled()
+  if ((await toggle.getAttribute('aria-checked')) !== String(on)) await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', String(on))
+  await closeSettings(launched.window)
+}
+
+/** Sets "Linked machines can work with my Projects" of this worfy, in Settings → Machines. */
+export const setProjectsAccess = (launched: Pick<LaunchedApp, 'app' | 'window'>, on: boolean): Promise<void> => setMachinesSwitch(launched, PROJECTS_ACCESS_LABEL, on)
+
+/** Sets "Keep this computer awake while linked machines are connected" of this worfy, in Settings → Machines. */
+export const setKeepAwake = (launched: Pick<LaunchedApp, 'app' | 'window'>, on: boolean): Promise<void> => setMachinesSwitch(launched, KEEP_AWAKE_LABEL, on)
+
+/** Opens "Link a machine" from the Machines section of the sidebar, expanding the section first. */
 export async function openLinkDialog(window: Page): Promise<Locator> {
+  await expandMachines(window)
   await window.getByTestId('link-machine-button').click()
   const dialog = window.getByTestId('link-machine-dialog')
   await expect(dialog).toBeVisible()
@@ -487,7 +558,8 @@ export async function chooseByAddress(a: Page, b: Page): Promise<void> {
 /**
  * Links two running worfy through the UI, as a person does: "Link a machine" on both, the address
  * of `b` and the code `b` shows typed on `a`. Waits until both show the success, closes both
- * dialogs and waits until each lists the other as online.
+ * dialogs and waits until each lists the other as online. The Machines section of both is left
+ * expanded, with the row of the other on screen.
  */
 export async function linkThroughUi(a: Page, b: Page): Promise<void> {
   await openLinkDialog(a)
@@ -502,8 +574,15 @@ export async function linkThroughUi(a: Page, b: Page): Promise<void> {
     await expect(window.getByTestId('link-machine-dialog')).toHaveCount(0)
   }
   const [aId, bId] = [await machineIdOf(a), await machineIdOf(b)]
-  await expect(a.locator(`[data-testid="machine-row"][data-machine-id="${bId}"]`)).toHaveAttribute('data-state', 'online')
-  await expect(b.locator(`[data-testid="machine-row"][data-machine-id="${aId}"]`)).toHaveAttribute('data-state', 'online')
+  for (const [window, other] of [
+    [a, bId],
+    [b, aId],
+  ] as const) {
+    const row = window.locator(`[data-testid="machine-row"][data-machine-id="${other}"]`)
+    // On screen: an attribute is there on a row of a collapsed section too.
+    await expect(row).toBeVisible()
+    await expect(row).toHaveAttribute('data-state', 'online')
+  }
 }
 
 export interface LinkedPair {

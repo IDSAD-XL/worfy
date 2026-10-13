@@ -3,34 +3,119 @@
 // a wrong code, revoking from either side, and the access switch across a restart. Each worfy has
 // its own data folder and so its own Machine; Bonjour is off and the link server listens on loopback
 // only (launchApp). worfy-link ticket 09 adds its tests to this file.
+//
+// worfy-ui ticket 5: the Machines section of the sidebar is collapsed until the user expands it and
+// shows a status dot next to its heading; the two switches are in Settings → Machines.
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, chooseByAddress, launchApp, launchLinkedPair, linkThroughUi, machineIdOf, openLinkDialog, repoRoot, shownCode, type LaunchedApp } from './helpers'
+import {
+  canvasReady,
+  chooseByAddress,
+  closeSettings,
+  collapseMachines,
+  expandMachines,
+  KEEP_AWAKE_LABEL,
+  launchApp,
+  launchLinkedPair,
+  linkThroughUi,
+  machineIdOf,
+  openLinkDialog,
+  openMachinesSettings,
+  PROJECTS_ACCESS_LABEL,
+  repoRoot,
+  setProjectsAccess,
+  shownCode,
+  type LaunchedApp,
+} from './helpers'
 import { snapshotThemes } from './snapshots'
 
 test.setTimeout(120_000)
 
 const row = (window: Page, machineId: string) => window.locator(`[data-testid="machine-row"][data-machine-id="${machineId}"]`)
 
-/** Revokes `machineId` from its row's context menu in `window`. */
+/** Revokes `machineId` from its row's context menu in `window`; the row is in the body of the Machines section. */
 async function revoke(window: Page, machineId: string): Promise<void> {
+  await expandMachines(window)
   await row(window, machineId).click({ button: 'right' })
   await window.getByRole('menuitem', { name: 'Revoke' }).click()
 }
+
+const machinesRegion = (window: Page): Locator => window.getByRole('region', { name: 'Machines', exact: true })
+const machinesHeading = (window: Page): Locator => machinesRegion(window).getByRole('button', { name: 'Machines', exact: true })
+/** The status dot next to the heading "Machines"; it is an image with a name, and has no caption. */
+const machinesDot = (window: Page): Locator => machinesRegion(window).getByRole('img')
+
+/** The page's DOM, typed for this file: the e2e typecheck has no DOM library. */
+interface Box {
+  left: number
+  right: number
+  top: number
+  bottom: number
+  width: number
+  height: number
+}
+interface El {
+  parentElement: El | null
+  closest(selector: string): El | null
+  querySelector(selector: string): El | null
+  getBoundingClientRect(): Box
+}
+interface Computed {
+  backgroundColor: string
+  borderTopColor: string
+  animationName: string
+  animationDuration: string
+  animationIterationCount: string
+}
+
+/** How the dot is drawn: the colour of the dot, and the ring that pulses around it. */
+const dotPaint = (window: Page) =>
+  machinesDot(window).evaluate((node) => {
+    const style = (element: El, pseudo?: string): Computed => (globalThis as unknown as { getComputedStyle(element: El, pseudo?: string): Computed }).getComputedStyle(element, pseudo)
+    const dot = node as unknown as El
+    const core = style(dot, '::before')
+    const ring = style(dot, '::after')
+    return { colour: core.backgroundColor, ring: ring.animationName, ringColour: ring.borderTopColor, every: ring.animationDuration, times: ring.animationIterationCount }
+  })
+
+/** Where the dot is: its own box, the heading button left of it, and the boxes of the header that cut what leaves them. */
+const dotPlace = (window: Page) =>
+  machinesDot(window).evaluate((node) => {
+    const dot = node as unknown as El
+    const header = dot.closest('.w-sidebar-section__header')
+    const box = (element: El | null): Box => {
+      if (element === null) throw new Error('the dot is not in the header of a section')
+      const { left, right, top, bottom, width, height } = element.getBoundingClientRect()
+      return { left, right, top, bottom, width, height }
+    }
+    return { dot: box(dot), slot: box(dot.parentElement), header: box(header), heading: box(header?.querySelector('h2 button') ?? null) }
+  })
 
 test('two worfy link by address and code, and each lists the other as online', async () => {
   const a = await launchApp()
   let b: LaunchedApp | undefined
   try {
     b = await launchApp()
-    // A fresh Machine: no Linked machine, only the button and the switch.
-    await expect(a.window.getByTestId('machines-section')).toBeVisible()
+    // A fresh Machine: the Machines section is collapsed — its heading alone, with no dot.
+    for (const window of [a.window, b.window]) {
+      await machineIdOf(window)
+      await expect(window.getByTestId('machines-section')).toBeVisible()
+      await expect(machinesHeading(window)).toHaveAttribute('aria-expanded', 'false')
+      await expect(window.getByTestId('link-machine-button')).toBeHidden()
+      await expect(machinesDot(window)).toHaveCount(0)
+    }
+    expect((await a.window.getByTestId('machines-section').boundingBox())?.height).toBe(24)
+    await snapshotThemes(a.window, 'machines-collapsed')
+    // Expanded: no Linked machine, only the button. The switches are in Settings → Machines.
+    await expandMachines(a.window)
     await expect(a.window.getByTestId('machine-row')).toHaveCount(0)
     await expect(a.window.getByTestId('link-machine-button')).toHaveText('Link a machine…')
+    await expect(a.window.locator('.w-sidebar').getByRole('switch')).toHaveCount(0)
+    await expect(machinesDot(a.window)).toHaveCount(0)
 
     await openLinkDialog(a.window)
     await openLinkDialog(b.window)
@@ -52,6 +137,9 @@ test('two worfy link by address and code, and each lists the other as online', a
     await expect(b.window.getByTestId('link-success')).toContainText(await nameOf(a.window))
 
     for (const window of [a.window, b.window]) await window.getByTestId('link-machine-dialog').getByRole('button', { name: 'Done' }).click()
+    // The rows are on screen: "Link a machine" was opened from the expanded section.
+    await expect(row(a.window, bId)).toBeVisible()
+    await expect(row(b.window, aId)).toBeVisible()
     await expect(row(a.window, bId)).toHaveAttribute('data-state', 'online')
     await expect(row(b.window, aId)).toHaveAttribute('data-state', 'online')
     await expect(row(a.window, bId)).toContainText('Online')
@@ -63,7 +151,65 @@ test('two worfy link by address and code, and each lists the other as online', a
     expect(suffixBox).not.toBeNull()
     expect(chipBox).not.toBeNull()
     if (suffixBox && chipBox) expect(suffixBox.x + suffixBox.width).toBeLessThanOrEqual(chipBox.x)
+
+    // Both show the green dot next to the heading: one Linked machine is online.
+    for (const window of [a.window, b.window]) {
+      const dot = machinesDot(window)
+      await expect(dot).toBeVisible()
+      await expect(dot).toHaveAccessibleName('1 linked machine online')
+      await expect(dot).toHaveAttribute('title', '1 linked machine online')
+      await expect(dot).toHaveAttribute('data-state', 'online')
+      // The section is still named by its heading alone.
+      await expect(machinesHeading(window)).toHaveText('Machines')
+    }
+    // The green of the "Online" chip of the row; a ring of the same colour pulses every 2 s.
+    const chipDot = await row(a.window, bId)
+      .locator('.w-chip__dot')
+      .evaluate((node) => (globalThis as unknown as { getComputedStyle(element: unknown): { backgroundColor: string } }).getComputedStyle(node).backgroundColor)
+    const paint = await dotPaint(a.window)
+    expect(paint.colour).toBe(chipDot)
+    expect(paint.colour).not.toBe('rgba(0, 0, 0, 0)')
+    expect(paint).toMatchObject({ ring: 'w-machines-dot-pulse', ringColour: chipDot, every: '2s', times: 'infinite' })
+    // Right of the heading, in the header; the 12 px box the ring grows to is cut by nothing.
+    const place = await dotPlace(a.window)
+    expect(place.dot.width).toBe(12)
+    expect(place.dot.height).toBe(12)
+    expect(place.dot.left).toBeGreaterThanOrEqual(place.heading.right)
+    expect(place.dot.left - place.heading.right).toBeLessThanOrEqual(8)
+    for (const around of [place.slot, place.header]) {
+      expect(around.left).toBeLessThanOrEqual(place.dot.left)
+      expect(around.right).toBeGreaterThanOrEqual(place.dot.right)
+      expect(around.top).toBeLessThanOrEqual(place.dot.top)
+      expect(around.bottom).toBeGreaterThanOrEqual(place.dot.bottom)
+    }
     await snapshotThemes(a.window, 'machines-section')
+
+    // With "reduce motion" of the system the dot is still: no ring pulses.
+    await a.window.emulateMedia({ reducedMotion: 'reduce' })
+    expect(await dotPaint(a.window)).toMatchObject({ colour: chipDot, ring: 'none' })
+    await a.window.emulateMedia({ reducedMotion: null })
+    expect((await dotPaint(a.window)).ring).toBe('w-machines-dot-pulse')
+
+    // Collapsed again, as a fresh worfy shows the section: the rows are hidden, the dot stays.
+    await collapseMachines(a.window)
+    await expect(row(a.window, bId)).toBeHidden()
+    await expect(machinesDot(a.window)).toBeVisible()
+    await expect(machinesDot(a.window)).toHaveAccessibleName('1 linked machine online')
+    expect((await a.window.getByTestId('machines-section').boundingBox())?.height).toBe(24)
+    expect(await dotPlace(a.window)).toStrictEqual(place)
+    // A click on the dot does not expand the section.
+    await machinesDot(a.window).click()
+    await expect(machinesHeading(a.window)).toHaveAttribute('aria-expanded', 'false')
+    await snapshotThemes(a.window, 'machines-dot')
+
+    // The other worfy quits: nobody is online, so the dot goes; the Linked machine stays in the list.
+    await b.close()
+    b = undefined
+    await expect(machinesDot(a.window)).toHaveCount(0, { timeout: 20_000 })
+    await expandMachines(a.window)
+    await expect(row(a.window, bId)).toBeVisible()
+    await expect(row(a.window, bId)).toHaveAttribute('data-state', 'unavailable')
+    await expect(row(a.window, bId)).toContainText('Unavailable')
   } finally {
     await a.close()
     await b?.close()
@@ -104,14 +250,23 @@ test('revoking from A, then from B: the row goes on both within 5 s, and linking
   const pair = await launchLinkedPair()
   try {
     const { a, b, aId, bId } = pair
+    for (const window of [a.window, b.window]) await expect(machinesDot(window)).toHaveAccessibleName('1 linked machine online')
     await revoke(a.window, bId)
     await expect(row(a.window, bId)).toHaveCount(0, { timeout: 5_000 })
     await expect(row(b.window, aId)).toHaveCount(0, { timeout: 5_000 })
+    // No Linked machine on either side: the dot is gone from both.
+    for (const window of [a.window, b.window]) await expect(machinesDot(window)).toHaveCount(0)
 
     await linkThroughUi(a.window, b.window)
+    for (const window of [a.window, b.window]) await expect(machinesDot(window)).toHaveAccessibleName('1 linked machine online')
+    // A collapses its section; revoked from B, the dot of the collapsed section goes too.
+    await collapseMachines(a.window)
+    await expect(machinesDot(a.window)).toBeVisible()
     await revoke(b.window, aId)
     await expect(row(b.window, aId)).toHaveCount(0, { timeout: 5_000 })
     await expect(row(a.window, bId)).toHaveCount(0, { timeout: 5_000 })
+    for (const window of [a.window, b.window]) await expect(machinesDot(window)).toHaveCount(0)
+    await expect(machinesHeading(a.window)).toHaveAttribute('aria-expanded', 'false')
 
     await linkThroughUi(a.window, b.window)
   } finally {
@@ -119,25 +274,157 @@ test('revoking from A, then from B: the row goes on both within 5 s, and linking
   }
 })
 
-test('the access switch is off on a fresh Machine and stays on across a restart over the same data folder', async () => {
+/** What link/settings.json of the data folder says, once worfy has written it (src/main/link/settings.ts). */
+function savedLinkSettings(dataDir: string): { projectsAccess: boolean; keepAwake?: boolean } | null {
+  const file = join(dataDir, 'link', 'settings.json')
+  return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as { projectsAccess: boolean; keepAwake?: boolean }) : null
+}
+
+test('Settings → Machines: the access switch is off on a fresh Machine and stays on across a restart over the same data folder', async () => {
   const dataDir = await mkdtemp(join(tmpdir(), 'worfy-link-access-'))
   try {
     const first = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
     try {
-      const toggle = first.window.getByRole('switch', { name: 'Linked machines can work with my Projects' })
       await machineIdOf(first.window)
-      await expect(toggle).toHaveAttribute('aria-checked', 'false')
-      await toggle.click()
-      await expect(toggle).toHaveAttribute('aria-checked', 'true')
+      // The window has no switch while Settings is closed: the sidebar has none.
+      await expect(first.window.getByRole('switch')).toHaveCount(0)
+
+      const dialog = await openMachinesSettings(first)
+      // "Machines" is a row of the section list, after General.
+      const sections = dialog.getByRole('navigation', { name: 'Settings sections' }).getByRole('button')
+      await expect(sections.first()).toHaveText('General')
+      await expect(sections.filter({ hasText: /^Machines$/ })).toHaveAttribute('aria-current', 'true')
+      const access = dialog.getByRole('switch', { name: PROJECTS_ACCESS_LABEL, exact: true })
+      const keepAwake = dialog.getByRole('switch', { name: KEEP_AWAKE_LABEL, exact: true })
+      await expect(dialog.getByRole('switch')).toHaveCount(2)
+      for (const toggle of [access, keepAwake]) {
+        await expect(toggle).toBeVisible()
+        await expect(toggle).toBeEnabled()
+      }
+      // As a fresh Machine has them: access off, keep-awake on. Both labels are on screen.
+      await expect(access).toHaveAttribute('aria-checked', 'false')
+      await expect(keepAwake).toHaveAttribute('aria-checked', 'true')
+      await expect(dialog.getByText(PROJECTS_ACCESS_LABEL, { exact: true })).toBeVisible()
+      await expect(dialog.getByText(KEEP_AWAKE_LABEL, { exact: true })).toBeVisible()
+      await snapshotThemes(first.window, 'settings-machines')
+
+      await access.click()
+      await expect(access).toHaveAttribute('aria-checked', 'true')
+      // Written where the sidebar's switch wrote it.
+      await expect.poll(() => savedLinkSettings(dataDir)).toStrictEqual({ version: 1, projectsAccess: true, keepAwake: true })
+      // Closing Settings loses nothing: open again, the switch is on. The sidebar still has no
+      // switch, with its Machines section expanded too.
+      await closeSettings(first.window)
+      await expect(first.window.getByRole('switch')).toHaveCount(0)
+      await expandMachines(first.window)
+      await expect(first.window.getByRole('switch')).toHaveCount(0)
+      const again = await openMachinesSettings(first)
+      await expect(again.getByRole('switch', { name: PROJECTS_ACCESS_LABEL, exact: true })).toHaveAttribute('aria-checked', 'true')
+      await expect(again.getByRole('switch', { name: KEEP_AWAKE_LABEL, exact: true })).toHaveAttribute('aria-checked', 'true')
+      await closeSettings(first.window)
     } finally {
       await first.close()
     }
     const second = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
     try {
       await machineIdOf(second.window)
-      await expect(second.window.getByRole('switch', { name: 'Linked machines can work with my Projects' })).toHaveAttribute('aria-checked', 'true')
+      // The section the user expanded before the restart is expanded.
+      await expect(machinesHeading(second.window)).toHaveAttribute('aria-expanded', 'true')
+      const dialog = await openMachinesSettings(second)
+      const access = dialog.getByRole('switch', { name: PROJECTS_ACCESS_LABEL, exact: true })
+      await expect(access).toBeVisible()
+      await expect(access).toHaveAttribute('aria-checked', 'true')
+      await expect(dialog.getByRole('switch', { name: KEEP_AWAKE_LABEL, exact: true })).toHaveAttribute('aria-checked', 'true')
     } finally {
       await second.close()
+    }
+  } finally {
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('Settings → Machines in the smallest window: a refusal of main is shown as it is; the keyboard and Esc work after a click on a label', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'worfy-link-settings-'))
+  const linkDir = join(dataDir, 'link')
+  try {
+    const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+    try {
+      const { app, window } = launched
+      await machineIdOf(window)
+      // 800×520: the smallest window worfy allows.
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(800, 520))
+      await expect.poll(() => window.evaluate(() => [(globalThis as unknown as { innerWidth: number }).innerWidth, (globalThis as unknown as { innerHeight: number }).innerHeight])).toStrictEqual([800, 520])
+
+      const dialog = await openMachinesSettings(launched)
+      const access = dialog.getByRole('switch', { name: PROJECTS_ACCESS_LABEL, exact: true })
+      const keepAwake = dialog.getByRole('switch', { name: KEEP_AWAKE_LABEL, exact: true })
+      const labels = [dialog.getByText(PROJECTS_ACCESS_LABEL, { exact: true }), dialog.getByText(KEEP_AWAKE_LABEL, { exact: true })]
+      // Both rows are whole on screen: nothing is cut and the section does not scroll.
+      for (const part of [access, keepAwake, ...labels]) await expect(part).toBeInViewport({ ratio: 1 })
+      for (const [index, toggle] of [access, keepAwake].entries()) {
+        const label = (await labels[index]!.boundingBox())!
+        const control = (await toggle.boundingBox())!
+        // The label left of its switch, on its row.
+        expect(label.x + label.width).toBeLessThanOrEqual(control.x)
+        expect(control.y).toBeGreaterThanOrEqual(label.y - 16)
+        expect(control.y + control.height).toBeLessThanOrEqual(label.y + label.height + 16)
+      }
+      await expect(access).toHaveAttribute('aria-checked', 'false')
+
+      // main cannot write link/settings.json: the folder is read-only.
+      const error = dialog.getByTestId('settings-machines-error')
+      await expect(error).toHaveCount(0)
+      chmodSync(linkDir, 0o555)
+      try {
+        await access.click()
+        await expect(error).toBeVisible()
+        await expect(error).toHaveAttribute('role', 'alert')
+        // The message of main itself: the channel, the reason and the temporary file it could not
+        // write next to link/settings.json.
+        await expect(error).toContainText('link.setAccess failed: EACCES')
+        await expect(error).toContainText(join(linkDir, '.settings.json.'))
+        await expect(error).toBeInViewport({ ratio: 1 })
+        // The long path wraps inside the section: the window gets no horizontal scroll.
+        const body = dialog.locator('.w-settings__body')
+        expect(await body.evaluate((node) => (node as unknown as { scrollWidth: number; clientWidth: number }).scrollWidth - (node as unknown as { scrollWidth: number; clientWidth: number }).clientWidth)).toBe(0)
+        // Nothing changed: the switch is off, and so is the file.
+        await expect(access).toHaveAttribute('aria-checked', 'false')
+        expect(savedLinkSettings(dataDir)?.projectsAccess ?? false).toBe(false)
+        await snapshotThemes(window, 'settings-machines-error')
+      } finally {
+        chmodSync(linkDir, 0o755)
+      }
+
+      // A click on the text of a label switches nothing, and leaves the keyboard in the window:
+      // Tab goes to a control of Settings.
+      await labels[1]!.click()
+      await expect(keepAwake).toHaveAttribute('aria-checked', 'true')
+      await expect(access).toHaveAttribute('aria-checked', 'false')
+      await window.keyboard.press('Tab')
+      await expect(dialog.locator(':focus')).toHaveCount(1)
+      // Space on the switch: main can write again, so it switches, the message goes, and the focus
+      // stays on the switch.
+      await access.focus()
+      await window.keyboard.press('Space')
+      await expect(access).toHaveAttribute('aria-checked', 'true')
+      await expect(access).toBeFocused()
+      await expect(error).toHaveCount(0)
+      await expect.poll(() => savedLinkSettings(dataDir)).toStrictEqual({ version: 1, projectsAccess: true, keepAwake: true })
+      // Tab goes on to the next switch; Enter switches it off.
+      await window.keyboard.press('Tab')
+      await expect(keepAwake).toBeFocused()
+      await window.keyboard.press('Enter')
+      await expect(keepAwake).toHaveAttribute('aria-checked', 'false')
+      await expect(keepAwake).toBeFocused()
+      await expect.poll(() => savedLinkSettings(dataDir)).toStrictEqual({ version: 1, projectsAccess: true, keepAwake: false })
+
+      // After a click on a label, Esc still closes Settings.
+      await labels[0]!.click()
+      await window.keyboard.press('Escape')
+      await expect(dialog).toHaveCount(0)
+    } finally {
+      if (existsSync(linkDir)) chmodSync(linkDir, 0o755)
+      await launched.close()
     }
   } finally {
     await rm(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -175,13 +462,6 @@ async function call<T>(window: Page, channel: string, input?: unknown): Promise<
   return result.value as T
 }
 
-/** Sets "Linked machines can work with my Projects" on the worfy of `window`. */
-async function setSharing(window: Page, on: boolean): Promise<void> {
-  const toggle = window.getByRole('switch', { name: 'Linked machines can work with my Projects' })
-  if ((await toggle.getAttribute('aria-checked')) !== String(on)) await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-checked', String(on))
-}
-
 /** A folder with a git repository on branch main, for a Project. */
 function gitRepo(path: string): string {
   mkdirSync(path, { recursive: true })
@@ -209,7 +489,7 @@ test('the sidebar of A lists the Projects of B under B, with its state; not shar
     b = await launchApp({ env: { WORFY_DATA_DIR: bData } })
     await linkThroughUi(a.window, b.window)
     const bId = await machineIdOf(b.window)
-    await setSharing(b.window, true)
+    await setProjectsAccess(b, true)
 
     // This Machine first, then B, online, with its Project.
     await expect(a.window.getByTestId('machine-group')).toHaveCount(2)
@@ -221,14 +501,14 @@ test('the sidebar of A lists the Projects of B under B, with its state; not shar
     await evidence(a.window, 'sidebar-online')
 
     // B stops sharing: its group stays, without Projects, with a line that says so.
-    await setSharing(b.window, false)
+    await setProjectsAccess(b, false)
     await expect(group(a.window, bId)).toHaveAttribute('data-sharing', 'no')
     await expect(group(a.window, bId).getByTestId('machine-not-sharing')).toHaveText(/ doesn't share its Projects$/)
     await expect(group(a.window, bId).getByTestId('project-row')).toHaveCount(0)
     await evidence(a.window, 'sidebar-not-shared')
 
     // Shared again: the Projects come back without a restart.
-    await setSharing(b.window, true)
+    await setProjectsAccess(b, true)
     await expect(projectRow(a.window, bId, 'beta-repo-0000000b')).toBeVisible()
 
     // B closed: unavailable.
@@ -369,7 +649,7 @@ test('A opens a Project of B: its Canvas, Node moves, Session, Terminal and Auto
     await canvasReady(a, { size: SIZE })
     await linkThroughUi(a.window, bWindow)
     const bId = await machineIdOf(bWindow)
-    await setSharing(bWindow, true)
+    await setProjectsAccess(b, true)
 
     // A opens beta of B: the window loads again, on B, and shows B's Layout.
     await projectRow(a.window, bId, BETA).getByRole('button').click()
@@ -472,7 +752,7 @@ test('one folder in A and in B is two Projects: moving a Node in B\'s does not m
     await canvasReady(a, { size: SIZE })
     await linkThroughUi(a.window, b.window)
     const bId = await machineIdOf(b.window)
-    await setSharing(b.window, true)
+    await setProjectsAccess(b, true)
     const activeOfB = (): string | null => (JSON.parse(readFileSync(join(bSetup.dataDir, 'projects.json'), 'utf8')) as { activeId: string | null }).activeId
 
     // Two rows with one id, one per Machine.
