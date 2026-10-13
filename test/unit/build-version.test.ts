@@ -1,14 +1,17 @@
 // scripts/build-version.ts: the `<semver>+<SHA>[.dirty]` string the build writes into its Harness copy.
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BUILD_VERSION, buildVersion, formatBuildVersion } from '../../scripts/build-version'
+import { removeTree } from '../../src/main/storage/remove'
 
 const dirs: string[] = []
 afterEach(() => {
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+  // removeTree, not rmSync: the folder is a git repository, whose objects are read-only files
+  // (worfy-windows ticket 23).
+  for (const dir of dirs.splice(0)) removeTree(dir)
 })
 
 /** A temporary folder with a package.json of the given version; a git repository with one commit when `commit`. */

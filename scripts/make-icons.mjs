@@ -19,12 +19,13 @@
 
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { packIco } from './ico.mjs'
+import { removeTree } from './remove-tree.mjs'
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const brand = join(repo, 'build', 'brand')
@@ -153,7 +154,7 @@ function main() {
     writeFileSync(join(out, 'icons.json'), `${JSON.stringify(manifest, null, 2)}\n`)
     process.stdout.write(`make-icons: wrote icon.icns, icon.ico, icon.png and icons.json to ${out}\n`)
   } finally {
-    rmSync(work, { recursive: true, force: true })
+    removeTree(work)
   }
 }
 

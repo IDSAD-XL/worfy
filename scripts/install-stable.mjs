@@ -29,7 +29,7 @@
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, posix, win32 } from 'node:path'
+import { dirname, join, posix, win32 } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
@@ -156,7 +156,7 @@ export function leftoverName(base, kind, pid) {
 /**
  * What an interrupted run left next to the target. `names` are the names in the folder of the
  * target, `base` the name of the target, `alive` says whether a process with a pid runs.
- * Answers, in the order of `names`:
+ * Answers, in the order of the text of the names, whatever order the file system lists them in:
  *   - `installing`: unfinished copies, `<base>.installing-<pid>` — to remove;
  *   - `replaced`: earlier copies moved aside, `<base>.replaced-<pid>` — to put back or to remove;
  *   - `kept`: names of either kind whose pid is a running process — another install may be at
@@ -166,7 +166,7 @@ export function leftoverName(base, kind, pid) {
  */
 export function leftovers(names, base, alive) {
   const answer = { installing: [], replaced: [], kept: [] }
-  for (const name of names) {
+  for (const name of [...names].sort()) {
     for (const kind of ['installing', 'replaced']) {
       const prefix = leftoverName(base, kind, '')
       if (!name.startsWith(prefix)) continue
@@ -308,31 +308,74 @@ function patiently(step) {
 /**
  * Removes a folder of Windows with what is in it, and never what a link in it leads to: a link —
  * a symlink or a junction, at the path itself or anywhere below — is not a folder to lstat, and is
- * unlinked as the link it is. rmSync is not used there. Under Node 24 (the one Electron 44
- * carries) its `recursive` goes through a junction and empties the folder behind it, and it
- * refuses a read-only file with EPERM; under Node 22 it does neither. unlinkSync removes a
- * read-only file, a junction and a symlink under both.
+ * unlinked as the link it is. rmSync is not used there. Under the Node Electron 44 carries —
+ * the tests run this script under it — its `recursive` goes through a junction and empties the
+ * folder behind it, and it refuses a read-only file with EPERM; a Node from nodejs.org, 22.13.0
+ * or 24.21.0, does neither. unlinkSync removes a read-only file, a junction and a symlink under
+ * all three.
  */
-function removeTree(path) {
-  let stat
+// A copy of removeTree of src/main/storage/remove.ts (worfy-windows ticket 23): this script is one
+// file with no import of its own. test/unit/remove-tree.test.ts runs the copies and the module
+// over the same trees.
+// <remove-tree>
+function removeTree(given, patience = { waits: 5 }) {
+  // Off Windows rmSync never went through a link, and nothing changes there. The walk is for
+  // Windows alone, and holds for a tree nobody else changes meanwhile.
+  if (process.platform !== 'win32') return rmSync(given, { recursive: true, force: true })
+  // Separators at the end go, but for the root of a disk: lstat follows a link written with one.
+  const cut = given.replace(/[\\/]+$/, '')
+  const path = cut === '' || cut.endsWith(':') ? given : cut
+  const gone = (error) => Boolean(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+  let folder
   try {
-    stat = lstatSync(path)
-  } catch {
-    return
+    folder = lstatSync(path).isDirectory()
+  } catch (error) {
+    if (gone(error)) return
+    throw error
   }
-  if (!stat.isDirectory()) {
-    patiently(() => unlinkSync(path))
-    return
+  if (folder) {
+    let names
+    try {
+      names = readdirSync(path)
+    } catch (error) {
+      if (gone(error)) return
+      throw error
+    }
+    // An entry that cannot be removed does not end the walk: the first error is thrown at the end.
+    let failed = null
+    for (const name of names) {
+      try {
+        removeTree(join(path, name), patience)
+      } catch (error) {
+        if (failed === null) failed = { error }
+      }
+    }
+    if (failed !== null) throw failed.error
   }
-  for (const name of readdirSync(path)) removeTree(win32.join(path, name))
-  patiently(() => rmdirSync(path))
+  // The waits are those of the whole removal, five in all: a folder of entries that stay busy
+  // does not wait for each of them. The caller leaves the second argument out.
+  for (;;) {
+    try {
+      if (folder) rmdirSync(path)
+      else unlinkSync(path)
+      return
+    } catch (error) {
+      const code = error && error.code
+      if (code === 'ENOENT') return
+      if (patience.waits === 0 || !['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES'].includes(code)) throw error
+      patience.waits -= 1
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+    }
+  }
 }
+// </remove-tree>
 
 /**
- * The path as the disk spells it: no \\?\, links and subst drives followed. A path that is not
- * there yet is spelled by the nearest folder above it that is, with the rest as given.
+ * The path as the disk spells it: no \\?\, links and subst drives followed, an 8.3 short name
+ * (`C:\PROGRA~1`) written out. A path that is not there yet is spelled by the nearest folder above
+ * it that is, with the rest as given.
  */
-function onDisk(path) {
+export function onDisk(path) {
   const rest = []
   for (let at = path; ; at = win32.dirname(at)) {
     try {
@@ -348,6 +391,15 @@ function onDisk(path) {
 function plainFolder(path) {
   try {
     return lstatSync(path).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/** True when the path is a file itself, not a link to one. */
+function plainFile(path) {
+  try {
+    return lstatSync(path).isFile()
   } catch {
     return false
   }
@@ -432,15 +484,21 @@ export function installStable(argv, { platform = process.platform, env = process
   // it had moved aside goes back to the target when nothing took its place. Only a real folder with
   // such a name is taken: a file or a link of that name is somebody's own. A name with the pid of
   // this run is a leftover too: no other run has this pid now. What cannot be cleared is named and
-  // left, and the run goes on.
+  // left, and the run goes on. What is cleared is named as well: its name is all that says it was
+  // the script's. Of two copies moved aside, the first by name goes back (the order of leftovers).
   const left = leftovers(readdirSync(folder), base, (pid) => pid !== process.pid && processAlive(pid))
   for (const name of left.kept) notes.push(`${rules.join(folder, name)} is left alone: a running process has the pid in its name. If no install is running, remove it by hand`)
   for (const name of [...left.installing, ...left.replaced]) {
     const path = rules.join(folder, name)
     if (!plainFolder(path)) continue
     try {
-      if (left.replaced.includes(name) && !there(logical)) rename(path, logical)
-      else remove(path)
+      if (left.replaced.includes(name) && !there(logical)) {
+        rename(path, logical)
+        notes.push(`${path}, a copy an earlier run had moved aside, is back at ${logical}`)
+      } else {
+        remove(path)
+        notes.push(`${path}, left by an earlier run, is removed`)
+      }
     } catch (error) {
       notes.push(`${path}, left by an earlier run, could not be cleared (${why(error)}): remove it by hand`)
     }
@@ -448,38 +506,53 @@ export function installStable(argv, { platform = process.platform, env = process
 
   const staging = rules.join(folder, leftoverName(base, 'installing', process.pid))
   const aside = rules.join(folder, leftoverName(base, 'replaced', process.pid))
-  let earlier
   try {
-    // ditto keeps the bundle's signature, extended attributes and symlinks intact. On Windows the
-    // build is copied from its real folder: cpSync would copy a link to it as a link.
-    if (platform === 'win32') cpSync(realpathSync(source), staging, { recursive: true })
-    else run('ditto', [source, staging])
-    earlier = swapIn({ staging, target: logical, aside }, { there, rename: platform === 'win32' ? (from, to) => patiently(() => rename(from, to)) : rename })
-  } finally {
-    try {
-      remove(staging)
-    } catch (error) {
-      // Not instead of the reason the install failed for.
-      process.stderr.write(`install-stable: the unfinished copy could not be removed and is left at ${staging} (${why(error)}); the next run removes it\n`)
+    // Nothing may lie at the names this run uses. A real folder of such a name was cleared
+    // above; what is there now is a file, a link, or a folder that could not be cleared. The copy
+    // would go into that folder, or through the link into the folder it leads to. The name of the
+    // copy moved aside is used only when a copy is at the target.
+    for (const path of there(logical) ? [staging, aside] : [staging]) {
+      if (there(path)) fail(`${path} is in the way: this run needs that name, and what lies there is not a leftover it could clear. Remove it by hand, then run this again.`)
     }
-  }
 
-  // The earlier copy goes before the file is written: when the file cannot be, a whole copy does not stay aside.
-  if (earlier !== null) {
+    let earlier
     try {
-      // A link at the target (a symlink, a junction) is removed as a link: what it led to stays.
-      remove(earlier)
-    } catch (error) {
-      notes.push(`the earlier copy could not be removed and is left at ${earlier} (${why(error)}); the next run removes it`)
+      // ditto keeps the bundle's signature, extended attributes and symlinks intact. On Windows the
+      // build is copied from its real folder: cpSync would copy a link to it as a link.
+      if (platform === 'win32') cpSync(realpathSync(source), staging, { recursive: true })
+      else run('ditto', [source, staging])
+      earlier = swapIn({ staging, target: logical, aside }, { there, rename: platform === 'win32' ? (from, to) => patiently(() => rename(from, to)) : rename })
+    } finally {
+      try {
+        remove(staging)
+      } catch (error) {
+        // Not instead of the reason the install failed for.
+        process.stderr.write(`install-stable: the unfinished copy could not be removed and is left at ${staging} (${why(error)}); the next run removes it\n`)
+      }
     }
-  }
-  try {
-    writeFileSync(metadata, `${JSON.stringify({ commit, dirty, builtAt, installedAt, source }, null, 2)}\n`)
+
+    // The earlier copy goes before the file is written: when the file cannot be, a whole copy does not stay aside.
+    if (earlier !== null) {
+      try {
+        // A link at the target (a symlink, a junction) is removed as a link: what it led to stays.
+        remove(earlier)
+      } catch (error) {
+        notes.push(`the earlier copy could not be removed and is left at ${earlier} (${why(error)}); the next run removes it`)
+      }
+    }
+    try {
+      writeFileSync(metadata, `${JSON.stringify({ commit, dirty, builtAt, installedAt, source }, null, 2)}\n`)
+    } catch (error) {
+      const old = plainFile(metadata) ? 'the file still names the build that was there before' : 'no file names the build of this copy'
+      fail(`the copy is installed at ${logical}, but ${metadata} could not be written (${why(error)}): ${old}`)
+    }
+    const note = notes.map((each) => `\ninstall-stable: ${each}`).join('')
+    return `install-stable: installed ${logical} (commit ${commit.slice(0, 7)}${dirty ? ', uncommitted changes' : ''}), details in ${metadata}${note}`
   } catch (error) {
-    fail(`the copy is installed at ${logical}, but ${metadata} could not be written (${why(error)}): the file still names the build that was there before`)
+    // The notes are not lost with the run: they name what it left on the disk, and what it cleared.
+    for (const each of notes) process.stderr.write(`install-stable: ${each}\n`)
+    throw error
   }
-  const note = notes.map((each) => `\ninstall-stable: ${each}`).join('')
-  return `install-stable: installed ${logical} (commit ${commit.slice(0, 7)}${dirty ? ', uncommitted changes' : ''}), details in ${metadata}${note}`
 }
 
 /** The repository this script lies in. */

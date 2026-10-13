@@ -9,9 +9,10 @@
 // changes with every build, so the Keychain would ask for access after each update of the stable
 // copy; tests and CI have no safeStorage at all. The choice sits behind SecretStore, so a store over
 // safeStorage (or DPAPI on Windows) replaces this one without touching the rest of the link.
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { z } from 'zod'
+import { removeFile } from '../storage/remove'
 
 /** A key-value store of secret strings. Keys name what the secret is (`machine-key`, `outgoing:<id>`). */
 export interface SecretStore {
@@ -99,7 +100,7 @@ export class FileSecretStore implements SecretStore {
       chmodSync(temporary, SECRET_FILE_MODE)
       renameSync(temporary, this.file)
     } catch (error) {
-      rmSync(temporary, { force: true })
+      removeFile(temporary)
       throw new Error(`could not write the link secrets file ${this.file}: ${error instanceof Error && 'code' in error ? String(error.code) : 'write failed'}`, { cause: error })
     }
   }

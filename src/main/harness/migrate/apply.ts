@@ -18,7 +18,7 @@
 // and `confirm` saying yes; every path written or removed is checked to be inside the Claude home
 // or the Harness home, and .claude.json is the one file outside them.
 import { execFileSync } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, parse, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -28,6 +28,7 @@ import { HARNESS_PLUGIN_ID } from '../install'
 import { buildPlan, hookRecords, inside, LEGACY_MARKER, type HookRef, type Operation, type PlanOptions } from './plan'
 import { jsonText, profileToSchema2, rewriteHarnessPaths } from './profiles'
 import { BACKUP_AFTER_DIR, BACKUP_CLAUDE_DIR, PENDING, restoreCommand, RESTORE_SCRIPT, treeHash, writeManifest, writeRestoreFiles, type Manifest } from './restore'
+import { removeFile, removeTree } from '../../storage/remove'
 
 export const MIGRATION_STEPS: readonly MigrationStep[] = ['backup', 'settings', 'claude-json', 'claude-md', 'state', 'files', 'epic-status', 'commit']
 
@@ -324,14 +325,14 @@ async function run(selection: MigrationSelection, options: ApplyOptions): Promis
     await step('files', () => {
       const roots = [...actions.states.map((state) => state.from), ...actions.profiles.map((profile) => profile.from)]
       touching(...actions.removeFiles, ...roots)
-      for (const rel of actions.removeFiles) rmSync(under(claudeHome, rel), { recursive: true, force: true })
+      for (const rel of actions.removeFiles) removeTree(under(claudeHome, rel))
       removeStateFiles(claudeHome, fixed.stateFiles, roots)
       left(...actions.removeFiles, ...roots)
     })
     await step('epic-status', () => {
       if (!actions.removeMarker) return
       touching(LEGACY_MARKER)
-      rmSync(under(claudeHome, LEGACY_MARKER), { force: true })
+      removeFile(under(claudeHome, LEGACY_MARKER))
       left(LEGACY_MARKER)
     })
     await step('commit', () => commit(claudeHome, harnessHome, backupDir, manifest, actions))
@@ -576,7 +577,7 @@ function moveState(backupDir: string, manifest: Manifest, copies: StateCopy[]): 
  * live Session wrote meanwhile stays where it is, and so does its folder.
  */
 function removeStateFiles(claudeHome: string, files: string[], roots: string[]): void {
-  for (const rel of files) rmSync(under(claudeHome, rel), { force: true })
+  for (const rel of files) removeFile(under(claudeHome, rel))
   const prune = (dir: string): void => {
     const path = under(claudeHome, dir)
     if (!existsSync(path) || !lstatSync(path).isDirectory()) return
@@ -625,7 +626,7 @@ async function rollBack(failure: StepFailure, backupDir: string): Promise<Migrat
     const after = join(backupDir, BACKUP_AFTER_DIR)
     const kept = existsSync(after) ? readdirSync(after).filter((name) => name !== 'harness-git') : []
     if (kept.length === 0) {
-      rmSync(backupDir, { recursive: true, force: true })
+      removeTree(backupDir)
       return { outcome: 'failed', step: failure.step, reason, rolledBack: true, rollbackError: null, backupDir: null }
     }
     return { outcome: 'failed', step: failure.step, reason, rolledBack: true, rollbackError: null, backupDir }

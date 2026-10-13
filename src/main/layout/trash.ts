@@ -12,7 +12,7 @@
 // trash. Entries older than TRASH_KEEP_MS are deleted by purge(), which the IPC module runs when
 // the app starts.
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { CARD_ID_PATTERN } from '../../shared/ipc/cards'
@@ -20,6 +20,7 @@ import { TRASH_KEEP_MS, TRASH_LABEL_PATTERN, trashRefusal, type TrashEntry } fro
 import { layoutNodeSchema, type LayoutNode, type LayoutState } from '../../shared/layout/types'
 import { titleOf } from '../cards/store'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
+import { removeTree } from '../storage/remove'
 
 /** The folder of a Project's trash, inside its data folder. */
 export const TRASH_DIR = 'trash'
@@ -160,7 +161,7 @@ export class TrashStore {
     } catch (error) {
       // Put back what moved, newest first, and drop the half-made entry.
       for (const { from, to } of moved.reverse()) renameSync(to, from)
-      rmSync(dir, { recursive: true, force: true })
+      removeTree(dir)
       throw error
     }
   }
@@ -199,7 +200,7 @@ export class TrashStore {
       for (const { from, to } of done.reverse()) renameSync(to, from)
       throw error
     }
-    rmSync(dir, { recursive: true, force: true })
+    removeTree(dir)
     return summaryOf(label, entry)
   }
 
@@ -219,7 +220,7 @@ export class TrashStore {
     const removed: string[] = []
     for (const label of this.labels(projectId)) {
       if (labelTime(label) >= oldest) continue
-      rmSync(this.entryDir(projectId, label), { recursive: true, force: true })
+      removeTree(this.entryDir(projectId, label))
       removed.push(label)
     }
     return removed

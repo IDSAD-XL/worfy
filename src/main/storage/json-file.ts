@@ -15,9 +15,10 @@
 // The calls are synchronous on purpose: the files are small, the main process reads them on
 // startup and on user actions, and a window position has to be saved inside a 'close' handler.
 // A synchronous read-modify-write also cannot interleave with another one in the same process.
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { z } from 'zod'
+import { removeFile } from './remove'
 
 export interface ReadOptions {
   /** Clock for the set-aside file name; tests pass a fixed one. */
@@ -89,7 +90,7 @@ export function writeJsonFile<S extends z.ZodType>(file: string, schema: S, valu
     writeFileSync(temporary, `${JSON.stringify(parsed.data, null, 2)}\n`)
     renameSync(temporary, file)
   } catch (error) {
-    rmSync(temporary, { force: true })
+    removeFile(temporary)
     throw error
   }
 }

@@ -23,12 +23,13 @@
 // account refused; 130, 143 — interrupted). At the end: the paths to aggregate-result.json and
 // report.html of each call.
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
 import { delimiter, dirname, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { removeTree } from './remove-tree.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SOURCE = process.env.HARNESS_DIR ? resolve(process.env.HARNESS_DIR) : join(REPO, 'harness')
@@ -210,7 +211,7 @@ try {
     outputs.push(outputDir)
   }
 } finally {
-  rmSync(dirname(harness), { recursive: true, force: true })
+  removeTree(dirname(harness))
 }
 
 for (const dir of outputs) {

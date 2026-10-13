@@ -6,7 +6,7 @@
 // %LOCALAPPDATA% pointed at a temporary folder. A whole install of a real build is run on macOS
 // by test/e2e/packaged.spec.ts.
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -29,12 +29,13 @@ interface InstallStable {
   buildCommand: (platform: string) => { command: string; args: string[]; shell: boolean }
   builtApp: (platform: string, dist: string, names: string[], exists: (path: string) => boolean) => string
   swapIn: (paths: { staging: string; target: string; aside: string }, files: Files) => string | null
+  onDisk: (path: string) => string
   installStable: (argv: string[], options: { env: Env; repo: string; build?: (platform: string, repo: string) => void; rename?: (from: string, to: string) => void }) => string
   stamp: (ms: number) => string
 }
 const REPO = join(import.meta.dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'install-stable.mjs')
-const { defaultTarget, installerDir, checkTarget, metadataPath, runningCopies, notACopy, leftoverName, leftovers, buildCommand, builtApp, swapIn, installStable, stamp } = (await import(
+const { defaultTarget, installerDir, checkTarget, metadataPath, runningCopies, notACopy, leftoverName, leftovers, buildCommand, builtApp, swapIn, onDisk, installStable, stamp } = (await import(
   pathToFileURL(SCRIPT).href
 )) as InstallStable
 
@@ -226,6 +227,11 @@ describe('what the script replaces and writes', () => {
     expect(leftovers([], 'worfy-stable', () => false)).toEqual({ installing: [], replaced: [], kept: [] })
     // The largest number a process can have is taken.
     expect(leftovers(['x.replaced-4194304'], 'x', () => false).replaced).toEqual(['x.replaced-4194304'])
+    // The answer is in the order of the text of the names, whatever order they are listed in: a file system need not sort.
+    expect(leftovers(['x.replaced-30', 'x.installing-9', 'x.replaced-200', 'x.installing-10'], 'x', (pid) => pid === 9)).toEqual({ installing: ['x.installing-10'], replaced: ['x.replaced-200', 'x.replaced-30'], kept: ['x.installing-9'] })
+    const listed = ['x.replaced-30', 'x.replaced-200']
+    leftovers(listed, 'x', () => false)
+    expect(listed).toEqual(['x.replaced-30', 'x.replaced-200'])
   })
 
   it('finds the names the script itself gives to its unfinished copy and to the copy it moves aside', () => {
@@ -522,6 +528,243 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(all()).toEqual([NAME, 'worfy-stable.json', ...mine].sort())
     }, 120_000)
 
+    it('refuses when a name it needs is taken by what it may not clear — a link to a folder of the user, or a file — and touches neither', () => {
+      const target = targetIn('apps', 'worfy-stable')
+      const apps = join(dir, 'apps')
+      expect(run([target]).status).toBe(0)
+      writeFileSync(join(build, 'resources', 'app.asar'), 'the next build')
+      const staging = join(apps, leftoverName(NAME, 'installing', process.pid))
+      const aside = join(apps, leftoverName(NAME, 'replaced', process.pid))
+      const mine = join(dir, 'mine')
+      mkdirSync(mine)
+      writeFileSync(join(mine, 'notes.txt'), 'keep me')
+      const untouched = (): void => {
+        expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
+        expect(readdirSync(mine)).toEqual(['notes.txt'])
+      }
+
+      // A link under the name of the unfinished copy: the build would be copied through it into the folder it leads to.
+      symlinkSync(mine, staging, WINDOWS ? 'junction' : 'dir')
+      links.push(staging)
+      expect(() => installStable([target], inProcess())).toThrow(`${staging} is in the way`)
+      expect(lstatSync(staging).isSymbolicLink()).toBe(true)
+      untouched()
+      unlinkSync(staging)
+
+      // A link that leads nowhere is in the way all the same: it is there, whatever a look through it says.
+      const nowhere = join(dir, 'nowhere')
+      mkdirSync(nowhere)
+      symlinkSync(nowhere, staging, WINDOWS ? 'junction' : 'dir')
+      links.push(staging)
+      rmdirSync(nowhere)
+      expect(existsSync(staging)).toBe(false)
+      expect(() => installStable([target], inProcess())).toThrow(`${staging} is in the way`)
+      expect(lstatSync(staging).isSymbolicLink()).toBe(true)
+      untouched()
+      unlinkSync(staging)
+
+      // A file under that name: it is not removed.
+      writeFileSync(staging, 'a file of mine')
+      expect(() => installStable([target], inProcess())).toThrow(`${staging} is in the way`)
+      expect(readFileSync(staging, 'utf8')).toBe('a file of mine')
+      untouched()
+      unlinkSync(staging)
+
+      // And under the name of the copy that is moved aside.
+      writeFileSync(aside, 'a file of mine')
+      expect(() => installStable([target], inProcess())).toThrow(`${aside} is in the way`)
+      expect(readFileSync(aside, 'utf8')).toBe('a file of mine')
+      expect(existsSync(staging)).toBe(false)
+      untouched()
+    }, 60_000)
+
+    it('with nothing at the target, what lies at the name of a copy moved aside is not in the way: that name is not used', () => {
+      const target = targetIn('apps', 'worfy-stable')
+      const apps = join(dir, 'apps')
+      mkdirSync(apps)
+      const aside = join(apps, leftoverName(NAME, 'replaced', process.pid))
+      writeFileSync(aside, 'a file of mine')
+      expect(installStable([target], inProcess())).toContain(`install-stable: installed ${target} (commit `)
+      expect(readFileSync(aside, 'utf8')).toBe('a file of mine')
+      expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
+    }, 60_000)
+
+    // Review round 2 of PR #257. The checks above come after a copy is installed; on a first
+    // install the name of the unfinished copy is the only one the run uses, and it is checked too.
+    it('on a first install, with nothing at the target, refuses when the name of its unfinished copy is taken by a link to a folder of the user, or a file: nothing goes through the link, and nothing lands at the target', () => {
+      const target = targetIn('apps', 'worfy-stable')
+      const apps = join(dir, 'apps')
+      mkdirSync(apps)
+      const staging = join(apps, leftoverName(NAME, 'installing', process.pid))
+      const mine = join(dir, 'mine')
+      mkdirSync(mine)
+      writeFileSync(join(mine, 'notes.txt'), 'keep me')
+      const untouched = (taken: string): void => {
+        expect(readdirSync(mine)).toEqual(['notes.txt'])
+        expect(readFileSync(join(mine, 'notes.txt'), 'utf8')).toBe('keep me')
+        // Neither a copy nor the file that names its build.
+        expect(readdirSync(apps)).toEqual([taken])
+      }
+
+      // A link: the build would be copied through it into the folder it leads to.
+      symlinkSync(mine, staging, WINDOWS ? 'junction' : 'dir')
+      links.push(staging)
+      // The whole refusal: what is in the way, why, and what to do.
+      expect(() => installStable([target], inProcess())).toThrow(`${staging} is in the way: this run needs that name, and what lies there is not a leftover it could clear. Remove it by hand, then run this again.`)
+      expect(lstatSync(staging).isSymbolicLink()).toBe(true)
+      untouched(basename(staging))
+      unlinkSync(staging)
+
+      // A file: it is not removed, and nothing is copied over it.
+      writeFileSync(staging, 'a file of mine')
+      expect(() => installStable([target], inProcess())).toThrow(`${staging} is in the way`)
+      expect(readFileSync(staging, 'utf8')).toBe('a file of mine')
+      untouched(basename(staging))
+    }, 60_000)
+
+    // A link at the target that leads nowhere is a copy to move aside all the same: the name of
+    // the copy moved aside is needed, and a file of the user under it is in the way.
+    it('with a link that leads nowhere at the target, refuses when the name of the copy moved aside is taken by a file, and leaves the file and the link', () => {
+      const target = targetIn('apps', 'worfy-stable')
+      const apps = join(dir, 'apps')
+      mkdirSync(apps)
+      const nowhere = join(dir, 'nowhere')
+      mkdirSync(nowhere)
+      symlinkSync(nowhere, target, WINDOWS ? 'junction' : 'dir')
+      links.push(target)
+      rmdirSync(nowhere)
+      expect(existsSync(target)).toBe(false)
+      const aside = join(apps, leftoverName(NAME, 'replaced', process.pid))
+      writeFileSync(aside, 'a file of mine')
+      expect(() => installStable([target], inProcess())).toThrow(`${aside} is in the way`)
+      expect(readFileSync(aside, 'utf8')).toBe('a file of mine')
+      expect(lstatSync(target).isSymbolicLink()).toBe(true)
+      expect(readdirSync(apps).sort()).toEqual([NAME, basename(aside)].sort())
+    }, 60_000)
+
+    // Review round 1 of PR #257. A real folder under the name of this run's unfinished copy is a
+    // leftover and is cleared — unless it cannot be: then the build must not be copied into it.
+    it('refuses when a real folder at the name of its unfinished copy cannot be cleared: the build is not copied into it, and the earlier copy stays whole', async () => {
+      const target = targetIn('apps', 'worfy-stable')
+      const apps = join(dir, 'apps')
+      expect(run([target]).status).toBe(0)
+      writeFileSync(join(build, 'resources', 'app.asar'), 'the next build')
+      const staging = join(apps, leftoverName(NAME, 'installing', process.pid))
+      const locked = join(staging, 'locked')
+      mkdirSync(locked, { recursive: true })
+      writeFileSync(join(locked, 'junk.txt'), 'from a run long gone')
+      // What keeps the folder from going: on Windows a program whose working folder it is; elsewhere
+      // a folder nothing may be removed from.
+      const holder = WINDOWS ? spawn(process.env['ComSpec'] ?? 'C:/Windows/System32/cmd.exe', ['/d', '/c', 'echo ready& pause'], { cwd: locked, stdio: ['pipe', 'pipe', 'ignore'] }) : null
+      if (holder === null) chmodSync(locked, 0o555)
+      try {
+        if (holder !== null) {
+          // The program takes its working folder while it starts, after spawn() has returned: the
+          // line it prints says it is running.
+          await new Promise((resolve, reject) => {
+            holder.stdout.once('data', resolve)
+            holder.once('error', reject)
+            holder.once('exit', () => reject(new Error('the program that holds the folder ended at once')))
+          })
+        }
+        expect(() => installStable([target], inProcess())).toThrow(`${staging} is in the way`)
+        expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
+        expect(existsSync(join(target, 'locked'))).toBe(false)
+        // Nothing of the build went into the folder.
+        expect(readdirSync(staging)).toEqual(['locked'])
+        expect(readdirSync(apps).sort()).toEqual([NAME, basename(staging), 'worfy-stable.json'].sort())
+      } finally {
+        if (holder !== null) {
+          const gone = new Promise((resolve) => holder.once('exit', resolve))
+          holder.kill()
+          await gone
+        } else chmodSync(locked, 0o755)
+      }
+    }, 120_000)
+
+    it('names every leftover it clears; of two copies moved aside the first by name goes back, the other is removed', () => {
+      const target = targetIn('apps', 'worfy-stable')
+      const apps = join(dir, 'apps')
+      mkdirSync(apps)
+      // Two runs stopped after each had moved a copy aside, one left its unfinished copy as well; nothing is at the target.
+      const first = join(apps, leftoverName(NAME, 'replaced', 4_194_298))
+      const second = join(apps, leftoverName(NAME, 'replaced', 4_194_299))
+      const half = join(apps, leftoverName(NAME, 'installing', 4_194_299))
+      for (const path of [second, first, half]) {
+        mkdirSync(path)
+        writeFileSync(join(path, 'old.txt'), 'of an earlier run')
+      }
+      const moves: string[] = []
+      const line = installStable([target], { ...inProcess(), rename: recording(moves) })
+      expect(moves[0]).toBe(`${basename(first)} -> ${NAME}`)
+      expect(moves).toHaveLength(3)
+      expect(line.split('\n')).toEqual([
+        expect.stringContaining(`install-stable: installed ${target} (commit `),
+        `install-stable: ${half}, left by an earlier run, is removed`,
+        `install-stable: ${first}, a copy an earlier run had moved aside, is back at ${target}`,
+        `install-stable: ${second}, left by an earlier run, is removed`,
+      ])
+      expect(readdirSync(apps).sort()).toEqual([NAME, 'worfy-stable.json'].sort())
+      expect(existsSync(join(target, 'old.txt'))).toBe(false)
+    }, 60_000)
+
+    it('a copy moved aside that cannot be put back is named, and the install goes on', () => {
+      const target = targetIn('apps', 'worfy-stable')
+      const apps = join(dir, 'apps')
+      mkdirSync(apps)
+      const stale = join(apps, leftoverName(NAME, 'replaced', 4_194_299))
+      mkdirSync(stale)
+      writeFileSync(join(stale, 'old.txt'), 'of an earlier run')
+      const moves: string[] = []
+      const line = installStable([target], { ...inProcess(), rename: recording(moves, (from) => from === stale) })
+      expect(line).toContain(`install-stable: installed ${target} (commit `)
+      expect(line).toContain(`install-stable: ${stale}, left by an earlier run, could not be cleared (the move was made to fail): remove it by hand`)
+      expect(line).not.toContain('is back at')
+      expect(readFileSync(join(stale, 'old.txt'), 'utf8')).toBe('of an earlier run')
+      expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
+    }, 60_000)
+
+    it('a link named like a leftover is somebody\'s own: it stays, and so does the folder it leads to', () => {
+      const target = targetIn('apps', 'worfy-stable')
+      const apps = join(dir, 'apps')
+      mkdirSync(apps)
+      const mine = join(dir, 'mine')
+      mkdirSync(mine)
+      writeFileSync(join(mine, 'notes.txt'), 'keep me')
+      const named = [leftoverName(NAME, 'installing', 4_194_299), leftoverName(NAME, 'replaced', 4_194_299)].map((name) => join(apps, name))
+      for (const link of named) {
+        symlinkSync(mine, link, WINDOWS ? 'junction' : 'dir')
+        links.push(link)
+      }
+      const line = installStable([target], inProcess())
+      expect(line.split('\n')).toHaveLength(1)
+      for (const link of named) expect(lstatSync(link).isSymbolicLink(), link).toBe(true)
+      expect(readdirSync(mine)).toEqual(['notes.txt'])
+      expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
+    }, 60_000)
+
+    it('a move that the system refuses for a moment is tried again on Windows; elsewhere the first refusal ends the run', () => {
+      const target = targetIn('apps', 'worfy-stable')
+      const apps = join(dir, 'apps')
+      let refusals = 1
+      const moves: string[] = []
+      const rename = (from: string, to: string): void => {
+        moves.push(`${basename(from)} -> ${basename(to)}`)
+        if (basename(from).includes('.installing-') && refusals-- > 0) throw Object.assign(new Error('busy for a moment'), { code: 'EBUSY' })
+        renameSync(from, to)
+      }
+      const move = `${leftoverName(NAME, 'installing', process.pid)} -> ${NAME}`
+      if (WINDOWS) {
+        expect(installStable([target], { ...inProcess(), rename })).toContain(`install-stable: installed ${target} (commit `)
+        expect(moves).toEqual([move, move])
+        expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
+      } else {
+        expect(() => installStable([target], { ...inProcess(), rename })).toThrow(`the new copy could not be put at ${target} (busy for a moment)`)
+        expect(moves).toEqual([move])
+        expect(readdirSync(apps)).toEqual([])
+      }
+    }, 60_000)
+
     it('when the file that names the build cannot be written, says so; the new copy is in, and no earlier copy stays aside', () => {
       const target = targetIn('apps', 'worfy-stable')
       const apps = join(dir, 'apps')
@@ -529,11 +772,31 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       rmSync(join(apps, 'worfy-stable.json'))
       mkdirSync(join(apps, 'worfy-stable.json'))
       writeFileSync(join(build, 'resources', 'app.asar'), 'the next build')
+      // What the run leaves alone — the unfinished copy of an install that is running — is named also when the run fails.
+      const kept = join(apps, leftoverName(NAME, 'installing', process.ppid))
+      mkdirSync(kept)
+      const json = join(apps, 'worfy-stable.json')
       const failed = run([target])
       expect(failed.status).not.toBe(0)
-      expect(failed.stderr).toContain(`install-stable: the copy is installed at ${target}, but ${join(apps, 'worfy-stable.json')} could not be written`)
+      expect(failed.stderr).toContain(`install-stable: the copy is installed at ${target}, but ${json} could not be written`)
+      // The reason the system gave is in the message; a folder at the path is not a file that names a build.
+      expect(failed.stderr).toMatch(/could not be written \(EISDIR[^)]*\): no file names the build of this copy/)
+      expect(failed.stderr).toContain(`install-stable: ${kept} is left alone: a running process has the pid in its name`)
       expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('the next build')
-      expect(readdirSync(apps).sort()).toEqual([NAME, 'worfy-stable.json'].sort())
+      expect(readdirSync(apps).sort()).toEqual([NAME, basename(kept), 'worfy-stable.json'].sort())
+
+      // A file that is there and cannot be written still names the build that was there before.
+      rmdirSync(json)
+      writeFileSync(json, '{ "commit": "earlier" }\n')
+      chmodSync(json, 0o444)
+      try {
+        const again = run([target])
+        expect(again.status).not.toBe(0)
+        expect(again.stderr).toMatch(/could not be written \((EPERM|EACCES)[^)]*\): the file still names the build that was there before/)
+        expect(readFileSync(json, 'utf8')).toBe('{ "commit": "earlier" }\n')
+      } finally {
+        chmodSync(json, 0o644)
+      }
     }, 60_000)
   })
 
@@ -562,6 +825,48 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
         const gone = new Promise((resolve) => child.once('exit', resolve))
         child.kill()
         await gone
+      }
+    }, 60_000)
+  })
+
+  // Not run on the PC this was written on either: there the Windows block has the same case.
+  describe.runIf(!WINDOWS)('off Windows, with a build step of the test', () => {
+    it('looks for a running copy again after the build: a copy started while the build ran is refused, and stays', async () => {
+      // A repository of its own, and a build step of the test: pnpm is never started.
+      const repo = join(dir, 'repo')
+      mkdirSync(repo)
+      writeFileSync(join(repo, 'README.md'), 'a repository\n')
+      const git = (...args: string[]) => execFileSync('git', ['-C', repo, '-c', 'user.name=worfy test', '-c', 'user.email=test@worfy.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' })
+      git('init', '-q')
+      git('add', '.')
+      git('commit', '-q', '-m', 'a repository')
+      const target = targetIn('apps', 'worfy-stable')
+      // A real program inside the copy: sleep under the name of the app. It is not running yet.
+      const program = join(target, 'Contents', 'MacOS', 'worfy')
+      mkdirSync(dirname(program), { recursive: true })
+      copyFileSync('/bin/sleep', program)
+      chmodSync(program, 0o755)
+      const env = { ...process.env, WORFY_STABLE_PREBUILT: '' }
+      const builds: string[] = []
+      let child: ReturnType<typeof spawn> | undefined
+      // The build leaves dist/mac-arm64/worfy.app; a user starts the copy while it runs.
+      const build = (platform: string, where: string): void => {
+        builds.push(`${platform} ${where}`)
+        mkdirSync(join(repo, 'dist', 'mac-arm64', 'worfy.app', 'Contents'), { recursive: true })
+        writeFileSync(join(repo, 'dist', 'mac-arm64', 'worfy.app', 'Contents', 'Info.plist'), 'not a real plist')
+        child = spawn(program, ['60'], { stdio: 'ignore' })
+      }
+      try {
+        expect(() => installStable([target], { env, repo, build })).toThrow(`the stable copy at ${target} is running`)
+        expect(builds).toEqual([`${process.platform} ${repo}`])
+        expect(existsSync(program)).toBe(true)
+        expect(readdirSync(join(dir, 'apps'))).toEqual([basename(target)])
+      } finally {
+        if (child !== undefined) {
+          const gone = new Promise((resolve) => child?.once('exit', resolve))
+          child.kill()
+          await gone
+        }
       }
     }, 60_000)
   })
@@ -629,6 +934,25 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(moved.stderr).toContain('the installer of worfy put it there')
       for (const folder of [installed, elsewhere]) expect(readdirSync(folder).sort()).toEqual(['Uninstall worfy.exe', 'worfy.exe'])
     }, 120_000)
+
+    // An 8.3 short name is one more spelling of a folder. This volume gives none to a new folder,
+    // so the case takes a name the system has, when it has it. Both calls only read the disk.
+    const SHORT = 'C:\\PROGRA~1'
+    const long = existsSync(SHORT) ? realpathSync.native(SHORT) : SHORT
+    it.runIf(long.toLowerCase() !== SHORT.toLowerCase())('knows the folder of the installer under an 8.3 short name: the disk spells it the long way', () => {
+      // The folder below is not there: it is spelled by the nearest one that is.
+      const typed = `${SHORT}\\no-such-folder\\Programs\\worfy`
+      expect(onDisk(typed)).toBe(`${long}\\no-such-folder\\Programs\\worfy`)
+      expect(onDisk(`${SHORT.toLowerCase()}\\no-such-folder`)).toBe(`${long}\\no-such-folder`)
+      const env = { LOCALAPPDATA: `${long}\\no-such-folder` }
+      // As typed the short spelling is not the installer's folder by its text; as the disk spells it, it is.
+      expect(checkTarget('win32', typed, env, WIN_HOME)).toBe(typed)
+      expect(() => checkTarget('win32', onDisk(typed), env, WIN_HOME, onDisk(installerDir(env, WIN_HOME)))).toThrow(/cannot be the folder the installer of worfy uses/)
+      expect(() => checkTarget('win32', onDisk(`${typed}-2`), env, WIN_HOME, onDisk(installerDir(env, WIN_HOME)))).toThrow(/cannot start with the path/)
+      // And the installer's folder itself told by a short name.
+      const short = { LOCALAPPDATA: `${SHORT}\\no-such-folder` }
+      expect(() => checkTarget('win32', `${long}\\no-such-folder\\Programs\\worfy`, short, WIN_HOME, onDisk(installerDir(short, WIN_HOME)))).toThrow(/cannot be the folder the installer of worfy uses/)
+    })
 
     it('knows the folder of the installer by the spelling of the disk: Programs moved to another folder, with a link left in its place', () => {
       // worfy is not installed yet: the folder of the installer is not there, only the place for it.

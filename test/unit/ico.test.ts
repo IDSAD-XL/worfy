@@ -83,6 +83,10 @@ describe('packIco', () => {
     expect(pngFormatOf(png(16))).toEqual({ bitDepth: 8, colourType: 6 })
     expect(pngFormatOf(png(16).subarray(0, 32))).toBeNull()
     expect(pngFormatOf(Buffer.from('not a png at all, not a png at all'))).toBeNull()
+    // An IHDR in the right place after a signature that is not a PNG's.
+    const signature = png(16)
+    signature.writeUInt8(0x88, 0)
+    expect(pngFormatOf(signature)).toBeNull()
   })
 })
 
@@ -94,9 +98,23 @@ describe('readIco', () => {
     read.forEach((each, index) => expect(each.png.equals(images[index]!), `image ${index + 1}`).toBe(true))
   })
 
+  it('names an entry by its width: an entry that is not square, which packIco never writes, is read as it is', () => {
+    const ico = packIco([png(16)])
+    const at = ico.readUInt32LE(6 + 12)
+    ico.writeUInt8(24, 6 + 1)
+    ico.writeUInt32BE(24, at + 20)
+    expect(readIco(ico).map((each) => each.px)).toEqual([16])
+  })
+
   it('refuses a file that is not an .ico of PNGs', () => {
     const ico = packIco([png(16), png(32)])
     expect(() => readIco(Buffer.alloc(4))).toThrow(/the header is wrong/)
+    // A header cut short after a right start, and one whose reserved field is not 0.
+    expect(() => readIco(Buffer.from([0, 0, 1]))).toThrow(/the header is wrong/)
+    expect(() => readIco(Buffer.from([0, 0, 1, 0, 1]))).toThrow(/the header is wrong/)
+    const reserved = Buffer.from(ico)
+    reserved.writeUInt16LE(1, 0)
+    expect(() => readIco(reserved)).toThrow(/the header is wrong/)
     const cursor = Buffer.from(ico)
     cursor.writeUInt16LE(2, 2)
     expect(() => readIco(cursor)).toThrow(/the header is wrong/)
@@ -108,6 +126,15 @@ describe('readIco', () => {
     const wrongSize = Buffer.from(ico)
     wrongSize.writeUInt8(24, 6)
     expect(() => readIco(wrongSize)).toThrow(/^entry 1 of the \.ico names 24×16 px, and its PNG is 16×16$/)
+    const wrongHeight = Buffer.from(ico)
+    wrongHeight.writeUInt8(24, 6 + 1)
+    expect(() => readIco(wrongHeight)).toThrow(/^entry 1 of the \.ico names 16×24 px, and its PNG is 16×16$/)
+    // A directory that ends where the file does is whole: what is wrong is its entry, which holds no PNG.
+    const bare = Buffer.from(ico.subarray(0, 6 + 16))
+    bare.writeUInt16LE(1, 4)
+    bare.writeUInt32LE(0, 6 + 8)
+    bare.writeUInt32LE(bare.length, 6 + 12)
+    expect(() => readIco(bare)).toThrow(/^entry 1 of the \.ico is not a PNG$/)
     const notPng = Buffer.from(ico)
     notPng.writeUInt8(0, ico.readUInt32LE(6 + 12))
     expect(() => readIco(notPng)).toThrow(/^entry 1 of the \.ico is not a PNG$/)
@@ -126,5 +153,8 @@ describe('pngSizeOf', () => {
     expect(pngSizeOf(png(48, 32))).toEqual({ width: 48, height: 32 })
     expect(pngSizeOf(Buffer.from('GIF89a'))).toBeNull()
     expect(pngSizeOf(png(48).subarray(0, 20))).toBeNull()
+    // One byte short of the height, and just enough for it.
+    expect(pngSizeOf(png(48).subarray(0, 23))).toBeNull()
+    expect(pngSizeOf(png(48, 32).subarray(0, 24))).toEqual({ width: 48, height: 32 })
   })
 })
