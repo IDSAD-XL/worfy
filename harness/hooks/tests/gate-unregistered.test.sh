@@ -88,6 +88,16 @@ if node -e '
             same("c:/users/x/worfy/src", "C:\\Users\\x\\worfy", "win32") &&
             same("packages\\Shared\\a.ts", "packages/shared", "win32") &&
             !same("C:\\Users\\x\\worfy-2", "C:/Users/x/worfy", "win32") &&
+            // a name that only starts like the base is another folder
+            !same("C:/a/repo2", "C:/a/repo", "win32") &&
+            !same("/a/repo2", "/a/repo", "linux") &&
+            // a network path, with either separator
+            same("\\\\srv\\share\\repo\\src", "//srv/share/repo", "win32") &&
+            !same("\\\\srv\\share\\repo2", "//srv/share/repo", "win32") &&
+            // a separator at the end: of the target it changes nothing; a base is taken as it is
+            // written, so with a separator at its end no folder lies under it
+            same("C:\\a\\repo\\", "C:/a/repo", "win32") &&
+            !same("C:/a/repo/src", "C:/a/repo/", "win32") &&
             same("/Users/x/worfy/src", "/Users/x/worfy", "darwin") &&
             !same("/Users/x/Worfy", "/Users/x/worfy", "darwin") &&
             !same("/Users/x/a\\b", "/Users/x/a", "linux")

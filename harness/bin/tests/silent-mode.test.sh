@@ -33,7 +33,8 @@ ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 
 # --- sandbox -------------------------------------------------------------------------
-export HOME="$T/home" HARNESS_HOME="$T/hh" CLAUDE_CONFIG_DIR="$T/claude-config"
+# USERPROFILE with HOME: a Node script on Windows takes the home folder from it, not from HOME.
+export HOME="$T/home" USERPROFILE="$T/home" HARNESS_HOME="$T/hh" CLAUDE_CONFIG_DIR="$T/claude-config"
 unset CLAUDE_GATE_CONFIG CLAUDE_PROFILES_DIR CLAUDE_PROFILE_BIN CLAUDE_TICKET_BIN CLAUDE_SESSION_ID CLAUDE_CODE_SESSION_ID GATE_SCOPE
 export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t

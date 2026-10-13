@@ -50,10 +50,18 @@
 //   reason   — one line in English for "unverified" and "none", else null.
 // It is written whole or not at all: a temporary file in the same folder, then a rename. A run
 // that could not write it removes the previous file, so the file never tells an older run's outcome.
+// One case is left on Windows: while another process holds the file open, it can be neither
+// replaced nor removed. The gate tries for half a second (see `patiently`); a file held longer
+// than that stays as it is and tells the outcome of the run before.
 //
-// Without node there is no verdict at all (worfy-windows ticket 03, a departure from gate.sh).
-// gate.sh was bash, looked for node itself and, finding none, said «node не найден» with code 3
-// and wrote an "unverified" verdict file. This file is run as `node …/gate.mjs`: when node is not
+// A run that was stopped leaves nothing behind: when a signal ends the gate, or ends a script the
+// gate is waiting for, the gate exits with 128 + the number of the signal (SIGINT 130, SIGTERM
+// 143) and writes no marker, no cache entry and no verdict file. An error inside the gate itself
+// ends as «[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …» with code 3 and no verdict file.
+//
+// Without node there is no verdict at all (worfy-windows ticket 03, a departure from the bash
+// gate this file replaced). That gate looked for node itself and, finding none, said
+// «node не найден» with code 3 and wrote an "unverified" verdict file. This file is run as `node …/gate.mjs`: when node is not
 // on the PATH of Claude Code, the hook command fails with code 127 before a line of the gate
 // runs, Claude Code shows a hook error that does not block, and no marker or verdict file is
 // written — worfy shows the outcome "none", as for a worktree with no runs. The first-run screen
@@ -172,12 +180,28 @@ function writeVerdict(outcome, exit, reason) {
     const tmp = path.join(STATE, `.verdict-${tag}.${process.pid}-${crypto.randomBytes(4).toString("hex")}`)
     try {
         fs.writeFileSync(tmp, `${JSON.stringify(verdict)}\n`, { flag: "wx" })
-        fs.renameSync(tmp, verdictFile)
+        patiently(() => fs.renameSync(tmp, verdictFile))
         verdictWritten = true
     } catch {
+        remove(tmp)
+    }
+}
+
+// On Windows a file that another process holds open cannot be replaced, and often cannot be
+// removed: the answer is EPERM, EBUSY or EACCES until the other process closes it. worfy reads the
+// verdict file for a moment at a time, so the action is tried again: ten times, 50 ms apart.
+const HELD = new Set(["EPERM", "EBUSY", "EACCES"])
+const HELD_TRIES = 10
+const HELD_PAUSE_MS = 50
+const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+function patiently(action) {
+    for (let tries = 1; ; tries++) {
         try {
-            fs.rmSync(tmp, { force: true })
-        } catch {}
+            return action()
+        } catch (error) {
+            if (tries >= HELD_TRIES || !HELD.has(error?.code)) throw error
+            pause(HELD_PAUSE_MS)
+        }
     }
 }
 
@@ -188,9 +212,13 @@ const writeMarker = (file, text) => {
 }
 const remove = (file) => {
     try {
-        fs.rmSync(file, { force: true })
+        patiently(() => fs.rmSync(file, { force: true }))
     } catch {}
 }
+
+// A name of a file made of `text`: every character that is not safe in a file name on every
+// system — a separator, a colon, a space — becomes `_`.
+const fileNamePart = (text) => text.replace(/[^A-Za-z0-9._-]/g, "_")
 
 // Files of `dir` whose name passes `mine` and that were not touched for more than a week.
 function removeOld(dir, mine) {
@@ -342,14 +370,28 @@ function fingerprint(paths) {
 //     of PATHEXT, but not the current folder. A package manager that is not installed is then
 //     known before anything starts, in the same words on every system: cmd.exe says it in the
 //     language of the system and in its console code page, which no sign below can match;
-//   - an .exe or .com is started without a shell, like on the other systems;
-//   - anything else goes through cmd.exe (`shell: true`) as one command line with every word in
-//     double quotes. Inside double quotes cmd.exe still expands %NAME% and, when delayed expansion
-//     is on, !NAME!; a double quote ends the quoting; `^` and a `\` before the closing quote
-//     change what the batch file or the program behind it receives. No escaping makes these safe
-//     for every batch file, so a word with one of them is not started at all: the gate says
-//     "could not verify" and names the word.
+//   - the file is started through cmd.exe as one command line with every word in double quotes.
+//     Inside double quotes cmd.exe still expands %NAME% and, when delayed expansion is on, !NAME!;
+//     a double quote ends the quoting; `^` and a `\` before the closing quote change what the
+//     batch file or the program behind it receives. No escaping makes these safe for every batch
+//     file, so a command line with such a word is not given to cmd.exe at all;
+//   - the command line starts with `chcp 65001`. cmd.exe names a missing tool in the language of
+//     the system and in the code page of the console (Russian in code page 866 on the owner's
+//     PC), which no sign below can match. With the console switched to UTF-8 it answers in
+//     English, and so does every cmd.exe the package manager starts for a script, because they
+//     share the console. A program that writes UTF-8 itself (node) is not affected. The start
+//     keeps `windowsHide: true`: the child then gets a hidden console of its own, and `chcp`
+//     changes that one — the window of a person who runs the gate by hand keeps its code page
+//     (measured: 866 before and after; with windowsHide off the window is left at 65001);
+//   - cmd.exe is the one of the system (<SystemRoot>\System32), not ComSpec: ComSpec may name
+//     another shell, which would read the command line in its own way;
+//   - cmd.exe cannot stand in a network folder (it would start in the Windows folder instead).
+//     There, and for a word cmd.exe cannot be given, an .exe or .com is started directly, without
+//     the code page, and a .cmd or .bat is not started: the gate says "could not verify" and why.
 const CMD_UNSAFE = /["%!^\r\n\0]|\\$/
+const SYSTEM32 = path.win32.join(process.env.SystemRoot || process.env.windir || "C:\\Windows", "System32")
+const CMD_EXE = path.win32.join(SYSTEM32, "cmd.exe")
+const CHCP = path.win32.join(SYSTEM32, "chcp.com")
 
 function findOnWindows(command) {
     const exts = (process.env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)
@@ -377,20 +419,22 @@ const notFound = () => ({ error: Object.assign(new Error("not found"), { code: "
 // spawnSync, or { refused: <why> } when Windows cannot be given these words safely.
 function start(words, stdio) {
     const options = { cwd: repo, stdio, windowsHide: true }
+    // An empty name is what a shell calls ": command not found"; spawnSync would throw on it.
+    if (!words[0]) return notFound()
     if (!WINDOWS) return spawnSync(words[0], words.slice(1), options)
     const file = findOnWindows(words[0])
     if (!file) return notFound()
-    if (/\.(exe|com)$/i.test(file)) return spawnSync(file, words.slice(1), options)
-    // cmd.exe cannot stand in a network folder: it would start in the Windows folder instead.
-    if (/^[\\/]{2}/.test(path.win32.resolve(repo))) {
-        return { refused: `cmd.exe cannot start ${file} in the network folder ${repo}` }
-    }
     const line = [file, ...words.slice(1)]
     const unsafe = line.find((word) => CMD_UNSAFE.test(word))
-    if (unsafe !== undefined) {
-        return { refused: `cmd.exe cannot be given ${JSON.stringify(unsafe)} safely (a quote, %, !, ^ or a trailing backslash)` }
-    }
-    return spawnSync(line.map((word) => `"${word}"`).join(" "), { ...options, shell: true })
+    let refused = ""
+    if (/^[\\/]{2}/.test(path.win32.resolve(repo))) refused = `cmd.exe cannot start ${file} in the network folder ${repo}`
+    else if (unsafe !== undefined) refused = `cmd.exe cannot be given ${JSON.stringify(unsafe)} safely (a quote, %, !, ^ or a trailing backslash)`
+    if (refused) return /\.(exe|com)$/i.test(file) ? spawnSync(file, words.slice(1), options) : { refused }
+    // What `shell: true` would do, with the shell and the code page chosen here. /s makes cmd.exe
+    // drop the outer quotes and read the rest as it is. windowsHide (in `options`) must stay on:
+    // it is what keeps `chcp` away from the console the gate was started in.
+    const command = `"${CHCP}" 65001 >nul 2>&1 & ${line.map((word) => `"${word}"`).join(" ")}`
+    return spawnSync(CMD_EXE, ["/d", "/s", "/c", `"${command}"`], { ...options, windowsVerbatimArguments: true })
 }
 
 // The output of a child process, stdout and stderr in the order they were written: both go to
@@ -417,7 +461,8 @@ function captured(run) {
 }
 
 // Runs one script of the profile. pkg — the package name (empty = the repository root).
-// Returns { rc, out } and, when the script was not started on purpose, { refused }.
+// Returns { rc, out }; { refused } too when the script was not started on purpose; { signal }
+// alone when a signal ended the script — that is a stopped run, not a failed script.
 function runScript(pkg, script) {
     let words
     if (!pkg) words = [PM, "run", script]
@@ -429,12 +474,15 @@ function runScript(pkg, script) {
     // The words a shell would say: "command not found" is one of the signs of a missing environment.
     if (result.error?.code === "ENOENT") return { rc: 127, out: `gate: ${words[0]}: command not found` }
     if (result.error) return { rc: 126, out: `gate: ${words[0]}: ${result.error.message}` }
-    return { rc: result.status ?? 1, out: out.replace(/\n+$/, "") }
+    if (result.signal) return { rc: 1, out: "", signal: result.signal }
+    // Without the line breaks at the end; on Windows a line break is CR LF.
+    return { rc: result.status ?? 1, out: out.replace(/[\r\n]+$/, "") }
 }
 
 // A missing environment is not a defect in the code. It must not block, but it must
 // not count as green either: such work stays unverified. The second sign is what cmd.exe says
-// about a missing tool where bash says "command not found".
+// about a missing tool where bash says "command not found"; cmd.exe says it in English because
+// the gate switches the console to UTF-8 before the package manager starts (see `start`).
 const UNVERIFIABLE = new RegExp(
     [
         "command not found",
@@ -494,8 +542,9 @@ async function main() {
     }
 
     // Markers without a project key (project not determined) older than a week are garbage from
-    // abandoned sessions and deleted worktrees.
-    removeOld(STATE, (name) => name.startsWith("nokey-"))
+    // abandoned sessions and deleted worktrees; so are the temporary files (.run-…, .verdict-…)
+    // of a gate that was killed before it removed them.
+    removeOld(STATE, (name) => /^(nokey-|\.run-|\.verdict-)/.test(name))
     removeOld(BLOCKS, (name) => name.includes("__"))
 
     const which = spawnSync(process.execPath, [RESOLVE, "--which", canon], { encoding: "utf8", windowsHide: true })
@@ -631,7 +680,12 @@ async function main() {
         if (!scripts.length) continue
 
         // The key includes the set of scripts too: the profile was widened — the old green does not count.
-        const cacheFile = path.join(CACHE, `${KEY}__${tag}__${wsdir.replaceAll("/", "_")}__${PROFILE}__${sha1(scriptList).slice(0, 8)}`)
+        // The key, the folder and the profile come from the registry, the workspace list and the
+        // command line: in the name they keep only characters of a file name, so the file lies in
+        // the cache folder whatever they hold (`packages\a`, `..`); the hash keeps apart two
+        // folders that give the same name.
+        const cacheName = [KEY, tag, wsdir, PROFILE].map(fileNamePart).join("__")
+        const cacheFile = path.join(CACHE, `${cacheName}__${sha1(`${wsdir}\n${scriptList}`).slice(0, 8)}`)
         const fp = fingerprint((fpscope || wsdir).split(" ").filter(Boolean))
         let green = ""
         try {
@@ -647,7 +701,18 @@ async function main() {
         let wsOk = true
         for (const script of scripts) {
             const label = `${KEY}/${wsdir}:${script}`
-            const { rc, out, refused } = runScript(pkgname, script)
+            const { rc, out, refused, signal } = runScript(pkgname, script)
+            if (signal) {
+                // The script did not fail, it was stopped (Ctrl-C reaches the children first): the
+                // run ends here and writes nothing down; the exit handler removes the verdict of
+                // the run before.
+                complain(`The gate was stopped: ${signal} ended ${label}. Nothing is written down for this run.`)
+                return 128 + (os.constants.signals[signal] ?? 0)
+            }
+            // A signal sent to the gate itself (a hook that ran out of time) waits while the gate
+            // waits for a script. One turn of the event loop lets its handler end the run here,
+            // before the next script starts and before anything is written down.
+            await new Promise((resolve) => setImmediate(resolve))
             const outLines = out.split(/\r?\n/)
             if (rc === 0) {
                 ran += ` ${label}`
@@ -711,7 +776,17 @@ async function main() {
 const written = (stream) => new Promise((resolve) => stream.write("", () => resolve()))
 process.stdout.on("error", () => {})
 process.stderr.on("error", () => {})
-const code = await main()
+let code
+try {
+    code = await main()
+} catch (error) {
+    // An error of the gate itself is neither green nor red: code 3 and one line, not a stack
+    // trace with code 1. Whatever verdict this run wrote no longer holds: the exit handler removes it.
+    verdictWritten = false
+    complain("[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: " + String(error?.message ?? error).split(/\r?\n/)[0])
+    complain("The gate itself failed and checked nothing — this is not green.")
+    code = 3
+}
 await written(process.stdout)
 await written(process.stderr)
 process.exit(code)

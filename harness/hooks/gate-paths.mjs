@@ -41,8 +41,10 @@ function gitLine(cwd, args) {
 
 // The root of the worktree `cwd` is in, exactly as `git rev-parse --show-toplevel` prints it, or
 // null outside git. On Windows git prints C:/Users/…: a capital drive letter and `/`. The string
-// is kept as it is, because the tag below is a hash of it.
-export function worktreeRoot(cwd = process.cwd()) {
+// is kept as it is, because the tag below is a hash of it. Without `cwd` git runs in the current
+// folder of the process; the folder is not asked for here, because process.cwd() throws when it
+// was deleted, and a deleted folder is simply not a git folder.
+export function worktreeRoot(cwd) {
     return gitLine(cwd, ["rev-parse", "--show-toplevel"]) || null
 }
 

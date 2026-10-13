@@ -65,8 +65,9 @@ verdict() {
 # --- fixtures ---------------------------------------------------------------------
 # The gate runs "$PM run <script>"; pm is this file, so the test needs no npm. What the script
 # does is set by $T/mode: ok, bad (a real test failure), envbad (a missing tool, in the words of
-# sh) or envbad-cmd (the same in the words of cmd.exe). On Windows the file is a .cmd: node starts
-# nothing else there without an interpreter.
+# sh) or envbad-cmd (the same in the words of cmd.exe); term ends the script by SIGTERM, and
+# termparent sends SIGTERM to the gate and ends well. On Windows the file is a .cmd: node starts
+# nothing else there without an interpreter, and a .cmd knows no signals.
 if [ "$WIN" -eq 1 ]; then
     PM="$T/fakepm.cmd"
     cat >"$PM" <<'EOF'
@@ -87,6 +88,8 @@ case "\$(cat "$T/mode")" in
     bad) echo "Tests 1 failed"; exit 1 ;;
     envbad) echo "sh: tool: command not found"; exit 127 ;;
     envbad-cmd) echo "'tool' is not recognized as an internal or external command,"; exit 1 ;;
+    term) kill -TERM \$\$; sleep 5 ;;
+    termparent) kill -TERM \$PPID; exit 0 ;;
 esac
 exit 1
 EOF
@@ -112,12 +115,23 @@ P="$T/percent"      # registered, key "p": a script name with a percent sign
 if [ "$WIN" -eq 1 ]; then W="$T/sp ace'x"; else W="$T/sp ace\"quo\\te'x"; fi
 for r in "$R" "$Q" "$U" "$W" "$M"; do newrepo "$r"; done
 newrepo "$P" 'a%b'
-jq -n --arg r "$R" --arg q "$Q" --arg w "$W" --arg m "$M" --arg p "$P" --arg pm "$PM" '{repos: [
+# Only Windows runs the next four (cmd.exe and the names of Windows); their registry entries
+# stand on every system and are simply never used elsewhere.
+C="$T/cmdmsg"       # key "c": its package manager is a .cmd that calls a tool that does not exist
+A="$T/args"         # key "a": a package manager in a folder with a space, a script name with `&`
+L="$T/local"        # key "l": a package manager that lies only in the repository folder
+S="$T/slash"        # key "s": a workspace entry written with a backslash
+jq -n --arg r "$R" --arg q "$Q" --arg w "$W" --arg m "$M" --arg p "$P" --arg pm "$PM" \
+    --arg c "$C" --arg cpm "$T/realpm.cmd" --arg a "$A" --arg apm "$T/sp dir/argpm.cmd" --arg l "$L" --arg s "$S" '{repos: [
     {key: "t", match: $r, pm: $pm, root: {fast: ["check"], full: ["check"]}, workspace: {}},
     {key: "q", match: $q, pm: $pm, root: {fast: ["check"]}, workspace: {}},
     {key: "w", match: $w, pm: $pm, root: {fast: ["check"]}, workspace: {}},
     {key: "m", match: $m, pm: "worfy-no-such-package-manager", root: {fast: ["check"]}, workspace: {}},
-    {key: "p", match: $p, pm: $pm, root: {fast: ["a%b"]}, workspace: {}}
+    {key: "p", match: $p, pm: $pm, root: {fast: ["a%b"]}, workspace: {}},
+    {key: "c", match: $c, pm: $cpm, root: {fast: ["check"]}, workspace: {}},
+    {key: "a", match: $a, pm: $apm, root: {fast: ["x&y"]}, workspace: {}},
+    {key: "l", match: $l, pm: "localonly", root: {fast: ["check"]}, workspace: {}},
+    {key: "s", match: $s, pm: "npm", root: {}, workspace: {fast: ["check"]}}
 ]}' >"$CLAUDE_GATE_CONFIG"
 HEAD_R="$(git -C "$R" rev-parse HEAD)"
 n=0
@@ -144,6 +158,12 @@ verdict "a later green run overwrites red with green" "$R" '.outcome == "green" 
 mode envbad; touched
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
 verdict "environment unavailable -> outcome unverified, exit 0, a reason" "$R" '.outcome == "unverified" and .exit == 0 and .key == "t"'
+# A line of output ends with CR LF on Windows: the carriage return is not part of the line.
+verdict "environment unavailable: the reason ends with the words of the script, no carriage return" "$R" \
+    '(.reason | endswith("sh: tool: command not found")) and (.reason | contains("\r") | not)'
+um="$STATE/unverified-t-$(tag "$R")"
+if [ -s "$um" ] && ! grep -q "$(printf '\r')" "$um" && [[ "$out" != *"$(printf '\r')"* ]]; then ok "environment unavailable: no carriage return in the marker or in the lines of the gate"
+else bad "a carriage return in the marker or the output (marker: $(od -c "$um" 2>/dev/null | head -n 5 | tr '\n' ' '))"; fi
 # cmd.exe names a missing tool in its own words; the text is the same sign on every system.
 mode envbad-cmd; touched
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
@@ -166,6 +186,86 @@ if [ "$WIN" -eq 1 ]; then
     verdict "Windows: a script name cmd.exe cannot carry -> outcome unverified, exit 0" "$P" '.outcome == "unverified" and .exit == 0 and .key == "p"'
 else
     verdict "a script name with a percent sign runs as it is -> outcome green" "$P" '.outcome == "green" and .exit == 0 and .key == "p"'
+fi
+# A package manager whose name is empty (a resolver that names none): a shell would say
+# ": command not found", and so does the gate — the environment, not a crash of the gate.
+cat >"$T/no-pm.mjs" <<EOF
+import { spawnSync } from "node:child_process"
+if (process.argv[2] === "--which") {
+    console.log(["t", process.argv[3], ""].join("\t"))
+    process.exit(0)
+}
+const r = spawnSync(process.execPath, [process.env.REAL_RESOLVE, ...process.argv.slice(2)], { stdio: "inherit" })
+process.exit(r.status ?? 1)
+EOF
+touched
+out="$(cd "$R" && GATE_SCOPE=all REAL_RESOLVE="$REAL_RESOLVE" CLAUDE_GATE_RESOLVE="$T/no-pm.mjs" node "$GATE" fast </dev/null 2>&1)"; rc=$?
+verdict "an empty package manager -> outcome unverified, exit 0, \"command not found\"" "$R" \
+    '.outcome == "unverified" and .exit == 0 and .key == "t" and (.reason | contains(": command not found"))'
+if [ "$rc" -eq 0 ]; then ok "an empty package manager: exit 0"; else bad "an empty package manager: rc=$rc, out: ${out:0:300}"; fi
+
+# --- 3w. Windows: the package manager goes through cmd.exe ---------------------------------
+if [ "$WIN" -eq 1 ]; then
+    # (a) A real message of cmd.exe, not an echoed sentence: the package manager is a .cmd that
+    # calls a tool that does not exist. cmd.exe of a Russian Windows says so in Russian and in
+    # code page 866 unless the gate switches the console to UTF-8 first; then it is the English
+    # sentence, which is one of the signs of a missing environment.
+    newrepo "$C"
+    printf '@worfy-no-such-tool-of-ticket-03 %%*\r\n' >"$T/realpm.cmd"
+    echo 1 >"$C/n.txt"
+    out="$(cd "$C" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+    verdict "cmd.exe itself names a missing tool -> outcome unverified, exit 0, the English sign" "$C" \
+        '.outcome == "unverified" and .exit == 0 and .key == "c" and (.reason | contains("is not recognized as an internal or external command"))'
+    if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно:"* ]]; then ok "cmd.exe itself names a missing tool: exit 0 and the «окружение недоступно» line"
+    else bad "cmd.exe itself names a missing tool: rc=$rc, out: ${out:0:400}"; fi
+
+    # (b) ComSpec may name another shell (PowerShell): the gate starts cmd.exe of the system anyway.
+    mode ok; touched
+    out="$(cd "$R" && COMSPEC=powershell.exe GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+    if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] зелено (fast): t/.:check"* ]]; then ok "ComSpec names PowerShell: the script still runs, green"
+    else bad "ComSpec names PowerShell: rc=$rc, out: ${out:0:300}"; fi
+
+    # (c) A word with a space (the folder of the package manager) and a word with `&` (the script
+    # name) reach a .cmd as they are: the .cmd writes down what it was given.
+    newrepo "$A" 'x&y'
+    mkdir -p "$T/sp dir"
+    printf '@echo off\r\n>>"%%~dp0args.log" echo %%*\r\nexit /b 0\r\n' >"$T/sp dir/argpm.cmd"
+    echo 1 >"$A/n.txt"
+    out="$(cd "$A" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+    verdict "a package manager in a folder with a space, a script name with & -> outcome green" "$A" '.outcome == "green" and .exit == 0 and .key == "a"'
+    if [ "$(tr -d '\r' <"$T/sp dir/args.log" 2>/dev/null)" = '"run" "x&y" ' ] || [ "$(tr -d '\r' <"$T/sp dir/args.log" 2>/dev/null)" = '"run" "x&y"' ]; then ok "the .cmd was given \"run\" \"x&y\", each word whole"
+    else bad "the .cmd was given: $(cat "$T/sp dir/args.log" 2>/dev/null)"; fi
+
+    # (d) cmd.exe looks for a program in the current folder first; the gate does not. A package
+    # manager that lies only in the repository is "command not found", not a program to start.
+    newrepo "$L"
+    printf '@echo off\r\necho started from the repository folder>"%%~dp0started.txt"\r\nexit /b 0\r\n' >"$L/localonly.cmd"
+    out="$(cd "$L" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+    verdict "a package manager only in the repository folder -> outcome unverified, \"command not found\"" "$L" \
+        '.outcome == "unverified" and .exit == 0 and .key == "l" and (.reason | contains("localonly: command not found"))'
+    if [ ! -e "$L/started.txt" ]; then ok "the program in the repository folder was not started"; else bad "the program in the repository folder was started"; fi
+
+    # (e) A workspace entry written with a backslash. The name of its cache file must be a plain
+    # file name in the cache folder: the second run is then a cache hit. npm here is a .cmd of the
+    # test, put first on PATH.
+    newrepo "$S"
+    mkdir -p "$S/packages/a" "$T/npmbin"
+    echo '{ "name": "pkg-a", "scripts": { "check": "true" } }' >"$S/packages/a/package.json"
+    printf "packages:\n  - 'packages\\\\a'\n" >"$S/pnpm-workspace.yaml"
+    git -C "$S" add -A && git -C "$S" -c user.email=t@t -c user.name=t commit -q -m workspace
+    printf '@exit /b 0\r\n' >"$T/npmbin/npm.cmd"
+    npmfirst="$(cygpath -u "$T/npmbin"):$PATH"
+    out="$(cd "$S" && PATH="$npmfirst" GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+    if [ "$rc" -eq 0 ] && [[ "$out" == *'[gate] зелено (fast): s/packages\a:check'* ]]; then ok "a workspace entry with a backslash: the script runs, green"
+    else bad "a workspace entry with a backslash: rc=$rc, out: ${out:0:400}"; fi
+    out="$(cd "$S" && PATH="$npmfirst" GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+    if [ "$rc" -eq 0 ] && [[ "$out" == *"(кэш)"* ]]; then ok "a workspace entry with a backslash: the second run is a cache hit"
+    else bad "a workspace entry with a backslash: no cache hit (rc=$rc, out: ${out:0:400})"; fi
+    if [ -n "$(find "$STATE/cache" -maxdepth 1 -type f -name 's__*__packages_a__fast__*')" ] && [ -z "$(find "$STATE/cache" -mindepth 1 -type d)" ]; then
+        ok "the cache file of that entry is a plain file in the cache folder"
+    else bad "cache folder: $(find "$STATE/cache" -mindepth 1 | tr '\n' ' ')"; fi
+else
+    echo "skip the cmd.exe checks (a real message of cmd.exe, ComSpec, words with a space and &, the current folder, a backslash in a workspace entry): not Windows"
 fi
 
 # --- 4. The plan resolver crashed (the registry resolver works) -------------------------
@@ -226,6 +326,100 @@ else bad "failed write: rc=$rc, out: ${out:0:300}"; fi
 if [ ! -e "$STATE/verdict-$(tag "$R").json" ]; then ok "failed write: the previous green file is gone"
 else bad "failed write: the file is left: $(head -c 300 "$STATE/verdict-$(tag "$R").json")"; fi
 mode ok
+
+# --- 9a. A reader holds the verdict file while the gate replaces it -----------------------
+# worfy reads the file while the gate may be writing the next one. On Windows a file that is
+# open cannot be replaced: the gate tries again for half a second. The reader here opens the file
+# of the green run, waits until the temporary file of the next run appears, holds on for another
+# 200 ms and lets go; the red verdict must be there afterwards. Elsewhere an open file does not
+# stand in the way, and the check passes at once.
+mode ok; touched
+out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+cat >"$T/reader.cjs" <<'EOF'
+const fs = require("node:fs")
+const path = require("node:path")
+const [file, ready, stop] = process.argv.slice(2)
+const fd = fs.openSync(file, "r")
+fs.writeFileSync(ready, "")
+let letGo = false
+const timer = setInterval(() => {
+    if (fs.existsSync(stop)) {
+        clearInterval(timer)
+        if (!letGo) fs.closeSync(fd)
+    } else if (!letGo && fs.readdirSync(path.dirname(file)).some((name) => name.startsWith(".verdict-"))) {
+        letGo = true
+        setTimeout(() => fs.closeSync(fd), 200)
+    }
+}, 10)
+EOF
+node "$T/reader.cjs" "$STATE/verdict-$(tag "$R").json" "$T/reader.ready" "$T/reader.stop" &
+reader=$!
+for _ in $(seq 1 100); do [ -e "$T/reader.ready" ] && break; sleep 0.1; done
+mode bad; touched
+out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+: >"$T/reader.stop"
+wait "$reader"
+if [ -e "$T/reader.ready" ]; then ok "the reader had the verdict file open"; else bad "the reader did not open the verdict file"; fi
+verdict "a reader held the file -> the verdict of the new run is there: red, exit 2" "$R" '.outcome == "red" and .exit == 2'
+mode ok
+
+# --- 9b. A stopped run writes nothing down -----------------------------------------------
+# A signal that ends a script (Ctrl-C reaches the children of the gate) is not a failed script,
+# and a signal sent to the gate while it waits for a script must end the run before anything is
+# written. In both cases: exit code 128 + the signal (SIGTERM is 15), no red marker, no verdict
+# file — the one of the run before is removed. Not on Windows: a .cmd file cannot end by a
+# signal, and SIGTERM there kills node without a word.
+if [ "$WIN" -eq 1 ]; then echo "skip the signal checks: Windows has no SIGTERM for a .cmd file or for node"; else
+    for how in term termparent; do
+        mode ok; touched
+        out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+        verdict "before the stopped run ($how): a green file" "$R" '.outcome == "green"'
+        mode "$how"; touched
+        out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+        if [ "$rc" -eq 143 ] && [ ! -e "$STATE/red-t-$(tag "$R")" ] && [ ! -e "$STATE/verdict-$(tag "$R").json" ] && [[ "$out" != *"[gate] красно"* && "$out" != *"[gate] зелено"* ]]; then
+            ok "stopped run ($how): exit 143, no red marker, no verdict file, no verdict line"
+        else
+            bad "stopped run ($how): rc=$rc, red marker: $(ls "$STATE" | grep -c '^red-t-'), verdict: $(head -c 200 "$STATE/verdict-$(tag "$R").json" 2>/dev/null), out: ${out:0:300}"
+        fi
+    done
+    mode ok
+fi
+
+# --- 9c. An error inside the gate is "could not verify", not a stack trace ---------------
+# The error comes from a module node loads before the gate: the second SHA-1 the gate asks for
+# (the first is the tag of the worktree) throws. Exit code 3, one line with the first line of
+# the error, no verdict file.
+mode ok; touched
+out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+verdict "before the error inside the gate: a green file" "$R" '.outcome == "green"'
+cat >"$T/boom.cjs" <<'EOF'
+const crypto = require("node:crypto")
+const real = crypto.createHash
+let calls = 0
+crypto.createHash = (...args) => {
+    calls += 1
+    if (calls > 1) throw new Error("boom of the test\nthe second line of the error")
+    return real(...args)
+}
+require("node:module").syncBuiltinESMExports()
+EOF
+touched
+out="$(cd "$R" && GATE_SCOPE=all NODE_OPTIONS="--require \"$T/boom.cjs\"" node "$GATE" fast </dev/null 2>&1)"; rc=$?
+if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: boom of the test"* ]] && [[ "$out" != *"the second line of the error"* ]] && [[ "$out" != *"    at "* ]]; then
+    ok "an error inside the gate: exit 3 and one «ПРОВЕРИТЬ НЕ УДАЛОСЬ» line, no stack trace"
+else bad "an error inside the gate: rc=$rc, out: ${out:0:400}"; fi
+if [ ! -e "$STATE/verdict-$(tag "$R").json" ]; then ok "an error inside the gate: no verdict file"
+else bad "an error inside the gate: the file is left: $(head -c 300 "$STATE/verdict-$(tag "$R").json")"; fi
+
+# --- 9d. The current folder was deleted -------------------------------------------------
+# Not a git folder any more: exit 0 and silence, as outside git. Windows does not let a folder
+# be deleted while a process stands in it.
+if [ "$WIN" -eq 1 ]; then echo "skip the deleted folder check: Windows keeps the current folder of a process"; else
+    mkdir -p "$T/gone"
+    out="$(cd "$T/gone" && rmdir "$T/gone" && node "$GATE" fast </dev/null 2>&1)"; rc=$?
+    if [ "$rc" -eq 0 ] && [ -z "$out" ]; then ok "the current folder was deleted -> exit 0, no output"
+    else bad "the current folder was deleted: rc=$rc, out: ${out:0:300}"; fi
+fi
 
 # --- 10. Outside git: no file -------------------------------------------------------------
 mkdir -p "$T/nogit" "$T/state-nogit"
