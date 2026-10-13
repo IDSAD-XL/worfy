@@ -57,8 +57,13 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
   18, hook `SessionStart`, пишет `GH_TOKEN` в `CLAUDE_ENV_FILE`; `hooks.json:36`) и его test
   `harness/hooks/tests/gh-token-env.test.sh`. PR #150 (E3 Ticket 22) влит как `3837558` и принёс
   bash-скрипт `harness/hooks/worktree-create.sh`; в `hooks.json` он не зарегистрирован, его никто не
-  зовёт (evidence Ticket-а 01, раздел 18). По решению владельца скрипт и его пробы — документация для
-  E3 Ticket-а 24: этот Ticket его не портирует до решения E3 Ticket-а 24.
+  зовёт (evidence Ticket-а 01, раздел 18). По решению владельца 2026-10-09 скрипт и его проверки оставлены как
+  документация для E3 Ticket-а 24 (подключение Project-а; закрыт 2026-10-09, PR #176 — worktree остался
+  внутри репозитория). Решение владельца 2026-10-13: на Node скрипт не переносится — его ничто не
+  запускает. Скрипт и его проверки в test-ах остаются как есть: семь в
+  `harness/bin/tests/silent-mode.test.sh:215-243` и проверки текста в
+  `harness/bin/tests/epic-wave-ship-ticket.test.sh:172`, `:213-214`. Удалять его или оставить, решается,
+  когда дойдёт до worktree вне репозитория.
 - **PR #150 правил и файлы этого Ticket-а:** `session-start.sh`, `guard.mjs`,
   `harness/hooks/tests/rules-hooks.test.sh`, `session-hooks.test.sh`,
   `harness/bin/tests/harness-home.test.sh`, `harness/profiles/README.md`, `harness/skills/retro/SKILL.md`
@@ -99,8 +104,9 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
    hooks, `gh-token-env`, `bin/worktree-lock` (`:45`, `:98`, `:127`) и `guard.mjs` (`:139`). События, matcher-ы и
    timeout-ы не меняются.
 7. **Hook E3 на bash** — `gh-token-env.sh` — переводится так же, вместе со своим test-ом.
-   `worktree-create.sh` не портируется до решения E3 Ticket-а 24 (не зарегистрирован в `hooks.json`;
-   evidence Ticket-а 01, раздел 18); проверка «нет `.sh` в `harness/hooks`» ниже его не считает.
+   `worktree-create.sh` не портируется (решение владельца 2026-10-13; не зарегистрирован в
+   `hooks.json`, evidence Ticket-а 01, раздел 18); проверка «нет `.sh` в `harness/hooks`» ниже не
+   считает его и `gate.sh` — файл из двух строк, который Ticket 03 оставляет до Ticket-а 46.
 8. **Ссылки на имена** — список в «Что происходит». После правки
    `git grep -nE '(inject-rules|session-start|session-end|stop)\.sh' -- harness src` пуст.
 
@@ -112,7 +118,7 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 - [ ] `bash harness/hooks/tests/rules-hooks.test.sh` и `bash harness/hooks/tests/session-hooks.test.sh` — код 0 на Mac и в Git Bash на Windows-ПК. `rules-hooks.test.sh` проверяет новые команды `hooks.json`: у каждой — `node` и путь к скрипту plugin.
 - [ ] `bash harness/hooks/tests/gate-notverified.test.sh` и `bash harness/hooks/tests/gate-unregistered.test.sh` (гоняют Stop hook) — код 0 на Mac и в Git Bash на Windows-ПК.
 - [ ] `bash harness/bin/tests/harness-home.test.sh` — код 0 на Mac.
-- [ ] `git ls-files harness/hooks | grep -v /tests/ | grep '\.sh$' | grep -v '/worktree-create\.sh$'` пуст: в `harness/hooks` нет скриптов на bash вне test-ов, кроме незарегистрированного `worktree-create.sh` (ждёт E3 Ticket 24).
+- [ ] `git ls-files harness/hooks | grep -v /tests/ | grep '\.sh$' | grep -v -e '/worktree-create\.sh$' -e '/gate\.sh$'` пуст: в `harness/hooks` нет скриптов на bash вне test-ов, кроме двух — незарегистрированного `worktree-create.sh` (не переносится, решение владельца 2026-10-13) и `gate.sh`, файла из двух строк, который запускает `gate.mjs` (Ticket 03 оставляет его до Ticket-а 46, решение владельца 2026-10-13).
 - [ ] Mac, упакованная сборка этой ветки (`pnpm package`), открытая через `open` — с окружением, как из Finder. Её Session получает копию Harness этой сборки (ADR-0049, E3 Ticket 12). В транскрипте Session есть `additionalContext` hook-а `SessionStart` с текстом `rules/orchestrator.md` и `rules/common.md`. После красного Gate в worktree (временная ошибка lint) Stop возвращает 2, и модель получает текст «The quality gate is red» (через раздел Mac checks PR, Q33).
 - [ ] То же на Windows-ПК в Session Claude Code с plugin `worfy`: правила внедряются, Stop при красном Gate держит ход, `/hooks` показывает команды с `node`. Вывод — в Итог.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` на Mac — exit 0 (`pnpm test` гоняет test-ы Harness через `test/contract/harness-scripts.test.ts`). gate full на Mac зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac): `test/e2e/packaged.spec.ts` сверяет копию Harness в сборке с `harness`.
