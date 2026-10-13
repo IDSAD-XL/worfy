@@ -70,8 +70,7 @@ In a project over several repositories, read each repository, and the folder abo
 - `workflow.finish` — `pr-green-ci` when the facts name an `origin`, else `local-green`;
 - `mcp.allowed` — `["plugin_worfy_qmd", "worfy-canvas"]`;
 - `attribution` — `"off"` in Silent mode, `"on"` in Full mode: a Silent project's commits and PRs
-  carry no Claude attribution lines unless the user asks for them. For a Silent draft worfy sets
-  `"off"` itself, whatever the draft says, and the person changes it in the form;
+  carry no Claude attribution lines unless the user asks for them;
 - `github.account` — `null` (the account is chosen later);
 - `tickets.branch` — `<эпик>/<NN>` in Full mode, `null` in Silent mode (the branch is named by the
   change);
@@ -85,7 +84,9 @@ several), letters, digits, dots, dashes and underscores. Every `commands.*` the 
 ## With `--draft-only` (worfy)
 
 Return the draft as the structured output and stop. Do not call `project-connect`, do not ask
-questions: worfy shows the draft in a form, the person edits it there, and worfy writes it.
+questions: worfy shows the draft in a form, the person edits it there, and worfy writes it. For a
+Silent draft worfy sets `attribution` to `"off"` itself before the form, whatever the draft says,
+and the person changes it in the form.
 
 ## Without `--draft-only` (a terminal)
 

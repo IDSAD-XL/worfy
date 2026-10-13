@@ -184,7 +184,17 @@ describe('attribution in the form', () => {
     expect(shown.getAttribute('role')).toBeNull()
     expect(shown.querySelector('input, select, button, [role], [tabindex], [contenteditable]')).toBeNull()
 
-    // Edits of the other fields: each check, and then the write, still carry the draft's mode.
+    // Operating the shown mode does nothing: no check is asked for, and the text stays.
+    const before = checkedDrafts().length
+    fireEvent.click(shown)
+    fireEvent.keyDown(shown, { key: 'Enter' })
+    fireEvent.keyDown(shown, { key: ' ' })
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    await checked()
+    expect(checkedDrafts()).toHaveLength(before)
+    expect(screen.getByTestId('connect-form-mode').textContent).toBe('silent')
+
+    // Edits of the other fields after that: each check, and then the write, still carry the draft's mode.
     pickAttribution('on')
     await checked()
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'shop2' } })

@@ -130,8 +130,8 @@ Claude. Silent mode — режим, в котором репозиторий и 
   profile says so, or the profile does not set it and off is the default of Silent mode». Guard
   режима не знает, и фраза верна и для Full Project-а с явным `off`. Отказ без строк атрибуции этой
   фразы не несёт.
-- **Skill `connect-project`:** `attribution` — `"off"` в Silent mode, `"on"` в Full mode; сказано,
-  что для Silent worfy ставит `"off"` сам. `harness/bin/project-connect` не менялся: схема черновика
+- **Skill `connect-project`:** `attribution` — `"off"` в Silent mode, `"on"` в Full mode; в части
+  для worfy (`--draft-only`) сказано, что для Silent worfy ставит `"off"` сам. `harness/bin/project-connect` не менялся: схема черновика
   требует поле, и он пишет то, что в черновике.
 - **Перенос Profile-ов** (`src/main/harness/migrate/profiles.ts`, `proposeAttribution`): значение,
   названное в старом Profile-е, предлагается как записано; иначе по предложенному режиму.
@@ -256,4 +256,10 @@ guard-а прежний хвост; schema 1 читается как Full пос
 - Долг: `harness/bin/silent-check` не ловит строку атрибуции без слова «Claude» (например
   `Co-authored-by: Opus 5.5 <noreply@anthropic.com>`); guard её пропустит. Приёмка такую строку
   находит по адресу.
+- Долг: Profile со значением `attribution` не из `on | off` не читается (`bin/profile` — код 1).
+  Пока он не исправлен, `silent-check` отвечает кодом 2 («Profile не прочитан»), guard команду
+  пропускает — в том числе с прочими следами workflow, которые он при таком Profile-е раньше
+  останавливал, — hook `SessionStart` молчит, gate отвечает «проверить не удалось». Это то же
+  поведение, что при недопустимом `mode`; что guard не должен пропускать команду при несработавшей
+  проверке — Ticket `worfy-harness/34`.
 - Правка `harness/` действует в Stable copy после `pnpm install:stable` — шаг владельца.

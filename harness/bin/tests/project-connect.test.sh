@@ -238,6 +238,11 @@ rule="$(grep -A2 '^- `attribution` — ' "$SKILL" | tr '\n' ' ')"
 [[ "$rule" == *'`attribution` — `"off"` in Silent mode, `"on"` in Full mode'* ]] && ok "skill connect-project proposes attribution off in Silent mode and on in Full mode" \
     || bad "skill connect-project, the attribution rule: [$rule]"
 [ "$(grep -c '`attribution` — ' "$SKILL")" = 1 ] && ok "skill connect-project names the attribution value once" || bad "attribution rules in the skill: $(grep -c '`attribution` — ' "$SKILL")"
+# What worfy does with the value belongs to the part for worfy: a terminal run has no worfy and no form, and
+# bin/project-connect writes the draft as it is, so the rule above must not lean on worfy there.
+worfy_part="$(sed -n '/^## With `--draft-only`/,/^## Without `--draft-only`/p' "$SKILL" | tr '\n' ' ')"
+[[ "$worfy_part" == *'worfy sets `attribution` to `"off"` itself'* ]] && [ "$(grep -c 'worfy sets `attribution`' "$SKILL")" = 1 ] && [[ "$rule" != *"worfy"* ]] \
+    && ok "skill connect-project says that worfy sets off only in its --draft-only part" || bad "skill connect-project, worfy's part: [$worfy_part] rule: [$rule]"
 check "the draft schema requires attribution" 0 "" jq -e '.properties.profile.required | index("attribution")' "$HARNESS/profiles/draft.schema.json"
 
 # --- a project over two repositories: Silent, the folder above them is the Workflow folder ---

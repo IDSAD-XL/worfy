@@ -369,6 +369,12 @@ test('silent: control — a text with a Claude attribution line is a problem, wh
     expect(textProblems('a commit message on refs/heads/main', `Add greet(name)\n\n${line}`, values, passed), line).toEqual([`a commit message on refs/heads/main: a line with noreply@anthropic.com "${line}"`])
     expect(textProblems('PR body (add-greet)', `Adds greet(name).\n\n${line}`, values, passed), line).toEqual([`PR body (add-greet): a line with noreply@anthropic.com "${line}"`])
   }
+  // One text with a line the patterns know and another that carries only the address: both are named, each once.
+  expect(textProblems('PR body (add-greet)', `Adds greet(name).\n\n${lines[2]}\n\nCo-authored-by: Opus 5.5 <noreply@anthropic.com>\n${lines[0]}`, values, passed)).toEqual([
+    `PR body (add-greet): Claude attribution "${lines[0]}"`,
+    'PR body (add-greet): Claude attribution "Generated with [Claude Code](https://claude.com/claude-code)"',
+    'PR body (add-greet): a line with noreply@anthropic.com "Co-authored-by: Opus 5.5 <noreply@anthropic.com>"',
+  ])
   // A clean text, another person as a co-author and the words in a sentence are not attribution.
   for (const clean of ['Add greet(name) with a node:test test', 'Add greet(name)\n\nCo-authored-by: Ann Lee <ann@example.com>', 'Describe how a Claude Code session starts']) {
     expect(attributionIn(clean), clean).toEqual([])
