@@ -264,8 +264,27 @@ if [ "$WIN" -eq 1 ]; then
     if [ -n "$(find "$STATE/cache" -maxdepth 1 -type f -name 's__*__packages_a__fast__*')" ] && [ -z "$(find "$STATE/cache" -mindepth 1 -type d)" ]; then
         ok "the cache file of that entry is a plain file in the cache folder"
     else bad "cache folder: $(find "$STATE/cache" -mindepth 1 | tr '\n' ' ')"; fi
+
+    # (f) The console the gate is started in has its code page back after the run. The gate
+    # switches that console to UTF-8 for cmd.exe: the window of a person who runs the gate by hand
+    # must not be left so. A .cmd stands for that window: node gives it a console of its own, it
+    # sets code page 437 there, runs the gate and asks for the code page again. Only the number is
+    # read: `chcp` words its answer in the language of the system.
+    mode ok; touched
+    printf '@echo off\r\nchcp 437 >nul\r\nchcp >"%%~dp0cp-before.txt"\r\nnode "%s" fast >"%%~dp0cp-gate.out" 2>&1\r\nchcp >"%%~dp0cp-after.txt"\r\n' "$GATE" >"$T/cp.cmd"
+    GATE_SCOPE=all node -e '
+        const path = require("node:path")
+        const cmd = path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32", "cmd.exe")
+        const run = require("node:child_process").spawnSync(cmd, ["/d", "/c", path.win32.normalize(process.argv[1])], { cwd: process.argv[2], windowsHide: true, stdio: "ignore" })
+        process.exit(run.status === 0 ? 0 : 1)' "$T/cp.cmd" "$R"
+    page() { tr -cd '0-9' <"$T/cp-$1.txt" 2>/dev/null; }
+    if [ "$(page before)" != 437 ]; then echo "skip the code page check: the console did not take code page 437 (it says: $(page before))"
+    elif [[ "$(cat "$T/cp-gate.out" 2>/dev/null)" != *"[gate] зелено (fast): t/.:check"* ]] || [[ "$(cat "$T/cp-gate.out")" == *"(кэш)"* ]]; then
+        bad "the code page check: the gate did not start the script (out: $(head -c 300 "$T/cp-gate.out" 2>/dev/null))"
+    elif [ "$(page after)" = 437 ]; then ok "the console the gate was started in has its code page back (437 before and after)"
+    else bad "the gate left the console it was started in at another code page: 437 before, $(page after) after"; fi
 else
-    echo "skip the cmd.exe checks (a real message of cmd.exe, ComSpec, words with a space and &, the current folder, a backslash in a workspace entry): not Windows"
+    echo "skip the cmd.exe checks (a real message of cmd.exe, ComSpec, words with a space and &, the current folder, a backslash in a workspace entry, the code page of the console): not Windows"
 fi
 
 # --- 4. The plan resolver crashed (the registry resolver works) -------------------------

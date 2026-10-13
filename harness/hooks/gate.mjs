@@ -375,19 +375,27 @@ function fingerprint(paths) {
 //     a double quote ends the quoting; `^` and a `\` before the closing quote change what the
 //     batch file or the program behind it receives. No escaping makes these safe for every batch
 //     file, so a command line with such a word is not given to cmd.exe at all;
-//   - the command line starts with `chcp 65001`. cmd.exe names a missing tool in the language of
-//     the system and in the code page of the console (Russian in code page 866 on the owner's
-//     PC), which no sign below can match. With the console switched to UTF-8 it answers in
-//     English, and so does every cmd.exe the package manager starts for a script, because they
-//     share the console. A program that writes UTF-8 itself (node) is not affected. The start
-//     keeps `windowsHide: true`: the child then gets a hidden console of its own, and `chcp`
-//     changes that one — the window of a person who runs the gate by hand keeps its code page
-//     (measured: 866 before and after; with windowsHide off the window is left at 65001);
+//   - the console is switched to UTF-8 (code page 65001) before cmd.exe starts and switched back
+//     after it ends. cmd.exe names a missing tool in the language of the system and in the code
+//     page of the console (Russian in code page 866 on the owner's PC), which no sign below can
+//     match. A cmd.exe that starts in a UTF-8 console answers in English, and so does every
+//     cmd.exe the package manager starts for a script, because they share the console. A program
+//     that writes UTF-8 itself (node) is not affected. `chcp 65001 &` at the start of the command
+//     line is not enough: the cmd.exe that reads the line has chosen its language by then
+//     (measured: a .cmd that calls a missing tool is answered in Russian).
+//     That console is the one the gate runs in: the output of the child goes to a file the gate
+//     opened, and with a stream handed over like that Node starts the child in the console of
+//     its parent, `windowsHide` or not (measured: `chcp` in such a child changes the console of
+//     the parent; with pipes instead of the file it does not). So the window of a person who
+//     runs the gate by hand is at 65001 during a script and has its own code page again after
+//     it; a gate that is ended in the middle of a script leaves the window at 65001. A gate
+//     with no console to ask (consolePage gives "") changes nothing, and cmd.exe answers in the
+//     language of the system;
 //   - cmd.exe is the one of the system (<SystemRoot>\System32), not ComSpec: ComSpec may name
 //     another shell, which would read the command line in its own way;
 //   - cmd.exe cannot stand in a network folder (it would start in the Windows folder instead).
-//     There, and for a word cmd.exe cannot be given, an .exe or .com is started directly, without
-//     the code page, and a .cmd or .bat is not started: the gate says "could not verify" and why.
+//     There, and for a word cmd.exe cannot be given, an .exe or .com is started directly, with the
+//     console as it is, and a .cmd or .bat is not started: the gate says "could not verify" and why.
 const CMD_UNSAFE = /["%!^\r\n\0]|\\$/
 const SYSTEM32 = path.win32.join(process.env.SystemRoot || process.env.windir || "C:\\Windows", "System32")
 const CMD_EXE = path.win32.join(SYSTEM32, "cmd.exe")
@@ -415,6 +423,19 @@ function findOnWindows(command) {
 
 const notFound = () => ({ error: Object.assign(new Error("not found"), { code: "ENOENT" }) })
 
+// The code page of the console the gate runs in: the number `chcp` ends its answer with (the
+// words before it are in the language of the system), or "" when there is no answer. stdin is
+// inherited on purpose, here and in setConsolePage: that is what makes Node start `chcp` in the
+// console of the gate.
+function consolePage() {
+    const asked = spawnSync(CHCP, [], { stdio: ["inherit", "pipe", "ignore"], windowsHide: true, encoding: "latin1" })
+    return /(\d+)\D*$/.exec(asked.stdout ?? "")?.[1] ?? ""
+}
+
+function setConsolePage(page) {
+    spawnSync(CHCP, [page], { stdio: ["inherit", "ignore", "ignore"], windowsHide: true })
+}
+
 // Starts `words` (a command and its arguments) in the worktree and waits. The result is that of
 // spawnSync, or { refused: <why> } when Windows cannot be given these words safely.
 function start(words, stdio) {
@@ -431,10 +452,16 @@ function start(words, stdio) {
     else if (unsafe !== undefined) refused = `cmd.exe cannot be given ${JSON.stringify(unsafe)} safely (a quote, %, !, ^ or a trailing backslash)`
     if (refused) return /\.(exe|com)$/i.test(file) ? spawnSync(file, words.slice(1), options) : { refused }
     // What `shell: true` would do, with the shell and the code page chosen here. /s makes cmd.exe
-    // drop the outer quotes and read the rest as it is. windowsHide (in `options`) must stay on:
-    // it is what keeps `chcp` away from the console the gate was started in.
-    const command = `"${CHCP}" 65001 >nul 2>&1 & ${line.map((word) => `"${word}"`).join(" ")}`
-    return spawnSync(CMD_EXE, ["/d", "/s", "/c", `"${command}"`], { ...options, windowsVerbatimArguments: true })
+    // drop the outer quotes and read the rest as it is.
+    const command = line.map((word) => `"${word}"`).join(" ")
+    const page = consolePage()
+    const switched = page !== "" && page !== "65001"
+    if (switched) setConsolePage("65001")
+    try {
+        return spawnSync(CMD_EXE, ["/d", "/s", "/c", `"${command}"`], { ...options, windowsVerbatimArguments: true })
+    } finally {
+        if (switched) setConsolePage(page)
+    }
 }
 
 // The output of a child process, stdout and stderr in the order they were written: both go to
