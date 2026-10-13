@@ -356,6 +356,32 @@ export interface PtyProcess {
 
 export type SpawnPty = (file: string, args: string[], options: { name: string; cols: number; rows: number; cwd: string; env: Env }) => PtyProcess
 
+/**
+ * node-pty as the registry starts a shell with it. On Windows the console is the one of the
+ * node-pty package — conpty.dll and OpenConsole.exe next to conpty.node, both signed by Microsoft —
+ * and not the one of the system (worfy-windows ticket 22). With the console of the system node-pty
+ * forgets a pseudo-console the moment its shell exits and never closes it: every shell that ended
+ * with `exit` left its conhost.exe until worfy quit (20 of 20 on the owner's PC). The console of
+ * the package is released right after the shell starts, so its host goes when the shell does.
+ */
+export const spawnShellPty: SpawnPty = (file, args, options) => spawnNodePty(file, args, process.platform === 'win32' ? { ...options, useConptyDll: true } : options)
+
+/**
+ * Stops the thread in which node-pty reads the output of a console of Windows; false when this is
+ * not a pty of node-pty as 1.1.0 builds it.
+ *
+ * With the console of the package (spawnShellPty) kill() stops that thread only when output comes
+ * after it, and none does once the shell is gone: one thread per Terminal stayed until worfy quit
+ * (measured: 20 Terminals, 20 threads). The thread ends a second after it is asked, when what was
+ * still on the way has been read.
+ */
+function stopOutputWorker(pty: PtyProcess): boolean {
+  const worker = (pty as { _agent?: { _conoutSocketWorker?: { dispose?: unknown } } })._agent?._conoutSocketWorker
+  if (worker === undefined || worker === null || typeof worker.dispose !== 'function') return false
+  ;(worker as { dispose: () => void }).dispose()
+  return true
+}
+
 /** Where a terminal's events go for one subscriber: the client that opened it. */
 export interface TerminalSink {
   output(data: string, end: number): void
@@ -502,7 +528,7 @@ export class TerminalRegistry {
   private readonly shellListeners = new Set<ShellEventListener>()
 
   constructor(private readonly options: TerminalRegistryOptions) {
-    this.spawnPty = options.spawn ?? ((file, args, spawnOptions) => spawnNodePty(file, args, spawnOptions))
+    this.spawnPty = options.spawn ?? spawnShellPty
     this.killGraceMs = options.killGraceMs ?? KILL_GRACE_MS
     this.commandDelayMs = options.commandDelayMs ?? COMMAND_DELAY_MS
     this.platform = options.platform ?? process.platform
@@ -889,6 +915,12 @@ export class TerminalRegistry {
       terminal.pty.kill()
     } catch (error) {
       console.warn(`[terminal] closing the pty of the shell ${pid} failed`, error)
+    }
+    try {
+      // A pty that is not node-pty's (no helper to take out either) has no such thread: said above.
+      if (!stopOutputWorker(terminal.pty) && quiet) console.warn(`[terminal] the pty of the shell ${pid} has no _conoutSocketWorker to stop: its thread may stay until worfy quits (stopOutputWorker)`)
+    } catch (error) {
+      console.warn(`[terminal] stopping the output thread of the shell ${pid} failed`, error)
     }
   }
 

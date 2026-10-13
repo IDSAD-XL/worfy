@@ -19,6 +19,7 @@ import {
   endDescendants,
   ReplayBuffer,
   REPLAY_LIMIT,
+  spawnShellPty,
   terminalEnv,
   TerminalRegistry,
   terminalShellOptions,
@@ -81,7 +82,7 @@ function windowsEnv(home: string, path: readonly string[] = []): Record<string, 
 }
 
 /** node-pty itself, with PowerShell started without the profile of the user (as the empty HOME does for /bin/sh). */
-const spawnWithoutProfile: SpawnPty = (shell, args, options) => spawnNodePty(shell, /(?:powershell|pwsh)\.exe$/i.test(shell) ? [...args, '-NoProfile'] : args, options)
+const spawnWithoutProfile: SpawnPty = (shell, args, options) => spawnShellPty(shell, /(?:powershell|pwsh)\.exe$/i.test(shell) ? [...args, '-NoProfile'] : args, options)
 
 type Listener = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
 interface OpenResult {
@@ -249,10 +250,18 @@ async function harness(options: HarnessOptions = {}) {
   return { registry, call, ok, open, type, run, text, outputs, exits, sender, makeWindow, nodes, projectRoot, shellSetting }
 }
 
-/** The conhost.exe processes this process started: one per pseudo-console that is still open. */
+/**
+ * The console hosts this process started: one per pseudo-console that is still open. conhost.exe
+ * is the one of the system; OpenConsole.exe the one of the node-pty package (useConptyDll).
+ */
 function consoleHosts(): number {
-  const script = `@(Get-CimInstance -Query "SELECT ProcessId FROM Win32_Process WHERE ParentProcessId = ${process.pid} AND Name = 'conhost.exe'").Count`
+  const script = `@(Get-CimInstance -Query "SELECT ProcessId FROM Win32_Process WHERE ParentProcessId = ${process.pid} AND (Name = 'conhost.exe' OR Name = 'OpenConsole.exe')").Count`
   return Number(execFileSync(win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' }))
+}
+
+/** The threads of this process, as Windows counts them. */
+function threads(): number {
+  return Number(execFileSync(win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', `(Get-Process -Id ${process.pid}).Threads.Count`], { encoding: 'utf8' }))
 }
 
 describe('terminal channels on a real pty', () => {
@@ -1023,6 +1032,40 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     // node-pty's helper lists the console and, when it fails, ends the pid of the shell 5 s later.
     expect(fork).not.toHaveBeenCalled()
   }, 60_000)
+
+  // worfy-windows ticket 22. Under the console of the system each such shell left its conhost.exe
+  // until worfy quit: node-pty forgets a pseudo-console the moment its shell exits.
+  it('a shell that exited on its own leaves no console host behind', async () => {
+    const h = await harness({ nodes: ['n1', 'n2', 'n3'] })
+    const before = consoleHosts()
+    for (const nodeId of ['n1', 'n2', 'n3']) {
+      await h.open(nodeId)
+      await h.run(say('rea', 'dy'), /ready\r?\n/, nodeId)
+      await h.type('exit\r', nodeId)
+      await vi.waitFor(() => expect(h.exits.map((exit) => exit.nodeId)).toContain(nodeId), { timeout: 5000 })
+    }
+    // Not more than before: the count before may still hold a console of an earlier test that is closing.
+    await vi.waitFor(() => expect(consoleHosts()).toBeLessThanOrEqual(before), { timeout: 5000, interval: 500 })
+  }, 60_000)
+
+  // With the console of the package node-pty stops the thread that reads the output only when output
+  // comes after kill(), and none does: the registry stops it (stopOutputWorker). Without that each
+  // Terminal leaves one thread, so sixteen leave sixteen; a few come and go on their own.
+  it('neither a shell that exited on its own nor a closed one leaves a thread behind', async () => {
+    const nodes = Array.from({ length: 16 }, (_, index) => `n${index}`)
+    const h = await harness({ nodes })
+    const before = threads()
+    for (const [index, nodeId] of nodes.entries()) {
+      await h.open(nodeId)
+      await h.run(say('rea', 'dy'), /ready\r?\n/, nodeId)
+      if (index % 2 === 0) {
+        await h.type('exit\r', nodeId)
+        await vi.waitFor(() => expect(h.exits.map((exit) => exit.nodeId)).toContain(nodeId), { timeout: 5000 })
+      }
+      await h.ok('terminal.close', { projectId: PROJECT, nodeId })
+    }
+    await vi.waitFor(() => expect(threads() - before).toBeLessThan(6), { timeout: 8000, interval: 500 })
+  }, 120_000)
 
   it('a shell that exited on its own is asked nothing by its pid afterwards: no helper process is started', async () => {
     const fork = vi.spyOn(childProcess, 'fork')
