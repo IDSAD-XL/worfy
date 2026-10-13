@@ -3,8 +3,10 @@
 // and a check that could not run keeps "Connect" unavailable until a check runs again. The GitHub
 // account step (worfy-harness ticket 25): the account chosen by default and the one the person
 // picks go into the checked draft with their finish, and "Connect" waits for the accounts.
-// Attribution: the form shows the value of the draft — off in a Silent draft, on in a Full one — the
-// value the person picks is written as picked, and the mode cannot change under a draft.
+// Attribution: the form shows the value of the draft main gave it — for a Silent draft main sets
+// off whatever the Session proposed (test/contract/projects-connect.test.ts), a Full draft carries
+// the Session's value — the value the person picks is written as picked, and the mode cannot change
+// under a draft.
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ConnectFolder, GithubAccountsStep, ProfileDraft } from '../../src/shared/ipc/projects'
@@ -20,7 +22,7 @@ const draft: ProfileDraft = {
   rules: '# shop\n',
   gate: [{ key: 'shop', match: '/repos/shop', profile: 'shop', root: { fast: ['test'], full: ['test'] } }],
 }
-/** The draft of the same folder in Full mode, as skill connect-project proposes it. */
+/** The draft of the same folder in Full mode, with the value the Session proposed. */
 const fullDraft: ProfileDraft = { ...draft, profile: { ...draft.profile, mode: 'full', attribution: 'on' } }
 
 const open = () =>
@@ -168,13 +170,32 @@ describe('attribution in the form', () => {
     expect(written()?.profile).toMatchObject({ name: 'shop2', mode: 'silent', attribution: 'on' })
   })
 
-  it('the mode cannot change under a draft: the form shows it read-only and offers no mode cards', async () => {
+  it('the mode cannot change under a draft: no control of the form sets it, and every check and the write carry the mode of the draft', async () => {
     await toForm([])
     await checked()
-    expect(screen.queryByTestId('connect-mode-silent')).toBeNull()
-    expect(screen.queryByTestId('connect-mode-full')).toBeNull()
+    // No mode cards, no way back to them, and nothing a person could operate under the name "Mode".
+    expect(screen.queryByRole('radiogroup', { name: 'Mode' })).toBeNull()
+    expect(screen.queryByRole('radio', { name: /Silent mode|Full mode/ })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
-    expect(screen.getByTestId('connect-form-mode').tagName).toBe('SPAN')
+    expect(screen.queryByLabelText('Mode')).toBeNull()
+    const shown = screen.getByTestId('connect-form-mode')
+    expect(shown.textContent).toBe('silent')
+    expect(shown.getAttribute('tabindex')).toBeNull()
+    expect(shown.getAttribute('role')).toBeNull()
+    expect(shown.querySelector('input, select, button, [role], [tabindex], [contenteditable]')).toBeNull()
+
+    // Edits of the other fields: each check, and then the write, still carry the draft's mode.
+    pickAttribution('on')
+    await checked()
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'shop2' } })
+    await checked()
+    expect(checkedDrafts().length).toBeGreaterThanOrEqual(2)
+    expect(checkedDrafts().map((sent) => sent.profile.mode)).toEqual(checkedDrafts().map(() => 'silent'))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+    expect(written()?.profile).toMatchObject({ mode: 'silent' })
+    // One draft was asked for: nothing in the form asked for another one, in another mode.
+    expect(draftCalls()).toMatchObject([{ mode: 'silent' }])
+    expect(draftCalls()).toHaveLength(1)
   })
 
   it('a draft that failed, Back, the other mode: the form shows the value of the new draft', async () => {
@@ -190,6 +211,9 @@ describe('attribution in the form', () => {
     open()
     fireEvent.click(screen.getByRole('button', { name: 'Write draft' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Back' }))
+    // The mode step again: the controls the form of a draft does not have.
+    expect(screen.getByRole('radiogroup', { name: 'Mode' })).toBeTruthy()
+    expect(screen.getAllByRole('radio', { name: /Silent mode|Full mode/ })).toHaveLength(2)
     fireEvent.click(screen.getByTestId('connect-mode-full').querySelector('input') as HTMLInputElement)
     fireEvent.click(screen.getByRole('button', { name: 'Write draft' }))
     await screen.findByLabelText('Name')

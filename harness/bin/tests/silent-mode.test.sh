@@ -180,6 +180,21 @@ done
 out="$("$SC" -C "$R" $'Ticket 05\n\nCo-Authored-By: Claude <noreply@anthropic.com>' 2>&1)"; rc=$?
 [ "$rc" -eq 1 ] && [[ "$out" == *"ticket number"* && "$out" != *"Claude attribution"* ]] \
     && ok "Silent project with an explicit attribution on: the other traces are still found" || bad "silent, explicit on, ticket number: exit $rc, out: ${out:0:200}"
+# `"attribution": null` is "not set". Any other value that is not "on" or "off" is a broken profile:
+# silent-check does not answer "clean" for it (exit 2), where it used to pass the lines of a Silent project.
+jq '.attribution = null' "$T/sp-profile.json" >"$SPP"
+jq '.attribution = null' "$T/fp-profile.json" >"$FPP"
+out="$("$SC" -C "$R" $'Fix the button\n\n'"${ATTR_LINES[1]}" 2>&1)"; rc1=$?
+out2="$("$SC" -C "$FR" $'Fix the button\n\n'"${ATTR_LINES[1]}" 2>&1)"; rc2=$?
+[ "$rc1" -eq 1 ] && [[ "$out" == *'Claude attribution "'* ]] && [ "$rc2" -eq 0 ] && ok "attribution null: the default of the mode (a trace in Silent, none in Full)" \
+    || bad "attribution null: $rc1/$rc2 $out $out2"
+for v in '""' '"OFF"' 0 false; do
+    jq --argjson v "$v" '.attribution = $v' "$T/sp-profile.json" >"$SPP"
+    out="$("$SC" -C "$R" $'Fix the button\n\n'"${ATTR_LINES[1]}" 2>&1)"; rc=$?
+    [ "$rc" -eq 2 ] && [[ "$out" == *"profile not read (exit 1)"* && "$out" == *'"attribution" is "on" or "off"'* ]] \
+        && ok "Silent project with attribution $v: silent-check does not call the text clean (exit 2, the reason)" \
+        || bad "silent, attribution $v: exit $rc, out: ${out:0:300}"
+done
 cp "$T/sp-profile.json" "$SPP"; cp "$T/fp-profile.json" "$FPP"
 
 # --- 4. A worktree outside the repository ----------------------------------------------------

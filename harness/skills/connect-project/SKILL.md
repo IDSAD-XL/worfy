@@ -70,7 +70,8 @@ In a project over several repositories, read each repository, and the folder abo
 - `workflow.finish` — `pr-green-ci` when the facts name an `origin`, else `local-green`;
 - `mcp.allowed` — `["plugin_worfy_qmd", "worfy-canvas"]`;
 - `attribution` — `"off"` in Silent mode, `"on"` in Full mode: a Silent project's commits and PRs
-  carry no Claude attribution lines unless the user asks for them;
+  carry no Claude attribution lines unless the user asks for them. For a Silent draft worfy sets
+  `"off"` itself, whatever the draft says, and the person changes it in the form;
 - `github.account` — `null` (the account is chosen later);
 - `tickets.branch` — `<эпик>/<NN>` in Full mode, `null` in Silent mode (the branch is named by the
   change);

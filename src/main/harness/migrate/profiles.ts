@@ -12,6 +12,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import type { ProfileFields } from '../../../shared/ipc/harness-migration'
+import { defaultAttribution } from '../attribution'
 
 export interface Homes {
   claudeHome: string
@@ -178,12 +179,12 @@ export function proposeLanguageDocs(profile: Json): 'ru' | 'en' {
 }
 
 /**
- * `attribution` proposed: the value the Profile already names, else the default of the proposed mode —
- * `off` for Silent, `on` for Full (the rule bin/profile applies to a Profile without the field).
+ * `attribution` proposed: the value the Profile already names, else the default of the proposed mode
+ * (defaultAttribution: the rule bin/profile applies to a Profile without the field).
  */
 export function proposeAttribution(profile: Json, mode: 'full' | 'silent'): 'on' | 'off' {
   if (profile.attribution === 'on' || profile.attribution === 'off') return profile.attribution
-  return mode === 'silent' ? 'off' : 'on'
+  return defaultAttribution(mode)
 }
 
 /** A Profile of schema 1 found in ~/.claude/profiles/. */

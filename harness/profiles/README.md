@@ -119,7 +119,7 @@ the way the project really runs them.
 | `language.reports` | `"ru"` \| `"en"` | language of agent reports and messages to the user | all agents, skills |
 | `language.team` | `"ru"` \| `"en"` | language of everything the team sees: code comments, commit messages, PR titles and descriptions, review comments and verdicts in PRs. While the profile has no `language.docs`, documents (tickets, `spec.md`, ADRs, the state file) are written in the language their neighbours are already written in; a new set without neighbours — `language.reports`; exceptions — in `rules.md`. The old form is the string `"language": "ru"`: `bin/profile` reads it as `{reports: "ru", team: "ru"}`, so `--field language.team` works on it too | implementer, reviewer, ship-ticket, epic-wave, overnight-fix-loop, continuous-audit |
 | `language.docs` | `"ru"` \| `"en"` | language of the project's documents: tickets, the epic spec, ADRs, the state file, lessons. Absent — exit 4, and the reader keeps the rule of `language.team` (the language of the neighbouring documents) | implementer, reviewer, ship-ticket, epic-wave, retro |
-| `attribution` | `"on"` \| `"off"` | whether commits and PRs carry the Claude attribution lines. Absent — the default follows `mode`: `--field attribution` prints `off` in Silent mode and `on` in Full mode (worfy ADR-0061). A value written here wins in both modes | agents and skills that commit or open PRs |
+| `attribution` | `"on"` \| `"off"` | whether commits and PRs carry the Claude attribution lines. Absent or `null` — the default follows `mode`: `--field attribution` prints `off` in Silent mode and `on` in Full mode (worfy ADR-0061). `"on"` or `"off"` written here wins in both modes; any other value — exit 1 with the reason in stderr, as with `mode` | agents and skills that commit or open PRs |
 | `layout.summary` | string | the code layout in one phrase (packages, repositories) | scout |
 | `layout.packages` | strings | package or repository directories | scout, audit |
 | `layout.repos` | `{"<repository>": {kind, default_branch, what}}` \| null | a project of several repositories: `kind` — `single` (one package) or `workspaces`; the main branch; what is in it | scout, implementer |
@@ -329,10 +329,26 @@ session of the project, and the guard refuses the commands above when their text
 A profile that does not set `attribution` gets the default of its mode: **`off` in Silent mode, `on`
 in Full mode** (worfy ADR-0061, which refines item 6 of ADR-0042). A value written in the profile
 wins in both modes: `"on"` in a Silent project keeps the lines, `"off"` in a Full project drops
-them. The default lives in one place, `bin/profile`: `--field attribution` and `--json` print the
-resolved value, and `bin/silent-check`, the guard, `hooks/session-start.sh` and the skills read it
-from there. Skill `connect-project` proposes the same value in its draft, and the draft always names
-it, so a project connected through worfy carries the value explicitly.
+them. `null` reads as "not set"; a value that is neither `"on"` nor `"off"` (`""`, `"OFF"`, `0`,
+`false`) is a broken profile, exit 1, as a wrong `mode` is.
+
+`bin/profile` resolves the value: `--field attribution`, `--json` and the summary print it, and
+`bin/silent-check`, the guard, `hooks/session-start.sh` and the skills read it from there and know
+no default of their own. The rule "Silent — `off`, Full — `on`" is written in four places:
+
+- `bin/profile` — a profile without the field;
+- worfy's "Add project": for a Silent project worfy sets `off` over whatever the draft says, once,
+  before the form is shown; the person may change the field there, and that choice is written. A
+  Full draft keeps the value the Session proposed (`src/main/projects/connect.ts`, `applyChoices`);
+- worfy's move of schema 1 profiles: the value the old profile names, else the default of the
+  proposed mode (`src/main/harness/migrate/profiles.ts`);
+- the text of skill `connect-project`, which names the value by the mode.
+
+The two worfy places share one function (`src/main/harness/attribution.ts`), and
+`test/contract/projects-connect.test.ts` of worfy holds it to what `bin/profile --field attribution`
+prints for a profile without the field, in both modes; `bin/tests/project-connect.test.sh` holds
+the skill's sentence. The draft schema requires the field, so a project connected through worfy
+carries the value explicitly.
 
 ## Local finish
 

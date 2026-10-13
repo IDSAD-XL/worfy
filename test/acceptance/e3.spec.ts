@@ -82,6 +82,18 @@ function attributionIn(text: string): string[] {
 }
 
 /**
+ * The lines of `text` with the address Claude signs commits with. ATTRIBUTION repeats the patterns of
+ * bin/silent-check, so it misses what silent-check misses — a trailer without the word "Claude"
+ * (`Co-authored-by: Opus 5.5 <noreply@anthropic.com>`). This sign does not depend on those patterns.
+ */
+function anthropicAddressIn(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .filter((line) => /noreply@anthropic\.com/i.test(line))
+    .map((line) => line.trim())
+}
+
+/**
  * What is wrong with one text the repository or GitHub shows to people: what silent-check says of it,
  * the values of this run, and the Claude attribution lines. The lines count whatever the Profile and
  * silent-check say: a Silent Project is connected with attribution off, and a Profile that came out
@@ -92,7 +104,10 @@ function textProblems(what: string, text: string, values: readonly string[], che
   if (check.status !== 0) problems.push(`silent-check, ${what}: exit ${check.status} ${check.stdout.trim()} ${check.stderr.trim()}`)
   const found = tracesIn(text, values)
   if (found.length > 0) problems.push(`${what}: ${found.join(', ')}`)
-  for (const line of attributionIn(text)) problems.push(`${what}: Claude attribution "${line}"`)
+  const attributed = attributionIn(text)
+  for (const line of attributed) problems.push(`${what}: Claude attribution "${line}"`)
+  // A line the patterns above already reported is not reported twice.
+  for (const line of anthropicAddressIn(text)) if (!attributed.some((found) => line.includes(found))) problems.push(`${what}: a line with noreply@anthropic.com "${line}"`)
   return problems
 }
 
@@ -347,9 +362,17 @@ test('silent: control — a text with a Claude attribution line is a problem, wh
     `PR body (add-greet): Claude attribution "${lines[0]}"`,
     'PR body (add-greet): Claude attribution "Generated with [Claude Code](https://claude.com/claude-code)"',
   ])
+  // The address alone is a problem: a trailer silent-check and the patterns above do not know, in either letter case.
+  for (const line of ['Co-authored-by: Opus 5.5 <noreply@anthropic.com>', 'Signed-off-by: Assistant <NoReply@Anthropic.com>']) {
+    expect(attributionIn(`Add greet(name)\n\n${line}`), line).toEqual([])
+    expect(anthropicAddressIn(`Add greet(name)\n\n  ${line}  \n`), line).toEqual([line])
+    expect(textProblems('a commit message on refs/heads/main', `Add greet(name)\n\n${line}`, values, passed), line).toEqual([`a commit message on refs/heads/main: a line with noreply@anthropic.com "${line}"`])
+    expect(textProblems('PR body (add-greet)', `Adds greet(name).\n\n${line}`, values, passed), line).toEqual([`PR body (add-greet): a line with noreply@anthropic.com "${line}"`])
+  }
   // A clean text, another person as a co-author and the words in a sentence are not attribution.
   for (const clean of ['Add greet(name) with a node:test test', 'Add greet(name)\n\nCo-authored-by: Ann Lee <ann@example.com>', 'Describe how a Claude Code session starts']) {
     expect(attributionIn(clean), clean).toEqual([])
+    expect(anthropicAddressIn(clean), clean).toEqual([])
     expect(textProblems('PR title (add-greet)', clean, values, passed), clean).toEqual([])
   }
   // The other two searches still report through the same function.
