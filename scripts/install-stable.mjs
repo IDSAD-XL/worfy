@@ -24,7 +24,7 @@
 // tests use it to install the app they have already packaged into a temporary folder.
 //
 // One file with no import of its own: a test copies it alone into another repository. The parts
-// that decide by the system take it as a parameter (test/unit/install-stable.test.ts).
+// that decide by the system take it as a parameter (test/unit/install-stable-functions.test.ts).
 
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
