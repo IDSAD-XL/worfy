@@ -9,6 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Note } from '../../src/main/notify'
 import type { AgentEvent } from '../../src/shared/agent/events'
+import { APP_URL } from '../app-url'
 
 const electron = vi.hoisted(() => ({ windows: [] as unknown[] }))
 
@@ -328,7 +329,6 @@ describe('a click on a note from a Linked machine', () => {
 
     const { notifyHandlers } = await import('../../src/main/ipc/notify')
     const { registerIpc } = await import('../../src/main/ipc/index')
-    const APP_URL = 'file:///Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
     const handlers = new Map<string, (event: unknown, input?: unknown) => unknown>()
     await registerIpc({ handle: (channel, listener) => handlers.set(channel, listener as never) }, { modules: { './notify.ts': () => Promise.resolve(notifyHandlers(pendingB)) }, isTrustedSender: (url) => url === APP_URL })
     const pendingFor = (id: number) => handlers.get('worfy:notify.pending')?.({ senderFrame: { url: APP_URL }, sender: { id } })

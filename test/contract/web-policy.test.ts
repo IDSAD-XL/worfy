@@ -6,9 +6,9 @@ import type { HandlerDetails, WebContents } from 'electron'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { appUrlMatcher } from '../../src/main/ipc/index'
 import { grantsPermission, installWebPolicy, windowOpenResponse } from '../../src/main/window'
+import { APP_URL as INDEX_URL, INDEX_HTML } from '../app-url'
 
-const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
-const APP_URL = `file://${INDEX_HTML}#/canvas`
+const APP_URL = `${INDEX_URL}#/canvas`
 const CARD = 'worfy-card://c1.0a1b2c3d/index.html'
 
 type Listener = (...args: unknown[]) => void

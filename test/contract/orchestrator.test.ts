@@ -28,6 +28,7 @@ import {
   type OrchestratorView,
 } from '../../src/shared/ipc/orchestrator'
 import type { LayoutNode } from '../../src/shared/layout/types'
+import { APP_URL } from '../app-url'
 
 const electron = vi.hoisted(() => ({
   listeners: new Map<string, (() => void)[]>(),
@@ -48,7 +49,6 @@ vi.mock('electron', () => ({
 }))
 
 const scriptsDir = join(resolve(dirname(fileURLToPath(import.meta.url)), '..'), 'fixtures', 'agent-scripts')
-const APP_URL = 'file:///Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PROJECT = 'demo-0000000d'
 
 const BLOCK_1 = [

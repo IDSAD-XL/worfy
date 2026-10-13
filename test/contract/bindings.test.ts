@@ -13,9 +13,9 @@ import { bindingsHandlers, type TranscriptFinder } from '../../src/main/ipc/bind
 import { BindingStore } from '../../src/main/layout/bindings'
 import { EMPTY_AGENT_SIGNALS, resolveBinding, type BindingWorkflow } from '../../src/shared/binding/resolve'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
 
-const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const HOME = join(__dirname, '..', 'fixtures', 'claude-home')
 const DEMO = join(HOME, 'projects', '-Users-test-projects-demo')
 const S4 = join(HOME, 'projects', '-Users-test-projects-demo--claude-worktrees-07', '44444444-4444-4444-8444-444444444444.jsonl')
@@ -198,7 +198,7 @@ async function register(bindings: BindingStore, finder: TranscriptFinder, reader
   return async (channel: string, input: unknown, window: FakeWindow = fakeWindow()): Promise<IpcResult<unknown>> => {
     const listener = handlers.get(`${IPC_CHANNEL_PREFIX}${channel}`)
     if (!listener) throw new Error(`${channel} is not registered`)
-    return (await listener({ senderFrame: { url: `file://${INDEX_HTML}` }, sender: window } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
+    return (await listener({ senderFrame: { url: APP_URL }, sender: window } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
   }
 }
 

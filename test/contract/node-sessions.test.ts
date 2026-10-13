@@ -23,6 +23,7 @@ import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channel
 import type { LiveSession } from '../../src/shared/ipc/claude-home'
 import { LIVE_SESSION_HEIGHT, LIVE_SESSION_WIDTH, type SessionNodeView } from '../../src/shared/ipc/sessions'
 import type { LayoutNode } from '../../src/shared/layout/types'
+import { APP_URL } from '../app-url'
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -30,7 +31,6 @@ vi.mock('electron', () => ({
 }))
 
 const scriptsDir = join(resolve(dirname(fileURLToPath(import.meta.url)), '..'), 'fixtures', 'agent-scripts')
-const APP_URL = 'file:///Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PROJECT = 'demo-0000000d'
 const FINISHED = 'f0000000-0000-4000-8000-0000000000f1'
 

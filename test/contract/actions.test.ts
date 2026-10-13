@@ -8,8 +8,7 @@ import { actionsHandlers } from '../../src/main/ipc/actions'
 import { appUrlMatcher, emit, registerIpc } from '../../src/main/ipc/index'
 import { actionsLaunchesChanged } from '../../src/shared/ipc/actions'
 import { failureReason, handlerFailure, IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-
-const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
+import { APP_URL, INDEX_HTML } from '../app-url'
 
 type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
 
@@ -41,7 +40,7 @@ async function register(options: { devServerUrl?: string } = {}) {
     if (!listener) throw new Error(`${channel} is not registered`)
     return (await listener({ senderFrame: { url: frameUrl }, sender: {} } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
   }
-  const invoke = (channel: string, input: unknown): Promise<IpcResult<unknown>> => invokeFrom(`file://${INDEX_HTML}`, channel, input)
+  const invoke = (channel: string, input: unknown): Promise<IpcResult<unknown>> => invokeFrom(APP_URL, channel, input)
   return { invoke, invokeFrom, calls }
 }
 
@@ -148,7 +147,7 @@ describe('the sender check with a dev server', () => {
     ['another port', 'http://localhost:5174/'],
     ['another host', 'http://127.0.0.1:5173/'],
     ['another scheme', 'https://localhost:5173/'],
-    ['the bundled index.html', `file://${INDEX_HTML}`],
+    ['the bundled index.html', APP_URL],
     ['a Card', 'worfy-card://abc/index.html'],
     ['an opaque origin', 'data:text/html,hi'],
     ['a frame URL that does not parse', 'not a url'],

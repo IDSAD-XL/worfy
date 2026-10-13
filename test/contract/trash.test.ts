@@ -12,9 +12,9 @@ import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channel
 import { TRASH_KEEP_MS, type TrashEntry } from '../../src/shared/ipc/trash'
 import type { LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 import type { LayoutStore } from '../../src/main/layout/store'
+import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree, saveLayoutNow } from '../remove'
 
-const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PROJECT = 'demo-0a1b2c3d'
 const DAY = 24 * 60 * 60 * 1000
 
@@ -70,7 +70,7 @@ async function start(): Promise<void> {
 async function call(channel: string, input?: unknown): Promise<IpcResult<unknown>> {
   const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
   if (!listener) throw new Error(`no handler for ${channel}`)
-  const event = { senderFrame: { url: `file://${INDEX_HTML}` }, sender: {} } as unknown as IpcMainInvokeEvent
+  const event = { senderFrame: { url: APP_URL }, sender: {} } as unknown as IpcMainInvokeEvent
   return (await listener(event, input)) as IpcResult<unknown>
 }
 

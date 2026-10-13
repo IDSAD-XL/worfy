@@ -5,6 +5,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { LiveSession } from '../../src/shared/ipc/claude-home'
+import { APP_URL } from '../app-url'
 
 const electron = vi.hoisted(() => ({
   shown: [] as { title: string; body: string }[],
@@ -497,8 +498,6 @@ describe('PendingOpens', () => {
 })
 
 describe('notify.pending at the IPC boundary', () => {
-  const APP_URL = 'file:///Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
-
   async function harness() {
     const { notifyHandlers } = await import('../../src/main/ipc/notify')
     const { registerIpc } = await import('../../src/main/ipc/index')

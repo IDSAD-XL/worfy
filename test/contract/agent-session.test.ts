@@ -13,11 +13,11 @@ import { agentHandlers, everyClientSink } from '../../src/main/ipc/agent'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import type { AgentEvent, AgentEventEnvelope } from '../../src/shared/agent/events'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import { APP_URL } from '../app-url'
 
 vi.mock('electron', () => ({ app: { isPackaged: false, getAppPath: () => '/nowhere', on: vi.fn() } }))
 
 const scriptsDir = join(resolve(dirname(fileURLToPath(import.meta.url)), '..'), 'fixtures', 'agent-scripts')
-const APP_URL = 'file:///Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 
 type Listener = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
 
