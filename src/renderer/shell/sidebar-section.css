@@ -1,0 +1,117 @@
+/*
+ * The frame of a sidebar section (SidebarSection.tsx) and how the sections share the height of the
+ * sidebar's column (.w-sidebar__sections in shell.css: a flex column that scrolls).
+ *
+ * The body of a section — its list — scrolls by itself and is between 3 and 15 rows of that
+ * section high; a list shorter than 3 rows takes its own height and never grows:
+ * - each section is a flex item of the column that does not grow and starts from its content: the
+ *   header and the body, the body no higher than 15 rows (`flex: 0 1 content`, `max-height`);
+ * - when the column is too low for all of them, the sections shrink, each no further than the
+ *   header and 3 rows, or its whole content when that is less. This floor is the automatic minimum
+ *   of a flex item: the smaller of its `height` and of its content. `height` is here for that
+ *   alone; with `flex-basis: content` it never sizes the section;
+ * - when every section is at its floor, the column scrolls as a whole.
+ */
+
+/* The wrapper Sidebar.tsx puts around a section makes no box: the frame is the column's flex item. */
+.w-sidebar__section {
+  display: contents;
+}
+
+.w-sidebar-section {
+  --w-section-header: 24px;
+  /* Set by SidebarSection for a section whose rows are not the common ones. */
+  --w-section-row-height: var(--w-section-row, var(--row-height));
+  /* The popovers of a section are placed against it. */
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 content;
+  min-height: auto;
+  height: calc(var(--w-section-header) + 3 * var(--w-section-row-height));
+  min-width: 0;
+}
+
+.w-sidebar-section__header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--w-section-header);
+  box-sizing: border-box;
+  /*
+   * The chevron hangs left of the column the rows start in (8 px), so the heading moves right by
+   * 3 px only: the header of Sessions has no room to give (a count, "New session" and "History").
+   */
+  padding: 0 4px 0 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.w-sidebar-section__heading {
+  flex: none;
+  margin: 0;
+  font-size: var(--text-11);
+  line-height: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+/* The heading is the button that collapses the section: it looks like the heading it replaces. */
+.w-sidebar-section__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding: 2px 2px 2px 1px;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.w-sidebar-section__toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.w-sidebar-section__chevron {
+  flex: none;
+}
+/* What gives way when a header is too narrow: the count is cut, the buttons stay whole. */
+.w-sidebar-section__meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.w-sidebar-section__trailing {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+}
+
+/* Never higher than 3 rows, so that the floor of the section (above) always has room for it. */
+.w-sidebar-section__notice {
+  flex: none;
+  max-height: calc(3 * var(--w-section-row-height));
+  overflow-y: auto;
+}
+
+/*
+ * A popover of the section (History of Sessions) is absolute with no `top`: it starts where it
+ * stands in the flow. As a child of the section itself, a flex container, that would be the top of
+ * the section, over its header; in this block it is the line under the header.
+ */
+.w-sidebar-section__overlay {
+  flex: none;
+  height: 0;
+}
+
+.w-sidebar-section__body {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: calc(15 * var(--w-section-row-height));
+  overflow-y: auto;
+}

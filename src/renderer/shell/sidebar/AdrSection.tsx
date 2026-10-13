@@ -7,15 +7,14 @@ import { invoke } from '../../ipc'
 import { useFileElsewhere } from '../../machines/useFileElsewhere'
 import { Markdown } from '../../markdown/Markdown'
 import { activeProject, useProjects } from '../../projects/useProjects'
+import { SidebarSection } from '../SidebarSection'
 
 /** The ADRs of the active Project (docs/adr/NNNN-*.md), after its Epics (design F). */
 export const order = 40
 
 const styles = {
-  header: { display: 'flex', alignItems: 'center', gap: 6, height: 24, padding: '0 8px' },
-  heading: { margin: 0, flex: 1, fontSize: 'var(--text-11)', lineHeight: '14px', fontWeight: 600, color: 'var(--text-muted)' },
   count: { fontSize: 'var(--text-11)', color: 'var(--text-muted)' },
-  list: { margin: 0, padding: 0, listStyle: 'none', maxHeight: 240, overflowY: 'auto' },
+  list: { margin: 0, padding: 0, listStyle: 'none' },
   message: { margin: '2px 8px 4px', fontSize: 'var(--text-12)', lineHeight: '16px', color: 'var(--text-muted)', overflowWrap: 'anywhere' },
   row: {
     display: 'flex',
@@ -205,17 +204,19 @@ export default function AdrSection() {
     )
 
   return (
-    <section aria-label="ADR">
-      <div style={styles.header}>
-        <h2 style={styles.heading}>ADR</h2>
-        {state !== undefined ? (
+    <SidebarSection
+      id="AdrSection"
+      title="ADR"
+      trailing={
+        state !== undefined ? (
           <span className="w-mono" style={styles.count} data-testid="adr-count">
             {adrs.length}
           </span>
-        ) : null}
-      </div>
+        ) : null
+      }
+      overlay={openAdr !== undefined ? <AdrPanel projectId={project.id} adr={openAdr} onClose={() => setOpen(null)} /> : null}
+    >
       {body}
-      {openAdr !== undefined ? <AdrPanel projectId={project.id} adr={openAdr} onClose={() => setOpen(null)} /> : null}
-    </section>
+    </SidebarSection>
   )
 }

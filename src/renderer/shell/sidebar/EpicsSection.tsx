@@ -3,6 +3,7 @@ import { focusEpic } from '../../canvas/sources/epics'
 import { progressOf } from '../../canvas/epic-layout'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import { useWorkflow } from '../../workflow/useWorkflow'
+import { SidebarSection } from '../SidebarSection'
 import '../../canvas/epic-frame.css'
 
 /**
@@ -11,9 +12,13 @@ import '../../canvas/epic-frame.css'
  */
 export const order = 20
 
+/**
+ * A row whose name takes one line: 5 px of padding, the name (16), a gap (4), the progress (17) and
+ * 6 px of padding (styles.row, name and progress below). The list is 3 to 15 of these rows high.
+ */
+const ROW_HEIGHT = 48
+
 const styles = {
-  header: { display: 'flex', alignItems: 'center', height: 24, padding: '0 8px' },
-  heading: { margin: 0, fontSize: 'var(--text-11)', lineHeight: '14px', fontWeight: 600, color: 'var(--text-muted)' },
   list: { margin: 0, padding: 0, listStyle: 'none' },
   message: { margin: '2px 8px 4px', fontSize: 'var(--text-12)', lineHeight: '16px', color: 'var(--text-muted)', overflowWrap: 'anywhere' },
   row: {
@@ -90,11 +95,8 @@ export default function EpicsSection() {
     )
 
   return (
-    <section aria-label="Epics">
-      <div style={styles.header}>
-        <h2 style={styles.heading}>Epics</h2>
-      </div>
+    <SidebarSection id="EpicsSection" title="Epics" rowHeight={ROW_HEIGHT}>
       {body}
-    </section>
+    </SidebarSection>
   )
 }
