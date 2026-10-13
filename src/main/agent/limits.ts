@@ -14,7 +14,7 @@
 // A change is written to limits.json and sent to the subscribers (src/main/ipc/limits.ts sends it
 // to the windows). This module writes nowhere else: not to ~/.claude, not to a Project's repository.
 import { existsSync, mkdirSync, readFileSync, statSync, watch, type FSWatcher } from 'node:fs'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { emptyLimits, limitUpdatesFromSdk, limitUpdatesFromStatusline, limitsStateSchema, mergeLimits, type LimitUpdate, type LimitsState } from '../../shared/agent/limits'
 import { observeMessages } from '../mcp/canvas-server'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
@@ -34,11 +34,24 @@ const STATUSLINE_DEBOUNCE_MS = 50
  */
 const STATUSLINE_POLL_MS = 1000
 
+/** A watch of one folder, not of what is below it; `close` ends it. */
+export type WatchFolder = (dir: string, onEvent: (name: string | null) => void, onError: (error: unknown) => void) => { close: () => void }
+
+const watchFolderWithNode: WatchFolder = (dir, onEvent, onError) => {
+  const watcher: FSWatcher = watch(dir, (_event, name) => onEvent(name))
+  watcher.on('error', onError)
+  return watcher
+}
+
 export interface LimitsTrackerOptions {
   /** WORFY_DATA_DIR. */
   dataDir: string
   /** Clock in milliseconds; tests pass a fixed one. */
   now?: () => number
+  /** The watch of the system; replaced in tests. */
+  watch?: WatchFolder
+  /** Whether the name an event carries is a full path; path.win32's rule in tests on any system. */
+  isAbsolute?: (name: string) => boolean
 }
 
 export type LimitsListener = (state: LimitsState) => void
@@ -49,7 +62,7 @@ export class LimitsTracker {
   private readonly file: string
   private readonly statuslineFile: string
   private readonly now: () => number
-  private watcher: FSWatcher | null = null
+  private watcher: { close: () => void } | null = null
   private timer: ReturnType<typeof setTimeout> | null = null
   private poller: ReturnType<typeof setInterval> | null = null
   /** The status line file's modification time when it was last read; the poll compares with it. */
@@ -147,10 +160,29 @@ export class LimitsTracker {
     if (!existsSync(this.options.dataDir)) mkdirSync(this.options.dataDir, { recursive: true })
     this.readStatusline()
     try {
-      this.watcher = watch(this.options.dataDir, (_event, name) => {
-        if (name === null || name === STATUSLINE_FILE) this.scheduleRead()
-      })
-      this.watcher.on('error', (error) => console.warn('[limits] watching the status line file failed', error))
+      const { dataDir } = this.options
+      const full = this.options.isAbsolute ?? isAbsolute
+      const mine: { handle: { close: () => void } | null } = { handle: null }
+      mine.handle = (this.options.watch ?? watchFolderWithNode)(
+        dataDir,
+        (name) => {
+          // A watch that was closed may still have events on the way.
+          if (this.watcher !== mine.handle) return
+          // A name in the folder is never a full path: this one names the folder itself, which is
+          // gone. Windows then neither closes the watch nor fails it — it sends such events without
+          // end, a whole processor core (worfy-windows ticket 27). The watch is closed at the first
+          // of them; the slow poll below still looks at the file.
+          if (name !== null && full(name)) {
+            mine.handle?.close()
+            this.watcher = null
+            console.warn(`[limits] the data folder ${dataDir} is gone: the status line file is no longer watched, only looked at every ${STATUSLINE_POLL_MS} ms`)
+            return
+          }
+          if (name === null || name === STATUSLINE_FILE) this.scheduleRead()
+        },
+        (error) => console.warn('[limits] watching the status line file failed', error),
+      )
+      this.watcher = mine.handle
     } catch (error) {
       console.warn('[limits] cannot watch the status line file', error)
     }
