@@ -1,8 +1,8 @@
-# Передача контекста — снимок на 2026-10-13 (UTC), main @ 067e783
+# Передача контекста — снимок на 2026-10-13 (UTC), main @ 97f174c
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3: Harness — правила, skills, agents и скрипты владельца — становится plugin-ом worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–25, 30, 32 и 35, `epic-status` — 28/35; 26 — приёмка E3, `blocked`; 27 (платная часть eval) ждёт 28; 29 — после 27 и 28; 31, 33, 34 — открыты.
+- `worfy-harness` (E3: Harness — правила, skills, agents и скрипты владельца — становится plugin-ом worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–25, 30, 32 и 35, `epic-status` — 28/36; 26 — приёмка E3, `blocked`; 27 (платная часть eval) ждёт 28; 29 — после 27 и 28; открыты 31, 33, 34, 36.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 19; 19 (старая неудача в окне First run, low) открыт. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`; работа — только в локальной ветке `wip/worfy-week-14` («Итог» Ticket-а 14).
 - Stable copy и plugin `worfy` — сборка `4d3d60c` (2026-10-10). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/19; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16; 17 и 18 — до связи с чужой машиной.
@@ -15,7 +15,8 @@
 
 - `worfy-harness` 26 (приёмка E3): код приёмки влит (PR #211, узкий круг — `NARROW: VERIFIED`); остались шаги ниже.
 - Приёмка E3 («Итог» 26): пункты 1, 3 и 4 приняты; пункт 5 владелец делает сам (`/Users/Shared/worfy-item5/`); пункт 2 — строкой ниже; вход в песочнице открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08.
-- Приёмка E3, пункт 2: владелец решил 2026-10-13 — полный повтор на `IDSAD-XL/worfy-e3-silent-3`; `worfy-harness` 35 влит (PR #268); перед запуском Orchestrator пишет «начинаю silent», владелец снимает снимки Auction и `~/.claude`.
+- Приёмка E3, пункт 2: запуск 2026-10-13 на `IDSAD-XL/worfy-e3-silent-3` — код 0 («Итог» 26); ждёт сравнения снимков Auction и `~/.claude` владельцем и его слова, после него пункт отмечается.
+- Песочница приёмки лежит в `$TMPDIR`: macOS каждую ночь в 03:35 удаляет файлы без обращений три дня; 2026-10-13 пропала метка. Время обращения обновлено, хватит до 2026-10-16; исправление — `worfy-harness` 36.
 - `worfy-link` 02: вручную — dev-сборка и Stable copy находят друг друга по Bonjour и связываются по коду; появился ли запрос Local Network и на каком шаге — [Ticket 02](.scratch/worfy-link/issues/02-link-a-machine-код-список-и-отзыв.md), «Итог».
 - Мусор на машине: удалить ли 13 папок транскриптов spike-а `~/.claude/projects/*worfy-harness-probe*` (`worfy-harness` 01) `~/.claude/worfy-harness/worktree-sessions/` (`worfy-harness` 11).
 - Мусор от проб `worfy-harness` 22: `~/.claude/projects/-private-tmp-worfy-harness-w10-impl-22-{probe-t0,p7-repo}/` и пустые `~/.claude/session-env/*` — удалить ли.
