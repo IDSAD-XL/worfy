@@ -81,7 +81,7 @@ test('Settings… in the menu opens Settings with General and the version; Esc c
     await window.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
 
-    await window.keyboard.press('Meta+k')
+    await window.keyboard.press('ControlOrMeta+k')
     const input = window.getByTestId('palette-input')
     await input.fill('Settings')
     await expect(window.getByTestId('palette-option').first()).toHaveAttribute('data-command', 'settings')
@@ -141,7 +141,7 @@ test('Settings is modal: ⌘K, ⌘F and ⌘↩ do nothing under it, also with th
     const sections = dialog.getByRole('navigation', { name: 'Settings sections' }).getByRole('button')
     /** The app's shortcuts, pressed while Settings is open: none of them does anything. */
     const shortcutsDoNothing = async (): Promise<void> => {
-      for (const keys of ['Meta+k', 'Meta+f', 'Meta+Enter']) {
+      for (const keys of ['ControlOrMeta+k', 'ControlOrMeta+f', 'ControlOrMeta+Enter']) {
         await window.keyboard.press(keys)
         await nextFrame(window)
         await expect(palette, keys).toHaveCount(0)
@@ -168,18 +168,18 @@ test('Settings is modal: ⌘K, ⌘F and ⌘↩ do nothing under it, also with th
     await expect(window.locator('.react-flow__node.selected')).toHaveCount(1)
 
     // Closed, the same keys work, so the checks above were not empty.
-    await window.keyboard.press('Meta+k')
+    await window.keyboard.press('ControlOrMeta+k')
     await expect(palette).toBeVisible()
     await window.keyboard.press('Escape')
     await expect(palette).toHaveCount(0)
-    await window.keyboard.press('Meta+f')
+    await window.keyboard.press('ControlOrMeta+f')
     await expect(find).toBeVisible()
     await window.keyboard.press('Escape')
     await expect(find).toHaveCount(0)
 
     // Focus mode covers the window in a layer above Settings: "Settings…" does not open under it.
     await selectNote()
-    await window.keyboard.press('Meta+Enter')
+    await window.keyboard.press('ControlOrMeta+Enter')
     await expect(focusMode).toBeVisible()
     await clickMenuItem(app, SETTINGS_MENU_ITEM_ID)
     await nextFrame(window)

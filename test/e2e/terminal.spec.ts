@@ -582,7 +582,7 @@ test('one Terminal on two windows: both show the output, the second gets the rep
 
     // Window 2 shows the terminal in focus mode: its view fills the window, so it has another size.
     await second.locator('.react-flow__node .w-terminal__header').click()
-    await second.keyboard.press('Meta+Enter')
+    await second.keyboard.press('ControlOrMeta+Enter')
     const tile = second.getByTestId('focus-mode').getByTestId('focus-tile').getByTestId('terminal-node')
     await expect(tile).toHaveAttribute('data-state', 'running')
     await expect.poll(() => screenText(tile)).toMatch(/^from-one$/m)

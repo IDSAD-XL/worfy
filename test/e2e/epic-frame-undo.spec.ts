@@ -145,7 +145,7 @@ test('⌘Z puts a frame dragged by its header back and leaves the step before it
     expect({ dx: Math.round(dropped.x - before.x), dy: Math.round(dropped.y - before.y) }).toEqual({ dx: saved.x, dy: saved.y })
 
     // ⌘Z: the frame is back where it stood before the drag; the Note stays where it was dragged.
-    await window.keyboard.press('Meta+z')
+    await window.keyboard.press('ControlOrMeta+z')
     await expect.poll(() => flowPosition(window, FRAME)).toEqual(before)
     expect(await nodeIn(window, FRAME)).toMatchObject({ x: 0, y: 0 })
     // Long enough for a wrong second undo to have reached main (LAYOUT_SAVE_DELAY_MS is 250 ms).
@@ -153,7 +153,7 @@ test('⌘Z puts a frame dragged by its header back and leaves the step before it
     expect(await nodeIn(window, 'n1')).toMatchObject({ x: noteMoved.x, y: noteMoved.y })
 
     // ⇧⌘Z: the frame goes back to where it was dropped.
-    await window.keyboard.press('Meta+Shift+z')
+    await window.keyboard.press('ControlOrMeta+Shift+z')
     await expect.poll(() => flowPosition(window, FRAME)).toEqual(dropped)
     expect(await nodeIn(window, FRAME)).toMatchObject({ x: saved.x, y: saved.y })
 
@@ -161,13 +161,13 @@ test('⌘Z puts a frame dragged by its header back and leaves the step before it
     await frame.getByRole('button', { name: 'Collapse epic demo' }).click()
     await expect(frame).toHaveAttribute('data-collapsed', 'true')
     await expect(window.getByTestId('ticket-node')).toHaveCount(0)
-    await window.keyboard.press('Meta+z')
+    await window.keyboard.press('ControlOrMeta+z')
     await expect(frame).toHaveAttribute('data-collapsed', 'false')
     await expect(window.getByTestId('ticket-node')).toHaveCount(2)
     // The Layout had no `collapsed` before the click: ⌘Z leaves the frame on the default.
     expect((await nodeIn(window, FRAME))?.data).toEqual({ collapsed: null })
     // And the step before the collapse is still the drag of the frame.
-    await window.keyboard.press('Meta+z')
+    await window.keyboard.press('ControlOrMeta+z')
     await expect.poll(() => flowPosition(window, FRAME)).toEqual(before)
     expect(await nodeIn(window, 'n1')).toMatchObject({ x: noteMoved.x, y: noteMoved.y })
   } finally {

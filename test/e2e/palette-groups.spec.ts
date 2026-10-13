@@ -109,7 +109,7 @@ test('⌘K shows the commands in groups under headings, each group where its bes
 
     // The empty query: every row weighs the same, so the groups come in the order of their first
     // command — Action (with Ship ticket and Run wave, built after the views), View, Project, Go to.
-    await window.keyboard.press('Meta+k')
+    await window.keyboard.press('ControlOrMeta+k')
     await expect(palette).toBeVisible()
     // The workflow model has arrived: the Go to rows and the actions on Tickets are in the list.
     await expect(option(`ticket:${EPIC}/07`)).toHaveCount(1)

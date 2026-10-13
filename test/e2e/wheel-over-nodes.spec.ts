@@ -129,7 +129,7 @@ async function start(): Promise<Page> {
  * A click in the middle of `on` with the mouse itself: an inactive Card's iframe takes no mouse,
  * so Playwright's own click on it would wait for an element that never receives the click.
  */
-async function clickOn(window: Page, on: Locator, modifiers: ('Meta' | 'Shift')[] = []): Promise<void> {
+async function clickOn(window: Page, on: Locator, modifiers: ('ControlOrMeta' | 'Shift')[] = []): Promise<void> {
   const found = await on.boundingBox()
   if (!found) throw new Error('nothing to click on')
   for (const key of modifiers) await window.keyboard.down(key)
@@ -267,11 +267,12 @@ test('a pinch over active HANDOFF, Note and Terminal zooms the Canvas, over an a
     await expect.poll(() => scaleOf(window), { message: `a pinch over ${id} zooms the Canvas` }).not.toBe(scale)
   }
 
-  // ⌘ + wheel with the keyboard focus in xterm.js.
+  // ⌘ + wheel with the keyboard focus in xterm.js. Outside macOS the key is Control (Canvas.tsx,
+  // zoomActivationKeyCode), so there this is the same wheel event as the pinch above.
   await clickOn(window, terminalScreen(window))
   await expectActive(window, 'term')
   const beforeMeta = await scaleOf(window)
-  await wheelOver(window, terminalScreen(window), NOTCH, ['Meta'])
+  await wheelOver(window, terminalScreen(window), NOTCH, ['ControlOrMeta'])
   await expect.poll(() => scaleOf(window), { message: '⌘ + wheel over an active Terminal zooms the Canvas' }).not.toBe(beforeMeta)
 
   await clickOn(window, cardFrame(window))
@@ -343,7 +344,7 @@ test('in Focus mode the HANDOFF body in its tile scrolls with the wheel', async 
   const window = await start()
   await clickOn(window, handoffBody(window))
   await expect(nodeElement(window, 'handoff')).toHaveClass(/\bselected\b/)
-  await window.keyboard.press('Meta+Enter')
+  await window.keyboard.press('ControlOrMeta+Enter')
   const focus = window.getByTestId('focus-mode')
   await expect(focus).toBeVisible()
   const body = focus.getByTestId('handoff-body')
@@ -361,7 +362,7 @@ test('snapshots: the active Node with its 2 px ring and a Node selected without 
 
   // Selected by a ⌘-click: selected, not active, the 1 px ring as before.
   await clickPlane(window)
-  await clickOn(window, handoffBody(window), ['Meta'])
+  await clickOn(window, handoffBody(window), ['ControlOrMeta'])
   await expect(nodeElement(window, 'handoff')).toHaveClass(/\bselected\b/)
   await expectNotActive(window, 'handoff')
   await snapshotThemes(window, 'wheel-selected-node')

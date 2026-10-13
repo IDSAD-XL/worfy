@@ -169,7 +169,7 @@ async function panBy(window: Page, witness: Locator, dx: number, dy: number): Pr
 /** Zooms out once with ⌘− and waits for the new zoom. */
 async function zoomOut(window: Page): Promise<number> {
   const before = (await viewportOf(window)).zoom
-  await window.keyboard.press('Meta+Minus')
+  await window.keyboard.press('ControlOrMeta+Minus')
   await expect.poll(async () => (await viewportOf(window)).zoom).toBeLessThan(before)
   return (await viewportOf(window)).zoom
 }
@@ -458,8 +458,8 @@ test('a tag added to three Nodes at once shows on each and survives a restart; i
   try {
     const { window } = first
     await noteById(window, 'a').locator('.w-note__header').click()
-    await noteById(window, 'b').locator('.w-note__header').click({ modifiers: ['Meta'] })
-    await noteById(window, 'c').locator('.w-note__header').click({ modifiers: ['Meta'] })
+    await noteById(window, 'b').locator('.w-note__header').click({ modifiers: ['ControlOrMeta'] })
+    await noteById(window, 'c').locator('.w-note__header').click({ modifiers: ['ControlOrMeta'] })
     await expect(window.locator('.react-flow__node.selected')).toHaveCount(3)
 
     const toolbar = window.getByTestId('selection-toolbar')
@@ -483,7 +483,7 @@ test('a tag added to three Nodes at once shows on each and survives a restart; i
 
     // Removed from the selection only: a and b lose it, c keeps it.
     await noteById(window, 'a').locator('.w-note__header').click()
-    await noteById(window, 'b').locator('.w-note__header').click({ modifiers: ['Meta'] })
+    await noteById(window, 'b').locator('.w-note__header').click({ modifiers: ['ControlOrMeta'] })
     await window.getByTestId('selection-toolbar').getByRole('button', { name: 'Remove tag needs review' }).click()
     await expect.poll(async () => notesOf(await layoutOf(window)).map((node) => node.tags)).toEqual([[], [], ['needs review']])
     await expect(noteById(window, 'a').locator('..').getByTestId('node-tags')).toHaveCount(0)
