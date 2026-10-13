@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, nativeTheme, screen, session, type HandlerDetails, type WindowOpenHandlerResponse } from 'electron'
 import { MIN_SIZE, initialBounds, parseWindowState, serializeWindowState, type Rect } from '../shared/window/bounds'
 import { allowFrameNavigation } from './cards/protocol'
+import { followInterfaceScale, interfaceScale } from './settings/interface-scale'
 import { reportStartupFailure } from './startup-failure'
 import { frameOptions } from './window-frame'
 import { dataRoot } from './storage/paths'
@@ -79,8 +80,12 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      // The interface scale of the app settings: the page is drawn at it from the first paint.
+      zoomFactor: interfaceScale(),
     },
   })
+  // And again after every load, and on every change (settings/interface-scale.ts).
+  followInterfaceScale(window)
 
   // getNormalBounds: a maximised or full-screen window remembers the size it returns to.
   const remember = (): void => saveBounds(stateFile, window.getNormalBounds())

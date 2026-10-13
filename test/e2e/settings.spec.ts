@@ -62,8 +62,16 @@ test('Settings… in the menu opens Settings with General and the version; Esc c
     await expect(window.locator('.w-settings__backdrop')).toHaveCSS('z-index', '110')
     await snapshotThemes(window, 'settings-general')
 
-    // The keyboard stays in the window: Tab goes round its controls back to the section list.
-    await expect(sections.first()).toBeFocused()
+    // The keyboard stays in the window: Tab goes through the rows of the section list, however many
+    // sections there are, then the controls of the section shown — the interface scale slider of
+    // General — then Close, and round to the first row again.
+    const rows = await sections.count()
+    expect(rows).toBeGreaterThan(0)
+    for (let row = 0; row < rows; row++) {
+      await expect(sections.nth(row)).toBeFocused()
+      await window.keyboard.press('Tab')
+    }
+    await expect(dialog.getByRole('slider', { name: 'Interface scale' })).toBeFocused()
     await window.keyboard.press('Tab')
     await expect(dialog.getByRole('button', { name: 'Close' })).toBeFocused()
     await snapshotThemes(window, 'settings-focus')

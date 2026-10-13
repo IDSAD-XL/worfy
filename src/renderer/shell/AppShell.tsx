@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { useInterfaceScale } from '../settings/interface-scale'
 import { SettingsDialog } from '../settings/SettingsDialog'
 import { FirstRun } from './FirstRun'
 import { Sidebar } from './Sidebar'
@@ -28,6 +29,8 @@ export function AppShell({ project, canvas, session, view: controlledView, onVie
     onViewChange?.(next)
   }
   const [sidebarVisible, setSidebarVisible] = useState(true)
+  // The strips under the window buttons keep their size in pixels of the window at any interface scale.
+  useInterfaceScale()
 
   return (
     <div className="w-shell" data-testid="app-shell" data-sidebar={sidebarVisible ? 'visible' : 'hidden'}>

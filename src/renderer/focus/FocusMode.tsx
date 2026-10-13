@@ -228,7 +228,9 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
       // On Windows Ctrl+_ in a Terminal tile is the shell's undo (readline): it goes to the terminal,
       // which keeps it from the Canvas itself.
       if (event.key === '_' && isTerminalKey(event)) return
-      if (isPrimary(event) && ZOOM_KEYS.has(event.key)) {
+      // With Alt the combination is the interface scale of the View menu (src/main/menu.ts), which
+      // the Canvas leaves alone too: swallowed here, Ctrl+Alt+= on Windows would never reach the menu.
+      if (isPrimary(event) && !event.altKey && ZOOM_KEYS.has(event.key)) {
         event.preventDefault()
         event.stopImmediatePropagation()
       }
