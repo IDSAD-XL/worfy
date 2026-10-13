@@ -82,8 +82,10 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 
 ## Что делаем
 
-1. **Gate на Node** (Q19, ADR-0055). `harness/hooks/gate.mjs` заменяет `gate.sh`; `gate.sh`
-   удаляется. Общие функции — тег worktree, путь репозитория для реестра, папка состояния — лежат в
+1. **Gate на Node** (Q19, ADR-0055). `harness/hooks/gate.mjs` заменяет `gate.sh`. Код Gate из
+   `gate.sh` удаляется; сам файл остаётся прокладкой из двух команд, которая запускает `gate.mjs`
+   (решение владельца 2026-10-13, см. «Итог»; имя уходит совсем в
+   [Ticket-е 46](46-имя-gate-sh-уходит-совсем.md)). Общие функции — тег worktree, путь репозитория для реестра, папка состояния — лежат в
    `harness/hooks/gate-paths.mjs`. Их же берёт Stop hook на Node в Ticket-е 04 и не копирует.
    - CLI прежний: первый аргумент — профиль, по умолчанию `fast`. Прежние и переменные для настройки
      и test-ов: `HARNESS_HOME`, `CLAUDE_GATE_CONFIG`, `CLAUDE_GATE_STATE`, `CLAUDE_GATE_RESOLVE`,
@@ -139,7 +141,9 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
      (пункт 2). Остальные hooks к той же форме приводит Ticket 04.
    - Skills, agents и правила: `node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo
      "EXIT=$?"`. Bash tool исполняет это и на Mac, и в Git Bash.
-   - После правки `git grep -n 'gate\.sh' -- harness` пуст.
+   - После правки `git grep -n 'gate\.sh' -- harness` находит имя только в прокладке
+     (`harness/hooks/gate.sh`), в её test-е (`harness/hooks/tests/gate-shim.test.sh`) и в двух
+     строках о ней в `harness/README.md` и `harness/profiles/README.md`.
 9. **worfy узнаёт вызов Gate** и по новому имени (`gate.mjs`), и по старому (`gate.sh` — в старых
    транскриптах и у старого Harness в `~/.claude`). Перед именем допускается `\` (путь Windows).
    Отбор строк (`state.ts:345`) пропускает оба имени. Строки `[gate] …` не меняются, их разбор —
@@ -163,7 +167,8 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 - [ ] `rules-hooks.test.sh`, `agents-text.test.sh`, `epic-wave-ship-ticket.test.sh`, `harness-home.test.sh` — код 0 на Mac.
 - [ ] Unit `test/unit/gate-state.test.ts`: `gateTag` даёт один тег для `C:\a\b` и `C:/a/b` (написание git, evidence Ticket-а 01, раздел 06), а для пути Mac — прежний тег; `gateRunDir` узнаёт `node "C:\Users\x\plugin\hooks\gate.mjs" fast`, `cd /c/x && node ./hooks/gate.mjs full` и старое `bash ~/.claude/hooks/gate.sh fast`; `gateKey` находит запись реестра с `match` `C:\Users\x\worfy` для корня `C:/Users/x/worfy` и для worktree под ним; файл вердикта с `worktree` в написании git принят для того же worktree в написании `realpath.native`; test слов вердикта (`:94-97`) читает `gate.mjs`.
 - [ ] Unit: схема канала `checks` принимает `C:\a`, `C:/a` и `\\srv\share\a` и отвергает `a\b` и `C:a`.
-- [ ] `git grep -n 'gate\.sh' -- harness` пуст. В `src` имя `gate.sh` осталось только в распознавании старых вызовов (`src/main/gate/state.ts`).
+- [ ] `git grep -n 'gate\.sh' -- harness` находит имя только в прокладке `harness/hooks/gate.sh`, в её test-е `harness/hooks/tests/gate-shim.test.sh` и в двух строках о ней в `harness/README.md` и `harness/profiles/README.md`. В `src` имя `gate.sh` осталось только в распознавании старых вызовов (`src/main/gate/state.ts`).
+- [ ] `bash harness/hooks/tests/gate-shim.test.sh` — код 0 на Mac и в Git Bash на Windows-ПК: `bash gate.sh` и `node gate.mjs` дают один код выхода и одни строки `[gate] …`, аргументы и stdin доходят до Gate.
 - [ ] Windows-ПК, Session Claude Code в worktree worfy: `node "<папка plugin>/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"`, затем то же с `full`. Оба прогона идут до конца: каждый скрипт профиля запущен, строка `[gate] …` и код соответствуют исходам скриптов, в выводе нет `command not found` и `is not recognized`. Красный исход из-за test-ов, которые чинит Ticket 14, ожидаем. Имя появившегося `verdict-<tag>.json` совпадает с тегом, который даёт `gateTag` worfy для этого worktree. Вывод — в Итог.
 - [ ] Mac: gate full через `gate.mjs` зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac). В него входят e2e бейджей Gate (`test/e2e/checks-badges.spec.ts`) и проверка копии Harness в сборке (`test/e2e/packaged.spec.ts`). В Session worfy hook `TaskCompleted` зовёт `gate.mjs`: в транскрипте — строка `[gate] …` от hook-а.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` на Mac — exit 0; CI на PR зелёный.
@@ -191,7 +196,8 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 
 - `harness/hooks/gate.mjs` (новый)
 - `harness/hooks/gate-paths.mjs` (новый)
-- `harness/hooks/gate.sh` (удаляется)
+- `harness/hooks/gate.sh` (код Gate удаляется; остаётся прокладка)
+- `harness/hooks/tests/gate-shim.test.sh` (новый)
 - `harness/hooks/gate-resolve.mjs`
 - `harness/hooks/hooks.json`
 - `harness/hooks/stop.sh`
@@ -226,4 +232,145 @@ Wave) общих файлов нет: он правит claude-home.ts, bindings
 
 ## Итог
 
-Заполняется при закрытии.
+Session на Windows-ПК, 2026-10-13. Windows 11 Pro 10.0.26200; системный Node 24.21.0, pnpm 11.22.0; `pnpm test` идёт под Node 24.21.0 из Electron 44.5.1. Ветка `worfy-windows/03`, в ней main `60e1f56`. **На macOS и Linux с ПК ничего не запускалось.**
+
+**Коротко.** Gate — теперь `harness/hooks/gate.mjs` на Node; `gate.sh` остался двухстрочной прокладкой по решению владельца. На ПК `gate.mjs fast` и `gate.mjs full` идут до конца, тег worktree у Gate и у worfy один. worfy читает вердикт Gate на путях Windows. Часть работы сделана subagent-ами этой Session и проверена ею: перенос `gate.sh`, сторона worfy, опись скриптов; затем два subagent-а только читали diff и искали ошибки.
+
+### Что сделано, по пунктам «Что делаем»
+
+1. **Gate на Node.** `harness/hooks/gate.mjs` (819 строк) и общие функции в `harness/hooks/gate-paths.mjs`: тег worktree, путь репозитория для реестра, папка состояния, файл реестра, сравнение путей. CLI, переменные окружения, строки `[gate] …`, коды 0, 2, 3, имена и содержимое маркеров, поля `verdict-<tag>.json` — прежние. Сверено чтением блок за блоком со старым `gate.sh` (ревьюер-subagent): русские тексты `[gate]` совпадают побайтно, кроме ушедшего «node не найден».
+   - Файл вердикта пишется через временный файл и rename; прогон, который его не записал, удаляет файл прошлого прогона.
+   - Предупреждение о файле длиннее 1000 строк перенесено вместе с `gate-file-size.test.sh`.
+   - stdin: не дольше 2 s тишины (замер: 2,8 s с открытым пустым stdin против 0,9 s с закрытым).
+   - Соседние файлы ищутся от настоящего файла скрипта, через symlink тоже.
+2. **Без зашитых путей.** Дочерние процессы получают PATH процесса плюс папку `process.execPath` и `PNPM_HOME`, если он задан.
+3. **Тег и пути.** SHA-1 — `node:crypto`; тег — от пути, как его печатает `git rev-parse --show-toplevel`; путь для реестра — от `--git-common-dir` средствами Node. `gateTag` в worfy на Windows приводит путь к написанию git (`\` → `/`, буква диска заглавная); путь macOS даёт прежний тег.
+4. **Запуск `pnpm.cmd` на Windows — через `cmd.exe`, с проверкой слов.** Подробно ниже, в «Решениях».
+5. **Как hook находит node.** Команда — `node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast`, node берётся из PATH процесса Claude Code. Без node hook падает с кодом 127, вердикта и маркеров нет; это отступление от `gate.sh` записано в шапке `gate.mjs`. **Из трёх случаев Ticket-а живым hook-ом не проверен ни один** (см. «Не сделано»).
+6. **`gate-resolve.mjs`.** Домашняя папка — `os.homedir()`; порядок поиска реестра прежний; `match` и пути сравниваются при любом разделителе, на Windows без учёта регистра.
+7. **Изоляция test-ов.** Test-ы Gate и `harness-scripts.test.ts`, которые подменяют `HOME`, задают тем же путём `USERPROFILE`. Во время прогонов в настоящей папке `~/.claude/worfy-harness/gate` не изменился ни один файл. Вне этого Ticket-а `HOME` без `USERPROFILE` ставят ещё девять shell-test-ов `harness/bin/tests` и `guard-silent.test.sh` — они достаются Ticket-ам 04 и 05.
+8. **Новое имя во всех ссылках.** `hooks.json`, тексты для модели, skills, agents, README, `CONTEXT.md`, test-ы. `git grep -n 'gate\.sh' -- harness` находит имя только в прокладке и её test-е (см. решение ниже); в `src` — только в распознавании старых вызовов.
+9. **worfy узнаёт вызов Gate** по `gate.mjs` и по старому `gate.sh`. `\` перед именем — разделитель только на Windows: на macOS bash читает `my\gate.sh` как `mygate.sh`.
+10. **Пути Windows в worfy.** `cd` на `C:\…`, `C:/…`, `/c/…`; `cwd` записи транскрипта `C:\…`; `gateKey` и сравнение `worktree` файла вердикта — при любом разделителе и без учёта регистра на Windows. `absolutePath` канала `checks` — общий helper Ticket-а 08 (`src/shared/paths.ts`), он уже в main.
+    - **Сверх списка Ticket-а: `worktreeOfCwd`** (`src/shared/ipc/checks.ts`). Он сравнивал только через `/`: git пишет worktree как `C:/x`, Claude Code пишет папку Session как `C:\x`, и Session на Windows не получала бейдж Gate. Без этого пункт 10 для Session не работал.
+    - **`cd` с `\` без кавычек на Windows — «папку узнать нельзя».** Git Bash читает `\` как экранирование: `cd C:\a\b` уходит в `C:ab` и падает (запущено ревьюером).
+
+### Решения
+
+- **`gate.sh` остаётся прокладкой — решение владельца 2026-10-13.** Оно дано в чате Session на Mac и пришло сюда её сообщением; на main записано в `HANDOFF.md` и в [Ticket-е 46](46-имя-gate-sh-уходит-совсем.md). Причина: профиль, который записал перенос старого Harness, называет `…/plugin/hooks/gate.sh` в `commands.verify` (на Mac владельца — профиль `atakama`) и в `rules.md`, и агенты запускают эту команду как написано.
+  - В файле две команды: проверка, что node есть на `PATH`, и `exec node …/gate.mjs "$@"`. Аргументы и stdin идут дальше как есть, код выхода — от `gate.mjs`. Без node — прежние строка «ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден» и код 3.
+  - Ничто в самом Harness файл не зовёт. Новый профиль называет `node <plugin>/hooks/gate.mjs` — строка об этом в `harness/profiles/README.md`.
+  - Test — `harness/hooks/tests/gate-shim.test.sh`: один и тот же прогон через `node gate.mjs` и через `bash gate.sh` даёт один код выхода, одни строки `[gate] …` и одни имена файлов в папке состояния — для «зелено», «красно» (`full`) и «не зарегистрирован»; session из stdin доходит до имени маркера.
+  - Это отступление от ADR-0055 (скрипты Harness — на Node, bash только в test-ах; пункт 4). ADR не правился. Имя уходит совсем в Ticket-е 46 — после приёмки E3. `src/main/harness/migrate` и `install.ts` здесь не тронуты.
+- **`harness/hooks/worktree-create.sh` на Node не переносится** — решение владельца того же дня: его ничто не запускает. Новая опись (ниже) нашла, что он не был приписан ни к одному Ticket-у.
+- **Запуск менеджера пакетов на Windows.**
+  - Gate сам находит программу: папки `PATH`, расширения `PATHEXT`, текущая папка не ищется. Отсутствующий менеджер пакетов известен до запуска.
+  - Командная строка идёт через `<SystemRoot>\System32\cmd.exe /d /s /c`, каждое слово в двойных кавычках. `ComSpec` не читается: с `ComSpec`, указывающим на powershell.exe, менеджер пакетов не запускался вовсе (запущено ревьюером).
+  - Слово с `"`, `%`, `!`, `^`, переводом строки или `\` в конце и репозиторий на сетевом пути через `cmd.exe` не запускаются: `.exe` стартует напрямую, `.cmd` не стартует, исход — «проверить не удалось». Причина: Node не запускает `.cmd` без оболочки (CVE-2024-27980), а безопасного экранирования этих символов для любого batch-файла нет.
+  - Слова с `&`, `|`, `<`, `>`, скобками, пробелом, кириллицей доходят целыми (запущено ревьюером).
+- **Язык `cmd.exe`: Gate переключает консоль на UTF-8 до запуска `cmd.exe` и возвращает её кодовую страницу после.** `cmd.exe` называет отсутствующий инструмент на языке системы и в кодовой странице консоли: на ПК владельца — по-русски в 866. Признак «окружение недоступно» на таком тексте не срабатывал, исход был «красно». `cmd.exe`, который стартовал в консоли с кодовой страницей 65001, отвечает `'tool' is not recognized as an internal or external command,`; вывод node в UTF-8 не меняется. Код выхода 9009 вместо текста не годится: `pnpm run` и `npm run` с отсутствующим инструментом выходят с кодом 1.
+  - **Первая версия была неверной, и это нашла новая проверка.** Она ставила `chcp 65001 &` в начало командной строки и полагалась на `windowsHide: true`: дочерний процесс якобы получает свою скрытую консоль, и окно человека не меняется. Замер, на котором это стояло, запускал дочерний процесс с pipe-ами. Gate же отдаёт дочернему процессу открытый файл для вывода, а в этом случае Node запускает его в консоли родителя.
+
+    | Как дочерний процесс получает stdio (везде `windowsHide: true`) | Консоль родителя до | После `chcp 65001` в дочернем |
+    |---|---|---|
+    | pipe-ы | 437 | 437 |
+    | всё `ignore` | 437 | 437 |
+    | открытый файл для stdout и stderr — так запускает Gate | 437 | 65001 |
+    | унаследованный stdin | 437 | 65001 |
+
+    Итог первой версии: после ручного запуска Gate окно человека оставалось в кодовой странице 65001.
+  - **`chcp 65001 &` в начале строки не хватает.** `cmd.exe`, который читает такую строку, выбрал язык раньше.
+
+    | Менеджер пакетов | Консоль 866, без `chcp` | Консоль 866, `chcp 65001 &` в начале строки | Консоль 65001 до старта `cmd.exe` |
+    |---|---|---|---|
+    | `.cmd`, который сам зовёт отсутствующий инструмент | по-русски | по-русски | по-английски |
+    | `.cmd`, который запускает для скрипта новый `cmd.exe` (так делает pnpm) | по-русски | по-английски | по-английски |
+
+    Проверка «`cmd.exe` сам называет отсутствующий инструмент» в первой версии проходила, потому что предыдущие запуски Gate в том же test-е уже оставили консоль в 65001. Как только Gate стал возвращать кодовую страницу, а `chcp` ещё стоял в начале строки, она упала: `outcome` — `red`, ответ `cmd.exe` по-русски.
+  - **Как сейчас.** Перед запуском `cmd.exe` Gate спрашивает кодовую страницу своей консоли (`chcp`), ставит 65001, после завершения `cmd.exe` возвращает прежнюю. Это три коротких процесса на каждый скрипт профиля. Проверка (f) в `gate-verdict.test.sh`: консоль в 437, запуск Gate, после него снова 437.
+  - **Что из этого следует.** Пока идёт скрипт, окно, из которого запущен Gate, стоит в 65001. Gate, который убили посреди скрипта, оставляет окно в 65001. Gate без консоли ничего не переключает, и `cmd.exe` отвечает на языке системы — этот случай не запускался. Отдельная скрытая консоль для дочернего процесса (pipe-ы вместо файла) убрала бы утечку совсем, но Ctrl+C в окне человека тогда не доходил бы до запущенных проверок: по документации Windows Ctrl+C получают процессы той консоли, где он нажат. Это не замерялось; выбран вариант без смены того, как Gate отдаёт вывод.
+  - **`windowsHide: true` у запусков остался, test-ом не закреплён.** Кодовую страницу он не защищает (таблица выше). Он прячет окно консоли, когда у самого Gate консоли нет; такой запуск на ПК не воспроизводился.
+
+### Что нашло ревью и что с этим сделано
+
+Два subagent-а только читали и запускали: один сверял `gate.mjs` с `gate.sh`, второй искал ошибки в коде для Windows.
+
+- **Исправлено:** язык `cmd.exe` (выше); rename на `verdict-<tag>.json`, пока файл открыт читателем, — на Windows он падал с EPERM, и прогон оставался без файла вердикта или со старым файлом; теперь rename и удаление повторяются десять раз через 50 ms. Файл, который держат дольше полусекунды, остаётся как есть — записано в шапке. `\r` в конце вывода скрипта на Windows. Сигналы: скрипт, завершённый сигналом, останавливает прогон с кодом 128 + номер сигнала, без маркеров и вердикта; между скриптами цикл отдаёт управление. Исключение не выходит кодом 1: удалённая текущая папка — код 0, как у `gate.sh`; пустой менеджер пакетов — «окружение недоступно»; остальное — одна строка «ПРОВЕРИТЬ НЕ УДАЛОСЬ» и код 3. Имя файла кэша собирается из безопасных символов: с `\` в пути пакета кэш не писался, а с `..\` файл уходил за папку состояния. `worktreeOfCwd`, `cd` без кавычек, `\` перед именем только на Windows (выше).
+- **Записано и не исправлено (low):**
+  - формулировка при отсутствии менеджера пакетов — `gate: pnpm: command not found` вместо строки bash с номером строки;
+  - скрипт, который оставляет фоновый процесс: `gate.sh` ждал, пока все закроют pipe, `gate.mjs` читает файл, как только завершился прямой потомок;
+  - порядок изменённых путей — по кодам символов, а не по locale;
+  - нецелые `GATE_MAX_AHEAD`/`GATE_MAX_BEHIND` (`1.5`) теперь применяются;
+  - одиночный `\r` внутри строки: признаки с `.*` его не проходят;
+  - слово, которое `cmd.exe` принять нельзя, даёт «проверить не удалось» с кодом 0, как и прочее «окружение недоступно», а не 3;
+  - `match` реестра с разделителем в конце ничему не соответствует, `C:` как `match` соответствует всему диску — как и на main;
+  - команда, которая только называет скрипт (`cat harness/hooks/gate.mjs`, `echo gate.mjs`), принимается за вызов Gate — так было и с `gate.sh`; закреплено test-ом как известный предел;
+  - вызов из PowerShell его словами (`Set-Location C:\other; node …\gate.mjs fast`) читается по правилам bash: папкой считается папка Session. Имя инструмента в транскрипте не проверяется;
+  - на Windows процесс, убитый жёстко, не выполняет обработчик выхода: остаётся прежний файл вердикта и, возможно, `.run-<tag>-<pid>.out` (чистится через неделю).
+
+### Опись скриптов Harness
+
+Снята заново на main `5ee66a7` командой шага 4 Ticket-а 01 (файлы и первые строки читались из commit-а). Она в отдельном файле evidence: [03-опись-скриптов-harness.md](../evidence/03-опись-скриптов-harness.md); раздел 18 первого файла получил ссылку. Вне `tests` — 22 скрипта: Node 10, bash 9, zsh 3. Против `08e8256` добавились два скрипта на Node (`decision-log`, `project-connect`), язык не сменил ни один. Из 12 скриптов на bash и zsh 11 приписаны к одному из Ticket-ов 03, 04, 05, 06, 15; двенадцатый — `worktree-create.sh` (решение выше).
+
+### Падающие первыми
+
+- `harness/hooks/tests/gate-verdict.test.sh` с вызовом `node "$HOOKS/gate.mjs"` до появления файла: EXIT=1, 2 ok и 21 FAIL, `Cannot find module '…\gate.mjs'`.
+- `test/unit/gate-state.test.ts` на коде main: `gateTag` для `C:\a\b` и `C:/a/b` — `expected '29c46c4b' to be '6499f282'`; `gateKey` с `match` через `\` — `expected null to be 'worfy'`; файл вердикта в написании git — отвергнут; 11 из 12 строк `gateRunDir` для Windows — `expected undefined to be '…'`.
+- Схема канала `checks`: `C:\a` — `expected false to be true`.
+- Правки по ревью — так же: `worktreeOfCwd` — `expected undefined to be 'C:/Users/x/worfy'`; `cd` без кавычек — `expected 'C:\Users\x\worfy' to be null`; `\` перед именем на macOS — `expected '/Users/test/projects/demo' to be undefined`.
+
+### Windows-ПК: Gate на Node
+
+Реестр и папка состояния — под `%TEMP%`; настоящая `~/.claude` не тронута. Реестр для worfy на ПК — свой: `fast` — `lint`, `typecheck`; `full` — `lint`, `typecheck`, `test`. Реестра worfy с Mac в репозитории нет.
+
+Запуск из корня клона, head `53315f2` (итоговый код ветки): `node harness/hooks/gate.mjs fast </dev/null; echo "EXIT=$?"`, затем то же с `full`.
+
+| Профиль | Код | Строки Gate |
+|---|---|---|
+| `fast` | 0 | `[gate] scope (fast): narrowed by the diff from merge-base 60e1f563 with origin/main (branch ahead by 13, behind by 0; files changed: 38) — .. Full scope: GATE_SCOPE=all`; `[gate] зелено (fast): worfy/.:lint worfy/.:typecheck` |
+| `full` | 2 | `[gate] красно (full): worfy/.:test (прошло: worfy/.:lint worfy/.:typecheck)`; в выводе скрипта — `Tests  626 failed \| 3963 passed \| 41 skipped (4630)` |
+
+- Каждый скрипт профиля запущен; `command not found` и `is not recognized` в выводе нет. Красный `full` ожидаем: test-ы, которые на Windows падают и на main (Ticket 14).
+- **Тег.** В папке состояния появились `verdict-efb3d1c9.json` и `red-worfy-efb3d1c9`. `gateTag` worfy для `realpathSync.native('C:\Users\Alexey\worfy')` — `efb3d1c9` (unit-test-проба над `src/main/gate/state.ts` под Node из Electron, после запуска удалена).
+- Файл вердикта: `{"version":1,"outcome":"red","profile":"full","worktree":"C:/Users/Alexey/worfy","key":"worfy","head":"53315f24…","exit":2,"at":"2026-10-13T19:42:39Z","reason":null}`.
+- Это запуск из Git Bash инструмента Bash в Session Claude Code, не из worktree под `.claude/worktrees` и не hook-ом.
+
+### Мутанты
+
+**49 из 49 красные.** 20 в `gate.mjs`, 4 в `gate-paths.mjs` (shell-test-ы Gate), 17 в `src/main/gate/state.ts` и 4 в `src/shared/ipc/checks.ts` (`test/unit/gate-state.test.ts`), 4 в прокладке `gate.sh` (`gate-shim.test.sh`).
+
+- **Три сначала выжили:** красный прогон не оставляет красный маркер; зелёный прогон его не снимает; строка «окружение недоступно» побеждает отчёт об упавшем test-е. Проверок на это не было и на main: test-ы клали красный маркер руками для `stop.sh`. Добавлены три проверки в `gate-verdict.test.sh`, после них все три мутанта красные.
+- Мутанты переключения консоли: «не ставить 65001 до `cmd.exe`», «не возвращать кодовую страницу», «возвращать всегда 866» — красные на проверках (a), (f) и (g).
+
+### Проверки на ПК
+
+| Команда | Результат |
+|---|---|
+| `pnpm lint`, `pnpm typecheck` | exit 0 каждая |
+| `bash harness/hooks/tests/gate-verdict.test.sh` | exit 0: 47 ok; на Windows пропущены проверки сигналов и удалённой папки |
+| `bash harness/hooks/tests/gate-file-size.test.sh` | exit 0: 54 ok |
+| `bash harness/hooks/tests/gate-unregistered.test.sh` | exit 0: 11 ok |
+| `bash harness/hooks/tests/gate-shim.test.sh` | exit 0: 6 ok; проверка через symlink на Windows пропущена |
+| `bash harness/hooks/tests/gate-notverified.test.sh` | exit 1: 28 ok, 1 FAIL — `stop.sh` с `PATH=/usr/bin:/bin` (Ticket 04) |
+| `pnpm test`, main `60e1f56` (эталон; отдельная рабочая копия под `%TEMP%`) | exit 1: 4597 test-ов, 3924 прошли, 632 упали, 41 пропущен |
+| `pnpm test`, ветка на `53315f2` | exit 1: 4630 test-ов, 3975 прошли, 614 упали, 41 пропущен |
+
+- **По именам на ветке падают и не падают в эталоне три test-а; по вине ветки — ни один.**
+  - `test/contract/harness-migrate.test.ts`, «Profiles: schema 2 … `bin/profile` and `gate.mjs` find them» — это переименованный test. В эталоне он под именем с `gate.sh` падает на той же проверке: `expected 'silent' to be 'full'`, до вызова Gate дело не доходит.
+  - `test/contract/terminal-windows.test.ts` (EBUSY при удалении временной папки) и `test/unit/shell-discovery.test.tsx` (timeout 5 s). Оба файла, запущенные вдвоём отдельно: exit 0, 15 прошли.
+- **В эталоне падают, на ветке проходят 22 test-а.** Из них по делу Ticket-а: `gate-verdict.test.sh`, `gate-file-size.test.sh`, `gate-unregistered.test.sh` в `test/contract/harness-scripts.test.ts` и три test-а `GateReader` в `gate-state.test.ts` (один из них переименован: читает файл, который пишет `gate.mjs`). Остальные — test-ы с пределом по времени, которые плавают от прогона к прогону.
+- **Полные прогоны на этом ПК шумят.** Shell-test-ы `silent-mode`, `skill-blocks`, `tickets-root` оставляют зависшие процессы bash (зависает `epic-status`, Ticket 05). Пока они живы, 15–35 test-ов с пределом по времени падают. Первый итоговый прогон шёл при таких процессах от трёх прежних прогонов и дал 35 новых по именам падений, 33 из них — по времени; он отброшен. Перед эталоном и перед итоговым прогоном процессы остановлены.
+- Эталон, запущенный из PowerShell, не годится: там `harness-scripts.test.ts` не находит bash и jq. Оба сравниваемых прогона запущены из Git Bash.
+
+### Не сделано и не проверено
+
+- **macOS и Linux:** ничего не запускалось, включая ветку запуска без оболочки, bash 3.2 и BSD sed в изменённых shell-test-ах.
+- **Проверки, которые на Windows пропускаются и не запускались ни разу:** скрипт, завершённый сигналом (код 143, без маркера и вердикта), и запуск Gate из удалённой папки. На ПК они проверены только руками с подменённым `spawnSync` и `process.cwd`.
+- **Кодовая страница консоли:** Gate без консоли и Ctrl+C во время скрипта не запускались; `windowsHide: true` test-ом не закреплён (подробно — в «Решениях»).
+- **Прокладка `gate.sh` на Mac не запускалась:** ни её test (на Windows в нём пропущена проверка через symlink), ни команда профиля `atakama`.
+- **Hook в живой Session** не проверялся ни в одном из трёх случаев пункта 5: Session worfy, Claude Code из терминала на Mac, Claude Code на Windows-ПК. Строка `[gate] …` от hook-а `TaskCompleted` в транскрипте — пункт «Готово, когда» для Mac.
+- **`harness/bin/tests/silent-mode.test.sh`** не запускался: на этом ПК он зависает на `epic-status` (Ticket 05). В нём сменено имя Gate и добавлен `USERPROFILE`.
+- **`gate-notverified.test.sh`** на ПК красный одной проверкой: она гоняет `stop.sh` с `PATH=/usr/bin:/bin`, где на ПК нет git. Это Ticket 04.
+- **Репозиторий на сетевом пути, подставном диске (`subst`), с коротким именем 8.3** — не проверялось.
+- **`test/e2e`** (`packaged.spec.ts`, `checks-badges.spec.ts`) на ПК не запускались.
+- **Замечания ревью уровня low** — список выше, не исправлены.
