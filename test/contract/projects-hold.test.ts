@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import { removeTestTree, saveLayoutNow } from '../remove'
 
 const env = await vi.hoisted(async () => {
   const fs = await import('node:fs')
@@ -110,6 +111,9 @@ const activeOnDisk = (): string | null => (JSON.parse(readFileSync(join(dataDir,
 
 afterAll(async () => {
   await docsHub.closeAll()
+  // The file left its folder in the temporary folder of the user (worfy-windows ticket 26).
+  await saveLayoutNow()
+  removeTestTree(env.scratch)
 })
 
 describe('projects.hold', () => {

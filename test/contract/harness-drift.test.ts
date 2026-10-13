@@ -3,16 +3,17 @@
 // folders. The check only reads: refs, the working tree and .git stay as they were, and `git fetch`
 // is never run (ADR-0005; the Orchestrator fetches in the preflight of every Wave).
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { checkHarnessDrift, HARNESS_DRIFT_INTERVAL_MS, harnessDriftWatch, type HarnessDrift } from '../../src/main/autopilot/harness-drift'
+import { removeTestTree } from '../remove'
 
 const dirs: string[] = []
 
 afterEach(() => {
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+  for (const dir of dirs.splice(0)) removeTestTree(dir)
 })
 
 function tempDir(): string {

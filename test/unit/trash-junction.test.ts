@@ -3,13 +3,14 @@
 // empties the folder behind it; the files of a Card are written by agents, so a Card may hold one.
 // The store is driven directly, over real folders: test/contract/trash.test.ts goes through the IPC
 // wrapper, which on Windows refuses its macOS file URL.
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmdirSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TrashStore, type TrashLayout } from '../../src/main/layout/trash'
 import { TRASH_KEEP_MS } from '../../src/shared/ipc/trash'
 import type { LayoutNode } from '../../src/shared/layout/types'
+import { removeTestTree } from '../remove'
 
 const PROJECT = 'demo-0a1b2c3d'
 const WINDOWS = process.platform === 'win32'
@@ -66,7 +67,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  // Links first, as links: under Electron's Node rmSync of the scratch folder would go through a junction.
+  // Links first, as links. (From the time this folder went with rmSync; removeTestTree takes a link as a link too.)
   for (const entry of existsSync(trashDir()) ? readdirSync(trashDir()) : []) links.push(join(trashDir(), entry, 'card', 'linked'))
   for (const link of links) {
     try {
@@ -79,7 +80,7 @@ afterEach(() => {
       }
     }
   }
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 describe('the trash and a link inside a Card', () => {

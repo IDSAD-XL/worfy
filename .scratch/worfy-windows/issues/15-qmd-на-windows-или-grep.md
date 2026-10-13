@@ -54,6 +54,10 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
 - Windows:
   - `npm install -g` кладёт в папку npm `qmd.cmd`. Node не запускает `.cmd` через `execFile` и
     `spawn` без `shell: true` (ошибка `EINVAL`, исправление CVE-2024-27980).
+  - Сам `npm` worfy тоже запускает без оболочки (`src/main/harness/qmd.ts:183`, `:320`;
+    `src/main/first-run/actions.ts:81`), а на Windows это `npm.cmd`. Владелец увидел это на экране
+    первого запуска 2026-10-13: `npm install -g @tobilu/qmd@2.8.3 exited null: spawn npm ENOENT`
+    ([Ticket 30](30-add-project-на-windows.md), раздел о наблюдениях владельца).
   - По docs Claude Code локальному MCP-серверу через `npx` на Windows нужна обёртка `cmd /c`.
     Серверу с командой `node` — настоящим `.exe` — она не нужна.
   - Claude Code кодирует путь `C:\a\b` в имя папки `projects` как `C--a-b` — каждый символ вне

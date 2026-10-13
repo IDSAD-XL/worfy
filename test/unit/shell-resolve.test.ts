@@ -3,10 +3,11 @@
 // A link to \\host\share made main call realpath on it before the inside check, and Windows
 // contacted that host with the user's NTLM credentials. The real-repository cases are in
 // test/contract/shell.test.ts.
-import { existsSync, mkdirSync, mkdtempSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readlinkSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeTestTree } from '../remove'
 
 vi.mock('electron', () => ({ shell: { openPath: vi.fn(), openExternal: vi.fn() } }))
 
@@ -254,7 +255,7 @@ describe('resolveProjectFile on this file system', () => {
   })
 
   afterEach(() => {
-    rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    removeTestTree(scratch)
   })
 
   it.skipIf(process.platform === 'win32')('opens a file named through a symlink alias of the Project root', async () => {

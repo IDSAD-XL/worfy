@@ -1,9 +1,10 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { readJsonFile, writeJsonFile } from '../../src/main/storage/json-file'
+import { removeTestTree } from '../remove'
 
 // node:fs as it is, except that writeFileSync is a spy: one test makes a write stop halfway.
 vi.mock('node:fs', async (importOriginal) => {
@@ -24,7 +25,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
-  rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(dir)
 })
 
 const now = () => new Date('2026-10-05T07:08:09.010Z')

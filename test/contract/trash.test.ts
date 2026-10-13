@@ -3,7 +3,7 @@
 // WORFY_DATA_DIR. A deleted Card moves with its files and data to <Project data folder>/trash/<label>/
 // and comes back from there; entries older than three days are deleted when the app starts; nothing
 // outside WORFY_DATA_DIR is ever touched (ADR-0005).
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -12,6 +12,7 @@ import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channel
 import { TRASH_KEEP_MS, type TrashEntry } from '../../src/shared/ipc/trash'
 import type { LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 import type { LayoutStore } from '../../src/main/layout/store'
+import { removeTestTree, saveLayoutNow } from '../remove'
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PROJECT = 'demo-0a1b2c3d'
@@ -130,11 +131,14 @@ beforeEach(async () => {
   await start()
 })
 
-afterEach(() => {
+afterEach(async () => {
   vi.useRealTimers()
+  // Before the folder goes: the Layout store saves a moment after the last change, and a save
+  // that came after the removal made the folder again.
+  await saveLayoutNow()
   delete process.env.WORFY_DATA_DIR
   delete process.env.WORFY_CLAUDE_HOME
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 describe('trash: a Card and its data', () => {
@@ -258,7 +262,7 @@ describe('trash: what cannot be deleted', () => {
     expect(nodeOf('c4')).toBeUndefined()
     expect(await list()).toEqual([entry])
 
-    rmSync(cardDir('c4'), { recursive: true })
+    removeTestTree(cardDir('c4'))
     create({ id: 'c4', kind: 'note', x: 0, y: 0, w: 220, h: 120 })
     expect(await call('trash.restore', { projectId: PROJECT, label: entry.label })).toMatchObject({ ok: false })
     expect(existsSync(cardDir('c4'))).toBe(false)

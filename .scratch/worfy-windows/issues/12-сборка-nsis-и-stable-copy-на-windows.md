@@ -149,11 +149,11 @@ Harness (Ticket 13); `@packaged` e2e на Windows (Ticket 14); шаг для Win
   в отчёт. Пока Gate не на Node (Ticket 03) — `pnpm lint`, `pnpm typecheck`, `pnpm test` с кодами
   выхода и пометка «Gate не запускался». Падения `pnpm test` сверены со списком Ticket-а 02: новых
   нет.
-- [ ] (вручную) Windows-ПК: установщик из `dist\` ставит worfy (SmartScreen: More info → Run
+- [x] (вручную) Windows-ПК: установщик из `dist\` ставит worfy (SmartScreen: More info → Run
   anyway). Значок worfy — у установщика, в меню Пуск и на панели задач, не значок Electron.
   Установленный worfy открывается, новая Session отвечает. Папка установки — в Итог. Как проверить:
   Проводник, меню Пуск, окно worfy.
-- [ ] (вручную) Windows-ПК: `pnpm install:stable` ставит Stable copy в
+- [x] (вручную) Windows-ПК: `pnpm install:stable` ставит Stable copy в
   `%LOCALAPPDATA%\worfy-stable` и пишет `%LOCALAPPDATA%\worfy-stable.json` с `commit`, равным
   `git rev-parse HEAD`; повторный запуск заменяет копию; при запущенной копии — ненулевой код выхода,
   копия на месте. Stable copy открывается, Session в ней отвечает. В `pnpm dev` Autopilot над
@@ -161,11 +161,61 @@ Harness (Ticket 13); `@packaged` e2e на Windows (Ticket 14); шаг для Win
   `pnpm install:stable "$env:LOCALAPPDATA\Programs\worfy-stable"` (прежняя папка по умолчанию)
   отказывает: «the target cannot start with the path of the folder the installer of worfy uses».
   Как проверить: PowerShell и окно worfy.
-- [ ] (вручную) Windows-ПК, проверка установщика из первого круга ревью: руками скопировать
+- [x] (вручную) Windows-ПК, проверка установщика из первого круга ревью: руками скопировать
   `dist\win-unpacked` в `%LOCALAPPDATA%\Programs\worfy-stable` (скрипт туда больше не ставит),
   запустить оттуда `worfy.exe`, затем запустить установщик из папки `dist`. Что он показал и что
   стало с запущенной копией — в Итог. Ожидание по шаблону NSIS: «worfy is running», и по OK копия
   останавливается. После проверки папку `Programs\worfy-stable` удалить.
+- **Три ручных пункта закрыты 2026-10-13: проверка владельца и скриптовая перепроверка на ПК.**
+  Владелец прошёл все три — «всё прошло нормально», кроме частей про Session: Project в worfy на
+  Windows не добавить ([Ticket 30](30-add-project-на-windows.md)). Затем он разрешил Session на
+  Windows-ПК перепроверить пункты скриптами. Она сделала это 06:01–06:17 на сборке с main
+  `c64a9db`, через PowerShell, в настоящем профиле. До начала процессов `worfy.exe` не было.
+  - **Сборка.** `pnpm package` — exit 0, 63 s; `dist\worfy Setup 0.2.0.exe`, 204 912 757 байт, не
+    подписан.
+  - **Пункт 1, установщик.** Exit 0 за 17 s, окно «Установка worfy», после установки сам запустил
+    worfy. `%LOCALAPPDATA%\Programs\worfy\worfy.exe` на месте, hash равен
+    `dist\win-unpacked\worfy.exe`. Ярлык в меню Пуск и на рабочем столе ведёт на установленный
+    `worfy.exe`. Значок 32 px против `build\icon.ico`, средняя разница на канал: `worfy.exe` 0,00,
+    установщик 0,00, `Uninstall worfy.exe` 0,00; ярлык — 30,11 (похоже на стрелку ярлыка, не
+    проверено; `notepad.exe` для сравнения — 75,64). Окно по CDP: страница загружена, версия
+    `v0.2.0+c64a9db` равна commit-у сборки.
+  - **Session отвечает.** Project `worfy-d5750da7` (`C:/Users/Alexey/worfy`) записан в
+    `%APPDATA%\worfy\projects.json` руками, как в Ticket-е 08. Установленный worfy показал его в
+    списке. Одно сообщение Orchestrator-у — ответ `pong` за 16,0 s. Файл после проверки удалён: до
+    неё его не было.
+  - **Пункт 2, `pnpm install:stable`.** Первый запуск — exit 0, 61 s, `commit` в
+    `worfy-stable.json` равен `git rev-parse HEAD`. Второй — exit 0, `installedAt` сменился. При
+    открытой Stable copy — exit 1 за 2 s, копия на месте и работает. Цель
+    `%LOCALAPPDATA%\Programs\worfy-stable` — exit 1 с текстом «the target cannot start with the path
+    of the folder the installer of worfy uses». Stable copy открывается, версия `v0.2.0+c64a9db`.
+    Session в самой Stable copy не запускали: её `worfy.exe` равен по hash установленному, папка
+    данных та же. Отказ Autopilot в `pnpm dev` скриптом не проверяли — он остаётся за словом
+    владельца.
+  - **Пункт 3, установщик при копии, запущенной из старой папки.** Установщик показал окно
+    «Приложение worfy запущено. Нажмите «OK», чтобы закрыть его…» с кнопками «ОК» и «Отмена» и
+    ждал: за 120 s не завершился, копия работала. После «ОК» — exit 0 через 14 s, процесс копии
+    завершён, установленный worfy запущен. Файлы старой папки установщик не тронул; папка затем
+    удалена. Владелец при своей повторной установке окна не видел — судя по этому результату,
+    копия из старой папки тогда запущена не была (вывод, не его слова).
+  - **Не проверить скриптом:** SmartScreen и значок на панели задач — тут слово владельца.
+  - **Экран первого запуска** в этой проверке не показался: владелец закрыл его раньше
+    (`first-run.json`: `failing: ["qmd"]`). Закрыть его с неустановленным qmd можно.
+  - **Замечено в Session на Windows:** один Stop hook завершился с кодом 127 («Stop hook error
+    occurred») — hooks Harness на Windows ещё не перенесены (Ticket 04); в боковой панели
+    «epic-status not found» (Ticket 05).
+  - **Остаток test-а в настоящем профиле.** В `%LOCALAPPDATA%\Programs\worfy-stable` лежали
+    `worfy.exe` и `resources\app.asar` по 18 байт от 2026-10-10, рядом —
+    `Programs\worfy-stable.json`. Значит, какой-то прогон test-ов `install-stable` тогда писал в
+    настоящий профиль. Сейчас test подменяет `LOCALAPPDATA`; пишет ли что-то туда теперь, Session на
+    ПК проверяет отдельно.
+  - **Среда Session на ПК.** Её Bash работает внутри контейнера приложения Claude: записи в
+    `%LOCALAPPDATA%` и `%APPDATA%` уходят в приватную папку пакета, настоящий профиль видит только
+    PowerShell. Прежние результаты про файлы в AppData, полученные через Bash, относились к
+    приватной папке. Test-ов это не касается: они пишут в `%TEMP%`.
+  - **Осталось на ПК, решает владелец:** `%LOCALAPPDATA%\Programs\worfy-stable.json` (остаток
+    test-а); приватная копия Stable copy в папке пакета Claude, 662 MB; папка данных Project-а и
+    один транскрипт Session из проверки.
 - [x] `CONTEXT.md` («Stable copy») и раздел «Stable copy» `README.md` называют путь Stable copy на
   Windows.
 

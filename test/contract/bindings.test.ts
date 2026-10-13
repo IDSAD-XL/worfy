@@ -13,6 +13,7 @@ import { bindingsHandlers, type TranscriptFinder } from '../../src/main/ipc/bind
 import { BindingStore } from '../../src/main/layout/bindings'
 import { EMPTY_AGENT_SIGNALS, resolveBinding, type BindingWorkflow } from '../../src/shared/binding/resolve'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import { removeTestTree } from '../remove'
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const HOME = join(__dirname, '..', 'fixtures', 'claude-home')
@@ -35,7 +36,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 /** Every file under `root` with its size and modification time. */

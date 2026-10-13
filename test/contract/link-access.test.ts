@@ -7,7 +7,7 @@
 // Never run here: a real Claude Code or Agent SDK (agent.start is a counting stand-in), a native
 // dialog or the OS shell (both mocked), the network beyond 127.0.0.1, Bonjour.
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -36,6 +36,7 @@ import { notifyOpen } from '../../src/shared/ipc/notify'
 import { trashList } from '../../src/shared/ipc/trash'
 import type { LayoutOpInput } from '../../src/shared/layout/types'
 import { LinkBench, type BenchMachine } from './link-bench'
+import { removeTestTree } from '../remove'
 
 const env = await vi.hoisted(async () => {
   // Before any module of main is imported: the workflow hub takes the Claude home at import.
@@ -266,7 +267,7 @@ afterEach(async () => {
 })
 
 afterAll(() => {
-  rmSync(env.scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(env.scratch)
 })
 
 /** A calls `channel` on B; the answer is kept for the leak check. */

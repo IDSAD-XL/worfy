@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { RunFile } from '../../src/main/agent/env'
+import { powershellScriptCommand, type RunFile } from '../../src/main/agent/env'
 import {
   batchedProcessStarts,
   ClaudeHomeRegistry,
@@ -16,6 +16,8 @@ import {
   isInsidePath,
   processAlive,
   processState,
+  PROCESS_IDS_VAR,
+  PROCESS_STARTS_SCRIPT,
   projectDirName,
   readWindowsProcessStarts,
   type ClaudeHomeChange,
@@ -360,18 +362,17 @@ describe('process liveness on Windows (worfy-windows ticket 08)', () => {
   })
 
   it('reads the start times of all pids by one PowerShell call and parses its lines', async () => {
-    const calls: { file: string; args: string[] }[] = []
-    const run: RunFile = (file, args, _options, done) => {
-      calls.push({ file, args })
+    const calls: { file: string; args: string[]; pids: string | undefined }[] = []
+    const run: RunFile = (file, args, options, done) => {
+      calls.push({ file, args, pids: options.env?.[PROCESS_IDS_VAR] })
       done(null, `41001 ${START}\r\n41002 ?\r\nnoise\r\n`, '')
     }
     const starts = await readWindowsProcessStarts('C:\\Windows', run)([41001, 41002, 41003])
     expect(starts).toEqual(new Map([[41001, START], [41002, '?']]))
     expect(calls).toHaveLength(1)
     expect(calls[0]!.file).toBe('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
-    const script = Buffer.from(calls[0]!.args[3]!, 'base64').toString('utf16le')
-    expect(script).toContain('Get-Process -Id 41001,41002,41003')
-    expect(script).toContain('ToFileTimeUtc()')
+    expect(calls[0]!.args).toEqual(['-NoProfile', '-NonInteractive', '-Command', PROCESS_STARTS_SCRIPT])
+    expect(calls[0]!.pids).toBe('41001,41002,41003')
     expect(await readWindowsProcessStarts('C:\\Windows', run)([])).toEqual(new Map())
     expect(calls).toHaveLength(1)
     const failing: RunFile = (_file, _args, _options, done) => done({ code: 1 }, '', 'boom')
@@ -452,18 +453,53 @@ describe('process liveness on Windows (worfy-windows ticket 08)', () => {
     expect(reads.at(-1)).toEqual([1])
   })
 
+  // worfy-windows ticket 21. From Electron a call of powershell.exe whose script has to be decoded
+  // from base64 costs a second more the first time a text is seen; with the pids in the text every
+  // new set of live Sessions was such a text.
+  it('hands powershell.exe the same arguments whatever the pids: they are not in the text of the script', async () => {
+    const calls: string[][] = []
+    const given: (string | undefined)[] = []
+    const run: RunFile = (_file, args, options, done) => {
+      calls.push(args)
+      given.push(options.env?.[PROCESS_IDS_VAR])
+      done(null, '', '')
+    }
+    await readWindowsProcessStarts('C:\\Windows', run)([7, 8])
+    await readWindowsProcessStarts('C:\\Windows', run)([41001, 41002])
+    expect(calls).toHaveLength(2)
+    expect(calls[1]).toEqual(calls[0])
+    // They come in a variable of the environment, added to the environment of worfy.
+    expect(given).toEqual(['7,8', '41001,41002'])
+  })
+
+  it('gives the script only whole numbers above zero, in the order asked', async () => {
+    const given: (string | undefined)[] = []
+    const run: RunFile = (_file, _args, options, done) => {
+      given.push(options.env?.[PROCESS_IDS_VAR])
+      done(null, '', '')
+    }
+    await readWindowsProcessStarts('C:\\Windows', run)([9, -1, 0, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 7])
+    expect(given).toEqual(['9,7'])
+    for (const each of given) expect(each).toMatch(/^[0-9]+(,[0-9]+)*$/)
+    await readWindowsProcessStarts('C:\\Windows', run)([-1, 0.5])
+    expect(given).toHaveLength(1)
+  })
+
   it('starts the PowerShell of SystemRoot and asks Get-Process for each pid, its start as UTC FILETIME', async () => {
     const calls: { file: string; script: string }[] = []
     const run: RunFile = (file, args, _options, done) => {
-      calls.push({ file, script: Buffer.from(args[3]!, 'base64').toString('utf16le') })
+      calls.push({ file, script: args[3]! })
       done(null, '', '')
     }
     await readWindowsProcessStarts('D:\\Win', run)([7, 8])
     expect(calls[0]!.file).toBe('D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
+    expect(PROCESS_IDS_VAR).toBe('WORFY_PROCESS_IDS')
     expect(calls[0]!.script).toBe(
       [
         "$ErrorActionPreference = 'SilentlyContinue'",
-        'foreach ($process in Get-Process -Id 7,8) {',
+        "$ids = @([string]$env:WORFY_PROCESS_IDS -split ',' | Where-Object { $_ -match '^[0-9]+$' } | ForEach-Object { [int]$_ })",
+        'if ($ids.Count -eq 0) { exit 0 }',
+        'foreach ($process in Get-Process -Id $ids) {',
         '  $start = $null',
         '  try { $start = $process.StartTime } catch { }',
         '  if ($null -eq $start) { "$($process.Id) ?" } else { "$($process.Id) $($start.ToFileTimeUtc())" }',
@@ -480,6 +516,24 @@ describe.runIf(process.platform === 'win32')('process liveness on this Windows m
     expect(own).toMatch(/^\d{17,}$/)
     expect(await processState(process.pid, own)).toBe('alive')
     expect(await processState(process.pid, '134359927685768590')).toBe('gone')
+  })
+
+  // worfy-windows ticket 21: the script itself takes only what is all digits of its variable.
+  it('the script reads its pids from the environment and passes by whatever is not a number there', async () => {
+    const { file, args, options } = powershellScriptCommand(process.env.SystemRoot, PROCESS_STARTS_SCRIPT, { [PROCESS_IDS_VAR]: `x,${process.pid};Get-Date,,-5,${process.pid}, 12,$(Get-Date)` })
+    const out = await new Promise<string>((resolve, reject) => execFile(file, args, options, (error, stdout) => (error ? reject(error) : resolve(stdout))))
+    const lines = out.split(/\r?\n/).filter((line) => line !== '')
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatch(new RegExp(`^${process.pid} \\d{17,}$`))
+    // With nothing to ask about it prints nothing and ends well.
+    const empty = powershellScriptCommand(process.env.SystemRoot, PROCESS_STARTS_SCRIPT, { [PROCESS_IDS_VAR]: 'none' })
+    expect(await new Promise<string>((resolve, reject) => execFile(empty.file, empty.args, empty.options, (error, stdout) => (error ? reject(error) : resolve(stdout))))).toBe('')
+  })
+
+  it('several pids in one call: each running one gets its line, one that runs no more gets none', async () => {
+    const starts = await readWindowsProcessStarts()([process.pid, process.ppid, 4_194_299])
+    expect([...starts.keys()].sort((a, b) => a - b)).toEqual([process.pid, process.ppid].sort((a, b) => a - b))
+    for (const start of starts.values()) expect(start).toMatch(/^\d{17,}$|^\?$/)
   })
 })
 

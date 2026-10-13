@@ -111,6 +111,29 @@ const collapse = (text: string): string => text.trim().replace(/\s+/g, ' ')
 /** The start of each running process asked for, as a FILETIME in decimal, or `?` when it cannot be read; a pid not in the map runs no more. */
 export type WindowsProcessStarts = (pids: readonly number[]) => Promise<Map<number, string>>
 
+/** The variable of the environment PROCESS_STARTS_SCRIPT reads its pids from: decimal numbers with commas between them. */
+export const PROCESS_IDS_VAR = 'WORFY_PROCESS_IDS'
+
+/**
+ * The script of readWindowsProcessStarts: one line per running process of the pids asked for,
+ * `<pid> <start as a FILETIME in decimal>`, or `<pid> ?` when the start cannot be read. The text is
+ * constant (worfy-windows ticket 21): the pids come in PROCESS_IDS_VAR, and only what is all
+ * digits is taken of it. With the pids in the text every new set of live Sessions was a script the
+ * process had not run before — a second more from Electron (the numbers are at REGISTRY_SCRIPT of
+ * src/main/agent/env.ts).
+ */
+export const PROCESS_STARTS_SCRIPT = [
+  "$ErrorActionPreference = 'SilentlyContinue'",
+  `$ids = @([string]$env:${PROCESS_IDS_VAR} -split ',' | Where-Object { $_ -match '^[0-9]+$' } | ForEach-Object { [int]$_ })`,
+  'if ($ids.Count -eq 0) { exit 0 }',
+  'foreach ($process in Get-Process -Id $ids) {',
+  '  $start = $null',
+  '  try { $start = $process.StartTime } catch { }',
+  '  if ($null -eq $start) { "$($process.Id) ?" } else { "$($process.Id) $($start.ToFileTimeUtc())" }',
+  '}',
+  'exit 0',
+].join('\n')
+
 /**
  * The start times of processes on Windows, by one Windows PowerShell call: `Get-Process`,
  * `StartTime.ToFileTimeUtc()`. That is exactly the FILETIME Claude Code writes as `procStart` there
@@ -125,16 +148,7 @@ export function readWindowsProcessStarts(systemRoot: string | undefined = proces
         done(new Map())
         return
       }
-      const script = [
-        "$ErrorActionPreference = 'SilentlyContinue'",
-        `foreach ($process in Get-Process -Id ${ids.join(',')}) {`,
-        '  $start = $null',
-        '  try { $start = $process.StartTime } catch { }',
-        '  if ($null -eq $start) { "$($process.Id) ?" } else { "$($process.Id) $($start.ToFileTimeUtc())" }',
-        '}',
-        'exit 0',
-      ].join('\n')
-      const { file, args, options } = powershellScriptCommand(systemRoot, script)
+      const { file, args, options } = powershellScriptCommand(systemRoot, PROCESS_STARTS_SCRIPT, { [PROCESS_IDS_VAR]: ids.join(',') })
       run(file, args, options, (error, stdout) => {
         if (error) {
           fail(new Error(`${file} could not read process start times: ${error.killed ? 'timed out' : `exit ${String(error.code)}`}`))

@@ -10,6 +10,11 @@
 //
 // Not covered: `rm` of node:fs/promises. src/main/harness/install.ts calls it; measured on the PC,
 // it does not go through a junction.
+//
+// Tests have the same rule for rmSync with `recursive` (worfy-windows ticket 26): they run under
+// the Node of Electron, where a cleanup that called it failed its test at the first read-only file
+// — git writes its objects that way — and left the folder in %TEMP%. A test removes a folder with
+// removeTestTree of test/remove.ts.
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -38,9 +43,10 @@ const MODULE = 'src/main/storage/remove.ts'
  */
 /** A call that starts in a line, to the bracket that closes it — on a later line when its arguments go on there. */
 function callFrom(lines: string[], index: number, name: RegExp): string {
+  // The call starts in this line: one that starts in a later line is found from that line.
+  if (!name.test(lines[index] ?? '')) return ''
   const rest = lines.slice(index, index + 8).join('\n')
   const start = rest.search(name)
-  if (start < 0) return ''
   let depth = 0
   for (let at = rest.indexOf('(', start); at >= 0 && at < rest.length; at++) {
     if (rest[at] === '(') depth += 1
@@ -73,6 +79,54 @@ const scanned = (folder: string, ending: RegExp): string[] =>
     .map((file) => relative(REPO, file).replace(/\\/g, '/'))
     .filter((file) => file !== MODULE)
     .flatMap((file) => uses(readFileSync(join(REPO, file), 'utf8')).map((use) => `${file}:${use}`))
+
+/** The tests of the removal itself: they name rmSync in the texts they search, and call it to compare with. */
+const ITS_OWN_TESTS = ['test/unit/no-rmsync.test.ts', 'test/unit/remove-tree.test.ts']
+
+/** The lines of a text that call rmSync with `recursive`, comment lines apart; the options may lie on the lines after the call. */
+function recursiveUses(text: string): string[] {
+  const lines = text.split(/\r?\n/)
+  return lines.flatMap((line, index) => {
+    if (/^\s*(\/\/|\*)/.test(line)) return []
+    return /\brecursive\b/.test(callFrom(lines, index, /\brmSync\s*\(/)) ? [line.trim()] : []
+  })
+}
+
+describe('fs.rmSync with "recursive" in test/', () => {
+  it('is called by no test: the folder of a test goes with removeTestTree of test/remove.ts', () => {
+    const found = sources(join(REPO, 'test'), /\.tsx?$/)
+      .map((file) => relative(REPO, file).replace(/\\/g, '/'))
+      .filter((file) => !ITS_OWN_TESTS.includes(file))
+      .flatMap((file) => recursiveUses(readFileSync(join(REPO, file), 'utf8')).map((use) => `${file}: ${use}`))
+    // The one file left is type-checked without the types of Node and cannot import the helper. Its
+    // folder holds copies and symlinks, no junction and no read-only file; the first line is the
+    // signature it gives to rmSync, the other two are its calls.
+    expect(found).toEqual([
+      'test/unit/glob-probe.tsx: rmSync(path: string, options: { recursive: true; force: true }): void',
+      'test/unit/glob-probe.tsx: fs.rmSync(root, { recursive: true, force: true })',
+      'test/unit/glob-probe.tsx: remove: () => fs.rmSync(root, { recursive: true, force: true }),',
+    ])
+  })
+
+  it('the helper is the removal of the application, and calls nothing else', () => {
+    const helper = readFileSync(join(REPO, 'test', 'remove.ts'), 'utf8')
+    expect(helper).toContain("import { removeTree } from '../src/main/storage/remove'")
+    expect(recursiveUses(helper)).toEqual([])
+    expect(helper.split(/\r?\n/).filter((line) => /^import /.test(line))).toHaveLength(1)
+  })
+
+  it('the search finds a call with "recursive" in its line or in the lines after it, and passes by a call without it', () => {
+    expect(recursiveUses('  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })')).toHaveLength(1)
+    expect(recursiveUses("  rmSync(join(root, 'tools'), { recursive: true })")).toHaveLength(1)
+    expect(recursiveUses('  afterAll(() => fs.rmSync(scratch, {\n    recursive: true,\n    force: true,\n  }))')).toEqual(['afterAll(() => fs.rmSync(scratch, {'])
+    expect(recursiveUses('  rmSync(file)\n  rmSync(other, { force: true })')).toEqual([])
+    // "recursive" of another call, in the same line or the next, is not that of rmSync.
+    expect(recursiveUses('  rmSync(file)\n  mkdirSync(dir, { recursive: true })')).toEqual([])
+    expect(recursiveUses('  mkdirSync(dir, { recursive: true }); rmSync(file)')).toEqual([])
+    expect(recursiveUses('  // rmSync(dir, { recursive: true }) stops at a read-only file')).toEqual([])
+    expect(recursiveUses('  removeTestTree(scratch)')).toEqual([])
+  })
+})
 
 describe('fs.rmSync in src/ and in scripts/', () => {
   it('is used nowhere in src/ but in the removal module: a file, a link or a folder is removed with removeFile or removeTree', () => {
@@ -125,6 +179,8 @@ describe('fs.rmSync in src/ and in scripts/', () => {
     expect(uses('  rmdirSync(link)')).toEqual([])
     // "recursive" of the next call is not that of this one.
     expect(uses('  rmdirSync(link)\n  mkdirSync(dir, { recursive: true })')).toEqual([])
+    // A call on a later line is found from that line, not from the lines before it.
+    expect(uses('  const dir = join(a, b)\n  rmdirSync(dir, { recursive: true })')).toEqual(['2: rmdirSync(dir, { recursive: true })'])
     const withCopy = ["import { lstatSync, rmSync, unlinkSync } from 'node:fs'", '// <remove-tree>', 'function removeTree(path) {', '  return rmSync(path, { recursive: true, force: true })', '}', '// </remove-tree>', 'rmSync(other)'].join('\n')
     expect(uses(withCopy)).toEqual(['7: rmSync(other)'])
     // Without a copy in the file, the import is a use like any other.

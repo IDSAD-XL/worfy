@@ -7,6 +7,7 @@ import { join, relative } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { journalDir, listRuns, openRun, readRun } from '../../src/main/autopilot/journal'
 import { JOURNAL_EVENT_KINDS, type JournalEventFields } from '../../src/shared/autopilot/journal'
+import { removeTestTree } from '../remove'
 
 // node:fs/promises as it is, except that readFile and appendFile are spies: two tests make one
 // call fail, the way a file removed mid-listing or a full disk would.
@@ -39,7 +40,7 @@ afterEach(() => {
   vi.unstubAllEnvs()
   vi.mocked(fsp.readFile).mockClear()
   vi.mocked(fsp.appendFile).mockClear()
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 /** A clock that returns `start`, then one second later on every call. */

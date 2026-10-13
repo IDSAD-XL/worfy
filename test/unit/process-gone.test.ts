@@ -3,12 +3,13 @@
 // <data root>/logs/process-gone.jsonl. Before it a crashed renderer left an empty window and nothing
 // else. The line holds the time, the kind of process, the reason and the exit code — never a path,
 // a URL or any text of a Session.
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProcessGoneDeps } from '../../src/main/diagnostics/process-gone'
 import { dataRoot } from '../../src/main/storage/paths'
+import { removeTestTree } from '../remove'
 
 type Listener = (...args: unknown[]) => void
 
@@ -60,7 +61,7 @@ vi.mock('../../src/main/link/service', () => ({
 const { installProcessGone, processGoneLogPath } = await import('../../src/main/diagnostics/process-gone')
 
 const scratch = mkdtempSync(join(tmpdir(), 'worfy-process-gone-'))
-afterAll(() => rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+afterAll(() => removeTestTree(scratch))
 
 let cases = 0
 /** A fake `app` that keeps its listeners, and a log file in a folder that does not exist yet. */

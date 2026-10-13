@@ -2,7 +2,7 @@
 // the recorded SDK messages (test/fixtures/sdk-messages/) and by statusline-limits.json, and the
 // `limits` channels registered through registerIpc, the same wrapper the app uses.
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, utimesSync, watch, writeFileSync, type FSWatcher } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, utimesSync, watch, writeFileSync, type FSWatcher } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -13,6 +13,7 @@ import { appUrlMatcher, registerIpc } from '../../src/main/ipc/index'
 import { limitsHandlers } from '../../src/main/ipc/limits'
 import type { LimitsState } from '../../src/shared/agent/limits'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import { removeTestTree } from '../remove'
 
 // node:fs as it is, except that watch is a spy: one test puts in a folder watch that reports nothing,
 // to check the poll alone.
@@ -34,7 +35,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 const tracker = (now = NOW): LimitsTracker => new LimitsTracker({ dataDir, now: () => now })

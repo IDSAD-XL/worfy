@@ -2,7 +2,7 @@
 // ticket 02): the permission mode Claude Code starts in, the flag that lets it skip permissions, and
 // the canUseTool the Session hands over. And the MCP servers of a Session (worfy-daily ticket 06,
 // ADR-0021): in a Project only those on the Profile's list, outside a Project the user's own set.
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
@@ -13,6 +13,7 @@ import type { CanUseToolHandler } from '../../src/main/agent/permissions'
 import { DEFAULT_MCP_SERVERS } from '../../src/main/workflow/profile'
 import { PERMISSION_MODES, type SessionSettings } from '../../src/shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
+import { removeTestTree } from '../remove'
 
 /** The Harness copy of the build, as bundled.ts (worfy-harness ticket 04) would give it. */
 const BUNDLED = '/Applications/worfy.app/Contents/Resources/harness'
@@ -195,7 +196,7 @@ describe('the MCP servers of the Harness plugin', () => {
     return dir
   }
   afterEach(() => {
-    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+    for (const dir of dirs.splice(0)) removeTestTree(dir)
   })
   const QMD_JSON = JSON.stringify({
     mcpServers: {

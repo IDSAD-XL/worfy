@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTestTree } from '../remove'
 
 type Env = Record<string, string | undefined>
 interface Files {
@@ -363,7 +364,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
   })
 
   afterEach(() => {
-    // Links first, as links: under Electron's Node rmSync goes through a junction and empties what it leads to.
+    // Links first, as links. (From the time this folder went with rmSync; removeTestTree takes a link as a link too.)
     for (const link of links.splice(0)) {
       try {
         rmdirSync(link)
@@ -371,7 +372,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
         // Replaced by the script, or never made.
       }
     }
-    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    removeTestTree(dir)
     electron.noAsar = noAsar
   })
 
@@ -1005,16 +1006,11 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       const target = join(dir, 'apps', 'worfy-stable')
       writeFileSync(join(build, 'LICENSE.txt'), 'read me')
       chmodSync(join(build, 'LICENSE.txt'), 0o444)
-      try {
-        expect(run([target]).status).toBe(0)
-        const again = run([target])
-        expect(again.stderr).toBe('')
-        expect(again.stdout).not.toContain('could not be removed')
-        expect(readdirSync(join(dir, 'apps')).sort()).toEqual(['worfy-stable', 'worfy-stable.json'])
-      } finally {
-        // The folder of the test is removed by rmSync, which stops at a read-only file under Electron's Node.
-        for (const file of [join(build, 'LICENSE.txt'), join(target, 'LICENSE.txt')]) if (existsSync(file)) chmodSync(file, 0o666)
-      }
+      expect(run([target]).status).toBe(0)
+      const again = run([target])
+      expect(again.stderr).toBe('')
+      expect(again.stdout).not.toContain('could not be removed')
+      expect(readdirSync(join(dir, 'apps')).sort()).toEqual(['worfy-stable', 'worfy-stable.json'])
     }, 60_000)
 
     it('a junction at the target is replaced as a link: the folder it led to keeps its files', () => {
@@ -1154,13 +1150,8 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
         }
       }
 
-      // git writes its objects read-only, and rmSync of the temporary folder stops at such a file on Windows.
-      for (const entry of readdirSync(join(repo, '.git', 'objects'), { recursive: true, withFileTypes: true })) {
-        if (entry.isFile()) chmodSync(join(entry.parentPath, entry.name), 0o666)
-      }
-
       // A build that leaves no dist\win-unpacked is an error, and the copy stays.
-      rmSync(join(repo, 'dist'), { recursive: true, force: true })
+      removeTestTree(join(repo, 'dist'))
       expect(() => installStable([target], { env, repo, build: () => undefined })).toThrow('expected dist\\win-unpacked after the build, and it is not there')
       expect(existsSync(join(target, 'worfy.exe'))).toBe(true)
     }, 180_000)

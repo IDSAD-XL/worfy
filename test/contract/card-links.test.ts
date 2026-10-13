@@ -2,12 +2,13 @@
 // (src/main/cards/protocol.ts) and CardStore.info (src/main/cards/store.ts) ask of the file system
 // when a link is on the way. Moved out of card-protocol.test.ts, which had grown past 1000 lines
 // (worfy-windows ticket 20): the cases are the same, the head keeps what they use of it.
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveCardFile } from '../../src/main/cards/protocol'
 import { CardStore } from '../../src/main/cards/store'
+import { removeTestTree } from '../remove'
 
 /** What Node was asked through node:fs/promises: lstat reads a link, it does not follow it; stat and open do. */
 const fsAsked = vi.hoisted(() => ({ lstat: [] as string[], stat: [] as string[], open: [] as string[] }))
@@ -64,7 +65,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await store.close()
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 describe('resolveCardFile and a link that leads to a share', () => {

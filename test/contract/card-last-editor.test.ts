@@ -1,7 +1,7 @@
 // Which Session last edited a Card (src/shared/cards/last-editor.ts), from the `tool_use` events of
 // Sessions on the fake agent, and how main keeps the answer in the Card Node's data
 // (cardEditRecorder in src/main/mcp/canvas-server.ts) so it survives a restart.
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -12,6 +12,7 @@ import { canvasForSession, cardEditRecorder, type CanvasDeps } from '../../src/m
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { cardEditedBy, cardOfPath, lastEditor, normalizePath, type ToolUseRecord } from '../../src/shared/cards/last-editor'
 import type { Layout } from '../../src/shared/layout/types'
+import { removeTestTree } from '../remove'
 
 const PROJECT = 'demo-0a1b2c3d'
 
@@ -30,7 +31,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 describe('lastEditor: paths', () => {

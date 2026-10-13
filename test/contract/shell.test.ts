@@ -3,12 +3,13 @@
 // worktree in a temporary folder. Nothing reaches macOS: shell.openPath and shell.openExternal
 // are recorders.
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import { removeTestTree } from '../remove'
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PROJECT_ID = 'repo-00000001'
@@ -90,7 +91,7 @@ beforeEach(async () => {
 afterEach(() => {
   vi.restoreAllMocks()
   delete process.env.WORFY_DATA_DIR
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 describe('shell.openInEditor', () => {

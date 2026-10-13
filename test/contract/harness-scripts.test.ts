@@ -5,10 +5,11 @@
 // (harness/), not under $HOME/.claude. Git in an empty HOME has no identity, so the author and
 // committer come from the environment.
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { removeTestTree } from '../remove'
 
 const REPO = join(__dirname, '..', '..')
 const HARNESS = join(REPO, 'harness')
@@ -72,7 +73,7 @@ describe('harness shell tests', () => {
         expect(run.error, `${file} did not finish: ${String(run.error)}\n${tail(output, 40)}`).toBeUndefined()
         expect(run.status, `${file} exited ${String(run.status)}:\n${tail(output, 40)}`).toBe(0)
       } finally {
-        rmSync(home, { recursive: true, force: true })
+        removeTestTree(home)
       }
     },
     FILE_TIMEOUT_MS + 10_000,

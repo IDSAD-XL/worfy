@@ -3,7 +3,7 @@
 // stand-in shell scripts in a temporary folder, the only one on the PATH of the "login shell"
 // environment handed to the module; each writes its arguments and the variables it saw. HOME, the
 // Harness home and the Claude home are temporary too: nothing reaches the owner's folders.
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -18,6 +18,7 @@ import {
   readModelsAnswer,
   setupCollections,
 } from '../../src/main/harness/qmd'
+import { removeTestTree } from '../remove'
 
 const REPO = join(import.meta.dirname, '..', '..')
 
@@ -96,7 +97,7 @@ beforeEach(() => {
   for (const dir of [bin, home, harnessHome]) mkdirSync(dir, { recursive: true })
 })
 afterEach(() => {
-  rmSync(root, { recursive: true, force: true })
+  removeTestTree(root)
 })
 
 describe('installQmd', () => {

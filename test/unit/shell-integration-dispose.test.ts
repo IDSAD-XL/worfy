@@ -2,12 +2,12 @@
 // The folder goes when worfy exits. Its removal must take a link away as a link: under the Node of
 // Electron 44 on Windows fs.rmSync with `recursive` goes through a junction and empties the folder
 // behind it.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { removeTree } from '../../src/main/storage/remove'
 import { ShellIntegration, tempBase } from '../../src/main/terminal/shell-integration'
+import { removeTestTree } from '../remove'
 
 const WINDOWS = process.platform === 'win32'
 
@@ -18,7 +18,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  removeTree(scratch)
+  removeTestTree(scratch)
 })
 
 describe('ShellIntegration.disposeSync and a link in the folder', () => {
@@ -44,5 +44,47 @@ describe('ShellIntegration.disposeSync and a link in the folder', () => {
     expect(existsSync(dir)).toBe(false)
     expect(integration.path).toBeNull()
     expect(readdirSync(outside)).toEqual(['notes.txt'])
+  })
+
+  // worfy-windows ticket 26. "A folder of this user that nobody else may open" was read off the
+  // POSIX bits of its mode; Windows has none (every folder shows 0o666 there), so the folder never
+  // passed, every prepare() made a new one, and disposeSync removed the last one only.
+  it('prepare() called again uses the folder it made, and disposeSync leaves nothing behind', async () => {
+    const base = tempBase(scratch)
+    if (WINDOWS) expect(base).toBe(scratch)
+    const before = readdirSync(base)
+    const integration = new ShellIntegration({ tmpdir: () => scratch })
+    const made = (): string[] => readdirSync(base).filter((name) => !before.includes(name))
+
+    const first = await integration.prepare()
+    const second = await integration.prepare()
+    // Terminals that start at the same moment: one folder, and no call fails. On Windows two
+    // writers of one file refuse each other (EPERM at the rename), so the calls share one writing.
+    const together = await Promise.all(Array.from({ length: 12 }, () => integration.prepare()))
+    expect([second, ...together]).toEqual(Array.from({ length: 13 }, () => first))
+    expect(made()).toEqual([basename(first)])
+
+    integration.disposeSync()
+    expect(made()).toEqual([])
+  })
+
+  // The other half of the same check, which Windows keeps: a link under the name of the folder is
+  // somebody else's, and nothing is written through it.
+  it('a link under the name of its folder is not used: the scripts go to a new folder, and the link stays', async () => {
+    const outside = join(scratch, 'outside')
+    mkdirSync(outside)
+    const integration = new ShellIntegration({ tmpdir: () => scratch })
+    const first = await integration.prepare()
+    removeTestTree(first)
+    symlinkSync(outside, first, WINDOWS ? 'junction' : 'dir')
+
+    const second = await integration.prepare()
+    expect(second).not.toBe(first)
+    expect(readdirSync(second).length).toBeGreaterThan(0)
+    expect(readdirSync(outside)).toEqual([])
+
+    integration.disposeSync()
+    expect(existsSync(second)).toBe(false)
+    expect(lstatSync(first).isSymbolicLink()).toBe(true)
   })
 })

@@ -1,12 +1,13 @@
 // Who made a call and whether a path lies inside the Projects of this Machine
 // (src/main/link/caller.ts, worfy-link ticket 08): a Linked machine works inside the listed
 // Projects only, judged on real paths over a temporary folder with symbolic links.
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { insideProjects, isRemoteCall, realInsideProjects } from '../../src/main/link/caller'
 import { LinkSender } from '../../src/main/link/ipc-adapter'
+import { removeTestTree } from '../remove'
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-link-caller-')))
 const repo = join(root, 'Repo')
@@ -22,7 +23,7 @@ symlinkSync(join(repo, 'src'), join(outside, 'in-link'))
 symlinkSync(join(root, 'not-there-yet'), join(repo, 'dangling'))
 const projects = [{ path: repo }]
 
-afterAll(() => rmSync(root, { recursive: true, force: true }))
+afterAll(() => removeTestTree(root))
 
 const linkSender = new LinkSender('3c1c6f43-6d4e-4c39-9d4c-7c2f0d7f2a11', 'project', () => undefined, () => ({ id: 'x', name: 'beta', protocol: 1, build: 'x' }))
 const window = { id: 7, send: () => undefined }

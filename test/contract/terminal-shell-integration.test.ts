@@ -18,6 +18,7 @@ import { SYSTEM_PATH, type Env } from '../../src/main/agent/env'
 import type { ShellEvent } from '../../src/main/terminal/osc'
 import { REPLAY_LIMIT, TerminalRegistry, type TerminalSink } from '../../src/main/terminal/pty'
 import { ShellIntegration, SOCKET_PATH_MAX, socketPath } from '../../src/main/terminal/shell-integration'
+import { removeTestTree } from '../remove'
 
 /** The zsh of the machine: /bin/zsh on macOS, /usr/bin/zsh on Linux CI (.github/workflows/ci.yml). */
 const ZSH = execFileSync('/bin/sh', ['-c', 'command -v zsh'], { encoding: 'utf8' }).trim()
@@ -441,7 +442,7 @@ describe("worfy's folder", () => {
     await second.run(PRINT_FILES)
     expect(second.state()?.lastOutput).toContain('files:env-loaded,profile-loaded,rc-loaded,login-loaded')
 
-    rmSync(dir, { recursive: true })
+    removeTestTree(dir)
     const third = await open('third')
     await third.prompt()
     await third.run(PRINT_FILES)

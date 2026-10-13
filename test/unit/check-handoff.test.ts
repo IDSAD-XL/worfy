@@ -1,17 +1,18 @@
 // scripts/check-handoff.mjs: the form of the state file HANDOFF.md (owner's decision H4) — at most
 // 150 lines and 15360 bytes, no line over 300 characters, exactly the five sections in order.
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { removeTestTree } from '../remove'
 
 const SCRIPT = join(import.meta.dirname, '..', '..', 'scripts', 'check-handoff.mjs')
 const SECTIONS = ['Сейчас в работе', 'Ждёт владельца', 'Риски и долги', 'Дальше', 'Где остальное'] as const
 
 const dirs: string[] = []
 afterEach(() => {
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+  for (const dir of dirs.splice(0)) removeTestTree(dir)
 })
 
 /** Runs the script on a temporary HANDOFF.md with these lines; `pnpm test` runs under Electron as Node, so the child does too. */

@@ -2,7 +2,7 @@
 // (src/main/cards/store.ts) and the `cards` IPC domain (src/main/ipc/cards.ts) on a temporary data
 // folder: which files a Card gets, with which headers, that nothing outside the Card's own folder
 // is ever served, and that a change of a Card's files is reported within a second.
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -27,6 +27,7 @@ import { CardStore, titleOf } from '../../src/main/cards/store'
 import { machineLabel } from '../../src/shared/cards/bridge'
 import { CARD_FILE_CHUNK_BYTES, CARD_FILE_LIMIT_BYTES, cardsFile } from '../../src/shared/ipc/cards'
 import { projectId, projectIdHash } from '../../src/main/projects/store'
+import { removeTestTree } from '../remove'
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 
@@ -102,7 +103,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await store.close()
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 describe('worfy-card:// leaves the Card folder for nothing', () => {
@@ -566,7 +567,7 @@ describe('Card store', () => {
       expect(seen.at(-1)).toMatchObject({ cardId: 'c1', exists: true })
       expect(seen.at(-1)?.revision).toBeGreaterThanOrEqual(1)
 
-      rmSync(cardDir('c1'), { recursive: true, force: true })
+      removeTestTree(cardDir('c1'))
       await vi.waitFor(() => expect(seen.at(-1)?.exists).toBe(false), { timeout: 1000, interval: 20 })
     } finally {
       await watching.close()

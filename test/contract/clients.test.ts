@@ -4,7 +4,7 @@
 // (src/main/broadcast.ts), the real IPC modules of the hubs and the real stores run over a mocked
 // `electron`, a temporary WORFY_DATA_DIR and a temporary WORFY_CLAUDE_HOME.
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HandlerModule } from '../../src/main/ipc/index'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import type { LayoutOpInput } from '../../src/shared/layout/types'
+import { removeTestTree, saveLayoutNow } from '../remove'
 
 const PROJECT = 'demo-0a1b2c3d'
 const CLAUDE_HOME_FIXTURE = join(import.meta.dirname, '..', 'fixtures', 'claude-home')
@@ -90,10 +91,13 @@ beforeEach(() => {
 
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
+  // Before the folder goes: the Layout store saves a moment after the last change, and a save
+  // that came after the removal made the folder again.
+  await saveLayoutNow()
   delete process.env.WORFY_DATA_DIR
   delete process.env.WORFY_CLAUDE_HOME
   electron.windows = []
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 /** Registers `modules` through registerIpc, the wrapper the app uses; `call` passes `sender` as event.sender. */

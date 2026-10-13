@@ -5,10 +5,11 @@
 // by E3_CLAUDE, and E3_HARNESS_DONE_AT stands for the time the Harness moved. The real ~/.claude
 // is never read: HOME is the temporary folder and CLAUDE_CONFIG_DIR is not passed.
 import { spawnSync } from 'node:child_process'
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTestTree } from '../remove'
 
 const REPO = join(__dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'e3-owner-check.sh')
@@ -42,7 +43,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  rmSync(scratch, { recursive: true, force: true })
+  removeTestTree(scratch)
 })
 
 /** Writes a file under the temporary ~/.claude. */
@@ -130,7 +131,7 @@ describe('e3-owner-check.sh: files of the Harness in ~/.claude', () => {
   })
 
   it('exits 1 without the plugin folder: a bare ~/.claude has nothing to be compared with', () => {
-    rmSync(join(claudeHome, 'worfy-harness'), { recursive: true })
+    removeTestTree(join(claudeHome, 'worfy-harness'))
     put('bin/epic-status', '#!/bin/sh\n')
     const result = check(journal(FINISHED))
     expect(result.status).toBe(1)
