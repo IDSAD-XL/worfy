@@ -382,9 +382,9 @@ test('an error of "Add project" stays above the list of Projects and takes no ro
   }
 })
 
-test('under an error of "Add project" a list of 4 Projects keeps 3 rows at the floor of its section, and all 4 where the column has room', async () => {
-  // Three more Projects, in plain folders: the list is longer than the 3 rows the floor keeps.
-  const more = ['beta', 'gamma', 'delta'].map((name, index) => {
+test('under an error of "Add project" a list of 8 Projects keeps 3 rows at the floor of its section; a short error is shown whole and leaves the list the rest', async () => {
+  // Seven more Projects, in plain folders: the list is longer than the floor of the section keeps.
+  const more = ['beta', 'gamma', 'delta', 'epsilon', 'zeta', 'eta', 'theta'].map((name, index) => {
     mkdirSync(join(scratch, name))
     mkdirSync(join(dataDir, `${name}-000000${index}b`), { recursive: true })
     return { id: `${name}-000000${index}b`, name, path: join(scratch, name) }
@@ -396,25 +396,44 @@ test('under an error of "Add project" a list of 4 Projects keeps 3 rows at the f
   const launched = await launch()
   try {
     const { window } = launched
-    await listsShown(window, 4)
+    const { app } = launched
+    await listsShown(window, 8)
     await setWindowSize(launched, SMALLEST)
     await expect.poll(async () => sectionOf(await measure(window), 'EpicsSection').body).toBe(3 * EPIC_ROW)
-    // Without a message the floor is the header and 3 rows.
+    // 800×520, every section at its floor. Without a message the floor is the header and 3 rows.
     const quiet = sectionOf(await measure(window), 'ProjectsSection')
-    expect(quiet.content).toBe(4 * ROW)
+    expect(quiet.content).toBe(8 * ROW)
     expect(quiet.body).toBe(3 * ROW)
     expect(quiet.bottom - quiet.top).toBe(HEADER + 3 * ROW)
 
-    await addProjectFails(launched)
+    // A short error: the folder picker, replaced in main, fails. No system dialog opens.
     const projects = region(window, 'Projects')
-    expect(await height(projects.locator('.w-sidebar-section__notice'))).toBe(3 * ROW)
+    const notice = projects.locator('.w-sidebar-section__notice')
+    await app.evaluate(({ dialog }) => {
+      dialog.showOpenDialog = (() => Promise.reject(new Error('no'))) as typeof dialog.showOpenDialog
+    })
+    await projects.getByRole('button', { name: 'Add project' }).click()
+    await expect(projects.getByTestId('projects-error')).toBeVisible()
+    const shortNotice = await notice.evaluate((node) => ({ shown: (node as unknown as El).clientHeight, whole: (node as unknown as El).scrollHeight }))
+    // Lower than the 3 rows a notice may take, and not squeezed: all of it is shown.
+    expect(shortNotice.whole).toBeLessThan(3 * ROW)
+    expect(shortNotice.whole).toBeGreaterThan(0)
+    expect(shortNotice.shown).toBe(shortNotice.whole)
+    // The floor is the header and 6 rows: the list has what the message leaves of them, more than 3 rows.
+    const withShort = sectionOf(await measure(window), 'ProjectsSection')
+    expect(withShort.bottom - withShort.top).toBe(HEADER + 6 * ROW)
+    expect(withShort.body).toBe(6 * ROW - shortNotice.whole)
 
-    // 800×520, every section at its floor: the header, the message and 3 rows of the list, which scrolls.
+    // A long error takes the place of the short one, 3 rows of it.
+    await addProjectFails(launched)
+    expect(await height(notice)).toBe(3 * ROW)
+
+    // The header, the message and 3 rows of the list, which scrolls.
     const small = await measure(window)
     expect(small.scrollHeight).toBeGreaterThan(small.clientHeight)
     const squeezed = sectionOf(small, 'ProjectsSection')
     expect(squeezed.body).toBe(3 * ROW)
-    expect(squeezed.content).toBe(4 * ROW)
+    expect(squeezed.content).toBe(8 * ROW)
     expect(squeezed.bottom - squeezed.top).toBe(HEADER + 3 * ROW + 3 * ROW)
     expectNoOverlap(small)
     const bodyBox = (await projects.locator('.w-sidebar-section__body').boundingBox())!
@@ -426,7 +445,7 @@ test('under an error of "Add project" a list of 4 Projects keeps 3 rows at the f
     await heading(window, 'Epics').click()
     await heading(window, 'ADR').click()
     await setWindowSize(launched, TALL)
-    await expect.poll(async () => sectionOf(await measure(window), 'ProjectsSection').body).toBe(4 * ROW)
+    await expect.poll(async () => sectionOf(await measure(window), 'ProjectsSection').body).toBe(8 * ROW)
     const tall = await measure(window)
     expect(tall.scrollHeight).toBe(tall.clientHeight)
     expectNoOverlap(tall)
