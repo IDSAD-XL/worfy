@@ -19,6 +19,7 @@
     "src/renderer/canvas/wheel-router.ts",
     "src/renderer/find/search-index.ts",
     "src/renderer/ipc.ts",
+    "src/renderer/machines/machines-dot.ts",
     "src/renderer/platform.ts",
     "test/remove.ts",
     "test/unit/**/*.ts",

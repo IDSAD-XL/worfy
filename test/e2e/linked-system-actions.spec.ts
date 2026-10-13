@@ -16,7 +16,7 @@ import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { canvasReady, launchApp, linkThroughUi, machineIdOf, repoRoot, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 
 test.setTimeout(240_000)
@@ -121,13 +121,6 @@ async function toggleMinimapMenu(app: ElectronApplication): Promise<boolean> {
   })
 }
 
-/** Sets "Linked machines can work with my Projects" on the worfy of `window`. */
-async function setSharing(window: Page, on: boolean): Promise<void> {
-  const toggle = window.getByRole('switch', { name: 'Linked machines can work with my Projects' })
-  if ((await toggle.getAttribute('aria-checked')) !== String(on)) await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-checked', String(on))
-}
-
 /** The name A's link state gives Linked machine `id`. */
 async function linkedName(window: Page, id: string): Promise<string> {
   const result = await window.evaluate(() =>
@@ -191,7 +184,7 @@ test('in a window of A on a Project of B: "+" picks with A\'s dialog and B keeps
     await canvasReady(a, { size: SIZE })
     await linkThroughUi(a.window, b.window)
     const bId = await machineIdOf(b.window)
-    await setSharing(b.window, true)
+    await setProjectsAccess(b, true)
     const bName = await linkedName(a.window, bId)
 
     // A opens beta of B.

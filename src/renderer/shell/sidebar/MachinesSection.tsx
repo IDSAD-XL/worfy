@@ -1,21 +1,20 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { LinkedMachineView } from '../../../shared/ipc/link'
 import { LinkMachineDialog } from '../../machines/LinkMachineDialog'
-import { revokeMachine, setKeepAwake, setProjectsAccess, useMachines } from '../../machines/useMachines'
+import { machinesDot } from '../../machines/machines-dot'
+import '../../machines/machines.css'
+import { revokeMachine, useMachines } from '../../machines/useMachines'
 import { ListRow, StatusChip } from '../../theme/primitives'
 import { SidebarSection } from '../SidebarSection'
 
 /** Between Projects (10) and Epics (20): the Machines the Projects will be grouped by (worfy-link ticket 09). */
 export const order = 15
 
-const ACCESS_LABEL = 'Linked machines can work with my Projects'
-const KEEP_AWAKE_LABEL = 'Keep this computer awake while linked machines are connected'
-
 const styles = {
   list: { margin: 0, padding: 0, listStyle: 'none' },
   message: { margin: '2px 8px 4px', fontSize: 'var(--text-12)', lineHeight: '16px', color: 'var(--blocked-text)', overflowWrap: 'anywhere' },
   unavailable: { border: '1px solid var(--border)', background: 'var(--surface-raised)', color: 'var(--text-muted)' },
-  footer: { display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', padding: '2px 8px 4px' },
+  footer: { display: 'flex', padding: '2px 8px 4px' },
   linkButton: {
     alignSelf: 'flex-start',
     height: 22,
@@ -25,27 +24,6 @@ const styles = {
     background: 'var(--surface-raised)',
     color: 'var(--text)',
     fontSize: 'var(--text-12)',
-  },
-  switchRow: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 'var(--text-12)', color: 'var(--text-secondary)', lineHeight: '16px' },
-  track: {
-    flex: 'none',
-    position: 'relative',
-    width: 26,
-    height: 16,
-    padding: 0,
-    border: '1px solid var(--border-strong)',
-    borderRadius: 8,
-    boxSizing: 'border-box',
-  },
-  thumb: {
-    position: 'absolute',
-    top: 1,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    background: 'var(--surface)',
-    boxShadow: 'var(--shadow-control)',
-    transition: 'left 120ms ease',
   },
   menu: {
     position: 'fixed',
@@ -109,35 +87,6 @@ const rowTitle = (machine: LinkedMachineView): string =>
         ? `${machine.name} went to sleep; worfy reconnects when it wakes`
         : `${machine.name} cannot be reached; worfy keeps trying`
 
-interface SwitchProps {
-  label: string
-  testId: string
-  checked: boolean
-  disabled: boolean
-  onToggle: () => void
-}
-
-/** A switch of the section, its label to the right. */
-function SectionSwitch({ label, testId, checked, disabled, onToggle }: SwitchProps) {
-  return (
-    <label style={styles.switchRow}>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        data-testid={testId}
-        disabled={disabled}
-        style={{ ...styles.track, background: checked ? 'var(--primary)' : 'var(--segment-track)', borderColor: checked ? 'var(--primary)' : 'var(--border-strong)' }}
-        onClick={onToggle}
-      >
-        <span aria-hidden="true" style={{ ...styles.thumb, left: checked ? 11 : 1 }} />
-      </button>
-      <span>{label}</span>
-    </label>
-  )
-}
-
 interface MenuProps {
   machine: LinkedMachineView
   x: number
@@ -187,18 +136,19 @@ function MachineMenu({ machine, x, y, onRevoke, onClose }: MenuProps) {
 
 /**
  * The "Machines" section (worfy-link ticket 02): the Linked machines with their state, revoked from
- * a row's context menu; "Link a machine…" and the switches "Linked machines can work with my
- * Projects" and (worfy-link ticket 14) "Keep this computer awake while linked machines are
- * connected" under the list. With no Linked machine, only the button and the switches.
+ * a row's context menu, and "Link a machine…" under the list. With no Linked machine, only the
+ * button.
+ *
+ * Collapsed until the user expands it. Next to the heading, a collapsed section too, a dot says
+ * whether a Linked machine is online (machines-dot.ts). The switches of the link are in
+ * Settings → Machines (src/renderer/settings/MachinesSection.tsx).
  */
 export default function MachinesSection() {
   const state = useMachines()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [menu, setMenu] = useState<{ machine: LinkedMachineView; x: number; y: number }>()
   const [error, setError] = useState<string>()
-  const access = state?.projectsAccess ?? false
-  const keepAwake = state?.keepAwake ?? false
-  const noMachine = state?.machine == null
+  const dot = machinesDot(state?.linked ?? [])
 
   const run = async (work: Promise<string | undefined>): Promise<void> => {
     setError(await work)
@@ -209,6 +159,9 @@ export default function MachinesSection() {
       id="MachinesSection"
       title="Machines"
       testId="machines-section"
+      defaultCollapsed
+      // The status colour without a caption: the dot says it in its tooltip and to a screen reader.
+      meta={dot ? <span className="w-machines-dot" role="img" aria-label={dot.label} title={dot.label} data-state={dot.kind} data-testid="machines-dot" /> : null}
       notice={
         error ? (
           <p role="alert" data-testid="machines-error" style={styles.message}>
@@ -257,8 +210,6 @@ export default function MachinesSection() {
         <button type="button" style={styles.linkButton} data-testid="link-machine-button" onClick={() => setDialogOpen(true)}>
           Link a machine…
         </button>
-        <SectionSwitch label={ACCESS_LABEL} testId="link-access-switch" checked={access} disabled={noMachine} onToggle={() => void run(setProjectsAccess(!access))} />
-        <SectionSwitch label={KEEP_AWAKE_LABEL} testId="link-keep-awake-switch" checked={keepAwake} disabled={noMachine} onToggle={() => void run(setKeepAwake(!keepAwake))} />
       </div>
     </SidebarSection>
   )

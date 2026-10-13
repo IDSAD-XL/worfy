@@ -13,7 +13,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { canvasReady, launchApp, linkThroughUi, machineIdOf, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, linkThroughUi, machineIdOf, setProjectsAccess, type LaunchedApp } from './helpers'
 
 test.setTimeout(180_000)
 
@@ -45,13 +45,6 @@ async function call<T>(window: Page, channel: string, input?: unknown): Promise<
   const result = await window.evaluate(([name, value]) => (globalThis as unknown as { worfy: Bridge }).worfy.invoke(name as string, value), [channel, input] as const)
   if (!result.ok) throw new Error(`${channel}: ${result.error ?? 'failed'}`)
   return result.value as T
-}
-
-/** Sets "Linked machines can work with my Projects" on the worfy of `window`. */
-async function setSharing(window: Page, on: boolean): Promise<void> {
-  const toggle = window.getByRole('switch', { name: 'Linked machines can work with my Projects' })
-  if ((await toggle.getAttribute('aria-checked')) !== String(on)) await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-checked', String(on))
 }
 
 /** The main process of one worfy as this spec reaches it, with what Notification records there. */
@@ -101,7 +94,7 @@ test('a turn of a Session of A ends with no window focused: A and B record the n
     await canvasReady(onB, { size: SIZE })
     await linkThroughUi(a.window, onB.window)
     const aId = await machineIdOf(a.window)
-    await setSharing(a.window, true)
+    await setProjectsAccess(a, true)
     await recordNotifications(a)
     await recordNotifications(onB)
 

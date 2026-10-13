@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp, type LaunchedApp } from './helpers'
+import { expandMachines, launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 
 // The sidebar's sections against the built app, over a Project in a temporary git repository with
@@ -208,7 +208,19 @@ test('a section collapses by a click, Enter and Space on its heading and stays c
     const before = await measure(window)
     expect(before.sections.map((section) => section.wrapper)).toStrictEqual(SECTIONS)
     expect(before.sections.map((section) => section.frame)).toStrictEqual(SECTIONS)
-    for (const name of ['Projects', 'Machines', 'Epics', 'Sessions', 'ADR']) await expect(heading(window, name)).toHaveAttribute('aria-expanded', 'true')
+    for (const name of ['Projects', 'Epics', 'Sessions', 'ADR']) await expect(heading(window, name)).toHaveAttribute('aria-expanded', 'true')
+    // Machines alone is collapsed until the user expands it: nothing is saved about it yet, and
+    // the section is its header.
+    await expect(heading(window, 'Machines')).toHaveAttribute('aria-expanded', 'false')
+    await expect(window.getByTestId('link-machine-button')).toBeHidden()
+    expect(savedCollapsed()?.MachinesSection).toBeUndefined()
+    const machines = sectionOf(before, 'MachinesSection')
+    expect(machines.bottom - machines.top).toBe(HEADER)
+    // The user expands it: "Link a machine…" is on screen, and worfy remembers the section expanded.
+    await heading(window, 'Machines').click()
+    await expect(heading(window, 'Machines')).toHaveAttribute('aria-expanded', 'true')
+    await expect(window.getByTestId('link-machine-button')).toBeVisible()
+    await expect.poll(savedCollapsed).toStrictEqual({ MachinesSection: false })
 
     // The chevron is drawn in the colour of the heading, the muted text (the count of ADR has it too).
     const colours = await region(window, 'ADR').evaluate((node) => {
@@ -250,13 +262,14 @@ test('a section collapses by a click, Enter and Space on its heading and stays c
     await expect(window.getByTestId('history-popover')).toHaveCount(0)
     await expect(heading(window, 'Sessions')).toHaveAttribute('aria-expanded', 'true')
 
-    await expect.poll(savedCollapsed).toStrictEqual({ EpicsSection: true, AdrSection: true })
+    await expect.poll(savedCollapsed).toStrictEqual({ MachinesSection: false, EpicsSection: true, AdrSection: true })
     await snapshotThemes(window, 'sidebar-collapsed')
   } finally {
     await launched.close()
   }
 
-  // The same data folder: Epics and ADR are collapsed from the first frame the lists are in.
+  // The same data folder: Epics and ADR are collapsed from the first frame the lists are in, and
+  // Machines, which the user expanded, is expanded.
   launched = await launch()
   try {
     const { window } = launched
@@ -266,6 +279,7 @@ test('a section collapses by a click, Enter and Space on its heading and stays c
     await expect(window.getByTestId('sidebar-epic').first()).toBeHidden()
     await expect(window.getByTestId('sidebar-adr').first()).toBeHidden()
     for (const name of ['Projects', 'Machines', 'Sessions']) await expect(heading(window, name)).toHaveAttribute('aria-expanded', 'true')
+    await expect(window.getByTestId('link-machine-button')).toBeVisible()
     // The count of a collapsed ADR section is still in its header.
     await expect(region(window, 'ADR').getByTestId('adr-count')).toHaveText(String(ADRS.length))
     await expect(region(window, 'ADR').getByTestId('adr-count')).toBeVisible()
@@ -313,6 +327,12 @@ test('a section collapses by a click, Enter and Space on its heading and stays c
     expect(squeezed.live.x + squeezed.live.width).toBeGreaterThan(squeezed.newSession.x)
     const cut = (await sessions.locator('.w-sidebar-section__meta').boundingBox())!
     expect(cut.x + cut.width).toBeLessThanOrEqual(squeezed.newSession.x)
+
+    // Machines collapsed by the user this time: saved as collapsed, not left to the default.
+    await heading(window, 'Machines').click()
+    await expect(heading(window, 'Machines')).toHaveAttribute('aria-expanded', 'false')
+    await expect(window.getByTestId('link-machine-button')).toBeHidden()
+    await expect.poll(() => savedCollapsed()?.MachinesSection).toBe(true)
   } finally {
     await launched.close()
   }
@@ -324,10 +344,24 @@ test('an error of "Add project" stays above the list of Projects and takes no ro
     const { window } = launched
     await listsShown(window)
     await setWindowSize(launched, SMALLEST)
-    await expect.poll(async () => sectionOf(await measure(window), 'EpicsSection').body).toBe(3 * EPIC_ROW)
+    // 800×520 as a fresh worfy shows the sidebar, Machines collapsed to its header: the sections
+    // fit the column, which does not scroll, and the long lists are squeezed, but above their floors.
+    await expect.poll(async () => sectionOf(await measure(window), 'EpicsSection').body).toBeLessThan(EPICS.length * EPIC_ROW)
+    const fresh = await measure(window)
+    expect(sectionOf(fresh, 'MachinesSection').bottom - sectionOf(fresh, 'MachinesSection').top).toBe(HEADER)
+    expect(fresh.scrollHeight).toBe(fresh.clientHeight)
+    expect(sectionOf(fresh, 'EpicsSection').body).toBeGreaterThan(3 * EPIC_ROW)
+    expect(sectionOf(fresh, 'AdrSection').body).toBeGreaterThan(3 * ROW)
+    expect(Math.round(sectionOf(fresh, 'AdrSection').bottom)).toBe(Math.round(fresh.bottom))
+    expectNoOverlap(fresh)
+    // Every section expanded: Machines is collapsed until the user expands it.
+    await expandMachines(window)
 
     const projects = region(window, 'Projects')
     const error = await addProjectFails(launched)
+    // With the message the floors of the sections do not fit the column of the smallest window.
+    // (Without it they do, since the switches of Machines moved to Settings.)
+    await expect.poll(async () => sectionOf(await measure(window), 'EpicsSection').body).toBe(3 * EPIC_ROW)
     const notice = projects.locator('.w-sidebar-section__notice')
     const row = window.getByTestId('project-row')
     /** The notice, the body and the only row of Projects, in px of the page. */
@@ -398,6 +432,8 @@ test('under an error of "Add project" a list of 8 Projects keeps 3 rows at the f
     const { window } = launched
     const { app } = launched
     await listsShown(window, 8)
+    // Every section expanded: Machines is collapsed until the user expands it.
+    await expandMachines(window)
     await setWindowSize(launched, SMALLEST)
     await expect.poll(async () => sectionOf(await measure(window), 'EpicsSection').body).toBe(3 * EPIC_ROW)
     // 800×520, every section at its floor. Without a message the floor is the header and 3 rows.
@@ -455,17 +491,31 @@ test('under an error of "Add project" a list of 8 Projects keeps 3 rows at the f
 })
 
 test('in the smallest window a long list keeps 3 of its rows and the column scrolls; in a tall one it grows to 15 rows and scrolls by itself', async () => {
+  // Two more Projects, in plain folders: a list of 3 rows, as high as the floor of its section.
+  // With one Project the floors of the sections fit the column of the smallest window, since the
+  // switches of Machines moved to Settings; with three, and Machines expanded, they do not.
+  const more = ['beta', 'gamma'].map((name, index) => {
+    mkdirSync(join(scratch, name))
+    mkdirSync(join(dataDir, `${name}-000000${index}b`), { recursive: true })
+    return { id: `${name}-000000${index}b`, name, path: join(scratch, name) }
+  })
+  const file = join(dataDir, 'projects.json')
+  const saved = JSON.parse(readFileSync(file, 'utf8')) as { projects: unknown[]; activeId: string }
+  writeFileSync(file, JSON.stringify({ ...saved, projects: [...saved.projects, ...more] }))
+
   const launched = await launch()
   try {
     const { window } = launched
-    await listsShown(window)
+    await listsShown(window, 3)
 
     // The rows the rules count in are the rows on screen.
     expect(await height(window.getByTestId('sidebar-epic').first())).toBe(EPIC_ROW)
     expect(await height(window.getByTestId('sidebar-adr').first())).toBe(ROW)
     expect(await height(window.getByTestId('project-row').first())).toBe(ROW)
 
-    // 800×520, every section expanded: the floors of the sections do not fit the column.
+    // 800×520, every section expanded — Machines too, which is collapsed until the user expands
+    // it: the floors of the sections do not fit the column.
+    await expandMachines(window)
     await setWindowSize(launched, SMALLEST)
     await expect.poll(async () => sectionOf(await measure(window), 'EpicsSection').body).toBe(3 * EPIC_ROW)
     const small = await measure(window)
@@ -478,9 +528,12 @@ test('in the smallest window a long list keeps 3 of its rows and the column scro
     expect(adr.content).toBe(ADRS.length * ROW)
     // …and the column scrolls as a whole instead of squeezing a list under its 3 rows.
     expect(small.scrollHeight).toBeGreaterThan(small.clientHeight)
-    // A list of one row is as high as its row and is not squeezed.
-    expect(sectionOf(small, 'ProjectsSection').body).toBe(ROW)
-    expect(sectionOf(small, 'ProjectsSection').content).toBe(ROW)
+    // A list of 3 rows is as high as its rows and is not squeezed; neither is the body of
+    // Machines, which is "Link a machine…" alone.
+    expect(sectionOf(small, 'ProjectsSection').body).toBe(3 * ROW)
+    expect(sectionOf(small, 'ProjectsSection').content).toBe(3 * ROW)
+    expect(sectionOf(small, 'MachinesSection').body).toBe(sectionOf(small, 'MachinesSection').content)
+    expect(sectionOf(small, 'MachinesSection').body).toBeGreaterThan(0)
     expectNoOverlap(small)
 
     // 1200×900, both long lists expanded: they share what the column has, each above its floor,
@@ -504,7 +557,8 @@ test('in the smallest window a long list keeps 3 of its rows and the column scro
     expect(sectionOf(tall, 'AdrSection').content).toBe(ADRS.length * ROW)
     expect(tall.scrollHeight).toBe(tall.clientHeight)
     // A short list does not grow into the room that is left.
-    expect(sectionOf(tall, 'ProjectsSection').body).toBe(ROW)
+    expect(sectionOf(tall, 'ProjectsSection').body).toBe(3 * ROW)
+    expect(sectionOf(tall, 'MachinesSection').body).toBe(sectionOf(small, 'MachinesSection').body)
     expect(sectionOf(tall, 'AdrSection').bottom).toBeLessThan(tall.bottom)
     // The wheel over the list scrolls the list.
     const adrBody = region(window, 'ADR').locator('.w-sidebar-section__body')
