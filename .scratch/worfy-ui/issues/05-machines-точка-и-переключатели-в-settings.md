@@ -1,7 +1,7 @@
 # 05 — Machines: точка состояния у заголовка, свёрнута по умолчанию, переключатели — в Settings → Machines
 
 Type: task
-Status: claimed — 2026-10-13
+Status: done — 2026-10-13, [PR #296](https://github.com/IDSAD-XL/worfy/pull/296)
 Blocked by: 02, 04
 Source: решения владельца 2026-10-09: 1 (Machines свёрнута по умолчанию; зелёная точка с лёгкой пульсацией, когда хотя бы одна Linked machine в сети — `online` без `certificateChanged`; нет — точки нет; сменился сертификат — статичная янтарная точка; tooltip (`title`) и `aria-label`; `prefers-reduced-motion`; два переключателя — в Settings → Machines, в секции остаются список и «Link a machine…»; перечислить e2e и шаги приёмки worfy-link 16, которые меняются), 2 (раздел Machines окна Settings) ([spec.md](../spec.md), «Как устроено», «Точка Machines»; риск 6; «Пересечения», worfy-link 16); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), пункт 6 (доступ «Linked machines can work with my Projects»)
 
@@ -123,7 +123,7 @@ Source: решения владельца 2026-10-09: 1 (Machines свёрнут
   `test/e2e/linked-cards.spec.ts`, `test/e2e/linked-notify.spec.ts`,
   `test/e2e/linked-system-actions.spec.ts` — зелёные на helper-ах Settings.
 - [x] Шаги worfy-link 16 поправлены или в «Итог» записано, что он уже `done`.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально —
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально —
   exit 0.
 
 ## Тесты
@@ -271,3 +271,13 @@ machine…» — в развёрнутой секции, связь видна �
   точка при масштабе интерфейса не 100 %.
 - не проверено: вид и tooltip точки вручную в `.app`, сочетание ⌘, (GUI-проверки — не исполнителю).
 - не проверено: Windows.
+
+### Gate оркестратора (2026-10-14)
+
+- Wave Epic-а под Autopilot (Ticket-ы 05 и 10 параллельно). Гейт — один круг: `VERIFIED` на `493b5b1` ([комментарий в PR #296](https://github.com/IDSAD-XL/worfy/pull/296#issuecomment-6156006353)). Verifier сам: `pnpm lint`, `typecheck`, `test` — код 0 (4751 test); e2e восьми файлов следа под замком — 23 passed, и `linked-autopilot.spec.ts`, который зовёт изменённые общие helper-ы и не входил в список implementer-а, — 2 passed; 10 unit-мутантов, 2 e2e-мутанта и три мутанта правил высоты секций из Ticket-а 04 — все красные; ни один test не остался зелёным на скрытом элементе; снимки в обеих темах.
+- В след Orchestrator добавил `test/e2e/sidebar-sections.spec.ts`: он ждал развёрнутую секцию Machines. Правка `sidebar-section.css` и `SidebarSection.tsx` не понадобилась.
+- Мерж: база main `4658e39`, head `493b5b1`; `GATE_SCOPE=all gate full` — один запуск под замком e2e, код 0, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `ba8a58c`.
+- Решено без владельца, подтвердить (вдобавок к пунктам одноимённого раздела выше): текст отказа переключателя живёт только в открытом разделе Settings → Machines — после закрытия окна сообщения нет нигде; при повторном открытии переключатель показывает настоящее состояние (`src/renderer/settings/MachinesSection.tsx:29-33`).
+- Долги (Noted): [low] helper e2e `expandMachines` (`test/e2e/helpers.ts:475`) читает `aria-expanded` один раз — если настройки загрузятся между чтением и кликом, test упадёт красным; сейчас такого порядка нет ни в одном spec-е; исправление — клик внутри `expect(...).toPass()`. [low] снимки-доказательства сняты до rebase на грязном дереве; снимки verifier-а на `493b5b1` показывают то же.
+- Вне следа: Ticket-ы `worfy-link` 18 и 19 ссылаются на строки с переключателями в файле боковой панели (`src/renderer/shell/sidebar/MachinesSection.tsx:244-245`, `SectionSwitch`) — после этого PR переключатели в `src/renderer/settings/MachinesSection.tsx`.
+- не проверено: янтарная точка от настоящей смены сертификата (проверен только CSS); всплывающая подсказка точки и вид в `.app` вручную; масштаб интерфейса не 100 %; Windows.
