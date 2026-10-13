@@ -180,6 +180,33 @@ describe('DocsWatcher and a root that is removed', () => {
     expect(model.made).toHaveLength(1)
   })
 
+  it('close while the root is being looked for: it is not watched when the answer comes', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const model = stand()
+    let answer: (there: boolean) => void = () => undefined
+    let asked = 0
+    const watcher = await DocsWatcher.start({
+      root,
+      debounceMs: 0,
+      onChange: () => undefined,
+      watch: model.watch,
+      isAbsolute: win32.isAbsolute,
+      rootThere: () => {
+        asked += 1
+        return new Promise<boolean>((resolve) => (answer = resolve))
+      },
+      retryMs: RETRY,
+    })
+    watchers.push(watcher)
+    model.made[0]!.event(ITSELF)
+    await until(() => expect(asked).toBe(1))
+    await watcher.close()
+    answer(true)
+    await pause(RETRY * 5)
+    expect(model.made).toHaveLength(1)
+    expect(asked).toBe(1)
+  })
+
   it('looks for the root every two seconds unless told otherwise', () => {
     expect(ROOT_RETRY_MS).toBe(2000)
   })

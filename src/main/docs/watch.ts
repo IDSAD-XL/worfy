@@ -294,7 +294,7 @@ export class DocsWatcher {
     this.waitForRoot()
   }
 
-  /** Looks for the root in a while; watches and reads it when it is a folder again. */
+  /** Looks for the root in a while; watches it, and so reads it, when it is a folder again. */
   private waitForRoot(): void {
     if (this.closed) return
     this.retry = setTimeout(() => {
@@ -305,12 +305,13 @@ export class DocsWatcher {
           if (this.closed) return
           if (!there) return this.waitForRoot()
           try {
+            // With the reads that follow every start of the watch: nothing tells of what was
+            // written before it began.
             this.watch()
           } catch {
             // Gone again between the look and the watch.
-            return this.waitForRoot()
+            this.waitForRoot()
           }
-          this.request()
         })
     }, this.options.retryMs ?? ROOT_RETRY_MS)
   }
