@@ -68,7 +68,9 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
   `test/unit/gate-state.test.ts:94-97` (читает исходник `gate.sh`, чтобы узнать слова вердикта);
   `test/contract/harness-plugin.test.ts:68`; `test/e2e/packaged.spec.ts:173`. Строки — на
   `4f983ef`; опись скриптов Harness на main `08e8256` — evidence Ticket-а 01, раздел 18. Перед
-  началом повторить `git grep -n 'gate\.sh'` на свежем main: E3 ещё открыт.
+  началом повторить `git grep -n 'gate\.sh'` на свежем main: E3 ещё открыт. Решение владельца
+  2026-10-13: Ticket-ы 03–07 начинаются, не дожидаясь закрытия E3 — его код влит, остался
+  приёмочный пункт 5.
 - **Изоляция test-ов.** `test/contract/harness-scripts.test.ts:50-62` гоняет test-ы Harness с `HOME`
   во временной папке. Node `os.homedir()` на Mac читает `HOME`, а на Windows — `USERPROFILE`: на ПК
   `os.homedir()` — `C:\Users\Alexey` и в PowerShell (там `HOME` нет), и в Git Bash, и в hook-е
@@ -154,7 +156,7 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 
 ## Готово, когда
 
-- [ ] Опись скриптов `harness/bin` и `harness/hooks` снята заново на main после закрытия E3 командой описи из шага 4 Ticket-а 01. Раздел 18 evidence Ticket-а 01 обновлён; каждый скрипт на bash и zsh приписан ровно к одному из Ticket-ов 03, 04, 05, 06 или 15. Перенесено из Ticket-а 01 при мерже PR #172.
+- [ ] Опись скриптов `harness/bin` и `harness/hooks` снята заново на main к началу этого Ticket-а (решение владельца 2026-10-13: закрытия E3 не ждём) командой описи из шага 4 Ticket-а 01. Раздел 18 evidence Ticket-а 01 обновлён; каждый скрипт на bash и zsh приписан ровно к одному из Ticket-ов 03, 04, 05, 06 или 15. Перенесено из Ticket-а 01 при мерже PR #172.
 - [ ] `bash harness/hooks/tests/gate-verdict.test.sh` — код 0 на Mac и в Git Bash на Windows-ПК. Test зовёт `node "$HOOKS/gate.mjs"`. Ожидания строк `[gate] …`, кодов выхода и полей `verdict-<tag>.json` — прежние; убран только случай «нет node».
 - [ ] `bash harness/hooks/tests/gate-file-size.test.sh` (предупреждение о файле длиннее 1000 строк, `worfy-review` 03, PR #221) — код 0 на Mac и в Git Bash на Windows-ПК: при запуске на Windows-ПК 2026-10-10 Gate на bash останавливался на реестре с кодом 3, и предупреждение там не проверено.
 - [ ] `bash harness/hooks/tests/gate-notverified.test.sh` и `bash harness/hooks/tests/gate-unregistered.test.sh` — код 0 на Mac. Они гоняют и `stop.sh`; в Git Bash это пункт «Готово, когда» Ticket-а 04.
