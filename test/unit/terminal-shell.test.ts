@@ -830,6 +830,8 @@ describe('TerminalRegistry on Windows: an exit that node-pty knows of and has no
     expect(registry.hasExited('a')).toBe(true)
     expect(fake.kills).toEqual([undefined])
     expect(fake.stops).toEqual([1])
+    // One look found the code; none came after it.
+    expect(asked).toBe(10_000 / EXIT_POLL_MS + 1)
     const looks = asked
     await vi.advanceTimersByTimeAsync(60_000)
     expect(asked).toBe(looks)
@@ -870,6 +872,20 @@ describe('TerminalRegistry on Windows: an exit that node-pty knows of and has no
     expect(later).toEqual([[5, null]])
     await registry.closeAll()
     await other.closeAll()
+  })
+
+  it('an exit code that is not a number — not node-pty as 1.1.0 builds it — is no exit', async () => {
+    vi.useFakeTimers()
+    const fake = fakePty(999_994_286, { deaf: true })
+    Object.assign(fake.agent, { exitCode: 'gone' })
+    const exits: [number, number | null][] = []
+    const registry = windows(() => fake.pty)
+    await registry.open('a', OPEN, {}, { ...SINK, exit: (exitCode, signal) => exits.push([exitCode, signal]) })
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(exits).toEqual([])
+    expect(registry.has('a')).toBe(true)
+    fake.exit(2)
+    expect(exits).toEqual([[2, null]])
   })
 
   it('a close does not wait for node-pty\'s event either: the exit it knows of ends the close', async () => {

@@ -771,7 +771,6 @@ export class TerminalRegistry {
     let ended = false
     // Windows: the looks for an exit that node-pty knows of and has not reported (exitCodeKnown).
     let exitPoll: ReturnType<typeof setInterval> | null = null
-    let exitGrace: ReturnType<typeof setTimeout> | null = null
     const terminal: Terminal = {
       pty,
       shell: choice.name,
@@ -786,7 +785,6 @@ export class TerminalRegistry {
         ended = true
         terminal.finished = true
         if (exitPoll !== null) clearInterval(exitPoll)
-        if (exitGrace !== null) clearTimeout(exitGrace)
         if (this.terminals.get(key) === terminal) {
           this.terminals.delete(key)
           // Ended by close: nothing to keep. Exited on its own: kept for the next open.
@@ -854,10 +852,8 @@ export class TerminalRegistry {
         if (exitCode === undefined || exitPoll === null) return
         clearInterval(exitPoll)
         exitPoll = null
-        exitGrace = setTimeout(() => {
-          sendHeld()
-          terminal.finish({ exitCode, signal: null })
-        }, this.exitGraceMs)
+        // When node-pty's own event comes first, this finds the Terminal ended and does nothing.
+        setTimeout(() => terminal.finish({ exitCode, signal: null }), this.exitGraceMs)
       }, this.exitPollMs)
       // The looks do not keep the app from quitting.
       exitPoll.unref?.()
