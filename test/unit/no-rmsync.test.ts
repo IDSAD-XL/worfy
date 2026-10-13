@@ -129,8 +129,12 @@ const scanned = (folder: string, ending: RegExp): string[] =>
     .filter((file) => file !== MODULE)
     .flatMap((file) => uses(readFileSync(join(REPO, file), 'utf8')).map((use) => `${file}:${use}`))
 
-/** The tests of the removal itself: they name rmSync in the texts they search, and call it to compare with. */
-const ITS_OWN_TESTS = ['test/unit/no-rmsync.test.ts', 'test/unit/remove-tree.test.ts']
+/**
+ * The tests of the removal itself: they name rmSync in the texts they search, and call it to
+ * compare with. remove-tree-model.ts holds no call of fs.rmSync: it is the file system in memory
+ * those tests run over, and the `rmSync` it names is the model's own.
+ */
+const ITS_OWN_TESTS = ['test/unit/no-rmsync.test.ts', 'test/unit/remove-tree.test.ts', 'test/unit/remove-tree-model.ts']
 
 /** The lines of a text that call rmSync with `recursive`, comment lines apart; the options may lie on the lines after the call. */
 function recursiveUses(text: string): string[] {
@@ -155,6 +159,15 @@ describe('fs.rmSync with "recursive" in test/', () => {
       'test/unit/glob-probe.tsx: fs.rmSync(root, { recursive: true, force: true })',
       'test/unit/glob-probe.tsx: remove: () => fs.rmSync(root, { recursive: true, force: true }),',
     ])
+  })
+
+  // Review round 1 of PR #293: test/unit/remove-tree-model.ts is passed by as a whole file above.
+  // It can call no fs.rmSync: of node:fs it has readFileSync and nothing else.
+  it('the model of the removal tests, which the search passes by, takes readFileSync alone from node:fs and loads no module any other way', () => {
+    const text = readFileSync(join(REPO, 'test', 'unit', 'remove-tree-model.ts'), 'utf8')
+    const lines = text.split(/\r?\n/)
+    expect(lines.filter((line) => /['"](node:)?fs(\/promises)?['"]/.test(line))).toEqual(["import { readFileSync } from 'node:fs'"])
+    expect(lines.filter((line) => /\b(require|import)\s*\(/.test(line) || /\bprocess\.binding\b/.test(line))).toEqual([])
   })
 
   it('the helper is the removal of the application, and calls nothing else', () => {
@@ -188,11 +201,10 @@ describe('fs.rmSync in src/ and in scripts/', () => {
     expect(scanned('src', /\.tsx?$/)).toEqual([])
   })
 
-  it('is used in no script but inside a copy of the module, and in the one line of install-stable.mjs that removes off Windows', () => {
-    // (By the text of the line, not by its number.)
-    expect(scanned('scripts', /\.(mjs|cjs|js|ts)$/).map((use) => use.replace(/:\d+: /, ': '))).toEqual([
-      "scripts/install-stable.mjs: if (platform !== 'win32') return rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })",
-    ])
+  // worfy-windows ticket 44: until then install-stable.mjs had one line of its own that called
+  // rmSync off Windows, past the copy and so past the look for a mounted volume the copy makes.
+  it('is used in no script but inside a copy of the module', () => {
+    expect(scanned('scripts', /\.(mjs|cjs|js|ts)$/)).toEqual([])
   })
 
   it('the module is where the call is: off Windows, with "recursive" and "force" for a tree and "force" alone for a file', () => {

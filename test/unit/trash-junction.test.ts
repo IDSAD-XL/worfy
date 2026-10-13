@@ -92,7 +92,7 @@ describe('the trash and a link inside a Card', () => {
     const entry = trash.put(PROJECT, 'old')
     expect(readdirSync(join(trashDir(), entry.label, 'card')).sort()).toEqual(['index.html', 'linked'])
     now += TRASH_KEEP_MS + 1000
-    expect(trash.purge(PROJECT)).toEqual([entry.label])
+    expect(trash.purge(PROJECT)).toEqual({ removed: [entry.label], refused: [] })
     expect(existsSync(join(trashDir(), entry.label))).toBe(false)
     expect(readdirSync(outside)).toEqual(['notes.txt'])
     expect(readFileSync(join(outside, 'notes.txt'), 'utf8')).toBe('keep me')
@@ -192,7 +192,7 @@ describe('the trash and a Card folder that is itself a link', () => {
     const second = trash.put(PROJECT, 'linked')
     expect(isLink(inTrash(second.label))).toBe(true)
     now += TRASH_KEEP_MS + 1000
-    expect(trash.purge(PROJECT)).toEqual([second.label])
+    expect(trash.purge(PROJECT)).toEqual({ removed: [second.label], refused: [] })
     expect(readdirSync(trashDir())).toEqual([])
     expect(gone(cardDir('linked'))).toBe(true)
     untouched()
