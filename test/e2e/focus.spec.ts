@@ -114,12 +114,24 @@ test('three selected Nodes fill the window as tiles; presets, dividers and drags
     await expect(tile('n3').getByRole('textbox', { name: 'Note text' })).toHaveValue('three')
     await expect(tile('n4')).toHaveCount(0)
 
-    // The layer covers the whole window, sidebar and toolbar included.
+    // The layer covers the main area of the window, toolbar included, and leaves the sidebar: its
+    // left edge is the sidebar's right edge.
     const windowSize = await window.evaluate(() => {
       const view = globalThis as unknown as { innerWidth: number; innerHeight: number }
       return { width: view.innerWidth, height: view.innerHeight }
     })
+    const sidebar = window.getByRole('navigation', { name: 'Sidebar' })
+    const side = await box(sidebar)
+    expect(side).toMatchObject({ x: 0, y: 0, height: windowSize.height })
+    expect(side.width).toBeGreaterThan(0)
+    expect(await box(focus)).toEqual({ x: side.width, y: 0, width: windowSize.width - side.width, height: windowSize.height })
+    // With the sidebar hidden (the button of the focus mode bar) it is the whole window.
+    await focus.getByRole('button', { name: 'Hide sidebar' }).click()
+    await expect(sidebar).toHaveCount(0)
     expect(await box(focus)).toEqual({ x: 0, y: 0, ...windowSize })
+    await focus.getByRole('button', { name: 'Show sidebar' }).click()
+    await expect(sidebar).toBeVisible()
+    expect((await box(focus)).x).toBe(side.width)
 
     // Even: two tiles on top, the third below across the whole width.
     const area = await box(focus.locator('.w-focus__area'))
@@ -251,12 +263,28 @@ test('keys pressed in focus mode stay in the layer: the selected Nodes on the Ca
     await expect(focus).toBeFocused()
     await window.keyboard.press('ArrowRight')
     await window.keyboard.press('ArrowRight')
-    // Tab walks the layer's own controls and never reaches the Canvas underneath.
-    const insideLayer = () => focus.evaluate((layer) => layer.contains((layer.ownerDocument as unknown as { activeElement: unknown }).activeElement as never))
-    for (let step = 0; step < 8; step += 1) {
+    // Tab walks the layer's own controls and then the sidebar's, which stays in reach next to the
+    // layer; it never reaches what the layer covers, the toolbar and the Canvas underneath.
+    const where = () =>
+      focus.evaluate((layer) => {
+        const active = (layer.ownerDocument as unknown as { activeElement: { closest(selector: string): unknown } | null }).activeElement
+        if (active === null) return 'nowhere'
+        if (layer.contains(active as never)) return 'layer'
+        if (active.closest('.w-sidebar') !== null) return 'sidebar'
+        return active.closest('.w-toolbar, .w-shell__content') !== null ? 'covered' : 'page'
+      })
+    const visited = new Set<string>()
+    for (let step = 0; step < 40; step += 1) {
       await window.keyboard.press('Tab')
-      expect(await insideLayer()).toBe(true)
+      const place = await where()
+      expect(place).not.toBe('covered')
+      visited.add(place)
     }
+    // Forty presses are more than the layer has controls: the walk went through the sidebar as well.
+    expect([...visited].sort()).toEqual(expect.arrayContaining(['layer', 'sidebar']))
+    // Esc is the layer's while the keyboard focus is in it.
+    await focus.focus()
+    await expect(focus).toBeFocused()
     await window.keyboard.press('Escape')
     await expect(focus).toHaveCount(0)
 

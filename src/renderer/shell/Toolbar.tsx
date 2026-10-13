@@ -1,6 +1,7 @@
 import { collectExtensions, type ShellExtension } from './registry'
 import { SegmentedControl, type SegmentOption } from '../theme/primitives'
 import { CommandPalette } from '../palette/CommandPalette'
+import { SidebarToggle } from './sidebar-visibility'
 
 // Each toolbar item is its own file, src/renderer/shell/toolbar/<Name>.tsx, with a
 // default-exported component and `export const order = <number>`. Items sit between the view
@@ -52,18 +53,8 @@ export function ToolbarView({ items, project, view, onViewChange, sidebarVisible
   const title = project ? `worfy — ${project.name}` : 'worfy'
   return (
     <header className="w-toolbar" data-sidebar={sidebarVisible ? 'visible' : 'hidden'}>
-      <button
-        type="button"
-        className="w-toolbar__icon-button"
-        aria-label={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}
-        aria-pressed={sidebarVisible}
-        onClick={onToggleSidebar}
-      >
-        <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
-          <path d="M6 2.75v10.5" />
-        </svg>
-      </button>
+      {/* Hides and shows the sidebar; View ▸ Toggle Sidebar (Cmd/Ctrl+B) does the same. */}
+      <SidebarToggle className="w-toolbar__icon-button" visible={sidebarVisible} onToggle={onToggleSidebar} />
 
       {/* The title is the one item that gives way: a long Project name ends with an ellipsis
           (the full text is the tooltip), and the controls to its right stay whole. */}

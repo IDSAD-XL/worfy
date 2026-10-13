@@ -31,11 +31,16 @@
   gap: var(--space-1);
 }
 
+/* Focus mode draws its layer here (focus/focus.css), over the toolbar and the view. A stacking
+   context of its own keeps that layer's z-index inside the main area: the sidebar, its menus and the
+   dialogs of the app, which are drawn on <body>, stay above it. */
 .w-shell__main {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
+  isolation: isolate;
   background: var(--bg);
 }
 

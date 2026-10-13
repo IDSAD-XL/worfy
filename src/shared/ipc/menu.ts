@@ -4,8 +4,11 @@
 import { z } from 'zod'
 import { eventChannel } from './channels'
 
-/** What a menu item asks the window for. `settings` opens the Settings window. */
-export const MENU_COMMANDS = ['settings'] as const
+/**
+ * What a menu item asks the window for. `settings` opens the Settings window; `toggleSidebar` hides
+ * or shows the sidebar in what the window shows now, the normal view or focus mode.
+ */
+export const MENU_COMMANDS = ['settings', 'toggleSidebar'] as const
 export const menuCommandSchema = z.enum(MENU_COMMANDS)
 export type MenuCommand = z.output<typeof menuCommandSchema>
 

@@ -28,7 +28,7 @@ const mac = process.platform === 'darwin'
 
 /** The page's DOM, typed for this file: the e2e typecheck has no DOM library. */
 interface PageElement {
-  getBoundingClientRect(): { left: number; top: number; bottom: number; height: number }
+  getBoundingClientRect(): { left: number; right: number; top: number; bottom: number; height: number }
 }
 interface PageGlobals {
   innerWidth: number
@@ -104,13 +104,13 @@ const pageMetrics = (window: Page): Promise<{ innerWidth: number; bodyFont: stri
   })
 
 /** The box of the first element `selector` finds, and its left padding, in CSS pixels. */
-const boxOf = (window: Page, selector: string): Promise<{ left: number; top: number; bottom: number; height: number; paddingLeft: number }> =>
+const boxOf = (window: Page, selector: string): Promise<{ left: number; right: number; top: number; bottom: number; height: number; paddingLeft: number }> =>
   window.evaluate((query) => {
     const page = globalThis as unknown as PageGlobals
     const element = page.document.querySelector(query)
     if (!element) throw new Error(`nothing matches ${query}`)
-    const { left, top, bottom, height } = element.getBoundingClientRect()
-    return { left, top, bottom, height, paddingLeft: parseFloat(page.getComputedStyle(element).paddingLeft) }
+    const { left, right, top, bottom, height } = element.getBoundingClientRect()
+    return { left, right, top, bottom, height, paddingLeft: parseFloat(page.getComputedStyle(element).paddingLeft) }
   }, selector)
 
 /**
@@ -155,9 +155,11 @@ async function closeSettings(window: Page): Promise<void> {
 
 /**
  * The strips under the window buttons at `scale`: the toolbar, the strip above the sidebar and the
- * focus mode bar are 52 px of the window high, the toolbar without the sidebar and the focus mode
- * bar leave 80 px of the window on their left (macOS), and the palette opens right under the
- * toolbar. Leaves the sidebar hidden.
+ * focus mode bar are 52 px of the window high; the toolbar and the focus mode bar leave 80 px of
+ * the window on their left (macOS) only without the sidebar — with it the window buttons are over
+ * the sidebar, and the bar starts at the sidebar's edge; the palette opens right under the toolbar.
+ * The sidebar is shown or hidden apart for the normal view and focus mode, so each is checked with
+ * the sidebar and then without. Leaves the sidebar shown in both, as it found it.
  */
 async function expectStrips(window: Page, scale: number): Promise<void> {
   const at = `at ${scale * 100} %`
@@ -188,12 +190,76 @@ async function expectStrips(window: Page, scale: number): Promise<void> {
   await window.locator('.react-flow__node[data-id="n1"] .w-note__header').click()
   await expect(window.locator('.react-flow__node.selected')).toHaveCount(1)
   await window.keyboard.press('ControlOrMeta+Enter')
-  await expect(window.getByTestId('focus-mode')).toBeVisible()
+  const focus = window.getByTestId('focus-mode')
+  await expect(focus).toBeVisible()
+  const focusBar = focus.locator('.w-focus__bar')
+  const page = await pageMetrics(window)
+  /**
+   * The bar's controls are whole inside the window, from `left` on — the end of the room for the
+   * window buttons, or the sidebar's edge — and the tile does not start before the layer does, at `layer`.
+   */
+  const expectInside = async (left: number, layer: number, where: string): Promise<void> => {
+    const exit = await boxOf(window, '.w-focus__exit')
+    expect(exit.right, `the Exit focus button ${where} ${at}`).toBeLessThanOrEqual(page.innerWidth + 0.5)
+    const first = await boxOf(window, '.w-focus__icon-button')
+    const presets = await boxOf(window, '.w-focus__presets')
+    expect(first.left, `the first button of the focus mode bar ${where} ${at}`).toBeGreaterThanOrEqual(left)
+    // In a row, none over another: the sidebar button, the presets, Exit focus.
+    expect(first.right, `the sidebar button ends before the presets ${where} ${at}`).toBeLessThanOrEqual(presets.left)
+    expect(presets.right, `the presets end before Exit focus ${where} ${at}`).toBeLessThanOrEqual(exit.left)
+    // Every preset can be reached and pressed: in a bar too narrow for the four they scroll in their own box.
+    const buttons = focus.locator('.w-focus__presets button')
+    await expect(buttons).toHaveCount(4)
+    for (const edge of [buttons.last(), buttons.first()]) {
+      await edge.click()
+      const [button, around] = [await edge.boundingBox(), await focus.locator('.w-focus__presets').boundingBox()]
+      if (!button || !around) throw new Error('a preset has no box')
+      expect(button.x, `a pressed preset is inside the presets ${where} ${at}`).toBeGreaterThanOrEqual(around.x - 0.5)
+      expect(button.x + button.width, `a pressed preset is inside the presets ${where} ${at}`).toBeLessThanOrEqual(around.x + around.width + 0.5)
+    }
+    // A bar of 420 px or less (focus.css) drops what is not a control, the title and the key hint
+    // of Exit focus, and leaves that room to the presets; a wider one shows both.
+    const whole = await boxOf(window, '.w-focus__bar')
+    const narrow = whole.right - whole.left <= 420
+    for (const extra of [focus.locator('.w-focus__title'), focus.locator('.w-focus__exit kbd')]) {
+      if (narrow) await expect(extra, `in a narrow bar ${where} ${at}`).toBeHidden()
+      else await expect(extra, `in a wide bar ${where} ${at}`).toBeVisible()
+    }
+    const tile = await boxOf(window, '[data-testid="focus-tile"]')
+    expect(tile.left, `the tile ${where} ${at}`).toBeGreaterThanOrEqual(layer)
+    expect(tile.right, `the tile ${where} ${at}`).toBeLessThanOrEqual(page.innerWidth + 0.5)
+  }
+  if ((await focusBar.getAttribute('data-sidebar')) === 'visible') {
+    // With the sidebar (the default): the layer starts at the sidebar's right edge, the bar has the
+    // toolbar's own padding, and the strip above the sidebar is under the window buttons.
+    const side = await boxOf(window, '.w-sidebar')
+    const bar = await boxOf(window, '.w-focus__bar')
+    expect(bar.height * scale, `the focus mode bar next to the sidebar ${at}`).toBeCloseTo(TOOLBAR_PX, 0)
+    expect(bar.left, `the focus mode bar starts at the sidebar's edge ${at}`).toBeCloseTo(side.right, 0)
+    expect(bar.paddingLeft, `no room for the window buttons next to the sidebar ${at}`).toBeCloseTo(8, 0)
+    expect((await boxOf(window, '.w-sidebar__titlebar')).height * scale, `the strip above the sidebar in focus mode ${at}`).toBeCloseTo(TOOLBAR_PX, 0)
+    await expectInside(side.right - 0.5, side.right - 0.5, 'next to the sidebar')
+    await snapshotZoomed(window, `interface-scale-${Math.round(scale * 100)}-focus-with-sidebar`)
+    await focus.getByRole('button', { name: 'Hide sidebar' }).click()
+  }
+  await expect(focusBar).toHaveAttribute('data-sidebar', 'hidden')
+  await expect(window.locator('.w-sidebar')).toHaveCount(0)
   const bar = await boxOf(window, '.w-focus__bar')
   expect(bar.height * scale, `the focus mode bar ${at}`).toBeCloseTo(TOOLBAR_PX, 0)
-  if (mac) expect(bar.paddingLeft * scale, `the room left of the focus mode bar ${at}`).toBeCloseTo(TRAFFIC_LIGHTS_PX, 0)
+  expect(bar.left, `the focus mode bar without the sidebar ${at}`).toBe(0)
+  if (mac) {
+    expect(bar.paddingLeft * scale, `the room left of the focus mode bar ${at}`).toBeCloseTo(TRAFFIC_LIGHTS_PX, 0)
+    await expectInside(TRAFFIC_LIGHTS_PX / scale - 0.5, 0, 'without the sidebar')
+  } else await expectInside(0, 0, 'without the sidebar')
+  // Shown again in both, so the next scale is checked with the sidebar too.
+  await focus.getByRole('button', { name: 'Show sidebar' }).click()
+  await expect(focusBar).toHaveAttribute('data-sidebar', 'visible')
   await window.keyboard.press('Escape')
-  await expect(window.getByTestId('focus-mode')).toHaveCount(0)
+  await expect(focus).toHaveCount(0)
+  // The normal view keeps its own answer: still hidden there.
+  await expect(window.locator('.w-toolbar')).toHaveAttribute('data-sidebar', 'hidden')
+  await toggle.click()
+  await expect(window.locator('.w-toolbar')).toHaveAttribute('data-sidebar', 'visible')
 }
 
 test('the slider of Settings → General zooms the whole window when the thumb is let go, and the strips under the window buttons keep their size in pixels of the window', async () => {

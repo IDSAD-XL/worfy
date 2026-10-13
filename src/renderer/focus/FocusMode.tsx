@@ -1,4 +1,8 @@
-// Focus mode: the chosen Nodes fill the whole window as tiles, the rest of the Canvas is covered.
+// Focus mode: the chosen Nodes fill the main area of the window as tiles; the toolbar and the rest
+// of the Canvas are covered, the sidebar stays where it is and keeps working.
+//
+// The layer is drawn in the element the window shell names (focus-state.ts): its main area. With no
+// shell (a unit test of this file) it is drawn on <body> and covers the page.
 //
 // The tiling is a split tree (split-tree.ts) kept only in memory by whoever opened focus mode
 // (canvas/overlays/FocusEntry.tsx): it is never sent to main and never saved, and focus mode
@@ -11,17 +15,21 @@
 //
 // Gestures: dragging a divider moves it, a double click on a divider evens out its split;
 // dragging a tile's title bar onto another tile swaps the two, or, near an edge of that tile,
-// divides it. Esc leaves.
+// divides it. Esc leaves — when the keyboard focus is in the layer or nowhere: an Esc pressed in the
+// sidebar, or while a menu or a dialog is open outside the layer, is not focus mode's (escapeIsOurs).
 //
-// While the layer is open it holds the keyboard focus and the rest of the window is inert, so no
-// key reaches a Canvas Node underneath (React Flow moves the selected Nodes on arrow keys and
-// unselects on Esc). On leaving, the focus goes back to where it was.
+// While the layer is open it takes the keyboard focus and what it covers (the toolbar and the view)
+// is inert, so no key reaches a Canvas Node underneath (React Flow moves the selected Nodes on
+// arrow keys and unselects on Esc). On leaving, the focus goes back to where it was, unless it has
+// moved out of the layer meanwhile (to the sidebar): then it stays there.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useNodes } from '@xyflow/react'
 import { nodeTypes, type CanvasFlowNode, type CanvasNodeProps } from '../canvas/nodes'
 import { UnknownNode } from '../canvas/UnknownNode'
 import { isPrimary, isTerminalKey } from '../platform'
+import { SidebarToggle, useSidebarVisibility } from '../shell/sidebar-visibility'
+import { setFocusActive, useFocusState } from './focus-state'
 import {
   buildPreset,
   computeGeometry,
@@ -91,6 +99,31 @@ function canRefocus(element: Element | null): element is HTMLElement {
   const own = element.getBoundingClientRect()
   const view = pane.getBoundingClientRect()
   return own.right > view.left && own.left < view.right && own.bottom > view.top && own.top < view.bottom
+}
+
+/** Whether the keyboard focus is somewhere outside `layer`: on <body> it is nowhere. */
+function focusIsElsewhere(layer: HTMLElement): boolean {
+  const active = document.activeElement
+  return active !== null && active !== document.body && !layer.contains(active)
+}
+
+/**
+ * Whether a press of Esc is focus mode's to leave on: the keyboard focus is in the layer or
+ * nowhere, and no menu or dialog is open outside the layer. The sidebar next to the layer keeps
+ * working, and an Esc pressed there, in one of its menus or dialogs, in the command palette or in
+ * the Settings window closes that and nothing else: one press, one action. What the layer covers
+ * is inert and does not count.
+ *
+ * Asked before anybody has handled the press (capture phase on window): a menu that closes on Esc
+ * is out of the page, and the focus it held is on <body>, by the time the press has bubbled up.
+ */
+function escapeIsOurs(event: KeyboardEvent, layer: HTMLElement | null): boolean {
+  if (event.key !== 'Escape' || layer === null) return false
+  if (focusIsElsewhere(layer)) return false
+  for (const popup of document.querySelectorAll('[role="dialog"], [role="menu"]')) {
+    if (!layer.contains(popup) && popup.closest('[inert], [hidden]') === null) return false
+  }
+  return true
 }
 
 function TileNode({ node }: { node: CanvasFlowNode }) {
@@ -194,19 +227,33 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
     latest.current = { tree, onChange, onExit }
   })
 
-  // Keyboard focus: into the layer, the rest of the window inert, and back when the layer closes.
+  // Where the layer is drawn: the main area of the window shell, or <body> without a shell.
+  const slot = useFocusState((state) => state.slot)
+  const sidebar = useSidebarVisibility()
+
+  // Keyboard focus: into the layer, what the layer covers inert, and back when the layer closes.
+  // What it covers is the other children of the element it is drawn in: the toolbar and the view in
+  // the shell — not the sidebar, which is next to that element — and the whole page on <body>.
   useLayoutEffect(() => {
     const root = layer.current
-    if (root === null) return undefined
+    const covered = root?.parentElement
+    if (root === null || covered === null || covered === undefined) return undefined
     const previous = document.activeElement
-    const inerted = Array.from(document.body.children).filter((element) => element !== root && !element.hasAttribute('inert'))
+    const inerted = Array.from(covered.children).filter((element) => element !== root && !element.hasAttribute('inert'))
     for (const element of inerted) element.setAttribute('inert', '')
     root.focus({ preventScroll: true })
+    // The sidebar is shown or hidden apart for focus mode (shell/sidebar-visibility.ts).
+    setFocusActive(true)
     return () => {
+      setFocusActive(false)
       for (const element of inerted) element.removeAttribute('inert')
+      // Back to where the focus was, when it is still in the layer or nowhere. A focus that went to
+      // the sidebar meanwhile stays there (a click on an Epic that ends focus mode must not lose it
+      // to the Canvas): React puts the focus back on an element that had it before the layer was
+      // taken out and is still in the page, whatever is focused here.
       if (canRefocus(previous)) previous.focus({ preventScroll: true })
     }
-  }, [])
+  }, [slot])
 
   // A Node that left the Canvas (removed or hidden) leaves its tile; with none left, focus mode ends.
   const ids = useMemo(() => leafIds(tree), [tree])
@@ -235,17 +282,26 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
         event.stopImmediatePropagation()
       }
     }
-    // Bubble phase: a Node that handles Esc itself (closing a popup) calls preventDefault first.
+    // Esc leaves, in two steps. Capture phase: whether the press is focus mode's at all, read while
+    // the page is as the user saw it (escapeIsOurs). Bubble phase: whether somebody took it — a
+    // Node that handles Esc itself (closing a popup) calls preventDefault first.
+    let ours: KeyboardEvent | undefined
+    const onEscapeDown = (event: KeyboardEvent) => {
+      ours = escapeIsOurs(event, layer.current) ? event : undefined
+    }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !event.defaultPrevented) {
-        event.preventDefault()
-        latest.current.onExit()
-      }
+      const mine = ours === event
+      ours = undefined
+      if (!mine || event.defaultPrevented) return
+      event.preventDefault()
+      latest.current.onExit()
     }
     window.addEventListener('keydown', swallowZoom, true)
+    window.addEventListener('keydown', onEscapeDown, true)
     window.addEventListener('keydown', onKeyDown)
     return () => {
       window.removeEventListener('keydown', swallowZoom, true)
+      window.removeEventListener('keydown', onEscapeDown, true)
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [])
@@ -324,8 +380,11 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
   }
 
   return createPortal(
-    <div ref={layer} tabIndex={-1} className="w-focus" role="dialog" aria-modal="true" aria-label="Focus mode" data-testid="focus-mode">
-      <div className="w-focus__bar">
+    // A region, not a modal dialog: the sidebar next to it stays in reach, for a screen reader too.
+    <div ref={layer} tabIndex={-1} className="w-focus" role="region" aria-label="Focus mode" data-testid="focus-mode">
+      <div className="w-focus__bar" data-sidebar={sidebar.visible ? 'visible' : 'hidden'}>
+        {/* The toolbar's button is under the layer: the same one here. */}
+        <SidebarToggle className="w-focus__icon-button" visible={sidebar.visible} onToggle={sidebar.toggle} />
         <span className="w-focus__title">Focus · {ids.length === 1 ? '1 node' : `${ids.length} nodes`}</span>
         <div role="group" aria-label="Layout presets" className="w-focus__presets">
           {PRESETS.map(({ value, label }) => (
@@ -386,6 +445,6 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
         ))}
       </div>
     </div>,
-    document.body,
+    slot ?? document.body,
   )
 }
