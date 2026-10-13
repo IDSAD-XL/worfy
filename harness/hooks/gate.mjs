@@ -797,8 +797,12 @@ async function main() {
                 return 128 + (os.constants.signals[signal] ?? 0)
             }
             // A signal sent to the gate itself (a hook that ran out of time) waits while the gate
-            // waits for a script. One turn of the event loop lets its handler end the run here,
-            // before the next script starts and before anything is written down.
+            // waits for a script. Its handler runs when the event loop next looks for events, so
+            // the loop is let go round here, before the next script starts and before anything
+            // is written down. Twice: an immediate set by code that runs from that look itself
+            // (as here, after stdin was read) comes before the next look, and only the one set
+            // from an immediate comes after it. Measured: one turn delivers nothing in that case.
+            await new Promise((resolve) => setImmediate(resolve))
             await new Promise((resolve) => setImmediate(resolve))
             const outLines = out.split(/\r?\n/)
             if (rc === 0) {
