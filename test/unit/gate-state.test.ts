@@ -784,7 +784,8 @@ describe('GateReader and the verdict file', () => {
     // listWorktrees gives the worktree's HEAD, which the file's `head` must match.
     const [wt] = await new GateReader({ home }).read(repo, await listWorktrees(repo))
     expect(wt!.gate).toEqual({ outcome: 'green', source: 'file', at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u) })
-  })
+    // git three times and the gate, each a process of its own: over 5 seconds on a busy Windows machine.
+  }, 60_000)
 })
 
 describe('TranscriptGateScanner', () => {
