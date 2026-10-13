@@ -4,7 +4,7 @@
 // written anywhere (ADR-0002, ADR-0005). The main process side is src/main/gate/state.ts,
 // src/main/github/prs.ts and src/main/ipc/checks.ts.
 import { z } from 'zod'
-import { absolutePathSchema } from '../paths'
+import { absolutePathSchema, isWindowsAbsolutePath } from '../paths'
 import { parseTicketBranch, parseWorktreeFolder } from '../workflow/ticket-ref'
 import { invokeChannel } from './channels'
 
@@ -215,13 +215,24 @@ export function pullOfTicket(snapshot: ChecksSnapshot, ticket: TicketLike): Pull
   return pulls[0] ?? null
 }
 
+/**
+ * A path in the form two paths are compared in. An absolute path of Windows is folded: `\` as `/`
+ * and lower case, because git names a worktree `C:/Users/x/worfy`, Claude Code names the folder of
+ * a Session `C:\Users\x\worfy`, and NTFS does not tell letter case apart. Any other path is taken as
+ * it is. The path itself says which it is: this file is shared with the renderer, which has no
+ * `process.platform`.
+ */
+const comparable = (path: string): string => (isWindowsAbsolutePath(path) ? path.replaceAll('\\', '/').toLowerCase() : path)
+
+/** Whether `path` is `folder` or lies under it; both are `comparable`. */
 const inside = (path: string, folder: string): boolean => path === folder || path.startsWith(folder.endsWith('/') ? folder : `${folder}/`)
 
 /** The worktree a Session runs in: the deepest worktree (or the checkout) that contains its cwd. */
 export function worktreeOfCwd(snapshot: ChecksSnapshot, cwd: string): WorktreeChecks | null {
+  const where = comparable(cwd)
   let best: WorktreeChecks | null = null
   for (const worktree of snapshot.worktrees) {
-    if (inside(cwd, worktree.path) && (best === null || worktree.path.length > best.path.length)) best = worktree
+    if (inside(where, comparable(worktree.path)) && (best === null || worktree.path.length > best.path.length)) best = worktree
   }
   return best
 }

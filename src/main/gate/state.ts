@@ -209,9 +209,11 @@ function toolResultText(content: unknown): string[] {
 /**
  * The Gate's script as a word of a command: `node "C:\Users\x\plugin\hooks\gate.mjs" fast`, or
  * `~/.claude/hooks/gate.sh fast` of a Harness older than worfy-windows ticket 03 and of old
- * transcripts; not `gate-unregistered.test.sh` or `gate-resolve.mjs`.
+ * transcripts; not `gate-unregistered.test.sh` or `gate-resolve.mjs`. A `\` before the name is a
+ * path separator on Windows only: elsewhere bash reads `my\gate.sh` as `mygate.sh`.
  */
-const GATE_SCRIPT = /(?:^|[\s;&|(/\\'"`])gate\.(?:mjs|sh)(?=$|[\s;&|)<>'"`])/gu
+const GATE_SCRIPT = /(?:^|[\s;&|(/'"`])gate\.(?:mjs|sh)(?=$|[\s;&|)<>'"`])/gu
+const GATE_SCRIPT_WINDOWS = /(?:^|[\s;&|(/\\'"`])gate\.(?:mjs|sh)(?=$|[\s;&|)<>'"`])/gu
 /** The names GATE_SCRIPT looks for: a transcript line with neither has no Gate call. */
 const GATE_SCRIPT_NAMES = ['gate.mjs', 'gate.sh']
 /** A `cd` or `pushd` at the start of a shell command, with its argument if it has one. */
@@ -232,13 +234,19 @@ function cdTargetWindows(from: string, path: string): string | null {
   return isWindowsAbsolutePath(from) ? win32.resolve(from, target) : null
 }
 
-/** Where `cd <arg>` from `from` leads; null when the shell would have to expand something to tell. */
+/**
+ * Where `cd <arg>` from `from` leads; null when the shell would have to expand something to tell.
+ * On Windows that includes an argument with a `\` outside quotes: the Bash tool runs Git Bash,
+ * where it is an escape, so `cd C:\a\b` goes to `C:ab` and `cd /c/my\ repo` to `C:\my repo`. In
+ * quotes a path of Windows is taken as written.
+ */
 function cdTarget(from: string, arg: string | undefined, platform: NodeJS.Platform): string | null {
   if (arg === undefined) return homedir()
   let path: string
   if (arg.startsWith("'") && arg.endsWith("'") && arg.length >= 2) path = arg.slice(1, -1)
   else {
     const quoted = arg.startsWith('"') && arg.endsWith('"') && arg.length >= 2
+    if (platform === 'win32' && !quoted && arg.includes('\\')) return null
     path = quoted ? arg.slice(1, -1) : arg
     path = path.replace(quoted ? /^(?:\$HOME|\$\{HOME\})(?=\/|$)/u : /^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/u, homedir())
     if (/[$`*?~]/u.test(path)) return null
@@ -258,7 +266,7 @@ function cdTarget(from: string, arg: string | undefined, platform: NodeJS.Platfo
  */
 export function gateRunDir(command: string, cwd: string | null, platform: NodeJS.Platform = process.platform): string | null | undefined {
   let end = -1
-  for (const match of command.matchAll(GATE_SCRIPT)) end = match.index + match[0].length
+  for (const match of command.matchAll(platform === 'win32' ? GATE_SCRIPT_WINDOWS : GATE_SCRIPT)) end = match.index + match[0].length
   if (end < 0) return undefined
   const before = command.slice(0, end)
   if (/(?:^|[\s;&|(])popd\b/u.test(before)) return null

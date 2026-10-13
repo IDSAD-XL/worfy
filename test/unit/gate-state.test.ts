@@ -214,18 +214,49 @@ describe('gateRunDir: gate.mjs, gate.sh and Windows paths', () => {
     [`cd C:/Users/x/other; ${gate}`, 'C:\\Users\\x\\other'],
     [`cd '\\\\srv\\share\\repo' && ${gate}`, '\\\\srv\\share\\repo'],
     [`cd .claude/worktrees/07 && ${gate}`, 'C:\\Users\\x\\worfy\\.claude\\worktrees\\07'],
-    [`cd .claude\\worktrees\\07; cd ..\\08; ${gate}`, 'C:\\Users\\x\\worfy\\.claude\\worktrees\\08'],
-    [`cd /c/elsewhere && ls; cd C:\\Users\\x\\worfy && ${gate}`, cwd],
+    [`cd ".claude\\worktrees\\07"; cd '..\\08'; ${gate}`, 'C:\\Users\\x\\worfy\\.claude\\worktrees\\08'],
+    [`cd /c/elsewhere && ls; cd "C:\\Users\\x\\worfy" && ${gate}`, cwd],
+    [`cd 'C:\\Users\\x\\My Projects\\y' && ${gate}`, 'C:\\Users\\x\\My Projects\\y'],
+    // In double quotes bash keeps a `\` before an ordinary character and makes one of `\\`.
+    [`cd "C:\\\\Users\\\\x\\\\other" && ${gate}`, 'C:\\Users\\x\\other'],
   ])('on Windows %s → %s', (command, dir) => {
     expect(gateRunDir(command, cwd, 'win32')).toBe(dir)
   })
 
   it('on Windows is null for a folder only the shell can place: Git Bash’s own root, the current drive, no cwd', () => {
     expect(gateRunDir(`cd /tmp/x && ${gate}`, cwd, 'win32')).toBeNull()
-    expect(gateRunDir(`cd \\x && ${gate}`, cwd, 'win32')).toBeNull()
+    expect(gateRunDir(`cd "\\x" && ${gate}`, cwd, 'win32')).toBeNull()
     expect(gateRunDir(`cd D:x && ${gate}`, cwd, 'win32')).toBeNull()
     expect(gateRunDir(`cd sub && ${gate}`, null, 'win32')).toBeNull()
     expect(gateRunDir(`cd "$W" && ${gate}`, cwd, 'win32')).toBeNull()
+  })
+
+  it('on Windows is null for a cd argument with a `\\` outside quotes: Git Bash reads it as an escape and goes elsewhere or nowhere', () => {
+    // `cd C:\Users\x\worfy` is `cd C:Usersxworfy` to bash: it fails, and after `&&` the Gate does not run.
+    expect(gateRunDir(`cd C:\\Users\\x\\worfy && ${gate}`, cwd, 'win32')).toBeNull()
+    expect(gateRunDir(`cd .claude\\worktrees\\07; ${gate}`, cwd, 'win32')).toBeNull()
+    expect(gateRunDir(`cd \\x && ${gate}`, cwd, 'win32')).toBeNull()
+    // An escaped space: the folder is `C:\my repo`, which the argument up to the space does not say.
+    expect(gateRunDir(`cd /c/my\\ repo && ${gate}`, cwd, 'win32')).toBeNull()
+  })
+
+  it('takes a `\\` before the name for a path separator on Windows only: to bash on macOS `my\\gate.sh` is mygate.sh', () => {
+    const root = '/Users/test/projects/demo'
+    expect(gateRunDir('bash my\\gate.sh fast', root, 'darwin')).toBeUndefined()
+    expect(gateRunDir('node hooks\\gate.mjs fast', root, 'linux')).toBeUndefined()
+    expect(gateRunDir('bash ~/.claude/hooks/gate.sh fast', root, 'darwin')).toBe(root)
+    expect(gateRunDir(gate, cwd, 'win32')).toBe(cwd)
+  })
+
+  // Known limits, recorded in the ticket's result section; these pin what the reader answers today.
+  it('takes a command that only names the script for a Gate call, and reads a PowerShell command by the rules of bash', () => {
+    for (const platform of ['win32', 'darwin'] as const) {
+      expect(gateRunDir('cat harness/hooks/gate.mjs', cwd, platform)).toBe(cwd)
+      expect(gateRunDir('echo gate.mjs', cwd, platform)).toBe(cwd)
+      expect(gateRunDir('cat ~/.claude/hooks/gate.sh', cwd, platform)).toBe(cwd)
+    }
+    // `Set-Location` is not a `cd` here: the run in C:\other is taken for one in the Session's folder.
+    expect(gateRunDir('Set-Location C:\\other; node C:\\Users\\x\\plugin\\hooks\\gate.mjs fast', cwd, 'win32')).toBe(cwd)
   })
 
   it('is undefined for a command that runs neither gate.mjs nor gate.sh', () => {
@@ -375,6 +406,42 @@ describe('worktreeOfTicket', () => {
     expect(worktreeOfTicket(at07('feature-x'), { epic: 'other', num: 7 }, tickets)).toBeNull()
     // A branch that names the Ticket still says whose it is.
     expect(worktreeOfTicket(at07('other/07'), { epic: 'other', num: 7 }, tickets)?.path).toBe('/r/.claude/worktrees/07')
+  })
+})
+
+describe('worktreeOfCwd', () => {
+  const gate = { outcome: 'none' as const, source: 'none' as const, at: null }
+  const snapshot = (...paths: string[]) => snapshotOf(paths[0]!, paths.map((path) => ({ path, branch: null, gate })))
+
+  // worfy-windows ticket 03: git names a worktree `C:/Users/x/worfy`, Claude Code names the folder
+  // of a Session `C:\Users\x\worfy`, and NTFS does not tell letter case apart.
+  it('finds a worktree of Windows for a cwd in the other spelling: either separator, any letter case', () => {
+    const asGit = snapshot('C:/Users/x/worfy', 'C:/Users/x/worfy/.claude/worktrees/07')
+    expect(worktreeOfCwd(asGit, 'C:\\Users\\x\\worfy\\src')?.path).toBe('C:/Users/x/worfy')
+    expect(worktreeOfCwd(asGit, 'c:\\users\\x\\worfy')?.path).toBe('C:/Users/x/worfy')
+    const asRealpath = snapshot('C:\\Users\\x\\worfy', 'C:\\Users\\x\\worfy\\.claude\\worktrees\\07')
+    expect(worktreeOfCwd(asRealpath, 'C:/Users/x/worfy/src')?.path).toBe('C:\\Users\\x\\worfy')
+    expect(worktreeOfCwd(snapshot('//srv/share/repo'), '\\\\srv\\share\\repo\\src')?.path).toBe('//srv/share/repo')
+  })
+
+  it('takes the deepest worktree of Windows, and only a whole folder name', () => {
+    const asGit = snapshot('C:/Users/x/worfy', 'C:/Users/x/worfy/.claude/worktrees/07')
+    expect(worktreeOfCwd(asGit, 'C:\\Users\\x\\worfy\\.claude\\worktrees\\07\\src')?.path).toBe('C:/Users/x/worfy/.claude/worktrees/07')
+    expect(worktreeOfCwd(asGit, 'C:\\Users\\x\\worfy\\.claude\\worktrees\\08')?.path).toBe('C:/Users/x/worfy')
+    expect(worktreeOfCwd(asGit, 'C:/Users/x/worfy2')).toBeNull()
+    expect(worktreeOfCwd(asGit, 'C:\\Users\\x\\worfy2\\src')).toBeNull()
+    expect(worktreeOfCwd(asGit, 'D:\\Users\\x\\worfy')).toBeNull()
+  })
+
+  it('compares a POSIX path exactly as before: letter case counts and a `\\` is a character of a name', () => {
+    const posix = snapshot('/Users/x/worfy', '/Users/x/worfy/.claude/worktrees/07')
+    expect(worktreeOfCwd(posix, '/Users/x/worfy/src')?.path).toBe('/Users/x/worfy')
+    expect(worktreeOfCwd(posix, '/Users/x/worfy/.claude/worktrees/07/src')?.path).toBe('/Users/x/worfy/.claude/worktrees/07')
+    expect(worktreeOfCwd(posix, '/Users/X/worfy')).toBeNull()
+    expect(worktreeOfCwd(posix, '/Users/x/worfy\\src')).toBeNull()
+    expect(worktreeOfCwd(posix, '/Users/x/worfy2')).toBeNull()
+    expect(worktreeOfCwd(snapshot('/Users/x/Wor\\fy'), '/Users/x/Wor\\fy/src')?.path).toBe('/Users/x/Wor\\fy')
+    expect(worktreeOfCwd(snapshot('/Users/x/Wor\\fy'), '/Users/x/wor/fy/src')).toBeNull()
   })
 })
 
