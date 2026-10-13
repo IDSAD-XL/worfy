@@ -152,11 +152,19 @@ describe('removeTree and removeFile over real folders', () => {
         holder.once('exit', () => reject(new Error('the program that holds the folder ended at once')))
       })
       let code: string | undefined
+      // The real wait, refused after more waits than any removal makes: a retry with no end would
+      // block this process for good — the loop is synchronous, no time limit of a test ends it.
+      let asked = 0
+      const wait = (ms: number): void => {
+        if (++asked > 50) throw new Error('the removal waits without end')
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+      }
       try {
-        removeTree(tree)
+        removeTree(tree, { wait })
       } catch (error) {
         code = (error as NodeJS.ErrnoException).code
       }
+      expect(asked).toBeLessThanOrEqual(REMOVE_RETRIES)
       expect(['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES']).toContain(code)
       // Everything that could go is gone; what holds the folder is left with its way to it.
       expect(readdirSync(tree)).toEqual(['held'])
@@ -236,7 +244,16 @@ interface Model {
   calls: string[]
   names: () => string[]
   waits: number[]
+  /** The wait of a removal over this model: written down, not waited. */
+  wait: (ms: number) => void
 }
+
+/**
+ * More waits than any removal may make. A removal that never stops waiting — a retry with no end —
+ * is refused its next wait and fails its test at once, instead of filling the memory of the test
+ * process for minutes.
+ */
+const WAITS_BOUND = 100
 function model(entries: Record<string, Entry>, failing: Record<string, string[]> = {}): Model {
   const tree = new Map(Object.entries(entries))
   const calls: string[] = []
@@ -290,7 +307,11 @@ function model(entries: Record<string, Entry>, failing: Record<string, string[]>
       for (const each of [...tree.keys()]) if (each === path || each.startsWith(`${path}/`)) tree.delete(each)
     },
   })
-  return { fs, calls, waits, names: () => [...tree.keys()].sort() }
+  const wait = (ms: number): void => {
+    if (waits.length >= WAITS_BOUND) throw new Error(`the removal waits without end: ${WAITS_BOUND} waits, and one more is asked`)
+    waits.push(ms)
+  }
+  return { fs, calls, waits, wait, names: () => [...tree.keys()].sort() }
 }
 
 /** A Card folder with a file, a folder, and a link to a folder outside it that holds a file. */
@@ -309,7 +330,7 @@ const WITH_A_LINK: Record<string, Entry> = {
 /** The module's walk over a model; answers the code of the error it ended with, or null. */
 function viaModule(m: Model, path: string, platform: NodeJS.Platform): unknown {
   try {
-    removeTree(path, { fs: m.fs, platform, wait: (ms) => m.waits.push(ms) })
+    removeTree(path, { fs: m.fs, platform, wait: m.wait })
     return null
   } catch (error) {
     return (error as NodeJS.ErrnoException).code
@@ -460,12 +481,40 @@ describe('removeTree over a model of the file system', () => {
     expect(viaModule(m, '/f', 'win32')).toBeNull()
     expect(m.waits).toEqual([])
   })
+
+  // worfy-windows ticket 28, from the review of PR #257.
+  it('an error that is not "busy" spends no wait: all five are there for the entry after it', () => {
+    const busy = Array.from({ length: REMOVE_RETRIES }, () => 'EBUSY')
+    const m = model({ '/d': { kind: 'folder' }, '/d/a.txt': { kind: 'file' }, '/d/b.txt': { kind: 'file' } }, { 'unlink /d/a.txt': ['EIO'], 'unlink /d/b.txt': busy })
+    // The folder keeps the file that could not be removed, and says why.
+    expect(viaModule(m, '/d', 'win32')).toBe('EIO')
+    expect(m.calls.filter((call) => call === 'unlink /d/a.txt')).toHaveLength(1)
+    expect(m.waits).toHaveLength(REMOVE_RETRIES)
+    expect(m.names()).toEqual(['/d', '/d/a.txt'])
+  })
+
+  it('waits for real when no wait is given: two busy tries take two times 100 ms', () => {
+    const m = model({ '/f': { kind: 'file' } }, { 'unlink /f': ['EBUSY', 'EPERM'] })
+    const started = performance.now()
+    removeTree('/f', { fs: m.fs, platform: 'win32' })
+    const took = performance.now() - started
+    expect(m.names()).toEqual([])
+    // Two waits of REMOVE_RETRY_MS; a timer of the system may come a few ms early.
+    expect(took).toBeGreaterThanOrEqual(2 * REMOVE_RETRY_MS - 20)
+    expect(took).toBeLessThan(2000)
+  })
+
+  it('a removal that would wait without end is stopped by the model: its test fails at once', () => {
+    const m = model({ '/f': { kind: 'file' } })
+    for (let asked = 0; asked < 100; asked++) m.wait(REMOVE_RETRY_MS)
+    expect(() => m.wait(REMOVE_RETRY_MS)).toThrow('the removal waits without end')
+  })
 })
 
 describe('removeFile over a model of the file system', () => {
   const single = (m: Model, path: string, platform: NodeJS.Platform): unknown => {
     try {
-      removeFile(path, { fs: m.fs, platform, wait: (ms) => m.waits.push(ms) })
+      removeFile(path, { fs: m.fs, platform, wait: m.wait })
       return null
     } catch (error) {
       return (error as NodeJS.ErrnoException).code
@@ -488,6 +537,25 @@ describe('removeFile over a model of the file system', () => {
     expect(windows.calls).toEqual(['lstat /f', 'unlink /f', 'unlink /f', 'unlink /f'])
     expect(windows.waits).toEqual([REMOVE_RETRY_MS, REMOVE_RETRY_MS])
     expect(windows.names()).toEqual([])
+  })
+
+  // worfy-windows ticket 28, from the review of PR #257.
+  it('on Windows tries a file that stays busy five times more, and no further', () => {
+    const busy = (times: number): string[] => Array.from({ length: times }, () => 'EBUSY')
+    const fifth = model({ '/f': { kind: 'file' } }, { 'unlink /f': busy(REMOVE_RETRIES) })
+    expect(single(fifth, '/f', 'win32')).toBeNull()
+    expect(fifth.waits).toHaveLength(REMOVE_RETRIES)
+    expect(fifth.names()).toEqual([])
+
+    const sixth = model({ '/f': { kind: 'file' } }, { 'unlink /f': busy(REMOVE_RETRIES + 1) })
+    expect(single(sixth, '/f', 'win32')).toBe('EBUSY')
+    expect(sixth.calls.filter((call) => call === 'unlink /f')).toHaveLength(1 + REMOVE_RETRIES)
+    expect(sixth.waits).toHaveLength(REMOVE_RETRIES)
+    expect(sixth.names()).toEqual(['/f'])
+    // An error that is not "busy" ends it at the first try.
+    const other = model({ '/f': { kind: 'file' } }, { 'unlink /f': ['EIO'] })
+    expect(single(other, '/f', 'win32')).toBe('EIO')
+    expect(other.waits).toEqual([])
   })
 
   it('on every other system is one call of rmSync with "force" and without "recursive": a folder is refused by it, as on main', () => {
@@ -513,15 +581,23 @@ function copyOf(source: string, where: string, name: 'remove-tree' | 'remove-fil
 
 /** A copy as a function over a model: it names the calls of node:fs, `join`, `process` and `Atomics` freely. */
 function viaCopy(text: string, m: Model, path: string, platform: NodeJS.Platform, name: 'removeTree' | 'removeFile' = 'removeTree'): unknown {
-  const make = new Function('lstatSync', 'readdirSync', 'unlinkSync', 'rmdirSync', 'rmSync', 'join', 'process', 'Atomics', `${text}\nreturn ${name}`) as (...args: unknown[]) => (path: string) => void
-  const waiting = { wait: (_array: unknown, _index: number, _value: number, ms: number) => void m.waits.push(ms) }
-  const walk = make(m.fs.lstatSync, m.fs.readdirSync, m.fs.unlinkSync, m.fs.rmdirSync, m.fs.rmSync, posix.join, { platform }, waiting)
+  const walk = builtCopy(text, m, platform, name)
   try {
     walk(path)
     return null
   } catch (error) {
     return (error as NodeJS.ErrnoException).code
   }
+}
+
+/**
+ * The function of a copy, made over a model. Strict, as the scripts are: they are modules. `atomics`
+ * is what the copy waits with; the model's wait when left out.
+ */
+function builtCopy(text: string, m: Model, platform: NodeJS.Platform, name: 'removeTree' | 'removeFile' = 'removeTree', atomics?: unknown): (...args: unknown[]) => void {
+  const make = new Function('lstatSync', 'readdirSync', 'unlinkSync', 'rmdirSync', 'rmSync', 'join', 'process', 'Atomics', `'use strict'\n${text}\nreturn ${name}`) as (...args: unknown[]) => (...args: unknown[]) => void
+  const waiting = { wait: (_array: unknown, _index: number, _value: number, ms: number) => m.wait(ms) }
+  return make(m.fs.lstatSync, m.fs.readdirSync, m.fs.unlinkSync, m.fs.rmdirSync, m.fs.rmSync, posix.join, { platform }, atomics ?? waiting)
 }
 
 describe('the copies of the walk that cannot import the module', () => {
@@ -571,6 +647,52 @@ describe('the copies of the walk that cannot import the module', () => {
     }
   })
 
+  // worfy-windows ticket 28, from the review of PR #257: the waits were the second parameter of
+  // the function the callers use, and forEach gives a callback the number of the entry there.
+  it.each(Object.keys(COPIES))('%s takes the path alone: given to forEach it removes each path, and a busy one ends with its own error', (name) => {
+    const m = model({ '/a': { kind: 'file' }, '/b': { kind: 'file' }, '/c': { kind: 'file' } }, { 'unlink /b': Array.from({ length: 10 }, () => 'EBUSY') })
+    const removeTreeOfTheCopy = builtCopy(COPIES[name]!, m, 'win32')
+    expect(removeTreeOfTheCopy).toHaveLength(1)
+    ;['/a'].forEach(removeTreeOfTheCopy)
+    expect(m.names()).toEqual(['/b', '/c'])
+    let code: unknown = null
+    try {
+      ;['/c', '/b'].forEach(removeTreeOfTheCopy)
+    } catch (error) {
+      code = (error as NodeJS.ErrnoException).code
+    }
+    // Not a TypeError of a number taken for the waits.
+    expect(code).toBe('EBUSY')
+    expect(m.waits).toHaveLength(REMOVE_RETRIES)
+    expect(m.names()).toEqual(['/b'])
+  })
+
+  it.each(Object.keys(COPIES))('%s starts every removal with five waits, and an error that is not "busy" spends none', (name) => {
+    const busy = Array.from({ length: REMOVE_RETRIES }, () => 'EBUSY')
+    const m = model(
+      { '/first': { kind: 'file' }, '/second': { kind: 'file' }, '/d': { kind: 'folder' }, '/d/a.txt': { kind: 'file' }, '/d/b.txt': { kind: 'file' } },
+      { 'unlink /first': busy, 'unlink /second': busy, 'unlink /d/a.txt': ['EIO'], 'unlink /d/b.txt': busy },
+    )
+    const removeTreeOfTheCopy = builtCopy(COPIES[name]!, m, 'win32')
+    removeTreeOfTheCopy('/first')
+    removeTreeOfTheCopy('/second')
+    expect(m.waits).toHaveLength(2 * REMOVE_RETRIES)
+    expect(() => removeTreeOfTheCopy('/d')).toThrow('EIO')
+    expect(m.waits).toHaveLength(3 * REMOVE_RETRIES)
+    expect(m.names()).toEqual(['/d', '/d/a.txt'])
+  })
+
+  it('a copy waits for real with Atomics: two busy tries take two times 100 ms', () => {
+    const m = model({ '/f': { kind: 'file' } }, { 'unlink /f': ['EBUSY', 'EPERM'] })
+    const removeTreeOfTheCopy = builtCopy(Object.values(COPIES)[0]!, m, 'win32', 'removeTree', Atomics)
+    const started = performance.now()
+    removeTreeOfTheCopy('/f')
+    const took = performance.now() - started
+    expect(m.names()).toEqual([])
+    expect(took).toBeGreaterThanOrEqual(2 * REMOVE_RETRY_MS - 20)
+    expect(took).toBeLessThan(2000)
+  })
+
   it('the copies are the same text, and that text has no backquote in it: one of them lives in a template string', () => {
     const [restore, ...others] = Object.values(COPIES)
     for (const other of others) expect(other).toBe(restore)
@@ -587,6 +709,8 @@ describe('the copies of the walk that cannot import the module', () => {
       ['a folder', '/data/card/assets', {}],
       ['a busy file', '/data/card/index.html', { 'unlink /data/card/index.html': ['EBUSY', 'EACCES'] }],
       ['a file that stays busy', '/data/card/index.html', { 'unlink /data/card/index.html': Array.from({ length: 10 }, () => 'EPERM') }],
+      ['a file that is busy five times', '/data/card/index.html', { 'unlink /data/card/index.html': Array.from({ length: 5 }, () => 'EBUSY') }],
+      ['a file that is busy six times', '/data/card/index.html', { 'unlink /data/card/index.html': Array.from({ length: 6 }, () => 'EBUSY') }],
       ['an error that is not "busy"', '/data/card/index.html', { 'unlink /data/card/index.html': ['EIO'] }],
       ['a file gone meanwhile', '/data/card/index.html', { 'unlink /data/card/index.html': ['ENOENT'] }],
       ['a name on the way that is no folder', '/data/card/index.html/x', { 'lstat /data/card/index.html/x': ['ENOTDIR'] }],
@@ -601,7 +725,7 @@ describe('the copies of the walk that cannot import the module', () => {
         const [ours, theirs] = [model(WITH_A_LINK, failing), model(WITH_A_LINK, failing)]
         let ourEnd: unknown = null
         try {
-          removeFile(path, { fs: ours.fs, platform, wait: (ms) => ours.waits.push(ms) })
+          removeFile(path, { fs: ours.fs, platform, wait: ours.wait })
         } catch (error) {
           ourEnd = (error as NodeJS.ErrnoException).code
         }

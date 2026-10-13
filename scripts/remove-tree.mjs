@@ -19,7 +19,14 @@ import process from 'node:process'
  * error. A link is removed as a link: what it leads to is neither entered nor touched.
  */
 // <remove-tree>
-export function removeTree(given, patience = { waits: 5 }) {
+export function removeTree(given) {
+  // The waits are those of the whole removal, five in all: a folder of entries that stay busy
+  // does not wait for each of them. They are made here and never taken from the caller: given
+  // to forEach, this function gets the number of the entry as its second argument.
+  return removeWalk(given, { waits: 5 })
+}
+
+function removeWalk(given, patience) {
   // Off Windows rmSync never went through a link, and nothing changes there. The walk is for
   // Windows alone, and holds for a tree nobody else changes meanwhile.
   if (process.platform !== 'win32') return rmSync(given, { recursive: true, force: true })
@@ -46,15 +53,14 @@ export function removeTree(given, patience = { waits: 5 }) {
     let failed = null
     for (const name of names) {
       try {
-        removeTree(join(path, name), patience)
+        removeWalk(join(path, name), patience)
       } catch (error) {
         if (failed === null) failed = { error }
       }
     }
     if (failed !== null) throw failed.error
   }
-  // The waits are those of the whole removal, five in all: a folder of entries that stay busy
-  // does not wait for each of them. The caller leaves the second argument out.
+  // The waits that are left are those of the whole removal (removeTree).
   for (;;) {
     try {
       if (folder) rmdirSync(path)
