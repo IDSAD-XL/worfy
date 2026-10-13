@@ -104,6 +104,43 @@ function fakeSystem(files: Record<string, string>, linked: Record<string, string
   }
 }
 
+// Review round 2 of PR #233, done in worfy-windows ticket 20: the real path of the Project root
+// is one of the places the paths may go, as it is for HANDOFF and the ADRs.
+describe('enrichSnapshot and a Project root that is itself a link to a share of the user', () => {
+  const LINKED = 'C:\\p\\link'
+  const REAL = '\\\\fileserver\\proj\\repo'
+  const system = (extra: Record<string, string> = {}) => fakeSystem(filesUnder(LINKED + '\\.scratch', '\\'), { [LINKED]: REAL, ...extra })
+
+  it('reads the titles and the files when the file system names the real path of the root', async () => {
+    const fake = system()
+    const asked: string[] = []
+    const fs = { ...fake.options.fs, realpath: async (path: string): Promise<string> => (asked.push(path), REAL) }
+    const model = await enrichSnapshot(LINKED, SNAPSHOT, LINKED + '\\.scratch', { ...fake.options, fs })
+    expect(asked).toEqual([LINKED])
+    expect(model.epics.map((epic) => epic.title)).toEqual(['Alpha epic', 'Beta epic'])
+    expect(model.tickets.map((each) => each.files)).toEqual([['src/a.ts'], ['src/b.ts'], ['src/c.ts']])
+  })
+
+  it('still reads nothing behind a link from the Tickets to another share', async () => {
+    const fake = system({ [REAL + '\\.scratch\\alpha']: '\\\\evil\\share\\alpha' })
+    const fs = { ...fake.options.fs, realpath: async (): Promise<string> => REAL }
+    const model = await enrichSnapshot(LINKED, SNAPSHOT, LINKED + '\\.scratch', { ...fake.options, fs })
+    expect(model.epics.map((epic) => epic.title)).toEqual([null, 'Beta epic'])
+    expect(model.tickets.map((each) => each.files)).toEqual([[], [], ['src/c.ts']])
+    expect(fake.calls.filter((call) => /^(readFile|readdir) /.test(call) && call.includes('\\alpha'))).toEqual([])
+  })
+
+  it('reads nothing when the real path of the root cannot be told, or the stand-in has none: the root is then a link to a share like any other', async () => {
+    for (const realpath of [undefined, async (): Promise<string> => Promise.reject(new Error('EACCES'))]) {
+      const fake = system()
+      const fs = realpath === undefined ? fake.options.fs : { ...fake.options.fs, realpath }
+      const model = await enrichSnapshot(LINKED, SNAPSHOT, LINKED + '\\.scratch', { ...fake.options, fs })
+      expect(model.epics.map((epic) => epic.title)).toEqual([null, null])
+      expect(fake.calls.filter((call) => /^(readFile|readdir) /.test(call))).toEqual([])
+    }
+  })
+})
+
 const followed = (calls: readonly string[]): string[] => calls.filter((call) => call.startsWith('readFile') || call.startsWith('readdir'))
 const titles = (model: Awaited<ReturnType<typeof enrichSnapshot>>): (string | null)[] => model.epics.map((epic) => epic.title)
 const filesOf = (model: Awaited<ReturnType<typeof enrichSnapshot>>): string[][] => model.tickets.map((each) => each.files)

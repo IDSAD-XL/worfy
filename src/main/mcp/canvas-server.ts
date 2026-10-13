@@ -11,7 +11,8 @@
 // messages for file writes into a Card's folder: the last Session that wrote there is kept in the
 // Card Node's data (`lastEditor`), so it survives a restart (ticket 26 reads it).
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, realpathSync } from 'node:fs'
+import { lstatSync, mkdirSync, realpathSync } from 'node:fs'
+import * as nativePath from 'node:path'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
@@ -44,7 +45,44 @@ import { projectStore, runGit, type StoredProject } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { epicStatusRunner, readCheckout } from '../workflow/reader'
 import instructionsTemplate from './agent-instructions.md?raw'
+import { leadsToRemoteSync, type LinkFsSync, type PathRules } from '../remote-links'
 import { removeTree } from '../storage/remove'
+
+export interface CardsFolderOptions {
+  /** The path rules of the platform; path.win32 in tests on any system. */
+  paths?: PathRules
+  links?: LinkFsSync
+  /** Whether something is at a path, by lstat; replaced in tests. */
+  there?: (path: string) => boolean
+}
+
+const lstatThere = (path: string): boolean => {
+  try {
+    lstatSync(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * True when the Cards folder must not be asked about: a link on the way to it leads off the
+ * machine, or cannot be checked (remote-links.ts; worfy-windows ticket 20). The folder is the
+ * only place the walk may end in: also when it lies on a share itself.
+ */
+export function cardsFolderAway(cardsDir: string, options: CardsFolderOptions = {}): boolean {
+  return leadsToRemoteSync(cardsDir, [cardsDir], { paths: options.paths ?? nativePath, links: options.links })
+}
+
+/**
+ * Whether a new Card may not have this id because of what is on the disk: something lies at
+ * `<Cards folder>/<id>`. The look is lstat — a link there is something, wherever it leads, and is
+ * not followed. With a Cards folder that must not be asked about, the disk is not looked at.
+ */
+export function cardIdTaken(cardsDir: string, id: string, options: CardsFolderOptions = {}): boolean {
+  if (cardsFolderAway(cardsDir, options)) return false
+  return (options.there ?? lstatThere)((options.paths ?? nativePath).join(cardsDir, id))
+}
 
 /** The part of the LayoutStore the tools use. */
 export interface CanvasLayout {
@@ -129,7 +167,7 @@ function handlers(context: CanvasContext): Handlers {
   const freshId = (prefix: string): string => {
     for (;;) {
       const id = `${prefix}-${randomUUID().slice(0, 8)}`
-      if (!nodes().some((node) => node.id === id) && !existsSync(join(context.cardsDir, id))) return id
+      if (!nodes().some((node) => node.id === id) && !cardIdTaken(context.cardsDir, id)) return id
     }
   }
   /** x/y as given, or a free place next to the calling Session's Node. */
@@ -146,6 +184,7 @@ function handlers(context: CanvasContext): Handlers {
     list_nodes: () => nodes().map(listed),
 
     create_card: (args) => {
+      if (cardsFolderAway(context.cardsDir)) throw new ToolError("The folder of this Project's Cards leads off this machine, or cannot be checked: a Card cannot be made there.")
       const id = freshId(CARD_KIND)
       const w = args.w ?? CARD_SIZE.w
       const h = args.h ?? CARD_SIZE.h
@@ -401,7 +440,8 @@ export const canvasForSession = async (request: { cwd: string; resume: string | 
   const project = await projectOfSession(deps, request.cwd)
   if (!project) return null
   const cardsDir = join(deps.dataDir(project.id), 'cards')
-  mkdirSync(cardsDir, { recursive: true })
+  // Not through a link that leads off the machine: create_card then says why no Card is made.
+  if (!cardsFolderAway(cardsDir)) mkdirSync(cardsDir, { recursive: true })
   let sessionId: string | null = request.resume ?? null
   const server = await createCanvasServer({
     projectId: project.id,

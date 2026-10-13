@@ -3,7 +3,7 @@
 // The tools write through the app's shared LayoutStore, next to src/main/ipc/layout.ts registered
 // over a mocked `electron`, so a tool call and a renderer call take the same path (ADR-0003).
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -16,6 +16,7 @@ import type { CanvasContext, CanvasDeps, CanvasWorkflow, ToolResult } from '../.
 import type { QueryRequest } from '../../src/main/agent/session'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { removeTestTree, saveLayoutNow } from '../remove'
+import { canLink, countFsCalls, SHARE, through } from './counted-fs'
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PROJECT = 'demo-0a1b2c3d'
@@ -66,7 +67,7 @@ const WORKFLOW: CanvasWorkflow = {
 }
 
 beforeEach(async () => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-canvas-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-canvas-')))
   dataDir = join(scratch, 'data')
   repo = join(scratch, 'repo')
   mkdirSync(repo)
@@ -416,6 +417,27 @@ describe('canvas tools: refused calls are tool errors with a reason', () => {
     expect(linked).toBe(1)
     expect(readdirSync(cardsDir)).toEqual([])
     expect(readdirSync(outside)).toEqual(['notes.txt'])
+  })
+
+  // worfy-windows ticket 20. A real symlink to a share nobody answers for; only Windows has the
+  // rule, and making a symlink there needs Developer Mode.
+  it.runIf(canLink())('create_card with a Cards folder that is a link to a share is a tool error that says so: no folder is made, and no call names a path through the link', async () => {
+    const cardsDir = join(dataDir, PROJECT, 'cards')
+    symlinkSync(`${SHARE}\\cards`, cardsDir, 'dir')
+    const rpc = await connect()
+    const counted = countFsCalls()
+    try {
+      const result = await rpc.call('create_card', { title: 'Lost' })
+      expect(result.isError).toBe(true)
+      expect(textOf(result)).toMatch(/Cards leads off this machine, or cannot be checked/)
+      expect(through(counted.calls, cardsDir)).toEqual([])
+      // A note needs no folder: it is made as before.
+      expect((await rpc.call('create_note', { text: 'still here' })).isError).toBeFalsy()
+      expect(through(counted.calls, cardsDir)).toEqual([])
+    } finally {
+      counted.restore()
+      unlinkSync(cardsDir)
+    }
   })
 
   it('update_node refuses a Node that is neither a Card nor a note, and a field the kind does not have', async () => {
