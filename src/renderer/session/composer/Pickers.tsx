@@ -37,11 +37,13 @@ const markName = (mark: EffortMark): string => mark ?? 'default'
 
 /**
  * The marks of the effort slider, left to right: the model's default, then the levels in the order
- * of EFFORT_LEVELS — those the picked model takes, and the saved level where the model does not
- * list it. No marks at all when there is no level to offer.
+ * of EFFORT_LEVELS — those the picked model takes, and two more where the model does not list
+ * them: the saved level, and the level the thumb was moved to (the list of models may arrive after
+ * the thumb moved, and the popover must go on showing the level it will send). No marks at all
+ * when there is no level to offer.
  */
-function effortMarks(efforts: readonly EffortChoice[], saved: EffortChoice | null): EffortMark[] {
-  const levels = EFFORT_LEVELS.filter((level) => efforts.includes(level) || level === saved)
+function effortMarks(efforts: readonly EffortChoice[], saved: EffortChoice | null, moved: EffortMark): EffortMark[] {
+  const levels = EFFORT_LEVELS.filter((level) => efforts.includes(level) || level === saved || level === moved)
   return levels.length === 0 ? [] : [null, ...levels]
 }
 
@@ -62,7 +64,8 @@ function useModels(sessionId: string | null): { models: readonly ModelOption[]; 
 interface EffortPickerProps {
   /** The level main reports; null: the model's default. */
   effort: EffortChoice | null
-  marks: readonly EffortMark[]
+  /** The levels the picked model takes; every level while the list of models is empty. */
+  efforts: readonly EffortChoice[]
   disabled: boolean
   configure: (change: SettingsChange) => void
 }
@@ -74,7 +77,7 @@ interface EffortPickerProps {
  * leaving it), or EFFORT_REST_MS after the thumb last moved — never on a single move, and never a
  * level main already has. A picker that goes away with the thumb moved sends its level too.
  */
-function EffortPicker({ effort, marks, disabled, configure }: EffortPickerProps) {
+function EffortPicker({ effort, efforts, disabled, configure }: EffortPickerProps) {
   const popoverId = useId()
   const [open, setOpen] = useState(false)
   /** Where the user put the thumb since the popover opened; undefined: not moved, the thumb is on `effort`. */
@@ -92,9 +95,12 @@ function EffortPicker({ effort, marks, disabled, configure }: EffortPickerProps)
     latest.current = { effort, configure }
   })
 
+  // The mark the thumb was moved to stays a mark while the thumb stands on it, whatever the model
+  // lists by now: the level shown is the level sent.
+  const marks = effortMarks(efforts, effort, moved !== undefined ? moved.mark : null)
   const inactive = disabled || marks.length === 0
   // A picker that lost its levels (or its Session's settings) under an open popover closes it for
-  // good. A thumb moved before that is still sent when its rest is over.
+  // good. A thumb moved before the settings went is still sent when its rest is over.
   if (inactive && open) {
     setOpen(false)
     setMoved(undefined)
@@ -304,11 +310,13 @@ export default function Pickers({ sessionId }: ComposerItemProps) {
 
   return (
     <span className="w-pickers" data-testid="pickers">
+      {/* A narrow bar cuts the value of a button; its title has it in full. */}
       <Select
-        className="w-pickers__select"
+        className="w-pickers__select w-pickers__select--model"
         aria-label="Model"
         data-testid="picker-model"
         prefix="Model"
+        title={modelOptions.find((option) => option.value === (model ?? DEFAULT_VALUE))?.label}
         mono
         disabled={disabled}
         value={model ?? DEFAULT_VALUE}
@@ -317,12 +325,13 @@ export default function Pickers({ sessionId }: ComposerItemProps) {
         onChange={(next) => configure(modelChange(next === DEFAULT_VALUE ? null : next))}
       />
       {/* A thumb moved in one Session never goes to another: the picker starts anew with the Session. */}
-      <EffortPicker key={sessionId ?? ''} effort={effort} marks={effortMarks(efforts, effort)} disabled={disabled} configure={configure} />
+      <EffortPicker key={sessionId ?? ''} effort={effort} efforts={efforts} disabled={disabled} configure={configure} />
       <Select
-        className="w-pickers__select"
+        className="w-pickers__select w-pickers__select--permissions"
         aria-label="Permission mode"
         data-testid="picker-permissions"
         prefix="Permissions"
+        title={MODE_LABELS[settings?.permissionMode ?? 'bypassPermissions']}
         disabled={disabled}
         value={settings?.permissionMode ?? 'bypassPermissions'}
         options={MODE_OPTIONS}

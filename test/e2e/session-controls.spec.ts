@@ -109,11 +109,6 @@ test('the pickers change the live Session and survive a restart; the queue sends
     // The picks reach the live Claude Code as control calls, without a restart.
     await choose(window, model, 'Sonnet')
     await expect(model).toHaveAttribute('data-value', 'sonnet')
-    for (const scheme of ['light', 'dark'] as const) {
-      await window.emulateMedia({ colorScheme: scheme })
-      await view.getByTestId('pickers').screenshot({ path: test.info().outputPath(`composer-pickers-${scheme}.png`) })
-    }
-    await window.emulateMedia({ colorScheme: null })
 
     // The effort is a slider in the popover of its button: its marks are the levels of the picked
     // model, and the popover opens over the button, inside the window.
@@ -262,4 +257,115 @@ test("an Orchestrator saved on haiku starts on the default model with its effort
   // worfy never writes to the user's settings.json (ADR 0005).
   expect(readFileSync(userSettings, 'utf8')).toBe(userText)
   expect(statSync(userSettings).mtimeMs).toBe(userMtime)
+})
+
+// The three native lists the pickers replaced were 427 px wide together on the default model (150,
+// 132 and 137 px with two 4 px gaps, measured in a 1280×800 window). A block that wide in the
+// pickers' place gives the bar the lines it had then.
+const NATIVE_LISTS_WIDTH = 427
+
+test('on the default model the pickers do not make the bar under the input field taller than the native lists did, and Send stays on their line', async () => {
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view', WORFY_AGENT_LOG: log }
+  const launched = await launchApp({ env })
+  try {
+    const { window, app } = launched
+    const view = await openSession(window)
+    const model = view.getByTestId('picker-model')
+    const mode = view.getByTestId('picker-permissions')
+    const bar = view.locator('.w-composer__bar')
+    const pickers = view.getByTestId('pickers')
+    const send = view.getByTestId('input-send')
+    // Every new Session starts here: the default model, whose name is the longest of the list.
+    await expect(model).toHaveText('ModelDefault (recommended)')
+    await expect(mode).toHaveText('PermissionsBypass permissions')
+
+    const box = async (locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> => {
+      const found = await locator.boundingBox()
+      if (found === null) throw new Error('no box')
+      return found
+    }
+    const resize = async (width: number, height: number): Promise<void> => {
+      await expect
+        .poll(
+          async () => {
+            // Reading a box lays the page out for the width it has now.
+            const now = await bar.evaluate((element) => element.ownerDocument.documentElement.clientWidth)
+            if (now !== width) await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setSize(wanted.width, wanted.height), { width, height })
+            return now
+          },
+          { message: `the window is ${width} px wide` },
+        )
+        .toBe(width)
+    }
+    /** The height of the bar as it is, and with a block as wide as the native lists in the pickers' place. */
+    const heights = async (): Promise<{ now: number; withNativeLists: number }> => {
+      const now = (await box(bar)).height
+      const style = await window.addStyleTag({
+        content: `.w-composer__item[data-item='Pickers'] { flex: 0 0 ${NATIVE_LISTS_WIDTH}px !important; min-width: 0 !important; max-width: none !important; overflow: hidden !important; }`,
+      })
+      const withNativeLists = (await box(bar)).height
+      await style.evaluate((element) => element.remove())
+      return { now, withNativeLists }
+    }
+    const cut = (picker: Locator): Promise<boolean> => picker.locator('.w-select__value').evaluate((value) => value.scrollWidth > value.clientWidth)
+
+    // The window the app opens in, with the sidebar and the rail of the Session shown: the pickers
+    // stand on one line with Send, and the bar is as tall as it was with the native lists.
+    await resize(1280, 800)
+    const [barBox, pickersBox, sendBox] = [await box(bar), await box(pickers), await box(send)]
+    expect(Math.abs(sendBox.y + sendBox.height / 2 - (pickersBox.y + pickersBox.height / 2))).toBeLessThan(4)
+    expect(sendBox.x).toBeGreaterThan(pickersBox.x + pickersBox.width)
+    expect(await heights()).toEqual({ now: barBox.height, withNativeLists: barBox.height })
+    // In whatever window: the place the pickers ask of the bar before its lines are made is no
+    // wider than the native lists were.
+    const asked = await pickers.evaluate((element) => element.ownerDocument.defaultView?.getComputedStyle(element.parentElement ?? element).flexBasis ?? '')
+    expect(Number.parseFloat(asked), `flex-basis of the pickers' item: ${asked}`).toBeLessThanOrEqual(NATIVE_LISTS_WIDTH)
+    // There is room for the permission mode in full; a value that is cut is in the button's title.
+    expect(await cut(mode)).toBe(false)
+    await expect(mode).toHaveAttribute('title', 'Bypass permissions')
+    await expect(model).toHaveAttribute('title', 'Default (recommended)')
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      await view.getByTestId('message-input').screenshot({ path: test.info().outputPath(`composer-pickers-${scheme}.png`) })
+    }
+    await window.emulateMedia({ colorScheme: null })
+
+    // Other windows, down to the smallest, with the sidebar shown and hidden: never a line more.
+    for (const sidebar of ['shown', 'hidden'] as const) {
+      if (sidebar === 'hidden') await window.getByRole('button', { name: 'Hide sidebar' }).click()
+      for (const [width, height] of [
+        [1280, 800],
+        [1200, 800],
+        [1000, 700],
+        [800, 520],
+      ] as const) {
+        await resize(width, height)
+        const { now, withNativeLists } = await heights()
+        expect(now, `the bar in a ${width}×${height} window, the sidebar ${sidebar}`).toBeLessThanOrEqual(withNativeLists)
+        // In a line narrower than the pickers their values are cut; the buttons stay inside the bar.
+        const [outer, inner] = [await box(bar), await box(pickers)]
+        if (outer.width >= 400) {
+          expect(inner.x, `the pickers' left edge in a ${width}×${height} window, the sidebar ${sidebar}`).toBeGreaterThanOrEqual(outer.x)
+          expect(inner.x + inner.width, `the pickers' right edge in a ${width}×${height} window, the sidebar ${sidebar}`).toBeLessThanOrEqual(outer.x + outer.width)
+        }
+      }
+    }
+    // A cut value is still the whole value to a screen reader, and in the title.
+    await expect(model).toHaveText('ModelDefault (recommended)')
+    await expect(model).toHaveAttribute('title', 'Default (recommended)')
+
+    // The sidebar hidden, the window wide again: the pickers stand in one line with the hint and
+    // the spacer. The room of that line is theirs first: the spacer gets none while a value is cut.
+    await resize(1280, 800)
+    const width = (locator: Locator): Promise<number> => locator.evaluate((element) => element.getBoundingClientRect().width)
+    const spacer = view.locator('.w-composer__spacer')
+    expect((await width(spacer)) < 1 || !(await cut(model))).toBe(true)
+    // And they take no more than their full width: with a short model name the rest is the spacer's.
+    await choose(window, model, 'Sonnet')
+    await expect(model).toHaveAttribute('data-value', 'sonnet')
+    await expect(model).toHaveAttribute('title', 'Sonnet')
+    expect(Math.abs((await width(pickers.locator('xpath=..'))) - (await width(pickers)))).toBeLessThan(1)
+  } finally {
+    await launched.close()
+  }
 })

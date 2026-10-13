@@ -763,23 +763,49 @@
 }
 
 /* Input field: model, effort and permission pickers (composer/Pickers.tsx) */
+/* With their captions the pickers are wider than the three native lists they replaced (427 px on
+   the default model), and at that width they would push Send onto a line of its own. So in the bar
+   they count as 420 px: the bar breaks into lines where it did with the lists and is no taller.
+   From there they take the room left in their line, up to their full width, before the spacer
+   gets any; in a line with less room the values are cut (below). */
+.w-composer__item[data-item='Pickers'] {
+  flex: 1000 1 420px;
+  min-width: 0;
+  max-width: max-content;
+}
+
 .w-pickers {
-  display: inline-flex;
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
   align-items: center;
   gap: 4px;
 }
 
 /* The three buttons have the look of the shared Select's button (theme/select.css): 24 px tall, a
-   muted caption, the value, a chevron. Here only how wide one may grow before its value is cut. */
+   muted caption, the value, a chevron. A value that does not fit is cut with an ellipsis inside
+   its button, and the button's title has it in full. The model's value goes first: its button is
+   124 px ("Sonnet" still fits) plus what is left after the other two. Only when that is nothing
+   does the permission mode get cut too, down to 110 px. The effort is never cut. */
 .w-pickers .w-pickers__select {
   max-width: 220px;
+}
+
+.w-pickers .w-pickers__select--model {
+  flex: 1 1 124px;
+  min-width: 124px;
+}
+
+.w-pickers .w-pickers__select--permissions {
+  flex: 0 1 auto;
+  min-width: 110px;
 }
 
 /* The effort picker: its button and the popover with the slider that opens over it. */
 .w-effort {
   position: relative;
   display: inline-flex;
-  min-width: 0;
+  flex: none;
 }
 
 .w-effort__popover {
@@ -880,6 +906,7 @@
 }
 
 .w-pickers__error {
+  flex: none;
   color: var(--blocked-text);
   font-size: var(--text-11);
   white-space: nowrap;

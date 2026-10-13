@@ -32,7 +32,8 @@ beforeEach(() => {
     invoke: (channel: string, input: unknown) => {
       asked.push({ channel, input })
       const answer = answers[channel]
-      return Promise.resolve(answer ? { ok: true, value: answer(input) } : { ok: false, error: `no ${channel}` })
+      // An answer may be a promise: main takes its time (the list of models).
+      return answer ? Promise.resolve(answer(input)).then((value) => ({ ok: true, value })) : Promise.resolve({ ok: false, error: `no ${channel}` })
     },
     on: (channel: string, handler: (payload: unknown) => void) => {
       handlers.set(channel, handler)
@@ -45,6 +46,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.restoreAllMocks()
   delete (globalThis as { worfy?: WorfyBridge }).worfy
 })
 
@@ -78,6 +80,24 @@ async function mount({ settings = {}, models = MODELS, sessionId = 's' }: { sett
   })
   expect(asked.map((each) => each.channel)).toEqual(expect.arrayContaining(['agent.controls', 'agent.models']))
   return { saved, show: (next: string) => view.rerender(<Pickers sessionId={next} {...props} />), unmount: () => view.unmount() }
+}
+
+/**
+ * The pickers of Session `s` on Sonnet while main has not answered agent.models yet: every level is
+ * on offer. `arrive` is main's answer — Sonnet takes "low" and "high" only. It works under fake
+ * timers too: nothing in it waits for a timer.
+ */
+async function mountBeforeModels() {
+  // One request per Session the pickers were shown for; `arrive` answers every one still open.
+  const waiting: ((value: unknown) => void)[] = []
+  answers['agent.models'] = () => new Promise((resolve) => waiting.push(resolve))
+  const mounted = await mount({ settings: { model: 'sonnet' }, models: null })
+  const arrive = (): Promise<void> =>
+    act(async () => {
+      for (const give of waiting.splice(0)) give({ models: MODELS })
+      for (let turn = 0; turn < 10; turn += 1) await Promise.resolve()
+    })
+  return { ...mounted, arrive }
 }
 
 const open = (): void => {
@@ -345,13 +365,15 @@ describe('what the effort slider sends to agent.configure', () => {
     expect(configured()).toEqual([sent({ effort: 'low' }), sent({ effort: 'low' })])
   })
 
-  it('a thumb moved before the picker lost its levels is still sent when its 600 ms are over', async () => {
+  it('a thumb moved before the model lost its levels keeps its mark, and its level is sent when its 600 ms are over', async () => {
     await mount({ settings: { model: 'sonnet' } })
     vi.useFakeTimers()
     open()
     press('ArrowRight')
     await emit('s', { type: 'settings', settings: { ...DEFAULTS, model: 'haiku' } })
-    expect(popover()).toBeNull()
+    // The popover still shows what will be sent.
+    expect(marks()).toEqual(['default', 'low'])
+    expect(slider().getAttribute('aria-valuetext')).toBe('low')
     expect(configured()).toEqual([])
     act(() => void vi.advanceTimersByTime(600))
     expect(configured()).toEqual([sent({ effort: 'low' })])
@@ -385,6 +407,132 @@ describe('what the effort slider sends to agent.configure', () => {
     press('ArrowRight')
     press('Enter')
     expect((await screen.findByTestId('pickers-error')).getAttribute('title')).toBe('no agent.configure')
+  })
+})
+
+// The popover may open before main answered agent.models: every level is on offer then. The answer
+// can arrive at any moment after that, and the model may not list the level the thumb stands on.
+// The thumb's mark stays among the marks for as long as the thumb stands on it — as a saved level
+// the model does not list does — so the level shown is always the level sent.
+describe('the list of models arriving after the popover opened', () => {
+  const valuetext = (): string | null => slider().getAttribute('aria-valuetext')
+
+  it('keeps the mark the thumb was moved to, though the model does not list it: what is shown is what is sent', async () => {
+    const { arrive } = await mountBeforeModels()
+    open()
+    expect(marks()).toEqual(['default', 'low', 'medium', 'high', 'xhigh', 'max'])
+    press('ArrowRight')
+    press('ArrowRight')
+    expect(valuetext()).toBe('medium')
+    await arrive()
+    expect(marks()).toEqual(['default', 'low', 'medium', 'high'])
+    expect(valuetext()).toBe('medium')
+    expect(screen.getByTestId('effort-current').textContent).toBe('medium')
+    expect(slider().value).toBe('2')
+    expect(slider().max).toBe('3')
+    press('Escape')
+    expect(configured()).toEqual([sent({ effort: 'medium' })])
+  })
+
+  it('drops that mark once the thumb leaves it', async () => {
+    const { arrive } = await mountBeforeModels()
+    open()
+    press('ArrowRight')
+    press('ArrowRight')
+    await arrive()
+    press('ArrowRight')
+    expect(valuetext()).toBe('high')
+    expect(marks()).toEqual(['default', 'low', 'high'])
+    expect(slider().value).toBe('2')
+    // "medium" is no mark any more: ← goes to "low".
+    press('ArrowLeft')
+    expect(valuetext()).toBe('low')
+    press('Enter')
+    expect(configured()).toEqual([sent({ effort: 'low' })])
+  })
+
+  it('keeps no mark for a thumb that was not moved, and sends nothing', async () => {
+    const { arrive } = await mountBeforeModels()
+    open()
+    await arrive()
+    expect(marks()).toEqual(['default', 'low', 'high'])
+    expect(valuetext()).toBe('default')
+    press('Escape')
+    expect(configured()).toEqual([])
+  })
+
+  it('during the 600 ms of rest: the level shown is sent once, when the rest is over', async () => {
+    const { arrive } = await mountBeforeModels()
+    vi.useFakeTimers()
+    open()
+    press('ArrowRight')
+    press('ArrowRight')
+    act(() => void vi.advanceTimersByTime(300))
+    await arrive()
+    expect(valuetext()).toBe('medium')
+    // The answer of main is no move of the thumb: the rest goes on from the last move.
+    act(() => void vi.advanceTimersByTime(299))
+    expect(configured()).toEqual([])
+    act(() => void vi.advanceTimersByTime(1))
+    expect(configured()).toEqual([sent({ effort: 'medium' })])
+    expect(valuetext()).toBe('medium')
+    press('Escape')
+    act(() => void vi.advanceTimersByTime(5000))
+    expect(configured()).toEqual([sent({ effort: 'medium' })])
+  })
+
+  it('in the middle of a drag: the next move of the native slider counts in the new marks, and one level is sent', async () => {
+    const { arrive } = await mountBeforeModels()
+    vi.useFakeTimers()
+    open()
+    // The mouse holds the thumb on the third mark of six: "medium".
+    fireEvent.change(slider(), { target: { value: '2' } })
+    expect(valuetext()).toBe('medium')
+    await arrive()
+    // Four marks now, and the thumb is still on "medium".
+    expect(marks()).toEqual(['default', 'low', 'medium', 'high'])
+    expect(slider().value).toBe('2')
+    // The mouse goes on to the last of them.
+    fireEvent.change(slider(), { target: { value: '3' } })
+    expect(valuetext()).toBe('high')
+    expect(marks()).toEqual(['default', 'low', 'high'])
+    expect(configured()).toEqual([])
+    act(() => void vi.advanceTimersByTime(600))
+    expect(configured()).toEqual([sent({ effort: 'high' })])
+  })
+
+  it('after the popover closed: the level is not sent again, and it is a mark once main reports it', async () => {
+    const { arrive, saved } = await mountBeforeModels()
+    vi.useFakeTimers()
+    open()
+    press('ArrowRight')
+    press('ArrowRight')
+    press('Escape')
+    expect(configured()).toEqual([sent({ effort: 'medium' })])
+    await arrive()
+    act(() => void vi.advanceTimersByTime(5000))
+    expect(configured()).toEqual([sent({ effort: 'medium' })])
+    // main has not reported the level yet: the thumb starts from the level it has.
+    open()
+    expect(marks()).toEqual(['default', 'low', 'high'])
+    expect(valuetext()).toBe('default')
+    await emit('s', { type: 'settings', settings: { ...saved, effort: 'medium' } })
+    expect(marks()).toEqual(['default', 'low', 'medium', 'high'])
+    expect(valuetext()).toBe('medium')
+    press('Enter')
+    expect(configured()).toEqual([sent({ effort: 'medium' })])
+  })
+
+  it('with the popover open in another Session by then: the answer for the first changes nothing there', async () => {
+    const { arrive, show } = await mountBeforeModels()
+    open()
+    press('ArrowRight')
+    press('ArrowRight')
+    show('other')
+    expect(configured()).toEqual([sent({ effort: 'medium' }, 's')])
+    await arrive()
+    expect(popover()).toBeNull()
+    expect(configured()).toEqual([sent({ effort: 'medium' }, 's')])
   })
 })
 
