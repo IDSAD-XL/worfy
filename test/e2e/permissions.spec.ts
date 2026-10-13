@@ -55,8 +55,10 @@ async function openAsking(window: Page): Promise<Locator> {
   await node.locator('.w-orchestrator__header').dblclick()
   const view = window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
   await expect(view.getByTestId('session-state')).toHaveText('idle')
-  await view.getByTestId('picker-permissions').selectOption({ label: 'Ask before tools' })
-  await expect(view.getByTestId('picker-permissions')).toHaveValue('default')
+  // The picker is a Select: its button opens a list drawn into the document's body.
+  await view.getByTestId('picker-permissions').click()
+  await window.getByTestId('picker-permissions-list').getByRole('option', { name: 'Ask before tools' }).click()
+  await expect(view.getByTestId('picker-permissions')).toHaveAttribute('data-value', 'default')
   return view
 }
 
