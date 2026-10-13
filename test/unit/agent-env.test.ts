@@ -26,7 +26,11 @@ import {
   PERSISTENT_ENV_KEYS,
   powershellCommand,
   powershellRegRead,
-  registryScript,
+  powershellScriptCommand,
+  REGISTRY_HIVE_VAR,
+  REGISTRY_SCRIPT,
+  REGISTRY_SUBKEY_VAR,
+  registryVars,
   stderrLine,
   shellBaseEnv,
   SYSTEM_PATH,
@@ -538,46 +542,91 @@ describe('findOnPath and the registry reader', () => {
     expect(parseRegistryValues(`#< CLIXML\r\nDWord ${b64('Flag')} ${b64('1')}\r\nwarning: something\r\n`)).toEqual([])
   })
 
-  it('the registry script opens the key through the .NET API with the subkey in base64, reads values unexpanded, and prints only String and ExpandString', () => {
-    const subkey = 'Software\\it’s ‘quoted’'
-    const user = registryScript(`HKCU\\${subkey}`)
-    expect(user).toContain('[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($path)')
-    expect(user).toContain(`FromBase64String('${b64(subkey)}')`)
-    expect(user).not.toContain('it’s')
-    expect(registryScript(PERSISTENT_ENV_KEYS[1])).toContain('[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($path)')
-    expect(registryScript(PERSISTENT_ENV_KEYS[1])).toContain(`FromBase64String('${b64('SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment')}')`)
-    expect(user).toContain("'DoNotExpandEnvironmentNames'")
-    expect(user).toContain("$kind -ne 'String' -and $kind -ne 'ExpandString'")
-    expect(user).toContain('if ($null -eq $key) { throw')
-    expect(() => registryScript('HKCR\\x')).toThrow(/not a key of HKCU or HKLM/)
+  // worfy-windows ticket 21: one text for every key. From Electron a script that decodes base64 —
+  // its own text with -EncodedCommand, or a string with FromBase64String — costs about a second
+  // more the first time a process runs it; this one is handed over as text and only encodes.
+  it('the registry script is one text: it opens the key the environment names through the .NET API, reads values unexpanded, and prints only String and ExpandString, in base64', () => {
+    expect(REGISTRY_SCRIPT).toBe(
+      [
+        "$ErrorActionPreference = 'Stop'",
+        '$b64 = { param($s) [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$s)) }',
+        'try {',
+        '  $hives = @{ CurrentUser = [Microsoft.Win32.Registry]::CurrentUser; LocalMachine = [Microsoft.Win32.Registry]::LocalMachine }',
+        '  $hive = $hives[[string]$env:WORFY_REGISTRY_HIVE]',
+        '  if ($null -eq $hive) { throw "not a hive this script reads: $env:WORFY_REGISTRY_HIVE" }',
+        '  $path = [string]$env:WORFY_REGISTRY_SUBKEY',
+        '  $key = $hive.OpenSubKey($path)',
+        '  if ($null -eq $key) { throw "no such key: $path" }',
+        '  foreach ($name in $key.GetValueNames()) {',
+        "    if ($name -eq '') { continue }",
+        '    $kind = $key.GetValueKind($name).ToString()',
+        "    if ($kind -ne 'String' -and $kind -ne 'ExpandString') { continue }",
+        "    $value = $key.GetValue($name, '', 'DoNotExpandEnvironmentNames')",
+        '    "$kind $(& $b64 $name) $(& $b64 $value)"',
+        '  }',
+        '} catch {',
+        '  "Error $(& $b64 $_.Exception.Message)"',
+        '  exit 1',
+        '}',
+      ].join('\n'),
+    )
+    expect(REGISTRY_SCRIPT).not.toMatch(/FromBase64String/i)
+    expect([REGISTRY_HIVE_VAR, REGISTRY_SUBKEY_VAR]).toEqual(['WORFY_REGISTRY_HIVE', 'WORFY_REGISTRY_SUBKEY'])
   })
 
-  it('starts Windows PowerShell of SystemRoot by its absolute path, without a profile or prompts, hidden, with a timeout', () => {
-    const { file, args, options } = powershellCommand('D:\\Win', PERSISTENT_ENV_KEYS[0])
+  it('the key goes into two variables as it is written, whatever is in its name; a key of another hive is refused', () => {
+    const subkey = 'Software\\it’s ‘quoted’ "and" $(more); Ключ'
+    expect(registryVars(`HKCU\\${subkey}`)).toEqual({ WORFY_REGISTRY_HIVE: 'CurrentUser', WORFY_REGISTRY_SUBKEY: subkey })
+    expect(registryVars(PERSISTENT_ENV_KEYS[0])).toEqual({ WORFY_REGISTRY_HIVE: 'CurrentUser', WORFY_REGISTRY_SUBKEY: 'Environment' })
+    expect(registryVars(PERSISTENT_ENV_KEYS[1])).toEqual({ WORFY_REGISTRY_HIVE: 'LocalMachine', WORFY_REGISTRY_SUBKEY: 'SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment' })
+    expect(registryVars('hklm\\x')).toEqual({ WORFY_REGISTRY_HIVE: 'LocalMachine', WORFY_REGISTRY_SUBKEY: 'x' })
+    expect(() => registryVars('HKCR\\x')).toThrow(/not a key of HKCU or HKLM/)
+    expect(() => registryVars('CurrentUser\\x')).toThrow(/not a key of HKCU or HKLM/)
+  })
+
+  it('starts Windows PowerShell of SystemRoot by its absolute path, without a profile or prompts, hidden, with a timeout; the script as text, the key in the environment', () => {
+    const env = { SystemRoot: 'D:\\Win', Path: 'D:\\bin', WORFY_REGISTRY_SUBKEY: 'left over' }
+    const { file, args, options } = powershellCommand('D:\\Win', PERSISTENT_ENV_KEYS[0], env)
     expect(file).toBe('D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
-    expect(args.slice(0, 3)).toEqual(['-NoProfile', '-NonInteractive', '-EncodedCommand'])
-    expect(Buffer.from(args[3]!, 'base64').toString('utf16le')).toBe(registryScript(PERSISTENT_ENV_KEYS[0]))
-    expect(args).toHaveLength(4)
-    expect(options).toEqual({ encoding: 'utf8', timeout: 10_000, windowsHide: true })
+    expect(args).toEqual(['-NoProfile', '-NonInteractive', '-Command', REGISTRY_SCRIPT])
+    expect(options).toEqual({ encoding: 'utf8', timeout: 10_000, windowsHide: true, env: { SystemRoot: 'D:\\Win', Path: 'D:\\bin', WORFY_REGISTRY_HIVE: 'CurrentUser', WORFY_REGISTRY_SUBKEY: 'Environment' } })
+    // The other key: the same arguments, another environment.
+    const machine = powershellCommand('D:\\Win', PERSISTENT_ENV_KEYS[1], env)
+    expect(machine.args).toEqual(args)
+    expect(machine.options.env).toMatchObject({ WORFY_REGISTRY_HIVE: 'LocalMachine', WORFY_REGISTRY_SUBKEY: 'SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment' })
+    // By default the data is added to the environment of worfy itself.
+    expect(powershellCommand('D:\\Win', PERSISTENT_ENV_KEYS[0]).options.env).toEqual({ ...process.env, WORFY_REGISTRY_HIVE: 'CurrentUser', WORFY_REGISTRY_SUBKEY: 'Environment' })
     for (const root of [undefined, '', 'Windows', 'C:Windows', '\\Windows', '/Windows']) {
       expect(powershellCommand(root, PERSISTENT_ENV_KEYS[0]).file).toBe('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
     }
   })
 
+  it('a script without data runs in the environment of worfy as it is: no environment is given', () => {
+    const { args, options } = powershellScriptCommand('C:\\Windows', 'exit 0')
+    expect(args).toEqual(['-NoProfile', '-NonInteractive', '-Command', 'exit 0'])
+    expect(options).toEqual({ encoding: 'utf8', timeout: 10_000, windowsHide: true })
+    expect(powershellScriptCommand('C:\\Windows', 'exit 0', { A: '1' }, { B: '2' }).options.env).toEqual({ A: '1', B: '2' })
+  })
+
   // The process runner of powershellRegRead, answering with `answer` and recording what it ran.
   const runner = (answer: { error?: { code?: unknown; killed?: boolean }; stdout?: string; stderr?: string }) => {
-    const calls: { file: string; args: string[] }[] = []
-    const run: RunFile = (file, args, _options, done) => {
-      calls.push({ file, args })
+    const calls: { file: string; args: string[]; key: (string | undefined)[] }[] = []
+    const run: RunFile = (file, args, options, done) => {
+      calls.push({ file, args, key: [options.env?.[REGISTRY_HIVE_VAR], options.env?.[REGISTRY_SUBKEY_VAR]] })
       done(answer.error ?? null, answer.stdout ?? '', answer.stderr ?? '')
     }
     return { run, calls }
   }
 
-  it('the reader runs powershellCommand and gives [] for empty output', async () => {
+  it('the reader runs powershellCommand with the key in the environment and gives [] for empty output', async () => {
     const { run, calls } = runner({ stdout: '' })
     await expect(powershellRegRead('C:\\Windows', run)(PERSISTENT_ENV_KEYS[0])).resolves.toEqual([])
-    expect(calls).toEqual([{ file: powershellCommand('C:\\Windows', PERSISTENT_ENV_KEYS[0]).file, args: powershellCommand('C:\\Windows', PERSISTENT_ENV_KEYS[0]).args }])
+    await expect(powershellRegRead('C:\\Windows', run)(PERSISTENT_ENV_KEYS[1])).resolves.toEqual([])
+    const { file, args } = powershellCommand('C:\\Windows', PERSISTENT_ENV_KEYS[0])
+    expect(calls).toEqual([
+      { file, args, key: ['CurrentUser', 'Environment'] },
+      { file, args, key: ['LocalMachine', 'SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment'] },
+    ])
   })
 
   it("the reader's error says the timeout, the script's own message, or the last line of stderr", async () => {
@@ -615,6 +664,13 @@ describe.runIf(process.platform === 'win32')('the registry reader on this Window
   it('rejects for a key that does not exist', async () => {
     execFileSync('reg', ['add', SCRATCH, '/f'], { stdio: 'ignore' })
     await expect(powershellRegRead(process.env.SystemRoot ?? 'C:\\Windows')(`${SCRATCH}\\missing`)).rejects.toThrow(/could not read .*: no such key: Software/)
+  })
+
+  // worfy-windows ticket 21: the key reaches the script through the environment, not through its text.
+  it('reads a key whose name has Cyrillic, quotes and what PowerShell would take for code', async () => {
+    const subkey = 'Ключ ‘it’s’ $(Get-Date); `x`'
+    execFileSync('reg', ['add', `${SCRATCH}\\${subkey}`, '/v', 'V', '/t', 'REG_SZ', '/d', 'значение 😀', '/f'], { stdio: 'ignore' })
+    await expect(powershellRegRead(process.env.SystemRoot ?? 'C:\\Windows')(`${SCRATCH}\\${subkey}`)).resolves.toEqual([{ name: 'V', type: 'REG_SZ', value: 'значение 😀' }])
   })
 })
 
