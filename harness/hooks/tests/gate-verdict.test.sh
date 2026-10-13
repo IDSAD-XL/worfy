@@ -82,7 +82,8 @@ if "%m%"=="big" goto big
 exit /b 1
 :big
 node -e "process.stdout.write(('x'.repeat(99) + '\n').repeat(20000))"
-exit /b 0
+echo sh: tool: command not found
+exit /b 127
 EOF
 else
     PM="$T/fakepm"
@@ -94,7 +95,7 @@ case "\$(cat "$T/mode")" in
     envbad) echo "sh: tool: command not found"; exit 127 ;;
     envbad-cmd) echo "'tool' is not recognized as an internal or external command,"; exit 1 ;;
     mixed) echo "sh: tool: command not found"; echo "Tests 1 failed"; exit 1 ;;
-    big) node -e "process.stdout.write(('x'.repeat(99) + '\n').repeat(20000))"; exit 0 ;;
+    big) node -e "process.stdout.write(('x'.repeat(99) + '\n').repeat(20000))"; echo "sh: tool: command not found"; exit 127 ;;
     term) kill -TERM \$\$; sleep 5 ;;
     termparent) kill -TERM \$PPID; exit 0 ;;
 esac
@@ -166,10 +167,12 @@ mode ok; touched
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
 verdict "a later green run overwrites red with green" "$R" '.outcome == "green" and .exit == 0 and .profile == "fast"'
 if [ ! -e "$STATE/red-t-$(tag "$R")" ]; then ok "a later green run removes the red marker"; else bad "the red marker is left after a green run"; fi
-# A script that writes 2 MB is still a script that ran: its output is kept whole, not cut at a limit.
+# The output of a script is read to its last line, however long it is: 2 MB here, and only the
+# last line says that a tool is missing.
 mode big; touched
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
-verdict "a script with 2 MB of output -> outcome green, exit 0" "$R" '.outcome == "green" and .exit == 0 and .key == "t"'
+verdict "2 MB of output with the sign of a missing tool in the last line -> outcome unverified" "$R" \
+    '.outcome == "unverified" and .exit == 0 and .key == "t" and (.reason | endswith("sh: tool: command not found"))'
 mode ok
 
 # --- 3. Environment unavailable ------------------------------------------------------
