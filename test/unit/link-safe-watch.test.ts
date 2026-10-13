@@ -396,6 +396,8 @@ describe('a root that is not there, or goes away', () => {
     const { watch, changes, errors } = await start(disk)
     expect(watch.state).toBe('waiting')
     expect(errors).toEqual([])
+    // Two events for it, as Windows sends for a new entry: two looks are queued.
+    disk.put(ROOT, linkTo(`${EVIL}\\scratch`))
     disk.put(ROOT, linkTo(`${EVIL}\\scratch`))
     await watch.settled()
     expect(watch.state).toBe('refused')
@@ -551,6 +553,45 @@ describe('a look at the root that fails is repeated', () => {
     disk.put(`${ROOT}\\demo\\issues\\01-a.md`, FILE)
     await until('the watch of the root', () => watch.state === 'watching')
     expect(errors).toEqual([lost, refused, refused])
+  })
+
+  it('a root that comes as a link to a share during the start is refused without a word, whatever was queued meanwhile', async () => {
+    const disk = windowsDisk({ [`${REPO}\\README.md`]: FILE })
+    // The root is looked at twice during the start: by the look, and by the wait once its watch is in place.
+    const held = holding(disk.fs, 'kind', ROOT, 2)
+    const { watch, errors } = made(disk, ROOT, [REPO, ROOT], { fs: held.fs, retryDelayMs: RETRY })
+    const started = watch.start()
+    await held.asked
+    disk.put(ROOT, linkTo(`${EVIL}\\scratch`))
+    disk.put(ROOT, linkTo(`${EVIL}\\scratch`))
+    held.release()
+    expect(await started).toBe('refused')
+    await watch.settled()
+    await pause(RETRY * 6)
+    expect(watch.state).toBe('refused')
+    expect(errors).toEqual([])
+    expect(disk.open()).toEqual([])
+    expect(disk.contacts).toEqual([])
+  })
+
+  it('a look that fails after the wait began, every time, is said once all the same', async () => {
+    const disk = windowsDisk({ [`${REPO}\\README.md`]: FILE })
+    const denied = coded('EACCES', `lstat ${ROOT}`)
+    // Every second look at the root fails: the one the wait makes once its watch is in place.
+    let asked = 0
+    const fs: WatchFs = {
+      ...disk.fs,
+      kind: async (path) => {
+        if (path.toLowerCase() === ROOT.toLowerCase() && ++asked % 2 === 0) throw denied
+        return disk.fs.kind(path)
+      },
+    }
+    const { watch, state, errors } = await start(disk, ROOT, [REPO, ROOT], { fs, retryDelayMs: RETRY })
+    expect(state).toBe('waiting')
+    expect(errors).toEqual([denied])
+    await until('four more looks', () => asked >= 10)
+    expect(errors).toEqual([denied])
+    expect(watch.state).toBe('waiting')
   })
 
   it('a look for links that fails — the caller\'s own rule threw — leaves no watch and no wrong state, and is repeated', async () => {

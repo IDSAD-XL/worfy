@@ -245,6 +245,9 @@ export class LinkSafeWatch {
    * says that the root is not there.
    */
   private async attach(): Promise<void> {
+    // A refusal is for good. A look that was already queued when it came — the system sends more
+    // than one event for a new entry — neither says it once more nor undoes it.
+    if (this.current === 'refused') return
     this.detach()
     this.endWait()
     this.endRetry()
@@ -346,10 +349,11 @@ export class LinkSafeWatch {
     this.waitWatch = mine.handle
     this.waitingAt = at
     this.current = 'waiting'
-    this.said = false
     // The folder may have come between the look and the watch.
     // (After a close the look that follows ends at its first step.)
-    if ((await this.fs.kind(this.paths.join(at, missing[0]!))) !== null) await this.attach()
+    if ((await this.fs.kind(this.paths.join(at, missing[0]!))) !== null) return this.attach()
+    // A proper wait: nothing is failing any more.
+    this.said = false
   }
 
   /** Called only by a watch that is still the current one: after close there is none. */
