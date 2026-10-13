@@ -23,7 +23,7 @@
 - Реестр Gate и Profile worfy вне репозитория: в `root_if` записи `worfy` дописать `|^harness/|(^|/)HANDOFF\.md$` («Итог» `worfy-harness` 02); в `rules.md` убрать «скрипта проверки … пока нет».
 - Проверки только для владельца: знак worfy в Dock и Finder (`worfy-daily` 31), щелчок по баннеру с выключенным Focus (`worfy-mvp` 21), запрос разрешения на уведомления (`worfy-daily` 03), трекпад в Terminal (`worfy-daily` 13), fish (`worfy-mvp` 06).
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).
-- `worfy-windows` 12 (влит, PR #237): ручные пункты на ПК пройдены 2026-10-13, кроме Session — Project на Windows не добавить (Ticket 30); не записаны папка установки и ответ установщика — [Ticket 12](.scratch/worfy-windows/issues/12-сборка-nsis-и-stable-copy-на-windows.md).
+- `worfy-windows` 12 (влит, PR #237): ручные пункты закрыты 2026-10-13. На ПК остались остатки проверок (файл, копия Stable copy на 662 MB, данные пробной Session) — убрать или оставить, решает владелец: [Ticket 12](.scratch/worfy-windows/issues/12-сборка-nsis-и-stable-copy-на-windows.md).
 - `worfy-link` 19: нужна ли строка-подсказка под переключателем доступа о том, что без него «Keep awake» не действует, — вопрос в Ticket-е.
 
 ## Риски и долги
