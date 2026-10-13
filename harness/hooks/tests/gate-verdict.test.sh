@@ -122,14 +122,16 @@ P="$T/percent"      # registered, key "p": a script name with a percent sign
 if [ "$WIN" -eq 1 ]; then W="$T/sp ace'x"; else W="$T/sp ace\"quo\\te'x"; fi
 for r in "$R" "$Q" "$U" "$W" "$M"; do newrepo "$r"; done
 newrepo "$P" 'a%b'
-# Only Windows runs the next four (cmd.exe and the names of Windows); their registry entries
+# Only Windows runs the next five (cmd.exe and the names of Windows); their registry entries
 # stand on every system and are simply never used elsewhere.
 C="$T/cmdmsg"       # key "c": its package manager is a .cmd that calls a tool that does not exist
 A="$T/args"         # key "a": a package manager in a folder with a space, a script name with `&`
 L="$T/local"        # key "l": a package manager that lies only in the repository folder
 S="$T/slash"        # key "s": a workspace entry written with a backslash
+X="$T/long"         # key "x": a script name that makes the command line longer than cmd.exe takes
+LONG="$(printf 'a%.0s' $(seq 1 8100))"
 jq -n --arg r "$R" --arg q "$Q" --arg w "$W" --arg m "$M" --arg p "$P" --arg pm "$PM" \
-    --arg c "$C" --arg cpm "$T/realpm.cmd" --arg a "$A" --arg apm "$T/sp dir/argpm.cmd" --arg l "$L" --arg s "$S" '{repos: [
+    --arg c "$C" --arg cpm "$T/realpm.cmd" --arg a "$A" --arg apm "$T/sp dir/argpm.cmd" --arg l "$L" --arg s "$S" --arg x "$X" --arg long "$LONG" '{repos: [
     {key: "t", match: $r, pm: $pm, root: {fast: ["check"], full: ["check"]}, workspace: {}},
     {key: "q", match: $q, pm: $pm, root: {fast: ["check"]}, workspace: {}},
     {key: "w", match: $w, pm: $pm, root: {fast: ["check"]}, workspace: {}},
@@ -138,7 +140,8 @@ jq -n --arg r "$R" --arg q "$Q" --arg w "$W" --arg m "$M" --arg p "$P" --arg pm 
     {key: "c", match: $c, pm: $cpm, root: {fast: ["check"]}, workspace: {}},
     {key: "a", match: $a, pm: $apm, root: {fast: ["x&y"]}, workspace: {}},
     {key: "l", match: $l, pm: "localonly", root: {fast: ["check"]}, workspace: {}},
-    {key: "s", match: $s, pm: "npm", root: {}, workspace: {fast: ["check"]}}
+    {key: "s", match: $s, pm: "npm", root: {}, workspace: {fast: ["check"]}},
+    {key: "x", match: $x, pm: $pm, root: {fast: [$long]}, workspace: {}}
 ]}' >"$CLAUDE_GATE_CONFIG"
 HEAD_R="$(git -C "$R" rev-parse HEAD)"
 n=0
@@ -306,15 +309,36 @@ if [ "$WIN" -eq 1 ]; then
     else bad "the gate changed the code page of the console it was started in: 437 before, $(page after) after"; fi
 
     # (g) What a .cmd writes to stderr comes between what it wrote to stdout before and after it:
-    # the two streams are one inside the command line.
-    printf '@echo off\r\necho first to stdout\r\n1>&2 echo then to stderr\r\necho Tests 1 failed\r\nexit /b 1\r\n' >"$T/sp dir/argpm.cmd"
+    # the two streams are one inside the command line. And `!NAME!` in a .cmd stays as it is
+    # written: the late expansion the gate uses for its own line does not reach the script.
+    printf '@echo off\r\necho first to stdout\r\n1>&2 echo then to stderr\r\necho Tests 1 failed\r\necho late !OS! stays\r\nexit /b 1\r\n' >"$T/sp dir/argpm.cmd"
     echo 2 >"$A/n.txt"
     out="$(cd "$A" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
     flat="$(printf '%s' "$out" | tr -d '\r' | tr '\n' '~')"
     if [ "$rc" -eq 2 ] && [[ "$flat" == *"first to stdout~then to stderr~Tests 1 failed"* ]]; then ok "stdout and stderr of a .cmd come in the order they were written, and its exit code makes the run red"
     else bad "the order of stdout and stderr: rc=$rc, out: ${out:0:400}"; fi
+    if [[ "$out" == *'late !OS! stays'* ]]; then ok "!NAME! in a .cmd is not expanded by the gate"; else bad "!OS! was expanded: ${out:0:400}"; fi
+
+    # (h) The gate waits for the script, not for what the script left behind. The .cmd starts a
+    # process that lives for ten seconds with the output of the script in its hands, and ends.
+    printf '@echo off\r\nstart "" /b node -e "setTimeout(() => {}, 10000)"\r\nexit /b 0\r\n' >"$T/sp dir/argpm.cmd"
+    echo 3 >"$A/n.txt"
+    began=$(date +%s)
+    out="$(cd "$A" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+    took=$(( $(date +%s) - began ))
+    if [ "$rc" -eq 0 ] && [[ "$out" == *'[gate] зелено (fast): a/.:x&y'* ]] && [ "$took" -lt 7 ]; then ok "a process the script left behind does not hold the gate"
+    else bad "a process left behind: rc=$rc, the gate took $took s (the process lives for 10), out: ${out:0:300}"; fi
+
+    # (i) A command line longer than cmd.exe takes is not started: cut to nothing, it would end
+    # with code 0 and count as green.
+    newrepo "$X" "$LONG"
+    mode ok
+    echo 1 >"$X/n.txt"
+    out="$(cd "$X" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+    verdict "a command line too long for cmd.exe -> outcome unverified, exit 0, the script not started" "$X" \
+        '.outcome == "unverified" and .exit == 0 and .key == "x" and (.reason | contains("cmd.exe cannot be given a command line of"))'
 else
-    echo "skip the cmd.exe checks (a real message of cmd.exe, ComSpec, words with a space and &, the current folder, a backslash in a workspace entry, the console of the gate, the order of stdout and stderr): not Windows"
+    echo "skip the cmd.exe checks (a real message of cmd.exe, ComSpec, words with a space and &, the current folder, a backslash in a workspace entry, the console of the gate, the order of stdout and stderr, a process left behind, a line too long): not Windows"
 fi
 
 # --- 4. The plan resolver crashed (the registry resolver works) -------------------------

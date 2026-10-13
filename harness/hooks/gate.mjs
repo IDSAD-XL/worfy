@@ -71,7 +71,7 @@
 // Child processes get the PATH of this process plus the folder of the node that runs the gate
 // and PNPM_HOME when it is set.
 
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import crypto from "node:crypto"
 import fs from "node:fs"
 import os from "node:os"
@@ -394,9 +394,14 @@ function fingerprint(paths) {
 //         (`/v:on`, `!NAME!`): the first cmd.exe then passes it on unread, with its `&`, `|`,
 //         `<`, `>` and brackets as they are;
 //       * stderr joins stdout inside the line (`2>&1`), so the two come in the order they were
-//         written.
-//     The price: Ctrl+C in the window of the gate does not reach a console of another process.
-//     It ends the gate; the script ends when it next writes to the pipe nobody reads;
+//         written;
+//       * Ctrl+C in the window of the gate does not reach a console of another process, so the
+//         gate ends the script itself: it waits for cmd.exe without blocking, and a signal to
+//         the gate ends cmd.exe with everything it started (`taskkill /t`) before the gate exits;
+//       * the gate waits for the script, not for the pipe: a process the script left behind may
+//         hold the pipe open, and what is still in the pipe is read for half a second at most;
+//       * a line longer than cmd.exe takes (8191 characters with the command in front of it) is
+//         not started: the second cmd.exe would get an empty line and end with code 0;
 //   - cmd.exe is the one of the system (<SystemRoot>\System32), not ComSpec: ComSpec may name
 //     another shell, which would read the command line in its own way;
 //   - cmd.exe cannot stand in a network folder (it would start in the Windows folder instead).
@@ -407,8 +412,15 @@ const CMD_UNSAFE = /["%!^\r\n\0]|\\$/
 const SYSTEM32 = path.win32.join(process.env.SystemRoot || process.env.windir || "C:\\Windows", "System32")
 const CMD_EXE = path.win32.join(SYSTEM32, "cmd.exe")
 const CHCP = path.win32.join(SYSTEM32, "chcp.com")
-// The environment variable that carries the command line to the second cmd.exe.
+const TASKKILL = path.win32.join(SYSTEM32, "taskkill.exe")
+// The environment variable that carries the command line to the second cmd.exe, and how long
+// that line may be: measured, a value of up to 8144 characters runs whole.
 const LINE_VARIABLE = "WORFY_GATE_LINE"
+const LINE_LIMIT = 8000
+// How long the gate reads on from the pipe of a script that has ended.
+const PIPE_GRACE_MS = 500
+// The cmd.exe the gate is waiting for on Windows, if any (see `throughCmd` and `endRunning`).
+let running = null
 
 function findOnWindows(command) {
     const exts = (process.env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)
@@ -432,9 +444,62 @@ function findOnWindows(command) {
 
 const notFound = () => ({ error: Object.assign(new Error("not found"), { code: "ENOENT" }) })
 
-// Starts `words` (a command and its arguments) in the worktree and waits. Returns { result, out }:
-// `result` is that of spawnSync, or { refused: <why> } when Windows cannot be given these words
-// safely; `out` is what the child wrote, stdout and stderr in the order they were written.
+// Ends the cmd.exe the gate is waiting for, with every process under it. A signal handler calls
+// this: the script runs in a console of its own, where Ctrl+C in the window of the gate does not
+// reach it.
+function endRunning() {
+    if (running?.pid === undefined) return
+    spawnSync(TASKKILL, ["/pid", String(running.pid), "/t", "/f"], { stdio: "ignore", windowsHide: true })
+}
+
+// Runs `line` — the command line for the second cmd.exe — in a hidden console of its own and
+// waits for it without blocking, so that a signal handler can run meanwhile. Resolves with
+// { result, out } as `start` returns them.
+function throughCmd(line) {
+    return new Promise((resolve) => {
+        const chunks = []
+        const late = []
+        let child
+        let done = false
+        const finish = (result) => {
+            if (done) return
+            done = true
+            running = null
+            child?.stdout?.destroy()
+            child?.stderr?.destroy()
+            resolve({ result, out: Buffer.concat([...chunks, ...late]).toString("utf8") })
+        }
+        try {
+            child = spawn(CMD_EXE, ["/d", "/v:on", "/s", "/c", `""${CHCP}" 65001 >nul 2>&1 & "${CMD_EXE}" /d /v:off /s /c !${LINE_VARIABLE}!"`], {
+                cwd: repo,
+                env: { ...process.env, [LINE_VARIABLE]: line },
+                stdio: ["ignore", "pipe", "pipe"],
+                windowsHide: true,
+                windowsVerbatimArguments: true,
+            })
+        } catch (error) {
+            finish({ error })
+            return
+        }
+        running = child
+        child.stdout.on("data", (chunk) => chunks.push(chunk))
+        // Only the first cmd.exe writes here: the line sends its own stderr to stdout.
+        child.stderr.on("data", (chunk) => late.push(chunk))
+        child.on("error", (error) => finish({ error }))
+        child.on("exit", (status, signal) => {
+            const timer = setTimeout(() => finish({ status, signal }), PIPE_GRACE_MS)
+            child.on("close", () => {
+                clearTimeout(timer)
+                finish({ status, signal })
+            })
+        })
+    })
+}
+
+// Starts `words` (a command and its arguments) in the worktree and waits. Returns { result, out },
+// through a promise when the start goes through cmd.exe: `result` is that of spawnSync (or its
+// `status`, `signal` and `error` alone), or { refused: <why> } when Windows cannot be given these
+// words safely; `out` is what the child wrote, stdout and stderr in the order they were written.
 function start(words) {
     const direct = (file) => captured((stdio) => spawnSync(file, words.slice(1), { cwd: repo, stdio, windowsHide: true }))
     // An empty name is what a shell calls ": command not found"; spawnSync would throw on it.
@@ -450,17 +515,9 @@ function start(words) {
     if (refused) return /\.(exe|com)$/i.test(file) ? direct(file) : { result: { refused }, out: "" }
     // What `shell: true` would do, with the shell, the console and its code page chosen here.
     // /s makes cmd.exe drop the outer quotes and read the rest as it is.
-    const result = spawnSync(CMD_EXE, ["/d", "/v:on", "/s", "/c", `""${CHCP}" 65001 >nul 2>&1 & "${CMD_EXE}" /d /v:off /s /c !${LINE_VARIABLE}!"`], {
-        cwd: repo,
-        env: { ...process.env, [LINE_VARIABLE]: `"${line.map((word) => `"${word}"`).join(" ")} 2>&1"` },
-        stdio: ["ignore", "pipe", "pipe"],
-        encoding: "utf8",
-        // The whole output of a test run is kept; the default of 1 MB would end the script.
-        maxBuffer: Infinity,
-        windowsHide: true,
-        windowsVerbatimArguments: true,
-    })
-    return { result, out: `${result.stdout ?? ""}${result.stderr ?? ""}` }
+    const command = `"${line.map((word) => `"${word}"`).join(" ")} 2>&1"`
+    if (command.length > LINE_LIMIT) return { result: { refused: `cmd.exe cannot be given a command line of ${command.length} characters (${file} …)` }, out: "" }
+    return throughCmd(command)
 }
 
 // The output of a child process started without cmd.exe, stdout and stderr in the order they
@@ -489,13 +546,13 @@ function captured(run) {
 // Runs one script of the profile. pkg — the package name (empty = the repository root).
 // Returns { rc, out }; { refused } too when the script was not started on purpose; { signal }
 // alone when a signal ended the script — that is a stopped run, not a failed script.
-function runScript(pkg, script) {
+async function runScript(pkg, script) {
     let words
     if (!pkg) words = [PM, "run", script]
     else if (PM === "pnpm") words = ["pnpm", "--filter", pkg, "run", script]
     else if (PM === "yarn") words = ["yarn", "workspace", pkg, "run", script]
     else words = ["npm", "run", script, "--workspace", pkg]
-    const { result, out } = start(words)
+    const { result, out } = await start(words)
     if (result.refused) return { rc: 126, out: result.refused, refused: result.refused }
     // The words a shell would say: "command not found" is one of the signs of a missing environment.
     if (result.error?.code === "ENOENT") return { rc: 127, out: `gate: ${words[0]}: command not found` }
@@ -508,7 +565,7 @@ function runScript(pkg, script) {
 // A missing environment is not a defect in the code. It must not block, but it must
 // not count as green either: such work stays unverified. The second sign is what cmd.exe says
 // about a missing tool where bash says "command not found"; cmd.exe says it in English because
-// the gate switches the console to UTF-8 before the package manager starts (see `start`).
+// the gate starts it in a console that is at UTF-8 already (see `start`).
 const UNVERIFIABLE = new RegExp(
     [
         "command not found",
@@ -564,7 +621,10 @@ async function main() {
         if (!verdictWritten) remove(verdictFile)
     })
     for (const [signal, code] of [["SIGHUP", 129], ["SIGINT", 130], ["SIGTERM", 143]]) {
-        process.on(signal, () => process.exit(code))
+        process.on(signal, () => {
+            endRunning()
+            process.exit(code)
+        })
     }
 
     // Markers without a project key (project not determined) older than a week are garbage from
@@ -727,7 +787,7 @@ async function main() {
         let wsOk = true
         for (const script of scripts) {
             const label = `${KEY}/${wsdir}:${script}`
-            const { rc, out, refused, signal } = runScript(pkgname, script)
+            const { rc, out, refused, signal } = await runScript(pkgname, script)
             if (signal) {
                 // The script did not fail, it was stopped (Ctrl-C reaches the children first): the
                 // run ends here and writes nothing down; the exit handler removes the verdict of
