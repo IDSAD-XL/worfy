@@ -166,6 +166,18 @@ Harness (Ticket 13); `@packaged` e2e на Windows (Ticket 14); шаг для Win
   запустить оттуда `worfy.exe`, затем запустить установщик из папки `dist`. Что он показал и что
   стало с запущенной копией — в Итог. Ожидание по шаблону NSIS: «worfy is running», и по OK копия
   останавливается. После проверки папку `Programs\worfy-stable` удалить.
+- **Состояние трёх ручных пунктов на 2026-10-13, со слов владельца:** все три пройдены на ПК,
+  «всё прошло нормально», кроме частей про Session. Project в worfy на Windows не добавить: форма
+  «Add project» не запускает `bin/project-connect` ([Ticket 30](30-add-project-на-windows.md)),
+  поэтому «Session отвечает» не проверено ни в установленном worfy, ни в Stable copy. Пункты
+  остаются неотмеченными до проверки Session. Commit сборки не назван.
+  - **Папки** (подтверждено владельцем 2026-10-13): установщик `worfy Setup` поставил worfy в
+    `%LOCALAPPDATA%\Programs\worfy` — как и ожидалось по его настройкам; `pnpm install:stable`
+    поставил Stable copy в `C:\Users\Alexey\AppData\Local\worfy-stable`.
+  - **Установщик при запущенной копии (пункт 3).** Слова владельца: «установщик при повторной
+    установке ничего не показал а просто установил, всё запустилось». Окна «worfy is running» он
+    не видел. Была ли в этот момент запущена копия из `%LOCALAPPDATA%\Programs\worfy-stable` и
+    закрыл ли её установщик, спрошено у владельца.
 - [x] `CONTEXT.md` («Stable copy») и раздел «Stable copy» `README.md` называют путь Stable copy на
   Windows.
 
