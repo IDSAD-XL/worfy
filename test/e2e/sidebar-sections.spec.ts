@@ -358,6 +358,11 @@ test('in the smallest window a long list keeps 3 of its rows and the column scro
     // A short list does not grow into the room that is left.
     expect(sectionOf(tall, 'ProjectsSection').body).toBe(ROW)
     expect(sectionOf(tall, 'AdrSection').bottom).toBeLessThan(tall.bottom)
+    // The wheel over the list scrolls the list.
+    const adrBody = region(window, 'ADR').locator('.w-sidebar-section__body')
+    await window.getByTestId('sidebar-adr').first().hover()
+    await window.mouse.wheel(0, 3 * ROW)
+    await expect.poll(() => adrBody.evaluate((node) => (node as unknown as El).scrollTop)).toBeGreaterThan(0)
     // The last ADR is reached by scrolling the list, not the column.
     const last = window.getByTestId('sidebar-adr').last()
     await expect(last).not.toBeInViewport()
