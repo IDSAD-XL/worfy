@@ -16,8 +16,19 @@ import './select.css'
  *
  * The list is drawn into document.body with `position: fixed`, above every dialog and the focus
  * mode: a parent's overflow does not cut it. It opens under the button, or over it when there is
- * more room there. A press outside, a scroll outside, a resize and the window losing focus close it.
+ * more room there, and is placed again whenever its options change. A press outside, a scroll of
+ * anything that holds the button, a resize, the window losing focus and the Select becoming
+ * disabled close it; a scroll next to the button (a transcript that follows its last row) does not.
  */
+
+/** The chevron of the button: up and down, as on the pickers of the Session mockup (docs/design/F-session-dark.dc.html:178). */
+export function SelectChevron(): ReactElement {
+  return (
+    <svg className="w-select__chevron" width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 6L8 3l3 3M5 10l3 3 3-3" />
+    </svg>
+  )
+}
 
 export interface SelectOption<V extends string = string> {
   value: V
@@ -91,6 +102,8 @@ export function Select<V extends string = string>(props: SelectProps<V>): ReactE
   const typed = useRef('')
   const typedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // A Select disabled under its open list closes it for good: enabling it again shows no list.
+  if (disabled && open) setOpen(false)
   const shown = open && !disabled
   const selectedIndex = options.findIndex((option) => option.value === value)
   const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined
@@ -241,6 +254,8 @@ export function Select<V extends string = string>(props: SelectProps<V>): ReactE
   }
 
   // Place the list before it paints: under the button, or over it when there is more room there.
+  // After every render, not on opening alone: options that arrive under an open list (the models
+  // of the composer) change its height, and a list over the button would grow down onto it.
   useLayoutEffect(() => {
     const button = buttonRef.current
     const list = listRef.current
@@ -248,7 +263,9 @@ export function Select<V extends string = string>(props: SelectProps<V>): ReactE
     const rect = button.getBoundingClientRect()
     const below = window.innerHeight - rect.bottom - LIST_GAP - WINDOW_MARGIN
     const above = rect.top - LIST_GAP - WINDOW_MARGIN
-    const natural = Math.min(list.scrollHeight, LIST_MAX_HEIGHT)
+    // scrollHeight leaves the border out; without it a list over the button sits that much closer to it.
+    const border = list.offsetHeight - list.clientHeight
+    const natural = Math.min(list.scrollHeight + border, LIST_MAX_HEIGHT)
     const down = natural <= below || below >= above
     const room = Math.max(0, Math.min(LIST_MAX_HEIGHT, down ? below : above))
     const height = Math.min(natural, room)
@@ -258,7 +275,7 @@ export function Select<V extends string = string>(props: SelectProps<V>): ReactE
     const left = Math.min(rect.left, window.innerWidth - WINDOW_MARGIN - list.offsetWidth)
     list.style.left = `${Math.round(Math.max(WINDOW_MARGIN, left))}px`
     list.dataset['placement'] = down ? 'below' : 'above'
-  }, [shown])
+  })
 
   // The option under the cursor stays in sight in a long list.
   useEffect(() => {
@@ -273,9 +290,11 @@ export function Select<V extends string = string>(props: SelectProps<V>): ReactE
     const onPress = (event: Event) => {
       if (!inside(event.target)) close()
     }
-    // A scroll of the list itself keeps it; a scroll of anything under it would leave it behind.
+    // Only a scroll that moves the button leaves the list behind: the scrolled element (or the
+    // document) holds the button. A scroll of the list itself, or of something next to the button,
+    // keeps the list where it is.
     const onScroll = (event: Event) => {
-      if (!(event.target instanceof Node && listRef.current?.contains(event.target) === true)) close()
+      if (event.target instanceof Node && buttonRef.current !== null && event.target.contains(buttonRef.current)) close()
     }
     document.addEventListener('mousedown', onPress, true)
     document.addEventListener('scroll', onScroll, true)
@@ -368,9 +387,7 @@ export function Select<V extends string = string>(props: SelectProps<V>): ReactE
       >
         {prefix === undefined ? null : <span className="w-select__prefix">{prefix}</span>}
         <span className="w-select__value">{selected?.label ?? value}</span>
-        <svg className="w-select__chevron" width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M4 6l4 4 4-4" />
-        </svg>
+        <SelectChevron />
       </button>
       {list}
     </>

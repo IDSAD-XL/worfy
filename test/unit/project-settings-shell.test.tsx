@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProjectSettings } from '../../src/renderer/shell/ProjectSettings'
 
@@ -44,6 +44,25 @@ const save = async (): Promise<void> => {
 }
 const saved = (): unknown => main.calls.find((call) => call.channel === 'projects.settings.set')?.input
 
+// The field is the shared Select: a button named by its label, with the chosen shell in data-value,
+// and a listbox that is in the document only while it is open. The open list takes the label's
+// name too, so the button is found by its test id.
+const shell = (): HTMLElement => screen.getByTestId('project-settings-shell')
+const chosen = (): string | null => shell().getAttribute('data-value')
+const shellList = (): HTMLElement | null => screen.queryByRole('listbox', { name: 'Terminal shell' })
+const shellOptions = (): (string | null)[] => {
+  fireEvent.click(shell())
+  const rows = within(screen.getByRole('listbox', { name: 'Terminal shell' }))
+    .getAllByRole('option')
+    .map((option) => option.textContent)
+  fireEvent.click(shell())
+  return rows
+}
+const chooseShell = (label: string): void => {
+  fireEvent.click(shell())
+  fireEvent.click(screen.getByRole('option', { name: label }))
+}
+
 beforeEach(() => {
   main.calls.length = 0
   main.shells = undefined
@@ -73,27 +92,61 @@ describe('the shell of the Terminals in Project settings', () => {
 
   it('shows PowerShell chosen when the Project has no choice saved, and saves no choice until the user makes one', async () => {
     await open()
-    const field = screen.getByLabelText<HTMLSelectElement>('Terminal shell')
-    expect(field.value).toBe('powershell')
-    expect([...field.options].map((option) => option.textContent)).toEqual(['PowerShell (pwsh)', 'Git Bash'])
+    expect(chosen()).toBe('powershell')
+    expect(shell().textContent).toBe('PowerShell (pwsh)')
+    expect(shellOptions()).toEqual(['PowerShell (pwsh)', 'Git Bash'])
     await save()
     expect(saved()).toEqual({ id: PROJECT.id, settings: { actionTemplates: TEMPLATES } })
   })
 
   it('saves Git Bash with the templates once it is chosen', async () => {
     await open()
-    fireEvent.change(screen.getByLabelText('Terminal shell'), { target: { value: 'git-bash' } })
+    chooseShell('Git Bash')
+    expect(chosen()).toBe('git-bash')
+    expect(shellList()).toBeNull()
     await save()
     expect(saved()).toEqual({ id: PROJECT.id, settings: { actionTemplates: TEMPLATES, terminalShell: 'git-bash' } })
+  })
+
+  it('is a Select, not a native select element: a button with the test id and the name of its label', async () => {
+    await open()
+    expect(document.querySelector('select')).toBeNull()
+    const field = screen.getByRole('combobox', { name: 'Terminal shell' })
+    expect(field).toBe(shell())
+    expect(field).toBe(screen.getByLabelText('Terminal shell'))
+    expect(field.tagName).toBe('BUTTON')
+    // The field has the look of the window's text fields.
+    expect(field.style.height).toBe('var(--row-height)')
+  })
+
+  it('Esc on the open list of shells closes the list alone; the next Esc closes the window', async () => {
+    const { onClose } = await open()
+    fireEvent.click(shell())
+    expect(shellList()).not.toBeNull()
+    fireEvent.keyDown(shell(), { key: 'Escape' })
+    expect(shellList()).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.keyDown(shell(), { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('a press on the open list of shells does not close the window, though the list is drawn outside it', async () => {
+    const { onClose } = await open()
+    fireEvent.click(shell())
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Git Bash' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Git Bash' }))
+    expect(onClose).not.toHaveBeenCalled()
+    expect(chosen()).toBe('git-bash')
+    expect(screen.getByTestId('project-settings')).toBeTruthy()
   })
 
   it('shows the saved choice, says when that shell is not on the Machine, and sends it back with a changed template', async () => {
     main.answers['projects.settings.get'] = { ok: true, value: { actionTemplates: TEMPLATES, terminalShell: 'git-bash' } }
     main.answers['terminal.shells'] = { ok: true, value: [WINDOWS_SHELLS[0], { id: 'git-bash', label: 'Git Bash', found: false }] }
     await open()
-    const field = screen.getByLabelText<HTMLSelectElement>('Terminal shell')
-    expect(field.value).toBe('git-bash')
-    expect(field.selectedOptions[0]?.textContent).toBe('Git Bash — not found on this machine')
+    expect(chosen()).toBe('git-bash')
+    expect(shell().textContent).toBe('Git Bash — not found on this machine')
+    expect(shellOptions()).toEqual(['PowerShell (pwsh)', 'Git Bash — not found on this machine'])
     fireEvent.change(screen.getByLabelText('Run wave'), { target: { value: '/wave {tickets}' } })
     await save()
     expect(saved()).toEqual({ id: PROJECT.id, settings: { actionTemplates: { ...TEMPLATES, runWave: '/wave {tickets}' }, terminalShell: 'git-bash' } })
@@ -114,7 +167,7 @@ describe('the shell of the Terminals in Project settings', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }))
     })
-    expect(screen.getByLabelText<HTMLSelectElement>('Terminal shell').value).toBe('git-bash')
+    expect(chosen()).toBe('git-bash')
     await save()
     expect(saved()).toEqual({ id: PROJECT.id, settings: { actionTemplates: TEMPLATES, terminalShell: 'git-bash' } })
   })
@@ -129,11 +182,11 @@ describe('the shell of the Terminals in Project settings', () => {
   it('a save that fails keeps the window open with the choice as it was made', async () => {
     main.answers['projects.settings.set'] = { ok: false, error: 'the disk is full' }
     const { onClose } = await open()
-    fireEvent.change(screen.getByLabelText('Terminal shell'), { target: { value: 'git-bash' } })
+    chooseShell('Git Bash')
     await save()
     expect(onClose).not.toHaveBeenCalled()
     expect(screen.getByRole('alert').textContent).toContain('the disk is full')
-    expect(screen.getByLabelText<HTMLSelectElement>('Terminal shell').value).toBe('git-bash')
+    expect(chosen()).toBe('git-bash')
   })
 
   it('drops the shells of a Project that is no longer the one shown: a late answer for the first does not bring the field back', async () => {
