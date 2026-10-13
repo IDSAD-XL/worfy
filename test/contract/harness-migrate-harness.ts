@@ -54,8 +54,9 @@ function substitute(dir: string, root: string): void {
   }
 }
 
-export function run(command: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: string } = {}): { status: number | null; stdout: string; stderr: string } {
-  const result = spawnSync(command, args, { encoding: 'utf8', cwd: options.cwd, env: options.env ?? sandbox.env, input: options.input ?? '' })
+/** `timeout` (ms) ends a command that does not return: its status is then null, and the test fails instead of hanging. */
+export function run(command: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: string; timeout?: number } = {}): { status: number | null; stdout: string; stderr: string } {
+  const result = spawnSync(command, args, { encoding: 'utf8', cwd: options.cwd, env: options.env ?? sandbox.env, input: options.input ?? '', timeout: options.timeout })
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
 }
 

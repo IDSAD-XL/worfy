@@ -313,8 +313,9 @@ describe('the move', () => {
     expect(existsSync(join(sandbox.harnessHome, 'gate', 'state', 'red-worfy-44f904e2'))).toBe(true)
     expect(existsSync(join(sandbox.harnessHome, 'worktree-sessions', 'sandbox-repos-worfy-0000aaaa.json'))).toBe(true)
     // process.execPath is Electron here (the tests run under its Node); the closed environment of
-    // the sandbox does not say so, and without ELECTRON_RUN_AS_NODE Electron would start as an app.
-    const gate = run(process.execPath, [join(REPO, 'harness', 'hooks', 'gate.mjs'), 'fast'], { cwd: sandbox.repos.worfy, env: { ...sandbox.env, ELECTRON_RUN_AS_NODE: '1' } })
+    // the sandbox does not say so, and without ELECTRON_RUN_AS_NODE Electron would start as an app
+    // and never return. The time limit makes any such start a failed test, not a run that hangs.
+    const gate = run(process.execPath, [join(REPO, 'harness', 'hooks', 'gate.mjs'), 'fast'], { cwd: sandbox.repos.worfy, env: { ...sandbox.env, ELECTRON_RUN_AS_NODE: '1' }, timeout: 60_000 })
     expect(`${gate.stdout}${gate.stderr}`).not.toMatch(/не зарегистрирован|not registered/)
     expect(gate.status).toBe(0)
   })
