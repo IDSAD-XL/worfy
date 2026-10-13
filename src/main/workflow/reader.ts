@@ -12,7 +12,7 @@
 //
 // Nothing here writes: processes are run with the Project as cwd, files are only read.
 import { execFile } from 'node:child_process'
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { join, resolve } from 'node:path'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
@@ -190,9 +190,11 @@ export interface TicketFs {
   readText: (path: string) => Promise<string | null>
   /** The names in a folder. */
   readdir: (dir: string) => Promise<string[]>
+  /** The real path of the Project root. A stand-in that has none leaves it out. */
+  realpath?: (path: string) => Promise<string>
 }
 
-const nodeFs: TicketFs = { readText, readdir: (dir) => readdir(dir) }
+const nodeFs: TicketFs = { readText, readdir: (dir) => readdir(dir), realpath: (path) => realpath(path) }
 
 export interface EnrichOptions {
   /** The path rules of the platform; path.win32 in tests on any system. */
@@ -211,9 +213,11 @@ export interface EnrichOptions {
  * that host with the user's credentials, and a checked-out repository can carry such a link. So
  * the links on the way to each file and folder are read first (remote-links.ts; worfy-windows
  * ticket 19): one that leads there, or cannot be checked, is taken as a file that cannot be read
- * or a folder with nothing in it. The Project root and the Tickets root are the places these
- * paths may go, also when they lie on a share themselves: a link from the Tickets into another
- * folder of the same Project is read as before.
+ * or a folder with nothing in it. The Project root — as written and as its real path — and the
+ * Tickets root are the places these paths may go, also when they lie on a share themselves: a
+ * link from the Tickets into another folder of the same Project is read as before, and so is a
+ * Project whose root is itself a link to a share of the user (worfy-windows ticket 20; readDocs
+ * of src/main/docs/watch.ts does the same).
  */
 export async function enrichSnapshot(
   root: string,
@@ -224,7 +228,10 @@ export async function enrichSnapshot(
   const scratch = ticketsRoot
   const paths = options.paths ?? nativePath
   const fs = options.fs ?? nodeFs
-  const away = (path: string): Promise<boolean> => leadsToRemote(path, [root, scratch], { paths, links: options.links })
+  // The root is the folder the user opened: its real path is asked for as readDocs asks.
+  const real = fs.realpath === undefined ? null : await fs.realpath(root).catch(() => null)
+  const allowed = real === null ? [root, scratch] : [root, scratch, real]
+  const away = (path: string): Promise<boolean> => leadsToRemote(path, allowed, { paths, links: options.links })
   const read = async (path: string): Promise<string | null> => ((await away(path)) ? null : fs.readText(path))
 
   const epics = await Promise.all(

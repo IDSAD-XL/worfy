@@ -7,11 +7,13 @@
 // tested on any machine (test/unit/remote-links.test.ts).
 //
 // What it cannot see:
-// - a link put in place after the walk and before the caller's realpath. The two are separate steps;
-// - `..` in a target written as `\\?\C:\…` or `\??\C:\…`. path.win32 takes `..` out of such a path,
-//   Windows reads it there as a name. The walk then looks at another path than the one the link
-//   leads to; both are on the same disk, since only the drive forms of these prefixes are read as
-//   local at all.
+// - a link put in place after the walk and before the caller's realpath. The two are separate steps.
+//
+// A path written with a device prefix — `\\?\C:\…`, `\\?\UNC\host\share\…`, `\??\C:\…` — that
+// holds a `..` is refused as remote (worfy-windows ticket 20). path.win32 takes `..` out of such a
+// path, Windows reads it there as a name: the walk would look at another path than the one the
+// link leads to, and `\\?\UNC\evil\share\..\..\<a share of the user>` would pass for the user's own.
+import { lstatSync, readlinkSync } from 'node:fs'
 import { lstat, readlink } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 
@@ -46,6 +48,17 @@ export interface RemoteLinkOptions {
   links?: LinkFs
 }
 
+/** LinkFs for a caller that cannot wait: the same two calls, answered at once. */
+export interface LinkFsSync {
+  isLink: (path: string) => boolean | null
+  readlink: (path: string) => string
+}
+
+export interface RemoteLinkSyncOptions {
+  paths: PathRules
+  links?: LinkFsSync
+}
+
 /** How many links one walk follows; a longer chain, or a loop, is refused. */
 export const MAX_LINK_HOPS = 40
 
@@ -63,6 +76,19 @@ export const nodeLinks: LinkFs = {
       },
     ),
   readlink: (path) => readlink(path),
+}
+
+/** lstatSync and readlinkSync of Node. */
+export const nodeLinksSync: LinkFsSync = {
+  isLink: (path) => {
+    try {
+      return lstatSync(path).isSymbolicLink()
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+      throw error
+    }
+  },
+  readlink: (path) => readlinkSync(path),
 }
 
 /**
@@ -105,6 +131,8 @@ function withoutDevicePrefix(path: string): string {
  */
 function absolute(written: string, from: string | null, paths: PathRules): string | null {
   let text = written
+  // Under a device prefix a `..` is a name to Windows and a step up to path.win32: not walked.
+  if (/^[\\/]{1,2}(?:\?\?|\?|\.)[\\/]/.test(text) && text.split(/[\\/]/).includes('..')) return null
   if (/^[\\/](?:\?\?|\?|\.)[\\/]/.test(text)) {
     if (!/^\\\?\?\\[A-Za-z]:\\/.test(text)) return null
     text = text.slice(4)
@@ -144,9 +172,63 @@ export const UNCHECKED = 'cannot be checked: a link on the way to it cannot be r
  * not read.
  */
 export async function walkLinks(candidate: string, allowed: readonly string[], options: RemoteLinkOptions): Promise<LinkVerdict> {
-  const paths = options.paths
-  if (paths.sep !== '\\') return 'local'
+  if (options.paths.sep !== '\\') return 'local'
   const links = options.links ?? nodeLinks
+  const walk = steps(candidate, allowed, options.paths)
+  let step = walk.next()
+  while (!step.done) {
+    const { ask, path } = step.value
+    let answer: Answer
+    try {
+      answer = ask === 'isLink' ? await links.isLink(path) : await links.readlink(path)
+    } catch {
+      answer = FAILED
+    }
+    step = walk.next(answer)
+  }
+  return step.value
+}
+
+/**
+ * walkLinks for a caller that cannot wait: the same walk, with lstatSync and readlinkSync. For a
+ * few paths at a user's action; a caller that can wait takes walkLinks.
+ */
+export function walkLinksSync(candidate: string, allowed: readonly string[], options: RemoteLinkSyncOptions): LinkVerdict {
+  if (options.paths.sep !== '\\') return 'local'
+  const links = options.links ?? nodeLinksSync
+  const walk = steps(candidate, allowed, options.paths)
+  let step = walk.next()
+  while (!step.done) {
+    const { ask, path } = step.value
+    let answer: Answer
+    try {
+      answer = ask === 'isLink' ? links.isLink(path) : links.readlink(path)
+    } catch {
+      answer = FAILED
+    }
+    step = walk.next(answer)
+  }
+  return step.value
+}
+
+/** leadsToRemote for a caller that cannot wait. */
+export function leadsToRemoteSync(candidate: string, allowed: readonly string[], options: RemoteLinkSyncOptions): boolean {
+  return walkLinksSync(candidate, allowed, options) !== 'local'
+}
+
+/** What a step of the walk asks of the file system, and what it gets: FAILED when the call threw. */
+interface Ask {
+  ask: 'isLink' | 'readlink'
+  path: string
+}
+const FAILED = Symbol('the call failed')
+type Answer = boolean | null | string | typeof FAILED
+
+/**
+ * The walk itself, as steps: each yields one question about a path and goes on with the answer.
+ * walkLinks and walkLinksSync differ only in how they answer. Under Windows rules only.
+ */
+function* steps(candidate: string, allowed: readonly string[], paths: PathRules): Generator<Ask, LinkVerdict, Answer> {
   const folders = allowed.map((folder) => absolute(folder, null, paths)).filter((folder): folder is string => folder !== null)
   const isRemote = (path: string): boolean => path.startsWith('\\\\') && !folders.some((folder) => isInside(folder, path, paths))
 
@@ -172,12 +254,8 @@ export async function walkLinks(candidate: string, allowed: readonly string[], o
     const path = next
     next = undefined
     if (isRemote(path)) return 'remote'
-    let link: boolean | null
-    try {
-      link = await links.isLink(path)
-    } catch {
-      return 'unchecked'
-    }
+    const link = yield { ask: 'isLink', path }
+    if (link === FAILED) return 'unchecked'
     if (link === null) return 'local'
     if (!link) {
       current = path
@@ -185,12 +263,8 @@ export async function walkLinks(candidate: string, allowed: readonly string[], o
     }
     hops += 1
     if (hops > MAX_LINK_HOPS) return 'unchecked'
-    let written: string
-    try {
-      written = await links.readlink(path)
-    } catch {
-      return 'unchecked'
-    }
+    const written = yield { ask: 'readlink', path }
+    if (typeof written !== 'string') return 'unchecked'
     const target = absolute(written, paths.dirname(path), paths)
     if (target === null || isRemote(target)) return 'remote'
     // The rest of the path now hangs off the target, and the target's own segments are walked

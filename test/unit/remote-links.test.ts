@@ -315,6 +315,36 @@ describe('walkLinks', () => {
     expect(await walkLinks('//evil/share/x', ['/p/repo'], { paths: posix, links: fs.links })).toBe('local')
   })
 
+  // worfy-windows ticket 20. path.win32 takes ".." out of a path written with a device prefix;
+  // Windows reads it there as a name. The share below would pass for the caller's own.
+  it('refuses a ".." in a path written with a device prefix: as a link target, as the path asked about, and with the NT prefix', async () => {
+    const own = '\\\\nas\\team\\repo'
+    for (const target of ['\\\\?\\UNC\\evil\\share\\..\\..\\nas\\team\\repo\\notes', '\\\\?\\C:\\p\\repo\\..\\repo\\notes', '\\??\\C:\\p\\repo\\..\\repo\\notes', '//?/C:/p/repo/../repo/notes', '\\\\.\\C:\\p\\repo\\..\\x']) {
+      const fs = fakeLinks({ 'C:\\p\\repo\\docs': target })
+      expect(await walkLinks('C:\\p\\repo\\docs\\a.md', [REPO, own], { paths: win32, links: fs.links }), target).toBe('remote')
+      expect(fs.calls, target).toEqual(['lstat C:\\p\\repo', 'lstat C:\\p\\repo\\docs', 'readlink C:\\p\\repo\\docs'])
+    }
+    const none = fakeLinks({})
+    expect(await walkLinks('\\\\?\\C:\\p\\repo\\..\\repo\\a.md', [REPO], { paths: win32, links: none.links })).toBe('remote')
+    expect(none.calls).toEqual([])
+    // Without a "..", the same forms are read as the disk they name; a ".." in a plain path is folded as before.
+    expect(await walkLinks('C:\\p\\repo\\docs\\a.md', [REPO], { paths: win32, links: fakeLinks({ 'C:\\p\\repo\\docs': '\\\\?\\C:\\p\\repo\\notes' }).links })).toBe('local')
+    expect(await walkLinks('C:\\p\\repo\\docs\\a.md', [REPO], { paths: win32, links: fakeLinks({ 'C:\\p\\repo\\docs': '..\\repo\\notes' }).links })).toBe('local')
+    expect(await walkLinks('C:\\p\\repo\\docs\\..\\notes\\a.md', [REPO], { paths: win32, links: none.links })).toBe('local')
+  })
+
+  // Review round 2 of PR #233 (mutant N32): an allowed folder the walk cannot read as a path —
+  // a server with no share, a name of the NT namespace — allows nothing, and breaks nothing.
+  it('drops an allowed folder that is not a path it can read: the others still hold, and that one lets nothing in', async () => {
+    const fs = fakeLinks({ 'C:\\p\\repo\\docs': '\\\\nas\\team\\notes' })
+    for (const unreadable of ['\\\\nas', '\\??\\pipe\\x', '\\\\?\\UNC\\nas\\team\\..\\..\\x']) {
+      expect(await walkLinks('C:\\p\\repo\\src\\a.ts', [unreadable, REPO], { paths: win32, links: fs.links }), unreadable).toBe('local')
+      expect(await walkLinks('C:\\p\\repo\\docs\\a.md', [unreadable, REPO], { paths: win32, links: fs.links }), unreadable).toBe('remote')
+      expect(await walkLinks('\\\\nas\\team\\notes\\a.md', [unreadable], { paths: win32, links: fs.links }), unreadable).toBe('remote')
+    }
+    expect(await walkLinks('C:\\p\\repo\\docs\\a.md', ['\\\\nas\\team', REPO], { paths: win32, links: fs.links })).toBe('local')
+  })
+
   it('gives the callers one wording for a path that could not be checked', () => {
     expect(UNCHECKED).toBe('cannot be checked: a link on the way to it cannot be read, or the links do not end')
   })

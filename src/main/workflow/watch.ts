@@ -11,10 +11,19 @@
 //   the status lives in the Workflow folder only (ADR-0042), so refs are not watched.
 // Where the workflow lives is read once, when the watch starts.
 // Reads never overlap: a change during a read leads to exactly one more read after it.
+//
+// On Windows the Tickets root is not watched by chokidar (worfy-windows ticket 20): chokidar calls
+// realpath and stat on every link in a folder it watches, and a link to a share in a checked-out
+// repository would make the system contact that host when the Project is opened. There
+// link-safe-watch.ts watches it, and reads each link before anything follows it.
 import { execFile } from 'node:child_process'
+import { realpath } from 'node:fs/promises'
+import * as nativePath from 'node:path'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { watch, type FSWatcher } from 'chokidar'
 import { diffModels, type WorkflowDelta, type WorkflowModel } from '../../shared/workflow/types'
+import { LinkSafeWatch, type WatchFs } from '../link-safe-watch'
+import type { LinkFs, PathRules } from '../remote-links'
 import { readProjectLayout, type ProjectLayout } from './folder'
 import {
   applyBranches,
@@ -45,6 +54,11 @@ export interface WatchOptions {
   run?: EpicStatusRunner
   /** Where the workflow lives; read from the Harness (src/main/workflow/folder.ts) by default. */
   layout?: (root: string) => Promise<ProjectLayout>
+  /**
+   * How the Tickets root is watched: 'links-read-first' (link-safe-watch.ts) on Windows, 'chokidar'
+   * elsewhere. Tests name one to run it on any system.
+   */
+  ticketsWatch?: 'links-read-first' | 'chokidar'
 }
 
 /**
@@ -66,17 +80,60 @@ export interface WatchOptions {
  * that keeps case apart this watches a few files more than needed; a save of one costs a read that
  * changes nothing. The `.md` ending of a Ticket is compared as written, as the glob of `epic-status`
  * compares it: it does not read `01-a.MD` on any disk.
+ *
+ * Right under the root only a folder is an Epic. A name alone does not say what a path is, so a
+ * file there is skipped when the caller says it is one: chokidar asks about each path twice, the
+ * second time with its stats. Without them the path is kept, as a folder would be.
  */
-export function ticketsIgnored(ticketsRoot: string): (path: string) => boolean {
-  return (path) => {
-    const rel = relative(ticketsRoot, path)
-    if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return false
-    const [, inEpic, inIssues, ...deeper] = rel.split(sep)
-    if (inEpic === undefined) return false
+export function ticketsIgnored(
+  ticketsRoot: string,
+  paths: Pick<PathRules, 'relative' | 'isAbsolute' | 'sep'> = nativePath,
+): (path: string, stats?: { isFile: () => boolean }) => boolean {
+  return (path, stats) => {
+    const rel = paths.relative(ticketsRoot, path)
+    if (rel === '' || rel === '..' || rel.startsWith(`..${paths.sep}`) || paths.isAbsolute(rel)) return false
+    const [, inEpic, inIssues, ...deeper] = rel.split(paths.sep)
+    if (inEpic === undefined) return typeof stats?.isFile === 'function' && stats.isFile()
     const name = inEpic.toLowerCase()
     if (inIssues === undefined) return name !== 'spec.md' && name !== 'map.md' && name !== 'issues'
     return name !== 'issues' || !inIssues.endsWith('.md') || deeper.length > 0
   }
+}
+
+export interface TicketsWatchOptions {
+  ticketsRoot: string
+  /** The folders the paths may lead into though they lie on a share: the Project root, as written and as a real path. */
+  allowed: readonly string[]
+  onChange: () => void
+  onError: (error: unknown) => void
+  /** The path rules of the platform; path.win32 in tests on any system. */
+  paths?: PathRules
+  links?: LinkFs
+  fs?: WatchFs
+  scanDelayMs?: number
+}
+
+/**
+ * The watch of a Tickets root that reads every link before anything follows it (link-safe-watch.ts).
+ * It cares about what `ticketsIgnored` does not skip: links are looked for in the root, in the
+ * Epic folders and in their `issues`, and a change is reported for the same paths.
+ */
+export function ticketsWatch(options: TicketsWatchOptions): LinkSafeWatch {
+  const paths = options.paths ?? nativePath
+  const ignored = ticketsIgnored(options.ticketsRoot, paths)
+  const cares = (path: string): boolean => !ignored(path)
+  return new LinkSafeWatch({
+    root: options.ticketsRoot,
+    allowed: [...options.allowed, options.ticketsRoot],
+    paths,
+    links: options.links,
+    fs: options.fs,
+    enter: cares,
+    wanted: cares,
+    onChange: () => options.onChange(),
+    onError: options.onError,
+    scanDelayMs: options.scanDelayMs,
+  })
 }
 
 function gitCommonDir(root: string): Promise<string | null> {
@@ -136,6 +193,8 @@ export class WorkflowWatcher {
   private checkout: CheckoutModel | null = null
   private branches: BranchCache = new Map()
   private readonly watchers: FSWatcher[] = []
+  /** The watch of the Tickets root when it is not chokidar's. */
+  private tickets: LinkSafeWatch | null = null
   private readonly debounce: Debounce
   private layout: ProjectLayout | null = null
   private dirtyCheckout = false
@@ -191,6 +250,7 @@ export class WorkflowWatcher {
   async close(): Promise<void> {
     this.closed = true
     this.debounce.cancel()
+    this.tickets?.close()
     await Promise.all(this.watchers.map((w) => w.close()))
     if (this.running) await this.running
   }
@@ -208,8 +268,25 @@ export class WorkflowWatcher {
       watcher.on('error', (error) => console.error(`[workflow] ${what} watch error`, error))
       this.watchers.push(watcher)
     }
-    // No `depth`: see `ticketsIgnored`.
-    add(watch(layout.ticketsRoot, { ignoreInitial: true, ignored: ticketsIgnored(layout.ticketsRoot) }), 'checkout')
+    if ((this.options.ticketsWatch ?? (sep === '\\' ? 'links-read-first' : 'chokidar')) === 'links-read-first') {
+      // The Project root is the user's own folder, also when it is a link to a share of theirs.
+      const real = await realpath(root).catch(() => null)
+      const tickets = ticketsWatch({
+        ticketsRoot: layout.ticketsRoot,
+        allowed: real === null ? [root] : [root, real],
+        onChange: () => this.schedule('checkout'),
+        onError: (error) => console.error('[workflow] checkout watch error', error),
+      })
+      this.tickets = tickets
+      ready.push(
+        tickets.start().then((state) => {
+          if (state === 'refused') console.error(`[workflow] the Tickets root ${layout.ticketsRoot} leads off this machine, or cannot be checked: it is not watched`)
+        }),
+      )
+    } else {
+      // No `depth`: see `ticketsIgnored`.
+      add(watch(layout.ticketsRoot, { ignoreInitial: true, ignored: ticketsIgnored(layout.ticketsRoot) }), 'checkout')
+    }
 
     const common = layout.mode === 'silent' ? null : await gitCommonDir(root)
     if (common) {

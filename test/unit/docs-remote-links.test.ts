@@ -179,7 +179,8 @@ describe('resolveDocPath and a link that leads to a share (Windows rules)', () =
   it('says that a document could not be checked, not that it is outside, when a folder on the way cannot be looked at', async () => {
     const system = fakeSystem({ files: PLAIN, denied: ['C:\\p\\repo\\docs'] })
     const refused = resolveDocPath(ROOT, 'docs/adr/0001-first.md', system.options)
-    await expect(refused).rejects.toThrow(/^docs\/adr\/0001-first\.md cannot be checked/)
+    // The whole wording, as every caller gives it (review round 2 of PR #233, mutant N27).
+    await expect(refused).rejects.toThrow(/^docs\/adr\/0001-first\.md cannot be checked: a link on the way to it cannot be read, or the links do not end$/)
     expect(system.calls).toEqual(['realpath C:\\p\\repo', 'lstat C:\\p\\repo', 'lstat C:\\p\\repo\\docs'])
   })
 

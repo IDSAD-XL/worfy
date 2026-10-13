@@ -245,7 +245,10 @@ describe('resolveProjectFile on this file system', () => {
   let repo: string
 
   beforeEach(() => {
-    scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-resolve-')))
+    // As the disk spells it: on a machine whose temp folder has an 8.3 short name
+    // (C:\Users\RUNNER~1\… on a GitHub runner) realpathSync keeps the short name, and
+    // resolveProjectFile answers with the long one.
+    scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-resolve-')))
     repo = join(scratch, 'Stuff', 'repo')
     mkdirSync(repo, { recursive: true })
     writeFileSync(join(repo, 'a.md'), '# a\n')
