@@ -401,6 +401,16 @@ const WITH_A_MOUNT_ON_ITS_VOLUME: Record<string, Entry> = {
   '/home/notes': { kind: 'folder' },
   '/home/notes/keep.txt': { kind: 'file' },
 }
+/** A folder reached through an ordinary link to another volume: the link is the parent of what is removed. */
+const BEHIND_A_LINK_TO_ANOTHER_VOLUME: Record<string, Entry> = {
+  '/data': { kind: 'folder' },
+  '/data/away': { kind: 'link', to: '/vol/r' },
+  '/vol': { kind: 'folder' },
+  '/vol/r': { kind: 'folder' },
+  '/vol/r/sub': { kind: 'folder' },
+  '/vol/r/sub/f.txt': { kind: 'file' },
+  '/vol/r/empty': { kind: 'folder' },
+}
 /** An entry of the trash whose Card folder is a mount, and one whose Card folder holds a mount. */
 const TRASH_CARD_IS_A_MOUNT: Record<string, Entry> = {
   '/trash': { kind: 'folder' },
@@ -488,6 +498,64 @@ describe('removeTree over a model of the file system', () => {
       expect(m.names()).toEqual(['/data', ...VOLUME])
       expect(through(m, '/data/card/linked')).toEqual(['lstat /data/card/linked', 'rmdir /data/card/linked', 'rmdir /data/card/linked'])
       expect(m.waits).toEqual([REMOVE_RETRY_MS])
+    })
+
+    // Review round 1 of PR #287: in the test of the path itself above, rmdir never answers "not
+    // empty", so the first rmdir hid the rule of the volume. Here it is the volume that decides.
+    it('as the path itself, on another volume: a "not empty" answer does not lead to a listing — the volume of its parent folder decides', () => {
+      const m = model(WITH_A_MOUNT, { 'rmdir /data/card/linked': ['ENOTEMPTY'] })
+      expect(viaModule(m, '/data/card/linked', 'win32')).toBeNull()
+      expect(m.calls).toEqual(['lstat /data/card/linked', 'lstat /data/card', 'rmdir /data/card/linked', 'rmdir /data/card/linked'])
+      expect(m.waits).toEqual([REMOVE_RETRY_MS])
+      expect(m.names()).toEqual(['/data', '/data/card', '/data/card/index.html', ...VOLUME])
+    })
+
+    // Review round 1 of PR #287: what the first rmdir answers besides "not empty" had no expected
+    // value. Whatever it is, nothing is listed: "busy" is waited for and then thrown, anything
+    // else is thrown at once.
+    it('on the volume of its folder and busy for good: the removal ends with that answer after its waits, and nothing is listed', () => {
+      const m = model(WITH_A_MOUNT_ON_ITS_VOLUME, { 'rmdir /data/card/linked': Array.from({ length: 10 }, () => 'EPERM') })
+      expect(viaModule(m, '/data/card', 'win32')).toBe('EPERM')
+      expect(through(m, '/data/card/linked')).toEqual(['lstat /data/card/linked', ...Array.from({ length: 1 + REMOVE_RETRIES }, () => 'rmdir /data/card/linked')])
+      expect(m.waits).toHaveLength(REMOVE_RETRIES)
+      expect(m.names()).toEqual(['/data', '/data/card', '/data/card/linked', '/home', '/home/notes', '/home/notes/keep.txt'])
+    })
+
+    it('on the volume of its folder, and rmdir answers an error that is not "busy": thrown at once, no wait, nothing listed', () => {
+      const m = model(WITH_A_MOUNT_ON_ITS_VOLUME, { 'rmdir /data/card/linked': ['EIO'] })
+      expect(viaModule(m, '/data/card', 'win32')).toBe('EIO')
+      expect(through(m, '/data/card/linked')).toEqual(['lstat /data/card/linked', 'rmdir /data/card/linked'])
+      expect(m.waits).toEqual([])
+      expect(m.names()).toEqual(['/data', '/data/card', '/data/card/linked', '/home', '/home/notes', '/home/notes/keep.txt'])
+    })
+
+    it('on another volume, and rmdir answers an error that is not "busy": the removal ends with it, and the volume keeps its files', () => {
+      const m = model(WITH_A_MOUNT, { 'rmdir /data/card/linked': ['EIO'] })
+      expect(viaModule(m, '/data/card', 'win32')).toBe('EIO')
+      expect(through(m, '/data/card/linked')).toEqual(['lstat /data/card/linked', 'rmdir /data/card/linked'])
+      expect(m.waits).toEqual([])
+      expect(m.names()).toEqual(['/data', '/data/card', '/data/card/linked', ...VOLUME])
+    })
+
+    it('a plain folder whose first rmdir answers an error that is not "busy": thrown at once, the folder is not listed and keeps its files', () => {
+      const m = model(WITH_A_LINK, { 'rmdir /data/card/assets': ['EIO'] })
+      expect(viaModule(m, '/data/card', 'win32')).toBe('EIO')
+      expect(m.calls).not.toContain('readdir /data/card/assets')
+      expect(m.calls.filter((call) => call === 'rmdir /data/card/assets')).toHaveLength(1)
+      expect(m.waits).toEqual([])
+      expect(m.names()).toEqual(['/data', '/data/card', '/data/card/assets', '/data/card/assets/app.js', '/home', '/home/notes', '/home/notes/keep.txt'])
+    })
+
+    // Review round 1 of PR #287, measured on the PC: lstat of an ordinary junction or a symlink
+    // answers with the volume the link lies on. As the parent of the path given it said "another
+    // volume" about a plain folder behind it, and that folder was not removed.
+    it('a plain folder whose parent is an ordinary link to another volume is removed as on main: such a parent tells no volume', () => {
+      const m = model(BEHIND_A_LINK_TO_ANOTHER_VOLUME)
+      expect(viaModule(m, '/data/away/sub', 'win32')).toBeNull()
+      expect(m.calls).toEqual(['lstat /data/away/sub', 'lstat /data/away', 'rmdir /data/away/sub', 'readdir /data/away/sub', 'lstat /data/away/sub/f.txt', 'unlink /data/away/sub/f.txt', 'rmdir /data/away/sub'])
+      expect(m.waits).toEqual([])
+      expect(viaModule(m, '/data/away/empty', 'win32')).toBeNull()
+      expect(m.names()).toEqual(['/data', '/data/away', '/vol', '/vol/r'])
     })
 
     it('when the parent folder cannot be asked for its volume, the first rmdir still decides', () => {
@@ -827,6 +895,11 @@ describe('the copies of the walk that cannot import the module', () => {
     ['a mount to another volume that answers "not empty" once', WITH_A_MOUNT, '/data/card', { 'rmdir /data/card/linked': ['ENOTEMPTY'] }],
     ['a mount to another volume that refuses to go', WITH_A_MOUNT, '/data/card', { 'rmdir /data/card/linked': ['EIO'] }],
     ['a mount whose parent folder cannot be asked', WITH_A_MOUNT, '/data/card/linked', { 'lstat /data/card': ['EACCES'] }],
+    ['a mount to another volume as the path itself that answers "not empty" once', WITH_A_MOUNT, '/data/card/linked', { 'rmdir /data/card/linked': ['ENOTEMPTY'] }],
+    ['a mount on the volume of its folder that refuses to go', WITH_A_MOUNT_ON_ITS_VOLUME, '/data/card', { 'rmdir /data/card/linked': ['EIO'] }],
+    ['a folder behind an ordinary link to another volume', BEHIND_A_LINK_TO_ANOTHER_VOLUME, '/data/away/sub', {}],
+    ['an empty folder behind an ordinary link to another volume', BEHIND_A_LINK_TO_ANOTHER_VOLUME, '/data/away/empty', {}],
+    ['the link to another volume itself', BEHIND_A_LINK_TO_ANOTHER_VOLUME, '/data/away', {}],
     ['a folder whose parent folder is not there to be asked', WITH_A_MOUNT, '/data/card', { 'lstat /data': ['ENOENT'] }],
     ['an entry of the trash whose Card folder is a mount', TRASH_CARD_IS_A_MOUNT, '/trash/entry', {}],
     ['an entry of the trash whose Card folder holds a mount', TRASH_CARD_HOLDS_A_MOUNT, '/trash/entry', {}],

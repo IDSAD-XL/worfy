@@ -7,6 +7,13 @@
 // removes a junction or a symlink as the link it is. On every other system fs.rmSync is called, as
 // before: it never went through a link there.
 //
+// One junction is a folder to lstat: the one whose target is written with the GUID of a volume
+// (worfy-windows ticket 35; the walk as it was listed it and removed the files of that volume).
+// So a folder is first asked to go with one rmdir, which removes such a junction as a link, and is
+// listed only when the answer is "not empty" and it is on the volume of the folder it lies in.
+// The price: a folder that is busy itself is waited for before its entries, and keeps them when
+// it stays busy.
+//
 // The scripts cannot import from src/main, so this is a copy of removeTree of
 // src/main/storage/remove.ts; test/unit/remove-tree.test.ts runs both over the same trees.
 
@@ -72,7 +79,10 @@ function removeWalk(given, patience, outer) {
   let volume = outer
   if (volume === undefined) {
     try {
-      volume = lstatSync(join(path, '..')).dev
+      // A parent that is a link to lstat (an ordinary junction, a symlink) answers with the
+      // volume the link lies on, not the one this path is on: unknown then.
+      const parent = lstatSync(join(path, '..'))
+      if (parent.isDirectory()) volume = parent.dev
     } catch {
       // The parent cannot be asked: the first rmdir below still decides.
     }

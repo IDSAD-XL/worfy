@@ -108,7 +108,10 @@ import { fileURLToPath } from 'node:url'
 // Removes a file, a link, or a folder with everything in it; a path that is not there is not an
 // error. A link is removed as a link: what it leads to is not entered. On Windows fs.rmSync is not
 // used: under the Node of Electron 44 its "recursive" goes through a junction and empties the
-// folder behind it, and it refuses a read-only file. A copy of removeTree of
+// folder behind it, and it refuses a read-only file. A junction whose target is written with the
+// GUID of a volume is a folder to lstat (worfy-windows ticket 35): a folder is first asked to go
+// with one rmdir and is listed only when the answer is "not empty" and it is on the volume of the
+// folder it lies in; a folder that is busy itself keeps what it holds. A copy of removeTree of
 // src/main/storage/remove.ts, since this script imports nothing of worfy;
 // test/unit/remove-tree.test.ts runs both over the same trees.
 // <remove-tree>
@@ -165,7 +168,10 @@ function removeWalk(given, patience, outer) {
   let volume = outer
   if (volume === undefined) {
     try {
-      volume = lstatSync(join(path, '..')).dev
+      // A parent that is a link to lstat (an ordinary junction, a symlink) answers with the
+      // volume the link lies on, not the one this path is on: unknown then.
+      const parent = lstatSync(join(path, '..'))
+      if (parent.isDirectory()) volume = parent.dev
     } catch {
       // The parent cannot be asked: the first rmdir below still decides.
     }

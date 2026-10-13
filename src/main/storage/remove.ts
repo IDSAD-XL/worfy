@@ -25,12 +25,19 @@
 // the link it is, also while it is busy, and leaves the volume alone. A folder that holds entries
 // answers ENOTEMPTY to rmdir in every state measured (read-only, a file held open in it, a path
 // of 359 characters), but for the working folder of a running process, which answers EBUSY.
-// Hence two rules, each enough by itself, before a folder is listed:
-//   - a folder on another volume than the folder it lies in is never listed: it is asked to go
-//     with rmdir, and nothing more;
-//   - any other folder is first asked to go with one rmdir, and is listed only when the answer is
-//     ENOTEMPTY. The price: a folder that is busy itself keeps what it holds, where the walk
-//     before removed that and then failed at the folder all the same.
+// Hence, before a folder is listed:
+//   - it is first asked to go with one rmdir, and is listed only when the answer is ENOTEMPTY.
+//     This rule is enough alone: it also covers a junction by GUID that leads to a folder of its
+//     own volume, where the volume says nothing;
+//   - a second guard for the junction to another volume: a folder on another volume than the
+//     folder it lies in is never listed, whatever rmdir answers. It is asked to go with rmdir, and
+//     nothing more. The folder a path lies in is asked for its volume only when lstat calls it a
+//     folder: an ordinary junction or a symlink there answers with the volume the link lies on,
+//     not the one the path is on (measured).
+// The price: a folder that is busy itself is waited for before its entries — the walk before came
+// to it last — and keeps what it holds while it stays busy. Once the waits of the removal are
+// spent, half a second, it fails; the walk before removed the entries first, and succeeded when
+// the folder was let go meanwhile.
 //
 // On every other system fs.rmSync is called, as before this module: there it never went through a
 // link, it is safe against such a swap, it has no limit on the length of a path, and it goes on
@@ -169,7 +176,10 @@ function walk(path: string, fs: RemoveFs, options: RemoveOptions, patience: Pati
   let volume = outer
   if (volume === undefined) {
     try {
-      volume = fs.lstatSync(join(path, '..')).dev
+      // A parent that is a link to lstat — an ordinary junction, a symlink — answers with the
+      // volume the link lies on, not the one this path is on (measured): unknown then.
+      const parent = fs.lstatSync(join(path, '..'))
+      if (parent.isDirectory()) volume = parent.dev
     } catch {
       // The parent cannot be asked: the first rmdir below still decides.
     }

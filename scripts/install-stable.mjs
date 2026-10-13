@@ -310,7 +310,12 @@ function patiently(step) {
 /**
  * Removes a folder of Windows with what is in it, and never what a link in it leads to: a link —
  * a symlink or a junction, at the path itself or anywhere below — is not a folder to lstat, and is
- * unlinked as the link it is. rmSync is not used there. Under the Node Electron 44 carries —
+ * unlinked as the link it is. One junction is a folder to lstat: the one whose target is written
+ * with the GUID of a volume (worfy-windows ticket 35). So a folder is first asked to go with one
+ * rmdir, which removes such a junction as a link, and is listed only when the answer is "not
+ * empty" and it is on the volume of the folder it lies in. The price: a folder that is busy
+ * itself is waited for before its entries and keeps them when it stays busy; the next run of this
+ * script removes what is left. rmSync is not used there. Under the Node Electron 44 carries —
  * the tests run this script under it — its `recursive` goes through a junction and empties the
  * folder behind it, and it refuses a read-only file with EPERM; a Node from nodejs.org, 22.13.0
  * or 24.21.0, does neither. unlinkSync removes a read-only file, a junction and a symlink under
@@ -373,7 +378,10 @@ function removeWalk(given, patience, outer) {
   let volume = outer
   if (volume === undefined) {
     try {
-      volume = lstatSync(join(path, '..')).dev
+      // A parent that is a link to lstat (an ordinary junction, a symlink) answers with the
+      // volume the link lies on, not the one this path is on: unknown then.
+      const parent = lstatSync(join(path, '..'))
+      if (parent.isDirectory()) volume = parent.dev
     } catch {
       // The parent cannot be asked: the first rmdir below still decides.
     }
