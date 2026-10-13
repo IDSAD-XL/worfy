@@ -78,7 +78,11 @@ if "%m%"=="bad" (echo Tests 1 failed& exit /b 1)
 if "%m%"=="envbad" (echo sh: tool: command not found& exit /b 127)
 if "%m%"=="envbad-cmd" (echo 'tool' is not recognized as an internal or external command,& exit /b 1)
 if "%m%"=="mixed" (echo sh: tool: command not found& echo Tests 1 failed& exit /b 1)
+if "%m%"=="big" goto big
 exit /b 1
+:big
+node -e "process.stdout.write(('x'.repeat(99) + '\n').repeat(20000))"
+exit /b 0
 EOF
 else
     PM="$T/fakepm"
@@ -90,6 +94,7 @@ case "\$(cat "$T/mode")" in
     envbad) echo "sh: tool: command not found"; exit 127 ;;
     envbad-cmd) echo "'tool' is not recognized as an internal or external command,"; exit 1 ;;
     mixed) echo "sh: tool: command not found"; echo "Tests 1 failed"; exit 1 ;;
+    big) node -e "process.stdout.write(('x'.repeat(99) + '\n').repeat(20000))"; exit 0 ;;
     term) kill -TERM \$\$; sleep 5 ;;
     termparent) kill -TERM \$PPID; exit 0 ;;
 esac
@@ -158,6 +163,11 @@ mode ok; touched
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
 verdict "a later green run overwrites red with green" "$R" '.outcome == "green" and .exit == 0 and .profile == "fast"'
 if [ ! -e "$STATE/red-t-$(tag "$R")" ]; then ok "a later green run removes the red marker"; else bad "the red marker is left after a green run"; fi
+# A script that writes 2 MB is still a script that ran: its output is kept whole, not cut at a limit.
+mode big; touched
+out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+verdict "a script with 2 MB of output -> outcome green, exit 0" "$R" '.outcome == "green" and .exit == 0 and .key == "t"'
+mode ok
 
 # --- 3. Environment unavailable ------------------------------------------------------
 mode envbad; touched
@@ -217,8 +227,10 @@ if [ "$rc" -eq 0 ]; then ok "an empty package manager: exit 0"; else bad "an emp
 if [ "$WIN" -eq 1 ]; then
     # (a) A real message of cmd.exe, not an echoed sentence: the package manager is a .cmd that
     # calls a tool that does not exist. cmd.exe of a Russian Windows says so in Russian and in
-    # code page 866 unless the gate switches the console to UTF-8 first; then it is the English
-    # sentence, which is one of the signs of a missing environment.
+    # code page 866 unless it starts in a UTF-8 console; then it is the English sentence, which is
+    # one of the signs of a missing environment. The gate gives the script a console of its own,
+    # which starts at the code page of the system whatever console this test runs in. (On a
+    # Windows whose cmd.exe speaks English anyway the check cannot fail.)
     newrepo "$C"
     printf '@worfy-no-such-tool-of-ticket-03 %%*\r\n' >"$T/realpm.cmd"
     echo 1 >"$C/n.txt"
@@ -274,43 +286,35 @@ if [ "$WIN" -eq 1 ]; then
         ok "the cache file of that entry is a plain file in the cache folder"
     else bad "cache folder: $(find "$STATE/cache" -mindepth 1 | tr '\n' ' ')"; fi
 
-    # (f), (g) The gate switches the console it runs in to UTF-8 for cmd.exe and back. A .cmd
-    # stands for the window of a person who runs the gate by hand: node gives it a console of its
-    # own, it sets code page 437 there, runs the gate and asks for the code page again.
-    # at437 <name> <repository> leaves the output of the gate in cp-<name>-gate.out and the answers
-    # of `chcp` in cp-<name>-before.txt and cp-<name>-after.txt. Only the number of an answer is
-    # read: `chcp` words it in the language of the system.
-    at437() {
-        printf '@echo off\r\nchcp 437 >nul\r\nchcp >"%%~dp0cp-%s-before.txt"\r\nnode "%s" fast >"%%~dp0cp-%s-gate.out" 2>&1\r\nchcp >"%%~dp0cp-%s-after.txt"\r\n' "$1" "$GATE" "$1" "$1" >"$T/cp-$1.cmd"
-        GATE_SCOPE=all node -e '
-            const path = require("node:path")
-            const cmd = path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32", "cmd.exe")
-            const run = require("node:child_process").spawnSync(cmd, ["/d", "/c", path.win32.normalize(process.argv[1])], { cwd: process.argv[2], windowsHide: true, stdio: "ignore" })
-            process.exit(run.status === 0 ? 0 : 1)' "$T/cp-$1.cmd" "$2"
-    }
-    page() { tr -cd '0-9' <"$T/cp-$1.txt" 2>/dev/null; }
-
-    # (f) The console has its code page back after the run: the window is not left at UTF-8.
+    # (f) The gate leaves the console it is started in alone: the script runs in a console of its
+    # own, and only that one is switched to UTF-8. A .cmd stands for the window of a person who
+    # runs the gate by hand: node gives it a console, it sets code page 437 there, runs the gate
+    # and asks for the code page again. Only the number of an answer is read: `chcp` words it in
+    # the language of the system.
     mode ok; touched
-    at437 back "$R"
-    if [ "$(page back-before)" != 437 ]; then echo "skip the check of the code page after a run: the console did not take code page 437 (it says: $(page back-before))"
-    elif [[ "$(cat "$T/cp-back-gate.out" 2>/dev/null)" != *"[gate] зелено (fast): t/.:check"* ]] || [[ "$(cat "$T/cp-back-gate.out")" == *"(кэш)"* ]]; then
-        bad "the code page after a run: the gate did not start the script (out: $(head -c 300 "$T/cp-back-gate.out" 2>/dev/null))"
-    elif [ "$(page back-after)" = 437 ]; then ok "the console the gate was started in has its code page back (437 before and after)"
-    else bad "the gate left the console it was started in at another code page: 437 before, $(page back-after) after"; fi
+    printf '@echo off\r\nchcp 437 >nul\r\nchcp >"%%~dp0cp-before.txt"\r\nnode "%s" fast >"%%~dp0cp-gate.out" 2>&1\r\nchcp >"%%~dp0cp-after.txt"\r\n' "$GATE" >"$T/cp.cmd"
+    GATE_SCOPE=all node -e '
+        const path = require("node:path")
+        const cmd = path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32", "cmd.exe")
+        const run = require("node:child_process").spawnSync(cmd, ["/d", "/c", path.win32.normalize(process.argv[1])], { cwd: process.argv[2], windowsHide: true, stdio: "ignore" })
+        process.exit(run.status === 0 ? 0 : 1)' "$T/cp.cmd" "$R"
+    page() { tr -cd '0-9' <"$T/cp-$1.txt" 2>/dev/null; }
+    if [ "$(page before)" != 437 ]; then echo "skip the check of the console of the gate: it did not take code page 437 (it says: $(page before))"
+    elif [[ "$(cat "$T/cp-gate.out" 2>/dev/null)" != *"[gate] зелено (fast): t/.:check"* ]] || [[ "$(cat "$T/cp-gate.out")" == *"(кэш)"* ]]; then
+        bad "the console of the gate: the gate did not start the script (out: $(head -c 300 "$T/cp-gate.out" 2>/dev/null))"
+    elif [ "$(page after)" = 437 ]; then ok "the console the gate was started in keeps its code page (437 before and after)"
+    else bad "the gate changed the code page of the console it was started in: 437 before, $(page after) after"; fi
 
-    # (g) The same as (a), in a console known not to be at UTF-8 before the gate starts: (a) runs
-    # in the console of this test, which may be at UTF-8 already.
-    echo 2 >"$C/n.txt"
-    at437 words "$C"
-    out="$(cat "$T/cp-words-gate.out" 2>/dev/null)"; rc=0
-    if [ "$(page words-before)" != 437 ]; then echo "skip the check of the words of cmd.exe in a console at 437: the console did not take code page 437 (it says: $(page words-before))"
-    else
-        verdict "in a console at code page 437 cmd.exe still names a missing tool in English -> outcome unverified" "$C" \
-            '.outcome == "unverified" and .exit == 0 and .key == "c" and (.reason | contains("is not recognized as an internal or external command"))'
-    fi
+    # (g) What a .cmd writes to stderr comes between what it wrote to stdout before and after it:
+    # the two streams are one inside the command line.
+    printf '@echo off\r\necho first to stdout\r\n1>&2 echo then to stderr\r\necho Tests 1 failed\r\nexit /b 1\r\n' >"$T/sp dir/argpm.cmd"
+    echo 2 >"$A/n.txt"
+    out="$(cd "$A" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+    flat="$(printf '%s' "$out" | tr -d '\r' | tr '\n' '~')"
+    if [ "$rc" -eq 2 ] && [[ "$flat" == *"first to stdout~then to stderr~Tests 1 failed"* ]]; then ok "stdout and stderr of a .cmd come in the order they were written, and its exit code makes the run red"
+    else bad "the order of stdout and stderr: rc=$rc, out: ${out:0:400}"; fi
 else
-    echo "skip the cmd.exe checks (a real message of cmd.exe, ComSpec, words with a space and &, the current folder, a backslash in a workspace entry, the code page of the console): not Windows"
+    echo "skip the cmd.exe checks (a real message of cmd.exe, ComSpec, words with a space and &, the current folder, a backslash in a workspace entry, the console of the gate, the order of stdout and stderr): not Windows"
 fi
 
 # --- 4. The plan resolver crashed (the registry resolver works) -------------------------
