@@ -10,6 +10,8 @@
  *   header and 3 rows, or its whole content when that is less. This floor is the automatic minimum
  *   of a flex item: the smaller of its `height` and of its content. `height` is here for that
  *   alone; with `flex-basis: content` it never sizes the section;
+ * - a notice of a section (an error of "Add project") stands above the list and is counted on top
+ *   of that floor: the header, the notice and 3 rows;
  * - when every section is at its floor, the column scrolls as a whole.
  */
 
@@ -22,14 +24,24 @@
   --w-section-header: 24px;
   /* Set by SidebarSection for a section whose rows are not the common ones. */
   --w-section-row-height: var(--w-section-row, var(--row-height));
+  /* What the floor leaves for a notice: nothing while the section shows none. */
+  --w-section-notice-room: 0px;
   /* The popovers of a section are placed against it. */
   position: relative;
   display: flex;
   flex-direction: column;
   flex: 0 1 content;
   min-height: auto;
-  height: calc(var(--w-section-header) + 3 * var(--w-section-row-height));
+  height: calc(var(--w-section-header) + var(--w-section-notice-room) + 3 * var(--w-section-row-height));
   min-width: 0;
+}
+/*
+ * A section that shows a notice (SidebarSection marks it): the floor is higher by the most a notice
+ * takes, 3 rows. The notice does not shrink, so without this it would take its height out of the
+ * 3 rows of the list, down to none. A notice lower than 3 rows leaves the rest of the room to the list.
+ */
+.w-sidebar-section[data-notice] {
+  --w-section-notice-room: calc(3 * var(--w-section-row-height));
 }
 
 .w-sidebar-section__header {
@@ -92,7 +104,11 @@
   margin-left: auto;
 }
 
-/* Never higher than 3 rows, so that the floor of the section (above) always has room for it. */
+/*
+ * A message about an action of the header, between the header and the list. Never higher than
+ * 3 rows — a longer one scrolls by itself — so that the room the floor of the section leaves for it
+ * (above) is always enough.
+ */
 .w-sidebar-section__notice {
   flex: none;
   max-height: calc(3 * var(--w-section-row-height));

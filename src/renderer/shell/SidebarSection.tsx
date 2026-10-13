@@ -68,9 +68,19 @@ export function SidebarSection({ id, title, rowHeight, defaultCollapsed = false,
   }
 
   const style = rowHeight === undefined ? undefined : ({ '--w-section-row': `${rowHeight}px` } as CSSProperties)
+  // Marked for sidebar-section.css: a section with a notice may not shrink as far as one without.
+  const hasNotice = notice !== undefined && notice !== null && notice !== false
 
   return (
-    <section className="w-sidebar-section" aria-labelledby={headingId} data-section-id={id} data-collapsed={collapsed ? 'true' : undefined} data-testid={testId} style={style}>
+    <section
+      className="w-sidebar-section"
+      aria-labelledby={headingId}
+      data-section-id={id}
+      data-collapsed={collapsed ? 'true' : undefined}
+      data-notice={hasNotice ? 'true' : undefined}
+      data-testid={testId}
+      style={style}
+    >
       <div className="w-sidebar-section__header">
         <h2 id={headingId} className="w-sidebar-section__heading">
           <button type="button" className="w-sidebar-section__toggle" aria-expanded={!collapsed} aria-controls={bodyId} onClick={toggle}>

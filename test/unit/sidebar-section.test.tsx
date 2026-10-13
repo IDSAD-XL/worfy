@@ -214,6 +214,24 @@ describe('SidebarSection', () => {
     expect(dialog.closest('[hidden]')).toBeNull()
   })
 
+  it('marks a section that shows a notice, so that its floor has room for the notice and for 3 rows of the list', async () => {
+    const { SidebarSection } = await import('../../src/renderer/shell/SidebarSection')
+    const draw = (notice: ReactNode) => (
+      <SidebarSection id="DemoSection" title="Demo" notice={notice}>
+        a row
+      </SidebarSection>
+    )
+    const shown = render(draw(<p role="alert">could not add</p>))
+    expect(region().getAttribute('data-notice')).toBe('true')
+    // What a section passes while it has nothing to say: `cond ? <p/> : null`, `cond && <p/>`.
+    for (const nothing of [null, undefined, false]) {
+      shown.rerender(draw(nothing))
+      expect(region().getAttribute('data-notice')).toBeNull()
+    }
+    shown.rerender(draw('could not add'))
+    expect(region().getAttribute('data-notice')).toBe('true')
+  })
+
   it('rowHeight sets the row of the section for the height rules; without it the section keeps the common row', async () => {
     const first = await mount({ rowHeight: 48 })
     expect(region().style.getPropertyValue('--w-section-row')).toBe('48px')

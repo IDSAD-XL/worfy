@@ -33,6 +33,7 @@ const TALL = { width: 1200, height: 900 }
 let scratch: string
 let dataDir: string
 let claudeHome: string
+let plainFolder: string
 
 function git(cwd: string, ...args: string[]): string {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
@@ -72,6 +73,10 @@ test.beforeEach(() => {
 
   mkdirSync(join(dataDir, PROJECT), { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'alpha', path: repo }], activeId: PROJECT }))
+
+  // No git repository, and a path long enough for a message of "Add project" higher than 3 rows.
+  plainFolder = join(scratch, 'a-plain-folder-that-is-not-a-repository', 'with-a-rather-long-name-inside-it', 'and-one-more-level')
+  mkdirSync(plainFolder, { recursive: true })
 })
 
 test.afterEach(async () => {
@@ -156,10 +161,31 @@ async function setWindowSize(launched: LaunchedApp, size: { width: number; heigh
 }
 
 /** The lists of the fixture are read and drawn. */
-async function listsShown(window: Page): Promise<void> {
+async function listsShown(window: Page, projects = 1): Promise<void> {
   await expect(window.getByTestId('sidebar-epic')).toHaveCount(EPICS.length)
   await expect(window.getByTestId('sidebar-adr')).toHaveCount(ADRS.length)
-  await expect(window.getByTestId('project-row')).toHaveCount(1)
+  await expect(window.getByTestId('project-row')).toHaveCount(projects)
+}
+
+/**
+ * Makes "Add project" fail with a long message and returns the message. The system folder picker
+ * is replaced in main before the click, so no system dialog opens: it answers with a folder that
+ * is no git repository, which worfy refuses.
+ */
+async function addProjectFails(launched: LaunchedApp): Promise<Locator> {
+  const stubbed = await launched.app.evaluate(({ dialog }, path) => {
+    dialog.showOpenDialog = (() => Promise.resolve({ canceled: false, filePaths: [path] })) as typeof dialog.showOpenDialog
+    return String(dialog.showOpenDialog).includes('filePaths')
+  }, plainFolder)
+  expect(stubbed).toBe(true)
+  const projects = region(launched.window, 'Projects')
+  await projects.getByRole('button', { name: 'Add project' }).click()
+  const error = projects.getByTestId('projects-error')
+  await expect(error).toBeVisible()
+  await expect(error).toContainText(plainFolder)
+  // Higher than the 3 rows a notice may take.
+  expect(await projects.locator('.w-sidebar-section__notice').evaluate((node) => (node as unknown as El).scrollHeight)).toBeGreaterThan(3 * ROW)
+  return error
 }
 
 const height = async (locator: Locator): Promise<number> => (await locator.boundingBox())?.height ?? Number.NaN
@@ -292,6 +318,123 @@ test('a section collapses by a click, Enter and Space on its heading and stays c
   }
 })
 
+test('an error of "Add project" stays above the list of Projects and takes no room from it, in the smallest window and in a tall one', async () => {
+  const launched = await launch()
+  try {
+    const { window } = launched
+    await listsShown(window)
+    await setWindowSize(launched, SMALLEST)
+    await expect.poll(async () => sectionOf(await measure(window), 'EpicsSection').body).toBe(3 * EPIC_ROW)
+
+    const projects = region(window, 'Projects')
+    const error = await addProjectFails(launched)
+    const notice = projects.locator('.w-sidebar-section__notice')
+    const row = window.getByTestId('project-row')
+    /** The notice, the body and the only row of Projects, in px of the page. */
+    const projectsBoxes = async () => {
+      const column = await measure(window)
+      const section = sectionOf(column, 'ProjectsSection')
+      const noticeBox = (await notice.boundingBox())!
+      const rowBox = (await row.boundingBox())!
+      const bodyBox = (await projects.locator('.w-sidebar-section__body').boundingBox())!
+      return { column, section, noticeBox, rowBox, bodyBox, noticeContent: await notice.evaluate((node) => (node as unknown as El).scrollHeight) }
+    }
+    const check = async (where: string): Promise<void> => {
+      const { column, section, noticeBox, rowBox, bodyBox, noticeContent } = await projectsBoxes()
+      // The message is longer than 3 rows: it is cut at 3 rows and scrolls by itself.
+      expect(noticeContent, where).toBeGreaterThan(3 * ROW)
+      expect(noticeBox.height, where).toBe(3 * ROW)
+      // The list keeps its whole row, inside the body, under the message.
+      expect(section.body, where).toBe(ROW)
+      expect(section.content, where).toBe(ROW)
+      expect(rowBox.y, where).toBeGreaterThanOrEqual(bodyBox.y)
+      expect(rowBox.y + rowBox.height, where).toBeLessThanOrEqual(bodyBox.y + bodyBox.height)
+      expect(bodyBox.y, where).toBeGreaterThanOrEqual(noticeBox.y + noticeBox.height)
+      // The section is its header, the message and the row.
+      expect(section.bottom - section.top, where).toBe(HEADER + 3 * ROW + ROW)
+      expectNoOverlap(column)
+      await expect(row, where).toBeInViewport({ ratio: 1 })
+    }
+
+    // 800×520: every section is at its floor and the column scrolls.
+    const small = await measure(window)
+    expect(small.scrollHeight).toBeGreaterThan(small.clientHeight)
+    expect(sectionOf(small, 'EpicsSection').body).toBe(3 * EPIC_ROW)
+    expect(sectionOf(small, 'AdrSection').body).toBe(3 * ROW)
+    await check('800×520')
+
+    // 1200×900, Epics and ADR expanded and squeezed: the column has no room to spare either.
+    await setWindowSize(launched, TALL)
+    await expect.poll(async () => (await measure(window)).clientHeight).toBeGreaterThan(small.clientHeight)
+    const tall = await measure(window)
+    expect(tall.scrollHeight).toBe(tall.clientHeight)
+    expect(sectionOf(tall, 'EpicsSection').body).toBeLessThan(EPICS.length * EPIC_ROW)
+    expect(sectionOf(tall, 'AdrSection').body).toBeLessThan(15 * ROW)
+    await check('1200×900')
+
+    // A collapsed Projects still shows the message.
+    await heading(window, 'Projects').click()
+    await expect(row).toBeHidden()
+    await expect(error).toBeVisible()
+    expect(await height(notice)).toBe(3 * ROW)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('under an error of "Add project" a list of 4 Projects keeps 3 rows at the floor of its section, and all 4 where the column has room', async () => {
+  // Three more Projects, in plain folders: the list is longer than the 3 rows the floor keeps.
+  const more = ['beta', 'gamma', 'delta'].map((name, index) => {
+    mkdirSync(join(scratch, name))
+    mkdirSync(join(dataDir, `${name}-000000${index}b`), { recursive: true })
+    return { id: `${name}-000000${index}b`, name, path: join(scratch, name) }
+  })
+  const file = join(dataDir, 'projects.json')
+  const saved = JSON.parse(readFileSync(file, 'utf8')) as { projects: unknown[]; activeId: string }
+  writeFileSync(file, JSON.stringify({ ...saved, projects: [...saved.projects, ...more] }))
+
+  const launched = await launch()
+  try {
+    const { window } = launched
+    await listsShown(window, 4)
+    await setWindowSize(launched, SMALLEST)
+    await expect.poll(async () => sectionOf(await measure(window), 'EpicsSection').body).toBe(3 * EPIC_ROW)
+    // Without a message the floor is the header and 3 rows.
+    const quiet = sectionOf(await measure(window), 'ProjectsSection')
+    expect(quiet.content).toBe(4 * ROW)
+    expect(quiet.body).toBe(3 * ROW)
+    expect(quiet.bottom - quiet.top).toBe(HEADER + 3 * ROW)
+
+    await addProjectFails(launched)
+    const projects = region(window, 'Projects')
+    expect(await height(projects.locator('.w-sidebar-section__notice'))).toBe(3 * ROW)
+
+    // 800×520, every section at its floor: the header, the message and 3 rows of the list, which scrolls.
+    const small = await measure(window)
+    expect(small.scrollHeight).toBeGreaterThan(small.clientHeight)
+    const squeezed = sectionOf(small, 'ProjectsSection')
+    expect(squeezed.body).toBe(3 * ROW)
+    expect(squeezed.content).toBe(4 * ROW)
+    expect(squeezed.bottom - squeezed.top).toBe(HEADER + 3 * ROW + 3 * ROW)
+    expectNoOverlap(small)
+    const bodyBox = (await projects.locator('.w-sidebar-section__body').boundingBox())!
+    const firstRow = (await window.getByTestId('project-row').first().boundingBox())!
+    expect(firstRow.y).toBe(bodyBox.y)
+    await expect(window.getByTestId('project-row').first()).toBeInViewport({ ratio: 1 })
+
+    // 1200×900 with Epics and ADR collapsed: the column has room, the list is whole under the message.
+    await heading(window, 'Epics').click()
+    await heading(window, 'ADR').click()
+    await setWindowSize(launched, TALL)
+    await expect.poll(async () => sectionOf(await measure(window), 'ProjectsSection').body).toBe(4 * ROW)
+    const tall = await measure(window)
+    expect(tall.scrollHeight).toBe(tall.clientHeight)
+    expectNoOverlap(tall)
+  } finally {
+    await launched.close()
+  }
+})
+
 test('in the smallest window a long list keeps 3 of its rows and the column scrolls; in a tall one it grows to 15 rows and scrolls by itself', async () => {
   const launched = await launch()
   try {
@@ -320,20 +463,6 @@ test('in the smallest window a long list keeps 3 of its rows and the column scro
     expect(sectionOf(small, 'ProjectsSection').body).toBe(ROW)
     expect(sectionOf(small, 'ProjectsSection').content).toBe(ROW)
     expectNoOverlap(small)
-
-    // A notice is never higher than 3 rows, however long its text, so a section at its floor still
-    // holds it: no section lies over the next one. The notice here is put into the page by hand.
-    const notice = region(window, 'Projects').locator('.w-sidebar-section__notice')
-    expect(await height(notice)).toBe(0)
-    await notice.evaluate((node) => {
-      ;(node as unknown as { innerHTML: string }).innerHTML = '<div style="height: 300px"></div>'
-    })
-    expect(await height(notice)).toBe(3 * ROW)
-    expectNoOverlap(await measure(window))
-    await notice.evaluate((node) => {
-      ;(node as unknown as { innerHTML: string }).innerHTML = ''
-    })
-    expect(sectionOf(await measure(window), 'ProjectsSection').body).toBe(ROW)
 
     // 1200×900, both long lists expanded: they share what the column has, each above its floor,
     // and the column itself does not scroll.
