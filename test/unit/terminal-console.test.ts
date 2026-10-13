@@ -150,6 +150,59 @@ describe('TerminalRegistry on Windows: an exit that node-pty knows of and has no
     await registry.closeAll()
   })
 
+  // Review round 2 of PR #280. The look ends a Terminal that is not closing while node-pty still
+  // reads its console, and kill() does not stop that output. An output event names no shell: after
+  // a Restart a late line of the old console reached the screens and the kept output of the new shell.
+  it('after it has reported the exit itself, nothing more of that pty is delivered — not to the screens, and not to a shell started in its place', async () => {
+    vi.useFakeTimers()
+    const old = fakePty(999_994_287, { deaf: true })
+    const next = fakePty(999_994_288)
+    const ptys = [old.pty, next.pty]
+    const registry = windows(() => ptys.shift()!)
+    /** What the screen is told, in order: an output with the offset of its end, or the exit. */
+    const told: (string | number | null)[][] = []
+    const sink = { ...SINK, output: (data: string, end: number) => void told.push(['output', data, end]), exit: (exitCode: number, signal: number | null) => void told.push(['exit', exitCode, signal]) }
+    const answers: string[] = []
+    old.pty.write = (data) => void answers.push(data)
+    const client = {}
+    await registry.open('a', OPEN, client, sink)
+    old.print('PS C:\\old> ')
+    // A plain `exit`: the code is 0, and a program the shell left behind holds the console.
+    old.agent.exitCode = 0
+    await vi.advanceTimersByTimeAsync(EXIT_POLL_MS + EXIT_GRACE_MS - 10)
+    // Just before the exit is reported: the end of this chunk may be the start of a request and is held back.
+    old.print('bye\x1b')
+    await vi.advanceTimersByTimeAsync(10)
+    // What was read before the exit is told before it, the held end included.
+    expect(told).toEqual([
+      ['output', 'PS C:\\old> ', 11],
+      ['output', 'bye', 14],
+      ['output', '\x1b', 15],
+      ['exit', 0, null],
+    ])
+
+    // The program left on the console prints on: the Terminal that has exited shows and keeps none of it.
+    old.print('old leftover 1\r\n')
+    expect(told).toHaveLength(4)
+    expect(await registry.open('a', OPEN, {}, SINK)).toMatchObject({ replay: 'PS C:\\old> bye\x1b', started: false })
+
+    // Restart: a new shell under the same key.
+    expect(await registry.open('a', { ...OPEN, restart: true }, client, sink)).toMatchObject({ pid: 999_994_288, started: true, replay: '' })
+    next.print('PS C:\\new> ')
+    old.print('old leftover 2\r\n')
+    next.print('dir\r\n')
+    // A request of the old console is not answered, and its held end is not sent a moment later.
+    old.print('\x1b[c\x1b')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(told.slice(4)).toEqual([
+      ['output', 'PS C:\\new> ', 11],
+      ['output', 'dir\r\n', 16],
+    ])
+    expect(answers).toEqual([])
+    expect(await registry.open('a', OPEN, {}, SINK)).toMatchObject({ replay: 'PS C:\\new> dir\r\n' })
+    await registry.closeAll()
+  })
+
   it('node-pty\'s own exit event first: the exit is reported once, with the code of the event, and nothing looks any more', async () => {
     vi.useFakeTimers()
     const fake = fakePty(999_994_282, { deaf: true })

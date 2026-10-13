@@ -803,10 +803,13 @@ export class TerminalRegistry {
     // request reaches neither the kept output nor a screen (console-request.ts).
     const requests = this.platform === 'win32' ? new ConsoleRequests() : null
     const deliver = (data: string): void => {
-      // A Terminal that was closed and has reported its exit — by itself, or at the bound of the
-      // close on Windows — says nothing more: by now its Node may have a new shell, and this
-      // output would go to the screens of that one.
-      if (ended && terminal.closing) return
+      // A Terminal that was closed and has reported its exit says nothing more: by now its Node
+      // may have a new shell, and an output event names no shell — this would go to the screens of
+      // that one. On Windows so does every Terminal that has reported its exit, whichever way the
+      // exit came: after the look below node-pty still reads the console, and a program left on it
+      // may print while the user restarts the shell. Off Windows what comes after an exit that
+      // was not a close is kept for the next open, as before.
+      if (ended && (terminal.closing || this.platform === 'win32')) return
       terminal.buffer.push(data)
       const { end } = terminal.buffer
       this.broadcast(key, 'sending the output', (each) => each.output(data, end))
@@ -853,7 +856,11 @@ export class TerminalRegistry {
         clearInterval(exitPoll)
         exitPoll = null
         // When node-pty's own event comes first, this finds the Terminal ended and does nothing.
-        setTimeout(() => terminal.finish({ exitCode, signal: null }), this.exitGraceMs)
+        setTimeout(() => {
+          // As at the event: what was read and held back goes out before the exit is told.
+          if (!ended) sendHeld()
+          terminal.finish({ exitCode, signal: null })
+        }, this.exitGraceMs)
       }, this.exitPollMs)
       // The looks do not keep the app from quitting.
       exitPoll.unref?.()
@@ -1012,10 +1019,12 @@ export class TerminalRegistry {
    * Asks node-pty to close the pty of a shell of Windows, once, without the helper process that
    * kill() starts on the console of the system (withoutConsoleHelper), and stops the thread that
    * reads its output (stopOutputWorker). kill() goes by the handles node-pty holds, never by a
-   * pid: a pid given out again is not touched. After the shell exited (`exited`) there is nothing
-   * left for kill() to close; it is called to take the pty apart — and only when the helper could
-   * be taken out, since on the console of the system the helper would end the pid of a shell that
-   * is gone.
+   * pid: a pid given out again is not touched. After the shell exited (`exited`) node-pty has
+   * forgotten the pseudo-console, and kill() still takes the pty apart: on the console of the
+   * package it destroys node-pty's input socket, which closes the console and ends a program the
+   * shell left on it (measured on the PC: neither OpenConsole.exe nor that program is under worfy
+   * afterwards). It is called then only when the helper could be taken out, since on the console
+   * of the system the helper would end the pid of a shell that is gone.
    */
   private release(terminal: Terminal, exited: boolean): void {
     if (terminal.released) return

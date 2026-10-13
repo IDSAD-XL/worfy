@@ -146,15 +146,19 @@ describe('TerminalRegistry on Windows and the request of the console', () => {
     await registry.closeAll()
   })
 
-  it('a request that comes after the shell exited is taken out and not answered: its pty takes no input', async () => {
+  // Review round 2 of PR #280: what comes after the exit was kept for the next open, and after a
+  // Restart it reached the screens of the new shell. Now it is dropped (terminal-console.test.ts).
+  it('a request that comes after the shell exited is not answered — its pty takes no input — and nothing that comes then is shown or kept', async () => {
     const fake = fakePty(999_993_007)
     const registry = windowsRegistry(fake)
     const output: string[] = []
     await registry.open('a', OPEN, {}, sink(output))
+    fake.print('before the exit')
     fake.exit(3)
     fake.print(`last${REQUEST} words`)
     expect(fake.written).toEqual([])
-    expect((await registry.open('a', OPEN, {}, sink([]))).replay).toBe('last words')
+    expect(output).toEqual(['before the exit'])
+    expect((await registry.open('a', OPEN, {}, sink([]))).replay).toBe('before the exit')
     await registry.closeAll()
   })
 
