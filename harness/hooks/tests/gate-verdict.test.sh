@@ -77,6 +77,7 @@ if "%m%"=="ok" exit /b 0
 if "%m%"=="bad" (echo Tests 1 failed& exit /b 1)
 if "%m%"=="envbad" (echo sh: tool: command not found& exit /b 127)
 if "%m%"=="envbad-cmd" (echo 'tool' is not recognized as an internal or external command,& exit /b 1)
+if "%m%"=="mixed" (echo sh: tool: command not found& echo Tests 1 failed& exit /b 1)
 exit /b 1
 EOF
 else
@@ -88,6 +89,7 @@ case "\$(cat "$T/mode")" in
     bad) echo "Tests 1 failed"; exit 1 ;;
     envbad) echo "sh: tool: command not found"; exit 127 ;;
     envbad-cmd) echo "'tool' is not recognized as an internal or external command,"; exit 1 ;;
+    mixed) echo "sh: tool: command not found"; echo "Tests 1 failed"; exit 1 ;;
     term) kill -TERM \$\$; sleep 5 ;;
     termparent) kill -TERM \$PPID; exit 0 ;;
 esac
@@ -150,9 +152,12 @@ verdict "green from cache -> outcome green, exit 0" "$R" '.outcome == "green" an
 mode bad; touched
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" full </dev/null 2>&1)"; rc=$?
 verdict "red run (full) -> outcome red, exit 2, profile full" "$R" '.outcome == "red" and .exit == 2 and .profile == "full" and .key == "t"'
+# The red marker is what stop.sh holds a turn on: a red run leaves it, a green run removes it.
+if [ -s "$STATE/red-t-$(tag "$R")" ]; then ok "red run leaves the red marker of the worktree"; else bad "red run: no red marker (state: $(ls "$STATE" | tr '\n' ' '))"; fi
 mode ok; touched
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
 verdict "a later green run overwrites red with green" "$R" '.outcome == "green" and .exit == 0 and .profile == "fast"'
+if [ ! -e "$STATE/red-t-$(tag "$R")" ]; then ok "a later green run removes the red marker"; else bad "the red marker is left after a green run"; fi
 
 # --- 3. Environment unavailable ------------------------------------------------------
 mode envbad; touched
@@ -171,6 +176,10 @@ verdict "environment unavailable in the words of cmd.exe -> outcome unverified, 
     '.outcome == "unverified" and .exit == 0 and (.reason | contains("is not recognized as an internal or external command"))'
 if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно:"* ]]; then ok "the words of cmd.exe: exit 0 and the «окружение недоступно» line"
 else bad "the words of cmd.exe: rc=$rc, out: ${out:0:300}"; fi
+# The same words next to a report of a failed test: the tests did run, so the run is red.
+mode mixed; touched
+out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+verdict "a missing tool and a failed test in one output -> outcome red, exit 2" "$R" '.outcome == "red" and .exit == 2 and .key == "t"'
 mode ok
 # The package manager of the registry entry is not installed: the gate says so itself, in the
 # same words on every system, whatever language the shell of that system speaks.
