@@ -216,10 +216,12 @@ const focusablesOf = (element: HTMLElement): HTMLElement[] => [...element.queryS
  * window, and the window's guard (settings/settings-window.ts) leaves the keys and the focus of
  * such a layer alone — but only while the focus is in it: with the focus on the page or on the
  * window under the form, Esc would close the window and Tab would walk its controls, unseen. So
- * the focus goes into the form when it opens, comes back when the control that had it goes away
- * (the form draws itself anew when main answers), Tab turns round at the form's ends, and the
- * focus returns to where it was when the form closes. Keys pressed in the form stop here: React
- * passes them on to the window the form was opened from, which would take Tab and Esc for its own.
+ * the focus goes into the form when it opens and is brought back whenever the form loses it to
+ * nothing: a press on text of the form, the control that had it gone (the form draws itself anew
+ * when main answers) or switched off ("Move" while main moves). Tab turns round at the form's
+ * ends, and the focus returns to where it was when the form closes. Keys pressed in the form stop
+ * here: React passes them on to the window the form was opened from, which would take Tab and Esc
+ * for its own.
  */
 function KeyboardInForm({ children }: { children: ReactNode }) {
   const layer = useRef<HTMLElement | null>(null)
@@ -230,14 +232,60 @@ function KeyboardInForm({ children }: { children: ReactNode }) {
     layer.current = element
     if (element === null) return
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    focusablesOf(element)[0]?.focus()
-    const observer = new MutationObserver(() => {
+    /** The control of the form that had the focus last. */
+    let held: HTMLElement | null = null
+    /** The focus is on its way from a control of the form to another element: a focus() now would cancel that move. */
+    let moving = false
+
+    /** A control of the form that can hold the focus: in the layer, and not switched off. */
+    const holds = (node: Element | null): node is HTMLElement => node instanceof HTMLElement && node !== element && element.contains(node) && !node.matches(':disabled')
+
+    /** Puts the focus into the form: on the control that had it, else on the first one. */
+    const enter = (): void => {
+      const control = holds(held) ? held : focusablesOf(element)[0]
+      if (control !== undefined) {
+        control.focus()
+        return
+      }
+      // Every control is off (main is moving): the layer itself holds the focus, so the keys still come here.
+      element.tabIndex = -1
+      element.style.outline = 'none'
+      element.focus()
+    }
+
+    /**
+     * Brings the focus back when the form lost it to nothing: to the page (a press on text, or the
+     * control that had it is gone), to the layer itself, or to a control of the form that is off.
+     * The focus on anything else is not this form's to take.
+     */
+    const keep = (): void => {
+      if (moving) return
       const active = document.activeElement
-      if (active === null || active === document.body || !active.isConnected) focusablesOf(element)[0]?.focus()
-    })
-    observer.observe(element, { childList: true, subtree: true })
+      if (active === null || active === document.body || (element.contains(active) && !holds(active))) enter()
+    }
+
+    // Capture: before a handler of the control itself can redraw the form in the middle of the move.
+    const onBlur = (event: FocusEvent): void => {
+      moving = event.relatedTarget !== null
+      // To nothing: a press on text. (The app window losing the focus looks the same; the control still has it then.)
+      if (!moving) queueMicrotask(keep)
+    }
+    const onFocusIn = (event: FocusEvent): void => {
+      moving = false
+      if (event.target instanceof Element && holds(event.target)) held = event.target
+      // On the layer itself (a press on text once the layer takes the focus): on to a control.
+      else queueMicrotask(keep)
+    }
+
+    const observer = new MutationObserver(keep)
+    observer.observe(element, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled'] })
+    element.addEventListener('blur', onBlur, true)
+    document.addEventListener('focusin', onFocusIn, true)
+    enter()
     return () => {
       observer.disconnect()
+      element.removeEventListener('blur', onBlur, true)
+      document.removeEventListener('focusin', onFocusIn, true)
       layer.current = null
       if (previous?.isConnected) previous.focus()
     }
@@ -250,7 +298,11 @@ function KeyboardInForm({ children }: { children: ReactNode }) {
     const focusable = focusablesOf(element)
     const first = focusable[0]
     const last = focusable.at(-1)
-    if (first === undefined || last === undefined) return
+    if (first === undefined || last === undefined) {
+      // Nothing to stop at: Tab must not leave for the window under the form.
+      event.preventDefault()
+      return
+    }
     if (event.shiftKey && document.activeElement === first) {
       event.preventDefault()
       last.focus()

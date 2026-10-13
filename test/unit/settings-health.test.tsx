@@ -308,6 +308,48 @@ describe('Settings → Health: actions', () => {
     expect(callsOf('terminal.open')).toMatchObject([{ projectId: 'alpha-1', command: 'gh auth login' }])
     expect(callsOf('firstRun.close')).toHaveLength(0)
   })
+
+  it('a GitHub sign-in confirmed in Health over the open First run dialog closes Settings only: the dialog stays and no mark is written', async () => {
+    const projects: ProjectsState = { projects: [{ id: 'alpha-1', name: 'alpha', path: '/repo/alpha', branch: 'main' }], activeId: 'alpha-1', revision: 2 }
+    handlers['projects.list'] = () => ({ ok: true, value: projects })
+    act(() => acceptProjectsState(projects))
+    handlers['firstRun.run'] = () => ({ ok: true, value: { outcome: 'confirmed', message: null, report: report() } })
+    handlers['viewport.get'] = () => ({ ok: true, value: null })
+    handlers['layout.apply'] = () => ({ ok: true, value: { projectId: 'alpha-1', layout: { nodes: [], viewport: { x: 0, y: 0, zoom: 1 } }, revision: 2 } })
+    handlers['terminal.open'] = () => ({ ok: true, value: undefined })
+    renderApp({ firstRun: true })
+    act(() => openFirstRun())
+    await waitFor(() => expect(rowsOf(firstRun())).toHaveLength(report().checks.length))
+    const health = await openHealth()
+    fireEvent.click(within(rowOf(health, 'gh-auth')).getByRole('button', { name: 'Sign in…' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Settings' })).toBeNull())
+    expect(callsOf('terminal.open')).toHaveLength(1)
+    expect(screen.queryByRole('dialog', { name: 'First run' })).not.toBeNull()
+    expect(callsOf('firstRun.close')).toHaveLength(0)
+    fireEvent.click(within(firstRun()).getByRole('button', { name: 'Close' }))
+  })
+
+  it('a GitHub sign-in confirmed after the section left the screen still opens its Terminal, and closes nothing: Settings stays on the section the person went to', async () => {
+    const projects: ProjectsState = { projects: [{ id: 'alpha-1', name: 'alpha', path: '/repo/alpha', branch: 'main' }], activeId: 'alpha-1', revision: 2 }
+    handlers['projects.list'] = () => ({ ok: true, value: projects })
+    act(() => acceptProjectsState(projects))
+    const asked = later()
+    handlers['firstRun.run'] = () => asked.answer
+    handlers['viewport.get'] = () => ({ ok: true, value: null })
+    handlers['layout.apply'] = () => ({ ok: true, value: { projectId: 'alpha-1', layout: { nodes: [], viewport: { x: 0, y: 0, zoom: 1 } }, revision: 2 } })
+    handlers['terminal.open'] = () => ({ ok: true, value: undefined })
+    renderApp()
+    const health = await openHealth()
+    fireEvent.click(within(rowOf(health, 'gh-auth')).getByRole('button', { name: 'Sign in…' }))
+    // main's dialog is still up; the person goes to another section and answers "Confirm" there.
+    act(() => selectSection('OtherSection'))
+    await asked.give({ ok: true, value: { outcome: 'confirmed', message: null, report: report() } })
+    await waitFor(() => expect(callsOf('terminal.open')).toMatchObject([{ projectId: 'alpha-1', command: 'gh auth login' }]))
+    await flush()
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeNull()
+    expect(screen.getByText('Other body')).toBeTruthy()
+    expect(callsOf('firstRun.close')).toHaveLength(0)
+  })
 })
 
 describe('Settings → Health: the mark of First run and the shared checks', () => {
@@ -516,5 +558,161 @@ describe('Settings → Health: the move form of the old Harness', () => {
     expect(callsOf('firstRun.checks')).toHaveLength(checksBefore + 1)
     await flush()
     expect(callsOf('firstRun.close')).toHaveLength(0)
+  })
+
+  /** A plan main lets the person move: a row with two choices, and "Move" is on. */
+  const movable: MigrationPlan = { ...plan, available: true, missing: [] }
+  /**
+   * What a press of the mouse on text that takes no focus does in the app: the focus falls to the
+   * page. jsdom moves no focus on a press, so the test takes it off the control the same way.
+   */
+  const pressOnText = async (): Promise<void> => {
+    act(() => (document.activeElement as HTMLElement).blur())
+    await flush()
+  }
+  /** Opens the form from Health with the focus on "Move…", as a click leaves it, and waits for the plan. */
+  async function openForm(shown: MigrationPlan): Promise<HTMLElement> {
+    handlers['harnessMigration.plan'] = () => ({ ok: true, value: shown })
+    const move = within(rowOf(await openHealth(), 'legacy-harness')).getByRole('button', { name: 'Move…' })
+    move.focus()
+    fireEvent.click(move)
+    await waitFor(() => expect(within(form()).getByTestId('migration-actions')).toBeTruthy())
+    return move
+  }
+
+  it('a press on the text of the form does not hand the keyboard to the window under it: the focus returns to the control that had it, Tab stays in the form, Esc closes the form only', async () => {
+    renderApp()
+    const move = await openForm(plan)
+    // The control that had the focus, not just the first one: the last button of the form.
+    const held = within(form()).getByTestId('migration-close')
+    held.focus()
+    expect([...form().querySelectorAll('button:not([disabled])')].indexOf(held)).toBeGreaterThan(0)
+    await pressOnText()
+    expect(document.activeElement).toBe(held)
+
+    // Tab, pressed where the focus is, turns round inside the form instead of walking the Settings window.
+    fireEvent.keyDown(document.activeElement!, { key: 'Tab' })
+    expect(form().contains(document.activeElement)).toBe(true)
+    expect(settings().contains(document.activeElement)).toBe(false)
+
+    await pressOnText()
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    expect(screen.queryByTestId('migration-form')).toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeNull()
+    expect(within(settings()).getByRole('heading', { level: 2 }).textContent).toBe('Health')
+    expect(document.activeElement).toBe(move)
+  })
+
+  it('the form redrawn while one of its controls has the focus leaves the focus on that control', async () => {
+    renderApp()
+    await openForm(movable)
+    const held = within(form()).getByTestId('migration-close')
+    held.focus()
+    // Any change of the form's elements, as when main answers or a row changes.
+    act(() => {
+      form().append(document.createElement('span'))
+    })
+    await flush()
+    expect(document.activeElement).toBe(held)
+  })
+
+  it('a control switched off under the focus ("Move" while main moves) passes the focus to a control of the form that is on; Esc then closes neither the form nor Settings', async () => {
+    renderApp()
+    await openForm(movable)
+    const moving = later()
+    handlers['harnessMigration.apply'] = () => moving.answer
+    const start = within(form()).getByRole('button', { name: 'Move' })
+    start.focus()
+    fireEvent.click(start)
+    await flush()
+    expect((start as HTMLButtonElement).disabled).toBe(true)
+    const holder = document.activeElement as HTMLElement
+    expect(form().contains(holder)).toBe(true)
+    expect(holder.matches(':disabled')).toBe(false)
+    fireEvent.keyDown(holder, { key: 'Escape' })
+    expect(screen.queryByTestId('migration-form')).not.toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeNull()
+    await moving.give({ ok: true, value: { outcome: 'refused', reason: 'not now' } })
+    expect(form().contains(document.activeElement)).toBe(true)
+  })
+
+  it('with every control of the form switched off the form itself holds the focus: Tab goes nowhere and Esc closes nothing, until a control is on again', async () => {
+    renderApp()
+    // Nothing to choose: the form has "Cancel" and "Move" only, and both are off while main moves.
+    await openForm({ ...movable, rows: [] })
+    const moving = later()
+    handlers['harnessMigration.apply'] = () => moving.answer
+    const start = within(form()).getByRole('button', { name: 'Move' })
+    start.focus()
+    fireEvent.click(start)
+    await flush()
+    expect(form().querySelectorAll('button:not([disabled])')).toHaveLength(0)
+    const layer = form().parentElement!
+    expect(document.activeElement).toBe(layer)
+    // The layer covers the whole window: no focus ring round it.
+    expect(layer.style.outline).toBe('none')
+    expect(fireEvent.keyDown(layer, { key: 'Tab' })).toBe(false)
+    fireEvent.keyDown(layer, { key: 'Escape' })
+    expect(screen.queryByTestId('migration-form')).not.toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeNull()
+    await moving.give({ ok: true, value: { outcome: 'refused', reason: 'not now' } })
+    await flush()
+    expect(document.activeElement).not.toBe(layer)
+    expect(form().contains(document.activeElement)).toBe(true)
+    expect((document.activeElement as HTMLElement).matches(':disabled')).toBe(false)
+  })
+
+  it('Esc while the form still reads ~/.claude, or says it could not, closes neither the form nor Settings; "Cancel" closes the form', async () => {
+    const reading = later()
+    handlers['harnessMigration.plan'] = () => reading.answer
+    renderApp()
+    const health = await openHealth()
+    fireEvent.click(within(rowOf(health, 'legacy-harness')).getByRole('button', { name: 'Move…' }))
+    expect(form().textContent).toContain('Reading ~/.claude…')
+    expect(form().contains(document.activeElement)).toBe(true)
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    expect(screen.queryByTestId('migration-form')).not.toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeNull()
+
+    await reading.give({ ok: false, error: 'cannot read ~/.claude' })
+    expect(form().textContent).toContain('cannot read ~/.claude')
+    expect(form().contains(document.activeElement)).toBe(true)
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    expect(screen.queryByTestId('migration-form')).not.toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeNull()
+
+    fireEvent.click(within(form()).getByTestId('migration-close'))
+    expect(screen.queryByTestId('migration-form')).toBeNull()
+    expect(within(settings()).getByRole('heading', { level: 2 }).textContent).toBe('Health')
+  })
+
+  it('the form closed in the same moment the focus fell to the page: the focus goes back to "Move…", not after the form that is gone', async () => {
+    renderApp()
+    const move = await openForm(plan)
+    const cancel = within(form()).getByTestId('migration-close')
+    cancel.focus()
+    act(() => {
+      cancel.blur()
+      cancel.click()
+    })
+    await flush()
+    expect(screen.queryByTestId('migration-form')).toBeNull()
+    expect(document.activeElement).toBe(move)
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeNull()
+  })
+
+  it('opened from First run the form is as before: a press on its text leaves the focus on the page', async () => {
+    handlers['harnessMigration.plan'] = () => ({ ok: true, value: plan })
+    renderApp({ firstRun: true })
+    act(() => openFirstRun())
+    await waitFor(() => expect(rowsOf(firstRun())).toHaveLength(report().checks.length))
+    fireEvent.click(within(rowOf(firstRun(), 'legacy-harness')).getByRole('button', { name: 'Move…' }))
+    await waitFor(() => expect(within(form()).getByTestId('migration-actions')).toBeTruthy())
+    within(form()).getByTestId('migration-close').focus()
+    await pressOnText()
+    expect(document.activeElement).toBe(document.body)
+    expect(form().parentElement?.hasAttribute('tabindex')).toBe(false)
+    fireEvent.click(within(form()).getByTestId('migration-close'))
+    fireEvent.click(within(firstRun()).getByRole('button', { name: 'Close' }))
   })
 })

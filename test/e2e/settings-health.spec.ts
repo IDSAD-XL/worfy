@@ -109,6 +109,15 @@ interface PageGlobals {
   innerHeight: number
   getComputedStyle(element: unknown): { zIndex: string }
 }
+interface PageNode {
+  setAttribute(name: string, value: string): void
+  append(node: PageNode): void
+}
+interface PageControl {
+  ownerDocument: { createElement(tag: string): PageNode }
+  closest(selector: string): PageNode | null
+  addEventListener(type: string, listener: () => void, options: { once: boolean }): void
+}
 
 const zIndexOf = (locator: Locator): Promise<number> => locator.evaluate((element) => Number((globalThis as unknown as PageGlobals).getComputedStyle(element).zIndex))
 const focusIsIn = (locator: Locator): Promise<boolean> =>
@@ -213,6 +222,50 @@ test('"Move…" in Health opens the move form above Settings; the keyboard stays
       await window.keyboard.press(key)
       expect(await focusIsIn(form), key).toBe(true)
     }
+
+    // A click on text of the form, which takes no focus, does not hand the keyboard to the window
+    // under it: the focus is back on the control that had it, and Tab still turns inside the form.
+    const heading = form.getByRole('heading', { level: 2 })
+    const keep = form.getByRole('button', { name: 'Keep' })
+    const cancel = form.getByTestId('migration-close')
+    await cancel.focus()
+    await heading.click()
+    await expect(cancel).toBeFocused()
+    await window.keyboard.press('Tab')
+    expect(await focusIsIn(form), 'Tab after a click on the heading').toBe(true)
+
+    // A click on a control of the form puts the focus on it, as anywhere.
+    await keep.click()
+    await expect(keep).toBeFocused()
+
+    // A control pressed in the very moment the form redraws keeps the press: the focus goes where
+    // the mouse went, not back to the control it left. The redraw is forced from the page: a
+    // handler of the control losing the focus adds an element to the form.
+    await keep.evaluate((element) => {
+      const control = element as unknown as PageControl
+      control.addEventListener(
+        'blur',
+        () => {
+          const mark = control.ownerDocument.createElement('span')
+          mark.setAttribute('data-test-redraw', '')
+          control.closest('[data-testid="migration-form"]')?.append(mark)
+        },
+        { once: true },
+      )
+    })
+    const box = (await cancel.boundingBox())!
+    await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await window.mouse.down()
+    await expect(cancel).toBeFocused()
+    // Let go off the button, so the press is not a click that closes the form.
+    await window.mouse.move(box.x + box.width / 2, box.y - 60)
+    await window.mouse.up()
+    await expect(form).toBeVisible()
+    await expect(form.locator('[data-test-redraw]')).toHaveCount(1)
+
+    // After one more click on text, Esc is still the form's.
+    await heading.click()
+    expect(await focusIsIn(form), 'a click on the heading before Esc').toBe(true)
 
     // Esc closes the form only; Settings stays on Health, the focus is back on "Move…", and the checks run again.
     const runs = checkRuns()
