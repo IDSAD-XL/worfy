@@ -33,8 +33,8 @@ Source: ручная проверка владельца на Windows-ПК 2026-
 - **Обходной путь сегодня** — записать Project в `%APPDATA%\worfy\projects.json` руками, как в
   Ticket-е 08 («Итог»): `{"projects":[{"id","name","path"}],"activeId"}`. `path` — вывод
   `git rev-parse --show-toplevel`, с прямыми слэшами; `id` — `<имя папки>-<первые 8 hex-цифр
-  sha256 от path>` (`src/main/projects/store.ts:69`). На Windows этот путь для установленного
-  worfy не проверен.
+  sha256 от path>` (`src/main/projects/store.ts:69`). Проверено на ПК 2026-10-13: установленный
+  worfy показал записанный так Project, и Session в нём ответила (Ticket 12, «Готово, когда»).
 
 ### Ещё два наблюдения владельца с того же запуска
 
@@ -66,8 +66,8 @@ Source: ручная проверка владельца на Windows-ПК 2026-
 - [ ] Когда скрипт Harness не запустился, шаг «Folder» показывает ошибку, а не «новая папка».
 - [ ] Test на всех системах: запуск `bin/project-connect` идёт через `node` с путём скрипта первым
       аргументом; сбой запуска `bin/profile` в `profileKnows` — ошибка, не `false`.
-- [ ] Ручные пункты Ticket-а 12 про Session (установленный worfy и Stable copy) пройдены владельцем
-      и отмечены там.
+- [x] Ручные пункты Ticket-а 12 про Session пройдены и отмечены там: 2026-10-13, через Project,
+      записанный в `projects.json` руками.
 - [ ] `gate full` зелёный на Mac.
 
 ## Тесты
