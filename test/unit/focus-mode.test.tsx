@@ -294,23 +294,132 @@ describe('inside the window shell', () => {
       expect(harness.exits()).toBe(0)
     })
 
-    it.each(['menu', 'dialog'])('does not leave while a %s is open outside the layer, wherever the focus is', (role) => {
-      const harness = openInShell()
-      const popup = document.createElement('div')
-      popup.setAttribute('role', role)
-      document.body.append(popup)
-      try {
-        // The focus on the layer, and nowhere: the popup closes on this press, focus mode stays.
-        expect(pressEscape().defaultPrevented).toBe(false)
-        focusNowhere()
+    // A menu or a dialog open outside the layer while the focus is in the layer or nowhere. It gets
+    // the press first, and whether it took it is known only once every listener has run: its own
+    // may sit on the window after focus mode's (the ADR panel). One that did not react is not in
+    // the way — the press leaves focus mode. There is no state in which Esc does nothing.
+    describe('with a menu or a dialog open outside the layer', () => {
+      type Reaction = 'does not react' | 'closes and calls preventDefault' | 'closes without preventDefault' | 'hides itself'
+      const undo: (() => void)[] = []
+
+      afterEach(() => {
+        for (const each of undo.splice(0)) each()
+      })
+
+      /** A popup of `role` in `parent` that reacts to Esc from a listener added to the window now, after focus mode's. */
+      function openPopup(role: string, parent: HTMLElement, reaction: Reaction): HTMLElement {
+        const popup = document.createElement('div')
+        popup.setAttribute('role', role)
+        popup.tabIndex = -1
+        parent.append(popup)
+        const onKeyDown = (event: KeyboardEvent): void => {
+          if (event.key !== 'Escape' || reaction === 'does not react' || !popup.isConnected || popup.hidden) return
+          if (reaction === 'closes and calls preventDefault') event.preventDefault()
+          if (reaction === 'hides itself') popup.hidden = true
+          else popup.remove()
+        }
+        window.addEventListener('keydown', onKeyDown)
+        undo.push(() => {
+          window.removeEventListener('keydown', onKeyDown)
+          popup.remove()
+        })
+        return popup
+      }
+      const isOpen = (popup: HTMLElement): boolean => popup.isConnected && !popup.hidden
+      /** Lets the task of the press end: what focus mode put off until every listener has run happens here. */
+      const afterThePress = (): Promise<void> => act(async () => new Promise<void>((resolve) => setTimeout(resolve, 0)))
+
+      describe.each<[string, () => void]>([
+        ['on the layer', () => layer().focus()],
+        ['nowhere', () => focusNowhere()],
+      ])('and the focus %s', (_where, putFocus) => {
+        it.each<[string, string, () => HTMLElement]>([
+          ['a dialog of the sidebar', 'dialog', () => sidebar()],
+          ['a menu of the sidebar', 'menu', () => sidebar()],
+          ['a dialog drawn on <body>', 'dialog', () => document.body],
+        ])('%s that does not react to Esc is not in the way: the press leaves focus mode and it stays open', async (_name, role, parent) => {
+          const harness = openInShell()
+          const popup = openPopup(role, parent(), 'does not react')
+          putFocus()
+          pressEscape()
+          await afterThePress()
+          expect(harness.exits()).toBe(1)
+          expect(screen.queryByTestId('focus-mode')).toBeNull()
+          expect(isOpen(popup)).toBe(true)
+        })
+
+        it.each<Reaction>(['closes and calls preventDefault', 'closes without preventDefault', 'hides itself'])(
+          'one that %s on the press gets it — one press, one action — and the next press leaves focus mode',
+          async (reaction) => {
+            const harness = openInShell()
+            const popup = openPopup('dialog', document.body, reaction)
+            putFocus()
+            pressEscape()
+            await afterThePress()
+            expect(isOpen(popup)).toBe(false)
+            expect(harness.exits()).toBe(0)
+            expect(screen.getByTestId('focus-mode')).toBeTruthy()
+            // Nothing is open outside the layer any more: this press is focus mode's at once.
+            expect(pressEscape().defaultPrevented).toBe(true)
+            expect(harness.exits()).toBe(1)
+          },
+        )
+      })
+
+      it('one that takes the press (preventDefault) and stays open keeps it: a dialog that closed a list of its own', async () => {
+        const harness = openInShell()
+        const popup = openPopup('dialog', document.body, 'does not react')
+        const take = (event: KeyboardEvent): void => {
+          if (event.key === 'Escape') event.preventDefault()
+        }
+        // Added after focus mode's listener, as the dialog's own would be.
+        window.addEventListener('keydown', take)
+        undo.push(() => window.removeEventListener('keydown', take))
+        pressEscape()
+        await afterThePress()
+        expect(harness.exits()).toBe(0)
+        expect(isOpen(popup)).toBe(true)
+      })
+
+      it('with the focus inside a popup that does not react the press is not focus mode\'s, as anywhere outside the layer', async () => {
+        const harness = openInShell()
+        const popup = openPopup('dialog', sidebar(), 'does not react')
+        popup.focus()
+        expect(document.activeElement).toBe(popup)
+        pressEscape()
+        await afterThePress()
+        expect(harness.exits()).toBe(0)
+        expect(isOpen(popup)).toBe(true)
+      })
+
+      it('a press somebody in the layer took first is not focus mode\'s later either', async () => {
+        const harness = openInShell()
+        openPopup('dialog', sidebar(), 'does not react')
+        layer().addEventListener('keydown', (event) => event.preventDefault())
+        pressEscape()
+        await afterThePress()
+        expect(harness.exits()).toBe(0)
+      })
+
+      it('a leave that was put off is dropped when focus mode closes before it: nothing leaves twice', async () => {
+        const harness = openInShell()
+        openPopup('dialog', sidebar(), 'does not react')
         pressEscape()
         expect(harness.exits()).toBe(0)
-      } finally {
-        popup.remove()
-      }
-      // Closed: the next press is focus mode's.
-      pressEscape()
-      expect(harness.exits()).toBe(1)
+        fireEvent.click(within(layer()).getByRole('button', { name: /^Exit focus/ }))
+        expect(harness.exits()).toBe(1)
+        await afterThePress()
+        expect(harness.exits()).toBe(1)
+      })
+
+      it('two presses in a row over a popup that does not react leave once', async () => {
+        const harness = openInShell()
+        openPopup('menu', sidebar(), 'does not react')
+        pressEscape()
+        pressEscape()
+        await afterThePress()
+        expect(harness.exits()).toBe(1)
+      })
     })
 
     // The context menus of the sidebar close on Esc themselves and do not call preventDefault. By
@@ -337,17 +446,6 @@ describe('inside the window shell', () => {
       // The next press, with the focus nowhere, is focus mode's.
       pressEscape()
       expect(harness.exits()).toBe(1)
-    })
-
-    it('does not leave while a menu of the sidebar is open', () => {
-      const harness = openInShell()
-      const menu = document.createElement('div')
-      menu.setAttribute('role', 'menu')
-      sidebar().append(menu)
-      focusNowhere()
-      pressEscape()
-      expect(harness.exits()).toBe(0)
-      menu.remove()
     })
 
     it('leaves over a dialog the layer covers, a hidden one, and one inside the layer: none of them is in the way', () => {

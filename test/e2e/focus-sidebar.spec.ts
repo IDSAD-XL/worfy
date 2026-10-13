@@ -48,8 +48,10 @@ function writeLayout(nodes: unknown[]): void {
 test.beforeEach(() => {
   scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-focus-sidebar-')))
   dataDir = join(scratch, 'data')
-  // A Project in a git repository with two Epics, so the sidebar has rows to click.
+  // A Project in a git repository with two Epics and an ADR, so the sidebar has rows to click.
   const repo = join(scratch, 'alpha')
+  mkdirSync(join(repo, 'docs', 'adr'), { recursive: true })
+  writeFileSync(join(repo, 'docs', 'adr', '0001-first.md'), '# First decision\n\nДата: 2026-10-05. Статус: принят.\n\nText.\n')
   for (const epic of EPICS) {
     mkdirSync(join(repo, '.scratch', epic, 'issues'), { recursive: true })
     writeFileSync(join(repo, '.scratch', epic, 'spec.md'), `# ${epic}\n`)
@@ -262,6 +264,182 @@ test('in focus mode the sidebar stays and works; the palette and a menu of the s
   }
 })
 
+// What the sidebar can open next to focus mode, and what Esc does with each. The rule: something
+// always happens. A popup that closes on Esc gets the first press and focus mode the second; one
+// that does not react to the press is not in the way, and the press leaves focus mode.
+test('Esc with a popup of the sidebar open next to focus mode: History, the ADR panel, the menu of a Project, Project settings, Link a machine', async () => {
+  const launched = await launch()
+  try {
+    const { window } = launched
+    await expect(window.getByTestId('note-node')).toHaveCount(2)
+    await expect(window.getByTestId('sidebar-adr')).toHaveCount(1)
+    await canvasReady(launched)
+    const focus = focusOf(window)
+    /** The keyboard focus into the layer, as a click on its bar puts it there. */
+    const intoLayer = async (): Promise<void> => {
+      await focus.locator('.w-focus__bar').click({ position: { x: 60, y: 6 } })
+      expect(await holdsFocus(focus)).toBe(true)
+    }
+    /** Focus mode over the Nodes still selected, whatever has the focus now. */
+    const again = async (): Promise<void> => {
+      if ((await focus.count()) > 0) return
+      // ⌘↩ typed in a text field stays with the field: the focus goes off whatever holds it first.
+      await window.evaluate(() => (globalThis as unknown as { document: { activeElement: { blur?(): void } | null } }).document.activeElement?.blur?.())
+      await window.keyboard.press('ControlOrMeta+Enter')
+      await expect(focus.getByTestId('focus-tile')).toHaveCount(2)
+    }
+    const escape = (): Promise<void> => window.keyboard.press('Escape')
+
+    // History. It closes on Esc only with the focus inside it.
+    const history = window.getByTestId('history-popover')
+    await enterFocus(window)
+    await window.getByTestId('sidebar-history').click()
+    await expect(history).toBeVisible()
+    await expect(focus).toBeVisible()
+    // The focus in the layer: History does not react, so the press leaves focus mode.
+    await intoLayer()
+    await escape()
+    await expect(focus).toHaveCount(0)
+    await expect(history).toBeVisible()
+    // The same from the field of a note in a tile.
+    await again()
+    await focus.getByTestId('focus-tile').first().getByRole('textbox', { name: 'Note text' }).click()
+    await escape()
+    await expect(focus).toHaveCount(0)
+    await expect(history).toBeVisible()
+    // The focus inside History: the first press closes History, the second leaves focus mode.
+    await again()
+    await history.getByRole('button', { name: 'Close' }).focus()
+    await escape()
+    await expect(history).toHaveCount(0)
+    await expect(focus).toBeVisible()
+    await escape()
+    await expect(focus).toHaveCount(0)
+    // In the normal view too: Esc inside History closes it, and outside it leaves it open.
+    await window.getByTestId('sidebar-history').click()
+    await expect(history).toBeVisible()
+    await escape()
+    await expect(history).toBeVisible()
+    await history.getByRole('button', { name: 'Close' }).focus()
+    // Only Esc: another key pressed inside leaves it open.
+    await window.keyboard.press('ArrowDown')
+    await window.keyboard.press('a')
+    await expect(history).toBeVisible()
+    await escape()
+    await expect(history).toHaveCount(0)
+    // The notes are still selected: that Esc was History's alone.
+    await expect(window.locator('.react-flow__node.selected')).toHaveCount(2)
+
+    // The ADR panel closes on Esc wherever the focus is: the first press is its, the second focus mode's.
+    const panel = window.getByTestId('adr-panel')
+    await again()
+    await window.getByTestId('sidebar-adr').first().click()
+    await expect(panel).toBeVisible()
+    await expect(focus).toBeVisible()
+    expect(await onTop(panel)).toBe(true)
+    await intoLayer()
+    await escape()
+    await expect(panel).toHaveCount(0)
+    await expect(focus).toBeVisible()
+    await escape()
+    await expect(focus).toHaveCount(0)
+    // With the focus left on the row that opened it, in the sidebar: the panel closes all the same.
+    await again()
+    await window.getByTestId('sidebar-adr').first().click()
+    await expect(panel).toBeVisible()
+    await escape()
+    await expect(panel).toHaveCount(0)
+    await expect(focus).toBeVisible()
+    // The focus is still on that row, and an Esc pressed in the sidebar is never focus mode's.
+    await expect(window.getByTestId('sidebar-adr').first()).toBeFocused()
+    await escape()
+    await expect(focus).toBeVisible()
+
+    // Both open, the focus inside History: one press closes History alone, the next the panel, the
+    // third — the focus is nowhere by then — leaves focus mode.
+    await window.getByTestId('sidebar-adr').first().click()
+    await expect(panel).toBeVisible()
+    await window.getByTestId('sidebar-history').click()
+    await history.getByRole('button', { name: 'Close' }).focus()
+    await escape()
+    await expect(history).toHaveCount(0)
+    await expect(panel).toBeVisible()
+    await expect(focus).toBeVisible()
+    await escape()
+    await expect(panel).toHaveCount(0)
+    await expect(focus).toBeVisible()
+    await escape()
+    await expect(focus).toHaveCount(0)
+    await again()
+
+    // The context menu of a Project takes the focus and closes on Esc; the next press leaves focus mode.
+    const menu = window.getByRole('menu', { name: 'Project' })
+    await window.getByTestId('project-row').first().click({ button: 'right' })
+    await expect(menu).toBeVisible()
+    expect(await holdsFocus(menu)).toBe(true)
+    await escape()
+    await expect(menu).toHaveCount(0)
+    await expect(focus).toBeVisible()
+    await escape()
+    await expect(focus).toHaveCount(0)
+
+    // Project settings, a modal dialog from that menu: it holds the focus and closes on Esc.
+    const settings = window.getByTestId('project-settings')
+    await again()
+    await window.getByTestId('project-row').first().click({ button: 'right' })
+    await menu.getByRole('menuitem', { name: 'Project settings…' }).click()
+    await expect(settings).toBeVisible()
+    expect(await onTop(settings)).toBe(true)
+    await expect.poll(() => holdsFocus(settings)).toBe(true)
+    await escape()
+    await expect(settings).toHaveCount(0)
+    await expect(focus).toBeVisible()
+    await escape()
+    await expect(focus).toHaveCount(0)
+
+    // A menu or a modal dialog that has lost the focus to the layer (Tab can walk out of it) does
+    // not react to Esc. It is not in the way: the press leaves focus mode, and it stays open.
+    await again()
+    await window.getByTestId('project-row').first().click({ button: 'right' })
+    await expect(menu).toBeVisible()
+    await focus.focus()
+    await escape()
+    await expect(focus).toHaveCount(0)
+    await expect(menu).toBeVisible()
+    // A press outside the menu closes it, as ever.
+    await window.locator('.w-toolbar__name').click()
+    await expect(menu).toHaveCount(0)
+    await again()
+    await window.getByTestId('project-row').first().click({ button: 'right' })
+    await menu.getByRole('menuitem', { name: 'Project settings…' }).click()
+    await expect(settings).toBeVisible()
+    await focus.focus()
+    await escape()
+    await expect(focus).toHaveCount(0)
+    await expect(settings).toBeVisible()
+    await settings.locator('input, button').first().focus()
+    await escape()
+    await expect(settings).toHaveCount(0)
+
+    // Link a machine, a modal dialog of the Machines section, which the test expands first.
+    const link = window.getByTestId('link-machine-dialog')
+    await again()
+    const machines = heading(window, 'Machines')
+    if ((await machines.getAttribute('aria-expanded')) !== 'true') await machines.click()
+    await window.getByTestId('link-machine-button').click()
+    await expect(link).toBeVisible()
+    expect(await onTop(link)).toBe(true)
+    await expect.poll(() => holdsFocus(link)).toBe(true)
+    await escape()
+    await expect(link).toHaveCount(0)
+    await expect(focus).toBeVisible()
+    await escape()
+    await expect(focus).toHaveCount(0)
+  } finally {
+    await launched.close()
+  }
+})
+
 test('the sidebar is hidden and shown apart for the normal view and focus mode, by the buttons and by View ▸ Toggle Sidebar, and both answers outlive a restart', async () => {
   const first = await launch()
   try {
@@ -417,6 +595,61 @@ test('a request to the main area ends focus mode: an Epic of the sidebar, "Tidy 
     await expect(window.getByRole('main', { name: 'Canvas' })).toBeVisible()
     await expect(window.locator('.w-toolbar')).not.toHaveAttribute('inert', '')
     // The focus stays on the row that was clicked: leaving focus mode does not take it to the Canvas.
+    await expect(row).toBeFocused()
+  } finally {
+    await launched.close()
+  }
+})
+
+test('a click on a Session in the sidebar ends focus mode and shows the Canvas with that Session’s Node — not the Session view', async () => {
+  // The fake agent writes the Orchestrator's entry to <Claude home>/sessions as Claude Code does,
+  // so the sidebar lists one live Session without a process of the test's own.
+  mkdirSync(join(claudeHome, 'sessions'), { recursive: true })
+  const launched = await launch({ WORFY_AGENT_SCRIPT: 'turn', WORFY_AGENT_REGISTRY: '1' })
+  try {
+    const { window } = launched
+    await expect(window.getByTestId('note-node')).toHaveCount(2)
+    await expect(window.getByTestId('orchestrator-node').getByTestId('orchestrator-state')).toHaveText('idle')
+    await canvasReady(launched)
+    // The notes are selected first: the new Session's Node may take the Canvas away from them.
+    for (const [index, id] of ['n1', 'n2'].entries()) await window.locator(`.react-flow__node[data-id="${id}"] .w-note__header`).click(index === 0 ? {} : { modifiers: ['ControlOrMeta'] })
+    await expect(window.locator('.react-flow__node.selected')).toHaveCount(2)
+
+    // A Session with a Node in the Layout: "New session" of the sidebar. Its row is the one to click.
+    await window.getByTestId('sidebar-new-session').click()
+    const node = window.locator('[data-testid="session-node"][data-live="true"]')
+    await expect(node).toHaveCount(1)
+    await expect(node.getByTestId('session-node-status')).toHaveText('idle')
+    // Its first turn: until then the Node does not name the Session in the Layout, and the row
+    // finds no Node to lead to (SessionsSection.tsx, nodeOf).
+    await node.getByTestId('session-node-input').fill('hello')
+    await node.getByTestId('session-node-input').press('Enter')
+    const named = (): Promise<string[]> =>
+      window.evaluate(async (projectId) => {
+        const bridge = (globalThis as unknown as { worfy: { invoke(c: string, i: unknown): Promise<{ value: { layout: { nodes: { kind: string; data: { sessionId?: string } }[] } } }> } }).worfy
+        const result = await bridge.invoke('layout.get', { projectId })
+        return result.value.layout.nodes.flatMap((each) => (each.kind === 'session' && each.data.sessionId !== undefined ? [each.data.sessionId] : []))
+      }, PROJECT)
+    await expect.poll(named).toHaveLength(1)
+    const [sessionId] = await named()
+    const row = window.locator(`[data-testid="sidebar-session"][data-session-id="${sessionId}"]`)
+    await expect(row).toHaveCount(1)
+    await expect(node.getByTestId('session-node-status')).toHaveText('idle')
+
+    // Focus mode over the Nodes selected now, whichever they are.
+    const focus = focusOf(window)
+    await window.evaluate(() => (globalThis as unknown as { document: { activeElement: { blur?(): void } | null } }).document.activeElement?.blur?.())
+    await window.keyboard.press('ControlOrMeta+Enter')
+    await expect(focus.getByTestId('focus-tile').first()).toBeVisible()
+
+    await row.click()
+    // The row asks the Canvas for the Session's Node (SessionsSection.tsx): focus mode gives the
+    // Canvas back. The Session view is opened by a double click on the Node, not by this row.
+    await expect(focus).toHaveCount(0)
+    await expect(window.getByRole('main', { name: 'Canvas' })).toBeVisible()
+    await expect(window.locator('.w-shell__view[data-view="session"]')).toBeHidden()
+    await expect(node).toBeVisible()
+    await expect(window.locator('.w-toolbar')).not.toHaveAttribute('inert', '')
     await expect(row).toBeFocused()
   } finally {
     await launched.close()

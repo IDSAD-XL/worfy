@@ -213,7 +213,20 @@ export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
     )
 
   return (
-    <div role="dialog" aria-label="History" style={styles.root} data-testid="history-popover">
+    <div
+      role="dialog"
+      aria-label="History"
+      style={styles.root}
+      data-testid="history-popover"
+      // Esc pressed with the focus inside the popover closes it, as the dialogs of the sidebar do,
+      // and only it: the press goes no further, so an ADR panel open next to it stays.
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.stopPropagation()
+          onClose()
+        }
+      }}
+    >
       <div style={styles.header}>
         <h3 style={styles.heading}>History</h3>
         <button type="button" style={styles.button} onClick={onClose}>
