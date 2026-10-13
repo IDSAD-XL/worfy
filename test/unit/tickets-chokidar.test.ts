@@ -66,10 +66,16 @@ describe('chokidar with the filter of a Tickets root', () => {
     writeFileSync(join(root, 'late.md'), 'x')
     mkdirSync(join(root, 'next', 'issues'), { recursive: true })
     writeFileSync(join(root, 'next', 'issues', '01-first.md'), '# 01\n')
-    await until('the Ticket of the new Epic', () => events.includes(`add ${join(root, 'next', 'issues', '01-first.md')}`))
+    // A write made in the tick of `ready` can be lost on macOS while the watch is alive; one more
+    // write into the root makes chokidar look again.
+    await until('the Ticket of the new Epic', () => {
+      if (events.includes(`add ${join(root, 'next', 'issues', '01-first.md')}`)) return true
+      writeFileSync(join(root, 'late.md'), `x ${events.length}`)
+      return false
+    })
     expect(events.filter((event) => event.endsWith('late.md'))).toEqual([])
     expect(watchedPaths(watcher)).not.toContain(join(root, 'late.md'))
-  })
+  }, 15_000)
 
   // For a root that is not there chokidar says `ready` first and only then starts to watch the
   // folder above, which it does not list: a root made before that watch exists is never reported,
