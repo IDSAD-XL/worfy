@@ -248,6 +248,8 @@ describe('fs.rmSync in src/ and in scripts/', () => {
     expect(uses("  rmdirSync(join(dir, ')'), { recursive: true })")).toHaveLength(1)
     expect(uses('  rmdirSync(`${dir})`, { recursive: true })')).toHaveLength(1)
     expect(uses("  rmdirSync(join(dir, '\\')'), { recursive: true })")).toHaveLength(1)
+    // A quote after a backslash does not end the string: the call ends where it does, and a later line is not read into it.
+    expect(uses("  rmdirSync(join(dir, 'it\\'s)'))\n  const options = { recursive: true }")).toEqual([])
   })
 
   it('each of the three files has its copy once: a second pair of marks would hide text from the search and from the comparison with the module', () => {
