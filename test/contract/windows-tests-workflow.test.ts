@@ -4,10 +4,11 @@
 // the Linux CI red. The project has no YAML parser, so the workflow is read as text: it is written
 // in block style, one key per line, with `#` only at the start of comment lines.
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { removeTestTree } from '../remove'
 
 const REPO = join(__dirname, '..', '..')
 const WORKFLOW = join(REPO, '.github', 'workflows', 'windows-tests.yml')
@@ -236,7 +237,7 @@ describe('scripts/windows-test-list.mjs', () => {
   })
 
   afterAll(() => {
-    rmSync(scratch, { recursive: true, force: true })
+    removeTestTree(scratch)
   })
 
   it('accepts two test files and hands them on as the output "files"', () => {

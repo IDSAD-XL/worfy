@@ -11,6 +11,7 @@ import { join, relative, win32 } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type BuildKind, dataRoot } from '../../src/main/storage/paths'
+import { removeTestTree } from '../remove'
 
 const MJS = join(__dirname, '..', '..', 'scripts', 'statusline-bridge.mjs')
 const SH = join(__dirname, '..', '..', 'scripts', 'statusline-bridge.sh')
@@ -42,7 +43,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 type Entry = 'mjs' | 'sh'

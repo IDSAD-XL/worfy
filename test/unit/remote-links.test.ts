@@ -2,10 +2,11 @@
 // that leads to `\\host\share\…` is found with lstat and readlink, which do not follow it, so the
 // caller can refuse the path before realpath makes Windows contact that host. The file system is
 // replaced and the path rules are path.win32, so every case runs on any machine.
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { removeTestTree } from '../remove'
 
 /** What Node was asked through node:fs/promises: lstat reads a link, stat would follow it. */
 const asked = vi.hoisted(() => ({ lstat: [] as string[], stat: [] as string[], realpath: [] as string[] }))
@@ -324,7 +325,7 @@ describe('nodeLinks', () => {
   let scratch: string | undefined
 
   afterEach(() => {
-    if (scratch !== undefined) rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    if (scratch !== undefined) removeTestTree(scratch)
     scratch = undefined
   })
 

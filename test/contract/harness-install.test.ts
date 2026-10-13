@@ -28,6 +28,7 @@ import {
 import { harnessHome } from '../../src/main/storage/paths'
 import { accessOf, LINKED_MACHINE_ACCESS } from '../../src/shared/ipc/channels'
 import { firstRunRun } from '../../src/shared/ipc/first-run'
+import { removeTestTree } from '../remove'
 import { harnessInstall, type HarnessStatus } from '../../src/shared/ipc/harness'
 
 const REPO = join(__dirname, '..', '..')
@@ -197,7 +198,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  rmSync(sb.root, { recursive: true, force: true })
+  removeTestTree(sb.root)
 })
 
 const calls = (): { args: string[]; HOME: string; CLAUDE_CONFIG_DIR: string }[] =>

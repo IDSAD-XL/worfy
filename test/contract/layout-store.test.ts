@@ -2,7 +2,7 @@
 // registerIpc (the same wrapper the app uses) over a mocked `electron`, the shared store from
 // src/main/layout/store.ts called directly as later parts of main (MCP tools) will call it, and a
 // temporary WORFY_DATA_DIR. main is the only writer of layout.json (ADR-0003).
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -11,6 +11,7 @@ import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channel
 import { layoutSchema, type Layout, type LayoutOpInput, type LayoutState } from '../../src/shared/layout/types'
 import type { LayoutChange, LayoutStore } from '../../src/main/layout/store'
 import { freePlace, freeShift } from '../../src/shared/layout/free-place'
+import { removeTestTree, saveLayoutNow } from '../remove'
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PROJECT = 'demo-0a1b2c3d'
@@ -102,10 +103,13 @@ beforeEach(async () => {
   await start()
 })
 
-afterEach(() => {
+afterEach(async () => {
   vi.useRealTimers()
+  // Before the folder goes: the Layout store saves a moment after the last change, and a save
+  // that came after the removal made the folder again.
+  await saveLayoutNow()
   delete process.env.WORFY_DATA_DIR
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 describe('layout store: parallel writes', () => {

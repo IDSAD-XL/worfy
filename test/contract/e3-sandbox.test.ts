@@ -9,6 +9,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTestTree } from '../remove'
 
 const SCRIPT = join(__dirname, '..', '..', 'scripts', 'e3-sandbox.sh')
 const TOKEN = 'gho_made-up-token-of-the-stub'
@@ -34,7 +35,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  rmSync(scratch, { recursive: true, force: true })
+  removeTestTree(scratch)
 })
 
 /**
@@ -266,7 +267,7 @@ describe('e3-sandbox.sh tools', () => {
   ])('%s gives the links to a sandbox that was made without them, and changes nothing else in it', (_name, args) => {
     const { env } = machine()
     expectExit(sandbox(['init'], { env }), 0)
-    rmSync(join(root, 'tools'), { recursive: true })
+    removeTestTree(join(root, 'tools'))
     writeFileSync(join(root, 'home', '.claude', '.claude.json'), '{"signedIn":true}\n')
     expectExit(sandbox(args, { env }), 0)
     expect(toolLinks()).toEqual(TOOLS)
@@ -436,7 +437,7 @@ describe('e3-sandbox.sh tools', () => {
     it('exits 1 when tools/ cannot be made', () => {
       const { env } = machine()
       expectExit(sandbox(['init'], { env }), 0)
-      rmSync(join(root, 'tools'), { recursive: true })
+      removeTestTree(join(root, 'tools'))
       const run = withReadOnly(root, ['env'], env)
       expectExit(run, 1)
       expect(run.stderr).toContain(`e3-sandbox: cannot make ${join(root, 'tools')}`)
@@ -460,7 +461,7 @@ describe('e3-sandbox.sh tools', () => {
     expectExit(sandbox(['init'], { env }), 0)
     const outside = join(scratch, 'outside-tools')
     mkdirSync(outside)
-    rmSync(join(root, 'tools'), { recursive: true })
+    removeTestTree(join(root, 'tools'))
     symlinkSync(outside, join(root, 'tools'))
     const run = sandbox(command === 'run' ? ['run', 'true'] : [command], { env })
     expectExit(run, 2)
@@ -471,7 +472,7 @@ describe('e3-sandbox.sh tools', () => {
   it.each(['env', 'run'])('%s refuses when the sandbox folder itself is a link, and makes no tools/ where it points', (command) => {
     const { env } = machine()
     expectExit(sandbox(['init'], { env }), 0)
-    rmSync(join(root, 'tools'), { recursive: true })
+    removeTestTree(join(root, 'tools'))
     const outside = join(scratch, 'outside-sandbox')
     renameSync(root, outside)
     symlinkSync(outside, root)

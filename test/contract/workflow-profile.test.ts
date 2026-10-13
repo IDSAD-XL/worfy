@@ -4,7 +4,7 @@
 // `bin/profile` in a temporary Claude home, which must stay as it was, like the Project's folder.
 // Last, how the Session factory (src/main/agent/app-registry.ts) hands the list to Claude Code.
 import { createHash } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -14,6 +14,7 @@ import { DEFAULT_MCP_SERVERS, GITHUB_ACCOUNT_FIELD, MCP_ALLOWED_FIELD, profileRu
 import { fullLayout, LayoutCache, readProjectLayout } from '../../src/main/workflow/folder'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
+import { removeTestTree } from '../remove'
 
 const mocks = vi.hoisted(() => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -36,7 +37,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs()
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 /** A runner that answers once with `answer` and records what it was asked. */

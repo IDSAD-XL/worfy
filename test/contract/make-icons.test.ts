@@ -6,12 +6,13 @@
 // system; the script itself runs on macOS only.
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { inflateSync } from 'node:zlib'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { removeTestTree } from '../remove'
 
 const REPO = join(__dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'make-icons.mjs')
@@ -230,7 +231,7 @@ describe.skipIf(process.platform !== 'darwin')('scripts/make-icons.mjs (macOS on
   }, 120_000)
 
   afterAll(() => {
-    rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    removeTestTree(scratch)
   })
 
   it('writes icon.icns, icon.ico, icon.png and icons.json, and nothing else, into the output folder', () => {

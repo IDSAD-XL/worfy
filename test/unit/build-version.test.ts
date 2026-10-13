@@ -5,13 +5,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BUILD_VERSION, buildVersion, formatBuildVersion } from '../../scripts/build-version'
-import { removeTree } from '../../src/main/storage/remove'
+import { removeTestTree } from '../remove'
 
 const dirs: string[] = []
 afterEach(() => {
-  // removeTree, not rmSync: the folder is a git repository, whose objects are read-only files
-  // (worfy-windows ticket 23).
-  for (const dir of dirs.splice(0)) removeTree(dir)
+  // Not rmSync: the folder is a git repository, whose objects are read-only files
+  // (worfy-windows tickets 23 and 26).
+  for (const dir of dirs.splice(0)) removeTestTree(dir)
 })
 
 /** A temporary folder with a package.json of the given version; a git repository with one commit when `commit`. */

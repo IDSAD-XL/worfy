@@ -1,11 +1,12 @@
 // src/main/index.ts over a mocked `electron` module: the handlers it registers on ipcMain answer
 // only the renderer location the window loads (rendererEntry), not any frame that asks.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import { removeTestTree } from '../remove'
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 
@@ -104,7 +105,7 @@ function bundleHarness(manifest: Record<string, unknown>): void {
 afterAll(() => {
   if (originalResourcesPath) Object.defineProperty(process, 'resourcesPath', originalResourcesPath)
   else Reflect.deleteProperty(process, 'resourcesPath')
-  rmSync(resources, { recursive: true, force: true })
+  removeTestTree(resources)
 })
 
 beforeAll(async () => {
@@ -152,7 +153,7 @@ describe('IPC wiring in src/main/index.ts', () => {
 
 describe('app.version in src/main/index.ts', () => {
   afterEach(() => {
-    rmSync(join(resources, 'harness'), { recursive: true, force: true })
+    removeTestTree(join(resources, 'harness'))
   })
 
   it('answers the version of the Harness copy bundled with the build', async () => {
@@ -227,7 +228,7 @@ describe('link service wiring in src/main/index.ts', () => {
       warnings.mockRestore()
       if (previous === undefined) delete process.env.WORFY_DATA_DIR
       else process.env.WORFY_DATA_DIR = previous
-      rmSync(dataDir, { recursive: true, force: true })
+      removeTestTree(dataDir)
     }
   })
 })

@@ -95,11 +95,17 @@ export function tempBase(base: string): string {
   return Buffer.byteLength(longest) <= SOCKET_PATH_MAX ? base : SHORT_TMP
 }
 
-/** True when `dir` is a folder of this user that nobody else may open (not a link someone put there). */
+/**
+ * True when `dir` is a folder of this user that nobody else may open (not a link someone put there).
+ * On Windows a folder has neither an owner id nor mode bits to read — every folder shows 0o666
+ * there — so a folder that is not a link is taken: the temporary folder of a user is the user's by
+ * its access list. Read by the bits, no folder passed, and every prepare() made a new one.
+ */
 async function ownFolder(dir: string): Promise<boolean> {
   try {
     const stat = await lstat(dir)
     if (!stat.isDirectory()) return false
+    if (process.platform === 'win32') return true
     const uid = process.getuid?.()
     return (uid === undefined || stat.uid === uid) && (stat.mode & 0o077) === 0
   } catch {
@@ -107,11 +113,34 @@ async function ownFolder(dir: string): Promise<boolean> {
   }
 }
 
+/** How often and how long apart a rename is tried on Windows when the file it replaces is busy. */
+export const RENAME_TRIES = 10
+export const RENAME_RETRY_MS = 20
+/** What Windows answers while another process — an antivirus, the indexer, a second writer — holds the file for a moment. */
+const RENAME_BUSY = ['EPERM', 'EACCES', 'EBUSY']
+
+/**
+ * Moves a file over another. On Windows the move is refused while anything has the replaced file
+ * open, which passes in a moment; it is tried again a few times there. Elsewhere it is one call.
+ */
+async function renameOver(from: string, to: string): Promise<void> {
+  for (let left = RENAME_TRIES; ; left--) {
+    try {
+      await rename(from, to)
+      return
+    } catch (error) {
+      const busy = RENAME_BUSY.includes((error as NodeJS.ErrnoException).code ?? '')
+      if (process.platform !== 'win32' || !busy || left <= 1) throw error
+      await new Promise((resolve) => setTimeout(resolve, RENAME_RETRY_MS))
+    }
+  }
+}
+
 async function writeAtomically(path: string, text: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })
   const temporary = `${path}.${randomBytes(6).toString('hex')}.tmp`
   await writeFile(temporary, text, { mode: 0o600 })
-  await rename(temporary, path)
+  await renameOver(temporary, path)
 }
 
 export interface ShellIntegrationOptions {

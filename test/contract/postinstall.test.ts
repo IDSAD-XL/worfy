@@ -2,10 +2,11 @@
 // on macOS and Linux and does nothing on Windows, where node-pty's prebuilt win32 binary loads as is.
 // The platform is replaced with --platform and --dry-run prints the decision, so nothing is rebuilt here.
 import { spawnSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { removeTestTree } from '../remove'
 
 const REPO = join(__dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'postinstall.mjs')
@@ -39,7 +40,7 @@ describe('scripts/postinstall.mjs', () => {
       expect(result.status).toBe(1)
       expect(result.stderr).toContain('postinstall: electron-rebuild:')
     } finally {
-      rmSync(empty, { recursive: true, force: true })
+      removeTestTree(empty)
     }
   })
 
@@ -59,7 +60,7 @@ describe('scripts/postinstall.mjs', () => {
       expect(result.status, result.stderr).toBe(3)
       expect(readFileSync(args, 'utf8')).toBe('--only node-pty\n')
     } finally {
-      rmSync(bin, { recursive: true, force: true })
+      removeTestTree(bin)
     }
   })
 

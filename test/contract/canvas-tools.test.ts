@@ -3,7 +3,7 @@
 // The tools write through the app's shared LayoutStore, next to src/main/ipc/layout.ts registered
 // over a mocked `electron`, so a tool call and a renderer call take the same path (ADR-0003).
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -15,6 +15,7 @@ import type { LayoutStore } from '../../src/main/layout/store'
 import type { CanvasContext, CanvasDeps, CanvasWorkflow, ToolResult } from '../../src/main/mcp/canvas-server'
 import type { QueryRequest } from '../../src/main/agent/session'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
+import { removeTestTree, saveLayoutNow } from '../remove'
 
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PROJECT = 'demo-0a1b2c3d'
@@ -94,9 +95,12 @@ beforeEach(async () => {
   server = await import('../../src/main/mcp/canvas-server')
 })
 
-afterEach(() => {
+afterEach(async () => {
+  // Before the folder goes: the Layout store saves a moment after the last change, and a save
+  // that came after the removal made the folder again.
+  await saveLayoutNow()
   delete process.env.WORFY_DATA_DIR
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 /** A renderer call of layout.apply through the registered IPC handler. */

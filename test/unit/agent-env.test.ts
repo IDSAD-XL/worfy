@@ -7,7 +7,7 @@
 // they run on the Mac and on Linux CI. The last two blocks run the real reader and agentEnv() on
 // Windows only.
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmdirSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
@@ -40,6 +40,7 @@ import {
   type RegValue,
   type RunFile,
 } from '../../src/main/agent/env'
+import { removeTestTree } from '../remove'
 
 let home: string
 
@@ -731,7 +732,7 @@ describe.runIf(process.platform === 'win32')('agentEnv on this Windows machine',
       expect(findOnPath('tool', path('folder', 'dangling', 'to-a-folder', 'real'))).toBe(join(dir, 'real', 'tool.exe'))
       expect(findOnPath('tool', path('dangling', 'linked', 'real'))).toBe(join(dir, 'linked', 'tool.exe'))
     } finally {
-      // Links first, as links: under Electron's Node rmSync goes through a junction and empties what it leads to.
+      // Links first, as links. (From the time this folder went with rmSync; removeTestTree takes a link as a link too.)
       for (const at of links) {
         try {
           rmdirSync(at)
@@ -739,7 +740,7 @@ describe.runIf(process.platform === 'win32')('agentEnv on this Windows machine',
           unlinkSync(at)
         }
       }
-      rmSync(dir, { recursive: true, force: true })
+      removeTestTree(dir)
     }
   })
 })

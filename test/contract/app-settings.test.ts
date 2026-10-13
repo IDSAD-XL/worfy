@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { addClient } from '../../src/main/broadcast'
 import { registerIpc, type ModuleLoader } from '../../src/main/ipc/index'
 import { createLinkIpc, LinkPeer, LinkSender } from '../../src/main/link/ipc-adapter'
@@ -14,6 +14,7 @@ import { APP_SETTINGS_FILE, AppSettingsStore } from '../../src/main/settings/sto
 import { appSettingsChanged, appSettingsGet, appSettingsSet } from '../../src/shared/ipc/app-settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { clampScale, DEFAULT_APP_SETTINGS, type AppSettings } from '../../src/shared/settings/app-settings'
+import { removeTestTree } from '../remove'
 
 /** The path of every readFileSync call, by the test and by the code under test. */
 const disk = vi.hoisted(() => ({ reads: [] as string[] }))
@@ -54,11 +55,21 @@ vi.mock('electron', () => ({
 const dataDir = join(env.scratch, 'data')
 const settingsFile = join(dataDir, APP_SETTINGS_FILE)
 
+/** The folders freshFile made. */
+const folders: string[] = []
+
 /** A fresh folder with its own app-settings.json path, for a store of its own. */
 function freshFile(): string {
   const folder = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-app-settings-store-')))
+  folders.push(folder)
   return join(folder, APP_SETTINGS_FILE)
 }
+
+// The file left its folders in the temporary folder of the user (worfy-windows ticket 26).
+afterAll(() => {
+  for (const folder of folders.splice(0)) removeTestTree(folder)
+  removeTestTree(env.scratch)
+})
 
 const fixedNow = () => new Date('2026-10-10T07:08:09.010Z')
 

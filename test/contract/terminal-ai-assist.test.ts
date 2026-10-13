@@ -5,7 +5,7 @@
 // No test here starts Claude Code or asks a model: the SDK is a fake passed in, the module itself is
 // mocked so that any call to it fails the test, and the real backend refuses to start under vitest.
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ClaimOptions, Options } from '@anthropic-ai/claude-agent-sdk'
@@ -24,6 +24,7 @@ import type { TerminalAiState } from '../../src/shared/ipc/terminal-ai'
 import type { TerminalAiInput } from '../../src/shared/terminal-ai/context'
 import { REDACTED } from '../../src/shared/terminal-ai/redact'
 import type { TerminalAiFeature } from '../../src/shared/terminal-ai/settings'
+import { removeTestTree } from '../remove'
 
 // The real SDK module, replaced: a test that reached it would fail here instead of starting Claude Code.
 const sdkModule = vi.hoisted(() => ({ loaded: 0 }))
@@ -171,7 +172,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(scratch)
 })
 
 /** Lets every pending promise and the timers due by now run. */

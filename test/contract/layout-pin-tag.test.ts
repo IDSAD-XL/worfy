@@ -1,7 +1,7 @@
 // The `pin` and `tag` Layout operations (ticket 29) at the boundary: the `layout.apply` channel's
 // schema and the store in main that applies them. A wrong type is refused and changes nothing;
 // keys the contract does not declare are dropped, not stored.
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -9,6 +9,7 @@ import { layoutApply } from '../../src/shared/ipc/layout'
 import type { Layout, LayoutOpInput } from '../../src/shared/layout/types'
 import { LayoutStore } from '../../src/main/layout/store'
 import { canvasToolCaller } from '../../src/main/mcp/canvas-server'
+import { removeTestTree } from '../remove'
 
 const PROJECT = 'demo-0a1b2c3d'
 
@@ -24,7 +25,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  removeTestTree(dir)
 })
 
 const nodeOf = () => store.get(PROJECT).layout.nodes[0]
