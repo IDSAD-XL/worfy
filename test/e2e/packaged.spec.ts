@@ -186,7 +186,7 @@ function expectHarnessCopy(copy: string): string {
   const scripts = harnessScripts(copy)
   expect(scripts).toEqual(harnessScripts(join(repoRoot, 'harness')))
   expect(scripts['bin/profile']).toBe(true)
-  expect(scripts['hooks/gate.sh']).toBe(true)
+  expect(scripts['hooks/gate.mjs']).toBe(true)
   expect(existsSync(join(copy, 'bin', 'tests'))).toBe(false)
   expect(existsSync(join(copy, 'hooks', 'tests'))).toBe(false)
   return version as string

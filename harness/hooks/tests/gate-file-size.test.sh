@@ -17,27 +17,42 @@
 # The registry, the state folder and the repositories are temporary (CLAUDE_GATE_CONFIG,
 # CLAUDE_GATE_STATE): the test does not touch the live registry or markers.
 set -u
-HOOKS="${HOOKS_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"   # the hooks next to this test (harness/hooks)
-GATE="$HOOKS/gate.sh"
+# Git Bash on Windows: `pwd -W` prints C:/…, the spelling git prints and node reads; a path like
+# /c/… or /tmp/… means nothing to node. Elsewhere there is no -W.
+case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) WIN=1 ;; *) WIN=0 ;; esac
+HOOKS="${HOOKS_DIR:-$(cd "$(dirname "$0")/.." && { pwd -W 2>/dev/null || pwd; })}"   # the hooks next to this test (harness/hooks)
+GATE="$HOOKS/gate.mjs"
 export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
 unset CLAUDE_CODE_SESSION_ID GATE_SCOPE HARNESS_HOME GATE_MAX_AHEAD GATE_MAX_BEHIND
 T="$(mktemp -d)" || exit 1
 [ -d "$T" ] || exit 1
-T="$(cd "$T" && pwd -P)"
+T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
 trap 'rm -rf "$T"' EXIT
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
-tag() { printf '%s' "$1" | shasum | awk '{print $1}' | cut -c1-8; }
+# node, not shasum: Git Bash has shasum only where perl is on PATH.
+tag() { node -e 'process.stdout.write(require("node:crypto").createHash("sha1").update(process.argv[1]).digest("hex").slice(0, 8))' "$1"; }
 STATE="$T/state"
 export CLAUDE_GATE_STATE="$STATE" CLAUDE_GATE_CONFIG="$T/config.json"
 mkdir -p "$STATE"
 
 # --- fixtures ---------------------------------------------------------------------
 # The gate runs "$PM run <script>"; pm is this file, so the test needs no npm. What the script
-# does is set by $T/mode: ok or bad (a real test failure).
-PM="$T/fakepm"
-cat >"$PM" <<EOF
+# does is set by $T/mode: ok or bad (a real test failure). On Windows the file is a .cmd: node
+# starts nothing else there without an interpreter.
+if [ "$WIN" -eq 1 ]; then
+    PM="$T/fakepm.cmd"
+    cat >"$PM" <<'EOF'
+@echo off
+set /p m=<"%~dp0mode"
+if "%m%"=="ok" exit /b 0
+if "%m%"=="bad" (echo Tests 1 failed& exit /b 1)
+exit /b 1
+EOF
+else
+    PM="$T/fakepm"
+    cat >"$PM" <<EOF
 #!/bin/sh
 case "\$(cat "$T/mode")" in
     ok) exit 0 ;;
@@ -45,7 +60,8 @@ case "\$(cat "$T/mode")" in
 esac
 exit 1
 EOF
-chmod +x "$PM"
+    chmod +x "$PM"
+fi
 mode() { echo "$1" >"$T/mode"; }
 mode ok
 
@@ -63,7 +79,7 @@ newrepo() { # $1 = path: a repository with one commit; the caller adds files and
 based() { git -C "$1" update-ref refs/remotes/origin/main HEAD; }   # origin/main = the commit so far
 gate() { # $1 = repository, $2 = profile, the rest = environment; sets out (stdout and stderr) and rc
     local repo="$1" profile="$2"; shift 2
-    out="$(cd "$repo" && env "$@" bash "$GATE" "$profile" </dev/null 2>&1)"; rc=$?
+    out="$(cd "$repo" && env "$@" node "$GATE" "$profile" </dev/null 2>&1)"; rc=$?
 }
 WARN='[gate] warning: file over 1000 lines: '
 warns() { # $1 = description, $2 = path, $3 = before, $4 = after
@@ -147,6 +163,9 @@ lines 1000 "$R/no-newline.ts"                # 1001 lines, the last one without 
 printf 'last' >>"$R/no-newline.ts"
 { seq 1 1500; printf 'a\0b\n'; } >"$R/blob.bin"   # binary: a NUL byte, 1501 newlines
 ln -s grow.ts "$R/link.ts"                   # a symlink to a long file is not a long file
+# Git Bash without the right to create symlinks copies the file instead: then there is no
+# symlink to check, and the copy must not stay as one more long file.
+if [ -L "$R/link.ts" ]; then HAVE_LINK=1; else HAVE_LINK=0; rm -f "$R/link.ts"; fi
 
 gate "$R" fast GATE_SCOPE=all
 rc_warn=$rc
@@ -182,7 +201,8 @@ warns "1001 lines, the last without a newline: a warning" "no-newline.ts" 0 1001
 silent "a binary file: no warning" "blob.bin"
 silent "a file that .gitattributes calls binary: no warning" "table.dat"
 warns "a path that is not ASCII: a warning" "заметки/файл.md" 900 1100
-silent "a symlink to a long file: no warning" "link.ts"
+if [ "$HAVE_LINK" -eq 1 ]; then silent "a symlink to a long file: no warning" "link.ts"
+else echo "skip a symlink to a long file: this system made a copy, not a symlink"; fi
 if [ "$(nwarn)" -eq 11 ]; then ok "eleven warnings, one per file"; else bad "eleven warnings expected, got $(nwarn) (out: ${out:0:900})"; fi
 
 # The warning changes neither the verdict line nor the exit code; the verdict line is the last line.
@@ -217,7 +237,7 @@ fi
 warns "cache hit: the warning is printed again" "grow.ts" 900 1100
 if [ "$(nwarn)" -eq 11 ]; then ok "cache hit: all eleven warnings again"; else bad "cache hit: eleven warnings expected, got $(nwarn)"; fi
 # Like the scope line, the warning goes to stdout: with stderr dropped it is still there.
-out="$(cd "$R" && GATE_SCOPE=all bash "$GATE" fast </dev/null 2>/dev/null)"; rc=$?
+out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>/dev/null)"; rc=$?
 warns "the warning is on stdout" "grow.ts" 900 1100
 
 # --- 3. The same run without a long file: the same exit code, verdict line and file ------
@@ -290,7 +310,7 @@ lines 1100 "$S/notes.md"
 gate "$S" fast
 warns "narrowed scope, the change touches no checked package: a warning" "notes.md" 900 1100
 if [ "$rc" -eq 0 ] && [[ "$(printf '%s\n' "$out" | tail -n 1)" == "[gate] ничего не прогналось (fast): изменения не затрагивают проверяемые пакеты."* ]] &&
-    [ "$(jq -r .outcome "$STATE/verdict-$(tag "$S").json" 2>/dev/null)" = "none" ]; then
+    [ "$(jq -r .outcome "$STATE/verdict-$(tag "$S").json" 2>/dev/null | tr -d '\r')" = "none" ]; then
     ok "narrowed scope: «ничего не прогналось» is still the last line, outcome none, exit 0"
 else
     bad "narrowed scope: «ничего не прогналось» expected (rc=$rc, out: ${out:0:600})"

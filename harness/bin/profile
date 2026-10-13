@@ -15,7 +15,7 @@
 // projects or the project has no profile; 4 — no such field (--field); 1 — broken config,
 // resolver or profile.json.
 //
-// Identification is the same as in hooks/gate.sh: directory -> git common dir -> canonical
+// Identification is the same as in hooks/gate.mjs: directory -> git common dir -> canonical
 // repository root -> `hooks/gate-resolve.mjs --which` (the longest `match` prefix
 // in gate/config.json). So a worktree anywhere on disk is identified
 // by its main repository. The matching logic is not duplicated —
@@ -113,7 +113,7 @@ try {
     usage(`no such directory: ${target}`)
 }
 
-// --- canonical root: as in gate.sh ------------------------------------------------
+// --- canonical root: as in gate.mjs -----------------------------------------------
 const git = (...a) => {
     try {
         return execFileSync("git", ["-C", abs, ...a], {

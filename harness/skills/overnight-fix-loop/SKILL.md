@@ -203,17 +203,17 @@ once, run the mutations again. A second shortfall — `FAILURE.md` listing the s
 
 ### 1e. Gate
 
-The gate is `gate.sh fast`: the root lint plus `typecheck` and `test` of the changed packages. Green is exit 0
+The gate is `gate.mjs fast`: the root lint plus `typecheck` and `test` of the changed packages. Green is exit 0
 **and** the line `[gate] зелено (…)`; exit 0 with the line «ничего не прогналось» or «окружение
 недоступно» is not a check. Exit 2 is red (`[gate] красно`). Exit 3 is unverified, neither green nor red: the line
 `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …` names the reason (project not registered, registry unreadable,
-resolver crashed, no node). A red gate, exit 3, and exit 0 without the «зелено» line — `FAILURE.md` with that
+resolver crashed). A red gate, exit 3, and exit 0 without the «зелено» line — `FAILURE.md` with that
 line, no review, no PR, no merge. Before the gate everything is committed: the reviewer looks at the diff of the commits,
 the push in 1g sends only commits. Rebuilds that the profile section requires before
 `typecheck` and the gate — once before the gate; after each mutation — only if the section says so.
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh" fast </dev/null; echo "EXIT=$?"   # stdin closed, otherwise the script waits on cat forever
+node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"   # stdin closed, otherwise the script waits on cat forever
 ```
 
 ### 1f. Review — the orchestrator runs a `worfy:reviewer` agent after the implementer's report

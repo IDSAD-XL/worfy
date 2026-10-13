@@ -54,10 +54,11 @@ already uses.
 - Never call lint, tests or CI clean without the exit code. Filtering long output is required; losing
   the exit code is not. `set -o pipefail` first, or save the output and print `echo "EXIT=$?"`
   next to the tail. A `PreToolUse` guard refuses the pipes that swallow it.
-- The verdict comes from `${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh fast`, not from reading the diff. A
-  failing run means unfinished. "Could not verify" means unverified. Neither is reported as done.
-- Gate exit codes: `2` is red. `3` is not verified — unregistered project, broken registry, no
-  node — never green. `0` is green only when the output has the line `[gate] зелено (…)`: "nothing
+- The verdict comes from `node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"`,
+  not from reading the diff. A failing run means unfinished. "Could not verify" means unverified.
+  Neither is reported as done.
+- Gate exit codes: `2` is red. `3` is not verified — unregistered project, broken registry —
+  never green. `0` is green only when the output has the line `[gate] зелено (…)`: "nothing
   ran" («ничего не прогналось») and "could not verify" («ПРОВЕРИТЬ НЕ УДАЛОСЬ») also exit `0`.
   Where the gate does not cover the project, the verdict comes from the profile's
   `commands.verify` (or the project's own lint and test commands) with their exit codes, and the

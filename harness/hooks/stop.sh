@@ -179,7 +179,7 @@ if [ -s "$RED_MARKER" ]; then
         exit 0
     fi
 
-    echo "The quality gate is red (failed at $(cat "$RED_MARKER")). Run \`bash $HERE/gate.sh fast\` and fix what it points to before finishing. If it cannot be fixed here, say so instead of reporting the work as done.${NOTES:+ Also: $NOTES}" >&2
+    echo "The quality gate is red (failed at $(cat "$RED_MARKER")). Run \`node \"$HERE/gate.mjs\" fast </dev/null; echo \"EXIT=\$?\"\` and fix what it points to before finishing. If it cannot be fixed here, say so instead of reporting the work as done.${NOTES:+ Also: $NOTES}" >&2
     exit 2
 fi
 

@@ -3,8 +3,9 @@
 // test/fixtures/claude-home-legacy/ in a temporary folder, its home/.claude a git repository standing
 // in for ~/.claude (CLAUDE_CONFIG_DIR, so .claude.json lies inside it), the plugin `worfy` installed in
 // home/.claude/worfy-harness/plugin/ (a copy of harness/), and `claude` a stub that logs its
-// arguments. git, bin/profile, gate.sh and restore.mjs run with HOME, CLAUDE_CONFIG_DIR and
-// HARNESS_HOME of the sandbox. Nothing here touches the real ~/.claude.
+// arguments. git, bin/profile, gate.mjs and restore.mjs run with HOME (and USERPROFILE, the home
+// folder of node on Windows), CLAUDE_CONFIG_DIR and HARNESS_HOME of the sandbox. Nothing here
+// touches the real ~/.claude.
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
@@ -145,6 +146,7 @@ function makeSandbox({ qmdInPlugin = false }: { qmdInPlugin?: boolean } = {}): S
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
     HOME: home,
+    USERPROFILE: home,
     CLAUDE_CONFIG_DIR: claudeHome,
     HARNESS_HOME: harnessHome,
     WORFY_CLAUDE_HOME: claudeHome,
@@ -437,7 +439,7 @@ describe('the move', () => {
     expect(claudeMd).not.toContain('### Quota')
   })
 
-  it('Profiles: schema 2 in worfy-harness/projects, no paths of the old Harness, the form fields; bin/profile and gate.sh find them', async () => {
+  it('Profiles: schema 2 in worfy-harness/projects, no paths of the old Harness, the form fields; bin/profile and gate.mjs find them', async () => {
     const view = plan()
     // The form's values differ from the proposed ones (worfy: full, ru, on).
     const result = await applyMigration(selection(view, undefined, { worfy: { mode: 'silent', languageDocs: 'en', attribution: 'off' } }), applyOptions())
@@ -475,11 +477,11 @@ describe('the move', () => {
     // atakama moved with the proposed fields: Silent, so its attribution is off.
     expect(run(profileBin, ['-C', sandbox.repos.atakamaServer, '--field', 'attribution'])).toMatchObject({ status: 0, stdout: 'off\n' })
 
-    // Gate: registry and markers in worfy-harness/gate/; gate.sh of harness/ finds the project.
+    // Gate: registry and markers in worfy-harness/gate/; gate.mjs of harness/ finds the project.
     expect(read(join(sandbox.harnessHome, 'gate', 'config.json'))).toBe(read(join(backupDir(), 'claude', 'gate', 'config.json')))
     expect(existsSync(join(sandbox.harnessHome, 'gate', 'state', 'red-worfy-44f904e2'))).toBe(true)
     expect(existsSync(join(sandbox.harnessHome, 'worktree-sessions', 'sandbox-repos-worfy-0000aaaa.json'))).toBe(true)
-    const gate = run('bash', [join(REPO, 'harness', 'hooks', 'gate.sh'), 'fast'], { cwd: sandbox.repos.worfy })
+    const gate = run(process.execPath, [join(REPO, 'harness', 'hooks', 'gate.mjs'), 'fast'], { cwd: sandbox.repos.worfy })
     expect(`${gate.stdout}${gate.stderr}`).not.toMatch(/не зарегистрирован|not registered/)
     expect(gate.status).toBe(0)
   })

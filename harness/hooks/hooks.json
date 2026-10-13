@@ -64,7 +64,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" fast",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs\" fast",
             "timeout": 900
           }
         ]
@@ -75,7 +75,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" fast",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs\" fast",
             "timeout": 900
           }
         ]

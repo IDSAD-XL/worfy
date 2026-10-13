@@ -261,7 +261,7 @@ that ran someone else's `mut.sh` hung for three hours. The report is a claim; th
 ```bash
 cd <implementer worktree>                                     # the worktree from <F worktree.implementer> or <repo>
 git diff --name-only <base>...HEAD                            # compare with files_changed
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh" fast </dev/null; echo "EXIT=$?"   # green: see below
+node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"  # green: see below
 gh pr checks <N>                                              # pr-green-ci only; a separate command, no pipe
 gh pr view <N> --json mergeStateStatus,headRefOid             # pr-green-ci only
 ```
@@ -270,7 +270,7 @@ The gate is green only with `EXIT=0` **and** the line `[gate] зелено (fast
 exit code 0 without it means «ничего не прогналось» (nothing ran) or «окружение недоступно» (the
 environment is unavailable), and that is not a check. `EXIT=2` — red. `EXIT=3` — not verified,
 neither green nor red: the line `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …` names the reason (project not
-registered, registry unreadable, resolver crashed, no node). On exit code 3 the ticket is not
+registered, registry unreadable, resolver crashed). On exit code 3 the ticket is not
 merged: the verdict is `REJECTED: gate 3 — <line>`. It does not go back to the implementer and
 does not use up a round — it is a broken environment, not broken code: the ticket leaves the wave
 as a `blocked` row with that reason, and a human fixes it.

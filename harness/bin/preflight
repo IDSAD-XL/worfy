@@ -167,7 +167,7 @@ load_profile() {
       ]
       process.stdout.write(v.map((x) => String(x).replace(/[\t\n]/g, " ")).join("\t") + "\n")
     })' 2>"$TMP/profile.err") || die "profile --json not parsed: $(first_line "$(cat "$TMP/profile.err")")"
-  # A tab IFS collapses empty fields: the fields are cut by hand, as in gate.sh.
+  # A tab IFS collapses empty fields: the fields are cut by hand; gate.mjs splits by tabs too.
   BASE=${vals%%$'\t'*};      vals=${vals#*$'\t'}
   ADR_DIR=${vals%%$'\t'*};   vals=${vals#*$'\t'}
   JOURNAL=${vals%%$'\t'*};   vals=${vals#*$'\t'}

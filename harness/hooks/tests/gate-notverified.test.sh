@@ -3,19 +3,21 @@
 #   - a broken or missing registry: the resolver exits non-zero, the gate with code 3
 #     «резолвер … завершился» (the resolver exited), not «не зарегистрирован» (not registered); stop.sh still holds the turn
 #     on the red marker of a registered project;
-#   - node not found / the resolver crashed: code 3, not 0;
+#   - the resolver crashed: code 3, not 0;
 #   - the stop.sh message is said at most once per session per repository;
 #   - a marker is delivered only to its own session and its own tree; a marker without a session
 #     ("anon") only if it is newer than the start of the session.
 # Run: bash harness/hooks/tests/gate-notverified.test.sh; exit code 0 means everything passed.
 # HOOKS_DIR runs the test on another copy of the hooks (for example, on the version before an edit).
 set -u
-HOOKS="${HOOKS_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"   # the hooks next to this test (harness/hooks)
-GATE="$HOOKS/gate.sh"
+# Git Bash on Windows: `pwd -W` prints C:/…, the spelling git prints and node reads; a path like
+# /c/… or /tmp/… means nothing to node. Elsewhere there is no -W.
+HOOKS="${HOOKS_DIR:-$(cd "$(dirname "$0")/.." && { pwd -W 2>/dev/null || pwd; })}"   # the hooks next to this test (harness/hooks)
+GATE="$HOOKS/gate.mjs"
 STOP="$HOOKS/stop.sh"
 export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
 unset CLAUDE_CODE_SESSION_ID
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
+T="$(mktemp -d)"; T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
 trap 'rm -rf "$T"' EXIT
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
@@ -24,7 +26,8 @@ check() { # $1 = description, the rest is the condition
     local d="$1"; shift
     if "$@"; then ok "$d"; else bad "$d (rc=$rc, out: ${out:0:300})"; fi
 }
-tag() { printf '%s' "$1" | shasum | awk '{print $1}' | cut -c1-8; }
+# node, not shasum: Git Bash has shasum only where perl is on PATH.
+tag() { node -e 'process.stdout.write(require("node:crypto").createHash("sha1").update(process.argv[1]).digest("hex").slice(0, 8))' "$1"; }
 sp() { printf '{"session_id":"%s"%s}' "$1" "${2:+,\"transcript_path\":\"$2\"}"; }
 
 export CLAUDE_GATE_STATE="$T/state" CLAUDE_GATE_CONFIG="$T/config.json"
@@ -49,7 +52,7 @@ out="$(node "$CLAUDE_GATE_RESOLVE" --which "$T/reg" 2>&1)"; rc=$?
 check "resolver: config without 'repos' array -> non-zero exit" [ "$rc" -ne 0 ]
 echo '{"repos": [ broken' >"$CLAUDE_GATE_CONFIG"
 
-out="$(cd "$T/reg" && sp s1 | bash "$GATE" fast 2>&1)"; rc=$?
+out="$(cd "$T/reg" && sp s1 | node "$GATE" fast 2>&1)"; rc=$?
 check "gate: broken config -> exit 3" [ "$rc" -eq 3 ]
 check "gate: broken config -> 'ПРОВЕРИТЬ НЕ УДАЛОСЬ: резолвер', not 'не зарегистрирован'" \
     bash -c '[[ "$1" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: резолвер"* && "$1" != *"не зарегистрирован"* ]]' _ "$out"
@@ -65,7 +68,7 @@ check "stop: gate-3 reason already said in this session -> not repeated" \
     bash -c '[ "$2" -eq 2 ] && [[ "$1" != *"Also:"* ]]' _ "$out" "$rc"
 rm -f "$RED" "$T/state/stop-blocks/"*
 
-(cd "$T/reg" && sp s1b | bash "$GATE" fast >/dev/null 2>&1)
+(cd "$T/reg" && sp s1b | node "$GATE" fast >/dev/null 2>&1)
 out="$(cd "$T/reg" && sp s1b | bash "$STOP" 2>&1)"; rc=$?
 check "stop: broken config, no red -> exit 0, says 'not verified' once" \
     bash -c '[ "$2" -eq 0 ] && [[ "$1" == *additionalContext* && "$1" == *"not verified"* ]]' _ "$out" "$rc"
@@ -77,7 +80,7 @@ check "stop: broken config + unverified marker of this tree -> said once, exit 0
 rm -f "$T/state/unverified-t-"*
 
 # Red and a code-3 marker together: the turn is held, the code-3 reason is in the same message.
-(cd "$T/reg" && sp s1r | bash "$GATE" fast >/dev/null 2>&1)
+(cd "$T/reg" && sp s1r | node "$GATE" fast >/dev/null 2>&1)
 date -u +%Y-%m-%dT%H:%M:%SZ >"$RED"
 out="$(cd "$T/reg" && sp s1r | bash "$STOP" 2>&1)"; rc=$?
 check "stop: red + gate-3 marker -> blocks and names the gate-3 reason" \
@@ -92,53 +95,49 @@ rm -f "$RED" "$T/state/stop-blocks/"*
 echo "$GOOD_CFG" >"$CLAUDE_GATE_CONFIG"
 
 # --- 10. No node / the resolver crashed -------------------------------------------
-# gate.sh and stop.sh add /opt/homebrew/bin themselves: if node is there, "no node" cannot be simulated.
-if [ -x /opt/homebrew/bin/node ]; then echo "skip node-missing checks: /opt/homebrew/bin/node exists"; else
-out="$(cd "$T/reg" && sp s10 | HOME="$T/home" PATH=/usr/bin:/bin bash "$GATE" fast 2>&1)"; rc=$?
-check "gate: node missing -> exit 3 (not 0)" [ "$rc" -eq 3 ]
-check "gate: node missing -> 'ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден'" \
-    bash -c '[[ "$1" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден"* ]]' _ "$out"
-out="$(cd "$T/reg" && sp s10 | HOME="$T/home" PATH=/usr/bin:/bin bash "$STOP" 2>&1)"; rc=$?
-check "stop without node: gate's node-missing marker -> exit 0, says 'not verified'" \
-    bash -c '[ "$2" -eq 0 ] && [[ "$1" == *"node не найден"* && "$1" == *"not verified"* ]]' _ "$out" "$rc"
+# The gate has no "node not found" case any more (worfy-windows ticket 03): it is a Node script,
+# so without node it does not start, says nothing and leaves no marker — see the header of
+# gate.mjs. What stays is stop.sh, still bash: without node it holds the turn on the red marker.
+# stop.sh adds /opt/homebrew/bin itself: if node is there, "no node" cannot be simulated.
+if [ -x /opt/homebrew/bin/node ]; then echo "skip node-missing check: /opt/homebrew/bin/node exists"; else
 date -u +%Y-%m-%dT%H:%M:%SZ >"$RED"
-out="$(cd "$T/reg" && sp s10 | HOME="$T/home" PATH=/usr/bin:/bin bash "$STOP" 2>&1)"; rc=$?
+out="$(cd "$T/reg" && sp s10 | HOME="$T/home" USERPROFILE="$T/home" PATH=/usr/bin:/bin bash "$STOP" 2>&1)"; rc=$?
 check "stop without node + red marker -> blocks (exit 2)" [ "$rc" -eq 2 ]
 rm -f "$RED" "$T/state/stop-blocks/"*
 fi
 
 printf '#!/usr/bin/env node\nthrow new Error("boom")\n' >"$T/crash.mjs"
-out="$(cd "$T/reg" && sp s10b | CLAUDE_GATE_RESOLVE="$T/crash.mjs" bash "$GATE" fast 2>&1)"; rc=$?
+out="$(cd "$T/reg" && sp s10b | CLAUDE_GATE_RESOLVE="$T/crash.mjs" node "$GATE" fast 2>&1)"; rc=$?
 check "gate: resolver crash -> exit 3 + 'ПРОВЕРИТЬ НЕ УДАЛОСЬ'" \
     bash -c '[ "$2" -eq 3 ] && [[ "$1" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: резолвер"* ]]' _ "$out" "$rc"
 
 # --- 3. At most one message per session per repository ---------------------------
 U="$T/unreg"; UM="$T/state/nokey-unregistered-$(tag "$U")"
-(cd "$U" && sp s3 | bash "$GATE" fast >/dev/null 2>&1)
+(cd "$U" && sp s3 | node "$GATE" fast >/dev/null 2>&1)
 out="$(cd "$U" && sp s3 | bash "$STOP" 2>&1)"; rc=$?
 check "stop: first notice in session -> said" bash -c '[[ "$1" == *"не зарегистрирован"* ]]' _ "$out"
-(cd "$U" && sp s3 | bash "$GATE" fast >/dev/null 2>&1)
+(cd "$U" && sp s3 | node "$GATE" fast >/dev/null 2>&1)
 check "gate: second run writes marker again" [ -s "$UM-s3" ]
 out="$(cd "$U" && sp s3 | bash "$STOP" 2>&1)"; rc=$?
 check "stop: second gate run, same session -> silent exit 0 (once per session)" bash -c '[ "$2" -eq 0 ] && [ -z "$1" ]' _ "$out" "$rc"
 check "stop: silent run still consumes the marker" [ ! -e "$UM-s3" ]
 
 # --- 4. A marker goes only to its own session and its own tree --------------------
-(cd "$U" && sp sA | bash "$GATE" fast >/dev/null 2>&1)
+(cd "$U" && sp sA | node "$GATE" fast >/dev/null 2>&1)
 out="$(cd "$U" && sp sB | bash "$STOP" 2>&1)"; rc=$?
 check "stop in session B: marker of session A not delivered" bash -c '[ "$2" -eq 0 ] && [ -z "$1" ]' _ "$out" "$rc"
 check "marker of session A left for A" [ -s "$UM-sA" ]
 out="$(cd "$U" && sp sA | bash "$STOP" 2>&1)"
 check "stop in session A: gets its marker" bash -c '[[ "$1" == *"не зарегистрирован"* ]]' _ "$out"
 
-(cd "$T/unreg-wt" && sp sW | bash "$GATE" fast >/dev/null 2>&1)
+(cd "$T/unreg-wt" && sp sW | node "$GATE" fast >/dev/null 2>&1)
 out="$(cd "$U" && sp sW | bash "$STOP" 2>&1)"
 check "stop in main tree: marker of another worktree not delivered" bash -c '[ -z "$1" ]' _ "$out"
 out="$(cd "$T/unreg-wt" && sp sW | bash "$STOP" 2>&1)"
 check "stop in that worktree: gets its marker" bash -c '[[ "$1" == *"не зарегистрирован"* ]]' _ "$out"
 
 # Without a session (run from a terminal): an anon marker, taken only by a session that started earlier.
-(cd "$U" && bash "$GATE" fast </dev/null >/dev/null 2>&1)
+(cd "$U" && node "$GATE" fast </dev/null >/dev/null 2>&1)
 AM="$UM-anon"
 check "gate without session -> anon marker" [ -s "$AM" ]
 touch -t 202001010000 "$AM"

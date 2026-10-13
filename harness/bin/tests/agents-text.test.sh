@@ -43,8 +43,8 @@ for a in $ALL; do
     sed -n '/^---$/,/^---$/p' "$AGENTS/$a.md" | grep '^description:' | grep -qF '${CLAUDE_PLUGIN_ROOT}/bin/profile' \
         && ok "$a: description names \${CLAUDE_PLUGIN_ROOT}/bin/profile" || bad "$a: description does not name \${CLAUDE_PLUGIN_ROOT}/bin/profile"
 done
-has implementer 'bash ${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh fast </dev/null; echo "EXIT=$?"' \
-    && ok "implementer: gate through \${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh" || bad "implementer: no \${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh fast call"
+has implementer 'node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"' \
+    && ok "implementer: gate through \${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" || bad "implementer: no \${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs fast call"
 for a in implementer reviewer; do
     grep -F -- "$BIN_RULE" "$AGENTS/$a.md" | grep -qF '`${CLAUDE_PLUGIN_ROOT}/bin/`' \
         && ok "$a: rule for Profile values starting with ~/.claude/bin/" || bad "$a: no rule for Profile values starting with ~/.claude/bin/"

@@ -48,7 +48,7 @@ for f in "$EW" "$ST"; do
 
     # 2. Profile and Gate through the plugin root; the profile-value rule is there.
     check "$n: F is \${CLAUDE_PLUGIN_ROOT}/bin/profile --field" has "$f" '"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field <field>'
-    check "$n: gate through \${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh" has "$f" 'bash "${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh" fast </dev/null; echo "EXIT=$?"'
+    check "$n: gate through \${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" has "$f" 'node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"'
     check "$n: rule for ~/.claude/bin/ profile values" has "$f" "$RULE"
     check "$n: profile contract under the plugin root" has "$f" '${CLAUDE_PLUGIN_ROOT}/profiles/README.md'
     # Every ${CLAUDE_PLUGIN_ROOT}/<path> the skill names exists in harness/.
