@@ -183,6 +183,23 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     await vi.waitFor(() => expect(consoleHosts()).toBeLessThanOrEqual(before), { timeout: 5000, interval: 500 })
   }, 60_000)
 
+  // Review of PR #280. On the console of the package node-pty reports an exit only when the console
+  // closes, and the console lives while any process is on it: measured on the PC, this shell was
+  // reported 30 s after it had gone, when the program it left behind ended. The registry asks
+  // node-pty for the exit code and reports the exit itself.
+  it('a shell that exits while a program it started still holds its console is reported as exited within seconds, with its exit code', async () => {
+    const h = await harness()
+    await h.open()
+    await h.run(say('rea', 'dy'), /ready\r?\n/)
+    const typed = performance.now()
+    // The program is silent, sits on the console of the shell, and works in a folder no test removes.
+    await h.type("Start-Process -NoNewWindow -WorkingDirectory $env:SystemRoot powershell -ArgumentList '-NoProfile','-Command','Start-Sleep 15'; exit 6\r")
+    await vi.waitFor(() => expect(h.exits).toEqual([{ projectId: PROJECT, nodeId: NODE, exitCode: 6, signal: null }]), { timeout: 8000, interval: 100 })
+    expect(performance.now() - typed).toBeLessThan(8000)
+    // The Node shows the exit; asking for its size again does not fail.
+    expect((await h.open()).exited).toEqual({ exitCode: 6, signal: null })
+  }, 60_000)
+
   // With the console of the package node-pty stops the thread that reads the output only when output
   // comes after kill(), and none does: the registry stops it (stopOutputWorker). Without that each
   // Terminal leaves one thread, so sixteen leave sixteen; a few come and go on their own.

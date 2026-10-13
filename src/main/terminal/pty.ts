@@ -58,6 +58,10 @@ export const ROWS_MAX = 300
 /** Output kept per terminal for redrawing it, in UTF-16 code units (one per character of ASCII). */
 export const REPLAY_LIMIT = 256 * 1024
 export const KILL_GRACE_MS = 1000
+/** How often node-pty is asked on Windows whether a shell has exited (exitCodeKnown). */
+export const EXIT_POLL_MS = 500
+/** How long after node-pty knew the exit code of a shell of Windows its exit is reported without node-pty's own event: time for the last output. */
+export const EXIT_GRACE_MS = 1000
 /** How long the end of a chunk that may be the start of a request of the console waits for the next chunk (console-request.ts). */
 export const HELD_OUTPUT_MS = 50
 /** How long the helper that ends the processes under a shell of Windows may run. */
@@ -333,12 +337,14 @@ export function endDescendants(shell: StartedShell): Promise<DescendantsVerdict>
  * Takes the helper process out of node-pty's kill() on Windows; false when this is not a pty of
  * node-pty as 1.1.0 builds it.
  *
- * kill() there closes the pseudo-console — that ends the shell and what is on its console, by
- * their handles — and stops node-pty's worker thread. It also starts a helper that lists the
- * processes of the console, to end them by pid. The console is closed before the helper attaches
- * to it (10 of 10 on the owner's PC): the helper fails with "AttachConsole failed", and 5 s later
- * node-pty ends the pid of the shell, whoever has it by then. The helper adds nothing to closing
- * the console, so it is replaced by an empty list.
+ * This is for a pty on the console of the system (a spawn of its own given to the registry; the
+ * app itself starts shells on the console of the node-pty package, where kill() starts no helper —
+ * spawnShellPty). On the console of the system kill() closes the pseudo-console — that ends the
+ * shell and what is on its console, by their handles — and stops node-pty's worker thread. It also
+ * starts a helper that lists the processes of the console, to end them by pid. The console is
+ * closed before the helper attaches to it (10 of 10 on the owner's PC): the helper fails with
+ * "AttachConsole failed", and 5 s later node-pty ends the pid of the shell, whoever has it by
+ * then. The helper adds nothing to closing the console, so it is replaced by an empty list.
  */
 function withoutConsoleHelper(pty: PtyProcess): boolean {
   const agent = (pty as { _agent?: { _getConsoleProcessList?: unknown } })._agent
@@ -365,9 +371,51 @@ export type SpawnPty = (file: string, args: string[], options: { name: string; c
  * and not the one of the system (worfy-windows ticket 22). With the console of the system node-pty
  * forgets a pseudo-console the moment its shell exits and never closes it: every shell that ended
  * with `exit` left its conhost.exe until worfy quit (20 of 20 on the owner's PC). The console of
- * the package is released right after the shell starts, so its host goes when the shell does.
+ * the package is released right after the shell starts, so its host goes when the last process on
+ * it does.
+ *
+ * What comes with that console, each measured on the owner's PC and answered in this file:
+ *   - it asks its terminal a question at the start, and passes on the questions of programs
+ *     (console-request.ts);
+ *   - kill() leaves the thread that reads the output (stopOutputWorker);
+ *   - node-pty reports the exit of a shell only when the output of the console closes, which is
+ *     when the last process on it ends (exitCodeKnown);
+ *   - a write after the shell has gone ends as an `error` of node-pty's input socket, which has no
+ *     listener: in the main process that would be an uncaught exception. One write a millisecond
+ *     across an exit gave that error (EAGAIN) in 10 of 10 shells, and in none on the console of
+ *     the system. It is logged here, once for a shell.
  */
-export const spawnShellPty: SpawnPty = (file, args, options) => spawnNodePty(file, args, process.platform === 'win32' ? { ...options, useConptyDll: true } : options)
+export const spawnShellPty: SpawnPty = (file, args, options) => {
+  if (process.platform !== 'win32') return spawnNodePty(file, args, options)
+  const pty = spawnNodePty(file, args, { ...options, useConptyDll: true })
+  const input = (pty as { _agent?: { inSocket?: { on?: unknown } } })._agent?.inSocket
+  if (input !== undefined && input !== null && typeof input.on === 'function') {
+    let said = false
+    ;(input as { on: (event: 'error', listener: (error: unknown) => void) => void }).on('error', (error) => {
+      if (said) return
+      said = true
+      console.warn(`[terminal] a write to the shell ${pty.pid} failed: the shell is going or gone`, error)
+    })
+  }
+  return pty
+}
+
+/**
+ * The exit code node-pty already has for a shell of Windows, before its exit event; undefined
+ * while the shell runs, and for a pty that is not node-pty's as 1.1.0 builds it.
+ *
+ * node-pty sends the exit event when the output of the console closes. The console of the package
+ * lives while any process is attached to it, so a shell that left a program behind
+ * (`Start-Process -NoNewWindow …; exit`, `sleep 30 & exit` in Git Bash) was reported as exited when
+ * that program ended: 30 s later, measured, against 1.1 s on the console of the system. Meanwhile
+ * the Terminal counted as running, and a resize of it threw. node-pty knows the exit code half a
+ * second after the shell is gone; the registry asks for it (EXIT_POLL_MS) and reports the exit
+ * itself a moment later (EXIT_GRACE_MS), as node-pty does on the console of the system.
+ */
+function exitCodeKnown(pty: PtyProcess): number | undefined {
+  const code = (pty as { _agent?: { exitCode?: unknown } })._agent?.exitCode
+  return typeof code === 'number' ? code : undefined
+}
 
 /**
  * Stops the thread in which node-pty reads the output of a console of Windows; false when this is
@@ -493,6 +541,10 @@ export interface TerminalRegistryOptions {
   endDescendants?: (shell: StartedShell) => Promise<DescendantsVerdict | void> | DescendantsVerdict | void
   /** The upper bound of closing a Terminal on Windows; WINDOWS_CLOSE_BOUND_MS by default. */
   closeBoundMs?: number
+  /** How often node-pty is asked on Windows whether a shell has exited (default EXIT_POLL_MS). */
+  exitPollMs?: number
+  /** How long after node-pty knew of an exit it is reported without node-pty's event (default EXIT_GRACE_MS). */
+  exitGraceMs?: number
   /** Whether a file is there, for the search of the shell on Windows (terminalShell). */
   exists?: FileExists
 }
@@ -528,6 +580,8 @@ export class TerminalRegistry {
   private readonly platform: NodeJS.Platform
   private readonly endDescendants: (shell: StartedShell) => Promise<DescendantsVerdict | void> | DescendantsVerdict | void
   private readonly closeBoundMs: number
+  private readonly exitPollMs: number
+  private readonly exitGraceMs: number
   private readonly shellListeners = new Set<ShellEventListener>()
 
   constructor(private readonly options: TerminalRegistryOptions) {
@@ -537,6 +591,8 @@ export class TerminalRegistry {
     this.platform = options.platform ?? process.platform
     this.endDescendants = options.endDescendants ?? endDescendants
     this.closeBoundMs = options.closeBoundMs ?? WINDOWS_CLOSE_BOUND_MS
+    this.exitPollMs = options.exitPollMs ?? EXIT_POLL_MS
+    this.exitGraceMs = options.exitGraceMs ?? EXIT_GRACE_MS
   }
 
   /** Running terminals, including those still exiting (not those kept as exited). */
@@ -650,7 +706,14 @@ export class TerminalRegistry {
   /** Resizes the pty, unless it already has this size. */
   private applySize(terminal: Terminal, size: Size): void {
     if (terminal.size.cols === size.cols && terminal.size.rows === size.rows) return
-    terminal.pty.resize(size.cols, size.rows)
+    try {
+      terminal.pty.resize(size.cols, size.rows)
+    } catch (error) {
+      // On Windows node-pty refuses to resize a pty whose shell has exited, and it knows of the
+      // exit a moment before the registry reports it. The size stays what the pty has.
+      console.warn(`[terminal] the pty of the shell ${terminal.pty.pid} could not be resized to ${size.cols}x${size.rows}`, error)
+      return
+    }
     terminal.size = size
   }
 
@@ -706,6 +769,9 @@ export class TerminalRegistry {
     let exitedResolve: () => void = () => undefined
     let firstOutput: (() => void) | undefined
     let ended = false
+    // Windows: the looks for an exit that node-pty knows of and has not reported (exitCodeKnown).
+    let exitPoll: ReturnType<typeof setInterval> | null = null
+    let exitGrace: ReturnType<typeof setTimeout> | null = null
     const terminal: Terminal = {
       pty,
       shell: choice.name,
@@ -719,6 +785,8 @@ export class TerminalRegistry {
         if (ended) return
         ended = true
         terminal.finished = true
+        if (exitPoll !== null) clearInterval(exitPoll)
+        if (exitGrace !== null) clearTimeout(exitGrace)
         if (this.terminals.get(key) === terminal) {
           this.terminals.delete(key)
           // Ended by close: nothing to keep. Exited on its own: kept for the next open.
@@ -726,7 +794,8 @@ export class TerminalRegistry {
         }
         exitedResolve()
         this.broadcast(key, 'reporting the exit', (each) => each.exit(exit.exitCode, exit.signal))
-        // A shell of Windows that exited on its own: node-pty stops its worker thread only in kill().
+        // A shell of Windows that exited on its own: kill() takes the pty apart, and the thread
+        // that reads its output is stopped there (release).
         if (this.platform === 'win32') this.release(terminal, true)
       },
       finished: false,
@@ -779,6 +848,20 @@ export class TerminalRegistry {
       sendHeld()
       terminal.finish({ exitCode: (exitCode as number | undefined) ?? 1, signal: signal === undefined || signal === 0 ? null : signal })
     })
+    if (this.platform === 'win32') {
+      exitPoll = setInterval(() => {
+        const exitCode = exitCodeKnown(pty)
+        if (exitCode === undefined || exitPoll === null) return
+        clearInterval(exitPoll)
+        exitPoll = null
+        exitGrace = setTimeout(() => {
+          sendHeld()
+          terminal.finish({ exitCode, signal: null })
+        }, this.exitGraceMs)
+      }, this.exitPollMs)
+      // The looks do not keep the app from quitting.
+      exitPoll.unref?.()
+    }
     if (request.command !== undefined) firstOutput = this.typeOnStart(key, terminal, request.command, () => ended)
     return terminal
   }
@@ -908,10 +991,10 @@ export class TerminalRegistry {
    *
    * First every process under the shell, while the shell is their living parent: a program with a
    * window of its own is not on the shell's console, and closing the console would leave it. Then
-   * the pty (release): that closes the pseudo-console, which ends the shell and what is on its
-   * console. The shell is not ended before the pty is asked: node-pty forgets a pseudo-console
-   * the moment its shell exits, and then neither conhost.exe nor node-pty's worker thread ends
-   * before worfy does.
+   * the pty (release). On the console of the node-pty package, which the app uses, kill() closes
+   * the pseudo-console and ends the shell at once with TerminateProcess; what else is on the
+   * console is ended by the close. The shell is not ended before the pty is asked: node-pty
+   * forgets a pseudo-console the moment its shell exits, and kill() then has nothing to close.
    */
   private async endWindowsShell(key: string, terminal: Terminal): Promise<void> {
     const { pid } = terminal.pty
@@ -930,18 +1013,20 @@ export class TerminalRegistry {
   }
 
   /**
-   * Asks node-pty to close the pty of a shell of Windows, once, without its helper process
-   * (withoutConsoleHelper). kill() goes by the handles node-pty holds, never by a pid: a pid given
-   * out again is not touched. After the shell exited (`exited`) it only stops node-pty's worker
-   * thread — and then it is called only when the helper could be taken out, since the helper would
-   * end the pid of a shell that is gone.
+   * Asks node-pty to close the pty of a shell of Windows, once, without the helper process that
+   * kill() starts on the console of the system (withoutConsoleHelper), and stops the thread that
+   * reads its output (stopOutputWorker). kill() goes by the handles node-pty holds, never by a
+   * pid: a pid given out again is not touched. After the shell exited (`exited`) there is nothing
+   * left for kill() to close; it is called to take the pty apart — and only when the helper could
+   * be taken out, since on the console of the system the helper would end the pid of a shell that
+   * is gone.
    */
   private release(terminal: Terminal, exited: boolean): void {
     if (terminal.released) return
     const { pid } = terminal.pty
     const quiet = withoutConsoleHelper(terminal.pty)
     if (!quiet) {
-      console.warn(`[terminal] the pty of the shell ${pid} has no _getConsoleProcessList to take out of kill(): ${exited ? 'kill() is not called, and its worker thread stays' : 'its helper process may end that pid 5 s from now'} (withoutConsoleHelper)`)
+      console.warn(`[terminal] the pty of the shell ${pid} has no _getConsoleProcessList to take out of kill(): ${exited ? 'kill() is not called, and the thread that reads its output stays' : 'on the console of the system its helper process may end that pid 5 s from now'} (withoutConsoleHelper)`)
     }
     if (exited && !quiet) return
     terminal.released = true
