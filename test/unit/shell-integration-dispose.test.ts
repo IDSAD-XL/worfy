@@ -2,7 +2,7 @@
 // The folder goes when worfy exits. Its removal must take a link away as a link: under the Node of
 // Electron 44 on Windows fs.rmSync with `recursive` goes through a junction and empties the folder
 // behind it.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -64,5 +64,25 @@ describe('ShellIntegration.disposeSync and a link in the folder', () => {
 
     integration.disposeSync()
     expect(made()).toEqual([])
+  })
+
+  // The other half of the same check, which Windows keeps: a link under the name of the folder is
+  // somebody else's, and nothing is written through it.
+  it('a link under the name of its folder is not used: the scripts go to a new folder, and the link stays', async () => {
+    const outside = join(scratch, 'outside')
+    mkdirSync(outside)
+    const integration = new ShellIntegration({ tmpdir: () => scratch })
+    const first = await integration.prepare()
+    removeTestTree(first)
+    symlinkSync(outside, first, WINDOWS ? 'junction' : 'dir')
+
+    const second = await integration.prepare()
+    expect(second).not.toBe(first)
+    expect(readdirSync(second).length).toBeGreaterThan(0)
+    expect(readdirSync(outside)).toEqual([])
+
+    integration.disposeSync()
+    expect(existsSync(second)).toBe(false)
+    expect(lstatSync(first).isSymbolicLink()).toBe(true)
   })
 })
