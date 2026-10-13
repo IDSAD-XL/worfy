@@ -361,6 +361,15 @@ describe('trash: three days', () => {
       said.mockRestore()
       chmodSync(closed, 0o755)
     }
+    // And restored it is: the Card comes back with everything it held, and the entry is gone.
+    await restore(held.label)
+    expect(readdirSync(cardDir('held')).sort()).toEqual(['assets', 'closed', 'index.html'])
+    expect(readFileSync(join(cardDir('held'), 'closed', 'inner.txt'), 'utf8')).toBe('x')
+    expect(readFileSync(join(cardDir('held'), 'index.html'), 'utf8')).toBe('<title>Card held</title><p>hello</p>')
+    expect(existsSync(cardDataFile('held'))).toBe(true)
+    expect(nodeOf('held')).toMatchObject({ id: 'held', kind: 'card' })
+    expect(readdirSync(trashDir())).toEqual([])
+    expect(await list()).toEqual([])
   })
 
   it('a stray file or folder in the trash that is not an entry is left alone', async () => {

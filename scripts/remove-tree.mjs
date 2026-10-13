@@ -64,7 +64,9 @@ function removeMounted(path, outer) {
     throw error
   }
   for (const name of names) {
-    const found = removeMounted(join(path, name), volume)
+    // Under the text of the path given, as the folder itself, its ".." and rmSync are asked: join
+    // would cut a ".." in that text, which the system resolves through a link.
+    const found = removeMounted(path + '/' + name, volume)
     if (found !== null) return found
   }
   return null

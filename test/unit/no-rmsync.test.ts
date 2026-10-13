@@ -161,6 +161,15 @@ describe('fs.rmSync with "recursive" in test/', () => {
     ])
   })
 
+  // Review round 1 of PR #293: test/unit/remove-tree-model.ts is passed by as a whole file above.
+  // It can call no fs.rmSync: of node:fs it has readFileSync and nothing else.
+  it('the model of the removal tests, which the search passes by, takes readFileSync alone from node:fs and loads no module any other way', () => {
+    const text = readFileSync(join(REPO, 'test', 'unit', 'remove-tree-model.ts'), 'utf8')
+    const lines = text.split(/\r?\n/)
+    expect(lines.filter((line) => /['"](node:)?fs(\/promises)?['"]/.test(line))).toEqual(["import { readFileSync } from 'node:fs'"])
+    expect(lines.filter((line) => /\b(require|import)\s*\(/.test(line) || /\bprocess\.binding\b/.test(line))).toEqual([])
+  })
+
   it('the helper is the removal of the application, and calls nothing else', () => {
     const helper = readFileSync(join(REPO, 'test', 'remove.ts'), 'utf8')
     expect(helper).toContain("import { removeTree } from '../src/main/storage/remove'")

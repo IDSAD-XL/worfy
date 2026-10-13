@@ -53,8 +53,13 @@
 // removed — lstat of every entry, a listing of every folder, no link followed — and a folder on
 // another volume than the folder it lies in ends the removal with the code EXDEV and nothing
 // removed. The folder the given path lies in is asked as `path/..`, which the system resolves: a
-// link on the way to it is followed (`/tmp` is one on macOS).
+// link on the way to it is followed (`/tmp` is one on macOS). An entry of a folder is asked as
+// `path/name` for the same reason: every call of the look, and rmSync after it, gets the text of
+// the path given, so a `..` in it is resolved by the system for all of them alike.
 // What the look costs, and what it does not cover:
+//   - the folder the given path lies in is asked through the path, so a given folder that can be
+//     listed but not searched — an empty folder of mode 0444 — ends the removal with EACCES,
+//     where rmSync alone removed it (measured on that Mac under both Nodes);
 //   - a part of the tree that cannot be looked at — a folder that cannot be listed, a path longer
 //     than one call takes — ends the removal with that error and nothing removed, where rmSync
 //     alone removed the rest of the tree, or all of it. rmSync reaches where a look by the full
@@ -267,7 +272,9 @@ function mountedIn(path: string, fs: RemoveFs, outer?: number): string | null {
     throw error
   }
   for (const name of names) {
-    const found = mountedIn(join(path, name), fs, volume)
+    // Under the text of the path given, as the folder itself, its `..` and rmSync are asked: join
+    // would cut a `..` in that text, which the system resolves through a link.
+    const found = mountedIn(`${path}/${name}`, fs, volume)
     if (found !== null) return found
   }
   return null

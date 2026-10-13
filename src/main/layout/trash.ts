@@ -305,11 +305,17 @@ export class TrashStore {
 
   /**
    * Deletes the entries made more than TRASH_KEEP_MS ago. An entry that cannot be removed does not
-   * end it (worfy-windows ticket 44): the entry is left, named in `refused` with what its removal
-   * threw, and the entries after it are still deleted. Off Windows that is, among others, an entry
-   * with a volume mounted in its Card folder — put() moves a mount point along with one rename —
-   * and removeTree leaves such an entry whole, so it can still be restored. The next purge finds
-   * it again.
+   * end it (worfy-windows ticket 44): the entry is named in `refused` with what its removal threw,
+   * and the entries after it are still deleted — on every system, Windows too. The next purge
+   * finds the entry again.
+   *
+   * What is left of a refused entry is what removeTree left. Off Windows an entry with a volume
+   * mounted in its Card folder — put() moves a mount point along with one rename — or with a part
+   * that cannot be looked at is refused before anything of it is removed: it is whole, and can
+   * still be restored. An entry that fs.rmSync itself could not finish (a folder nothing may be
+   * removed from) is as that call left it, as before. On Windows an entry the walk could not
+   * finish is half removed, and every such entry spends the five waits of its own removal — half
+   * a second of the main process each, at every start, where the first one used to end the loop.
    */
   purge(projectId: string): TrashPurge {
     const oldest = this.now() - TRASH_KEEP_MS

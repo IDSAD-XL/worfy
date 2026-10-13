@@ -11,6 +11,20 @@ import { describe, expect, it } from 'vitest'
 import { REMOVE_RETRIES } from '../../src/main/storage/remove'
 import { BEHIND_A_LINK_TO_ANOTHER_VOLUME, CARD_HOLDS_A_VOLUME, COPIES, endViaCopy, endViaModule, model, rmSyncOver, WITH_A_LINK, type Entry, type Model } from './remove-tree-model'
 
+/**
+ * A folder with a mount point in it, and a link beside which that folder does not lie: the path
+ * `/t/to-private/../Volumes` is `/Volumes` to the system, and `/t/Volumes` — which is not there —
+ * to whoever cuts the `..` by the text.
+ */
+const UP_FROM_A_LINK: Record<string, Entry> = {
+  '/t': { kind: 'folder' },
+  '/t/to-private': { kind: 'link', to: '/private' },
+  '/private': { kind: 'folder' },
+  '/Volumes': { kind: 'folder' },
+  '/Volumes/notes.txt': { kind: 'file' },
+  '/Volumes/disk': { kind: 'volume' },
+  '/Volumes/disk/keep.txt': { kind: 'file' },
+}
 const UNTOUCHED = Object.keys(CARD_HOLDS_A_VOLUME).sort()
 const BEHIND_THE_MOUNT_POINT = ['/data/card/vol/deep', '/data/card/vol/deep/more.txt', '/data/card/vol/keep.txt']
 /** The calls that name a path or anything below it. */
@@ -125,6 +139,18 @@ describe.each(['darwin', 'linux'] as const)('removeTree on %s and a volume mount
     expect(m.names()).toEqual(Object.keys(tree).sort())
   })
 
+  // Review round 1 of PR #293. The look asked about an entry at join(path, name), and join cuts a
+  // `..` by the text; the folder itself, its `..` and rmSync got the text given, which the system
+  // resolves through the link. So the look asked about /t/Volumes/disk, which is not there, took
+  // it for gone meanwhile, and rmSync went into the volume.
+  it('a path given with ".." after a link: its entries are asked about under the text given, as the system reads it, and the mount point among them is refused', () => {
+    const m = model(UP_FROM_A_LINK)
+    const given = '/t/to-private/../Volumes'
+    expect(endViaModule(m, given, platform)).toEqual(refusal(`${given}/disk`, given))
+    expect(m.calls).toEqual([`lstat ${given}`, `lstat ${given}/..`, `readdir ${given}`, `lstat ${given}/notes.txt`, `lstat ${given}/disk`])
+    expect(m.names()).toEqual(Object.keys(UP_FROM_A_LINK).sort())
+  })
+
   it('a plain folder reached through a link to another volume is removed: it is on the volume of the folder it lies in', () => {
     const m = model(BEHIND_A_LINK_TO_ANOTHER_VOLUME)
     expect(endViaModule(m, '/data/away/sub', platform)).toBeNull()
@@ -169,6 +195,10 @@ describe.each(['darwin', 'linux'] as const)('removeTree on %s and a volume mount
     ['a path is longer than the system takes in one call', 'lstat /data/card/assets/app.js', 'ENAMETOOLONG'],
     ['the folder the path lies in cannot be asked', 'lstat /data/card/..', 'EACCES'],
     ['the look at the path itself fails', 'lstat /data/card', 'EIO'],
+    // Review round 1 of PR #293: codes the look names nowhere. Whatever is not "nothing is there" ends it.
+    ['a listing is not permitted', 'readdir /data/card/assets', 'EPERM'],
+    ['the process has no file left to open for a look', 'lstat /data/card/index.html', 'EMFILE'],
+    ['a look answers a code nobody has heard of', 'lstat /data/card/assets/app.js', 'EWHATEVER'],
   ])('when %s, the removal ends with that error and removes nothing', (_what, call, code) => {
     const m = model(CARD_HOLDS_A_VOLUME, { [call]: [code] })
     expect(endViaModule(m, '/data/card', platform)).toMatchObject({ code })
@@ -212,6 +242,7 @@ describe.each(['darwin', 'linux'] as const)('removeTree on %s and a volume mount
       [CARD_HOLDS_A_VOLUME, '/data/card/vol'],
       [CARD_HOLDS_A_VOLUME, '/data'],
       [WITH_A_LINK, '/data/card'],
+      [UP_FROM_A_LINK, '/t/to-private/../Volumes'],
     ]
     for (const [tree, path] of cases) {
       const [ours, theirs] = [model(tree), model(tree)]

@@ -68,11 +68,23 @@ export function model(entries: Record<string, Entry>, failing: Record<string, st
     rmdirSync: (path) => asked.rmdirSync(path.replace(/\\/g, '/')),
     rmSync: (path, options) => asked.rmSync(path.replace(/\\/g, '/'), options),
   })
-  /** Where a path leads once every link and mount on the way to it is followed; its last name is taken as it is. */
+  /**
+   * Where a path leads once every link and mount on the way to it is followed; its last name is
+   * taken as it is. A `..` on the way is resolved as the system resolves it, from where the names
+   * before it have led: after a link it goes up from the folder the link leads to, not from the
+   * folder the link lies in (worfy-windows ticket 44; only the removal off Windows asks so — the
+   * walk of Windows gets its paths from `join`, which cuts a `..` by the text).
+   */
   const real = (path: string): string => {
     for (let at = path.indexOf('/', 1); at > 0; at = path.indexOf('/', at + 1)) {
-      const entry = tree.get(path.slice(0, at))
-      if (entry?.kind === 'link' || entry?.kind === 'mount') return real(entry.to + path.slice(at))
+      const before = path.slice(0, at)
+      const rest = path.slice(at)
+      const entry = tree.get(before)
+      if (entry?.kind === 'link' || entry?.kind === 'mount') return real(entry.to + rest)
+      if (rest === '/..' || rest.startsWith('/../')) {
+        const [above, after] = [posix.dirname(before), rest.slice(3)]
+        return real(above === '/' ? after || '/' : above + after)
+      }
     }
     return path
   }
