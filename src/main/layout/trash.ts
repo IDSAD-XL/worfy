@@ -72,6 +72,30 @@ export interface TrashDeps {
   /** Why this Node may not be deleted now, beyond trashRefusal(): a Session running on it. */
   busy?: (projectId: string, node: LayoutNode) => string | null
   now?: () => number
+  /** How the trash lists and removes its entry folders; on the disk by default, replaced in tests. */
+  fs?: TrashFs
+}
+
+/** The two calls the trash makes about its entry folders. */
+export interface TrashFs {
+  /** The names of the folders in a folder; throws with the code ENOENT when the folder is not there. */
+  folders: (dir: string) => string[]
+  /** Removes an entry folder with everything in it: removeTree of src/main/storage/remove.ts. */
+  removeTree: (path: string) => void
+}
+
+const diskTrashFs: TrashFs = {
+  folders: (dir) =>
+    readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name),
+  removeTree: (path) => removeTree(path),
+}
+
+/** What purge() did: the labels of the entries it deleted, and the entries it had to leave, each with what its removal threw. */
+export interface TrashPurge {
+  removed: string[]
+  refused: { label: string; error: unknown }[]
 }
 
 /** The Card a Node of kind `card` shows: `data.cardId` when it is set, otherwise the Node's own id (as CardNode.tsx reads it). */
@@ -162,10 +186,12 @@ const labelTime = (label: string): number => Number(label.slice(0, label.indexOf
 
 export class TrashStore {
   private readonly now: () => number
+  private readonly fs: TrashFs
 
   /** Does no I/O. */
   constructor(private readonly deps: TrashDeps) {
     this.now = deps.now ?? (() => Date.now())
+    this.fs = deps.fs ?? diskTrashFs
   }
 
   /** The folder of a Project's trash. Throws for a Project that is not in the list. */
@@ -220,7 +246,7 @@ export class TrashStore {
     } catch (error) {
       // Put back what moved, newest first, and drop the half-made entry.
       for (const { from, to } of moved.reverse()) renameSync(to, from)
-      removeTree(dir)
+      this.fs.removeTree(dir)
       throw error
     }
   }
@@ -263,7 +289,7 @@ export class TrashStore {
       for (const { from, to } of done.reverse()) renameSync(to, from)
       throw error
     }
-    removeTree(dir)
+    this.fs.removeTree(dir)
     return summaryOf(label, entry)
   }
 
@@ -277,24 +303,39 @@ export class TrashStore {
     return entries.sort((a, b) => b.trashedAt - a.trashedAt || b.label.localeCompare(a.label))
   }
 
-  /** Deletes the entries made more than TRASH_KEEP_MS ago; returns their labels. */
-  purge(projectId: string): string[] {
+  /**
+   * Deletes the entries made more than TRASH_KEEP_MS ago. An entry that cannot be removed does not
+   * end it (worfy-windows ticket 44): the entry is named in `refused` with what its removal threw,
+   * and the entries after it are still deleted — on every system, Windows too. The next purge
+   * finds the entry again.
+   *
+   * What is left of a refused entry is what removeTree left. Off Windows an entry with a volume
+   * mounted in its Card folder — put() moves a mount point along with one rename — or with a part
+   * that cannot be looked at is refused before anything of it is removed: it is whole, and can
+   * still be restored. An entry that fs.rmSync itself could not finish (a folder nothing may be
+   * removed from) is as that call left it, as before. On Windows an entry the walk could not
+   * finish is half removed, and every such entry spends the five waits of its own removal — half
+   * a second of the main process each, at every start, where the first one used to end the loop.
+   */
+  purge(projectId: string): TrashPurge {
     const oldest = this.now() - TRASH_KEEP_MS
-    const removed: string[] = []
+    const done: TrashPurge = { removed: [], refused: [] }
     for (const label of this.labels(projectId)) {
       if (labelTime(label) >= oldest) continue
-      removeTree(this.entryDir(projectId, label))
-      removed.push(label)
+      try {
+        this.fs.removeTree(this.entryDir(projectId, label))
+        done.removed.push(label)
+      } catch (error) {
+        done.refused.push({ label, error })
+      }
     }
-    return removed
+    return done
   }
 
   /** The entry folders of the Project's trash; anything else in it is not ours to read or delete. */
   private labels(projectId: string): string[] {
     try {
-      return readdirSync(this.trashDir(projectId), { withFileTypes: true })
-        .filter((entry) => entry.isDirectory() && TRASH_LABEL_PATTERN.test(entry.name))
-        .map((entry) => entry.name)
+      return this.fs.folders(this.trashDir(projectId)).filter((name) => TRASH_LABEL_PATTERN.test(name))
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
       throw error

@@ -162,7 +162,7 @@ test('the Orchestrator starts Subagents: their Nodes appear, run with a ticking 
     await window.screenshot({ path: test.info().outputPath('subagent-tree-done.png') })
 
     // The Session rail lists the same tree.
-    await window.getByRole('button', { name: /Session/ }).first().click()
+    await window.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Session' }).click()
     const rail = window.getByTestId('subagents-rail')
     await expect(rail.getByTestId('subagents-rail-row')).toHaveCount(2)
     await expect(rail.locator('[data-subagent-id="afake00000000impl"]')).toHaveAttribute('data-status', 'done')

@@ -17,7 +17,8 @@
   outline: none;
 }
 
-/* The bar sits where the toolbar is and keeps clear of the traffic lights. */
+/* The bar sits where the toolbar is and keeps clear of the traffic lights: 80 px of the window at
+   any interface scale, as the toolbar does (shell.css). */
 .w-focus__bar {
   flex: none;
   height: var(--toolbar-height);
@@ -25,7 +26,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: 0 var(--space-3) 0 80px;
+  padding: 0 var(--space-3) 0 calc(80px / var(--interface-scale, 1));
   border-bottom: 1px solid var(--toolbar-border);
   background: var(--toolbar);
   -webkit-app-region: drag;

@@ -39,9 +39,44 @@
 // spent, half a second, it fails; the walk before removed the entries first, and succeeded when
 // the folder was let go meanwhile.
 //
-// On every other system fs.rmSync is called, as before this module: there it never went through a
-// link, it is safe against such a swap, it has no limit on the length of a path, and it goes on
-// past an entry it cannot remove. Nothing changes off Windows.
+// On every other system fs.rmSync removes the tree, as before this module: there it never went
+// through a link, it is safe against such a swap, it goes on past an entry it cannot remove, and
+// it has no limit on the length of a path (measured on macOS for worfy-windows ticket 44: a tree
+// with a path of 1693 bytes goes, where lstat by that path answers ENAMETOOLONG).
+//
+// One folder it does go into (worfy-windows ticket 44): a folder a volume is mounted on. Measured
+// on macOS 26.6.1 under the system Node 24.19.0 and the Node of Electron 44.5.1: lstat calls a
+// mount point a folder — only its `dev` differs from that of the folder it lies in — rmdir answers
+// EBUSY, also for an empty volume, and fs.rmSync with `recursive` removed every file of the volume
+// before it threw: ENOTEMPTY for the folder the mount point lies in, "Resource busy" with no code
+// for the mount point itself. So off Windows the tree is looked through before anything is
+// removed — lstat of every entry, a listing of every folder, no link followed — and a folder on
+// another volume than the folder it lies in ends the removal with the code EXDEV and nothing
+// removed. The folder the given path lies in is asked as `path/..`, which the system resolves: a
+// link on the way to it is followed (`/tmp` is one on macOS). An entry of a folder is asked as
+// `path/name` for the same reason: every call of the look, and rmSync after it, gets the text of
+// the path given, so a `..` in it is resolved by the system for all of them alike.
+// What the look costs, and what it does not cover:
+//   - the folder the given path lies in is asked through the path, so a given folder that can be
+//     listed but not searched — an empty folder of mode 0444 — ends the removal with EACCES,
+//     where rmSync alone removed it (measured on that Mac under both Nodes);
+//   - a part of the tree that cannot be looked at — a folder that cannot be listed, a path longer
+//     than one call takes — ends the removal with that error and nothing removed, where rmSync
+//     alone removed the rest of the tree, or all of it. rmSync reaches where a look by the full
+//     path cannot (the tree of 1693 bytes above), so what is not seen is not removed;
+//   - a mount point with the `dev` of the folder it lies in is not seen. Measured on the same Mac:
+//     /System/Volumes/Data, the data volume the system mounts itself, answers with the `dev` of
+//     /System/Volumes, a folder of the system volume. A disk image attached on a folder did not
+//     (16777245 against 16777233). Expected, and not measured, for a bind mount of a folder of the
+//     same file system on Linux. Only the answer of rmdir would tell, and rmSync does not ask
+//     before it removes;
+//   - a volume mounted between the look and the removal is not seen;
+//   - one more pass over the tree: 12 to 20 ms for 4000 files on that Mac, where their removal
+//     takes about 200 ms.
+// The walk of Windows was not taken for the other systems. It goes by full paths: measured on
+// macOS, it leaves the tree of 1693 bytes with ENAMETOOLONG. Over the model of the tests it
+// removes what lies beside a mount point before it fails. And it waits half a second on EACCES
+// and EPERM (BUSY below), which off Windows do not pass in a moment.
 //
 // The text of scripts that cannot import anything keeps a copy of both functions: the restore
 // script of src/main/harness/migrate/restore.ts, scripts/remove-tree.mjs and
@@ -211,16 +246,57 @@ function walk(path: string, fs: RemoveFs, options: RemoveOptions, patience: Pati
   patiently(() => fs.rmdirSync(path), options, patience)
 }
 
+/** The code of the error removeTree ends with off Windows when a volume is mounted in the tree. */
+export const MOUNTED_VOLUME = 'EXDEV'
+
+/**
+ * The look that comes before fs.rmSync off Windows: the first folder, at the path or anywhere
+ * below it, that is on another volume than the folder it lies in — a volume is mounted on it — or
+ * null. Reads and removes nothing; a link is not followed, and what is not there is no folder.
+ * Throws what lstat or a listing throws for any other reason: what cannot be looked at may hold a
+ * mount point. `outer` is the volume of the folder the path lies in; the path the caller gave has
+ * none yet, and `path/..` is asked — the folder the system reaches the path in, also through a link.
+ */
+function mountedIn(path: string, fs: RemoveFs, outer?: number): string | null {
+  let volume: number
+  let names: string[]
+  try {
+    const seen = fs.lstatSync(path)
+    if (!seen.isDirectory()) return null
+    volume = seen.dev
+    if (volume !== (outer ?? fs.lstatSync(`${path}/..`).dev)) return path
+    names = fs.readdirSync(path)
+  } catch (error) {
+    // Gone meanwhile: nothing is there to be removed, or to be kept from it.
+    if (GONE.includes(codeOf(error) ?? '')) return null
+    throw error
+  }
+  for (const name of names) {
+    // Under the text of the path given, as the folder itself, its `..` and rmSync are asked: join
+    // would cut a `..` in that text, which the system resolves through a link.
+    const found = mountedIn(`${path}/${name}`, fs, volume)
+    if (found !== null) return found
+  }
+  return null
+}
+
 /**
  * Removes what is at `path`: a file, a link, or a folder with everything in it. A path that is not
  * there is not an error. A link — a symlink or a junction, at the path itself or anywhere below —
  * is removed as a link: what it leads to is neither entered nor touched, as long as nobody else
- * changes the tree meanwhile. Takes the place of `rmSync(path, { recursive: true, force: true })`,
- * and off Windows is that call.
+ * changes the tree meanwhile. Takes the place of `rmSync(path, { recursive: true, force: true })`.
+ *
+ * Off Windows it is that call, after a look through the tree: when a folder in it is on another
+ * volume than the folder it lies in — a volume is mounted there, and rmSync would remove its
+ * files — nothing is removed, and the error has the code MOUNTED_VOLUME and that folder as `path`.
  */
 export function removeTree(path: string, options: RemoveOptions = {}): void {
   const fs = options.fs ?? nodeFs
   if (!onWindows(options)) {
+    const mounted = mountedIn(path, fs)
+    if (mounted !== null) {
+      throw Object.assign(new Error(`${MOUNTED_VOLUME}: ${mounted} is on another volume than the folder it lies in: a volume is mounted there. Nothing of ${path} was removed`), { code: MOUNTED_VOLUME, path: mounted })
+    }
     fs.rmSync(path, { recursive: true, force: true })
     return
   }

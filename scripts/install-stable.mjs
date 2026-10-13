@@ -320,6 +320,11 @@ function patiently(step) {
  * folder behind it, and it refuses a read-only file with EPERM; a Node from nodejs.org, 22.13.0
  * or 24.21.0, does neither. unlinkSync removes a read-only file, a junction and a symlink under
  * all three.
+ *
+ * Off Windows the folder goes with rmSync, which never went through a link there. It does go into
+ * a folder a volume is mounted on (worfy-windows ticket 44; measured on macOS: the files of the
+ * volume were removed). So the folder is looked through first, and with a folder on another
+ * volume than the folder it lies in the removal ends with the code EXDEV and nothing removed.
  */
 // A copy of removeTree of src/main/storage/remove.ts (worfy-windows ticket 23): this script is one
 // file with no import of its own. test/unit/remove-tree.test.ts runs the copies and the module
@@ -332,11 +337,45 @@ function removeTree(given) {
   return removeWalk(given, { waits: 5 })
 }
 
+// Off Windows, before anything is removed: the first folder, at the path or below it, that is on
+// another volume than the folder it lies in, or null. A volume is mounted on such a folder; lstat
+// calls it a plain folder, and rmSync would remove every file of that volume (measured on macOS,
+// worfy-windows ticket 44). Reads and removes nothing; a link is not followed. What cannot be
+// looked at is thrown: it may hold a mount point. "outer" is the volume of the folder the path
+// lies in; for the path the caller gave it is asked as "path/..", which the system resolves.
+function removeMounted(path, outer) {
+  let volume
+  let names
+  try {
+    const seen = lstatSync(path)
+    if (!seen.isDirectory()) return null
+    volume = seen.dev
+    if (volume !== (outer === undefined ? lstatSync(path + '/..').dev : outer)) return path
+    names = readdirSync(path)
+  } catch (error) {
+    // Gone meanwhile: nothing is there to be removed, or to be kept from it.
+    if (Boolean(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) return null
+    throw error
+  }
+  for (const name of names) {
+    // Under the text of the path given, as the folder itself, its ".." and rmSync are asked: join
+    // would cut a ".." in that text, which the system resolves through a link.
+    const found = removeMounted(path + '/' + name, volume)
+    if (found !== null) return found
+  }
+  return null
+}
+
 // "outer" is the volume of the folder the path lies in; the path the caller gave has none yet.
 function removeWalk(given, patience, outer) {
-  // Off Windows rmSync never went through a link, and nothing changes there. The walk is for
-  // Windows alone, and holds for a tree nobody else changes meanwhile.
-  if (process.platform !== 'win32') return rmSync(given, { recursive: true, force: true })
+  // Off Windows rmSync never went through a link. It does go into a volume mounted in the tree,
+  // so the tree is looked through first, and with a mounted volume in it nothing is removed. The
+  // walk is for Windows alone, and holds for a tree nobody else changes meanwhile.
+  if (process.platform !== 'win32') {
+    const mounted = removeMounted(given)
+    if (mounted !== null) throw Object.assign(new Error('EXDEV: ' + mounted + ' is on another volume than the folder it lies in: a volume is mounted there. Nothing of ' + given + ' was removed'), { code: 'EXDEV', path: mounted })
+    return rmSync(given, { recursive: true, force: true })
+  }
   // Separators at the end go, but for the root of a disk: lstat follows a link written with one.
   const cut = given.replace(/[\\/]+$/, '')
   const path = cut === '' || cut.endsWith(':') ? given : cut
@@ -462,9 +501,15 @@ export function installStable(argv, { platform = process.platform, env = process
    * a terminal and has the time, so a removal that busy entries stopped is run again, each run
    * with its own waits: six files that are busy for one try each all go, as they did when every
    * entry had five tries of its own.
+   *
+   * Off Windows the removal is the same function, run once (worfy-windows ticket 44). Until then
+   * this line called rmSync itself, with five tries of its own, and so went past the look for a
+   * mounted volume that removeTree makes before rmSync: a copy with a volume mounted in it would
+   * have lost the files of that volume. A removal there does not wait inside, so running it again
+   * at once would be no wait either; what could not be removed is left and named, as on Windows.
    */
   const remove = (path) => {
-    if (platform !== 'win32') return rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    if (platform !== 'win32') return removeFolder(path)
     for (let round = 1; ; round++) {
       try {
         return removeFolder(path)
