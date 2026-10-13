@@ -1,34 +1,43 @@
-// The gate's verdict on each worktree of a Project, read from what gate.sh leaves behind
+// The gate's verdict on each worktree of a Project, read from what the Gate leaves behind: the
+// plugin's hooks/gate.mjs, or gate.sh of a Harness older than worfy-windows ticket 03
 // (~/.claude/hooks/gate.sh; WORFY_CLAUDE_HOME stands for ~/.claude in tests). <gate> below is the
 // gate/ folder of the Harness found on the machine (src/main/harness/locate.ts, worfy-harness
 // ticket 12): <harnessHome>/gate with the plugin, <home>/gate with the old Harness or none.
 //
 // - markers in <gate>/state/: `red-<key>-<tag>` (red) and `unverified-<key>-<tag>` (could not
-//   verify), where `tag` is the first 8 hex digits of SHA-1 of the worktree path (gate.sh:
-//   `printf '%s' "$repo" | shasum | cut -c1-8`) and `key` is the entry of <gate>/config.json
-//   whose `match` is the longest prefix of the repository root (gate-resolve.mjs --which);
-// - without a marker, the verdict file `verdict-<tag>.json` in the same folder: gate.sh rewrites it
+//   verify), where `tag` is the first 8 hex digits of SHA-1 of the worktree path as
+//   `git rev-parse --show-toplevel` prints it (`C:/Users/x/worfy` on Windows) and `key` is the
+//   entry of <gate>/config.json whose `match` is the longest prefix of the repository root
+//   (gate-resolve.mjs --which);
+// - without a marker, the verdict file `verdict-<tag>.json` in the same folder: the Gate rewrites it
 //   on every run with the outcome of that run (ticket worfy-harness/09, the format is in the header
-//   of harness/hooks/gate.sh). A marker goes first: after a red run, a run that checked nothing
+//   of harness/hooks/gate.mjs). A marker goes first: after a red run, a run that checked nothing
 //   writes `none` into the file, and the worktree stays red while the red marker is there;
 // - without a marker or a usable verdict file (a gate older than the file, ~/.claude before the
 //   Harness moves to the plugin), the last `[gate] зелено | красно | ничего не прогналось | ПРОВЕРИТЬ НЕ УДАЛОСЬ`
 //   line in the transcripts of the Sessions started in that worktree: the output of a Bash call
-//   that ran gate.sh in that worktree, and hook output. The output of other commands (the gate's
-//   own tests, `tail` of an old log, gate.sh after `cd` to another repository) and a line the user
+//   that ran the Gate in that worktree, and hook output. The output of other commands (the gate's
+//   own tests, `tail` of an old log, the Gate after `cd` to another repository) and a line the user
 //   or the model wrote (a prompt, a brief, a reply) do not count.
 //
 // «Ничего не прогналось» (`none` in the file) is «нет данных», never green. Nothing here writes: the
 // state folder and the transcripts are only listed and read, git only lists worktrees.
+//
+// Paths of Windows (worfy-windows ticket 03): realpath gives `C:\Users\x\worfy`, git and the Gate
+// write `C:/Users/x/worfy`, Git Bash `/c/Users/x/worfy`, and NTFS does not tell letter case apart.
+// The functions that hash, compare or resolve a path take the platform, `process.platform` by
+// default, so the Windows rules are tested on macOS and Linux; with any other platform a path is
+// read as before.
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { realpath } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import { promisify } from 'node:util'
 import { z } from 'zod'
 import { gateOutcomeSchema, type GateOutcome, type GateState } from '../../shared/ipc/checks'
+import { isWindowsAbsolutePath } from '../../shared/paths'
 import { projectDirName } from '../claude-home/registry'
 import { harnessHomes, locateHarness } from '../harness/locate'
 import { readNewLines, type TailCursor } from '../claude-home/tail'
@@ -36,9 +45,25 @@ import { readNewLines, type TailCursor } from '../claude-home/tail'
 const run = promisify(execFile)
 const realpathNative = promisify(realpath.native)
 
-/** gate.sh's per-worktree tag: the first 8 hex digits of SHA-1 of the path, as `shasum` prints it. */
-export function gateTag(path: string): string {
-  return createHash('sha1').update(path, 'utf8').digest('hex').slice(0, 8)
+/** A Windows path as git prints it: `/` for `\`, the drive letter in upper case (`C:/Users/x/worfy`). */
+const gitSpelling = (path: string): string => path.replaceAll('\\', '/').replace(/^[a-z]:/u, (drive) => drive.toUpperCase())
+
+/**
+ * A path in the form two paths are compared in. On Windows `\` and `/` are one separator and
+ * letter case does not count; elsewhere it is the path itself.
+ */
+const comparable = (path: string, platform: NodeJS.Platform): string => (platform === 'win32' ? path.replaceAll('\\', '/').toLowerCase() : path)
+
+/** Whether `path` is `folder` or lies under it; both are `comparable`. */
+const inside = (path: string, folder: string): boolean => path === folder || path.startsWith(folder.endsWith('/') ? folder : `${folder}/`)
+
+/**
+ * The Gate's per-worktree tag: the first 8 hex digits of SHA-1 of the worktree path as the Gate has
+ * it from `git rev-parse --show-toplevel`. On Windows git prints `C:/a/b` for what realpath gives
+ * as `C:\a\b`, so the path is brought to git's spelling first.
+ */
+export function gateTag(path: string, platform: NodeJS.Platform = process.platform): string {
+  return createHash('sha1').update(platform === 'win32' ? gitSpelling(path) : path, 'utf8').digest('hex').slice(0, 8)
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -70,15 +95,16 @@ async function onDisk(path: string): Promise<string> {
 /**
  * The gate key of a repository, as gate-resolve.mjs --which picks it: the entry whose `match` is
  * the root itself or a folder above it, the longest such `match` winning. Letter case of `match`
- * follows the disk the way the gate's resolver does it.
+ * follows the disk the way the gate's resolver does it. On Windows `match` and the root are
+ * compared with either separator and without regard to letter case.
  */
-export async function gateKey(config: GateConfig | null, root: string): Promise<string | null> {
+export async function gateKey(config: GateConfig | null, root: string, platform: NodeJS.Platform = process.platform): Promise<string | null> {
   if (config === null) return null
-  const target = await onDisk(root)
+  const target = comparable(await onDisk(root), platform)
   let best: { key: string; length: number } | null = null
   for (const repo of config.repos) {
     const native = await onDisk(repo.match)
-    const match = native.toLowerCase() === repo.match.toLowerCase() ? native : repo.match
+    const match = comparable(native.toLowerCase() === repo.match.toLowerCase() ? native : repo.match, platform)
     if (target !== match && !target.startsWith(`${match}/`)) continue
     if (best === null || match.length > best.length) best = { key: repo.key, length: match.length }
   }
@@ -104,7 +130,7 @@ async function listState(gateDir: string): Promise<Set<string>> {
 
 // ── the verdict file ─────────────────────────────────────────────────────────
 
-/** `verdict-<tag>.json` as gate.sh writes it (harness/hooks/gate.sh, the header). */
+/** `verdict-<tag>.json` as the Gate writes it (harness/hooks/gate.mjs, the header). */
 const verdictFileSchema = z
   .object({
     version: z.literal(1),
@@ -129,9 +155,11 @@ export const verdictFileName = (tag: string): string => `verdict-${tag}.json`
  * taken, and null when there is no file. Two worktrees whose tags (8 hex digits) collide share a
  * file name; the `worktree` inside it tells them apart. When both the file and `head` (the
  * worktree's HEAD now) name a commit and they differ, the file is about an earlier checkout — a
- * worktree removed and created again at the same path — and is not taken either.
+ * worktree removed and created again at the same path — and is not taken either. On Windows the
+ * Gate writes `worktree` as git prints it (`C:/…`) and `worktree` here comes from realpath
+ * (`C:\…`): the two are compared with either separator and without regard to letter case.
  */
-export async function readVerdictFile(file: string, worktree: string, head?: string | null): Promise<{ verdict: GateVerdictFile } | { problem: string } | null> {
+export async function readVerdictFile(file: string, worktree: string, head?: string | null, platform: NodeJS.Platform = process.platform): Promise<{ verdict: GateVerdictFile } | { problem: string } | null> {
   let text: string
   try {
     text = await readFile(file, 'utf8')
@@ -147,7 +175,8 @@ export async function readVerdictFile(file: string, worktree: string, head?: str
   const parsed = verdictFileSchema.safeParse(json)
   if (!parsed.success) return { problem: `is not the gate's verdict format: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || '(root)'} ${issue.message}`).join('; ')}` }
   const verdict = parsed.data
-  if (verdict.worktree !== worktree && (await onDisk(verdict.worktree)) !== worktree) return { problem: `is about another worktree: ${verdict.worktree}` }
+  const here = comparable(worktree, platform)
+  if (comparable(verdict.worktree, platform) !== here && comparable(await onDisk(verdict.worktree), platform) !== here) return { problem: `is about another worktree: ${verdict.worktree}` }
   if (verdict.head !== null && head && verdict.head !== head) return { problem: `is about commit ${verdict.head}, the worktree is at ${head}` }
   return { verdict }
 }
@@ -177,13 +206,34 @@ function toolResultText(content: unknown): string[] {
   return content.filter(isRecord).flatMap((block) => (block.type === 'text' && typeof block.text === 'string' ? [block.text] : []))
 }
 
-/** `gate.sh` as a word of a command: `~/.claude/hooks/gate.sh fast`, not `gate-unregistered.test.sh`. */
-const GATE_SH = /(?:^|[\s;&|(/'"`])gate\.sh(?=$|[\s;&|)<>'"`])/gu
+/**
+ * The Gate's script as a word of a command: `node "C:\Users\x\plugin\hooks\gate.mjs" fast`, or
+ * `~/.claude/hooks/gate.sh fast` of a Harness older than worfy-windows ticket 03 and of old
+ * transcripts; not `gate-unregistered.test.sh` or `gate-resolve.mjs`.
+ */
+const GATE_SCRIPT = /(?:^|[\s;&|(/\\'"`])gate\.(?:mjs|sh)(?=$|[\s;&|)<>'"`])/gu
+/** The names GATE_SCRIPT looks for: a transcript line with neither has no Gate call. */
+const GATE_SCRIPT_NAMES = ['gate.mjs', 'gate.sh']
 /** A `cd` or `pushd` at the start of a shell command, with its argument if it has one. */
 const CD = /(?:^|[;&|({\n'"]|\b(?:then|do|else))\s*(?:cd|pushd)(?:[ \t]+("[^"]*"|'[^']*'|[^\s;&|)]+))?(?=$|[\s;&|)])/gu
+/** `/c` or `/c/Users/x`: how Git Bash spells `C:\` and `C:\Users\x`. */
+const GIT_BASH_DRIVE = /^\/([A-Za-z])(?=\/|$)/u
+
+/**
+ * Where `cd <path>` from `from` leads on Windows. Absolute are `C:\…`, `C:/…`, UNC and Git Bash's
+ * `/c/…`. Null for `/tmp/x` (under Git Bash's own root), `\x` (the root of the shell's drive) and
+ * `C:x` (that drive's current folder): only the shell that ran the command can place them.
+ */
+function cdTargetWindows(from: string, path: string): string | null {
+  const drive = GIT_BASH_DRIVE.exec(path)
+  const target = drive ? `${drive[1]!.toUpperCase()}:${path.slice(2) || '/'}` : path
+  if (isWindowsAbsolutePath(target)) return win32.resolve(target)
+  if (/^(?:[\\/]|[A-Za-z]:)/u.test(target)) return null
+  return isWindowsAbsolutePath(from) ? win32.resolve(from, target) : null
+}
 
 /** Where `cd <arg>` from `from` leads; null when the shell would have to expand something to tell. */
-function cdTarget(from: string, arg: string | undefined): string | null {
+function cdTarget(from: string, arg: string | undefined, platform: NodeJS.Platform): string | null {
   if (arg === undefined) return homedir()
   let path: string
   if (arg.startsWith("'") && arg.endsWith("'") && arg.length >= 2) path = arg.slice(1, -1)
@@ -194,26 +244,27 @@ function cdTarget(from: string, arg: string | undefined): string | null {
     if (/[$`*?~]/u.test(path)) return null
   }
   if (path === '-' || path === '') return null
-  if (path.startsWith('/')) return resolve(path)
-  return from === '' ? null : resolve(from, path)
+  if (platform === 'win32') return cdTargetWindows(from, path)
+  if (path.startsWith('/')) return posix.resolve(path)
+  return from === '' ? null : posix.resolve(from, path)
 }
 
 /**
- * Where a Bash command ran gate.sh: undefined when it does not run gate.sh at all; else the folder
- * of the last `cd` before the last gate.sh (relative to `cwd`, the Session's folder at that
- * moment), `cwd` when there is no `cd`, '' when the record names no folder and the command has no
- * `cd` (then it is the Session's own), and null when the folder cannot be told without running a
- * shell (`cd "$W"`, `popd`, a relative `cd` with no `cwd`).
+ * Where a Bash command ran the Gate (gate.mjs, or the old gate.sh): undefined when it does not run
+ * it at all; else the folder of the last `cd` before the last Gate call (relative to `cwd`, the
+ * Session's folder at that moment), `cwd` when there is no `cd`, '' when the record names no folder
+ * and the command has no `cd` (then it is the Session's own), and null when the folder cannot be
+ * told without running a shell (`cd "$W"`, `popd`, a relative `cd` with no `cwd`).
  */
-export function gateRunDir(command: string, cwd: string | null): string | null | undefined {
+export function gateRunDir(command: string, cwd: string | null, platform: NodeJS.Platform = process.platform): string | null | undefined {
   let end = -1
-  for (const match of command.matchAll(GATE_SH)) end = match.index + match[0].length
+  for (const match of command.matchAll(GATE_SCRIPT)) end = match.index + match[0].length
   if (end < 0) return undefined
   const before = command.slice(0, end)
   if (/(?:^|[\s;&|(])popd\b/u.test(before)) return null
   let dir: string | null = cwd ?? ''
   for (const match of before.matchAll(CD)) {
-    dir = cdTarget(dir, match[1])
+    dir = cdTarget(dir, match[1], platform)
     if (dir === null) return null
   }
   return dir
@@ -226,22 +277,26 @@ export interface GateOutput {
   dir: string | null
 }
 
-const recordCwd = (record: Record<string, unknown>): string | null => (typeof record.cwd === 'string' && record.cwd.startsWith('/') ? record.cwd : null)
+/** The `cwd` of a transcript record when it is an absolute path: `/…`, and on Windows also `C:\…`, `C:/…` or UNC. */
+function recordCwd(record: Record<string, unknown>, platform: NodeJS.Platform): string | null {
+  if (typeof record.cwd !== 'string') return null
+  return record.cwd.startsWith('/') || (platform === 'win32' && isWindowsAbsolutePath(record.cwd)) ? record.cwd : null
+}
 
 /**
- * The gate output in one transcript record: the result of a Bash call that ran gate.sh, and hook
- * output. `gateCalls` maps the ids of tool calls that ran gate.sh to their folder; this record's
+ * The gate output in one transcript record: the result of a Bash call that ran the Gate, and hook
+ * output. `gateCalls` maps the ids of tool calls that ran the Gate to their folder; this record's
  * tool calls are added to it and its results taken out. The result of any other tool call does not
  * count, though it may print gate lines (the gate's own tests, `tail` of an old log), and neither
  * do prompts, briefs, task notifications and the model's own text: they quote gate lines without
  * having run the gate.
  */
-export function gateOutputs(record: unknown, gateCalls: Map<string, string | null>): GateOutput[] {
+export function gateOutputs(record: unknown, gateCalls: Map<string, string | null>, platform: NodeJS.Platform = process.platform): GateOutput[] {
   if (!isRecord(record)) return []
   if (record.type === 'assistant' && isRecord(record.message) && Array.isArray(record.message.content)) {
     for (const block of record.message.content.filter(isRecord)) {
       if (block.type !== 'tool_use' || typeof block.id !== 'string' || !isRecord(block.input) || typeof block.input.command !== 'string') continue
-      const dir = gateRunDir(block.input.command, recordCwd(record))
+      const dir = gateRunDir(block.input.command, recordCwd(record, platform), platform)
       if (dir !== undefined) gateCalls.set(block.id, dir)
     }
     return []
@@ -256,7 +311,7 @@ export function gateOutputs(record: unknown, gateCalls: Map<string, string | nul
     }
     return outputs
   }
-  const dir = recordCwd(record) ?? ''
+  const dir = recordCwd(record, platform) ?? ''
   if (record.type === 'attachment' && isRecord(record.attachment) && typeof record.attachment.type === 'string' && record.attachment.type.startsWith('hook_')) {
     const { content, stdout, stderr } = record.attachment
     return [content, stdout, stderr].filter((value): value is string => typeof value === 'string').map((text) => ({ text, dir }))
@@ -276,7 +331,7 @@ interface GateSighting {
 
 interface FileScan {
   cursor: TailCursor | undefined
-  /** Tool calls that ran gate.sh and have no result yet, by id, with their folder. */
+  /** Tool calls that ran the Gate and have no result yet, by id, with their folder. */
   gateCalls: Map<string, string | null>
   /** The last gate verdict per folder it is about ('' — the Session's own); `seq` orders them within the file. */
   last: Map<string, GateSighting & { seq: number }>
@@ -289,26 +344,31 @@ export interface GatePlace {
   worktrees: readonly string[]
 }
 
-const inside = (path: string, folder: string): boolean => path === folder || path.startsWith(folder.endsWith('/') ? folder : `${folder}/`)
-
-/** Whether a gate run in `dir` was about the worktree `place.here`: it is the deepest worktree holding `dir`. */
-async function isAbout(dir: string, place: GatePlace): Promise<boolean> {
+/**
+ * Whether a gate run in `dir` was about the worktree `place.here`: it is the deepest worktree
+ * holding `dir`. On Windows `dir` may come from a command in any spelling (`C:/…`, other letter
+ * case) while the worktrees are as realpath gives them.
+ */
+async function isAbout(dir: string, place: GatePlace, platform: NodeJS.Platform): Promise<boolean> {
   if (dir === '') return true
-  const real = await onDisk(dir)
+  const real = comparable(await onDisk(dir), platform)
   let owner: string | null = null
-  for (const worktree of place.worktrees) {
+  for (const worktree of place.worktrees.map((each) => comparable(each, platform))) {
     if (inside(real, worktree) && (owner === null || worktree.length > owner.length)) owner = worktree
   }
-  return owner === place.here
+  return owner === comparable(place.here, platform)
 }
 
 /**
  * Finds the last gate verdict about a worktree in the transcripts of a folder under
  * <home>/projects/, reading each file only past what it read before: transcripts are append-only
- * and can be large. A truncated or replaced file is read again from the start.
+ * and can be large. A truncated or replaced file is read again from the start. `platform` says by
+ * which rules the paths in the transcripts are read; the machine's own by default.
  */
 export class TranscriptGateScanner {
   private readonly files = new Map<string, FileScan>()
+
+  constructor(private readonly platform: NodeJS.Platform = process.platform) {}
 
   async lastIn(folder: string, place: GatePlace): Promise<GateSighting | null> {
     let names: string[]
@@ -321,7 +381,7 @@ export class TranscriptGateScanner {
     for (const name of names) {
       let latest: (GateSighting & { seq: number }) | null = null
       for (const [dir, sighting] of await this.scanFile(join(folder, name))) {
-        if ((latest === null || sighting.seq > latest.seq) && (await isAbout(dir, place))) latest = sighting
+        if ((latest === null || sighting.seq > latest.seq) && (await isAbout(dir, place, this.platform))) latest = sighting
       }
       if (latest !== null && (best === null || latest.at >= best.at)) best = { outcome: latest.outcome, at: latest.at }
     }
@@ -342,14 +402,14 @@ export class TranscriptGateScanner {
         scan.last.clear()
       }
       for (const line of chunk.lines) {
-        if (!line.includes('[gate]') && !line.includes('gate.sh')) continue
+        if (!line.includes('[gate]') && !GATE_SCRIPT_NAMES.some((name) => line.includes(name))) continue
         let record: unknown
         try {
           record = JSON.parse(line)
         } catch {
           continue
         }
-        for (const { text, dir } of gateOutputs(record, scan.gateCalls)) {
+        for (const { text, dir } of gateOutputs(record, scan.gateCalls, this.platform)) {
           const outcome = lastGateOutcome(text)
           if (outcome === null || dir === null) continue
           const at = isRecord(record) && typeof record.timestamp === 'string' ? record.timestamp : ''

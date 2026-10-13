@@ -4,14 +4,12 @@
 // written anywhere (ADR-0002, ADR-0005). The main process side is src/main/gate/state.ts,
 // src/main/github/prs.ts and src/main/ipc/checks.ts.
 import { z } from 'zod'
+import { absolutePathSchema } from '../paths'
 import { parseTicketBranch, parseWorktreeFolder } from '../workflow/ticket-ref'
 import { invokeChannel } from './channels'
 
-/** An absolute POSIX path; the main process resolves it again before use. */
-const absolutePath = z
-  .string()
-  .min(1)
-  .refine((path) => path.startsWith('/') && !path.includes('\0'), 'must be an absolute path')
+/** An absolute path, POSIX or Windows (`C:\…`, `C:/…`, `\\server\share\…`); the main process resolves it again before use. */
+const absolutePath = absolutePathSchema
 
 /**
  * A branch name `checks.get` takes: at most 200 characters, no whitespace or control characters,
@@ -39,7 +37,7 @@ export type GateOutcome = z.infer<typeof gateOutcomeSchema>
 export const gateStateSchema = z.object({
   outcome: gateOutcomeSchema,
   /**
-   * Where it came from: a marker file of gate.sh, its verdict file (`verdict-<tag>.json`, ticket
+   * Where it came from: a marker file of the Gate, its verdict file (`verdict-<tag>.json`, ticket
    * worfy-harness/09), the last `[gate]` line of a transcript, or nothing.
    */
   source: z.enum(['marker', 'file', 'transcript', 'none']),
