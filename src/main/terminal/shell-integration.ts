@@ -113,11 +113,34 @@ async function ownFolder(dir: string): Promise<boolean> {
   }
 }
 
+/** How often and how long apart a rename is tried on Windows when the file it replaces is busy. */
+export const RENAME_TRIES = 10
+export const RENAME_RETRY_MS = 20
+/** What Windows answers while another process — an antivirus, the indexer, a second writer — holds the file for a moment. */
+const RENAME_BUSY = ['EPERM', 'EACCES', 'EBUSY']
+
+/**
+ * Moves a file over another. On Windows the move is refused while anything has the replaced file
+ * open, which passes in a moment; it is tried again a few times there. Elsewhere it is one call.
+ */
+async function renameOver(from: string, to: string): Promise<void> {
+  for (let left = RENAME_TRIES; ; left--) {
+    try {
+      await rename(from, to)
+      return
+    } catch (error) {
+      const busy = RENAME_BUSY.includes((error as NodeJS.ErrnoException).code ?? '')
+      if (process.platform !== 'win32' || !busy || left <= 1) throw error
+      await new Promise((resolve) => setTimeout(resolve, RENAME_RETRY_MS))
+    }
+  }
+}
+
 async function writeAtomically(path: string, text: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })
   const temporary = `${path}.${randomBytes(6).toString('hex')}.tmp`
   await writeFile(temporary, text, { mode: 0o600 })
-  await rename(temporary, path)
+  await renameOver(temporary, path)
 }
 
 export interface ShellIntegrationOptions {

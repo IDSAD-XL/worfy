@@ -58,8 +58,10 @@ describe('ShellIntegration.disposeSync and a link in the folder', () => {
 
     const first = await integration.prepare()
     const second = await integration.prepare()
-    const [third, fourth] = await Promise.all([integration.prepare(), integration.prepare()])
-    expect([second, third, fourth]).toEqual([first, first, first])
+    // Terminals that start at the same moment: one folder, and no call fails. On Windows two
+    // writers of one file refuse each other (EPERM at the rename), so the calls share one writing.
+    const together = await Promise.all(Array.from({ length: 12 }, () => integration.prepare()))
+    expect([second, ...together]).toEqual(Array.from({ length: 13 }, () => first))
     expect(made()).toEqual([basename(first)])
 
     integration.disposeSync()
