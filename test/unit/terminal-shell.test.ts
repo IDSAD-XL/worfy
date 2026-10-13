@@ -4,11 +4,12 @@
 // Elsewhere it is `$SHELL -l`, ended by SIGHUP, as before. The system, the Path, the function that
 // ends the processes under the shell and the program that function runs are passed in or replaced,
 // so the Windows branch runs on any machine.
-import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTestTree } from '../remove'
+import { fakePty, OPEN, SINK, WIN_ENV, WINDOWS_POWERSHELL, winEnv } from './terminal-fake-pty'
 
 /**
  * The disk the search of a shell sees. `links` are app execution aliases and links: stat of one
@@ -42,10 +43,8 @@ vi.mock('node:child_process', async (original) => ({ ...(await original<typeof i
 const { DESCENDANTS_TIMEOUT_MS, descendantsScript, endDescendants, KILL_GRACE_MS, SHELL_START_SLACK_MS, terminalEnv, terminalShell, terminalShellOptions, TerminalRegistry, WINDOWS_CLOSE_BOUND_MS } =
   await import('../../src/main/terminal/pty')
 const { projectSettingsSchema, savedProjectSettingsSchema } = await import('../../src/shared/projects/action-templates')
-const { readProjectSettings, settingsPath } = await import('../../src/main/projects/settings')
-type PtyProcess = import('../../src/main/terminal/pty').PtyProcess
+const { readProjectSettings, settingsPath, writeProjectSettings } = await import('../../src/main/projects/settings')
 type SpawnPty = import('../../src/main/terminal/pty').SpawnPty
-type TerminalSink = import('../../src/main/terminal/pty').TerminalSink
 
 afterEach(() => {
   disk.files.clear()
@@ -57,16 +56,9 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-const WINDOWS_POWERSHELL = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
 const ALIAS = 'C:\\Users\\dev\\AppData\\Local\\Microsoft\\WindowsApps\\pwsh.exe'
 const ALIAS_TARGET = 'C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe'
 const GIT_BASH = 'C:\\Program Files\\Git\\bin\\bash.exe'
-const WIN_ENV = {
-  Path: 'C:\\Tools;C:\\Program Files\\Git\\cmd;C:\\Users\\dev\\AppData\\Local\\Microsoft\\WindowsApps',
-  SystemRoot: 'C:\\Windows',
-  ProgramFiles: 'C:\\Program Files',
-  LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local',
-}
 const win = (setting?: 'powershell' | 'git-bash', env: Record<string, string> = WIN_ENV) => terminalShell(env, setting, { platform: 'win32' })
 /** pwsh installed from MSIX: the alias in WindowsApps and the program it starts. */
 const installAlias = () => {
@@ -220,58 +212,24 @@ describe('the setting terminalShell of a Project', () => {
       removeTestTree(dir)
     }
   })
+
+  // Review of PR #239: what is read forgives such a shell, what is saved does not.
+  it('saving settings that name a shell this version does not know is refused and writes nothing; a known one is saved', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'worfy-settings-shell-'))
+    const own = { shipTicket: 'my own {epic} {NN}', runWave: 'my wave' }
+    try {
+      for (const terminalShell of ['wsl', 'cmd', '', 3, null]) {
+        expect(() => writeProjectSettings(dir, { actionTemplates: own, terminalShell: terminalShell as never }, 'none'), String(terminalShell)).toThrow()
+      }
+      expect(readdirSync(dir)).toEqual([])
+      expect(writeProjectSettings(dir, { actionTemplates: own, terminalShell: 'git-bash' }, 'none')).toEqual({ actionTemplates: own, terminalShell: 'git-bash' })
+      expect(JSON.parse(readFileSync(settingsPath(dir), 'utf8'))).toEqual({ actionTemplates: own, terminalShell: 'git-bash' })
+    } finally {
+      removeTestTree(dir)
+    }
+  })
 })
 
-interface FakeOptions {
-  /** Without node-pty's private agent and its helper process: not a pty of node-pty as 1.1.0 builds it. */
-  plain?: boolean
-  /** kill() does not end it: node-pty reports no exit. */
-  deaf?: boolean
-}
-
-/**
- * A pty that only records. Its pid is one no system gives out: a registry that took the wrong way
- * to close it would signal nobody. `kill` ends it, as node-pty's does, unless it is `deaf`.
- */
-function fakePty(pid: number, options: FakeOptions = {}) {
-  const kills: (string | undefined)[] = []
-  /** What node-pty's helper would answer at each kill(): 'ran' when it is still node-pty's own. */
-  const helper: unknown[] = []
-  let onExit: (event: { exitCode: number; signal?: number }) => void = () => undefined
-  let onData: (data: string) => void = () => undefined
-  const agent: { _getConsoleProcessList: unknown } = { _getConsoleProcessList: (): Promise<unknown> => Promise.resolve('ran') }
-  const pty: PtyProcess = {
-    pid,
-    onData: (listener) => {
-      onData = listener
-    },
-    onExit: (listener) => {
-      onExit = listener
-    },
-    write: () => undefined,
-    resize: () => undefined,
-    kill: (signal) => {
-      kills.push(signal)
-      if (!options.plain && typeof agent._getConsoleProcessList === 'function') helper.push((agent._getConsoleProcessList as () => unknown)())
-      if (!options.deaf) onExit({ exitCode: 0 })
-    },
-    ...(options.plain ? {} : { _agent: agent }),
-  }
-  return {
-    pty,
-    kills,
-    helper,
-    agent,
-    exit: (exitCode = 0) => onExit({ exitCode }),
-    /** The exit event as node-pty sends it on Windows when its output closes before the exit code is known. */
-    exitWithoutCode: () => onExit({} as { exitCode: number }),
-    print: (data: string) => onData(data),
-  }
-}
-
-const SINK: TerminalSink = { output: () => undefined, exit: () => undefined, started: () => undefined }
-const OPEN = { cwd: 'C:\\p\\repo', cols: 80, rows: 24 }
-const winEnv = () => Promise.resolve({ ...WIN_ENV })
 /** A promise and the function that settles it. */
 function deferred(): { promise: Promise<void>; resolve: () => void; reject: (error: Error) => void } {
   let resolve: () => void = () => undefined
@@ -570,9 +528,76 @@ describe('TerminalRegistry: closing a Terminal on Windows', () => {
     expect([plain.kills, odd.kills]).toEqual([[undefined], [undefined]])
     expect(odd.agent._getConsoleProcessList).toBe('not a function')
     expect(warn.mock.calls.map(([line]) => line)).toEqual([
-      '[terminal] the pty of the shell 999994264 has no _getConsoleProcessList to take out of kill(): its helper process may end that pid 5 s from now (withoutConsoleHelper)',
-      '[terminal] the pty of the shell 999994265 has no _getConsoleProcessList to take out of kill(): its helper process may end that pid 5 s from now (withoutConsoleHelper)',
+      '[terminal] the pty of the shell 999994264 has no _getConsoleProcessList to take out of kill(): on the console of the system its helper process may end that pid 5 s from now (withoutConsoleHelper)',
+      '[terminal] the pty of the shell 999994265 has no _getConsoleProcessList to take out of kill(): on the console of the system its helper process may end that pid 5 s from now (withoutConsoleHelper)',
     ])
+  })
+
+  // worfy-windows ticket 22: with the console of the node-pty package kill() leaves that thread running.
+  it('stops the thread of node-pty that reads the output, once, after kill(): for a closed Terminal and for a shell that exited on its own', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const closed = fakePty(999_994_271)
+    const exited = fakePty(999_994_272, { deaf: true })
+    const ptys = [closed.pty, exited.pty]
+    const registry = new TerminalRegistry({ env: winEnv, spawn: () => ptys.shift()!, platform: 'win32', endDescendants: () => undefined })
+    await registry.open('a', OPEN, {}, SINK)
+    await registry.open('b', OPEN, {}, SINK)
+    expect([closed.stops, exited.stops]).toEqual([[], []])
+    await registry.close('a')
+    exited.exit(3)
+    // Asked when kill() had been called once: after it, not before.
+    expect([closed.stops, exited.stops]).toEqual([[1], [1]])
+    await registry.closeAll()
+    expect([closed.stops, exited.stops]).toEqual([[1], [1]])
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('a pty of node-pty without that thread to stop is closed all the same, with a line that says what may stay', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const odd = fakePty(999_994_273, { noWorker: true })
+    // The name is there and has nothing to call.
+    const odder = fakePty(999_994_274)
+    odder.agent._conoutSocketWorker = { dispose: 'not a function' }
+    const ptys = [odd.pty, odder.pty]
+    const registry = new TerminalRegistry({ env: winEnv, spawn: () => ptys.shift()!, platform: 'win32', endDescendants: () => undefined })
+    await registry.open('a', OPEN, {}, SINK)
+    await registry.open('b', OPEN, {}, SINK)
+    await registry.closeAll()
+    expect([odd.kills, odder.kills]).toEqual([[undefined], [undefined]])
+    expect(warn.mock.calls.map(([line]) => line)).toEqual([
+      '[terminal] the pty of the shell 999994273 has no _conoutSocketWorker to stop: its thread may stay until worfy quits (stopOutputWorker)',
+      '[terminal] the pty of the shell 999994274 has no _conoutSocketWorker to stop: its thread may stay until worfy quits (stopOutputWorker)',
+    ])
+  })
+
+  it('a thread that cannot be stopped does not stop the close, and is logged with the pid', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const broken = fakePty(999_994_275)
+    broken.agent._conoutSocketWorker = {
+      dispose: () => {
+        throw new Error('the worker is gone')
+      },
+    }
+    const registry = new TerminalRegistry({ env: winEnv, spawn: () => broken.pty, platform: 'win32', endDescendants: () => undefined })
+    await registry.open('a', OPEN, {}, SINK)
+    await registry.close('a')
+    expect(registry.size).toBe(0)
+    expect(warn).toHaveBeenCalledWith('[terminal] stopping the output thread of the shell 999994275 failed', expect.any(Error))
+  })
+
+  // Review of PR #239: the Terminal is closing, and its shell has not exited yet.
+  it('what a shell prints between the close and its exit still reaches the screens; what comes after the exit does not', async () => {
+    const fake = fakePty(999_994_276, { deaf: true })
+    const output: string[] = []
+    const registry = new TerminalRegistry({ env: winEnv, spawn: () => fake.pty, platform: 'win32', endDescendants: () => undefined })
+    await registry.open('a', OPEN, {}, { ...SINK, output: (data) => output.push(data) })
+    const closing = registry.close('a')
+    await Promise.resolve()
+    fake.print('the last words')
+    fake.exit(0)
+    fake.print('after the exit')
+    await closing
+    expect(output).toEqual(['the last words'])
   })
 
   it('an exit that comes without a code, as after kill() on Windows, is told to the screens as 1', async () => {
@@ -591,7 +616,7 @@ describe('TerminalRegistry: closing a Terminal on Windows', () => {
     expect({ DESCENDANTS_TIMEOUT_MS, WINDOWS_CLOSE_BOUND_MS, SHELL_START_SLACK_MS }).toEqual({ DESCENDANTS_TIMEOUT_MS: 3000, WINDOWS_CLOSE_BOUND_MS: 5000, SHELL_START_SLACK_MS: 100 })
   })
 
-  it('a shell that exited on its own gets kill() once — node-pty stops its worker thread only there — and only without the helper', async () => {
+  it('a shell that exited on its own gets kill() once, to take its pty apart, and only when the helper could be taken out', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const withAgent = fakePty(999_994_251, { deaf: true })
     const plain = fakePty(999_994_252, { plain: true, deaf: true })
@@ -605,7 +630,7 @@ describe('TerminalRegistry: closing a Terminal on Windows', () => {
     expect(await Promise.all(withAgent.helper)).toEqual([[]])
     // Not node-pty as 1.1.0 builds it: its kill() might end the pid of the shell that is gone.
     expect(plain.kills).toEqual([])
-    expect(warn.mock.calls).toEqual([['[terminal] the pty of the shell 999994252 has no _getConsoleProcessList to take out of kill(): kill() is not called, and its worker thread stays (withoutConsoleHelper)']])
+    expect(warn.mock.calls).toEqual([['[terminal] the pty of the shell 999994252 has no _getConsoleProcessList to take out of kill(): kill() is not called, and the thread that reads its output stays (withoutConsoleHelper)']])
     expect([registry.hasExited('a'), registry.hasExited('b')]).toEqual([true, true])
     // Closing the Node of an exited shell asks nothing more.
     await registry.closeAll()
