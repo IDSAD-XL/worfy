@@ -6,7 +6,7 @@
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 19; 19 (старая неудача в окне First run, low) открыт. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`; работа — только в локальной ветке `wip/worfy-week-14` («Итог» Ticket-а 14).
 - Stable copy и plugin `worfy` — сборка `4d3d60c` (2026-10-10). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/19; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16; 17 и 18 — до связи с чужой машиной.
-- `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057, 0062, 0063): влиты 01, 02, 08–12, 18–28, 35 (PR #172–#287; ответы — #192); на ПК в работе 03 (Gate на Node). Владелец, 2026-10-13: 03–07 не ждут закрытия E3; `gate.sh` пока остаётся в две строки (Ticket 46); очередь ПК — в «Дальше».
+- `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057, 0062, 0063): влиты 01, 02, 08–12, 18–28, 35, 44 (PR #172–#293; ответы — #192); на ПК в работе 03 (Gate на Node). Владелец, 2026-10-13: 03–07 не ждут закрытия E3; `gate.sh` пока остаётся в 2 строки (Ticket 46); очередь ПК — в «Дальше».
 - `worfy-terminal-ai` (Terminal AI в Terminal-ах на подписке; [spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) 01, 02 влиты (PR #204, #205); следом 03. 08 ждёт `worfy-ui` 02 и 08 (окно Settings, Select), 09 — шаги владельца (`blocked`).
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–04 и 07–09 (PR #289–#291); 06 — `blocked`, PR #292 открыт; готовы 05 и 10; 13 — после 10; 12 — приёмка.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 5/8: влиты 01, 03, 05 (Wave 1), 02 и 06 (PR #231, #232) — Wave 2. Следом 04 и 07; 08 (глубина ревью) ждёт ответов владельца.
@@ -31,7 +31,7 @@
 ## Риски и долги
 
 - Gate full красный 2026-10-12 23:04 – 10-13 01:02 — `fseventsd` (102–116 % CPU, 4,2 ГБ, 32 дня); лечит `sudo killall fseventsd` (kickstart запрещён SIP) и перезапуск приложений с наблюдателями; признак — `docs.test.ts`, `claude-home-registry.test.ts` красные и на main; замеры — `worfy-windows` 26.
-- Trash на macOS при первом запуске после трёх дней стирает файлы тома, примонтированного в папку Card-а или внутрь неё (том ставится руками): замер двух его вызовов 2026-10-13, `worfy-windows` 44. На Windows junction по GUID закрыт PR #287; `mountvol` не измерен (45).
+- Удаление вне Windows больше не стирает том, примонтированный в папку Card-а: отказ с `EXDEV` (PR #293). Не видна точка монтирования с `dev` её папки (Ticket 47). На Windows junction по GUID закрыт PR #287; `mountvol` не измерен (45).
 - Каждый мерж, который трогает `harness/`, кончается `pnpm install:stable` вне прогона Autopilot (ADR-0047): без пересборки Stable copy влитый урок не действует.
 - Atakama пойдёт через полный предполёт Harness с `git fetch`. На живых репозиториях Atakama это не проверено, только на клонах (`worfy-harness` 11).
 - [med] С plugin-ом оживают долги про `gh`: Stop hook зовёт `gh` по имени, и `bin/gh` plugin-а подменит учётную запись (`worfy-harness` 01); `preflight` советует `gh auth switch` вместо `GH_TOKEN` (`worfy-week` 01).
@@ -48,7 +48,7 @@
 ## Дальше
 
 - `worfy-harness` 28 (git и `HARNESS_HOME` в прогонах eval) открывает платную часть 27; 29 — карта «кейс eval → файлы правил» и правило частоты eval.
-- `worfy-windows`, очередь ПК (владелец, 2026-10-13): 03 → 14 (прогон test-ов на Windows) → 05 → 04 → 13 → 30 → 06, 07 → 15; затем остатки 29, 32, 33, 36, 42, 43, 45 и 31, 34, 37, 40, 41; 38, 39, 44 — Mac; 46 — после E3.
+- `worfy-windows`, очередь ПК (владелец, 2026-10-13): 03 → 14 (прогон test-ов на Windows) → 05 → 04 → 13 → 30 → 06, 07 → 15; затем остатки 29, 32, 33, 36, 42, 43, 45 и 31, 34, 37, 40, 41; 38, 39, 47 — Mac; 46 — после E3.
 - Приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot.
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21, 24, 25 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
 - Ждут условия (проверит агент): упор в Limits (`worfy-daily` 05), наблюдатель касаний (`worfy-daily` 04), workflow-скрипт в Autopilot (`worfy-daily` 29, 17), бейджи у Ticket-а с открытым PR (`worfy-mvp` 17, `worfy-week` 01).
