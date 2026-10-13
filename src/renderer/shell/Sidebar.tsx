@@ -2,7 +2,9 @@ import { collectExtensions, type ShellExtension } from './registry'
 
 // Each sidebar section is its own file, src/renderer/shell/sidebar/<Name>Section.tsx, with a
 // default-exported component and `export const order = <number>`. This file never changes when a
-// section is added.
+// section is added. A section draws itself in the frame of SidebarSection.tsx; the wrapper around
+// it here only carries its id and makes no box (sidebar-section.css), so the frames are the items
+// that share the height of the column.
 const sections = collectExtensions(import.meta.glob('./sidebar/*Section.tsx', { eager: true }))
 
 export interface SidebarViewProps {

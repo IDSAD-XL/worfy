@@ -11,14 +11,13 @@ import { acceptMachineProjects, openProject, useProjectGroups, useProjects, type
 import { ListRow, StatusChip } from '../../theme/primitives'
 import { openFirstRun } from '../first-run-store'
 import { ProjectSettings } from '../ProjectSettings'
+import { SidebarSection } from '../SidebarSection'
 import { MachineName } from './MachinesSection'
 
 /** First section of the sidebar (design F). */
 export const order = 10
 
 const styles = {
-  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 24, padding: '0 4px 0 8px' },
-  heading: { margin: 0, fontSize: 'var(--text-11)', lineHeight: '14px', fontWeight: 600, color: 'var(--text-muted)' },
   iconButton: {
     width: 22,
     height: 22,
@@ -402,28 +401,90 @@ export default function ProjectsSection() {
   )
 
   return (
-    <section aria-labelledby="sidebar-projects-heading">
-      <div style={styles.header}>
-        <h2 id="sidebar-projects-heading" style={styles.heading}>
-          Projects
-        </h2>
+    <SidebarSection
+      id="ProjectsSection"
+      title="Projects"
+      trailing={
         <button type="button" aria-label="Add project" title="Add project" style={styles.iconButton} onClick={() => void addProject()}>
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
             <path d="M8 3v10M3 8h10" />
           </svg>
         </button>
-      </div>
+      }
+      notice={
+        message ? (
+          <p
+            role={message.kind === 'error' ? 'alert' : 'status'}
+            data-testid={`projects-${message.kind}`}
+            style={{ ...styles.message, color: message.kind === 'error' ? 'var(--blocked-text)' : 'var(--text-secondary)' }}
+          >
+            {message.text}
+          </p>
+        ) : null
+      }
+      overlay={
+        <>
+          {menu ? (
+            <ProjectMenu
+              x={menu.x}
+              y={menu.y}
+              onClose={() => setMenu(undefined)}
+              onSettings={() => {
+                setSettingsFor({ machine: menu.machine, project: menu.project })
+                setMenu(undefined)
+              }}
+              onRemove={() => {
+                setMenu(undefined)
+                void remove(menu.machine, menu.project)
+              }}
+            />
+          ) : null}
 
-      {message ? (
-        <p
-          role={message.kind === 'error' ? 'alert' : 'status'}
-          data-testid={`projects-${message.kind}`}
-          style={{ ...styles.message, color: message.kind === 'error' ? 'var(--blocked-text)' : 'var(--text-secondary)' }}
-        >
-          {message.text}
-        </p>
-      ) : null}
+          {settingsFor ? <ProjectSettings project={settingsFor.project} machine={settingsFor.machine} onClose={() => setSettingsFor(undefined)} /> : null}
 
+          {picking?.kind === 'machine' && groups !== null ? (
+            <MachineChoice
+              options={machineOptions(groups, link)}
+              onCancel={() => setPicking(undefined)}
+              onChoose={(option) => void pickOn(option.machine, option.name)}
+            />
+          ) : null}
+
+          {picking?.kind === 'browse' ? (
+            <FolderBrowser
+              machine={picking.machine}
+              machineName={picking.name}
+              title="Add project"
+              hint="Choose the folder of a git repository, or the folder above the repositories of one project."
+              onCancel={() => setPicking(undefined)}
+              onChoose={(path) => {
+                setPicking(undefined)
+                void inspect(picking.machine, picking.name, path)
+              }}
+            />
+          ) : null}
+
+          {connecting ? (
+            <ConnectProject
+              folder={connecting.folder}
+              machine={connecting.machine}
+              machineName={connecting.machineName}
+              harnessHome={connecting.harnessHome}
+              onClose={() => setConnecting(undefined)}
+              onPickAnother={() => void pickOn(connecting.machine, connecting.machineName)}
+              onFirstRun={() => {
+                setConnecting(undefined)
+                openFirstRun()
+              }}
+              onConnected={(connected) => {
+                setConnecting(undefined)
+                void added(connecting.machine, connected.state, connected.project, connected.notice)
+              }}
+            />
+          ) : null}
+        </>
+      }
+    >
       {groups === null ? (
         <>
           {state && state.projects.length === 0 ? <p style={styles.empty}>No projects yet</p> : null}
@@ -460,65 +521,6 @@ export default function ProjectsSection() {
           </div>
         ))
       )}
-
-      {menu ? (
-        <ProjectMenu
-          x={menu.x}
-          y={menu.y}
-          onClose={() => setMenu(undefined)}
-          onSettings={() => {
-            setSettingsFor({ machine: menu.machine, project: menu.project })
-            setMenu(undefined)
-          }}
-          onRemove={() => {
-            setMenu(undefined)
-            void remove(menu.machine, menu.project)
-          }}
-        />
-      ) : null}
-
-      {settingsFor ? <ProjectSettings project={settingsFor.project} machine={settingsFor.machine} onClose={() => setSettingsFor(undefined)} /> : null}
-
-      {picking?.kind === 'machine' && groups !== null ? (
-        <MachineChoice
-          options={machineOptions(groups, link)}
-          onCancel={() => setPicking(undefined)}
-          onChoose={(option) => void pickOn(option.machine, option.name)}
-        />
-      ) : null}
-
-      {picking?.kind === 'browse' ? (
-        <FolderBrowser
-          machine={picking.machine}
-          machineName={picking.name}
-          title="Add project"
-          hint="Choose the folder of a git repository, or the folder above the repositories of one project."
-          onCancel={() => setPicking(undefined)}
-          onChoose={(path) => {
-            setPicking(undefined)
-            void inspect(picking.machine, picking.name, path)
-          }}
-        />
-      ) : null}
-
-      {connecting ? (
-        <ConnectProject
-          folder={connecting.folder}
-          machine={connecting.machine}
-          machineName={connecting.machineName}
-          harnessHome={connecting.harnessHome}
-          onClose={() => setConnecting(undefined)}
-          onPickAnother={() => void pickOn(connecting.machine, connecting.machineName)}
-          onFirstRun={() => {
-            setConnecting(undefined)
-            openFirstRun()
-          }}
-          onConnected={(connected) => {
-            setConnecting(undefined)
-            void added(connecting.machine, connected.state, connected.project, connected.notice)
-          }}
-        />
-      ) : null}
-    </section>
+    </SidebarSection>
   )
 }

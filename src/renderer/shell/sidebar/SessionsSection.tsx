@@ -11,6 +11,7 @@ import { HistoryPopover } from '../../session/HistoryPopover'
 import { setView } from '../../session/navigation'
 import { ensureProject, useSessionNodeViews } from '../../session/node-sessions'
 import { StatusChip } from '../../theme/primitives'
+import { SidebarSection } from '../SidebarSection'
 
 /**
  * The live Sessions of the active Project, wherever they were started (design F, sidebar «Sessions»),
@@ -22,10 +23,7 @@ import { StatusChip } from '../../theme/primitives'
 export const order = 30
 
 const styles = {
-  header: { display: 'flex', alignItems: 'center', gap: 4, height: 24, padding: '0 8px', minWidth: 0, overflow: 'hidden' },
-  heading: { margin: 0, fontSize: 'var(--text-11)', lineHeight: '14px', fontWeight: 600, color: 'var(--text-muted)' },
   count: { fontSize: 'var(--text-11)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' },
-  spacer: { flex: 1 },
   action: {
     flex: 'none',
     padding: '0 2px',
@@ -39,7 +37,6 @@ const styles = {
     whiteSpace: 'nowrap',
     cursor: 'pointer',
   },
-  anchor: { position: 'relative' },
   list: { margin: 0, padding: 0, listStyle: 'none' },
   message: { margin: '2px 8px 4px', fontSize: 'var(--text-12)', lineHeight: '16px', color: 'var(--text-muted)', overflowWrap: 'anywhere' },
   row: {
@@ -143,29 +140,41 @@ function Sessions({ project }: { project: ProjectView }) {
     )
 
   return (
-    <section aria-label="Sessions" style={styles.anchor}>
-      <div style={styles.header}>
-        <h2 style={styles.heading}>Sessions</h2>
+    <SidebarSection
+      id="SessionsSection"
+      title="Sessions"
+      meta={
         <span style={styles.count} data-testid="sidebar-sessions-live">
           {live?.length ?? 0} live
         </span>
-        <span style={styles.spacer} />
-        <button type="button" style={styles.action} data-testid="sidebar-new-session" title="A new Session in the Project's root" onClick={() => void newSession()}>
-          New session
-        </button>
-        <button type="button" style={styles.action} data-testid="sidebar-history" aria-expanded={historyOpen} onClick={() => setHistoryOpen((open) => !open)}>
-          History
-        </button>
-      </div>
-      {problem !== null ? (
-        <p style={styles.message} role="alert">
-          {problem}
-        </p>
-      ) : null}
-      {orchestratorNode ? <FollowOrchestrator nodeId={orchestratorNode.id} /> : null}
-      {historyOpen ? <HistoryPopover project={project} onClose={() => setHistoryOpen(false)} /> : null}
+      }
+      trailing={
+        <>
+          <button type="button" style={styles.action} data-testid="sidebar-new-session" title="A new Session in the Project's root" onClick={() => void newSession()}>
+            New session
+          </button>
+          <button type="button" style={styles.action} data-testid="sidebar-history" aria-expanded={historyOpen} onClick={() => setHistoryOpen((open) => !open)}>
+            History
+          </button>
+        </>
+      }
+      notice={
+        problem !== null ? (
+          <p style={styles.message} role="alert">
+            {problem}
+          </p>
+        ) : null
+      }
+      overlay={
+        <>
+          {orchestratorNode ? <FollowOrchestrator nodeId={orchestratorNode.id} /> : null}
+          {/* Placed against the section, under its header: it opens over a collapsed section too. */}
+          {historyOpen ? <HistoryPopover project={project} onClose={() => setHistoryOpen(false)} /> : null}
+        </>
+      }
+    >
       {body}
-    </section>
+    </SidebarSection>
   )
 }
 

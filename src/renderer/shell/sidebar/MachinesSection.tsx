@@ -3,6 +3,7 @@ import type { LinkedMachineView } from '../../../shared/ipc/link'
 import { LinkMachineDialog } from '../../machines/LinkMachineDialog'
 import { revokeMachine, setKeepAwake, setProjectsAccess, useMachines } from '../../machines/useMachines'
 import { ListRow, StatusChip } from '../../theme/primitives'
+import { SidebarSection } from '../SidebarSection'
 
 /** Between Projects (10) and Epics (20): the Machines the Projects will be grouped by (worfy-link ticket 09). */
 export const order = 15
@@ -11,8 +12,6 @@ const ACCESS_LABEL = 'Linked machines can work with my Projects'
 const KEEP_AWAKE_LABEL = 'Keep this computer awake while linked machines are connected'
 
 const styles = {
-  header: { display: 'flex', alignItems: 'center', height: 24, padding: '0 4px 0 8px' },
-  heading: { margin: 0, fontSize: 'var(--text-11)', lineHeight: '14px', fontWeight: 600, color: 'var(--text-muted)' },
   list: { margin: 0, padding: 0, listStyle: 'none' },
   message: { margin: '2px 8px 4px', fontSize: 'var(--text-12)', lineHeight: '16px', color: 'var(--blocked-text)', overflowWrap: 'anywhere' },
   unavailable: { border: '1px solid var(--border)', background: 'var(--surface-raised)', color: 'var(--text-muted)' },
@@ -206,19 +205,36 @@ export default function MachinesSection() {
   }
 
   return (
-    <section aria-labelledby="sidebar-machines-heading" data-testid="machines-section">
-      <div style={styles.header}>
-        <h2 id="sidebar-machines-heading" style={styles.heading}>
-          Machines
-        </h2>
-      </div>
-
-      {error ? (
-        <p role="alert" data-testid="machines-error" style={styles.message}>
-          {error}
-        </p>
-      ) : null}
-
+    <SidebarSection
+      id="MachinesSection"
+      title="Machines"
+      testId="machines-section"
+      notice={
+        error ? (
+          <p role="alert" data-testid="machines-error" style={styles.message}>
+            {error}
+          </p>
+        ) : null
+      }
+      overlay={
+        <>
+          {menu ? (
+            <MachineMenu
+              machine={menu.machine}
+              x={menu.x}
+              y={menu.y}
+              onClose={() => setMenu(undefined)}
+              onRevoke={() => {
+                const id = menu.machine.id
+                setMenu(undefined)
+                void run(revokeMachine(id))
+              }}
+            />
+          ) : null}
+          {dialogOpen ? <LinkMachineDialog onClose={() => setDialogOpen(false)} /> : null}
+        </>
+      }
+    >
       <ul style={styles.list} aria-label="Linked machines">
         {state?.linked.map((machine) => (
           <li
@@ -244,22 +260,6 @@ export default function MachinesSection() {
         <SectionSwitch label={ACCESS_LABEL} testId="link-access-switch" checked={access} disabled={noMachine} onToggle={() => void run(setProjectsAccess(!access))} />
         <SectionSwitch label={KEEP_AWAKE_LABEL} testId="link-keep-awake-switch" checked={keepAwake} disabled={noMachine} onToggle={() => void run(setKeepAwake(!keepAwake))} />
       </div>
-
-      {menu ? (
-        <MachineMenu
-          machine={menu.machine}
-          x={menu.x}
-          y={menu.y}
-          onClose={() => setMenu(undefined)}
-          onRevoke={() => {
-            const id = menu.machine.id
-            setMenu(undefined)
-            void run(revokeMachine(id))
-          }}
-        />
-      ) : null}
-
-      {dialogOpen ? <LinkMachineDialog onClose={() => setDialogOpen(false)} /> : null}
-    </section>
+    </SidebarSection>
   )
 }
