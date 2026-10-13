@@ -1,7 +1,7 @@
 # 35 — `removeTree` решает «папка или ссылка» по `lstat` Node: junction на том по GUID читается как папка
 
 Type: task
-Status: open
+Status: done — 2026-10-13, [PR #287](https://github.com/IDSAD-XL/worfy/pull/287)
 Blocked by: —
 Source: первый круг ревью PR #274 на Mac, 2026-10-13 ([комментарий в PR #274](https://github.com/IDSAD-XL/worfy/pull/274#issuecomment-6137826085), раздел «Low», пункт «Older than this PR, own tickets»); ревью PR #276 в тот же день — [Ticket 32](32-остатки-ревью-pr-276.md), «Вне скоупа»; замер в «Итоге» [Ticket-а 19](19-leadstoremote-в-docs-cards-и-workflow.md). Первый шаг — замер на Windows-ПК на пустом томе.
 
@@ -269,7 +269,7 @@ Session на Mac в тот же день измерила то же на том�
 - **Junction по GUID на том с данными владельца** не создавался ни разу: случай «свой том» измерен внутри пробного тома.
 - **Том, смонтированный обычным способом** (`mountvol`, «Управление дисками»), не проверялся: все замеры сделаны с junction из `mklink /J`. Монтирование требует повышения прав.
 - **Junction по GUID, чей том отключён,** не проверялся.
-- **Скрипты восстановления, уже записанные в папки резервных копий** на Windows между PR #257 и этим PR, несут обход main (`src/main/harness/migrate/restore.ts:405-411`): правка их не меняет.
+- **Скрипты восстановления, уже записанные в папки резервных копий** на Windows между PR #257 и этим PR, несут обход main (`writeRestoreFiles`, `src/main/harness/migrate/restore.ts:411-417`): правка их не меняет.
 - **Папки test-ов, которые держит зависший дочерний процесс,** теперь остаются вместе с содержимым: раньше обход удалял содержимое и оставлял пустую папку. Такие папки считает Ticket 14.
 - **Пробный том ещё подключён** — на случай повторного замера по замечаниям ревью.
 
@@ -339,6 +339,7 @@ Session на Mac в тот же день измерила то же на том�
 0. Перед запуском с повышением прав посмотреть, что будет выполнено. Скрипт — две команды:
    `select vdisk file="C:\Users\Alexey\AppData\Local\Temp\worfy-01\t35-vhd\worfy-scratch.vhdx"` и `detach vdisk`. Диск назван полным путём своего файла, не номером и не буквой. Какой диск за этим файлом, показывает PowerShell без повышения прав:
    `Get-Disk | Where-Object Location -like '*worfy-scratch.vhdx' | Format-List Number, Location, BusType, Size` — ожидается один диск, `BusType` «File Backed Virtual», 64 MB.
+   Сам файл скрипта печатает `Get-Content 'C:\Users\Alexey\AppData\Local\Temp\worfy-01\t35-detach-vhd.txt'` — ожидаются ровно эти две строки и ничего больше (добавлено ревью на Mac, второй круг PR #287).
 1. Отключить виртуальный диск. Нужно повышение прав, появится окно UAC:
    `powershell.exe -NoProfile -Command "Start-Process diskpart -Verb RunAs -Wait -ArgumentList '/s C:\Users\Alexey\AppData\Local\Temp\worfy-01\t35-detach-vhd.txt'"`
    Скрипт состоит из двух команд: `select vdisk file="C:\Users\Alexey\AppData\Local\Temp\worfy-01\t35-vhd\worfy-scratch.vhdx"` и `detach vdisk`.
