@@ -308,19 +308,23 @@ function patiently(step) {
 /**
  * Removes a folder of Windows with what is in it, and never what a link in it leads to: a link —
  * a symlink or a junction, at the path itself or anywhere below — is not a folder to lstat, and is
- * unlinked as the link it is. rmSync is not used there. Under Node 24 (the one Electron 44
- * carries) its `recursive` goes through a junction and empties the folder behind it, and it
- * refuses a read-only file with EPERM; under Node 22 it does neither. unlinkSync removes a
- * read-only file, a junction and a symlink under both.
+ * unlinked as the link it is. rmSync is not used there. Under the Node Electron 44 carries —
+ * the tests run this script under it — its `recursive` goes through a junction and empties the
+ * folder behind it, and it refuses a read-only file with EPERM; a Node from nodejs.org, 22.13.0
+ * or 24.21.0, does neither. unlinkSync removes a read-only file, a junction and a symlink under
+ * all three.
  */
 // A copy of removeTree of src/main/storage/remove.ts (worfy-windows ticket 23): this script is one
 // file with no import of its own. test/unit/remove-tree.test.ts runs the copies and the module
 // over the same trees.
 // <remove-tree>
-function removeTree(path) {
+function removeTree(given, patience = { waits: 5 }) {
   // Off Windows rmSync never went through a link, and nothing changes there. The walk is for
   // Windows alone, and holds for a tree nobody else changes meanwhile.
-  if (process.platform !== 'win32') return rmSync(path, { recursive: true, force: true })
+  if (process.platform !== 'win32') return rmSync(given, { recursive: true, force: true })
+  // Separators at the end go, but for the root of a disk: lstat follows a link written with one.
+  const cut = given.replace(/[\\/]+$/, '')
+  const path = cut === '' || cut.endsWith(':') ? given : cut
   const gone = (error) => Boolean(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')
   let folder
   try {
@@ -341,14 +345,16 @@ function removeTree(path) {
     let failed = null
     for (const name of names) {
       try {
-        removeTree(join(path, name))
+        removeTree(join(path, name), patience)
       } catch (error) {
         if (failed === null) failed = { error }
       }
     }
     if (failed !== null) throw failed.error
   }
-  for (let left = 5; ; left--) {
+  // The waits are those of the whole removal, five in all: a folder of entries that stay busy
+  // does not wait for each of them. The caller leaves the second argument out.
+  for (;;) {
     try {
       if (folder) rmdirSync(path)
       else unlinkSync(path)
@@ -356,7 +362,8 @@ function removeTree(path) {
     } catch (error) {
       const code = error && error.code
       if (code === 'ENOENT') return
-      if (left === 0 || !['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES'].includes(code)) throw error
+      if (patience.waits === 0 || !['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES'].includes(code)) throw error
+      patience.waits -= 1
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
     }
   }

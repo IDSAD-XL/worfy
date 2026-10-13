@@ -47,7 +47,7 @@ Source: замеры Session на Windows-ПК 2026-10-12, переданы Sess
 2. **Семь файлов из списка падений** переходят на helper: `test/contract/projects.test.ts`,
    `docs.test.ts`, `projects-connect.test.ts`, `clients.test.ts`, `shell.test.ts`,
    `harness-drift.test.ts`, `canvas-tools.test.ts`.
-3. **Остальные файлы с рекурсивным `rmSync` в `test/` — тоже все.** Под Node 24 на Windows тот же
+3. **Остальные файлы с рекурсивным `rmSync` в `test/` — тоже все.** Под Node 24 из Electron на Windows (системный Node 24.21.0 так себя не ведёт — замер в «Итог» Ticket-а 23) тот же
    вызов ещё и проходит через junction, и test-ы с junction сейчас обходят это руками (мнение
    Session на Windows-ПК, принято). Замер: число папок `worfy-*` в `%TEMP%` до и после одного
    полного `pnpm test`. Цель — 0 новых папок. Числа — в «Итог».
@@ -84,8 +84,9 @@ Source: замеры Session на Windows-ПК 2026-10-12, переданы Sess
 
 ## Вне скоупа
 
-- Удаление уже накопленных папок в `%TEMP%` на ПК владельца: решает владелец (`HANDOFF.md`, «Ждёт
-  владельца»).
+- Удаление уже накопленных папок. Владелец решил 2026-10-13: на ПК их удаляет Session на Windows-ПК
+  по списку полных путей, когда не идёт ни один прогон test-ов; на Mac — Session на Mac, тоже по
+  списку, только записи старше суток, после `gate full` для открытых PR. Числа — в «Итог».
 - Остальные причины падений `pnpm test` на Windows — Ticket 14 (gate full на Windows).
 - `test/contract/trash.test.ts`, который на Windows падает целиком («untrusted frame», путь macOS в
   `INDEX_HTML`), — Ticket 14.
@@ -98,3 +99,9 @@ Source: замеры Session на Windows-ПК 2026-10-12, переданы Sess
   папок» не достигается одной заменой; остаток — списком в «Итог».
 
 ## Итог
+
+**До начала работы над Ticket-ом — чистка накопленного, 2026-10-13** (Session на Windows-ПК, с «да» владельца):
+
+- В `%TEMP%` с 2026-10-09 накопилось 11 718 папок `worfy-*` от test-ов, 26 групп имён. Больше всего: `worfy-migrate` 2538, `worfy-canvas` 1704, `worfy-projects` 1138, `worfy-docs` 1135, `worfy-connect` 893, `worfy-eval` 860.
+- Убраны по списку полных путей, по одной, копией обхода из `scripts/remove-tree.mjs` (Ticket 23) под системным Node 24.21.0: удалено 11 718, ошибок 0, 10 минут 2 секунды. На диске стало свободнее на 10,2 GB.
+- После чистки один полный `pnpm test` на main `3d16a41` оставил 250 папок `worfy-*` (счёт по времени создания; `worfy-migrate` 54, `worfy-canvas` 27, `worfy-projects` 24, `worfy-eval` 23, `worfy-docs` 22, `worfy-connect` 21) — это число «до» для цели «0 новых папок».

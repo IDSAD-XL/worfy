@@ -103,8 +103,9 @@ export function writeLimits(folders, limits) {
       renameSync(tmp, join(folder, LIMITS_FILE))
       written += 1
     } catch {
-      // unlinkSync, not rmSync: under Node 24 on Windows rmSync refuses a read-only file
-      // (worfy-windows ticket 23). This script stands alone, so it imports no helper for it.
+      // unlinkSync, not rmSync: under the Node of Electron 44 on Windows rmSync refuses a
+      // read-only file (worfy-windows ticket 23). This script stands alone, so it imports no
+      // helper for it.
       try {
         unlinkSync(tmp)
       } catch {
