@@ -5,386 +5,23 @@
 // Windows (Linux has neither system's way to copy an app), and what only Windows has, with
 // %LOCALAPPDATA% pointed at a temporary folder. A whole install of a real build is run on macOS
 // by test/e2e/packaged.spec.ts.
-import { execFileSync, spawn, spawnSync } from 'node:child_process'
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+//
+// The cases that never run the script are in install-stable-functions.test.ts, and what the two
+// files share is in install-stable-harness.ts (worfy-windows ticket 28: the gate's bound of 1000
+// lines). Every case that runs the script stays in this one file, so that they run one after
+// another: on Windows the script takes a worfy.exe whose path Windows does not give for a running
+// copy, and some cases here start a worfy.exe.
+import { execFileSync, spawn } from 'node:child_process'
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
-
-type Env = Record<string, string | undefined>
-interface Files {
-  there: (path: string) => boolean
-  rename: (from: string, to: string) => void
-}
-interface InstallStable {
-  defaultTarget: (platform: string, env: Env, home: string) => string
-  installerDir: (env: Env, home: string) => string
-  checkTarget: (platform: string, target: string, env: Env, home: string, installed?: string) => string
-  metadataPath: (platform: string, target: string) => string
-  runningCopies: (platform: string, targets: string[], listing: string) => string[]
-  notACopy: (names: string[]) => string | null
-  leftoverName: (base: string, kind: 'installing' | 'replaced', pid: number | string) => string
-  leftovers: (names: string[], base: string, alive: (pid: number) => boolean) => { installing: string[]; replaced: string[]; kept: string[] }
-  buildCommand: (platform: string) => { command: string; args: string[]; shell: boolean }
-  builtApp: (platform: string, dist: string, names: string[], exists: (path: string) => boolean) => string
-  swapIn: (paths: { staging: string; target: string; aside: string }, files: Files) => string | null
-  onDisk: (path: string) => string
-  installStable: (argv: string[], options: { env: Env; repo: string; build?: (platform: string, repo: string) => void; rename?: (from: string, to: string) => void }) => string
-  stamp: (ms: number) => string
-}
-const REPO = join(import.meta.dirname, '..', '..')
-const SCRIPT = join(REPO, 'scripts', 'install-stable.mjs')
-const { defaultTarget, installerDir, checkTarget, metadataPath, runningCopies, notACopy, leftoverName, leftovers, buildCommand, builtApp, swapIn, onDisk, installStable, stamp } = (await import(
-  pathToFileURL(SCRIPT).href
-)) as InstallStable
-
-const WINDOWS = process.platform === 'win32'
-const WIN_ENV = { LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local' }
-const WIN_HOME = 'C:\\Users\\dev'
-const MAC_HOME = '/Users/dev'
-const INSTALLED = 'C:\\Users\\dev\\AppData\\Local\\Programs\\worfy'
-
-describe('the target of the stable copy', () => {
-  it('by default is ~/Applications/worfy-stable.app on macOS, with worfy-stable.json next to it', () => {
-    const target = defaultTarget('darwin', {}, MAC_HOME)
-    expect(target).toBe('/Users/dev/Applications/worfy-stable.app')
-    expect(checkTarget('darwin', target, {}, MAC_HOME)).toBe(target)
-    expect(metadataPath('darwin', target)).toBe('/Users/dev/Applications/worfy-stable.json')
-  })
-
-  it('by default is %LOCALAPPDATA%\\worfy-stable on Windows, with worfy-stable.json next to it: not under Programs, where the installer works', () => {
-    const target = defaultTarget('win32', WIN_ENV, WIN_HOME)
-    expect(target).toBe('C:\\Users\\dev\\AppData\\Local\\worfy-stable')
-    expect(checkTarget('win32', target, WIN_ENV, WIN_HOME)).toBe(target)
-    expect(metadataPath('win32', target)).toBe('C:\\Users\\dev\\AppData\\Local\\worfy-stable.json')
-    // Without the variable the folder is the one Windows gives a user by default.
-    expect(defaultTarget('win32', {}, WIN_HOME)).toBe(target)
-    expect(defaultTarget('win32', { LOCALAPPDATA: 'D:\\Local' }, WIN_HOME)).toBe('D:\\Local\\worfy-stable')
-    // The default is accepted wherever %LOCALAPPDATA% is.
-    expect(checkTarget('win32', 'D:\\Local\\worfy-stable', { LOCALAPPDATA: 'D:\\Local' }, WIN_HOME)).toBe('D:\\Local\\worfy-stable')
-  })
-
-  it('the folder of the installer is Programs\\worfy under %LOCALAPPDATA%, or under the default of a user without the variable', () => {
-    expect(installerDir(WIN_ENV, WIN_HOME)).toBe(INSTALLED)
-    expect(installerDir({ LOCALAPPDATA: 'D:\\Local' }, WIN_HOME)).toBe('D:\\Local\\Programs\\worfy')
-    expect(installerDir({}, 'C:\\Users\\other')).toBe('C:\\Users\\other\\AppData\\Local\\Programs\\worfy')
-    expect(installerDir({ LOCALAPPDATA: '' }, WIN_HOME)).toBe(INSTALLED)
-  })
-
-  it('on macOS must end in .app; a trailing slash, as shell completion writes it, is dropped first', () => {
-    expect(checkTarget('darwin', '/tmp/x/worfy-stable.app/', {}, MAC_HOME)).toBe('/tmp/x/worfy-stable.app')
-    expect(() => checkTarget('darwin', '/tmp/not-an-app', {}, MAC_HOME)).toThrow('the target must be a path ending in .app, got: /tmp/not-an-app')
-    expect(() => checkTarget('darwin', '/tmp/not-an-app/', {}, MAC_HOME)).toThrow('got: /tmp/not-an-app')
-    expect(() => checkTarget('darwin', '/Users/dev/Applications/worfy-stable', {}, MAC_HOME)).toThrow(/must be a path ending in \.app/)
-  })
-
-  it('on Windows is any folder but the one the installer uses, one inside it, one around it, or a whole disk', () => {
-    expect(checkTarget('win32', 'D:\\apps\\worfy-stable\\', WIN_ENV, WIN_HOME)).toBe('D:\\apps\\worfy-stable')
-    for (const target of [INSTALLED, 'c:\\users\\DEV\\appdata\\local\\programs\\WORFY\\', `${INSTALLED}\\stable`, 'C:\\Users\\dev\\AppData\\Local\\Programs', 'C:\\Users\\dev']) {
-      expect(() => checkTarget('win32', target, WIN_ENV, WIN_HOME), target).toThrow(/cannot be the folder the installer of worfy uses/)
-    }
-    expect(() => checkTarget('win32', 'D:\\', WIN_ENV, WIN_HOME)).toThrow(/not a whole disk/)
-    // A .app ending means nothing on Windows.
-    expect(checkTarget('win32', 'D:\\apps\\worfy-stable.app', WIN_ENV, WIN_HOME)).toBe('D:\\apps\\worfy-stable.app')
-    expect(metadataPath('win32', 'D:\\apps\\worfy-stable.app')).toBe('D:\\apps\\worfy-stable.app.json')
-  })
-
-  it('on Windows is no path that starts with the path of the installer\'s folder: the installer stops every program whose path starts with it', () => {
-    for (const target of [`${INSTALLED}-2`, `${INSTALLED}-stable`, 'c:\\USERS\\dev\\appdata\\local\\programs\\WORFY2', `${INSTALLED}-stable\\deeper`]) {
-      expect(() => checkTarget('win32', target, WIN_ENV, WIN_HOME), target).toThrow(/cannot start with the path of the folder the installer of worfy uses/)
-    }
-    // A neighbour whose name only shares some letters, or that ends with the name, is fine.
-    for (const target of ['C:\\Users\\dev\\AppData\\Local\\Programs\\wor', 'C:\\Users\\dev\\AppData\\Local\\Programs\\my-worfy', 'C:\\Users\\dev\\AppData\\Local\\Programs\\other']) {
-      expect(checkTarget('win32', target, WIN_ENV, WIN_HOME), target).toBe(target)
-    }
-  })
-
-  it('on Windows takes a drive path written with \\\\?\\ or \\\\.\\ for the same folder, and leaves other paths of that kind as they are', () => {
-    for (const prefix of ['\\\\?\\', '\\\\.\\', '//?/', '//./']) {
-      expect(checkTarget('win32', `${prefix}D:\\apps\\worfy-stable`, WIN_ENV, WIN_HOME), prefix).toBe('D:\\apps\\worfy-stable')
-      expect(() => checkTarget('win32', `${prefix}${INSTALLED}`, WIN_ENV, WIN_HOME), prefix).toThrow(/cannot be the folder the installer of worfy uses/)
-      expect(() => checkTarget('win32', `${prefix}${INSTALLED}-2`, WIN_ENV, WIN_HOME), prefix).toThrow(/cannot start with the path/)
-      expect(() => checkTarget('win32', `${prefix}D:\\`, WIN_ENV, WIN_HOME), prefix).toThrow(/not a whole disk/)
-    }
-    // A share written that way is no drive path: nothing is cut from it.
-    expect(checkTarget('win32', '\\\\?\\UNC\\server\\share\\worfy-stable', WIN_ENV, WIN_HOME)).toBe('\\\\?\\UNC\\server\\share\\worfy-stable')
-    expect(checkTarget('win32', '\\\\server\\share\\worfy-stable', WIN_ENV, WIN_HOME)).toBe('\\\\server\\share\\worfy-stable')
-  })
-
-  it('on Windows takes the folder of the installer as it is told, when the disk spells it another way', () => {
-    expect(() => checkTarget('win32', 'D:\\elsewhere\\worfy', WIN_ENV, WIN_HOME, 'D:\\elsewhere\\worfy')).toThrow(/cannot be the folder the installer/)
-    expect(() => checkTarget('win32', 'D:\\elsewhere\\worfy-2', WIN_ENV, WIN_HOME, 'D:\\elsewhere\\worfy')).toThrow(/cannot start with the path/)
-    expect(checkTarget('win32', INSTALLED.replace('Programs', 'Other'), WIN_ENV, WIN_HOME, 'D:\\elsewhere\\worfy')).toBe(INSTALLED.replace('Programs', 'Other'))
-  })
-})
-
-describe('a running copy in the list of processes', () => {
-  it('on macOS is a line of ps whose command lies inside the target, by either spelling of its path', () => {
-    const ps = [
-      '  501 /sbin/launchd',
-      ' 9120 /Users/dev/Applications/worfy-stable.app/Contents/MacOS/worfy',
-      ' 9131 /Users/dev/Applications/worfy-stable.app/Contents/Frameworks/worfy Helper.app/Contents/MacOS/worfy Helper --type=gpu-process',
-      ' 9200 /Applications/worfy.app/Contents/MacOS/worfy',
-      ' 9300 /private/var/folders/x/worfy-stable.app/Contents/MacOS/worfy',
-      ' 9400 /usr/bin/grep /Users/dev/Applications/worfy-stable.app',
-      '',
-    ].join('\n')
-    const running = runningCopies('darwin', ['/Users/dev/Applications/worfy-stable.app'], ps)
-    expect(running.map((line) => line.trim().split(' ')[0])).toEqual(['9120', '9131'])
-    // /var is a link to /private/var: a process shows the path it was started by.
-    expect(runningCopies('darwin', ['/var/folders/x/worfy-stable.app', '/private/var/folders/x/worfy-stable.app'], ps)).toHaveLength(1)
-    expect(runningCopies('darwin', ['/Users/dev/Applications/worfy-other.app'], ps)).toEqual([])
-    expect(runningCopies('darwin', ['/Users/dev/Applications/worfy-stable.app'], '')).toEqual([])
-  })
-
-  it('on Windows is a process whose executable lies inside the target folder, in any case of the letters', () => {
-    const listing = JSON.stringify([
-      { ProcessId: 4, Name: 'System', ExecutablePath: null },
-      { ProcessId: 812, Name: 'svchost.exe', ExecutablePath: 'C:\\Windows\\System32\\svchost.exe' },
-      { ProcessId: 9120, Name: 'worfy.exe', ExecutablePath: 'C:\\Users\\dev\\AppData\\Local\\worfy-stable\\worfy.exe' },
-      { ProcessId: 9131, Name: 'claude.exe', ExecutablePath: 'c:\\users\\dev\\appdata\\local\\WORFY-STABLE\\resources\\app.asar.unpacked\\node_modules\\claude.exe' },
-      { ProcessId: 9200, Name: 'worfy.exe', ExecutablePath: 'C:\\Users\\dev\\AppData\\Local\\Programs\\worfy\\worfy.exe' },
-      { ProcessId: 9300, Name: 'worfy.exe', ExecutablePath: 'C:\\Users\\dev\\AppData\\Local\\worfy-stable-2\\worfy.exe' },
-    ])
-    const target = 'C:\\Users\\dev\\AppData\\Local\\worfy-stable'
-    expect(runningCopies('win32', [target], listing)).toEqual([
-      '9120 C:\\Users\\dev\\AppData\\Local\\worfy-stable\\worfy.exe',
-      '9131 c:\\users\\dev\\appdata\\local\\WORFY-STABLE\\resources\\app.asar.unpacked\\node_modules\\claude.exe',
-    ])
-    expect(runningCopies('win32', ['D:\\elsewhere'], listing)).toEqual([])
-    // PowerShell prints one process as an object, not a list; and nothing at all for none.
-    expect(runningCopies('win32', [target], JSON.stringify({ ProcessId: 7, Name: 'worfy.exe', ExecutablePath: `${target}\\worfy.exe` }))).toEqual([`7 ${target}\\worfy.exe`])
-    expect(runningCopies('win32', [target], '\r\n')).toEqual([])
-  })
-
-  it('on Windows is found by every spelling of the target it is given: neither of these two paths holds the other', () => {
-    const typed = 'C:\\Users\\dev\\links\\stable'
-    const onDisk = 'D:\\apps\\worfy-stable'
-    const listing = JSON.stringify([
-      { ProcessId: 11, Name: 'worfy.exe', ExecutablePath: `${typed}\\worfy.exe` },
-      { ProcessId: 12, Name: 'worfy.exe', ExecutablePath: `${onDisk}\\worfy.exe` },
-    ])
-    expect(runningCopies('win32', [typed], listing)).toEqual([`11 ${typed}\\worfy.exe`])
-    expect(runningCopies('win32', [onDisk], listing)).toEqual([`12 ${onDisk}\\worfy.exe`])
-    expect(runningCopies('win32', [typed, onDisk], listing)).toHaveLength(2)
-  })
-
-  it('on Windows a worfy.exe whose path Windows does not give counts: it may be the copy, run by another user or elevated', () => {
-    const listing = JSON.stringify([
-      { ProcessId: 4, Name: 'System', ExecutablePath: null },
-      { ProcessId: 31, Name: 'WORFY.exe', ExecutablePath: null },
-      { ProcessId: 32, Name: 'worfy.exe' },
-      { ProcessId: 33, Name: 'claude.exe', ExecutablePath: null },
-      { ProcessId: 34, Name: 'my-worfy.exe', ExecutablePath: null },
-    ])
-    const running = runningCopies('win32', ['D:\\apps\\worfy-stable'], listing)
-    expect(running.map((line) => line.split(' ').slice(0, 2).join(' '))).toEqual(['31 WORFY.exe', '32 worfy.exe'])
-    expect(running[0]).toMatch(/does not say where it runs from/)
-  })
-})
-
-describe('what the script replaces and writes', () => {
-  it('takes a Windows folder for an earlier copy only when it holds worfy.exe, or nothing', () => {
-    expect(notACopy([])).toBeNull()
-    expect(notACopy(['resources', 'Worfy.EXE', 'LICENSE.txt'])).toBeNull()
-    expect(notACopy(['Documents', 'photo.jpg'])).toMatch(/holds no worfy\.exe/)
-    // Names that only look like it.
-    for (const name of ['worfy.exe.bak', 'my-worfy.exe', 'worfy.exe.config', 'worfy', 'worfy.ex']) expect(notACopy([name, 'resources']), name).toMatch(/holds no worfy\.exe/)
-  })
-
-  it('never takes a folder with the uninstaller of worfy for a copy: the installer put that worfy there, wherever it is', () => {
-    expect(notACopy(['worfy.exe', 'Uninstall worfy.exe', 'resources'])).toMatch(/the installer of worfy put it there/)
-    expect(notACopy(['WORFY.EXE', 'uninstall WORFY.exe'])).toMatch(/not a stable copy/)
-    expect(notACopy(['Uninstall worfy.exe'])).toMatch(/the installer of worfy put it there/)
-    // Another program's uninstaller says nothing.
-    expect(notACopy(['worfy.exe', 'Uninstall other.exe'])).toBeNull()
-  })
-
-  it('knows what an interrupted run left next to the target by its name and by a number a process can have; what a running install is using is told apart', () => {
-    const names = [
-      'worfy-stable',
-      'worfy-stable.json',
-      'worfy-stable.installing-100',
-      'worfy-stable.installing-200',
-      'worfy-stable.replaced-300',
-      'worfy-stable.replaced-400',
-      // Not leftovers: no number, a number no process can have, another target.
-      'worfy-stable.installing-x',
-      'worfy-stable.installing-',
-      'worfy-stable.installing-0',
-      'worfy-stable.installing-007',
-      'worfy-stable.replaced-20261012',
-      'worfy-stable.replaced-4194305',
-      'worfy-stable.replaced-12.bak',
-      'worfy-stable-2.installing-100',
-      'other.replaced-300',
-    ]
-    const alive = (pid: number) => pid === 200 || pid === 400
-    expect(leftovers(names, 'worfy-stable', alive)).toEqual({ installing: ['worfy-stable.installing-100'], replaced: ['worfy-stable.replaced-300'], kept: ['worfy-stable.installing-200', 'worfy-stable.replaced-400'] })
-    expect(leftovers(names, 'worfy-stable', () => false)).toEqual({ installing: ['worfy-stable.installing-100', 'worfy-stable.installing-200'], replaced: ['worfy-stable.replaced-300', 'worfy-stable.replaced-400'], kept: [] })
-    expect(leftovers(names, 'worfy-stable-2', () => false)).toEqual({ installing: ['worfy-stable-2.installing-100'], replaced: [], kept: [] })
-    expect(leftovers([], 'worfy-stable', () => false)).toEqual({ installing: [], replaced: [], kept: [] })
-    // The largest number a process can have is taken.
-    expect(leftovers(['x.replaced-4194304'], 'x', () => false).replaced).toEqual(['x.replaced-4194304'])
-    // The answer is in the order of the text of the names, whatever order they are listed in: a file system need not sort.
-    expect(leftovers(['x.replaced-30', 'x.installing-9', 'x.replaced-200', 'x.installing-10'], 'x', (pid) => pid === 9)).toEqual({ installing: ['x.installing-10'], replaced: ['x.replaced-200', 'x.replaced-30'], kept: ['x.installing-9'] })
-    const listed = ['x.replaced-30', 'x.replaced-200']
-    leftovers(listed, 'x', () => false)
-    expect(listed).toEqual(['x.replaced-30', 'x.replaced-200'])
-  })
-
-  it('finds the names the script itself gives to its unfinished copy and to the copy it moves aside', () => {
-    expect(leftoverName('worfy-stable.app', 'installing', 4242)).toBe('worfy-stable.app.installing-4242')
-    expect(leftoverName('worfy-stable', 'replaced', 77)).toBe('worfy-stable.replaced-77')
-    expect(leftovers([leftoverName('t', 'installing', 4242), leftoverName('t', 'replaced', 77)], 't', () => false)).toEqual({ installing: ['t.installing-4242'], replaced: ['t.replaced-77'], kept: [] })
-  })
-
-  it('writes a time in UTC to the second, as the metadata file always had it', () => {
-    expect(stamp(Date.UTC(2026, 9, 10, 18, 5, 9, 987))).toBe('2026-10-10T18:05:09Z')
-    expect(stamp(0)).toBe('1970-01-01T00:00:00Z')
-  })
-})
-
-describe('the build the script copies', () => {
-  it('is made by pnpm package; on Windows through a shell, since pnpm is pnpm.cmd there', () => {
-    // One text for the shell: arguments next to a shell are joined without quoting, and Node 24 warns about them.
-    expect(buildCommand('win32')).toEqual({ command: 'pnpm package', args: [], shell: true })
-    expect(buildCommand('darwin')).toEqual({ command: 'pnpm', args: ['package'], shell: false })
-    expect(buildCommand('linux')).toEqual({ command: 'pnpm', args: ['package'], shell: false })
-  })
-
-  it('on Windows is dist\\win-unpacked, and its absence is an error', () => {
-    expect(builtApp('win32', 'C:\\repo\\dist', ['win-unpacked', 'worfy Setup 0.2.0.exe'], (path) => path === 'C:\\repo\\dist\\win-unpacked')).toBe('C:\\repo\\dist\\win-unpacked')
-    expect(() => builtApp('win32', 'C:\\repo\\dist', ['win-ia32-unpacked'], () => false)).toThrow('expected dist\\win-unpacked after the build, and it is not there')
-  })
-
-  it('on macOS is the one folder of dist that starts with mac and holds worfy.app; none or several is an error', () => {
-    const has = (...paths: string[]) => (path: string) => paths.includes(path)
-    expect(builtApp('darwin', '/repo/dist', ['mac-arm64', 'builder-debug.yml'], has('/repo/dist/mac-arm64/worfy.app'))).toBe('/repo/dist/mac-arm64/worfy.app')
-    expect(builtApp('darwin', '/repo/dist', ['mac'], has('/repo/dist/mac/worfy.app'))).toBe('/repo/dist/mac/worfy.app')
-    // A mac folder without the app in it, and a folder of another name with one, are not builds.
-    expect(builtApp('darwin', '/repo/dist', ['mac', 'mac-arm64', 'linux'], has('/repo/dist/mac-arm64/worfy.app', '/repo/dist/linux/worfy.app'))).toBe('/repo/dist/mac-arm64/worfy.app')
-    expect(() => builtApp('darwin', '/repo/dist', ['mac-arm64'], () => false)).toThrow('expected exactly one dist/mac*/worfy.app after the build, found 0')
-    expect(() => builtApp('darwin', '/repo/dist', [], () => true)).toThrow('found 0')
-    expect(() => builtApp('darwin', '/repo/dist', ['mac', 'mac-arm64'], () => true)).toThrow('found 2')
-  })
-})
-
-describe('the swap of the copies', () => {
-  /** A stand-in of a folder of the disk: the names that are there, and renames that can be made to fail. */
-  function disk(names: string[], failing: Record<string, string> = {}) {
-    const set = new Set(names)
-    const moves: string[] = []
-    const files: Files = {
-      there: (path) => set.has(path),
-      rename: (from, to) => {
-        moves.push(`${from} -> ${to}`)
-        const reason = failing[`${from} -> ${to}`]
-        if (reason !== undefined) throw new Error(reason)
-        if (!set.has(from)) throw new Error(`ENOENT: ${from}`)
-        set.delete(from)
-        set.add(to)
-      },
-    }
-    return { files, moves, names: () => [...set].sort() }
-  }
-  const PATHS = { staging: 'T.installing-7', target: 'T', aside: 'T.replaced-7' }
-
-  it('with no copy at the target only moves the new one in, and has nothing to remove afterwards', () => {
-    const d = disk(['T.installing-7'])
-    expect(swapIn(PATHS, d.files)).toBeNull()
-    expect(d.moves).toEqual(['T.installing-7 -> T'])
-    expect(d.names()).toEqual(['T'])
-  })
-
-  it('moves the earlier copy aside, then the new one in, and answers the earlier copy to remove: it is whole until then', () => {
-    const d = disk(['T', 'T.installing-7'])
-    expect(swapIn(PATHS, d.files)).toBe('T.replaced-7')
-    expect(d.moves).toEqual(['T -> T.replaced-7', 'T.installing-7 -> T'])
-    expect(d.names()).toEqual(['T', 'T.replaced-7'])
-  })
-
-  it('when the earlier copy cannot be moved aside, leaves it where it is and touches nothing else', () => {
-    const d = disk(['T', 'T.installing-7'], { 'T -> T.replaced-7': 'EPERM: operation not permitted' })
-    expect(() => swapIn(PATHS, d.files)).toThrow('the copy at T could not be moved aside (EPERM: operation not permitted): a program may hold a file of it open. It is left as it was')
-    expect(d.moves).toEqual(['T -> T.replaced-7'])
-    expect(d.names()).toEqual(['T', 'T.installing-7'])
-  })
-
-  it('when the new copy cannot be moved in, puts the earlier one back and says so', () => {
-    const d = disk(['T', 'T.installing-7'], { 'T.installing-7 -> T': 'EBUSY: resource busy' })
-    expect(() => swapIn(PATHS, d.files)).toThrow('the new copy could not be put at T (EBUSY: resource busy); the copy that was there is back in place')
-    expect(d.moves).toEqual(['T -> T.replaced-7', 'T.installing-7 -> T', 'T.replaced-7 -> T'])
-    expect(d.names()).toEqual(['T', 'T.installing-7'])
-  })
-
-  it('when the earlier copy cannot be put back either, says where it is', () => {
-    const d = disk(['T', 'T.installing-7'], { 'T.installing-7 -> T': 'EBUSY: resource busy', 'T.replaced-7 -> T': 'EACCES: permission denied' })
-    expect(() => swapIn(PATHS, d.files)).toThrow('could not be put back (EACCES: permission denied): it is at T.replaced-7')
-    expect(d.names()).toEqual(['T.installing-7', 'T.replaced-7'])
-  })
-
-  it('when there was no copy and the new one cannot be moved in, says only that', () => {
-    const d = disk(['T.installing-7'], { 'T.installing-7 -> T': 'EXDEV: cross-device link' })
-    expect(() => swapIn(PATHS, d.files)).toThrow('the new copy could not be put at T (EXDEV: cross-device link)')
-    expect(() => swapIn(PATHS, d.files)).not.toThrow(/back in place/)
-    expect(d.moves).toEqual(['T.installing-7 -> T', 'T.installing-7 -> T'])
-  })
-})
+import { build, checkTarget, dir, head, installerDir, installStable, junction, leftoverName, links, local, onDisk, REMOVE_ROUNDS, REPO, run, stamp, targetIn, useStandInBuild, WIN_HOME, WINDOWS } from './install-stable-harness'
 
 // The script itself. Its build is a stand-in folder that has what the script looks for on either
 // system, and every folder it may write to is a temporary one.
 describe('scripts/install-stable.mjs, run over a stand-in build', () => {
-  let dir: string
-  let local: string
-  let build: string
-  // Vitest runs in Electron, whose fs reads a file named app.asar as a folder; here it is a plain file.
-  const electron = process as { noAsar?: boolean }
-  let noAsar: boolean | undefined
-  /** The junctions a test made. */
-  const links: string[] = []
-  const junction = (to: string, at: string): void => {
-    symlinkSync(to, at, 'junction')
-    links.push(at)
-  }
-
-  beforeEach(() => {
-    noAsar = electron.noAsar
-    electron.noAsar = true
-    dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-install-stable-')))
-    local = join(dir, 'Local')
-    build = join(dir, 'build', WINDOWS ? 'win-unpacked' : 'worfy.app')
-    mkdirSync(join(build, 'resources'), { recursive: true })
-    mkdirSync(join(build, 'Contents'), { recursive: true })
-    writeFileSync(join(build, 'worfy.exe'), 'not a real program')
-    writeFileSync(join(build, 'Contents', 'Info.plist'), 'not a real plist')
-    writeFileSync(join(build, 'resources', 'app.asar'), 'not a real archive')
-  })
-
-  afterEach(() => {
-    // Links first, as links. (From the time this folder went with rmSync; removeTestTree takes a link as a link too.)
-    for (const link of links.splice(0)) {
-      try {
-        rmdirSync(link)
-      } catch {
-        // Replaced by the script, or never made.
-      }
-    }
-    removeTestTree(dir)
-    electron.noAsar = noAsar
-  })
-
-  /** The target of a system: a folder on Windows, a path ending in .app elsewhere. */
-  const targetIn = (...parts: string[]) => join(dir, ...parts.slice(0, -1), WINDOWS ? parts.at(-1)! : `${parts.at(-1)!}.app`)
-  const run = (args: string[], env: Env = {}, script = SCRIPT) => {
-    // process.execPath is Electron run as Node (ELECTRON_RUN_AS_NODE=1 is in the environment).
-    // The working folder is the temporary one: a relative target would land there, not in the repository.
-    // Electron's fs would read the stand-in app.asar as an archive; the Node that runs the script for a user has no such fs.
-    return spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', cwd: dir, env: { ...process.env, ELECTRON_NO_ASAR: '1', LOCALAPPDATA: local, WORFY_STABLE_PREBUILT: build, ...env } })
-  }
-  const head = (): string => spawnSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim()
+  useStandInBuild()
 
   it('refuses more than one argument before anything is made', () => {
     const two = run([targetIn('one'), targetIn('two')])
@@ -766,6 +403,47 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       }
     }, 60_000)
 
+    // worfy-windows ticket 28, from the review of PR #257. The walk of Windows has five waits for a
+    // whole tree; main had five tries for every entry. The script runs the walk again.
+    it('on Windows a removal that busy entries stopped is run again, five times at most, and another error ends it at once; elsewhere the walk is not called', () => {
+      const target = targetIn('apps', 'worfy-stable')
+      const apps = join(dir, 'apps')
+      const aside = leftoverName(NAME, 'replaced', process.pid)
+      expect(installStable([target], inProcess())).toContain(`install-stable: installed ${target} (commit `)
+      /** One more install over the copy that is there; the removal of the copy moved aside fails `refusals` times with `code`. */
+      const again = (refusals: number, code: string): { out: string; asked: number } => {
+        let asked = 0
+        const removeFolder = (path: string): void => {
+          if (basename(path) !== aside) return removeTestTree(path)
+          asked += 1
+          if (refusals-- > 0) throw Object.assign(new Error(`${code}: the copy moved aside is held`), { code })
+          removeTestTree(path)
+        }
+        return { out: installStable([target], { ...inProcess(), removeFolder }), asked }
+      }
+      if (!WINDOWS) {
+        expect(again(99, 'EBUSY')).toMatchObject({ asked: 0 })
+        expect(readdirSync(apps).sort()).toEqual([`${NAME}`, 'worfy-stable.json'].sort())
+        return
+      }
+      // Busy three times: the fourth run of the walk removes it, and nothing is said.
+      const passed = again(3, 'EBUSY')
+      expect(passed.asked).toBe(4)
+      expect(passed.out).not.toContain('could not be removed')
+      expect(readdirSync(apps).sort()).toEqual([NAME, 'worfy-stable.json'].sort())
+      // Busy for good: five runs of the walk, then the copy stays aside for the next install.
+      const held = again(99, 'EPERM')
+      expect(held.asked).toBe(REMOVE_ROUNDS)
+      expect(REMOVE_ROUNDS).toBe(5)
+      expect(held.out).toContain(`the earlier copy could not be removed and is left at ${join(apps, aside)} (EPERM: the copy moved aside is held); the next run removes it`)
+      expect(readdirSync(apps).sort()).toEqual([NAME, aside, 'worfy-stable.json'].sort())
+      removeTestTree(join(apps, aside))
+      // An error that is not "busy": the walk is not run again.
+      const broken = again(99, 'EIO')
+      expect(broken.asked).toBe(1)
+      expect(broken.out).toContain('(EIO: the copy moved aside is held)')
+    }, 60_000)
+
     it('when the file that names the build cannot be written, says so; the new copy is in, and no earlier copy stays aside', () => {
       const target = targetIn('apps', 'worfy-stable')
       const apps = join(dir, 'apps')
@@ -797,6 +475,24 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
         expect(readFileSync(json, 'utf8')).toBe('{ "commit": "earlier" }\n')
       } finally {
         chmodSync(json, 0o644)
+      }
+
+      // worfy-windows ticket 28. A link at the path, to a file that cannot be written: the link is
+      // not a file that names a build, and what it leads to is neither read nor changed.
+      const elsewhere = join(dir, 'elsewhere.json')
+      writeFileSync(elsewhere, '{ "commit": "of another copy" }\n')
+      chmodSync(elsewhere, 0o444)
+      unlinkSync(json)
+      symlinkSync(elsewhere, json, 'file')
+      try {
+        const linked = run([target])
+        expect(linked.status).not.toBe(0)
+        expect(linked.stderr).toMatch(/could not be written \((EPERM|EACCES)[^)]*\): no file names the build of this copy/)
+        expect(lstatSync(json).isSymbolicLink()).toBe(true)
+        expect(readFileSync(elsewhere, 'utf8')).toBe('{ "commit": "of another copy" }\n')
+      } finally {
+        chmodSync(elsewhere, 0o644)
+        unlinkSync(json)
       }
     }, 60_000)
   })

@@ -146,6 +146,23 @@ describe('readIco', () => {
     noAlpha.writeUInt8(2, ico.readUInt32LE(6 + 12) + 25)
     expect(() => readIco(noAlpha)).toThrow(/^the PNG of entry 1 of the \.ico is not an 8-bit RGBA PNG \(bit depth 8, colour type 2\)$/)
   })
+
+  // worfy-windows ticket 28: three of the eight fields of an entry were not read at all.
+  it('refuses an entry whose palette, reserved byte or colour planes are not what packIco writes: 0, 0 and 1', () => {
+    const ico = packIco([png(16), png(32)])
+    const palette = Buffer.from(ico)
+    palette.writeUInt8(16, 6 + 2)
+    expect(() => readIco(palette)).toThrow(/^entry 1 of the \.ico names a palette of 16 colours, a reserved byte of 0 and 1 colour planes: an entry of a PNG with 32 bits per pixel names 0, 0 and 1$/)
+    const reserved = Buffer.from(ico)
+    reserved.writeUInt8(255, 6 + 16 + 3)
+    expect(() => readIco(reserved)).toThrow(/^entry 2 of the \.ico names a palette of 0 colours, a reserved byte of 255 and 1 colour planes/)
+    for (const planes of [0, 2, 256]) {
+      const other = Buffer.from(ico)
+      other.writeUInt16LE(planes, 6 + 4)
+      expect(() => readIco(other), `${planes} planes`).toThrow(new RegExp(`^entry 1 of the \\.ico names a palette of 0 colours, a reserved byte of 0 and ${planes} colour planes`))
+    }
+    expect(() => readIco(ico)).not.toThrow()
+  })
 })
 
 describe('pngSizeOf', () => {

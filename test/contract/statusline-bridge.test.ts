@@ -363,8 +363,39 @@ interface Bridge {
   runCommand: (command: string, input: string, timeoutMs?: number) => Promise<number>
   limitsFolders: (env: Record<string, string | undefined>, platform: NodeJS.Platform, home?: string) => string[]
   commandRunner: (command: string, platform: NodeJS.Platform, env: Record<string, string | undefined>, exists: (path: string) => boolean) => { file: string; args: string[]; shell: boolean }
+  LIMITS_FILE: string
+  writeLimits: (folders: string[], limits: string) => number
 }
 const bridge = async (): Promise<Bridge> => (await import(pathToFileURL(MJS).href)) as Bridge
+
+// worfy-windows ticket 28: the removal of the temporary file had no test.
+describe('statusline-bridge.mjs: writeLimits', () => {
+  let scratch: string
+
+  beforeEach(() => {
+    scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-statusline-write-')))
+  })
+
+  afterEach(() => {
+    removeTestTree(scratch)
+  })
+
+  it('a folder whose Limits file cannot be replaced is left without the temporary file; the other folders get theirs', async () => {
+    const { LIMITS_FILE, writeLimits } = await bridge()
+    const [blocked, fine, file] = [join(scratch, 'blocked'), join(scratch, 'fine'), join(scratch, 'a-file')]
+    // A folder with something in it at the place of the Limits file: no system renames a file over it.
+    mkdirSync(join(blocked, LIMITS_FILE), { recursive: true })
+    writeFileSync(join(blocked, LIMITS_FILE, 'in-the-way.txt'), 'x')
+    mkdirSync(fine)
+    writeFileSync(file, 'not a folder')
+    expect(writeLimits([blocked, join(scratch, 'never-was'), file, fine], '{"five_hour":{"used_percentage":12}}')).toBe(1)
+    expect(readdirSync(blocked)).toEqual([LIMITS_FILE])
+    expect(readdirSync(join(blocked, LIMITS_FILE))).toEqual(['in-the-way.txt'])
+    expect(readdirSync(fine)).toEqual([LIMITS_FILE])
+    expect(readFileSync(join(fine, LIMITS_FILE), 'utf8')).toBe('{"five_hour":{"used_percentage":12}}\n')
+    expect(readdirSync(scratch).sort()).toEqual(['a-file', 'blocked', 'fine'])
+  })
+})
 
 describe('statusline-bridge.mjs: folders and shell by platform', () => {
   it('on Windows writes to %APPDATA%\\worfy and %APPDATA%\\worfy-dev, as dataRoot() names them', async () => {
